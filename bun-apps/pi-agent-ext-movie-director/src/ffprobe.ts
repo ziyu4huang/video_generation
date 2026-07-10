@@ -12,20 +12,12 @@
  * working unchanged — each tier passes its own `deps.spawnImpl ?? runSpawn`;
  * when omitted, the real child_process spawn runs (the real-silicon E2E path).
  *
- * Pure / pi-free: imports only `node:child_process`.
+ * Pure / pi-free: imports only `./spawn.ts` (itself pi-free, `node:child_process` only).
  */
-import { spawn } from "node:child_process";
+import { runSpawn, type SpawnImpl } from "./spawn.ts";
 
-/**
- * Structurally identical to the `SpawnImpl` type compose_motion.ts / remotion.ts
- * export — `(cmd, argv, opts?) => Promise<{code, stdout, stderr}>`. Their
- * SpawnImpl is assignable to this, so call sites pass their own spawn unchanged.
- */
-export type FfprobeSpawn = (
-  cmd: string,
-  argv: string[],
-  opts?: { cwd?: string },
-) => Promise<{ code: number; stdout: string; stderr: string }>;
+/** @deprecated kept as an alias — use `SpawnImpl` from `./spawn.ts` directly. */
+export type FfprobeSpawn = SpawnImpl;
 
 export interface ProbeResult {
   duration: number;
@@ -34,23 +26,6 @@ export interface ProbeResult {
   audioCodec?: string;
   resolution?: string;
   fps?: number;
-}
-
-/** The default spawn (real child_process.spawn) used when no `run` is supplied. */
-function runSpawn(cmd: string, argv: string[], opts: { cwd?: string } = {}): Promise<{
-  code: number;
-  stdout: string;
-  stderr: string;
-}> {
-  return new Promise((res) => {
-    const p = spawn(cmd, argv, { cwd: opts.cwd, stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    p.stdout.on("data", (d) => (stdout += d));
-    p.stderr.on("data", (d) => (stderr += d));
-    p.on("error", () => res({ code: -1, stdout, stderr }));
-    p.on("exit", (c) => res({ code: c ?? -1, stdout, stderr }));
-  });
 }
 
 /** Parse an ffmpeg avg_frame_rate fraction ("N/D") → a number; undefined when unparseable. */

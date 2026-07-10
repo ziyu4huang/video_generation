@@ -19,32 +19,13 @@
  * assembly without a real Remotion/Chromium install; the real-silicon smoke is
  * opt-in via `REMOTION_SMOKE=1`.
  */
-import { spawn } from "node:child_process";
 import { copyFileSync, existsSync, linkSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { RenderReport } from "./compose.ts";
 import { probeMedia } from "./ffprobe.ts";
+import { runSpawn, type SpawnImpl, type SpawnResult } from "./spawn.ts";
 
-// ─── shared spawn helper (mirrors compose.ts; kept local to avoid coupling) ───
-
-export interface SpawnResult {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
-export type SpawnImpl = (cmd: string, argv: string[], opts?: { cwd?: string }) => Promise<SpawnResult>;
-
-function runSpawn(cmd: string, argv: string[], opts: { cwd?: string } = {}): Promise<SpawnResult> {
-  return new Promise((res) => {
-    const p = spawn(cmd, argv, { cwd: opts.cwd, stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    p.stdout.on("data", (d) => (stdout += d));
-    p.stderr.on("data", (d) => (stderr += d));
-    p.on("error", () => res({ code: -1, stdout, stderr }));
-    p.on("exit", (c) => res({ code: c ?? -1, stdout, stderr }));
-  });
-}
+export type { SpawnImpl, SpawnResult } from "./spawn.ts";
 
 export interface RemotionDeps {
   spawnImpl?: SpawnImpl;
