@@ -51,13 +51,29 @@ function loadExtension(tools: ToolInfoStub[]) {
         execute: def.execute,
       };
     },
-    registerCommand: (_name: string, _def: any) => {
-      // no-op mock — slash commands are exercised by real e2e tests
-    },
     on: (_event: string, _handler: any) => {
       // lifecycle event handlers (session_start, tool_execution_end, etc.)
       // are accepted without capture — exercised by real e2e tests
     },
+    registerCommand: (_name: string, _def: any) => {
+      // BTW commands and other slash commands — no-op in unit tests
+    },
+    registerShortcut: (_shortcut: string, _def: any) => {
+      // Keyboard shortcuts — no-op in unit tests
+    },
+    registerMessageRenderer: (_type: string, _renderer: any) => {
+      // Message renderer — no-op in unit tests
+    },
+    sendMessage: (_msg: any, _opts?: any) => {
+      // Message sending — no-op in unit tests
+    },
+    sendUserMessage: (_content: any, _opts?: any) => {
+      // User message sending — no-op in unit tests
+    },
+    appendEntry: (_customType: string, _data?: unknown) => {
+      // Session entry appending — no-op in unit tests
+    },
+    getThinkingLevel: () => "off",
     getAllTools: () => tools,
     getActiveTools: () => [],
     setActiveTools: () => {},
