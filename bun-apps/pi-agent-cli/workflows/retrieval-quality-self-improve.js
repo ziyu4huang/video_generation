@@ -23,7 +23,7 @@
  *               relevance@5 per mode) + a .knowledge.jsonl record
  *
  * Lives in bun-apps/pi-agent-cli/workflows/ (ENGINE dir) for the gate/pipeline/
- * journal primitives. See docs/workflow-cli.md (two-runtime boundary).
+ * journal primitives. See ../docs/workflow-cli.md (two-runtime boundary).
  *
  * INVOCATION
  *   bun --cwd bun-apps/pi-agent-cli src/cli.ts workflow run retrieval-quality-self-improve \

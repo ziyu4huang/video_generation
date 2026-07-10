@@ -51,7 +51,7 @@ bun bun-apps/pi-agent-cli/src/cli.ts doctor --fix    # create missing dirs
 
 `doctor` verifies the runtime, repo layout, run-dir manifest, MLX output/models dirs,
 flux2 binary, Obsidian vault, and LM Studio reachability. Full env-var contract + fresh
-machine steps: [`docs/pi-cross-machine-setup.md`](../../docs/pi-cross-machine-setup.md)
+machine steps: [`../pi-agent/docs/pi-cross-machine-setup.md`](../pi-agent/docs/pi-cross-machine-setup.md)
 (commented template: [`.env.example`](../../.env.example)).
 
 ## Usage

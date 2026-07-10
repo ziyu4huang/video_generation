@@ -185,7 +185,7 @@ extension, add one line to `run-dir/settings.json`.
 The run-dir mechanism makes extension loading cwd-independent, but a fresh machine still
 needs its env-var contract in place (`MLX_MODELS_DIR`, `MLX_OUTPUT_DIR`, `OB_VAULT_PATH`,
 …). The canonical reference + setup steps live in
-[`docs/pi-cross-machine-setup.md`](../../docs/pi-cross-machine-setup.md), and
+[`docs/pi-cross-machine-setup.md`](docs/pi-cross-machine-setup.md), and
 `pi-agent-cli` ships a `doctor` self-check that verifies everything is wired:
 
 ```bash

@@ -3,7 +3,7 @@
 > **Status:** canonical as of 2026-07-08 (hermes→vault bridge closed, `.claude/memory` retired).
 > One page: which knowledge store owns what, how a learning flows between them,
 > and the regression assets that keep the pipeline sound. Companion to the
-> retrieval-arc verdict in `docs/kg-improvement-plan.md` (recall is adequate;
+> retrieval-arc verdict in `bun-apps/pi-agent-ext-knowledge-card/docs/kg-improvement-plan.md` (recall is adequate;
 > this doc is the *ingest* side).
 
 ## The three layers + their responsibilities
@@ -131,7 +131,7 @@ They are complementary. Re-running `zk_ingest` never deletes the source.
 # dry-run first to preview (TRUE idempotency probe: reports unchanged vs updated):
 ... zk-ingest --source hermes --dry-run ...
 
-# recall regression (the retrieval arc, see kg-improvement-plan.md + scripts/):
+# recall regression (the retrieval arc, see bun-apps/pi-agent-ext-knowledge-card/docs/kg-improvement-plan.md + scripts/):
 bun scripts/live-zk-ask-measure.mjs      # zk_ask hit-rate@4 baseline 0.64
 bun scripts/real-retrieval-measure.mjs   # tag-path baseline 0.48
 ```

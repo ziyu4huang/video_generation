@@ -164,5 +164,5 @@ bun test        # from this package dir — 190 tests, <120ms
 - [`DEPENDENCIES.md`](./DEPENDENCIES.md) — cross-package graph (who imports what).
 - [`DATA-MODEL.md`](./DATA-MODEL.md) — card frontmatter schema + the 12-key record.
 - [`PR-HISTORY.md`](./PR-HISTORY.md) — the knowledge-layer arc (#152 → #349).
-- [`../../docs/kg-improvement-plan.md`](../../docs/kg-improvement-plan.md) — the
+- [`kg-improvement-plan.md`](./kg-improvement-plan.md) — the
   proposal backlog (P1 ✅, P3 ✅ closed; P2/P4/P6 deferred).

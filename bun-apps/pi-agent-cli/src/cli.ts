@@ -156,7 +156,7 @@ const PIPELINES: Command[] = [
 /**
  * `workflow <sub>` — headless runner for pi-agent-ext-workflow engine scripts.
  * NOT an agent command: calls `runWorkflow()` directly (deterministic gates).
- * See commands/workflow.ts + docs/workflow-cli.md.
+ * See commands/workflow.ts + ../docs/workflow-cli.md.
  */
 const WORKFLOWS: Command[] = [
   {

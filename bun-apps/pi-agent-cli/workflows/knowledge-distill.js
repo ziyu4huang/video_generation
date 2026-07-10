@@ -22,7 +22,7 @@
  * This lives in bun-apps/pi-agent-cli/workflows/ (the ENGINE dir) on purpose:
  * the deterministic gate/retry/pipeline primitives only exist in the
  * pi-agent-ext-workflow engine vm, NOT in Claude Code's Workflow tool. See
- * docs/workflow-cli.md (two-runtime boundary).
+ * ../docs/workflow-cli.md (two-runtime boundary).
  *
  * INVOCATION
  *   bun --cwd bun-apps/pi-agent-cli src/cli.ts workflow run knowledge-distill \

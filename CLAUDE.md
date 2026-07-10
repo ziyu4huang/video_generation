@@ -234,7 +234,7 @@ Knowledge lives in two layers: **working memory** (`memory` / `memory_search`
 tools → `~/.pi/agent/pi-hermes-memory/`) and the **durable human-readable vault**
 (`zk_ask` / `zk_ingest` → `vaults_root/pi-agent-vault/Zettelkasten/`, where every
 source — workflow / auto-memory / hermes — converges into one graph-linked card
-set). See [`docs/knowledge-orchestration.md`](docs/knowledge-orchestration.md)
+set). See [`bun-apps/pi-agent/docs/knowledge-orchestration.md`](bun-apps/pi-agent/docs/knowledge-orchestration.md)
 for the flow + responsibilities. (The legacy `.claude/memory/` was retired
 2026-07-08 — its 4 topics were 100% duplicated by vault gotchas + the Platform
 section above; nothing was lost.)
