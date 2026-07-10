@@ -26,6 +26,11 @@ export const DEFAULT_CONSOLIDATION_TIMEOUT_MS = 60000;
 export const DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS = 7;
 export const DEFAULT_FAILURE_INJECTION_MAX_ENTRIES = 5;
 
+// ─── Staleness audit ───
+// Entries whose "last edited" date is older than this are flagged as stale
+// candidates for review/removal (mirrors the 30-day rule in CONSOLIDATION_PROMPT).
+export const DEFAULT_STALENESS_THRESHOLD_DAYS = 30;
+
 // ─── File names ───
 export const MEMORY_FILE = "MEMORY.md";
 export const USER_FILE = "USER.md";
@@ -125,7 +130,9 @@ THREE TARGETS:
 - 'memory': your global notes -- environment facts, tool quirks, lessons learned (shared across all projects)
 - 'project': project-specific notes -- architecture decisions, API quirks, team norms, codebase conventions (scoped to current project)
 
-ACTIONS: add (new entry), replace (update existing -- old_text identifies it), remove (delete -- old_text identifies it), transfer (move entries to the Obsidian vault to free space).`;
+ACTIONS: add (new entry), replace (update existing -- old_text identifies it), remove (delete -- old_text identifies it), transfer (move entries to the Obsidian vault to free space), audit (staleness report -- lists entries not edited within N days; pass older_than to set the threshold, default 30).
+
+Every entry is auto-stamped with a portable <!-- created=…, last=… --> comment (last = last edited). Run action=audit periodically to surface outdated entries for review/refresh/removal.`;
 
 // ─── Background review prompt (ported from _COMBINED_REVIEW_PROMPT in run_agent.py ~L2855) ───
 export const COMBINED_REVIEW_PROMPT = `Review the conversation above and consider these aspects:

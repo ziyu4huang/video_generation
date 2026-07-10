@@ -170,7 +170,10 @@ describe("runPyVideo (run.py video t2i2v adapter)", () => {
   // Machine-coupled: asserts the local MLX venv + run.py are present on disk.
   // GitHub Actions runners have neither (no Apple-Silicon Metal, no venv), so
   // this skips under CI=true. See .github/CI.md.
-  test.skipIf(process.env.CI)("resolves venv python + run.py from the repo root (paths exist on this machine)", () => {
+  // Skip (not fail) whenever the venv is absent — CI AND a local machine
+  // right after `git clean -dxf` / fresh clone (before setup-offline.sh).
+  const VENV_PRESENT = existsSync(resolveRunPyPaths(resolveRepoRoot()).python);
+  test.skipIf(process.env.CI || !VENV_PRESENT)("resolves venv python + run.py from the repo root (paths exist on this machine)", () => {
     const { python, runPy } = resolveRunPyPaths(resolveRepoRoot());
     expect(existsSync(python)).toBe(true);
     expect(existsSync(runPy)).toBe(true);

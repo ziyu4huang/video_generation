@@ -19,7 +19,7 @@ import {
 import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as pathJoin } from "node:path";
-import { MEMORY_TOOL_DESCRIPTION } from "../constants.js";
+import { MEMORY_TOOL_DESCRIPTION, DEFAULT_STALENESS_THRESHOLD_DAYS } from "../constants.js";
 import type { MemoryCategory, MemoryResult } from "../types.js";
 import { convergeToVault, type ConvergeResult } from "../store/vault-converge.js";
 
@@ -289,6 +289,9 @@ async function syncEvictionsFromSqlite(
   }
 }
 
+// ─── Staleness audit helpers (pure logic lives in staleness.ts) ─────────────
+import { formatStalenessAudit } from "../staleness.js";
+
 export function registerMemoryTool(
   pi: ExtensionAPI,
   store: MemoryStore,
@@ -308,7 +311,7 @@ export function registerMemoryTool(
       "Use target='failure' with category to save what didn't work (failures, corrections, insights).",
     ],
     parameters: Type.Object({
-      action: StringEnum(["add", "replace", "remove", "transfer"] as const),
+      action: StringEnum(["add", "replace", "remove", "transfer", "audit"] as const),
       target: StringEnum(["memory", "user", "project", "failure"] as const),
       content: Type.Optional(
         Type.String({ description: "Entry content for add/replace" })
@@ -332,6 +335,11 @@ export function registerMemoryTool(
       ),
       failure_reason: Type.Optional(
         Type.String({ description: "Why it failed (for failure category)" })
+      ),
+      older_than: Type.Optional(
+        Type.Number({
+          description: `Audit only: flag entries whose last-edited date is older than this many days (default ${DEFAULT_STALENESS_THRESHOLD_DAYS}).`,
+        })
       ),
     }),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
@@ -492,10 +500,23 @@ export function registerMemoryTool(
           }
           break;
 
+        case "audit": {
+          const threshold = params.older_than ?? DEFAULT_STALENESS_THRESHOLD_DAYS;
+          const report = formatStalenessAudit(
+            store_,
+            threshold,
+            rawTarget === "project" ? (projectName ?? null) : null,
+          );
+          return {
+            content: [{ type: "text", text: report }],
+            details: { success: true, action: "audit", threshold, store: rawTarget },
+          };
+        }
+
         default:
           result = {
             success: false,
-            error: `Unknown action '${action}'. Use: add, replace, remove, transfer`,
+            error: `Unknown action '${action}'. Use: add, replace, remove, transfer, audit`,
           };
       }
 
