@@ -9,6 +9,7 @@
   "main": "./index.ts",
   "exports": {
     ".": "./index.ts",
+    "./extensions/*": "./extensions/*",
     "./src/*": "./src/*"
   },
   "files": ["index.ts", "*.ts", "skills", "README.md"],

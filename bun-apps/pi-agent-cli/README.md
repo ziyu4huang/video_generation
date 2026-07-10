@@ -64,8 +64,32 @@ bun run --cwd bun-apps/pi-agent-cli cli zk-extract <files.../folders...> [option
 bun run --cwd bun-apps/pi-agent-cli cli zk-card <add|find|update|remove|check> [options]
 bun run --cwd bun-apps/pi-agent-cli cli zk-ask <question> [options]
 bun run --cwd bun-apps/pi-agent-cli cli pipeline pdf-to-vault <pdf> [options]
+bun run --cwd bun-apps/pi-agent-cli cli sessions <query>          # search past session transcripts
+bun run --cwd bun-apps/pi-agent-cli cli memory <query>            # search pi-hermes-memory
+bun run --cwd bun-apps/pi-agent-cli cli completions <bash|zsh|fish>
 bun run --cwd bun-apps/pi-agent-cli cli list
 bun run --cwd bun-apps/pi-agent-cli cli help [command]
+```
+
+### Extension-backed agent commands (NL → tool)
+
+```bash
+bun run --cwd bun-apps/pi-agent-cli cli flux2 <request...>       # images (Flux2 Klein)
+bun run --cwd bun-apps/pi-agent-cli cli krea2 <request...>       # images (Krea 2 Turbo)
+bun run --cwd bun-apps/pi-agent-cli cli ltx <request...>         # video (LTX-2.3)
+bun run --cwd bun-apps/pi-agent-cli cli movie <request...>       # video production orchestrator
+bun run --cwd bun-apps/pi-agent-cli cli research <query...> [--save]  # web research → digest
+bun run --cwd bun-apps/pi-agent-cli cli power-tool <request...>  # runtime diagnostics
+```
+
+### Pipelines
+
+```bash
+bun run --cwd bun-apps/pi-agent-cli cli pipeline pdf-to-vault <pdf>
+bun run --cwd bun-apps/pi-agent-cli cli pipeline image-to-vault <image>
+bun run --cwd bun-apps/pi-agent-cli cli pipeline url-to-vault <url>
+bun run --cwd bun-apps/pi-agent-cli cli pipeline youtube-to-vault <url> [question]
+bun run --cwd bun-apps/pi-agent-cli cli pipeline status|run|dry-run|lint   # knowledge pipeline
 ```
 
 Or invoke directly from repo root:

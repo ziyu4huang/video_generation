@@ -30,10 +30,15 @@ import { zkIngestCommand } from "./commands/zk-ingest.ts";
 import { zkQueryCommand } from "./commands/zk-query.ts";
 import { vlmDescribeCommand } from "./commands/vlm-describe.ts";
 import { pdfToVaultCommand } from "./commands/pdf-to-vault.ts";
+import { imageToVaultCommand } from "./commands/image-to-vault.ts";
+import { urlToVaultCommand, youtubeToVaultCommand } from "./commands/url-to-vault.ts";
 import { knowledgePipelineCommand } from "./commands/knowledge-pipeline.ts";
 import { workflowRunCommand, workflowListCommand } from "./commands/workflow.ts";
 import { doctorCommand } from "./commands/doctor.ts";
 import { toolsMetricsCommand } from "./commands/tools-metrics.ts";
+import { sessionsCommand } from "./commands/sessions.ts";
+import { memoryCommand } from "./commands/memory.ts";
+import { printCompletions, completionsMeta } from "./commands/completions.ts";
 import { EXTENSION_COMMANDS } from "./extensions/registry.ts";
 import { runPassthrough } from "./sessions/passthrough.ts";
 
@@ -100,6 +105,18 @@ const COMMANDS: Command[] = [
     details: toolsMetricsCommand.details,
     run: toolsMetricsCommand.run,
   },
+  {
+    name: "sessions",
+    summary: sessionsCommand.summary,
+    details: sessionsCommand.details,
+    run: sessionsCommand.run,
+  },
+  {
+    name: "memory",
+    summary: memoryCommand.summary,
+    details: memoryCommand.details,
+    run: memoryCommand.run,
+  },
   // Extension-backed sub-commands (each = one workspace extension exporting an
   // ExtensionSubcommandSpec). See src/extensions/registry.ts.
   ...EXTENSION_COMMANDS,
@@ -115,6 +132,24 @@ const PIPELINES: Command[] = [
     summary: pdfToVaultCommand.summary,
     details: pdfToVaultCommand.details,
     run: pdfToVaultCommand.run,
+  },
+  {
+    name: "image-to-vault",
+    summary: imageToVaultCommand.summary,
+    details: imageToVaultCommand.details,
+    run: imageToVaultCommand.run,
+  },
+  {
+    name: "url-to-vault",
+    summary: urlToVaultCommand.summary,
+    details: urlToVaultCommand.details,
+    run: urlToVaultCommand.run,
+  },
+  {
+    name: "youtube-to-vault",
+    summary: youtubeToVaultCommand.summary,
+    details: youtubeToVaultCommand.details,
+    run: youtubeToVaultCommand.run,
   },
 ];
 
@@ -139,7 +174,7 @@ const WORKFLOWS: Command[] = [
 ];
 
 /** Meta commands (not agent workflows). */
-const META = ["list", "list-tools", "version", "help"] as const;
+const META = ["list", "list-tools", "completions", "version", "help"] as const;
 
 /** Reserved tokens that must never be treated as a passthrough prompt. */
 const RESERVED = new Set<string>([
@@ -204,6 +239,7 @@ Meta:
   --list-models, -lm             Alias for the list command (pi-compatible)
   list-tools                      List registered tools (for --tools discovery)
   --list-tools, -lt              Alias for the list-tools command
+  completions <shell>            Generate shell completions (bash | zsh | fish)
   version                         Print version
   help [command]                  Show help (root, or a command's details)
 
@@ -476,6 +512,28 @@ async function main(): Promise<void> {
 
     if (first === "list-tools") {
       await listTools();
+      return;
+    }
+
+    // `completions <shell>` — handled inline (needs COMMANDS/PIPELINES directly
+    // to avoid a circular-import hang; see commands/completions.ts).
+    if (first === "completions") {
+      const shell = probe.positionals[1];
+      if (!shell) {
+        console.error("Usage: completions <bash|zsh|fish>\n");
+        console.error(completionsMeta.details);
+        process.exit(1);
+      }
+      try {
+        printCompletions(
+          shell,
+          COMMANDS.map((c) => c.name),
+          PIPELINES.map((c) => c.name),
+        );
+      } catch (e: any) {
+        console.error(`error: ${e?.message ?? String(e)}`);
+        process.exit(1);
+      }
       return;
     }
 

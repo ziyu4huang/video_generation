@@ -13,12 +13,20 @@ import type { Command } from "../cli.ts";
 import { runExtensionSubcommand } from "./runner.ts";
 import type { ExtensionSubcommandSpec } from "./types.ts";
 import { flux2Subcommand, selfImproveSubcommand } from "@repo/pi-agent-ext-flux2/extensions/cli-subcommand.ts";
+import { krea2Subcommand } from "@repo/pi-agent-ext-krea2/extensions/cli-subcommand.ts";
+import { ltxSubcommand } from "@repo/pi-agent-ext-ltx/extensions/cli-subcommand.ts";
+import { movieSubcommand } from "@repo/pi-agent-ext-movie-director/extensions/cli-subcommand.ts";
+import { researchSubcommand } from "@repo/pi-agent-ext-web-access/extensions/cli-subcommand.ts";
 import { powerToolSubcommand } from "@repo/pi-agent-ext-power-tool/extensions/cli-subcommand.ts";
 
 /** The extension sub-commands to expose on the CLI. */
 export const EXTENSION_SPECS: ExtensionSubcommandSpec[] = [
 	flux2Subcommand,
 	selfImproveSubcommand,
+	krea2Subcommand,
+	ltxSubcommand,
+	movieSubcommand,
+	researchSubcommand,
 	powerToolSubcommand,
 ];
 
