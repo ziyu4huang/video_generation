@@ -777,4 +777,110 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.ok(!memRaw.includes(`${TEST_MARKER} user fact`));
     });
   });
+
+  // ─── Reload-before-write (external mutation visibility) ───
+  //
+  // Reproduces the stale MemoryStore cache bug: the store caches entries in
+  // memory at loadFromDisk() time. If the underlying .md is shrunk externally
+  // mid-session (cross-session edit, offline dedup that rewrote the .md, a
+  // regenerated file) the in-memory charCount goes stale and a subsequent add
+  // is wrongly rejected with the OLD count. The fix reloads from disk before
+  // the capacity check, so charCount reflects on-disk state at write time.
+  describe("reload-before-write (external mutation visibility)", () => {
+    it("add() succeeds after the .md is externally shrunk mid-session (no stale-count reject)", async () => {
+      // Pick a limit where `big` fits alone, but `big` + `fresh` would exceed —
+      // so before the shrink the add would be rejected, after the shrink it fits.
+      const limit = 200;
+      const store = new MemoryStore(makeConfig({ memoryCharLimit: limit }));
+      await store.loadFromDisk();
+
+      const big = `${TEST_MARKER} ${"x".repeat(100)}`;
+      assert.ok((await store.add("memory", big)).success, "big entry should fit initially");
+      await settle();
+
+      // EXTERNALLY shrink the file (simulate cross-session removal / dedup that
+      // rewrote the .md). This does NOT refresh the in-memory cache.
+      await writeRaw(memoryPath, "");
+      await settle();
+
+      // The cache is still stale (reflects pre-shrink content) — proves the
+      // external edit did not auto-refresh the store.
+      assert.ok(store.charCount("memory") > 0, "in-memory cache should be stale (still reflects pre-shrink content)");
+
+      // A new entry that could NOT have fit before the shrink but CAN after.
+      const fresh = `${TEST_MARKER} fresh after external shrink`;
+      const result = await store.add("memory", fresh);
+      await settle();
+
+      assert.ok(result.success, `Expected add to succeed after external shrink, but got: ${result.error}`);
+
+      const raw = await readRaw(memoryPath);
+      assert.ok(raw.includes(fresh), "fresh entry should be persisted");
+      assert.ok(!raw.includes(big), "externally-removed entry should stay gone");
+    });
+
+    it("charCount reflects on-disk state at write time, not the startup snapshot", async () => {
+      const store = new MemoryStore(makeConfig({ memoryCharLimit: 500 }));
+      await store.loadFromDisk();
+
+      await store.add("memory", `${TEST_MARKER} alpha`);
+      await settle();
+      const countAfterFirstLoad = store.charCount("memory");
+      assert.ok(countAfterFirstLoad > 0);
+
+      // Externally rewrite the file with different content.
+      await writeRaw(memoryPath, `${TEST_MARKER} externally rewritten`);
+      await settle();
+
+      // Trigger an op whose reload-path refreshes in-memory state (replace
+      // reloads at its top even though the lookup below won't match).
+      await store.replace("memory", "nonexistent-marker-xyz", `${TEST_MARKER} nope`).catch(() => {});
+
+      const memEntries = store.getMemoryEntries();
+      assert.ok(
+        memEntries.some((e) => e.includes("externally rewritten")),
+        `entries/charCount should reflect the external rewrite; got: ${JSON.stringify(memEntries)}`,
+      );
+      assert.notEqual(store.charCount("memory"), countAfterFirstLoad);
+    });
+
+    it("replace() sees an externally-added entry mid-session", async () => {
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+
+      // Externally add an entry the store does not yet know about.
+      await writeRaw(memoryPath, `${TEST_MARKER} externally added line`);
+      await settle();
+
+      // Without reload, replace could not match it (stale empty cache).
+      const result = await store.replace("memory", "externally added line", `${TEST_MARKER} externally replaced line`);
+      await settle();
+
+      assert.ok(result.success, `Expected replace to see the externally-added entry, but got: ${result.error}`);
+      const raw = await readRaw(memoryPath);
+      assert.ok(raw.includes("externally replaced line"));
+      assert.ok(!raw.includes("externally added line"));
+    });
+
+    it("concurrent same-session adds do not lose data (reload does not clobber in-flight writes)", async () => {
+      // The reload-before-write fix must not break concurrent writes in the same
+      // session: two adds issued without awaiting must both land. Guards the
+      // "reload must not clobber a concurrent in-flight write" edge case.
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+
+      const [a, b] = await Promise.all([
+        store.add("memory", `${TEST_MARKER} concurrent A`),
+        store.add("memory", `${TEST_MARKER} concurrent B`),
+      ]);
+      await settle();
+
+      assert.ok(a.success, `concurrent A failed: ${a.error}`);
+      assert.ok(b.success, `concurrent B failed: ${b.error}`);
+
+      const raw = await readRaw(memoryPath);
+      assert.ok(raw.includes(`${TEST_MARKER} concurrent A`), "concurrent A should persist");
+      assert.ok(raw.includes(`${TEST_MARKER} concurrent B`), "concurrent B should persist");
+    });
+  });
 });
