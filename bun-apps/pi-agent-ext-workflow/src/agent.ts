@@ -16,7 +16,7 @@ import { Check, Convert } from "typebox/value";
 import { type AgentHistoryEntry, compactAgentHistory } from "./agent-history.js";
 import { applyToolPolicy } from "./agent-registry.js";
 import { classifyProviderLimit, WorkflowError, WorkflowErrorCode } from "./errors.js";
-import { loadModelTierConfig, type ModelTierConfig, resolveTierModel } from "./model-tier-config.js";
+import { loadModelTierConfig, type ModelTierConfig, resolveTierModel, sortedTierNames } from "./model-tier-config.js";
 import { createStructuredOutputTool, type StructuredOutputCapture } from "./structured-output.js";
 
 /**
@@ -160,7 +160,9 @@ export async function resolveStructuredOutput<T>(
  *   1. options.model — an explicit per-agent model (also carries agentType /
  *      phase model, which the workflow layer folds into options.model).
  *   2. options.tier  — resolved via the model-tiers config, falling back to the
- *      session's main model when the tier has no configured entry.
+ *      session's main model when the tier has no configured entry (with a
+ *      warning — see RCA#6: an unknown/misspelled tier must not silently
+ *      escalate to the most expensive model).
  *   3. DEFAULT TIER — when neither is set but the user has a model-tiers config,
  *      untagged agents default to the "medium" tier so a configured tier set
  *      actually affects the whole workflow (not just agents the script tagged).
@@ -178,7 +180,15 @@ export function resolveAgentModelSpec(
   if (options.model) return options.model;
   const config = loadConfig();
   if (options.tier) {
-    return (config ? resolveTierModel(options.tier, config) : undefined) ?? mainModel;
+    const resolved = config ? resolveTierModel(options.tier, config) : undefined;
+    if (resolved) return resolved;
+    // RCA#6: an unknown/misspelled tier (or no tier config at all) used to fall
+    // back to mainModel SILENTLY — often the most expensive model, so a typo
+    // quietly escalated cost. Surface it so the degradation is visible.
+    console.warn(
+      `[workflow] unknown tier "${options.tier}"${config ? "" : " (no model-tiers config found)"} — falling back to the session default${mainModel ? ` (${mainModel})` : ""}. Configured tiers: ${config ? sortedTierNames(config).join(", ") || "(none)" : "(none)"}. Manage them via /workflows-models.`,
+    );
+    return mainModel;
   }
   // Untagged agent: default to the configured medium tier when one exists.
   if (config) {
@@ -211,6 +221,13 @@ export interface WorkflowAgentOptions {
    * to the session default when no config is saved yet.
    */
   mainModel?: string;
+  /**
+   * Loads the model-tier config (model-tiers.json). Defaults to a disk read via
+   * loadModelTierConfig; the result is cached per WorkflowAgent instance so a
+   * run with many default/untagged agents does not re-read disk every call.
+   * Injectable for tests (e.g. a counting loader to assert the cache).
+   */
+  loadTierConfig?: () => ModelTierConfig | null;
 }
 
 /**
@@ -304,6 +321,13 @@ export class WorkflowAgent {
   private readonly mainModel?: string;
   /** Lazily built once; shares the SDK's agentDir/auth so resolved models are authed. */
   private registry?: ModelRegistry;
+  /**
+   * Lazily loaded once per instance. `undefined` = not yet read; `null` = read
+   * and the file is absent (callers fall back to a default). Caching avoids an
+   * O(agents) disk read of model-tiers.json for default/untagged agents.
+   */
+  private tierConfigCache?: ModelTierConfig | null;
+  private readonly loadTierConfigFn: () => ModelTierConfig | null;
 
   constructor(options: WorkflowAgentOptions = {}) {
     this.cwd = options.cwd ?? process.cwd();
@@ -312,6 +336,15 @@ export class WorkflowAgent {
     this.sessionOptions = options.session ?? {};
     this.instructions = options.instructions;
     this.mainModel = options.mainModel;
+    this.loadTierConfigFn = options.loadTierConfig ?? loadModelTierConfig;
+  }
+
+  /** Cached model-tier config, read from disk at most once per instance. */
+  private getTierConfig(): ModelTierConfig | null {
+    if (this.tierConfigCache === undefined) {
+      this.tierConfigCache = this.loadTierConfigFn();
+    }
+    return this.tierConfigCache;
   }
 
   private getRegistry(): ModelRegistry {
@@ -363,7 +396,9 @@ export class WorkflowAgent {
     // Resolve the model spec (explicit model > tier > session default). This
     // composes with phase-based routing in workflow.ts, which only supplies
     // options.model when a phase pattern matches — so an explicit model wins.
-    const modelSpec = resolveAgentModelSpec(options, this.mainModel);
+    // The tier config is read from the instance cache (once per agent) instead
+    // of re-reading disk on every call.
+    const modelSpec = resolveAgentModelSpec(options, this.mainModel, () => this.getTierConfig());
 
     // Resolve a requested model spec to a Model object. A given-but-unresolved
     // spec falls back to the session default (with a warning) rather than failing.

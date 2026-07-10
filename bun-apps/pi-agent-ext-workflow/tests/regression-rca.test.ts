@@ -134,41 +134,40 @@ return v`,
 // describing the CORRECT behavior, so they are explicit regression targets
 // rather than silent gaps. Implement the fix, then promote each to a real test.
 describe("RCA design-level findings (regression targets — not yet fixed)", () => {
-  // RCA#3: phase() mutates the shared global `state.currentPhase`. A parallel
-  // thunk that calls phase('B') runs its synchronous prefix before a sibling
-  // thunk reads currentPhase, so the sibling is assigned 'B' too — wrong phase
-  // grouping AND wrong phase-routed model. The guideline tells authors to use
-  // opts.phase per agent (an admission of the hazard); an engine-level guard is
-  // the real fix.
-  it.todo("RCA#3: phase() inside a parallel thunk must not pollute sibling phases");
-
-  // RCA#6: resolveAgentModelSpec({ tier: "lage" |typos| unknown }) silently falls
-  // back to mainModel (often the most expensive model) with no warning, despite
-  // the guideline claiming opts.tier is "enforced at runtime". Correct: an
-  // unknown/misspelled tier must warn (or reject), not silently escalate cost.
-  it.todo("RCA#6: resolveAgentModelSpec must warn on unknown/misspelled tier");
-
-  // RCA#7: judgePanel scores a candidate whose judges ALL failed as 0 —
-  // indistinguishable from a genuine zero score — and may rank it below worse
-  // candidates. Correct: a failed-judging candidate must be observable as
-  // unscored, not coerced to 0.
-  it.todo("RCA#7: judgePanel must not coerce all-judges-failed to score 0");
-
-  // RCA#8: loopUntilDry catches TOKEN_BUDGET_EXHAUSTED / AGENT_LIMIT_EXCEEDED
-  // and returns the partial array as if the loop completed dry. Correct: the
-  // return must distinguish "dry" from "truncated by budget/limit" so a caller
-  // does not ship an incomplete result as complete.
-  it.todo("RCA#8: loopUntilDry must signal budget/limit truncation, not return partial as complete");
-
-  // RCA#10: withTimeout races the agent promise with a timer but does not cancel
-  // the underlying session, which keeps consuming provider tokens never recorded
-  // in shared.spent (amplified by agentRetries). Correct: a timed-out agent must
-  // not leave an orphaned session burning uncounted tokens.
-  it.todo("RCA#10: withTimeout must not orphan the agent session with uncounted tokens");
-
-  // RCA#11: checkpoint() awaits options.confirm() with no abort signal; an abort
-  // during a pending checkpoint orphans the run promise in-memory (throwIfAborted
-  // only runs after confirm resolves). Correct: checkpoint must thread the abort
-  // signal into confirm().
-  it.todo("RCA#11: checkpoint() must thread the abort signal into confirm()");
+  // RCA#3: FIXED. parallel() freezes currentPhase into a parallelPhaseOverride
+  // so phase() inside a thunk can't pollute siblings. The phase is restored
+  // after all thunks complete. Test: workflow-runtime.test.ts > "RCA#3: phase()
+  // inside a parallel thunk does not pollute sibling phases".
+  // NOTE: phase() inside parallel is intentionally a no-op; use opts.phase
+  // to assign a different phase within one parallel branch.
+  // RCA#6: FIXED. resolveAgentModelSpec now emits console.warn when the
+  // requested tier is unknown or no model-tiers config exists — no silent
+  // cost escalation. Tests: agent.test.ts "RCA#6: an unknown/misspelled tier
+  // warns AND falls back to the main model" + "RCA#6: a tier with NO config
+  // file warns that tiers are unconfigured" + "RCA#6: a known tier resolves
+  // without warning".
+  // RCA#7: FIXED. judgePanel sets score to undefined (not 0) when all judges
+  // fail, and the best-candidate selection skips undefined-score entries so
+  // they never rank above a scored candidate. When every candidate is unscored,
+  // the first entry is returned as the degenerate best. Tests:
+  // workflow-runtime.test.ts > "RCA#7: judgePanel with all judges failing
+  // returns undefined score (not 0)".
+  // RCA#8: FIXED. loopUntilDry sets a .truncated flag on the returned array
+  // when the loop is terminated by TOKEN_BUDGET_EXHAUSTED or
+  // AGENT_LIMIT_EXCEEDED, so callers can distinguish "completed all rounds
+  // dry" from "truncated by budget/limit". Tests:
+  // workflow-runtime.test.ts > "RCA#8: loopUntilDry truncation via
+  // TOKEN_BUDGET_EXHAUSTED sets truncated=true".
+  // quality-stdlib.test.ts > "loopUntilDry(): returns partial results when a
+  // round hits the budget" (existing test, still passes).
+  // RCA#10: FIXED. runAgentWithTimeout now aborts a per-agent child signal so a
+  // real WorkflowAgent session is cancelled (session.abort()) and its partial
+  // usage is reported + counted before the timeout error propagates — no orphaned
+  // session burning uncounted tokens. Regression test:
+  //   workflow-runtime.test.ts > "RCA#10: a timed-out agent's session is aborted and its usage counted"
+  // RCA#11: FIXED. checkpoint() now threads options.signal into the confirm
+  // callback via checkpointOptions.signal so a parent abort during a pending
+  // checkpoint cancels it instead of orphaning the run. Test:
+  // workflow-runtime.test.ts > "RCA#11: checkpoint threads the abort signal
+  // into confirm()".
 });
