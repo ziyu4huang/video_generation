@@ -66,9 +66,20 @@ export function selectProvider(capability: Capability, opts: SelectorOptions = {
   if (configured.length === 0) throw new NoConfiguredProviderError(capability);
 
   if (opts.provider) {
-    const hit = configured.find((p) => p.provider === opts.provider);
+    // An explicit hint honors a STATICALLY-configured provider even when its
+    // runtime probe is currently false. This preserves the auto-build flow for
+    // the swift directors: `provider:"krea2"` reaches krea2 even before its
+    // binary is built (runKrea2's ensureBinary builds it on first run), rather
+    // than being silently rerouted because the probe hasn't seen the binary yet.
+    // Only statically-GAP / configured:false providers (piper, un-keyed cloud,
+    // hyperframes) are ignored — those are the soft-hint cases.
+    const staticallyConfigured = REGISTRY.filter(
+      (p) => p.capability === capability && p.configured && (!opts.backend || p.backend === opts.backend),
+    );
+    const hit = staticallyConfigured.find((p) => p.provider === opts.provider);
     if (hit) return hit;
-    // Soft hint: a non-matching provider name is ignored, not fatal.
+    // Soft hint: a non-matching (or statically-GAP) provider name is ignored,
+    // falling through to the probe-based ranking below.
   }
 
   // Command routing: if the caller addressed a subcommand a configured provider
