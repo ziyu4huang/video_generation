@@ -13,8 +13,8 @@
  *
  * Run via the REAL e2e path (drives pi-agent CLI + the workflow tool):
  *   PI_MODEL=google/gemma-4-26b-a4b-qat \
- *     ./bun-apps/pi-dynamic-workflows/samples/smoke-e2e.sh \
- *       bun-apps/pi-dynamic-workflows/samples/audit-run-dir-resolve.js
+ *     ./bun-apps/pi-agent-ext-workflow/samples/smoke-e2e.sh \
+ *       bun-apps/pi-agent-ext-workflow/samples/audit-run-dir-resolve.js
  *
  * (This file is a workflow SCRIPT: agent/phase/log/parallel are globals
  * injected by the runtime — do not import them, do not run with `bun` directly.)

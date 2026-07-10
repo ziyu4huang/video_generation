@@ -305,7 +305,7 @@ describe("resolveLazyExtension", () => {
 		const base = resolve(join(import.meta.dir, "..", ".."));
 		const r = resolveLazyExtension("workflow", manifest, base, existsSync);
 		expect(r).toBeDefined();
-		expect(r!.endsWith("pi-dynamic-workflows/extensions/workflow.ts")).toBe(true);
+		expect(r!.endsWith("pi-agent-ext-workflow/extensions/workflow.ts")).toBe(true);
 		expect(existsSync(r!)).toBe(true);
 	});
 });

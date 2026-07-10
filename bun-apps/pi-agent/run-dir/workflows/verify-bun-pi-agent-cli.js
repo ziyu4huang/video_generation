@@ -516,7 +516,7 @@ return {
  * self-contained bun-pi-agent-cli bundle.
  *
  * pi-native port of .claude/workflows/verify-bun-pi-agent-cli.js, kept under
- * bun-apps/pi-agent/run-dir/workflows/ so it is discoverable by the pi-dynamic-workflows tooling
+ * bun-apps/pi-agent/run-dir/workflows/ so it is discoverable by the pi-agent-ext-workflow tooling
  * (the `workflow` tool registered by the @quintinshaw/pi-dynamic-workflows
  * extension in bun-apps/pi-agent/run-dir/manifest.json). The script is identical in behavior: all
  * paths are resolved at runtime in the Resolve phase (git rev-parse + realpath),

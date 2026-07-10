@@ -537,7 +537,7 @@ export function buildArgvFromManifest(
 
 // ─── Lazy / opt-in extension aliases ──────────────────────────────────────────
 //
-// Heavy extensions (e.g. pi-dynamic-workflows, ~2.5k tok/req) are deliberately
+// Heavy extensions (e.g. pi-agent-ext-workflow, ~2.5k tok/req) are deliberately
 // NOT in manifest.json (which loads eagerly every session). Instead they are
 // registered here as aliases and loaded only when the user passes `-e <alias>`.
 // This file rewrites such `-e <alias>` argv values to absolute paths BEFORE

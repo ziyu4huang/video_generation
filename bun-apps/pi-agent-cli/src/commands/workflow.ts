@@ -1,8 +1,8 @@
 /**
- * `workflow run <name>` — headless runner for pi-dynamic-workflows scripts.
+ * `workflow run <name>` — headless runner for pi-agent-ext-workflow scripts.
  *
  * This is a NON-agent meta-command: it calls `runWorkflow()` DIRECTLY (from
- * `@repo/pi-dynamic-workflows`), bypassing the agent session pipeline
+ * `@repo/pi-agent-ext-workflow`), bypassing the agent session pipeline
  * that `commands/zk-*.ts` and the extension sub-commands use. That is the whole
  * point — the deterministic engine (gate / retry / loopUntilDry / journaling /
  * resume) is reachable from the CLI, a script, or a hook, not only from the
@@ -29,10 +29,10 @@ import { basename, join, resolve, isAbsolute, dirname } from "node:path";
 import type { ParsedArgs } from "../args.ts";
 import type { Command } from "../cli.ts";
 
-// `@repo/pi-dynamic-workflows` is a workspace dependency. Import the
+// `@repo/pi-agent-ext-workflow` is a workspace dependency. Import the
 // engine + its script parser by name so the bundler treats them as externals
 // exactly like the other workspace deps (pi-obsidian, pi-vlm, …).
-import { runWorkflow, parseWorkflowScript, type WorkflowAgent } from "@repo/pi-dynamic-workflows";
+import { runWorkflow, parseWorkflowScript, type WorkflowAgent } from "@repo/pi-agent-ext-workflow";
 
 /** Where engine workflow scripts live in this repo (Claude-Code-shared). */
 const CLAUDE_WORKFLOWS_DIR = ".claude/workflows";
@@ -249,11 +249,11 @@ export async function runWorkflowScript(
 /** `workflow run <name> [options]`. */
 export const workflowRunCommand: Command = {
 	name: "run",
-	summary: "Run a pi-dynamic-workflows script headlessly (deterministic engine).",
+	summary: "Run a pi-agent-ext-workflow script headlessly (deterministic engine).",
 	details: `Usage: bun-pi-agent-cli workflow run <name> [options]
 
 Runs a workflow script through the deterministic engine (runWorkflow from
-@repo/pi-dynamic-workflows) — the SAME engine the VSCode workflow editor
+@repo/pi-agent-ext-workflow) — the SAME engine the VSCode workflow editor
 uses, but headlessly. The engine's gate / retry / loopUntilDry / journaling /
 resume primitives are therefore reachable from the CLI, a script, or a hook.
 

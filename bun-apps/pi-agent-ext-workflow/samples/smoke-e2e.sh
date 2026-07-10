@@ -17,13 +17,13 @@
 # workflow tool, so it is NOT full e2e. This script is.
 #
 # USAGE (from anywhere):
-#   ./bun-apps/pi-dynamic-workflows/samples/smoke-e2e.sh [workflow.js]
+#   ./bun-apps/pi-agent-ext-workflow/samples/smoke-e2e.sh [workflow.js]
 #   PI_MODEL=google/gemma-4-26b-a4b-qat ./.../smoke-e2e.sh
 ########################################
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# samples/ -> pi-dynamic-workflows/ -> bun-apps/ -> repo root
+# samples/ -> pi-agent-ext-workflow/ -> bun-apps/ -> repo root
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 CLI="$REPO_ROOT/bun-apps/pi-agent/src/cli.ts"
 

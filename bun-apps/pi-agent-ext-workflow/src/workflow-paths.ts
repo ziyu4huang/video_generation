@@ -1,5 +1,5 @@
 /**
- * Filesystem layout for pi-dynamic-workflows state.
+ * Filesystem layout for pi-agent-ext-workflow state.
  *
  * New writes live under the user's workflow home so projects do not get
  * scattered `.pi/workflows` directories. Project-scoped state is still isolated
