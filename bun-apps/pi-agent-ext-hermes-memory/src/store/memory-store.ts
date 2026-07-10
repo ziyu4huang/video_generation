@@ -500,6 +500,16 @@ export class MemoryStore {
     return this.userEntries.map((e) => this.stripMetadata(e));
   }
 
+  /**
+   * All entries for a target WITH their metadata (created, lastReferenced),
+   * decoded from the ground-truth `.md` file. Drives the staleness audit:
+   * `lastReferenced` here is "last edited" (add/replace), the durable signal.
+   * (SQLite's `last_referenced` separately tracks "last surfaced by search".)
+   */
+  entriesWithMeta(target: "memory" | "user" | "failure"): { text: string; created: string; lastReferenced: string }[] {
+    return this.entriesFor(target).map((e) => this.decodeEntry(e));
+  }
+
   // ─── Internal helpers ───
 
   /**
