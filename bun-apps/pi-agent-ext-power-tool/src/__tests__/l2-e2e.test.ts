@@ -79,24 +79,24 @@ interface ToolEntry {
 
 const TOOLS: ToolEntry[] = [
   {
-    name: "context_analyzer",
-    prompt: "call context_analyzer --self-test true",
+    name: "inspect_context",
+    prompt: "call inspect_context --self-test true",
     // Tool name in backticks survives LLM translation reliably.
-    markers: ["context_analyzer"],
+    markers: ["inspect_context"],
     // Self-test mode: still needs model inference for prompt→tool routing,
     // but returns immediately once the tool is invoked. Short timeout so a
     // non-responsive model fails fast rather than hanging.
     timeoutMs: 30_000,
   },
   {
-    name: "agent_inventory",
-    prompt: "call agent_inventory --self-test true",
-    markers: ["self-test", "agent_inventory"],
+    name: "inspect_agent",
+    prompt: "call inspect_agent --self-test true",
+    markers: ["self-test", "inspect-agent"],
     timeoutMs: 30_000,
   },
   {
-    name: "extension_analyzer",
-    prompt: "call extension_analyzer --self-test true",
+    name: "inspect_extensions",
+    prompt: "call inspect_extensions --self-test true",
     // "medium" is the English severity label that appears in the data regardless of language.
     markers: ["medium"],
     timeoutMs: 30_000,

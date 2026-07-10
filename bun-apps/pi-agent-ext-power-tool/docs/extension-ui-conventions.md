@@ -31,7 +31,7 @@ answering "how persistent, how prominent, how interactive?"
    alphabetically with other extensions. A paused goal and an active goal looked
    identical there. Reserve it for trivial indicators only.
 4. **Is it a report the user reads once and moves on?** → Tier 4 (tool output).
-   Examples: `context_analyzer`, `agent_inventory`, `extension_analyzer`,
+   Examples: `inspect_context`, `inspect_agent`, `inspect_extensions`,
    `knowledge_query`, `graph_health`.
 
 ## Why `/goal` was moved (the cautionary tale)

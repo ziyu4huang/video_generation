@@ -186,11 +186,11 @@ describe("tool registration", () => {
     // knowledge_query + graph_health moved to the knowledge-graph hub
     // (consolidation cycle) — power-tool is now self-contained diagnostics again.
     expect(Object.keys(captured).sort()).toEqual([
-      "agent_inventory",
       "ask_user_question",
-      "context_analyzer",
-      "extension_analyzer",
       "goal_complete",
+      "inspect_agent",
+      "inspect_context",
+      "inspect_extensions",
       "todo",
     ]);
   });
@@ -207,10 +207,10 @@ describe("tool registration", () => {
   });
 });
 
-describe("context_analyzer", () => {
+describe("inspect_context", () => {
   test("reports tool breakdown from ctx API", async () => {
     const { captured } = loadExtension(TOOLS);
-    const res = await captured.context_analyzer.execute(
+    const res = await captured.inspect_context.execute(
       undefined,
       {},
       undefined,
@@ -231,10 +231,10 @@ describe("context_analyzer", () => {
   });
 });
 
-describe("agent_inventory", () => {
+describe("inspect_agent", () => {
   test("return_content=true returns valid parseable YAML", async () => {
     const { captured } = loadExtension(TOOLS);
-    const res = await captured.agent_inventory.execute(
+    const res = await captured.inspect_agent.execute(
       undefined,
       { return_content: true },
       undefined,
@@ -256,7 +256,7 @@ describe("agent_inventory", () => {
   //    nulls. These tests pin the correct field names. ──────────────────────
   test("REGRESSION: tool.source is populated, not null", async () => {
     const { captured } = loadExtension(TOOLS);
-    const res = await captured.agent_inventory.execute(
+    const res = await captured.inspect_agent.execute(
       undefined,
       { return_content: true },
       undefined,
@@ -273,7 +273,7 @@ describe("agent_inventory", () => {
 
   test("REGRESSION: skill.file_path is populated, not null", async () => {
     const { captured } = loadExtension(TOOLS);
-    const res = await captured.agent_inventory.execute(
+    const res = await captured.inspect_agent.execute(
       undefined,
       { return_content: true },
       undefined,
@@ -293,7 +293,7 @@ describe("agent_inventory", () => {
     try {
       const ctx = { ...BASE_CTX, cwd: tmp };
       const { captured } = loadExtension(TOOLS);
-      const res = await captured.agent_inventory.execute(
+      const res = await captured.inspect_agent.execute(
         undefined,
         { output_dir: "out", filename: "state" },
         undefined,
@@ -314,7 +314,7 @@ describe("agent_inventory", () => {
   test("returns error message on unwritable path", async () => {
     const ctx = { ...BASE_CTX, cwd: "/nonexistent-root-no-perm/xyz" };
     const { captured } = loadExtension(TOOLS);
-    const res = await captured.agent_inventory.execute(
+    const res = await captured.inspect_agent.execute(
       undefined,
       { output_dir: "deep/nested", filename: "fail" },
       undefined,
@@ -330,7 +330,7 @@ describe("agent_inventory", () => {
     try {
       const ctx = { ...BASE_CTX, cwd: tmp };
       const { captured } = loadExtension(TOOLS);
-      const res = await captured.agent_inventory.execute(
+      const res = await captured.inspect_agent.execute(
         undefined,
         { output_dir: "../../../../tmp/pi-inv-escape", filename: "state" },
         undefined,
@@ -349,9 +349,9 @@ describe("agent_inventory", () => {
     try {
       const ctx = { ...BASE_CTX, cwd: tmp };
       const { captured } = loadExtension(TOOLS);
-      const res = await captured.agent_inventory.execute(
+      const res = await captured.inspect_agent.execute(
         undefined,
-        { filename: "../escape" },
+      { filename: "../escape" },
         undefined,
         undefined,
         ctx,
@@ -368,7 +368,7 @@ describe("agent_inventory", () => {
     try {
       const ctx = { ...BASE_CTX, cwd: tmp };
       const { captured } = loadExtension(TOOLS);
-      await captured.agent_inventory.execute(
+      await captured.inspect_agent.execute(
         undefined,
         { output_dir: "", filename: "state" },
         undefined,
@@ -385,7 +385,7 @@ describe("agent_inventory", () => {
   test("REGRESSION: context_usage is emitted as null, not dropped, when unavailable", async () => {
     const { captured } = loadExtension(TOOLS);
     const ctx = { ...BASE_CTX, getContextUsage: () => undefined };
-    const res = await captured.agent_inventory.execute(
+    const res = await captured.inspect_agent.execute(
       undefined,
       { return_content: true },
       undefined,
@@ -398,7 +398,7 @@ describe("agent_inventory", () => {
   });
 });
 
-// ─── extension_analyzer (pure checks) ────────────────────────────────────────
+// ─── inspect_extensions (pure checks) ────────────────────────────────────────
 
 const HEALTHY_TOOLS = [
   {
@@ -539,7 +539,7 @@ describe("analyzeExtensions — checks", () => {
 describe("formatExtensionReport", () => {
   test("clean report shows the healthy line + tax table", () => {
     const text = formatExtensionReport(analyzeWith(HEALTHY_TOOLS));
-    expect(text).toContain("Extension Analyzer");
+    expect(text).toContain("Inspect Extensions");
     expect(text).toContain("0 issue(s)");
     expect(text).toContain("No actionable issues");
     expect(text).toContain("Extension token tax");
@@ -556,12 +556,12 @@ describe("formatExtensionReport", () => {
   });
 });
 
-describe("extension_analyzer (tool end-to-end)", () => {
+describe("inspect_extensions (tool end-to-end)", () => {
   test("text report from ctx API", async () => {
     const { captured } = loadExtension(TOOLS);
-    const res = await captured.extension_analyzer.execute(undefined, {}, undefined, undefined, BASE_CTX);
+    const res = await captured.inspect_extensions.execute(undefined, {}, undefined, undefined, BASE_CTX);
     const text = res.content[0].text;
-    expect(text).toContain("Extension Analyzer");
+    expect(text).toContain("Inspect Extensions");
     expect(text).toContain("issue(s)");
     expect(text).toContain("Extension token tax");
     // No snapshot message — ctx.getSystemPromptOptions() is always available
@@ -570,7 +570,7 @@ describe("extension_analyzer (tool end-to-end)", () => {
 
   test("return_json returns parseable {findings, summary, total_extension_tokens}", async () => {
     const { captured } = loadExtension(TOOLS);
-    const res = await captured.extension_analyzer.execute(
+    const res = await captured.inspect_extensions.execute(
       undefined,
       { return_json: true },
       undefined,
@@ -586,7 +586,7 @@ describe("extension_analyzer (tool end-to-end)", () => {
   test("custom thresholds flow through params into the analysis", async () => {
     const { captured } = loadExtension(TOOLS);
     // Tiny context-file threshold so CLAUDE.md (100 chars in fixture) trips it.
-    const res = await captured.extension_analyzer.execute(
+    const res = await captured.inspect_extensions.execute(
       undefined,
       { return_json: true, context_file_char_threshold: 10 },
       undefined,
@@ -680,7 +680,7 @@ describe("extension-auditor subagent definition", () => {
     const tools = frontmatter.tools as unknown[];
     expect(tools.length).toBeGreaterThan(0);
     // read-only: analyzers + inspection tools, never write/edit
-    expect(tools).toContain("extension_analyzer");
+    expect(tools).toContain("inspect_extensions");
     expect(tools).not.toContain("write");
     expect(tools).not.toContain("edit");
   });

@@ -368,9 +368,17 @@ function stageResolveExternals(outfile: string, resolveBare: (s: string) => stri
 			unresolved.push(spec);
 			continue;
 		}
+		// Scope the rewrite to IMPORT contexts only (from"spec" / import("spec")),
+		// matching the discovery regex above. A global "spec" replace would ALSO
+		// rewrite the specifier inside string-literal VALUES — e.g. pi-vlm's
+		// missingDeps(["@earendil-works/pi-coding-agent"], …) dep probe — turning the
+		// package name into a resolved abs path and breaking pkgBaseName() → a false
+		// "missing npm packages" error at runtime. Capture the import prefix + match
+		// the opening/closing quote pair so non-import quoted occurrences survive.
+		const esc = spec.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 		code = code.replace(
-			new RegExp(`(["'])${spec.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\1`, "g"),
-			`"${abs}"`,
+			new RegExp(`((?:from|import\\()\\s*)(["'])${esc}\\2`, "g"),
+			`$1"${abs}"`,
 		);
 		resolved++;
 	}
@@ -413,17 +421,40 @@ async function liveFactoryTest(
 	}
 	const tools: any[] = [];
 	// A permissive mock: capture registerTool calls, no-op `on`, and return a
-	// no-op fn for ANY other ExtensionAPI method (registerCommand, etc.) so a
-	// factory that touches secondary surfaces still runs. The point is to prove
-	// ESM validity + dep resolution + the factory executes, not to model pi.
+	// DEEP permissive callable for ANY other surface — INCLUDING nested access
+	// like pi.events.on(...) / pi.getContext().x, since `events: EventBus` is a
+	// real part of the ExtensionAPI and a factory may register handlers on it
+	// synchronously. The point is to prove ESM validity + dep resolution + the
+	// factory executes, not to model pi.
+	const deepCallable = (): any =>
+		new Proxy(function () {}, {
+			get(_t, prop) {
+				// Symbols + the thenable trap must NOT yield a callable, or Promise
+				// resolution / iteration / coercion checks misbehave.
+				if (typeof prop === "symbol" || prop === "then") return undefined;
+				return deepCallable();
+			},
+			apply: () => deepCallable(),
+		});
 	const target = {
 		on: () => {}, // session_start handler registration — no-op
 		registerTool: (def: any) => tools.push(def),
+		// pi.events (EventBus — emit/on) is a REAL SDK surface (core/event-bus.ts).
+		// Some extensions (pi-agent-ext-subagents) call pi.events.on() at factory
+		// top-level (synchronously), so the mock must model it — the Proxy's
+		// blanket no-op-fn return makes `pi.events.on` undefined (a fn has no
+		// .on). on() returns an unsubscribe fn to match EventBus's contract
+		// (factories collect the return into an unsub array).
+		events: {
+			on: () => () => {},
+			emit: () => {},
+		},
 	};
 	const mockApi = new Proxy(target, {
 		get(t, prop) {
+			if (typeof prop === "symbol" || prop === "then") return undefined;
 			if (prop in t) return (t as any)[prop];
-			return () => {}; // no-op any other method (registerCommand, …)
+			return deepCallable(); // permissive: nested access (pi.events.on, …) + callable
 		},
 	});
 	try {

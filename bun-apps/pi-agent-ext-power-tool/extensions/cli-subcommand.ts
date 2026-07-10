@@ -5,10 +5,10 @@
  * sub-command:
  *
  *   bun-pi-agent-cli power-tool <diagnostic request...>
- *   bun-pi-agent-cli --model sonnet power-tool "call context_analyzer"
+ *   bun-pi-agent-cli --model sonnet power-tool "call inspect_context"
  *
- * The power-tool suite provides 8 diagnostic tools (context_analyzer,
- * agent_inventory, extension_analyzer, knowledge_query, graph_health,
+ * The power-tool suite provides 8 diagnostic tools (inspect_context,
+ * inspect_agent, inspect_extensions, knowledge_query, graph_health,
  * todo, ask_user_question, goal_complete). The CLI passes the user's
  * request as a natural-language task; the agent maps it onto the
  * appropriate tool.
@@ -32,9 +32,9 @@ interface ExtensionSubcommandSpec {
 
 /** All 8 power-tool tool names, as the curated default allowlist. */
 const POWER_TOOLS = [
-  "context_analyzer",
-  "agent_inventory",
-  "extension_analyzer",
+  "inspect_context",
+  "inspect_agent",
+  "inspect_extensions",
   "knowledge_query",
   "graph_health",
   "todo",
@@ -53,9 +53,9 @@ runtime state. Give a natural-language request as positionals; the agent maps
 it onto the right tool.
 
 Tools available:
-  context_analyzer    — full context window breakdown (system prompt vs tool schema vs conversation)
-  agent_inventory    — dump agent state (extensions, tools, skills, model, cwd) to YAML
-  extension_analyzer — lint loaded extensions for duplicate names, oversized schemas, stale refs
+  inspect_context    — full context window breakdown (system prompt vs tool schema vs conversation)
+  inspect_agent     — dump agent state (extensions, tools, skills, model, cwd) to YAML
+  inspect_extensions — lint loaded extensions for duplicate names, oversized schemas, stale refs
   knowledge_query    — query the Zettelkasten knowledge graph by tags or natural language
   graph_health       — audit knowledge graph structural health (dead links, MOC drift, orphans)
   todo               — manage task lists for tracking multi-step progress
@@ -71,7 +71,7 @@ Options (pi-aligned globals):
   -V, --verbose          tool verbosity (repeat for debug)
 
 Examples:
-  bun-pi-agent-cli power-tool "call context_analyzer"
+  bun-pi-agent-cli power-tool "call inspect_context"
   bun-pi-agent-cli --model gemma-4-26b power-tool "analyze the context window"
   bun-pi-agent-cli power-tool "check if any extensions have duplicate tools"`,
   factory: extension,
