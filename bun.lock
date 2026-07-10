@@ -229,10 +229,12 @@
         "jiti": "2.7.0",
       },
       "devDependencies": {
-        "@earendil-works/pi-agent-core": "*",
-        "@earendil-works/pi-ai": "*",
-        "@earendil-works/pi-coding-agent": "*",
+        "@earendil-works/pi-agent-core": "0.80.6",
+        "@earendil-works/pi-ai": "0.80.6",
+        "@earendil-works/pi-coding-agent": "0.80.6",
+        "@earendil-works/pi-tui": "0.80.6",
         "@types/bun": "1.3.14",
+        "typebox": "1.1.24",
       },
       "peerDependencies": {
         "@earendil-works/pi-agent-core": "*",
@@ -1514,6 +1516,8 @@
     "@repo/pi-agent-ext-movie-director/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "@repo/pi-agent-ext-power-tool/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "@repo/pi-agent-ext-subagents/typebox": ["typebox@1.1.24", "", {}, "sha512-IGWOHx9UfqkEl7lNmA5417b80VY1NHNGdD5OgwEojHCKdsX1oj0lmgc6N6qEb0tUYzQBveIoccNwBen3IDIHwg=="],
 
     "@repo/pi-agent-ext-web-access/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
