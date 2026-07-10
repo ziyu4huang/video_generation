@@ -305,9 +305,20 @@ if (VERIFY) {
     const tools = pi.getAllTools();
     const names = tools.map((t) => t.name).sort();
     const dupes = names.filter((n, i) => n === names[i - 1]);
-    const ok = names.length > 0 && dupes.length === 0;
+    // Canary: one stable primary tool per extension bundle. A bundle whose
+    // factory loads but silently bails in session_start (e.g. a missing-dep
+    // guard firing) leaves its tool ABSENT — getAllTools() still returns >0
+    // and dupes stays empty, so the count+dupes gate passes (the false-pass
+    // that let the build-extensions string-replacement bug ship). Asserting
+    // these canaries are present catches that class. ctx.ui.notify() does
+    // NOT render in -p mode, so an output scan can't catch it — the tool
+    // registry is the only signal. Update this set if an extension is
+    // added/removed/renamed.
+    const CANARY = ["vlm_describe","web_search","flux2","obsidian_read","memory","ltx","krea2","subagent"];
+    const missingCanaries = CANARY.filter((c) => !names.includes(c));
+    const ok = names.length > 0 && dupes.length === 0 && missingCanaries.length === 0;
     // console.log flushes synchronously in Bun; process.exit() would skip the flush.
-    console.log("[PROBE] " + JSON.stringify({ toolCount: names.length, dupes, ok }));
+    console.log("[PROBE] " + JSON.stringify({ toolCount: names.length, dupes, missingCanaries, ok }));
     setTimeout(() => process.exit(ok ? 0 : 1), 100);
   });
 };\n`,
@@ -336,10 +347,13 @@ if (VERIFY) {
 	}
 	const probe = JSON.parse(probeLine.slice("[PROBE] ".length));
 	if (!probe.ok) {
-		console.error(`${R("✗")} verify FAILED: ${probe.toolCount} tools, dupes: ${JSON.stringify(probe.dupes)}`);
+		const missing = probe.missingCanaries?.length
+			? `\n    ${R("missing canary tools")}: ${probe.missingCanaries.join(", ")} — an extension bundle loaded but failed to register its tool (update the PROBE CANARY set if an extension was intentionally removed/renamed)`
+			: "";
+		console.error(`${R("✗")} verify FAILED: ${probe.toolCount} tools, dupes: ${JSON.stringify(probe.dupes)}${missing}`);
 		process.exit(1);
 	}
-	console.log(`    ${G("✓")} deployed artifact booted from ${tmpdir()}: ${probe.toolCount} tools, 0 conflicts`);
+	console.log(`    ${G("✓")} deployed artifact booted from ${tmpdir()}: ${probe.toolCount} tools, 0 conflicts, all canaries present`);
 }
 
 // ── done ─────────────────────────────────────────────────────────────────────

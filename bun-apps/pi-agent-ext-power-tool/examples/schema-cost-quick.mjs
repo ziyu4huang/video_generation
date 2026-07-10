@@ -43,7 +43,7 @@ const report = analyzeTools(tools, "example");
 console.log(formatReport(report).join("\n"));
 console.log(`\nmost expensive tool: ${report.tools[0].name} = ${report.tools[0].approxTokens} tok`);
 
-// Single-tool estimate + a custom ratio (reproduce the live context_analyzer's 3.7)
+// Single-tool estimate + a custom ratio (reproduce the live inspect_context's 3.7)
 const one = estimateToolCost(tools[1], "example", { charsPerToken: 3.7 });
 const swAt4 = report.tools.find((t) => t.name === "search_web").approxTokens;
 console.log(`search_web @3.7 ratio: ${one.approxTokens} tok (vs ${swAt4} @4.0)`);

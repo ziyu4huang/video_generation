@@ -10,8 +10,8 @@ workflow per `pi-agent-ext-*` package; same 3-phase shape everywhere.
 cannot: *"does every power-tool tool register and run successfully under the real
 pi-agent runtime?"*
 
-- **Invoke** — drives each power-tool tool (`context_analyzer`, `agent_inventory`,
-  `extension_analyzer`, `knowledge_query`, `graph_health`) through the real pi-agent
+- **Invoke** — drives each power-tool tool (`inspect_context`, `inspect_agent`,
+  `inspect_extensions`, `knowledge_query`, `graph_health`) through the real pi-agent
   CLI via `bun bun-apps/pi-agent/src/cli.ts -e <ext> -p "call <tool>"`, one bash
   invocation per tool. This is the same path end users take.
 - **Gate** — pure JS checks: exit code === 0 AND expected-content markers found

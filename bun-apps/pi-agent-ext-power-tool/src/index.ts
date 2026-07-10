@@ -2,19 +2,19 @@
  * pi-agent-ext-power-tool — extension factory.
  *
  * Tools provided:
- *   context_analyzer  — full context window breakdown, split by token bucket:
+ *   inspect_context   — full context window breakdown, split by token bucket:
  *     • System prompt text (skills, guidelines, context files, tool snippets)
  *     • API tools schema (description + parameters per tool — a SEPARATE budget)
  *     • Estimated conversation overhead (live total minus the two above)
  *     All tools shown sorted by cost; guidelines shown in full.
  *
- *   agent_inventory    — dump agent state to YAML: extensions, tools, skills, context files, model, cwd.
- *     Outputs to <cwd>/output/pi/agent-inventory-<timestamp>.yaml by default.
+ *   inspect_agent     — dump agent state to YAML: extensions, tools, skills, context files, model, cwd.
+ *     Outputs to <cwd>/output/pi/inspect-agent-<timestamp>.yaml by default.
  *     Readable by humans and agents for debugging/analysis.
  *
  * Usage:
- *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-power-tool/src/index.ts -p "call context_analyzer"
- *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-power-tool/src/index.ts -p "call agent_inventory"
+ *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-power-tool/src/index.ts -p "call inspect_context"
+ *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-power-tool/src/index.ts -p "call inspect_agent"
  */
 import {
   type BuildSystemPromptOptions,
@@ -73,7 +73,7 @@ function miniBar(fraction: number, width = 12): string {
 const SELF_TEST_CONTEXT_ANALYZER_OUTPUT = [
   '"self_test": true',
   'Deterministic mock output — no live session required',
-  'context_analyzer',
+  'inspect_context',
   '▶ Live context window:',
   '  unavailable (no LLM turn completed yet)',
   '▶ Token budget  (where tokens go):',
@@ -89,10 +89,10 @@ const SELF_TEST_CONTEXT_ANALYZER_OUTPUT = [
 
 const SELF_TEST_AGENT_INVENTORY_OUTPUT = [
   '╔══════════════════════════════════════╗',
-  '║        Agent Inventory               ║',
+  '║        Inspect Agent                ║',
   '╚══════════════════════════════════════╝',
   '',
-  'Output: output/pi/agent-inventory-self-test.yaml',
+  'Output: output/pi/inspect-agent-self-test.yaml',
   '',
   'Summary:',
   '  - Tools: 4',
@@ -153,16 +153,16 @@ const SELF_TEST_ANALYSIS_INPUT: AnalysisInput = {
   contextFileCharThreshold: 20000,
 };
 
-function makeContextAnalyzerTool(getAllTools: () => ToolInfo[]) {
+function makeInspectContextTool(getAllTools: () => ToolInfo[]) {
   return defineTool({
-    name: "context_analyzer",
-    label: "Context Analyzer",
+    name: "inspect_context",
+    label: "Inspect Context",
     description:
-      "Full context window breakdown split by token bucket: system prompt text " +
-      "(skills, guidelines, context files, tool snippets) vs API tools schema " +
-      "(description + parameters — a separate cost not in the system prompt text). " +
-      "Shows all tools sorted by cost, estimated conversation overhead, and live usage.",
-    promptSnippet: "Analyze and report context window usage by component",
+      "Break down the live context window by component — system-prompt text " +
+      "(skills/guidelines/context-files/snippets) vs API tools-schema (a separate " +
+      "per-request cost) vs conversation overhead. All tools sorted by token cost. " +
+      "For issue-finding use inspect_extensions instead.",
+    promptSnippet: "Inspect context-window token usage by component",
     parameters: Type.Object({
       self_test: Type.Optional(
         Type.Boolean({
@@ -187,7 +187,7 @@ function makeContextAnalyzerTool(getAllTools: () => ToolInfo[]) {
 
       // ── Header ────────────────────────────────────────────────────────────
       lines.push("╔══════════════════════════════════════╗");
-      lines.push("║         Context Analyzer             ║");
+      lines.push("║         Inspect Context              ║");
       lines.push("╚══════════════════════════════════════╝");
       lines.push("");
 
@@ -380,16 +380,17 @@ function makeContextAnalyzerTool(getAllTools: () => ToolInfo[]) {
   });
 }
 
-// ─── Agent Inventory Tool ───────────────────────────────────────────────────
+// ─── Inspect Agent Tool ─────────────────────────────────────────────────────
 
-function makeAgentInventoryTool(getAllTools: () => ToolInfo[]) {
+function makeInspectAgentTool(getAllTools: () => ToolInfo[]) {
   return defineTool({
-    name: "agent_inventory",
-    label: "Agent Inventory",
+    name: "inspect_agent",
+    label: "Inspect Agent",
     description:
-      "Dump agent state (extensions, tools, skills, context files, model, cwd) to YAML " +
-      "for human and machine readability. Outputs to <cwd>/output/pi/ by default.",
-    promptSnippet: "Dump agent configuration and state to YAML",
+      "Snapshot the full agent state — extensions, tools, skills, context files, " +
+      "model, cwd — to YAML (file or inline). Use for debugging, replay, or auditing " +
+      "what is loaded. For token-distribution only, use inspect_context.",
+    promptSnippet: "Inspect (snapshot) agent configuration and state to YAML",
     parameters: Type.Object({
       output_dir: Type.Optional(Type.String()),
       filename: Type.Optional(Type.String()),
@@ -541,7 +542,7 @@ function makeAgentInventoryTool(getAllTools: () => ToolInfo[]) {
 
       const lines: string[] = [];
       lines.push("╔══════════════════════════════════════╗");
-      lines.push("║        Agent Inventory               ║");
+      lines.push("║        Inspect Agent                ║");
       lines.push("╚══════════════════════════════════════╝");
       lines.push("");
       lines.push(`Output: ${outputPath}`);
@@ -561,12 +562,12 @@ function makeAgentInventoryTool(getAllTools: () => ToolInfo[]) {
   });
 }
 
-// ─── Extension Analyzer Tool ─────────────────────────────────────────────────
+// ─── Inspect Extensions Tool ─────────────────────────────────────────────────
 
 /**
- * extension_analyzer — lint loaded extensions/tools/skills/guidelines for
- * POTENTIAL ISSUES (the worktree's goal). Unlike context_analyzer (which
- * measures token distribution) and agent_inventory (which dumps state), this
+ * inspect_extensions — lint loaded extensions/tools/skills/guidelines for
+ * POTENTIAL ISSUES (the worktree's goal). Unlike inspect_context (which
+ * measures token distribution) and inspect_agent (which dumps state), this
  * surfaces problems an extension author or maintainer should act on.
  *
  * The check logic is PURE (analyzeExtensions over a typed AnalysisInput) so it
@@ -803,7 +804,7 @@ export function summarizeFindings(findings: Finding[]): {
 export function formatExtensionReport(findings: Finding[]): string {
   const lines: string[] = [];
   lines.push("╔══════════════════════════════════════╗");
-  lines.push("║        Extension Analyzer            ║");
+  lines.push("║        Inspect Extensions           ║");
   lines.push("╚══════════════════════════════════════╝");
   lines.push("");
 
@@ -854,16 +855,16 @@ export function formatExtensionReport(findings: Finding[]): string {
   return lines.join("\n");
 }
 
-function makeExtensionAnalyzerTool(getAllTools: () => ToolInfo[]) {
+function makeInspectExtensionsTool(getAllTools: () => ToolInfo[]) {
   return defineTool({
-    name: "extension_analyzer",
-    label: "Extension Analyzer",
+    name: "inspect_extensions",
+    label: "Inspect Extensions",
     description:
-      "Lint loaded extensions, tools, skills and prompt-guidelines for potential issues: " +
-      "duplicate tool names, missing descriptions/Available-tools snippets, oversized schemas/skills/context files, " +
-      "stale guideline references, missing guidelines, and per-extension token cost. " +
-      "Returns a severity-ranked report (or JSON).",
-    promptSnippet: "Analyze extensions/tools/guidelines for potential issues",
+      "Lint loaded extensions, tools, skills, and guidelines for health issues: " +
+      "duplicate names, missing descriptions/snippets, oversized schemas, stale " +
+      "references, and per-extension token tax. Severity-ranked report or JSON. " +
+      "For pure token measurement use inspect_context.",
+    promptSnippet: "Inspect extensions/tools/guidelines for health issues",
     parameters: Type.Object({
       return_json: Type.Optional(
         Type.Boolean({ description: "Return machine-readable {findings, summary, total_extension_tokens} JSON instead of a text report" }),
@@ -958,9 +959,9 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
   // getAllTools() is on ExtensionAPI (pi), not ExtensionContext (ctx).
   // Pass it as a closure into the tool so execute() can call it.
   const getAllTools = () => pi.getAllTools();
-  pi.registerTool(makeContextAnalyzerTool(getAllTools));
-  pi.registerTool(makeAgentInventoryTool(getAllTools));
-  pi.registerTool(makeExtensionAnalyzerTool(getAllTools));
+  pi.registerTool(makeInspectContextTool(getAllTools));
+  pi.registerTool(makeInspectAgentTool(getAllTools));
+  pi.registerTool(makeInspectExtensionsTool(getAllTools));
 
   // ── Todo tool + /todos command ────────────────────────────────────────
   registerTodoTool(pi);
