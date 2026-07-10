@@ -27,7 +27,6 @@ import {
 } from "../constants.js";
 import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, MemoryCategory, MemoryOverflowStrategy } from "../types.js";
 import { AGENT_ROOT } from "../paths.js";
-import type { DatabaseManager } from "./db.js";
 
 export class MemoryStore {
   private memoryEntries: string[] = [];
@@ -35,11 +34,6 @@ export class MemoryStore {
   private failureEntries: string[] = [];
   private snapshot: MemorySnapshot = { memory: "", user: "" };
   private consolidator: ((target: "memory" | "user" | "failure", signal?: AbortSignal) => Promise<ConsolidationResult>) | null = null;
-  // Optional SQLite handle for opt-in .md↔DB reconciliation (see
-  // reconcileMarkdownFromDb). When set, loadFromDisk() prunes .md entries whose
-  // content was removed from the DB (e.g. by offline bulk-dedup SQL).
-  private dbManager: DatabaseManager | null = null;
-  private dbProject: string | null = null;
 
   constructor(private config: MemoryConfig) {}
 
@@ -49,17 +43,6 @@ export class MemoryStore {
    */
   setConsolidator(fn: (target: "memory" | "user" | "failure", signal?: AbortSignal) => Promise<ConsolidationResult>): void {
     this.consolidator = fn;
-  }
-
-  /**
-   * Wire the SQLite store for opt-in .md↔DB reconciliation.
-   * `project` scopes which DB rows correspond to this store: null for the
-   * global store (MEMORY.md/USER.md/failures.md), or the project name for a
-   * project-scoped store.
-   */
-  setDatabaseManager(dbManager: DatabaseManager | null, project: string | null): void {
-    this.dbManager = dbManager;
-    this.dbProject = project;
   }
 
   // ─── Write serialization ───
@@ -156,18 +139,6 @@ export class MemoryStore {
     this.userEntries = this.dedupEntries(this.userEntries);
     this.failureEntries = this.dedupEntries(this.failureEntries);
 
-    // Optional .md↔DB reconciliation: prune .md entries whose content was
-    // removed from the SQLite store (e.g. by offline bulk-dedup SQL) so the
-    // capacity source reflects the post-dedup state. Opt-in (default off)
-    // because the .md and DB can drift for innocent reasons; pruned entries are
-    // archived so nothing is lost. Runs under the same write lock as the
-    // caller (loadFromDisk is invoked inside the locked mutators).
-    if (this.config.reconcileMarkdownFromDb && this.dbManager) {
-      await this.reconcileTargetFromDb("memory");
-      await this.reconcileTargetFromDb("user");
-      await this.reconcileTargetFromDb("failure");
-    }
-
     // Capture frozen snapshot for system prompt injection
     // Strip metadata comments — the LLM doesn't need to see timestamps
     const strippedMemory = this.memoryEntries.map((e) => this.stripMetadata(e));
@@ -179,58 +150,6 @@ export class MemoryStore {
   }
 
   // ─── CRUD ───
-
-  /**
-   * Query the SQLite store for the set of contents belonging to this store's
-   * scope (target + dbProject). Used by .md↔DB reconciliation.
-   */
-  private dbContentSet(target: "memory" | "user" | "failure"): Set<string> {
-    if (!this.dbManager) return new Set();
-    const db = this.dbManager.getDb();
-    const params: unknown[] = [target];
-    let sql = "SELECT content FROM memories WHERE target = ?";
-    if (this.dbProject === null) {
-      sql += " AND project IS NULL";
-    } else {
-      sql += " AND project = ?";
-      params.push(this.dbProject);
-    }
-    const rows = db.prepare(sql).all(...params) as Array<{ content: string }>;
-    return new Set(rows.map((r) => r.content.trim()));
-  }
-
-  /**
-   * Prune .md entries for `target` whose content is no longer present in the
-   * SQLite store (e.g. removed by offline bulk-dedup SQL), then re-save the
-   * .md. Pruned entries are archived via writeKnowledgeArchive() so the
-   * reconciliation never loses data. Skipped silently when the DB slice is
-   * empty (a fresh/mismatched DB must not wipe the curated .md).
-   * Returns the number of entries pruned.
-   */
-  private async reconcileTargetFromDb(target: "memory" | "user" | "failure"): Promise<number> {
-    if (!this.dbManager) return 0;
-    const dbContents = this.dbContentSet(target);
-    if (dbContents.size === 0) return 0; // don't wipe .md against an empty DB slice
-
-    const entries = this.entriesFor(target);
-    const survivors: string[] = [];
-    const pruned: Array<{ text: string; created: string; lastReferenced: string }> = [];
-    for (const entry of entries) {
-      const decoded = this.decodeEntry(entry);
-      if (dbContents.has(decoded.text.trim())) {
-        survivors.push(entry);
-      } else {
-        pruned.push(decoded);
-      }
-    }
-    if (pruned.length === 0) return 0;
-
-    // Preserve pruned entries in a vault archive so reconciliation is reversible.
-    await this.writeKnowledgeArchive(target, pruned);
-    this.setEntries(target, survivors);
-    await this.saveToDisk(target);
-    return pruned.length;
-  }
 
   async add(target: "memory" | "user" | "failure", content: string, signal?: AbortSignal): Promise<MemoryResult> {
     return this._add(target, content, signal);

@@ -139,12 +139,6 @@ export default function (pi: ExtensionAPI) {
     : { ...config, memoryDir: undefined };
   const projectStore = project.memoryDir ? new MemoryStore(projectConfig) : null;
 
-  // Wire the SQLite store into MemoryStore for opt-in .md↔DB reconciliation
-  // (config.reconcileMarkdownFromDb). Scoped: global store ↔ project IS NULL,
-  // project store ↔ project = projectName.
-  store.setDatabaseManager(dbManager, null);
-  if (projectStore) projectStore.setDatabaseManager(dbManager, projectName);
-
   // ── 1. Load memory from disk on session start ──
   pi.on("session_start", async (_event, ctx) => {
     if (shouldMigrateExtensionRoot && !extensionRootMigrated) {

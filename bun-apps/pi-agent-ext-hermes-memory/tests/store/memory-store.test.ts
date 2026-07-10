@@ -882,58 +882,5 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.ok(raw.includes(`${TEST_MARKER} concurrent A`), "concurrent A should persist");
       assert.ok(raw.includes(`${TEST_MARKER} concurrent B`), "concurrent B should persist");
     });
-
-    it("add() succeeds after direct SQL deletes from sessions.db (opt-in DB reconciliation)", async () => {
-      // Demonstrates the SQL-dedup branch of criterion 1: the .md is the capacity
-      // source and is untouched by direct SQL deletes from sessions.db. With
-      // opt-in reconcileMarkdownFromDb, loadFromDisk prunes .md entries whose
-      // content was removed from the DB (archived, so reversible), freeing
-      // capacity so add succeeds in the same session.
-      const { DatabaseManager } = await import("../../src/store/db.js");
-      const { syncMemoryEntry } = await import("../../src/store/sqlite-memory-store.js");
-      const dbManager = new DatabaseManager(MEMORY_DIR);
-      // Start from a clean DB slice so prior runs don't perturb reconciliation.
-      dbManager.getDb().prepare("DELETE FROM memories").run();
-
-      const limit = 260;
-      const store = new MemoryStore(makeConfig({ memoryCharLimit: limit, reconcileMarkdownFromDb: true }));
-      store.setDatabaseManager(dbManager, null);
-      await store.loadFromDisk();
-
-      // Seed BOTH the .md (via store) and the DB (via syncMemoryEntry) with
-      // identical content — mirrors the real tool path so the two stores match.
-      const seed = async (text: string) => {
-        assert.ok((await store.add("memory", text)).success, `seed add failed: ${text}`);
-        syncMemoryEntry(dbManager, { content: text, target: "memory", project: null });
-      };
-      await seed(`${TEST_MARKER} reconcile keep me`);
-      await seed(`${TEST_MARKER} reconcile dup one`);
-      await seed(`${TEST_MARKER} reconcile dup two`);
-      await settle();
-
-      // Sanity: the .md is full enough that a fresh entry is rejected (the old
-      // behavior the bug report complained about).
-      const fresh = `${TEST_MARKER} fresh after sql dedup`;
-      const blocked = await store.add("memory", fresh);
-      assert.ok(!blocked.success, "fresh add should be rejected while dedup'd entries still occupy the .md");
-
-      // Offline bulk-dedup: delete two rows directly from sessions.db.
-      const db = dbManager.getDb();
-      db.prepare("DELETE FROM memories WHERE content LIKE ?").run("%reconcile dup%");
-      await settle();
-
-      // Now add succeeds: reload reconciles the .md against the post-dedup DB
-      // (prunes the two deleted entries, archived), freeing capacity.
-      const result = await store.add("memory", fresh);
-      assert.ok(result.success, `add should succeed after SQL dedup + reconciliation: ${result.error}`);
-
-      const raw = await readRaw(memoryPath);
-      assert.ok(raw.includes(fresh), "fresh entry should be persisted");
-      assert.ok(raw.includes("reconcile keep me"), "non-deleted entry should remain");
-      assert.ok(!raw.includes("reconcile dup one"), "SQL-deleted entry should be pruned from .md");
-      assert.ok(!raw.includes("reconcile dup two"), "SQL-deleted entry should be pruned from .md");
-
-      dbManager.close();
-    });
   });
 });

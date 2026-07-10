@@ -222,7 +222,7 @@ Do exactly this:
    Extract knownDeadEnds (knob moves that regressed — e.g. "audio_cfg_scale=3 regresses") and knownGood (moves that helped — e.g. "audio_stage1_only helps slightly"). Put the relevant gist in kbDigest.
 
 Return the resolved object. Current invocation: objective=${objective}, transformer=${transformer}, budget=${budget}, dryRun=${dryRun}, resume=${resumeMode}.`,
-  { label: "resolve", phase: "Resolve", model: "haiku", schema: RESOLVE_SCHEMA },
+  { label: "resolve", phase: "Resolve", tier: "small", schema: RESOLVE_SCHEMA },
 )
 if (!resolve) { log("Resolve failed — aborting."); throw new Error("resolve failed") }
 const R = resolve
@@ -257,7 +257,7 @@ HIST_EOF")
 5. Bash("wc -c < '${targetPath}'")
 6. Prune old (keep newest 15, exclude reflection): Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f 2>/dev/null || true")
 Return { written: true, bytes: <the number printed by wc> }.`,
-    { label: "persist-history", phase: "Persist", model: "haiku",
+    { label: "persist-history", phase: "Persist", tier: "small",
       schema: { type: "object", properties: { written: { type: "boolean" }, bytes: { type: "number", description: "Byte count printed by wc -c" } }, required: ["bytes"] } },
   )
   const histBytes = Number(persist?.bytes) || 0
@@ -275,7 +275,7 @@ Return { written: true, bytes: <the number printed by wc> }.`,
 5. Verify: Bash("test -s '${indexFile}' && echo OK || echo MISSING")
 6. If MISSING, rewrite the index via a quoted heredoc with the same array content.
 Return { updated: true }.`,
-    { label: "update-index", phase: "Persist", model: "haiku" },
+    { label: "update-index", phase: "Persist", tier: "small" },
   )
 }
 
@@ -301,7 +301,7 @@ async function loadKnowledge(kbFile) {
    - METRIC:       "- METRIC: <title>: <detail>"
    Truncate each detail to ~160 chars. Never invent records not in the file.
 Return { found: true, records: <active records array>, digest: <the string> }.`,
-    { label: "load-knowledge", phase: "Resolve", model: "haiku",
+    { label: "load-knowledge", phase: "Resolve", tier: "small",
       schema: { type: "object", properties: {
         found: { type: "boolean" },
         records: { type: "array", items: { type: "object" } },
@@ -377,7 +377,7 @@ WRITE RELIABLY:
 5. Bash("wc -l < '${kbFile}'")  → total_lines
 6. Count active records (status="active"); optionally cross-check with a grep.
 Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [<ids appended this run>] }.`,
-    { label: "extract-knowledge", phase: "Persist", model: "sonnet",
+    { label: "extract-knowledge", phase: "Persist", tier: "big",
       schema: { type: "object", properties: {
         updated: { type: "boolean" },
         total_lines: { type: "number", description: "Line count from wc -l" },
@@ -408,7 +408,7 @@ async function publishKnowledge(kbFile, workflowName) {
    If "0", return { published: false, reason: "opt-out" }.
 2. Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
 3. Report { published: <true iff output contains "created" or "unchanged" or "updated" with no "Error">, summary: <the tail output> }.`,
-    { label: "publish-knowledge", phase: "Persist", model: "sonnet",
+    { label: "publish-knowledge", phase: "Persist", tier: "big",
       schema: { type: "object", properties: {
         published: { type: "boolean" },
         summary: { type: "string" },
@@ -688,7 +688,7 @@ KB context: ${knowledgeDigest.slice(0, 400)}
 Answer in 2 sentences:
 1. What does this failure tell us about how ${proposal.knob} affects model output?
 2. What CLASS of change might break the plateau next (not a specific value)?`,
-      { label: `reflect-${i}`, phase: "Reflect", schema: REFLECT_SCHEMA, model: "haiku", effort: "low" }
+      { label: `reflect-${i}`, phase: "Reflect", schema: REFLECT_SCHEMA, tier: "small", effort: "low" }
     )
     if (reflection) {
       reflections.push(reflection)
@@ -731,8 +731,8 @@ const ltxRunResult = {
   priorKbDigest: R.kbDigest || null,
 }
 const knowledge = await extractKnowledge(KB_FILE, R.runId, ltxRunResult,
-await publishKnowledge(KB_FILE, _WF_NAME)
   reflections.length > 0 ? reflections.map((r) => r.insight).join('; ') : null)
+await publishKnowledge(KB_FILE, _WF_NAME)
 if (knowledge) log(`Knowledge: ${knowledge.new_ids?.length || 0} new record(s) (active≈${knowledge.active ?? "?"})`)
 
 // ── Phase 4: Persist (run summary JSON + cross-workflow index) ───────────────
@@ -786,7 +786,7 @@ const summary = await agent(
 
 Best mp4: ${currentBest?.mp4 || "(none)"}
 Iterations: ${JSON.stringify(iterations)}`,
-  { label: "report", phase: "Report", model: "haiku", schema: {
+  { label: "report", phase: "Report", tier: "small", schema: {
     type: "object",
     properties: { htmlPath: { type: "string" } },
     required: [],

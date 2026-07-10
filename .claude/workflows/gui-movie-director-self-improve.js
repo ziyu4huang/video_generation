@@ -163,7 +163,7 @@ ${histJson}
 5. Bash("wc -c < '${targetPath}'")
 6. Prune old (keep newest 15): Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | tail -n +16 | xargs rm -f 2>/dev/null || true")
 Return { written: true, bytes: <wc output> }.`,
-    { label: "persist-history", phase: "Persist", model: "haiku",
+    { label: "persist-history", phase: "Persist", tier: "small",
       schema: { type: "object", properties: { written: { type: "boolean" }, bytes: { type: "number" } }, required: ["bytes"] } },
   )
   const histBytes = Number(persist?.bytes) || 0
@@ -180,7 +180,7 @@ Return { written: true, bytes: <wc output> }.`,
 5. Verify: Bash("test -s '${indexFile}' && echo OK || echo MISSING")
 6. If MISSING, rewrite via heredoc.
 Return { updated: true }.`,
-    { label: "update-index", phase: "Persist", model: "haiku" },
+    { label: "update-index", phase: "Persist", tier: "small" },
   )
 }
 
@@ -200,7 +200,7 @@ async function loadKnowledge(kbFile) {
    - METRIC:       "- METRIC: <title>: <detail>"
    Truncate each detail to ~160 chars. Never invent records not in the file.
 Return { found: true, records: <active records array>, digest: <the string> }.`,
-    { label: "load-knowledge", phase: "Resolve", model: "haiku",
+    { label: "load-knowledge", phase: "Resolve", tier: "small",
       schema: { type: "object", properties: {
         found: { type: "boolean" },
         records: { type: "array", items: { type: "object" } },
@@ -263,7 +263,7 @@ WRITE RELIABLY:
 5. Bash("wc -l < '${kbFile}'")  → total_lines
 6. Count active records (status="active"); optionally cross-check with a grep.
 Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [<ids appended this run>] }.`,
-    { label: "extract-knowledge", phase: "Persist", model: "sonnet",
+    { label: "extract-knowledge", phase: "Persist", tier: "big",
       schema: { type: "object", properties: {
         updated: { type: "boolean" },
         total_lines: { type: "number", description: "Line count from wc -l" },
@@ -294,7 +294,7 @@ async function publishKnowledge(kbFile, workflowName) {
    If "0", return { published: false, reason: "opt-out" }.
 2. Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
 3. Report { published: <true iff output contains "created" or "unchanged" or "updated" with no "Error">, summary: <the tail output> }.`,
-    { label: "publish-knowledge", phase: "Persist", model: "sonnet",
+    { label: "publish-knowledge", phase: "Persist", tier: "big",
       schema: { type: "object", properties: {
         published: { type: "boolean" },
         summary: { type: "string" },
@@ -345,7 +345,7 @@ SOURCE file no longer exists in the tree, so the operator can manually retire st
    token, or any PRESENT token, are KEPT.
 8. Do NOT write or modify the file. Detect-only.
 Return { scanned, candidates: [...] }.`,
-    { label: "prune-knowledge", phase: "Persist", model: "sonnet",
+    { label: "prune-knowledge", phase: "Persist", tier: "big",
       schema: { type: "object", properties: {
         scanned: { type: "number" },
         candidates: { type: "array", items: { type: "object", properties: {
@@ -377,7 +377,7 @@ async function loadOperationLessons(opFile) {
    ONLY {id, severity, rule} — copy "rule" VERBATIM (do not rephrase/truncate/invent).
    Drop any record whose phase is not one of the four above.
 Return { found: true, byPhase: { "<phase>": [{id,severity,rule}, ...], ... } }.`,
-    { label: "load-operation-lessons", phase: "Resolve", model: "haiku",
+    { label: "load-operation-lessons", phase: "Resolve", tier: "small",
       schema: { type: "object", properties: {
         found: { type: "boolean" },
         byPhase: { type: "object", description: "phase -> array of {id,severity,rule}",
@@ -424,7 +424,7 @@ async function proposeOperationLessons(inboxFile, opFile, runId, runResult) {
 3. Inbox ids: Bash("test -f '${inboxFile}' && cat '${inboxFile}' || echo __EMPTY__"); parse each
    non-empty line as JSON, collect "id".
 Return { busy: <bool>, existingIds: [<deduped ids from both files>] }.`,
-    { label: "propose-lessons-guard", phase: "Persist", model: "haiku",
+    { label: "propose-lessons-guard", phase: "Persist", tier: "small",
       schema: { type: "object", properties: {
         busy: { type: "boolean" },
         existingIds: { type: "array", items: { type: "string" } },
@@ -464,7 +464,7 @@ For EACH candidate:
 Do NOT invent a failure not present in THIS run's result. If the run had no instructive failure,
 return proposed:0, candidates:[].
 Return { proposed: <count>, candidates: [{id, phase, severity, rule, why, source, signal, target_hint}, ...] }.`,
-    { label: "propose-operation-lessons", phase: "Persist", model: "sonnet",
+    { label: "propose-operation-lessons", phase: "Persist", tier: "big",
       schema: { type: "object", properties: {
         proposed: { type: "number" },
         candidates: { type: "array", items: { type: "object", properties: {
@@ -498,7 +498,7 @@ ${newLines}
 4. Validate EVERY line parses: Bash("jq -c . '${inboxFile}' >/dev/null && echo VALID || echo INVALID")
 5. Bash("wc -l < '${inboxFile}'") → total
 Return { appended: <true iff VALID>, total: <wc -l>, newIds: [${fresh.map((c) => `"${c.id}"`).join(", ")}] }.`,
-    { label: "propose-lessons-write", phase: "Persist", model: "sonnet",
+    { label: "propose-lessons-write", phase: "Persist", tier: "big",
       schema: { type: "object", properties: {
         appended: { type: "boolean" }, total: { type: "number" },
         newIds: { type: "array", items: { type: "string" } },
@@ -659,7 +659,7 @@ Return that object under the field "schema".`,
 Bash("cd '${PROJECT_ROOT}' && git status --short -- 'bun-apps/gui-movie-director/schemas/' 'bun-apps/gui-movie-director/scripts/' 'python/mlx-movie-director/app/commands/' | grep -v '^??' || true")
 dirty = true if that printed any non-empty line (tracked-modified files). Untracked ('??') files don't count.
 Return { dirty, files: [<the printed file paths, if any>] }.`,
-      { label: "schema-dirty-tree-check", phase: "Schema", model: "haiku",
+      { label: "schema-dirty-tree-check", phase: "Schema", tier: "small",
         schema: { type: "object", properties: { dirty: { type: "boolean" }, files: { type: "array", items: { type: "string" } } }, required: ["dirty"] } },
     )
     if (dirtyCheck?.dirty === true) {
@@ -1033,7 +1033,7 @@ async function runUxLane(opts) {
 Run: Bash("lsof -ti :3099 2>/dev/null | head -1")
 If output is non-empty → { running: true, pid: "<output>" }
 If empty → { running: false, pid: "" }`,
-    { label: "ux-server-check", phase: "UX", model: "haiku",
+    { label: "ux-server-check", phase: "UX", tier: "small",
       schema: { type: "object", properties: { running: { type: "boolean" }, pid: { type: "string" } }, required: ["running"] } },
   )
   if (!serverCheck?.running) {
@@ -1044,7 +1044,7 @@ If empty → { running: false, pid: "" }`,
 
   await agent(
     `Bash("mkdir -p '${SHOT_DIR}'"). Return nothing.`,
-    { label: "ux-mkdir-shots", phase: "UX", model: "haiku" },
+    { label: "ux-mkdir-shots", phase: "UX", tier: "small" },
   )
 
   // ── Survey: screenshot + VLM analyze all views ──
@@ -1069,7 +1069,7 @@ Steps:
 
 Return { ok: true, shotPath: "${shotPath}" } if screenshot succeeded,
 or { ok: false, error: "<reason>" } if playwright is unavailable or the file is missing.`,
-        { label: `ux-screenshot:${v.id}`, phase: "UX", model: "haiku",
+        { label: `ux-screenshot:${v.id}`, phase: "UX", tier: "small",
           schema: { type: "object", properties: { ok: { type: "boolean" }, shotPath: { type: "string" }, error: { type: "string" } }, required: ["ok"] } },
       )
       return { v, shotPath: shot?.ok ? shotPath : null, screenshotOk: shot?.ok === true }
@@ -1120,7 +1120,7 @@ ${knowledgeDigest || "(empty — first run)"}
 Source file: ${v.file ? `${GUI_DIR}/${v.file}` : "N/A (config/gallery special view)"}
 uxScore: 1-10 overall UX quality of this view (10 = excellent, 1 = very poor).
 Return JSON: { viewId: "${v.id}", uxScore: <number>, issues: [<each issue as above, required: id,severity,category,title,affectedFile>] }.`,
-        { label: `ux-analyze:${v.id}`, phase: "UX", model: "sonnet",
+        { label: `ux-analyze:${v.id}`, phase: "UX", tier: "big",
           schema: { type: "object", properties: {
             viewId: { type: "string" },
             uxScore: { type: "number" },
@@ -1191,7 +1191,7 @@ Return JSON: { viewId: "${v.id}", uxScore: <number>, issues: [<each issue as abo
 Bash("cd '${PROJECT_ROOT}' && git status --short -- 'bun-apps/gui-movie-director/frontend/' 'bun-apps/gui-movie-director/api/' 'bun-apps/gui-movie-director/lib/' | grep -v '^??' || true")
 dirty = true if that printed any non-empty line (tracked-modified files). Untracked ('??') files don't count.
 Return { dirty, files: [<the printed file paths, if any>] }.`,
-      { label: "ux-dirty-tree-check", phase: "UX", model: "haiku",
+      { label: "ux-dirty-tree-check", phase: "UX", tier: "small",
         schema: { type: "object", properties: { dirty: { type: "boolean" }, files: { type: "array", items: { type: "string" } } }, required: ["dirty"] } },
     )
     treeDirty = dirtyCheck?.dirty === true
@@ -1244,7 +1244,7 @@ Rules:
 
 Return { applied: true, description: "<one sentence describing what you changed>", fileHash: "<the hash from step 8>" }
 or { applied: false, description: "<why you skipped this>" }.${opFixBlock}`,
-        { label: `ux-fix:${issue.id}`, phase: "UX", model: "sonnet",
+        { label: `ux-fix:${issue.id}`, phase: "UX", tier: "big",
           schema: { type: "object", properties: {
             issueId: { type: "string" }, applied: { type: "boolean" }, testsPassed: { type: "boolean" },
             scoreBefore: { type: "number" }, scoreAfter: { type: "number" },
@@ -1264,7 +1264,7 @@ or { applied: false, description: "<why you skipped this>" }.${opFixBlock}`,
         `Run bun tests for the GUI Movie Director and report pass/fail.
 Bash("cd '${GUI_DIR}' && bun test 2>&1 | tail -30")
 Return { ok: <true if fail count is 0>, pass: <number>, fail: <number>, output: "<last 5 lines>" }.`,
-        { label: `ux-test:iter${fixIter}`, phase: "UX", model: "haiku",
+        { label: `ux-test:iter${fixIter}`, phase: "UX", tier: "small",
           schema: { type: "object", properties: { ok: { type: "boolean" }, pass: { type: "number" }, fail: { type: "number" }, output: { type: "string" } }, required: ["ok"] } },
       )
 
@@ -1278,7 +1278,7 @@ If currentHash differs from the expected hash, someone edited the file concurren
 Otherwise: Bash("cd '${GUI_DIR}' && git checkout -- '${issue.affectedFile}' 2>&1 || echo REVERT_FAILED")
 If the affected file was frontend/styles.css AND another file was also changed, apply the same hash check before reverting it too.
 Return nothing.`,
-          { label: `ux-revert:iter${fixIter}`, phase: "UX", model: "haiku" },
+          { label: `ux-revert:iter${fixIter}`, phase: "UX", tier: "small" },
         )
         fixResults.push({ issueId: issue.id, applied: false, testsPassed: false, scoreBefore: issue.uxScoreBefore, scoreAfter: null, revertReason: `bun test failed (pass=${testResult?.pass}, fail=${testResult?.fail})` })
         continue
@@ -1308,7 +1308,7 @@ Return nothing.`,
    based on the INTERACTIVE ELEMENTS, STATE, and PRIMARY ACTION sections of both captions.
 6. Return { ok: true, uxScore: <1-10 overall UX score of the view AFTER the fix> }
    or { ok: false, uxScore: null } if screenshot failed.`,
-        { label: `ux-rescore:iter${fixIter}`, phase: "UX", model: "haiku",
+        { label: `ux-rescore:iter${fixIter}`, phase: "UX", tier: "small",
           schema: { type: "object", properties: { uxScore: { type: "number" }, ok: { type: "boolean" } }, required: ["ok"] } },
       )
 
@@ -1324,7 +1324,7 @@ Bash("cd '${GUI_DIR}' && git hash-object '${issue.affectedFile}'") → currentHa
 Expected hash (captured right after our fix): ${fixResult?.fileHash || "(none captured — proceed with revert)"}
 If currentHash differs, someone edited the file concurrently — do NOT revert, just report skipped.
 Otherwise: Bash("cd '${GUI_DIR}' && git checkout -- '${issue.affectedFile}'"). Return nothing.`,
-          { label: `ux-revert-score:iter${fixIter}`, phase: "UX", model: "haiku" },
+          { label: `ux-revert-score:iter${fixIter}`, phase: "UX", tier: "small" },
         )
         fixResults.push({ issueId: issue.id, applied: false, testsPassed: true, scoreBefore, scoreAfter, revertReason: `UX score unchanged or worse (${scoreBefore} → ${scoreAfter})` })
         continue
@@ -1396,7 +1396,7 @@ Parse and return:
 - findings: one entry per finding line → { file, line(number|null), severity, message, rule }
   (skip the "✖ … problems" summary line and the trailing "EXIT=" line)
 - configError: true iff exit was 2 (eslint not installed / config broken)`,
-    { label: "lint-run", phase: "Lint", model: "haiku",
+    { label: "lint-run", phase: "Lint", tier: "small",
       schema: { type: "object", properties: {
         clean:        { type: "boolean" },
         errorCount:   { type: "number" },
@@ -1458,7 +1458,7 @@ phase("Resolve")
     `Resolve the git repository root of the working tree we are running in.
 Bash("git rev-parse --show-toplevel")
 Return { root: "<the absolute path, whitespace-trimmed>" }.`,
-    { label: "resolve-project-root", phase: "Resolve", model: "haiku",
+    { label: "resolve-project-root", phase: "Resolve", tier: "small",
       schema: { type: "object", properties: { root: { type: "string" } }, required: ["root"] } },
   )
   const resolved = (rootResolve?.root || "").trim()
@@ -1478,12 +1478,12 @@ Return { root: "<the absolute path, whitespace-trimmed>" }.`,
   }
 }
 
-// Timestamp (no Date.now() in workflows).
+// Timestamp — fetched via agent (the nondeterministic time builtin is banned).
 const RUN_TIMESTAMP = await agent(
   `Return the current timestamp in ISO format with colons replaced by dashes for filename safety.
   Run: Bash("date -u +%Y-%m-%dT%H-%M-%S")
   Return { timestamp: "<the output>" }.`,
-  { label: "timestamp", phase: "Resolve", model: "haiku",
+  { label: "timestamp", phase: "Resolve", tier: "small",
     schema: { type: "object", properties: { timestamp: { type: "string" } }, required: ["timestamp"] } },
 )
 const RUN_ID = RUN_TIMESTAMP?.timestamp || "unknown"
@@ -1512,7 +1512,7 @@ if (FIX_REQ) {
 1. Bash("cd '${PROJECT_ROOT}' && git status --porcelain")
 2. Ignore the ComfyUI submodule line if present (submodule noise, unrelated).
 3. dirty = true if any OTHER tracked file shows as modified/staged.`,
-    { label: "dirty-tree-check", phase: "Resolve", model: "haiku",
+    { label: "dirty-tree-check", phase: "Resolve", tier: "small",
       schema: { type: "object", properties: {
         dirty: { type: "boolean", description: "true if git status has uncommitted tracked changes" },
         summary: { type: "string", description: "short git status --porcelain summary" },
@@ -1532,7 +1532,7 @@ if (!UX_EXPLICIT && !DO_UX && UX_AUTO) {
     `Check if the GUI dev server is running at port 3099.
 Bash("lsof -ti :3099 2>/dev/null | head -1")
 Return { running: <true if output is non-empty>, pid: "<trimmed output>" }.`,
-    { label: "server-auto-detect", phase: "Resolve", model: "haiku",
+    { label: "server-auto-detect", phase: "Resolve", tier: "small",
       schema: { type: "object", properties: { running: { type: "boolean" }, pid: { type: "string" } }, required: ["running"] } },
   )
   if (srvDetect?.running) {
@@ -1735,7 +1735,7 @@ let deltaStr = null
    to result.openIssues or
    parse signals.key_metric (format: "openIssues=N ...") for the leading N.
 Return { found: true, openIssues: <number> } or { found: false, openIssues: null }.`,
-    { label: "prev-run-delta", phase: "Persist", model: "haiku",
+    { label: "prev-run-delta", phase: "Persist", tier: "small",
       schema: { type: "object", properties: { found: { type: "boolean" }, openIssues: { type: "number" } }, required: ["found"] } },
   )
   if (prevRun?.found && prevRun.openIssues != null) {
@@ -1757,7 +1757,7 @@ let chronicKeys = new Set()
 4. Parse JSON. Extract the topFindings array — it may be at result.topFindings or
    at the root topFindings field; look inside result.review.topFindings too.
 5. Return { findings: [{ file: "...", title: "..." }, ...] } — only file and title per entry.`,
-    { label: "prev-findings-for-chronic", phase: "Persist", model: "haiku",
+    { label: "prev-findings-for-chronic", phase: "Persist", tier: "small",
       schema: { type: "object", properties: {
         findings: { type: "array", items: { type: "object",
           properties: { file: { type: "string" }, title: { type: "string" } } } },
@@ -1904,7 +1904,7 @@ try {
 Bash("node '${PROJECT_ROOT}/scripts/workflow-knowledge-manifest.mjs' 2>&1 | tail -4; echo EXIT=$?")
 refreshed = true iff the EXIT marker is 0.
 Return { refreshed: <bool>, tail: "<the last few output lines>" }.`,
-      { label: "manifest-refresh", phase: "Persist", model: "haiku",
+      { label: "manifest-refresh", phase: "Persist", tier: "small",
         schema: { type: "object", properties: { refreshed: { type: "boolean" }, tail: { type: "string" } }, required: ["refreshed"] } })
     if (mf?.refreshed) log("MANIFEST.md coverage matrix refreshed")
     else log(`⚠ MANIFEST refresh not confirmed (refreshed=${mf?.refreshed}): ${(mf?.tail || "").slice(0, 160)}`)
@@ -1933,7 +1933,7 @@ try {
    Bash("grep -c '${RUN_ID}' '${PROJECT_ROOT}/knowledge-base/code/records.jsonl' 2>/dev/null || echo 0")
    present = (the count from step 3 is >= 1). If the bun command in step 2 failed (non-zero EXIT), present is false.
 Return { appended: <present>, verified: <present>, output: "<the step 2 output>" }.`,
-    { label: "code-knowledge-append", phase: "Persist", model: "haiku",
+    { label: "code-knowledge-append", phase: "Persist", tier: "small",
       schema: { type: "object", properties: { appended: { type: "boolean" }, verified: { type: "boolean" }, output: { type: "string" } }, required: ["appended", "verified"] } },
   )
   knowledgeAppended = kbAppend?.verified === true

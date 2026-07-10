@@ -1,7 +1,7 @@
 {
   "version": 1,
   "store_relative_to_repo_root": "../video_generation__models",
-  "count": 111,
+  "count": 110,
   "files": {
     "audio/ltx-2.3-audio/audio_vae.safetensors": {
       "md5": "f4dd0367b95f98fdd8b2f7e5c45018e8",
@@ -86,10 +86,6 @@
     "lora/highresolutionflux2-kelien-9b/HighResolutionFlux2-Kelien-9B.int8.safetensors": {
       "md5": "2f2c0bf1e4f5975e0d3d48a5b05d56f2",
       "size": 41476152
-    },
-    "lora/id-lora-talkvid-ltx2.3/lora_weights.safetensors": {
-      "md5": "ecbce05087c76b0170ed477ca98f1c9c",
-      "size": 1157884304
     },
     "lora/jib-mix-realistic-z-image-lora/Jibs_Realistic_z-image_lora_V1.int8.safetensors": {
       "md5": "c774a1ef029ed8bf623d961503e9603b",
