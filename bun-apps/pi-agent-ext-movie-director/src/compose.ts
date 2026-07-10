@@ -17,6 +17,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { burnCaptions, planBurn, type CaptionOutcome } from "./captions.ts";
+import { probeMedia, type ProbeResult } from "./ffprobe.ts";
 
 // ─── edit_decisions / render_report shapes (subset of the JSON schemas) ──────
 
@@ -228,7 +229,7 @@ export async function composeVideo(edit: EditDecisions, opts: ComposeOptions, de
   }
 
   // 3. ffprobe the output for the render_report fields.
-  const probe = await ffprobe(finalOutput, run);
+  const probe = await probeMedia(finalOutput, run);
   notes.push(`composed ${valid.length} cuts → ${trimmed.length} segments`);
   return {
     version: "1.0",
@@ -258,44 +259,6 @@ function captionNote(outcome: CaptionOutcome, srtPath: string): string {
     case "sidecar":
       return `captions sidecar (mov_text) from ${srtPath}`;
   }
-}
-
-// ─── ffprobe ─────────────────────────────────────────────────────────────────
-
-interface ProbeResult {
-  duration: number;
-  format?: string;
-  videoCodec?: string;
-  audioCodec?: string;
-  resolution?: string;
-  fps?: number;
-}
-
-async function ffprobe(path: string, run: ComposeDeps["spawnImpl"] extends infer F ? F : never): Promise<ProbeResult> {
-  const r = await (run ?? runSpawn)("ffprobe", ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", path]);
-  if (r.code !== 0) return { duration: 0 };
-  try {
-    const j = JSON.parse(r.stdout);
-    const v = (j.streams ?? []).find((s: { codec_type?: string }) => s.codec_type === "video");
-    const a = (j.streams ?? []).find((s: { codec_type?: string }) => s.codec_type === "audio");
-    const fps = v?.avg_frame_rate ? parseFps(v.avg_frame_rate) : undefined;
-    return {
-      duration: Number(j.format?.duration ?? 0),
-      format: j.format?.format_name ? String(j.format.format_name).split(",")[0] : undefined,
-      videoCodec: v?.codec_name,
-      audioCodec: a?.codec_name,
-      resolution: v && v.width && v.height ? `${v.width}x${v.height}` : undefined,
-      fps,
-    };
-  } catch {
-    return { duration: 0 };
-  }
-}
-
-function parseFps(frac: string): number | undefined {
-  const [n, d] = frac.split("/").map(Number);
-  if (d && Number.isFinite(n)) return n / d;
-  return undefined;
 }
 
 // ─── final_review (6 checks) ─────────────────────────────────────────────────
@@ -342,7 +305,7 @@ export async function finalReview(mp4Path: string, deps: ComposeDeps = {}, opts:
   }
 
   // 1-4: ffprobe
-  const probe = await ffprobe(mp4Path, run);
+  const probe = await probeMedia(mp4Path, run);
   checks.push({ name: "container_valid", status: probe.format || probe.videoCodec ? "pass" : "fail", detail: probe.format ? `format=${probe.format}` : "ffprobe could not parse" });
   checks.push({ name: "duration_positive", status: probe.duration > 0 ? "pass" : "fail", detail: `duration=${probe.duration.toFixed(2)}s` });
   checks.push({ name: "has_video_stream", status: probe.videoCodec ? "pass" : "fail", detail: probe.videoCodec ? `codec=${probe.videoCodec} ${probe.resolution ?? ""}`.trim() : "no video stream" });

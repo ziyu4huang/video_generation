@@ -23,6 +23,7 @@ import { spawn } from "node:child_process";
 import { copyFileSync, existsSync, linkSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { RenderReport } from "./compose.ts";
+import { probeMedia } from "./ffprobe.ts";
 
 // ─── shared spawn helper (mirrors compose.ts; kept local to avoid coupling) ───
 
@@ -320,7 +321,7 @@ export async function renderRemotion(
     };
   }
 
-  const probe = await probeOutput(output, run);
+  const probe = await probeMedia(output, run);
   notes.push(`rendered via Remotion (${bin.cmd}${bin.pre.length ? " " + bin.pre.join(" ") : ""})`);
   return {
     version: "1.0",
@@ -341,40 +342,7 @@ export async function renderRemotion(
   };
 }
 
-// ─── ffprobe (local, mirrors compose.ts) ─────────────────────────────────────
+// ffprobe (probeMedia) lives in the shared ./ffprobe.ts module — the three
+// compose tiers share one parser. Kept this comment where the local copy was.
 
-interface ProbeResult {
-  duration: number;
-  format?: string;
-  videoCodec?: string;
-  audioCodec?: string;
-  resolution?: string;
-  fps?: number;
-}
-
-async function probeOutput(path: string, run: SpawnImpl): Promise<ProbeResult> {
-  const r = await run("ffprobe", ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", path]);
-  if (r.code !== 0) return { duration: 0 };
-  try {
-    const j = JSON.parse(r.stdout);
-    const v = (j.streams ?? []).find((s: { codec_type?: string }) => s.codec_type === "video");
-    const a = (j.streams ?? []).find((s: { codec_type?: string }) => s.codec_type === "audio");
-    let fps: number | undefined;
-    if (v?.avg_frame_rate) {
-      const parts = String(v.avg_frame_rate).split("/").map(Number);
-      const n = parts[0];
-      const d = parts[1];
-      if (d && n !== undefined && Number.isFinite(n)) fps = n / d;
-    }
-    return {
-      duration: Number(j.format?.duration ?? 0),
-      format: j.format?.format_name ? String(j.format.format_name).split(",")[0] : undefined,
-      videoCodec: v?.codec_name,
-      audioCodec: a?.codec_name,
-      resolution: v && v.width && v.height ? `${v.width}x${v.height}` : undefined,
-      fps,
-    };
-  } catch {
-    return { duration: 0 };
-  }
-}
+// ─── ffprobe (local, mirrors compose.ts) — REMOVED, see ./ffprobe.ts ────────
