@@ -4,7 +4,7 @@ import {
   rankedProviders,
   NoConfiguredProviderError,
 } from "./selector.ts";
-import { _setFfmpegAvailableForTest, _setRemotionProbeForTest, _setMotionFiltersForTest, _setWhisperRuntimeForTest, _setVisionRuntimeForTest, _setRunPyRuntimeForTest, _setKrea2BinaryForTest, _setFlux2BinaryForTest } from "./providers.ts";
+import { _setFfmpegAvailableForTest, _setRemotionProbeForTest, _setMotionFiltersForTest, _setWhisperRuntimeForTest, _setVisionRuntimeForTest, _setRunPyRuntimeForTest, _setKrea2BinaryForTest, _setFlux2BinaryForTest, probeConfigured } from "./providers.ts";
 import { REGISTRY, type Capability } from "./registry.ts";
 
 // Selector availability is runtime-probed (ffmpeg on PATH, cloud keys in env).
@@ -19,6 +19,7 @@ beforeAll(() => {
   _setMotionFiltersForTest(false);
   _setWhisperRuntimeForTest(true);
   _setVisionRuntimeForTest("clip", true);
+  _setVisionRuntimeForTest("esrgan", true);
   // Pin the swift image-director binaries present so the default image_generation
   // pick stays deterministic (krea2, first-declared native_swift) regardless of
   // whether this host has built the swift binaries — the probe now checks the
@@ -36,6 +37,7 @@ afterAll(() => {
   _setMotionFiltersForTest(undefined);
   _setWhisperRuntimeForTest(undefined);
   _setVisionRuntimeForTest("clip", undefined);
+  _setVisionRuntimeForTest("esrgan", undefined);
   _setKrea2BinaryForTest(undefined);
   _setFlux2BinaryForTest(undefined);
   _setRunPyRuntimeForTest(undefined);
@@ -110,14 +112,15 @@ describe("selectProvider", () => {
   });
 
   it("every Capability is selectable iff at least one provider's probe passes", () => {
+    // Delegates to the REAL probeConfigured (with the beforeAll pins applied)
+    // rather than a hand-rolled mirror — a duplicated mirror silently drifts
+    // whenever providers.ts gains a new invoke case (this bit us for
+    // bun:esrgan/macos:vision when the honest-probe pass landed: the mirror
+    // still said "configured ⇒ callable" while the real probe now requires a
+    // pinned runtime / darwin platform, so it disagreed with reality on Linux CI).
     const caps = new Set<Capability>(REGISTRY.map((p) => p.capability));
     for (const cap of caps) {
-      const anyCallable = REGISTRY.filter((p) => p.capability === cap).some((p) => {
-        // Mirror probeConfigured with ffmpeg pinned present + no cloud keys.
-        if (p.invoke === "ffmpeg") return true;
-        if (p.invoke === "fetch") return false;
-        return p.configured; // native_swift / bun:builtin / macos:* honor the registry flag
-      });
+      const anyCallable = REGISTRY.filter((p) => p.capability === cap).some((p) => probeConfigured(p, NO_ENV));
       if (anyCallable) {
         expect(() => selectProvider(cap, { env: NO_ENV })).not.toThrow();
       } else {

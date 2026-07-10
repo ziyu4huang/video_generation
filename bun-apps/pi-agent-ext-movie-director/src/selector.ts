@@ -63,15 +63,17 @@ export function selectProvider(capability: Capability, opts: SelectorOptions = {
   const configured = REGISTRY.filter(
     (p) => p.capability === capability && probeConfigured(p, env) && (!opts.backend || p.backend === opts.backend),
   );
-  if (configured.length === 0) throw new NoConfiguredProviderError(capability);
 
   if (opts.provider) {
     // An explicit hint honors a STATICALLY-configured provider even when its
-    // runtime probe is currently false. This preserves the auto-build flow for
-    // the swift directors: `provider:"krea2"` reaches krea2 even before its
-    // binary is built (runKrea2's ensureBinary builds it on first run), rather
-    // than being silently rerouted because the probe hasn't seen the binary yet.
-    // Only statically-GAP / configured:false providers (piper, un-keyed cloud,
+    // runtime probe is currently false — checked BEFORE the "nothing probed"
+    // throw below, so a hint still reaches its target when the whole capability
+    // is probe-empty (e.g. a fresh checkout with no swift binaries built yet).
+    // This preserves the auto-build flow for the swift directors:
+    // `provider:"krea2"` reaches krea2 even before its binary is built
+    // (runKrea2's ensureBinary builds it on first run), rather than being
+    // silently rerouted because the probe hasn't seen the binary yet. Only
+    // statically-GAP / configured:false providers (piper, un-keyed cloud,
     // hyperframes) are ignored — those are the soft-hint cases.
     const staticallyConfigured = REGISTRY.filter(
       (p) => p.capability === capability && p.configured && (!opts.backend || p.backend === opts.backend),
@@ -81,6 +83,8 @@ export function selectProvider(capability: Capability, opts: SelectorOptions = {
     // Soft hint: a non-matching (or statically-GAP) provider name is ignored,
     // falling through to the probe-based ranking below.
   }
+
+  if (configured.length === 0) throw new NoConfiguredProviderError(capability);
 
   // Command routing: if the caller addressed a subcommand a configured provider
   // explicitly owns, that wins over backend-rank/declaration-order. This is what
