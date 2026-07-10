@@ -293,7 +293,7 @@ type BoolField =
 	| "retrieveOnly" | "summarize" | "noRefine" | "force" | "noContext"
 	| "forceDistill" | "deletePng" | "noSession" | "print" | "noTools"
 	| "noBuiltinTools" | "dryRun" | "health" | "fix" | "json"
-	| "noPersistLogs" | "mergeDuplicates";
+	| "noPersistLogs" | "mergeDuplicates" | "save";
 
 /** Boolean flags: presence sets the field true. Supports aliases. */
 const BOOLEAN_FLAGS: ReadonlyArray<{ flags: string[]; field: BoolField }> = [
@@ -314,6 +314,7 @@ const BOOLEAN_FLAGS: ReadonlyArray<{ flags: string[]; field: BoolField }> = [
 	{ flags: ["--merge-duplicates"], field: "mergeDuplicates" },
 	{ flags: ["--json"], field: "json" },
 	{ flags: ["--no-persist-logs"], field: "noPersistLogs" },
+	{ flags: ["--save"], field: "save" },
 ];
 
 /** Ignored boolean flags (pi-compat no-ops; self-trusted / extensions baked in). */
