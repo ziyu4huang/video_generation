@@ -13,6 +13,9 @@ This package is the **single source of truth** for the task builders
 deterministic ingest library) so the CLI and the extension never drift apart.
 
 > **Architecture & dependencies** — see [`docs/`](./docs):
+> - [`docs/TOOL-ORCHESTRATION.md`](./docs/TOOL-ORCHESTRATION.md) — visual
+>   Mermaid dependency + data-flow diagram (6 tools, forward/reverse deps, two
+>   read/write paths, the deterministic orchestration sequence).
 > - [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — two ingestion modes,
 >   4 tools, 4 src modules, data flow, load-bearing invariants.
 > - [`docs/DEPENDENCIES.md`](./docs/DEPENDENCIES.md) — the cross-package graph
