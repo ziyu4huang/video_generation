@@ -32,7 +32,7 @@ import {
 	isFailing,
 	type CheckStatus,
 	type CheckResult,
-} from "pi-agent";
+} from "@repo/pi-agent";
 
 export { isFailing, type CheckStatus, type CheckResult };
 

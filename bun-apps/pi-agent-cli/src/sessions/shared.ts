@@ -38,7 +38,7 @@ import obsidianExtension from "@repo/pi-agent-ext-obsidian/extensions/obsidian.t
 // programmatic-session path) rather than via pi-agent's main()-oriented
 // pre-load-providers monkey-patch, which splices process.argv and is wrong for
 // this entry point. See bun-apps/pi-agent/src/pre-load-providers.ts.
-import { PROVIDERS, resolveApiKey } from "pi-agent";
+import { PROVIDERS, resolveApiKey } from "@repo/pi-agent";
 
 /** Allowed thinking levels (mirrors pi-agent-core). */
 const THINKING_LEVELS: readonly ThinkingLevel[] = [

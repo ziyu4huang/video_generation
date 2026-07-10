@@ -109,7 +109,7 @@ function probeMissingNpm(): string[] {
  * EVERY extension as missing — always — even on a healthy install. Resolving
  * each dep from `<bunAppsDir>/<extDir>` via `Bun.resolveSync(dep, extDir)`
  * mirrors the loader exactly, so detection is accurate. (The real package names
- * are also scoped — `@repo/pi-agent-ext-obsidian`, `@quintinshaw/…` — so we read
+ * are also scoped — `@repo/pi-agent-ext-obsidian`, `@repo/…` — so we read
  * them from each extension's package.json `dependencies` rather than guessing
  * the scope from the directory name.)
  *

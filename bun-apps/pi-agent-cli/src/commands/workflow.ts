@@ -2,7 +2,7 @@
  * `workflow run <name>` — headless runner for pi-dynamic-workflows scripts.
  *
  * This is a NON-agent meta-command: it calls `runWorkflow()` DIRECTLY (from
- * `@quintinshaw/pi-dynamic-workflows`), bypassing the agent session pipeline
+ * `@repo/pi-dynamic-workflows`), bypassing the agent session pipeline
  * that `commands/zk-*.ts` and the extension sub-commands use. That is the whole
  * point — the deterministic engine (gate / retry / loopUntilDry / journaling /
  * resume) is reachable from the CLI, a script, or a hook, not only from the
@@ -29,10 +29,10 @@ import { basename, join, resolve, isAbsolute, dirname } from "node:path";
 import type { ParsedArgs } from "../args.ts";
 import type { Command } from "../cli.ts";
 
-// `@quintinshaw/pi-dynamic-workflows` is a workspace dependency. Import the
+// `@repo/pi-dynamic-workflows` is a workspace dependency. Import the
 // engine + its script parser by name so the bundler treats them as externals
 // exactly like the other workspace deps (pi-obsidian, pi-vlm, …).
-import { runWorkflow, parseWorkflowScript, type WorkflowAgent } from "@quintinshaw/pi-dynamic-workflows";
+import { runWorkflow, parseWorkflowScript, type WorkflowAgent } from "@repo/pi-dynamic-workflows";
 
 /** Where engine workflow scripts live in this repo (Claude-Code-shared). */
 const CLAUDE_WORKFLOWS_DIR = ".claude/workflows";
@@ -253,7 +253,7 @@ export const workflowRunCommand: Command = {
 	details: `Usage: bun-pi-agent-cli workflow run <name> [options]
 
 Runs a workflow script through the deterministic engine (runWorkflow from
-@quintinshaw/pi-dynamic-workflows) — the SAME engine the VSCode workflow editor
+@repo/pi-dynamic-workflows) — the SAME engine the VSCode workflow editor
 uses, but headlessly. The engine's gate / retry / loopUntilDry / journaling /
 resume primitives are therefore reachable from the CLI, a script, or a hook.
 
