@@ -240,9 +240,9 @@ Run: \`bun run scripts/drawthings-bench.ts benchmark\`
 `;
 
   if (!dryRun) {
-    const outPath = new URL("../docs/drawthings/bench-results.md", import.meta.url).pathname;
+    const outPath = new URL("../output/drawthings-bench-results.md", import.meta.url).pathname;
     await Bun.write(outPath, markdown);
-    console.log(`\nResults written to docs/drawthings/bench-results.md`);
+    console.log(`\nResults written to output/drawthings-bench-results.md`);
   }
 
   process.exit(allPassed ? 0 : 1);

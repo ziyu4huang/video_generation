@@ -1,10 +1,9 @@
 """syncnet_bridge -- LSE-D/LSE-C lip-sync metric, run in a DEDICATED python/sync-venv.
 
-Replaces the mouth-ratio/RMS proxy in ``app/lipsync_metrics.py`` (known-weak
-per ``docs/lipsync-precision-measurement-20260708.md`` and
-``docs/lipdub-wiring-and-measurement-20260709.md``: two inconclusive
-measurements traced to the proxy correlating presence/absence of speech, not
-frame-level sync) with the actual literature-standard metric: SyncNet
+Replaces the mouth-ratio/RMS proxy in ``app/lipsync_metrics.py`` (known-weak —
+two inconclusive measurements traced to the proxy correlating presence/absence
+of speech, not frame-level sync; full history in ``docs/openmontage-capability-
+matrix.md``'s ``lip_sync`` row) with the actual literature-standard metric: SyncNet
 (Chung & Zisserman, "Out of Time: Automated Lip Sync in the Wild", ACCV 2016)
 embedding distance between mouth-crop video and MFCC audio features.
 

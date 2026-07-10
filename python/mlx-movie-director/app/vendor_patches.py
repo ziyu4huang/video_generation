@@ -5,7 +5,7 @@ at upstream HEAD.
 
 Vendor ltx-2-mlx pinned at v0.14.15 (755c3b5) — bumped 2026-07-09 from v0.14.9
 (2678f49). The bump retired four patches that upstream now owns natively; see
-docs/ltx-2-mlx-vendor-bump-v0.14.15-20260709.md for the full audit.
+docs/ltx-vendor-bump-v0.14.15.md for the full audit.
 
 Patches for vendor/ltx-2-mlx (upstream dgrauet/ltx-2-mlx):
   3. AudioVAEDecoder.decode — causal frame crop (T*4-3)
