@@ -7,7 +7,7 @@
  * The real pi TUI (pi-coding-agent `main()`) does NOT publish
  * `OB_PARENT_MODEL` or `OB_SUBAGENT_MODEL` (confirmed: zero hits for either
  * name in the pi-coding-agent dist). pi-obsidian's `runSubagent` — used by
- * `obsidian_distill` / `obsidian_garden` / `zk_extract` / `zk_card` / `zk_ask`
+ * `obsidian_distill` / `obsidian_garden` / `zk_card` / `zk_ask`
  * — resolves its child model via `resolveSubagentModel()`:
  *
  *    1. opts.model (per-call)   2. OB_SUBAGENT_MODEL (floor)

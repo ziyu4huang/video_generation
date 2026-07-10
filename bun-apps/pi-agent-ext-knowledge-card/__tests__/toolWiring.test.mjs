@@ -136,30 +136,6 @@ async function run(toolName, params, overrides = {}) {
 // runSubagentWithRetry(cwd, systemPrompt, task, toolsCsv, signal, tmpPrefix, opts)
 const lastCall = () => calls[calls.length - 1];
 
-describe("zk_extract — wiring", () => {
-	it("passes DISTILL_TOOLS + pi-kc-distill- + built task", async () => {
-		await run("zk_extract", { files: ["src/a.md"], folder: "Zettelkasten", max_notes: 5 });
-		const c = lastCall();
-		expect(c[0]).toBe(CWD);
-		expect(c[1]).toBe(""); // no system prompt
-		expect(c[3]).toBe(DISTILL_TOOLS.join(","));
-		expect(c[5]).toBe("pi-kc-distill-");
-		expect(c[2]).toBe(buildDistillTask(["src/a.md"], CWD, "Zettelkasten", 5));
-	});
-
-	it("plumbs model + exclude_tools into opts", async () => {
-		await run("zk_extract", {
-			files: ["a.md"],
-			model: "anthropic/claude-x",
-			exclude_tools: ["obsidian_list"],
-		});
-		expect(lastCall()[6]).toEqual({
-			model: "anthropic/claude-x",
-			excludeTools: ["obsidian_list"],
-		});
-	});
-});
-
 describe("zk_card — per-action wiring", () => {
 	it("add → ADD_TOOLS + pi-kc-add- + buildAddTask", async () => {
 		await run("zk_card", { action: "add", content: "BODY", folder: "Inbox", force: true });
@@ -261,8 +237,8 @@ describe("result shaping", () => {
 
 	it("timedOut → isError with output tail", async () => {
 		const r = await run(
-			"zk_extract",
-			{ files: ["a.md"] },
+			"zk_card",
+			{ action: "find", query: "q" },
 			{
 				result: {
 					...defaultOk(),
@@ -273,10 +249,10 @@ describe("result shaping", () => {
 			},
 		);
 		expect(r.isError).toBe(true);
-		expect(r.content[0].text.includes("Distill timed out.")).toBe(true);
+		expect(r.content[0].text.includes("timed out")).toBe(true);
 		// output is sliced to last 2000 chars
 		expect(r.content[0].text.length).toBeLessThanOrEqual(
-			"Distill timed out.\n".length + 2000,
+			"zk_card find timed out.\n".length + 2000,
 		);
 		expect(r.details).toEqual({ timedOut: true, stderr: "boom" });
 	});

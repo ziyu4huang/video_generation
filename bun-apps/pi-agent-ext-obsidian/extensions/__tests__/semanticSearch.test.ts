@@ -27,6 +27,7 @@ function makeFakePi() {
 	const pi = {
 		registerTool: (t: any) => {
 			tools[t.name] = t;
+			if (t._capturedTools) Object.assign(tools, t._capturedTools);
 		},
 		registerCommand: () => {},
 		on: () => {},

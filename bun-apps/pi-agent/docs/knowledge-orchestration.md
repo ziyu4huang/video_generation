@@ -11,7 +11,7 @@
 | Layer | Store (on disk) | Role | Write path | Read path |
 | --- | --- | --- | --- | --- |
 | **1. Working memory** (scratch) | `~/.pi/agent/pi-hermes-memory/{MEMORY,failures,USER}.md` + `projects-memory/<proj>/` + `sessions.db` | the agent's dense, hot, human-curated log of failures / corrections / insights / tool-quirks / preferences, written *during* sessions | `memory` tool (`add`/`replace`/`remove`) | `memory_search` (note: SQLite index **lags** the flat `.md` files — the `.md` is ground truth) |
-| **2. Durable vault** (convergence) | `vaults_root/pi-agent-vault/Zettelkasten/knowledge-graph/` (492 cards) | the single human-readable, graph-linked card set where **every** source converges — one card per structured record, dedup'd by id, cross-linked by shared tags | `zk_ingest` (deterministic) + `zk_extract`/`obsidian_distill` (LLM decomposition) + `obsidian_create` (manual CRUD) | `zk_ask` (graph-enhanced RAG, the flagship recall path) + `knowledge_query` (deterministic digest) |
+| **2. Durable vault** (convergence) | `vaults_root/pi-agent-vault/Zettelkasten/knowledge-graph/` (492 cards) | the single human-readable, graph-linked card set where **every** source converges — one card per structured record, dedup'd by id, cross-linked by shared tags | `zk_ingest` (deterministic) + `obsidian_distill` (LLM decomposition) + `obsidian_create` (manual CRUD) | `zk_ask` (graph-enhanced RAG, the flagship recall path) + `knowledge_query` (deterministic digest) |
 | **3. `.claude/memory/`** (retired) | — | **RETIRED 2026-07-08.** Was a Claude-Code convention orphan that no tool read and that still described the project as "ComfyUI on Apple Silicon" (deprecated). Its 4 topics were 100% duplicated by vault gotchas + the `Platform: Apple Silicon MPS` section in `CLAUDE.md`; nothing was lost. | — | — |
 
 ### The promotion flow
@@ -106,7 +106,7 @@ near-dupes that slip past the 0.85 ingest gate.
   `~/.claude-glm/memory/*.md` → `zk_ingest --source auto-memory`.
 - **Structured self-improve findings** (the 12-key schema) → `.knowledge.jsonl`
   → `zk_ingest --source workflow-jsonl` (run by the self-improve loops).
-- **Free-form prose to decompose into atomic notes** → `zk_extract` /
+- **Free-form prose to decompose into atomic notes** →
   `obsidian_distill` (LLM subagent) or manual `obsidian_create`.
 
 ## `memory transfer` vs `zk_ingest` — do not conflate

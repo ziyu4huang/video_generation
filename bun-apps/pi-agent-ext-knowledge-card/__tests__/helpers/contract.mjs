@@ -19,6 +19,8 @@ export async function collectObsidianTools() {
 	const pi = {
 		registerTool: (t) => {
 			tools[t.name] = t;
+			// Phase 3: fat tool captures individual tools — expose them for contract validation
+			if (t._capturedTools) Object.assign(tools, t._capturedTools);
 		},
 		registerCommand: () => {},
 		on: () => {},
