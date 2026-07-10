@@ -136,7 +136,7 @@ const pathResolution = await agent(
 
   Return it as { projectRoot: "<the-path>" }.
   IMPORTANT: Return ONLY the JSON object. Normalize backslashes to forward slashes.`,
-  { label: "resolve-paths", phase: "Resolve", model: "haiku", schema: PATH_SCHEMA },
+  { label: "resolve-paths", phase: "Resolve", tier: "small", schema: PATH_SCHEMA },
 )
 
 const PROJECT_ROOT = (pathResolution?.projectRoot || "").replace(/\\/g, "/")
@@ -171,7 +171,7 @@ HIST_EOF")
 5. Bash("wc -c < '${targetPath}'")
 6. Prune old (keep newest 15, exclude reflection): Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f 2>/dev/null || true")
 Return { written: true, bytes: <the number printed by wc> }.`,
-    { label: "persist-history", phase: "Persist", model: "haiku",
+    { label: "persist-history", phase: "Persist", tier: "small",
       schema: { type: "object", properties: { written: { type: "boolean" }, bytes: { type: "number", description: "Byte count printed by wc -c" } }, required: ["bytes"] } },
   )
   const histBytes = Number(persist?.bytes) || 0
@@ -191,7 +191,7 @@ Return { written: true, bytes: <the number printed by wc> }.`,
 6. Verify: Bash("test -s '${indexFile}' && echo OK || echo MISSING")
 7. If MISSING, rewrite the index via a quoted heredoc with the same array content.
 Return { updated: true }.`,
-    { label: "update-index", phase: "Persist", model: "haiku" },
+    { label: "update-index", phase: "Persist", tier: "small" },
   )
 }
 
@@ -217,7 +217,7 @@ ${jsonStr}
 WFWITE")
 6. Bash("wc -c < '${targetPath}'")
 Return { written: true, bytes: <the number printed by wc> }.`,
-    { label: label || "reliable-write", phase: "Review HTML", model: "haiku",
+    { label: label || "reliable-write", phase: "Review HTML", tier: "small",
       schema: {
         type: "object",
         properties: {
@@ -252,7 +252,7 @@ async function loadKnowledge(kbFile) {
    - METRIC:       "- METRIC: <title>: <detail>"
    Truncate each detail to ~160 chars. Never invent records not in the file.
 Return { found: true, records: <active records array>, digest: <the string> }.`,
-    { label: "load-knowledge", phase: "Resolve", model: "haiku",
+    { label: "load-knowledge", phase: "Resolve", tier: "small",
       schema: { type: "object", properties: {
         found: { type: "boolean" },
         records: { type: "array", items: { type: "object" } },
@@ -317,7 +317,7 @@ WRITE RELIABLY:
 5. Bash("wc -l < '${kbFile}'")  → total_lines
 6. Count active records (status="active"); optionally cross-check with a grep.
 Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [<ids appended this run>] }.`,
-    { label: "extract-knowledge", phase: "Persist", model: "sonnet",
+    { label: "extract-knowledge", phase: "Persist", tier: "big",
       schema: { type: "object", properties: {
         updated: { type: "boolean" },
         total_lines: { type: "number", description: "Line count from wc -l" },
@@ -348,7 +348,7 @@ async function publishKnowledge(kbFile, workflowName) {
    If "0", return { published: false, reason: "opt-out" }.
 2. Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
 3. Report { published: <true iff output contains "created" or "unchanged" or "updated" with no "Error">, summary: <the tail output> }.`,
-    { label: "publish-knowledge", phase: "Persist", model: "sonnet",
+    { label: "publish-knowledge", phase: "Persist", tier: "big",
       schema: { type: "object", properties: {
         published: { type: "boolean" },
         summary: { type: "string" },
@@ -938,7 +938,7 @@ STEPS:
 3. Bash("cat '${runSibling}' 2>/dev/null || echo MISSING") — if present, extract seed (number) and argv (string array).
 4. Build { models: [...], lora: {...}|null, denoise: {...}, seed: <number>|null, argv: [...] }
 Return JSON: { reproducibility: <that object or null> }.`,
-        { label: `repro-${baseName(capPath)}`, phase: "Review HTML", model: "haiku",
+        { label: `repro-${baseName(capPath)}`, phase: "Review HTML", tier: "small",
           schema: { type: "object", properties: { reproducibility: { type: ["object", "null"] } }, required: ["reproducibility"] } },
       )
       if (rep?.reproducibility) reproMap[baseName(capPath)] = rep.reproducibility
@@ -965,7 +965,7 @@ STEPS:
 3. On error or missing line, set error to the stderr/stdout excerpt.
 
 Return JSON: { "htmlPath": "/abs/path/review.html" or "", "imageCount": ${totalFiles}, "error": "" }`,
-        { label: "review-html", phase: "Review HTML", model: "haiku", schema: HTML_SCHEMA },
+        { label: "review-html", phase: "Review HTML", tier: "small", schema: HTML_SCHEMA },
       )
     } else {
       htmlResult = { htmlPath: "", imageCount: totalFiles, error: "ab_manifest.json write failed (verified 0 bytes)" }
@@ -1009,7 +1009,7 @@ Return JSON:
   "imageCount": ${resolvedFiles.length},
   "error": ""
 }`,
-    { label: "review-html", phase: "Review HTML", model: "haiku", schema: HTML_SCHEMA },
+    { label: "review-html", phase: "Review HTML", tier: "small", schema: HTML_SCHEMA },
   )
 
   const reviewHtml = htmlResult?.htmlPath || ""
@@ -1102,7 +1102,7 @@ if (mode !== "finalize") {
    - avoid: structured.avoid (all items, max 8)
    - bestParams: structured.bestParams (all objects)
    - topExamples: structured.topExamples[0..2] (objects with prompt, score, pipeline)`,
-    { label: "kb-read", phase: "Knowledge", model: "haiku", schema: KB_SUMMARY_SCHEMA },
+    { label: "kb-read", phase: "Knowledge", tier: "small", schema: KB_SUMMARY_SCHEMA },
   )
   if (kbRead?.available) {
     kbContext = kbRead
@@ -1137,7 +1137,7 @@ Return JSON:
 { "busy": <true if pgrep printed any PID, else false>, "pids": "<the raw pgrep output>" }
 NOTE: pgrep matches process command-lines; this detection command is "pgrep ..." so it will
 NOT match itself. Only real run.py invocations match.`,
-      { label: "gpu-probe", phase: "GPU Wait", model: "haiku", schema: GPU_PROBE_SCHEMA },
+      { label: "gpu-probe", phase: "GPU Wait", tier: "small", schema: GPU_PROBE_SCHEMA },
     )
     if (!probe?.busy) {
       log(gpudWaited > 0 ? `GPU free after waiting ${gpudWaited}s — proceeding to Generate.` : "GPU free — proceeding to Generate.")
@@ -1145,7 +1145,7 @@ NOT match itself. Only real run.py invocations match.`,
     }
     log(`GPU busy — another run.py is running (${(probe?.pids || "").trim().replace(/\\n/g, " ")}). Waiting 20s before recheck...`)
     await agent(`Sleep to let the GPU free up. Run: Bash("sleep 20"). Return { "ok": true }.`,
-      { label: "gpu-sleep", phase: "GPU Wait", model: "haiku", schema: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] } })
+      { label: "gpu-sleep", phase: "GPU Wait", tier: "small", schema: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] } })
     gpudWaited += 20
   }
   if (gpudWaited >= maxGpuWait) log(`WARNING: GPU still busy after ${maxGpuWait}s wait budget — proceeding anyway.`)
@@ -1233,7 +1233,7 @@ Return JSON:
   "runJsonPath": "/abs/path/img.run.json" or "",
   "error": ""
 }`,
-      { label: `generate-${idx}-${spec.type}`, phase: "Generate", model: "haiku", schema: GEN_SCHEMA },
+      { label: `generate-${idx}-${spec.type}`, phase: "Generate", tier: "small", schema: GEN_SCHEMA },
     )
     genResults.push(res)
     if (res?.status === "success") genCache[cmd] = res
@@ -1262,7 +1262,7 @@ Files (by index):
 ${_guardPngs.map((o) => `${o.idx}: ${o.path}`).join("\n")}
 Compare the digests pairwise. Return the index pairs [i, j] (i < j) whose digests are
 EQUAL. Empty array if every file is byte-distinct.`,
-    { label: "dup-output-guard", phase: "Generate", model: "haiku",
+    { label: "dup-output-guard", phase: "Generate", tier: "small",
       schema: { type: "object",
         properties: { identicalPairs: { type: "array", items: { type: "array", items: { type: "number" } } } },
         required: ["identicalPairs"] } },
@@ -1288,7 +1288,7 @@ Run: Bash("curl -sf http://localhost:1234/v1/models -o /dev/null -w '%{http_code
 
 Return { "available": true } if HTTP 200, { "available": false } otherwise.
 IMPORTANT: Return ONLY the JSON object.`,
-  { label: "vlm-check", phase: "VLM Check", model: "haiku", schema: VLM_CHECK_SCHEMA },
+  { label: "vlm-check", phase: "VLM Check", tier: "small", schema: VLM_CHECK_SCHEMA },
 )
 
 const vlmAvailable = vlmCheck?.available === true
@@ -1402,7 +1402,7 @@ Return flat JSON:
   "model": "<the VLM model name>",
   "error": ""
 }`,
-            { label: `caption-${idx}-${pngIdx}`, phase: "Review", model: "haiku", schema: CAPTION_SCHEMA },
+            { label: `caption-${idx}-${pngIdx}`, phase: "Review", tier: "small", schema: CAPTION_SCHEMA },
           )
         }),
       )
@@ -1459,7 +1459,7 @@ STEPS:
 3. Parse outer JSON; the "caption" field is a nested JSON STRING — parse again. Strip markdown fences / prose, extract the first {...} block.${n > 1 ? ` The median caption carries a "scoreSamples": ${n} count.` : ""}
 On connection refused: return error="VLM unavailable — LM Studio not running at localhost:1234".
 Return: { "imagePath": "${pngPath}", "overall": <1-10>, "detail": <1-10>, "sharpness": <1-10>, "composition": <1-10>, "prompt_adherence": <1-10>, "artifacts": <1-10>, "captured": [...], "missed": [...], "issues": [...], "strengths": [...], "summary": "...", "style": "...", "model": "...", "scoreSamples": ${n}, "error": "" }`,
-    { label: `${labelTag}-score`, phase: phaseLabel, model: "haiku", schema: CAPTION_SCHEMA },
+    { label: `${labelTag}-score`, phase: phaseLabel, tier: "small", schema: CAPTION_SCHEMA },
   ).catch(() => null)
 }
 
@@ -1685,7 +1685,7 @@ ${fixRules}
    the right target.
 
 Return JSON: { "fixSpecs": [...], "analysis": "..." }`,
-      { label: "fix-analysis", phase: "Self-Fix", model: "sonnet", schema: FIX_SCHEMA },
+      { label: "fix-analysis", phase: "Self-Fix", tier: "big", schema: FIX_SCHEMA },
     )
 
     fixAnalysis = fixProposalResult?.analysis || ""
@@ -1775,7 +1775,7 @@ ${fixParse}
 3. Return status and paths.
 
 Return JSON: { "status": "success" or "error", "outputPngs": [...], "runJsonPath": "...", "error": "" }`,
-          { label: `fix-gen-${fi}-${spec.label}`, phase: "Self-Fix", model: "haiku", schema: GEN_SCHEMA },
+          { label: `fix-gen-${fi}-${spec.label}`, phase: "Self-Fix", tier: "small", schema: GEN_SCHEMA },
         )
 
         const fixPngs = fixGen?.outputPngs || []
@@ -1931,7 +1931,7 @@ For Captured/Missed columns: list the top 2–3 items, comma-separated. If not a
 **6. Errors** — if any generation failed or LM Studio was unavailable, briefly note it.
 
 Keep the report concise. Use markdown.`,
-  { label: "report", phase: "Report", model: "sonnet" },
+  { label: "report", phase: "Report", tier: "big" },
 )
 markPhase("report", "completed")
 
@@ -1965,7 +1965,7 @@ STEPS:
 3. Bash("cat '${runSibling}' 2>/dev/null || echo MISSING") — if present, extract seed (number) and argv (string array).
 4. Build { models: [...], lora: {...}|null, denoise: {...}, seed: <number>|null, argv: [...] }
 Return JSON: { reproducibility: <that object or null> }.`,
-      { label: `repro-${baseName(capPath)}`, phase: "Review HTML", model: "haiku",
+      { label: `repro-${baseName(capPath)}`, phase: "Review HTML", tier: "small",
         schema: { type: "object", properties: { reproducibility: { type: ["object", "null"] } }, required: ["reproducibility"] } },
     )
     if (rep?.reproducibility) reproMap[baseName(capPath)] = rep.reproducibility
@@ -1990,7 +1990,7 @@ STEPS:
 3. On error or missing line, set error to the excerpt.
 
 Return JSON: { "htmlPath": "/abs/path/review.html" or "", "imageCount": ${captionFiles.length}, "error": "" }`,
-      { label: "review-html", phase: "Review HTML", model: "haiku", schema: HTML_SCHEMA },
+      { label: "review-html", phase: "Review HTML", tier: "small", schema: HTML_SCHEMA },
     )
   } else {
     htmlResult = { htmlPath: "", imageCount: captionFiles.length, error: "ab_manifest.json write failed (verified 0 bytes)" }
@@ -2004,7 +2004,7 @@ Return JSON: { "htmlPath": "/abs/path/review.html" or "", "imageCount": ${captio
 phase("Persist")
 const _t2i_tsR = await agent(
   `Run: Bash("date -u '+%Y-%m-%dT%H-%M-%S'") and return { timestamp: "<exact output trimmed>" }.`,
-  { label: "get-persist-ts", phase: "Persist", model: "haiku",
+  { label: "get-persist-ts", phase: "Persist", tier: "small",
     schema: { type: "object", properties: { timestamp: { type: "string" } }, required: ["timestamp"] } },
 )
 const _t2i_RUN_TS   = (_t2i_tsR?.timestamp || "unknown").trim()
@@ -2050,7 +2050,7 @@ This run just produced ${captionFiles.length} new captioned image(s).
 Run: Bash("cd '${_t2i_GUI_DIR}' && bun run knowledge:learn --max-records 80 2>&1 | tail -4")
 Return { ok: true, summary: "<last non-empty line of output>" } on success,
        { ok: false, summary: "<first error line>" } if DeepSeek fails or key is missing.`,
-    { label: "kb-regen", phase: "Persist", model: "haiku",
+    { label: "kb-regen", phase: "Persist", tier: "small",
       schema: { type: "object", properties: { ok: { type: "boolean" }, summary: { type: "string" } }, required: ["ok", "summary"] } },
   )
   if (kbRegen?.ok) {

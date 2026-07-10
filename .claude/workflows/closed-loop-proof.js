@@ -27,7 +27,7 @@ let VAULT = `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
 {
   const r = await agent(
     `Bash("git rev-parse --show-toplevel") and return the trimmed path.`,
-    { label: "resolve-root", phase: "Resolve", model: "haiku",
+    { label: "resolve-root", phase: "Resolve", tier: "small",
       schema: { type: "object", properties: { root: { type: "string" } }, required: ["root"] } },
   )
   const resolved = (r?.root || "").trim()
@@ -41,7 +41,7 @@ let VAULT = `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
 
 const RUN_TS = await agent(
   `Bash("date -u +%Y-%m-%dT%H-%M-%S") and return the timestamp.`,
-  { label: "timestamp", phase: "Resolve", model: "haiku",
+  { label: "timestamp", phase: "Resolve", tier: "small",
     schema: { type: "object", properties: { timestamp: { type: "string" } }, required: ["timestamp"] } },
 )
 const RUN_ID = RUN_TS?.timestamp || "unknown"
@@ -60,7 +60,7 @@ async function loadKnowledge(kbFile) {
 4. Parse each non-empty line as JSON. Keep ONLY records where status === "active".
 5. Build a compact digest (<= 600 chars) grouped by type.
 Return { found: true, records: <active records array>, digest: <string> }.`,
-    { label: "load-knowledge", phase: "Resolve", model: "haiku",
+    { label: "load-knowledge", phase: "Resolve", tier: "small",
       schema: { type: "object", properties: {
         found: { type: "boolean" },
         records: { type: "array", items: { type: "object" } },
@@ -84,7 +84,7 @@ async function loadGraphKnowledge(kbFile, graphTags) {
 2. Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-query --tags '${tagsCsv}' --exclude-from-kb '${kbFile}' --top-k 8 --json 2>/dev/null")
 3. Parse the JSON output. The "count" field gives the number of matched cards, "digest" gives the grouped digest.
 Return { count: <count from JSON or 0>, digest: <digest from JSON or "">, published: true }.`,
-    { label: "load-graph-knowledge", phase: "Resolve", model: "haiku",
+    { label: "load-graph-knowledge", phase: "Resolve", tier: "small",
       schema: { type: "object", properties: {
         count: { type: "number" },
         digest: { type: "string" },
@@ -112,7 +112,7 @@ Bash("OB_VAULT_PATH='${PROJECT_ROOT}/vaults_root/pi-agent-vault' bun --cwd '${PR
 ok = true iff the output contains "status:  OK".
 Return { ok, summary: <the full output>, graphHealth: { ok, deadLinks, mocMissing, mocStale, orphans } }.
 Extract deadLinks/mocMissing/mocStale/orphans counts from the output lines if present (default 0/false).`,
-  { label: "contract:graph-health", phase: "Run", model: "haiku",
+  { label: "contract:graph-health", phase: "Run", tier: "small",
     schema: { type: "object", properties: {
       ok: { type: "boolean" },
       summary: { type: "string" },
@@ -148,7 +148,7 @@ async function publishKnowledge(kbFile, workflowName) {
    If "0", return { published: false, reason: "opt-out" }.
 2. Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
 3. Report { published: <true iff output contains "created" or "unchanged" or "updated" with no "Error">, summary: <tail output> }.`,
-    { label: "publish-knowledge", phase: "Persist", model: "sonnet",
+    { label: "publish-knowledge", phase: "Persist", tier: "big",
       schema: { type: "object", properties: {
         published: { type: "boolean" },
         summary: { type: "string" },
@@ -198,7 +198,7 @@ await agent(
 JSON:
 ${histJson}
 Return { written: true, bytes: <file size> }.`,
-  { label: "persist-history", phase: "Persist", model: "haiku",
+  { label: "persist-history", phase: "Persist", tier: "small",
     schema: { type: "object", properties: { written: { type: "boolean" }, bytes: { type: "number" } }, required: ["bytes"] } },
 )
 log(`History: ${targetPath}`)

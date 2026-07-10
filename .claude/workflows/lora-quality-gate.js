@@ -146,7 +146,7 @@ const pathResolution = await agent(
      manifestPath: "/abs/path/to/${loraName}/manifest.json" or "",
      manifest: { ...parsed JSON... } or null
    }`,
-  { label: "resolve-lora", phase: "Resolve", model: "haiku", schema: PATH_SCHEMA },
+  { label: "resolve-lora", phase: "Resolve", tier: "small", schema: PATH_SCHEMA },
 )
 
 const PROJECT_ROOT  = (pathResolution?.projectRoot || "").replace(/\\/g, "/")
@@ -206,7 +206,7 @@ async function loadKnowledge(kbFile) {
    - METRIC:       "- METRIC: <title>: <detail>"
    Truncate each detail to ~120 chars.
 Return { found: true, records: <array>, digest: <string> }.`,
-    { label: "load-knowledge", phase: "Knowledge", model: "haiku",
+    { label: "load-knowledge", phase: "Knowledge", tier: "small",
       schema: { type: "object", properties: {
         found: { type: "boolean" },
         records: { type: "array", items: { type: "object" } },
@@ -233,7 +233,7 @@ async function publishKnowledge(kbFile, workflowName) {
    If "0", return { published: false, reason: "opt-out" }.
 2. Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
 3. Report { published: <true iff output contains "created" or "unchanged" or "updated" with no "Error">, summary: <the tail output> }.`,
-    { label: "publish-knowledge", phase: "Persist", model: "sonnet",
+    { label: "publish-knowledge", phase: "Persist", tier: "big",
       schema: { type: "object", properties: {
         published: { type: "boolean" },
         summary: { type: "string" },
@@ -266,7 +266,7 @@ if (gpuWaitOn) {
 Run: Bash("pgrep -f 'run.py' || echo NONE")
 If there are pids (not "NONE"), the GPU may be busy.
 Return { busy: true, pids: "<pids>" } if busy, else { busy: false, pids: "" }.`,
-    { label: "gpu-probe", phase: "GPU Wait", model: "haiku", schema: GPU_PROBE_SCHEMA },
+    { label: "gpu-probe", phase: "GPU Wait", tier: "small", schema: GPU_PROBE_SCHEMA },
   )
   if (gpuCheck?.busy) {
     log(`GPU busy (pids: ${gpuCheck.pids}) — waiting up to ${maxGpuWait}s...`)
@@ -275,7 +275,7 @@ Return { busy: true, pids: "<pids>" } if busy, else { busy: false, pids: "" }.`,
 Poll every 30s: Bash("pgrep -f 'run.py' || echo NONE")
 Stop when output is "NONE" or ${maxGpuWait} seconds have elapsed.
 Return { cleared: true } when clear, { cleared: false, elapsed: N } on timeout.`,
-      { label: "gpu-wait", phase: "GPU Wait", model: "haiku",
+      { label: "gpu-wait", phase: "GPU Wait", tier: "small",
         schema: { type: "object", properties: { cleared: { type: "boolean" } }, required: ["cleared"] } },
     )
     log(waitResult?.cleared ? "GPU cleared — proceeding." : "GPU wait timed out — proceeding anyway.")
@@ -345,7 +345,7 @@ STEPS:
    If MISSING, status="error".
 
 Return { status: "success"|"error", outputPng: "/abs/path/image.png" or "", error: "..." }`,
-    { label: `gen-${spec.isBaseline ? "baseline" : spec.scale}`, phase: "Generate", model: "haiku", schema: GEN_SCHEMA },
+    { label: `gen-${spec.isBaseline ? "baseline" : spec.scale}`, phase: "Generate", tier: "small", schema: GEN_SCHEMA },
   )
 
   if (result?.status === "success" && result?.outputPng) {
@@ -372,7 +372,7 @@ const vlmCheckResult = await agent(
   `Check if LM Studio VLM is running and accessible.
 Run: Bash("curl -s --max-time 5 http://localhost:1234/v1/models | python3 -c 'import sys,json; d=json.load(sys.stdin); print(\\"LOADED:\\" + str(len(d.get(\\"data\\",[])))) if d else print(\\"EMPTY\\")' 2>/dev/null || echo OFFLINE")
 Return { online: true } if the output starts with "LOADED", else { online: false }.`,
-  { label: "vlm-check", phase: "VLM Check", model: "haiku",
+  { label: "vlm-check", phase: "VLM Check", tier: "small",
     schema: { type: "object", properties: { online: { type: "boolean" } }, required: ["online"] } },
 )
 if (!vlmCheckResult?.online) {
@@ -481,7 +481,7 @@ If the command or parse fails, return { gate: "fail", activation_level: "under",
     for (let vi = 0; vi < voteCount; vi++) {
       const result = await agent(
         promptText,
-        { label: `score-${v.label}${voteCount > 1 ? `-v${vi + 1}` : ""}`, phase: "Gate Score", model: "haiku", schema: GATE_SCORE_SCHEMA },
+        { label: `score-${v.label}${voteCount > 1 ? `-v${vi + 1}` : ""}`, phase: "Gate Score", tier: "small", schema: GATE_SCORE_SCHEMA },
       )
       if (result) votes.push(result)
     }
@@ -697,7 +697,7 @@ ${abManifestJson}
 5. If MISSING: Bash("cat > '${abManifestPath}' <<'ABEOF'\\n${abManifestJson}\\nABEOF")
 6. Bash("wc -c < '${abManifestPath}'")
 Return { written: true, bytes: <number from wc> }.`,
-    { label: "write-ab-manifest", phase: "Review HTML", model: "haiku",
+    { label: "write-ab-manifest", phase: "Review HTML", tier: "small",
       schema: { type: "object", properties: { written: { type: "boolean" }, bytes: { type: "number" } }, required: ["bytes"] } },
   )
 
@@ -708,7 +708,7 @@ MANIFEST: ${abManifestPath}
 1. Bash("${PYTHON} ${RUN_PY} caption --ab-manifest '${abManifestPath}' 2>&1", timeout=120000)
 2. Parse stdout for "Review HTML: /abs/path/review_*.html" — extract the path.
 Return { htmlPath: "/abs/path/..." or "", error: "" }.`,
-      { label: "review-html", phase: "Review HTML", model: "haiku",
+      { label: "review-html", phase: "Review HTML", tier: "small",
         schema: { type: "object", properties: { htmlPath: { type: "string" }, error: { type: "string" } }, required: ["htmlPath"] } },
     )
     reviewHtmlPath = htmlResult?.htmlPath || ""
@@ -741,7 +741,7 @@ NEW VALUE: ${optimalScaleValue}
 4. Bash("test -s '${MANIFEST_PATH}' && echo OK || echo MISSING")
 5. Bash("cat '${MANIFEST_PATH}' | python3 -c \\"import sys,json; d=json.load(sys.stdin); print('scale:', d.get('recommended_scale'))\\" 2>&1")
 Return { updated: true, newScale: ${optimalScaleValue} }.`,
-    { label: "update-manifest", phase: "Manifest", model: "haiku",
+    { label: "update-manifest", phase: "Manifest", tier: "small",
       schema: { type: "object", properties: { updated: { type: "boolean" }, newScale: { type: "number" } }, required: ["updated"] } },
   )
   manifestUpdated = updateResult?.updated || false
@@ -814,7 +814,7 @@ ${histJson}
 4. If MISSING: Bash("cat > '${histPath}' <<'HIST_EOF'\\n${histJson}\\nHIST_EOF")
 5. Bash("wc -c < '${histPath}'")
 Return { written: true, bytes: <number> }.`,
-  { label: "persist-history", phase: "Persist", model: "haiku",
+  { label: "persist-history", phase: "Persist", tier: "small",
     schema: { type: "object", properties: { written: { type: "boolean" }, bytes: { type: "number" } }, required: ["bytes"] } },
 )
 
@@ -857,7 +857,7 @@ STEPS:
    Write({ file_path: '${KB_FILE}', content: <updated content> })
 5. Bash("wc -l < '${KB_FILE}'")
 Return { updated: true, total_lines: N }.`,
-  { label: "extract-knowledge", phase: "Persist", model: "sonnet",
+  { label: "extract-knowledge", phase: "Persist", tier: "big",
     schema: { type: "object", properties: { updated: { type: "boolean" }, total_lines: { type: "number" } }, required: ["updated"] } },
 )
 

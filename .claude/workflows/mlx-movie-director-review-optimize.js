@@ -98,10 +98,10 @@ const VALID_DIMENSIONS = ["correctness", "argparse-integrity", "type-safety", "e
 
 // Dimension config: which model to use per effort level
 const DIMENSION_CONFIG = {
-  correctness:         { label: "Correctness bugs",      model: "sonnet" },
-  "argparse-integrity": { label: "Argparse integrity",  model: "sonnet" },
-  "type-safety":       { label: "Type safety",           model: "sonnet" },
-  "error-handling":    { label: "Error handling",        model: "sonnet" },
+  correctness:         { label: "Correctness bugs",      tier: "big" },
+  "argparse-integrity": { label: "Argparse integrity",  tier: "big" },
+  "type-safety":       { label: "Type safety",           tier: "big" },
+  "error-handling":    { label: "Error handling",        tier: "big" },
   "import-hygiene":    { label: "Import hygiene",        model: effort === "low" ? "haiku" : "sonnet" },
 }
 
@@ -423,7 +423,7 @@ HIST_EOF")
 5. Bash("wc -c < '${targetPath}'")
 6. Prune old (keep newest 15, exclude reflection): Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f 2>/dev/null || true")
 Return { written: true, bytes: <the number printed by wc> }.`,
-    { label: "persist-history", phase: "Persist", model: "haiku",
+    { label: "persist-history", phase: "Persist", tier: "small",
       schema: { type: "object", properties: { written: { type: "boolean" }, bytes: { type: "number", description: "Byte count printed by wc -c" } }, required: ["bytes"] } },
   )
   const histBytes = Number(persist?.bytes) || 0
@@ -441,7 +441,7 @@ Return { written: true, bytes: <the number printed by wc> }.`,
 5. Verify: Bash("test -s '${indexFile}' && echo OK || echo MISSING")
 6. If MISSING, rewrite the index via a quoted heredoc with the same array content.
 Return { updated: true }.`,
-    { label: "update-index", phase: "Persist", model: "haiku" },
+    { label: "update-index", phase: "Persist", tier: "small" },
   )
 }
 
@@ -466,7 +466,7 @@ async function loadKnowledge(kbFile) {
    - METRIC:       "- METRIC: <title>: <detail>"
    Truncate each detail to ~160 chars. Never invent records not in the file.
 Return { found: true, records: <active records array>, digest: <the string> }.`,
-    { label: "load-knowledge", phase: "Resolve", model: "haiku",
+    { label: "load-knowledge", phase: "Resolve", tier: "small",
       schema: { type: "object", properties: {
         found: { type: "boolean" },
         records: { type: "array", items: { type: "object" } },
@@ -495,7 +495,7 @@ async function loadOperationLessons(opFile) {
    ONLY {id, severity, rule} — copy "rule" VERBATIM (do not rephrase, do not truncate,
    do not invent). Drop any record whose phase is not one of the four above.
 Return { found: true, byPhase: { "<phase>": [{id,severity,rule}, ...], ... } }.`,
-    { label: "load-operation-lessons", phase: "Resolve", model: "haiku",
+    { label: "load-operation-lessons", phase: "Resolve", tier: "small",
       schema: { type: "object", properties: {
         found: { type: "boolean" },
         byPhase: { type: "object", description: "phase -> array of {id,severity,rule}",
@@ -574,7 +574,7 @@ WRITE RELIABLY:
 5. Bash("wc -l < '${kbFile}'")  → total_lines
 6. Count active records (status="active"); optionally cross-check with a grep.
 Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [<ids appended this run>] }.`,
-    { label: "extract-knowledge", phase: "Persist", model: "sonnet",
+    { label: "extract-knowledge", phase: "Persist", tier: "big",
       schema: { type: "object", properties: {
         updated: { type: "boolean" },
         total_lines: { type: "number", description: "Line count from wc -l" },
@@ -605,7 +605,7 @@ async function publishKnowledge(kbFile, workflowName) {
    If "0", return { published: false, reason: "opt-out" }.
 2. Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
 3. Report { published: <true iff output contains "created" or "unchanged" or "updated" with no "Error">, summary: <the tail output> }.`,
-    { label: "publish-knowledge", phase: "Persist", model: "sonnet",
+    { label: "publish-knowledge", phase: "Persist", tier: "big",
       schema: { type: "object", properties: {
         published: { type: "boolean" },
         summary: { type: "string" },
@@ -638,7 +638,7 @@ const timestampResult = await agent(
   Run: Bash("date -u '+%Y-%m-%dT%H-%M-%S'")
 
   Return { timestamp: "<the-output>" }. Use the exact output from date.`,
-  { label: "get-timestamp", phase: "Resolve", model: "haiku", schema: TIMESTAMP_SCHEMA },
+  { label: "get-timestamp", phase: "Resolve", tier: "small", schema: TIMESTAMP_SCHEMA },
 )
 
 const RUN_TIMESTAMP = (timestampResult?.timestamp || "unknown").trim()
@@ -657,7 +657,7 @@ if (seedKnowledge) {
 Summarize AGGREGATE trends across runs (do NOT dump raw) into:
 Return { seedResult: { run_count, findings_by_dimension, recurring_patterns: [...],
    false_positives: [...], hotspot_files: [...], fix_rate, notes }, reflection: <parsed reflection or null> }.`,
-    { label: "seed-aggregate", phase: "Resolve", model: "sonnet",
+    { label: "seed-aggregate", phase: "Resolve", tier: "big",
       schema: { type: "object", properties: {
         seedResult: { type: "object" },
         reflection: { type: "object" },
@@ -702,7 +702,7 @@ if (resumeMode === "fresh") {
   - If file found but args differ significantly: action = "fresh" (different scope)
 
   Return your decision.`,
-    { label: "resume-check", phase: "Resolve", model: "haiku", schema: RESUME_CHECK_SCHEMA },
+    { label: "resume-check", phase: "Resolve", tier: "small", schema: RESUME_CHECK_SCHEMA },
   )
 
   if (resumeCheck) {
@@ -719,7 +719,7 @@ if (resumeMode === "fresh") {
       Run: Bash("cat '${HISTORY_DIR}/${resumeCheck.previousRunId}.json'")
       Extract the "result" object and return it as { result: <payload> }.
       If the file cannot be read, return { result: null }.`,
-        { label: "load-prior", phase: "Resolve", model: "haiku" },
+        { label: "load-prior", phase: "Resolve", tier: "small" },
       )
       priorHistory = priorLoad?.result || null
       if (priorHistory) {
@@ -744,7 +744,7 @@ if (resumeMode !== "fresh") {
     Run: Bash("cat '${REFLECTION_FILE}' 2>/dev/null || echo '{}'")
     Parse the JSON output. If it is '{}' or invalid, return { reflection: null }.
     Otherwise return { reflection: <the parsed object> }.`,
-    { label: "load-reflection", phase: "Resolve", model: "haiku" },
+    { label: "load-reflection", phase: "Resolve", tier: "small" },
   )
   priorReflection = reflectLoad?.reflection || null
   if (priorReflection?.patterns) {
@@ -851,7 +851,7 @@ if (shouldSkipScan && priorHistory?.scan) {
   ${effort === "medium" ? "5. SKIP app/tests/ — not needed for medium effort" : ""}
 
   Return the complete file inventory as structured JSON.`,
-    { label: "scan-files", phase: "Scan", model: "haiku", schema: SCAN_SCHEMA },
+    { label: "scan-files", phase: "Scan", tier: "small", schema: SCAN_SCHEMA },
   )
 
   fileList = (scanResult?.files || []).filter(Boolean)
@@ -1167,7 +1167,7 @@ For EACH finding:
 3. Determine if the finding is accurate and the severity is appropriate
 
 Return a verdict for EACH finding with findingId, upheld (true/false), and reason.`,
-        { label: `adversarial-${dim}`, phase: "Adversarial Verify", model: "sonnet", schema: VERIFY_SCHEMA },
+        { label: `adversarial-${dim}`, phase: "Adversarial Verify", tier: "big", schema: VERIFY_SCHEMA },
       )
     }),
   )
@@ -1258,7 +1258,7 @@ if (doFix && verifiedFindings.length > 0) {
      If stash was created, capture the stash ref (e.g. "stash@{0}").
 
   Return the checkpoint info.`,
-    { label: "checkpoint", phase: "Checkpoint", model: "haiku", schema: CHECKPOINT_SCHEMA },
+    { label: "checkpoint", phase: "Checkpoint", tier: "small", schema: CHECKPOINT_SCHEMA },
   )
 
   if (checkpointResult?.stashCreated) {
@@ -1290,7 +1290,7 @@ Bash("cd '${PYTHON_DIR}' && find app -name '__pycache__' -type d -prune -exec rm
 Record: how many passed, how many failed, and the FULL NAMES (file::class::test) of any failing tests. The names are critical — they are compared against the post-fix run to detect NEW regressions.
 
 Return structured baseline results.`,
-    { label: "baseline-tests", phase: "Checkpoint", model: "haiku", schema: BASELINE_SCHEMA },
+    { label: "baseline-tests", phase: "Checkpoint", tier: "small", schema: BASELINE_SCHEMA },
   )
 
   log(`Baseline: smoke ${baselineTestResults?.smokePassed || "?"} passed / ${baselineTestResults?.smokeFailed || 0} pre-existing failures, pytest=${baselineTestResults?.pytestResult || "unknown"} (${baselineTestResults?.pytestPassed || "?"} passed, ${baselineTestResults?.pytestFailed || 0} pre-existing failures)`)
@@ -1368,7 +1368,7 @@ For each finding:
 - If the edit fails (old_string not found): status="failed", note the issue
 
 Return structured results.`,
-            { label: `fix-${passLabel}-${file.replace(/[/\\\\]/g, "-")}`, phase: "Resolve Fix", model: "sonnet", schema: FIX_RESULT_SCHEMA },
+            { label: `fix-${passLabel}-${file.replace(/[/\\\\]/g, "-")}`, phase: "Resolve Fix", tier: "big", schema: FIX_RESULT_SCHEMA },
           )
         },
       )
@@ -1474,7 +1474,7 @@ ORIGINAL APPLIED FIXES (for context):
 ${JSON.stringify(fixResults.fixes.filter((f) => f.status === "applied"), null, 2)}
 
 Return ONLY actual failures as findings with the "source" field. If everything passes, return { findings: [], smokeTestResults: { ... } }.`,
-        { label: "re-verify", phase: "Re-verify", model: "sonnet", schema: REVERIFY_SCHEMA },
+        { label: "re-verify", phase: "Re-verify", tier: "big", schema: REVERIFY_SCHEMA },
       )
 
       reVerifyFindings = (reVerifyResult?.findings || []).filter(Boolean)
@@ -1592,7 +1592,7 @@ ${restoreRulesBlock}
    Only the KEPT files should show as modified.
 
 Return { restored: bool, method: "checkout"|"stash-pop"|"none", filesReverted: [...] }.`,
-        { label: "restore-selective", phase: "Restore", model: "haiku", schema: RESTORE_SCHEMA },
+        { label: "restore-selective", phase: "Restore", tier: "small", schema: RESTORE_SCHEMA },
       )
 
       if (restoreResult?.restored) {
@@ -1612,7 +1612,7 @@ Return { restored: bool, method: "checkout"|"stash-pop"|"none", filesReverted: [
 Bash("cd '${PYTHON_DIR}' && find app -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null; ${VENV_PYTHON} -m pytest app/tests/ -q -p no:cacheprovider 2>&1 | tail -40; echo EXIT_CODE=$?")
 Parse EXIT_CODE: verified = (EXIT_CODE == 0). Count "failed" occurrences if any.
 Return { verified, pytestResult, pytestFailed, note }.`,
-          { label: "restore-verify", phase: "Restore", model: "haiku",
+          { label: "restore-verify", phase: "Restore", tier: "small",
             schema: { type: "object", properties: {
               verified: { type: "boolean" },
               pytestResult: { type: "string", enum: ["pass", "fail", "error"] },
@@ -1888,7 +1888,7 @@ Step 3 — Incrementally MERGE (preserve existing entries; do not re-derive from
 - updated_at: "${RUN_TIMESTAMP}".
 
 Keep patterns SPECIFIC to this codebase, 1 sentence each, max 5 per dimension. Return the merged reflection object.`,
-  { label: "reflect", phase: "Persist", model: "haiku", schema: REFLECT_SCHEMA },
+  { label: "reflect", phase: "Persist", tier: "small", schema: REFLECT_SCHEMA },
 )
 
 if (reflectResult) {
@@ -1899,7 +1899,7 @@ if (reflectResult) {
     JSON:
 ${reflectJson}
     Then verify: Bash("wc -c '${REFLECTION_FILE}' && echo REFLECT_OK")`,
-    { label: "write-reflection", phase: "Persist", model: "haiku" },
+    { label: "write-reflection", phase: "Persist", tier: "small" },
   )
   const patCount = Object.values(reflectResult.patterns || {}).flat().length
   log(`Reflect: ${patCount} pattern(s), ${reflectResult.confirmed_patterns?.length || 0} confirmed, ${reflectResult.false_positives?.length || 0} false-positives → ${REFLECTION_FILE}`)
@@ -1972,7 +1972,7 @@ ${priorRunContext}
 **7. Recommendations** — 3-5 specific, actionable next steps.
 
 Keep the report concise and actionable. Use markdown.`,
-  { label: "report", phase: "Report", model: "sonnet" },
+  { label: "report", phase: "Report", tier: "big" },
 )
 
 markPhase("report", "completed")
