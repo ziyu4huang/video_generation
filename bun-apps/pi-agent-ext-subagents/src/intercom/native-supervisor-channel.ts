@@ -306,6 +306,7 @@ export function registerNativeSupervisorClient(pi: ExtensionAPI, options: { incl
 		const tool: ToolDefinition<typeof IntercomParamsSchema, Record<string, unknown>> = {
 			name: "intercom",
 			label: "Intercom",
+			promptSnippet: "Supervisor channel: reply to / check pending child subagent requests",
 			description: "Native supervisor-channel intercom fallback for subagents. Prefer contact_supervisor when available.",
 			parameters: IntercomParamsSchema,
 			async execute(_id, params, signal) {
@@ -562,6 +563,7 @@ function buildParentIntercomTool(pending: Map<string, PendingSupervisorRequest>,
 	return {
 		name,
 		label: name === "intercom" ? "Intercom" : "Subagent Supervisor",
+		promptSnippet: "Supervisor channel: reply to / check pending child subagent requests",
 		description: name === "intercom"
 			? "Native pi-subagents supervisor channel. Use reply/pending/status to answer child subagent requests."
 			: "Native pi-subagents supervisor channel. Use reply/pending/status to answer child subagent requests without overriding pi-intercom.",

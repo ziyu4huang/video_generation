@@ -173,21 +173,23 @@ const HELP_TOPIC_ENUM = Type.Union(
   { description: "Reference topic to look up instead of a single command." },
 );
 
-/** Optional camera/lighting vocabulary schema — see shotLanguage.ts. */
+/** Optional camera/lighting vocabulary schema — see shotLanguage.ts.
+ *  Enum values are intentionally NOT listed inline (saves ~500 tok/req);
+ *  the model calls ltx_help({topic:"shot-language"}) for valid values. */
 const SHOT_LANGUAGE_SCHEMA = Type.Optional(
   Type.Object(
     {
-      shotSize: Type.Optional(Type.Union(SHOT_SIZES.map((v) => Type.Literal(v)))),
-      cameraMovement: Type.Optional(Type.Union(CAMERA_MOVEMENTS.map((v) => Type.Literal(v)))),
-      lensMm: Type.Optional(Type.Union(LENS_MM.map((v) => Type.Literal(v)))),
-      lightingKey: Type.Optional(Type.Union(LIGHTING_KEYS.map((v) => Type.Literal(v)))),
-      depthOfField: Type.Optional(Type.Union(DEPTH_OF_FIELDS.map((v) => Type.Literal(v)))),
-      colorTemperature: Type.Optional(Type.Union(COLOR_TEMPERATURES.map((v) => Type.Literal(v)))),
+      shotSize: Type.Optional(Type.String()),
+      cameraMovement: Type.Optional(Type.String()),
+      lensMm: Type.Optional(Type.Number()),
+      lightingKey: Type.Optional(Type.String()),
+      depthOfField: Type.Optional(Type.String()),
+      colorTemperature: Type.Optional(Type.String()),
     },
     {
       description:
         "Optional camera/lighting vocabulary appended to options.prompt (or every options.prompts " +
-        'element for native-relay). See ltx_help({topic:"shot-language"}) for the full vocab.',
+        'element for native-relay). Valid values: call ltx_help({topic:"shot-language"}).',
     },
   ),
 );
