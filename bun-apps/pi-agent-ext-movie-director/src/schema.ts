@@ -12,7 +12,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { DATA_DIR } from "./paths.ts";
 
-const ajv = new Ajv2020({ allErrors: true, strict: false });
+const ajv = new Ajv2020({ allErrors: true, strict: false, verbose: true });
 addFormats(ajv);
 
 export type ValidateFn = (data: unknown) => boolean;
@@ -62,6 +62,36 @@ export interface SchemaError {
   errors: string[];
 }
 
+/**
+ * Describe what a schema node actually requires, so a caller fixing a
+ * validation error doesn't have to guess enum values or nested object shapes
+ * from the field name alone.
+ */
+function describeSchemaNode(node: any): string {
+  if (!node || typeof node !== "object") return "";
+  if (Array.isArray(node.enum)) return ` (allowed: ${node.enum.join(", ")})`;
+  if (node.type === "object" && Array.isArray(node.required) && node.required.length > 0) {
+    return ` (needs: ${node.required.join(", ")})`;
+  }
+  if (node.type === "array" && node.items?.type === "object" && Array.isArray(node.items.required) && node.items.required.length > 0) {
+    return ` (array of objects, each needing: ${node.items.required.join(", ")})`;
+  }
+  return "";
+}
+
+/** Turn one ajv error into an actionable message — name the allowed enum values or the missing nested fields instead of ajv's generic wording. */
+function describeAjvError(e: any): string {
+  const base = `${e.instancePath || "/"}: ${e.message ?? "invalid"}`;
+  if (e.keyword === "enum" && Array.isArray(e.params?.allowedValues)) {
+    return `${base} [${e.params.allowedValues.join(", ")}] (got ${JSON.stringify(e.data)})`;
+  }
+  if (e.keyword === "required" && e.params?.missingProperty) {
+    const propSchema = e.parentSchema?.properties?.[e.params.missingProperty];
+    return `${base}${describeSchemaNode(propSchema)}`;
+  }
+  return base;
+}
+
 /** Validate `data` against the named schema. Returns {ok} or {ok:false, errors[]}. */
 export function validate(schemaKey: string, data: unknown): { ok: true } | SchemaError {
   loadAllSchemas();
@@ -70,7 +100,7 @@ export function validate(schemaKey: string, data: unknown): { ok: true } | Schem
   if (fn(data)) return { ok: true };
   // ajv stores errors on the validate function object.
   const errs = (fn as any).errors ?? [];
-  return { ok: false, errors: errs.map((e: any) => `${e.instancePath || "/"}: ${e.message ?? "invalid"}`) };
+  return { ok: false, errors: errs.map(describeAjvError) };
 }
 
 /** Validate an artifact of the given canonical name (e.g. "script", "edit_decisions"). */
@@ -81,4 +111,10 @@ export function validateArtifact(name: string, data: unknown): { ok: true } | Sc
 export function listSchemas(): string[] {
   loadAllSchemas();
   return [...compiled.keys()].sort();
+}
+
+/** Whether a compiled schema exists for the given key (e.g. "artifact/research_brief"). */
+export function hasSchema(schemaKey: string): boolean {
+  loadAllSchemas();
+  return compiled.has(schemaKey);
 }

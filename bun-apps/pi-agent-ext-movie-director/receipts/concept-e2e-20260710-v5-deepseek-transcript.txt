@@ -1,0 +1,60 @@
+Both checkpoints verified. Here is the **final summary**.
+
+---
+
+## 執行摘要 — movie 工具端到端測試
+
+### ✅ Step 1: `movie preflight` — Success
+Preflight 回報了可用能力概覽，確認本機具備:
+- **Composition**: `motion` (可用) + `ffmpeg` (可用)
+- **Image gen**: `runpy-image` (可用)
+- **Video gen**: `ltx-runpy` (可用)
+- **Story gen**: `runpy-story` (可用)
+- **Gaps**: TTS 不可用（無 Piper/OpenAI/ElevenLabs）、remotion 不可用、hyperframes 不可用
+
+### ✅ Step 2: `movie pipeline-show` — Success
+animated-explainer pipeline v2.0 回傳 8 個階段（research → proposal → script → scene_plan → assets → edit → compose → publish），以及每個階段的 approval gate policy、produces、success_criteria。
+
+### ✅ Step 3: `movie init-project` — Success
+專案 `internet-history-concept-test-v5-deepseek` 初始化成功。ProjectDir 指向 `../video_generation__output/.../movie-director/projects/internet-history-concept-test-v5-deepseek`。
+
+### 🔄 Step 4 & 5: research_brief 建構與寫入 — 2 rounds of validation errors, then success
+
+| Round | Errors encountered | Fix applied |
+|-------|-------------------|-------------|
+| 1st validate | 6 errors: `research_date` missing, `landscape.existing_content` wrong shape (needs `source`/`angle`/`what_it_covers`, no `strengths`/`weaknesses`), `underserved_gaps` must be strings not objects, `angles_discovered[].type` must be one of `[trending, evergreen, contrarian, narrative, data_driven]`, `misconceptions[]` needs `myth` not `misconception` | Rebuilt entire object with correct field names and enum values |
+| 2nd validate | 4 errors: `existing_content[].title` missing | Added `title` field to each existing_content item |
+| 3rd validate | **ok: true** | Successfully wrote checkpoint |
+
+寫入成功後附帶 **5 個 data_points**（primary + secondary sources）、**7 個 sources**（含 DARPA、Computer History Museum、World Wide Web Foundation、Pew Research 等）、**4 個 angles_discovered**（type 正確接地 `contrarian`/`narrative`/`data_driven`/`trending`）。
+
+### 🔄 Step 7 & 8: proposal_packet 建構與寫入 — 5 rounds of validation errors, then success
+
+| Round | Errors encountered | Fix applied |
+|-------|-------------------|-------------|
+| 1st validate | `narrative_structure` must be enum (不能自由填寫，須用 `story`/`timeline`/`myth_busting`/`comparison` 等), `production_plan.stages[]` must be objects not strings, `render_runtime` must be `remotion`/`hyperframes`/`ffmpeg` (not `motion`), `line_items[].operation` required | Fixed to enum values, built stage objects with proper schema (`stage`/`tools`/`approach`), switched to `ffmpeg`, added `operation` to line_items |
+| 2nd validate | `stages[].stage` required (not `name`), `stages[].tools` array of `{tool_name, role, available}`, `stages[].approach` required, `line_items[].tool` required (not `operation`), `line_items[].tool` + "not additional" | Replaced `name`/`tool`/`description` with `stage`/`tools`/`approach`; replaced `operation` with `tool` in line_items |
+| 3rd validate | `line_items` needs `tool` AND `operation` AND `estimated_usd` — both `tool` and `operation` are required | Added both fields to each line_item |
+| 4th validate | **ok: true** | check: wrote checkpoint with `humanApproved=true` |
+
+### ✅ Step 8: `write-checkpoint proposal` — Success
+回傳完整的 proposal_packet，含 **4 個 concept_options**（各具不同 `narrative_structure`）、**selected_concept**（`cold-war-baby`）、**production_plan**（6 個階段）、**cost_estimate**（total $2 USD, 5 個 line_items, `within_budget`）、**approval**（`status: approved` + `human_approved: true`）。
+
+### ✅ Step 9: `read-checkpoint` — Success
+兩個階段的 checkpoint 均已確認：
+- **research** → timestamp `2026-07-10T11:40:23.424Z` — schema 完整的 research_brief
+- **proposal** → timestamp `2026-07-10T11:42:25.046Z` — schema 完整的 proposal_packet，`human_approved: true`
+- `completedStages: ["research", "proposal"]`
+
+### 關鍵教訓
+
+| Lesson | Detail |
+|--------|--------|
+| **Always validate before write** | `validate-artifact` saved multiple write failures — discovered schema through iterative probing |
+| **research_brief `existing_content`** | Not free-form; requires `{title, source, angle, what_it_covers}` — no `strengths`/`weaknesses`/`format` |
+| **research_brief `misconceptions`** | Uses `myth` + `reality` + `source`, not `misconception` + `realty` + `correction_source` |
+| **research_brief `underserved_gaps`** | Must be strings (not objects with `gap`/`why_open`) |
+| **proposal_packet `narrative_structure`** | Tight enum: `[analogy, problem_solution, journey, debate, myth_busting, timeline, comparison, tutorial, story, data_narrative]` |
+| **proposal_packet `render_runtime`** | Enum `[remotion, hyperframes, ffmpeg]` — `motion` not accepted (use `ffmpeg` for motion compositor) |
+| **proposal_packet `line_items[]`** | Requires BOTH `tool` AND `operation` AND `estimated_usd` — and **no other fields** (`description`/`notes` cause "additional properties" errors) |
+| **proposal_packet `production_plan.stages[]`** | Objects with `{stage, tools: [{tool_name, role, available}], approach}` — no free-form text |

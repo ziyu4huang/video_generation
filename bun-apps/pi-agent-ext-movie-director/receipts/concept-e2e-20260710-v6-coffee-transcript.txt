@@ -1,0 +1,43 @@
+Both stages are fully recorded and confirmed. Here's the complete summary:
+
+---
+
+## CONCEPT Stage Test — Full Summary
+
+**Project:** `coffee-consumption-concept-test-v6`  
+**Pipeline:** `animated-explainer` (v2.0)  
+**Topic:** "Coffee consumption around the world: a data-driven explainer"
+
+---
+
+### Validation Errors Encountered & Fixes
+
+#### Stage 1: `research_brief` (3 rounds of validation)
+
+| Round | Errors | Fix Applied |
+|-------|--------|-------------|
+| **v1** | `landscape.existing_content[0..2]` must be **objects** (were strings); `data_points[0..6].credibility` must be `primary_source │ secondary_source │ anecdotal` (got "high"/"medium"); `audience_insights.misconceptions[0..3]` must be **objects** (were strings); `angles_discovered[0..3].type` must be `trending │ evergreen │ contrarian │ narrative │ data_driven` (got custom values) | Restructured all arrays to objects; mapped credibility to enum values; changed angle types to schema-compliant values |
+| **v2** | `existing_content[0..2]` must have fields `source, angle, what_it_covers` (no extra props); `misconceptions[0..3]` must have `myth` (no extra props like `misconception`/`reality`/`frequency`); `angles_discovered[0..3].grounded_in` must be **array** (was string) | Renamed all fields to match schema; wrapped `grounded_in` in arrays |
+| **v3** | `existing_content[0..2]` missing `title`; `misconceptions[0..3]` missing `reality` | Added `title` field to existing_content; added `reality` field to misconceptions |
+| **✅ PASS** | — | — |
+
+#### Stage 2: `proposal_packet` (2 rounds of validation)
+
+| Round | Errors | Fix Applied |
+|-------|--------|-------------|
+| **v1** | Root had extra property `project_id`; `narrative_structure[0..3]` must be one of 10 enum values (got custom `data_reveal`/`compare_contrast`/`trend_narrative`); `production_plan.stages[0..4]` must be **objects** with `stage, tools[], approach` (were strings); `render_runtime` must be `remotion │ hyperframes │ ffmpeg` (got "motion"); `line_items[0..5]` must have `operation` and no extra props; `budget_verdict` must be one of 4 enum values (got "under_budget") | Removed `project_id`; mapped narrative structures to schema values (`data_narrative`, `analogy`, `comparison`, `problem_solution`); restructured stages as objects with correct fields; changed render_runtime to `ffmpeg` (only available option matching preflight); renamed line_items fields; changed verdict to `within_budget` |
+| **v2** | `stages[0..4]` must have `stage` (not `name`), `tools` as array of `{tool_name, role, available}`, `approach`; `line_items[0..5]` must have `tool` (in addition to `operation`) | Fixed stage field names; added `tool` field to line_items |
+| **✅ PASS** | — | — |
+
+No cheat codes (`overrideArtifactValidation`) were used — every error was fixed properly.
+
+---
+
+### Final Checkpoint State
+
+| Stage | Status | Timestamp | Key Artifacts |
+|-------|--------|-----------|---------------|
+| **research** | ✅ `completed` | 2026-07-10T12:15:52 | `research_brief` — 7 data points, 4 angles (Nordic Paradox, Hidden Waterfall, Caffeine Generation Gap, Bean to Billion), 7 sources, audience insights with 4 misconceptions, competitive landscape of 3 existing pieces |
+| **proposal** | ✅ `completed` | 2026-07-10T12:16:38 | `proposal_packet` — 4 concept options (data_narrative, analogy, comparison, problem_solution), selected "The Nordic Paradox", production plan covering 5 stages with tools, cost estimate $1.85 total (within_budget), human **approved** |
+
+The `completedStages` array confirms both stages are recorded in order: `["research", "proposal"]`. The project is ready for the next pipeline stage (`script`) whenever you're ready to proceed.

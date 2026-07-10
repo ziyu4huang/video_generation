@@ -15,9 +15,9 @@
  */
 import { mkdirSync, writeFileSync, readFileSync, existsSync, renameSync, copyFileSync } from "node:fs";
 import { join } from "node:path";
-import { validate } from "./schema.ts";
+import { validate, hasSchema } from "./schema.ts";
 import { checkpointPath, projectDir, historyDir } from "./paths.ts";
-import { getStageHumanApprovalDefault, loadPipeline } from "./pipeline.ts";
+import { getStage, getStageHumanApprovalDefault, loadPipeline, findStageProducingArtifact } from "./pipeline.ts";
 
 export type CheckpointStatus = "pending" | "in_progress" | "awaiting_human" | "completed" | "failed";
 
@@ -57,6 +57,20 @@ export interface WriteCheckpointInput {
   status: CheckpointStatus;
   artifacts?: CheckpointArtifacts;
   humanApproved?: boolean;
+  /**
+   * Explicit override to complete a stage that requires `final_review` as an
+   * input artifact (e.g. publish) despite that review's verdict being "fail".
+   * Analogous to `humanApproved` — must be passed deliberately, never implied.
+   */
+  overrideFinalReview?: boolean;
+  /**
+   * Explicit override to complete a stage whose `artifacts` fail their own
+   * canonical schema (e.g. a `research_brief` missing required fields).
+   * Analogous to `humanApproved`/`overrideFinalReview` — must be passed
+   * deliberately, never implied, so a schema-invalid artifact can still ship
+   * on purpose but never silently.
+   */
+  overrideArtifactValidation?: boolean;
   stylePlaybook?: string;
   review?: unknown;
   costSnapshot?: unknown;
@@ -90,6 +104,47 @@ export function writeCheckpoint(input: WriteCheckpointInput): Checkpoint {
         `completion. Write status="awaiting_human" and END YOUR TURN, or pass humanApproved=true only ` +
         `after explicit user approval.`,
     );
+  }
+
+  // GATE: a stage that declares final_review as a required input (publish) must
+  // not complete while the linked final_review verdict is "fail" — mirrors the
+  // human-approval gate above. The verdict is read from the checkpoint of
+  // whichever stage's manifest `produces` lists final_review (compose, in both
+  // shipped pipelines), never hardcoded to a stage name.
+  const requiresFinalReview = getStage(input.pipeline, input.stage)?.required_artifacts_in?.includes("final_review") ?? false;
+  if (input.status === "completed" && requiresFinalReview && !input.overrideFinalReview) {
+    const producingStage = findStageProducingArtifact(input.pipeline, "final_review");
+    const producingCp = producingStage ? readCheckpointRaw(input.projectId, producingStage, input.env) : undefined;
+    const finalReview = producingCp?.artifacts?.final_review as { verdict?: string } | undefined;
+    if (finalReview?.verdict === "fail") {
+      throw new GateViolationError(
+        `GATE VIOLATION: stage "${input.stage}" (${input.pipeline}) cannot complete — the final_review ` +
+          `verdict from stage "${producingStage}" is "fail". Fix the flagged issue, or pass ` +
+          `overrideFinalReview=true only after an explicit human/agent decision to ship past the advisory failure.`,
+      );
+    }
+  }
+
+  // GATE: every artifact carried into a "completed" checkpoint must conform
+  // to its own canonical schema (e.g. artifacts.research_brief must satisfy
+  // research_brief.schema.json), not just the checkpoint envelope below.
+  // `validate-artifact` alone was advisory — an agent could ignore its
+  // rejection and write the checkpoint anyway with garbage/placeholder
+  // content. This closes that gap. Artifact keys with no matching canonical
+  // schema (custom/intermediate artifacts) are skipped, not failed.
+  if (input.status === "completed" && !input.overrideArtifactValidation) {
+    for (const [name, data] of Object.entries(input.artifacts ?? {})) {
+      const schemaKey = `artifact/${name}`;
+      if (!hasSchema(schemaKey)) continue;
+      const v = validate(schemaKey, data);
+      if (!v.ok) {
+        throw new GateViolationError(
+          `GATE VIOLATION: stage "${input.stage}" (${input.pipeline}) artifact "${name}" fails its schema and ` +
+            `cannot complete:\n  ${v.errors.join("\n  ")}\nFix the artifact and retry, or pass ` +
+            `overrideArtifactValidation=true only after an explicit human/agent decision to ship past validation.`,
+        );
+      }
+    }
   }
 
   const cp: Checkpoint = {

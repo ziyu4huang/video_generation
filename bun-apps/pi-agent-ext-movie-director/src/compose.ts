@@ -273,6 +273,15 @@ export interface FinalReviewOptions {
    * preview. This is the v1 surfacing of spoken content for final_review.
    */
   transcriptPath?: string;
+  /**
+   * The story's declared narration intent (the script artifact's top-level
+   * `narration` field: "voiced" | "none"). When "none" (ambient-only /
+   * intentionally silent), a near-silent track is EXPECTED, not a defect —
+   * the audio_level check downgrades from "fail" to "warn" so a correctly
+   * silent track never flips the verdict to "fail". Omit/undefined preserves
+   * the prior behavior (near-silence always fails).
+   */
+  narration?: "voiced" | "none";
 }
 
 /**
@@ -307,7 +316,14 @@ export async function finalReview(mp4Path: string, deps: ComposeDeps = {}, opts:
   if (meanDb == null) {
     checks.push({ name: "audio_level", status: "warn", detail: "volumedetect did not report (no audio?)" });
   } else if (meanDb < -45) {
-    checks.push({ name: "audio_level", status: "fail", detail: `mean=${meanDb}dB (near-silent)` });
+    const ambientOnly = opts.narration === "none";
+    checks.push({
+      name: "audio_level",
+      status: ambientOnly ? "warn" : "fail",
+      detail: ambientOnly
+        ? `mean=${meanDb}dB (near-silent; expected — script declares narration:"none")`
+        : `mean=${meanDb}dB (near-silent)`,
+    });
   } else {
     const peak = peakMatch ? parseFloat(peakMatch[1]) : 0;
     checks.push({ name: "audio_level", status: peak > -0.5 ? "warn" : "pass", detail: `mean=${meanDb}dB peak=${peak}dB` });
