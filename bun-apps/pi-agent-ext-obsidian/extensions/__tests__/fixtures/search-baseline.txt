@@ -1,6 +1,6 @@
 # obsidian_search baseline (real submodule vault — drifts on content growth)
-Generated: 2026-07-09T00:31
-Vault note count: 643
+Generated: 2026-07-10T01:36
+Vault note count: 659
 
 Real-vault snapshot (NOT the contract). This legitimately drifts whenever
 notes are added/removed; baseline.test.mjs is skip-gated on submodule
@@ -170,7 +170,7 @@ Tags/Index.md:253: > pi agent 可用 `obsidian_append_section` 工具自動追�
 
 ### case-sensitive mismatch
 query="Obsidian"
-43 match(es):
+44 match(es):
 Design/pi-Obsidian Integration.md:6: # 📐 Design — pi-Obsidian 整合
 Design/pi-Obsidian Integration.md:9: - 需要讓 pi agent 能直接讀寫 Obsidian 知識庫，不必切換 app。
 Design/pi-Obsidian Integration.md:16: - ❌ 不處理 Obsidian 設定同步
@@ -213,6 +213,7 @@ Zettelkasten/knowledge-graph/auto-memory-pi-obsidian-vault-distilled.md:26: 2. *
 Zettelkasten/knowledge-graph/gotcha-resolvevault-tier2-app-fallback.md:16: # resolveVault Tier-2 reads the Obsidian app open vault — can't fail deterministically in tests
 Zettelkasten/knowledge-graph/gotcha-resolvevault-tier2-app-fallback.md:19: > [!warning] pi-obsidian's resolveVault(cwd) has a Tier-2 fallback that resolves the REAL open Obsidian app vault.
 Zettelkasten/knowledge-graph/gotcha-resolvevault-tier2-app-fallback.md:20: Implication: you CANNOT make resolveVault fail by just clearing OB_VAULT_PATH on a dev machine with Obsidian installed — Tier-2 resolves the real open vault and the call succeeds with the WRONG vault. To test the vault-resolution-FAILURE path, inject a throwing resolver via a test seam (pi-knowledge-card exports __setVaultResolverForTest) rather than manipulating env vars. Also: resolveVault finds the run-dir config only when cwd is the REPO ROOT — tools must pass ctx.cwd, not process.cwd() of the package.
+Zettelkasten/knowledge-graph/pi-memory-memory-1ey9otm.md:17: When creating a "next goals" or planning document after completing a task, write it to `./output/next-goal-<YYYYMMDD-HHMM>.md` in the repo root (timestamp includes date AND time, e.g. `next-goal-20260706-0531.md`). Do NOT write planning/goal documents to the Obsidian vault — the vault is for knowledge/Zettelkasten/reflections only. Goal/planning docs belong in `output/`.
 Zettelkasten/knowledge-graph/review-case-insensitive-blocklist.md:17: A security-relevant correctness bug in bun-apps/pi-obsidian/extensions/obsidian.ts (assertWritablePath). The WRITE_BLOCKLIST check uses `['.git', '.obsidian'].includes(first)` which is exact-case string comparison. On case-insensitive filesystems (macOS APFS/HFS+ default), `.Git`, `.GIT`, `.Obsidian`, `.OBSIDIAN` bypass the blocklist and allow writes to git/Obsidian internal directories. An agent obsidian_create tool receiving note path `.Git/config` or `.OBSIDIAN/app.json` will proceed to overwrite critical configuration files. Fix: use a case-insensitive comparison (`.toLowerCase()` or case-insensitive regex) on the first path segment against the blocklist entries, or use realpath resolution and compare against disallowed canonical paths.
 
 ### tag-like inline token [SUBSTRING-DEFAULT]
