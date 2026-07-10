@@ -47,9 +47,9 @@ describe("resolvePlanPaths — full 4-level precedence", () => {
     mkdirSync(b, { recursive: true });
     writeFileSync(join(a, "task_plan.md"), "# a");
     writeFileSync(join(b, "task_plan.md"), "# b");
-    // make b newer
-    const future = Date.now() / 1000 + 100;
-    utimesSync(join(b, "task_plan.md"), future, future);
+    // Newest-dir is decided by directory mtime; make b unambiguously newer.
+    const baseT = Math.floor(Date.now() / 1000);
+    utimesSync(b, baseT + 1000, baseT + 1000);
     // pin active_plan to a (older) — should win over newest (b)
     writeFileSync(join(cwd, ".planning", ".active_plan"), "plan-a");
     expect(resolvePlanPaths(cwd).planId).toBe("plan-a");
@@ -63,8 +63,14 @@ describe("resolvePlanPaths — full 4-level precedence", () => {
     mkdirSync(b, { recursive: true });
     writeFileSync(join(a, "task_plan.md"), "# a");
     writeFileSync(join(b, "task_plan.md"), "# b");
-    const future = Date.now() / 1000 + 100;
-    utimesSync(join(b, "task_plan.md"), future, future);
+    // resolveNewestPlanDir sorts by DIRECTORY mtime (statSync(dir).mtimeMs),
+    // so set the directories' mtimes directly with a clear gap — NOT the
+    // files' mtimes. (Setting a file mtime doesn't move its parent dir's
+    // mtime, and two dirs created microseconds apart can tie on a coarse-FS
+    // CI runner, making the sort non-deterministic.)
+    const baseT = Math.floor(Date.now() / 1000);
+    utimesSync(a, baseT, baseT);
+    utimesSync(b, baseT + 1000, baseT + 1000);
     delete process.env.PLAN_ID;
     expect(resolvePlanPaths(cwd).planId).toBe("plan-b");
   });
@@ -321,8 +327,10 @@ describe("runSessionCatchup — git diff integration", () => {
     const dir = join(cwd, ".planning", "p");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "task_plan.md"), "### Phase 1\n**Status:** pending\n");
-    // init git + make a dirty change
-    execSync("git init -q && git add -A && git commit -q -m init", { cwd });
+    // init git + make a dirty change. Pass an explicit identity: CI runners
+    // have no global user.email/user.name, so a bare `git commit` fails with
+    // "Author identity unknown".
+    execSync("git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -q -m init", { cwd });
     writeFileSync(join(cwd, "dirty.txt"), "change");
     const res = runSessionCatchup(cwd);
     expect(res.relevant).toBe(true);
