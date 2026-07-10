@@ -125,6 +125,17 @@ describe("final_review gate — publish cannot complete past a fail verdict with
     });
     expect(cp.status).toBe("awaiting_human");
   });
+
+  test("publish completed is rejected when compose was never completed (no final_review to check) — fails closed, not open", () => {
+    // No prior "compose" checkpoint written for this project at all.
+    expect(() =>
+      writeCheckpoint({
+        projectId: "p9", pipeline: "talking-head", stage: "publish",
+        status: "completed", humanApproved: true, env,
+      }),
+    ).toThrow(GateViolationError);
+    expect(readCheckpoint("p9", "publish", env)).toBeUndefined();
+  });
 });
 
 describe("artifact-schema gate — completed cannot carry a schema-invalid canonical artifact", () => {

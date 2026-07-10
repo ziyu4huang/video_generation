@@ -110,17 +110,22 @@ export function writeCheckpoint(input: WriteCheckpointInput): Checkpoint {
   // not complete while the linked final_review verdict is "fail" — mirrors the
   // human-approval gate above. The verdict is read from the checkpoint of
   // whichever stage's manifest `produces` lists final_review (compose, in both
-  // shipped pipelines), never hardcoded to a stage name.
+  // shipped pipelines), never hardcoded to a stage name. Fails CLOSED (not just
+  // on verdict:"fail") when that producing stage was never completed — a
+  // caller cannot bypass the gate by skipping straight to publish before
+  // compose has run, since a missing/incomplete final_review is exactly the
+  // "we don't know it passed" case this gate exists to block.
   const requiresFinalReview = getStage(input.pipeline, input.stage)?.required_artifacts_in?.includes("final_review") ?? false;
   if (input.status === "completed" && requiresFinalReview && !input.overrideFinalReview) {
     const producingStage = findStageProducingArtifact(input.pipeline, "final_review");
     const producingCp = producingStage ? readCheckpointRaw(input.projectId, producingStage, input.env) : undefined;
     const finalReview = producingCp?.artifacts?.final_review as { verdict?: string } | undefined;
-    if (finalReview?.verdict === "fail") {
+    if (producingCp?.status !== "completed" || finalReview?.verdict !== "pass") {
       throw new GateViolationError(
-        `GATE VIOLATION: stage "${input.stage}" (${input.pipeline}) cannot complete — the final_review ` +
-          `verdict from stage "${producingStage}" is "fail". Fix the flagged issue, or pass ` +
-          `overrideFinalReview=true only after an explicit human/agent decision to ship past the advisory failure.`,
+        `GATE VIOLATION: stage "${input.stage}" (${input.pipeline}) cannot complete — no passing final_review ` +
+          `found from stage "${producingStage}" (verdict: ${finalReview?.verdict ?? "missing — stage not completed"}). ` +
+          `Run "${producingStage}" to completion with a passing final_review, or pass overrideFinalReview=true only ` +
+          `after an explicit human/agent decision to ship past the advisory failure.`,
       );
     }
   }

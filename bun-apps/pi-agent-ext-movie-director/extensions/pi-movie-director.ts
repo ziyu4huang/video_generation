@@ -253,7 +253,10 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
         };
       }
       case "write-checkpoint": {
-        const missing = missingFields(opts, ["projectId", "pipeline", "stage", "status"]);
+        // `status` is intentionally NOT in this list — it defaults to
+        // "in_progress" below (writeCheckpoint's documented default for an
+        // unfinished stage), so omitting it is a valid call, not an error.
+        const missing = missingFields(opts, ["projectId", "pipeline", "stage"]);
         if (missing.length > 0) return { ok: false, error: `write-checkpoint requires non-empty ${missing.join(", ")}` };
         const cp = writeCheckpoint({
           projectId: String(opts.projectId ?? ""),

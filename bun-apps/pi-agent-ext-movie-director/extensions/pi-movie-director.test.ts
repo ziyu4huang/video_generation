@@ -107,6 +107,21 @@ describe("pi-movie-director extension", () => {
     expect(res.content[0].text).toContain("GATE VIOLATION");
   });
 
+  test("write-checkpoint with status omitted defaults to in_progress (status is not a required field)", async () => {
+    const tool = captureTool("movie");
+    const res = await tool.execute(
+      "id",
+      {
+        command: "write-checkpoint",
+        options: { projectId: "p-default-status", pipeline: "talking-head", stage: "idea" },
+      },
+      undefined, undefined, undefined,
+    );
+    expect(res.details.ok).toBe(true);
+    const parsed = JSON.parse(res.content[0].text);
+    expect(parsed.status).toBe("in_progress");
+  });
+
   test("generate surfaces a no-configured-provider error as a structured failure (no spawn)", async () => {
     // tts has NO configured provider → the selector throws NoConfiguredProviderError,
     // which dispatch converts to {ok:false, error}. No subprocess is ever spawned.

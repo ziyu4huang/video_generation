@@ -95,7 +95,14 @@ async function main() {
       const produces = getStageProduces("animated-explainer", stage);
       const stageArtifacts: Record<string, unknown> = {};
       for (const p of produces) stageArtifacts[p] = (artifacts[stage] as Record<string, unknown>)?.[p] ?? { stub: true };
-      writeCheckpoint({ projectId, pipeline: "animated-explainer", stage, status: "completed", artifacts: stageArtifacts, humanApproved: true });
+      // This first pass proves orchestration mechanics with placeholder {stub:true}
+      // content, not real artifacts — override both content-schema and final_review
+      // gates here; the real compose/publish checkpoints below (after the actual
+      // Remotion render + final_review) are written WITHOUT an override.
+      writeCheckpoint({
+        projectId, pipeline: "animated-explainer", stage, status: "completed", artifacts: stageArtifacts, humanApproved: true,
+        overrideArtifactValidation: true, overrideFinalReview: true,
+      });
       const cp = readCheckpoint(projectId, stage);
       console.log(`  ✓ ${stage}: status=${cp?.status} (produces: ${produces.join(",") || "—"})`);
     }
