@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { resolveRepoRoot } from "./binary.ts";
+import { resolveRepoRoot, defaultBinaryPath } from "./binary.ts";
 import { PathSafetyError, runLtx, withShotLanguage } from "./index.ts";
 
 // These tests exercise the validation layers that run BEFORE ltx-video is
@@ -78,8 +78,10 @@ describe("runLtx — pre-spawn validation", () => {
   // Machine-coupled: runLtx() spawns the ltx-video binary (or run.py fallback).
   // On GitHub Actions neither is built, so the spawn hangs despite the abort
   // signal → 5s timeout. Skip under CI=true (no Metal/swift build). See
-  // .github/CI.md.
-  test.skipIf(process.env.CI)("does NOT throw PathSafetyError for a bare variant name with no embedded path (e.g. 'baseline')", async () => {
+  // .github/CI.md. Also skips locally when the ltx-video binary is unbuilt
+  // (e.g. right after `git clean -dxf` removed .build/) — same hang risk.
+  const LTX_BIN_PRESENT = existsSync(defaultBinaryPath(resolveRepoRoot()));
+  test.skipIf(process.env.CI || !LTX_BIN_PRESENT)("does NOT throw PathSafetyError for a bare variant name with no embedded path (e.g. 'baseline')", async () => {
     // Pre-abort so this never actually runs a real (multi-minute)
     // generation — invokeLtx kills the process immediately post-spawn and
     // resolves with aborted:true rather than rejecting. The only thing this

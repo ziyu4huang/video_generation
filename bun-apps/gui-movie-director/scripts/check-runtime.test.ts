@@ -1,5 +1,7 @@
 import { describe, it, expect } from "bun:test";
+import { existsSync } from "node:fs";
 import path from "path";
+import { resolvePythonBin } from "../lib/pythonBin";
 
 // Smoke test for check-runtime. The script exercises buildCliArgs() with
 // synthesized params and asserts the output against run.py's argparse contract,
@@ -26,7 +28,11 @@ function runJson(): { json: any; exitCode: number | null } {
 // the venv nor Apple-Silicon Metal, so the probe returns no parseable JSON and
 // these assertions can't hold. Skip under CI=true (set automatically by GitHub
 // Actions). See .github/CI.md. Runs locally (CI unset) where the venv exists.
-describe.skipIf(process.env.CI)("check-runtime", () => {
+// Also skips locally when the venv is absent (e.g. right after `git clean -dxf`
+// or a fresh clone, before `bash scripts/setup-offline.sh` recreates it) so a
+// clean tree produces clean skips, not red ENOENT JSON-parse failures.
+const VENV_PRESENT = existsSync(resolvePythonBin());
+describe.skipIf(process.env.CI || !VENV_PRESENT)("check-runtime", () => {
   it("emits a well-formed JSON contract", () => {
     const { json } = runJson();
     expect(typeof json.findingCount).toBe("number");
