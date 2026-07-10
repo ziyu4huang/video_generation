@@ -21,7 +21,7 @@
  * — the standard ~4-chars-per-token heuristic for English text + JSON. It's an
  * ESTIMATE (real cost depends on the provider's tokenizer), but it ranks tools
  * correctly and is deterministic + offline, which is what we need to track cost
- * across changes. Mirrors the approach `context_analyzer` reports in-agent.
+ * across changes. Mirrors the approach `inspect_context` reports in-agent.
  */
 import { createCodingTools } from "@earendil-works/pi-coding-agent";
 import { globSync, existsSync } from "node:fs";
@@ -36,7 +36,7 @@ import { resolve, relative, isAbsolute, join } from "node:path";
 // (src/schema-cost/__tests__/estimate.test.ts) guarantees identical numbers.
 //
 // Note on the token ratio: the submodule defaults to 4 (matching this static
-// instrument). The live `context_analyzer` (same package, src/index.ts) uses
+// instrument). The live `inspect_context` (same package, src/index.ts) uses
 // 3.7 — a known inconsistency; standardizing is a future cleanup, not this cycle.
 import {
 	estimateToolCost as _estimateToolCost,

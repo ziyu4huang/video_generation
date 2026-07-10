@@ -368,9 +368,17 @@ function stageResolveExternals(outfile: string, resolveBare: (s: string) => stri
 			unresolved.push(spec);
 			continue;
 		}
+		// Scope the rewrite to IMPORT contexts only (from"spec" / import("spec")),
+		// matching the discovery regex above. A global "spec" replace would ALSO
+		// rewrite the specifier inside string-literal VALUES — e.g. pi-vlm's
+		// missingDeps(["@earendil-works/pi-coding-agent"], …) dep probe — turning the
+		// package name into a resolved abs path and breaking pkgBaseName() → a false
+		// "missing npm packages" error at runtime. Capture the import prefix + match
+		// the opening/closing quote pair so non-import quoted occurrences survive.
+		const esc = spec.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 		code = code.replace(
-			new RegExp(`(["'])${spec.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\1`, "g"),
-			`"${abs}"`,
+			new RegExp(`((?:from|import\\()\\s*)(["'])${esc}\\2`, "g"),
+			`$1"${abs}"`,
 		);
 		resolved++;
 	}
@@ -431,6 +439,16 @@ async function liveFactoryTest(
 	const target = {
 		on: () => {}, // session_start handler registration — no-op
 		registerTool: (def: any) => tools.push(def),
+		// pi.events (EventBus — emit/on) is a REAL SDK surface (core/event-bus.ts).
+		// Some extensions (pi-agent-ext-subagents) call pi.events.on() at factory
+		// top-level (synchronously), so the mock must model it — the Proxy's
+		// blanket no-op-fn return makes `pi.events.on` undefined (a fn has no
+		// .on). on() returns an unsubscribe fn to match EventBus's contract
+		// (factories collect the return into an unsub array).
+		events: {
+			on: () => () => {},
+			emit: () => {},
+		},
 	};
 	const mockApi = new Proxy(target, {
 		get(t, prop) {

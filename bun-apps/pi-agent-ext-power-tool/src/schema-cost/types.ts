@@ -1,7 +1,7 @@
 /**
  * Type definitions for the schema-cost submodule.
  *
- * These mirror the `context_analyzer` live instrument's types exactly (this
+ * These mirror the `inspect_context` live instrument's types exactly (this
  * submodule IS the extraction of that pure core), so delegation is a drop-in.
  */
 
@@ -38,7 +38,7 @@ export interface AnalyzeOptions {
 	/**
 	 * Chars-per-token ratio for the heuristic estimate. Default **4** (the
 	 * standard ~4-chars-per-token approximation for English text + JSON; matches
-	 * the static `schema-cost` CLI instrument). The live `context_analyzer`
+	 * the static `schema-cost` CLI instrument). The live `inspect_context`
 	 * uses 3.7 — pass `3.7` here to reproduce its numbers. It's an ESTIMATE:
 	 * real cost depends on the provider's tokenizer, but it ranks tools
 	 * correctly and is deterministic + offline.

@@ -1,7 +1,7 @@
-# PRD: `extension_analyzer` tool — Extension health lint
+# PRD: `inspect_extensions` tool — Extension health lint
 
-**File**: `src/index.ts` (`makeExtensionAnalyzerTool` + pure `analyzeExtensions`)
-**Tool**: `call extension_analyzer [return_json=...] [tool_token_threshold=...]`
+**File**: `src/index.ts` (`makeInspectExtensionsTool` + pure `analyzeExtensions`)
+**Tool**: `call inspect_extensions [return_json=...] [tool_token_threshold=...]`
 **Status**: shipped (text + JSON output, 8 checks, real-SDK contract-tested).
 
 ---
@@ -9,8 +9,8 @@
 ## Problem
 
 This worktree's goal is **finding extension potential issues**. The power-tool
-package already had `context_analyzer` (measures token distribution) and
-`agent_inventory` (dumps YAML state) — but **neither surfaces problems**. They
+package already had `inspect_context` (measures token distribution) and
+`inspect_agent` (dumps YAML state) — but **neither surfaces problems**. They
 describe state; they do not lint it. An extension author or repo maintainer had
 no automated way to ask "what's wrong with my loaded extensions?"
 
@@ -108,7 +108,7 @@ fact-finder so its output is stable and cheap; the subagent adds the reasoning.
 - `cd bun-apps/pi-agent-ext-power-tool && bun test` (32 tests: pure checks,
   formatter, end-to-end execute, real-SDK contract).
 - `bun run typecheck` clean.
-- Manual: `bun bun-apps/pi-agent/src/cli.ts -p "call extension_analyzer"` →
+- Manual: `bun bun-apps/pi-agent/src/cli.ts -p "call inspect_extensions"` →
   severity report against the repo's own extensions.
 
 ## What it found in this repo (real run, post-calibration)
