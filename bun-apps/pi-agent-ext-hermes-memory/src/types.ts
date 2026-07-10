@@ -58,13 +58,6 @@ export interface MemoryConfig {
   llmThinkingOverride?: ThinkingLevel;
   /** Strategy when memory is full. Default: auto-consolidate */
   memoryOverflowStrategy?: MemoryOverflowStrategy;
-  /** Opt-in: on reload, prune .md entries whose content was removed from the
-   *  SQLite store (e.g. by offline bulk-dedup SQL) so the capacity source
-   *  reflects the post-dedup state and `add` is no longer blocked by stale
-   *  .md content. Pruned entries are archived to a .knowledge.jsonl so nothing
-   *  is lost. Default: false (the .md and DB can drift for innocent reasons,
-   *  so this is opt-in; reload-before-write handles the common case). */
-  reconcileMarkdownFromDb?: boolean;
   /** Legacy alias for memoryOverflowStrategy. Default: true */
   autoConsolidate: boolean;
   /** Detect user corrections and trigger immediate memory save. Default: true */
