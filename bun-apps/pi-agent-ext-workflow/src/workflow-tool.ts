@@ -236,7 +236,7 @@ export function buildSimplifiedGuidelines(): string[] {
     "For workflow, runs are background by default: the tool returns immediately with a run ID, and the result is delivered back into the conversation when it finishes. Pass background: false only when you must use the result inline in this same turn.",
     modelRoutingEssentialGuideline(),
     agentTypeGuideline(),
-    "For workflow, advanced reference is NOT inlined here — call workflow_help({topic}) on demand: \"helpers\" (verify/judgePanel/loopUntilDry/completenessCheck), \"budget\" (tokenBudget/phase budget/retry/gate), \"phases\" (phase() tracking), \"patterns\" (pipeline()/opts.schema/synthesis), \"models\" (full available-model list).",
+    'For workflow, advanced reference is NOT inlined here — call workflow_help({topic}) on demand: "helpers" (verify/judgePanel/loopUntilDry/completenessCheck), "budget" (tokenBudget/phase budget/retry/gate), "phases" (phase() tracking), "patterns" (pipeline()/opts.schema/synthesis), "models" (full available-model list).',
   ].filter((g): g is string => typeof g === "string" && g.length > 0);
 }
 
@@ -524,8 +524,7 @@ export function createWorkflowHelpTool() {
       "in the workflow guidelines: quality helpers (verify/judgePanel/loopUntilDry/completenessCheck), " +
       "spend control (tokenBudget/phase budget/retry/gate), phase() tracking, pipeline()/opts.schema/" +
       "synthesis patterns, or the full available-model list. Omit `topic` for a menu.",
-    promptSnippet:
-      "On-demand advanced reference for the workflow tool (helpers/budget/phases/patterns/models).",
+    promptSnippet: "On-demand advanced reference for the workflow tool (helpers/budget/phases/patterns/models).",
     parameters: Type.Object({
       topic: Type.Optional(WORKFLOW_HELP_TOPIC_ENUM),
     }),
