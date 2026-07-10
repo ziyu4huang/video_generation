@@ -110,6 +110,8 @@ bun-apps/gui-movie-director/  # ACTIVE — Bun + React GUI
 comfyui_data/models/          # raw sources for convert.py (BUILD-TIME ONLY)
 ```
 
+`.planning/` and root `task_plan.md`/`findings.md`/`progress.md` are **task-planning scratch** (`pi-planning-with-files`) — **gitignored, never commit**. They're working memory on disk; if the reasoning matters, put it in the PR description or the vault (`zk_ingest`), not in checked-in scratch.
+
 ## Knowledge & Memory
 
 Two layers: **working memory** (`memory`/`memory_search` → `~/.pi/agent/pi-hermes-memory/`) and **durable vault** (`zk_ask`/`zk_ingest` → `Zettelkasten/`, all sources converge into one graph). See [`bun-apps/pi-agent/docs/knowledge-orchestration.md`](bun-apps/pi-agent/docs/knowledge-orchestration.md). (Legacy `.claude/memory/` retired 2026-07-08 — 100% duplicated by vault + Platform section.)
