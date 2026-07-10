@@ -1224,4 +1224,9 @@ def build_run_py_cmd(*args: str, force: bool | None = None) -> list[str]:
         force = "--force" in sys.argv or "--skip-gpu-lock" in sys.argv
     if force:
         cmd.append("--force")
+    # Forward --offline to subprocess children so the whole process tree stays
+    # cache-only (the env vars HF_HUB_OFFLINE also inherit, but the flag keeps
+    # command-level branches like t2i2v VLM-skip consistent parent↔child).
+    if "--offline" in sys.argv and "--offline" not in args:
+        cmd.append("--offline")
     return cmd

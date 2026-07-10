@@ -71,10 +71,23 @@ def decompose_story(
         A list of dicts matching the SceneSpec JSON shape.
 
     Raises:
-        RuntimeError: if the brain is unreachable / returns no usable content.
+        RuntimeError: if the brain is unreachable / returns no usable content, or
+            if called under --offline (the storyboard brain is a network service).
         ValueError: if the response has no parseable JSON array.
     """
     import requests
+
+    # --offline guard: the storyboard brain shells out to LM Studio (a network
+    # service, even at localhost). Under offline this MUST NOT issue requests;
+    # raise a clear error instead of silently trying localhost. Callers (story.py)
+    # should fall back to a deterministic planner or be skipped offline.
+    from app import config as _cfg
+    if bool(getattr(_cfg, "OFFLINE", False)):
+        raise RuntimeError(
+            "decompose_story is unavailable under --offline (requires the LM Studio "
+            "storyboard brain). Run online for LLM-assisted planning, or provide a "
+            "pre-built scene spec."
+        )
 
     resolved = model or resolve_default_model(api_url)
     prompt = build_decompose_prompt(story, num_panels=num_panels, style_hint=style_hint)

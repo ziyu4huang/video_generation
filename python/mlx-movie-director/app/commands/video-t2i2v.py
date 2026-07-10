@@ -206,6 +206,10 @@ def add_t2i2v_args(parser: argparse.ArgumentParser) -> None:
                              "prompt with motion + voice. Omit to skip VLM stage.")
     parser.add_argument("--vlm-api-url", type=str, default=None, metavar="URL",
                         help="VLM API base URL override (default: http://localhost:1234/v1)")
+    parser.add_argument("--vlm-online", action="store_true",
+                        help="Under --offline, still run the VLM/caption stage "
+                             "(requires a local LM Studio). By default --offline "
+                             "skips it to keep generation zero-egress.")
 
     # --- T2I face quality ---
     parser.add_argument("--t2i-face-detail", action="store_true",
@@ -901,6 +905,17 @@ def run_t2i2v(args: argparse.Namespace) -> None:
     action = getattr(args, "vlm_action", None)
     video_prompt = prompt  # fallback: use raw T2I prompt
     vlm_ok = False  # tracks whether VLM successfully generated a prompt
+
+    # --offline: the VLM/caption stage shells out to LM Studio (a network
+    # service, even if localhost). Skip it entirely under offline so t2i2v
+    # stays zero-egress; the raw T2I prompt is fed directly to I2V (same as
+    # omitting --action). User can still opt in explicitly with --vlm-online.
+    from app import config as _cfg
+    offline = bool(getattr(_cfg, "OFFLINE", False)) and not getattr(args, "vlm_online", False)
+    if offline and action:
+        print(f"\n[t2i2v] ── Stage 2/3: VLM skipped (--offline; LM Studio is a network "
+              f"service) ──", file=sys.stderr)
+        action = None  # fall through to the no-action branch below
 
     if action:
         print(f"\n[t2i2v] ── Stage 2/3: VLM prompt assistant ──")

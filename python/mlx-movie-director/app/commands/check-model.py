@@ -233,6 +233,12 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
                         help="Generate interactive HTML report in output/")
     parser.add_argument("--open", action="store_true",
                         help="Auto-open HTML report in browser (implies --html)")
+    parser.add_argument("--preflight", action="store_true",
+                        help="Offline weight preflight only: verify every required "
+                             "image + video + LTX component weight resolves locally "
+                             "(no manifest scan). This is the single command the "
+                             "--offline generation path trusts; exits 1 if any "
+                             "required weight is missing.")
 
 
 def _find_manifests(models_dir: str) -> Iterator[tuple[str, str, str]]:
@@ -1291,6 +1297,44 @@ document.addEventListener('DOMContentLoaded', init);
 
 
 def run(args: argparse.Namespace) -> None:
+    # ── Offline preflight short-circuit ───────────────────────────
+    # When --preflight is given, skip the full manifest scan and run ONLY the
+    # weight-presence check (image + video components + granular LTX files).
+    # This is the single command the --offline generation path trusts, so it
+    # must be fast and focused. Exit 1 if anything required is missing.
+    if getattr(args, 'preflight', False):
+        from app import offline
+        all_ok = True
+        print(f"Offline weight preflight (models root: {cfg.MODELS_DIR})")
+        for cmd, pipeline in (("image", "zimage"), ("image", "flux2-klein"),
+                              ("image", "lens"), ("video", None)):
+            problems = offline.preflight(cmd, pipeline=pipeline, offline=False)
+            label = f"{cmd}/{pipeline}" if pipeline else cmd
+            if problems:
+                all_ok = False
+                print(f"  ❌ {label}: {len(problems)} missing")
+                for p in problems:
+                    print(f"       - {p}")
+            else:
+                print(f"  ✅ {label}: all required weights present")
+        # Granular LTX component files (the exact files ltx_downloader fetches).
+        missing_ltx, present_ltx = offline.check_ltx_components()
+        if missing_ltx:
+            all_ok = False
+            print(f"  ❌ ltx-components: {len(missing_ltx)} required file(s) missing")
+            for m in missing_ltx:
+                print(f"       - {m}")
+        else:
+            print(f"  ✅ ltx-components: {len(present_ltx)} required file(s) present")
+        print()
+        if all_ok:
+            print("✅ Offline preflight PASS — all generation weights resolve locally.")
+            sys.exit(0)
+        else:
+            print("❌ Offline preflight FAIL — fetch the missing weights ONLINE first "
+                  "(e.g. `python app/ltx_downloader.py`, `run.py import-checkpoint`).")
+            sys.exit(1)
+
     models_dir = cfg.MODELS_DIR
     collected = _collect_models_data(models_dir)
 
