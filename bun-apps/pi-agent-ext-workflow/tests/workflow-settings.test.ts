@@ -14,7 +14,7 @@ import {
 import { withFakeHome } from "./helpers/fake-home.js";
 
 function withSettingsPath(fn: (settingsPath: string) => void): void {
-  const dir = mkdtempSync(join(tmpdir(), "pi-dynamic-workflows-settings-"));
+  const dir = mkdtempSync(join(tmpdir(), "pi-agent-ext-workflow-settings-"));
   try {
     fn(join(dir, "nested", "settings.json"));
   } finally {
@@ -85,7 +85,7 @@ describe("workflow settings", () => {
   });
 
   it("merges project settings over global settings when cwd is provided", () => {
-    const dir = mkdtempSync(join(tmpdir(), "pi-dynamic-workflows-project-settings-"));
+    const dir = mkdtempSync(join(tmpdir(), "pi-agent-ext-workflow-project-settings-"));
     const cwd = join(dir, "project");
     const fakeHome = join(dir, "home");
     try {
@@ -110,7 +110,7 @@ describe("workflow settings", () => {
   });
 
   it("saves cwd preferences globally without creating a project override", () => {
-    const dir = mkdtempSync(join(tmpdir(), "pi-dynamic-workflows-project-settings-"));
+    const dir = mkdtempSync(join(tmpdir(), "pi-agent-ext-workflow-project-settings-"));
     const cwd = join(dir, "project");
     const fakeHome = join(dir, "home");
     try {
@@ -126,7 +126,7 @@ describe("workflow settings", () => {
   });
 
   it("saves cwd preferences into an existing project override", () => {
-    const dir = mkdtempSync(join(tmpdir(), "pi-dynamic-workflows-project-settings-"));
+    const dir = mkdtempSync(join(tmpdir(), "pi-agent-ext-workflow-project-settings-"));
     const cwd = join(dir, "project");
     const fakeHome = join(dir, "home");
     try {

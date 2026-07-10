@@ -1,5 +1,5 @@
 /**
- * User-level settings for pi-dynamic-workflows.
+ * User-level settings for pi-agent-ext-workflow.
  *
  * Stored separately from Pi's own settings.json so extension preferences remain
  * stable without depending on host-internal config shape.

@@ -150,11 +150,11 @@ source of truth read by both `run-dir/resolve.ts` (source mode) and
 
 Everything in `manifest.json` above loads **every** session — fine for cheap,
 general-purpose extensions, wrong for heavy on-demand ones (e.g.
-`pi-dynamic-workflows`'s `workflow` tool costs ~2.5k tok/req). Those live in a
+`pi-agent-ext-workflow`'s `workflow` tool costs ~2.5k tok/req). Those live in a
 separate **lazy registry**, `run-dir/settings.json`:
 
 ```json
-{ "lazyExtensions": { "workflow": "pi-dynamic-workflows/extensions/workflow.ts", … } }
+{ "lazyExtensions": { "workflow": "pi-agent-ext-workflow/extensions/workflow.ts", … } }
 ```
 
 A lazy entry costs **zero** context unless you ask for it by alias:

@@ -3,7 +3,7 @@
 Deterministic workflows runnable via `pi-agent workflow run <name>` — these live
 in the **engine dir** (`bun-apps/<pkg>/workflows/`) on purpose: the
 gate / retry / loopUntilDry / journaling / resume primitives only exist in the
-pi-dynamic-workflows engine vm, NOT in Claude Code's `Workflow` tool. See
+pi-agent-ext-workflow engine vm, NOT in Claude Code's `Workflow` tool. See
 `docs/workflow-cli.md` (two-runtime boundary).
 
 ## knowledge-distill

@@ -656,7 +656,7 @@ describe("real-SDK contract", () => {
 // ─── extension-auditor subagent definition ───────────────────────────────────
 // The .pi/agents/extension-auditor.md is the judgment layer over this tool's
 // findings. Guard its frontmatter shape so a malformed tools field doesn't
-// silently degrade to "all tools allowed" (pi-dynamic-workflows' parser returns
+// silently degrade to "all tools allowed" (pi-agent-ext-workflow' parser returns
 // tools=undefined for comma-strings — must use YAML list syntax). We parse via
 // the SDK's parseFrontmatter (the same primitive parseAgentDefinition uses).
 

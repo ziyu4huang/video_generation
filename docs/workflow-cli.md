@@ -1,12 +1,12 @@
 # `pi-agent workflow` — headless engine runner
 
-`pi-agent workflow run <name>` runs a [pi-dynamic-workflows][pdw] engine script
+`pi-agent workflow run <name>` runs a [pi-agent-ext-workflow][pdw] engine script
 from the CLI, a shell script, or a hook — **headlessly**, without the VSCode
 workflow editor. It calls `runWorkflow()` directly, so the deterministic
 primitives (gate / retry / loopUntilDry / journaling / resume) are reachable
 outside the GUI.
 
-[pdw]: ../bun-apps/pi-dynamic-workflows/
+[pdw]: ../bun-apps/pi-agent-ext-workflow/
 
 This is a **non-agent** meta-command. It does NOT spin up an agent session the
 way `zk-extract` or `vlm-describe` do. The engine's own `WorkflowAgent` calls
@@ -77,7 +77,7 @@ This repo has TWO executors that share the workflow script *syntax*
 
 | Runtime | Where | Gates |
 |---------|-------|-------|
-| **pi-dynamic-workflows engine** (`runWorkflow`) | `bun-apps/<pkg>/workflows/` + `.claude/workflows/`, run by `workflow run` or the VSCode editor | real deterministic gate / retry / loopUntilDry / journaling / resume |
+| **pi-agent-ext-workflow engine** (`runWorkflow`) | `bun-apps/<pkg>/workflows/` + `.claude/workflows/`, run by `workflow run` or the VSCode editor | real deterministic gate / retry / loopUntilDry / journaling / resume |
 | Claude Code's `Workflow` tool | `.claude/workflows/*.js`, run interactively by Claude Code | best-effort `agent()`/`parallel()` — no deterministic gates |
 
 `workflow run` targets the **engine**. That is the whole point: deterministic

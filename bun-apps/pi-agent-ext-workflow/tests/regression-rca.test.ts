@@ -1,5 +1,5 @@
 /**
- * Regression guards for the pi-dynamic-workflows root-cause analysis (RCA).
+ * Regression guards for the pi-agent-ext-workflow root-cause analysis (RCA).
  *
  * Each test pins the CORRECT behavior of a defect found in the RCA pass, so the
  * bug cannot silently return. Tests are grouped by RCA finding number:

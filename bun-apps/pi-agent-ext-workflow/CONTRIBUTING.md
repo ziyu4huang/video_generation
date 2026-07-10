@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for contributing to pi-dynamic-workflows. This project values small, well-tested changes that keep the workflow runtime predictable. A few conventions keep review fast.
+Thanks for contributing to pi-agent-ext-workflow. This project values small, well-tested changes that keep the workflow runtime predictable. A few conventions keep review fast.
 
 ## Before you open a PR
 

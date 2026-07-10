@@ -1,4 +1,4 @@
-# pi-dynamic-workflows
+# pi-agent-ext-workflow
 
 [![npm](https://img.shields.io/npm/v/@quintinshaw/pi-dynamic-workflows?color=cb3837&logo=npm)](https://www.npmjs.com/package/@quintinshaw/pi-dynamic-workflows)
 [![license](https://img.shields.io/badge/license-MIT-blue)](#license)
@@ -8,9 +8,9 @@
 > **Claude Code–style dynamic workflows for [Pi](https://pi.dev).**
 > Turn one prompt into a fleet of subagents that fan out in parallel, cross-check each other, and hand back a single synthesized answer.
 
-**[Website](https://quintinshaw.github.io/pi-dynamic-workflows/) · [npm](https://www.npmjs.com/package/@quintinshaw/pi-dynamic-workflows) · [Pi package](https://pi.dev/packages/@quintinshaw/pi-dynamic-workflows) · [GitHub](https://github.com/QuintinShaw/pi-dynamic-workflows)**
+**[Website](https://quintinshaw.github.io/pi-agent-ext-workflow/) · [npm](https://www.npmjs.com/package/@quintinshaw/pi-dynamic-workflows) · [Pi package](https://pi.dev/packages/@quintinshaw/pi-dynamic-workflows) · [GitHub](https://github.com/QuintinShaw/pi-dynamic-workflows)**
 
-![pi-dynamic-workflows demo](https://raw.githubusercontent.com/QuintinShaw/pi-dynamic-workflows/main/docs/media/demo.gif)
+![pi-agent-ext-workflow demo](https://raw.githubusercontent.com/QuintinShaw/pi-dynamic-workflows/main/docs/media/demo.gif)
 
 Instead of one model grinding a task step by step, Pi writes a small JavaScript **orchestration script** that spawns many subagents at once, keeps the intermediate work in script variables (not your chat context), and returns only the result. It's the "code mode for subagents" from Claude Code — on any model Pi can reach.
 
@@ -36,7 +36,7 @@ Pi writes the script and runs it in the background — your turn ends immediatel
 
 ![Workflows mode in the input box](https://raw.githubusercontent.com/QuintinShaw/pi-dynamic-workflows/main/docs/media/workflows-mode.jpg)
 
-If another Pi extension has already installed a custom editor component, pi-dynamic-workflows leaves it in place and keeps the submit-time workflow trigger active. In that compatibility mode, the animated keyword highlight and Backspace one-shot disarm affordance are skipped because the existing editor remains responsible for rendering and input handling; use `/workflows-trigger off` or `/workflows-trigger set <word>` when you need to discuss workflow/workflows without auto-triggering, including in future sessions. Editor composition is load-order dependent: whichever extension installs a visual editor last owns the editor surface, while pi-dynamic-workflows still keeps its submit-time hook registered.
+If another Pi extension has already installed a custom editor component, pi-agent-ext-workflow leaves it in place and keeps the submit-time workflow trigger active. In that compatibility mode, the animated keyword highlight and Backspace one-shot disarm affordance are skipped because the existing editor remains responsible for rendering and input handling; use `/workflows-trigger off` or `/workflows-trigger set <word>` when you need to discuss workflow/workflows without auto-triggering, including in future sessions. Editor composition is load-order dependent: whichever extension installs a visual editor last owns the editor surface, while pi-agent-ext-workflow still keeps its submit-time hook registered.
 
 ## Batch mode (run a workflow file from the CLI, non-interactive)
 
@@ -49,7 +49,7 @@ This drives the **real** path — the same one a user invokes (`pi-agent -e work
 ```bash
 # default smoke (two parallel micro-agents, deterministic join, ~seconds)
 PI_MODEL=google/gemma-4-26b-a4b-qat \
-  ./bun-apps/pi-dynamic-workflows/samples/smoke-e2e.sh
+  ./bun-apps/pi-agent-ext-workflow/samples/smoke-e2e.sh
 ```
 
 Output (the model returns the workflow result inline, `background:false`):
@@ -61,7 +61,7 @@ Output (the model returns the workflow result inline, `background:false`):
 Run any workflow file:
 
 ```bash
-./bun-apps/pi-dynamic-workflows/samples/smoke-e2e.sh path/to/your-workflow.js
+./bun-apps/pi-agent-ext-workflow/samples/smoke-e2e.sh path/to/your-workflow.js
 ```
 
 ### Fast library-level check via `run.ts`
@@ -70,8 +70,8 @@ Run any workflow file:
 
 ```bash
 PI_MODEL=google/gemma-4-26b-a4b-qat \
-  bun bun-apps/pi-dynamic-workflows/samples/run.ts \
-    bun-apps/pi-dynamic-workflows/samples/dynamic-workflow-smoke01.js
+  bun bun-apps/pi-agent-ext-workflow/samples/run.ts \
+    bun-apps/pi-agent-ext-workflow/samples/dynamic-workflow-smoke01.js
 # → { "ok": true, "result": {…}, "agents": 2, "durationMs": 4540, "tokens": 8800 }
 ```
 
@@ -122,7 +122,7 @@ return await agent('Synthesize and double-check these findings:\n' + findings.jo
 
 The same model — on Pi, plus the production pieces a real run needs:
 
-| Claude Code dynamic workflows | pi-dynamic-workflows (on Pi) |
+| Claude Code dynamic workflows | pi-agent-ext-workflow (on Pi) |
 | --- | --- |
 | Code-mode orchestration — the model writes a script that drives subagents | A JS `workflow` tool running `agent()` / `parallel()` / `pipeline()` / `phase()` in a vm sandbox |
 | Subagents with isolated context | Fresh in-memory Pi sessions; results held in script variables, not the chat |
@@ -196,7 +196,7 @@ The default `"workflow"` preserves the legacy behavior and also matches `"workfl
 
 ## Reference
 
-The full guide — every global, agent option, `agentType` definitions, structured output, and determinism — lives on the **[website](https://quintinshaw.github.io/pi-dynamic-workflows/)**. The essentials:
+The full guide — every global, agent option, `agentType` definitions, structured output, and determinism — lives on the **[website](https://quintinshaw.github.io/pi-agent-ext-workflow/)**. The essentials:
 
 | Global | What it does |
 | --- | --- |
@@ -238,7 +238,7 @@ Every feature is also verified end-to-end against a real Pi subagent session bef
 
 ## Credits
 
-The "code mode for subagents" idea comes from Michael Livs' original [pi-dynamic-workflows](https://github.com/Michaelliv/pi-dynamic-workflows) and Anthropic's [dynamic workflows in Claude Code](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code). This project builds on it with real model routing, journaled resume, git-worktree isolation, cost accounting, an interactive TUI, and deep research.
+The "code mode for subagents" idea comes from Michael Livs' original [pi-agent-ext-workflow](https://github.com/Michaelliv/pi-agent-ext-workflow) and Anthropic's [dynamic workflows in Claude Code](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code). This project builds on it with real model routing, journaled resume, git-worktree isolation, cost accounting, an interactive TUI, and deep research.
 
 ## License
 

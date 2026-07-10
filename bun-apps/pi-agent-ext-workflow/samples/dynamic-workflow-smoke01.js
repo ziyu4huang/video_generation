@@ -7,8 +7,8 @@
  * real model, and parallel()/return wiring works — in seconds, not minutes.
  *
  * Run it from the repo root:
- *   bun bun-apps/pi-dynamic-workflows/samples/run.ts \
- *     bun-apps/pi-dynamic-workflows/samples/dynamic-workflow-smoke01.js
+ *   bun bun-apps/pi-agent-ext-workflow/samples/run.ts \
+ *     bun-apps/pi-agent-ext-workflow/samples/dynamic-workflow-smoke01.js
  *
  * (This file is a workflow SCRIPT: agent/phase/log/parallel are globals
  * injected by the runtime — do not import them, do not run this file with
