@@ -31,6 +31,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 // Inline import of the pi-obsidian extension factory. Bundled in (self-contained).
 import obsidianExtension from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 // The baked provider CATALOG (lm-studio) is sourced from `pi-agent` — single
@@ -362,6 +363,42 @@ export function validateToolNames(
 }
 
 /**
+ * Best-effort read of the user settings file (~/.pi/agent/settings.json).
+ * Non-fatal: returns undefined on any read/parse error or missing file.
+ */
+function readUserSettings(): Record<string, unknown> | undefined {
+	try {
+		const settingsPath = join(getAgentDir(), "settings.json");
+		if (!existsSync(settingsPath)) return undefined;
+		return JSON.parse(readFileSync(settingsPath, "utf8"));
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Apply the obsidian distill/garden subagent model floor from user settings
+ * (`obsidian.subagentModel` in ~/.pi/agent/settings.json). Injected as
+ * `OB_SUBAGENT_MODEL` at session start so pi-obsidian's `runSubagent` spawns
+ * children (obsidian_distill / obsidian_garden / zk_* subagents) on a fast
+ * trusted floor instead of inheriting the (possibly slow) parent model. The
+ * floor path in `resolveSubagentModel` is never weakness-checked, so a
+ * `/flash` model is silent here. An explicit `OB_SUBAGENT_MODEL` env var
+ * still wins (per-session override) — we only set when unset. Mirrors
+ * `applyVaultEnv`. Pure logic over the parsed settings object; IO is in
+ * `readUserSettings()` so this is unit-testable without touching disk.
+ */
+export function applyObsidianSubagentFloor(
+	settings: Record<string, unknown> | undefined,
+): void {
+	if (process.env.OB_SUBAGENT_MODEL) return; // env override wins
+	const floor = (settings as any)?.obsidian?.subagentModel;
+	if (typeof floor === "string" && floor.trim()) {
+		process.env.OB_SUBAGENT_MODEL = floor.trim();
+	}
+}
+
+/**
  * Create an AgentSession on shared services with pi-obsidian baked in.
  * `llm` is resolved by the caller via resolveLLM(); the model object is
  * looked up against the registry here.
@@ -388,6 +425,9 @@ export async function createSharedSession(
 	});
 	// Fail fast on typo'd tool names instead of silently starting with zero tools.
 	validateToolNames(result.session, requestedTools, opts.excludeTools);
+	// Apply the obsidian subagent model floor from settings (before publishing
+	// the parent model) so distill/garden children get a fast trusted floor.
+	applyObsidianSubagentFloor(readUserSettings());
 	// Publish the resolved model so extension-spawned subagents inherit it.
 	// pi-obsidian's runSubagent defaults to OB_PARENT_MODEL when no per-call
 	// model override is given, so a `--model` selection stays active for every

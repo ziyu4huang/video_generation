@@ -3,6 +3,7 @@ import {
 	validateToolNames,
 	modelLabel,
 	buildBakedRegistry,
+	applyObsidianSubagentFloor,
 } from "../sessions/shared.ts";
 
 /** Minimal stand-in for a pi-core session: only getActiveToolNames is used. */
@@ -118,5 +119,55 @@ describe("buildBakedRegistry — pi-agent PROVIDERS baked in", () => {
     const m = modelRegistry.find("lm-studio", "google/gemma-4-26b-a4b-qat");
     expect(m).toBeDefined();
     expect(m!.baseUrl).toBe(BAKED_BASE_URL);
+  });
+});
+
+describe("applyObsidianSubagentFloor — inject OB_SUBAGENT_MODEL from settings", () => {
+  const ENV_BACKUP: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    ENV_BACKUP.OB_SUBAGENT_MODEL = process.env.OB_SUBAGENT_MODEL;
+    delete process.env.OB_SUBAGENT_MODEL;
+  });
+
+  afterEach(() => {
+    if (ENV_BACKUP.OB_SUBAGENT_MODEL === undefined) {
+      delete process.env.OB_SUBAGENT_MODEL;
+    } else {
+      process.env.OB_SUBAGENT_MODEL = ENV_BACKUP.OB_SUBAGENT_MODEL;
+    }
+  });
+
+  test("sets OB_SUBAGENT_MODEL from settings.obsidian.subagentModel", () => {
+    applyObsidianSubagentFloor({ obsidian: { subagentModel: "deepseek/deepseek-v4-flash" } });
+    expect(process.env.OB_SUBAGENT_MODEL).toBe("deepseek/deepseek-v4-flash");
+  });
+
+  test("trims whitespace around the floor value", () => {
+    applyObsidianSubagentFloor({ obsidian: { subagentModel: "  deepseek/deepseek-v4-flash  " } });
+    expect(process.env.OB_SUBAGENT_MODEL).toBe("deepseek/deepseek-v4-flash");
+  });
+
+  test("existing OB_SUBAGENT_MODEL env var wins (per-session override)", () => {
+    process.env.OB_SUBAGENT_MODEL = "zai/glm-5.2";
+    applyObsidianSubagentFloor({ obsidian: { subagentModel: "deepseek/deepseek-v4-flash" } });
+    expect(process.env.OB_SUBAGENT_MODEL).toBe("zai/glm-5.2");
+  });
+
+  test("undefined settings → no-op (no env set)", () => {
+    applyObsidianSubagentFloor(undefined);
+    expect(process.env.OB_SUBAGENT_MODEL).toBeUndefined();
+  });
+
+  test("missing obsidian.subagentModel field → no-op", () => {
+    applyObsidianSubagentFloor({ defaultModel: "glm-5.2", subagents: {} });
+    expect(process.env.OB_SUBAGENT_MODEL).toBeUndefined();
+  });
+
+  test("non-string / empty floor → no-op", () => {
+    applyObsidianSubagentFloor({ obsidian: { subagentModel: 123 } });
+    expect(process.env.OB_SUBAGENT_MODEL).toBeUndefined();
+    applyObsidianSubagentFloor({ obsidian: { subagentModel: "   " } });
+    expect(process.env.OB_SUBAGENT_MODEL).toBeUndefined();
   });
 });
