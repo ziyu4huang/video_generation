@@ -6,7 +6,7 @@
  * that `commands/zk-*.ts` and the extension sub-commands use. That is the whole
  * point — the deterministic engine (gate / retry / loopUntilDry / journaling /
  * resume) is reachable from the CLI, a script, or a hook, not only from the
- * VSCode workflow editor. See `docs/workflow-cli.md`.
+ * VSCode workflow editor. See `../docs/workflow-cli.md`.
  *
  * Script resolution order (first hit wins):
  *   1. `<name>` as a literal path (absolute, or relative to cwd) when it exists.

@@ -43,7 +43,7 @@ bun bun-apps/pi-agent-cli/src/cli.ts doctor
 
 The MLX model tree and output store live **outside** the repo by default
 (`../video_generation__models`, `../video_generation__output`), content-addressed — see
-[docs/model-store.md](model-store.md). On a fresh machine, set `MLX_MODELS_DIR` /
+[docs/model-store.md](../../docs/model-store.md). On a fresh machine, set `MLX_MODELS_DIR` /
 `MLX_OUTPUT_DIR` to wherever you keep them.
 
 ---

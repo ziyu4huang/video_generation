@@ -184,5 +184,5 @@ on pi-knowledge-card. The hub should own its tools.
 **Open (deferred with reopen-conditions):** kg-plan P2 (fingerprint — reopen at
 ~4000+ cards), P4 (reindex sync — COLLAPSED unless P3 reopens), P6
 (hierarchical-tag flattening — DROP, measured 0.4%). See
-[`../../docs/kg-improvement-plan.md`](../../docs/kg-improvement-plan.md).
-[`../../docs/kg-improvement-plan.md`](../../docs/kg-improvement-plan.md).
+[`kg-improvement-plan.md`](./kg-improvement-plan.md).
+[`kg-improvement-plan.md`](./kg-improvement-plan.md).
