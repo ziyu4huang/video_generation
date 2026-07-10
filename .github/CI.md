@@ -24,7 +24,7 @@ gh api -X PUT repos/ziyu4huang/video_generation/branches/main/protection \
   "test · pi-agent-ext-web-access", "test · pi-agent-ext-vlm",
   "test · gui-movie-director", "test · pi-agent-ext-knowledge-card", "test · pi-agent-ext-obsidian",
   "test · pi-agent-ext-planning-with-files",
-  "test · pi-dynamic-workflows", "test · pi-agent-ext-hermes-memory",
+  "test · pi-agent-ext-workflow", "test · pi-agent-ext-hermes-memory",
   "extension-contract", "deploy --verify", "regression gates"
 ] } } /* …preserve existing review/admin settings in the full PUT body… */
 JSON
@@ -57,11 +57,11 @@ one fails.
 
 Two setup quirks the workflow handles, documented so they aren't "lost":
 
-- **Build `pi-dynamic-workflows` before tests.** Its `main`/`exports` point at
+- **Build `pi-agent-ext-workflow` before tests.** Its `main`/`exports` point at
   compiled `dist/index.js` — a gitignored artifact. Importers (`pi-agent-cli` →
   `workflow.ts`, and anything loading the CLI, incl. the schema-cost command)
   resolve that `dist/`. A fresh checkout lacks it (locally it lingers from prior
-  builds), so every job runs `bun run --cwd bun-apps/pi-dynamic-workflows build`
+  builds), so every job runs `bun run --cwd bun-apps/pi-agent-ext-workflow build`
   after install (~2.5 s). The documented "builds first" workspace pattern.
 - **Install `ffmpeg` for `pi-agent-ext-movie-director`.** Its `preflight` test
   probes ffmpeg on PATH (the composition runtime). `ubuntu-latest` doesn't ship
@@ -78,7 +78,7 @@ pi-agent, pi-agent-cli, pi-agent-ext-flux2, pi-agent-ext-krea2,
 pi-agent-ext-ltx, pi-agent-ext-movie-director, pi-agent-ext-power-tool,
 pi-agent-ext-web-access, pi-agent-ext-vlm, gui-movie-director,
 pi-agent-ext-knowledge-card, pi-agent-ext-obsidian, pi-agent-ext-planning-with-files,
-pi-dynamic-workflows, pi-agent-ext-hermes-memory
+pi-agent-ext-workflow, pi-agent-ext-hermes-memory
 ```
 
 ## What is deliberately NOT tested in CI (and why)
@@ -129,7 +129,7 @@ These never run in CI; they're gated on explicit env vars:
   sibling-fork deps (`mflux`, `ltx-2-mlx`) not on PyPI. **Local-only.**
 - **3 packages with no test script** — `pi-agent-flux2`, `scripts`, `pi-agent-ext-zai-mcp`.
   They have no `bun test` entry point, so they're not in the matrix.
-- **pi-dynamic-workflows biome lint** — the package's `test` script chains
+- **pi-agent-ext-workflow biome lint** — the package's `test` script chains
   `npm run check` (biome), which has pre-existing formatting drift. CI runs the
   CLAUDE.md canonical command `bun run build && bun test` instead (build +
   unit tests are the gate; the lint drift is a separate cleanup, out of scope for
@@ -146,7 +146,7 @@ forward.
 
 | If your test… | …it will fail on CI because | Fix pattern |
 |---------------|----------------------------|-------------|
-| imports a workspace package whose `main`/`exports` point at compiled `dist/` (only `pi-dynamic-workflows` today) | the `dist/` lingers locally from prior builds but is absent on a fresh checkout | ensure the CI build step covers it (the workflow already runs `bun run --cwd bun-apps/pi-dynamic-workflows build` in every job); if you add a new compiled-`dist` workspace dep, add a build step for it |
+| imports a workspace package whose `main`/`exports` point at compiled `dist/` (only `pi-agent-ext-workflow` today) | the `dist/` lingers locally from prior builds but is absent on a fresh checkout | ensure the CI build step covers it (the workflow already runs `bun run --cwd bun-apps/pi-agent-ext-workflow build` in every job); if you add a new compiled-`dist` workspace dep, add a build step for it |
 | spawns/probes a non-bun binary (`ffmpeg`, `ffprobe`, a swift binary, `run.py`, the MLX venv) | the binary/path exists on your machine but not on the runner | `*.skipIf(process.env.CI)`, or gate behind an env-var opt-in (`MLX_E2E`/`PI_AGENT_E2E`/`PI_RUN_L2`); or install the binary in CI (as ffmpeg is) |
 | asserts an env var is **unset** while a sibling `beforeEach`/`withEnv` in the same `describe` **sets** it | the env-isolation differs (a `CONFIG_PRESENT` skip can hide the case locally) | clear the var **in-body** before the "unset" assertion (the `testWithoutEnv` helper in `adapter-availability.test.ts`) |
 | re-reads `process.env.X` across an `await` that mutates it (the `resolveVault`/`OB_VAULT` pattern) | async timing differs locally; a mid-async re-read picks up a stale/changed value | use a deterministic injection seam (`__setVaultResolverForTest`) or set the env **once** in `beforeAll` and rely on the module's closure cache |
@@ -208,7 +208,7 @@ bun install --frozen-lockfile
 for pkg in pi-agent pi-agent-cli pi-agent-ext-flux2 pi-agent-ext-krea2 \
            pi-agent-ext-ltx pi-agent-ext-movie-director pi-agent-ext-power-tool \
            pi-agent-ext-web-access pi-agent-ext-vlm gui-movie-director \
-           pi-agent-ext-knowledge-card pi-agent-ext-obsidian pi-dynamic-workflows \
+           pi-agent-ext-knowledge-card pi-agent-ext-obsidian pi-agent-ext-workflow \
            pi-agent-ext-hermes-memory; do
   echo "=== $pkg ==="
   ( cd "bun-apps/$pkg" && CI=true bun test ) || echo "FAILED: $pkg"

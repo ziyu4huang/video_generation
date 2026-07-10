@@ -1,5 +1,5 @@
 /**
- * Configuration constants for pi-dynamic-workflows.
+ * Configuration constants for pi-agent-ext-workflow.
  */
 
 /** Maximum number of agents allowed per workflow run. */

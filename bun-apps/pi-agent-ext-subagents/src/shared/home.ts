@@ -9,7 +9,7 @@ import { homedir } from "node:os";
  * callers that need the override must read the env directly rather than calling
  * `homedir()`.
  *
- * Note: This repo has a sibling utility at pi-dynamic-workflows/src/home.ts with
+ * Note: This repo has a sibling utility at pi-agent-ext-workflow/src/home.ts with
  * identical logic. If you change one, update the other.
  */
 export function homeDir(): string {

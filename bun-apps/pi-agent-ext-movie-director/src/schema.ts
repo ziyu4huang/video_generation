@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { DATA_DIR } from "./paths.ts";
 
 const ajv = new Ajv2020({ allErrors: true, strict: false });
-addFormats(ajv as any);
+addFormats(ajv);
 
 export type ValidateFn = (data: unknown) => boolean;
 

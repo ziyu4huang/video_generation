@@ -17,6 +17,7 @@ export * from "./providers.ts";
 export * from "./caption.ts";
 export * from "./runpy_image.ts";
 export * from "./character_lock.ts";
+export * from "./spawn.ts";
 export * from "./compose.ts";
 export * from "./compose_motion.ts";
 export * from "./remotion.ts";

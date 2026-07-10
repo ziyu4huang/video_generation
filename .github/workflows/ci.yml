@@ -55,11 +55,11 @@ jobs:
           - { package: pi-agent-ext-knowledge-card, test-cmd: "bun test __tests__/" }
           - { package: pi-agent-ext-obsidian, test-cmd: "bun test extensions/__tests__/" }
           # ── special runners (see CLAUDE.md testing section) ──
-          # pi-dynamic-workflows: build first (tests import compiled src/*.js);
+          # pi-agent-ext-workflow: build first (tests import compiled src/*.js);
           # uses the CLAUDE.md canonical `build && bun test`, NOT the package's
           # `npm run check` chain (biome has pre-existing formatting drift — out
           # of scope for the CI cycle; the unit tests + build are the gate).
-          - { package: pi-dynamic-workflows, test-cmd: "bun run build && bun test" }
+          - { package: pi-agent-ext-workflow, test-cmd: "bun run build && bun test" }
           # pi-agent-ext-hermes-memory: per-file `npx tsx --test` (tests/run-all.sh). Two
           # root-caused reasons tsx (Node) per-file is required (NOT a single
           # `bun test`): (1) bun runs files CONCURRENTLY on a shared thread, and
@@ -74,7 +74,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # Shared preamble (Bun + conditional Node + install + build
-      # pi-dynamic-workflows). Node is enabled only for the hermes-memory entry
+      # pi-agent-ext-workflow). Node is enabled only for the hermes-memory entry
       # (its tests/run-all.sh shells out to `npx tsx` — see D3 in
       # TEST-DETERMINISM.md); every other entry is pure Bun.
       - uses: ./.github/actions/setup-env
@@ -173,7 +173,7 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────────────
   # Thrust C — determinism spot-check (cross-RUN flake detector). Runs the
-  # flake-prone subset (pi-agent-ext-hermes-memory, pi-dynamic-workflows, pi-agent-ext-obsidian)
+  # flake-prone subset (pi-agent-ext-hermes-memory, pi-agent-ext-workflow, pi-agent-ext-obsidian)
   # 3× in sequence and flags any differing pass/fail outcome as a flake. v1 is
   # INFORMATIONAL (continue-on-error) until the false-positive rate is ≈ 0; flip
   # to blocking once trusted — same rollout discipline as the portability audit.

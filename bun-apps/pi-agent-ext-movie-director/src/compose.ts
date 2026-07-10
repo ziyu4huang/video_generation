@@ -18,6 +18,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { burnCaptions, planBurn, type CaptionOutcome } from "./captions.ts";
 import { probeMedia, type ProbeResult } from "./ffprobe.ts";
+import { runSpawn, type SpawnImpl } from "./spawn.ts";
 
 // ─── edit_decisions / render_report shapes (subset of the JSON schemas) ──────
 
@@ -55,23 +56,9 @@ export interface RenderReport {
   render_grammar?: string;
 }
 
-// ─── spawn helpers ───────────────────────────────────────────────────────────
-
-function runSpawn(cmd: string, argv: string[], opts: { cwd?: string } = {}): Promise<{ code: number; stdout: string; stderr: string }> {
-  return new Promise((res) => {
-    const p = spawn(cmd, argv, { cwd: opts.cwd, stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    p.stdout.on("data", (d) => (stdout += d));
-    p.stderr.on("data", (d) => (stderr += d));
-    p.on("error", () => res({ code: -1, stdout, stderr }));
-    p.on("exit", (c) => res({ code: c ?? -1, stdout, stderr }));
-  });
-}
-
 export interface ComposeDeps {
   /** Inject a spawn impl (tests mock ffmpeg). Defaults to real child_process.spawn. */
-  spawnImpl?: (cmd: string, argv: string[], opts?: { cwd?: string }) => Promise<{ code: number; stdout: string; stderr: string }>;
+  spawnImpl?: SpawnImpl;
 }
 
 /** ffmpeg availability (cached). */

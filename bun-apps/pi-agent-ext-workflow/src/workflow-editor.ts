@@ -283,7 +283,7 @@ export function buildForcedWorkflowPrompt(text: string, extraDirective?: string)
     "---",
     "[workflows mode is ON for this message]",
     "You MUST handle this request by calling the tool named exactly `workflow` (Pi's",
-    "deterministic JavaScript workflow-orchestration tool from pi-dynamic-workflows).",
+    "deterministic JavaScript workflow-orchestration tool from pi-agent-ext-workflow).",
     "Write a workflow script that fans the task out across subagents via",
     "agent()/parallel()/pipeline().",
     "",

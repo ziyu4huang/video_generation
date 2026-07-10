@@ -9,11 +9,11 @@
  * (`pi-agent -e workflow -p …`), use samples/smoke-e2e.sh instead.
  *
  * Usage (from repo root):
- *   bun bun-apps/pi-dynamic-workflows/samples/run.ts <script.js> [args-json]
+ *   bun bun-apps/pi-agent-ext-workflow/samples/run.ts <script.js> [args-json]
  *
  *   # default smoke:
- *   bun bun-apps/pi-dynamic-workflows/samples/run.ts \
- *     bun-apps/pi-dynamic-workflows/samples/dynamic-workflow-smoke01.js
+ *   bun bun-apps/pi-agent-ext-workflow/samples/run.ts \
+ *     bun-apps/pi-agent-ext-workflow/samples/dynamic-workflow-smoke01.js
  *
  * The model defaults to PI_MODEL (the same env pi-agent bridges). Set it
  * explicitly for reproducibility:

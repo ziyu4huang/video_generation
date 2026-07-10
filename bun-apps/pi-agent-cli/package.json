@@ -23,7 +23,7 @@
     "@earendil-works/pi-agent-core": "latest",
     "@earendil-works/pi-ai": "latest",
     "@earendil-works/pi-coding-agent": "latest",
-    "@repo/pi-dynamic-workflows": "workspace:*",
+    "@repo/pi-agent-ext-workflow": "workspace:*",
     "@repo/pi-agent-ext-flux2": "workspace:*",
     "@repo/pi-agent-ext-krea2": "workspace:*",
     "@repo/pi-agent-ext-ltx": "workspace:*",

@@ -24,7 +24,7 @@ for the full long-term goal + roadmap.
 ## What's here (iteration 1)
 
 ```
-extensions/pi-movie-director.ts    # ONE `movie` dispatcher tool (12 commands)
+extensions/pi-movie-director.ts    # ONE `movie` dispatcher tool (18 commands)
 src/pipeline.ts                    # manifest loader + stage accessors (port of lib/pipeline_loader.py)
 src/checkpoint.ts                  # gate-enforced checkpoint writer/reader (port of lib/checkpoint.py)
 src/schema.ts                      # ajv validation over bundled OpenMontage schemas
@@ -58,8 +58,8 @@ bun bun-apps/pi-agent/src/cli.ts \
 
 The `movie` tool's commands: `preflight`, `pipeline-list`, `pipeline-show`,
 `init-project`, `next-stage`, `write-checkpoint`, `read-checkpoint`,
-`validate-artifact`, `generate`, `compose`, `compose-remotion`, `pre-compose`,
-`final-review`, `cost-estimate`, `cost-reserve`, `cost-reconcile`,
+`validate-artifact`, `generate`, `compose`, `compose-remotion`, `compose-motion`,
+`pre-compose`, `final-review`, `cost-estimate`, `cost-reserve`, `cost-reconcile`,
 `cost-snapshot`. See the tool description for the per-command options.
 
 ### Compose — ffmpeg foundation vs Remotion templated tier
@@ -73,6 +73,11 @@ The `movie` tool's commands: `preflight`, `pipeline-list`, `pipeline-show`,
   "pan-right" | "static"`); `type:"text"` cuts render a title card (no source
   needed). Set `REMOTION_BIN` or install `remotion` on PATH (fallback `bunx`) and
   run `bun install` once in `remotion/`. See `remotion/README.md`.
+- `compose-motion` — lightweight ffmpeg motion composer: bakes a per-cut
+  ken-burns/zoom/pan animation via `zoompan`, then joins cuts with `xfade`
+  crossfades — no React, no browser, no swift build. Same `RenderReport` shape
+  and `RemotionEditDecisions` input as `compose-remotion`, so it's a drop-in on
+  machines where a browser-based composer doesn't resolve.
 - `pre-compose` — deterministic gate run before the expensive render: delivery
   promise (cuts/duration/sources/audio) + slideshow risk (static-image
   fraction). `verdict:"fail"` → don't render.

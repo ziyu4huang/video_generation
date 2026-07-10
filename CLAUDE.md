@@ -197,8 +197,8 @@ bun test scripts                                  # repo-root scripts suite
 # gui-movie-director additionally validates command schemas against run.py
 bun run --cwd bun-apps/gui-movie-director check:schema
 
-# pi-dynamic-workflows builds first (tests import compiled ../src/*.js)
-( cd bun-apps/pi-dynamic-workflows && bun run build && bun test )
+# pi-agent-ext-workflow builds first (tests import compiled ../src/*.js)
+( cd bun-apps/pi-agent-ext-workflow && bun run build && bun test )
 
 # Python (from repo root)
 python/venv/bin/python -m pytest python/mlx-movie-director/app/tests
@@ -206,7 +206,7 @@ python/venv/bin/python -m pytest python/mlx-movie-director/app/tests --run-gpu  
 ```
 
 **Runner pitfalls (now resolved, don't reintroduce):**
-- Bun's `os.homedir()` ignores `process.env.HOME` at runtime (Node respects it). Tests that fake `$HOME` must read the env, not `homedir()` — see `bun-apps/pi-dynamic-workflows/src/home.ts`.
+- Bun's `os.homedir()` ignores `process.env.HOME` at runtime (Node respects it). Tests that fake `$HOME` must read the env, not `homedir()` — see `bun-apps/pi-agent-ext-workflow/src/home.ts`.
 - `mock.module()` is process-global under plain `bun test` (files share one process). Mock only the module the code under test imports; don't mock a module that another test file exercises for real, or the stub leaks. (Resolving such a leak by adding `--isolate` is a workaround — prefer splitting the mocked export into its own module.)
 
 Browser automation: use `playwright-cli` skill. Before automating, capture a screenshot and run
@@ -249,7 +249,7 @@ See [[self-improve-sop]] memory for the full procedure. Key: branch off `main` (
 
 Wire these via the workflow's `model-routing` / `model-tier-config`. Only escalate to the fallback if a run reports structured-output recovery or poor tool adherence — the loop only works when the model reliably calls the StructuredOutput tool.
 
-**Infrastructure self-improve** — `pi-infra-self-improve` (`.claude/workflows/pi-infra-self-improve.js`) is the infrastructure-layer loop (pi-agent / pi-agent-cli / pi-dynamic-workflows / pi-agent-ext-vlm / pi-agent-ext-obsidian): contract lane (each package's real gate) + build lane (`pi-agent build:all` + `getAllTools()` probe) + review lane + opt-in **fix** lane (`fix:true`, dryRun-capable, dirty-tree-refuse, never-pushes). First adopter of the Self-Fix (Code-Review-Based) shared primitive in `_shared-patterns.md`. Run after touching any infra package.
+**Infrastructure self-improve** — `pi-infra-self-improve` (`.claude/workflows/pi-infra-self-improve.js`) is the infrastructure-layer loop (pi-agent / pi-agent-cli / pi-agent-ext-workflow / pi-agent-ext-vlm / pi-agent-ext-obsidian): contract lane (each package's real gate) + build lane (`pi-agent build:all` + `getAllTools()` probe) + review lane + opt-in **fix** lane (`fix:true`, dryRun-capable, dirty-tree-refuse, never-pushes). First adopter of the Self-Fix (Code-Review-Based) shared primitive in `_shared-patterns.md`. Run after touching any infra package.
 
 ## Branch hygiene — delete at PR-merge time (SOP #320)
 
