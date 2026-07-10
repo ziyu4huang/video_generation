@@ -1664,9 +1664,21 @@ _POSE_MODEL_CACHE = os.path.join(os.path.expanduser("~"), ".cache",
 
 
 def _ensure_pose_model() -> str:
-    """Download mediapipe PoseLandmarker model if not cached. Returns local path."""
+    """Download mediapipe PoseLandmarker model if not cached. Returns local path.
+
+    Under --offline (``cfg.OFFLINE``), NEVER download — raise so the caller
+    (_apply_openpose) falls back to Canny edge control instead of a silent
+    network fetch. The pose model is an auxiliary conditioning signal, not a
+    hard requirement, so a graceful Canny fallback is the right offline behavior.
+    """
     import urllib.request
+    from app import config as _cfg
     if not os.path.exists(_POSE_MODEL_CACHE):
+        if bool(getattr(_cfg, "OFFLINE", False)):
+            raise RuntimeError(
+                "pose model not cached and --offline forbids download "
+                f"({_POSE_MODEL_CACHE}); falling back to Canny edge control."
+            )
         os.makedirs(os.path.dirname(_POSE_MODEL_CACHE), exist_ok=True)
         print(f"[openpose] Downloading pose model...", end=" ", flush=True)
         urllib.request.urlretrieve(_POSE_MODEL_URL, _POSE_MODEL_CACHE)

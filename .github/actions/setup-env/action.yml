@@ -1,0 +1,47 @@
+name: Setup Bun workspace
+description: |
+  The shared job preamble every CI job needs AFTER checkout: setup Bun →
+  (optional) setup Node → `bun install --frozen-lockfile` → build the one
+  compiled workspace dep (`pi-dynamic-workflows`, whose `main` resolves a
+  gitignored `dist/`). Centralizes the Bun version + the build-first workspace
+  pattern so a rename or version bump touches ONE place, not 5 job definitions.
+
+  NOTE: each calling job MUST run `actions/checkout@v4` BEFORE this action — the
+  runner reads a local action's action.yml from the workspace, so the repo must
+  be checked out first (a composite cannot check out the repo it lives in).
+
+  Node is OPT-IN via `setup-node: true` — only jobs that shell out to `npx tsx`
+  need it (the `pi-agent-ext-hermes-memory` matrix entry via `tests/run-all.sh`,
+  and the `determinism spot-check` job that runs that same script). Every other
+  job is pure Bun and skips the Node setup (~1–2 s + a post-step saved).
+
+inputs:
+  setup-node:
+    description: Set to "true" to also run actions/setup-node (needed only for tsx-based jobs).
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: "1.3"
+
+    - name: Setup Node
+      if: inputs.setup-node == 'true'
+      uses: actions/setup-node@v4
+      with:
+        node-version: lts/*
+
+    - name: Install (workspace, frozen lockfile)
+      run: bun install --frozen-lockfile
+      shell: bash
+
+    # pi-dynamic-workflows ships TS source; its main/exports point at compiled
+    # dist/index.js (gitignored). Importers resolve that dist/ — a fresh CI
+    # checkout lacks it (locally it lingers), so build it. ~2.5 s.
+    - name: Build pi-dynamic-workflows (workspace dep)
+      run: bun run --cwd bun-apps/pi-dynamic-workflows build
+      shell: bash

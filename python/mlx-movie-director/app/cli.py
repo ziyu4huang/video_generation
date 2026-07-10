@@ -62,6 +62,14 @@ _global_parser.add_argument(
          "Default: <cwd>/mlx-models (or MLX_MODELS_DIR env). "
          "All cfg.*_DIR constants recompute against this root.",
 )
+_global_parser.add_argument(
+    "--offline", action="store_true", default=False, dest="offline",
+    help="Force fully-offline generation: set HF_HUB_OFFLINE=1 / "
+         "TRANSFORMERS_OFFLINE=1 (cache-only, never fetch), run a weight-presence "
+         "preflight that fails loud on any missing model, and skip stages that "
+         "need a network service (e.g. the t2i2v VLM/caption stage). "
+         "Propagates to all run.py subprocess children.",
+)
 
 
 def build_parser() -> argparse.ArgumentParser:

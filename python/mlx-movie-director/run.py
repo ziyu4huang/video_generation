@@ -133,6 +133,36 @@ def main() -> None:
         from app import config as cfg
         cfg.set_models_dir(args.models_dir)
 
+    # Apply --offline BEFORE dispatch. apply_offline() sets HF_HUB_OFFLINE=1 /
+    # TRANSFORMERS_OFFLINE=1 (read by HF loaders at call time, so this is early
+    # enough) and flips cfg.OFFLINE so command modules can branch. Subprocess
+    # children (t2i2v → caption/video) inherit the env vars automatically.
+    if getattr(args, "offline", False):
+        from app.offline import apply_offline
+        apply_offline()
+
+        # Weight-presence preflight: under --offline a missing required weight
+        # must abort with ONE clean, actionable message — never a silent network
+        # fetch. Pipeline is resolved from args for image commands; video/t2i2v
+        # are detected from the command + subcommand names.
+        from app.offline import preflight, OfflinePreflightError
+        cmd = getattr(args, "command", "")
+        sub = getattr(args, "action", None)  # positional sub-action (generate/t2i2v/...)
+        pipeline = getattr(args, "pipeline", None)
+        if cmd == "video" and sub == "t2i2v":
+            preflight_cmd = "video-t2i2v"
+        elif cmd == "video":
+            preflight_cmd = "video"
+        elif cmd == "image":
+            preflight_cmd = "image"
+        else:
+            preflight_cmd = cmd
+        try:
+            preflight(preflight_cmd, pipeline=pipeline)
+        except OfflinePreflightError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            sys.exit(1)
+
     # Runtime deprecation warning
     if args.command in DEPRECATED_ALIASES:
         print(f"⚠  DEPRECATED: '{args.command}' is deprecated. {DEPRECATED_ALIASES[args.command]}", file=sys.stderr)
