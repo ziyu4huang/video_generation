@@ -537,13 +537,20 @@ export function buildArgvFromManifest(
 
 // ─── Lazy / opt-in extension aliases ──────────────────────────────────────────
 //
-// Heavy extensions (e.g. pi-agent-ext-workflow, ~2.5k tok/req) are deliberately
-// NOT in manifest.json (which loads eagerly every session). Instead they are
-// registered here as aliases and loaded only when the user passes `-e <alias>`.
-// This file rewrites such `-e <alias>` argv values to absolute paths BEFORE
-// main() reads argv, so default sessions pay zero cost and there is no long
-// path to mis-type (sidesteps the `src/workflow.ts` "valid factory function"
-// trap — the alias always points at the real factory file).
+// Bare-name aliases (`-e workflow`) that rewrite to absolute extension paths
+// BEFORE main() reads argv. This sidesteps the long-path mis-type problem and
+// the `src/workflow.ts` "valid factory function" trap — the alias always points
+// at the real factory file.
+//
+// HISTORY: this mechanism was originally created so heavy extensions could stay
+// OUT of manifest.json (zero cost on default sessions). pi-agent-ext-workflow
+// was promoted to eager (default-enabled) on 2026-07-10 — it now lives in BOTH
+// manifest.extensions AND lazyExtensions. That is intentional and safe: the SDK
+// loader (core/extensions/loader.ts discoverAndLoadExtensions) dedups by resolved
+// path, so `-e workflow` from a user's old script + the eager splice resolve to
+// the same canonical path and the duplicate is skipped (no double registration).
+// The aliases are kept purely for backwards-compat (20+ scripts/docs/samples pass
+// `-e workflow`).
 
 /** Re-export the lazy registry (typed) for tests/inspectors. */
 export interface LazySettings {
