@@ -17,6 +17,7 @@ import { krea2Subcommand } from "@repo/pi-agent-ext-krea2/extensions/cli-subcomm
 import { ltxSubcommand } from "@repo/pi-agent-ext-ltx/extensions/cli-subcommand.ts";
 import { movieSubcommand } from "@repo/pi-agent-ext-movie-director/extensions/cli-subcommand.ts";
 import { researchSubcommand } from "@repo/pi-agent-ext-web-access/extensions/cli-subcommand.ts";
+import { collectVideosSubcommand, organizeVaultSubcommand, importMemorySubcommand } from "@repo/pi-agent-ext-research-tool/extensions/cli-subcommand.ts";
 import { powerToolSubcommand } from "@repo/pi-agent-ext-power-tool/extensions/cli-subcommand.ts";
 
 /** The extension sub-commands to expose on the CLI. */
@@ -27,6 +28,9 @@ export const EXTENSION_SPECS: ExtensionSubcommandSpec[] = [
 	ltxSubcommand,
 	movieSubcommand,
 	researchSubcommand,
+	collectVideosSubcommand,
+	organizeVaultSubcommand,
+	importMemorySubcommand,
 	powerToolSubcommand,
 ];
 

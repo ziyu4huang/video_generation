@@ -138,6 +138,18 @@ export interface ParsedArgs {
 	mergeDuplicates?: boolean;
 	/** zk-query: merge similarity threshold (default 0.9) */
 	threshold?: number;
+	/** collect-videos: also pull Bilibili popular feed (bilibili only) */
+	popular?: boolean;
+	/** collect-videos: proxy URL for Bilibili 412 bypass */
+	proxy?: string;
+	/** collect-videos: recency in days (youtube only) */
+	recency?: number;
+	/** collect-videos / import-memory: explicit output path override */
+	outputPath?: string;
+	/** import-memory: override hermes-memory directory */
+	hermesDir?: string;
+	/** organize-vault: explicit vault root path */
+	vaultRoot?: string;
 	/** workflow: JSON args passed to the workflow script (its `args` global). */
 	workflowArgs?: string;
 	/** workflow: disable log persistence (logs persist by default). */
@@ -237,7 +249,8 @@ function parseNumericFlag(
 
 type NumericField =
 	| "maxNotes" | "contextLines" | "retries" | "retryWaitSec" | "limit"
-	| "depth" | "maxNeighbors" | "topK" | "maxNoteTokens" | "threshold";
+	| "depth" | "maxNeighbors" | "topK" | "maxNoteTokens" | "threshold"
+	| "recency";
 
 /** Numeric value flags validated through `parseNumericFlag` (fail-fast). */
 const NUMERIC_FLAGS: ReadonlyArray<{
@@ -257,6 +270,7 @@ const NUMERIC_FLAGS: ReadonlyArray<{
 	{ flag: "--top-k", field: "topK", example: "8" },
 	{ flag: "--max-note-tokens", field: "maxNoteTokens", example: "2000" },
 	{ flag: "--threshold", field: "threshold", example: "0.9" },
+	{ flag: "--recency", field: "recency", example: "30" },
 ];
 
 type ValueField =
@@ -287,13 +301,19 @@ const VALUE_FLAGS: ReadonlyArray<{ flag: string; field: ValueField }> = [
 	{ flag: "--exclude-ids", field: "excludeIds" },
 	{ flag: "--args", field: "workflowArgs" },
 	{ flag: "--blend", field: "blend" },
+	{ flag: "--proxy", field: "proxy" },
+	{ flag: "--output-path", field: "outputPath" },
+	{ flag: "--hermes-dir", field: "hermesDir" },
+	{ flag: "--vault-root", field: "vaultRoot" },
+	{ flag: "--order", field: "order" },
 ];
 
 type BoolField =
 	| "retrieveOnly" | "summarize" | "noRefine" | "force" | "noContext"
 	| "forceDistill" | "deletePng" | "noSession" | "print" | "noTools"
 	| "noBuiltinTools" | "dryRun" | "health" | "fix" | "json"
-	| "noPersistLogs" | "mergeDuplicates" | "save";
+	| "noPersistLogs" | "mergeDuplicates" | "save"
+	| "popular";
 
 /** Boolean flags: presence sets the field true. Supports aliases. */
 const BOOLEAN_FLAGS: ReadonlyArray<{ flags: string[]; field: BoolField }> = [
@@ -315,6 +335,7 @@ const BOOLEAN_FLAGS: ReadonlyArray<{ flags: string[]; field: BoolField }> = [
 	{ flags: ["--json"], field: "json" },
 	{ flags: ["--no-persist-logs"], field: "noPersistLogs" },
 	{ flags: ["--save"], field: "save" },
+	{ flags: ["--popular"], field: "popular" },
 ];
 
 /** Ignored boolean flags (pi-compat no-ops; self-trusted / extensions baked in). */

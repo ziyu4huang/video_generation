@@ -62,6 +62,7 @@
         "@repo/pi-agent-ext-movie-director": "workspace:*",
         "@repo/pi-agent-ext-obsidian": "workspace:*",
         "@repo/pi-agent-ext-power-tool": "workspace:*",
+        "@repo/pi-agent-ext-research-tool": "workspace:*",
         "@repo/pi-agent-ext-vlm": "workspace:*",
         "@repo/pi-agent-ext-web-access": "workspace:*",
         "@repo/pi-agent-ext-workflow": "workspace:*",
