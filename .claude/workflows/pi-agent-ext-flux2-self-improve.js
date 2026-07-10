@@ -128,7 +128,7 @@ HIST_EOF")
 5. Bash("wc -c < '${targetPath}'")
 6. Prune old (keep newest 15, exclude reflection): Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f 2>/dev/null || true")
 Return { written: true, bytes: <the number printed by wc> }.`,
-    { label: "persist-history", phase: "Persist", model: "haiku",
+    { label: "persist-history", phase: "Persist", tier: "small",
       schema: { type: "object", properties: { written: { type: "boolean" }, bytes: { type: "number", description: "Byte count printed by wc -c" } }, required: ["bytes"] } },
   )
   const histBytes = Number(persist?.bytes) || 0
@@ -144,7 +144,7 @@ Return { written: true, bytes: <the number printed by wc> }.`,
 3. Keep only latest 50 entries (sort by run_id descending).
 4. Write({ file_path: '${indexFile}', content: <updated array, 2-space indent> })
 Return { updated: true }.`,
-    { label: "update-index", phase: "Persist", model: "haiku" },
+    { label: "update-index", phase: "Persist", tier: "small" },
   )
 }
 
@@ -164,7 +164,7 @@ async function loadKnowledge(kbFile) {
    - METRIC:       "- METRIC: <title>: <detail>"
    Truncate each detail to ~160 chars. Never invent records not in the file.
 Return { found: true, records: <active records array>, digest: <the string> }.`,
-    { label: "load-knowledge", phase: "Resolve", model: "haiku",
+    { label: "load-knowledge", phase: "Resolve", tier: "small",
       schema: { type: "object", properties: {
         found: { type: "boolean" },
         records: { type: "array", items: { type: "object" } },
@@ -189,7 +189,7 @@ async function loadGraphKnowledge(kbFile, graphTags, workflowName) {
 2. Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-query --tags '${tagsCsv}' --exclude-from-kb '${kbFile}' --top-k 8 --json 2>/dev/null")
 3. Parse the JSON output. The `count` field gives the number of matched cards, `digest` gives the grouped digest.
 Return { count: <count from JSON or 0>, digest: <digest from JSON or "">, published: true }.`,
-    { label: "load-graph-knowledge", phase: "Resolve", model: "haiku",
+    { label: "load-graph-knowledge", phase: "Resolve", tier: "small",
       schema: { type: "object", properties: {
         count: { type: "number", description: "Number of cross-workflow cards matched" },
         digest: { type: "string", description: "The grouped digest body from the query" },
@@ -254,7 +254,7 @@ WRITE RELIABLY:
 5. Bash("wc -l < '${kbFile}'")  → total_lines
 6. Count active records (status="active"); optionally cross-check with a grep.
 Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [<ids appended this run>] }.`,
-    { label: "extract-knowledge", phase: "Persist", model: "sonnet",
+    { label: "extract-knowledge", phase: "Persist", tier: "big",
       schema: { type: "object", properties: {
         updated: { type: "boolean" },
         total_lines: { type: "number", description: "Line count from wc -l" },
@@ -284,7 +284,7 @@ async function publishKnowledge(kbFile, workflowName) {
    If "0", return { published: false, reason: "opt-out" }.
 2. Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
 3. Report { published: <true iff output contains "created" or "unchanged" or "updated" with no "Error">, summary: <the tail output> }.`,
-    { label: "publish-knowledge", phase: "Persist", model: "sonnet",
+    { label: "publish-knowledge", phase: "Persist", tier: "big",
       schema: { type: "object", properties: {
         published: { type: "boolean" },
         summary: { type: "string" },
@@ -302,7 +302,7 @@ async function publishKnowledge(kbFile, workflowName) {
     `Resolve the git repository root of the working tree we are running in.
 Bash("git rev-parse --show-toplevel")
 Return { root: "<the absolute path, whitespace-trimmed>" }.`,
-    { label: "resolve-project-root", phase: "Resolve", model: "haiku",
+    { label: "resolve-project-root", phase: "Resolve", tier: "small",
       schema: { type: "object", properties: { root: { type: "string" } }, required: ["root"] } },
   )
   const resolved = (rootResolve?.root || "").trim()
@@ -322,7 +322,7 @@ const RUN_TIMESTAMP = await agent(
   `Return the current timestamp in ISO format with colons replaced by dashes for filename safety.
   Run: Bash("date -u +%Y-%m-%dT%H-%M-%S")
   Return { timestamp: "<the output>" }.`,
-  { label: "timestamp", phase: "Resolve", model: "haiku",
+  { label: "timestamp", phase: "Resolve", tier: "small",
     schema: { type: "object", properties: { timestamp: { type: "string" } }, required: ["timestamp"] } },
 )
 const RUN_ID = RUN_TIMESTAMP?.timestamp || "unknown"
@@ -366,7 +366,7 @@ async function runContractLane() {
    → checkFlagsPass = true iff output contains "No drift."; checkFlagsSummary = the "N/N commands fully modeled" line
      plus any "⚠" lines verbatim (missing-flag warnings) if present.
 Report both verbatim outputs' tails in your summary text even though the schema only needs booleans + short summaries.`,
-    { label: "contract", phase: "Run", model: "sonnet", schema: CONTRACT_SCHEMA },
+    { label: "contract", phase: "Run", tier: "big", schema: CONTRACT_SCHEMA },
   )
 }
 
@@ -426,7 +426,7 @@ async function runReviewLane() {
 
   const perDim = await parallel(
     dims.map((d) => () =>
-      agent(d.prompt + fileScope + injected, { label: `review:${d.key}`, phase: "Run", model: "sonnet", schema: FINDING_SCHEMA })
+      agent(d.prompt + fileScope + injected, { label: `review:${d.key}`, phase: "Run", tier: "big", schema: FINDING_SCHEMA })
     ),
   )
   const rawFindings = perDim.filter(Boolean).flatMap((r, i) => (r.findings || []).map((f) => ({ ...f, dimension: dims[i]?.key || f.dimension })))
@@ -439,7 +439,7 @@ async function runReviewLane() {
         `Adversarially verify this code-review finding by READING the actual file. Default to upheld=false if you cannot confirm it by reading the code.
 Finding: ${JSON.stringify(f)}
 Repo root: ${PROJECT_ROOT}.`,
-        { label: `verify:${f.file}`, phase: "Run", model: "sonnet", schema: VERIFY_SCHEMA },
+        { label: `verify:${f.file}`, phase: "Run", tier: "big", schema: VERIFY_SCHEMA },
       ).then((v) => ({ finding: f, verdict: v }))
     ),
   )
@@ -486,7 +486,7 @@ ${LIVE_E2E_SKIP_VLM ? "   - SKIP the VLM step (liveE2eSkipVlm was set)." : `   -
 4. Bash("rm -f /tmp/pi-agent-ext-flux2-live-e2e-${RUN_ID}.ts")
 5. overallOk = true iff every step in the array has ok:true.
 Return { lmStudioAvailable: <bool from step 1>, steps: <the JSON array from step 3>, overallOk }.`,
-    { label: "live-e2e", phase: "Run", model: "sonnet", schema: LIVE_E2E_SCHEMA },
+    { label: "live-e2e", phase: "Run", tier: "big", schema: LIVE_E2E_SCHEMA },
   )
 }
 
