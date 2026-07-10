@@ -182,6 +182,12 @@ export interface CheckpointOptions {
   choices?: string[];
   /** Per-checkpoint timeout in ms for the interactive prompt. */
   timeoutMs?: number;
+  /**
+   * The workflow's abort signal, threaded into the confirm callback so a parent
+   * abort during a pending checkpoint cancels it instead of orphaning the run
+   * (RCA#11). Set internally by runWorkflow — not user-configurable.
+   */
+  signal?: AbortSignal;
 }
 
 interface RuntimeState {
@@ -833,7 +839,9 @@ export async function runWorkflow<T = unknown>(
 
     let reply: unknown;
     if (options.confirm) {
-      reply = await options.confirm(promptText, checkpointOptions);
+      const confirmCtx: CheckpointOptions & { signal?: AbortSignal } = { ...checkpointOptions };
+      if (options.signal) confirmCtx.signal = options.signal;
+      reply = await options.confirm(promptText, confirmCtx);
     } else if (checkpointOptions.headless === "abort") {
       throw new WorkflowError(
         `checkpoint "${promptText}" needs human input but none is available (headless run)`,

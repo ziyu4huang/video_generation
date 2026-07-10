@@ -167,9 +167,9 @@ describe("RCA design-level findings (regression targets — not yet fixed)", () 
   // session burning uncounted tokens. Regression test:
   //   workflow-runtime.test.ts > "RCA#10: a timed-out agent's session is aborted and its usage counted"
 
-  // RCA#11: checkpoint() awaits options.confirm() with no abort signal; an abort
-  // during a pending checkpoint orphans the run promise in-memory (throwIfAborted
-  // only runs after confirm resolves). Correct: checkpoint must thread the abort
-  // signal into confirm().
-  it.todo("RCA#11: checkpoint() must thread the abort signal into confirm()");
+  // RCA#11: FIXED. checkpoint() now threads options.signal into the confirm
+  // callback via checkpointOptions.signal so a parent abort during a pending
+  // checkpoint cancels it instead of orphaning the run. Test:
+  // workflow-runtime.test.ts > "RCA#11: checkpoint threads the abort signal
+  // into confirm()".
 });

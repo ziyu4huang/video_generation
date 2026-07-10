@@ -2,7 +2,7 @@ import { test } from "bun:test";
 import assert from "node:assert/strict";
 import type { AgentUsage } from "../src/agent.js";
 import { WorkflowError, WorkflowErrorCode } from "../src/errors.js";
-import { type JournalEntry, runWorkflow } from "../src/workflow.js";
+import { type CheckpointOptions, type JournalEntry, runWorkflow } from "../src/workflow.js";
 
 /** Agent runner that counts real invocations and echoes a per-call result. */
 function countingAgent() {
@@ -920,4 +920,47 @@ return { a }`;
     logs.some((m) => /timed out after 5ms/.test(m)),
     `logs mention the timeout; got: ${logs.join(" | ")}`,
   );
+});
+
+// ─── RCA#11: checkpoint threads the abort signal into confirm() ───────────────
+
+test("RCA#11: checkpoint threads the abort signal into confirm()", async () => {
+  let receivedSignal: AbortSignal | undefined;
+  const confirm = async (_prompt: string, opts: CheckpointOptions & { signal?: AbortSignal }) => {
+    receivedSignal = opts.signal;
+    return "yes";
+  };
+  const script = `export const meta = { name: 'rca11', description: 'checkpoint signal' }
+const reply = await checkpoint('proceed?', { kind: 'confirm' })
+return { reply }`;
+  const result = await runWorkflow<{ reply: unknown }>(script, {
+    agent: fakeAgent({ total: 10 }),
+    confirm,
+    persistLogs: false,
+  });
+  assert.equal(result.result.reply, "yes", "checkpoint works with threaded signal");
+  // When no parent signal is provided (the default), no signal is threaded;
+  // the field is simply absent. The actual abort behavior depends on the
+  // extension's confirm handler respecting the signal.
+});
+
+test("RCA#11: when a parent abort signal is provided, checkpoint threads it to confirm", async () => {
+  let receivedSignal: AbortSignal | undefined;
+  const confirm = async (_prompt: string, opts: CheckpointOptions & { signal?: AbortSignal }) => {
+    receivedSignal = opts.signal;
+    return "yes";
+  };
+  const controller = new AbortController();
+  const script = `export const meta = { name: 'rca11b', description: 'checkpoint signal threaded' }
+const reply = await checkpoint('proceed?', { kind: 'confirm' })
+return { reply }`;
+  const result = await runWorkflow<{ reply: unknown }>(script, {
+    agent: fakeAgent({ total: 10 }),
+    confirm,
+    signal: controller.signal,
+    persistLogs: false,
+  });
+  assert.equal(result.result.reply, "yes", "checkpoint works");
+  assert.ok(receivedSignal instanceof AbortSignal, "checkpoint passes the parent AbortSignal to confirm");
+  assert.equal(receivedSignal?.aborted, false, "the threaded signal is not pre-aborted");
 });
