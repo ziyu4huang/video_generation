@@ -124,7 +124,7 @@ export function buildParams(spec: CommandSpec) {
   return Type.Object(props);
 }
 
-// ─── The 16 ltx-video subcommands ────────────────────────────────────────────
+// ─── The 21 ltx-video subcommands ────────────────────────────────────────────
 
 export const COMMANDS: Record<string, CommandSpec> = {
   t2i: {
@@ -395,6 +395,88 @@ export const COMMANDS: Record<string, CommandSpec> = {
       zerosFrames: { flag: "--zeros-frames", type: "int", description: "Latent frame count for the --zeros smoke-test latent. Default 2." },
       zerosSize: { flag: "--zeros-size", type: "int", description: "Latent spatial size (H=W) for the --zeros smoke-test latent. Default 2." },
       output: { flag: "--output", type: "string", isPath: true, description: "Output directory for the PNG frame sequence. Default video_decode_frames." },
+    },
+  },
+
+  "asr-gate": {
+    name: "asr-gate",
+    writesOutput: false,
+    when: "Standalone ASR voice-content gate — transcribe a video's audio (native Swift/MLX Whisper) and check it against a prompt's 「...」 expected-speech marker. `run.py video asr-gate` parity; same check as gate's asrPrompt field but as its own subcommand.",
+    fields: {
+      video: { flag: "--video", type: "string", isPath: true, description: "Path to the video file to check." },
+      prompt: { flag: "--prompt", type: "string", description: "Text prompt (expected speech is read from its 「...」 markers; defaults to 'zh' if no language is inferable)." },
+      jsonOut: { flag: "--json-out", type: "string", isPath: true, isOutputPath: true, description: "Write the result JSON to this path (also printed to stdout)." },
+      expectedScript: { flag: "--expected-script", type: "string", enumValues: ["traditional", "simplified"], description: "Additionally require the transcript to classify as this Chinese script variant." },
+    },
+  },
+
+  vbvr: {
+    name: "vbvr",
+    writesOutput: true,
+    when: "I2V/T2V generation with the VBVR reasoning LoRA, auto-detected from mlx-models/lora/vbvr*. `run.py video vbvr` parity. Mode (I2V vs T2V) is inferred from whether inputImage is given.",
+    fields: {
+      prompt: { flag: "--prompt", type: "string", description: "Text prompt." },
+      inputImage: { flag: "--input-image", type: "string", isPath: true, description: "Conditioning image for I2V mode. Omit for T2V mode." },
+      vbvrLora: { flag: "--vbvr-lora", type: "string", isPath: true, description: "Explicit path to the VBVR .safetensors LoRA (auto-detected from mlx-models/lora/vbvr* if not set)." },
+      loraScale: { flag: "--lora-scale", type: "number", description: "VBVR LoRA fusion strength. Default 1.0." },
+      seconds: { flag: "--seconds", type: "number", description: "Target clip duration in seconds. Default 0.5." },
+      fps: { flag: "--fps", type: "number", description: "Output frame rate. Default 24.0." },
+      width: { flag: "--width", type: "int", description: "Output width, multiple of 32. Default 640." },
+      height: { flag: "--height", type: "int", description: "Output height, multiple of 32. Default 960." },
+      seed: { flag: "--seed", type: "int", description: "Random seed. Default 42." },
+      t2iTransformer: { flag: "--t2i-transformer", type: "string", isPathComponent: true, description: "T2I transformer variant under models/transformer/ (T2V mode only). Default moody-pro-mix." },
+      output: { flag: "--output", type: "string", isPath: true, description: "Output directory (source.png, frames/, audio.wav, video.mp4). Default vbvr_output." },
+    },
+  },
+
+  review: {
+    name: "review",
+    writesOutput: true,
+    when: "Generate a self-contained Bun video reviewer (A/B viewer) from existing manifest.json files. `run.py video review --inputs` parity — does NOT generate anything, only reviews already-generated results.",
+    fields: {
+      inputs: { flag: "--inputs", type: "string[]", isPathArray: true, description: "One or more manifest.json paths (for reviewing existing results)." },
+      labels: { flag: "--labels", type: "string", description: "Comma-separated labels, e.g. 'A,B,C,D' (auto A/B/C/D… if omitted)." },
+      output: { flag: "--output", type: "string", isPath: true, description: "Output directory (default: same dir as first input)." },
+      noOpen: { flag: "--no-open", type: "boolean", description: "Write the .js file but do not launch it." },
+    },
+  },
+
+  compare: {
+    name: "compare",
+    writesOutput: true,
+    when: "Pipeline A/B comparison in one flow: generate/reuse a reference image, auto-caption it into a video prompt, run a matrix of LTX pipeline variants sequentially (each shells to run.py, mirroring Python's own video-compare.py), then launch a side-by-side review. `run.py video compare` parity. Use listPipelines:true to see all pipeline names, dryRun:true to preview the plan without generating.",
+    fields: {
+      prompt: { flag: "--prompt", type: "string", description: "Text prompt for the video (auto-captioned from the reference image if omitted)." },
+      sourceImage: { flag: "--source-image", type: "string", isPath: true, description: "Reference image for I2V pipelines. If omitted, Z-Image generates one." },
+      imagePrompt: { flag: "--image-prompt", type: "string", description: "Prompt for Z-Image generation (default: uses prompt or a generic portrait)." },
+      imageWidth: { flag: "--image-width", type: "int", description: "Z-Image output width. Default 640." },
+      imageHeight: { flag: "--image-height", type: "int", description: "Z-Image output height. Default 960." },
+      imageSteps: { flag: "--image-steps", type: "int", description: "Z-Image denoising steps (default: pipeline default)." },
+      skipCaption: { flag: "--skip-caption", type: "boolean", description: "Skip auto-captioning; use prompt as-is." },
+      captionStyle: { flag: "--caption-style", type: "string", description: "Caption style for auto-captioning (default: 'prompt')." },
+      pipelines: { flag: "--pipelines", type: "string", description: "Comma-separated pipeline names (default: 'i2v,distilled-i2v,hq-i2v'). Options: i2v, distilled-i2v, hq-i2v, t2v, distilled-t2v, hq-t2v, dasiwa-i2v, dasiwa-t2v." },
+      listPipelines: { flag: "--list-pipelines", type: "boolean", description: "List available pipeline names and exit (no generation)." },
+      dryRun: { flag: "--dry-run", type: "boolean", description: "Print the comparison plan without generating anything." },
+      frames: { flag: "--frames", type: "int", description: "Frame count for each generated video. Default 49." },
+      seed: { flag: "--seed", type: "int", description: "Random seed. Default 42." },
+      width: { flag: "--width", type: "int", description: "Video width. Default 704." },
+      height: { flag: "--height", type: "int", description: "Video height. Default 448." },
+      stage1Steps: { flag: "--stage1-steps", type: "int", description: "Stage-1 step count (per-pipeline overrides still take precedence). Default 8." },
+      stage2Steps: { flag: "--stage2-steps", type: "int", description: "Stage-2 step count (per-pipeline overrides still take precedence)." },
+      labels: { flag: "--labels", type: "string", description: "Comma-separated review labels (default: derived from pipeline labels)." },
+      noOpen: { flag: "--no-open", type: "boolean", description: "Write the review .js file but do not launch it." },
+    },
+  },
+
+  quality: {
+    name: "quality",
+    writesOutput: false,
+    when: "No-reference video quality analysis (sharpness, noise, artifacts, temporal flicker/consistency) on existing video file(s) or manifest.json(s). `run.py video quality` analyze-mode parity — NOT the self-test modes (generation-driven A/B, steps-sweep, degradation, restore-loop) or the HTML report/VLM scoring, which this Swift port doesn't cover yet.",
+    fields: {
+      inputs: { flag: "--quality-inputs", type: "string[]", isPathArray: true, description: "Video file(s) or manifest.json(s) to analyze." },
+      sampleEvery: { flag: "--sample-every", type: "int", description: "Sample every Nth frame for faster analysis. Default 1 (all frames)." },
+      qualityLabels: { flag: "--quality-labels", type: "string", description: "Comma-separated labels for A/B comparison, e.g. 'Baseline,LoRA'." },
+      qualityJson: { flag: "--quality-json", type: "string", isPath: true, isOutputPath: true, description: "Save the full JSON report (per-frame metric arrays + temporal series) to this path." },
     },
   },
 };

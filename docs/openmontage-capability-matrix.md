@@ -234,12 +234,16 @@ untested but should work unmodified since `video storyboard` calls
 
 ## Swift coverage vs this checklist
 
-Swift is the chosen integration path (user decision, 2026-07-08) but its
-CLI is not at parity with `run.py video`'s 10 sub-actions — see
-`project_swift_vs_runpy_video_parity_20260708` memory for the full
-mapping. Against *this* checklist specifically (not the QA-tooling
-sub-actions, which are out of scope for the provider-capability
-checklist): T2V/I2V/FFLF/multi-shot all have Swift equivalents.
+Swift is the chosen integration path (user decision, 2026-07-08). As of
+2026-07-10 its CLI reaches full parity with `run.py video`'s 10 sub-actions:
+`review`/`compare`/`quality`/`vbvr`/`asr-gate` were added this session (see
+`project_swift_vs_runpy_video_parity_20260708` memory for the mapping and
+scope notes — `quality`'s self-test modes and HTML report, and `review`'s
+generate-then-review path, are explicitly NOT ported, only the core
+analyze/existing-manifest paths). Against *this* checklist specifically
+(not the QA-tooling sub-actions, which are out of scope for the
+provider-capability checklist): T2V/I2V/FFLF/multi-shot all have Swift
+equivalents.
 
 **`native-i2v --audio-track` IS real joint-loop audio conditioning —
 corrected 2026-07-09** (was previously claimed "injection only, not
