@@ -5,7 +5,6 @@
  * parseIntervalSpec boundaries, and runSessionCatchup git integration.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -319,26 +318,15 @@ describe("parseIntervalSpec", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 7. runSessionCatchup in a real git repo
+// 7. runSessionCatchup — pure early-return path
 // ---------------------------------------------------------------------------
-describe("runSessionCatchup — git diff integration", () => {
-  it("reports changed paths when working tree is dirty in a git repo", () => {
-    const cwd = tmp();
-    const dir = join(cwd, ".planning", "p");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "task_plan.md"), "### Phase 1\n**Status:** pending\n");
-    // init git + make a dirty change. Pass an explicit identity: CI runners
-    // have no global user.email/user.name, so a bare `git commit` fails with
-    // "Author identity unknown".
-    execSync("git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -q -m init", { cwd });
-    writeFileSync(join(cwd, "dirty.txt"), "change");
-    const res = runSessionCatchup(cwd);
-    expect(res.relevant).toBe(true);
-    // git diff --stat on a committed-then-edited untracked file may be empty,
-    // so accept either diffStat populated OR the status-line fallback
-    expect(res.summary).toContain("phases");
-  });
-
+// The git-diff branch of runSessionCatchup shells out to `git` (a host binary).
+// A real-repo integration test would be an ungated P2 host-binary probe under
+// scripts/test-portability-audit.sh --strict, and its assertions (relevant /
+// summary) hold whenever a plan exists regardless of git state — so it adds no
+// real coverage. The no-plan early return is pure and worth keeping; the git
+// branch is left to the existing scripts.test.ts surface.
+describe("runSessionCatchup — early-return path", () => {
   it("returns relevant=false when no plan exists", () => {
     const cwd = tmp();
     expect(runSessionCatchup(cwd).relevant).toBe(false);
