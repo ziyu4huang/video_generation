@@ -81,3 +81,74 @@ describe("findCommandToken — extension sub-commands dispatch", () => {
     });
   });
 });
+
+describe("research-tool extension sub-commands", () => {
+  test("collect-videos is registered", () => {
+    const names = EXTENSION_COMMANDS.map((c) => c.name);
+    expect(names).toContain("collect-videos");
+    expect(names).toContain("organize-vault");
+    expect(names).toContain("import-memory");
+  });
+
+  test("collect-videos task builder includes tool params from positionals", () => {
+    const spec = EXTENSION_SPECS.find((s) => s.name === "collect-videos")!;
+    const task = spec.task({ positionals: ["bilibili", "llm"] });
+    expect(task).toContain("collect_videos");
+    expect(task).toContain('platform="bilibili"');
+    expect(task).toContain('preset="llm"');
+  });
+
+  test("collect-videos task defaults to bilibili/llm when no positionals", () => {
+    const spec = EXTENSION_SPECS.find((s) => s.name === "collect-videos")!;
+    const task = spec.task({ positionals: [] });
+    expect(task).toContain("collect_videos");
+    expect(task).toContain('platform="bilibili"');
+    expect(task).toContain('preset="llm"');
+  });
+
+  test("collect-videos passes keywords comma-joined when multiple remain", () => {
+    const spec = EXTENSION_SPECS.find((s) => s.name === "collect-videos")!;
+    const task = spec.task({ positionals: ["bilibili", "custom", "RLHF", "PPO"] });
+    expect(task).toContain('"RLHF,PPO"');
+  });
+
+  test("organize-vault task mentions the tool name", () => {
+    const spec = EXTENSION_SPECS.find((s) => s.name === "organize-vault")!;
+    const task = spec.task({ positionals: [] });
+    expect(task).toContain("organize_vault_notes");
+  });
+
+  test("import-memory task mentions the tool name", () => {
+    const spec = EXTENSION_SPECS.find((s) => s.name === "import-memory")!;
+    const task = spec.task({ positionals: [] });
+    expect(task).toContain("import_memory_to_vault");
+  });
+
+  test("collect-videos is reserved token in findCommandToken", () => {
+    expect(findCommandToken(["collect-videos", "bilibili", "llm"])).toEqual({
+      name: "collect-videos",
+      index: 0,
+    });
+  });
+
+  test("collect-videos is detected after leading global flags", () => {
+    expect(findCommandToken(["--model", "sonnet", "collect-videos", "bilibili"])).toEqual({
+      name: "collect-videos",
+      index: 2,
+    });
+  });
+
+  test("organize-vault is reserved token", () => {
+    expect(findCommandToken(["organize-vault", "--dry-run"])).toEqual({
+      name: "organize-vault",
+      index: 0,
+    });
+  });
+
+  test("import-memory is reserved token", () => {
+    expect(findCommandToken(["import-memory", "--output-path", "./out.jsonl"])).toEqual({
+      name: "import-memory",
+      index: 0,
+    });
+  });
+});
