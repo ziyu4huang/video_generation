@@ -134,13 +134,12 @@ return v`,
 // describing the CORRECT behavior, so they are explicit regression targets
 // rather than silent gaps. Implement the fix, then promote each to a real test.
 describe("RCA design-level findings (regression targets — not yet fixed)", () => {
-  // RCA#3: phase() mutates the shared global `state.currentPhase`. A parallel
-  // thunk that calls phase('B') runs its synchronous prefix before a sibling
-  // thunk reads currentPhase, so the sibling is assigned 'B' too — wrong phase
-  // grouping AND wrong phase-routed model. The guideline tells authors to use
-  // opts.phase per agent (an admission of the hazard); an engine-level guard is
-  // the real fix.
-  it.todo("RCA#3: phase() inside a parallel thunk must not pollute sibling phases");
+  // RCA#3: FIXED. parallel() freezes currentPhase into a parallelPhaseOverride
+  // so phase() inside a thunk can't pollute siblings. The phase is restored
+  // after all thunks complete. Test: workflow-runtime.test.ts > "RCA#3: phase()
+  // inside a parallel thunk does not pollute sibling phases".
+  // NOTE: phase() inside parallel is intentionally a no-op; use opts.phase
+  // to assign a different phase within one parallel branch.
 
   // RCA#6: FIXED. resolveAgentModelSpec now emits console.warn when the
   // requested tier is unknown or no model-tiers config exists — no silent

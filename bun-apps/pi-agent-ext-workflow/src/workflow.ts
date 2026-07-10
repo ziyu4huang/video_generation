@@ -205,6 +205,12 @@ interface RuntimeState {
   /** Monotonic, assigned at lexical agent() call time — the stable resume key. */
   callSeq: number;
   /**
+   * When set, agent() uses this frozen phase instead of the shared currentPhase.
+   * Set by parallel() to prevent a thunk's phase() call from polluting siblings'
+   * phase assignment (RCA#3). Cleared after all parallel thunks complete.
+   */
+  parallelPhaseOverride?: string;
+  /**
    * Index of the first call that missed the resume journal (changed or new).
    * Longest-unchanged-prefix resume: a cached result is replayed only while
    * callIndex < firstMiss; once a call misses, it AND everything after run live.
@@ -348,7 +354,7 @@ export async function runWorkflow<T = unknown>(
       });
     }
 
-    const assignedPhase = agentOptions.phase ?? state.currentPhase;
+    const assignedPhase = agentOptions.phase ?? state.parallelPhaseOverride ?? state.currentPhase;
 
     // Per-phase soft sub-budget gate: a noisy phase can exhaust its own ceiling
     // without touching the run's overall budget. Soft (spent accrues post-agent),
@@ -569,22 +575,29 @@ export async function runWorkflow<T = unknown>(
     if (thunks.some((thunk) => typeof thunk !== "function")) {
       throw new TypeError("parallel() expects an array of functions, not promises. Wrap each call: () => agent(...)");
     }
-    return Promise.all(
-      thunks.map(async (thunk, index) => {
-        try {
-          return await thunk();
-        } catch (error) {
-          if (options.signal?.aborted) throw error;
-          const workflowError = wrapError(error);
-          // Non-recoverable failures (token budget / agent limit exhausted) must
-          // halt the whole run, exactly like a directly-awaited agent() — not be
-          // swallowed into a null in the result array.
-          if (!workflowError.recoverable) throw workflowError;
-          log(`parallel[${index}] failed: ${workflowError.message}`);
-          return null;
-        }
-      }),
-    );
+    // RCA#3: freeze the phase for the entire parallel scope so a thunk's
+    // phase() call can't pollute siblings. Restore after all thunks complete.
+    const savedPhase = state.currentPhase;
+    state.parallelPhaseOverride = savedPhase;
+    try {
+      return await Promise.all(
+        thunks.map(async (thunk, index) => {
+          try {
+            return await thunk();
+          } catch (error) {
+            if (options.signal?.aborted) throw error;
+            const workflowError = wrapError(error);
+            if (!workflowError.recoverable) throw workflowError;
+            log(`parallel[${index}] failed: ${workflowError.message}`);
+            return null;
+          }
+        }),
+      );
+    } finally {
+      state.parallelPhaseOverride = undefined;
+      // Also restore currentPhase in case it was mutated by a thunk's phase().
+      state.currentPhase = savedPhase;
+    }
   };
 
   const pipeline = async (

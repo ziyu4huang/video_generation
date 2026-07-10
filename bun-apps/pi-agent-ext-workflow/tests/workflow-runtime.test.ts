@@ -964,3 +964,48 @@ return { reply }`;
   assert.ok(receivedSignal instanceof AbortSignal, "checkpoint passes the parent AbortSignal to confirm");
   assert.equal(receivedSignal?.aborted, false, "the threaded signal is not pre-aborted");
 });
+
+// ─── RCA#3: phase() inside a parallel thunk must not pollute siblings ─────────
+
+test("RCA#3: phase() inside a parallel thunk does not pollute sibling phases", async () => {
+  const agentPhases: Array<{ label: string; phase?: string }> = [];
+  const agent = {
+    async run(prompt: string) {
+      return prompt;
+    },
+  };
+  const script = `export const meta = {
+  name: 'rca3', description: 'phase pollution',
+  phases: [{ title: 'Research' }, { title: 'Edit' }]
+}
+// Start in Research
+const results = await parallel([
+  () => {
+    // Calling phase('Edit') inside this thunk must NOT leak to siblings.
+    phase('Edit')
+    return agent('edit work', { label: 'editor' })
+  },
+  () => {
+    // This sibling reads currentPhase — must still see 'Research', not 'Edit'.
+    return agent('research work', { label: 'researcher' })
+  },
+])
+return { first: results[0], second: results[1] }`;
+
+  const result = await runWorkflow<{ first: string; second: string }>(script, {
+    agent,
+    persistLogs: false,
+    onAgentStart: (e) => agentPhases.push({ label: e.label, phase: e.phase }),
+  });
+
+  assert.equal(agentPhases.length, 2, "both agents started");
+  const editor = agentPhases.find((a) => a.label === "editor");
+  const researcher = agentPhases.find((a) => a.label === "researcher");
+  // The phase is frozen for the entire parallel scope (RCA#3 fix). Without it
+  // the sibling would see 'Edit' (polluted). With it, both see 'Research'. A
+  // thunk that needs a different phase should use opts.phase instead of phase().
+  assert.equal(researcher?.phase, "Research", "sibling is not polluted by the other thunk's phase()");
+  assert.equal(editor?.phase, "Research", "phase is frozen in parallel; use opts.phase to diverge");
+  assert.ok(result.result.first.includes("edit work"), "first agent ran");
+  assert.ok(result.result.second.includes("research work"), "second agent ran");
+});
