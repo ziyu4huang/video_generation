@@ -16,6 +16,7 @@ export type PatchName =
 	| "pre-load-providers"
 	| "load-run-dir-resources"
 	| "default-model-env"
+	| "subagent-model-floor"
 	| "ensure-extension-deps"
 	| "ext-context-get-system-prompt-options"
 	| "ext-api-get-all-tool-definitions"
@@ -50,6 +51,15 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   { name: "pre-load-providers", env: "BUN_PI_PRE_LOAD_PROVIDERS", defaultValue: true },
   { name: "load-run-dir-resources", env: "BUN_PI_LOAD_RUN_DIR", defaultValue: true },
   { name: "default-model-env", env: "BUN_PI_DEFAULT_MODEL_ENV", defaultValue: true },
+  // subagent-model-floor: reads obsidian.subagentModel from ~/.pi/agent/settings.json
+  // and publishes it as OB_SUBAGENT_MODEL before main(). The real pi TUI does NOT
+  // set OB_PARENT_MODEL/OB_SUBAGENT_MODEL, so without this every distill/garden
+  // subagent (zk_extract / zk_card / zk_ask / obsidian_distill) with no --model
+  // hits the pi default path → the "no subagent model configured" warning + a
+  // slow inherited model → distill timeouts. Must run AFTER ensure-extension-deps
+  // (it imports getAgentDir from @earendil-works/pi-coding-agent, whose repo-root
+  // symlinks ensure-extension-deps creates). Disable with BUN_PI_SUBAGENT_MODEL_FLOOR=0.
+  { name: "subagent-model-floor", env: "BUN_PI_SUBAGENT_MODEL_FLOOR", defaultValue: true },
   // ensure-extension-deps runs LAST among setup patches: it materializes the
   // repo-root node_modules symlinks that let Bun native-import every extension
   // graph (so try-native succeeds and jiti never transforms — see the patch
@@ -142,6 +152,9 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
         break;
       case "default-model-env":
         await import("./default-model-env.ts");
+        break;
+      case "subagent-model-floor":
+        await import("./subagent-model-floor.ts");
         break;
       case "ensure-extension-deps":
         await import("./ensure-extension-deps.ts");

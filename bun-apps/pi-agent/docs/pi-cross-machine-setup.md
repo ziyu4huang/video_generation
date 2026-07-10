@@ -88,8 +88,35 @@ The MLX model tree and output store live **outside** the repo by default
 | `OB_INDEX_POLL_MS` | `2000` | Incremental index refresh throttle |
 | `OB_TRIGRAM_SEARCH` | on | `0` disables the C5 trigram pre-filter |
 | `OB_INDEX_PERSIST` | on | `0` disables C6 cross-session index persistence |
-| `OB_PARENT_MODEL` / `OB_SUBAGENT_MODEL` | — | Model-id floor for subagents |
+| `OB_PARENT_MODEL` / `OB_SUBAGENT_MODEL` | — | Model-id floor for subagents (see below) |
 | `OB_SUBAGENT_TIMEOUT_MS` | `300000` | Per-call subagent timeout |
+
+#### Distill/garden subagent model floor
+
+The distill/garden subagents (`obsidian_distill` / `obsidian_garden` /
+`zk_extract` / `zk_card` / `zk_ask`) resolve their model in this order:
+
+1. **per-call `--model`** (explicit; warns if the id matches a weak tier)
+2. **`OB_SUBAGENT_MODEL` env** (trusted floor; never weakness-checked — the
+   correct channel for a fast `/flash` model)
+3. **`OB_PARENT_MODEL` env** (inherited; refused if weak)
+4. pi default (warns "no subagent model configured")
+
+The real pi TUI does **not** publish `OB_PARENT_MODEL`/`OB_SUBAGENT_MODEL`, so
+without configuration every distill with no `--model` hits path 4 (the warning
++ a slow inherited model → distill timeouts). Set a persistent fast floor in
+`~/.pi/agent/settings.json`:
+
+```json
+{ "obsidian": { "subagentModel": "deepseek/deepseek-v4-flash" } }
+```
+
+The `subagent-model-floor` patch publishes this as `OB_SUBAGENT_MODEL` at
+startup (before any subagent spawns). Precedence is preserved: an explicit
+`export OB_SUBAGENT_MODEL=…` still wins (per-session override), and a per-call
+`--model` still wins over the floor. A `/flash` id is silent here because the
+floor path skips the weak-tier check — do **not** route it through `--model`
+(that trips the weak-warning).
 
 ### VLM (`pi-vlm`)
 
@@ -110,6 +137,7 @@ The MLX model tree and output store live **outside** the repo by default
 | `BUN_PI_SET_PACKAGE_DIR` | `1` | Pin `PI_PACKAGE_DIR` for asset/theme resolution |
 | `BUN_PI_SKIP_UPDATE_CHECK` | `1` | Silence pi's "Update Available" banner |
 | `BUN_PI_LOAD_RUN_DIR` | `1` | Splice `run-dir/` extensions/skills into argv |
+| `BUN_PI_SUBAGENT_MODEL_FLOOR` | `1` | Publish `obsidian.subagentModel` from settings.json as `OB_SUBAGENT_MODEL` (distill/garden floor) |
 | `BUN_PI_DEBUG_PATCHES` | `0` | Print which patches were applied on startup |
 | `BUN_PI_DEBUG_RUN_DIR` | `0` | Print the resolved run-dir argv fragment |
 
