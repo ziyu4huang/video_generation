@@ -128,6 +128,46 @@ describe("finalReview (mocked ffmpeg)", () => {
     expect(review.checks[0]!.status).toBe("fail");
   });
 
+  it("near-silent audio fails the verdict by default (no narration intent declared)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-fr-silent-"));
+    try {
+      const mp4 = join(dir, "out.mp4");
+      writeFileSync(mp4, "x");
+      const silentSpawn: typeof fakeSpawn = () => async (cmd, argv) => {
+        if (cmd === "ffmpeg" && argv.includes("-af") && argv.includes("volumedetect")) {
+          return { code: 0, stdout: "", stderr: "mean_volume: -60.0 dB\nmax_volume: -55.0 dB" };
+        }
+        return fakeSpawn()(cmd, argv);
+      };
+      const review = await finalReview(mp4, { spawnImpl: silentSpawn() });
+      expect(review.verdict).toBe("fail");
+      const audioCheck = review.checks.find((c) => c.name === "audio_level")!;
+      expect(audioCheck.status).toBe("fail");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("near-silent audio does NOT fail when narration:'none' declares it intentional (ambient-only)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-fr-ambient-"));
+    try {
+      const mp4 = join(dir, "out.mp4");
+      writeFileSync(mp4, "x");
+      const silentSpawn: typeof fakeSpawn = () => async (cmd, argv) => {
+        if (cmd === "ffmpeg" && argv.includes("-af") && argv.includes("volumedetect")) {
+          return { code: 0, stdout: "", stderr: "mean_volume: -60.0 dB\nmax_volume: -55.0 dB" };
+        }
+        return fakeSpawn()(cmd, argv);
+      };
+      const review = await finalReview(mp4, { spawnImpl: silentSpawn() }, { narration: "none" });
+      const audioCheck = review.checks.find((c) => c.name === "audio_level")!;
+      expect(audioCheck.status).toBe("warn");
+      expect(review.verdict).toBe("pass"); // no fail-status checks → verdict pass
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("appends an advisory transcript check when transcriptPath is given", async () => {
     const dir = mkdtempSync(join(tmpdir(), "md-fr-tx-"));
     try {

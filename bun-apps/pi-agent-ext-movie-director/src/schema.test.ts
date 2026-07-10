@@ -85,4 +85,53 @@ describe("artifact schema validation", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors.length).toBeGreaterThan(0);
   });
+
+  test("a wrong enum value's error names the actual allowed values, not just 'allowed values'", () => {
+    const r = validateArtifact("research_brief", {
+      version: "1.0",
+      topic: "x",
+      research_date: "2026-07-10",
+      landscape: {
+        existing_content: [
+          { title: "a", source: "s", angle: "a", what_it_covers: "c" },
+          { title: "b", source: "s", angle: "a", what_it_covers: "c" },
+          { title: "c", source: "s", angle: "a", what_it_covers: "c" },
+        ],
+        saturated_angles: [],
+        underserved_gaps: ["gap"],
+      },
+      data_points: [{ claim: "c", source_url: "https://e.com", credibility: "high" }], // invalid enum value
+      audience_insights: { common_questions: [], misconceptions: [], knowledge_level: "beginner" },
+      angles_discovered: [
+        { name: "a", hook: "h", type: "evergreen", why_now: "w" },
+        { name: "b", hook: "h", type: "evergreen", why_now: "w" },
+        { name: "c", hook: "h", type: "evergreen", why_now: "w" },
+      ],
+      sources: Array.from({ length: 5 }, (_, i) => ({ url: `https://e.com/${i}`, title: `t${i}`, used_for: "x" })),
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      const credibilityError = r.errors.find((e) => e.includes("credibility"));
+      expect(credibilityError).toBeDefined();
+      expect(credibilityError).toContain("primary_source");
+      expect(credibilityError).toContain("secondary_source");
+      expect(credibilityError).toContain('got "high"');
+    }
+  });
+
+  test("a missing nested-required-object property names its own required sub-fields", () => {
+    const r = validateArtifact("proposal_packet", { production_plan: {} });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      const stagesError = r.errors.find((e) => e.includes("'stages'"));
+      expect(stagesError).toBeDefined();
+      expect(stagesError).toContain("stage");
+      expect(stagesError).toContain("tools");
+      expect(stagesError).toContain("approach");
+      const runtimeError = r.errors.find((e) => e.includes("'render_runtime'"));
+      expect(runtimeError).toBeDefined();
+      expect(runtimeError).toContain("remotion");
+      expect(runtimeError).toContain("hyperframes");
+    }
+  });
 });

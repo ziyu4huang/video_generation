@@ -133,6 +133,43 @@ export interface GenerateRequest {
   extraArgs?: string[];
 }
 
+// ─── Required-options preflight ─────────────────────────────────────────────
+
+/**
+ * Per-capability (or "capability:command") required option keys. Checked
+ * BEFORE the adapter runs so a call missing a required option fails
+ * synchronously instead of spawning a real subprocess (10-45s each on MLX)
+ * and failing only after the fact. Keyed by "capability:command" for known
+ * named commands, and by bare capability as the default-command fallback
+ * (empty/unspecified `command`, which routes to that capability's default
+ * generator — e.g. image_generation's t2i). Named commands NOT listed here
+ * (faceswap, controlnet, ...) are intentionally left unchecked — their
+ * required fields differ per command and a wrong guess would false-block
+ * valid calls.
+ */
+const REQUIRED_OPTIONS: Record<string, string[]> = {
+  image_generation: ["prompt"],
+  "image_generation:t2i": ["prompt"],
+  video_generation: ["prompt"],
+  "video_generation:generate": ["prompt"],
+  "video_generation:t2i2v": ["prompt"],
+  tts: ["text"],
+  music_generation: ["prompt"],
+};
+
+function requiredOptionsFor(capability: Capability, command: string): string[] {
+  if (command) return REQUIRED_OPTIONS[`${capability}:${command}`] ?? [];
+  return REQUIRED_OPTIONS[capability] ?? [];
+}
+
+/** Required option keys missing from `req.options` for this {capability, command}. */
+export function missingRequiredOptions(req: GenerateRequest): string[] {
+  const required = requiredOptionsFor(req.capability, req.command);
+  if (required.length === 0) return [];
+  const options = req.options ?? {};
+  return required.filter((k) => options[k] == null || options[k] === "");
+}
+
 export type InvokeKey = ProviderEntry["invoke"];
 
 /** An adapter runs ONE director and returns its uniform ToolResult. */
@@ -511,6 +548,21 @@ export async function generate(
   const adapter = adapters[entry.invoke];
   const now = deps.now ?? Date.now;
   const start = now();
+
+  const missing = missingRequiredOptions(req);
+  if (missing.length > 0) {
+    return {
+      success: false,
+      provider: entry.provider,
+      command: req.command,
+      artifacts: [],
+      error: `${req.capability} requires options.${missing.join(", options.")}`,
+      cost_usd: 0,
+      duration_seconds: (now() - start) / 1000,
+      seed: null,
+      model: entry.provider,
+    };
+  }
 
   if (!adapter) {
     return {

@@ -8,6 +8,7 @@ import {
   generate,
   selectAndGenerate,
   tariffFor,
+  missingRequiredOptions,
   type ToolResult,
   type GenerateRequest,
   type Adapter,
@@ -392,6 +393,56 @@ describe("generate", () => {
     expect(r.success).toBe(false);
     expect(r.error).toBe("binary blew up");
     expect(r.provider).toBe("krea2");
+  });
+});
+
+describe("missingRequiredOptions — per-capability required-options preflight", () => {
+  it("flags image_generation with no command and no options.prompt", () => {
+    expect(missingRequiredOptions({ capability: "image_generation", command: "", options: {} })).toEqual(["prompt"]);
+  });
+
+  it("flags image_generation:t2i missing options.prompt", () => {
+    expect(missingRequiredOptions({ capability: "image_generation", command: "t2i", options: { seed: 1 } })).toEqual(["prompt"]);
+  });
+
+  it("passes image_generation:t2i with options.prompt present", () => {
+    expect(missingRequiredOptions({ capability: "image_generation", command: "t2i", options: { prompt: "a cat" } })).toEqual([]);
+  });
+
+  it("does not check named commands with no declared requirement (e.g. faceswap)", () => {
+    expect(missingRequiredOptions({ capability: "image_generation", command: "faceswap", options: {} })).toEqual([]);
+  });
+});
+
+describe("generate — required-options preflight fails fast (no adapter invocation, no subprocess spawn)", () => {
+  it("returns success:false synchronously for image_generation missing options.prompt, without calling the adapter", async () => {
+    let adapterCalled = false;
+    const adapters = {
+      "swift:krea2": (async () => {
+        adapterCalled = true;
+        return {
+          success: true,
+          provider: "krea2",
+          command: "t2i",
+          artifacts: [],
+          error: null,
+          cost_usd: 0,
+          duration_seconds: 0,
+          seed: null,
+          model: "krea2",
+        } as ToolResult;
+      }) as Adapter,
+    };
+    const r = await generate(
+      entryFor("swift:krea2"),
+      { capability: "image_generation", command: "t2i", options: {} },
+      { adapters, now: () => 1000 },
+    );
+    expect(adapterCalled).toBe(false);
+    expect(r.success).toBe(false);
+    expect(r.error).toBe("image_generation requires options.prompt");
+    expect(r.artifacts).toEqual([]);
+    expect(r.duration_seconds).toBe(0); // near-zero — measured from the same `now()` call
   });
 });
 

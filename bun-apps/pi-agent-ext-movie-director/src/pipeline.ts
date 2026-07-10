@@ -122,6 +122,12 @@ export function getStageTools(name: string, stage: string): string[] {
   return [...(s.tools_available ?? []), ...(s.required_tools ?? []), ...(s.optional_tools ?? [])];
 }
 
+/** Name of the stage whose `produces` list includes `artifact`, if any. */
+export function findStageProducingArtifact(name: string, artifact: string): string | undefined {
+  const m = loadPipeline(name);
+  return "stages" in m ? m.stages.find((s) => s.produces?.includes(artifact))?.name : undefined;
+}
+
 /** Next stage after `stage`, or undefined if `stage` is the last / unknown. */
 export function getNextStage(name: string, stage: string): string | undefined {
   const order = getStageOrder(name);

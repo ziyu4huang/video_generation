@@ -100,8 +100,15 @@ const COMMAND_REFERENCE = [
   "  • init-project     — {projectId, pipeline} → project workspace: stages + the resolved projectDir + assetsDir.",
   "                        Pass assetsDir as `outputDir` to `generate` so produced files land inside the project workspace.",
   "  • next-stage       — {projectId, pipeline, stage?} → next stage + its human-approval policy.",
-  "  • write-checkpoint — {projectId, pipeline, stage, status, artifacts?, humanApproved?, ...} ENFORCES THE GATE",
-  "                        (status=completed on an approval-gated stage requires humanApproved=true).",
+  "  • write-checkpoint — {projectId, pipeline, stage, status, artifacts?, humanApproved?, overrideFinalReview?,",
+  "                        overrideArtifactValidation?, ...}",
+  "                        ENFORCES THE GATE: status=completed on an approval-gated stage requires humanApproved=true;",
+  "                        status=completed on a stage requiring the final_review artifact (publish) is rejected when",
+  "                        the linked final_review.verdict is 'fail', unless overrideFinalReview=true is passed explicitly;",
+  "                        status=completed is rejected when any artifact in `artifacts` fails its own canonical schema",
+  "                        (e.g. a malformed research_brief/proposal_packet) — the per-field errors are returned, unless",
+  "                        overrideArtifactValidation=true is passed explicitly. Run validate-artifact first to fix errors",
+  "                        before writing; don't reach for the override to bypass a fixable schema mismatch.",
   "  • read-checkpoint  — {projectId, pipeline, stage?} → that stage's checkpoint, or the latest if stage omitted.",
   "  • validate-artifact— {artifact (e.g. 'script'), data} → schema validation against the canonical artifact set.",
   "  • generate         — {capability, command, options?, provider?, projectId?, ...} → selects a configured native director",
@@ -137,9 +144,13 @@ const COMMAND_REFERENCE = [
   "                        Returns a render_report (render_grammar:'motion').",
   "  • pre-compose      — {editDecisions} → deterministic gate BEFORE the expensive render: delivery promise",
   "                        (cuts/duration/sources/audio) + slideshow risk (static-image fraction). {verdict, checks[]}.",
-  "  • final-review     — {mp4Path, transcriptPath?} → 6 delivery checks (container, duration>0, video stream, audio stream,",
-  "                        volumedetect, midpoint frame) + an advisory transcript check when transcriptPath is given →",
-  "                        {verdict:'pass'|'fail', checks[], transcript?}. A fail blocks publish (the transcript check is advisory).",
+  "  • final-review     — {mp4Path, transcriptPath?, narration?} → 6 delivery checks (container, duration>0, video stream,",
+  "                        audio stream, volumedetect, midpoint frame) + an advisory transcript check when transcriptPath is",
+  "                        given → {verdict:'pass'|'fail', checks[], transcript?}. A fail blocks publish (enforced by",
+  "                        write-checkpoint on stages requiring final_review, e.g. publish — see overrideFinalReview above;",
+  "                        the transcript check itself stays advisory). Pass narration:'none' (from the script artifact's",
+  "                        top-level `narration` field) when the story is intentionally silent/ambient-only, so a genuinely",
+  "                        silent track scores audio_level='warn' instead of 'fail'.",
   "  • cost-estimate    — {projectId, tool, operation, estimatedUsd} → entryId.",
   "  • cost-reserve     — {projectId, entryId} → reserves budget (cap mode raises BudgetExceededError).",
   "  • cost-reconcile   — {projectId, entryId, actualUsd, success} → settles the reservation.",
@@ -175,6 +186,18 @@ function jsonOut(obj: unknown): string {
   return JSON.stringify(obj, null, 2);
 }
 
+/**
+ * Required-string-param guard. The `movie` tool is stateless per call — nothing
+ * carries over from a prior init-project/write-checkpoint — so a caller that
+ * omits e.g. `pipeline` silently gets `""` today and only finds out from a
+ * confusing downstream error (`pipeline "" failed to load`, `unknown schema
+ * "artifact/"`). Naming the missing field up front is cheaper for every caller,
+ * human or model, than debugging that error.
+ */
+function missingFields(opts: Record<string, unknown>, fields: string[]): string[] {
+  return fields.filter((f) => opts[f] === undefined || opts[f] === null || String(opts[f]) === "");
+}
+
 async function dispatch(command: Command, opts: Record<string, unknown>): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   try {
     switch (command) {
@@ -187,6 +210,8 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
         return { ok: true, text: jsonOut(m) };
       }
       case "init-project": {
+        const missing = missingFields(opts, ["projectId", "pipeline"]);
+        if (missing.length > 0) return { ok: false, error: `init-project requires non-empty ${missing.join(", ")}` };
         const projectId = String(opts.projectId ?? "");
         const pipeline = String(opts.pipeline ?? "");
         // Resolve + return the actual projectDir so the caller knows where to
@@ -208,6 +233,8 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
         };
       }
       case "next-stage": {
+        const missing = missingFields(opts, ["pipeline"]);
+        if (missing.length > 0) return { ok: false, error: `next-stage requires non-empty ${missing.join(", ")}` };
         const pipeline = String(opts.pipeline ?? "");
         const stage = opts.stage ? String(opts.stage) : undefined;
         const order = getStageOrder(pipeline);
@@ -226,6 +253,11 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
         };
       }
       case "write-checkpoint": {
+        // `status` is intentionally NOT in this list — it defaults to
+        // "in_progress" below (writeCheckpoint's documented default for an
+        // unfinished stage), so omitting it is a valid call, not an error.
+        const missing = missingFields(opts, ["projectId", "pipeline", "stage"]);
+        if (missing.length > 0) return { ok: false, error: `write-checkpoint requires non-empty ${missing.join(", ")}` };
         const cp = writeCheckpoint({
           projectId: String(opts.projectId ?? ""),
           pipeline: String(opts.pipeline ?? ""),
@@ -233,6 +265,8 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
           status: String(opts.status ?? "in_progress") as CheckpointStatus,
           artifacts: opts.artifacts as Record<string, unknown> | undefined,
           humanApproved: opts.humanApproved === true,
+          overrideFinalReview: opts.overrideFinalReview === true,
+          overrideArtifactValidation: opts.overrideArtifactValidation === true,
           review: opts.review,
           costSnapshot: opts.costSnapshot,
           error: opts.error ? String(opts.error) : undefined,
@@ -241,6 +275,8 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
         return { ok: true, text: jsonOut(cp) };
       }
       case "read-checkpoint": {
+        const missing = missingFields(opts, ["projectId", "pipeline"]);
+        if (missing.length > 0) return { ok: false, error: `read-checkpoint requires non-empty ${missing.join(", ")}` };
         const projectId = String(opts.projectId ?? "");
         const pipeline = String(opts.pipeline ?? "");
         const cp = opts.stage ? readCheckpoint(projectId, String(opts.stage)) : getLatestCheckpoint(projectId, pipeline);
@@ -248,6 +284,9 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
         return { ok: true, text: jsonOut({ checkpoint: cp ?? null, completedStages: completed }) };
       }
       case "validate-artifact": {
+        const missing = missingFields(opts, ["artifact"]);
+        if (opts.data === undefined) missing.push("data");
+        if (missing.length > 0) return { ok: false, error: `validate-artifact requires non-empty ${missing.join(", ")}` };
         const name = String(opts.artifact ?? "");
         const v = validateArtifact(name, opts.data);
         return { ok: true, text: jsonOut(v) };
@@ -386,7 +425,8 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
         const mp4 = String(opts.mp4Path ?? opts.path ?? "");
         if (!mp4) return { ok: false, error: "final-review requires {mp4Path}" };
         const transcriptPath = opts.transcriptPath ? String(opts.transcriptPath) : undefined;
-        const review = await finalReview(mp4, {}, transcriptPath ? { transcriptPath } : {});
+        const narration = opts.narration === "none" || opts.narration === "voiced" ? opts.narration : undefined;
+        const review = await finalReview(mp4, {}, { ...(transcriptPath ? { transcriptPath } : {}), ...(narration ? { narration } : {}) });
         return { ok: true, text: jsonOut(review) };
       }
       case "cost-estimate": {
