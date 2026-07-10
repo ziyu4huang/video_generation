@@ -13,6 +13,7 @@
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { scanContent } from "./content-scanner.js";
 import { normalizeMemoryLookupText } from "./memory-lookup.js";
 import {
@@ -26,6 +27,7 @@ import {
 } from "../constants.js";
 import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, MemoryCategory, MemoryOverflowStrategy } from "../types.js";
 import { AGENT_ROOT } from "../paths.js";
+import type { DatabaseManager } from "./db.js";
 
 export class MemoryStore {
   private memoryEntries: string[] = [];
@@ -33,6 +35,11 @@ export class MemoryStore {
   private failureEntries: string[] = [];
   private snapshot: MemorySnapshot = { memory: "", user: "" };
   private consolidator: ((target: "memory" | "user" | "failure", signal?: AbortSignal) => Promise<ConsolidationResult>) | null = null;
+  // Optional SQLite handle for opt-in .md↔DB reconciliation (see
+  // reconcileMarkdownFromDb). When set, loadFromDisk() prunes .md entries whose
+  // content was removed from the DB (e.g. by offline bulk-dedup SQL).
+  private dbManager: DatabaseManager | null = null;
+  private dbProject: string | null = null;
 
   constructor(private config: MemoryConfig) {}
 
@@ -42,6 +49,58 @@ export class MemoryStore {
    */
   setConsolidator(fn: (target: "memory" | "user" | "failure", signal?: AbortSignal) => Promise<ConsolidationResult>): void {
     this.consolidator = fn;
+  }
+
+  /**
+   * Wire the SQLite store for opt-in .md↔DB reconciliation.
+   * `project` scopes which DB rows correspond to this store: null for the
+   * global store (MEMORY.md/USER.md/failures.md), or the project name for a
+   * project-scoped store.
+   */
+  setDatabaseManager(dbManager: DatabaseManager | null, project: string | null): void {
+    this.dbManager = dbManager;
+    this.dbProject = project;
+  }
+
+  // ─── Write serialization ───
+  //
+  // A re-entrant promise-queue mutex. Every mutating op runs through
+  // runExclusive(), so the critical section (reload-from-disk → mutate
+  // in-memory array → saveToDisk) stays atomic w.r.t. other ops in the SAME
+  // session. This is required because _add/_replaceInner/_transferEntriesInner
+  // now reload from disk before their capacity check — without serialization, a
+  // concurrent op's loadFromDisk() would re-read the not-yet-saved file and
+  // clobber the in-flight mutation (the "reload must not clobber a concurrent
+  // in-flight write" edge case).
+  //
+  // RE-ENTRANT via AsyncLocalStorage: when a locked op calls back into another
+  // mutating method on the SAME async chain, the inner call bypasses the queue
+  // instead of deadlocking. This matters for the consolidator: _addInner holds
+  // the lock and awaits this.consolidator(...); if that consolidator operates
+  // on the same store instance (the unit-test mock does store.remove(); a
+  // same-process consolidator would too), the re-entrant call must not wait on
+  // the lock it already holds. (In production triggerConsolidation runs in a
+  // child process on a different store instance, so this is belt-and-suspenders
+  // — but it makes the lock correct for any same-instance consolidator.)
+  private _writeChain: Promise<unknown> = Promise.resolve();
+  private _writeOwner: AsyncLocalStorage<boolean> = new AsyncLocalStorage<boolean>();
+
+  private runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    // Already inside a locked critical section on this async chain → re-enter.
+    if (this._writeOwner.getStore() === true) {
+      return fn();
+    }
+    const run = async (): Promise<T> => {
+      await this._writeChain;
+      return this._writeOwner.run(true, fn);
+    };
+    const result = run();
+    // Swallow settlement so one failed op never poisons the chain.
+    this._writeChain = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   // ─── Path helpers ───
@@ -97,6 +156,18 @@ export class MemoryStore {
     this.userEntries = this.dedupEntries(this.userEntries);
     this.failureEntries = this.dedupEntries(this.failureEntries);
 
+    // Optional .md↔DB reconciliation: prune .md entries whose content was
+    // removed from the SQLite store (e.g. by offline bulk-dedup SQL) so the
+    // capacity source reflects the post-dedup state. Opt-in (default off)
+    // because the .md and DB can drift for innocent reasons; pruned entries are
+    // archived so nothing is lost. Runs under the same write lock as the
+    // caller (loadFromDisk is invoked inside the locked mutators).
+    if (this.config.reconcileMarkdownFromDb && this.dbManager) {
+      await this.reconcileTargetFromDb("memory");
+      await this.reconcileTargetFromDb("user");
+      await this.reconcileTargetFromDb("failure");
+    }
+
     // Capture frozen snapshot for system prompt injection
     // Strip metadata comments — the LLM doesn't need to see timestamps
     const strippedMemory = this.memoryEntries.map((e) => this.stripMetadata(e));
@@ -108,6 +179,58 @@ export class MemoryStore {
   }
 
   // ─── CRUD ───
+
+  /**
+   * Query the SQLite store for the set of contents belonging to this store's
+   * scope (target + dbProject). Used by .md↔DB reconciliation.
+   */
+  private dbContentSet(target: "memory" | "user" | "failure"): Set<string> {
+    if (!this.dbManager) return new Set();
+    const db = this.dbManager.getDb();
+    const params: unknown[] = [target];
+    let sql = "SELECT content FROM memories WHERE target = ?";
+    if (this.dbProject === null) {
+      sql += " AND project IS NULL";
+    } else {
+      sql += " AND project = ?";
+      params.push(this.dbProject);
+    }
+    const rows = db.prepare(sql).all(...params) as Array<{ content: string }>;
+    return new Set(rows.map((r) => r.content.trim()));
+  }
+
+  /**
+   * Prune .md entries for `target` whose content is no longer present in the
+   * SQLite store (e.g. removed by offline bulk-dedup SQL), then re-save the
+   * .md. Pruned entries are archived via writeKnowledgeArchive() so the
+   * reconciliation never loses data. Skipped silently when the DB slice is
+   * empty (a fresh/mismatched DB must not wipe the curated .md).
+   * Returns the number of entries pruned.
+   */
+  private async reconcileTargetFromDb(target: "memory" | "user" | "failure"): Promise<number> {
+    if (!this.dbManager) return 0;
+    const dbContents = this.dbContentSet(target);
+    if (dbContents.size === 0) return 0; // don't wipe .md against an empty DB slice
+
+    const entries = this.entriesFor(target);
+    const survivors: string[] = [];
+    const pruned: Array<{ text: string; created: string; lastReferenced: string }> = [];
+    for (const entry of entries) {
+      const decoded = this.decodeEntry(entry);
+      if (dbContents.has(decoded.text.trim())) {
+        survivors.push(entry);
+      } else {
+        pruned.push(decoded);
+      }
+    }
+    if (pruned.length === 0) return 0;
+
+    // Preserve pruned entries in a vault archive so reconciliation is reversible.
+    await this.writeKnowledgeArchive(target, pruned);
+    this.setEntries(target, survivors);
+    await this.saveToDisk(target);
+    return pruned.length;
+  }
 
   async add(target: "memory" | "user" | "failure", content: string, signal?: AbortSignal): Promise<MemoryResult> {
     return this._add(target, content, signal);
@@ -138,6 +261,17 @@ export class MemoryStore {
     target: "memory" | "user" | "failure",
     query?: string,
   ): Promise<MemoryResult> {
+    return this.runExclusive(() => this._transferEntriesInner(target, query));
+  }
+
+  private async _transferEntriesInner(
+    target: "memory" | "user" | "failure",
+    query?: string,
+  ): Promise<MemoryResult> {
+    // Reload from disk so the transfer reflects the current on-disk state
+    // (external mutations / cross-session edits), not the startup snapshot.
+    await this.loadFromDisk();
+
     const entries = this.entriesFor(target);
 
     let transfer: string[];
@@ -202,11 +336,28 @@ export class MemoryStore {
     _retriesLeft = 1,
     addedMessage = "Entry added.",
   ): Promise<MemoryResult> {
+    // Serialize so reload-read → mutate-array → saveToDisk stays atomic.
+    return this.runExclusive(() => this._addInner(target, content, signal, _retriesLeft, addedMessage));
+  }
+
+  private async _addInner(
+    target: "memory" | "user" | "failure",
+    content: string,
+    signal?: AbortSignal,
+    _retriesLeft = 1,
+    addedMessage = "Entry added.",
+  ): Promise<MemoryResult> {
     content = content.trim();
     if (!content) return { success: false, error: "Content cannot be empty." };
 
     const scanError = scanContent(content);
     if (scanError) return { success: false, error: scanError };
+
+    // Reload from disk BEFORE the capacity check so external mutations
+    // (cross-session edits, offline dedup, regenerated files) are reflected in
+    // charCount at write time — not the startup snapshot. Mirrors the existing
+    // post-consolidation reload below. Writes are rare, so one extra read is cheap.
+    await this.loadFromDisk();
 
     const entries = this.entriesFor(target);
     const limit = this.charLimit(target);
@@ -240,8 +391,9 @@ export class MemoryStore {
           if (result.consolidated) {
             // CRITICAL: reload from disk — child process modified files, our arrays are stale
             await this.loadFromDisk();
-            // Retry the add exactly once (retriesLeft = 0 means no more consolidation)
-            return this._add(target, content, signal, _retriesLeft - 1, addedMessage);
+            // Retry the add exactly once (retriesLeft = 0 means no more consolidation).
+            // Recurse on _addInner (not _add) to avoid re-acquiring the write lock.
+            return this._addInner(target, content, signal, _retriesLeft - 1, addedMessage);
           }
         } catch {
           // Consolidation failed — fall through to error
@@ -381,6 +533,10 @@ export class MemoryStore {
   }
 
   async replace(target: "memory" | "user" | "failure", oldText: string, newContent: string): Promise<MemoryResult> {
+    return this.runExclusive(() => this._replaceInner(target, oldText, newContent));
+  }
+
+  private async _replaceInner(target: "memory" | "user" | "failure", oldText: string, newContent: string): Promise<MemoryResult> {
     oldText = normalizeMemoryLookupText(oldText);
     newContent = newContent.trim();
     if (!oldText) return { success: false, error: "old_text cannot be empty." };
@@ -388,6 +544,9 @@ export class MemoryStore {
 
     const scanError = scanContent(newContent);
     if (scanError) return { success: false, error: scanError };
+
+    // Reload from disk so the match search + capacity check see external mutations.
+    await this.loadFromDisk();
 
     const entries = this.entriesFor(target);
     // Match against stripped text (entries may have metadata comments)
@@ -427,6 +586,13 @@ export class MemoryStore {
   }
 
   async remove(target: "memory" | "user" | "failure", oldText: string): Promise<MemoryResult> {
+    // Lock for atomicity across all mutators (remove is not capacity-sensitive,
+    // so it does not reload, but it shares the write lock so a concurrent op's
+    // reload cannot clobber this read-modify-write).
+    return this.runExclusive(() => this._removeInner(target, oldText));
+  }
+
+  private async _removeInner(target: "memory" | "user" | "failure", oldText: string): Promise<MemoryResult> {
     oldText = normalizeMemoryLookupText(oldText);
     if (!oldText) return { success: false, error: "old_text cannot be empty." };
 

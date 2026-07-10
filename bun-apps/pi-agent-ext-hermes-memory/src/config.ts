@@ -54,6 +54,7 @@ const DEFAULT_CONFIG: MemoryConfig = {
   flushRecentMessages: DEFAULT_FLUSH_RECENT_MESSAGES,
   memoryOverflowStrategy: "auto-consolidate",
   autoConsolidate: true,
+  reconcileMarkdownFromDb: false,
   correctionDetection: true,
   errorCapture: true,
   failureInjectionEnabled: true,
@@ -119,6 +120,7 @@ export function loadConfig(configPath = DEFAULT_CONFIG_PATH): MemoryConfig {
       if (isStringArray(parsed.correctionWeakPatterns)) config.correctionWeakPatterns = parsed.correctionWeakPatterns;
       if (isStringArray(parsed.correctionNegativePatterns)) config.correctionNegativePatterns = parsed.correctionNegativePatterns;
       if (isStringArray(parsed.correctionDirectiveWords)) config.correctionDirectiveWords = parsed.correctionDirectiveWords;
+      if (typeof parsed.reconcileMarkdownFromDb === "boolean") config.reconcileMarkdownFromDb = parsed.reconcileMarkdownFromDb;
       if (typeof parsed.consolidationTimeoutMs === "number") config.consolidationTimeoutMs = parsed.consolidationTimeoutMs;
       if (typeof parsed.failureInjectionEnabled === "boolean") config.failureInjectionEnabled = parsed.failureInjectionEnabled;
       if (typeof parsed.failureInjectionMaxAgeDays === "number") config.failureInjectionMaxAgeDays = parsed.failureInjectionMaxAgeDays;
