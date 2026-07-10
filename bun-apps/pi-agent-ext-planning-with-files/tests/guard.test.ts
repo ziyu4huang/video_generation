@@ -21,6 +21,8 @@ describe("isDangerousBashCommand", () => {
     "ls -la",
     "git push origin feature/draft-notification",
     "git push origin main",
+    "git push --force-with-lease origin main",
+    "git push --force-if-includes origin main",
     "rm file.txt",
     "chmod 644 file.txt",
     "git status",

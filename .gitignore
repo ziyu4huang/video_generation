@@ -82,3 +82,13 @@ vault/
 
 # pi-subagents runtime artifacts
 .pi-subagents/
+
+# planning-with-files per-session working state (task_plan/progress/findings).
+# These are scratch files created by the planning-with-files extension during a
+# task; they must NOT be committed — their presence at repo root makes the
+# extension's status.exists gate true, arming the dangerous-bash warning for
+# every session. Canonical location is ./.planning/<dir>/.
+task_plan.md
+progress.md
+findings.md
+.planning/
