@@ -11,7 +11,8 @@
     "./schema-cost": "./src/schema-cost/index.ts"
   },
   "pi": {
-    "extensions": ["./src/index.ts"]
+    "extensions": ["./src/index.ts"],
+    "skills": ["./skills"]
   },
   "scripts": {
     "test": "bun test",
