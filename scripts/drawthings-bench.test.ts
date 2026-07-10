@@ -346,6 +346,6 @@ ${tableRows}
 Run: \`bun test scripts/drawthings-bench.test.ts\`
 `;
 
-  const outPath = join(import.meta.dir, "../docs/drawthings/bench-results.md");
+  const outPath = join(import.meta.dir, "../output/drawthings-bench-results.md");
   await Bun.write(outPath, markdown);
 });

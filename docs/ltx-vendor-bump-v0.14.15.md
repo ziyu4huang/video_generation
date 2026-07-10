@@ -73,8 +73,7 @@ Patch count: **13 (9 ltx + 4 mflux) → 9 (5 ltx + 4 mflux)**.
 
 ## Notes for the next session
 
-- The **audio-shorter-than-video crash** documented in
-  `docs/lipsync-precision-measurement-20260708.md` (`ValueError:
+- The **audio-shorter-than-video crash** (`ValueError:
   [broadcast_shapes]` in `rope.py` when a 1.85s clip drove a 2.0s video) is a
   **shape** error, not the mux truncation upstream #58 (`d9f566a`) addresses —
   #58 drops the `-shortest` ffmpeg flag in the *mux*, a different stage. The
@@ -95,9 +94,8 @@ Patch count: **13 (9 ltx + 4 mflux) → 9 (5 ltx + 4 mflux)**.
     the checkpoint downloaded and LipDub was wired + verified on this bumped
     tree). New `video lipdub` sub-action; runs end-to-end and produces valid
     talking-head clips. The first before/after `lipsync_metrics.py`
-    measurement showed **no** clear frame-level improvement over IA2V — see
-    `docs/lipdub-wiring-and-measurement-20260709.md` for the honest result and
-    next steps.
+    measurement showed **no** clear frame-level improvement over IA2V (full
+    history: `docs/openmontage-capability-matrix.md` `lip_sync` row).
 - **`bd2217a` (#45) multi-anchor I2V** is now in the tree: the CLI
   `_legacy_single_image()` guard is gone, so repeatable `--image PATH
   FRAME_IDX STRENGTH` multi-anchor I2V works on `--one-stage`/`--distilled`

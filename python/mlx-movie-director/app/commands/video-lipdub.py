@@ -5,7 +5,8 @@ reference video's OWN audio track. The reference video supplies both the
 visual structure (via IC-LoRA conditioning) and the target speech (its audio
 is VAE-encoded and appended as a reference-audio conditioning). This is the
 precision upgrade over the coarse IA2V (`video generate --input-image X
---audio Y`) talking-portrait path — see docs/lipsync-precision-measurement.
+--audio Y`) talking-portrait path — see docs/openmontage-capability-matrix.md
+(`lip_sync` row) for the measured precision comparison.
 
 The pipeline is two-stage IC-LoRA (both stages distilled for efficiency), so
 it uses the distilled model dir. Frame count / fps come from the reference
