@@ -1,8 +1,8 @@
 # pi-knowledge-card — Architecture
 
-> Snapshot: 2026-07-07 (post-PR #349, feature-aware-retrieval). 4 tools, 4 src
-> modules, ~5.6K LOC total (2.0K src + 1.1K extension + 2.5K tests). Test suite:
-> **190 pass, 0 fail**.
+> Snapshot: 2026-07-10 (post-PR #349 + E2E orchestration test). 6 tools, 4 src
+> modules, ~7.2K LOC total (2.4K src + 1.3K extension + 3.4K tests). Test suite:
+> **237 pass, 0 fail**.
 
 ## What this package is
 
@@ -152,11 +152,16 @@ and forces the by-design decision to be revisited + documented.
   is registered there. Catches pi-obsidian renames at test time.
 - `toolWiring.test.mjs` — mocks `runSubagentWithRetry` + `resolveVault`, asserts
   each `execute()` wires the correct `(task, toolsCsv, tmpPrefix, opts)`.
+- `e2e-orchestration.test.ts` — **full deterministic chain, real file I/O**:
+  drives `zk_ingest` → `knowledge_query` → `graph_health` through the real
+  `execute()` functions against a temp vault (`OB_VAULT_PATH` seam, no pi-obsidian
+  mock). Proves cross-source edges form, callouts surface, retired cards are
+  excluded, and re-ingest is byte-stable. The orchestration-proof test.
 - `ingest.test.ts` / `retrieve.test.ts` / `merge.test.ts` / `blend.test.ts` /
   `emit.test.ts` — the deterministic library contracts (real temp vaults).
 
 ```bash
-bun test        # from this package dir — 190 tests, <120ms
+bun test        # from this package dir — 237 tests, <140ms
 ```
 
 ## See also
