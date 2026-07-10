@@ -79,3 +79,6 @@ vault/
 
 # Local env overrides (never commit) — see .env.example
 .env
+
+# pi-subagents runtime artifacts
+.pi-subagents/
