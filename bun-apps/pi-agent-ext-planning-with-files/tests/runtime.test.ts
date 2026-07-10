@@ -422,6 +422,46 @@ describe("runtime modes", () => {
   });
 });
 
+describe("dangerous-bash guard", () => {
+  it("warns on a dangerous command when a plan is active", async () => {
+    const cwd = makeWorkspace();
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+
+    await emit(pi, "tool_call", { toolName: "bash", input: { command: "rm -rf build" } }, ctx);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "[planning-with-files] Dangerous command detected. Review current phase in task_plan.md before approval.",
+      "warning",
+    );
+  });
+
+  it("stays silent when NO plan is active (hooks are passive until /plan-execute)", async () => {
+    // Plain temp dir: no .planning/, so status.exists is false yet the session
+    // is still "attached" (isSessionAttached defaults true without a sessions
+    // dir). Before the status.exists gate this fired the warning and pointed at
+    // a task_plan.md that did not exist.
+    const cwd = mkdtempSync(join(tmpdir(), "pwf-runtime-"));
+    tempRoots.push(cwd);
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+
+    await emit(pi, "tool_call", { toolName: "bash", input: { command: "rm -rf build" } }, ctx);
+
+    expect(ctx.ui.notify).not.toHaveBeenCalledWith(expect.stringContaining("Dangerous command detected"), "warning");
+  });
+
+  it("stays silent on a benign command even with a plan", async () => {
+    const cwd = makeWorkspace();
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+
+    await emit(pi, "tool_call", { toolName: "bash", input: { command: "git status" } }, ctx);
+
+    expect(ctx.ui.notify).not.toHaveBeenCalledWith(expect.stringContaining("Dangerous command detected"), "warning");
+  });
+});
+
 describe("auto-approve (PWF_AUTO_APPROVE)", () => {
   it("activates hooks at session_start without /plan-execute", async () => {
     process.env.PWF_AUTO_APPROVE = "1";
