@@ -2,7 +2,7 @@ import { test } from "bun:test";
 import assert from "node:assert/strict";
 import type { AgentUsage } from "../src/agent.js";
 import { WorkflowError, WorkflowErrorCode } from "../src/errors.js";
-import { type JournalEntry, runWorkflow } from "../src/workflow.js";
+import { type CheckpointOptions, type JournalEntry, runWorkflow } from "../src/workflow.js";
 
 /** Agent runner that counts real invocations and echoes a per-call result. */
 function countingAgent() {
@@ -853,4 +853,214 @@ return { escaped, arr, j, s }`;
   // ({}).constructor.constructor is the vm Function; its code runs in the vm realm
   // where Date.now is neutered -> blocked (the old host-object escape is closed).
   assert.match(r.result.escaped, /blocked/, "constructor escape via vm objects is closed");
+});
+
+// ─── RCA#10: timeout must cancel the agent session and count its usage ────────
+
+test("RCA#10: a timed-out agent's session is aborted and its usage counted (no orphan)", async () => {
+  // A stand-in for a real WorkflowAgent: it honors its abort signal (resolves
+  // when aborted) and reports partial usage in its "finally" — exactly the path
+  // that used to be orphaned by a bare Promise.race timeout.
+  let signalAborted = false;
+  const slowAgent = {
+    async run(_prompt: string, opts: { signal?: AbortSignal; onUsage?: (u: AgentUsage) => void }) {
+      const signal = opts.signal;
+      const aborted = new Promise<void>((resolve) => {
+        if (!signal) return;
+        if (signal.aborted) return resolve();
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+      try {
+        await aborted; // never resolves on its own; only when the timeout aborts
+        signalAborted = signal?.aborted ?? false;
+      } finally {
+        // Real agents report usage here (session.getSessionStats) before dispose.
+        opts.onUsage?.({ input: 50, output: 10, cacheRead: 0, cacheWrite: 0, total: 60, cost: 0.001 });
+      }
+      throw new Error("Subagent was aborted");
+    },
+  };
+
+  const script = `export const meta = { name: 'rca10', description: 'timeout orphan' }
+const a = await agent('slow', { label: 's', timeoutMs: 20 })
+return { a }`;
+
+  const result = await runWorkflow<{ a: unknown }>(script, { agent: slowAgent, persistLogs: false });
+
+  assert.equal(result.result.a, null, "a recoverable timeout returns null, not a throw");
+  assert.equal(signalAborted, true, "the agent's session signal was aborted (the session is cancelled, not orphaned)");
+  assert.ok(
+    (result.tokenUsage?.total ?? 0) >= 60,
+    "the aborted session's partial usage (60 tokens) is counted in tokenUsage, not lost",
+  );
+});
+
+test("RCA#10: a timeout still surfaces the AGENT_TIMEOUT error message (behavior preserved)", async () => {
+  // delayedAgent ignores its signal, so this exercises the race-enforced timeout
+  // path: the error must still be the recoverable AGENT_TIMEOUT, not a hang.
+  const delayed = {
+    async run(_prompt: string, opts: { onUsage?: (u: AgentUsage) => void }) {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      opts.onUsage?.({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, cost: 0 });
+      return "slow";
+    },
+  };
+  const logs: string[] = [];
+  const script = `export const meta = { name: 'rca10_msg', description: 'timeout msg' }
+const a = await agent('slow', { label: 's', timeoutMs: 5 })
+return { a }`;
+  const result = await runWorkflow<{ a: unknown }>(script, {
+    agent: delayed,
+    persistLogs: false,
+    onLog: (m) => logs.push(m),
+  });
+  assert.equal(result.result.a, null, "timed-out agent yields null");
+  // The exhausted-recoverable log carries the timeout message.
+  assert.ok(
+    logs.some((m) => /timed out after 5ms/.test(m)),
+    `logs mention the timeout; got: ${logs.join(" | ")}`,
+  );
+});
+
+// ─── RCA#11: checkpoint threads the abort signal into confirm() ───────────────
+
+test("RCA#11: checkpoint threads the abort signal into confirm()", async () => {
+  let receivedSignal: AbortSignal | undefined;
+  const confirm = async (_prompt: string, opts: CheckpointOptions & { signal?: AbortSignal }) => {
+    receivedSignal = opts.signal;
+    return "yes";
+  };
+  const script = `export const meta = { name: 'rca11', description: 'checkpoint signal' }
+const reply = await checkpoint('proceed?', { kind: 'confirm' })
+return { reply }`;
+  const result = await runWorkflow<{ reply: unknown }>(script, {
+    agent: fakeAgent({ total: 10 }),
+    confirm,
+    persistLogs: false,
+  });
+  assert.equal(result.result.reply, "yes", "checkpoint works with threaded signal");
+  // When no parent signal is provided (the default), no signal is threaded;
+  // the field is simply absent. The actual abort behavior depends on the
+  // extension's confirm handler respecting the signal.
+});
+
+test("RCA#11: when a parent abort signal is provided, checkpoint threads it to confirm", async () => {
+  let receivedSignal: AbortSignal | undefined;
+  const confirm = async (_prompt: string, opts: CheckpointOptions & { signal?: AbortSignal }) => {
+    receivedSignal = opts.signal;
+    return "yes";
+  };
+  const controller = new AbortController();
+  const script = `export const meta = { name: 'rca11b', description: 'checkpoint signal threaded' }
+const reply = await checkpoint('proceed?', { kind: 'confirm' })
+return { reply }`;
+  const result = await runWorkflow<{ reply: unknown }>(script, {
+    agent: fakeAgent({ total: 10 }),
+    confirm,
+    signal: controller.signal,
+    persistLogs: false,
+  });
+  assert.equal(result.result.reply, "yes", "checkpoint works");
+  assert.ok(receivedSignal instanceof AbortSignal, "checkpoint passes the parent AbortSignal to confirm");
+  assert.equal(receivedSignal?.aborted, false, "the threaded signal is not pre-aborted");
+});
+
+// ─── RCA#3: phase() inside a parallel thunk must not pollute siblings ─────────
+
+test("RCA#3: phase() inside a parallel thunk does not pollute sibling phases", async () => {
+  const agentPhases: Array<{ label: string; phase?: string }> = [];
+  const agent = {
+    async run(prompt: string) {
+      return prompt;
+    },
+  };
+  const script = `export const meta = {
+  name: 'rca3', description: 'phase pollution',
+  phases: [{ title: 'Research' }, { title: 'Edit' }]
+}
+// Start in Research
+const results = await parallel([
+  () => {
+    // Calling phase('Edit') inside this thunk must NOT leak to siblings.
+    phase('Edit')
+    return agent('edit work', { label: 'editor' })
+  },
+  () => {
+    // This sibling reads currentPhase — must still see 'Research', not 'Edit'.
+    return agent('research work', { label: 'researcher' })
+  },
+])
+return { first: results[0], second: results[1] }`;
+
+  const result = await runWorkflow<{ first: string; second: string }>(script, {
+    agent,
+    persistLogs: false,
+    onAgentStart: (e) => agentPhases.push({ label: e.label, phase: e.phase }),
+  });
+
+  assert.equal(agentPhases.length, 2, "both agents started");
+  const editor = agentPhases.find((a) => a.label === "editor");
+  const researcher = agentPhases.find((a) => a.label === "researcher");
+  // The phase is frozen for the entire parallel scope (RCA#3 fix). Without it
+  // the sibling would see 'Edit' (polluted). With it, both see 'Research'. A
+  // thunk that needs a different phase should use opts.phase instead of phase().
+  assert.equal(researcher?.phase, "Research", "sibling is not polluted by the other thunk's phase()");
+  assert.equal(editor?.phase, "Research", "phase is frozen in parallel; use opts.phase to diverge");
+  assert.ok(result.result.first.includes("edit work"), "first agent ran");
+  assert.ok(result.result.second.includes("research work"), "second agent ran");
+});
+
+// ─── RCA#7: judgePanel must not coerce all-judges-failed to 0 ────────────────
+
+test("RCA#7: judgePanel with all judges failing returns undefined score (not 0)", async () => {
+  // Check that judgePanel at least runs by returning a simple constant
+  const script = `export const meta = { name: 'rca7', description: 'judgePanel all fail' }
+try {
+  const best = await judgePanel(['A'], { judges: 1 })
+  return { ok: true, best: best ?? null, score: best?.score }
+} catch (e) {
+  return { ok: false, error: String(e) }
+}`;
+  const wfResult = await runWorkflow(script, {
+    agent: {
+      async run() {
+        return null;
+      },
+    },
+    persistLogs: false,
+  });
+  assert.ok(wfResult.result !== undefined, `got: ${JSON.stringify(wfResult.result)}`);
+  assert.equal(wfResult.result?.ok, true, `judgePanel didn't throw: ${JSON.stringify(wfResult.result)}`);
+  assert.equal(wfResult.result?.score, undefined, "all judges fail → score is undefined");
+});
+
+// ─── RCA#8: loopUntilDry must signal budget/limit truncation ─────────────────
+
+test("RCA#8: loopUntilDry truncation via TOKEN_BUDGET_EXHAUSTED sets truncated=true", async () => {
+  const script = `export const meta = { name: 'rca8', description: 'truncated loop' }
+try {
+  const items = await loopUntilDry({
+    round: async () => {
+      const result = await agent('find one', { label: 'finder' })
+      return [result]
+    },
+    consecutiveEmpty: 3,
+    maxRounds: 5,
+  })
+  return { ok: true, count: items.length, truncated: items.truncated }
+} catch (e) {
+  return { ok: false, error: String(e) }
+}`;
+  const result = await runWorkflow(script, {
+    agent: {
+      async run() {
+        return "found";
+      },
+    },
+    tokenBudget: 1,
+    persistLogs: false,
+  });
+  assert.ok(result.result?.ok === true, `loop should handle budget gracefully: ${JSON.stringify(result.result)}`);
+  assert.equal(result.result?.truncated, true, "loop reports truncated=true when budget exhausted");
+  assert.equal(result.result?.count, 1, "one item found before budget exhausted");
 });

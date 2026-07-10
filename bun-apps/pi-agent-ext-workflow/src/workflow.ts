@@ -182,6 +182,12 @@ export interface CheckpointOptions {
   choices?: string[];
   /** Per-checkpoint timeout in ms for the interactive prompt. */
   timeoutMs?: number;
+  /**
+   * The workflow's abort signal, threaded into the confirm callback so a parent
+   * abort during a pending checkpoint cancels it instead of orphaning the run
+   * (RCA#11). Set internally by runWorkflow — not user-configurable.
+   */
+  signal?: AbortSignal;
 }
 
 interface RuntimeState {
@@ -198,6 +204,12 @@ interface RuntimeState {
   phases: string[];
   /** Monotonic, assigned at lexical agent() call time — the stable resume key. */
   callSeq: number;
+  /**
+   * When set, agent() uses this frozen phase instead of the shared currentPhase.
+   * Set by parallel() to prevent a thunk's phase() call from polluting siblings'
+   * phase assignment (RCA#3). Cleared after all parallel thunks complete.
+   */
+  parallelPhaseOverride?: string;
   /**
    * Index of the first call that missed the resume journal (changed or new).
    * Longest-unchanged-prefix resume: a cached result is replayed only while
@@ -342,7 +354,7 @@ export async function runWorkflow<T = unknown>(
       });
     }
 
-    const assignedPhase = agentOptions.phase ?? state.currentPhase;
+    const assignedPhase = agentOptions.phase ?? state.parallelPhaseOverride ?? state.currentPhase;
 
     // Per-phase soft sub-budget gate: a noisy phase can exhaust its own ceiling
     // without touching the run's overall budget. Soft (spent accrues post-agent),
@@ -460,33 +472,38 @@ export async function runWorkflow<T = unknown>(
           try {
             throwIfAborted();
 
-            // Run agent with timeout
-            const result = await withTimeout(
-              agentRunner.run(prompt, {
-                label,
-                schema: agentOptions.schema,
-                signal: options.signal,
-                instructions: buildAgentInstructions(assignedPhase, agentOptions, agentDef, resolvedIsolation),
-                model: modelSpec,
-                tier: agentOptions.tier,
-                toolNames: agentDef?.tools,
-                disallowedToolNames: agentDef?.disallowedTools,
-                cwd: runCwd,
-                onModelResolved: (id: string) => {
-                  displayModel = id;
-                },
-                onModelFallback: (spec: string) => {
-                  // Make the silent degrade visible in /workflows, not just console.
-                  log(`${label}: model "${spec}" unavailable — using the session default`);
-                },
-                onUsage: (u: AgentUsage) => {
-                  usage = u;
-                },
-                onHistory: (history: AgentHistoryEntry[]) => {
-                  options.onAgentHistory?.({ label, phase: assignedPhase, history });
-                },
-              } as any),
+            // Run agent with timeout. The timeout aborts the agent's OWN child
+            // signal (derived from options.signal), so a timed-out session is
+            // cancelled and its partial usage counted — not left as an orphan
+            // burning uncounted tokens (RCA#10).
+            const result = await runAgentWithTimeout(
+              (signal) =>
+                agentRunner.run(prompt, {
+                  label,
+                  schema: agentOptions.schema,
+                  signal,
+                  instructions: buildAgentInstructions(assignedPhase, agentOptions, agentDef, resolvedIsolation),
+                  model: modelSpec,
+                  tier: agentOptions.tier,
+                  toolNames: agentDef?.tools,
+                  disallowedToolNames: agentDef?.disallowedTools,
+                  cwd: runCwd,
+                  onModelResolved: (id: string) => {
+                    displayModel = id;
+                  },
+                  onModelFallback: (spec: string) => {
+                    // Make the silent degrade visible in /workflows, not just console.
+                    log(`${label}: model "${spec}" unavailable — using the session default`);
+                  },
+                  onUsage: (u: AgentUsage) => {
+                    usage = u;
+                  },
+                  onHistory: (history: AgentHistoryEntry[]) => {
+                    options.onAgentHistory?.({ label, phase: assignedPhase, history });
+                  },
+                } as any),
               timeout,
+              options.signal,
               label,
             );
 
@@ -558,22 +575,29 @@ export async function runWorkflow<T = unknown>(
     if (thunks.some((thunk) => typeof thunk !== "function")) {
       throw new TypeError("parallel() expects an array of functions, not promises. Wrap each call: () => agent(...)");
     }
-    return Promise.all(
-      thunks.map(async (thunk, index) => {
-        try {
-          return await thunk();
-        } catch (error) {
-          if (options.signal?.aborted) throw error;
-          const workflowError = wrapError(error);
-          // Non-recoverable failures (token budget / agent limit exhausted) must
-          // halt the whole run, exactly like a directly-awaited agent() — not be
-          // swallowed into a null in the result array.
-          if (!workflowError.recoverable) throw workflowError;
-          log(`parallel[${index}] failed: ${workflowError.message}`);
-          return null;
-        }
-      }),
-    );
+    // RCA#3: freeze the phase for the entire parallel scope so a thunk's
+    // phase() call can't pollute siblings. Restore after all thunks complete.
+    const savedOverride = state.parallelPhaseOverride;
+    const savedPhase = state.currentPhase;
+    state.parallelPhaseOverride = savedPhase;
+    try {
+      return await Promise.all(
+        thunks.map(async (thunk, index) => {
+          try {
+            return await thunk();
+          } catch (error) {
+            if (options.signal?.aborted) throw error;
+            const workflowError = wrapError(error);
+            if (!workflowError.recoverable) throw workflowError;
+            log(`parallel[${index}] failed: ${workflowError.message}`);
+            return null;
+          }
+        }),
+      );
+    } finally {
+      state.parallelPhaseOverride = savedOverride;
+      state.currentPhase = savedPhase;
+    }
   };
 
   const pipeline = async (
@@ -707,14 +731,21 @@ export async function runWorkflow<T = unknown>(
               ),
             )
           ).filter(Boolean) as Array<{ score?: number }>;
-          const score = js.length ? js.reduce((s, v) => s + (Number(v?.score) || 0), 0) / js.length : 0;
+          const score = js.length ? js.reduce((s, v) => s + (Number(v?.score) || 0), 0) / js.length : undefined;
           return { index: idx, attempt: att, score, judgments: js };
         }),
       )
-    ).filter(Boolean) as Array<{ index: number; attempt: unknown; score: number; judgments: unknown[] }>;
+    ).filter(Boolean) as Array<{ index: number; attempt: unknown; score: number | undefined; judgments: unknown[] }>;
     // Highest mean score; stable tie-break by input index.
-    let best = scored[0];
-    for (const s of scored) if (s.score > best.score || (s.score === best.score && s.index < best.index)) best = s;
+    // A candidate whose judges ALL failed has score === undefined (unscored),
+    // distinguishable from a genuine zero — do not rank it above any scored
+    // candidate (RCA#7). When every candidate is unscored, return the first.
+    let best: (typeof scored)[0] | undefined;
+    for (const s of scored) {
+      if (s.score === undefined) continue;
+      if (!best || s.score > best.score! || (s.score === best.score! && s.index < best.index)) best = s;
+    }
+    best ??= scored[0];
     return best;
   };
 
@@ -731,15 +762,20 @@ export async function runWorkflow<T = unknown>(
     const maxRounds = opts.maxRounds ?? 50;
     const seen = new Set<string>();
     const all: unknown[] = [];
+    let truncated = false;
     let dry = 0;
     for (let r = 0; r < maxRounds && dry < consecutiveEmpty; r++) {
       let items: unknown[];
       try {
         items = (await opts.round(r)) ?? [];
       } catch (error) {
-        // Budget / agent-limit exhaustion: return the partial result, don't abort.
+        // Budget / agent-limit exhaustion: return the partial result as
+        // truncated, not as a completed dry run (RCA#8).
         const code = (error as { code?: string })?.code;
-        if (code === WorkflowErrorCode.TOKEN_BUDGET_EXHAUSTED || code === WorkflowErrorCode.AGENT_LIMIT_EXCEEDED) break;
+        if (code === WorkflowErrorCode.TOKEN_BUDGET_EXHAUSTED || code === WorkflowErrorCode.AGENT_LIMIT_EXCEEDED) {
+          truncated = true;
+          break;
+        }
         throw error;
       }
       const fresh = (Array.isArray(items) ? items : []).filter((x) => x != null && !seen.has(key(x)));
@@ -753,7 +789,11 @@ export async function runWorkflow<T = unknown>(
         all.push(x);
       }
     }
-    return all;
+    // Attach a truncated flag to the result array so callers can distinguish
+    // "completed all rounds dry" from "truncated by budget/limit" (RCA#8).
+    const result = all.slice();
+    if (truncated) (result as any).truncated = true;
+    return result;
   };
 
   const COMPLETENESS_SCHEMA = {
@@ -828,7 +868,9 @@ export async function runWorkflow<T = unknown>(
 
     let reply: unknown;
     if (options.confirm) {
-      reply = await options.confirm(promptText, checkpointOptions);
+      const confirmCtx: CheckpointOptions & { signal?: AbortSignal } = { ...checkpointOptions };
+      if (options.signal) confirmCtx.signal = options.signal;
+      reply = await options.confirm(promptText, confirmCtx);
     } else if (checkpointOptions.headless === "abort") {
       throw new WorkflowError(
         `checkpoint "${promptText}" needs human input but none is available (headless run)`,
@@ -1160,26 +1202,70 @@ function normalizeAgentRetries(value: unknown): number {
 /**
  * Run a promise with a timeout.
  */
-async function withTimeout<T>(promise: Promise<T>, ms: number | null, label: string): Promise<T> {
-  if (ms === null) return promise;
+/**
+ * Run an agent call under an optional timeout. Unlike a plain Promise.race,
+ * a timeout ABORTS the agent's own child signal (derived from `parentSignal`),
+ * so a real WorkflowAgent session is cancelled via session.abort() and reports
+ * its partial usage in its finally — instead of being orphaned mid-flight with
+ * its tokens never counted (RCA#10). After the abort the real promise is still
+ * awaited (swallowing the expected abort rejection) so that usage capture runs
+ * before the timeout error propagates.
+ *
+ * `runFn` receives the child signal to pass to the agent. When `timeoutMs` is
+ * null (the default) the parent signal is passed through unchanged.
+ */
+async function runAgentWithTimeout<T>(
+  runFn: (signal: AbortSignal | undefined) => Promise<T>,
+  timeoutMs: number | null,
+  parentSignal: AbortSignal | undefined,
+  label: string,
+): Promise<T> {
+  // Default path: no timeout — pass the parent signal through unchanged.
+  if (timeoutMs === null) return runFn(parentSignal);
 
+  // Derive a child signal that fires on timeout OR parent abort, so a timeout
+  // cancels just this agent (not the whole run) while a parent abort still
+  // propagates into the session.
+  const controller = new AbortController();
+  const abortChildFromParent = () => controller.abort((parentSignal as AbortSignal & { reason?: unknown })?.reason);
+  if (parentSignal?.aborted) {
+    controller.abort((parentSignal as AbortSignal & { reason?: unknown })?.reason);
+  } else if (parentSignal) {
+    parentSignal.addEventListener("abort", abortChildFromParent, { once: true });
+  }
+
+  const realPromise = runFn(controller.signal);
+  let timedOut = false;
   let timeoutId: NodeJS.Timeout | undefined;
-
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
+      timedOut = true;
+      // Cancel the in-flight session; it settles and reports usage in its finally.
+      controller.abort();
       reject(
         new WorkflowError(
-          `Agent "${label}" timed out after ${ms}ms; raise or omit timeoutMs/agentTimeoutMs to allow longer runs`,
+          `Agent "${label}" timed out after ${timeoutMs}ms; raise or omit timeoutMs/agentTimeoutMs to allow longer runs`,
           WorkflowErrorCode.AGENT_TIMEOUT,
           { recoverable: true },
         ),
       );
-    }, ms);
+    }, timeoutMs);
   });
 
   try {
-    return await Promise.race([promise, timeoutPromise]);
+    return await Promise.race([realPromise, timeoutPromise]);
+  } catch (err) {
+    if (timedOut) {
+      // The session has been told to abort. Wait for it to settle so its finally
+      // runs (reporting partial usage via onUsage, counted by the caller, and
+      // disposing the session) — closing the orphan-token hole. The abort
+      // rejection is expected; swallow it. Real agents honor abort and settle
+      // promptly; agents that ignore their signal settle on their own.
+      await realPromise.catch(() => {});
+    }
+    throw err;
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
+    if (parentSignal) parentSignal.removeEventListener("abort", abortChildFromParent);
   }
 }
