@@ -64,6 +64,50 @@ test("resolveAgentModelSpec: unconfigured tier falls back to the main model", ()
   assert.equal(resolveAgentModelSpec({ tier: "unknown-tier" }, "main/model", loadCfg), "main/model");
 });
 
+// ─── RCA#6: an unknown/misspelled tier must WARN, not silently escalate cost ───
+
+/** Capture console.warn calls during `fn`. */
+function captureWarnings(fn: () => void): string[] {
+  const calls: string[] = [];
+  const original = console.warn;
+  console.warn = (msg: string) => calls.push(msg);
+  try {
+    fn();
+  } finally {
+    console.warn = original;
+  }
+  return calls;
+}
+
+test("RCA#6: a known tier resolves without warning", () => {
+  const warnings = captureWarnings(() => {
+    resolveAgentModelSpec({ tier: "big" }, "main/model", loadCfg);
+  });
+  assert.equal(warnings.length, 0, "a configured tier must not warn");
+});
+
+test("RCA#6: an unknown/misspelled tier warns AND falls back to the main model", () => {
+  let result: string | undefined;
+  const warnings = captureWarnings(() => {
+    result = resolveAgentModelSpec({ tier: "lage" }, "main/expensive", loadCfg);
+  });
+  assert.equal(result, "main/expensive", "fallback value unchanged");
+  assert.equal(warnings.length, 1, "exactly one warning for the misspelled tier");
+  assert.match(warnings[0], /unknown tier "lage"/, "warn names the bad tier");
+  assert.match(warnings[0], /main\/expensive/, "warn names the fallback model (the cost escalation)");
+  assert.match(warnings[0], /small, medium, big/, "warn lists the configured tier names so typos are obvious");
+});
+
+test("RCA#6: a tier with NO config file warns that tiers are unconfigured", () => {
+  let result: string | undefined;
+  const warnings = captureWarnings(() => {
+    result = resolveAgentModelSpec({ tier: "small" }, "main/model", noCfg);
+  });
+  assert.equal(result, "main/model", "fallback value unchanged");
+  assert.equal(warnings.length, 1, "warns when no tier config exists at all");
+  assert.match(warnings[0], /no model-tiers config found/, "warn explains the config is absent");
+});
+
 test("resolveAgentModelSpec: untagged agent defaults to the configured medium tier", () => {
   // The "set tier but nothing changed" fix: an agent with no model and no tier
   // falls back to the user's medium tier when a config exists.

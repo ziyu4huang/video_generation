@@ -142,11 +142,12 @@ describe("RCA design-level findings (regression targets — not yet fixed)", () 
   // the real fix.
   it.todo("RCA#3: phase() inside a parallel thunk must not pollute sibling phases");
 
-  // RCA#6: resolveAgentModelSpec({ tier: "lage" |typos| unknown }) silently falls
-  // back to mainModel (often the most expensive model) with no warning, despite
-  // the guideline claiming opts.tier is "enforced at runtime". Correct: an
-  // unknown/misspelled tier must warn (or reject), not silently escalate cost.
-  it.todo("RCA#6: resolveAgentModelSpec must warn on unknown/misspelled tier");
+  // RCA#6: FIXED. resolveAgentModelSpec now emits console.warn when the
+  // requested tier is unknown or no model-tiers config exists — no silent
+  // cost escalation. Tests: agent.test.ts "RCA#6: an unknown/misspelled tier
+  // warns AND falls back to the main model" + "RCA#6: a tier with NO config
+  // file warns that tiers are unconfigured" + "RCA#6: a known tier resolves
+  // without warning".
 
   // RCA#7: judgePanel scores a candidate whose judges ALL failed as 0 —
   // indistinguishable from a genuine zero score — and may rank it below worse
