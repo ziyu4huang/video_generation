@@ -55,10 +55,20 @@ function makeMockPi() {
 		registerCommand: (_name: string, opts: CommandLike) => {
 			commands.push({ name: _name, handler: opts.handler });
 		},
+		registerMessageRenderer: () => {},
+		registerShortcut: () => {},
+		registerFlag: () => {},
+		sendMessage: () => {},
+		appendEntry: () => {},
+		setSessionName: () => {},
+		getSessionName: () => undefined,
+		setActiveTools: () => {},
+		getActiveTools: () => [] as string[],
+		getFlag: () => undefined,
+		setModel: async () => true,
 		on: () => { pi.onCount++; },
 		getAllTools: () => tools,
 		exec: async () => "",
-		z: { undefined: () => ({}) },
 		sendUserMessage: () => {},
 	};
 	return { pi, tools, commands, get onCount() { return pi.onCount; } };
