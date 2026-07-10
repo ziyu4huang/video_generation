@@ -212,7 +212,13 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
       ctx.ui.notify("[planning-with-files] No task_plan.md found. Create planning files first.", "warning");
     }
 
-    if (isToolCallEventType("bash", event) && isDangerousBashCommand(event.input.command)) {
+    // Gate on plan existence: the message references task_plan.md, which only
+    // exists when planning-with-files is in use. Without this gate the warning
+    // nagged every session (isSessionAttached defaults true when no .planning/
+    // sessions dir exists) and pointed at a plan that doesn't exist —
+    // contradicting the documented "hooks stay passive until /plan-execute"
+    // safety gate that every other hook in this handler respects.
+    if (status.exists && isToolCallEventType("bash", event) && isDangerousBashCommand(event.input.command)) {
       ctx.ui.notify(
         "[planning-with-files] Dangerous command detected. Review current phase in task_plan.md before approval.",
         "warning",
