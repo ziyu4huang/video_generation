@@ -141,7 +141,7 @@ HIST_EOF")
 5. Bash("wc -c < '${targetPath}'")
 6. Prune old (keep newest 15, exclude reflection): Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f 2>/dev/null || true")
 Return { written: true, bytes: <the number printed by wc> }.`,
-    { label: "persist-history", phase: "Persist", model: "haiku",
+    { label: "persist-history", phase: "Persist", tier: "small",
       schema: { type: "object", properties: { written: { type: "boolean" }, bytes: { type: "number", description: "Byte count printed by wc -c" } }, required: ["bytes"] } },
   )
   const histBytes = Number(persist?.bytes) || 0
@@ -157,7 +157,7 @@ Return { written: true, bytes: <the number printed by wc> }.`,
 3. Keep only latest 50 entries (sort by run_id descending).
 4. Write({ file_path: '${indexFile}', content: <updated array, 2-space indent> })
 Return { updated: true }.`,
-    { label: "update-index", phase: "Persist", model: "haiku" },
+    { label: "update-index", phase: "Persist", tier: "small" },
   )
 }
 
@@ -177,7 +177,7 @@ async function loadKnowledge(kbFile) {
    - METRIC:       "- METRIC: <title>: <detail>"
    Truncate each detail to ~160 chars. Never invent records not in the file.
 Return { found: true, records: <active records array>, digest: <the string> }.`,
-    { label: "load-knowledge", phase: "Resolve", model: "haiku",
+    { label: "load-knowledge", phase: "Resolve", tier: "small",
       schema: { type: "object", properties: {
         found: { type: "boolean" },
         records: { type: "array", items: { type: "object" } },
@@ -201,7 +201,7 @@ async function loadGraphKnowledge(kbFile, graphTags, workflowName) {
 2. Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-query --tags '${tagsCsv}' --exclude-from-kb '${kbFile}' --top-k 8 --json 2>/dev/null")
 3. Parse the JSON output. The \`count\` field gives the number of matched cards, \`digest\` gives the grouped digest.
 Return { count: <count from JSON or 0>, digest: <digest from JSON or "">, published: true }.`,
-    { label: "load-graph-knowledge", phase: "Resolve", model: "haiku",
+    { label: "load-graph-knowledge", phase: "Resolve", tier: "small",
       schema: { type: "object", properties: {
         count: { type: "number", description: "Number of cross-workflow cards matched" },
         digest: { type: "string", description: "The grouped digest body from the query" },
@@ -224,7 +224,7 @@ async function publishKnowledge(kbFile, workflowName) {
    If the output is "0", return { published: false, reason: "opt-out" }.
 2. Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
 3. Report { published: <true iff output contains "created" or "unchanged" or "updated" with no "Error">, summary: <the tail output> }.`,
-    { label: "publish-knowledge", phase: "Persist", model: "sonnet",
+    { label: "publish-knowledge", phase: "Persist", tier: "big",
       schema: { type: "object", properties: {
         published: { type: "boolean" },
         summary: { type: "string" },
@@ -287,7 +287,7 @@ WRITE RELIABLY:
 5. Bash("wc -l < '${kbFile}'")  → total_lines
 6. Count active records (status="active"); optionally cross-check with a grep.
 Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [<ids appended this run>] }.`,
-    { label: "extract-knowledge", phase: "Persist", model: "sonnet",
+    { label: "extract-knowledge", phase: "Persist", tier: "big",
       schema: { type: "object", properties: {
         updated: { type: "boolean" },
         total_lines: { type: "number", description: "Line count from wc -l" },
@@ -313,7 +313,7 @@ phase("Resolve")
     `Resolve the git repository root of the working tree we are running in.
 Bash("git rev-parse --show-toplevel")
 Return { root: "<the absolute path, whitespace-trimmed>" }.`,
-    { label: "resolve-project-root", phase: "Resolve", model: "haiku",
+    { label: "resolve-project-root", phase: "Resolve", tier: "small",
       schema: { type: "object", properties: { root: { type: "string" } }, required: ["root"] } },
   )
   const resolved = (rootResolve?.root || "").trim()
@@ -332,7 +332,7 @@ const RUN_TIMESTAMP = await agent(
   `Return the current timestamp in ISO format with colons replaced by dashes for filename safety.
   Run: Bash("date -u +%Y-%m-%dT%H-%M-%S")
   Return { timestamp: "<the output>" }.`,
-  { label: "timestamp", phase: "Resolve", model: "haiku",
+  { label: "timestamp", phase: "Resolve", tier: "small",
     schema: { type: "object", properties: { timestamp: { type: "string" } }, required: ["timestamp"] } },
 )
 const RUN_ID = RUN_TIMESTAMP?.timestamp || "unknown"
@@ -417,7 +417,7 @@ For each package report { name, ok, summary }. overallOk = true iff every packag
 If a package dir doesn't exist, report ok:false with summary "package dir missing".
 Report each command's tail in your summary text even though the schema only needs booleans.`
     ,
-    { label: "contract", phase: "Run", model: "sonnet", schema: CONTRACT_SCHEMA },
+    { label: "contract", phase: "Run", tier: "big", schema: CONTRACT_SCHEMA },
   )
 }
 
@@ -453,7 +453,7 @@ This lane catches the bundle/deploy footguns unit tests cannot.
    verifySummary = the pass/fail totals + any extension-load error lines verbatim.
 overallOk = buildAllOk && verifyOk.
 Report both commands' tails in your summary text.`,
-    { label: "build", phase: "Run", model: "sonnet", schema: BUILD_SCHEMA },
+    { label: "build", phase: "Run", tier: "big", schema: BUILD_SCHEMA },
   )
 }
 
@@ -516,7 +516,7 @@ async function runReviewLane() {
 
   const perDim = await parallel(
     dims.map((d) => () =>
-      agent(d.prompt + fileScope + injected, { label: `review:${d.key}`, phase: "Run", model: "sonnet", schema: FINDING_SCHEMA })
+      agent(d.prompt + fileScope + injected, { label: `review:${d.key}`, phase: "Run", tier: "big", schema: FINDING_SCHEMA })
     ),
   )
   const rawFindings = perDim.filter(Boolean).flatMap((r, i) => (r.findings || []).map((f) => ({ ...f, dimension: dims[i]?.key || f.dimension })))
@@ -529,7 +529,7 @@ async function runReviewLane() {
         `Adversarially verify this code-review finding by READING the actual file. Default to upheld=false if you cannot confirm it by reading the code.
 Finding: ${JSON.stringify(f)}
 Repo root: ${PROJECT_ROOT}.`,
-        { label: `verify:${f.file}`, phase: "Run", model: "sonnet", schema: VERIFY_SCHEMA },
+        { label: `verify:${f.file}`, phase: "Run", tier: "big", schema: VERIFY_SCHEMA },
       ).then((v) => ({ finding: f, verdict: v }))
     ),
   )
@@ -591,7 +591,7 @@ async function runFixLane(findings) {
     `Bash("git -C '${PROJECT_ROOT}' status --porcelain --ignore-submodules=dirty") and return whether the output is non-empty.
 Also filter OUT lines matching: vaults_root/, .knowledge.jsonl, _shared-patterns.md, .claude/workflows/history/.
 Report dirty=true iff ANY other line remains after filtering.`,
-    { label: "fix:dirty-check", phase: "Run", model: "haiku", schema: FIX_DIRTY_SCHEMA },
+    { label: "fix:dirty-check", phase: "Run", tier: "small", schema: FIX_DIRTY_SCHEMA },
   )
   if (dirty?.dirty) {
     log(`Self-Fix: SKIPPED — dirty tree (fix lane refuses to avoid corrupting WIP). Stash or commit first. TIP: set PI_PUBLISH_KNOWLEDGE=0 to avoid vault-submodule dirt.`)
@@ -614,7 +614,7 @@ Rules:
 - oldString MUST be unique in the file (the Edit tool rejects ambiguous matches). Include just enough surrounding context to be unique.
 - newString MUST be the smallest change that closes the finding's failure_scenario. NEVER reformat or rewrite surrounding code.
 - If the finding is not safely patchable (needs design discussion, ambiguous fix), return confidence < 0.5 and the smallest possible guard rather than a rewrite.`,
-        { label: `fix:propose:${f.file}`, phase: "Run", model: "sonnet", schema: FIX_PROPOSE_SCHEMA },
+        { label: `fix:propose:${f.file}`, phase: "Run", tier: "big", schema: FIX_PROPOSE_SCHEMA },
       ).then((p) => ({ finding: f, proposal: p })),
     ),
   )
@@ -635,7 +635,7 @@ Edit({ file_path: "${PROJECT_ROOT}/${p.proposal.file}", old_string: ${JSON.strin
 Then Bash("grep -c '<a unique snippet from newString>' '${PROJECT_ROOT}/${p.proposal.file}'") to confirm the new text is present.
 If Edit reports the old_string was not found (file changed since propose), report applied:false with the error — do NOT retry blindly.
 Return { applied, detail }.`,
-        { label: `fix:apply:${p.proposal.file}`, phase: "Run", model: "sonnet", schema: FIX_APPLY_SCHEMA },
+        { label: `fix:apply:${p.proposal.file}`, phase: "Run", tier: "big", schema: FIX_APPLY_SCHEMA },
       ).then((a) => ({ finding: p.finding, proposal: p.proposal, apply: a })),
     ),
   )
@@ -646,7 +646,7 @@ Return { applied, detail }.`,
     `Re-run the infra contract gate after applying fixes. pass=true iff output contains ALL_GREEN.
 Bash("${RECONTRACT_CMD}")
 Return { pass, summary }.`,
-    { label: "fix:recontract", phase: "Run", model: "sonnet",
+    { label: "fix:recontract", phase: "Run", tier: "big",
       schema: { type: "object", properties: { pass: { type: "boolean" }, summary: { type: "string" } }, required: ["pass"] } },
   )
 
@@ -658,7 +658,7 @@ Return { pass, summary }.`,
 Finding: ${JSON.stringify(a.finding)}
 Patch applied: ${JSON.stringify(a.proposal)}
 Repo root: ${PROJECT_ROOT}.`,
-        { label: `fix:reverify:${a.proposal.file}`, phase: "Run", model: "sonnet",
+        { label: `fix:reverify:${a.proposal.file}`, phase: "Run", tier: "big",
           schema: { type: "object", properties: { closed: { type: "boolean" }, reason: { type: "string" } }, required: ["closed"] } },
       ).then((v) => ({ finding: a.finding, closed: v?.closed })),
     ),
