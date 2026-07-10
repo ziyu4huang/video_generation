@@ -11,95 +11,50 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Active stack
 
-Image/video generation runs via **MLX on Apple Silicon**, surfaced through a **Bun + React GUI**:
-
 - **MLX pipeline** — `python/mlx-movie-director/run.py` (Z-Image / Flux2 Klein / Lens / LTX-2.3 / SeedVR2, all native MLX). The only generation runtime.
 - **Bun GUI** — `bun-apps/gui-movie-director` (`bun run dev`; port is per-worktree — discover with `bun run gui:port`). Spawns `run.py`; never touches ComfyUI.
 
 ## Monorepo SOP — Bun-only, no `package-lock.json`
 
-This is a **Bun workspace monorepo** (isolated linker + globalStore via root `bunfig.toml`); `bun.lock` is the **canonical** lockfile.
+Bun workspace monorepo (isolated linker + globalStore via root `bunfig.toml`); `bun.lock` is canonical.
 
-- **Never commit `package-lock.json`.** It is gitignored. If one appears (e.g. an editor/tool regenerates it), delete it — do not adapt the code to it.
-- Add deps with `bun add` (writes `bun.lock`), never `npm install` (writes `package-lock.json`).
-- Every `bun-apps/*` package is a workspace member; cross-package locals resolve as `workspace:*` in `bun.lock`. See [[bun-isolated-linker-global-store]].
+- **Never commit `package-lock.json`.** It is gitignored. If one appears, delete it.
+- Add deps with `bun add`, never `npm install`. Every `bun-apps/*` is a workspace member (`workspace:*` in `bun.lock`). See [[bun-isolated-linker-global-store]].
 
 ## Python — Choose the Right Venv
 
 ```bash
 # mlx-movie-director (image/video generation) — from repo root only
 python/venv/bin/python python/mlx-movie-director/run.py <args>
-
 # NEVER: python3 / python3.13 (system/uv-managed, no project deps)
-# (ComfyUI/.venv is DEPRECATED — abandoned; do not use.)
+# ComfyUI/.venv is DEPRECATED — do not use.
 ```
 
-> **Invoke from repo root only.** The mlx venv is at `python/venv/` (not inside `python/mlx-movie-director/`). Running `cd python/mlx-movie-director && python/venv/bin/python run.py` fails — the relative path breaks after `cd`. `run.py` resolves model paths from `__file__`, so cwd doesn't matter.
+> **Invoke from repo root only.** The mlx venv is at `python/venv/` (not inside `python/mlx-movie-director/`). `run.py` resolves model paths from `__file__`, so cwd doesn't matter — but `cd` breaks the relative venv path.
 
-> **`python/venv` is NOT auto-created** (2026-07-05 drift check). It is gitignored and per-machine; on a fresh clone (or after `git clean`) it is absent and `run.py` will fail with `ModuleNotFoundError: mlx`. The sibling venvs (`python/whisper-venv`, `python/vision-venv`) back ONLY the movie-director Bun extension's Item I adapters (mlx-whisper, CLIP/ESRGAN via torch) — they do NOT hold the full MLX generation stack. Recreate the MLX venv on demand:
-> ```bash
-> uv venv python/venv --python 3.12
-> uv pip install -r python/mlx-movie-director/requirements.txt --python python/venv/bin/python
-> ```
-> The GUI (`bun run dev`) spawns `run.py` via this path; if image/video generation in the GUI errors with a missing `mlx` module, this venv needs recreating.
+> **`python/venv` is NOT auto-created** (gitignored, per-machine). On fresh clone, recreate it: `bash scripts/setup-offline.sh` (venv + sibling forks + preflight in one command), or manually: `uv venv python/venv --python 3.12 && uv pip install -r python/mlx-movie-director/requirements.txt --python python/venv/bin/python && bash scripts/setup-repo-deps.sh`.
 >
-> **Both generation paths need sibling-fork deps not on PyPI.** `requirements.txt`
-> pins `transformers<5` (5.x breaks `mlx_lm`'s `AutoTokenizer.register`) and
-> `opencv-python`, but TWO packages come from sibling repos because their PyPI
-> versions lack required modules:
-> - **`mflux` fork** (`../mflux`, v0.17.5+) — provides `mflux.models.z_image`
->   (the Z-Image VAE loader). REQUIRED for the IMAGE path. Upstream PyPI mflux
->   (0.12.x) lacks `models.z_image`, so it is deliberately NOT in requirements.txt.
-> - **`ltx-2-mlx` workspace** (`../ltx-2-mlx`) — provides `ltx_core_mlx` /
->   `ltx_pipelines_mlx` / `ltx_trainer`. REQUIRED for the VIDEO path.
->
-> After the requirements install, run:
-> ```bash
-> bash scripts/setup-repo-deps.sh   # installs both sibling forks editable + re-asserts transformers<5
-> ```
-> Override locations with `MFLUX_DIR=...` / `LTX_2_MLX_DIR=...` if they are not
-> at the default siblings. Both forks leave `transformers` unpinned, so the
-> script re-asserts `<5` at the end (otherwise mlx_lm breaks at import).
-
-
+> **Sibling-fork deps (not on PyPI):** `mflux` fork (`../mflux`, provides `mflux.models.z_image` — REQUIRED for IMAGE path) and `ltx-2-mlx` workspace (`../ltx-2-mlx`, REQUIRED for VIDEO path). Both installed by `scripts/setup-repo-deps.sh`, which also re-asserts `transformers<5` (5.x breaks `mlx_lm`'s `AutoTokenizer.register`). Override: `MFLUX_DIR=...` / `LTX_2_MLX_DIR=...`.
 
 ## Shell discipline — never top-level `cd`
 
-A `PreToolUse` hook (`no-cd-drift.sh`) **blocks any top-level `cd <dir>`** in the Bash tool — the tool's cwd persists across calls, so drifting out of the repo root breaks repo-root-relative paths (`python/venv`, `run.py`, `dist/...`). Always do ONE of:
-
-```bash
-# 1. Wrap in a subshell (cwd resets after) — preferred for multi-step cmds
-( cd swift/flux2-image-director && swift build -c release )
-
-# 2. Tool-native --cwd / -C flags (no cd at all)
-bun run --cwd bun-apps/gui-movie-director dev     # --cwd goes AFTER run
-git -C bun-apps/pi-agent-cli status
-
-# 3. Absolute paths from repo root (no cd at all)
-python/venv/bin/python python/mlx-movie-director/run.py image t2i
-```
-
-A bare `cd swift/flux2-image-director && swift build ...` is rejected by the hook; wrap it as `( cd ... && ... )`. The same rule applies to every `cd ... && ...` one-liner in this file — when a command is shown un-wrapped, wrap it before running.
+A `PreToolUse` hook (`no-cd-drift.sh`) **blocks any top-level `cd`** — the tool's cwd persists, so drifting out of repo root breaks root-relative paths. Always wrap: `( cd <dir> && ... )`, use `--cwd`/`-C`, or use absolute paths.
 
 ## Platform: Apple Silicon MPS
 
-- **No CUDA attention**: SageAttention, Flash Attention, xformers need CUDA. SDPA only on MPS.
-- **MLX dtypes**: `bfloat16` is native full-precision; quantize to `mlx-8bit` (default) or 4-bit. No FP8 path.
+- **No CUDA attention**: SDPA only on MPS (no SageAttention/Flash Attention/xformers).
+- **MLX dtypes**: `bfloat16` native; quantize to `mlx-8bit` (default) or 4-bit. No FP8.
 
 ## Startup
 
 ```bash
-( cd bun-apps/gui-movie-director && bun run dev )   # ACTIVE — GUI (port is per-worktree, see below)
-bun run --cwd bun-apps/gui-movie-director gui:port  # this worktree's url (--all lists every server)
+( cd bun-apps/gui-movie-director && bun run dev )   # GUI (port is per-worktree)
+bun run --cwd bun-apps/gui-movie-director gui:port  # this worktree's url (--all lists all)
 ```
 
-The GUI above is the only entry point (`./run.sh` was removed 2026-06-21).
+The GUI is the only entry point (`./run.sh` was removed 2026-06-21). **Do NOT use `bun run start`** (no file watching). Use `bun run dev:watch` only if hot reload breaks. Port: primary worktree = 3099; linked worktrees derive from path (`lib/worktree.ts`). Kill stuck server: `lsof -ti :<port> | xargs kill -9`.
 
-**After a fresh clone**, enable the shared pre-commit hook (2 MB size guard):
-
-```bash
-bash scripts/setup.sh    # sets core.hooksPath = .githooks
-```
+**Fresh clone:** `bash scripts/setup.sh` (sets `core.hooksPath = .githooks`, 2 MB size guard).
 
 ## run.py Subcommands
 
@@ -109,10 +64,8 @@ All commands: `python/venv/bin/python python/mlx-movie-director/run.py <cmd>`.
 image [subcommand]   default: t2i
   t2i, angle, review, profile, controlnet, i2i, faceswap, swap,
   anime2real, quality, workflow, expansion, purify, restore
-
 video [subcommand]   default: generate
   generate, review, compare, quality, restore, vbvr, relay, segment, t2i2v
-
 caption <image>      VLM image analysis (see below)
 replay <manifest>    re-run from JSON manifest
 upscale              ESRGAN-only upscale
@@ -121,150 +74,58 @@ schema               print full CLI schema as JSON
 schema-defaults      print defaults for a given action
 ```
 
-Deprecated aliases: `generate` → `image`, `check-manifests` → `check-model`.
+Self-test: `--self-test` or `--self-test t2i:portrait`. Deprecated: `generate` → `image`, `check-manifests` → `check-model`.
 
-### Self-test flag
+### Offline generation (`--offline`)
 
-```bash
-python/venv/bin/python python/mlx-movie-director/run.py image t2i --self-test
-python/venv/bin/python python/mlx-movie-director/run.py image t2i --self-test t2i:portrait
-python/venv/bin/python python/mlx-movie-director/run.py image i2i --self-test i2i:pose i2i:style
-```
+Zero runtime network egress: sets `HF_HUB_OFFLINE=1`/`TRANSFORMERS_OFFLINE=1`, runs weight-preflight (aborts if missing), skips network-dependent stages. Propagates to children. Bootstrap: `bash scripts/setup-offline.sh`. Full egress map: [`docs/offline-egress-map.md`](docs/offline-egress-map.md).
 
-### Fully-offline generation (`--offline`)
+## Pipelines & Tools
 
-`--offline` makes `run.py` generate image + video with **zero runtime network
-egress** on Apple Silicon:
-
-- Sets `HF_HUB_OFFLINE=1` / `TRANSFORMERS_OFFLINE=1` → HuggingFace-backed
-  loaders (mflux `from_pretrained`, `ltx_downloader`) resolve cache-only and
-  fail loud instead of fetching.
-- Runs a weight-presence **preflight** that aborts (exit 1) before dispatch if
-  any required model is missing locally — never a silent fetch.
-- Skips stages that need a network service (the `video t2i2v` VLM/caption stage →
-  LM Studio) unless `--vlm-online` is given; gates the i2i pose-model download
-  (falls back to Canny) and the storyboard brain.
-- Propagates to all `run.py` subprocess children.
-
-```bash
-# Verify all weights resolve locally (single preflight command):
-python/venv/bin/python python/mlx-movie-director/run.py check-model --preflight
-# Generate fully offline:
-python/venv/bin/python python/mlx-movie-director/run.py image t2i --offline --self-test
-python/venv/bin/python python/mlx-movie-director/run.py video generate --offline --self-test beach-walk
-python/venv/bin/python python/mlx-movie-director/run.py video t2i2v --offline --prompt '...' --frames 9
-```
-
-One-command bootstrap of the offline stack (venv + sibling forks + preflight):
-`bash scripts/setup-offline.sh`. Full runtime-egress map:
-[`docs/offline-egress-map.md`](docs/offline-egress-map.md).
-
-## Video T2I2V Pipeline (`video t2i2v`)
-
-3-stage pipeline: ZImage T2I → VLM prompt assistant → LTX I2V. Omit `--action` to skip VLM stage. See [[t2i2v-pipeline]] memory for full args and examples.
-
-## Lens T2I (`--pipeline lens`)
-
-Microsoft Lens 3.8B — separate pipeline family, no LoRA/ControlNet. Defaults: 512×512, 20 steps, cfg=4.0. See [[project-lens-mlx]] memory for CLI details.
-
-## Image Caption
-
-`run.py caption <IMAGE> [--style <style>]` — local VLM analysis via Qwen3-VL 4B (LM Studio). **Prefer over MCP** — MCP cannot read local paths. See [[image-caption]] memory for all styles.
-
-## Bun GUI Server
-
-```bash
-( cd bun-apps/gui-movie-director && bun run dev )   # hot reload (port is per-worktree)
-bun run --cwd bun-apps/gui-movie-director gui:port  # this worktree's url; --all lists every server
-```
-
-**Do NOT use `bun run start`** — no file watching. Use `bun run dev:watch` only if hot reload breaks.
-
-**Port is per-worktree** (concurrent dev): the primary worktree (real `.git`) uses **3099**;
-each linked worktree derives a stable port from its path (`lib/worktree.ts`). Don't assume
-3099 — run `bun run gui:port` for yours. Kill a stuck server by its discovered port
-(`lsof -ti :<port> | xargs kill -9`).
+- **T2I2V** (`video t2i2v`): ZImage T2I → VLM prompt → LTX I2V. Omit `--action` to skip VLM. See [[t2i2v-pipeline]].
+- **Lens T2I** (`--pipeline lens`): Microsoft Lens 3.8B, no LoRA/ControlNet. Defaults: 512×512, 20 steps, cfg=4.0. See [[project-lens-mlx]].
+- **Image Caption**: `run.py caption <IMAGE> [--style <style>]` — local VLM via Qwen3-VL 4B (LM Studio). Prefer over MCP (MCP can't read local paths). See [[image-caption]].
+- **Model Import**: `import-checkpoint` / `import-lora-image` download from CivitAI, quantize to mlx-8bit, symlink to `../video_generation__models/`. Never commit raw safetensors. CIVITAI_TOKEN always available. See [[model-import]].
 
 ## Testing
 
-**Every Bun package runs plain `bun test`** (no flags, no `--isolate`, no `tsx`). From each package dir:
-
 ```bash
-# Any bun-apps/* package — uniform runner
-( cd bun-apps/<pkg> && bun test )
-bun test scripts                                  # repo-root scripts suite
-
-# gui-movie-director additionally validates command schemas against run.py
-bun run --cwd bun-apps/gui-movie-director check:schema
-
-# pi-agent-ext-workflow builds first (tests import compiled ../src/*.js)
-( cd bun-apps/pi-agent-ext-workflow && bun run build && bun test )
-
-# Python (from repo root)
-python/venv/bin/python -m pytest python/mlx-movie-director/app/tests
-python/venv/bin/python -m pytest python/mlx-movie-director/app/tests --run-gpu    # real MLX + Metal
+( cd bun-apps/<pkg> && bun test )                    # any bun-apps/* package — uniform runner
+bun run --cwd bun-apps/gui-movie-director check:schema  # validate command schemas vs run.py
+( cd bun-apps/pi-agent-ext-workflow && bun run build && bun test )  # builds first (tests import ../src/*.js)
+python/venv/bin/python -m pytest python/mlx-movie-director/app/tests [--run-gpu]
 ```
 
-**Runner pitfalls (now resolved, don't reintroduce):**
-- Bun's `os.homedir()` ignores `process.env.HOME` at runtime (Node respects it). Tests that fake `$HOME` must read the env, not `homedir()` — see `bun-apps/pi-agent-ext-workflow/src/home.ts`.
-- `mock.module()` is process-global under plain `bun test` (files share one process). Mock only the module the code under test imports; don't mock a module that another test file exercises for real, or the stub leaks. (Resolving such a leak by adding `--isolate` is a workaround — prefer splitting the mocked export into its own module.)
+**Runner pitfalls (resolved — don't reintroduce):** Bun's `os.homedir()` ignores `process.env.HOME` at runtime — fake-$HOME tests must read env. `mock.module()` is process-global under plain `bun test` — mock only the module the code imports; don't mock a module another test file exercises for real.
 
-Browser automation: use `playwright-cli` skill. Before automating, capture a screenshot and run
-`run.py caption <shot> --style playwright --lang en` — the text snapshot shows structure but not
-current field values or selected state; the caption fills that gap.
-
-## Model Import Commands
-
-`import-checkpoint` (transformer) and `import-lora-image` (LoRA) download from CivitAI, quantize to mlx-8bit, and auto-symlink binaries to `../video_generation__models/<md5>.safetensors`. Never commit raw safetensors. CIVITAI_TOKEN always available. See [[model-import]] memory for full commands.
+Browser automation: `playwright-cli` skill. Screenshot + `run.py caption <shot> --style playwright --lang en` fills the field-value gap.
 
 ## Key Directories
 
 ```
-python/mlx-movie-director/            # ACTIVE — MLX pipeline
-mlx-models/                           # ACTIVE — MLX-owned model tree (cwd-relative root; override via MLX_MODELS_DIR env / run.py --models-dir)
-mlx-models/store-manifest.json        # tracks all externalized model files
-../video_generation__models/          # EXTERNAL binary store (outside repo, gitignored)
-bun-apps/gui-movie-director/               # ACTIVE — Bun + React GUI
-comfyui_data/models/                  # raw sources for convert.py (BUILD-TIME ONLY) — NOT a runtime dep
+python/mlx-movie-director/    # ACTIVE — MLX pipeline
+mlx-models/                   # MLX-owned model tree (override: MLX_MODELS_DIR / --models-dir)
+../video_generation__models/  # EXTERNAL binary store (outside repo, gitignored)
+bun-apps/gui-movie-director/  # ACTIVE — Bun + React GUI
+comfyui_data/models/          # raw sources for convert.py (BUILD-TIME ONLY)
 ```
 
-## Known Issues & Fixes
+## Knowledge & Memory
 
-Knowledge lives in two layers: **working memory** (`memory` / `memory_search`
-tools → `~/.pi/agent/pi-hermes-memory/`) and the **durable human-readable vault**
-(`zk_ask` / `zk_ingest` → `vaults_root/pi-agent-vault/Zettelkasten/`, where every
-source — workflow / auto-memory / hermes — converges into one graph-linked card
-set). See [`bun-apps/pi-agent/docs/knowledge-orchestration.md`](bun-apps/pi-agent/docs/knowledge-orchestration.md)
-for the flow + responsibilities. (The legacy `.claude/memory/` was retired
-2026-07-08 — its 4 topics were 100% duplicated by vault gotchas + the Platform
-section above; nothing was lost.)
+Two layers: **working memory** (`memory`/`memory_search` → `~/.pi/agent/pi-hermes-memory/`) and **durable vault** (`zk_ask`/`zk_ingest` → `Zettelkasten/`, all sources converge into one graph). See [`bun-apps/pi-agent/docs/knowledge-orchestration.md`](bun-apps/pi-agent/docs/knowledge-orchestration.md). (Legacy `.claude/memory/` retired 2026-07-08 — 100% duplicated by vault + Platform section.)
 
 ## Dynamic Workflow Self-Improve
 
-See [[self-improve-sop]] memory for the full procedure. Key: branch off `main` (dev retired), clean tree required for `fix:true`, always use `{scriptPath}` not `{name}`, and after PR squash-merge DELETE both branches + detach (set 2026-07-06; overwrites the old "do NOT --delete-branch" rule). Steps: `git push origin --delete <br>` → `git checkout --detach origin/main` → `git branch -D <br>` → `git fetch --prune origin` → `git checkout -b feat/<next>` (detach before local delete).
+See [[self-improve-sop]]. Key rules: branch off `main`, clean tree for `fix:true`, use `{scriptPath}` not `{name}`, after squash-merge DELETE branches + detach (`git checkout --detach origin/main` → `git branch -D <br>` → `git fetch --prune`).
 
-**Models for executing the loop** — this pi-agent + pi-dynamic-workflow combination is the core of the **AI loop self-development** setup (the `.claude/workflows/*` self-improve loops are the agent runtime improving itself). When executing these workflows, prefer:
-- **Primary (local):** LM Studio serving `google/gemma-4-26b-a4b-qat`.
-- **Fallback (if local isn't enough — heavy structured-output / long review):** `deepseek-v4-flash`.
+**Models:** Primary = LM Studio `google/gemma-4-26b-a4b-qat`; Fallback = `deepseek-v4-flash` (only if structured-output recovery or poor tool adherence). Wire via `model-routing`/`model-tier-config`.
 
-Wire these via the workflow's `model-routing` / `model-tier-config`. Only escalate to the fallback if a run reports structured-output recovery or poor tool adherence — the loop only works when the model reliably calls the StructuredOutput tool.
+**Infra loop:** `pi-infra-self-improve` (`.claude/workflows/pi-infra-self-improve.js`) — contract + build + review + opt-in fix lanes. Run after touching any infra package.
 
-**Infrastructure self-improve** — `pi-infra-self-improve` (`.claude/workflows/pi-infra-self-improve.js`) is the infrastructure-layer loop (pi-agent / pi-agent-cli / pi-agent-ext-workflow / pi-agent-ext-vlm / pi-agent-ext-obsidian): contract lane (each package's real gate) + build lane (`pi-agent build:all` + `getAllTools()` probe) + review lane + opt-in **fix** lane (`fix:true`, dryRun-capable, dirty-tree-refuse, never-pushes). First adopter of the Self-Fix (Code-Review-Based) shared primitive in `_shared-patterns.md`. Run after touching any infra package.
+## Branch hygiene — SOP #320
 
-## Branch hygiene — delete at PR-merge time (SOP #320)
-
-Branches are deleted at **PR-merge time** per SOP #320, not left to accumulate.
-Enforcement is one command: run `./scripts/stale-branches.sh` after every merge
-(and at the start of each cycle) to list branches outside the keep-set
-(main / current / worktree-checked-out / open-PR), each annotated with its PR
-state. `--prune` deletes them; expect **0 stale** on a clean repo. The full
-procedure + pitfalls (squash-merge ancestry trap, worktree-concurrent safety)
-lives in the **`branch-cleanup`** project skill.
+Run `./scripts/stale-branches.sh` after every merge (expect **0 stale** on clean repo). `--prune` deletes. Full procedure: **`branch-cleanup`** project skill.
 
 ## Vendor patches (active)
 
-**Vendor patches** (ltx-2-mlx / mflux): live in `python/mlx-movie-director/app/vendor_patches.py`
-as import-time monkey-patches. Never edit vendor submodules directly — `git submodule update` wipes
-working-tree edits. Add new patches by appending a `_patch_*()` function and registering it in
-`apply_all_patches()`.
-
+ltx-2-mlx / mflux patches live in `python/mlx-movie-director/app/vendor_patches.py` as import-time monkey-patches. Never edit vendor submodules directly (`git submodule update` wipes edits). Add patches via `_patch_*()` → register in `apply_all_patches()`.

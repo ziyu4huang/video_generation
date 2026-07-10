@@ -245,7 +245,7 @@ function makeFlux2Tool() {
       "Generate/edit/gate images with Flux2 (Swift/MLX). One tool, 18 subcommands; " +
       "call flux2_help for a command's options; chain via details.output.",
     promptGuidelines: [
-      "Media routing: flux2 = image generation/editing (+ multi-character `scene`); krea2 = fast " +
+      "Media routing: flux2 = image generation/editing (+ multi-character scene command); krea2 = fast " +
       "single-image draft / light i2i; ltx = video. Call flux2_help({command}) before first use of " +
       "a command or when unsure of an option key.",
     ],

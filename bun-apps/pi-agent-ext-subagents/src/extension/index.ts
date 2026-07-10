@@ -460,6 +460,7 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 	const tool: ToolDefinition<typeof SubagentParams, Details> = {
 		name: "subagent",
 		label: "Subagent",
+		promptSnippet: "Delegate to subagents or manage agent definitions (single/chain/parallel/async)",
 		description: buildSubagentToolDescription(config),
 		parameters: SubagentParams,
 
@@ -514,6 +515,7 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 	const waitTool: ToolDefinition<typeof WaitParams, Details> = {
 		name: "wait",
 		label: "Wait",
+		promptSnippet: "Block until background async subagent runs finish",
 		description: `Block until background (async) subagent runs started in this session finish, then return.
 
 Use this after launching async subagents when you have no independent work left and must not end your turn — for example inside a skill that has to run to completion, or any non-interactive run (\`pi -p ...\`) where the whole task is a single turn and ending it would abandon the still-running children.

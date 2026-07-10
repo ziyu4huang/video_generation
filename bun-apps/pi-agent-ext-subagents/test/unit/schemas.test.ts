@@ -28,10 +28,6 @@ interface SubagentParamsSchema {
 			minimum?: number;
 			description?: string;
 		};
-		maxRuntimeMs?: {
-			minimum?: number;
-			description?: string;
-		};
 		turnBudget?: {
 			properties?: {
 				maxTurns?: { minimum?: number };
@@ -39,10 +35,6 @@ interface SubagentParamsSchema {
 			};
 		};
 		id?: {
-			type?: string;
-			description?: string;
-		};
-		runId?: {
 			type?: string;
 			description?: string;
 		};
@@ -149,8 +141,8 @@ describe("SubagentParams schema", { skip: !schemasAvailable ? "typebox not avail
 		const description = String(contextSchema.description ?? "");
 		assert.match(description, /fresh/);
 		assert.match(description, /fork/);
-		assert.match(description, /each requested agent/);
 		assert.match(description, /overrides every child/);
+		assert.match(description, /each agent/);
 	});
 
 	it("includes count and concurrency on top-level parallel mode", () => {
@@ -186,19 +178,14 @@ describe("SubagentParams schema", { skip: !schemasAvailable ? "typebox not avail
 		assert.doesNotMatch(description, /orchestration\./);
 	});
 
-	it("includes foreground timeout aliases and turn budget", () => {
+	it("includes foreground timeout and turn budget", () => {
 		const timeoutSchema = SubagentParams?.properties?.timeoutMs;
-		const maxRuntimeSchema = SubagentParams?.properties?.maxRuntimeMs;
 		const turnBudgetSchema = SubagentParams?.properties?.turnBudget;
 		const toolBudgetSchema = SubagentParams?.properties?.toolBudget;
 		assert.ok(timeoutSchema, "timeoutMs schema should exist");
-		assert.ok(maxRuntimeSchema, "maxRuntimeMs schema should exist");
 		assert.equal(timeoutSchema.minimum, 1);
-		assert.equal(maxRuntimeSchema.minimum, 1);
 		assert.match(String(timeoutSchema.description ?? ""), /foreground and async\/background/i);
 		assert.doesNotMatch(String(timeoutSchema.description ?? ""), /foreground-only/i);
-		assert.match(String(maxRuntimeSchema.description ?? ""), /timeoutMs/i);
-		assert.match(String(maxRuntimeSchema.description ?? ""), /foreground and async\/background/i);
 		assert.equal(turnBudgetSchema?.properties?.maxTurns?.minimum, 1);
 		assert.equal(turnBudgetSchema?.properties?.graceTurns?.minimum, 0);
 		assert.equal(toolBudgetSchema?.properties?.soft?.minimum, 1);
@@ -213,13 +200,6 @@ describe("SubagentParams schema", { skip: !schemasAvailable ? "typebox not avail
 		assert.match(String(idSchema.description ?? ""), /interrupt/i);
 		assert.match(String(idSchema.description ?? ""), /steer/i);
 		assert.match(String(idSchema.description ?? ""), /append-step/i);
-
-		const runIdSchema = SubagentParams?.properties?.runId;
-		assert.ok(runIdSchema, "runId schema should exist");
-		assert.equal(runIdSchema.type, "string");
-		assert.match(String(runIdSchema.description ?? ""), /interrupt/i);
-		assert.match(String(runIdSchema.description ?? ""), /steer/i);
-		assert.match(String(runIdSchema.description ?? ""), /append-step/i);
 
 		const dirSchema = SubagentParams?.properties?.dir;
 		assert.ok(dirSchema, "dir schema should exist");
@@ -439,27 +419,11 @@ describe("SubagentParams schema", { skip: !schemasAvailable ? "typebox not avail
 		const dynamicParallelBranch = parallelBranches.find((branch) => branch.type === "object");
 		assert.ok(staticParallelBranch, "parallel should support static task arrays");
 		assert.ok(dynamicParallelBranch, "parallel should support a dynamic task template object");
-		const chainParallelTask = (staticParallelBranch.items as { properties?: Record<string, JsonSchemaNode> } | undefined)?.properties;
-		assert.equal(chainParallelTask?.agent?.type, "string");
-		assert.equal(chainParallelTask?.phase?.type, "string");
-		assert.equal(chainParallelTask?.label?.type, "string");
-		assert.equal(chainParallelTask?.as?.type, "string");
-		assert.equal(chainParallelTask?.outputSchema?.type, "object");
-		const chainParallelOutputSchema = chainParallelTask?.output;
-		assert.equal(chainParallelOutputSchema?.type, undefined);
-		assert.equal(hasAnyOfType(chainParallelOutputSchema, "string"), true);
-		assert.equal(hasAnyOfType(chainParallelOutputSchema, "boolean"), true);
-		const chainParallelReadsSchema = chainParallelTask?.reads;
-		assert.equal(chainParallelReadsSchema?.type, undefined);
-		assert.equal(hasAnyOfArrayWithStringItems(chainParallelReadsSchema), true);
-		assert.equal(hasAnyOfType(chainParallelReadsSchema, "boolean"), true);
+		// Parallel task items are intentionally generic {type:"object"} to save ~600 tok/req;
+		// field-level validation is deferred to the executor. The description teaches the model
+		// the accepted fields (same as top-level tasks[] plus phase/label/as/outputSchema).
 		assert.equal(chainItem.properties?.expand?.type, "object");
 		assert.equal(chainItem.properties?.collect?.type, "object");
-		const chainParallelSkillSchema = chainParallelTask?.skill;
-		assert.equal(chainParallelSkillSchema?.type, undefined);
-		assert.equal(hasAnyOfArrayWithStringItems(chainParallelSkillSchema), true);
-		assert.equal(hasAnyOfType(chainParallelSkillSchema, "boolean"), true);
-		assert.equal(hasAnyOfType(chainParallelSkillSchema, "string"), true);
 		const chainOutputSchema = chainItem.properties?.output as JsonSchemaNode | undefined;
 		assert.equal(chainOutputSchema?.type, undefined);
 		assert.equal(hasAnyOfType(chainOutputSchema, "string"), true);
@@ -496,8 +460,8 @@ describe("SubagentParams schema", { skip: !schemasAvailable ? "typebox not avail
 			{ action: "single", agent: "worker", task: "Fix" },
 			{ action: "PARALLEL", tasks: [{ agent: "worker", task: "Fix" }] },
 			{ action: "not-a-real-action" },
-			{ tasks: [{ agent: "worker", task: "Fix" }], maxRuntimeMs: 1000 },
-			{ chain: [{ agent: "worker", task: "Fix" }], timeoutMs: 1000, maxRuntimeMs: 1000 },
+			{ tasks: [{ agent: "worker", task: "Fix" }], timeoutMs: 1000 },
+			{ chain: [{ agent: "worker", task: "Fix" }], timeoutMs: 1000 },
 			{ agent: "worker", task: "Fix", acceptance: "checked" },
 			{ agent: "worker", task: "Fix", acceptance: { level: "checked", review: false } },
 			{ tasks: [{ agent: "worker", task: "Fix", acceptance: false }] },
@@ -520,19 +484,15 @@ describe("SubagentParams schema", { skip: !schemasAvailable ? "typebox not avail
 			{ skill: [123] },
 			{ output: 123 },
 			{ timeoutMs: 0 },
-			{ maxRuntimeMs: -1 },
 			{ tasks: [{ agent: "reviewer", task: "check this", reads: "input.md" }] },
-			{ chain: [{ parallel: [{ agent: "reviewer", output: 123 }] }] },
-			{ chain: [{ parallel: [{ agent: "reviewer", reads: "input.md" }] }] },
-			{ chain: [{ parallel: [{ agent: "reviewer", skill: 123 }] }] },
+			// chain[].parallel task items are intentionally generic objects (no field-level
+			// validation) to reduce schema token cost; invalid inner-field values are caught
+			// at executor level, not schema level.
 			{ chain: [{ agent: "reviewer", outputSchema: "schema.json" }] },
-			{ chain: [{ parallel: [{ agent: "reviewer", outputSchema: "schema.json" }] }] },
 			{ chain: [{ expand: { from: { output: "targets", path: "/items" }, maxItems: 4, expression: "items" }, parallel: { agent: "reviewer" }, collect: { as: "reviews" } }] },
-			{ chain: [{ expand: { from: { output: "targets", path: "/items" }, maxItems: 4 }, parallel: { agent: "reviewer", as: "child" }, collect: { as: "reviews" } }] },
 			{ chain: [{ expand: { from: { output: "targets", path: "/items" }, maxItems: 4 }, parallel: { agent: "reviewer" }, collect: { as: "reviews" }, when: "later" }] },
 			{ agent: "worker", task: "Fix", acceptance: true },
 			{ tasks: [{ agent: "worker", task: "Fix", acceptance: true }] },
-			{ chain: [{ expand: { from: { output: "targets", path: "/items" }, maxItems: 4 }, parallel: { agent: "worker", acceptance: true }, collect: { as: "reviews" } }] },
 			{ config: [] },
 			{ config: null },
 			{ agent: "worker", task: "Fix", turnBudget: { maxTurns: 0 } },
