@@ -31,15 +31,55 @@ let resolveVaultRet = {
 	staleReason: undefined,
 };
 
-// MUST be registered before any import of pi-knowledge-card (which pulls these
-// two symbols from pi-obsidian at module-eval time).
-mock.module("@repo/pi-agent-ext-obsidian/extensions/obsidian.ts", () => ({
-	runSubagentWithRetry: (...args) => {
-		calls.push(args);
-		return Promise.resolve(nextResult);
-	},
-	resolveVault: async () => resolveVaultRet,
-}));
+// Build a mock of obsidian.ts that provides stubs for EVERY export the real
+// module declares. Bun's mock.module() validates the mock against the real
+// module's export list, so omitting any export causes a SyntaxError.
+// Only `runSubagentWithRetry` and `resolveVault` are functional; the rest
+// are never invoked in wiring-only tests.
+const obsidianExports = [
+	"runSubagentWithRetry", "resolveVault",
+	"__fileCacheOrder", "appendUnderHeading", "assertExtensionApi",
+	"assertWithinVault", "assertWritablePath", "atomicWriteFile",
+	"backlinkPaths", "buildIndex", "buildMatcher", "buildSubagentArgs",
+	"computeFieldLabels", "deleteNote", "detectTitleStyleOutliers",
+	"dropIndex", "findBacklinks", "findTagNotes", "fuzzyMatch",
+	"getAdjacency", "getIndex", "graphDeadLinks", "graphNeighbors",
+	"graphOrphans", "graphOutgoing", "invalidateCache", "isTransientError",
+	"isWeakModel", "launcherForUri", "listVaultCandidates",
+	"loadCachedIndex", "makeSubagentProgressLogger", "moveNote",
+	"parseFrontmatter", "parseStructuredResult", "queryNotes",
+	"readCached", "refreshIndex", "reindexFile", "resolveSubagentModel",
+	"resolveVault", "resolveWikiLink", "rewriteLinksProtected",
+	"runSubagent", "runSubagentWithRetry", "safeNotePath", "saveIndex",
+	"scheduleVaultBanner", "searchVault", "serializeIndex", "tagPaths",
+	"toolAllowlist", "trigramCandidates", "updateFrontmatter",
+	"validateNoteIntegrity", "validateNoteIntegrityBatch",
+	"validateZettelNote", "validateZettelNotes",
+	"ZETTEL_MAX_BYTES", "ZETTEL_REQUIRED_KEYS",
+];
+const mockObj = {};
+for (const name of obsidianExports) {
+	mockObj[name] = async () => {};
+}
+mockObj.runSubagentWithRetry = (...args) => {
+	calls.push(args);
+	return Promise.resolve(nextResult);
+};
+mockObj.resolveVault = async () => resolveVaultRet;
+mockObj.invalidateCache = () => {};
+mockObj.toolAllowlist = (e, d) => d;
+mockObj.parseFrontmatter = () => ({ data: {}, bodyStart: 0 });
+mockObj.validateZettelNote = () => ({ ok: true, errors: [] });
+mockObj.validateZettelNotes = async () => ({ valid: 0, invalid: [] });
+mockObj.ZETTEL_MAX_BYTES = 64 * 1024;
+mockObj.ZETTEL_REQUIRED_KEYS = ["id", "created", "tags"];
+mockObj.fuzzyMatch = () => false;
+mockObj.isWeakModel = () => false;
+mockObj.isTransientError = () => false;
+
+// MUST be registered before any import of pi-knowledge-card (which pulls
+// runSubagentWithRetry and resolveVault from pi-obsidian at module-eval time).
+mock.module("@repo/pi-agent-ext-obsidian/extensions/obsidian.ts", () => mockObj);
 
 // --- load the extension + its pure builders/allowlists for comparison --------
 const kc = await import("../extensions/pi-knowledge-card.ts");
