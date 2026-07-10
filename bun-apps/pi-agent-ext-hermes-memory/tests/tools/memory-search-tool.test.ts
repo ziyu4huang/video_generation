@@ -41,4 +41,27 @@ describe('registerMemorySearchTool', () => {
 
     dbManager.close();
   });
+
+  it('bumps last_referenced for matched entries (touch-on-search wiring)', async () => {
+    const dbManager = makeDbManager();
+    const old = '2020-01-01';
+    // addMemory(db, content, target, project, category, failureReason, toolState, correctedTo, created, lastReferenced)
+    const added = addMemory(dbManager, "user's name is Naruto", 'user', null, null, null, null, null, old, old);
+    assert.strictEqual(added.lastReferenced, old, 'precondition: last_referenced starts old');
+
+    let captured: any;
+    const mockPi = { registerTool: (def: any) => { captured = def; } } as any;
+    registerMemorySearchTool(mockPi, dbManager);
+
+    const result = await captured.execute('tc-touch', { query: 'name identity Naruto', target: 'user' });
+    assert.strictEqual(result.details.success, true);
+
+    // After search, last_referenced must be bumped to today (the live 'last surfaced' signal)
+    const row = dbManager.getDb().prepare('SELECT created, last_referenced FROM memories WHERE id = ?').get(added.id) as { created: string; last_referenced: string };
+    const todayStr = new Date().toISOString().split('T')[0];
+    assert.strictEqual(row.last_referenced, todayStr, 'search bumped last_referenced to today');
+    assert.strictEqual(row.created, old, 'created is preserved (not mutated by touch)');
+
+    dbManager.close();
+  });
 });
