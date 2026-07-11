@@ -457,7 +457,7 @@ async function main(): Promise<void> {
     transitionSeconds: 0.5,
     theme: "dark",
   };
-  const gate = preComposeGate(motionEdit);
+  const gate = await preComposeGate(motionEdit);
   log("compose", `pre-compose gate: ${gate.verdict} — ${gate.checks.map((c) => `${c.name}=${c.status}`).join(", ")}`);
   if (gate.verdict === "fail") throw new Error(`pre-compose gate FAILED — refusing to render: ${JSON.stringify(gate.checks)}`);
 

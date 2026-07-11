@@ -126,6 +126,13 @@ const COMMAND_REFERENCE = [
   "                        the advisory spoken-content check. capability:'subtitle' options:{wordsPath, cueMode?, wordsPerCue?, cues?}",
   "                        → SRT/VTT; pass the transcribe words.json as `wordsPath` and subtitle_gen derives cues itself (the",
   "                        agent-driven captions path needs no timestamp math). `cues` may also be supplied directly.",
+  "                        capability:'video_generation' options:{prompt, image?, frames?, fps?, action?, ...} → I2V/T2V.",
+  "                        `frames` is the ONLY duration control (default is short, ~4s worth) — clip length = frames/fps,",
+  "                        NOT out_seconds in a later edit_decisions cut. A cut's `out_seconds - in_seconds` can only be as",
+  "                        long as the source clip's real (frames/fps) duration; asking compose-motion/-remotion for more",
+  "                        just freeze-extends the last frame (silently, no error — pre-compose's `cut_duration_vs_source`",
+  "                        check catches this before the render). Pass frames explicitly for the actual wanted duration,",
+  "                        e.g. options:{..., frames:200, fps:25} for an 8s clip.",
   "  • compose          — {editDecisions, workDir?, output?, resolution?, fps?, captions?} → trims each cut to its",
   "                        [in,out] window and concatenates them into a real .mp4 (ffmpeg straight-cut foundation;",
   "                        transitions/overlays are the templated-composer tier). captions:{srtPath, burn?} (burn default",
@@ -143,7 +150,9 @@ const COMMAND_REFERENCE = [
   "                        compose-remotion's binary doesn't resolve (the agent-driven default for motion on this machine).",
   "                        Returns a render_report (render_grammar:'motion').",
   "  • pre-compose      — {editDecisions} → deterministic gate BEFORE the expensive render: delivery promise",
-  "                        (cuts/duration/sources/audio) + slideshow risk (static-image fraction). {verdict, checks[]}.",
+  "                        (cuts/duration/sources/audio) + slideshow risk (static-image fraction) + cut_duration_vs_source",
+  "                        (a video cut requesting more than its source clip's real duration — flags the frozen-frame-",
+  "                        extension footgun described under generate/video_generation above). {verdict, checks[]}.",
   "  • final-review     — {mp4Path, transcriptPath?, narration?} → 6 delivery checks (container, duration>0, video stream,",
   "                        audio stream, volumedetect, midpoint frame) + an advisory transcript check when transcriptPath is",
   "                        given → {verdict:'pass'|'fail', checks[], transcript?}. A fail blocks publish (enforced by",
@@ -422,7 +431,7 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
         if (!edit || !Array.isArray(edit.cuts)) {
           return { ok: false, error: "pre-compose requires {editDecisions:{version,cuts:[...]}}" };
         }
-        const gate = preComposeGate(edit);
+        const gate = await preComposeGate(edit);
         return { ok: true, text: jsonOut(gate) };
       }
       case "final-review": {

@@ -80,7 +80,10 @@ The `movie` tool's commands: `preflight`, `pipeline-list`, `pipeline-show`,
   machines where a browser-based composer doesn't resolve.
 - `pre-compose` — deterministic gate run before the expensive render: delivery
   promise (cuts/duration/sources/audio) + slideshow risk (static-image
-  fraction). `verdict:"fail"` → don't render.
+  fraction) + cut-duration-vs-source (a video cut's `out_seconds - in_seconds`
+  exceeding the source clip's real remaining length, which `compose-motion`
+  otherwise silently freeze-extends — one ffprobe call per video cut).
+  `verdict:"fail"` → don't render.
 
 ## Roadmap (later iterations)
 
