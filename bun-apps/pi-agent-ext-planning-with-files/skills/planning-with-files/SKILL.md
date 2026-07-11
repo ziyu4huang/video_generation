@@ -1,6 +1,6 @@
 ---
 name: pi-planning-with-files
-description: Implements Manus-style file-based planning to organize and track progress on complex tasks. Creates task_plan.md, findings.md, and progress.md as durable "working memory on disk". Use when asked to plan out, break down, or organize a multi-step project, research task, or any work requiring 5+ tool calls. Ships a Layer-3 Pi extension (6 lifecycle events, 4 injection modes, SHA-256 attestation, /plan-execute gate). Pure TypeScript — no Python runtime dependency.
+description: Use when asked to plan out, break down, or organize a multi-step project, research task, or any work requiring 5+ tool calls — persists task_plan.md / findings.md / progress.md as durable "working memory on disk" across sessions, backed by a Layer-3 Pi extension (lifecycle hooks, SHA-256 attestation, a /plan-execute approval gate, multi-plan intelligence). Pure TypeScript, no Python runtime dependency.
 ---
 
 # Planning with Files
