@@ -1,8 +1,28 @@
 # pi-agent-ext-power-tool
 
-A **pi extension** that adds developer-focused diagnostic tools.
+A **pi extension** bundle. Originally developer-focused diagnostics, it now
+also hosts several always-on agent features, all registered through one
+`src/index.ts` factory.
 
-## Tools
+## Feature surface
+
+| Feature | Tool(s) / surface | Notes |
+|---------|-------------------|-------|
+| Diagnostics | `inspect_agent`, `inspect_context`, `inspect_extensions` | The original purpose — documented ↓ |
+| Task tracking | `todo` tool + `/todos` command | In-session, branch-aware steps |
+| Structured questions | `ask_user_question` tool | Multi-choice TUI subsystem |
+| Goal driving | `/goal` + `goal_complete` | Endurance driver; publishes `isGoalActive` for Plan-A coordination with planning-with-files |
+| Side conversation | `/btw` commands | Adapted from pi-btw (MIT) |
+| Schema-cost accounting | `./schema-cost` export | Static tool-token estimator (also a publishable package, `pi-schema-cost`) |
+| CLI subcommand | `./extensions/cli-subcommand.ts` | Wired into `pi-agent-cli` |
+
+> **Note:** the diagnostics below are this extension's documented public surface.
+> The other features (todo / ask-user / goal / btw) are co-bundled for historical
+> reasons; the knowledge tools that used to live here were extracted to
+> `pi-knowledge-card` (#351/#354). Splitting the remaining features into focused
+> extensions is tracked as future work.
+
+## Diagnostic Tools
 
 ### `inspect_agent`
 
@@ -116,7 +136,7 @@ Reports a full breakdown of what is consuming the context window before the agen
 | Section | What it measures |
 |---|---|
 | Live context window | Actual tokens used / context window + fill bar |
-| System prompt total | Total chars + estimated tokens (chars ÷ 3.7) |
+| System prompt total | Total chars + estimated tokens (chars ÷ 4) |
 | Skills (top 3) | Each skill's formatted XML size, % of total skill block |
 | Tools (top 3) | Each tool's schema + description + guidelines chars |
 | Context files | Every loaded file (CLAUDE.md etc.) sorted by size |
@@ -198,9 +218,18 @@ bun bun-apps/pi-agent/src/cli.ts \
 
 ```
 pi-agent-ext-power-tool/
-├── package.json       # @repo/pi-agent-ext-power-tool
+├── package.json          # @repo/pi-agent-ext-power-tool
+├── extensions/
+│   └── cli-subcommand.ts  # pi-agent-cli subcommand wiring
+├── docs/                  # extension-analyzer / schema-cost / ui-conventions
 └── src/
-    └── index.ts       # ExtensionFactory — event hook + tool registration
+    ├── index.ts           # ExtensionFactory — registers ALL features below
+    ├── schema-cost/       # static tool-token estimator (exported; publishable)
+    ├── ask-user/          # ask_user_question tool + TUI subsystem
+    ├── goal/              # /goal + goal_complete driver
+    ├── todo/              # todo tool + /todos command + overlay
+    ├── btw/               # /btw side-conversation feature
+    └── shared/            # composite status widget
 ```
 
 ## What the numbers mean

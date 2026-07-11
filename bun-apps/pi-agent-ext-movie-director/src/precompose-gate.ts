@@ -28,10 +28,46 @@
  *      at a low fraction still fails. `in_seconds` itself landing at/past the
  *      source's end (the whole span reads as empty) always hard-fails.
  *
+ *   4. **Narrative duration vs. script duration** — a *different* mismatch
+ *      from #3: every individual cut can be well within its own source clip
+ *      (so `cut_duration_vs_source` passes clean) while the edit's *total*
+ *      runtime is still far shorter than the narrative it's supposed to
+ *      carry. This bit a real run (`optical-hall-detective`, 2026-07-11): a
+ *      120s/7-section script with 162.9s of synthesized narration got
+ *      composed into a flat 7x8s = 56.28s video (every scene capped at a
+ *      uniform "~8-10s of motion" with no reconciliation against the much
+ *      longer, variable-length script sections) — the delivered video
+ *      couldn't possibly narrate its own story, and nothing caught it
+ *      before publish. Only checked when the caller supplies
+ *      `opts.narrativeDurationSeconds` (the script's planned runtime, or the
+ *      synthesized narration audio's actual probed duration — whichever the
+ *      caller has); silently skipped (not even a `pass` entry) when absent,
+ *      so existing callers/tests that don't know about the story's duration
+ *      are unaffected.
+ *
+ *   5. **Motion coverage vs. scene** — the loophole `narrative_duration_vs_script`
+ *      (#4) doesn't close: an edit can satisfy the total-duration bar while
+ *      being mostly still-image filler, because a still cut with any
+ *      `animation` (even a trivial pan) already reads as "has motion" to
+ *      `slideshow_risk` (#2), and `cut_duration_vs_source` (#3) only looks at
+ *      video-source cuts. This bit the very rerun that verified #4's fix
+ *      (`optical-hall-effect-150yr`, 2026-07-11): each scene generated one
+ *      real ~8s I2V clip, then covered the rest of its script-planned
+ *      duration with a Ken-Burns-panned freeze-frame still extracted from
+ *      that clip's own last frame — SSIM confirmed the real clips read as
+ *      motion (~0.45) and the "filler" stills read as static (~0.985), and
+ *      ~72% of the delivered runtime was filler. This check sums real
+ *      video-cut seconds vs. total composed seconds and warns/fails when
+ *      real motion is a small fraction of the runtime — the fix on the
+ *      generation side is to chain multiple real I2V clips per scene
+ *      (last-frame reseed) instead of padding with a panned still; this gate
+ *      just makes the shortcut visible before publish instead of silent.
+ *
  * Verdict: any `fail` → fail (don't render); else any `warn` → warn (render but
- * flag); else pass. Delivery-promise + slideshow checks are pure (fs existence
- * only); the duration check needs one ffprobe per video source, so the gate as
- * a whole is async.
+ * flag); else pass. Delivery-promise + slideshow + motion-coverage checks are
+ * pure (fs existence only); the duration checks need ffprobe calls (per video
+ * source) or a caller-supplied narrative duration, so the gate as a whole is
+ * async.
  */
 import { existsSync } from "node:fs";
 import type { RemotionEditDecisions } from "./remotion.ts";
@@ -72,6 +108,41 @@ export interface PreComposeGateOptions {
   freezeExtensionFailSeconds?: number;
   /** Frozen-seconds tolerance before a cut counts as mismatched at all (probe/encode rounding). Default 0.2s. */
   freezeToleranceSeconds?: number;
+  /**
+   * The story's planned narrative runtime in seconds — the sum of the
+   * script's section durations, or (preferably, since it's what's actually
+   * synthesized) the narration audio file's probed duration. When omitted,
+   * the `narrative_duration_vs_script` check is skipped entirely (not even
+   * a `pass` entry) — this option only exists to let a caller who has this
+   * number opt in, it doesn't change behavior for callers who don't.
+   */
+  narrativeDurationSeconds?: number;
+  /**
+   * Fraction of `narrativeDurationSeconds` the composed edit's total
+   * duration must reach before this check warns. Default 0.9 (composed
+   * runtime is missing more than 10% of the planned narrative).
+   */
+  narrativeDurationWarnFraction?: number;
+  /**
+   * Fraction of `narrativeDurationSeconds` the composed edit's total
+   * duration must reach before this check hard-fails. Default 0.8 (missing
+   * more than 20% — the optical-hall-detective run was at 47%, a clear fail
+   * under this bar).
+   */
+  narrativeDurationFailFraction?: number;
+  /**
+   * Fraction of total composed seconds that must come from real video-source
+   * cuts (not still images, however animated) before `motion_coverage_vs_scene`
+   * warns. Default 0.6.
+   */
+  motionCoverageWarnFraction?: number;
+  /**
+   * Fraction of total composed seconds that must come from real video-source
+   * cuts before `motion_coverage_vs_scene` hard-fails. Default 0.4 — the
+   * optical-hall-effect-150yr run measured ~28% (32s real motion / 113s
+   * total), a clear fail under this bar.
+   */
+  motionCoverageFailFraction?: number;
   /** Injectable ffprobe spawn (tests mock this instead of shelling to real ffprobe). */
   spawnImpl?: SpawnImpl;
 }
@@ -200,6 +271,62 @@ export async function preComposeGate(edit: RemotionEditDecisions, opts: PreCompo
       name: "cut_duration_vs_source",
       status: "pass",
       detail: videoCuts.length > 0 ? `${videoCuts.length} video cut(s) within their source's duration` : "no video cuts to check",
+    });
+  }
+
+  // ── motion coverage vs. scene (a still cut with any `animation` already
+  //    reads as "has motion" to slideshow_risk above, so an edit can be
+  //    mostly panned-still filler and still pass every check so far — see
+  //    optical-hall-effect-150yr, 2026-07-11) ──────────────────────────────
+  const motionWarnFraction = opts.motionCoverageWarnFraction ?? 0.6;
+  const motionFailFraction = opts.motionCoverageFailFraction ?? 0.4;
+  const hasRealVideoCut = mediaCuts.some((c) => isVideo(c.source));
+  const realVideoSeconds = mediaCuts
+    .filter((c) => isVideo(c.source))
+    .reduce((sum, c) => sum + Math.max(0, (c.out_seconds ?? 0) - (c.in_seconds ?? 0)), 0);
+  // Only applies to edits that already contain real generated motion — a
+  // purely still-image "animated slideshow" edit (Ken Burns throughout, no
+  // I2V source at all) is a legitimate, distinct composition style already
+  // judged by slideshow_risk above; this check targets the specific loophole
+  // where an edit MIXES real video with still filler and the filler quietly
+  // dominates the runtime.
+  if (lastOut > 0 && hasRealVideoCut) {
+    const motionCoverage = realVideoSeconds / lastOut;
+    let motionStatus: GateCheck["status"] = "pass";
+    if (motionCoverage < motionFailFraction) motionStatus = "fail";
+    else if (motionCoverage < motionWarnFraction) motionStatus = "warn";
+    checks.push({
+      name: "motion_coverage_vs_scene",
+      status: motionStatus,
+      detail: `real video motion=${realVideoSeconds.toFixed(2)}s of ${lastOut.toFixed(2)}s total ` +
+        `(${(motionCoverage * 100).toFixed(0)}% coverage)` +
+        (motionStatus === "pass"
+          ? ""
+          : ` — most of the runtime is still-image filler (however animated); chain additional real I2V ` +
+            `clips per scene (last-frame reseed) instead of padding with a panned/zoomed still`),
+    });
+  }
+
+  // ── narrative duration vs. script duration (a run can carry every cut
+  //    within its own source and still be far shorter than the story it's
+  //    supposed to tell — see optical-hall-detective, 2026-07-11) ─────────────
+  if (opts.narrativeDurationSeconds !== undefined && opts.narrativeDurationSeconds > 0) {
+    const scriptSeconds = opts.narrativeDurationSeconds;
+    const warnFraction = opts.narrativeDurationWarnFraction ?? 0.9;
+    const failFraction = opts.narrativeDurationFailFraction ?? 0.8;
+    const coverage = lastOut / scriptSeconds;
+    let status: GateCheck["status"] = "pass";
+    if (coverage < failFraction) status = "fail";
+    else if (coverage < warnFraction) status = "warn";
+    checks.push({
+      name: "narrative_duration_vs_script",
+      status,
+      detail: `composed duration=${lastOut.toFixed(2)}s vs. script/narration duration=${scriptSeconds.toFixed(2)}s ` +
+        `(${(coverage * 100).toFixed(0)}% coverage)` +
+        (status === "pass"
+          ? ""
+          : ` — composed video is missing ${((1 - coverage) * 100).toFixed(0)}% of the planned narrative; ` +
+            `either extend per-scene clip/cut durations to match the script's section lengths, or shorten the script`),
     });
   }
 
