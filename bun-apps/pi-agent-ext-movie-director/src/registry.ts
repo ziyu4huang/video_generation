@@ -47,6 +47,7 @@ export interface ProviderEntry {
     | "ffmpeg"
     | "macos:vision"
     | "macos:screencapturekit"
+    | "macos:say"
     | "bun:builtin"
     | "bun:whisper"
     | "bun:clip"
@@ -139,6 +140,7 @@ export const REGISTRY: ProviderEntry[] = [
   { name: "elevenlabs_tts", capability: "tts", provider: "elevenlabs", backend: "cloud_http", invoke: "fetch", configured: false, notes: "needs ELEVENLABS_API_KEY" },
   { name: "openai_tts", capability: "tts", provider: "openai", backend: "cloud_http", invoke: "fetch", configured: false, notes: "needs OPENAI_API_KEY" },
   { name: "piper_tts", capability: "tts", provider: "piper", backend: "native_swift", invoke: "bun:builtin", configured: false, notes: "local Piper binary OR AVSpeechSynthesizer fallback (gap)" },
+  { name: "say_tts", capability: "tts", provider: "say", backend: "macos_native", invoke: "macos:say", configured: true, notes: "macOS `say` (AVSpeechSynthesizer-backed) — zero-cost, zero-key local narration; ranks below cloud TTS quality but is always callable on Apple Silicon. Same fallback run.py's video t2i2v pipeline already uses." },
 
   // Audio/video post — ffmpeg shells (iteration 3).
   { name: "audio_mixer", capability: "audio_processing", provider: "ffmpeg", backend: "ffmpeg", invoke: "ffmpeg", configured: true },

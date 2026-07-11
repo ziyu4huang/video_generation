@@ -123,12 +123,14 @@ describe("pi-movie-director extension", () => {
   });
 
   test("generate surfaces a no-configured-provider error as a structured failure (no spawn)", async () => {
-    // tts has NO configured provider → the selector throws NoConfiguredProviderError,
-    // which dispatch converts to {ok:false, error}. No subprocess is ever spawned.
+    // music_generation has NO registered provider at all (not even a GAP entry)
+    // → the selector throws NoConfiguredProviderError, which dispatch converts
+    // to {ok:false, error}. No subprocess is ever spawned. (tts no longer works
+    // for this: the local macOS `say` fallback makes it always resolve.)
     const tool = captureTool("movie");
     const res = await tool.execute(
       "id",
-      { command: "generate", options: { capability: "tts", command: "synthesize" } },
+      { command: "generate", options: { capability: "music_generation", command: "synthesize" } },
       undefined, undefined, undefined,
     );
     expect(res.details.ok).toBe(false);

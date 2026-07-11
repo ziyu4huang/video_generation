@@ -64,15 +64,21 @@ describe("selectProvider", () => {
     expect(e.provider).toBe("flux2");
   });
 
-  it("a provider hint naming a NOT-configured provider is ignored (soft hint)", () => {
-    // piper is a GAP (never callable); with no cloud keys tts has nothing.
-    expect(() => selectProvider("tts", { provider: "piper", env: NO_ENV })).toThrow(NoConfiguredProviderError);
+  it("a provider hint naming a NOT-configured provider is ignored (soft hint), falling back to the local say fallback", () => {
+    // piper is a GAP (never callable); the hint is ignored and falls back to the
+    // macOS `say` fallback (macos_native, always callable on darwin — ranks
+    // ahead of unkeyed cloud TTS, so tts no longer throws with zero cloud keys).
+    const e = selectProvider("tts", { provider: "piper", env: NO_ENV });
+    expect(e.provider).toBe("say");
   });
 
   it("throws NoConfiguredProviderError when nothing is wired for the capability", () => {
-    expect(() => selectProvider("tts", { env: NO_ENV })).toThrow(NoConfiguredProviderError);
+    // tts as a whole always resolves to the local `say` fallback on darwin now;
+    // isolate to the cloud_http backend (unkeyed) to exercise the "nothing
+    // wired" path without say's macos_native fallback masking it.
+    expect(() => selectProvider("tts", { env: NO_ENV, backend: "cloud_http" })).toThrow(NoConfiguredProviderError);
     try {
-      selectProvider("tts", { env: NO_ENV });
+      selectProvider("tts", { env: NO_ENV, backend: "cloud_http" });
     } catch (err) {
       expect(err).toBeInstanceOf(NoConfiguredProviderError);
       expect((err as NoConfiguredProviderError).capability).toBe("tts");
@@ -80,9 +86,11 @@ describe("selectProvider", () => {
   });
 
   it("a cloud provider becomes callable when its key is in env (probe upgrade)", () => {
-    // With OPENAI_API_KEY set, openai_tts is callable → tts no longer throws.
+    // With OPENAI_API_KEY set, openai_tts is callable within its own backend
+    // class (isolated from say's macos_native fallback, which otherwise wins
+    // the unrestricted tts ranking on darwin).
     const env = { OPENAI_API_KEY: "sk-test" };
-    const e = selectProvider("tts", { env });
+    const e = selectProvider("tts", { env, backend: "cloud_http" });
     expect(e.provider).toBe("openai");
     expect(e.backend).toBe("cloud_http");
   });
