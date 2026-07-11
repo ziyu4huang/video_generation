@@ -24,24 +24,30 @@ The extension maps the upstream planning-with-files hook design onto Pi's lifecy
 
 ## Skill suite (methodology on top of the substrate)
 
-Since v1.2.0 the extension ships **6 skills** (registered via `pi.skills: ["./skills"]`, loaded on-demand). The planning-with-files skill is the **file/orchestration substrate**; the other five are the **methodology** that runs on top of it — adapted from [superpowers](https://github.com/obra/superpowers) (zh edition), re-mapped to Pi's tools (`todo`, `subagent`, `workflow`, `ask_user_question`) and conventions (CLAUDE.md PR workflow, `.planning/<slug>/`).
+Since v1.2.0 (extended in v1.3.0) the extension ships **8 skills** (registered via `pi.skills: ["./skills"]`, loaded on-demand). The planning-with-files skill is the **file/orchestration substrate**; the others are the **methodology** that runs on top of it — adapted from [superpowers](https://github.com/obra/superpowers) (zh edition), re-mapped to Pi's tools (`todo`, `subagent`, `workflow`, `ask_user_question`) and conventions (CLAUDE.md PR workflow, `.planning/<slug>/`).
 
 ```
+test-driven-development = the FOUNDATION (red-green-refactor) every plan step assumes
+
 brainstorming  ──(approved design)──►
 writing-plans   ──(good plan CONTENT)──►  planning-with-files  = file/orchestration SUBSTRATE
 executing-plans ──(per-task EXECUTION)──►    (hooks, nags, progress.md, /plan-execute gate)
                      ├── verification-before-completion  (gate at every task + at completion)
                      └── systematic-debugging            (on any test failure / blocker)
+
+writing-skills = the META — governs how to author/maintain the whole suite
 ```
 
 | skill | role | discipline elements |
 |---|---|---|
 | `planning-with-files` | substrate — where plans live, hooks, `/plan-*` commands | — |
+| `test-driven-development` | the **foundation** — red-green-refactor; no production code without a failing test | rationalization table + red-line list |
 | `brainstorming` | **before** planning — explore intent → design → approval (hard-gated) | hard-gate |
 | `writing-plans` | plan **content quality** — small TDD steps, no placeholders, self-check | no-placeholder rules |
 | `executing-plans` | **execution discipline** — critical review, per-task rhythm, blocker escalation | stop-and-ask rules |
 | `verification-before-completion` | cross-cutting **gate** — no "done" claim without fresh evidence | rationalization table + red-line list |
 | `systematic-debugging` | **error recovery** — root-cause first; 3-strike → question architecture | rationalization table + red-line list |
+| `writing-skills` | the **meta** — TDD-for-docs; governs how to author/maintain the suite | CSO rules + checklist |
 
 The methodology skills are written to **complement, not duplicate** the substrate: `writing-plans` and `executing-plans` explicitly defer file mechanics / progress tracking to planning-with-files. Skill descriptions follow the [writing-skills CSO rule](https://github.com/obra/superpowers): trigger-only (`Use when…`), never a workflow summary. A deterministic test (`tests/skills.test.ts`) guards these rules.
 
