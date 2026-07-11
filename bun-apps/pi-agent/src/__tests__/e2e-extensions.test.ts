@@ -280,8 +280,13 @@ async function deployPkg(extraFlags: string[]): Promise<{
 	// --writable: this harness exercises FUNCTIONALITY (load + probe + cleanup),
 	// not the read-only freeze. deploy.ts freezes by default; opting out here
 	// keeps rmSync cleanup working. The freeze is covered by e2e-readonly.test.ts.
+	// --verify: boot the deployed artifact from /tmp and probe getAllTools() at
+	// DEPLOY time — asserts toolCount > 0, zero dupes, and all canary tools
+	// (vlm_describe, web_search, flux2, obsidian, memory, ltx, krea2, subagent)
+	// are present. Catches broken bundles + tool-registration failures BEFORE
+	// the per-mode runtime probes run. Adds ~3-5s per deploy (offline, no model).
 	const deploy = Bun.spawn(
-		["bun", "scripts/deploy.ts", pkgDir, "--no-build", "--writable", ...extraFlags],
+		["bun", "scripts/deploy.ts", pkgDir, "--no-build", "--writable", "--verify", ...extraFlags],
 		{ cwd: PI_AGENT_DIR, stdout: "inherit", stderr: "inherit" },
 	);
 	const code = await deploy.exited;
