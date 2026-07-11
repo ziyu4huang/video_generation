@@ -470,6 +470,8 @@ describe("selectAndGenerate — selector + bridge integration (mocked)", () => {
   });
 
   it("propagates NoConfiguredProviderError for an unwired capability", async () => {
-    expect(() => selectProvider("tts")).toThrow();
+    // music_generation has no registered provider at all (not even a GAP entry)
+    // — unlike tts, which now always resolves via the local macOS `say` fallback.
+    expect(() => selectProvider("music_generation")).toThrow();
   });
 });
