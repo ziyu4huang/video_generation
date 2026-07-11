@@ -12,6 +12,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { passiveConverge } from "../../src/handlers/passive-converge.js";
+import {
+  loadHealth,
+  loadConvergeState,
+  computeReconciliation,
+  HEALTH_FILENAME,
+} from "../../src/store/converge-health.js";
 
 let vault: string;
 let stateDir: string;
@@ -125,5 +131,51 @@ describe("passive-converge — shutdown loop closure", () => {
     const store = mockStore({});
     const result = await passiveConverge(store, vault, stateDir);
     assert.equal(result.converged, 0, "empty store converges nothing");
+  });
+
+  // ── Phase 1.2: convergence health observability ──────────────────────────
+  it("writes a health record after a successful run (no more silent failure)", async () => {
+    const store = mockStore({
+      failure: ["A lesson that should converge cleanly."],
+      memory: ["And a second one under memory."],
+    });
+
+    await passiveConverge(store, vault, stateDir, "test-project");
+
+    // The health file exists and records an OK run.
+    assert.ok(fs.existsSync(path.join(stateDir, HEALTH_FILENAME)), "health file written");
+    const health = loadHealth(stateDir);
+    assert.ok(health.latest, "latest run present");
+    assert.equal(health.latest!.overall, "ok");
+    assert.equal(health.latest!.triggeredBy, "passive");
+    assert.equal(health.latest!.timedOut, false);
+    // Both targets reported with non-zero seen counts.
+    const failTarget = health.latest!.targets.find((t) => t.target === "failure");
+    const memTarget = health.latest!.targets.find((t) => t.target === "memory");
+    assert.equal(failTarget?.seen, 1);
+    assert.equal(failTarget?.status, "ok");
+    assert.equal(memTarget?.seen, 1);
+    assert.equal(memTarget?.status, "ok");
+  });
+
+  it("live reconciliation reports zero unconverged after convergence", async () => {
+    const entries = { failure: ["Reconciled lesson about the venv layout."] };
+    await passiveConverge(mockStore(entries), vault, stateDir);
+
+    const state = loadConvergeState(stateDir);
+    const recon = computeReconciliation(entries, state);
+    assert.equal(recon[0].unconverged, 0, "entry now shows as converged");
+    assert.equal(recon[0].converged, 1);
+  });
+
+  it("live reconciliation flags an unconverged entry (the silent-failure signal)", async () => {
+    // Converge one entry, then add a NEW one without converging it.
+    const entries = { memory: ["First converged entry."] };
+    await passiveConverge(mockStore(entries), vault, stateDir);
+
+    entries.memory.push("Second entry that was NEVER converged.");
+    const recon = computeReconciliation(entries, loadConvergeState(stateDir));
+    assert.equal(recon[0].unconverged, 1, "the new entry is flagged");
+    assert.equal(recon[0].total, 2);
   });
 });

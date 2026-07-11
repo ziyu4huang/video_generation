@@ -48,6 +48,7 @@ import { registerIndexSessionsCommand } from "./handlers/index-sessions.js";
 import { registerLearnMemoryCommand } from "./handlers/learn-memory.js";
 import { registerSyncMarkdownMemoriesCommand, syncMarkdownMemoriesToSqlite } from "./handlers/sync-markdown-memories.js";
 import { registerPreviewContextCommand } from "./handlers/preview-context.js";
+import { registerConvergeHealthCommand } from "./handlers/converge-health-command.js";
 import { passiveConverge } from "./handlers/passive-converge.js";
 import { loadConfig } from "./config.js";
 import { detectProject, detectProjectSkills } from "./project.js";
@@ -224,6 +225,7 @@ export default function (pi: ExtensionAPI) {
   registerLearnMemoryCommand(pi);
   registerSyncMarkdownMemoriesCommand(pi, dbManager, globalDir, config.projectsMemoryDir, agentRoot);
   registerPreviewContextCommand(pi, store, projectStore, projectName, config);
+  registerConvergeHealthCommand(pi, store, projectStore, globalDir, projectName);
 
   // ── 10. Live session indexing ──
   pi.on("message_end", async (_event, ctx) => {
