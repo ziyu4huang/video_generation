@@ -45,6 +45,8 @@ import {
   type RunPyStoryDetails,
   type RunPyStoryOptions,
 } from "./runpy_story.ts";
+import { runPyTts, type RunPyTtsDetails, type RunPyTtsOptions } from "./runpy_tts.ts";
+import { join } from "node:path";
 
 // ─── ToolResult contract ─────────────────────────────────────────────────────
 
@@ -508,6 +510,49 @@ async function realRunPyStory(req: GenerateRequest, env?: Record<string, string 
   return adaptRunPyStory(req, out.details, out.summary, out.stderrTail, env);
 }
 
+/**
+ * adaptRunPyTts — normalize a run.py tts (edge-tts) result. The single artifact
+ * is the produced narration audio (kind:"audio"); ok = run.py exited 0 AND the
+ * requested file landed with real content (mirrors runPyTts's own "0-exit but
+ * nothing written is NOT success" stance). Cost is real but small (edge-tts is
+ * free); duration_seconds is the audio's own length, not measurable here without
+ * probing the file, so it stays null (the caller can ffprobe the artifact path
+ * if it needs the real duration — same as every other audio-producing adapter).
+ */
+export function adaptRunPyTts(
+  req: GenerateRequest,
+  details: RunPyTtsDetails,
+  summary: string,
+  stderrTailStr: string,
+  env?: Record<string, string | undefined>,
+): ToolResult {
+  const artifacts: Artifact[] = [];
+  if (details.output) {
+    artifacts.push({ path: details.output, kind: "audio", role: "primary", bytes: details.sizeBytes ?? undefined });
+  }
+  return {
+    success: details.ok,
+    provider: "edge-tts",
+    command: details.command,
+    artifacts,
+    error: details.ok ? null : `${summary}\n${stderrTailStr}`.trim(),
+    // edge-tts is a free Microsoft service — honest $0 marginal cost, same
+    // stance as the local-silicon providers even though this one needs network.
+    cost_usd: details.ok ? costFor(req.capability, null, env) : 0,
+    duration_seconds: null,
+    seed: null,
+    model: details.voice ?? "edge-tts",
+  };
+}
+
+async function realRunPyTts(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
+  const opts = (req.options ?? {}) as RunPyTtsOptions & { output?: string };
+  const outputDir = req.outputDir ?? process.cwd();
+  const output = opts.output ?? join(outputDir, "tts_edge.mp3");
+  const out = await runPyTts({ options: opts, output });
+  return adaptRunPyTts(req, out.details, out.summary, out.stderrTail, env);
+}
+
 /** The live adapter map. Tests override entries via GenerateDeps.adapters. */
 export function realAdapters(env?: Record<string, string | undefined>): Partial<Record<InvokeKey, Adapter>> {
   return {
@@ -517,6 +562,7 @@ export function realAdapters(env?: Record<string, string | undefined>): Partial<
     "mlx:runpy": (req) => realRunPy(req, env),
     "mlx:runpy-image": (req) => realRunPyImage(req, env),
     "mlx:runpy-story": (req) => realRunPyStory(req, env),
+    "mlx:runpy-tts": (req) => realRunPyTts(req, env),
     "mlx:caption": (req) => realCaption(req, env),
     // Non-native adapters (ffmpeg / pure-Bun subtitle / cloud HTTP) — iteration 3.
     ...nonNativeAdapters(env),

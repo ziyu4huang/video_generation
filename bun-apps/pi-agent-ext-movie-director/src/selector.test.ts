@@ -80,13 +80,22 @@ describe("selectProvider", () => {
   it("throws NoConfiguredProviderError when nothing is wired for the capability", () => {
     // tts as a whole always resolves to the local `say` fallback on darwin now;
     // isolate to the cloud_http backend (unkeyed) to exercise the "nothing
-    // wired" path without say's macos_native fallback masking it.
-    expect(() => selectProvider("tts", { env: NO_ENV, backend: "cloud_http" })).toThrow(NoConfiguredProviderError);
+    // wired" path without say's macos_native fallback masking it. edge_tts is
+    // ALSO cloud_http (needs network, not an API key) and its probe is pinned
+    // true by the suite-wide beforeAll (_setRunPyRuntimeForTest(true)) — unpin
+    // it for just this test so the cloud_http tier is genuinely empty (matches
+    // this test's actual intent: nothing wired at all, not "nothing keyed").
+    _setRunPyRuntimeForTest(false);
     try {
-      selectProvider("tts", { env: NO_ENV, backend: "cloud_http" });
-    } catch (err) {
-      expect(err).toBeInstanceOf(NoConfiguredProviderError);
-      expect((err as NoConfiguredProviderError).capability).toBe("tts");
+      expect(() => selectProvider("tts", { env: NO_ENV, backend: "cloud_http" })).toThrow(NoConfiguredProviderError);
+      try {
+        selectProvider("tts", { env: NO_ENV, backend: "cloud_http" });
+      } catch (err) {
+        expect(err).toBeInstanceOf(NoConfiguredProviderError);
+        expect((err as NoConfiguredProviderError).capability).toBe("tts");
+      }
+    } finally {
+      _setRunPyRuntimeForTest(true);
     }
   });
 
