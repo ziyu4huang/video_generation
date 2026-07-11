@@ -16,6 +16,7 @@ A Pi-native port of the Manus-style "markdown as working memory" pattern (upstre
 | `/plan-attest [--show|--clear]` | SHA-256 lock the plan; detect tampering |
 | `/plan-goal` | Show the active goal |
 | `/plan-execute [reset]` | Approve plan and activate hooks |
+| `/plan-done [--delete]` | Close the active plan (stop nags); `--delete` removes the files |
 | `/plan-loop [interval] [prompt]` | Periodic re-tick timer |
 
 ## Key Dependencies

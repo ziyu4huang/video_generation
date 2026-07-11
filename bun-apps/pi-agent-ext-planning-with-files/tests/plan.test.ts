@@ -2,7 +2,15 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isAllPhasesComplete, isPlanIncomplete, readPlanStatus, resolvePlanPaths, summarizePlan } from "../src/plan.js";
+import {
+  isAllPhasesComplete,
+  isCloseMarker,
+  isPlanClosed,
+  isPlanIncomplete,
+  readPlanStatus,
+  resolvePlanPaths,
+  summarizePlan,
+} from "../src/plan.js";
 
 const tempRoots: string[] = [];
 const originalEnv = { ...process.env };
@@ -74,6 +82,98 @@ describe("readPlanStatus", () => {
     const status = readPlanStatus(cwd);
     expect(status.progressTail20).toContain("line-c");
     expect(status.firstLines50).toContain("### Phase 1");
+  });
+});
+
+describe("readPlanStatus — emoji / inline status tolerance", () => {
+  it("recognizes ✅/⏸ emoji markers on phase headers (prd-distill style)", () => {
+    const cwd = makeCwd();
+    writeScoped(
+      cwd,
+      "prd",
+      [
+        "# PRD distill",
+        "",
+        "### Phase 1 — Inventory & setup  ✅ complete",
+        "",
+        "### Phase 2 — Distill PRDs → notes  ⏸ BLOCKED",
+        "",
+        "### Phase 3 — Verify output  ⏸ blocked by Phase 2",
+        "",
+        "### Phase 4 — Graph health audit  ⏸ blocked by Phase 2",
+        "",
+      ].join("\n"),
+    );
+
+    const status = readPlanStatus(cwd);
+    expect(status.totalPhases).toBe(4);
+    expect(status.completePhases).toBe(1);
+    // ⏸ maps to pending (blocked / not done).
+    expect(status.pendingPhases).toBe(3);
+    expect(status.hasParseableStatus).toBe(true);
+    // Accurate now: 1/4 — genuinely incomplete, so it DOES count as incomplete.
+    expect(isPlanIncomplete(status)).toBe(true);
+  });
+
+  it("recognizes 🔄 in_progress emoji", () => {
+    const cwd = makeCwd();
+    writeScoped(cwd, "demo", "### Phase 1\n🔄 working on it\n### Phase 2\n✅ done\n");
+    const status = readPlanStatus(cwd);
+    expect(status.inProgressPhases).toBe(1);
+    expect(status.completePhases).toBe(1);
+  });
+
+  it("does NOT miscount an unrecognized status format as 0/N incomplete", () => {
+    // No Status: line, no brackets, no emoji → fully unparseable.
+    const cwd = makeCwd();
+    writeScoped(cwd, "demo", "### Phase 1\nsome custom marker XYZ\n### Phase 2\nalso custom\n");
+    const status = readPlanStatus(cwd);
+    expect(status.totalPhases).toBe(2);
+    expect(status.hasParseableStatus).toBe(false);
+    // Critical: ambiguous status must NOT trigger the incomplete nag.
+    expect(isPlanIncomplete(status)).toBe(false);
+    expect(summarizePlan(status)).toBe("2 phases (status format unrecognized)");
+  });
+
+  it("handles mixed Status: + bracket formats per-phase", () => {
+    const cwd = makeCwd();
+    writeScoped(cwd, "demo", "### Phase 1\n**Status:** complete\n### Phase 2\n[pending]\n");
+    const status = readPlanStatus(cwd);
+    expect(status.completePhases).toBe(1);
+    expect(status.pendingPhases).toBe(1);
+  });
+});
+
+describe("close marker / closed plan", () => {
+  it("detects the comment close marker written by /plan-done", () => {
+    expect(isCloseMarker("# Plan\n<!-- pwf: closed -->\n")).toBe(true);
+    expect(isCloseMarker("# Plan\n<!-- pwf:closed -->\n")).toBe(true);
+  });
+
+  it("detects a human-written heading close marker", () => {
+    expect(isCloseMarker("# Plan\n## Plan Status: closed\n")).toBe(true);
+    expect(isCloseMarker("# Plan\n## Plan Status: **closed**\n")).toBe(true);
+  });
+
+  it("does NOT treat unrelated ## Status: lines as closed (prd-distill has '## Status: **UNBLOCKED**')", () => {
+    expect(isCloseMarker("## Status: **UNBLOCKED**\n")).toBe(false);
+  });
+
+  it("a closed plan is inert: isPlanClosed true, isPlanIncomplete false, isAllPhasesComplete false", () => {
+    const cwd = makeCwd();
+    writeScoped(
+      cwd,
+      "demo",
+      "### Phase 1\n**Status:** pending\n### Phase 2\n**Status:** pending\n\n<!-- pwf: closed -->\n",
+    );
+    const status = readPlanStatus(cwd);
+    expect(status.closed).toBe(true);
+    expect(isPlanClosed(status)).toBe(true);
+    // Even though 0/2, a closed plan must not nag.
+    expect(isPlanIncomplete(status)).toBe(false);
+    // And must not report "all complete" either (it's closed, not completed).
+    expect(isAllPhasesComplete(status)).toBe(false);
+    expect(summarizePlan(status)).toBe("Plan closed (via /plan-done)");
   });
 });
 

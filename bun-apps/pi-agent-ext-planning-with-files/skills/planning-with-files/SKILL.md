@@ -99,6 +99,19 @@ When all phases are done but the user requests additional work:
 - Log a new session entry in `progress.md`.
 - Continue the planning workflow as normal.
 
+## Closing out a plan (stop the nags)
+
+When a task is **finished or abandoned**, the active plan keeps getting resolved and will keep firing "Task incomplete" / auto-continue prompts at every `agent_end` until you close it. There was previously no documented way to do this — there is now:
+
+| Situation | What to do |
+|-----------|------------|
+| **Done with the task, want to keep the plan as a record** | Run `/plan-done`. Writes a `<!-- pwf: closed -->` marker + a visible note. Hooks treat the plan as inert: no injection, no nag, no auto-continue. |
+| **Done and want the scratch gone entirely** | Run `/plan-done --delete`. Removes the active plan files (`task_plan.md` / `progress.md` / `findings.md`, or the whole `.planning/<slug>/` dir). These are gitignored scratch — safe to delete. |
+| **Stale `.planning/<slug>/` from a previous session** | The newest plan dir under `.planning/` auto-resolves as active. Delete the stale dir, or run `/plan-done` inside it, or `export PLAN_ID=<other-slug>` to pin a different one. |
+| **Reopen a closed plan** | Delete the `<!-- pwf: closed -->` marker (and the note line) from `task_plan.md`. |
+
+> **Tip:** A common false positive was a plan whose phase statuses use emoji (`✅` / `⏸ BLOCKED`) instead of the documented `**Status:** complete` form — the parser now recognizes both, but an **unrecognized** status format (zero parseable tokens) is treated as "ambiguous" and will **not** nag. If you see "status format unrecognized" in `/plan-status`, either add `**Status:** X` lines or just `/plan-done` the plan.
+
 ## The 3-Strike Error Protocol
 
 ```
@@ -183,6 +196,8 @@ Commands:
 - `/plan-attest [--show|--clear]` — SHA-256 lock the active plan (pure TS)
 - `/plan-execute` — approve the active plan and enable hook activation
 - `/plan-execute reset` — return the active plan to passive review mode
+- `/plan-done` — close the active plan (finished/abandoned): stops all hooks & nags, keeps the file as a record
+- `/plan-done --delete` — close AND remove the active plan files (gitignored scratch)
 - `/plan-goal <text|default|clear>` — set the auto-continue goal condition
 - `/plan-loop [interval] [prompt]` — start/stop periodic loop ticks (use `stop` to cancel)
 

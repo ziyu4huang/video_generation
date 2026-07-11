@@ -162,10 +162,11 @@ describe("runtime lifecycle registration", () => {
     ]);
   });
 
-  it("registers the five slash commands", () => {
+  it("registers the six slash commands", () => {
     const pi = loadExtension();
     expect(Array.from(pi.commands.keys()).sort()).toEqual([
       "plan-attest",
+      "plan-done",
       "plan-execute",
       "plan-goal",
       "plan-loop",
@@ -290,6 +291,34 @@ describe("runtime handlers (parity mode, default no approval)", () => {
 
     expect(ctx.ui.notify).toHaveBeenCalledWith("[planning-with-files] ALL PHASES COMPLETE (2/2).", "info");
     expect(pi.sendUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("agent_end clears the status bar when no plan exists (no stale 0/4 ghost)", async () => {
+    // A workspace with NO plan file — simulates the plan having been deleted.
+    const cwd = mkdtempSync(join(tmpdir(), "pwf-empty-"));
+    tempRoots.push(cwd);
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+
+    await emit(pi, "agent_end", {}, ctx);
+
+    // The fix: the bar is refreshed to reality instead of freezing on a stale
+    // value from a previous turn.
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("planning-with-files", "No active plan");
+    expect(pi.sendUserMessage).not.toHaveBeenCalled();
+    expect(ctx.ui.notify).not.toHaveBeenCalled();
+  });
+
+  it("before_agent_start clears the status bar when no plan exists", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pwf-empty-"));
+    tempRoots.push(cwd);
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+
+    const result = await emit(pi, "before_agent_start", {}, ctx);
+
+    expect(result).toBeUndefined();
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("planning-with-files", "No active plan");
   });
 
   it("session_before_compact preserves plan context with a compaction reminder", async () => {
