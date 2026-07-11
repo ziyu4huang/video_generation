@@ -50,6 +50,7 @@ dist/
 # Verify/checkpoint artifacts (generated summaries) and agent_inventory tool
 # output (bun-apps/pi-agent-ext-power-tool) — both generated, not source.
 /output/
+/outputs/
 /debug/
 python/mlx-movie-director/vendor/mflux/
 ComfyUI/
