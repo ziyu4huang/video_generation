@@ -1,8 +1,8 @@
 {
   "name": "@repo/pi-agent-ext-planning-with-files",
   "private": true,
-  "version": "1.1.0",
-  "description": "Manus-style file-based planning for Pi — task_plan.md / findings.md / progress.md working memory, with a Layer-3 extension: 6 lifecycle events, 4 injection modes, SHA-256 attestation, a /plan-execute approval gate, a dangerous-bash guard, and PLI v2 multi-plan intelligence (/plan-list, /plan-lint, /plan-switch) + injection token-cost telemetry. Pure TypeScript, no Python runtime dep.",
+  "version": "1.2.0",
+  "description": "Manus-style file-based planning for Pi — task_plan.md / findings.md / progress.md working memory, with a Layer-3 extension (6 lifecycle events, 4 injection modes, SHA-256 attestation, a /plan-execute approval gate, a dangerous-bash guard, and PLI v2 multi-plan intelligence + token-cost telemetry), PLUS a 6-skill methodology suite adapted from superpowers: brainstorming → writing-plans → executing-plans on the file/orchestration substrate, with verification-before-completion and systematic-debugging as cross-cutting gates. Pure TypeScript, no Python runtime dep.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -52,7 +52,7 @@
       "./extensions/index.ts"
     ],
     "skills": [
-      "./skills/planning-with-files"
+      "./skills"
     ]
   },
   "repository": {
