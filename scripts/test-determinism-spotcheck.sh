@@ -31,11 +31,13 @@ emit() { printf '%s\n' "$*"; }
 
 # Flake-prone subset: "package-dir<TAB>test-command". Commands run from repo
 # root (so --cwd / build paths are stable), matching the CI matrix commands.
-# - pi-agent-ext-hermes-memory: the former node:test-hang package (now single-process bun test)
+# - pi-agent-ext-hermes-memory: now pure bun test (Bun-only; the former
+#   node:test-hang / tsx carve-out was retired when better-sqlite3/Node support
+#   was removed)
 # - pi-agent-ext-workflow: build-first; time/runtime fixtures
 # - pi-agent-ext-obsidian: mtime/time tests (scoped to the portable extensions suite)
 ENTRIES=(
-	"pi-agent-ext-hermes-memory	( cd bun-apps/pi-agent-ext-hermes-memory && bash tests/run-all.sh )"
+	"pi-agent-ext-hermes-memory	( cd bun-apps/pi-agent-ext-hermes-memory && bun test )"
 	"pi-agent-ext-workflow	( cd bun-apps/pi-agent-ext-workflow && bun run build && bun test )"
 	"pi-agent-ext-obsidian	( cd bun-apps/pi-agent-ext-obsidian && bun test extensions/__tests__/ )"
 )
