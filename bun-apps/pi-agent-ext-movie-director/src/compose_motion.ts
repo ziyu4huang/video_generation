@@ -199,6 +199,23 @@ export async function composeMotion(
     // across the full `-t` window (ken-burns on a still is this runtime's main case).
     // A video source keeps the seek-then-trim shape (`-ss` before `-i`).
     const isImage = !/\.(mp4|mov|webm|avi|mkv|m4v)$/i.test(c.source!);
+    // Defensive duration check (video sources only): `in_seconds`/`out_seconds`
+    // on a video-source cut are ABSOLUTE offsets into that source file — a
+    // caller that copies the still-image convention (relative offsets from an
+    // implicit 0) will pass an `in_seconds` at or past the source's own probed
+    // duration, silently collapsing the trimmed segment toward zero length
+    // (ffmpeg -ss past EOF just yields ~nothing). This bit us once already
+    // (a composed video shrinking from 20s to ~10s with no error) before the
+    // ffprobe-diff that found it; catch it here instead of after the fact.
+    if (!isImage) {
+      const sourceDuration = await probeDuration(c.source!, run);
+      if (sourceDuration > 0 && (c.in_seconds ?? 0) >= sourceDuration - 0.1) {
+        warnings.push(
+          `cut "${c.id}" in_seconds=${c.in_seconds} is at or past source "${c.source}"'s probed duration (${sourceDuration.toFixed(2)}s) — ` +
+          `this trims to ~0s; if the source is itself a per-cut clip, in_seconds should likely be 0`,
+        );
+      }
+    }
     const argv: string[] = ["-y"];
     if (isImage) {
       argv.push("-loop", "1");
