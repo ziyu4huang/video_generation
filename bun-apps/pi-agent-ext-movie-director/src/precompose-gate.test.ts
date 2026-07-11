@@ -257,6 +257,76 @@ describe("preComposeGate — cut duration vs. source duration", () => {
     }
   });
 
+  it("does not add narrative_duration_vs_script when narrativeDurationSeconds is omitted", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-gate-narr-off-"));
+    try {
+      const v = join(dir, "scene.mp4"); writeFileSync(v, "x");
+      const r = await preComposeGate(
+        { version: "1.0", cuts: [{ id: "a", source: v, in_seconds: 0, out_seconds: 4, animation: "static" }] },
+        { spawnImpl: fakeProbe(4.04) },
+      );
+      expect(r.checks.find((c) => c.name === "narrative_duration_vs_script")).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails narrative_duration_vs_script when composed duration is far short of the script (the optical-hall-detective case)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-gate-narr-fail-"));
+    try {
+      const clips = Array.from({ length: 7 }, (_, i) => {
+        const p = join(dir, `s${i + 1}.mp4`); writeFileSync(p, "x"); return p;
+      });
+      // Real repro: 7 cuts x 8s = 56s composed, against a 120s script (47% coverage).
+      const r = await preComposeGate(
+        {
+          version: "1.0",
+          cuts: clips.map((p, i) => ({ id: `s${i + 1}`, source: p, in_seconds: 0, out_seconds: (i + 1) * 8, animation: "static" })),
+        },
+        { spawnImpl: fakeProbe(8.04), narrativeDurationSeconds: 120 },
+      );
+      const c = r.checks.find((x) => x.name === "narrative_duration_vs_script")!;
+      expect(c.status).toBe("fail");
+      expect(c.detail).toContain("120.00s");
+      expect(r.verdict).toBe("fail");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("warns (not fails) narrative_duration_vs_script when composed duration is only slightly short", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-gate-narr-warn-"));
+    try {
+      const v = join(dir, "scene.mp4"); writeFileSync(v, "x");
+      // 85s composed vs 100s script = 85% coverage: under the 90% warn bar, above the 80% fail bar.
+      const r = await preComposeGate(
+        { version: "1.0", cuts: [{ id: "a", source: v, in_seconds: 0, out_seconds: 85, animation: "static" }] },
+        { spawnImpl: fakeProbe(85), narrativeDurationSeconds: 100 },
+      );
+      const c = r.checks.find((x) => x.name === "narrative_duration_vs_script")!;
+      expect(c.status).toBe("warn");
+      expect(r.verdict).not.toBe("fail");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes narrative_duration_vs_script when composed duration comfortably covers the script", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-gate-narr-pass-"));
+    try {
+      const v = join(dir, "scene.mp4"); writeFileSync(v, "x");
+      const r = await preComposeGate(
+        { version: "1.0", cuts: [{ id: "a", source: v, in_seconds: 0, out_seconds: 118, animation: "static" }] },
+        { spawnImpl: fakeProbe(118), narrativeDurationSeconds: 120 },
+      );
+      const c = r.checks.find((x) => x.name === "narrative_duration_vs_script")!;
+      expect(c.status).toBe("pass");
+      expect(r.verdict).not.toBe("fail");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("fails the whole check when one cut is badly mismatched even if other cuts are clean (not diluted by averaging)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "md-gate-dur-mixed-"));
     try {

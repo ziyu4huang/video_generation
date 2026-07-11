@@ -149,10 +149,18 @@ const COMMAND_REFERENCE = [
   "                        but no React/browser/swift — callable wherever ffmpeg+zoompan+xfade resolve. Use this when",
   "                        compose-remotion's binary doesn't resolve (the agent-driven default for motion on this machine).",
   "                        Returns a render_report (render_grammar:'motion').",
-  "  • pre-compose      — {editDecisions} → deterministic gate BEFORE the expensive render: delivery promise",
-  "                        (cuts/duration/sources/audio) + slideshow risk (static-image fraction) + cut_duration_vs_source",
-  "                        (a video cut requesting more than its source clip's real duration — flags the frozen-frame-",
-  "                        extension footgun described under generate/video_generation above). {verdict, checks[]}.",
+  "  • pre-compose      — {editDecisions, narrativeDurationSeconds?} → deterministic gate BEFORE the expensive render:",
+  "                        delivery promise (cuts/duration/sources/audio) + slideshow risk (static-image fraction) +",
+  "                        cut_duration_vs_source (a video cut requesting more than its source clip's real duration —",
+  "                        flags the frozen-frame-extension footgun described under generate/video_generation above).",
+  "                        Pass narrativeDurationSeconds (sum of the script artifact's section durations, or better, the",
+  "                        synthesized narration audio's real ffprobe duration) to also run narrative_duration_vs_script:",
+  "                        warns/fails when the edit's total composed duration falls far short of what the script/",
+  "                        narration actually needs — every cut can pass cut_duration_vs_source individually while the",
+  "                        whole edit is still too short to narrate its own story (a flat per-scene clip length like",
+  "                        '~8-10s per scene' does NOT automatically match a script whose sections vary 5-22s each;",
+  "                        reconcile scene/cut durations against the script's actual per-section lengths, don't just use",
+  "                        one constant). Skipped silently when narrativeDurationSeconds is omitted. {verdict, checks[]}.",
   "  • final-review     — {mp4Path, transcriptPath?, narration?} → 6 delivery checks (container, duration>0, video stream,",
   "                        audio stream, volumedetect, midpoint frame) + an advisory transcript check when transcriptPath is",
   "                        given → {verdict:'pass'|'fail', checks[], transcript?}. A fail blocks publish (enforced by",
@@ -431,7 +439,8 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
         if (!edit || !Array.isArray(edit.cuts)) {
           return { ok: false, error: "pre-compose requires {editDecisions:{version,cuts:[...]}}" };
         }
-        const gate = await preComposeGate(edit);
+        const narrativeDurationSeconds = opts.narrativeDurationSeconds !== undefined ? Number(opts.narrativeDurationSeconds) : undefined;
+        const gate = await preComposeGate(edit, { narrativeDurationSeconds });
         return { ok: true, text: jsonOut(gate) };
       }
       case "final-review": {

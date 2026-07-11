@@ -28,10 +28,27 @@
  *      at a low fraction still fails. `in_seconds` itself landing at/past the
  *      source's end (the whole span reads as empty) always hard-fails.
  *
+ *   4. **Narrative duration vs. script duration** — a *different* mismatch
+ *      from #3: every individual cut can be well within its own source clip
+ *      (so `cut_duration_vs_source` passes clean) while the edit's *total*
+ *      runtime is still far shorter than the narrative it's supposed to
+ *      carry. This bit a real run (`optical-hall-detective`, 2026-07-11): a
+ *      120s/7-section script with 162.9s of synthesized narration got
+ *      composed into a flat 7x8s = 56.28s video (every scene capped at a
+ *      uniform "~8-10s of motion" with no reconciliation against the much
+ *      longer, variable-length script sections) — the delivered video
+ *      couldn't possibly narrate its own story, and nothing caught it
+ *      before publish. Only checked when the caller supplies
+ *      `opts.narrativeDurationSeconds` (the script's planned runtime, or the
+ *      synthesized narration audio's actual probed duration — whichever the
+ *      caller has); silently skipped (not even a `pass` entry) when absent,
+ *      so existing callers/tests that don't know about the story's duration
+ *      are unaffected.
+ *
  * Verdict: any `fail` → fail (don't render); else any `warn` → warn (render but
  * flag); else pass. Delivery-promise + slideshow checks are pure (fs existence
- * only); the duration check needs one ffprobe per video source, so the gate as
- * a whole is async.
+ * only); the duration checks need ffprobe calls (per video source) or a
+ * caller-supplied narrative duration, so the gate as a whole is async.
  */
 import { existsSync } from "node:fs";
 import type { RemotionEditDecisions } from "./remotion.ts";
@@ -72,6 +89,28 @@ export interface PreComposeGateOptions {
   freezeExtensionFailSeconds?: number;
   /** Frozen-seconds tolerance before a cut counts as mismatched at all (probe/encode rounding). Default 0.2s. */
   freezeToleranceSeconds?: number;
+  /**
+   * The story's planned narrative runtime in seconds — the sum of the
+   * script's section durations, or (preferably, since it's what's actually
+   * synthesized) the narration audio file's probed duration. When omitted,
+   * the `narrative_duration_vs_script` check is skipped entirely (not even
+   * a `pass` entry) — this option only exists to let a caller who has this
+   * number opt in, it doesn't change behavior for callers who don't.
+   */
+  narrativeDurationSeconds?: number;
+  /**
+   * Fraction of `narrativeDurationSeconds` the composed edit's total
+   * duration must reach before this check warns. Default 0.9 (composed
+   * runtime is missing more than 10% of the planned narrative).
+   */
+  narrativeDurationWarnFraction?: number;
+  /**
+   * Fraction of `narrativeDurationSeconds` the composed edit's total
+   * duration must reach before this check hard-fails. Default 0.8 (missing
+   * more than 20% — the optical-hall-detective run was at 47%, a clear fail
+   * under this bar).
+   */
+  narrativeDurationFailFraction?: number;
   /** Injectable ffprobe spawn (tests mock this instead of shelling to real ffprobe). */
   spawnImpl?: SpawnImpl;
 }
@@ -200,6 +239,29 @@ export async function preComposeGate(edit: RemotionEditDecisions, opts: PreCompo
       name: "cut_duration_vs_source",
       status: "pass",
       detail: videoCuts.length > 0 ? `${videoCuts.length} video cut(s) within their source's duration` : "no video cuts to check",
+    });
+  }
+
+  // ── narrative duration vs. script duration (a run can carry every cut
+  //    within its own source and still be far shorter than the story it's
+  //    supposed to tell — see optical-hall-detective, 2026-07-11) ─────────────
+  if (opts.narrativeDurationSeconds !== undefined && opts.narrativeDurationSeconds > 0) {
+    const scriptSeconds = opts.narrativeDurationSeconds;
+    const warnFraction = opts.narrativeDurationWarnFraction ?? 0.9;
+    const failFraction = opts.narrativeDurationFailFraction ?? 0.8;
+    const coverage = lastOut / scriptSeconds;
+    let status: GateCheck["status"] = "pass";
+    if (coverage < failFraction) status = "fail";
+    else if (coverage < warnFraction) status = "warn";
+    checks.push({
+      name: "narrative_duration_vs_script",
+      status,
+      detail: `composed duration=${lastOut.toFixed(2)}s vs. script/narration duration=${scriptSeconds.toFixed(2)}s ` +
+        `(${(coverage * 100).toFixed(0)}% coverage)` +
+        (status === "pass"
+          ? ""
+          : ` — composed video is missing ${((1 - coverage) * 100).toFixed(0)}% of the planned narrative; ` +
+            `either extend per-scene clip/cut durations to match the script's section lengths, or shorten the script`),
     });
   }
 
