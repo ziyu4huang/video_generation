@@ -20,7 +20,7 @@
  * ffmpeg render; the real-silicon smoke is opt-in via `MOTION_SMOKE=1` or the
  * e2e script (`scripts/run-compose-motion-e2e.ts`).
  */
-import { existsSync, mkdirSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { RenderReport, CaptionsOptions } from "./compose.ts";
 import { burnCaptions, planBurn, buildDrawtextFilter, drawtextFilterAvailable, resolveCaptionFont, type CaptionOutcome } from "./captions.ts";
@@ -199,6 +199,23 @@ export async function composeMotion(
     // across the full `-t` window (ken-burns on a still is this runtime's main case).
     // A video source keeps the seek-then-trim shape (`-ss` before `-i`).
     const isImage = !/\.(mp4|mov|webm|avi|mkv|m4v)$/i.test(c.source!);
+    // Defensive duration check (video sources only): `in_seconds`/`out_seconds`
+    // on a video-source cut are ABSOLUTE offsets into that source file — a
+    // caller that copies the still-image convention (relative offsets from an
+    // implicit 0) will pass an `in_seconds` at or past the source's own probed
+    // duration, silently collapsing the trimmed segment toward zero length
+    // (ffmpeg -ss past EOF just yields ~nothing). This bit us once already
+    // (a composed video shrinking from 20s to ~10s with no error) before the
+    // ffprobe-diff that found it; catch it here instead of after the fact.
+    if (!isImage) {
+      const sourceDuration = await probeDuration(c.source!, run);
+      if (sourceDuration > 0 && (c.in_seconds ?? 0) >= sourceDuration - 0.1) {
+        warnings.push(
+          `cut "${c.id}" in_seconds=${c.in_seconds} is at or past source "${c.source}"'s probed duration (${sourceDuration.toFixed(2)}s) — ` +
+          `this trims to ~0s; if the source is itself a per-cut clip, in_seconds should likely be 0`,
+        );
+      }
+    }
     const argv: string[] = ["-y"];
     if (isImage) {
       argv.push("-loop", "1");
@@ -223,7 +240,15 @@ export async function composeMotion(
     return { version: "1.0", outputs: [], warnings, verification_notes: ["compose-motion failed: every cut render failed (or dropped)"] };
   }
 
-  const output = opts.output ?? join(opts.workDir, `compose_motion_${Math.floor(Date.now() / 1000)}.mp4`);
+  // A caller-supplied `opts.output` names the file THEY expect the final
+  // deliverable at. Downstream stages (audio mix, captions) each write their
+  // result to a NEW timestamped path rather than in place, so without the
+  // reconciliation below `opts.output` would keep pointing at the pre-mix
+  // (silent) join file — a real "reviews/publishes the wrong file" footgun a
+  // caller has no way to detect short of diffing report.outputs[0].path
+  // against the path it asked for.
+  const requestedOutput = opts.output;
+  const output = requestedOutput ?? join(opts.workDir, `compose_motion_${Math.floor(Date.now() / 1000)}.mp4`);
 
   // 2. Join segments. Probe each segment's real duration first (xfade offsets are
   //    cumulative and overlap-sensitive, so we trust ffmpeg's reported durations).
@@ -290,6 +315,17 @@ export async function composeMotion(
         warnings.push(`captions pass failed (${burn.detail}); output has no captions`);
       }
     }
+  }
+
+  // 2d. Reconcile onto the caller-requested path (if any): whatever stage ran
+  //     last (join / audio-mix / captions) wrote its result to its OWN
+  //     timestamped path, not `requestedOutput`. Copy it back so a caller that
+  //     trusts the `output` it passed in gets the actual final deliverable,
+  //     not the earlier (possibly silent, possibly caption-less) intermediate
+  //     that happens to still be sitting at that path.
+  if (requestedOutput && finalOutput !== requestedOutput) {
+    copyFileSync(finalOutput, requestedOutput);
+    finalOutput = requestedOutput;
   }
 
   // 3. ffprobe → RenderReport.

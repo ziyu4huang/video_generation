@@ -339,7 +339,11 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
           }
         }
 
-        const { result } = await selectAndGenerate(
+        // `entry` (used for the cost estimate above) is pre-resolved before
+        // generation; selectAndGenerate may substitute a different provider at
+        // runtime (e.g. tts's edge-tts-first-with-fallback-to-say — see
+        // bridge.ts). Report the actually-used entry, not the pre-resolved one.
+        const { entry: usedEntry, result } = await selectAndGenerate(
           capability,
           {
             command: String(opts.command ?? ""),
@@ -361,7 +365,7 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
 
         return {
           ok: true,
-          text: jsonOut({ provider: entry.provider, invoke: entry.invoke, costEntryId: costEntryId ?? null, result }),
+          text: jsonOut({ provider: usedEntry.provider, invoke: usedEntry.invoke, costEntryId: costEntryId ?? null, result }),
         };
       }
       case "compose": {

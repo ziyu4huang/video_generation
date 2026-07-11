@@ -90,7 +90,7 @@ function readExistingIds(outputPath: string): Set<string> {
  * Import hermes MEMORY/USER/failures → jsonl (dedup by id).
  * `hermesDir` and `outputPath` default to cross-platform locations.
  */
-export function importMemory(outputPath: string, hermesDir = resolveHermesDir()): ImportResult {
+export function importMemory(outputPath: string, hermesDir = resolveHermesDir(), dryRun = false): ImportResult {
 	let allEntries: HermesEntry[] = [];
 	for (const meta of FILE_MAP) {
 		const filePath = join(hermesDir, meta.file);
@@ -101,7 +101,7 @@ export function importMemory(outputPath: string, hermesDir = resolveHermesDir())
 	const total = allEntries.length;
 	const existingIds = readExistingIds(outputPath);
 	const newEntries = allEntries.filter((e) => !existingIds.has(e.id));
-	if (newEntries.length > 0) {
+	if (!dryRun && newEntries.length > 0) {
 		const fd = openSync(outputPath, "as");
 		writeSync(fd, "\n" + newEntries.map((e) => JSON.stringify(e)).join("\n") + "\n");
 		closeSync(fd);

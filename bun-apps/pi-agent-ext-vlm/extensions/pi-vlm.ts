@@ -145,6 +145,20 @@ export default function (pi: ExtensionAPI): void {
             "When true, display output paths as relative to cwd. Default false (absolute paths).",
         }),
       ),
+      concurrency: Type.Optional(
+        Type.Number({
+          description:
+            "Max concurrent page extractions (default 1; env PI_VLM_CONCURRENCY). >1 runs pages in parallel but disables cross-page context.",
+        }),
+      ),
+      lang: Type.Optional(
+        Type.String({ description: "Output language for the notes (default zh-TW)." }),
+      ),
+      mode: Type.Optional(
+        Type.String({
+          description: "Processing mode: summary | verbatim | hybrid (default hybrid).",
+        }),
+      ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const { resolve, isAbsolute, basename } = await import("node:path");
@@ -166,6 +180,9 @@ export default function (pi: ExtensionAPI): void {
         pages: params.pages,
         dpi: params.dpi,
         relpath,
+        concurrency: params.concurrency,
+        lang: params.lang,
+        mode: params.mode as any,
       });
 
       const { relative } = await import("node:path");
@@ -178,6 +195,77 @@ export default function (pi: ExtensionAPI): void {
           },
         ],
         details: { input: params.input, out: outRootAbs },
+      };
+    },
+  });
+
+  // ---------------------------------------------------------------------------
+  // vlm_ask — lightweight single-image VLM Q&A (no disk pipeline).
+  // Wraps the flux2-proven askImage() primitive so the agent can interrogate
+  // one image inline without launching the full vlm_describe pipeline.
+  // ---------------------------------------------------------------------------
+  pi.registerTool({
+    name: "vlm_ask",
+    label: "VLM Image Q&A",
+    description:
+      "Ask one question about one image via a local LM Studio VLM and get the answer inline (text). " +
+      "Lightweight single-image query — does NOT run the full vlm_describe pipeline and does NOT write to disk. " +
+      "Use for ad-hoc image questions (verifying content, reading text in an image, picking between candidates).",
+    promptSnippet: "Ask a local VLM one question about an image",
+    parameters: Type.Object({
+      image: Type.String({ description: "Absolute or relative path to an image file" }),
+      question: Type.String({
+        description: "The question or instruction for the VLM about the image",
+      }),
+      systemPrompt: Type.Optional(
+        Type.String({ description: 'Optional system prompt (e.g. "answer in one line")' }),
+      ),
+      model: Type.Optional(
+        Type.String({
+          description:
+            "VLM model in provider/id format. Honors the PI_MODEL env var when omitted.",
+        }),
+      ),
+      provider: Type.Optional(
+        Type.String({
+          description: "Provider name (e.g. lm-studio). Inferred from the model string when omitted.",
+        }),
+      ),
+      thinking: Type.Optional(
+        Type.String({
+          description: "Thinking level: off|minimal|low|medium|high|xhigh",
+        }),
+      ),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const { resolve, isAbsolute } = await import("node:path");
+      const { askImage } = await import("../src/vlm/ask.ts");
+      const { resolveLLM } = await import("../src/sessions.ts");
+
+      const imageAbs = isAbsolute(params.image) ? params.image : resolve(process.cwd(), params.image);
+      const llm = resolveLLM({
+        model: params.model,
+        provider: params.provider,
+        thinking: params.thinking,
+      });
+
+      const r = await askImage(imageAbs, params.question, {
+        systemPrompt: params.systemPrompt,
+        llm,
+      });
+
+      if (!r.ok) {
+        return {
+          isError: true as const,
+          content: [
+            { type: "text" as const, text: `vlm_ask failed: ${r.error}` },
+          ],
+          details: { image: imageAbs, error: r.error },
+        };
+      }
+      return {
+        content: [{ type: "text" as const, text: r.reply }],
+        details: { image: imageAbs, reply: r.reply },
       };
     },
   });

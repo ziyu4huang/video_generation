@@ -14,7 +14,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve, isAbsolute } from "node:path";
 import type { ParsedArgs } from "../args.ts";
 import { applyVaultEnv, resolveLLMFromArgs } from "../sessions/passthrough.ts";
-import { createSharedSession, modelLabel } from "../sessions/shared.ts";
+import { createSharedSession, dryRunExclude, modelLabel } from "../sessions/shared.ts";
 import {
   ADD_TOOLS,
   CHECK_TASK,
@@ -54,12 +54,15 @@ async function runKnowledgeTask(
 
   const { session } = await createSharedSession(llm, {
     tools: effectiveTools,
-    excludeTools: parsed.excludeTools,
+    excludeTools: dryRunExclude(parsed),
     appendSystemPrompt: parsed.appendSystemPrompt,
   });
 
   const mLabel = modelLabel(session, llm);
   console.error(`[zk-card ${label}]  model: ${mLabel}  thinking: ${llm.thinkingLevel}`);
+  if (parsed.dryRun) {
+    console.error("[dry-run] vault writes suppressed — write tools excluded (agent can read + plan only)");
+  }
   console.error();
 
   const printMode = parsed.mode === "json";
