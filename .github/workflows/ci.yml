@@ -99,6 +99,36 @@ jobs:
           CI: "true"
         run: ${{ matrix.test-cmd }}
 
+  # ─────────────────────────────────────────────────────────────────────────
+  # Thrust A supplement — hermes-memory Bun-path spot-check (INFORMATIONAL).
+  # The matrix job above runs hermes-memory via tests/run-all.sh (tsx/Node +
+  # better-sqlite3). But the PRODUCTION runtime under pi is Bun, which uses
+  # bun:sqlite through the BunCompatDatabase shim in src/store/db.ts — a code
+  # path the tsx gate never exercises. This job runs the full suite under
+  # `bun test` on ubuntu-latest so the bun:sqlite path gets CI visibility.
+  #
+  # continue-on-error (v1): the corruption-recovery test (db.test.ts "repairs
+  # recoverable corruption") recovers rows differently under bun:sqlite than
+  # under better-sqlite3 on Linux (see .github/TEST-DETERMINISM.md D3). It
+  # passes on macOS; the Linux divergence is the known gap. Flip to blocking
+  # once reconciled — same rollout discipline as the portability/determinism
+  # audits. better-sqlite3 is now an optionalDependency, so under this pure-Bun
+  # job the Node fallback in loadDatabaseCtor() is never reached and bun:sqlite
+  # is the exercised binding.
+  hermes-memory-bun:
+    name: hermes-memory (bun, informational)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-env
+      - name: bun test (exercises bun:sqlite compat shim)
+        working-directory: bun-apps/pi-agent-ext-hermes-memory
+        env:
+          CI: "true"
+        run: bun test
+
   # ──────────────────────────────────────────────────────────────────────────
   # Thrust B — extension contract as a NAMED, visible check (not buried in the
   # pi-agent test run). The 5 tests gate every manifest extension: factory
