@@ -35,7 +35,7 @@ const SkillOverride = Type.Unsafe({
 		{ type: "boolean" },
 		{ type: "string" },
 	],
-	description: "Skill name(s) to make available (comma-separated), array of strings, or boolean (false disables, true uses default)",
+	description: "Skill(s): string|boolean (false=off, true=default).",
 });
 
 const OutputOverride = Type.Unsafe({
@@ -48,7 +48,7 @@ const OutputOverride = Type.Unsafe({
 
 const OutputModeOverride = Type.String({
 	enum: ["inline", "file-only"],
-	description: "Return saved output inline (default) or only a concise file reference. file-only requires output to be a path.",
+	description: "inline (default) or file-only.",
 });
 
 const ReadsOverride = Type.Unsafe({
@@ -77,7 +77,7 @@ const AcceptanceOverride = Type.Unsafe({
 const TurnBudgetOverride = Type.Object({
 	maxTurns: Type.Integer({ minimum: 1 }),
 	graceTurns: Type.Optional(Type.Integer({ minimum: 0 })),
-}, { additionalProperties: false, description: "Optional assistant-turn budget. At maxTurns the child is asked to wrap up; after graceTurns additional assistant turns it is aborted and partial output is returned." });
+}, { additionalProperties: false, description: "Turn budget {maxTurns,graceTurns?}; aborts after maxTurns+graceTurns." });
 
 const ToolBudgetBlock = Type.Unsafe({
 	anyOf: [
@@ -90,7 +90,7 @@ const ToolBudgetOverride = Type.Object({
 	soft: Type.Optional(Type.Integer({ minimum: 1 })),
 	hard: Type.Integer({ minimum: 1 }),
 	block: Type.Optional(ToolBudgetBlock),
-}, { additionalProperties: false, description: "Optional child tool-call budget. soft nudges the child; after hard, block tools (default read/grep/find/ls, or '*' for all tools) are blocked so the child can finalize." });
+}, { additionalProperties: false, description: "Tool-call budget {soft?,hard,block?}; after hard, tools are blocked." });
 
 const TaskItem = Type.Object({
 	agent: Type.String(), 
@@ -189,18 +189,18 @@ const SubagentParamsSchema = Type.Object({
 	dir: Type.Optional(Type.String({
 		description: "Async run directory for action='status', action='stop', action='resume', or action='steer'."
 	})),
-	index: Type.Optional(Type.Integer({ minimum: 0, description: "Zero-based child index for actions that target a specific child or transcript." })),
+	index: Type.Optional(Type.Integer({ minimum: 0, description: "Child index for targeted actions." })),
 	view: Type.Optional(Type.String({
 		enum: ["fleet", "transcript"],
 		description: "Status view: 'fleet' (active-run overview) or 'transcript' (tail output via id/dir + optional index).",
 	})),
 	lines: Type.Optional(Type.Integer({ minimum: 1, maximum: 500, description: "Maximum transcript lines for action='status', view='transcript'. Defaults to 80." })),
-	message: Type.Optional(Type.String({ description: "Follow-up message for resume, or non-terminal guidance for steer. Use index to target a specific child." })),
-	scope: Type.Optional(Type.String({ enum: ["session", "user", "project"], description: "watchdog.configure scope. Defaults to session to avoid persistent settings writes." })),
-	target: Type.Optional(Type.String({ enum: ["main", "children", "child"], description: "watchdog.configure target. Defaults to main; use 'child' with agent for per-agent overrides." })),
-	thinking: Type.Optional(Type.Unsafe({ anyOf: [{ type: "string" }, { type: "boolean", enum: [false] }], description: "Thinking level for action='watchdog.configure' (off/minimal/low/medium/high/xhigh, inherit, or false for off)." })),
-	schedule: Type.Optional(Type.String({ description: "One-shot schedule for action='schedule' (requires scheduledRuns.enabled). Use '+10m' or a future ISO timestamp; runs launch async with fresh context." })),
-	scheduleName: Type.Optional(Type.String({ description: "Optional display name for action='schedule'." })),
+	message: Type.Optional(Type.String({ description: "Resume/steer message (index for a child)." })),
+	scope: Type.Optional(Type.String({ enum: ["session", "user", "project"], description: "watchdog.configure scope (default session)." })),
+	target: Type.Optional(Type.String({ enum: ["main", "children", "child"], description: "watchdog target: main|children|child." })),
+	thinking: Type.Optional(Type.Unsafe({ anyOf: [{ type: "string" }, { type: "boolean", enum: [false] }], description: "watchdog.configure thinking level." })),
+	schedule: Type.Optional(Type.String({ description: "action='schedule': '+10m' or ISO timestamp; async+fresh context." })),
+	scheduleName: Type.Optional(Type.String({ description: "Display name for action='schedule'." })),
 	// Chain identifier for management (can't reuse 'chain' — that's the execution array)
 	chainName: Type.Optional(Type.String({
 		description: "Chain name for get/update/delete management actions"
@@ -211,33 +211,33 @@ const SubagentParamsSchema = Type.Object({
 			{ type: "object", additionalProperties: true },
 			{ type: "string" },
 		],
-		description: "Agent/chain config for create/update. Object or JSON string; presence of steps creates a chain."
+		description: "create/update config; steps => chain."
 	})),
-	tasks: Type.Optional(Type.Array(TaskItem, { description: "PARALLEL mode: [{agent, task, count?, output?, outputMode?, reads?, progress?}, ...]" })),
+	tasks: Type.Optional(Type.Array(TaskItem, { description: "PARALLEL tasks [{agent,task,count?,...}]." })),
 	concurrency: Type.Optional(Type.Integer({ minimum: 1, description: "Top-level PARALLEL mode only: max concurrent tasks. Defaults to config.parallel.concurrency or 4." })),
 	worktree: Type.Optional(Type.Boolean({
-		description: "Create isolated git worktrees for parallel tasks; requires clean git state."
+		description: "Git worktrees per parallel task."
 	})),
-	chain: Type.Optional(Type.Array(ChainItem, { description: "CHAIN mode: sequential steps; each result becomes {previous}. append-step may use {chain_dir}/{outputs.name}." })),
+	chain: Type.Optional(Type.Array(ChainItem, { description: "CHAIN mode: sequential steps; each becomes {previous}." })),
 	context: Type.Optional(Type.String({
 		enum: ["fresh", "fork"],
 		description: "'fresh' or 'fork'. Explicit value overrides every child; if omitted, each agent uses its own defaultContext (agents without one run fresh).",
 	})),
-	chainDir: Type.Optional(Type.String({ description: "Persistent chain artifact directory; defaults to user-scoped temp storage." })),
+	chainDir: Type.Optional(Type.String({ description: "Chain artifact dir." })),
 	async: Type.Optional(Type.Boolean({ description: "Run in background (default: false, or per config)" })),
 	timeoutMs: Type.Optional(Type.Integer({ minimum: 1, description: "Run-level timeout in ms for foreground and async/background runs." })),
 	turnBudget: Type.Optional(TurnBudgetOverride),
 	toolBudget: Type.Optional(ToolBudgetOverride),
-	agentScope: Type.Optional(Type.String({ description: "Agent discovery scope: 'user', 'project', or 'both' (default: 'both'; project wins on name collisions)" })),
+	agentScope: Type.Optional(Type.String({ description: "Discovery scope: user|project|both (default both)." })),
 	cwd: Type.Optional(Type.String()),
 	artifacts: Type.Optional(Type.Boolean({ description: "Write debug artifacts (default: true)" })),
 	includeProgress: Type.Optional(Type.Boolean({ description: "Include full progress in result (default: false)" })),
 	share: Type.Optional(Type.Boolean({ description: "Upload session to GitHub Gist for sharing (default: false)" })),
 	sessionDir: Type.Optional(
-		Type.String({ description: "Directory to store session logs (default: temp; enables sessions even if share=false)" }),
+		Type.String({ description: "Session log dir (default temp)." }),
 	),
 	// Clarification TUI
-	clarify: Type.Optional(Type.Boolean({ description: "Show TUI to preview/edit before execution. clarify:true keeps the run foreground; omitted clarify can still run in background with async:true." })),
+	clarify: Type.Optional(Type.Boolean({ description: "Preview/edit TUI before run; keeps foreground." })),
 	control: Type.Optional(ControlOverrides),
 	// Solo agent overrides
 	output: Type.Optional(Type.Unsafe({
@@ -245,11 +245,11 @@ const SubagentParamsSchema = Type.Object({
 			{ type: "string" },
 			{ type: "boolean" },
 		],
-		description: "Output file for single agent (string), or false to disable. Relative paths resolve against cwd.",
+		description: "Output file (string) or false to disable; relative to cwd.",
 	})),
 	outputMode: Type.Optional(OutputModeOverride),
 	skill: Type.Optional(SkillOverride),
-	model: Type.Optional(Type.String({ description: "Override model for single agent (e.g. 'anthropic/claude-sonnet-4')" })),
+	model: Type.Optional(Type.String({ description: "Override model id." })),
 	acceptance: Type.Optional(AcceptanceOverride),
 });
 
