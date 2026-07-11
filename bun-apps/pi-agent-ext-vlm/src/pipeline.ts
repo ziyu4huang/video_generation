@@ -48,6 +48,10 @@ export interface VlmDescribePipelineOpts {
   dpi?: number;
   /** When true, display paths as relative to cwd instead of absolute. Default false (abs). */
   relpath?: boolean;
+  /** Max concurrent page extractions (default 1; env PI_VLM_CONCURRENCY).
+   *  >1 runs pages in parallel but DISABLES cross-page context (S1), which
+   *  requires strict page order. Speed mode for remote / multi-slot providers. */
+  concurrency?: number;
   /** Optional NDJSON emitter (json mode). */
   emit?: (obj: unknown) => void;
 }
@@ -69,6 +73,19 @@ function parsePageSpec(spec: string, total: number): Set<number> {
     }
   }
   return out;
+}
+
+/** Run `fn` over `items` with at most `limit` concurrent invocations (T2). */
+export async function runPool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  if (limit < 1) limit = 1;
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < items.length) {
+      const idx = cursor++;
+      await fn(items[idx]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
 }
 
 interface PreparedDoc {
@@ -172,6 +189,8 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
     relpath = false,
   } = opts;
 
+  const concurrency = opts.concurrency ?? Number(process.env.PI_VLM_CONCURRENCY ?? 1);
+
   if (inputs.length === 0) {
     throw new Error("No input files given.");
   }
@@ -201,6 +220,7 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
   console.error(`  dpi:   ${dpi}`);
   if (pages) console.error(`  pages: ${pages}`);
   if (forcedType) console.error(`  type:  ${forcedType} (forced, skip classifier)`);
+  if (concurrency > 1) console.error(`  concurrency: ${concurrency} (cross-page context off)`);
   console.error();
 
   for (const input of inputs) {
@@ -263,18 +283,26 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
       );
     }
 
+    // S1 — rolling cross-page context (serial mode only; see concurrency note).
     const pageContext = new PageContext();
-    for (let i = 0; i < doc.pageCount; i++) {
-      const pageNo = i + 1;
-      if (only && !only.has(pageNo)) continue;
+
+    // Extract ONE page's extraction into a closure shared by serial + parallel
+    // modes. Returns {ok, markdown} so the serial coordinator can feed the
+    // rolling context. writeManifest is synchronous, so concurrent calls are
+    // safe under the single-threaded event loop (no mutex needed).
+    const runPage = async (
+      pageNo: number,
+      priorContext: string | undefined,
+    ): Promise<{ ok: boolean; markdown: string }> => {
+      const i = pageNo - 1;
       const mp = manifest.pages[i]!;
-      if (mp.status === "done" && existsSync(doc.layout.mdAbs(pageNo))) continue;
+      if (mp.status === "done" && existsSync(doc.layout.mdAbs(pageNo))) {
+        return { ok: true, markdown: "" };
+      }
 
       const pngAbs = doc.pagePngs[i]!;
       const pngLinkName = basename(pngAbs);
       const mt = imageMimeType({ kind: doc.kind, path: inputAbs });
-      // S1 — cross-page context from all prior pages (undefined on page 1).
-      const priorContext = formatContext(pageContext.snapshot());
 
       mp.status = "in_progress";
       writeManifest(doc.layout, manifest);
@@ -295,9 +323,7 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
               priorContext,
             });
             if (!r.ok) throw new Error(r.error ?? "unknown error");
-            // S2 — output quality gate: only hand back pages that pass
-            // structural validation. A gate failure is retryable (a stochastic
-            // VLM may produce valid output on a later attempt).
+            // S2 — output quality gate; gate failure is retryable.
             const validation = validatePageMarkdown(r.markdown, { page: pageNo, kind: profile });
             if (!validation.ok) throw retryableError(`gate: ${validation.reason}`);
             return r;
@@ -318,8 +344,6 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
 
       if (res.ok && res.markdown) {
         writeFileSync(doc.layout.mdAbs(pageNo), res.markdown + "\n", "utf8");
-        // S1 — fold this page into the rolling context for the next page.
-        pageContext.feed(res.markdown);
         mp.status = "done" as PageStatus;
         delete mp.error;
         console.error(`  [${pageNo}/${doc.pageCount}] done (${dt}s, ${res.markdown.length} chars)`);
@@ -331,6 +355,30 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
         emit?.({ type: "page", slug: doc.slug, page: pageNo, status: "error", error: mp.error });
       }
       writeManifest(doc.layout, manifest);
+      return { ok: !!(res.ok && res.markdown), markdown: res.markdown ?? "" };
+    };
+
+    if (concurrency <= 1) {
+      // Serial: full S1 cross-page context (page N sees pages 1..N-1).
+      for (let i = 0; i < doc.pageCount; i++) {
+        const pageNo = i + 1;
+        if (only && !only.has(pageNo)) continue;
+        const priorContext = formatContext(pageContext.snapshot());
+        const r = await runPage(pageNo, priorContext);
+        if (r.ok && r.markdown) pageContext.feed(r.markdown);
+      }
+    } else {
+      // Parallel (T2): bounded pool. Cross-page context is disabled — S1's
+      // rolling context needs strict page order, incompatible with parallelism.
+      // Pages run independently (speed mode for remote / multi-slot providers;
+      // local LM Studio typically single-slots, hence default concurrency 1).
+      const pageNos: number[] = [];
+      for (let i = 0; i < doc.pageCount; i++) {
+        const p = i + 1;
+        if (only && !only.has(p)) continue;
+        pageNos.push(p);
+      }
+      await runPool(pageNos, concurrency, (pageNo) => runPage(pageNo, undefined));
     }
 
     writeIndexNote(doc.layout, manifest, profile, cwd);

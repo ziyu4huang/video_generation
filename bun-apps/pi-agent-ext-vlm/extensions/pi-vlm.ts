@@ -145,6 +145,12 @@ export default function (pi: ExtensionAPI): void {
             "When true, display output paths as relative to cwd. Default false (absolute paths).",
         }),
       ),
+      concurrency: Type.Optional(
+        Type.Number({
+          description:
+            "Max concurrent page extractions (default 1; env PI_VLM_CONCURRENCY). >1 runs pages in parallel but disables cross-page context.",
+        }),
+      ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const { resolve, isAbsolute, basename } = await import("node:path");
@@ -166,6 +172,7 @@ export default function (pi: ExtensionAPI): void {
         pages: params.pages,
         dpi: params.dpi,
         relpath,
+        concurrency: params.concurrency,
       });
 
       const { relative } = await import("node:path");

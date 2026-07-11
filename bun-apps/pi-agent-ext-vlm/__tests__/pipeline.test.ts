@@ -295,6 +295,45 @@ describe("runVlmDescribePipeline — page spec", () => {
   });
 });
 
+describe("runVlmDescribePipeline — parallel pages (T2)", () => {
+  test("concurrency>1 processes all pages with a consistent manifest", async () => {
+    rasterizePageCount = 3;
+    const { inputAbs, outRoot } = await setup("doc.pdf", PDF_MAGIC);
+    await runVlmDescribePipeline({
+      inputs: [inputAbs],
+      outRoot,
+      forcedType: "paper",
+      concurrency: 3,
+    });
+
+    const manifest = await readJsonFile(join(outRoot, "doc", "manifest.json"));
+    expect(manifest.pages.map((p: any) => p.status)).toEqual(["done", "done", "done"]);
+    for (const p of [1, 2, 3]) {
+      expect(existsSync(join(outRoot, "doc", "pages", `page-${String(p).padStart(3, "0")}.md`))).toBe(true);
+    }
+  });
+
+  test("parallel mode is resumable (done pages skipped on re-run)", async () => {
+    rasterizePageCount = 2;
+    const { inputAbs, outRoot } = await setup("doc.pdf", PDF_MAGIC);
+    await runVlmDescribePipeline({
+      inputs: [inputAbs],
+      outRoot,
+      forcedType: "paper",
+      concurrency: 2,
+    });
+    const sessionsAfterFirst = sessionCalls.length;
+    await runVlmDescribePipeline({
+      inputs: [inputAbs],
+      outRoot,
+      forcedType: "paper",
+      concurrency: 2,
+    });
+    // No new model sessions on re-run (classifier reused, pages done).
+    expect(sessionCalls.length).toBe(sessionsAfterFirst);
+  });
+});
+
 describe("runVlmDescribePipeline — emit", () => {
   test("emit fires classify → page → doc_done events", async () => {
     const { inputAbs, outRoot } = await setup("doc.png", PNG_MAGIC);
