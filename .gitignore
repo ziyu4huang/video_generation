@@ -92,6 +92,3 @@ task_plan.md
 progress.md
 findings.md
 .planning/
-
-# Stray root-level TTS smoke-test output — scratch, never source.
-/tts_edge.mp3
