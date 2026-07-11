@@ -15,6 +15,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { CLOSE_MARKER_COMMENT } from "../src/constants.js";
+
 mock.module("@earendil-works/pi-coding-agent", () => ({
   isToolCallEventType: (type: string, event: { toolName: string }) => event.toolName === type,
 }));
@@ -61,6 +63,12 @@ function completePlan(): string {
   return ["# Test plan", "", "### Phase 1", "**Status:** complete", "", "### Phase 2", "**Status:** complete", ""].join(
     "\n",
   );
+}
+
+function closedPlan(): string {
+  // A plan finished/abandoned via /plan-done carries the close marker; the
+  // runtime treats it as fully inert (no injection / nag / auto-continue).
+  return `${incompletePlan()}\n${CLOSE_MARKER_COMMENT}\n`;
 }
 
 function makeWorkspace(planContent = incompletePlan()): string {
@@ -508,5 +516,197 @@ describe("auto-approve (PWF_AUTO_APPROVE)", () => {
     const result = await emit(pi, "before_agent_start", {}, ctx);
 
     expect(result?.message?.content).toContain("[planning-with-files] ACTIVE PLAN");
+  });
+});
+
+// ─── GAP-A: Plan A coordination (runtime yield) ────────────────────────────
+// The unit suite (coordination.test.ts) only tests isGoalActive() as a pure fn.
+// These verify the FACTORY publishes the globalThis seams and that an active
+// /goal makes before_agent_start / agent_end / session_before_compact YIELD —
+// the mutual-exclusion contract the provider-gated e2e checks across processes.
+describe("Plan A coordination (runtime yield)", () => {
+  const GOAL_KEY = "__piGoalActive";
+  const PLAN_INCOMPLETE_KEY = "__piPlanIncomplete";
+  const PLAN_SUMMARY_KEY = "__piPlanSummary";
+  const g = globalThis as Record<string, unknown>;
+  let savedGoal: unknown;
+  let savedIncomplete: unknown;
+  let savedSummary: unknown;
+
+  beforeEach(() => {
+    savedGoal = g[GOAL_KEY];
+    savedIncomplete = g[PLAN_INCOMPLETE_KEY];
+    savedSummary = g[PLAN_SUMMARY_KEY];
+    delete g[GOAL_KEY]; // planning-with-files never publishes this; only /goal does.
+  });
+
+  afterEach(() => {
+    if (savedGoal === undefined) delete g[GOAL_KEY];
+    else g[GOAL_KEY] = savedGoal;
+    if (savedIncomplete === undefined) delete g[PLAN_INCOMPLETE_KEY];
+    else g[PLAN_INCOMPLETE_KEY] = savedIncomplete;
+    if (savedSummary === undefined) delete g[PLAN_SUMMARY_KEY];
+    else g[PLAN_SUMMARY_KEY] = savedSummary;
+  });
+
+  it("factory publishes __piPlanIncomplete and __piPlanSummary as functions on globalThis", () => {
+    delete g[PLAN_INCOMPLETE_KEY];
+    delete g[PLAN_SUMMARY_KEY];
+    loadExtension();
+    expect(typeof g[PLAN_INCOMPLETE_KEY]).toBe("function");
+    expect(typeof g[PLAN_SUMMARY_KEY]).toBe("function");
+  });
+
+  it("before_agent_start YIELDS (no injection) when /goal is active", async () => {
+    const cwd = makeWorkspace();
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+    g[GOAL_KEY] = () => true;
+
+    await approvePlan(pi, ctx);
+    const result = await emit(pi, "before_agent_start", {}, ctx);
+
+    expect(result).toBeUndefined();
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith(
+      "planning-with-files",
+      expect.stringContaining("/goal driving, injection yielded"),
+    );
+  });
+
+  it("agent_end YIELDS auto-continue when /goal is active (no followUp)", async () => {
+    const cwd = makeWorkspace();
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+    g[GOAL_KEY] = () => true;
+
+    await approvePlan(pi, ctx);
+    await emit(pi, "agent_end", {}, ctx);
+
+    expect(pi.sendUserMessage).not.toHaveBeenCalled();
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith(
+      "planning-with-files",
+      expect.stringContaining("/goal driving, auto-continue yielded"),
+    );
+  });
+
+  it("session_before_compact YIELDS the parity nextTurn injection when /goal is active", async () => {
+    const cwd = makeWorkspace();
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+    g[GOAL_KEY] = () => true;
+
+    await approvePlan(pi, ctx);
+    await emit(pi, "session_before_compact", {}, ctx);
+
+    // The flush notify may still fire; the model-facing nextTurn injection must not.
+    expect(pi.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("injection RESUMES once /goal goes inactive (yield is conditional, not a hard break)", async () => {
+    const cwd = makeWorkspace();
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+    g[GOAL_KEY] = () => true;
+
+    await approvePlan(pi, ctx);
+    const yielded = await emit(pi, "before_agent_start", {}, ctx);
+    expect(yielded).toBeUndefined();
+
+    delete g[GOAL_KEY];
+    const resumed = await emit(pi, "before_agent_start", {}, ctx);
+    expect(resumed.message.content).toContain("[planning-with-files] ACTIVE PLAN");
+  });
+});
+
+// ─── GAP-B: closed-plan (/plan-done) inertness ─────────────────────────────
+// Every handler has a status.closed guard; none were exercised at runtime.
+// (This is the exact contract whose violation made the plan-loop tick forever
+// on a closed plan — fixed in 17f93dce. These guard the regression.)
+describe("closed-plan inertness (/plan-done)", () => {
+  it("before_agent_start is inert on a closed plan even when approved", async () => {
+    const cwd = makeWorkspace(closedPlan());
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+
+    await approvePlan(pi, ctx);
+    const result = await emit(pi, "before_agent_start", {}, ctx);
+
+    expect(result).toBeUndefined();
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith(
+      "planning-with-files",
+      "Plan closed (via /plan-done) — hooks inactive",
+    );
+  });
+
+  it("agent_end is inert on a closed plan (no followUp, resets auto-continue)", async () => {
+    const cwd = makeWorkspace(closedPlan());
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+
+    await approvePlan(pi, ctx);
+    await emit(pi, "agent_end", {}, ctx);
+
+    expect(pi.sendUserMessage).not.toHaveBeenCalled();
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith(
+      "planning-with-files",
+      "Plan closed (via /plan-done) — hooks inactive",
+    );
+  });
+
+  it("tool_call is inert on a closed plan (no pre-tool recitation)", async () => {
+    const cwd = makeWorkspace(closedPlan());
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+
+    await approvePlan(pi, ctx);
+    await emit(pi, "tool_call", { toolName: "write", input: {} }, ctx);
+
+    expect(pi.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("session_before_compact is inert on a closed plan (no nextTurn injection)", async () => {
+    const cwd = makeWorkspace(closedPlan());
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+
+    await approvePlan(pi, ctx);
+    await emit(pi, "session_before_compact", {}, ctx);
+
+    expect(pi.sendMessage).not.toHaveBeenCalled();
+  });
+});
+
+// ─── GAP-C: agent_end positive auto-continue (happy path + limit) ──────────
+// The existing suite only asserts sendUserMessage was NOT called (negative
+// cases). These cover the approved + incomplete + no-goal happy path and the
+// AUTO_CONTINUE_LIMIT (3) cap.
+describe("agent_end auto-continue (approved, incomplete, no goal)", () => {
+  it("emits a followUp via sendUserMessage on the happy path", async () => {
+    const cwd = makeWorkspace(); // incomplete plan (1/2 phases)
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+
+    await approvePlan(pi, ctx);
+    await emit(pi, "agent_end", {}, ctx);
+
+    expect(pi.sendUserMessage).toHaveBeenCalledTimes(1);
+    const [message, options] = pi.sendUserMessage.mock.calls[0];
+    expect(message).toContain("Task incomplete (1/2 phases done)");
+    expect(message).toContain("continue remaining phases");
+    expect(options).toEqual({ deliverAs: "followUp" });
+  });
+
+  it("caps auto-continue at AUTO_CONTINUE_LIMIT (3), then warns on the 4th", async () => {
+    const cwd = makeWorkspace();
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+
+    await approvePlan(pi, ctx);
+    for (let i = 0; i < 4; i++) {
+      await emit(pi, "agent_end", {}, ctx);
+    }
+
+    expect(pi.sendUserMessage).toHaveBeenCalledTimes(3);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("Auto-continue limit reached"), "warning");
   });
 });
