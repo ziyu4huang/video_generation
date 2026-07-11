@@ -34,8 +34,11 @@ import { resolveLLM, type ResolvedLLM } from "./sessions.ts";
 
 export const DEFAULT_VLM_MODEL = "lm-studio/google/gemma-4-26b-a4b-qat";
 
-const DEFAULT_RETRIES = Number(process.env.PI_VLM_RETRIES ?? 3);
-const DEFAULT_RETRY_WAIT_MS = Number(process.env.PI_VLM_RETRY_WAIT_MS ?? 10_000);
+// Read lazily at call time (not module load) so tests / callers can set the env
+// vars any time before the pipeline runs — evaluating at load froze the values
+// whenever another importer preloaded this module first.
+const defaultRetries = () => Number(process.env.PI_VLM_RETRIES ?? 3);
+const defaultRetryWaitMs = () => Number(process.env.PI_VLM_RETRY_WAIT_MS ?? 10_000);
 
 export interface VlmDescribePipelineOpts {
   inputs: string[];
@@ -343,8 +346,8 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
             return r;
           },
           {
-            maxRetries: DEFAULT_RETRIES,
-            retryWaitMs: DEFAULT_RETRY_WAIT_MS,
+            maxRetries: defaultRetries(),
+            retryWaitMs: defaultRetryWaitMs(),
             onRetry: ({ attempt, maxRetries: mx, waitMs: w }) =>
               console.error(
                 `  [${pageNo}/${doc.pageCount}] 429/transient — 等待 ${Math.round(w / 1000)}s 後重試 (${attempt}/${mx})`,

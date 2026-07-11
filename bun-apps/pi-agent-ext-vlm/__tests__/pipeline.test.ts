@@ -89,7 +89,8 @@ mock.module(`${ROOT}/src/session-factory.ts`, () => ({
 }));
 
 // Keep retries fast + bounded for the page-quality-gate retry test below.
-// (These are read at module load of pipeline.ts, so set them before the import.)
+// (pipeline.ts reads these lazily at call time, so they apply whenever the
+// pipeline runs — not just at module load.)
 process.env.PI_VLM_RETRIES = "1";
 process.env.PI_VLM_RETRY_WAIT_MS = "0";
 
