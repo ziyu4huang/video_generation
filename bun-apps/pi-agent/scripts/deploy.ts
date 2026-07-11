@@ -314,7 +314,7 @@ if (VERIFY) {
     // NOT render in -p mode, so an output scan can't catch it — the tool
     // registry is the only signal. Update this set if an extension is
     // added/removed/renamed.
-    const CANARY = ["vlm_describe","web_search","flux2","obsidian_read","memory","ltx","krea2","subagent"];
+    const CANARY = ["vlm_describe","web_search","flux2","obsidian","memory","ltx","krea2","subagent"];
     const missingCanaries = CANARY.filter((c) => !names.includes(c));
     const ok = names.length > 0 && dupes.length === 0 && missingCanaries.length === 0;
     // console.log flushes synchronously in Bun; process.exit() would skip the flush.
