@@ -90,8 +90,102 @@ SAFETY:
 • Ordinary child subagents are not orchestrators and must not run subagents. Only explicit fanout children may use child-safe subagent, still bounded by depth/session limits.
 • Keep one writer per cwd/worktree. Use fresh read-only review/validation fanout, then synthesize and apply fixes from the parent unless isolated worktrees were intentionally requested.`;
 
+/**
+ * Terse always-on routing surface (the new default). Keeps the mode/action
+ * VALUE lists the model needs to route, the core safety constraints, and a
+ * pointer to the subagent_help tool for the full reference. Single-sourced
+ * against FULL_SUBAGENT_TOOL_DESCRIPTION via buildSubagentHelpText() so the
+ * two surfaces cannot drift.
+ */
+export const MINIMAL_SUBAGENT_TOOL_DESCRIPTION = `Delegate to subagents or manage definitions. Use exactly one mode per call. Call subagent_help (no args) for the full reference (modes, template variables, examples, per-field semantics, safety).
+
+EXECUTE (omit action): call { action: "list" } first; run only executable/non-disabled agents.
+• SINGLE {agent, task?}  • PARALLEL {tasks:[{agent,task,count?,output?,reads?,progress?}], concurrency?, worktree?}  • CHAIN {chain:[{agent,task?},{parallel:[...]}]}
+
+MANAGE (action): list · get · models · create · update · delete · eject · disable · enable · reset · doctor · watchdog.status · watchdog.check · watchdog.recommend-model · watchdog.configure
+
+CONTROL (action): status (view:"fleet"|"transcript", index?, lines?) · interrupt · stop · resume · steer · append-step. Target runs by id/dir (+index for a specific child).
+
+SCHEDULE (action, opt-in; requires scheduledRuns.enabled): schedule · schedule-list · schedule-status · schedule-cancel
+
+async:true detaches to background; use the wait tool to block only when this turn must not end (do not sleep/poll). Status/artifacts live under asyncId/asyncDir (status.json, events.jsonl, output logs).
+
+SAFETY: ordinary child subagents must not run subagents; keep one writer per cwd/worktree (use fresh read-only reviewers, then the parent applies fixes).`;
+
+/**
+ * Lazy-loaded per-parameter reference, served by the subagent_help tool. Holds
+ * the verbose semantics that the minimal/compact inline descriptions defer.
+ * Composed after FULL_SUBAGENT_TOOL_DESCRIPTION by buildSubagentHelpText().
+ */
+export const FULL_SUBAGENT_PARAM_REFERENCE = `PARAMETER REFERENCE (subagent tool)
+
+Execution:
+• agent — Agent name (SINGLE mode) or management target (get/update/delete/eject/disable/enable/reset).
+• task — Task prompt (SINGLE mode; optional for self-contained agents).
+• tasks — PARALLEL mode array: [{agent, task, count?, output?, outputMode?, reads?, progress?, model?, skill?, toolBudget?, acceptance?}].
+• chain — CHAIN mode: sequential steps; each result becomes {previous}. append-step may reference {chain_dir}/{outputs.name}.
+• concurrency — Top-level PARALLEL max concurrent tasks (default: config.parallel.concurrency or 4).
+• worktree — Create isolated git worktrees for parallel tasks; requires clean git state.
+• context — "fresh" (default behavior) or "fork" (inherit parent context). Explicit value overrides every child; omitted uses each agent's defaultContext.
+• chainDir — Persistent chain artifact directory; defaults to user-scoped temp storage.
+
+Solo-agent overrides (SINGLE/PARALLEL-item/CHAIN-step):
+• model — Override model, e.g. "anthropic/claude-sonnet-4" or "provider/id[:thinking]".
+• skill — Skill(s) to make available: string (comma-separated), string[], or boolean (false disables, true uses default).
+• output — Output file/path (string), or false to disable. Relative paths resolve against cwd.
+• outputMode — "inline" (return saved output, default) or "file-only" (concise file ref; requires output path).
+• reads — Files to read before running (string[]), or false to disable.
+• progress — Enable progress.md tracking for the task/step.
+• acceptance — Acceptance policy: "auto"|"none"|"attested"|"checked"|"verified"|"reviewed", false, or an object. Omitted = auto-inferred; verified requires configured runtime commands.
+
+Budgets:
+• timeoutMs — Run-level max runtime in ms for foreground AND async/background runs.
+• turnBudget — {maxTurns, graceTurns?}: at maxTurns the child wraps up; after graceTurns extra turns it is aborted with partial output.
+• toolBudget — {soft?, hard, block?}: soft nudges; after hard, block tools (default read/grep/find/ls, or "*" for all) are blocked so the child finalizes.
+
+Management/config:
+• action — Management/control action only; MUST be omitted for execution mode (single, parallel, or chain).
+• config — Agent/chain config for create/update: object or JSON string; presence of steps creates a chain.
+• chainName — Chain name for get/update/delete management actions.
+• agentScope — Agent discovery scope: "user", "project", or "both" (default both; project wins on name collisions).
+• scope — watchdog.configure scope: "session" (default, avoids persistent writes), "user", or "project".
+• target — watchdog.configure target: "main" (default), "children", or "child" (use with agent for per-agent overrides).
+• thinking — watchdog.configure thinking level: off|minimal|low|medium|high|xhigh, "inherit", or false.
+
+Control / async:
+• id — Run id or prefix for status/interrupt/stop/resume/steer/append-step.
+• dir — Async run directory for status/stop/resume/steer.
+• index — Zero-based child index for actions targeting a specific child or transcript.
+• view — status view: "fleet" (active-run overview) or "transcript" (tail output via id/dir + optional index).
+• lines — Max transcript lines for status+transcript (default 80).
+• message — Follow-up message for resume, or non-terminal guidance for steer.
+• async — Run in background (default false, or per config asyncByDefault).
+• control — {enabled?, needsAttentionAfterMs?, activeNoticeAfterMs?, activeNoticeAfterTurns?, activeNoticeAfterTokens?, failedToolAttemptsBeforeAttention?, notifyOn?, notifyChannels?}: opt-in attention tracking thresholds/channels.
+
+Schedule:
+• schedule — One-shot schedule for action="schedule": "+10m" or a future ISO timestamp; runs launch async with fresh context.
+• scheduleName — Optional display name for a scheduled run.
+
+Misc:
+• clarify — Show TUI to preview/edit before execution; clarify:true keeps the run foreground.
+• artifacts — Write debug artifacts (default true).
+• includeProgress — Include full progress in result (default false).
+• share — Upload session to GitHub Gist for sharing (default false).
+• sessionDir — Directory for session logs (default temp; enables sessions even if share=false).
+• cwd — Working directory for the run.`;
+
+/**
+ * Single-source full reference builder, served verbatim by the subagent_help
+ * tool. Composes the canonical full description + the per-parameter reference
+ * appendix so the lazy-loaded surface is complete and cannot drift from the
+ * always-on surfaces (which are compressed subsets of the same semantics).
+ */
+export function buildSubagentHelpText(): string {
+	return `${FULL_SUBAGENT_TOOL_DESCRIPTION}\n\n---\n\n${FULL_SUBAGENT_PARAM_REFERENCE}`;
+}
+
 function isToolDescriptionMode(value: unknown): value is ToolDescriptionMode {
-	return value === "full" || value === "compact" || value === "custom";
+	return value === "minimal" || value === "full" || value === "compact" || value === "custom";
 }
 
 function warn(options: ToolDescriptionOptions | undefined, message: string): void {
@@ -106,9 +200,9 @@ export interface ToolDescriptionOptions {
 
 export function resolveToolDescriptionMode(config: Pick<ExtensionConfig, "toolDescriptionMode">, options?: ToolDescriptionOptions): ToolDescriptionMode {
 	const mode = config.toolDescriptionMode;
-	if (mode === undefined) return "full";
+	if (mode === undefined) return "minimal";
 	if (isToolDescriptionMode(mode)) return mode;
-	warn(options, `Ignoring invalid toolDescriptionMode ${JSON.stringify(mode)}; expected "full", "compact", or "custom".`);
+	warn(options, `Ignoring invalid toolDescriptionMode ${JSON.stringify(mode)}; expected "minimal", "full", "compact", or "custom".`);
 	return "full";
 }
 
@@ -128,6 +222,8 @@ function renderCustomTemplate(template: string, options?: ToolDescriptionOptions
 	const variables: Record<string, () => string> = {
 		fullDescription: () => FULL_SUBAGENT_TOOL_DESCRIPTION,
 		full: () => FULL_SUBAGENT_TOOL_DESCRIPTION,
+		minimalDescription: () => MINIMAL_SUBAGENT_TOOL_DESCRIPTION,
+		minimal: () => MINIMAL_SUBAGENT_TOOL_DESCRIPTION,
 		compactDescription: () => COMPACT_SUBAGENT_TOOL_DESCRIPTION,
 		compact: () => COMPACT_SUBAGENT_TOOL_DESCRIPTION,
 		safetyGuidance: () => SUBAGENT_SAFETY_GUIDANCE,
@@ -193,6 +289,7 @@ function withMandatorySafetyGuidance(description: string): string {
 
 export function buildSubagentToolDescription(config: Pick<ExtensionConfig, "toolDescriptionMode"> = {}, options?: ToolDescriptionOptions): string {
 	const mode = resolveToolDescriptionMode(config, options);
+	if (mode === "minimal") return MINIMAL_SUBAGENT_TOOL_DESCRIPTION;
 	if (mode === "compact") return COMPACT_SUBAGENT_TOOL_DESCRIPTION;
 	if (mode === "custom") {
 		const custom = loadCustomToolDescription(options);

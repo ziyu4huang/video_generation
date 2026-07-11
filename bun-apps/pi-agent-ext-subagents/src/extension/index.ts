@@ -42,7 +42,7 @@ import registerSubagentNotify, { type SubagentNotifyDetails } from "../runs/back
 import { SUBAGENT_CHILD_ENV, SUBAGENT_PARENT_SESSION_ENV } from "../runs/shared/pi-args.ts";
 import { formatDuration, shortenPath } from "../shared/formatters.ts";
 import { loadConfig } from "./config.ts";
-import { buildSubagentToolDescription } from "./tool-description.ts";
+import { buildSubagentToolDescription, buildSubagentHelpText } from "./tool-description.ts";
 import {
 	type Details,
 	type SubagentState,
@@ -532,6 +532,20 @@ wait also returns when a run needs attention (a child that went idle or blocked 
 		},
 	};
 	pi.registerTool(waitTool);
+
+	const subagentHelpTool: ToolDefinition = {
+		name: "subagent_help",
+		label: "Subagent Help",
+		promptSnippet: "On-demand reference for the subagent tool (modes, actions, template vars, per-field semantics, safety)",
+		description: "On-demand reference for the subagent tool. Returns the full mode/action reference, chain template variables, per-parameter semantics, and safety guidance. Call before first use or whenever unsure how to structure a call (modes, action values, budgets, control, schedule).",
+		parameters: { type: "object", properties: {}, additionalProperties: false },
+		execute() {
+			return Promise.resolve({
+				content: [{ type: "text", text: buildSubagentHelpText() }],
+			});
+		},
+	};
+	pi.registerTool(subagentHelpTool);
 
 	registerSlashCommands(pi, state);
 

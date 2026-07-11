@@ -1017,7 +1017,7 @@ export interface ProactiveSkillSubagentsConfig {
 	preferredAgent?: string;
 }
 
-export type ToolDescriptionMode = "full" | "compact" | "custom";
+export type ToolDescriptionMode = "minimal" | "full" | "compact" | "custom";
 
 export interface ScheduledRunsConfig {
 	enabled?: boolean;
@@ -1027,7 +1027,7 @@ export interface ScheduledRunsConfig {
 
 export interface ExtensionConfig {
 	asyncByDefault?: boolean;
-	/** Tool description variant registered for the parent-facing subagent tool. Defaults to full. */
+	/** Tool description variant registered for the parent-facing subagent tool. Defaults to minimal. */
 	toolDescriptionMode?: ToolDescriptionMode;
 	forceTopLevelAsync?: boolean;
 	waitTool?: WaitToolConfig;

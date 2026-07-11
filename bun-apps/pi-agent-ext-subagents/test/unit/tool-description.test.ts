@@ -7,8 +7,10 @@ import { describe, it } from "node:test";
 import { execChildScript } from "../support/helpers.ts";
 import {
 	buildSubagentToolDescription,
+	buildSubagentHelpText,
 	COMPACT_SUBAGENT_TOOL_DESCRIPTION,
 	FULL_SUBAGENT_TOOL_DESCRIPTION,
+	MINIMAL_SUBAGENT_TOOL_DESCRIPTION,
 	SUBAGENT_SAFETY_GUIDANCE,
 } from "../../src/extension/tool-description.ts";
 import { SUBAGENT_CHILD_ENV, SUBAGENT_FANOUT_CHILD_ENV } from "../../src/runs/shared/pi-args.ts";
@@ -28,8 +30,54 @@ function parentToolEnv(agentDir?: string): NodeJS.ProcessEnv {
 }
 
 describe("registered subagent tool description", () => {
-	it("keeps full mode safe and free of hardcoded builtin agent names", () => {
+	it("defaults to a terse minimal description that routes to subagent_help", () => {
 		const description = buildSubagentToolDescription();
+
+		assert.equal(description, MINIMAL_SUBAGENT_TOOL_DESCRIPTION);
+		assert.ok(description.length < FULL_SUBAGENT_TOOL_DESCRIPTION.length * 0.3, "minimal default should be a small fraction of full mode");
+		assert.match(description, /SINGLE/);
+		assert.match(description, /PARALLEL/);
+		assert.match(description, /CHAIN/);
+		assert.match(description, /subagent_help/);
+		// Routing action value lists are kept inline so the model can pick a mode.
+		assert.match(description, /watchdog\.configure/);
+		assert.match(description, /schedule-list/);
+		assert.match(description, /view:"fleet"/);
+		assert.match(description, /one writer/i);
+		assert.match(description, /child subagents must not run subagents/i);
+	});
+
+	it("subagent_help (buildSubagentHelpText) covers every distinctive phrase from full mode (no lost capability)", () => {
+		const help = buildSubagentHelpText();
+
+		for (const builtinName of ["scout", "worker", "planner"]) {
+			assert.doesNotMatch(help, new RegExp(`\\b${builtinName}\\b`));
+		}
+		assert.match(help, /use \{ action: "list" \} to inspect configured agents\/chains/i);
+		assert.match(help, /executable\/non-disabled/i);
+		assert.match(help, /proactive skill subagent suggestions/i);
+		assert.match(help, /output\?,reads\?,progress\?/i);
+		assert.match(help, /timeoutMs/i);
+		assert.match(help, /maxRuntimeMs/i);
+		assert.match(help, /foreground and async\/background runs/i);
+		assert.match(help, /SAFETY-CRITICAL SUBAGENT GUIDANCE/);
+		assert.match(help, /Do not sleep or poll status just to wait/i);
+		assert.match(help, /ordinary child subagents are not orchestrators/i);
+		assert.match(help, /keep one writer/i);
+		assert.match(help, /view: "fleet"/);
+		assert.match(help, /view: "transcript"/);
+		assert.match(help, /action: "steer"/);
+		assert.match(help, /schedule-list/);
+		assert.match(help, /action: "eject"/);
+		assert.match(help, /action: "disable"/);
+		assert.match(help, /status\.json/);
+		assert.match(help, /events\.jsonl/);
+		// Parameter reference appendix is present.
+		assert.match(help, /PARAMETER REFERENCE/);
+	});
+
+	it("keeps full mode safe and free of hardcoded builtin agent names", () => {
+		const description = buildSubagentToolDescription({ toolDescriptionMode: "full" });
 
 		for (const builtinName of ["scout", "worker", "planner"]) {
 			assert.doesNotMatch(description, new RegExp(`\\b${builtinName}\\b`));
@@ -202,7 +250,7 @@ describe("registered subagent tool description", () => {
 
 	it("registers full, compact, custom, and fallback descriptions from extension config", () => {
 		const defaultAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagents-tool-desc-default-"));
-		assert.equal(readRegisteredDescription(defaultAgentDir), FULL_SUBAGENT_TOOL_DESCRIPTION);
+		assert.equal(readRegisteredDescription(defaultAgentDir), MINIMAL_SUBAGENT_TOOL_DESCRIPTION);
 
 		const compactAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagents-tool-desc-compact-"));
 		writeExtensionConfig(compactAgentDir, { toolDescriptionMode: "compact" });
