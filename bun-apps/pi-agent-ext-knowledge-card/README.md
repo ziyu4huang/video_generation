@@ -41,6 +41,27 @@ tags, indexed by a Knowledge Graph MOC) so `zk_ask` can answer cross-source
 questions. See `src/ingest.ts` for the schema mapping + `src/emit.ts` for the
 in-session `pi:knowledge` event-bus contract that lets any extension publish.
 
+**Source families** (`source` param selects the adapter; default `workflow-jsonl`):
+
+| `source`        | Input shape                                  | Adapter                    |
+| --------------- | -------------------------------------------- | -------------------------- |
+| `workflow-jsonl`| `.knowledge.jsonl` (12-key records)          | `parseKnowledgeJsonl`      |
+| `hermes`        | `.md` with `§`-separated entries + `[cat]`   | `adaptHermesMarkdown`      |
+| `auto-memory`   | `.md` with `name`/`description` frontmatter  | `adaptAutoMemoryMarkdown`  |
+| `generic`       | **ANY `.md`** (no assumptions; universal)    | `adaptGenericMarkdown`     |
+
+`generic` is the **universal adapter**: point `zk_ingest` at any random folder of
+`.md` files and every file becomes a converged card (title from H1 or filename,
+tags harvested from frontmatter + `#hashtags` + `[[wikilinks]]`, type inferred
+from callouts `[!warning]`→`avoid`, confidence 0.7). It makes the whole
+`memory → obsidian → kcards` distill event accept arbitrary markdown:
+
+```
+zk_ingest source:generic dir:<any-md-folder>   # deterministic convergence
+# optional LLM enrichment first:  obsidian distill files:[<folder>]
+# then query cross-source:        zk_ask / knowledge_query
+```
+
 ## Requires
 
 - **[pi-obsidian](../pi-obsidian)** must be available in the same session — the
