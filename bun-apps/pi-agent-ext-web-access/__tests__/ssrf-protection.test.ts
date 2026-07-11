@@ -30,10 +30,15 @@ describe("validateRemoteUrl — protocol + hostname guards", () => {
 });
 
 describe("validateRemoteUrl — literal-IP SSRF blocks", () => {
-	// These never hit DNS — the IP is parsed directly.
+	// Literal IPs are parsed directly and never hit DNS. The nip.io case below is a
+	// hostname, so it exercises the resolve→private-check path — we inject a
+	// deterministic `lookup` (resolves to 127.0.0.1) so the test never depends on
+	// real DNS (nip.io cold-resolve flaked CI at the 5s ceiling).
 	test("blocks loopback", async () => {
 		await expect(validateRemoteUrl("http://127.0.0.1/")).rejects.toThrow();
-		await expect(validateRemoteUrl("http://127.0.0.1.nip.io/")).rejects.toThrow();
+		await expect(
+			validateRemoteUrl("http://127.0.0.1.nip.io/", { lookup: lookup(addr("127.0.0.1")) }),
+		).rejects.toThrow();
 	});
 
 	test("blocks RFC1918 private ranges", async () => {
