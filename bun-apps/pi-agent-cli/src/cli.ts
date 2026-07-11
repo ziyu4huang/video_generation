@@ -192,16 +192,15 @@ function isHelp(tok: string | undefined): boolean {
   return tok === "-h" || tok === "--help" || tok === "help";
 }
 
-function findCommand(name: string): Command | undefined {
-  return COMMANDS.find((c) => c.name === name);
+/** Find a command by name within one of the groups (COMMANDS / PIPELINES / WORKFLOWS). */
+function findIn(list: Command[], name: string): Command | undefined {
+  return list.find((c) => c.name === name);
 }
 
-function findPipeline(name: string): Command | undefined {
-  return PIPELINES.find((c) => c.name === name);
-}
-
-function findWorkflow(name: string): Command | undefined {
-  return WORKFLOWS.find((c) => c.name === name);
+/** Print a message to stderr and exit non-zero. Consolidates the spread exit(1) sites. */
+function die(msg: string): never {
+  console.error(msg);
+  process.exit(1);
 }
 
 function printRootHelp(): void {
@@ -258,8 +257,6 @@ Pi-compatible flags (passthrough + global):
   --append-system-prompt <x>  text or file path (repeatable)
   -e, --extension <path>      (ignored — obsidian baked in)
   -a, --approve               (ignored — self-trusted)
-  -V, --verbose               increase tool-event verbosity (repeatable: -V -V)
-  --debug                     ultra-verbose (alias for -V -V: full args + result)
 
 Examples:
   bun-pi-agent-cli vlm-describe paper.pdf
@@ -483,20 +480,20 @@ async function main(): Promise<void> {
     if (first === "help") {
       const target = probe.positionals[1];
       const cmd = target
-        ? (findCommand(target) ?? findPipeline(target) ?? findWorkflow(target))
+        ? (findIn(COMMANDS, target) ?? findIn(PIPELINES, target) ?? findIn(WORKFLOWS, target))
         : undefined;
       if (target && target !== "pipeline" && target !== "workflow" && cmd) {
         console.log(cmd.details);
       } else if (target === "pipeline") {
         // `help pipeline <name>`
         const pname = probe.positionals[2];
-        const pcmd = pname ? findPipeline(pname) : undefined;
+        const pcmd = pname ? findIn(PIPELINES, pname) : undefined;
         if (pcmd) console.log(pcmd.details);
         else console.log("Pipelines:\n" + PIPELINES.map((c) => `  ${c.name}`).join("\n"));
       } else if (target === "workflow") {
         // `help workflow <sub>`
         const wname = probe.positionals[2];
-        const wcmd = wname ? findWorkflow(wname) : undefined;
+        const wcmd = wname ? findIn(WORKFLOWS, wname) : undefined;
         if (wcmd) console.log(wcmd.details);
         else console.log("Workflow sub-commands:\n" + WORKFLOWS.map((c) => `  ${c.name}`).join("\n"));
       } else {
@@ -520,9 +517,7 @@ async function main(): Promise<void> {
     if (first === "completions") {
       const shell = probe.positionals[1];
       if (!shell) {
-        console.error("Usage: completions <bash|zsh|fish>\n");
-        console.error(completionsMeta.details);
-        process.exit(1);
+        die(`Usage: completions <bash|zsh|fish>\n\n${completionsMeta.details}`);
       }
       try {
         printCompletions(
@@ -531,8 +526,7 @@ async function main(): Promise<void> {
           PIPELINES.map((c) => c.name),
         );
       } catch (e: any) {
-        console.error(`error: ${e?.message ?? String(e)}`);
-        process.exit(1);
+        die(`error: ${e?.message ?? String(e)}`);
       }
       return;
     }
@@ -557,20 +551,17 @@ async function main(): Promise<void> {
         return;
       }
       if (!pname) {
-        console.error("Usage: pipeline <name> [options]\n");
-        console.error(
-          "Available pipelines:\n" +
+        die(
+          "Usage: pipeline <name> [options]\n\nAvailable pipelines:\n" +
             PIPELINES.map((c) => `  ${c.name.padEnd(14)} ${c.summary}`).join("\n"),
         );
-        process.exit(1);
       }
-      const pcmd = findPipeline(pname);
+      const pcmd = findIn(PIPELINES, pname);
       if (!pcmd) {
-        console.error(`Unknown pipeline: ${pname}\n`);
-        console.error(
-          "Available: " + PIPELINES.map((c) => c.name).join(", "),
+        die(
+          `Unknown pipeline: ${pname}\n\nAvailable: ` +
+            PIPELINES.map((c) => c.name).join(", "),
         );
-        process.exit(1);
       }
       // drop both the `pipeline` namespace token and the pipeline-name token
       const pipeIdx = probe.positionalIndices[1]!;
@@ -583,18 +574,17 @@ async function main(): Promise<void> {
     if (first === "workflow") {
       const wname = probe.positionals[1];
       if (!wname) {
-        console.error("Usage: workflow <sub> [options]\n");
-        console.error(
-          "Workflow sub-commands:\n" +
+        die(
+          "Usage: workflow <sub> [options]\n\nWorkflow sub-commands:\n" +
             WORKFLOWS.map((c) => `  ${c.name.padEnd(14)} ${c.summary}`).join("\n"),
         );
-        process.exit(1);
       }
-      const wcmd = findWorkflow(wname);
+      const wcmd = findIn(WORKFLOWS, wname);
       if (!wcmd) {
-        console.error(`Unknown workflow sub-command: ${wname}\n`);
-        console.error("Available: " + WORKFLOWS.map((c) => c.name).join(", "));
-        process.exit(1);
+        die(
+          `Unknown workflow sub-command: ${wname}\n\nAvailable: ` +
+            WORKFLOWS.map((c) => c.name).join(", "),
+        );
       }
       // drop both the `workflow` namespace token and the sub-command token.
       const wsubIdx = probe.positionalIndices[1]!;
@@ -603,7 +593,7 @@ async function main(): Promise<void> {
     }
 
     // otherwise it's a registered agent command
-    const cmd = findCommand(first);
+    const cmd = findIn(COMMANDS, first);
     if (cmd) {
       await runAgentCommand(cmd, rest);
       return;

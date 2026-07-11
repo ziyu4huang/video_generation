@@ -45,6 +45,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -252,8 +253,34 @@ function formatSize(path: string): string {
   }
 }
 
+// ── Pre-flight: workspace deps must be linked ──────────────────────────────
+// A stale root `bun install` (or none at all) leaves `@repo/*` workspace deps
+// un-symlinked in this package's node_modules. Bun's bundler then can't resolve
+// their bare specifiers → either a hard build failure OR a silently broken
+// bundle (depending on import site). Fail LOUDLY here with an actionable fix
+// instead. Run `bun install` at the repo root, then rebuild.
+function assertWorkspaceDeps(): void {
+  const pj = JSON.parse(readFileSync("package.json", "utf8")) as {
+    dependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+  };
+  const all = { ...pj.dependencies, ...pj.peerDependencies };
+  const ws = Object.keys(all).filter((d) => d.startsWith("@repo/"));
+  const missing = ws.filter((d) => !existsSync(`node_modules/${d}`));
+  if (missing.length > 0) {
+    console.error(
+      `\n✗ missing workspace symlinks: ${missing.join(", ")}\n` +
+        `  The monorepo's node_modules is stale. Fix:\n` +
+        `    bun install            # at the REPO ROOT (not here)\n` +
+        `    bun scripts/build.ts   # then rebuild\n`,
+    );
+    process.exit(1);
+  }
+}
+
 // ── Orchestrate ───────────────────────────────────────────────────────────────
 
+assertWorkspaceDeps();
 const piPkgDir = resolvePiPkgDir();
 stageGeneratePkgDir(piPkgDir);
 stageGenerateRunDirBase();
