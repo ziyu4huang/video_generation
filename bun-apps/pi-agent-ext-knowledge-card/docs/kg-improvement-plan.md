@@ -396,6 +396,56 @@ Each: **lever** (what moves), **effort** (S/M/L), **risk**, **proof metric**
   branch stays closed unless a future retrieval change drops it below 0.5 on
   this eval set (re-runnable via `scripts/live-zk-ask-measure.mjs`).
 
+### P8 — Typed-entity extraction + IDF-weighted cross-linking (SAG-inspired)  ✅ **SHIPPED (mechanism, opt-in — 2026-07-11)**
+
+> **Origin:** study of `../SAG/` (Zleap-AI/SAG), a graph-retrieval RAG workbench
+> whose core innovation is the **entity-event bipartite graph**: each chunk →
+> ONE fused event + MULTIPLE *typed* entities, with multi-hop retrieval
+> traversing entity→event→entity→event. SAG beats HippoRAG 2 by +11.16pp
+> Recall@2 because its entities are **specific and content-grounded** — a query
+> for "flux2" matches the *entity* flux2 (3 events), not the ubiquitous
+> type-tag "pattern" (282 events). Full study: [`SAG-LEARNINGS.md`](./SAG-LEARNINGS.md).
+>
+> **The gap it fills:** the documented "generic-tag noise" limitation
+> ([TOOL-ORCHESTRATION.md](./TOOL-ORCHESTRATION.md) §"Convergence gotchas"):
+> flat shared-tag count lets the `pattern` tag (282 cards) crowd out the
+> `pi-obsidian` bridge (3 cards) in cross-link ranking. SAG's typed entities
+> solve this implicitly (entities ARE the rare specific terms); we solve it
+> explicitly via **IDF weighting**.
+
+- **Lever (WRITE side — `ingestRecords`):** when `linkWeighting:"idf"`, compute
+  `IDF(tag) = log(N/df)` across the folder and rank cross-link neighbours by
+  `Σ IDF(sharedTag)` instead of raw count. Rare specific bridges
+  (`pi-obsidian`) get high IDF; ubiquitous type-tags (`pattern`) get ~0. Also
+  extract typed entities from each card's detail body deterministically
+  (SAG's `localNamedEntities` tier, re-targeted to 8 dev-knowledge types:
+  tool/model/config/concept/error/lib/file/tag) and store them as additive
+  `entities: [{type,name}]` frontmatter.
+- **Lever (READ side — `retrieveRecords`):** the same `linkWeighting:"idf"`
+  option lets `knowledge_query` score by `Σ IDF(sharedTag)`, so a query naming
+  a specific concept (`pi-obsidian`) retrieves the right card even when dozens
+  of unrelated cards share the generic `pattern` tag. This is the P7
+  (tag-path recall) fix via a different axis — IDF weighting instead of
+  full-text fallback.
+- **Effort:** **M.** New `src/entities.ts` (extraction + IDF + scoreOverlap);
+  `ingest.ts` + `retrieve.ts` wired with an opt-in `linkWeighting` option.
+- **Risk:** **low.** ADDITIVE + OPT-IN: the default `"count"` mode is
+  byte-for-byte unchanged (235 pre-existing tests pass; 22 new tests cover the
+  IDF path). No semantic blend reopened (P3 stays closed — IDF is a lexical
+  weighting, not vectors). No chunking (P5 stays rejected — atomic-zettel
+  intact). No LLM at ingest (deterministic extraction only).
+- **Proof metric (promotion gate):** run `scripts/real-retrieval-measure.mjs`
+  with `linkWeighting:"idf"` vs `"count"` on the 25-query eval set
+  (`scripts/real-retrieval-eval.json`). IDF must beat count on **hit-rate@4**
+  (current count baseline: 0.48) to justify promoting IDF to the default.
+  Until then, IDF ships as an opt-in mechanism (ready to A/B test, no
+  regression risk).
+- **Verdict:** **✅ SHIPPED (opt-in mechanism).** The integration test proves
+  the documented limitation is fixed: a target card sharing `pattern` with 5
+  noise cards AND `pi-obsidian` with 1 bridge card links the bridge FIRST under
+  IDF (vs alphabetical-noise-first under count). Default stays `"count"` until
+  the promotion gate is met.
+
 ---
 
 ## 5. Ranking summary
@@ -407,7 +457,8 @@ Each: **lever** (what moves), **effort** (S/M/L), **risk**, **proof metric**
 | P4 | Graph-health-aware reindex sync | M | medium | ❌ COLLAPSED (P3 retired) | reopen only if P3 reopens + semantic wins (opt-in) |
 | P2 | Change-detection fingerprint | S | low | ⏸ DEFER (scale) | >30% speedup on no-op re-ingest; reopen at ~4000+ cards |
 | P6 | Hierarchical-tag flattening | S | low | ❌ DROP (0.4% measured) | reopen if hierarchical-tag rate >5% (measured 2/429) |
-| **P7** | knowledge_query NL recall (tag→full-text) | M | low-med | ✅ zk_ask branch CLOSED (live 0.64 ≥ 0.5; tag-path candidate only) | reopen (tag path) on felt pain; zk_ask branch closed unless a retrieval change drops it <0.5 (re-run `scripts/live-zk-ask-measure.mjs`) |
+| **P7** | knowledge_query NL recall (tag→full-text) | M | low-med | ✅ zk_ask branch CLOSED (live 0.64 ≥ 5; tag-path candidate only) | reopen (tag path) on felt pain; zk_ask branch closed unless a retrieval change drops it <0.5 (re-run `scripts/live-zk-ask-measure.mjs`) |
+| **P8** | Typed-entity extraction + IDF-weighted cross-linking (SAG-inspired) | M | low | ✅ SHIPPED (mechanism, opt-in) | IDF must beat count on `scripts/real-retrieval-eval.json` hit-rate@4 before default promotion; default stays "count" |
 | P5 | Per-section chunking | — | — | **rejected** | not applicable (atomic-zettel design) |
 
 ---

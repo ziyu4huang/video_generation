@@ -52,6 +52,13 @@ import {
 	type VaultIndex,
 } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 import { tokeniseText, bestMatch } from "./similarity.ts";
+import {
+	extractEntities,
+	computeIdf,
+	scoreOverlap,
+	type ExtractedEntity,
+	type LinkWeighting,
+} from "./entities.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -69,6 +76,10 @@ export interface KnowledgeRecord {
 	confidence: number;
 	status: string; // active | superseded | retired
 	superseded_by: string | null;
+	/** Pre-extracted typed entities (SAG-style). If absent, entities are
+	 *  derived deterministically from `detail` via `extractEntities` when
+	 *  `linkWeighting === "idf"` (additive frontmatter; absent otherwise). */
+	entities?: ExtractedEntity[];
 	schema_version?: number;
 	evidence?: {
 		occurrences?: number;
@@ -106,6 +117,17 @@ export interface IngestOptions {
 	 *  This is the wiki-aware convergence that keeps 10+ id namespaces from
 	 *  growing parallel cards for the same lesson. */
 	wikiAware?: boolean;
+	/** Cross-link neighbour ranking weight. SAG-inspired (see src/entities.ts):
+	 *  - "count" (default, the pinned iter-7 baseline): raw shared-tag count.
+	 *  - "idf": Σ IDF(sharedTag) — rare specific bridges (pi-obsidian) outrank
+	 *    ubiquitous type-tags (pattern). ADDITIVE + OPT-IN; the default preserves
+	 *    the measured lexical+graph ranking so no retrieval regression ships
+	 *    without its own measurement run (kg-improvement-plan P8).
+	 *
+	 *  When "idf", also extract typed entities from each card's detail body and
+	 *  store them as additive `entities: [{type,name}]` frontmatter — the
+	 *  SAG entity-event signal, deterministic (no LLM). */
+	linkWeighting?: LinkWeighting;
 	/** Minimum token-set Jaccard similarity to treat an incoming record as a
 	 *  reuse of an existing card (default 0.85 — deliberately HIGH, one notch
 	 *  below the 0.9 duplicate-merge bar, so a bad reuse never collapses two
@@ -623,6 +645,14 @@ export function parseKnowledgeJsonl(content: string): {
 			confidence: typeof rec.confidence === "number" ? rec.confidence : 0,
 			status: typeof rec.status === "string" ? rec.status : "active",
 			superseded_by: rec.superseded_by ?? null,
+			entities: Array.isArray(rec.entities)
+				? (rec.entities as unknown[]).filter(
+						(e): e is ExtractedEntity =>
+							typeof e === "object" && e !== null &&
+							typeof (e as Record<string, unknown>).type === "string" &&
+							typeof (e as Record<string, unknown>).name === "string",
+					)
+				: undefined,
 			schema_version: rec.schema_version,
 			evidence: rec.evidence,
 			extracted_at: rec.extracted_at,
@@ -696,6 +726,7 @@ function renderCard(
 	links: string[],
 	sourceLabel: string,
 	maxDetailChars: number,
+	entities?: ExtractedEntity[],
 ): string {
 	const detail = rec.detail.length > maxDetailChars
 		? rec.detail.slice(0, maxDetailChars) + "\n\n…(truncated)"
@@ -733,6 +764,15 @@ function renderCard(
 	}
 	if (feats.embedCount > 0) fm.embed_count = feats.embedCount;
 	if (feats.codeBlockLines > 0) fm.code_block_lines = feats.codeBlockLines;
+
+	// Typed entities (SAG-inspired, kg-improvement-plan P8): when present
+	// (linkWeighting:"idf" extracts them deterministically, or the source
+	// JSONL supplied them pre-typed), carry them as ADDITIVE frontmatter so
+	// retrieve.ts can use them as a cross-link / retrieval signal. Rendered as
+	// quoted "type:name" strings (flat-YAML safe; yamlScalar quotes the colon).
+	if (entities && entities.length > 0) {
+		fm.entities = entities.map((e) => `${e.type}:${e.name}`);
+	}
 
 	const fmText = renderFrontmatter(fm);
 
@@ -991,6 +1031,7 @@ export async function ingestRecords(
 	const dryRun = opts.dryRun === true;
 	const wikiAware = opts.wikiAware === true;
 	const wikiThreshold = opts.wikiThreshold ?? 0.85;
+	const linkWeighting = opts.linkWeighting ?? "count";
 	const folderAbs = join(opts.vaultPath, folder);
 
 	if (!existsSync(opts.vaultPath)) {
@@ -1123,7 +1164,10 @@ export async function ingestRecords(
 	}
 
 	// 3. Compute cross-link neighbours for each planned card against the full
-	//    folder tag graph (existing + this batch). Shared-tag count ranks.
+	//    folder tag graph (existing + this batch). Ranking weight is selected by
+	//    `linkWeighting`: "count" (default, pinned iter-7 baseline) = raw
+	//    shared-tag count; "idf" (SAG-inspired, P8) = Σ IDF(sharedTag) so rare
+	//    specific bridges (pi-obsidian) outrank ubiquitous type-tags (pattern).
 	const plannedTags = new Map(planned.map((p) => [p.basename, new Set(cardTags(p.rec))]));
 	// Candidate pool keyed by basename so a card present BOTH on disk
 	// (`existing`) AND in this batch (`planned`) — i.e. an upsert / re-ingest
@@ -1133,17 +1177,15 @@ export async function ingestRecords(
 	const pool = new Map<string, Set<string>>();
 	for (const [n, m] of existing.entries()) pool.set(n, m.tags);
 	for (const [n, t] of plannedTags.entries()) pool.set(n, t);
+	// IDF table over the full pool (only computed when needed; O(pool) pass).
+	const idfTable = linkWeighting === "idf" ? computeIdf([...pool.values()]) : new Map<string, number>();
 	const allNeighbours: Map<string, string[]> = new Map(); // basename -> targets
 	for (const p of planned) {
 		const myTags = plannedTags.get(p.basename)!;
 		const scored: { name: string; shared: number }[] = [];
 		for (const [name, tags] of pool) {
 			if (name === p.basename) continue;
-			let shared = 0;
-			for (const t of myTags) if (tags.has(t)) shared++;
-			// Only count the meaningful tag overlaps (exclude the ubiquitous
-			// "zettel" tag, which every card has and would flatten ranking).
-			if (myTags.has("zettel") && tags.has("zettel")) shared -= 1;
+			const shared = scoreOverlap(myTags, tags, idfTable, linkWeighting);
 			if (shared > 0) scored.push({ name, shared });
 		}
 		scored.sort((a, b) => b.shared - a.shared || a.name.localeCompare(b.name));
@@ -1161,7 +1203,18 @@ export async function ingestRecords(
 			"1970-01-01";
 		const tags = cardTags(rec);
 		const links = allNeighbours.get(p.basename) ?? [];
-		const content = renderCard(rec, created, tags, links, opts.sourceLabel, maxDetailChars);
+		// Typed entities (P8): when linkWeighting is "idf", extract typed entities
+		// from the detail body deterministically (SAG-style; no LLM) and carry them
+		// as additive frontmatter. Pre-supplied rec.entities (from JSONL) take
+		// precedence. Absent entirely under the default "count" mode — old cards
+		// stay byte-identical.
+		let entities: ExtractedEntity[] | undefined;
+		if (linkWeighting === "idf") {
+			entities = (rec.entities as ExtractedEntity[] | undefined)?.length
+				? (rec.entities as ExtractedEntity[])
+				: extractEntities(`${rec.title} ${rec.detail}`);
+		}
+		const content = renderCard(rec, created, tags, links, opts.sourceLabel, maxDetailChars, entities);
 
 		// Validate frontmatter-only (no idx → no dead-link false-positives mid-batch).
 		const v = validateZettelNote(content);

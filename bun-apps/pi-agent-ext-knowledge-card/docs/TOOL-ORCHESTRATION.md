@@ -284,11 +284,14 @@ type-tag matches dominate — so a pi-ext-dev card links to 10 unrelated
 `auto-memory-anime2real-*` cards (shared: `pattern`) before it links to the 3
 cards that share `pi-obsidian`.
 
-This is a **known tradeoff of shared-tag ranking**, not a bug. A future lever
-(kg-improvement-plan candidate) is IDF-weighting: rare tags
-(`pi-obsidian`) would outrank ubiquitous ones (`pattern`). It is deliberately
-**not** implemented yet because the lexical+graph ranking was MEASURED and pinned
-(iter-7); an IDF change would need its own retrieval-quality run before shipping.
+This is a **known tradeoff of shared-tag ranking**, not a bug. An **IDF-weighting**
+lever (kg-improvement-plan **P8**, shipped 2026-07-11 as opt-in
+`linkWeighting:"idf"`) now lets rare tags (`pi-obsidian`) outrank ubiquitous
+ones (`pattern`) via `Σ log(N/df)` over shared tags. It ships as a mechanism,
+not the default: the lexical+graph ranking was MEASURED and pinned (iter-7),
+so the default stays `"count"` until P8's promotion gate (beat count on
+`real-retrieval-eval.json` hit-rate@4) is met. See
+[`SAG-LEARNINGS.md`](./SAG-LEARNINGS.md) for the SAG study that motivated it.
 
 > **Honest convergence metric:** after the `maxLinks=20` re-ingest, the pi-ext-dev
 > cards carry 110 external edges, but most are weak (generic type-tag). The

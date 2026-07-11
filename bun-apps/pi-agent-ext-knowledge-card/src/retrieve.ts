@@ -44,6 +44,7 @@ import {
 	extractFeatures,
 	type KnowledgeRecord,
 } from "./ingest.ts";
+import { computeIdf, scoreOverlap, type LinkWeighting } from "./entities.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -86,6 +87,13 @@ export interface RetrieveOptions {
 	topK?: number;
 	/** Max detail chars in the returned card (default 240). */
 	maxDetailChars?: number;
+	/** Ranking weight (SAG-inspired, kg-improvement-plan P8):
+	 *  - "count" (default): raw shared-tag count (the pinned baseline).
+	 *  - "idf": Σ IDF(sharedTag) — rare specific tags outrank ubiquitous
+	 *    type-tags, improving recall on natural-language queries where the
+	 *    caller's tags name a SPECIFIC concept (pi-obsidian) not a type (pattern).
+	 *    ADDITIVE + OPT-IN; default preserves the measured tag-path baseline. */
+	linkWeighting?: LinkWeighting;
 }
 
 export interface RetrieveResult {
@@ -169,6 +177,7 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 	const folder = opts.folder ?? "Zettelkasten/knowledge-graph";
 	const topK = opts.topK ?? 10;
 	const maxDetailChars = opts.maxDetailChars ?? 240;
+	const linkWeighting = opts.linkWeighting ?? "count";
 	const folderAbs = join(opts.vaultPath, folder);
 	const queryTags = new Set(opts.tags.map(normTag).filter(Boolean));
 	const excludeIds = new Set((opts.excludeIds ?? []).map((id) => id));
@@ -176,6 +185,20 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 
 	if (!existsSync(folderAbs)) {
 		return { count: 0, cards: [], digest: "", folder, scanned: 0, excluded: 0 };
+	}
+
+	// IDF pre-scan (only when linkWeighting === "idf"): collect every card's tag
+	// set so the IDF table spans the full folder. The default "count" mode skips
+	// this entirely — no behaviour change for the pinned baseline.
+	let idfTable = new Map<string, number>();
+	if (linkWeighting === "idf") {
+		const folderTagSets: Set<string>[] = [];
+		for (const name of readdirSync(folderAbs)) {
+			if (!name.endsWith(".md")) continue;
+			const meta = readCardMeta(join(folderAbs, name));
+			if (meta) folderTagSets.push(meta.tags);
+		}
+		idfTable = computeIdf(folderTagSets);
 	}
 
 	const scored: (RetrievedCard & { _score: number })[] = [];
@@ -200,12 +223,10 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 			continue;
 		}
 
-		// Shared-tag count (exclude ubiquitous "zettel" tag from scoring).
-		let shared = 0;
-		for (const t of queryTags) {
-			if (meta.tags.has(t)) shared++;
-		}
-		if (queryTags.has("zettel") && meta.tags.has("zettel")) shared -= 1;
+		// Shared-tag score under the selected weighting ("count" = raw integer,
+		// the pinned baseline; "idf" = Σ IDF(sharedTag), SAG-inspired P8). Both
+		// modes exclude the ubiquitous "zettel" tag (scoreOverlap handles it).
+		const shared = scoreOverlap(queryTags, meta.tags, idfTable, linkWeighting);
 		if (shared <= 0) continue; // no overlap — skip
 
 	// Read the card content for title/detail/type.
