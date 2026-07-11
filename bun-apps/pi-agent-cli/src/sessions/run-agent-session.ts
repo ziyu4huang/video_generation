@@ -16,7 +16,7 @@
  */
 import type { ParsedArgs } from "../args.ts";
 import { resolveLLMFromArgs } from "./passthrough.ts";
-import { createSharedSession, modelLabel } from "./shared.ts";
+import { createSharedSession, dryRunExclude, modelLabel } from "./shared.ts";
 import { runJsonTask, runPrettyTask } from "./task-runner.ts";
 
 export interface RunAgentSessionOptions {
@@ -37,7 +37,7 @@ export async function runAgentSession(
 	const llm = await resolveLLMFromArgs(parsed);
 	const { session } = await createSharedSession(llm, {
 		tools: opts.tools,
-		excludeTools: parsed.excludeTools,
+		excludeTools: dryRunExclude(parsed),
 		appendSystemPrompt: parsed.appendSystemPrompt,
 		extraExtensionFactories: opts.factory ? [opts.factory] : undefined,
 	});
@@ -46,6 +46,9 @@ export async function runAgentSession(
 	console.error(
 		`model:  ${label}  [${llm.provider}/${llm.modelId}]  thinking: ${llm.thinkingLevel}`,
 	);
+	if (parsed.dryRun) {
+		console.error("[dry-run] vault writes suppressed — write tools excluded (agent can read + plan only)");
+	}
 	console.error();
 
 	try {
