@@ -23,9 +23,12 @@ import {
   DEFAULT_LOOP_PROMPT,
   PKG_NAME,
 } from "./constants.js";
+import { enumeratePlans, lintAllPlans, lintPlan, renderPlanList, switchActivePlan } from "./lifecycle.js";
+import { deriveEffectiveMode, resolveConfiguredMode } from "./modes.js";
 import { isAllPhasesComplete, isCloseMarker, readPlanStatus, resolvePlanPaths, summarizePlan } from "./plan.js";
 import { checkCompleteReport } from "./scripts.js";
 import { getPlanSessionKey, getSessionId, type RuntimeState } from "./state.js";
+import { injectionTokenCost } from "./tokens.js";
 
 /** Parse an interval spec like "10m", "30s", "2h", "1d" → milliseconds. */
 export function parseIntervalSpec(raw: string | undefined): number | undefined {
@@ -49,14 +52,51 @@ export function parseIntervalSpec(raw: string | undefined): number | undefined {
 
 export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
   pi.registerCommand("plan-status", {
-    description: "Show current planning-with-files plan status",
+    description: "Show current planning-with-files plan status (+ injection token cost)",
     handler: async (_args, ctx) => {
       const status = readPlanStatus(ctx.cwd);
       if (!status.exists) {
         ctx.ui.notify("No active plan (task_plan.md not found)", "warning");
         return;
       }
-      ctx.ui.notify(checkCompleteReport(ctx.cwd), "info");
+      const mode = deriveEffectiveMode(resolveConfiguredMode(ctx.cwd), ctx);
+      const cost = injectionTokenCost(status, mode);
+      ctx.ui.notify(checkCompleteReport(ctx.cwd, cost.label), "info");
+    },
+  });
+
+  pi.registerCommand("plan-list", {
+    description: "List all plans under .planning/ (+ root): status, phases, attestation, active",
+    handler: async (_args, ctx) => {
+      ctx.ui.notify(renderPlanList(enumeratePlans(ctx.cwd)), "info");
+    },
+  });
+
+  pi.registerCommand("plan-lint", {
+    description: "Diagnose the active plan (--all for every plan): status format, files, attestation",
+    handler: async (args, ctx) => {
+      const all = ["--all", "all"].includes(args.trim().toLowerCase());
+      const reports = all ? lintAllPlans(ctx.cwd) : [lintPlan(ctx.cwd)];
+      for (const r of reports) {
+        const lines = [
+          `[${PKG_NAME}] ${r.planPath}`,
+          ...r.findings.map((f) => `  ${f.level.toUpperCase()} ${f.code}: ${f.message}`),
+        ];
+        ctx.ui.notify(lines.join("\n"), r.ok ? "info" : "warning");
+      }
+    },
+  });
+
+  pi.registerCommand("plan-switch", {
+    description: "Switch the active plan to .planning/<id> (use 'root' to clear the pin)",
+    handler: async (args, ctx) => {
+      const id = args.trim();
+      if (!id) {
+        ctx.ui.notify("Usage: /plan-switch <plan-id>  (or /plan-switch root to clear the pin)", "warning");
+        return;
+      }
+      const res = switchActivePlan(ctx.cwd, id);
+      ctx.ui.notify(res.message, res.ok ? "info" : "error");
     },
   });
 

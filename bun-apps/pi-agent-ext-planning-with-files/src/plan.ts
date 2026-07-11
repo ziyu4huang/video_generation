@@ -77,10 +77,11 @@ function resolveNewestPlanDir(planRoot: string): string | undefined {
   return dirs[0]?.dir;
 }
 
-export function resolvePlanPaths(cwd: string): PlanPaths {
-  const planRoot = join(cwd, ".planning");
-
-  const makeScoped = (planDir: string): PlanPaths => ({
+/** Build PlanPaths for a scoped plan under <planDir>. Exported so lifecycle.ts
+ * can enumerate / diagnose / switch NON-active plan dirs without re-resolving
+ * the active one (which is what resolvePlanPaths + readPlanStatus do). */
+export function makeScopedPaths(cwd: string, planDir: string): PlanPaths {
+  return {
     cwd,
     scope: "scoped",
     planDir,
@@ -96,16 +97,25 @@ export function resolvePlanPaths(cwd: string): PlanPaths {
     // "reuse existing candidate" rule made /plan-attest on a scoped plan
     // clobber the root file instead of creating <planDir>/.attestation.
     attestationCandidates: [join(planDir, ".attestation")],
-  });
+  };
+}
 
-  const makeRoot = (): PlanPaths => ({
+/** Build PlanPaths for the legacy root plan at <cwd>/task_plan.md. */
+export function makeRootPaths(cwd: string): PlanPaths {
+  return {
     cwd,
     scope: "root",
     planPath: join(cwd, "task_plan.md"),
     progressPath: join(cwd, "progress.md"),
     findingsPath: join(cwd, "findings.md"),
     attestationCandidates: [join(cwd, ".plan-attestation")],
-  });
+  };
+}
+
+export function resolvePlanPaths(cwd: string): PlanPaths {
+  const planRoot = join(cwd, ".planning");
+  const makeScoped = (planDir: string): PlanPaths => makeScopedPaths(cwd, planDir);
+  const makeRoot = (): PlanPaths => makeRootPaths(cwd);
 
   const planId = process.env.PLAN_ID?.trim();
   if (planId) {
@@ -195,25 +205,22 @@ export function isCloseMarker(planContent: string): boolean {
   );
 }
 
-export function readPlanStatus(cwd: string): PlanStatus {
-  const paths = resolvePlanPaths(cwd);
-  if (!paths.planPath || !existsSync(paths.planPath)) {
-    return {
-      ...paths,
-      exists: false,
-      totalPhases: 0,
-      completePhases: 0,
-      inProgressPhases: 0,
-      pendingPhases: 0,
-      hasParseableStatus: false,
-      closed: false,
-      firstLines50: "",
-      headLines30: "",
-      progressTail20: "",
-    };
-  }
+/** Phase-count metrics derived from a plan + progress content blob. Extracted
+ * pure so multi-plan enumeration (lifecycle.ts) can parse NON-active plan dirs
+ * without going through the active-plan resolver. */
+interface PlanMetrics {
+  totalPhases: number;
+  completePhases: number;
+  inProgressPhases: number;
+  pendingPhases: number;
+  hasParseableStatus: boolean;
+  closed: boolean;
+  firstLines50: string;
+  headLines30: string;
+  progressTail20: string;
+}
 
-  const planContent = safeRead(paths.planPath);
+function parsePlanMetrics(planContent: string, progressContent: string): PlanMetrics {
   const lines = planContent.split("\n");
 
   const phaseRegex = /^###\s+Phase\b/i;
@@ -246,15 +253,8 @@ export function readPlanStatus(cwd: string): PlanStatus {
     else if (classified === "pending") pending += 1;
   }
 
-  let progressTail20 = "";
-  if (paths.progressPath && existsSync(paths.progressPath)) {
-    const progressLines = safeRead(paths.progressPath).split("\n");
-    progressTail20 = progressLines.slice(-20).join("\n");
-  }
-
+  const progressLines = progressContent.split("\n");
   return {
-    ...paths,
-    exists: true,
     totalPhases: total,
     completePhases: complete,
     inProgressPhases: inProgress,
@@ -263,8 +263,41 @@ export function readPlanStatus(cwd: string): PlanStatus {
     closed: isCloseMarker(planContent),
     firstLines50: lines.slice(0, 50).join("\n"),
     headLines30: lines.slice(0, 30).join("\n"),
-    progressTail20,
+    progressTail20: progressLines.slice(-20).join("\n"),
   };
+}
+
+const ZERO_METRICS: PlanMetrics = {
+  totalPhases: 0,
+  completePhases: 0,
+  inProgressPhases: 0,
+  pendingPhases: 0,
+  hasParseableStatus: false,
+  closed: false,
+  firstLines50: "",
+  headLines30: "",
+  progressTail20: "",
+};
+
+/** Read plan status from EXPLICIT paths (no active-plan resolution). Used by
+ * readPlanStatus (active plan) and lifecycle.ts (every plan dir). Pure-ish: the
+ * only side effect is reading files; never mutates anything. */
+export function readPlanStatusFromPaths(paths: PlanPaths): PlanStatus {
+  if (!paths.planPath || !existsSync(paths.planPath)) {
+    return { ...paths, exists: false, ...ZERO_METRICS };
+  }
+
+  const planContent = safeRead(paths.planPath);
+  let progressContent = "";
+  if (paths.progressPath && existsSync(paths.progressPath)) {
+    progressContent = safeRead(paths.progressPath);
+  }
+
+  return { ...paths, exists: true, ...parsePlanMetrics(planContent, progressContent) };
+}
+
+export function readPlanStatus(cwd: string): PlanStatus {
+  return readPlanStatusFromPaths(resolvePlanPaths(cwd));
 }
 
 export function isAllPhasesComplete(status: PlanStatus): boolean {

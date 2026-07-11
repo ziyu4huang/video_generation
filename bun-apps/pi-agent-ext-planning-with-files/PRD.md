@@ -18,6 +18,9 @@ A Pi-native port of the Manus-style "markdown as working memory" pattern (upstre
 | `/plan-execute [reset]` | Approve plan and activate hooks |
 | `/plan-done [--delete]` | Close the active plan (stop nags); `--delete` removes the files |
 | `/plan-loop [interval] [prompt]` | Periodic re-tick timer |
+| `/plan-list` | List all plans under `.planning/` (+ root): status, phases, attestation, active |
+| `/plan-lint [--all]` | Diagnose the active (or every) plan: status format, files, attestation |
+| `/plan-switch <id>` | Pin the active plan to `.planning/<id>` (`root` clears the pin) |
 
 ## Key Dependencies
 
