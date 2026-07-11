@@ -1192,6 +1192,11 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				// (tag×2 + body + callout) — measured 0.48 → 0.80 hit-rate@4, zero
 				// regression on the 25-query eval. This is knowledge_query's recall win.
 				bodyMatch: true,
+				// Slug-dominant precision (iter-2): a card whose slug overlaps ≥3 query
+				// tokens scores by slug×4 — the topic fingerprint beats ubiquitous-tag
+				// noise. Measured 0.80 → 0.84 hit-rate@4, zero regression. Composes
+				// with bodyMatch; cheap (slug = filename, no extra read).
+				slugDom: true,
 			};
 
 			const result = await retrieveRecords(opts);
