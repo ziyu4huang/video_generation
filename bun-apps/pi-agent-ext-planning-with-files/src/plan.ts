@@ -280,6 +280,23 @@ export function isPlanIncomplete(status: PlanStatus): boolean {
   return status.exists && status.totalPhases > 0 && status.completePhases < status.totalPhases;
 }
 
+/**
+ * Plan A coordination seam: is there an ACTIVE, INCOMPLETE plan on disk at
+ * `cwd`? Pure file check (no in-memory approval state) so peer extensions
+ * (the /goal completion gate) can call it across the globalThis bridge without
+ * a hard dependency on planning-with-files' session-scoped RuntimeState.
+ *
+ * Returns true only when: a plan exists, it is NOT closed (no
+ * `<!-- pwf: closed -->` marker from /plan-done), its phase-status format is
+ * parseable, and at least one phase is still incomplete.
+ *
+ * Release valve: `/plan-done` writes the close marker → this returns false →
+ * the goal completion gate lets goal_complete through.
+ */
+export function isPlanIncompleteInDir(cwd: string): boolean {
+  return isPlanIncomplete(readPlanStatus(cwd));
+}
+
 /** True when the plan is explicitly closed (finished/abandoned). The runtime
  * treats a closed plan as inert: no injection, no auto-continue, no nag. */
 export function isPlanClosed(status: PlanStatus): boolean {

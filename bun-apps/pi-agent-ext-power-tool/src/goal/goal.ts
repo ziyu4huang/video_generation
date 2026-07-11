@@ -222,6 +222,22 @@ let latestCtx: StatusContext | undefined;
 const cancelledContinuationMarkers = new Set<string>();
 const STATUS_REFRESH_INTERVAL_MS = 1_000;
 
+// ─── Coordination seam (Plan A: goal ⇄ planning-with-files mutual-exclusion) ──
+
+/**
+ * Whether a /goal is currently in the "active" (driving) state.
+ *
+ * Exported so planning-with-files can query it (dynamic import + fallback to
+ * false) and yield its own before_agent_start injection + agent_end
+ * auto-continue to the goal, which owns iteration counting, token budget, and
+ * recovery. Returns FALSE for paused / budget_limited / complete / no-goal —
+ * so planning may resume its own continuation when the goal is NOT actively
+ * driving (e.g. user paused the goal).
+ */
+export function isGoalActive(): boolean {
+	return activeGoal?.status === "active";
+}
+
 // ─── Tool definition ──────────────────────────────────────────────────────────
 
 const goalCompleteTool = defineTool({
@@ -266,6 +282,26 @@ const goalCompleteTool = defineTool({
 			persistGoal(completedGoal);
 			updateStatus(ctx, completedGoal);
 			const rejection = `Goal completion rejected: ${rejectionReason}.`;
+			ctx.ui.notify(rejection, "warning");
+			return {
+				content: [{ type: "text", text: rejection }],
+				details: { goal, summary } satisfies GoalCompleteDetails,
+			};
+		}
+
+		// Plan A coordination seam: block goal_complete while a planning-with-files
+		// plan has open phases. The goal's own summary audit can't see plan state; this
+		// closes the gap. Release valve: /plan-done (writes the close marker →
+		// __piPlanIncomplete returns false). Best-effort: if planning-with-files isn't
+		// loaded or errors, the gate is a no-op (goal_complete proceeds).
+		const planningReason = planningGateBlocking(ctx.cwd);
+		if (planningReason) {
+			updateGoalUsage(completedGoal, ctx);
+			persistGoal(completedGoal);
+			updateStatus(ctx, completedGoal);
+			const rejection =
+				`Goal completion rejected: ${planningReason}. ` +
+				"Finish the remaining plan phases, or run /plan-done to close the plan, then call goal_complete again.";
 			ctx.ui.notify(rejection, "warning");
 			return {
 				content: [{ type: "text", text: rejection }],
@@ -937,6 +973,27 @@ function isPiOwnedCompactionRetry(event: unknown, goalId: string) {
 
 export function isContradictoryCompletionSummary(summary: string) {
 	return CONTRADICTORY_COMPLETION_PATTERNS.some((pattern) => pattern.test(summary));
+}
+
+/**
+ * Plan A coordination seam: read planning-with-files' published
+ * `globalThis.__piPlanIncomplete` to decide whether goal_complete should be
+ * blocked by an open (exists + not closed + incomplete-phases) plan. Returns an
+ * actionable reason string, or undefined if no gate applies (planning-with-files
+ * not loaded, no plan, plan closed, or all phases complete). Best-effort: a
+ * peer-extension error never blocks goal_complete.
+ */
+export function planningGateBlocking(cwd: string): string | undefined {
+	const fn = (globalThis as Record<string, unknown> | undefined)?.__piPlanIncomplete;
+	if (typeof fn !== "function") return undefined;
+	try {
+		if ((fn as (cwd: string) => boolean)(cwd)) {
+			return "a planning-with-files plan still has incomplete phases";
+		}
+	} catch {
+		// best-effort: never block goal_complete on a peer-extension read error
+	}
+	return undefined;
 }
 
 export function isRetryableGoalInterruption(assistant: AssistantMessageLike) {

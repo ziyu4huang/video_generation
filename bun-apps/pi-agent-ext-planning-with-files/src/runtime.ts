@@ -21,12 +21,14 @@ import {
   POST_WRITE_REMINDER,
   PRE_TOOL_CACHE_SAFE_REMINDER,
 } from "./constants.js";
+import { isGoalActive } from "./coordination.js";
 import { isDangerousBashCommand } from "./guard.js";
 import { deriveEffectiveMode, resolveAutoApprove, resolveConfiguredMode } from "./modes.js";
 import {
   isAllPhasesComplete,
   isPlanClosed,
   isPlanIncomplete,
+  isPlanIncompleteInDir,
   type PlanStatus,
   readPlanStatus,
   summarizePlan,
@@ -91,6 +93,12 @@ function clearPlanStatus(ctx: ExtensionContext): void {
 
 export default function planningWithFilesExtension(pi: ExtensionAPI): void {
   const state: RuntimeState = createRuntimeState();
+
+  // Plan A coordination seam: publish the plan-incomplete query on globalThis
+  // so the /goal completion gate can read it WITHOUT a hard dep or relying on
+  // jiti<->native module identity. globalThis is process-singleton → always
+  // the live value. Graceful: if power-tool is absent, nobody reads this.
+  (globalThis as Record<string, unknown>).__piPlanIncomplete = isPlanIncompleteInDir;
 
   registerCommands(pi, state);
 
@@ -159,6 +167,16 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
 
     if (!isExecutionApproved(state, ctx, status)) {
       setPassivePlanStatus(ctx, status);
+      return;
+    }
+
+    // Plan A: yield injection to an active /goal. The goal's system-prompt
+    // addition already drives the agent; injecting the plan too would
+    // double-drive with opposing stance ("don't stop at a plan/TODO" vs
+    // "follow this plan"). Keep the status bar (zero model tokens) for user
+    // visibility. Goal paused/absent → planning resumes normal injection.
+    if (isGoalActive()) {
+      ctx.ui.setStatus(PKG_NAME, `${summarizePlan(status)} — /goal driving, injection yielded`);
       return;
     }
 
@@ -315,6 +333,15 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
 
     if (!isPlanIncomplete(status)) return;
 
+    // Plan A: an active /goal owns continuation (iteration count + token budget
+    // + recovery). Yield — sending planning's own auto-continue would collide
+    // with the goal's continuation prompt (double-drive). Goal paused/absent →
+    // planning resumes its bounded (3x) auto-continue below.
+    if (isGoalActive()) {
+      ctx.ui.setStatus(PKG_NAME, `${summarizePlan(status)} — /goal driving, auto-continue yielded`);
+      return;
+    }
+
     if (!isExecutionApproved(state, ctx, status)) {
       ctx.ui.notify(
         `[planning-with-files] Task incomplete (${status.completePhases}/${status.totalPhases}). Run /plan-execute to activate hooks.`,
@@ -378,7 +405,11 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
     ctx.ui.notify("[planning-with-files] PreCompact: flush progress.md and task_plan.md updates.", "info");
 
     const mode = deriveEffectiveMode(resolveConfiguredMode(ctx.cwd), ctx);
-    if (mode === "parity") {
+    // Plan A: skip the pre-compact parity nextTurn injection when a goal is
+    // active — the goal re-injects its drive on the next before_agent_start, and
+    // a second nextTurn injection collides. The notify (flush reminder) above is
+    // harmless and stays.
+    if (!isGoalActive() && mode === "parity") {
       pi.sendMessage(
         {
           customType: CUSTOM_TYPE,

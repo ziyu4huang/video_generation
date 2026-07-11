@@ -16,7 +16,7 @@
  *   - findFinalAssistantMessage
  *   - validateObjective
  */
-import { test, expect, describe, mock } from "bun:test";
+import { test, expect, describe, mock, beforeEach, afterEach } from "bun:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { GoalOverlayLike } from "../overlay.js";
 import goal, {
@@ -28,7 +28,9 @@ import goal, {
 	formatStatus,
 	formatTokenCount,
 	isContradictoryCompletionSummary,
+	isGoalActive,
 	isRetryableGoalInterruption,
+	planningGateBlocking,
 	parseCommand,
 	parseTokenBudget,
 	validateObjective,
@@ -1080,5 +1082,166 @@ describe("frozen session entry data", () => {
 describe("validateObjective", () => {
 	test("rejects empty goal", () => {
 		expect(validateObjective("")).toBe("Usage: /goal <goal_to_complete>");
+	});
+});
+
+// ─── Plan A coordination seam: isGoalActive ────────────────────────────────
+
+describe("isGoalActive (Plan A coordination seam)", () => {
+	// Module-level singleton state — these must run sequentially and clean up.
+
+	test("false with no goal, true while driving, false when paused / cleared", async () => {
+		const mock = createMockPi();
+		const overlay = createMockOverlay();
+		goal(mock.pi, overlay.impl);
+		const { ctx } = createMockCtx();
+
+		const sessionStart = mock.events.get("session_start")?.[0];
+		await (sessionStart as (e: unknown, c: unknown) => void)?.({}, ctx);
+
+		// No goal started yet → not active.
+		expect(isGoalActive()).toBe(false);
+
+		// Start a goal → active.
+		const goalCmd = mock.commands.get("goal");
+		await goalCmd?.handler("finish the coordination seam", ctx);
+		expect(isGoalActive()).toBe(true);
+
+		// Pause → not actively driving (planning may resume its own continuation).
+		await goalCmd?.handler("pause", ctx);
+		expect(isGoalActive()).toBe(false);
+
+		// Resume → active again.
+		await goalCmd?.handler("resume", ctx);
+		expect(isGoalActive()).toBe(true);
+
+		// Clear → not active.
+		await goalCmd?.handler("clear", ctx);
+		expect(isGoalActive()).toBe(false);
+
+		// Cleanup: reset module singleton for subsequent tests.
+		const shutdown = mock.events.get("session_shutdown")?.[0];
+		await (shutdown as (e: unknown, c: unknown) => void)?.({}, ctx);
+	});
+
+	test("false after goal_complete accepts a valid completion", async () => {
+		const { mock, ctx } = await startGoalForTest();
+		expect(isGoalActive()).toBe(true);
+
+		const tool = mock.tools[0]!;
+		await tool.execute(
+			"call-done",
+			{ summary: "Implemented and verified with bun test." },
+			new AbortController().signal,
+			() => undefined,
+			ctx,
+		);
+		expect(isGoalActive()).toBe(false);
+
+		const shutdown = mock.events.get("session_shutdown")?.[0];
+		await (shutdown as (e: unknown, c: unknown) => void)?.({}, ctx);
+	});
+});
+
+// ─── Plan A coordination seam: planningGateBlocking + goal_complete gate ─────
+
+describe("planningGateBlocking (Plan A completion gate)", () => {
+	const KEY = "__piPlanIncomplete";
+	let saved: unknown;
+
+	beforeEach(() => {
+		saved = (globalThis as Record<string, unknown>)[KEY];
+	});
+	afterEach(() => {
+		if (saved === undefined) delete (globalThis as Record<string, unknown>)[KEY];
+		else (globalThis as Record<string, unknown>)[KEY] = saved;
+	});
+
+	test("undefined when planning-with-files global is absent (standalone)", () => {
+		delete (globalThis as Record<string, unknown>)[KEY];
+		expect(planningGateBlocking(process.cwd())).toBeUndefined();
+	});
+
+	test("reason string when the plan has open phases", () => {
+		(globalThis as Record<string, unknown>)[KEY] = (_cwd: string) => true;
+		expect(planningGateBlocking(process.cwd())).toMatch(/incomplete phases/);
+	});
+
+	test("undefined when plan is complete / closed / absent", () => {
+		(globalThis as Record<string, unknown>)[KEY] = (_cwd: string) => false;
+		expect(planningGateBlocking(process.cwd())).toBeUndefined();
+	});
+
+	test("undefined (never throws) when the peer query throws", () => {
+		(globalThis as Record<string, unknown>)[KEY] = () => {
+			throw new Error("boom");
+		};
+		expect(planningGateBlocking(process.cwd())).toBeUndefined();
+	});
+});
+
+describe("goal_complete planning gate (Plan A integration)", () => {
+	const KEY = "__piPlanIncomplete";
+	let saved: unknown;
+
+	beforeEach(() => {
+		saved = (globalThis as Record<string, unknown>)[KEY];
+	});
+	afterEach(async () => {
+		if (saved === undefined) delete (globalThis as Record<string, unknown>)[KEY];
+		else (globalThis as Record<string, unknown>)[KEY] = saved;
+	});
+
+	test("blocks goal_complete while plan has open phases; releases when /plan-done clears it", async () => {
+		// Simulate planning-with-files reporting an incomplete plan.
+		let planIncomplete = true;
+		(globalThis as Record<string, unknown>)[KEY] = (_cwd: string) => planIncomplete;
+
+		const { mock, ctx } = await startGoalForTest();
+		const tool = mock.tools[0]!;
+
+		// Blocked: valid summary but plan still open.
+		const blocked = await tool.execute(
+			"call-block",
+			{ summary: "Implemented and verified with bun test." },
+			new AbortController().signal,
+			() => undefined,
+			ctx,
+		);
+		expect(blocked.terminate).toBeUndefined();
+		expect(blocked.content?.[0]?.text ?? "").toMatch(/incomplete phases/);
+		expect(blocked.content?.[0]?.text ?? "").toMatch(/\/plan-done/);
+		expect(lastGoalStatus(mock)).toBe("active"); // goal stays active
+
+		// Release: simulate /plan-done → plan no longer incomplete.
+		planIncomplete = false;
+		const accepted = await tool.execute(
+			"call-accept",
+			{ summary: "Implemented and verified with bun test." },
+			new AbortController().signal,
+			() => undefined,
+			ctx,
+		);
+		expect(accepted.terminate).toBe(true);
+		expect(lastGoalStatus(mock)).toBeNull();
+
+		const shutdown = mock.events.get("session_shutdown")?.[0];
+		await (shutdown as (e: unknown, c: unknown) => void)?.({}, ctx);
+	});
+
+	test("goal_complete proceeds when planning-with-files is not loaded (standalone)", async () => {
+		delete (globalThis as Record<string, unknown>)[KEY];
+		const { mock, ctx } = await startGoalForTest();
+		const tool = mock.tools[0]!;
+		const accepted = await tool.execute(
+			"call",
+			{ summary: "Implemented and verified." },
+			new AbortController().signal,
+			() => undefined,
+			ctx,
+		);
+		expect(accepted.terminate).toBe(true);
+		const shutdown = mock.events.get("session_shutdown")?.[0];
+		await (shutdown as (e: unknown, c: unknown) => void)?.({}, ctx);
 	});
 });

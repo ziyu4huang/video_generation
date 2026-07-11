@@ -238,7 +238,7 @@ The attestation is written to `.planning/<active-plan>/.attestation` (parallel-p
 
 | Don't | Do instead |
 |-------|------------|
-| Use a structured task-tree tool for persistence | Create `task_plan.md` (natural-language markdown beats pseudo-hierarchies) |
+| Use a structured task-tree tool for **cross-session** persistence | Create `task_plan.md` for cross-session, multi-phase work (natural-language markdown beats pseudo-hierarchies across sessions). The `todo` tool is fine for **in-session**, branch-aware step tracking within a phase — the two are complementary layers, not substitutes (see three-layer model below) |
 | State goals once and forget | Re-read the plan before decisions |
 | Hide errors and retry silently | Log errors to the plan file |
 | Stuff everything in context | Store large content in files |
@@ -246,3 +246,15 @@ The attestation is written to `.planning/<active-plan>/.attestation` (parallel-p
 | Repeat failed actions | Track attempts, mutate the approach |
 | Create files in the skill directory | Create files in your project |
 | Write web content to `task_plan.md` | Write external content to `findings.md` only |
+
+### The three-layer model (goal / planning / todo)
+
+When `/goal`, planning-with-files, and the `todo` tool are all active, they form three time-scales — not competing plans:
+
+| Layer | Tool | Scope | Persistence |
+|-------|------|-------|-------------|
+| Objective | `/goal` | one goal, driven to completion | session JSONL |
+| Plan | planning-with-files | multi-phase, cross-session | files on disk |
+| Steps | `todo` tool | within a phase, in-session | session JSONL (branch-aware) |
+
+Plan A coordination (shipped): when `/goal` is actively driving, planning-with-files YIELDS — it skips its plan injection and auto-continue (the goal owns endurance), and `goal_complete` is blocked while a plan has open phases (run `/plan-done` to release). So: use `todo` for the fine steps of the current phase, planning files for the cross-session phase breakdown, and `/goal` to drive the whole objective to done.

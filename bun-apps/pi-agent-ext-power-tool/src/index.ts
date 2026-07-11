@@ -37,10 +37,15 @@ import { replaceState } from "./todo/state/store";
 import { TOOL_NAME } from "./todo/tool/types";
 import { registerAskUserQuestionTool } from "./ask-user/ask-user-question";
 import { registerAskUserQuestionReconciler } from "./ask-user/reconcile";
-import goal from "./goal/goal.js";
+import goal, { isGoalActive } from "./goal/goal.js";
 import { GoalOverlay } from "./goal/overlay.js";
 import { ensureGetSystemPromptOptions } from "./sdk-patch.js";
 import { registerBtwFeature } from "./btw";
+
+// Re-export the goal-active coordination seam so peer extensions (e.g.
+// planning-with-files) can dynamic-import it via the package entry without
+// reaching into src/goal. (Plan A: goal ⇄ planning-with-files mutex.)
+export { isGoalActive };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -955,6 +960,13 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
   // on the tool execution context (ExtensionContext). This is a memory-only
   // monkey-patch — no filesystem writes. Safe to call multiple times.
   ensureGetSystemPromptOptions();
+
+  // ── Plan A coordination seam ─────────────────────────────────────────
+  // Publish isGoalActive on globalThis so peer extensions (planning-with-files)
+  // can read it WITHOUT a hard dep or relying on jiti<->native module identity.
+  // globalThis is process-singleton → the function always reads THIS module's
+  // activeGoal. Peer reads `globalThis.__piGoalActive?.() ?? false`.
+  (globalThis as Record<string, unknown>).__piGoalActive = isGoalActive;
 
   // getAllTools() is on ExtensionAPI (pi), not ExtensionContext (ctx).
   // Pass it as a closure into the tool so execute() can call it.
