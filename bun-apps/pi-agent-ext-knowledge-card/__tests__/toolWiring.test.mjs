@@ -56,6 +56,8 @@ const obsidianExports = [
 	"validateNoteIntegrity", "validateNoteIntegrityBatch",
 	"validateZettelNote", "validateZettelNotes",
 	"ZETTEL_MAX_BYTES", "ZETTEL_REQUIRED_KEYS",
+	"registerDeterministicHealthCheck", "runDeterministicHealthCheck",
+	"repairZettelFrontmatter", "mtimeToZettelIds",
 ];
 const mockObj = {};
 for (const name of obsidianExports) {
@@ -72,7 +74,8 @@ mockObj.parseFrontmatter = () => ({ data: {}, bodyStart: 0 });
 mockObj.validateZettelNote = () => ({ ok: true, errors: [] });
 mockObj.validateZettelNotes = async () => ({ valid: 0, invalid: [] });
 mockObj.ZETTEL_MAX_BYTES = 64 * 1024;
-mockObj.ZETTEL_REQUIRED_KEYS = ["id", "created", "tags"];
+mockObj.ZETTEL_REQUIRED_KEYS = ["id", "created", "tags", "sources"];
+mockObj.registerDeterministicHealthCheck = () => {};
 mockObj.fuzzyMatch = () => false;
 mockObj.isWeakModel = () => false;
 mockObj.isTransientError = () => false;
