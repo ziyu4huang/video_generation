@@ -1,25 +1,26 @@
 /**
  * pi-knowledge-card — Zettelkasten knowledge-management extension.
  *
- * Registers three tools that wrap the distill / knowledge CRUD / RAG workflows
- * as pi tools. Each tool spawns an isolated subagent (via pi-obsidian's runner)
+ * Registers four tools that wrap the knowledge CRUD / RAG workflows as pi
+ * tools. Each tool spawns an isolated subagent (via pi-obsidian's runner)
  * with the appropriate obsidian tools loaded — so this extension requires
  * pi-obsidian to be available in the same session.
  *
  * Tools:
- *   zk_extract       decompose markdown/text files into atomic Zettelkasten notes
  *   zk_card          CRUD over vault notes: add | find | update | remove | check
  *   zk_ask           graph-enhanced RAG query over the vault
  *   zk_ingest        deterministic convergence of .knowledge.jsonl → cards
  *   knowledge_query  deterministic cross-workflow tag-ranked digest (no LLM)
- *   graph_health     audit + auto-heal the convergence-folder graph
  *
- * The last two (knowledge_query / graph_health) are the hub's direct agent
- * surface over the retrieve.ts library — they do NOT spawn a subagent (no
- * LLM, no network), so they work even where the subagent-backed zk_* tools
- * are heavier. They were migrated here from pi-agent-ext-power-tool so the
- * knowledge-graph hub owns every agent-facing knowledge tool (consolidation
- * cycle, 2026-07-07).
+ * Phase 1 de-dup (2026-07-11): zk_extract removed (was a 100% passthrough to
+ *   obsidian_distill — use obsidian_distill directly). graph_health removed
+ *   (merged into obsidian_garden with engine:deterministic|llm param). The
+ *   library functions (graphHealth/healGraph in retrieve.ts) remain exported
+ *   for the CLI knowledge-pipeline command.
+ *
+ * knowledge_query is the hub's direct agent surface over the retrieve.ts
+ * library — it does NOT spawn a subagent (no LLM, no network), so it works
+ * even where the subagent-backed zk_* tools are heavier.
  *
  * This module is the SINGLE SOURCE OF TRUTH for the task builders
  * (buildDistillTask / buildAddTask / … / buildRagTask) and tool allowlists
@@ -39,6 +40,7 @@ import { Type } from "typebox";
 import {
 	runSubagentWithRetry,
 	resolveVault,
+	registerDeterministicHealthCheck,
 } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 import {
 	ingestRecords,
@@ -51,12 +53,10 @@ import {
 } from "../src/ingest.ts";
 import {
 	retrieveRecords,
+	type RetrieveOptions,
 	graphHealth,
 	healGraph,
 	formatHealth,
-	type RetrieveOptions,
-	type GraphHealthOptions,
-	type GraphHealthResult,
 } from "../src/retrieve.ts";
 
 // ---------------------------------------------------------------------------
@@ -557,111 +557,31 @@ export function buildRagTask(
 }
 
 // ---------------------------------------------------------------------------
+// Deterministic health check registration (Phase 1 de-dup)
+// Register graphHealth/healGraph with pi-obsidian so the obsidian garden tool's
+// deterministic engine can call them without a backwards import dependency.
+// ---------------------------------------------------------------------------
+registerDeterministicHealthCheck(async (opts) => {
+	const hOpts = { vaultPath: opts.vaultPath, folder: opts.folder, mocPath: opts.mocPath };
+	if (opts.fix) {
+		const healed = await healGraph(hOpts);
+		console.error(
+			`  [garden:det] heal: MOC ${healed.mocRegenerated ? "regenerated" : "no change"}, ` +
+			`${healed.deadLinksPruned} dead link(s) pruned in ${healed.cardsTouched.length} card(s)`,
+		);
+	}
+	const h = await graphHealth(hOpts);
+	return { health: h, text: formatHealth(h) };
+});
+
+// ---------------------------------------------------------------------------
 // Extension registration
 // ---------------------------------------------------------------------------
 
 export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
-	// ---- Tool: zk_extract ---------------------------------------------------
-	pi.registerTool({
-		name: "zk_extract",
-		label: "ZK Extract",
-		description: [
-			"Decompose markdown/text files into atomic Zettelkasten notes in the Obsidian vault.",
-			"Internally delegates to obsidian_distill via an isolated subagent.",
-			"Each input file is split into self-contained note cards (one idea per note) with",
-			"frontmatter, wiki-links to related notes, and tags. Output is in Traditional Chinese.",
-		].join(" "),
-		promptSnippet: "Distill files into atomic Zettelkasten notes in the Obsidian vault",
-		parameters: Type.Object({
-			files: Type.Array(Type.String(), {
-				description:
-					"Paths to markdown/text files to distill (absolute or relative to cwd).",
-			}),
-			folder: Type.Optional(
-				Type.String({
-					description: "Vault folder for new notes (default: Zettelkasten).",
-					default: "Zettelkasten",
-				}),
-			),
-			max_notes: Type.Optional(
-				Type.Number({
-					description:
-						"Approximate cap on total notes produced (quality over quantity).",
-					minimum: 1,
-				}),
-			),
-			model: Type.Optional(
-				Type.String({
-					description:
-						"Override the distill subagent's model (provider/id[:thinking]). Omit to use the pi default — mirrors the CLI --model flag.",
-				}),
-			),
-			exclude_tools: Type.Optional(
-				Type.Array(Type.String(), {
-					description:
-						"Tool names to deny the distill subagent (mirrors the CLI --exclude-tools flag).",
-				}),
-			),
-		}),
-		async execute(_id, params, signal, _u, ctx) {
-			const { cwd } = ctx;
-			const files = params.files ?? [];
-			if (files.length === 0) {
-				return {
-					content: [{ type: "text", text: "No input files provided." }],
-					isError: true,
-					details: null,
-				};
-			}
-			const folder = params.folder ?? "Zettelkasten";
-			const task = buildDistillTask(files, cwd, folder, params.max_notes);
-			const { output, exitCode, stderr, timedOut } = await runSubagentWithRetry(
-				cwd,
-				"",
-				task,
-				DISTILL_TOOLS.join(","),
-				signal,
-				"pi-kc-distill-",
-				{ model: params.model, excludeTools: params.exclude_tools },
-			);
-			if (timedOut) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Distill timed out.\n${output.slice(-2000)}`,
-						},
-					],
-					isError: true,
-					details: { timedOut, stderr },
-				};
-			}
-			if (exitCode !== 0 && !output) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Distill failed (exit ${exitCode}).\n${stderr.slice(-2000)}`,
-						},
-					],
-					isError: true,
-					details: { exitCode, stderr },
-				};
-			}
-			return {
-				content: [
-					{
-						type: "text",
-						text: withVault(
-							await vaultHeader(ctx.cwd),
-							output || "(distill produced no output)",
-						),
-					},
-				],
-				details: { exitCode, stderr },
-			};
-		},
-	});
+	// zk_extract tool removed (Phase 1 de-dup): it was a 100% passthrough to
+	// obsidian_distill. Use obsidian_distill directly. buildDistillTask remains
+	// exported above for the CLI zk-extract command.
 
 	// ---- Tool: zk_card ------------------------------------------------------
 	pi.registerTool({
@@ -1035,7 +955,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			"Deterministically converge structured .knowledge.jsonl records into the shared Zettelkasten vault.",
 			"One card per record (id/type/title/detail/tags/dimension/confidence/status/superseded_by/evidence),",
 			"dedup'd by canonical record id (re-ingest upserts in place), cross-linked by shared tags,",
-			"and indexed by a Knowledge Graph MOC. No LLM — lossless + idempotent, unlike zk_extract.",
+			"and indexed by a Knowledge Graph MOC. No LLM — lossless + idempotent, unlike obsidian_distill.",
 			"This is the convergence sink that lets every self-improve loop's distilled knowledge flow",
 			"into ONE queryable, backlinked graph that zk_ask can traverse cross-source.",
 		].join(" "),
@@ -1276,58 +1196,6 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			return {
 				content: [{ type: "text" as const, text: lines.join("\n") }],
 				details: result,
-			};
-		},
-	});
-
-	// ─── graph_health tool (migrated from pi-agent-ext-power-tool) ──────────
-	// Audit + auto-heal the convergence-folder graph (no LLM). Scoped to the
-	// convergence folder — never touches human-authored cards. Same library
-	// zk-query (CLI) consumes.
-	pi.registerTool({
-		name: "graph_health",
-		label: "Graph Health",
-		description:
-			"Audit the knowledge graph's structural health: dead wiki-links, MOC drift " +
-			"(stale/missing Tags/Knowledge Graph.md), and orphan cards. Supports --fix " +
-			"(auto-heal: regenerate MOC + prune dead links, scoped to the convergence " +
-			"folder — never touches human-authored cards).",
-		promptSnippet: "Audit graph health of the knowledge vault",
-		parameters: Type.Object({
-			fix: Type.Optional(Type.Boolean({
-				description: "Auto-heal drift: regenerate MOC + prune dead links",
-				default: false,
-			})),
-		}),
-		async execute(_id, params, _signal, _onUpdate, ctx) {
-			let vaultPath: string;
-			try {
-				vaultPath = await resolveKnowledgeVault(ctx.cwd);
-			} catch (e) {
-				return {
-					content: [{ type: "text" as const, text: `graph_health: vault resolution failed: ${(e as Error).message}` }],
-					isError: true,
-					details: { code: "vault_resolution_failed" },
-				};
-			}
-
-			const folder = "Zettelkasten/knowledge-graph";
-			const mocPath = "Tags/Knowledge Graph.md";
-			const hOpts: GraphHealthOptions = { vaultPath, folder, mocPath };
-
-			if (params.fix) {
-				const healed = await healGraph(hOpts);
-				const healMsg = `heal: MOC ${healed.mocRegenerated ? "regenerated" : "no change"}, ` +
-					`${healed.deadLinksPruned} dead link(s) pruned in ${healed.cardsTouched.length} card(s)`;
-				console.error(healMsg);
-			}
-
-			const h: GraphHealthResult = await graphHealth(hOpts);
-			const report = formatHealth(h);
-
-			return {
-				content: [{ type: "text" as const, text: report }],
-				details: h,
 			};
 		},
 	});

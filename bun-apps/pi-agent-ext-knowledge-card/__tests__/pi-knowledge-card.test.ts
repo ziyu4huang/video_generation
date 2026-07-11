@@ -583,22 +583,6 @@ async function runTool(name: string, params: any): Promise<any> {
 	return tool.execute(undefined, params, undefined, undefined, CTX);
 }
 
-describe("zk_extract execute validation", () => {
-	test("empty files array -> error, no spawn", async () => {
-		const res = await runTool("zk_extract", { files: [] });
-		expect(res.isError).toBe(true);
-		expect(res.content[0].text).toContain("No input files");
-		// details is null when validation fails before any subagent call
-		expect(res.details).toBeNull();
-	});
-
-	test("missing files -> treated as empty -> error", async () => {
-		const res = await runTool("zk_extract", {});
-		expect(res.isError).toBe(true);
-		expect(res.content[0].text).toContain("No input files");
-	});
-});
-
 describe("zk_card execute validation", () => {
 	test("add without content -> error", async () => {
 		const res = await runTool("zk_card", { action: "add" });
@@ -637,26 +621,22 @@ describe("zk_card execute validation", () => {
 });
 
 describe("tool registration", () => {
-	test("registers exactly zk_extract, zk_card, zk_ask, zk_ingest, knowledge_query, graph_health", () => {
+	test("registers exactly zk_card, zk_ask, zk_ingest, knowledge_query", () => {
 		const tools = loadTools();
 		expect(Object.keys(tools).sort()).toEqual([
-			"graph_health",
 			"knowledge_query",
 			"zk_ask",
 			"zk_card",
-			"zk_extract",
 			"zk_ingest",
 		]);
 	});
 
-	test("the migrated knowledge_query + graph_health tools are wired (consolidation cycle)", () => {
+	test("the migrated knowledge_query tool is wired (consolidation cycle)", () => {
 		const tools = loadTools();
 		// Migrated from pi-agent-ext-power-tool so the hub owns every agent-facing
-		// knowledge tool. Both are no-LLM surfaces over retrieve.ts.
+		// knowledge tool. No-LLM surface over retrieve.ts.
 		expect(tools.knowledge_query).toBeDefined();
-		expect(tools.graph_health).toBeDefined();
 		expect(typeof tools.knowledge_query.execute).toBe("function");
-		expect(typeof tools.graph_health.execute).toBe("function");
 	});
 
 	test("each registered tool has a non-empty description and execute fn", () => {
@@ -668,14 +648,14 @@ describe("tool registration", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Migrated tools (knowledge_query / graph_health) — behavior preservation.
+// Migrated tool (knowledge_query) — behavior preservation.
 // Proves the move from pi-agent-ext-power-tool kept the tool-level behavior:
-// they resolve the vault (OB_VAULT_PATH) and return the retrieve.ts digest /
-// graphHealth report. The underlying library contracts are covered by
-// retrieve.test.ts; this pins the tool EXECUTE wrappers.
+// it resolves the vault (OB_VAULT_PATH) and returns the retrieve.ts digest.
+// The underlying library contracts are covered by retrieve.test.ts; this pins
+// the tool EXECUTE wrapper.
 // ---------------------------------------------------------------------------
 
-describe("knowledge_query + graph_health (migrated tools)", () => {
+describe("knowledge_query (migrated tool)", () => {
 	let vault: string;
 	let prevVaultEnv: string | undefined;
 
@@ -749,16 +729,4 @@ describe("knowledge_query + graph_health (migrated tools)", () => {
 		}
 	});
 
-	test("graph_health audits a freshly-ingested graph as OK", async () => {
-		await ingestRecords([{
-			id: "migrated:g1", type: "gotcha", title: "G1", detail: "d", tags: ["argv"],
-			dimension: "correctness", confidence: 0.8, status: "active", superseded_by: null,
-		} as KnowledgeRecord], {
-			vaultPath: vault, source: "workflow-jsonl", sourceLabel: "t",
-		});
-		const res = await runTool("graph_health", {});
-		expect(res.content[0].text).toContain("status:");
-		expect(res.content[0].text).toContain("card(s)");
-		expect(res.details.ok).toBe(true);
-	});
 });

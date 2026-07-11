@@ -1,7 +1,7 @@
 /**
  * src/ingest.ts — deterministic knowledge-graph convergence primitive.
  *
- * The pi-knowledge-card tools (zk_extract / zk_card / zk_ask) are LLM-subagent
+ * The pi-knowledge-card tools (zk_card / zk_ask) are LLM-subagent
  * coordinators: they decompose free-form markdown into atomic zettels. That is
  * the right tool for UNSTRUCTURED text, but the self-improve loops already
  * produce STRUCTURED knowledge — `.claude/workflows/*.knowledge.jsonl` records

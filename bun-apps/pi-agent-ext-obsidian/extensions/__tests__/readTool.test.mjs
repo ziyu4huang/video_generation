@@ -17,7 +17,7 @@ const mod = await import("../obsidian.ts");
 function makeFakePi() {
 	const tools = {};
 	const pi = {
-		registerTool: (t) => { tools[t.name] = t; },
+		registerTool: (t) => { tools[t.name] = t; if (t._capturedTools) Object.assign(tools, t._capturedTools); },
 		registerCommand: () => {},
 		on: () => {},
 	};

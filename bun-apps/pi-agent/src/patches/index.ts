@@ -54,7 +54,7 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   // subagent-model-floor: reads obsidian.subagentModel from ~/.pi/agent/settings.json
   // and publishes it as OB_SUBAGENT_MODEL before main(). The real pi TUI does NOT
   // set OB_PARENT_MODEL/OB_SUBAGENT_MODEL, so without this every distill/garden
-  // subagent (zk_extract / zk_card / zk_ask / obsidian_distill) with no --model
+  // subagent (zk_card / zk_ask / obsidian_distill) with no --model
   // hits the pi default path → the "no subagent model configured" warning + a
   // slow inherited model → distill timeouts. Must run AFTER ensure-extension-deps
   // (it imports getAgentDir from @earendil-works/pi-coding-agent, whose repo-root

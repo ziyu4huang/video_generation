@@ -10,7 +10,8 @@
  *
  *   zk_ingest (tool) -> src/ingest.ts -> real files on disk -> MOC + cross-links
  *   knowledge_query (tool) -> src/retrieve.ts -> reads those files back
- *   graph_health (tool) -> src/retrieve.ts -> audits the folder it just wrote
+ *   graphHealth (library) -> src/retrieve.ts -> audits the folder it just wrote
+ *     (was graph_health tool; merged into obsidian_garden engine:deterministic in Phase 1)
  *
  * No LLM, no subagent, no mock of pi-obsidian's parser/index/validate — those
  * run for REAL against a temp vault. The ONLY redirection is vault resolution:
@@ -42,6 +43,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { graphHealth, healGraph, formatHealth } from "../src/retrieve.ts";
 
 // ---------------------------------------------------------------------------
 // mock.module guard — pre-load the REAL obsidian module by absolute path
@@ -135,6 +137,15 @@ rmSync(vault, { recursive: true, force: true });
 
 const FOLDER = "Zettelkasten/knowledge-graph";
 const MOC = "Tags/Knowledge Graph.md";
+
+// graph_health tool removed (Phase 1 de-dup); audit via library directly.
+async function auditHealth() {
+	return graphHealth({ vaultPath: vault, folder: FOLDER, mocPath: MOC });
+}
+async function fixHealth() {
+	await healGraph({ vaultPath: vault, folder: FOLDER, mocPath: MOC });
+	return graphHealth({ vaultPath: vault, folder: FOLDER, mocPath: MOC });
+}
 
 // ---- test records (synthetic cross-source fixture for orchestration) -------
 
@@ -397,7 +408,7 @@ describe("E2E - knowledge_query (tool -> library -> reads ingested cards)", () =
 // PHASE 3 — AUDIT: graph_health audits the folder the tools just wrote
 // ===========================================================================
 
-describe("E2E - graph_health (tool -> library -> audits own output)", () => {
+describe("E2E - graphHealth (library -> audits own output)", () => {
 	async function seed() {
 		const f = join(vault, "flux2.knowledge.jsonl");
 		const l = join(vault, "ltx.knowledge.jsonl");
@@ -414,13 +425,12 @@ describe("E2E - graph_health (tool -> library -> audits own output)", () => {
 
 	test("a freshly-ingested graph is healthy (no dead links, MOC in sync)", async () => {
 		await seed();
-		const res = await run("graph_health", {});
-		expect(res.isError).toBeUndefined();
-		expect(res.details.ok).toBe(true);
-		expect(res.details.cardCount).toBe(4);
-		expect(res.details.deadLinks.length).toBe(0);
-		expect(res.details.mocMissing).toBe(false);
-		expect(res.details.mocStale).toBe(false);
+		const h = await auditHealth();
+		expect(h.ok).toBe(true);
+		expect(h.cardCount).toBe(4);
+		expect(h.deadLinks.length).toBe(0);
+		expect(h.mocMissing).toBe(false);
+		expect(h.mocStale).toBe(false);
 	});
 
 	test("MOC drift is detected (delete the MOC -> mocMissing)", async () => {
@@ -430,9 +440,9 @@ describe("E2E - graph_health (tool -> library -> audits own output)", () => {
 			"@repo/pi-agent-ext-obsidian/extensions/obsidian.ts"
 		);
 		invalidateCache(vault);
-		const res = await run("graph_health", {});
-		expect(res.details.mocMissing).toBe(true);
-		expect(res.details.ok).toBe(false);
+		const h = await auditHealth();
+		expect(h.mocMissing).toBe(true);
+		expect(h.ok).toBe(false);
 	});
 
 	test("fix:true heals MOC drift (regenerates the MOC)", async () => {
@@ -443,15 +453,15 @@ describe("E2E - graph_health (tool -> library -> audits own output)", () => {
 		);
 		invalidateCache(vault);
 
-		const res = await run("graph_health", { fix: true });
-		expect(res.details.ok).toBe(true);
+		const h = await fixHealth();
+		expect(h.ok).toBe(true);
 		expect(existsSync(join(vault, MOC))).toBe(true);
 	});
 
 	test("report includes the human-readable formatHealth text", async () => {
 		await seed();
-		const res = await run("graph_health", {});
-		const text = res.content[0].text;
+		const h = await auditHealth();
+		const text = formatHealth(h);
 		expect(text).toMatch(/card/i);
 		expect(text).toMatch(/dead|link|ok/i);
 	});
@@ -485,9 +495,9 @@ describe("E2E - full deterministic orchestration (write -> read -> audit)", () =
 		expect(queryRes.details.scanned).toBeGreaterThanOrEqual(3);
 
 		// 3. AUDIT
-		const healthRes = await run("graph_health", {});
-		expect(healthRes.details.ok).toBe(true);
-		expect(healthRes.details.cardCount).toBe(4);
+		const healthRes = await auditHealth();
+		expect(healthRes.ok).toBe(true);
+		expect(healthRes.cardCount).toBe(4);
 
 		// 4. RE-WRITE (idempotency)
 		invalidateCache(vault);
@@ -497,8 +507,8 @@ describe("E2E - full deterministic orchestration (write -> read -> audit)", () =
 
 		// 5. graph still healthy after re-ingest
 		invalidateCache(vault);
-		const healthRes2 = await run("graph_health", {});
-		expect(healthRes2.details.ok).toBe(true);
+		const healthRes2 = await auditHealth();
+		expect(healthRes2.ok).toBe(true);
 	});
 });
 
@@ -551,9 +561,9 @@ describe("E2E - real pi-ext-dev fixture (reproducible extraction guard)", () => 
 		expect(ids.every((id: string) => id.startsWith("pi-ext-dev:"))).toBe(true);
 
 		invalidateCache(vault);
-		const healthRes = await run("graph_health", {});
-		expect(healthRes.details.ok).toBe(true);
-		expect(healthRes.details.cardCount).toBe(FIXTURE_RECORD_COUNT);
+		const healthRes = await auditHealth();
+		expect(healthRes.ok).toBe(true);
+		expect(healthRes.cardCount).toBe(FIXTURE_RECORD_COUNT);
 	});
 
 	test("the fixture ingest is idempotent (byte-stable re-run)", async () => {
