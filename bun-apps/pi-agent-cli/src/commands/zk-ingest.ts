@@ -17,6 +17,8 @@
  *   --vault <path>         absolute vault path
  *   --vault-dir <name>     vault folder under cwd (default vault)
  *   --dry-run              report only, write nothing
+ *   --link-weighting <mode> count | idf (default count). IDF weights cross-links
+ *                          by tag rarity (P8, SAG-inspired).
  */
 import { existsSync, readFileSync, mkdirSync } from "node:fs";
 import { resolve, isAbsolute } from "node:path";
@@ -64,6 +66,10 @@ Options:
   --vault <path>           absolute vault path (sets OB_VAULT_PATH)
   --vault-dir <name>       vault folder name under cwd (default vault)
   --dry-run                report what would change, write nothing
+  --link-weighting <mode>  count | idf (default count). IDF weights cross-links
+                           by tag rarity so specific bridges (pi-obsidian)
+                           outrank ubiquitous type-tags (pattern) — P8.
+                           Also extracts typed entities as additive frontmatter.
 
 Examples:
   bun-pi-agent-cli zk-ingest .claude/workflows/pi-infra-self-improve.knowledge.jsonl
@@ -129,6 +135,7 @@ Examples:
 			sourceLabel,
 			folder: parsed.folder,
 			dryRun: parsed.dryRun === true,
+			linkWeighting: parsed.linkWeighting === "idf" ? "idf" : "count",
 		});
 		summary.parseErrors.push(...parseErrors);
 		console.log(formatSummary(summary));
