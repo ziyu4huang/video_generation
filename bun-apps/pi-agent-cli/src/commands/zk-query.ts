@@ -111,9 +111,11 @@ Examples:
 		// ── HEALTH MODE ──────────────────────────────────────────────────
 		if (parsed.health) {
 			const mocPath = "Tags/Knowledge Graph.md";
-			if (parsed.fix) {
+			if (parsed.fix && !parsed.dryRun) {
 				const healed = await healGraph({ vaultPath, folder, mocPath });
 				console.error(`heal: MOC ${healed.mocRegenerated ? "regenerated" : "(no change)"}, ${healed.deadLinksPruned} dead link(s) pruned in ${healed.cardsTouched.length} card(s)`);
+			} else if (parsed.fix && parsed.dryRun) {
+				console.error("[dry-run] --fix suppressed (would heal graph: regenerate MOC + prune dead links)");
 			}
 			const h = await graphHealth({ vaultPath, folder, mocPath });
 			if (parsed.json || parsed.mode === "json") {
@@ -134,7 +136,7 @@ Examples:
 				vaultPath,
 				folder,
 				threshold,
-				dryRun: !parsed.fix,
+				dryRun: !parsed.fix || parsed.dryRun === true,
 			});
 			if (parsed.json || parsed.mode === "json") {
 				console.log(JSON.stringify({ mode: "merge", ...m }, null, 2));

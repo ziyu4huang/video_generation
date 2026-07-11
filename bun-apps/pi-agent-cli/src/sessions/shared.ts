@@ -170,6 +170,43 @@ export function allModels(reg: any): any[] {
 /** Zero-cost policy for baked providers (local servers, no billing). */
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
+/**
+ * Obsidian tools capable of MUTATING the vault. Excluded under `--dry-run` so an
+ * agent-driven command (zk-card add, zk-extract, zk-ask, url-to-vault, …) can
+ * read + plan but CANNOT write — a deterministic dry-run that doesn't rely on
+ * the LLM obeying a "don't write" instruction. Read-only tools (obsidian_read,
+ * obsidian_search, obsidian_list, obsidian_query, obsidian_status, obsidian_open,
+ * obsidian_semantic_search) stay available so the agent can still gather context
+ * and report what it WOULD do.
+ */
+export const WRITE_TOOLS: readonly string[] = [
+	"obsidian_create",
+	"obsidian_append",
+	"obsidian_append_section",
+	"obsidian_update_frontmatter",
+	"obsidian_move",
+	"obsidian_rename",
+	"obsidian_delete",
+	"obsidian_invalidate",
+	"obsidian_distill",
+	"obsidian_garden",
+];
+
+/**
+ * Effective excludeTools: the user's excludes PLUS every write tool when
+ * `--dry-run` is set. Returns `undefined` when neither applies so the session
+ * keeps its default (no exclusion). Dedup'd so a user who already excluded a
+ * write tool doesn't get a duplicate entry.
+ */
+export function dryRunExclude(parsed: {
+	dryRun?: boolean;
+	excludeTools?: string[];
+}): string[] | undefined {
+	const base = parsed.excludeTools ?? [];
+	if (!parsed.dryRun) return parsed.excludeTools;
+	return [...new Set([...base, ...WRITE_TOOLS])];
+}
+
 /** PI_SKIP_MODELS_JSON=1 → hermetic binary: no ~/.pi/agent/models.json read. */
 function isSkipModelsJson(): boolean {
 	const v = process.env.PI_SKIP_MODELS_JSON;

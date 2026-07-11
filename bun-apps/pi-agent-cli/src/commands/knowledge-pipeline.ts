@@ -237,7 +237,7 @@ Examples:
 
 		// ── LINT (merge + heal only) ────────────────────────────────────
 		if (sub === "lint") {
-			const dryRun = parsed.fix !== true;
+			const dryRun = parsed.fix !== true || parsed.dryRun === true;
 			const merge = await mergeDuplicates({ vaultPath, folder, threshold, dryRun });
 			const heal = dryRun ? null : await healGraph({ vaultPath, folder, mocPath });
 			const health = await graphHealth({ vaultPath, folder, mocPath });
@@ -254,7 +254,7 @@ Examples:
 		}
 
 		// ── RUN / DRY-RUN (converge + merge + heal) ─────────────────────
-		const dryRun = sub === "dry-run";
+		const dryRun = sub === "dry-run" || parsed.dryRun === true;
 
 		// Optional: reset convergence state for a full re-converge.
 		if (!dryRun && parsed.reconverge) {

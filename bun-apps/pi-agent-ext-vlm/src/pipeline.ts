@@ -14,9 +14,11 @@ import {
   type DocKind,
   type DocProfile,
 } from "./vlm/classify.ts";
-import { classifyProfileViaVlm } from "./vlm/classify-vlm.ts";
-import { explainPage } from "./vlm/agents.ts";
-import { withRetry } from "./vlm/retry.ts";
+import { classifyProfileFromPages } from "./vlm/classify-vlm.ts";
+import { explainPage, type ExplainMode } from "./vlm/agents.ts";
+import { withRetry, retryableError } from "./vlm/retry.ts";
+import { validatePageMarkdown } from "./vlm/validate.ts";
+import { PageContext, formatContext } from "./vlm/page-context.ts";
 import {
   slugify,
   layoutFor,
@@ -32,8 +34,11 @@ import { resolveLLM, type ResolvedLLM } from "./sessions.ts";
 
 export const DEFAULT_VLM_MODEL = "lm-studio/google/gemma-4-26b-a4b-qat";
 
-const DEFAULT_RETRIES = Number(process.env.PI_VLM_RETRIES ?? 3);
-const DEFAULT_RETRY_WAIT_MS = Number(process.env.PI_VLM_RETRY_WAIT_MS ?? 10_000);
+// Read lazily at call time (not module load) so tests / callers can set the env
+// vars any time before the pipeline runs — evaluating at load froze the values
+// whenever another importer preloaded this module first.
+const defaultRetries = () => Number(process.env.PI_VLM_RETRIES ?? 3);
+const defaultRetryWaitMs = () => Number(process.env.PI_VLM_RETRY_WAIT_MS ?? 10_000);
 
 export interface VlmDescribePipelineOpts {
   inputs: string[];
@@ -46,6 +51,14 @@ export interface VlmDescribePipelineOpts {
   dpi?: number;
   /** When true, display paths as relative to cwd instead of absolute. Default false (abs). */
   relpath?: boolean;
+  /** Max concurrent page extractions (default 1; env PI_VLM_CONCURRENCY).
+   *  >1 runs pages in parallel but DISABLES cross-page context (S1), which
+   *  requires strict page order. Speed mode for remote / multi-slot providers. */
+  concurrency?: number;
+  /** Output language for the per-page notes (T3, default zh-TW). */
+  lang?: string;
+  /** Processing mode (T3, default hybrid). */
+  mode?: ExplainMode;
   /** Optional NDJSON emitter (json mode). */
   emit?: (obj: unknown) => void;
 }
@@ -67,6 +80,19 @@ function parsePageSpec(spec: string, total: number): Set<number> {
     }
   }
   return out;
+}
+
+/** Run `fn` over `items` with at most `limit` concurrent invocations (T2). */
+export async function runPool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  if (limit < 1) limit = 1;
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < items.length) {
+      const idx = cursor++;
+      await fn(items[idx]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
 }
 
 interface PreparedDoc {
@@ -170,6 +196,8 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
     relpath = false,
   } = opts;
 
+  const concurrency = opts.concurrency ?? Number(process.env.PI_VLM_CONCURRENCY ?? 1);
+
   if (inputs.length === 0) {
     throw new Error("No input files given.");
   }
@@ -199,6 +227,7 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
   console.error(`  dpi:   ${dpi}`);
   if (pages) console.error(`  pages: ${pages}`);
   if (forcedType) console.error(`  type:  ${forcedType} (forced, skip classifier)`);
+  if (concurrency > 1) console.error(`  concurrency: ${concurrency} (cross-page context off)`);
   console.error();
 
   for (const input of inputs) {
@@ -235,17 +264,25 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
       console.error(`  profile: ${profile} (reused from existing run)`);
     } else {
       const page1Png = doc.pagePngs[0]!;
-      console.error(`  classifying profile via VLM (page 1)…`);
+      // S4 — sample up to 3 representative pages (first / middle / last) and
+      // majority-vote, so a atypical cover page can't misclassify the whole doc.
+      const sampleIdx =
+        doc.pageCount <= 1 ? [0]
+        : doc.pageCount === 2 ? [0, 1]
+        : [0, Math.floor(doc.pageCount / 2), doc.pageCount - 1];
+      const samplePngs = sampleIdx.map((i) => doc.pagePngs[i]!);
+      console.error(
+        `  classifying profile via VLM (${samplePngs.length} sampled page${samplePngs.length > 1 ? "s" : ""})…`,
+      );
       try {
-        const { profile: p, reply } = await classifyProfileViaVlm(
-          page1Png,
-          "image/png",
+        const { profile: p, replies } = await classifyProfileFromPages(
+          samplePngs.map((p) => ({ path: p, mimeType: "image/png" })),
           llm,
         );
         profile = p;
         manifest.profile = profile;
-        console.error(`  → profile: ${profile}${reply ? `  (raw: "${reply.slice(0, 40)}")` : ""}`);
-        emit?.({ type: "classify", slug: doc.slug, profile, reply });
+        console.error(`  → profile: ${profile}  (votes: ${replies.join(" / ")})`);
+        emit?.({ type: "classify", slug: doc.slug, profile, reply: replies.join(" / ") });
       } catch (e: any) {
         console.error(`  ! classifier failed: ${e?.message}; defaulting to paper`);
         profile = doc.kind === "pdf" ? "paper" : "image";
@@ -261,11 +298,22 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
       );
     }
 
-    for (let i = 0; i < doc.pageCount; i++) {
-      const pageNo = i + 1;
-      if (only && !only.has(pageNo)) continue;
+    // S1 — rolling cross-page context (serial mode only; see concurrency note).
+    const pageContext = new PageContext();
+
+    // Extract ONE page's extraction into a closure shared by serial + parallel
+    // modes. Returns {ok, markdown} so the serial coordinator can feed the
+    // rolling context. writeManifest is synchronous, so concurrent calls are
+    // safe under the single-threaded event loop (no mutex needed).
+    const runPage = async (
+      pageNo: number,
+      priorContext: string | undefined,
+    ): Promise<{ ok: boolean; markdown: string }> => {
+      const i = pageNo - 1;
       const mp = manifest.pages[i]!;
-      if (mp.status === "done" && existsSync(doc.layout.mdAbs(pageNo))) continue;
+      if (mp.status === "done" && existsSync(doc.layout.mdAbs(pageNo))) {
+        return { ok: true, markdown: "" };
+      }
 
       const pngAbs = doc.pagePngs[i]!;
       const pngLinkName = basename(pngAbs);
@@ -287,13 +335,19 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
               docSlug: doc.slug,
               pageNo,
               pageCount: doc.pageCount,
+              priorContext,
+              lang: opts.lang,
+              mode: opts.mode,
             });
             if (!r.ok) throw new Error(r.error ?? "unknown error");
+            // S2 — output quality gate; gate failure is retryable.
+            const validation = validatePageMarkdown(r.markdown, { page: pageNo, kind: profile });
+            if (!validation.ok) throw retryableError(`gate: ${validation.reason}`);
             return r;
           },
           {
-            maxRetries: DEFAULT_RETRIES,
-            retryWaitMs: DEFAULT_RETRY_WAIT_MS,
+            maxRetries: defaultRetries(),
+            retryWaitMs: defaultRetryWaitMs(),
             onRetry: ({ attempt, maxRetries: mx, waitMs: w }) =>
               console.error(
                 `  [${pageNo}/${doc.pageCount}] 429/transient — 等待 ${Math.round(w / 1000)}s 後重試 (${attempt}/${mx})`,
@@ -318,6 +372,30 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
         emit?.({ type: "page", slug: doc.slug, page: pageNo, status: "error", error: mp.error });
       }
       writeManifest(doc.layout, manifest);
+      return { ok: !!(res.ok && res.markdown), markdown: res.markdown ?? "" };
+    };
+
+    if (concurrency <= 1) {
+      // Serial: full S1 cross-page context (page N sees pages 1..N-1).
+      for (let i = 0; i < doc.pageCount; i++) {
+        const pageNo = i + 1;
+        if (only && !only.has(pageNo)) continue;
+        const priorContext = formatContext(pageContext.snapshot());
+        const r = await runPage(pageNo, priorContext);
+        if (r.ok && r.markdown) pageContext.feed(r.markdown);
+      }
+    } else {
+      // Parallel (T2): bounded pool. Cross-page context is disabled — S1's
+      // rolling context needs strict page order, incompatible with parallelism.
+      // Pages run independently (speed mode for remote / multi-slot providers;
+      // local LM Studio typically single-slots, hence default concurrency 1).
+      const pageNos: number[] = [];
+      for (let i = 0; i < doc.pageCount; i++) {
+        const p = i + 1;
+        if (only && !only.has(p)) continue;
+        pageNos.push(p);
+      }
+      await runPool(pageNos, concurrency, (pageNo) => runPage(pageNo, undefined));
     }
 
     writeIndexNote(doc.layout, manifest, profile, cwd);

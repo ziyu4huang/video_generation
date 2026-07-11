@@ -2,10 +2,15 @@
  * Build pipeline with protection tiers for bun-pi-agent-cli.
  *
  * Tiers:
- *   bun scripts/build.ts             bundle + minify + external sourcemap
+ *   bun scripts/build.ts             bundle + minify (NO sourcemap by default)
+ *   bun scripts/build.ts --sourcemap  also emit the external sourcemap (.map)
  *   bun scripts/build.ts --obfuscate + javascript-obfuscator (control-flow, strings, self-defending)
  *   bun scripts/build.ts --compile   bun --compile → standalone executable
  *   bun scripts/build.ts --all       minify → obfuscate → compile
+ *
+ * Sourcemap is OPT-IN: the .map embeds full original source (sourcesContent)
+ * and is never shipped — it is debug-only. Default off; pass --sourcemap for
+ * in-place bundle debugging. Aligns with pi-agent/scripts/build.ts.
  *
  * Output (one level up, namespaced by package name):
  *   ../dist/<pkg-name>/cli.js          bundled entry (minified, optionally obfuscated)
@@ -47,6 +52,9 @@ const EXE = `${OUTDIR}/${APP_NAME}`;
 const argv = process.argv.slice(2);
 const DO_OBFUSCATE = argv.includes("--obfuscate") || argv.includes("--all");
 const DO_COMPILE = argv.includes("--compile") || argv.includes("--all");
+// Sourcemap is opt-in (see file header): the .map embeds full source and is
+// never shipped. Default off; pass --sourcemap for in-place bundle debugging.
+const WITH_SOURCEMAP = argv.includes("--sourcemap");
 
 function clean(...files: string[]) {
 	for (const f of files) if (existsSync(f)) rmSync(f);
@@ -96,20 +104,22 @@ async function stageBundle() {
 		format: "esm",
 		naming: "cli.js",
 		minify: { whitespace: true, identifiers: true, syntax: true },
-		sourcemap: "external",
+		sourcemap: WITH_SOURCEMAP ? "external" : "none",
 		splitting: false,
 	});
 	if (!result.success) {
 		for (const l of result.logs) console.error(l);
 		process.exit(1);
 	}
-	// Bun's `sourcemap: "external"` writes the .map but only stamps the bundle
-	// with a `debugId`. Append the standard `sourceMappingURL` comment so EVERY
-	// debugger (bun, node, IDEs) resolves minified stack traces back to the
-	// original TS source — this is what gives the bundle full debug capability.
-	const mapName = basename(MAPFILE);
-	appendFileSync(OUTFILE, `\n//# sourceMappingURL=${mapName}\n`);
-	console.log(`  ✓ ${OUTFILE} + ${MAPFILE} (sourceMappingURL linked)`);
+	// Only append the sourceMappingURL comment when a map was actually emitted;
+	// otherwise the comment points at a nonexistent file.
+	if (WITH_SOURCEMAP) {
+		const mapName = basename(MAPFILE);
+		appendFileSync(OUTFILE, `\n//# sourceMappingURL=${mapName}\n`);
+		console.log(`  ✓ ${OUTFILE} + ${MAPFILE} (sourceMappingURL linked)`);
+	} else {
+		console.log(`  ✓ ${OUTFILE}`);
+	}
 	writeReadme();
 }
 
@@ -191,7 +201,7 @@ async function stageCompile() {
 		"--compile",
 		`--outfile=${EXE}`,
 		"--minify",
-		...(DO_OBFUSCATE ? [] : ["--sourcemap=external"]),
+		...(DO_OBFUSCATE ? [] : WITH_SOURCEMAP ? ["--sourcemap=external"] : []),
 	];
 	const proc = Bun.spawn(["bun", ...args], {
 		stdout: "inherit",
@@ -205,7 +215,31 @@ async function stageCompile() {
 	console.log(`  ✓ ${EXE}`);
 }
 
+// ---------- pre-flight: workspace deps must be linked ----------
+// A stale root `bun install` leaves `@repo/*` workspace deps un-symlinked, so
+// the bundler can't resolve their bare specifiers → hard build failure or a
+// silently broken bundle. Fail loudly with an actionable fix instead.
+function assertWorkspaceDeps(): void {
+  const pj = JSON.parse(readFileSync("package.json", "utf8")) as {
+    dependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+  };
+  const all = { ...pj.dependencies, ...pj.peerDependencies };
+  const ws = Object.keys(all).filter((d) => d.startsWith("@repo/"));
+  const missing = ws.filter((d) => !existsSync(`node_modules/${d}`));
+  if (missing.length > 0) {
+    console.error(
+      `\n✗ missing workspace symlinks: ${missing.join(", ")}\n` +
+        `  The monorepo's node_modules is stale. Fix:\n` +
+        `    bun install            # at the REPO ROOT (not here)\n` +
+        `    bun scripts/build.ts   # then rebuild\n`,
+    );
+    process.exit(1);
+  }
+}
+
 // ---------- orchestrate ----------
+assertWorkspaceDeps();
 if (argv.length === 0) {
 	await stageBundle();
 } else {
@@ -222,7 +256,6 @@ if (argv.length === 0) {
 	}
 	if (DO_COMPILE) await stageCompile();
 }
-// The bun sourcemap is produced for debug builds. Whenever it is sitting in
-// the output dir, scream about it so it never ships to a real run directory.
-if (existsSync(MAPFILE)) warnSourcemapDebug();
+// Warn about the sourcemap ONLY when one was actually produced (opt-in).
+if (WITH_SOURCEMAP && existsSync(MAPFILE)) warnSourcemapDebug();
 console.log("▶ done");

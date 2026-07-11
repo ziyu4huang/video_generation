@@ -189,6 +189,39 @@ describe('session-indexer', () => {
       assert.strictEqual(result.errors.length, 1);
     });
 
+    it('indexes a whole batch together; a mid-batch failure isolates only that file (SAVEPOINT rollback)', () => {
+      // Regression guard for the single-transaction bulk path: the entire batch
+      // must commit as one unit, and a per-file failure must roll back ONLY the
+      // failing file — not abort the batch. Files are read in sorted order, so
+      // 'bad.jsonl' is processed first, proving the batch survives a leading
+      // failure and still commits the two valid sessions that follow.
+      const sessionsDir = path.join(tmpDir, 'sessions');
+      const projDir = path.join(sessionsDir, 'test-project');
+      fs.mkdirSync(projDir, { recursive: true });
+
+      const writeValid = (name: string, sid: string) => {
+        const lines = [
+          JSON.stringify({ type: 'session', id: sid, timestamp: '2026-05-03T00:00:00Z', cwd: '/test' }),
+          JSON.stringify({ type: 'message', id: `${sid}-m1`, parentId: null, timestamp: '2026-05-03T00:01:00Z', message: { role: 'user', content: [{ type: 'text', text: 'Hi' }], timestamp: Date.now() } }),
+        ];
+        fs.writeFileSync(path.join(projDir, name), lines.join('\n'));
+      };
+
+      fs.writeFileSync(path.join(projDir, 'bad.jsonl'), '{"type":"message","id":"m1"}'); // no session header → parse failure
+      writeValid('s1.jsonl', 's1');
+      writeValid('s2.jsonl', 's2');
+
+      const result = indexAllSessions(dbManager, sessionsDir);
+      assert.strictEqual(result.sessionsProcessed, 3);
+      assert.strictEqual(result.sessionsIndexed, 2);
+      assert.strictEqual(result.messagesIndexed, 2);
+      assert.strictEqual(result.errors.length, 1);
+
+      // Both valid sessions survived in the DB despite the leading failure.
+      const sessions = dbManager.getDb().prepare('SELECT id FROM sessions ORDER BY id').all() as { id: string }[];
+      assert.deepStrictEqual(sessions.map((s) => s.id), ['s1', 's2']);
+    });
+
     it('should handle empty sessions directory', () => {
       const sessionsDir = path.join(tmpDir, 'empty-sessions');
       fs.mkdirSync(sessionsDir);

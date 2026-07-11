@@ -1,0 +1,43 @@
+{
+  "_meta": {
+    "purpose": "Multi-hop / cross-source retrieval eval (Track 2 of the memory-orchestration cycle). The RULER that gates every Track-3 retrieval change (rerank, IDF rank, entity layer, vectors). Each query's correct answer requires evidence from >=2 cards in >=2 provenance sources, connected by a shared bridge concept (tag).",
+    "format": {
+      "q": "natural-language question phrased around the BRIDGE concept + one card's specifics (HotpotQA-style); the 2nd expected card is reached via the shared bridge tag (graph expansion), not by trivially naming both",
+      "expect": "array of >=2 card id-substrings (matched with .includes(), case-insensitive, like real-retrieval-eval.json)",
+      "sources": "the provenance families the expected cards come from (seed=real-callout-seed, workflow=workflow-knowledge-jsonl, auto=auto-memory:pi-memory)",
+      "bridge": "the shared concept tag that SHOULD connect the expected cards (the multi-hop edge under test)",
+      "why": "1-line rationale why BOTH cards are needed"
+    },
+    "designNotes": "seed<->workflow dominates the cross-source edges because that is where genuine same-concept pairs exist in the current 449-card vault; a few seed<->auto pairs test the auto-memory axis. The eval is deliberately HARD: a single-hop tag-match retriever finds cards matching query tokens, but the 2nd expected card often does NOT share the query tokens — it shares only the bridge tag. Surfacing it requires graph/tag expansion. A future entity layer (Track 3.3) must beat the deterministic baseline (scripts/multi-hop-measure.mjs) by >=+0.10 set-recall@4 to ship.",
+    "gate": "Track 3 levers must beat this set's baseline by >=+0.10 mean set-recall@4, or retire with a receipt (same discipline as iter-7).",
+    "baseline": {
+      "measuredAt": "2026-07-11",
+      "mode": "deterministic (retrieveRecords, no LLM) — reproducible",
+      "setRecall@4": 0.567,
+      "fullRecall@4": 0.333,
+      "sourceCoverage@4": 0.633,
+      "setRecall@8": 0.633,
+      "fullRecall@8": 0.467,
+      "bridgeLift_4to8": 0.067,
+      "bridgeLift_8to16": 0.0,
+      "read": "fullRecall@4=0.333 is the headline: the tag-path fully answers only 1/3 of multi-hop queries. bridgeLift plateaus at K=8 (some 2nd cards are in the pool but under-ranked -> rerank lever; others are rank=null, NOT in the pool at all -> tag-path NL weakness, P7). The entity layer (Track 3.3) must beat setRecall@4 by >=+0.10 vs this 0.567 baseline."
+    }
+  },
+  "queries": [
+    { "q": "after a fresh clone run.py says No module named mlx, and switching to the wrong venv gives phantom test failures — what are the two venv gotchas", "expect": ["python-venv-not-autocreated", "wrong-venv-spurious-smoke-failures"], "sources": ["seed", "workflow"], "bridge": "venv", "why": "fresh-clone venv-absent + wrong-venv phantom fails are distinct cross-source venv gotchas" },
+    { "q": "there's a cfg as any cast hiding an optional field — the gui review cycle also caught this declared-optional bypass", "expect": ["cfg-papered-over-cast", "cfg-as-any-bypasses-declared-optional"], "sources": ["seed", "workflow"], "bridge": "config", "why": "same cfg-as-any defect from two sources (callout + review)" },
+    { "q": "the argparse argv loop hangs forever with a missed index advance; what related shared-parser default-bleed gotcha sits next to it in the argparse cluster", "expect": ["argparse-loop-must-advance-index", "argparse-shared-flag-default-bleeds-first-writer-wins"], "sources": ["seed", "workflow"], "bridge": "argparse", "why": "two distinct shared-parser gotchas bridged by argparse" },
+    { "q": "argparse private actions are fragile — which argparse-integrity check flags the same private-attribute registration hazard", "expect": ["argparse-private-actions-attribute-fragile", "argparse-integrity-arg-registered-uses-private-actions"], "sources": ["workflow", "workflow"], "bridge": "argparse", "why": "private-actions fragility flagged twice in the argparse integrity cluster" },
+    { "q": "a streaming subprocess blocks forever waiting on stdout; the mlx review independently flagged subprocess calls missing timeouts on the same pattern", "expect": ["streaming-subprocess-blocks-forever", "mlx-review-subprocess-without-timeout"], "sources": ["seed", "workflow"], "bridge": "subprocess", "why": "subprocess-no-timeout hang caught by both a gotcha and a review" },
+    { "q": "subprocess.run with no file-not-found or timeout handling, and a streaming popen with no timeout deadlock — both in the subprocess cluster", "expect": ["subprocess-run-no-file-not-found-or-timeout-handling", "streaming-popen-no-timeout-deadlock"], "sources": ["workflow", "workflow"], "bridge": "subprocess", "why": "two missing-timeout/handling gotchas under subprocess" },
+    { "q": "argparse help text advertises a stale default — the correctness check also flags the same help-text default mismatch", "expect": ["help-text-advertises-stale-or-divergent-default", "correctness-help-text-default-mismatch"], "sources": ["workflow", "workflow"], "bridge": "argparse", "why": "stale-default help text flagged as both gotcha + correctness" },
+    { "q": "resolveVault's tier-2 app-fallback can't be failed by env — the obsidian review also touched case-insensitive blocklist handling in the same resolver area", "expect": ["resolvevault-tier2-app-fallback", "review-case-insensitive-blocklist"], "sources": ["seed", "workflow"], "bridge": "pi-obsidian", "why": "two pi-obsidian resolver concerns bridged by the package" },
+    { "q": "seedvr2 rejects cpu offload on MPS, and the auto-memory recorded the 7b config fixes for the same upscaler", "expect": ["seedvr2-offload-must-be-none", "auto-memory-seedvr2-7b-config-fixes"], "sources": ["seed", "auto"], "bridge": "seedvr2", "why": "seed<->auto cross-source pair on seedvr2 config" },
+    { "q": "fp8 compute crashes on Apple Silicon — the gotcha and the auto-memory note about mps incompatibility both cover it", "expect": ["fp8-compute-mps-crash", "auto-memory-fp8-compute-mps-incompatible"], "sources": ["seed", "auto"], "bridge": "fp8", "why": "seed<->auto cross-source pair on fp8/mps" },
+    { "q": "the pi cli argparse loop hangs and the end-of-options separator review are both about the cli parser", "expect": ["argparse-loop-must-advance-index", "review-cli-end-of-options-separator"], "sources": ["seed", "workflow"], "bridge": "pi-agent-cli", "why": "two pi-agent-cli parser concerns" },
+    { "q": "config validation gotchas: the cfg-as-any cast AND the python-path substring-not-prefix validation check", "expect": ["cfg-papered-over-cast", "gui-review-validate-python-path-substring-not-prefix"], "sources": ["seed", "workflow"], "bridge": "config", "why": "two config-validation defects from different sources" },
+    { "q": "the argparse private-actions gotcha and the argparse-integrity unguarded-default-none override are the same shared-parser hazard", "expect": ["argparse-private-actions-attribute-fragile", "argparse-integrity-unguarded-default-none-overrides-shared"], "sources": ["workflow", "workflow"], "bridge": "argparse", "why": "shared-parser default/private hazards in argparse integrity" },
+    { "q": "subprocess streaming hangs: the blocks-forever gotcha and the popen-no-timeout deadlock are the same class", "expect": ["streaming-subprocess-blocks-forever", "streaming-popen-no-timeout-deadlock"], "sources": ["seed", "workflow"], "bridge": "subprocess", "why": "seed<->workflow pair on subprocess streaming deadlock" },
+    { "q": "no package-lock.json is the bun convention gotcha, and the gui-port-per-worktree convention — both convention-tag lessons", "expect": ["no-package-lock-json", "gui-port-per-worktree"], "sources": ["seed", "seed"], "bridge": "convention", "why": "two convention lessons bridged by the convention tag" }
+  ]
+}
