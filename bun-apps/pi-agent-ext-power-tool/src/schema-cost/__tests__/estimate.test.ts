@@ -35,9 +35,11 @@ describe("estimateTokens", () => {
 		expect(estimateTokens(40)).toBe(10);
 		expect(estimateTokens(0)).toBe(0);
 	});
-	test("custom ratio (3.7) reproduces the live instrument", () => {
-		expect(estimateTokens(37, 3.7)).toBe(10);
-		expect(estimateTokens(100, 3.7)).toBe(27); // round(100/3.7)=27
+	test("live instrument ratio is the default (unified — no 3.7/4.0 drift)", () => {
+		// inspect_context (src/index.ts TOKEN_RATIO) now sources
+		// DEFAULT_CHARS_PER_TOKEN, so the live + static instruments agree.
+		expect(DEFAULT_CHARS_PER_TOKEN).toBe(4);
+		expect(estimateTokens(40, DEFAULT_CHARS_PER_TOKEN)).toBe(10);
 	});
 	test("rounds (not truncates)", () => {
 		expect(estimateTokens(6)).toBe(2); // round(1.5)=2 (banker's-free; Math.round(1.5)=2)
@@ -68,8 +70,8 @@ describe("estimateToolCost — golden parity", () => {
 
 	test("respects custom charsPerToken", () => {
 		const at4 = estimateToolCost(GOLDEN[1]!.def, "x");
-		const at37 = estimateToolCost(GOLDEN[1]!.def, "x", { charsPerToken: 3.7 });
-		expect(at37.approxTokens).toBeGreaterThan(at4.approxTokens); // smaller ratio → more tokens
+		const at35 = estimateToolCost(GOLDEN[1]!.def, "x", { charsPerToken: 3.5 });
+		expect(at35.approxTokens).toBeGreaterThan(at4.approxTokens); // smaller ratio → more tokens
 	});
 });
 
