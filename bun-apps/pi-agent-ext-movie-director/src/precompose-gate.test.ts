@@ -10,6 +10,15 @@ function fakeProbe(durationSeconds: number): SpawnImpl {
   return async () => ({ code: 0, stdout: String(durationSeconds), stderr: "" });
 }
 
+/** Fake ffprobe: reports a per-path duration (looked up by the probed file's argv path), so a
+ * multi-cut edit can mix a clean source with a bad one in the same call. */
+function fakeProbePerPath(durations: Record<string, number>): SpawnImpl {
+  return async (_cmd, argv) => {
+    const path = argv[argv.length - 1]!;
+    return { code: 0, stdout: String(durations[path] ?? 0), stderr: "" };
+  };
+}
+
 describe("preComposeGate — delivery promise", () => {
   it("fails when there are no cuts", async () => {
     const r = await preComposeGate({ version: "1.0", cuts: [] });
@@ -207,6 +216,67 @@ describe("preComposeGate — cut duration vs. source duration", () => {
       );
       const c = r.checks.find((x) => x.name === "cut_duration_vs_source")!;
       expect(c.status).toBe("pass");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails when in_seconds itself is at/past the source's end, even with a short requested span", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-gate-dur-inpast-"));
+    try {
+      const v = join(dir, "scene.mp4"); writeFileSync(v, "x");
+      // in_seconds=5 on a 4.04s source: -ss past EOF yields ~nothing, regardless of the 1s span requested.
+      const r = await preComposeGate(
+        { version: "1.0", cuts: [{ id: "a", source: v, in_seconds: 5, out_seconds: 6, animation: "static" }] },
+        { spawnImpl: fakeProbe(4.04) },
+      );
+      const c = r.checks.find((x) => x.name === "cut_duration_vs_source")!;
+      expect(c.status).toBe("fail");
+      expect(c.detail).toContain("at/past source duration");
+      expect(r.verdict).toBe("fail");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails on a long absolute freeze even when the frozen fraction is low", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-gate-dur-absolute-"));
+    try {
+      const v = join(dir, "scene.mp4"); writeFileSync(v, "x");
+      // Requests 20s from a 17s source — 3s frozen out of 20s (15%, under the 50% fraction bar),
+      // but 3s of held frame is itself over the 2.0s absolute-seconds fail bar.
+      const r = await preComposeGate(
+        { version: "1.0", cuts: [{ id: "a", source: v, in_seconds: 0, out_seconds: 20, animation: "static" }] },
+        { spawnImpl: fakeProbe(17) },
+      );
+      const c = r.checks.find((x) => x.name === "cut_duration_vs_source")!;
+      expect(c.status).toBe("fail");
+      expect(r.verdict).toBe("fail");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails the whole check when one cut is badly mismatched even if other cuts are clean (not diluted by averaging)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-gate-dur-mixed-"));
+    try {
+      const clean = join(dir, "clean.mp4"); writeFileSync(clean, "x");
+      const bad = join(dir, "bad.mp4"); writeFileSync(bad, "x");
+      const r = await preComposeGate(
+        {
+          version: "1.0",
+          cuts: [
+            { id: "clean", source: clean, in_seconds: 0, out_seconds: 4, animation: "static" },
+            { id: "bad", source: bad, in_seconds: 0, out_seconds: 32, animation: "static" },
+          ],
+        },
+        { spawnImpl: fakeProbePerPath({ [clean]: 4.04, [bad]: 4.04 }) },
+      );
+      const c = r.checks.find((x) => x.name === "cut_duration_vs_source")!;
+      expect(c.status).toBe("fail");
+      expect(c.detail).toContain("bad");
+      expect(c.detail).not.toContain('"clean" requests');
+      expect(r.verdict).toBe("fail");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
