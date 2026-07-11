@@ -149,6 +149,54 @@ describe("retrieveRecords", () => {
 		});
 	});
 
+	describe("slugDom precision path (kg-improvement-plan iter-2)", () => {
+		test("slugDom:false (default) is byte-identical to bodyMatch-only — drift guard", async () => {
+			await ingest([
+				rec({ id: "proj:ltx-dasiwa-mlx-integration", title: "SlugTopic", tags: ["unrelated-xyz"], detail: "generic prose with no query token." }),
+				rec({ id: "ltx:audio", title: "TagHit", tags: ["ltx"], detail: "general note." }),
+			], "flux2");
+			// slugDom off → slug card has 0 tag + 0 body overlap → excluded (unchanged)
+			const off = await retrieveRecords({ vaultPath: vault, folder: FOLDER, tags: ["ltx", "dasiwa", "mlx", "integration"], topK: 5, bodyMatch: true });
+			expect(off.cards.map((c) => c.id)).not.toContain("proj:ltx-dasiwa-mlx-integration");
+		});
+
+		test("slugDom rescues a card whose id names the query topic but tags are generic", async () => {
+			await ingest([
+				// target: 0 tag + 0 body overlap, but slug overlaps 4 query tokens → dominant
+				rec({ id: "proj:ltx-dasiwa-mlx-integration", title: "SlugTopic", tags: ["unrelated-xyz"], detail: "generic prose with no query token here." }),
+				// decoys: tag overlap (ltx) + slug overlap only 1 → must NOT dominate
+				rec({ id: "ltx:audio-config", title: "Audio", tags: ["ltx"], detail: "audio lever." }),
+				rec({ id: "ltx:hq-mode", title: "Hq", tags: ["ltx"], detail: "hq lever." }),
+			], "flux2");
+			const on = await retrieveRecords({ vaultPath: vault, folder: FOLDER, tags: ["ltx", "dasiwa", "mlx", "integration"], topK: 5, bodyMatch: true, slugDom: true });
+			expect(on.cards.map((c) => c.id)).toContain("proj:ltx-dasiwa-mlx-integration");
+			expect(on.cards[0]!.id).toBe("proj:ltx-dasiwa-mlx-integration"); // slug×4=16 beats tag decoys (=2)
+		});
+
+		test("slugDom ≥3 gate: a card with only 2 slug-token overlap does NOT dominate", async () => {
+			await ingest([
+				// slug 'ltx-dasiwa-only' overlaps 2 query tokens (ltx, dasiwa) → below gate
+				rec({ id: "ltx:dasiwa-only", title: "TwoToken", tags: ["zzz-none"], detail: "no query token in body." }),
+				rec({ id: "ltx:audio", title: "TagHit", tags: ["ltx"], detail: "general note." }),
+			], "flux2");
+			const on = await retrieveRecords({ vaultPath: vault, folder: FOLDER, tags: ["ltx", "dasiwa", "mlx", "integration"], topK: 5, bodyMatch: true, slugDom: true });
+			// gate not fired → the tag-matching card (shared=1 → score 2) ranks #1,
+			// the 2-token slug card (fallback score 0) does NOT jump to top.
+			expect(on.cards[0]!.id).toBe("ltx:audio");
+			expect(on.cards.find((c) => c.id === "ltx:dasiwa-only") ?? null).not.toBe(on.cards[0]);
+		});
+
+		test("slugDom works standalone (without bodyMatch) for a strong slug match", async () => {
+			await ingest([
+				rec({ id: "proj:ltx-dasiwa-mlx-integration", title: "SlugTopic", tags: ["unrelated-xyz"], detail: "generic prose." }),
+				rec({ id: "ltx:audio", title: "TagHit", tags: ["ltx"], detail: "note." }),
+			], "flux2");
+			const on = await retrieveRecords({ vaultPath: vault, folder: FOLDER, tags: ["ltx", "dasiwa", "mlx", "integration"], topK: 5, slugDom: true });
+			expect(on.cards.map((c) => c.id)).toContain("proj:ltx-dasiwa-mlx-integration");
+			expect(on.cards[0]!.id).toBe("proj:ltx-dasiwa-mlx-integration");
+		});
+	});
+
 	test("excludes the caller's own cards by source_id", async () => {
 		await ingest([
 			rec({ id: "flux2:own", title: "Own", tags: ["argv"] }),
