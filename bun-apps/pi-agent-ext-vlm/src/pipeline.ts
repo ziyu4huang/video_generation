@@ -16,7 +16,8 @@ import {
 } from "./vlm/classify.ts";
 import { classifyProfileViaVlm } from "./vlm/classify-vlm.ts";
 import { explainPage } from "./vlm/agents.ts";
-import { withRetry } from "./vlm/retry.ts";
+import { withRetry, retryableError } from "./vlm/retry.ts";
+import { validatePageMarkdown } from "./vlm/validate.ts";
 import {
   slugify,
   layoutFor,
@@ -289,6 +290,11 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
               pageCount: doc.pageCount,
             });
             if (!r.ok) throw new Error(r.error ?? "unknown error");
+            // S2 — output quality gate: only hand back pages that pass
+            // structural validation. A gate failure is retryable (a stochastic
+            // VLM may produce valid output on a later attempt).
+            const validation = validatePageMarkdown(r.markdown, { page: pageNo, kind: profile });
+            if (!validation.ok) throw retryableError(`gate: ${validation.reason}`);
             return r;
           },
           {

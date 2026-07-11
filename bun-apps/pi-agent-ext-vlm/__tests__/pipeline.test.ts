@@ -28,7 +28,7 @@ import { tmpdir } from "node:os";
 // --- control knobs ----------------------------------------------------------
 // What the fake model emits for the classifier turn and the per-page turn.
 let classifyReply = "paper";
-let pageMarkdown = "---\ntitle: T\npage: 1\nkind: paper\n---\n\n![[page-001.png]]\n\nPAGE BODY";
+let pageMarkdown = "---\ntitle: T\npage: 1\nkind: paper\n---\n\n![[page-001.png]]\n\nPAGE BODY with realistic content to clear the quality gate";
 let rasterizePageCount = 1;
 const rasterizeCalls: { input: string; pagesDir: string; dpi: number }[] = [];
 const sessionCalls: { llm: any; opts: any }[] = [];
@@ -87,6 +87,11 @@ mock.module(`${ROOT}/src/session-factory.ts`, () => ({
   }),
 }));
 
+// Keep retries fast + bounded for the page-quality-gate retry test below.
+// (These are read at module load of pipeline.ts, so set them before the import.)
+process.env.PI_VLM_RETRIES = "1";
+process.env.PI_VLM_RETRY_WAIT_MS = "0";
+
 // Import AFTER the mocks are registered.
 const { runVlmDescribePipeline } = await import("../src/pipeline.ts");
 
@@ -108,7 +113,7 @@ beforeEach(() => {
   rasterizeCalls.length = 0;
   sessionCalls.length = 0;
   classifyReply = "paper";
-  pageMarkdown = "---\ntitle: T\npage: 1\nkind: paper\n---\n\n![[page-001.png]]\n\nPAGE BODY";
+  pageMarkdown = "---\ntitle: T\npage: 1\nkind: paper\n---\n\n![[page-001.png]]\n\nPAGE BODY with realistic content to clear the quality gate";
   pendingSubscriber = null;
 });
 afterEach(async () => {
@@ -219,6 +224,21 @@ describe("runVlmDescribePipeline — classifier failure", () => {
 
     const manifest = await readJsonFile(join(outRoot, "photo", "manifest.json"));
     expect(manifest.profile).toBe("image");
+  });
+});
+
+describe("runVlmDescribePipeline — page quality gate (S2)", () => {
+  test("a page failing the gate is retried then marked error with the gate reason", async () => {
+    // Garbage: no frontmatter, no embed, tiny body → fails the gate every time.
+    pageMarkdown = "lol not markdown at all";
+    const { inputAbs, outRoot } = await setup("doc.png", PNG_MAGIC);
+    await runVlmDescribePipeline({ inputs: [inputAbs], outRoot, forcedType: "paper" });
+
+    const manifest = await readJsonFile(join(outRoot, "doc", "manifest.json"));
+    expect(manifest.pages[0].status).toBe("error");
+    expect(manifest.pages[0].error).toMatch(/gate:/);
+    // A failed page must not have its md written.
+    expect(existsSync(join(outRoot, "doc", "pages", "page-001.md"))).toBe(false);
   });
 });
 
