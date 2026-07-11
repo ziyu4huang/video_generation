@@ -31,7 +31,7 @@ import {
   type RunPyVideoDetails,
   type RunPyVideoOptions,
 } from "@repo/pi-agent-ext-ltx";
-import type { Capability, ProviderEntry } from "./registry.ts";
+import { REGISTRY, type Capability, type ProviderEntry } from "./registry.ts";
 import { selectProvider, type SelectorOptions } from "./selector.ts";
 import { nonNativeAdapters } from "./providers.ts";
 import { runPyCaption, type CaptionDetails, type CaptionOptions } from "./caption.ts";
@@ -663,6 +663,25 @@ export async function selectAndGenerate(
   // addresses {capability, command} routes correctly without re-passing command
   // in selectorOpts (command-routing tiebreak lives in the selector).
   const entry = selectProvider(capability, { ...selectorOpts, command: selectorOpts.command ?? req.command });
+
+  // Quality-first opportunistic upgrade for narration: the static ranking
+  // defaults tts to macOS `say` (offline-safe, robotic) because edge-tts's
+  // probe can't verify live network reachability ahead of time (see
+  // registry.ts's edge_tts notes). A 2026-07-11 A/B (edge-tts vs `say` vs
+  // LTX-2.3's own joint audio generation) confirmed edge-tts is clearly the
+  // most natural of the three. When the caller didn't pin a provider and the
+  // default landed on `say`, try edge-tts first — a real network failure
+  // falls straight through to the `say` result below, so this never
+  // regresses the offline/no-network case, it only upgrades the online one.
+  if (capability === "tts" && !selectorOpts.provider && entry.provider === "say") {
+    const edgeEntry = REGISTRY.find((p) => p.capability === "tts" && p.provider === "edge-tts" && p.configured);
+    if (edgeEntry) {
+      const edgeResult = await generate(edgeEntry, { ...req, capability }, deps);
+      if (edgeResult.success) return { entry: edgeEntry, result: edgeResult };
+      // fall through — network genuinely unavailable, use the `say` pick.
+    }
+  }
+
   const result = await generate(entry, { ...req, capability }, deps);
   return { entry, result };
 }
