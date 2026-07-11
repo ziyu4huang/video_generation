@@ -1,44 +1,276 @@
 {
   "_meta": {
-    "purpose": "Multi-hop / cross-source retrieval eval (Track 2 of the memory-orchestration cycle). The RULER that gates every Track-3 retrieval change (rerank, IDF rank, entity layer, vectors). Each query's correct answer requires evidence from >=2 cards in >=2 provenance sources, connected by a shared bridge concept (tag).",
+    "version": 3,
+    "purpose": "Multi-hop / cross-source retrieval eval — the LEAK-FREE ruler (Cycle 2, Track A.1). Each query leads with the shared BRIDGE tag (so BOTH expected cards enter the tag-path candidate pool) plus one ANCHOR-distinctive tag (so the anchor ranks higher). The 2nd expected card (BRIDGE, expect[1]) is reachable ONLY via that shared bridge tag — it shares NO other query vocabulary, so a content/vector retriever cannot trivially find it. This redesign kills the cycle-1 leakage flaw (the v1 set named both cards' tokens).",
     "format": {
-      "q": "natural-language question phrased around the BRIDGE concept + one card's specifics (HotpotQA-style); the 2nd expected card is reached via the shared bridge tag (graph expansion), not by trivially naming both",
-      "expect": "array of >=2 card id-substrings (matched with .includes(), case-insensitive, like real-retrieval-eval.json)",
-      "sources": "the provenance families the expected cards come from (seed=real-callout-seed, workflow=workflow-knowledge-jsonl, auto=auto-memory:pi-memory)",
-      "bridge": "the shared concept tag that SHOULD connect the expected cards (the multi-hop edge under test)",
-      "why": "1-line rationale why BOTH cards are needed"
+      "q": "'<bridge-tag> <anchor-distinctive-tag>: <anchor-specific defect in the anchor's own words> — what other <bridge-tag> finding is logged'. The leading tags guarantee both cards are tag-matchable; the anchor-distinctive tag ranks the anchor; the bridge card matches only the bridge tag.",
+      "anchor": "expect[0] — the card the query is written in (findable by multi-tag content match, single-hop).",
+      "bridge": "expect[1] — the card reachable ONLY via the shared bridge tag (the multi-hop edge).",
+      "bridgeTag": "the shared concept tag that connects anchor<->bridge (the multi-hop edge under test). Must be dot-free (queryToTokens strips dots) and carried by BOTH cards.",
+      "why": "1-line rationale: anchor named by content+distinctive tag, bridge only by the bridge tag."
     },
-    "designNotes": "seed<->workflow dominates the cross-source edges because that is where genuine same-concept pairs exist in the current 449-card vault; a few seed<->auto pairs test the auto-memory axis. The eval is deliberately HARD: a single-hop tag-match retriever finds cards matching query tokens, but the 2nd expected card often does NOT share the query tokens — it shares only the bridge tag. Surfacing it requires graph/tag expansion. A future entity layer (Track 3.3) must beat the deterministic baseline (scripts/multi-hop-measure.mjs) by >=+0.10 set-recall@4 to ship.",
-    "gate": "Track 3 levers must beat this set's baseline by >=+0.10 mean set-recall@4, or retire with a receipt (same discipline as iter-7).",
-    "leakageCaveat": "FLAW FOUND in Track 3.4 (2026-07-11): this eval set LEAKS answer vocabulary — 11/15 queries contain >=30% of BOTH expected cards' tokens (e.g. the 'help-text-advertises' query shares 10/11 tokens with card 1 and 9/11 with card 2). Consequence: any CONTENT-based retriever (vectors nomic +0.433 -> 1.0, or full-text) trivially aces it; the tag-path (0.567) looks weak only because tags can't exploit the leaked vocabulary. So this set is INVALID for judging content-based multi-hop levers. BEFORE re-measuring vectors/full-text, REDESIGN: queries must mention ONLY one expected card's vocabulary + the bridge concept ABSTRACTLY, so the 2nd card is findable only via the bridge. The tag-path baseline (0.567) and rerank (3.1) are less affected (tags don't hold the leaked vocab) but still ride on this flawed set.",
+    "leakGate": "scripts/multi-hop-eval-leakcheck.mjs computes per-query overlap(query-tokens, bridge-card-tokens)/|query-tokens|. PASS requires bridge-overlap < 0.30 for EVERY query AND anchor-overlap >= 0.30 (valid single-hop seed). Run: node scripts/multi-hop-eval-leakcheck.mjs",
+    "designNotes": "v3 fixes two v2 defects: (1) queries now LEAD with the bridge tag so the deterministic tag-path (retrieveRecords, first-10 query tokens, no stopword removal) can actually match both cards — v2's verbose queries pushed the bridge tag past the 10-token cutoff, producing artifactual null,null ranks; (2) dropped the seed<->auto seedvr2 pair (the auto-memory card does NOT carry the seedvr2 tag → unbridgeable) and the run.py-cli pair (dots are stripped by the tokenizer → tag unmatchable). Pairs were ranked by a card-Jaccard scorer (scripts/_pair-scorer.mjs); all pairs carry Jaccard <= 0.12. seed<->workflow dominates because that is where genuine same-concept low-overlap edges live (auto/hermes cards use their own tag space).",
+    "sourceCoverage": "14 seed<->workflow + 2 workflow<->workflow cross-provenance pairs. Hermes (pi-memory-*) does not share concept tags with seed/workflow cards.",
     "baseline": {
-      "measuredAt": "2026-07-11",
-      "mode": "deterministic (retrieveRecords, no LLM) — reproducible",
-      "setRecall@4": 0.567,
-      "fullRecall@4": 0.333,
-      "sourceCoverage@4": 0.633,
-      "setRecall@8": 0.633,
-      "fullRecall@8": 0.467,
-      "bridgeLift_4to8": 0.067,
-      "bridgeLift_8to16": 0.0,
-      "read": "fullRecall@4=0.333 is the headline: the tag-path fully answers only 1/3 of multi-hop queries. bridgeLift plateaus at K=8 (some 2nd cards are in the pool but under-ranked -> rerank lever; others are rank=null, NOT in the pool at all -> tag-path NL weakness, P7). The entity layer (Track 3.3) must beat setRecall@4 by >=+0.10 vs this 0.567 baseline."
+      "replaced": "cycle-1 numbers (setRecall@4=0.567, fullRecall@4=0.333) rode on the LEAKED v1 set and are INVALID.",
+      "measuredAt": "2026-07-11 (Phase A.2)",
+      "receipt": "output/multi-hop-measurements/ (latest measure-*.json)",
+      "setRecall@4": 0.688,
+      "setRecall@8": 0.781,
+      "setRecall@16": 0.844,
+      "fullRecall@4": 0.375,
+      "fullRecall@8": 0.625,
+      "fullRecall@16": 0.688,
+      "sourceCoverage@4": 0.75,
+      "bridgeLift_4to8": 0.125,
+      "bridgeLift_8to16": 0.094,
+      "gateMetric": "fullRecall@4 (strict multi-hop success rate). Baseline 0.375; a lever must reach >= 0.475 (+0.10) to ship. fullRecall@8 (0.563) tracked as the operational/RAG-context metric.",
+      "rerankVerdict": "RETIRED — structurally negative on a leak-free eval (Δ setRecall@4 = -0.031). Content-rerank buries the bridge card, which is leak-free precisely because it lacks query vocabulary. Only STRUCTURAL signals (graph/link expansion, entities) can surface it.",
+      "bridgeDiagnostic": "bridgeLift is POSITIVE and steep (+0.094, +0.063). Bridge cards are IN the candidate pool (ranked 6-31) but UNDER-RANKED — they share only 1 tag (the bridge tag) with the query while cluster siblings share more. This is a ranking/expansion gap, not a recall gap. The structural lever (link/entity expansion from the anchor) is the bet.",
+      "fullRecallAt8": 0.625
     }
   },
   "queries": [
-    { "q": "after a fresh clone run.py says No module named mlx, and switching to the wrong venv gives phantom test failures — what are the two venv gotchas", "expect": ["python-venv-not-autocreated", "wrong-venv-spurious-smoke-failures"], "sources": ["seed", "workflow"], "bridge": "venv", "why": "fresh-clone venv-absent + wrong-venv phantom fails are distinct cross-source venv gotchas" },
-    { "q": "there's a cfg as any cast hiding an optional field — the gui review cycle also caught this declared-optional bypass", "expect": ["cfg-papered-over-cast", "cfg-as-any-bypasses-declared-optional"], "sources": ["seed", "workflow"], "bridge": "config", "why": "same cfg-as-any defect from two sources (callout + review)" },
-    { "q": "the argparse argv loop hangs forever with a missed index advance; what related shared-parser default-bleed gotcha sits next to it in the argparse cluster", "expect": ["argparse-loop-must-advance-index", "argparse-shared-flag-default-bleeds-first-writer-wins"], "sources": ["seed", "workflow"], "bridge": "argparse", "why": "two distinct shared-parser gotchas bridged by argparse" },
-    { "q": "argparse private actions are fragile — which argparse-integrity check flags the same private-attribute registration hazard", "expect": ["argparse-private-actions-attribute-fragile", "argparse-integrity-arg-registered-uses-private-actions"], "sources": ["workflow", "workflow"], "bridge": "argparse", "why": "private-actions fragility flagged twice in the argparse integrity cluster" },
-    { "q": "a streaming subprocess blocks forever waiting on stdout; the mlx review independently flagged subprocess calls missing timeouts on the same pattern", "expect": ["streaming-subprocess-blocks-forever", "mlx-review-subprocess-without-timeout"], "sources": ["seed", "workflow"], "bridge": "subprocess", "why": "subprocess-no-timeout hang caught by both a gotcha and a review" },
-    { "q": "subprocess.run with no file-not-found or timeout handling, and a streaming popen with no timeout deadlock — both in the subprocess cluster", "expect": ["subprocess-run-no-file-not-found-or-timeout-handling", "streaming-popen-no-timeout-deadlock"], "sources": ["workflow", "workflow"], "bridge": "subprocess", "why": "two missing-timeout/handling gotchas under subprocess" },
-    { "q": "argparse help text advertises a stale default — the correctness check also flags the same help-text default mismatch", "expect": ["help-text-advertises-stale-or-divergent-default", "correctness-help-text-default-mismatch"], "sources": ["workflow", "workflow"], "bridge": "argparse", "why": "stale-default help text flagged as both gotcha + correctness" },
-    { "q": "resolveVault's tier-2 app-fallback can't be failed by env — the obsidian review also touched case-insensitive blocklist handling in the same resolver area", "expect": ["resolvevault-tier2-app-fallback", "review-case-insensitive-blocklist"], "sources": ["seed", "workflow"], "bridge": "pi-obsidian", "why": "two pi-obsidian resolver concerns bridged by the package" },
-    { "q": "seedvr2 rejects cpu offload on MPS, and the auto-memory recorded the 7b config fixes for the same upscaler", "expect": ["seedvr2-offload-must-be-none", "auto-memory-seedvr2-7b-config-fixes"], "sources": ["seed", "auto"], "bridge": "seedvr2", "why": "seed<->auto cross-source pair on seedvr2 config" },
-    { "q": "fp8 compute crashes on Apple Silicon — the gotcha and the auto-memory note about mps incompatibility both cover it", "expect": ["fp8-compute-mps-crash", "auto-memory-fp8-compute-mps-incompatible"], "sources": ["seed", "auto"], "bridge": "fp8", "why": "seed<->auto cross-source pair on fp8/mps" },
-    { "q": "the pi cli argparse loop hangs and the end-of-options separator review are both about the cli parser", "expect": ["argparse-loop-must-advance-index", "review-cli-end-of-options-separator"], "sources": ["seed", "workflow"], "bridge": "pi-agent-cli", "why": "two pi-agent-cli parser concerns" },
-    { "q": "config validation gotchas: the cfg-as-any cast AND the python-path substring-not-prefix validation check", "expect": ["cfg-papered-over-cast", "gui-review-validate-python-path-substring-not-prefix"], "sources": ["seed", "workflow"], "bridge": "config", "why": "two config-validation defects from different sources" },
-    { "q": "the argparse private-actions gotcha and the argparse-integrity unguarded-default-none override are the same shared-parser hazard", "expect": ["argparse-private-actions-attribute-fragile", "argparse-integrity-unguarded-default-none-overrides-shared"], "sources": ["workflow", "workflow"], "bridge": "argparse", "why": "shared-parser default/private hazards in argparse integrity" },
-    { "q": "subprocess streaming hangs: the blocks-forever gotcha and the popen-no-timeout deadlock are the same class", "expect": ["streaming-subprocess-blocks-forever", "streaming-popen-no-timeout-deadlock"], "sources": ["seed", "workflow"], "bridge": "subprocess", "why": "seed<->workflow pair on subprocess streaming deadlock" },
-    { "q": "no package-lock.json is the bun convention gotcha, and the gui-port-per-worktree convention — both convention-tag lessons", "expect": ["no-package-lock-json", "gui-port-per-worktree"], "sources": ["seed", "seed"], "bridge": "convention", "why": "two convention lessons bridged by the convention tag" }
+    {
+      "q": "timeout subprocess: a popen with no file-not-found guard hangs forever when the binary is missing — what other timeout finding is logged",
+      "anchor": "gotcha-subprocess-run-no-file-not-found-or-timeout-handling",
+      "expect": [
+        "gotcha-subprocess-run-no-file-not-found-or-timeout-handling",
+        "infra-contract-l2-test-timeout-pattern"
+      ],
+      "bridgeTag": "timeout",
+      "bridge": "timeout",
+      "why": "anchor named by subprocess/file-not-found; bridge (L2 test timeout) shares only timeout",
+      "sources": [
+        "workflow-knowledge-jsonl:gui-movie-director-review-optimize",
+        "workflow-jsonl:pi-infra-self-improve"
+      ]
+    },
+    {
+      "q": "metric baseline: package test-counts must be pinned so CI failures are real regressions not flaky drift — what other metric finding is logged",
+      "anchor": "infra-contract-package-test-baselines",
+      "expect": [
+        "infra-contract-package-test-baselines",
+        "mlx-review-metric-adversarial-rejection-rate"
+      ],
+      "bridgeTag": "metric",
+      "bridge": "metric",
+      "why": "anchor named by baseline/test-counts; bridge (adversarial rejection-rate metric) shares only metric",
+      "sources": [
+        "workflow-jsonl:pi-infra-self-improve",
+        "workflow-knowledge-jsonl:gui-movie-director-review-optimize"
+      ]
+    },
+    {
+      "q": "config typescript: a cfg as any cast papering over a declared optional field defeats the real typing — what other config finding is logged",
+      "anchor": "gotcha-cfg-papered-over-cast",
+      "expect": [
+        "gotcha-cfg-papered-over-cast",
+        "gui-review-validate-python-path-substring-not-prefix"
+      ],
+      "bridgeTag": "config",
+      "bridge": "config",
+      "why": "anchor named by typescript cfg cast; bridge (python-path validation) shares only config",
+      "sources": [
+        "real-callout-seed",
+        "workflow-knowledge-jsonl:gui-movie-director-review-optimize"
+      ]
+    },
+    {
+      "q": "argparse pi-agent-cli: a manual argv loop that forgets to advance the index hangs silently forever — what other argparse finding is logged",
+      "anchor": "gotcha-argparse-loop-must-advance-index",
+      "expect": [
+        "gotcha-argparse-loop-must-advance-index",
+        "gotcha-argparse-shared-flag-default-bleeds-first-writer-wins"
+      ],
+      "bridgeTag": "argparse",
+      "bridge": "argparse",
+      "why": "anchor named by pi-agent-cli argv loop; bridge (shared-flag default bleed) shares only argparse",
+      "sources": [
+        "real-callout-seed",
+        "workflow-knowledge-jsonl:gui-movie-director-review-optimize"
+      ]
+    },
+    {
+      "q": "error-handling subprocess: streaming popen reading stdout then proc.wait blocks forever if the child hangs — what other error-handling finding is logged",
+      "anchor": "gotcha-streaming-subprocess-blocks-forever",
+      "expect": [
+        "gotcha-streaming-subprocess-blocks-forever",
+        "flux2-scenepipeline-unguarded-external-calls-lose-partial-progress"
+      ],
+      "bridgeTag": "error-handling",
+      "bridge": "error-handling",
+      "why": "anchor named by subprocess streaming popen; bridge (unguarded external calls lose progress) shares only error-handling",
+      "sources": [
+        "real-callout-seed",
+        "workflow-knowledge-jsonl:gui-movie-director-review-optimize"
+      ]
+    },
+    {
+      "q": "process git: delete local branches after squash-merge per sop320 then detach so the tree stays clean — what other process finding is logged",
+      "anchor": "gotcha-branch-delete-at-pr-merge-sop320",
+      "expect": [
+        "gotcha-branch-delete-at-pr-merge-sop320",
+        "gui-review-extract-shared-helper-eliminates-duplication-class"
+      ],
+      "bridgeTag": "process",
+      "bridge": "process",
+      "why": "anchor named by git branch hygiene; bridge (extract-shared-helper dedup) shares only process",
+      "sources": [
+        "real-callout-seed",
+        "workflow-knowledge-jsonl:gui-movie-director-review-optimize"
+      ]
+    },
+    {
+      "q": "knowledge self-improve: writing the db destructively overwrites the whole store instead of merging — what other knowledge finding is logged",
+      "anchor": "gotcha-knowledge-db-destructive-overwrite",
+      "expect": [
+        "gotcha-knowledge-db-destructive-overwrite",
+        "gui-review-knowledge-analyze-leaks-errmsg"
+      ],
+      "bridgeTag": "knowledge",
+      "bridge": "knowledge",
+      "why": "anchor named by self-improve destructive overwrite; bridge (analyze leaks errmsg) shares only knowledge",
+      "sources": [
+        "real-callout-seed",
+        "workflow-knowledge-jsonl:gui-movie-director-review-optimize"
+      ]
+    },
+    {
+      "q": "workflow bash: never issue a top-level cd because the tool cwd persists and corrupts root-relative path resolution — what else shares this tag",
+      "anchor": "gotcha-never-top-level-cd",
+      "expect": [
+        "gotcha-never-top-level-cd",
+        "mlx-review-untyped-dict-list-dataclass-fields"
+      ],
+      "bridgeTag": "workflow",
+      "bridge": "workflow",
+      "why": "anchor named by bash no-top-level-cd; bridge (untyped dict/list vs dataclass) shares only workflow",
+      "sources": [
+        "real-callout-seed",
+        "workflow-knowledge-jsonl:gui-movie-director-review-optimize"
+      ]
+    },
+    {
+      "q": "error-handling sys-exit: converting a library sys.exit to a raised exception breaks assert-based tests that expect a clean exit — what other error-handling finding is logged",
+      "anchor": "gotcha-sysexit-to-exception-breaks-assert-tests",
+      "expect": [
+        "gotcha-sysexit-to-exception-breaks-assert-tests",
+        "review-memory-store-orphan-tempdirs"
+      ],
+      "bridgeTag": "error-handling",
+      "bridge": "error-handling",
+      "why": "anchor named by sys-exit/pytest test break; bridge (orphan-tempdirs) shares only error-handling",
+      "sources": [
+        "workflow-knowledge-jsonl:gui-movie-director-review-optimize",
+        "workflow-jsonl:pi-infra-self-improve"
+      ]
+    },
+    {
+      "q": "quality purify: the purify step behaves differently depending on the image source — what other quality finding is logged",
+      "anchor": "gotcha-purify-source-dependent",
+      "expect": [
+        "gotcha-purify-source-dependent",
+        "gui-review-pattern-usage-aware-flagging"
+      ],
+      "bridgeTag": "quality",
+      "bridge": "quality",
+      "why": "anchor named by purify source-dependence; bridge (pattern-usage-aware flagging) shares only quality",
+      "sources": [
+        "real-callout-seed",
+        "workflow-knowledge-jsonl:gui-movie-director-review-optimize"
+      ]
+    },
+    {
+      "q": "argparse argparse-integrity: a check flagging actions registered via private attributes is fragile across versions — what other argparse finding is logged",
+      "anchor": "argparse-integrity-arg-registered-uses-private-actions",
+      "expect": [
+        "argparse-integrity-arg-registered-uses-private-actions",
+        "gotcha-argparse-loop-must-advance-index"
+      ],
+      "bridgeTag": "argparse",
+      "bridge": "argparse",
+      "why": "anchor named by argparse-integrity/private-attribute check; bridge (argv-loop hang) shares only argparse",
+      "sources": [
+        "workflow-knowledge-jsonl:gui-movie-director-review-optimize",
+        "real-callout-seed"
+      ]
+    },
+    {
+      "q": "error-handling context-manager: image.open without a with leaks file descriptors across a batch loop — what other error-handling finding is logged",
+      "anchor": "mlx-review-image-open-without-context-manager",
+      "expect": [
+        "mlx-review-image-open-without-context-manager",
+        "gotcha-ltx-generate-no-memoryerror-guard"
+      ],
+      "bridgeTag": "error-handling",
+      "bridge": "error-handling",
+      "why": "anchor named by context-manager fd leak; bridge (no MemoryError guard) shares only error-handling",
+      "sources": [
+        "workflow-knowledge-jsonl:gui-movie-director-review-optimize",
+        "workflow-knowledge-jsonl:gui-movie-director-review-optimize"
+      ]
+    },
+    {
+      "q": "error-handling venv: smoke tests hitting the deprecated comfyui venv produce spurious module-not-found failures that look like regressions — what other error-handling finding is logged",
+      "anchor": "gotcha-wrong-venv-spurious-smoke-failures",
+      "expect": [
+        "gotcha-wrong-venv-spurious-smoke-failures",
+        "review-onprogress-uncaught-exception"
+      ],
+      "bridgeTag": "error-handling",
+      "bridge": "error-handling",
+      "why": "anchor named by venv/comfyui spurious smoke; bridge (onprogress uncaught) shares only error-handling",
+      "sources": [
+        "workflow-knowledge-jsonl:gui-movie-director-review-optimize",
+        "workflow-jsonl:pi-infra-self-improve"
+      ]
+    },
+    {
+      "q": "error-handling bare-except: a bare except pass swallows baseexception and keyboardinterrupt hiding real crashes — what other error-handling finding is logged",
+      "anchor": "mlx-review-bare-except-swallows-baseexception",
+      "expect": [
+        "mlx-review-bare-except-swallows-baseexception",
+        "gotcha-sysexit-to-exception-breaks-assert-tests"
+      ],
+      "bridgeTag": "error-handling",
+      "bridge": "error-handling",
+      "why": "anchor named by bare-except swallow; bridge (sys-exit test break) shares only error-handling",
+      "sources": [
+        "workflow-knowledge-jsonl:gui-movie-director-review-optimize",
+        "workflow-knowledge-jsonl:gui-movie-director-review-optimize"
+      ]
+    },
+    {
+      "q": "seedvr2 mps: offload device must be none not cpu because unified memory makes cpu offloading meaningless — what other seedvr2 finding is logged",
+      "anchor": "gotcha-seedvr2-offload-must-be-none",
+      "expect": [
+        "gotcha-seedvr2-offload-must-be-none",
+        "mlx-review-untyped-dict-list-dataclass-fields"
+      ],
+      "bridgeTag": "seedvr2",
+      "bridge": "seedvr2",
+      "why": "anchor named by mps offload rule; bridge (untyped dict/list vs dataclass) shares only seedvr2",
+      "sources": [
+        "real-callout-seed",
+        "workflow-knowledge-jsonl:gui-movie-director-review-optimize"
+      ]
+    },
+    {
+      "q": "pi-obsidian testing: resolvevault tier2 falls back to the real open app vault so tests cannot fail deterministically — what other pi-obsidian finding is logged",
+      "anchor": "gotcha-resolvevault-tier2-app-fallback",
+      "expect": [
+        "gotcha-resolvevault-tier2-app-fallback",
+        "review-case-insensitive-blocklist"
+      ],
+      "bridgeTag": "pi-obsidian",
+      "bridge": "pi-obsidian",
+      "why": "anchor named by testing/vault app-fallback; bridge (case-insensitive blocklist) shares only pi-obsidian",
+      "sources": [
+        "real-callout-seed",
+        "workflow-jsonl:pi-infra-self-improve"
+      ]
+    }
   ]
 }
