@@ -176,6 +176,7 @@ import {
 	tagPaths,
 	titleKeysFor,
 	toolAllowlist,
+	repairZettelFrontmatter,
 	runDeterministicHealthCheck,
 	toolError,
 	toolErrorFromCaught,
@@ -1494,12 +1495,34 @@ ${output.slice(-2000)}`,
 					validation = undefined;
 				}
 				if (validation && validation.invalid > 0) {
-					validationText =
-						`\n\n⚠ Validation: ${validation.invalid}/${validation.notes.length} created note(s) failed the Zettelkasten schema check — review/repair before relying on them:\n` +
-						validation.notes
-							.filter((n) => !n.ok)
-							.map((n) => `  - ${n.path}: ${n.errors.join("; ")}`)
-							.join("\n");
+					// Schema backstop: auto-repair deterministically-fillable missing keys
+					// (id/created/tags/sources), then re-validate. Turns an LLM's
+					// forgotten field from a corrupt note into a fixed one.
+					let repairText = "";
+					try {
+						const v = await getVault(ctx.cwd);
+						const defaultSources = files.map((f) => basenameOf(f));
+						const repair = await repairZettelFrontmatter(v.path, reportedNotes, defaultSources);
+						const fixedNotes = repair.notes.filter((n) => n.repaired.length > 0);
+						if (fixedNotes.length > 0) {
+							invalidateCache();
+							validation = await validateZettelNotes(v.path, reportedNotes);
+							repairText =
+								`\n\n🔧 Auto-repair: filled missing frontmatter in ${fixedNotes.length} note(s) — ` +
+								fixedNotes.map((n) => `${n.path} (${n.repaired.join(", ")})`).join("; ");
+						}
+					} catch {
+					}
+					if (validation && validation.invalid > 0) {
+						validationText =
+							`\n\n⚠ Validation: ${validation.invalid}/${validation.notes.length} created note(s) still fail the Zettelkasten schema check after auto-repair — review before relying on them:\n` +
+							validation.notes
+								.filter((n) => !n.ok)
+								.map((n) => `  - ${n.path}: ${n.errors.join("; ")}`)
+								.join("\n") + repairText;
+					} else {
+						validationText = repairText + `\n\n✓ Validation: all ${validation?.valid ?? 0} created note(s) now pass the Zettelkasten schema check.`;
+					}
 				} else if (validation && validation.valid > 0) {
 					validationText = `\n\n✓ Validation: all ${validation.valid} created note(s) pass the Zettelkasten schema check.`;
 				}

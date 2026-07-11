@@ -3332,7 +3332,7 @@ export const GARDEN_SYSTEM_PROMPT = `你是一名 Obsidian vault 圖丁（garden
  *  >64KB blob is almost certainly garbage / a prompt-injection dump. */
 export const ZETTEL_MAX_BYTES = 64 * 1024;
 /** Required frontmatter keys for a Zettelkasten card (per ZETTEL_SYSTEM_PROMPT). */
-export const ZETTEL_REQUIRED_KEYS = ["id", "created", "tags"];
+export const ZETTEL_REQUIRED_KEYS = ["id", "created", "tags", "sources"];
 
 export interface NoteValidation {
 	path: string;
@@ -3621,4 +3621,85 @@ export async function runDeterministicHealthCheck(opts: {
 		);
 	}
 	return _detHealthFn(opts);
+}
+// ---- Zettel frontmatter auto-repair (distill backstop) --------------------
+// When the distill subagent omits a required key that can be computed
+// deterministically, fill it instead of leaving the note malformed. Only fills
+// ABSENT keys — never overwrites an existing value or reorders tags (a
+// wrong-but-present tags[0] stays a reported warning, not a silent mutation).
+
+/** Format an epoch-ms mtime into the Zettel `id` (YYYYMMDDHHmm, local) and
+ *  `created` (YYYY-MM-DD, local) formats mandated by ZETTEL_SYSTEM_PROMPT. */
+export function mtimeToZettelIds(mtimeMs: number): { id: string; created: string } {
+	const d = new Date(mtimeMs);
+	const p = (n: number) => String(n).padStart(2, "0");
+	return {
+		id: `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}`,
+		created: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`,
+	};
+}
+
+export interface FrontmatterRepair {
+	path: string;
+	repaired: string[]; // keys that were filled this run
+	skipped: string[]; // required keys already present (left untouched)
+	error?: string; // read/write failure reason, if any
+}
+
+/** Deterministically fill ABSENT required frontmatter keys on Zettel cards.
+ *  Writes back via updateFrontmatter (preserves body, honors optimistic
+ *  concurrency). Best-effort — never throws; a failed note is reported, not
+ *  fatal. Returns a per-note repair report + total keys filled.
+ *
+ *  id      ← file mtime as YYYYMMDDHHmm
+ *  created ← file mtime as YYYY-MM-DD
+ *  tags    ← ["zettel"] (only if absent/empty — never reordered)
+ *  sources ← defaultSources (only if absent) */
+export async function repairZettelFrontmatter(
+	vaultPath: string,
+	paths: string[],
+	defaultSources: string[],
+): Promise<{ notes: FrontmatterRepair[]; totalRepaired: number }> {
+	const real = resolve(vaultPath);
+	const notes: FrontmatterRepair[] = [];
+	let totalRepaired = 0;
+	for (const rel of paths) {
+		const abs = safeNotePath(real, rel);
+		const repaired: string[] = [];
+		const skipped: string[] = [];
+		try {
+			const entry = await readCached(abs);
+			if (!entry) {
+				notes.push({ path: rel, repaired, skipped, error: "note not found on disk" });
+				continue;
+			}
+			const { data } = parseFrontmatter(entry.content);
+			const patch: Record<string, any> = {};
+			const has = (k: string) =>
+				k in data && data[k] !== "" && data[k] != null &&
+				(Array.isArray(data[k]) ? (data[k] as any[]).length > 0 : true);
+			// id / created ← file mtime
+			if (!has("id") || !has("created")) {
+				const ids = mtimeToZettelIds(entry.mtime);
+				if (!has("id")) patch.id = ids.id;
+				if (!has("created")) patch.created = ids.created;
+			}
+			// tags ← ["zettel"] only if absent/empty (never reorder existing)
+			const tagsArr = Array.isArray(data.tags) ? (data.tags as any[]) : null;
+			if (!tagsArr || tagsArr.length === 0) patch.tags = ["zettel"];
+			// sources ← defaultSources only if absent
+			if (!has("sources") && defaultSources.length > 0) patch.sources = defaultSources;
+			for (const k of ZETTEL_REQUIRED_KEYS) if (!(k in patch)) skipped.push(k);
+			if (Object.keys(patch).length > 0) {
+				await updateFrontmatter(real, rel, patch, { expectedMtime: entry.mtime });
+				for (const k of Object.keys(patch)) repaired.push(k);
+				totalRepaired += repaired.length;
+			}
+		} catch (e: any) {
+			notes.push({ path: rel, repaired, skipped, error: String(e?.message ?? e) });
+			continue;
+		}
+		notes.push({ path: rel, repaired, skipped });
+	}
+	return { notes, totalRepaired };
 }
