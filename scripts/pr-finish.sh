@@ -115,7 +115,7 @@ try_merge() {
   return 0
 }
 
-say "Squash-merging PR #$PR_NUMBER…"
+say "Squash-merging PR #${PR_NUMBER}…"
 BASE_UPDATED=false
 if [[ "$DRY_RUN" != true ]]; then
   try_merge && rc=0 || rc=$?
