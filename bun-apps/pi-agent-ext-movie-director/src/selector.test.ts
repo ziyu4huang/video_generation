@@ -64,12 +64,17 @@ describe("selectProvider", () => {
     expect(e.provider).toBe("flux2");
   });
 
-  it("a provider hint naming a NOT-configured provider is ignored (soft hint), falling back to the local say fallback", () => {
+  it("a provider hint naming a NOT-configured provider is ignored (soft hint)", () => {
     // piper is a GAP (never callable); the hint is ignored and falls back to the
-    // macOS `say` fallback (macos_native, always callable on darwin — ranks
-    // ahead of unkeyed cloud TTS, so tts no longer throws with zero cloud keys).
-    const e = selectProvider("tts", { provider: "piper", env: NO_ENV });
-    expect(e.provider).toBe("say");
+    // probe-based ranking. On darwin that lands on the macOS `say` fallback
+    // (macos_native, always callable); on non-darwin CI runners say's probe is
+    // false too and tts has nothing else configured (no cloud keys) → throws.
+    if (process.platform === "darwin") {
+      const e = selectProvider("tts", { provider: "piper", env: NO_ENV });
+      expect(e.provider).toBe("say");
+    } else {
+      expect(() => selectProvider("tts", { provider: "piper", env: NO_ENV })).toThrow(NoConfiguredProviderError);
+    }
   });
 
   it("throws NoConfiguredProviderError when nothing is wired for the capability", () => {
