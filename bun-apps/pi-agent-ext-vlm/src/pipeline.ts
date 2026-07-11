@@ -18,6 +18,7 @@ import { classifyProfileViaVlm } from "./vlm/classify-vlm.ts";
 import { explainPage } from "./vlm/agents.ts";
 import { withRetry, retryableError } from "./vlm/retry.ts";
 import { validatePageMarkdown } from "./vlm/validate.ts";
+import { PageContext, formatContext } from "./vlm/page-context.ts";
 import {
   slugify,
   layoutFor,
@@ -262,6 +263,7 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
       );
     }
 
+    const pageContext = new PageContext();
     for (let i = 0; i < doc.pageCount; i++) {
       const pageNo = i + 1;
       if (only && !only.has(pageNo)) continue;
@@ -271,6 +273,8 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
       const pngAbs = doc.pagePngs[i]!;
       const pngLinkName = basename(pngAbs);
       const mt = imageMimeType({ kind: doc.kind, path: inputAbs });
+      // S1 — cross-page context from all prior pages (undefined on page 1).
+      const priorContext = formatContext(pageContext.snapshot());
 
       mp.status = "in_progress";
       writeManifest(doc.layout, manifest);
@@ -288,6 +292,7 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
               docSlug: doc.slug,
               pageNo,
               pageCount: doc.pageCount,
+              priorContext,
             });
             if (!r.ok) throw new Error(r.error ?? "unknown error");
             // S2 — output quality gate: only hand back pages that pass
@@ -313,6 +318,8 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
 
       if (res.ok && res.markdown) {
         writeFileSync(doc.layout.mdAbs(pageNo), res.markdown + "\n", "utf8");
+        // S1 — fold this page into the rolling context for the next page.
+        pageContext.feed(res.markdown);
         mp.status = "done" as PageStatus;
         delete mp.error;
         console.error(`  [${pageNo}/${doc.pageCount}] done (${dt}s, ${res.markdown.length} chars)`);

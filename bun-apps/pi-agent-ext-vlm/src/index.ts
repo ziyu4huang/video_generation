@@ -5,6 +5,7 @@ export * from "./vlm/ask.ts";
 export * from "./vlm/manifest.ts";
 export * from "./vlm/retry.ts";
 export * from "./vlm/validate.ts";
+export * from "./vlm/page-context.ts";
 export * from "./native/pdf2png.ts";
 export * from "./sessions.ts";
 export * from "./pipeline.ts";

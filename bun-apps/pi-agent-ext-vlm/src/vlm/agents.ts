@@ -159,14 +159,17 @@ export function pageUserMessage(opts: {
   page: number;
   pngLinkName: string;
   pageCount: number;
+  /** Optional cross-page context line (S1). Omitted on page 1 / single-image docs. */
+  priorContext?: string;
 }): string {
-  return [
+  const lines = [
     `文件 slug：${opts.docSlug}`,
     `這是第 ${opts.page} 頁（共 ${opts.pageCount} 頁）。`,
     `圖片嵌入（原樣輸出此行，勿加角括號）：![[${opts.pngLinkName}]]`,
-    "",
-    "請依系統提示的格式，把這一頁轉成 Obsidian markdown。",
-  ].join("\n");
+  ];
+  if (opts.priorContext) lines.push("", opts.priorContext);
+  lines.push("", "請依系統提示的格式，把這一頁轉成 Obsidian markdown。");
+  return lines.join("\n");
 }
 
 /** Re-export for the command layer's convenience. */
@@ -199,6 +202,8 @@ export async function explainPage(
     docSlug: string;
     pageNo: number;
     pageCount: number;
+    /** Optional cross-page context line (S1) from prior pages. */
+    priorContext?: string;
   },
 ): Promise<ExplainResult> {
   const { session } = await createSharedSession(llm, {
@@ -211,6 +216,7 @@ export async function explainPage(
     page: page.pageNo,
     pngLinkName: page.pngLinkName,
     pageCount: page.pageCount,
+    priorContext: page.priorContext,
   });
 
   let markdown = "";
