@@ -71,6 +71,33 @@ function cardMatches(c, expect) {
 	return hay.includes(expect.toLowerCase());
 }
 
+// ── Track 3.1 ablation: lexical BM25-ish RERANK (no LLM, no vectors) ─────────
+// SAG idea ② (the non-vector half): coarse-rank broadly (tag-sharedScore), then
+// precision-RERANK the pool by query-token overlap with each card's title+body.
+// The baseline showed some 2nd expected cards are in the pool but under-ranked
+// (rank 8–44) — a rerank is the lever that could surface them. This ablation
+// measures whether it actually does, BEFORE any production code change.
+const STOP = new Set(["the","and","for","with","that","this","how","why","does","was","were","after","before","when","what","have","has","not","but","are","is","it","to","of","in","on","my","i","a","an","two","both","same","next","sit","also","gotcha","review","memory","auto"]);
+const textCache = new Map();
+function readCardText(vault, folder, c) {
+	if (textCache.has(c.path)) return textCache.get(c.path);
+	let body = "";
+	try { body = readFileSync(join(vault, folder, c.path.split("/").pop()), "utf8").toLowerCase(); } catch { /* missing file */ }
+	textCache.set(c.path, body);
+	return body;
+}
+function bm25Score(queryTokens, text, title) {
+	let s = 0;
+	for (const t of queryTokens) {
+		if (STOP.has(t)) continue;
+		const titleHits = title.split(t).length - 1;
+		const bodyHits = text.split(t).length - 1;
+		if (titleHits) s += 3 * titleHits; // title boost (precision signal)
+		if (bodyHits) s += Math.min(bodyHits, 5); // cap body tf
+	}
+	return s;
+}
+
 async function main() {
 	const vault = (await resolveVault(REPO)).path;
 	if (!existsSync(EVAL_FILE)) { console.error(`eval set not found: ${EVAL_FILE}`); process.exit(1); }
@@ -81,7 +108,9 @@ async function main() {
 	const perQuery = [];
 	// accumulators per K
 	const setRecall = Object.fromEntries(KS.map((k) => [k, 0]));
+	const setRecallRR = Object.fromEntries(KS.map((k) => [k, 0]));
 	const fullRecall = Object.fromEntries(KS.map((k) => [k, 0]));
+	const fullRecallRR = Object.fromEntries(KS.map((k) => [k, 0]));
 	const sourceCov = Object.fromEntries(KS.map((k) => [k, 0]));
 
 	console.log(`multi-hop DETERMINISTIC measure: ${queries.length} queries | vault=${vault}`);
@@ -95,18 +124,34 @@ async function main() {
 		const expected = item.expect;
 		const expSources = [...new Set(item.sources)];
 
+		// RERANK: take the tag-ranked pool (top 30), re-score by lexical BM25-ish
+		// overlap with the query tokens, re-rank. (Pool, not full vault — rerank is a
+		// precision stage over the coarse-recall output, exactly SAG's pattern.)
+		const pool = ranked.slice(0, 30);
+		const qTokens = queryToTags(item.q);
+		const reranked = pool
+			.map((c) => ({ c, s: bm25Score(qTokens, readCardText(vault, FOLDER, c), `${c.id} ${c.title}`.toLowerCase()) }))
+			.sort((a, b) => b.s - a.s || a.c.id.localeCompare(b.c.id))
+			.map((x) => x.c);
+
 		const row = { q: item.q.slice(0, 64), bridge: item.bridge, expected, expSources, tags };
 
 		for (const k of KS) {
 			const topk = ranked.slice(0, k);
+			const topkRR = reranked.slice(0, k);
 			const found = expected.filter((e) => topk.some((c) => cardMatches(c, e)));
+			const foundRR = expected.filter((e) => topkRR.some((c) => cardMatches(c, e)));
 			const foundSources = [...new Set(item.sources.filter((_, idx) => topk.some((c) => cardMatches(c, expected[idx]))))];
 			const recall = found.length / expected.length;
+			const recallRR = foundRR.length / expected.length;
 			setRecall[k] += recall;
+			setRecallRR[k] += recallRR;
 			fullRecall[k] += found.length === expected.length ? 1 : 0;
+			fullRecallRR[k] += foundRR.length === expected.length ? 1 : 0;
 			sourceCov[k] += foundSources.length / expSources.length;
 			row[`found@${k}`] = found;
 			row[`setRecall@${k}`] = recall;
+			row[`setRecallRR@${k}`] = recallRR;
 		}
 		// also record the rank position of each expected card (1-indexed) for the bridgeLift signal
 		row.ranks = expected.map((e) => {
@@ -122,9 +167,16 @@ async function main() {
 	const metrics = {};
 	for (const k of KS) {
 		metrics[`setRecall@${k}`] = { value: setRecall[k] / n, raw: `${setRecall[k].toFixed(2)}/${n}`, note: "mean (expected cards in top-K)/(total expected)" };
+		metrics[`setRecallRR@${k}`] = { value: setRecallRR[k] / n, raw: `${setRecallRR[k].toFixed(2)}/${n}`, note: "Track 3.1 RERANK: same metric after lexical BM25 rerank of the pool" };
 		metrics[`fullRecall@${k}`] = { value: fullRecall[k] / n, raw: `${fullRecall[k]}/${n}`, note: "fraction of queries where ALL expected cards surfaced" };
+		metrics[`fullRecallRR@${k}`] = { value: fullRecallRR[k] / n, raw: `${fullRecallRR[k]}/${n}`, note: "RERANK: fraction of queries where ALL expected surfaced" };
 		metrics[`sourceCoverage@${k}`] = { value: sourceCov[k] / n, raw: `${sourceCov[k].toFixed(2)}/${n}`, note: "mean distinct expected sources reached in top-K" };
 	}
+	const rerankDelta = {
+		"setRecall@4": (setRecallRR[4] - setRecall[4]) / n,
+		"fullRecall@4": (fullRecallRR[4] - fullRecall[4]) / n,
+		gate: ">= +0.10 setRecall@4 to ship the rerank lever; else retire (iter-7 discipline)",
+	};
 	const bridgeLift = {
 		from4to8: (setRecall[8] - setRecall[4]) / n,
 		from8to16: (setRecall[16] - setRecall[8]) / n,
@@ -145,6 +197,7 @@ async function main() {
 		liveModeNote: "A LIVE zk_ask run (graph-RAG, non-deterministic) can be added via a companion harness; not run here. The deterministic baseline is the reproducible gate.",
 		metrics,
 		bridgeLift,
+		rerankDelta,
 		perQuery,
 	};
 	const outPath = join(OUT_DIR, `measure-${ts}.json`);
@@ -157,6 +210,15 @@ async function main() {
 		console.log(`  sourceCoverage@${k}  = ${metrics[`sourceCoverage@${k}`].value.toFixed(3)}`);
 	}
 	console.log(`\n  bridgeLift 4→8 = ${bridgeLift.from4to8.toFixed(3)} | 8→16 = ${bridgeLift.from8to16.toFixed(3)}`);
+	console.log(`\n  ── Track 3.1 RERANK ablation (lexical BM25 over the pool) ──`);
+	console.log(`  setRecall@4  baseline=${metrics.setRecallAt4 ?? metrics["setRecall@4"].value.toFixed(3)}  rerank=${metrics["setRecallRR@4"].value.toFixed(3)}  Δ=${rerankDelta["setRecall@4"] >= 0 ? "+" : ""}${rerankDelta["setRecall@4"].toFixed(3)}`);
+	console.log(`  fullRecall@4 baseline=${metrics["fullRecall@4"].value.toFixed(3)}  rerank=${metrics["fullRecallRR@4"].value.toFixed(3)}  Δ=${rerankDelta["fullRecall@4"] >= 0 ? "+" : ""}${rerankDelta["fullRecall@4"].toFixed(3)}`);
+	const rrVerdict = rerankDelta["setRecall@4"] >= 0.10
+		? `→ RERANK WINS (Δ≥+0.10) → port to production retrieve.ts as opt-in`
+		: rerankDelta["setRecall@4"] > 0
+			? `→ RERANK positive but < gate (+0.10) → keep as opt-in diagnostic, do NOT change default`
+			: `→ RERANK neutral/negative → RETIRE (lexical rerank doesn't help multi-hop); receipt logged`;
+	console.log(rrVerdict);
 	console.log(`\nreceipt: ${outPath}`);
 }
 
