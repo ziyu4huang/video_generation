@@ -20,36 +20,22 @@ re-investigation.
 
 ## Open
 
-### 1. lazy `-e <alias>` e2e  *(highest leverage — same risk class as the #182 bug, untested)*
+### 1. lazy `-e <alias>` e2e  ✅ DONE (2026-07-12)
 
-`run-dir/resolve.ts` `rewriteArgvLazyExtensions()` rewrites `-e <alias>` (e.g.
-`-e workflow`, `-e flux2`) to the resolved absolute path by mutating
-`process.argv` — the SAME splice mechanism that broke twice in #182/#184. It
-has unit coverage (`run-dir/resolve.test.ts`: `isAlias`, resolve) but **no e2e**
-that runs an alias through the real bundle and proves the extension loads.
+Shipped in `src/__tests__/e2e-extensions.test.ts` (describe "e2e: SOURCE lazy
+`-e <alias>` splice loads the extension"). Two tests, gated on `PI_AGENT_E2E`
+alone so they run at the default `medium` tier:
+- alias run: `-e pi-agent-ext-zai-mcp` → splice rewrites to abs factory path →
+  extension loads (matched ≥ 1, zero load errors).
+- control: without the alias, the non-eager fixture is NOT loaded (matched = 0).
 
-**Why it's the gap:** the eager `-e` path is now guarded by both the
-extension-loading e2e AND `doctor --smoke`. The lazy alias path is guarded by
-neither — a regression here (alias passed literally → pi tries to load "flux2"
-as a source → silent failure) would be invisible.
-
-**Scope (SOURCE mode only):** lazy aliases resolve to `bun-apps/<pkg>/...`
-source paths, so they're a repo-present feature. A default bundle deploy does
-NOT copy those source dirs, so `-e flux2` correctly does NOT work there — don't
-add a deploy-mode case for it (it would be a false failure).
-
-**How to implement (resumed investigation):**
-- The alias factories are cheap at load time: `pi-agent-ext-flux2/extensions/pi-flux2.ts`
-  registers a single `flux2` tool (just `pi.registerTool`, no `session_start`
-  heavy work); `pi-agent-ext-workflow/extensions/workflow.ts` likewise. So a
-  `session_start` probe that `process.exit()`s before the model call is fine.
-- Reuse the existing probe pattern: run `bun src/cli.ts -e flux2 -e <probe> -p hi`,
-  marker = `<repo>/bun-apps/pi-agent-ext-flux2`; assert `matched > 0` (and/or
-  `flux2` tool present). A control run WITHOUT `-e flux2` should give `matched=0`
-  (flux2 is lazy, not in the eager manifest) — proves the opt-in is what loads it.
-- Add to `src/__tests__/e2e-extensions.test.ts` SOURCE describe, gated on the
-  existing `PI_AGENT_E2E`/`PI_AGENT_E2E_DEPLOY` flags. `runScenario` already
-  takes an arbitrary `cmd` string[], so `-e flux2` slots straight in.
+**Fixture note (recipe was stale):** the original recipe proposed `-e flux2`, but
+flux2 is now in the EAGER manifest (so a no-alias control would still load it →
+matched > 0, no causal proof). `workflow`/`dynamic-workflows` (the declared
+`lazyExtensions`) now point at an eager package too (backwards-compat, SDK-dedup'd).
+Used `pi-agent-ext-zai-mcp` instead: NOT eager + exactly one `.ts` under
+`extensions/` (directory-fallback resolves) + registers tools (probe-visible).
+`movie-director` was rejected (2 `.ts` files → fallback can't pick).
 
 ### 2. Patch unit-coverage gaps
 
