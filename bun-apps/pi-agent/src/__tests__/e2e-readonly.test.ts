@@ -58,7 +58,10 @@ for (const MODE of MODES) {
 			userDir = mkdtempSync(join(tmpdir(), `pi-agent-ro-${MODE.name}-user-`));
 			foreignCwd = mkdtempSync(join(tmpdir(), `pi-agent-ro-${MODE.name}-cwd-`));
 			// DEFAULT deploy (no --writable) → deploy.ts freezes it.
-			const deploy = Bun.spawn(["bun", "scripts/deploy.ts", pkgDir, "--no-build", ...MODE.flag], {
+			// --verify: boot the frozen artifact + probe getAllTools at deploy
+			// time (same gate as e2e-extensions). Runs before the test's own
+			// doctor/smoke probes, catching broken bundles early.
+			const deploy = Bun.spawn(["bun", "scripts/deploy.ts", pkgDir, "--no-build", "--verify", ...MODE.flag], {
 				cwd: PI_AGENT_DIR,
 				stdout: "inherit",
 				stderr: "inherit",
