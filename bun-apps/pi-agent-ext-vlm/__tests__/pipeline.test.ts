@@ -28,7 +28,8 @@ import { tmpdir } from "node:os";
 // --- control knobs ----------------------------------------------------------
 // What the fake model emits for the classifier turn and the per-page turn.
 let classifyReply = "paper";
-let pageMarkdown = "---\ntitle: T\npage: 1\nkind: paper\n---\n\n![[page-001.png]]\n\nPAGE BODY";
+let classifyReplies: string[] = []; // S4: per-call queue for multi-page voting
+let pageMarkdown = "---\ntitle: T\npage: 1\nkind: paper\n---\n\n![[page-001.png]]\n\nPAGE BODY with realistic content to clear the quality gate";
 let rasterizePageCount = 1;
 const rasterizeCalls: { input: string; pagesDir: string; dpi: number }[] = [];
 const sessionCalls: { llm: any; opts: any }[] = [];
@@ -70,7 +71,7 @@ mock.module(`${ROOT}/src/session-factory.ts`, () => ({
         },
         prompt: async (text: string, _opts: any) => {
           const isClassify = text.includes("分類") || text.includes("profile 代碼");
-          const payload = isClassify ? classifyReply : pageMarkdown;
+          const payload = isClassify ? (classifyReplies.length ? classifyReplies.shift()! : classifyReply) : pageMarkdown;
           pendingSubscriber?.({
             type: "message_update",
             assistantMessageEvent: { type: "text_delta", delta: payload },
@@ -86,6 +87,12 @@ mock.module(`${ROOT}/src/session-factory.ts`, () => ({
     thinkingLevel: o?.thinking ?? "off",
   }),
 }));
+
+// Keep retries fast + bounded for the page-quality-gate retry test below.
+// (pipeline.ts reads these lazily at call time, so they apply whenever the
+// pipeline runs — not just at module load.)
+process.env.PI_VLM_RETRIES = "1";
+process.env.PI_VLM_RETRY_WAIT_MS = "0";
 
 // Import AFTER the mocks are registered.
 const { runVlmDescribePipeline } = await import("../src/pipeline.ts");
@@ -108,7 +115,8 @@ beforeEach(() => {
   rasterizeCalls.length = 0;
   sessionCalls.length = 0;
   classifyReply = "paper";
-  pageMarkdown = "---\ntitle: T\npage: 1\nkind: paper\n---\n\n![[page-001.png]]\n\nPAGE BODY";
+  classifyReplies = [];
+  pageMarkdown = "---\ntitle: T\npage: 1\nkind: paper\n---\n\n![[page-001.png]]\n\nPAGE BODY with realistic content to clear the quality gate";
   pendingSubscriber = null;
 });
 afterEach(async () => {
@@ -222,6 +230,21 @@ describe("runVlmDescribePipeline — classifier failure", () => {
   });
 });
 
+describe("runVlmDescribePipeline — page quality gate (S2)", () => {
+  test("a page failing the gate is retried then marked error with the gate reason", async () => {
+    // Garbage: no frontmatter, no embed, tiny body → fails the gate every time.
+    pageMarkdown = "lol not markdown at all";
+    const { inputAbs, outRoot } = await setup("doc.png", PNG_MAGIC);
+    await runVlmDescribePipeline({ inputs: [inputAbs], outRoot, forcedType: "paper" });
+
+    const manifest = await readJsonFile(join(outRoot, "doc", "manifest.json"));
+    expect(manifest.pages[0].status).toBe("error");
+    expect(manifest.pages[0].error).toMatch(/gate:/);
+    // A failed page must not have its md written.
+    expect(existsSync(join(outRoot, "doc", "pages", "page-001.md"))).toBe(false);
+  });
+});
+
 describe("runVlmDescribePipeline — resume", () => {
   test("a second run reuses the existing manifest and skips already-done pages", async () => {
     const { inputAbs, outRoot } = await setup("doc.png", PNG_MAGIC);
@@ -272,6 +295,69 @@ describe("runVlmDescribePipeline — page spec", () => {
         forcedType: "paper",
       }),
     ).rejects.toThrow(/matched no pages/);
+  });
+});
+
+describe("runVlmDescribePipeline — parallel pages (T2)", () => {
+  test("concurrency>1 processes all pages with a consistent manifest", async () => {
+    rasterizePageCount = 3;
+    const { inputAbs, outRoot } = await setup("doc.pdf", PDF_MAGIC);
+    await runVlmDescribePipeline({
+      inputs: [inputAbs],
+      outRoot,
+      forcedType: "paper",
+      concurrency: 3,
+    });
+
+    const manifest = await readJsonFile(join(outRoot, "doc", "manifest.json"));
+    expect(manifest.pages.map((p: any) => p.status)).toEqual(["done", "done", "done"]);
+    for (const p of [1, 2, 3]) {
+      expect(existsSync(join(outRoot, "doc", "pages", `page-${String(p).padStart(3, "0")}.md`))).toBe(true);
+    }
+  });
+
+  test("parallel mode is resumable (done pages skipped on re-run)", async () => {
+    rasterizePageCount = 2;
+    const { inputAbs, outRoot } = await setup("doc.pdf", PDF_MAGIC);
+    await runVlmDescribePipeline({
+      inputs: [inputAbs],
+      outRoot,
+      forcedType: "paper",
+      concurrency: 2,
+    });
+    const sessionsAfterFirst = sessionCalls.length;
+    await runVlmDescribePipeline({
+      inputs: [inputAbs],
+      outRoot,
+      forcedType: "paper",
+      concurrency: 2,
+    });
+    // No new model sessions on re-run (classifier reused, pages done).
+    expect(sessionCalls.length).toBe(sessionsAfterFirst);
+  });
+});
+
+describe("runVlmDescribePipeline — multi-page classification vote (S4)", () => {
+  test("samples first/middle/last and majority-votes the profile", async () => {
+    rasterizePageCount = 3;
+    classifyReplies = ["poster", "paper", "paper"]; // page1 poster, mid paper, last paper
+    const { inputAbs, outRoot } = await setup("doc.pdf", PDF_MAGIC);
+    await runVlmDescribePipeline({ inputs: [inputAbs], outRoot });
+
+    const manifest = await readJsonFile(join(outRoot, "doc", "manifest.json"));
+    expect(manifest.profile).toBe("paper"); // majority over the cover-page poster vote
+    expect(manifest.kind).toBe("pdf");
+  });
+
+  test("votes are emitted joined in the classify event", async () => {
+    rasterizePageCount = 2;
+    classifyReplies = ["slides", "slides"];
+    const { inputAbs, outRoot } = await setup("doc.pdf", PDF_MAGIC);
+    const events: any[] = [];
+    await runVlmDescribePipeline({ inputs: [inputAbs], outRoot, emit: (o) => events.push(o) });
+    const classifyEv = events.find((e) => e.type === "classify");
+    expect(classifyEv.profile).toBe("slides");
+    expect(classifyEv.reply).toContain("slides / slides");
   });
 });
 

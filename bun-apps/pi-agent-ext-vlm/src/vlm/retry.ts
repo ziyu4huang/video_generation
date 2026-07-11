@@ -11,6 +11,9 @@
 
 /** Heuristic: is this error retryable? */
 export function isRetryableError(err: unknown): boolean {
+  // Explicit opt-in: callers can mark an error retryable (e.g. a VLM output
+  // that failed a quality gate — a stochastic model deserves another attempt).
+  if ((err as { retryable?: boolean })?.retryable === true) return true;
   const msg =
     (err as { message?: string })?.message ??
     (typeof err === "string" ? err : String(err));
@@ -27,6 +30,16 @@ export function isRetryableError(err: unknown): boolean {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Build an error explicitly marked retryable. Used by callers that want a
+ * failure (e.g. a VLM page failing the output quality gate) to be retried by
+ * `withRetry` regardless of its message — a stochastic model may succeed on a
+ * later attempt. The `retryable: true` property is honored by `isRetryableError`.
+ */
+export function retryableError(message: string): Error & { retryable: true } {
+  return Object.assign(new Error(message), { retryable: true as const });
+}
 
 export interface RetryOptions {
   /** Number of retries AFTER the initial attempt (default 3 → up to 4 total calls). */

@@ -145,6 +145,48 @@ describe("composeMotion (mocked ffmpeg)", () => {
     }
   });
 
+  it("warns when a video-source cut's in_seconds is at/past the source's probed duration", async () => {
+    // fakeSpawn's ffprobe duration probe always returns 2.0. A cut with
+    // in_seconds=2 (>= probed duration) reproduces the exact silent-collapse
+    // bug this defensive check exists to catch: ffmpeg -ss past EOF trims to
+    // ~0s with no error, so the warning is the only signal a caller gets.
+    const dir = mkdtempSync(join(tmpdir(), "md-motion-collapse-"));
+    try {
+      const vid = join(dir, "clip.mp4");
+      writeFileSync(vid, "x");
+      const edit: RemotionEditDecisions = {
+        version: "1.0",
+        cuts: [{ id: "vid", source: vid, in_seconds: 2, out_seconds: 4, animation: "zoom-in" }],
+        transition: "none",
+      };
+      const out = join(dir, "out.mp4");
+      const report = await composeMotion(edit, { workDir: dir, output: out }, { spawnImpl: fakeSpawn() });
+      expect(report.outputs).toHaveLength(1);
+      expect(report.warnings.some((w) => w.includes('"vid"') && w.includes("probed duration"))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not warn when a video-source cut's in_seconds is well within the source's duration", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-motion-nocollapse-"));
+    try {
+      const vid = join(dir, "clip.mp4");
+      writeFileSync(vid, "x");
+      const edit: RemotionEditDecisions = {
+        version: "1.0",
+        cuts: [{ id: "vid", source: vid, in_seconds: 0, out_seconds: 1, animation: "zoom-in" }],
+        transition: "none",
+      };
+      const out = join(dir, "out.mp4");
+      const report = await composeMotion(edit, { workDir: dir, output: out }, { spawnImpl: fakeSpawn() });
+      expect(report.outputs).toHaveLength(1);
+      expect(report.warnings.some((w) => w.includes("probed duration"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("static cut omits zoompan; transition=none joins via plain concat", async () => {
     const dir = mkdtempSync(join(tmpdir(), "md-motion-static-"));
     try {
@@ -290,9 +332,11 @@ describe("composeMotion (mocked ffmpeg)", () => {
       const deps: MotionDeps = { spawnImpl: fakeSpawn() };
       const report = await composeMotion(edit, { workDir: dir, output: out }, deps);
       expect(report.outputs).toHaveLength(1);
-      // The mix pass produces a separate file; the report carries THAT path.
-      expect(report.outputs[0]!.path).not.toBe(out);
-      expect(report.outputs[0]!.path).toMatch(/motion_audio_/);
+      // The mix pass writes its result to its own timestamped path, but
+      // composeMotion reconciles it back onto the caller-requested `out` so a
+      // caller that trusts the path it passed in gets the real (mixed) file.
+      expect(report.outputs[0]!.path).toBe(out);
+      expect(existsSync(out)).toBe(true);
       expect(report.verification_notes.some((n) => n.includes("audio mixed"))).toBe(true);
       // The mix ffmpeg call carries atrim + volume (narration fit to duration).
       const calls = callsOf(deps.spawnImpl!);

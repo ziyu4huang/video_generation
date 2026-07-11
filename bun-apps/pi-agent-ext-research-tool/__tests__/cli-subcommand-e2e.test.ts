@@ -218,6 +218,16 @@ describe("collect-videos task builder — flags", () => {
 		expect(task).toContain("output file path");
 		expect(task).toContain("any errors");
 	});
+
+	test("--dry-run → dryRun=true", () => {
+		const task = collectVideosSubcommand.task(taskInput(["bilibili", "llm"], { dryRun: true }));
+		expect(task).toContain("dryRun=true");
+	});
+
+	test("--dry-run absent → dryRun not emitted", () => {
+		const task = collectVideosSubcommand.task(taskInput(["bilibili", "llm"]));
+		expect(task).not.toContain("dryRun=");
+	});
 });
 
 // ── organize-vault task builder ─────────────────────────────────────────────
@@ -279,6 +289,16 @@ describe("import-memory task builder", () => {
 		);
 		expect(task).toContain('outputPath="./my-collection.jsonl"');
 		expect(task).toContain('hermesDir="/tmp/hermes"');
+	});
+
+	test("--dry-run → dryRun=true", () => {
+		const task = importMemorySubcommand.task(taskInput([], { dryRun: true }));
+		expect(task).toContain("dryRun=true");
+	});
+
+	test("--dry-run absent → dryRun not emitted", () => {
+		const task = importMemorySubcommand.task(taskInput([]));
+		expect(task).not.toContain("dryRun=");
 	});
 });
 

@@ -42,6 +42,7 @@ export interface ProviderEntry {
     | "mlx:runpy"
     | "mlx:runpy-image"
     | "mlx:runpy-story"
+    | "mlx:runpy-tts"
     | "mlx:caption"
     | "fetch"
     | "ffmpeg"
@@ -140,7 +141,21 @@ export const REGISTRY: ProviderEntry[] = [
   { name: "elevenlabs_tts", capability: "tts", provider: "elevenlabs", backend: "cloud_http", invoke: "fetch", configured: false, notes: "needs ELEVENLABS_API_KEY" },
   { name: "openai_tts", capability: "tts", provider: "openai", backend: "cloud_http", invoke: "fetch", configured: false, notes: "needs OPENAI_API_KEY" },
   { name: "piper_tts", capability: "tts", provider: "piper", backend: "native_swift", invoke: "bun:builtin", configured: false, notes: "local Piper binary OR AVSpeechSynthesizer fallback (gap)" },
-  { name: "say_tts", capability: "tts", provider: "say", backend: "macos_native", invoke: "macos:say", configured: true, notes: "macOS `say` (AVSpeechSynthesizer-backed) — zero-cost, zero-key local narration; ranks below cloud TTS quality but is always callable on Apple Silicon. Same fallback run.py's video t2i2v pipeline already uses." },
+  // backend: "cloud_http" (NOT native_swift) is deliberate even though the invoke
+  // (mlx:runpy-tts) spawns a local python process: edge-tts's actual synthesis
+  // call goes out to Microsoft's service, and probeConfigured for mlx:runpy-tts
+  // only checks venv+run.py presence — it cannot detect "no network" the way
+  // fetch's CLOUD_KEY_FOR check detects "no API key". Ranking it in the
+  // cloud_http tier (below macos_native) keeps say_tts the SAFE, offline-honest
+  // STATIC default. But selectAndGenerate (bridge.ts) opportunistically tries
+  // edge-tts FIRST at runtime whenever the static pick landed on say and no
+  // explicit provider hint was given, falling back to the say result only on
+  // an actual network failure — a 2026-07-11 A/B (edge-tts vs say vs LTX-2.3's
+  // own joint audio generation via --dev-audio) confirmed edge-tts is clearly
+  // the most natural of the three; LTX's in-prompt "voice" was explicitly
+  // rejected on quality. An explicit provider hint still works as before.
+  { name: "edge_tts", capability: "tts", provider: "edge-tts", backend: "cloud_http", invoke: "mlx:runpy-tts", configured: true, notes: "run.py tts adapter (src/runpy_tts.ts) — Microsoft neural TTS via the edge-tts library, same engine `video relay --relay-tts-engine edge-tts` already uses. Natural-sounding voice, near-zero generation cost (~1s per narration), but needs NETWORK EGRESS (not available under --offline). Statically ranked below say_tts, but selectAndGenerate tries it FIRST at runtime by default (see comment above) — falls back to say only on an actual network failure." },
+  { name: "say_tts", capability: "tts", provider: "say", backend: "macos_native", invoke: "macos:say", configured: true, notes: "macOS `say` (AVSpeechSynthesizer-backed) — zero-cost, zero-key, fully offline narration; robotic voice quality vs edge_tts. Statically ranked as the default (the correct offline/no-network fallback), but selectAndGenerate opportunistically tries edge-tts first at runtime and only actually invokes say if that fails — see edge_tts's notes." },
 
   // Audio/video post — ffmpeg shells (iteration 3).
   { name: "audio_mixer", capability: "audio_processing", provider: "ffmpeg", backend: "ffmpeg", invoke: "ffmpeg", configured: true },

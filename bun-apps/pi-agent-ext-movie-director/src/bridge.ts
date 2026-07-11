@@ -31,7 +31,7 @@ import {
   type RunPyVideoDetails,
   type RunPyVideoOptions,
 } from "@repo/pi-agent-ext-ltx";
-import type { Capability, ProviderEntry } from "./registry.ts";
+import { REGISTRY, type Capability, type ProviderEntry } from "./registry.ts";
 import { selectProvider, type SelectorOptions } from "./selector.ts";
 import { nonNativeAdapters } from "./providers.ts";
 import { runPyCaption, type CaptionDetails, type CaptionOptions } from "./caption.ts";
@@ -45,6 +45,8 @@ import {
   type RunPyStoryDetails,
   type RunPyStoryOptions,
 } from "./runpy_story.ts";
+import { runPyTts, type RunPyTtsDetails, type RunPyTtsOptions } from "./runpy_tts.ts";
+import { join } from "node:path";
 
 // ─── ToolResult contract ─────────────────────────────────────────────────────
 
@@ -508,6 +510,49 @@ async function realRunPyStory(req: GenerateRequest, env?: Record<string, string 
   return adaptRunPyStory(req, out.details, out.summary, out.stderrTail, env);
 }
 
+/**
+ * adaptRunPyTts — normalize a run.py tts (edge-tts) result. The single artifact
+ * is the produced narration audio (kind:"audio"); ok = run.py exited 0 AND the
+ * requested file landed with real content (mirrors runPyTts's own "0-exit but
+ * nothing written is NOT success" stance). Cost is real but small (edge-tts is
+ * free); duration_seconds is the audio's own length, not measurable here without
+ * probing the file, so it stays null (the caller can ffprobe the artifact path
+ * if it needs the real duration — same as every other audio-producing adapter).
+ */
+export function adaptRunPyTts(
+  req: GenerateRequest,
+  details: RunPyTtsDetails,
+  summary: string,
+  stderrTailStr: string,
+  env?: Record<string, string | undefined>,
+): ToolResult {
+  const artifacts: Artifact[] = [];
+  if (details.output) {
+    artifacts.push({ path: details.output, kind: "audio", role: "primary", bytes: details.sizeBytes ?? undefined });
+  }
+  return {
+    success: details.ok,
+    provider: "edge-tts",
+    command: details.command,
+    artifacts,
+    error: details.ok ? null : `${summary}\n${stderrTailStr}`.trim(),
+    // edge-tts is a free Microsoft service — honest $0 marginal cost, same
+    // stance as the local-silicon providers even though this one needs network.
+    cost_usd: details.ok ? costFor(req.capability, null, env) : 0,
+    duration_seconds: null,
+    seed: null,
+    model: details.voice ?? "edge-tts",
+  };
+}
+
+async function realRunPyTts(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
+  const opts = (req.options ?? {}) as RunPyTtsOptions & { output?: string };
+  const outputDir = req.outputDir ?? process.cwd();
+  const output = opts.output ?? join(outputDir, "tts_edge.mp3");
+  const out = await runPyTts({ options: opts, output });
+  return adaptRunPyTts(req, out.details, out.summary, out.stderrTail, env);
+}
+
 /** The live adapter map. Tests override entries via GenerateDeps.adapters. */
 export function realAdapters(env?: Record<string, string | undefined>): Partial<Record<InvokeKey, Adapter>> {
   return {
@@ -517,6 +562,7 @@ export function realAdapters(env?: Record<string, string | undefined>): Partial<
     "mlx:runpy": (req) => realRunPy(req, env),
     "mlx:runpy-image": (req) => realRunPyImage(req, env),
     "mlx:runpy-story": (req) => realRunPyStory(req, env),
+    "mlx:runpy-tts": (req) => realRunPyTts(req, env),
     "mlx:caption": (req) => realCaption(req, env),
     // Non-native adapters (ffmpeg / pure-Bun subtitle / cloud HTTP) — iteration 3.
     ...nonNativeAdapters(env),
@@ -617,6 +663,25 @@ export async function selectAndGenerate(
   // addresses {capability, command} routes correctly without re-passing command
   // in selectorOpts (command-routing tiebreak lives in the selector).
   const entry = selectProvider(capability, { ...selectorOpts, command: selectorOpts.command ?? req.command });
+
+  // Quality-first opportunistic upgrade for narration: the static ranking
+  // defaults tts to macOS `say` (offline-safe, robotic) because edge-tts's
+  // probe can't verify live network reachability ahead of time (see
+  // registry.ts's edge_tts notes). A 2026-07-11 A/B (edge-tts vs `say` vs
+  // LTX-2.3's own joint audio generation) confirmed edge-tts is clearly the
+  // most natural of the three. When the caller didn't pin a provider and the
+  // default landed on `say`, try edge-tts first — a real network failure
+  // falls straight through to the `say` result below, so this never
+  // regresses the offline/no-network case, it only upgrades the online one.
+  if (capability === "tts" && !selectorOpts.provider && entry.provider === "say") {
+    const edgeEntry = REGISTRY.find((p) => p.capability === "tts" && p.provider === "edge-tts" && p.configured);
+    if (edgeEntry) {
+      const edgeResult = await generate(edgeEntry, { ...req, capability }, deps);
+      if (edgeResult.success) return { entry: edgeEntry, result: edgeResult };
+      // fall through — network genuinely unavailable, use the `say` pick.
+    }
+  }
+
   const result = await generate(entry, { ...req, capability }, deps);
   return { entry, result };
 }

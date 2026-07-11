@@ -316,6 +316,12 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
       // command). The gemma brain load is a RUNTIME concern (run.py auto-resolves
       // it); the static probe stays honest about the runtime, not the brain.
       return entry.configured && runPyRuntimePresent();
+    case "mlx:runpy-tts":
+      // callable iff run.py + the MLX venv resolve — same presence signal as
+      // mlx:runpy (tts is a run.py top-level command). Whether edge-tts's
+      // network call actually succeeds is a RUNTIME concern (no network probe
+      // here, mirrors the caption/story adapters not probing LM Studio either).
+      return entry.configured && runPyRuntimePresent();
     case "mlx:caption":
       // callable iff run.py + the MLX venv resolve — same presence signal as
       // mlx:runpy (caption is a run.py subcommand). Whether a VLM is actually

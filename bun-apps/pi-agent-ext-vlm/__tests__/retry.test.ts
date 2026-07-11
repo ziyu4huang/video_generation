@@ -4,7 +4,7 @@
  *   bun test __tests__/retry.test.ts
  */
 import { describe, test, expect } from "bun:test";
-import { isRetryableError, withRetry } from "../src/vlm/retry.ts";
+import { isRetryableError, withRetry, retryableError } from "../src/vlm/retry.ts";
 
 describe("isRetryableError", () => {
   test("429 status is retryable", () => {
@@ -45,6 +45,13 @@ describe("isRetryableError", () => {
   test("accepts a plain string or message-less object", () => {
     expect(isRetryableError("rate limit hit")).toBe(true);
     expect(isRetryableError({})).toBe(false);
+  });
+
+  test("honors an explicit retryable flag (e.g. from retryableError)", () => {
+    expect(isRetryableError(retryableError("gate: body too short"))).toBe(true);
+    expect(isRetryableError({ retryable: true })).toBe(true);
+    // a plain error without the flag falls through to message detection
+    expect(isRetryableError(new Error("gate: body too short"))).toBe(false);
   });
 });
 
@@ -100,6 +107,20 @@ describe("withRetry", () => {
     ).rejects.toThrow("service unavailable");
     // 1 initial + 2 retries
     expect(calls).toBe(3);
+  });
+
+  test("retries an error flagged retryable even if its message looks non-retryable", async () => {
+    let calls = 0;
+    const r = await withRetry(
+      async () => {
+        calls++;
+        if (calls < 2) throw retryableError("gate: body too short");
+        return "recovered";
+      },
+      { maxRetries: 3, retryWaitMs: 0 },
+    );
+    expect(r).toBe("recovered");
+    expect(calls).toBe(2);
   });
 
   test("onRetry fires with the right attempt numbers", async () => {

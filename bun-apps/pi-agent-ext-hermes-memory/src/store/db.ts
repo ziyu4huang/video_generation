@@ -10,7 +10,7 @@ type StatementLike = {
   iterate?: (...args: any[]) => Iterable<Record<string, unknown>>;
 };
 
-type DatabaseLike = {
+export type DatabaseLike = {
   prepare: (sql: string) => StatementLike;
   exec: (sql: string) => void;
   close: () => void;
@@ -87,48 +87,23 @@ function createBunCompatDatabaseCtor(require: NodeRequire): DatabaseCtor {
       }
       return this.db.transaction(fn);
     }
-
-    /** Emulate better-sqlite3's pragma() API on top of Bun's SQLite.
-     *  GET: pragma('journal_mode', { simple: true }) → scalar value.
-     *  GET: pragma('table_info(users)') → array of row objects.
-     *  SET: pragma('journal_mode = WAL') → result rows (or undefined). */
-    pragma(query: string, options?: { simple?: boolean }): any {
-      try {
-        const rows = this.db.prepare(`PRAGMA ${query}`).all() as Record<string, unknown>[];
-        if (options?.simple) {
-          return rows.length > 0 ? Object.values(rows[0]!)[0] : undefined;
-        }
-        return rows;
-      } catch {
-        // Some SET pragmas may not be preparable; fall back to exec.
-        this.db.exec(`PRAGMA ${query}`);
-        return undefined;
-      }
-    }
   };
 }
 
 function loadDatabaseCtor(): DatabaseCtor {
+  // Bun-only: this package runs under Bun and uses bun:sqlite exclusively.
+  // Node/better-sqlite3 support was removed per the project's Bun-only directive
+  // (PR follow-up to #460). The BunCompatDatabase class normalizes bun:sqlite's
+  // API to the shape the rest of the codebase expects.
   const require = createRequire(import.meta.url);
-  const isBunRuntime = typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined';
-
-  if (isBunRuntime) {
-    return createBunCompatDatabaseCtor(require);
-  }
-
-  try {
-    const mod = require('better-sqlite3') as { default?: DatabaseCtor } | DatabaseCtor;
-    return (mod as { default?: DatabaseCtor }).default ?? (mod as DatabaseCtor);
-  } catch (err) {
-    throw err;
-  }
+  return createBunCompatDatabaseCtor(require);
 }
 
 const Database = loadDatabaseCtor();
 
-/** The runtime-appropriate SQLite Database constructor (BunCompatDatabase under
- *  Bun, better-sqlite3 under Node). Exported so tests and tooling can create raw
- *  databases without importing better-sqlite3 directly (which crashes under Bun). */
+/** The SQLite Database constructor (bun:sqlite, wrapped by BunCompatDatabase
+ *  to normalize its API). Exported so tests and tooling can create raw databases
+ *  without importing bun:sqlite directly. */
 export { Database as RawDatabase };
 
 export class DatabaseManager {
