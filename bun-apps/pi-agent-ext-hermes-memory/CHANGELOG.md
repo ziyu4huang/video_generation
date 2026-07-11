@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Convergence health observability** (Track 1, Phase 1.2 of the `memory-orchestration` cycle): `passive-converge` now writes a per-run health record (`.vault-converge-health.json`) capturing per-target status (`ok`/`failed`/`unavailable`), counts, and a failure reason — closing the old defect where a broken vault resolution or a missing knowledge-card peer converged silently to nothing. New `/memory-health` command shows the last run + a **live reconciliation** (how many working-memory entries are NOT yet in the vault), reading the `.md` ground truth (not the lagging SQLite index). See `bun-apps/pi-agent/docs/memory-lifecycle.md`.
+
+### Changed
+
+- **Consolidated convergence bookkeeping** into `src/store/converge-health.ts`: the idempotency state (`entryHash`, `loadConvergeState`, `saveConvergeState`) + the new health layer (`loadHealth`, `saveHealth`, `computeReconciliation`, `formatHealthReport`) now live in one module. `passive-converge` imports from it; behavior is unchanged (idempotent, bounded, never throws) — it additionally records health per target. The `unavailable` path still records entry hashes (standalone-safe) but now flags the run `unavailable` so silent non-convergence is visible.
+
 ## [0.7.22] - 2026-06-28
 
 ### Fixed

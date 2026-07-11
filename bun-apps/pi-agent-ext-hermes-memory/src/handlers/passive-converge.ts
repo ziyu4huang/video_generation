@@ -15,54 +15,30 @@
  *     (best-effort — shutdown must not be held up by a convergence error).
  *   - **Gated** — only converges entries actually stored by the detectors
  *     (which already severity-gate + dedup at capture time).
+ *   - **Observable** (Track 1, Phase 1.2) — every run writes a health record
+ *     (`.vault-converge-health.json`) recording per-target status + counts, so a
+ *     broken vault resolution or a missing knowledge-card peer is VISIBLE
+ *     instead of silently converging to nothing. Read it via `/memory-health`.
  *
  * The state file (`~/.pi/agent/pi-hermes-memory/.vault-converge-state.json`)
  * records the hash of every converged entry per target. A new or edited entry
  * has a different hash → it's converged again; an unchanged entry is skipped.
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import type { MemoryStore } from "../store/memory-store.js";
 import { convergeToVault } from "../store/vault-converge.js";
+import {
+	entryHash,
+	loadConvergeState,
+	saveConvergeState,
+	saveHealth,
+	aggregateOverall,
+	type ConvergeState,
+	type ConvergeStatus,
+	type ConvergeTargetHealth,
+	type ConvergeHealthRecord,
+} from "../store/converge-health.js";
 
-const STATE_FILENAME = ".vault-converge-state.json";
 const DEFAULT_TIMEOUT_MS = 5000;
-
-/** Stable hash of an entry text (DJB2 → base36). Matches the hash used in
- *  vault-converge.ts so the same entry → the same converge id. */
-function entryHash(entry: string): string {
-	let h = 5381;
-	for (let i = 0; i < entry.length; i++) {
-		h = ((h << 5) + h + entry.charCodeAt(i)) | 0;
-	}
-	return (h >>> 0).toString(36);
-}
-
-interface ConvergeState {
-	/** target → array of converged entry hashes */
-	[target: string]: string[];
-}
-
-function loadState(dir: string): ConvergeState {
-	try {
-		const p = join(dir, STATE_FILENAME);
-		if (existsSync(p)) {
-			const parsed = JSON.parse(readFileSync(p, "utf8"));
-			if (parsed && typeof parsed === "object") return parsed as ConvergeState;
-		}
-	} catch {
-		// Corrupt/missing state → start fresh (idempotent convergence handles re-runs)
-	}
-	return {};
-}
-
-function saveState(dir: string, state: ConvergeState): void {
-	try {
-		writeFileSync(join(dir, STATE_FILENAME), JSON.stringify(state, null, 2), "utf8");
-	} catch {
-		// Best effort — a failed state save just means a re-converge next time (harmless)
-	}
-}
 
 export interface PassiveConvergeResult {
 	/** Total entries converged this run (across all targets). */
@@ -78,11 +54,12 @@ export interface PassiveConvergeResult {
 /**
  * Converge new/changed memory entries to the vault. Idempotent (skips
  * already-converged entries via hash tracking), bounded (timeout), and never
- * throws — safe to call from a `session_shutdown` handler.
+ * throws — safe to call from a `session_shutdown` handler. Writes a per-run
+ * health record so the outcome is observable via `/memory-health`.
  *
  * @param store       the memory store (failure/memory/user entries).
  * @param cwd         the agent's working directory (vault resolution Tier 1b).
- * @param stateDir    directory for the convergence state file (the global memory dir).
+ * @param stateDir    directory for the convergence state + health files (the global memory dir).
  * @param projectName optional project name tag for converged cards.
  * @param timeoutMs   hard deadline (default 5s); remaining targets are deferred.
  */
@@ -102,10 +79,12 @@ export async function passiveConverge(
 		{ target: "user", getEntries: () => store.getUserEntries() },
 	];
 
-	const state = loadState(stateDir);
+	const state = loadConvergeState(stateDir);
 	let converged = 0;
 	let skipped = 0;
 	let timedOut = false;
+	const targetHealth: ConvergeTargetHealth[] = [];
+	let lastVaultPath: string | undefined;
 
 	const deadline = Date.now() + timeoutMs;
 
@@ -125,33 +104,70 @@ export async function passiveConverge(
 		const convergedHashes = new Set(state[target] ?? []);
 		const newEntries: string[] = [];
 		const newHashes: string[] = [];
+		let targetSkipped = 0;
 		for (const entry of entries) {
 			const hash = entryHash(entry);
 			if (convergedHashes.has(hash)) {
-				skipped++;
+				targetSkipped++;
 			} else {
 				newEntries.push(entry);
 				newHashes.push(hash);
 			}
 		}
+		skipped += targetSkipped;
 
-		if (newEntries.length === 0) continue;
+		// Nothing new for this target → record a healthy no-op and move on.
+		if (newEntries.length === 0) {
+			targetHealth.push({
+				target,
+				seen: entries.length,
+				newEntries: 0,
+				converged: 0,
+				skipped: targetSkipped,
+				status: "ok",
+			});
+			continue;
+		}
 
+		let status: ConvergeStatus = "failed";
+		let reason: string | undefined;
+		let targetConverged = 0;
 		try {
 			const result = await convergeToVault(newEntries, target, cwd, projectName);
-			if (result.ok || result.unavailable) {
-				// Record converged hashes even if the knowledge-card extension was
-				// unavailable — we don't want to retry every session when the peer
-				// isn't installed. The wiki-aware matcher is idempotent anyway.
-				converged += newEntries.length;
+			if (result.unavailable) {
+				// Peer not installed — record hashes so we don't retry every session
+				// (the wiki-aware matcher is idempotent anyway), but flag the run as
+				// `unavailable` so the user KNOWS convergence isn't actually happening.
+				status = "unavailable";
+				reason = result.reason;
 				state[target] = [...convergedHashes, ...newHashes];
-			} else if (!result.ok) {
-				// Convergence failed (vault resolution / ingest error) — DON'T record
-				// the hashes so the entries are retried next session.
+			} else if (result.ok) {
+				status = "ok";
+				converged += newEntries.length;
+				targetConverged = (result.created ?? 0) + (result.updated ?? 0);
+				state[target] = [...convergedHashes, ...newHashes];
+				if (result.vaultPath) lastVaultPath = result.vaultPath;
+			} else {
+				// Vault resolution / ingest error — DON'T record the hashes so the
+				// entries are retried next session.
+				status = "failed";
+				reason = result.reason;
 			}
-		} catch {
+		} catch (err) {
 			// Never throw from a shutdown handler — best effort only.
+			status = "failed";
+			reason = err instanceof Error ? err.message : String(err);
 		}
+
+		targetHealth.push({
+			target,
+			seen: entries.length,
+			newEntries: newEntries.length,
+			converged: targetConverged,
+			skipped: targetSkipped,
+			status,
+			reason,
+		});
 
 		if (Date.now() > deadline) {
 			timedOut = true;
@@ -159,16 +175,35 @@ export async function passiveConverge(
 		}
 	}
 
-	saveState(stateDir, state);
+	saveConvergeState(stateDir, state);
+
+	const overall = targetHealth.length > 0
+		? aggregateOverall(targetHealth.map((t) => t.status))
+		: "ok";
+	const healthRecord: ConvergeHealthRecord = {
+		lastRunAt: new Date().toISOString(),
+		triggeredBy: "passive",
+		overall,
+		timedOut,
+		targets: targetHealth,
+		vaultPath: lastVaultPath,
+		reason: overall === "ok" ? undefined : overallReason(targetHealth),
+	};
+	saveHealth(stateDir, healthRecord);
+
 	return { converged, skipped, timedOut };
+}
+
+function overallReason(targets: ConvergeTargetHealth[]): string {
+	const first = targets.find((t) => t.status !== "ok");
+	return first?.reason ?? first?.status ?? "unknown";
 }
 
 /** Reset the convergence state (used by `pipeline run --reconverge` to force a
  *  full re-convergence). Removes the state file so every entry is treated as new. */
 export function resetConvergeState(stateDir: string): void {
 	try {
-		const p = join(stateDir, STATE_FILENAME);
-		if (existsSync(p)) writeFileSync(p, JSON.stringify({}, null, 2), "utf8");
+		saveConvergeState(stateDir, {});
 	} catch {
 		// best effort
 	}
