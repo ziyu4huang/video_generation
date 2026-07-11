@@ -162,15 +162,18 @@ describe("runtime lifecycle registration", () => {
     ]);
   });
 
-  it("registers the six slash commands", () => {
+  it("registers the nine slash commands (6 base + 3 PLI v2)", () => {
     const pi = loadExtension();
     expect(Array.from(pi.commands.keys()).sort()).toEqual([
       "plan-attest",
       "plan-done",
       "plan-execute",
       "plan-goal",
+      "plan-lint",
+      "plan-list",
       "plan-loop",
       "plan-status",
+      "plan-switch",
     ]);
   });
 });

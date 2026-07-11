@@ -12,7 +12,7 @@ The extension maps the upstream planning-with-files hook design onto Pi's lifecy
 |---|---|
 | 6-event lifecycle | `session_start`, `before_agent_start`, `tool_call`, `tool_result`, `agent_end`, `session_before_compact` (+ `session_shutdown`, `input`) |
 | 4 injection modes | `auto` (default → `parity` except DeepSeek → `cache-safe`), `parity`, `cache-safe`, `notify` |
-| 6 slash commands | `/plan-status`, `/plan-attest [--show\|--clear]`, `/plan-goal`, `/plan-execute [reset]`, `/plan-done [--delete]`, `/plan-loop [interval] [prompt]` |
+| 9 slash commands | `/plan-status` (+token cost), `/plan-attest [--show\|--clear]`, `/plan-goal`, `/plan-execute [reset]`, `/plan-done [--delete]`, `/plan-loop [interval] [prompt]`, **`/plan-list`**, **`/plan-lint [--all]`**, **`/plan-switch <id>`** (PLI v2) |
 | SHA-256 attestation | tamper detection → injection blocked (`[PLAN TAMPERED]`); pure-TS via `node:crypto` |
 | `/plan-execute` gate | hooks stay passive until the user approves the plan (v3.3.0) |
 | `/plan-done` close-out | finished/abandoned plan → `<!-- pwf: closed -->` marker; hooks go inert (no nag/auto-continue). `--delete` removes the files |
@@ -56,6 +56,16 @@ Configure via `PWF_MODE` env, project `.pi/settings.json`, or global `~/.pi/agen
 - `cache-safe`: stable one-line reminders (KV-cache friendly)
 - `notify`: status-bar only, no model injection
 
+### PLI v2 — multi-plan intelligence commands
+
+| Command | Description |
+|---------|-------------|
+| `/plan-list` | List **all** plans under `.planning/` (+ root) with status, phase progress, attestation state, and which is active |
+| `/plan-lint [--all]` | Diagnose a plan: missing phase headers, unparseable status tokens, missing progress/findings, attestation tamper. `--all` lints every plan |
+| `/plan-switch <id>` | Pin the active plan to `.planning/<id>` (validates existence + not-closed). `/plan-switch root` clears the pin |
+
+`/plan-status` also now reports the **injection token cost** of the active mode (e.g. `~1137 tokens (parity)` vs `~45 tokens (cache-safe)`) so you can pick a mode from data.
+
 ### Non-interactive / CI auto-approval
 
 Upstream requires an interactive `/plan-execute`. For CI or `pi -p` batch runs with an already-finalized plan, opt in:
@@ -78,7 +88,9 @@ src/
   scripts.ts      git-diff catchup + check-complete report (pure TS, no Python)
   guard.ts        dangerous-bash regex guard (pure)
   state.ts        per-session RuntimeState + session-key helpers
-  commands.ts     the 5 slash commands
+  lifecycle.ts    PLI v2: multi-plan enumerate / lint / switch (pure)
+  tokens.ts       PLI v2: injection token-cost estimate (pure, no tokenizer dep)
+  commands.ts     the 9 slash commands
   runtime.ts      event handlers + injection builders + default export
   index.ts        public API re-exports
 extensions/

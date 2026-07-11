@@ -200,6 +200,9 @@ Commands:
 - `/plan-done --delete` — close AND remove the active plan files (gitignored scratch)
 - `/plan-goal <text|default|clear>` — set the auto-continue goal condition
 - `/plan-loop [interval] [prompt]` — start/stop periodic loop ticks (use `stop` to cancel)
+- `/plan-list` — list ALL plans under `.planning/` (+ root): status, phase progress, attestation, which is active
+- `/plan-lint [--all]` — diagnose the active (or every) plan: status format, missing files, attestation/tamper
+- `/plan-switch <id>` — pin the active plan to `.planning/<id>` (`root` clears the pin)
 
 ### Parallel task workflow
 

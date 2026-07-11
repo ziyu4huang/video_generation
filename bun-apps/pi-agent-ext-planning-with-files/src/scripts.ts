@@ -87,17 +87,26 @@ function runGit(args: string[], cwd: string): ExecResult {
  * equivalent (Pi has no `stop_hook_active` continuation contract), so it is
  * intentionally omitted.
  */
-export function checkCompleteReport(cwd: string): string {
+/** Port of `scripts/check-complete.sh` advisory output (the non-gate path). The
+ * upstream `--gate` path is a Claude Code Stop-hook concern with no Pi
+ * equivalent, so it is intentionally omitted.
+ *
+ * `costLabel` (PLI v2) optionally appends an injection token-cost line, so
+ * /plan-status can surface context cost without this pure module needing the
+ * Pi runtime (the command handler computes the mode-aware cost with ctx). */
+export function checkCompleteReport(cwd: string, costLabel?: string): string {
   const status = readPlanStatus(cwd);
+  const costSuffix = costLabel ? `\n[${PKG_NAME}] Context cost: ${costLabel}.` : "";
 
   if (!status.exists || status.totalPhases === 0) {
-    return `[${PKG_NAME}] No task_plan.md found — no active planning session.`;
+    return `[${PKG_NAME}] No task_plan.md found — no active planning session.${costSuffix}`;
   }
 
   if (isAllPhasesComplete(status)) {
     return (
       `[${PKG_NAME}] ALL PHASES COMPLETE (${status.completePhases}/${status.totalPhases}). ` +
-      "If the user has additional work, add new phases to task_plan.md before starting."
+      "If the user has additional work, add new phases to task_plan.md before starting." +
+      costSuffix
     );
   }
 
@@ -110,6 +119,7 @@ export function checkCompleteReport(cwd: string): string {
   if (status.pendingPhases > 0) {
     lines.push(`[${PKG_NAME}] ${status.pendingPhases} phase(s) pending.`);
   }
+  if (costLabel) lines.push(`[${PKG_NAME}] Context cost: ${costLabel}.`);
   return lines.join("\n");
 }
 
