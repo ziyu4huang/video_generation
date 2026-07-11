@@ -270,6 +270,22 @@ Examples:
 		process.env.PI_VLM_RETRIES = String(retries);
 		process.env.PI_VLM_RETRY_WAIT_MS = String(retryWaitSec * 1000);
 
+		// --dry-run: print the plan (stages + resolved models + options) and stop
+		// before creating the run dir or executing any stage. pdf-to-vault has direct
+		// fs writes (pipeline.json, run dir) AND agent-driven writes (distill stage),
+		// so dry-run short-circuits at the orchestration level.
+		if (parsed.dryRun) {
+			console.error("[dry-run] pdf-to-vault — no files written, no stages executed\n");
+			console.error(`  input:        ${inputAbs}`);
+			console.error(`  out root:     ${outRoot}`);
+			console.error(`  pages:        ${pages ?? "(all)"}`);
+			console.error(`  stage 1 vlm:  ${vlmModel}`);
+			console.error(`  stage 2 dist: ${distillModelLabel}${distillModel ? ` (from ${distillModel})` : " (default)"}`);
+			console.error(`  retries:      ${retries} (wait ${retryWaitSec}s)  delete-png: ${deletePng}  force-distill: ${forceDistill}`);
+			console.error("\n  would run: STAGE 1 vlm-describe → STAGE 2 zk-extract (distill)");
+			return;
+		}
+
 		mkdirSync(outRoot, { recursive: true });
 
 		// locate or create the run dir (resume support)

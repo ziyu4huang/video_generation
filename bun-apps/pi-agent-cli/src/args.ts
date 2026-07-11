@@ -244,102 +244,21 @@ function parseNumericFlag(
 }
 
 // ─── Declarative flag tables ───────────────────────────────────────────────
-// Adding a standard flag = add ONE row. Special-shape flags stay inline in
-// the parse loop below.
-
-type NumericField =
-	| "maxNotes" | "contextLines" | "retries" | "retryWaitSec" | "limit"
-	| "depth" | "maxNeighbors" | "topK" | "maxNoteTokens" | "threshold"
-	| "recency";
-
-/** Numeric value flags validated through `parseNumericFlag` (fail-fast). */
-const NUMERIC_FLAGS: ReadonlyArray<{
-	flag: string;
-	field: NumericField;
-	min?: number;
-	integer?: boolean;
-	example?: string;
-}> = [
-	{ flag: "--max-notes", field: "maxNotes", example: "30" },
-	{ flag: "--context-lines", field: "contextLines", example: "3" },
-	{ flag: "--retries", field: "retries", example: "3" },
-	{ flag: "--retry-wait", field: "retryWaitSec", integer: false, example: "10" },
-	{ flag: "--limit", field: "limit", min: 1, example: "10" },
-	{ flag: "--depth", field: "depth", example: "2" },
-	{ flag: "--max-neighbors", field: "maxNeighbors", example: "5" },
-	{ flag: "--top-k", field: "topK", example: "8" },
-	{ flag: "--max-note-tokens", field: "maxNoteTokens", example: "2000" },
-	{ flag: "--threshold", field: "threshold", example: "0.9" },
-	{ flag: "--recency", field: "recency", example: "30" },
-];
-
-type ValueField =
-	| "provider" | "model" | "thinking" | "apiKey" | "systemPrompt"
-	| "vault" | "vaultDir" | "folder" | "out" | "type" | "pages" | "file"
-	| "vlmModel" | "source" | "sourceLabel"
-	| "tags" | "excludeFromKb" | "excludeIds" | "workflowArgs" | "blend";
-
-/** String value flags: `--flag <value>` or `--flag=value`. */
-const VALUE_FLAGS: ReadonlyArray<{ flag: string; field: ValueField }> = [
-	{ flag: "--provider", field: "provider" },
-	{ flag: "--model", field: "model" },
-	{ flag: "--thinking", field: "thinking" },
-	{ flag: "--api-key", field: "apiKey" },
-	{ flag: "--system-prompt", field: "systemPrompt" },
-	{ flag: "--vault", field: "vault" },
-	{ flag: "--vault-dir", field: "vaultDir" },
-	{ flag: "--folder", field: "folder" },
-	{ flag: "--out", field: "out" },
-	{ flag: "--type", field: "type" },
-	{ flag: "--pages", field: "pages" },
-	{ flag: "--file", field: "file" },
-	{ flag: "--vlm-model", field: "vlmModel" },
-	{ flag: "--source", field: "source" },
-	{ flag: "--source-label", field: "sourceLabel" },
-	{ flag: "--tags", field: "tags" },
-	{ flag: "--exclude-from-kb", field: "excludeFromKb" },
-	{ flag: "--exclude-ids", field: "excludeIds" },
-	{ flag: "--args", field: "workflowArgs" },
-	{ flag: "--blend", field: "blend" },
-	{ flag: "--proxy", field: "proxy" },
-	{ flag: "--output-path", field: "outputPath" },
-	{ flag: "--hermes-dir", field: "hermesDir" },
-	{ flag: "--vault-root", field: "vaultRoot" },
-	{ flag: "--order", field: "order" },
-];
-
-type BoolField =
-	| "retrieveOnly" | "summarize" | "noRefine" | "force" | "noContext"
-	| "forceDistill" | "deletePng" | "noSession" | "print" | "noTools"
-	| "noBuiltinTools" | "dryRun" | "health" | "fix" | "json"
-	| "noPersistLogs" | "mergeDuplicates" | "save"
-	| "popular";
-
-/** Boolean flags: presence sets the field true. Supports aliases. */
-const BOOLEAN_FLAGS: ReadonlyArray<{ flags: string[]; field: BoolField }> = [
-	{ flags: ["--retrieve-only"], field: "retrieveOnly" },
-	{ flags: ["--summarize"], field: "summarize" },
-	{ flags: ["--no-refine"], field: "noRefine" },
-	{ flags: ["--force"], field: "force" },
-	{ flags: ["--no-context"], field: "noContext" },
-	{ flags: ["--force-distill"], field: "forceDistill" },
-	{ flags: ["--delete-png"], field: "deletePng" },
-	{ flags: ["--no-session"], field: "noSession" },
-	{ flags: ["-p", "--print"], field: "print" },
-	{ flags: ["-nt", "--no-tools"], field: "noTools" },
-	{ flags: ["-nbt", "--no-builtin-tools"], field: "noBuiltinTools" },
-	{ flags: ["--dry-run"], field: "dryRun" },
-	{ flags: ["--health"], field: "health" },
-	{ flags: ["--fix"], field: "fix" },
-	{ flags: ["--merge-duplicates"], field: "mergeDuplicates" },
-	{ flags: ["--json"], field: "json" },
-	{ flags: ["--no-persist-logs"], field: "noPersistLogs" },
-	{ flags: ["--save"], field: "save" },
-	{ flags: ["--popular"], field: "popular" },
-];
-
-/** Ignored boolean flags (pi-compat no-ops; self-trusted / extensions baked in). */
-const IGNORED_BOOL_FLAGS = new Set(["-a", "--approve", "-ne", "--no-extensions"]);
+// The flag definitions live in flag-spec.ts, grouped by the command that owns
+// them (GLOBAL pi-compat flags vs zk-ask / zk-card / vlm-describe / …).
+// parsePiArgs imports the merged tables + field-name unions and stays the
+// single public parser. Adding a standard flag = one row in flag-spec.ts.
+// Special-shape flags (--verbose repeatable, --mode enum, --tools CSV,
+// --append-system-prompt, --dpi, -e, --help, --version, `--`) stay inline below.
+import {
+	VALUE_FLAGS,
+	NUMERIC_FLAGS,
+	BOOLEAN_FLAGS,
+	IGNORED_BOOL_FLAGS,
+	type ValueField,
+	type NumericField,
+	type BoolField,
+} from "./flag-spec.ts";
 
 /**
  * Parse pi-aligned flags from an argv slice.

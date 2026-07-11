@@ -257,6 +257,7 @@ Pi-compatible flags (passthrough + global):
   --append-system-prompt <x>  text or file path (repeatable)
   -e, --extension <path>      (ignored — obsidian baked in)
   -a, --approve               (ignored — self-trusted)
+  --dry-run                   suppress vault writes (exclude write tools / skip fs)
 
 Examples:
   bun-pi-agent-cli vlm-describe paper.pdf
