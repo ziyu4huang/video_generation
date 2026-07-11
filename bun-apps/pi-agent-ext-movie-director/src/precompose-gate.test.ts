@@ -352,3 +352,74 @@ describe("preComposeGate — cut duration vs. source duration", () => {
     }
   });
 });
+
+describe("preComposeGate — motion coverage vs. scene", () => {
+  it("passes when most of the composed runtime is real video motion", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-gate-motion-cov-pass-"));
+    try {
+      const v = join(dir, "clip.mp4"); writeFileSync(v, "x");
+      const r = await preComposeGate(
+        { version: "1.0", cuts: [{ id: "a", source: v, in_seconds: 0, out_seconds: 8, animation: "static" }] },
+        { spawnImpl: fakeProbe(8.04) },
+      );
+      const c = r.checks.find((x) => x.name === "motion_coverage_vs_scene")!;
+      expect(c.status).toBe("pass");
+      expect(r.verdict).not.toBe("fail");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("warns when a large minority of the runtime is still-image filler", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-gate-motion-cov-warn-"));
+    try {
+      const v = join(dir, "clip.mp4"); writeFileSync(v, "x");
+      const still = join(dir, "lastframe.png"); writeFileSync(still, "x");
+      // 8s real motion + 6s panned-still filler = 8/14 ≈ 57% coverage: under the 60% warn bar, above the 40% fail bar.
+      const r = await preComposeGate(
+        {
+          version: "1.0",
+          cuts: [
+            { id: "a", source: v, in_seconds: 0, out_seconds: 8, animation: "static" },
+            { id: "a-filler", source: still, in_seconds: 8, out_seconds: 14, animation: "ken-burns" },
+          ],
+        },
+        { spawnImpl: fakeProbe(8.04) },
+      );
+      const c = r.checks.find((x) => x.name === "motion_coverage_vs_scene")!;
+      expect(c.status).toBe("warn");
+      expect(r.verdict).not.toBe("fail");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails when most of the runtime is Ken-Burns-panned still filler (the optical-hall-effect-150yr case)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-gate-motion-cov-fail-"));
+    try {
+      // Real repro: 4 scenes x one 8.04s real I2V clip each = 32s real motion, padded out to
+      // 113s total with panned freeze-frame stills — 32/113 ≈ 28% coverage, under the 40% fail bar.
+      // Every filler cut carries an `animation` object, so slideshow_risk alone would call this "has motion".
+      const cuts: RemotionEditDecisions["cuts"] = [];
+      let t = 0;
+      for (let s = 0; s < 4; s++) {
+        const clip = join(dir, `s${s}.mp4`); writeFileSync(clip, "x");
+        const still = join(dir, `s${s}-lastframe.png`); writeFileSync(still, "x");
+        cuts.push({ id: `s${s}a`, source: clip, in_seconds: t, out_seconds: t + 8.04, animation: "static" });
+        t += 8.04;
+        cuts.push({ id: `s${s}b`, source: still, in_seconds: t, out_seconds: t + 14, animation: "ken-burns" });
+        t += 14;
+      }
+      const r = await preComposeGate(
+        { version: "1.0", cuts },
+        { spawnImpl: fakeProbe(8.04) },
+      );
+      const c = r.checks.find((x) => x.name === "motion_coverage_vs_scene")!;
+      expect(c.status).toBe("fail");
+      expect(c.detail).toContain("still-image filler");
+      expect(r.verdict).toBe("fail");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
