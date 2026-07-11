@@ -66,11 +66,25 @@ describe("cloud-provider isolation (never-cloud invariant for generation)", () =
     expect(offenders).toEqual([]);
   });
 
-  it("every cloud_http provider is currently unconfigured (no live cloud credentials wired)", () => {
+  it("every cloud_http provider is currently unconfigured, except the documented keyless allowlist", () => {
+    // edge_tts is deliberately `configured: true` + `backend: "cloud_http"`: it
+    // needs network egress but NO credentials (unlike elevenlabs/openai, which
+    // must stay false until a real API key is wired). It's ranked in the
+    // cloud_http tier (below say_tts) specifically so it stays opt-in via an
+    // explicit provider hint rather than becoming a silent default — see
+    // registry.ts's edge_tts entry notes. This allowlist must stay narrow: any
+    // OTHER cloud_http provider flipping to configured:true still fails this
+    // test (the invariant it guards against — an accidental real-credential
+    // flip — is unchanged for every provider not named here).
+    const KEYLESS_CLOUD_ALLOWLIST = new Set(["edge-tts"]);
     const cloudProviders = REGISTRY.filter((p) => p.backend === "cloud_http");
     expect(cloudProviders.length).toBeGreaterThan(0); // sanity: the invariant has something to guard
     for (const p of cloudProviders) {
-      expect(p.configured).toBe(false);
+      if (KEYLESS_CLOUD_ALLOWLIST.has(p.provider)) {
+        expect(p.configured).toBe(true);
+      } else {
+        expect(p.configured).toBe(false);
+      }
     }
   });
 });
