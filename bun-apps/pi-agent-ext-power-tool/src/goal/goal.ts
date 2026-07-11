@@ -916,11 +916,15 @@ function buildResumePrompt(goal: ActiveGoal) {
 
 export function buildGoalSystemPrompt(goal: ActiveGoal) {
 	const budgetLine = goal.tokenBudget === undefined ? "" : `\n- Respect the goal token budget (${formatBudget(goal)} used).`;
-	return `Active /goal:\n${goalObjectiveBlock(goal)}\n\nGoal-mode rules:\n- Keep going until the active goal is completely resolved end-to-end.\n- Treat the current worktree, command output, tests, and external state as authoritative.\n- Do not redefine the goal into a smaller task; audit every requirement before completion.\n- Do not stop at analysis, a plan, TODO list, partial fixes, or suggested next steps.\n- Autonomously perform implementation and verification with the available tools when they are needed to complete the goal.\n- Persevere through recoverable tool failures by trying reasonable alternatives instead of yielding early.\n- If the goal is not complete at the end of a turn, expect an automatic continuation and keep working from where you left off.\n- Only call the goal_complete tool after the goal is fully complete and verified.${budgetLine}`;
+	const planLine = planProgressLineFromPeer();
+	const planBullet = planLine ? `\n- Active plan progress: ${planLine}. Treat the plan as your roadmap, not a stopping point.` : "";
+	return `Active /goal:\n${goalObjectiveBlock(goal)}\n\nGoal-mode rules:\n- Keep going until the active goal is completely resolved end-to-end.\n- Treat the current worktree, command output, tests, and external state as authoritative.\n- Do not redefine the goal into a smaller task; audit every requirement before completion.\n- Do not stop at analysis, a plan, TODO list, partial fixes, or suggested next steps.\n- ${THREE_LAYER_GUIDANCE}\n- Autonomously perform implementation and verification with the available tools when they are needed to complete the goal.\n- Persevere through recoverable tool failures by trying reasonable alternatives instead of yielding early.\n- If the goal is not complete at the end of a turn, expect an automatic continuation and keep working from where you left off.\n- Only call the goal_complete tool after the goal is fully complete and verified.${planBullet}${budgetLine}`;
 }
 
 function buildContinuePrompt(goal: ActiveGoal, marker: string) {
-	return `Continue the active /goal until it is complete:\n\n${goalObjectiveBlock(goal)}\n\nThis is automatic continuation #${goal.iteration}. Current files, command output, tests, and external state are authoritative; re-check them as needed. ${goalPersistenceRules("this goal")}\n\n${continuationMarkerComment(marker)}`;
+	const planLine = planProgressLineFromPeer();
+	const planNote = planLine ? `\nActive plan progress: ${planLine}. Continue the next open phase, then mark it complete in task_plan.md.` : "";
+	return `Continue the active /goal until it is complete:\n\n${goalObjectiveBlock(goal)}\n\nThis is automatic continuation #${goal.iteration}. Current files, command output, tests, and external state are authoritative; re-check them as needed. ${goalPersistenceRules("this goal")}${planNote}\n\n${continuationMarkerComment(marker)}`;
 }
 
 function goalObjectiveBlock(goal: ActiveGoal) {
@@ -995,6 +999,34 @@ export function planningGateBlocking(cwd: string): string | undefined {
 	}
 	return undefined;
 }
+
+/**
+ * Fusion seam: read planning-with-files' published `globalThis.__piPlanSummary`
+ * to surface the active plan's phase progress. When the goal drives (and
+ * planning yielded its injection per Plan A), the agent would otherwise lose
+ * plan visibility — this keeps the roadmap in front of it. Best-effort: empty
+ * string when planning is absent / no plan / latestCtx unset / error.
+ */
+export function planProgressLineFromPeer(): string {
+	const cwd = latestCtx?.cwd;
+	if (!cwd) return "";
+	const fn = (globalThis as Record<string, unknown> | undefined)?.__piPlanSummary;
+	if (typeof fn !== "function") return "";
+	try {
+		return (fn as (cwd: string) => string | null)(cwd) ?? "";
+	} catch {
+		return "";
+	}
+}
+
+// Three-layer fusion guidance: teaches the agent that planning-with-files (the
+// roadmap) and the `todo` tool (in-session steps) are tools to FINISH the goal,
+// not stopping points. Goal drives; the other two structure the drive.
+const THREE_LAYER_GUIDANCE =
+	"You have three cooperating layers: this /goal (drives to completion), " +
+	"planning-with-files (the cross-session phase roadmap in task_plan.md), and " +
+	"the `todo` tool (in-session step tracking). Use the plan as your roadmap " +
+	"and todo to track steps — neither is a stopping point; they are tools to finish this goal.";
 
 export function isRetryableGoalInterruption(assistant: AssistantMessageLike) {
 	if (assistant.stopReason !== "error") return false;

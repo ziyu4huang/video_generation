@@ -11,7 +11,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isGoalActive } from "../src/coordination.js";
-import { isPlanIncompleteInDir, readPlanStatus } from "../src/plan.js";
+import { isPlanIncompleteInDir, planProgressLine, readPlanStatus } from "../src/plan.js";
 
 const GOAL_KEY = "__piGoalActive";
 const tempRoots: string[] = [];
@@ -80,6 +80,52 @@ const COMPLETE_PLAN = [
 ].join("\n");
 
 const CLOSED_MARKER = "\n\n---\n<!-- pwf: closed -->\nPlan closed via /plan-done (2026-07-11)\n";
+
+describe("planProgressLine (fusion: roadmap summary for goal)", () => {
+  it("returns null when no plan exists", () => {
+    expect(planProgressLine(makeCwd())).toBeNull();
+  });
+
+  it("returns 'Phase X/Y' for a partial plan", () => {
+    const cwd = makeCwd();
+    const dir = join(cwd, ".planning", "demo");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "task_plan.md"),
+      [
+        "# Plan",
+        "### Phase 1",
+        "**Status:** complete",
+        "### Phase 2",
+        "**Status:** in_progress",
+        "### Phase 3",
+        "**Status:** pending",
+      ].join("\n"),
+    );
+    expect(planProgressLine(cwd)).toBe("Phase 1/3 — see task_plan.md");
+  });
+
+  it("marks all-complete plans", () => {
+    const cwd = makeCwd();
+    const dir = join(cwd, ".planning", "demo");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "task_plan.md"), ["# Plan", "### Phase 1", "**Status:** complete"].join("\n"));
+    expect(planProgressLine(cwd)).toBe("Phase 1/1 (all complete) — see task_plan.md");
+  });
+
+  it("returns null for a closed plan (/plan-done)", () => {
+    const cwd = makeCwd();
+    const dir = join(cwd, ".planning", "demo");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "task_plan.md"),
+      ["# Plan", "### Phase 1", "**Status:** complete", "### Phase 2", "**Status:** in_progress", CLOSED_MARKER].join(
+        "\n",
+      ),
+    );
+    expect(planProgressLine(cwd)).toBeNull();
+  });
+});
 
 describe("isPlanIncompleteInDir (goal completion gate)", () => {
   it("returns false when no plan exists", () => {

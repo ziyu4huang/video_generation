@@ -31,6 +31,7 @@ import goal, {
 	isGoalActive,
 	isRetryableGoalInterruption,
 	planningGateBlocking,
+	planProgressLineFromPeer,
 	parseCommand,
 	parseTokenBudget,
 	validateObjective,
@@ -1241,6 +1242,65 @@ describe("goal_complete planning gate (Plan A integration)", () => {
 			ctx,
 		);
 		expect(accepted.terminate).toBe(true);
+		const shutdown = mock.events.get("session_shutdown")?.[0];
+		await (shutdown as (e: unknown, c: unknown) => void)?.({}, ctx);
+	});
+});
+
+// ─── Fusion: goal surfaces the plan roadmap it displaced ──────────────────────
+
+describe("planProgressLineFromPeer + buildGoalSystemPrompt (fusion)", () => {
+	const KEY = "__piPlanSummary";
+	let saved: unknown;
+
+	beforeEach(() => {
+		saved = (globalThis as Record<string, unknown>)[KEY];
+	});
+	afterEach(async () => {
+		if (saved === undefined) delete (globalThis as Record<string, unknown>)[KEY];
+		else (globalThis as Record<string, unknown>)[KEY] = saved;
+	});
+
+	test("empty when planning-with-files global absent (standalone goal drive)", async () => {
+		delete (globalThis as Record<string, unknown>)[KEY];
+		const { mock, ctx } = await startGoalForTest(); // sets latestCtx via session_start
+		expect(planProgressLineFromPeer()).toBe("");
+		const shutdown = mock.events.get("session_shutdown")?.[0];
+		await (shutdown as (e: unknown, c: unknown) => void)?.({}, ctx);
+	});
+
+	test("returns the peer summary and buildGoalSystemPrompt surfaces it as a roadmap bullet", async () => {
+		(globalThis as Record<string, unknown>)[KEY] = (_cwd: string) => "Phase 1/3 — see task_plan.md";
+		const { mock, ctx } = await startGoalForTest();
+		expect(planProgressLineFromPeer()).toBe("Phase 1/3 — see task_plan.md");
+
+		const prompt = buildGoalSystemPrompt({
+			id: "g-fuse",
+			text: "fuse the layers",
+			status: "active",
+			startedAt: 0,
+			updatedAt: 0,
+			iteration: 0,
+			tokensUsed: 0,
+			timeUsedSeconds: 0,
+			baselineTokens: 0,
+		});
+		// The displaced roadmap is surfaced so a goal-driven agent keeps plan visibility.
+		expect(prompt).toMatch(/Active plan progress: Phase 1\/3/);
+		expect(prompt).toMatch(/roadmap, not a stopping point/);
+		// Three-layer guidance teaches todo+plan as tools to finish, not stops.
+		expect(prompt).toMatch(/three cooperating layers/);
+
+		const shutdown = mock.events.get("session_shutdown")?.[0];
+		await (shutdown as (e: unknown, c: unknown) => void)?.({}, ctx);
+	});
+
+	test("never throws when the peer summary function throws", async () => {
+		(globalThis as Record<string, unknown>)[KEY] = () => {
+			throw new Error("boom");
+		};
+		const { mock, ctx } = await startGoalForTest();
+		expect(planProgressLineFromPeer()).toBe("");
 		const shutdown = mock.events.get("session_shutdown")?.[0];
 		await (shutdown as (e: unknown, c: unknown) => void)?.({}, ctx);
 	});

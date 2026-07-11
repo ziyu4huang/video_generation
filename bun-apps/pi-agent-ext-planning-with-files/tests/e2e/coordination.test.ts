@@ -62,6 +62,43 @@ function writePartialPlan(cwd: string): void {
   );
 }
 
+/**
+ * Write a minimal session JSONL whose `goal-state` custom entry restores an
+ * ACTIVE goal via power-tool's loadGoalFromSession at session_start — the
+ * deterministic way to seed an active goal in a `-p` run (the /goal command is
+ * interactive). tokenBudget=1 bounds the run: the planning-gate rejection
+ * happens during turn 1 (before agent_end), then the budget check at agent_end
+ * transitions the goal to budget_limited and stops the auto-continue loop.
+ */
+function writeGoalSeedSession(cwd: string): string {
+  const seedPath = join(cwd, "seed-session.jsonl");
+  const goal = {
+    id: "g-seed-1",
+    text: "E2E goal_complete gate test",
+    status: "active",
+    startedAt: 1_752_192_000_000,
+    updatedAt: 1_752_192_000_000,
+    iteration: 0,
+    tokenBudget: 1,
+    tokensUsed: 0,
+    timeUsedSeconds: 0,
+    baselineTokens: 0,
+  };
+  const lines = [
+    JSON.stringify({ type: "session", version: 3, id: "seed1", timestamp: "2026-07-11T00:00:00.000Z", cwd }),
+    JSON.stringify({
+      type: "custom",
+      customType: "goal-state",
+      data: { goal },
+      id: "g1",
+      parentId: "seed1",
+      timestamp: "2026-07-11T00:00:01.000Z",
+    }),
+  ];
+  writeFileSync(seedPath, `${lines.join("\n")}\n`);
+  return seedPath;
+}
+
 interface ProbeResult {
   marker: string;
   goalType: string;
@@ -145,4 +182,59 @@ describe.skipIf(!PROVIDER)("coordination e2e: globalThis bridge across two jiti-
     // planning-published function, which reads real disk state, correctly.
     expect(result.planResult).toBe(true);
   }, 180_000);
+
+  it("goal_complete is blocked while a plan has open phases (seeded active goal + partial plan)", () => {
+    // Manually verified: with a seeded active goal (budget=1) + an open plan,
+    // the model calls goal_complete → the planning gate rejects it with
+    // 'incomplete phases' + a pointer to /plan-done. Retried because gemma
+    // occasionally doesn't call the tool on the first attempt.
+    const provider = PROVIDER as { provider: string; model: string };
+    let lastStream = "";
+    let ok = false;
+    for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+      const cwd = makeProject();
+      writePartialPlan(cwd);
+      const seed = writeGoalSeedSession(cwd);
+      const args = [
+        PI_BIN,
+        "-e",
+        POWER_TOOL_EXT,
+        "-e",
+        PWF_EXT,
+        "--provider",
+        provider.provider,
+        "--model",
+        provider.model,
+        "--session",
+        seed,
+        "-t",
+        "goal_complete",
+        "--thinking",
+        "off",
+        "--mode",
+        "json",
+        "-p",
+        "Call the goal_complete tool now with summary: All work is done and verified.",
+      ];
+      const r = spawnSync("bun", args, {
+        cwd,
+        encoding: "utf-8",
+        env: { ...process.env },
+        timeout: 120_000,
+      });
+      lastStream = `${r.stdout}\n${r.stderr}`;
+      if (lastStream.includes("incomplete phases") && lastStream.includes("/plan-done")) {
+        ok = true;
+      }
+    }
+    if (!ok) {
+      console.error("goal_complete gate not triggered; stream tail:", lastStream.slice(-1000));
+    }
+    expect(ok).toBe(true);
+    // The rejection text is specific to the planning gate (not 'no active goal'
+    // or 'contradictory summary') — its presence proves the full path:
+    // goal_complete → planningGateBlocking → __piPlanIncomplete → block.
+    expect(lastStream).toContain("incomplete phases");
+    expect(lastStream).toContain("/plan-done");
+  }, 300_000);
 });

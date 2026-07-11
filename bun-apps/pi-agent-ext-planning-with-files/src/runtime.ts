@@ -30,6 +30,7 @@ import {
   isPlanIncomplete,
   isPlanIncompleteInDir,
   type PlanStatus,
+  planProgressLine,
   readPlanStatus,
   summarizePlan,
 } from "./plan.js";
@@ -99,6 +100,10 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
   // jiti<->native module identity. globalThis is process-singleton → always
   // the live value. Graceful: if power-tool is absent, nobody reads this.
   (globalThis as Record<string, unknown>).__piPlanIncomplete = isPlanIncompleteInDir;
+  // Fusion seam: __piPlanSummary lets the /goal continuation prompt surface the
+  // roadmap it displaced when planning yielded its injection (Plan A) — without
+  // it, a goal-driven agent would lose all plan visibility.
+  (globalThis as Record<string, unknown>).__piPlanSummary = planProgressLine;
 
   registerCommands(pi, state);
 

@@ -297,6 +297,22 @@ export function isPlanIncompleteInDir(cwd: string): boolean {
   return isPlanIncomplete(readPlanStatus(cwd));
 }
 
+/**
+ * Fusion seam: a one-line progress summary of the active plan at `cwd`, or
+ * null when there is no useful plan to report (absent / closed / unparseable /
+ * zero phases). Published on globalThis.__piPlanSummary so the /goal
+ * continuation prompt can surface the roadmap it displaced when planning
+ * yielded its injection (Plan A). Without this, a goal-driven agent would
+ * lose all plan visibility. Returns e.g. `"Phase 2/5"`.
+ */
+export function planProgressLine(cwd: string): string | null {
+  const status = readPlanStatus(cwd);
+  if (!status.exists || status.closed || !status.hasParseableStatus || status.totalPhases === 0) return null;
+  return `Phase ${status.completePhases}/${status.totalPhases}${
+    status.completePhases >= status.totalPhases ? " (all complete)" : ""
+  } — see task_plan.md`;
+}
+
 /** True when the plan is explicitly closed (finished/abandoned). The runtime
  * treats a closed plan as inert: no injection, no auto-continue, no nag. */
 export function isPlanClosed(status: PlanStatus): boolean {
