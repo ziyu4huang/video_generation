@@ -28,6 +28,8 @@ export interface RunAgentSessionOptions {
 	labelName: string;
 	/** Optional inline extension factory to register (extension sub-commands only). */
 	factory?: unknown;
+	/** Multiple inline extension factories (e.g. the `agent` command injects several). */
+	factories?: unknown[];
 }
 
 export async function runAgentSession(
@@ -35,11 +37,17 @@ export async function runAgentSession(
 	opts: RunAgentSessionOptions,
 ): Promise<void> {
 	const llm = await resolveLLMFromArgs(parsed);
+	// Merge single `factory` + plural `factories` so both the extension
+	// sub-command path (single) and the `agent` command (several) work.
+	const allFactories = [
+		...(opts.factories ?? []),
+		...(opts.factory ? [opts.factory] : []),
+	];
 	const { session } = await createSharedSession(llm, {
 		tools: opts.tools,
 		excludeTools: dryRunExclude(parsed),
 		appendSystemPrompt: parsed.appendSystemPrompt,
-		extraExtensionFactories: opts.factory ? [opts.factory] : undefined,
+		extraExtensionFactories: allFactories.length > 0 ? allFactories : undefined,
 	});
 
 	const label = modelLabel(session, llm);

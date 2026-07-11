@@ -20,11 +20,24 @@
  * Detection mirrors set-package-dir: import.meta.url reveals how this module
  * was loaded.
  */
-import { detectMode } from "../mode.ts";
+import { detectMode, type BundlerMode } from "../mode.ts";
 
 const url = import.meta.url;
 const mode = detectMode(url, "/src/patches/");
-const isShippedArtifact = mode !== "source"; // bundle .js OR compiled binary
+
+/**
+ * Pure decision: should the update-check skip be applied for this mode?
+ *
+ * Applied only to shipped artifacts (bundle .js + compiled binary). Source mode
+ * (`bun src/cli.ts`) is left alone so dev still sees upstream pi updates.
+ * Exported so the gating logic is unit-testable without importing the module
+ * (which would fire the side effect).
+ */
+export function shouldSkipUpdateCheck(mode: BundlerMode): boolean {
+  return mode !== "source"; // bundle .js OR compiled binary
+}
+
+const isShippedArtifact = shouldSkipUpdateCheck(mode);
 const debug = process.env.BUN_PI_DEBUG_PATCHES === "1" ||
   process.env.BUN_PI_DEBUG_PATCHES === "true";
 

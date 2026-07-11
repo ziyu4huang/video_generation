@@ -124,10 +124,21 @@ export function checkRunDir(ctx: DoctorContext, repoRoot: string): CheckResult {
 			hint: "Extensions will only load if explicitly passed -e/--skill.",
 		};
 	}
-	const m = raw as { extensions?: string[]; skills?: string[] };
+	// The manifest's `extensions` array is MIXED-TYPE: plain strings (most
+	// entries) AND objects ({ name, entry, bundleMode, ... }) for entries that
+	// carry thin/full bundle metadata. The canonical resolver
+	// (pi-agent/run-dir/resolve.ts) normalizes via `typeof e === "string" ? e :
+	// e?.entry`; doctor must do the same or `join(bunApps, <object>)` throws.
+	// Skills are always plain strings (no metadata objects today).
+	const m = raw as {
+		extensions?: (string | { entry?: string; name?: string })[];
+		skills?: string[];
+	};
 	const bunApps = join(repoRoot, "bun-apps");
 	const missing: string[] = [];
-	for (const rel of m.extensions ?? []) {
+	for (const entry of m.extensions ?? []) {
+		const rel = typeof entry === "string" ? entry : entry?.entry;
+		if (!rel) continue; // malformed object without `entry` — skip, don't crash
 		if (!ctx.exists(join(bunApps, rel))) missing.push(rel);
 	}
 	for (const rel of m.skills ?? []) {

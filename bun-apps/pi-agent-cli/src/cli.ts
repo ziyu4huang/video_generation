@@ -33,6 +33,8 @@ import { pdfToVaultCommand } from "./commands/pdf-to-vault.ts";
 import { imageToVaultCommand } from "./commands/image-to-vault.ts";
 import { urlToVaultCommand, youtubeToVaultCommand } from "./commands/url-to-vault.ts";
 import { knowledgePipelineCommand } from "./commands/knowledge-pipeline.ts";
+import { chatCommand } from "./commands/chat.ts";
+import { agentCommand } from "./commands/agent.ts";
 import { workflowRunCommand, workflowListCommand } from "./commands/workflow.ts";
 import { doctorCommand } from "./commands/doctor.ts";
 import { toolsMetricsCommand } from "./commands/tools-metrics.ts";
@@ -57,6 +59,18 @@ export interface Command {
  * Order = display order in `help`.
  */
 const COMMANDS: Command[] = [
+  {
+    name: "chat",
+    summary: chatCommand.summary,
+    details: chatCommand.details,
+    run: chatCommand.run,
+  },
+  {
+    name: "agent",
+    summary: agentCommand.summary,
+    details: agentCommand.details,
+    run: agentCommand.run,
+  },
   {
     name: "vlm-describe",
     summary: vlmDescribeCommand.summary,
@@ -260,6 +274,10 @@ Pi-compatible flags (passthrough + global):
   --dry-run                   suppress vault writes (exclude write tools / skip fs)
 
 Examples:
+  bun-pi-agent-cli chat                                    # interactive REPL (normal-CLI mode)
+  bun-pi-agent-cli chat --model gemma-4-26b                # pick a model for chat
+  bun-pi-agent-cli agent "read package.json and explain"   # free-form agentic task
+  bun-pi-agent-cli agent --tools read,bash "summarize"     # curated toolset
   bun-pi-agent-cli vlm-describe paper.pdf
   bun-pi-agent-cli vlm-describe scan.jpg --type image --dpi 200
   bun-pi-agent-cli zk-extract notes.md --folder Zettelkasten

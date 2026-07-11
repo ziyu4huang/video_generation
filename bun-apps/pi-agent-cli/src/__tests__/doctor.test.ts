@@ -144,6 +144,56 @@ describe("individual checks", () => {
 		expect(checkRunDir(ctx, repo).status).toBe("pass");
 	});
 
+	test("run-dir: manifest with MIXED-TYPE entries (strings + objects) → pass, no crash", () => {
+		// Regression guard: the real manifest.json has 8 plain strings + 5
+		// objects ({ name, entry, bundleMode, ... }). Before the fix,
+		// join(bunApps, <object>) threw "paths[1] must be string, got object".
+		const { ctx, repo } = makeCtx({});
+		const manifestDir = join(repo, "bun-apps", "pi-agent", "run-dir");
+		mkdirSync(manifestDir, { recursive: true });
+		// Create both entry dirs so both resolve.
+		mkdirSync(join(repo, "bun-apps", "pi-agent-ext-obsidian", "extensions"), { recursive: true });
+		writeFileSync(join(repo, "bun-apps", "pi-agent-ext-obsidian", "extensions", "obsidian.ts"), "// ok");
+		mkdirSync(join(repo, "bun-apps", "pi-agent-ext-hermes-memory", "src"), { recursive: true });
+		writeFileSync(join(repo, "bun-apps", "pi-agent-ext-hermes-memory", "src", "index.ts"), "// ok");
+		writeFileSync(
+			join(manifestDir, "manifest.json"),
+			JSON.stringify({
+				extensions: [
+					"pi-agent-ext-obsidian/extensions/obsidian.ts",
+					{
+						name: "pi-agent-ext-hermes-memory",
+						entry: "pi-agent-ext-hermes-memory/src/index.ts",
+						bundleMode: "thin",
+						version: "0.80.3",
+					},
+				],
+				skills: [],
+			}),
+		);
+		const r = checkRunDir(ctx, repo);
+		expect(r.status).toBe("pass");
+		expect(r.detail).toMatch(/2 entries resolve/);
+	});
+
+	test("run-dir: mixed-type manifest with a MISSING object entry → warn (not crash)", () => {
+		const { ctx, repo } = makeCtx({});
+		const manifestDir = join(repo, "bun-apps", "pi-agent", "run-dir");
+		mkdirSync(manifestDir, { recursive: true });
+		writeFileSync(
+			join(manifestDir, "manifest.json"),
+			JSON.stringify({
+				extensions: [
+					{ name: "pi-agent-ext-missing", entry: "pi-agent-ext-missing/src/index.ts" },
+				],
+				skills: [],
+			}),
+		);
+		const r = checkRunDir(ctx, repo);
+		expect(r.status).toBe("warn");
+		expect(r.detail).toMatch(/pi-agent-ext-missing/);
+	});
+
 	test("vault: OB_VAULT_PATH present → pass", () => {
 		const v = mkdtempSync(join(tmpdir(), "pi-vault-"));
 		const { ctx } = makeCtx({ env: { OB_VAULT_PATH: v } });
