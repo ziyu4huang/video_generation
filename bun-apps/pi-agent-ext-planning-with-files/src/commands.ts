@@ -153,6 +153,10 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
       }
 
       state.executionApprovedBySessionPlan.add(planKey);
+      // Refresh the status bar so it reflects the approved/executing state
+      // immediately — without this the bar kept showing the passive
+      // "run /plan-execute" prompt until the next agent turn boundary.
+      ctx.ui.setStatus(PKG_NAME, `${summarizePlan(status)} — hooks active`);
       ctx.ui.notify(
         [
           `Plan execution approved: ${summarizePlan(status)}`,
