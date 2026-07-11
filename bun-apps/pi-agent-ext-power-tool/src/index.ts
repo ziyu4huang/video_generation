@@ -41,6 +41,7 @@ import goal, { isGoalActive } from "./goal/goal.js";
 import { GoalOverlay } from "./goal/overlay.js";
 import { ensureGetSystemPromptOptions } from "./sdk-patch.js";
 import { registerBtwFeature } from "./btw";
+import { DEFAULT_CHARS_PER_TOKEN } from "./schema-cost";
 
 // Re-export the goal-active coordination seam so peer extensions (e.g.
 // planning-with-files) can dynamic-import it via the package entry without
@@ -49,8 +50,11 @@ export { isGoalActive };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// Rough chars→token estimate. Both tools share this ratio.
-const TOKEN_RATIO = 3.7;
+// Rough chars→token estimate. Sourced from schema-cost's canonical default so
+// the live instrument (inspect_context) and the static instrument (schema-cost /
+// inspect_extensions) can NEVER drift apart. Previously this was a hardcoded 3.7
+// while schema-cost used 4.0 — a diagnostics tool must agree with itself.
+const TOKEN_RATIO = DEFAULT_CHARS_PER_TOKEN;
 
 function est(chars: number): string {
   return `~${Math.round(chars / TOKEN_RATIO).toLocaleString()} tok`;
