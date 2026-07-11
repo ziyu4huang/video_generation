@@ -47,11 +47,56 @@ bun scripts/deploy.ts --verify          # + boot probe (getAllTools from /tmp)
 | **skill-load** (e2e) | `before_agent_start`: PwF SKILL.md in `systemPromptOptions.skills` | `e2e-extensions.test.ts` |
 | **readonly** (e2e) | Frozen tree (chmod a-w): zero writes, foreign-cwd run, state routing | `e2e-readonly.test.ts` |
 
+### Verification pipeline
+
+```
+                      deploy.ts --verify
+                 boot from /tmp → getAllTools()
+            43 tools · 0 conflicts · 8 canary tools present
+                              │
+         ┌────────────────────┼────────────────────┐
+         ▼                    ▼                    ▼
+  DEPLOY-BUNDLE         DEPLOY-PACKAGE       DEPLOY-PORTABLE
+  (THIN ext-bundles)    (--release source)   (--portable FULL)
+         │                    │                    │
+         ▼                    ▼                    ▼
+  ┌──────────────────────────────────────────────────────────┐
+  │ e2e-extensions.test.ts (per mode):                       │
+  │  · runtime probe  (session_start: tools + commands)      │
+  │  · doctor --json  (mode + static checks)                 │
+  │  · doctor --smoke (runtime spawn: matched > 0)           │
+  │  · skill-load     (before_agent_start: PwF SKILL.md)     │
+  ├──────────────────────────────────────────────────────────┤
+  │ e2e-readonly.test.ts (bundle + release):                 │
+  │  · frozen tree (chmod a-w) zero writes                   │
+  │  · foreign-cwd run via run.sh                            │
+  │  · state routing to PI_CODING_AGENT_DIR                  │
+  └──────────────────────────────────────────────────────────┘
+```
+
 ### Reproducibility
 
 - **build-extensions hash cache**: sha256 over source tree + thin/full flag + `Bun.version` → cold build skipped on warm re-run
 - **dep pinning**: `--release`/`--portable` pin floating `"latest"`/`"*"` to `bun.lock` resolved versions
 - **read-only freeze**: every deploy is `chmod a-w` + `.deploy-readonly` marker by default; `run.sh` applies `JITI_FS_CACHE=0` + `PI_CODING_AGENT_DIR` routing
+
+### Latest verified result
+
+Verified at `origin/main` (`e0cdf8b4`, 2026-07-11):
+
+| Tier | Tests | Result | Time |
+|------|-------|--------|------|
+| unit + patches | 189 pass, 2 skip | ✅ 0 fail | 19s |
+| e2e-extensions (4 modes × `--verify`) | 22 pass | ✅ 0 fail | 149s |
+| e2e-readonly (frozen bundle + release × `--verify`) | 10 pass | ✅ 0 fail | 75s |
+| deploy `--verify` standalone | 43 tools, 0 conflicts, 8 canaries | ✅ | ~5s |
+| **Total** | **221 pass, 2 skip** | ✅ **0 fail** | ~248s |
+
+Run via:
+```bash
+bash bun-apps/pi-agent/run-test.sh high      # unit + patches + deploy e2e
+bash bun-apps/pi-agent/run-test.sh readonly   # frozen-deploy contract
+```
 
 ## Use
 
