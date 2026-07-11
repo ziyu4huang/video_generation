@@ -58,7 +58,7 @@ mock.module(SESSIONS_PATH, () => ({
 
 // Import AFTER the mock is registered.
 const { classifyProfileViaVlm } = await import("../src/vlm/classify-vlm.ts");
-const { parseProfileReply } = await import("../src/vlm/classify-vlm.ts");
+const { parseProfileReply, voteProfile } = await import("../src/vlm/classify-vlm.ts");
 const { resolveLLM } = await import("../src/sessions.ts");
 
 let dir: string;
@@ -102,6 +102,28 @@ describe("parseProfileReply", () => {
   test("unrecognized reply → image fallback (never throws)", () => {
     expect(parseProfileReply("zzzzz")).toBe("image");
     expect(parseProfileReply("")).toBe("image");
+  });
+});
+
+describe("voteProfile (S4)", () => {
+  test("single reply -> that profile", () => {
+    expect(voteProfile(["paper"])).toBe("paper");
+    expect(voteProfile(["diagram"])).toBe("diagram");
+  });
+
+  test("clear majority wins (beats specificity)", () => {
+    expect(voteProfile(["poster", "paper", "paper"])).toBe("paper");
+    expect(voteProfile(["image", "image", "paper"])).toBe("image");
+  });
+
+  test("tie broken by specificity (paper > slides > poster > diagram > image)", () => {
+    expect(voteProfile(["poster", "paper"])).toBe("paper");
+    expect(voteProfile(["image", "slides"])).toBe("slides");
+    expect(voteProfile(["image", "diagram"])).toBe("diagram");
+  });
+
+  test("empty -> image", () => {
+    expect(voteProfile([])).toBe("image");
   });
 });
 
