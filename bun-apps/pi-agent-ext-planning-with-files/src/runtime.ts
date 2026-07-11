@@ -297,6 +297,11 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
       return;
     }
 
+    // Refresh the status bar with the freshly-read phase count. Without this
+    // the bar stayed frozen at whatever before_agent_start set (e.g. "1/2") for
+    // the whole turn, even as the agent marked phases complete in task_plan.md.
+    ctx.ui.setStatus(PKG_NAME, summarizePlan(status));
+
     const mode = deriveEffectiveMode(resolveConfiguredMode(ctx.cwd), ctx);
     if (mode === "parity") {
       return {

@@ -710,3 +710,63 @@ describe("agent_end auto-continue (approved, incomplete, no goal)", () => {
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("Auto-continue limit reached"), "warning");
   });
 });
+
+// ─── Status-bar refresh during execution (iter-4 TUI fix) ─────────────────
+// The status bar (ctx.ui.setStatus) was refreshed only at turn boundaries
+// (before_agent_start / agent_end). Two gaps left it stale mid-execution:
+//   GAP-1: /plan-execute (approve) never called setStatus → after approving,
+//          the bar kept showing the passive "run /plan-execute" prompt.
+//   GAP-2: tool_result (write/edit, approved) never called setStatus → as the
+//          agent marked phases complete, the bar's phase count stayed stale
+//          until the next turn.
+describe("status bar refresh during execution", () => {
+  it("GAP-1: /plan-execute refreshes the status bar to the active plan summary", async () => {
+    const cwd = makeWorkspace(); // incomplete plan (1/2 phases)
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+
+    await emit(pi, "session_start", { reason: "new" }, ctx); // sets passive status
+    (ctx.ui.setStatus as ReturnType<typeof mock>).mockClear();
+    await approvePlan(pi, ctx);
+
+    // After approve the bar must reflect the live plan (phase summary), not the
+    // passive "run /plan-execute to activate hooks" prompt.
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith(
+      "planning-with-files",
+      expect.stringContaining("1/2 phases complete"),
+    );
+    for (const [, text] of (ctx.ui.setStatus as ReturnType<typeof mock>).mock.calls) {
+      expect(text).not.toContain("run /plan-execute to activate hooks");
+    }
+  });
+
+  it("GAP-2: tool_result write during approved execution refreshes the phase count", async () => {
+    const cwd = makeWorkspace(); // 1/2 phases
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+
+    await emit(pi, "session_start", { reason: "new" }, ctx);
+    await approvePlan(pi, ctx);
+    (ctx.ui.setStatus as ReturnType<typeof mock>).mockClear();
+
+    // Simulate the agent marking Phase 2 complete, then the write tool_result.
+    writeFileSync(join(cwd, ".planning", "demo", "task_plan.md"), completePlan());
+    const result = await emit(
+      pi,
+      "tool_result",
+      { toolName: "write", content: [{ type: "text", text: "updated task_plan.md" }] },
+      ctx,
+    );
+
+    // The bar must now read the fresh 2/2 (not the stale 1/2)...
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith(
+      "planning-with-files",
+      expect.stringContaining("2/2 phases complete"),
+    );
+    // ...and the post-write reminder still works (regression guard).
+    expect(result.content).toEqual([
+      { type: "text", text: "updated task_plan.md" },
+      { type: "text", text: expect.stringContaining("[planning-with-files] Update progress.md") },
+    ]);
+  });
+});
