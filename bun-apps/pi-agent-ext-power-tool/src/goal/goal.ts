@@ -222,6 +222,22 @@ let latestCtx: StatusContext | undefined;
 const cancelledContinuationMarkers = new Set<string>();
 const STATUS_REFRESH_INTERVAL_MS = 1_000;
 
+// ─── Coordination seam (Plan A: goal ⇄ planning-with-files mutual-exclusion) ──
+
+/**
+ * Whether a /goal is currently in the "active" (driving) state.
+ *
+ * Exported so planning-with-files can query it (dynamic import + fallback to
+ * false) and yield its own before_agent_start injection + agent_end
+ * auto-continue to the goal, which owns iteration counting, token budget, and
+ * recovery. Returns FALSE for paused / budget_limited / complete / no-goal —
+ * so planning may resume its own continuation when the goal is NOT actively
+ * driving (e.g. user paused the goal).
+ */
+export function isGoalActive(): boolean {
+	return activeGoal?.status === "active";
+}
+
 // ─── Tool definition ──────────────────────────────────────────────────────────
 
 const goalCompleteTool = defineTool({
@@ -266,6 +282,26 @@ const goalCompleteTool = defineTool({
 			persistGoal(completedGoal);
 			updateStatus(ctx, completedGoal);
 			const rejection = `Goal completion rejected: ${rejectionReason}.`;
+			ctx.ui.notify(rejection, "warning");
+			return {
+				content: [{ type: "text", text: rejection }],
+				details: { goal, summary } satisfies GoalCompleteDetails,
+			};
+		}
+
+		// Plan A coordination seam: block goal_complete while a planning-with-files
+		// plan has open phases. The goal's own summary audit can't see plan state; this
+		// closes the gap. Release valve: /plan-done (writes the close marker →
+		// __piPlanIncomplete returns false). Best-effort: if planning-with-files isn't
+		// loaded or errors, the gate is a no-op (goal_complete proceeds).
+		const planningReason = planningGateBlocking(ctx.cwd);
+		if (planningReason) {
+			updateGoalUsage(completedGoal, ctx);
+			persistGoal(completedGoal);
+			updateStatus(ctx, completedGoal);
+			const rejection =
+				`Goal completion rejected: ${planningReason}. ` +
+				"Finish the remaining plan phases, or run /plan-done to close the plan, then call goal_complete again.";
 			ctx.ui.notify(rejection, "warning");
 			return {
 				content: [{ type: "text", text: rejection }],
@@ -880,11 +916,15 @@ function buildResumePrompt(goal: ActiveGoal) {
 
 export function buildGoalSystemPrompt(goal: ActiveGoal) {
 	const budgetLine = goal.tokenBudget === undefined ? "" : `\n- Respect the goal token budget (${formatBudget(goal)} used).`;
-	return `Active /goal:\n${goalObjectiveBlock(goal)}\n\nGoal-mode rules:\n- Keep going until the active goal is completely resolved end-to-end.\n- Treat the current worktree, command output, tests, and external state as authoritative.\n- Do not redefine the goal into a smaller task; audit every requirement before completion.\n- Do not stop at analysis, a plan, TODO list, partial fixes, or suggested next steps.\n- Autonomously perform implementation and verification with the available tools when they are needed to complete the goal.\n- Persevere through recoverable tool failures by trying reasonable alternatives instead of yielding early.\n- If the goal is not complete at the end of a turn, expect an automatic continuation and keep working from where you left off.\n- Only call the goal_complete tool after the goal is fully complete and verified.${budgetLine}`;
+	const planLine = planProgressLineFromPeer();
+	const planBullet = planLine ? `\n- Active plan progress: ${planLine}. Treat the plan as your roadmap, not a stopping point.` : "";
+	return `Active /goal:\n${goalObjectiveBlock(goal)}\n\nGoal-mode rules:\n- Keep going until the active goal is completely resolved end-to-end.\n- Treat the current worktree, command output, tests, and external state as authoritative.\n- Do not redefine the goal into a smaller task; audit every requirement before completion.\n- Do not stop at analysis, a plan, TODO list, partial fixes, or suggested next steps.\n- ${THREE_LAYER_GUIDANCE}\n- Autonomously perform implementation and verification with the available tools when they are needed to complete the goal.\n- Persevere through recoverable tool failures by trying reasonable alternatives instead of yielding early.\n- If the goal is not complete at the end of a turn, expect an automatic continuation and keep working from where you left off.\n- Only call the goal_complete tool after the goal is fully complete and verified.${planBullet}${budgetLine}`;
 }
 
 function buildContinuePrompt(goal: ActiveGoal, marker: string) {
-	return `Continue the active /goal until it is complete:\n\n${goalObjectiveBlock(goal)}\n\nThis is automatic continuation #${goal.iteration}. Current files, command output, tests, and external state are authoritative; re-check them as needed. ${goalPersistenceRules("this goal")}\n\n${continuationMarkerComment(marker)}`;
+	const planLine = planProgressLineFromPeer();
+	const planNote = planLine ? `\nActive plan progress: ${planLine}. Continue the next open phase, then mark it complete in task_plan.md.` : "";
+	return `Continue the active /goal until it is complete:\n\n${goalObjectiveBlock(goal)}\n\nThis is automatic continuation #${goal.iteration}. Current files, command output, tests, and external state are authoritative; re-check them as needed. ${goalPersistenceRules("this goal")}${planNote}\n\n${continuationMarkerComment(marker)}`;
 }
 
 function goalObjectiveBlock(goal: ActiveGoal) {
@@ -938,6 +978,55 @@ function isPiOwnedCompactionRetry(event: unknown, goalId: string) {
 export function isContradictoryCompletionSummary(summary: string) {
 	return CONTRADICTORY_COMPLETION_PATTERNS.some((pattern) => pattern.test(summary));
 }
+
+/**
+ * Plan A coordination seam: read planning-with-files' published
+ * `globalThis.__piPlanIncomplete` to decide whether goal_complete should be
+ * blocked by an open (exists + not closed + incomplete-phases) plan. Returns an
+ * actionable reason string, or undefined if no gate applies (planning-with-files
+ * not loaded, no plan, plan closed, or all phases complete). Best-effort: a
+ * peer-extension error never blocks goal_complete.
+ */
+export function planningGateBlocking(cwd: string): string | undefined {
+	const fn = (globalThis as Record<string, unknown> | undefined)?.__piPlanIncomplete;
+	if (typeof fn !== "function") return undefined;
+	try {
+		if ((fn as (cwd: string) => boolean)(cwd)) {
+			return "a planning-with-files plan still has incomplete phases";
+		}
+	} catch {
+		// best-effort: never block goal_complete on a peer-extension read error
+	}
+	return undefined;
+}
+
+/**
+ * Fusion seam: read planning-with-files' published `globalThis.__piPlanSummary`
+ * to surface the active plan's phase progress. When the goal drives (and
+ * planning yielded its injection per Plan A), the agent would otherwise lose
+ * plan visibility — this keeps the roadmap in front of it. Best-effort: empty
+ * string when planning is absent / no plan / latestCtx unset / error.
+ */
+export function planProgressLineFromPeer(): string {
+	const cwd = latestCtx?.cwd;
+	if (!cwd) return "";
+	const fn = (globalThis as Record<string, unknown> | undefined)?.__piPlanSummary;
+	if (typeof fn !== "function") return "";
+	try {
+		return (fn as (cwd: string) => string | null)(cwd) ?? "";
+	} catch {
+		return "";
+	}
+}
+
+// Three-layer fusion guidance: teaches the agent that planning-with-files (the
+// roadmap) and the `todo` tool (in-session steps) are tools to FINISH the goal,
+// not stopping points. Goal drives; the other two structure the drive.
+const THREE_LAYER_GUIDANCE =
+	"You have three cooperating layers: this /goal (drives to completion), " +
+	"planning-with-files (the cross-session phase roadmap in task_plan.md), and " +
+	"the `todo` tool (in-session step tracking). Use the plan as your roadmap " +
+	"and todo to track steps — neither is a stopping point; they are tools to finish this goal.";
 
 export function isRetryableGoalInterruption(assistant: AssistantMessageLike) {
 	if (assistant.stopReason !== "error") return false;
