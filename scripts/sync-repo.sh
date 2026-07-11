@@ -14,9 +14,12 @@
 # update only touches submodule paths).
 #
 # Flags:
-#   --full             MOST COMPLETE SYNC: checkout main everywhere (superproject + every
+#   --full             MOST COMPLETE SYNC: advance main everywhere (superproject + every
 #                      submodule recursively), fetch all remotes, pull --ff-only in each repo,
-#                      then report alignment. Aborts if any repo has uncommitted changes.
+#                      then report alignment. Worktree-aware: if 'main' is checked out in
+#                      another worktree, it is advanced there (this worktree stays on its
+#                      branch) instead of fatal-ing on `git checkout main`. Aborts only if a
+#                      repo that needs to switch branches has uncommitted changes.
 #                      This is the "everything to latest main" button.
 #   --remote           also advance each submodule to its latest remote-tracking tip
 #                      (rewrites the recorded pointer → superproject shows dirty; commit it)
@@ -84,16 +87,47 @@ need_clean_tree() {  # <why>
   return 0
 }
 
-# --- 0a. --full: checkout main in superproject --------------------------------
+# worktree owning <branch> — prints the absolute path of the worktree that has
+# <branch> checked out, or empty if no worktree is on it. The current worktree is
+# included in the search. Used by --full so it never tries `git checkout main`
+# into a worktree that can't hold it (main busy elsewhere).
+worktree_for_branch() {  # <branch>
+  git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null \
+    | awk -v b="refs/heads/$1" '/^worktree /{wt=$2} /^branch /{if($2==b) print wt}'
+}
+
+# --- 0a. --full: advance superproject main (worktree-aware) -------------------
+# Old behavior blindly ran `git checkout main`, which fatals with
+#   "fatal: 'main' is already used by worktree at <path>"
+# in any repo that keeps `main` checked out in a dedicated worktree (this one).
+# Instead: if main already lives in another worktree, advance it THERE and leave
+# the current worktree on its branch. Only check out main here when it's free.
 if [[ "$FULL_SYNC" == true ]]; then
   echo "→ --full mode: syncing everything to latest main"
   CURRENT_FF="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD)"
-  if [[ "$CURRENT_FF" != "main" ]]; then
-    if need_clean_tree "cannot switch to main"; then
-      echo "→ Switching superproject to main …"
-      run "git checkout main" git -C "$REPO_ROOT" checkout main
+  if [[ "$CURRENT_FF" == "main" ]]; then
+    : # already on main — sections 1–2 will fetch + advance it in this worktree
+  else
+    MAIN_WT="$(worktree_for_branch main)"
+    if [[ -n "$MAIN_WT" && "$MAIN_WT" != "$REPO_ROOT" ]]; then
+      # main is checked out in another worktree — don't hijack it into this one.
+      echo "→ 'main' is checked out in another worktree:"
+      echo "    $MAIN_WT"
+      echo "  Advancing main there; keeping this worktree on '$CURRENT_FF'."
+      if git -C "$MAIN_WT" diff --quiet && git -C "$MAIN_WT" diff --cached --quiet; then
+        run "git -C \"$MAIN_WT\" pull --ff-only origin main" \
+            git -C "$MAIN_WT" pull --ff-only origin main
+      else
+        echo "  ⚠ $MAIN_WT has uncommitted changes — main not advanced there." >&2
+      fi
     else
-      exit 1
+      # main is free (not checked out in any worktree) — check it out here.
+      if need_clean_tree "cannot switch to main"; then
+        echo "→ Switching superproject to main …"
+        run "git checkout main" git -C "$REPO_ROOT" checkout main
+      else
+        exit 1
+      fi
     fi
   fi
 fi

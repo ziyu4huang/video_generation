@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { DatabaseManager } from './db.js';
+import { DatabaseManager, type DatabaseLike } from './db.js';
 import { parseSessionFile, getSessionFiles, type ParsedSession } from './session-parser.js';
 
 export const LAST_SESSION_BACKFILL_KEY = 'last_session_backfill';
@@ -46,12 +46,13 @@ export function indexSession(dbManager: DatabaseManager, session: ParsedSession)
   return dbManager.withCorruptionRecovery(() => indexSessionOnce(dbManager, session));
 }
 
-function indexSessionOnce(dbManager: DatabaseManager, session: ParsedSession): IndexResult {
-  const db = dbManager.getDb();
-
-  const existingSession = db.prepare('SELECT id FROM sessions WHERE id = ?').get(session.id) as { id: string } | undefined;
-  const before = db.prepare('SELECT COUNT(*) as count FROM messages WHERE session_id = ?').get(session.id) as { count: number };
-
+/**
+ * Write one session's rows (session upsert + message inserts + count sync).
+ * Transaction-free: callers manage transaction boundaries. Extracted so the
+ * bulk indexing path can batch many sessions into a SINGLE transaction
+ * (10-50× fewer fsyncs than one transaction per session).
+ */
+function writeSessionToDb(db: DatabaseLike, session: ParsedSession): void {
   const insertSession = db.prepare(`
     INSERT OR IGNORE INTO sessions (id, project, cwd, started_at, ended_at, message_count)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -71,35 +72,42 @@ function indexSessionOnce(dbManager: DatabaseManager, session: ParsedSession): I
     WHERE id = ?
   `);
 
-  const writeSession = () => {
-    insertSession.run(
+  insertSession.run(
+    session.id,
+    session.project,
+    session.cwd,
+    session.startedAt,
+    session.endedAt,
+    session.messages.length
+  );
+
+  for (const msg of session.messages) {
+    insertMsg.run(
+      msg.id,
       session.id,
-      session.project,
-      session.cwd,
-      session.startedAt,
-      session.endedAt,
-      session.messages.length
+      msg.role,
+      msg.content,
+      msg.timestamp,
+      msg.toolCalls ? JSON.stringify(msg.toolCalls) : null
     );
+  }
 
-    for (const msg of session.messages) {
-      insertMsg.run(
-        msg.id,
-        session.id,
-        msg.role,
-        msg.content,
-        msg.timestamp,
-        msg.toolCalls ? JSON.stringify(msg.toolCalls) : null
-      );
-    }
+  updateSession.run(session.project, session.cwd, session.endedAt, session.id, session.id);
+}
 
-    updateSession.run(session.project, session.cwd, session.endedAt, session.id, session.id);
-  };
+function indexSessionOnce(dbManager: DatabaseManager, session: ParsedSession): IndexResult {
+  const db = dbManager.getDb();
+
+  const existingSession = db.prepare('SELECT id FROM sessions WHERE id = ?').get(session.id) as { id: string } | undefined;
+  const before = db.prepare('SELECT COUNT(*) as count FROM messages WHERE session_id = ?').get(session.id) as { count: number };
+
+  const write = () => writeSessionToDb(db, session);
 
   if (db.transaction) {
-    const tx = db.transaction(writeSession);
+    const tx = db.transaction(write);
     tx();
   } else {
-    writeSession();
+    write();
   }
 
   const after = db.prepare('SELECT COUNT(*) as count FROM messages WHERE session_id = ?').get(session.id) as { count: number };
@@ -309,13 +317,10 @@ export function indexAllSessions(
   const files = getSessionFiles(sessionsDir, projectDir);
   const result = emptyBulkIndexResult();
 
-  for (const file of files) {
-    try {
-      indexSessionFile(dbManager, file, result);
-    } catch (err) {
-      result.errors.push(`Error indexing ${file}: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
+  // ONE transaction for the whole batch. Each session is isolated by a nested
+  // SAVEPOINT (see runBulkIndexInTx), so a single bad session rolls back only
+  // itself — but all surviving sessions commit together in a single fsync.
+  dbManager.withCorruptionRecovery(() => runBulkIndexInTx(dbManager, files, result));
 
   return result;
 }
@@ -358,19 +363,110 @@ export function indexChangedSessions(
 
   changed.sort((a, b) => b.mtimeMs - a.mtimeMs);
 
+  // Apply the startup cap by COUNT before entering the batch transaction. The
+  // cap limits parsed+indexed files (not metadata-skipped ones); selecting the
+  // prefix by length preserves the original live-counter semantics while
+  // letting all selected files share one transaction.
+  const toIndex: string[] = [];
   for (const metadata of changed) {
-    if (result.sessionsProcessed >= maxFilesToIndex) {
+    if (toIndex.length >= maxFilesToIndex) {
       result.reachedLimit = true;
       break;
     }
-    try {
-      indexSessionFile(dbManager, metadata.path, result);
-    } catch (err) {
-      result.errors.push(`Error indexing ${metadata.path}: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    toIndex.push(metadata.path);
   }
 
+  dbManager.withCorruptionRecovery(() => runBulkIndexInTx(dbManager, toIndex, result));
+
   return result;
+}
+
+/**
+ * Bulk-index `files` inside a SINGLE outer transaction with per-session
+ * SAVEPOINT isolation.
+ *
+ * Why one transaction: SQLite commits force a WAL sync; committing once per
+ * session over N files is N fsyncs (the documented 10-50× SQLite anti-pattern).
+ * Why per-session SAVEPOINTs: a DB error in one session must roll back only
+ * that session so the rest of the batch survives. Corruption errors escape to
+ * the caller's `withCorruptionRecovery` (rebuild + retry the whole batch).
+ */
+function runBulkIndexInTx(dbManager: DatabaseManager, files: string[], result: BulkIndexResult): void {
+  const db = dbManager.getDb();
+
+  if (!db.transaction) {
+    // Runtime without transaction support — fall back to the legacy per-session
+    // path (each session commits independently).
+    for (const file of files) {
+      try {
+        indexSessionFile(dbManager, file, result);
+      } catch (err) {
+        result.errors.push(`Error indexing ${file}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    return;
+  }
+
+  const runBatch = db.transaction(() => {
+    for (const file of files) {
+      try {
+        indexSessionFileInTx(db, dbManager, file, result);
+      } catch (err) {
+        // Corruption must reach the outer withCorruptionRecovery (rebuild +
+        // retry the whole batch); all other per-session errors are logged and
+        // the batch continues — the SAVEPOINT already rolled back the failing
+        // session's writes.
+        if (DatabaseManager.isCorruptionError(err)) throw err;
+        result.errors.push(`Error indexing ${file}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  });
+
+  runBatch();
+}
+
+/**
+ * Index one session file inside an already-open transaction. Uses a nested
+ * SAVEPOINT so a DB error rolls back only this session's writes + metadata,
+ * then propagates to runBulkIndexInTx's loop catch.
+ */
+function indexSessionFileInTx(db: DatabaseLike, dbManager: DatabaseManager, file: string, result: BulkIndexResult): void {
+  result.sessionsProcessed++;
+
+  const session = parseSessionFile(file);
+  if (!session) {
+    result.errors.push(`Failed to parse: ${file}`);
+    return;
+  }
+
+  // db.transaction is guaranteed present here: the only caller
+  // (runBulkIndexInTx) returns early via its `if (!db.transaction)` guard
+  // before reaching this function. The guard also narrows the type so the
+  // method call below type-checks. NB: must call db.transaction(...) as a
+  // METHOD — better-sqlite3's implementation depends on `this`; detaching it
+  // (const t = db.transaction) loses the binding and throws.
+  if (!db.transaction) {
+    throw new Error('indexSessionFileInTx requires transaction support');
+  }
+  const doSession = db.transaction((): { existed: boolean; messagesIndexed: number } => {
+    const existing = db.prepare('SELECT id FROM sessions WHERE id = ?').get(session.id) as { id: string } | undefined;
+    const before = (db.prepare('SELECT COUNT(*) as count FROM messages WHERE session_id = ?').get(session.id) as { count: number }).count;
+    writeSessionToDb(db, session);
+    upsertSessionFileMetadata(dbManager, file, session.id);
+    const after = (db.prepare('SELECT COUNT(*) as count FROM messages WHERE session_id = ?').get(session.id) as { count: number }).count;
+    return { existed: Boolean(existing), messagesIndexed: after - before };
+  });
+
+  // A throw here rolls back the SAVEPOINT (this session only) and propagates
+  // to runBulkIndexInTx's loop, which logs it or escalates corruption.
+  const outcome = doSession();
+
+  if (outcome.existed && outcome.messagesIndexed === 0) {
+    result.sessionsSkipped++;
+  } else {
+    result.sessionsIndexed++;
+    result.messagesIndexed += outcome.messagesIndexed;
+  }
 }
 
 /**
@@ -451,11 +547,12 @@ export function getSessionStats(dbManager: DatabaseManager): {
 
   const projects = db.prepare(`
     SELECT
-      project,
-      COUNT(*) as sessions,
-      (SELECT COUNT(*) FROM messages m WHERE m.session_id IN (SELECT id FROM sessions s2 WHERE s2.project = s.project)) as messages
+      s.project,
+      COUNT(DISTINCT s.id) as sessions,
+      COUNT(m.id) as messages
     FROM sessions s
-    GROUP BY project
+    LEFT JOIN messages m ON m.session_id = s.id
+    GROUP BY s.project
     ORDER BY sessions DESC
   `).all() as { project: string; sessions: number; messages: number }[];
 

@@ -5,16 +5,25 @@
  *   /plan-attest [flags]    — SHA-256 lock the active plan (pure TS: --show / --clear)
  *   /plan-goal <text>       — set/clear the auto-continue goal condition
  *   /plan-execute [reset]   — approve the active plan & activate the hooks
+ *   /plan-done [--delete]   — close the active plan (stop all nags); --delete removes the files
  *   /plan-loop [interval]   — start/stop periodic plan-loop ticks
  *
  * Type-only imports from `./runtime.js` (RuntimeState) are erased at compile
  * time, so this module does NOT create a runtime ESM cycle with runtime.ts.
  */
 
+import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { attestPlan, buildTamperMessage, checkPlanAttestation } from "./attestation.js";
-import { DEFAULT_GOAL_CONDITION, DEFAULT_LOOP_INTERVAL_MS, DEFAULT_LOOP_PROMPT, PKG_NAME } from "./constants.js";
-import { isAllPhasesComplete, readPlanStatus, summarizePlan } from "./plan.js";
+import {
+  CLOSE_MARKER_COMMENT,
+  CLOSE_MARKER_NOTE,
+  DEFAULT_GOAL_CONDITION,
+  DEFAULT_LOOP_INTERVAL_MS,
+  DEFAULT_LOOP_PROMPT,
+  PKG_NAME,
+} from "./constants.js";
+import { isAllPhasesComplete, isCloseMarker, readPlanStatus, resolvePlanPaths, summarizePlan } from "./plan.js";
 import { checkCompleteReport } from "./scripts.js";
 import { getPlanSessionKey, getSessionId, type RuntimeState } from "./state.js";
 
@@ -109,6 +118,90 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
           `Plan execution approved: ${summarizePlan(status)}`,
           `Plan path: ${status.planPath}`,
           "planning-with-files hooks are now active for this session and plan.",
+        ].join("\n"),
+        "info",
+      );
+    },
+  });
+
+  pi.registerCommand("plan-done", {
+    description:
+      "Close the active plan (finished/abandoned): deactivates hooks, stops all nags. Use --delete to also remove the plan files.",
+    handler: async (args, ctx) => {
+      const status = readPlanStatus(ctx.cwd);
+      if (!status.exists || !status.planPath) {
+        ctx.ui.notify("No active plan (task_plan.md not found) — nothing to close.", "info");
+        return;
+      }
+
+      const flag = args.trim().toLowerCase();
+
+      // --delete: fully remove the active plan files/dir (gitignored scratch).
+      // Resolves the exact same paths readPlanStatus uses, so it never touches
+      // anything outside the active plan.
+      if (flag === "--delete" || flag === "delete" || flag === "rm") {
+        const paths = resolvePlanPaths(ctx.cwd);
+        const targets: string[] = [];
+        if (paths.scope === "scoped" && paths.planDir) {
+          targets.push(paths.planDir);
+        } else {
+          for (const f of [paths.planPath, paths.progressPath, paths.findingsPath]) {
+            if (f && existsSync(f)) targets.push(f);
+          }
+          const rootAttest = paths.attestationCandidates[0];
+          if (rootAttest && existsSync(rootAttest)) targets.push(rootAttest);
+        }
+        // Clear approval so any lingering session state goes passive too.
+        state.executionApprovedBySessionPlan.delete(getPlanSessionKey(ctx, status));
+        state.goalBySession.delete(getSessionId(ctx));
+        for (const t of targets) {
+          try {
+            rmSync(t, { recursive: true, force: true });
+          } catch {
+            // best-effort; report what we can below
+          }
+        }
+        ctx.ui.setStatus(PKG_NAME, "No active plan");
+        ctx.ui.notify(`[planning-with-files] Plan deleted: ${targets.join(", ")}`, "info");
+        return;
+      }
+
+      // Default: mark the plan closed (non-destructive — keeps the plan as a
+      // record). Writes an inert comment marker + a human-visible note. The
+      // runtime treats a closed plan as inert (no injection, no nag).
+      const existing = (() => {
+        try {
+          return readFileSync(status.planPath, "utf-8");
+        } catch {
+          return "";
+        }
+      })();
+      if (isCloseMarker(existing)) {
+        // Already closed — just clear approval + confirm.
+        state.executionApprovedBySessionPlan.delete(getPlanSessionKey(ctx, status));
+        ctx.ui.setStatus(PKG_NAME, "Plan closed (via /plan-done)");
+        ctx.ui.notify(`[planning-with-files] Plan already closed: ${status.planPath}`, "info");
+        return;
+      }
+
+      const stamp = new Date().toISOString().slice(0, 10);
+      const block = `\n\n---\n${CLOSE_MARKER_COMMENT}\n${CLOSE_MARKER_NOTE} (${stamp})\n`;
+      try {
+        appendFileSync(status.planPath, block, "utf-8");
+      } catch (err) {
+        ctx.ui.notify(`[planning-with-files] Could not write close marker: ${String(err)}`, "error");
+        return;
+      }
+      // Drop approval so the very next agent_end doesn't fire the approved
+      // auto-continue branch before the closed guard short-circuits it.
+      state.executionApprovedBySessionPlan.delete(getPlanSessionKey(ctx, status));
+      state.goalBySession.delete(getSessionId(ctx));
+      ctx.ui.setStatus(PKG_NAME, "Plan closed (via /plan-done)");
+      ctx.ui.notify(
+        [
+          `[planning-with-files] Plan closed: ${summarizePlan(readPlanStatus(ctx.cwd))}`,
+          `Marked: ${status.planPath}`,
+          "Hooks deactivated for this plan. Run /plan-done --delete to remove the files, or delete the close marker to reactivate.",
         ].join("\n"),
         "info",
       );
