@@ -176,6 +176,7 @@ import {
 	tagPaths,
 	titleKeysFor,
 	toolAllowlist,
+	runDeterministicHealthCheck,
 	toolError,
 	toolErrorFromCaught,
 	trigramCandidates,
@@ -1569,21 +1570,12 @@ ${output.slice(-2000)}`,
 				const folder = params.scope?.trim() || "Zettelkasten/knowledge-graph";
 				const mocPath = "Tags/Knowledge Graph.md";
 				try {
-					const { graphHealth, healGraph, formatHealth } = await import(
-						"@repo/pi-agent-ext-knowledge-card/src/retrieve.ts"
-					);
-					const hOpts = { vaultPath: v.path, folder, mocPath };
-					if (mode === "fix") {
-						const healed = await healGraph(hOpts);
-						console.error(
-							`  [garden:det] heal: MOC ${healed.mocRegenerated ? "regenerated" : "no change"}, ` +
-							`${healed.deadLinksPruned} dead link(s) pruned in ${healed.cardsTouched.length} card(s)`,
-						);
-					}
-					const h = await graphHealth(hOpts);
+					const result = await runDeterministicHealthCheck({
+						vaultPath: v.path, folder, mocPath, fix: mode === "fix",
+					});
 					return {
-						content: [{ type: "text", text: formatHealth(h) }],
-						details: h,
+						content: [{ type: "text", text: result.text }],
+						details: result.health,
 					};
 				} catch (e) {
 					return {

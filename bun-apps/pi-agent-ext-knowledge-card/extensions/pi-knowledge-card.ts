@@ -40,6 +40,7 @@ import { Type } from "typebox";
 import {
 	runSubagentWithRetry,
 	resolveVault,
+	registerDeterministicHealthCheck,
 } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 import {
 	ingestRecords,
@@ -53,6 +54,9 @@ import {
 import {
 	retrieveRecords,
 	type RetrieveOptions,
+	graphHealth,
+	healGraph,
+	formatHealth,
 } from "../src/retrieve.ts";
 
 // ---------------------------------------------------------------------------
@@ -551,6 +555,24 @@ export function buildRagTask(
 			: "- [[Note Title]] (path/to/note.md) — one-line reason for inclusion",
 	].join("\n");
 }
+
+// ---------------------------------------------------------------------------
+// Deterministic health check registration (Phase 1 de-dup)
+// Register graphHealth/healGraph with pi-obsidian so the obsidian garden tool's
+// deterministic engine can call them without a backwards import dependency.
+// ---------------------------------------------------------------------------
+registerDeterministicHealthCheck(async (opts) => {
+	const hOpts = { vaultPath: opts.vaultPath, folder: opts.folder, mocPath: opts.mocPath };
+	if (opts.fix) {
+		const healed = await healGraph(hOpts);
+		console.error(
+			`  [garden:det] heal: MOC ${healed.mocRegenerated ? "regenerated" : "no change"}, ` +
+			`${healed.deadLinksPruned} dead link(s) pruned in ${healed.cardsTouched.length} card(s)`,
+		);
+	}
+	const h = await graphHealth(hOpts);
+	return { health: h, text: formatHealth(h) };
+});
 
 // ---------------------------------------------------------------------------
 // Extension registration

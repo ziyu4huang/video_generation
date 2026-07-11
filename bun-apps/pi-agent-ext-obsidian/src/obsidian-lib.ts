@@ -3578,3 +3578,47 @@ export function searchReferenceText(): string {
 	].join("\n");
 }
 
+
+// ---- Deterministic health check registration (Phase 1 de-dup) ------------
+// The deterministic graph health check (graphHealth/healGraph) lives in
+// pi-agent-ext-knowledge-card/src/retrieve.ts. To avoid a backwards import
+// dependency (obsidian → knowledge-card), knowledge-card registers its
+// implementation here at extension load time. The garden tool's deterministic
+// engine calls through this indirection.
+
+export interface DetHealthResult {
+	health: any;
+	text: string;
+}
+
+let _detHealthFn: ((opts: {
+	vaultPath: string;
+	folder: string;
+	mocPath: string;
+	fix: boolean;
+}) => Promise<DetHealthResult>) | null = null;
+
+export function registerDeterministicHealthCheck(
+	fn: (opts: {
+		vaultPath: string;
+		folder: string;
+		mocPath: string;
+		fix: boolean;
+	}) => Promise<DetHealthResult>,
+) {
+	_detHealthFn = fn;
+}
+
+export async function runDeterministicHealthCheck(opts: {
+	vaultPath: string;
+	folder: string;
+	mocPath: string;
+	fix: boolean;
+}): Promise<DetHealthResult> {
+	if (!_detHealthFn) {
+		throw new Error(
+			"Deterministic health check not available — pi-agent-ext-knowledge-card not loaded",
+		);
+	}
+	return _detHealthFn(opts);
+}
