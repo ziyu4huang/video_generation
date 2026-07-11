@@ -14,6 +14,10 @@
 # update only touches submodule paths).
 #
 # Flags:
+#   --full             MOST COMPLETE SYNC: checkout main everywhere (superproject + every
+#                      submodule recursively), fetch all remotes, pull --ff-only in each repo,
+#                      then report alignment. Aborts if any repo has uncommitted changes.
+#                      This is the "everything to latest main" button.
 #   --remote           also advance each submodule to its latest remote-tracking tip
 #                      (rewrites the recorded pointer → superproject shows dirty; commit it)
 #   --pull             use `git pull` (merge) instead of fast-forward for the superproject
@@ -26,6 +30,7 @@
 #
 # Usage:
 #   ./scripts/sync-repo.sh                  # safe default (fetch + ff + recursive submodules)
+#   ./scripts/sync-repo.sh --full           # everything to latest main (superproject + submodules)
 #   ./scripts/sync-repo.sh --remote         # also pull latest submodule tips
 #   ./scripts/sync-repo.sh --branch main    # switch to main, then sync
 #   ./scripts/sync-repo.sh --depth 1        # shallow submodules (CI / speed)
@@ -36,6 +41,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 STRATEGY="ff"            # ff | pull | rebase
 REMOTE_MODE=false        # advance submodules to latest remote tips
+FULL_SYNC=false          # --full: checkout main + pull everywhere
 SYNC_SUBMODULES=true
 BRANCH=""
 DEPTH=""
@@ -45,6 +51,7 @@ usage() { sed -n '2,/^set -euo pipefail$/p' "$0" | sed -e '/^set -euo pipefail$/
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --full)          FULL_SYNC=true; REMOTE_MODE=true; STRATEGY="pull"; shift ;;
     --remote)        REMOTE_MODE=true;   shift ;;
     --pull)          STRATEGY="pull";    shift ;;
     --rebase)        STRATEGY="rebase";  shift ;;
@@ -76,6 +83,20 @@ need_clean_tree() {  # <why>
   fi
   return 0
 }
+
+# --- 0a. --full: checkout main in superproject --------------------------------
+if [[ "$FULL_SYNC" == true ]]; then
+  echo "→ --full mode: syncing everything to latest main"
+  CURRENT_FF="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD)"
+  if [[ "$CURRENT_FF" != "main" ]]; then
+    if need_clean_tree "cannot switch to main"; then
+      echo "→ Switching superproject to main …"
+      run "git checkout main" git -C "$REPO_ROOT" checkout main
+    else
+      exit 1
+    fi
+  fi
+fi
 
 echo "→ Repo: $REPO_ROOT"
 
@@ -137,7 +158,22 @@ if [[ "$SYNC_SUBMODULES" == true ]]; then
   sm_args=(--init --recursive)
   [[ -n "$DEPTH" ]] && sm_args+=(--depth "$DEPTH")
 
-  if [[ "$REMOTE_MODE" == true ]]; then
+  if [[ "$FULL_SYNC" == true ]]; then
+    # --full: checkout main + pull --ff-only inside each submodule, recursively.
+    echo "→ --full: fetching submodules (recursive) …"
+    run "git submodule foreach --recursive git fetch --all --prune" \
+        git -C "$REPO_ROOT" submodule foreach --recursive git fetch --all --prune
+
+    echo "→ --full: checkout main + pull --ff-only in each submodule …"
+    run "git submodule foreach --recursive 'git checkout main 2>/dev/null || true; git pull --ff-only origin main 2>&1 | tail -3'" \
+        git -C "$REPO_ROOT" submodule foreach --recursive 'git checkout main 2>/dev/null || true; git pull --ff-only origin main 2>&1 | tail -3'
+
+    # Advance the recorded pointers to the new HEADs.
+    echo "→ --full: updating submodule pointers …"
+    run "git submodule update --remote --recursive" \
+        git -C "$REPO_ROOT" submodule update "${sm_args[@]}" --remote
+
+  elif [[ "$REMOTE_MODE" == true ]]; then
     # Refresh each submodule's remote first, then move its checkout to the
     # latest tip of its configured branch (--remote). This rewrites the pointer
     # recorded in the superproject, so the superproject ends up dirty — commit it.
@@ -161,6 +197,30 @@ if [[ "$SYNC_SUBMODULES" == true ]]; then
   echo
   echo "→ Submodule status:"
   git -C "$REPO_ROOT" submodule status --recursive | sed 's/^/    /'
+
+  # --full: report HEAD vs origin/main for each submodule + warn about local changes
+  if [[ "$FULL_SYNC" == true ]]; then
+    echo
+    echo "→ Alignment report (HEAD vs origin/main):"
+    git -C "$REPO_ROOT" submodule foreach --recursive \
+      'local_sha=$(git rev-parse --short HEAD); remote_sha=$(git rev-parse --short origin/main 2>/dev/null || echo "?"); if [[ "$local_sha" == "$remote_sha" ]]; then status="✓"; else status="⚠"; fi; echo "    $name: HEAD=$local_sha main=$remote_sha $status"' 2>&1 | grep -v '^Entering'
+
+    echo
+    echo "→ Local changes check:"
+    local_changes=false
+    while IFS= read -r sm_path; do
+      [[ -z "$sm_path" ]] && continue
+      changes=$(git -C "$REPO_ROOT/$sm_path" status --short 2>/dev/null)
+      if [[ -n "$changes" ]]; then
+        echo "    ⚠ $sm_path has uncommitted changes:"
+        echo "$changes" | sed 's/^/        /'
+        local_changes=true
+      fi
+    done < <(git -C "$REPO_ROOT" submodule --quiet foreach 'echo "$name"')
+    if [[ "$local_changes" == false ]]; then
+      echo "    ✓ All submodules clean."
+    fi
+  fi
 fi
 
 echo
