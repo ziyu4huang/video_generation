@@ -1,6 +1,6 @@
 # obsidian_search baseline (real submodule vault — drifts on content growth)
-Generated: 2026-07-10T01:36
-Vault note count: 659
+Generated: 2026-07-10T23:50
+Vault note count: 686
 
 Real-vault snapshot (NOT the contract). This legitimately drifts whenever
 notes are added/removed; baseline.test.mjs is skip-gated on submodule
@@ -170,7 +170,7 @@ Tags/Index.md:253: > pi agent 可用 `obsidian_append_section` 工具自動追�
 
 ### case-sensitive mismatch
 query="Obsidian"
-44 match(es):
+48 match(es):
 Design/pi-Obsidian Integration.md:6: # 📐 Design — pi-Obsidian 整合
 Design/pi-Obsidian Integration.md:9: - 需要讓 pi agent 能直接讀寫 Obsidian 知識庫，不必切換 app。
 Design/pi-Obsidian Integration.md:16: - ❌ 不處理 Obsidian 設定同步
@@ -213,6 +213,10 @@ Zettelkasten/knowledge-graph/auto-memory-pi-obsidian-vault-distilled.md:26: 2. *
 Zettelkasten/knowledge-graph/gotcha-resolvevault-tier2-app-fallback.md:16: # resolveVault Tier-2 reads the Obsidian app open vault — can't fail deterministically in tests
 Zettelkasten/knowledge-graph/gotcha-resolvevault-tier2-app-fallback.md:19: > [!warning] pi-obsidian's resolveVault(cwd) has a Tier-2 fallback that resolves the REAL open Obsidian app vault.
 Zettelkasten/knowledge-graph/gotcha-resolvevault-tier2-app-fallback.md:20: Implication: you CANNOT make resolveVault fail by just clearing OB_VAULT_PATH on a dev machine with Obsidian installed — Tier-2 resolves the real open vault and the call succeeds with the WRONG vault. To test the vault-resolution-FAILURE path, inject a throwing resolver via a test seam (pi-knowledge-card exports __setVaultResolverForTest) rather than manipulating env vars. Also: resolveVault finds the run-dir config only when cwd is the REPO ROOT — tools must pass ctx.cwd, not process.cwd() of the package.
+Zettelkasten/knowledge-graph/pi-ext-dev-convergence-batch-crowding-low-maxlinks.md:20: The cross-link algorithm (src/ingest.ts step 3) ranks candidate neighbours by shared-tag count. A cohesive batch (e.g. 11 pi-ext-dev records all carrying the 'pi-ext-dev' + 'pi-extension' tags) produces intra-batch matches at shared=2-3, which dominate the top-8 and crowd out the shared=1 edges to pre-existing cards. Measured on the production vault (604 existing cards): at maxLinks=8 the 11 new cards got 84 intra-pi-ext-dev edges and ZERO edges to the existing graph; at maxLinks=20 they got 110 intra + 110 external. Fix for a cohesive extraction: pass maxLinks:20 (or higher) so weaker-but-meaningful cross-source edges survive. Extra edges do not hurt retrieveRecords (it re-ranks by the caller's query tags at read time, not the static links); they only enrich Obsidian's graph view + zk_ask's link_count term.
+Zettelkasten/knowledge-graph/pi-ext-dev-delegate-vault-resolution-dont-roll-own.md:19: > [!warning] A simplified resolver that only checks an env var + cwd/'vault' fails at runtime when the vault is registered via config or the Obsidian app.
+Zettelkasten/knowledge-graph/pi-ext-dev-delegate-vault-resolution-dont-roll-own.md:20: Always call pi-obsidian's resolveVault(cwd) (the multi-tier resolver: OB_VAULT_PATH env -> run-dir obsidian_config.json -> Obsidian app -> cwd/vault walk). The hub asks its forward-dep to SERVE vault resolution rather than reimplementing it — this reads the run-dir config the simplified resolver missed. pi-knowledge-card's knowledge_query and graph_health tools both delegate to resolveKnowledgeVault -> resolveVault. For deterministic test injection, expose a __setVaultResolverForTest(fn|null) seam that overrides the resolver in tests and restores it (null = use real).
+Zettelkasten/knowledge-graph/pi-ext-dev-ob-vault-path-env-as-deterministic-e2e-seam.md:17: For a true end-to-end test of vault tools that needs real file I/O but must NOT touch the production vault, set process.env.OB_VAULT_PATH = mkdtempSync(...) in beforeEach (save/restore the original in afterEach). resolveVault checks OB_VAULT_PATH FIRST (Tier-1a, wins over run-dir config and the Obsidian-app fallback), so EVERY tool that resolves the vault — zk_ingest, knowledge_query, graph_health, and even the vaultHeader formatter — writes/reads the temp dir. This avoids mocking the whole pi-obsidian module (which would break the real parseFrontmatter/getIndex the deterministic library needs). bun:test isolates each test FILE in its own process, so the env override cannot leak into sibling test files. Call invalidateCache(vault) between write/read phases so the cached VaultIndex sees new files.
 Zettelkasten/knowledge-graph/pi-memory-memory-1ey9otm.md:17: When creating a "next goals" or planning document after completing a task, write it to `./output/next-goal-<YYYYMMDD-HHMM>.md` in the repo root (timestamp includes date AND time, e.g. `next-goal-20260706-0531.md`). Do NOT write planning/goal documents to the Obsidian vault — the vault is for knowledge/Zettelkasten/reflections only. Goal/planning docs belong in `output/`.
 Zettelkasten/knowledge-graph/review-case-insensitive-blocklist.md:17: A security-relevant correctness bug in bun-apps/pi-obsidian/extensions/obsidian.ts (assertWritablePath). The WRITE_BLOCKLIST check uses `['.git', '.obsidian'].includes(first)` which is exact-case string comparison. On case-insensitive filesystems (macOS APFS/HFS+ default), `.Git`, `.GIT`, `.Obsidian`, `.OBSIDIAN` bypass the blocklist and allow writes to git/Obsidian internal directories. An agent obsidian_create tool receiving note path `.Git/config` or `.OBSIDIAN/app.json` will proceed to overwrite critical configuration files. Fix: use a case-insensitive comparison (`.toLowerCase()` or case-insensitive regex) on the first path segment against the blocklist entries, or use realpath resolution and compare against disallowed canonical paths.
 
@@ -332,13 +336,13 @@ Tags/Index.md:238: - [[Zettelkasten/Workflow Pattern - Self-Improving Agent Loop
 Tags/Index.md:253: > pi agent 可用 `obsidian_append_section` 工具自動追加。
 Tags/Index.md:257: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
 Tags/Knowledge Graph.md:119: - [[hermes-zai-glm-5.2-structured-output-flake-on-verify-bun-pi-agent-cli-knowledge-]]
-Tags/Knowledge Graph.md:162: - [[hermes-arg-parse-loop-must-advance-index-on-every-branch-bun-pi-agent-cli-src-ar]]
-Tags/Knowledge Graph.md:317: - [[auto-memory-pi-agent-cli-based-on-pi-agent]]
-Tags/Knowledge Graph.md:318: - [[auto-memory-pi-agent-cli-deploy-single-bundle]]
-Tags/Knowledge Graph.md:319: - [[auto-memory-pi-agent-cli-slice-before-patch-drops-splice]]
-Tags/Knowledge Graph.md:320: - [[auto-memory-pi-agent-deploy-bundle-nodemodules-symlink]]
-Tags/Knowledge Graph.md:321: - [[auto-memory-pi-agent-deploy-efficiency-tier-a]]
-Tags/Knowledge Graph.md:322: - [[auto-memory-pi-agent-deploy-modes-portability-ceiling]]
-Tags/Knowledge Graph.md:323: - [[auto-memory-pi-agent-extensions-source-of-truth-run-dir]]
-Tags/Knowledge Graph.md:324: - [[auto-memory-pi-agent-jiti-nametoolong-esm-eval-temp-file]]
+Tags/Knowledge Graph.md:152: - [[vg-pi-agent-cli-tools-metrics-obsidian-gap]]
+Tags/Knowledge Graph.md:157: - [[contract-pi-agent-obsidian-ws-regression]]
+Tags/Knowledge Graph.md:171: - [[hermes-arg-parse-loop-must-advance-index-on-every-branch-bun-pi-agent-cli-src-ar]]
+Tags/Knowledge Graph.md:328: - [[auto-memory-pi-agent-cli-based-on-pi-agent]]
+Tags/Knowledge Graph.md:329: - [[auto-memory-pi-agent-cli-deploy-single-bundle]]
+Tags/Knowledge Graph.md:330: - [[auto-memory-pi-agent-cli-slice-before-patch-drops-splice]]
+Tags/Knowledge Graph.md:331: - [[auto-memory-pi-agent-deploy-bundle-nodemodules-symlink]]
+Tags/Knowledge Graph.md:332: - [[auto-memory-pi-agent-deploy-efficiency-tier-a]]
+Tags/Knowledge Graph.md:333: - [[auto-memory-pi-agent-deploy-modes-portability-ceiling]]
 
