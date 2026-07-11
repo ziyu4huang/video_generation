@@ -42,6 +42,17 @@ describe("systemPromptFor", () => {
     }
   });
 
+  test("S3: every profile prompt carries the few-shot format example", () => {
+    for (const p of ["paper", "slides", "poster", "diagram", "image"] as const) {
+      const s = systemPromptFor(p);
+      // The shared example shows a CLOSED frontmatter + a bracket-free embed —
+      // the two recurring model defects normalize* otherwise repairs.
+      expect(s.includes("格式範例")).toBe(true);
+      expect(s.includes("![[page-001.png]]")).toBe(true);
+      expect(s.includes("第二個 --- 關閉")).toBe(true);
+    }
+  });
+
   test("unknown profile falls back to the image prompt", () => {
     expect(systemPromptFor("bogus" as any)).toBe(systemPromptFor("image"));
   });
