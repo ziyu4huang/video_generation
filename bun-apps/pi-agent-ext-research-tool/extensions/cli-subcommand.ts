@@ -120,6 +120,9 @@ Requires YOUTUBE_API_KEY for YouTube collection.`,
     if (typeof p.outputPath === "string") {
       parts.push(`  outputPath="${p.outputPath}"`);
     }
+    if (p.dryRun === true) {
+      parts.push(`  dryRun=true`);
+    }
 
     parts.push(
       `\nCall the tool, then report the result: total videos collected, ` +
@@ -212,6 +215,9 @@ Examples:
     }
     if (typeof p.hermesDir === "string") {
       parts.push(`  hermesDir="${p.hermesDir}"`);
+    }
+    if (p.dryRun === true) {
+      parts.push(`  dryRun=true`);
     }
 
     parts.push(

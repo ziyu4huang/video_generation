@@ -59,6 +59,7 @@ const collectVideosTool = defineTool({
 		proxy: Type.Optional(Type.String({ description: "Bilibili proxy URL (e.g. http://127.0.0.1:7890) to bypass HTTP 412 risk-control." })),
 		recency: Type.Optional(Type.Number({ description: "YouTube only: only videos from last N days (0 = all history).", default: 30 })),
 		outputPath: Type.Optional(Type.String({ description: "Explicit output file (absolute or cwd-relative). Default: vault weekly-news/." })),
+		dryRun: Type.Optional(Type.Boolean({ description: "Collect + report without writing the Markdown file.", default: false })),
 	}),
 	async execute(_id, params, _signal, _onUpdate, ctx) {
 		const platform: Platform = params.platform;
@@ -119,8 +120,10 @@ const collectVideosTool = defineTool({
 
 		const filename = weeklyFilename(platform, preset);
 		const writePath = await resolveWritePath(ctx.cwd, filename, params.outputPath);
-		await mkdir(dirname(writePath), { recursive: true });
-		await writeFile(writePath, markdown, "utf-8");
+		if (!params.dryRun) {
+			await mkdir(dirname(writePath), { recursive: true });
+			await writeFile(writePath, markdown, "utf-8");
+		}
 
 		const total = groups.reduce((s, g) => s + g.videos.length, 0);
 		return {
@@ -128,12 +131,12 @@ const collectVideosTool = defineTool({
 				{
 					type: "text" as const,
 					text:
-						`Collected ${total} videos from ${platform} (${preset}).\n` +
+						`${params.dryRun ? "[dry-run] " : ""}Collected ${total} videos from ${platform} (${preset}).\n` +
 						`Per-keyword: ${notes.join("; ")}.\n` +
-						`Written to: ${writePath}`,
+						`${params.dryRun ? "Would write to" : "Written to"}: ${writePath}`,
 				},
 			],
-			details: { platform, preset, total, groups: groups.length, hotCount: hot?.length ?? 0, writePath },
+			details: { platform, preset, total, groups: groups.length, hotCount: hot?.length ?? 0, writePath, dryRun: params.dryRun ?? false },
 		};
 	},
 });
@@ -185,6 +188,7 @@ const importMemoryTool = defineTool({
 	parameters: Type.Object({
 		outputPath: Type.Optional(Type.String({ description: "JSONL output (absolute or cwd-relative). Default: <vault>/collections/study_news.jsonl." })),
 		hermesDir: Type.Optional(Type.String({ description: "Override hermes-memory dir. Default: $HOME/.pi/agent/pi-hermes-memory or PI_HERMES_MEMORY_DIR." })),
+		dryRun: Type.Optional(Type.Boolean({ description: "Parse + report without writing the JSONL file.", default: false })),
 	}),
 	async execute(_id, params, _signal, _onUpdate, ctx) {
 		const { resolveVaultRoot } = await import("../lib/vault.ts");
@@ -194,18 +198,20 @@ const importMemoryTool = defineTool({
 		const outputPath = params.outputPath
 			? (params.outputPath.startsWith("/") ? params.outputPath : join(ctx.cwd, params.outputPath))
 			: join(await resolveVaultRoot(ctx.cwd), "collections", "study_news.jsonl");
-		await mkdir(dirname(outputPath), { recursive: true });
-		const res = importMemory(outputPath, hermesDir);
+		if (!params.dryRun) {
+			await mkdir(dirname(outputPath), { recursive: true });
+		}
+		const res = importMemory(outputPath, hermesDir, params.dryRun ?? false);
 		return {
 			content: [
 				{
 					type: "text" as const,
 					text:
-						`Imported ${res.added} new entries (${res.existing} already present, ${res.total} parsed).\n` +
-						`Source: ${hermesDir}\nOutput: ${res.outputPath}`,
+						`${params.dryRun ? "[dry-run] " : ""}Imported ${res.added} new entries (${res.existing} already present, ${res.total} parsed).\n` +
+						`Source: ${hermesDir}\n${params.dryRun ? "Would write to" : "Output"}: ${res.outputPath}`,
 				},
 			],
-			details: res,
+			details: { ...res, dryRun: params.dryRun ?? false },
 		};
 	},
 });
