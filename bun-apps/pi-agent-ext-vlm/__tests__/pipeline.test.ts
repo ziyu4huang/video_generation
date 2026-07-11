@@ -28,6 +28,7 @@ import { tmpdir } from "node:os";
 // --- control knobs ----------------------------------------------------------
 // What the fake model emits for the classifier turn and the per-page turn.
 let classifyReply = "paper";
+let classifyReplies: string[] = []; // S4: per-call queue for multi-page voting
 let pageMarkdown = "---\ntitle: T\npage: 1\nkind: paper\n---\n\n![[page-001.png]]\n\nPAGE BODY with realistic content to clear the quality gate";
 let rasterizePageCount = 1;
 const rasterizeCalls: { input: string; pagesDir: string; dpi: number }[] = [];
@@ -70,7 +71,7 @@ mock.module(`${ROOT}/src/session-factory.ts`, () => ({
         },
         prompt: async (text: string, _opts: any) => {
           const isClassify = text.includes("分類") || text.includes("profile 代碼");
-          const payload = isClassify ? classifyReply : pageMarkdown;
+          const payload = isClassify ? (classifyReplies.length ? classifyReplies.shift()! : classifyReply) : pageMarkdown;
           pendingSubscriber?.({
             type: "message_update",
             assistantMessageEvent: { type: "text_delta", delta: payload },
@@ -113,6 +114,7 @@ beforeEach(() => {
   rasterizeCalls.length = 0;
   sessionCalls.length = 0;
   classifyReply = "paper";
+  classifyReplies = [];
   pageMarkdown = "---\ntitle: T\npage: 1\nkind: paper\n---\n\n![[page-001.png]]\n\nPAGE BODY with realistic content to clear the quality gate";
   pendingSubscriber = null;
 });
@@ -331,6 +333,30 @@ describe("runVlmDescribePipeline — parallel pages (T2)", () => {
     });
     // No new model sessions on re-run (classifier reused, pages done).
     expect(sessionCalls.length).toBe(sessionsAfterFirst);
+  });
+});
+
+describe("runVlmDescribePipeline — multi-page classification vote (S4)", () => {
+  test("samples first/middle/last and majority-votes the profile", async () => {
+    rasterizePageCount = 3;
+    classifyReplies = ["poster", "paper", "paper"]; // page1 poster, mid paper, last paper
+    const { inputAbs, outRoot } = await setup("doc.pdf", PDF_MAGIC);
+    await runVlmDescribePipeline({ inputs: [inputAbs], outRoot });
+
+    const manifest = await readJsonFile(join(outRoot, "doc", "manifest.json"));
+    expect(manifest.profile).toBe("paper"); // majority over the cover-page poster vote
+    expect(manifest.kind).toBe("pdf");
+  });
+
+  test("votes are emitted joined in the classify event", async () => {
+    rasterizePageCount = 2;
+    classifyReplies = ["slides", "slides"];
+    const { inputAbs, outRoot } = await setup("doc.pdf", PDF_MAGIC);
+    const events: any[] = [];
+    await runVlmDescribePipeline({ inputs: [inputAbs], outRoot, emit: (o) => events.push(o) });
+    const classifyEv = events.find((e) => e.type === "classify");
+    expect(classifyEv.profile).toBe("slides");
+    expect(classifyEv.reply).toContain("slides / slides");
   });
 });
 

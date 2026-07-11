@@ -79,3 +79,55 @@ export async function classifyProfileViaVlm(
 
   return { profile: parseProfileReply(reply), reply: reply.trim() };
 }
+
+/**
+ * Tally parsed profiles across several classifier replies and pick the winner
+ * (S4). Ties are broken by specificity — ALL_PROFILES order is
+ * paper > slides > poster > diagram > image — so the generic "image" fallback
+ * loses ties. Empty input -> "image".
+ */
+export function voteProfile(replies: string[]): DocProfile {
+  if (replies.length === 0) return "image";
+  const counts = new Map<DocProfile, number>();
+  for (const r of replies) {
+    const p = parseProfileReply(r);
+    counts.set(p, (counts.get(p) ?? 0) + 1);
+  }
+  let best: DocProfile = "image";
+  let bestCount = -1;
+  // Iterate in specificity order; strict `>` keeps the earlier (more specific)
+  // profile on ties.
+  for (const p of ALL_PROFILES) {
+    const c = counts.get(p) ?? 0;
+    if (c > bestCount) {
+      best = p;
+      bestCount = c;
+    }
+  }
+  return best;
+}
+
+/**
+ * Classify a document by voting across representative page images (S4).
+ * Each page is classified independently via classifyProfileViaVlm; the
+ * majority wins (voteProfile). Per-page errors are skipped so one bad page
+ * doesn't sink classification. Throws only if EVERY sampled page fails.
+ */
+export async function classifyProfileFromPages(
+  images: { path: string; mimeType: string }[],
+  llmOverride?: ResolvedLLM,
+): Promise<{ profile: DocProfile; replies: string[] }> {
+  const replies: string[] = [];
+  for (const img of images) {
+    try {
+      const { reply } = await classifyProfileViaVlm(img.path, img.mimeType, llmOverride);
+      if (reply) replies.push(reply);
+    } catch {
+      // skip a page that failed to classify
+    }
+  }
+  if (replies.length === 0) {
+    throw new Error("all sampled pages failed to classify");
+  }
+  return { profile: voteProfile(replies), replies };
+}

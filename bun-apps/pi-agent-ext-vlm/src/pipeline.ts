@@ -14,7 +14,7 @@ import {
   type DocKind,
   type DocProfile,
 } from "./vlm/classify.ts";
-import { classifyProfileViaVlm } from "./vlm/classify-vlm.ts";
+import { classifyProfileFromPages } from "./vlm/classify-vlm.ts";
 import { explainPage, type ExplainMode } from "./vlm/agents.ts";
 import { withRetry, retryableError } from "./vlm/retry.ts";
 import { validatePageMarkdown } from "./vlm/validate.ts";
@@ -261,17 +261,25 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
       console.error(`  profile: ${profile} (reused from existing run)`);
     } else {
       const page1Png = doc.pagePngs[0]!;
-      console.error(`  classifying profile via VLM (page 1)…`);
+      // S4 — sample up to 3 representative pages (first / middle / last) and
+      // majority-vote, so a atypical cover page can't misclassify the whole doc.
+      const sampleIdx =
+        doc.pageCount <= 1 ? [0]
+        : doc.pageCount === 2 ? [0, 1]
+        : [0, Math.floor(doc.pageCount / 2), doc.pageCount - 1];
+      const samplePngs = sampleIdx.map((i) => doc.pagePngs[i]!);
+      console.error(
+        `  classifying profile via VLM (${samplePngs.length} sampled page${samplePngs.length > 1 ? "s" : ""})…`,
+      );
       try {
-        const { profile: p, reply } = await classifyProfileViaVlm(
-          page1Png,
-          "image/png",
+        const { profile: p, replies } = await classifyProfileFromPages(
+          samplePngs.map((p) => ({ path: p, mimeType: "image/png" })),
           llm,
         );
         profile = p;
         manifest.profile = profile;
-        console.error(`  → profile: ${profile}${reply ? `  (raw: "${reply.slice(0, 40)}")` : ""}`);
-        emit?.({ type: "classify", slug: doc.slug, profile, reply });
+        console.error(`  → profile: ${profile}  (votes: ${replies.join(" / ")})`);
+        emit?.({ type: "classify", slug: doc.slug, profile, reply: replies.join(" / ") });
       } catch (e: any) {
         console.error(`  ! classifier failed: ${e?.message}; defaulting to paper`);
         profile = doc.kind === "pdf" ? "paper" : "image";
