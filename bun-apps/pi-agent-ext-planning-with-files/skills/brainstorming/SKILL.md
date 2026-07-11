@@ -1,6 +1,6 @@
 ---
 name: brainstorming
-description: Use when starting any creative or implementation work — creating features, building components, adding capabilities, or changing behavior. Explores intent, requirements, and design through collaborative dialogue BEFORE any code is written. Hard-gated: no implementation skill, code, or scaffolding until a design is shown and approved; brainstorming's only exit is handing off to writing-plans.
+description: Use when starting any creative or implementation work — creating features, building components, adding capabilities, or changing behavior. Explores intent, requirements, and design through collaborative dialogue BEFORE any code is written. Hard-gated — no implementation skill, code, or scaffolding until a design is shown and approved; brainstorming's only exit is handing off to writing-plans.
 ---
 
 # Brainstorming: turn ideas into design

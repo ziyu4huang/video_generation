@@ -102,6 +102,16 @@ export interface RetrieveOptions {
 	 *  25-query eval, zero regression. Default false = byte-identical tag-only
 	 *  behaviour (drift-guard stays green; no extra file reads). */
 	bodyMatch?: boolean;
+	/** Opt-in slug-dominant precision path (kg-improvement-plan iter-2, follow-on
+	 *  to bodyMatch). When true, a card whose SLUG (filename, derived from the
+	 *  record id at ingest) overlaps ≥3 query tokens scores by slug×4 — the slug
+	 *  is the card's distilled topic fingerprint and beats ubiquitous-tag noise.
+	 *  Rescues cards whose tags are generic but whose id names the exact query
+	 *  topic (knowledge_query 0.80→0.84 hit-rate@4, zero regression). Works with
+	 *  or without bodyMatch; the ≥3 hard gate is essential (additive slug weight
+	 *  floods top-4 with weak 1–2-token matches — probed, regresses). Cheap: the
+	 *  slug IS the filename, so no extra file read. Default false = unchanged. */
+	slugDom?: boolean;
 }
 
 export interface RetrieveResult {
@@ -212,12 +222,46 @@ function bodyTokenOverlap(content: string, queryTags: Set<string>): number {
 	return n;
 }
 
+/** Slug-tokenization noise filter: BODY_STOP plus the type/section prefixes
+ *  baked into converged-card slugs (from the record id namespace or the
+ *  gotcha/lever/pattern record_type). These carry no topic signal and would
+ *  inflate slug-overlap for every card in a namespace (e.g. all `auto-memory-*`
+ *  cards share "auto","memory"). */
+const SLUG_STOP = new Set([
+	...BODY_STOP,
+	"auto", "memory", "gotcha", "lever", "avoid", "pattern", "metric",
+	"false", "positive", "note", "card", "zettel", "self", "improve",
+]);
+
+/** Minimum slug-token overlap for the slug-dom precision branch to fire. Below
+ *  this the slug signal is too weak (1–2 common tokens) and a slug weight
+ *  floods top-4 with weak matches — probed and rejected (slug2/slug3 regress). */
+const SLUG_DOM_THRESHOLD = 3;
+
+/** Count how many query tags appear in the card's SLUG (filename) tokens. The
+ *  slug — derived from the record id at ingest — is the card's distilled topic
+ *  fingerprint, so slug overlap is the highest-signal deterministic match. Type
+ *  prefixes + stop words are filtered so namespace noise (auto-memory-, gotcha-)
+ *  never counts. Pure + no file read (the slug IS the filename). */
+function slugTokenOverlap(slug: string, queryTags: Set<string>): number {
+	const slugSet = new Set(
+		slug.toLowerCase().split("-").filter((t) => t.length >= 3 && !SLUG_STOP.has(t)),
+	);
+	let n = 0;
+	for (const t of queryTags) {
+		if (t.length < 3 || BODY_STOP.has(t)) continue;
+		if (slugSet.has(t)) n++;
+	}
+	return n;
+}
+
 export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveResult> {
 	const folder = opts.folder ?? "Zettelkasten/knowledge-graph";
 	const topK = opts.topK ?? 10;
 	const maxDetailChars = opts.maxDetailChars ?? 240;
 	const linkWeighting = opts.linkWeighting ?? "count";
 	const bodyMatch = opts.bodyMatch ?? false;
+	const slugDom = opts.slugDom ?? false;
 	const folderAbs = join(opts.vaultPath, folder);
 	const queryTags = new Set(opts.tags.map(normTag).filter(Boolean));
 	const excludeIds = new Set((opts.excludeIds ?? []).map((id) => id));
@@ -267,14 +311,20 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 		// the pinned baseline; "idf" = Σ IDF(sharedTag), SAG-inspired P8). Both
 		// modes exclude the ubiquitous "zettel" tag (scoreOverlap handles it).
 		const shared = scoreOverlap(queryTags, meta.tags, idfTable, linkWeighting);
+		// Opt-in slug-dom precision: the card's SLUG (filename) is its distilled
+		// topic fingerprint. When ≥3 query tokens appear in the slug, the card is
+		// eligible AND scores dominantly — rescues cards whose tags are generic but
+		// whose id names the exact query topic. Cheap: the slug is the filename, no
+		// extra read. Default slugDom=false keeps the pinned baseline.
+		const slugOverlap = slugDom ? slugTokenOverlap(cardSlug, queryTags) : 0;
 		// Opt-in body-match recall: a card with zero tag overlap is still eligible
 		// when query tokens appear in its body prose. Default bodyMatch=false keeps
 		// the cheap skip (no file read for no-overlap cards) + the pinned baseline.
-		if (shared <= 0 && !bodyMatch) continue;
+		if (shared <= 0 && !bodyMatch && !(slugDom && slugOverlap > 0)) continue;
 		// Read the card content for title/detail/type.
 		const content = readFileSync(abs, "utf8");
 		const bodyOverlap = bodyMatch ? bodyTokenOverlap(content, queryTags) : 0;
-		if (shared <= 0 && bodyOverlap <= 0) continue; // no overlap of any kind
+		if (shared <= 0 && bodyOverlap <= 0 && slugOverlap <= 0) continue; // no overlap of any kind
 		const { data } = parseFrontmatter(content);
 		// Defense-in-depth: never surface retired/superseded cards as live
 		// knowledge. Archived cards already live under _archive/ (excluded by
@@ -330,11 +380,20 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 			source,
 			hasCallouts: meta.hasCallouts,
 			calloutText,
-			// Blend score (bodyMatch): tag overlap ×2 (precision) + body-token overlap
-			// (recall) + callout boost. Tag×2 keeps precise tag matches dominant
-			// while body adds recall — measured zero-regression vs the tag-only
-			// baseline. Default (bodyMatch=false): shared + calloutBoost (unchanged).
-			_score: bodyMatch ? shared * 2 + bodyOverlap + calloutBoost : shared + calloutBoost,
+			// Blend score: tag overlap ×2 (precision) + body-token overlap (recall) +
+			// callout boost. Tag×2 keeps precise tag matches dominant while body adds
+			// recall — measured zero-regression vs the tag-only baseline.
+			// slugDom (iter-2): when the card's slug overlaps ≥3 query tokens, the slug
+			// fingerprint DOMINATES (slug×4) — the highest-signal deterministic match,
+			// beating ubiquitous-tag noise (e.g. a card whose id literally names the
+			// query topic but whose tags are generic). The ≥3 hard gate is essential:
+			// additive slug weight floods top-4 with weak 1–2-token matches (probed,
+			// regresses). Default (bodyMatch=false, slugDom=false): shared + calloutBoost.
+			_score: slugDom && slugOverlap >= SLUG_DOM_THRESHOLD
+				? slugOverlap * 4 + calloutBoost
+				: bodyMatch
+					? shared * 2 + bodyOverlap + calloutBoost
+					: shared + calloutBoost,
 		});
 	}
 
