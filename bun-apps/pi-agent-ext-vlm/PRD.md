@@ -51,7 +51,7 @@ tool** (see roadmap T1).
 | Tool | Description |
 |------|-------------|
 | `vlm_describe` | PDF/image → structured Obsidian markdown via local LM Studio VLM (full pipeline, writes to disk) |
-| `vlm_ask` *(roadmap T1 — not yet shipped)* | Ask one question about one image; returns the answer inline (no disk pipeline) |
+| `vlm_ask` | Ask one question about one image; returns the answer inline (no disk pipeline). Lightweight single-image Q&A wrapping the `askImage` primitive. |
 
 ### Library API (consumed by other packages)
 `runVlmDescribePipeline`, `DEFAULT_VLM_MODEL`, `classifyKind`,
