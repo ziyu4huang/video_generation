@@ -5,6 +5,10 @@ import { join } from "node:path";
 /**
  * Guards the skill-authoring CSO rules from the `writing-skills` meta-skill:
  *  - frontmatter present with `name` + `description`
+ *  - frontmatter parses as valid YAML under a REAL parser (Bun.YAML) — pi's skill
+ *    loader uses a real YAML parser; the naive split-on-first-colon parser below
+ *    cannot detect a `: ` inside an unquoted scalar, so this guard is what catches
+ *    the "Nested mappings are not allowed" class that breaks loading at runtime
  *  - `name` is hyphen-only (^[a-z0-9-]+$), verb-first where possible
  *  - `description` starts with "Use when" (trigger-only; never a workflow summary —
  *    a workflow summary causes models to follow the description and skip the body)
@@ -76,6 +80,14 @@ describe("skills suite (writing-skills CSO rules)", () => {
 
       it("has frontmatter delimited by ---", () => {
         expect(raw.length).toBeGreaterThan(0);
+      });
+
+      it("frontmatter is valid YAML to a real parser (Bun.YAML — matches pi's loader)", () => {
+        // Regression guard: the hand-rolled parseFrontmatter() splits on the
+        // first ':' per line, so a value like `description: ... Hard-gated: no ...`
+        // looks valid to it but is rejected by pi's real YAML loader. Without this
+        // assertion the suite stays green while a skill is broken in production.
+        expect(() => Bun.YAML.parse(`---\n${raw}\n---`)).not.toThrow();
       });
 
       it("has a name field", () => {
