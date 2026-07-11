@@ -95,7 +95,6 @@
       "version": "0.7.23",
       "dependencies": {
         "@earendil-works/pi-tui": "^0.80.2",
-        "better-sqlite3": "^12.9.0",
       },
       "devDependencies": {
         "@earendil-works/pi-ai": "^0.80.2",
@@ -106,6 +105,9 @@
         "tsx": "^4.21.0",
         "typebox": "^1.1.33",
         "typescript": "^6.0.3",
+      },
+      "optionalDependencies": {
+        "better-sqlite3": "^12.9.0",
       },
       "peerDependencies": {
         "@earendil-works/pi-ai": "*",

@@ -66,7 +66,9 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
-    "@earendil-works/pi-tui": "^0.80.2",
+    "@earendil-works/pi-tui": "^0.80.2"
+  },
+  "optionalDependencies": {
     "better-sqlite3": "^12.9.0"
   }
 }

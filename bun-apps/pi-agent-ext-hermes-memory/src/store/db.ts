@@ -10,7 +10,7 @@ type StatementLike = {
   iterate?: (...args: any[]) => Iterable<Record<string, unknown>>;
 };
 
-type DatabaseLike = {
+export type DatabaseLike = {
   prepare: (sql: string) => StatementLike;
   exec: (sql: string) => void;
   close: () => void;
@@ -86,24 +86,6 @@ function createBunCompatDatabaseCtor(require: NodeRequire): DatabaseCtor {
         return undefined;
       }
       return this.db.transaction(fn);
-    }
-
-    /** Emulate better-sqlite3's pragma() API on top of Bun's SQLite.
-     *  GET: pragma('journal_mode', { simple: true }) → scalar value.
-     *  GET: pragma('table_info(users)') → array of row objects.
-     *  SET: pragma('journal_mode = WAL') → result rows (or undefined). */
-    pragma(query: string, options?: { simple?: boolean }): any {
-      try {
-        const rows = this.db.prepare(`PRAGMA ${query}`).all() as Record<string, unknown>[];
-        if (options?.simple) {
-          return rows.length > 0 ? Object.values(rows[0]!)[0] : undefined;
-        }
-        return rows;
-      } catch {
-        // Some SET pragmas may not be preparable; fall back to exec.
-        this.db.exec(`PRAGMA ${query}`);
-        return undefined;
-      }
     }
   };
 }
