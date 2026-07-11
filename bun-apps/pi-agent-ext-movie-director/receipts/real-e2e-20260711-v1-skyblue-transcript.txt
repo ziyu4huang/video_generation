@@ -1,0 +1,35 @@
+---
+
+## ✅ Pipeline Complete — `skyblue-real-e2e-v1`
+
+The full **animated-explainer** pipeline ran end-to-end for "Why the Sky is Blue" and produced a **real 15-second video file**.
+
+### Pipeline stages completed
+
+| Stage | Status | Artifacts |
+|-------|--------|-----------|
+| **research** ✅ | Schema-valid `research_brief` with 3 data points, 3 angles, 5 sources | `write-checkpoint` |
+| **proposal** ✅ | 3 concept options, approved `rayleigh-scatter` | `write-checkpoint` (humanApproved) |
+| **script** ✅ | 15s narration: Rayleigh scattering explanation | `write-checkpoint` (humanApproved) |
+| **scene_plan** ✅ | 2 scenes (animation 0-12s, text_card 12-15s) | `write-checkpoint` (humanApproved) |
+| **assets** ✅ | **Real image** via `runpy-image` MLX pipeline, **Real TTS** via `say` | `generate` called twice |
+| **edit** ✅ | edit_decisions with 2 cuts referencing real assets | `write-checkpoint` |
+| **compose** ✅ | **Real video rendered** via `compose-motion` (ffmpeg zoompan+xfade) | `pre-compose` → `compose-motion` → `final-review` |
+
+### Final video
+
+- **File:** `skyblue_explainer_15s.mp4`
+- **Path:** `video_generation__output/agent-real-e2e-v1-skyblue-20260711/movie-director/projects/skyblue-real-e2e-v1/`
+- **Duration:** **15.00 seconds** (ffprobe verified)
+- **Resolution:** 1024×576
+- **FPS:** 24
+- **Video codec:** H.264
+- **Audio codec:** AAC (mono narration via macOS `say` Samantha voice, -15.6dB)
+- **File size:** 384 KB
+- **Final-review verdict:** pass (all 6 delivery checks)
+
+### Assets produced (3 files)
+
+1. `sky_blue_scene1.png` — Blue sky scene (Rayleigh scattering visual, 682 KB, seed 777)
+2. `sky_sunset_scene2.png` — Sunset gradient closing card (528 KB, seed 777)
+3. `narration_scene1.aiff` — TTS narration (12.72s, Samantha voice, macOS `say`)

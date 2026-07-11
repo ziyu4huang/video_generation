@@ -262,6 +262,7 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
     }
     case "macos:vision":
     case "macos:screencapturekit":
+    case "macos:say":
       return entry.configured && process.platform === "darwin";
     case "bun:whisper":
       // callable iff we can resolve BOTH a python binary and the entry script.
@@ -1103,6 +1104,47 @@ export const cloudHttpAdapter: Adapter = async (req: GenerateRequest, env: Recor
   }
 };
 
+// ─── macOS `say` adapter (local, zero-cost, zero-key TTS fallback) ──────────
+
+export interface MacosSayOptions {
+  text?: string;
+  /** `say -v` voice name (e.g. "Samantha"). Defaults to the system voice. */
+  voice?: string;
+  /** Output path (.wav). Defaults under outputDir. */
+  output?: string;
+}
+
+/** macos:say adapter: spawns the built-in `say` binary, writes a WAV directly (no ffmpeg step). */
+export const macosSayAdapter: Adapter = async (req: GenerateRequest): Promise<ToolResult> => {
+  const opts = (req.options ?? {}) as MacosSayOptions;
+  const started = Date.now();
+  const outputDir = req.outputDir ?? process.cwd();
+  const output = opts.output ?? join(outputDir, "tts_say.wav");
+  const text = opts.text ?? "";
+  if (!text) return fail(req, "say", "no text provided");
+  try {
+    mkdirSync(dirname(output), { recursive: true });
+    const argv = ["-o", output, "--data-format=LEI16@24000", "--file-format=WAVE"];
+    if (opts.voice) argv.push("-v", opts.voice);
+    argv.push(text);
+    const code = await runSpawn("say", argv);
+    const ok = code === 0 && existsSync(output);
+    return {
+      success: ok,
+      provider: "say",
+      command: "tts",
+      artifacts: ok ? [{ path: resolve(output), kind: "audio", bytes: byteSize(output) }] : [],
+      error: ok ? null : `say exited ${code}`,
+      cost_usd: 0, // local macOS synthesis — honest $0 marginal
+      duration_seconds: (Date.now() - started) / 1000,
+      seed: null,
+      model: opts.voice ?? "say-system-voice",
+    };
+  } catch (err) {
+    return fail(req, "say", err instanceof Error ? err.message : String(err), (Date.now() - started) / 1000);
+  }
+};
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function runSpawn(cmd: string, argv: string[]): Promise<number> {
@@ -1265,6 +1307,7 @@ export function nonNativeAdapters(_env?: Record<string, string | undefined>): Pa
     "bun:esrgan": esrganAdapter, // upscale (Item I sibling) — ESRGAN via torch MPS
     "compose:remotion": composeRemotionAdapter, // composition runtime (iteration G #280) — Remotion Node subprocess
     "compose:motion": composeMotionAdapter, // composition runtime (Item J) — ffmpeg zoompan+xfade motion compositor
+    "macos:say": macosSayAdapter, // tts fallback — macOS `say`, zero-cost/zero-key local narration
     fetch: (req: GenerateRequest) => cloudHttpAdapter(req, _env),
   };
 }
