@@ -18,6 +18,7 @@ import {
 	isWeakModel,
 	validateZettelNote,
 	validateZettelNotes,
+	repairZettelFrontmatter,
 	runSubagent,
 	parseStructuredResult,
 	toolAllowlist,
@@ -224,6 +225,13 @@ describe("WS-B1 — validateZettelNote", () => {
 		expect(errors.join("|")).toMatch(/tags\[0\] should be "zettel"/);
 	});
 
+	it("rejects a card missing sources (provenance is required)", () => {
+		const noSources = VALID_CARD.replace(/^sources:.*\n/m, "");
+		const { ok, errors } = validateZettelNote(noSources);
+		expect(ok).toBe(false);
+		expect(errors.join("|")).toMatch(/missing required key: sources/);
+	});
+
 	it("rejects an empty / whitespace-only note", () => {
 		const { ok } = validateZettelNote("   \n\n  ");
 		expect(ok).toBe(false);
@@ -277,7 +285,7 @@ describe("WS-B1 — validateZettelNotes (batch over a vault)", () => {
 	it("reports valid vs invalid notes and flags missing-on-disk", async () => {
 		await writeFile(
 			join(vault, "good.md"),
-			"---\nid: 1\ncreated: 2026-07-01\ntags: [zettel]\n---\n\n# Good\n",
+			"---\nid: 1\ncreated: 2026-07-01\ntags: [zettel]\nsources: [\"input.md\"]\n---\n\n# Good\n",
 			"utf8",
 		);
 		await writeFile(join(vault, "bad.md"), "# Bad\n\nno frontmatter\n", "utf8");
@@ -359,5 +367,58 @@ describe("WS-B1 — parseStructuredResult rejects malformed subagent output", ()
 	it("returns null for empty input", () => {
 		expect(parseStructuredResult("")).toBeNull();
 		expect(parseStructuredResult(undefined)).toBeNull();
+	});
+});
+
+// ---- B1+: Zettel frontmatter auto-repair (distill backstop) ---------------
+
+describe("repairZettelFrontmatter — fills absent required keys", () => {
+	let vault;
+	beforeEach(async () => {
+		vault = await makeFixture({});
+		process.env.OB_INDEX_POLL_MS = "0";
+	});
+	afterEach(async () => {
+		dropIndex(vault);
+		await rmFixture(vault);
+	});
+
+	it("fills id/created/tags/sources on a note that lacks all of them", async () => {
+		await writeFile(join(vault, "thin.md"), "# just a title, no frontmatter\n", "utf8");
+		const repair = await repairZettelFrontmatter(vault, ["thin.md"], ["input.md"]);
+		const r = repair.notes[0];
+		expect(r.repaired.sort()).toEqual(["created", "id", "sources", "tags"]);
+		// Re-validation now passes (id/created are deterministic from mtime).
+		const report = await validateZettelNotes(vault, ["thin.md"]);
+		expect(report.valid).toBe(1);
+	});
+
+	it("leaves already-present keys untouched and reports them skipped", async () => {
+		await writeFile(
+			join(vault, "full.md"),
+			"---\nid: 202607010930\ncreated: 2026-07-01\ntags: [zettel, x]\nsources: [\"orig.md\"]\n---\n\n# Full\n",
+			"utf8",
+		);
+		const repair = await repairZettelFrontmatter(vault, ["full.md"], ["input.md"]);
+		expect(repair.notes[0].repaired).toEqual([]);
+		expect(repair.notes[0].skipped.sort()).toEqual(["created", "id", "sources", "tags"]);
+		expect(repair.totalRepaired).toBe(0);
+	});
+
+	it("does NOT reorder existing tags (wrong tags[0] is left as-is)", async () => {
+		await writeFile(
+			join(vault, "badtag.md"),
+			"---\nid: 1\ncreated: 2026-07-01\ntags: [random]\nsources: [\"s.md\"]\n---\n\n# Bad tag\n",
+			"utf8",
+		);
+		await repairZettelFrontmatter(vault, ["badtag.md"], ["input.md"]);
+		// tags still [random] — repair never mutates a present value
+		const { readFileSync } = await import("node:fs");
+		expect(readFileSync(join(vault, "badtag.md"), "utf8")).toMatch(/tags: \[random\]/);
+	});
+
+	it("reports a missing-on-disk note without throwing", async () => {
+		const repair = await repairZettelFrontmatter(vault, ["ghost.md"], ["input.md"]);
+		expect(repair.notes[0].error).toMatch(/not found on disk/);
 	});
 });
