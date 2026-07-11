@@ -275,7 +275,12 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
         const status = readPlanStatus(ctx.cwd);
         if (!status.exists) return;
 
-        if (isAllPhasesComplete(status)) {
+        // A CLOSED plan (finished/abandoned via /plan-done) is inert — stop the
+        // loop, mirroring before_agent_start / agent_end / session_before_compact.
+        // Without this, the loop ticks forever on a closed plan because
+        // isAllPhasesComplete() returns false when status.closed is true (its
+        // `!status.closed` guard), so the stop branch below never fires.
+        if (status.closed || isAllPhasesComplete(status)) {
           const active = state.loopTimersBySession.get(sessionId);
           if (active) clearInterval(active);
           state.loopTimersBySession.delete(sessionId);
