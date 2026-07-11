@@ -12,9 +12,10 @@ The extension maps the upstream planning-with-files hook design onto Pi's lifecy
 |---|---|
 | 6-event lifecycle | `session_start`, `before_agent_start`, `tool_call`, `tool_result`, `agent_end`, `session_before_compact` (+ `session_shutdown`, `input`) |
 | 4 injection modes | `auto` (default → `parity` except DeepSeek → `cache-safe`), `parity`, `cache-safe`, `notify` |
-| 5 slash commands | `/plan-status`, `/plan-attest [--show\|--clear]`, `/plan-goal`, `/plan-execute [reset]`, `/plan-loop [interval] [prompt]` |
+| 6 slash commands | `/plan-status`, `/plan-attest [--show\|--clear]`, `/plan-goal`, `/plan-execute [reset]`, `/plan-done [--delete]`, `/plan-loop [interval] [prompt]` |
 | SHA-256 attestation | tamper detection → injection blocked (`[PLAN TAMPERED]`); pure-TS via `node:crypto` |
 | `/plan-execute` gate | hooks stay passive until the user approves the plan (v3.3.0) |
+| `/plan-done` close-out | finished/abandoned plan → `<!-- pwf: closed -->` marker; hooks go inert (no nag/auto-continue). `--delete` removes the files |
 | auto-continue | incomplete plan → follow-up, limit 3 per (session, plan) |
 | plan-loop timer | periodic re-tick (default 10m), auto-stop on completion |
 | dangerous-bash guard | word-boundary regex: `rm -rf`, `sudo`, `git push --force`, fork-bomb… |

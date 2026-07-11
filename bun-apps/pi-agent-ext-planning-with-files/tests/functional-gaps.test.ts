@@ -138,16 +138,18 @@ describe("readPlanStatus — phase counting edge cases", () => {
     // fallback must NOT have fired (primary lines were seen)
   });
 
-  it("counts a **Status:** line even when it appears OUTSIDE any Phase block (regex is global)", () => {
+  it("attributes a stray **Status:** line to the nearest preceding Phase block (per-phase parsing)", () => {
     const cwd = tmp();
     const dir = join(cwd, ".planning", "p");
     mkdirSync(dir, { recursive: true });
-    // one phase header, but a stray status line not under any phase
+    // one phase header, but a stray status line not under any phase — it falls
+    // inside Phase 1's block (no later header). First-hit priority means the
+    // earlier `**Status:** complete` wins, so pending is NOT counted.
     writeFileSync(join(dir, "task_plan.md"), "### Phase 1\n**Status:** complete\n\n**Status:** pending\n");
     const s = readPlanStatus(cwd);
     expect(s.totalPhases).toBe(1); // only one header
-    expect(s.completePhases).toBe(1);
-    expect(s.pendingPhases).toBe(1); // the stray line is counted too — global regex
+    expect(s.completePhases).toBe(1); // first-hit priority: complete wins
+    expect(s.pendingPhases).toBe(0); // stray pending absorbed, not double-counted
   });
 
   it("header regex requires a word-boundary after 'Phase': 'Phases' and 'Phase1' do NOT count", () => {

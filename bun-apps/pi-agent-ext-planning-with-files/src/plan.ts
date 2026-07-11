@@ -33,6 +33,16 @@ export interface PlanStatus extends PlanPaths {
   completePhases: number;
   inProgressPhases: number;
   pendingPhases: number;
+  /** True when at least one phase had a recognizable status token. When false
+   * the plan's status format is unparseable and we must NOT treat it as
+   * "incomplete" (that produced false-positive "0/N" nags on plans using
+   * emoji/inline status conventions the legacy parser didn't recognize). */
+  hasParseableStatus: boolean;
+  /** True when the plan carries a close marker (`<!-- pwf: closed -->` or a
+   * `## Plan Status: closed` heading) written by `/plan-done` or by hand. A
+   * closed plan is finished/abandoned: hooks skip it entirely (no injection,
+   * no auto-continue, no incomplete nag). */
+  closed: boolean;
   firstLines50: string;
   headLines30: string;
   progressTail20: string;
@@ -133,6 +143,58 @@ export function resolvePlanPaths(cwd: string): PlanPaths {
   };
 }
 
+type PhaseStatus = "complete" | "in_progress" | "pending" | "unknown";
+
+/**
+ * Classify a single phase block's status from its header + body. Recognition
+ * priority (first hit wins):
+ *   1. `**Status:** complete|in_progress|pending`  (primary, anywhere in block)
+ *   2. `[complete]` / `[in_progress]` / `[pending]`  (inline bracket form)
+ *   3. Emoji status markers anywhere in the block (human-writable conventions):
+ *        ✅ / ✔ / 🟢            → complete
+ *        🔄 / ⏳ / 🏗 / 🚧 / 🛠  → in_progress
+ *        ⏸ / 🔒 / 🚫 / ❌       → pending (blocked / abandoned)
+ *
+ * A block with no recognizable token returns "unknown" so the caller can tell
+ * "definitely has status" from "status format not understood" — the latter must
+ * not be miscounted as "0/N incomplete" (which caused false-positive nags).
+ *
+ * Note: we deliberately do NOT match bare status words (e.g. "complete the X")
+ * outside of a Status:/bracket/emoji context, to avoid false positives from
+ * prose that merely contains the word.
+ */
+function classifyPhaseStatus(header: string, body: string[]): PhaseStatus {
+  const combined = `${header}\n${body.join("\n")}`;
+
+  // 1. Primary `**Status:** X` (case-insensitive).
+  if (/\*\*Status:\*\*\s*complete\b/i.test(combined)) return "complete";
+  if (/\*\*Status:\*\*\s*in[-_ ]?progress\b/i.test(combined)) return "in_progress";
+  if (/\*\*Status:\*\*\s*pending\b/i.test(combined)) return "pending";
+
+  // 2. Inline bracket form `[complete]` etc.
+  if (/\[complete\]/i.test(combined)) return "complete";
+  if (/\[in[-_ ]?progress\]/i.test(combined)) return "in_progress";
+  if (/\[pending\]/i.test(combined)) return "pending";
+
+  // 3. Emoji status markers (unambiguous — only used as status indicators).
+  //    The `u` flag is required so astral-plane emoji (🔄 U+1F504, 🚧 U+1F6A7,
+  //    …) are matched as whole code points rather than surrogate pairs.
+  if (/[✅✔🟢]/u.test(combined)) return "complete";
+  if (/[🔄⏳🏗🚧🛠]/u.test(combined)) return "in_progress";
+  if (/[⏸🔒🚫❌]/u.test(combined)) return "pending";
+
+  return "unknown";
+}
+
+/** True when the raw plan content carries a close marker. Recognizes both the
+ * inert comment form written by `/plan-done` and a human-writable heading. */
+export function isCloseMarker(planContent: string): boolean {
+  return (
+    /<!--\s*pwf:\s*closed\s*-->/i.test(planContent) ||
+    /^##\s+plan\s+status:\s*\**\s*closed\s*\**\s*$/im.test(planContent)
+  );
+}
+
 export function readPlanStatus(cwd: string): PlanStatus {
   const paths = resolvePlanPaths(cwd);
   if (!paths.planPath || !existsSync(paths.planPath)) {
@@ -143,6 +205,8 @@ export function readPlanStatus(cwd: string): PlanStatus {
       completePhases: 0,
       inProgressPhases: 0,
       pendingPhases: 0,
+      hasParseableStatus: false,
+      closed: false,
       firstLines50: "",
       headLines30: "",
       progressTail20: "",
@@ -153,28 +217,33 @@ export function readPlanStatus(cwd: string): PlanStatus {
   const lines = planContent.split("\n");
 
   const phaseRegex = /^###\s+Phase\b/i;
-  const statusComplete = /\*\*Status:\*\*\s*complete\b/i;
-  const statusInProgress = /\*\*Status:\*\*\s*in_progress\b/i;
-  const statusPending = /\*\*Status:\*\*\s*pending\b/i;
 
-  let total = 0;
+  // Parse phase-by-phase so each block is classified independently. This is a
+  // strict improvement over the legacy global counter: it correctly handles
+  // mixed Status:/bracket formats within one plan, and it lets per-block emoji
+  // markers (✅/⏸/🔄) be attributed to the right phase instead of being missed.
+  const blocks: { header: string; body: string[] }[] = [];
+  let current: { header: string; body: string[] } | null = null;
+  for (const line of lines) {
+    if (phaseRegex.test(line)) {
+      if (current) blocks.push(current);
+      current = { header: line, body: [] };
+    } else if (current) {
+      current.body.push(line);
+    }
+  }
+  if (current) blocks.push(current);
+
+  const total = blocks.length;
   let complete = 0;
   let inProgress = 0;
   let pending = 0;
 
-  for (const line of lines) {
-    if (phaseRegex.test(line)) total += 1;
-    if (statusComplete.test(line)) complete += 1;
-    else if (statusInProgress.test(line)) inProgress += 1;
-    else if (statusPending.test(line)) pending += 1;
-  }
-
-  // Fall back to the "[status]" inline format only when no "**Status:** X"
-  // primary line was seen at all (parity with the upstream runtime).
-  if (complete + inProgress + pending === 0) {
-    complete = (planContent.match(/\[complete\]/gi) || []).length;
-    inProgress = (planContent.match(/\[in_progress\]/gi) || []).length;
-    pending = (planContent.match(/\[pending\]/gi) || []).length;
+  for (const block of blocks) {
+    const classified = classifyPhaseStatus(block.header, block.body);
+    if (classified === "complete") complete += 1;
+    else if (classified === "in_progress") inProgress += 1;
+    else if (classified === "pending") pending += 1;
   }
 
   let progressTail20 = "";
@@ -190,6 +259,8 @@ export function readPlanStatus(cwd: string): PlanStatus {
     completePhases: complete,
     inProgressPhases: inProgress,
     pendingPhases: pending,
+    hasParseableStatus: complete + inProgress + pending > 0,
+    closed: isCloseMarker(planContent),
     firstLines50: lines.slice(0, 50).join("\n"),
     headLines30: lines.slice(0, 30).join("\n"),
     progressTail20,
@@ -197,11 +268,22 @@ export function readPlanStatus(cwd: string): PlanStatus {
 }
 
 export function isAllPhasesComplete(status: PlanStatus): boolean {
-  return status.exists && status.totalPhases > 0 && status.completePhases >= status.totalPhases;
+  return status.exists && !status.closed && status.totalPhases > 0 && status.completePhases >= status.totalPhases;
 }
 
 export function isPlanIncomplete(status: PlanStatus): boolean {
+  // Don't nag when the status format is unparseable (no phase had a recognized
+  // token) — that previously produced false "0/N incomplete" warnings on plans
+  // using conventions the parser didn't understand. Also never nag a closed
+  // plan (finished/abandoned via /plan-done).
+  if (status.closed || !status.hasParseableStatus) return false;
   return status.exists && status.totalPhases > 0 && status.completePhases < status.totalPhases;
+}
+
+/** True when the plan is explicitly closed (finished/abandoned). The runtime
+ * treats a closed plan as inert: no injection, no auto-continue, no nag. */
+export function isPlanClosed(status: PlanStatus): boolean {
+  return status.exists && status.closed;
 }
 
 export function isSessionAttached(cwd: string, sessionId: string | undefined): boolean {
@@ -214,6 +296,8 @@ export function isSessionAttached(cwd: string, sessionId: string | undefined): b
 /** One-line status summary, e.g. "1/2 phases complete". Pure + testable. */
 export function summarizePlan(status: PlanStatus): string {
   if (!status.exists) return "No active task_plan.md";
+  if (status.closed) return "Plan closed (via /plan-done)";
   if (status.totalPhases <= 0) return "task_plan.md detected (no phase headers yet)";
+  if (!status.hasParseableStatus) return `${status.totalPhases} phases (status format unrecognized)`;
   return `${status.completePhases}/${status.totalPhases} phases complete`;
 }

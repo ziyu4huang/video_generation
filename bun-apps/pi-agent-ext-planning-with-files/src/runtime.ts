@@ -23,7 +23,14 @@ import {
 } from "./constants.js";
 import { isDangerousBashCommand } from "./guard.js";
 import { deriveEffectiveMode, resolveAutoApprove, resolveConfiguredMode } from "./modes.js";
-import { isAllPhasesComplete, isPlanIncomplete, type PlanStatus, readPlanStatus, summarizePlan } from "./plan.js";
+import {
+  isAllPhasesComplete,
+  isPlanClosed,
+  isPlanIncomplete,
+  type PlanStatus,
+  readPlanStatus,
+  summarizePlan,
+} from "./plan.js";
 import { runSessionCatchup } from "./scripts.js";
 import {
   clearSessionExecutionApprovals,
@@ -67,7 +74,19 @@ function buildPreToolParityRecitation(status: PlanStatus): string {
 }
 
 function setPassivePlanStatus(ctx: ExtensionContext, status: PlanStatus): void {
+  if (status.closed) {
+    ctx.ui.setStatus(PKG_NAME, "Plan closed (via /plan-done) — hooks inactive");
+    return;
+  }
   ctx.ui.setStatus(PKG_NAME, `${summarizePlan(status)} — run /plan-execute to activate hooks`);
+}
+
+/** Refresh the status bar to reflect a plan-less state. Without this the bar
+ * froze on whatever was last set (e.g. a stale "0/4 phases complete") forever,
+ * because the early `!status.exists` returns never touched the bar — so users
+ * saw a ghost status long after the plan files were deleted. */
+function clearPlanStatus(ctx: ExtensionContext): void {
+  ctx.ui.setStatus(PKG_NAME, "No active plan");
 }
 
 export default function planningWithFilesExtension(pi: ExtensionAPI): void {
@@ -125,7 +144,18 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
     if (!isAttachedSession(ctx)) return;
 
     const status = readPlanStatus(ctx.cwd);
-    if (!status.exists) return;
+    if (!status.exists) {
+      clearPlanStatus(ctx);
+      return;
+    }
+
+    // A closed plan (finished/abandoned via /plan-done) is inert: never inject
+    // its contents, never nag. Keeps a stale-but-closed plan from polluting
+    // context or firing the incomplete-warning loop.
+    if (status.closed) {
+      ctx.ui.setStatus(PKG_NAME, "Plan closed (via /plan-done) — hooks inactive");
+      return;
+    }
 
     if (!isExecutionApproved(state, ctx, status)) {
       setPassivePlanStatus(ctx, status);
@@ -168,6 +198,13 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
     const sessionId = getSessionId(ctx);
     const leafId = ctx.sessionManager.getLeafId() ?? "leaf";
     const leafKey = `${sessionId}:${leafId}`;
+
+    // Closed plan: skip all plan-aware tool-call behavior (no pre-tool
+    // recitation, no dangerous-bash plan reminder). The no-plan write warning
+    // below still fires when there's genuinely no plan.
+    if (status.exists && status.closed) {
+      return;
+    }
 
     const trackableTools = new Set(["write", "edit", "bash", "read", "grep", "find", "ls"]);
     if (
@@ -251,11 +288,21 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
     if (!isAttachedSession(ctx)) return;
 
     const status = readPlanStatus(ctx.cwd);
-    if (!status.exists) return;
+    if (!status.exists) {
+      clearPlanStatus(ctx);
+      return;
+    }
 
     const sessionId = getSessionId(ctx);
     const planKey = getPlanSessionKey(ctx, status);
     const mode = deriveEffectiveMode(resolveConfiguredMode(ctx.cwd), ctx);
+
+    // Closed plan (finished/abandoned via /plan-done): no nag, no auto-continue.
+    if (isPlanClosed(status)) {
+      state.autoContinueCountBySessionPlan.set(planKey, 0);
+      ctx.ui.setStatus(PKG_NAME, "Plan closed (via /plan-done) — hooks inactive");
+      return;
+    }
 
     if (isAllPhasesComplete(status)) {
       state.autoContinueCountBySessionPlan.set(planKey, 0);
@@ -309,6 +356,9 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
 
     const status = readPlanStatus(ctx.cwd);
     if (!status.exists) return;
+
+    // Closed plan: nothing to flush or inject at compaction.
+    if (status.closed) return;
 
     if (!isExecutionApproved(state, ctx, status)) {
       ctx.ui.notify("[planning-with-files] PreCompact: flush progress.md and task_plan.md updates.", "info");
