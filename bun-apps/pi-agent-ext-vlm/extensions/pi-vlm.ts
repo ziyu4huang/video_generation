@@ -151,6 +151,14 @@ export default function (pi: ExtensionAPI): void {
             "Max concurrent page extractions (default 1; env PI_VLM_CONCURRENCY). >1 runs pages in parallel but disables cross-page context.",
         }),
       ),
+      lang: Type.Optional(
+        Type.String({ description: "Output language for the notes (default zh-TW)." }),
+      ),
+      mode: Type.Optional(
+        Type.String({
+          description: "Processing mode: summary | verbatim | hybrid (default hybrid).",
+        }),
+      ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const { resolve, isAbsolute, basename } = await import("node:path");
@@ -173,6 +181,8 @@ export default function (pi: ExtensionAPI): void {
         dpi: params.dpi,
         relpath,
         concurrency: params.concurrency,
+        lang: params.lang,
+        mode: params.mode as any,
       });
 
       const { relative } = await import("node:path");

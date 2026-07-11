@@ -60,6 +60,18 @@ describe("systemPromptFor", () => {
   test("paper prompt is distinct from the image prompt", () => {
     expect(systemPromptFor("paper")).not.toBe(systemPromptFor("image"));
   });
+
+  test("T3: lang/mode reach the prompt (default zh-TW/hybrid vs override)", () => {
+    const def = systemPromptFor("paper");
+    expect(def.includes("繁體中文")).toBe(true); // default lang
+    expect(def.includes("整理與摘要")).toBe(true); // default mode
+    const en = systemPromptFor("paper", { lang: "en", mode: "verbatim" });
+    expect(en.includes("English")).toBe(true);
+    expect(en.includes("忠實謄寫")).toBe(true);
+    expect(en.includes("繁體中文")).toBe(false); // overridden away
+    const sum = systemPromptFor("image", { mode: "summary" });
+    expect(sum.includes("摘要整理")).toBe(true);
+  });
 });
 
 describe("normalizeEmbeds", () => {

@@ -15,7 +15,7 @@ import {
   type DocProfile,
 } from "./vlm/classify.ts";
 import { classifyProfileViaVlm } from "./vlm/classify-vlm.ts";
-import { explainPage } from "./vlm/agents.ts";
+import { explainPage, type ExplainMode } from "./vlm/agents.ts";
 import { withRetry, retryableError } from "./vlm/retry.ts";
 import { validatePageMarkdown } from "./vlm/validate.ts";
 import { PageContext, formatContext } from "./vlm/page-context.ts";
@@ -52,6 +52,10 @@ export interface VlmDescribePipelineOpts {
    *  >1 runs pages in parallel but DISABLES cross-page context (S1), which
    *  requires strict page order. Speed mode for remote / multi-slot providers. */
   concurrency?: number;
+  /** Output language for the per-page notes (T3, default zh-TW). */
+  lang?: string;
+  /** Processing mode (T3, default hybrid). */
+  mode?: ExplainMode;
   /** Optional NDJSON emitter (json mode). */
   emit?: (obj: unknown) => void;
 }
@@ -321,6 +325,8 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
               pageNo,
               pageCount: doc.pageCount,
               priorContext,
+              lang: opts.lang,
+              mode: opts.mode,
             });
             if (!r.ok) throw new Error(r.error ?? "unknown error");
             // S2 — output quality gate; gate failure is retryable.
