@@ -126,9 +126,20 @@ if [[ "$DRY_RUN" != true ]]; then
     run git push "$REMOTE" "$PR_HEAD"
     if [[ "$NO_CHECKS" != true ]]; then
       say "Re-watching CI after base-update…"
-      [[ -n "$(gh pr checks "$PR_NUMBER" 2>/dev/null)" ]] \
-        && { gh pr checks "$PR_NUMBER" --watch --interval 15 --fail-fast \
-             || { echo "CI failed after base-update. Aborting." >&2; exit 1; }; }
+      # Right after the push, GitHub hasn't created the new commit's check runs
+      # yet, so `gh pr checks` returns empty. Poll (≤120s) for checks to
+      # register, THEN watch to completion — otherwise we'd merge before CI
+      # runs (this exact race aborted the first dogfood of this script).
+      register_by=$(( $(date +%s) + 120 ))
+      while [[ -z "$(gh pr checks "$PR_NUMBER" 2>/dev/null)" ]]; do
+        if [[ $(date +%s) -ge $register_by ]]; then
+          echo "CI checks did not register within 120s of the base-update push. Aborting." >&2
+          exit 1
+        fi
+        sleep 3
+      done
+      gh pr checks "$PR_NUMBER" --watch --interval 15 --fail-fast \
+        || { echo "CI failed after base-update. Aborting." >&2; exit 1; }
     fi
     say "Re-merging…"
     try_merge && rc=0 || rc=$?
