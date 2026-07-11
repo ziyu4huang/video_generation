@@ -38,15 +38,27 @@ try {
   PI_PKG_DIR = "";
 }
 
-import { detectMode } from "../mode.ts";
+import { detectMode, type BundlerMode } from "../mode.ts";
 
 const url = import.meta.url;
 const mode = detectMode(url, "/src/patches/");
 
+/**
+ * Pure decision: should PI_PACKAGE_DIR be set for this mode + path state?
+ *
+ * Apply ONLY for the bundle .js case: not the binary (assets alongside) and
+ * not source mode (pi resolves correctly on its own). Skip when no path was
+ * baked in (empty / missing). Exported so the gating logic is unit-testable
+ * without importing the module (which would fire the side effect).
+ */
+export function shouldSetPackageDir(mode: BundlerMode, piPkgDir: string): boolean {
+  return mode === "bundle" && !!piPkgDir;
+}
+
 // Apply ONLY for the bundle .js case: not the binary (assets alongside) and
 // not source mode (pi resolves correctly on its own). Skip when no path was
 // baked in (empty / missing) — keeps source mode safe.
-if (mode === "bundle" && PI_PKG_DIR) {
+if (shouldSetPackageDir(mode, PI_PKG_DIR)) {
   process.env.PI_PACKAGE_DIR ??= PI_PKG_DIR;
 }
 

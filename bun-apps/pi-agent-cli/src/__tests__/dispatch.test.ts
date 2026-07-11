@@ -68,6 +68,15 @@ describe("findCommandToken — global flags before sub-command", () => {
     expect(findCommandToken(["some prompt", "vlm-describe"])).toBeUndefined();
   });
 
+  test("new interactive/agentic commands are detected", () => {
+    // chat and agent were added as the primary normal-CLI / agentic entry points.
+    // Verify they dispatch correctly (first positional, reserved).
+    expect(findCommandToken(["chat"])).toEqual({ name: "chat", index: 0 });
+    expect(findCommandToken(["--model", "x", "chat"])).toEqual({ name: "chat", index: 2 });
+    expect(findCommandToken(["agent", "do", "something"])).toEqual({ name: "agent", index: 0 });
+    expect(findCommandToken(["--model", "x", "agent", "task"])).toEqual({ name: "agent", index: 2 });
+  });
+
   test("oneshot backward-compat alias: stripped by caller, not here", () => {
     // findCommandToken operates on already-stripped argv; the oneshot alias is
     // handled in main(). A bare leading command still resolves.
