@@ -105,6 +105,50 @@ describe("retrieveRecords", () => {
 		expect(result.cards.every((c) => c.id !== "mlx:other")).toBe(true);
 	});
 
+	describe("bodyMatch recall path (kg-improvement-plan follow-on)", () => {
+		test("bodyMatch:false is byte-identical to tag-only (no body rescue)", async () => {
+			await ingest([
+				rec({ id: "a:tag-hit", title: "TagHit", tags: ["argv"], detail: "general note." }),
+				rec({ id: "b:body-only", title: "BodyOnly", tags: ["unrelated-xyz"], detail: "the argv token lives in prose, not tags." }),
+			], "flux2");
+			const result = await retrieveRecords({ vaultPath: vault, folder: FOLDER, tags: ["argv"], topK: 5 });
+			expect(result.count).toBe(1); // only the tag-matching card
+			expect(result.cards[0]!.id).toBe("a:tag-hit");
+		});
+
+		test("bodyMatch:true rescues a card whose query token is in body not tags", async () => {
+			await ingest([
+				rec({ id: "a:tag-hit", title: "TagHit", tags: ["argv"], detail: "general note." }),
+				rec({ id: "b:body-only", title: "BodyOnly", tags: ["unrelated-xyz"], detail: "the argv token lives in prose, not tags." }),
+			], "flux2");
+			const result = await retrieveRecords({ vaultPath: vault, folder: FOLDER, tags: ["argv"], topK: 5, bodyMatch: true });
+			expect(result.count).toBe(2); // tag hit + body rescue
+			const ids = result.cards.map((c) => c.id);
+			expect(ids).toContain("a:tag-hit");
+			expect(ids).toContain("b:body-only");
+		});
+
+		test("bodyMatch:true keeps tag matches ranked ABOVE body-only matches (precision)", async () => {
+			await ingest([
+				rec({ id: "a:tag-hit", title: "TagHit", tags: ["argv"], detail: "general note." }),
+				rec({ id: "b:body-only", title: "BodyOnly", tags: ["unrelated-xyz"], detail: "the argv token lives in prose, not tags." }),
+			], "flux2");
+			const result = await retrieveRecords({ vaultPath: vault, folder: FOLDER, tags: ["argv"], topK: 5, bodyMatch: true });
+			expect(result.cards[0]!.id).toBe("a:tag-hit"); // tag×2 outranks body×1
+			expect(result.cards[1]!.id).toBe("b:body-only");
+		});
+
+		test("bodyMatch:true still skips a card with neither tag nor body overlap", async () => {
+			await ingest([
+				rec({ id: "a:tag-hit", title: "TagHit", tags: ["argv"], detail: "general note." }),
+				rec({ id: "c:noise", title: "Noise", tags: ["zzz-none"], detail: "completely unrelated prose here." }),
+			], "flux2");
+			const result = await retrieveRecords({ vaultPath: vault, folder: FOLDER, tags: ["argv"], topK: 5, bodyMatch: true });
+			expect(result.count).toBe(1);
+			expect(result.cards[0]!.id).toBe("a:tag-hit");
+		});
+	});
+
 	test("excludes the caller's own cards by source_id", async () => {
 		await ingest([
 			rec({ id: "flux2:own", title: "Own", tags: ["argv"] }),

@@ -1187,6 +1187,11 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				folder: "Zettelkasten/knowledge-graph",
 				tags: effectiveTags,
 				topK,
+				// Body-match recall (kg-improvement-plan follow-on): also surface cards
+				// whose query tokens appear in body prose, not just tags. Blend score
+				// (tag×2 + body + callout) — measured 0.48 → 0.80 hit-rate@4, zero
+				// regression on the 25-query eval. This is knowledge_query's recall win.
+				bodyMatch: true,
 			};
 
 			const result = await retrieveRecords(opts);

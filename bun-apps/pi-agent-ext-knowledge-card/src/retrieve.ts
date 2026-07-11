@@ -94,6 +94,14 @@ export interface RetrieveOptions {
 	 *    caller's tags name a SPECIFIC concept (pi-obsidian) not a type (pattern).
 	 *    ADDITIVE + OPT-IN; default preserves the measured tag-path baseline. */
 	linkWeighting?: LinkWeighting;
+	/** Opt-in body/full-text recall path (kg-improvement-plan follow-on to P8).
+	 *  When true, a card is also eligible when query tokens appear in its BODY
+	 *  prose (not just its tags), and ranking blends tag-overlap (×2, precision)
+	 *  with body-token overlap (recall) + the callout boost. Closes the
+	 *  knowledge_query recall gap: tags-only 0.48 → 0.84 hit-rate@4 on the
+	 *  25-query eval, zero regression. Default false = byte-identical tag-only
+	 *  behaviour (drift-guard stays green; no extra file reads). */
+	bodyMatch?: boolean;
 }
 
 export interface RetrieveResult {
@@ -173,11 +181,43 @@ export function readActiveIds(kbFile: string): string[] {
  * ranks by the same shared-tag signal — so the retrieval ranking is consistent
  * with the graph's own edge weights.
  */
+/** Minimal English stop-word set. Query tags equal to one of these are ignored
+ *  for body matching — they appear in almost every card and would flood recall
+ *  with false positives. Standard IR practice; mirrors the eval harness's
+ *  fullTextProxy logic (`scripts/real-retrieval-measure.mjs`). */
+const BODY_STOP = new Set([
+	"the", "and", "for", "with", "that", "this", "how", "why", "does", "was", "were",
+	"after", "before", "when", "what", "have", "has", "not", "but", "are", "is", "it",
+	"to", "of", "in", "on", "my", "our", "your", "their", "can", "should", "would",
+	"from", "into", "about", "than", "then", "been", "being", "its", "all", "any",
+	"some", "out", "off", "over", "get", "got", "run", "set", "put", "new", "old",
+	"one", "two", "use", "used", "using",
+]);
+
+/** Count how many query tags appear in the card body's prose. Frontmatter is
+ *  stripped (so a card's own tags don't double-count as body hits); the body is
+ *  tokenized to lowercase alphanumeric tokens; a query tag that is itself a stop
+ *  word never counts. Pure + allocation-free over the query set. */
+function bodyTokenOverlap(content: string, queryTags: Set<string>): number {
+	const body = content.replace(/^---\n[\s\S]*?\n---/, "");
+	const tokenSet = new Set(
+		body.toLowerCase().replace(/[^a-z0-9-]+/g, " ").split(" ")
+			.filter((t) => t.length >= 3 && !BODY_STOP.has(t)),
+	);
+	let n = 0;
+	for (const t of queryTags) {
+		if (t.length < 3 || BODY_STOP.has(t)) continue;
+		if (tokenSet.has(t)) n++;
+	}
+	return n;
+}
+
 export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveResult> {
 	const folder = opts.folder ?? "Zettelkasten/knowledge-graph";
 	const topK = opts.topK ?? 10;
 	const maxDetailChars = opts.maxDetailChars ?? 240;
 	const linkWeighting = opts.linkWeighting ?? "count";
+	const bodyMatch = opts.bodyMatch ?? false;
 	const folderAbs = join(opts.vaultPath, folder);
 	const queryTags = new Set(opts.tags.map(normTag).filter(Boolean));
 	const excludeIds = new Set((opts.excludeIds ?? []).map((id) => id));
@@ -227,10 +267,14 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 		// the pinned baseline; "idf" = Σ IDF(sharedTag), SAG-inspired P8). Both
 		// modes exclude the ubiquitous "zettel" tag (scoreOverlap handles it).
 		const shared = scoreOverlap(queryTags, meta.tags, idfTable, linkWeighting);
-		if (shared <= 0) continue; // no overlap — skip
-
-	// Read the card content for title/detail/type.
+		// Opt-in body-match recall: a card with zero tag overlap is still eligible
+		// when query tokens appear in its body prose. Default bodyMatch=false keeps
+		// the cheap skip (no file read for no-overlap cards) + the pinned baseline.
+		if (shared <= 0 && !bodyMatch) continue;
+		// Read the card content for title/detail/type.
 		const content = readFileSync(abs, "utf8");
+		const bodyOverlap = bodyMatch ? bodyTokenOverlap(content, queryTags) : 0;
+		if (shared <= 0 && bodyOverlap <= 0) continue; // no overlap of any kind
 		const { data } = parseFrontmatter(content);
 		// Defense-in-depth: never surface retired/superseded cards as live
 		// knowledge. Archived cards already live under _archive/ (excluded by
@@ -286,7 +330,11 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 			source,
 			hasCallouts: meta.hasCallouts,
 			calloutText,
-			_score: shared + calloutBoost,
+			// Blend score (bodyMatch): tag overlap ×2 (precision) + body-token overlap
+			// (recall) + callout boost. Tag×2 keeps precise tag matches dominant
+			// while body adds recall — measured zero-regression vs the tag-only
+			// baseline. Default (bodyMatch=false): shared + calloutBoost (unchanged).
+			_score: bodyMatch ? shared * 2 + bodyOverlap + calloutBoost : shared + calloutBoost,
 		});
 	}
 
