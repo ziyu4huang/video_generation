@@ -80,6 +80,12 @@ bun bun-apps/pi-agent-cli/src/cli.ts vlm-describe paper.pdf
 
 ## Quality improvement roadmap
 
+> **Status (2026-07-11):** P0 + P1/P2 items are **implemented** on branch
+> `feat/vlm-tool-subagent-quality` (S2 quality gate, T1 `vlm_ask` tool, S1
+> cross-page context, T2 parallel pages, S3 few-shot, T3 lang/mode, S4 vote
+> classification) — 162 deterministic tests. This section is retained as the
+> design record; the reactive `normalize*` repairs remain as a safety net.
+
 The extension is correct and well-tested on its deterministic core, but the
 **tool surface is narrow** and the **VLM subagents leave coherence and
 reliability on the table**. This section is the prioritized plan to raise
