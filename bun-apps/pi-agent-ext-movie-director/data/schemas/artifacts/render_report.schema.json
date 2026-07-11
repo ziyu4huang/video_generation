@@ -38,8 +38,8 @@
     },
     "render_grammar": {
       "type": "string",
-      "description": "Which renderer family was used for this render",
-      "enum": ["explainer-data", "explainer-teacher", "cinematic-trailer", "documentary-montage", "product-reveal", "screen-demo", "presenter", "animation-first"]
+      "description": "Which renderer family (from edit_decisions.renderer_family) OR which render runtime/engine (remotion.ts, compose_motion.ts) produced this render. The two composer implementations that populate this field (renderRemotion, composeMotion) stamp their own engine id (\"remotion\", \"motion\") rather than a renderer_family value, so both vocabularies are accepted.",
+      "enum": ["explainer-data", "explainer-teacher", "cinematic-trailer", "documentary-montage", "product-reveal", "screen-demo", "presenter", "animation-first", "remotion", "motion"]
     },
     "slideshow_risk_score": {
       "type": "object",

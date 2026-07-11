@@ -539,6 +539,8 @@ def _run_audio_asr_gate(video_path: str, prompt: str) -> dict:
             wav_path,
             path_or_hf_repo="mlx-community/whisper-large-v3-mlx",
             language=None,  # auto-detect — critical for catching wrong-language output
+            fp16=False,  # this repo's cached weights are float32; fp16=True (default)
+            # mismatches model dtype and raises "audio_features has an incorrect dtype"
         )
         detected_lang = result.get("language", "")
         transcript = result.get("text", "").strip()
