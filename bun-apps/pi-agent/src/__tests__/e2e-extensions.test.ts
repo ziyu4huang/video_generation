@@ -473,7 +473,7 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-PORTABLE (--portab
 	beforeAll(async () => {
 		pkg = await deployPkg(["--portable"]);
 		writeFileSync(join(pkg.pkgDir, ".verify-skill-probe.ts"), PROBE_TS_SKILL);
-	}, 180_000); // FULL-bundles 7 exts + bun install host subset: needs headroom
+	}, 300_000); // FULL-bundles 13 exts + bun install host subset: needs headroom (observed ~217s under load)
 	afterAll(() => {
 		if (pkg.pkgDir) rmSync(pkg.pkgDir, { recursive: true, force: true });
 	});
