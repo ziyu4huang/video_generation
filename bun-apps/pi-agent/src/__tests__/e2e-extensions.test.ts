@@ -381,6 +381,79 @@ describe.skipIf(!E2E_ENABLED)("e2e: SOURCE loads a >4 KB extension module", () =
 	});
 });
 
+// ─── Lazy `-e <alias>` splice e2e ────────────────────────────────────────────
+// rewriteArgvLazyExtensions() rewrites a bare `-e <dir-name>` to an absolute
+// factory path by mutating process.argv in place — the SAME splice mechanism
+// that broke twice (#182 moved argv.slice above applyPatches → silently dropped
+// every run-dir extension; #184 fixed it). The eager `-e` path is guarded by
+// the deploy-mode e2e above AND doctor --smoke; the lazy alias path was guarded
+// by NEITHER — a regression here (alias passed through literally → pi tries to
+// load "<alias>" as a source path → silent failure) would be invisible.
+//
+// Source-mode only: lazy aliases resolve to bun-apps/<pkg>/... source paths,
+// which a default bundle deploy does NOT copy (so a deploy-mode case would be a
+// false failure). Gated on E2E_ENABLED alone (no deploy build required) so it
+// runs at the default `medium` tier, not just `high`.
+//
+// Fixture choice: `pi-agent-ext-zai-mcp` is (a) NOT in the eager manifest and
+// (b) has exactly one .ts under extensions/ — so the directory-fallback arm of
+// resolveLazyExtension resolves `-e pi-agent-ext-zai-mcp` to its factory path.
+// (Other non-eager pkgs either have >1 .ts in extensions/ — movie-director — so
+// the fallback can't pick, or aren't extension-shaped.) It registers 2 tools.
+const LAZY_ALIAS_PKG = "pi-agent-ext-zai-mcp";
+const LAZY_ALIAS_MARKER = join(REPO_ROOT, "bun-apps", LAZY_ALIAS_PKG);
+describe.skipIf(!E2E_ENABLED)("e2e: SOURCE lazy `-e <alias>` splice loads the extension", () => {
+	let probePath = "";
+	beforeAll(() => {
+		probePath = join(tmpdir(), `pi-lazy-alias-probe-${process.pid}.ts`);
+		writeFileSync(probePath, PROBE_TS);
+	});
+	afterAll(() => {
+		if (existsSync(probePath)) rmSync(probePath, { force: true });
+	});
+
+	// The alias path: `-e <bare-dir-name>` is rewritten by
+	// rewriteArgvLazyExtensions → resolveLazyExtension directory-fallback to the
+	// absolute factory path, then the SDK loads it. Asserts ZERO load errors and
+	// that the extension's own tools are present (matched > 0). The only e2e
+	// covering the argv splice (same mechanism as the #182/#184 silent-drop bug).
+	// NOTE: we do NOT reuse assertCleanLoad here — it requires cmdMatched > 0, but
+	// the fixture (zai-mcp) registers tools only (no commands), so cmdMatched is
+	// correctly 0 for its specific marker. assertCleanLoad's cmdMatched check is
+	// for the repo-wide `bun-apps` marker that spans command-bearing extensions.
+	test("a bare `-e <alias>` resolves + loads the extension (splice fires)", async () => {
+		const r = await runScenario({
+			name: "source-lazy-alias",
+			cmd: ["bun", SRC_CLI, "-e", LAZY_ALIAS_PKG, "-e", probePath, "-p", "hi"],
+			cwd: REPO_ROOT,
+			marker: LAZY_ALIAS_MARKER,
+		});
+		// ZERO conflict/cannot-find/failed-to-load.
+		expect(r.errors).toEqual([]);
+		// The lazy extension's own tools were loaded by the alias (not just the
+		// probe + builtins) — this is the splice-fires proof.
+		expect(r.matched).not.toBeNull();
+		expect(r.matched as number).toBeGreaterThanOrEqual(1);
+		expect(r.total).not.toBeNull();
+		expect(r.total as number).toBeGreaterThanOrEqual(7 + (r.matched as number));
+	});
+
+	// Control: without `-e <alias>`, a non-eager extension is NOT loaded — so
+	// matched is 0 for its marker. Proves the alias is causally responsible for
+	// the load (guards against a regression where the alias passes through
+	// unresolved yet the extension loads via some other path).
+	test("control: without `-e <alias>` the non-eager extension is NOT loaded", async () => {
+		const r = await runScenario({
+			name: "source-lazy-alias-control",
+			cmd: ["bun", SRC_CLI, "-e", probePath, "-p", "hi"],
+			cwd: REPO_ROOT,
+			marker: LAZY_ALIAS_MARKER,
+		});
+		expect(r.errors).toEqual([]);
+		expect(r.matched).toBe(0);
+	});
+});
+
 // DEPLOY-PACKAGE mode = `deploy.ts --release` (copies every ext source folder).
 describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-PACKAGE (--release) extension loading", () => {
 	let pkg = { pkgDir: "", pkgPiAgent: "", probePath: "" };
