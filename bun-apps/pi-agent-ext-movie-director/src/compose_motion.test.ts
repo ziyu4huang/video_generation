@@ -290,9 +290,11 @@ describe("composeMotion (mocked ffmpeg)", () => {
       const deps: MotionDeps = { spawnImpl: fakeSpawn() };
       const report = await composeMotion(edit, { workDir: dir, output: out }, deps);
       expect(report.outputs).toHaveLength(1);
-      // The mix pass produces a separate file; the report carries THAT path.
-      expect(report.outputs[0]!.path).not.toBe(out);
-      expect(report.outputs[0]!.path).toMatch(/motion_audio_/);
+      // The mix pass writes its result to its own timestamped path, but
+      // composeMotion reconciles it back onto the caller-requested `out` so a
+      // caller that trusts the path it passed in gets the real (mixed) file.
+      expect(report.outputs[0]!.path).toBe(out);
+      expect(existsSync(out)).toBe(true);
       expect(report.verification_notes.some((n) => n.includes("audio mixed"))).toBe(true);
       // The mix ffmpeg call carries atrim + volume (narration fit to duration).
       const calls = callsOf(deps.spawnImpl!);

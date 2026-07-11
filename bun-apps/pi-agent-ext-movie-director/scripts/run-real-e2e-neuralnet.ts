@@ -23,9 +23,15 @@
  *
  * Run:
  *   bun run --cwd bun-apps/pi-agent-ext-movie-director scripts/run-real-e2e-neuralnet.ts
+ *
+ * Fast schema-iteration loop: `SKIP_ASSETS=1 bun run ... scripts/run-real-e2e-neuralnet.ts`
+ * reuses this project's already-generated narration.aiff / <scene>.png (copied to
+ * a deterministic path after the first real run) instead of re-running MLX T2I /
+ * `say`, so a checkpoint-JSON-only fix costs ~1s instead of ~40s+ per re-run. Falls
+ * back to a real generation automatically if the cached file is missing.
  */
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   getStageOrder,
@@ -56,6 +62,7 @@ const WIDTH = 1024;
 const HEIGHT = 576;
 const FPS = 24;
 const T2I = { steps: 9, width: WIDTH, height: HEIGHT } as const;
+const SKIP_ASSETS = process.env.SKIP_ASSETS === "1";
 
 const SHOTS = [
   {
@@ -109,6 +116,11 @@ function run(cmd: string, args: string[]): Promise<string> {
 
 /** Generate ONE scene image via runpy-image (real local MLX Z-Image T2I). */
 async function generateScene(shot: (typeof SHOTS)[number]): Promise<{ path: string; seed: number }> {
+  const cachedPng = join(ASSETS_DIR, `${shot.id}.png`);
+  if (SKIP_ASSETS && existsSync(cachedPng)) {
+    log("assets", `SKIP_ASSETS=1 → reusing cached ${shot.id} → ${cachedPng}`);
+    return { path: cachedPng, seed: shot.seed };
+  }
   log("assets", `runpy-image t2i → ${shot.id} (seed ${shot.seed}, ${T2I.width}x${T2I.height}, ${T2I.steps} steps)`);
   const entryId = costEstimate(PROJECT_ID, "runpy-image", `image_generation:t2i:${shot.id}`, 0);
   costReserve(PROJECT_ID, entryId);
@@ -122,13 +134,18 @@ async function generateScene(shot: (typeof SHOTS)[number]): Promise<{ path: stri
   }
   const png = out.details.outputs[0]!;
   if (!existsSync(png.path)) throw new Error(`scene ${shot.id}: reported PNG missing at ${png.path}`);
-  log("assets", `✓ ${shot.id} → ${png.path} (model=${out.details.model}, ${out.details.elapsedSeconds?.toFixed(1) ?? "?"}s)`);
+  copyFileSync(png.path, cachedPng);
+  log("assets", `✓ ${shot.id} → ${png.path} (model=${out.details.model}, ${out.details.elapsedSeconds?.toFixed(1) ?? "?"}s, cached → ${cachedPng})`);
   return { path: png.path, seed: png.seed ?? shot.seed };
 }
 
 async function generateNarration(): Promise<string> {
-  log("assets", "narration → macOS say (local TTS)");
   const aiff = join(PROJECT_DIR, "narration.aiff");
+  if (SKIP_ASSETS && existsSync(aiff)) {
+    log("assets", `SKIP_ASSETS=1 → reusing cached narration → ${aiff}`);
+    return aiff;
+  }
+  log("assets", "narration → macOS say (local TTS)");
   await run("say", ["-v", "Samantha", "-r", "175", "-o", aiff, NARRATION_TEXT]);
   if (!existsSync(aiff)) throw new Error("say produced no narration file");
   log("assets", `✓ narration → ${aiff}`);
@@ -452,11 +469,10 @@ async function main(): Promise<void> {
   }
   const out = report.outputs[0]!;
   log("compose", `✓ rendered ${out.resolution} ${out.codec} / audio ${out.audio_codec ?? "?"}, ${out.duration_seconds?.toFixed(2)}s, ${out.file_size_bytes ?? "?"} bytes`);
-  // NOTE: composeMotion's opts.output only names the pre-audio-mix join file;
-  // once narration/music is mixed on, the real deliverable is a separate
-  // `motion_audio_<ts>.mp4` and report.outputs[0].path is the one that reflects
-  // it — NOT the originally requested `mp4` path. Use out.path, not `mp4`,
-  // for review/publish (see next-goal.md's compose-motion output-path finding).
+  // composeMotion now reconciles the audio-mixed/captioned result back onto
+  // opts.output (fixed 2026-07-11 — see next-goal.md's compose-motion
+  // output-path finding), so out.path === mp4 here; kept as out.path since
+  // that's always correct regardless of which internal stage ran last.
   const finalMp4 = out.path;
 
   // 8. final_review.
