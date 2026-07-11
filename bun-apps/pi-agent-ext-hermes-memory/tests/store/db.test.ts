@@ -46,20 +46,23 @@ describe('DatabaseManager', () => {
   function corruptRecoverableIndexPage(dbPath: string, indexName: string): void {
     const db = new Database(dbPath);
     const pageSize = pragmaSimple(db, 'page_size') as number;
-    const row = db.prepare(`
-      SELECT pageno
-      FROM dbstat
-      WHERE name = ? AND pagetype IN ('internal', 'leaf')
-      ORDER BY pageno ASC
-      LIMIT 1
-    `).get(indexName) as { pageno: number } | undefined;
+    // Use sqlite_schema.rootpage (always available) instead of dbstat — dbstat
+    // is a compile-time option (SQLITE_ENABLE_DBSTAT_VTAB) that bun:sqlite does
+    // NOT enable on Linux, so `SELECT ... FROM dbstat` fails to PREPARE there
+    // (the original root cause of the D3 Linux divergence). The index's
+    // rootpage is its b-tree ROOT; corrupting it fails quick_check while
+    // leaving every table's DATA b-tree (a separate root) fully readable, so
+    // recovery deterministically reads ALL rows on every SQLite build.
+    const row = db.prepare(
+      "SELECT rootpage FROM sqlite_schema WHERE type = 'index' AND name = ?"
+    ).get(indexName) as { rootpage: number } | undefined;
     db.close();
 
-    assert.ok(row, `dbstat did not find index page for ${indexName}`);
-    assert.ok(row.pageno > 1, 'will not corrupt sqlite database header page');
+    assert.ok(row, `sqlite_schema did not find index rootpage for ${indexName}`);
+    assert.ok(row.rootpage > 1, 'will not corrupt sqlite database header page');
 
     const buffer = fs.readFileSync(dbPath);
-    const offset = (row.pageno - 1) * pageSize;
+    const offset = (row.rootpage - 1) * pageSize;
     for (let i = 0; i < 16 && offset + i < buffer.length; i++) {
       buffer[offset + i] ^= 0xff;
     }
@@ -334,6 +337,9 @@ describe('DatabaseManager', () => {
       const repairedDb = dbManager.getDb();
 
       assert.strictEqual(dbManager.getLastRecovery()?.strategy, 'rebuilt');
+      // Corrupting the index ROOT (a separate b-tree from table data — see
+      // corruptRecoverableIndexPage) deterministically preserves every table
+      // row across SQLite builds, so the exact recovered count is assertable.
       assert.deepStrictEqual(dbManager.getLastRecovery()?.recoveredRows, {
         extension_metadata: 0,
         sessions: 1,

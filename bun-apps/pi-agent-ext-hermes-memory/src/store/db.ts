@@ -91,26 +91,19 @@ function createBunCompatDatabaseCtor(require: NodeRequire): DatabaseCtor {
 }
 
 function loadDatabaseCtor(): DatabaseCtor {
+  // Bun-only: this package runs under Bun and uses bun:sqlite exclusively.
+  // Node/better-sqlite3 support was removed per the project's Bun-only directive
+  // (PR follow-up to #460). The BunCompatDatabase class normalizes bun:sqlite's
+  // API to the shape the rest of the codebase expects.
   const require = createRequire(import.meta.url);
-  const isBunRuntime = typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined';
-
-  if (isBunRuntime) {
-    return createBunCompatDatabaseCtor(require);
-  }
-
-  try {
-    const mod = require('better-sqlite3') as { default?: DatabaseCtor } | DatabaseCtor;
-    return (mod as { default?: DatabaseCtor }).default ?? (mod as DatabaseCtor);
-  } catch (err) {
-    throw err;
-  }
+  return createBunCompatDatabaseCtor(require);
 }
 
 const Database = loadDatabaseCtor();
 
-/** The runtime-appropriate SQLite Database constructor (BunCompatDatabase under
- *  Bun, better-sqlite3 under Node). Exported so tests and tooling can create raw
- *  databases without importing better-sqlite3 directly (which crashes under Bun). */
+/** The SQLite Database constructor (bun:sqlite, wrapped by BunCompatDatabase
+ *  to normalize its API). Exported so tests and tooling can create raw databases
+ *  without importing bun:sqlite directly. */
 export { Database as RawDatabase };
 
 export class DatabaseManager {

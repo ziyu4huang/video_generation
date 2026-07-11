@@ -63,26 +63,21 @@ jobs:
           # `npm run check` chain (biome has pre-existing formatting drift — out
           # of scope for the CI cycle; the unit tests + build are the gate).
           - { package: pi-agent-ext-workflow, test-cmd: "bun run build && bun test" }
-          # pi-agent-ext-hermes-memory: per-file `npx tsx --test` (tests/run-all.sh). Two
-          # root-caused reasons tsx (Node) per-file is required (NOT a single
-          # `bun test`): (1) bun runs files CONCURRENTLY on a shared thread, and
-          # this package's synchronous SQLite (better-sqlite3) starves
-          # memory-store's async atomic-write path → intermittent ~900s stall;
-          # (2) bun's better-sqlite3 binding fails the corruption-recovery test
-          # on ubuntu-latest (recovers rows differently than Node). tsx per-file
-          # avoids both (proven #383–#391). Requires Node (setup-node below).
-          # See .github/TEST-DETERMINISM.md (D3).
-          - { package: pi-agent-ext-hermes-memory, test-cmd: "bash tests/run-all.sh" }
+          # pi-agent-ext-hermes-memory: pure `bun test` (Bun-only package —
+          # uses bun:sqlite via the BunCompatDatabase shim in src/store/db.ts;
+          # better-sqlite3/Node support was removed). The historical tsx/Node
+          # carve-out (tests/run-all.sh) is retired: the corruption-recovery
+          # test's build-dependent row count was made build-agnostic (asserts the
+          # recovery CONTRACT, not an exact count — see db.test.ts + D3 in
+          # .github/TEST-DETERMINISM.md), so `bun test` is now the gate on every
+          # platform. No Node setup needed.
+          - { package: pi-agent-ext-hermes-memory, test-cmd: "bun test" }
 
     steps:
       - uses: actions/checkout@v4
-      # Shared preamble (Bun + conditional Node + install + build
-      # pi-agent-ext-workflow). Node is enabled only for the hermes-memory entry
-      # (its tests/run-all.sh shells out to `npx tsx` — see D3 in
-      # TEST-DETERMINISM.md); every other entry is pure Bun.
+      # Shared preamble (Bun + install + build pi-agent-ext-workflow). Every
+      # matrix entry is now pure Bun (hermes-memory dropped its Node/tsx carve-out).
       - uses: ./.github/actions/setup-env
-        with:
-          setup-node: "${{ matrix.package == 'pi-agent-ext-hermes-memory' }}"
 
       # movie-director's preflight test probes ffmpeg on PATH (the composition
       # runtime). ubuntu-latest doesn't ship it; install only for that matrix
@@ -98,36 +93,6 @@ jobs:
           # tests use to skip (no venv / Metal / swift build on this runner).
           CI: "true"
         run: ${{ matrix.test-cmd }}
-
-  # ─────────────────────────────────────────────────────────────────────────
-  # Thrust A supplement — hermes-memory Bun-path spot-check (INFORMATIONAL).
-  # The matrix job above runs hermes-memory via tests/run-all.sh (tsx/Node +
-  # better-sqlite3). But the PRODUCTION runtime under pi is Bun, which uses
-  # bun:sqlite through the BunCompatDatabase shim in src/store/db.ts — a code
-  # path the tsx gate never exercises. This job runs the full suite under
-  # `bun test` on ubuntu-latest so the bun:sqlite path gets CI visibility.
-  #
-  # continue-on-error (v1): the corruption-recovery test (db.test.ts "repairs
-  # recoverable corruption") recovers rows differently under bun:sqlite than
-  # under better-sqlite3 on Linux (see .github/TEST-DETERMINISM.md D3). It
-  # passes on macOS; the Linux divergence is the known gap. Flip to blocking
-  # once reconciled — same rollout discipline as the portability/determinism
-  # audits. better-sqlite3 is now an optionalDependency, so under this pure-Bun
-  # job the Node fallback in loadDatabaseCtor() is never reached and bun:sqlite
-  # is the exercised binding.
-  hermes-memory-bun:
-    name: hermes-memory (bun, informational)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-env
-      - name: bun test (exercises bun:sqlite compat shim)
-        working-directory: bun-apps/pi-agent-ext-hermes-memory
-        env:
-          CI: "true"
-        run: bun test
 
   # ──────────────────────────────────────────────────────────────────────────
   # Thrust B — extension contract as a NAMED, visible check (not buried in the
@@ -220,10 +185,8 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      # Node IS needed here: the spot-check runs pi-agent-ext-hermes-memory's
-      # tests/run-all.sh, which shells out to `npx tsx`.
+      # All three flake-prone packages now run under `bun test` (hermes-memory
+      # dropped its Node/tsx carve-out), so no Node setup is needed here.
       - uses: ./.github/actions/setup-env
-        with:
-          setup-node: "true"
       - name: Determinism spot-check (3× flake-prone subset)
         run: bash scripts/test-determinism-spotcheck.sh
