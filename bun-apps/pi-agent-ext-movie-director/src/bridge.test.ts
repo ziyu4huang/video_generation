@@ -490,7 +490,14 @@ describe("selectAndGenerate — tts quality-first fallback (edge-tts before say)
     error: "network unreachable", cost_usd: 0, duration_seconds: 1, seed: null, model: "edge-tts",
   };
 
-  it("no provider hint + default pick is say → tries edge-tts first and uses it on success", async () => {
+  // These two rely on the REAL (unpinned) selectProvider("tts", {}) landing on
+  // "say" as the default pick — say's probe is hard-gated to
+  // process.platform === "darwin" (providers.ts, no test seam), so on
+  // non-darwin CI runners nothing resolves to "say" at all and these don't
+  // apply. The third test below (explicit provider:"say" hint) is
+  // platform-independent — an explicit hint matches statically-configured
+  // entries without going through the probe — so it still runs everywhere.
+  it.skipIf(process.platform !== "darwin")("no provider hint + default pick is say → tries edge-tts first and uses it on success", async () => {
     let sayCalled = false;
     const { entry, result } = await selectAndGenerate(
       "tts",
@@ -508,7 +515,7 @@ describe("selectAndGenerate — tts quality-first fallback (edge-tts before say)
     expect(sayCalled).toBe(false); // edge succeeded — say's adapter must never run
   });
 
-  it("edge-tts fails at runtime (e.g. no network) → falls back to the say result", async () => {
+  it.skipIf(process.platform !== "darwin")("edge-tts fails at runtime (e.g. no network) → falls back to the say result", async () => {
     const { entry, result } = await selectAndGenerate(
       "tts",
       { command: "narrate", options: { text: "hello" } },

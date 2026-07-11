@@ -67,13 +67,17 @@ describe("selectProvider", () => {
   it("a provider hint naming a NOT-configured provider is ignored (soft hint)", () => {
     // piper is a GAP (never callable); the hint is ignored and falls back to the
     // probe-based ranking. On darwin that lands on the macOS `say` fallback
-    // (macos_native, always callable); on non-darwin CI runners say's probe is
-    // false too and tts has nothing else configured (no cloud keys) → throws.
+    // (macos_native, always callable, and ranked above edge_tts's cloud_http
+    // tier). On non-darwin CI runners say's probe is false (platform-gated),
+    // but edge_tts (cloud_http, needs no key) is pinned callable by this
+    // suite's beforeAll (_setRunPyRuntimeForTest(true)) — so it, not a throw,
+    // is what the ranking falls back to there.
     if (process.platform === "darwin") {
       const e = selectProvider("tts", { provider: "piper", env: NO_ENV });
       expect(e.provider).toBe("say");
     } else {
-      expect(() => selectProvider("tts", { provider: "piper", env: NO_ENV })).toThrow(NoConfiguredProviderError);
+      const e = selectProvider("tts", { provider: "piper", env: NO_ENV });
+      expect(e.provider).toBe("edge-tts");
     }
   });
 
