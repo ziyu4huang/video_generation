@@ -46,6 +46,8 @@ import {
 	ingestRecords,
 	parseKnowledgeJsonl,
 	adaptAutoMemoryMarkdown,
+	adaptHermesMarkdown,
+	adaptGenericMarkdown,
 	collectInputFiles,
 	formatSummary,
 	type KnowledgeRecord,
@@ -964,7 +966,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 		parameters: Type.Object({
 			files: Type.Array(Type.String(), {
 				description:
-					"Paths to .knowledge.jsonl files (or memory .md when source=auto-memory). Absolute or relative to cwd. Each entry may also be a DIRECTORY — it is recursively expanded for the source's file type (.md for auto-memory/hermes, .knowledge.jsonl for workflow-jsonl); MEMORY.md/README.md index files are skipped.",
+					"Paths to input files (absolute or relative to cwd). Each entry may also be a DIRECTORY — recursively expanded for the source's file type (.md for auto-memory/hermes/generic, .knowledge.jsonl for workflow-jsonl); MEMORY.md/README.md index files are skipped. For a random .md folder, use source=generic.",
 			}),
 			dir: Type.Optional(
 				Type.String({
@@ -975,7 +977,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			source: Type.Optional(
 				Type.String({
 					description:
-						"Source family label written to each card's frontmatter (default: workflow-jsonl).",
+						"Source family: workflow-jsonl (.knowledge.jsonl), hermes (§-separated memory .md), auto-memory (name/description .md), or generic (ANY .md — the universal adapter that accepts a random .md folder). Default: workflow-jsonl.",
 					default: "workflow-jsonl",
 				}),
 			),
@@ -1078,6 +1080,15 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 					const rec = adaptAutoMemoryMarkdown(content);
 					if (!rec) {
 						parseErrors.push({ line: 0, reason: `${abs}: not a memory file` });
+						continue;
+					}
+					records.push(rec);
+				} else if (source === "generic") {
+					// generic inputs are ANY .md files (no frontmatter/H1/tag
+					// assumptions) — one record per file via the universal adapter.
+					const rec = adaptGenericMarkdown(content, abs);
+					if (!rec) {
+						parseErrors.push({ line: 0, reason: `${abs}: empty or unparseable` });
 						continue;
 					}
 					records.push(rec);

@@ -91,7 +91,7 @@ export interface KnowledgeRecord {
 	extracted_at?: string;
 }
 
-export type SourceFamily = "workflow-jsonl" | "hermes" | "auto-memory";
+export type SourceFamily = "workflow-jsonl" | "hermes" | "auto-memory" | "generic";
 
 export interface IngestOptions {
 	/** Absolute vault path (the convergence sink — single shared vault). */
@@ -170,6 +170,7 @@ const SOURCE_EXT: Record<SourceFamily, "md" | "knowledge.jsonl"> = {
 	"workflow-jsonl": "knowledge.jsonl",
 	hermes: "md",
 	"auto-memory": "md",
+	generic: "md",
 };
 
 /** Basenames to skip when expanding a directory (rollup/index files, not
@@ -498,6 +499,149 @@ export function adaptHermesMarkdown(content: string): KnowledgeRecord[] {
 		});
 	}
 	return records;
+}
+
+// ---------------------------------------------------------------------------
+// generic markdown parsing (the universal convergence source)
+// ---------------------------------------------------------------------------
+
+/** Callout-type → record-type inference. A `> [!warning]` / `[!danger]`
+ *  callout is a cheap deterministic signal that the doc is cautionary (→
+ *  avoid); any other callout (tip/info/note) defaults to `pattern`. The first
+ *  cautionary callout wins. This is ADDITIVE signal the hermes/auto-memory
+ *  adapters lack — generic markdown has no category prefix, so the body's
+ *  callouts are the only structural hint we have. */
+const CAUTION_CALLOUTS = new Set([
+	"warning", "danger", "error", "caution", "bug", "failure", "attention",
+]);
+
+/** Adapt ANY `.md` file into a `KnowledgeRecord` — the universal convergence
+ *  source. Unlike hermes (many `§` entries per file) and auto-memory (needs
+ *  `name`+`description` frontmatter), the generic adapter makes NO assumptions
+ *  about the file's shape: frontmatter, H1, tags, and callouts are all
+ *  best-effort, with filename/title fallbacks so a valid card is ALWAYS
+ *  produced (only a truly empty file returns null). This is what makes
+ *  `zk_ingest` accept a random folder of `.md` files and converge them into
+ *  the shared knowledge graph.
+ *
+ *  Mapping (composes the same primitives as the other adapters):
+ *    id          = `generic:<slug>`        (slug from H1 or filename)
+ *    type        = callout-inferred (caution→avoid) else `pattern`
+ *    title       = first `# H1`, else filename sans extension (cleaned, ≤120 chars)
+ *    detail      = body after frontmatter, `[[wiki-link]]` brackets normalized
+ *    tags        = frontmatter `tags` ∪ body `#hashtags` ∪ `[[wikilinks]]` ∪ distinctive H1 tokens
+ *    dimension   = frontmatter `type`/`category`/`dimension` (first present), else null
+ *    confidence  = 0.7 (machine-adapted, unreviewed — below human-curated sources)
+ *
+ *  Returns null ONLY for a file with no title-able content AND no body (truly
+ *  empty / whitespace). A frontmatter-less file with any prose still yields a
+ *  card, per the "graceful over strict" principle. */
+export function adaptGenericMarkdown(
+	content: string,
+	filePath: string,
+): KnowledgeRecord | null {
+	if (!content || !content.trim()) return null;
+
+	// 1. Frontmatter (optional). parseFrontmatter returns {data:{}, bodyStart:0}
+	//    for a file with no frontmatter, so `body` is the whole file in that case.
+	const { data, bodyStart } = parseFrontmatter(content);
+	const body = content.split("\n").slice(bodyStart).join("\n").trim();
+
+	// 2. Title = first H1; else filename (no extension, dashes→spaces, title-cased).
+	const h1 = body.match(/^#\s+(.+?)\s*$/m);
+	let title: string;
+	let titleSlugSrc: string;
+	if (h1 && h1[1]!.trim()) {
+		title = h1[1]!.replace(/\*\*/g, "").trim();
+		titleSlugSrc = h1[1]!;
+	} else {
+		const base = (filePath.split("/").pop() ?? "untitled").replace(/\.md$/i, "");
+		title = base
+			.replace(/[-_]+/g, " ")
+			.replace(/\b\w/g, (c) => c.toUpperCase())
+			.trim();
+		titleSlugSrc = base;
+	}
+	title = title.slice(0, 120);
+	if (!title) return null;
+
+	// 3. Detail = body with [[wiki-link]] brackets normalized to plain text
+	//    (same rationale as the other adapters: namespaced slugs diverge from
+	//    raw targets, so raw links would be dead; shared-TAG edges drive the graph).
+	const detail = body
+		? body.replace(/\[\[([^\]]+)\]\]/g, (_full, inner: string) => {
+				const parts = String(inner).split("|");
+				const target = parts[0]!.split("#")[0]!.trim();
+				const alias = parts[1]?.trim();
+				return alias || target || String(inner);
+			})
+		: body;
+
+	// 4. Tags: frontmatter tags ∪ body #hashtags ∪ [[wikilinks]] ∪ distinctive
+	//    H1 tokens (mirrors the hermes/auto-memory harvest).
+	const tagSet = new Set<string>();
+	tagSet.add("generic");
+	const fmTags = data.tags;
+	if (Array.isArray(fmTags)) {
+		for (const t of fmTags) {
+			const n = normTag(String(t));
+			if (n) tagSet.add(n);
+		}
+	} else if (typeof fmTags === "string") {
+		for (const t of String(fmTags).split(/[, ]+/)) {
+			const n = normTag(t);
+			if (n) tagSet.add(n);
+		}
+	}
+	const linkRe = /\[\[([^\]]+)\]\]/g;
+	const hashRe = /(^|[^\w/])#([a-z0-9][\w-]*)/gi;
+	let m: RegExpExecArray | null;
+	for (const line of content.split("\n")) {
+		linkRe.lastIndex = 0;
+		while ((m = linkRe.exec(line)) !== null) {
+			const t = normTag(m[1]!.split(/[#|]/)[0]!);
+			if (t) tagSet.add(t);
+		}
+		hashRe.lastIndex = 0;
+		while ((m = hashRe.exec(line)) !== null) {
+			const t = normTag(m[2]!);
+			if (t) tagSet.add(t);
+		}
+	}
+	for (const tok of titleSlugSrc.toLowerCase().split(/[^a-z0-9-]+/)) {
+		if (tok.length >= 4 && !HERMES_STOP.has(tok)) tagSet.add(tok);
+	}
+	const tags = [...tagSet].slice(0, 10);
+
+	// 5. Type: infer from callouts (caution → avoid), else pattern.
+	const feats = extractFeatures(detail);
+	const type = feats.calloutTypes.some((c) => CAUTION_CALLOUTS.has(c)) ? "avoid" : "pattern";
+
+	// 6. Dimension: frontmatter type/category/dimension (first present), else null.
+	const dimensionRaw = data.type ?? data.category ?? data.dimension;
+	const dimension =
+		typeof dimensionRaw === "string" && dimensionRaw.trim()
+			? normTag(dimensionRaw)
+			: null;
+
+	// 7. Provenance: created date from frontmatter (created/date), else undefined.
+	const created = extractDate(
+		typeof data.created === "string" ? data.created : undefined,
+		typeof data.date === "string" ? data.date : undefined,
+	);
+
+	return {
+		id: `generic:${slugify(titleSlugSrc)}`,
+		type,
+		title,
+		detail: detail || title,
+		tags,
+		dimension,
+		confidence: 0.7,
+		status: "active",
+		superseded_by: null,
+		evidence: created ? { first_seen: created, last_seen: created } : undefined,
+	};
 }
 
 // ---------------------------------------------------------------------------
