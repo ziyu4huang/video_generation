@@ -126,7 +126,7 @@ See [[self-improve-sop]]. Key rules: branch off `main`, clean tree for `fix:true
 
 ## Branch hygiene — SOP #320
 
-Run `./scripts/stale-branches.sh` after every merge (expect **0 stale** on clean repo). `--prune` deletes. Full procedure: **`branch-cleanup`** project skill.
+Run `./scripts/stale-branches.sh` after every merge (expect **0 stale** on clean repo). `--prune` deletes. For the full worktree-safe merge→cleanup flow (squash-merge, base-update sync, branch delete, prune), use `./scripts/pr-finish.sh <PR#>` (it ends by calling `stale-branches.sh`; `--dry-run` previews). Full procedure: **`branch-cleanup`** project skill.
 
 ## Vendor patches (active)
 
