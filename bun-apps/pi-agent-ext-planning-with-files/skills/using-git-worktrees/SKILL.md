@@ -80,7 +80,7 @@ bun run --cwd bun-apps/<pkg> <script>               # bun scripts
 
 Never run a bare `cd ../video_generation__<name>` at the top level of a command.
 
-## Step 4 — The keep-set (what is protected)
+## Step 4 — The keep-set + concurrent-agent safety
 
 `stale-branches.sh` never prunes the keep-set:
 - `main` (and whatever is checked out in `__cli`);
@@ -88,11 +88,19 @@ Never run a bare `cd ../video_generation__<name>` at the top level of a command.
 - any branch checked out in any worktree;
 - any branch with an open PR.
 
-Only branches **outside** this set are "stale" and prunable. Inspect with:
+**Concurrent-agent caveat:** in this multi-worktree repo the keep-set heuristics are **not
+sufficient** — another session can have an un-PR'd branch with a today-dated commit that isn't
+checked out anywhere right now. That is almost certainly **active work**, not stale. So
+`stale-branches.sh` also **refuses to prune any branch whose latest commit is ≤ 7 days old**
+unless you pass `--force`; the report flags such branches ⚠ recent. (This guard exists because
+the script once force-deleted active unmerged work.) The script is a **hint, not authority** —
+before deleting, check `git log -1 --format=%ci <branch>`; if recent, leave it.
 
 ```bash
-./scripts/stale-branches.sh                 # report
-./scripts/stale-branches.sh --prune         # delete stale local + remote
+./scripts/stale-branches.sh                 # report (⚠ recent = likely active)
+./scripts/stale-branches.sh --prune         # delete stale, KEEP ≤7d-old branches
+./scripts/stale-branches.sh --prune --force # also delete recent (use with care)
+RECENT_DAYS=N ./scripts/stale-branches.sh   # override the recency window
 ```
 
 ## Step 5 — Clean up

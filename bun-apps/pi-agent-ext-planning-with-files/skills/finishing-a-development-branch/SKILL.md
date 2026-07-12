@@ -117,11 +117,14 @@ explicit confirmation. Only then `git branch -D` (and worktree removal if you cr
 
 ```bash
 ./scripts/stale-branches.sh              # report only — expect 0 stale on a clean repo
-./scripts/stale-branches.sh --prune      # delete stale local+remote branches
+./scripts/stale-branches.sh --prune      # delete stale local+remote, KEEP ≤7d-old branches
 ```
 
 The keep-set (protected, never pruned): `main`, the current branch, any branch checked out in
-a worktree, and any branch with an open PR.
+a worktree, and any branch with an open PR. **Plus a recency guard:** in this concurrent-agent
+repo, `--prune` also refuses any branch whose latest commit is ≤ 7 days old (almost certainly
+another session's active work) unless you pass `--force`. Never `git branch -D` a branch just
+because the report lists it — check `git log -1 --format=%ci <branch>` first; if recent, leave it.
 
 **Removing a worktree:** run from the main repo root, never from *inside* the worktree being
 removed, then prune:
