@@ -5,7 +5,9 @@
 # retrospective (PRs #488/#489/#493 all hit some subset of these gotchas):
 #
 #   1. preflight  — on the PR branch, clean tree, gh present, PR mergeable
-#   2. checks     — wait for CI (gh pr checks --watch --fail-fast); abort on fail
+#   2. checks     — wait for CI: ALL checks to a FINAL state, merge only if the
+#                    final aggregate is green (NO --fail-fast — that aborts on
+#                    transient flakes that re-run green; the exact iter-7 bug)
 #   3. merge      — gh pr merge --squash; if "head not up to date", sync the
 #                   branch with origin/main, push, re-watch CI, retry the merge
 #   4. cleanup    — detach at origin/main (NOT `git checkout main` — main is
@@ -58,6 +60,30 @@ command -v gh >/dev/null 2>&1 || { echo "gh CLI is required (not on PATH)." >&2;
 run() { echo "→ $*"; [[ "$DRY_RUN" == true ]] || "$@"; }
 say()  { echo; echo "■ $*"; }
 
+# --- CI gate: wait for ALL checks, decide on the FINAL aggregate --------------
+# Plain `--watch` (NOT --fail-fast). --fail-fast exits on the FIRST check to
+# fail, which caused false aborts on transient flakes that re-run green (this
+# exact bug aborted iter-7's merge — a check briefly FAILED then resolved to
+# SUCCESS). Plain --watch waits for every check to reach a terminal state; we
+# then authoritatively confirm the JSON aggregate is all-green. The watch exit
+# code is version-dependent, so the JSON count is the real gate.
+# Returns 0 iff every check is SUCCESS / NEUTRAL / SKIPPED.
+assert_ci_green() {
+  local pr="$1" bad
+  if [[ -z "$(gh pr checks "$pr" 2>/dev/null)" ]]; then
+    echo "  (no checks configured on this PR — nothing to watch)"
+    return 0
+  fi
+  gh pr checks "$pr" --watch --interval 15 || true   # wait for all; exit code ignored
+  bad=$(gh pr checks "$pr" --json state \
+        -q '[.[]|select(.state!="SUCCESS" and .state!="NEUTRAL" and .state!="SKIPPED")]|length' \
+        2>/dev/null || echo "?")
+  if [[ "$bad" != "0" ]]; then
+    echo "CI not all-green after watch ($bad non-passing check(s)). Inspect: gh pr checks $pr" >&2
+    return 1
+  fi
+}
+
 # --- 1. preflight -------------------------------------------------------------
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 PR_HEAD=$(gh pr view "$PR_NUMBER" --json headRefName -q '.headRefName' 2>/dev/null) || {
@@ -85,18 +111,9 @@ run git fetch "$REMOTE" --prune
 if [[ "$NO_CHECKS" == true ]]; then
   say "Skipping CI watch (--no-checks)."
 else
-  say "Watching CI on PR #$PR_NUMBER (gh pr checks --watch --fail-fast)…"
+  say "Watching CI on PR #$PR_NUMBER (wait for ALL checks; tolerate transient flakes)…"
   if [[ "$DRY_RUN" != true ]]; then
-    # If the repo has no checks configured, --watch exits non-zero immediately;
-    # treat an empty check list as "nothing to wait for" rather than failure.
-    if [[ -n "$(gh pr checks "$PR_NUMBER" 2>/dev/null)" ]]; then
-      if ! gh pr checks "$PR_NUMBER" --watch --interval 15 --fail-fast; then
-        echo "CI checks did not pass. Fix/rerun the failing job, then re-run this script." >&2
-        exit 1
-      fi
-    else
-      echo "  (no checks configured on this PR — nothing to watch)"
-    fi
+    assert_ci_green "$PR_NUMBER" || exit 1
   fi
 fi
 
@@ -138,8 +155,7 @@ if [[ "$DRY_RUN" != true ]]; then
         fi
         sleep 3
       done
-      gh pr checks "$PR_NUMBER" --watch --interval 15 --fail-fast \
-        || { echo "CI failed after base-update. Aborting." >&2; exit 1; }
+      assert_ci_green "$PR_NUMBER" || { echo "CI failed after base-update. Aborting." >&2; exit 1; }
     fi
     say "Re-merging…"
     try_merge && rc=0 || rc=$?
