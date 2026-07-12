@@ -24,6 +24,7 @@ import {
 	formatHealth,
 } from "../src/retrieve.ts";
 import { buildRagTask } from "../extensions/pi-knowledge-card.ts";
+import type { Embedder } from "../src/semantic.ts";
 
 let vault: string;
 const FOLDER = "Zettelkasten/knowledge-graph";
@@ -506,5 +507,64 @@ describe("formatHealth", () => {
 		expect(out).toContain("status:");
 		expect(out).toContain("dead-links:");
 		expect(out).toContain("card(s)");
+	});
+});
+
+describe("retrieveRecords trace (Phase C observability)", () => {
+	test("includeTrace omitted → trace undefined (drift-guard: byte-identical)", async () => {
+		await ingest([rec({ id: "t:a", title: "A", tags: ["argv"] })]);
+		const r = await retrieveRecords({ vaultPath: vault, folder: FOLDER, tags: ["argv"], topK: 4, bodyMatch: true });
+		expect(r.trace).toBeUndefined();
+	});
+
+	test("includeTrace:false → trace undefined (same as omitted)", async () => {
+		await ingest([rec({ id: "t:a", title: "A", tags: ["argv"] })]);
+		const r = await retrieveRecords({ vaultPath: vault, folder: FOLDER, tags: ["argv"], topK: 4, bodyMatch: true, includeTrace: false });
+		expect(r.trace).toBeUndefined();
+	});
+
+	test("includeTrace:true (lexical path) → trace present, semanticUsed=false, source='lexical', scores in rank order", async () => {
+		await ingest([
+			rec({ id: "t:a", title: "A argv", tags: ["argv"] }),
+			rec({ id: "t:b", title: "B argv extra", tags: ["argv", "extra"] }),
+		]);
+		const r = await retrieveRecords({ vaultPath: vault, folder: FOLDER, tags: ["argv"], topK: 4, bodyMatch: true, includeTrace: true });
+		expect(r.trace).toBeDefined();
+		expect(r.trace!.semanticUsed).toBe(false);
+		expect(r.trace!.candidatePool).toBeGreaterThan(0);
+		expect(r.trace!.options.bodyMatch).toBe(true);
+		expect(r.trace!.cards.length).toBe(r.cards.length);
+		for (const c of r.trace!.cards) expect(c.source).toBe("lexical");
+		const scores = r.trace!.cards.map((c) => c.score);
+		for (let i = 1; i < scores.length; i++) expect(scores[i]).toBeLessThanOrEqual(scores[i - 1]);
+		expect(r.trace!.cards.every((c) => Number.isFinite(c.sharedTags))).toBe(true);
+	});
+
+	test("includeTrace:true (semantic path) → semanticUsed=true, source classifies both vs semantic", async () => {
+		// lex = lexical hit (tag 'argv'); sem = ZERO tag overlap, surfaces only via
+		// vector nearness (semantic-only). The injected embedder puts sem near the query.
+		await ingest([
+			rec({ id: "t:lex", title: "Lexical argv card", tags: ["argv"], detail: "plain" }),
+			rec({ id: "t:sem", title: "Semantic zzz card", tags: ["zzz"], detail: "plain" }),
+		]);
+		const emb: Embedder = async (texts) => texts.map((t) => (/zzz/i.test(t) ? [1, 0] : [0, 1]));
+		const r = await retrieveRecords({
+			vaultPath: vault, folder: FOLDER, tags: ["argv"], queryText: "zzz query",
+			topK: 4, semantic: true, _testEmbedder: emb, includeTrace: true,
+		});
+		expect(r.trace).toBeDefined();
+		expect(r.trace!.semanticUsed).toBe(true);
+		expect(r.trace!.options.semantic).toBe(true);
+		const byId = new Map(r.trace!.cards.map((c) => [c.id, c]));
+		// With 2 cards both land in the semantic top-12, so the lexical card is
+		// 'both' (in lexPool AND semTop); the zero-tag-overlap card is 'semantic'.
+		expect(byId.get("t:lex")!.source).toBe("both");
+		expect(byId.get("t:sem")!.source).toBe("semantic");
+		// the semantic-gap card (cosNorm 1, α=0.18 → 0.82) outranks the lexical-only
+		// card (lexRank 1, cosNorm 0 → 0.18) — proven by rank order in the trace.
+		const semRank = r.trace!.cards.findIndex((c) => c.id === "t:sem");
+		const lexRank = r.trace!.cards.findIndex((c) => c.id === "t:lex");
+		expect(semRank).toBeLessThan(lexRank);
+		expect(r.trace!.cards[semRank].score).toBeGreaterThan(r.trace!.cards[lexRank].score);
 	});
 });
