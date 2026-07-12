@@ -45,7 +45,7 @@ import { probedMenuSummary } from "./providers.ts";
 import { projectDir } from "./paths.ts";
 import { composeVideo, finalReview, type EditDecisions } from "./compose.ts";
 import { renderRemotion, type RemotionEditDecisions } from "./remotion.ts";
-import { composeMotion } from "./compose_motion.ts";
+import { composeMotion, type MotionDeps } from "./compose_motion.ts";
 import { preComposeGate } from "./precompose-gate.ts";
 
 /** The canonical 18 orchestration commands (also the CLI's command surface). */
@@ -314,7 +314,17 @@ async function enforcePreCompose(
 
 export type DispatchResult = { ok: true; text: string } | { ok: false; error: string };
 
-export async function dispatch(command: Command, opts: Record<string, unknown>): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+/**
+ * Optional dependency-injection bag for dispatch(). Tests inject a fake
+ * spawnImpl here so composeMotion runs its real logic against a stubbed
+ * ffmpeg (no host-binary coupling). Production callers omit this entirely.
+ */
+export interface DispatchDeps {
+	/** Forwarded to composeMotion() as its MotionDeps (e.g. { spawnImpl }). */
+	composeMotionDeps?: MotionDeps;
+}
+
+export async function dispatch(command: Command, opts: Record<string, unknown>, deps?: DispatchDeps): Promise<DispatchResult> {
   try {
     switch (command) {
       case "preflight":
@@ -581,6 +591,14 @@ export async function dispatch(command: Command, opts: Record<string, unknown>):
         const preComposeCheck = await enforcePreCompose(edit, opts);
         if (preComposeCheck) return preComposeCheck;
         const workDir = opts.workDir ? String(opts.workDir) : projectDir(String(opts.projectId ?? "_compose_motion"));
+        // Forward captions — mirrors the `compose` case. composeMotion()'s
+        // captions sub-pass burns/sidecars the SRT via the shared ladder
+        // (libass → drawtext → sidecar). Without this, the CLI/agent dropped
+        // the param and captions silently vanished (the PR #522 demo
+        // workaround used a sidecar SRT outside the composer).
+        const captions = opts.captions
+          ? { srtPath: String((opts.captions as Record<string, unknown>).srtPath ?? ""), burn: (opts.captions as Record<string, unknown>).burn !== false }
+          : undefined;
         const report = await composeMotion(edit, {
           workDir,
           output: opts.output ? String(opts.output) : undefined,
@@ -588,7 +606,8 @@ export async function dispatch(command: Command, opts: Record<string, unknown>):
           height: opts.height ? Number(opts.height) : undefined,
           fps: opts.fps ? Number(opts.fps) : undefined,
           transitionSeconds: opts.transitionSeconds ? Number(opts.transitionSeconds) : undefined,
-        });
+          captions,
+        }, deps?.composeMotionDeps);
         return { ok: true, text: jsonOut(report) };
       }
       case "pre-compose": {
