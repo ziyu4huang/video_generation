@@ -133,7 +133,10 @@ const COMMAND_REFERENCE = [
   "  • generate         — {capability, command, options?, provider?, projectId?, ...} → selects a configured native director",
   "                        (krea2/flux2/ltx), runs it, returns a ToolResult {success, artifacts[], cost_usd, duration_seconds,",
   "                        seed, model}. When projectId is given, the full estimate→reserve→reconcile cost lifecycle runs and",
-  "                        the costEntryId is returned alongside. This is the assets-stage bridge: it actually produces files.",
+  "                        the costEntryId is returned alongside. Optionally pass `pipeline` to seed a brand-new project's",
+  "                        budget from that pipeline's orchestration.budget_default_usd (only applies the first time a cost",
+  "                        log is created for the project; ignored once one exists). This is the assets-stage bridge: it",
+  "                        actually produces files.",
   "                        capability:'analysis' — `command` selects the analysis subcommand (whisper owns `transcribe`, clip",
   "                        owns `video_understand`). For VISUAL content analysis (what is shown on screen) use",
   "                        command:'video_understand' options:{video, prompt, labels?, numFrames?, model?} → CLIP",
@@ -234,7 +237,8 @@ const COMMAND_REFERENCE = [
   "                        the transcript check itself stays advisory). Pass narration:'none' (from the script artifact's",
   "                        top-level `narration` field) when the story is intentionally silent/ambient-only, so a genuinely",
   "                        silent track scores audio_level='warn' instead of 'fail'.",
-  "  • cost-estimate    — {projectId, tool, operation, estimatedUsd} → entryId.",
+  "  • cost-estimate    — {projectId, tool, operation, estimatedUsd, pipeline?} → entryId. pipeline seeds a brand-new",
+  "                        project's budget from orchestration.budget_default_usd (first call only, see `generate`).",
   "  • cost-reserve     — {projectId, entryId} → reserves budget (cap mode raises BudgetExceededError).",
   "  • cost-reconcile   — {projectId, entryId, actualUsd, success} → settles the reservation.",
   "  • cost-snapshot    — {projectId} → {total_spent_usd, total_reserved_usd, budget_remaining_usd}.",
@@ -429,7 +433,7 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
         if (projectId) {
           const estimated = Number(opts.estimatedUsd ?? 0);
           try {
-            costEntryId = costEstimate(projectId, entry.provider, operation, estimated);
+            costEntryId = costEstimate(projectId, entry.provider, operation, estimated, undefined, opts.pipeline ? String(opts.pipeline) : undefined);
             costReserve(projectId, costEntryId);
           } catch {
             // observe mode never throws; in cap mode a budget breach SHOULD block.
@@ -547,7 +551,14 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
         return { ok: true, text: jsonOut(review) };
       }
       case "cost-estimate": {
-        const id = costEstimate(String(opts.projectId ?? ""), String(opts.tool ?? ""), String(opts.operation ?? ""), Number(opts.estimatedUsd ?? 0));
+        const id = costEstimate(
+          String(opts.projectId ?? ""),
+          String(opts.tool ?? ""),
+          String(opts.operation ?? ""),
+          Number(opts.estimatedUsd ?? 0),
+          undefined,
+          opts.pipeline ? String(opts.pipeline) : undefined,
+        );
         return { ok: true, text: jsonOut({ entryId: id }) };
       }
       case "cost-reserve": {
