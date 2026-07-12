@@ -29,21 +29,24 @@
 export type NumericField =
 	| "maxNotes" | "contextLines" | "retries" | "retryWaitSec" | "limit"
 	| "depth" | "maxNeighbors" | "topK" | "maxNoteTokens" | "threshold"
-	| "recency";
+	| "recency"
+	| "maxRounds" | "consecutiveEmpty" | "maxLinks";
 
 export type ValueField =
 	| "provider" | "model" | "thinking" | "apiKey" | "systemPrompt"
 	| "vault" | "vaultDir" | "folder" | "out" | "type" | "pages" | "file"
 	| "vlmModel" | "source" | "sourceLabel"
 	| "tags" | "excludeFromKb" | "excludeIds" | "workflowArgs" | "blend"
-	| "proxy" | "outputPath" | "hermesDir" | "vaultRoot" | "order";
+	| "proxy" | "outputPath" | "hermesDir" | "vaultRoot" | "order"
+	| "linkWeighting" | "probeEval";
 
 export type BoolField =
 	| "retrieveOnly" | "summarize" | "noRefine" | "force" | "noContext"
 	| "forceDistill" | "deletePng" | "noSession" | "print" | "noTools"
 	| "noBuiltinTools" | "dryRun" | "health" | "fix" | "json"
 	| "noPersistLogs" | "mergeDuplicates" | "save"
-	| "popular";
+	| "popular"
+	| "wikiAware" | "healOnly" | "noProbe";
 
 // ── spec row shapes ─────────────────────────────────────────────────────────
 
@@ -126,6 +129,12 @@ const WORKFLOW_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	{ flag: "--args", field: "workflowArgs" },
 ];
 
+// ── kcard-loop — convergence loop tuning (link-weighting shared with zk-ingest) ─
+const KCARD_LOOP_VALUE_FLAGS: readonly ValueFlagSpec[] = [
+	{ flag: "--link-weighting", field: "linkWeighting" }, // also fixes zk-ingest's latent gap (flag was documented but never parsed)
+	{ flag: "--probe-eval", field: "probeEval" },
+];
+
 // ── research-tool (collect-videos / import-memory / organize-vault) ──────────
 const RESEARCH_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	{ flag: "--proxy", field: "proxy" }, // collect-videos
@@ -147,6 +156,7 @@ export const VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	...PDF_VALUE_FLAGS,
 	...WORKFLOW_VALUE_FLAGS,
 	...RESEARCH_VALUE_FLAGS,
+	...KCARD_LOOP_VALUE_FLAGS,
 ];
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -183,6 +193,13 @@ const ZK_QUERY_NUM_FLAGS: readonly NumericFlagSpec[] = [
 	{ flag: "--threshold", field: "threshold", example: "0.9" },
 ];
 
+// ── kcard-loop — heal-loop tuning ───────────────────────────────────────────
+const KCARD_LOOP_NUM_FLAGS: readonly NumericFlagSpec[] = [
+	{ flag: "--max-rounds", field: "maxRounds", example: "8" },
+	{ flag: "--consecutive-empty", field: "consecutiveEmpty", example: "2" },
+	{ flag: "--max-links", field: "maxLinks", example: "20" },
+];
+
 // ── research-tool (collect-videos) — recency window ─────────────────────────
 const RESEARCH_NUM_FLAGS: readonly NumericFlagSpec[] = [
 	{ flag: "--recency", field: "recency", example: "30" },
@@ -196,6 +213,7 @@ export const NUMERIC_FLAGS: readonly NumericFlagSpec[] = [
 	...PDF_NUM_FLAGS,
 	...ZK_QUERY_NUM_FLAGS,
 	...RESEARCH_NUM_FLAGS,
+	...KCARD_LOOP_NUM_FLAGS,
 ];
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -248,6 +266,13 @@ const KNOWLEDGE_PIPELINE_BOOL_FLAGS: readonly BoolFlagSpec[] = [
 	{ flags: ["--save"], field: "save" },
 ];
 
+// ── kcard-loop — ingest/heal/probe control ──────────────────────────────────
+const KCARD_LOOP_BOOL_FLAGS: readonly BoolFlagSpec[] = [
+	{ flags: ["--wiki-aware"], field: "wikiAware" },
+	{ flags: ["--heal-only"], field: "healOnly" },
+	{ flags: ["--no-probe"], field: "noProbe" },
+];
+
 // ── research-tool (collect-videos) — popular feed ───────────────────────────
 const RESEARCH_BOOL_FLAGS: readonly BoolFlagSpec[] = [
 	{ flags: ["--popular"], field: "popular" },
@@ -263,6 +288,7 @@ export const BOOLEAN_FLAGS: readonly BoolFlagSpec[] = [
 	...WORKFLOW_BOOL_FLAGS,
 	...KNOWLEDGE_PIPELINE_BOOL_FLAGS,
 	...RESEARCH_BOOL_FLAGS,
+	...KCARD_LOOP_BOOL_FLAGS,
 ];
 
 /** Ignored boolean flags (pi-compat no-ops; self-trusted / extensions baked in). */
