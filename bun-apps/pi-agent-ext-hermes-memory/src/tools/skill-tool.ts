@@ -7,7 +7,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { SkillStore } from "../store/skill-store.js";
-import { SKILL_TOOL_DESCRIPTION } from "../constants.js";
+import { SKILL_TOOL_DESCRIPTION, SKILL_REFERENCE_TEXT } from "../constants.js";
 
 function normalizeTextList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -272,6 +272,27 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
       return {
         content: [{ type: "text", text: JSON.stringify(result) }],
         details: result,
+      };
+    },
+  });
+
+  // ── On-demand help tool (~80 tok schema) ────────────────────────────
+  // Returns per-action reference text. Reads the SAME SKILL_REFERENCE_TEXT
+  // the terse routing description defers — single-sourced, no drift.
+  pi.registerTool({
+    name: "skill_manage_help",
+    label: "Skill Manage Reference",
+    description:
+      "On-demand reference for the `skill_manage` tool. Call to get the full " +
+      "per-action semantics (what each action does, required fields, constraints). " +
+      "Executes no skill operation.",
+    promptSnippet:
+      "Look up skill_manage action details on demand.",
+    parameters: Type.Object({}),
+    async execute(_id, _params) {
+      return {
+        content: [{ type: "text", text: SKILL_REFERENCE_TEXT }],
+        details: { ok: true, reference: "skill_manage" },
       };
     },
   });
