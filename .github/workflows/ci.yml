@@ -190,14 +190,30 @@ jobs:
   # detection backstop. See .github/TEST-DETERMINISM.md.
   # ──────────────────────────────────────────────────────────────────────
   determinism-spotcheck:
-    name: determinism spot-check
+    name: determinism · ${{ matrix.package }}
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 6
     continue-on-error: true
+    # Matrix the 3 flake-prone packages into PARALLEL runner jobs instead of
+    # running them serially in one job. Each job runs its package's test command
+    # 3× (REPEATS=3) and flags any differing outcome as a flake. Why matrix over
+    # script-level backgrounding: the workflow package rebuilds its gitignored
+    # dist/ as part of its command, which would race with sibling packages that
+    # import from it if they shared a runner. Separate runners = separate
+    # checkouts, no shared-writable state. The check name changes from a single
+    # "determinism spot-check" to 3 "determinism · <package>" rows — fine for an
+    # informational (continue-on-error) job; revisit if/when this flips blocking.
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - pi-agent-ext-hermes-memory
+          - pi-agent-ext-workflow
+          - pi-agent-ext-obsidian
     steps:
       - uses: actions/checkout@v4
       # All three flake-prone packages now run under `bun test` (hermes-memory
       # dropped its Node/tsx carve-out), so no Node setup is needed here.
       - uses: ./.github/actions/setup-env
-      - name: Determinism spot-check (3× flake-prone subset)
-        run: bash scripts/test-determinism-spotcheck.sh
+      - name: Determinism spot-check (3× ${{ matrix.package }})
+        run: bash scripts/test-determinism-spotcheck.sh "${{ matrix.package }}"
