@@ -44,6 +44,7 @@ jobs:
           - { package: pi-agent-ext-ltx, test-cmd: "bun test" }
           - { package: pi-agent-ext-movie-director, test-cmd: "bun test" }
           - { package: pi-agent-ext-power-tool, test-cmd: "bun test" }
+          - { package: pi-agent-ext-btw, test-cmd: "bun test" }
           - { package: pi-agent-ext-web-access, test-cmd: "bun test" }
           - { package: pi-agent-ext-planning-with-files, test-cmd: "bun test" }
           - { package: pi-agent-ext-vlm, test-cmd: "bun test" }

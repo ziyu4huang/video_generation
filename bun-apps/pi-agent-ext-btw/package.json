@@ -1,0 +1,29 @@
+{
+  "name": "@repo/pi-agent-ext-btw",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pi extension: BTW side-conversation channel — a focused modal for parallel Q&A without polluting the main agent context. Extracted from pi-agent-ext-power-tool.",
+  "license": "MIT",
+  "keywords": ["pi-package", "btw", "side-conversation"],
+  "type": "module",
+  "exports": {
+    "./extensions/*": "./extensions/*",
+    "./src/*": "./src/*"
+  },
+  "pi": {
+    "extensions": ["./extensions"]
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^6.0.3"
+  }
+}
