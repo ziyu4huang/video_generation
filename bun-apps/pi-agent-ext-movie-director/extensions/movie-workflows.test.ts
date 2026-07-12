@@ -17,7 +17,7 @@ import { buildMovieHostFnRegistry } from "../src/host-fns.ts";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WORKFLOWS_DIR = join(HERE, "..", "workflows");
 
-const workflowFiles = readdirSync(WORKFLOWS_DIR).filter((f) => f.endsWith(".js"));
+const workflowFiles = readdirSync(WORKFLOWS_DIR).filter((f) => f.endsWith(".js") && !f.startsWith("_"));
 
 describe("movie-director saved workflows (structural)", () => {
   const registry = buildMovieHostFnRegistry();
