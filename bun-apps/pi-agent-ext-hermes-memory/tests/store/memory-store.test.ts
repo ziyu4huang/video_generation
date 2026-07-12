@@ -103,22 +103,16 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     } catch { /* ignore */ }
   });
 
-  /** Wait for fire-and-forget atomic write to settle. */
-  async function settle(): Promise<void> {
-    await new Promise((r) => setTimeout(r, 200));
-  }
-
-  /** Aggressively clean both memory files and wait for pending writes. */
+  /** Remove both memory files. No sleep is needed: every test awaits its
+   *  mutations (add / replace / remove all await saveToDisk via runExclusive),
+   *  so by the time this runs in before/afterEach no write is in flight. The
+   *  old arbitrary setTimeout polls here were stale insurance from a prior
+   *  fire-and-forget write design that no longer exists — they cost ~600ms per
+   *  test (~24s across the suite) for nothing. */
   async function cleanSlate(): Promise<void> {
     await removeFile(memoryPath);
     await removeFile(userPath);
     await removeFile(failurePath);
-    await new Promise((r) => setTimeout(r, 250));
-    // Remove again in case a pending write sneaked in during the wait
-    await removeFile(memoryPath);
-    await removeFile(userPath);
-    await removeFile(failurePath);
-    await new Promise((r) => setTimeout(r, 50));
   }
 
   beforeEach(async () => {
@@ -137,7 +131,6 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       await store.loadFromDisk();
 
       const result = await await store.add("memory", `${TEST_MARKER} project uses pnpm`);
-      await settle();
 
       assert.ok(result.success);
       assert.equal(result.target, "memory");
@@ -161,7 +154,6 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.equal(r1.entry_count, 1);
 
       const r2 = await store.add("memory", entry);
-      await settle();
 
       assert.ok(r2.success);
       assert.equal(r2.entry_count, 1);
@@ -177,7 +169,6 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       await store.loadFromDisk();
 
       const result = await await store.add("memory", `${TEST_MARKER} ${"x".repeat(60)}`);
-      await settle();
 
       assert.ok(!result.success);
       assert.ok(result.error);
@@ -199,7 +190,6 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       await store.loadFromDisk();
 
       const result = await store.add("memory", `${TEST_MARKER} ${"x".repeat(60)}`);
-      await settle();
 
       assert.ok(!result.success);
       assert.equal(consolidatorCalled, false);
@@ -227,7 +217,6 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.ok((await store.add("memory", second)).success);
 
       const result = await store.add("memory", next);
-      await settle();
 
       assert.ok(result.success, result.error);
       assert.equal(consolidatorCalled, false);
@@ -254,7 +243,6 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.ok((await store.add("memory", existing)).success);
 
       const result = await store.add("memory", `${TEST_MARKER} ${"x".repeat(120)}`);
-      await settle();
 
       assert.ok(!result.success);
       assert.ok(result.error!.includes("exceed the limit"));
@@ -275,7 +263,6 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       await store.loadFromDisk();
 
       const result = await await store.add("user", `${TEST_MARKER} prefers dark mode`);
-      await settle();
 
       assert.ok(result.success);
       assert.equal(result.target, "user");
@@ -292,7 +279,6 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       await store.loadFromDisk();
 
       const result = await await store.add("memory", `${TEST_MARKER} uses node 22`);
-      await settle();
 
       assert.ok(result.success);
       assert.equal(result.target, "memory");
@@ -307,7 +293,6 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       const entry = `${TEST_MARKER} section divider${ENTRY_DELIMITER}continued`;
       const result = await await store.add("memory", entry);
-      await settle();
 
       assert.ok(result.success);
       assert.equal(result.entry_count, 1);
@@ -319,7 +304,6 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       const entry = `${TEST_MARKER} 日本語テスト 🧪`;
       const result = await await store.add("memory", entry);
-      await settle();
 
       assert.ok(result.success);
       assert.equal(result.entry_count, 1);
@@ -333,7 +317,6 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       // Account for metadata overhead (~45 chars for <!-- created=..., last=... -->)
       const entry = `${TEST_MARKER} ${"a".repeat(limit - 100)}`;
       const result = await await store.add("memory", entry);
-      await settle();
 
       assert.ok(result.success, `Expected success but got error: ${result.error}`);
     });
@@ -344,11 +327,9 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       const r1 = await store.add("memory", `${TEST_MARKER} first entry`);
       assert.ok(r1.success, `First add failed: ${r1.error}`);
-      await settle();
 
       const r2 = await store.add("memory", `${TEST_MARKER} second entry`);
       assert.ok(r2.success, `Second add failed: ${r2.error}`);
-      await settle();
 
       assert.equal(r2.entry_count, 2);
 
@@ -366,7 +347,6 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const result = await store.addFailure(`${TEST_MARKER} ${"x".repeat(120)}`, {
         category: "failure",
       });
-      await settle();
 
       assert.ok(!result.success);
       assert.ok(result.error);
@@ -385,7 +365,6 @@ describe("MemoryStore", { concurrency: 1 }, () => {
         category: "correction",
         failureReason: "npm rewrote the lockfile",
       });
-      await settle();
 
       assert.ok(first.success);
       assert.equal(first.message, "Failure memory saved: correction");
@@ -407,10 +386,8 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       await store.loadFromDisk();
 
       await store.add("memory", `${TEST_MARKER} uses vim`);
-      await settle();
 
       const result = await store.replace("memory", `${TEST_MARKER} uses vim`, `${TEST_MARKER} uses neovim`);
-      await settle();
 
       assert.ok(result.success);
       assert.equal(result.message, "Entry replaced.");
@@ -426,10 +403,8 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       await store.loadFromDisk();
 
       await store.add("memory", `${TEST_MARKER} some entry`);
-      await settle();
 
       const result = await store.replace("memory", "nonexistent substring", "new content");
-      await settle();
 
       assert.ok(!result.success);
       assert.ok(result.error!.includes("No entry matched"));
@@ -441,10 +416,8 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       await store.add("memory", `${TEST_MARKER} config: port=8080`);
       await store.add("memory", `${TEST_MARKER} config: port=9090`);
-      await settle();
 
       const result = await store.replace("memory", "config:", `${TEST_MARKER} unified config`);
-      await settle();
 
       assert.ok(!result.success);
       assert.ok(result.error!.includes("Multiple entries matched"));
@@ -482,10 +455,8 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       await store.add("memory", `${TEST_MARKER} to be removed`);
       await store.add("memory", `${TEST_MARKER} to keep`);
-      await settle();
 
       const result = await store.remove("memory", `${TEST_MARKER} to be removed`);
-      await settle();
 
       assert.ok(result.success);
       assert.equal(result.message, "Entry removed.");
@@ -502,10 +473,8 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       await store.loadFromDisk();
 
       await store.add("memory", `${TEST_MARKER} prefers pnpm over npm`);
-      await settle();
 
       const result = await store.remove("memory", `🧠 [global] ${TEST_MARKER} prefers pnpm over npm\n   Created: 2026-05-27 | Last used: 2026-05-27`);
-      await settle();
 
       assert.ok(result.success);
       const raw = await readRaw(memoryPath);
@@ -520,13 +489,11 @@ describe("MemoryStore", { concurrency: 1 }, () => {
         category: "correction",
         failureReason: "npm rewrote the lockfile",
       });
-      await settle();
 
       const result = await store.remove(
         "failure",
         `⚠️ [global] [correction] [correction] ${TEST_MARKER} use pnpm\n   Created: 2026-05-27 | Last used: 2026-05-27`,
       );
-      await settle();
 
       assert.ok(result.success);
       const raw = await readRaw(failurePath);
@@ -538,10 +505,8 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       await store.loadFromDisk();
 
       await store.add("memory", `${TEST_MARKER} existing`);
-      await settle();
 
       const result = await store.remove("memory", "nonexistent");
-      await settle();
 
       assert.ok(!result.success);
       assert.ok(result.error!.includes("No entry matched"));
@@ -726,9 +691,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       ];
 
       await store.add("memory", entries[0]);
-      await settle();
       await store.add("memory", entries[1]);
-      await settle();
 
 
       const raw = await readRaw(memoryPath);
@@ -744,13 +707,11 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       await store.loadFromDisk();
 
       await store.add("memory", `${TEST_MARKER} temporary entry`);
-      await settle();
 
       let raw = await readRaw(memoryPath);
       assert.ok(raw.length > 0);
 
       await store.remove("memory", `${TEST_MARKER} temporary entry`);
-      await settle();
 
       raw = await readRaw(memoryPath);
       assert.equal(raw.trim(), "");
@@ -766,7 +727,6 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       await store.add("user", `${TEST_MARKER} user fact`);
       await store.add("memory", `${TEST_MARKER} memory fact`);
-      await settle();
 
       const userRaw = await readRaw(userPath);
       const memRaw = await readRaw(memoryPath);
@@ -796,12 +756,10 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       const big = `${TEST_MARKER} ${"x".repeat(100)}`;
       assert.ok((await store.add("memory", big)).success, "big entry should fit initially");
-      await settle();
 
       // EXTERNALLY shrink the file (simulate cross-session removal / dedup that
       // rewrote the .md). This does NOT refresh the in-memory cache.
       await writeRaw(memoryPath, "");
-      await settle();
 
       // The cache is still stale (reflects pre-shrink content) — proves the
       // external edit did not auto-refresh the store.
@@ -810,7 +768,6 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       // A new entry that could NOT have fit before the shrink but CAN after.
       const fresh = `${TEST_MARKER} fresh after external shrink`;
       const result = await store.add("memory", fresh);
-      await settle();
 
       assert.ok(result.success, `Expected add to succeed after external shrink, but got: ${result.error}`);
 
@@ -824,13 +781,11 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       await store.loadFromDisk();
 
       await store.add("memory", `${TEST_MARKER} alpha`);
-      await settle();
       const countAfterFirstLoad = store.charCount("memory");
       assert.ok(countAfterFirstLoad > 0);
 
       // Externally rewrite the file with different content.
       await writeRaw(memoryPath, `${TEST_MARKER} externally rewritten`);
-      await settle();
 
       // Trigger an op whose reload-path refreshes in-memory state (replace
       // reloads at its top even though the lookup below won't match).
@@ -850,11 +805,9 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       // Externally add an entry the store does not yet know about.
       await writeRaw(memoryPath, `${TEST_MARKER} externally added line`);
-      await settle();
 
       // Without reload, replace could not match it (stale empty cache).
       const result = await store.replace("memory", "externally added line", `${TEST_MARKER} externally replaced line`);
-      await settle();
 
       assert.ok(result.success, `Expected replace to see the externally-added entry, but got: ${result.error}`);
       const raw = await readRaw(memoryPath);
@@ -873,7 +826,6 @@ describe("MemoryStore", { concurrency: 1 }, () => {
         store.add("memory", `${TEST_MARKER} concurrent A`),
         store.add("memory", `${TEST_MARKER} concurrent B`),
       ]);
-      await settle();
 
       assert.ok(a.success, `concurrent A failed: ${a.error}`);
       assert.ok(b.success, `concurrent B failed: ${b.error}`);
