@@ -25,6 +25,7 @@ const DEFAULTS = {
   errorRateMinCalls: 4,
   consecutiveErrorThreshold: 3,
   saturationPercent: 85,
+  longSessionTurnThreshold: 15,
 } as const;
 
 /** The threshold subset of PathologyInput, fully resolved with defaults. */
@@ -35,6 +36,7 @@ interface ResolvedOpts {
   errorRateMinCalls: number;
   consecutiveErrorThreshold: number;
   saturationPercent: number;
+  longSessionTurnThreshold: number;
 }
 
 /** Hard cap on an args signature's length — keeps loop keys cheap to compare. */
@@ -162,6 +164,23 @@ function detectSaturation(contextPercent: number | null, opts: ResolvedOpts): Fi
   ];
 }
 
+/** 🟡 long-session recall risk — many completed turns → context-loss / goal-drift risk.
+ *  Deterministic proxy (studies show a 15–30% recall drop beyond ~10 turns). The
+ *  true LLM-judged goal-drift / silent-degradation modes need a runtime model call,
+ *  which this repo's --offline (zero-egress) discipline rules out for a diagnostic —
+ *  so v2 ships this deterministic hint; exact judgment remains a future step. */
+function detectLongSession(turnCount: number | null, opts: ResolvedOpts): Finding[] {
+  if (turnCount == null || turnCount < opts.longSessionTurnThreshold) return [];
+  return [
+    {
+      severity: "medium",
+      check: "long-session-recall-risk",
+      message: `${turnCount} turns completed — long sessions show ~15–30% recall drop; consider re-stating key constraints`,
+      detail: { turnCount },
+    },
+  ];
+}
+
 // ─── entry point ─────────────────────────────────────────────────────────────
 
 /**
@@ -179,6 +198,7 @@ export function analyzePathology(raw: PathologyInput): Finding[] {
     errorRateMinCalls: raw.errorRateMinCalls ?? DEFAULTS.errorRateMinCalls,
     consecutiveErrorThreshold: raw.consecutiveErrorThreshold ?? DEFAULTS.consecutiveErrorThreshold,
     saturationPercent: raw.saturationPercent ?? DEFAULTS.saturationPercent,
+    longSessionTurnThreshold: raw.longSessionTurnThreshold ?? DEFAULTS.longSessionTurnThreshold,
   };
 
   const calls = raw.calls;
@@ -187,6 +207,7 @@ export function analyzePathology(raw: PathologyInput): Finding[] {
     ...detectConsecutiveErrors(calls, opts),
     ...detectErrorStorm(calls, opts),
     ...detectSaturation(raw.contextPercent, opts),
+    ...detectLongSession(raw.turnCount ?? null, opts),
   ];
 
   // ℹ️ session stats — awareness only, never counted as actionable.

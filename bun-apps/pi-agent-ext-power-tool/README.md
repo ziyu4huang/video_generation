@@ -228,6 +228,7 @@ ranked report reusing the `inspect_extensions` Severity framework.
 | 🔴 high | `consecutive-error` | A tool failing ≥ K× in a row (rage-quit / strategy not updated) |
 | 🟡 medium | `error-storm` | A tool whose error rate ≥ threshold with enough calls — chronic failure |
 | 🟡 medium | `context-saturation` | Context window fill ≥ percent threshold — recall / quality-degradation risk in long sessions |
+| 🟡 medium | `long-session-recall-risk` | Completed turns ≥ threshold (default 15) — deterministic proxy for goal-drift / context-loss risk (studies show ~15–30% recall drop >10 turns) |
 | ℹ️ info | `session-stats` | Call/error/tool counts — awareness only, never actionable |
 
 **Parameters:**
@@ -253,8 +254,7 @@ signature (warns once per active episode, re-warns on recurrence). Medium modes
 (error-storm, saturation) stay on-demand only. Silently no-ops in print mode
 (no UI).
 
-**Out of scope (v2, separate plan):** the LLM-judged modes — goal drift, context
-loss, silent quality degradation — need an LLM-as-judge call and are deferred.
+**Scope note (v2):** v2 ships DETERMINISTIC only — the long-session recall-risk detector above. The true LLM-judged modes (exact goal-drift via reasoning comparison, silent quality-degradation trend) need a runtime LLM-as-judge call, which this repo's `--offline` zero-network-egress discipline rules out for a diagnostic — they remain a future architectural step (must respect offline mode: local model only).
 
 ## Usage
 

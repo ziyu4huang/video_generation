@@ -13,12 +13,12 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { analyzePathology } from "./detector.ts";
 import { formatPathologyReport } from "./format.ts";
-import { getCalls } from "./accumulator.ts";
+import { getCalls, getTurnCount } from "./accumulator.ts";
 import type { PathologyInput } from "./types.ts";
 
 export { analyzePathology, argsSig } from "./detector.ts";
 export { formatPathologyReport } from "./format.ts";
-export { recordCallStart, recordCallEnd, getCalls, resetAccumulator } from "./accumulator.ts";
+export { recordCallStart, recordCallEnd, getCalls, getTurnCount, recordTurnEnd, resetAccumulator } from "./accumulator.ts";
 export { surfacePathologyWarning, resetWarning, makeWarner, pickWorstHighFinding, loopSignature } from "./warning.ts";
 export type { ToolCallRecord, PathologyInput } from "./types.ts";
 
@@ -68,6 +68,11 @@ export function makeInspectPathologyTool() {
           description: "Context fill percent at/above which saturation is flagged (default 85)",
         }),
       ),
+      long_session_turn_threshold: Type.Optional(
+        Type.Number({
+          description: "Completed-turn count at/above which long-session recall risk is flagged (default 15)",
+        }),
+      ),
       self_test: Type.Optional(
         Type.Boolean({
           description: "When true, return a deterministic mock report without requiring live session state",
@@ -88,9 +93,11 @@ export function makeInspectPathologyTool() {
       const input: PathologyInput = {
         calls,
         contextPercent,
+        turnCount: getTurnCount(),
         loopRepeatThreshold: params.loop_repeat_threshold,
         errorRateThreshold: params.error_rate_threshold,
         saturationPercent: params.saturation_percent,
+        longSessionTurnThreshold: params.long_session_turn_threshold,
       };
       const findings = analyzePathology(input);
 

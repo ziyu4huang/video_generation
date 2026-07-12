@@ -21,6 +21,9 @@ let calls: ToolCallRecord[] = [];
 /** toolCallId → index in `calls` awaiting its tool_execution_end. */
 const pending = new Map<string, number>();
 
+/** Completed-turn count (from turn_end events); null before any turn ends. */
+let turnCount: number | null = null;
+
 /** Subset of ToolExecutionStartEvent the accumulator reads. */
 export interface StartEvent {
   toolCallId: string;
@@ -74,8 +77,19 @@ export function getCalls(): ToolCallRecord[] {
   return calls.slice(-MAX_CALLS);
 }
 
+/** turn_end handler — track completed-turn count (turnIndex is 0-based). */
+export function recordTurnEnd(e: { turnIndex: number }): void {
+  turnCount = e.turnIndex + 1;
+}
+
+/** Completed-turn count so far, or null if no turn has ended (print mode / pre-first-turn). */
+export function getTurnCount(): number | null {
+  return turnCount;
+}
+
 /** Reset all accumulated state (session_start / tests). */
 export function resetAccumulator(): void {
   calls = [];
   pending.clear();
+  turnCount = null;
 }
