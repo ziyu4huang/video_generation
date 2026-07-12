@@ -61,6 +61,25 @@ export interface ComposeDeps {
   spawnImpl?: SpawnImpl;
 }
 
+/**
+ * Build a RenderOutput from a rendered file's ffprobe result. Shared by all
+ * three compose tiers (compose.ts / compose_motion.ts / remotion.ts) — each
+ * previously hand-rolled this identical block at the end of its render
+ * function (tool-design audit, output/next-goal-20260712_142905.md, Item 2).
+ */
+export function buildRenderOutput(path: string, probe: ProbeResult): RenderOutput {
+  return {
+    path: resolve(path),
+    format: probe.format || "mp4",
+    codec: probe.videoCodec,
+    audio_codec: probe.audioCodec,
+    resolution: probe.resolution,
+    fps: probe.fps,
+    duration_seconds: probe.duration,
+    file_size_bytes: existsSync(path) ? statSync(path).size : undefined,
+  };
+}
+
 /** ffmpeg availability (cached). */
 let ffmpegCached: boolean | undefined;
 export function ffmpegAvailable(): boolean {
@@ -220,16 +239,7 @@ export async function composeVideo(edit: EditDecisions, opts: ComposeOptions, de
   notes.push(`composed ${valid.length} cuts → ${trimmed.length} segments`);
   return {
     version: "1.0",
-    outputs: [{
-      path: resolve(finalOutput),
-      format: probe.format || "mp4",
-      codec: probe.videoCodec,
-      audio_codec: probe.audioCodec,
-      resolution: probe.resolution,
-      fps: probe.fps,
-      duration_seconds: probe.duration,
-      file_size_bytes: existsSync(finalOutput) ? statSync(finalOutput).size : undefined,
-    }],
+    outputs: [buildRenderOutput(finalOutput, probe)],
     render_time_seconds: (Date.now() - t0) / 1000,
     warnings,
     verification_notes: notes,

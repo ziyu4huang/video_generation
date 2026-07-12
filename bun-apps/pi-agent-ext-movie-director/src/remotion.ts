@@ -19,9 +19,10 @@
  * assembly without a real Remotion/Chromium install; the real-silicon smoke is
  * opt-in via `REMOTION_SMOKE=1`.
  */
-import { copyFileSync, existsSync, linkSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, linkSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { RenderReport } from "./compose.ts";
+import { buildRenderOutput } from "./compose.ts";
 import { probeMedia } from "./ffprobe.ts";
 import { runSpawn, type SpawnImpl, type SpawnResult } from "./spawn.ts";
 
@@ -318,16 +319,7 @@ export async function renderRemotion(
   notes.push(`rendered via Remotion (${bin.cmd}${bin.pre.length ? " " + bin.pre.join(" ") : ""})`);
   return {
     version: "1.0",
-    outputs: [{
-      path: output,
-      format: probe.format || "mp4",
-      codec: probe.videoCodec,
-      audio_codec: probe.audioCodec,
-      resolution: probe.resolution,
-      fps: probe.fps,
-      duration_seconds: probe.duration,
-      file_size_bytes: existsSync(output) ? statSync(output).size : undefined,
-    }],
+    outputs: [buildRenderOutput(output, probe)],
     render_time_seconds: (Date.now() - t0) / 1000,
     warnings,
     verification_notes: notes,
