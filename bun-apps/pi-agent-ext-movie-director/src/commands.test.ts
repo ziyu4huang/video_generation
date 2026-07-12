@@ -58,7 +58,7 @@ describe("deterministic command.run (end-to-end via dispatch)", () => {
 	// Restore exitCode around each run — printDispatchResult sets it on error.
 	function capture() {
 		const orig = process.exitCode;
-		process.exitCode = undefined as unknown as number;
+		process.exitCode = 0;
 		const log = console.log;
 		const err = console.error;
 		const out: string[] = [];
@@ -70,7 +70,7 @@ describe("deterministic command.run (end-to-end via dispatch)", () => {
 			restore() {
 				console.log = log;
 				console.error = err;
-				process.exitCode = orig;
+				process.exitCode = 0;
 			},
 		};
 	}
