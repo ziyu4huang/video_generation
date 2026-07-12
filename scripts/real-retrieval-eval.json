@@ -3,33 +3,309 @@
     "purpose": "Real-query eval set for retrieval-quality validation (real-retrieval-validation cycle).",
     "format": "q = natural-language question a real agent/user asks; expect = substring matched against retrieved card path/title; calloutCard = whether the expected card carries a callout (Metric B); why = 1-line rationale the expected card is the right hit.",
     "queryStyle": "Paraphrased the way a person asks — NOT the card title. Tests semantic+lexical+graph retrieval, not title substring match.",
-    "seeded": "calloutCard:true cards were seeded this cycle (scripts/real-callout-seed.knowledge.jsonl). calloutCard:false are pre-existing prose cards."
+    "seeded": "calloutCard:true cards were seeded this cycle (scripts/real-callout-seed.knowledge.jsonl). calloutCard:false are pre-existing prose cards.",
+    "phaseA_expansion": "2026-07-12: expanded 25->50 (SAG-inspired Phase A). New 25 span LTX levers, review patterns, infra lanes, CLI/pi gotchas, FP discrimination. Tests multi-hop (positive-sounding query -> AVOID card; X-pairs-with-Y) and paraphrase."
   },
   "queries": [
-    { "q": "run.py crashes saying No module named mlx right after I cloned the repo", "expect": "python-venv-not-autocreated", "calloutCard": true, "why": "fresh-clone venv-absent ModuleNotFoundError is the exact symptom" },
-    { "q": "why does my generated image come out almost completely black", "expect": "vae-decode-range", "calloutCard": true, "why": "[-1,1] VAE range not converted before clamp crushes the dark half" },
-    { "q": "the run.sh with fp8 compute flag throws ValueError invalid scaling on Mac", "expect": "fp8-compute-mps-crash", "calloutCard": true, "why": "--supports-fp8-compute crashes on MPS, the exact flag+error" },
-    { "q": "SeedVR2 fails device validation when offload is set to cpu", "expect": "seedvr2-offload-must-be-none", "calloutCard": true, "why": "offload_device cpu is rejected on MPS, must be none" },
-    { "q": "the pi CLI hangs forever and even bun test doesn't return", "expect": "argparse-loop-must-advance-index", "calloutCard": true, "why": "missed i++ in argv loop = silent infinite hang incl. test runner" },
-    { "q": "after switching git branches run.py says No module named mflux at the VAE stage", "expect": "submodule-cleared-after-branch-switch", "calloutCard": true, "why": "vendor submodules cleared by branch switch → ModuleNotFoundError" },
-    { "q": "I accidentally have a package-lock.json in the repo, what do I do", "expect": "no-package-lock-json", "calloutCard": true, "why": "bun.lock canonical; package-lock is gitignored, delete it" },
-    { "q": "AutoTokenizer.register error after installing the sibling forks", "expect": "transformers-must-be-below-5", "calloutCard": true, "why": "transformers 5.x breaks mlx_lm register; pin clobbered by unpinned sibling" },
-    { "q": "the bash tool rejected my cd command, how should I change directories", "expect": "never-top-level-cd", "calloutCard": true, "why": "top-level cd blocked by hook; use subshell/--cwd/absolute paths" },
-    { "q": "pytest fails but I didn't change that file, could the cache be lying", "expect": "stale-pycache", "calloutCard": true, "why": "stale __pycache__ shadows edited source → phantom failures" },
-    { "q": "my python subprocess step hangs and never finishes generation", "expect": "streaming-subprocess-blocks", "calloutCard": true, "why": "proc.stdout loop + proc.wait() blocks forever if child hangs" },
-    { "q": "how do I write a test for the vault resolution failure path", "expect": "resolvevault-tier2", "calloutCard": true, "why": "resolveVault Tier-2 app fallback can't be failed by env; use a seam" },
-    { "q": "the self-learning knowledge loop keeps forgetting what it learned", "expect": "knowledge-db-destructive", "calloutCard": true, "why": "per-run overwrite instead of mergeByKey accumulation" },
-    { "q": "should I run image purify on an already sharp detailed image", "expect": "purify-source-dependent", "calloutCard": true, "why": "purify degrades sharp images (9→7); only rescue soft ones" },
-    { "q": "what port does the gui dev server run on in this worktree", "expect": "gui-port-per-worktree", "calloutCard": true, "why": "port is per-worktree, discover via gui:port not assume 3099" },
-    { "q": "after merging a PR what's the branch cleanup procedure", "expect": "branch-delete-at-pr-merge", "calloutCard": true, "why": "SOP #320 — stale-branches.sh, detach before local delete" },
-    { "q": "there's a cfg as any cast hiding an optional field in the config", "expect": "cfg-papered-over-cast", "calloutCard": true, "why": "as any papers over real optional typing, drop the cast" },
-    { "q": "can I use flash attention or sage attention on this apple silicon box", "expect": "no-cuda-attention-sdpa-only", "calloutCard": true, "why": "CUDA-only backends unsupported on MPS, SDPA only" },
-    { "q": "the date in my output filename is wrong or empty", "expect": "filename-tokens", "calloutCard": true, "why": "%date:...% unsupported, use %year%-%month%-%day%" },
-    { "q": "I made three edits in one call but none of them applied", "expect": "edit-multiedit-all-or-nothing", "calloutCard": true, "why": "one bad oldText drops all edits silently (all-or-nothing)" },
-    { "q": "how was the controlnet reference image outline removal solved", "expect": "controlnet-outline-removal", "calloutCard": false, "why": "pre-existing prose card on exactly this topic" },
-    { "q": "flux2 klein lora review and the formats that silently no-op", "expect": "flux2-lora-three-key-formats", "calloutCard": false, "why": "pre-existing card on LoRA format silent-noop" },
-    { "q": "face head swap workflow with painter flux and seedvr2", "expect": "flux2-klein-face-head-swap", "calloutCard": false, "why": "pre-existing card on the face/head swap pipeline" },
-    { "q": "ltx dasiwa composite integration on mlx", "expect": "dasiwa-ltx-mlx-integration", "calloutCard": false, "why": "pre-existing card on LTX dasiwa integration" },
-    { "q": "the tembedder shape bug in i2i flux2 klein", "expect": "i2i-flux2klein-tembedder-shape-bug", "calloutCard": false, "why": "pre-existing card on the specific shape bug" }
+    {
+      "q": "run.py crashes saying No module named mlx right after I cloned the repo",
+      "expect": "python-venv-not-autocreated",
+      "calloutCard": true,
+      "why": "fresh-clone venv-absent ModuleNotFoundError is the exact symptom"
+    },
+    {
+      "q": "why does my generated image come out almost completely black",
+      "expect": "vae-decode-range",
+      "calloutCard": true,
+      "why": "[-1,1] VAE range not converted before clamp crushes the dark half"
+    },
+    {
+      "q": "the run.sh with fp8 compute flag throws ValueError invalid scaling on Mac",
+      "expect": "fp8-compute-mps-crash",
+      "calloutCard": true,
+      "why": "--supports-fp8-compute crashes on MPS, the exact flag+error"
+    },
+    {
+      "q": "SeedVR2 fails device validation when offload is set to cpu",
+      "expect": "seedvr2-offload-must-be-none",
+      "calloutCard": true,
+      "why": "offload_device cpu is rejected on MPS, must be none"
+    },
+    {
+      "q": "the pi CLI hangs forever and even bun test doesn't return",
+      "expect": "argparse-loop-must-advance-index",
+      "calloutCard": true,
+      "why": "missed i++ in argv loop = silent infinite hang incl. test runner"
+    },
+    {
+      "q": "after switching git branches run.py says No module named mflux at the VAE stage",
+      "expect": "submodule-cleared-after-branch-switch",
+      "calloutCard": true,
+      "why": "vendor submodules cleared by branch switch → ModuleNotFoundError"
+    },
+    {
+      "q": "I accidentally have a package-lock.json in the repo, what do I do",
+      "expect": "no-package-lock-json",
+      "calloutCard": true,
+      "why": "bun.lock canonical; package-lock is gitignored, delete it"
+    },
+    {
+      "q": "AutoTokenizer.register error after installing the sibling forks",
+      "expect": "transformers-must-be-below-5",
+      "calloutCard": true,
+      "why": "transformers 5.x breaks mlx_lm register; pin clobbered by unpinned sibling"
+    },
+    {
+      "q": "the bash tool rejected my cd command, how should I change directories",
+      "expect": "never-top-level-cd",
+      "calloutCard": true,
+      "why": "top-level cd blocked by hook; use subshell/--cwd/absolute paths"
+    },
+    {
+      "q": "pytest fails but I didn't change that file, could the cache be lying",
+      "expect": "stale-pycache",
+      "calloutCard": true,
+      "why": "stale __pycache__ shadows edited source → phantom failures"
+    },
+    {
+      "q": "my python subprocess step hangs and never finishes generation",
+      "expect": "streaming-subprocess-blocks",
+      "calloutCard": true,
+      "why": "proc.stdout loop + proc.wait() blocks forever if child hangs"
+    },
+    {
+      "q": "how do I write a test for the vault resolution failure path",
+      "expect": "resolvevault-tier2",
+      "calloutCard": true,
+      "why": "resolveVault Tier-2 app fallback can't be failed by env; use a seam"
+    },
+    {
+      "q": "the self-learning knowledge loop keeps forgetting what it learned",
+      "expect": "knowledge-db-destructive",
+      "calloutCard": true,
+      "why": "per-run overwrite instead of mergeByKey accumulation"
+    },
+    {
+      "q": "should I run image purify on an already sharp detailed image",
+      "expect": "purify-source-dependent",
+      "calloutCard": true,
+      "why": "purify degrades sharp images (9→7); only rescue soft ones"
+    },
+    {
+      "q": "what port does the gui dev server run on in this worktree",
+      "expect": "gui-port-per-worktree",
+      "calloutCard": true,
+      "why": "port is per-worktree, discover via gui:port not assume 3099"
+    },
+    {
+      "q": "after merging a PR what's the branch cleanup procedure",
+      "expect": "branch-delete-at-pr-merge",
+      "calloutCard": true,
+      "why": "SOP #320 — stale-branches.sh, detach before local delete"
+    },
+    {
+      "q": "there's a cfg as any cast hiding an optional field in the config",
+      "expect": "cfg-papered-over-cast",
+      "calloutCard": true,
+      "why": "as any papers over real optional typing, drop the cast"
+    },
+    {
+      "q": "can I use flash attention or sage attention on this apple silicon box",
+      "expect": "no-cuda-attention-sdpa-only",
+      "calloutCard": true,
+      "why": "CUDA-only backends unsupported on MPS, SDPA only"
+    },
+    {
+      "q": "the date in my output filename is wrong or empty",
+      "expect": "filename-tokens",
+      "calloutCard": true,
+      "why": "%date:...% unsupported, use %year%-%month%-%day%"
+    },
+    {
+      "q": "I made three edits in one call but none of them applied",
+      "expect": "edit-multiedit-all-or-nothing",
+      "calloutCard": true,
+      "why": "one bad oldText drops all edits silently (all-or-nothing)"
+    },
+    {
+      "q": "how was the controlnet reference image outline removal solved",
+      "expect": "controlnet-outline-removal",
+      "calloutCard": false,
+      "why": "pre-existing prose card on exactly this topic"
+    },
+    {
+      "q": "flux2 klein lora review and the formats that silently no-op",
+      "expect": "flux2-lora-three-key-formats",
+      "calloutCard": false,
+      "why": "pre-existing card on LoRA format silent-noop"
+    },
+    {
+      "q": "face head swap workflow with painter flux and seedvr2",
+      "expect": "flux2-klein-face-head-swap",
+      "calloutCard": false,
+      "why": "pre-existing card on the face/head swap pipeline"
+    },
+    {
+      "q": "ltx dasiwa composite integration on mlx",
+      "expect": "dasiwa-ltx-mlx-integration",
+      "calloutCard": false,
+      "why": "pre-existing card on LTX dasiwa integration"
+    },
+    {
+      "q": "the tembedder shape bug in i2i flux2 klein",
+      "expect": "i2i-flux2klein-tembedder-shape-bug",
+      "calloutCard": false,
+      "why": "pre-existing card on the specific shape bug"
+    },
+    {
+      "q": "what cfg scale gives the best dasiwa composite for ltx 2.3 video",
+      "expect": "ltx-cfg-scale-7-lever",
+      "calloutCard": false,
+      "why": "LTX cfg param-tuning lever; paraphrases 'cfg scale' without echoing the card"
+    },
+    {
+      "q": "how many steps should the second ltx stage run for the highest composite",
+      "expect": "ltx-stage2-steps-5-lever",
+      "calloutCard": false,
+      "why": "LTX stage2_steps optimum; paraphrase, not title echo"
+    },
+    {
+      "q": "I set stg scale to 2.0 and generation now crashes with file not found",
+      "expect": "ltx-stg-scale-2-avoid",
+      "calloutCard": false,
+      "why": "multi-hop: positive-sounding param is actually an AVOID card with crash symptom"
+    },
+    {
+      "q": "is 20 steps in the first ltx stage better than 12 for quality",
+      "expect": "ltx-stage1-steps-20-lever",
+      "calloutCard": false,
+      "why": "LTX stage1 steps comparison lever"
+    },
+    {
+      "q": "what single flag gives the biggest quality jump in ltx video generation",
+      "expect": "ltx-hq-mode-lever",
+      "calloutCard": false,
+      "why": "vague 'biggest quality jump' paraphrase of --hq lever"
+    },
+    {
+      "q": "my except block catches everything including BaseException and system exit",
+      "expect": "mlx-review-bare-except-swallows-baseexception",
+      "calloutCard": false,
+      "why": "bare-except review pattern, symptom-described"
+    },
+    {
+      "q": "the reviewer flagged that Image.open should be closed with a context manager",
+      "expect": "mlx-review-image-open-without-context-manager",
+      "calloutCard": false,
+      "why": "resource-leak review pattern"
+    },
+    {
+      "q": "catching only ImportError in importlib import is hiding real failures",
+      "expect": "mlx-review-importlib-importerror-hides-bugs",
+      "calloutCard": false,
+      "why": "over-narrow exception review pattern"
+    },
+    {
+      "q": "opencv VideoCapture handles aren't released when an exception fires",
+      "expect": "mlx-review-opencv-resource-no-try-finally",
+      "calloutCard": false,
+      "why": "native-handle cleanup review pattern"
+    },
+    {
+      "q": "the writable path blocklist can be skipped because it matches case exactly",
+      "expect": "review-case-insensitive-blocklist",
+      "calloutCard": false,
+      "why": "security blocklist case-sensitivity gotcha"
+    },
+    {
+      "q": "PI_THINKING env var is used as a type without checking it's a valid value",
+      "expect": "review-pithinking-env-unvalidated",
+      "calloutCard": false,
+      "why": "unvalidated env-var cast gotcha"
+    },
+    {
+      "q": "the double dash that ends options isn't honored when finding the command",
+      "expect": "review-cli-end-of-options-separator",
+      "calloutCard": false,
+      "why": "CLI argparse separator gotcha"
+    },
+    {
+      "q": "the vlm session factory hardcodes providers instead of resolving them",
+      "expect": "review-resolvemodel-baked-providers",
+      "calloutCard": false,
+      "why": "baked-defaults review pattern"
+    },
+    {
+      "q": "what's the minimum test count each bun package must keep passing",
+      "expect": "infra-contract-package-test-baselines",
+      "calloutCard": false,
+      "why": "infra contract metric; new domain"
+    },
+    {
+      "q": "is the combined build and e2e verification lane green right now",
+      "expect": "infra-build-lane-green-stable",
+      "calloutCard": false,
+      "why": "infra lane status pattern; new domain"
+    },
+    {
+      "q": "temp directories are abandoned when the save crashes mid process",
+      "expect": "review-memory-store-orphan-tempdirs",
+      "calloutCard": false,
+      "why": "orphan-tempdir cleanup avoid"
+    },
+    {
+      "q": "what's the max dasiwa composite score ltx audio can actually reach",
+      "expect": "ltx-audio-naturalness-ceiling",
+      "calloutCard": false,
+      "why": "LTX audio ceiling metric"
+    },
+    {
+      "q": "which modules produce the most findings in the review optimize scan",
+      "expect": "meta-scan-coverage-and-hotspots",
+      "calloutCard": false,
+      "why": "review scan hotspot metric"
+    },
+    {
+      "q": "review findings pile up at the argument boundary of command modules",
+      "expect": "pattern-findings-cluster-on-boundary-modules",
+      "calloutCard": false,
+      "why": "findings-localization pattern"
+    },
+    {
+      "q": "does a low effort review only scan actually surface genuine bugs",
+      "expect": "pattern-review-only-low-surface-real-bugs",
+      "calloutCard": false,
+      "why": "low-effort review efficacy pattern"
+    },
+    {
+      "q": "what share of proposed fixes does the adversarial verifier throw out",
+      "expect": "mlx-review-metric-adversarial-rejection-rate",
+      "calloutCard": false,
+      "why": "adversarial reject-rate metric; paraphrase"
+    },
+    {
+      "q": "which lane pairs pyflakes real bug hunt with check structural integrity",
+      "expect": "metric-lint-lane-structural-integrity-trifecta-clean",
+      "calloutCard": false,
+      "why": "lint-lane trifecta metric; multi-hop 'pairs X with Y'"
+    },
+    {
+      "q": "after a regression does restore undo just the bad file or everything",
+      "expect": "pattern-restore-reverts-only-regressed-file-keeps-safe-fixes",
+      "calloutCard": false,
+      "why": "restore scope pattern; multi-hop 'just bad file vs everything'"
+    },
+    {
+      "q": "is load_image_rgb missing corrupt handling a real bug or a false alarm",
+      "expect": "mlx-review-fp-load-image-rgb-no-corrupt-handling",
+      "calloutCard": false,
+      "why": "false-positive discrimination test"
+    },
+    {
+      "q": "unused imports and pep8 ordering keep showing up as low priority nits",
+      "expect": "pattern-unused-top-level-imports-monotonic",
+      "calloutCard": false,
+      "why": "recurring import-hygiene pattern"
+    }
   ]
 }
