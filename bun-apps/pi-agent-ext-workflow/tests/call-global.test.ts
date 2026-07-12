@@ -1,12 +1,14 @@
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
 import { buildCallGlobal, type CallDeps } from "../src/call-global.js";
-import { HostFnRegistry } from "../src/host-fn-registry.js";
 import { WorkflowErrorCode } from "../src/errors.js";
+import { HostFnRegistry } from "../src/host-fn-registry.js";
 import type { JournalEntry } from "../src/workflow.js";
 
 /** Build minimal injected deps for the factory. Returns the mutable state/shared/journal for assertions. */
-function makeDeps(opts: { hostFns?: HostFnRegistry; maxAgents?: number; resumeJournal?: Map<number, JournalEntry> } = {}): {
+function makeDeps(
+  opts: { hostFns?: HostFnRegistry; maxAgents?: number; resumeJournal?: Map<number, JournalEntry> } = {},
+): {
   deps: CallDeps;
   state: { callSeq: number; firstMiss: number; currentPhase?: string };
   shared: { agentCount: number };
@@ -47,12 +49,19 @@ describe("buildCallGlobal — core", () => {
     const { deps } = makeDeps();
     const call = buildCallGlobal(deps);
     await assert.rejects(() => call("nope" as any, {}), TypeError);
-    await assert.rejects(() => call("t.missing", {}), (e: any) => e.code === WorkflowErrorCode.HOST_FN_UNKNOWN && e.recoverable === false);
+    await assert.rejects(
+      () => call("t.missing", {}),
+      (e: any) => e.code === WorkflowErrorCode.HOST_FN_UNKNOWN && e.recoverable === false,
+    );
   });
 
   it("fn throw → HOST_FN_FAILED (hard error, NOT null)", async () => {
     const r = new HostFnRegistry();
-    r.set("t.boom", { fn: async () => { throw new Error("boom"); } });
+    r.set("t.boom", {
+      fn: async () => {
+        throw new Error("boom");
+      },
+    });
     const { deps } = makeDeps({ hostFns: r });
     const call = buildCallGlobal(deps);
     await assert.rejects(
@@ -98,7 +107,10 @@ describe("buildCallGlobal — journal/accounting/limiter gates", () => {
     const call = buildCallGlobal(deps);
     await call("t.id", {});
     await call("t.id", {});
-    await assert.rejects(() => call("t.id", {}), (e: any) => e.code === WorkflowErrorCode.AGENT_LIMIT_EXCEEDED);
+    await assert.rejects(
+      () => call("t.id", {}),
+      (e: any) => e.code === WorkflowErrorCode.AGENT_LIMIT_EXCEEDED,
+    );
   });
 
   it("shares state.callSeq — callIndex is monotonic", async () => {
@@ -108,7 +120,10 @@ describe("buildCallGlobal — journal/accounting/limiter gates", () => {
     const call = buildCallGlobal(deps);
     await call("t.id", {});
     await call("t.id", {});
-    assert.deepEqual(journal.map((e) => e.index), [0, 1]);
+    assert.deepEqual(
+      journal.map((e) => e.index),
+      [0, 1],
+    );
   });
 
   it("does NOT route through the concurrency limiter (spy asserts 0 calls)", async () => {
@@ -116,7 +131,10 @@ describe("buildCallGlobal — journal/accounting/limiter gates", () => {
     r.set("t.id", { fn: async () => 1 });
     let limiterCalls = 0;
     const { deps } = makeDeps({ hostFns: r });
-    deps.limiter = async (fn) => { limiterCalls++; return fn(); };
+    deps.limiter = async (fn) => {
+      limiterCalls++;
+      return fn();
+    };
     await buildCallGlobal(deps)("t.id", {});
     assert.equal(limiterCalls, 0, "call() must not flow through the limiter");
   });

@@ -5,9 +5,9 @@
 import { EventEmitter } from "node:events";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { WorkflowAgent } from "./agent.js";
-import type { HostFnRegistry } from "./host-fn-registry.js";
 import { preview, type WorkflowSnapshot } from "./display.js";
 import { WorkflowError, WorkflowErrorCode } from "./errors.js";
+import type { HostFnRegistry } from "./host-fn-registry.js";
 import {
   createRunPersistence,
   generateRunId,

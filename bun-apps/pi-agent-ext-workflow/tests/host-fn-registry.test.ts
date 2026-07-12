@@ -1,6 +1,6 @@
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
-import { HostFnRegistry, applyHostFnRegistration } from "../src/host-fn-registry.js";
+import { applyHostFnRegistration, HostFnRegistry } from "../src/host-fn-registry.js";
 
 describe("HostFnRegistry", () => {
   it("set/get/has/list", () => {

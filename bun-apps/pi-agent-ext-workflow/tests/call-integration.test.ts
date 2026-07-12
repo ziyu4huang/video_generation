@@ -1,10 +1,14 @@
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
-import { runWorkflow } from "../src/workflow.js";
 import { HostFnRegistry } from "../src/host-fn-registry.js";
 import type { JournalEntry } from "../src/workflow.js";
+import { runWorkflow } from "../src/workflow.js";
 
-const noopAgent = { async run() { return "ok"; } };
+const noopAgent = {
+  async run() {
+    return "ok";
+  },
+};
 
 describe("call() integration with runWorkflow", () => {
   it("a script can call() a registered host fn end-to-end", async () => {
@@ -36,8 +40,18 @@ return 1`;
     const script = `export const meta = { name: 'c', description: 'call' }
 return await call('t.count', { q: 'z' })`;
     const journal = new Map<number, JournalEntry>();
-    await runWorkflow(script, { agent: noopAgent, hostFns: r, persistLogs: false, onAgentJournal: (e) => journal.set(e.index, e) });
-    const res = await runWorkflow<number>(script, { agent: noopAgent, hostFns: r, persistLogs: false, resumeJournal: journal });
+    await runWorkflow(script, {
+      agent: noopAgent,
+      hostFns: r,
+      persistLogs: false,
+      onAgentJournal: (e) => journal.set(e.index, e),
+    });
+    const res = await runWorkflow<number>(script, {
+      agent: noopAgent,
+      hostFns: r,
+      persistLogs: false,
+      resumeJournal: journal,
+    });
     assert.equal(calls, 1, "fn ran once total (second run replayed)");
     assert.equal(res.result, 1);
   });
@@ -50,8 +64,17 @@ const a = await call('t.id', {})
 const b = await agent('hi')
 return { a, b }`;
     const journal: JournalEntry[] = [];
-    await runWorkflow(script, { agent: noopAgent, hostFns: r, persistLogs: false, onAgentJournal: (e) => journal.push(e) });
-    assert.deepEqual(journal.map((e) => e.index), [0, 1], "call() and agent() share one ordered journal");
+    await runWorkflow(script, {
+      agent: noopAgent,
+      hostFns: r,
+      persistLogs: false,
+      onAgentJournal: (e) => journal.push(e),
+    });
+    assert.deepEqual(
+      journal.map((e) => e.index),
+      [0, 1],
+      "call() and agent() share one ordered journal",
+    );
   });
 
   it("unknown host fn → HOST_FN_UNKNOWN aborts the run", async () => {

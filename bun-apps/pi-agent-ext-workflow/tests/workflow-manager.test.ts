@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentUsage } from "../src/agent.js";
 import { WorkflowError, WorkflowErrorCode } from "../src/errors.js";
-import { WorkflowManager } from "../src/workflow-manager.js";
 import { HostFnRegistry } from "../src/host-fn-registry.js";
+import { WorkflowManager } from "../src/workflow-manager.js";
 import { withFakeHomeAsync } from "./helpers/fake-home.js";
 
 /** Agent runner that reports fixed usage so token accounting is exercised. */

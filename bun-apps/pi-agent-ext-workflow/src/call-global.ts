@@ -11,9 +11,10 @@
  * `runWorkflow`. `src/workflow.ts` wires real deps + injects `call` into the
  * `vm.createContext` sandbox.
  */
-import type { HostFnRegistry } from "./host-fn-registry.js";
+
+import { isWorkflowError, WorkflowError, WorkflowErrorCode } from "./errors.js";
 import { hashHostCall, runHostFnWithTimeout } from "./host-fn-helpers.js";
-import { WorkflowError, WorkflowErrorCode, isWorkflowError } from "./errors.js";
+import type { HostFnRegistry } from "./host-fn-registry.js";
 
 export interface JournalEntryLike {
   index: number;
@@ -76,11 +77,10 @@ export function buildCallGlobal(deps: CallDeps): (namespaced: unknown, args?: un
     }
     const entry = deps.hostFns?.get(namespaced);
     if (!entry) {
-      throw new WorkflowError(
-        `host fn '${namespaced}' is not registered`,
-        WorkflowErrorCode.HOST_FN_UNKNOWN,
-        { recoverable: false, agentLabel: namespaced },
-      );
+      throw new WorkflowError(`host fn '${namespaced}' is not registered`, WorkflowErrorCode.HOST_FN_UNKNOWN, {
+        recoverable: false,
+        agentLabel: namespaced,
+      });
     }
     const callIndex = deps.state.callSeq++;
     const callHash = hashHostCall(namespaced, args);
@@ -88,7 +88,13 @@ export function buildCallGlobal(deps: CallDeps): (namespaced: unknown, args?: un
     if (cached != null && cached.hash === callHash && callIndex < deps.state.firstMiss) {
       deps.shared.agentCount++;
       deps.options.onAgentStart?.({ label: namespaced, phase: phase(), prompt: "", model: HOST_FN_MODEL });
-      deps.options.onAgentEnd?.({ label: namespaced, phase: phase(), result: cached.result, tokens: 0, model: HOST_FN_MODEL });
+      deps.options.onAgentEnd?.({
+        label: namespaced,
+        phase: phase(),
+        result: cached.result,
+        tokens: 0,
+        model: HOST_FN_MODEL,
+      });
       return cached.result;
     }
     if (cached == null || cached.hash !== callHash) {
@@ -102,11 +108,16 @@ export function buildCallGlobal(deps: CallDeps): (namespaced: unknown, args?: un
     // never called here. agent() routes through limiter; call() does not.)
     let result: unknown;
     try {
-      result = await runHostFnWithTimeout(entry, args, {
-        cwd: deps.options.cwd ?? process.cwd(),
-        signal: deps.options.signal ?? new AbortController().signal,
-        runId: deps.runId,
-      }, namespaced);
+      result = await runHostFnWithTimeout(
+        entry,
+        args,
+        {
+          cwd: deps.options.cwd ?? process.cwd(),
+          signal: deps.options.signal ?? new AbortController().signal,
+          runId: deps.runId,
+        },
+        namespaced,
+      );
     } catch (e) {
       if (isWorkflowError(e)) throw e;
       throw new WorkflowError(

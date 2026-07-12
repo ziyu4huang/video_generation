@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { applyHostFnRegistration, HostFnRegistry } from "../src/host-fn-registry.js";
 import {
   buildWorkflowGuidelinesForTurn,
   createEffortState,
@@ -19,7 +20,6 @@ import {
   shouldInjectFullWorkflowGuidelines,
   WorkflowManager,
 } from "../src/index.js";
-import { HostFnRegistry, applyHostFnRegistration } from "../src/host-fn-registry.js";
 
 export default function extension(pi: ExtensionAPI) {
   // Single manager/storage shared by the workflow tool and the /workflows command,

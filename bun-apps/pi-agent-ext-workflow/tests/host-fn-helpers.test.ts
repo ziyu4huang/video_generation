@@ -1,8 +1,8 @@
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
 import { Type } from "typebox";
-import { canonicalJSON, hashHostCall, runHostFnWithTimeout } from "../src/host-fn-helpers.js";
 import { WorkflowErrorCode } from "../src/errors.js";
+import { canonicalJSON, hashHostCall, runHostFnWithTimeout } from "../src/host-fn-helpers.js";
 import type { HostFnCtx } from "../src/host-fn-registry.js";
 
 const ctx = (signal: AbortSignal = new AbortController().signal): HostFnCtx => ({ cwd: "/", signal, runId: "r" });
@@ -51,7 +51,17 @@ describe("runHostFnWithTimeout", () => {
 
   it("fn throw → HOST_FN_FAILED (hard error)", async () => {
     await assert.rejects(
-      () => runHostFnWithTimeout({ fn: async () => { throw new Error("boom"); } }, {}, ctx(), "t.boom"),
+      () =>
+        runHostFnWithTimeout(
+          {
+            fn: async () => {
+              throw new Error("boom");
+            },
+          },
+          {},
+          ctx(),
+          "t.boom",
+        ),
       (e: any) => e.code === WorkflowErrorCode.HOST_FN_FAILED && e.recoverable === false && /boom/.test(e.message),
     );
   });
@@ -87,7 +97,11 @@ describe("runHostFnWithTimeout", () => {
   });
 
   it("non-serializable result → HOST_FN_NON_SERIALIZABLE", async () => {
-    const fn = () => ({ f() { return 1; } }); // functions are not JSON-serializable
+    const fn = () => ({
+      f() {
+        return 1;
+      },
+    }); // functions are not JSON-serializable
     await assert.rejects(
       () => runHostFnWithTimeout({ fn }, {}, ctx(), "t.fnval"),
       (e: any) => e.code === WorkflowErrorCode.HOST_FN_NON_SERIALIZABLE,

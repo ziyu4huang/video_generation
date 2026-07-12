@@ -8,8 +8,8 @@
  */
 
 import { Check } from "typebox/value";
+import { isWorkflowError, WorkflowError, WorkflowErrorCode } from "./errors.js";
 import type { HostFnCtx, HostFnEntry } from "./host-fn-registry.js";
-import { WorkflowError, WorkflowErrorCode, isWorkflowError } from "./errors.js";
 
 /**
  * Stable canonical JSON: deeply sorted keys, no whitespace, cycle-guarded.
@@ -101,11 +101,12 @@ export async function runHostFnWithTimeout(
       Promise.resolve().then(() => entry.fn(args, ctx)),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
-          reject(new WorkflowError(
-            `host fn '${name}' exceeded ${timeoutMs}ms`,
-            WorkflowErrorCode.HOST_FN_TIMEOUT,
-            { recoverable: true, agentLabel: name },
-          ));
+          reject(
+            new WorkflowError(`host fn '${name}' exceeded ${timeoutMs}ms`, WorkflowErrorCode.HOST_FN_TIMEOUT, {
+              recoverable: true,
+              agentLabel: name,
+            }),
+          );
         }, timeoutMs);
         timeoutAc.signal.addEventListener("abort", () => {
           if (timer) clearTimeout(timer);

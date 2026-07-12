@@ -13,13 +13,13 @@ import {
   loadAgentRegistry,
   resolveAgentType,
 } from "./agent-registry.js";
+import { buildCallGlobal } from "./call-global.js";
 import { DEFAULT_AGENT_TIMEOUT_MS, MAX_AGENT_RETRIES, MAX_AGENTS_PER_RUN, MAX_CONCURRENCY } from "./config.js";
 import { WorkflowError, WorkflowErrorCode, wrapError } from "./errors.js";
+import type { HostFnRegistry } from "./host-fn-registry.js";
 import { createWorkflowLogger } from "./logger.js";
 import { parseModelRoutingFromMeta, resolveModelForPhase } from "./model-routing.js";
 import { createWorktree, removeWorktree, type Worktree } from "./worktree.js";
-import { buildCallGlobal } from "./call-global.js";
-import type { HostFnRegistry } from "./host-fn-registry.js";
 
 export interface WorkflowMetaPhase {
   title: string;
