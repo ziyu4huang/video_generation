@@ -83,8 +83,9 @@ export function __setZkSpawnForTest(fn: ZkSpawnFn | null): void {
 
 // ---------------------------------------------------------------------------
 // Tool allowlists (per command) — exported so the CLI reuses the exact same
-// sets as this extension. Canonical form: string[] (natural TS). Extension
-// call sites join(",") for runSubagentWithRetry's `toolsCsv` parameter.
+// sets as this extension. Canonical form: string[] (natural TS). The zk_* call
+// sites pass them as the `tools` array to zkSpawn (sub-project ①; was
+// runSubagentWithRetry's `toolsCsv` parameter pre-migration).
 // ---------------------------------------------------------------------------
 
 export const DISTILL_TOOLS = [

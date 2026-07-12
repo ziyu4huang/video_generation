@@ -15,10 +15,11 @@
  * is the R2 bridge (Phase-1 finding): parent-session tools threaded into the child so
  * obsidian tools reach it in BOTH manifest-installed and `-e` dev mode.
  */
-import type { TSchema } from "typebox";
+
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { TSchema } from "typebox";
 import { WorkflowAgent } from "./agent.js";
-import { WorkflowErrorCode, isWorkflowError } from "./errors.js";
+import { isWorkflowError, WorkflowErrorCode } from "./errors.js";
 
 export interface SpawnSubagentPrime {
   query: string;
@@ -55,7 +56,7 @@ export interface SpawnSubagentResult {
 }
 
 const TRANSIENT_NETWORK_RE =
-	/econnreset|econnrefused|enotfound|socket hang up|rate.?limit|429|503|502|network|fetch failed|eai_again/i;
+  /econnreset|econnrefused|enotfound|socket hang up|rate.?limit|429|503|502|network|fetch failed|eai_again/i;
 
 interface ErrorClass {
   transient: boolean;
@@ -79,8 +80,7 @@ function classifyError(e: unknown): ErrorClass {
 }
 
 export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> {
-  const runner =
-    opts.agent ?? new WorkflowAgent({ cwd: opts.cwd, extensionTools: opts.extensionTools });
+  const runner = opts.agent ?? new WorkflowAgent({ cwd: opts.cwd, extensionTools: opts.extensionTools });
   const retry = opts.retryOnTransient !== false;
 
   const tryOnce = async (): Promise<{ result: SpawnSubagentResult; transient: boolean }> => {
