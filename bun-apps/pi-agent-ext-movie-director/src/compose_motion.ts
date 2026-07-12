@@ -21,8 +21,9 @@
  * e2e script (`scripts/run-compose-motion-e2e.ts`).
  */
 import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import type { RenderReport, CaptionsOptions } from "./compose.ts";
+import { buildRenderOutput } from "./compose.ts";
 import { burnCaptions, planBurn, buildDrawtextFilter, drawtextFilterAvailable, resolveCaptionFont, type CaptionOutcome } from "./captions.ts";
 import type { Animation, RemotionEditDecisions, RemotionCut } from "./remotion.ts";
 import { probeMedia, probeDuration } from "./ffprobe.ts";
@@ -333,16 +334,7 @@ export async function composeMotion(
   notes.push(`rendered via ffmpeg zoompan+xfade (${segments.length} cuts)`);
   return {
     version: "1.0",
-    outputs: [{
-      path: finalOutput,
-      format: probe.format || "mp4",
-      codec: probe.videoCodec,
-      audio_codec: probe.audioCodec,
-      resolution: probe.resolution,
-      fps: probe.fps,
-      duration_seconds: probe.duration,
-      file_size_bytes: existsSync(finalOutput) ? statSync(finalOutput).size : undefined,
-    }],
+    outputs: [buildRenderOutput(finalOutput, probe)],
     render_time_seconds: (Date.now() - t0) / 1000,
     warnings,
     verification_notes: notes,
