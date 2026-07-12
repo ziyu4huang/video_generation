@@ -149,9 +149,15 @@ no corresponding task, add the task.
 
 ## Execution handoff
 
-Once the plan is saved, hand off to execution (see the `executing-plans` skill), or to
-subagent-driven execution via the `subagent` / `workflow` tools if the tasks are
-independent and benefit from isolation.
+Once the plan is saved, hand off to execution. Two paths:
+
+- **Inline** — `executing-plans`: batch tasks with review checkpoints, in the current session.
+- **Subagent-driven** (recommended when tasks are independent) — `subagent-driven-development`:
+  a fresh, context-isolated subagent per task via the `subagent` / `workflow` tools, each with a
+  two-phase review (spec compliance, then code quality).
+
+Either path should first establish an isolated workspace (`using-git-worktrees`) and end with
+`finishing-a-development-branch`.
 
 ## Notes
 

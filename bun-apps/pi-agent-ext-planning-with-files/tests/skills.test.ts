@@ -55,7 +55,7 @@ function parseFrontmatter(content: string): { raw: string; fields: Record<string
 const skillFiles = listSkillFiles();
 
 describe("skills suite (writing-skills CSO rules)", () => {
-  it("discovers at least the 8 expected skills", () => {
+  it("discovers at least the 11 expected skills", () => {
     const names = skillFiles.map((s) => s.name).sort();
     expect(names).toContain("planning-with-files");
     // the 5 methodology skills ported from superpowers (iter 1)
@@ -68,6 +68,10 @@ describe("skills suite (writing-skills CSO rules)", () => {
       // the foundation + meta skills ported in iter 2
       "test-driven-development",
       "writing-skills",
+      // the 3 lifecycle/execution skills ported in iter 5 (self-improve via superpowers-zh + matt_skills)
+      "subagent-driven-development",
+      "finishing-a-development-branch",
+      "using-git-worktrees",
     ]) {
       expect(names).toContain(expected);
     }
