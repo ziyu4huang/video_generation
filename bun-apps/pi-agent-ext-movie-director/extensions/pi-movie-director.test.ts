@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import extension from "./pi-movie-director.ts";
 import { scopeViolationForToolCall } from "../src/index.ts";
 
@@ -49,7 +52,7 @@ describe("pi-movie-director extension", () => {
   test("the movie_help reference documents every command", async () => {
     const reference = await movieHelpReference();
     for (const cmd of [
-      "preflight", "pipeline-list", "pipeline-show", "init-project", "next-stage",
+      "preflight", "pipeline-list", "pipeline-show", "init-project", "list-projects", "next-stage",
       "write-checkpoint", "read-checkpoint", "validate-artifact", "generate",
       "compose", "final-review",
       "cost-estimate", "cost-reserve", "cost-reconcile", "cost-snapshot",
@@ -88,6 +91,13 @@ describe("pi-movie-director extension", () => {
     const res = await tool.execute("id", { command: "pipeline-list", options: {} }, undefined, undefined, undefined);
     const parsed = JSON.parse(res.content[0].text);
     expect(parsed).toContain("talking-head");
+  });
+
+  test("list-projects returns the {projects:[...]} discovery shape with no required options", async () => {
+    const tool = captureTool("movie");
+    const res = await tool.execute("id", { command: "list-projects", options: {} }, undefined, undefined, undefined);
+    const parsed = JSON.parse(res.content[0].text);
+    expect(Array.isArray(parsed.projects)).toBe(true);
   });
 
   test("write-checkpoint surfaces gate violation as a non-throwing error result", async () => {
@@ -135,6 +145,183 @@ describe("pi-movie-director extension", () => {
     );
     expect(res.details.ok).toBe(false);
     expect(res.details.error).toContain("no configured provider");
+  });
+
+  test("compose (ffmpeg foundation tier) also refuses to render when pre-compose would fail (tool-design audit, 2026-07-12 — this tier previously had NO gate at all)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-dispatch-gate-fail-compose-"));
+    try {
+      const tool = captureTool("movie");
+      const res = await tool.execute(
+        "id",
+        {
+          command: "compose",
+          options: {
+            editDecisions: { version: "1.0", cuts: [] }, // no cuts → cuts_present fails
+            workDir: dir,
+          },
+        },
+        undefined, undefined, undefined,
+      );
+      expect(res.details.ok).toBe(false);
+      expect(res.details.error).toContain("GATE VIOLATION");
+      expect(res.details.error).toContain("cuts_present");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("compose proceeds when overridePreCompose=true bypasses a pre-compose fail", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-dispatch-gate-override-compose-"));
+    try {
+      const tool = captureTool("movie");
+      const res = await tool.execute(
+        "id",
+        {
+          command: "compose",
+          options: {
+            editDecisions: { version: "1.0", cuts: [] },
+            workDir: dir,
+            overridePreCompose: true,
+          },
+        },
+        undefined, undefined, undefined,
+      );
+      // Past the gate now — composeVideo itself reports a failure for zero cuts
+      // (no GATE VIOLATION text), proving the override actually let it through.
+      expect(res.content[0].text).not.toContain("GATE VIOLATION");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("compose-motion refuses to render when pre-compose would fail (Bug 2, saturn-young-rings 2026-07-12)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-dispatch-gate-fail-"));
+    try {
+      const tool = captureTool("movie");
+      const res = await tool.execute(
+        "id",
+        {
+          command: "compose-motion",
+          options: {
+            editDecisions: { version: "1.0", cuts: [] }, // no cuts → cuts_present fails
+            workDir: dir,
+          },
+        },
+        undefined, undefined, undefined,
+      );
+      expect(res.details.ok).toBe(false);
+      expect(res.details.error).toContain("GATE VIOLATION");
+      expect(res.details.error).toContain("cuts_present");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("compose-motion proceeds when overridePreCompose=true bypasses a pre-compose fail", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-dispatch-gate-override-"));
+    try {
+      const tool = captureTool("movie");
+      const res = await tool.execute(
+        "id",
+        {
+          command: "compose-motion",
+          options: {
+            editDecisions: { version: "1.0", cuts: [] },
+            workDir: dir,
+            overridePreCompose: true,
+          },
+        },
+        undefined, undefined, undefined,
+      );
+      // Past the gate now — composeMotion itself reports a failure for zero cuts
+      // (no GATE VIOLATION text), proving the override actually let it through.
+      expect(res.content[0].text).not.toContain("GATE VIOLATION");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("next-stage refuses to advance past a checkpoint_required stage with no completed checkpoint (checkpoint-enforcement gap, placebo-effect-explainer 2026-07-12)", async () => {
+    const tool = captureTool("movie");
+    const res = await tool.execute(
+      "id",
+      {
+        command: "next-stage",
+        options: { projectId: "p-stage-gate-missing", pipeline: "talking-head", stage: "idea" },
+      },
+      undefined, undefined, undefined,
+    );
+    expect(res.details.ok).toBe(false);
+    expect(res.details.error).toContain("GATE VIOLATION");
+    expect(res.details.error).toContain("idea");
+  });
+
+  test("next-stage proceeds once a completed checkpoint exists for the current checkpoint_required stage", async () => {
+    const tool = captureTool("movie");
+    const writeRes = await tool.execute(
+      "id",
+      {
+        command: "write-checkpoint",
+        options: {
+          projectId: "p-stage-gate-ok", pipeline: "talking-head", stage: "idea",
+          status: "completed", humanApproved: true,
+          artifacts: {
+            brief: {
+              version: "1.0", title: "x", hook: "hook", key_points: ["a"],
+              tone: "warm", style: "clean-professional", target_platform: "generic",
+              target_duration_seconds: 30,
+            },
+          },
+        },
+      },
+      undefined, undefined, undefined,
+    );
+    expect(writeRes.details.ok).toBe(true);
+    const res = await tool.execute(
+      "id",
+      {
+        command: "next-stage",
+        options: { projectId: "p-stage-gate-ok", pipeline: "talking-head", stage: "idea" },
+      },
+      undefined, undefined, undefined,
+    );
+    expect(res.details.ok).toBe(true);
+    const parsed = JSON.parse(res.content[0].text);
+    expect(parsed.current).toBe("idea");
+    expect(parsed.next).toBe("script");
+  });
+
+  test("next-stage with overrideStageGate=true bypasses a missing checkpoint", async () => {
+    const tool = captureTool("movie");
+    const res = await tool.execute(
+      "id",
+      {
+        command: "next-stage",
+        options: { projectId: "p-stage-gate-override", pipeline: "talking-head", stage: "idea", overrideStageGate: true },
+      },
+      undefined, undefined, undefined,
+    );
+    expect(res.details.ok).toBe(true);
+    const parsed = JSON.parse(res.content[0].text);
+    expect(parsed.next).toBe("script");
+  });
+
+  test("next-stage does not gate a stage with checkpoint_required=false (animated-explainer's research stage)", async () => {
+    const tool = captureTool("movie");
+    // No projectId at all, no checkpoint written — must still succeed since
+    // "research" is not checkpoint_required in animated-explainer.
+    const res = await tool.execute(
+      "id",
+      {
+        command: "next-stage",
+        options: { pipeline: "animated-explainer", stage: "research" },
+      },
+      undefined, undefined, undefined,
+    );
+    expect(res.details.ok).toBe(true);
+    const parsed = JSON.parse(res.content[0].text);
+    expect(parsed.current).toBe("research");
+    expect(parsed.next).toBe("proposal");
   });
 
   test("the factory registers the tool_call scope guard", () => {

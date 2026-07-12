@@ -26,12 +26,14 @@ import {
   getStageOrder,
   getStage,
   getNextStage,
+  getStageCheckpointRequired,
 } from "./pipeline.ts";
 import {
   writeCheckpoint,
   readCheckpoint,
   getLatestCheckpoint,
   getCompletedStages,
+  listProjects,
   GateViolationError,
   type CheckpointStatus,
 } from "./checkpoint.ts";
@@ -52,6 +54,7 @@ export const COMMANDS = [
   "pipeline-list",
   "pipeline-show",
   "init-project",
+  "list-projects",
   "next-stage",
   "write-checkpoint",
   "read-checkpoint",
@@ -69,24 +72,9 @@ export const COMMANDS = [
 ] as const;
 export type Command = (typeof COMMANDS)[number];
 
-/** Typebox enum over COMMANDS — reused by the `movie` tool parameter schema. */
 export const COMMAND_ENUM = Type.Union(COMMANDS.map((c) => Type.Literal(c)), {
   description: "movie-director orchestration command.",
 });
-
-/**
- * Slim routing description for the `movie` tool. The heavy per-command
- * reference (option keys, defaults, worked examples) lives in `movie_help` and
- * is fetched on demand — the same dispatcher/help-tool split flux2/ltx/krea2/
- * workflow use. Kept deliberately short: movie is consistently the #1
- * schema-cost tool, and a routing-only description (vs. the full inline
- * reference) is what clears the ≥30% top-3 schema-cost reduction (verified via
- * `tools-metrics --schema-cost`).
- */
-export const ROUTING_DESCRIPTION =
-  "Video orchestrator (OpenMontage rewrite). Consumes the native krea2/flux2/ltx " +
-  "directors with gate-enforced checkpoints. Call movie_help for the command list + " +
-  "per-command options + examples, BEFORE first use.";
 
 export function coerceOptions(v: unknown): Record<string, unknown> {
   if (v && typeof v === "object" && !Array.isArray(v)) return v as Record<string, unknown>;
@@ -103,22 +91,6 @@ export function coerceOptions(v: unknown): Record<string, unknown> {
   return {};
 }
 
-/**
- * Required-string-param guard. The `movie` tool is stateless per call — nothing
- * carries over from a prior init-project/write-checkpoint — so a caller that
- * omits e.g. `pipeline` silently gets `""` today and only finds out from a
- * confusing downstream error (`pipeline "" failed to load`, `unknown schema
- * "artifact/"`). Naming the missing field up front is cheaper for every caller,
- * human or model, than debugging that error.
- */
-export function missingFields(opts: Record<string, unknown>, fields: string[]): string[] {
-  return fields.filter((f) => opts[f] === undefined || opts[f] === null || String(opts[f]) === "");
-}
-
-export function jsonOut(obj: unknown): string {
-  return JSON.stringify(obj, null, 2);
-}
-
 export const COMMAND_REFERENCE = [
   "The movie-director orchestration layer — an instruction-driven (agent-first) video production pipeline.",
   "Pure Bun orchestration (pipeline manifests, gate-enforced checkpoints, artifact schema validation, budget",
@@ -130,12 +102,27 @@ export const COMMAND_REFERENCE = [
   "  • pipeline-show    — {pipeline} → stages, approval gates, produces.",
   "  • init-project     — {projectId, pipeline} → project workspace: stages + the resolved projectDir + assetsDir.",
   "                        Pass assetsDir as `outputDir` to `generate` so produced files land inside the project workspace.",
+  "  • list-projects    — {} (no options) → every discoverable project under MLX_OUTPUT_DIR/movie-director/projects/,",
+  "                        derived purely from on-disk checkpoint_*.json files (pipeline, latestStage, latestStatus,",
+  "                        completedStages, resumeStage), sorted newest-first. Use this FIRST when resuming after a",
+  "                        crash/restart and you don't already know the exact projectId — there is no other way to",
+  "                        enumerate in-flight projects.",
   "  • next-stage       — {projectId, pipeline, stage?} → next stage + its human-approval policy.",
+  "                        ENFORCED GATE: if `stage` (the CURRENT stage) has checkpoint_required:true in the pipeline",
+  "                        manifest, this call refuses (GATE VIOLATION) unless a checkpoint with status=\"completed\" ",
+  "                        already exists for it — closes the gap where an agent could work through several",
+  "                        checkpoint_required stages (research→...→assets) without ever calling write-checkpoint,",
+  "                        leaving zero resumable state if the run crashes (two real kernel panics under sustained GPU",
+  "                        load lost full multi-hour runs this way, 2026-07-12). projectId is required whenever `stage`",
+  "                        is a checkpoint_required stage. Pass overrideStageGate:true to skip this check explicitly.",
   "  • write-checkpoint — {projectId, pipeline, stage, status, artifacts?, humanApproved?, overrideFinalReview?,",
-  "                        overrideArtifactValidation?, ...}",
+  "                        overrideRequiredArtifacts?, overrideArtifactValidation?, ...}",
   "                        ENFORCES THE GATE: status=completed on an approval-gated stage requires humanApproved=true;",
   "                        status=completed on a stage requiring the final_review artifact (publish) is rejected when",
   "                        the linked final_review.verdict is 'fail', unless overrideFinalReview=true is passed explicitly;",
+  "                        status=completed on a stage whose `required_artifacts_in` (manifest) names an artifact with no",
+  "                        completed producing-stage checkpoint is rejected (e.g. compose completing without a completed",
+  "                        edit_decisions from edit), unless overrideRequiredArtifacts=true is passed explicitly;",
   "                        status=completed is rejected when any artifact in `artifacts` fails its own canonical schema",
   "                        (e.g. a malformed research_brief/proposal_packet) — the per-field errors are returned, unless",
   "                        overrideArtifactValidation=true is passed explicitly. Run validate-artifact first to fix errors",
@@ -174,32 +161,63 @@ export const COMMAND_REFERENCE = [
   "                        motion covers its full planned duration, then add each clip as its own consecutive `type:'video'`",
   "                        cut in edit_decisions (cut-s3a 0-8s, cut-s3b 8-16s, ...) — a real take stitched from real",
   "                        sub-takes, not one take padded with a still.",
-  "  • compose          — {editDecisions, workDir?, output?, resolution?, fps?, captions?} → trims each cut to its",
-  "                        [in,out] window and concatenates them into a real .mp4 (ffmpeg straight-cut foundation;",
-  "                        transitions/overlays are the templated-composer tier). captions:{srtPath, burn?} (burn default",
-  "                        true) hard-burns or sidecars an SRT — typically subtitle_gen output from whisper word timestamps.",
-  "  • compose-remotion — {editDecisions, workDir?, output?, width?, height?, fps?} → renders the edit through a",
-  "                        Remotion composition (templated compose tier): per-cut ken-burns/zoom/pan motion, crossfade",
-  "                        transitions, section_title overlays, narration/music audio. editDecisions.cuts carry optional",
-  "                        animation/type/text; overlays[] + audio{} + transition + theme drive the composition.",
+  "                        capability:'tts' options:{text, voice?, rate?, output?} → narration audio (provider selection",
+  "                        tries edge-tts first, falls back to macOS `say`). Pass `rate` (say: words-per-minute, ~140-220",
+  "                        natural) through THIS tracked path if you need to control speaking pace — do NOT shell out to",
+  "                        raw `bash`+`say`/`edge-tts`, which bypasses cost tracking AND any pacing gate entirely (this is",
+  "                        exactly how the saturn-young-rings run's narration-compression bug happened, 2026-07-12: three",
+  "                        escalating raw `say -r` calls with no visibility anywhere in the pipeline). THE CAUSALITY RUNS",
+  "                        ONE WAY: the script's natural-paced narration length determines the video's length (chain more",
+  "                        I2V clips to match it — see the video_generation chaining guidance above); never compress the",
+  "                        narration rate to force-fit a video length decided first. write-checkpoint on a stage carrying a",
+  "                        `script` artifact auto-computes metadata.script_pacing (words-per-second per section + overall,",
+  "                        advisory warn/fail against natural-speech bounds) — check it BEFORE locking total_duration_seconds",
+  "                        and generating TTS, not after.",
+  "  • compose          — {editDecisions, workDir?, output?, resolution?, fps?, captions?, narrativeDurationSeconds?,",
+  "                        overridePreCompose?} → trims each cut to its [in,out] window and concatenates them into a real",
+  "                        .mp4 (ffmpeg straight-cut foundation; transitions/overlays are the templated-composer tier).",
+  "                        captions:{srtPath, burn?} (burn default true) hard-burns or sidecars an SRT — typically",
+  "                        subtitle_gen output from whisper word timestamps. ENFORCES THE SAME pre-compose GATE as",
+  "                        compose-remotion/compose-motion below — refuses to render on a fail verdict (e.g. zero cuts,",
+  "                        excessive frozen-frame extension) unless overridePreCompose=true is passed explicitly.",
+  "  • compose-remotion — {editDecisions, workDir?, output?, width?, height?, fps?, narrativeDurationSeconds?,",
+  "                        overridePreCompose?} → renders the edit through a Remotion composition (templated compose",
+  "                        tier): per-cut ken-burns/zoom/pan motion, crossfade transitions, section_title overlays,",
+  "                        narration/music audio. editDecisions.cuts carry optional animation/type/text; overlays[] +",
+  "                        audio{} + transition + theme drive the composition.",
   "                        Spawns the `remotion` binary (set REMOTION_BIN or install on PATH; falls back to bunx).",
   "                        Returns a render_report (render_grammar:'remotion').",
-  "  • compose-motion   — {editDecisions, workDir?, output?, width?, height?, fps?, transitionSeconds?} → renders the edit",
-  "                        through the ffmpeg motion compositor (Item J lightweight tier): per-cut ken-burns/zoom/pan via",
-  "                        ffmpeg `zoompan` + `xfade` crossfade transitions. Same editDecisions shape as compose-remotion,",
-  "                        but no React/browser/swift — callable wherever ffmpeg+zoompan+xfade resolve. Use this when",
-  "                        compose-remotion's binary doesn't resolve (the agent-driven default for motion on this machine).",
+  "  • compose-motion   — {editDecisions, workDir?, output?, width?, height?, fps?, transitionSeconds?,",
+  "                        narrativeDurationSeconds?, overridePreCompose?} → renders the edit through the ffmpeg motion",
+  "                        compositor (Item J lightweight tier): per-cut ken-burns/zoom/pan via ffmpeg `zoompan` + `xfade`",
+  "                        crossfade transitions. Same editDecisions shape as compose-remotion, but no React/browser/swift",
+  "                        — callable wherever ffmpeg+zoompan+xfade resolve. Use this when compose-remotion's binary",
+  "                        doesn't resolve (the agent-driven default for motion on this machine).",
   "                        Returns a render_report (render_grammar:'motion').",
+  "                        ENFORCED GATE (both compose-remotion and compose-motion): before rendering, the SAME",
+  "                        pre-compose check below runs internally against editDecisions — a `fail` verdict is refused",
+  "                        (no render, {ok:false,error:...} listing the failed checks), not just advisory. Pass",
+  "                        narrativeDurationSeconds here too if you want narrative_duration_vs_script enforced (its own",
+  "                        `pre-compose` call is now optional — a preview, not a prerequisite — since these two commands",
+  "                        run the check themselves). Only overridePreCompose:true bypasses a fail, and only after an",
+  "                        explicit human/agent decision to ship past it — a `warn` verdict never blocks either way.",
   "  • pre-compose      — {editDecisions, narrativeDurationSeconds?} → deterministic gate BEFORE the expensive render:",
   "                        delivery promise (cuts/duration/sources/audio) + slideshow risk (static-image fraction) +",
   "                        cut_duration_vs_source (a video cut requesting more than its source clip's real duration —",
   "                        flags the frozen-frame-extension footgun described under generate/video_generation above).",
+  "                        IMPORTANT: editDecisions.render_runtime MUST be set to the value you'll actually compose with",
+  "                        ('ffmpeg' for compose-motion, 'remotion' for compose-remotion) BEFORE calling pre-compose — the",
+  "                        gate's total-duration math is genuinely different per tier (compose-motion sums each cut's own",
+  "                        out_seconds-in_seconds as it concatenates cuts in array order; compose-remotion places cuts on",
+  "                        one shared absolute timeline and takes max(out_seconds)). Omitting render_runtime silently",
+  "                        falls back to the absolute-timeline formula, which under-reports a compose-motion edit's real",
+  "                        duration as a single clip's length (confirmed bug, saturn-young-rings 2026-07-12).",
   "                        Pass narrativeDurationSeconds (sum of the script artifact's section durations, or better, the",
   "                        synthesized narration audio's real ffprobe duration) to also run narrative_duration_vs_script:",
   "                        warns/fails when the edit's total composed duration falls far short of what the script/",
   "                        narration actually needs — every cut can pass cut_duration_vs_source individually while the",
   "                        whole edit is still too short to narrate its own story (a flat per-scene clip length like",
-  "                        \"'~8-10s per scene' does NOT automatically match a script whose sections vary 5-22s each;",
+  "                        '~8-10s per scene' does NOT automatically match a script whose sections vary 5-22s each;",
   "                        reconcile scene/cut durations against the script's actual per-section lengths, don't just use",
   "                        one constant). Skipped silently when narrativeDurationSeconds is omitted. Also always runs",
   "                        motion_coverage_vs_scene: sums real video-cut seconds vs. total composed seconds and warns/fails",
@@ -221,6 +239,19 @@ export const COMMAND_REFERENCE = [
   "  • cost-snapshot    — {projectId} → {total_spent_usd, total_reserved_usd, budget_remaining_usd}.",
 ].join("\n");
 
+/**
+ * Slim routing description for the `movie` tool. The heavy per-command reference
+ * (option keys, defaults, worked examples) lives in `movie_help` and is fetched
+ * on demand — the same dispatcher/help-tool split flux2/ltx/krea2/workflow use.
+ * Kept deliberately short: movie is consistently the #1 schema-cost tool, and a
+ * routing-only description (vs. the full inline reference) is what clears the
+ * ≥30% top-3 schema-cost reduction (verified via `tools-metrics --schema-cost`).
+ */
+export const ROUTING_DESCRIPTION =
+  "Video orchestrator (OpenMontage rewrite). Consumes the native krea2/flux2/ltx " +
+  "directors with gate-enforced checkpoints. Call movie_help for the command list + " +
+  "per-command options + examples, BEFORE first use.";
+
 /** Slice the COMMAND_REFERENCE block for a single command (its `• <name>` section). */
 export function commandReferenceBlock(command: string): string {
   const full = COMMAND_REFERENCE;
@@ -233,9 +264,57 @@ export function commandReferenceBlock(command: string): string {
   return full.slice(start, next === -1 ? undefined : next).trimEnd();
 }
 
+export function jsonOut(obj: unknown): string {
+  return JSON.stringify(obj, null, 2);
+}
+
+/**
+ * Required-string-param guard. The `movie` tool is stateless per call — nothing
+ * carries over from a prior init-project/write-checkpoint — so a caller that
+ * omits e.g. `pipeline` silently gets `""` today and only finds out from a
+ * confusing downstream error (`pipeline "" failed to load`, `unknown schema
+ * "artifact/"`). Naming the missing field up front is cheaper for every caller,
+ * human or model, than debugging that error.
+ */
+export function missingFields(opts: Record<string, unknown>, fields: string[]): string[] {
+  return fields.filter((f) => opts[f] === undefined || opts[f] === null || String(opts[f]) === "");
+}
+
+/**
+ * GATE (Bug 2, saturn-young-rings 2026-07-12): a pre-compose `verdict:"fail"`
+ * used to block nothing — an agent could call `pre-compose`, read a fail, and
+ * simply call `compose-motion`/`compose-remotion` next with the identical
+ * unmodified edit. Mirrors the `overrideFinalReview` pattern in checkpoint.ts:
+ * both compose tool cases now run the SAME gate internally (deterministic,
+ * cheap outside the video-cut ffprobe calls, and the caller's editDecisions
+ * is already in hand — no separate pre-compose call is required) and refuse
+ * to render on a fail verdict unless `overridePreCompose:true` is passed
+ * explicitly. A `warn` verdict does not block (matches pre-compose's own
+ * warn/fail distinction) — only `fail` does. Returns null (proceed) or a
+ * `{ok:false}` tool result (blocked) for the caller to return directly.
+ */
+async function enforcePreCompose(
+  edit: RemotionEditDecisions,
+  opts: Record<string, unknown>,
+): Promise<{ ok: false; error: string } | null> {
+  if (opts.overridePreCompose === true) return null;
+  const narrativeDurationSeconds = opts.narrativeDurationSeconds !== undefined ? Number(opts.narrativeDurationSeconds) : undefined;
+  const gate = await preComposeGate(edit, { narrativeDurationSeconds });
+  if (gate.verdict !== "fail") return null;
+  const failedChecks = gate.checks.filter((c) => c.status === "fail").map((c) => `${c.name}: ${c.detail}`);
+  return {
+    ok: false,
+    error:
+      `GATE VIOLATION: pre-compose failed (${failedChecks.length} check(s)) — refusing to render:\n  ` +
+      failedChecks.join("\n  ") +
+      `\nFix the edit_decisions (or the underlying assets) and retry, or pass overridePreCompose=true only ` +
+      `after an explicit human/agent decision to ship past the failure.`,
+  };
+}
+
 export type DispatchResult = { ok: true; text: string } | { ok: false; error: string };
 
-export async function dispatch(command: Command, opts: Record<string, unknown>): Promise<DispatchResult> {
+export async function dispatch(command: Command, opts: Record<string, unknown>): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   try {
     switch (command) {
       case "preflight":
@@ -269,11 +348,54 @@ export async function dispatch(command: Command, opts: Record<string, unknown>):
           }),
         };
       }
+      case "list-projects": {
+        // No required options — enumerates MLX_OUTPUT_DIR/movie-director/projects/
+        // purely from on-disk checkpoint_*.json files. This is the project-
+        // discovery/resumability gap closed per the tool-design audit
+        // (2026-07-12): an agent recovering from a crash previously had no way
+        // to enumerate what projects/runs it had in flight, since every
+        // read-checkpoint-family call requires already knowing the exact
+        // projectId. Sorted newest-first by latest checkpoint timestamp.
+        return { ok: true, text: jsonOut({ projects: listProjects() }) };
+      }
       case "next-stage": {
         const missing = missingFields(opts, ["pipeline"]);
         if (missing.length > 0) return { ok: false, error: `next-stage requires non-empty ${missing.join(", ")}` };
         const pipeline = String(opts.pipeline ?? "");
         const stage = opts.stage ? String(opts.stage) : undefined;
+        // GATE (checkpoint-enforcement gap, placebo-effect-explainer Track A
+        // verification run, 2026-07-12): checkpoint_required:true in a pipeline
+        // manifest used to be declared policy with zero structural enforcement —
+        // an agent could work straight through research→...→assets without ever
+        // calling write-checkpoint, and a crash (this session hit two real
+        // kernel panics under sustained GPU load) lost the ENTIRE run with no
+        // resumable state. Mirrors enforcePreCompose's shape: refuse to report
+        // "next" for a checkpoint_required current stage unless a "completed"
+        // checkpoint exists for it, unless overrideStageGate:true is passed
+        // explicitly. Requires projectId (previously accepted but unused —
+        // movie_help already documented it as required).
+        if (stage && !opts.overrideStageGate && getStageCheckpointRequired(pipeline, stage)) {
+          const projectIdMissing = missingFields(opts, ["projectId"]);
+          if (projectIdMissing.length > 0) {
+            return {
+              ok: false,
+              error:
+                `next-stage requires non-empty projectId when advancing past stage "${stage}" ` +
+                `(checkpoint_required:true in pipeline "${pipeline}") — pass overrideStageGate:true to skip this check.`,
+            };
+          }
+          const cp = readCheckpoint(String(opts.projectId), stage);
+          if (cp?.status !== "completed") {
+            return {
+              ok: false,
+              error:
+                `GATE VIOLATION: stage "${stage}" (${pipeline}) requires a completed checkpoint before advancing ` +
+                `(checkpoint_required:true) — found status: ${cp?.status ?? "missing — write-checkpoint was never called"}. ` +
+                `Call write-checkpoint with status="completed" for "${stage}" first, or pass overrideStageGate=true only ` +
+                `after an explicit human/agent decision to advance without one.`,
+            };
+          }
+        }
         const order = getStageOrder(pipeline);
         const from = stage ?? order[0];
         const next = stage ? getNextStage(pipeline, from!) : from;
@@ -303,6 +425,7 @@ export async function dispatch(command: Command, opts: Record<string, unknown>):
           artifacts: opts.artifacts as Record<string, unknown> | undefined,
           humanApproved: opts.humanApproved === true,
           overrideFinalReview: opts.overrideFinalReview === true,
+          overrideRequiredArtifacts: opts.overrideRequiredArtifacts === true,
           overrideArtifactValidation: opts.overrideArtifactValidation === true,
           review: opts.review,
           costSnapshot: opts.costSnapshot,
@@ -410,6 +533,16 @@ export async function dispatch(command: Command, opts: Record<string, unknown>):
         if (!edit || !Array.isArray(edit.cuts)) {
           return { ok: false, error: "compose requires {editDecisions:{version,cuts:[...]}}" };
         }
+        // GATE (tool-design audit, 2026-07-12): this was the one compose tier
+        // with NO pre-compose enforcement — compose-remotion/compose-motion
+        // both refuse to render on a fail verdict (Bug 2), but an agent using
+        // the ffmpeg "foundation" tier got none of the frozen-frame/motion-
+        // coverage protections, silently. EditDecisions is a structural subset
+        // of RemotionEditDecisions (every field the gate reads — cuts[].id/
+        // in_seconds/out_seconds/source — is present on EditCut too), so the
+        // same enforcePreCompose runs unmodified.
+        const preComposeCheck = await enforcePreCompose(edit as unknown as RemotionEditDecisions, opts);
+        if (preComposeCheck) return preComposeCheck;
         const workDir = opts.workDir ? String(opts.workDir) : projectDir(String(opts.projectId ?? "_compose"));
         const captions = opts.captions
           ? { srtPath: String((opts.captions as Record<string, unknown>).srtPath ?? ""), burn: (opts.captions as Record<string, unknown>).burn !== false }
@@ -428,6 +561,8 @@ export async function dispatch(command: Command, opts: Record<string, unknown>):
         if (!edit || !Array.isArray(edit.cuts)) {
           return { ok: false, error: "compose-remotion requires {editDecisions:{version,cuts:[...]}}" };
         }
+        const preComposeCheck = await enforcePreCompose(edit, opts);
+        if (preComposeCheck) return preComposeCheck;
         const workDir = opts.workDir ? String(opts.workDir) : projectDir(String(opts.projectId ?? "_compose_remotion"));
         const report = await renderRemotion(edit, {
           workDir,
@@ -443,6 +578,8 @@ export async function dispatch(command: Command, opts: Record<string, unknown>):
         if (!edit || !Array.isArray(edit.cuts)) {
           return { ok: false, error: "compose-motion requires {editDecisions:{version,cuts:[...]}}" };
         }
+        const preComposeCheck = await enforcePreCompose(edit, opts);
+        if (preComposeCheck) return preComposeCheck;
         const workDir = opts.workDir ? String(opts.workDir) : projectDir(String(opts.projectId ?? "_compose_motion"));
         const report = await composeMotion(edit, {
           workDir,

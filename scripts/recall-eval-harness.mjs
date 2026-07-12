@@ -35,8 +35,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(__dirname, "..");
 const EVAL_PATH = resolve(REPO, "scripts/real-retrieval-eval.json");
 const FOLDER = "Zettelkasten/knowledge-graph";
-const SHIPPED_BASELINE_RATE = 0.84; // drift-guard target — #486 bodyMatch + #492 slugDom
-const SHIPPED_BASELINE_HITS = 21; // 21/25
+const DRIFT_GUARD_RATE = 0.84; // drift-guard target — #486 bodyMatch + #492 slugDom (lexical)
+const DRIFT_GUARD_HITS = 21; // 21/25 on the ORIGINAL first-25 set
+const DRIFT_GUARD_N = 25; // the original eval slice — harness integrity anchor
 const SHIP_RECALL_RATE = 0.88; // a regime must reach ≥0.88 to be a candidate ship
 
 // Tag tokenization — must match retrieve.ts's tag expectation (len 3-30, slug-ish).
@@ -55,12 +56,13 @@ const cardMatches = (c, expect) =>
 
 const evalQueries = JSON.parse(readFileSync(EVAL_PATH, "utf8")).queries;
 
-// Run the 25-query eval through a `retrieve(query, idx) -> {cards}` hook.
-async function evalRetrieve(retrieve) {
+// Run a query slice [lo, hi) through a `retrieve(query, idx) -> {cards}` hook.
+// Defaults to the full set. Slice is used by the drift-guard (first 25).
+async function evalRetrieve(retrieve, lo = 0, hi = evalQueries.length) {
   let hits = 0;
   const hitIdx = [];
   const perQuery = [];
-  for (let i = 0; i < evalQueries.length; i++) {
+  for (let i = lo; i < hi; i++) {
     const t0 = Date.now();
     const cards = await retrieve(evalQueries[i].q, i);
     const lat = Date.now() - t0;
@@ -71,7 +73,8 @@ async function evalRetrieve(retrieve) {
     }
     perQuery.push({ i, q: evalQueries[i].q, expect: evalQueries[i].expect, hit, lat });
   }
-  return { hits, rate: hits / evalQueries.length, hitIdx, perQuery };
+  const n = hi - lo;
+  return { hits, rate: hits / n, hitIdx, perQuery, n };
 }
 
 // Baseline retrieve = the SHIPPED path (bodyMatch + slugDom, original query tags).
@@ -88,6 +91,23 @@ const baselineRetrieve = (vault) => async (q) =>
     })
   ).cards;
 
+// Shipped semantic path (PR #510): opt-in semantic blend on top of lexical.
+// Used by the Phase-A stress-test (does 1.00 hold at 50 queries?) + as the
+// zero-regression reference for future candidates.
+const shippedSemanticRetrieve = (vault) => async (q) =>
+  (
+    await retrieveRecords({
+      vaultPath: vault,
+      folder: FOLDER,
+      tags: q2t(q),
+      queryText: q,
+      topK: 4,
+      bodyMatch: true,
+      slugDom: true,
+      semantic: true,
+    })
+  ).cards;
+
 /**
  * Run the faithful gate for a candidate regime.
  * @param {object} opts
@@ -100,11 +120,12 @@ const baselineRetrieve = (vault) => async (q) =>
 export async function runGate({ label, candidateRetrieve, cost }) {
   const vault = (await resolveVault(REPO)).path;
 
-  // 1. MANDATORY drift-guard — baseline must reproduce the shipped 0.84.
-  const base = await evalRetrieve(baselineRetrieve(vault));
-  const driftOk = base.hits === SHIPPED_BASELINE_HITS && base.rate === SHIPPED_BASELINE_RATE;
+  // 1. MANDATORY drift-guard — first-25 lexical baseline must reproduce 0.84 (21/25).
+  //    This is the harness-INTEGRITY anchor: if it breaks, no measurement is trusted.
+  const guard = await evalRetrieve(baselineRetrieve(vault), 0, DRIFT_GUARD_N);
+  const driftOk = guard.hits === DRIFT_GUARD_HITS && guard.rate === DRIFT_GUARD_RATE;
   console.log(
-    `DRIFT-GUARD [baseline bodyMatch+slugDom]: ${base.hits}/25 (${base.rate.toFixed(2)}) ` +
+    `DRIFT-GUARD [first-25 lexical]: ${guard.hits}/${DRIFT_GUARD_N} (${guard.rate.toFixed(2)}) ` +
       `${driftOk ? "✓ reproduces shipped 0.84" : "✗ BROKEN (expected 21/25=0.84) — ABORT"}`,
   );
   if (!driftOk) {
@@ -112,7 +133,8 @@ export async function runGate({ label, candidateRetrieve, cost }) {
     return { label, driftOk: false, aborted: true };
   }
 
-  // 2. Candidate eval.
+  // 2. Reference baseline on the FULL set (lexical) + candidate on the FULL set.
+  const base = await evalRetrieve(baselineRetrieve(vault));
   const cand = await evalRetrieve(candidateRetrieve);
   const gained = [],
     lost = [];
@@ -127,9 +149,9 @@ export async function runGate({ label, candidateRetrieve, cost }) {
 
   // 3. Report.
   const avgLat = Math.round(cand.perQuery.reduce((s, p) => s + p.lat, 0) / cand.perQuery.length);
-  console.log(`CANDIDATE [${label}]: ${cand.hits}/25 (${cand.rate.toFixed(2)})  avg ${avgLat}ms/q`);
+  console.log(`CANDIDATE [${label}]: ${cand.hits}/${evalQueries.length} (${cand.rate.toFixed(2)})  avg ${avgLat}ms/q`);
   console.log(
-    `Δ=${(cand.rate - base.rate >= 0 ? "+" : "")}${(cand.rate - base.rate).toFixed(3)}  ` +
+    `Δ-vs-lexical-full=${(cand.rate - base.rate >= 0 ? "+" : "")}${(cand.rate - base.rate).toFixed(3)}  ` +
       `gained:[${gained.join(", ") || "none"}]  lost:[${lost.join(", ") || "none"}]`,
   );
   if (cost) console.log(`COST: ${JSON.stringify(cost)}`);
@@ -138,15 +160,45 @@ export async function runGate({ label, candidateRetrieve, cost }) {
       `→ ${driftOk && zeroRegress && recallOk ? "✅ PASS — candidate ship" : "❌ no ship (record finding)"}`,
   );
 
-  return { label, driftOk, base, cand, gained, lost, zeroRegress, recallOk, pass: driftOk && zeroRegress && recallOk, cost };
+  return { label, driftOk, guard, base, cand, gained, lost, zeroRegress, recallOk, pass: driftOk && zeroRegress && recallOk, cost };
 }
 
-// CLI self-test: verify the drift-guard alone reproduces 0.84 (harness health check).
+// CLI: Phase-A stress-test — drift-guard + lexical-vs-shipped-semantic on the FULL set.
+// Answers: "does the shipped 1.00 (PR #510 semantic blend) hold at 50 queries?"
 if (import.meta.url === `file://${process.argv[1]}`) {
-  console.log("=== recall-eval-harness self-test (drift-guard only) ===");
+  console.log(`=== recall-eval-harness Phase-A stress-test (${evalQueries.length} queries) ===`);
   const vault = (await resolveVault(REPO)).path;
-  const base = await evalRetrieve(baselineRetrieve(vault));
-  const ok = base.hits === SHIPPED_BASELINE_HITS && base.rate === SHIPPED_BASELINE_RATE;
-  console.log(`baseline: ${base.hits}/25 (${base.rate.toFixed(2)})  ${ok ? "✅ harness healthy (drift-guard reproduces 0.84)" : "❌ harness BROKEN"}`);
-  process.exit(ok ? 0 : 1);
+
+  // 1. Drift-guard on the original first-25 (lexical must reproduce 0.84).
+  const guard = await evalRetrieve(baselineRetrieve(vault), 0, DRIFT_GUARD_N);
+  const guardOk = guard.hits === DRIFT_GUARD_HITS && guard.rate === DRIFT_GUARD_RATE;
+  console.log(
+    `DRIFT-GUARD [first-25 lexical]: ${guard.hits}/${DRIFT_GUARD_N} (${guard.rate.toFixed(2)})  ` +
+      `${guardOk ? "✅ harness healthy" : "❌ harness BROKEN"}`,
+  );
+  if (!guardOk) {
+    console.log("❌ ABORT: drift-guard failed.");
+    process.exit(1);
+  }
+
+  // 2. Lexical baseline on the FULL set.
+  const lex = await evalRetrieve(baselineRetrieve(vault));
+  console.log(`\nLEXICAL  [full-${evalQueries.length}]: ${lex.hits}/${evalQueries.length} (${lex.rate.toFixed(2)})`);
+
+  // 3. Shipped semantic blend (PR #510) on the FULL set.
+  const sem = await evalRetrieve(shippedSemanticRetrieve(vault));
+  console.log(`SEMANTIC [full-${evalQueries.length}]: ${sem.hits}/${evalQueries.length} (${sem.rate.toFixed(2)})  (PR #510 shipped path)`);
+
+  // 4. Diff + per-query misses (categorize single-hop vs multi-hop for SAG Phase-B).
+  const newQs = evalQueries.slice(DRIFT_GUARD_N); // the 25 added in Phase A
+  const semNewMisses = newQs.filter((_, i) => !sem.hitIdx.includes(DRIFT_GUARD_N + i));
+  const semAllMisses = evalQueries.filter((_, i) => !sem.hitIdx.includes(i));
+  console.log(`\n--- SHIPPED-SEMANTIC MISSES (${semAllMisses.length}) ---`);
+  for (const m of semAllMisses) console.log(`  ✗ expect=${m.expect}\n     q="${m.q}"`);
+  console.log(`\nof which NEW (Phase-A-added) misses: ${semNewMisses.length}/${newQs.length}`);
+  console.log(
+    `\nVERDICT: shipped semantic ${sem.rate.toFixed(2)} on ${evalQueries.length}q ` +
+      `(was 1.00 on 25q). ${sem.rate >= 0.9 ? "✅ holds" : "⚠️ DROPPED — Phase B (multi-hop) warranted"}.`,
+  );
+  process.exit(0);
 }

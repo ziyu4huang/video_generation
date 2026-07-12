@@ -74,6 +74,18 @@ export interface RemotionAudio {
 export interface RemotionEditDecisions {
   version: string;
   cuts: RemotionCut[];
+  /**
+   * Locked at proposal stage (edit_decisions.schema.json requires this).
+   * "ffmpeg" is compose_motion.ts's tier — cuts concatenate in array order
+   * using each cut's own (out_seconds - in_seconds) as a RELATIVE window
+   * duration, so total runtime is the SUM of per-cut windows, not
+   * max(out_seconds). "remotion"/"hyperframes" place cuts on one shared
+   * absolute timeline (Root.tsx: durationInFrames = max(out_seconds)), so
+   * max(out_seconds) is correct there. Optional (not "string") so existing
+   * callers/tests that don't know their render tier keep the prior
+   * absolute-timeline behavior unchanged.
+   */
+  render_runtime?: "remotion" | "hyperframes" | "ffmpeg";
   /** Overlay layer (section titles, stat reveals). */
   overlays?: RemotionOverlay[];
   /** Narration + music layers (absolute paths or URLs). */

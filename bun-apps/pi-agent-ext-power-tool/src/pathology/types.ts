@@ -29,6 +29,8 @@ export interface PathologyInput {
   calls: ToolCallRecord[];
   /** Live context-window fill percent, or null when no LLM turn has completed. */
   contextPercent: number | null;
+  /** Completed-turn count (from turn_end events), or null if unavailable. */
+  turnCount?: number | null;
 
   // ── retry loop ────────────────────────────────────────────────────────────
   /** Identical (tool+args) repeats within the window at/above this count → loop. Default 3. */
@@ -47,4 +49,8 @@ export interface PathologyInput {
   // ── context saturation ─────────────────────────────────────────────────────
   /** Context fill percent at/above which saturation is flagged. Default 85. */
   saturationPercent?: number;
+
+  // ── long-session recall risk (v2, deterministic) ──────────────────────────
+  /** Completed-turn count at/above which long-session recall risk is flagged. Default 15. */
+  longSessionTurnThreshold?: number;
 }

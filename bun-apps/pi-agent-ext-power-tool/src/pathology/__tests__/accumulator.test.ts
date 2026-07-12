@@ -6,7 +6,7 @@
  * never leaks into index.test.ts / detector.test.ts.)
  */
 import { test, expect, describe, beforeEach } from "bun:test";
-import { recordCallStart, recordCallEnd, getCalls, resetAccumulator } from "../accumulator.ts";
+import { recordCallStart, recordCallEnd, getCalls, getTurnCount, recordTurnEnd, resetAccumulator } from "../accumulator.ts";
 
 describe("accumulator", () => {
   beforeEach(() => resetAccumulator());
@@ -45,5 +45,27 @@ describe("accumulator", () => {
     expect(getCalls()).toHaveLength(1);
     resetAccumulator();
     expect(getCalls()).toHaveLength(0);
+  });
+});
+
+describe("accumulator — turn counting (v2)", () => {
+  beforeEach(() => resetAccumulator());
+
+  test("recordTurnEnd tracks completed-turn count (turnIndex + 1)", () => {
+    recordTurnEnd({ turnIndex: 0 });
+    expect(getTurnCount()).toBe(1);
+    recordTurnEnd({ turnIndex: 14 });
+    expect(getTurnCount()).toBe(15);
+  });
+
+  test("getTurnCount is null before any turn ends", () => {
+    expect(getTurnCount()).toBeNull();
+  });
+
+  test("resetAccumulator clears turn count", () => {
+    recordTurnEnd({ turnIndex: 5 });
+    expect(getTurnCount()).toBe(6);
+    resetAccumulator();
+    expect(getTurnCount()).toBeNull();
   });
 });

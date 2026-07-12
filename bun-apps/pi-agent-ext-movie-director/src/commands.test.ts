@@ -18,11 +18,11 @@ import { parseArgs } from "./args.ts";
 // ─── command table structure ────────────────────────────────────────────────
 
 describe("command table", () => {
-	test("exposes exactly the 18 dispatch commands + agent", () => {
+	test("exposes exactly the dispatch commands + agent", () => {
 		const names = DETERMINISTIC_COMMANDS.map((c) => c.name);
 		expect(names).toEqual([...COMMANDS]);
 		expect(ALL_NAMES.has("agent")).toBe(true);
-		expect(ALL_COMMANDS.length).toBe(18 + 1);
+		expect(ALL_COMMANDS.length).toBe(COMMANDS.length + 1);
 	});
 
 	test("every command has a non-empty name, summary, details, and run", () => {

@@ -42,6 +42,7 @@ import {
   makeInspectPathologyTool,
   recordCallStart,
   recordCallEnd,
+  recordTurnEnd,
   resetAccumulator,
   getCalls,
   surfacePathologyWarning,
@@ -979,6 +980,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
     recordCallEnd(event);
     surfacePathologyWarning(ctx, getCalls());
   });
+  pi.on("turn_end", recordTurnEnd);
   pi.on("session_start", () => {
     resetAccumulator();
     resetWarning();

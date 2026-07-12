@@ -247,3 +247,51 @@ describe("analyzePathology — clean session", () => {
     expect(actionable).toHaveLength(0);
   });
 });
+
+// ─── analyzePathology — long-session recall risk (v2, deterministic) ────────────
+
+describe("analyzePathology — long-session recall risk", () => {
+  test("turnCount at/above threshold → medium hint", () => {
+    resetTs();
+    const f = analyzePathology(input([], { contextPercent: 30, turnCount: 20 })).filter(
+      (x) => x.check === "long-session-recall-risk",
+    );
+    expect(f).toHaveLength(1);
+    expect(f[0].severity).toBe("medium");
+    expect((f[0].detail as any).turnCount).toBe(20);
+  });
+
+  test("turnCount below threshold → no finding", () => {
+    resetTs();
+    expect(
+      analyzePathology(input([], { contextPercent: 30, turnCount: 5 })).filter(
+        (x) => x.check === "long-session-recall-risk",
+      ),
+    ).toHaveLength(0);
+  });
+
+  test("turnCount null (no turn tracking / print mode) → no finding", () => {
+    resetTs();
+    expect(
+      analyzePathology(input([], { contextPercent: 30, turnCount: null })).filter(
+        (x) => x.check === "long-session-recall-risk",
+      ),
+    ).toHaveLength(0);
+  });
+
+  test("respects a custom longSessionTurnThreshold", () => {
+    resetTs();
+    // turnCount 10 with default threshold 15 → no finding
+    expect(
+      analyzePathology(input([], { contextPercent: 30, turnCount: 10 })).filter(
+        (x) => x.check === "long-session-recall-risk",
+      ),
+    ).toHaveLength(0);
+    // threshold 8 → now it trips
+    expect(
+      analyzePathology(input([], { contextPercent: 30, turnCount: 10, longSessionTurnThreshold: 8 })).filter(
+        (x) => x.check === "long-session-recall-risk",
+      ),
+    ).toHaveLength(1);
+  });
+});
