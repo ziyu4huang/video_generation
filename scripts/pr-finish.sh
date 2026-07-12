@@ -125,8 +125,10 @@ if [[ "$DRY_RUN" != true ]]; then
     echo "Working tree is dirty. Commit or stash first." >&2; exit 1; }
 fi
 
-# mergeStateStatus: BEHIND = needs base update (handled in step 3); BLOCKED /
-# DIRTY = real problem. CLEAN / MERGEABLE / UNSTABLE(cI running) are OK.
+# mergeStateStatus: BEHIND = needs base update (handled in step 3); DIRTY = real
+# problem; BLOCKED = conditional (ci_running → fall through to watch; else a
+# real block — failing check / missing review; see the BLOCKED branch below).
+# CLEAN / MERGEABLE / UNSTABLE (CI running) are OK.
 STATE=$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q '.mergeStateStatus' 2>/dev/null || echo "UNKNOWN")
 say "Preflight OK — PR #$PR_NUMBER head='$PR_HEAD', on branch='$CURRENT_BRANCH', mergeStateStatus='$STATE'"
 if [[ "$DRY_RUN" != true && "$STATE" == "BLOCKED" ]]; then
