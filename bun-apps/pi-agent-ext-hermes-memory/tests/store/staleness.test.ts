@@ -154,7 +154,7 @@ describe("staleness: stamping & decoding (MemoryStore)", { concurrency: 1 }, () 
     await store.loadFromDisk();
 
     await store.add("memory", `${TEST_MARKER} stamped on add`);
-    await new Promise((r) => setTimeout(r, 250)); // settle atomic write
+    // (no settle sleep needed — add() awaits saveToDisk via runExclusive)
 
     const raw = await readRaw(memoryPath);
     assert.ok(raw.includes("<!-- created="), `expected metadata comment in:\n${raw}`);
