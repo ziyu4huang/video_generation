@@ -77,6 +77,30 @@ You are about to violate this rule if you catch yourself:
 | "a partial check is enough" | a partial check proves nothing |
 | "rephrasing it makes the rule not apply" | the spirit outweighs the letter |
 
+## Grilling — adversarial self-interrogation before "done"
+
+The Gate Function is reactive (you remember to verify). **Grilling is proactive**: before
+*any* completion claim, write down the 3–5 hardest questions a skeptical reviewer would ask,
+then answer each with concrete evidence (a command + its output, a file:line, a diff hunk).
+This is a relentless interview you run on yourself — borrowed from the "grilling" technique.
+
+If **any** question can only be answered with "should", "probably", or a paraphrase of the
+claim itself, the work is not done — go back and produce the evidence.
+
+**Grill template (answer every line with evidence, not assertion):**
+
+1. What command proves it works? *(paste output)*
+2. What was the exact failure before, and what proves it's gone? *(red→green evidence)*
+3. What did the spec/plan require that I have *not* shown evidence for? *(item-by-item)*
+4. Where could this silently break that my test does not cover? *(edge / integration)*
+5. If a subagent did the work: what does the actual diff show vs. its "success" report?
+
+A claim that survives the grill is one you can state with evidence. One that doesn't is a lie
+in progress — fix it before speaking.
+
+Grilling is especially mandatory before: committing, opening a PR, marking a `todo` complete,
+accepting a subagent's report, and the final `/plan-done`.
+
 ## Key patterns
 
 **Tests:**
