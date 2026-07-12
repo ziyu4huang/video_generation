@@ -35,8 +35,6 @@ import { PowerToolStatusWidget } from "./shared/status-widget.js";
 import { replayFromBranch } from "./todo/state/replay";
 import { replaceState } from "./todo/state/store";
 import { TOOL_NAME } from "./todo/tool/types";
-import { registerAskUserQuestionTool } from "./ask-user/ask-user-question";
-import { registerAskUserQuestionReconciler } from "./ask-user/reconcile";
 import goal, { isGoalActive } from "./goal/goal.js";
 import { GoalOverlay } from "./goal/overlay.js";
 import { ensureGetSystemPromptOptions } from "./sdk-patch.js";
@@ -981,10 +979,6 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
   // ── Todo tool + /todos command ────────────────────────────────────────
   registerTodoTool(pi);
   registerTodosCommand(pi);
-
-  // ── Ask User Question tool ───────────────────────────────────────────
-  registerAskUserQuestionTool(pi);
-  registerAskUserQuestionReconciler(pi);
 
   // ── Goal + Todo overlays → ONE composite above-editor widget ─────────────
   // A single widget key makes stacking deterministic (the SDK orders widgets
