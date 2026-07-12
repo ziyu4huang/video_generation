@@ -147,18 +147,27 @@ const COMMAND_REFERENCE = [
   "                        [in,out] window and concatenates them into a real .mp4 (ffmpeg straight-cut foundation;",
   "                        transitions/overlays are the templated-composer tier). captions:{srtPath, burn?} (burn default",
   "                        true) hard-burns or sidecars an SRT — typically subtitle_gen output from whisper word timestamps.",
-  "  • compose-remotion — {editDecisions, workDir?, output?, width?, height?, fps?} → renders the edit through a",
-  "                        Remotion composition (templated compose tier): per-cut ken-burns/zoom/pan motion, crossfade",
-  "                        transitions, section_title overlays, narration/music audio. editDecisions.cuts carry optional",
-  "                        animation/type/text; overlays[] + audio{} + transition + theme drive the composition.",
+  "  • compose-remotion — {editDecisions, workDir?, output?, width?, height?, fps?, narrativeDurationSeconds?,",
+  "                        overridePreCompose?} → renders the edit through a Remotion composition (templated compose",
+  "                        tier): per-cut ken-burns/zoom/pan motion, crossfade transitions, section_title overlays,",
+  "                        narration/music audio. editDecisions.cuts carry optional animation/type/text; overlays[] +",
+  "                        audio{} + transition + theme drive the composition.",
   "                        Spawns the `remotion` binary (set REMOTION_BIN or install on PATH; falls back to bunx).",
   "                        Returns a render_report (render_grammar:'remotion').",
-  "  • compose-motion   — {editDecisions, workDir?, output?, width?, height?, fps?, transitionSeconds?} → renders the edit",
-  "                        through the ffmpeg motion compositor (Item J lightweight tier): per-cut ken-burns/zoom/pan via",
-  "                        ffmpeg `zoompan` + `xfade` crossfade transitions. Same editDecisions shape as compose-remotion,",
-  "                        but no React/browser/swift — callable wherever ffmpeg+zoompan+xfade resolve. Use this when",
-  "                        compose-remotion's binary doesn't resolve (the agent-driven default for motion on this machine).",
+  "  • compose-motion   — {editDecisions, workDir?, output?, width?, height?, fps?, transitionSeconds?,",
+  "                        narrativeDurationSeconds?, overridePreCompose?} → renders the edit through the ffmpeg motion",
+  "                        compositor (Item J lightweight tier): per-cut ken-burns/zoom/pan via ffmpeg `zoompan` + `xfade`",
+  "                        crossfade transitions. Same editDecisions shape as compose-remotion, but no React/browser/swift",
+  "                        — callable wherever ffmpeg+zoompan+xfade resolve. Use this when compose-remotion's binary",
+  "                        doesn't resolve (the agent-driven default for motion on this machine).",
   "                        Returns a render_report (render_grammar:'motion').",
+  "                        ENFORCED GATE (both compose-remotion and compose-motion): before rendering, the SAME",
+  "                        pre-compose check below runs internally against editDecisions — a `fail` verdict is refused",
+  "                        (no render, {ok:false,error:...} listing the failed checks), not just advisory. Pass",
+  "                        narrativeDurationSeconds here too if you want narrative_duration_vs_script enforced (its own",
+  "                        `pre-compose` call is now optional — a preview, not a prerequisite — since these two commands",
+  "                        run the check themselves). Only overridePreCompose:true bypasses a fail, and only after an",
+  "                        explicit human/agent decision to ship past it — a `warn` verdict never blocks either way.",
   "  • pre-compose      — {editDecisions, narrativeDurationSeconds?} → deterministic gate BEFORE the expensive render:",
   "                        delivery promise (cuts/duration/sources/audio) + slideshow risk (static-image fraction) +",
   "                        cut_duration_vs_source (a video cut requesting more than its source clip's real duration —",
@@ -236,6 +245,38 @@ function jsonOut(obj: unknown): string {
  */
 function missingFields(opts: Record<string, unknown>, fields: string[]): string[] {
   return fields.filter((f) => opts[f] === undefined || opts[f] === null || String(opts[f]) === "");
+}
+
+/**
+ * GATE (Bug 2, saturn-young-rings 2026-07-12): a pre-compose `verdict:"fail"`
+ * used to block nothing — an agent could call `pre-compose`, read a fail, and
+ * simply call `compose-motion`/`compose-remotion` next with the identical
+ * unmodified edit. Mirrors the `overrideFinalReview` pattern in checkpoint.ts:
+ * both compose tool cases now run the SAME gate internally (deterministic,
+ * cheap outside the video-cut ffprobe calls, and the caller's editDecisions
+ * is already in hand — no separate pre-compose call is required) and refuse
+ * to render on a fail verdict unless `overridePreCompose:true` is passed
+ * explicitly. A `warn` verdict does not block (matches pre-compose's own
+ * warn/fail distinction) — only `fail` does. Returns null (proceed) or a
+ * `{ok:false}` tool result (blocked) for the caller to return directly.
+ */
+async function enforcePreCompose(
+  edit: RemotionEditDecisions,
+  opts: Record<string, unknown>,
+): Promise<{ ok: false; error: string } | null> {
+  if (opts.overridePreCompose === true) return null;
+  const narrativeDurationSeconds = opts.narrativeDurationSeconds !== undefined ? Number(opts.narrativeDurationSeconds) : undefined;
+  const gate = await preComposeGate(edit, { narrativeDurationSeconds });
+  if (gate.verdict !== "fail") return null;
+  const failedChecks = gate.checks.filter((c) => c.status === "fail").map((c) => `${c.name}: ${c.detail}`);
+  return {
+    ok: false,
+    error:
+      `GATE VIOLATION: pre-compose failed (${failedChecks.length} check(s)) — refusing to render:\n  ` +
+      failedChecks.join("\n  ") +
+      `\nFix the edit_decisions (or the underlying assets) and retry, or pass overridePreCompose=true only ` +
+      `after an explicit human/agent decision to ship past the failure.`,
+  };
 }
 
 async function dispatch(command: Command, opts: Record<string, unknown>): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
@@ -431,6 +472,8 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
         if (!edit || !Array.isArray(edit.cuts)) {
           return { ok: false, error: "compose-remotion requires {editDecisions:{version,cuts:[...]}}" };
         }
+        const preComposeCheck = await enforcePreCompose(edit, opts);
+        if (preComposeCheck) return preComposeCheck;
         const workDir = opts.workDir ? String(opts.workDir) : projectDir(String(opts.projectId ?? "_compose_remotion"));
         const report = await renderRemotion(edit, {
           workDir,
@@ -446,6 +489,8 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
         if (!edit || !Array.isArray(edit.cuts)) {
           return { ok: false, error: "compose-motion requires {editDecisions:{version,cuts:[...]}}" };
         }
+        const preComposeCheck = await enforcePreCompose(edit, opts);
+        if (preComposeCheck) return preComposeCheck;
         const workDir = opts.workDir ? String(opts.workDir) : projectDir(String(opts.projectId ?? "_compose_motion"));
         const report = await composeMotion(edit, {
           workDir,
