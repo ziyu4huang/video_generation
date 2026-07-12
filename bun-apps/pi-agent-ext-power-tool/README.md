@@ -1,26 +1,35 @@
 # pi-agent-ext-power-tool
 
-A **pi extension** bundle. Originally developer-focused diagnostics, it now
-also hosts several always-on agent features, all registered through one
-`src/index.ts` factory.
+A **pi extension** for agent self-diagnostics — `inspect_agent`,
+`inspect_context`, `inspect_extensions`. The `src/index.ts` factory registers
+only these three tools (plus the `schema-cost` export and a CLI subcommand).
 
 ## Feature surface
 
 | Feature | Tool(s) / surface | Notes |
 |---------|-------------------|-------|
-| Diagnostics | `inspect_agent`, `inspect_context`, `inspect_extensions` | The original purpose — documented ↓ |
-| Task tracking | `todo` tool + `/todos` command | In-session, branch-aware steps |
-| Structured questions | `ask_user_question` tool | Multi-choice TUI subsystem |
-| Goal driving | `/goal` + `goal_complete` | Endurance driver; publishes `isGoalActive` for Plan-A coordination with planning-with-files |
-| Side conversation | `/btw` commands | Adapted from pi-btw (MIT) |
+| Diagnostics | `inspect_agent`, `inspect_context`, `inspect_extensions` | The extension's purpose — documented ↓ |
 | Schema-cost accounting | `./schema-cost` export | Static tool-token estimator (also a publishable package, `pi-schema-cost`) |
 | CLI subcommand | `./extensions/cli-subcommand.ts` | Wired into `pi-agent-cli` |
 
-> **Note:** the diagnostics below are this extension's documented public surface.
-> The other features (todo / ask-user / goal / btw) are co-bundled for historical
-> reasons; the knowledge tools that used to live here were extracted to
-> `pi-knowledge-card` (#351/#354). Splitting the remaining features into focused
-> extensions is tracked as future work.
+> **Extracted (2026-07, monolith split A1–A3):** `todo`+`/todos`+`/goal`+`goal_complete`
+> → `pi-agent-ext-goal-todo` (#504); `ask_user_question` → `pi-agent-ext-ask-user`
+> (#502); `/btw` → `pi-agent-ext-btw` (#499). Knowledge tools left earlier for
+> `pi-knowledge-card` (#351/#354).
+
+> **Note:** the diagnostics below are this extension's full public surface.
+> power-tool is once again a focused diagnostics package — the 2026-07 monolith
+> split completed the extraction.
+
+### Lazy-load evaluation (candidate D — not implemented)
+
+The 3 `inspect_*` schemas cost ≈463 tokens total (context 108 + agent 120 +
+extensions 235). A Tool-Search lazy dispatcher (1 `inspect` + `inspect_help`,
+as flux2/ltx use) was considered but **not implemented**: the ~263-token saving
+is modest against typical 10–30k tool budgets, and `inspect_*` are *diagnostic*
+tools — hiding their params behind a help round-trip would hurt the
+zero-round-trip self-diagnosis they exist to provide (unlike generation tools
+where discovery cost is amortized). The descriptions are already lean.
 
 ## Diagnostic Tools
 
