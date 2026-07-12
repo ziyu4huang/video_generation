@@ -24,7 +24,7 @@ The extension maps the upstream planning-with-files hook design onto Pi's lifecy
 
 ## Skill suite (methodology on top of the substrate)
 
-Since v1.2.0 (extended in v1.3.0, expanded to 11 in v1.4.0) the extension ships **11 skills** (registered via `pi.skills: ["./skills"]`, auto-discovered, loaded on-demand). The planning-with-files skill is the **file/orchestration substrate**; the others are the **methodology** that runs on top of it — adapted from [superpowers](https://github.com/obra/superpowers) (zh edition), re-mapped to Pi's tools (`todo`, `subagent`, `workflow`, `ask_user_question`) and conventions (CLAUDE.md PR workflow, `.planning/<slug>/`).
+Since v1.2.0 (extended in v1.3.0, expanded to 11 in v1.4.0 and to 12 in v1.4.1) the extension ships **12 skills** (registered via `pi.skills: ["./skills"]`, auto-discovered, loaded on-demand). The planning-with-files skill is the **file/orchestration substrate**; the others are the **methodology** that runs on top of it — adapted from [superpowers](https://github.com/obra/superpowers) (zh edition), re-mapped to Pi's tools (`todo`, `subagent`, `workflow`, `ask_user_question`) and conventions (CLAUDE.md PR workflow, `.planning/<slug>/`).
 
 ```
 test-driven-development = the FOUNDATION (red-green-refactor) every plan step assumes
