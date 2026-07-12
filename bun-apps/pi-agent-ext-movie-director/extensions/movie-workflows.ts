@@ -18,7 +18,8 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { runWorkflow } from "@repo/pi-agent-ext-workflow";
+import { createCodingTools } from "@earendil-works/pi-coding-agent";
+import { runWorkflow, createWebTools } from "@repo/pi-agent-ext-workflow";
 import { buildMovieHostFnRegistry } from "../src/host-fns.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -32,7 +33,9 @@ interface WfDef {
 
 const WORKFLOWS: WfDef[] = [
   { name: "scene-assets", desc: "Parallel T2I→I2V→TTS asset generation per scene", file: "scene-assets.js" },
-  // Phase 4-6 append: research-first, review-cut, produce-video
+  { name: "research-first", desc: "Web research + cross-check → proposal_packet", file: "research-first.js" },
+  { name: "review-cut", desc: "Adversarial review of a composed cut vs the script", file: "review-cut.js" },
+  { name: "produce-video", desc: "Full movie pipeline (idea→publish) as a resumable workflow", file: "produce-video.js" },
 ];
 
 /** Read every workflow script into a name→source map (for loadSavedWorkflow). */
@@ -67,6 +70,9 @@ export function registerMovieWorkflows(pi: ExtensionAPI, cwd: string): void {
             // Nested workflow() calls (e.g. /produce-video → /scene-assets) resolve
             // to the sibling scripts loaded above.
             loadSavedWorkflow: (name: string) => scripts[name],
+            // Coding tools (Bash/Read/…) + web tools (web_search) so /research-first
+            // agents can actually research; harmless for the other workflows.
+            tools: [...createCodingTools(cwd), ...createWebTools()],
             onLog: (m: string) => ctx.ui.setStatus(wf.name, m.slice(0, 80)),
             onPhase: (title: string) => ctx.ui.setStatus(wf.name, title),
           });
