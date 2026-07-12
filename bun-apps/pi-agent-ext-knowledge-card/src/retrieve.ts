@@ -149,6 +149,12 @@ export interface RetrieveOptions {
 	 *  check is skipped and this embedder backs getCardEmbeddings + embedQuery.
 	 *  Never set in production. */
 	_testEmbedder?: Embedder;
+	/** Opt-in retrieval TRACE (Phase C observability). When true, the result
+	 *  carries a `trace` with per-card score/sharedTags/source provenance — lets
+	 *  a caller debug why cards surfaced without re-reading the vault. Default
+	 *  false = the result is byte-identical to omitting it (no trace computation,
+	 *  drift-guard stays green). */
+	includeTrace?: boolean;
 }
 
 export interface RetrieveResult {
@@ -158,6 +164,44 @@ export interface RetrieveResult {
 	folder: string;
 	scanned: number;
 	excluded: number;
+	/** Opt-in retrieval TRACE (Phase C observability, SAG-inspired SearchTrace).
+	 *  Present only when `includeTrace: true` was passed. Captures, per returned
+	 *  card: the final score, shared-tag count, callout flag, and how the card
+	 *  entered the set (lexical / semantic / both), plus the active options +
+	 *  candidate-pool size + whether the semantic path was actually used. Lets a
+	 *  caller debug WHY a card surfaced (or didn't) without re-reading the vault. */
+	trace?: RetrieveTrace;
+}
+
+/** Per-card + per-retrieval provenance for the trace (Phase C observability). */
+export interface RetrieveTrace {
+	/** The options that produced this result (provenance). */
+	options: {
+		bodyMatch: boolean;
+		slugDom: boolean;
+		semantic: boolean;
+		topK: number;
+		semanticAlpha?: number;
+	};
+	/** True only when the semantic blend actually ran (false = off OR fell back). */
+	semanticUsed: boolean;
+	/** Candidate-pool size before the top-K cut (|scored|, lexical stage). */
+	candidatePool: number;
+	/** Total vault cards scanned in the convergence folder. */
+	scanned: number;
+	/** Per-card breakdown for the RETURNED top-K, in rank order. */
+	cards: Array<{
+		id: string;
+		path: string;
+		/** Final ranking score (post-blend, comparable within this result). */
+		score: number;
+		/** Shared-tag count with the query (the precision signal). */
+		sharedTags: number;
+		/** Whether the card carries a callout (the +0.5 boost source). */
+		hasCallouts: boolean;
+		/** How the card entered the result set. */
+		source: "lexical" | "semantic" | "both";
+	}>;
 }
 
 export interface GraphHealthOptions {
@@ -302,6 +346,7 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 	const semantic = opts.semantic ?? false;
 	const semanticAlpha = opts.semanticAlpha ?? SEMANTIC_ALPHA_DEFAULT;
 	const semanticModel = opts.semanticModel ?? SEMANTIC_MODEL_DEFAULT;
+	const includeTrace = opts.includeTrace ?? false;
 	const folderAbs = join(opts.vaultPath, folder);
 	const queryTags = new Set(opts.tags.map(normTag).filter(Boolean));
 	const excludeIds = new Set((opts.excludeIds ?? []).map((id) => id));
@@ -460,11 +505,14 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 			excluded,
 			origTags: opts.tags,
 			testEmbedder: opts._testEmbedder,
+			includeTrace,
+			optsSnapshot: { bodyMatch, slugDom, semantic, topK, semanticAlpha },
 		});
 		if (sem) return sem;
 	}
 
-	const top = scored.slice(0, topK).map(({ _score, ...rest }) => rest);
+	const topScored = scored.slice(0, topK);
+	const top = topScored.map(({ _score, ...rest }) => rest);
 
 	return {
 		count: top.length,
@@ -473,6 +521,22 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 		folder,
 		scanned,
 		excluded,
+		trace: includeTrace
+			? {
+					options: { bodyMatch, slugDom, semantic, topK, semanticAlpha },
+					semanticUsed: false,
+					candidatePool: scored.length,
+					scanned,
+					cards: topScored.map((c) => ({
+						id: c.id,
+						path: c.path,
+						score: c._score,
+						sharedTags: c.sharedTags,
+						hasCallouts: c.hasCallouts,
+						source: "lexical" as const,
+					})),
+			  }
+			: undefined,
 	};
 }
 
@@ -535,6 +599,8 @@ async function trySemanticBlend(args: {
 	excluded: number;
 	origTags: string[];
 	testEmbedder?: Embedder;
+	includeTrace?: boolean;
+	optsSnapshot: { bodyMatch: boolean; slugDom: boolean; semantic: boolean; topK: number; semanticAlpha: number };
 }): Promise<RetrieveResult | null> {
 	if (!args.queryText) return null;
 	// Test hook: skip the network availability check when an embedder is injected.
@@ -583,7 +649,11 @@ async function trySemanticBlend(args: {
 			return { ...card, _score: blendScore(lr, cn, alpha) };
 		})
 		.sort((a, b) => b._score - a._score || a.id.localeCompare(b.id));
-	const top = blended.slice(0, args.topK).map(({ _score, ...rest }) => rest);
+	const topBlended = blended.slice(0, args.topK);
+	const top = topBlended.map(({ _score, ...rest }) => rest);
+	// Trace source classification: a card is in the lexical pool (top-12), the
+	// semantic top-12, or both.
+	const lexPoolPaths = new Set(lexPool.map((c) => c.path));
 	return {
 		count: top.length,
 		cards: top,
@@ -591,6 +661,26 @@ async function trySemanticBlend(args: {
 		folder: args.folder,
 		scanned: args.scanned,
 		excluded: args.excluded,
+		trace: args.includeTrace
+			? {
+					options: args.optsSnapshot,
+					semanticUsed: true,
+					candidatePool: args.scored.length,
+					scanned: args.scanned,
+					cards: topBlended.map((c) => ({
+						id: c.id,
+						path: c.path,
+						score: c._score,
+						sharedTags: c.sharedTags,
+						hasCallouts: c.hasCallouts,
+						source: lexPoolPaths.has(c.path)
+							? semTopPaths.has(c.path)
+								? "both"
+								: "lexical"
+							: "semantic",
+					})),
+			  }
+			: undefined,
 	};
 }
 

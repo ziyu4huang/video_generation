@@ -1147,6 +1147,14 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				description: "Max cards to return (default 10)",
 				default: 10,
 			})),
+			trace: Type.Optional(Type.Boolean({
+				description:
+					"Opt-in retrieval trace (Phase C observability). When true, the result's " +
+					"`details.trace` carries per-card score/sharedTags/source provenance (lexical " +
+					"vs semantic) for debugging why cards surfaced. The text digest is " +
+					"unchanged. Default false.",
+				default: false,
+			})),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			let vaultPath: string;
@@ -1163,6 +1171,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			const tags: string[] = params.tags ?? [];
 			const query: string = params.query ?? "";
 			const topK: number = params.topK ?? 10;
+			const includeTrace: boolean = params.trace === true;
 
 			if (tags.length === 0 && !query) {
 				return {
@@ -1205,6 +1214,8 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				// pure lexical (the shipped 0.84 path) — no error.
 				semantic: true,
 				queryText: query,
+				// Phase C observability: opt-in per-card provenance trace in `details`.
+				includeTrace,
 			};
 
 			const result = await retrieveRecords(opts);
