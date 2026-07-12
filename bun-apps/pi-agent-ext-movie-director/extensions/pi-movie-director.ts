@@ -28,6 +28,7 @@ import {
   type Command,
 } from "../src/dispatch.ts";
 import { scopeViolationForToolCall } from "../src/index.ts";
+import { registerMovieHostFns } from "./movie-host-fns.ts";
 
 function makeMovieTool() {
   return defineTool({
@@ -82,6 +83,10 @@ function makeMovieHelpTool() {
 const extension: ExtensionFactory = (pi) => {
   pi.registerTool(makeMovieTool());
   pi.registerTool(makeMovieHelpTool());
+  // Register movie.* deterministic host-fns with the workflow runtime (if loaded).
+  // Lets workflow scripts call('movie.generate', …), call('movie.write-checkpoint', …), etc.
+  // No-op when the workflow extension is absent. See extensions/movie-host-fns.ts.
+  registerMovieHostFns(pi);
   // Tool-scope guard: block the built-in edit/write tools when the movie-director
   // agent targets a repo infra root (python/, swift/, …). Prevents the ungrounded
   // edit class observed in the #291 agent-driven run. No-op for non-edit tools.
