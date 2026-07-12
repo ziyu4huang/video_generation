@@ -59,7 +59,7 @@ describe("registerSessionSearchTool", () => {
     assert.match(captured.description, /Output is plain text: count, optional message/);
     assert.match(captured.description, /path:startLine-endLine with a short reason/);
     assert.match(captured.description, /Example:\nfrom: 2026-05-14/);
-    assert.match(captured.promptGuidelines.join("\n"), /Use all for required terms/);
+    // promptGuidelines removed (stealth — description routes); the markdown-only schema is still asserted below.
 
     const empty = await captured.execute("tc-1", { markdown: "" });
     assert.strictEqual(empty.details.success, false);

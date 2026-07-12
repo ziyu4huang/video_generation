@@ -60,12 +60,6 @@ any:
 
 exclude:
 - delta`,
-    promptSnippet: 'Search past session JSONL files for compact source anchors',
-    promptGuidelines: [
-      'Use session_search with markdown only when the session search anchor mode is configured.',
-      'Request source anchors, not summaries or previews.',
-      'Use all for required terms, any for alternatives, and exclude for terms that must not appear in a returned range.',
-    ],
     parameters: Type.Object({
       markdown: Type.String({ description: 'Markdown request with optional from/to/cwd/limit fields and all/any/exclude lists.' }),
     }),
@@ -128,10 +122,6 @@ Examples:
 - "What approach did we take for the database migration?"
 
 Returns conversation snippets with session dates and project context.`,
-    promptSnippet: 'Search past conversations for relevant context',
-    promptGuidelines: [
-      'Use session_search when the user asks about previous discussions or past work, or when you need context from earlier sessions.',
-    ],
     parameters: Type.Object({
       query: Type.String({ description: 'Search query. Use natural language or specific terms.' }),
       project: Type.Optional(Type.String({ description: 'Filter by project name (optional).' })),
