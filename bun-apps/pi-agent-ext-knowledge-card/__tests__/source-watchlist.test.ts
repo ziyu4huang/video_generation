@@ -10,7 +10,7 @@ import { test, expect, describe } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadWatchlist, DEFAULT_WATCHLIST, type SourceSpec } from "../src/source-watchlist.ts";
+import { loadWatchlist, DEFAULT_WATCHLIST, resolveSpecsToRecords, type SourceSpec } from "../src/source-watchlist.ts";
 
 describe("loadWatchlist", () => {
   test("no config file → conventional defaults (zero-config for standard layouts)", () => {
@@ -80,5 +80,34 @@ describe("loadWatchlist", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("resolveSpecsToRecords", () => {
+  test("a workflow-jsonl DIR is swept with the right extension (.knowledge.jsonl, not .md)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "rs-"));
+    const srcDir = mkdtempSync(join(tmpdir(), "rs-src-"));
+    writeFileSync(
+      join(srcDir, "s.knowledge.jsonl"),
+      JSON.stringify({ id: "wf:a", type: "gotcha", title: "A", detail: "d", tags: ["x"] }) + "\n" +
+        JSON.stringify({ id: "wf:b", type: "gotcha", title: "B", detail: "d", tags: ["x"] }) + "\n",
+    );
+    try {
+      const resolved = await resolveSpecsToRecords([{ family: "workflow-jsonl", dir: srcDir }], cwd);
+      expect(resolved).toHaveLength(1);
+      expect(resolved[0].family).toBe("workflow-jsonl");
+      expect(resolved[0].records.map((r) => r.id).sort()).toEqual(["wf:a", "wf:b"]);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(srcDir, { recursive: true, force: true });
+    }
+  });
+
+  test("a missing dir is skipped, never thrown", async () => {
+    const resolved = await resolveSpecsToRecords(
+      [{ family: "hermes", dir: "/nonexistent/path/xyz" }],
+      "/tmp",
+    );
+    expect(resolved).toEqual([]);
   });
 });

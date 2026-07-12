@@ -35,6 +35,8 @@ import {
 	formatHealth,
 } from "@repo/pi-agent-ext-knowledge-card/src/retrieve.ts";
 import { mergeDuplicates, formatMerge } from "@repo/pi-agent-ext-knowledge-card/src/merge.ts";
+import { coverageReport } from "@repo/pi-agent-ext-knowledge-card/src/ingest.ts";
+import { loadWatchlist, resolveSpecsToRecords } from "@repo/pi-agent-ext-knowledge-card/src/source-watchlist.ts";
 
 function resolveVaultPath(parsed: ParsedArgs, cwd: string): string {
 	const explicit = parsed.vault ?? process.env.OB_VAULT_PATH;
@@ -107,6 +109,33 @@ Examples:
 		const vaultPath = resolveVaultPath(parsed, cwd);
 		process.env.OB_VAULT_PATH = vaultPath;
 		const folder = parsed.folder ?? "Zettelkasten/knowledge-graph";
+
+		// ── COVERAGE MODE ─────────────────────────────────────────────────
+		if (parsed.coverage) {
+			const specs = loadWatchlist(cwd);
+			const sources = await resolveSpecsToRecords(specs, cwd);
+			if (!sources.length) {
+				console.error(`coverage: no source families resolved (watch-list dirs missing under ${cwd}).`);
+				console.error(`         create .pi/kcard-coverage.json or run from the project root.`);
+				return;
+			}
+			const cov = await coverageReport({ vaultPath, folder, sources });
+			if (parsed.json || parsed.mode === "json") {
+				console.log(JSON.stringify({ mode: "coverage", ...cov }, null, 2));
+			} else {
+				console.error(`vault:   ${vaultPath}`);
+				console.error(`folder:  ${folder}/`);
+				console.error(`coverage: ${cov.matched}/${cov.expected} converged, ${cov.missing.length} missing, ${cov.sourceOrphaned.length} source-orphaned`);
+				console.error();
+				for (const [fam, by] of Object.entries(cov.byFamily)) {
+					console.log(`[${fam}] expected ${by.expected}, vault ${by.vault}, matched ${by.matched}, missing ${by.missing.length}, sourceOrphaned ${by.sourceOrphaned.length}`);
+					if (by.missing.length) console.log(`  missing:        ${by.missing.join(", ")}`);
+					if (by.sourceOrphaned.length) console.log(`  sourceOrphaned: ${by.sourceOrphaned.join(", ")}`);
+				}
+			}
+			if (cov.missing.length) process.exitCode = 1; // non-zero when records never converged
+			return;
+		}
 
 		// ── HEALTH MODE ──────────────────────────────────────────────────
 		if (parsed.health) {

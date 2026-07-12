@@ -93,7 +93,7 @@ export async function resolveSpecsToRecords(
     if (spec.files?.length) inputs.push(...spec.files);
     if (!inputs.length) continue;
 
-    const { files } = collectInputFiles(inputs, cwd);
+    const { files } = collectInputFiles(inputs, { source: spec.family, cwd });
     const records: KnowledgeRecord[] = [];
     for (const f of files) {
       const content = readFileSync(f, "utf8");
