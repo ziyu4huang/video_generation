@@ -38,7 +38,15 @@ import {
   type CheckpointStatus,
 } from "./checkpoint.ts";
 import { validateArtifact } from "./schema.ts";
-import { estimate as costEstimate, reserve as costReserve, reconcile as costReconcile, costSnapshot } from "./cost.ts";
+import {
+  estimate as costEstimate,
+  reserve as costReserve,
+  reconcile as costReconcile,
+  retagTool,
+  costSnapshot,
+  BudgetExceededError,
+  ApprovalRequiredError,
+} from "./cost.ts";
 import { selectProvider, NoConfiguredProviderError } from "./selector.ts";
 import { selectAndGenerate } from "./bridge.ts";
 import { probedMenuSummary } from "./providers.ts";
@@ -132,7 +140,10 @@ export const COMMAND_REFERENCE = [
   "  • generate         — {capability, command, options?, provider?, projectId?, ...} → selects a configured native director",
   "                        (krea2/flux2/ltx), runs it, returns a ToolResult {success, artifacts[], cost_usd, duration_seconds,",
   "                        seed, model}. When projectId is given, the full estimate→reserve→reconcile cost lifecycle runs and",
-  "                        the costEntryId is returned alongside. This is the assets-stage bridge: it actually produces files.",
+  "                        the costEntryId is returned alongside. Optionally pass `pipeline` to seed a brand-new project's",
+  "                        budget from that pipeline's orchestration.budget_default_usd (only applies the first time a cost",
+  "                        log is created for the project; ignored once one exists). This is the assets-stage bridge: it",
+  "                        actually produces files.",
   "                        capability:'analysis' — `command` selects the analysis subcommand (whisper owns `transcribe`, clip",
   "                        owns `video_understand`). For VISUAL content analysis (what is shown on screen) use",
   "                        command:'video_understand' options:{video, prompt, labels?, numFrames?, model?} → CLIP",
@@ -233,7 +244,8 @@ export const COMMAND_REFERENCE = [
   "                        the transcript check itself stays advisory). Pass narration:'none' (from the script artifact's",
   "                        top-level `narration` field) when the story is intentionally silent/ambient-only, so a genuinely",
   "                        silent track scores audio_level='warn' instead of 'fail'.",
-  "  • cost-estimate    — {projectId, tool, operation, estimatedUsd} → entryId.",
+  "  • cost-estimate    — {projectId, tool, operation, estimatedUsd, pipeline?} → entryId. pipeline seeds a brand-new",
+  "                        project's budget from orchestration.budget_default_usd (first call only, see `generate`).",
   "  • cost-reserve     — {projectId, entryId} → reserves budget (cap mode raises BudgetExceededError).",
   "  • cost-reconcile   — {projectId, entryId, actualUsd, success} → settles the reservation.",
   "  • cost-snapshot    — {projectId} → {total_spent_usd, total_reserved_usd, budget_remaining_usd}.",
@@ -416,13 +428,14 @@ export async function dispatch(command: Command, opts: Record<string, unknown>, 
         const projectId = opts.projectId ? String(opts.projectId) : undefined;
         const provider = opts.provider ? String(opts.provider) : undefined;
         const operation = opts.operation ? String(opts.operation) : `${capability}:${opts.command ?? ""}`;
+        const command = String(opts.command ?? "");
+        const pipeline = opts.pipeline ? String(opts.pipeline) : undefined;
 
         // Pre-resolve the selector so a no-configured-provider error is a clean
         // structured failure (not a thrown stack trace) and so we know the
         // entry before deciding whether to run the cost lifecycle. Pass `command`
         // so {capability, command} addressing routes to the provider that owns
         // the command (e.g. analysis:video_understand → clip, not whisper).
-        const command = String(opts.command ?? "");
         let entry;
         try {
           entry = selectProvider(capability, { provider, command: command || undefined });
@@ -433,17 +446,23 @@ export async function dispatch(command: Command, opts: Record<string, unknown>, 
           throw err;
         }
 
-        // Cost lifecycle: estimate → reserve → generate → reconcile. Only when a
-        // projectId is given (governance is per-project). Best-effort: a cost
-        // failure must NOT mask the generation result.
+        // Cost lifecycle (estimate → reserve), run BEFORE generation so a
+        // cap-mode/approval breach can block spending instead of proceeding
+        // silently (Item 3, output/next-goal-20260712_135012.md — previously
+        // BudgetExceededError/ApprovalRequiredError were caught and swallowed
+        // into "no cost tracked", invisible to the caller). Only runs when a
+        // projectId is given (governance is per-project); any OTHER
+        // cost-tracking failure (e.g. a corrupt cost log) stays best-effort.
         let costEntryId: string | undefined;
         if (projectId) {
           const estimated = Number(opts.estimatedUsd ?? 0);
           try {
-            costEntryId = costEstimate(projectId, entry.provider, operation, estimated);
+            costEntryId = costEstimate(projectId, entry.provider, operation, estimated, undefined, pipeline);
             costReserve(projectId, costEntryId);
-          } catch {
-            // observe mode never throws; in cap mode a budget breach SHOULD block.
+          } catch (err) {
+            if (err instanceof BudgetExceededError || err instanceof ApprovalRequiredError) {
+              return { ok: false, error: err.message };
+            }
             costEntryId = undefined;
           }
         }
@@ -451,11 +470,13 @@ export async function dispatch(command: Command, opts: Record<string, unknown>, 
         // `entry` (used for the cost estimate above) is pre-resolved before
         // generation; selectAndGenerate may substitute a different provider at
         // runtime (e.g. tts's edge-tts-first-with-fallback-to-say — see
-        // bridge.ts). Report the actually-used entry, not the pre-resolved one.
+        // bridge.ts). Report the actually-used entry, not the pre-resolved one,
+        // and retag the cost log entry so its `tool` matches what actually ran
+        // and was billed (Item 3) rather than the pre-resolved guess.
         const { entry: usedEntry, result } = await selectAndGenerate(
           capability,
           {
-            command: String(opts.command ?? ""),
+            command,
             options: opts.options as Record<string, unknown> | undefined,
             outputDir: opts.outputDir ? String(opts.outputDir) : undefined,
             modelsRoot: opts.modelsRoot ? String(opts.modelsRoot) : undefined,
@@ -466,6 +487,7 @@ export async function dispatch(command: Command, opts: Record<string, unknown>, 
 
         if (projectId && costEntryId) {
           try {
+            if (usedEntry.provider !== entry.provider) retagTool(projectId, costEntryId, usedEntry.provider);
             costReconcile(projectId, costEntryId, result.cost_usd, result.success);
           } catch {
             /* best-effort: don't mask the generation result */
@@ -567,7 +589,14 @@ export async function dispatch(command: Command, opts: Record<string, unknown>, 
         return { ok: true, text: jsonOut(review) };
       }
       case "cost-estimate": {
-        const id = costEstimate(String(opts.projectId ?? ""), String(opts.tool ?? ""), String(opts.operation ?? ""), Number(opts.estimatedUsd ?? 0));
+        const id = costEstimate(
+          String(opts.projectId ?? ""),
+          String(opts.tool ?? ""),
+          String(opts.operation ?? ""),
+          Number(opts.estimatedUsd ?? 0),
+          undefined,
+          opts.pipeline ? String(opts.pipeline) : undefined,
+        );
         return { ok: true, text: jsonOut({ entryId: id }) };
       }
       case "cost-reserve": {
