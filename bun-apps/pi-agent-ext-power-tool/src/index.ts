@@ -29,21 +29,8 @@ import { Type } from "typebox";
 import * as yaml from "js-yaml";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join, resolve, sep } from "path";
-import { registerTodoTool, registerTodosCommand } from "./todo/todo";
-import { TodoOverlay } from "./todo/overlay";
-import { PowerToolStatusWidget } from "./shared/status-widget.js";
-import { replayFromBranch } from "./todo/state/replay";
-import { replaceState } from "./todo/state/store";
-import { TOOL_NAME } from "./todo/tool/types";
-import goal, { isGoalActive } from "./goal/goal.js";
-import { GoalOverlay } from "./goal/overlay.js";
 import { ensureGetSystemPromptOptions } from "./sdk-patch.js";
 import { DEFAULT_CHARS_PER_TOKEN } from "./schema-cost";
-
-// Re-export the goal-active coordination seam so peer extensions (e.g.
-// planning-with-files) can dynamic-import it via the package entry without
-// reaching into src/goal. (Plan A: goal ⇄ planning-with-files mutex.)
-export { isGoalActive };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -950,10 +937,6 @@ function makeInspectExtensionsTool(getAllTools: () => ToolInfo[]) {
 // ─── Extension factory ────────────────────────────────────────────────────────
 
 // ─── Stale-ctx error guard (matches pi-core's throw phrase) ─────────────────
-function isStaleCtxError(e: unknown): boolean {
-  return /stale after session replacement/.test(String(e));
-}
-
 // ─── Extension factory ────────────────────────────────────────────────────────
 
 const extension: ExtensionFactory = (pi: ExtensionAPI) => {
@@ -962,81 +945,12 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
   // monkey-patch — no filesystem writes. Safe to call multiple times.
   ensureGetSystemPromptOptions();
 
-  // ── Plan A coordination seam ─────────────────────────────────────────
-  // Publish isGoalActive on globalThis so peer extensions (planning-with-files)
-  // can read it WITHOUT a hard dep or relying on jiti<->native module identity.
-  // globalThis is process-singleton → the function always reads THIS module's
-  // activeGoal. Peer reads `globalThis.__piGoalActive?.() ?? false`.
-  (globalThis as Record<string, unknown>).__piGoalActive = isGoalActive;
-
   // getAllTools() is on ExtensionAPI (pi), not ExtensionContext (ctx).
   // Pass it as a closure into the tool so execute() can call it.
   const getAllTools = () => pi.getAllTools();
   pi.registerTool(makeInspectContextTool(getAllTools));
   pi.registerTool(makeInspectAgentTool(getAllTools));
   pi.registerTool(makeInspectExtensionsTool(getAllTools));
-
-  // ── Todo tool + /todos command ────────────────────────────────────────
-  registerTodoTool(pi);
-  registerTodosCommand(pi);
-
-  // ── Goal + Todo overlays → ONE composite above-editor widget ─────────────
-  // A single widget key makes stacking deterministic (the SDK orders widgets
-  // by Map insertion order with no index API; two keys flicker on clear/re-
-  // register). Goal renders on top, todo below. All setWidget lifecycle lives
-  // in PowerToolStatusWidget; the overlays are thin render() state-holders.
-  const statusWidget = new PowerToolStatusWidget();
-  const goalOverlay = new GoalOverlay();
-  const todoOverlay = new TodoOverlay();
-  goal(pi, goalOverlay);
-  goalOverlay.setRefresh(() => statusWidget.update());
-  todoOverlay.setRefresh(() => statusWidget.update());
-  statusWidget.addSection({ id: "goal", render: (t, w) => goalOverlay.render(t, w) });
-  statusWidget.addSection({ id: "todo", render: (t, w) => todoOverlay.render(t, w) });
-
-  pi.on("session_start", async (_event, ctx) => {
-    replaceState(replayFromBranch(ctx));
-    if (ctx.hasUI) {
-      statusWidget.setUICtx(ctx.ui);
-      todoOverlay.resetCompletedDisplayState();
-      statusWidget.update();
-    }
-  });
-
-  pi.on("session_compact", async (_event, ctx) => {
-    try {
-      replaceState(replayFromBranch(ctx));
-    } catch (e) {
-      if (!isStaleCtxError(e)) throw e;
-    }
-    todoOverlay.resetCompletedDisplayState();
-    statusWidget.update();
-  });
-
-  pi.on("session_tree", async (_event, ctx) => {
-    try {
-      replaceState(replayFromBranch(ctx));
-    } catch (e) {
-      if (!isStaleCtxError(e)) throw e;
-    }
-    todoOverlay.resetCompletedDisplayState();
-    statusWidget.update();
-  });
-
-  pi.on("session_shutdown", async () => {
-    goalOverlay.dispose();
-    todoOverlay.dispose();
-    statusWidget.dispose();
-  });
-
-  pi.on("tool_execution_end", async (event) => {
-    if (event.toolName !== TOOL_NAME || event.isError) return;
-    todoOverlay.update();
-  });
-
-  pi.on("agent_start", async () => {
-    todoOverlay.hideCompletedTasksFromPreviousTurn();
-  });
 };
 
 export default extension;

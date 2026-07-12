@@ -1,7 +1,7 @@
 /**
  * Throwaway probe extension for the coordination E2E.
  *
- * Loaded THIRD (after power-tool and planning-with-files) so that by the time
+ * Loaded THIRD (after goal-todo and planning-with-files) so that by the time
  * its session_start handler runs, both peers have already published their
  * globalThis seams from their factory bodies (factories run at load time,
  * before session_start is emitted).
