@@ -349,9 +349,16 @@ export function listProjects(env: Record<string, string | undefined> = process.e
     }
     if (checkpoints.length === 0) continue;
 
-    checkpoints.sort((a, b) => (a.timestamp ?? "").localeCompare(b.timestamp ?? ""));
-    const latest = checkpoints[checkpoints.length - 1]!;
-    const pipeline = latest.pipeline_type;
+    // "Latest" is determined by PIPELINE STAGE ORDER (via getLatestCheckpoint,
+    // which walks the manifest's stage list back-to-front), not by comparing
+    // wall-clock timestamps + directory-listing order — readdirSync's order is
+    // NOT alphabetical/creation-order-guaranteed across filesystems (macOS's
+    // APFS often looks sorted; Linux ext4/tmpfs, as hit in CI, does not), so
+    // two checkpoints written in the same millisecond (common under fast
+    // synchronous test writes) could tie-break on an arbitrary file order and
+    // silently report a stale stage as "latest".
+    const pipeline = checkpoints.find((c) => c.pipeline_type)?.pipeline_type;
+    const latest = pipeline ? (getLatestCheckpoint(projectId, pipeline, env) ?? checkpoints[0]!) : checkpoints[0]!;
     const completedStages = pipeline
       ? getCompletedStages(projectId, pipeline, env)
       : checkpoints.filter((c) => c.status === "completed").map((c) => c.stage);

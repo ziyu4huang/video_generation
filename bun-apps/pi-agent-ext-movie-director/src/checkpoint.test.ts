@@ -391,6 +391,26 @@ describe("listProjects — project discovery (tool-design audit, resumability ga
     expect(proj.resumeStage).toBe("script"); // resume the incomplete stage itself, don't skip past it
   });
 
+  test("determines 'latest' by PIPELINE STAGE ORDER, not timestamp+directory-listing order (CI flake fix, 2026-07-12)", () => {
+    // Reproduces the actual trigger: two checkpoints written with the SAME
+    // timestamp (fast synchronous writes, common in tests and sometimes real
+    // runs). readdirSync's directory-listing order is NOT alphabetical or
+    // creation-order-guaranteed across filesystems (macOS's APFS often looks
+    // sorted; Linux ext4/tmpfs, hit in CI, does not) — a naive
+    // timestamp-then-file-order tie-break can silently report a STALE stage
+    // as "latest". Deliberately writes the LATER-in-pipeline-order stage
+    // ("script") before the EARLIER one ("idea") — the opposite of both
+    // alphabetical and pipeline order — to prove the result doesn't depend on
+    // write/file-listing order once timestamps tie.
+    const tied = () => "2026-07-12T00:00:00.000Z";
+    writeCheckpoint({ projectId: "proj-tie", pipeline: "talking-head", stage: "script", status: "in_progress", env, now: tied });
+    writeCheckpoint({ projectId: "proj-tie", pipeline: "talking-head", stage: "idea", status: "completed", humanApproved: true, env, now: tied });
+    const list = listProjects(env);
+    const proj = list.find((p) => p.projectId === "proj-tie")!;
+    expect(proj.latestStage).toBe("script"); // script is later in talking-head's stage order than idea
+    expect(proj.resumeStage).toBe("script");
+  });
+
   test("multiple projects sort newest-first by latest checkpoint timestamp", () => {
     writeCheckpoint({
       projectId: "proj-old", pipeline: "talking-head", stage: "idea", status: "in_progress", env,
