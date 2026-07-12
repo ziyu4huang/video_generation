@@ -5,9 +5,9 @@
 # retrospective (PRs #488/#489/#493 all hit some subset of these gotchas):
 #
 #   1. preflight  — on the PR branch, clean tree, gh present, PR mergeable
-#   2. checks     — wait for CI: ALL checks to a FINAL state, merge only if the
-#                    final aggregate is green (NO --fail-fast — that aborts on
-#                    transient flakes that re-run green; the exact iter-7 bug)
+#   2. checks     — poll for check registration, then watch ALL checks to a FINAL
+#                    state; merge only if the final aggregate is green (NO
+#                    --fail-fast). Preflight does NOT abort while CI is running.
 #   3. merge      — gh pr merge --squash; if "head not up to date", sync the
 #                   branch with origin/main, push, re-watch CI, retry the merge
 #   4. cleanup    — detach at origin/main (NOT `git checkout main` — main is
@@ -33,6 +33,8 @@ set -euo pipefail
 
 REMOTE="${REMOTE:-origin}"
 BASE_BRANCH="${BASE_BRANCH:-main}"
+CHECKS_REGISTER_TIMEOUT="${CHECKS_REGISTER_TIMEOUT:-30}"
+SAW_CHECKS=false   # set true by step 2 when CI checks actually exist
 
 # --- args ---------------------------------------------------------------------
 DRY_RUN=false
@@ -60,20 +62,46 @@ command -v gh >/dev/null 2>&1 || { echo "gh CLI is required (not on PATH)." >&2;
 run() { echo "→ $*"; [[ "$DRY_RUN" == true ]] || "$@"; }
 say()  { echo; echo "■ $*"; }
 
-# --- CI gate: wait for ALL checks, decide on the FINAL aggregate --------------
-# Plain `--watch` (NOT --fail-fast). --fail-fast exits on the FIRST check to
-# fail, which caused false aborts on transient flakes that re-run green (this
-# exact bug aborted iter-7's merge — a check briefly FAILED then resolved to
-# SUCCESS). Plain --watch waits for every check to reach a terminal state; we
-# then authoritatively confirm the JSON aggregate is all-green. The watch exit
-# code is version-dependent, so the JSON count is the real gate.
-# Returns 0 iff every check is SUCCESS / NEUTRAL / SKIPPED.
-assert_ci_green() {
-  local pr="$1" bad
+# --- CI gate helpers ----------------------------------------------------------
+# ci_running <pr> → 0 (true) if any check is in a NON-terminal (running/pending)
+# state. Terminal = SUCCESS / NEUTRAL / SKIPPED / FAILURE / STARTUP_FAILURE /
+# CANCELLED / TIMED_OUT / ACTION_REQUIRED. Anything else (PENDING / QUEUED /
+# IN_PROGRESS / WAITING / unknown) means CI is still in flight.
+ci_running() {
+  local n
+  n=$(gh pr checks "$1" --json state 2>/dev/null \
+      -q '[.[]|select(.state!="SUCCESS" and .state!="NEUTRAL" and .state!="SKIPPED" and .state!="FAILURE" and .state!="STARTUP_FAILURE" and .state!="CANCELLED" and .state!="TIMED_OUT" and .state!="ACTION_REQUIRED")]|length' \
+      2>/dev/null || echo 0)
+  [[ -n "$n" && "$n" -gt 0 ]]
+}
+
+# wait_ci <pr> <required> → poll for check registration (≤ CHECKS_REGISTER_TIMEOUT),
+# then watch ALL checks to a terminal state (plain --watch, NOT --fail-fast) and
+# gate on the FINAL JSON aggregate (no transient-flake false-aborts — iter-8).
+#   required=false → if no checks register in time, assume "no CI configured" and
+#                    return 0 (merge proceeds). Sets SAW_CHECKS=true when CI exists.
+#   required=true  → checks are KNOWN to exist (watched in step 2); if they don't
+#                    re-register after a base-update push, ABORT (iter-4 race).
+wait_ci() {
+  local pr="$1" required="${2:-false}" bad deadline
+  # Registration poll: right after a push GitHub hasn't created the check runs
+  # yet, so `gh pr checks` is briefly empty. Wait for them to appear.
   if [[ -z "$(gh pr checks "$pr" 2>/dev/null)" ]]; then
-    echo "  (no checks configured on this PR — nothing to watch)"
-    return 0
+    deadline=$(( $(date +%s) + CHECKS_REGISTER_TIMEOUT ))
+    while [[ -z "$(gh pr checks "$pr" 2>/dev/null)" ]]; do
+      if [[ $(date +%s) -ge $deadline ]]; then break; fi
+      sleep 3
+    done
+    if [[ -z "$(gh pr checks "$pr" 2>/dev/null)" ]]; then
+      if [[ "$required" == true ]]; then
+        echo "CI checks did not register within ${CHECKS_REGISTER_TIMEOUT}s. Aborting." >&2
+        return 1
+      fi
+      echo "  (no checks detected within ${CHECKS_REGISTER_TIMEOUT}s — assuming none configured; use --no-checks to skip this wait)" >&2
+      return 0
+    fi
   fi
+  SAW_CHECKS=true
   gh pr checks "$pr" --watch --interval 15 || true   # wait for all; exit code ignored
   bad=$(gh pr checks "$pr" --json state \
         -q '[.[]|select(.state!="SUCCESS" and .state!="NEUTRAL" and .state!="SKIPPED")]|length' \
@@ -102,7 +130,16 @@ fi
 STATE=$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q '.mergeStateStatus' 2>/dev/null || echo "UNKNOWN")
 say "Preflight OK — PR #$PR_NUMBER head='$PR_HEAD', on branch='$CURRENT_BRANCH', mergeStateStatus='$STATE'"
 if [[ "$DRY_RUN" != true && "$STATE" == "BLOCKED" ]]; then
-  echo "PR is BLOCKED (failing required review/check). Resolve it on GitHub, then retry." >&2; exit 1
+  # BLOCKED can be transient (a required check still running) or a real block
+  # (failing check / missing required review). If CI is still in flight, fall
+  # through to the step-2 watch — wait_ci waits for completion and gates. If CI
+  # is already complete, it's a real non-CI block. (iter-9: the old hard-abort
+  # false-fired while checks were still running.)
+  if ci_running "$PR_NUMBER"; then
+    say "BLOCKED but CI still running — will watch to completion (step 2)."
+  else
+    echo "PR is BLOCKED and CI is complete (failing check or missing required review). Resolve on GitHub, then retry." >&2; exit 1
+  fi
 fi
 
 # --- 2. fetch + checks --------------------------------------------------------
@@ -113,7 +150,7 @@ if [[ "$NO_CHECKS" == true ]]; then
 else
   say "Watching CI on PR #$PR_NUMBER (wait for ALL checks; tolerate transient flakes)…"
   if [[ "$DRY_RUN" != true ]]; then
-    assert_ci_green "$PR_NUMBER" || exit 1
+    wait_ci "$PR_NUMBER" false || exit 1
   fi
 fi
 
@@ -141,21 +178,11 @@ if [[ "$DRY_RUN" != true ]]; then
     say "Base moved — syncing '$PR_HEAD' with $REMOTE/$BASE_BRANCH, then re-running CI…"
     run git merge "$REMOTE/$BASE_BRANCH" --no-edit
     run git push "$REMOTE" "$PR_HEAD"
-    if [[ "$NO_CHECKS" != true ]]; then
+    if [[ "$NO_CHECKS" != true && "$SAW_CHECKS" == true ]]; then
       say "Re-watching CI after base-update…"
-      # Right after the push, GitHub hasn't created the new commit's check runs
-      # yet, so `gh pr checks` returns empty. Poll (≤120s) for checks to
-      # register, THEN watch to completion — otherwise we'd merge before CI
-      # runs (this exact race aborted the first dogfood of this script).
-      register_by=$(( $(date +%s) + 120 ))
-      while [[ -z "$(gh pr checks "$PR_NUMBER" 2>/dev/null)" ]]; do
-        if [[ $(date +%s) -ge $register_by ]]; then
-          echo "CI checks did not register within 120s of the base-update push. Aborting." >&2
-          exit 1
-        fi
-        sleep 3
-      done
-      assert_ci_green "$PR_NUMBER" || { echo "CI failed after base-update. Aborting." >&2; exit 1; }
+      # wait_ci(required=true) re-polls for registration (CI existed in step 2,
+      # so it MUST re-register after the base-update push) then watches + gates.
+      wait_ci "$PR_NUMBER" true || { echo "CI failed after base-update. Aborting." >&2; exit 1; }
     fi
     say "Re-merging…"
     try_merge && rc=0 || rc=$?
