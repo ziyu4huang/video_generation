@@ -4,6 +4,13 @@
     "pi-agent-ext-vlm/extensions/pi-vlm.ts",
     "pi-agent-ext-knowledge-card/extensions/pi-knowledge-card.ts",
     "pi-agent-ext-power-tool/src/index.ts",
+    {
+      "name": "pi-agent-ext-btw",
+      "entry": "pi-agent-ext-btw/extensions/pi-btw.ts",
+      "bundleMode": "thin",
+      "testGate": "cd bun-apps/pi-agent-ext-btw && bun test",
+      "version": "0.1.0"
+    },
     "pi-agent-ext-flux2/extensions/pi-flux2.ts",
     "pi-agent-ext-krea2/extensions/pi-krea2.ts",
     "pi-agent-ext-ltx/extensions/pi-ltx.ts",

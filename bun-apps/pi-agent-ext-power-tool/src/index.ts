@@ -40,7 +40,6 @@ import { registerAskUserQuestionReconciler } from "./ask-user/reconcile";
 import goal, { isGoalActive } from "./goal/goal.js";
 import { GoalOverlay } from "./goal/overlay.js";
 import { ensureGetSystemPromptOptions } from "./sdk-patch.js";
-import { registerBtwFeature } from "./btw";
 import { DEFAULT_CHARS_PER_TOKEN } from "./schema-cost";
 
 // Re-export the goal-active coordination seam so peer extensions (e.g.
@@ -986,9 +985,6 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
   // ── Ask User Question tool ───────────────────────────────────────────
   registerAskUserQuestionTool(pi);
   registerAskUserQuestionReconciler(pi);
-
-  // ── BTW side conversation ────────────────────────────────────────────
-  registerBtwFeature(pi);
 
   // ── Goal + Todo overlays → ONE composite above-editor widget ─────────────
   // A single widget key makes stacking deterministic (the SDK orders widgets
