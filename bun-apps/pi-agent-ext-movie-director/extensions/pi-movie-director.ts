@@ -173,10 +173,13 @@ const COMMAND_REFERENCE = [
   "                        `script` artifact auto-computes metadata.script_pacing (words-per-second per section + overall,",
   "                        advisory warn/fail against natural-speech bounds) — check it BEFORE locking total_duration_seconds",
   "                        and generating TTS, not after.",
-  "  • compose          — {editDecisions, workDir?, output?, resolution?, fps?, captions?} → trims each cut to its",
-  "                        [in,out] window and concatenates them into a real .mp4 (ffmpeg straight-cut foundation;",
-  "                        transitions/overlays are the templated-composer tier). captions:{srtPath, burn?} (burn default",
-  "                        true) hard-burns or sidecars an SRT — typically subtitle_gen output from whisper word timestamps.",
+  "  • compose          — {editDecisions, workDir?, output?, resolution?, fps?, captions?, narrativeDurationSeconds?,",
+  "                        overridePreCompose?} → trims each cut to its [in,out] window and concatenates them into a real",
+  "                        .mp4 (ffmpeg straight-cut foundation; transitions/overlays are the templated-composer tier).",
+  "                        captions:{srtPath, burn?} (burn default true) hard-burns or sidecars an SRT — typically",
+  "                        subtitle_gen output from whisper word timestamps. ENFORCES THE SAME pre-compose GATE as",
+  "                        compose-remotion/compose-motion below — refuses to render on a fail verdict (e.g. zero cuts,",
+  "                        excessive frozen-frame extension) unless overridePreCompose=true is passed explicitly.",
   "  • compose-remotion — {editDecisions, workDir?, output?, width?, height?, fps?, narrativeDurationSeconds?,",
   "                        overridePreCompose?} → renders the edit through a Remotion composition (templated compose",
   "                        tier): per-cut ken-burns/zoom/pan motion, crossfade transitions, section_title overlays,",
@@ -528,6 +531,16 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
         if (!edit || !Array.isArray(edit.cuts)) {
           return { ok: false, error: "compose requires {editDecisions:{version,cuts:[...]}}" };
         }
+        // GATE (tool-design audit, 2026-07-12): this was the one compose tier
+        // with NO pre-compose enforcement — compose-remotion/compose-motion
+        // both refuse to render on a fail verdict (Bug 2), but an agent using
+        // the ffmpeg "foundation" tier got none of the frozen-frame/motion-
+        // coverage protections, silently. EditDecisions is a structural subset
+        // of RemotionEditDecisions (every field the gate reads — cuts[].id/
+        // in_seconds/out_seconds/source — is present on EditCut too), so the
+        // same enforcePreCompose runs unmodified.
+        const preComposeCheck = await enforcePreCompose(edit as unknown as RemotionEditDecisions, opts);
+        if (preComposeCheck) return preComposeCheck;
         const workDir = opts.workDir ? String(opts.workDir) : projectDir(String(opts.projectId ?? "_compose"));
         const captions = opts.captions
           ? { srtPath: String((opts.captions as Record<string, unknown>).srtPath ?? ""), burn: (opts.captions as Record<string, unknown>).burn !== false }

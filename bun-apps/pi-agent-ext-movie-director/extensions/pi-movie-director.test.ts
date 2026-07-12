@@ -147,6 +147,53 @@ describe("pi-movie-director extension", () => {
     expect(res.details.error).toContain("no configured provider");
   });
 
+  test("compose (ffmpeg foundation tier) also refuses to render when pre-compose would fail (tool-design audit, 2026-07-12 — this tier previously had NO gate at all)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-dispatch-gate-fail-compose-"));
+    try {
+      const tool = captureTool("movie");
+      const res = await tool.execute(
+        "id",
+        {
+          command: "compose",
+          options: {
+            editDecisions: { version: "1.0", cuts: [] }, // no cuts → cuts_present fails
+            workDir: dir,
+          },
+        },
+        undefined, undefined, undefined,
+      );
+      expect(res.details.ok).toBe(false);
+      expect(res.details.error).toContain("GATE VIOLATION");
+      expect(res.details.error).toContain("cuts_present");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("compose proceeds when overridePreCompose=true bypasses a pre-compose fail", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-dispatch-gate-override-compose-"));
+    try {
+      const tool = captureTool("movie");
+      const res = await tool.execute(
+        "id",
+        {
+          command: "compose",
+          options: {
+            editDecisions: { version: "1.0", cuts: [] },
+            workDir: dir,
+            overridePreCompose: true,
+          },
+        },
+        undefined, undefined, undefined,
+      );
+      // Past the gate now — composeVideo itself reports a failure for zero cuts
+      // (no GATE VIOLATION text), proving the override actually let it through.
+      expect(res.content[0].text).not.toContain("GATE VIOLATION");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("compose-motion refuses to render when pre-compose would fail (Bug 2, saturn-young-rings 2026-07-12)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "md-dispatch-gate-fail-"));
     try {
