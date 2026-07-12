@@ -2,7 +2,7 @@
  * host-fns.ts — wrap each `dispatch()` command as a workflow host-fn so a
  * workflow script can `call('movie.<command>', args)` the deterministic
  * orchestration core (zero-token, journaled). Mirrors pi-knowledge-card's
- * zk.* adapters.
+ * schemaless zk.* adapters.
  *
  * Two surfaces, one source of entries (buildMovieHostFnEntries):
  *   • buildMovieHostFnRegistry()  → duck-typed {get,has,list} for runWorkflow's
@@ -10,9 +10,13 @@
  *   • the event-bus payloads emitted by extensions/movie-host-fns.ts → for
  *     workflow-EXTENSION-driven runs (workflow tool / /workflows run).
  *
+ * NOTE on schemas: workflow applies a host-fn's `schema` to the RETURN value
+ * (not the args). Mirroring every command's exact return shape is brittle and
+ * redundant — dispatch already validates inputs (missingFields) and artifacts
+ * (validate-artifact). So we register SCHEMALESS host-fns, exactly like zk.*.
+ *
  * Pure Bun (no pi-SDK, no workflow import) so it is unit-testable in isolation.
  */
-import { Type, type TSchema } from "typebox";
 import { dispatch, COMMANDS, coerceOptions, type Command } from "./dispatch.ts";
 
 /** Context handed to every movie.* host fn (matches workflow's HostFnCtx shape). */
@@ -31,37 +35,10 @@ export const HOST_FN_TIMEOUT_MS: Record<string, number> = {
   "final-review": 120_000,
 };
 
-/** Schemas for high-value commands. Others rely on dispatch's internal validation. */
-export const HOST_FN_SCHEMAS: Record<string, TSchema> = {
-  generate: Type.Object({
-    capability: Type.String(),
-    command: Type.Optional(Type.String()),
-    options: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-    projectId: Type.Optional(Type.String()),
-    provider: Type.Optional(Type.String()),
-    outputDir: Type.Optional(Type.String()),
-  }),
-  "write-checkpoint": Type.Object({
-    projectId: Type.String(),
-    pipeline: Type.String(),
-    stage: Type.String(),
-    status: Type.Optional(Type.String()),
-  }),
-  "init-project": Type.Object({ projectId: Type.String(), pipeline: Type.String() }),
-  "next-stage": Type.Object({ pipeline: Type.String(), stage: Type.Optional(Type.String()) }),
-  "read-checkpoint": Type.Object({ projectId: Type.String(), pipeline: Type.String() }),
-  "validate-artifact": Type.Object({ artifact: Type.String(), data: Type.Unknown() }),
-  "pre-compose": Type.Object({ editDecisions: Type.Object({ cuts: Type.Array(Type.Unknown()) }) }),
-  "compose-motion": Type.Object({ editDecisions: Type.Object({ cuts: Type.Array(Type.Unknown()) }) }),
-  "final-review": Type.Object({ mp4Path: Type.String() }),
-  "cost-snapshot": Type.Object({ projectId: Type.String() }),
-};
-
 export interface MovieHostFnEntry {
   ns: "movie";
   name: string;
   fn: (args: unknown, ctx: MovieHostFnCtx) => Promise<unknown>;
-  schema?: TSchema;
   timeoutMs?: number;
 }
 
@@ -84,7 +61,6 @@ export function buildMovieHostFnEntries(): MovieHostFnEntry[] {
     ns: "movie",
     name: cmd,
     fn: async (args: unknown, _ctx: MovieHostFnCtx) => unwrap(await dispatch(cmd as Command, coerceOptions(args)), cmd),
-    schema: HOST_FN_SCHEMAS[cmd],
     timeoutMs: HOST_FN_TIMEOUT_MS[cmd],
   }));
   entries.push({

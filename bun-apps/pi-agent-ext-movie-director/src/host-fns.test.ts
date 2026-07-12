@@ -3,7 +3,6 @@ import {
   buildMovieHostFnEntries,
   buildMovieHostFnRegistry,
   HOST_FN_TIMEOUT_MS,
-  HOST_FN_SCHEMAS,
 } from "./host-fns.ts";
 import { COMMANDS } from "./dispatch.ts";
 
@@ -32,23 +31,6 @@ describe("movie.* host-fns", () => {
   test("compose-motion / compose-remotion / compose have long timeouts", () => {
     for (const c of ["compose-motion", "compose-remotion", "compose"]) {
       expect(HOST_FN_TIMEOUT_MS[c]).toBeGreaterThanOrEqual(900_000);
-    }
-  });
-
-  test("high-value commands carry a typebox schema", () => {
-    for (const c of [
-      "generate",
-      "write-checkpoint",
-      "init-project",
-      "next-stage",
-      "validate-artifact",
-      "pre-compose",
-      "compose-motion",
-      "final-review",
-      "cost-snapshot",
-      "read-checkpoint",
-    ]) {
-      expect(HOST_FN_SCHEMAS[c], `${c} missing schema`).toBeDefined();
     }
   });
 
