@@ -40,6 +40,11 @@ export function costLogPath(projectId: string, env?: Record<string, string | und
   return join(projectDir(projectId, env), "cost_log.json");
 }
 
+/** Decision log path for a project (append-only provider/model-choice record). */
+export function decisionLogPath(projectId: string, env?: Record<string, string | undefined>): string {
+  return join(projectDir(projectId, env), "decision_log.json");
+}
+
 /** History dir (archived superseded checkpoints). */
 export function historyDir(projectId: string, env?: Record<string, string | undefined>): string {
   return join(projectDir(projectId, env), "history");
