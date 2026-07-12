@@ -61,3 +61,63 @@ describe("buildCallGlobal — core", () => {
     );
   });
 });
+
+describe("buildCallGlobal — journal/accounting/limiter gates", () => {
+  it("replays journaled result on resume (fn NOT re-invoked)", async () => {
+    let calls = 0;
+    const r = new HostFnRegistry();
+    r.set("t.count", { fn: async () => ++calls });
+    const run1 = makeDeps({ hostFns: r });
+    await buildCallGlobal(run1.deps)("t.count", { q: "x" });
+    assert.equal(calls, 1);
+    const resume = new Map<number, JournalEntry>();
+    for (const e of run1.journal) resume.set(e.index, e);
+    const run2 = makeDeps({ hostFns: r, resumeJournal: resume });
+    const out = await buildCallGlobal(run2.deps)("t.count", { q: "x" });
+    assert.equal(calls, 1, "fn NOT re-invoked on resume");
+    assert.equal(out, 1);
+  });
+
+  it("changed args invalidate the prefix → fn re-runs (firstMiss)", async () => {
+    let calls = 0;
+    const r = new HostFnRegistry();
+    r.set("t.count", { fn: async () => ++calls });
+    const run1 = makeDeps({ hostFns: r });
+    await buildCallGlobal(run1.deps)("t.count", { q: "x" });
+    const resume = new Map<number, JournalEntry>();
+    for (const e of run1.journal) resume.set(e.index, e);
+    const run2 = makeDeps({ hostFns: r, resumeJournal: resume });
+    await buildCallGlobal(run2.deps)("t.count", { q: "CHANGED" });
+    assert.equal(calls, 2, "fn re-ran because args changed (hash mismatch)");
+  });
+
+  it("counts against maxAgents (mirrors checkpoint)", async () => {
+    const r = new HostFnRegistry();
+    r.set("t.id", { fn: async () => 1 });
+    const { deps } = makeDeps({ hostFns: r, maxAgents: 2 });
+    const call = buildCallGlobal(deps);
+    await call("t.id", {});
+    await call("t.id", {});
+    await assert.rejects(() => call("t.id", {}), (e: any) => e.code === WorkflowErrorCode.AGENT_LIMIT_EXCEEDED);
+  });
+
+  it("shares state.callSeq — callIndex is monotonic", async () => {
+    const r = new HostFnRegistry();
+    r.set("t.id", { fn: async () => 1 });
+    const { deps, journal } = makeDeps({ hostFns: r });
+    const call = buildCallGlobal(deps);
+    await call("t.id", {});
+    await call("t.id", {});
+    assert.deepEqual(journal.map((e) => e.index), [0, 1]);
+  });
+
+  it("does NOT route through the concurrency limiter (spy asserts 0 calls)", async () => {
+    const r = new HostFnRegistry();
+    r.set("t.id", { fn: async () => 1 });
+    let limiterCalls = 0;
+    const { deps } = makeDeps({ hostFns: r });
+    deps.limiter = async (fn) => { limiterCalls++; return fn(); };
+    await buildCallGlobal(deps)("t.id", {});
+    assert.equal(limiterCalls, 0, "call() must not flow through the limiter");
+  });
+});
