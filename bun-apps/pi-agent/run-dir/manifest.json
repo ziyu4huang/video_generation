@@ -5,6 +5,13 @@
     "pi-agent-ext-knowledge-card/extensions/pi-knowledge-card.ts",
     "pi-agent-ext-power-tool/src/index.ts",
     {
+      "name": "pi-agent-ext-goal-todo",
+      "entry": "pi-agent-ext-goal-todo/extensions/pi-goal-todo.ts",
+      "bundleMode": "thin",
+      "testGate": "cd bun-apps/pi-agent-ext-goal-todo && bun test",
+      "version": "0.1.0"
+    },
+    {
       "name": "pi-agent-ext-btw",
       "entry": "pi-agent-ext-btw/extensions/pi-btw.ts",
       "bundleMode": "thin",
