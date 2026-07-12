@@ -112,18 +112,32 @@ phase("Converge")
  * set is growing between rounds.
  */
 async function convergeRound(roundIndex) {
-	const r = await agent(
-		`Run the kcard-loop CLI and return its JSON receipt.
+	// The agent's ONLY job is to run Bash and relay stdout VERBATIM. We do NOT use a
+	// schema here on purpose: a small-tier model is reliable at "copy the output"
+	// but unreliable at faithfully re-emitting a JSON object as structured output
+	// (it summarizes/wraps, breaking the schema → null). We parse the relayed text
+	// in JS instead, which is deterministic. The kcard-loop --json payload is a
+	// lean ~400-byte object (health arrays are counts), so the relay is small.
+	const raw = await agent(
+		`Run this exact Bash command and return its stdout VERBATIM — the raw JSON only, no markdown fences, no commentary, no summary.
 Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts kcard-loop ${sourceTokens} --vault '${VAULT}' --probe-eval '${PROBE_EVAL}' --json 2>/dev/null")
-Parse the stdout JSON. It carries converged, created, updated, deadLinksAfter, rounds, probeHits, probeTotal, probeHitRate.
-Return the parsed object.`,
-		{ label: `converge-round-${roundIndex}`, phase: "Converge", tier: "small", schema: CONVERGE_SCHEMA },
+Return ONLY the stdout string (a JSON object beginning with { and ending with }).`,
+		{ label: `converge-round-${roundIndex}`, phase: "Converge", tier: "small" },
 	)
-	return r
+	if (!raw) { log(`converge round ${roundIndex}: agent returned NULL (agent call failed — likely command transcription/timeout)`); return null }
+	log(`converge round ${roundIndex}: raw len=${String(raw).length}, head=${JSON.stringify(String(raw).slice(0, 100))}`)
+	const match = String(raw).match(/\{[\s\S]*\}/)
+	if (!match) { log(`converge round ${roundIndex}: no JSON found in agent output`); return null }
+	try {
+		return JSON.parse(match[0])
+	} catch (e) {
+		log(`converge round ${roundIndex}: JSON.parse failed (${e?.message || e})`)
+		return null
+	}
 }
 
 const receipts = await loopUntilDry({
-	round: convergeRound,
+	round: async (i) => { const r = await convergeRound(i); return r ? [r] : [] }, // loopUntilDry needs an ARRAY; a scalar return is silently dropped (Array.isArray guard) → the original Phase-3 bug
 	// key on the convergence signature — a round that didn't change (created=0,
 	// deadLinksAfter=0, same probeHitRate bucket) is "dry". Bucket hit-rate to
 	// avoid churn on sub-percent noise.
