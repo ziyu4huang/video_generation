@@ -189,15 +189,14 @@ describe("zk_card — per-action wiring (zkSpawn seam)", () => {
 	});
 });
 
-describe("zk_ask — wiring + defaults", () => {
-	it("passes RAG_TOOLS + pi-kc-rag- + buildRagTask with default args", async () => {
+describe("zk_ask — wiring + defaults (zkSpawn seam)", () => {
+	it("passes RAG_TOOLS + buildRagTask with default args", async () => {
 		await run("zk_ask", { question: "Why?" });
-		const c = lastCall();
-		expect(c[3]).toBe(RAG_TOOLS.join(","));
-		expect(c[5]).toBe("pi-kc-rag-");
+		const c = lastZkSpawnCall();
+		expect(c.tools).toEqual(RAG_TOOLS);
 		// defaults: depth=2, top_k=8, summarize=false, retrieveOnly=false,
 		// maxNeighbors=5, maxNoteTokens=2000, noRefine=false, folder=undefined
-		expect(c[2]).toBe(buildRagTask("Why?", 2, 8, false, false, 5, 2000, false, undefined));
+		expect(c.task).toBe(buildRagTask("Why?", 2, 8, false, false, 5, 2000, false, undefined));
 	});
 
 	it("forwards explicit RAG params", async () => {
@@ -212,7 +211,7 @@ describe("zk_ask — wiring + defaults", () => {
 			no_refine: true,
 			folder: "Notes",
 		});
-		expect(lastCall()[2]).toBe(
+		expect(lastZkSpawnCall().task).toBe(
 			buildRagTask("Why?", 1, 3, true, true, 2, 500, true, "Notes"),
 		);
 	});

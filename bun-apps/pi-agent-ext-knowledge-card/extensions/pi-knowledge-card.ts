@@ -39,7 +39,6 @@ import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-age
 import { Type } from "typebox";
 import { zkRetrieve, zkIngest, zkHealth, zkHeal } from "../src/host-fns.ts";
 import {
-	runSubagentWithRetry,
 	resolveVault,
 	registerDeterministicHealthCheck,
 } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
@@ -927,15 +926,15 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				params.folder,
 				params.blend ?? "default",
 			);
-			const { output, exitCode, stderr, timedOut } = await runSubagentWithRetry(
+			const { output, exitCode, stderr, timedOut } = await zkSpawn({
 				cwd,
-				"",
 				task,
-				ragToolsFor(params.blend ?? "default").join(","),
+				tools: ragToolsFor(params.blend ?? "default"),
+				model: params.model,
+				excludeTools: params.exclude_tools,
 				signal,
-				"pi-kc-rag-",
-				{ model: params.model, excludeTools: params.exclude_tools },
-			);
+				extensionTools: parentExtensionTools,
+			});
 			if (timedOut) {
 				return {
 					content: [
