@@ -63,3 +63,13 @@ return await call('t.missing', {})`;
     );
   });
 });
+
+describe("kcard-converge-loop migration (T11)", () => {
+  it("convergeRound uses call('zk.health'/'zk.ingest'), not an LLM agent relay", async () => {
+    const src = await Bun.file("samples/kcard-converge-loop.js").text();
+    assert.ok(/call\(['"]zk\.health['"]/.test(src), "uses call('zk.health')");
+    assert.ok(/call\(['"]zk\.ingest['"]/.test(src), "uses call('zk.ingest')");
+    assert.ok(!/return its stdout VERBATIM/i.test(src), "the LLM-relay instruction is gone");
+    assert.ok(!/kcard-loop\s+\$\{sourceTokens\}/.test(src), "the kcard-loop CLI relay command is gone");
+  });
+});
