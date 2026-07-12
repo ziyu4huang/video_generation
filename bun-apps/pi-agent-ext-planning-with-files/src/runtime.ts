@@ -334,6 +334,7 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
 
     if (isAllPhasesComplete(status)) {
       state.autoContinueCountBySessionPlan.set(planKey, 0);
+      ctx.ui.setStatus(PKG_NAME, summarizePlan(status));
       ctx.ui.notify(
         `[planning-with-files] ALL PHASES COMPLETE (${status.completePhases}/${status.totalPhases}).`,
         "info",
@@ -368,6 +369,22 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
       );
       return;
     }
+
+    // Progress-aware reset: if the agent completed a phase since the last fire,
+    // reset the auto-continue count — a productive agent gets a fresh 3-continue
+    // budget per phase instead of hitting the wall mid-task. A stuck agent (no
+    // phase advance) is unaffected and still caps at AUTO_CONTINUE_LIMIT.
+    const lastComplete = state.lastCompletePhasesBySessionPlan.get(planKey);
+    if (lastComplete !== undefined && status.completePhases > lastComplete) {
+      state.autoContinueCountBySessionPlan.set(planKey, 0);
+    }
+    state.lastCompletePhasesBySessionPlan.set(planKey, status.completePhases);
+
+    // Reflect the live phase count on the bar so execution progress is visible
+    // at every agent_end — covers both the auto-continue fire and the cap-hit
+    // (both reach this point). Without this the bar stayed frozen at whatever
+    // before_agent_start set for the whole turn.
+    ctx.ui.setStatus(PKG_NAME, summarizePlan(status));
 
     const current = state.autoContinueCountBySessionPlan.get(planKey) ?? 0;
     if (current >= AUTO_CONTINUE_LIMIT) {
