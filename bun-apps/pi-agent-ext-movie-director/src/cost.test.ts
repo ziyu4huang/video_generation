@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { estimate, reserve, reconcile, refund, costSnapshot, getLog, configureBudget, BudgetExceededError } from "./cost.ts";
+import { estimate, reserve, reconcile, refund, costSnapshot, getLog, configureBudget, DEFAULT_BUDGET, BudgetExceededError } from "./cost.ts";
 
 let env: Record<string, string | undefined>;
 beforeEach(() => {
@@ -45,5 +45,34 @@ describe("cost tracker lifecycle", () => {
     configureBudget("p1", { mode: "cap", totalUsd: 0.5, singleActionApprovalUsd: 100 }, env); // tiny budget, high single-action threshold so the CAP fires
     const id = estimate("p1", "ltx_video", "i2v", 5.0, env); // far over budget
     expect(() => reserve("p1", id, env)).toThrow(BudgetExceededError);
+  });
+});
+
+// Item 2 (manifest-consistency guard, output/next-goal-20260712_135012.md):
+// orchestration.budget_default_usd was pure YAML documentation with zero
+// runtime consumer — DEFAULT_BUDGET.totalUsd=10 silently overrode whatever a
+// pipeline manifest declared. estimate()'s optional `pipeline` param closes
+// that gap for freshly-created projects only.
+describe("budget seeded from pipeline manifest (Item 2)", () => {
+  test("a brand-new project with no pipeline hint gets DEFAULT_BUDGET.totalUsd", () => {
+    estimate("p1", "krea2_image", "t2i", 0.05, env);
+    expect(getLog("p1", env).budget.totalUsd).toBe(DEFAULT_BUDGET.totalUsd);
+  });
+
+  test("a brand-new project seeds totalUsd from orchestration.budget_default_usd when pipeline is given", () => {
+    // talking-head.yaml declares orchestration.budget_default_usd: 0.50
+    estimate("p1", "krea2_image", "t2i", 0.05, env, "talking-head");
+    expect(getLog("p1", env).budget.totalUsd).toBe(0.5);
+  });
+
+  test("a different pipeline's default is used correctly (animated-explainer: 2.00)", () => {
+    estimate("p1", "krea2_image", "t2i", 0.05, env, "animated-explainer");
+    expect(getLog("p1", env).budget.totalUsd).toBe(2.0);
+  });
+
+  test("pipeline hint is ignored once a cost log already exists", () => {
+    estimate("p1", "krea2_image", "t2i", 0.05, env); // creates log with DEFAULT_BUDGET
+    estimate("p1", "krea2_image", "t2i", 0.05, env, "animated-explainer"); // should NOT re-seed
+    expect(getLog("p1", env).budget.totalUsd).toBe(DEFAULT_BUDGET.totalUsd);
   });
 });
