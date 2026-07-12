@@ -52,7 +52,7 @@ describe("pi-movie-director extension", () => {
   test("the movie_help reference documents every command", async () => {
     const reference = await movieHelpReference();
     for (const cmd of [
-      "preflight", "pipeline-list", "pipeline-show", "init-project", "next-stage",
+      "preflight", "pipeline-list", "pipeline-show", "init-project", "list-projects", "next-stage",
       "write-checkpoint", "read-checkpoint", "validate-artifact", "generate",
       "compose", "final-review",
       "cost-estimate", "cost-reserve", "cost-reconcile", "cost-snapshot",
@@ -91,6 +91,13 @@ describe("pi-movie-director extension", () => {
     const res = await tool.execute("id", { command: "pipeline-list", options: {} }, undefined, undefined, undefined);
     const parsed = JSON.parse(res.content[0].text);
     expect(parsed).toContain("talking-head");
+  });
+
+  test("list-projects returns the {projects:[...]} discovery shape with no required options", async () => {
+    const tool = captureTool("movie");
+    const res = await tool.execute("id", { command: "list-projects", options: {} }, undefined, undefined, undefined);
+    const parsed = JSON.parse(res.content[0].text);
+    expect(Array.isArray(parsed.projects)).toBe(true);
   });
 
   test("write-checkpoint surfaces gate violation as a non-throwing error result", async () => {
