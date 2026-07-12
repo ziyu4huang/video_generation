@@ -17,6 +17,16 @@
 #   ./scripts/stale-branches.sh            # report only (default, exit 0)
 #   ./scripts/stale-branches.sh --prune    # delete the stale branches (prompts)
 #   ./scripts/stale-branches.sh --quiet    # only print the count
+#   ./scripts/stale-branches.sh --prune --force   # ALSO delete RECENT branches
+#
+# Concurrent-agent safety: in a multi-worktree/multi-agent repo, an un-PR'd
+# branch whose latest commit is recent (≤ RECENT_DAYS, default 7) is almost
+# certainly ACTIVE work from another session — the keep-set heuristics
+# (worktree-checked-out / open-PR) miss it. --prune NEVER deletes such branches
+# unless --force is given; the report flags them ⚠ recent.
+# (Hard-won lesson: this script once force-deleted active unmerged work —
+# fix/selfimprove-loop-hardening — because it lacked a recency guard.)
+# Override the window with RECENT_DAYS=N.
 #
 # This script NEVER deletes a branch checked out in a worktree it does not own.
 set -euo pipefail
@@ -24,12 +34,15 @@ set -euo pipefail
 REMOTE="${REMOTE:-origin}"
 PRUNE=false
 QUIET=false
+FORCE=false
+RECENT_DAYS="${RECENT_DAYS:-7}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --prune) PRUNE=true;  shift ;;
     --quiet) QUIET=true;  shift ;;
+    --force) FORCE=true;  shift ;;
     -h|--help)
-      sed -n '2,26p' "$0"; exit 0 ;;
+      awk '/^set -euo pipefail/{exit} NR>1' "$0"; exit 0 ;;
     *) echo "Unknown option: $1 (try --help)" >&2; exit 1 ;;
   esac
 done
@@ -74,6 +87,19 @@ pr_state() {
   if [[ -z "$row" ]]; then echo "no PR"; else echo "$(tr '[:upper:]' '[:lower:]' <<<"$row")"; fi
 }
 
+# --- concurrent-agent recency guard -----------------------------------------
+# A branch whose latest commit is ≤ RECENT_DAYS old is almost certainly ACTIVE
+# work from another session, even with no open PR and not checked out anywhere
+# right now. --prune refuses to delete these unless --force.
+ref_age_days() {  # $1 = full ref (refs/heads/x | refs/remotes/<remote>/x)
+  local ct
+  ct=$(git log -1 --format=%ct "$1" 2>/dev/null || true)
+  [[ -z "$ct" ]] && { echo ""; return; }
+  echo $(( ( $(date +%s) - ct ) / 86400 ))
+}
+is_recent_local()  { local d; d=$(ref_age_days "refs/heads/$1");            [[ -n "$d" && "$d" -le "$RECENT_DAYS" ]]; }
+is_recent_remote() { local d; d=$(ref_age_days "refs/remotes/${REMOTE}/$1"); [[ -n "$d" && "$d" -le "$RECENT_DAYS" ]]; }
+
 # --- scan local branches ------------------------------------------------------
 # for-each-ref avoids the worktree "+" marker ambiguity; we re-check worktree
 # membership via is_kept() (WORKTREE_BRANCHES) so a branch checked out in ANY
@@ -116,13 +142,21 @@ echo "Stale branches (deletable): $count"
 for entry in "${STALE_LOCAL[@]:-}"; do
   [[ -z "$entry" ]] && continue
   name="${entry%%|*}"; state="${entry#*|}"
-  echo "    $name   $state"
+  if is_recent_local "$name"; then
+    echo "    $name   $state   ⚠ recent (≤${RECENT_DAYS}d — likely active; kept without --force)"
+  else
+    echo "    $name   $state"
+  fi
 done
 [[ ${#STALE_REMOTE[@]} -gt 0 ]] && echo "  remote:"
 for entry in "${STALE_REMOTE[@]:-}"; do
   [[ -z "$entry" ]] && continue
   name="${entry%%|*}"; state="${entry#*|}"
-  echo "    ${REMOTE}/$name   $state"
+  if is_recent_remote "$name"; then
+    echo "    ${REMOTE}/$name   $state   ⚠ recent (≤${RECENT_DAYS}d — likely active; kept without --force)"
+  else
+    echo "    ${REMOTE}/$name   $state"
+  fi
 done
 
 if [[ "$PRUNE" == true ]]; then
@@ -130,14 +164,22 @@ if [[ "$PRUNE" == true ]]; then
   for entry in "${STALE_LOCAL[@]:-}"; do
     [[ -z "$entry" ]] && continue
     name="${entry%%|*}"
+    if is_recent_local "$name" && [[ "$FORCE" != true ]]; then
+      echo "⚠ keep $name — latest commit ≤${RECENT_DAYS}d (concurrent-agent safety); --force to override."
+      continue
+    fi
     echo "→ git branch -D $name"
     git branch -D "$name"
   done
   for entry in "${STALE_REMOTE[@]:-}"; do
     [[ -z "$entry" ]] && continue
     name="${entry%%|*}"
+    if is_recent_remote "$name" && [[ "$FORCE" != true ]]; then
+      echo "⚠ keep ${REMOTE}/$name — latest commit ≤${RECENT_DAYS}d (concurrent-agent safety); --force to override."
+      continue
+    fi
     echo "→ git push ${REMOTE} --delete $name"
     git push "$REMOTE" --delete "$name"
   done
-  echo "✓ Pruned $count stale branch(es)."
+  echo "✓ Pruned stale branch(es) (recent ones kept; use --force to include them)."
 fi
