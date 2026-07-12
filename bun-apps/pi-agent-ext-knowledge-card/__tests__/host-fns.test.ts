@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { zkRetrieve, zkIngest, zkHealth, zkHeal, buildRetrieveOptions } from "../src/host-fns.js";
 import { retrieveRecords } from "../src/retrieve.js";
+import { coverageReport } from "../src/ingest.js";
+import { resolveSpecsToRecords } from "../src/source-watchlist.js";
 import piKnowledgeCardExtension from "../extensions/pi-knowledge-card.ts";
 
 const mkctx = (vaultPath: string) => ({ cwd: "/", signal: new AbortController().signal, runId: "test", vaultPath });
@@ -108,5 +110,69 @@ describe("knowledge-card host-fn registration (event bus)", () => {
     fire("workflow:hostfn:v1:request");
     const afterRequest = emitted.filter((e) => e.channel === "workflow:hostfn:v1:register").length;
     assert.ok(afterRequest > afterLoad, "re-emitted registrations on request");
+  });
+});
+
+describe("zk.health coverage", () => {
+  it("coverage:true populates health.coverage with the missing set", async () => {
+    const vault = tmpVault();
+    const seedDir = mkdtempSync(join(tmpdir(), "kc-cov-seed-"));
+    const srcDir = mkdtempSync(join(tmpdir(), "kc-cov-src-"));
+    // Seed the vault with ONLY wf:a.
+    writeFileSync(
+      join(seedDir, "seed.knowledge.jsonl"),
+      JSON.stringify({ id: "wf:a", type: "gotcha", title: "A", detail: "d", tags: ["x"] }) + "\n",
+    );
+    // Coverage source has wf:a (converged) + wf:b (NOT converged).
+    writeFileSync(
+      join(srcDir, "src.knowledge.jsonl"),
+      JSON.stringify({ id: "wf:a", type: "gotcha", title: "A", detail: "d", tags: ["x"] }) + "\n" +
+      JSON.stringify({ id: "wf:b", type: "gotcha", title: "B", detail: "d", tags: ["x"] }) + "\n",
+    );
+    try {
+      await zkIngest({ files: [join(seedDir, "seed.knowledge.jsonl")], source: "workflow-jsonl" }, mkctx(vault));
+      const viaFn: any = await zkHealth(
+        { coverage: true, sources: [{ family: "workflow-jsonl", files: [join(srcDir, "src.knowledge.jsonl")] }] },
+        mkctx(vault),
+      );
+      assert.ok(viaFn.health.coverage, "coverage populated when coverage:true");
+      assert.deepEqual(viaFn.health.coverage.missing, ["wf:b"]);
+      assert.deepEqual(viaFn.health.coverage.sourceOrphaned, []);
+      assert.equal(viaFn.health.coverage.byFamily["workflow-jsonl"].matched, 1);
+    } finally {
+      rmSync(vault, { recursive: true, force: true });
+      rmSync(seedDir, { recursive: true, force: true });
+      rmSync(srcDir, { recursive: true, force: true });
+    }
+  });
+
+  it("parity: health.coverage == direct coverageReport on identical sources (host-fn honesty)", async () => {
+    const vault = tmpVault();
+    const srcDir = mkdtempSync(join(tmpdir(), "kc-cov-par-"));
+    writeFileSync(
+      join(srcDir, "src.knowledge.jsonl"),
+      JSON.stringify({ id: "wf:a", type: "gotcha", title: "A", detail: "d", tags: ["x"] }) + "\n" +
+      JSON.stringify({ id: "wf:c", type: "gotcha", title: "C", detail: "d", tags: ["x"] }) + "\n",
+    );
+    try {
+      const specs = [{ family: "workflow-jsonl" as const, files: [join(srcDir, "src.knowledge.jsonl")] }];
+      const resolved = await resolveSpecsToRecords(specs, "/");
+      const direct = await coverageReport({ vaultPath: vault, sources: resolved });
+      const viaFn: any = await zkHealth({ coverage: true, sources: specs }, mkctx(vault));
+      assert.deepEqual(viaFn.health.coverage, direct);
+    } finally {
+      rmSync(vault, { recursive: true, force: true });
+      rmSync(srcDir, { recursive: true, force: true });
+    }
+  });
+
+  it("coverage omitted → health.coverage undefined (backward-compatible)", async () => {
+    const vault = tmpVault();
+    try {
+      const viaFn: any = await zkHealth({}, mkctx(vault));
+      assert.equal(viaFn.health.coverage, undefined);
+    } finally {
+      rmSync(vault, { recursive: true, force: true });
+    }
   });
 });

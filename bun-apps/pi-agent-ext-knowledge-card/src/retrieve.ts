@@ -43,6 +43,7 @@ import {
 	writeMoc,
 	extractFeatures,
 	type KnowledgeRecord,
+	type CoverageReport,
 } from "./ingest.ts";
 import { computeIdf, scoreOverlap, type LinkWeighting } from "./entities.ts";
 import {
@@ -220,6 +221,12 @@ export interface GraphHealthResult {
 	mocMissing: boolean;
 	mocStale: boolean;
 	orphans: string[];
+	/** Coverage dimension (additive, optional). Populated by the caller layer
+	 *  (the zk.health host-fn / zk-query CLI), NOT by graphHealth itself — keeps
+	 *  this module structural-only with no runtime ingest coupling. The obsidian
+	 *  garden health-check opts are a closed contract, so coverage is surfaced
+	 *  via the kcard-owned health paths that return this type. */
+	coverage?: CoverageReport;
 }
 
 export interface HealResult {

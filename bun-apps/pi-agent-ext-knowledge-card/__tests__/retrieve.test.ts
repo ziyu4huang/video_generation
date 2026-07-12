@@ -568,3 +568,25 @@ describe("retrieveRecords trace (Phase C observability)", () => {
 		expect(r.trace!.cards[semRank].score).toBeGreaterThan(r.trace!.cards[lexRank].score);
 	});
 });
+
+describe("GraphHealthResult.coverage (additive dimension — drift guard)", () => {
+	test("graphHealth leaves coverage undefined by default (structural-only; populated by the caller layer)", async () => {
+		const v = mkdtempSync(join(tmpdir(), "kc-cov-dg-"));
+		try {
+			await ingestRecords(
+				[
+					{ id: "wf:a", type: "gotcha", title: "T", detail: "d", tags: ["x"], dimension: "correctness", confidence: 0.8, status: "active", superseded_by: null },
+				],
+				{ vaultPath: v, source: "workflow-jsonl", sourceLabel: "workflow-jsonl:test", cwd: v },
+			);
+			const h = await graphHealth({ vaultPath: v });
+			// The field EXISTS on the type (additive) but is NOT populated by graphHealth —
+			// the zk.health host-fn / zk-query CLI attach it. This pins the contract:
+			// retrieve.ts stays structural-only (no runtime ingest coupling).
+			expect(h.coverage).toBeUndefined();
+			expect(h.cardCount).toBeGreaterThanOrEqual(1);
+		} finally {
+			rmSync(v, { recursive: true, force: true });
+		}
+	});
+});

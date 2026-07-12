@@ -45,7 +45,7 @@ export type BoolField =
 	| "forceDistill" | "deletePng" | "noSession" | "print" | "noTools"
 	| "noBuiltinTools" | "dryRun" | "health" | "fix" | "json"
 	| "noPersistLogs" | "mergeDuplicates" | "save"
-	| "popular"
+	| "popular" | "coverage"
 	| "wikiAware" | "healOnly" | "noProbe";
 
 // ── spec row shapes ─────────────────────────────────────────────────────────
@@ -253,6 +253,7 @@ const ZK_QUERY_BOOL_FLAGS: readonly BoolFlagSpec[] = [
 	{ flags: ["--health"], field: "health" },
 	{ flags: ["--fix"], field: "fix" },
 	{ flags: ["--merge-duplicates"], field: "mergeDuplicates" },
+	{ flags: ["--coverage"], field: "coverage" },
 	{ flags: ["--json"], field: "json" },
 ];
 

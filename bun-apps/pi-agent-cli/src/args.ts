@@ -132,6 +132,8 @@ export interface ParsedArgs {
 	excludeIds?: string;
 	/** zk-query: graph health audit mode */
 	health?: boolean;
+	/** zk-query: convergence coverage audit (missing / sourceOrphaned per family) */
+	coverage?: boolean;
 	/** zk-query: auto-heal (with --health) / apply merges (with --merge-duplicates) */
 	fix?: boolean;
 	/** zk-query: detect + merge near-duplicate cards */
