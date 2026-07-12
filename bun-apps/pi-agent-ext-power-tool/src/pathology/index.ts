@@ -19,6 +19,7 @@ import type { PathologyInput } from "./types.ts";
 export { analyzePathology, argsSig } from "./detector.ts";
 export { formatPathologyReport } from "./format.ts";
 export { recordCallStart, recordCallEnd, getCalls, resetAccumulator } from "./accumulator.ts";
+export { surfacePathologyWarning, resetWarning, makeWarner, pickWorstHighFinding, loopSignature } from "./warning.ts";
 export type { ToolCallRecord, PathologyInput } from "./types.ts";
 
 // ─── deterministic self-test output (mirrors the other inspect_* tools) ───────

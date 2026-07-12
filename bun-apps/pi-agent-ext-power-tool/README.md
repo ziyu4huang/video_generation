@@ -243,6 +243,16 @@ ranked report reusing the `inspect_extensions` Severity framework.
 typed `PathologyInput` — fully unit-tested without the SDK or accumulator. The
 hook-fed accumulator mirrors the goal-todo pattern already proven in this repo.
 
+**Proactive warning (Phase 1.1):** in addition to the on-demand tool, the
+`tool_execution_end` hook re-runs the detector after every call and, when a
+**high-severity** pattern (retry-loop or consecutive-error) is active, surfaces
+a non-invasive **status-line** warning via `ctx.ui.setStatus` — `⚠ retry loop:
+bash ×3 — call inspect_pathology`. No context injection, no turn hijack (it is
+just a status bar line, like the git-branch indicator). Dedup'd per (check, tool)
+signature (warns once per active episode, re-warns on recurrence). Medium modes
+(error-storm, saturation) stay on-demand only. Silently no-ops in print mode
+(no UI).
+
 **Out of scope (v2, separate plan):** the LLM-judged modes — goal drift, context
 loss, silent quality degradation — need an LLM-as-judge call and are deferred.
 
