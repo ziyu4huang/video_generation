@@ -1,0 +1,249 @@
+/**
+ * Tests for the pathology detector (F v1).
+ *
+ * The detector is a PURE function over a typed call-log (PathologyInput) — no
+ * SDK, no fs, no accumulator. This makes the three v1 detectors
+ * (retry-loop, tool error storm, context saturation) fully unit-testable.
+ */
+import { test, expect, describe } from "bun:test";
+import { analyzePathology, argsSig } from "../detector.ts";
+import type { PathologyInput, ToolCallRecord } from "../types.ts";
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
+
+/** Build a call record. ts defaults to an increasing counter so order is stable. */
+let _ts = 0;
+function call(
+  toolName: string,
+  args: unknown,
+  opts: { isError?: boolean; ts?: number } = {},
+): ToolCallRecord {
+  return {
+    toolName,
+    argsSig: argsSig(args),
+    isError: opts.isError ?? false,
+    ts: opts.ts ?? _ts++,
+  };
+}
+function resetTs() {
+  _ts = 0;
+}
+
+function input(
+  calls: ToolCallRecord[],
+  overrides: Partial<PathologyInput> = {},
+): PathologyInput {
+  return { calls, contextPercent: null, ...overrides };
+}
+
+// ─── argsSig ────────────────────────────────────────────────────────────────
+
+describe("argsSig", () => {
+  test("key-order independent (same args, different insertion order → same sig)", () => {
+    expect(argsSig({ a: 1, b: 2 })).toBe(argsSig({ b: 2, a: 1 }));
+  });
+
+  test("different values → different sig", () => {
+    expect(argsSig({ path: "a.ts" })).not.toBe(argsSig({ path: "b.ts" }));
+  });
+
+  test("undefined and null are stable", () => {
+    expect(argsSig(undefined)).toBe(argsSig(undefined));
+    expect(argsSig(null)).toBe(argsSig(null));
+    expect(argsSig(undefined)).not.toBe(argsSig(null));
+  });
+
+  test("bounded — a huge argument does not produce a multi-KB signature", () => {
+    const huge = argsSig({ command: "x".repeat(50_000) });
+    expect(huge.length).toBeLessThanOrEqual(256);
+  });
+
+  test("nested object keys are sorted too", () => {
+    expect(argsSig({ outer: { y: 2, x: 1 } })).toBe(argsSig({ outer: { x: 1, y: 2 } }));
+  });
+});
+
+// ─── analyzePathology — retry loop ──────────────────────────────────────────
+
+describe("analyzePathology — retry loop", () => {
+  test("3 identical (tool+args) within window → high finding", () => {
+    resetTs();
+    const calls = [
+      call("bash", { command: "npm test" }),
+      call("bash", { command: "npm test" }),
+      call("bash", { command: "npm test" }),
+    ];
+    const f = analyzePathology(input(calls)).filter((x) => x.check === "retry-loop");
+    expect(f).toHaveLength(1);
+    expect(f[0].severity).toBe("high");
+    expect((f[0].detail as any).tool).toBe("bash");
+    expect((f[0].detail as any).count).toBe(3);
+  });
+
+  test("2 identical is NOT a loop (below default threshold 3)", () => {
+    resetTs();
+    const calls = [
+      call("bash", { command: "npm test" }),
+      call("bash", { command: "npm test" }),
+    ];
+    expect(analyzePathology(input(calls)).filter((x) => x.check === "retry-loop")).toHaveLength(0);
+  });
+
+  test("3 calls to the SAME tool but DIFFERENT args is NOT a loop", () => {
+    resetTs();
+    const calls = [
+      call("bash", { command: "ls" }),
+      call("bash", { command: "pwd" }),
+      call("bash", { command: "whoami" }),
+    ];
+    expect(analyzePathology(input(calls)).filter((x) => x.check === "retry-loop")).toHaveLength(0);
+  });
+
+  test("respects a custom loopRepeatThreshold", () => {
+    resetTs();
+    const calls = [
+      call("read", { path: "a" }),
+      call("read", { path: "a" }),
+    ];
+    // default threshold 3 → no loop with only 2
+    expect(analyzePathology(input(calls)).filter((x) => x.check === "retry-loop")).toHaveLength(0);
+    // threshold 2 → now it IS a loop
+    expect(
+      analyzePathology(input(calls, { loopRepeatThreshold: 2 })).filter((x) => x.check === "retry-loop"),
+    ).toHaveLength(1);
+  });
+
+  test("only counts identical calls within the rolling window (old repeats age out)", () => {
+    resetTs();
+    // 2 identical now, then 30 distinct calls, then the 3rd identical — the 3rd
+    // is outside the default window together with the first two, so no loop.
+    const calls: ToolCallRecord[] = [
+      call("bash", { command: "X" }),
+      call("bash", { command: "X" }),
+    ];
+    for (let i = 0; i < 30; i++) calls.push(call("read", { path: `f${i}` }));
+    calls.push(call("bash", { command: "X" }));
+    // default window 30: the first two X's are >30 calls back from the end → only
+    // the trailing single X is in-window → count 1 → no loop.
+    expect(analyzePathology(input(calls)).filter((x) => x.check === "retry-loop")).toHaveLength(0);
+  });
+});
+
+// ─── analyzePathology — tool error storm ─────────────────────────────────────
+
+describe("analyzePathology — tool error storm", () => {
+  test("error rate ≥ threshold with enough calls → medium", () => {
+    resetTs();
+    // 6 bash calls, 4 errors → rate 0.667 ≥ 0.5, calls 6 ≥ minCalls 4
+    const calls = [
+      call("bash", { command: "1" }, { isError: true }),
+      call("bash", { command: "2" }, { isError: true }),
+      call("bash", { command: "3" }),
+      call("bash", { command: "4" }, { isError: true }),
+      call("bash", { command: "5" }),
+      call("bash", { command: "6" }, { isError: true }),
+    ];
+    const f = analyzePathology(input(calls)).filter((x) => x.check === "error-storm");
+    expect(f).toHaveLength(1);
+    expect(f[0].severity).toBe("medium");
+    expect((f[0].detail as any).tool).toBe("bash");
+    expect((f[0].detail as any).errors).toBe(4);
+    expect((f[0].detail as any).calls).toBe(6);
+  });
+
+  test("below errorRateMinCalls does not trip the rate check", () => {
+    resetTs();
+    // 3 calls, 2 errors → rate 0.667 but calls 3 < minCalls 4 → no error-storm
+    const calls = [
+      call("bash", { command: "1" }, { isError: true }),
+      call("bash", { command: "2" }, { isError: true }),
+      call("bash", { command: "3" }),
+    ];
+    expect(analyzePathology(input(calls)).filter((x) => x.check === "error-storm")).toHaveLength(0);
+  });
+
+  test("consecutive errors ≥ threshold → high (consecutive-error)", () => {
+    resetTs();
+    // 3 consecutive errors on the same tool → high; only 3 calls so rate check
+    // (minCalls 4) does not also fire.
+    const calls = [
+      call("bash", { command: "1" }, { isError: true }),
+      call("bash", { command: "2" }, { isError: true }),
+      call("bash", { command: "3" }, { isError: true }),
+    ];
+    const f = analyzePathology(input(calls)).filter((x) => x.check === "consecutive-error");
+    expect(f).toHaveLength(1);
+    expect(f[0].severity).toBe("high");
+    expect((f[0].detail as any).tool).toBe("bash");
+    expect((f[0].detail as any).consecutive).toBe(3);
+  });
+
+  test("errors spread across DIFFERENT tools do not single out one tool", () => {
+    resetTs();
+    const calls = [
+      call("bash", { command: "1" }, { isError: true }),
+      call("read", { path: "a" }, { isError: true }),
+      call("bash", { command: "2" }, { isError: true }),
+      call("read", { path: "b" }, { isError: true }),
+    ];
+    // each tool: 2 calls, rate 1.0 but calls 2 < minCalls 4 → no error-storm
+    expect(analyzePathology(input(calls)).filter((x) => x.check === "error-storm")).toHaveLength(0);
+  });
+});
+
+// ─── analyzePathology — context saturation ───────────────────────────────────
+
+describe("analyzePathology — context saturation", () => {
+  test("contextPercent ≥ threshold → medium hint", () => {
+    resetTs();
+    const f = analyzePathology(input([], { contextPercent: 90 })).filter(
+      (x) => x.check === "context-saturation",
+    );
+    expect(f).toHaveLength(1);
+    expect(f[0].severity).toBe("medium");
+    expect((f[0].detail as any).percent).toBe(90);
+  });
+
+  test("contextPercent null → no saturation finding", () => {
+    resetTs();
+    expect(
+      analyzePathology(input([], { contextPercent: null })).filter(
+        (x) => x.check === "context-saturation",
+      ),
+    ).toHaveLength(0);
+  });
+
+  test("respects custom saturationPercent", () => {
+    resetTs();
+    // 50% with default threshold 85 → no finding
+    expect(
+      analyzePathology(input([], { contextPercent: 50 })).filter(
+        (x) => x.check === "context-saturation",
+      ),
+    ).toHaveLength(0);
+    // threshold 40 → now it trips
+    expect(
+      analyzePathology(input([], { contextPercent: 50, saturationPercent: 40 })).filter(
+        (x) => x.check === "context-saturation",
+      ),
+    ).toHaveLength(1);
+  });
+});
+
+// ─── clean / integration ─────────────────────────────────────────────────────
+
+describe("analyzePathology — clean session", () => {
+  test("varied successful calls + low context → no actionable findings", () => {
+    resetTs();
+    const calls = [
+      call("read", { path: "a" }),
+      call("bash", { command: "ls" }),
+      call("edit", { path: "b" }),
+      call("read", { path: "c" }),
+    ];
+    const f = analyzePathology(input(calls, { contextPercent: 30 }));
+    // only info-level "session-stats" (if any) allowed; no high/medium/low
+    const actionable = f.filter((x) => x.severity !== "info");
+    expect(actionable).toHaveLength(0);
+  });
+});

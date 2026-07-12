@@ -6,13 +6,12 @@ Developers need runtime introspection of the pi agent's own state: what extensio
 
 ## Solution
 
-A pi extension with developer-focused diagnostic tools: `inspect_agent` dumps full agent state to YAML (extensions, tools, skills, context files, model, cwd); `inspect_context` breaks down the context window by component; `inspect_extensions` lints loaded extensions/tools/skills for health issues.
+A pi extension with developer-focused diagnostic tools: `inspect_agent` dumps full agent state to YAML (extensions, tools, skills, context files, model, cwd); `inspect_context` breaks down the context window by component; `inspect_extensions` lints loaded extensions/tools/skills for health issues; `inspect_pathology` diagnoses how the agent is failing this session (retry loops, tool error storms, context saturation) from accumulated tool-call history.
 
 ## Scope reality (2026-07)
 
 The 2026-07 monolith split **completed** the extraction this section once
-flagged as future work. `src/index.ts` now registers only the three diagnostics
-above. The previously co-bundled features were extracted to focused extensions:
+flagged as future work. `src/index.ts` now registers only the four diagnostics. The previously co-bundled features were extracted to focused extensions:
 `todo`+`/todos`+`/goal`+`goal_complete` → `pi-agent-ext-goal-todo` (#504);
 `ask_user_question` → `pi-agent-ext-ask-user` (#502); `/btw` →
 `pi-agent-ext-btw` (#499). Knowledge tools left earlier for `pi-knowledge-card`
@@ -26,6 +25,7 @@ PRD's diagnostics focus is now the literal truth, not just the original intent.
 | `inspect_agent` | Snapshot full agent state to YAML |
 | `inspect_context` | Token-cost breakdown by system-prompt component |
 | `inspect_extensions` | Lint loaded extensions/tools/skills for health issues |
+| `inspect_pathology` | Detect failure patterns this session (retry loops, error storms, saturation) — F v1 |
 
 ## Key Dependencies
 
