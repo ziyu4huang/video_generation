@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { estimate, reserve, reconcile, refund, costSnapshot, getLog, configureBudget, DEFAULT_BUDGET, BudgetExceededError } from "./cost.ts";
+import { estimate, reserve, reconcile, refund, costSnapshot, getLog, configureBudget, DEFAULT_BUDGET, BudgetExceededError, retagTool } from "./cost.ts";
 
 let env: Record<string, string | undefined>;
 beforeEach(() => {
@@ -74,5 +74,24 @@ describe("budget seeded from pipeline manifest (Item 2)", () => {
     estimate("p1", "krea2_image", "t2i", 0.05, env); // creates log with DEFAULT_BUDGET
     estimate("p1", "krea2_image", "t2i", 0.05, env, "animated-explainer"); // should NOT re-seed
     expect(getLog("p1", env).budget.totalUsd).toBe(DEFAULT_BUDGET.totalUsd);
+  });
+});
+
+// Item 3 (generate's internal refactor, output/next-goal-20260712_135012.md):
+// retagTool corrects a cost entry's `tool` when the actually-invoked provider
+// diverges from the pre-resolved one (e.g. selectAndGenerate's tts
+// edge-tts-over-say opportunistic upgrade), so the persisted log attributes
+// cost to what actually ran, not the pre-generation guess.
+describe("retagTool (Item 3)", () => {
+  test("updates the entry's tool field", () => {
+    const id = estimate("p1", "say", "tts:synthesize", 0.0, env);
+    retagTool("p1", id, "edge-tts", env);
+    expect(getLog("p1", env).entries[0]!.tool).toBe("edge-tts");
+  });
+
+  test("is a no-op for an unknown entry id", () => {
+    estimate("p1", "say", "tts:synthesize", 0.0, env);
+    retagTool("p1", "does-not-exist", "edge-tts", env);
+    expect(getLog("p1", env).entries[0]!.tool).toBe("say");
   });
 });
