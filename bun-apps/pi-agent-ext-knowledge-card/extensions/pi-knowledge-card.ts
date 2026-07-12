@@ -628,7 +628,6 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			"update (smart-merge content into existing note), remove (backlink-safe delete),",
 			"check (vault health audit: duplicates, orphans, dead links).",
 		].join(" "),
-		promptSnippet: "CRUD + health-check on Zettelkasten vault notes (add/find/update/remove/check)",
 		parameters: Type.Object({
 			action: Type.Union(
 				[
@@ -839,7 +838,6 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			"context assembly (full read for top-K, snippet for rest) →",
 			"synthesized answer in Traditional Chinese with reference list.",
 		].join(" "),
-		promptSnippet: "Graph-enhanced RAG answer over the Zettelkasten vault",
 		parameters: Type.Object({
 			question: Type.String({
 				description:
@@ -988,8 +986,6 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			"This is the convergence sink that lets every self-improve loop's distilled knowledge flow",
 			"into ONE queryable, backlinked graph that zk_ask can traverse cross-source.",
 		].join(" "),
-		promptSnippet:
-			"Ingest structured .knowledge.jsonl records into the shared knowledge-graph vault",
 		parameters: Type.Object({
 			files: Type.Array(Type.String(), {
 				description:
@@ -1162,7 +1158,6 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			"knowledge (gotchas, patterns, levers, avoid, false_positive, metric cards). " +
 			"Call this BEFORE answering a question that may benefit from past workflow " +
 			"lessons.",
-		promptSnippet: "Query knowledge graph for relevant cards",
 		parameters: Type.Object({
 			tags: Type.Optional(Type.Array(Type.String(), {
 				description: "Tags to match (ANY semantics). e.g. [\"argparse\", \"lora\"]",
