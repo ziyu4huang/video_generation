@@ -307,12 +307,7 @@ function makeLtxHelpTool() {
     name: "ltx_help",
     label: "LTX Command Reference",
     description:
-      "On-demand reference for the `ltx` tool. Call BEFORE first use of a command (or anytime you are " +
-      "unsure of an option key) to get that command's exact option keys, defaults, path rules, and a " +
-      "worked example. Omit both args to list all subcommands. Use topic:\"native-vs-prod\" for the " +
-      "native-i2v-vs-i2v tradeoff, or topic:\"shot-language\" for the camera/lighting vocabulary.",
-    promptSnippet:
-      "Look up ltx command options/defaults/path-rules on demand (call before using a command).",
+      "On-demand reference for the `ltx` tool. Pass {command} for that command's option keys/defaults/path rules + example; omit args to list subcommands; {topic} for native-vs-prod / shot-language.",
     parameters: Type.Object({
       command: Type.Optional(COMMAND_ENUM),
       topic: Type.Optional(HELP_TOPIC_ENUM),

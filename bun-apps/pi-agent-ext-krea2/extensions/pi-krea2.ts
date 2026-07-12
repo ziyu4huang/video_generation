@@ -246,11 +246,7 @@ function makeKrea2HelpTool() {
     name: "krea2_help",
     label: "Krea 2 Command Reference",
     description:
-      "On-demand reference for the `krea2` tool. Call BEFORE first use of a command (or anytime " +
-      "you are unsure of an option key) to get that command's exact option keys, defaults, path " +
-      "rules, and a worked example. Omit `command` to list both subcommands.",
-    promptSnippet:
-      "Look up krea2 command options/defaults/path-rules on demand (call before using a command).",
+      "On-demand reference for the `krea2` tool. Pass {command} for option keys/defaults/path rules + example; omit to list subcommands.",
     parameters: Type.Object({
       command: Type.Optional(
         COMMAND_ENUM,
