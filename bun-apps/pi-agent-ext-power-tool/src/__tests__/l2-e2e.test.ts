@@ -102,6 +102,12 @@ const TOOLS: ToolEntry[] = [
     timeoutMs: 30_000,
   },
   {
+    name: "inspect_pathology",
+    prompt: "call inspect_pathology --self-test true",
+    markers: ["inspect_pathology"],
+    timeoutMs: 30_000,
+  },
+  {
     name: "knowledge_query",
     prompt: "call knowledge_query --query test --topK 1",
     markers: [], // content-agnostic: even "no results" is valid; exit 0 is the gate

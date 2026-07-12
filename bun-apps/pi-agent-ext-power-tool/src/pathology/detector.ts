@@ -1,0 +1,203 @@
+/**
+ * Pathology detector (F v1) — PURE.
+ *
+ * analyzePathology(input) runs the three deterministic, signal-driven detectors
+ * (retry loop, tool error storm, context saturation) over a typed call-log and
+ * returns Finding[] using the same Severity framework as inspect_extensions.
+ *
+ * No SDK, no fs, no accumulator — fully unit-testable. The tool wrapper
+ * (makeInspectPathologyTool) and the hook-fed ring buffer (accumulator.ts) feed
+ * this function with live data; nothing here reads live state.
+ *
+ * Circular-import note: only the `Finding` *type* is imported from the package
+ * entry — a type-only import that is erased at compile time, so there is no
+ * runtime dependency on src/index.ts.
+ */
+import type { Finding } from "../index.ts";
+import type { PathologyInput, ToolCallRecord } from "./types.ts";
+
+// ─── defaults ────────────────────────────────────────────────────────────────
+
+const DEFAULTS = {
+  loopRepeatThreshold: 3,
+  loopWindowSize: 30,
+  errorRateThreshold: 0.5,
+  errorRateMinCalls: 4,
+  consecutiveErrorThreshold: 3,
+  saturationPercent: 85,
+} as const;
+
+/** The threshold subset of PathologyInput, fully resolved with defaults. */
+interface ResolvedOpts {
+  loopRepeatThreshold: number;
+  loopWindowSize: number;
+  errorRateThreshold: number;
+  errorRateMinCalls: number;
+  consecutiveErrorThreshold: number;
+  saturationPercent: number;
+}
+
+/** Hard cap on an args signature's length — keeps loop keys cheap to compare. */
+const MAX_SIG = 200;
+
+// ─── argsSig ─────────────────────────────────────────────────────────────────
+
+/**
+ * Recursively sort object keys so {a:1,b:2} and {b:2,a:1} serialize identically.
+ * Arrays preserve order (position is meaningful), objects get sorted keys.
+ */
+function canonicalize(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(canonicalize);
+  if (v !== null && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    return Object.keys(o)
+      .sort()
+      .reduce<Record<string, unknown>>((acc, k) => {
+        acc[k] = canonicalize(o[k]);
+        return acc;
+      }, {});
+  }
+  return v;
+}
+
+/**
+ * Build a stable, order-independent, length-bounded signature for a tool call's
+ * arguments. Two calls with the same args (any key order) produce the same sig;
+ * undefined and null are distinct sentinels. Used both by the accumulator and by
+ * the retry-loop detector to match "identical" calls.
+ */
+export function argsSig(args: unknown): string {
+  if (args === undefined) return "∅";
+  if (args === null) return "null";
+  const json = JSON.stringify(canonicalize(args));
+  return json.length > MAX_SIG ? json.slice(0, MAX_SIG - 3) + "…" : json;
+}
+
+// ─── detectors ───────────────────────────────────────────────────────────────
+
+/** 🔴 retry loop — identical (tool+args) repeated within the rolling window. */
+function detectRetryLoop(calls: ToolCallRecord[], opts: ResolvedOpts): Finding[] {
+  const window = calls.slice(-opts.loopWindowSize);
+  const counts = new Map<string, { tool: string; sig: string; count: number }>();
+  for (const c of window) {
+    const key = c.toolName + "\0" + c.argsSig;
+    const entry = counts.get(key);
+    if (entry) entry.count += 1;
+    else counts.set(key, { tool: c.toolName, sig: c.argsSig, count: 1 });
+  }
+  const findings: Finding[] = [];
+  for (const { tool, sig, count } of counts.values()) {
+    if (count >= opts.loopRepeatThreshold) {
+      findings.push({
+        severity: "high",
+        check: "retry-loop",
+        message: `Tool "${tool}" called ${count}× with identical args within ${window.length} recent calls — likely a retry loop`,
+        detail: { tool, argsPreview: sig.slice(0, 80), count, window: window.length },
+      });
+    }
+  }
+  return findings;
+}
+
+/** 🔴 consecutive errors — a tool failing N times in a row (rage-quit). */
+function detectConsecutiveErrors(calls: ToolCallRecord[], opts: ResolvedOpts): Finding[] {
+  const findings: Finding[] = [];
+  // longest run of consecutive errors, per tool (over the tool's own call subsequence)
+  const maxRun = new Map<string, number>();
+  const curRun = new Map<string, number>();
+  for (const c of calls) {
+    const r = c.isError ? (curRun.get(c.toolName) ?? 0) + 1 : 0;
+    curRun.set(c.toolName, r);
+    maxRun.set(c.toolName, Math.max(maxRun.get(c.toolName) ?? 0, r));
+  }
+  for (const [tool, run] of maxRun) {
+    if (run >= opts.consecutiveErrorThreshold) {
+      findings.push({
+        severity: "high",
+        check: "consecutive-error",
+        message: `Tool "${tool}" failed ${run}× consecutively — repeated identical failure, strategy not updated`,
+        detail: { tool, consecutive: run },
+      });
+    }
+  }
+  return findings;
+}
+
+/** 🟡 tool error storm — a tool whose error rate crosses the threshold. */
+function detectErrorStorm(calls: ToolCallRecord[], opts: ResolvedOpts): Finding[] {
+  const stats = new Map<string, { calls: number; errors: number }>();
+  for (const c of calls) {
+    const e = stats.get(c.toolName) ?? { calls: 0, errors: 0 };
+    e.calls += 1;
+    if (c.isError) e.errors += 1;
+    stats.set(c.toolName, e);
+  }
+  const findings: Finding[] = [];
+  for (const [tool, { calls: n, errors }] of stats) {
+    if (n >= opts.errorRateMinCalls) {
+      const rate = errors / n;
+      if (rate >= opts.errorRateThreshold) {
+        findings.push({
+          severity: "medium",
+          check: "error-storm",
+          message: `Tool "${tool}" error rate ${(rate * 100).toFixed(0)}% (${errors}/${n} calls) — chronic failure`,
+          detail: { tool, errors, calls: n, rate: Math.round(rate * 1000) / 1000 },
+        });
+      }
+    }
+  }
+  return findings;
+}
+
+/** 🟡 context saturation — context window filling up (recall/quality risk). */
+function detectSaturation(contextPercent: number | null, opts: ResolvedOpts): Finding[] {
+  if (contextPercent == null || contextPercent < opts.saturationPercent) return [];
+  return [
+    {
+      severity: "medium",
+      check: "context-saturation",
+      message: `Context window ${contextPercent.toFixed(1)}% full — risk of context loss / recall degradation in long sessions`,
+      detail: { percent: contextPercent },
+    },
+  ];
+}
+
+// ─── entry point ─────────────────────────────────────────────────────────────
+
+/**
+ * Run all v1 pathology detectors against a fully-derived input. PURE.
+ *
+ * Finding order: retry-loop (high), consecutive-error (high), error-storm
+ * (medium), context-saturation (medium), then a single info session-stats
+ * summary. Callers format via formatPathologyReport().
+ */
+export function analyzePathology(raw: PathologyInput): Finding[] {
+  const opts = {
+    loopRepeatThreshold: raw.loopRepeatThreshold ?? DEFAULTS.loopRepeatThreshold,
+    loopWindowSize: raw.loopWindowSize ?? DEFAULTS.loopWindowSize,
+    errorRateThreshold: raw.errorRateThreshold ?? DEFAULTS.errorRateThreshold,
+    errorRateMinCalls: raw.errorRateMinCalls ?? DEFAULTS.errorRateMinCalls,
+    consecutiveErrorThreshold: raw.consecutiveErrorThreshold ?? DEFAULTS.consecutiveErrorThreshold,
+    saturationPercent: raw.saturationPercent ?? DEFAULTS.saturationPercent,
+  };
+
+  const calls = raw.calls;
+  const findings: Finding[] = [
+    ...detectRetryLoop(calls, opts),
+    ...detectConsecutiveErrors(calls, opts),
+    ...detectErrorStorm(calls, opts),
+    ...detectSaturation(raw.contextPercent, opts),
+  ];
+
+  // ℹ️ session stats — awareness only, never counted as actionable.
+  const totalErrors = calls.filter((c) => c.isError).length;
+  const distinctTools = new Set(calls.map((c) => c.toolName)).size;
+  findings.push({
+    severity: "info",
+    check: "session-stats",
+    message: `${calls.length} tool call(s) across ${distinctTools} tool(s); ${totalErrors} error(s); context ${raw.contextPercent?.toFixed(1) ?? "?"}%`,
+    detail: { calls: calls.length, distinctTools, errors: totalErrors, contextPercent: raw.contextPercent },
+  });
+
+  return findings;
+}

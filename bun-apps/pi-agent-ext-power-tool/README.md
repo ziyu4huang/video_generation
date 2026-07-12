@@ -1,14 +1,16 @@
 # pi-agent-ext-power-tool
 
 A **pi extension** for agent self-diagnostics — `inspect_agent`,
-`inspect_context`, `inspect_extensions`. The `src/index.ts` factory registers
-only these three tools (plus the `schema-cost` export and a CLI subcommand).
+`inspect_context`, `inspect_extensions`, `inspect_pathology`. The `src/index.ts`
+factory registers only these four tools (plus the `schema-cost` export and a
+CLI subcommand).
 
 ## Feature surface
 
 | Feature | Tool(s) / surface | Notes |
 |---------|-------------------|-------|
-| Diagnostics | `inspect_agent`, `inspect_context`, `inspect_extensions` | The extension's purpose — documented ↓ |
+| Diagnostics | `inspect_agent`, `inspect_context`, `inspect_extensions` | Static state diagnostics — documented ↓ |
+| Failure pathology | `inspect_pathology` | Dynamic — detects retry loops / error storms / context saturation this session (F v1) |
 | Schema-cost accounting | `./schema-cost` export | Static tool-token estimator (also a publishable package, `pi-schema-cost`) |
 | CLI subcommand | `./extensions/cli-subcommand.ts` | Wired into `pi-agent-cli` |
 
@@ -203,6 +205,47 @@ bun bun-apps/pi-agent/src/cli.ts --model google/gemma-4-26b-a4b-qat \
 
 **What it found in this repo (real run):** pi-obsidian's 16 tools have no Available-tools snippets or `promptGuidelines`; `skill_manage` is over the schema threshold (1244 tok); pi-obsidian is the heaviest extension tax (~35%, 3237 tok/req) out of ~9,197 tok/req total across all non-builtin tools.
 
+---
+
+### `inspect_pathology`
+
+Diagnoses **how the agent is failing this session** — the dynamic complement to
+the three static `inspect_*` tools above. While they answer "what is loaded?" /
+"where do tokens go?", `inspect_pathology` answers "why am I stuck / repeating /
+erroring?" by analyzing recent tool-call history accumulated this session.
+
+A factory-registered hook observes every `tool_execution_start` / `tool_execution_end`
+into a bounded ring buffer (reset each `session_start`). At call time the tool
+runs three **deterministic, signal-driven** detectors (the highest-impact, most-
+detectable modes per the failure-pathology literature) and renders a severity-
+ranked report reusing the `inspect_extensions` Severity framework.
+
+**Detectors (v1)** (severity → id):
+
+| Sev | Check | Flags |
+|-----|-------|-------|
+| 🔴 high | `retry-loop` | Identical (tool + args) repeated ≥ N× within a rolling window — the agent retrying the same call without updating strategy |
+| 🔴 high | `consecutive-error` | A tool failing ≥ K× in a row (rage-quit / strategy not updated) |
+| 🟡 medium | `error-storm` | A tool whose error rate ≥ threshold with enough calls — chronic failure |
+| 🟡 medium | `context-saturation` | Context window fill ≥ percent threshold — recall / quality-degradation risk in long sessions |
+| ℹ️ info | `session-stats` | Call/error/tool counts — awareness only, never actionable |
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `return_json` | boolean? | `false` | Return `{findings}` JSON instead of a text report |
+| `loop_repeat_threshold` | number? | `3` | Identical (tool+args) repeats at/above this → retry loop |
+| `error_rate_threshold` | number? | `0.5` | Per-tool error rate at/above this → error storm |
+| `saturation_percent` | number? | `85` | Context fill at/above this → saturation |
+
+**Design notes:** the detector (`analyzePathology`) is a **pure function** over a
+typed `PathologyInput` — fully unit-tested without the SDK or accumulator. The
+hook-fed accumulator mirrors the goal-todo pattern already proven in this repo.
+
+**Out of scope (v2, separate plan):** the LLM-judged modes — goal drift, context
+loss, silent quality degradation — need an LLM-as-judge call and are deferred.
+
 ## Usage
 
 ```bash
@@ -233,12 +276,14 @@ pi-agent-ext-power-tool/
 ├── docs/                  # extension-analyzer / schema-cost / ui-conventions
 └── src/
     ├── index.ts           # ExtensionFactory — registers ALL features below
-    ├── schema-cost/       # static tool-token estimator (exported; publishable)
-    ├── ask-user/          # ask_user_question tool + TUI subsystem
-    ├── goal/              # /goal + goal_complete driver
-    ├── todo/              # todo tool + /todos command + overlay
-    ├── btw/               # /btw side-conversation feature
-    └── shared/            # composite status widget
+    ├── sdk-patch.ts        # getSystemPromptOptions() shim on tool ctx
+    ├── schema-cost/        # static tool-token estimator (exported; publishable)
+    └── pathology/          # inspect_pathology — failure-pattern detection (F v1)
+        ├── types.ts        #   ToolCallRecord, PathologyInput
+        ├── detector.ts     #   analyzePathology() — PURE (retry-loop / error-storm / saturation)
+        ├── format.ts       #   formatPathologyReport() — PURE
+        ├── accumulator.ts  #   hook-fed bounded call buffer (tool_execution_start/end)
+        └── index.ts        #   makeInspectPathologyTool() + re-exports
 ```
 
 ## What the numbers mean

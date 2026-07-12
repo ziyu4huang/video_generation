@@ -12,6 +12,11 @@
  *     Outputs to <cwd>/output/pi/inspect-agent-<timestamp>.yaml by default.
  *     Readable by humans and agents for debugging/analysis.
  *
+ *   inspect_pathology  — diagnose how the agent is FAILING this session:
+ *     retry loops, tool error storms, context saturation. Reads a hook-fed
+ *     accumulator of recent tool calls (tool_execution_start/end) + the live
+ *     context-window fill. Severity-ranked report or JSON.
+ *
  * Usage:
  *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-power-tool/src/index.ts -p "call inspect_context"
  *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-power-tool/src/index.ts -p "call inspect_agent"
@@ -31,6 +36,12 @@ import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join, resolve, sep } from "path";
 import { ensureGetSystemPromptOptions } from "./sdk-patch.js";
 import { DEFAULT_CHARS_PER_TOKEN } from "./schema-cost";
+import {
+  makeInspectPathologyTool,
+  recordCallStart,
+  recordCallEnd,
+  resetAccumulator,
+} from "./pathology/index.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -951,6 +962,14 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
   pi.registerTool(makeInspectContextTool(getAllTools));
   pi.registerTool(makeInspectAgentTool(getAllTools));
   pi.registerTool(makeInspectExtensionsTool(getAllTools));
+  pi.registerTool(makeInspectPathologyTool());
+
+  // Feed the pathology accumulator: observe every tool call's args + outcome so
+  // inspect_pathology can detect retry loops / error storms this session.
+  // session_start resets per-session state (diagnostics are self-contained).
+  pi.on("tool_execution_start", recordCallStart);
+  pi.on("tool_execution_end", recordCallEnd);
+  pi.on("session_start", () => resetAccumulator());
 };
 
 export default extension;

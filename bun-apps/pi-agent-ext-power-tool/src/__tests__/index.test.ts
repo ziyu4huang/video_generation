@@ -181,21 +181,23 @@ interface ToolInfoStub {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("tool registration", () => {
-  test("registers all 3 tools (goal+todo extracted to pi-agent-ext-goal-todo)", () => {
+  test("registers all 4 inspect_* tools", () => {
     const { captured } = loadExtension([]);
     // ask_user_question -> pi-agent-ext-ask-user (A2); goal+todo ->
     // pi-agent-ext-goal-todo (A3); knowledge_query + graph_health -> knowledge-graph hub.
-    // power-tool is now self-contained diagnostics: inspect_* only.
+    // power-tool is now self-contained diagnostics: inspect_* only, plus
+    // inspect_pathology (F v1) for failure-pattern detection.
     expect(Object.keys(captured).sort()).toEqual([
       "inspect_agent",
       "inspect_context",
       "inspect_extensions",
+      "inspect_pathology",
     ]);
   });
 
   test("each registered tool has label, description, and execute fn", () => {
     const { captured } = loadExtension([]);
-    expect(Object.keys(captured).length).toBe(3);
+    expect(Object.keys(captured).length).toBe(4);
     for (const name of Object.keys(captured)) {
       expect(typeof captured[name].label).toBe("string");
       expect(captured[name].label.length).toBeGreaterThan(0);
@@ -393,6 +395,51 @@ describe("inspect_agent", () => {
     const parsed = yaml.load(res.content[0].text) as any;
     expect("context_usage" in parsed).toBe(true);
     expect(parsed.context_usage).toBeNull();
+  });
+});
+
+describe("inspect_pathology", () => {
+  test("empty accumulator + low context → healthy report", async () => {
+    const { captured } = loadExtension(TOOLS);
+    const res = await captured.inspect_pathology.execute(
+      undefined,
+      {},
+      undefined,
+      undefined,
+      BASE_CTX,
+    );
+    const text = res.content[0].text;
+    expect(text).toContain("Inspect Pathology");
+    expect(text).toContain("0 patholog");
+    expect(text).toContain("No pathologies detected");
+  });
+
+  test("return_json returns {findings}", async () => {
+    const { captured } = loadExtension(TOOLS);
+    const res = await captured.inspect_pathology.execute(
+      undefined,
+      { return_json: true },
+      undefined,
+      undefined,
+      BASE_CTX,
+    );
+    const parsed = JSON.parse(res.content[0].text);
+    expect(Array.isArray(parsed.findings)).toBe(true);
+    // info session-stats is always present
+    expect(parsed.findings.some((f: any) => f.check === "session-stats")).toBe(true);
+  });
+
+  test("self_test returns deterministic mock output", async () => {
+    const { captured } = loadExtension(TOOLS);
+    const res = await captured.inspect_pathology.execute(
+      undefined,
+      { self_test: true },
+      undefined,
+      undefined,
+      BASE_CTX,
+    );
+    expect(res.content[0].text).toContain("inspect_pathology");
+    expect(res.content[0].text).toContain("self_test: true");
   });
 });
 
