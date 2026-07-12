@@ -1,8 +1,8 @@
 {
   "name": "@repo/pi-agent-ext-planning-with-files",
   "private": true,
-  "version": "1.4.0",
-  "description": "Manus-style file-based planning for Pi — task_plan.md / findings.md / progress.md working memory, with a Layer-3 extension (6 lifecycle events, 4 injection modes, SHA-256 attestation, a /plan-execute approval gate, a dangerous-bash guard, and PLI v2 multi-plan intelligence + token-cost telemetry), PLUS an 11-skill methodology suite adapted from superpowers + matt_skills: brainstorming → writing-plans → executing-plans on the file/orchestration substrate, subagent-driven-development for per-task isolated execution via the subagent/workflow tools, using-git-worktrees + finishing-a-development-branch for the sibling-worktree/merge lifecycle, test-driven-development as the foundation, verification-before-completion (with adversarial grilling) and systematic-debugging as cross-cutting gates, and writing-skills as the meta-skill that governs the suite. Pure TypeScript, no Python runtime dep.",
+  "version": "1.4.1",
+  "description": "Manus-style file-based planning for Pi — task_plan.md / findings.md / progress.md working memory, with a Layer-3 extension (6 lifecycle events, 4 injection modes, SHA-256 attestation, a /plan-execute approval gate, a dangerous-bash guard, and PLI v2 multi-plan intelligence + token-cost telemetry), PLUS a 12-skill methodology suite adapted from superpowers + matt_skills: brainstorming → writing-plans → executing-plans on the file/orchestration substrate, subagent-driven-development for per-task isolated execution via the subagent/workflow tools, using-git-worktrees + finishing-a-development-branch for the sibling-worktree/merge lifecycle, test-driven-development as the foundation, verification-before-completion (with adversarial grilling) and systematic-debugging as cross-cutting gates, writing-skills as the meta-skill that governs authoring, and self-improvement as the loop-closing meta-skill that evolves the suite itself. Pure TypeScript, no Python runtime dep.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
