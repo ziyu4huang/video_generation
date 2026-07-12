@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { route } from "./cli.ts";
+import { route, executeRoute, VERSION } from "./cli.ts";
 import { ALL_NAMES } from "./commands.ts";
 
 describe("route — version", () => {
@@ -62,6 +62,119 @@ describe("route — agent passthrough", () => {
 	});
 	test("global flags + unknown positional → agent-passthrough", () => {
 		expect(route(["--model", "sonnet", "make", "a", "clip"])).toEqual({ kind: "agent-passthrough" });
+	});
+});
+
+// ─── CI-safe execution tests (no spawn — run on ALL runners) ────────────────
+// These mirror the 8 subprocess tests below, but call executeRoute() directly
+// (route → execute → dispatch → stdout) with captured console. CI gets REAL
+// execution coverage of the CLI logic; the subprocess tests below stay
+// locally-gated to verify the full `bun cli.ts` binary path.
+describe("CLI execution (CI-safe, no spawn)", () => {
+	function capture() {
+		const log = console.log;
+		const err = console.error;
+		const out: string[] = [];
+		const errOut: string[] = [];
+		console.log = (...a: unknown[]) => out.push(a.join(" "));
+		console.error = (...a: unknown[]) => errOut.push(a.join(" "));
+		return {
+			stdout: () => out.join("\n"),
+			stderr: () => errOut.join("\n"),
+			restore() {
+				console.log = log;
+				console.error = err;
+				process.exitCode = 0;
+			},
+		};
+	}
+
+	test("version prints the version line", async () => {
+		const cap = capture();
+		try {
+			await executeRoute(route(["--version"]), ["--version"]);
+			expect(cap.stdout().trim()).toBe(`movie-director ${VERSION}`);
+		} finally {
+			cap.restore();
+		}
+	});
+
+	test("no args → root help lists the commands", async () => {
+		const cap = capture();
+		try {
+			await executeRoute(route([]), []);
+			const out = cap.stdout();
+			expect(out).toContain("movie-director");
+			expect(out).toContain("preflight");
+			expect(out).toContain("pipeline-list");
+			expect(out).toContain("agent");
+		} finally {
+			cap.restore();
+		}
+	});
+
+	test("help preflight prints the preflight reference block", async () => {
+		const cap = capture();
+		try {
+			await executeRoute(route(["help", "preflight"]), ["help", "preflight"]);
+			expect(cap.stdout()).toContain("provider-menu summary");
+		} finally {
+			cap.restore();
+		}
+	});
+
+	test("preflight runs dispatch end-to-end and prints JSON", async () => {
+		const cap = capture();
+		try {
+			await executeRoute(route(["preflight"]), ["preflight"]);
+			const parsed = JSON.parse(cap.stdout());
+			expect(Array.isArray(parsed.capabilities)).toBe(true);
+		} finally {
+			cap.restore();
+		}
+	});
+
+	test("pipeline-list lists talking-head", async () => {
+		const cap = capture();
+		try {
+			await executeRoute(route(["pipeline-list"]), ["pipeline-list"]);
+			expect(JSON.parse(cap.stdout())).toContain("talking-head");
+		} finally {
+			cap.restore();
+		}
+	});
+
+	test("--json wraps pipeline-list in an envelope", async () => {
+		const cap = capture();
+		try {
+			await executeRoute(route(["pipeline-list", "--json"]), ["pipeline-list", "--json"]);
+			const parsed = JSON.parse(cap.stdout());
+			expect(parsed).toEqual({ ok: true, command: "pipeline-list", result: expect.any(Array) });
+		} finally {
+			cap.restore();
+		}
+	});
+
+	test("init-project with no args → exitCode 1 + stderr error", async () => {
+		const cap = capture();
+		try {
+			await executeRoute(route(["init-project"]), ["init-project"]);
+			expect(process.exitCode).toBe(1);
+			expect(cap.stderr()).toMatch(/projectId|pipeline/i);
+		} finally {
+			cap.restore();
+		}
+	});
+
+	test("help <unknown> → exitCode 1 + stderr", async () => {
+		const cap = capture();
+		try {
+			await executeRoute(route(["help", "nosuchcmd"]), ["help", "nosuchcmd"]);
+			expect(process.exitCode).toBe(1);
+			expect(cap.stderr()).toContain("Unknown command");
+		} finally {
+			cap.restore();
+		}
 	});
 });
 

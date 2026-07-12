@@ -1,5 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, afterAll } from "bun:test";
 import { join } from "node:path";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import {
 	ALL_COMMANDS,
 	ALL_NAMES,
@@ -12,8 +14,16 @@ import {
 	resolveExtensionPath,
 	resolvePiBin,
 } from "./commands.ts";
-import { COMMANDS, commandReferenceBlock } from "./dispatch.ts";
+import { COMMANDS, commandReferenceBlock, dispatch, type DispatchDeps } from "./dispatch.ts";
 import { parseArgs } from "./args.ts";
+
+// Belt-and-suspenders guard: printDispatchResult sets process.exitCode = 1 on
+// the error path. If any test forgets to reset it (or a future command leaks
+// it), bun test on ubuntu exits 1 despite 0 failures (the PR #522 CI bug).
+// This afterAll ensures a clean exitCode after every test in this file.
+afterAll(() => {
+	process.exitCode = 0;
+});
 
 // ─── command table structure ────────────────────────────────────────────────
 
@@ -226,6 +236,111 @@ describe("agent command — pure helpers", () => {
 			expect(() => resolvePiBin({ exists: () => false })).toThrow(/PI_BIN/);
 		} finally {
 			if (prev !== undefined) process.env.PI_BIN = prev;
+		}
+	});
+});
+
+// ─── dispatch captions forwarding (Issue A: compose-motion dropped captions) ─
+// The `compose` case always forwarded captions, but compose-motion omitted the
+// param entirely — the underlying composeMotion() fully supports it. These
+// tests prove dispatch forwards the coerced {srtPath, burn} object through to
+// the composer via dependency injection (fake spawnImpl — no real ffmpeg).
+describe("dispatch captions forwarding (compose-motion)", () => {
+	// Minimal fake spawn: ffprobe returns a 2s clip; ffmpeg writes the output
+	// path as a placeholder so composeMotion's existsSync checks pass. Matches
+	// the pattern in compose_motion.test.ts.
+	function fakeSpawn() {
+		return async (cmd: string, argv: string[]): Promise<{ code: number; stdout: string; stderr: string }> => {
+			if (cmd === "ffprobe") {
+				if (argv.includes("-show_streams")) {
+					return {
+						code: 0,
+						stdout: JSON.stringify({
+							format: { duration: "2.0", format_name: "mov,mp4" },
+							streams: [
+								{ codec_type: "video", codec_name: "h264", width: 320, height: 180, avg_frame_rate: "30/1" },
+								{ codec_type: "audio", codec_name: "aac" },
+							],
+						}),
+						stderr: "",
+					};
+				}
+				return { code: 0, stdout: "2.0\n", stderr: "" };
+			}
+			// ffmpeg: write the last-arg output path so existsSync passes.
+			const out = argv[argv.length - 1];
+			if (out) writeFileSync(out, "x");
+			return { code: 0, stdout: "", stderr: "" };
+		};
+	}
+
+	test("forwards captions {srtPath, burn:true} to composeMotion", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "md-dispatch-cap-"));
+		try {
+			const img = join(dir, "a.png");
+			writeFileSync(img, "x");
+			const srt = join(dir, "caps.srt");
+			writeFileSync(srt, "1\n00:00:00,000 --> 00:00:01,000\nhello\n");
+			const edit = {
+				version: "1.0",
+				cuts: [{ id: "a", source: img, in_seconds: 0, out_seconds: 2, animation: "ken-burns" }],
+				transition: "none",
+			};
+			// Override pre-compose enforcement so the gate doesn't block the test.
+			const res = await dispatch("compose-motion", {
+				editDecisions: edit,
+				workDir: dir,
+				output: join(dir, "out.mp4"),
+				width: 320,
+				height: 180,
+				fps: 10,
+				captions: { srtPath: srt, burn: true },
+				overridePreCompose: true,
+			}, { composeMotionDeps: { spawnImpl: fakeSpawn() } } as DispatchDeps);
+			expect(res.ok).toBe(true);
+			if (!res.ok) return;
+			const report = JSON.parse(res.text);
+			// The captions sub-pass ran: either burned (drawtext/libass) or sidecar'd.
+			// On this machine ffmpeg lacks drawtext/subtitles → sidecar note.
+			// The KEY assertion: the report acknowledges captions were processed
+			// (not silently dropped). The note text comes from motionCaptionNote().
+			const captionAck = report.verification_notes?.some((n: string) =>
+				n.includes("caption") || n.includes("srt")) ?? false;
+			const captionWarn = report.warnings?.some((w: string) =>
+				w.includes("caption") || w.includes("srt")) ?? false;
+			expect(captionAck || captionWarn).toBe(true);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("omits captions cleanly when not passed (no crash, no caption notes)", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "md-dispatch-nocap-"));
+		try {
+			const img = join(dir, "a.png");
+			writeFileSync(img, "x");
+			const edit = {
+				version: "1.0",
+				cuts: [{ id: "a", source: img, in_seconds: 0, out_seconds: 2, animation: "ken-burns" }],
+				transition: "none",
+			};
+			const res = await dispatch("compose-motion", {
+				editDecisions: edit,
+				workDir: dir,
+				output: join(dir, "out.mp4"),
+				width: 320,
+				height: 180,
+				fps: 10,
+				overridePreCompose: true,
+			}, { composeMotionDeps: { spawnImpl: fakeSpawn() } } as DispatchDeps);
+			expect(res.ok).toBe(true);
+			if (!res.ok) return;
+			const report = JSON.parse(res.text);
+			const hasCaptionNote = report.verification_notes?.some((n: string) =>
+				n.includes("caption") || n.includes("srt")) ?? false;
+			expect(hasCaptionNote).toBe(false);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
 		}
 	});
 });

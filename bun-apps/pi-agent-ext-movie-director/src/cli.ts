@@ -21,6 +21,9 @@ import { COMMAND_REFERENCE, commandReferenceBlock } from "./dispatch.ts";
 
 const VERSION = "0.1.0";
 
+/** Exported for CI-safe execution tests (no subprocess spawn). */
+export { execute as executeRoute, VERSION };
+
 /** A pure routing decision for an argv vector (no side effects). */
 export type Route =
 	| { kind: "version" }
