@@ -77,3 +77,20 @@ describe("isProviderUsageLimit", () => {
     assert.equal(isProviderUsageLimit(new Error("usage limit")), false);
   });
 });
+
+describe("HOST_FN_* error codes", () => {
+  it("exist as concrete string values with correct recoverability", () => {
+    const cases = [
+      ["HOST_FN_UNKNOWN", WorkflowErrorCode.HOST_FN_UNKNOWN, false],
+      ["HOST_FN_FAILED", WorkflowErrorCode.HOST_FN_FAILED, false],
+      ["HOST_FN_TIMEOUT", WorkflowErrorCode.HOST_FN_TIMEOUT, true],
+      ["HOST_FN_SCHEMA", WorkflowErrorCode.HOST_FN_SCHEMA, false],
+      ["HOST_FN_NON_SERIALIZABLE", WorkflowErrorCode.HOST_FN_NON_SERIALIZABLE, false],
+    ] as const;
+    for (const [expected, code, recoverable] of cases) {
+      assert.equal(code, expected, `${expected} must equal its string value (got ${String(code)})`);
+      const e = new WorkflowError("x", code, { recoverable });
+      assert.equal(e.recoverable, recoverable, `${expected} recoverability`);
+    }
+  });
+});
