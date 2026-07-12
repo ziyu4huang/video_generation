@@ -101,6 +101,34 @@ in progress — fix it before speaking.
 Grilling is especially mandatory before: committing, opening a PR, marking a `todo` complete,
 accepting a subagent's report, and the final `/plan-done`.
 
+## Dogfooding — self-hosting verification for tools you build
+
+The Gate Function verifies a *claim*. **Dogfooding verifies a *tool***: when you have built
+something the workflow will *invoke* — a shell script, a CLI helper, an automation hook, a
+merge/provision tool — static checks (lint, typecheck, `shellcheck`) are an insufficient
+witness. They catch syntax and type errors but **miss runtime races, registration windows, and
+ordering bugs**. The only sufficient witness is running the tool **in its actual target
+context**: merge a PR *with* the merge helper; trigger the hook *from* the real event; run the
+automation *on* its own output.
+
+**Rule:** a tool the workflow invokes is not done when its linter is clean — it is done when it
+has succeeded end-to-end in the exact scenario it was built for.
+
+**Evidence this rule exists:** a single merge-helper script once shipped three real bugs — a
+`set -u` + multibyte-character variable-parse, a CI-check registration race right after
+`git push`, and a stale-ref detach — that `bash -n` and `shellcheck` both passed clean. Each was
+caught only by dogfooding the script on its own PR. Static checks are necessary, not sufficient.
+
+**Dogfood before trusting:**
+- a shell / CLI / automation script → run it on its own PR (it performs its real action);
+- a lifecycle hook → trigger it from the real event, not a unit stub;
+- a codegen / build step → run it on a real input and inspect the real output;
+- a test helper → let it exercise a real failure, not a mocked one.
+
+If the real-scenario run is destructive or expensive, run it `--dry-run` first, then for real at
+least once before claiming it works. "It passes shellcheck" is not "it works" — and a green
+linter is exactly the false confidence that lets a runtime race ship.
+
 ## Key patterns
 
 **Tests:**
