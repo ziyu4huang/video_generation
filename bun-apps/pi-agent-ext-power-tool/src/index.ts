@@ -172,7 +172,6 @@ function makeInspectContextTool(getAllTools: () => ToolInfo[]) {
       "(skills/guidelines/context-files/snippets) vs API tools-schema (a separate " +
       "per-request cost) vs conversation overhead. All tools sorted by token cost. " +
       "For issue-finding use inspect_extensions instead.",
-    promptSnippet: "Inspect context-window token usage by component",
     parameters: Type.Object({
       self_test: Type.Optional(
         Type.Boolean({
@@ -400,7 +399,6 @@ function makeInspectAgentTool(getAllTools: () => ToolInfo[]) {
       "Snapshot the full agent state — extensions, tools, skills, context files, " +
       "model, cwd — to YAML (file or inline). Use for debugging, replay, or auditing " +
       "what is loaded. For token-distribution only, use inspect_context.",
-    promptSnippet: "Inspect (snapshot) agent configuration and state to YAML",
     parameters: Type.Object({
       output_dir: Type.Optional(Type.String()),
       filename: Type.Optional(Type.String()),
@@ -874,7 +872,6 @@ function makeInspectExtensionsTool(getAllTools: () => ToolInfo[]) {
       "duplicate names, missing descriptions/snippets, oversized schemas, stale " +
       "references, and per-extension token tax. Severity-ranked report or JSON. " +
       "For pure token measurement use inspect_context.",
-    promptSnippet: "Inspect extensions/tools/guidelines for health issues",
     parameters: Type.Object({
       return_json: Type.Optional(
         Type.Boolean({ description: "Return machine-readable {findings, summary, total_extension_tokens} JSON instead of a text report" }),

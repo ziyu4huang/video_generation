@@ -33,7 +33,6 @@ import { join } from "node:path";
 const collectVideosTool = defineTool({
 	name: "collect_videos",
 	label: "Collect Videos",
-	promptSnippet: "Collect trending LLM/AI videos from Bilibili/YouTube into the vault",
 	description:
 		"Collect LLM/AI videos from Bilibili or YouTube and write a Markdown summary to the vault. " +
 		"Unified collector: `platform` (bilibili|youtube) + `preset` (llm|media) select defaults; " +
@@ -148,7 +147,6 @@ const collectVideosTool = defineTool({
 const organizeTool = defineTool({
 	name: "organize_vault_notes",
 	label: "Organize Vault Notes",
-	promptSnippet: "Auto-tag frontmatter on untagged vault notes",
 	description:
 		"Auto-tag frontmatter (tags/aliases/created) on vault notes that lack it, based on " +
 		"filename + path patterns, and list unclassified orphan notes. Operates on the active " +
@@ -181,7 +179,6 @@ const organizeTool = defineTool({
 const importMemoryTool = defineTool({
 	name: "import_memory_to_vault",
 	label: "Import Memory to Vault",
-	promptSnippet: "Import pi-hermes-memory entries into a vault-mind JSONL collection",
 	description:
 		"Parse pi-hermes-memory entries (MEMORY.md / USER.md / failures.md) and append them to a " +
 		"vault-mind JSONL collection (dedup by id). Output defaults to <vault>/collections/study_news.jsonl.",

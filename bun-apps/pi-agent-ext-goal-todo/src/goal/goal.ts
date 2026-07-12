@@ -245,10 +245,6 @@ const goalCompleteTool = defineTool({
 	label: "Goal Complete",
 	description:
 		"Mark the active /goal as complete after all required work is done and verified. Do not use for partial progress, blockers, failing, or unverified work.",
-	promptSnippet: "Mark the active /goal as complete after fully finishing and verifying it",
-	promptGuidelines: [
-		"Keep working until fully complete—audit every requirement against files/tests/state before goal_complete. Never stop at partial progress or a plan.",
-	],
 	parameters: Type.Object({
 		summary: Type.String({
 			description:

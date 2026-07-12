@@ -25,10 +25,6 @@ Use cases:
 - Search for past failures: "memory_search('auth', category='failure')"
 
 Returns matching memory entries with project context and dates.`,
-    promptSnippet: 'Search extended memory store (unlimited capacity)',
-    promptGuidelines: [
-      'Search durable memory for context beyond the system prompt. Filter by category (failure/correction/insight) or target (memory/user/failure) for precision.',
-    ],
     parameters: Type.Object({
       query: Type.String({ description: 'Search query. Use natural language or specific terms.' }),
       project: Type.Optional(Type.String({ description: 'Filter by project name. Pass null for global memories only.' })),
