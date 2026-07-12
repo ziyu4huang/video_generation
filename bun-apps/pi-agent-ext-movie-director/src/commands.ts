@@ -1,7 +1,7 @@
 /**
  * commands.ts — the movie-director CLI command table.
  *
- * The 18 orchestration commands become deterministic, no-LLM top-level CLI
+ * The 19 orchestration commands become deterministic, no-LLM top-level CLI
  * commands: each is a thin wrapper that calls the SHARED `dispatch()` (from
  * src/dispatch.ts — the same function the `movie` agent tool calls), so the CLI
  * path and the agent-tool path are provably the same logic. Add/fix a command
