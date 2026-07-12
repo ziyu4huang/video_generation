@@ -456,20 +456,26 @@ const HEALTHY_TOOLS = [
 ];
 const SNIPPETS = (extra: Record<string, string> = {}) => ({ read: "Read a file", ...extra });
 
+function mapTool(t: any, snippets: Record<string, string>) {
+  return {
+    name: t.name,
+    description: t.description ?? "",
+    parameters: t.parameters,
+    promptGuidelines: t.promptGuidelines,
+    sourcePath: t.sourceInfo?.path ?? "(unknown)",
+    source: t.sourceInfo?.source ?? "unknown",
+    snippet: snippets[t.name],
+  };
+}
+
 function analyzeWith(
   tools: any[],
-  opts: { snippets?: Record<string, string>; skills?: any[]; contextFiles?: any[]; thresholds?: Partial<Pick<AnalysisInput, "toolTokenThreshold" | "skillCharThreshold" | "contextFileCharThreshold">> } = {},
+  opts: { snippets?: Record<string, string>; skills?: any[]; contextFiles?: any[]; inactiveTools?: any[]; thresholds?: Partial<Pick<AnalysisInput, "toolTokenThreshold" | "skillCharThreshold" | "contextFileCharThreshold">> } = {},
 ) {
+  const snippets = (opts.snippets ?? SNIPPETS()) as Record<string, string>;
   const input: AnalysisInput = {
-    tools: tools.map((t) => ({
-      name: t.name,
-      description: t.description ?? "",
-      parameters: t.parameters,
-      promptGuidelines: t.promptGuidelines,
-      sourcePath: t.sourceInfo?.path ?? "(unknown)",
-      source: t.sourceInfo?.source ?? "unknown",
-      snippet: ((opts.snippets ?? SNIPPETS()) as Record<string, string>)[t.name],
-    })),
+    tools: tools.map((t) => mapTool(t, snippets)),
+    inactiveTools: (opts.inactiveTools ?? []).map((t) => mapTool(t, snippets)),
     skills: (opts.skills ?? []).map((s: any) => ({
       name: s.name,
       filePath: s.filePath ?? "",
@@ -581,6 +587,72 @@ describe("analyzeExtensions — checks", () => {
   });
 });
 
+describe("analyzeExtensions — lazy-loaded extensions", () => {
+  test("inactiveTools surface as lazy-loaded-extension findings grouped by source", () => {
+    const active = [
+      { name: "a", description: "d", parameters: { type: "object" }, promptGuidelines: [], sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "active.ts" } },
+    ];
+    const inactive = [
+      { name: "flux2", description: "dd", parameters: { type: "object" }, promptGuidelines: [], sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "bun-apps/pi-agent-ext-flux2/extensions/pi-flux2.ts" } },
+      { name: "flux2_help", description: "dd", parameters: { type: "object" }, promptGuidelines: [], sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "bun-apps/pi-agent-ext-flux2/extensions/pi-flux2.ts" } },
+      { name: "ltx", description: "dd", parameters: { type: "object" }, promptGuidelines: [], sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "bun-apps/pi-agent-ext-ltx/extensions/pi-ltx.ts" } },
+    ];
+    const findings = analyzeWith(active, { inactiveTools: inactive });
+    const lazy = findings.filter((x) => x.check === "lazy-loaded-extension");
+    // grouped by source: flux2 (2 tools), ltx (1 tool)
+    expect(lazy).toHaveLength(2);
+    const flux2 = lazy.find((x) => (x.detail as any).path.includes("flux2"));
+    expect(flux2).toBeDefined();
+    expect((flux2!.detail as any).count).toBe(2);
+    expect((flux2!.detail as any).tools).toEqual(["flux2", "flux2_help"]);
+    expect((flux2!.detail as any).tokens).toBeGreaterThan(0);
+    // severity is info — not actionable
+    for (const x of lazy) expect(x.severity).toBe("info");
+  });
+
+  test("inactive builtin tools are skipped (same rule as active tax)", () => {
+    const inactive = [
+      { name: "ls", description: "d", parameters: {}, promptGuidelines: [], sourceInfo: { source: "builtin", scope: "user", origin: "top-level", path: "<builtin:ls>" } },
+    ];
+    const findings = analyzeWith([], { inactiveTools: inactive });
+    expect(findings.filter((x) => x.check === "lazy-loaded-extension")).toHaveLength(0);
+    expect(findings.filter((x) => x.check === "total-lazy-tax")).toHaveLength(0);
+  });
+
+  test("total-lazy-tax finding is emitted only when lazy tools exist", () => {
+    // no inactive tools → no total-lazy-tax
+    expect(analyzeWith(HEALTHY_TOOLS).filter((x) => x.check === "total-lazy-tax")).toHaveLength(0);
+    // with inactive tools → total-lazy-tax present and sums all sources
+    const inactive = [
+      { name: "x", description: "dd", parameters: { type: "object" }, promptGuidelines: [], sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "extA.ts" } },
+      { name: "y", description: "dd", parameters: { type: "object" }, promptGuidelines: [], sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "extB.ts" } },
+    ];
+    const tot = analyzeWith(HEALTHY_TOOLS, { inactiveTools: inactive }).find((x) => x.check === "total-lazy-tax");
+    expect(tot).toBeDefined();
+    expect((tot!.detail as any).sources).toBe(2);
+    expect((tot!.detail as any).total).toBeGreaterThan(0);
+  });
+
+  test("lazy findings do NOT inflate the actionable issue count", () => {
+    const inactive = [
+      { name: "x", description: "dd", parameters: { type: "object" }, promptGuidelines: [], sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "extA.ts" } },
+    ];
+    const withLazy = analyzeWith(HEALTHY_TOOLS, { inactiveTools: inactive });
+    const withoutLazy = analyzeWith(HEALTHY_TOOLS);
+    expect(summarizeFindings(withLazy).total).toBe(summarizeFindings(withoutLazy).total);
+  });
+
+  test("formatExtensionReport renders a lazy-loaded section", () => {
+    const inactive = [
+      { name: "flux2", description: "dd", parameters: { type: "object" }, promptGuidelines: [], sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "bun-apps/pi-agent-ext-flux2/extensions/pi-flux2.ts" } },
+    ];
+    const text = formatExtensionReport(analyzeWith(HEALTHY_TOOLS, { inactiveTools: inactive }));
+    expect(text).toContain("Lazy-loaded extensions");
+    expect(text).toContain("flux2");
+    expect(text).toContain("tok/req if activated");
+  });
+});
+
 describe("formatExtensionReport", () => {
   test("clean report shows the healthy line + tax table", () => {
     const text = formatExtensionReport(analyzeWith(HEALTHY_TOOLS));
@@ -640,6 +712,66 @@ describe("inspect_extensions (tool end-to-end)", () => {
     );
     const parsed = JSON.parse(res.content[0].text);
     expect(parsed.findings.some((f: any) => f.check === "oversized-context-file")).toBe(true);
+  });
+
+  test("registered-but-not-selected tools surface as lazy-loaded (end-to-end)", async () => {
+    // getAllTools returns read+bash+flux2+ltx, but selectedTools = [read, bash]
+    // → flux2 & ltx are registered-but-inactive (the lazy-loading case).
+    const allTools = [
+      ...TOOLS,
+      {
+        name: "flux2",
+        description: "Generate images with Flux2.",
+        parameters: { type: "object", properties: { cmd: { type: "string" } } },
+        promptGuidelines: [],
+        sourceInfo: { source: "cli", scope: "user", origin: "top-level", path: "bun-apps/pi-agent-ext-flux2/extensions/pi-flux2.ts" },
+      },
+      {
+        name: "ltx",
+        description: "Generate video with LTX.",
+        parameters: { type: "object", properties: { cmd: { type: "string" } } },
+        promptGuidelines: [],
+        sourceInfo: { source: "cli", scope: "user", origin: "top-level", path: "bun-apps/pi-agent-ext-ltx/extensions/pi-ltx.ts" },
+      },
+    ];
+    const { captured } = loadExtension(allTools);
+    const ctx = {
+      ...BASE_CTX,
+      getSystemPromptOptions: () =>
+        buildSnapshotOpts({ selectedTools: ["read", "bash"], toolSnippets: { read: "r", bash: "b" } }),
+    };
+
+    // JSON path: lazy findings + total_lazy_tokens present
+    const res = await captured.inspect_extensions.execute(undefined, { return_json: true }, undefined, undefined, ctx);
+    const parsed = JSON.parse(res.content[0].text);
+    const lazy = parsed.findings.filter((f: any) => f.check === "lazy-loaded-extension");
+    expect(lazy.length).toBe(2); // flux2 + ltx, grouped by source
+    expect(parsed.findings.some((f: any) => f.check === "total-lazy-tax")).toBe(true);
+    expect(typeof parsed.total_lazy_tokens).toBe("number");
+    expect(parsed.total_lazy_tokens).toBeGreaterThan(0);
+    // active tax must NOT include the lazy tools
+    const activeTax = parsed.findings.filter((f: any) => f.check === "extension-token-tax");
+    expect(activeTax.every((f: any) => !f.detail.path.includes("flux2") && !f.detail.path.includes("ltx"))).toBe(true);
+
+    // Text path: lazy section rendered
+    const textRes = await captured.inspect_extensions.execute(undefined, {}, undefined, undefined, ctx);
+    const text = textRes.content[0].text;
+    expect(text).toContain("Lazy-loaded extensions");
+    expect(text).toContain("flux2");
+    expect(text).toContain("ltx");
+    expect(text).toContain("tok/req if activated");
+  });
+
+  test("when selectedTools is unset, every registered tool is active (no lazy)", async () => {
+    const { captured } = loadExtension(TOOLS);
+    const ctx = {
+      ...BASE_CTX,
+      getSystemPromptOptions: () => buildSnapshotOpts({ selectedTools: undefined }),
+    };
+    const res = await captured.inspect_extensions.execute(undefined, { return_json: true }, undefined, undefined, ctx);
+    const parsed = JSON.parse(res.content[0].text);
+    expect(parsed.findings.filter((f: any) => f.check === "lazy-loaded-extension")).toHaveLength(0);
+    expect(parsed.total_lazy_tokens).toBe(0);
   });
 });
 
