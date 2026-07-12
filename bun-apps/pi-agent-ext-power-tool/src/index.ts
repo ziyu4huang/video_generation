@@ -15,7 +15,9 @@
  *   inspect_pathology  — diagnose how the agent is FAILING this session:
  *     retry loops, tool error storms, context saturation. Reads a hook-fed
  *     accumulator of recent tool calls (tool_execution_start/end) + the live
- *     context-window fill. Severity-ranked report or JSON.
+ *     context-window fill. Severity-ranked report or JSON. When a HIGH-severity
+ *     loop / consecutive-error is active, a non-invasive status-line warning is
+ *     surfaced proactively (Phase 1.1) — no context injection, dedup'd per loop.
  *
  * Usage:
  *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-power-tool/src/index.ts -p "call inspect_context"
@@ -41,6 +43,9 @@ import {
   recordCallStart,
   recordCallEnd,
   resetAccumulator,
+  getCalls,
+  surfacePathologyWarning,
+  resetWarning,
 } from "./pathology/index.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -966,10 +971,18 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 
   // Feed the pathology accumulator: observe every tool call's args + outcome so
   // inspect_pathology can detect retry loops / error storms this session.
-  // session_start resets per-session state (diagnostics are self-contained).
+  // After each call, surface a non-invasive status warning if a HIGH-severity
+  // loop / consecutive-error is active (Phase 1.1). session_start resets
+  // per-session state (diagnostics are self-contained).
   pi.on("tool_execution_start", recordCallStart);
-  pi.on("tool_execution_end", recordCallEnd);
-  pi.on("session_start", () => resetAccumulator());
+  pi.on("tool_execution_end", (event, ctx) => {
+    recordCallEnd(event);
+    surfacePathologyWarning(ctx, getCalls());
+  });
+  pi.on("session_start", () => {
+    resetAccumulator();
+    resetWarning();
+  });
 };
 
 export default extension;
