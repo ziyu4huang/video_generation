@@ -1197,6 +1197,14 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				// noise. Measured 0.80 → 0.84 hit-rate@4, zero regression. Composes
 				// with bodyMatch; cheap (slug = filename, no extra read).
 				slugDom: true,
+				// Semantic (embedding) blend (recall-regime-change-eval, 2026-07-12):
+				// union lexical top-12 with a nomic-embed cosine top-12, rerank by
+				// α·lexRank + (1-α)·cosNorm. Bridges symptom→cause gaps lexical
+				// retrieval cannot (measured 0.84 → 1.00 hit-rate@4, zero regression).
+				// Graceful fallback: if LM Studio / nomic unavailable, retrieval is
+				// pure lexical (the shipped 0.84 path) — no error.
+				semantic: true,
+				queryText: query,
 			};
 
 			const result = await retrieveRecords(opts);

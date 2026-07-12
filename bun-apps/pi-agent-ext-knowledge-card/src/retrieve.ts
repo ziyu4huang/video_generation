@@ -45,6 +45,18 @@ import {
 	type KnowledgeRecord,
 } from "./ingest.ts";
 import { computeIdf, scoreOverlap, type LinkWeighting } from "./entities.ts";
+import {
+	cosine,
+	blendScore,
+	defaultEmbedder,
+	embedQuery,
+	getCardEmbeddings,
+	lmStudioAvailable,
+	minMaxNorm,
+	SEMANTIC_ALPHA_DEFAULT,
+	SEMANTIC_MODEL_DEFAULT,
+	type Embedder,
+} from "./semantic.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -112,6 +124,31 @@ export interface RetrieveOptions {
 	 *  floods top-4 with weak 1–2-token matches — probed, regresses). Cheap: the
 	 *  slug IS the filename, so no extra file read. Default false = unchanged. */
 	slugDom?: boolean;
+	/** Opt-in semantic (embedding) blend (recall-regime-change-eval, 2026-07-12).
+	 *  When true AND a local embedding model (nomic-embed-text via LM Studio) is
+	 *  available, the lexical top-12 pool is UNION'd with a semantic top-12
+	 *  (cosine over precomputed card embeddings) and reranked by
+	 *  α·(lexical rank norm) + (1-α)·(cosine min-max norm). Bridges symptom→cause
+	 *  semantic gaps lexical retrieval cannot (measured 0.84 → 1.00 hit-rate@4,
+	 *  zero regression, robust α∈[0.12,0.22]). GRACEFUL FALLBACK: if LM Studio or
+	 *  the model is unavailable, or embeddings fail, retrieval is pure lexical
+	 *  (the shipped 0.84 path) — no error. Default false = byte-identical baseline.
+	 *  Requires `queryText` (the natural-language query to embed). */
+	semantic?: boolean;
+	/** Natural-language query text to embed when `semantic` is true. The lexical
+	 *  path uses `tags` (tokenised); the semantic path embeds THIS string because
+	 *  vector similarity needs the query's prose, not its tag tokens. */
+	queryText?: string;
+	/** Blend weight α (lexical) in [0,1]; semantic weight = 1-α. Default 0.18
+	 *  (center of the measured 1.00 band). */
+	semanticAlpha?: number;
+	/** Embedding model id (default text-embedding-nomic-embed-text-v1.5). */
+	semanticModel?: string;
+	/** INTERNAL test hook: inject a deterministic embedder so the semantic blend
+	 *  can be unit-tested without a live LM Studio. When set, the availability
+	 *  check is skipped and this embedder backs getCardEmbeddings + embedQuery.
+	 *  Never set in production. */
+	_testEmbedder?: Embedder;
 }
 
 export interface RetrieveResult {
@@ -262,6 +299,9 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 	const linkWeighting = opts.linkWeighting ?? "count";
 	const bodyMatch = opts.bodyMatch ?? false;
 	const slugDom = opts.slugDom ?? false;
+	const semantic = opts.semantic ?? false;
+	const semanticAlpha = opts.semanticAlpha ?? SEMANTIC_ALPHA_DEFAULT;
+	const semanticModel = opts.semanticModel ?? SEMANTIC_MODEL_DEFAULT;
 	const folderAbs = join(opts.vaultPath, folder);
 	const queryTags = new Set(opts.tags.map(normTag).filter(Boolean));
 	const excludeIds = new Set((opts.excludeIds ?? []).map((id) => id));
@@ -398,6 +438,32 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 	}
 
 	scored.sort((a, b) => b._score - a._score || a.id.localeCompare(b.id));
+
+	// Opt-in semantic blend (recall-regime-change-eval). Default off = unchanged.
+	// Union the lexical top-12 with a semantic top-12 (cosine), rerank by
+	// α·lexRankNorm + (1-α)·cosNorm. Returns null on any embedding failure →
+	// graceful fall-through to pure lexical below.
+	if (semantic) {
+		const sem = await trySemanticBlend({
+			scored,
+			vaultPath: opts.vaultPath,
+			folder,
+			topK,
+			queryText: opts.queryText,
+			alpha: semanticAlpha,
+			model: semanticModel,
+			maxDetailChars,
+			queryTags,
+			excludeIds,
+			excludeSlugs,
+			scanned,
+			excluded,
+			origTags: opts.tags,
+			testEmbedder: opts._testEmbedder,
+		});
+		if (sem) return sem;
+	}
+
 	const top = scored.slice(0, topK).map(({ _score, ...rest }) => rest);
 
 	return {
@@ -407,6 +473,124 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 		folder,
 		scanned,
 		excluded,
+	};
+}
+
+/** Build a RetrievedCard from a card file (for semantic-only cards not in
+ *  the lexical pool). Applies the same retired/superseded + exclusion guards
+ *  as the main loop. Returns null if the card should be skipped. */
+function buildRetrievedCard(
+	vaultPath: string,
+	folder: string,
+	cardPath: string,
+	maxDetailChars: number,
+	queryTags: Set<string>,
+	excludeIds: Set<string>,
+	excludeSlugs: Set<string>,
+): (RetrievedCard & { _score: number }) | null {
+	const cardSlug = cardPath.slice(folder.length + 1); // strip "folder/"
+	const abs = join(vaultPath, `${cardPath}.md`);
+	if (!existsSync(abs)) return null;
+	const meta = readCardMeta(abs);
+	if (!meta) return null;
+	if (meta.source_id && excludeIds.has(meta.source_id)) return null;
+	if (excludeSlugs.has(cardSlug)) return null;
+	const content = readFileSync(abs, "utf8");
+	const { data } = parseFrontmatter(content);
+	const status = typeof data.status === "string" ? data.status.trim() : "active";
+	if (status === "retired" || status === "superseded") return null;
+	let calloutText = "";
+	if (meta.hasCallouts) calloutText = extractFeatures(content).calloutTexts[0] ?? "";
+	return {
+		id: meta.source_id ?? cardSlug,
+		title: extractTitle(content),
+		type: typeof data.record_type === "string" ? data.record_type : "pattern",
+		detail: extractDetail(content, maxDetailChars),
+		tags: [...meta.tags].filter((t) => t !== "zettel"),
+		sharedTags: scoreOverlap(queryTags, meta.tags, new Map(), "count"),
+		path: cardPath,
+		source: typeof data.source === "string" ? data.source : "unknown",
+		hasCallouts: meta.hasCallouts,
+		calloutText,
+		_score: 0,
+	};
+}
+
+/** Opt-in semantic blend. Union lexical top-12 with semantic top-12 (cosine),
+ *  rerank by α·lexRankNorm + (1-α)·cosNorm. Returns null on any embedding
+ *  failure so the caller falls back to pure lexical. */
+async function trySemanticBlend(args: {
+	scored: (RetrievedCard & { _score: number })[];
+	vaultPath: string;
+	folder: string;
+	topK: number;
+	queryText?: string;
+	alpha: number;
+	model: string;
+	maxDetailChars: number;
+	queryTags: Set<string>;
+	excludeIds: Set<string>;
+	excludeSlugs: Set<string>;
+	scanned: number;
+	excluded: number;
+	origTags: string[];
+	testEmbedder?: Embedder;
+}): Promise<RetrieveResult | null> {
+	if (!args.queryText) return null;
+	// Test hook: skip the network availability check when an embedder is injected.
+	if (!args.testEmbedder && !(await lmStudioAvailable(args.model))) return null;
+	const cardEmb = await getCardEmbeddings(args.vaultPath, args.folder, args.model, args.testEmbedder ?? defaultEmbedder);
+	const qv = await embedQuery(args.queryText, args.model, args.testEmbedder ?? defaultEmbedder);
+	if (!cardEmb || !qv) return null;
+
+	// Semantic cosine over ALL cards; top-12 by similarity.
+	const semScored = cardEmb.paths
+		.map((p, i) => ({ path: p, cos: cosine(qv, cardEmb.vectors[i]!) }))
+		.sort((a, b) => b.cos - a.cos);
+	const semTopPaths = new Set(semScored.slice(0, 12).map((s) => s.path));
+
+	// Lexical pool top-12 + rank-norm ((12-r)/12; semantic-only cards get 0).
+	const lexPool = args.scored.slice(0, 12);
+	const lexRankNorm = new Map<string, number>();
+	lexPool.forEach((c, r) => lexRankNorm.set(c.path, (12 - r) / 12));
+
+	// Union: lexical pool + semantic top-12 (build semantic-only cards on demand).
+	const unionByPath = new Map<string, RetrievedCard & { _score: number }>();
+	for (const c of lexPool) unionByPath.set(c.path, c);
+	for (const p of semTopPaths) {
+		if (!unionByPath.has(p)) {
+			const built = buildRetrievedCard(
+				args.vaultPath, args.folder, p, args.maxDetailChars,
+				args.queryTags, args.excludeIds, args.excludeSlugs,
+			);
+			if (built) unionByPath.set(p, built);
+		}
+	}
+
+	// Cosine min-max norm over the union; blend by α·lexRank + (1-α)·cosNorm.
+	const unionPaths = [...unionByPath.keys()];
+	const cosines = unionPaths.map((p) => {
+		const idx = cardEmb.paths.indexOf(p);
+		return idx >= 0 ? cosine(qv, cardEmb.vectors[idx]!) : -1;
+	});
+	const cosNorm = minMaxNorm(cosines);
+	const alpha = args.alpha;
+	const blended = unionPaths
+		.map((p, i) => {
+			const card = unionByPath.get(p)!;
+			const lr = lexRankNorm.get(p) ?? 0;
+			const cn = cosNorm[i] ?? 0;
+			return { ...card, _score: blendScore(lr, cn, alpha) };
+		})
+		.sort((a, b) => b._score - a._score || a.id.localeCompare(b.id));
+	const top = blended.slice(0, args.topK).map(({ _score, ...rest }) => rest);
+	return {
+		count: top.length,
+		cards: top,
+		digest: formatDigest(top, args.origTags),
+		folder: args.folder,
+		scanned: args.scanned,
+		excluded: args.excluded,
 	};
 }
 
