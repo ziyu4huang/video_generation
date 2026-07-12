@@ -26,6 +26,7 @@ import {
   readCheckpoint,
   getLatestCheckpoint,
   getCompletedStages,
+  listProjects,
   validateArtifact,
   estimate as costEstimate,
   reserve as costReserve,
@@ -53,6 +54,7 @@ const COMMANDS = [
   "pipeline-list",
   "pipeline-show",
   "init-project",
+  "list-projects",
   "next-stage",
   "write-checkpoint",
   "read-checkpoint",
@@ -100,6 +102,11 @@ const COMMAND_REFERENCE = [
   "  • pipeline-show    — {pipeline} → stages, approval gates, produces.",
   "  • init-project     — {projectId, pipeline} → project workspace: stages + the resolved projectDir + assetsDir.",
   "                        Pass assetsDir as `outputDir` to `generate` so produced files land inside the project workspace.",
+  "  • list-projects    — {} (no options) → every discoverable project under MLX_OUTPUT_DIR/movie-director/projects/,",
+  "                        derived purely from on-disk checkpoint_*.json files (pipeline, latestStage, latestStatus,",
+  "                        completedStages, resumeStage), sorted newest-first. Use this FIRST when resuming after a",
+  "                        crash/restart and you don't already know the exact projectId — there is no other way to",
+  "                        enumerate in-flight projects.",
   "  • next-stage       — {projectId, pipeline, stage?} → next stage + its human-approval policy.",
   "                        ENFORCED GATE: if `stage` (the CURRENT stage) has checkpoint_required:true in the pipeline",
   "                        manifest, this call refuses (GATE VIOLATION) unless a checkpoint with status=\"completed\" ",
@@ -109,10 +116,13 @@ const COMMAND_REFERENCE = [
   "                        load lost full multi-hour runs this way, 2026-07-12). projectId is required whenever `stage`",
   "                        is a checkpoint_required stage. Pass overrideStageGate:true to skip this check explicitly.",
   "  • write-checkpoint — {projectId, pipeline, stage, status, artifacts?, humanApproved?, overrideFinalReview?,",
-  "                        overrideArtifactValidation?, ...}",
+  "                        overrideRequiredArtifacts?, overrideArtifactValidation?, ...}",
   "                        ENFORCES THE GATE: status=completed on an approval-gated stage requires humanApproved=true;",
   "                        status=completed on a stage requiring the final_review artifact (publish) is rejected when",
   "                        the linked final_review.verdict is 'fail', unless overrideFinalReview=true is passed explicitly;",
+  "                        status=completed on a stage whose `required_artifacts_in` (manifest) names an artifact with no",
+  "                        completed producing-stage checkpoint is rejected (e.g. compose completing without a completed",
+  "                        edit_decisions from edit), unless overrideRequiredArtifacts=true is passed explicitly;",
   "                        status=completed is rejected when any artifact in `artifacts` fails its own canonical schema",
   "                        (e.g. a malformed research_brief/proposal_packet) — the per-field errors are returned, unless",
   "                        overrideArtifactValidation=true is passed explicitly. Run validate-artifact first to fix errors",
@@ -333,6 +343,16 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
           }),
         };
       }
+      case "list-projects": {
+        // No required options — enumerates MLX_OUTPUT_DIR/movie-director/projects/
+        // purely from on-disk checkpoint_*.json files. This is the project-
+        // discovery/resumability gap closed per the tool-design audit
+        // (2026-07-12): an agent recovering from a crash previously had no way
+        // to enumerate what projects/runs it had in flight, since every
+        // read-checkpoint-family call requires already knowing the exact
+        // projectId. Sorted newest-first by latest checkpoint timestamp.
+        return { ok: true, text: jsonOut({ projects: listProjects() }) };
+      }
       case "next-stage": {
         const missing = missingFields(opts, ["pipeline"]);
         if (missing.length > 0) return { ok: false, error: `next-stage requires non-empty ${missing.join(", ")}` };
@@ -400,6 +420,7 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
           artifacts: opts.artifacts as Record<string, unknown> | undefined,
           humanApproved: opts.humanApproved === true,
           overrideFinalReview: opts.overrideFinalReview === true,
+          overrideRequiredArtifacts: opts.overrideRequiredArtifacts === true,
           overrideArtifactValidation: opts.overrideArtifactValidation === true,
           review: opts.review,
           costSnapshot: opts.costSnapshot,

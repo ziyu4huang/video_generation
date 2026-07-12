@@ -13,11 +13,11 @@
  * Atomic writes (temp file → rename) + superseded-checkpoint archival to
  * history/ match the Python original.
  */
-import { mkdirSync, writeFileSync, readFileSync, existsSync, renameSync, copyFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, renameSync, copyFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { validate, hasSchema } from "./schema.ts";
-import { checkpointPath, projectDir, historyDir } from "./paths.ts";
-import { getStage, getStageHumanApprovalDefault, loadPipeline, findStageProducingArtifact } from "./pipeline.ts";
+import { checkpointPath, projectDir, historyDir, projectsRoot } from "./paths.ts";
+import { getStage, getStageHumanApprovalDefault, loadPipeline, findStageProducingArtifact, getNextStage } from "./pipeline.ts";
 import { scriptPacingCheck, type ScriptLike } from "./script-pacing-gate.ts";
 
 export type CheckpointStatus = "pending" | "in_progress" | "awaiting_human" | "completed" | "failed";
@@ -65,6 +65,14 @@ export interface WriteCheckpointInput {
    */
   overrideFinalReview?: boolean;
   /**
+   * Explicit override to complete a stage whose `required_artifacts_in`
+   * (other than `final_review`, which has its own dedicated override above)
+   * are missing or not yet completed in their producing stage — e.g.
+   * `compose` completing without a completed `edit_decisions` from `edit`.
+   * Analogous to `overrideFinalReview` — must be passed deliberately.
+   */
+  overrideRequiredArtifacts?: boolean;
+  /**
    * Explicit override to complete a stage whose `artifacts` fail their own
    * canonical schema (e.g. a `research_brief` missing required fields).
    * Analogous to `humanApproved`/`overrideFinalReview` — must be passed
@@ -107,26 +115,54 @@ export function writeCheckpoint(input: WriteCheckpointInput): Checkpoint {
     );
   }
 
-  // GATE: a stage that declares final_review as a required input (publish) must
-  // not complete while the linked final_review verdict is "fail" — mirrors the
-  // human-approval gate above. The verdict is read from the checkpoint of
-  // whichever stage's manifest `produces` lists final_review (compose, in both
-  // shipped pipelines), never hardcoded to a stage name. Fails CLOSED (not just
-  // on verdict:"fail") when that producing stage was never completed — a
-  // caller cannot bypass the gate by skipping straight to publish before
-  // compose has run, since a missing/incomplete final_review is exactly the
-  // "we don't know it passed" case this gate exists to block.
-  const requiresFinalReview = getStage(input.pipeline, input.stage)?.required_artifacts_in?.includes("final_review") ?? false;
-  if (input.status === "completed" && requiresFinalReview && !input.overrideFinalReview) {
-    const producingStage = findStageProducingArtifact(input.pipeline, "final_review");
-    const producingCp = producingStage ? readCheckpointRaw(input.projectId, producingStage, input.env) : undefined;
-    const finalReview = producingCp?.artifacts?.final_review as { verdict?: string } | undefined;
-    if (producingCp?.status !== "completed" || finalReview?.verdict !== "pass") {
+  // GATE: every artifact a stage declares in `required_artifacts_in` must
+  // actually exist — a completed checkpoint from whichever stage's `produces`
+  // lists it, carrying that artifact key. Generalizes what used to be a
+  // final_review-only special case (previously the ONLY required_artifacts_in
+  // entry enforced in code; `brief`/`script`/`scene_plan`/`asset_manifest`/
+  // `edit_decisions`/`render_report` etc. were pure documentation with zero
+  // runtime consumer — see the tool-design audit, 2026-07-12). The producing
+  // stage is looked up structurally via `findStageProducingArtifact` (never
+  // hardcoded to a stage name), so this holds for any pipeline/stage/artifact
+  // combination declared in the manifest, not just the shipped ones.
+  //
+  // `final_review` keeps a STRICTER nested check (verdict must be "pass", not
+  // just present) and its own dedicated `overrideFinalReview` escape hatch,
+  // preserved for backward compatibility with existing callers/tests. Every
+  // other artifact only requires producingCp.status==="completed" plus the
+  // artifact key being present; `overrideRequiredArtifacts` bypasses those.
+  const requiredArtifacts = getStage(input.pipeline, input.stage)?.required_artifacts_in ?? [];
+  if (input.status === "completed" && requiredArtifacts.length > 0) {
+    const missing: string[] = [];
+    for (const name of requiredArtifacts) {
+      const producingStage = findStageProducingArtifact(input.pipeline, name);
+      if (!producingStage) continue; // no stage declares producing it — can't verify structurally, skip
+      const producingCp = readCheckpointRaw(input.projectId, producingStage, input.env);
+
+      if (name === "final_review") {
+        if (input.overrideFinalReview) continue;
+        const finalReview = producingCp?.artifacts?.final_review as { verdict?: string } | undefined;
+        if (producingCp?.status !== "completed" || finalReview?.verdict !== "pass") {
+          missing.push(
+            `"final_review" (from "${producingStage}", verdict: ${finalReview?.verdict ?? "missing — stage not completed"}) ` +
+              `— pass overrideFinalReview=true to ship past an advisory failure`,
+          );
+        }
+        continue;
+      }
+
+      if (input.overrideRequiredArtifacts) continue;
+      const present = producingCp?.status === "completed" && producingCp.artifacts != null && name in producingCp.artifacts;
+      if (!present) {
+        missing.push(`"${name}" (from "${producingStage}", status: ${producingCp?.status ?? "missing — stage not completed"})`);
+      }
+    }
+    if (missing.length > 0) {
       throw new GateViolationError(
-        `GATE VIOLATION: stage "${input.stage}" (${input.pipeline}) cannot complete — no passing final_review ` +
-          `found from stage "${producingStage}" (verdict: ${finalReview?.verdict ?? "missing — stage not completed"}). ` +
-          `Run "${producingStage}" to completion with a passing final_review, or pass overrideFinalReview=true only ` +
-          `after an explicit human/agent decision to ship past the advisory failure.`,
+        `GATE VIOLATION: stage "${input.stage}" (${input.pipeline}) cannot complete — missing required input ` +
+          `artifact(s): ${missing.join("; ")}. Complete the producing stage(s) first, or pass ` +
+          `overrideRequiredArtifacts=true (overrideFinalReview=true for the final_review case) only after an ` +
+          `explicit human/agent decision to advance without them.`,
       );
     }
   }
@@ -257,4 +293,81 @@ export function getCompletedStages(
 
 interface PipelineManifestLike {
   stages?: { name: string }[];
+}
+
+export interface ProjectSummary {
+  projectId: string;
+  pipeline?: string;
+  latestStage?: string;
+  latestStatus?: CheckpointStatus;
+  latestTimestamp?: string;
+  completedStages: string[];
+  /** The stage an agent should resume at: the in-progress/failed/awaiting_human stage itself, or the stage after the latest completed one. */
+  resumeStage?: string;
+}
+
+/**
+ * Discover every project workspace under MLX_OUTPUT_DIR/movie-director/projects/
+ * purely from on-disk checkpoint_*.json files — no separate project registry.
+ * Closes the resumability gap found in the tool-design audit (2026-07-12):
+ * there was previously no way for an agent recovering from a crash to even
+ * enumerate what projects/runs it had in flight, since every read-checkpoint-
+ * family function requires the caller to already know the exact projectId.
+ * Directly ports OpenMontage's `get_next_stage()` resume pattern (walk
+ * on-disk checkpoint status, no database) to a "list all projects" surface.
+ */
+export function listProjects(env: Record<string, string | undefined> = process.env): ProjectSummary[] {
+  const root = projectsRoot(env);
+  if (!existsSync(root)) return [];
+  let dirs: string[];
+  try {
+    dirs = readdirSync(root, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+  } catch {
+    return [];
+  }
+
+  const summaries: ProjectSummary[] = [];
+  for (const projectId of dirs) {
+    const dir = join(root, projectId);
+    let files: string[];
+    try {
+      files = readdirSync(dir).filter((f) => f.startsWith("checkpoint_") && f.endsWith(".json"));
+    } catch {
+      continue;
+    }
+    if (files.length === 0) continue; // no checkpoints written — not a discoverable project yet
+
+    const checkpoints: Checkpoint[] = [];
+    for (const f of files) {
+      try {
+        checkpoints.push(JSON.parse(readFileSync(join(dir, f), "utf8")) as Checkpoint);
+      } catch {
+        /* skip unreadable/corrupt checkpoint file */
+      }
+    }
+    if (checkpoints.length === 0) continue;
+
+    checkpoints.sort((a, b) => (a.timestamp ?? "").localeCompare(b.timestamp ?? ""));
+    const latest = checkpoints[checkpoints.length - 1]!;
+    const pipeline = latest.pipeline_type;
+    const completedStages = pipeline
+      ? getCompletedStages(projectId, pipeline, env)
+      : checkpoints.filter((c) => c.status === "completed").map((c) => c.stage);
+    const resumeStage = latest.status === "completed" && pipeline ? getNextStage(pipeline, latest.stage) : latest.stage;
+
+    summaries.push({
+      projectId,
+      pipeline,
+      latestStage: latest.stage,
+      latestStatus: latest.status,
+      latestTimestamp: latest.timestamp,
+      completedStages,
+      resumeStage,
+    });
+  }
+
+  summaries.sort((a, b) => (b.latestTimestamp ?? "").localeCompare(a.latestTimestamp ?? ""));
+  return summaries;
 }
