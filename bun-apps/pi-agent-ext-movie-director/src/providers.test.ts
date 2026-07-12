@@ -731,6 +731,59 @@ describe("clipAdapter (mocked spawn)", () => {
   });
 });
 
+describe("compose adapters enforce the pre-compose gate (regression: was a second ungated entry point)", () => {
+  // composeRemotionAdapter/composeMotionAdapter delegate to renderRemotion()/
+  // composeMotion() directly, the same calls the gated `compose-remotion`/
+  // `compose-motion` dispatch commands make — but historically without ever
+  // calling enforcePreCompose. An empty cuts array fails preComposeGate's
+  // cuts_present check; both adapters must refuse before touching the render
+  // call, not attempt (and fail differently) inside it.
+  it("composeRemotionAdapter refuses a fail-verdict edit before calling renderRemotion", async () => {
+    const { composeRemotionAdapter } = await import("./providers.ts");
+    const result = await composeRemotionAdapter({
+      capability: "composition",
+      command: "compose-remotion",
+      outputDir: tmpdir(),
+      options: { editDecisions: { version: "1.0", cuts: [] } },
+    });
+    expect(result.success).toBe(false);
+    expect(result.provider).toBe("remotion");
+    expect(result.error).toBeTruthy();
+  });
+
+  it("composeMotionAdapter refuses a fail-verdict edit before calling composeMotion", async () => {
+    const { composeMotionAdapter } = await import("./providers.ts");
+    const result = await composeMotionAdapter({
+      capability: "composition",
+      command: "compose-motion",
+      outputDir: tmpdir(),
+      options: { editDecisions: { version: "1.0", cuts: [] } },
+    });
+    expect(result.success).toBe(false);
+    expect(result.provider).toBe("motion");
+    expect(result.error).toBeTruthy();
+  });
+
+  it("composeMotionAdapter proceeds when overridePreCompose:true bypasses a fail verdict", async () => {
+    const { composeMotionAdapter } = await import("./providers.ts");
+    // Still no real cuts to render, so composeMotion() itself will fail — the
+    // point here is only that it gets PAST the gate (a different failure mode
+    // than "gate refused"), proving the override plumbing reaches the gate.
+    const result = await composeMotionAdapter({
+      capability: "composition",
+      command: "compose-motion",
+      outputDir: tmpdir(),
+      options: { editDecisions: { version: "1.0", cuts: [] }, overridePreCompose: true },
+    });
+    expect(result.success).toBe(false);
+    expect(result.provider).toBe("motion");
+    // Distinguish "gate refused" (would be preComposeCheck.error, a
+    // gate-shaped message) from "composeMotion attempted and failed" by
+    // asserting we did NOT get the gate's own cuts_present wording.
+    expect(result.error ?? "").not.toContain("cuts_present");
+  });
+});
+
 describe("composeMotionAdapter forwards captions (regression: was silently dropped)", () => {
   // The adapter once omitted opts.captions when calling composeMotion(), so the
   // local ffmpeg composition path could never burn subtitles even though the

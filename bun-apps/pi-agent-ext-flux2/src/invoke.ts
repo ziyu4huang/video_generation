@@ -78,7 +78,19 @@ export function invokeFlux2(opts: InvokeOpts): Promise<InvokeResult> {
         while ((nl = lineBuf[key].indexOf("\n")) >= 0) {
           const line = lineBuf[key].slice(0, nl).trim();
           lineBuf[key] = lineBuf[key].slice(nl + 1);
-          if (line) opts.onProgress?.({ kind: "progress", text: line });
+          if (line) {
+            // onProgress runs out-of-band inside this stream 'data' handler,
+            // outside any caller's try/catch around `await invokeFlux2(...)` —
+            // a throw here would otherwise surface as an uncaught exception
+            // instead of respecting this function's own "Never rejects"
+            // contract (same fix as pi-agent-ext-ltx's invoke.ts, backported
+            // from pi-agent-ext-ltx-self-improve's review lane, 2026-07-05).
+            try {
+              opts.onProgress?.({ kind: "progress", text: line });
+            } catch {
+              /* progress callback failures must not crash the subprocess pump */
+            }
+          }
         }
       });
     };

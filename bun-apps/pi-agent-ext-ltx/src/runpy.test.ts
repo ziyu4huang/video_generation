@@ -12,6 +12,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { dirname, join } from "node:path";
 import { runPyVideo, resolveRunPyPaths } from "./runpy.ts";
 import { resolveRepoRoot } from "./binary.ts";
+import { PathSafetyError } from "./paths.ts";
 import type { InvokeResult } from "./invoke.ts";
 
 /**
@@ -162,6 +163,36 @@ describe("runPyVideo (run.py video t2i2v adapter)", () => {
       expect(stIdx).toBeGreaterThanOrEqual(0);
       // bare --self-test → the NEXT token must be another flag (not a fixture name).
       expect(captured[stIdx + 1]).toStrictEqual(expect.stringMatching(/^--/));
+    } finally {
+      rmSync(box, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a fromImage path outside the allowed roots (path-confinement)", async () => {
+    const box = newBox();
+    try {
+      await expect(
+        runPyVideo({
+          options: { fromImage: "/etc/passwd" },
+          outputDir: box,
+          _spawnImpl: async () => ({ exitCode: 0, stdout: "", stderr: "", output: "", aborted: false }),
+        }),
+      ).rejects.toThrow(PathSafetyError);
+    } finally {
+      rmSync(box, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a flag-like value in a free-form string field (argv-injection guard)", async () => {
+    const box = newBox();
+    try {
+      await expect(
+        runPyVideo({
+          options: { action: "--evil-flag" },
+          outputDir: box,
+          _spawnImpl: async () => ({ exitCode: 0, stdout: "", stderr: "", output: "", aborted: false }),
+        }),
+      ).rejects.toThrow(PathSafetyError);
     } finally {
       rmSync(box, { recursive: true, force: true });
     }
