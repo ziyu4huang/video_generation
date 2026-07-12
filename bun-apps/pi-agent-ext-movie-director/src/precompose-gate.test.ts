@@ -353,6 +353,51 @@ describe("preComposeGate — cut duration vs. source duration", () => {
   });
 });
 
+describe("preComposeGate — total duration branches on render_runtime (Bug 1, saturn-young-rings 2026-07-12)", () => {
+  it("compose-motion (render_runtime=ffmpeg): sums per-cut relative windows, not max(out_seconds)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-gate-ffmpeg-sum-"));
+    try {
+      // Real repro shape: 12 cuts, each locally windowed [in, in+~4-8], NOT a
+      // cumulative absolute timeline — this is exactly how compose-motion.ts
+      // treats cuts (array-order concat of (out_seconds - in_seconds) each).
+      const outs = [8.04, 4.04, 8.04, 6.04, 8.04, 8.04, 8.04, 7.04, 8.04, 4.04, 8.04, 4.04];
+      const cuts: RemotionEditDecisions["cuts"] = outs.map((out, i) => {
+        const p = join(dir, `c${i}.mp4`); writeFileSync(p, "x");
+        return { id: `c${i}`, source: p, in_seconds: 0, out_seconds: out, animation: "static" };
+      });
+      const expectedTotal = outs.reduce((s, o) => s + o, 0); // 81.48
+      const r = await preComposeGate(
+        { version: "1.0", cuts, render_runtime: "ffmpeg" },
+        { spawnImpl: fakeProbe(8.04), narrativeDurationSeconds: 79.53 },
+      );
+      const total = r.checks.find((c) => c.name === "total_duration_positive")!;
+      expect(total.detail).toContain(`total duration=${expectedTotal.toFixed(2)}s`);
+      const narr = r.checks.find((c) => c.name === "narrative_duration_vs_script")!;
+      expect(narr.status).toBe("pass"); // ~81.48s vs 79.53s script ≈ 102% — real coverage, not the "10%" bug
+      const motion = r.checks.find((c) => c.name === "motion_coverage_vs_scene")!;
+      expect(motion.detail).not.toContain("1013%"); // the exact nonsense value from the real bug
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("compose-remotion (render_runtime unset/other): keeps max(out_seconds) absolute-timeline semantics", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-gate-remotion-max-"));
+    try {
+      const v = join(dir, "scene.mp4"); writeFileSync(v, "x");
+      // Absolute timeline: single cut spanning [0, 8] — max(out_seconds)=8 is correct here.
+      const r = await preComposeGate(
+        { version: "1.0", cuts: [{ id: "a", source: v, in_seconds: 0, out_seconds: 8, animation: "static" }] },
+        { spawnImpl: fakeProbe(8.04) },
+      );
+      const total = r.checks.find((c) => c.name === "total_duration_positive")!;
+      expect(total.detail).toContain("total duration=8.00s");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("preComposeGate — motion coverage vs. scene", () => {
   it("passes when most of the composed runtime is real video motion", async () => {
     const dir = mkdtempSync(join(tmpdir(), "md-gate-motion-cov-pass-"));

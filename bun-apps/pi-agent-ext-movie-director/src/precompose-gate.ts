@@ -63,6 +63,19 @@
  *      (last-frame reseed) instead of padding with a panned still; this gate
  *      just makes the shortcut visible before publish instead of silent.
  *
+ *   6. **Total-duration formula branches on render_runtime.** #1/#4/#5 above
+ *      all depend on one "total composed seconds" number, and that number
+ *      means different things on different render tiers: compose-remotion
+ *      places cuts on a shared absolute timeline (max(out_seconds) is the
+ *      true total), but compose-motion (render_runtime="ffmpeg" — the tier
+ *      every real e2e run in this project has actually used) concatenates
+ *      cuts in array order using each cut's own (out_seconds - in_seconds)
+ *      as a RELATIVE window (sum of per-cut windows is the true total). Using
+ *      max() unconditionally silently reported an ~78s compose-motion video's
+ *      duration as one clip's ~8s length — confirmed in the saturn-young-rings
+ *      run (2026-07-12); see output/next-goal-20260712_081500.md. Unset/
+ *      non-"ffmpeg" `render_runtime` keeps the original max()-based behavior.
+ *
  * Verdict: any `fail` → fail (don't render); else any `warn` → warn (render but
  * flag); else pass. Delivery-promise + slideshow + motion-coverage checks are
  * pure (fs existence only); the duration checks need ffprobe calls (per video
@@ -170,7 +183,21 @@ export async function preComposeGate(edit: RemotionEditDecisions, opts: PreCompo
   }
   checks.push({ name: "cuts_present", status: "pass", detail: `${cuts.length} cut(s)` });
 
-  const lastOut = Math.max(0, ...cuts.map((c) => c.out_seconds ?? 0));
+  // Two genuinely different render semantics share this "total composed
+  // duration" number (see the Bug-1 writeup in output/next-goal-20260712_081500.md):
+  // compose-motion (render_runtime="ffmpeg") concatenates cuts in array order
+  // using each cut's own (out_seconds - in_seconds) as a RELATIVE window, so
+  // the true total is the SUM of per-cut windows. compose-remotion (and, by
+  // default/unknown, "hyperframes") place cuts on one shared absolute
+  // timeline (Root.tsx: durationInFrames = max(out_seconds)), so max() is
+  // correct there. Using max() for a compose-motion edit silently reports
+  // one clip's length as the whole video's duration — confirmed in the
+  // saturn-young-rings run (12 cuts, real ~78s composed, gate read "8.04s").
+  const sumRelative = cuts
+    .filter((c) => c.type !== "text")
+    .reduce((sum, c) => sum + Math.max(0, (c.out_seconds ?? 0) - (c.in_seconds ?? 0)), 0);
+  const maxAbsolute = Math.max(0, ...cuts.map((c) => c.out_seconds ?? 0));
+  const lastOut = edit.render_runtime === "ffmpeg" ? sumRelative : maxAbsolute;
   checks.push({
     name: "total_duration_positive",
     status: lastOut > 0 ? "pass" : "fail",

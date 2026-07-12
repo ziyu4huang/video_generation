@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import extension from "./pi-movie-director.ts";
 import { scopeViolationForToolCall } from "../src/index.ts";
 
@@ -135,6 +138,53 @@ describe("pi-movie-director extension", () => {
     );
     expect(res.details.ok).toBe(false);
     expect(res.details.error).toContain("no configured provider");
+  });
+
+  test("compose-motion refuses to render when pre-compose would fail (Bug 2, saturn-young-rings 2026-07-12)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-dispatch-gate-fail-"));
+    try {
+      const tool = captureTool("movie");
+      const res = await tool.execute(
+        "id",
+        {
+          command: "compose-motion",
+          options: {
+            editDecisions: { version: "1.0", cuts: [] }, // no cuts → cuts_present fails
+            workDir: dir,
+          },
+        },
+        undefined, undefined, undefined,
+      );
+      expect(res.details.ok).toBe(false);
+      expect(res.details.error).toContain("GATE VIOLATION");
+      expect(res.details.error).toContain("cuts_present");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("compose-motion proceeds when overridePreCompose=true bypasses a pre-compose fail", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-dispatch-gate-override-"));
+    try {
+      const tool = captureTool("movie");
+      const res = await tool.execute(
+        "id",
+        {
+          command: "compose-motion",
+          options: {
+            editDecisions: { version: "1.0", cuts: [] },
+            workDir: dir,
+            overridePreCompose: true,
+          },
+        },
+        undefined, undefined, undefined,
+      );
+      // Past the gate now — composeMotion itself reports a failure for zero cuts
+      // (no GATE VIOLATION text), proving the override actually let it through.
+      expect(res.content[0].text).not.toContain("GATE VIOLATION");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("the factory registers the tool_call scope guard", () => {
