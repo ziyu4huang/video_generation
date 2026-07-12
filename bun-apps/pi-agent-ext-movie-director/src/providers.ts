@@ -1112,10 +1112,29 @@ export const cloudHttpAdapter: Adapter = async (req: GenerateRequest, env: Recor
 
 // ─── macOS `say` adapter (local, zero-cost, zero-key TTS fallback) ──────────
 
+/** macOS `say`'s natural default rate band (words per minute) — outside this, the
+ * adapter tags the result so a caller/cost-log/pacing gate can see the override
+ * instead of it being invisible (the raw-`bash`+`say -r` escape hatch this
+ * closes never surfaced a rate override anywhere; see script-pacing-gate.ts). */
+const SAY_NATURAL_RATE_MIN = 140;
+const SAY_NATURAL_RATE_MAX = 220;
+
 export interface MacosSayOptions {
   text?: string;
   /** `say -v` voice name (e.g. "Samantha"). Defaults to the system voice. */
   voice?: string;
+  /**
+   * `say -r` words-per-minute rate. Omit for the system default (~175-200
+   * wpm). Exists so an agent that needs to control speaking rate can do so
+   * through this TRACKED path — before this option existed, the only way to
+   * set `-r` was a raw `bash`+`say` call that bypassed cost tracking,
+   * provider selection, and any pacing gate entirely (confirmed root cause
+   * of the saturn-young-rings narration-compression bug, 2026-07-12: the
+   * agent shelled out to `say -r 350` — ~2x natural rate — because there was
+   * nowhere else to put it). Using THIS option instead makes the rate a
+   * normal, visible, cost-tracked generate() call.
+   */
+  rate?: number;
   /** Output path (.wav). Defaults under outputDir. */
   output?: string;
 }
@@ -1132,9 +1151,16 @@ export const macosSayAdapter: Adapter = async (req: GenerateRequest): Promise<To
     mkdirSync(dirname(output), { recursive: true });
     const argv = ["-o", output, "--data-format=LEI16@24000", "--file-format=WAVE"];
     if (opts.voice) argv.push("-v", opts.voice);
+    if (opts.rate !== undefined) argv.push("-r", String(opts.rate));
     argv.push(text);
     const code = await runSpawn("say", argv);
     const ok = code === 0 && existsSync(output);
+    const rateNote =
+      opts.rate !== undefined && (opts.rate < SAY_NATURAL_RATE_MIN || opts.rate > SAY_NATURAL_RATE_MAX)
+        ? ` [rate=${opts.rate}wpm is outside the natural ${SAY_NATURAL_RATE_MIN}-${SAY_NATURAL_RATE_MAX}wpm band — ` +
+          `if this is compensating for a script that's too dense for its planned duration, extend the video ` +
+          `(chain more I2V clips) instead of the narration rate]`
+        : "";
     return {
       success: ok,
       provider: "say",
@@ -1144,7 +1170,7 @@ export const macosSayAdapter: Adapter = async (req: GenerateRequest): Promise<To
       cost_usd: 0, // local macOS synthesis — honest $0 marginal
       duration_seconds: (Date.now() - started) / 1000,
       seed: null,
-      model: opts.voice ?? "say-system-voice",
+      model: (opts.voice ?? "say-system-voice") + (opts.rate !== undefined ? ` rate=${opts.rate}wpm` : "") + rateNote,
     };
   } catch (err) {
     return fail(req, "say", err instanceof Error ? err.message : String(err), (Date.now() - started) / 1000);

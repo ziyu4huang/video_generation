@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { validate, hasSchema } from "./schema.ts";
 import { checkpointPath, projectDir, historyDir } from "./paths.ts";
 import { getStage, getStageHumanApprovalDefault, loadPipeline, findStageProducingArtifact } from "./pipeline.ts";
+import { scriptPacingCheck, type ScriptLike } from "./script-pacing-gate.ts";
 
 export type CheckpointStatus = "pending" | "in_progress" | "awaiting_human" | "completed" | "failed";
 
@@ -152,6 +153,18 @@ export function writeCheckpoint(input: WriteCheckpointInput): Checkpoint {
     }
   }
 
+  // ADVISORY (Bug 3, saturn-young-rings 2026-07-12): whenever this checkpoint
+  // carries a `script` artifact, compute its words-per-second pacing and
+  // surface the result in metadata — the cheapest possible point to catch
+  // "this script only fits its planned duration at an unnaturally fast
+  // speaking rate" (which the agent otherwise only discovers after TTS
+  // synthesis, and then "fixes" by compressing the narration RATE instead of
+  // extending the video). Never blocks the write — see script-pacing-gate.ts's
+  // doc-comment for why this stays advisory rather than a hard gate.
+  const scriptArtifact = input.artifacts?.script as ScriptLike | undefined;
+  const scriptPacing = scriptArtifact && typeof scriptArtifact === "object" ? scriptPacingCheck(scriptArtifact) : undefined;
+  const metadata = scriptPacing ? { ...(input.metadata ?? {}), script_pacing: scriptPacing } : input.metadata;
+
   const cp: Checkpoint = {
     version: "1.0",
     project_id: input.projectId,
@@ -166,7 +179,7 @@ export function writeCheckpoint(input: WriteCheckpointInput): Checkpoint {
     review: input.review,
     cost_snapshot: input.costSnapshot,
     error: input.error,
-    metadata: input.metadata,
+    metadata,
   };
   // Drop undefined keys for a clean persisted object.
   const clean = Object.fromEntries(Object.entries(cp).filter(([, v]) => v !== undefined)) as Checkpoint;

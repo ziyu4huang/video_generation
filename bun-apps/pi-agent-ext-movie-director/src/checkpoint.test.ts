@@ -243,3 +243,47 @@ describe("checkpoint archival + state", () => {
     expect(getCompletedStages("p3", "talking-head", env)).toEqual(["idea", "edit"]);
   });
 });
+
+describe("script pacing advisory (Bug 3, saturn-young-rings 2026-07-12)", () => {
+  test("writing a checkpoint with a script artifact auto-computes metadata.script_pacing", () => {
+    const text = Array.from({ length: 270 }, () => "word").join(" ");
+    const cp = writeCheckpoint({
+      projectId: "p4", pipeline: "talking-head", stage: "idea", status: "in_progress",
+      artifacts: {
+        script: {
+          version: "1.0", title: "t", total_duration_seconds: 78,
+          sections: [{ id: "s1", text, start_seconds: 0, end_seconds: 78 }],
+        },
+      },
+      env,
+    });
+    const pacing = (cp.metadata as Record<string, unknown> | undefined)?.script_pacing as { status: string; overallWordsPerSecond: number } | undefined;
+    expect(pacing).toBeDefined();
+    expect(pacing!.status).toBe("warn"); // 270/78 ≈ 3.46 wps — the real saturn-young-rings shape
+    expect(pacing!.overallWordsPerSecond).toBeCloseTo(3.46, 1);
+  });
+
+  test("does not block completion even when script_pacing would fail — advisory only", () => {
+    const text = Array.from({ length: 270 }, () => "word").join(" ");
+    expect(() =>
+      writeCheckpoint({
+        projectId: "p5", pipeline: "talking-head", stage: "idea", status: "completed", humanApproved: true,
+        artifacts: {
+          script: {
+            version: "1.0", title: "t", total_duration_seconds: 60,
+            sections: [{ id: "s1", text, start_seconds: 0, end_seconds: 60 }],
+          },
+        },
+        overrideArtifactValidation: true, // script.schema.json requires more fields than this minimal fixture has
+        env,
+      }),
+    ).not.toThrow();
+  });
+
+  test("no script artifact ⇒ no script_pacing key in metadata", () => {
+    const cp = writeCheckpoint({
+      projectId: "p6", pipeline: "talking-head", stage: "idea", status: "in_progress", env,
+    });
+    expect((cp.metadata as Record<string, unknown> | undefined)?.script_pacing).toBeUndefined();
+  });
+});
