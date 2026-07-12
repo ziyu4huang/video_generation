@@ -12,6 +12,33 @@
  * hint names a provider that is NOT configured (or not in this capability), it
  * is ignored and the ranking falls back — this is a soft hint, not a hard pin,
  * so a stale hint never blocks generation.
+ *
+ * Override precedence, highest to lowest (tool-design audit, 2026-07-12 —
+ * documented explicitly here because the correct behavior previously required
+ * reading `selectProvider` top-to-bottom in exact source order to infer it):
+ *
+ *   1. Explicit-hint-static — `opts.provider` naming a STATICALLY-configured
+ *      provider (`p.configured`, independent of the runtime probe). See the
+ *      first `if (opts.provider)` block below.
+ *   2. Command-routing — `opts.command` naming a subcommand a configured
+ *      (probe-passing) provider declares in `commands` (e.g. `analysis` +
+ *      `video_understand` → clip, not whisper). See the `if (opts.command)`
+ *      block below.
+ *   3. Backend-rank tiebreak — `BACKEND_RANK` order (native_swift → ffmpeg →
+ *      macos_native → cloud_http), registry declaration order breaking ties.
+ *      The fallback when neither of the above applies.
+ *
+ * A FOURTH override layer exists OUTSIDE this module entirely, at
+ * runtime, after this function has already returned: `bridge.ts`'s
+ * `selectAndGenerate` opportunistically tries edge-tts before falling back to
+ * this module's `say` pick for the `tts` capability (only when the caller
+ * didn't pin a provider). It is NOT reflected in this function's return value
+ * — the entry `selectProvider` picks and the entry that actually generates
+ * can differ, which is exactly what made "just pin the resolved provider"
+ * unsafe as a fix for the cost-log tool-attribution drift (Item 3,
+ * `output/next-goal-20260712_135012.md`; see `dispatch.ts`'s `generate` case,
+ * which calls `retagTool` after `selectAndGenerate` returns, for how that
+ * drift is corrected after the fact).
  */
 import { REGISTRY, getByCapability, type Capability, type ProviderBackend, type ProviderEntry } from "./registry.ts";
 import { probeConfigured } from "./providers.ts";

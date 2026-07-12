@@ -47,6 +47,7 @@ import {
   BudgetExceededError,
   ApprovalRequiredError,
 } from "./cost.ts";
+import { recordDecision, getDecisionLog } from "./decision-log.ts";
 import { selectProvider, NoConfiguredProviderError } from "./selector.ts";
 import { selectAndGenerate } from "./bridge.ts";
 import { probedMenuSummary } from "./providers.ts";
@@ -56,7 +57,7 @@ import { renderRemotion, type RemotionEditDecisions } from "./remotion.ts";
 import { composeMotion, type MotionDeps } from "./compose_motion.ts";
 import { preComposeGate, enforcePreCompose } from "./precompose-gate.ts";
 
-/** The canonical 18 orchestration commands (also the CLI's command surface). */
+/** The canonical 19 orchestration commands (also the CLI's command surface). */
 export const COMMANDS = [
   "preflight",
   "pipeline-list",
@@ -77,6 +78,7 @@ export const COMMANDS = [
   "cost-reserve",
   "cost-reconcile",
   "cost-snapshot",
+  "read-decision-log",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
 
@@ -249,6 +251,12 @@ export const COMMAND_REFERENCE = [
   "  • cost-reserve     — {projectId, entryId} → reserves budget (cap mode raises BudgetExceededError).",
   "  • cost-reconcile   — {projectId, entryId, actualUsd, success} → settles the reservation.",
   "  • cost-snapshot    — {projectId} → {total_spent_usd, total_reserved_usd, budget_remaining_usd}.",
+  "  • read-decision-log— {projectId} → {entries[]} append-only (category, subject)-keyed log of provider/model",
+  "                        substitutions made mid-session (e.g. tts's edge-tts-over-say opportunistic upgrade — see",
+  "                        selector.ts's module doc for the full override-precedence list). Only real substitutions",
+  "                        (resolved !== used) are recorded; a call where the pre-resolved and actually-used provider",
+  "                        match writes nothing. Complements cost-snapshot: cost tracking only ever sees the FINAL",
+  "                        attribution, not the fact a substitution happened or why.",
 ].join("\n");
 
 /**
@@ -493,6 +501,16 @@ export async function dispatch(command: Command, opts: Record<string, unknown>, 
             /* best-effort: don't mask the generation result */
           }
         }
+        // Decision log: record the substitution itself (independent of cost
+        // tracking, which only ever sees the FINAL attribution). No-op when
+        // resolved === used (the common case — see recordDecision's doc).
+        if (projectId) {
+          try {
+            recordDecision(projectId, "provider", capability, entry.provider, usedEntry.provider, `generate:${operation}`);
+          } catch {
+            /* best-effort: don't mask the generation result */
+          }
+        }
 
         return {
           ok: true,
@@ -609,6 +627,11 @@ export async function dispatch(command: Command, opts: Record<string, unknown>, 
       }
       case "cost-snapshot": {
         return { ok: true, text: jsonOut(costSnapshot(String(opts.projectId ?? ""))) };
+      }
+      case "read-decision-log": {
+        const missing = missingFields(opts, ["projectId"]);
+        if (missing.length > 0) return { ok: false, error: `read-decision-log requires non-empty ${missing.join(", ")}` };
+        return { ok: true, text: jsonOut(getDecisionLog(String(opts.projectId ?? ""))) };
       }
       default:
         return { ok: false, error: `unknown command: ${command}` };

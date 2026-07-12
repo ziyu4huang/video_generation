@@ -9,6 +9,7 @@ export * from "./pipeline.ts";
 export * from "./checkpoint.ts";
 export * from "./schema.ts";
 export * from "./cost.ts";
+export * from "./decision-log.ts";
 export * from "./registry.ts";
 export * from "./paths.ts";
 export * from "./selector.ts";

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import extension from "./pi-movie-director.ts";
-import { scopeViolationForToolCall, configureBudget } from "../src/index.ts";
+import { scopeViolationForToolCall, configureBudget, recordDecision } from "../src/index.ts";
 
 // Wiring test for the extension factory — registers one well-formed tool and
 // dispatch() shapes results correctly. Deep behavior is covered in src/*.test.ts.
@@ -179,6 +179,41 @@ describe("pi-movie-director extension", () => {
       else process.env.MLX_OUTPUT_DIR = prevMlxOut;
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  // Item 2/P4 (output/next-goal-20260712_142905.md): decision log — an
+  // append-only (category, subject) record of provider substitutions,
+  // independent of cost tracking (which only ever sees the final
+  // attribution). read-decision-log is the movie tool's read path for it.
+  test("read-decision-log surfaces entries recorded via recordDecision", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-dispatch-decision-log-"));
+    const prevMlxOut = process.env.MLX_OUTPUT_DIR;
+    process.env.MLX_OUTPUT_DIR = dir;
+    try {
+      recordDecision("p-decision", "provider", "tts", "say", "edge-tts", "generate:tts:speak");
+      const tool = captureTool("movie");
+      const res = await tool.execute(
+        "id",
+        { command: "read-decision-log", options: { projectId: "p-decision" } },
+        undefined, undefined, undefined,
+      );
+      expect(res.details.ok).toBe(true);
+      const parsed = JSON.parse(res.content[0].text);
+      expect(parsed.entries.length).toBe(1);
+      expect(parsed.entries[0].resolved).toBe("say");
+      expect(parsed.entries[0].used).toBe("edge-tts");
+    } finally {
+      if (prevMlxOut === undefined) delete process.env.MLX_OUTPUT_DIR;
+      else process.env.MLX_OUTPUT_DIR = prevMlxOut;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("read-decision-log requires {projectId}", async () => {
+    const tool = captureTool("movie");
+    const res = await tool.execute("id", { command: "read-decision-log", options: {} }, undefined, undefined, undefined);
+    expect(res.details.ok).toBe(false);
+    expect(res.details.error).toContain("projectId");
   });
 
   test("compose (ffmpeg foundation tier) also refuses to render when pre-compose would fail (tool-design audit, 2026-07-12 — this tier previously had NO gate at all)", async () => {
