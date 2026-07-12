@@ -92,11 +92,6 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
     name: SKILL_MANAGE_TOOL_NAME,
     label: "Skill Manager",
     description: SKILL_TOOL_DESCRIPTION,
-    promptSnippet: "Create, inspect, and update reusable procedures and patterns",
-    promptGuidelines: [
-      "Use after complex tasks. Actions: create, view (list/inspect), patch (section by skill_id), update (full rewrite), delete.",
-      "scope required: 'global' (portable) or 'project' (repo-specific). Prefer structured fields (when_to_use, procedure_steps, pitfalls, verification_steps). Never for temporary state.",
-    ],
     parameters: SKILL_TOOL_PARAMETERS,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       const skillParams = params as {
@@ -286,8 +281,6 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
       "On-demand reference for the `skill_manage` tool. Call to get the full " +
       "per-action semantics (what each action does, required fields, constraints). " +
       "Executes no skill operation.",
-    promptSnippet:
-      "Look up skill_manage action details on demand.",
     parameters: Type.Object({}),
     async execute(_id, _params) {
       return {

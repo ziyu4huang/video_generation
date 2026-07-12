@@ -48,8 +48,9 @@ describe("registerMemoryTool", () => {
     assert.strictEqual(tool.name, "memory", "tool name should be 'memory'");
     assert.strictEqual(tool.label, "Memory", "tool label should be 'Memory'");
     assert.ok(tool.description.length > 0, "description should not be empty");
-    assert.ok(tool.promptSnippet.length > 0, "promptSnippet should not be empty");
-    assert.ok(Array.isArray(tool.promptGuidelines), "promptGuidelines should be an array");
+    // promptSnippet/promptGuidelines removed (stealth — description routes; system-prompt saving)
+    assert.equal(tool.promptSnippet, undefined);
+    assert.equal(tool.promptGuidelines, undefined);
     assert.ok(tool.parameters, "parameters schema should be defined");
   });
 

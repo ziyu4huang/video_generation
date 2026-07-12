@@ -303,11 +303,6 @@ export function registerMemoryTool(
     name: "memory",
     label: "Memory",
     description: MEMORY_TOOL_DESCRIPTION,
-    promptSnippet:
-      "Save or manage persistent memory that survives across sessions",
-    promptGuidelines: [
-      "Save durable facts (preferences, corrections, conventions, environment). Never use for task state/TODOs/progress. Use target='failure' with category for what didn't work.",
-    ],
     parameters: Type.Object({
       action: StringEnum(["add", "replace", "remove", "transfer", "audit"] as const),
       target: StringEnum(["memory", "user", "project", "failure"] as const),

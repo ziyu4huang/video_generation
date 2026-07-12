@@ -164,6 +164,7 @@
         "@earendil-works/pi-coding-agent": "*",
         "@earendil-works/pi-tui": "*",
         "@repo/pi-agent-ext-obsidian": "*",
+        "@repo/pi-agent-ext-workflow": "*",
         "typebox": "*",
       },
     },

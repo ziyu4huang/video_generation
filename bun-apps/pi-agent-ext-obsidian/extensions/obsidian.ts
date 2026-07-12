@@ -37,6 +37,40 @@ import { fileURLToPath } from "node:url";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { Value } from "typebox/value";
+
+/** Runtime-validated args for the obsidian fat tool. After the param schema
+ *  collapses to {action, args}, schema-layer validation disappears; this
+ *  recovers it server-side against the per-action captured schema — zero
+ *  token cost (the per-action schemas never appear in the schema the LLM sees).
+ *  `resolveSchema` is injected because `_capture` lives in the factory closure. */
+export function validateActionArgs(
+	action: string,
+	args: unknown,
+	resolveSchema: (action: string) => unknown | null,
+): { ok: true } | { ok: false; errorText: string } {
+	const schema = resolveSchema(action);
+	if (schema == null) {
+		return {
+			ok: false,
+			errorText:
+				"Unknown obsidian action: " + action +
+				". Valid: list, read, create, append, append_section, search, semantic_search, query, move, rename, update_frontmatter, delete, invalidate, open, distill, garden, status",
+		};
+	}
+	if (Value.Check(schema as ReturnType<typeof Type.Object>, args)) return { ok: true };
+	return { ok: false, errorText: buildDispatchError(action, schema) };
+}
+
+/** Human-readable error listing the valid args for an action + a pointer to help. */
+export function buildDispatchError(action: string, schema: unknown): string {
+	const props = (schema as { properties?: Record<string, unknown> })?.properties ?? {};
+	const argList = Object.keys(props).join(", ") || "(no args)";
+	return (
+		"obsidian \"" + action + "\" got invalid args. Valid args: " + argList +
+		".\nCall the obsidian_help tool for per-action semantics."
+	);
+}
 
 // Barrel re-export — all library symbols available from this path
 export * from "../src/obsidian-lib.ts";
@@ -1922,84 +1956,30 @@ ${output.slice(-2000)}`,
 		label: "Obsidian",
 		// Expose captured individual tools for backward compat (tests, CLI introspection)
 		_capturedTools: _capture._tools,
-		promptSnippet: "Vault I/O + search + knowledge workflows (17 actions: list/read/create/append/search/move/delete/distill/garden/status/...)",
+		// promptSnippet REMOVED (stealth): routing description + obsidian_help carry usage.
 		description: obsidianRoutingDescription(),
 		parameters: Type.Object({
-			action: Type.Union([
-				Type.Literal("list"),
-				Type.Literal("read"),
-				Type.Literal("create"),
-				Type.Literal("append"),
-				Type.Literal("append_section"),
-				Type.Literal("search"),
-				Type.Literal("semantic_search"),
-				Type.Literal("query"),
-				Type.Literal("move"),
-				Type.Literal("rename"),
-				Type.Literal("update_frontmatter"),
-				Type.Literal("delete"),
-				Type.Literal("invalidate"),
-				Type.Literal("open"),
-				Type.Literal("distill"),
-				Type.Literal("garden"),
-				Type.Literal("status"),
-			], { description: "The vault operation to perform." }),
-			note: Type.Optional(Type.String({ description: "Note path relative to vault root." })),
-			content: Type.Optional(Type.String({ description: "Text content for create/append." })),
-			folder: Type.Optional(Type.String({ description: "Folder path (list/query)." })),
-			offset: Type.Optional(Type.Number({ description: "Line offset (read)." })),
-			limit: Type.Optional(Type.Number({ description: "Max lines (read)." })),
-			overwrite: Type.Optional(Type.Boolean({ description: "Overwrite existing (create/move)." })),
-			expectedMtime: Type.Optional(Type.Number({ description: "Optimistic concurrency mtime (create/append/frontmatter)." })),
-			heading: Type.Optional(Type.String({ description: "Heading to insert under (append_section)." })),
-			query: Type.Optional(Type.String({ description: "Search query string (search/semantic_search)." })),
-			matchMode: Type.Optional(Type.String({ description: "search match mode: substring|regex|words|fuzzy." })),
-			caseSensitive: Type.Optional(Type.Boolean({ description: "Case-sensitive search." })),
-			fields: Type.Optional(Type.Array(Type.String())),
-			context: Type.Optional(Type.Number({ description: "Context lines per match (search)." })),
-			sort: Type.Optional(Type.String({ description: "Sort: file|relevance|recency (search)." })),
-			groupByFile: Type.Optional(Type.Boolean({ description: "Collapse matches per file (search)." })),
-			perFile: Type.Optional(Type.Number({ description: "Matches per file when grouped (search)." })),
-			max: Type.Optional(Type.Number({ description: "Max matches (search) or notes (query)." })),
-			paths: Type.Optional(Type.Array(Type.String())),
-			graph: Type.Optional(Type.String({ description: "Graph mode: backlinks|outgoing|orphans|dead-links|neighbors (search)." })),
-			depth: Type.Optional(Type.Number({ description: "Graph traversal depth (search/semantic_search neighbors)." })),
-			backlinks: Type.Optional(Type.Boolean({ description: "Legacy alias for graph:backlinks (search)." })),
-			vault_name: Type.Optional(Type.String({ description: "Semantic search vault collection name." })),
-			similarity_threshold: Type.Optional(Type.Number({ description: "Min cosine similarity (semantic_search)." })),
-			include_tags: Type.Optional(Type.Array(Type.String())),
-			exclude_tags: Type.Optional(Type.Array(Type.String())),
-			from: Type.Optional(Type.String({ description: "Source note path (move)." })),
-			to: Type.Optional(Type.String({ description: "Destination note path (move)." })),
-			newName: Type.Optional(Type.String({ description: "New basename without folder (rename)." })),
-			tags: Type.Optional(Type.Array(Type.String())),
-			anyTags: Type.Optional(Type.Array(Type.String())),
-			createdAfter: Type.Optional(Type.String({ description: "YYYY-MM-DD filter (query)." })),
-			createdBefore: Type.Optional(Type.String({ description: "YYYY-MM-DD filter (query)." })),
-			patch: Type.Optional(Type.Record(Type.String(), Type.Any())),
-			confirm: Type.Optional(Type.Boolean({ description: "Must be true (delete)." })),
-			cleanupLinks: Type.Optional(Type.Boolean({ description: "Strip inbound links (delete). Default true." })),
-			path: Type.Optional(Type.String({ description: "Vault-relative path to reconcile (invalidate)." })),
-			files: Type.Optional(Type.Array(Type.String())),
-			maxNotes: Type.Optional(Type.Number({ description: "Cap notes produced (distill)." })),
-			model: Type.Optional(Type.String({ description: "Override subagent model (distill)." })),
-			exclude_tools: Type.Optional(Type.Array(Type.String())),
-			engine: Type.Optional(Type.String({ description: "garden engine: deterministic|llm." })),
-			mode: Type.Optional(Type.String({ description: "garden mode: audit|fix." })),
-			scope: Type.Optional(Type.String({ description: "garden scope: vault folder." })),
-			fix: Type.Optional(Type.Boolean({ description: "garden alias for mode:fix." })),
+			action: Type.String({
+				description: "list,read,create,append,append_section,search,semantic_search,query,move,rename,update_frontmatter,delete,invalidate,open,distill,garden,status",
+			}),
+			args: Type.Optional(Type.Record(Type.String(), Type.Any())),
 		}),
 		async execute(_id, params, signal, _u, ctx) {
-			const tool = _capture._tools["obsidian_" + params.action];
-			if (!tool) {
+			const validation = validateActionArgs(
+				params.action,
+				params.args ?? {},
+				(a) => _capture._tools["obsidian_" + a]?.parameters ?? null,
+			);
+			if (!validation.ok) {
 				return {
-					content: [{ type: "text" as const, text: `Unknown obsidian action: ${params.action}. Valid actions: list, read, create, append, append_section, search, semantic_search, query, move, rename, update_frontmatter, delete, invalidate, open, distill, garden, status` }],
+					content: [{ type: "text" as const, text: validation.errorText }],
 					isError: true,
 					details: { code: "BAD_REQUEST" as const },
 				};
 			}
-			const { action: _action, ...rest } = params;
-			return tool.execute(_id, rest, signal, _u, ctx);
+			return _capture._tools["obsidian_" + params.action].execute(
+				_id, params.args ?? {}, signal, _u, ctx,
+			);
 		},
 	});
 

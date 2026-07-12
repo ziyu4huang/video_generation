@@ -24,6 +24,7 @@ import { REGISTRY as REGISTRY_ALL, type Capability, type ProviderEntry } from ".
 import { EXT_ROOT } from "./paths.ts";
 import { renderRemotion, type RemotionEditDecisions } from "./remotion.ts";
 import { composeMotion, type SpawnImpl } from "./compose_motion.ts";
+import { enforcePreCompose } from "./precompose-gate.ts";
 import type { RenderReport, CaptionsOptions } from "./compose.ts";
 import type { Adapter, Artifact, GenerateRequest, ToolResult } from "./bridge.ts";
 import { tariffFor } from "./bridge.ts";
@@ -1229,6 +1230,16 @@ export const composeRemotionAdapter: Adapter = async (req: GenerateRequest): Pro
   if (!edit || !Array.isArray(edit.cuts)) {
     return fail(req, "remotion", "compose:remotion requires options.editDecisions.{version,cuts:[...]}");
   }
+  // GATE (code review, 2026-07-12): this adapter reaches the identical
+  // renderRemotion() call the gated `compose-remotion` dispatch command does,
+  // but selectAndGenerate({capability:"composition"}) routed through here
+  // without ever calling enforcePreCompose — a second, ungated entry point to
+  // the same render call, reopening Bug 2 (saturn-young-rings pre-compose
+  // gate). req.options doubles as the gate's opts bag (narrativeDurationSeconds/
+  // overridePreCompose etc. all read from the same options object dispatch.ts
+  // passes to enforcePreCompose).
+  const preComposeCheck = await enforcePreCompose(edit, (req.options ?? {}) as Record<string, unknown>);
+  if (preComposeCheck) return fail(req, "remotion", preComposeCheck.error);
   const outputDir = req.outputDir ?? process.cwd();
   const workDir = opts.workDir ?? outputDir;
   const started = Date.now();
@@ -1287,6 +1298,11 @@ export const composeMotionAdapter: Adapter = async (req: GenerateRequest): Promi
   if (!edit || !Array.isArray(edit.cuts)) {
     return fail(req, "motion", "compose:motion requires options.editDecisions.{version,cuts:[...]}");
   }
+  // GATE (code review, 2026-07-12): same rationale as composeRemotionAdapter
+  // above — this is the ungated second entry point to composeMotion() that
+  // the `compose-motion` dispatch command already gates.
+  const preComposeCheck = await enforcePreCompose(edit, (req.options ?? {}) as Record<string, unknown>);
+  if (preComposeCheck) return fail(req, "motion", preComposeCheck.error);
   const outputDir = req.outputDir ?? process.cwd();
   const workDir = opts.workDir ?? outputDir;
   const started = Date.now();

@@ -33,15 +33,23 @@ describe("pi-ltx extension", () => {
     expect(tools.map((t: any) => t.name).sort()).toEqual(["ltx", "ltx_help"]);
   });
 
-  test("ltx has a non-empty, slim description that still documents every subcommand", () => {
+  test("ltx description routes to ltx_help; ltx_help (no args) documents every subcommand", async () => {
     const tool = getTool("ltx");
     expect(typeof tool.description).toBe("string");
-    expect(tool.description.length).toBeGreaterThan(100);
-    for (const cmd of ALL_COMMANDS) {
-      expect(tool.description).toContain(cmd);
-    }
-    // The slim description must point the model at ltx_help.
+    expect(tool.description.length).toBeGreaterThan(60);
+    expect(tool.description.length).toBeLessThan(300);
+    // The slim description must point the model at ltx_help and must NOT embed
+    // the subcommand list inline (that bloat was the reason for the trim).
     expect(tool.description).toContain("ltx_help");
+    expect(tool.description).not.toContain(ALL_COMMANDS[0]);
+
+    // The subcommand list now lives in ltx_help's no-arg output (commandIndex).
+    const help = getTool("ltx_help");
+    const res = await help.execute("id", {});
+    const text = (res.content as Array<{ type: string; text?: string }>)[0].text ?? "";
+    for (const cmd of ALL_COMMANDS) {
+      expect(text).toContain(cmd);
+    }
   });
 
   test("ltx description no longer embeds the heavy per-command field reference", () => {

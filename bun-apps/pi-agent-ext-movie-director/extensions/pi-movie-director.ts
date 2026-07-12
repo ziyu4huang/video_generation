@@ -62,10 +62,7 @@ function makeMovieHelpTool() {
     name: "movie_help",
     label: "Movie Director Command Reference",
     description:
-      "On-demand reference for the `movie` tool. Call BEFORE first use of a command (or anytime you are unsure of " +
-      "an option key) to get the command list, exact option keys, and worked examples. Omit `command` to list all " +
-      "commands; pass command:<name> for one command's full reference.",
-    promptSnippet: "Look up movie-director command options/examples on demand (call before using a command).",
+      "On-demand reference for the `movie` tool. Pass {command} for option keys + example; omit to list all commands.",
     parameters: Type.Object({
       command: Type.Optional(COMMAND_ENUM),
     }),

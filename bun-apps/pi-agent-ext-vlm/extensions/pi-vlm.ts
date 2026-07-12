@@ -101,7 +101,6 @@ export default function (pi: ExtensionAPI): void {
       "Convert a PDF or image file to structured Obsidian markdown using a local LM Studio VLM. " +
       "Runs the full pipeline: classify kind → rasterize PDF pages → classify profile → " +
       "per-page VLM extraction → write manifest + MOC index note.",
-    promptSnippet: "Convert a PDF/image to structured Obsidian markdown via local VLM",
     parameters: Type.Object({
       input: Type.String({ description: "Absolute or relative path to a PDF or image file" }),
       out: Type.Optional(
@@ -211,7 +210,6 @@ export default function (pi: ExtensionAPI): void {
       "Ask one question about one image via a local LM Studio VLM and get the answer inline (text). " +
       "Lightweight single-image query — does NOT run the full vlm_describe pipeline and does NOT write to disk. " +
       "Use for ad-hoc image questions (verifying content, reading text in an image, picking between candidates).",
-    promptSnippet: "Ask a local VLM one question about an image",
     parameters: Type.Object({
       image: Type.String({ description: "Absolute or relative path to an image file" }),
       question: Type.String({

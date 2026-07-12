@@ -46,7 +46,6 @@ export function makeInspectPathologyTool() {
       "the agent seems stuck, repeating itself, or running into repeated errors. " +
       "For static extension/tool health use inspect_extensions; for token " +
       "breakdown use inspect_context.",
-    promptSnippet: "Diagnose agent failure patterns (loops, error storms, saturation)",
     parameters: Type.Object({
       return_json: Type.Optional(
         Type.Boolean({
