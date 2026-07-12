@@ -2,7 +2,7 @@
  * todo tool + /todos command — thin registration shell.
  *
  * Stripped of external dependencies (rpiv-config, rpiv-i18n):
- * - loadConfig() replaced with DEFAULT_PROMPT_SNIPPET and DEFAULT_PROMPT_GUIDELINES
+ * - promptSnippet/guidelines removed (stealth — description routes; system-prompt saving)
  * - i18n-bridge replaced with English-only inline calls
  */
 
@@ -27,11 +27,6 @@ import { formatCommandTaskLine, formatStatusLabel, renderTodoCall, renderTodoRes
 // Inlined config defaults — stripped from @juicesharp/rpiv-config
 // ---------------------------------------------------------------------------
 
-export const DEFAULT_PROMPT_SNIPPET = "Manage a task list to track multi-step progress";
-export const DEFAULT_PROMPT_GUIDELINES: string[] = [
-	"Use `todo` to plan multi-step work (3+ calls). Mark one in_progress at a time; complete immediately when done. Never batch completions.",
-	"Status machine: pending→in_progress→completed (+ deleted tombstone). blockedBy supports additive merge; cycles rejected.",
-];
 
 // ---------------------------------------------------------------------------
 // Backward-compat replay shim
@@ -51,8 +46,6 @@ export function registerTodoTool(pi: ExtensionAPI): void {
 		label: TOOL_LABEL,
 		description:
 			"Manage a task list for tracking multi-step progress. Actions: create (new task), update (change status/fields/dependencies), list (all tasks, optionally filtered by status), get (single task details), delete (tombstone), clear (reset all). Status: pending → in_progress → completed, plus deleted tombstone. Use this to plan and track multi-step work like research, design, and implementation.",
-		promptSnippet: DEFAULT_PROMPT_SNIPPET,
-		promptGuidelines: DEFAULT_PROMPT_GUIDELINES,
 		parameters: TodoParamsSchema,
 
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
