@@ -11,6 +11,13 @@
       "testGate": "cd bun-apps/pi-agent-ext-btw && bun test",
       "version": "0.1.0"
     },
+    {
+      "name": "pi-agent-ext-ask-user",
+      "entry": "pi-agent-ext-ask-user/extensions/pi-ask-user.ts",
+      "bundleMode": "thin",
+      "testGate": "cd bun-apps/pi-agent-ext-ask-user && bun test",
+      "version": "0.1.0"
+    },
     "pi-agent-ext-flux2/extensions/pi-flux2.ts",
     "pi-agent-ext-krea2/extensions/pi-krea2.ts",
     "pi-agent-ext-ltx/extensions/pi-ltx.ts",
