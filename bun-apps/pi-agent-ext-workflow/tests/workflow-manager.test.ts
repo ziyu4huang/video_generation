@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { AgentUsage } from "../src/agent.js";
 import { WorkflowError, WorkflowErrorCode } from "../src/errors.js";
 import { WorkflowManager } from "../src/workflow-manager.js";
+import { HostFnRegistry } from "../src/host-fn-registry.js";
 import { withFakeHomeAsync } from "./helpers/fake-home.js";
 
 /** Agent runner that reports fixed usage so token accounting is exercised. */
@@ -1960,5 +1961,24 @@ return results`;
     assert.ok(Array.isArray(result.result), "result should be an array");
     assert.equal(result.result.length, 0, "empty parallel should return empty array");
     assert.equal(result.agentCount, 0, "no agents should run with empty parallel");
+  }),
+);
+
+test(
+  "setHostFns threads the registry into runWorkflow so scripts can call() host fns",
+  withTempCwd(async (cwd) => {
+    const manager = new WorkflowManager({ cwd, agent: fakeAgent() });
+    const registry = new HostFnRegistry();
+    registry.set("t.echo", { fn: async (a: any) => ({ got: a.x }) });
+    manager.setHostFns(registry);
+    const result = await manager.runSync(
+      `export const meta = { name: 'c', description: 'call' }
+const r = await call('t.echo', { x: 9 })
+return r`,
+      undefined,
+      {},
+    );
+    assert.deepEqual((result.result as { got: number }).got, 9);
+    assert.equal(result.tokenUsage.total, 0, "call() spends zero tokens via the manager path too");
   }),
 );

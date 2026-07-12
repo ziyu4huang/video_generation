@@ -13,6 +13,15 @@ export interface HostFnEntry {
   timeoutMs?: number;
 }
 
+/** Payload shape extensions emit over the `workflow:hostfn:v1:register` event bus. */
+export interface HostFnRegistrationPayload {
+  ns: string;
+  name: string;
+  fn: (args: unknown, ctx: HostFnCtx) => Promise<unknown> | unknown;
+  schema?: TSchema;
+  timeoutMs?: number;
+}
+
 /** 'ns.name' — one dot, lowercase alnum + hyphens on each side. */
 const NAME_RE = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/i;
 
@@ -43,5 +52,22 @@ export class HostFnRegistry {
 
   list(): string[] {
     return [...this.fns.keys()].sort();
+  }
+}
+
+/**
+ * Apply one `workflow:hostfn:v1:register` event payload to a registry. Pure +
+ * defensive: malformed payloads are ignored (no throw), so a misbehaving peer
+ * extension cannot break the workflow runtime. Re-registering the same name
+ * overwrites (idempotent → safe under load-order re-solicitation).
+ */
+export function applyHostFnRegistration(registry: HostFnRegistry, payload: unknown): void {
+  if (!payload || typeof payload !== "object") return;
+  const p = payload as Partial<HostFnRegistrationPayload>;
+  if (typeof p.ns !== "string" || typeof p.name !== "string" || typeof p.fn !== "function") return;
+  try {
+    registry.set(`${p.ns}.${p.name}`, { fn: p.fn, schema: p.schema, timeoutMs: p.timeoutMs });
+  } catch (e) {
+    console.warn(`[workflow] host-fn register rejected: ${(e as Error).message}`);
   }
 }

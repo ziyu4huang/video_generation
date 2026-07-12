@@ -1,6 +1,6 @@
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
-import { HostFnRegistry } from "../src/host-fn-registry.js";
+import { HostFnRegistry, applyHostFnRegistration } from "../src/host-fn-registry.js";
 
 describe("HostFnRegistry", () => {
   it("set/get/has/list", () => {
@@ -33,5 +33,30 @@ describe("HostFnRegistry", () => {
     for (const bad of ["nokdot", "zk.", ".retrieve", "zk.retrieve.extra", "zk.retrieve!", ""]) {
       assert.throws(() => r.set(bad, { fn: async () => 1 }), /'ns\.name'/i, `rejects '${bad}'`);
     }
+  });
+});
+
+describe("applyHostFnRegistration (event-bus payload → registry)", () => {
+  it("translates a valid payload into a registered 'ns.name' entry", () => {
+    const r = new HostFnRegistry();
+    const fn = async () => 1;
+    applyHostFnRegistration(r, { ns: "zk", name: "retrieve", fn, timeoutMs: 30_000 });
+    assert.equal(r.has("zk.retrieve"), true);
+    assert.equal(r.get("zk.retrieve")?.timeoutMs, 30_000);
+  });
+
+  it("ignores malformed payloads without throwing", () => {
+    const r = new HostFnRegistry();
+    for (const bad of [null, undefined, {}, { ns: "zk" }, { ns: "zk", name: "x" }, { ns: 1, name: 2, fn: 3 }, "nope"]) {
+      assert.doesNotThrow(() => applyHostFnRegistration(r, bad));
+    }
+    assert.equal(r.list().length, 0);
+  });
+
+  it("re-registering overwrites (idempotent; load-order safe)", () => {
+    const r = new HostFnRegistry();
+    applyHostFnRegistration(r, { ns: "zk", name: "retrieve", fn: async () => 1 });
+    applyHostFnRegistration(r, { ns: "zk", name: "retrieve", fn: async () => 2 });
+    assert.equal(r.list().length, 1);
   });
 });
