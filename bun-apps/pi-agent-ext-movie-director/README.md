@@ -130,6 +130,39 @@ The `movie` tool's commands: `preflight`, `pipeline-list`, `pipeline-show`,
 `pre-compose`, `final-review`, `cost-estimate`, `cost-reserve`, `cost-reconcile`,
 `cost-snapshot`. See the tool description for the per-command options.
 
+## Workflow integration (`pi-agent-ext-workflow`)
+
+When loaded alongside `pi-agent-ext-workflow`, this extension also exposes the
+20 `dispatch()` commands as **`movie.*` host-fns** callable from any workflow
+script via `call('movie.<command>', args)` (deterministic, zero-token,
+journaled), and registers **four saved workflow commands** that run the
+pipeline as parallel, background-able, **journaled-resumable** workflows:
+
+| Command | What it does |
+|---------|--------------|
+| `/produce-video` | Full pipeline (idea→publish) as one resumable workflow; composes the other three |
+| `/scene-assets` | Parallel per-scene T2I→I2V (chained)→TTS generation |
+| `/research-first` | Web research (parallel angles) → cross-check → proposal_packet |
+| `/review-cut` | Adversarial review of a composed cut; gates publish |
+
+```bash
+# prerequisite: keep workflow dist in sync with src after workflow src changes
+( cd bun-apps/pi-agent-ext-workflow && bun run build )
+
+# load both extensions; the /commands + movie.* host-fns become available
+bun bun-apps/pi-agent/src/cli.ts \
+  -e bun-apps/pi-agent-ext-movie-director \
+  -e bun-apps/pi-agent-ext-workflow \
+  -p "/produce-video concept='a 15s animated explainer about how tides work'"
+```
+
+Deterministic steps use `call('movie.*')`; creative steps use `agent()` with
+real model routing; review uses `verify()`. Two-layer cost: workflow `budget`
+tracks agent tokens; movie-director's cost lifecycle tracks media `$`. Resume
+survives crashes (both `agent()` and `call()` are journaled). See
+`receipts/workflow-redesign-20260712.md` for the full design + keystone
+findings.
+
 ### Compose — ffmpeg foundation vs Remotion templated tier
 
 - `compose` — ffmpeg straight-cut: trims each cut to its `[in,out]` window and
