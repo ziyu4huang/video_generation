@@ -770,3 +770,119 @@ describe("status bar refresh during execution", () => {
     ]);
   });
 });
+
+// ─── Phase 1: progress-aware auto-continue count ──────────────────────────
+// The count (autoContinueCountBySessionPlan) previously reset ONLY on closed
+// or all-complete. A steadily-advancing agent still hit the 3-continue wall
+// mid-task. Now completing a phase between fires resets the count — a stuck
+// agent (no phase advance) still caps at 3.
+describe("agent_end progress-aware auto-continue", () => {
+  const plan3_1of3 = [
+    "# Test plan",
+    "",
+    "### Phase 1",
+    "**Status:** complete",
+    "",
+    "### Phase 2",
+    "**Status:** in_progress",
+    "",
+    "### Phase 3",
+    "**Status:** pending",
+    "",
+  ].join("\n");
+  const plan3_2of3 = [
+    "# Test plan",
+    "",
+    "### Phase 1",
+    "**Status:** complete",
+    "",
+    "### Phase 2",
+    "**Status:** complete",
+    "",
+    "### Phase 3",
+    "**Status:** in_progress",
+    "",
+  ].join("\n");
+
+  it("RESETS the count when completePhases advances between fires (productive agent gets a fresh budget per phase)", async () => {
+    const cwd = makeWorkspace(plan3_1of3); // 1/3 incomplete
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+    await approvePlan(pi, ctx);
+
+    await emit(pi, "agent_end", {}, ctx); // #1: count 0→1 (1/3)
+    writeFileSync(join(cwd, ".planning", "demo", "task_plan.md"), plan3_2of3); // advance 1→2
+    await emit(pi, "agent_end", {}, ctx); // #2: progress → RESET → count 0→1 (2/3)
+    await emit(pi, "agent_end", {}, ctx); // #3: no progress → count 1→2
+    await emit(pi, "agent_end", {}, ctx); // #4: no progress → count 2→3
+    await emit(pi, "agent_end", {}, ctx); // #5: count 3 → CAP (no send)
+
+    // WITH reset: #1,#2,#3,#4 send = 4. WITHOUT reset: #1,#2,#3 send = 3.
+    expect(pi.sendUserMessage).toHaveBeenCalledTimes(4);
+    // The 2nd followUp reflects the advanced phase count (proves it re-read disk).
+    expect(pi.sendUserMessage.mock.calls[1][0]).toContain("2/3 phases done");
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("Auto-continue limit reached"), "warning");
+  });
+
+  it("does NOT reset when completePhases is unchanged (stuck agent still caps at 3)", async () => {
+    const cwd = makeWorkspace(plan3_1of3); // 1/3, never advanced
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+    await approvePlan(pi, ctx);
+    for (let i = 0; i < 4; i++) await emit(pi, "agent_end", {}, ctx);
+
+    expect(pi.sendUserMessage).toHaveBeenCalledTimes(3); // capped, no reset
+  });
+});
+
+// ─── agent_end status-bar response (execution feedback) ───────────────────
+// agent_end mutated state but left the status bar stale in three branches:
+// all-complete, the auto-continue cap, and the happy-path fire. The bar must
+// reflect the live phase count at each of these so the user sees execution
+// progress in real time (not frozen at whatever before_agent_start set).
+describe("agent_end status-bar response", () => {
+  const plan3_2of3 = [
+    "# Test plan",
+    "",
+    "### Phase 1",
+    "**Status:** complete",
+    "",
+    "### Phase 2",
+    "**Status:** complete",
+    "",
+    "### Phase 3",
+    "**Status:** in_progress",
+    "",
+  ].join("\n");
+
+  it("all-complete refreshes the status bar with the final phase count", async () => {
+    const cwd = makeWorkspace(completePlan()); // 2/2
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+    await emit(pi, "session_start", { reason: "new" }, ctx);
+    await approvePlan(pi, ctx);
+    (ctx.ui.setStatus as ReturnType<typeof mock>).mockClear();
+
+    await emit(pi, "agent_end", {}, ctx);
+
+    // Bar must reflect completion (2/2), not stay frozen at a pre-turn value.
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("planning-with-files", expect.stringContaining("2/2"));
+  });
+
+  it("an auto-continue fire refreshes the status bar with the live phase count (responds to execution)", async () => {
+    const cwd = makeWorkspace(); // 1/2
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+    await emit(pi, "session_start", { reason: "new" }, ctx);
+    await approvePlan(pi, ctx);
+    // Advance to 2/3 (still incomplete) so agent_end takes the auto-continue path.
+    writeFileSync(join(cwd, ".planning", "demo", "task_plan.md"), plan3_2of3);
+    (ctx.ui.setStatus as ReturnType<typeof mock>).mockClear();
+
+    await emit(pi, "agent_end", {}, ctx);
+
+    // Bar must reflect the freshly-read 2/3 — proof it responds to the execution.
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("planning-with-files", expect.stringContaining("2/3"));
+    expect(pi.sendUserMessage).toHaveBeenCalledTimes(1); // still auto-continued
+  });
+});

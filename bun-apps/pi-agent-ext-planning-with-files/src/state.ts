@@ -11,6 +11,11 @@ import { isSessionAttached, type PlanStatus } from "./plan.js";
 
 export interface RuntimeState {
   autoContinueCountBySessionPlan: Map<string, number>;
+  /** Last-seen `completePhases` per (session, plan). Used by agent_end to detect
+   *  real progress: when the complete count strictly increases between fires,
+   *  the auto-continue count is reset — a steadily-advancing agent gets a fresh
+   *  budget per phase instead of hitting the 3-continue wall mid-task. */
+  lastCompletePhasesBySessionPlan: Map<string, number>;
   loopTimersBySession: Map<string, ReturnType<typeof setInterval>>;
   goalBySession: Map<string, string>;
   preToolQueuedByLeaf: Set<string>;
@@ -20,6 +25,7 @@ export interface RuntimeState {
 export function createRuntimeState(): RuntimeState {
   return {
     autoContinueCountBySessionPlan: new Map(),
+    lastCompletePhasesBySessionPlan: new Map(),
     loopTimersBySession: new Map(),
     goalBySession: new Map(),
     preToolQueuedByLeaf: new Set(),
@@ -43,6 +49,11 @@ export function clearSessionPrefixMap(state: RuntimeState, sessionId: string): v
   for (const key of state.autoContinueCountBySessionPlan.keys()) {
     if (key.startsWith(`${sessionId}:`)) {
       state.autoContinueCountBySessionPlan.delete(key);
+    }
+  }
+  for (const key of state.lastCompletePhasesBySessionPlan.keys()) {
+    if (key.startsWith(`${sessionId}:`)) {
+      state.lastCompletePhasesBySessionPlan.delete(key);
     }
   }
   for (const key of Array.from(state.preToolQueuedByLeaf)) {
