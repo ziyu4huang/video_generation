@@ -227,6 +227,31 @@ export function getLog(projectId: string, env?: Record<string, string | undefine
   return load(projectId, env);
 }
 
+/**
+ * Correct a cost entry's `tool` after the fact. GENERATE's cost estimate is
+ * necessarily recorded against a pre-resolved provider (needed before the
+ * generation call, so a cap-mode budget breach can block spending) — but
+ * `selectAndGenerate`'s opportunistic upgrades (e.g. tts trying edge-tts
+ * before falling back to the statically-selected `say`) can invoke a
+ * DIFFERENT provider than the one estimated against (Item 3,
+ * output/next-goal-20260712_135012.md). Call this once the actually-used
+ * provider is known so the persisted log attributes cost to the right tool.
+ * No-op if the entry doesn't exist (best-effort, matches the rest of the
+ * cost lifecycle's error posture).
+ */
+export function retagTool(
+  projectId: string,
+  entryId: string,
+  tool: string,
+  env?: Record<string, string | undefined>,
+): void {
+  const log = load(projectId, env);
+  const entry = log.entries.find((e) => e.id === entryId);
+  if (!entry) return;
+  entry.tool = tool;
+  save(projectId, log, env);
+}
+
 /** Override the budget config for a project (creates the cost log if needed). */
 export function configureBudget(
   projectId: string,
