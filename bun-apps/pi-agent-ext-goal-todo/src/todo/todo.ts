@@ -29,13 +29,8 @@ import { formatCommandTaskLine, formatStatusLabel, renderTodoCall, renderTodoRes
 
 export const DEFAULT_PROMPT_SNIPPET = "Manage a task list to track multi-step progress";
 export const DEFAULT_PROMPT_GUIDELINES: string[] = [
-	"Use `todo` for 3+ step work, a list of tasks, or right after new instructions to capture requirements; skip single trivial or conversational turns.",
-	"Mark a task in_progress before starting it; complete it immediately when done — never batch. Exactly one in_progress at a time.",
-	"Never complete a task while tests fail, work is partial, or errors are open — keep it in_progress and add a task for the blocker.",
-	"Status machine: pending → in_progress → completed, plus deleted (tombstone). Pass activeForm (present-continuous label) when going in_progress.",
-	"blockedBy = dependencies (A blocked by B): set on create; on update use addBlockedBy / removeBlockedBy (additive — don't resend the full array). Cycles rejected.",
-	"list hides deleted (tombstoned) tasks by default — includeDeleted:true to see them; status filters by one status.",
-	"Subject: short + imperative; description: long-form; activeForm: present-continuous label shown while in_progress.",
+	"Use `todo` to plan multi-step work (3+ calls). Mark one in_progress at a time; complete immediately when done. Never batch completions.",
+	"Status machine: pending→in_progress→completed (+ deleted tombstone). blockedBy supports additive merge; cycles rejected.",
 ];
 
 // ---------------------------------------------------------------------------

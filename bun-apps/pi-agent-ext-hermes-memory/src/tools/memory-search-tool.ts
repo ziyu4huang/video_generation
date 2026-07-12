@@ -27,8 +27,7 @@ Use cases:
 Returns matching memory entries with project context and dates.`,
     promptSnippet: 'Search extended memory store (unlimited capacity)',
     promptGuidelines: [
-      'Use memory_search for context beyond the system prompt — e.g., project-specific memories or user preferences.',
-      'Filter with category (failure, correction, insight, etc.) or target to find specific memory types.',
+      'Search durable memory for context beyond the system prompt. Filter by category (failure/correction/insight) or target (memory/user/failure) for precision.',
     ],
     parameters: Type.Object({
       query: Type.String({ description: 'Search query. Use natural language or specific terms.' }),
