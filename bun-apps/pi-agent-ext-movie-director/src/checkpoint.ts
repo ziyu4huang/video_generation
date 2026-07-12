@@ -17,8 +17,16 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync, renameSync, copyFil
 import { join } from "node:path";
 import { validate, hasSchema } from "./schema.ts";
 import { checkpointPath, projectDir, historyDir, projectsRoot } from "./paths.ts";
-import { getStage, getStageHumanApprovalDefault, loadPipeline, findStageProducingArtifact, getNextStage } from "./pipeline.ts";
+import {
+  getStage,
+  getStageHumanApprovalDefault,
+  getStageCheckpointRequired,
+  loadPipeline,
+  findStageProducingArtifact,
+  getNextStage,
+} from "./pipeline.ts";
 import { scriptPacingCheck, type ScriptLike } from "./script-pacing-gate.ts";
+import type { GateResult } from "./gate.ts";
 
 export type CheckpointStatus = "pending" | "in_progress" | "awaiting_human" | "completed" | "failed";
 
@@ -377,4 +385,47 @@ export function listProjects(env: Record<string, string | undefined> = process.e
 
   summaries.sort((a, b) => (b.latestTimestamp ?? "").localeCompare(a.latestTimestamp ?? ""));
   return summaries;
+}
+
+/**
+ * GATE (checkpoint-enforcement gap, placebo-effect-explainer Track A
+ * verification run, 2026-07-12): checkpoint_required:true in a pipeline
+ * manifest used to be declared policy with zero structural enforcement — an
+ * agent could work straight through research→...→assets without ever calling
+ * write-checkpoint, and a crash (kernel panics under sustained GPU load in
+ * the run that found this) lost the ENTIRE run with no resumable state.
+ * Mirrors enforcePreCompose's shape: refuse to report "next" for a
+ * checkpoint_required current stage unless a "completed" checkpoint exists
+ * for it, unless overrideStageGate:true is passed explicitly. Requires
+ * projectId (previously accepted but unused — movie_help already documented
+ * it as required). Returns null (proceed) or a `{ok:false}` tool result
+ * (blocked) for the caller to return directly.
+ */
+export function enforceStageCheckpointGate(
+  pipeline: string,
+  stage: string | undefined,
+  projectId: string | undefined,
+  opts: { overrideStageGate?: boolean; env?: Record<string, string | undefined> } = {},
+): GateResult {
+  if (!stage || opts.overrideStageGate || !getStageCheckpointRequired(pipeline, stage)) return null;
+  if (!projectId) {
+    return {
+      ok: false,
+      error:
+        `next-stage requires non-empty projectId when advancing past stage "${stage}" ` +
+        `(checkpoint_required:true in pipeline "${pipeline}") — pass overrideStageGate:true to skip this check.`,
+    };
+  }
+  const cp = readCheckpoint(projectId, stage, opts.env);
+  if (cp?.status !== "completed") {
+    return {
+      ok: false,
+      error:
+        `GATE VIOLATION: stage "${stage}" (${pipeline}) requires a completed checkpoint before advancing ` +
+        `(checkpoint_required:true) — found status: ${cp?.status ?? "missing — write-checkpoint was never called"}. ` +
+        `Call write-checkpoint with status="completed" for "${stage}" first, or pass overrideStageGate=true only ` +
+        `after an explicit human/agent decision to advance without one.`,
+    };
+  }
+  return null;
 }

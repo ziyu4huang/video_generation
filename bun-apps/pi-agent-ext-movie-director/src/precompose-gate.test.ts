@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { preComposeGate, type RemotionEditDecisions } from "./precompose-gate.ts";
+import { preComposeGate, enforcePreCompose, type RemotionEditDecisions } from "./precompose-gate.ts";
 import type { SpawnImpl } from "./spawn.ts";
 
 /** Fake ffprobe: always reports `durationSeconds` for `-show_entries format=duration` probes. */
@@ -466,5 +466,37 @@ describe("preComposeGate — motion coverage vs. scene", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+// Relocated from extensions/pi-movie-director.ts (Item 1, gate unification,
+// output/next-goal-20260712_135012.md) — pure move, same GATE VIOLATION
+// wording/override-flag behavior as before, now unit-testable without
+// instantiating the extension/dispatcher.
+describe("enforcePreCompose", () => {
+  const failingEdit: RemotionEditDecisions = { version: "1.0", cuts: [] };
+  // A text cut skips the sources_exist check entirely (no file to probe),
+  // keeping this a minimal fixture for a non-"fail" verdict (audio_present
+  // still warns here, which is fine — enforcePreCompose only blocks on fail).
+  const passingEdit: RemotionEditDecisions = {
+    version: "1.0",
+    cuts: [{ id: "a", type: "text", in_seconds: 0, out_seconds: 5, text: "hello" }],
+  };
+
+  it("returns a blocking result on a fail verdict", async () => {
+    const r = await enforcePreCompose(failingEdit, {});
+    expect(r).not.toBeNull();
+    expect(r!.ok).toBe(false);
+    expect((r as { ok: false; error: string }).error).toContain("GATE VIOLATION: pre-compose failed");
+  });
+
+  it("returns null (proceed) on a passing verdict", async () => {
+    const r = await enforcePreCompose(passingEdit, {});
+    expect(r).toBeNull();
+  });
+
+  it("returns null when overridePreCompose:true, even on a fail verdict", async () => {
+    const r = await enforcePreCompose(failingEdit, { overridePreCompose: true });
+    expect(r).toBeNull();
   });
 });

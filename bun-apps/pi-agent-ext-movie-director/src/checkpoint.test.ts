@@ -9,6 +9,7 @@ import {
   getCompletedStages,
   listProjects,
   GateViolationError,
+  enforceStageCheckpointGate,
 } from "./checkpoint.ts";
 
 let env: Record<string, string | undefined>;
@@ -68,6 +69,52 @@ describe("checkpoint gate enforcement", () => {
       status: "awaiting_human", env,
     });
     expect(cp.status).toBe("awaiting_human");
+  });
+});
+
+// Relocated from extensions/pi-movie-director.ts's next-stage case (Item 1,
+// gate unification, output/next-goal-20260712_135012.md) — pure move, same
+// GATE VIOLATION wording/override-flag behavior as before, now unit-testable
+// without instantiating the extension/dispatcher.
+describe("enforceStageCheckpointGate", () => {
+  test("returns null when the stage isn't checkpoint_required", () => {
+    // animated-explainer's "research" stage has checkpoint_required:false.
+    const r = enforceStageCheckpointGate("animated-explainer", "research", "p5", { env });
+    expect(r).toBeNull();
+  });
+
+  test("returns null when stage is undefined", () => {
+    const r = enforceStageCheckpointGate("animated-explainer", undefined, "p5", { env });
+    expect(r).toBeNull();
+  });
+
+  test("blocks with a projectId-missing error when required and projectId is absent", () => {
+    // "proposal" has checkpoint_required:true.
+    const r = enforceStageCheckpointGate("animated-explainer", "proposal", undefined, { env });
+    expect(r).not.toBeNull();
+    expect(r!.ok).toBe(false);
+    expect((r as { ok: false; error: string }).error).toContain("requires non-empty projectId");
+  });
+
+  test("blocks with GATE VIOLATION when required and no completed checkpoint exists", () => {
+    const r = enforceStageCheckpointGate("animated-explainer", "proposal", "p5", { env });
+    expect(r).not.toBeNull();
+    expect(r!.ok).toBe(false);
+    expect((r as { ok: false; error: string }).error).toContain("GATE VIOLATION");
+  });
+
+  test("returns null once the stage has a completed checkpoint", () => {
+    writeCheckpoint({
+      projectId: "p5", pipeline: "animated-explainer", stage: "proposal",
+      status: "completed", humanApproved: true, overrideRequiredArtifacts: true, env,
+    });
+    const r = enforceStageCheckpointGate("animated-explainer", "proposal", "p5", { env });
+    expect(r).toBeNull();
+  });
+
+  test("returns null when overrideStageGate:true, even without a completed checkpoint", () => {
+    const r = enforceStageCheckpointGate("animated-explainer", "proposal", "p5", { overrideStageGate: true, env });
+    expect(r).toBeNull();
   });
 });
 
