@@ -44,6 +44,27 @@ ENTRIES=(
 
 FLAKE_DETECTED=0
 CONSISTENT_FAIL=0
+TAB="$(printf '\t')"   # real tab — ENTRIES separate pkg/cmd with a literal tab
+
+# Optional arg: scope to ONE package. CI runs this script once per matrix
+# entry (see .github/workflows/ci.yml `determinism-spotcheck`), so the 3
+# packages execute in parallel as separate runner jobs instead of serially
+# in one job. Running them on a single shared runner was considered and
+# rejected: the workflow entry rebuilds its gitignored dist/, which would
+# race with sibling packages that import from it. No arg → run all (local).
+if [ -n "${1:-}" ]; then
+	filtered=()
+	for entry in "${ENTRIES[@]}"; do
+		if [ "${entry%%$TAB*}" = "$1" ]; then filtered+=("$entry"); fi
+	done
+	if [ "${#filtered[@]}" -eq 0 ]; then
+		known=""
+		for entry in "${ENTRIES[@]}"; do known="${known:+$known }${entry%%$TAB*}"; done
+		emit "unknown package '$1'. Known: $known" >&2
+		exit 2
+	fi
+	ENTRIES=("${filtered[@]}")
+fi
 
 emit "═══ determinism spot-check ═══"
 emit "running the flake-prone subset ${REPEATS}× per package — a differing outcome = a flake"
