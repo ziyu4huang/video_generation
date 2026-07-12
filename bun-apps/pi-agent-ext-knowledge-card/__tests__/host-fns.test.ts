@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { zkRetrieve, zkIngest, zkHealth, zkHeal, buildRetrieveOptions } from "../src/host-fns.js";
 import { retrieveRecords } from "../src/retrieve.js";
+import piKnowledgeCardExtension from "../extensions/pi-knowledge-card.ts";
 
 const mkctx = (vaultPath: string) => ({ cwd: "/", signal: new AbortController().signal, runId: "test", vaultPath });
 const tmpVault = () => mkdtempSync(join(tmpdir(), "kc-hostfn-"));
@@ -63,5 +64,49 @@ describe("zk.health / zk.heal", () => {
     } finally {
       rmSync(vault, { recursive: true, force: true });
     }
+  });
+});
+
+describe("knowledge-card host-fn registration (event bus)", () => {
+  /** Minimal ExtensionAPI double with just the surface the registration uses. */
+  function mkPi() {
+    const handlers: Record<string, Array<(p: unknown) => void>> = {};
+    const emitted: Array<{ channel: string; payload: any }> = [];
+    const pi: any = {
+      registerTool() {},
+      on() {},
+      events: {
+        on(ch: string, cb: (p: unknown) => void) {
+          (handlers[ch] ??= []).push(cb);
+        },
+        emit(ch: string, p: unknown) {
+          emitted.push({ channel: ch, payload: p });
+          for (const cb of handlers[ch] ?? []) cb(p);
+        },
+      },
+    };
+    return { pi, emitted, fire: (ch: string) => { for (const cb of handlers[ch] ?? []) cb({}); } };
+  }
+
+  it("emits workflow:hostfn:v1:register for all four zk.* fns on load", () => {
+    const { pi, emitted } = mkPi();
+    piKnowledgeCardExtension(pi);
+    const registered = emitted
+      .filter((e) => e.channel === "workflow:hostfn:v1:register")
+      .map((e) => `${e.payload.ns}.${e.payload.name}`);
+    assert.deepEqual(registered.sort(), ["zk.heal", "zk.health", "zk.ingest", "zk.retrieve"]);
+    for (const e of emitted.filter((x) => x.channel === "workflow:hostfn:v1:register")) {
+      assert.equal(typeof e.payload.fn, "function", `${e.payload.name} carries a fn`);
+    }
+  });
+
+  it("re-emits registrations on workflow:hostfn:v1:request (load-order robust)", () => {
+    const { pi, emitted, fire } = mkPi();
+    piKnowledgeCardExtension(pi);
+    const afterLoad = emitted.filter((e) => e.channel === "workflow:hostfn:v1:register").length;
+    assert.ok(afterLoad >= 4, "eager registration on load");
+    fire("workflow:hostfn:v1:request");
+    const afterRequest = emitted.filter((e) => e.channel === "workflow:hostfn:v1:register").length;
+    assert.ok(afterRequest > afterLoad, "re-emitted registrations on request");
   });
 });
