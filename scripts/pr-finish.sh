@@ -151,16 +151,19 @@ fi
 
 # --- 4. cleanup (worktree-safe: detach, never `checkout main`) ----------------
 say "Cleaning up branch '$PR_HEAD'…"
+# Fetch FIRST so the local origin/main ref reflects the squash-merge we just did
+# — otherwise the detach below uses the step-2 (pre-merge) ref and HEAD lands
+# one commit behind. (Found by dogfooding: pr-finish.sh left HEAD at the
+# previous PR's merge commit.)
+run git fetch "$REMOTE" --prune
 # Detach at the freshly-merged base tip — works whether or not main is in a worktree.
 run git checkout --detach "$REMOTE/$BASE_BRANCH"
 if [[ "$DRY_RUN" != true ]]; then
   git branch -D "$PR_HEAD" 2>/dev/null || true   # local (already gone if gh deleted it)
   git push "$REMOTE" --delete "$PR_HEAD" 2>/dev/null || true  # remote (idempotent)
-  git fetch "$REMOTE" --prune
 else
   echo "→ git branch -D $PR_HEAD"
   echo "→ git push $REMOTE --delete $PR_HEAD"
-  echo "→ git fetch $REMOTE --prune"
 fi
 
 # --- 5. report ----------------------------------------------------------------
