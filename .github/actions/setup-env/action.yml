@@ -5,6 +5,11 @@ description: |
   compiled workspace dep (`pi-agent-ext-workflow`, whose `main` resolves a
   gitignored `dist/`). Centralizes the Bun version + the build-first workspace
   pattern so a rename or version bump touches ONE place, not 5 job definitions.
+  Also restores the Bun global install store (~/.bun/install/cache) from cache so
+  `bun install --frozen-lockfile` is symlink-only on a hit — this repo uses the
+  isolated linker + globalStore, so the store is the source of truth and
+  node_modules is just symlinks into it. Cuts runner-minutes across all 22 jobs;
+  the install outcome is unchanged (--frozen-lockfile still verifies).
 
   NOTE: each calling job MUST run `actions/checkout@v4` BEFORE this action — the
   runner reads a local action's action.yml from the workspace, so the repo must
@@ -34,6 +39,20 @@ runs:
       uses: actions/setup-node@v4
       with:
         node-version: lts/*
+
+    - name: Cache Bun install (global store)
+      uses: actions/cache@v4
+      with:
+        # This repo uses the isolated linker + globalStore (see root bunfig.toml),
+        # so the global virtual store at ~/.bun/install/cache is the source of
+        # truth — node_modules is just symlinks into it. Cache the store so a
+        # hit makes `bun install --frozen-lockfile` symlink-only (no re-fetch /
+        # re-extract). Keyed on bun.lock for exact hits; restore-keys falls back
+        # to a partial (same-OS) hit when deps change.
+        path: ~/.bun/install/cache
+        key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-bun-
 
     - name: Install (workspace, frozen lockfile)
       run: bun install --frozen-lockfile
