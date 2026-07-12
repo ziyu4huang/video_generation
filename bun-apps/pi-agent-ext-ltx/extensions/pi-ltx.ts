@@ -143,24 +143,14 @@ function commandExample(cmdName: CommandName): string {
 
 /** Slim (~200 tok) description: routing info only. Heavy reference → ltx_help. */
 function buildDescription(): string {
+  // Stealth-trimmed: routing one-liner only. Bulk semantics (subcommand list,
+  // option keys, defaults, path rules, native-vs-prod tradeoff, shot-language
+  // vocab) live in the on-demand `ltx_help` tool result — never the static
+  // schema. Trimming saved ~930 tok/req (descLen 3732 → ~205).
   return (
-    "Generate/upscale/verify video with LTX-2.3 (pure Swift/MLX on Apple Silicon, standing native-port " +
-    "goal — see the repo's project-ltx-swift-native-port memory) via the `ltx-video` CLI. Pass `command` " +
-    "(one of the subcommands below) and `options` (camelCase keys; only options relevant to that command " +
-    "are read). Every path in `options` must resolve under the repo / output dir / models tree. The " +
-    "result's `details.output` is the primary generated path (video/frame-dir/image) — reuse it to chain " +
-    "commands (e.g. native-i2v -> gate). `details.extraOutputs` carries secondary paths a command also " +
-    "produces (e.g. native-i2v's audio.wav, upscaledFrames).\n\n" +
-    "The exact option keys, defaults, and path rules for each command are NOT listed here — call " +
-    "`ltx_help({command:\"<name>\"})` to look them up before first use of a command (or anytime you are " +
-    "unsure of a key). Unknown/wrong keys are silently ignored. For the native-i2v-vs-i2v tradeoff call " +
-    "`ltx_help({topic:\"native-vs-prod\"})`.\n\n" +
-    "Subcommands (📤 = produces output):\n" + commandIndex() + "\n\n" +
-    "Notes: defaults are the CLI's own (omit a field to use it), EXCEPT `output` — when a command has " +
-    "an `output` field and you omit it, this tool injects a timestamped path under the resolved output " +
-    "dir so results always land in a stable, externally-discoverable location. Repeatable flags " +
-    "(--lora, gate's videos) take arrays. Optional `shotLanguage` (camera/lighting vocab) appends to " +
-    'prompt(s) — see ltx_help({topic:"shot-language"}).'
+    "Generate/upscale/verify video via ltx-video (LTX-2.3, Swift/MLX). Pass `command` + `options` " +
+    "(camelCase). Call `ltx_help({command})` for option keys/defaults/path rules, or `ltx_help` " +
+    "with no args to list subcommands."
   );
 }
 
@@ -246,13 +236,9 @@ function makeLtxTool() {
     name: "ltx",
     label: "LTX Video Director",
     description: buildDescription(),
-    promptSnippet:
-      `Generate/upscale/verify video with LTX-2.3 (Swift/MLX). One tool, ${COMMAND_LIST.length} subcommands; ` +
-      "call ltx_help for a command's options; chain via details.output / details.extraOutputs.",
-    promptGuidelines: [
-      "Use ltx for video generation/upscale/verify. Call ltx_help({command}) before first use of a " +
-      "command or when unsure of an option key.",
-    ],
+    // promptSnippet + promptGuidelines REMOVED (stealth): usage is taught via
+    // the routing description + the on-demand ltx_help tool, not per-turn
+    // system-prompt injection. Saves ~120 tok/req.
     parameters: Type.Object({
       command: COMMAND_ENUM,
       options: Type.Any({
