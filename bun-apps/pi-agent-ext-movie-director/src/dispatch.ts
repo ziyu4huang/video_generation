@@ -26,7 +26,6 @@ import {
   getStageOrder,
   getStage,
   getNextStage,
-  getStageCheckpointRequired,
 } from "./pipeline.ts";
 import {
   writeCheckpoint,
@@ -35,6 +34,7 @@ import {
   getCompletedStages,
   listProjects,
   GateViolationError,
+  enforceStageCheckpointGate,
   type CheckpointStatus,
 } from "./checkpoint.ts";
 import { validateArtifact } from "./schema.ts";
@@ -45,8 +45,8 @@ import { probedMenuSummary } from "./providers.ts";
 import { projectDir } from "./paths.ts";
 import { composeVideo, finalReview, type EditDecisions } from "./compose.ts";
 import { renderRemotion, type RemotionEditDecisions } from "./remotion.ts";
-import { composeMotion } from "./compose_motion.ts";
-import { preComposeGate } from "./precompose-gate.ts";
+import { composeMotion, type MotionDeps } from "./compose_motion.ts";
+import { preComposeGate, enforcePreCompose } from "./precompose-gate.ts";
 
 /** The canonical 18 orchestration commands (also the CLI's command surface). */
 export const COMMANDS = [
@@ -280,41 +280,19 @@ export function missingFields(opts: Record<string, unknown>, fields: string[]): 
   return fields.filter((f) => opts[f] === undefined || opts[f] === null || String(opts[f]) === "");
 }
 
-/**
- * GATE (Bug 2, saturn-young-rings 2026-07-12): a pre-compose `verdict:"fail"`
- * used to block nothing — an agent could call `pre-compose`, read a fail, and
- * simply call `compose-motion`/`compose-remotion` next with the identical
- * unmodified edit. Mirrors the `overrideFinalReview` pattern in checkpoint.ts:
- * both compose tool cases now run the SAME gate internally (deterministic,
- * cheap outside the video-cut ffprobe calls, and the caller's editDecisions
- * is already in hand — no separate pre-compose call is required) and refuse
- * to render on a fail verdict unless `overridePreCompose:true` is passed
- * explicitly. A `warn` verdict does not block (matches pre-compose's own
- * warn/fail distinction) — only `fail` does. Returns null (proceed) or a
- * `{ok:false}` tool result (blocked) for the caller to return directly.
- */
-async function enforcePreCompose(
-  edit: RemotionEditDecisions,
-  opts: Record<string, unknown>,
-): Promise<{ ok: false; error: string } | null> {
-  if (opts.overridePreCompose === true) return null;
-  const narrativeDurationSeconds = opts.narrativeDurationSeconds !== undefined ? Number(opts.narrativeDurationSeconds) : undefined;
-  const gate = await preComposeGate(edit, { narrativeDurationSeconds });
-  if (gate.verdict !== "fail") return null;
-  const failedChecks = gate.checks.filter((c) => c.status === "fail").map((c) => `${c.name}: ${c.detail}`);
-  return {
-    ok: false,
-    error:
-      `GATE VIOLATION: pre-compose failed (${failedChecks.length} check(s)) — refusing to render:\n  ` +
-      failedChecks.join("\n  ") +
-      `\nFix the edit_decisions (or the underlying assets) and retry, or pass overridePreCompose=true only ` +
-      `after an explicit human/agent decision to ship past the failure.`,
-  };
-}
-
 export type DispatchResult = { ok: true; text: string } | { ok: false; error: string };
 
-export async function dispatch(command: Command, opts: Record<string, unknown>): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+/**
+ * Optional dependency-injection bag for dispatch(). Tests inject a fake
+ * spawnImpl here so composeMotion runs its real logic against a stubbed
+ * ffmpeg (no host-binary coupling). Production callers omit this entirely.
+ */
+export interface DispatchDeps {
+	/** Forwarded to composeMotion() as its MotionDeps (e.g. { spawnImpl }). */
+	composeMotionDeps?: MotionDeps;
+}
+
+export async function dispatch(command: Command, opts: Record<string, unknown>, deps?: DispatchDeps): Promise<DispatchResult> {
   try {
     switch (command) {
       case "preflight":
@@ -363,39 +341,10 @@ export async function dispatch(command: Command, opts: Record<string, unknown>):
         if (missing.length > 0) return { ok: false, error: `next-stage requires non-empty ${missing.join(", ")}` };
         const pipeline = String(opts.pipeline ?? "");
         const stage = opts.stage ? String(opts.stage) : undefined;
-        // GATE (checkpoint-enforcement gap, placebo-effect-explainer Track A
-        // verification run, 2026-07-12): checkpoint_required:true in a pipeline
-        // manifest used to be declared policy with zero structural enforcement —
-        // an agent could work straight through research→...→assets without ever
-        // calling write-checkpoint, and a crash (this session hit two real
-        // kernel panics under sustained GPU load) lost the ENTIRE run with no
-        // resumable state. Mirrors enforcePreCompose's shape: refuse to report
-        // "next" for a checkpoint_required current stage unless a "completed"
-        // checkpoint exists for it, unless overrideStageGate:true is passed
-        // explicitly. Requires projectId (previously accepted but unused —
-        // movie_help already documented it as required).
-        if (stage && !opts.overrideStageGate && getStageCheckpointRequired(pipeline, stage)) {
-          const projectIdMissing = missingFields(opts, ["projectId"]);
-          if (projectIdMissing.length > 0) {
-            return {
-              ok: false,
-              error:
-                `next-stage requires non-empty projectId when advancing past stage "${stage}" ` +
-                `(checkpoint_required:true in pipeline "${pipeline}") — pass overrideStageGate:true to skip this check.`,
-            };
-          }
-          const cp = readCheckpoint(String(opts.projectId), stage);
-          if (cp?.status !== "completed") {
-            return {
-              ok: false,
-              error:
-                `GATE VIOLATION: stage "${stage}" (${pipeline}) requires a completed checkpoint before advancing ` +
-                `(checkpoint_required:true) — found status: ${cp?.status ?? "missing — write-checkpoint was never called"}. ` +
-                `Call write-checkpoint with status="completed" for "${stage}" first, or pass overrideStageGate=true only ` +
-                `after an explicit human/agent decision to advance without one.`,
-            };
-          }
-        }
+        const stageGateBlock = enforceStageCheckpointGate(pipeline, stage, opts.projectId ? String(opts.projectId) : undefined, {
+          overrideStageGate: opts.overrideStageGate === true,
+        });
+        if (stageGateBlock) return stageGateBlock;
         const order = getStageOrder(pipeline);
         const from = stage ?? order[0];
         const next = stage ? getNextStage(pipeline, from!) : from;
@@ -581,6 +530,14 @@ export async function dispatch(command: Command, opts: Record<string, unknown>):
         const preComposeCheck = await enforcePreCompose(edit, opts);
         if (preComposeCheck) return preComposeCheck;
         const workDir = opts.workDir ? String(opts.workDir) : projectDir(String(opts.projectId ?? "_compose_motion"));
+        // Forward captions — mirrors the `compose` case. composeMotion()'s
+        // captions sub-pass burns/sidecars the SRT via the shared ladder
+        // (libass → drawtext → sidecar). Without this, the CLI/agent dropped
+        // the param and captions silently vanished (the PR #522 demo
+        // workaround used a sidecar SRT outside the composer).
+        const captions = opts.captions
+          ? { srtPath: String((opts.captions as Record<string, unknown>).srtPath ?? ""), burn: (opts.captions as Record<string, unknown>).burn !== false }
+          : undefined;
         const report = await composeMotion(edit, {
           workDir,
           output: opts.output ? String(opts.output) : undefined,
@@ -588,7 +545,8 @@ export async function dispatch(command: Command, opts: Record<string, unknown>):
           height: opts.height ? Number(opts.height) : undefined,
           fps: opts.fps ? Number(opts.fps) : undefined,
           transitionSeconds: opts.transitionSeconds ? Number(opts.transitionSeconds) : undefined,
-        });
+          captions,
+        }, deps?.composeMotionDeps);
         return { ok: true, text: jsonOut(report) };
       }
       case "pre-compose": {

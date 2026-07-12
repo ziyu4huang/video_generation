@@ -86,6 +86,7 @@ import { existsSync } from "node:fs";
 import type { RemotionEditDecisions } from "./remotion.ts";
 import { probeDuration } from "./ffprobe.ts";
 import type { SpawnImpl } from "./spawn.ts";
+import type { GateResult } from "./gate.ts";
 
 // Re-export so consumers of the gate get the input type from one import.
 export type { RemotionEditDecisions } from "./remotion.ts";
@@ -363,4 +364,33 @@ export async function preComposeGate(edit: RemotionEditDecisions, opts: PreCompo
       ? "warn"
       : "pass";
   return { verdict, checks };
+}
+
+/**
+ * GATE (Bug 2, saturn-young-rings 2026-07-12): a pre-compose `verdict:"fail"`
+ * used to block nothing — an agent could call `pre-compose`, read a fail, and
+ * simply call `compose-motion`/`compose-remotion` next with the identical
+ * unmodified edit. Mirrors the `overrideFinalReview` pattern in checkpoint.ts:
+ * both compose tool cases now run the SAME gate internally (deterministic,
+ * cheap outside the video-cut ffprobe calls, and the caller's editDecisions
+ * is already in hand — no separate pre-compose call is required) and refuse
+ * to render on a fail verdict unless `overridePreCompose:true` is passed
+ * explicitly. A `warn` verdict does not block (matches pre-compose's own
+ * warn/fail distinction) — only `fail` does. Returns null (proceed) or a
+ * `{ok:false}` tool result (blocked) for the caller to return directly.
+ */
+export async function enforcePreCompose(edit: RemotionEditDecisions, opts: Record<string, unknown>): Promise<GateResult> {
+  if (opts.overridePreCompose === true) return null;
+  const narrativeDurationSeconds = opts.narrativeDurationSeconds !== undefined ? Number(opts.narrativeDurationSeconds) : undefined;
+  const gate = await preComposeGate(edit, { narrativeDurationSeconds });
+  if (gate.verdict !== "fail") return null;
+  const failedChecks = gate.checks.filter((c) => c.status === "fail").map((c) => `${c.name}: ${c.detail}`);
+  return {
+    ok: false,
+    error:
+      `GATE VIOLATION: pre-compose failed (${failedChecks.length} check(s)) — refusing to render:\n  ` +
+      failedChecks.join("\n  ") +
+      `\nFix the edit_decisions (or the underlying assets) and retry, or pass overridePreCompose=true only ` +
+      `after an explicit human/agent decision to ship past the failure.`,
+  };
 }

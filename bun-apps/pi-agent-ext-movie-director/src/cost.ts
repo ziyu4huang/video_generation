@@ -8,6 +8,7 @@
  */
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { costLogPath, projectDir } from "./paths.ts";
+import { loadPipeline } from "./pipeline.ts";
 
 export type BudgetMode = "observe" | "warn" | "cap";
 
@@ -59,15 +60,30 @@ export class ApprovalRequiredError extends Error {
   }
 }
 
-function load(projectId: string, env?: Record<string, string | undefined>): CostLog {
+/**
+ * When a project's cost log doesn't exist yet, seed its budget from the
+ * pipeline manifest's `orchestration.budget_default_usd` (tool-design audit,
+ * 2026-07-12: this field was pure YAML documentation with zero runtime
+ * consumer — `DEFAULT_BUDGET.totalUsd=10` silently overrode whatever a
+ * manifest declared, e.g. talking-head's $0.50 or animated-explainer's
+ * $2.00). Falls back to `DEFAULT_BUDGET.totalUsd` when `pipeline` is omitted
+ * or the manifest doesn't declare the field — existing callers that don't
+ * pass `pipeline` are unaffected.
+ */
+function freshBudget(pipeline?: string): BudgetConfig {
+  const budgetDefaultUsd = pipeline ? (loadPipeline(pipeline) as { orchestration?: { budget_default_usd?: number } }).orchestration?.budget_default_usd : undefined;
+  return budgetDefaultUsd !== undefined ? { ...DEFAULT_BUDGET, totalUsd: budgetDefaultUsd } : { ...DEFAULT_BUDGET };
+}
+
+function load(projectId: string, env?: Record<string, string | undefined>, pipeline?: string): CostLog {
   const p = costLogPath(projectId, env);
   if (!existsSync(p)) {
-    return { budget: { ...DEFAULT_BUDGET }, entries: [] };
+    return { budget: freshBudget(pipeline), entries: [] };
   }
   try {
     return JSON.parse(readFileSync(p, "utf8")) as CostLog;
   } catch {
-    return { budget: { ...DEFAULT_BUDGET }, entries: [] };
+    return { budget: freshBudget(pipeline), entries: [] };
   }
 }
 
@@ -111,15 +127,21 @@ function nextId(): string {
   return `cost_${Date.now().toString(36)}_${idCounter}`;
 }
 
-/** Estimate a cost entry (track only at this stage). Returns the entry id. */
+/**
+ * Estimate a cost entry (track only at this stage). Returns the entry id.
+ * `pipeline`, when given, seeds a freshly-created project's budget from the
+ * manifest's `orchestration.budget_default_usd` — see `freshBudget()`. Has no
+ * effect once a cost log already exists (budget is set once, at creation).
+ */
 export function estimate(
   projectId: string,
   tool: string,
   operation: string,
   estimatedUsd: number,
   env?: Record<string, string | undefined>,
+  pipeline?: string,
 ): string {
-  const log = load(projectId, env);
+  const log = load(projectId, env, pipeline);
   const entry: CostEntry = {
     id: nextId(),
     tool,
