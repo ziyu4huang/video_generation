@@ -7,6 +7,7 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { WorkflowAgent } from "./agent.js";
 import { preview, type WorkflowSnapshot } from "./display.js";
 import { WorkflowError, WorkflowErrorCode } from "./errors.js";
+import type { HostFnRegistry } from "./host-fn-registry.js";
 import {
   createRunPersistence,
   generateRunId,
@@ -100,6 +101,7 @@ export class WorkflowManager extends EventEmitter {
   private defaultAgentTimeoutMs: number | null;
   private defaultAgentRetries: number;
   private extensionTools: ToolDefinition[];
+  private hostFns?: HostFnRegistry;
 
   constructor(options: WorkflowManagerOptions = {}) {
     super();
@@ -131,6 +133,15 @@ export class WorkflowManager extends EventEmitter {
    */
   setExtensionTools(tools: ToolDefinition[]): void {
     this.extensionTools = tools;
+  }
+
+  /**
+   * Bind the session-scoped host-fn registry (sub-project ②). The registry is
+   * mutated in place as `workflow:hostfn:v1:register` events arrive, so runs
+   * started after late registrations still see them. `undefined` = no host fns.
+   */
+  setHostFns(registry: HostFnRegistry | undefined): void {
+    this.hostFns = registry;
   }
 
   /**
@@ -312,6 +323,7 @@ export class WorkflowManager extends EventEmitter {
         agent: this.agent,
         mainModel: this.mainModel,
         extensionTools: this.extensionTools,
+        hostFns: this.hostFns,
         signal: managed.controller.signal,
         concurrency: resolvedConcurrency,
         agentRetries: resolvedAgentRetries,

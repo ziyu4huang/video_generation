@@ -37,6 +37,7 @@ import { relative } from "node:path";
 import { readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { zkRetrieve, zkIngest, zkHealth, zkHeal } from "../src/host-fns.ts";
 import {
 	runSubagentWithRetry,
 	resolveVault,
@@ -1239,4 +1240,25 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			};
 		},
 	});
+
+	// ── Workflow host-fn registration (sub-project ②) ────────────────────────
+	// Register the four deterministic zk.* fns with the workflow runtime over the
+	// in-process event bus. Idempotent (the runtime overwrites on re-register);
+	// re-emit on `request` so we still register if we loaded before the workflow
+	// extension's listener existed. No-op if the workflow ext is absent.
+	const __hostFnBus = (pi as unknown as {
+		events?: { emit: (ch: string, p: unknown) => void; on: (ch: string, cb: (p: unknown) => void) => void };
+	}).events;
+	const __registerZkHostFns = () => {
+		if (!__hostFnBus) return;
+		const entries = [
+			{ ns: "zk", name: "retrieve", fn: zkRetrieve, timeoutMs: 30_000 },
+			{ ns: "zk", name: "ingest", fn: zkIngest, timeoutMs: 120_000 },
+			{ ns: "zk", name: "health", fn: zkHealth, timeoutMs: 60_000 },
+			{ ns: "zk", name: "heal", fn: zkHeal, timeoutMs: 60_000 },
+		];
+		for (const e of entries) __hostFnBus.emit("workflow:hostfn:v1:register", e);
+	};
+	__registerZkHostFns();
+	__hostFnBus?.on("workflow:hostfn:v1:request", __registerZkHostFns);
 }

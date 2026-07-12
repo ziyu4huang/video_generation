@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { applyHostFnRegistration, HostFnRegistry } from "../src/host-fn-registry.js";
 import {
   buildWorkflowGuidelinesForTurn,
   createEffortState,
@@ -33,6 +34,16 @@ export default function extension(pi: ExtensionAPI) {
     concurrency: settings.defaultConcurrency,
     defaultAgentRetries: settings.defaultAgentRetries,
   });
+
+  // Session-scoped host-fn registry for the `call('ns.name', args)` global
+  // (sub-project ②). Peer extensions register over the workflow:hostfn:v1:*
+  // event bus; the registry is mutated in place so late registrations reach runs
+  // started after they arrive. Load-order safe via the session_start solicitation.
+  const sessionHostFns = new HostFnRegistry();
+  manager.setHostFns(sessionHostFns);
+  const HOSTFN_REGISTER = "workflow:hostfn:v1:register";
+  const HOSTFN_REQUEST = "workflow:hostfn:v1:request";
+  pi.events.on(HOSTFN_REGISTER, (payload: unknown) => applyHostFnRegistration(sessionHostFns, payload));
 
   const workflowTool = createWorkflowTool({
     cwd,
@@ -83,6 +94,14 @@ export default function extension(pi: ExtensionAPI) {
   let editorInstalled = false;
 
   pi.on("session_start", (_event: unknown, ctx: ExtensionContext) => {
+    // Solicit host-fn registrations from peer extensions (load-order robust:
+    // catches peers that loaded — and eagerly emitted — before this listener
+    // existed). Peers re-emit on request; re-registering overwrites (idempotent).
+    try {
+      pi.events.emit(HOSTFN_REQUEST, {});
+    } catch {
+      // pi.events is optional in some contexts — host fns just stay absent.
+    }
     const active = pi.getActiveTools();
     const wantActive = [workflowTool.name, workflowHelpTool.name];
     const missing = wantActive.filter((nm) => !active.includes(nm));

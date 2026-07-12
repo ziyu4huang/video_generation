@@ -29,6 +29,16 @@ export enum WorkflowErrorCode {
   PERSISTENCE_ERROR = "PERSISTENCE_ERROR",
   /** Unknown error. */
   UNKNOWN = "UNKNOWN",
+  /** call('ns.name') referenced an unregistered host fn. */
+  HOST_FN_UNKNOWN = "HOST_FN_UNKNOWN",
+  /** A registered host fn threw. Deterministic → non-recoverable (retry is pointless). */
+  HOST_FN_FAILED = "HOST_FN_FAILED",
+  /** A host fn exceeded its timeoutMs. Recoverable: a transient slowdown may clear. */
+  HOST_FN_TIMEOUT = "HOST_FN_TIMEOUT",
+  /** A host fn's return value failed its declared schema. */
+  HOST_FN_SCHEMA = "HOST_FN_SCHEMA",
+  /** A host fn returned a non-JSON-serializable value (journal would lose it). */
+  HOST_FN_NON_SERIALIZABLE = "HOST_FN_NON_SERIALIZABLE",
 }
 
 export class WorkflowError extends Error {

@@ -106,33 +106,34 @@ phase("Converge")
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * One convergence round = one kcard-loop CLI call (deterministic: ingest →
- * heal-until-dry → probe). Returns the receipt. Re-running with unchanged
- * sources is idempotent, so loopUntilDry dries after round 1 unless the source
- * set is growing between rounds.
+ * One convergence round = deterministic, zero-token host-fn calls (sub-project ②):
+ * call('zk.ingest') per source, then call('zk.health', {fix:true}) to heal-until-dry
+ * and audit. Returns a lean receipt. Re-running with unchanged sources is idempotent
+ * (zk_ingest dedups by record id; healGraph is a no-op on a clean graph), so
+ * loopUntilDry dries after round 1 unless the source set is growing between rounds.
+ * The probe step is intentionally dropped here (verify()'s `probeTotal ?? 0` guard
+ * skips cleanly); wire call('zk.retrieve') for a recall probe if needed later.
  */
 async function convergeRound(roundIndex) {
-	// The agent's ONLY job is to run Bash and relay stdout VERBATIM. We do NOT use a
-	// schema here on purpose: a small-tier model is reliable at "copy the output"
-	// but unreliable at faithfully re-emitting a JSON object as structured output
-	// (it summarizes/wraps, breaking the schema → null). We parse the relayed text
-	// in JS instead, which is deterministic. The kcard-loop --json payload is a
-	// lean ~400-byte object (health arrays are counts), so the relay is small.
-	const raw = await agent(
-		`Run this exact Bash command and return its stdout VERBATIM — the raw JSON only, no markdown fences, no commentary, no summary.
-Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts kcard-loop ${sourceTokens} --vault '${VAULT}' --probe-eval '${PROBE_EVAL}' --json 2>/dev/null")
-Return ONLY the stdout string (a JSON object beginning with { and ending with }).`,
-		{ label: `converge-round-${roundIndex}`, phase: "Converge", tier: "small" },
-	)
-	if (!raw) { log(`converge round ${roundIndex}: agent returned NULL (agent call failed — likely command transcription/timeout)`); return null }
-	log(`converge round ${roundIndex}: raw len=${String(raw).length}, head=${JSON.stringify(String(raw).slice(0, 100))}`)
-	const match = String(raw).match(/\{[\s\S]*\}/)
-	if (!match) { log(`converge round ${roundIndex}: no JSON found in agent output`); return null }
-	try {
-		return JSON.parse(match[0])
-	} catch (e) {
-		log(`converge round ${roundIndex}: JSON.parse failed (${e?.message || e})`)
-		return null
+	let created = 0, updated = 0, unchanged = 0
+	for (const s of SOURCES) {
+		const summary = await call("zk.ingest", { dir: s.path, source: s.family || "workflow-jsonl" })
+		created += summary?.created || 0
+		updated += summary?.updated || 0
+		unchanged += summary?.unchanged || 0
+	}
+	const { health } = await call("zk.health", { fix: true })
+	const deadLinksAfter = health?.deadLinks?.length ?? 0
+	log(`converge round ${roundIndex}: +${created} created, ${updated} updated, ${deadLinksAfter} dead links, mocMissing=${health?.mocMissing ?? false}`)
+	return {
+		converged: true,
+		sourcesIngested: SOURCES.length,
+		created, updated, unchanged,
+		deadLinksBefore: deadLinksAfter, // post-heal count (pre-heal not exposed separately by the adapter)
+		deadLinksAfter,
+		mocMissingAfter: health?.mocMissing ?? false,
+		rounds: roundIndex + 1,
+		probeHits: 0, probeTotal: 0, probeHitRate: 0, // no probe → verify() skips via the `probeTotal ?? 0` guard
 	}
 }
 

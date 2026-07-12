@@ -13,8 +13,10 @@ import {
   loadAgentRegistry,
   resolveAgentType,
 } from "./agent-registry.js";
+import { buildCallGlobal } from "./call-global.js";
 import { DEFAULT_AGENT_TIMEOUT_MS, MAX_AGENT_RETRIES, MAX_AGENTS_PER_RUN, MAX_CONCURRENCY } from "./config.js";
 import { WorkflowError, WorkflowErrorCode, wrapError } from "./errors.js";
+import type { HostFnRegistry } from "./host-fn-registry.js";
 import { createWorkflowLogger } from "./logger.js";
 import { parseModelRoutingFromMeta, resolveModelForPhase } from "./model-routing.js";
 import { createWorktree, removeWorktree, type Worktree } from "./worktree.js";
@@ -74,6 +76,8 @@ export interface WorkflowRunOptions extends WorkflowAgentOptions {
   maxAgents?: number;
   /** Timeout per agent in milliseconds. null/omitted means no hard timeout. */
   agentTimeoutMs?: number | null;
+  /** Deterministic host-fn registry for the `call('ns.name', args)` global (sub-project ②). */
+  hostFns?: HostFnRegistry;
   /** Whether to persist logs to disk. Default: true */
   persistLogs?: boolean;
   /** Run ID for persistence. Auto-generated if not provided. */
@@ -885,6 +889,26 @@ export async function runWorkflow<T = unknown>(
     return reply;
   };
 
+  // Deterministic, journaled, zero-token host-fn call (sub-project ②). Mirrors
+  // checkpoint()'s journaling + maxAgents accounting; bypasses the concurrency
+  // limiter (local compute). Value comes from a registered host fn, not an LLM.
+  const call = buildCallGlobal({
+    hostFns: options.hostFns,
+    state,
+    shared,
+    maxAgents,
+    options: {
+      resumeJournal: options.resumeJournal,
+      onAgentJournal: options.onAgentJournal,
+      onAgentStart: options.onAgentStart as Parameters<typeof buildCallGlobal>[0]["options"]["onAgentStart"],
+      onAgentEnd: options.onAgentEnd as Parameters<typeof buildCallGlobal>[0]["options"]["onAgentEnd"],
+      cwd: options.cwd ?? process.cwd(),
+      signal: options.signal,
+    },
+    runId,
+    throwIfAborted,
+  });
+
   const context = vm.createContext({
     agent,
     parallel,
@@ -897,6 +921,7 @@ export async function runWorkflow<T = unknown>(
     retry,
     gate,
     checkpoint,
+    call,
     log,
     phase,
     args: options.args,
