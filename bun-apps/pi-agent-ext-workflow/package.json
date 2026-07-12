@@ -13,7 +13,9 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    }
+    },
+    "./src/*": "./src/*",
+    "./extensions/*": "./extensions/*"
   },
   "files": [
     "dist/",

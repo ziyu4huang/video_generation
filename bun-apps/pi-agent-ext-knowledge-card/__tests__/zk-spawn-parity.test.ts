@@ -1,0 +1,99 @@
+import { describe, it, beforeEach, afterEach } from "bun:test";
+import assert from "node:assert/strict";
+import piKnowledgeCardExtension, {
+	__setZkSpawnForTest,
+	ADD_TOOLS,
+	FIND_TOOLS,
+	UPDATE_TOOLS,
+	REMOVE_TOOLS,
+	CHECK_TOOLS,
+} from "../extensions/pi-knowledge-card.ts";
+
+/** Minimal pi double that captures registered tools. Returns { pi, tools }. */
+function mkPi() {
+	const tools = new Map<string, any>();
+	const pi: any = {
+		registerTool: (t: any) => {
+			tools.set(t.name, t);
+		},
+		on() {},
+		events: { on() {}, emit() {} },
+	};
+	return { pi, tools };
+}
+
+const CTX = { cwd: "/" } as any;
+
+describe("zk_card spawn migration (① Phase 3 parity)", () => {
+	let calls: any[];
+	beforeEach(() => {
+		calls = [];
+		__setZkSpawnForTest(async (opts: any) => {
+			calls.push(opts);
+			return { output: "SUBAGENT_OUTPUT", exitCode: 0, stderr: "", timedOut: false };
+		});
+	});
+	afterEach(() => __setZkSpawnForTest(null));
+
+	it("routes each action through zkSpawn with the correct frozen allowlist", async () => {
+		const { pi, tools } = mkPi();
+		piKnowledgeCardExtension(pi);
+		const zkCard: any = tools.get("zk_card");
+
+		await zkCard.execute("id", { action: "add", content: "note body" }, undefined, undefined, CTX);
+		assert.deepEqual(calls.at(-1)!.tools, ADD_TOOLS, "add → ADD_TOOLS");
+		assert.match(calls.at(-1)!.task, /Add the following content/);
+
+		await zkCard.execute("id", { action: "find", query: "loRA" }, undefined, undefined, CTX);
+		assert.deepEqual(calls.at(-1)!.tools, FIND_TOOLS, "find → FIND_TOOLS");
+
+		await zkCard.execute("id", { action: "update", note: "Zettelkasten/X.md", content: "more" }, undefined, undefined, CTX);
+		assert.deepEqual(calls.at(-1)!.tools, UPDATE_TOOLS, "update → UPDATE_TOOLS");
+
+		await zkCard.execute("id", { action: "remove", note: "Zettelkasten/X.md" }, undefined, undefined, CTX);
+		assert.deepEqual(calls.at(-1)!.tools, REMOVE_TOOLS, "remove → REMOVE_TOOLS");
+
+		await zkCard.execute("id", { action: "check" }, undefined, undefined, CTX);
+		assert.deepEqual(calls.at(-1)!.tools, CHECK_TOOLS, "check → CHECK_TOOLS");
+	});
+
+	it("passes model + excludeTools through; returns the subagent output (shape parity)", async () => {
+		const { pi, tools } = mkPi();
+		piKnowledgeCardExtension(pi);
+		const zkCard: any = tools.get("zk_card");
+		const res: any = await zkCard.execute(
+			"id",
+			{ action: "check", model: "openai/gpt-5", exclude_tools: ["bash"] },
+			undefined,
+			undefined,
+			CTX,
+		);
+		assert.equal(calls.at(-1)!.model, "openai/gpt-5");
+		assert.deepEqual(calls.at(-1)!.excludeTools, ["bash"]);
+		assert.equal(res.isError, undefined, "success path is not an error");
+		assert.match(res.content[0].text, /SUBAGENT_OUTPUT/, "subagent output reaches the result");
+		assert.deepEqual(res.details, { exitCode: 0, stderr: "" }, "details shape preserved");
+	});
+
+	it("timedOut:true → isError result with the timed-out message (branch parity)", async () => {
+		__setZkSpawnForTest(async () => ({ output: "partial", exitCode: 124, stderr: "timeout", timedOut: true }));
+		const { pi, tools } = mkPi();
+		piKnowledgeCardExtension(pi);
+		const zkCard: any = tools.get("zk_card");
+		const res: any = await zkCard.execute("id", { action: "check" }, undefined, undefined, CTX);
+		assert.equal(res.isError, true);
+		assert.match(res.content[0].text, /timed out/i);
+		assert.deepEqual(res.details, { timedOut: true, stderr: "timeout" });
+	});
+
+	it("exitCode!==0 && !output → isError failure branch (branch parity)", async () => {
+		__setZkSpawnForTest(async () => ({ output: "", exitCode: 2, stderr: "boom", timedOut: false }));
+		const { pi, tools } = mkPi();
+		piKnowledgeCardExtension(pi);
+		const zkCard: any = tools.get("zk_card");
+		const res: any = await zkCard.execute("id", { action: "check" }, undefined, undefined, CTX);
+		assert.equal(res.isError, true);
+		assert.match(res.content[0].text, /boom/);
+		assert.deepEqual(res.details, { exitCode: 2, stderr: "boom" });
+	});
+});

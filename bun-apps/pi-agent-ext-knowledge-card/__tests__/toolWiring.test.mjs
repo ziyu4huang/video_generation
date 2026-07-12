@@ -103,6 +103,17 @@ const {
 	buildRagTask,
 } = kc;
 
+// zk_card now spawns via the injectable zkSpawn seam (① Phase 3); zk_ask still
+// uses runSubagentWithRetry (Phase 4). Route zk_card's spawn through a recorder
+// that returns the same `nextResult` the runner mock uses.
+const zkSpawnCalls = [];
+const zkSpawnMock = (opts) => {
+	zkSpawnCalls.push(opts);
+	return Promise.resolve(nextResult);
+};
+kc.__setZkSpawnForTest(zkSpawnMock);
+const lastZkSpawnCall = () => zkSpawnCalls[zkSpawnCalls.length - 1];
+
 // --- fake-pi to register the 3 zk_* tools -----------------------------------
 function makeFakePi() {
 	const tools = {};
@@ -123,6 +134,7 @@ kc.default(pi);
 const CWD = "/proj";
 async function run(toolName, params, overrides = {}) {
 	calls.length = 0;
+	zkSpawnCalls.length = 0;
 	nextResult = overrides.result ?? defaultOk();
 	resolveVaultRet =
 		overrides.vault ?? {
@@ -139,45 +151,41 @@ async function run(toolName, params, overrides = {}) {
 // runSubagentWithRetry(cwd, systemPrompt, task, toolsCsv, signal, tmpPrefix, opts)
 const lastCall = () => calls[calls.length - 1];
 
-describe("zk_card — per-action wiring", () => {
-	it("add → ADD_TOOLS + pi-kc-add- + buildAddTask", async () => {
+describe("zk_card — per-action wiring (zkSpawn seam)", () => {
+	it("add → ADD_TOOLS + buildAddTask", async () => {
 		await run("zk_card", { action: "add", content: "BODY", folder: "Inbox", force: true });
-		const c = lastCall();
-		expect(c[3]).toBe(ADD_TOOLS.join(","));
-		expect(c[5]).toBe("pi-kc-add-");
-		expect(c[2]).toBe(buildAddTask("BODY", "Inbox", true));
+		const c = lastZkSpawnCall();
+		expect(c.tools).toEqual(ADD_TOOLS);
+		expect(c.task).toBe(buildAddTask("BODY", "Inbox", true));
+		expect(c.cwd).toBe(CWD);
 	});
 
-	it("find → FIND_TOOLS + pi-kc-find- + buildFindTask", async () => {
+	it("find → FIND_TOOLS + buildFindTask", async () => {
 		await run("zk_card", { action: "find", query: "Q", limit: 4, context_lines: 0 });
-		const c = lastCall();
-		expect(c[3]).toBe(FIND_TOOLS.join(","));
-		expect(c[5]).toBe("pi-kc-find-");
-		expect(c[2]).toBe(buildFindTask("Q", 0, 4));
+		const c = lastZkSpawnCall();
+		expect(c.tools).toEqual(FIND_TOOLS);
+		expect(c.task).toBe(buildFindTask("Q", 0, 4));
 	});
 
-	it("update → UPDATE_TOOLS + pi-kc-update-", async () => {
+	it("update → UPDATE_TOOLS + buildUpdateTask", async () => {
 		await run("zk_card", { action: "update", note: "n.md", content: "MORE" });
-		const c = lastCall();
-		expect(c[3]).toBe(UPDATE_TOOLS.join(","));
-		expect(c[5]).toBe("pi-kc-update-");
-		expect(c[2]).toBe(buildUpdateTask("n.md", "MORE"));
+		const c = lastZkSpawnCall();
+		expect(c.tools).toEqual(UPDATE_TOOLS);
+		expect(c.task).toBe(buildUpdateTask("n.md", "MORE"));
 	});
 
-	it("remove → REMOVE_TOOLS + pi-kc-remove-", async () => {
+	it("remove → REMOVE_TOOLS + buildRemoveTask", async () => {
 		await run("zk_card", { action: "remove", note: "n.md", force: false });
-		const c = lastCall();
-		expect(c[3]).toBe(REMOVE_TOOLS.join(","));
-		expect(c[5]).toBe("pi-kc-remove-");
-		expect(c[2]).toBe(buildRemoveTask("n.md", false));
+		const c = lastZkSpawnCall();
+		expect(c.tools).toEqual(REMOVE_TOOLS);
+		expect(c.task).toBe(buildRemoveTask("n.md", false));
 	});
 
-	it("check → CHECK_TOOLS + pi-kc-check- + CHECK_TASK", async () => {
+	it("check → CHECK_TOOLS + CHECK_TASK", async () => {
 		await run("zk_card", { action: "check" });
-		const c = lastCall();
-		expect(c[3]).toBe(CHECK_TOOLS.join(","));
-		expect(c[5]).toBe("pi-kc-check-");
-		expect(c[2]).toBe(CHECK_TASK);
+		const c = lastZkSpawnCall();
+		expect(c.tools).toEqual(CHECK_TOOLS);
+		expect(c.task).toBe(CHECK_TASK);
 	});
 });
 
