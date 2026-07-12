@@ -165,6 +165,8 @@ import {
 	safeNotePath,
 	saveIndex,
 	scheduleVaultBanner,
+	obsidianActionReferenceText,
+	obsidianRoutingDescription,
 	searchReferenceText,
 	searchRoutingDescription,
 	searchVault,
@@ -1921,17 +1923,7 @@ ${output.slice(-2000)}`,
 		// Expose captured individual tools for backward compat (tests, CLI introspection)
 		_capturedTools: _capture._tools,
 		promptSnippet: "Vault I/O + search + knowledge workflows (17 actions: list/read/create/append/search/move/delete/distill/garden/status/...)",
-		description: [
-			"Obsidian vault operations. One tool with an `action` parameter selecting the operation.",
-			"All other parameters are action-specific (passed through to the underlying handler).",
-			"",
-			"Actions: list (notes under folder), read (note content), create (new note),",
-			"append (text to note), append_section (under heading), search (full-text + graph),",
-			"semantic_search (vector similarity), query (metadata/tags/dates), move (rename+rewrite links),",
-			"rename (same dir), update_frontmatter (merge keys), delete (remove+cleanup links),",
-			"invalidate (reconcile cache), open (launch in app), distill (files→Zettelkasten notes),",
-			"garden (audit/repair graph health), status (show active vault).",
-		].join("\n"),
+		description: obsidianRoutingDescription(),
 		parameters: Type.Object({
 			action: Type.Union([
 				Type.Literal("list"),
@@ -2008,6 +2000,28 @@ ${output.slice(-2000)}`,
 			}
 			const { action: _action, ...rest } = params;
 			return tool.execute(_id, rest, signal, _u, ctx);
+		},
+	});
+
+	// ── On-demand help tool (~100 tok schema) ────────────────────────────
+	// Returns per-action reference text. Same source as the terse routing
+	// description (obsidianRoutingDescription / obsidianActionReferenceText)
+	// so the two surfaces cannot drift. Retrieval-neutral: purely additive.
+	pi.registerTool({
+		name: "obsidian_help",
+		label: "Obsidian Action Reference",
+		description:
+			"On-demand reference for the `obsidian` tool. Call to get the full " +
+			"per-action semantics (what each action does, which params it uses, constraints). " +
+			"Executes no vault operation.",
+		promptSnippet:
+			"Look up obsidian action details on demand.",
+		parameters: Type.Object({}),
+		async execute(_id, _params) {
+			return {
+				content: [{ type: "text", text: obsidianActionReferenceText() }],
+				details: { ok: true, reference: "obsidian" },
+			};
 		},
 	});
 

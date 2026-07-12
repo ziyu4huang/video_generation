@@ -42,7 +42,7 @@ describe("registerSkillTool", () => {
   it("registers tool with name 'skill_manage'", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { captured = def; },
+      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
     } as any;
 
     const store = await makeStore();
@@ -60,7 +60,7 @@ describe("registerSkillTool", () => {
   it("create requires name, description, a body or structured fields, and scope", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { captured = def; },
+      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
     } as any;
 
     const store = await makeStore();
@@ -93,7 +93,7 @@ describe("registerSkillTool", () => {
   it("create succeeds with raw markdown content and returns skill_id", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { captured = def; },
+      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
     } as any;
 
     const store = await makeStore();
@@ -118,7 +118,7 @@ describe("registerSkillTool", () => {
   it("create builds a valid skill body from structured fields", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { captured = def; },
+      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
     } as any;
 
     const store = await makeStore();
@@ -158,7 +158,7 @@ describe("registerSkillTool", () => {
   it("create supports explicit project scope", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { captured = def; },
+      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
     } as any;
 
     const store = await makeStore();
@@ -183,7 +183,7 @@ describe("registerSkillTool", () => {
   it("view without skill_id lists all skills", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { captured = def; },
+      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
     } as any;
 
     const store = await makeStore();
@@ -202,7 +202,7 @@ describe("registerSkillTool", () => {
   it("view with skill_id returns full document", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { captured = def; },
+      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
     } as any;
 
     const store = await makeStore();
@@ -221,7 +221,7 @@ describe("registerSkillTool", () => {
   it("view with invalid skill_id returns error", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { captured = def; },
+      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
     } as any;
 
     const store = await makeStore();
@@ -238,7 +238,7 @@ describe("registerSkillTool", () => {
   it("patch requires skill_id, section, content", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { captured = def; },
+      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
     } as any;
 
     const store = await makeStore();
@@ -259,7 +259,7 @@ describe("registerSkillTool", () => {
   it("update requires skill_id", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { captured = def; },
+      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
     } as any;
 
     const store = await makeStore();
@@ -276,7 +276,7 @@ describe("registerSkillTool", () => {
   it("update aliases to full skill rewrite", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { captured = def; },
+      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
     } as any;
 
     const store = await makeStore();
@@ -303,7 +303,7 @@ describe("registerSkillTool", () => {
   it("update can rebuild the body from structured fields", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { captured = def; },
+      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
     } as any;
 
     const store = await makeStore();
@@ -333,7 +333,7 @@ describe("registerSkillTool", () => {
   it("legacy edit alias still rewrites the skill", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { captured = def; },
+      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
     } as any;
 
     const store = await makeStore();
@@ -360,7 +360,7 @@ describe("registerSkillTool", () => {
   it("delete requires skill_id", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { captured = def; },
+      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
     } as any;
 
     const store = await makeStore();
@@ -377,7 +377,7 @@ describe("registerSkillTool", () => {
   it("unknown action returns error", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { captured = def; },
+      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
     } as any;
 
     const store = await makeStore();

@@ -3578,6 +3578,96 @@ export function searchReferenceText(): string {
 	].join("\n");
 }
 
+/** Terse routing description for the fat obsidian tool (~120 tok).
+ *  Heavy per-action semantics → obsidian_help. */
+export function obsidianRoutingDescription(): string {
+	return (
+		"Vault I/O + search + knowledge workflows. One tool with an `action` parameter " +
+		"selecting the operation (list/read/create/append/append_section/search/" +
+		"semantic_search/query/move/rename/update_frontmatter/delete/invalidate/open/" +
+		"distill/garden/status). All other parameters are action-specific. " +
+		"Per-action details → obsidian_help."
+	);
+}
+
+/** Full per-action reference text (the prose the old fat-tool description embedded).
+ *  Returned verbatim by obsidian_help so no capability is lost. Reads the SAME
+ *  action list as the dispatcher — single-sourced, no drift. */
+export function obsidianActionReferenceText(): string {
+	return [
+		"── obsidian actions reference ──",
+		"",
+		"list (notes under folder)",
+		"  Params: folder? — vault-relative folder path. Omit for root.",
+		"  Returns: paths relative to vault root.",
+		"",
+		"read (note content)",
+		"  Params: note (required) — vault-relative path, with or without .md.",
+		"",
+		"create (new note)",
+		"  Params: note (required), content (required), overwrite?, expectedMtime?.",
+		"  Parent folders auto-created. Refuses overwrite unless overwrite:true or expectedMtime set.",
+		"",
+		"append (text to note)",
+		"  Params: note (required), content (required), expectedMtime?.",
+		"  Creates note if missing. Adds blank-line separator before appended text.",
+		"",
+		"append_section (under heading)",
+		"  Params: note (required), heading (required, without # marks), content (required), expectedMtime?.",
+		"  Matches any heading level. Creates heading at end if missing.",
+		"",
+		"search (full-text + graph)",
+		"  Params: query (required), matchMode?, caseSensitive?, folder?, fields?, context?,",
+		"  sort?, groupByFile?, perFile?, max?, paths?, graph?, depth?, backlinks?.",
+		"  Full-text (substring/regex/words/fuzzy) + graph queries (backlinks/outgoing/orphans/",
+		"  dead-links/neighbors). Returns file:line snippets. #-prefixed query = tag search.",
+		"  Per-mode semantics → obsidian_search_help.",
+		"",
+		"semantic_search (vector similarity)",
+		"  Params: query (required), vault_name?, limit?, similarity_threshold?,",
+		"  include_tags?, exclude_tags?.",
+		"  Meaning-based retrieval via vault-mind ChromaDB. Gracefully errors if unreachable.",
+		"",
+		"query (metadata/tags/dates)",
+		"  Params: tags?, anyTags?, folder?, createdAfter?, createdBefore?, max?.",
+		"  Index-only metadata query (Dataview-lite). Does NOT read note bodies.",
+		"",
+		"move (rename+rewrite links)",
+		"  Params: from (required), to (required), overwrite?.",
+		"  Moves note and rewrites ALL inbound [[wiki-links]] across the vault.",
+		"",
+		"rename (same dir)",
+		"  Params: note (required), newName (required).",
+		"  Renames in place; rewrites inbound links.",
+		"",
+		"update_frontmatter (merge keys)",
+		"  Params: note (required), patch (required, key→value object), expectedMtime?.",
+		"  tags is unioned (additive); other keys set/replace. Body untouched.",
+		"",
+		"delete (remove+cleanup links)",
+		"  Params: note (required), confirm (required, must be true), cleanupLinks? (default true).",
+		"  Deletes note and strips all [[wiki-links]] pointing to it. Safety guard requires confirm:true.",
+		"",
+		"invalidate (reconcile cache)",
+		"  Params: path? — vault-relative note/folder to reconcile; omit for whole vault.",
+		"  Reconciles read cache/index after external edits.",
+		"",
+		"open (launch in app)",
+		"  Params: note? — vault-relative path. Omit to open the vault in Obsidian.",
+		"",
+		"distill (files→Zettelkasten notes)",
+		"  Params: files (required, array of paths), folder? (default Zettelkasten), maxNotes?.",
+		"  Spawns an isolated subagent that decomposes files into atomic Zettelkasten notes.",
+		"",
+		"garden (audit/repair graph health)",
+		"  Params: engine? (deterministic|llm, default deterministic), mode? (audit|fix, default audit),",
+		"  scope? (vault folder, default whole vault), fix? (alias for mode:fix).",
+		"  deterministic = fast library scan of convergence folder; llm = full-vault subagent audit.",
+		"",
+		"status (show active vault)",
+		"  No params. Shows resolved vault path/name/source/note-count + all candidates.",
+	].join("\n");
+}
 
 // ---- Deterministic health check registration (Phase 1 de-dup) ------------
 // The deterministic graph health check (graphHealth/healGraph) lives in

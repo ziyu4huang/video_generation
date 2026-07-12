@@ -277,11 +277,38 @@ export const ERROR_NOISE_PATTERNS: RegExp[] = [
 ];
 
 // ─── Skill tool description ───
-export const SKILL_TOOL_DESCRIPTION = `Manage reusable procedures and patterns as Pi-native skills that survive across sessions. Skills are procedural memory — they capture HOW to do something.
+/** Terse routing description (~80 tok). Heavy per-action semantics → skill_manage_help. */
+export const SKILL_TOOL_DESCRIPTION = "Manage reusable procedures and patterns as Pi-native skills that survive across sessions. Skills are procedural memory — they capture HOW to do something.\n\nActions: create (new skill), view (list or inspect), patch (section update by skill_id), update (full rewrite), delete. Scope required on create: 'global' (portable) or 'project' (repo-specific). Prefer structured fields (when_to_use, procedure_steps, pitfalls, verification_steps). Never use for temporary task state. Per-action details → skill_manage_help.";
 
-Actions: create (new skill), view (list or inspect), patch (section update by skill_id), update (full rewrite), delete. Scope required on create: 'global' (portable) or 'project' (repo-specific). Prefer structured fields: when_to_use, procedure_steps, pitfalls, verification_steps. Create after complex/trial-and-error tasks. Patch when a better approach or edge case is discovered. Never use for temporary task state.
-
-This is NOT a skill-discovery tool — use Pi's loaded skill context or explicit SKILL.md paths for that.`;
+/** Full per-action reference text (the prose the old description embedded).
+ *  Returned verbatim by skill_manage_help — single-sourced, no drift. */
+export const SKILL_REFERENCE_TEXT = [
+  "── skill_manage actions reference ──",
+  "",
+  "create (new skill)",
+  "  Required: name, description, scope ('global' or 'project').",
+  "  Prefer structured fields: when_to_use, procedure_steps, pitfalls, verification_steps.",
+  "  Use after complex/trial-and-error tasks to capture a reusable workflow.",
+  "",
+  "view (list or inspect)",
+  "  With skill_id: returns the full skill document.",
+  "  Without skill_id: lists all skills in the index.",
+  "",
+  "patch (section update by skill_id)",
+  "  Required: skill_id, section (e.g. 'Procedure', 'Pitfalls'), content (new section body).",
+  "  Use when a better approach or edge case is discovered — update one section without rewriting the whole skill.",
+  "",
+  "update (full rewrite)",
+  "  Required: skill_id. Provide description + content or structured fields.",
+  "  Legacy alias: 'edit' (same behavior).",
+  "",
+  "delete",
+  "  Required: skill_id. Removes the skill document and index entry.",
+  "",
+  "Notes:",
+  "  This is NOT a skill-discovery tool — use Pi's loaded skill context or explicit SKILL.md paths for that.",
+  "  Never use for temporary task state — skills are durable procedures that survive across sessions.",
+].join("\n");
 
 // ─── Interview prompt (onboarding) ───
 export const INTERVIEW_PROMPT = `You are conducting a brief onboarding interview with a new user. Your goal is to pre-fill their USER PROFILE so future sessions start with context instead of a blank slate.
