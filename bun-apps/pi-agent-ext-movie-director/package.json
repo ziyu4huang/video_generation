@@ -18,7 +18,9 @@
   },
   "scripts": {
     "test": "bun test",
-    "check:schemas": "bun scripts/validate-data.ts"
+    "check:schemas": "bun scripts/validate-data.ts",
+    "cli": "bun src/cli.ts",
+    "md": "bun src/cli.ts"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "latest",
