@@ -28,7 +28,9 @@ import { join } from "node:path";
 import { resolveRepoRoot } from "./binary.ts";
 import { invokeLtx, type InvokeResult, type ProgressFn } from "./invoke.ts";
 import {
+  assertPathAllowed,
   ensureOutputDir,
+  rejectFlagLike,
   resolveOutputDir,
   validateExtraArgs,
   type AllowedRoots,
@@ -134,6 +136,24 @@ export function resolveRunPyPaths(repoRoot: string): { python: string; runPy: st
   const python = process.env.MLX_VENV_PYTHON ?? join(repoRoot, "python", "venv", "bin", "python");
   const runPy = process.env.RUN_PY ?? join(repoRoot, "python", "mlx-movie-director", "run.py");
   return { python, runPy };
+}
+
+/**
+ * Validate path + free-form string fields before they reach argv. Mirrors
+ * index.ts's validateOptionPaths: `fromImage` must resolve under an allowed
+ * root, every other string field is checked for a leading "-" (flag
+ * injection). Without this, buildArgs pushes every field straight into argv
+ * unchecked — the exact gap paths.ts's own header promises is closed
+ * everywhere in this package.
+ */
+function validateOptions(opts: RunPyVideoOptions, roots: AllowedRoots): void {
+  if (opts.fromImage != null) {
+    assertPathAllowed(String(opts.fromImage), roots, { kind: "fromImage", mustExist: true });
+  }
+  for (const [key, v] of Object.entries(opts)) {
+    if (key === "fromImage") continue;
+    if (typeof v === "string") rejectFlagLike(v, key);
+  }
 }
 
 /** camelCase option → kebab-case flag token list (only set fields contribute). */
@@ -253,9 +273,9 @@ function stderrTailOf(res: InvokeResult): string {
 
 /**
  * Run `python/venv/bin/python run.py video t2i2v ...` end-to-end. Resolves with
- * structured details + summary. Non-zero run.py exit is NOT an exception — it
- * surfaces as details.ok=false. Throws only on repo-root / output-dir resolution
- * failure (same contract as runLtx).
+ * structured details + summary. Throws PathSafetyError on invalid paths/args
+ * (same contract as runLtx) or on repo-root / output-dir resolution failure.
+ * Non-zero run.py exit is NOT an exception — it surfaces as details.ok=false.
  */
 export async function runPyVideo(input: RunPyVideoInput): Promise<RunPyVideoOutput> {
   const repoRoot = resolveRepoRoot();
@@ -276,6 +296,7 @@ export async function runPyVideo(input: RunPyVideoInput): Promise<RunPyVideoOutp
 
   const { python, runPy } = resolveRunPyPaths(repoRoot);
   const options = input.options ?? {};
+  validateOptions(options, roots);
   const extraArgs = validateExtraArgs(input.extraArgs ?? [], roots, [...EXTRA_ARG_ALLOW_RUNPY]);
   // invokeLtx does `spawn(python, args)` — so argv must be the run.py SCRIPT path
   // first, then the run.py subcommand chain (`video t2i2v …`), NOT `video` as the
