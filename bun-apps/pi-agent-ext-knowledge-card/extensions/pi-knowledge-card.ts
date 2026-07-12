@@ -35,11 +35,10 @@
 
 import { relative } from "node:path";
 import { readFileSync } from "node:fs";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { zkRetrieve, zkIngest, zkHealth, zkHeal } from "../src/host-fns.ts";
 import {
-	runSubagentWithRetry,
 	resolveVault,
 	registerDeterministicHealthCheck,
 } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
@@ -61,11 +60,32 @@ import {
 	healGraph,
 	formatHealth,
 } from "../src/retrieve.ts";
+import {
+	spawnSubagent as __defaultSpawnSubagent,
+	type SpawnSubagentOptions,
+	type SpawnSubagentResult,
+} from "@repo/pi-agent-ext-workflow/src/spawn-subagent.ts";
+
+// ---------------------------------------------------------------------------
+// zk_* spawn seam (sub-project ①) — zk_card / zk_ask spawn through this
+// swappable fn so the transport is injectable (tests) and converges on ONE
+// path (spawnSubagent, in-process createAgentSession) instead of pi-obsidian's
+// child-process runner. parentExtensionTools is captured at session_start for
+// the R2 bridge (obsidian tools reach the child in manifest AND `-e` dev mode).
+// ---------------------------------------------------------------------------
+export type ZkSpawnFn = (opts: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
+let zkSpawn: ZkSpawnFn = __defaultSpawnSubagent;
+let parentExtensionTools: ToolDefinition[] | undefined;
+/** @internal test-only override of the zk_* spawner. null restores the default. */
+export function __setZkSpawnForTest(fn: ZkSpawnFn | null): void {
+	zkSpawn = fn ?? __defaultSpawnSubagent;
+}
 
 // ---------------------------------------------------------------------------
 // Tool allowlists (per command) — exported so the CLI reuses the exact same
-// sets as this extension. Canonical form: string[] (natural TS). Extension
-// call sites join(",") for runSubagentWithRetry's `toolsCsv` parameter.
+// sets as this extension. Canonical form: string[] (natural TS). The zk_* call
+// sites pass them as the `tools` array to zkSpawn (sub-project ①; was
+// runSubagentWithRetry's `toolsCsv` parameter pre-migration).
 // ---------------------------------------------------------------------------
 
 export const DISTILL_TOOLS = [
@@ -586,6 +606,18 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	// obsidian_distill. Use obsidian_distill directly. buildDistillTask remains
 	// exported above for the CLI zk-extract command.
 
+	// Capture the parent session's extension tools so zk_* in-process subagents
+	// (via spawnSubagent) reach obsidian tools in manifest AND `-e` dev mode (R2).
+	pi.on("session_start", () => {
+		try {
+			parentExtensionTools =
+				(pi as unknown as { getAllToolDefinitions?: () => ToolDefinition[] }).getAllToolDefinitions?.() ??
+				parentExtensionTools;
+		} catch {
+			// getAllToolDefinitions is a runtime patch — absent in some contexts.
+		}
+	});
+
 	// ---- Tool: zk_card ------------------------------------------------------
 	pi.registerTool({
 		name: "zk_card",
@@ -665,8 +697,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			const folder = params.folder ?? "Zettelkasten";
 
 			let task: string;
-			let toolsCsv: string;
-			let tmpPrefix: string;
+			let tools: string[];
 
 			switch (params.action) {
 				case "add": {
@@ -680,8 +711,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 						};
 					}
 					task = buildAddTask(params.content, folder, params.force ?? false);
-					toolsCsv = ADD_TOOLS.join(",");
-					tmpPrefix = "pi-kc-add-";
+					tools = ADD_TOOLS;
 					break;
 				}
 				case "find": {
@@ -699,8 +729,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 						params.context_lines ?? 3,
 						params.limit ?? 10,
 					);
-					toolsCsv = FIND_TOOLS.join(",");
-					tmpPrefix = "pi-kc-find-";
+					tools = FIND_TOOLS;
 					break;
 				}
 				case "update": {
@@ -717,8 +746,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 						};
 					}
 					task = buildUpdateTask(params.note, params.content);
-					toolsCsv = UPDATE_TOOLS.join(",");
-					tmpPrefix = "pi-kc-update-";
+					tools = UPDATE_TOOLS;
 					break;
 				}
 				case "remove": {
@@ -732,14 +760,12 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 						};
 					}
 					task = buildRemoveTask(params.note, params.force ?? false);
-					toolsCsv = REMOVE_TOOLS.join(",");
-					tmpPrefix = "pi-kc-remove-";
+					tools = REMOVE_TOOLS;
 					break;
 				}
 				case "check": {
 					task = CHECK_TASK;
-					toolsCsv = CHECK_TOOLS.join(",");
-					tmpPrefix = "pi-kc-check-";
+					tools = CHECK_TOOLS;
 					break;
 				}
 				default: {
@@ -753,15 +779,15 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				}
 			}
 
-			const { output, exitCode, stderr, timedOut } = await runSubagentWithRetry(
+			const { output, exitCode, stderr, timedOut } = await zkSpawn({
 				cwd,
-				"",
 				task,
-				toolsCsv,
+				tools,
+				model: params.model,
+				excludeTools: params.exclude_tools,
 				signal,
-				tmpPrefix,
-				{ model: params.model, excludeTools: params.exclude_tools },
-			);
+				extensionTools: parentExtensionTools,
+			});
 			if (timedOut) {
 				return {
 					content: [
@@ -901,15 +927,15 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				params.folder,
 				params.blend ?? "default",
 			);
-			const { output, exitCode, stderr, timedOut } = await runSubagentWithRetry(
+			const { output, exitCode, stderr, timedOut } = await zkSpawn({
 				cwd,
-				"",
 				task,
-				ragToolsFor(params.blend ?? "default").join(","),
+				tools: ragToolsFor(params.blend ?? "default"),
+				model: params.model,
+				excludeTools: params.exclude_tools,
 				signal,
-				"pi-kc-rag-",
-				{ model: params.model, excludeTools: params.exclude_tools },
-			);
+				extensionTools: parentExtensionTools,
+			});
 			if (timedOut) {
 				return {
 					content: [

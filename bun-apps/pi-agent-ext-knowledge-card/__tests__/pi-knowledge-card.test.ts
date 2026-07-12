@@ -569,6 +569,8 @@ function loadTools(): Record<string, CapturedTool> {
 		registerTool: (def: any) => {
 			tools[def.name] = { name: def.name, execute: def.execute };
 		},
+		on() {},
+		events: { on() {}, emit() {} },
 	};
 	piKnowledgeCardExtension(mockPi);
 	return tools;
