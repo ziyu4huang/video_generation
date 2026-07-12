@@ -28,6 +28,7 @@ import { zkCardCommand } from "./commands/zk-card.ts";
 import { zkAskCommand } from "./commands/zk-ask.ts";
 import { zkIngestCommand } from "./commands/zk-ingest.ts";
 import { zkQueryCommand } from "./commands/zk-query.ts";
+import { kcardLoopCommand } from "./commands/kcard-loop.ts";
 import { vlmDescribeCommand } from "./commands/vlm-describe.ts";
 import { pdfToVaultCommand } from "./commands/pdf-to-vault.ts";
 import { imageToVaultCommand } from "./commands/image-to-vault.ts";
@@ -106,6 +107,12 @@ const COMMANDS: Command[] = [
     summary: zkQueryCommand.summary,
     details: zkQueryCommand.details,
     run: zkQueryCommand.run,
+  },
+  {
+    name: "kcard-loop",
+    summary: kcardLoopCommand.summary,
+    details: kcardLoopCommand.details,
+    run: kcardLoopCommand.run,
   },
   {
     name: "doctor",

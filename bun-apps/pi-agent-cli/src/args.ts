@@ -154,6 +154,22 @@ export interface ParsedArgs {
 	workflowArgs?: string;
 	/** workflow: disable log persistence (logs persist by default). */
 	noPersistLogs?: boolean;
+	/** kcard-loop: cross-link weighting (count | idf) — also used by zk-ingest. */
+	linkWeighting?: string;
+	/** kcard-loop: path to a probe eval JSON ({queries:[{q,expect}]}). */
+	probeEval?: string;
+	/** kcard-loop: max heal rounds (default 8). */
+	maxRounds?: number;
+	/** kcard-loop: consecutive no-progress rounds before stopping (default 2). */
+	consecutiveEmpty?: number;
+	/** kcard-loop: max cross-link neighbours per card (default 20). */
+	maxLinks?: number;
+	/** kcard-loop: wiki-aware upsert at ingest. */
+	wikiAware?: boolean;
+	/** kcard-loop: skip ingest, only heal + probe. */
+	healOnly?: boolean;
+	/** kcard-loop: skip the recall probe. */
+	noProbe?: boolean;
 	/** Emit JSON output (supported by zk-query, etc.) */
 	json?: boolean;
 	/** Tool event verbosity: 0=silent (name only), 1=args summary,
