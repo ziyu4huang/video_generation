@@ -114,14 +114,39 @@ jobs:
         run: bun test src/__tests__/extension-contract.test.ts
 
   # ──────────────────────────────────────────────────────────────────────────
+  # Pre-check: does this PR touch bun-apps/pi-agent/? Push-to-main always runs.
+  # Saves ~8 min of CI time on PRs that don't touch the agent surface.
+  # ──────────────────────────────────────────────────────────────────────────
+  check-deploy-paths:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      deploy: ${{ steps.filter.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }} | grep -q '^bun-apps/pi-agent/'; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ──────────────────────────────────────────────────────────────────────────
   # Thrust B — deploy --verify. Builds pi-agent, bundles the 9 extensions, then
   # boots the deployed artifact from a FOREIGN cwd and probes getAllTools for
   # 0 conflicts. Catches resolve.ts mode bugs + broken bundles at DEPLOY time.
-  # Runs on every PR (could be path-gated to pi-agent/extension changes later;
-  # always-on is strictly more verification and avoids branch-protection gaps).
+  # Path-gated to bun-apps/pi-agent/ changes (unconditionally on push-to-main)
+  # so it no longer delays PRs that only touch CLAUDE.md or other packages.
   # ──────────────────────────────────────────────────────────────────────────
   deploy-verify:
-    name: deploy --verify
+    needs: check-deploy-paths
+    if: needs.check-deploy-paths.outputs.deploy == 'true'
+    name: deploy -- verify
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
