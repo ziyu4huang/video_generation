@@ -985,6 +985,7 @@ function yamlScalar(v: unknown): string {
 export function readCardMeta(absPath: string): {
 	tags: Set<string>;
 	source_id?: string;
+	source?: string;
 	hasCallouts: boolean;
 	calloutTypes: string[];
 } | null {
@@ -1002,6 +1003,7 @@ export function readCardMeta(absPath: string): {
 		return {
 			tags,
 			source_id: typeof data.source_id === "string" ? data.source_id : undefined,
+			source: typeof data.source === "string" ? data.source : undefined,
 			hasCallouts,
 			calloutTypes,
 		};
@@ -1162,6 +1164,103 @@ function wikiMergeIntoCard(
 	if (!changed) return "unchanged";
 	if (!dryRun) writeFileSync(abs, next, "utf8");
 	return "updated";
+}
+
+// ---------------------------------------------------------------------------
+// coverageReport — dry-run per-family convergence id-diff (no writes, no LLM)
+// ---------------------------------------------------------------------------
+
+export interface CoverageByFamily {
+	expected: number;
+	vault: number;
+	matched: number;
+	missing: string[];
+	sourceOrphaned: string[];
+}
+
+export interface CoverageReport {
+	expected: number;
+	vault: number;
+	matched: number;
+	missing: string[];
+	sourceOrphaned: string[];
+	byFamily: Record<string, CoverageByFamily>;
+}
+
+/** A source family + the already-parsed records expected to have converged.
+ *  The caller parses via the REAL adapters (parseKnowledgeJsonl /
+ *  adaptAutoMemoryMarkdown / adaptHermesMarkdown) so coverage is faithful to
+ *  ingest by construction (never a re-implementation). */
+export interface CoverageSourceSpec {
+	family: SourceFamily;
+	records: KnowledgeRecord[];
+}
+
+/** Dry-run coverage: a per-family id-diff of expected records (E) vs vault cards
+ *  (V). missing = E − V (never converged — the silent-failure tax);
+ *  sourceOrphaned = V − E (card whose source record disappeared). Writes NOTHING.
+ *  Reuses readCardMeta — the same vault-read path ingestRecords uses for its
+ *  existing-card snapshot — so the V set is exactly what ingest sees.
+ *
+ *  PER-FAMILY by design: pi-memory:<hash> and hermes:<slug> mint different ids
+ *  for the same lesson, so id-diff is only meaningful WITHIN a source family.
+ *  Cross-family convergence is Jaccard ≥ 0.85 (invisible to id-diff). */
+export async function coverageReport(opts: {
+	vaultPath: string;
+	folder?: string;
+	sources: CoverageSourceSpec[];
+}): Promise<CoverageReport> {
+	const folderAbs = join(opts.vaultPath, opts.folder ?? "Zettelkasten/knowledge-graph");
+
+	// V: vault cards grouped by source family (via readCardMeta — same path ingest uses).
+	const vaultByFamily = new Map<string, Set<string>>();
+	if (existsSync(folderAbs)) {
+		for (const name of readdirSync(folderAbs)) {
+			if (!name.endsWith(".md")) continue;
+			const meta = readCardMeta(join(folderAbs, name));
+			if (!meta?.source_id) continue;
+			// The card's `source` frontmatter is the sourceLabel ("<family>:<detail>"
+			// — verified for every real caller: host-fns builds `${source}:…`, the
+			// CLI passes "hermes:pipeline" etc.). Extract the family prefix so the
+			// vault set is grouped by the SAME family key CoverageSourceSpec uses.
+			// Legacy/empty-source cards fall through to "unknown" (never a checked
+			// family → not counted as sourceOrphaned, gracefully ignored).
+			const fam = (meta.source ?? "").split(":")[0].trim() || "unknown";
+			const set = vaultByFamily.get(fam) ?? new Set<string>();
+			set.add(meta.source_id);
+			vaultByFamily.set(fam, set);
+		}
+	}
+
+	// Per-family diff. A family not present in the vault contributes vault=0
+	// (every expected id is missing); a family in the vault but not checked is
+	// left alone (no cross-family false-positive).
+	const byFamily: Record<string, CoverageByFamily> = {};
+	const missing: string[] = [];
+	const sourceOrphaned: string[] = [];
+	let expected = 0;
+	let vaultTotal = 0;
+	let matched = 0;
+	for (const src of opts.sources) {
+		const E = new Set(src.records.map((r) => r.id));
+		const V = vaultByFamily.get(src.family) ?? new Set<string>();
+		const famMissing = [...E].filter((id) => !V.has(id));
+		const famOrphaned = [...V].filter((id) => !E.has(id));
+		const famMatched = E.size - famMissing.length;
+		byFamily[src.family] = {
+			expected: E.size,
+			vault: V.size,
+			matched: famMatched,
+			missing: famMissing,
+			sourceOrphaned: famOrphaned,
+		};
+		missing.push(...famMissing);
+		sourceOrphaned.push(...famOrphaned);
+		expected += E.size;
+		vaultTotal += V.size;
+		matched += famMatched;
+	}
+	return { expected, vault: vaultTotal, matched, missing, sourceOrphaned, byFamily };
 }
 
 export async function ingestRecords(
