@@ -621,7 +621,14 @@ export interface AnalysisContextFile {
 }
 
 export interface AnalysisInput {
+  /** Active tools — currently in the per-request tools[] array (selectedTools). */
   tools: AnalysisTool[];
+  /**
+   * Registered-but-inactive tools (getAllTools() minus selectedTools). These cost
+   * 0 tok/req now but would if activated. OPTIONAL so existing callers/tests that
+   * omit it keep their old behavior (no lazy findings).
+   */
+  inactiveTools?: AnalysisTool[];
   skills: AnalysisSkill[];
   contextFiles: AnalysisContextFile[];
   toolTokenThreshold: number;
@@ -642,11 +649,11 @@ function shortPath(p: string): string {
  * no fs, no snapshot. Order of returned findings is: duplicate-name, missing-
  * description, missing-snippet, oversized-tool, oversized-skill, oversized-
  * context-file, stale-guideline-ref, no-guidelines, then per-extension tax
- * (info) + total (info).
+ * (info) + total (info), then lazy-loaded extensions (info) + lazy total (info).
  */
 export function analyzeExtensions(input: AnalysisInput): Finding[] {
   const findings: Finding[] = [];
-  const { tools, skills, contextFiles, toolTokenThreshold, skillCharThreshold, contextFileCharThreshold } = input;
+  const { tools, inactiveTools, skills, contextFiles, toolTokenThreshold, skillCharThreshold, contextFileCharThreshold } = input;
 
   // 🔴 duplicate tool name (same name from ≥2 distinct sources → silent override)
   const sourcesByName = new Map<string, Set<string>>();
@@ -790,6 +797,38 @@ export function analyzeExtensions(input: AnalysisInput): Finding[] {
     detail: { total: totalTax, sources: tax.size },
   });
 
+  // ℹ️ lazy-loaded extensions: registered (getAllTools) but NOT active (not in
+  // selectedTools → absent from the per-request tools[] array → 0 tok now).
+  // They WOULD cost tokens if activated. Surfaced so authors see the FULL
+  // inventory, not just what is currently loaded — and can judge the potential
+  // tax of activating them. Builtins are skipped (same rule as the active tax).
+  const lazyTax = new Map<string, { tools: string[]; tokens: number }>();
+  for (const t of inactiveTools ?? []) {
+    if (t.source === "builtin") continue;
+    const tok = estTok((t.description?.length ?? 0) + JSON.stringify(t.parameters ?? {}).length);
+    const e = lazyTax.get(t.sourcePath) ?? { tools: [], tokens: 0 };
+    e.tools.push(t.name);
+    e.tokens += tok;
+    lazyTax.set(t.sourcePath, e);
+  }
+  const lazyTotal = [...lazyTax.values()].reduce((s, e) => s + e.tokens, 0);
+  for (const [path, e] of lazyTax) {
+    findings.push({
+      severity: "info",
+      check: "lazy-loaded-extension",
+      message: `${shortPath(path)}: ${e.tools.length} tool(s) registered but not active (lazy) — ~${e.tokens} tok/req if loaded`,
+      detail: { path, tools: e.tools, count: e.tools.length, tokens: e.tokens, total: lazyTotal },
+    });
+  }
+  if (lazyTax.size > 0) {
+    findings.push({
+      severity: "info",
+      check: "total-lazy-tax",
+      message: `Lazy extensions add ~${lazyTotal.toLocaleString()} tok/req if activated across ${lazyTax.size} source(s)`,
+      detail: { total: lazyTotal, sources: lazyTax.size },
+    });
+  }
+
   return findings;
 }
 
@@ -860,6 +899,28 @@ export function formatExtensionReport(findings: Finding[]): string {
     lines.push(`  TOTAL${"".padEnd(37)} ~${grand.toLocaleString()} tok/req`);
   }
   lines.push("");
+
+  // Lazy-loaded extensions (registered, not active — 0 tok now, cost shown if activated)
+  const lazy = findings
+    .filter((f) => f.check === "lazy-loaded-extension")
+    .sort((a, b) => ((b.detail?.tokens as number) ?? 0) - ((a.detail?.tokens as number) ?? 0));
+  const lazyGrand = (findings.find((f) => f.check === "total-lazy-tax")?.detail?.total ?? 0) as number;
+  if (lazy.length > 0) {
+    lines.push("▶ Lazy-loaded extensions (registered, not active — 0 tok now, cost shown if activated):");
+    for (const f of lazy) {
+      const tok = (f.detail?.tokens as number) ?? 0;
+      const pct = lazyGrand > 0 ? tok / lazyGrand : 0;
+      const name = shortPath((f.detail?.path as string) ?? "");
+      const toolList = ((f.detail?.tools as string[]) ?? []).join(", ");
+      lines.push(
+        `  ${name.padEnd(42)} ${String((f.detail?.count as number) ?? 0).padStart(3)} tool(s)  ~${String(tok).padStart(5)} tok  ${miniBar(pct)} ${Math.round(pct * 100)}%`,
+      );
+      lines.push(`  ${"".padEnd(42)} tools: ${toolList}`);
+    }
+    lines.push("  " + "─".repeat(42));
+    lines.push(`  TOTAL${"".padEnd(37)} ~${lazyGrand.toLocaleString()} tok/req if activated`);
+    lines.push("");
+  }
   return lines.join("\n");
 }
 
@@ -870,7 +931,8 @@ function makeInspectExtensionsTool(getAllTools: () => ToolInfo[]) {
     description:
       "Lint loaded extensions, tools, skills, and guidelines for health issues: " +
       "duplicate names, missing descriptions/snippets, oversized schemas, stale " +
-      "references, and per-extension token tax. Severity-ranked report or JSON. " +
+      "references, per-extension token tax, and lazy-loaded extensions " +
+      "(registered but not active). Severity-ranked report or JSON. " +
       "For pure token measurement use inspect_context.",
     parameters: Type.Object({
       return_json: Type.Optional(
@@ -898,8 +960,13 @@ function makeInspectExtensionsTool(getAllTools: () => ToolInfo[]) {
       const selectedSet = new Set<string>((opts.selectedTools as string[] | undefined) ?? []);
       const allTools = getAllTools();
       const activeTools = allTools.filter((t) => selectedSet.size === 0 || selectedSet.has(t.name));
+      // Lazy/inactive tools: registered (getAllTools) but NOT in the active
+      // selection (opts.selectedTools) → not in the per-request tools[] array,
+      // costing 0 tok now. Surfaced as lazy-loaded-extension findings.
+      const inactiveRaw =
+        selectedSet.size === 0 ? [] : allTools.filter((t) => !selectedSet.has(t.name));
 
-      const tools: AnalysisTool[] = activeTools.map((t) => ({
+      const toAnalysis = (t: (typeof allTools)[number]): AnalysisTool => ({
         name: t.name,
         description: t.description ?? "",
         parameters: t.parameters,
@@ -907,7 +974,9 @@ function makeInspectExtensionsTool(getAllTools: () => ToolInfo[]) {
         sourcePath: t.sourceInfo?.path ?? "(unknown)",
         source: t.sourceInfo?.source ?? "unknown",
         snippet: snippets[t.name],
-      }));
+      });
+      const tools: AnalysisTool[] = activeTools.map(toAnalysis);
+      const inactiveAnalysisTools: AnalysisTool[] = inactiveRaw.map(toAnalysis);
       const skills: AnalysisSkill[] = ((opts.skills as unknown[]) ?? []).map((s: any) => ({
         name: s.name as string,
         filePath: (s.filePath as string) ?? "",
@@ -919,6 +988,7 @@ function makeInspectExtensionsTool(getAllTools: () => ToolInfo[]) {
 
       const input: AnalysisInput = {
         tools,
+        inactiveTools: inactiveAnalysisTools,
         skills,
         contextFiles,
         toolTokenThreshold: params.tool_token_threshold ?? 1500,
@@ -929,12 +999,18 @@ function makeInspectExtensionsTool(getAllTools: () => ToolInfo[]) {
 
       if (params.return_json) {
         const total = (findings.find((f) => f.check === "total-extension-tax")?.detail?.total ?? 0) as number;
+        const lazyTotal = (findings.find((f) => f.check === "total-lazy-tax")?.detail?.total ?? 0) as number;
         return {
           content: [
             {
               type: "text" as const,
               text: JSON.stringify(
-                { findings, summary: summarizeFindings(findings), total_extension_tokens: total },
+                {
+                  findings,
+                  summary: summarizeFindings(findings),
+                  total_extension_tokens: total,
+                  total_lazy_tokens: lazyTotal,
+                },
                 null,
                 2,
               ),
