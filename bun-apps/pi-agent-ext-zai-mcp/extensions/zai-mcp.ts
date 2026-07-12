@@ -292,22 +292,19 @@ function toAgentToolResult(
 // ---------------------------------------------------------------------------
 
 /** Register every MCP tool from a connected server as a pi tool. */
-function registerServerTools(
+export function registerServerTools(
 	pi: ExtensionAPI,
 	managed: ManagedClient,
 	tools: McpTool[],
 ): void {
 	for (const tool of tools) {
 		const piName = `zai_${managed.serverName}_${tool.name}`;
-		// description with a clear prompt snippet so the LLM picks the right tool
 		const description = tool.description?.trim() || `MCP tool ${tool.name} from Z.ai ${managed.serverName} server.`;
-		const promptSnippet = `${piName}: ${firstLine(description)}`;
 
 		pi.registerTool({
 			name: piName,
 			label: `Z.ai ${managed.serverName} / ${tool.name}`,
 			description,
-			promptSnippet,
 			parameters: jsonSchemaToTypebox(tool.inputSchema),
 			async execute(_toolCallId, params, signal, _onUpdate, _ctx: ExtensionContext) {
 				let result;
@@ -419,11 +416,6 @@ async function closeAll(clients: ManagedClient[]): Promise<void> {
 /** Format tool names into a compact, readable list for the load summary. */
 function formatToolList(names: string[]): string {
 	return names.map((n) => `  • ${n}`).join("\n");
-}
-
-function firstLine(s: string): string {
-	const line = s.split(/\r?\n/)[0] ?? "";
-	return line.length > 120 ? line.slice(0, 117) + "..." : line;
 }
 
 function errMessage(err: unknown): string {
