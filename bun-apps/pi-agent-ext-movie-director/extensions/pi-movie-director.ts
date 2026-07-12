@@ -31,6 +31,7 @@ import {
   estimate as costEstimate,
   reserve as costReserve,
   reconcile as costReconcile,
+  retagTool,
   costSnapshot,
   selectProvider,
   selectAndGenerate,
@@ -46,6 +47,8 @@ import {
   projectDir,
   NoConfiguredProviderError,
   GateViolationError,
+  BudgetExceededError,
+  ApprovalRequiredError,
   type CheckpointStatus,
   scopeViolationForToolCall,
 } from "../src/index.ts";
@@ -285,6 +288,62 @@ function missingFields(opts: Record<string, unknown>, fields: string[]): string[
   return fields.filter((f) => opts[f] === undefined || opts[f] === null || String(opts[f]) === "");
 }
 
+type Capability =
+  | "image_generation"
+  | "video_generation"
+  | "tts"
+  | "music_generation"
+  | "video_post"
+  | "audio_processing"
+  | "analysis"
+  | "enhancement"
+  | "subtitle"
+  | "composition";
+
+/** Resolve the provider for a capability; maps NoConfiguredProviderError to a clean tool-result instead of a thrown stack trace. */
+function dispatchCapability(
+  capability: Capability,
+  provider: string | undefined,
+  command: string,
+): { ok: true; entry: ReturnType<typeof selectProvider> } | { ok: false; error: string } {
+  try {
+    return { ok: true, entry: selectProvider(capability, { provider, command: command || undefined }) };
+  } catch (err) {
+    if (err instanceof NoConfiguredProviderError) return { ok: false, error: err.message };
+    throw err;
+  }
+}
+
+/**
+ * Cost lifecycle (estimate → reserve), run BEFORE generation so a breach can
+ * block spending instead of proceeding silently. Previously
+ * BudgetExceededError/ApprovalRequiredError were caught and swallowed into
+ * "no cost tracked" — invisible to the caller despite this file's own
+ * comment already saying "in cap mode a budget breach SHOULD block" (Item 3,
+ * output/next-goal-20260712_135012.md). Now those two errors block and
+ * surface; any other cost-tracking failure (e.g. a corrupt cost log) stays
+ * best-effort, matching the rest of the lifecycle's error posture.
+ */
+function runCostLifecycle(
+  projectId: string | undefined,
+  tool: string,
+  operation: string,
+  estimatedUsd: number,
+  pipeline: string | undefined,
+): { blocked: false; costEntryId: string | undefined } | { blocked: true; error: string } {
+  if (!projectId) return { blocked: false, costEntryId: undefined };
+  try {
+    const costEntryId = costEstimate(projectId, tool, operation, estimatedUsd, undefined, pipeline);
+    costReserve(projectId, costEntryId);
+    return { blocked: false, costEntryId };
+  } catch (err) {
+    if (err instanceof BudgetExceededError || err instanceof ApprovalRequiredError) {
+      return { blocked: true, error: err.message };
+    }
+    return { blocked: false, costEntryId: undefined };
+  }
+}
+
 async function dispatch(command: Command, opts: Record<string, unknown>): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   try {
     switch (command) {
@@ -394,61 +453,38 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
         return { ok: true, text: jsonOut(v) };
       }
       case "generate": {
-        const capability = String(opts.capability ?? "") as
-          | "image_generation"
-          | "video_generation"
-          | "tts"
-          | "music_generation"
-          | "video_post"
-          | "audio_processing"
-          | "analysis"
-          | "enhancement"
-          | "subtitle"
-          | "composition";
+        const capability = String(opts.capability ?? "") as Capability;
         if (!capability) return { ok: false, error: "generate requires {capability}" };
         const projectId = opts.projectId ? String(opts.projectId) : undefined;
         const provider = opts.provider ? String(opts.provider) : undefined;
         const operation = opts.operation ? String(opts.operation) : `${capability}:${opts.command ?? ""}`;
-
-        // Pre-resolve the selector so a no-configured-provider error is a clean
-        // structured failure (not a thrown stack trace) and so we know the
-        // entry before deciding whether to run the cost lifecycle. Pass `command`
-        // so {capability, command} addressing routes to the provider that owns
-        // the command (e.g. analysis:video_understand → clip, not whisper).
         const command = String(opts.command ?? "");
-        let entry;
-        try {
-          entry = selectProvider(capability, { provider, command: command || undefined });
-        } catch (err) {
-          if (err instanceof NoConfiguredProviderError) {
-            return { ok: false, error: err.message };
-          }
-          throw err;
-        }
+        const pipeline = opts.pipeline ? String(opts.pipeline) : undefined;
 
-        // Cost lifecycle: estimate → reserve → generate → reconcile. Only when a
-        // projectId is given (governance is per-project). Best-effort: a cost
-        // failure must NOT mask the generation result.
-        let costEntryId: string | undefined;
-        if (projectId) {
-          const estimated = Number(opts.estimatedUsd ?? 0);
-          try {
-            costEntryId = costEstimate(projectId, entry.provider, operation, estimated, undefined, opts.pipeline ? String(opts.pipeline) : undefined);
-            costReserve(projectId, costEntryId);
-          } catch {
-            // observe mode never throws; in cap mode a budget breach SHOULD block.
-            costEntryId = undefined;
-          }
-        }
+        // Pre-resolve so a no-configured-provider error is a clean structured
+        // failure and so a tool name is known before deciding whether to run
+        // the cost lifecycle (see dispatchCapability's doc-comment).
+        const dispatched = dispatchCapability(capability, provider, command);
+        if (!dispatched.ok) return dispatched;
+        const entry = dispatched.entry;
+
+        // Cost lifecycle runs BEFORE generation so a cap-mode/approval breach
+        // can block spending (see runCostLifecycle's doc-comment) instead of
+        // running the (potentially expensive) generation anyway.
+        const cost = runCostLifecycle(projectId, entry.provider, operation, Number(opts.estimatedUsd ?? 0), pipeline);
+        if (cost.blocked) return { ok: false, error: cost.error };
+        const costEntryId = cost.costEntryId;
 
         // `entry` (used for the cost estimate above) is pre-resolved before
         // generation; selectAndGenerate may substitute a different provider at
         // runtime (e.g. tts's edge-tts-first-with-fallback-to-say — see
-        // bridge.ts). Report the actually-used entry, not the pre-resolved one.
+        // bridge.ts). Report the actually-used entry, not the pre-resolved one,
+        // and retag the cost log entry so its `tool` matches what actually ran
+        // and was billed (Item 3) rather than the pre-resolved guess.
         const { entry: usedEntry, result } = await selectAndGenerate(
           capability,
           {
-            command: String(opts.command ?? ""),
+            command,
             options: opts.options as Record<string, unknown> | undefined,
             outputDir: opts.outputDir ? String(opts.outputDir) : undefined,
             modelsRoot: opts.modelsRoot ? String(opts.modelsRoot) : undefined,
@@ -459,6 +495,7 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
 
         if (projectId && costEntryId) {
           try {
+            if (usedEntry.provider !== entry.provider) retagTool(projectId, costEntryId, usedEntry.provider);
             costReconcile(projectId, costEntryId, result.cost_usd, result.success);
           } catch {
             /* best-effort: don't mask the generation result */

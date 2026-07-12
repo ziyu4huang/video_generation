@@ -41,8 +41,10 @@ app), `/obsidian-config` (show / set / `--use-app` / `--list` / `--clear`).
    with an `id` (timestamp) and topic `tags`, plus a `## 連結` section holding
    at least one wiki-link `[[Target]]` to a related or parent note.
 6. **Append, don't rewrite:** when adding to an existing note, prefer
-   `obsidian_append_section` under a heading (e.g. `## Log`) to avoid clobbering
-   prior content.
+   `obsidian_append_section` under a heading (e.g. `Log` — pass the bare heading
+   **text**, not the rendered `## Log` markdown; the matcher only strips one
+   leading `#`, so `## ` prefixes fail to match and create a malformed duplicate
+   section) to avoid clobbering prior content.
 7. **Keep the MOC current:** after creating a note, add its wiki-link to the
    matching `#tag` section in `Tags/Index.md` via `obsidian_append_section`.
 8. **Path safety:** never write outside the vault. All paths are vault-relative.
@@ -56,7 +58,7 @@ app), `/obsidian-config` (show / set / `--use-app` / `--list` / `--clear`).
 | "Who links to X" / "what does X link to" / orphans / dead links | `obsidian_search` with `graph:` |
 | Read one note fully | `obsidian_read` |
 | User says "note this down" | `obsidian_create` into `Inbox/` |
-| Add a log line / event | `obsidian_append_section` under `## Log` |
+| Add a log line / event | `obsidian_append_section` under `Log` (bare heading text, no `##`) |
 | Rename / relocate a note | `obsidian_move` (auto-rewrites inbound links) |
 | Add a tag without editing body | `obsidian_update_frontmatter` |
 | Show the user a note | `obsidian_open` |

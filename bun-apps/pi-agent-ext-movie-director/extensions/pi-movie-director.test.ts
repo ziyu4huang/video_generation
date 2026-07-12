@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import extension from "./pi-movie-director.ts";
-import { scopeViolationForToolCall } from "../src/index.ts";
+import { scopeViolationForToolCall, configureBudget } from "../src/index.ts";
 
 // Wiring test for the extension factory — registers one well-formed tool and
 // dispatch() shapes results correctly. Deep behavior is covered in src/*.test.ts.
@@ -145,6 +145,40 @@ describe("pi-movie-director extension", () => {
     );
     expect(res.details.ok).toBe(false);
     expect(res.details.error).toContain("no configured provider");
+  });
+
+  // Item 3 (output/next-goal-20260712_135012.md): BudgetExceededError/
+  // ApprovalRequiredError used to be swallowed into "no cost tracked" inside
+  // generate's cost lifecycle try/catch — invisible to the caller despite the
+  // code's own comment already saying "in cap mode a budget breach SHOULD
+  // block". Now the block happens BEFORE selectAndGenerate runs (no subprocess
+  // spawned) and the error is surfaced directly.
+  test("generate surfaces a cap-mode budget-exceeded error instead of silently skipping cost tracking (Item 3)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-dispatch-budget-"));
+    const prevMlxOut = process.env.MLX_OUTPUT_DIR;
+    process.env.MLX_OUTPUT_DIR = dir;
+    try {
+      configureBudget("p-budget-block", { mode: "cap", totalUsd: 0, singleActionApprovalUsd: 100 });
+      const tool = captureTool("movie");
+      // subtitle_gen is pure-Bun (bun:builtin, no external binary/network) —
+      // the only capability guaranteed configured on every CI runner, unlike
+      // tts (macOS `say`/edge-tts network) which has zero configured
+      // providers on Linux CI (see providers.test.ts's subtitleAdapter tests).
+      const res = await tool.execute(
+        "id",
+        {
+          command: "generate",
+          options: { capability: "subtitle", command: "srt", projectId: "p-budget-block", estimatedUsd: 1.0, options: { wordsPath: "/nonexistent.json" } },
+        },
+        undefined, undefined, undefined,
+      );
+      expect(res.details.ok).toBe(false);
+      expect(res.details.error).toContain("exceed usable budget");
+    } finally {
+      if (prevMlxOut === undefined) delete process.env.MLX_OUTPUT_DIR;
+      else process.env.MLX_OUTPUT_DIR = prevMlxOut;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("compose (ffmpeg foundation tier) also refuses to render when pre-compose would fail (tool-design audit, 2026-07-12 — this tier previously had NO gate at all)", async () => {

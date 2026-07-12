@@ -72,6 +72,109 @@ Both load the extension **and** the skill (`skills/planning-with-files/SKILL.md`
 3. (Optional) `/plan-attest` to SHA-256-lock the plan; any later silent edit fails the hash check and blocks injection.
 4. Work. The extension injects the current plan + progress into each turn, recites the plan head before tool calls, guards dangerous bash, and auto-continues until all phases are complete.
 
+## Recommended workflows
+
+The extension is one half of the system (the **substrate**); the 12 shipped skills are the other half (the **methodology**). The skill flow is what the runtime runs on top of:
+
+```
+test-driven-development = the FOUNDATION (red-green-refactor) every step assumes
+
+brainstorming   --(approved design)----┐
+writing-plans   --(good plan content)----┤
+executing-plans --(per-task execution)----┴--> planning-with-files (SUBSTRATE)
+                                              ├── verification-before-completion (gate)
+                                              └── systematic-debugging (on failures)
+
+using-git-worktrees + finishing-a-development-branch = sibling-worktree lifecycle
+subagent-driven-development                         = per-task isolated execution
+writing-skills   = the META (governs authoring the suite)
+self-improvement = the loop-closing META (evolves the suite)
+```
+
+Pick a workflow by the shape of the work:
+
+### Workflow A — Build a feature the right way (full chain)
+
+Use for any feature or non-trivial change. This is the intended end-to-end flow.
+
+```
+1. brainstorming        -> explore intent, get an approved design (.planning/<slug>/design.md)
+2. writing-plans        -> turn the design into task_plan.md with small TDD steps
+3. /plan-execute        -> approve the plan, activate the hooks
+4. executing-plans      -> execute phase-by-phase, using:
+     ├── test-driven-development        (red-green-refactor each step)
+     ├── verification-before-completion (fresh evidence before "done")
+     └── systematic-debugging           (on any test failure / blocker)
+5. /plan-done           -> close the plan when finished
+```
+
+### Workflow B — Lightweight planning (no ceremony)
+
+For 5+ tool-call tasks that don't warrant full brainstorming.
+
+```
+1. Copy templates  -> skills/planning-with-files/templates/{task_plan,findings,progress}.md
+2. Fill task_plan.md with phases
+3. /plan-execute   -> hooks active
+4. Work, updating progress.md after each phase
+5. /plan-done      -> when done
+```
+
+### Workflow C — Parallel multi-task (PLI v2)
+
+For several features in flight in the same repo at once.
+
+```bash
+mkdir -p .planning/2026-07-12-refactor-auth
+mkdir -p .planning/2026-07-12-add-lora-import
+# each session resolves its own plan; pin one with:
+export PLAN_ID=2026-07-12-refactor-auth
+# then navigate between them:
+/plan-list            # see all plans
+/plan-switch <id>     # jump between them
+/plan-lint --all      # health-check every plan
+```
+
+### Workflow D — Long-running autonomous loop (CI / batch)
+
+```bash
+# opt-in auto-approval (no interactive /plan-execute needed)
+PWF_AUTO_APPROVE=1 pi -e ./extensions/index.ts -p "..."
+
+# or set a recurring tick that re-drives the agent every 10m until the plan is complete:
+/plan-loop 10m
+/plan-goal "all phases complete and tests green"
+```
+
+### Workflow E — Secure / audited plan (attestation)
+
+```
+1. Finalize task_plan.md
+2. /plan-attest          -> SHA-256 lock
+3. Work — any silent edit to task_plan.md -> injection blocked with [PLAN TAMPERED]
+4. /plan-attest --show   -> audit the hash
+5. /plan-attest --clear  -> re-approve after intentional edits
+```
+
+### Workflow F — Coordinating with /goal (three-layer model)
+
+When `/goal`, planning-with-files, and the `todo` tool are all active, they form three time-scales — not competing plans:
+
+| Layer | Tool | Scope | Persistence |
+|-------|------|-------|-------------|
+| Objective | `/goal` | one goal, driven to completion | session JSONL |
+| Plan | planning-with-files | multi-phase, cross-session | files on disk |
+| Steps | `todo` tool | within a phase, in-session | session JSONL (branch-aware) |
+
+When `/goal` is actively driving, the extension **yields** — it skips its own plan injection and auto-continue so the two don't double-drive, and `goal_complete` is blocked while a plan has open phases (run `/plan-done` to release). Use `todo` for the fine steps of the current phase, planning files for the cross-session phase breakdown, and `/goal` to drive the whole objective to done.
+
+### Practical tips
+
+- **Skip the substrate for** simple questions, single-file edits, or quick lookups (< 5 tool calls).
+- **Closing a plan is mandatory.** A finished-but-unclosed plan nags at every `agent_end`. Always run `/plan-done` when done.
+- **Write external/web content to `findings.md` only**, never `task_plan.md` — the plan is injected into the model on every turn, so untrusted content there is a prompt-injection amplifier.
+- **Choose a mode from data**: run `/plan-status` to see the token cost (e.g. `~1137 tokens (parity)` vs `~45 tokens (cache-safe)`), then set `PWF_MODE` accordingly.
+
 ### Modes
 
 Configure via `PWF_MODE` env, project `.pi/settings.json`, or global `~/.pi/agent/settings.json`:
