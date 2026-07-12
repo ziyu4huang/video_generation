@@ -42,8 +42,8 @@ const PROVIDER = ENABLED ? detectProvider() : null;
 const PKG_ROOT = join(import.meta.dir, "..", "..");
 const PI_BIN = join(PKG_ROOT, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js");
 const PWF_EXT = join(PKG_ROOT, "extensions", "index.ts");
-// power-tool lives one level up in the monorepo.
-const POWER_TOOL_EXT = join(PKG_ROOT, "..", "pi-agent-ext-power-tool", "src", "index.ts");
+// goal-todo lives one level up (publishes __piGoalActive after the A3 split).
+const GOAL_TODO_EXT = join(PKG_ROOT, "..", "pi-agent-ext-goal-todo", "extensions", "pi-goal-todo.ts");
 const PROBE = join(import.meta.dir, "coord-probe.ts");
 const YIELD_PROBE = join(import.meta.dir, "yield-probe.ts");
 
@@ -83,7 +83,7 @@ function writePartialPlan(cwd: string, closed = false): void {
 
 /**
  * Write a minimal session JSONL whose `goal-state` custom entry restores an
- * ACTIVE goal via power-tool's loadGoalFromSession at session_start — the
+ * ACTIVE goal via goal-todo's loadGoalFromSession at session_start — the
  * deterministic way to seed an active goal in a `-p` run (the /goal command is
  * interactive). tokenBudget=1 bounds the run: the planning-gate rejection
  * happens during turn 1 (before agent_end), then the budget check at agent_end
@@ -162,12 +162,12 @@ describe.skipIf(!PROVIDER)("coordination e2e: globalThis bridge across two jiti-
     const cwd = makeProject();
     writePartialPlan(cwd);
 
-    // Load order matters: power-tool + planning-with-files first (they publish
+    // Load order matters: goal-todo + planning-with-files first (they publish
     // their globals at factory time), probe last (reads them at session_start).
     const args = [
       PI_BIN,
       "-e",
-      POWER_TOOL_EXT,
+      GOAL_TODO_EXT,
       "-e",
       PWF_EXT,
       "-e",
@@ -200,7 +200,7 @@ describe.skipIf(!PROVIDER)("coordination e2e: globalThis bridge across two jiti-
     expect(probe).not.toBeNull();
     const result = probe as ProbeResult;
 
-    // power-tool published __piGoalActive (factory ran under jiti).
+    // goal-todo published __piGoalActive (factory ran under jiti).
     expect(result.goalType).toBe("function");
     // planning-with-files published __piPlanIncomplete (factory ran under jiti).
     expect(result.planType).toBe("function");
@@ -210,7 +210,7 @@ describe.skipIf(!PROVIDER)("coordination e2e: globalThis bridge across two jiti-
     // started → __piGoalActive() must be false.
     expect(result.goalResult).toBe(false);
     // The probe's cwd has a partial plan on disk → __piPlanIncomplete(cwd)
-    // must be true. This proves the full bridge: power-tool side calls the
+    // must be true. This proves the full bridge: goal-todo side calls the
     // planning-published function, which reads real disk state, correctly.
     expect(result.planResult).toBe(true);
   }, 180_000);
@@ -230,7 +230,7 @@ describe.skipIf(!PROVIDER)("coordination e2e: globalThis bridge across two jiti-
       const args = [
         PI_BIN,
         "-e",
-        POWER_TOOL_EXT,
+        GOAL_TODO_EXT,
         "-e",
         PWF_EXT,
         "--provider",
@@ -285,7 +285,7 @@ describe.skipIf(!PROVIDER)("coordination e2e: globalThis bridge across two jiti-
     const args = [
       PI_BIN,
       "-e",
-      POWER_TOOL_EXT,
+      GOAL_TODO_EXT,
       "-e",
       PWF_EXT,
       "-e",
@@ -334,7 +334,7 @@ describe.skipIf(!PROVIDER)("coordination e2e: globalThis bridge across two jiti-
       const args = [
         PI_BIN,
         "-e",
-        POWER_TOOL_EXT,
+        GOAL_TODO_EXT,
         "-e",
         PWF_EXT,
         "--provider",

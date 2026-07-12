@@ -181,23 +181,21 @@ interface ToolInfoStub {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("tool registration", () => {
-  test("registers all 5 tools (ask_user_question extracted to pi-agent-ext-ask-user)", () => {
+  test("registers all 3 tools (goal+todo extracted to pi-agent-ext-goal-todo)", () => {
     const { captured } = loadExtension([]);
-    // ask_user_question moved to pi-agent-ext-ask-user (monolith-split A2);
-    // knowledge_query + graph_health earlier moved to the knowledge-graph hub.
-    // power-tool is now self-contained diagnostics again.
+    // ask_user_question -> pi-agent-ext-ask-user (A2); goal+todo ->
+    // pi-agent-ext-goal-todo (A3); knowledge_query + graph_health -> knowledge-graph hub.
+    // power-tool is now self-contained diagnostics: inspect_* only.
     expect(Object.keys(captured).sort()).toEqual([
-      "goal_complete",
       "inspect_agent",
       "inspect_context",
       "inspect_extensions",
-      "todo",
     ]);
   });
 
   test("each registered tool has label, description, and execute fn", () => {
     const { captured } = loadExtension([]);
-    expect(Object.keys(captured).length).toBe(5);
+    expect(Object.keys(captured).length).toBe(3);
     for (const name of Object.keys(captured)) {
       expect(typeof captured[name].label).toBe("string");
       expect(captured[name].label.length).toBeGreaterThan(0);
