@@ -25,3 +25,4 @@ export * from "./remotion.ts";
 export * from "./ffprobe.ts";
 export * from "./precompose-gate.ts";
 export * from "./tool-scope.ts";
+export * from "./dispatch.ts";

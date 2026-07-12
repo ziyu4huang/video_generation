@@ -41,6 +41,74 @@ the one hard enforcement — the agent cannot silently skip a human-approval gat
 Match-checked against `talking-head` (idea/script/scene_plan/assets/publish gated;
 edit/compose not).
 
+## Standalone CLI
+
+A self-contained CLI mirrors `pi-agent-cli`'s shape, exposing the 18
+orchestration commands as **deterministic, no-LLM** top-level commands (each a
+direct call to the same `dispatch()` the `movie` agent tool calls), plus an
+`agent` command for natural-language runs. This makes orchestration workflows
+scriptable and CI-friendly without spinning up an LLM for the parts that don't
+need one (preflight, pipeline introspection, checkpoint reads/writes, cost,
+compose, final-review).
+
+```bash
+# from repo root
+bun bun-apps/pi-agent-ext-movie-director/src/cli.ts <command> [options]
+# or via the package script / short alias
+bun run --cwd bun-apps/pi-agent-ext-movie-director md <command> [options]
+```
+
+### Deterministic commands (no LLM — direct orchestration-core calls)
+
+| Command | Summary |
+|---------|---------|
+| `preflight` | provider-menu summary (capabilities, composition runtimes, gaps) |
+| `pipeline-list` | available pipeline manifests |
+| `pipeline-show` | `{pipeline}` → stages, approval gates, produces |
+| `init-project` | `{projectId, pipeline}` → project workspace + projectDir + assetsDir |
+| `next-stage` | `{pipeline, stage?}` → next stage + its human-approval policy |
+| `write-checkpoint` | `{projectId, pipeline, stage, status, …}` — ENFORCES THE GATE |
+| `read-checkpoint` | `{projectId, pipeline, stage?}` → checkpoint + completed stages |
+| `validate-artifact` | `{artifact, data}` → schema validation |
+| `generate` | `{capability, command, options?, …}` → native director (krea2/flux2/ltx) |
+| `compose` | `{editDecisions, …}` → ffmpeg straight-cut .mp4 |
+| `compose-remotion` | `{editDecisions, …}` → Remotion templated compose |
+| `compose-motion` | `{editDecisions, …}` → ffmpeg zoompan/xfade motion compose |
+| `pre-compose` | `{editDecisions, …}` → deterministic pre-render gate |
+| `final-review` | `{mp4Path, …}` → delivery + advisory transcript checks |
+| `cost-estimate` / `cost-reserve` / `cost-reconcile` / `cost-snapshot` | budget lifecycle |
+
+### Passing options
+
+Options map straight onto the `dispatch()` call:
+
+```bash
+# loose --key value flags (value-coerced: number/bool/JSON/string)
+.../cli.ts write-checkpoint \
+  --projectId demo --pipeline talking-head --stage idea --humanApproved
+
+# --options '<JSON>' merge (escape hatch for nested values)
+.../cli.ts generate --capability image_generation --command t2i \
+  --options '{"options":{"prompt":"a red cube","width":1024}}'
+
+# --json wraps the result in {ok, command, result|error} for scripts
+.../cli.ts pipeline-list --json
+```
+
+### `agent` — natural-language orchestration
+
+`agent` shells out to the pi binary (`bun bun-apps/pi-agent/src/cli.ts`) with
+this extension baked in (`-e`) — the same invocation documented above for
+agent-driven runs. Override the pi entry via `PI_BIN`. Use it only when you
+need the LLM to map a free-form concept onto the pipeline:
+
+```bash
+.../cli.ts agent produce a 30s ad: red sports car on a coastal road
+.../cli.ts agent --model sonnet "3-scene product demo"
+# a bare unknown prompt is treated as an agent prompt (passthrough):
+.../cli.ts "plan a 30s animated explainer"
+```
+
 ## Use
 
 ```bash
