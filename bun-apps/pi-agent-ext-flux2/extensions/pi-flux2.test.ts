@@ -33,16 +33,22 @@ describe("pi-flux2 extension", () => {
     expect(tools.map((t: any) => t.name).sort()).toEqual(["flux2", "flux2_help"]);
   });
 
-  test("flux2 has a non-empty, slim description that still documents every subcommand", () => {
+  test("flux2 description routes to flux2_help; flux2_help (no args) documents every subcommand", async () => {
     const tool = getTool("flux2");
     expect(typeof tool.description).toBe("string");
-    expect(tool.description.length).toBeGreaterThan(100);
-    // Slim description keeps the 18-subcommand index (routing info).
-    for (const cmd of ALL_COMMANDS) {
-      expect(tool.description).toContain(cmd);
-    }
-    // The slim description must point the model at flux2_help.
+    expect(tool.description.length).toBeGreaterThan(60);
+    expect(tool.description.length).toBeLessThan(300);
+    // Slim description routes to flux2_help and does NOT embed subcommands inline.
     expect(tool.description).toContain("flux2_help");
+    expect(tool.description).not.toContain(ALL_COMMANDS[0]);
+
+    // The subcommand list now lives in flux2_help's no-arg output (commandIndex).
+    const help = getTool("flux2_help");
+    const res = await help.execute("id", {});
+    const text = (res.content as Array<{ type: string; text?: string }>)[0].text ?? "";
+    for (const cmd of ALL_COMMANDS) {
+      expect(text).toContain(cmd);
+    }
   });
 
   test("flux2 description no longer embeds the heavy per-command field reference", () => {

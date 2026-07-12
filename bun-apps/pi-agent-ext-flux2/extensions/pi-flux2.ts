@@ -181,21 +181,14 @@ function commandExample(cmdName: CommandName): string {
 
 /** Slim (~150 tok) description: routing info only. Heavy reference → flux2_help. */
 function buildDescription(): string {
+  // Stealth-trimmed: routing one-liner only. Bulk semantics (18-subcommand
+  // list, per-command option keys/defaults/path rules, scene-pipeline +
+  // self-improve topics) live in the on-demand `flux2_help` tool result —
+  // never the static schema. Trimming saved ~450 tok/req (descLen 2020 -> ~205).
   return (
-    "Generate or edit images with the Flux2 Klein model (pure Swift/MLX on Apple Silicon) via " +
-    "the `flux2` CLI. Pass `command` (one of the 18 subcommands below) and `options` " +
-    "(camelCase keys; only options relevant to that command are read). Every path in `options` " +
-    "must resolve under the repo / output dir / models tree. The result's `details.output` is " +
-    "the generated PNG path — reuse it to chain commands (e.g. scene → gate → upscale). Set " +
-    "options.strictGate true to abort on a FAIL gate.\n\n" +
-    "The exact option keys, defaults, and path rules for each command are NOT listed here — " +
-    "call `flux2_help({command:\"<name>\"})` to look them up before first use of a command " +
-    "(or anytime you are unsure of a key). Unknown/wrong keys are silently ignored and waste a " +
-    "generation. For the multi-seed winner-picking flow call `flux2_help({topic:\"scene-pipeline\"})`; " +
-    "for generate-and-improve loops call `flux2_help({topic:\"self-improve\"})`.\n\n" +
-    "Subcommands (📤 = produces an image):\n" + commandIndex() + "\n\n" +
-    "Notes: defaults are the CLI's own (omit a field to use it). Repeatable flags " +
-    "(--ref, --lora, --ref-strength, --lora-scale, --ref-mask, --ref-region-mask) take arrays."
+    "Generate/edit/gate images via the Flux2 Klein model (Swift/MLX). Pass `command` + `options` " +
+    "(camelCase). Call `flux2_help({command})` for option keys/defaults/path rules, or `flux2_help` " +
+    "with no args to list subcommands."
   );
 }
 
@@ -241,14 +234,9 @@ function makeFlux2Tool() {
     name: "flux2",
     label: "Flux2 Image Director",
     description: buildDescription(),
-    promptSnippet:
-      "Generate/edit/gate images with Flux2 (Swift/MLX). One tool, 18 subcommands; " +
-      "call flux2_help for a command's options; chain via details.output.",
-    promptGuidelines: [
-      "Media routing: flux2 = image generation/editing (+ multi-character scene command); krea2 = fast " +
-      "single-image draft / light i2i; ltx = video. Call flux2_help({command}) before first use of " +
-      "a command or when unsure of an option key.",
-    ],
+    // promptSnippet + promptGuidelines REMOVED (stealth): usage is taught via
+    // the routing description + the on-demand flux2_help tool, not per-turn
+    // system-prompt injection.
     parameters: Type.Object({
       command: COMMAND_ENUM,
       options: Type.Any({
