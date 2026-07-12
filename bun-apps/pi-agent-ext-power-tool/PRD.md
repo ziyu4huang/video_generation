@@ -10,14 +10,14 @@ A pi extension with developer-focused diagnostic tools: `inspect_agent` dumps fu
 
 ## Scope reality (2026-07)
 
-This PRD describes the extension's **original, diagnostics-focused intent**, and the
-three tools above remain its documented public surface. In practice the package
-has grown into a bundle that also hosts `todo` (+ `/todos`), `ask_user_question`,
-`/goal` (+ `goal_complete`), `/btw` (side-conversation), the `schema-cost`
-accounting export, and a CLI subcommand — all registered through `src/index.ts`.
-The knowledge tools that previously lived here were extracted to `pi-knowledge-card`
-(#351/#354). **Splitting the remaining co-bundled features into focused extensions
-is tracked as future work** (see README › Feature surface).
+The 2026-07 monolith split **completed** the extraction this section once
+flagged as future work. `src/index.ts` now registers only the three diagnostics
+above. The previously co-bundled features were extracted to focused extensions:
+`todo`+`/todos`+`/goal`+`goal_complete` → `pi-agent-ext-goal-todo` (#504);
+`ask_user_question` → `pi-agent-ext-ask-user` (#502); `/btw` →
+`pi-agent-ext-btw` (#499). Knowledge tools left earlier for `pi-knowledge-card`
+(#351/#354). The `schema-cost` export and CLI subcommand remain here. This
+PRD's diagnostics focus is now the literal truth, not just the original intent.
 
 ## Tools
 
