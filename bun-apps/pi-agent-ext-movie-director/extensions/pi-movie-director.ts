@@ -21,6 +21,7 @@ import {
   getStageOrder,
   getStage,
   getNextStage,
+  getStageCheckpointRequired,
   writeCheckpoint,
   readCheckpoint,
   getLatestCheckpoint,
@@ -100,6 +101,13 @@ const COMMAND_REFERENCE = [
   "  • init-project     — {projectId, pipeline} → project workspace: stages + the resolved projectDir + assetsDir.",
   "                        Pass assetsDir as `outputDir` to `generate` so produced files land inside the project workspace.",
   "  • next-stage       — {projectId, pipeline, stage?} → next stage + its human-approval policy.",
+  "                        ENFORCED GATE: if `stage` (the CURRENT stage) has checkpoint_required:true in the pipeline",
+  "                        manifest, this call refuses (GATE VIOLATION) unless a checkpoint with status=\"completed\" ",
+  "                        already exists for it — closes the gap where an agent could work through several",
+  "                        checkpoint_required stages (research→...→assets) without ever calling write-checkpoint,",
+  "                        leaving zero resumable state if the run crashes (two real kernel panics under sustained GPU",
+  "                        load lost full multi-hour runs this way, 2026-07-12). projectId is required whenever `stage`",
+  "                        is a checkpoint_required stage. Pass overrideStageGate:true to skip this check explicitly.",
   "  • write-checkpoint — {projectId, pipeline, stage, status, artifacts?, humanApproved?, overrideFinalReview?,",
   "                        overrideArtifactValidation?, ...}",
   "                        ENFORCES THE GATE: status=completed on an approval-gated stage requires humanApproved=true;",
@@ -330,6 +338,39 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
         if (missing.length > 0) return { ok: false, error: `next-stage requires non-empty ${missing.join(", ")}` };
         const pipeline = String(opts.pipeline ?? "");
         const stage = opts.stage ? String(opts.stage) : undefined;
+        // GATE (checkpoint-enforcement gap, placebo-effect-explainer Track A
+        // verification run, 2026-07-12): checkpoint_required:true in a pipeline
+        // manifest used to be declared policy with zero structural enforcement —
+        // an agent could work straight through research→...→assets without ever
+        // calling write-checkpoint, and a crash (this session hit two real
+        // kernel panics under sustained GPU load) lost the ENTIRE run with no
+        // resumable state. Mirrors enforcePreCompose's shape: refuse to report
+        // "next" for a checkpoint_required current stage unless a "completed"
+        // checkpoint exists for it, unless overrideStageGate:true is passed
+        // explicitly. Requires projectId (previously accepted but unused —
+        // movie_help already documented it as required).
+        if (stage && !opts.overrideStageGate && getStageCheckpointRequired(pipeline, stage)) {
+          const projectIdMissing = missingFields(opts, ["projectId"]);
+          if (projectIdMissing.length > 0) {
+            return {
+              ok: false,
+              error:
+                `next-stage requires non-empty projectId when advancing past stage "${stage}" ` +
+                `(checkpoint_required:true in pipeline "${pipeline}") — pass overrideStageGate:true to skip this check.`,
+            };
+          }
+          const cp = readCheckpoint(String(opts.projectId), stage);
+          if (cp?.status !== "completed") {
+            return {
+              ok: false,
+              error:
+                `GATE VIOLATION: stage "${stage}" (${pipeline}) requires a completed checkpoint before advancing ` +
+                `(checkpoint_required:true) — found status: ${cp?.status ?? "missing — write-checkpoint was never called"}. ` +
+                `Call write-checkpoint with status="completed" for "${stage}" first, or pass overrideStageGate=true only ` +
+                `after an explicit human/agent decision to advance without one.`,
+            };
+          }
+        }
         const order = getStageOrder(pipeline);
         const from = stage ?? order[0];
         const next = stage ? getNextStage(pipeline, from!) : from;

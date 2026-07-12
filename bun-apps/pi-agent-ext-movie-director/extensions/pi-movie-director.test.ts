@@ -187,6 +187,89 @@ describe("pi-movie-director extension", () => {
     }
   });
 
+  test("next-stage refuses to advance past a checkpoint_required stage with no completed checkpoint (checkpoint-enforcement gap, placebo-effect-explainer 2026-07-12)", async () => {
+    const tool = captureTool("movie");
+    const res = await tool.execute(
+      "id",
+      {
+        command: "next-stage",
+        options: { projectId: "p-stage-gate-missing", pipeline: "talking-head", stage: "idea" },
+      },
+      undefined, undefined, undefined,
+    );
+    expect(res.details.ok).toBe(false);
+    expect(res.details.error).toContain("GATE VIOLATION");
+    expect(res.details.error).toContain("idea");
+  });
+
+  test("next-stage proceeds once a completed checkpoint exists for the current checkpoint_required stage", async () => {
+    const tool = captureTool("movie");
+    const writeRes = await tool.execute(
+      "id",
+      {
+        command: "write-checkpoint",
+        options: {
+          projectId: "p-stage-gate-ok", pipeline: "talking-head", stage: "idea",
+          status: "completed", humanApproved: true,
+          artifacts: {
+            brief: {
+              version: "1.0", title: "x", hook: "hook", key_points: ["a"],
+              tone: "warm", style: "clean-professional", target_platform: "generic",
+              target_duration_seconds: 30,
+            },
+          },
+        },
+      },
+      undefined, undefined, undefined,
+    );
+    expect(writeRes.details.ok).toBe(true);
+    const res = await tool.execute(
+      "id",
+      {
+        command: "next-stage",
+        options: { projectId: "p-stage-gate-ok", pipeline: "talking-head", stage: "idea" },
+      },
+      undefined, undefined, undefined,
+    );
+    expect(res.details.ok).toBe(true);
+    const parsed = JSON.parse(res.content[0].text);
+    expect(parsed.current).toBe("idea");
+    expect(parsed.next).toBe("script");
+  });
+
+  test("next-stage with overrideStageGate=true bypasses a missing checkpoint", async () => {
+    const tool = captureTool("movie");
+    const res = await tool.execute(
+      "id",
+      {
+        command: "next-stage",
+        options: { projectId: "p-stage-gate-override", pipeline: "talking-head", stage: "idea", overrideStageGate: true },
+      },
+      undefined, undefined, undefined,
+    );
+    expect(res.details.ok).toBe(true);
+    const parsed = JSON.parse(res.content[0].text);
+    expect(parsed.next).toBe("script");
+  });
+
+  test("next-stage does not gate a stage with checkpoint_required=false (animated-explainer's research stage)", async () => {
+    const tool = captureTool("movie");
+    // No projectId at all, no checkpoint written — must still succeed since
+    // "research" is not checkpoint_required in animated-explainer.
+    const res = await tool.execute(
+      "id",
+      {
+        command: "next-stage",
+        options: { pipeline: "animated-explainer", stage: "research" },
+      },
+      undefined, undefined, undefined,
+    );
+    expect(res.details.ok).toBe(true);
+    const parsed = JSON.parse(res.content[0].text);
+    expect(parsed.current).toBe("research");
+    expect(parsed.next).toBe("proposal");
+  });
+
   test("the factory registers the tool_call scope guard", () => {
     // The extension calls pi.on("tool_call", handler) with the scope-violation
     // predicate. Capture the handler and prove it blocks the #291 path.
