@@ -158,10 +158,33 @@ bun bun-apps/pi-agent/src/cli.ts \
 
 Deterministic steps use `call('movie.*')`; creative steps use `agent()` with
 real model routing; review uses `verify()`. Two-layer cost: workflow `budget`
-tracks agent tokens; movie-director's cost lifecycle tracks media `$`. Resume
-survives crashes (both `agent()` and `call()` are journaled). See
-`receipts/workflow-redesign-20260712.md` for the full design + keystone
-findings.
+tracks agent tokens; movie-director's cost lifecycle tracks media `$`. Each run
+persists a durable journal and is crash-resumable — see **Crash-resumability**
+below. See `receipts/workflow-redesign-20260712.md` for the full design +
+keystone findings.
+
+### Crash-resumability
+
+Each `/command` runs through a `WorkflowManager` that persists a journal to
+disk after every `agent()` and `call('movie.*')` step (via
+`onAgentJournal → save`). A run killed mid-flight — `kill -9`, a kernel panic
+under sustained GPU load, or power loss — leaves the journal intact on disk:
+
+- **Auto-recovery on next start:** `WorkflowManager.recoverStaleRuns()` detects
+  any persisted run still marked `"running"` and reconciles it to `"paused"`
+  (never `"failed"`), so its journal survives and the run is resumable.
+- **Resume:** `/workflows resume <runId>` replays the completed prefix from the
+  journal (zero re-cost — cached results are returned, not regenerated) and runs
+  only the remaining work. Find the `runId` via the `/workflows` navigator.
+- **Partial media is safe:** `dispatch.generate` has no skip-if-exists cache —
+  it always re-renders, so an interrupted `call('movie.generate')` (which never
+  journaled, since `onAgentJournal` fires only on success) simply re-runs on
+  resume and overwrites any partial file.
+
+This directly addresses the 2026-07-12 kernel-panic data-loss class. Permanent
+proof: `src/resume.test.ts` (deterministic, CI-able — `recoverStaleRuns` +
+real-journal-prefix replay that deep-equals a clean run). Real-world GPU
+kill→resume receipt: `receipts/resume-robustness-20260712.md`.
 
 ### Compose — ffmpeg foundation vs Remotion templated tier
 
