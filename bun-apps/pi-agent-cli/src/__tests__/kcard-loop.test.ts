@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parsePiArgs } from "../args.ts";
-import { kcardLoopCommand, runConvergenceFromArgs } from "../commands/kcard-loop.ts";
+import { kcardLoopCommand, runConvergenceFromArgs, slimReceiptForJson } from "../commands/kcard-loop.ts";
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 function jsonl(records: object[]): string {
@@ -99,6 +99,39 @@ describe("kcard-loop — flag parsing", () => {
 		).toThrow(/--consecutive-empty/);
 	});
 });
+
+describe("kcard-loop — slimReceiptForJson (--json payload leanness)", () => {
+	test("replaces health.deadLinks/orphans ARRAYS with COUNTS (no bloat for machine consumers)", () => {
+		const receipt = {
+			converged: true, truncated: false, sourcesIngested: 2,
+			created: 3, updated: 1, unchanged: 0,
+			deadLinksBefore: 2, deadLinksAfter: 0,
+			mocMissingBefore: true, mocMissingAfter: false,
+			rounds: 1, probeHits: 5, probeTotal: 10, probeHitRate: 0.5,
+			health: {
+				ok: true, vaultPath: "/v", folder: "f", mocPath: "m", cardCount: 539,
+				deadLinks: [{ source: "a.md", target: "ghost" }, { source: "b.md", target: "ghost2" }],
+				mocMissing: false, mocStale: false,
+				orphans: ["o1", "o2", "o3"],
+			},
+		} as any
+		const slim = slimReceiptForJson(receipt)
+		// scalars preserved
+		expect(slim.converged).toBe(true)
+		expect(slim.created).toBe(3)
+		expect(slim.probeHitRate).toBe(0.5)
+		// arrays → counts
+		expect(slim.health.deadLinks).toBe(2)
+		expect(slim.health.orphans).toBe(3)
+		expect(slim.health.ok).toBe(true)
+		expect(slim.health.cardCount).toBe(539)
+		// no array survives in health
+		expect(Array.isArray((slim.health as any).deadLinks)).toBe(false)
+		expect(Array.isArray((slim.health as any).orphans)).toBe(false)
+		// total payload stays small (< 400 bytes for this case)
+		expect(JSON.stringify(slim).length).toBeLessThan(400)
+	})
+})
 
 // ── receipt builder ─────────────────────────────────────────────────────────
 describe("kcard-loop — runConvergenceFromArgs", () => {

@@ -121,6 +121,41 @@ function formatReceipt(r: ConvergeReceipt): string {
 }
 
 /**
+ * Lean projection of the receipt for the `--json` machine path. The full
+ * `ConvergeReceipt.health` carries `deadLinks`/`orphans` ARRAYS (file paths)
+ * which bloat the JSON (measured 86% of the payload on a 539-card vault with 39
+ * orphans) and can blow a shell-capture / small-model parse budget when piped
+ * through a workflow agent's Bash. JSON consumers want counts + the scalar
+ * fields; the arrays stay available via `zk-query --health` or the library.
+ */
+export function slimReceiptForJson(r: ConvergeReceipt): Record<string, unknown> {
+	return {
+		converged: r.converged,
+		truncated: r.truncated,
+		sourcesIngested: r.sourcesIngested,
+		created: r.created,
+		updated: r.updated,
+		unchanged: r.unchanged,
+		deadLinksBefore: r.deadLinksBefore,
+		deadLinksAfter: r.deadLinksAfter,
+		mocMissingBefore: r.mocMissingBefore,
+		mocMissingAfter: r.mocMissingAfter,
+		rounds: r.rounds,
+		probeHits: r.probeHits,
+		probeTotal: r.probeTotal,
+		probeHitRate: r.probeHitRate,
+		health: {
+			ok: r.health.ok,
+			cardCount: r.health.cardCount,
+			deadLinks: r.health.deadLinks.length,
+			mocMissing: r.health.mocMissing,
+			mocStale: r.health.mocStale,
+			orphans: r.health.orphans.length,
+		},
+	};
+}
+
+/**
  * Pure receipt builder — does NOT touch stdout. Imported by the test suite so we
  * can assert the receipt without capturing console.log.
  */
@@ -201,7 +236,7 @@ Examples:
 	async run(parsed: ParsedArgs): Promise<void> {
 		const receipt = await runConvergenceFromArgs(parsed);
 		if (parsed.json) {
-			console.log(JSON.stringify(receipt, null, 2));
+			console.log(JSON.stringify(slimReceiptForJson(receipt), null, 2));
 		} else {
 			console.error(formatReceipt(receipt));
 		}
