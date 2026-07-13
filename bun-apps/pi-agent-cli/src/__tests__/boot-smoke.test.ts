@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeAll } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,6 +9,15 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgDir = join(__dirname, "..", "..");        // bun-apps/pi-agent-cli
 const repoRoot = join(pkgDir, "..", "..");         // repo root
 const dec = new TextDecoder();
+
+interface Baseline {
+  toolCountFloor: number;
+  expectedErrorSources: string[];
+  sourceMinimum: string[];
+}
+const baseline: Baseline = JSON.parse(
+  readFileSync(join(__dirname, "__fixtures__/boot-smoke.baseline.json"), "utf8"),
+);
 
 /** Build a gitignored workspace dist artifact only if its marker is absent.
  * CI's setup-env already builds both; this makes local `bun test` work without
@@ -57,6 +66,34 @@ describe("boot-smoke canary", () => {
     const obj = json as Record<string, unknown>;
     for (const key of ["toolsRanked", "errors", "builtinCount", "extensionCount", "totalTokens"]) {
       expect(obj).toHaveProperty(key);
+    }
+  });
+
+  test("no new factory errors, tool-count at floor, 0 tool-name conflicts, expected sources present", () => {
+    const { exitCode, json, stderr } = runCanary();
+    expect(exitCode, `stderr:\n${stderr}`).toBe(0);
+    const obj = json as {
+      toolsRanked: Array<{ name: string; source: string }>;
+      errors?: Array<{ source: string; error: string }>;
+    };
+
+    // 1. errors == baseline (compare error SOURCES, order-independent — error
+    //    text is not stable, source is). A NEW source appearing here = red.
+    const errSources = [...new Set((obj.errors ?? []).map((e) => e.source))].sort();
+    expect(errSources).toEqual([...baseline.expectedErrorSources].sort());
+
+    // 2. tool count >= floor (a factory silently wiring fewer tools = red)
+    expect(obj.toolsRanked.length).toBeGreaterThanOrEqual(baseline.toolCountFloor);
+
+    // 3. 0 duplicate tool names = the 0-conflict contract (mirrors deploy --verify)
+    const names = obj.toolsRanked.map((t) => t.name);
+    const dupes = names.filter((n, i) => names.indexOf(n) !== i);
+    expect(new Set(names).size, `duplicate tool-name conflicts: ${[...new Set(dupes)].join(", ")}`).toBe(names.length);
+
+    // 4. source ⊇ minimum set (a tool-registering extension disappearing = red)
+    const sources = new Set(obj.toolsRanked.map((t) => t.source));
+    for (const s of baseline.sourceMinimum) {
+      expect(sources, `missing expected extension source: ${s}`).toContain(s);
     }
   });
 });
