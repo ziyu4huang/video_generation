@@ -52,7 +52,7 @@ export type DriverResult =
 
 const DEFAULT_MAX_RETRIES = 3;
 
-function slugifyTopic(topic: string): string {
+export function slugifyTopic(topic: string): string {
 	return (
 		topic
 			.toLowerCase()
