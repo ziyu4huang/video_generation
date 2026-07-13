@@ -1,0 +1,103 @@
+# Memory / Knowledge Layer — Architecture Overview
+
+> **AUTHORITATIVE top-level map** for the four extensions that form the agent's
+> memory → knowledge layer. For depth, see each package's own docs (linked below).
+> Snapshot: 2026-07-14 · branch `docs/memory-ext-architecture-review`.
+>
+> This overview is a *distillation* of the detailed review at
+> `.planning/2026-07-14-memory-ext-architecture-review/findings.md` (every claim
+> there is backed by a runnable `rg`/`git` citation).
+
+## The three tiers
+
+```
+TIER 0 — FOUNDATION: pi-agent-ext-obsidian
+  vault I/O · parser · resolveVault · validateZettelNote · runSubagentWithRetry
+        │  hard forward dep (static import)
+        ▼
+TIER 1 — CONVERGENCE HUB: pi-agent-ext-knowledge-card
+  zk_card · zk_ask · zk_ingest · knowledge_query
+  src/ deterministic library: ingest.ts (WRITE) · retrieve.ts (READ) · merge · entities · emit
+  zk_ingest = canonical convergence sink (4 source families)
+        │           ┐
+        │           │ BOTH WRITE via ingestRecords
+        ▼           ▼
+TIER 2 — TWO WRITERS → ONE shared graph folder
+  pi-agent-ext-hermes-memory        pi-agent-ext-distill (v0.0.0, NOT runtime-wired)
+    AUTO-converge                     AGENT-triggered gate→enrich→converge
+        └──────────┬───────────────────┘
+                   ▼
+        Zettelkasten/knowledge-graph/  ← single sink folder, shared-tag edges
+```
+
+## Per-extension responsibility
+
+| Extension | Role | Tools |
+| --- | --- | --- |
+| [`pi-agent-ext-obsidian`](./pi-agent-ext-obsidian/docs/KNOWLEDGE-LAYER.md) | Foundation: vault I/O, frontmatter parser/validation, `resolveVault`, subagent runner | `obsidian` (1 fat tool, ~17 actions) |
+| [`pi-agent-ext-knowledge-card`](./pi-agent-ext-knowledge-card/docs/ARCHITECTURE.md) | Convergence hub: deterministic ingest + retrieval over the shared graph | `zk_card`, `zk_ask`, `zk_ingest`, `knowledge_query` |
+| [`pi-agent-ext-hermes-memory`](./pi-agent-ext-hermes-memory/docs/KNOWLEDGE-LAYER.md) | Working memory + session search; auto-converges memory into the graph | `memory`, `memory_search`, `session_search` |
+| [`pi-agent-ext-distill`](./pi-agent-ext-distill/) | (New, unwired) agent-self-triggered distillation of hermes entries | `distill` (`status`/`gate`/`converge`) |
+
+## Write path — sources → ONE shared graph
+
+All convergence lands in the **same** folder `Zettelkasten/knowledge-graph/`, so
+cross-source `[[edges]]` form by shared tags. `zk_ingest` is the canonical sink.
+
+### ⚠ The two-writer conflict (C1) and the target-partition resolution
+
+Two extensions write to that one folder. **As built today they are mutually
+defeating:** hermes auto-converges entries raw on `session_shutdown` (runs first,
+all targets); distill's gate then dedups against existing card bodies and **kills
+the same entry as a duplicate** → distill's curated path is dead-on-arrival for
+anything hermes touched.
+
+**Resolved architecture (target partition + `superseded_by` precedence):**
+
+| Knowledge class | Owner | Trigger | Card shape |
+| --- | --- | --- | --- |
+| `memory` + `user` (low-stakes working memory) | **hermes** auto-converge | `transfer` + `session_shutdown` | raw `type:pattern`, id `pi-memory:…` |
+| `failure` + `correction` + `insight` (high-value, curated) | **distill** | agent-triggered gate→enrich→converge | typed (`gotcha`/`lever`/…), id `distill:…` |
+
+- distill's gate treats a matching **raw `pi-memory:*`** card as an **upgrade
+  candidate**, not a duplicate: on converge it writes the curated card and flips
+  the raw card to `status: superseded` + `superseded_by: <curated id>`.
+- retrieve already excludes `superseded`/`retired` cards, so the raw card silently
+  drops out of answers. (Caveat: `ingestRecords` defaults `status: active`, so
+  superseding is an explicit 2-step op, not automatic.)
+- **Precondition: do not runtime-wire distill until this partition lands.**
+
+## Read path — which tool when (R4 decision tree)
+
+| Intent | Tool |
+| --- | --- |
+| Working memory entries, user prefs, categorized lessons | `memory_search` |
+| Past conversation / session context | `session_search` |
+| Structured knowledge digest by tags (deterministic, no LLM) | `knowledge_query` |
+| Natural-language cross-source Q&A (graph-RAG, LLM) | `zk_ask` |
+| Vault note full-text / Dataview-style query | `obsidian search` / `obsidian query` |
+
+## "Which distill?" (R3 disambiguation)
+
+| Name | What it is |
+| --- | --- |
+| `obsidian distill` (action) | Raw LLM decomposition of free-form markdown → atomic notes |
+| `zk_ingest` (tool) | Deterministic structured-records → graph sink (no LLM) |
+| `distill` (extension) | hermes curated-upgrade path: gate → enrich → converge |
+| `buildDistillTask` (knowledge-card export) | Vestigial — dead since the #450 tool consolidation; pending removal |
+
+## Known issues tracked in the review
+
+- **C1** 🔴 distill vs hermes two-writer mutual defeat → R1 (above).
+- **C2** 🟡 knowledge-card docs (`ARCHITECTURE.md`/`TOOL-ORCHESTRATION.md`) still
+  describe removed tools `zk_extract` / `graph_health` → R2 (doc edit).
+- **C3** 🟡 "distill" naming collision + vestigial `buildDistillTask` → R3 (above).
+- **C4** 🟡 five overlapping search surfaces → R4 (above).
+- **C5** 🟢 distill not runtime-wired → R5 (wire after R1).
+
+## Package deep-dives
+
+- [pi-agent-ext-obsidian — KNOWLEDGE-LAYER](./pi-agent-ext-obsidian/docs/KNOWLEDGE-LAYER.md)
+- [pi-agent-ext-knowledge-card — ARCHITECTURE](./pi-agent-ext-knowledge-card/docs/ARCHITECTURE.md)
+- [pi-agent-ext-hermes-memory — KNOWLEDGE-LAYER](./pi-agent-ext-hermes-memory/docs/KNOWLEDGE-LAYER.md)
+- [pi-agent-ext-distill](./pi-agent-ext-distill/) (no docs yet — v0.0.0, not runtime-wired)
