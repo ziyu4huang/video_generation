@@ -519,10 +519,14 @@ describe("analyzeExtensions — checks", () => {
     for (const x of f) expect(x.severity).toBe("high");
   });
 
-  test("missing snippet → medium", () => {
+  test("missing snippet → info (stealth is valid by design; not actionable)", () => {
     const f = analyzeWith(HEALTHY_TOOLS, { snippets: {} }).filter((x) => x.check === "missing-snippet");
     expect(f).toHaveLength(1);
-    expect(f[0].severity).toBe("medium");
+    expect(f[0].severity).toBe("info"); // not counted in summary.total
+    // it must NOT inflate the actionable issue count vs the snippet-present baseline
+    const forced = analyzeWith(HEALTHY_TOOLS, { snippets: {} });
+    const baseline = analyzeWith(HEALTHY_TOOLS);
+    expect(summarizeFindings(forced).total).toBe(summarizeFindings(baseline).total);
   });
 
   test("oversized tool schema → medium (respects threshold)", () => {
