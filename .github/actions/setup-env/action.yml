@@ -1,9 +1,11 @@
 name: Setup Bun workspace
 description: |
   The shared job preamble every CI job needs AFTER checkout: setup Bun →
-  (optional) setup Node → `bun install --frozen-lockfile` → build the one
-  compiled workspace dep (`pi-agent-ext-workflow`, whose `main` resolves a
-  gitignored `dist/`). Centralizes the Bun version + the build-first workspace
+  (optional) setup Node → `bun install --frozen-lockfile` → build the compiled workspace deps whose imports resolve
+  gitignored `dist/` outputs (`pi-agent-ext-workflow`'s `dist/index.js`;
+  `pi-agent-ext-obsidian`'s `dist/obsidian.bundle.js`, which knowledge-card
+  consumes via src/obsidian-lazy.ts to dodge jiti's NameTooLong data-URL wrap
+  on the 138 KB obsidian-lib.ts). Centralizes the Bun version + the build-first workspace
   pattern so a rename or version bump touches ONE place, not 5 job definitions.
   Also restores the Bun global install store (~/.bun/install/cache) from cache so
   `bun install --frozen-lockfile` is symlink-only on a hit — this repo uses the
@@ -63,4 +65,15 @@ runs:
     # checkout lacks it (locally it lingers), so build it. ~2.5 s.
     - name: Build pi-agent-ext-workflow (workspace dep)
       run: bun run --cwd bun-apps/pi-agent-ext-workflow build
+      shell: bash
+
+    # pi-agent-ext-knowledge-card consumes obsidian via a pre-built FULL bundle
+    # (dist/obsidian.bundle.js, gitignored) through src/obsidian-lazy.ts — to
+    # dodge jiti's NameTooLong data-URL wrap on the 138 KB obsidian-lib.ts.
+    # Anything that loads knowledge-card's extension (knowledge-card itself,
+    # pi-agent, pi-agent-cli, extension-contract, the schema-cost CLI, and
+    # hermes-memory integration tests) resolves that dist/ — a fresh CI
+    # checkout lacks it, so build it. ~0.3 s.
+    - name: Build pi-agent-ext-obsidian bundle (workspace dep)
+      run: bun run --cwd bun-apps/pi-agent-ext-obsidian build:bundle
       shell: bash

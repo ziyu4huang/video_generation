@@ -41,7 +41,7 @@ import { zkRetrieve, zkIngest, zkHealth, zkHeal } from "../src/host-fns.ts";
 import {
 	resolveVault,
 	registerDeterministicHealthCheck,
-} from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+} from "../src/obsidian-lazy.js";
 import {
 	ingestRecords,
 	parseKnowledgeJsonl,
