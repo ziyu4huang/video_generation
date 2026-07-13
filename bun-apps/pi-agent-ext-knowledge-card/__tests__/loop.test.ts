@@ -31,7 +31,9 @@ const _obsRealAbs = new URL(
 ).pathname;
 const _obsReal: Record<string, unknown> = await import(_obsRealAbs);
 
-mock.module("@repo/pi-agent-ext-obsidian/extensions/obsidian.ts", () => ({
+// Mock the BUNDLE path — the module knowledge-card's source actually imports
+// via src/obsidian-lazy.ts (not the obsidian.ts source path).
+mock.module("@repo/pi-agent-ext-obsidian/dist/obsidian.bundle.js", () => ({
 	..._obsReal,
 	resolveVault: async () => {
 		const envPath = process.env.OB_VAULT_PATH;
