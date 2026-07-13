@@ -11,6 +11,7 @@ import {
   missingRequiredOptions,
   normalizeLegacyImageRequest,
   isNativeControlNetRequest,
+  isNativeWorkflowRequest,
   type ToolResult,
   type GenerateRequest,
   type Adapter,
@@ -185,6 +186,52 @@ describe("isNativeControlNetRequest — controlnet native/python fork", () => {
     expect(isNativeControlNetRequest({ controlImage: "/depth.png", blurRef: 5 })).toBe(false);
     expect(isNativeControlNetRequest({ controlImage: "/depth.png", removeOutlines: true })).toBe(false);
     expect(isNativeControlNetRequest({ controlImage: "/depth.png", controlnetAbTest: true })).toBe(false);
+  });
+});
+
+describe("isNativeWorkflowRequest — workflow native/python fork", () => {
+  // 2026-07-14 session 7: only base-gen + ESRGAN-upscale are genuinely
+  // portable (see workflow_native.ts's module doc); face-detail/post-process/
+  // seedvr2-upscale must all still fall back to run.py's image-workflow.py.
+  it("true for a bare base-gen request (no non-portable knobs)", () => {
+    expect(isNativeWorkflowRequest({ prompt: "a cat" })).toBe(true);
+    expect(isNativeWorkflowRequest({ prompt: "a cat", upscale: true })).toBe(true);
+    expect(isNativeWorkflowRequest({ prompt: "a cat", upscale: true, upscaleMethod: "esrgan" })).toBe(true);
+  });
+
+  it("false when face_detail is requested (camelCase or snake_case)", () => {
+    expect(isNativeWorkflowRequest({ prompt: "x", faceDetail: true })).toBe(false);
+    expect(isNativeWorkflowRequest({ prompt: "x", face_detail: true })).toBe(false);
+  });
+
+  it("false when any post-process filter is requested", () => {
+    expect(isNativeWorkflowRequest({ prompt: "x", filmGrain: 0.02 })).toBe(false);
+    expect(isNativeWorkflowRequest({ prompt: "x", film_grain: 0.02 })).toBe(false);
+    expect(isNativeWorkflowRequest({ prompt: "x", sharpening: 0.1 })).toBe(false);
+    expect(isNativeWorkflowRequest({ prompt: "x", lut: "/foo.cube" })).toBe(false);
+    expect(isNativeWorkflowRequest({ prompt: "x", skinContrast: true })).toBe(false);
+    expect(isNativeWorkflowRequest({ prompt: "x", skin_contrast: true })).toBe(false);
+    expect(isNativeWorkflowRequest({ prompt: "x", noiseClean: true })).toBe(false);
+    expect(isNativeWorkflowRequest({ prompt: "x", noise_clean: true })).toBe(false);
+  });
+
+  it("false for zero-valued filters is NOT triggered (0/false means off, matches Python's _has_post_processing)", () => {
+    expect(isNativeWorkflowRequest({ prompt: "x", filmGrain: 0, sharpening: 0, faceDetail: false })).toBe(true);
+  });
+
+  it("false when upscale_method is seedvr2 (camelCase or snake_case)", () => {
+    expect(isNativeWorkflowRequest({ prompt: "x", upscale: true, upscaleMethod: "seedvr2" })).toBe(false);
+    expect(isNativeWorkflowRequest({ prompt: "x", upscale: true, upscale_method: "seedvr2" })).toBe(false);
+  });
+
+  it("false when a non-portable flag rides in extraArgs (runpy_image.ts's raw-token escape hatch)", () => {
+    expect(isNativeWorkflowRequest({ prompt: "x" }, ["--face-detail"])).toBe(false);
+    expect(isNativeWorkflowRequest({ prompt: "x" }, ["--film-grain", "0.02"])).toBe(false);
+    expect(isNativeWorkflowRequest({ prompt: "x" }, ["--upscale-method", "seedvr2"])).toBe(false);
+  });
+
+  it("true when extraArgs carries only portable tokens", () => {
+    expect(isNativeWorkflowRequest({ prompt: "x" }, ["--upscale-method", "esrgan"])).toBe(true);
   });
 });
 

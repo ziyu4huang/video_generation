@@ -50,6 +50,7 @@ export interface ProviderEntry {
     | "bun:character-native"
     | "mlx:caption"
     | "mlx:controlnet-hybrid"
+    | "mlx:workflow-hybrid"
     | "fetch"
     | "ffmpeg"
     | "macos:vision"
@@ -136,11 +137,11 @@ export const REGISTRY: ProviderEntry[] = [
     invoke: "mlx:runpy-image",
     configured: true,
     commands: [
-      "purify", "multicouple", "workflow",
+      "purify", "multicouple",
       "storyboard", "kontext",
       "cutout", "styletransfer",
     ],
-    notes: "run.py image adapter (src/runpy_image.ts) — the remaining local run.py image sub-actions with no Swift-native equivalent. Command-routed: a {capability, command} where command is one of purify/multicouple/workflow/storyboard/kontext/cutout/styletransfer reaches run.py. storyboard accepts --kontext-lock to route recurring-character shots through true in-context Kontext (FLUX.1-Kontext-dev). cutout/styletransfer were present in runpy_image.ts's ImageAction/CLI mapping but missing from this commands[] list (a pre-existing registry gap, fixed 2026-07-13) — they were unreachable via the selector despite being implemented. Basic t2i/i2i and angle/swap/anime2real/expansion now stay on the Swift directors (see flux2_image/krea2_image above). `twosubject` moved OFF this adapter (2026-07-13) onto twosubject_native below — see that entry's notes; `multicouple` stays here PERMANENTLY (genuine MLX/GPU latent-couple compute, unportable — see twosubject_native.ts's module doc). `restore` moved OFF this adapter (2026-07-13, session 3) onto krea2_image above as an i2i alias — image-restore.py is a thin wrapper with no genuine MLX-only logic. `profile` moved OFF this adapter (2026-07-13, session 4) onto profile_native below — see that entry's notes; image-profile.py's own comments confirm it reuses the angle mechanism, already Swift-native. `controlnet` moved OFF this adapter (2026-07-13, session 3) onto controlnet_hybrid below — see that entry's notes for the style-forked (caption.ts-style) native/python split. `inpaint` moved OFF this adapter (2026-07-13, session 5) onto flux2_image above — see that entry's notes; image-inpaint.py's core masked-redraw mechanism was already Swift-native (Flux2EditPipeline.inpaint), just missing a CLI command exposing it for an external mask. `character` moved OFF this adapter (2026-07-13, session 6) onto character_native below — see that entry's notes; image-character.py's own header calls itself pure orchestration composing already-certified `profile` + `cutout` primitives, both already Swift-native (profile_native.ts + flux2's `segment`). `faceswap` moved OFF this adapter (2026-07-13, session 4) onto flux2_image above — see that entry's notes; the real-usage BFS swap mechanism is now Swift-native (FaceSwapCommand.swift), only --self-test's source-synthesis/VLM-scoring/HTML-review scaffolding stays Python-only (and has no registry route — it was never itself a distinct {capability,command} routing target). Local MLX, never a cloud GAI API.",
+    notes: "run.py image adapter (src/runpy_image.ts) — the remaining local run.py image sub-actions with no Swift-native equivalent. Command-routed: a {capability, command} where command is one of purify/multicouple/storyboard/kontext/cutout/styletransfer reaches run.py. storyboard accepts --kontext-lock to route recurring-character shots through true in-context Kontext (FLUX.1-Kontext-dev). cutout/styletransfer were present in runpy_image.ts's ImageAction/CLI mapping but missing from this commands[] list (a pre-existing registry gap, fixed 2026-07-13) — they were unreachable via the selector despite being implemented. Basic t2i/i2i and angle/swap/anime2real/expansion now stay on the Swift directors (see flux2_image/krea2_image above). `twosubject` moved OFF this adapter (2026-07-13) onto twosubject_native below — see that entry's notes; `multicouple` stays here PERMANENTLY (genuine MLX/GPU latent-couple compute, unportable — see twosubject_native.ts's module doc). `restore` moved OFF this adapter (2026-07-13, session 3) onto krea2_image above as an i2i alias — image-restore.py is a thin wrapper with no genuine MLX-only logic. `profile` moved OFF this adapter (2026-07-13, session 4) onto profile_native below — see that entry's notes; image-profile.py's own comments confirm it reuses the angle mechanism, already Swift-native. `controlnet` moved OFF this adapter (2026-07-13, session 3) onto controlnet_hybrid below — see that entry's notes for the style-forked (caption.ts-style) native/python split. `inpaint` moved OFF this adapter (2026-07-13, session 5) onto flux2_image above — see that entry's notes; image-inpaint.py's core masked-redraw mechanism was already Swift-native (Flux2EditPipeline.inpaint), just missing a CLI command exposing it for an external mask. `character` moved OFF this adapter (2026-07-13, session 6) onto character_native below — see that entry's notes; image-character.py's own header calls itself pure orchestration composing already-certified `profile` + `cutout` primitives, both already Swift-native (profile_native.ts + flux2's `segment`). `faceswap` moved OFF this adapter (2026-07-13, session 4) onto flux2_image above — see that entry's notes; the real-usage BFS swap mechanism is now Swift-native (FaceSwapCommand.swift), only --self-test's source-synthesis/VLM-scoring/HTML-review scaffolding stays Python-only (and has no registry route — it was never itself a distinct {capability,command} routing target). `workflow` moved OFF this adapter (2026-07-14, session 7) onto workflow_hybrid below — see that entry's notes; only a genuinely portable SUBSET (base-gen + ESRGAN-upscale) is native, face-detail/post-process/seedvr2-upscale still fall back here. Local MLX, never a cloud GAI API.",
   },
   // controlnet — 2026-07-13 session 3: swift/krea2-image-director ships a
   // REAL native Swift ControlNet (Krea2ControlNet.swift, Control-LoRA
@@ -171,6 +172,39 @@ export const REGISTRY: ProviderEntry[] = [
     configured: true,
     commands: ["controlnet"],
     notes: "Style-forked (caption.ts pattern) controlnet dispatch (src/bridge.ts realControlNet). Native path: swift/krea2-image-director's Krea2ControlNet.swift (Control LoRA + Krea 2 Turbo) — fires only when the caller supplies an already-preprocessed `controlImage` and no Python-only preprocessing knob. Fallback path: run.py's image-controlnet.py (canny/scribble/raw preprocessing, Z-Image/Flux2-Klein) — fires for everything else, unchanged from before this migration. See isNativeControlNetRequest for the exact split.",
+  },
+  // workflow — 2026-07-14 (session 7): image-workflow.py chains 4 stages (base
+  // gen → face detailer → post-process → upscale). Full-file investigation
+  // (workflow_native.ts's module doc has the line-numbered citations) found
+  // only a SUBSET is genuinely portable: stage 1 (base T2I/I2I) is already
+  // Swift-native (krea2 t2i/i2i, the zimage pipeline run_workflow hardcodes),
+  // and stage 4's DEFAULT method (esrgan) is already Swift-native too (flux2
+  // `upscale`, RealPLKSR — same model the standalone `upscale_flux2` entry
+  // above uses). Stage 2 (face detailer) needs mediapipe FACE DETECTION (the
+  // re-denoise half reuses the same native I2I, but detection has no Swift/
+  // Vision-framework port anywhere in this repo — a genuinely NEW primitive,
+  // not orchestration). Stage 3 (post-process: film grain/sharpen/LUT/skin
+  // contrast) is pure pixel math but needs a decoded RGB buffer this package
+  // has no image-codec dependency for, and no Swift filter chain exists
+  // either — also NEW work, not orchestration. Stage 4's `seedvr2` method
+  // stays confirmed PyTorch/torch-MPS-only (no MLX/Swift port anywhere — see
+  // memory project_pytorch_mps_versions/project_attention_backends_mps).
+  // So this stays under ONE command name ("workflow") and forks by request
+  // shape inside bridge.ts's realWorkflow — the same style-fork controlnet_
+  // hybrid (above) and caption.ts use. Native path only fires when NONE of
+  // face_detail/film_grain/sharpening/lut/skin_contrast/noise_clean is
+  // requested and upscale_method isn't "seedvr2" — see isNativeWorkflowRequest
+  // in bridge.ts. Everything else still reaches run.py's image-workflow.py
+  // via realRunPyImage exactly as before.
+  {
+    name: "workflow_hybrid",
+    capability: "image_generation",
+    provider: "workflow-hybrid",
+    backend: "native_swift",
+    invoke: "mlx:workflow-hybrid",
+    configured: true,
+    commands: ["workflow"],
+    notes: "Style-forked (caption.ts/controlnet_hybrid pattern) workflow dispatch (src/bridge.ts realWorkflow). Native path: src/workflow_native.ts orchestrating krea2 t2i/i2i (base gen) optionally chained with flux2 upscale (ESRGAN/RealPLKSR) — fires only when no face-detail/post-process knob is requested and upscale_method isn't seedvr2. Fallback path: run.py's image-workflow.py (full 4-stage pipeline incl. mediapipe face-detailer, numpy/PIL/cv2 post-process chain, SeedVR2) — fires for everything else, unchanged from before this migration. See isNativeWorkflowRequest for the exact split and workflow_native.ts's module doc for the full per-stage portability investigation.",
   },
   // twosubject — 2026-07-13: image-twosubject.py is PURE CONTROL FLOW (VLM
   // prompt-master + best-of-N native t2i + VLM judge, optional VLM revise) —
