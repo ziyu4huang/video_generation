@@ -1,0 +1,16 @@
+{
+  "toolCountFloor": 29,
+  "expectedErrorSources": ["knowledge-card", "movie-director"],
+  "sourceMinimum": [
+    "knowledge-card",
+    "flux2",
+    "ask-user",
+    "web-access",
+    "ltx",
+    "krea2",
+    "movie-director",
+    "goal-todo",
+    "vlm",
+    "power-tool"
+  ]
+}
