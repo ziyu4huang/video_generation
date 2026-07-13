@@ -28,9 +28,10 @@ describe("planAssetGeneration — video scenes", () => {
 		expect(vids).toHaveLength(1);
 		expect(vids[0]!.options.frames).toBe(150); // ceil(6 * 25)
 		expect(vids[0]!.options.fps).toBe(25);
+		expect(vids[0]!.command).toBe("t2i2v");
 	});
 
-	test("scene 16s @25fps → TWO chained i2v calls (ceil(16/8)=2), each frames=200", () => {
+	test("scene 16s @25fps → TWO chained t2i2v links (ceil(16/8)=2), each frames=200", () => {
 		const plan = planAssetGeneration(
 			{ scenes: [scene({ end_seconds: 16 })] } as any,
 			script as any,
@@ -53,15 +54,15 @@ describe("planAssetGeneration — video scenes", () => {
 		expect(vids.every((v) => v.options.frames === 160)).toBe(true);
 	});
 
-	test("each video scene gets a T2I still first, then its I2V chain", () => {
+	test("each video scene emits a t2i2v chain (link 0 T2V, later links I2V)", () => {
 		const plan = planAssetGeneration(
 			{ scenes: [scene({ end_seconds: 16 })] } as any,
 			script as any,
 			{ fps: 25, maxCallSeconds: 8 },
 		);
-		const seq = plan.calls.filter((c) => c.sceneId === "s1").map((c) => c.command);
-		expect(seq[0]).toBe("t2i");
-		expect(seq.slice(1)).toEqual(["i2v", "i2v"]); // chain after the still
+		const forScene = plan.calls.filter((c) => c.sceneId === "s1");
+		expect(forScene.map((c) => c.command)).toEqual(["t2i2v", "t2i2v"]);
+		expect(forScene.map((c) => c.chainIndex)).toEqual([0, 1]);
 	});
 });
 

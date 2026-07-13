@@ -32,12 +32,6 @@ function resolvePiBin(): string {
 	);
 }
 
-/** Resolve the web-access extension path (for the research agent's web_search tool). */
-function resolveWebAccessExt(): string {
-	const repoRoot = join(import.meta.dir, "..", "..", "..");
-	return join(repoRoot, "bun-apps", "pi-agent-ext-web-access", "index.ts");
-}
-
 interface BoundedSession {
 	system: string;
 	user: string;
@@ -53,12 +47,11 @@ interface BoundedSession {
 export function runBoundedSession(sess: BoundedSession, opts: { spawnImpl?: typeof spawn; env?: NodeJS.ProcessEnv } = {}): Promise<string> {
 	const piBin = resolvePiBin();
 	const doSpawn = opts.spawnImpl ?? spawn;
-	const argv = ["bun", piBin, "--mode", "json", "--no-extensions"];
+	// The pi-agent wrapper loads the run-dir extension set (which already includes
+	// web-access for research). Exclude the movie tools so a waypoint session can't
+	// recurse into run-pipeline. The system prompt (embedded in -p) directs tool use.
+	const argv = ["bun", piBin, "--mode", "json", "--exclude-tools", "movie,movie_help"];
 	if (sess.model) argv.push("--model", sess.model);
-	if (sess.toolset.includes("web_search")) {
-		// Load web-access so web_search/fetch_content are available to the agent.
-		argv.push("-e", resolveWebAccessExt());
-	}
 	// Embed the system prompt as a preamble (robust regardless of CLI flags);
 	// the user instruction follows a separator.
 	argv.push("-p", `${sess.system}\n\n---\n\n${sess.user}`);
@@ -82,28 +75,49 @@ export function runBoundedSession(sess: BoundedSession, opts: { spawnImpl?: type
 	});
 }
 
+/** Pull the text out of a message whose content may be a string or an array of blocks. */
+function messageText(m: { content?: unknown; text?: string }): string {
+	if (typeof m.content === "string") return m.content;
+	if (Array.isArray(m.content)) {
+		return m.content
+			.filter((b): b is { type: string; text?: string } => typeof b === "object" && b !== null && (b as { type?: string }).type === "text")
+			.map((b) => b.text ?? "")
+			.join("");
+	}
+	return typeof m.text === "string" ? m.text : "";
+}
+
 /** Pull the final assistant message text out of a pi --mode json NDJSON stream. */
 function extractFinalAssistantText(ndjson: string): string {
 	let lastAssistant = "";
 	for (const line of ndjson.split("\n")) {
 		const trimmed = line.trim();
 		if (!trimmed) continue;
+		let evt: {
+			type?: string;
+			role?: string;
+			content?: unknown;
+			text?: string;
+			message?: { role?: string; content?: unknown };
+			messages?: Array<{ role?: string; content?: unknown }>;
+		};
 		try {
-			const evt = JSON.parse(trimmed) as { type?: string; role?: string; content?: unknown; text?: string };
-			const isAssistant =
-				evt.role === "assistant" ||
-				evt.type === "assistant" ||
-				evt.type === "message" ||
-				evt.type === "result";
-			if (!isAssistant) continue;
-			const text = typeof evt.content === "string" ? evt.content : evt.text;
-			if (typeof text === "string" && text.trim()) lastAssistant = text;
+			evt = JSON.parse(trimmed);
 		} catch {
-			/* not a JSON event line — skip */
+			continue;
+		}
+		// Gather candidate assistant messages from this event.
+		const candidates: Array<{ role?: string; content?: unknown; text?: string }> = [];
+		if (evt.type === "turn_end" && evt.message) candidates.push(evt.message);
+		if (Array.isArray(evt.messages)) for (const m of evt.messages) if (m?.role === "assistant") candidates.push(m);
+		if (evt.role === "assistant" || evt.type === "assistant") candidates.push(evt);
+		for (const m of candidates) {
+			if (m.role && m.role !== "assistant") continue;
+			const text = messageText(m as { content?: unknown; text?: string });
+			if (text.trim()) lastAssistant = text;
 		}
 	}
-	// Fallback: if no structured assistant message parsed, return the tail of the
-	// stream (better than empty — the caller validates + retries on parse failure).
+	// Fallback: tail of the stream (better than empty — the caller validates + retries on parse failure).
 	return lastAssistant || ndjson.trim().slice(-2000);
 }
 
