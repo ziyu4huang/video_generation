@@ -1,7 +1,8 @@
 /**
  * grand-total.regression.test.ts — the headline agent-efficiency metric.
- * Pins the COMBINED schema-token cost of all 11 tools across hermes-memory +
- * obsidian + knowledge-card. Baseline 3711 tok (2026-07-13, commit 2b3f987c).
+ * Pins the COMBINED schema-token cost of all 12 tools across hermes-memory +
+ * obsidian + knowledge-card + distill. Baseline 3711 tok (2026-07-13, commit 2b3f987c)
+ * + distill added 2026-07-13.
  *
  * hermes-memory uses individual register calls (avoids heavy main factory);
  * obsidian + knowledge-card use their main factories (lightweight registration).
@@ -17,6 +18,8 @@ import { registerMemoryTool } from "../../../bun-apps/pi-agent-ext-hermes-memory
 // obsidian + knowledge-card — main factories
 import obsidianFactory from "../../../bun-apps/pi-agent-ext-obsidian/extensions/obsidian.ts";
 import kcardFactory from "../../../bun-apps/pi-agent-ext-knowledge-card/extensions/pi-knowledge-card.ts";
+// distill — main factory
+import distillFactory from "../../../bun-apps/pi-agent-ext-distill/extensions/distill.ts";
 
 function captureAll(): Record<string, any> {
   const all: Record<string, any> = {};
@@ -40,28 +43,33 @@ function captureAll(): Record<string, any> {
   kcardFactory(k.pi);
   Object.assign(all, k.tools);
 
+  // distill (main factory)
+  const d = createCapturePi();
+  distillFactory(d.pi);
+  Object.assign(all, d.tools);
+
   return all;
 }
 
 describe("cross-extension grand-total schema-cost", () => {
-  test("11 tools registered across 3 extensions", () => {
+  test("12 tools registered across 4 extensions", () => {
     const tools = captureAll();
-    expect(Object.keys(tools).length).toBe(11);
+    expect(Object.keys(tools).length).toBe(12);
   });
 
-  test("grand total ≤ 4100 tokens (baseline 3711, +10.5% headroom)", () => {
+  test("grand total ≤ 4200 tokens (baseline 3835, +9.5% headroom)", () => {
     const tools = captureAll();
     const { perTool, total } = estimateTotalSchemaTokens(tools);
-    console.log("\n  === AGENT TOOL SURFACE (11 tools) ===");
+    console.log("\n  === AGENT TOOL SURFACE (12 tools) ===");
     for (const t of perTool) console.log(`  ${t.name.padEnd(26)} ${String(t.tokens).padStart(5)} tok`);
     console.log(`  ${"GRAND TOTAL".padEnd(26)} ${String(total.tokens).padStart(5)} tok`);
 
     assertWithinBudget(total.tokens, {
-      label: "cross-ext grand total (11 tools)",
-      max: 4100,
-      baseline: 3711,
+      label: "cross-ext grand total (12 tools)",
+      max: 4200,
+      baseline: 3835,
       measuredAt: "2026-07-13",
-      commit: "2b3f987c",
+      commit: "feat/distill-pipeline",
     });
   });
 });
