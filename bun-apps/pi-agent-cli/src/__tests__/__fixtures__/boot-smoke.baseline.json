@@ -1,6 +1,6 @@
 {
   "toolCountFloor": 29,
-  "expectedErrorSources": ["knowledge-card", "movie-director"],
+  "expectedErrorSources": [],
   "sourceMinimum": [
     "knowledge-card",
     "flux2",
