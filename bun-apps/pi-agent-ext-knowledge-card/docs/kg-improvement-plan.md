@@ -448,6 +448,38 @@ Each: **lever** (what moves), **effort** (S/M/L), **risk**, **proof metric**
 
 ---
 
+### P9 — Convergence coverage health dimension (kill the silent-failure tax)  ✅ **SHIPPED (engine + surfaces, 2026-07-13)**
+
+> **Origin:** NOT a vault-mind-comparison proposal (P1–P8). Surfaced by running
+> experience — the 83%-unconverged incident (43/52 global working-memory entries
+> silently never converged; invisible until a manual `/memory-health`). The
+> structural `graphHealth` (dead-links/orphans/MOC-drift) cannot see this: it has
+> no notion of the EXPECTED source set. P9 adds that dimension.
+
+- **Lever:** a dry-run `coverageReport()` (in `src/ingest.ts`) computes a
+  **per-family** id-diff: `missing = E − V` (records that never converged),
+  `sourceOrphaned = V − E` (card whose source disappeared). Reuses the REAL
+  ingest adapters for E and `readCardMeta` for V (faithful — same code path as
+  ingest). Per-family by design (the `pi-memory:`↔`hermes:` id-namespace split
+  makes id-diff only meaningful within a family).
+- **Surfaces:** additive `GraphHealthResult.coverage?`; `zk.health {coverage:true}`
+  host-fn; `zk-query --coverage` CLI (exit 1 on missing). A watch-list
+  (`.pi/kcard-coverage.json` + conventional defaults) lets one command check
+  every family — the layer that solves the invisible-failure tax.
+- **Effort:** M. **Risk:** low (additive, deterministic, no LLM, no schema change).
+- **Perf gate (MEASURED 2026-07-13, synthetic, receipt
+  `output/kcard-coverage-measurements/`):** wall-clock median 1.6 ms @ N=100,
+  **8.0 ms @ N=500** (current vault scale), 16.9 ms @ N=1000 — all ≪ the 1 s gate.
+  Reuses the sub-second ingest parsers, as designed.
+- **Recall gate (DEFERRED):** the 83% repro requires the REAL vault + real hermes
+  source, which needs the primary worktree (the vault submodule is uninitialized
+  in dev worktrees). Run after merge: `zk-query --coverage` from the primary
+  worktree → `missing[]` must include the entries `/memory-health` flags. The
+  mechanism is proven by the faithful-gate unit tests (missing/sourceOrphaned/
+  per-family isolation); the real run is the field confirmation.
+- **Verdict: ✅ SHIPPED.** Also the **prerequisite ④ (learning feedback loop)
+  needs** — `missing[]` IS ④'s ingest worklist.
+
 ## 5. Ranking summary
 
 | # | Proposal | Effort | Risk | Priority | Gate metric |
@@ -459,6 +491,7 @@ Each: **lever** (what moves), **effort** (S/M/L), **risk**, **proof metric**
 | P6 | Hierarchical-tag flattening | S | low | ❌ DROP (0.4% measured) | reopen if hierarchical-tag rate >5% (measured 2/429) |
 | **P7** | knowledge_query NL recall (tag→full-text) | M | low-med | ✅ zk_ask branch CLOSED (live 0.64 ≥ 5; tag-path candidate only) | reopen (tag path) on felt pain; zk_ask branch closed unless a retrieval change drops it <0.5 (re-run `scripts/live-zk-ask-measure.mjs`) |
 | **P8** | Typed-entity extraction + IDF-weighted cross-linking (SAG-inspired) | M | low | ✅ SHIPPED (mechanism, opt-in) | IDF must beat count on `scripts/real-retrieval-eval.json` hit-rate@4 before default promotion; default stays "count" |
+| **P9** | Convergence coverage health dimension (missing / sourceOrphaned per family) | M | low | ✅ SHIPPED (engine + surfaces) | perf gate PASS (8 ms @ N=500); recall repro deferred to primary worktree (`zk-query --coverage` vs `/memory-health`) |
 | P5 | Per-section chunking | — | — | **rejected** | not applicable (atomic-zettel design) |
 
 ---

@@ -28,9 +28,11 @@ import {
   collectInputFiles,
   ingestRecords,
   parseKnowledgeJsonl,
+  coverageReport,
   type KnowledgeRecord,
   type SourceFamily,
 } from "./ingest.js";
+import { loadWatchlist, resolveSpecsToRecords, type SourceSpec } from "./source-watchlist.js";
 
 /** Context handed to every zk.* host fn. vaultPath is optional (test injection). */
 export interface HostFnCtxKC {
@@ -125,17 +127,34 @@ export async function zkIngest(args: ZkIngestArgs, ctx: HostFnCtxKC) {
 export interface ZkHealthArgs {
   folder?: string;
   fix?: boolean;
+  /** When true, compute the coverage dimension (missing / sourceOrphaned per
+   *  family) and attach it to health.coverage. Uses args.sources if given, else
+   *  the watch-list (loadWatchlist). */
+  coverage?: boolean;
+  /** Source specs to check (unparsed dirs/files per family). Omit → watch-list. */
+  sources?: SourceSpec[];
 }
 
-/** zk.health — wraps graphHealth (and healGraph first when fix:true). */
+/** zk.health — wraps graphHealth (and healGraph first when fix:true). When
+ *  coverage:true, also runs coverageReport and attaches it to health.coverage. */
 export async function zkHealth(
   args: ZkHealthArgs,
   ctx: HostFnCtxKC,
 ): Promise<{ health: GraphHealthResult; text: string }> {
   const vaultPath = await vaultOf(ctx);
-  const opts = { vaultPath, folder: args.folder ?? "Zettelkasten/knowledge-graph" };
+  const folder = args.folder ?? "Zettelkasten/knowledge-graph";
+  const opts = { vaultPath, folder };
   if (args.fix) await healGraph(opts);
   const health = await graphHealth(opts);
+  if (args.coverage) {
+    const specs = args.sources ?? loadWatchlist(ctx.cwd);
+    const sources = await resolveSpecsToRecords(specs, ctx.cwd);
+    // Skip gracefully when no configured source resolves (e.g. dev worktree with
+    // no watch-list dirs) — coverage stays undefined rather than reporting vacuous zeros.
+    if (sources.length) {
+      health.coverage = await coverageReport({ vaultPath, folder, sources });
+    }
+  }
   return { health, text: formatHealth(health) };
 }
 
