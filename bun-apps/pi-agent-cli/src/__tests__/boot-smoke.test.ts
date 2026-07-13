@@ -25,7 +25,7 @@ const baseline: Baseline = JSON.parse(
 function buildIfMissing(pkg: string, script: string, marker: string): void {
   if (existsSync(join(repoRoot, "bun-apps", pkg, marker))) return;
   const r = Bun.spawnSync({
-    cmd: ["bun", "run", script],
+    cmd: [process.execPath, "run", script],
     cwd: join(repoRoot, "bun-apps", pkg),
     stdout: "ignore",
     stderr: "pipe",
@@ -38,7 +38,7 @@ function buildIfMissing(pkg: string, script: string, marker: string): void {
 /** Spawn the CLI in source mode and return {exitCode, json, stderr}. */
 function runCanary(): { exitCode: number | null; json: unknown; stderr: string } {
   const proc = Bun.spawnSync({
-    cmd: ["bun", "src/cli.ts", "tools-metrics", "--schema-cost", "--json"],
+    cmd: [process.execPath, "src/cli.ts", "tools-metrics", "--schema-cost", "--json"],
     cwd: pkgDir,
     stdout: "pipe",
     stderr: "pipe",
@@ -55,8 +55,10 @@ function runCanary(): { exitCode: number | null; json: unknown; stderr: string }
 
 describe("boot-smoke canary", () => {
   beforeAll(() => {
+    // pi-agent-ext-workflow ships compiled dist/index.js (gitignored); setup-env
+    // builds it on CI, build-if-missing makes local `bun test` work. (KC now imports
+    // obsidian.ts directly post-#558 — no obsidian bundle build needed.)
     buildIfMissing("pi-agent-ext-workflow", "build", "dist/index.js");
-    buildIfMissing("pi-agent-ext-obsidian", "build:bundle", "dist/obsidian.bundle.js");
   });
 
   test("CLI boots in source mode and the canary command exits 0 with valid JSON", () => {
