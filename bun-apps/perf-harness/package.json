@@ -1,0 +1,12 @@
+{
+  "name": "@repo/perf-harness",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "license": "MIT"
+}
