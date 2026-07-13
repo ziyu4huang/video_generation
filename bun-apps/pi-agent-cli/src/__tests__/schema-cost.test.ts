@@ -81,6 +81,23 @@ describe("createCapturingApi", () => {
 		factory(api);
 		expect(sink.length).toBe(2);
 	});
+
+	test("pi.events is undefined so host-fn-bus-guarding factories skip without throwing", () => {
+		// knowledge-card + movie-director read `pi.events` (the workflow event bus)
+		// and guard `if (!bus) return`. The mock models an ABSENT bus, so events
+		// must be undefined — otherwise the guard sees a truthy callable and calls
+		// `bus.emit(...)`, which throws (a callable has no `.emit`).
+		const sink: unknown[] = [];
+		const api = createCapturingApi("ext", sink as any);
+		expect((api as any).events).toBeUndefined();
+		const factory = (pi: any) => {
+			const bus = pi.events;
+			if (!bus) return "skipped"; // the no-bus path both extensions take
+			bus.emit("workflow:hostfn:v1:register", {}); // would throw pre-fix
+			return "emitted";
+		};
+		expect(factory(api)).toBe("skipped");
+	});
 });
 
 describe("collectExtensionToolCosts", () => {
