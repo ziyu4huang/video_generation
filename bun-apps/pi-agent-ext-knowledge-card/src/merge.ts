@@ -33,7 +33,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseFrontmatter } from "./obsidian-lazy.js";
+import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 import { readCardMeta, slugify } from "./ingest.ts";
 import { tokeniseText, jaccard } from "./similarity.ts";
 

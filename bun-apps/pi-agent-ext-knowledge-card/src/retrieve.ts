@@ -35,7 +35,7 @@
  */
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseFrontmatter, getIndex, graphDeadLinks, graphOrphans, invalidateCache } from "./obsidian-lazy.js";
+import { parseFrontmatter, getIndex, graphDeadLinks, graphOrphans, invalidateCache } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 import {
 	slugify,
 	normTag,
