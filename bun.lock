@@ -104,6 +104,10 @@
         "@earendil-works/pi-tui": "*",
       },
     },
+    "bun-apps/pi-agent-ext-distill": {
+      "name": "@repo/pi-agent-ext-distill",
+      "version": "0.0.0",
+    },
     "bun-apps/pi-agent-ext-flux2": {
       "name": "@repo/pi-agent-ext-flux2",
       "version": "0.1.0",
@@ -681,6 +685,8 @@
     "@repo/pi-agent-ext-ask-user": ["@repo/pi-agent-ext-ask-user@workspace:bun-apps/pi-agent-ext-ask-user"],
 
     "@repo/pi-agent-ext-btw": ["@repo/pi-agent-ext-btw@workspace:bun-apps/pi-agent-ext-btw"],
+
+    "@repo/pi-agent-ext-distill": ["@repo/pi-agent-ext-distill@workspace:bun-apps/pi-agent-ext-distill"],
 
     "@repo/pi-agent-ext-flux2": ["@repo/pi-agent-ext-flux2@workspace:bun-apps/pi-agent-ext-flux2"],
 
