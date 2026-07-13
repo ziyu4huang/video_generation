@@ -118,6 +118,22 @@ export const COMMANDS: Record<string, CommandSpec> = {
       ...GEN_FIELDS,
     },
   },
+
+  controlnet: {
+    name: "controlnet",
+    writesImage: true,
+    when: "Control-image-guided generation via a Control LoRA (native Swift, Krea 2 Turbo). Requires an ALREADY preprocessed conditioning image (depth/pose/edge PNG) — this command does no canny/scribble/depth extraction itself, unlike the run.py bridge's `controlnet` action. Use when the caller already has a conditioning map in hand.",
+    fields: {
+      prompt: { flag: "--prompt", type: "string", description: "Text prompt." },
+      controlImage: { flag: "--control-image", type: "string", isPath: true, description: "Control image path (depth/pose/edge PNG — preprocessed externally; no built-in canny/scribble/depth extraction)." },
+      controlLora: { flag: "--control-lora", type: "string", isPath: true, description: "Control LoRA safetensors path (Patil/Krea-2-depth-controlnet). Omit to use the promoted/staging default." },
+      strength: { flag: "--strength", type: "number", description: "Control strength 0..1 (how strongly the control image guides generation). Default 1.0." },
+      channelMode: { flag: "--channel-mode", type: "string", description: "Channel mode: rgb or gray (grayscale recommended for depth). Default gray." },
+      normalize: { flag: "--normalize", type: "string", description: "Normalize: none or minmax (per-image min-max; recommended for depth). Default minmax." },
+      invert: { flag: "--invert", type: "boolean", description: "Invert the control image (1 - x)." },
+      ...GEN_FIELDS,
+    },
+  },
 };
 
 // ─── Args builder ────────────────────────────────────────────────────────────

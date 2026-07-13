@@ -50,6 +50,32 @@ describe("buildArgs", () => {
     const args = buildArgs(cmd("i2i"), { input: "in.png", prompt: "edit", strength: 0.9 });
     expect(args).toEqual(["--input", "in.png", "--prompt", "edit", "--strength", "0.9"]);
   });
+
+  test("emits controlnet's --control-image/--control-lora/--strength/--channel-mode/--normalize/--invert", () => {
+    const args = buildArgs(cmd("controlnet"), {
+      prompt: "a mountain",
+      controlImage: "depth.png",
+      controlLora: "lora.safetensors",
+      strength: 0.8,
+      channelMode: "rgb",
+      normalize: "none",
+      invert: true,
+    });
+    expect(args).toEqual([
+      "--prompt", "a mountain",
+      "--control-image", "depth.png",
+      "--control-lora", "lora.safetensors",
+      "--strength", "0.8",
+      "--channel-mode", "rgb",
+      "--normalize", "none",
+      "--invert",
+    ]);
+  });
+
+  test("controlnet omits --invert when false (default)", () => {
+    const args = buildArgs(cmd("controlnet"), { prompt: "x", controlImage: "d.png", invert: false });
+    expect(args).toEqual(["--prompt", "x", "--control-image", "d.png"]);
+  });
 });
 
 describe("pathFieldKeys", () => {
@@ -59,6 +85,10 @@ describe("pathFieldKeys", () => {
 
   test("i2i has input + out as path fields", () => {
     expect(pathFieldKeys(cmd("i2i")).sort()).toEqual(["input", "out"]);
+  });
+
+  test("controlnet has controlImage + controlLora + out as path fields", () => {
+    expect(pathFieldKeys(cmd("controlnet")).sort()).toEqual(["controlImage", "controlLora", "out"]);
   });
 });
 
@@ -72,8 +102,8 @@ describe("modeledFlags", () => {
 });
 
 describe("COMMANDS registry", () => {
-  test("has exactly the 2 krea2 subcommands", () => {
-    expect(Object.keys(COMMANDS).sort()).toEqual(["i2i", "t2i"]);
+  test("has exactly the 3 krea2 subcommands", () => {
+    expect(Object.keys(COMMANDS).sort()).toEqual(["controlnet", "i2i", "t2i"]);
   });
 
   test("every command's fields build to a valid args array without throwing (empty options)", () => {

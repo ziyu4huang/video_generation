@@ -42,8 +42,14 @@ export interface ProviderEntry {
     | "mlx:runpy"
     | "mlx:runpy-image"
     | "mlx:runpy-story"
+    | "bun:lmstudio-story"
     | "mlx:runpy-tts"
+    | "bun:tts-native"
+    | "bun:twosubject-native"
+    | "bun:profile-native"
+    | "bun:character-native"
     | "mlx:caption"
+    | "mlx:controlnet-hybrid"
     | "fetch"
     | "ffmpeg"
     | "macos:vision"
@@ -75,19 +81,52 @@ export interface ProviderEntry {
  * present at preflight time (refined in later iterations).
  */
 export const REGISTRY: ProviderEntry[] = [
-  // Image generation — native Swift/MLX directors.
-  { name: "krea2_image", capability: "image_generation", provider: "krea2", backend: "native_swift", invoke: "swift:krea2", configured: true, notes: "swift/krea2-image-director (Z-Image/Krea2 T2I + ControlNet + style transfer)" },
-  { name: "flux2_image", capability: "image_generation", provider: "flux2", backend: "native_swift", invoke: "swift:flux2", configured: true, notes: "swift/flux2-image-director (Flux2 Klein T2I/i2i/edit/scene)" },
+  // Image generation — native Swift/MLX directors. Both declare an explicit
+  // `commands` list so {capability, command} routing is unambiguous instead of
+  // relying on the backend-rank/declaration-order default tiebreak (which would
+  // otherwise always pick krea2, the first-declared entry, for ANY command
+  // neither director explicitly claims — e.g. flux2's own "scene"/"edit"/
+  // "upscale"/etc. previously required an explicit provider:"flux2" hint to
+  // reach at all). "anime2real"/"expansion" are legacy run.py action-name
+  // ALIASES kept routable here (2026-07-13 migration off runpy_image, see
+  // below) — bridge.ts's realFlux2 normalizes them onto flux2's real "style"/
+  // "expand" commands + field names before calling runFlux2.
+  {
+    name: "krea2_image",
+    capability: "image_generation",
+    provider: "krea2",
+    backend: "native_swift",
+    invoke: "swift:krea2",
+    configured: true,
+    commands: ["t2i", "i2i", "restore"],
+    notes: "swift/krea2-image-director (Z-Image/Krea2 T2I + ControlNet + style transfer). restore routes here as an alias of i2i (2026-07-13 migration): image-restore.py is a thin wrapper forcing reference_image=None onto i2i with no other overrides — krea2's native i2i has no ControlNet concept at all (pure SDEdit: input+prompt+strength), so restore==i2i exactly. bridge.ts's normalizeLegacyImageRequest renames the command to i2i before calling runKrea2.",
+  },
+  {
+    name: "flux2_image",
+    capability: "image_generation",
+    provider: "flux2",
+    backend: "native_swift",
+    invoke: "swift:flux2",
+    configured: true,
+    commands: [
+      "t2i", "scene", "edit", "style", "kv-style-transfer", "angle", "swap",
+      "expand", "upscale", "gate", "segment", "story", "inpaint", "faceswap",
+      "anime2real", "expansion", // legacy run.py aliases — see notes above
+    ],
+    notes: "swift/flux2-image-director (Flux2 Klein T2I/i2i/edit/scene/angle/swap/expand/style/upscale/inpaint/faceswap). anime2real routes here as an alias of `style --preset anime2real`; expansion routes here as an alias of `expand` (bridge.ts normalizes both). `inpaint` moved here (2026-07-13, session 5) from runpy_image — flux2's InpaintCommand.swift ports image-inpaint.py's production masked-redraw path onto the ALREADY-SHIPPED Flux2EditPipeline.inpaint (same latent-mask re-injection machinery used by SwapCommand's `--inpaint` seamless mode, just fed a user-supplied mask PNG via the existing Flux2ImageLoad.loadMaskAsChannel instead of a SAM3-derived one — no new denoise-loop/composite code needed). Deferred (documented, not silently dropped): the Python's `--crop`/`--crop-margin` Union 2.1 crop-for-detail mode (crop mask bbox + margin, inpaint at higher effective resolution, paste back) — out of scope for this port, full-frame inpaint at `--longest` covers the common case. `faceswap` moved here (2026-07-13, session 4) from runpy_image — image-faceswap.py's real-usage path (--input/--face, no --self-test) is genuine Flux2 Klein transformer compute Swift already had every primitive for: FaceSwapCommand.swift combines Flux2EditPipeline's multi-ref conditioning (same mechanism `edit`/`style` use) with the BFS LoRA fused at init time via Flux2LoRALoaderCLI (same mechanism `style`/`scene` use) — the two were exercised separately before but never wired together for this. bridge.ts's normalizeLegacyImageRequest maps the legacy input/face field names onto FaceSwapCommand's body/face. DEFERRED to Python (documented, not silently dropped — see runpy_image if a caller still needs it): --self-test's 3-phase source synthesis (ZImage body + Flux2 T2I face) and its optional VLM quality scoring + HTML review — pure test/QA scaffolding, not the swap mechanism itself, and the real-usage command never touches them.",
+  },
   { name: "z_image", capability: "image_generation", provider: "z-image", backend: "native_swift", invoke: "swift:krea2", configured: true, notes: "Z-Image T2I (via krea2 director family)" },
-  // run.py image adapter — the force multiplier. run.py already has ~15 local,
-  // tested image sub-actions (controlnet/faceswap/swap/anime2real/profile/angle/
-  // purify/restore/multicouple/twosubject/workflow/expansion), but until this
-  // entry the ENTIRE run.py image surface was direct-CLI-only — the agent could
-  // not call any of it (only mlx:runpy VIDEO + mlx:caption were wired). Declared
-  // AFTER the Swift directors (same native_swift rank 0) and addressed by COMMAND
-  // (commands[] below), so the selector routes {image_generation, "controlnet"|
-  // "faceswap"|...} here when no Swift director claims that command — while basic
-  // t2i/i2i still fall through to the Swift directors (the default tiebreak).
+  // run.py image adapter — the force multiplier for the LONG TAIL of image
+  // sub-actions that have no Swift-native equivalent yet (controlnet/faceswap/
+  // profile/purify/restore/multicouple/twosubject/workflow/storyboard/inpaint/
+  // character/kontext). angle/swap/anime2real/expansion/i2i moved OFF this
+  // adapter (2026-07-13) onto flux2/krea2 above, once confirmed those Swift
+  // directors already implement the same mechanism (Flux2Klein multi-ref /
+  // outpaint / style-preset / SAM3-swap / krea2 SDEdit-i2i) — see
+  // output/next-goal-20260713_*.md for the audit. Declared AFTER the Swift
+  // directors (same native_swift rank 0) and addressed by COMMAND (commands[]
+  // below), so the selector routes {image_generation, "controlnet"|"faceswap"|
+  // ...} here when no Swift director claims that command.
   // probeConfigured = runPyRuntimePresent (venv python + run.py). LOCAL MLX only.
   {
     name: "runpy_image",
@@ -97,19 +136,126 @@ export const REGISTRY: ProviderEntry[] = [
     invoke: "mlx:runpy-image",
     configured: true,
     commands: [
-      "controlnet", "faceswap", "swap", "anime2real", "profile", "angle",
-      "purify", "restore", "multicouple", "twosubject", "workflow", "expansion",
-      "i2i", "storyboard", "inpaint", "character", "kontext",
+      "purify", "multicouple", "workflow",
+      "storyboard", "kontext",
+      "cutout", "styletransfer",
     ],
-    notes: "run.py image adapter (src/runpy_image.ts) — unlocks the ~15 local run.py image sub-actions to the agent at zero new generation code. Command-routed: a {capability, command} where command is one of controlnet/faceswap/swap/anime2real/profile/angle/purify/restore/multicouple/twosubject/workflow/expansion/i2i/storyboard/inpaint/character/kontext reaches run.py (Swift directors declare no commands, so they don't claim these). storyboard accepts --kontext-lock to route recurring-character shots through true in-context Kontext (FLUX.1-Kontext-dev). Basic t2i stays on the Swift directors. Local MLX, never a cloud GAI API.",
+    notes: "run.py image adapter (src/runpy_image.ts) — the remaining local run.py image sub-actions with no Swift-native equivalent. Command-routed: a {capability, command} where command is one of purify/multicouple/workflow/storyboard/kontext/cutout/styletransfer reaches run.py. storyboard accepts --kontext-lock to route recurring-character shots through true in-context Kontext (FLUX.1-Kontext-dev). cutout/styletransfer were present in runpy_image.ts's ImageAction/CLI mapping but missing from this commands[] list (a pre-existing registry gap, fixed 2026-07-13) — they were unreachable via the selector despite being implemented. Basic t2i/i2i and angle/swap/anime2real/expansion now stay on the Swift directors (see flux2_image/krea2_image above). `twosubject` moved OFF this adapter (2026-07-13) onto twosubject_native below — see that entry's notes; `multicouple` stays here PERMANENTLY (genuine MLX/GPU latent-couple compute, unportable — see twosubject_native.ts's module doc). `restore` moved OFF this adapter (2026-07-13, session 3) onto krea2_image above as an i2i alias — image-restore.py is a thin wrapper with no genuine MLX-only logic. `profile` moved OFF this adapter (2026-07-13, session 4) onto profile_native below — see that entry's notes; image-profile.py's own comments confirm it reuses the angle mechanism, already Swift-native. `controlnet` moved OFF this adapter (2026-07-13, session 3) onto controlnet_hybrid below — see that entry's notes for the style-forked (caption.ts-style) native/python split. `inpaint` moved OFF this adapter (2026-07-13, session 5) onto flux2_image above — see that entry's notes; image-inpaint.py's core masked-redraw mechanism was already Swift-native (Flux2EditPipeline.inpaint), just missing a CLI command exposing it for an external mask. `character` moved OFF this adapter (2026-07-13, session 6) onto character_native below — see that entry's notes; image-character.py's own header calls itself pure orchestration composing already-certified `profile` + `cutout` primitives, both already Swift-native (profile_native.ts + flux2's `segment`). `faceswap` moved OFF this adapter (2026-07-13, session 4) onto flux2_image above — see that entry's notes; the real-usage BFS swap mechanism is now Swift-native (FaceSwapCommand.swift), only --self-test's source-synthesis/VLM-scoring/HTML-review scaffolding stays Python-only (and has no registry route — it was never itself a distinct {capability,command} routing target). Local MLX, never a cloud GAI API.",
+  },
+  // controlnet — 2026-07-13 session 3: swift/krea2-image-director ships a
+  // REAL native Swift ControlNet (Krea2ControlNet.swift, Control-LoRA
+  // mechanism), but it is NOT a drop-in replacement for image-controlnet.py's
+  // canny/scribble ControlNet: the Swift command does zero preprocessing of
+  // its own (the control image must already be a depth/pose/edge map — see
+  // its --control-image help text "preprocessed externally") and requires a
+  // separately-downloaded depth Control LoRA (Patil/Krea-2-depth-controlnet).
+  // The Python path has built-in canny/scribble/raw preprocessing (cv2, no
+  // extra model) plus blur/outline-removal knobs the Swift path cannot do at
+  // all. Rather than silently reroute existing canny/scribble callers onto an
+  // incompatible native command (which would break at runtime demanding a
+  // control-lora + a precomputed control image), this stays under ONE command
+  // name ("controlnet") and forks by request shape inside bridge.ts's
+  // realControlNet — the same style-fork caption.ts uses for its 4 native
+  // styles vs the other 10 that stay on run.py. Native path only fires when
+  // the caller supplies the native `controlImage` field AND none of the
+  // Python-only preprocessing knobs (controlnetType canny/scribble/pose/hed,
+  // blurRef, removeOutlines, controlnetAbTest) — see
+  // isNativeControlNetRequest in bridge.ts. Everything else still reaches
+  // run.py's controlnet action via realRunPyImage exactly as before.
+  {
+    name: "controlnet_hybrid",
+    capability: "image_generation",
+    provider: "controlnet-hybrid",
+    backend: "native_swift",
+    invoke: "mlx:controlnet-hybrid",
+    configured: true,
+    commands: ["controlnet"],
+    notes: "Style-forked (caption.ts pattern) controlnet dispatch (src/bridge.ts realControlNet). Native path: swift/krea2-image-director's Krea2ControlNet.swift (Control LoRA + Krea 2 Turbo) — fires only when the caller supplies an already-preprocessed `controlImage` and no Python-only preprocessing knob. Fallback path: run.py's image-controlnet.py (canny/scribble/raw preprocessing, Z-Image/Flux2-Klein) — fires for everything else, unchanged from before this migration. See isNativeControlNetRequest for the exact split.",
+  },
+  // twosubject — 2026-07-13: image-twosubject.py is PURE CONTROL FLOW (VLM
+  // prompt-master + best-of-N native t2i + VLM judge, optional VLM revise) —
+  // no MLX compute of its own (the actual pixels come from Z-Image t2i, the
+  // VLM calls are bare LM Studio HTTP), so it moved off run.py onto a direct
+  // Bun implementation (twosubject_native.ts) calling krea2's native t2i +
+  // lmstudio.ts's vision-call primitive. Declared BEFORE runpy_image is
+  // irrelevant here since `twosubject` was removed from runpy_image's
+  // commands[] above — no overlap, no selector tiebreak needed. Do NOT
+  // confuse with `multicouple` (image-multicouple.py), which is genuine
+  // latent-couple MLX/GPU compute and stays on runpy_image permanently.
+  {
+    name: "twosubject_native",
+    capability: "image_generation",
+    provider: "twosubject-native",
+    backend: "native_swift",
+    invoke: "bun:twosubject-native",
+    configured: true,
+    commands: ["twosubject"],
+    notes: "Direct Bun implementation (src/twosubject_native.ts) of the VLM-driven single-prompt two-subject loop: VLM prompt-master composes one anti-bleeding two-subject prompt → best-of-N seeds via krea2 native Z-Image t2i → VLM judges every seed on the two-subject rubric → optional VLM revise-and-regenerate round if the best score is below --min-overall. No run.py, no MLX venv for the control flow — t2i pixels still come from local krea2/Z-Image (native Swift), VLM calls are local LM Studio HTTP. Known deltas from the Python: (1) no --cfg-scale forwarding (krea2's native t2i has no cfg-scale flag yet — a real quality delta from the Python's cfg_scale=3.0 default); (2) pick_best has no bg_edge_split pixel tiebreak (no image-decode lib in this package); (3) ref-image captioning uses a minimal inline i2t prompt, not the full 14-style caption.py/caption.ts port.",
   },
 
-  // run.py story adapter — OM's research→proposal→approval stage UPSTREAM of
-  // `image storyboard`. From a topic the local gemma brain (reasoning_effort:none)
-  // emits angles + an OM-shaped proposal_packet; `story shots` delegates the
-  // approved concept to `image storyboard`. Closes the OM storyline gap.
-  // probeConfigured = runPyRuntimePresent (same as mlx:runpy-image). LOCAL MLX
-  // + local gemma brain only.
+  // profile — 2026-07-13 (session 4): image-profile.py's own header comments
+  // say it deliberately reuses the SAME mechanism `image-angle.py` uses
+  // (short "angle-style" prompts driving Flux2KleinEdit multi-ref) — a
+  // command already fully Swift-native (flux2_image's `angle`, above). So
+  // profile moved off run.py onto a direct Bun implementation
+  // (profile_native.ts) that calls `angle` once per requested view
+  // (front/back/side) instead of shelling out to run.py. Declared AFTER
+  // runpy_image is irrelevant here since `profile` was removed from
+  // runpy_image's commands[] above — no overlap, no selector tiebreak needed.
+  {
+    name: "profile_native",
+    capability: "image_generation",
+    provider: "profile-native",
+    backend: "native_swift",
+    invoke: "bun:profile-native",
+    configured: true,
+    commands: ["profile"],
+    notes: "Direct Bun implementation (src/profile_native.ts) of image-profile.py's CORE multi-view character-sheet generation: for each requested view in front/back/side (canonical front→side→back order), calls flux2's native `angle` command once with the same reference image (view→angle-preset: front→front, back→back, side→right — 'side' is a documented deliberate choice since the Python source itself never disambiguates left/right for that view). No run.py, no MLX venv — pixels come from flux2-klein's native Flux2KleinEdit multi-ref pipeline (the exact mechanism image-profile.py's own comments say it reuses). Requires --input (v1 only ports the flux2-klein reference-conditioned path; the Python's no-input zimage-text-only fallback is a genuinely different pipeline, out of scope). Deferred (documented, not silently dropped — see profile_native.ts's module doc): --prompt-style detailed / --base-prompt / --vlm auto-caption (only affect the non-default 'detailed' style; the default 'angle' style this module always uses never consults them), --chain-ref (angle's single-image `input` field can't express a cascading second reference), --ref-strength (Python ignores it for flux2-klein unconditionally, and angle has no equivalent flag), VLM angle/identity verification, the HTML viewer, and the horizontal strip PNG (both need an image-codec dependency this package doesn't have).",
+  },
+
+  // character — 2026-07-13 (session 6): image-character.py's own header says
+  // it plainly — "PIPELINE ... composes the certified primitives — zero new
+  // MLX generation code": Phase 1 is `image profile` multi-view generation
+  // (already Swift-native, profile_native.ts above), Phase 2 is Step-1
+  // `cutout` (SAM3 segment per view, already Swift-native, flux2's `segment`
+  // command), Phase 3 is a pure IdentitySpec.json builder (no model calls at
+  // all). So character moved off run.py onto a direct Bun implementation
+  // (character_native.ts) orchestrating profile_native.ts + flux2 `segment`
+  // + a pure spec builder. Declared AFTER runpy_image is irrelevant here
+  // since `character` was removed from runpy_image's commands[] above — no
+  // overlap, no selector tiebreak needed.
+  {
+    name: "character_native",
+    capability: "image_generation",
+    provider: "character-native",
+    backend: "native_swift",
+    invoke: "bun:character-native",
+    configured: true,
+    commands: ["character"],
+    notes: "Direct Bun implementation (src/character_native.ts) of image-character.py's 3-phase character-sheet build: Phase 1 delegates straight to runProfileNative (profile_native.ts, above) for the multi-view sheet; Phase 2 calls flux2's native `segment` command (SAM3.1 bridge) once per generated view; Phase 3 assembles + can write IdentitySpec.json (schema character-lock.v1). REAL DELTA from the Python (documented in character_native.ts's module doc, not silently dropped): Python's per-view cutout is a TRUE alpha-composited RGBA PNG (PIL `alpha_cutout`, mask baked into the source's alpha channel); flux2's native `segment` command only produces the intermediate MASK PNG (white=object, feathered, no compositing) — this package has no image-codec/pixel-buffer library to do the PIL-equivalent alpha compositing (the same gap profile_native.ts and twosubject_native.ts already document for their own deferred image-decode features). So v1's IdentitySpec `views[].cutout` is always `null` (never mislabels a mask as a transparent cutout); the produced mask instead rides under an extension field, `views[].mask`. Also deferred: Python's `_fill_holes` interior-hole fill (moot until compositing exists) and `--self-test` hero synthesis (needs the MLX ZImagePipeline, Python-only). No run.py, no MLX venv for the orchestration itself — segmentation still bridges through Python via flux2's own `segment` command (unchanged, pre-existing Swift-native path), exactly like `segment` already does for every other flux2 caller.",
+  },
+
+  // story adapters — OM's research→proposal→approval stage UPSTREAM of
+  // `image storyboard`. From a topic the local gemma brain emits angles + an
+  // OM-shaped proposal_packet; `story shots` delegates the approved concept to
+  // `image storyboard`. Closes the OM storyline gap.
+  //
+  // 2026-07-13: angles/propose are PURE LM Studio HTTP calls underneath (no MLX
+  // compute in the Python at all — `app/commands/story.py`'s `_gemma_json_call`
+  // is a bare `requests.post`), so they moved onto a direct Bun `fetch` client
+  // (lmstudio.ts / story_native.ts) — no Python subprocess, no MLX venv needed.
+  // shots stays on runpy_story below: it delegates generation to `image
+  // storyboard`, which still has no Swift equivalent.
+  {
+    name: "story_native",
+    capability: "story_generation",
+    provider: "lmstudio-story",
+    backend: "native_swift",
+    invoke: "bun:lmstudio-story",
+    configured: true,
+    commands: ["angles", "propose"],
+    notes: "Direct LM Studio client (src/story_native.ts) — angles → N differentiated creative angles; propose → an OM-shaped proposal_packet (concept options with scene_list/visual_language/est_shot_count). Brain = local gemma. No run.py, no MLX venv — pure Bun fetch against the local LM Studio server. Writes the same <base>_angles.json/_proposal.yaml artifact shape run.py used to, so `story shots` (below) still reads it unchanged.",
+  },
   {
     name: "runpy_story",
     capability: "story_generation",
@@ -117,8 +263,8 @@ export const REGISTRY: ProviderEntry[] = [
     backend: "native_swift",
     invoke: "mlx:runpy-story",
     configured: true,
-    commands: ["angles", "propose", "shots"],
-    notes: "run.py story adapter (src/runpy_story.ts) — storyline creation from a topic (OM's research→proposal→approval stage). angles → N differentiated creative angles; propose → an OM-shaped proposal_packet (concept options with scene_list/visual_language/est_shot_count); shots → delegates the approved concept to `image storyboard`. Brain = local gemma (reasoning_effort:none). Local MLX + local LLM, never cloud.",
+    commands: ["shots"],
+    notes: "run.py story adapter (src/runpy_story.ts) — shots: folds an approved proposal concept into a narrative + style hint and delegates to the existing `image storyboard` path (subprocess → certified decompose→generate). angles/propose moved to story_native above (2026-07-13). Brain = local gemma (reasoning_effort:none). Local MLX + local LLM, never cloud.",
   },
 
   // Video generation — native Swift/MLX director.
@@ -142,19 +288,26 @@ export const REGISTRY: ProviderEntry[] = [
   { name: "openai_tts", capability: "tts", provider: "openai", backend: "cloud_http", invoke: "fetch", configured: false, notes: "needs OPENAI_API_KEY" },
   { name: "piper_tts", capability: "tts", provider: "piper", backend: "native_swift", invoke: "bun:builtin", configured: false, notes: "local Piper binary OR AVSpeechSynthesizer fallback (gap)" },
   // backend: "cloud_http" (NOT native_swift) is deliberate even though the invoke
-  // (mlx:runpy-tts) spawns a local python process: edge-tts's actual synthesis
-  // call goes out to Microsoft's service, and probeConfigured for mlx:runpy-tts
-  // only checks venv+run.py presence — it cannot detect "no network" the way
-  // fetch's CLOUD_KEY_FOR check detects "no API key". Ranking it in the
-  // cloud_http tier (below macos_native) keeps say_tts the SAFE, offline-honest
-  // STATIC default. But selectAndGenerate (bridge.ts) opportunistically tries
-  // edge-tts FIRST at runtime whenever the static pick landed on say and no
-  // explicit provider hint was given, falling back to the say result only on
-  // an actual network failure — a 2026-07-11 A/B (edge-tts vs say vs LTX-2.3's
-  // own joint audio generation via --dev-audio) confirmed edge-tts is clearly
-  // the most natural of the three; LTX's in-prompt "voice" was explicitly
-  // rejected on quality. An explicit provider hint still works as before.
-  { name: "edge_tts", capability: "tts", provider: "edge-tts", backend: "cloud_http", invoke: "mlx:runpy-tts", configured: true, notes: "run.py tts adapter (src/runpy_tts.ts) — Microsoft neural TTS via the edge-tts library, same engine `video relay --relay-tts-engine edge-tts` already uses. Natural-sounding voice, near-zero generation cost (~1s per narration), but needs NETWORK EGRESS (not available under --offline). Statically ranked below say_tts, but selectAndGenerate tries it FIRST at runtime by default (see comment above) — falls back to say only on an actual network failure." },
+  // is a local (Bun-process) call: edge-tts's actual synthesis call goes out to
+  // Microsoft's service, and probeConfigured's default case (bun:tts-native
+  // falls through to it) only reflects registry.configured — it cannot detect
+  // "no network" the way fetch's CLOUD_KEY_FOR check detects "no API key".
+  // Ranking it in the cloud_http tier (below macos_native) keeps say_tts the
+  // SAFE, offline-honest STATIC default. But selectAndGenerate (bridge.ts)
+  // opportunistically tries edge-tts FIRST at runtime whenever the static pick
+  // landed on say and no explicit provider hint was given, falling back to the
+  // say result only on an actual network failure — a 2026-07-11 A/B (edge-tts
+  // vs say vs LTX-2.3's own joint audio generation via --dev-audio) confirmed
+  // edge-tts is clearly the most natural of the three; LTX's in-prompt "voice"
+  // was explicitly rejected on quality. An explicit provider hint still works.
+  //
+  // 2026-07-13: invoke moved off `mlx:runpy-tts` (a Python subprocess wrapping
+  // the SAME Microsoft service) onto `bun:tts-native` (tts_native.ts, backed by
+  // the actively-maintained `msedge-tts` npm package) — no Python/MLX-venv
+  // dependency for TTS anymore. Verified against the real service: a live call
+  // produced a valid 24kHz mono mp3 (ffprobe-confirmed duration + ffmpeg
+  // volumedetect mean -22dB, healthy, not near-silent).
+  { name: "edge_tts", capability: "tts", provider: "edge-tts", backend: "cloud_http", invoke: "bun:tts-native", configured: true, notes: "Bun-native TTS adapter (src/tts_native.ts, via the `msedge-tts` npm package) — Microsoft neural TTS, same engine `video relay --relay-tts-engine edge-tts` already uses. Natural-sounding voice, near-zero generation cost (~1s per narration), but needs NETWORK EGRESS (not available under --offline). Statically ranked below say_tts, but selectAndGenerate tries it FIRST at runtime by default (see comment above) — falls back to say only on an actual network failure." },
   { name: "say_tts", capability: "tts", provider: "say", backend: "macos_native", invoke: "macos:say", configured: true, notes: "macOS `say` (AVSpeechSynthesizer-backed) — zero-cost, zero-key, fully offline narration; robotic voice quality vs edge_tts. Statically ranked as the default (the correct offline/no-network fallback), but selectAndGenerate opportunistically tries edge-tts first at runtime and only actually invokes say if that fails — see edge_tts's notes." },
 
   // Audio/video post — ffmpeg shells (iteration 3).
@@ -171,7 +324,14 @@ export const REGISTRY: ProviderEntry[] = [
 
   // Enhancement.
   { name: "bg_remove", capability: "enhancement", provider: "vision", backend: "macos_native", invoke: "macos:vision", configured: true, notes: "macOS Vision VNGeneratePersonSegmentationRequest" },
-  { name: "upscale", capability: "enhancement", provider: "esrgan", backend: "native_swift", invoke: "bun:esrgan", configured: true, notes: "ESRGAN upscale (python/esrgan_upscale.py) — spandrel + torch MPS, mirrors run.py upscale path" },
+  // flux2's native `upscale` command (RealPLKSR/ESRGAN, same default model —
+  // 4x-nomos-webphoto-realplksr — as esrgan_upscale.py below) is a Swift/MLX
+  // replacement for the Python/torch-MPS esrgan adapter (2026-07-13). Declared
+  // first + commands-claimed so it wins whenever the flux2 binary is built;
+  // bridge.ts's normalizeLegacyImageRequest translates the esrgan adapter's
+  // `image`/`output` field names onto flux2's `input`/`output`.
+  { name: "upscale_flux2", capability: "enhancement", provider: "flux2", backend: "native_swift", invoke: "swift:flux2", configured: true, commands: ["upscale"], notes: "swift/flux2-image-director upscale (RealPLKSR/ESRGAN, native Swift MLX) — supersedes esrgan_upscale.py for this capability." },
+  { name: "upscale", capability: "enhancement", provider: "esrgan", backend: "native_swift", invoke: "bun:esrgan", configured: true, notes: "ESRGAN upscale (python/esrgan_upscale.py) — spandrel + torch MPS, mirrors run.py upscale path. Fallback for when the flux2 Swift binary isn't built (see upscale_flux2 above, which wins when configured)." },
 ];
 
 export interface CapabilityRollup {

@@ -81,25 +81,29 @@ describe("selectProvider", () => {
     }
   });
 
-  it("throws NoConfiguredProviderError when nothing is wired for the capability", () => {
-    // tts as a whole always resolves to the local `say` fallback on darwin now;
-    // isolate to the cloud_http backend (unkeyed) to exercise the "nothing
-    // wired" path without say's macos_native fallback masking it. edge_tts is
-    // ALSO cloud_http (needs network, not an API key) and its probe is pinned
-    // true by the suite-wide beforeAll (_setRunPyRuntimeForTest(true)) — unpin
-    // it for just this test so the cloud_http tier is genuinely empty (matches
-    // this test's actual intent: nothing wired at all, not "nothing keyed").
+  it("cloud_http tts always resolves to edge-tts now (bun:tts-native has no run.py/venv dependency)", () => {
+    // 2026-07-13: edge_tts's invoke moved from mlx:runpy-tts (probe gated on
+    // the python venv) to bun:tts-native (no runtime dependency at all — the
+    // default probeConfigured case just returns registry.configured=true).
+    // Unpinning run.py no longer empties the cloud_http tts tier the way it
+    // used to; edge-tts alone keeps it non-empty.
     _setRunPyRuntimeForTest(false);
     try {
-      expect(() => selectProvider("tts", { env: NO_ENV, backend: "cloud_http" })).toThrow(NoConfiguredProviderError);
-      try {
-        selectProvider("tts", { env: NO_ENV, backend: "cloud_http" });
-      } catch (err) {
-        expect(err).toBeInstanceOf(NoConfiguredProviderError);
-        expect((err as NoConfiguredProviderError).capability).toBe("tts");
-      }
+      const e = selectProvider("tts", { env: NO_ENV, backend: "cloud_http" });
+      expect(e.provider).toBe("edge-tts");
+      expect(e.invoke).toBe("bun:tts-native");
     } finally {
       _setRunPyRuntimeForTest(true);
+    }
+  });
+
+  it("throws NoConfiguredProviderError for a genuinely unwired capability", () => {
+    expect(() => selectProvider("music_generation", { env: NO_ENV })).toThrow(NoConfiguredProviderError);
+    try {
+      selectProvider("music_generation", { env: NO_ENV });
+    } catch (err) {
+      expect(err).toBeInstanceOf(NoConfiguredProviderError);
+      expect((err as NoConfiguredProviderError).capability).toBe("music_generation");
     }
   });
 
@@ -184,15 +188,147 @@ describe("selectProvider command routing", () => {
   });
 
   it("routes image_generation:<run.py-only command> → runpy-image (the force multiplier)", () => {
-    // runpy_image declares controlnet/faceswap/swap/anime2real/profile/angle/purify/
-    // restore/multicouple/twosubject/workflow/expansion/i2i — commands the Swift
-    // directors don't claim. Command routing sends them to the run.py adapter with
-    // no provider hint, unlocking ~15 local capabilities the agent otherwise can't reach.
-    for (const cmd of ["controlnet", "faceswap", "profile", "twosubject", "swap"]) {
+    // runpy_image declares purify/multicouple/workflow/storyboard/kontext —
+    // commands the Swift directors don't claim. Command routing sends them
+    // to the run.py adapter with no provider hint, unlocking local
+    // capabilities the agent otherwise can't reach.
+    // NOTE: "twosubject" moved OFF this adapter (2026-07-13) onto twosubject_native,
+    // "restore" moved OFF (2026-07-13, session 3) onto krea2_image as an i2i alias,
+    // "profile" moved OFF (2026-07-13, session 4) onto profile_native,
+    // "controlnet" moved OFF (2026-07-13, session 3) onto controlnet_hybrid
+    // (a style-forked native/python split, not a full move), "inpaint"
+    // moved OFF (2026-07-13, session 5) onto flux2_image, "faceswap"
+    // moved OFF (2026-07-13, session 4) onto flux2_image, and "character"
+    // moved OFF (2026-07-13, session 6) onto character_native — see the
+    // dedicated tests. "multicouple" stays here permanently (genuine MLX/GPU
+    // latent-couple compute, unportable).
+    for (const cmd of ["multicouple"]) {
       const e = selectProvider("image_generation", { command: cmd, env: NO_ENV });
       expect(e.provider).toBe("runpy-image");
       expect(e.invoke).toBe("mlx:runpy-image");
     }
+  });
+
+  it("routes image_generation:controlnet → controlnet-hybrid (style-forked native/python dispatch)", () => {
+    // 2026-07-13 session 3: swift/krea2-image-director ships a real native
+    // Krea2ControlNet.swift (Control LoRA), but it's architecturally
+    // different from run.py's image-controlnet.py (canny/scribble
+    // preprocessing) — no drop-in replacement. The selector still routes
+    // {image_generation, "controlnet"} to a single provider (controlnet_hybrid);
+    // the actual native-vs-python fork happens inside bridge.ts's
+    // realControlNet based on request shape (see isNativeControlNetRequest),
+    // not at the selector/registry level.
+    const e = selectProvider("image_generation", { command: "controlnet", env: NO_ENV });
+    expect(e.provider).toBe("controlnet-hybrid");
+    expect(e.invoke).toBe("mlx:controlnet-hybrid");
+  });
+
+  it("routes image_generation:twosubject → twosubject-native (pure control flow, no MLX compute)", () => {
+    // 2026-07-13: image-twosubject.py is VLM prompt-master + best-of-N native t2i +
+    // VLM judge — no MLX compute of its own — so it moved off run.py onto a direct
+    // Bun implementation (twosubject_native.ts). Unlike multicouple's latent-couple
+    // compositing (genuine MLX/GPU compute), this one is portable control flow.
+    const e = selectProvider("image_generation", { command: "twosubject", env: NO_ENV });
+    expect(e.provider).toBe("twosubject-native");
+    expect(e.invoke).toBe("bun:twosubject-native");
+  });
+
+  it("routes image_generation:profile → profile-native (reuses the angle mechanism, already Swift-native)", () => {
+    // 2026-07-13 session 4: image-profile.py's own header comments say it
+    // deliberately reuses image-angle.py's mechanism (short-prompt
+    // Flux2KleinEdit multi-ref) — already fully ported to Swift. Moved off
+    // run.py onto a direct Bun implementation (profile_native.ts) that calls
+    // flux2's native `angle` command once per requested view.
+    const e = selectProvider("image_generation", { command: "profile", env: NO_ENV });
+    expect(e.provider).toBe("profile-native");
+    expect(e.invoke).toBe("bun:profile-native");
+  });
+
+  it("routes image_generation:character → character-native (pure orchestration of profile+segment, already Swift-native)", () => {
+    // 2026-07-13 session 6: image-character.py's own header calls itself pure
+    // orchestration composing two already-certified primitives — `image
+    // profile` (already ported, profile_native.ts) and Step-1 `cutout` (SAM3
+    // segment, already Swift-native as flux2's `segment` command). Moved off
+    // run.py onto a direct Bun implementation (character_native.ts).
+    const e = selectProvider("image_generation", { command: "character", env: NO_ENV });
+    expect(e.provider).toBe("character-native");
+    expect(e.invoke).toBe("bun:character-native");
+  });
+
+  it("routes image_generation:{angle,swap,expand,anime2real,expansion,style,scene} → flux2 (Swift-native)", () => {
+    // 2026-07-13: these moved off runpy_image onto flux2's own commands.
+    // anime2real/expansion are legacy run.py action-name aliases, still routed
+    // here and normalized by bridge.ts's normalizeLegacyImageRequest.
+    for (const cmd of ["angle", "swap", "expand", "anime2real", "expansion", "style", "scene"]) {
+      const e = selectProvider("image_generation", { command: cmd, env: NO_ENV });
+      expect(e.provider).toBe("flux2");
+      expect(e.invoke).toBe("swift:flux2");
+    }
+  });
+
+  it("routes image_generation:inpaint → flux2 (Swift-native, InpaintCommand.swift)", () => {
+    // 2026-07-13 session 5: image-inpaint.py's core masked-redraw mechanism
+    // (Flux2 latent-mask re-injection) was already Swift-native underneath —
+    // Flux2EditPipeline.inpaint shipped for SwapCommand's `--inpaint` seamless
+    // mode. Only a CLI command exposing it for an arbitrary EXTERNAL mask PNG
+    // was missing; InpaintCommand.swift adds that. Moved off runpy_image onto
+    // flux2_image; bridge.ts's normalizeLegacyImageRequest maps legacy
+    // inputImage/referenceImage → input/reference before calling runFlux2.
+    const e = selectProvider("image_generation", { command: "inpaint", env: NO_ENV });
+    expect(e.provider).toBe("flux2");
+    expect(e.invoke).toBe("swift:flux2");
+  });
+
+  it("routes image_generation:faceswap → flux2 (Swift-native, FaceSwapCommand.swift)", () => {
+    // 2026-07-13 session 4: image-faceswap.py's real-usage path (--input/--face,
+    // no --self-test) is genuine Flux2 Klein transformer compute Swift already
+    // had every primitive for: FaceSwapCommand.swift combines Flux2EditPipeline's
+    // multi-ref conditioning (edit/style's mechanism) with the BFS LoRA fused at
+    // init time via Flux2LoRALoaderCLI (style/scene's mechanism) — never wired
+    // together before. Moved off runpy_image onto flux2_image; bridge.ts's
+    // normalizeLegacyImageRequest maps legacy input/face → body/face before
+    // calling runFlux2. --self-test's source-synthesis/VLM-scoring/HTML-review
+    // scaffolding is deliberately NOT ported (test/QA-only, not the swap itself).
+    const e = selectProvider("image_generation", { command: "faceswap", env: NO_ENV });
+    expect(e.provider).toBe("flux2");
+    expect(e.invoke).toBe("swift:flux2");
+  });
+
+  it("routes image_generation:i2i → krea2 (Swift-native)", () => {
+    const e = selectProvider("image_generation", { command: "i2i", env: NO_ENV });
+    expect(e.provider).toBe("krea2");
+    expect(e.invoke).toBe("swift:krea2");
+  });
+
+  it("routes image_generation:restore → krea2 (Swift-native, i2i alias)", () => {
+    // 2026-07-13 session 3: image-restore.py is a thin wrapper (i2i with
+    // reference_image forced None, no other overrides) — krea2's native i2i
+    // has no ControlNet concept at all, so restore==i2i exactly. Moved off
+    // runpy_image onto krea2_image; bridge.ts's normalizeLegacyImageRequest
+    // renames the command to i2i before calling runKrea2.
+    const e = selectProvider("image_generation", { command: "restore", env: NO_ENV });
+    expect(e.provider).toBe("krea2");
+    expect(e.invoke).toBe("swift:krea2");
+  });
+
+  it("routes enhancement:upscale → flux2 (Swift-native) when the binary is built, esrgan otherwise", () => {
+    const e = selectProvider("enhancement", { command: "upscale", env: NO_ENV });
+    expect(e.provider).toBe("flux2");
+    expect(e.invoke).toBe("swift:flux2");
+  });
+
+  it("routes story_generation:{angles,propose} → the direct LM Studio client, shots → run.py", () => {
+    // 2026-07-13: angles/propose are pure LM Studio HTTP calls underneath (no
+    // MLX compute) — moved off runpy_story onto story_native.ts. shots still
+    // delegates to `image storyboard`, which has no Swift equivalent.
+    for (const cmd of ["angles", "propose"]) {
+      const e = selectProvider("story_generation", { command: cmd, env: NO_ENV });
+      expect(e.provider).toBe("lmstudio-story");
+      expect(e.invoke).toBe("bun:lmstudio-story");
+    }
+    const shots = selectProvider("story_generation", { command: "shots", env: NO_ENV });
+    expect(shots.provider).toBe("runpy-story");
+    expect(shots.invoke).toBe("mlx:runpy-story");
   });
 
   it("an explicit provider hint still wins over a command match", () => {
