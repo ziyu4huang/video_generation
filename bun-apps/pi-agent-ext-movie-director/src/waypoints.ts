@@ -29,6 +29,8 @@ export interface WaypointDeps {
 	completionFn: (system: string, user: string, model?: string) => Promise<string>;
 	agentFn: (system: string, user: string, opts: { model?: string; toolset: string[] }) => Promise<string>;
 	validateFn?: (artifact: string, data: unknown) => Promise<{ valid: boolean; errors?: string }>;
+	/** Concise required-structure spec for an artifact (loaded from the bundled schema). */
+	schemaSpec?: (artifact: string) => string | undefined;
 }
 
 /** Thrown when a waypoint cannot produce a schema-valid artifact within its bound. */
@@ -49,12 +51,14 @@ function schemaNameFor(stage: string): string {
 function buildPrompt(
 	stage: string,
 	inputs: Record<string, unknown>,
-	opts: { feedback?: string } = {},
+	opts: { feedback?: string; schemaSpec?: string } = {},
 ): { system: string; user: string } {
 	const schema = schemaNameFor(stage);
 	const system =
 		`You are the ${stage} director (skill: pipelines/explainer/${stage}-director). ` +
-		`Produce a schema-valid "${schema}" artifact as RAW JSON only — no prose, no markdown fences.`;
+		`Produce a schema-valid "${schema}" artifact as RAW JSON only — no prose, no markdown fences.` +
+		(opts.schemaSpec ? `
+The "${schema}" artifact must include at least: ${opts.schemaSpec}` : "");
 	const user =
 		`Stage: ${stage}\nTarget artifact: ${schema}\n` +
 		`Inputs:\n${JSON.stringify(inputs, null, 2)}\n` +
@@ -77,8 +81,9 @@ async function produceAndValidate(
 ): Promise<Record<string, unknown>> {
 	const validate = deps.validateFn ?? (async () => ({ valid: true }));
 	let feedback: string | undefined;
+	const spec = deps.schemaSpec?.(schemaNameFor(stage));
 	for (let attempt = 1; attempt <= maxRetries; attempt++) {
-		const { system, user } = buildPrompt(stage, inputs, { feedback });
+		const { system, user } = buildPrompt(stage, inputs, { feedback, schemaSpec: spec });
 		const raw = await produceFn(system, user);
 		let parsed: unknown;
 		try {

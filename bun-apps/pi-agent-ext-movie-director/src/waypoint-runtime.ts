@@ -13,10 +13,47 @@
  * Path resolution is inlined (not imported from commands.ts) to avoid a
  * dispatch → waypoint-runtime → commands → dispatch import cycle.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import type { WaypointDeps } from "./waypoints.ts";
+
+/** Path to a bundled artifact schema (data/schemas/artifacts/<name>.schema.json). */
+function schemaPath(artifact: string): string {
+	return join(import.meta.dir, "..", "data", "schemas", "artifacts", `${artifact}.schema.json`);
+}
+
+const schemaSpecCache = new Map<string, string | undefined>();
+/** Concise required-structure spec for an artifact, read from its bundled JSON schema. */
+function readSchemaSpec(artifact: string): string | undefined {
+	if (schemaSpecCache.has(artifact)) return schemaSpecCache.get(artifact);
+	const path = schemaPath(artifact);
+	if (!existsSync(path)) {
+		schemaSpecCache.set(artifact, undefined);
+		return undefined;
+	}
+	try {
+		const schema = JSON.parse(readFileSync(path, "utf8")) as {
+			required?: string[];
+			properties?: Record<string, { type?: string; enum?: unknown[]; minItems?: number; items?: unknown }>;
+		};
+		const req = schema.required ?? [];
+		const props = schema.properties ?? {};
+		const parts = req.map((k) => {
+			const p = props[k];
+			if (!p) return k;
+			if (Array.isArray(p.enum)) return `${k} (one of: ${(p.enum as string[]).slice(0, 6).join("|")})`;
+			if (p.minItems !== undefined) return `${k} (${p.type ?? "array"}, minItems ${p.minItems})`;
+			return `${k} (${p.type ?? "any"})`;
+		});
+		const spec = parts.join(", ");
+		schemaSpecCache.set(artifact, spec);
+		return spec;
+	} catch {
+		schemaSpecCache.set(artifact, undefined);
+		return undefined;
+	}
+}
 
 /** Resolve the pi CLI entry (PI_BIN env → the in-repo pi-agent CLI). */
 function resolvePiBin(): string {
@@ -47,10 +84,18 @@ interface BoundedSession {
 export function runBoundedSession(sess: BoundedSession, opts: { spawnImpl?: typeof spawn; env?: NodeJS.ProcessEnv } = {}): Promise<string> {
 	const piBin = resolvePiBin();
 	const doSpawn = opts.spawnImpl ?? spawn;
-	// The pi-agent wrapper loads the run-dir extension set (which already includes
-	// web-access for research). Exclude the movie tools so a waypoint session can't
-	// recurse into run-pipeline. The system prompt (embedded in -p) directs tool use.
-	const argv = ["bun", piBin, "--mode", "json", "--exclude-tools", "movie,movie_help"];
+	// Tool scoping is what keeps each waypoint deterministic + fast:
+	//   • completion waypoints (proposal/script/scene_plan/edit) → NO tools (pure JSON).
+	//   • research → an allowlist of just the web tools (web_search/fetch/get_search_content).
+	// The pi-agent wrapper still loads the run-dir set; the system prompt (embedded in
+	// -p) directs behavior. Excluding movie tools is belt-and-braces against recursion.
+	const argv = ["bun", piBin, "--mode", "json"];
+	if (sess.toolset.length > 0) {
+		argv.push("--tools", [...sess.toolset, "read", "write"].join(","));
+	} else {
+		argv.push("--no-tools", "all");
+	}
+	argv.push("--exclude-tools", "movie,movie_help");
 	if (sess.model) argv.push("--model", sess.model);
 	// Embed the system prompt as a preamble (robust regardless of CLI flags);
 	// the user instruction follows a separator.
@@ -135,5 +180,6 @@ export function makeRealWaypointDeps(opts: RealWaypointOptions = {}): WaypointDe
 		completionFn: (system, user, model) => runSession({ system, user, model: model ?? opts.model, toolset: [] }),
 		agentFn: (system, user, aOpts) => runSession({ system, user, model: aOpts.model ?? opts.model, toolset: aOpts.toolset }),
 		validateFn: opts.validateFn,
+		schemaSpec: readSchemaSpec,
 	};
 }
