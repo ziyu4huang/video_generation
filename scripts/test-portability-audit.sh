@@ -27,6 +27,10 @@
 #     PI_AGENT_E2E_DEPLOY | PI_SKIP_L2       — env-var opt-in gate
 #   - CONFIG_PRESENT | testWithoutEnv        — testWithoutEnv in-body-clear pattern
 #   - __setVaultResolverForTest              — deterministic injection seam
+#   - process.execPath                       — spawn targets the running runtime
+#                                             (bun/node) itself, always present on
+#                                             CI; inherently CI-safe (not a host-
+#                                             binary probe)
 #
 # Usage (from repo root):
 #   bash scripts/test-portability-audit.sh            # report (exit 0; warn-only)
@@ -62,7 +66,7 @@ TOTAL_FILES="$(
 )"
 
 # guard_signals regex — if a file matches ANY of these it is GUARDED.
-GUARD_RE='process\.env\.CI|\.skipIf\(|MLX_E2E|PI_AGENT_E2E|PI_RUN_L2|PI_AGENT_E2E_IMAGE|PI_AGENT_E2E_DEPLOY|PI_SKIP_L2|CONFIG_PRESENT|testWithoutEnv|__setVaultResolverForTest'
+GUARD_RE='process\.env\.CI|\.skipIf\(|MLX_E2E|PI_AGENT_E2E|PI_RUN_L2|PI_AGENT_E2E_IMAGE|PI_AGENT_E2E_DEPLOY|PI_SKIP_L2|CONFIG_PRESENT|testWithoutEnv|__setVaultResolverForTest|process\.execPath'
 
 # Pattern regexes.
 P1_RE='existsSync\s*\([^)]*(python/venv|swift/|run\.py|mlx-models|video_generation__models)'
