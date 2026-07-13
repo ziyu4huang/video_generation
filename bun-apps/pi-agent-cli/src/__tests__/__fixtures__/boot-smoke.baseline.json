@@ -1,6 +1,7 @@
 {
   "toolCountFloor": 29,
   "expectedErrorSources": [],
+  "expectedContractFailures": [],
   "sourceMinimum": [
     "knowledge-card",
     "flux2",

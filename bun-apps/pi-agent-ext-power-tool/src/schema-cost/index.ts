@@ -19,6 +19,8 @@ export {
 	DEFAULT_CHARS_PER_TOKEN,
 } from "./estimate.ts";
 export { formatReport, formatJson } from "./format.ts";
+export { checkToolContract } from "./contract.ts";
+export type { ToolContract } from "./contract.ts";
 export type {
 	ToolCost,
 	SchemaCostReport,

@@ -98,6 +98,22 @@ describe("createCapturingApi", () => {
 		};
 		expect(factory(api)).toBe("skipped");
 	});
+
+	test("registerTool computes hasExecute + schemaValid contract flags", () => {
+		const sink: unknown[] = [];
+		const api = createCapturingApi("ext", sink as any);
+		(api as any).registerTool({
+			name: "good",
+			description: "x",
+			parameters: Type.Object({ a: Type.String() }),
+			execute() {},
+		});
+		(api as any).registerTool({ name: "noexec", description: "y", parameters: Type.Object({}) });
+		expect((sink[0] as any).hasExecute).toBe(true);
+		expect((sink[0] as any).schemaValid).toBe(true);
+		expect((sink[1] as any).hasExecute).toBe(false);
+		expect((sink[1] as any).schemaValid).toBe(true);
+	});
 });
 
 describe("collectExtensionToolCosts", () => {

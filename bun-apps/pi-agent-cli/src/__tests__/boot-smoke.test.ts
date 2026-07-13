@@ -14,6 +14,7 @@ interface Baseline {
   toolCountFloor: number;
   expectedErrorSources: string[];
   sourceMinimum: string[];
+  expectedContractFailures?: string[];
 }
 const baseline: Baseline = JSON.parse(
   readFileSync(join(__dirname, "__fixtures__/boot-smoke.baseline.json"), "utf8"),
@@ -75,7 +76,7 @@ describe("boot-smoke canary", () => {
     const { exitCode, json, stderr } = runCanary();
     expect(exitCode, `stderr:\n${stderr}`).toBe(0);
     const obj = json as {
-      toolsRanked: Array<{ name: string; source: string }>;
+      toolsRanked: Array<{ name: string; source: string; hasExecute?: boolean; schemaValid?: boolean }>;
       errors?: Array<{ source: string; error: string }>;
     };
 
@@ -97,5 +98,19 @@ describe("boot-smoke canary", () => {
     for (const s of baseline.sourceMinimum) {
       expect(sources, `missing expected extension source: ${s}`).toContain(s);
     }
+
+    // 5. contract: every tool has an `execute` handler + a valid constructible
+    //    schema. Presence guard first — if the capture stops reporting these,
+    //    fail loudly instead of passing vacuously on `undefined`.
+    const flagged = obj.toolsRanked.filter(
+      (t) => typeof t.hasExecute === "boolean" && typeof t.schemaValid === "boolean",
+    );
+    expect(flagged.length, "capture did not report contract flags (hasExecute/schemaValid) on every tool").toBe(obj.toolsRanked.length);
+    const noExec = obj.toolsRanked.filter((t) => t.hasExecute === false).map((t) => `${t.name} (missing execute)`);
+    const badSchema = obj.toolsRanked.filter((t) => t.schemaValid === false).map((t) => `${t.name} (invalid schema)`);
+    const contractFails = [...noExec, ...badSchema].sort();
+    expect(contractFails, `unexpected contract failures: ${contractFails.join(", ")}`).toEqual(
+      [...(baseline.expectedContractFailures ?? [])].sort(),
+    );
   });
 });
