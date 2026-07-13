@@ -1994,8 +1994,7 @@ ${output.slice(-2000)}`,
 			"On-demand reference for the `obsidian` tool. Call to get the full " +
 			"per-action semantics (what each action does, which params it uses, constraints). " +
 			"Executes no vault operation.",
-		promptSnippet:
-			"Look up obsidian action details on demand.",
+		// promptSnippet REMOVED (stealth): description already routes.
 		parameters: Type.Object({}),
 		async execute(_id, _params) {
 			return {

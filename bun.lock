@@ -33,6 +33,10 @@
         "typescript-eslint": "^8.61.1",
       },
     },
+    "bun-apps/perf-harness": {
+      "name": "@repo/perf-harness",
+      "version": "0.0.1",
+    },
     "bun-apps/pi-agent": {
       "name": "@repo/pi-agent",
       "version": "0.1.0",
@@ -666,6 +670,8 @@
     "@radix-ui/rect": ["@radix-ui/rect@1.1.2", "", {}, "sha512-xnXE7wG13PI+cxieVssYXlQJuYVRhH9NBoxt3KNwzghDIA69GMm7d4wXRouHIYjE+KvS6U/MsMO73NdS2MH9ZA=="],
 
     "@repo/gui-movie-director": ["@repo/gui-movie-director@workspace:bun-apps/gui-movie-director"],
+
+    "@repo/perf-harness": ["@repo/perf-harness@workspace:bun-apps/perf-harness"],
 
     "@repo/pi-agent": ["@repo/pi-agent@workspace:bun-apps/pi-agent"],
 
