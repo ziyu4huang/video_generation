@@ -82,7 +82,11 @@ mockObj.isTransientError = () => false;
 
 // MUST be registered before any import of pi-knowledge-card (which pulls
 // runSubagentWithRetry and resolveVault from pi-obsidian at module-eval time).
-mock.module("@repo/pi-agent-ext-obsidian/extensions/obsidian.ts", () => mockObj);
+// knowledge-card consumes obsidian via a pre-built FULL bundle
+// (dist/obsidian.bundle.js) to dodge jiti's NameTooLong data-URL wrap on the
+// 138KB obsidian-lib.ts — see src/obsidian-lazy.ts. Mock the BUNDLE path, the
+// module knowledge-card actually imports (same export surface as obsidian.ts).
+mock.module("@repo/pi-agent-ext-obsidian/dist/obsidian.bundle.js", () => mockObj);
 
 // --- load the extension + its pure builders/allowlists for comparison --------
 const kc = await import("../extensions/pi-knowledge-card.ts");
