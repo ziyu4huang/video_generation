@@ -61,3 +61,30 @@ describe("estimateTotalSchemaTokens", () => {
     expect(total.chars).toBe(perTool[0].chars + perTool[1].chars);
   });
 });
+
+import { benchLatency, assertWithinBudget } from "../src/index.ts";
+
+describe("benchLatency", () => {
+  test("returns p50/p95/min/max with label", async () => {
+    const result = await benchLatency("noop", async () => 42, { runs: 10, warmup: 1 });
+    expect(result.label).toBe("noop");
+    expect(result.min).toBeGreaterThanOrEqual(0);
+    expect(result.p50).toBeGreaterThanOrEqual(result.min);
+    expect(result.p95).toBeGreaterThanOrEqual(result.p50);
+    expect(result.max).toBeGreaterThanOrEqual(result.p95);
+  });
+});
+
+describe("assertWithinBudget", () => {
+  test("passes when actual ≤ max", () => {
+    expect(() =>
+      assertWithinBudget(100, { max: 200, baseline: 90, measuredAt: "2026-01-01", commit: "abc", label: "test" }),
+    ).not.toThrow();
+  });
+
+  test("throws with auditable message when actual > max", () => {
+    expect(() =>
+      assertWithinBudget(300, { max: 200, baseline: 90, measuredAt: "2026-01-01", commit: "abc", label: "test" }),
+    ).toThrow(/test: 300 tokens exceeds budget 200/);
+  });
+});

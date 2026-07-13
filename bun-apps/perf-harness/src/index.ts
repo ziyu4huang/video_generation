@@ -82,3 +82,65 @@ export function estimateTotalSchemaTokens(tools: Record<string, ToolLike>): {
   );
   return { perTool, total };
 }
+
+/** Budget metadata for an auditable regression assertion. */
+export interface Budget {
+  max: number;
+  baseline: number;
+  measuredAt: string;
+  commit: string;
+  label: string;
+}
+
+/**
+ * Assert `actual ≤ budget.max`. On failure, throw with an auditable message
+ * showing the baseline, measurement date, and commit so the developer knows
+ * where the threshold came from and what to update.
+ */
+export function assertWithinBudget(actual: number, budget: Budget): void {
+  if (actual <= budget.max) return;
+  throw new Error(
+    `${budget.label}: ${actual} tokens exceeds budget ${budget.max} ` +
+      `(baseline ${budget.baseline} at ${budget.commit}, measured ${budget.measuredAt}). ` +
+      `If this growth is intentional, update the budget constant with a fresh measurement.`,
+  );
+}
+
+/** Latency measurement result. */
+export interface LatencyResult {
+  label: string;
+  p50: number;
+  p95: number;
+  min: number;
+  max: number;
+}
+
+/**
+ * Measure latency of an async fn: warmup runs (discarded) + N timed runs.
+ * Returns p50/p95/min/max in milliseconds. Designed for deterministic
+ * (pure-CPU) paths where percentiles are stable.
+ */
+export async function benchLatency<T>(
+  label: string,
+  fn: () => Promise<T>,
+  opts?: { runs?: number; warmup?: number },
+): Promise<LatencyResult> {
+  const runs = opts?.runs ?? 20;
+  const warmup = opts?.warmup ?? 1;
+  for (let i = 0; i < warmup; i++) await fn();
+  const samples: number[] = [];
+  for (let i = 0; i < runs; i++) {
+    const t0 = performance.now();
+    await fn();
+    samples.push(performance.now() - t0);
+  }
+  samples.sort((a, b) => a - b);
+  const pct = (p: number) => samples[Math.min(Math.floor(samples.length * p), samples.length - 1)];
+  return {
+    label,
+    p50: pct(0.5),
+    p95: pct(0.95),
+    min: samples[0],
+    max: samples[samples.length - 1],
+  };
+}
