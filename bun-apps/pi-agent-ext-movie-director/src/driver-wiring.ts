@@ -1,0 +1,150 @@
+/**
+ * driver-wiring.ts — connect the driver's `produce` to real producers.
+ *
+ * Routes each stage via pickProducer():
+ *   • agent        (research)        → runAgentWaypoint
+ *   • completion   (proposal/script/scene_plan/edit) → runCompletionWaypoint
+ *   • mechanical   (assets/compose/publish)          → dispatch()
+ *
+ * The assets stage EXECUTES the proactive plan from assets-encoder.ts: each
+ * generate call carries frames computed from the scene's real duration, and
+ * chained I2V links continue from the prior clip's last frame (extractLastFrame,
+ * injectable so the chaining is unit-testable without ffmpeg).
+ */
+import { runCompletionWaypoint, runAgentWaypoint, pickProducer, type WaypointDeps } from "./waypoints.ts";
+import { planAssetGeneration, type AssetGenCall } from "./assets-encoder.ts";
+
+export type DispatchLike = (
+	command: string,
+	opts: Record<string, unknown>,
+) => Promise<{ ok: true; text: string } | { ok: false; error: string }>;
+
+/** Canonical artifact name each stage produces (the driver checkpoint key). */
+const ARTIFACT_FOR: Record<string, string> = {
+	research: "research_brief",
+	proposal: "proposal_packet",
+	script: "script",
+	scene_plan: "scene_plan",
+	edit: "edit_decisions",
+	assets: "asset_manifest",
+	compose: "render_report",
+	publish: "publish_log",
+};
+
+export interface WireDeps {
+	dispatchFn: DispatchLike;
+	waypointDeps: WaypointDeps;
+	projectId: string;
+	pipeline?: string;
+	fps?: number;
+	maxCallSeconds?: number;
+	/** Extract the last frame of a generated clip → PNG path (ffmpeg at runtime; injected in tests). */
+	extractLastFrame?: (clipPath: string) => Promise<string>;
+}
+
+/** Build the per-stage `produce` the driver consumes. */
+export function wireProduce(deps: WireDeps) {
+	const fps = deps.fps ?? 25;
+	const maxCallSeconds = deps.maxCallSeconds ?? 8;
+	return async (stage: string, inputs: Record<string, unknown>): Promise<Record<string, unknown>> => {
+		const kind = pickProducer(stage);
+		if (kind === "agent") {
+			const art = await runAgentWaypoint(stage, inputs, deps.waypointDeps);
+			return { [ARTIFACT_FOR[stage] ?? stage]: art };
+		}
+		if (kind === "completion") {
+			const art = await runCompletionWaypoint(stage, inputs, deps.waypointDeps);
+			return { [ARTIFACT_FOR[stage] ?? stage]: art };
+		}
+		if (stage === "assets") return produceAssets(deps, fps, maxCallSeconds, inputs);
+		if (stage === "compose") return produceCompose(deps, inputs);
+		if (stage === "publish") return producePublish(deps, inputs);
+		throw new Error(`wireProduce: no producer for stage "${stage}"`);
+	};
+}
+
+/** Pull the first produced file path out of a generate result (shape varies by director). */
+function firstArtifactPath(result: unknown): string | undefined {
+	const r = result as { result?: { artifacts?: Array<{ path?: string }> }; artifacts?: Array<{ path?: string }> };
+	return r?.result?.artifacts?.[0]?.path ?? r?.artifacts?.[0]?.path;
+}
+
+/** Execute the proactive asset plan via generate calls, chaining I2V links. */
+async function produceAssets(
+	deps: WireDeps,
+	fps: number,
+	maxCallSeconds: number,
+	inputs: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+	const scenePlan = inputs.scene_plan as { scenes: unknown[] } | undefined;
+	const script = inputs.script as Record<string, unknown> | undefined;
+	if (!scenePlan) throw new Error("assets: missing scene_plan input");
+	const plan = planAssetGeneration(scenePlan as never, script as never, { fps, maxCallSeconds });
+
+	const assets: Array<Record<string, unknown>> = [];
+	const lastFrameByScene: Record<string, string> = {};
+	const extract = deps.extractLastFrame;
+
+	for (const call of plan.calls) {
+		const options: Record<string, unknown> = { ...call.options };
+		// Chaining: a non-first I2V link continues from the prior clip's last frame.
+		if (
+			call.capability === "video_generation" &&
+			call.chainIndex &&
+			call.chainIndex > 0 &&
+			call.sceneId &&
+			lastFrameByScene[call.sceneId]
+		) {
+			options.image = lastFrameByScene[call.sceneId];
+		}
+		const res = await deps.dispatchFn("generate", {
+			capability: call.capability,
+			command: call.command,
+			options,
+			projectId: deps.projectId,
+			pipeline: deps.pipeline,
+		});
+		if (!res.ok) throw new Error(`assets generate ${call.command} failed: ${res.error}`);
+		const parsed = JSON.parse(res.text) as unknown;
+		const outPath = firstArtifactPath(parsed);
+		assets.push({ sceneId: call.sceneId, capability: call.capability, command: call.command, path: outPath, chainIndex: call.chainIndex });
+		if (call.capability === "video_generation" && outPath && extract && call.sceneId) {
+			try {
+				lastFrameByScene[call.sceneId] = await extract(outPath);
+			} catch {
+				/* best-effort: a missing continuation frame just yields independent clips */
+			}
+		}
+	}
+	return { asset_manifest: { assets } };
+}
+
+/** compose → compose-motion (render_report) + final-review (final_review). */
+async function produceCompose(deps: WireDeps, inputs: Record<string, unknown>): Promise<Record<string, unknown>> {
+	const edit = inputs.edit_decisions as Record<string, unknown> | undefined;
+	if (!edit) throw new Error("compose: missing edit_decisions input");
+	const res = await deps.dispatchFn("compose-motion", {
+		editDecisions: edit,
+		projectId: deps.projectId,
+		render_runtime: "ffmpeg",
+	});
+	if (!res.ok) throw new Error(`compose-motion failed: ${res.error}`);
+	const renderReport = JSON.parse(res.text) as Record<string, unknown>;
+	// final_review artifact: run final-review on the rendered mp4 (advisory; non-blocking here).
+	const mp4 = (renderReport.output as string) ?? undefined;
+	let finalReview: Record<string, unknown> = { verdict: "unknown" };
+	if (mp4) {
+		const fr = await deps.dispatchFn("final-review", { mp4Path: mp4 });
+		if (fr.ok) finalReview = JSON.parse(fr.text) as Record<string, unknown>;
+	}
+	return { render_report: renderReport, final_review: finalReview };
+}
+
+/** publish → final-review (delivery checks) + publish_log. */
+async function producePublish(deps: WireDeps, inputs: Record<string, unknown>): Promise<Record<string, unknown>> {
+	const renderReport = inputs.render_report as { output?: string } | undefined;
+	const mp4 = renderReport?.output;
+	const fr = await deps.dispatchFn("final-review", { mp4Path: mp4 });
+	const finalReview = fr.ok ? (JSON.parse(fr.text) as Record<string, unknown>) : { verdict: "fail", error: fr.error };
+	return { publish_log: { mp4Path: mp4, finalReview } };
+}
