@@ -1,15 +1,16 @@
 /**
  * runpy_image.ts — the run.py IMAGE adapter (the force multiplier).
  *
- * `run.py` already has ~15 local, tested image sub-actions (t2i, i2i, controlnet,
- * faceswap, swap, anime2real, profile, angle, purify, restore, multicouple,
- * twosubject, workflow, expansion, review, quality). Until now the only agent
- * surface into run.py was the VIDEO adapter (mlx:runpy, in pi-agent-ext-ltx) and
- * the caption adapter (mlx:caption) — the ENTIRE image surface was direct-CLI
- * only, so the pi-agent could not call any of it. This adapter closes that gap:
- * ONE adapter makes ~15 existing local capabilities agent-callable at zero new
- * generation code (see [[mlx-image-gen-om-gap-analysis]] — "the highest-leverage
- * move is NOT new MLX code, it's wiring").
+ * `run.py` already has local, tested image sub-actions (t2i, controlnet,
+ * faceswap, profile, purify, restore, multicouple, twosubject, workflow,
+ * storyboard, review, quality, inpaint, cutout, styletransfer, character,
+ * kontext). Originally this adapter also carried i2i/swap/anime2real/angle/
+ * expansion; those five moved onto the equivalent flux2/krea2 Swift director
+ * (2026-07-13, see bridge.ts's normalizeLegacyImageRequest) once confirmed
+ * flux2/krea2 already implement the same mechanism natively. What remains
+ * here is the long tail with no Swift-native equivalent yet (see
+ * [[mlx-image-gen-om-gap-analysis]] — "the highest-leverage move is NOT new
+ * MLX code, it's wiring").
  *
  *   spawns:  python/venv/bin/python python/mlx-movie-director/run.py image <action> ...
  *   parses:  `Manifest:   <path>` sentinel (app/commands/_shared.py:233, printed by
@@ -34,25 +35,20 @@ import { resolveRepoRoot, resolveRunPyPaths } from "@repo/pi-agent-ext-ltx";
 /** The run.py image sub-actions this adapter reaches (image.py:run dispatch). */
 export type ImageAction =
   | "t2i"
-  | "i2i"
   | "controlnet"
   | "faceswap"
-  | "swap"
-  | "anime2real"
   | "profile"
-  | "angle"
   | "purify"
   | "restore"
   | "multicouple"
   | "twosubject"
   | "workflow"
-  | "expansion"
+  | "storyboard"
   | "review"
   | "quality"
   | "inpaint"
   | "cutout"
   | "styletransfer"
-  | "character"
   | "kontext";
 
 /** Typed options for `run.py image <action>` (camelCase → kebab CLI flags). */

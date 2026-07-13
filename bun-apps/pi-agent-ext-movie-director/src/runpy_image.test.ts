@@ -105,21 +105,10 @@ describe("buildImageArgs", () => {
     );
   });
 
-  it("character: action routes the character-sheet bundle (style-anchor/cutout-subject via extraArgs)", () => {
-    const args = buildImageArgs(
-      { action: "character", input: "/in/hero.png" },
-      null,
-    );
-    expect(args[1]).toBe("character");
-    expect(args).toContain("--input");
-    expect(args).toContain("/in/hero.png");
-    // --style-anchor / --cutout-subject reach run.py via the allowlist.
-    expect(validateImageExtraArgs(
-      ["--style-anchor", "soft anime shading", "--cutout-subject", "person"],
-    )).toEqual(
-      ["--style-anchor", "soft anime shading", "--cutout-subject", "person"],
-    );
-  });
+  // "character" moved OFF this run.py adapter (2026-07-13, session 6) onto
+  // character_native.ts — see registry.ts's character_native entry and
+  // character_native.test.ts for its coverage. It is no longer a valid
+  // ImageAction here.
 
   it("kontext: action routes in-context re-render + its dedicated flags", () => {
     const args = buildImageArgs(

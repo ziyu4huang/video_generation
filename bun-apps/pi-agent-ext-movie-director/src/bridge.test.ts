@@ -9,6 +9,8 @@ import {
   selectAndGenerate,
   tariffFor,
   missingRequiredOptions,
+  normalizeLegacyImageRequest,
+  isNativeControlNetRequest,
   type ToolResult,
   type GenerateRequest,
   type Adapter,
@@ -39,6 +41,152 @@ function entryFor(invoke: ProviderEntry["invoke"]): ProviderEntry {
   if (!e) throw new Error(`no configured entry for ${invoke}`);
   return e;
 }
+
+describe("normalizeLegacyImageRequest — runpy_image → flux2/krea2 field/command translation", () => {
+  it("passes non-legacy commands through unchanged", () => {
+    const r = normalizeLegacyImageRequest(imgReq);
+    expect(r).toEqual(imgReq);
+  });
+
+  it("angle: maps legacy inputImage → input, keeps command", () => {
+    const r = normalizeLegacyImageRequest({
+      capability: "image_generation",
+      command: "angle",
+      options: { inputImage: "/a.png", prompt: "front view" },
+    });
+    expect(r.command).toBe("angle");
+    expect(r.options).toMatchObject({ input: "/a.png", prompt: "front view" });
+  });
+
+  it("swap: maps legacy inputImage → source, keeps reference/prompt as-is", () => {
+    const r = normalizeLegacyImageRequest({
+      capability: "image_generation",
+      command: "swap",
+      options: { inputImage: "/src.png", reference: "/ref.png", prompt: "the hat" },
+    });
+    expect(r.command).toBe("swap");
+    expect(r.options).toMatchObject({ source: "/src.png", reference: "/ref.png", prompt: "the hat" });
+  });
+
+  it("i2i: maps legacy inputImage/denoiseStrength → input/strength", () => {
+    const r = normalizeLegacyImageRequest({
+      capability: "image_generation",
+      command: "i2i",
+      options: { inputImage: "/a.png", denoiseStrength: 0.6 },
+    });
+    expect(r.command).toBe("i2i");
+    expect(r.options).toMatchObject({ input: "/a.png", strength: 0.6 });
+  });
+
+  it("anime2real: renames command to style, injects preset, maps input", () => {
+    const r = normalizeLegacyImageRequest({
+      capability: "image_generation",
+      command: "anime2real",
+      options: { inputImage: "/a.png" },
+    });
+    expect(r.command).toBe("style");
+    expect(r.options).toMatchObject({ preset: "anime2real", input: "/a.png" });
+  });
+
+  it("expansion: renames command to expand, maps input", () => {
+    const r = normalizeLegacyImageRequest({
+      capability: "image_generation",
+      command: "expansion",
+      options: { inputImage: "/a.png", prompt: "extend the sky" },
+    });
+    expect(r.command).toBe("expand");
+    expect(r.options).toMatchObject({ input: "/a.png", prompt: "extend the sky" });
+  });
+
+  it("restore: renames command to i2i, maps legacy inputImage/denoiseStrength → input/strength", () => {
+    const r = normalizeLegacyImageRequest({
+      capability: "image_generation",
+      command: "restore",
+      options: { inputImage: "/frame.png", denoiseStrength: 0.35, prompt: "sharp eyes, detailed face" },
+    });
+    expect(r.command).toBe("i2i");
+    expect(r.options).toMatchObject({ input: "/frame.png", strength: 0.35, prompt: "sharp eyes, detailed face" });
+  });
+
+  it("inpaint: maps legacy inputImage/referenceImage → input/reference, keeps mask/prompt as-is", () => {
+    const r = normalizeLegacyImageRequest({
+      capability: "image_generation",
+      command: "inpaint",
+      options: { inputImage: "/src.png", referenceImage: "/ref.png", mask: "/mask.png", prompt: "clear sky" },
+    });
+    expect(r.command).toBe("inpaint");
+    expect(r.options).toMatchObject({
+      input: "/src.png", reference: "/ref.png", mask: "/mask.png", prompt: "clear sky",
+    });
+  });
+
+  it("faceswap: maps legacy input/loraPath → body/lora, keeps face/mode/prompt as-is", () => {
+    const r = normalizeLegacyImageRequest({
+      capability: "image_generation",
+      command: "faceswap",
+      options: { input: "/body.png", face: "/face.png", mode: "head", loraPath: "bfs-head-v1-klein-9b" },
+    });
+    expect(r.command).toBe("faceswap");
+    expect(r.options).toMatchObject({
+      body: "/body.png", face: "/face.png", mode: "head", lora: "bfs-head-v1-klein-9b",
+    });
+  });
+
+  it("faceswap: native body/lora field names pass through unchanged", () => {
+    const r = normalizeLegacyImageRequest({
+      capability: "image_generation",
+      command: "faceswap",
+      options: { body: "/body.png", face: "/face.png", lora: "bfs-head-v1-klein-9b" },
+    });
+    expect(r.options).toMatchObject({ body: "/body.png", face: "/face.png", lora: "bfs-head-v1-klein-9b" });
+  });
+
+  it("enhancement:upscale: maps legacy esrgan `image` field → flux2 `input`", () => {
+    const r = normalizeLegacyImageRequest({
+      capability: "enhancement",
+      command: "upscale",
+      options: { image: "/a.png", model: "4xNomosWebPhoto_RealPLKSR.pth" },
+    });
+    expect(r.command).toBe("upscale");
+    expect(r.options).toMatchObject({ input: "/a.png" });
+  });
+
+  it("does not touch non-image_generation capabilities even with a matching command name", () => {
+    const req: GenerateRequest = { capability: "tts", command: "swap", options: { text: "hi" } };
+    expect(normalizeLegacyImageRequest(req)).toEqual(req);
+  });
+});
+
+describe("isNativeControlNetRequest — controlnet native/python fork", () => {
+  // 2026-07-13 session 3: swift/krea2-image-director's Krea2ControlNet.swift
+  // does zero preprocessing of its own (control image must already be a
+  // depth/pose/edge map), so the native path only fires when the caller
+  // supplies the native `controlImage` field AND no Python-only
+  // preprocessing knob is requested. See bridge.ts's realControlNet +
+  // registry.ts's controlnet_hybrid entry for the full rationale.
+  it("false when the request has no native `controlImage` field (legacy run.py shape)", () => {
+    expect(isNativeControlNetRequest({ inputImage: "/ref.png", controlnetType: "canny" })).toBe(false);
+    expect(isNativeControlNetRequest({})).toBe(false);
+  });
+
+  it("true when controlImage is set and no Python-only preprocessing knob is requested", () => {
+    expect(isNativeControlNetRequest({ controlImage: "/depth.png" })).toBe(true);
+    expect(isNativeControlNetRequest({ controlImage: "/depth.png", controlnetType: "raw" })).toBe(true);
+    expect(isNativeControlNetRequest({ controlImage: "/depth.png", controlnetType: "depth" })).toBe(true);
+  });
+
+  it("false when controlnetType needs Python's built-in preprocessing (canny/scribble/pose/hed)", () => {
+    for (const ctype of ["canny", "scribble", "pose", "hed"]) {
+      expect(isNativeControlNetRequest({ controlImage: "/depth.png", controlnetType: ctype })).toBe(false);
+    }
+  });
+
+  it("false when a Python-only preprocessing knob is set even with controlImage present", () => {
+    expect(isNativeControlNetRequest({ controlImage: "/depth.png", blurRef: 5 })).toBe(false);
+    expect(isNativeControlNetRequest({ controlImage: "/depth.png", removeOutlines: true })).toBe(false);
+    expect(isNativeControlNetRequest({ controlImage: "/depth.png", controlnetAbTest: true })).toBe(false);
+  });
+});
 
 describe("adaptKrea2 — contract parse (Details → ToolResult)", () => {
   it("maps a successful krea2 run", () => {
@@ -505,7 +653,7 @@ describe("selectAndGenerate — tts quality-first fallback (edge-tts before say)
       {},
       {
         adapters: {
-          "mlx:runpy-tts": (async () => edgeOk) as Adapter,
+          "bun:tts-native": (async () => edgeOk) as Adapter,
           "macos:say": (async () => { sayCalled = true; return sayOk; }) as Adapter,
         },
       },
@@ -522,7 +670,7 @@ describe("selectAndGenerate — tts quality-first fallback (edge-tts before say)
       {},
       {
         adapters: {
-          "mlx:runpy-tts": (async () => edgeFail) as Adapter,
+          "bun:tts-native": (async () => edgeFail) as Adapter,
           "macos:say": (async () => sayOk) as Adapter,
         },
       },
@@ -539,7 +687,7 @@ describe("selectAndGenerate — tts quality-first fallback (edge-tts before say)
       { provider: "say" },
       {
         adapters: {
-          "mlx:runpy-tts": (async () => { edgeCalled = true; return edgeOk; }) as Adapter,
+          "bun:tts-native": (async () => { edgeCalled = true; return edgeOk; }) as Adapter,
           "macos:say": (async () => sayOk) as Adapter,
         },
       },

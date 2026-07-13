@@ -30,8 +30,9 @@
     "@repo/pi-agent-ext-workflow": "workspace:*",
     "ajv": "latest",
     "ajv-formats": "latest",
-    "yaml": "latest",
-    "typebox": "latest"
+    "msedge-tts": "^2.0.7",
+    "typebox": "latest",
+    "yaml": "latest"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

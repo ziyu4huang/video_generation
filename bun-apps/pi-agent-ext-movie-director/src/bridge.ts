@@ -26,6 +26,7 @@ import { runFlux2, type Flux2Details, type CommandName as Flux2Command } from "@
 import {
   runLtx,
   runPyVideo,
+  resolveRepoRoot,
   type LtxDetails,
   type CommandName as LtxCommand,
   type RunPyVideoDetails,
@@ -35,6 +36,7 @@ import { REGISTRY, type Capability, type ProviderEntry } from "./registry.ts";
 import { selectProvider, type SelectorOptions } from "./selector.ts";
 import { nonNativeAdapters } from "./providers.ts";
 import { runPyCaption, type CaptionDetails, type CaptionOptions } from "./caption.ts";
+import { isNativeCaptionRequest } from "./caption_native.ts";
 import {
   runPyImage,
   type RunPyImageDetails,
@@ -47,6 +49,7 @@ import {
 } from "./runpy_story.ts";
 import { runPyTts, type RunPyTtsDetails, type RunPyTtsOptions } from "./runpy_tts.ts";
 import { join } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
 
 // ─── ToolResult contract ─────────────────────────────────────────────────────
 
@@ -301,26 +304,100 @@ export function adaptLtx(
 
 // ─── Real adapters (call the directors). The default for generate(). ─────────
 
+/**
+ * normalizeLegacyImageRequest — angle/swap/anime2real/expansion/i2i/restore/
+ * inpaint/faceswap used to route to runpy_image (RunPyImageOptions field
+ * names: inputImage/referenceImage/denoiseStrength/loraPath/...). 2026-07-13:
+ * they moved onto the equivalent flux2/krea2 Swift command, whose field names
+ * mostly already match but diverge on a few keys, and two (anime2real/
+ * expansion/restore) use a different command name on the Swift side
+ * (style+preset / expand / i2i).
+ * This normalizes an incoming request so BOTH the legacy RunPyImageOptions
+ * shape and the native flux2/krea2 field names work unchanged — existing
+ * callers don't need to update. No-op for every other command (t2i, scene,
+ * edit, ...).
+ */
+export function normalizeLegacyImageRequest(req: GenerateRequest): GenerateRequest {
+  if (req.capability === "enhancement" && req.command === "upscale") {
+    // esrgan (Python/torch MPS) → flux2 upscale (Swift/MLX), same model family
+    // (4x-nomos-webphoto-realplksr). esrganAdapter's field name is "image"/
+    // "output"; flux2's upscale command uses "input"/"output".
+    const o = req.options ?? {};
+    return { ...req, options: { ...o, input: o.input ?? o.image } };
+  }
+  if (req.capability !== "image_generation") return req;
+  const o = req.options ?? {};
+  switch (req.command) {
+    case "angle":
+      return { ...req, options: { ...o, input: o.input ?? o.inputImage } };
+    case "swap":
+      return { ...req, options: { ...o, source: o.source ?? o.inputImage ?? o.input } };
+    case "i2i":
+      return { ...req, options: { ...o, input: o.input ?? o.inputImage, strength: o.strength ?? o.denoiseStrength } };
+    case "restore":
+      // image-restore.py == image-i2i.py with reference_image forced None (no
+      // ControlNet) and no other overrides; krea2's native i2i has no
+      // ControlNet concept at all (pure SDEdit), so restore==i2i exactly.
+      return { ...req, command: "i2i", options: { ...o, input: o.input ?? o.inputImage, strength: o.strength ?? o.denoiseStrength } };
+    case "anime2real":
+      return { ...req, command: "style", options: { ...o, preset: o.preset ?? "anime2real", input: o.input ?? o.inputImage } };
+    case "expansion":
+      return { ...req, command: "expand", options: { ...o, input: o.input ?? o.inputImage } };
+    case "inpaint":
+      // Legacy RunPyImageOptions used inputImage/referenceImage; flux2's native
+      // inpaint command uses input/reference (mask/prompt names already match).
+      // Legacy --crop (Union 2.1 crop-for-detail) has no native equivalent yet
+      // (see registry.ts flux2_image notes) — silently dropped, not translated.
+      return {
+        ...req,
+        options: {
+          ...o,
+          input: o.input ?? o.inputImage,
+          reference: o.reference ?? o.referenceImage,
+        },
+      };
+    case "faceswap":
+      // Legacy RunPyImageOptions used `input` for the target body image
+      // (image-faceswap.py's --input) and `loraPath`/`loraScale` for the BFS
+      // LoRA override; flux2's native faceswap command uses body/face/lora/
+      // loraScale (`lora` takes a bare NAME under models/lora/, matching
+      // resolve_lora_path's short-name resolution, not loraPath's full path).
+      // `mode`/`prompt` field names already match.
+      return {
+        ...req,
+        options: {
+          ...o,
+          body: o.body ?? o.input ?? o.inputImage,
+          lora: o.lora ?? o.loraPath,
+        },
+      };
+    default:
+      return req;
+  }
+}
+
 async function realKrea2(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
+  const normalized = normalizeLegacyImageRequest(req);
   const out = await runKrea2({
-    command: req.command as Krea2Command,
-    options: req.options,
-    outputDir: req.outputDir,
-    modelsRoot: req.modelsRoot,
-    extraArgs: req.extraArgs,
+    command: normalized.command as Krea2Command,
+    options: normalized.options,
+    outputDir: normalized.outputDir,
+    modelsRoot: normalized.modelsRoot,
+    extraArgs: normalized.extraArgs,
   });
-  return adaptKrea2(req, out.details, out.summary, out.stderrTail, env);
+  return adaptKrea2(normalized, out.details, out.summary, out.stderrTail, env);
 }
 
 async function realFlux2(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
+  const normalized = normalizeLegacyImageRequest(req);
   const out = await runFlux2({
-    command: req.command as Flux2Command,
-    options: req.options,
-    outputDir: req.outputDir,
-    modelsRoot: req.modelsRoot,
-    extraArgs: req.extraArgs,
+    command: normalized.command as Flux2Command,
+    options: normalized.options,
+    outputDir: normalized.outputDir,
+    modelsRoot: normalized.modelsRoot,
+    extraArgs: normalized.extraArgs,
   });
-  return adaptFlux2(req, out.details, out.summary, out.stderrTail, env);
+  return adaptFlux2(normalized, out.details, out.summary, out.stderrTail, env);
 }
 
 async function realLtx(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
@@ -410,8 +487,24 @@ export function adaptCaption(
   };
 }
 
+/**
+ * realCaption — style-routed caption dispatch. Unlike story/tts (which split
+ * cleanly by COMMAND), caption splits by STYLE within the single "caption"
+ * command, so the native/run.py fork happens here rather than via a second
+ * registry entry. `default`/`t2i`/`score`/`review` are pure LM Studio HTTP
+ * calls underneath (caption_native.ts, 2026-07-13 migration — see its
+ * header); every other style (photography/profile/pose_dsg/video_* /...) still
+ * needs run.py's richer parsing, so a request naming ANY unported style falls
+ * through to the Python bridge in full (never a mixed native+python run).
+ */
 async function realCaption(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
-  const out = await runPyCaption({ options: (req.options ?? {}) as CaptionOptions });
+  const options = (req.options ?? {}) as CaptionOptions;
+  if (isNativeCaptionRequest(options)) {
+    const { runCaptionNative } = await import("./caption_native.ts");
+    const out = await runCaptionNative({ options });
+    return adaptCaption(req, out.details, out.summary, out.stderrTail, env);
+  }
+  const out = await runPyCaption({ options });
   return adaptCaption(req, out.details, out.summary, out.stderrTail, env);
 }
 
@@ -465,6 +558,56 @@ async function realRunPyImage(req: GenerateRequest, env?: Record<string, string 
 }
 
 /**
+ * isNativeControlNetRequest — decide whether a `controlnet` request can reach
+ * swift/krea2-image-director's native Krea2ControlNet.swift (Control LoRA +
+ * Krea 2 Turbo) instead of run.py's image-controlnet.py (canny/scribble/raw
+ * preprocessing, Z-Image/Flux2-Klein).
+ *
+ * The native command does ZERO preprocessing of its own — it consumes
+ * whatever `controlImage` it's handed as an already-computed conditioning
+ * map (depth/pose/edge). So the native path is only safe when:
+ *   1. the caller supplies the native `controlImage` field at all (legacy
+ *      callers using run.py's `inputImage`/`controlnetType` shape never set
+ *      this — default stays run.py, zero behavior change for them), AND
+ *   2. no Python-only preprocessing knob is requested: `controlnetType`
+ *      other than "raw"/"depth" (canny/scribble/pose/hed all need the
+ *      built-in cv2/model preprocessing run.py has and Swift doesn't),
+ *      `blurRef`, `removeOutlines`, or `controlnetAbTest`.
+ *
+ * Conservative by design — a false negative just costs a Python subprocess
+ * (current behavior, no regression); a false positive would hand the Swift
+ * binary a raw non-conditioning image and either crash or silently produce a
+ * garbage generation, which is why every ambiguous case here routes to
+ * run.py instead of guessing.
+ */
+export function isNativeControlNetRequest(options: Record<string, unknown>): boolean {
+  if (options.controlImage == null) return false;
+  if (options.blurRef != null || options.removeOutlines || options.controlnetAbTest) return false;
+  const ctype = options.controlnetType;
+  if (ctype != null && ctype !== "raw" && ctype !== "depth") return false;
+  return true;
+}
+
+/**
+ * realControlNet — style-forked (caption.ts pattern) controlnet dispatch.
+ * Unlike caption's fork (same underlying VLM call, just re-implemented in
+ * Bun), the native and run.py controlnet paths are genuinely DIFFERENT
+ * mechanisms (Krea 2 Turbo + Control LoRA vs Z-Image/Flux2-Klein + cv2
+ * preprocessing) — see isNativeControlNetRequest for the exact split and
+ * registry.ts's controlnet_hybrid entry for the rationale. Native path
+ * reuses realKrea2 (so normalizeLegacyImageRequest / adaptKrea2 stay the
+ * single source of truth for krea2 dispatch); Python path is the pre-existing
+ * realRunPyImage, unchanged.
+ */
+async function realControlNet(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
+  const options = (req.options ?? {}) as Record<string, unknown>;
+  if (isNativeControlNetRequest(options)) {
+    return realKrea2({ ...req, command: "controlnet" }, env);
+  }
+  return realRunPyImage(req, env);
+}
+
+/**
  * adaptRunPyStory — normalize a run.py story result. angles/propose produce a
  * structured text artifact (the angles.json / proposal.yaml the agent reads for
  * the approval gate, kind:"text"); shots produces storyboard image frames
@@ -511,6 +654,85 @@ async function realRunPyStory(req: GenerateRequest, env?: Record<string, string 
 }
 
 /**
+ * realStoryNative — angles/propose via a direct LM Studio call (story_native.ts),
+ * NOT a run.py subprocess (2026-07-13 migration — see story_native.ts's header).
+ * Writes the same <base>_angles.json / <base>_proposal.yaml artifact shape
+ * run.py's story.py wrote, so downstream consumers (`story shots` → `image
+ * storyboard --proposal <path>`) keep working unchanged. LOCAL ONLY: LM Studio
+ * always resolves to localhost.
+ */
+async function realStoryNative(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
+  const opts = (req.options ?? {}) as { topic?: string; count?: number; vlmApiUrl?: string; vlmModel?: string };
+  const topic = (opts.topic ?? "").trim();
+  if (!topic) {
+    return {
+      success: false,
+      provider: "story-native",
+      command: `story ${req.command}`,
+      artifacts: [],
+      error: `story ${req.command}: --topic is required`,
+      cost_usd: 0,
+      duration_seconds: null,
+      seed: null,
+      model: "lmstudio:story",
+    };
+  }
+  const outDir = req.outputDir ?? join(resolveRepoRoot(), "..", "video_generation__output");
+  const base = `story_${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}`;
+  const started = Date.now();
+  try {
+    if (req.command === "propose") {
+      const { runStoryProposeNative, proposalToYaml } = await import("./story_native.ts");
+      const { concepts } = await runStoryProposeNative(topic, opts.count ?? 2, { apiUrl: opts.vlmApiUrl, model: opts.vlmModel });
+      const path = join(outDir, `${base}_proposal.yaml`);
+      mkdirSync(outDir, { recursive: true });
+      writeFileSync(path, proposalToYaml(concepts));
+      return {
+        success: concepts.length > 0,
+        provider: "story-native",
+        command: "story propose",
+        artifacts: [{ path, kind: "text", role: "primary" }],
+        error: concepts.length > 0 ? null : "story propose: LM Studio returned no concepts",
+        cost_usd: costFor(req.capability, null, env),
+        duration_seconds: (Date.now() - started) / 1000,
+        seed: null,
+        model: "lmstudio:story-propose",
+      };
+    }
+    // "angles" (default).
+    const { runStoryAnglesNative } = await import("./story_native.ts");
+    const { angles } = await runStoryAnglesNative(topic, opts.count ?? 3, { apiUrl: opts.vlmApiUrl, model: opts.vlmModel });
+    const path = join(outDir, `${base}_angles.json`);
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(path, JSON.stringify(angles, null, 2));
+    return {
+      success: angles.length > 0,
+      provider: "story-native",
+      command: "story angles",
+      artifacts: [{ path, kind: "text", role: "primary" }],
+      error: angles.length > 0 ? null : "story angles: LM Studio returned no angles",
+      cost_usd: costFor(req.capability, null, env),
+      duration_seconds: (Date.now() - started) / 1000,
+      seed: null,
+      model: "lmstudio:story-angles",
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      success: false,
+      provider: "story-native",
+      command: `story ${req.command}`,
+      artifacts: [],
+      error: msg,
+      cost_usd: 0,
+      duration_seconds: (Date.now() - started) / 1000,
+      seed: null,
+      model: "lmstudio:story",
+    };
+  }
+}
+
+/**
  * adaptRunPyTts — normalize a run.py tts (edge-tts) result. The single artifact
  * is the produced narration audio (kind:"audio"); ok = run.py exited 0 AND the
  * requested file landed with real content (mirrors runPyTts's own "0-exit but
@@ -553,6 +775,214 @@ async function realRunPyTts(req: GenerateRequest, env?: Record<string, string | 
   return adaptRunPyTts(req, out.details, out.summary, out.stderrTail, env);
 }
 
+/**
+ * realTtsNative — edge-tts via tts_native.ts's `msedge-tts`-backed Bun client,
+ * NOT a run.py subprocess (2026-07-13 migration). Same ToolResult contract
+ * shape as adaptRunPyTts (single kind:"audio" artifact); reuses that adapter
+ * function directly since the Details shapes are structurally compatible.
+ */
+async function realTtsNative(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
+  const opts = (req.options ?? {}) as RunPyTtsOptions & { output?: string };
+  const outputDir = req.outputDir ?? process.cwd();
+  const output = opts.output ?? join(outputDir, "tts_edge.mp3");
+  const { runTtsNative } = await import("./tts_native.ts");
+  const out = await runTtsNative(opts, output);
+  return adaptRunPyTts(req, { ...out.details, exitCode: out.details.ok ? 0 : 1, aborted: false, stdout: "" }, out.summary, out.stderrTail, env);
+}
+
+/**
+ * realTwosubjectNative — the VLM-driven single-prompt two-subject loop via
+ * twosubject_native.ts, NOT a run.py subprocess (2026-07-13 migration — see
+ * that module's header). The single artifact is the winning composite image
+ * (kind:"image"); ok = the loop produced a scored winner (runTwosubjectNative
+ * throws otherwise, caught below into success:false, mirroring the Python's
+ * sys.exit(1) on "no candidate produced a parseable score").
+ */
+async function realTwosubjectNative(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
+  const opts = (req.options ?? {}) as Record<string, unknown>;
+  const started = Date.now();
+  try {
+    const { runTwosubjectNative } = await import("./twosubject_native.ts");
+    const result = await runTwosubjectNative({
+      charA: opts.charA as string | undefined,
+      charB: opts.charB as string | undefined,
+      refA: opts.refA as string | undefined,
+      refB: opts.refB as string | undefined,
+      candidates: opts.candidates as number | undefined,
+      rounds: opts.rounds as number | undefined,
+      minOverall: opts.minOverall as number | undefined,
+      style: opts.style as string | undefined,
+      width: opts.width as number | undefined,
+      height: opts.height as number | undefined,
+      steps: opts.steps as number | undefined,
+      detail: opts.detail as boolean | undefined,
+      seed: opts.seed as number | undefined,
+      seedStart: opts.seedStart as number | undefined,
+      vlmApiUrl: opts.vlmApiUrl as string | undefined,
+      vlmModel: opts.vlmModel as string | undefined,
+      outputDir: req.outputDir,
+    });
+    return {
+      success: true,
+      provider: "twosubject-native",
+      command: "image twosubject",
+      artifacts: [{ path: result.winnerPath, kind: "image", role: "primary" }],
+      error: null,
+      cost_usd: costFor(req.capability, null, env),
+      duration_seconds: (Date.now() - started) / 1000,
+      seed: result.winnerSeed,
+      model: "krea2:z-image",
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      success: false,
+      provider: "twosubject-native",
+      command: "image twosubject",
+      artifacts: [],
+      error: msg,
+      cost_usd: 0,
+      duration_seconds: (Date.now() - started) / 1000,
+      seed: null,
+      model: "krea2:z-image",
+    };
+  }
+}
+
+/**
+ * realProfileNative — the multi-view (front/back/side) character-profile loop
+ * via profile_native.ts, NOT a run.py subprocess (2026-07-13 migration — see
+ * that module's header). Each requested view's `angle` call becomes one
+ * kind:"image" artifact (role:"primary", mirroring adaptRunPyImage's
+ * multi-output shape); ok = at least one view was generated (runProfileNative
+ * throws otherwise — no partial-success mode, mirroring the Python's
+ * sys.exit(1) on an unhandled generation-loop exception).
+ */
+async function realProfileNative(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
+  const opts = (req.options ?? {}) as Record<string, unknown>;
+  const started = Date.now();
+  try {
+    const { runProfileNative } = await import("./profile_native.ts");
+    const result = await runProfileNative({
+      input: (opts.input as string | undefined) ?? (opts.inputImage as string | undefined) ?? "",
+      views: opts.views as ("front" | "back" | "side")[] | undefined,
+      ratio: opts.ratio as "portrait" | "standing" | "full-body" | "tall" | "9:16" | undefined,
+      width: opts.width as number | undefined,
+      height: opts.height as number | undefined,
+      steps: opts.steps as number | undefined,
+      seed: opts.seed as number | undefined,
+      refCount: opts.refCount as number | undefined,
+      outputDir: req.outputDir,
+    });
+    return {
+      success: result.views.length > 0,
+      provider: "profile-native",
+      command: "image profile",
+      artifacts: result.views.map((v) => ({
+        path: v.path,
+        kind: "image",
+        seed: v.seed,
+        width: v.width,
+        height: v.height,
+        role: "primary",
+      })),
+      error: null,
+      cost_usd: costFor(req.capability, null, env),
+      duration_seconds: (Date.now() - started) / 1000,
+      seed: result.seed,
+      model: "flux2-klein:angle",
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      success: false,
+      provider: "profile-native",
+      command: "image profile",
+      artifacts: [],
+      error: msg,
+      cost_usd: 0,
+      duration_seconds: (Date.now() - started) / 1000,
+      seed: null,
+      model: "flux2-klein:angle",
+    };
+  }
+}
+
+/**
+ * realCharacterNative — the character-sheet build via character_native.ts,
+ * NOT a run.py subprocess (2026-07-13 migration, session 6 — see that
+ * module's header). Orchestrates Phase 1 (profile, delegated straight to
+ * runProfileNative) + Phase 2 (per-view flux2 `segment` mask) + Phase 3
+ * (IdentitySpec.json, written to `<outputDir>/IdentitySpec.json` when an
+ * output dir is resolvable). Each generated view's image becomes one
+ * kind:"image" artifact (role:"primary"); the written IdentitySpec.json (if
+ * any) rides as a second kind:"text" artifact (role:"metadata"), mirroring
+ * how the Python's `Manifest:` sentinel points at the same file. ok = at
+ * least one view was generated (runCharacterNative/runProfileNative throw
+ * otherwise — no partial-success mode, mirroring the Python's sys.exit(1)).
+ */
+async function realCharacterNative(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
+  const opts = (req.options ?? {}) as Record<string, unknown>;
+  const started = Date.now();
+  try {
+    const { runCharacterNative, writeIdentitySpec } = await import("./character_native.ts");
+    const result = await runCharacterNative({
+      input: (opts.input as string | undefined) ?? (opts.inputImage as string | undefined) ?? "",
+      views: opts.views as ("front" | "back" | "side")[] | undefined,
+      ratio: opts.ratio as "portrait" | "standing" | "full-body" | "tall" | "9:16" | undefined,
+      width: opts.width as number | undefined,
+      height: opts.height as number | undefined,
+      steps: opts.steps as number | undefined,
+      seed: opts.seed as number | undefined,
+      refCount: opts.refCount as number | undefined,
+      refStrength: opts.refStrength as number | undefined,
+      styleAnchor: opts.styleAnchor as string | undefined,
+      loraPath: opts.loraPath as string | undefined,
+      loraScale: opts.loraScale as number | undefined,
+      cfgScale: opts.cfgScale as number | undefined,
+      pipeline: opts.pipeline as string | undefined,
+      cutoutSubject: opts.cutoutSubject as string | undefined,
+      samThreshold: opts.samThreshold as number | undefined,
+      outputDir: req.outputDir,
+    });
+
+    const artifacts: ToolResult["artifacts"] = result.identitySpec.views
+      .filter((v) => v.image)
+      .map((v) => ({ path: v.image as string, kind: "image" as const, role: "primary" as const }));
+
+    let specPath: string | null = null;
+    if (result.outDir) {
+      specPath = await writeIdentitySpec(result.outDir, result.identitySpec);
+      artifacts.push({ path: specPath, kind: "text" as const, role: "metadata" as const });
+    }
+
+    return {
+      success: artifacts.some((a) => a.kind === "image"),
+      provider: "character-native",
+      command: "image character",
+      artifacts,
+      error: null,
+      cost_usd: costFor(req.capability, null, env),
+      duration_seconds: (Date.now() - started) / 1000,
+      seed: result.identitySpec.lock.seed,
+      model: "flux2-klein:angle+segment",
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      success: false,
+      provider: "character-native",
+      command: "image character",
+      artifacts: [],
+      error: msg,
+      cost_usd: 0,
+      duration_seconds: (Date.now() - started) / 1000,
+      seed: null,
+      model: "flux2-klein:angle+segment",
+    };
+  }
+}
+
 /** The live adapter map. Tests override entries via GenerateDeps.adapters. */
 export function realAdapters(env?: Record<string, string | undefined>): Partial<Record<InvokeKey, Adapter>> {
   return {
@@ -562,8 +992,14 @@ export function realAdapters(env?: Record<string, string | undefined>): Partial<
     "mlx:runpy": (req) => realRunPy(req, env),
     "mlx:runpy-image": (req) => realRunPyImage(req, env),
     "mlx:runpy-story": (req) => realRunPyStory(req, env),
+    "bun:lmstudio-story": (req) => realStoryNative(req, env),
     "mlx:runpy-tts": (req) => realRunPyTts(req, env),
+    "bun:tts-native": (req) => realTtsNative(req, env),
+    "bun:twosubject-native": (req) => realTwosubjectNative(req, env),
+    "bun:profile-native": (req) => realProfileNative(req, env),
+    "bun:character-native": (req) => realCharacterNative(req, env),
     "mlx:caption": (req) => realCaption(req, env),
+    "mlx:controlnet-hybrid": (req) => realControlNet(req, env),
     // Non-native adapters (ffmpeg / pure-Bun subtitle / cloud HTTP) — iteration 3.
     ...nonNativeAdapters(env),
   };

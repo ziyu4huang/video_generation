@@ -20,6 +20,7 @@ const ALLOW_SKIP: Record<string, string[]> = {
   // the long form only. Help parser surfaces both, so allow-list the shorts.
   t2i: ["-w"],
   i2i: ["-w"],
+  controlnet: ["-w"],
 };
 
 interface Report {

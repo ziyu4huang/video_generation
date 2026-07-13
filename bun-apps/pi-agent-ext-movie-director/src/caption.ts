@@ -28,6 +28,8 @@ export interface CaptionOptions {
   model?: string;
   /** Skip the LM Studio auto-load probe (assume the model is already loaded). */
   noAutoLoad?: boolean;
+  /** Original T2I prompt (required by the 'review' style for adherence evaluation). */
+  prompt?: string;
 }
 
 export interface CaptionDetails {
@@ -76,6 +78,7 @@ export function buildCaptionArgs(opts: CaptionOptions): string[] {
   if (opts.lang) args.push("--lang", opts.lang);
   if (opts.model) args.push("--model", opts.model);
   if (opts.noAutoLoad) args.push("--no-auto-load");
+  if (opts.prompt) args.push("--prompt", opts.prompt);
   return args;
 }
 

@@ -1,0 +1,84 @@
+import { describe, expect, it } from "bun:test";
+import { lmStudioJsonCall, resolveDefaultModel } from "./lmstudio.ts";
+
+function respond(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status });
+}
+
+describe("resolveDefaultModel", () => {
+  it("prefers an already-loaded Gemma-4 variant", async () => {
+    const fetchImpl = (async () =>
+      respond({ models: [{ key: "google/gemma-4-26b-a4b-qat", loaded_instances: [{}] }] })) as typeof fetch;
+    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl)).toBe("google/gemma-4-26b-a4b-qat");
+  });
+
+  it("falls back to any already-loaded model when no preferred model is loaded", async () => {
+    const fetchImpl = (async () => respond({ models: [{ key: "some/other-model", loaded_instances: [{}] }] })) as typeof fetch;
+    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl)).toBe("some/other-model");
+  });
+
+  it("falls back to the default model id when the server is unreachable", async () => {
+    const fetchImpl = (async () => {
+      throw new Error("ECONNREFUSED");
+    }) as typeof fetch;
+    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl)).toBe("google/gemma-4-26b-a4b-qat");
+  });
+});
+
+describe("lmStudioJsonCall — fast-path + safety retry (mirrors story.py's _gemma_json_call)", () => {
+  it("returns the fast-path result when parseFn succeeds on the first attempt", async () => {
+    let chatCalls = 0;
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/chat/completions")) {
+        chatCalls++;
+        return respond({ choices: [{ message: { content: '["ok"]' } }] });
+      }
+      return respond({ models: [] });
+    }) as typeof fetch;
+
+    const result = await lmStudioJsonCall("prompt", (raw) => JSON.parse(raw), { _fetchImpl: fetchImpl });
+    expect(result).toEqual(["ok"]);
+    expect(chatCalls).toBe(1);
+  });
+
+  it("retries at the safety-net budget when the fast path yields no parseable content", async () => {
+    let chatCalls = 0;
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/chat/completions")) {
+        chatCalls++;
+        if (chatCalls === 1) return respond({ choices: [{ message: { content: "not json at all" } }] });
+        return respond({ choices: [{ message: { content: '["retried"]' } }] });
+      }
+      return respond({ models: [] });
+    }) as typeof fetch;
+
+    const result = await lmStudioJsonCall("prompt", (raw) => JSON.parse(raw), { _fetchImpl: fetchImpl });
+    expect(result).toEqual(["retried"]);
+    expect(chatCalls).toBe(2);
+  });
+
+  it("tries the reasoning_content field before giving up on an attempt", async () => {
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/chat/completions")) {
+        return respond({ choices: [{ message: { content: "no json", reasoning_content: '["from-reasoning"]' } }] });
+      }
+      return respond({ models: [] });
+    }) as typeof fetch;
+
+    const result = await lmStudioJsonCall("prompt", (raw) => JSON.parse(raw), { _fetchImpl: fetchImpl });
+    expect(result).toEqual(["from-reasoning"]);
+  });
+
+  it("throws after both attempts fail to parse", async () => {
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/chat/completions")) return respond({ choices: [{ message: { content: "garbage" } }] });
+      return respond({ models: [] });
+    }) as typeof fetch;
+
+    await expect(lmStudioJsonCall("prompt", (raw) => JSON.parse(raw), { _fetchImpl: fetchImpl })).rejects.toThrow();
+  });
+});
