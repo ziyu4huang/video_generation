@@ -15,8 +15,7 @@
     "extensions": ["./extensions"]
   },
   "scripts": {
-    "build:deps": "bun run --cwd ../pi-agent-ext-obsidian build:bundle",
-    "test": "bun run build:deps && bun test __tests__/"
+    "test": "bun test __tests__/"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

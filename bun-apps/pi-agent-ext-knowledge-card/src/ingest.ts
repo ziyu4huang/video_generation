@@ -50,7 +50,7 @@ import {
 	validateZettelNote,
 	ZETTEL_MAX_BYTES,
 	type VaultIndex,
-} from "./obsidian-lazy.js";
+} from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 import { tokeniseText, bestMatch } from "./similarity.ts";
 import {
 	extractEntities,

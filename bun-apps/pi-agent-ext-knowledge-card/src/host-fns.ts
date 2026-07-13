@@ -10,7 +10,7 @@
  * test injection.
  */
 import { readFileSync } from "node:fs";
-import { resolveVault } from "./obsidian-lazy.js";
+import { resolveVault } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 import {
   graphHealth,
   healGraph,
