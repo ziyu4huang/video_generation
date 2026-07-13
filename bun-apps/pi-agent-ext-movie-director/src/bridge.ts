@@ -608,6 +608,120 @@ async function realControlNet(req: GenerateRequest, env?: Record<string, string 
 }
 
 /**
+ * isNativeWorkflowRequest — decide whether a `workflow` request can reach
+ * workflow_native.ts (base gen + optional ESRGAN upscale, both already
+ * Swift-native) instead of run.py's image-workflow.py (full 4-stage
+ * pipeline incl. mediapipe face-detailer, numpy/PIL/cv2 post-process, and
+ * SeedVR2). See workflow_native.ts's module doc for the full per-stage
+ * portability investigation this gate is based on.
+ *
+ * Native path is only safe when NONE of the non-portable stages are
+ * requested: face-detail (needs mediapipe/Vision-framework face DETECTION,
+ * not just the I2I re-denoise it wraps — no Swift port exists), any
+ * post-process filter (film grain/sharpening/LUT/skin-contrast/noise-clean —
+ * pure pixel math, but no image-codec dep in this package and no Swift
+ * filter chain either), or `upscale_method: "seedvr2"` (confirmed
+ * PyTorch/torch-MPS-only, no MLX/Swift port anywhere).
+ *
+ * Checks BOTH `options` (typed/camelCase or snake_case field names — callers
+ * use either) and `extraArgs` (raw CLI tokens; runpy_image.ts's
+ * RunPyImageOptions has no typed fields for these knobs, so callers commonly
+ * pass them as raw `--film-grain 0.02`-style tokens instead). Conservative by
+ * design, same as isNativeControlNetRequest — a false negative just costs a
+ * Python subprocess (current behavior, no regression); a false positive
+ * would silently drop a requested stage, which this function exists to
+ * prevent.
+ */
+export function isNativeWorkflowRequest(options: Record<string, unknown>, extraArgs?: string[]): boolean {
+  const truthy = (v: unknown): boolean => {
+    if (typeof v === "boolean") return v;
+    if (typeof v === "number") return v > 0;
+    if (typeof v === "string") return v.length > 0;
+    return v != null;
+  };
+  const NONPORTABLE_OPTION_KEYS = [
+    "faceDetail", "face_detail",
+    "filmGrain", "film_grain",
+    "sharpening",
+    "lut", "lutPath", "lut_path",
+    "skinContrast", "skin_contrast",
+    "noiseClean", "noise_clean",
+  ];
+  for (const k of NONPORTABLE_OPTION_KEYS) {
+    if (truthy(options[k])) return false;
+  }
+  const upscaleMethod = options.upscaleMethod ?? options.upscale_method;
+  if (upscaleMethod === "seedvr2") return false;
+
+  const NONPORTABLE_FLAGS = new Set([
+    "--face-detail", "--film-grain", "--sharpening", "--lut",
+    "--skin-contrast", "--noise-clean",
+  ]);
+  for (const a of extraArgs ?? []) {
+    if (NONPORTABLE_FLAGS.has(a)) return false;
+  }
+  if ((extraArgs ?? []).includes("seedvr2")) return false;
+
+  return true;
+}
+
+/**
+ * realWorkflow — style-forked (caption.ts/controlnet_hybrid pattern)
+ * workflow dispatch. Native path: workflow_native.ts's base-gen (+optional
+ * ESRGAN upscale) orchestration. Fallback path: the pre-existing
+ * realRunPyImage, unchanged. See isNativeWorkflowRequest for the exact split.
+ */
+async function realWorkflow(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
+  const options = (req.options ?? {}) as Record<string, unknown>;
+  if (!isNativeWorkflowRequest(options, req.extraArgs)) {
+    return realRunPyImage(req, env);
+  }
+
+  const started = Date.now();
+  try {
+    const { runWorkflowNative } = await import("./workflow_native.ts");
+    const result = await runWorkflowNative({
+      prompt: options.prompt as string | undefined,
+      input: (options.input as string | undefined) ?? (options.inputImage as string | undefined),
+      width: options.width as number | undefined,
+      height: options.height as number | undefined,
+      steps: options.steps as number | undefined,
+      seed: options.seed as number | undefined,
+      loraPath: (options.loraPath as string | undefined) ?? (options.lora_path as string | undefined),
+      loraScale: (options.loraScale as number | undefined) ?? (options.lora_scale as number | undefined),
+      denoiseStrength: (options.denoiseStrength as number | undefined) ?? (options.denoise_strength as number | undefined),
+      upscale: Boolean(options.upscale),
+      upscaleModel: (options.upscaleModel as string | undefined) ?? (options.upscale_model as string | undefined),
+      outputDir: req.outputDir,
+    });
+    return {
+      success: true,
+      provider: "workflow-native",
+      command: "image workflow",
+      artifacts: [{ path: result.finalImage, kind: "image", seed: result.seed, width: result.width, height: result.height, role: "primary" }],
+      error: null,
+      cost_usd: costFor(req.capability, null, env),
+      duration_seconds: (Date.now() - started) / 1000,
+      seed: result.seed,
+      model: "zimage:t2i/i2i" + (result.stages.includes("upscale") ? "+flux2:upscale" : ""),
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      success: false,
+      provider: "workflow-native",
+      command: "image workflow",
+      artifacts: [],
+      error: msg,
+      cost_usd: 0,
+      duration_seconds: (Date.now() - started) / 1000,
+      seed: null,
+      model: "zimage:t2i/i2i",
+    };
+  }
+}
+
+/**
  * adaptRunPyStory — normalize a run.py story result. angles/propose produce a
  * structured text artifact (the angles.json / proposal.yaml the agent reads for
  * the approval gate, kind:"text"); shots produces storyboard image frames
@@ -1000,6 +1114,7 @@ export function realAdapters(env?: Record<string, string | undefined>): Partial<
     "bun:character-native": (req) => realCharacterNative(req, env),
     "mlx:caption": (req) => realCaption(req, env),
     "mlx:controlnet-hybrid": (req) => realControlNet(req, env),
+    "mlx:workflow-hybrid": (req) => realWorkflow(req, env),
     // Non-native adapters (ffmpeg / pure-Bun subtitle / cloud HTTP) — iteration 3.
     ...nonNativeAdapters(env),
   };
