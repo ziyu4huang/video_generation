@@ -64,4 +64,45 @@ describe("distill gate", () => {
 		expect(result.killed.find((k) => k.entry.id === "dup")).toBeTruthy();
 		expect(result.survivors.find((s) => s.entry.id === "new")).toBeTruthy();
 	});
+
+	test("raw pi-memory card match → upgrade candidate (NOT killed)", () => {
+		// Seed a raw hermes-style card (active, id pi-memory:...) — quoted id because
+		// colon-containing scalars are quoted by ingest.ts yamlScalar.
+		writeFileSync(
+			join(vault, "Zettelkasten", "knowledge-graph", "raw-up.md"),
+			`---\nid: "pi-memory:failure:hash1"\nstatus: active\nsuperseded_by: ""\ntags: [zettel]\n---\nLoRA alpha must match rank or training diverges\n`,
+		);
+		const entries = [
+			entry("x", "LoRA alpha must match rank or training diverges"), // matches raw → upgrade
+			entry("y", "A brand new insight about gpu memory allocation"), // no match → survive
+		];
+		const result = runGate(entries, vault);
+		expect(result.killed.length).toBe(0);
+		expect(result.survivors.length).toBe(2);
+		const up = result.survivors.find((s) => s.entry.id === "x");
+		expect(up?.supersedesCardId).toBe("pi-memory:failure:hash1");
+		expect(up?.reason).toMatch(/upgrade/i);
+	});
+
+	test("curated (distill:) card match → killed as true duplicate", () => {
+		writeFileSync(
+			join(vault, "Zettelkasten", "knowledge-graph", "curated-dup.md"),
+			`---\nid: "distill:already-done"\nstatus: active\nsuperseded_by: ""\ntags: [zettel]\n---\nFlux2 needs explicit guidance scale override\n`,
+		);
+		const entries = [entry("z", "Flux2 needs explicit guidance scale override")];
+		const result = runGate(entries, vault);
+		expect(result.killed.length).toBe(1);
+		expect(result.killed[0].reason).toBe("duplicate");
+	});
+
+	test("already-superseded raw card → killed (not re-upgraded)", () => {
+		writeFileSync(
+			join(vault, "Zettelkasten", "knowledge-graph", "sup.md"),
+			`---\nid: "pi-memory:failure:hash2"\nstatus: superseded\nsuperseded_by: "distill:old"\ntags: [zettel]\n---\nPin bun lockfile before merging extension PRs\n`,
+		);
+		const entries = [entry("w", "Pin bun lockfile before merging extension PRs")];
+		const result = runGate(entries, vault);
+		expect(result.killed.length).toBe(1);
+		expect(result.killed[0].reason).toBe("duplicate");
+	});
 });
