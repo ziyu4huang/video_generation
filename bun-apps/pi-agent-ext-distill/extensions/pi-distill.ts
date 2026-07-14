@@ -15,6 +15,7 @@ import { readState } from "../src/state.ts";
 export default function distillExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "distill",
+		label: "Distill",
 		description:
 			"Distill raw hermes-memory entries into curated vault notes and the knowledge-card graph. " +
 			"Agent self-triggered when memory bloat exceeds the adaptive threshold. " +
@@ -22,7 +23,7 @@ export default function distillExtension(pi: ExtensionAPI) {
 			"dedup/stale/malformed; returns survivors for in-context enrichment), 'converge' " +
 			"(write enriched notes to vault + graph; auto-adjusts threshold). " +
 			"Workflow: status then gate then enrich survivors then converge.",
-		inputSchema: Type.Object({
+		parameters: Type.Object({
 			action: Type.Union([
 				Type.Literal("status"),
 				Type.Literal("gate"),
@@ -66,24 +67,35 @@ export default function distillExtension(pi: ExtensionAPI) {
 				),
 			),
 		}),
-		handler: async (args: Record<string, unknown>) => {
-			const action = args.action as string;
-			const vaultPath = args.vaultPath as string;
+		async execute(_id, params, _signal, _onUpdate, _ctx) {
+			const ok = (data: unknown) => ({
+				content: [{ type: "text" as const, text: JSON.stringify(data) }],
+				isError: false,
+				details: null,
+			});
+			const err = (msg: string) => ({
+				content: [{ type: "text" as const, text: msg }],
+				isError: true,
+				details: null,
+			});
+
+			const action = params.action as string;
+			const vaultPath = params.vaultPath as string;
 
 			if (action === "status") {
 				const state = readState(vaultPath);
-				return {
+				return ok({
 					threshold: state.threshold,
 					lastRun: state.lastRun,
 					historyEntries: state.history.length,
 					recentRuns: state.history.slice(-3),
-				};
+				});
 			}
 
 			if (action === "gate") {
-				const entries = (args.entries ?? []) as any[];
+				const entries = (params.entries ?? []) as any[];
 				const result = runGate(entries, vaultPath);
-				return {
+				return ok({
 					candidates: result.candidates,
 					killed: result.killed.length,
 					survivors: result.survivors.map((s) => ({
@@ -99,16 +111,16 @@ export default function distillExtension(pi: ExtensionAPI) {
 						},
 						{},
 					),
-				};
+				});
 			}
 
 			if (action === "converge") {
-				const notes = (args.notes ?? []) as any[];
-				const metrics = (args.metrics ?? { candidates: 0, killed: 0, survivors: 0 }) as any;
-				return await runConverge(notes, vaultPath, metrics);
+				const notes = (params.notes ?? []) as any[];
+				const metrics = (params.metrics ?? { candidates: 0, killed: 0, survivors: 0 }) as any;
+				return ok(await runConverge(notes, vaultPath, metrics));
 			}
 
-			throw new Error(`Unknown action: ${action}`);
+			return err(`Unknown action: ${action}`);
 		},
 	});
 

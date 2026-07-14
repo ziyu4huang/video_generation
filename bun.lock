@@ -59,6 +59,7 @@
         "@earendil-works/pi-ai": "latest",
         "@earendil-works/pi-coding-agent": "latest",
         "@repo/pi-agent": "workspace:*",
+        "@repo/pi-agent-ext-distill": "workspace:*",
         "@repo/pi-agent-ext-flux2": "workspace:*",
         "@repo/pi-agent-ext-knowledge-card": "workspace:*",
         "@repo/pi-agent-ext-krea2": "workspace:*",
@@ -107,6 +108,10 @@
     "bun-apps/pi-agent-ext-distill": {
       "name": "@repo/pi-agent-ext-distill",
       "version": "0.0.0",
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "*",
+        "typebox": "*",
+      },
     },
     "bun-apps/pi-agent-ext-flux2": {
       "name": "@repo/pi-agent-ext-flux2",
