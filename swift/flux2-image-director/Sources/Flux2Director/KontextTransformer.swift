@@ -107,7 +107,12 @@ enum KontextRoPE {
 
     /// Apply rotary embedding to Q/K: matches mflux's `AttentionUtils.apply_rope`.
     /// `xq`/`xk`: (B, H, S, headDim). `freqsCis`: (B, 1, S, headDim/2, 2, 2).
-    /// Returns rotated (xq, xk) in float32 (matches Python — caller casts back).
+    /// Returns rotated (xq, xk) in float32 — Python's `apply_rope` does NOT
+    /// cast back to the pre-rope dtype (verified 2026-07-14: an earlier
+    /// downcast-before-SDPA here was the actual bug behind a cos=0.977 parity
+    /// failure — `compute_attention` really is called with fp32 q/k against a
+    /// bf16 value, MLX's SDPA handles the mixed precision; do not "fix" that
+    /// by casting q/k down, it silently diverges from the real model).
     static func apply(xq: MLXArray, xk: MLXArray, freqsCis: MLXArray) -> (MLXArray, MLXArray) {
         func mix(_ x: MLXArray) -> MLXArray {
             let xf = x.asType(.float32)
@@ -154,6 +159,12 @@ struct KTxTimeTextEmbed {
     let textEmbedder: KTxTextEmbedder
     let timestepEmbedder: KTxTimestepEmbedder
     let guidanceEmbedder: KTxTimestepEmbedder?   // same shape as timestep embedder
+    /// Matches Python's `ModelConfig.precision` (bf16 in production). Exposed
+    /// so `verify-kontext-transformer` can run the whole model in float32 —
+    /// isolates algorithm correctness from bf16 rounding, which turned out to
+    /// matter a lot at t=0 (sigma=1.0, the most extreme conditioning
+    /// magnitude): see the 2026-07-14 KTxFeedForward note below.
+    var precision: DType = .bfloat16
 
     func callAsFunction(timeStep: MLXArray, pooledProjection: MLXArray, guidance: MLXArray) -> MLXArray {
         var timeStepsEmb = timestepEmbedder(timeProj(timeStep))
@@ -161,7 +172,7 @@ struct KTxTimeTextEmbed {
             timeStepsEmb = timeStepsEmb + guidanceEmbedder(timeProj(guidance))
         }
         let pooled = textEmbedder(pooledProjection)
-        return (timeStepsEmb + pooled).asType(.bfloat16)
+        return (timeStepsEmb + pooled).asType(precision)
     }
 }
 
@@ -206,9 +217,10 @@ struct KTxAdaLayerNormZeroSingle {
 struct KTxAdaLayerNormContinuous {
     let linear: MLXNN.Linear    // conditioningDim -> embeddingDim*2, bias=false
     let embeddingDim: Int
+    var precision: DType = .bfloat16   // see KTxTimeTextEmbed.precision
 
     func callAsFunction(_ x: MLXArray, textEmbeddings: MLXArray) -> MLXArray {
-        let te = linear(silu(textEmbeddings).asType(.bfloat16))
+        let te = linear(silu(textEmbeddings).asType(precision))
         let scale = te[0..., 0..<embeddingDim]
         let shift = te[0..., embeddingDim..<(2 * embeddingDim)]
         let normed = KTxLayerNormNoAffine()(x)
@@ -271,7 +283,6 @@ struct KTxJointAttention {
         let value = MLX.concatenated([ev, v], axis: 2)
 
         (query, key) = KontextRoPE.apply(xq: query, xk: key, freqsCis: freqsCis)
-        query = query.asType(v.dtype); key = key.asType(v.dtype)
 
         let scale: Float = 1.0 / Float(headDim).squareRoot()
         let attnOut = MLXFast.scaledDotProductAttention(queries: query, keys: key, values: value, scale: scale, mask: nil)
@@ -294,7 +305,6 @@ struct KTxSingleBlockAttention {
         let batch = hidden.dim(0)
         var (q, k, v) = processQKV(hidden, toQ: toQ, toK: toK, toV: toV, normQ: normQ, normK: normK, heads: heads, headDim: headDim)
         (q, k) = KontextRoPE.apply(xq: q, xk: k, freqsCis: freqsCis)
-        q = q.asType(v.dtype); k = k.asType(v.dtype)
         let scale: Float = 1.0 / Float(headDim).squareRoot()
         let attnOut = MLXFast.scaledDotProductAttention(queries: q, keys: k, values: v, scale: scale, mask: nil)
         return headMerge(attnOut, batch: batch, heads: heads, headDim: headDim)
@@ -409,6 +419,67 @@ public final class KontextTransformer {
         return out
     }
 
+    /// Diagnostic variant of `callAsFunction` that also returns intermediate
+    /// tensors — for bisecting a numeric-parity mismatch against
+    /// `gen_kontext_transformer_ref.py`'s matching capture points. Not used
+    /// by the real forward path; exists purely for `verify-kontext-transformer`.
+    public func debugForward(timeStep: MLXArray, guidance: MLXArray, hiddenStates: MLXArray,
+                             promptEmbeds: MLXArray, pooledPromptEmbeds: MLXArray,
+                             imageIds: MLXArray) -> [String: MLXArray] {
+        var out: [String: MLXArray] = [:]
+        var hidden = xEmbedder(hiddenStates)
+        var encoderHidden = contextEmbedder(promptEmbeds)
+        out["hidden_post_embed"] = hidden
+        out["enc_post_embed"] = encoderHidden
+        let textEmbeddings = timeTextEmbed(timeStep: timeStep, pooledProjection: pooledPromptEmbeds, guidance: guidance)
+        out["temb"] = textEmbeddings
+
+        let txtIds = MLX.zeros([1, promptEmbeds.dim(1), 3], dtype: .float32)
+        let ids = MLX.concatenated([txtIds, imageIds.asType(.float32)], axis: 1)
+        let freqsCis = KontextRoPE.embed(ids: ids)
+        out["rope_c0"] = freqsCis[.ellipsis, 0]
+
+        if let b0 = jointBlocks.first {
+            let (normHidden, gateMsa, shiftMlp, scaleMlp, gateMlp) = b0.norm1(hidden, textEmbeddings: textEmbeddings)
+            let (normEncHidden, _, _, _, _) = b0.norm1Context(encoderHidden, textEmbeddings: textEmbeddings)
+            out["jb0_norm_hidden"] = normHidden
+            out["jb0_norm_enc_hidden"] = normEncHidden
+            let (attnOut, ctxAttnOut) = b0.attn(hidden: normHidden, encoderHidden: normEncHidden, freqsCis: freqsCis)
+            out["jb0_attn_out"] = attnOut
+            out["jb0_ctx_attn_out"] = ctxAttnOut
+            out["jb0_gate_msa"] = gateMsa
+            out["jb0_shift_mlp"] = shiftMlp
+            out["jb0_scale_mlp"] = scaleMlp
+            out["jb0_gate_mlp"] = gateMlp
+            let hPostRes = hidden + gateMsa.expandedDimensions(axis: 1) * attnOut
+            out["jb0_h_post_res"] = hPostRes
+            var normH2 = KTxLayerNormNoAffine()(hPostRes)
+            normH2 = normH2 * (1 + scaleMlp.expandedDimensions(axis: 1)) + shiftMlp.expandedDimensions(axis: 1)
+            out["jb0_normh2mod"] = normH2
+            out["jb0_ff_out"] = b0.ff(normH2)
+        }
+
+        for (i, block) in jointBlocks.enumerated() {
+            (encoderHidden, hidden) = block(hidden: hidden, encoderHidden: encoderHidden, textEmbeddings: textEmbeddings, freqsCis: freqsCis)
+            if i == 0 {
+                out["enc_after_jb0"] = encoderHidden
+                out["hidden_after_jb0"] = hidden
+            }
+        }
+        out["enc_after_all_joint"] = encoderHidden
+        out["hidden_after_all_joint"] = hidden
+
+        var combined = MLX.concatenated([encoderHidden, hidden], axis: 1)
+        for (i, block) in singleBlocks.enumerated() {
+            combined = block(hidden: combined, textEmbeddings: textEmbeddings, freqsCis: freqsCis)
+            if i == 0 {
+                out["combined_after_sb0"] = combined
+            }
+        }
+        out["combined_after_all_single"] = combined
+        return out
+    }
+
     // MARK: - Structural shape self-test (random weights, no real checkpoint)
 
     /// Build a `KontextTransformer` with randomly-initialized weights at the
@@ -473,7 +544,7 @@ public final class KontextTransformer {
         let hiddenStates = MLXRandom.normal([batch, imgSeq, 64])
         let promptEmbeds = MLXRandom.normal([batch, txtSeq, 4096])
         let pooledPromptEmbeds = MLXRandom.normal([batch, 768])
-        let imageIds = KontextUtil.createImageIds(height: 64, width: 64)   // (1, 16, 3)
+        let imageIds = KontextUtil.createGenerationImageIds(height: 64, width: 64)   // (1, 16, 3), leading id=0
         let timeStep = MLXArray([Float(0.5)])
         let guidance = MLXArray([Float(2.5)])
 
@@ -486,5 +557,120 @@ public final class KontextTransformer {
         return ok
             ? "PASS: KontextTransformer 19+38-block forward pass shape OK — output \(out.shape) == expected \(expected)"
             : "FAIL: output shape \(out.shape) != expected \(expected)"
+    }
+}
+
+// MARK: - Real-weight loader (kontext epic phase 2, item (a)+(b))
+//
+// `FluxWeightMapping.get_transformer_mapping()`
+// (`../mflux/src/mflux/models/flux/weights/flux_weight_mapping.py`) maps
+// most transformer keys to themselves — but NOT all: the feed-forward layers
+// are renamed (`ff.net.0.proj`→`ff.linear1`, `ff.net.2`→`ff.linear2`, same
+// for `ff_context`), confirmed the hard way (a force-unwrap crash) before
+// being read carefully. Every other key (attention, norms, embedders) is a
+// true identity mapping. No Conv2d transposes needed here (unlike the VAE) —
+// this is pure Linear/Norm, so no tensor-value transform, just renames.
+// Kontext-dev ships unquantized bf16, matching this file's unquantized
+// `MLXNN.Linear`/`KTxRMSNorm`.
+
+public struct KontextTransformerWeights {
+    public let arrays: [String: MLXArray]
+    public let numJointBlocks: Int
+    public let numSingleBlocks: Int
+
+    /// `dir` — a directory containing the raw HF `diffusion_pytorch_model-*-of-*.safetensors`
+    /// shards (e.g. the `transformer/` subdir of a downloaded
+    /// `black-forest-labs/FLUX.1-Kontext-dev` snapshot).
+    public static func load(dir: URL) throws -> KontextTransformerWeights {
+        var weights: [String: MLXArray] = [:]
+        let files = (try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))
+            .filter { $0.pathExtension == "safetensors" && !$0.lastPathComponent.hasPrefix("._") }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        for f in files {
+            let shard = try loadArrays(url: f)
+            weights.merge(shard) { _, new in new }
+        }
+        var joint = 0
+        while weights["transformer_blocks.\(joint).norm1.linear.weight"] != nil { joint += 1 }
+        var single = 0
+        while weights["single_transformer_blocks.\(single).norm.linear.weight"] != nil { single += 1 }
+        return KontextTransformerWeights(arrays: weights, numJointBlocks: joint, numSingleBlocks: single)
+    }
+}
+
+public extension KontextTransformer {
+    /// `precision` — production default is `.bfloat16` (matches Python's
+    /// `ModelConfig.precision`). `verify-kontext-transformer` overrides to
+    /// `.float32` to isolate algorithm correctness from bf16 rounding: at
+    /// t=0 (sigma=1.0, the FIRST denoising step) conditioning magnitudes are
+    /// large enough that bf16 rounding differences between two independent
+    /// implementations diverge catastrophically through the FF block's
+    /// nonlinear GELU (found 2026-07-14 by bisecting per-block cosine
+    /// similarity down to a single `KTxFeedForward` call — cos=1.0 in, then
+    /// abrupt cos≈0 out, even though the FF input matched to a raw max abs
+    /// diff of only ~75 — a small ABSOLUTE bf16 rounding gap that a
+    /// nonlinearity does not treat as small). Whether this bf16 instability
+    /// also matters in real production inference at t=0 is a separate,
+    /// deliberately NOT investigated question — flagged, not solved, here.
+    static func build(weights: KontextTransformerWeights, precision: DType = .bfloat16) -> KontextTransformer {
+        let w = weights.arrays
+        func lin(_ key: String) -> MLXNN.Linear {
+            Linear(weight: w["\(key).weight"]!.asType(precision), bias: w["\(key).bias"].map { $0.asType(precision) })
+        }
+        func linNoBias(_ key: String) -> MLXNN.Linear {
+            Linear(weight: w["\(key).weight"]!.asType(precision), bias: nil)
+        }
+        func rms(_ key: String) -> KTxRMSNorm {
+            KTxRMSNorm(weight: w["\(key).weight"]!.asType(.float32))
+        }
+
+        func jointAttn(_ p: String) -> KTxJointAttention {
+            KTxJointAttention(
+                toQ: lin("\(p).attn.to_q"), toK: lin("\(p).attn.to_k"), toV: lin("\(p).attn.to_v"),
+                toOut: lin("\(p).attn.to_out.0"),
+                addQProj: lin("\(p).attn.add_q_proj"), addKProj: lin("\(p).attn.add_k_proj"),
+                addVProj: lin("\(p).attn.add_v_proj"), toAddOut: lin("\(p).attn.to_add_out"),
+                normQ: rms("\(p).attn.norm_q"), normK: rms("\(p).attn.norm_k"),
+                normAddedQ: rms("\(p).attn.norm_added_q"), normAddedK: rms("\(p).attn.norm_added_k"))
+        }
+        func singleAttn(_ p: String) -> KTxSingleBlockAttention {
+            KTxSingleBlockAttention(toQ: lin("\(p).attn.to_q"), toK: lin("\(p).attn.to_k"), toV: lin("\(p).attn.to_v"),
+                                    normQ: rms("\(p).attn.norm_q"), normK: rms("\(p).attn.norm_k"))
+        }
+
+        let jointBlocks = (0..<weights.numJointBlocks).map { i -> KTxJointTransformerBlock in
+            let p = "transformer_blocks.\(i)"
+            return KTxJointTransformerBlock(
+                norm1: KTxAdaLayerNormZero(linear: lin("\(p).norm1.linear")),
+                norm1Context: KTxAdaLayerNormZero(linear: lin("\(p).norm1_context.linear")),
+                attn: jointAttn(p),
+                ff: KTxFeedForward(linear1: lin("\(p).ff.net.0.proj"), linear2: lin("\(p).ff.net.2"), approximate: false),
+                ffContext: KTxFeedForward(linear1: lin("\(p).ff_context.net.0.proj"), linear2: lin("\(p).ff_context.net.2"), approximate: true))
+        }
+        let singleBlocks = (0..<weights.numSingleBlocks).map { i -> KTxSingleTransformerBlock in
+            let p = "single_transformer_blocks.\(i)"
+            return KTxSingleTransformerBlock(
+                norm: KTxAdaLayerNormZeroSingle(linear: lin("\(p).norm.linear")),
+                attn: singleAttn(p),
+                projMlp: lin("\(p).proj_mlp"), projOut: lin("\(p).proj_out"))
+        }
+
+        let hasGuidance = w["time_text_embed.guidance_embedder.linear_1.weight"] != nil
+        let timeTextEmbed = KTxTimeTextEmbed(
+            textEmbedder: KTxTextEmbedder(linear1: lin("time_text_embed.text_embedder.linear_1"),
+                                          linear2: lin("time_text_embed.text_embedder.linear_2")),
+            timestepEmbedder: KTxTimestepEmbedder(linear1: lin("time_text_embed.timestep_embedder.linear_1"),
+                                                  linear2: lin("time_text_embed.timestep_embedder.linear_2")),
+            guidanceEmbedder: hasGuidance
+                ? KTxTimestepEmbedder(linear1: lin("time_text_embed.guidance_embedder.linear_1"),
+                                      linear2: lin("time_text_embed.guidance_embedder.linear_2"))
+                : nil,
+            precision: precision)
+
+        return KontextTransformer(
+            xEmbedder: lin("x_embedder"), contextEmbedder: lin("context_embedder"),
+            timeTextEmbed: timeTextEmbed, jointBlocks: jointBlocks, singleBlocks: singleBlocks,
+            normOut: KTxAdaLayerNormContinuous(linear: linNoBias("norm_out.linear"), embeddingDim: 3072, precision: precision),
+            projOut: lin("proj_out"))
     }
 }

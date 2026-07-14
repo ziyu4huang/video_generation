@@ -88,4 +88,28 @@ public enum KontextUtil {
         let coords = MLX.stacked([ones, flatRow, flatCol], axis: 1)  // (latent_h*latent_w, 3)
         return coords.expandedDimensions(axis: 0)                     // (1, latent_h*latent_w, 3)
     }
+
+    /// Coordinate-grid RoPE ids for the actual noise/generation latents being
+    /// denoised: (1, latent_h*latent_w, 3) = [0, row, col] — leading `0`,
+    /// NOT `1` (that marker is `createImageIds`, reserved for reference-image
+    /// tokens only). Mirrors `Transformer._prepare_latent_image_ids` exactly.
+    /// Found missing 2026-07-14: `KontextTransformer.shapeSelfTest` had been
+    /// passing `createImageIds`'s leading-`1` reference marker as if it were
+    /// the base generation ids — harmless for a shape-only check (same shape
+    /// either way) but wrong for numeric parity, so added and wired in here.
+    public static func createGenerationImageIds(height: Int, width: Int) -> MLXArray {
+        let latentHeight = height / 16
+        let latentWidth = width / 16
+        let rowIds = MLX.arange(0, latentHeight, dtype: .int32)
+            .expandedDimensions(axis: 1)
+        let rowGrid = MLX.broadcast(rowIds, to: [latentHeight, latentWidth])
+        let colIds = MLX.arange(0, latentWidth, dtype: .int32)
+            .expandedDimensions(axis: 0)
+        let colGrid = MLX.broadcast(colIds, to: [latentHeight, latentWidth])
+        let flatRow = rowGrid.reshaped([-1])
+        let flatCol = colGrid.reshaped([-1])
+        let zeros = MLX.zeros([flatRow.size], dtype: .int32)
+        let coords = MLX.stacked([zeros, flatRow, flatCol], axis: 1)  // (latent_h*latent_w, 3)
+        return coords.expandedDimensions(axis: 0)                      // (1, latent_h*latent_w, 3)
+    }
 }
