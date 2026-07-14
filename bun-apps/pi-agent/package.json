@@ -28,7 +28,7 @@
     "exe": "../../dist/pi-agent/pi-agent"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "latest",
+    "@earendil-works/pi-coding-agent": "0.80.7",
     "@repo/pi-agent-ext-web-access": "workspace:*"
   },
   "devDependencies": {
