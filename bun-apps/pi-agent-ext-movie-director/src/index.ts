@@ -27,3 +27,8 @@ export * from "./ffprobe.ts";
 export * from "./precompose-gate.ts";
 export * from "./tool-scope.ts";
 export * from "./dispatch.ts";
+export * from "./driver.ts";
+export * from "./waypoints.ts";
+export * from "./assets-encoder.ts";
+export * from "./driver-wiring.ts";
+export * from "./waypoint-runtime.ts";

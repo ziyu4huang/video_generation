@@ -56,6 +56,11 @@ import { composeVideo, finalReview, type EditDecisions } from "./compose.ts";
 import { renderRemotion, type RemotionEditDecisions } from "./remotion.ts";
 import { composeMotion, type MotionDeps } from "./compose_motion.ts";
 import { preComposeGate, enforcePreCompose } from "./precompose-gate.ts";
+import { runPipeline, slugifyTopic, type DriverOptions } from "./driver.ts";
+import { wireProduce } from "./driver-wiring.ts";
+import { makeRealWaypointDeps } from "./waypoint-runtime.ts";
+import { defaultExtractLastFrame, defaultProbeDuration } from "./assets-runtime.ts";
+import { runCompletionWaypoint, runAgentWaypoint, pickProducer, WaypointExhaustedError, type WaypointDeps } from "./waypoints.ts";
 
 /** The canonical 19 orchestration commands (also the CLI's command surface). */
 export const COMMANDS = [
@@ -79,6 +84,8 @@ export const COMMANDS = [
   "cost-reconcile",
   "cost-snapshot",
   "read-decision-log",
+  "run-pipeline",
+  "run-waypoint",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
 
@@ -257,6 +264,20 @@ export const COMMAND_REFERENCE = [
   "                        (resolved !== used) are recorded; a call where the pre-resolved and actually-used provider",
   "                        match writes nothing. Complements cost-snapshot: cost tracking only ever sees the FINAL",
   "                        attribution, not the fact a substitution happened or why.",
+  "  • run-pipeline     — {topic | projectId, pipeline?, model?, requireHumanApproval?, maxRetries?} → drives the",
+  "                        WHOLE pipeline deterministically (research→…→publish): the driver owns stage",
+  "                        transitions, gate-enforced checkpoints, and the mechanical generate/compose calls;",
+  "                        scoped LLM waypoints produce one artifact each at the creative stages (research uses",
+  "                        web_search; proposal/script/scene_plan/edit are single completions). Proactively",
+  "                        encodes clip duration (frames = ceil(scene_duration × fps), chained when >8s) so the",
+  "                        frozen-frame failure cannot occur. Consent-flag approval: gated stages auto-approve",
+  "                        unless named in requireHumanApproval (then it pauses — resume via run-pipeline",
+  "                        {projectId}). Bounded retry → resumable abort on producer failure. The deterministic",
+  "                        alternative to agent-driven sequencing.",
+  "  • run-waypoint     — {stage, inputs?, model?, maxRetries?} → run ONE creative waypoint in isolation",
+  "                        (research/proposal/script/scene_plan/edit) and return {stage, valid, artifact|errors}.",
+  "                        Per-stage iteration harness for cheap debugging without driving the whole pipeline; uses",
+  "                        the same produceAndValidate path (clean-to-schema + bounded retry) as run-pipeline.",
 ].join("\n");
 
 /**
@@ -310,6 +331,39 @@ export type DispatchResult = { ok: true; text: string } | { ok: false; error: st
 export interface DispatchDeps {
 	/** Forwarded to composeMotion() as its MotionDeps (e.g. { spawnImpl }). */
 	composeMotionDeps?: MotionDeps;
+	/** run-pipeline: inject to intercept inner dispatch calls in tests (default: re-entrant dispatch). */
+	innerDispatch?: (command: string, opts: Record<string, unknown>) => Promise<{ ok: true; text: string } | { ok: false; error: string }>;
+	/** run-pipeline: inject waypoint producers in tests (default: real bounded pi sessions). */
+	waypointDeps?: WaypointDeps;
+	/** run-pipeline: inject the ffmpeg last-frame extractor in tests. */
+	extractLastFrame?: (clipPath: string) => Promise<string>;
+	/** run-pipeline: inject the ffprobe duration prober in tests (default: real ffprobe). */
+	probeDuration?: (path: string) => Promise<number>;
+}
+
+/** Build the waypoint validateFn that delegates to dispatch("validate-artifact").
+ *  Maps the validator's {ok, errors} result to the waypoint's {valid, errors} shape.
+ *  (Predecessor inlined this and read `parsed.valid` — but validate-artifact returns
+ *  {ok:...}, so the waypoint's own validation never actually failed; the /approval
+ *  error only surfaced at the checkpoint gate with no retry feedback. Centralizing
+ *  it here fixes both cases at once.) */
+function makeWaypointValidateFn(
+	inner: (command: string, opts: Record<string, unknown>) => Promise<DispatchResult>,
+): WaypointDeps["validateFn"] {
+	return async (artifact, data) => {
+		const v = await inner("validate-artifact", { artifact, data });
+		if (!v.ok) return { valid: false, errors: v.error };
+		try {
+			const parsed = JSON.parse(v.text) as { ok?: boolean; errors?: string[] };
+			if (parsed.ok === false) {
+				const errs = parsed.errors;
+				return { valid: false, errors: Array.isArray(errs) ? errs.join("; ") : String(errs ?? "invalid") };
+			}
+			return { valid: true };
+		} catch {
+			return { valid: true };
+		}
+	};
 }
 
 export async function dispatch(command: Command, opts: Record<string, unknown>, deps?: DispatchDeps): Promise<DispatchResult> {
@@ -632,6 +686,83 @@ export async function dispatch(command: Command, opts: Record<string, unknown>, 
         const missing = missingFields(opts, ["projectId"]);
         if (missing.length > 0) return { ok: false, error: `read-decision-log requires non-empty ${missing.join(", ")}` };
         return { ok: true, text: jsonOut(getDecisionLog(String(opts.projectId ?? ""))) };
+      }
+      case "run-pipeline": {
+        // Deterministic driver over the existing dispatch core. Self-contained:
+        // both the agent tool and the CLI call dispatch() with no deps, so the
+        // real waypoint runtime is built here. Tests inject waypointDeps +
+        // innerDispatch via DispatchDeps to run the full wiring without MLX.
+        const pipeline = String(opts.pipeline ?? "animated-explainer");
+        const projectId = opts.projectId ? String(opts.projectId) : slugifyTopic(String(opts.topic ?? ""));
+        const inner =
+          deps?.innerDispatch ?? ((c: string, o: Record<string, unknown>) => dispatch(c as Command, o));
+        const waypointDeps =
+          deps?.waypointDeps ??
+          makeRealWaypointDeps({
+            model: opts.model ? String(opts.model) : undefined,
+            validateFn: makeWaypointValidateFn(inner),
+          });
+        const driverOpts: DriverOptions = {
+          topic: opts.topic ? String(opts.topic) : undefined,
+          projectId,
+          preSuppliedArtifacts: opts.preSuppliedArtifacts as Record<string, unknown> | undefined,
+          pipeline,
+          model: opts.model ? String(opts.model) : undefined,
+          requireHumanApproval: String(opts.requireHumanApproval ?? "")
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
+          maxRetries: opts.maxRetries ? Number(opts.maxRetries) : undefined,
+        };
+        const result = await runPipeline(driverOpts, {
+          dispatchFn: inner,
+          produce: wireProduce({
+            dispatchFn: inner,
+            waypointDeps,
+            projectId,
+            pipeline,
+            ...(deps?.extractLastFrame ? { extractLastFrame: deps.extractLastFrame } : { extractLastFrame: defaultExtractLastFrame }),
+          ...(deps?.probeDuration ? { probeDuration: deps.probeDuration } : { probeDuration: (p: string) => Promise.resolve(defaultProbeDuration(p)) }),
+          }),
+        });
+        return result.ok
+          ? { ok: true, text: jsonOut(result) }
+          : { ok: false, error: `${result.stage}: ${result.reason}` };
+      }
+      case "run-waypoint": {
+        // Per-stage iteration harness: run ONE creative waypoint in isolation
+        // and return {stage, valid, artifact|errors}. Cheap debugging of a single
+        // stage without driving the whole pipeline. Same produceAndValidate path
+        // (clean-to-schema + bounded retry) as run-pipeline. Tests inject
+        // waypointDeps; production builds the real bounded-session deps.
+        const stage = String(opts.stage ?? "");
+        if (!stage) return { ok: false, error: "run-waypoint requires {stage}" };
+        const producer = pickProducer(stage);
+        if (producer === "mechanical") {
+          return { ok: false, error: `run-waypoint is for creative stages (research/proposal/script/scene_plan/edit); "${stage}" is mechanical (driven by the pipeline, not a waypoint)` };
+        }
+        const inputs = (opts.inputs as Record<string, unknown> | undefined) ?? {};
+        const inner =
+          deps?.innerDispatch ?? ((c: string, o: Record<string, unknown>) => dispatch(c as Command, o));
+        const waypointDeps =
+          deps?.waypointDeps ??
+          makeRealWaypointDeps({
+            model: opts.model ? String(opts.model) : undefined,
+            validateFn: makeWaypointValidateFn(inner),
+          });
+        const maxRetries = opts.maxRetries ? Number(opts.maxRetries) : undefined;
+        try {
+          const artifact =
+            producer === "agent"
+              ? await runAgentWaypoint(stage, inputs, waypointDeps, maxRetries ?? 2)
+              : await runCompletionWaypoint(stage, inputs, waypointDeps, maxRetries ?? 3);
+          return { ok: true, text: jsonOut({ stage, valid: true, artifact }) };
+        } catch (err) {
+          if (err instanceof WaypointExhaustedError) {
+            return { ok: true, text: jsonOut({ stage, valid: false, errors: err.message }) };
+          }
+          throw err;
+        }
       }
       default:
         return { ok: false, error: `unknown command: ${command}` };

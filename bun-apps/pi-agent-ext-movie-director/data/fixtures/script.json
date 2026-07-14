@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "title": "How Rainbows Form",
+  "total_duration_seconds": 14,
+  "narration": "none",
+  "sections": [
+    {
+      "id": "s1",
+      "text": "Sunlight meets a curtain of falling rain.",
+      "start_seconds": 0,
+      "end_seconds": 4
+    },
+    {
+      "id": "s2",
+      "text": "Each wavelength bends at its own angle, fanning out into a full spectrum.",
+      "start_seconds": 4,
+      "end_seconds": 14
+    }
+  ]
+}
