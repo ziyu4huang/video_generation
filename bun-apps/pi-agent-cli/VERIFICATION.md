@@ -155,18 +155,34 @@ clean exit, correct manifest); they are tracked as model/prompt follow-ups:
 
 ## Notes / gaps
 
-- **CLI-level unit tests now exist.** `src/__tests__/` has 9 files (args,
-  dispatch, doctor, extensions-registry, passthrough, resolve, shared,
-  task-runner, zk-extract) — 179 tests, all passing under plain `bun test`.
-  The earlier "0 test files" gap is closed. Live end-to-end verification (env
-  keys, LM Studio) remains the responsibility of the dynamic workflow below.
+- **CLI-level unit + offline e2e tests.** `src/__tests__/` has 22 files, 332
+  tests, all passing under plain `bun test`. Of those, `src/__tests__/e2e/` is a
+  self-contained OFFLINE subprocess suite (see below) — no API keys or LM Studio
+  needed. Live end-to-end verification (env keys, LM Studio) remains the
+  responsibility of the dynamic workflow below.
+- **Offline e2e suite (`src/__tests__/e2e/`, 44 tests).** Spawns the CLI in
+  source mode (`bun src/cli.ts …`, hermetic env, `PI_SKIP_MODELS_JSON=1`) and
+  asserts exit code + stdout/stderr at the process boundary. Covers the surface
+  that short-circuits BEFORE any model call, so it needs no keys / LM Studio:
+  version / help / list / list-tools / completions (meta), pipeline / workflow
+  bogus + missing-name (dispatch errors), `--dpi` / numeric / `--source`
+  validation with a **no-stack-trace** contract (arg-validation), and the `--`
+  separator / oneshot alias / global-flags-before-command (misc). It also guards
+  two fixes it surfaced: `help <meta-command>` no longer executes the target,
+  and `--dpi` rejects fractional values. Model-dependent paths (chat / agent /
+  passthrough / zk-* happy paths) are deliberately NOT covered — they belong to
+  the live workflow. Run: `bun test src/__tests__/e2e/`.
 - **`bun test` does not typecheck.** Run `bunx tsc --noEmit` from this package
-  to catch type regressions — it is now **fully clean (0 errors)**, including
-  the transitive workspace sources it imports (`pi-obsidian`, `pi-agent-ext-flux2`,
-  `pi-agent`). Each of those packages also typechecks under its own tsconfig.
-  Previously this reported ~115 `noUncheckedIndexedAccess` errors in those
-  transitive imports; they were fixed in-place (one was a real runtime bug —
-  see `obsidian.ts` distill-tool `v` binding).
+  to catch type regressions. NOTE: this package's `tsconfig.json` has no
+  `include`/`paths`, and Bun workspace symlinks resolve `@repo/*` deps to SOURCE
+  (not built dist), so `tsc --noEmit` follows into sibling packages and currently
+  reports ~470 errors — ~448 transitive (`pi-agent-ext-obsidian` / `-web-access` /
+  `-ltx` / `-movie-director` / `-knowledge-card` / …) + ~23 pre-existing in this
+  package's own commands/tests (none in `cli.ts` / `args.ts` / `sessions/`). The
+  earlier "fully clean (0 errors)" note (2026-06-27) is STALE — the transitive
+  packages have since drifted. The real CI gate is `bun test` (green); `tsc` is
+  a stricter, monorepo-wide concern. The files touched by the e2e/help/dpi work
+  are type-clean.
 - **`--` end-of-options separator.** A bare `--` disables flag-parsing for the
   rest of argv, so extension sub-commands can pass their own flags through
   verbatim (`flux2 -- t2i --prompt "..."`) and passthrough prompts can include
