@@ -105,9 +105,28 @@ async function produceAssets(
 			pipeline: deps.pipeline,
 		});
 		if (!res.ok) throw new Error(`assets generate ${call.command} failed: ${res.error}`);
-		const parsed = JSON.parse(res.text) as unknown;
-		const outPath = firstArtifactPath(parsed);
-		assets.push({ sceneId: call.sceneId, capability: call.capability, command: call.command, path: outPath, chainIndex: call.chainIndex });
+		const parsed = JSON.parse(res.text) as { provider?: string; result?: { artifacts?: Array<{ path?: string }> } };
+		const outPath = firstArtifactPath(parsed) ?? "";
+		// Shape each asset to the canonical asset_manifest schema: required
+		// id/type/path/source_tool/scene_id + optional prompt/duration_seconds/
+		// generation_summary, and NOTHING else (the schema is additionalProperties:false).
+		const isNarration = call.capability === "tts";
+		const type =
+			isNarration ? "narration" :
+			call.capability === "video_generation" ? "video" :
+			call.capability === "image_generation" ? "image" : "video";
+		const frames = Number((call.options as Record<string, unknown>)?.frames ?? 0);
+		const asset: Record<string, unknown> = {
+			id: isNarration ? "narration" : `${call.sceneId}-${call.chainIndex ?? 0}`,
+			type,
+			path: outPath,
+			source_tool: parsed.provider ?? call.command,
+			scene_id: call.sceneId ?? "",
+			generation_summary: `generated via ${call.command} (chain ${call.chainIndex ?? 0})`,
+		};
+		if (typeof (call.options as Record<string, unknown>)?.prompt === "string") asset.prompt = (call.options as Record<string, unknown>).prompt;
+		if (frames > 0 && fps > 0) asset.duration_seconds = Math.round((frames / fps) * 1000) / 1000;
+		assets.push(asset);
 		if (call.capability === "video_generation" && outPath && extract && call.sceneId) {
 			try {
 				lastFrameByScene[call.sceneId] = await extract(outPath);
@@ -116,7 +135,7 @@ async function produceAssets(
 			}
 		}
 	}
-	return { asset_manifest: { assets } };
+	return { asset_manifest: { version: "1.0", assets } };
 }
 
 /** compose → compose-motion (render_report) + final-review (final_review). */

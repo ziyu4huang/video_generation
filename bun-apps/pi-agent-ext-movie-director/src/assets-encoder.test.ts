@@ -60,7 +60,7 @@ describe("planAssetGeneration — video scenes", () => {
 			script as any,
 			{ fps: 25, maxCallSeconds: 8 },
 		);
-		const forScene = plan.calls.filter((c) => c.sceneId === "s1");
+		const forScene = plan.calls.filter((c) => c.capability === "video_generation" && c.sceneId === "s1");
 		expect(forScene.map((c) => c.command)).toEqual(["t2i2v", "t2i2v"]);
 		expect(forScene.map((c) => c.chainIndex)).toEqual([0, 1]);
 	});
@@ -88,5 +88,24 @@ describe("planAssetGeneration — narration", () => {
 		expect(tts).toBeTruthy();
 		expect(String(tts!.options.text)).toContain("Hello");
 		expect(String(tts!.options.text)).toContain("world");
+	});
+
+	test("narration:'none' skips TTS entirely (silent video)", () => {
+		const plan = planAssetGeneration(
+			{ scenes: [scene({ end_seconds: 6 })] } as any,
+			{ narration: "none", sections: [{ id: "s1", text: "Hello" }] } as any,
+			{ fps: 25, maxCallSeconds: 8 },
+		);
+		expect(plan.calls.some((c) => c.capability === "tts")).toBe(false);
+	});
+
+	test("the TTS call is tagged with the first scene's id (scene_id for the manifest)", () => {
+		const plan = planAssetGeneration(
+			{ scenes: [scene({ id: "sc1", end_seconds: 6 })] } as any,
+			{ sections: [{ id: "s1", text: "Hello" }] } as any,
+			{ fps: 25, maxCallSeconds: 8 },
+		);
+		const tts = plan.calls.find((c) => c.capability === "tts");
+		expect(tts?.sceneId).toBe("sc1");
 	});
 });

@@ -77,16 +77,21 @@ export function planAssetGeneration(
 	}
 
 	// TTS narration — the full spoken track, driven through the cost-tracked
-	// generate path (never raw say/edge-tts). Text = explicit narration, else
-	// the concatenation of the script's section texts.
-	const narrationText =
-		script?.narration ?? script?.sections?.map((s) => s.text ?? "").filter(Boolean).join(" ") ?? "";
-	if (narrationText.trim()) {
-		calls.push({
-			capability: "tts",
-			command: "tts",
-			options: { text: narrationText },
-		});
+	// generate path (never raw say/edge-tts). SKIPPED when the script declares
+	// narration:"none" (a silent/ambient video). Text = explicit narration, else
+	// the concatenation of the script's section texts. Tagged with the first
+	// scene's id so the resulting manifest asset has a valid scene_id.
+	if (script?.narration !== "none") {
+		const narrationText =
+			script?.narration ?? script?.sections?.map((s) => s.text ?? "").filter(Boolean).join(" ") ?? "";
+		if (narrationText.trim()) {
+			calls.push({
+				capability: "tts",
+				command: "tts",
+				options: { text: narrationText },
+				sceneId: scenePlan.scenes[0]?.id,
+			});
+		}
 	}
 
 	return { calls };

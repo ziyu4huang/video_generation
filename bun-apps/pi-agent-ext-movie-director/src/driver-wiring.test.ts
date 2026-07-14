@@ -5,6 +5,7 @@
 import { describe, test, expect } from "bun:test";
 import { wireProduce, type WireDeps, type DispatchLike } from "./driver-wiring.ts";
 import type { WaypointDeps } from "./waypoints.ts";
+import { validateArtifact } from "./schema.ts";
 
 function makeWireDeps(over: Partial<WireDeps> = {}): WireDeps {
 	const defaults: WireDeps = {
@@ -92,13 +93,17 @@ describe("wireProduce — assets execution (the frozen-frame fix, wired)", () =>
 		expect(vids[1]!.options.image).toMatch(/lastframe\.png$/);
 	});
 
-	test("returns an asset_manifest", async () => {
+	test("returns a SCHEMA-VALID asset_manifest (version + id/type/path/source_tool/scene_id per asset)", async () => {
 		const { deps } = assetsDeps();
 		const out = await wireProduce(deps)("assets", {
 			scene_plan: { scenes: [{ id: "s1", type: "generated", description: "x", start_seconds: 0, end_seconds: 6 }] },
 			script: { sections: [{ id: "s1", text: "hi" }] },
 		});
 		expect(out).toHaveProperty("asset_manifest");
+		const manifest = out.asset_manifest as Record<string, unknown>;
+		expect(manifest.version).toBe("1.0");
+		const v = validateArtifact("asset_manifest", manifest);
+		expect(v.ok).toBe(true);
 	});
 });
 
