@@ -74,6 +74,15 @@ function firstArtifactPath(result: unknown): string | undefined {
 	return r?.result?.artifacts?.[0]?.path ?? r?.artifacts?.[0]?.path;
 }
 
+/** Extract the rendered mp4 path from a compose render_report — robust to either
+ *  `output` (singular) or `outputs[0].path` (the real compose-motion shape). */
+function renderMp4Path(rr: Record<string, unknown> | undefined): string | undefined {
+	if (!rr) return undefined;
+	if (typeof rr.output === "string") return rr.output;
+	const outs = rr.outputs as Array<{ path?: string }> | undefined;
+	return outs?.[0]?.path;
+}
+
 /** Execute the proactive asset plan via generate calls, chaining I2V links. */
 async function produceAssets(
 	deps: WireDeps,
@@ -143,6 +152,12 @@ async function produceAssets(
 	return { asset_manifest: { version: "1.0", assets } };
 }
 
+/** The script's narration mode (for final-review: 'none' scores a silent track as warn). */
+function narrationMode(script: Record<string, unknown> | undefined): "none" | "voiced" | undefined {
+	const n = script?.narration;
+	return n === "none" || n === "voiced" ? (n as "none" | "voiced") : undefined;
+}
+
 /** edit → deterministic edit_decisions: one cut per video clip at its REAL
  *  (probed) duration, concatenated in manifest order. No LLM — the driver owns
  *  this like the assets encoder, so every cut fits its source (defeats
@@ -173,10 +188,11 @@ async function produceCompose(deps: WireDeps, inputs: Record<string, unknown>): 
 	if (!res.ok) throw new Error(`compose-motion failed: ${res.error}`);
 	const renderReport = JSON.parse(res.text) as Record<string, unknown>;
 	// final_review artifact: run final-review on the rendered mp4 (advisory; non-blocking here).
-	const mp4 = (renderReport.output as string) ?? undefined;
+	const mp4 = renderMp4Path(renderReport);
+	const narration = narrationMode(inputs.script as Record<string, unknown> | undefined);
 	let finalReview: Record<string, unknown> = { verdict: "unknown" };
 	if (mp4) {
-		const fr = await deps.dispatchFn("final-review", { mp4Path: mp4 });
+		const fr = await deps.dispatchFn("final-review", { mp4Path: mp4, ...(narration ? { narration } : {}) });
 		if (fr.ok) finalReview = JSON.parse(fr.text) as Record<string, unknown>;
 	}
 	return { render_report: renderReport, final_review: finalReview };
@@ -184,9 +200,18 @@ async function produceCompose(deps: WireDeps, inputs: Record<string, unknown>): 
 
 /** publish → final-review (delivery checks) + publish_log. */
 async function producePublish(deps: WireDeps, inputs: Record<string, unknown>): Promise<Record<string, unknown>> {
-	const renderReport = inputs.render_report as { output?: string } | undefined;
-	const mp4 = renderReport?.output;
-	const fr = await deps.dispatchFn("final-review", { mp4Path: mp4 });
+	const renderReport = inputs.render_report as Record<string, unknown> | undefined;
+	const mp4 = renderMp4Path(renderReport);
+	const narration = narrationMode(inputs.script as Record<string, unknown> | undefined);
+	const fr = await deps.dispatchFn("final-review", { mp4Path: mp4, ...(narration ? { narration } : {}) });
 	const finalReview = fr.ok ? (JSON.parse(fr.text) as Record<string, unknown>) : { verdict: "fail", error: fr.error };
-	return { publish_log: { mp4Path: mp4, finalReview } };
+	const verdict = String(finalReview.verdict ?? "fail");
+	const entry: Record<string, unknown> = {
+		platform: "local",
+		status: verdict === "pass" ? "exported" : "failed",
+		timestamp: new Date().toISOString(),
+		export_path: mp4 ?? "",
+	};
+	if (verdict !== "pass") entry.error = String(finalReview.error ?? `final-review verdict: ${verdict}`);
+	return { publish_log: { version: "1.0", entries: [entry] } };
 }

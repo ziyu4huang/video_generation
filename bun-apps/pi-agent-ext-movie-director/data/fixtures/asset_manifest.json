@@ -1,0 +1,35 @@
+{
+  "version": "1.0",
+  "assets": [
+    {
+      "id": "sc1-0",
+      "type": "video",
+      "path": "/Users/huangziyu/proj/video_generation__output/t2i2v_20260714_212243/output_20260714_212304.mp4",
+      "source_tool": "ltx-runpy",
+      "scene_id": "sc1",
+      "generation_summary": "generated via t2i2v (chain 0)",
+      "prompt": "Golden sunlight rays entering a translucent curtain of falling rain droplets, slow continuous drift, dark moody backdrop",
+      "duration_seconds": 4
+    },
+    {
+      "id": "sc2-0",
+      "type": "video",
+      "path": "/Users/huangziyu/proj/video_generation__output/t2i2v_20260714_212429/output_20260714_212454.mp4",
+      "source_tool": "ltx-runpy",
+      "scene_id": "sc2",
+      "generation_summary": "generated via t2i2v (chain 0)",
+      "prompt": "A single white light beam striking a droplet and refracting, then dispersing into a smooth continuous fan of spectral colors red orange yellow green blue violet spreading across a dark backdrop",
+      "duration_seconds": 5
+    },
+    {
+      "id": "sc2-1",
+      "type": "video",
+      "path": "/Users/huangziyu/proj/video_generation__output/t2i2v_20260714_212707/output_20260714_212733.mp4",
+      "source_tool": "ltx-runpy",
+      "scene_id": "sc2",
+      "generation_summary": "generated via t2i2v (chain 1)",
+      "prompt": "A single white light beam striking a droplet and refracting, then dispersing into a smooth continuous fan of spectral colors red orange yellow green blue violet spreading across a dark backdrop",
+      "duration_seconds": 5
+    }
+  ]
+}

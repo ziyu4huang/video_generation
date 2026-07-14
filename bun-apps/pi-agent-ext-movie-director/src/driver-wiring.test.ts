@@ -155,4 +155,25 @@ describe("wireProduce — compose / publish", () => {
 		await wireProduce(makeWireDeps({ dispatchFn }))("publish", { render_report: { output: "/tmp/final.mp4" } });
 		expect(calls.some((c) => c.command === "final-review")).toBe(true);
 	});
+
+	test("publish reads the mp4 from render_report.outputs[] (the real compose-motion shape)", async () => {
+		let reviewed: string | undefined;
+		const dispatchFn: DispatchLike = async (command, opts) => {
+			if (command === "final-review") reviewed = String((opts as Record<string, unknown>).mp4Path);
+			return { ok: true, text: JSON.stringify({ verdict: "pass" }) };
+		};
+		await wireProduce(makeWireDeps({ dispatchFn }))("publish", { render_report: { outputs: [{ path: "/tmp/real.mp4" }] } });
+		expect(reviewed).toBe("/tmp/real.mp4");
+	});
+
+	test("publish returns a SCHEMA-VALID publish_log (version + entries[platform,status,timestamp])", async () => {
+		const dispatchFn: DispatchLike = async () => ({ ok: true, text: JSON.stringify({ verdict: "pass" }) });
+		const out = await wireProduce(makeWireDeps({ dispatchFn }))("publish", { render_report: { outputs: [{ path: "/tmp/f.mp4" }] } });
+		const pl = out.publish_log as Record<string, unknown>;
+		expect(pl.version).toBe("1.0");
+		expect(validateArtifact("publish_log", pl).ok).toBe(true);
+		const entry = (pl.entries as Array<Record<string, unknown>>)[0]!;
+		expect(entry.status).toBe("exported");
+		expect(entry.export_path).toBe("/tmp/f.mp4");
+	});
 });
