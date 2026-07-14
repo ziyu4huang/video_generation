@@ -43,7 +43,7 @@ export class WaypointExhaustedError extends Error {}
 /** Map a pipeline stage to its producer kind. */
 export function pickProducer(stage: string): "agent" | "completion" | "mechanical" {
 	if (stage === "research") return "agent";
-	if (stage === "proposal" || stage === "script" || stage === "scene_plan" || stage === "edit") return "completion";
+	if (stage === "proposal" || stage === "script" || stage === "scene_plan") return "completion";
 	return "mechanical"; // assets / compose / publish — driven by dispatch(), not a waypoint
 }
 

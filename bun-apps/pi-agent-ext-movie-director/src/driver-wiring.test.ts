@@ -107,6 +107,32 @@ describe("wireProduce — assets execution (the frozen-frame fix, wired)", () =>
 	});
 });
 
+describe("wireProduce — deterministic edit (one cut per clip at its REAL duration)", () => {
+	test("builds schema-valid edit_decisions from asset_manifest; cuts use the PROBED duration, not the planned one", async () => {
+		const probeDuration = async (p: string) => (p.includes("a.mp4") ? 3.88 : 5.16);
+		const deps = makeWireDeps({ probeDuration });
+		const out = await wireProduce(deps)("edit", {
+			asset_manifest: {
+				version: "1.0",
+				assets: [
+					{ id: "sc1-0", type: "video", path: "/tmp/a.mp4", source_tool: "ltx", scene_id: "sc1", duration_seconds: 4 },
+					{ id: "sc2-0", type: "video", path: "/tmp/b.mp4", source_tool: "ltx", scene_id: "sc2", duration_seconds: 5 },
+				],
+			},
+		});
+		const edit = out.edit_decisions as Record<string, unknown>;
+		expect(edit.version).toBe("1.0");
+		expect(edit.render_runtime).toBe("ffmpeg");
+		const cuts = edit.cuts as Array<Record<string, unknown>>;
+		expect(cuts).toHaveLength(2);
+		// REAL probed durations (3.88/5.16), NOT the planned 4/5 — this is what keeps
+		// each cut within its source and defeats cut_duration_vs_source.
+		expect(cuts[0]).toMatchObject({ id: "cut-1", source: "/tmp/a.mp4", in_seconds: 0, out_seconds: 3.88 });
+		expect(cuts[1]).toMatchObject({ id: "cut-2", source: "/tmp/b.mp4", in_seconds: 0, out_seconds: 5.16 });
+		expect(validateArtifact("edit_decisions", edit).ok).toBe(true);
+	});
+});
+
 describe("wireProduce — compose / publish", () => {
 	test("compose → dispatch compose-motion with render_runtime ffmpeg", async () => {
 		const calls: Record<string, unknown>[] = [];

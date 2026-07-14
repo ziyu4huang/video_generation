@@ -132,7 +132,7 @@ describe("pickProducer", () => {
 		expect(pickProducer("proposal")).toBe("completion");
 		expect(pickProducer("script")).toBe("completion");
 		expect(pickProducer("scene_plan")).toBe("completion");
-		expect(pickProducer("edit")).toBe("completion");
+		expect(pickProducer("edit")).toBe("mechanical");
 		expect(pickProducer("assets")).toBe("mechanical");
 		expect(pickProducer("compose")).toBe("mechanical");
 		expect(pickProducer("publish")).toBe("mechanical");

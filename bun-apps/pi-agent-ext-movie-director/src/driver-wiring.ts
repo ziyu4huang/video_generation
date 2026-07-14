@@ -40,6 +40,10 @@ export interface WireDeps {
 	maxCallSeconds?: number;
 	/** Extract the last frame of a generated clip → PNG path (ffmpeg at runtime; injected in tests). */
 	extractLastFrame?: (clipPath: string) => Promise<string>;
+	/** Probe a clip's REAL duration in seconds (ffprobe at runtime; injected in tests).
+	 *  The deterministic edit uses this so each cut's out_seconds matches the actual
+	 *  generated clip, not the planned frames/fps (LTX over/under-generates). */
+	probeDuration?: (path: string) => Promise<number>;
 }
 
 /** Build the per-stage `produce` the driver consumes. */
@@ -57,6 +61,7 @@ export function wireProduce(deps: WireDeps) {
 			return { [ARTIFACT_FOR[stage] ?? stage]: art };
 		}
 		if (stage === "assets") return produceAssets(deps, fps, maxCallSeconds, inputs);
+		if (stage === "edit") return produceEdit(deps, inputs);
 		if (stage === "compose") return produceCompose(deps, inputs);
 		if (stage === "publish") return producePublish(deps, inputs);
 		throw new Error(`wireProduce: no producer for stage "${stage}"`);
@@ -136,6 +141,24 @@ async function produceAssets(
 		}
 	}
 	return { asset_manifest: { version: "1.0", assets } };
+}
+
+/** edit → deterministic edit_decisions: one cut per video clip at its REAL
+ *  (probed) duration, concatenated in manifest order. No LLM — the driver owns
+ *  this like the assets encoder, so every cut fits its source (defeats
+ *  cut_duration_vs_source; the frozen-frame failure cannot occur by construction). */
+async function produceEdit(deps: WireDeps, inputs: Record<string, unknown>): Promise<Record<string, unknown>> {
+	const manifest = inputs.asset_manifest as { assets?: Array<{ type?: string; path?: string; duration_seconds?: number }> } | undefined;
+	if (!manifest?.assets) throw new Error("edit: missing asset_manifest input");
+	const cuts: Array<Record<string, unknown>> = [];
+	let i = 0;
+	for (const a of manifest.assets) {
+		if (a.type !== "video" || !a.path) continue;
+		i++;
+		const dur = deps.probeDuration ? await deps.probeDuration(a.path) : Number(a.duration_seconds ?? 0);
+		cuts.push({ id: `cut-${i}`, source: a.path, in_seconds: 0, out_seconds: dur });
+	}
+	return { edit_decisions: { version: "1.0", render_runtime: "ffmpeg", cuts } };
 }
 
 /** compose → compose-motion (render_report) + final-review (final_review). */

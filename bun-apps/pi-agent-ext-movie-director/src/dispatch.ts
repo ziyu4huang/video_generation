@@ -59,7 +59,7 @@ import { preComposeGate, enforcePreCompose } from "./precompose-gate.ts";
 import { runPipeline, slugifyTopic, type DriverOptions } from "./driver.ts";
 import { wireProduce } from "./driver-wiring.ts";
 import { makeRealWaypointDeps } from "./waypoint-runtime.ts";
-import { defaultExtractLastFrame } from "./assets-runtime.ts";
+import { defaultExtractLastFrame, defaultProbeDuration } from "./assets-runtime.ts";
 import { runCompletionWaypoint, runAgentWaypoint, pickProducer, WaypointExhaustedError, type WaypointDeps } from "./waypoints.ts";
 
 /** The canonical 19 orchestration commands (also the CLI's command surface). */
@@ -337,6 +337,8 @@ export interface DispatchDeps {
 	waypointDeps?: WaypointDeps;
 	/** run-pipeline: inject the ffmpeg last-frame extractor in tests. */
 	extractLastFrame?: (clipPath: string) => Promise<string>;
+	/** run-pipeline: inject the ffprobe duration prober in tests (default: real ffprobe). */
+	probeDuration?: (path: string) => Promise<number>;
 }
 
 /** Build the waypoint validateFn that delegates to dispatch("validate-artifact").
@@ -720,6 +722,7 @@ export async function dispatch(command: Command, opts: Record<string, unknown>, 
             projectId,
             pipeline,
             ...(deps?.extractLastFrame ? { extractLastFrame: deps.extractLastFrame } : { extractLastFrame: defaultExtractLastFrame }),
+          ...(deps?.probeDuration ? { probeDuration: deps.probeDuration } : { probeDuration: (p: string) => Promise.resolve(defaultProbeDuration(p)) }),
           }),
         });
         return result.ok
