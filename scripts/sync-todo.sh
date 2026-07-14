@@ -12,7 +12,7 @@ Generated automatically. Do not edit manually.
 | # | Title | Labels |
 |---|-------|--------|" > "$TODO_FILE"
 
-gh issue list --label "needs-triage" --state all --json number,title,labels --sort created --asc --jq '.[] | "| \(.number) | \(.title) | \(.labels[].name // "" ) |"' >> "$TODO_FILE"
+gh issue list --label "needs-triage" --state all --json number,title,labels,createdAt --jq 'sort_by(.createdAt) | .[] | "| \(.number) | \(.title) | \([.labels[].name] | join(", ")) |"' >> "$TODO_FILE"
 
 echo "
 ## Ready for Agent
@@ -20,7 +20,7 @@ echo "
 | # | Title | Labels |
 |---|-------|--------|" >> "$TODO_FILE"
 
-gh issue list --label "ready-for-agent" --state all --json number,title,labels --sort created --asc --jq '.[] | "| \(.number) | \(.title) | \(.labels[].name // "" ) |"' >> "$TODO_FILE"
+gh issue list --label "ready-for-agent" --state all --json number,title,labels,createdAt --jq 'sort_by(.createdAt) | .[] | "| \(.number) | \(.title) | \([.labels[].name] | join(", ")) |"' >> "$TODO_FILE"
 
 echo "
 ## Backlog
@@ -28,8 +28,8 @@ echo "
 | # | Title | Labels |
 |---|-------|--------|" >> "$TODO_FILE"
 
-gh issue list --label "enhancement" --state open --json number,title --sort created --asc --jq '
-  [.[] | .title = .title[0:60]] | unique_by(.number) | .[] | "| \(.number) | \(.title) | enhancement |"' >> "$TODO_FILE"
+gh issue list --label "enhancement" --state open --json number,title,createdAt --jq '
+  sort_by(.createdAt) | [.[] | .title = .title[0:60]] | unique_by(.number) | .[] | "| \(.number) | \(.title) | enhancement |"' >> "$TODO_FILE"
 
 echo "
 ---
