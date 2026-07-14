@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "pi": {
+    "extensions": ["./extensions"]
+  },
   "scripts": {
     "test": "bun test"
   }
