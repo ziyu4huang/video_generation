@@ -84,14 +84,16 @@ anything hermes touched.
 | `obsidian distill` (action) | Raw LLM decomposition of free-form markdown → atomic notes |
 | `zk_ingest` (tool) | Deterministic structured-records → graph sink (no LLM) |
 | `distill` (extension) | hermes curated-upgrade path: gate → enrich → converge |
-| `buildDistillTask` (knowledge-card export) | Vestigial — dead since the #450 tool consolidation; pending removal |
+| `buildDistillTask` (knowledge-card export) | **Live** builder — backs the CLI `zk-extract` subcommand (`pi-agent-cli/.../zk-extract.ts:30,139`). The `zk_extract` *tool* registration was removed in #450; the *builder* remains. Not vestigial. |
 
 ## Known issues tracked in the review
 
 - **C1** 🔴 distill vs hermes two-writer mutual defeat → R1 (above).
 - **C2** 🟡 knowledge-card docs (`ARCHITECTURE.md`/`TOOL-ORCHESTRATION.md`) still
   describe removed tools `zk_extract` / `graph_health` → R2 (doc edit).
-- **C3** 🟡 "distill" naming collision + vestigial `buildDistillTask` → R3 (above).
+- **C3** 🟡 "distill" naming collision (3 concepts share the name) → R3 (above).
+  *(Correction 2026-07-14: `buildDistillTask` is LIVE CLI code, not vestigial —
+  the original review conflated the removed `zk_extract` tool with the live builder.)*
 - **C4** 🟡 five overlapping search surfaces → R4 (above).
 - **C5** 🟢 distill not runtime-wired → R5 (wire after R1).
 
