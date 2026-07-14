@@ -25,8 +25,6 @@ const CORE_TOOLS = new Set([
   "todo", "goal_complete",
   // Memory & session
   "memory", "memory_search", "session_search",
-  // Subagent core
-  "subagent", "wait", "subagent_supervisor", "intercom", "subagent_help",
   // User interaction
   "ask_user_question",
   // Skills

@@ -21,8 +21,8 @@
     "example:schema-cost": "bun examples/schema-cost-quick.mjs"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "latest",
-    "@earendil-works/pi-tui": "^0.80.3",
+    "@earendil-works/pi-coding-agent": "0.80.7",
+    "@earendil-works/pi-tui": "0.80.7",
     "js-yaml": "latest",
     "typebox": "latest"
   },

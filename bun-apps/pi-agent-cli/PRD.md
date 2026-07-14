@@ -25,10 +25,67 @@ A self-contained CLI with extensions baked in as workspace deps. Drives pi-agent
 ## Key Dependencies
 
 - `@earendil-works/pi-coding-agent` (SDK)
+- `pi-agent-ext-hermes-memory` (persistent memory: memory_search, session_search, skill_manage)
 - `pi-agent-ext-obsidian` (always loaded for vault access)
+- `pi-agent-ext-knowledge-card` (zk-extract, zk-ask, zk-ingest, knowledge_query)
+- `pi-agent-ext-distill` (knowledge distillation pipeline: hermes-memory → vault → graph)
 - `pi-agent-ext-vlm` (VLM describe)
-- `pi-agent-ext-knowledge-card` (zk-extract, zk-ask, zk-ingest)
 - `pi-agent-ext-power-tool` (doctor diagnostics)
+
+## Agent Knowledge Stack
+
+Four extensions form a self-regulating knowledge pipeline: raw memories
+accumulate, are filtered and enriched, then converge into a linked graph.
+The combined agent tool surface is **12 tools / ~3835 schema tokens**.
+
+```
+pi-agent-cli
+  ├─ hermes-memory    (5 tools, ~1551 tok)  ← raw memory accumulation
+  │     memory · memory_search · session_search · skill_manage · skill_manage_help
+  │
+  ├─ obsidian         (2 tools,  ~235 tok)  ← vault I/O
+  │     obsidian · obsidian_help
+  │
+  ├─ knowledge-card   (4 tools, ~1928 tok)  ← Zettelkasten graph convergence
+  │     zk_ask · zk_ingest · zk_card · knowledge_query
+  │
+  └─ distill          (1 tool,   ~121 tok)  ← pipeline orchestrator
+        │     distill (actions: status / gate / converge)
+        │
+        └─ adaptive threshold (event-driven, default N=50, clamp [20,200])
+```
+
+### Distillation data flow
+
+```
+hermes-memory (raw, bloated)
+    │
+    ├─ Stage 1: GATE (rule-based, deterministic, no LLM)
+    │     dedup (fuzzy Jaccard ≥0.72) · staleness prune (90d) · format validation
+    │
+    ├─ Stage 2: ENRICH (agent LLM, in-context — no LLM-in-extension)
+    │     agent rewrites survivors: clarity · tags · wiki-links · merge fragments
+    │
+    └─ Stage 3: CONVERGE (deterministic, reuses knowledge-card ingestRecords)
+          canonical-id dedup · tag cross-links · MOC indexing
+          → knowledge-card graph (findable, traversable)
+          │
+          └─ THRESHOLD FEEDBACK: converge metrics → auto-adjust N
+             killRate>0.7 & passRate>0.8 → N-=5 (efficient)
+             passRate<0.5 → N+=10 (conservative)
+```
+
+Agent workflow: `distill status` → `distill gate` → [enrich survivors] →
+`distill converge` (3 tool calls + in-context enrichment between gate and
+converge). The lifecycle hook nudges the agent on session start when bloat
+exceeds the threshold.
+
+### Schema-cost regression guard
+
+The combined tool surface is pinned by `perf-harness/tests/grand-total.regression.test.ts`
+(budget: 4200 tok, baseline 3835). Per-extension guards exist in each
+extension's `perf/` test directory. Any schema inflation (reverted
+promptSnippet, verbose description, new tool) fails CI.
 
 ## Use
 

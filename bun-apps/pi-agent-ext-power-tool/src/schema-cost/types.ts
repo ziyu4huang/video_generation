@@ -17,6 +17,10 @@ export interface ToolCost {
 	approxTokens: number;
 	/** Where the tool came from: "(builtin)" or the extension source label. */
 	source: string;
+	/** Contract: `definition.execute` is a function. Omitted when unchecked. */
+	hasExecute?: boolean;
+	/** Contract: `parameters` is a valid constructible schema. Omitted when unchecked. */
+	schemaValid?: boolean;
 }
 
 /** The full ranked report produced by {@link analyzeTools}. */
@@ -53,4 +57,6 @@ export interface ToolDefinitionLike {
 	name?: string;
 	description?: unknown;
 	parameters?: unknown;
+	/** The tool's handler (`ToolDefinition.execute`). Duck-typed for contract checks. */
+	execute?: unknown;
 }

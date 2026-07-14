@@ -3,6 +3,7 @@
     "pi-agent-ext-obsidian/extensions/obsidian.ts",
     "pi-agent-ext-vlm/extensions/pi-vlm.ts",
     "pi-agent-ext-knowledge-card/extensions/pi-knowledge-card.ts",
+    "pi-agent-ext-distill/extensions/pi-distill.ts",
     "pi-agent-ext-power-tool/src/index.ts",
     {
       "name": "pi-agent-ext-goal-todo",
@@ -74,7 +75,6 @@
   "npmExtensions": [],
   "lazyExtensions": {
     "workflow": "pi-agent-ext-workflow/extensions/workflow.ts",
-    "dynamic-workflows": "pi-agent-ext-workflow/extensions/workflow.ts",
-    "subagent": "pi-agent-ext-subagents/src/extension/index.ts"
+    "dynamic-workflows": "pi-agent-ext-workflow/extensions/workflow.ts"
   }
 }

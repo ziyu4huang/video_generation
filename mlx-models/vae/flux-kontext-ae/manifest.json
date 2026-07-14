@@ -1,0 +1,18 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py --kontext-vae-mlx. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "name": "flux-kontext-ae",
+  "type": "vae",
+  "arch": "flux-ae",
+  "format": "mlx-bf16",
+  "description": "FLUX.1-Kontext-dev AutoencoderKL (16 latent channels), converted to MLX BF16 via convert.py --kontext-vae-mlx. Config is byte-identical to zimage-ae (both trace to FLUX.1-dev's VAE) and the converted weights are byte-identical too, confirmed by MD5 match against the existing external-store blob (55021fc9d44772075424c44f88585ad6.safetensors) — Kontext reuses FLUX.1-dev's VAE unmodified, same as Z-Image-Turbo.",
+  "pipeline": [
+    "flux-kontext-dev"
+  ],
+  "compatible_with": [
+    "transformer/flux-kontext-dev"
+  ],
+  "size_bytes": 167666894,
+  "source": "black-forest-labs/FLUX.1-Kontext-dev",
+  "source_url": "https://huggingface.co/black-forest-labs/FLUX.1-Kontext-dev",
+  "created_at": "2026-07-14T00:00:00Z"
+}

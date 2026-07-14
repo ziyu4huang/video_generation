@@ -23,7 +23,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "latest",
+    "@earendil-works/pi-coding-agent": "0.80.7",
     "typebox": "latest"
   },
   "peerDependencies": {

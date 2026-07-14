@@ -685,15 +685,19 @@ export function analyzeExtensions(input: AnalysisInput): Finding[] {
     }
   }
 
-  // 🟡 missing Available-tools snippet (custom tools are omitted from that list
-  // when promptSnippet is unset → discovery cost). Detect via absence from
-  // opts.toolSnippets, surfaced here as t.snippet being empty.
+  // ℹ️ no Available-tools snippet — INFORMATIONAL, not an issue. In this repo
+  // ALL custom tools are intentionally "stealth" (no promptSnippet): routing is
+  // carried by the tool `description` (already in the per-request API tools[]
+  // schema) + on-demand `_help` tools, and each extension package locks this in
+  // via stealth-trim.test.ts. Snippet absence saves always-on system-prompt
+  // tax, so surface as info rather than a defect — mirror of no-guidelines
+  // below. Builtins always carry a snippet, so this never fires for them.
   for (const t of tools) {
     if (!t.snippet || t.snippet.trim().length === 0) {
       findings.push({
-        severity: "medium",
+        severity: "info",
         check: "missing-snippet",
-        message: `Tool "${t.name}" has no Available-tools snippet`,
+        message: `Tool "${t.name}" has no Available-tools snippet (often intentional — stealth design)`,
         detail: { name: t.name, source: t.sourcePath },
       });
     }

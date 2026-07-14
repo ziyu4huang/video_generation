@@ -20,7 +20,6 @@ Claude Code–style dynamic workflows for Pi. The agent writes a small JavaScrip
 
 ## Key Dependencies
 
-- `pi-agent-ext-subagents` (subagent spawning)
 - Self-contained npm package: `npm:@quintinshaw/pi-dynamic-workflows`
 - Loaded via pi-agent's run-dir manifest, or headlessly via `pi-agent-cli workflow run`
 

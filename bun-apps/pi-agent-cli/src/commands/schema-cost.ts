@@ -40,6 +40,7 @@ import { resolve, relative, isAbsolute, join } from "node:path";
 // 3.7 — a known inconsistency; standardizing is a future cleanup, not this cycle.
 import {
 	estimateToolCost as _estimateToolCost,
+	checkToolContract as _checkToolContract,
 	formatReport as _formatReport,
 	formatJson as _formatJson,
 } from "@repo/pi-agent-ext-power-tool/schema-cost";
@@ -50,6 +51,7 @@ import type { ToolCost, SchemaCostReport } from "@repo/pi-agent-ext-power-tool/s
 /** @deprecated delegate — import from `@repo/pi-agent-ext-power-tool/schema-cost`
  *  directly. Kept as an alias so existing imports from this module stay valid. */
 export const estimateToolCost = _estimateToolCost;
+export const checkToolContract = _checkToolContract;
 
 // --- capturing mock API ------------------------------------------------------
 
@@ -58,17 +60,26 @@ export const estimateToolCost = _estimateToolCost;
  * `registerTool` captures the definition; `on` swallows event handlers (some
  * extensions register tools at load, others in `session_start` — load-time
  * capture covers the repo's extensions, which all register eagerly); everything
- * else is a no-op so factories that call `defineFlag`/`getFlag`/etc. don't throw.
+ * else is a no-op so factories that call `defineFlag`/`getFlag`/etc. don't throw;
+ * `events` returns undefined (no bus) so host-fn registration is skipped, not thrown.
  */
 export function createCapturingApi(source: string, sink: ToolCost[]): object {
 	return new Proxy({} as object, {
 		get(_t, prop: string) {
 			if (prop === "registerTool")
 				return (def: unknown) => {
-					sink.push(estimateToolCost(def, source));
+					const cost = estimateToolCost(def, source);
+					const c = checkToolContract(def);
+					cost.hasExecute = c.hasExecute;
+					cost.schemaValid = c.schemaValid;
+					sink.push(cost);
 				};
 			// `on(event, handler)` — swallow; we capture load-time registrations only.
 			if (prop === "on") return () => {};
+			// `events` (the workflow host-fn bus) → undefined: the mock models an
+			// ABSENT bus, so extensions guarding `if (!pi.events) return` take their
+			// own no-bus path instead of calling `bus.emit(...)` on a truthy callable.
+			if (prop === "events") return undefined;
 			// every other method (defineFlag, getFlag, registerCommand, ...) → no-op
 			return () => undefined;
 		},
@@ -83,7 +94,11 @@ export function collectBuiltinToolCosts(cwd: string): ToolCost[] {
 	const out: ToolCost[] = [];
 	for (const t of tools) {
 		const def = (t as { definition?: unknown }).definition ?? t;
-		out.push(estimateToolCost(def, "(builtin)"));
+		const cost = estimateToolCost(def, "(builtin)");
+		const c = checkToolContract(def);
+		cost.hasExecute = c.hasExecute;
+		cost.schemaValid = c.schemaValid;
+		out.push(cost);
 	}
 	return out;
 }

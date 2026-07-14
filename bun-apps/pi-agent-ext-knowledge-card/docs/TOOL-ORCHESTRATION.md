@@ -1,25 +1,28 @@
 # pi-knowledge-card — Tool Orchestration & Dependency Map
 
-> Snapshot: 2026-07-10. Grounded in `rg` import evidence across the repo (see
+> Snapshot: 2026-07-14. Grounded in `rg` import evidence across the repo (see
 > "Evidence" at the bottom). Read alongside [`ARCHITECTURE.md`](./ARCHITECTURE.md)
 > (module map) and [`DEPENDENCIES.md`](./DEPENDENCIES.md) (coupling strength).
 
-## The 6 tools and what backs each
+## The 4 tools and what backs each
 
-This extension registers **6 tools** that split cleanly into two lanes:
+This extension registers **4 tools** across WRITE / READ / CRUD lanes.
+(`zk_extract` was removed in #450 — pure passthrough to `obsidian_distill`, now used
+directly; `graph_health` merged into `obsidian garden`.)
 
 | Tool | Lane | Backed by | LLM? | Network? |
 | ---- | ---- | --------- | :---: | :------: |
-| `zk_extract` | **WRITE** (LLM distill) | isolated subagent → `obsidian_distill` | ✅ | ✅* |
 | `zk_ingest` | **WRITE** (deterministic) | `src/ingest.ts` (`ingestRecords`) | ❌ | ❌ |
 | `zk_ask` | **READ** (graph-RAG) | isolated subagent → `obsidian_search`+`obsidian_read` | ✅ | ✅* |
 | `knowledge_query` | **READ** (deterministic digest) | `src/retrieve.ts` (`retrieveRecords`) | ❌ | ❌ |
 | `zk_card` | **CRUD** (all 5 actions) | isolated subagent → `obsidian_*` CRUD | ✅ | ✅* |
-| `graph_health` | **AUDIT/HEAL** | `src/retrieve.ts` (`graphHealth`/`healGraph`) | ❌ | ❌ |
+
+(Graph audit/heal — formerly `graph_health` — now lives in `obsidian garden`.)
 
 \* LLM tools go to network **only if** the model endpoint is remote; a local
-LM Studio server makes them network-free too. The 3 deterministic tools never
-touch an LLM or the network regardless.
+LM Studio server makes them network-free too. The 2 deterministic tools never
+touch an LLM or the network regardless. (Was 3 before `graph_health` merged into
+`obsidian garden`.)
 
 ## Visual diagram — full dependency + data-flow graph
 
@@ -40,13 +43,11 @@ flowchart TB
 
   subgraph KC["📦 pi-agent-ext-knowledge-card (this package)"]
     direction TB
-    subgraph tools["extension: 6 registered tools"]
-      T1["zk_extract<br/><small>LLM distill</small>"]:::tool
+    subgraph tools["extension: 4 registered tools"]
       T2["zk_card<br/><small>LLM CRUD</small>"]:::tool
       T3["zk_ask<br/><small>LLM graph-RAG</small>"]:::tool
       T4["zk_ingest<br/><small>deterministic write</small>"]:::tool
       T5["knowledge_query<br/><small>deterministic read</small>"]:::tool
-      T6["graph_health<br/><small>deterministic audit</small>"]:::tool
     end
     subgraph libs["src/ deterministic library (no LLM)"]
       L1["ingest.ts<br/><small>ingestRecords · parseKnowledgeJsonl<br/>adaptAutoMemory · adaptHermes · renderCard</small>"]:::lib
@@ -57,10 +58,9 @@ flowchart TB
     end
     EXT["extensions/pi-knowledge-card.ts<br/><small>buildXxxTask builders + allowlists<br/>(SINGLE SOURCE OF TRUTH)</small>"]:::hub
 
-    EXT --- T1 & T2 & T3 & T4 & T5 & T6
+    EXT --- T2 & T3 & T4 & T5
     T4 -->|"execute() calls"| L1
     T5 -->|"execute() calls"| L2
-    T6 -->|"execute() calls"| L2
     L1 --> L5
     L2 --> L5
     L3 --> L1
@@ -73,8 +73,8 @@ flowchart TB
     SDK["@earendil-works/* SDK<br/>+ typebox"]:::dep
   end
 
-  T1 & T2 & T3 -.->|"dotted: spawns subagent"| OBS
-  T4 & T5 & T6 -->|"vault resolution"| OBS
+  T2 & T3 -.->|"dotted: spawns subagent"| OBS
+  T4 & T5 -->|"vault resolution"| OBS
   EXT -->|"resolveVault + runSubagentWithRetry"| OBS
   L1 & L2 & L3 -->|"parse/validate/index"| OBS
   EXT -->|"Type.Object · ExtensionAPI"| SDK
@@ -108,9 +108,9 @@ flowchart LR
   classDef llm fill:#fde68a,stroke:#b45309
   classDef det fill:#ecfccb,stroke:#4d7c0f
 
-  subgraph w1["LLM distill (zk_extract)"]
+  subgraph w1["LLM distill (CLI zk-extract → buildDistillTask)"]
     direction LR
-    MD["free-form<br/>markdown/text"] --> ZE["zk_extract<br/>buildDistillTask"]:::llm
+    MD["free-form<br/>markdown/text"] --> ZE["CLI zk-extract<br/>(buildDistillTask)"]:::llm
     ZE -.->|subagent| DISTILL["obsidian_distill<br/>(LLM decomposes)"]
     DISTILL --> N1["N atomic notes<br/>(lossy, creative)"]
   end
@@ -127,8 +127,9 @@ flowchart LR
 
 **Key invariant:** `zk_ingest` is the convergence sink. Both paths land cards in
 the **same** folder (`Zettelkasten/knowledge-graph`) so cross-source `[[edges]]`
-form by shared tags. zk_extract is for unstructured prose; zk_ingest is for
-structured records (lossless + idempotent — re-ingest is a no-op).
+form by shared tags. The LLM-distill path (CLI `zk-extract` → `buildDistillTask` →
+`obsidian_distill`) is for unstructured prose; `zk_ingest` is for structured records
+(lossless + idempotent — re-ingest is a no-op).
 
 ## The two READ paths (by-design ranking split)
 
@@ -167,7 +168,7 @@ sequenceDiagram
   participant V as 🗄️ vault (real files)
   participant KQ as knowledge_query (tool)
   participant L2 as src/retrieve.ts
-  participant GH as graph_health (tool)
+  participant GH as obsidian garden (action)
 
   Note over U,GH: PHASE 1 — WRITE (converge)
   U->>ZI: zk_ingest({files:[.jsonl], source})
@@ -190,7 +191,7 @@ sequenceDiagram
   KQ-->>U: digest text + details
 
   Note over U,GH: PHASE 3 — AUDIT/HEAL
-  U->>GH: graph_health({fix:true})
+  U->>GH: obsidian garden({action:heal})
   GH->>L2: healGraph() → graphHealth()
   L2->>V: prune dead [[links]] · regen MOC · re-scan
   L2-->>GH: GraphHealthResult {ok, deadLinks, mocDrift, orphans}

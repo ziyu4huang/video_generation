@@ -440,8 +440,8 @@ async function liveFactoryTest(
 		on: () => {}, // session_start handler registration — no-op
 		registerTool: (def: any) => tools.push(def),
 		// pi.events (EventBus — emit/on) is a REAL SDK surface (core/event-bus.ts).
-		// Some extensions (pi-agent-ext-subagents) call pi.events.on() at factory
-		// top-level (synchronously), so the mock must model it — the Proxy's
+		// Some extensions call pi.events.on() at factory top-level
+		// (synchronously), so the mock must model it — the Proxy's
 		// blanket no-op-fn return makes `pi.events.on` undefined (a fn has no
 		// .on). on() returns an unsubscribe fn to match EventBus's contract
 		// (factories collect the return into an unsub array).

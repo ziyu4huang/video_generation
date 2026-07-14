@@ -1,6 +1,7 @@
 {
-  "toolCountFloor": 29,
-  "expectedErrorSources": ["knowledge-card", "movie-director"],
+  "toolCountFloor": 30,
+  "expectedErrorSources": [],
+  "expectedContractFailures": [],
   "sourceMinimum": [
     "knowledge-card",
     "flux2",
@@ -11,6 +12,7 @@
     "movie-director",
     "goal-todo",
     "vlm",
-    "power-tool"
+    "power-tool",
+    "distill"
   ]
 }

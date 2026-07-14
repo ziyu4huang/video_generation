@@ -18,6 +18,11 @@ export function formatReport(report: SchemaCostReport): string[] {
 		lines.push(`${report.errors.length} extension(s) failed to load (run with --schema-cost-json to see):`);
 		for (const e of report.errors) lines.push(`  [skip] ${e.source}: ${e.error}`);
 	}
+	const noExec = report.tools.filter((t) => t.hasExecute === false);
+	const badSchema = report.tools.filter((t) => t.schemaValid === false);
+	if (noExec.length || badSchema.length) {
+		lines.push(`contract ⚠ ${noExec.length} tool(s) missing execute, ${badSchema.length} with invalid schema (run with --schema-cost-json for names)`);
+	}
 	lines.push("");
 	const top3 = report.tools.slice(0, 3);
 	const top3Tokens = top3.reduce((s, t) => s + t.approxTokens, 0);
@@ -67,6 +72,8 @@ export function formatJson(report: SchemaCostReport): string {
 				descLen: t.descLen,
 				paramsLen: t.paramsLen,
 				source: t.source,
+				hasExecute: t.hasExecute,
+				schemaValid: t.schemaValid,
 			})),
 		},
 		null,
