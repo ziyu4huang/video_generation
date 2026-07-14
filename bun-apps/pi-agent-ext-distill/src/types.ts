@@ -36,6 +36,9 @@ export interface EnrichedNote {
 	tags: string[];
 	dimension?: string;
 	confidence?: number;
+	/** Carried from the gate's Survivor.supersedesCardId; converge uses it to
+	 *  supersede the matching raw pi-memory card (mechanism B). */
+	supersedesCardId?: string;
 }
 
 export interface ConvergeMetrics {
