@@ -37,6 +37,7 @@
     "@repo/pi-agent-ext-knowledge-card": "workspace:*",
     "@repo/pi-agent-ext-obsidian": "workspace:*",
     "@repo/pi-agent-ext-vlm": "workspace:*",
+    "@repo/pi-agent-ext-distill": "workspace:*",
     "typebox": "latest"
   },
   "devDependencies": {
