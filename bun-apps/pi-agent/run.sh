@@ -21,22 +21,26 @@
 #   cd /anywhere && /abs/path/to/.../run.sh -p hi
 #
 # UPGRADING pi
-#   This launcher runs pi from the npm package @earendil-works/pi-coding-agent
-#   (a workspace dep; specs vary across bun-apps/*/package.json). pi's built-in `pi update`
-#   is DISABLED here (workspace dep, not a global install), so use the dedicated
-#   wrapper sibling:
+#   This launcher runs pi from the npm packages @earendil-works/{pi-agent-core,
+#   pi-ai,pi-coding-agent,pi-tui} (workspace deps, pinned to exact versions
+#   across bun-apps/*/package.json — these 4 are published in lockstep by the
+#   same upstream vendor). pi's built-in `pi update` is DISABLED here
+#   (workspace dep, not a global install), so use the dedicated wrapper
+#   sibling, or this launcher's thin passthrough:
 #
-#       ./bun-apps/pi-agent/update-pi.sh            # upgrade pi to latest
-#       ./bun-apps/pi-agent/update-pi.sh --check    # current vs latest, no change
-#       ./bun-apps/pi-agent/update-pi.sh --rebuild  # also rebuild pi-agent dist bundle
-#       ./run.sh --update-help                      # print this from the launcher
+#       ./run.sh --upgrade            # upgrade all 4 to latest (same as below)
+#       ./run.sh --upgrade --check    # current vs latest, no change
+#       ./run.sh --upgrade --rebuild  # also rebuild pi-agent dist bundle
+#       ./bun-apps/pi-agent/update-pi.sh [same flags]   # the actual wrapper
+#       ./run.sh --update-help        # print this from the launcher
 #
-#   The wrapper runs `bun update @earendil-works/pi-coding-agent --latest` at
-#   the monorepo root, verifies the installed version, and rewrites bun.lock
-#   (the canonical lockfile) for ALL bun-apps/* consumers at once. NEVER use
-#   `npm install` — it writes the gitignored package-lock.json and breaks the
-#   Bun workspace layout. This file is a symlink target (./pi-agent.sh → here),
-#   so editing run.sh updates both invocations.
+#   The wrapper runs `bun update <all 4 packages> --latest` at the monorepo
+#   root in ONE call (so they never drift apart from each other), verifies
+#   each installed version, and rewrites bun.lock (the canonical lockfile)
+#   for ALL bun-apps/* consumers at once. NEVER use `npm install` — it writes
+#   the gitignored package-lock.json and breaks the Bun workspace layout.
+#   This file is a symlink target (./pi-agent.sh → here), so editing run.sh
+#   updates both invocations.
 ########################################
 set -euo pipefail
 
@@ -58,33 +62,46 @@ if ! command -v bun >/dev/null 2>&1; then
   exit 1
 fi
 
-# Quick update-help: `./run.sh --update-help` (or `-U`) prints how to upgrade
-# pi without launching the TUI. It just points at the dedicated wrapper — real
+# Quick update-help: `./run.sh --update-help` prints how to upgrade pi
+# without launching the TUI. It just points at the dedicated wrapper — real
 # upgrading happens in update-pi.sh (a repo-root bun command), not inside this
 # launcher / node_modules.
-if [ "${1:-}" = "--update-help" ] || [ "${1:-}" = "-U" ]; then
+if [ "${1:-}" = "--update-help" ]; then
   cat <<'EOF'
-How to upgrade pi (@earendil-works/pi-coding-agent):
+How to upgrade pi (@earendil-works/pi-agent-core/pi-ai/pi-coding-agent/pi-tui):
 
   Use the dedicated wrapper (pi's built-in `pi update` is disabled here —
-  pi is a workspace dep, not a global install):
+  pi is a workspace dep, not a global install), or ./run.sh --upgrade below:
 
-    ./bun-apps/pi-agent/update-pi.sh            # upgrade to latest
+    ./bun-apps/pi-agent/update-pi.sh            # upgrade all 4 to latest
     ./bun-apps/pi-agent/update-pi.sh --check    # current vs latest only
     ./bun-apps/pi-agent/update-pi.sh --rebuild  # also rebuild pi-agent dist bundle
     ./bun-apps/pi-agent/update-pi.sh --help     # full wrapper docs
 
-  The wrapper runs `bun update @earendil-works/pi-coding-agent --latest` at the
-  monorepo root, verifies the version, and bumps bun.lock for all consumers.
+  The wrapper runs `bun update <all 4 packages> --latest` at the monorepo
+  root in ONE call (they're published in lockstep by the same upstream
+  vendor — pinned to exact versions everywhere, so this is the only way
+  they change), verifies each version, and bumps bun.lock for all consumers.
 
   Verify after:  ./pi-agent.sh --list-models
 
 Notes:
-  - pi is a workspace dep; specs vary ("latest"/"*"/ranges) — no version to edit by hand.
+  - These 4 packages are workspace deps pinned to exact versions (no "latest"/
+    "*"/range in dependencies/devDependencies) — drift only happens via this
+    wrapper now, not automatically on every upstream publish.
   - NEVER use `npm install`; it writes the gitignored package-lock.json.
   - This launcher is also reachable via the repo-root symlink ./pi-agent.sh.
 EOF
   exit 0
+fi
+
+# `./run.sh --upgrade [flags...]` (or `-U`) is a thin passthrough to the
+# dedicated wrapper — same script works whether invoked via run.sh or
+# directly, and upgrade logic stays in ONE place (update-pi.sh), not
+# duplicated here. Any trailing flags (--check/--rebuild/--help) forward as-is.
+if [ "${1:-}" = "--upgrade" ] || [ "${1:-}" = "-U" ]; then
+  shift
+  exec "$SCRIPT_DIR/update-pi.sh" "$@"
 fi
 
 ENTRY=""
