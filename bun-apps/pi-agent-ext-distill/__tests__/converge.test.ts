@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
-import { mkdtempSync, readdirSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, existsSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runConverge } from "../src/converge.ts";
@@ -40,5 +40,26 @@ describe("distill converge", () => {
 		const result2 = await runConverge(notes, vault, metrics);
 		expect(result2.created).toBe(0);
 		expect(result2.updated + result2.unchanged).toBe(2);
+	});
+
+	test("supersedes the matching raw pi-memory card after converging", async () => {
+		// Seed a raw hermes-style card the curated note upgrades
+		writeFileSync(
+			join(vault, "Zettelkasten", "knowledge-graph", "raw-supersede.md"),
+			`---\nid: "pi-memory:failure:hash1"\nstatus: active\nsuperseded_by: ""\ntags: [zettel]\n---\nLoRA alpha must match rank\n`,
+		);
+		const upgradeNote: EnrichedNote = {
+			id: "distill:lora-alpha-upgrade", type: "gotcha", title: "LoRA alpha must match rank",
+			detail: "When alpha differs from rank, training diverges. Set alpha = rank.", tags: ["lora"],
+			supersedesCardId: "pi-memory:failure:hash1",
+		};
+		const result = await runConverge([upgradeNote], vault, { candidates: 1, killed: 0, survivors: 1 });
+		expect(result.created + result.updated).toBeGreaterThanOrEqual(1);
+		// raw card is now superseded by the curated id (quoted — colon value)
+		const raw = readFileSync(join(vault, "Zettelkasten", "knowledge-graph", "raw-supersede.md"), "utf-8");
+		expect(raw).toContain("status: superseded");
+		expect(raw).toContain('superseded_by: "distill:lora-alpha-upgrade"');
+		// body untouched
+		expect(raw).toContain("LoRA alpha must match rank");
 	});
 });
