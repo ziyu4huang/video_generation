@@ -112,3 +112,5 @@ bash dist/pi-agent-bundle/run.sh   # deployed mode (any cwd)
 
 - [`PRD-e2e-testing.md`](./PRD-e2e-testing.md) — the e2e judgment test layer spec
 - [`docs/pi-cross-machine-setup.md`](docs/pi-cross-machine-setup.md) — fresh-machine setup
+- [`docs/extension-registry.PRD.md`](docs/extension-registry.PRD.md) — how extensions physically load (manifest, peerDeps, jiti/Bun resolution)
+- [`docs/slash-commands-tools-skills.md`](docs/slash-commands-tools-skills.md) — how slash commands, tools, skills, and extensions relate at runtime
