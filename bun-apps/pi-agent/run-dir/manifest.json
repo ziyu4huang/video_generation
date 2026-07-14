@@ -75,7 +75,6 @@
   "npmExtensions": [],
   "lazyExtensions": {
     "workflow": "pi-agent-ext-workflow/extensions/workflow.ts",
-    "dynamic-workflows": "pi-agent-ext-workflow/extensions/workflow.ts",
-    "subagent": "pi-agent-ext-subagents/src/extension/index.ts"
+    "dynamic-workflows": "pi-agent-ext-workflow/extensions/workflow.ts"
   }
 }
