@@ -318,6 +318,13 @@ the pinned workspace dep:
 bunx playwright-cli --version
 ```
 
+Verify the skill resolves the pinned dep on this machine (hermetic — no browser
+launch):
+
+```bash
+bash skills/playwright-cli/scripts/smoke.sh
+```
+
 First-time setup inside a *target project* (the app under test, not this
 extension) — initialize the Playwright workspace and install browsers:
 
