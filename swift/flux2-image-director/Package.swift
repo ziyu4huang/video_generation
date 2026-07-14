@@ -31,6 +31,11 @@ let package = Package(
         // Shared infra: Manifest/RunConfig/OutputPaths/ModelPaths/
         // FlowMatchEulerScheduler/ImageSave/QualityMetrics/Resolution.
         .package(path: "../common-image-director"),
+        // Kontext epic phase 4: reuses ZImageVAEEncoder/ZImageVAEDecoder as-is
+        // for the Kontext VAE — the two configs are byte-identical (both trace
+        // back to FLUX.1-dev's VAE), see convert_kontext_vae_to_mlx() in
+        // python/mlx-movie-director/convert.py for the weight-conversion side.
+        .package(path: "../z-image-director"),
     ],
     targets: [
         .executableTarget(
@@ -52,6 +57,7 @@ let package = Package(
                 .product(name: "MLXFast", package: "mlx-swift"),
                 .product(name: "ImageGenUtils", package: "image-gen-utils"),
                 .product(name: "CommonImageDirector", package: "common-image-director"),
+                .product(name: "ZImageDirector", package: "z-image-director"),
             ],
             path: "Sources/Flux2Director"
         ),

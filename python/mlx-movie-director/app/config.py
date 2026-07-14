@@ -88,6 +88,7 @@ _MODELS_DIR_GLOBALS = [
     "LTX_RESTORE_LORA", "LTX_UPSCALE_LORA",
     "DEFAULT_UPSCALE_MODEL", "CONTROLNET_DIR",
     "KREA2_TRANSFORMER_DIR", "KREA2_VAE_DIR", "KREA2_TEXT_ENCODER_DIR", "KREA2_TOKENIZER_DIR",
+    "KONTEXT_VAE_DIR",
 ]
 
 
@@ -108,6 +109,7 @@ def _apply_models_dir(d: str) -> None:
     v["VAE_DIR"] = os.path.join(d, "vae", "ultraflux-zimage-ae")
     v["ZIMAGE_AE_VAE_DIR"] = os.path.join(d, "vae", "zimage-ae")
     v["ULTRAFLUX_VAE_DIR"] = v["VAE_DIR"]
+    v["KONTEXT_VAE_DIR"] = os.path.join(d, "vae", "flux-kontext-ae")
     v["LUT_DIR"] = os.path.join(d, "lut")
     # SeedVR2 upscaler models (converted from ComfyUI via convert.py)
     v["SEEDVR2_DIT_DIR"] = os.path.join(d, "transformer", "seedvr2-7b")

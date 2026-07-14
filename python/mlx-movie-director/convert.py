@@ -675,6 +675,138 @@ def convert_vae_to_mlx() -> bool:
     return True
 
 
+def convert_kontext_vae_to_mlx() -> bool:
+    """Convert FLUX.1-Kontext-dev's VAE from PyTorch FP32 to MLX BF16.
+
+    Kontext's VAE config (block_out_channels/layers_per_block/latent_channels/
+    scaling_factor/shift_factor/mid_block_add_attention) is byte-identical to
+    Z-Image-Turbo's — both trace back to FLUX.1-dev's VAE (confirmed by
+    diffing `vae/config.json` in both HF snapshots, kontext epic phase 4,
+    2026-07-14) — so this reuses mflux's `ZImageVAE` MLX class directly rather
+    than defining a new one.
+
+    Deliberately uses `ZImageWeightMapping.get_vae_mapping()`, NOT
+    `FluxWeightMapping.get_vae_mapping()`: the two mappings' `from_pattern`s
+    (raw HF checkpoint key names) are identical, but their `to_pattern`s
+    differ for the decoder's conv_in/conv_out — Flux's mapping targets
+    `decoder.conv_in.conv2d.weight` while the real `ZImageVAE.Decoder.ConvIn`
+    MLX class attribute is `.conv` (no "2d"; only the *encoder* ConvIn/ConvOut
+    use `.conv2d`, confirmed by reading
+    `z_image_vae/decoder/conv_in.py`/`conv_out.py` directly). Using Flux's
+    mapping as-is would produce keys `vae.load_weights(..., strict=True)`
+    can't match. `ZImageWeightMapping`'s to_patterns already match the real
+    class layout exactly (it's what converts the Z-Image VAE today), so it's
+    the correct mapping source for a same-architecture checkpoint regardless
+    of which model the checkpoint itself came from.
+
+    Downloads `vae/*.safetensors` from the black-forest-labs/FLUX.1-Kontext-dev
+    HF repo (already cached locally as of the kontext epic's phase 2 work) and
+    saves to `models/vae/flux-kontext-ae/model.safetensors`.
+    """
+    _mflux_src = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "vendor", "mflux", "src")
+    if os.path.isdir(_mflux_src) and _mflux_src not in sys.path:
+        sys.path.insert(0, _mflux_src)
+
+    from huggingface_hub import snapshot_download
+    from mflux.models.z_image.model.z_image_vae import VAE as ZImageVAE
+    from mflux.models.z_image.weights.z_image_weight_mapping import ZImageWeightMapping
+    from mlx.utils import tree_flatten
+
+    MODEL_ID = "black-forest-labs/FLUX.1-Kontext-dev"
+    dst_dir = cfg.KONTEXT_VAE_DIR
+
+    print(f"[kontext-vae-mlx] Resolving {MODEL_ID} vae/ from HF cache...")
+    root = os.path.join(snapshot_download(
+        repo_id=MODEL_ID, allow_patterns=["vae/*.safetensors", "vae/*.json"]))
+    vae_dir = os.path.join(root, "vae")
+    src = os.path.join(vae_dir, "diffusion_pytorch_model.safetensors")
+    if not os.path.exists(src):
+        print(f"[kontext-vae-mlx] ERROR: PyTorch VAE not found: {src}")
+        return False
+
+    # 1. Load PyTorch weights
+    print(f"[kontext-vae-mlx] Loading PyTorch VAE ({os.path.basename(src)})...")
+    pt_weights = load_pt_file(src)
+
+    # 2. Build the mapping (same expansion logic as convert_vae_to_mlx —
+    #    encoder: down_blocks 0-3 x resnets 0-1; decoder: up_blocks 0-3 x
+    #    resnets 0-2; mid_block resnets/attentions 0-1).
+    mappings = ZImageWeightMapping.get_vae_mapping()
+
+    def _expand_pattern(pattern, expansion_ranges):
+        import re
+        placeholders = re.findall(r'\{(\w+)\}', pattern)
+        if not placeholders:
+            return [pattern]
+        results = [pattern]
+        for ph in placeholders:
+            new_results = []
+            for r in results:
+                for val in expansion_ranges.get(ph, [0]):
+                    new_results.append(r.replace(f'{{{ph}}}', str(val)))
+            results = new_results
+        return results
+
+    expansion_ranges = {'block': [0, 1, 2, 3], 'res': [0, 1], 'i': [0, 1]}
+    decoder_expansion = dict(expansion_ranges, res=[0, 1, 2])
+
+    key_map = {}
+    for m in mappings:
+        to_pat = m.to_pattern
+        for from_pat in m.from_pattern:
+            is_decoder_upblock = 'decoder.up_blocks.{block}' in from_pat
+            exp = decoder_expansion if is_decoder_upblock else expansion_ranges
+            from_keys = _expand_pattern(from_pat, exp)
+            to_keys = _expand_pattern(to_pat, exp)
+            for fk, tk in zip(from_keys, to_keys):
+                key_map[fk] = (tk, m.transform)
+
+    # 3. Convert weights
+    print("[kontext-vae-mlx] Converting weights (transposing Conv2d)...")
+    mlx_weights = {}
+    mapped = 0
+    for k, v in tqdm(pt_weights.items()):
+        if k in key_map:
+            new_key, transform = key_map[k]
+            val_np = v.detach().cpu().float().numpy() if isinstance(v, torch.Tensor) else v
+            arr = mx.array(val_np).astype(mx.bfloat16)
+            if transform is not None:
+                arr = transform(arr)
+            mlx_weights[new_key] = arr
+            mapped += 1
+        else:
+            print(f"[kontext-vae-mlx] Warning: unmapped key: {k}")
+
+    del pt_weights
+    gc.collect()
+    print(f"[kontext-vae-mlx] Mapped {mapped} weights")
+
+    # 4. Initialize MLX VAE (Z-Image's class — architecture identical to
+    #    Kontext's, see docstring) and load weights.
+    print("[kontext-vae-mlx] Initializing MLX VAE...")
+    vae = ZImageVAE()
+    model_keys = set(dict(tree_flatten(vae.parameters())).keys())
+    print(f"[kontext-vae-mlx] Model expects {len(model_keys)} parameters, got {len(mlx_weights)}")
+    missing = model_keys - set(mlx_weights.keys())
+    if missing:
+        print(f"[kontext-vae-mlx] Warning: {len(missing)} missing keys: {sorted(missing)[:5]}...")
+
+    vae.load_weights(list(mlx_weights.items()))
+    del mlx_weights
+    mx.eval(vae.parameters())
+
+    # 5. Save
+    os.makedirs(dst_dir, exist_ok=True)
+    out_path = os.path.join(dst_dir, "model.safetensors")
+    print(f"[kontext-vae-mlx] Saving to {out_path}...")
+    vae.save_weights(out_path)
+
+    size_mb = os.path.getsize(out_path) / (1024 * 1024)
+    print(f"[kontext-vae-mlx] Done. MLX VAE saved: {size_mb:.0f} MB")
+    return True
+
+
 def convert_klein_9b() -> bool:
     """Convert Flux2 Klein 9B from HF cache to pre-quantized INT8, stored in category dirs.
 
@@ -1736,6 +1868,8 @@ Examples:
     parser.add_argument("--source-url", type=str, default=None,
                         help="Full source URL for the --zit-checkpoint manifest/README "
                              "(e.g. https://civitai.com/models/2242173?modelVersionId=2788849).")
+    parser.add_argument("--kontext-vae-mlx", action="store_true",
+                        help="Convert FLUX.1-Kontext-dev VAE from HF cache to MLX BF16 (~320MB)")
     parser.add_argument("--vae-mlx", action="store_true",
                         help="Convert zimage-ae VAE to MLX BF16 (eliminates PyTorch/diffusers dependency)")
     parser.add_argument("--ltx-connector", action="store_true",
@@ -1781,6 +1915,8 @@ Examples:
                                bits=args.bits or 4, group_size=args.group_size or 32)
     if args.vae_mlx:
         convert_vae_to_mlx()
+    if args.kontext_vae_mlx:
+        convert_kontext_vae_to_mlx()
     if args.ltx_connector:
         convert_ltx_connector()
     if args.ultraflux_vae:
