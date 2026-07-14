@@ -26,6 +26,7 @@ python/venv/bin/python python/mlx-movie-director/app/tests/gen_kontext_vae_ref.p
 python/venv/bin/python python/mlx-movie-director/app/tests/gen_kontext_transformer_ref.py
 python/venv/bin/python python/mlx-movie-director/app/tests/gen_kontext_clip_ref.py
 python/venv/bin/python python/mlx-movie-director/app/tests/gen_kontext_t5_ref.py
+python/venv/bin/python python/mlx-movie-director/app/tests/gen_kontext_tokenizer_ref.py
 ```
 
 ## Expected files
@@ -42,6 +43,7 @@ python/venv/bin/python python/mlx-movie-director/app/tests/gen_kontext_t5_ref.py
 | `kontext_transformer_ref.safetensors` | `gen_kontext_transformer_ref.py` | `verify-kontext-transformer` |
 | `kontext_clip_ref.safetensors` | `gen_kontext_clip_ref.py` | `verify-kontext-clip` |
 | `kontext_t5_ref.safetensors` | `gen_kontext_t5_ref.py` | `verify-kontext-t5` |
+| `kontext_tokenizer_ref.json` | `gen_kontext_tokenizer_ref.py` | `verify-kontext-clip-tokenizer`, `verify-kontext-t5-tokenizer` |
 
 `flux2_chat_formatted.txt` (small) is committed and used for tokenizer/format
 parity checks.

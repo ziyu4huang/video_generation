@@ -33,6 +33,7 @@ struct Flux2CLI: ParsableCommand {
             VerifyEdit.self, KVStyleTransfer.self, VerifyKontextTransformerShape.self,
             VerifyKontextTransformer.self, VerifyKontextVAE.self,
             VerifyKontextCLIP.self, VerifyKontextT5.self,
+            VerifyKontextCLIPTokenizer.self, VerifyKontextT5Tokenizer.self,
         ]
     )
 }
