@@ -59,7 +59,7 @@ import { preComposeGate, enforcePreCompose } from "./precompose-gate.ts";
 import { runPipeline, slugifyTopic, type DriverOptions } from "./driver.ts";
 import { wireProduce } from "./driver-wiring.ts";
 import { makeRealWaypointDeps } from "./waypoint-runtime.ts";
-import type { WaypointDeps } from "./waypoints.ts";
+import { runCompletionWaypoint, runAgentWaypoint, pickProducer, WaypointExhaustedError, type WaypointDeps } from "./waypoints.ts";
 
 /** The canonical 19 orchestration commands (also the CLI's command surface). */
 export const COMMANDS = [
@@ -84,6 +84,7 @@ export const COMMANDS = [
   "cost-snapshot",
   "read-decision-log",
   "run-pipeline",
+  "run-waypoint",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
 
@@ -272,6 +273,10 @@ export const COMMAND_REFERENCE = [
   "                        unless named in requireHumanApproval (then it pauses — resume via run-pipeline",
   "                        {projectId}). Bounded retry → resumable abort on producer failure. The deterministic",
   "                        alternative to agent-driven sequencing.",
+  "  • run-waypoint     — {stage, inputs?, model?, maxRetries?} → run ONE creative waypoint in isolation",
+  "                        (research/proposal/script/scene_plan/edit) and return {stage, valid, artifact|errors}.",
+  "                        Per-stage iteration harness for cheap debugging without driving the whole pipeline; uses",
+  "                        the same produceAndValidate path (clean-to-schema + bounded retry) as run-pipeline.",
 ].join("\n");
 
 /**
@@ -331,6 +336,31 @@ export interface DispatchDeps {
 	waypointDeps?: WaypointDeps;
 	/** run-pipeline: inject the ffmpeg last-frame extractor in tests. */
 	extractLastFrame?: (clipPath: string) => Promise<string>;
+}
+
+/** Build the waypoint validateFn that delegates to dispatch("validate-artifact").
+ *  Maps the validator's {ok, errors} result to the waypoint's {valid, errors} shape.
+ *  (Predecessor inlined this and read `parsed.valid` — but validate-artifact returns
+ *  {ok:...}, so the waypoint's own validation never actually failed; the /approval
+ *  error only surfaced at the checkpoint gate with no retry feedback. Centralizing
+ *  it here fixes both cases at once.) */
+function makeWaypointValidateFn(
+	inner: (command: string, opts: Record<string, unknown>) => Promise<DispatchResult>,
+): WaypointDeps["validateFn"] {
+	return async (artifact, data) => {
+		const v = await inner("validate-artifact", { artifact, data });
+		if (!v.ok) return { valid: false, errors: v.error };
+		try {
+			const parsed = JSON.parse(v.text) as { ok?: boolean; errors?: string[] };
+			if (parsed.ok === false) {
+				const errs = parsed.errors;
+				return { valid: false, errors: Array.isArray(errs) ? errs.join("; ") : String(errs ?? "invalid") };
+			}
+			return { valid: true };
+		} catch {
+			return { valid: true };
+		}
+	};
 }
 
 export async function dispatch(command: Command, opts: Record<string, unknown>, deps?: DispatchDeps): Promise<DispatchResult> {
@@ -667,16 +697,7 @@ export async function dispatch(command: Command, opts: Record<string, unknown>, 
           deps?.waypointDeps ??
           makeRealWaypointDeps({
             model: opts.model ? String(opts.model) : undefined,
-            validateFn: async (artifact: string, data: unknown) => {
-              const v = await inner("validate-artifact", { artifact, data });
-              if (!v.ok) return { valid: false, errors: v.error };
-              try {
-                const parsed = JSON.parse(v.text) as { valid?: boolean; errors?: string };
-                return { valid: parsed.valid !== false, errors: parsed.errors };
-              } catch {
-                return { valid: true };
-              }
-            },
+            validateFn: makeWaypointValidateFn(inner),
           });
         const driverOpts: DriverOptions = {
           topic: opts.topic ? String(opts.topic) : undefined,
@@ -703,6 +724,41 @@ export async function dispatch(command: Command, opts: Record<string, unknown>, 
         return result.ok
           ? { ok: true, text: jsonOut(result) }
           : { ok: false, error: `${result.stage}: ${result.reason}` };
+      }
+      case "run-waypoint": {
+        // Per-stage iteration harness: run ONE creative waypoint in isolation
+        // and return {stage, valid, artifact|errors}. Cheap debugging of a single
+        // stage without driving the whole pipeline. Same produceAndValidate path
+        // (clean-to-schema + bounded retry) as run-pipeline. Tests inject
+        // waypointDeps; production builds the real bounded-session deps.
+        const stage = String(opts.stage ?? "");
+        if (!stage) return { ok: false, error: "run-waypoint requires {stage}" };
+        const producer = pickProducer(stage);
+        if (producer === "mechanical") {
+          return { ok: false, error: `run-waypoint is for creative stages (research/proposal/script/scene_plan/edit); "${stage}" is mechanical (driven by the pipeline, not a waypoint)` };
+        }
+        const inputs = (opts.inputs as Record<string, unknown> | undefined) ?? {};
+        const inner =
+          deps?.innerDispatch ?? ((c: string, o: Record<string, unknown>) => dispatch(c as Command, o));
+        const waypointDeps =
+          deps?.waypointDeps ??
+          makeRealWaypointDeps({
+            model: opts.model ? String(opts.model) : undefined,
+            validateFn: makeWaypointValidateFn(inner),
+          });
+        const maxRetries = opts.maxRetries ? Number(opts.maxRetries) : undefined;
+        try {
+          const artifact =
+            producer === "agent"
+              ? await runAgentWaypoint(stage, inputs, waypointDeps, maxRetries ?? 2)
+              : await runCompletionWaypoint(stage, inputs, waypointDeps, maxRetries ?? 3);
+          return { ok: true, text: jsonOut({ stage, valid: true, artifact }) };
+        } catch (err) {
+          if (err instanceof WaypointExhaustedError) {
+            return { ok: true, text: jsonOut({ stage, valid: false, errors: err.message }) };
+          }
+          throw err;
+        }
       }
       default:
         return { ok: false, error: `unknown command: ${command}` };
