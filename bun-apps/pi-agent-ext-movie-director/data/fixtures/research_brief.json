@@ -1,0 +1,331 @@
+{
+  "version": "1.0",
+  "topic": "how rainbows form",
+  "research_date": "2026-07-13",
+  "landscape": {
+    "existing_content": [
+      {
+        "title": "What Causes a Rainbow? (NESDIS / NOAA)",
+        "url": "https://www.nesdis.noaa.gov/about/k-12-education/optical-phenomena/what-causes-rainbow",
+        "source": "agency_site",
+        "angle": "Plain-language explainer from a government science body",
+        "what_it_covers": "Refraction + reflection in water droplets, the sun-behind-you geometry, and why colors separate",
+        "what_it_misses": "Skips the antisolar point and the fact that a rainbow is always a full circle; no mention of double-bow geometry"
+      },
+      {
+        "title": "The Science of Rainbows (SciShow)",
+        "url": "https://www.youtube.com/results?search_query=scishow+rainbows",
+        "source": "youtube",
+        "angle": "Energetic host-driven science explainer",
+        "what_it_covers": "Dispersion, the 42-degree cone, and the mechanism inside a raindrop",
+        "what_it_misses": "Breezy pace leaves no room for the observer-uniqueness or Alexander's-band payoff",
+        "engagement_signal": "Staple search result for 'how do rainbows work' on YouTube"
+      },
+      {
+        "title": "Double Rainbow (Yosemitebear Mountain Giant Double Rainbow 1-8-10)",
+        "url": "https://www.youtube.com/results?search_query=double+rainbow+yosemitebear",
+        "source": "youtube",
+        "angle": "Emotional viral reaction to a double rainbow",
+        "what_it_covers": "Captures the awe of seeing a primary + secondary bow together in nature",
+        "what_it_misses": "Pure reaction footage; explains nothing about why the second bow is fainter or color-reversed",
+        "engagement_signal": "One of the most-watched viral videos of the early YouTube era (tens of millions of views)"
+      },
+      {
+        "title": "Rainbows: optical wonders (Met Office)",
+        "url": "https://weather.metoffice.gov.uk/learn-about/weather/optical-effects/rainbows",
+        "source": "agency_site",
+        "angle": "Meteorological reference with interactive simulator",
+        "what_it_covers": "Refraction on entry, internal reflection, refraction on exit, plus secondary bows and other optical phenomena",
+        "what_it_misses": "Reference-style; little narrative hook and no myth-busting for a general audience"
+      }
+    ],
+    "saturated_angles": [
+      "Refraction-and-dispersion 101 with a prism or garden-hose demo",
+      "Roy G. Biv mnemonic and naming the seven colors",
+      "Generic 'rain + sunlight = rainbow' with no geometry",
+      "Leisurely 'what a rainbow means to me' essays"
+    ],
+    "underserved_gaps": [
+      "The rainbow is always a full circle centered on the antisolar point — most content never states the circle, only the arc",
+      "Each observer sees a different set of droplets, so no two people ever see the same rainbow",
+      "The dark band between a double rainbow (Alexander's band) has a name and a 2000-year-old history most viewers have never heard",
+      "A precise, intuitive explanation of why the secondary bow's colors are reversed and why it is always fainter",
+      "Why the sun must be below ~42 degrees for a full bow, and why rainbows shrink toward the horizon near noon"
+    ]
+  },
+  "trending": {
+    "active_discussions": [
+      {
+        "platform": "reddit",
+        "topic_or_url": "r/educationalgifs and r/Damnthatsinteresting recurring posts of full-circle rainbows filmed from aircraft and drones",
+        "sentiment": "awe and surprise",
+        "key_quotes": [
+          "I had no idea rainbows were actually full circles.",
+          "The fact that the bottom is just blocked by the ground blows my mind."
+        ]
+      },
+      {
+        "platform": "reddit",
+        "topic_or_url": "r/optics and r/explainlikeimfive threads on why the double rainbow's colors are reversed",
+        "sentiment": "curiosity and mild confusion",
+        "key_quotes": [
+          "Why is the second rainbow upside down?",
+          "ELI5: what's the dark bit between the two rainbows?"
+        ]
+      },
+      {
+        "platform": "tiktok",
+        "topic_or_url": "Double-rainbow reaction and 'find the pot of gold' myth-busting clips",
+        "sentiment": "playful excitement",
+        "key_quotes": [
+          "Wait, you can never actually reach the end of a rainbow?"
+        ]
+      }
+    ],
+    "timeliness_window": "evergreen"
+  },
+  "data_points": [
+    {
+      "claim": "A rainbow needs two things at once: sunlight coming from behind the observer and water droplets somewhere in front of them; the sun must sit lower than about 42 degrees above the horizon for a full bow to clear the ground.",
+      "source_url": "https://www.nesdis.noaa.gov/about/k-12-education/optical-phenomena/what-causes-rainbow",
+      "source_name": "NOAA NESDIS — What Causes a Rainbow?",
+      "credibility": "secondary_source",
+      "surprise_factor": "expected",
+      "usable_as": "script_anchor"
+    },
+    {
+      "claim": "Inside each droplet the light path is refraction on entry, a single internal reflection off the back of the drop, then refraction again on exit — without that internal reflection there is no rainbow, only transmitted light.",
+      "source_url": "https://weather.metoffice.gov.uk/learn-about/weather/optical-effects/rainbows",
+      "source_name": "UK Met Office — Rainbows: optical wonders",
+      "credibility": "secondary_source",
+      "surprise_factor": "expected",
+      "usable_as": "script_anchor"
+    },
+    {
+      "claim": "Colors separate (dispersion) because each wavelength has a slightly different refractive index in water: violet light is bent the most and red the least, so the droplet acts like billions of tiny prisms working in concert.",
+      "source_url": "https://www.scientificamerican.com/article/why-do-rainbows-form-inst/",
+      "source_name": "Scientific American — Why do rainbows form instead of just straight bands of colors?",
+      "credibility": "secondary_source",
+      "surprise_factor": "expected",
+      "usable_as": "script_anchor"
+    },
+    {
+      "claim": "The primary bow's geometry is fixed by geometry of minimum deviation: red light emerges at about 42 degrees and violet at about 40 degrees from the antisolar point, which is why red is always on the outer edge and the bow spans only ~2 degrees of sky.",
+      "source_url": "https://www.st-andrews.ac.uk/~bds2/optics/rainbow",
+      "source_name": "University of St Andrews School of Physics — Rainbows (optics treatment)",
+      "credibility": "primary_source",
+      "surprise_factor": "notable",
+      "usable_as": "stat_card"
+    },
+    {
+      "claim": "A rainbow is centered exactly on the antisolar point — the spot directly opposite the sun, which sits below the horizon — so the bow is always a complete circle; the ground simply hides the lower half, which is why full-circle rainbows are only seen from planes, drones, cliffs, or mountaintops.",
+      "source_url": "https://chandra.si.edu/edu/stop/explore/rainbow.html",
+      "source_name": "Chandra / Smithsonian — Somewhere Over The Rainbow",
+      "credibility": "secondary_source",
+      "surprise_factor": "surprising",
+      "usable_as": "hook"
+    },
+    {
+      "claim": "Every observer sees a slightly different set of droplets, so the rainbow you see is unique to your exact eye position — no two people, even standing side by side, ever see the same rainbow.",
+      "source_url": "https://www.scientificamerican.com/article/why-do-rainbows-form-inst/",
+      "source_name": "Scientific American — Why do rainbows form?",
+      "credibility": "secondary_source",
+      "surprise_factor": "counterintuitive",
+      "usable_as": "closing_punch"
+    },
+    {
+      "claim": "A secondary bow is produced by light that reflects twice inside each droplet; it appears above the primary, is much fainter, has its colors reversed, and sits at a radius of about 51 degrees, with Alexander's dark band — first described by Alexander of Aphrodisias around 200 AD — occupying the unlit sky between the two bows.",
+      "source_url": "https://www.atoptics.org.uk/rainbows/ord2form.htm",
+      "source_name": "Atmospheric Optics (Les Cowley) — Secondary rainbow",
+      "credibility": "secondary_source",
+      "surprise_factor": "notable",
+      "usable_as": "stat_card"
+    }
+  ],
+  "audience_insights": {
+    "common_questions": [
+      "Why is a rainbow shaped like an arc instead of a straight line?",
+      "Can two people ever see the exact same rainbow?",
+      "Why are the colors reversed in the second (double) rainbow?",
+      "Is it possible to see a complete, full-circle rainbow?",
+      "What are the colors of the rainbow, in order?"
+    ],
+    "misconceptions": [
+      {
+        "myth": "A rainbow is a fixed object sitting out there at a particular place in the sky.",
+        "reality": "It is an optical illusion tied to your eye position; as you move, the droplets forming your bow change, so it moves with you and can never be approached.",
+        "source": "Scientific American — Why do rainbows form?"
+      },
+      {
+        "myth": "A rainbow has exactly seven colors.",
+        "reality": "It is a continuous spectrum; the seven-color division was imposed by Isaac Newton, partly to mirror the seven notes of the musical scale.",
+        "source": "Scientific American / Newton, Opticks (1704)"
+      },
+      {
+        "myth": "You can walk to the end of a rainbow and find the pot of gold.",
+        "reality": "Because the bow is centered on the antisolar point below the horizon and is observer-dependent, it has no physical 'end' to reach.",
+        "source": "NOAA NESDIS — What Causes a Rainbow?"
+      },
+      {
+        "myth": "It has to be raining on you to see a rainbow.",
+        "reality": "The rain just needs to be in front of you while the sun is behind you; a rainbow is often seen against a storm that is moving away.",
+        "source": "UK Met Office — Rainbows: optical wonders"
+      }
+    ],
+    "knowledge_level": "Most viewers already know a rainbow involves rain plus sunlight and can list 'seven' colors, but very few know the decisive geometry — that it is always a full circle centered on the antisolar point, that the sun must be below ~42 degrees, or that their rainbow is unique to their eyes. Those three ideas are the fresh 'aha' payload.",
+    "pain_points": [
+      "Explanations stop at 'light bends in water' without ever connecting it to the shape of the bow in the sky.",
+      "The reversed colors and faintness of the double rainbow are shown but never explained.",
+      "Viewers lose interest in dense ray-tracing diagrams that don't tie back to what they'll actually see."
+    ]
+  },
+  "expert_voices": [
+    {
+      "name": "Theodoric of Freiberg",
+      "title_or_affiliation": "Dominican friar and natural philosopher, c. 1304",
+      "position": "Gave the first essentially correct explanation of the rainbow, tracing light through a water-filled glass sphere to show refraction, internal reflection, and refraction again.",
+      "contrarian": false
+    },
+    {
+      "name": "Rene Descartes",
+      "title_or_affiliation": "Mathematician and philosopher, Discourse on the Method (1637)",
+      "position": "Quantitatively ray-traced millions of light paths through a raindrop to derive the rainbow's ~42-degree cone.",
+      "contrarian": false
+    },
+    {
+      "name": "Alexander of Aphrodisias",
+      "title_or_affiliation": "Greek philosopher, c. 200 AD",
+      "position": "First recorded the dark band between the primary and secondary bows — now Alexander's band — about 1,800 years before cameras could photograph it.",
+      "contrarian": false
+    }
+  ],
+  "angles_discovered": [
+    {
+      "name": "You've Only Seen Half A Rainbow",
+      "hook": "Every rainbow you've ever seen has been hiding its other half below the horizon.",
+      "type": "data_driven",
+      "why_now": "Drone and airplane footage of full-circle rainbows now circulates constantly on social media, so the 'it's a full circle' reveal lands as a fresh, visual surprise rather than a dry fact.",
+      "grounded_in": [
+        "antisolar point data point",
+        "geometric 42-degree data point",
+        "underserved gap on the full circle"
+      ]
+    },
+    {
+      "name": "Your Rainbow Belongs Only To You",
+      "hook": "No one else on Earth sees the exact rainbow you see — not even the person beside you.",
+      "type": "contrarian",
+      "why_now": "The observer-uniqueness fact is almost never the lead of rainbow content, yet it directly overturns the 'fixed object' misconception held by most viewers.",
+      "grounded_in": [
+        "observer-unique data point",
+        "'fixed object' misconception"
+      ]
+    },
+    {
+      "name": "The 1800-Year-Old Mystery Of The Dark Band",
+      "hook": "A Roman philosopher spotted a rainbow's missing light centuries before anyone could explain it.",
+      "type": "narrative",
+      "why_now": "Alexander's band pairs a human story (Theodoric, Descartes) with a phenomenon viewers can test on the next double rainbow they see, giving a strong narrative spine.",
+      "grounded_in": [
+        "secondary bow / Alexander's band data point",
+        "expert voice: Alexander of Aphrodisias"
+      ]
+    },
+    {
+      "name": "Why The Second Rainbow Reads Backwards",
+      "hook": "The second rainbow in a double rainbow prints its colors in reverse — and there's a simple reason.",
+      "type": "evergreen",
+      "why_now": "Color reversal is one of the most-asked rainbow questions online, and the viral 'Double Rainbow' video proves audiences already care, so an explanatory payoff is guaranteed to land.",
+      "grounded_in": [
+        "secondary bow data point",
+        "color-reversal common question"
+      ]
+    }
+  ],
+  "visual_references": [
+    {
+      "description": "Single-shot practical demo: a flashlight beam aimed at one suspended water drop casting a real, tiny rainbow on a card.",
+      "url": "https://www.st-andrews.ac.uk/~bds2/optics/rainbow",
+      "what_works": "Turns the abstract 'billions of droplets' idea into one visible drop the viewer can watch bend light."
+    },
+    {
+      "description": "Animated ray-trace inside a sphere: refract in, reflect off the back, refract out — with each color peeling off at its own angle.",
+      "url": "https://www.atoptics.org.uk/rainbows/ord2form.htm",
+      "what_works": "Makes the refraction-reflection-refraction mechanism and dispersion legible without a static textbook diagram."
+    },
+    {
+      "description": "First-person drone or aircraft shot of a complete circular rainbow over clouds.",
+      "url": "https://www.nesdis.noaa.gov/about/k-12-education/optical-phenomena/what-causes-rainbow",
+      "what_works": "Delivers the 'full circle' reveal as a visceral, shareable image rather than a statement."
+    },
+    {
+      "description": "Split-screen of a primary bow beside its secondary, with Alexander's dark band labeled between them.",
+      "url": "https://www.atoptics.org.uk/rainbows/adband.htm",
+      "what_works": "Anchors the reversed-colors and dark-band explanations on something the viewer can immediately verify in real life."
+    }
+  ],
+  "sources": [
+    {
+      "url": "https://www.nesdis.noaa.gov/about/k-12-education/optical-phenomena/what-causes-rainbow",
+      "title": "What Causes a Rainbow? — NOAA NESDIS",
+      "used_for": "data_points, landscape, audience misconception on the 'pot of gold'",
+      "reliability": "secondary"
+    },
+    {
+      "url": "https://www.nesdis.noaa.gov/about/k-12-education/optical-phenomena/rainbow-simulator",
+      "title": "Rainbow Simulator — NOAA NESDIS",
+      "used_for": "visual approach reference, geometry intuition",
+      "reliability": "secondary"
+    },
+    {
+      "url": "https://weather.metoffice.gov.uk/learn-about/weather/optical-effects/rainbows",
+      "title": "Rainbows: optical wonders — UK Met Office",
+      "used_for": "formation mechanism (refraction-reflection-refraction), landscape",
+      "reliability": "secondary"
+    },
+    {
+      "url": "https://www.scientificamerican.com/article/why-do-rainbows-form-inst/",
+      "title": "Why do rainbows form instead of just straight bands of colors? — Scientific American",
+      "used_for": "dispersion, observer-uniqueness, misconceptions",
+      "reliability": "secondary"
+    },
+    {
+      "url": "https://www.st-andrews.ac.uk/~bds2/optics/rainbow",
+      "title": "Rainbows — University of St Andrews, School of Physics and Astronomy",
+      "used_for": "quantitative geometry (42 degrees red / 40 degrees violet, minimum deviation)",
+      "reliability": "primary"
+    },
+    {
+      "url": "https://www.atoptics.org.uk/rainbows/ord2form.htm",
+      "title": "Secondary rainbow — Atmospheric Optics",
+      "used_for": "secondary bow 51-degree geometry and color reversal",
+      "reliability": "secondary"
+    },
+    {
+      "url": "https://www.atoptics.org.uk/rainbows/adband.htm",
+      "title": "Alexander's Dark Band — Atmospheric Optics",
+      "used_for": "Alexander's band, history (~200 AD)",
+      "reliability": "secondary"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Alexander%27s_band",
+      "title": "Alexander's band — Wikipedia",
+      "used_for": "corroboration of the 200 AD attribution and expert voice",
+      "reliability": "secondary"
+    },
+    {
+      "url": "https://chandra.si.edu/edu/stop/explore/rainbow.html",
+      "title": "Somewhere Over The Rainbow — Chandra / Smithsonian",
+      "used_for": "antisolar point and full-circle framing",
+      "reliability": "secondary"
+    }
+  ],
+  "research_summary": "The single most important insight is that a rainbow is not a fixed object at all: it is an observer-dependent, full-circle optical illusion centered on the antisolar point below the horizon, built when sunlight refracts, internally reflects, and refracts again inside billions of droplets at a locked 40-42 degree cone. Everything viewers find magical — the arc, the uniqueness to their eyes, the reversed double bow, the unreachable 'end' — falls out of that one geometric fact, which makes it the ideal spine for an explainer that converts awe into understanding.",
+  "metadata": {
+    "producer": "research-director",
+    "pipeline": "animated-explainer",
+    "stage": "research",
+    "target_artifact": "research_brief",
+    "language": "en"
+  }
+}

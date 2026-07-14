@@ -1,0 +1,60 @@
+{
+  "version": "1.0",
+  "concept_options": [
+    {
+      "id": "c1",
+      "title": "Light bent by rain",
+      "hook": "Why does a rainbow always arc the same way?",
+      "narrative_structure": "analogy",
+      "visual_approach": "Particle + prism simulation, spectral fan",
+      "target_duration_seconds": 14,
+      "why_this_works": "Grounded in refraction and dispersion physics from the research brief."
+    },
+    {
+      "id": "c2",
+      "title": "Forty-two degrees",
+      "hook": "It is always the same angle, no matter where you stand.",
+      "narrative_structure": "data_narrative",
+      "visual_approach": "Geometric diagram of the cone of returned light",
+      "target_duration_seconds": 14,
+      "why_this_works": "The fixed geometry is memorable and counterintuitive."
+    },
+    {
+      "id": "c3",
+      "title": "A spectrum walk",
+      "hook": "Each color bends by its own amount.",
+      "narrative_structure": "journey",
+      "visual_approach": "Continuous spectral sweep across a dark backdrop",
+      "target_duration_seconds": 14,
+      "why_this_works": "The spectrum is intrinsically visual and satisfying."
+    }
+  ],
+  "selected_concept": {
+    "concept_id": "c1",
+    "rationale": "Most directly grounded in the researched physics; visuals are achievable with chained I2V."
+  },
+  "production_plan": {
+    "pipeline": "animated-explainer",
+    "stages": [
+      {
+        "stage": "assets",
+        "tools": [
+          { "tool_name": "ltx", "role": "Chained I2V clips for each scene", "available": true }
+        ],
+        "approach": "Generate T2I2V clips per scene, chaining when a scene exceeds 8s so real motion covers the full planned duration."
+      }
+    ],
+    "render_runtime": "ffmpeg"
+  },
+  "cost_estimate": {
+    "total_estimated_usd": 0,
+    "line_items": [
+      { "tool": "ltx", "operation": "T2I2V chained clips", "estimated_usd": 0 }
+    ],
+    "budget_verdict": "no_budget_set"
+  },
+  "approval": {
+    "status": "approved",
+    "user_notes": "Proceed to asset generation for the frozen-frame-fix headline proof."
+  }
+}

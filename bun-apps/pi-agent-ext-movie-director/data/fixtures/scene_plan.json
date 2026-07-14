@@ -1,0 +1,26 @@
+{
+  "version": "1.0",
+  "style_playbook": "explainer-data",
+  "scenes": [
+    {
+      "id": "sc1",
+      "type": "generated",
+      "description": "Golden sunlight rays entering a translucent curtain of falling rain droplets, slow continuous drift, dark moody backdrop",
+      "start_seconds": 0,
+      "end_seconds": 4,
+      "script_section_id": "s1",
+      "movement": "slow dolly in",
+      "shot_intent": "Establish the raw ingredients: light and water"
+    },
+    {
+      "id": "sc2",
+      "type": "generated",
+      "description": "A single white light beam striking a droplet and refracting, then dispersing into a smooth continuous fan of spectral colors red orange yellow green blue violet spreading across a dark backdrop",
+      "start_seconds": 4,
+      "end_seconds": 14,
+      "script_section_id": "s2",
+      "movement": "continuous spectral sweep",
+      "shot_intent": "Show refraction + dispersion producing the spectrum"
+    }
+  ]
+}

@@ -59,6 +59,7 @@ import { preComposeGate, enforcePreCompose } from "./precompose-gate.ts";
 import { runPipeline, slugifyTopic, type DriverOptions } from "./driver.ts";
 import { wireProduce } from "./driver-wiring.ts";
 import { makeRealWaypointDeps } from "./waypoint-runtime.ts";
+import { defaultExtractLastFrame } from "./assets-runtime.ts";
 import { runCompletionWaypoint, runAgentWaypoint, pickProducer, WaypointExhaustedError, type WaypointDeps } from "./waypoints.ts";
 
 /** The canonical 19 orchestration commands (also the CLI's command surface). */
@@ -718,7 +719,7 @@ export async function dispatch(command: Command, opts: Record<string, unknown>, 
             waypointDeps,
             projectId,
             pipeline,
-            ...(deps?.extractLastFrame ? { extractLastFrame: deps.extractLastFrame } : {}),
+            ...(deps?.extractLastFrame ? { extractLastFrame: deps.extractLastFrame } : { extractLastFrame: defaultExtractLastFrame }),
           }),
         });
         return result.ok
