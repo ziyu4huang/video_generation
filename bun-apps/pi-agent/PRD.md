@@ -14,7 +14,7 @@ A thin wrapper around the official `@earendil-works/pi-coding-agent` TUI. It cal
 |---------|--------|
 | **TUI passthrough** | Full pi TUI, all flags, sessions, tools |
 | **Extra providers** | lm-studio, ollama, openrouter, llamacpp — hardcoded in `src/pre-load-providers.ts` |
-| **Fixed extension set** | `run-dir/manifest.json` — loads obsidian, vlm, flux2, krea2, ltx, movie-director, hermes, knowledge-card, research-tool, power-tool, subagents, web-access, workflow, zai-mcp |
+| **Fixed extension set** | `run-dir/manifest.json` — loads obsidian, vlm, flux2, krea2, ltx, movie-director, hermes, knowledge-card, research-tool, power-tool, web-access, workflow, zai-mcp |
 | **Bundle support** | `bun scripts/build.ts` → single output `dist/pi-agent.js` |
 | **Deploy (3 modes)** | `deploy.ts` (bundle/THIN) · `--release` (source-copy) · `--portable` (FULL-bundle, repo-independent) |
 | **Deploy `--verify`** | Boots deployed artifact from `/tmp`, probes `getAllTools()`: 43 tools, 0 conflicts, all 8 canary tools present |
