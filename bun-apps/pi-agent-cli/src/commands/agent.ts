@@ -22,8 +22,6 @@ import { runAgentSession } from "../sessions/run-agent-session.ts";
 // zk_card/zk_ask/knowledge_query (knowledge-card).
 import webAccessExtension from "@repo/pi-agent-ext-web-access";
 import knowledgeCardExtension from "@repo/pi-agent-ext-knowledge-card/extensions/pi-knowledge-card.ts";
-// Sub-agent orchestration — opt-in via --subagent (heavy schema: ~2800 tok).
-import subagentsExtension from "@repo/pi-agent-ext-subagents/src/extension/index.ts";
 
 /**
  * The broad default toolset for the `agent` command. This is the full palette
@@ -31,9 +29,8 @@ import subagentsExtension from "@repo/pi-agent-ext-subagents/src/extension/index
  * (obsidian), web research (web_search/fetch), and knowledge (zk tools).
  *
  * Notably EXCLUDED by default: media generation (flux2/krea2/ltx — heavy
- * binaries, use the dedicated subcommands), subagent orchestration (use the
- * pi-agent TUI for multi-agent), and workflow (deterministic, use `workflow
- * run`). The user can always add them via --tools.
+ * binaries, use the dedicated subcommands), and workflow (deterministic, use
+ * `workflow run`). The user can always add them via --tools.
  */
 const AGENT_TOOLS = [
 	// filesystem
@@ -67,14 +64,12 @@ ${AGENT_TOOLS.map((t) => `  ${t}`).join("\n")}
 
 Notably excluded by default (use the dedicated subcommands):
   flux2 / krea2 / ltx  — media generation (heavy binaries)
-  subagent             — multi-agent orchestration (use pi-agent TUI)
   workflow             — deterministic engine (use 'workflow run')
 
 Options (pi-aligned globals):
   --model <pattern>      provider/id[:thinking]
   --tools <csv>          override the curated toolset
   --exclude-tools <csv>  denylist
-  --subagent             inject sub-agent orchestration tools (subagent, wait, help)
   -p, --print            non-interactive (already the default)
   --no-session           ephemeral (in-memory) session
   --mode json            NDJSON event stream
@@ -86,7 +81,6 @@ Examples:
   bun-pi-agent-cli agent "list all test files and summarize coverage"
   bun-pi-agent-cli --model sonnet agent "review the doctor command for bugs"
   bun-pi-agent-cli agent --tools read,bash,web_search "research bun workspaces"
-  bun-pi-agent-cli agent --subagent "review this repo: one agent reads, one writes fixes"
   bun-pi-agent-cli agent --dry-run "plan a refactor of shared.ts"`,
 	async run(parsed: ParsedArgs): Promise<void> {
 		const task = parsed.positionals.join(" ").trim();
@@ -95,19 +89,11 @@ Examples:
 			console.error("Example: bun-pi-agent-cli agent \"read the files in this dir\"");
 			process.exit(1);
 		}
-		// --subagent: inject the subagents extension so the agent can delegate to
-		// child agents (parallel fan-out, advisory review, etc.). The subagent
-		// tool schema is ~2800 tok, so it's opt-in rather than a default.
-		const withSubagent = parsed.rest.includes("--subagent");
 		const factories: unknown[] = [
 			webAccessExtension as unknown,
 			knowledgeCardExtension as unknown,
-			...(withSubagent ? [subagentsExtension as unknown] : []),
 		];
-		const tools = parsed.tools ?? [
-			...AGENT_TOOLS,
-			...(withSubagent ? ["subagent", "subagent_help", "wait"] : []),
-		];
+		const tools = parsed.tools ?? [...AGENT_TOOLS];
 		await runAgentSession(parsed, {
 			tools,
 			task,
