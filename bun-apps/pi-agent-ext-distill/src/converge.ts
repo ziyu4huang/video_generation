@@ -1,6 +1,7 @@
 import type { EnrichedNote, ConvergeMetrics, ConvergeResult } from "./types.ts";
 import type { KnowledgeRecord, IngestSummary } from "../../pi-agent-ext-knowledge-card/src/ingest.ts";
 import { ingestRecords } from "../../pi-agent-ext-knowledge-card/src/ingest.ts";
+import { markSuperseded } from "../../pi-agent-ext-knowledge-card/src/supersede.ts";
 import { readState, writeState } from "./state.ts";
 import { adjustThreshold } from "./threshold.ts";
 
@@ -31,6 +32,15 @@ export async function runConverge(
 		source: "workflow-jsonl",
 		sourceLabel: "distill:pipeline",
 	});
+
+	// Supersede the raw `pi-memory:*` cards these notes upgrade (mechanism B):
+	// after writing the curated card, flip the matching raw card to
+	// status:superseded so retrieveRecords excludes it — leaving the curated
+	// card as the single active card for that knowledge.
+	for (const note of notes) {
+		if (!note.supersedesCardId) continue;
+		markSuperseded(note.supersedesCardId, note.id, vaultPath);
+	}
 
 	const converged = summary.created + summary.updated;
 	const passRate = metrics.survivors > 0 ? converged / metrics.survivors : 1;
