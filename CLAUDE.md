@@ -77,3 +77,13 @@ bun-apps/gui-movie-director/  # ACTIVE — Bun + React GUI
 ## Vendor patches
 
 ltx-2-mlx / mflux patches in `python/mlx-movie-director/app/vendor_patches.py`. Never edit vendor submodules directly; add via `_patch_*()` → `apply_all_patches()`.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (`ziyu4huang/video_generation`), via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context — one root `CONTEXT.md` + `docs/adr/` for the whole monorepo. See `docs/agents/domain.md`.
