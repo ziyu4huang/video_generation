@@ -1,5 +1,5 @@
 {
-  "toolCountFloor": 29,
+  "toolCountFloor": 30,
   "expectedErrorSources": [],
   "expectedContractFailures": [],
   "sourceMinimum": [
@@ -12,6 +12,7 @@
     "movie-director",
     "goal-todo",
     "vlm",
-    "power-tool"
+    "power-tool",
+    "distill"
   ]
 }

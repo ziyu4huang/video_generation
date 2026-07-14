@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import { createCapturePi } from "../../perf-harness/src/index.ts";
-import distillFactory from "../extensions/distill.ts";
+import distillFactory from "../extensions/pi-distill.ts";
 
 describe("distill tool registration", () => {
 	test("registers exactly 1 tool named 'distill'", () => {

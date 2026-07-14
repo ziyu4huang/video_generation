@@ -1,8 +1,8 @@
 /**
  * grand-total.regression.test.ts — the headline agent-efficiency metric.
  * Pins the COMBINED schema-token cost of all 12 tools across hermes-memory +
- * obsidian + knowledge-card + distill. Baseline 3711 tok (2026-07-13, commit 2b3f987c)
- * + distill added 2026-07-13.
+ * obsidian + knowledge-card + distill. Baseline 4148 tok (2026-07-14, feat/wire-distill)
+ * — distill params now counted (inputSchema→parameters fix raised the real cost).
  *
  * hermes-memory uses individual register calls (avoids heavy main factory);
  * obsidian + knowledge-card use their main factories (lightweight registration).
@@ -19,7 +19,7 @@ import { registerMemoryTool } from "../../../bun-apps/pi-agent-ext-hermes-memory
 import obsidianFactory from "../../../bun-apps/pi-agent-ext-obsidian/extensions/obsidian.ts";
 import kcardFactory from "../../../bun-apps/pi-agent-ext-knowledge-card/extensions/pi-knowledge-card.ts";
 // distill — main factory
-import distillFactory from "../../../bun-apps/pi-agent-ext-distill/extensions/distill.ts";
+import distillFactory from "../../../bun-apps/pi-agent-ext-distill/extensions/pi-distill.ts";
 
 function captureAll(): Record<string, any> {
   const all: Record<string, any> = {};
@@ -57,7 +57,7 @@ describe("cross-extension grand-total schema-cost", () => {
     expect(Object.keys(tools).length).toBe(12);
   });
 
-  test("grand total ≤ 4200 tokens (baseline 3835, +9.5% headroom)", () => {
+  test("grand total ≤ 4400 tokens (baseline 4148, +6.1% headroom)", () => {
     const tools = captureAll();
     const { perTool, total } = estimateTotalSchemaTokens(tools);
     console.log("\n  === AGENT TOOL SURFACE (12 tools) ===");
@@ -66,10 +66,10 @@ describe("cross-extension grand-total schema-cost", () => {
 
     assertWithinBudget(total.tokens, {
       label: "cross-ext grand total (12 tools)",
-      max: 4200,
-      baseline: 3835,
-      measuredAt: "2026-07-13",
-      commit: "feat/distill-pipeline",
+      max: 4400,
+      baseline: 4148,
+      measuredAt: "2026-07-14",
+      commit: "feat/wire-distill",
     });
   });
 });
