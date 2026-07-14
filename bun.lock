@@ -108,6 +108,10 @@
     "bun-apps/pi-agent-ext-distill": {
       "name": "@repo/pi-agent-ext-distill",
       "version": "0.0.0",
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "*",
+        "typebox": "*",
+      },
     },
     "bun-apps/pi-agent-ext-flux2": {
       "name": "@repo/pi-agent-ext-flux2",
