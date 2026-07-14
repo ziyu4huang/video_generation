@@ -51,7 +51,13 @@ function readSchemaSpec(artifact: string): string | undefined {
 	try {
 		const schema = JSON.parse(readFileSync(path, "utf8")) as {
 			required?: string[];
-			properties?: Record<string, { type?: string; enum?: unknown[]; minItems?: number; items?: unknown }>;
+			properties?: Record<string, {
+				type?: string;
+				enum?: unknown[];
+				minItems?: number;
+				properties?: Record<string, unknown>;
+				items?: { properties?: Record<string, unknown>; required?: string[] };
+			}>;
 		};
 		const req = schema.required ?? [];
 		const props = schema.properties ?? {};
@@ -59,7 +65,19 @@ function readSchemaSpec(artifact: string): string | undefined {
 			const p = props[k];
 			if (!p) return k;
 			if (Array.isArray(p.enum)) return `${k} (one of: ${(p.enum as string[]).slice(0, 6).join("|")})`;
-			if (p.minItems !== undefined) return `${k} (${p.type ?? "array"}, minItems ${p.minItems})`;
+			// Walk ONE level into a nested object: list its declared sub-fields so the
+			// model knows the EXACT allowed keys (prevents inventing e.g. approval.approved_by).
+			if (p.type === "object" && p.properties) {
+				return `${k} (object: ${Object.keys(p.properties).slice(0, 12).join(", ")})`;
+			}
+			if (p.type === "array") {
+				const min = p.minItems !== undefined ? `, minItems ${p.minItems}` : "";
+				const itemProps = p.items?.properties;
+				if (itemProps) {
+					return `${k} (array${min} of {${Object.keys(itemProps).slice(0, 12).join(", ")}})`;
+				}
+				return `${k} (array${min})`;
+			}
 			return `${k} (${p.type ?? "any"})`;
 		});
 		const spec = parts.join(", ");
