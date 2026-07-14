@@ -88,6 +88,44 @@ describe("runAgentWaypoint", () => {
 	});
 });
 
+describe("clean-to-schema wiring (produceAndValidate)", () => {
+	test("dirty LLM output with extra fields is cleaned before validation → passes in one call", async () => {
+		// A strict schema: object with one declared property, additionalProperties:false.
+		const schema = {
+			type: "object",
+			additionalProperties: false,
+			properties: { status: { type: "string" } },
+			required: ["status"],
+		};
+		// completionFn returns a DIRTY object (stray field) that would fail additionalProperties:false.
+		const { completionFn, calls } = makeCompletion([JSON.stringify({ status: "approved", stray: "drop me" })]);
+		// validateFn is a strict validator: any key not 'status' → invalid (mirrors ajv additionalProperties:false).
+		const validateFn: WaypointDeps["validateFn"] = async (_a, data) => {
+			const keys = Object.keys(data as object);
+			return keys.every((k) => k === "status") && typeof (data as Record<string, unknown>).status === "string"
+				? { valid: true }
+				: { valid: false, errors: "additional properties not allowed" };
+		};
+		const artifact = await runCompletionWaypoint(
+			"proposal",
+			{ topic: "x" },
+			{ completionFn, validateFn, schemaFor: () => schema },
+			1,
+		);
+		expect(artifact).toEqual({ status: "approved" }); // stray stripped by the safety net
+		expect(calls).toHaveLength(1); // no retry needed — clean fixed it on the first parse
+	});
+
+	test("without schemaFor, dirty output is NOT cleaned → validateFn sees it raw → exhausts (opt-in)", async () => {
+		const { completionFn } = makeCompletion([JSON.stringify({ status: "approved", stray: "drop me" })]);
+		const validateFn: WaypointDeps["validateFn"] = async (_a, data) =>
+			Object.keys(data as object).every((k) => k === "status") ? { valid: true } : { valid: false, errors: "extra" };
+		await expect(
+			runCompletionWaypoint("proposal", { topic: "x" }, { completionFn, validateFn }, 1),
+		).rejects.toBeInstanceOf(WaypointExhaustedError);
+	});
+});
+
 describe("pickProducer", () => {
 	test("maps each stage to its producer type", () => {
 		expect(pickProducer("research")).toBe("agent");

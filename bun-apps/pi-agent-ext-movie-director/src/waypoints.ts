@@ -12,6 +12,7 @@
  * real provider call, the bounded-agent runner (reusing commands.ts), and the
  * existing `dispatch("validate-artifact")`.
  */
+import { cleanToSchema } from "./clean-to-schema.ts";
 
 /** The artifact-schema name each creative stage produces. */
 const SCHEMA_FOR: Record<string, string> = {
@@ -31,6 +32,9 @@ export interface WaypointDeps {
 	validateFn?: (artifact: string, data: unknown) => Promise<{ valid: boolean; errors?: string }>;
 	/** Concise required-structure spec for an artifact (loaded from the bundled schema). */
 	schemaSpec?: (artifact: string) => string | undefined;
+	/** Parsed bundled schema for an artifact → drives the clean-to-schema safety net
+	 * (strip unknowns + light coercion) before validation. Omit to skip cleaning. */
+	schemaFor?: (artifact: string) => Record<string, unknown> | undefined;
 }
 
 /** Thrown when a waypoint cannot produce a schema-valid artifact within its bound. */
@@ -81,7 +85,9 @@ async function produceAndValidate(
 ): Promise<Record<string, unknown>> {
 	const validate = deps.validateFn ?? (async () => ({ valid: true }));
 	let feedback: string | undefined;
-	const spec = deps.schemaSpec?.(schemaNameFor(stage));
+	const name = schemaNameFor(stage);
+	const spec = deps.schemaSpec?.(name);
+	const schemaObj = deps.schemaFor?.(name);
 	for (let attempt = 1; attempt <= maxRetries; attempt++) {
 		const { system, user } = buildPrompt(stage, inputs, { feedback, schemaSpec: spec });
 		const raw = await produceFn(system, user);
@@ -92,10 +98,14 @@ async function produceAndValidate(
 			feedback = "Previous output was not valid JSON. Return ONLY a JSON object.";
 			continue;
 		}
-		const res = await validate(schemaNameFor(stage), parsed);
+		// Safety net: deterministically shape the parsed output to the schema
+		// (strip unknowns where additionalProperties:false + light coercion)
+		// BEFORE validation, so stray fields the model can't see don't waste a
+		// retry. No-op when schemaFor is absent (the parsed object is untouched).
+		if (schemaObj) parsed = cleanToSchema(schemaObj, parsed);
+		const res = await validate(name, parsed);
 		if (res.valid) return parsed as Record<string, unknown>;
-		feedback = `Previous attempt failed validation: ${res.errors ?? "invalid"}. Fix these errors and return valid JSON.`;
-	}
+		feedback = `Previous attempt failed validation: ${res.errors ?? "invalid"}. Fix these errors and return valid JSON.`;	}
 	throw new WaypointExhaustedError(`${stage} waypoint exhausted ${maxRetries} retries`);
 }
 

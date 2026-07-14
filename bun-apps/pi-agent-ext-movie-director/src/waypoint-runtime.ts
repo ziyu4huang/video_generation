@@ -24,6 +24,22 @@ function schemaPath(artifact: string): string {
 }
 
 const schemaSpecCache = new Map<string, string | undefined>();
+const schemaObjectCache = new Map<string, Record<string, unknown> | undefined>();
+/** The parsed bundled JSON schema for an artifact (for clean-to-schema). Cached. */
+function readSchemaObject(artifact: string): Record<string, unknown> | undefined {
+	if (schemaObjectCache.has(artifact)) return schemaObjectCache.get(artifact);
+	const path = schemaPath(artifact);
+	let obj: Record<string, unknown> | undefined;
+	if (existsSync(path)) {
+		try {
+			obj = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+		} catch {
+			obj = undefined;
+		}
+	}
+	schemaObjectCache.set(artifact, obj);
+	return obj;
+}
 /** Concise required-structure spec for an artifact, read from its bundled JSON schema. */
 function readSchemaSpec(artifact: string): string | undefined {
 	if (schemaSpecCache.has(artifact)) return schemaSpecCache.get(artifact);
@@ -181,5 +197,6 @@ export function makeRealWaypointDeps(opts: RealWaypointOptions = {}): WaypointDe
 		agentFn: (system, user, aOpts) => runSession({ system, user, model: aOpts.model ?? opts.model, toolset: aOpts.toolset }),
 		validateFn: opts.validateFn,
 		schemaSpec: readSchemaSpec,
+		schemaFor: readSchemaObject,
 	};
 }
