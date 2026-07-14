@@ -482,6 +482,40 @@ async function main(): Promise<void> {
     return;
   }
 
+  // `help [target]` / `-h [target]` / `--help [target]` → show help for the
+  // target (or root help), and NEVER dispatch. A leading help token is consumed
+  // by parsePiArgs as the --help boolean flag, so without this guard the NEXT
+  // positional dispatches as a command. COMMANDS/PIPELINES/WORKFLOWS happened to
+  // print help (runAgentCommand checks parsed.help), but META commands
+  // (version/list/list-tools/completions) have explicit `if (first === "X")`
+  // branches that don't check the help flag → they EXECUTED instead of helping.
+  // Documented contract: `help [command]  Show help (root, or a command's
+  // details)`. (Known limit: `--model x help list` — help mid-argv — still
+  // dispatches; that form is undocumented and rare.)
+  if (isHelp(stripped[0])) {
+    const helpProbe = parsePiArgs(stripped);
+    const target = helpProbe.positionals[0];
+    const cmd = target
+      ? (findIn(COMMANDS, target) ?? findIn(PIPELINES, target) ?? findIn(WORKFLOWS, target))
+      : undefined;
+    if (cmd) {
+      console.log(cmd.details);
+    } else if (target === "pipeline") {
+      const pname = helpProbe.positionals[1];
+      const pcmd = pname ? findIn(PIPELINES, pname) : undefined;
+      if (pcmd) console.log(pcmd.details);
+      else console.log("Pipelines:\n" + PIPELINES.map((c) => `  ${c.name}`).join("\n"));
+    } else if (target === "workflow") {
+      const wname = helpProbe.positionals[1];
+      const wcmd = wname ? findIn(WORKFLOWS, wname) : undefined;
+      if (wcmd) console.log(wcmd.details);
+      else console.log("Workflow sub-commands:\n" + WORKFLOWS.map((c) => `  ${c.name}`).join("\n"));
+    } else {
+      printRootHelp();
+    }
+    return;
+  }
+
   // Detect the sub-command as the first POSITIONAL token, so global flags may
   // precede it — e.g. `--model X vlm-describe file.pdf`. Without this, a leading
   // `--model` made stripped[0] a flag, so dispatch fell through to passthrough
@@ -500,31 +534,6 @@ async function main(): Promise<void> {
 
     if (first === "version") {
       console.log(`bun-pi-agent-cli ${VERSION}`);
-      return;
-    }
-
-    if (first === "help") {
-      const target = probe.positionals[1];
-      const cmd = target
-        ? (findIn(COMMANDS, target) ?? findIn(PIPELINES, target) ?? findIn(WORKFLOWS, target))
-        : undefined;
-      if (target && target !== "pipeline" && target !== "workflow" && cmd) {
-        console.log(cmd.details);
-      } else if (target === "pipeline") {
-        // `help pipeline <name>`
-        const pname = probe.positionals[2];
-        const pcmd = pname ? findIn(PIPELINES, pname) : undefined;
-        if (pcmd) console.log(pcmd.details);
-        else console.log("Pipelines:\n" + PIPELINES.map((c) => `  ${c.name}`).join("\n"));
-      } else if (target === "workflow") {
-        // `help workflow <sub>`
-        const wname = probe.positionals[2];
-        const wcmd = wname ? findIn(WORKFLOWS, wname) : undefined;
-        if (wcmd) console.log(wcmd.details);
-        else console.log("Workflow sub-commands:\n" + WORKFLOWS.map((c) => `  ${c.name}`).join("\n"));
-      } else {
-        printRootHelp();
-      }
       return;
     }
 
