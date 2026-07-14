@@ -382,7 +382,11 @@ export function parsePiArgs(
 			const d = take("--dpi");
 			if (d !== undefined) {
 				const n = Number(d);
-				if (!Number.isFinite(n) || n <= 0 || n > 4096) {
+				// enforce INTEGER too: the comment + error message both say "positive
+				// integer", but a range-only guard let fractional values (e.g. 1.5) slip
+				// through to rasterization (`-density`), which is nonsensical. Caught by
+				// the offline e2e arg-validation suite.
+				if (!Number.isFinite(n) || n <= 0 || n > 4096 || !Number.isInteger(n)) {
 					throw new Error(
 						`Invalid --dpi "${d}" — use a positive integer between 1 and 4096 (e.g. 150).`,
 					);
