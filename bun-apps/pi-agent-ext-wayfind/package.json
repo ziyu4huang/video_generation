@@ -1,0 +1,68 @@
+{
+  "name": "@repo/pi-agent-ext-wayfind",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pi-native port of Matt Pocock's decision-chain skill suite — grilling (relentless one-question-at-a-time interview), grill-me-with-docs (grilling + domain-modeling: writes CONTEXT.md glossary + ADRs inline), domain-modeling, wayfinder (chart a huge effort as a local-markdown map of decision tickets), to-spec, and to-tickets. Ships as a Layer-3 Pi extension: CSO-compliant skills + slash commands that kick off grilling/wayfinding sessions. Coordinates with pi-agent-ext-planning-with-files via the globalThis.__piWayfindActive seam (mirror of the goal<->planning pattern) and hands off resolved decisions -> a task_plan.md seed. Pure TypeScript, no Python, no shell scripts.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "extensions/",
+    "src/",
+    "skills/",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "npm run check && npm run build && npm run test:unit",
+    "test:unit": "bun test",
+    "check": "biome check .",
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "build": "bunx tsc",
+    "dev": "tsx src/index.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "wayfinder",
+    "grilling",
+    "domain-modeling",
+    "decision-making",
+    "planning",
+    "agent",
+    "ai-agent",
+    "llm",
+    "matt-pocock"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.16",
+    "@earendil-works/pi-coding-agent": "0.80.7",
+    "@types/bun": "^1.3.14",
+    "tsx": "latest",
+    "typescript": "latest"
+  }
+}
