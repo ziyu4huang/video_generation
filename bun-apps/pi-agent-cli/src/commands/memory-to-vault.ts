@@ -10,7 +10,7 @@
  * extension's *executable* tools via a stub-`pi` harness and injects them as
  * `WorkflowAgent({ extensionTools })`. Agents call `obsidian({action:"distill"})`.
  */
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { resolve, isAbsolute, join, relative, basename } from "node:path";
 import { homedir } from "node:os";
 import type { ParsedArgs } from "../args.ts";
@@ -79,6 +79,22 @@ export function shouldDistill(doc: MemoryPipelineDoc, force: boolean): string[] 
 	const perFile = doc.stages["fan-out"]?.perFile ?? [];
 	const done = new Set(perFile.filter((f) => f.status === "done").map((f) => f.path));
 	return doc.scope.files.map((f) => f.path).filter((p) => force || !done.has(p));
+}
+
+/**
+ * Find the newest existing run dir under <outRoot> that has a pipeline.json, so
+ * a re-run with the same --out resumes (skips files already done). The dir name
+ * embeds a YYYYMMDD-HHMMSS timestamp, so lexical sort = chronological.
+ */
+export function findExistingRun(outRoot: string): string | null {
+	if (!existsSync(outRoot)) return null;
+	const candidates = readdirSync(outRoot)
+		.filter((e) => e.startsWith("memory-to-vault-"))
+		.filter((e) => statSync(join(outRoot, e)).isDirectory())
+		.filter((e) => existsSync(join(outRoot, e, "pipeline.json")))
+		.sort();
+	if (candidates.length === 0) return null;
+	return resolve(outRoot, candidates[candidates.length - 1]!);
 }
 
 // ─── helpers ───────────────────────────────────────────────────────────────
@@ -189,20 +205,27 @@ Examples:
 			return;
 		}
 
-		// 2. RUN DIR + VAULT + pipeline.json
+		// 2. RUN DIR + VAULT + pipeline.json (resume: reuse an existing run dir)
 		const outRoot = resolve(cwd, parsed.out ?? "tmp");
-		const runDir = resolve(outRoot, `memory-to-vault-${timestamp()}`);
+		const existing = dryRun ? null : findExistingRun(outRoot);
+		const runDir = existing ?? resolve(outRoot, `memory-to-vault-${timestamp()}`);
+		const isResume = !!existing;
 		if (!dryRun) mkdirSync(runDir, { recursive: true });
 		const pipelinePath = join(runDir, "pipeline.json");
 		const vaultPath = resolveVaultPath(parsed, cwd);
 		process.env.OB_VAULT_PATH = vaultPath;
 
-		const doc: MemoryPipelineDoc = {
+		// Load the existing doc on resume (keeps perFile states → shouldDistill skips
+		// done files); refresh options + scope in case flags changed.
+		let doc: MemoryPipelineDoc = readPipelineDoc(pipelinePath) ?? {
 			schemaVersion: 1, createdAt: iso(), updatedAt: iso(), status: "running",
 			options: { concurrency, retries, folder, threshold, model: parsed.model },
 			scope: { files: scope.files, fileCount: scope.files.length, excluded: scope.excluded },
 			stages: { "fan-out": { status: "pending" }, hygiene: { status: "pending" } },
 		};
+		doc.options = { concurrency, retries, folder, threshold, model: parsed.model };
+		doc.scope = { files: scope.files, fileCount: scope.files.length, excluded: scope.excluded };
+		doc.status = "running";
 
 		// 3. --dry-run: plan only.
 		if (dryRun) {
@@ -218,7 +241,7 @@ Examples:
 
 		console.error(`memory-to-vault  (run: ${relative(cwd, runDir) || runDir})`);
 		console.error(`  files: ${scope.files.length} (+${scope.excluded} excluded)  vault: ${vaultPath}`);
-		console.error(`  concurrency: ${concurrency}  retries: ${retries}  folder: ${folder}`);
+		console.error(`  concurrency: ${concurrency}  retries: ${retries}  folder: ${folder}${isResume ? "  (resuming)" : ""}`);
 
 		// 4. STAGE A — fan-out via runWorkflow (in-process) + capture-harness agent.
 		const toDistill = shouldDistill(doc, force);
