@@ -10,6 +10,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MemoryStore } from "../store/memory-store.js";
+import { readGrillActive } from "../grill-seam.js";
 import { DatabaseManager } from "../store/db.js";
 import {
   formatFailureMemoryContent,
@@ -148,6 +149,11 @@ export function setupCorrectionDetector(
 
   // Trigger on turn_end (we need full context: user correction + what agent said)
   pi.on("turn_end", async (event, ctx) => {
+    // Yield to grill_decision during an active grill: the grill tool is the
+    // sole writer for grill-time corrections (richer context, gated writes),
+    // so the generic detector must not double-capture. Grill-only seam (the
+    // process-global boolean conflates grill + wayfinder, but scope is grills).
+    if (readGrillActive(ctx.sessionManager?.getSessionId?.())) return;
     if (!pendingCorrection) {
       turnsSinceLastCorrection++;
       return;
