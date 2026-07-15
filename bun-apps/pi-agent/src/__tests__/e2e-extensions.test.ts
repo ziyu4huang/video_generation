@@ -282,7 +282,7 @@ async function deployPkg(extraFlags: string[]): Promise<{
 	// keeps rmSync cleanup working. The freeze is covered by e2e-readonly.test.ts.
 	// --verify: boot the deployed artifact from /tmp and probe getAllTools() at
 	// DEPLOY time — asserts toolCount > 0, zero dupes, and all canary tools
-	// (vlm_describe, web_search, flux2, obsidian, memory, ltx, krea2)
+	// (file2md, web_search, flux2, obsidian, memory, ltx, krea2)
 	// are present. Catches broken bundles + tool-registration failures BEFORE
 	// the per-mode runtime probes run. Adds ~3-5s per deploy (offline, no model).
 	const deploy = Bun.spawn(

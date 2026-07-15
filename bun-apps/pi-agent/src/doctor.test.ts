@@ -98,7 +98,7 @@ describe("checkExtensions (mode-aware)", () => {
 		expect(checkExtensions(ctx({ mode: "release", listDir: () => [] })).status).toBe("fail");
 	});
 	test("release → PASS when packages/ non-empty", () => {
-		expect(checkExtensions(ctx({ mode: "release", listDir: () => ["pi-vlm", "zai-mcp"] })).status).toBe("pass");
+		expect(checkExtensions(ctx({ mode: "release", listDir: () => ["pi-file2md", "zai-mcp"] })).status).toBe("pass");
 	});
 	test("only counts .js (ignores stray non-js files in ext-bundles)", () => {
 		const want = manifest.extensions?.length ?? 0;
@@ -207,7 +207,7 @@ describe("planFixes (pure)", () => {
 
 	test("release + host-deps WARN → plans the fix", () => {
 		// release host-deps is WARN (not fail) when unresolvable — still fixable.
-		const c = ctx({ mode: "release", depInstalled: () => false, listDir: () => ["pi-vlm", "zai-mcp"] });
+		const c = ctx({ mode: "release", depInstalled: () => false, listDir: () => ["pi-file2md", "zai-mcp"] });
 		const plan = planFixes(reportFor(c), c);
 		expect(plan).toHaveLength(1);
 		expect(plan[0]!.reason).toContain("release");

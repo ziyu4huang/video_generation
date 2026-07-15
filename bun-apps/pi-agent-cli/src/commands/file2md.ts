@@ -1,21 +1,21 @@
 /**
- * `vlm-describe <inputs...>` — CLI wrapper.
+ * `file2md <inputs...>` — CLI wrapper.
  *
- * Delegates the full pipeline to the pi-vlm workspace package. The CLI is
+ * Delegates the full pipeline to the pi-file2md workspace package. The CLI is
  * responsible only for arg parsing and vault env setup; all VLM pipeline logic
- * lives in bun-apps/pi-vlm/src/pipeline.ts.
+ * lives in bun-apps/pi-agent-ext-file2md/src/pipeline.ts.
  */
 import { resolve, isAbsolute } from "node:path";
 import type { ParsedArgs } from "../args.ts";
 import { applyVaultEnv } from "../sessions/passthrough.ts";
-import { runVlmDescribePipeline, DEFAULT_VLM_MODEL } from "@repo/pi-agent-ext-vlm";
-import type { DocProfile } from "@repo/pi-agent-ext-vlm";
+import { runVlmDescribePipeline, DEFAULT_VLM_MODEL } from "@repo/pi-agent-ext-file2md";
+import type { DocProfile } from "@repo/pi-agent-ext-file2md";
 
-export const vlmDescribeCommand = {
-	name: "vlm-describe",
+export const file2mdCommand = {
+	name: "file2md",
 	summary: "explain images / PDF pages into Obsidian markdown via a local VLM",
 	details: `Usage:
-  bun-pi-agent-cli vlm-describe <files...> [options]
+  bun-pi-agent-cli file2md <files...> [options]
 
 Inputs:
   One or more PDF or image files (png/jpg/webp/gif/bmp). Each input maps to
@@ -43,16 +43,16 @@ Options:
   --vault-dir <name>   vault folder name under cwd (default: vault)
 
 Examples:
-  bun-pi-agent-cli vlm-describe paper.pdf
-  bun-pi-agent-cli vlm-describe paper.pdf --dpi 200 --pages 1-4
-  bun-pi-agent-cli vlm-describe scan.jpg --type image
-  bun-pi-agent-cli vlm-describe *.pdf --out ./notes --model ${DEFAULT_VLM_MODEL}`,
+  bun-pi-agent-cli file2md paper.pdf
+  bun-pi-agent-cli file2md paper.pdf --dpi 200 --pages 1-4
+  bun-pi-agent-cli file2md scan.jpg --type image
+  bun-pi-agent-cli file2md *.pdf --out ./notes --model ${DEFAULT_VLM_MODEL}`,
 
 	async run(parsed: ParsedArgs): Promise<void> {
 		const cwd = process.cwd();
 		const inputs = parsed.positionals;
 		if (inputs.length === 0) {
-			throw new Error("No input files given. Usage: vlm-describe <files...>");
+			throw new Error("No input files given. Usage: file2md <files...>");
 		}
 
 		applyVaultEnv(parsed);

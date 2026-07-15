@@ -172,8 +172,8 @@ smokeTasks.push(() => agent(`You are a SMOKE check ("offline-meta"). Run the BUI
 
 Run and verify each prints sensible content:
 1. \`bun "${B}" version\` -> prints "bun-pi-agent-cli 0.1.0"
-2. \`bun "${B}" help\` -> lists vlm-describe, zk-extract, pipeline pdf-to-vault
-3. \`bun "${B}" help vlm-describe\` -> shows usage + flags (--dpi, --type, --pages, --model)
+2. \`bun "${B}" help\` -> lists file2md, zk-extract, pipeline pdf-to-vault
+3. \`bun "${B}" help file2md\` -> shows usage + flags (--dpi, --type, --pages, --model)
 4. \`bun "${B}" help pipeline pdf-to-vault\` -> shows --vlm-model, --model, --retries, --force-distill
 5. \`bun "${B}" list\` -> lists models (Total: N)
 
@@ -279,22 +279,22 @@ const robustTasks = [
   () => agent(`You are a ROBUSTNESS ("attack") check ("bad-input-missing"). Verify the CLI FAILS GRACEFULLY on a missing input — non-zero exit, a clean human message, and NO uncaught-exception stack trace (no lines starting with "    at ").
 
 Run via the BUILT bundle:
-\`bun "${B}" vlm-describe "${RESOLVED.runDir}/does-not-exist.pdf" --out "${RESOLVED.runDir}/robust/missing" 2>&1; echo "EXIT=$?"\`
+\`bun "${B}" file2md "${RESOLVED.runDir}/does-not-exist.pdf" --out "${RESOLVED.runDir}/robust/missing" 2>&1; echo "EXIT=$?"\`
 graceful = exit != 0 AND output mentions "not found"/"Input not found" AND output has NO stack-trace line (no line matching /^\\s+at /).
 Return StructuredOutput EXACTLY: name="bad-input-missing", graceful (bool), summary, evidence (the error line + exit code + stack-trace? yes/no).`, { schema: ROBUST_SCHEMA, phase: 'Robust', label: 'robust:bad-input-missing' }),
   () => agent(`You are a ROBUSTNESS check ("bad-input-wrongtype"). Verify graceful failure on an unsupported file type.
 Create a plain text file: \`printf 'hello' > "${RESOLVED.runDir}/robust/notpdf.txt"\`
-Run: \`bun "${B}" vlm-describe "${RESOLVED.runDir}/robust/notpdf.txt" --out "${RESOLVED.runDir}/robust/wt" 2>&1; echo "EXIT=$?"\`
+Run: \`bun "${B}" file2md "${RESOLVED.runDir}/robust/notpdf.txt" --out "${RESOLVED.runDir}/robust/wt" 2>&1; echo "EXIT=$?"\`
 graceful = exit != 0 AND mentions "Unsupported input" AND no stack trace.
 Return StructuredOutput EXACTLY: name="bad-input-wrongtype", graceful, summary, evidence.`, { schema: ROBUST_SCHEMA, phase: 'Robust', label: 'robust:bad-input-wrongtype' }),
   () => agent(`You are a ROBUSTNESS check ("page-spec-invalid"). Verify an invalid --pages spec is REJECTED (not silently skipped, which would produce zero pages).
 Make a tiny 1-page PNG via Bun (base64-encoded 1x1 white PNG): \`bun -e "Bun.write('${RESOLVED.runDir}/robust/tiny.png',Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==','base64'))"\`
-Run with a FORCED profile (skips the classifier VLM call): \`bun "${B}" vlm-describe "${RESOLVED.runDir}/robust/tiny.png" --type image --out "${RESOLVED.runDir}/robust/pagespec" --pages abc 2>&1; echo "EXIT=$?"\`
+Run with a FORCED profile (skips the classifier VLM call): \`bun "${B}" file2md "${RESOLVED.runDir}/robust/tiny.png" --type image --out "${RESOLVED.runDir}/robust/pagespec" --pages abc 2>&1; echo "EXIT=$?"\`
 Then repeat with \`--pages 5-2\` (reversed range).
 graceful = BOTH exit != 0 AND mention "matched no pages" AND no stack trace.
 Return StructuredOutput EXACTLY: name="page-spec-invalid", graceful, summary, evidence (both specs).`, { schema: ROBUST_SCHEMA, phase: 'Robust', label: 'robust:page-spec-invalid' }),
   () => agent(`You are a ROBUSTNESS check ("bad-type-flag"). Verify an invalid --type profile is rejected FAST (before rasterizing).
-Run: \`bun "${B}" vlm-describe "${RESOLVED.fixturePdfPath}" --type notaprofile --out "${RESOLVED.runDir}/robust/badtype" 2>&1; echo "EXIT=$?"\`
+Run: \`bun "${B}" file2md "${RESOLVED.fixturePdfPath}" --type notaprofile --out "${RESOLVED.runDir}/robust/badtype" 2>&1; echo "EXIT=$?"\`
 graceful = exit != 0 AND mentions "Invalid --type" AND no stack trace.
 Return StructuredOutput EXACTLY: name="bad-type-flag", graceful, summary, evidence.`, { schema: ROBUST_SCHEMA, phase: 'Robust', label: 'robust:bad-type-flag' }),
   () => agent(`You are a ROBUSTNESS check ("unknown-pipeline"). Verify unknown/missing pipeline names are rejected.
@@ -320,21 +320,21 @@ Return StructuredOutput EXACTLY: name="slug-traversal-safety", graceful, summary
   () => agent(`You are a ROBUSTNESS check ("dpi-invalid"). Verify an invalid --dpi value is REJECTED up front (a bad DPI used to silently fall back to 150 or produce a broken render with an opaque per-page error and a misleading exit 0).
 
 Run each via the BUILT bundle and capture exit + first error line:
-1. \`bun "${B}" vlm-describe "${RESOLVED.fixturePdfPath}" --dpi abc --pages 1 --out "${RESOLVED.runDir}/robust/dpi-abc" 2>&1; echo "EXIT=$?"\`
-2. \`bun "${B}" vlm-describe "${RESOLVED.fixturePdfPath}" --dpi -1 --pages 1 --out "${RESOLVED.runDir}/robust/dpi-neg" 2>&1; echo "EXIT=$?"\`
-3. \`bun "${B}" vlm-describe "${RESOLVED.fixturePdfPath}" --dpi 0 --pages 1 --out "${RESOLVED.runDir}/robust/dpi-zero" 2>&1; echo "EXIT=$?"\`
-4. \`bun "${B}" vlm-describe "${RESOLVED.fixturePdfPath}" --dpi 99999 --pages 1 --out "${RESOLVED.runDir}/robust/dpi-huge" 2>&1; echo "EXIT=$?"\`
+1. \`bun "${B}" file2md "${RESOLVED.fixturePdfPath}" --dpi abc --pages 1 --out "${RESOLVED.runDir}/robust/dpi-abc" 2>&1; echo "EXIT=$?"\`
+2. \`bun "${B}" file2md "${RESOLVED.fixturePdfPath}" --dpi -1 --pages 1 --out "${RESOLVED.runDir}/robust/dpi-neg" 2>&1; echo "EXIT=$?"\`
+3. \`bun "${B}" file2md "${RESOLVED.fixturePdfPath}" --dpi 0 --pages 1 --out "${RESOLVED.runDir}/robust/dpi-zero" 2>&1; echo "EXIT=$?"\`
+4. \`bun "${B}" file2md "${RESOLVED.fixturePdfPath}" --dpi 99999 --pages 1 --out "${RESOLVED.runDir}/robust/dpi-huge" 2>&1; echo "EXIT=$?"\`
 graceful = ALL FOUR exit != 0 AND each prints "Invalid --dpi" AND NONE prints a stack-trace line (no line matching /^\\s+at /). Also confirm rejection happens BEFORE any rasterization/VLM work (no "explaining…" or "[N/M] done" lines).
 Return StructuredOutput EXACTLY: name="dpi-invalid", graceful, summary, evidence (the 4 error lines + exit codes).`, { schema: ROBUST_SCHEMA, phase: 'Robust', label: 'robust:dpi-invalid' }),
-  () => agent(`You are a ROBUSTNESS check ("directory-input"). Verify vlm-describe FAILS GRACEFULLY when given a DIRECTORY (not a file).
-\`mkdir -p "${RESOLVED.runDir}/robust/adir"; bun "${B}" vlm-describe "${RESOLVED.runDir}/robust/adir" --out "${RESOLVED.runDir}/robust/dirout" 2>&1; echo "EXIT=$?"\`
+  () => agent(`You are a ROBUSTNESS check ("directory-input"). Verify file2md FAILS GRACEFULLY when given a DIRECTORY (not a file).
+\`mkdir -p "${RESOLVED.runDir}/robust/adir"; bun "${B}" file2md "${RESOLVED.runDir}/robust/adir" --out "${RESOLVED.runDir}/robust/dirout" 2>&1; echo "EXIT=$?"\`
 graceful = exit != 0 AND mentions "not a regular file"/"not a file"/"Is a directory" AND no stack trace.
 Return StructuredOutput EXACTLY: name="directory-input", graceful, summary, evidence (error line + exit code).`, { schema: ROBUST_SCHEMA, phase: 'Robust', label: 'robust:directory-input' }),
-  () => agent(`You are a ROBUSTNESS check ("corrupt-pdf"). Verify vlm-describe FAILS GRACEFULLY on a corrupt/empty PDF (the rasterizer rejects it, not an uncaught exception).
+  () => agent(`You are a ROBUSTNESS check ("corrupt-pdf"). Verify file2md FAILS GRACEFULLY on a corrupt/empty PDF (the rasterizer rejects it, not an uncaught exception).
 Create two fakes:
 - empty: \`> "${RESOLVED.runDir}/robust/empty.pdf"\`  (0 bytes)
 - bogus magic: \`printf 'PK\\x03\\x04 not a real pdf' > "${RESOLVED.runDir}/robust/bogus.pdf"\`
-Run each: \`bun "${B}" vlm-describe "<path>" --out "${RESOLVED.runDir}/robust/cpdf" 2>&1; echo "EXIT=$?"\`
+Run each: \`bun "${B}" file2md "<path>" --out "${RESOLVED.runDir}/robust/cpdf" 2>&1; echo "EXIT=$?"\`
 graceful = BOTH exit != 0 AND each prints a clean error mentioning "pdf2png failed"/"cannot open"/"PDF" AND NEITHER prints a stack-trace line (no line matching /^\\s+at /).
 Return StructuredOutput EXACTLY: name="corrupt-pdf", graceful, summary, evidence (both error lines + exit codes).`, { schema: ROBUST_SCHEMA, phase: 'Robust', label: 'robust:corrupt-pdf' }),
 ]
@@ -424,7 +424,7 @@ Assess: atomic notes created from the paper markdown, each with frontmatter (id/
 Return StructuredOutput EXACTLY: aspect="stage2-distill", ok (score>=3 AND >=1 note with frontmatter+link), score, findings (2-4 bullets).`, { schema: REGQUAL_SCHEMA, phase: 'Regression', label: 'regression:stage2-quality' }),
       () => agent(`You are a REGRESSION verifier ("coord-resume"). Verify pipeline coordination + resume.
 
-1. Read ${R}/pipeline.json. Confirm: status "done"; stages.vlm-describe.status "done"; stages.distill.status "done"; options captured (vlmModel, retries, pages). Report any inconsistency.
+1. Read ${R}/pipeline.json. Confirm: status "done"; stages.file2md.status "done"; stages.distill.status "done"; options captured (vlmModel, retries, pages). Report any inconsistency.
 2. RESUME test: re-run the exact same command to confirm idempotent resume:
    \`bun "${B}" pipeline pdf-to-vault "${RESOLVED.fixturePdfPath}" --out "${RESOLVED.runDir}/regression" --pages ${RESOLVED.regPages} --vlm-model "${RESOLVED.vlmModel}" --model "${RESOLVED.distillModel}"\`
    Expect: "(resuming existing run)", stage 1 skips already-done pages, stage 2 "skipped - already done". It should reuse the SAME run dir ${R} (no new dir created).

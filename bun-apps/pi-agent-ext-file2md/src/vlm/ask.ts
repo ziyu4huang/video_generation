@@ -2,10 +2,10 @@
  * ask.ts — generic single-turn "ask a question about ONE image" VLM subagent.
  *
  * Unlike classify-vlm.ts / agents.ts (Obsidian-page-extraction-specific), this
- * is a bare primitive: any pi-vlm consumer package can hand it an image path +
+ * is a bare primitive: any pi-file2md consumer package can hand it an image path +
  * a free-form question and get the model's reply text back, without writing
  * its own LM Studio client or session plumbing. Defaults to the same shared
- * VLM target as the rest of pi-vlm (lm-studio/google/gemma-4-26b-a4b-qat).
+ * VLM target as the rest of pi-file2md (lm-studio/google/gemma-4-26b-a4b-qat).
  */
 import { extname } from "node:path";
 import { readFileSync } from "node:fs";

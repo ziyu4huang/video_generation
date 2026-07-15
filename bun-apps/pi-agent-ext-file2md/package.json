@@ -1,10 +1,10 @@
 {
-  "name": "@repo/pi-agent-ext-vlm",
+  "name": "@repo/pi-agent-ext-file2md",
   "version": "0.1.0",
   "private": true,
-  "description": "VLM document describer for pi: PDF/image → Obsidian markdown via a local Vision Language Model (LM Studio).",
+  "description": "File→Markdown bridge for text-only agents: convert any PDF/image/doc to structured Markdown a pure-text agent can read, via a local vision-LLM subagent (LM Studio).",
   "license": "MIT",
-  "keywords": ["pi-package", "vlm", "pdf", "obsidian", "lm-studio"],
+  "keywords": ["pi-package", "file-to-markdown", "vision-llm", "vlm", "pdf", "obsidian", "lm-studio"],
   "type": "module",
   "main": "./src/index.ts",
   "exports": {

@@ -10,9 +10,9 @@
  * matches. This module is that workflow as a first-class, testable pipeline
  * instead of a bash script with hardcoded absolute paths.
  *
- * VLM verification reuses pi-vlm's shared subagent primitive (`askImage` +
+ * VLM verification reuses pi-file2md's shared subagent primitive (`askImage` +
  * `resolveLLM`, defaulting to lm-studio/google/gemma-4-26b-a4b-qat) — the same
- * subagent plumbing pi-vlm itself and bun-pi-agent-cli already use, so this is
+ * subagent plumbing pi-file2md itself and bun-pi-agent-cli already use, so this is
  * not a new LM Studio client, just a new caller of the existing one.
  *
  * Both the per-seed runner and the VLM asker are injectable so the

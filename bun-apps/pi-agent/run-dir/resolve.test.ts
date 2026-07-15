@@ -354,7 +354,7 @@ describe("buildBundleArgvFromLayout (DEPLOY-BUNDLE mode)", () => {
 	test("emits -e per ext-bundle + --skill per skill dir + -e per present npm path", () => {
 		const argv = buildBundleArgvFromLayout(
 			{
-				extBundles: ["obsidian.thin.js", "pi-vlm.thin.js"],
+				extBundles: ["obsidian.thin.js", "pi-file2md.thin.js"],
 				skillDirs: ["pi-obsidian-skills"],
 				npmPaths: ["/repo/node_modules/.bun/x/node_modules/rpiv/index.ts"],
 			},
@@ -364,7 +364,7 @@ describe("buildBundleArgvFromLayout (DEPLOY-BUNDLE mode)", () => {
 		);
 		expect(argv).toEqual([
 			"-e", join(SELF, "ext-bundles", "obsidian.thin.js"),
-			"-e", join(SELF, "ext-bundles", "pi-vlm.thin.js"),
+			"-e", join(SELF, "ext-bundles", "pi-file2md.thin.js"),
 			"-e", "/repo/node_modules/.bun/x/node_modules/rpiv/index.ts",
 			"--skill", join(SELF, "skills", "pi-obsidian-skills"),
 		]);

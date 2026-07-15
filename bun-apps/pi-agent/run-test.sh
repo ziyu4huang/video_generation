@@ -117,13 +117,13 @@ run_readonly() {
 	( cd "$SCRIPT_DIR" && bun test src/__tests__/e2e-readonly.test.ts ${EXTRA[@]+"${EXTRA[@]}"} )
 }
 
-# Sibling pi-* suites for the "full" stack-health check. pi-vlm's script wraps
+# Sibling pi-* suites for the "full" stack-health check. pi-agent-ext-file2md's script wraps
 # --isolate (bare `bun test` shows 12 mock-leak false failures); others run plain.
 run_pkg_unit() {
 	local pkg="$1"
 	local d="$SCRIPT_DIR/../$pkg"
 	[ -d "$d" ] || { echo "$(Y "· skip $pkg") (dir absent)" >&2; return 0; }
-	if [ "$pkg" = "pi-vlm" ]; then
+	if [ "$pkg" = "pi-agent-ext-file2md" ]; then
 		( cd "$d" && bun run test ${EXTRA[@]+"${EXTRA[@]}"} )
 	else
 		( cd "$d" && bun test ${EXTRA[@]+"${EXTRA[@]}"} )
@@ -175,7 +175,7 @@ case "$EFFORT" in
 		echo "$(Y "▶ read-only deploy contract")"
 		step "read-only deploy e2e" run_readonly
 		echo "$(Y "▶ sibling stack-health baseline")"
-		for pkg in pi-obsidian pi-knowledge-card pi-agent-cli pi-vlm; do
+		for pkg in pi-obsidian pi-knowledge-card pi-agent-cli pi-agent-ext-file2md; do
 			step "$pkg unit" run_pkg_unit "$pkg"
 		done
 		;;

@@ -2,7 +2,7 @@
   "name": "@repo/pi-agent-cli",
   "version": "0.1.0",
   "private": true,
-  "description": "Self-contained pi-agent CLI with pi-obsidian baked in. Agent commands (vlm-describe, distill, knowledge, rag, pipeline pdf-to-vault) + pi-compatible passthrough.",
+  "description": "Self-contained pi-agent CLI with pi-obsidian baked in. Agent commands (file2md, distill, knowledge, rag, pipeline pdf-to-vault) + pi-compatible passthrough.",
   "type": "module",
   "scripts": {
     "cli": "bun src/cli.ts",
@@ -35,7 +35,7 @@
     "@repo/pi-agent": "workspace:*",
     "@repo/pi-agent-ext-knowledge-card": "workspace:*",
     "@repo/pi-agent-ext-obsidian": "workspace:*",
-    "@repo/pi-agent-ext-vlm": "workspace:*",
+    "@repo/pi-agent-ext-file2md": "workspace:*",
     "@repo/pi-agent-ext-distill": "workspace:*",
     "typebox": "latest"
   },

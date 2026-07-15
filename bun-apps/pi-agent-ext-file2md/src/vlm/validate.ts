@@ -1,5 +1,5 @@
 /**
- * Output quality gate for vlm-describe page markdown.
+ * Output quality gate for file2md page markdown.
  *
  * `explainPage` returns whatever the VLM streamed (after the reactive
  * `normalizeEmbeds` / `normalizeFrontmatter` repair pass). But "non-empty" is

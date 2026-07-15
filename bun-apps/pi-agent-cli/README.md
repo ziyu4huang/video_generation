@@ -2,13 +2,13 @@
 
 A **self-contained** pi-agent CLI with extensions baked in as workspace deps.
 Drives pi-agent (via the SDK `@earendil-works/pi-coding-agent`) from TypeScript
-on Bun's native runtime. Ships **agent workflows** (`vlm-describe`, `zk-extract`,
+on Bun's native runtime. Ships **agent workflows** (`file2md`, `zk-extract`,
 `zk-ask`, `pipeline pdf-to-vault`) plus a **pi-compatible passthrough** so the
 binary can serve as its own sub-agent target.
 
 Each subcommand is one **single-turn agent run** — no interactive TUI, no
 persistent session loop. Extensions are imported directly into the process
-(`pi-obsidian`, `pi-vlm`, `pi-knowledge-card` as `workspace:*` deps), so
+(`pi-obsidian`, `pi-file2md`, `pi-knowledge-card` as `workspace:*` deps), so
 they are always active without a `.pi/settings.json` entry or `-e` flag.
 
 ## What makes it self-contained
@@ -59,7 +59,7 @@ machine steps: [`../pi-agent/docs/pi-cross-machine-setup.md`](../pi-agent/docs/p
 ### Agent commands (one CLI = one agent workflow)
 
 ```bash
-bun run --cwd bun-apps/pi-agent-cli cli vlm-describe <files...> [options]
+bun run --cwd bun-apps/pi-agent-cli cli file2md <files...> [options]
 bun run --cwd bun-apps/pi-agent-cli cli zk-extract <files.../folders...> [options]
 bun run --cwd bun-apps/pi-agent-cli cli zk-card <add|find|update|remove|check> [options]
 bun run --cwd bun-apps/pi-agent-cli cli zk-ask <question> [options]
@@ -95,7 +95,7 @@ bun run --cwd bun-apps/pi-agent-cli cli pipeline status|run|dry-run|lint   # kno
 Or invoke directly from repo root:
 
 ```bash
-bun bun-apps/pi-agent-cli/src/cli.ts vlm-describe paper.pdf
+bun bun-apps/pi-agent-cli/src/cli.ts file2md paper.pdf
 bun bun-apps/pi-agent-cli/src/cli.ts zk-ask "What is RAG?"
 ```
 
@@ -109,23 +109,23 @@ bun bun-apps/pi-agent-cli/src/cli.ts zk-extract notes.md
 bun bun-apps/pi-agent-cli/src/cli.ts zk-extract ./inbox/ --folder Zettelkasten --max-notes 20
 ```
 
-#### `vlm-describe` — PDF/image → Obsidian markdown
+#### `file2md` — PDF/image → Obsidian markdown
 
 Rasterizes each PDF page (macOS PDFKit) / accepts images, classifies a profile
 via a local VLM, then explains each page into per-page Obsidian markdown +
 `manifest.json` + a doc-level MOC.
 
 ```bash
-bun bun-apps/pi-agent-cli/src/cli.ts vlm-describe paper.pdf
-bun bun-apps/pi-agent-cli/src/cli.ts vlm-describe scan.jpg --type image
-bun bun-apps/pi-agent-cli/src/cli.ts vlm-describe paper.pdf --pages 1-3 --out ./vlm-out
+bun bun-apps/pi-agent-cli/src/cli.ts file2md paper.pdf
+bun bun-apps/pi-agent-cli/src/cli.ts file2md scan.jpg --type image
+bun bun-apps/pi-agent-cli/src/cli.ts file2md paper.pdf --pages 1-3 --out ./vlm-out
 ```
 
 Default model: `lm-studio/google/gemma-4-26b-a4b-qat` (local VLM via LM Studio).
 
 #### `pipeline pdf-to-vault` — PDF → markdown → Zettelkasten vault
 
-Two-stage orchestrator: `vlm-describe` then `zk-extract`. Writes a timestamped,
+Two-stage orchestrator: `file2md` then `zk-extract`. Writes a timestamped,
 resumable run dir with a `pipeline.json` coordination layer.
 
 ```bash
@@ -193,11 +193,11 @@ pi-agent-cli/
     ├── cli.ts                 # entry — dispatch subcommands + passthrough
     ├── args.ts                # pi-CLI-aligned argument parser
     ├── commands/
-    │   ├── vlm-describe.ts    # PDF/image → Obsidian markdown
+    │   ├── file2md.ts    # PDF/image → Obsidian markdown
     │   ├── zk-extract.ts      # markdown → Zettelkasten notes
     │   ├── zk-card.ts         # CRUD for Zettelkasten notes
     │   ├── zk-ask.ts          # graph-enhanced vault Q&A
-    │   └── pdf-to-vault.ts    # pipeline: vlm-describe → zk-extract (resumable)
+    │   └── pdf-to-vault.ts    # pipeline: file2md → zk-extract (resumable)
     ├── sessions/
     │   ├── shared.ts          # shared services + baked-in provider registry
     │   └── passthrough.ts     # pi-compatible agent runner (text + json modes)

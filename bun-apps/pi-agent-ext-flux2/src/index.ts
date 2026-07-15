@@ -245,7 +245,7 @@ async function runOnce(
  *
  * If `scenePipeline` is set (only meaningful for `command: "scene"`), renders
  * every seed in `scenePipeline.seeds`, gates + optionally VLM-verifies each
- * via pi-vlm's shared subagent, and returns the winner as `details.output`
+ * via pi-file2md's shared subagent, and returns the winner as `details.output`
  * (so existing chaining, e.g. scene → upscale, keeps working unchanged) plus
  * the full candidate breakdown under `details.scenePipeline`.
  */
@@ -269,7 +269,7 @@ export async function runFlux2(input: RunFlux2Input): Promise<RunFlux2Output> {
       {
         runSceneOnce: (opts) =>
           runOnce(input.command, opts, roots, extraArgs, input.signal, input.onProgress).then((r) => r.details),
-        // Lazy: only imports pi-vlm's session machinery / resolves the LLM
+        // Lazy: only imports pi-file2md's session machinery / resolves the LLM
         // target when a VLM verdict is actually requested. runScenePipeline
         // only ever calls this when verifyPrompt is set, so a pure gate-based
         // pipeline (no verifyPrompt) never pays for it — and never risks an

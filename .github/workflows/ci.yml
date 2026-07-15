@@ -49,7 +49,7 @@ jobs:
           - { package: pi-agent-ext-goal-todo, test-cmd: "bun test" }
           - { package: pi-agent-ext-web-access, test-cmd: "bun test" }
           - { package: pi-agent-ext-planning-with-files, test-cmd: "bun test" }
-          - { package: pi-agent-ext-vlm, test-cmd: "bun test" }
+          - { package: pi-agent-ext-file2md, test-cmd: "bun test" }
           # gui-movie-director: lint is pure static analysis (CI-safe); the
           # check-runtime suite probes run.py via the venv and skips under CI.
           - { package: gui-movie-director, test-cmd: "bun run test" }

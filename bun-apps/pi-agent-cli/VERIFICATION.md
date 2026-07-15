@@ -26,7 +26,7 @@ current `main`. Re-run the commands below to reproduce.
 | 3 | meta: `version` / `-v` / `help` / `help <cmd>` / `list` | — | ✓ |
 | 4 | passthrough (core agent loop) | zai/glm-5.2 | ✓ `PI-CLI-OK` |
 | 5 | `distill` (markdown → Zettelkasten) | zai/glm-5.2 | ✓ 5 notes + MOC, 14 wiki-links |
-| 6 | `vlm-describe` (image → Obsidian md) | lm-studio/gemma-4-26b | ✓ OCR+describe, 397 chars |
+| 6 | `file2md` (image → Obsidian md) | lm-studio/gemma-4-26b | ✓ OCR+describe, 397 chars |
 | 7 | `pipeline pdf-to-vault` (PDF → md → vault) | stage1 gemma / stage2 glm-5.2 | ✓ 1/1 page → 4 notes |
 | 8 | `pipeline pdf-to-vault` resume | — | ✓ skips done page + stage 2 |
 
@@ -41,7 +41,7 @@ current `main`. Re-run the commands below to reproduce.
   (VLM on page 1), per-page explain wrapped in `withRetry` (429/transient
   aware). gemma-4-26b correctly read a hand-rendered "Photosynthesis" image.
 - **Pipeline coordination** — timestamped+slug run dir, `pipeline.json` with
-  per-stage status (`vlm-describe` / `distill`), options captured for resume.
+  per-stage status (`file2md` / `distill`), options captured for resume.
 - **Resume** — re-run reuses the run dir: stage 1 skips pages already `done`,
   stage 2 skipped unless `--force-distill`.
 
@@ -61,8 +61,8 @@ bun src/cli.ts -p --no-session "Reply with: PI-CLI-OK"
 # live — distill (needs ZAI_API_KEY)
 bun src/cli.ts distill input.md --vault /tmp/v --folder Zettelkasten --max-notes 6
 
-# live — vlm-describe + pipeline (needs LM Studio on :1234)
-bun src/cli.ts vlm-describe page.png --out /tmp/vlm-out
+# live — file2md + pipeline (needs LM Studio on :1234)
+bun src/cli.ts file2md page.png --out /tmp/vlm-out
 bun src/cli.ts pipeline pdf-to-vault page.pdf --out /tmp/pipe-out --pages 1
 bun src/cli.ts pipeline pdf-to-vault page.pdf --out /tmp/pipe-out --pages 1   # resume
 ```
