@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { registerCommands } from "../src/commands.js";
 import { WAYFIND_ACTIVE_KEY } from "../src/constants.js";
 import { isWayfindActivePublished } from "../src/coordination.js";
+import { readMap, writeMap, writeTicket } from "../src/map.js";
 import { createRuntimeState, isGrillActive, type RuntimeState } from "../src/state.js";
 
 /** Minimal ExtensionAPI mock: captures registered commands into a Map and
@@ -155,5 +156,97 @@ describe("domain-modeling — direct kickoff", () => {
     expect(pi.sent.length).toBe(1);
     expect(pi.sent[0]).toContain("domain-modeling");
     expect(pi.sent[0]).toContain("CONTEXT.md");
+  });
+});
+
+// ─── /chain-sync + touchpoint auto-sync (ADR-0001 feedback handle) ──────────
+describe("chain-sync — close tickets whose phase completed", () => {
+  const PHASES_KEY = "__piPlanPhases";
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>)[PHASES_KEY];
+  });
+
+  function seedEffort(cwd: string, effort: string): void {
+    writeMap(cwd, {
+      effort,
+      destination: "demo",
+      notes: "",
+      decisions: [],
+      fog: [],
+      outOfScope: [],
+      tickets: [],
+    });
+    writeTicket(cwd, effort, {
+      id: "03",
+      slug: "foo",
+      title: "Foo",
+      question: "q",
+      type: "task",
+      blocking: [],
+      status: "open",
+    });
+  }
+  function ctxWithCapturedNotify(cwd: string): { ctx: any; notifications: string[] } {
+    const notifications: string[] = [];
+    return {
+      ctx: {
+        cwd,
+        sessionManager: { getSessionId: () => "test-session" },
+        ui: { notify: (m: string) => notifications.push(m), setStatus: () => {} },
+      },
+      notifications,
+    };
+  }
+
+  it("is registered", () => {
+    const { pi } = setup();
+    expect(pi.commands.has("chain-sync")).toBe(true);
+  });
+
+  it("closes the matching ticket and notifies the summary", async () => {
+    const { pi } = setup();
+    const cwd = makeCwd();
+    const effort = "demo";
+    seedEffort(cwd, effort);
+    (globalThis as Record<string, unknown>)[PHASES_KEY] = () => [
+      { id: "1", status: "complete", ticketIds: ["03-foo"] },
+    ];
+    const { ctx, notifications } = ctxWithCapturedNotify(cwd);
+
+    await pi.commands.get("chain-sync")?.(effort, ctx);
+
+    const map = readMap(cwd, effort);
+    expect(map?.tickets.find((t) => t.id === "03")?.status).toBe("closed");
+    expect(notifications.some((n) => n.includes("03-foo") || n.includes("Foo"))).toBe(true);
+  });
+
+  it("notifies a graceful no-op when pwf is absent (no ticket touched)", async () => {
+    const { pi } = setup();
+    const cwd = makeCwd();
+    const effort = "demo";
+    seedEffort(cwd, effort);
+    delete (globalThis as Record<string, unknown>)[PHASES_KEY];
+    const { ctx, notifications } = ctxWithCapturedNotify(cwd);
+
+    await pi.commands.get("chain-sync")?.(effort, ctx);
+
+    expect(readMap(cwd, effort)?.tickets.every((t) => t.status === "open")).toBe(true);
+    expect(notifications.some((n) => n.includes("nothing") || n.toLowerCase().includes("no "))).toBe(true);
+  });
+
+  it("/wayfinder-status auto-syncs before rendering (touchpoint closure)", async () => {
+    const { pi } = setup();
+    const cwd = makeCwd();
+    const effort = "demo";
+    seedEffort(cwd, effort);
+    (globalThis as Record<string, unknown>)[PHASES_KEY] = () => [
+      { id: "1", status: "complete", ticketIds: ["03-foo"] },
+    ];
+    const { ctx } = ctxWithCapturedNotify(cwd);
+
+    await pi.commands.get("wayfinder-status")?.(effort, ctx);
+
+    // The touchpoint auto-call closed the ticket before status was rendered.
+    expect(readMap(cwd, effort)?.tickets.find((t) => t.id === "03")?.status).toBe("closed");
   });
 });

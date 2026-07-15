@@ -12,6 +12,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { syncChainState } from "./chain.js";
 import { PKG_NAME } from "./constants.js";
 import { publishWayfindActive, unpublishWayfindActive } from "./coordination.js";
 import { buildGrillPriming, buildPlanSeed, parseGlossary } from "./grill.js";
@@ -133,6 +134,28 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
     },
   });
 
+  pi.registerCommand("chain-sync", {
+    description:
+      "Close wayfind tickets whose planning-with-files phase reported complete (ADR-0001 feedback handle). [effort]",
+    handler: async (args, ctx) => {
+      const sessionId = getSessionId(ctx);
+      const effort = args.trim() || state.activeEffortBySession.get(sessionId);
+      if (!effort) {
+        ctx.ui.notify(`Usage: /chain-sync <effort>  (or run /wayfinder <destination> first)`, "warning");
+        return;
+      }
+      const r = syncChainState(ctx.cwd, effort);
+      if (r.closed.length > 0) {
+        ctx.ui.notify(`[${PKG_NAME}] Closed ${r.closed.length} ticket(s): ${r.closed.join(", ")}.`, "info");
+      } else {
+        ctx.ui.notify(
+          `[${PKG_NAME}] chain-sync: nothing to close${r.skipped.length > 0 ? ` (skipped: ${r.skipped.join(", ")})` : ""}.`,
+          "info",
+        );
+      }
+    },
+  });
+
   pi.registerCommand("wayfinder", {
     description:
       "Chart a huge effort as a local-markdown map of decision tickets (.planning/<effort>/), or work the next frontier ticket if a map exists.",
@@ -151,6 +174,9 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
           );
           return;
         }
+        // Touchpoint auto-sync (ADR-0001): close completed-phase tickets before
+        // claiming the next frontier ticket. Idempotent + graceful (no-op if pwf absent).
+        syncChainState(ctx.cwd, effort);
         const claimed = claimNextTicket(ctx.cwd, effort, sessionId);
         if (!claimed) {
           const r = statusReport(ctx.cwd, effort);
@@ -206,6 +232,9 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
         ctx.ui.notify("Usage: /wayfinder-status <effort>  (or run /wayfinder <destination> first)", "warning");
         return;
       }
+      // Touchpoint auto-sync (ADR-0001): close any tickets whose phase just
+      // completed before rendering, so the frontier reflects reality. Idempotent.
+      syncChainState(ctx.cwd, effort);
       const r = statusReport(ctx.cwd, effort);
       if (!r) {
         ctx.ui.notify(`No map at .planning/${effort}/map.md`, "warning");

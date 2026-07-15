@@ -288,3 +288,12 @@ export function appendDecision(cwd: string, effort: string, decision: MapDecisio
   });
   writeFileSync(mapPath, updated, "utf-8");
 }
+
+/** Close a ticket: set status "closed" + a resolution, then persist. Returns
+ *  true when it changed the file, false when the ticket was already closed with
+ *  the same resolution (idempotent — used by syncChainState's loop). */
+export function closeTicket(cwd: string, effort: string, ticket: Ticket, resolution: string): boolean {
+  if (ticket.status === "closed" && (ticket.resolution ?? "") === resolution) return false;
+  writeTicket(cwd, effort, { ...ticket, status: "closed", resolution });
+  return true;
+}
