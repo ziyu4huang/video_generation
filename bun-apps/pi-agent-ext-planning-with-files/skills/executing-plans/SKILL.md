@@ -61,7 +61,7 @@ For every task:
 3. **Implement** — follow the plan's steps exactly (the plan already has small steps)
 4. **Verify** — run the test or check the plan specifies
 5. **Commit** — one commit per task; the message references the task number
-6. **Mark done** — update the `todo` tool
+6. **Mark done** — update the `todo` tool **and** set the phase `**Status:** complete` in `task_plan.md`, in the **same step**. They don't auto-sync: the Todos panel reads the `todo` tool while the plan hooks read the markdown — updating only one leaves the other stale (the "Todos still shows incomplete after a merged PR" footgun).
 
 **Per-task rhythm:**
 ```
