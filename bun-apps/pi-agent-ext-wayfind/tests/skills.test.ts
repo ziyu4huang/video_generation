@@ -56,13 +56,12 @@ function parseFrontmatter(content: string): { raw: string; fields: Record<string
 const skillFiles = listSkillFiles();
 
 describe("skills suite (writing-skills CSO rules)", () => {
-  it("discovers all 8 expected skills", () => {
+  it("discovers all 7 expected skills", () => {
     const names = skillFiles.map((s) => s.name).sort();
     for (const expected of [
       "domain-modeling",
       "grill-me",
       "grill-me-with-docs",
-      "grill-with-docs",
       "grilling",
       "to-spec",
       "to-tickets",

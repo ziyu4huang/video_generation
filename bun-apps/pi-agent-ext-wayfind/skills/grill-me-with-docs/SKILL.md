@@ -1,6 +1,7 @@
 ---
 name: grill-me-with-docs
 description: Use when stress-testing a plan or design AND wanting the interview to leave a paper trail — resolves terms into a CONTEXT.md glossary and hard-to-reverse decisions as ADRs as the grill runs, then optionally seeds a task_plan.md for planning-with-files. The flagship /grill-me-with-docs command; invocation-only.
+disable-model-invocation: true
 ---
 
 # Grill Me With Docs
