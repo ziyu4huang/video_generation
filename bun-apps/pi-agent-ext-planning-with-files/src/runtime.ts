@@ -21,7 +21,7 @@ import {
   POST_WRITE_REMINDER,
   PRE_TOOL_CACHE_SAFE_REMINDER,
 } from "./constants.js";
-import { isGoalActive } from "./coordination.js";
+import { isExternalDriverActive } from "./coordination.js";
 import { isDangerousBashCommand } from "./guard.js";
 import { deriveEffectiveMode, resolveAutoApprove, resolveConfiguredMode } from "./modes.js";
 import {
@@ -175,13 +175,13 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
       return;
     }
 
-    // Plan A: yield injection to an active /goal. The goal's system-prompt
-    // addition already drives the agent; injecting the plan too would
-    // double-drive with opposing stance ("don't stop at a plan/TODO" vs
-    // "follow this plan"). Keep the status bar (zero model tokens) for user
-    // visibility. Goal paused/absent → planning resumes normal injection.
-    if (isGoalActive()) {
-      ctx.ui.setStatus(PKG_NAME, `${summarizePlan(status)} — /goal driving, injection yielded`);
+    // Plan A: yield injection to an active external driver (/goal or a
+    // pi-agent-ext-wayfind grill/wayfinder session). The driver's context
+    // already steers the agent; injecting the plan too would double-drive.
+    // Keep the status bar (zero model tokens) for user visibility. Driver
+    // paused/absent → planning resumes normal injection.
+    if (isExternalDriverActive()) {
+      ctx.ui.setStatus(PKG_NAME, `${summarizePlan(status)} — /goal or /grill driving, injection yielded`);
       return;
     }
 
@@ -344,12 +344,13 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
 
     if (!isPlanIncomplete(status)) return;
 
-    // Plan A: an active /goal owns continuation (iteration count + token budget
-    // + recovery). Yield — sending planning's own auto-continue would collide
-    // with the goal's continuation prompt (double-drive). Goal paused/absent →
-    // planning resumes its bounded (3x) auto-continue below.
-    if (isGoalActive()) {
-      ctx.ui.setStatus(PKG_NAME, `${summarizePlan(status)} — /goal driving, auto-continue yielded`);
+    // Plan A: an active external driver (/goal or a wayfind grill) owns
+    // continuation (iteration count + token budget + recovery). Yield — sending
+    // planning's own auto-continue would collide with the driver's continuation
+    // prompt (double-drive). Driver paused/absent → planning resumes its bounded
+    // (3x) auto-continue below.
+    if (isExternalDriverActive()) {
+      ctx.ui.setStatus(PKG_NAME, `${summarizePlan(status)} — /goal or /grill driving, auto-continue yielded`);
       return;
     }
 
@@ -432,11 +433,11 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
     ctx.ui.notify("[planning-with-files] PreCompact: flush progress.md and task_plan.md updates.", "info");
 
     const mode = deriveEffectiveMode(resolveConfiguredMode(ctx.cwd), ctx);
-    // Plan A: skip the pre-compact parity nextTurn injection when a goal is
-    // active — the goal re-injects its drive on the next before_agent_start, and
-    // a second nextTurn injection collides. The notify (flush reminder) above is
-    // harmless and stays.
-    if (!isGoalActive() && mode === "parity") {
+    // Plan A: skip the pre-compact parity nextTurn injection when an external
+    // driver (/goal or a wayfind grill) is active — the driver re-injects its
+    // drive on the next before_agent_start, and a second nextTurn injection
+    // collides. The notify (flush reminder) above is harmless and stays.
+    if (!isExternalDriverActive() && mode === "parity") {
       pi.sendMessage(
         {
           customType: CUSTOM_TYPE,

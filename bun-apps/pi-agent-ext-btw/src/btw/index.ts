@@ -10,11 +10,11 @@
  *   export default (pi) => { registerBtwFeature(pi); ... };
  */
 
-import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getMarkdownTheme, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type BtwDetails, type BtwThreadMode } from "./types";
 import { BTW_MESSAGE_TYPE } from "./constants";
 import { BtwEngine } from "./session";
-import { Text, Box } from "@earendil-works/pi-tui";
+import { Box, Markdown, Text } from "@earendil-works/pi-tui";
 import { BTW_FOCUS_SHORTCUTS } from "./overlay";
 
 export function registerBtwFeature(pi: ExtensionAPI): BtwEngine {
@@ -24,19 +24,22 @@ export function registerBtwFeature(pi: ExtensionAPI): BtwEngine {
   pi.registerMessageRenderer(BTW_MESSAGE_TYPE, (message, { expanded }, theme) => {
     const details = message.details as BtwDetails | undefined;
     const content = typeof message.content === "string" ? message.content : "[non-text btw message]";
-    const lines = [theme.fg("accent", theme.bold("[BTW]")), content];
-
-    if (expanded && details) {
-      lines.push(
-        theme.fg("dim", `model: ${details.provider}/${details.model} (${details.api ?? "openai-responses"}) · thinking: ${details.thinkingLevel}`),
-      );
-      if (details.usage) {
-        lines.push(theme.fg("dim", `tokens: in ${details.usage.input} · out ${details.usage.output} · total ${details.usage.totalTokens}`));
-      }
-    }
 
     const box = new Box(1, 1, (text: string) => theme.bg("customMessageBg", text));
-    box.addChild(new Text(lines.join("\n"), 0, 0));
+    box.addChild(new Text(theme.fg("accent", theme.bold("[BTW]")), 0, 0));
+    // Render the body as real markdown (headings, bold, code, lists) instead
+    // of raw text — mirrors the host's default CustomMessageComponent.
+    box.addChild(new Markdown(content, 0, 0, getMarkdownTheme()));
+
+    if (expanded && details) {
+      const detailLines = [
+        `model: ${details.provider}/${details.model} (${details.api ?? "openai-responses"}) · thinking: ${details.thinkingLevel}`,
+      ];
+      if (details.usage) {
+        detailLines.push(`tokens: in ${details.usage.input} · out ${details.usage.output} · total ${details.usage.totalTokens}`);
+      }
+      box.addChild(new Text(theme.fg("dim", detailLines.join("\n")), 0, 0));
+    }
     return box;
   });
 

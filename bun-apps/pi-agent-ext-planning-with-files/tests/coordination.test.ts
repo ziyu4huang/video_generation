@@ -10,10 +10,11 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isGoalActive } from "../src/coordination.js";
+import { isExternalDriverActive, isGoalActive, isWayfindActive } from "../src/coordination.js";
 import { isPlanIncompleteInDir, planProgressLine, readPlanStatus } from "../src/plan.js";
 
 const GOAL_KEY = "__piGoalActive";
+const WAYFIND_KEY = "__piWayfindActive";
 const tempRoots: string[] = [];
 
 function makeCwd(): string {
@@ -56,6 +57,75 @@ describe("coordination.isGoalActive", () => {
   it("returns false when the global is present but not a function", () => {
     (globalThis as Record<string, unknown>)[GOAL_KEY] = "not-a-function";
     expect(isGoalActive()).toBe(false);
+  });
+});
+
+// ─── coordination.isWayfindActive (Phase 4: pi-agent-ext-wayfind seam) ───────
+
+describe("coordination.isWayfindActive", () => {
+  let saved: unknown;
+  beforeEach(() => {
+    saved = (globalThis as Record<string, unknown>)[WAYFIND_KEY];
+  });
+  afterEach(() => {
+    if (saved === undefined) delete (globalThis as Record<string, unknown>)[WAYFIND_KEY];
+    else (globalThis as Record<string, unknown>)[WAYFIND_KEY] = saved;
+  });
+
+  it("returns false when wayfind global is absent (standalone planning-with-files)", () => {
+    delete (globalThis as Record<string, unknown>)[WAYFIND_KEY];
+    expect(isWayfindActive()).toBe(false);
+  });
+
+  it("returns the published value when the global is a function", () => {
+    (globalThis as Record<string, unknown>)[WAYFIND_KEY] = () => true;
+    expect(isWayfindActive()).toBe(true);
+    (globalThis as Record<string, unknown>)[WAYFIND_KEY] = () => false;
+    expect(isWayfindActive()).toBe(false);
+  });
+
+  it("returns false when the global is present but not a function", () => {
+    (globalThis as Record<string, unknown>)[WAYFIND_KEY] = 42;
+    expect(isWayfindActive()).toBe(false);
+  });
+});
+
+// ─── coordination.isExternalDriverActive (OR of goal + wayfind) ─────────────
+
+describe("coordination.isExternalDriverActive", () => {
+  let savedGoal: unknown;
+  let savedWayfind: unknown;
+  beforeEach(() => {
+    savedGoal = (globalThis as Record<string, unknown>)[GOAL_KEY];
+    savedWayfind = (globalThis as Record<string, unknown>)[WAYFIND_KEY];
+  });
+  afterEach(() => {
+    const g = globalThis as Record<string, unknown>;
+    if (savedGoal === undefined) delete g[GOAL_KEY];
+    else g[GOAL_KEY] = savedGoal;
+    if (savedWayfind === undefined) delete g[WAYFIND_KEY];
+    else g[WAYFIND_KEY] = savedWayfind;
+  });
+
+  it("is false when neither driver is active", () => {
+    const g = globalThis as Record<string, unknown>;
+    delete g[GOAL_KEY];
+    delete g[WAYFIND_KEY];
+    expect(isExternalDriverActive()).toBe(false);
+  });
+
+  it("is true when only /goal is active", () => {
+    const g = globalThis as Record<string, unknown>;
+    delete g[WAYFIND_KEY];
+    g[GOAL_KEY] = () => true;
+    expect(isExternalDriverActive()).toBe(true);
+  });
+
+  it("is true when only a wayfind grill is active", () => {
+    const g = globalThis as Record<string, unknown>;
+    delete g[GOAL_KEY];
+    g[WAYFIND_KEY] = () => true;
+    expect(isExternalDriverActive()).toBe(true);
   });
 });
 

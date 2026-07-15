@@ -569,7 +569,7 @@ describe("Plan A coordination (runtime yield)", () => {
     expect(result).toBeUndefined();
     expect(ctx.ui.setStatus).toHaveBeenCalledWith(
       "planning-with-files",
-      expect.stringContaining("/goal driving, injection yielded"),
+      expect.stringContaining("/goal or /grill driving, injection yielded"),
     );
   });
 
@@ -585,7 +585,7 @@ describe("Plan A coordination (runtime yield)", () => {
     expect(pi.sendUserMessage).not.toHaveBeenCalled();
     expect(ctx.ui.setStatus).toHaveBeenCalledWith(
       "planning-with-files",
-      expect.stringContaining("/goal driving, auto-continue yielded"),
+      expect.stringContaining("/goal or /grill driving, auto-continue yielded"),
     );
   });
 
