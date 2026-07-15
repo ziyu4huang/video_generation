@@ -27,8 +27,10 @@ const SCHEMA_FOR: Record<string, string> = {
 export const RESEARCH_TOOLSET = ["web_search", "fetch_content"];
 
 export interface WaypointDeps {
-	completionFn: (system: string, user: string, model?: string) => Promise<string>;
-	agentFn: (system: string, user: string, opts: { model?: string; toolset: string[] }) => Promise<string>;
+	/** Required by runCompletionWaypoint; unused by runAgentWaypoint. */
+	completionFn?: (system: string, user: string, model?: string) => Promise<string>;
+	/** Required by runAgentWaypoint; unused by runCompletionWaypoint. */
+	agentFn?: (system: string, user: string, opts: { model?: string; toolset: string[] }) => Promise<string>;
 	validateFn?: (artifact: string, data: unknown) => Promise<{ valid: boolean; errors?: string }>;
 	/** Concise required-structure spec for an artifact (loaded from the bundled schema). */
 	schemaSpec?: (artifact: string) => string | undefined;
@@ -116,7 +118,9 @@ export async function runCompletionWaypoint(
 	deps: WaypointDeps,
 	maxRetries = 3,
 ): Promise<Record<string, unknown>> {
-	return produceAndValidate((system, user) => deps.completionFn(system, user), deps, stage, inputs, maxRetries);
+	if (!deps.completionFn) throw new Error("runCompletionWaypoint requires deps.completionFn");
+	const completionFn = deps.completionFn;
+	return produceAndValidate((system, user) => completionFn(system, user), deps, stage, inputs, maxRetries);
 }
 
 /** Bounded pi sub-session with a scoped toolset → one schema-valid artifact (research). */
@@ -126,9 +130,11 @@ export async function runAgentWaypoint(
 	deps: WaypointDeps,
 	maxRetries = 2,
 ): Promise<Record<string, unknown>> {
+	if (!deps.agentFn) throw new Error("runAgentWaypoint requires deps.agentFn");
+	const agentFn = deps.agentFn;
 	const toolset = stage === "research" ? RESEARCH_TOOLSET : [];
 	return produceAndValidate(
-		(system, user) => deps.agentFn(system, user, { toolset }),
+		(system, user) => agentFn(system, user, { toolset }),
 		deps,
 		stage,
 		inputs,

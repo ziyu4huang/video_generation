@@ -8,19 +8,19 @@ function respond(body: unknown, status = 200): Response {
 describe("resolveDefaultModel", () => {
   it("prefers an already-loaded Gemma-4 variant", async () => {
     const fetchImpl = (async () =>
-      respond({ models: [{ key: "google/gemma-4-26b-a4b-qat", loaded_instances: [{}] }] })) as typeof fetch;
+      respond({ models: [{ key: "google/gemma-4-26b-a4b-qat", loaded_instances: [{}] }] })) as unknown as typeof fetch;
     expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl)).toBe("google/gemma-4-26b-a4b-qat");
   });
 
   it("falls back to any already-loaded model when no preferred model is loaded", async () => {
-    const fetchImpl = (async () => respond({ models: [{ key: "some/other-model", loaded_instances: [{}] }] })) as typeof fetch;
+    const fetchImpl = (async () => respond({ models: [{ key: "some/other-model", loaded_instances: [{}] }] })) as unknown as typeof fetch;
     expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl)).toBe("some/other-model");
   });
 
   it("falls back to the default model id when the server is unreachable", async () => {
     const fetchImpl = (async () => {
       throw new Error("ECONNREFUSED");
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
     expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl)).toBe("google/gemma-4-26b-a4b-qat");
   });
 });
@@ -35,7 +35,7 @@ describe("lmStudioJsonCall — fast-path + safety retry (mirrors story.py's _gem
         return respond({ choices: [{ message: { content: '["ok"]' } }] });
       }
       return respond({ models: [] });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const result = await lmStudioJsonCall("prompt", (raw) => JSON.parse(raw), { _fetchImpl: fetchImpl });
     expect(result).toEqual(["ok"]);
@@ -52,7 +52,7 @@ describe("lmStudioJsonCall — fast-path + safety retry (mirrors story.py's _gem
         return respond({ choices: [{ message: { content: '["retried"]' } }] });
       }
       return respond({ models: [] });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const result = await lmStudioJsonCall("prompt", (raw) => JSON.parse(raw), { _fetchImpl: fetchImpl });
     expect(result).toEqual(["retried"]);
@@ -66,7 +66,7 @@ describe("lmStudioJsonCall — fast-path + safety retry (mirrors story.py's _gem
         return respond({ choices: [{ message: { content: "no json", reasoning_content: '["from-reasoning"]' } }] });
       }
       return respond({ models: [] });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const result = await lmStudioJsonCall("prompt", (raw) => JSON.parse(raw), { _fetchImpl: fetchImpl });
     expect(result).toEqual(["from-reasoning"]);
@@ -77,7 +77,7 @@ describe("lmStudioJsonCall — fast-path + safety retry (mirrors story.py's _gem
       const url = String(input);
       if (url.includes("/chat/completions")) return respond({ choices: [{ message: { content: "garbage" } }] });
       return respond({ models: [] });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     await expect(lmStudioJsonCall("prompt", (raw) => JSON.parse(raw), { _fetchImpl: fetchImpl })).rejects.toThrow();
   });

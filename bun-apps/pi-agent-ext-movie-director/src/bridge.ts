@@ -498,7 +498,7 @@ export function adaptCaption(
  * through to the Python bridge in full (never a mixed native+python run).
  */
 async function realCaption(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
-  const options = (req.options ?? {}) as CaptionOptions;
+  const options = (req.options ?? {}) as unknown as CaptionOptions;
   if (isNativeCaptionRequest(options)) {
     const { runCaptionNative } = await import("./caption_native.ts");
     const out = await runCaptionNative({ options });
@@ -882,7 +882,7 @@ export function adaptRunPyTts(
 }
 
 async function realRunPyTts(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
-  const opts = (req.options ?? {}) as RunPyTtsOptions & { output?: string };
+  const opts = (req.options ?? {}) as unknown as RunPyTtsOptions & { output?: string };
   const outputDir = req.outputDir ?? process.cwd();
   const output = opts.output ?? join(outputDir, "tts_edge.mp3");
   const out = await runPyTts({ options: opts, output });
@@ -896,7 +896,7 @@ async function realRunPyTts(req: GenerateRequest, env?: Record<string, string | 
  * function directly since the Details shapes are structurally compatible.
  */
 async function realTtsNative(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
-  const opts = (req.options ?? {}) as RunPyTtsOptions & { output?: string };
+  const opts = (req.options ?? {}) as unknown as RunPyTtsOptions & { output?: string };
   const outputDir = req.outputDir ?? process.cwd();
   const output = opts.output ?? join(outputDir, "tts_edge.mp3");
   const { runTtsNative } = await import("./tts_native.ts");
