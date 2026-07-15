@@ -2,7 +2,7 @@
  * Save and load reusable workflow commands.
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { workflowProjectPaths, workflowUserSavedDir } from "./workflow-paths.js";
 
@@ -73,20 +73,33 @@ export function createWorkflowStorage(cwd: string): WorkflowStorage {
     return join(legacyProjectDir, `${name}.json`);
   };
 
+  const parseWorkflowFile = (
+    path: string,
+    location: "project" | "user",
+  ): SavedWorkflow | null => {
+    if (!existsSync(path)) return null;
+    const data = JSON.parse(readFileSync(path, "utf-8"));
+    if (!data || typeof data !== "object" || !isSafeSavedWorkflowName((data as { name?: string }).name ?? "")) {
+      return null;
+    }
+    return {
+      ...data,
+      location,
+      path,
+    };
+  };
+
+  // Try the primary, then the .bak — so a corrupt/truncated primary (crash
+  // mid-write) doesn't make the workflow appear to have never existed.
   const loadFromFile = (path: string, location: "project" | "user"): SavedWorkflow | null => {
     try {
-      if (!existsSync(path)) return null;
-      const data = JSON.parse(readFileSync(path, "utf-8"));
-      if (!data || typeof data !== "object" || !isSafeSavedWorkflowName((data as { name?: string }).name ?? "")) {
+      return parseWorkflowFile(path, location);
+    } catch {
+      try {
+        return parseWorkflowFile(`${path}.bak`, location);
+      } catch {
         return null;
       }
-      return {
-        ...data,
-        location,
-        path,
-      };
-    } catch {
-      return null;
     }
   };
 
@@ -104,7 +117,17 @@ export function createWorkflowStorage(cwd: string): WorkflowStorage {
         savedAt: new Date().toISOString(),
       };
 
-      writeFileSync(path, JSON.stringify(saved, null, 2));
+      const json = JSON.stringify(saved, null, 2);
+      // Atomic write: a crash mid-write can't corrupt the live file (tmp+rename is
+      // atomic on the same filesystem). A .bak from the previous good save is the
+      // recovery fallback if the primary is somehow truncated.
+      writeFileSync(`${path}.tmp`, json);
+      renameSync(`${path}.tmp`, path);
+      try {
+        writeFileSync(`${path}.bak`, json);
+      } catch {
+        // backup is best-effort; the primary write already succeeded
+      }
       return saved;
     },
 
@@ -156,6 +179,7 @@ export function createWorkflowStorage(cwd: string): WorkflowStorage {
           unlinkSync(path);
           deleted = true;
         }
+        if (existsSync(`${path}.bak`)) unlinkSync(`${path}.bak`);
         if (loc === "project") {
           const legacyPath = legacyProjectWorkflowPath(name);
           if (existsSync(legacyPath)) {

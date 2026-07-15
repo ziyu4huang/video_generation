@@ -18,6 +18,7 @@ import {
 import { invokeKrea2, type InvokeResult, type ProgressFn } from "./invoke.ts";
 import {
   assertPathAllowed,
+  assertSafePathComponent,
   ensureOutputDir,
   PathSafetyError,
   rejectFlagLike,
@@ -102,9 +103,17 @@ function validateOptionPaths(
   // Reject flag-like values in free-form string fields that aren't paths
   // (e.g. prompt accidentally starting with '-').
   for (const [key, field] of Object.entries(spec.fields)) {
-    if (field.isPath || field.isPathArray || field.positional || field.isPathComponent) continue;
+    if (field.isPath || field.isPathArray || field.positional) continue;
     if (!(key in options)) continue;
     const v = options[key];
+    // isPathComponent fields are bare names the Swift binary joins onto a
+    // models-tree root itself with no sanitization — reject path separators
+    // / ".." instead of the weaker leading-dash-only rejectFlagLike check.
+    if (field.isPathComponent) {
+      if (typeof v === "string") assertSafePathComponent(v, key);
+      else if (Array.isArray(v)) for (const item of v) if (typeof item === "string") assertSafePathComponent(item, key);
+      continue;
+    }
     if (typeof v === "string") {
       rejectFlagLike(v, key);
     } else if (Array.isArray(v)) {

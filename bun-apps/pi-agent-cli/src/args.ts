@@ -499,7 +499,7 @@ export function parsePiArgs(
 				out.extensionPaths.push(val);
 				i += 2;
 			} else {
-				i += 2; // no value — skip just the flag
+				i += 1; // no value — skip just the flag
 			}
 			continue;
 		}
