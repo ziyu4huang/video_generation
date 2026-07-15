@@ -168,6 +168,10 @@ When `/goal`, planning-with-files, and the `todo` tool are all active, they form
 
 When `/goal` is actively driving, the extension **yields** — it skips its own plan injection and auto-continue so the two don't double-drive, and `goal_complete` is blocked while a plan has open phases (run `/plan-done` to release). Use `todo` for the fine steps of the current phase, planning files for the cross-session phase breakdown, and `/goal` to drive the whole objective to done.
 
+### Coordination with pi-agent-ext-wayfind (grill / wayfinder)
+
+The same yield applies to an active [`pi-agent-ext-wayfind`](../pi-agent-ext-wayfind) session — a live `/grill-me-with-docs` or `/wayfinder` interview owns the turn just like `/goal` does. wayfind publishes `globalThis.__piWayfindActive`; this extension reads it via `isExternalDriverActive()` (alongside `isGoalActive()`) and yields its injection + auto-continue while the grill runs. The status bar reads `… — /goal or /grill driving, injection yielded`. The grill hands back with `/grill-done --seed-plan`, which writes a `task_plan.md` seed you then drive here with `/plan-execute`. Graceful: if wayfind isn't loaded, the seam is inert.
+
 ### Practical tips
 
 - **Skip the substrate for** simple questions, single-file edits, or quick lookups (< 5 tool calls).
