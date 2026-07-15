@@ -1983,6 +1983,23 @@ ${output.slice(-2000)}`,
 		},
 	});
 
+	// ── Individual tool aliases (for subagent backward compat) ───────────
+	// The distill/garden subagents spawn with tool names like obsidian_list,
+	// obsidian_read, etc. — register the captured individual tools so the
+	// subagent can find them. Each wraps the same handler the fat tool calls.
+	for (const [name, tool] of Object.entries(_capture._tools)) {
+		// Skip internal-only / meta tools that have no standalone registration
+		if (name.startsWith("obsidian_distill") || name.startsWith("obsidian_garden")) continue;
+		pi.registerTool({
+			name: tool.name,
+			label: tool.label ?? name,
+			description: tool.description ?? `Obsidian action: ${name.replace("obsidian_", "")}`,
+			parameters: tool.parameters,
+			// Forward directly to the same handler the fat tool calls
+			execute: tool.execute.bind(tool),
+		});
+	}
+
 	// ── On-demand help tool (~100 tok schema) ────────────────────────────
 	// Returns per-action reference text. Same source as the terse routing
 	// description (obsidianRoutingDescription / obsidianActionReferenceText)
@@ -2003,6 +2020,18 @@ ${output.slice(-2000)}`,
 			};
 		},
 	});
+
+	// ---- Expose individual obsidian_* tools for subagent use (Phase 6) ----
+	// The fat tool ("obsidian") dispatches via action param, but spawned
+	// subagents (distill/garden) pass --tools obsidian_list,obsidian_read,...
+	// and need REAL tool registrations under those names. The _capture map
+	// already stores the full definitions; register each one so both the fat
+	// tool and the individual tools are available in the session.
+	for (const [toolName, toolDef] of Object.entries(_capture._tools)) {
+		// obsidian_help is already registered directly above
+		if (toolName === "obsidian_help") continue;
+		pi.registerTool(toolDef as any);
+	}
 
 	pi.on("session_start", async (_event, ctx) => {
 		const missing = _missingDeps(["@earendil-works/pi-coding-agent"], _EXT_DIR);
