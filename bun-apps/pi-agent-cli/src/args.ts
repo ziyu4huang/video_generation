@@ -92,6 +92,18 @@ export interface ParsedArgs {
 	deletePng?: boolean;
 	/** pdf-to-vault pipeline: force re-run distill stage */
 	forceDistill?: boolean;
+	/** memory-to-vault: max parallel distill agents (default 4). */
+	concurrency?: number;
+	/** memory-to-vault: glob restricting which project dirs to include. */
+	only?: string;
+	/** memory-to-vault: explicit comma-separated file list (overrides discovery). */
+	filesCsv?: string;
+	/** memory-to-vault: project memory root (default ~/.pi/agent/projects-memory). */
+	projectsDir?: string;
+	/** memory-to-vault: global hermes dir (default ~/.pi/agent/pi-hermes-memory). */
+	memoryDir?: string;
+	/** memory-to-vault: run sample zk_ask queries after build. */
+	verify?: boolean;
 	/** zk-card: bypass duplicate/backlink safety checks */
 	force?: boolean;
 	/** zk-card add: read content from file instead of inline text */

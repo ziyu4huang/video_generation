@@ -30,7 +30,8 @@ export type NumericField =
 	| "maxNotes" | "contextLines" | "retries" | "retryWaitSec" | "limit"
 	| "depth" | "maxNeighbors" | "topK" | "maxNoteTokens" | "threshold"
 	| "recency"
-	| "maxRounds" | "consecutiveEmpty" | "maxLinks";
+	| "maxRounds" | "consecutiveEmpty" | "maxLinks"
+	| "concurrency";
 
 export type ValueField =
 	| "provider" | "model" | "thinking" | "apiKey" | "systemPrompt"
@@ -38,7 +39,8 @@ export type ValueField =
 	| "vlmModel" | "source" | "sourceLabel"
 	| "tags" | "excludeFromKb" | "excludeIds" | "workflowArgs" | "blend"
 	| "proxy" | "outputPath" | "hermesDir" | "vaultRoot" | "order"
-	| "linkWeighting" | "probeEval";
+	| "linkWeighting" | "probeEval"
+	| "only" | "filesCsv" | "projectsDir" | "memoryDir";
 
 export type BoolField =
 	| "retrieveOnly" | "summarize" | "noRefine" | "force" | "noContext"
@@ -46,7 +48,8 @@ export type BoolField =
 	| "noBuiltinTools" | "dryRun" | "health" | "fix" | "json"
 	| "noPersistLogs" | "mergeDuplicates" | "save"
 	| "popular" | "coverage"
-	| "wikiAware" | "healOnly" | "noProbe";
+	| "wikiAware" | "healOnly" | "noProbe"
+	| "verify";
 
 // ── spec row shapes ─────────────────────────────────────────────────────────
 
@@ -144,8 +147,17 @@ const RESEARCH_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	{ flag: "--order", field: "order" }, // collect-videos
 ];
 
+// ── memory-to-vault — discovery scope ────────────────────────────────────────
+const MEMORY_TO_VAULT_VALUE_FLAGS: readonly ValueFlagSpec[] = [
+	{ flag: "--only", field: "only" },
+	{ flag: "--files", field: "filesCsv" },
+	{ flag: "--projects-dir", field: "projectsDir" },
+	{ flag: "--memory-dir", field: "memoryDir" },
+];
+
 /** All value flags (merged, order-independent). */
 export const VALUE_FLAGS: readonly ValueFlagSpec[] = [
+	...MEMORY_TO_VAULT_VALUE_FLAGS,
 	...GLOBAL_VALUE_FLAGS,
 	...KNOWLEDGE_VALUE_FLAGS,
 	...ZK_ASK_VALUE_FLAGS,
@@ -190,7 +202,8 @@ const PDF_NUM_FLAGS: readonly NumericFlagSpec[] = [
 
 // ── zk-query — merge similarity threshold ───────────────────────────────────
 const ZK_QUERY_NUM_FLAGS: readonly NumericFlagSpec[] = [
-	{ flag: "--threshold", field: "threshold", example: "0.9" },
+	// threshold is a 0..1 fraction, NOT an integer (pre-existing bug: rejected 0.85/0.9 from CLI).
+	{ flag: "--threshold", field: "threshold", integer: false, example: "0.9" },
 ];
 
 // ── kcard-loop — heal-loop tuning ───────────────────────────────────────────
@@ -205,8 +218,14 @@ const RESEARCH_NUM_FLAGS: readonly NumericFlagSpec[] = [
 	{ flag: "--recency", field: "recency", example: "30" },
 ];
 
+// ── memory-to-vault — parallelism ───────────────────────────────────────────
+const MEMORY_TO_VAULT_NUM_FLAGS: readonly NumericFlagSpec[] = [
+	{ flag: "--concurrency", field: "concurrency", min: 1, example: "4" },
+];
+
 /** All numeric flags (merged). */
 export const NUMERIC_FLAGS: readonly NumericFlagSpec[] = [
+	...MEMORY_TO_VAULT_NUM_FLAGS,
 	...ZK_EXTRACT_NUM_FLAGS,
 	...ZK_CARD_NUM_FLAGS,
 	...ZK_ASK_NUM_FLAGS,
@@ -279,8 +298,14 @@ const RESEARCH_BOOL_FLAGS: readonly BoolFlagSpec[] = [
 	{ flags: ["--popular"], field: "popular" },
 ];
 
+// ── memory-to-vault — post-build verification ───────────────────────────────
+const MEMORY_TO_VAULT_BOOL_FLAGS: readonly BoolFlagSpec[] = [
+	{ flags: ["--verify"], field: "verify" },
+];
+
 /** All boolean flags (merged). */
 export const BOOLEAN_FLAGS: readonly BoolFlagSpec[] = [
+	...MEMORY_TO_VAULT_BOOL_FLAGS,
 	...GLOBAL_BOOL_FLAGS,
 	...ZK_ASK_BOOL_FLAGS,
 	...ZK_CARD_BOOL_FLAGS,
