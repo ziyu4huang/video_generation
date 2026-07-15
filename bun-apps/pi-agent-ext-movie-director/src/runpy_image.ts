@@ -35,6 +35,7 @@ import { resolveRepoRoot, resolveRunPyPaths } from "@repo/pi-agent-ext-ltx";
 /** The run.py image sub-actions this adapter reaches (image.py:run dispatch). */
 export type ImageAction =
   | "t2i"
+  | "i2i"
   | "controlnet"
   | "faceswap"
   | "profile"

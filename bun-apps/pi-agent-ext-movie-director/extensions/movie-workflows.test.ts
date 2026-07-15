@@ -36,7 +36,7 @@ describe("movie-director saved workflows (structural)", () => {
         const { meta } = parseWorkflowScript(script);
         expect(meta.name).toBe(name);
         expect(Array.isArray(meta.phases)).toBe(true);
-        expect(meta.phases.length).toBeGreaterThan(0);
+        expect(meta.phases!.length).toBeGreaterThan(0);
       });
 
       test("every call('movie.X', …) reference resolves to a registered host-fn", () => {
