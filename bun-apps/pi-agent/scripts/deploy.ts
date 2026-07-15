@@ -66,6 +66,7 @@ import {
 	readFileSync,
 	readlinkSync,
 	readdirSync,
+	renameSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -113,7 +114,7 @@ const VERIFY = argv.includes("--verify");
 const READONLY = !WRITABLE;
 if (RELEASE && PORTABLE) die("--release and --portable are mutually exclusive");
 const positionalOutdir = argv.find((a) => !a.startsWith("-"));
-const OUTDIR = positionalOutdir
+const FINAL_OUTDIR = positionalOutdir
 	? resolve(process.cwd(), positionalOutdir)
 	: resolve(
 			process.cwd(),
@@ -122,6 +123,12 @@ const OUTDIR = positionalOutdir
 			"dist",
 			RELEASE ? "pi-agent-deploy" : PORTABLE ? "pi-agent-portable" : "pi-agent-bundle",
 		);
+// Build into a staging dir, not FINAL_OUTDIR directly — a mid-build throw
+// (permission error, ENOSPC, a missing skill dir) must never destroy the
+// last-good deploy. The atomic rename-swap at the end of the script is what
+// actually replaces FINAL_OUTDIR; every step below (bundleDeploy/portableDeploy/
+// releaseDeploy, --readonly freeze, --verify boot) still operates on `OUTDIR`.
+const OUTDIR = `${FINAL_OUTDIR}.staging`;
 
 const piAgentDir = dirname(import.meta.dir); // bun-apps/pi-agent
 const repoRoot = dirname(dirname(piAgentDir));
@@ -356,10 +363,26 @@ if (VERIFY) {
 	console.log(`    ${G("✓")} deployed artifact booted from ${tmpdir()}: ${probe.toolCount} tools, 0 conflicts, all canaries present`);
 }
 
+// ── atomic swap: move the fully-built staging dir into place ────────────────
+// Only now — after build + (optional) freeze + (optional) verify have all
+// succeeded — does the previous good deploy at FINAL_OUTDIR get touched. A
+// throw at any point above leaves the half-built `OUTDIR` staging dir next to
+// an untouched previous deploy, instead of destroying it (the old behavior:
+// `rmSync(OUTDIR)` ran up front, before any of the new content existed).
+if (existsSync(FINAL_OUTDIR)) {
+	if (existsSync(join(FINAL_OUTDIR, ".deploy-readonly"))) {
+		const unfreezePrev = Bun.spawn(["chmod", "-R", "u+w", FINAL_OUTDIR], { stdout: "ignore", stderr: "ignore" });
+		await unfreezePrev.exited;
+	}
+	renameSync(FINAL_OUTDIR, `${FINAL_OUTDIR}.prev`);
+}
+renameSync(OUTDIR, FINAL_OUTDIR);
+rmSync(`${FINAL_OUTDIR}.prev`, { recursive: true, force: true });
+
 // ── done ─────────────────────────────────────────────────────────────────────
-console.log(`\n${G("✓ deployed")} → ${OUTDIR}${READONLY ? ` ${Y("(read-only)")}` : ""}`);
-console.log(D(`    ${OUTDIR}/pi-agent.js --list-models   # smoke test`));
-console.log(D(`    ${OUTDIR}/pi-agent.js -p "hello"      # print mode (any cwd)`));
+console.log(`\n${G("✓ deployed")} → ${FINAL_OUTDIR}${READONLY ? ` ${Y("(read-only)")}` : ""}`);
+console.log(D(`    ${FINAL_OUTDIR}/pi-agent.js --list-models   # smoke test`));
+console.log(D(`    ${FINAL_OUTDIR}/pi-agent.js -p "hello"      # print mode (any cwd)`));
 if (READONLY) {
 	console.log(D(`    (frozen via chmod a-w; invoke run.sh from a non-deploy cwd)`));
 }
