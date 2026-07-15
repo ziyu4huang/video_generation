@@ -32,6 +32,7 @@ import { scheduleSessionBackfill, waitForSessionBackfill, SESSION_BACKFILL_SHUTD
 import { scheduleLiveSessionIndex, waitForLiveSessionIndex, SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-live-index.js";
 import { parseSessionFile } from "./store/session-parser.js";
 import { registerMemoryTool } from "./tools/memory-tool.js";
+import { registerGrillDecisionTool } from "./tools/grill-decision-tool.js";
 import { registerSkillTool } from "./tools/skill-tool.js";
 import { registerSessionSearchTool } from "./tools/session-search-tool.js";
 import { registerMemorySearchTool } from "./tools/memory-search-tool.js";
@@ -186,6 +187,7 @@ export default function (pi: ExtensionAPI) {
 
   // ── 3. Register the memory tool (with project store + SQLite sync) ──
   registerMemoryTool(pi, store, projectStore, dbManager, projectName);
+  registerGrillDecisionTool(pi, store, dbManager);
 
   // ── 4. Register the skill tool ──
   registerSkillTool(pi, skillStore);

@@ -1,6 +1,6 @@
 // tests/grill-decision.test.ts
 import { test, expect } from "bun:test";
-import { evaluateGrillSignal, lexicalOverlap, composeMemoryContent } from "../src/tools/grill-decision-tool.js";
+import { evaluateGrillSignal, lexicalOverlap, composeMemoryContent, registerGrillDecisionTool } from "../src/tools/grill-decision-tool.js";
 
 test("reject → FIRE as correction", () => {
   const r = evaluateGrillSignal({ signal: "reject", content: "prefers httpOnly cookies", existingEntries: [] });
@@ -62,4 +62,49 @@ test("composeMemoryContent produces a durable behavioral line", () => {
     notes: "Prefers stateless auth; avoids browser-stored tokens.",
   });
   expect(c).toContain("Prefers stateless auth");
+});
+
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { MemoryStore } from "../src/store/memory-store.js";
+
+// Minimal stub of the MemoryStore surface the tool touches.
+function makeStubStore(failureEntries: string[]) {
+  const written: { content: string; category: string; failureReason?: string }[] = [];
+  return {
+    written,
+    store: {
+      getAllFailureEntries: () => failureEntries,
+      addFailure: async (content: string, opts: { category: string; failureReason?: string }) => {
+        written.push({ content, ...opts });
+        return { success: true };
+      },
+    } as unknown as MemoryStore,
+  };
+}
+
+test("registerGrillDecisionTool: FIRE writes to failure target with category", async () => {
+  const { store, written } = makeStubStore([]);
+  const calls: any[] = [];
+  const pi = { registerTool: (def: any) => calls.push(def) } as unknown as ExtensionAPI;
+  registerGrillDecisionTool(pi, store, null);
+  expect(calls).toHaveLength(1);
+  const out = await calls[0].execute("id", {
+    decision: "auth storage", recommendation: "JWT in localStorage",
+    userAnswer: "no", signal: "reject", notes: "prefers httpOnly cookies",
+  });
+  expect(written).toHaveLength(1);
+  expect(written[0].category).toBe("correction");
+  expect(out.details.written).toBe(true);
+});
+
+test("registerGrillDecisionTool: SUPPRESS (confirm) writes nothing", async () => {
+  const { store, written } = makeStubStore([]);
+  const calls: any[] = [];
+  const pi = { registerTool: (def: any) => calls.push(def) } as unknown as ExtensionAPI;
+  registerGrillDecisionTool(pi, store, null);
+  const out = await calls[0].execute("id", {
+    decision: "x", recommendation: "y", userAnswer: "ok", signal: "confirm",
+  });
+  expect(written).toHaveLength(0);
+  expect(out.details.written).toBe(false);
 });

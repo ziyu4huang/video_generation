@@ -85,4 +85,72 @@ export function evaluateGrillSignal(input: GrillGateInput): GrillGateResult {
   return { fire: true, category, reason: `signal '${signal}' → category '${category}'` };
 }
 
-// registerGrillDecisionTool is added in Task 3.
+const GRILL_DECISION_DESCRIPTION = `Capture a resolved grill decision as durable behavioral memory. Call this once per resolved decision during a grill-me / grill-me-with-docs session, AFTER the user has answered. Pass your recommended answer, the user's actual answer, and a 'signal' classification (reject = user contradicted/rejected the recommendation; preference = user stated a standing preference or recurring trade-off; insight = user revealed a priority; refine = minor tweak; confirm = user agreed). The tool applies a gate: it writes only durable, non-duplicate, non-project-scoped signals to portable memory. Do not call this for plain confirms.`;
+
+export function registerGrillDecisionTool(
+  pi: ExtensionAPI,
+  store: MemoryStore,
+  dbManager: DatabaseManager | null,
+): void {
+  pi.registerTool({
+    name: "grill_decision",
+    label: "Grill Decision",
+    description: GRILL_DECISION_DESCRIPTION,
+    parameters: Type.Object({
+      decision: Type.String({ description: "The sub-decision being grilled" }),
+      recommendation: Type.String({ description: "Your recommended answer" }),
+      userAnswer: Type.String({ description: "The user's actual answer" }),
+      signal: StringEnum(["reject", "refine", "confirm", "preference", "insight"] as const, {
+        description: "Your semantic read of the user's answer (drives the gate)",
+      }),
+      notes: Type.Optional(
+        Type.String({ description: "Durable phrasing for the memory, or a project-scope flag" }),
+      ),
+    }),
+    async execute(_toolCallId, params) {
+      const { decision, recommendation, userAnswer, signal, notes } = params;
+      const content = composeMemoryContent({ decision, recommendation, userAnswer, notes });
+      const gate = evaluateGrillSignal({
+        signal,
+        content,
+        notes,
+        existingEntries: store.getAllFailureEntries(),
+      });
+
+      if (!gate.fire) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ written: false, reason: gate.reason }) }],
+          details: { written: false, reason: gate.reason },
+        };
+      }
+
+      const failureReason = `grill: ${decision}`;
+      const category = gate.category!;
+      try {
+        const result = await store.addFailure(content, { category, failureReason });
+        if (result.success && dbManager) {
+          try {
+            syncMemoryEntry(dbManager, {
+              content: formatFailureMemoryContent(content, { category, failureReason }),
+              target: "failure",
+              category,
+              failureReason,
+            });
+          } catch {
+            // best-effort SQLite search sync — must not block the grill
+          }
+        }
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ written: result.success, category, reason: gate.reason }) }],
+          details: { written: result.success, category, reason: gate.reason },
+        };
+      } catch (err) {
+        // A memory write must never block the interview.
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ written: false, reason: `write failed: ${err instanceof Error ? err.message : String(err)}` }) }],
+          details: { written: false, reason: "write failed" },
+        };
+      }
+    },
+  });
+}
