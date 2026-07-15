@@ -2,7 +2,7 @@
  * build-extensions — bundle EVERY manifest extension into a single `.js`
  * loadable via `pi -e <bundle>.js`, for the new bundle-based deploy.
  *
- * Generalizes bun-apps/pi-vlm/scripts/build-bundle.ts: instead of one hardcoded
+ * Generalizes bun-apps/pi-agent-ext-file2md/scripts/build-bundle.ts: instead of one hardcoded
  * extension it walks run-dir/manifest.json and bundles each entry, defaulting to
  * THIN mode (peer deps external + bare specifiers rewritten to absolute paths)
  * so every extension SHARES one typebox/@earendil-works/* instance via the
@@ -68,7 +68,7 @@ import { parseManifestEntries, type ExtensionManifestEntry } from "../run-dir/ma
 // Anchor module resolution at the WORKSPACE ROOT: bun hoists every dep
 // (typebox, @earendil-works/*, @modelcontextprotocol/sdk, …) to
 // <repoRoot>/node_modules, but pi-agent itself does NOT depend on typebox
-// directly. pi-vlm's build-bundle.ts resolves via its own cwd (pi-vlm has
+// directly. pi-file2md's build-bundle.ts resolves via its own cwd (pi-file2md has
 // typebox as a dep); the generic builder runs from pi-agent/, so it must
 // anchor resolution at repoRoot to find the same hoisted deps.
 const PI_AGENT_DIR = dirname(import.meta.dir); // bun-apps/pi-agent
@@ -174,7 +174,7 @@ if (PORTABLE) {
 }
 if (exts.length === 0) die("manifest lists no extensions to bundle.");
 
-// Peer deps kept external in THIN mode. Same set as pi-vlm's build-bundle.ts +
+// Peer deps kept external in THIN mode. Same set as pi-file2md's build-bundle.ts +
 // @modelcontextprotocol/sdk (zai-mcp's MCP SDK — kept external so all consumers
 // share one instance via the deployed node_modules).
 const THIN_EXTERNALS = [
@@ -299,7 +299,7 @@ async function stageBundle(opts: { entry: string; outfile: string; thin: boolean
 }
 
 // ── Stage 1b (thin only): rewrite bare specifiers → absolute file paths ─────
-// Lifted from pi-vlm/scripts/build-bundle.ts. THIN leaves typebox/@earendil/* /
+// Lifted from pi-file2md/scripts/build-bundle.ts. THIN leaves typebox/@earendil/* /
 // MCP SDK as bare specifiers; jiti (pi's loader) wraps any module with a bare
 // specifier in a data:text/javascript;base64 URL that bun rejects with
 // NameTooLong. Pre-resolving each bare specifier to its absolute file path at
@@ -309,7 +309,7 @@ async function stageBundle(opts: { entry: string; outfile: string; thin: boolean
 // @earendil-works/* + @modelcontextprotocol/sdk ARE declared deps). bun does NOT
 // symlink transitive deps to the workspace root, so anchoring at repoRoot fails
 // for typebox (a peer of the extension packages, not a root dep). Anchoring at
-// the entry file mirrors pi-vlm's cwd-based resolution.
+// the entry file mirrors pi-file2md's cwd-based resolution.
 function makeResolver(entryAbs: string, repoRoot: string) {
 	// Try Bun's own resolution first (handles exports maps correctly — Node's
 	// createRequire can't resolve deep subpaths like @earendil-works/pi-ai/compat
@@ -370,7 +370,7 @@ function stageResolveExternals(outfile: string, resolveBare: (s: string) => stri
 		}
 		// Scope the rewrite to IMPORT contexts only (from"spec" / import("spec")),
 		// matching the discovery regex above. A global "spec" replace would ALSO
-		// rewrite the specifier inside string-literal VALUES — e.g. pi-vlm's
+		// rewrite the specifier inside string-literal VALUES — e.g. pi-file2md's
 		// missingDeps(["@earendil-works/pi-coding-agent"], …) dep probe — turning the
 		// package name into a resolved abs path and breaking pkgBaseName() → a false
 		// "missing npm packages" error at runtime. Capture the import prefix + match

@@ -3,7 +3,7 @@ import { findCommandToken } from "../cli.ts";
 
 /**
  * Guards the regression where a global flag placed BEFORE the sub-command
- * (e.g. `--model X vlm-describe file.pdf`) caused `vlm-describe` to be fed to
+ * (e.g. `--model X file2md file.pdf`) caused `file2md` to be fed to
  * the agent as a prompt (passthrough) instead of dispatching the command.
  *
  * The command token must be resolved as the first POSITIONAL, skipping value
@@ -14,15 +14,15 @@ describe("findCommandToken — global flags before sub-command", () => {
   test("regression: --model <value> before command is detected", () => {
     const argv = [
       "--model", "lm-studio/google/gemma-4-26b-a4b-qat",
-      "vlm-describe", "fixture/p.pdf",
+      "file2md", "fixture/p.pdf",
       "--out", "./tmp/x/", "--pages", "16",
     ];
-    expect(findCommandToken(argv)).toEqual({ name: "vlm-describe", index: 2 });
+    expect(findCommandToken(argv)).toEqual({ name: "file2md", index: 2 });
   });
 
   test("command-first (no leading flags) still works (backward compat)", () => {
-    const argv = ["vlm-describe", "fixture/p.pdf", "--pages", "16"];
-    expect(findCommandToken(argv)).toEqual({ name: "vlm-describe", index: 0 });
+    const argv = ["file2md", "fixture/p.pdf", "--pages", "16"];
+    expect(findCommandToken(argv)).toEqual({ name: "file2md", index: 0 });
   });
 
   test("multiple value-flags before command are all skipped", () => {
@@ -33,8 +33,8 @@ describe("findCommandToken — global flags before sub-command", () => {
   test("= form value-flags before command are skipped", () => {
     // `--model=x` and `--pages=1` are each a single token, so the command lands
     // at index 2 (not 3 — the `=` form does not consume a separate value token).
-    const argv = ["--model=x", "--pages=1", "vlm-describe", "p.pdf"];
-    expect(findCommandToken(argv)).toEqual({ name: "vlm-describe", index: 2 });
+    const argv = ["--model=x", "--pages=1", "file2md", "p.pdf"];
+    expect(findCommandToken(argv)).toEqual({ name: "file2md", index: 2 });
   });
 
   test("meta commands are detected after global flags", () => {
@@ -60,12 +60,12 @@ describe("findCommandToken — global flags before sub-command", () => {
   });
 
   test("reserved word only counts as command when it is the FIRST positional", () => {
-    // `-p "vlm-describe"` → "vlm-describe" is the first positional and reserved,
+    // `-p "file2md"` → "file2md" is the first positional and reserved,
     // so it dispatches as a command (not a prompt). This is intentional.
-    expect(findCommandToken(["-p", "vlm-describe"])).toEqual({ name: "vlm-describe", index: 1 });
+    expect(findCommandToken(["-p", "file2md"])).toEqual({ name: "file2md", index: 1 });
     // But a reserved word appearing AFTER a non-command positional is a prompt,
     // not a command — only the first positional is considered.
-    expect(findCommandToken(["some prompt", "vlm-describe"])).toBeUndefined();
+    expect(findCommandToken(["some prompt", "file2md"])).toBeUndefined();
   });
 
   test("new interactive/agentic commands are detected", () => {
@@ -80,6 +80,6 @@ describe("findCommandToken — global flags before sub-command", () => {
   test("oneshot backward-compat alias: stripped by caller, not here", () => {
     // findCommandToken operates on already-stripped argv; the oneshot alias is
     // handled in main(). A bare leading command still resolves.
-    expect(findCommandToken(["vlm-describe", "p.pdf"])).toEqual({ name: "vlm-describe", index: 0 });
+    expect(findCommandToken(["file2md", "p.pdf"])).toEqual({ name: "file2md", index: 0 });
   });
 });

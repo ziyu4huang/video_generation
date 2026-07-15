@@ -1,9 +1,9 @@
 /**
  * `pipeline image-to-vault <image>` — image → markdown → Zettelkasten vault.
  *
- * This is the image counterpart of `pdf-to-vault`. The `vlm-describe` leaf
+ * This is the image counterpart of `pdf-to-vault`. The `file2md` leaf
  * already accepts images (magic-number sniff → `kind: image`), so this
- * pipeline reuses the SAME two-stage orchestration (vlm-describe → distill)
+ * pipeline reuses the SAME two-stage orchestration (file2md → distill)
  * with image-appropriate defaults and labels.
  *
  * Why a separate command and not just "use pdf-to-vault with an image"?
@@ -26,7 +26,7 @@ export const imageToVaultCommand = {
   bun-pi-agent-cli pipeline image-to-vault <image> [options]
 
 Runs two stages in sequence (same engine as pdf-to-vault, specialised for images):
-  1. vlm-describe  — VLM explains the image → Obsidian markdown page
+  1. file2md  — VLM explains the image → Obsidian markdown page
   2. distill       — decompose the page markdown into atomic Zettelkasten notes
 
 Accepts: png, jpg, jpeg, webp, gif, bmp.
@@ -54,7 +54,7 @@ Examples:
   bun-pi-agent-cli pipeline image-to-vault photo.webp --vlm-model lm-studio/gemma-4-26b`,
 
 	async run(parsed: ParsedArgs): Promise<void> {
-		// Delegate to the shared pdf-to-vault orchestrator. vlm-describe's
+		// Delegate to the shared pdf-to-vault orchestrator. file2md's
 		// magic-number sniff detects the image kind automatically; no --type
 		// force is needed (the classifier would run on the image directly).
 		const delegated: ParsedArgs = {

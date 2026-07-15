@@ -60,6 +60,7 @@
         "@earendil-works/pi-coding-agent": "0.80.7",
         "@repo/pi-agent": "workspace:*",
         "@repo/pi-agent-ext-distill": "workspace:*",
+        "@repo/pi-agent-ext-file2md": "workspace:*",
         "@repo/pi-agent-ext-flux2": "workspace:*",
         "@repo/pi-agent-ext-knowledge-card": "workspace:*",
         "@repo/pi-agent-ext-krea2": "workspace:*",
@@ -68,7 +69,6 @@
         "@repo/pi-agent-ext-obsidian": "workspace:*",
         "@repo/pi-agent-ext-power-tool": "workspace:*",
         "@repo/pi-agent-ext-research-tool": "workspace:*",
-        "@repo/pi-agent-ext-vlm": "workspace:*",
         "@repo/pi-agent-ext-web-access": "workspace:*",
         "@repo/pi-agent-ext-workflow": "workspace:*",
         "typebox": "latest",
@@ -112,13 +112,27 @@
         "typebox": "*",
       },
     },
+    "bun-apps/pi-agent-ext-file2md": {
+      "name": "@repo/pi-agent-ext-file2md",
+      "version": "0.1.0",
+      "devDependencies": {
+        "javascript-obfuscator": "^5.4.3",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-agent-core": "*",
+        "@earendil-works/pi-ai": "*",
+        "@earendil-works/pi-coding-agent": "*",
+        "@earendil-works/pi-tui": "*",
+        "typebox": "*",
+      },
+    },
     "bun-apps/pi-agent-ext-flux2": {
       "name": "@repo/pi-agent-ext-flux2",
       "version": "0.1.0",
       "dependencies": {
         "@earendil-works/pi-agent-core": "0.80.7",
         "@earendil-works/pi-ai": "0.80.7",
-        "@repo/pi-agent-ext-vlm": "workspace:*",
+        "@repo/pi-agent-ext-file2md": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -286,20 +300,6 @@
       "peerDependencies": {
         "@earendil-works/pi-ai": "*",
         "@earendil-works/pi-coding-agent": "*",
-        "typebox": "*",
-      },
-    },
-    "bun-apps/pi-agent-ext-vlm": {
-      "name": "@repo/pi-agent-ext-vlm",
-      "version": "0.1.0",
-      "devDependencies": {
-        "javascript-obfuscator": "^5.4.3",
-      },
-      "peerDependencies": {
-        "@earendil-works/pi-agent-core": "*",
-        "@earendil-works/pi-ai": "*",
-        "@earendil-works/pi-coding-agent": "*",
-        "@earendil-works/pi-tui": "*",
         "typebox": "*",
       },
     },
@@ -682,6 +682,8 @@
 
     "@repo/pi-agent-ext-distill": ["@repo/pi-agent-ext-distill@workspace:bun-apps/pi-agent-ext-distill"],
 
+    "@repo/pi-agent-ext-file2md": ["@repo/pi-agent-ext-file2md@workspace:bun-apps/pi-agent-ext-file2md"],
+
     "@repo/pi-agent-ext-flux2": ["@repo/pi-agent-ext-flux2@workspace:bun-apps/pi-agent-ext-flux2"],
 
     "@repo/pi-agent-ext-goal-todo": ["@repo/pi-agent-ext-goal-todo@workspace:bun-apps/pi-agent-ext-goal-todo"],
@@ -703,8 +705,6 @@
     "@repo/pi-agent-ext-power-tool": ["@repo/pi-agent-ext-power-tool@workspace:bun-apps/pi-agent-ext-power-tool"],
 
     "@repo/pi-agent-ext-research-tool": ["@repo/pi-agent-ext-research-tool@workspace:bun-apps/pi-agent-ext-research-tool"],
-
-    "@repo/pi-agent-ext-vlm": ["@repo/pi-agent-ext-vlm@workspace:bun-apps/pi-agent-ext-vlm"],
 
     "@repo/pi-agent-ext-wayfind": ["@repo/pi-agent-ext-wayfind@workspace:bun-apps/pi-agent-ext-wayfind"],
 

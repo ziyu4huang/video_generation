@@ -1,5 +1,5 @@
 /**
- * Document classification for `vlm-describe`.
+ * Document classification for `file2md`.
  *
  * Two layers:
  *

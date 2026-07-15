@@ -18,7 +18,7 @@ A pi extension that wraps the `swift/flux2-image-director` CLI as one `flux2` di
 
 - `swift/flux2-image-director` (Swift/MLX binary, auto-built)
 - `pi-agent` (run-dir manifest for auto-load)
-- `pi-agent-ext-vlm` (for scene pipeline VLM verification)
+- `pi-agent-ext-file2md` (for scene pipeline VLM verification)
 
 ## Use
 

@@ -1,5 +1,5 @@
 /**
- * vlm_ask tool wrapper — the tool registered by extensions/pi-vlm.ts.
+ * vision_ask tool wrapper — the tool registered by extensions/pi-file2md.ts.
  *
  * The tool is a thin wrapper over askImage() (whose I/O is covered by
  * ask-io.test.ts). Here we mock session-factory.ts and exercise the actual
@@ -55,7 +55,7 @@ const fakePi = {
     tools[def.name] = def;
   },
 };
-const ext = (await import("../extensions/pi-vlm.ts")).default;
+const ext = (await import("../extensions/pi-file2md.ts")).default;
 ext(fakePi as any);
 
 let dir: string;
@@ -77,16 +77,16 @@ function reset(o: { deltas?: string[]; error?: Error | null } = {}) {
   subscriber = null;
 }
 
-describe("vlm_ask tool", () => {
-  test("registers alongside vlm_describe", () => {
-    expect(tools.vlm_describe).toBeDefined();
-    expect(tools.vlm_ask).toBeDefined();
-    expect(tools.vlm_ask.label).toBe("VLM Image Q&A");
+describe("vision_ask tool", () => {
+  test("registers alongside file2md", () => {
+    expect(tools.file2md).toBeDefined();
+    expect(tools.vision_ask).toBeDefined();
+    expect(tools.vision_ask.label).toBe("Vision Image Q&A");
   });
 
   test("happy path: returns the streamed reply as inline text", async () => {
     reset({ deltas: ["a red ", "car"] });
-    const res = await tools.vlm_ask.execute(
+    const res = await tools.vision_ask.execute(
       "t1",
       { image: pngAbs, question: "what is this?" },
       undefined,
@@ -102,7 +102,7 @@ describe("vlm_ask tool", () => {
 
   test("forwards the question verbatim and attaches exactly one image", async () => {
     reset();
-    await tools.vlm_ask.execute(
+    await tools.vision_ask.execute(
       "t2",
       { image: pngAbs, question: "count the people" },
       undefined,
@@ -118,7 +118,7 @@ describe("vlm_ask tool", () => {
     const cwd = process.cwd();
     process.chdir(dir);
     try {
-      const res = await tools.vlm_ask.execute(
+      const res = await tools.vision_ask.execute(
         "t3",
         { image: "photo.png", question: "q" },
         undefined,
@@ -135,7 +135,7 @@ describe("vlm_ask tool", () => {
 
   test("forwards systemPrompt to the session", async () => {
     reset();
-    await tools.vlm_ask.execute(
+    await tools.vision_ask.execute(
       "t4",
       { image: pngAbs, question: "q", systemPrompt: "answer in one line" },
       undefined,
@@ -147,7 +147,7 @@ describe("vlm_ask tool", () => {
 
   test("default model resolves via resolveLLM (lm-studio, thinking off)", async () => {
     reset();
-    await tools.vlm_ask.execute(
+    await tools.vision_ask.execute(
       "t5",
       { image: pngAbs, question: "q" },
       undefined,
@@ -160,7 +160,7 @@ describe("vlm_ask tool", () => {
 
   test("error path: session failure → isError:true with the message", async () => {
     reset({ error: new Error("boom") });
-    const res = await tools.vlm_ask.execute(
+    const res = await tools.vision_ask.execute(
       "t6",
       { image: pngAbs, question: "q" },
       undefined,
@@ -168,7 +168,7 @@ describe("vlm_ask tool", () => {
       undefined,
     );
     expect(res.isError).toBe(true);
-    expect(res.content[0].text).toMatch(/vlm_ask failed: boom/);
+    expect(res.content[0].text).toMatch(/vision_ask failed: boom/);
     expect(res.details.error).toBe("boom");
   });
 });

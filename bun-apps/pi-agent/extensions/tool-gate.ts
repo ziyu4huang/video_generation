@@ -2,7 +2,7 @@
  * Dynamic Tool Gate Extension — reduces API tools schema overhead
  *
  * Keeps core tools always active while gating heavy domain-specific tools
- * (flux2, ltx, krea2, vlm, inspect, workflow, research) behind prompt
+ * (flux2, ltx, krea2, file2md, inspect, workflow, research) behind prompt
  * keyword matching.
  *
  * Baseline:  41 tools → ~18,500 tok/req
@@ -72,11 +72,11 @@ const GATES: ToolGate[] = [
     savedTokens: 1802,
   },
   {
-    names: ["vlm_describe", "vlm_ask"],
+    names: ["file2md", "vision_ask"],
     keywords: [
-      "vlm", "describe", "caption", "ocr", "識別", "讀圖",
+      "file2md", "vlm", "describe", "caption", "ocr", "識別", "讀圖",
       "分析圖片", "分析圖像", "read this image", "what is in",
-      "pdf", "scan",
+      "pdf", "scan", "to markdown", "轉 markdown", "vision",
     ],
     savedTokens: 685,
   },

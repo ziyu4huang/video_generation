@@ -12,7 +12,7 @@ const NO_STACK = /\n\s+at\s\S/;
 describe("arg validation — --dpi (1–4096 positive integer)", () => {
 	for (const bad of ["abc", "-1", "0", "99999", "1.5"]) {
 		test(`--dpi ${bad} → Invalid --dpi, exit 1, no stack`, () => {
-			const r = runCli(["vlm-describe", "x.pdf", "--dpi", bad]);
+			const r = runCli(["file2md", "x.pdf", "--dpi", bad]);
 			expect(r.exitCode).toBe(1);
 			expect(r.stderr).toContain("Invalid --dpi");
 			expect(r.stderr).not.toMatch(NO_STACK);

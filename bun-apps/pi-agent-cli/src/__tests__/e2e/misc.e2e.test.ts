@@ -34,12 +34,12 @@ describe("misc — global flags before the sub-command", () => {
 });
 
 describe("misc — `--` end-of-options separator", () => {
-	test("vlm-describe -- -tricky.pdf → operand treated as a positional file path", () => {
+	test("file2md -- -tricky.pdf → operand treated as a positional file path", () => {
 		// After `--`, `-tricky.pdf` becomes a positional (the file to process),
-		// NOT an unknown flag to skip. With no such file, vlm-describe fails
+		// NOT an unknown flag to skip. With no such file, file2md fails
 		// fast on input resolution — proving the leading-dash token reached the
 		// command as a file, and dispatch did not silently swallow it as a flag.
-		const r = runCli(["vlm-describe", "--", "-tricky.pdf"]);
+		const r = runCli(["file2md", "--", "-tricky.pdf"]);
 		expect(r.exitCode).toBe(1);
 		expect(r.stderr).toContain("Input not found");
 		expect(r.stderr).not.toMatch(NO_STACK);

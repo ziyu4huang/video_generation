@@ -1,6 +1,6 @@
 /**
  * build-bundle.ts — bundle the pi-agent-ext-flux2 extension into one minified .js
- * loadable via `pi -e <bundle>.js`. Mirrors pi-vlm/scripts/build-bundle.ts.
+ * loadable via `pi -e <bundle>.js`. Mirrors pi-file2md/scripts/build-bundle.ts.
  *
  *   bun scripts/build-bundle.ts            # minify only
  *   bun scripts/build-bundle.ts --obfuscate # + javascript-obfuscator pass

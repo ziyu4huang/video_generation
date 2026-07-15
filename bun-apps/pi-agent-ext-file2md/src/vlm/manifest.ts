@@ -1,5 +1,5 @@
 /**
- * Manifest model for `vlm-describe` output.
+ * Manifest model for `file2md` output.
  *
  * Each input document maps to `output/<doc-slug>/` containing:
  *   - manifest.json   — input meta + per-page status (this module's schema)

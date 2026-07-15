@@ -20,7 +20,7 @@ each package's README; this is the canonical reference.
 |------|-----|--------------|
 | [Bun](https://bun.sh) | All `pi-*` packages are Bun + TypeScript | everything |
 | Apple Silicon Mac | MLX (image/video generation) is Metal-only | `pi-agent-ext-flux2`, the mlx-movie-director pipeline |
-| [LM Studio](https://lmstudio.ai) (optional) | Local VLM / distill via Qwen3-VL/Gemma | `pi-vlm`, `zk-extract`, `vlm-describe` |
+| [LM Studio](https://lmstudio.ai) (optional) | Local VLM / distill via Qwen3-VL/Gemma | `pi-file2md`, `zk-extract`, `file2md` |
 | Swift toolchain (optional) | Builds the flux2 binary on first use | `pi-agent-ext-flux2` (or set `FLUX2_BIN` to a prebuilt binary) |
 | An LLM provider key | Cloud agents | passthrough mode (`PI_PROVIDER`/`PI_MODEL`) or `~/.pi/agent/models.json` |
 
@@ -118,7 +118,7 @@ startup (before any subagent spawns). Precedence is preserved: an explicit
 floor path skips the weak-tier check — do **not** route it through `--model`
 (that trips the weak-warning).
 
-### VLM (`pi-vlm`)
+### VLM (`pi-file2md`)
 
 | Var | Default | Purpose |
 |-----|---------|---------|
@@ -163,9 +163,9 @@ Two machine-specific consequences:
    repo root, so they work in source mode without configuration. In bundle/binary mode on a
    fresh machine, set them explicitly (the bundle may not sit next to the model tree).
 
-The `pi-vlm` build runs a portability check that warns if any `/Users/...` (macOS),
+The `pi-file2md` build runs a portability check that warns if any `/Users/...` (macOS),
 `/home/...` (Linux), or `C:\Users\...` (Windows) path leaks into bundled output
-(`bun-apps/pi-agent-ext-vlm/scripts/verify-portability.ts`).
+(`bun-apps/pi-agent-ext-file2md/scripts/verify-portability.ts`).
 
 ---
 

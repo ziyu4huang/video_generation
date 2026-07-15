@@ -9,7 +9,7 @@ outside the GUI.
 [pdw]: ../bun-apps/pi-agent-ext-workflow/
 
 This is a **non-agent** meta-command. It does NOT spin up an agent session the
-way `zk-extract` or `vlm-describe` do. The engine's own `WorkflowAgent` calls
+way `zk-extract` or `file2md` do. The engine's own `WorkflowAgent` calls
 the LLM (via the same `createAgentSession` SDK the rest of the CLI uses — no
 VSCode dependency).
 

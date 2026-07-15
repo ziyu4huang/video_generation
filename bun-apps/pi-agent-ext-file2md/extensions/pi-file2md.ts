@@ -1,10 +1,11 @@
 /**
- * pi-vlm — VLM document describer as a pi extension.
+ * pi-file2md — file→Markdown bridge for text-only agents.
  *
- * Registers the `vlm_describe` tool: converts PDF or image files to structured
- * Obsidian markdown using a local Vision Language Model served by LM Studio.
+ * Registers the `file2md` tool: converts any PDF or image file to structured
+ * Markdown that a pure-text agent can read, using a local vision-LLM subagent
+ * served by LM Studio.
  *
- * Pipeline (same as the bun-pi-agent-cli vlm-describe command):
+ * Pipeline (same as the bun-pi-agent-cli file2md command):
  *   1. Classify kind (pdf | image)           [local, magic bytes]
  *   2. PDF → page PNGs via macOS PDFKit      [--dpi]
  *   3. Classify profile (paper|slides|...)   [VLM on page 1]
@@ -87,7 +88,7 @@ export default function (pi: ExtensionAPI): void {
     if (missing.length > 0) {
       const root = findMonorepoRoot(_EXT_DIR);
       ctx.ui.notify(
-        `pi-vlm: missing npm packages: ${missing.join(", ")}.\nRun: bun install (in ${root})`,
+        `pi-file2md: missing npm packages: ${missing.join(", ")}.\nRun: bun install (in ${root})`,
         "error",
       );
       return;
@@ -95,12 +96,12 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "vlm_describe",
-    label: "VLM Document Describer",
+    name: "file2md",
+    label: "File → Markdown (VLM)",
     description:
-      "Convert a PDF or image file to structured Obsidian markdown using a local LM Studio VLM. " +
-      "Runs the full pipeline: classify kind → rasterize PDF pages → classify profile → " +
-      "per-page VLM extraction → write manifest + MOC index note.",
+      "Convert a PDF or image file to structured Markdown that a text-only agent can read, " +
+      "using a local vision-LLM subagent (LM Studio). Runs the full pipeline: classify kind → " +
+      "rasterize PDF pages → classify profile → per-page VLM extraction → write manifest + index note.",
     parameters: Type.Object({
       input: Type.String({ description: "Absolute or relative path to a PDF or image file" }),
       out: Type.Optional(
@@ -170,7 +171,7 @@ export default function (pi: ExtensionAPI): void {
       await runVlmDescribePipeline({
         inputs: [params.input],
         outRoot: outRootAbs,
-        // Honor PI_MODEL like the CLI (vlm-describe.ts) so a global VLM override
+        // Honor PI_MODEL like the CLI (file2md.ts) so a global VLM override
         // applies to the tool too, not just the CLI.
         model: params.model ?? process.env.PI_MODEL ?? DEFAULT_VLM_MODEL,
         provider: params.provider,
@@ -190,7 +191,7 @@ export default function (pi: ExtensionAPI): void {
         content: [
           {
             type: "text" as const,
-            text: `vlm-describe complete. Output: ${displayOut}/${slug}`,
+            text: `file2md complete. Output: ${displayOut}/${slug}`,
           },
         ],
         details: { input: params.input, out: outRootAbs },
@@ -199,16 +200,16 @@ export default function (pi: ExtensionAPI): void {
   });
 
   // ---------------------------------------------------------------------------
-  // vlm_ask — lightweight single-image VLM Q&A (no disk pipeline).
+  // vision_ask — lightweight single-image vision-LLM Q&A (no disk pipeline).
   // Wraps the flux2-proven askImage() primitive so the agent can interrogate
-  // one image inline without launching the full vlm_describe pipeline.
+  // one image inline without launching the full file2md pipeline.
   // ---------------------------------------------------------------------------
   pi.registerTool({
-    name: "vlm_ask",
-    label: "VLM Image Q&A",
+    name: "vision_ask",
+    label: "Vision Image Q&A",
     description:
-      "Ask one question about one image via a local LM Studio VLM and get the answer inline (text). " +
-      "Lightweight single-image query — does NOT run the full vlm_describe pipeline and does NOT write to disk. " +
+      "Ask one question about one image via a local vision-LLM subagent and get the answer inline (text). " +
+      "Lightweight single-image query — does NOT run the full file2md pipeline and does NOT write to disk. " +
       "Use for ad-hoc image questions (verifying content, reading text in an image, picking between candidates).",
     parameters: Type.Object({
       image: Type.String({ description: "Absolute or relative path to an image file" }),
@@ -256,7 +257,7 @@ export default function (pi: ExtensionAPI): void {
         return {
           isError: true as const,
           content: [
-            { type: "text" as const, text: `vlm_ask failed: ${r.error}` },
+            { type: "text" as const, text: `vision_ask failed: ${r.error}` },
           ],
           details: { image: imageAbs, error: r.error },
         };

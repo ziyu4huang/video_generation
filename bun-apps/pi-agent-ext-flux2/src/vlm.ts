@@ -1,11 +1,11 @@
 /**
- * vlm.ts — thin adapter over pi-vlm's shared VLM subagent, used only by the
+ * vlm.ts — thin adapter over pi-file2md's shared VLM subagent, used only by the
  * scene-pipeline's `verifyPrompt` step (scenePipeline.ts).
  *
  * This is deliberately NOT a new LM Studio client: `askImage`/`resolveLLM`
- * already live in pi-vlm (bun-apps/pi-vlm/src/vlm/ask.ts + sessions.ts) and
+ * already live in pi-file2md (bun-apps/pi-agent-ext-file2md/src/vlm/ask.ts + sessions.ts) and
  * are exported specifically for reuse by other tools (see its README). This
- * module just adapts pi-vlm's shapes to scenePipeline.ts's injectable
+ * module just adapts pi-file2md's shapes to scenePipeline.ts's injectable
  * `AskAboutImage` signature.
  *
  * Model resolution is FILE-INDEPENDENT: the lm-studio provider config is
@@ -18,11 +18,11 @@
  * [[pi-vlm-agentdir-global-vs-project]].
  *
  * Imported lazily (dynamic `import()`) from index.ts so the base flux2 tool
- * (t2i/scene/upscale/... without a pipeline) never pays for pi-vlm's session
+ * (t2i/scene/upscale/... without a pipeline) never pays for pi-file2md's session
  * machinery.
  */
 import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
-import { askImage, resolveLLM, type ResolvedLLM } from "@repo/pi-agent-ext-vlm";
+import { askImage, resolveLLM, type ResolvedLLM } from "@repo/pi-agent-ext-file2md";
 
 let _lmStudioRegistry: ModelRegistry | null = null;
 
@@ -53,7 +53,7 @@ function lmStudioRegistry(): ModelRegistry {
   return reg;
 }
 
-/** Default: lm-studio/google/gemma-4-26b-a4b-qat (per pi-vlm's resolveLLM default). */
+/** Default: lm-studio/google/gemma-4-26b-a4b-qat (per pi-file2md's resolveLLM default). */
 export function resolveVlmLLM(modelOverride?: string): ResolvedLLM {
   return resolveLLM(modelOverride ? { model: modelOverride } : {});
 }
@@ -64,7 +64,7 @@ export async function askAboutImage(
   llm: ResolvedLLM,
 ): Promise<{ reply: string; ok: boolean }> {
   try {
-    // Defensive: pi-vlm's askImage only wraps session.prompt() in try/catch —
+    // Defensive: pi-file2md's askImage only wraps session.prompt() in try/catch —
     // readFileSync(imagePath) and createSharedSession() run outside that try
     // block, so a not-yet-flushed image or an LM Studio connection failure
     // throws instead of resolving {ok:false} as this function's own return

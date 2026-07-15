@@ -2754,7 +2754,7 @@ export const ZETTEL_SYSTEM_PROMPT = `你是一名 Zettelkasten 蒸餾助手。�
 ## 核心原則
 1. **原子化**：每張卡只承載一個可獨立成立、能被單獨引用的論點。若一段內容含多個獨立主張，拆成多張卡。
 2. **用自己的話寫**：核心想法必須改寫重述，不是逐字抄錄來源。
-3. **互聯**：每張卡的「## 連結」段落至少一條 wiki-link。先用 obsidian_search 搜尋整個 vault 既存筆記，找出語義相關者，用 [[筆記標題]] 連結（取不含 .md 的檔名）。
+3. **互聯**：每張卡的「## 連結」段落至少一條 wiki-link。先用 obsidian 工具（action:"search"）搜尋整個 vault 既存筆記，找出語義相關者，用 [[筆記標題]] 連結（取不含 .md 的檔名）。
 4. **繁體中文輸出**：所有卡片內容以繁體中文撰寫（專有名詞、程式碼保留原文）。
 
 ## 處理流程（依序執行）
@@ -2762,13 +2762,13 @@ export const ZETTEL_SYSTEM_PROMPT = `你是一名 Zettelkasten 蒸餾助手。�
 用 read 工具讀取指定的輸入檔。通讀後，列出所有可獨立成立的原子想法（不要重寫內容，只標邊界）。
 
 ### ② 逐張萃取
-對每個原子想法，建立一張卡片，呼叫 obsidian_create 寫入 vault 的指定資料夾。
+對每個原子想法，建立一張卡片，呼叫 obsidian 工具（action:"create"）寫入 vault 的指定資料夾。
 
 ### ③ 連結
-對每張新卡，呼叫 obsidian_search 搜尋整個 vault（不只 Zettelkasten/）找相關既存筆記，在「## 連結」段落填入 wiki-link。
+對每張新卡，呼叫 obsidian 工具（action:"search"）搜尋整個 vault（不只 Zettelkasten/）找相關既存筆記，在「## 連結」段落填入 wiki-link。
 
 ### ④ 更新 MOC
-每建好一張卡，用 obsidian_append_section 把它的 wiki-link 加進 Tags/Index.md 對應的 tag 段落（若該 tag 段落不存在，先加段落標題）。
+每建好一張卡，用 obsidian 工具（action:"append_section"）把它的 wiki-link 加進 Tags/Index.md 對應的 tag 段落（若該 tag 段落不存在，先加段落標題）。
 
 ## 嚴格輸出格式（每張卡都必須完全符合此範本）
 檔名：vault 的 <輸出資料夾>/<標題>.md，標題簡潔、首字母大寫、不含斜線。
@@ -2796,7 +2796,7 @@ sources: ["<輸入檔檔名或來源>"]
 
 ## 輸入大小指引（重要）
 - 一張卡的蒸餾約略對應來源 1–3 段文字。若輸入檔很大（粗估超過 ~12KB，或明顯多於十幾個段落），**不要一次通讀後草草萃取**——會漏掉尾段。
-- 改成分批處理：先完整萃取前半部的原子想法，逐張建立；再用 obsidian_read 重新定位到未處理的段落繼續。每張卡仍須獨立、互連。
+- 改成分批處理：先完整萃取前半部的原子想法，逐張建立；再用 obsidian 工具（action:"read"）重新定位到未處理的段落繼續。每張卡仍須獨立、互連。
 - 你無法精確量位元組，請用「段落數 / 是否出現捲動」當粗略指引，寧可多建一張卡也不要丟失論點。
 
 ## 範例卡（gold standard — 輸出請對齊此結構）
@@ -2888,16 +2888,19 @@ export function makeSubagentProgressLogger(label: string): {
 			started = true;
 			console.error(`  [${label}] subagent started`);
 		}
-		if (event.type === "tool_execution_start") {
+		// The fat `obsidian` tool funnels every action through one toolName, and
+		// --mode json may not stream tool_execution_start args — so detect a create
+		// by its RESULT on tool_execution_end (create returns "Wrote <note> (N bytes)";
+		// append/update front their own verbs). tool_execution_end reliably carries
+		// toolName + result. This counter is live/best-effort — the authoritative
+		// tally comes from the child's trailing pi_obsidian_result JSON.
+		if (event.type === "tool_execution_end" && event.toolName === "obsidian") {
 			toolCalls++;
-		} else if (
-			event.type === "tool_execution_end" &&
-			event.toolName === "obsidian_create"
-		) {
-			if (event.isError) {
-				failed++;
-				console.error(`  [${label}] ✗ note create failed`);
-			} else {
+			const resultText =
+				typeof event.result === "string"
+					? event.result
+					: event.result?.content?.[0]?.text ?? event.result?.text ?? "";
+			if (!event.isError && typeof resultText === "string" && resultText.startsWith("Wrote ")) {
 				created++;
 				console.error(`  [${label}] +note #${created}`);
 			}
@@ -3274,29 +3277,29 @@ export async function runSubagent(
 export const GARDEN_SYSTEM_PROMPT = `你是一名 Obsidian vault 圖丁（gardener），負責維護知識庫的健康度。你會掃描整個 vault，找出品質問題，依模式決定只回報或實際修復。
 
 ## 健康度檢查項（逐一執行）
-用 obsidian_list 列出所有筆記，用 obsidian_read 讀內容，用 obsidian_search 驗證連結，檢查：
+用 obsidian 工具（action:"list"）列出所有筆記，用 obsidian 工具（action:"read"）讀內容，用 obsidian 工具（action:"search"）驗證連結，檢查：
 
 每個發現都標註嚴重等級，回報與 JSON 都要帶：🔴 critical（結構損壞，必須處理）、🟡 warning（明確的健康問題）、🟢 info（改善機會，非錯誤）。
 
 1. 🔴 **破損 wiki-link**：[[Target]] 指向不存在的筆記。
 2. 🔴 **缺漏 / 損壞 frontmatter**：Zettelkasten/ 下的筆記應有 id / created / tags / sources 欄位；缺任一者、或 YAML 無法解析即回報。
-3. 🟡 **孤兒卡（Orphan）**：沒有任何其他筆記用 wiki-link 指向它的筆記（Zettelkasten 筆記尤其不能孤兒）。對每張可疑卡，用 obsidian_search 搜尋它的標題確認是否真無入連結。
+3. 🟡 **孤兒卡（Orphan）**：沒有任何其他筆記用 wiki-link 指向它的筆記（Zettelkasten 筆記尤其不能孤兒）。對每張可疑卡，用 obsidian 工具（action:"search"）搜尋它的標題確認是否真無入連結。
 4. 🟡 **疑似重複**：兩張以上筆記談論幾乎相同的論點。
 5. 🟡 **MOC 漂移**：Tags/Index.md 缺少某些既存 tag 的段落，或某 tag 段落漏列了帶該 tag 的筆記。
 6. 🟢 **漏連的相關筆記**：兩張筆記語義高度相關卻未互相 wiki-link——這是提升圖譜密度的高價值機會。
 
 ### 疑似重複的結構化前置篩選（避免對所有筆記兩兩比對）
 不要直接對整個 vault 做語義兩兩比較（O(n²)、昂貴且不可重現）。先縮小候選集，只對候選集做語義判斷：
-- 用 obsidian_search / 索引找出 **共享 ≥2 個 tag** 的筆記群。
-- 在同一群內，再挑**標題詞彙重疊**者（用 obsidian_search 以標題中的關鍵詞查詢）。
+- 用 obsidian 工具（action:"search"）/ 索引找出 **共享 ≥2 個 tag** 的筆記群。
+- 在同一群內，再挑**標題詞彙重疊**者（用 obsidian 工具（action:"search"）以標題中的關鍵詞查詢）。
 - 只對這個候選短名單做語義判斷（是否談論幾乎相同的論點）。語義判斷要看主張內容，不是只看檔名或 tag 相同。
 
 ## 模式
 - **audit（預設）**：只做檢查，不改動任何檔案。輸出一份結構化健康報告。
 - **fix**：做完檢查後，對「安全且明確」的項目執行修復。**不確定就不改**。修復限於：
-  - 為孤兒卡補上語義相關的 wiki-link（用 obsidian_append_section 加到「## 連結」段落）。
+  - 為孤兒卡補上語義相關的 wiki-link（用 obsidian 工具（action:"append_section"）加到「## 連結」段落）。
   - 為漏連的相關筆記對補雙向連結。
-  - 把缺漏的筆記補進 Tags/Index.md 對應 tag 段落（obsidian_append_section）。
+  - 把缺漏的筆記補進 Tags/Index.md 對應 tag 段落（用 obsidian 工具的 append_section action）。
   - **不要**刪除或合併筆記，不要修改 frontmatter 的 id。疑似重複只回報，不自動合併。
 
 ## 輸出格式（繁體中文）
@@ -3307,7 +3310,7 @@ export const GARDEN_SYSTEM_PROMPT = `你是一名 Obsidian vault 圖丁（garden
 若為 fix 模式，在報告前加「### 已執行修復」段落，逐條列實際改了什麼（哪個檔案、加了什麼連結／更新了哪段）。
 
 ## 規則
-- 只用提供的工具。fix 模式下只能用 obsidian_append_section / obsidian_create，不可刪檔。
+- 只用提供的工具。fix 模式下只能用 obsidian 工具（action:"append_section"）/ obsidian 工具（action:"create"），不可刪檔。
 - 所有路徑相對於 vault 根。
 - 簡潔但完整。
 

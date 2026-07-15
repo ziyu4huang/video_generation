@@ -1,14 +1,15 @@
-# pi-vlm
+# pi-file2md
 
-VLM document describer for [pi](https://pi.dev): turns PDF pages and images
-into Obsidian-flavored Markdown via a local Vision Language Model (LM Studio),
-then drops the result into a project-local vault. PDFs are rasterized page by
-page, each page is described by the VLM, and the pages are stitched into one
-`.md` with frontmatter + per-page sections.
+A file→Markdown bridge for [pi](https://pi.dev): convert any PDF or image into
+structured Markdown that a **pure-text agent can read**, using a local
+vision-LLM subagent (LM Studio). PDFs are rasterized page by page, each page
+is described by the vision-LLM subagent, and the pages are stitched into one
+`.md` with frontmatter + per-page sections, then dropped into a project-local
+vault. The point: give a text-only agent eyes — it never has to "see" the file.
 
 ## What you get
 
-- `vlm-describe` — the pi tool/CLI entry point (`<files...>` → Markdown).
+- `file2md` — the pi tool/CLI entry point (`<files...>` → Markdown).
 - A resumable pipeline (`src/pipeline.ts`) that caches per-page VLM output and
   retries transient (429 / network) errors.
 - `DEFAULT_VLM_MODEL` and friends exported for reuse by downstream packages
@@ -31,7 +32,7 @@ bun scripts/build-bundle.ts --thin        # THIN bundle — peer deps external (
 bun scripts/build-bundle.ts --no-verify   # skip the self-verify stage
 ```
 
-Output: `../../dist/pi-extensions/pi-vlm.bundle.js` (gitignored, like `dist/pi-agent/`).
+Output: `../../dist/pi-extensions/pi-file2md.bundle.js` (gitignored, like `dist/pi-agent/`).
 typebox + `src/pipeline.ts` + transitive deps are inlined into one ESM file with
 the default factory export preserved, so pi's jiti loader imports it unchanged.
 
@@ -48,7 +49,7 @@ Every build ends with `stageVerify`: static integrity checks (default factory
 export present, minify applied, no dangling `../src/` refs or `/Users/` path
 leak, size sane, externals preserved in thin / inlined in full) **and**, when
 `dist/pi-agent/pi-agent.js` exists, a **live load test** that boots the real
-pi-agent bundle with `-ne -e <bundle>` and asserts `vlm_describe` registers. A
+pi-agent bundle with `-ne -e <bundle>` and asserts `file2md` registers. A
 load crash at the shipping path is a **hard failure** (exit 1) — it cannot ship a
 bundle that doesn't load. `--no-verify` skips.
 
@@ -80,7 +81,7 @@ pi loads every extension through jiti (`createJiti` + `jiti.import`,
 contains a **bare specifier** (e.g. `"typebox"`) in a
 `data:text/javascript;base64,<whole module>` package specifier to apply its
 alias transform — and bun rejects that wrapper with `NameTooLong` once the module
-exceeds a low-KB limit. Every real pi-vlm module is over that limit, so a thin
+exceeds a low-KB limit. Every real pi-file2md module is over that limit, so a thin
 bundle that leaves `"typebox"`/`"@earendil-works/*"` as bare specifiers is
 **unconditionally broken** at the shipping location:
 
@@ -106,7 +107,7 @@ Load the bundle with the pi-agent bundle:
 
 ```bash
 bun ../../dist/pi-agent/pi-agent.js -ne \
-  -e ../../dist/pi-extensions/pi-vlm.bundle.js -p "list your tools"
+  -e ../../dist/pi-extensions/pi-file2md.bundle.js -p "list your tools"
 ```
 
 

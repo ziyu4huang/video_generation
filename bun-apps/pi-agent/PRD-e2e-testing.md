@@ -148,7 +148,7 @@ Carry these into every new `test-<ext>-e2e.js` (learned from the flux2 prototype
    not cross-apply. flux2 prints `✅ generated <name>` + indented abspath + a
    `.manifest.json` sidecar; krea2 prints `[krea2] saved <abspath>`.
 4. Subagents get bash + coding tools only. They call the VLM scorer via
-   `run.py caption` (a CLI), not via a registered `pi-vlm` tool.
+   `run.py caption` (a CLI), not via a registered `pi-file2md` tool.
 5. In a worktree the MLX venv may live at `../video_generation__venv/bin/python`
    rather than `python/venv/bin/python` — probe both, or resolve via `run.py`'s own
    shebang from the repo root.

@@ -1,5 +1,5 @@
 /**
- * Bundle the pi-vlm extension into a single minified (and optionally
+ * Bundle the pi-file2md extension into a single minified (and optionally
  * obfuscated) `.js` that can be loaded via `pi -e <bundle>.js`.
  *
  * WHY
@@ -20,12 +20,12 @@
  *   bun scripts/build-bundle.ts --no-verify   # skip the self-verify stage
  *
  * OUTPUT (repo-root dist/, consistent with dist/pi-agent/):
- *   ../../dist/pi-extensions/pi-vlm.bundle.js   (full, ~6.8 MB)
- *   ../../dist/pi-extensions/pi-vlm.thin.js     (thin, ~25 KB)   [--thin]
+ *   ../../dist/pi-extensions/pi-file2md.bundle.js   (full, ~6.8 MB)
+ *   ../../dist/pi-extensions/pi-file2md.thin.js     (thin, ~25 KB)   [--thin]
  *
  * LOAD (with the pi-agent bundle):
  *   bun ../../dist/pi-agent/pi-agent.js -ne \
- *     -e ../../dist/pi-extensions/pi-vlm.bundle.js -p "list your tools"
+ *     -e ../../dist/pi-extensions/pi-file2md.bundle.js -p "list your tools"
  *
  * FULL vs THIN
  * ------------
@@ -70,20 +70,20 @@
  *   obfuscation is requested is a hard error (not a silent skip).
  * - The self-verify stage (--no-verify to skip) runs static integrity checks on
  *   the output AND, when the pi-agent bundle is present, a live load test that
- *   asserts vlm_describe registers. See stageVerify.
+ *   asserts file2md registers. See stageVerify.
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { findLeakedHomePaths } from "./verify-portability.ts";
 
-const APP_NAME = "pi-vlm";
-const ENTRY = "extensions/pi-vlm.ts";
+const APP_NAME = "pi-file2md";
+const ENTRY = "extensions/pi-file2md.ts";
 const OUTDIR = resolve(process.cwd(), "..", "..", "dist", "pi-extensions");
 const DEFAULT_OUTFILE = `${OUTDIR}/${APP_NAME}.bundle.js`;
 
 // Peer deps kept external in --thin mode. These are exactly the bare specifiers
-// pi-vlm imports that are NOT node: builtins or relative project source. After
+// pi-file2md imports that are NOT node: builtins or relative project source. After
 // bundling, stageResolveExternals REWRITES each surviving bare specifier to an
 // absolute file path (see THIN_FIX below) — that rewrite is what makes a thin
 // bundle loadable under pi's jiti loader.
@@ -106,7 +106,7 @@ const BUILTINS = new Set([
 ]);
 
 // Where the pi-agent bundle lives, for the live load test. Resolved from the
-// script's cwd (bun-apps/pi-vlm/) → repo root → dist/pi-agent/.
+// script's cwd (bun-apps/pi-file2md/) → repo root → dist/pi-agent/.
 const PI_AGENT_BUNDLE = resolve(process.cwd(), "..", "..", "dist", "pi-agent", "pi-agent.js");
 
 const argv = process.argv.slice(2);
@@ -173,7 +173,7 @@ async function stageBundle() {
 // jiti wraps any module that contains a BARE specifier (e.g. "typebox") in a
 // `data:text/javascript;base64,<whole module>` package specifier to apply the
 // alias transform, and bun rejects that wrapper with `NameTooLong` once the
-// module exceeds a low-KB limit (~between 267 B and 3.2 KB; every real pi-vlm
+// module exceeds a low-KB limit (~between 267 B and 3.2 KB; every real pi-file2md
 // module is over). FULL dodges it by having ZERO bare imports (jiti loads it
 // natively, no wrapper, no size limit).
 //
@@ -184,7 +184,7 @@ async function stageBundle() {
 // only absolute-path + node: + relative imports → no bare specifiers → jiti
 // loads it natively → no wrapper → no size limit. Verified end-to-end: the
 // abs-resolved thin bundle loads via `pi-agent.js -e <thin>.js`, registers
-// vlm_describe with all 9 params, runs the full pipeline.
+// file2md with all 9 params, runs the full pipeline.
 //
 // Bonus over FULL: every extension resolves "typebox" to the SAME absolute path
 // → bun's native module cache dedupes → all extensions SHARE one typebox (FULL
@@ -277,9 +277,9 @@ async function stageObfuscate() {
 }
 
 // ── Stage 2b: deterministic factory invocation (verify tier B) ────────────────
-// The pi-vlm factory (extensions/pi-vlm.ts) touches exactly two pi-API surfaces
+// The pi-file2md factory (extensions/pi-file2md.ts) touches exactly two pi-API surfaces
 // at registration time — pi.on("session_start", …) and pi.registerTool({name:
-// "vlm_describe", parameters: Type.Object({...})}). So a mock with just those
+// "file2md", parameters: Type.Object({...})}). So a mock with just those
 // two methods exercises the REAL registration path, including the typebox
 // Type.Object(...) schema construction via the abs-path-resolved typebox import.
 // This is option-independent (it observes behavior, not encoded strings), so it
@@ -323,12 +323,12 @@ async function liveFactoryTest(): Promise<
       detail: `factory threw on invocation (dep load / typebox schema build failed): ${String(e?.message || e).slice(0, 200)}`,
     };
   }
-  const vlm = tools.find((t) => t?.name === "vlm_describe");
+  const vlm = tools.find((t) => t?.name === "file2md");
   if (!vlm) {
     const names = tools.map((t) => t?.name).filter(Boolean);
     return {
       ok: false,
-      detail: `factory registered no vlm_describe tool (got: ${names.join(", ") || "none"})`,
+      detail: `factory registered no file2md tool (got: ${names.join(", ") || "none"})`,
     };
   }
   // typebox Type.Object({...}) serializes to {type:"object", required:[...],
@@ -339,12 +339,12 @@ async function liveFactoryTest(): Promise<
   if (missing.length) {
     return {
       ok: false,
-      detail: `vlm_describe.parameters missing key(s): ${missing.join(", ")} (got: ${gotKeys.join(", ") || "none"})`,
+      detail: `file2md.parameters missing key(s): ${missing.join(", ")} (got: ${gotKeys.join(", ") || "none"})`,
     };
   }
   return {
     ok: true,
-    detail: `vlm_describe registered, ${gotKeys.length} params (${gotKeys.join(",")}); ${tools.length} tool(s) total`,
+    detail: `file2md registered, ${gotKeys.length} params (${gotKeys.join(",")}); ${tools.length} tool(s) total`,
   };
 }
 
@@ -365,7 +365,7 @@ async function liveFactoryTest(): Promise<
 //   (B) DETERMINISTIC FACTORY INVOCATION (always, hard-fail) — the PRIMARY
 //   correctness gate, and the only one that runs under obfuscation. Dynamically
 //   import() the bundle and invoke its default factory with a mock pi API, then
-//   assert vlm_describe registers with its full 9-key parameter schema. Proves
+//   assert file2md registers with its full 9-key parameter schema. Proves
 //   the bundle is valid loadable ESM, every baked absolute dep path resolves
 //   (thin), the real typebox schema constructs, and the tool registers — with
 //   NO host bundle and regardless of how/whether obfuscation encoded the
@@ -417,7 +417,7 @@ async function stageVerify() {
   // only on minify-only output, where imports/exports are clean and literals
   // are intact. The obfuscated path is covered BEHAVIORALLY by tier (B) below,
   // which proves the same invariants (export default is a function, deps
-  // resolve, vlm_describe registers) by actually invoking the factory.
+  // resolve, file2md registers) by actually invoking the factory.
   if (!DO_OBFUSCATE) {
     // V1 — default factory export survived bundling (accept the object-literal
     // `default:` form too).
@@ -492,7 +492,7 @@ async function stageVerify() {
       const proc = Bun.spawn(
         [
           "bun", PI_AGENT_BUNDLE, "-ne", "-e", OUTFILE,
-          "-p", "reply with only the literal token VLMDONE if you have a tool named vlm_describe, else NOTOOL",
+          "-p", "reply with only the literal token FILE2MDDONE if you have a tool named file2md, else NOTOOL",
         ],
         { stdout: "pipe", stderr: "pipe" },
       );
@@ -507,7 +507,7 @@ async function stageVerify() {
       // node_modules is reachable from OUTFILE's dir — jiti wraps the module
       // in an oversized data:text/javascript URL that bun rejects. A non-zero
       // exit WITHOUT a crash signature is a soft warning (transient provider
-      // error); missing VLMDONE without a crash is also soft (LLM didn't answer).
+      // error); missing FILE2MDDONE without a crash is also soft (LLM didn't answer).
       const crashSig = /failed to load extension|nametoolong|resolvemessage|resolve error/i;
       if (crashSig.test(stdout + stderr)) {
         failures.push(
@@ -515,10 +515,10 @@ async function stageVerify() {
         );
       } else if (exitCode !== 0) {
         warnings.push(`live load exited ${exitCode} (no crash signature) — stderr: ${stderr.slice(0, 160)}`);
-      } else if (!stdout.toLowerCase().includes("vlmdone")) {
-        warnings.push(`live load: agent booted but VLMDONE not in reply (LLM/provider issue?) — output: ${stdout.slice(0, 160)}`);
+      } else if (!stdout.toLowerCase().includes("file2mdone")) {
+        warnings.push(`live load: agent booted but FILE2MDDONE not in reply (LLM/provider issue?) — output: ${stdout.slice(0, 160)}`);
       } else {
-        console.log(`  ✓ live load: pi-agent booted, vlm_describe registered`);
+        console.log(`  ✓ live load: pi-agent booted, file2md registered`);
       }
     } catch (e: any) {
       warnings.push(`live load test threw: ${String(e?.message || e).slice(0, 120)}`);
