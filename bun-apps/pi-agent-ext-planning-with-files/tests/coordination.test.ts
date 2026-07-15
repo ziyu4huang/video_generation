@@ -11,7 +11,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isExternalDriverActive, isGoalActive, isWayfindActive } from "../src/coordination.js";
-import { isPlanIncompleteInDir, planProgressLine, readPlanStatus } from "../src/plan.js";
+import { isPlanIncompleteInDir, planProgressLine, readPlanPhases, readPlanStatus } from "../src/plan.js";
 
 const GOAL_KEY = "__piGoalActive";
 const WAYFIND_KEY = "__piWayfindActive";
@@ -226,5 +226,58 @@ describe("isPlanIncompleteInDir (goal completion gate)", () => {
     // Sanity: status is closed before asserting the gate.
     expect(readPlanStatus(cwd).closed).toBe(true);
     expect(isPlanIncompleteInDir(cwd)).toBe(false);
+  });
+});
+
+// ─── readPlanPhases (reverse seam: globalThis.__piPlanPhases, ADR-0001) ────────
+// Per-phase {id, status, ticketIds?} surfaced so wayfind's syncChainState can
+// close the originating ticket when a phase completes (the loop's feedback half).
+describe("readPlanPhases (reverse seam reader)", () => {
+  it("returns per-phase {id, status, ticketIds?} for a plan with [ticket-id] headers", () => {
+    const cwd = makeCwd();
+    const dir = join(cwd, ".planning", "demo");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "task_plan.md"),
+      [
+        "# Plan",
+        "### Phase 1 — [03-foo] wire storage",
+        "**Status:** complete",
+        "### Phase 2 — no ticket here",
+        "**Status:** in_progress",
+        "### Phase 3 — [07-bar, 08-baz] multi",
+        "**Status:** pending",
+      ].join("\n"),
+    );
+    expect(readPlanPhases(cwd)).toEqual([
+      { id: "1", status: "complete", ticketIds: ["03-foo"] },
+      { id: "2", status: "in_progress" },
+      { id: "3", status: "pending", ticketIds: ["07-bar", "08-baz"] },
+    ]);
+  });
+
+  it("omits ticketIds when no [id] ref is present in the header", () => {
+    const cwd = makeCwd();
+    const dir = join(cwd, ".planning", "demo");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "task_plan.md"), ["# Plan", "### Phase 1", "**Status:** complete"].join("\n"));
+    const phases = readPlanPhases(cwd);
+    expect(phases).toEqual([{ id: "1", status: "complete" }]);
+    expect(phases[0]).not.toHaveProperty("ticketIds");
+  });
+
+  it("returns [] when no plan exists", () => {
+    expect(readPlanPhases(makeCwd())).toEqual([]);
+  });
+
+  it("returns [] for a closed plan (closed/abandoned → inert, no tickets surfaced)", () => {
+    const cwd = makeCwd();
+    const dir = join(cwd, ".planning", "demo");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "task_plan.md"),
+      ["# Plan", "### Phase 1 — [01-x]", "**Status:** complete", CLOSED_MARKER].join("\n"),
+    );
+    expect(readPlanPhases(cwd)).toEqual([]);
   });
 });

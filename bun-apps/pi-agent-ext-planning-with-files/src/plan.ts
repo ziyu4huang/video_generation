@@ -205,6 +205,72 @@ export function isCloseMarker(planContent: string): boolean {
   );
 }
 
+/** Split a plan body into per-phase `{header, body}` blocks (header = the
+ *  `### Phase …` line; body = lines until the next phase heading). Shared by
+ *  parsePlanMetrics (aggregate counts) and readPlanPhasesFromContent (per-phase
+ *  detail) so the two never drift on what counts as a phase. */
+const PHASE_HEADER_RE = /^###\s+Phase\b/i;
+interface PhaseBlock {
+  header: string;
+  body: string[];
+}
+function collectPhaseBlocks(planContent: string): PhaseBlock[] {
+  const blocks: PhaseBlock[] = [];
+  let current: PhaseBlock | null = null;
+  for (const line of planContent.split("\n")) {
+    if (PHASE_HEADER_RE.test(line)) {
+      if (current) blocks.push(current);
+      current = { header: line, body: [] };
+    } else if (current) {
+      current.body.push(line);
+    }
+  }
+  if (current) blocks.push(current);
+  return blocks;
+}
+
+/** A single phase's machine-readable state — the reverse-seam payload
+ *  (globalThis.__piPlanPhases) that lets wayfind close the originating ticket
+ *  when a phase completes (ADR-0001; the feedback half of the chain loop). */
+export interface PhaseInfo {
+  /** Phase number as a string, e.g. "1" (from `### Phase 1 …`); falls back to
+   *  the raw header when no number is parseable. */
+  id: string;
+  status: PhaseStatus;
+  /** Ticket ids referenced in the phase header
+   *  (`### Phase 3 — [03-foo, 04-bar] title`), present ONLY when the header
+   *  carries a `[…]` ref. Omitted (not `[]`) when absent so consumers can tell
+   *  "no ticket mapping" from "empty". */
+  ticketIds?: string[];
+}
+
+/** Extract the `[id]` / `[id, id]` ticket refs from a phase header line.
+ *  `### Phase 3 — [03-foo, 04-bar] title` → `["03-foo", "04-bar"]`. Exported for
+ *  unit testing. */
+export function parsePhaseTicketIds(header: string): string[] {
+  const m = header.match(/\[([^\]]+)\]/);
+  if (!m) return [];
+  return m[1]
+    .split(/[,\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** Per-phase detail parsed from raw plan content (pure). A closed plan returns
+ *  [] — a finished/abandoned plan surfaces nothing for wayfind to close. */
+export function readPlanPhasesFromContent(planContent: string): PhaseInfo[] {
+  if (isCloseMarker(planContent)) return [];
+  const out: PhaseInfo[] = [];
+  for (const block of collectPhaseBlocks(planContent)) {
+    const num = block.header.match(/^###\s+Phase\s+(\d+)/i);
+    const id = num ? num[1] : block.header;
+    const status = classifyPhaseStatus(block.header, block.body);
+    const ticketIds = parsePhaseTicketIds(block.header);
+    out.push({ id, status, ...(ticketIds.length > 0 ? { ticketIds } : {}) });
+  }
+  return out;
+}
+
 /** Phase-count metrics derived from a plan + progress content blob. Extracted
  * pure so multi-plan enumeration (lifecycle.ts) can parse NON-active plan dirs
  * without going through the active-plan resolver. */
@@ -223,23 +289,11 @@ interface PlanMetrics {
 function parsePlanMetrics(planContent: string, progressContent: string): PlanMetrics {
   const lines = planContent.split("\n");
 
-  const phaseRegex = /^###\s+Phase\b/i;
-
   // Parse phase-by-phase so each block is classified independently. This is a
   // strict improvement over the legacy global counter: it correctly handles
   // mixed Status:/bracket formats within one plan, and it lets per-block emoji
   // markers (✅/⏸/🔄) be attributed to the right phase instead of being missed.
-  const blocks: { header: string; body: string[] }[] = [];
-  let current: { header: string; body: string[] } | null = null;
-  for (const line of lines) {
-    if (phaseRegex.test(line)) {
-      if (current) blocks.push(current);
-      current = { header: line, body: [] };
-    } else if (current) {
-      current.body.push(line);
-    }
-  }
-  if (current) blocks.push(current);
+  const blocks = collectPhaseBlocks(planContent);
 
   const total = blocks.length;
   let complete = 0;
@@ -298,6 +352,19 @@ export function readPlanStatusFromPaths(paths: PlanPaths): PlanStatus {
 
 export function readPlanStatus(cwd: string): PlanStatus {
   return readPlanStatusFromPaths(resolvePlanPaths(cwd));
+}
+
+/**
+ * Reverse-seam reader (ADR-0001): per-phase `{id, status, ticketIds?}` for the
+ * active plan at `cwd`. Published on `globalThis.__piPlanPhases` so wayfind's
+ * `syncChainState` can close the originating ticket when a phase completes —
+ * the feedback half of the continuous chain loop. Returns [] when there is no
+ * plan or the plan is closed (inert). Pure-ish: reads files, never mutates.
+ */
+export function readPlanPhases(cwd: string): PhaseInfo[] {
+  const paths = resolvePlanPaths(cwd);
+  if (!paths.planPath || !existsSync(paths.planPath)) return [];
+  return readPlanPhasesFromContent(safeRead(paths.planPath));
 }
 
 export function isAllPhasesComplete(status: PlanStatus): boolean {
