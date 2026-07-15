@@ -14,6 +14,7 @@ import {
   Container,
   Input,
   Key,
+  Markdown,
   Text,
   matchesKey,
   truncateToWidth,
@@ -23,7 +24,7 @@ import {
   type KeybindingsManager,
   type TUI,
 } from "@earendil-works/pi-tui";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getMarkdownTheme, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type {
   BtwTranscript,
   BtwTranscriptEntry,
@@ -42,12 +43,16 @@ function buildTranscriptBadge(
   return theme.bg(background, theme.fg(foreground, theme.bold(` ${label} `)));
 }
 
-function buildOverlayTranscript(entries: BtwTranscript, theme: ExtensionContext["ui"]["theme"]): string[] {
+export type OverlayLine =
+  | { kind: "plain"; text: string }
+  | { kind: "markdown"; text: string; indent: string };
+
+export function buildOverlayTranscript(entries: BtwTranscript, theme: ExtensionContext["ui"]["theme"]): OverlayLine[] {
   if (entries.length === 0) {
-    return [theme.fg("dim", "No BTW thread yet. Ask a side question to start one.")];
+    return [{ kind: "plain", text: theme.fg("dim", "No BTW thread yet. Ask a side question to start one.") }];
   }
 
-  const lines: string[] = [];
+  const lines: OverlayLine[] = [];
   const userBadge = buildTranscriptBadge(theme, "You", "userMessageBg", "accent");
   const thinkingBadge = buildTranscriptBadge(theme, "Thinking", "toolPendingBg", "warning");
   const toolBadge = buildTranscriptBadge(theme, "Tool", "toolPendingBg", "warning");
@@ -56,8 +61,9 @@ function buildOverlayTranscript(entries: BtwTranscript, theme: ExtensionContext[
   const blockIndent = "    ";
   const resultIndent = blockIndent;
 
+  const isBlank = (line: OverlayLine): boolean => line.kind === "plain" && line.text === "";
   const pushBlankLine = () => {
-    if (lines.length > 0 && lines[lines.length - 1] !== "") lines.push("");
+    if (lines.length > 0 && !isBlank(lines[lines.length - 1])) lines.push({ kind: "plain", text: "" });
   };
 
   const pushInlineBlock = (
@@ -69,8 +75,8 @@ function buildOverlayTranscript(entries: BtwTranscript, theme: ExtensionContext[
     const style = options.style ?? ((v: string) => v);
     if (options.blankBefore !== false) pushBlankLine();
     const firstLine = bodyLines.shift() ?? "";
-    lines.push(`${header}${firstLine ? ` ${style(firstLine)}` : ""}`);
-    for (const line of bodyLines) lines.push(`${blockIndent}${style(line)}`);
+    lines.push({ kind: "plain", text: `${header}${firstLine ? ` ${style(firstLine)}` : ""}` });
+    for (const line of bodyLines) lines.push({ kind: "plain", text: `${blockIndent}${style(line)}` });
   };
 
   const pushStackedBlock = (
@@ -82,13 +88,13 @@ function buildOverlayTranscript(entries: BtwTranscript, theme: ExtensionContext[
     const indent = options.indent ?? blockIndent;
     const style = options.style ?? ((v: string) => v);
     if (options.blankBefore !== false) pushBlankLine();
-    lines.push(header);
-    for (const line of bodyLines) lines.push(`${indent}${style(line)}`);
+    lines.push({ kind: "plain", text: header });
+    for (const line of bodyLines) lines.push({ kind: "plain", text: `${indent}${style(line)}` });
   };
 
   for (const entry of entries) {
     if (entry.type === "turn-boundary") {
-      if (entry.phase === "start" && lines.length > 0) { pushBlankLine(); lines.push(separator); }
+      if (entry.phase === "start" && lines.length > 0) { pushBlankLine(); lines.push({ kind: "plain", text: separator }); }
       continue;
     }
     if (entry.type === "user-message") { pushInlineBlock(userBadge, entry.text, { blankBefore: false }); continue; }
@@ -119,11 +125,44 @@ function buildOverlayTranscript(entries: BtwTranscript, theme: ExtensionContext[
     }
     if (entry.type === "assistant-text") {
       const h = entry.streaming ? `${assistantBadge} ${theme.fg("warning", "▍")}` : assistantBadge;
-      pushStackedBlock(h, entry.text);
+      pushBlankLine();
+      lines.push({ kind: "plain", text: h });
+      // Render the body as real markdown (headings, bold, code, lists) at
+      // render-time width — see wrapOverlayLines. Indented under the badge.
+      lines.push({ kind: "markdown", text: entry.text, indent: blockIndent });
     }
   }
 
   return lines;
+}
+
+/**
+ * Width-aware rendering of overlay blocks into styled terminal lines.
+ *
+ * `plain` blocks are wrapped with the existing ANSI-aware wrapper. `markdown`
+ * blocks are rendered through pi-tui's `Markdown` component at the current
+ * width (so headings/bold/code/lists render naturally AND re-flow on terminal
+ * resize), then prefixed with the block's indent. Markdown lines are already
+ * wrapped by `Markdown.render(width)`, so they bypass the plain wrapper.
+ */
+export function wrapOverlayLines(
+  blocks: OverlayLine[],
+  innerWidth: number,
+  markdownTheme: ReturnType<typeof getMarkdownTheme> = getMarkdownTheme(),
+): string[] {
+  const out: string[] = [];
+  for (const block of blocks) {
+    if (block.kind === "markdown") {
+      const contentWidth = Math.max(1, innerWidth - visibleWidth(block.indent));
+      const rendered = new Markdown(block.text, 0, 0, markdownTheme).render(contentWidth);
+      for (const line of rendered) out.push(block.indent ? `${block.indent}${line}` : line);
+    } else if (block.text === "") {
+      out.push("");
+    } else {
+      out.push(...wrapTextWithAnsi(block.text, Math.max(1, innerWidth)));
+    }
+  }
+  return out;
 }
 
 function getOverlayTitle(mode: BtwThreadMode): string {
@@ -156,7 +195,7 @@ export class BtwOverlayComponent extends Container implements Focusable {
   private readonly onUnfocusCallback: () => void;
   private readonly tui: TUI;
   private readonly theme: ExtensionContext["ui"]["theme"];
-  private transcriptLines: string[] = [];
+  private transcriptBlocks: OverlayLine[] = [];
   private transcriptScrollOffset = 0;
   private transcriptViewportHeight = 8;
   private followTranscript = true;
@@ -237,12 +276,7 @@ export class BtwOverlayComponent extends Container implements Focusable {
   }
 
   private wrapTranscript(innerWidth: number): string[] {
-    const wrapped: string[] = [];
-    for (const line of this.transcriptLines) {
-      if (!line) { wrapped.push(""); continue; }
-      wrapped.push(...wrapTextWithAnsi(line, Math.max(1, innerWidth)));
-    }
-    return wrapped;
+    return wrapOverlayLines(this.transcriptBlocks, innerWidth);
   }
 
   private getDialogHeight(): number {
@@ -369,9 +403,9 @@ export class BtwOverlayComponent extends Container implements Focusable {
     this.summaryTextValue = `${exchanges} exchange${exchanges === 1 ? "" : "s"}${active}`;
     this.summaryText.setText(this.summaryTextValue);
 
-    this.transcriptLines = buildOverlayTranscript(entries, this.theme);
+    this.transcriptBlocks = buildOverlayTranscript(entries, this.theme);
     this.transcript.clear();
-    for (const line of this.transcriptLines) this.transcript.addChild(new Text(line, 1, 0));
+    for (const block of this.transcriptBlocks) this.transcript.addChild(new Text(block.text, 1, 0));
 
     const status = this.getStatus() ?? "Ready. Enter submits; Escape dismisses without clearing.";
     this.statusTextValue = status;
