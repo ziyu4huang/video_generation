@@ -8,7 +8,7 @@ A **Pi-native** port of [Matt Pocock's decision-chain skill suite](https://githu
 
 | capability | implementation |
 |---|---|
-| 8 skills | grilling, grill-me, grill-with-docs, grill-me-with-docs (flagship), domain-modeling, to-spec, to-tickets, wayfinder |
+| 7 skills | grilling, grill-me, grill-me-with-docs (flagship), domain-modeling, to-spec, to-tickets, wayfinder |
 | 5 slash commands | `/grill-me`, `/grill-me-with-docs` (flagship), `/grill-done [--seed-plan]`, `/domain-modeling`, `/wayfinder [destination]`, `/wayfinder-status` |
 | coordination seam | publishes `globalThis.__piWayfindActive`; **planning-with-files yields** its injection/auto-continue during a live grill (mirror of the `goal↔planning` pattern) |
 | grill→plan handoff | `/grill-done --seed-plan` reads the `CONTEXT.md` glossary + writes a `task_plan.md` seed → run `/plan-execute` |
