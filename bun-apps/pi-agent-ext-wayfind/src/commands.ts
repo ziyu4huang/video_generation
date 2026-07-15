@@ -16,6 +16,7 @@ import { PKG_NAME } from "./constants.js";
 import { publishWayfindActive, unpublishWayfindActive } from "./coordination.js";
 import { buildGrillPriming, buildPlanSeed, parseGlossary } from "./grill.js";
 import { getSessionId, isGrillActive, type RuntimeState } from "./state.js";
+import { chartMap, claimNextTicket, renderStatus, slugify, statusReport } from "./wayfinder.js";
 
 export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
   /** Shared kickoff: set the active-grill state, refresh the published seam, and
@@ -131,12 +132,95 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
       ctx.ui.setStatus(PKG_NAME, "domain-modeling active");
     },
   });
+
+  pi.registerCommand("wayfinder", {
+    description:
+      "Chart a huge effort as a local-markdown map of decision tickets (.planning/<effort>/), or work the next frontier ticket if a map exists.",
+    handler: async (args, ctx) => {
+      const sessionId = getSessionId(ctx);
+      const destination = args.trim();
+
+      // No args + an active effort for this session → work the next frontier ticket.
+      const activeEffort = state.activeEffortBySession.get(sessionId);
+      if (!destination) {
+        const effort = activeEffort;
+        if (!effort) {
+          ctx.ui.notify(
+            `Usage: /wayfinder <destination> to chart a new map, or set an active effort first.`,
+            "warning",
+          );
+          return;
+        }
+        const claimed = claimNextTicket(ctx.cwd, effort, sessionId);
+        if (!claimed) {
+          const r = statusReport(ctx.cwd, effort);
+          ctx.ui.notify(
+            r
+              ? `${renderStatus(r)}\nNo unclaimed frontier ticket — chart more or resolve claimed ones.`
+              : `No map at .planning/${effort}/`,
+            "info",
+          );
+          return;
+        }
+        state.activeEffortBySession.set(sessionId, effort);
+        publishWayfindActive(state);
+        ctx.ui.setStatus(PKG_NAME, `wayfinder: ${effort} — ticket ${claimed.id} ${claimed.title}`);
+        pi.sendUserMessage(
+          [
+            `Working wayfinder ticket ${claimed.id} "${claimed.title}" on effort ${effort}.`,
+            `Load the \`wayfinder\` skill. Ticket type: ${claimed.type}.`,
+            `Question: ${claimed.question}`,
+            "Resolve it (one ticket this session): record the answer, then close the ticket + append to the map's Decisions so far. Graduate any newly-specifiable fog into fresh tickets.",
+          ].join("\n"),
+          { deliverAs: "steer" },
+        );
+        return;
+      }
+
+      // Args → chart a new map.
+      const effort = slugify(destination);
+      chartMap(ctx.cwd, effort, destination);
+      state.activeEffortBySession.set(sessionId, effort);
+      publishWayfindActive(state);
+      ctx.ui.setStatus(PKG_NAME, `wayfinder: charting ${effort}`);
+      ctx.ui.notify(`[${PKG_NAME}] Map created at .planning/${effort}/map.md`, "info");
+      pi.sendUserMessage(
+        [
+          `Charting a wayfinder map for: ${destination}`,
+          "Load the `wayfinder` skill (chart-the-map mode).",
+          "1. Grill to pin the destination + scope. 2. Map the frontier breadth-first — surface open decisions + first takeable steps. 3. If no fog surfaces, the journey is small enough to skip the map (tell me). 4. Otherwise create tickets under .planning/" +
+            effort +
+            "/tickets/ (one file each, wired with blocking edges).",
+        ].join("\n"),
+        { deliverAs: "steer" },
+      );
+    },
+  });
+
+  pi.registerCommand("wayfinder-status", {
+    description: "Show the frontier + ticket counts for a wayfinder effort (defaults to the session's active effort).",
+    handler: async (args, ctx) => {
+      const sessionId = getSessionId(ctx);
+      const effort = args.trim() || state.activeEffortBySession.get(sessionId);
+      if (!effort) {
+        ctx.ui.notify("Usage: /wayfinder-status <effort>  (or run /wayfinder <destination> first)", "warning");
+        return;
+      }
+      const r = statusReport(ctx.cwd, effort);
+      if (!r) {
+        ctx.ui.notify(`No map at .planning/${effort}/map.md`, "warning");
+        return;
+      }
+      ctx.ui.notify(renderStatus(r), "info");
+    },
+  });
 }
 
-/** Clear the active grill for a session (called on session_shutdown in index.ts). */
+/** Clear the active grill/effort for a session (called on session_shutdown in index.ts). */
 export function endGrillForSession(state: RuntimeState, sessionId: string): void {
   state.activeGrillBySession.delete(sessionId);
   state.grillWithDocsBySession.delete(sessionId);
+  state.activeEffortBySession.delete(sessionId);
   publishWayfindActive(state); // refresh; if no sessions remain, the seam reads false
   // If nothing is active anymore, unpublish so globalThis is clean.
   if (state.activeGrillBySession.size === 0 && state.activeEffortBySession.size === 0) {
