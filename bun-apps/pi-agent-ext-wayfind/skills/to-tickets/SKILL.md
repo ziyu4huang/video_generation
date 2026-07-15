@@ -1,6 +1,7 @@
 ---
 name: to-tickets
 description: Use when breaking an agreed plan, spec, or conversation into tracer-bullet tickets — each a complete vertical slice declaring its blocking edges. Writes one file per ticket under .planning/<effort>/tickets/. Invocation-only via /to-tickets.
+disable-model-invocation: true
 ---
 
 # To Tickets

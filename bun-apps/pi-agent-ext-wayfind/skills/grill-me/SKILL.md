@@ -1,6 +1,7 @@
 ---
 name: grill-me
 description: Use when the user wants a relentless interview to sharpen a plan or design and invokes /grill-me (or asks to "grill me"). Runs a grilling session — one decision at a time, with a recommended answer offered for each question.
+disable-model-invocation: true
 ---
 
 # Grill Me

@@ -1,6 +1,7 @@
 ---
 name: wayfinder
 description: Use when planning a huge chunk of work — more than one agent session can hold — whose route is still foggy. Charts the effort as a shared local-markdown map of decision tickets under .planning/<effort>/ and resolves them one at a time until the way to the destination is clear. Invocation-only via /wayfinder.
+disable-model-invocation: true
 ---
 
 # Wayfinder

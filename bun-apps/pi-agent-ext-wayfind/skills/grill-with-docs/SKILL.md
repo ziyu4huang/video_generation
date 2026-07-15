@@ -1,6 +1,7 @@
 ---
 name: grill-with-docs
 description: Use when the user wants a relentless interview that ALSO captures its output — writes resolved terms to a CONTEXT.md glossary and hard-to-reverse decisions as ADRs as the grill runs. Invocation-only via /grill-with-docs; same interview as grilling but it leaves a paper trail.
+disable-model-invocation: true
 ---
 
 # Grill With Docs

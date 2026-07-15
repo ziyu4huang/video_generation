@@ -1,6 +1,7 @@
 ---
 name: to-spec
 description: Use when turning an already-discussed conversation into a spec (PRD) — no interview, just synthesis of what's already on the table. Writes the spec to a local file; invocation-only via /to-spec.
+disable-model-invocation: true
 ---
 
 # To Spec
