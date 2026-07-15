@@ -201,7 +201,7 @@ async function runCli(args: string[]): Promise<{ stdout: string; stderr: string;
 // Gated off CI (portability P2: Bun.spawn is a host-binary coupling) — see
 // .github/TEST-PORTABILITY.md. They run locally (verified) but skip on bare
 // CI runners, matching gui-movie-director/scripts/check-runtime.test.ts.
-describe.skipIf(process.env.CI)("CLI integration (subprocess)", () => {
+describe.skipIf(!!process.env.CI)("CLI integration (subprocess)", () => {
 	test("--version prints the version line", async () => {
 		const r = await runCli(["--version"]);
 		expect(r.exitCode).toBe(0);

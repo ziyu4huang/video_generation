@@ -47,7 +47,7 @@ JSON
 | **test · `<package>`** (matrix of 16) | Each `bun-apps/*` package's test suite | **blocks** |
 | **extension-contract** | The 5 extension-protocol tests (factory loads, wires up, no conflicts, valid schema, handler present) — a named, visible check, not buried in the pi-agent run | **blocks** |
 | **deploy --verify** | Builds pi-agent, bundles the 9 extensions, boots the deployed artifact from a foreign cwd, probes `getAllTools` for 0 conflicts | **blocks** |
-| **regression gates** | 2 MB file-size guard (twin of `.githooks/pre-commit`) **+** schema-cost regression (warns >5%) **+** test-portability audit (warn-only v1 — surfaces new ungated machine-coupled tests; see [TEST-PORTABILITY.md](TEST-PORTABILITY.md)) | file-size **blocks**; schema-cost + portability **warn only** |
+| **regression gates** | 2 MB file-size guard (twin of `.githooks/pre-commit`) **+** lockfile duplicate-version guard (the `@earendil-works/*` family must resolve to one version workspace-wide) **+** schema-cost regression (warns >5%) **+** test-portability audit (warn-only v1 — surfaces new ungated machine-coupled tests; see [TEST-PORTABILITY.md](TEST-PORTABILITY.md)) | file-size + lockfile-duplicate-version **block**; schema-cost + portability **warn only** |
 
 The test matrix gives a **native per-package check row** in the PR UI — a broken
 package goes red by name. `fail-fast: false` so every package reports even when

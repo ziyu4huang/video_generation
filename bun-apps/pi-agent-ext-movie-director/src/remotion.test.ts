@@ -11,7 +11,6 @@ import {
   type SpawnImpl,
   type SpawnResult,
 } from "./remotion.ts";
-import { existsSync } from "node:fs";
 
 // Drive binary resolution deterministically: point REMOTION_BIN at a real file
 // (this test file itself) so resolveRemotionBin returns it verbatim — no PATH

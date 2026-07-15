@@ -330,7 +330,7 @@ describe("compose + final-review end-to-end (real ffmpeg)", () => {
       const run = (cmd: string, argv: string[]) =>
         new Promise<number>((res) => {
           const p = spawn(cmd, argv, { stdio: ["ignore", "pipe", "pipe"] });
-          p.on("exit", (c) => res(c ?? -1));
+          p.on("exit", (c: number | null) => res(c ?? -1));
           p.on("error", () => res(-1));
         });
       const a = join(dir, "a.mp4");

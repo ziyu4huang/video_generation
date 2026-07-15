@@ -32,3 +32,12 @@ export * from "./waypoints.ts";
 export * from "./assets-encoder.ts";
 export * from "./driver-wiring.ts";
 export * from "./waypoint-runtime.ts";
+
+// providers.ts and compose.ts each keep an INDEPENDENT ffmpeg-availability
+// cache + test-override (separate feature-detection call sites, separate
+// state — not a shared toggle). Both `export *` above so the barrel star-
+// exports collide on this one name; disambiguate explicitly (TS2308) in favor
+// of providers.ts's, since it's the one probeConfigured()/the tool selector
+// reads. compose.test.ts / providers.test.ts / selector.test.ts already import
+// each file's own version directly and are unaffected by this barrel pick.
+export { _setFfmpegAvailableForTest } from "./providers.ts";
