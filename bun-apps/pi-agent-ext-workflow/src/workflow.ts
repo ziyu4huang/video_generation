@@ -16,7 +16,7 @@ import {
 import { buildCallGlobal } from "./call-global.js";
 import { DEFAULT_AGENT_TIMEOUT_MS, MAX_AGENT_RETRIES, MAX_AGENTS_PER_RUN, MAX_CONCURRENCY } from "./config.js";
 import { WorkflowError, WorkflowErrorCode, wrapError } from "./errors.js";
-import type { HostFnRegistry } from "./host-fn-registry.js";
+import type { HostFnAskOptions, HostFnRegistry } from "./host-fn-registry.js";
 import { createWorkflowLogger } from "./logger.js";
 import { parseModelRoutingFromMeta, resolveModelForPhase } from "./model-routing.js";
 import { createWorktree, removeWorktree, type Worktree } from "./worktree.js";
@@ -904,6 +904,14 @@ export async function runWorkflow<T = unknown>(
       onAgentEnd: options.onAgentEnd as Parameters<typeof buildCallGlobal>[0]["options"]["onAgentEnd"],
       cwd: options.cwd ?? process.cwd(),
       signal: options.signal,
+      // Thread the UI-bearing confirm() (the same callback checkpoint() uses)
+      // into host-fns as ctx.ask. Wrapped because confirm() requires a
+      // CheckpointOptions arg while ctx.ask takes an optional HostFnAskOptions;
+      // `{ ...o }` is a valid all-optional CheckpointOptions. Undefined when
+      // headless (no confirm threaded) → ctx.ask undefined → host-fn falls back.
+      ask: options.confirm
+        ? (promptText: string, o?: HostFnAskOptions) => options.confirm!(promptText, { ...o })
+        : undefined,
     },
     runId,
     throwIfAborted,

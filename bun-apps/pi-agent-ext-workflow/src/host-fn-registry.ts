@@ -1,10 +1,33 @@
 import type { TSchema } from "typebox";
 
+/** Options for HostFnCtx.ask — a structural subset of workflow CheckpointOptions
+ *  (kept local to avoid a circular import workflow → host-fn-registry).
+ *  Mirrors the fields a host-fn author would set: default, headless, kind, choices. */
+export interface HostFnAskOptions {
+  /** Reply used when no UI is available (headless/background) and headless != "abort". */
+  default?: unknown;
+  /** Headless behavior: "default" (take `default`/true) or "abort" (throw). Default "default". */
+  headless?: "default" | "abort";
+  /** Confirm | free-text input | pick-one. Affects the UI widget. */
+  kind?: "confirm" | "input" | "select";
+  /** For kind "select". */
+  choices?: string[];
+}
+
 /** Context handed to every host fn. The runtime is vault-agnostic. */
 export interface HostFnCtx {
   cwd: string;
   signal: AbortSignal;
   runId: string;
+  /**
+   * Ask the human a question mid-host-fn; resolves to their reply. Present iff
+   * the run is UI-bearing (threaded from the same confirm() checkpoint() uses);
+   * undefined in headless/background runs — the host-fn must then fall back to
+   * its own default. The host-fn RESULT (shaped by the answer) is journaled by
+   * call(), so a journal replay never re-asks. Host-fns run INLINE in the
+   * workflow runtime (not in subagents), so this callback reaches the main
+   * session's UI directly. */
+  ask?: (promptText: string, options?: HostFnAskOptions) => Promise<unknown>;
 }
 
 export interface HostFnEntry {
