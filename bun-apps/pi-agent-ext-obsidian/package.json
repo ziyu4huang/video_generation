@@ -6,6 +6,12 @@
   "license": "MIT",
   "keywords": ["pi-package", "obsidian", "pi", "knowledge-base", "vault"],
   "type": "module",
+  "main": "./extensions/obsidian.ts",
+  "exports": {
+    ".": "./extensions/obsidian.ts",
+    "./extensions/*": "./extensions/*",
+    "./src/*": "./src/*"
+  },
   "scripts": {
     "test": "bun test extensions/__tests__/",
     "test:coverage": "bun test --coverage extensions/__tests__/",

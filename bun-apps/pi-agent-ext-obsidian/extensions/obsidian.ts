@@ -1392,23 +1392,19 @@ export default function (pi: ExtensionAPI) {
 	// Phase 5 / WS-B6: distill/garden tool lists are env-overridable so a custom
 	// workflow can grant extra tools (or restrict them) without code changes.
 	// Each env var is a comma-separated tool-name list; empty/unset → defaults.
+	// The distiller/gardener subagents now use the single fat `obsidian` tool
+	// (action-based dispatch) — no more separate obsidian_* tool names. The
+	// `read` tool stays for the distiller to read the input files (outside the
+	// vault); the gardener is vault-only so it just gets `obsidian`.
 	const OBSIDIAN_DISTILL_TOOLS = toolAllowlist("OB_DISTILL_TOOLS", [
 		"read",
-		"obsidian_list",
-		"obsidian_read",
-		"obsidian_search",
-		"obsidian_create",
-		"obsidian_append_section",
+		"obsidian",
 	]);
 	const GARDEN_AUDIT_TOOLS = toolAllowlist("OB_GARDEN_AUDIT_TOOLS", [
-		"obsidian_list",
-		"obsidian_read",
-		"obsidian_search",
+		"obsidian",
 	]);
 	const GARDEN_FIX_TOOLS = toolAllowlist("OB_GARDEN_FIX_TOOLS", [
 		...GARDEN_AUDIT_TOOLS,
-		"obsidian_create",
-		"obsidian_append_section",
 	]);
 	_capture.registerTool({
 		name: "obsidian_distill",
