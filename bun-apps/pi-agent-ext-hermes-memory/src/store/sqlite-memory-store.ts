@@ -562,7 +562,7 @@ export function removeExactSyncedMemories(
 export function searchMemories(
   dbManager: DatabaseManager,
   query: string,
-  options: { project?: string; target?: string; category?: MemoryCategory; limit?: number } = {}
+  options: { project?: string | null; target?: string; category?: MemoryCategory; limit?: number } = {}
 ): SqliteMemoryEntry[] {
   if (query.trim().length === 0) {
     return [];
