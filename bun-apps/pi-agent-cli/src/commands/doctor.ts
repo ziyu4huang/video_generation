@@ -294,9 +294,13 @@ async function realProbeLmStudio(baseUrl: string): Promise<boolean> {
 		const ctrl = new AbortController();
 		const timer = setTimeout(() => ctrl.abort(), 1500);
 		const url = baseUrl.replace(/\/$/, "") + "/models";
-		const res = await fetch(url, { signal: ctrl.signal });
+		// bun-types' ambient `Response` interface falls back to a stripped
+		// BunResponseOverride (no `.ok`/`.status`) unless "DOM" is in tsconfig
+		// lib — this package's `lib: ["ESNext"]` doesn't include it. Narrow to
+		// the one field we need instead of widening the whole package's lib.
+		const res = (await fetch(url, { signal: ctrl.signal })) as unknown as { status: number };
 		clearTimeout(timer);
-		return res.ok;
+		return res.status >= 200 && res.status < 300;
 	} catch {
 		return false;
 	}

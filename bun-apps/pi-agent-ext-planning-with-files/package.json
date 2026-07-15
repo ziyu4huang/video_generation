@@ -62,9 +62,10 @@
   "author": "OthmanAdi (upstream planning-with-files); Pi port by video_generation monorepo",
   "license": "MIT",
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": "0.80.7"
   },
   "devDependencies": {
+    "@repo/pi-agent-ext-wayfind": "workspace:*",
     "@biomejs/biome": "2.4.16",
     "@earendil-works/pi-coding-agent": "0.80.7",
     "@types/bun": "^1.3.14",

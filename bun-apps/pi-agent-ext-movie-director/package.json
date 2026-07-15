@@ -36,7 +36,7 @@
     "yaml": "latest"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-coding-agent": "0.80.7",
     "typebox": "*"
   },
   "devDependencies": {
