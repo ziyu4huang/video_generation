@@ -1,0 +1,144 @@
+/**
+ * Pure grill helpers — no Pi runtime, no fs. Data in, string out, so they're
+ * unit-testable without mocking the ExtensionAPI.
+ *
+ *  - buildGrillPriming: the priming user-message that kicks a grill session.
+ *      Faithfully captures the matt_skills grilling discipline (one question at a
+ *      time, recommended answer each, facts from the environment, decisions to the
+ *      user) and, for the `-with-docs` variant, the domain-modeling capture rules
+ *      (write CONTEXT.md terms inline; offer ADRs sparingly).
+ *  - buildPlanSeed: synthesize the resolved decisions + glossary into a
+ *      task_plan.md seed — the grill→plan handoff into planning-with-files.
+ */
+
+export interface ResolvedDecision {
+  title: string;
+  answer: string;
+}
+
+export interface GlossaryTerm {
+  term: string;
+  definition: string;
+}
+
+/** Parse `**Term**: definition` lines out of a CONTEXT.md body. Tolerant: skips
+ *  headings, blank lines, and `_Avoid_:` lines. Returns [] if none found. */
+export function parseGlossary(contextMd: string): GlossaryTerm[] {
+  const out: GlossaryTerm[] = [];
+  for (const raw of contextMd.split(/\r?\n/)) {
+    const line = raw.trim();
+    // Match a bold term followed by a colon: **Term**: definition  OR  **Term**:\n def
+    const m = line.match(/^\*\*([^*]+)\*\*\s*:\s*(.*)$/);
+    if (!m) continue;
+    const term = m[1].trim();
+    const definition = m[2].trim();
+    if (term.toLowerCase() === "avoid") continue;
+    if (!definition) continue; // definition on next line — skip bare bold headers
+    out.push({ term, definition });
+  }
+  return out;
+}
+
+/** Shared grilling discipline — the interview engine core. */
+const GRILL_DISCIPLINE = [
+  "Interview me relentlessly about every aspect of this until we reach a shared understanding.",
+  "Walk down each branch of the decision tree, resolving dependencies between decisions one-by-one.",
+  "Ask the questions ONE AT A TIME, waiting for my answer before the next — never a questionnaire dump.",
+  "For each question, provide YOUR recommended answer first; I confirm, reject, or refine.",
+  "If a FACT can be found by exploring the environment (files, code, docs, tools), look it up — do not ask me.",
+  "The DECISIONS are mine: put each one to me and wait.",
+  "Do NOT act on anything until I confirm we have reached a shared understanding.",
+].join("\n");
+
+/** The domain-modeling capture rules, appended for the `-with-docs` variant. */
+const DOCS_DISCIPLINE = [
+  "This grill leaves a paper trail. Drive domain-modeling as you go:",
+  "- When a term resolves, write it to CONTEXT.md right there (not batched at the end). CONTEXT.md is a glossary only — no implementation details. Use the project's own words.",
+  "- Offer an ADR under docs/adr/ ONLY when a decision is all three: hard-to-reverse, surprising-without-context, AND the result of a real trade-off. Most sessions produce few or no ADRs.",
+  "- Challenge terms against the existing CONTEXT.md; sharpen fuzzy language; probe edge cases; cross-reference the code.",
+].join("\n");
+
+/**
+ * Build the grilling priming user-message.
+ *
+ * @param topic   the plan/decision/idea to grill about; undefined → current conversation
+ * @param withDocs true for the flagship /grill-me-with-docs (adds domain-modeling capture)
+ */
+export function buildGrillPriming(topic: string | undefined, withDocs: boolean): string {
+  const subject = topic?.trim() || "(the current conversation / plan under discussion)";
+  const skillLine = withDocs
+    ? "Load the `grilling` and `domain-modeling` skills and follow their discipline:"
+    : "Load the `grilling` skill and follow its discipline:";
+  const lines = [
+    withDocs ? "Starting a grill-me-with-docs session." : "Starting a grilling session.",
+    `Topic to grill: ${subject}`,
+    "",
+    skillLine,
+    "",
+    GRILL_DISCIPLINE,
+  ];
+  if (withDocs) {
+    lines.push("", DOCS_DISCIPLINE);
+  }
+  lines.push("", "Begin with your first question now.");
+  return lines.join("\n");
+}
+
+/**
+ * Synthesize the grill output into a task_plan.md seed — the grill→plan handoff.
+ * Output is planning-with-files-shaped: a Goal line, a glossary block, and a
+ * phased breakdown. The user runs /plan-execute on this in planning-with-files.
+ *
+ * Two regimes:
+ *  - decisions known (programmatic / future)  → one phase per decision.
+ *  - decisions not yet extractable (the common case — they live in the
+ *    conversation, not in a structure the command can read) → a skeleton seed
+ *    with the glossary + one placeholder phase; the agent expands it.
+ *
+ * Returns null only when there is genuinely nothing to seed (no decisions, no
+ * glossary, no topic).
+ */
+export function buildPlanSeed(decisions: ResolvedDecision[], glossary: GlossaryTerm[], topic?: string): string | null {
+  if (decisions.length === 0 && glossary.length === 0 && !topic) return null;
+
+  const lines: string[] = [];
+  const goalLine = topic
+    ? `_(Goal from the grill: ${topic} — sharpen this into a one-sentence end state.)_`
+    : "_(Replace this with the one-sentence end state agreed in the grill.)_";
+  lines.push("# Task Plan: (seeded from grill-me-with-docs)");
+  lines.push("");
+  lines.push("## Goal");
+  lines.push("");
+  lines.push(goalLine);
+  lines.push("");
+
+  if (glossary.length > 0) {
+    lines.push("## Settled vocabulary (from CONTEXT.md)");
+    lines.push("");
+    for (const g of glossary) {
+      lines.push(`- **${g.term}**: ${g.definition}`);
+    }
+    lines.push("");
+  }
+
+  lines.push("## Current Phase");
+  lines.push("Phase 1");
+  lines.push("");
+  lines.push("## Phases");
+  lines.push("");
+
+  if (decisions.length > 0) {
+    lines.push("### Phase 1 — first decision");
+    for (const d of decisions) {
+      lines.push(`- [ ] act on: ${d.title} — ${d.answer}`);
+    }
+  } else {
+    lines.push("### Phase 1 — synthesize the resolved decisions");
+    lines.push("- [ ] Expand this plan: one phase per resolved decision from the grill conversation.");
+  }
+  lines.push("- **Status:** pending");
+  lines.push("");
+  lines.push("> Generated by `/grill-done --seed-plan`. Review/expand the phases, then run `/plan-execute`.");
+
+  return lines.join("\n");
+}
