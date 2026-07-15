@@ -2,7 +2,8 @@
 #
 # Every PR to main runs the full Bun test suite (16 packages), the extension
 # contract test, the deploy --verify probe, and the regression baselines
-# (schema-cost + 2 MB file-size guard). Machine-coupled tests (probing the
+# (schema-cost + 2 MB file-size guard + lockfile duplicate-version guard).
+# Machine-coupled tests (probing the
 # local Apple-Silicon generation stack: python/venv, built swift binaries,
 # run.py) skip under CI=true (set automatically by GitHub Actions) — see
 # .github/CI.md for what's tested vs. deferred and how to re-run locally.
@@ -173,6 +174,18 @@ jobs:
 
       - name: File-size guard (2 MB, blocks)
         run: bash scripts/ci-file-size-guard.sh
+
+      # Lockfile duplicate-version guard (blocks). The @earendil-works/*
+      # family (pi-agent-core/pi-ai/pi-coding-agent/pi-tui) must resolve to
+      # exactly one version across the whole workspace — a stray "*"/"^0.x"
+      # range on one package.json lets bun.lock hoist a stale copy alongside
+      # the pinned one, which `bun test` and `bun install --frozen-lockfile`
+      # both miss (it's a semver-valid resolution) but tsc doesn't: two
+      # resolved copies of the same class are two different types. Bit us
+      # twice (#577, then again with pi-tui 0.80.6 vs 0.80.7) before this
+      # existed. See scripts/check-lockfile-duplicate-versions.sh.
+      - name: Lockfile duplicate-version guard (blocks)
+        run: bash scripts/check-lockfile-duplicate-versions.sh
 
       # Test-portability prevention check — now BLOCKING (--strict). Scans the
       # test surface for the four "works on my machine" signal patterns and
