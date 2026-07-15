@@ -3,7 +3,49 @@
 End-to-end verification that the self-contained pi-agent CLI works on the
 current `main`. Re-run the commands below to reproduce.
 
-> Verified: 2026-06-27 · branch `verify/bun-pi-agent-cli` (off `main@9a3f0ec`)
+> Verified: 2026-06-27 (typecheck + live e2e refreshed 2026-07-16) · branch
+> `main@0809dc4`
+
+## 2026-07-16 update — typecheck drift fix + a real live-blocking bug
+
+Re-ran `bunx tsc --noEmit` and `bun test`, then re-verified live e2e end to
+end. Findings:
+
+- **Own-package tsc errors: 23 → 0.** All fixed in `src/__tests__/`,
+  `src/commands/` (doctor.ts, knowledge-pipeline.ts, tools-metrics.ts), and
+  `workflows/lib/`. 448 transitive errors in sibling packages
+  (`pi-agent-ext-web-access`, `pi-agent-ext-obsidian`, …) are unchanged and
+  **out of scope** — tracked as known/deferred, not this package's debt. Added
+  `bun run typecheck` (`bunx tsc --noEmit`) as a local convenience script;
+  **not** wired into CI (would false-red on the transitive errors).
+- **Fixed a real functional gap, not just a type annotation.**
+  `knowledge-pipeline.ts` read `parsed.memoryDir` / `parsed.reconverge`, but
+  `args.ts` never parsed `--memory-dir` / `--reconverge` — both flags were dead
+  code (silently ignored). Added proper flag-spec rows so they now work.
+- **Found + fixed a live-blocking bug in a sibling package.** `distill` /
+  `zk-extract` / `zk-card` / `zk-ask` / `pipeline pdf-to-vault` stage 2 were
+  **all broken** at runtime: `pi-agent-ext-knowledge-card/extensions/
+  pi-knowledge-card.ts`'s tool allowlists (`DISTILL_TOOLS`, `ADD_TOOLS`,
+  `FIND_TOOLS`, `UPDATE_TOOLS`, `REMOVE_TOOLS`, `CHECK_TOOLS`, `RAG_TOOLS`)
+  still referenced the pre-Phase-3 granular `obsidian_*` tool names
+  (`obsidian_list`, `obsidian_read`, `obsidian_search`, `obsidian_distill`, …).
+  `pi-agent-ext-obsidian` had already folded all 18 granular tools into one
+  action-dispatched `obsidian` tool (+ `obsidian_help`) — those old names are
+  no longer independently registered — but `pi-agent-ext-knowledge-card`'s
+  allowlists were never updated to match, so every subagent spawn hit `error:
+  Unknown tool name(s) in --tools / PI_TOOLS`. Fixed by collapsing every list
+  to `["obsidian", "obsidian_help"]` (`DISTILL_TOOLS` also keeps `"read"` for
+  filesystem input files), matching the pattern `pi-agent-ext-obsidian`'s own
+  `OBSIDIAN_DISTILL_TOOLS` already used. Updated the one test that hardcoded
+  the stale CSV. Re-verified: `pipeline pdf-to-vault` and `distill` both now
+  complete successfully end to end (see updated test matrix below).
+  - **Not fixed this pass:** several task-prompt strings in
+    `pi-knowledge-card.ts` still tell the subagent to "call the
+    `obsidian_distill` tool" / "`obsidian_search` matchMode:…" as if those
+    were standalone tool names, instead of `obsidian` with `action:"distill"`
+    / `action:"search"`. These are prompt-quality issues, not hard failures
+    (the subagent worked around it via `obsidian_help`, per the live test
+    below) — flagged as a follow-up, out of scope for this pass.
 
 ## Environment
 
@@ -29,6 +71,20 @@ current `main`. Re-run the commands below to reproduce.
 | 6 | `file2md` (image → Obsidian md) | lm-studio/gemma-4-26b | ✓ OCR+describe, 397 chars |
 | 7 | `pipeline pdf-to-vault` (PDF → md → vault) | stage1 gemma / stage2 glm-5.2 | ✓ 1/1 page → 4 notes |
 | 8 | `pipeline pdf-to-vault` resume | — | ✓ skips done page + stage 2 |
+
+### 2026-07-16 re-verification (post typecheck-fix + knowledge-card bug fix)
+
+| # | Path | Model | Result |
+|---|------|-------|--------|
+| 1 | `scripts/build.ts` (bundle + minify) | — | ✓ `dist/pi-agent-cli/cli.js` |
+| 2 | meta: `version` / `list` | — | ✓ (`list` now resolves 1068 models — registry growth since 06-27, unrelated to this pass) |
+| 3 | passthrough (core agent loop) | zai/glm-5.2 | ✓ `PI-CLI-OK` |
+| 4 | `vlm-describe` (image → Obsidian md) | lm-studio/gemma-4-26b | ✓ 709 chars (synthetic test image; the 06-27 fixture PDF is not checked into the repo) |
+| 5 | `distill` (markdown → Zettelkasten) | zai/glm-5.2 | ✓ 4 notes + MOC, 10 links — **first attempt hit the knowledge-card tool-allowlist bug below; passes after the fix** |
+| 6 | `pipeline pdf-to-vault` (PDF → md → vault) | stage1 gemma / stage2 glm-5.2 | ✓ 1/1 page → 3 notes — **stage 2 hit the same allowlist bug on the first attempt; passes after the fix** |
+| 7 | `pipeline pdf-to-vault` resume | — | not re-run this pass (unchanged code path; 06-27 result stands) |
+| 8 | `bun test` (this package) | — | ✓ 332/332, 22 files |
+| 9 | `bun test` (`pi-agent-ext-knowledge-card`, touched by the fix) | — | ✓ 337/337, 22 files |
 
 ## Key behaviors confirmed
 
@@ -172,17 +228,18 @@ clean exit, correct manifest); they are tracked as model/prompt follow-ups:
   and `--dpi` rejects fractional values. Model-dependent paths (chat / agent /
   passthrough / zk-* happy paths) are deliberately NOT covered — they belong to
   the live workflow. Run: `bun test src/__tests__/e2e/`.
-- **`bun test` does not typecheck.** Run `bunx tsc --noEmit` from this package
-  to catch type regressions. NOTE: this package's `tsconfig.json` has no
-  `include`/`paths`, and Bun workspace symlinks resolve `@repo/*` deps to SOURCE
-  (not built dist), so `tsc --noEmit` follows into sibling packages and currently
-  reports ~470 errors — ~448 transitive (`pi-agent-ext-obsidian` / `-web-access` /
-  `-ltx` / `-movie-director` / `-knowledge-card` / …) + ~23 pre-existing in this
-  package's own commands/tests (none in `cli.ts` / `args.ts` / `sessions/`). The
-  earlier "fully clean (0 errors)" note (2026-06-27) is STALE — the transitive
-  packages have since drifted. The real CI gate is `bun test` (green); `tsc` is
-  a stricter, monorepo-wide concern. The files touched by the e2e/help/dpi work
-  are type-clean.
+- **`bun test` does not typecheck.** Run `bun run typecheck` (= `bunx tsc
+  --noEmit`, added as a package script 2026-07-16) to catch type regressions.
+  NOTE: this package's `tsconfig.json` has no `include`/`paths`, and Bun
+  workspace symlinks resolve `@repo/*` deps to SOURCE (not built dist), so
+  `tsc --noEmit` follows into sibling packages. As of 2026-07-16: **0 errors in
+  this package's own `src/` + `workflows/lib/`** (was ~23, all fixed) — 448
+  errors remain in sibling packages (`pi-agent-ext-obsidian` / `-web-access` /
+  `-ltx` / `-movie-director` / …), unchanged and out of scope for this package.
+  The real CI gate is `bun test` (green); `tsc` is a stricter, monorepo-wide
+  concern, and `bun run typecheck` is deliberately **not** wired into CI here
+  — the transitive errors would make it false-red until each sibling package
+  fixes its own.
 - **`--` end-of-options separator.** A bare `--` disables flag-parsing for the
   rest of argv, so extension sub-commands can pass their own flags through
   verbatim (`flux2 -- t2i --prompt "..."`) and passthrough prompts can include

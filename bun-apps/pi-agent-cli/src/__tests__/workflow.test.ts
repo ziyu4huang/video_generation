@@ -174,12 +174,15 @@ describe("runWorkflowScript", () => {
 			args: { source: "unit-test" },
 			cwd: dir,
 			persistLogs: false,
+			// Cast: the real WorkflowAgent.run is a schema-typed generic method;
+			// this stub always returns a plain string, so it can't structurally
+			// satisfy the generic signature (see RunWorkflowScriptOptions.agent).
 			agent: {
 				run: async (prompt: string) => {
 					seenPrompt = prompt;
 					return "stub-reply";
 				},
-			},
+			} as any,
 		});
 
 		expect(receipt.dryRun).toBe(false);
@@ -193,7 +196,7 @@ describe("runWorkflowScript", () => {
 	test("missing script → throws (does not silently produce an empty run)", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "wf-"));
 		expect(
-			runWorkflowScript({ name: "nope", cwd: dir, agent: { run: async () => "x" } }),
+			runWorkflowScript({ name: "nope", cwd: dir, agent: { run: async () => "x" } as any }),
 		).rejects.toThrow(/"nope" not found/);
 	});
 });
