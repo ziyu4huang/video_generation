@@ -6,10 +6,16 @@ on Bun's native runtime. Ships **agent workflows** (`file2md`, `zk-extract`,
 `zk-ask`, `pipeline pdf-to-vault`) plus a **pi-compatible passthrough** so the
 binary can serve as its own sub-agent target.
 
-Each subcommand is one **single-turn agent run** — no interactive TUI, no
-persistent session loop. Extensions are imported directly into the process
-(`pi-obsidian`, `pi-file2md`, `pi-knowledge-card` as `workspace:*` deps), so
-they are always active without a `.pi/settings.json` entry or `-e` flag.
+Every invocation is a **non-interactive run** — one process, no interactive
+TUI, no persistent session loop. Of these, the agent commands and the
+pi-compatible passthrough are **single-turn agent runs** (one ephemeral
+session driven to completion); the META commands (`list`, `version`,
+`completions`, `help`) and `workflow run` are non-interactive but **not**
+agent runs. Extensions are imported directly into the process (`pi-obsidian`,
+`pi-file2md`, `pi-knowledge-card` as `workspace:*` deps) — **baked-in**, not
+loaded via a `.pi/settings.json` entry or `-e` flag. pi-obsidian is
+**always-on** (present in every session); the rest are **per-command**
+(injected only by the command that needs them).
 
 ## What makes it self-contained
 
@@ -56,7 +62,7 @@ machine steps: [`../pi-agent/docs/pi-cross-machine-setup.md`](../pi-agent/docs/p
 
 ## Usage
 
-### Agent commands (one CLI = one agent workflow)
+### Agent commands (each is a single-turn agent run)
 
 ```bash
 bun run --cwd bun-apps/pi-agent-cli cli file2md <files...> [options]
@@ -148,7 +154,7 @@ bun bun-apps/pi-agent-cli/src/cli.ts --mode json --no-session --tools read,bash 
 
 This is exactly what the `obsidian_distill` / `obsidian_garden` subagent tools
 invoke internally (`process.argv[1]` + pi flags). The `-e`/`--approve` flags are
-accepted and silently ignored — extensions are always active.
+accepted and silently ignored — extensions are baked-in (pi-obsidian always-on; the rest per-command).
 
 ## Flags (pi-aligned)
 
@@ -210,7 +216,7 @@ pi-agent-cli/
   Use this for open-ended coding/exploration sessions where you want the full TUI
   experience and extensions loaded from `.pi/settings.json`. The two tools are
   complementary: `pi-agent` for interactive work, `pi-agent-cli` for scripted
-  single-turn automation.
+  non-interactive automation.
 
   `pi-agent-cli` also **depends on `pi-agent` as a workspace library** — the
   baked LLM provider catalog (lm-studio models) is sourced from `pi-agent`'s

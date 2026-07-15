@@ -86,4 +86,4 @@ Issues live in GitHub Issues (`ziyu4huang/video_generation`), via the `gh` CLI. 
 
 ### Domain docs
 
-Single-context — one root `CONTEXT.md` + `docs/adr/` for the whole monorepo. See `docs/agents/domain.md`.
+Multi-context — each domain owns its own `CONTEXT.md` + `docs/adr/` (e.g. `bun-apps/pi-agent-cli/`). A root `CONTEXT-MAP.md` lists contexts once a second one is captured. See `docs/agents/domain.md`.
