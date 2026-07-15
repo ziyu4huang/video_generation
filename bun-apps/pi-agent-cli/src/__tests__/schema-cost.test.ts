@@ -131,14 +131,14 @@ describe("collectExtensionToolCosts", () => {
 			const ok = await collectExtensionToolCosts([{ source: "good", path: good }]);
 			expect(ok.errors.length).toBe(0);
 			expect(ok.costs.length).toBe(1);
-			expect(ok.costs[0].name).toBe("tmp");
-			expect(ok.costs[0].source).toBe("good");
+			expect(ok.costs[0]!.name).toBe("tmp");
+			expect(ok.costs[0]!.source).toBe("good");
 
 			const err = await collectExtensionToolCosts([{ source: "boom", path: bad }]);
 			expect(err.costs.length).toBe(0);
 			expect(err.errors.length).toBe(1);
-			expect(err.errors[0].source).toBe("boom");
-			expect(err.errors[0].error).toContain("boom");
+			expect(err.errors[0]!.source).toBe("boom");
+			expect(err.errors[0]!.error).toContain("boom");
 		} finally {
 			try { unlinkSync(good); } catch {}
 			try { unlinkSync(bad); } catch {}

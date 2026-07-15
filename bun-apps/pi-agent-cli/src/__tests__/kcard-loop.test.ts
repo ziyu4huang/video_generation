@@ -121,10 +121,10 @@ describe("kcard-loop — slimReceiptForJson (--json payload leanness)", () => {
 		expect(slim.created).toBe(3)
 		expect(slim.probeHitRate).toBe(0.5)
 		// arrays → counts
-		expect(slim.health.deadLinks).toBe(2)
-		expect(slim.health.orphans).toBe(3)
-		expect(slim.health.ok).toBe(true)
-		expect(slim.health.cardCount).toBe(539)
+		expect((slim.health as any).deadLinks).toBe(2)
+		expect((slim.health as any).orphans).toBe(3)
+		expect((slim.health as any).ok).toBe(true)
+		expect((slim.health as any).cardCount).toBe(539)
 		// no array survives in health
 		expect(Array.isArray((slim.health as any).deadLinks)).toBe(false)
 		expect(Array.isArray((slim.health as any).orphans)).toBe(false)

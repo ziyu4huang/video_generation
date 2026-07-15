@@ -126,9 +126,9 @@ describe("checkQueriesForOverlap", () => {
     const r = checkQueriesForOverlap(queries, cardTerms);
     expect(r.clean).toBe(false);
     expect(r.overlaps).toHaveLength(2);
-    expect(r.overlaps[0].queryId).toBe(2);
-    expect(r.overlaps[0].matchedTerms).toContain("lora");
-    expect(r.overlaps[1].queryId).toBe(3);
+    expect(r.overlaps[0]!.queryId).toBe(2);
+    expect(r.overlaps[0]!.matchedTerms).toContain("lora");
+    expect(r.overlaps[1]!.queryId).toBe(3);
   });
 });
 

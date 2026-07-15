@@ -23,7 +23,7 @@
  * lives on the `bash` tool's `toolCall` + `toolResult` records. Counting both
  * would double-count bash.
  */
-import { readdirSync, readFileSync, existsSync } from "node:fs";
+import { readdirSync, readFileSync, existsSync, type Dirent } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ParsedArgs } from "../args.ts";
@@ -251,10 +251,10 @@ export function computeMetrics(
 		for (const [name, seq] of resByTool) {
 			const st = acc(name);
 			for (let i = 0; i < seq.length; i++) {
-				if (!seq[i].isError) continue;
+				if (!seq[i]!.isError) continue;
 				const hi = Math.min(i + RECOVERY_WINDOW, seq.length - 1);
 				for (let j = i + 1; j <= hi; j++) {
-					if (!seq[j].isError) {
+					if (!seq[j]!.isError) {
 						st.recoveredErrors++;
 						break;
 					}
@@ -487,7 +487,7 @@ export function listSessionFiles(dir: string): string[] {
 	if (!existsSync(dir)) return [];
 	const out: string[] = [];
 	const walk = (d: string): void => {
-		let entries: ReturnType<typeof readdirSync>;
+		let entries: Dirent<string>[];
 		try {
 			entries = readdirSync(d, { withFileTypes: true });
 		} catch {

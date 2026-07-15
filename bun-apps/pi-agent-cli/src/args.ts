@@ -162,6 +162,8 @@ export interface ParsedArgs {
 	outputPath?: string;
 	/** import-memory: override hermes-memory directory */
 	hermesDir?: string;
+	/** knowledge-pipeline: reset convergence state before run/dry-run */
+	reconverge?: boolean;
 	/** organize-vault: explicit vault root path */
 	vaultRoot?: string;
 	/** workflow: JSON args passed to the workflow script (its `args` global). */
