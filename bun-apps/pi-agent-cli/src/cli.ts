@@ -34,6 +34,7 @@ import { pdfToVaultCommand } from "./commands/pdf-to-vault.ts";
 import { imageToVaultCommand } from "./commands/image-to-vault.ts";
 import { urlToVaultCommand, youtubeToVaultCommand } from "./commands/url-to-vault.ts";
 import { knowledgePipelineCommand } from "./commands/knowledge-pipeline.ts";
+import { memoryToVaultCommand } from "./commands/memory-to-vault.ts";
 import { chatCommand } from "./commands/chat.ts";
 import { agentCommand } from "./commands/agent.ts";
 import { workflowRunCommand, workflowListCommand } from "./commands/workflow.ts";
@@ -171,6 +172,12 @@ const PIPELINES: Command[] = [
     summary: youtubeToVaultCommand.summary,
     details: youtubeToVaultCommand.details,
     run: youtubeToVaultCommand.run,
+  },
+  {
+    name: "memory-to-vault",
+    summary: memoryToVaultCommand.summary,
+    details: memoryToVaultCommand.details,
+    run: memoryToVaultCommand.run,
   },
 ];
 
