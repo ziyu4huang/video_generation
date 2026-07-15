@@ -65,6 +65,7 @@
     "@earendil-works/pi-coding-agent": "*"
   },
   "devDependencies": {
+    "@repo/pi-agent-ext-wayfind": "workspace:*",
     "@biomejs/biome": "2.4.16",
     "@earendil-works/pi-coding-agent": "0.80.7",
     "@types/bun": "^1.3.14",
