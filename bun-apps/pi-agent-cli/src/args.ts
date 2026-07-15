@@ -73,13 +73,13 @@ export interface ParsedArgs {
 	/** zettelkasten target folder (distill) */
 	folder?: string;
 	maxNotes?: number;
-	/** vlm-describe: output root dir (default: ./vlm-out) */
+	/** file2md: output root dir (default: ./vlm-out) */
 	out?: string;
-	/** vlm-describe: rasterization DPI for PDFs (default 150) */
+	/** file2md: rasterization DPI for PDFs (default 150) */
 	dpi?: number;
-	/** vlm-describe: force a doc profile, skipping the VLM classifier */
+	/** file2md: force a doc profile, skipping the VLM classifier */
 	type?: string;
-	/** vlm-describe: only process these pages (1-indexed, e.g. "1,3-5") */
+	/** file2md: only process these pages (1-indexed, e.g. "1,3-5") */
 	pages?: string;
 	/** pdf-to-vault pipeline: stage 1 (vlm) model — the ONLY stage-specific
 	 *  model. Stage 2 (distill) reuses the global --model passthrough. */
@@ -275,7 +275,7 @@ function parseNumericFlag(
 
 // ─── Declarative flag tables ───────────────────────────────────────────────
 // The flag definitions live in flag-spec.ts, grouped by the command that owns
-// them (GLOBAL pi-compat flags vs zk-ask / zk-card / vlm-describe / …).
+// them (GLOBAL pi-compat flags vs zk-ask / zk-card / file2md / …).
 // parsePiArgs imports the merged tables + field-name unions and stays the
 // single public parser. Adding a standard flag = one row in flag-spec.ts.
 // Special-shape flags (--verbose repeatable, --mode enum, --tools CSV,

@@ -2,7 +2,7 @@
  * verify-portability.ts — build-time check that bundled output doesn't leak
  * machine-specific absolute paths.
  *
- * Extracted from pi-vlm's build (which only checked macOS `/Users/...`) so the
+ * Extracted from pi-file2md's build (which only checked macOS `/Users/...`) so the
  * same check can be reused across packages and covers Linux (`/home/...`) and
  * Windows (`C:\Users\...`) layouts too. Returns a list of warning strings
  * (empty when the bundle is portable).

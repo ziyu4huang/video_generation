@@ -3,9 +3,9 @@
  *
  * Combines the two leaf agents into one resumable pipeline:
  *
- *   PDF ──[vlm-describe]──▶ markdown pages ──[distill]──▶ Zettelkasten vault
+ *   PDF ──[file2md]──▶ markdown pages ──[distill]──▶ Zettelkasten vault
  *
- * Model selection: stage 1 (vlm-describe) needs a dedicated `--vlm-model`
+ * Model selection: stage 1 (file2md) needs a dedicated `--vlm-model`
  * because it requires a vision model, which is genuinely different from the
  * text model. Stage 2 (distill) is just another text-LLM turn, so it reuses
  * the global `--model` passthrough (resolved by resolveLLMFromArgs, falling
@@ -17,17 +17,17 @@
  *
  *   <out>/pdf-to-vault-<YYYYMMDD-HHMMSS>-<slug>/
  *     pipeline.json                ← coordination layer (status, resume)
- *     1-pdf-to-md/<slug>/…         ← stage 1 (vlm-describe) output
+ *     1-pdf-to-md/<slug>/…         ← stage 1 (file2md) output
  *     2-obsidian-vault/…           ← stage 2 (distill) output
  *
  * Resume: re-run with the same `<out>` + same input → the orchestrator finds
  * the existing run dir (matched by slug) and skips finished work:
- *   - stage 1: vlm-describe's manifest skips pages with status "done"
+ *   - stage 1: file2md's manifest skips pages with status "done"
  *   - stage 2: skipped if pipeline.json says distill.status === "done"
  *     (override with --force-distill)
  *
  * Error pages: after stage 1, any page still in "error" is retried once more
- * (in addition to the per-page withRetry inside vlm-describe). If pages still
+ * (in addition to the per-page withRetry inside file2md). If pages still
  * fail, the pipeline is marked "partial" and distill proceeds with the pages
  * that succeeded.
  */
@@ -43,10 +43,10 @@ import {
 import { resolve, relative, isAbsolute, basename } from "node:path";
 import type { ParsedArgs } from "../args.ts";
 import { emptyParsed } from "../args.ts";
-import { vlmDescribeCommand } from "./vlm-describe.ts";
+import { file2mdCommand } from "./file2md.ts";
 import { zkExtractCommand } from "./zk-extract.ts";
 import { resolveLLMFromArgs } from "../sessions/passthrough.ts";
-import { slugify, loadManifest, type DocLayout, layoutFor } from "@repo/pi-agent-ext-vlm";
+import { slugify, loadManifest, type DocLayout, layoutFor } from "@repo/pi-agent-ext-file2md";
 
 /** Defaults. */
 const DEFAULT_VLM_MODEL = "lm-studio/google/gemma-4-26b-a4b-qat";
@@ -105,7 +105,7 @@ interface PipelineDoc {
 		forceDistill: boolean;
 	};
 	stages: {
-		"vlm-describe": VlmStageState;
+		"file2md": VlmStageState;
 		distill: DistillStageState;
 	};
 }
@@ -119,10 +119,19 @@ function writePipelineDoc(path: string, doc: PipelineDoc): void {
 	writeFileSync(path, JSON.stringify(doc, null, 2) + "\n", "utf8");
 }
 
-function readPipelineDoc(path: string): PipelineDoc | null {
+export function readPipelineDoc(path: string): PipelineDoc | null {
 	if (!existsSync(path)) return null;
 	try {
-		return JSON.parse(readFileSync(path, "utf8")) as PipelineDoc;
+		const doc = JSON.parse(readFileSync(path, "utf8")) as PipelineDoc;
+		// Backward-compat (D5): migrate the legacy stage key "vlm-describe" →
+		// "file2md" so a pipeline.json written before the rename resumes cleanly.
+		// New runs write "file2md" directly.
+		const stages = doc.stages as unknown as { [k: string]: unknown };
+		if (stages["vlm-describe"] && !stages["file2md"]) {
+			stages["file2md"] = stages["vlm-describe"];
+			delete stages["vlm-describe"];
+		}
+		return doc;
 	} catch {
 		return null;
 	}
@@ -202,7 +211,7 @@ export const pdfToVaultCommand = {
   bun-pi-agent-cli pipeline pdf-to-vault <pdf> [options]
 
 Runs two stages in sequence:
-  1. vlm-describe  — rasterize PDF, VLM explains each page → Obsidian markdown
+  1. file2md  — rasterize PDF, VLM explains each page → Obsidian markdown
   2. distill       — decompose the page markdown into atomic Zettelkasten notes
 
 Output (timestamped + slug, re-runs never collide):
@@ -266,7 +275,7 @@ Examples:
 		const deletePng = parsed.deletePng ?? false;
 		const forceDistill = parsed.forceDistill ?? false;
 
-		// expose retry config to vlm-describe (which reads env)
+		// expose retry config to file2md (which reads env)
 		process.env.PI_VLM_RETRIES = String(retries);
 		process.env.PI_VLM_RETRY_WAIT_MS = String(retryWaitSec * 1000);
 
@@ -282,7 +291,7 @@ Examples:
 			console.error(`  stage 1 vlm:  ${vlmModel}`);
 			console.error(`  stage 2 dist: ${distillModelLabel}${distillModel ? ` (from ${distillModel})` : " (default)"}`);
 			console.error(`  retries:      ${retries} (wait ${retryWaitSec}s)  delete-png: ${deletePng}  force-distill: ${forceDistill}`);
-			console.error("\n  would run: STAGE 1 vlm-describe → STAGE 2 zk-extract (distill)");
+			console.error("\n  would run: STAGE 1 file2md → STAGE 2 zk-extract (distill)");
 			return;
 		}
 
@@ -325,7 +334,7 @@ Examples:
 					forceDistill,
 				},
 				stages: {
-					"vlm-describe": { status: "pending" },
+					"file2md": { status: "pending" },
 					distill: { status: "pending" },
 				},
 			} satisfies PipelineDoc);
@@ -340,10 +349,10 @@ Examples:
 			forceDistill,
 		};
 		pdoc.status = "running";
-		pdoc.stages["vlm-describe"].status =
-			pdoc.stages["vlm-describe"].status === "done" ? "done" : "running";
-		pdoc.stages["vlm-describe"].startedAt ??= iso();
-		pdoc.stages["vlm-describe"].model = vlmModel;
+		pdoc.stages["file2md"].status =
+			pdoc.stages["file2md"].status === "done" ? "done" : "running";
+		pdoc.stages["file2md"].startedAt ??= iso();
+		pdoc.stages["file2md"].model = vlmModel;
 		writePipelineDoc(pipelinePath, pdoc);
 
 		console.error(`pdf-to-vault`);
@@ -360,8 +369,8 @@ Examples:
 		else console.error(`  (resuming existing run)`);
 		console.error();
 
-		// ─── STAGE 1: vlm-describe ───────────────────────────────────────────
-		console.error(`▶ STAGE 1/2: vlm-describe`);
+		// ─── STAGE 1: file2md ───────────────────────────────────────────
+		console.error(`▶ STAGE 1/2: file2md`);
 		const s1: ParsedArgs = {
 			...emptyParsed(),
 			positionals: [inputAbs],
@@ -371,10 +380,10 @@ Examples:
 			// keep DPI default
 		};
 		try {
-			await vlmDescribeCommand.run(s1);
+			await file2mdCommand.run(s1);
 		} catch (e) {
-			pdoc.stages["vlm-describe"].status = "error";
-			pdoc.stages["vlm-describe"].finishedAt = iso();
+			pdoc.stages["file2md"].status = "error";
+			pdoc.stages["file2md"].finishedAt = iso();
 			pdoc.status = "error";
 			writePipelineDoc(pipelinePath, pdoc);
 			throw e;
@@ -395,7 +404,7 @@ Examples:
 				pages: retrySpec,
 			};
 			try {
-				await vlmDescribeCommand.run(s1r);
+				await file2mdCommand.run(s1r);
 			} catch (e) {
 				console.error(`  ! extra retry failed: ${(e as Error).message}`);
 			}
@@ -404,8 +413,8 @@ Examples:
 
 		const pagesTotal = summary?.pagesTotal ?? 0;
 		const pagesDone = summary?.pagesDone ?? 0;
-		pdoc.stages["vlm-describe"] = {
-			...pdoc.stages["vlm-describe"],
+		pdoc.stages["file2md"] = {
+			...pdoc.stages["file2md"],
 			status:
 				pagesDone === pagesTotal ? "done" : pagesDone > 0 ? "done" : "error",
 			outputDir: relative(runDir, stage1Out),
@@ -512,14 +521,14 @@ Examples:
 		}
 
 		// ─── finalize ───────────────────────────────────────────────────────
-		const vlmErrors = pdoc.stages["vlm-describe"].errors ?? [];
+		const vlmErrors = pdoc.stages["file2md"].errors ?? [];
 		pdoc.status = vlmErrors.length > 0 ? "partial" : "done";
 		writePipelineDoc(pipelinePath, pdoc);
 
 		console.error(`\n━━━ pdf-to-vault ${pdoc.status.toUpperCase()} ━━━`);
 		console.error(`  ${runDir}`);
 		console.error(
-			`  stage 1: ${pdoc.stages["vlm-describe"].pagesDone}/${pagesTotal} pages`,
+			`  stage 1: ${pdoc.stages["file2md"].pagesDone}/${pagesTotal} pages`,
 		);
 		console.error(
 			`  stage 2: ${pdoc.stages.distill.notesCreated ?? 0} notes` +

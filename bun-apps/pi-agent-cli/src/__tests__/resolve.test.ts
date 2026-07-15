@@ -4,7 +4,7 @@
  *
  * validateToolNames + modelLabel are covered in shared.test.ts. This file pins
  * the resolution layer: resolveLLM (the provider/model/thinking grammar shared
- * with pi-vlm, flagged for extraction into a shared module) and resolveModel
+ * with pi-file2md, flagged for extraction into a shared module) and resolveModel
  * (exact → substring → throw). All pure (resolveLLM reads PI_* env at call
  * time; resolveModel takes a fake registry). No network / no real services.
  *

@@ -8,7 +8,7 @@
  * so this tests the ACTUAL tool definitions the LLM sees.
  */
 import { test, expect } from "bun:test";
-import extensionFactory from "../pi-vlm.ts";
+import extensionFactory from "../pi-file2md.ts";
 
 function captureTools(): Record<string, Record<string, unknown>> {
 	const tools: Record<string, Record<string, unknown>> = {};
@@ -30,7 +30,7 @@ function captureTools(): Record<string, Record<string, unknown>> {
 
 test("vlm tools are stealth-trimmed: no promptSnippet/guidelines", () => {
 	const tools = captureTools();
-	expect(Object.keys(tools).sort()).toEqual(["vlm_ask", "vlm_describe"]);
+	expect(Object.keys(tools).sort()).toEqual(["file2md", "vision_ask"]);
 
 	for (const [name, tool] of Object.entries(tools)) {
 		// Routing description still present (the model needs it).

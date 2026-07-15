@@ -31,7 +31,7 @@ import type { Command } from "../cli.ts";
 
 // `@repo/pi-agent-ext-workflow` is a workspace dependency. Import the
 // engine + its script parser by name so the bundler treats them as externals
-// exactly like the other workspace deps (pi-obsidian, pi-vlm, …).
+// exactly like the other workspace deps (pi-obsidian, pi-file2md, …).
 import { runWorkflow, parseWorkflowScript, type WorkflowAgent } from "@repo/pi-agent-ext-workflow";
 
 /** Where engine workflow scripts live in this repo (Claude-Code-shared). */

@@ -14,7 +14,7 @@ remote APIs (openrouter) — hardcoded in source without any external config fil
 
 All providers are defined in **`src/pre-load-providers.ts`**. No `~/.pi/agent/models.json` is read.
 
-This repo's fixed extension/skill set (pi-obsidian, pi-vlm, zai-mcp, etc.) is baked in via
+This repo's fixed extension/skill set (pi-obsidian, pi-file2md, zai-mcp, etc.) is baked in via
 **`run-dir/`**, independent of invocation `cwd` — see [Extensions via run-dir](#extensions-via-run-dir)
 below. Session/auth/model data always stays at `~/.pi/agent/` (pi's own default, untouched).
 
@@ -458,6 +458,6 @@ pi-agent/
 ## Related
 
 - **[pi-agent-cli](../pi-agent-cli/README.md)** — single-turn scripted workflows
-  (`vlm-describe`, `zk-extract`, `zk-ask`, `pipeline pdf-to-vault`) with extensions
+  (`file2md`, `zk-extract`, `zk-ask`, `pipeline pdf-to-vault`) with extensions
   baked in as workspace deps. Use this when you want one-shot automation or to call
   a specific agent workflow from a script — not an interactive session.

@@ -6,7 +6,7 @@ Users want to run the full pi-agent TUI with additional LLM providers (lm-studio
 
 ## Solution
 
-A thin wrapper around the official `@earendil-works/pi-coding-agent` TUI. It calls `main()` untouched, then applies reversible monkey-patches to `ModelRegistry.prototype.loadModels()` so extra providers are registered before the first session starts. The repo's fixed extension set (pi-obsidian, pi-vlm, zai-mcp, etc.) is baked in via `run-dir/manifest.json`, independent of invocation `cwd`.
+A thin wrapper around the official `@earendil-works/pi-coding-agent` TUI. It calls `main()` untouched, then applies reversible monkey-patches to `ModelRegistry.prototype.loadModels()` so extra providers are registered before the first session starts. The repo's fixed extension set (pi-obsidian, pi-file2md, zai-mcp, etc.) is baked in via `run-dir/manifest.json`, independent of invocation `cwd`.
 
 ## Capabilities
 

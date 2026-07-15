@@ -19,7 +19,7 @@ A pi extension that wraps the `swift/ltx-video-director` CLI as one `ltx` dispat
 - `swift/ltx-video-director` (Swift/MLX binary, auto-built)
 - `run.py` (production i2v bridge)
 - `pi-agent` (run-dir manifest for auto-load)
-- `pi-agent-ext-vlm` (verify subcommand)
+- `pi-agent-ext-file2md` (verify subcommand)
 
 ## Use
 

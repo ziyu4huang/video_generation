@@ -1,8 +1,8 @@
 /**
- * Core vlm-describe pipeline: classify → rasterize → VLM extract → manifest.
+ * Core file2md pipeline: classify → rasterize → VLM extract → manifest.
  *
  * Extracted from bun-pi-agent-cli so both the CLI (thin wrapper) and the
- * pi extension (vlm_describe tool) share the same implementation.
+ * pi extension (file2md tool) share the same implementation.
  */
 import { copyFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve, relative, isAbsolute, basename } from "node:path";
@@ -182,7 +182,7 @@ function writeIndexNote(
 }
 
 /**
- * Run the full vlm-describe pipeline for one or more input documents.
+ * Run the full file2md pipeline for one or more input documents.
  *
  * This is the shared implementation used by both the CLI command wrapper and
  * the pi extension tool.
@@ -221,7 +221,7 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
     thinking: opts.thinking,
   });
   const label = `${llm.provider}/${llm.modelId}`;
-  console.error(`vlm-describe`);
+  console.error(`file2md`);
   console.error(`  model: ${label}  thinking: ${llm.thinkingLevel}`);
   console.error(`  out:   ${displayPath(outRoot)}`);
   console.error(`  dpi:   ${dpi}`);
@@ -403,5 +403,5 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
     emit?.({ type: "doc_done", slug: doc.slug, profile, pages: doc.pageCount });
   }
 
-  console.error("--- vlm-describe done ---");
+  console.error("--- file2md done ---");
 }

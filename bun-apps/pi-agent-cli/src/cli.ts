@@ -4,7 +4,7 @@
  * Two invocation styles:
  *
  *   1. Agent commands (one CLI = one agent workflow):
- *        bun-pi-agent-cli vlm-describe <files...> [options]       PDF/image → Obsidian md
+ *        bun-pi-agent-cli file2md <files...> [options]       PDF/image → Obsidian md
  *        bun-pi-agent-cli zk-extract <files.../folders...> [options] markdown → Zettelkasten notes
  *        bun-pi-agent-cli zk-card <sub> [options]                 CRUD for Zettelkasten notes (add/find/update/remove/check)
  *        bun-pi-agent-cli zk-ask <question> [options]             graph-enhanced vault Q&A
@@ -29,7 +29,7 @@ import { zkAskCommand } from "./commands/zk-ask.ts";
 import { zkIngestCommand } from "./commands/zk-ingest.ts";
 import { zkQueryCommand } from "./commands/zk-query.ts";
 import { kcardLoopCommand } from "./commands/kcard-loop.ts";
-import { vlmDescribeCommand } from "./commands/vlm-describe.ts";
+import { file2mdCommand } from "./commands/file2md.ts";
 import { pdfToVaultCommand } from "./commands/pdf-to-vault.ts";
 import { imageToVaultCommand } from "./commands/image-to-vault.ts";
 import { urlToVaultCommand, youtubeToVaultCommand } from "./commands/url-to-vault.ts";
@@ -74,10 +74,10 @@ const COMMANDS: Command[] = [
     run: agentCommand.run,
   },
   {
-    name: "vlm-describe",
-    summary: vlmDescribeCommand.summary,
-    details: vlmDescribeCommand.details,
-    run: vlmDescribeCommand.run,
+    name: "file2md",
+    summary: file2mdCommand.summary,
+    details: file2mdCommand.details,
+    run: file2mdCommand.run,
   },
   {
     name: "zk-extract",
@@ -292,8 +292,8 @@ Examples:
   bun-pi-agent-cli chat --model gemma-4-26b                # pick a model for chat
   bun-pi-agent-cli agent "read package.json and explain"   # free-form agentic task
   bun-pi-agent-cli agent --tools read,bash "summarize"     # curated toolset
-  bun-pi-agent-cli vlm-describe paper.pdf
-  bun-pi-agent-cli vlm-describe scan.jpg --type image --dpi 200
+  bun-pi-agent-cli file2md paper.pdf
+  bun-pi-agent-cli file2md scan.jpg --type image --dpi 200
   bun-pi-agent-cli zk-extract notes.md --folder Zettelkasten
   bun-pi-agent-cli zk-extract ./inbox/ --max-notes 20
   bun-pi-agent-cli pipeline pdf-to-vault paper.pdf
@@ -436,12 +436,12 @@ function withoutIndices(argv: string[], indices: number[]): string[] {
  * flags and their values are skipped) when it is a reserved command name.
  *
  * Returns `{ name, index }` so callers can strip the command token while
- * preserving any global flags that preceded it (e.g. `--model X vlm-describe …`
- * → command `vlm-describe` at index 2). Returns undefined for passthrough-only
+ * preserving any global flags that preceded it (e.g. `--model X file2md …`
+ * → command `file2md` at index 2). Returns undefined for passthrough-only
  * argv (no positional, or first positional is not a reserved command).
  *
  * Only the FIRST positional is considered, so a reserved word appearing later
- * (e.g. `-p "vlm-describe"` as a prompt) does not trigger command dispatch.
+ * (e.g. `-p "file2md"` as a prompt) does not trigger command dispatch.
  */
 export function findCommandToken(argv: string[]): { name: string; index: number } | undefined {
   const { positionalIndices, positionals } = parsePiArgs(argv);
@@ -524,7 +524,7 @@ async function main(): Promise<void> {
   }
 
   // Detect the sub-command as the first POSITIONAL token, so global flags may
-  // precede it — e.g. `--model X vlm-describe file.pdf`. Without this, a leading
+  // precede it — e.g. `--model X file2md file.pdf`. Without this, a leading
   // `--model` made stripped[0] a flag, so dispatch fell through to passthrough
   // and the command name was fed to the agent as a prompt.
   const found = findCommandToken(stripped);

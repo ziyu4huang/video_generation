@@ -2,7 +2,7 @@
  * `pipeline url-to-vault <url>` and `pipeline youtube-to-vault <url>` —
  * URL → markdown → Zettelkasten vault.
  *
- * Unlike pdf-to-vault (deterministic: vlm-describe + distill called directly),
+ * Unlike pdf-to-vault (deterministic: file2md + distill called directly),
  * these are **agent-driven**: fetching web content is a pi tool (`fetch_content`),
  * not a standalone function. So we run ONE agent session with both
  * `fetch_content` (web-access) and `obsidian_distill` (pi-obsidian, baked in),

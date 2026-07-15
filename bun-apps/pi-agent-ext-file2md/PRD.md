@@ -1,23 +1,26 @@
-# PRD — pi-agent-ext-vlm
+# PRD — pi-agent-ext-file2md
 
 ## Problem
 
-PDF documents and images need to be converted to structured Obsidian markdown
-for vault ingestion. During a session, the agent cannot read local file paths
-via MCP — it needs a local VLM pipeline that rasterizes PDF pages, describes
-them via a vision language model, and stitches the result into markdown with
-frontmatter and per-page sections. It also needs a lightweight way to ask a
-single ad-hoc question about one image without running the full pipeline.
+Pure-text agents cannot read binary/visual input files — a PDF page or image
+is opaque to them. To work with such files they need them converted to
+structured Markdown they can actually parse. The conversion must happen locally
+(a vision-LLM subagent rasterizes PDF pages, describes each via a vision
+language model, and stitches the result into Markdown with frontmatter +
+per-page sections) and drop into a project-local vault for ingestion. The agent
+also needs a lightweight way to ask a single ad-hoc question about one image
+without running the full pipeline.
 
 ## Solution
 
-VLM document describer for Pi. The `vlm_describe` tool rasterizes PDF pages
-(or directly reads images), classifies the document profile
-(paper/slides/poster/diagram/image), describes each page via LM Studio serving
-a local vision model (e.g. Qwen3-VL or Gemma), and writes structured markdown
-with frontmatter + per-page sections. Resumable pipeline with caching and
-retry for transient errors. A second, lighter tool (`vlm_ask`) exposes the
-single-image Q&A primitive so the agent can interrogate one image inline.
+A file→Markdown bridge for Pi, powered by a vision-LLM subagent. The `file2md`
+tool rasterizes PDF pages (or directly reads images), classifies the document
+profile (paper/slides/poster/diagram/image), describes each page via LM Studio
+serving a local vision model (e.g. Qwen3-VL or Gemma), and writes structured
+Markdown with frontmatter + per-page sections that a pure-text agent can read.
+Resumable pipeline with caching and retry for transient errors. A second,
+lighter tool (`vision_ask`) exposes the single-image Q&A primitive so the agent
+can interrogate one image inline.
 
 ## Architecture
 
@@ -50,30 +53,30 @@ tool** (see roadmap T1).
 ### Tools (agent-callable)
 | Tool | Description |
 |------|-------------|
-| `vlm_describe` | PDF/image → structured Obsidian markdown via local LM Studio VLM (full pipeline, writes to disk) |
-| `vlm_ask` | Ask one question about one image; returns the answer inline (no disk pipeline). Lightweight single-image Q&A wrapping the `askImage` primitive. |
+| `file2md` | PDF/image → structured Obsidian markdown via local LM Studio VLM (full pipeline, writes to disk) |
+| `vision_ask` | Ask one question about one image; returns the answer inline (no disk pipeline). Lightweight single-image Q&A wrapping the `askImage` primitive. |
 
 ### Library API (consumed by other packages)
 `runVlmDescribePipeline`, `DEFAULT_VLM_MODEL`, `classifyKind`,
 `classifyProfileViaVlm`, `explainPage`, `askImage`, `resolveLLM`,
 `slugify` / `layoutFor` / `loadManifest`, `withRetry`, `rasterizePdf`.
 
-Consumers today: `pi-agent-cli` (`vlm-describe` + `pdf-to-vault` commands),
+Consumers today: `pi-agent-cli` (`file2md` + `pdf-to-vault` commands),
 `pi-agent-ext-flux2` (`askImage` for gate verification).
 
 ## Key Dependencies
 
 - LM Studio (serving a vision model at `http://localhost:1234/v1`)
 - `pi-agent-ext-obsidian` (vault output)
-- `pi-agent-cli` (hosts vlm-describe command)
+- `pi-agent-cli` (hosts file2md command)
 
 ## Use
 
 ```bash
-pi -e bun-apps/pi-agent-ext-vlm
-# Then: vlm_describe({input: "paper.pdf"})
+pi -e bun-apps/pi-agent-ext-file2md
+# Then: file2md({input: "paper.pdf"})
 # Or CLI:
-bun bun-apps/pi-agent-cli/src/cli.ts vlm-describe paper.pdf
+bun bun-apps/pi-agent-cli/src/cli.ts file2md paper.pdf
 ```
 
 ---
@@ -81,7 +84,7 @@ bun bun-apps/pi-agent-cli/src/cli.ts vlm-describe paper.pdf
 ## Quality improvement roadmap
 
 > **Status (2026-07-11):** P0 + P1/P2 items are **implemented** on branch
-> `feat/vlm-tool-subagent-quality` (S2 quality gate, T1 `vlm_ask` tool, S1
+> `feat/vlm-tool-subagent-quality` (S2 quality gate, T1 `vision_ask` tool, S1
 > cross-page context, T2 parallel pages, S3 few-shot, T3 lang/mode, S4 vote
 > classification) — 162 deterministic tests. This section is retained as the
 > design record; the reactive `normalize*` repairs remain as a safety net.
@@ -93,19 +96,19 @@ tool + subagent quality. Priorities: **P0** = highest leverage, ship first.
 
 ### Tool quality
 
-#### T1 — Expose `vlm_ask` as a tool  (P0)
+#### T1 — Expose `vision_ask` as a tool  (P0)
 `askImage` is already battle-tested (flux2 image gate) but only reachable as a
 library import. Agents have no way to ask a quick question about one image
-without launching the full describe pipeline. Wrap it as a `vlm_ask` tool:
+without launching the full describe pipeline. Wrap it as a `vision_ask` tool:
 `{image, question, systemPrompt?, model?}` → inline text answer.
 
 - **Why:** turns an in-use primitive into a first-class agent capability;
   cheap to add (the function exists), high composability payoff.
-- **Acceptance:** `vlm_ask` registered, documented, with a deterministic test
+- **Acceptance:** `vision_ask` registered, documented, with a deterministic test
   (mocked session) covering the question→reply path and error case.
 
 #### T2 — Parallel page extraction with a concurrency cap  (P0)
-`vlm_describe` processes pages strictly sequentially. A 20-page paper = 20
+`file2md` processes pages strictly sequentially. A 20-page paper = 20
 serial VLM calls. Extract pages concurrently with a small cap (default 3–4,
 env-tunable `PI_VLM_CONCURRENCY`), preserving manifest write order and
 resumability guarantees.
@@ -175,7 +178,7 @@ majority-vote, and/or surface classifier confidence. Lower priority because
   fix must be applied in two places (pinned by `sessions.test.ts`).
 - **Extend deterministic test coverage** to the new pure functions this
   roadmap introduces (`validatePageMarkdown`, `PageContext` accumulator,
-  `vlm_ask` wrapper) — they are exactly the kind of pure logic the existing
+  `vision_ask` wrapper) — they are exactly the kind of pure logic the existing
   suite excels at, and they raise quality without needing a live model.
 
 ## Non-goals

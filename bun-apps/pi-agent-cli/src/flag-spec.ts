@@ -115,9 +115,9 @@ const ZK_QUERY_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	{ flag: "--exclude-ids", field: "excludeIds" },
 ];
 
-// ── vlm-describe / pdf-to-vault — output + doc profile (shared) ─────────────
+// ── file2md / pdf-to-vault — output + doc profile (shared) ─────────────
 const VLM_VALUE_FLAGS: readonly ValueFlagSpec[] = [
-	{ flag: "--out", field: "out" }, // shared: vlm-describe, pdf-to-vault
+	{ flag: "--out", field: "out" }, // shared: file2md, pdf-to-vault
 	{ flag: "--type", field: "type" }, // shared
 	{ flag: "--pages", field: "pages" }, // shared
 ];

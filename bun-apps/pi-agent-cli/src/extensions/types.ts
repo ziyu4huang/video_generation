@@ -2,7 +2,7 @@
  * The "extension → sub-command" contract.
  *
  * A workspace extension that wants to be invocable as a top-level CLI
- * sub-command (alongside `zk-extract`, `vlm-describe`, …) exports a spec
+ * sub-command (alongside `zk-extract`, `file2md`, …) exports a spec
  * shaped like `ExtensionSubcommandSpec`. `registry.ts` collects these specs,
  * and `runner.ts` turns each into a `Command` whose `run()` is the standard
  * "resolve LLM → build task → createSharedSession(tools + factory) → run one

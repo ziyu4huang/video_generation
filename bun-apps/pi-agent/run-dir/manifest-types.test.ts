@@ -10,9 +10,9 @@ import { parseManifestEntry, parseManifestEntries } from "./manifest-types.ts";
 
 describe("parseManifestEntry", () => {
 	test("bare string → { entry, bundleMode: thin }", () => {
-		const e = parseManifestEntry("pi-vlm/extensions/pi-vlm.ts");
-		expect(e.entry).toBe("pi-vlm/extensions/pi-vlm.ts");
-		expect(e.name).toBe("pi-vlm");
+		const e = parseManifestEntry("pi-file2md/extensions/pi-file2md.ts");
+		expect(e.entry).toBe("pi-file2md/extensions/pi-file2md.ts");
+		expect(e.name).toBe("pi-file2md");
 		expect(e.bundleMode).toBe("thin");
 	});
 
@@ -53,7 +53,7 @@ describe("parseManifestEntry", () => {
 describe("parseManifestEntries", () => {
 	test("mixed bare strings + declared objects", () => {
 		const entries = parseManifestEntries([
-			"pi-vlm/extensions/pi-vlm.ts",
+			"pi-file2md/extensions/pi-file2md.ts",
 			{ name: "pi-hermes-memory", entry: "pi-hermes-memory/src/index.ts", bundleMode: "full" },
 			"@repo/pi-agent-ext-obsidian/extensions/obsidian.ts",
 		]);
