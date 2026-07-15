@@ -99,6 +99,71 @@ describe("parseTicketFile + serializeTicket round-trip", () => {
   });
 });
 
+describe("parseTicketFile: unified body schema (to-tickets fields folded in)", () => {
+  const file = [
+    "---",
+    "type: task",
+    "blocking: 01, 02",
+    "status: open",
+    "---",
+    "",
+    "# Wire the storage layer",
+    "",
+    "## Question",
+    "",
+    "Which DB driver?",
+    "",
+    "## What to build",
+    "",
+    "A vertical slice from schema migration to the /health read endpoint, demoable on its own.",
+    "",
+    "## Acceptance",
+    "",
+    "- [ ] migration runs green",
+    "- [ ] GET /health returns 200",
+    "- [x] README updated",
+  ].join("\n");
+
+  it("parses What to build + Acceptance body sections alongside frontmatter", () => {
+    const t = parseTicketFile(file, "03", "wire-storage");
+    expect(t.type).toBe("task");
+    expect(t.blocking).toEqual(["01", "02"]);
+    expect(t.status).toBe("open");
+    expect(t.title).toBe("Wire the storage layer");
+    expect(t.question).toBe("Which DB driver?");
+    expect(t.whatToBuild).toBe(
+      "A vertical slice from schema migration to the /health read endpoint, demoable on its own.",
+    );
+    expect(t.acceptance).toEqual(["migration runs green", "GET /health returns 200", "README updated"]);
+  });
+
+  it("whatToBuild/acceptance are undefined when the sections are absent (back-compat)", () => {
+    const minimal = ["---", "type: grilling", "status: open", "---", "", "# Q", "", "## Question", "", "Why?"].join(
+      "\n",
+    );
+    const t = parseTicketFile(minimal, "01", "q");
+    expect(t.whatToBuild).toBeUndefined();
+    expect(t.acceptance).toBeUndefined();
+  });
+
+  it("serialize → parse round-trips whatToBuild + acceptance", () => {
+    const t: Ticket = {
+      id: "04",
+      slug: "slice",
+      title: "Slice",
+      question: "?",
+      type: "task",
+      blocking: [],
+      status: "open",
+      whatToBuild: "End-to-end behaviour X.",
+      acceptance: ["criterion 1", "criterion 2"],
+    };
+    const reparsed = parseTicketFile(serializeTicket(t), "04", "slice");
+    expect(reparsed.whatToBuild).toBe("End-to-end behaviour X.");
+    expect(reparsed.acceptance).toEqual(["criterion 1", "criterion 2"]);
+  });
+});
+
 describe("computeFrontier", () => {
   const mk = (id: string, opts: Partial<Pick<Ticket, "blocking" | "status" | "claimed">> = {}): Ticket => ({
     id,

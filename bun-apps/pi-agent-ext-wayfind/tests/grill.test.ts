@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { buildGrillPriming, buildPlanSeed, parseGlossary } from "../src/grill.js";
+import { buildGrillPriming, buildPlanSeed, parseDecisions, parseGlossary } from "../src/grill.js";
 
 describe("buildGrillPriming", () => {
   it("produces a with-docs priming that names both skills + the capture discipline", () => {
@@ -87,5 +87,39 @@ describe("parseGlossary", () => {
 
   it("returns [] for content with no bold-term lines", () => {
     expect(parseGlossary("# just a heading\n\nsome prose")).toEqual([]);
+  });
+});
+
+describe("parseDecisions", () => {
+  it("extracts - **title**: answer bullets from the ## Decisions section", () => {
+    const md = [
+      "# CONTEXT",
+      "",
+      "**GlossaryTerm**: a definition that lives outside any section",
+      "",
+      "## Decisions",
+      "",
+      "- **Use wayfinder format**: already ships a parser + lifecycle",
+      "- **CONTEXT.md decisions section**: written inline as they resolve",
+      "**NotBulleted**: should be ignored even inside the section",
+      "",
+      "## Notes",
+      "",
+      "some notes",
+    ].join("\n");
+    const decisions = parseDecisions(md);
+    expect(decisions).toEqual([
+      { title: "Use wayfinder format", answer: "already ships a parser + lifecycle" },
+      { title: "CONTEXT.md decisions section", answer: "written inline as they resolve" },
+    ]);
+  });
+
+  it("returns [] when there is no ## Decisions section", () => {
+    const md = ["# CONTEXT", "", "**Term**: a glossary entry", "", "## Notes", "", "notes"].join("\n");
+    expect(parseDecisions(md)).toEqual([]);
+  });
+
+  it("returns [] for empty input", () => {
+    expect(parseDecisions("")).toEqual([]);
   });
 });

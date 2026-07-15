@@ -33,6 +33,12 @@ export interface Ticket {
   status: TicketStatus;
   /** Resolution text, present when the ticket is closed. */
   resolution?: string;
+  /** "What to build" body section (to-tickets' human field, folded into the
+   *  unified ticket spine). Prose: the end-to-end behaviour this ticket makes work. */
+  whatToBuild?: string;
+  /** Acceptance criteria from the `## Acceptance` body section, as checkbox
+   *  item texts (the `- [ ]` / `- [x]` markers stripped). */
+  acceptance?: string[];
 }
 
 export interface MapDecision {
@@ -128,7 +134,18 @@ export function parseTicketFile(content: string, id: string, slug: string): Tick
     resolution = bodySections.Resolution;
     status = "closed"; // a resolution block implies closed
   }
-  return { id, slug, title, question, type, blocking, claimed, status, resolution };
+  const whatToBuild = bodySections["What to build"] || undefined;
+  const acceptanceRaw = bodySections.Acceptance;
+  const acceptance = acceptanceRaw
+    ? acceptanceRaw
+        .split(/\r?\n/)
+        .map((line) => {
+          const m = line.match(/^\s*-\s+\[[ xX]\]\s*(.+)$/);
+          return m ? m[1].trim() : null;
+        })
+        .filter((s): s is string => s !== null)
+    : undefined;
+  return { id, slug, title, question, type, blocking, claimed, status, resolution, whatToBuild, acceptance };
 }
 
 /** Serialize a ticket back to its file form. */
@@ -145,6 +162,12 @@ export function serializeTicket(t: Ticket): string {
     .filter((x) => x !== null)
     .join("\n");
   const lines = [fm, `# ${t.title}`, "", "## Question", "", t.question.trim()];
+  if (t.whatToBuild) {
+    lines.push("", "## What to build", "", t.whatToBuild.trim());
+  }
+  if (t.acceptance && t.acceptance.length > 0) {
+    lines.push("", "## Acceptance", "", ...t.acceptance.map((c) => `- [ ] ${c}`));
+  }
   if (t.resolution) {
     lines.push("", "## Resolution", "", t.resolution.trim());
   }
