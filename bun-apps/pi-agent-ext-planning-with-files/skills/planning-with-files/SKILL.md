@@ -105,6 +105,7 @@ When a task is **finished or abandoned**, the active plan keeps getting resolved
 
 | Situation | What to do |
 |-----------|------------|
+| **Before you `/plan-done`** | Complete every `todo` entry you created for this plan first. The Todos panel reads the `todo` tool (session JSONL), **not** this markdown — a finished plan with open todos reads as "incomplete". |
 | **Done with the task, want to keep the plan as a record** | Run `/plan-done`. Writes a `<!-- pwf: closed -->` marker + a visible note. Hooks treat the plan as inert: no injection, no nag, no auto-continue. |
 | **Done and want the scratch gone entirely** | Run `/plan-done --delete`. Removes the active plan files (`task_plan.md` / `progress.md` / `findings.md`, or the whole `.planning/<slug>/` dir). These are gitignored scratch — safe to delete. |
 | **Stale `.planning/<slug>/` from a previous session** | The newest plan dir under `.planning/` auto-resolves as active. Delete the stale dir, or run `/plan-done` inside it, or `export PLAN_ID=<other-slug>` to pin a different one. |
@@ -249,6 +250,7 @@ The attestation is written to `.planning/<active-plan>/.attestation` (parallel-p
 | Repeat failed actions | Track attempts, mutate the approach |
 | Create files in the skill directory | Create files in your project |
 | Write web content to `task_plan.md` | Write external content to `findings.md` only |
+| Mark a phase complete in `task_plan.md` but leave its `todo` open | Update **both** in the same step — flip the phase `**Status:** complete` AND mark the matching `todo` completed. They don't auto-sync (see three-layer model). |
 
 ### The three-layer model (goal / planning / todo)
 
@@ -261,3 +263,5 @@ When `/goal`, planning-with-files, and the `todo` tool are all active, they form
 | Steps | `todo` tool | within a phase, in-session | session JSONL (branch-aware) |
 
 Plan A coordination (shipped): when `/goal` is actively driving, planning-with-files YIELDS — it skips its plan injection and auto-continue (the goal owns endurance), and `goal_complete` is blocked while a plan has open phases (run `/plan-done` to release). So: use `todo` for the fine steps of the current phase, planning files for the cross-session phase breakdown, and `/goal` to drive the whole objective to done.
+
+**todo ↔ planning sync (binding rule):** the `todo` tool and these markdown files are **independent layers** — updating one never touches the other. If you mirror phases into todos (one todo per phase), you OWN keeping them in sync: marking a phase `**Status:** complete` in `task_plan.md` ⇒ mark its `todo` completed in the **same step**; before `/plan-done`, complete every todo you created for the plan. Auto-detection isn't possible here — this extension can read the plan markdown but **not** the `todo` store (pi-core session state), so the convention is the mechanism, not a guard.
