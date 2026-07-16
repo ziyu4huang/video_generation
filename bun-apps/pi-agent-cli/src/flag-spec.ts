@@ -49,7 +49,7 @@ export type BoolField =
 	| "noPersistLogs" | "mergeDuplicates" | "save"
 	| "popular" | "coverage"
 	| "wikiAware" | "healOnly" | "noProbe"
-	| "verify";
+	| "verify" | "reconverge";
 
 // ── spec row shapes ─────────────────────────────────────────────────────────
 
@@ -284,6 +284,7 @@ const WORKFLOW_BOOL_FLAGS: readonly BoolFlagSpec[] = [
 // ── knowledge-pipeline — operational surface ────────────────────────────────
 const KNOWLEDGE_PIPELINE_BOOL_FLAGS: readonly BoolFlagSpec[] = [
 	{ flags: ["--save"], field: "save" },
+	{ flags: ["--reconverge"], field: "reconverge" },
 ];
 
 // ── kcard-loop — ingest/heal/probe control ──────────────────────────────────

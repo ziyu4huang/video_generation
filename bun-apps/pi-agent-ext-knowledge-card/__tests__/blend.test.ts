@@ -94,23 +94,25 @@ describe("rankBlendScore — robustness", () => {
 });
 
 describe("ragToolsFor", () => {
+	// Post Phase-3 obsidian fat-tool migration: `obsidian` dispatches EVERY
+	// action (including semantic_search) — there is no separate tool name left
+	// to gate, so all three blend modes currently resolve to the same
+	// allowlist. RAG_TOOLS_THREE_WAY stays a distinct export for a future
+	// vault-mind-specific gate (see its doc comment in pi-knowledge-card.ts).
 	test("default returns the lexical+graph allowlist unchanged", () => {
 		expect(ragToolsFor("default")).toEqual(RAG_TOOLS);
 		expect(ragToolsFor()).toEqual(RAG_TOOLS); // default arg
-		expect(ragToolsFor("default")).not.toContain("obsidian_semantic_search");
 	});
 
-	test("three-way unlocks obsidian_semantic_search", () => {
+	test("three-way resolves to RAG_TOOLS_THREE_WAY (same tool set as RAG_TOOLS)", () => {
 		const tools = ragToolsFor("three-way");
-		expect(tools).toContain("obsidian_semantic_search");
 		expect(tools).toEqual(RAG_TOOLS_THREE_WAY);
 		// and still carries the lexical+graph set
 		for (const t of RAG_TOOLS) expect(tools).toContain(t);
 	});
 
-	test("semantic-lexical ALSO unlocks obsidian_semantic_search", () => {
+	test("semantic-lexical ALSO resolves to RAG_TOOLS_THREE_WAY", () => {
 		const tools = ragToolsFor("semantic-lexical");
-		expect(tools).toContain("obsidian_semantic_search");
 		expect(tools).toEqual(RAG_TOOLS_THREE_WAY);
 	});
 
@@ -128,14 +130,14 @@ describe("buildRagTask — blend mode prompt wiring", () => {
 		const task = buildRagTask(...baseArgs, "default");
 		expect(task).toContain("run all 3 strategies");
 		expect(task).toContain("0.7 × search_score");
-		expect(task).not.toContain("obsidian_semantic_search");
+		expect(task).not.toContain('action:"semantic_search"');
 		expect(task).not.toContain("three-way blend");
 	});
 
 	test("three-way mode: semantic strategy + 0.4/0.3/0.3 formula + graceful fallback", () => {
 		const task = buildRagTask(...baseArgs, "three-way");
 		expect(task).toContain("three-way blend");
-		expect(task).toContain("obsidian_semantic_search");
+		expect(task).toContain('action:"semantic_search"');
 		expect(task).toContain("0.4 × semantic");
 		expect(task).toContain("0.3 × lexical");
 		// must instruct graceful fallback when vault-mind is down
@@ -181,7 +183,7 @@ describe("buildRagTask — semantic-lexical mode prompt wiring", () => {
 	test("uses semantic seed + 0.55/0.45 formula + NO graph expansion", () => {
 		const task = buildRagTask(...baseArgs, "semantic-lexical");
 		expect(task).toContain("semantic-lexical blend");
-		expect(task).toContain("obsidian_semantic_search");
+		expect(task).toContain('action:"semantic_search"');
 		expect(task).toContain("0.55 × semantic");
 		expect(task).toContain("0.45 × lexical");
 		// graph expansion step is replaced by an explicit skip

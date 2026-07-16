@@ -124,11 +124,10 @@ async function produceAssets(
 		// Shape each asset to the canonical asset_manifest schema: required
 		// id/type/path/source_tool/scene_id + optional prompt/duration_seconds/
 		// generation_summary, and NOTHING else (the schema is additionalProperties:false).
+		// AssetGenCall.capability is only "video_generation" | "tts" (assets-encoder.ts
+		// never plans an "image_generation" call), so this reduces to those two cases.
 		const isNarration = call.capability === "tts";
-		const type =
-			isNarration ? "narration" :
-			call.capability === "video_generation" ? "video" :
-			call.capability === "image_generation" ? "image" : "video";
+		const type = isNarration ? "narration" : "video";
 		const frames = Number((call.options as Record<string, unknown>)?.frames ?? 0);
 		const asset: Record<string, unknown> = {
 			id: isNarration ? "narration" : `${call.sceneId}-${call.chainIndex ?? 0}`,

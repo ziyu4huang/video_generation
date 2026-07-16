@@ -139,3 +139,76 @@ describe("buildCallGlobal — journal/accounting/limiter gates", () => {
     assert.equal(limiterCalls, 0, "call() must not flow through the limiter");
   });
 });
+
+describe("buildCallGlobal — ctx.ask (host-fn → human, threaded from confirm)", () => {
+  it("threads deps.options.ask into ctx.ask and resolves via the callback", async () => {
+    const r = new HostFnRegistry();
+    let capturedPrompt = "";
+    let capturedChoices: string[] | undefined;
+    r.set("t.asker", {
+      fn: async (_a: any, ctx: any) => {
+        if (!ctx.ask) throw new Error("ask missing in a UI-bearing run");
+        const reply = await ctx.ask("pick one", { kind: "select", choices: ["A", "B"], default: "A" });
+        return { chose: reply };
+      },
+    });
+    const { deps } = makeDeps({ hostFns: r });
+    // Simulate the UI-bearing confirm() callback threaded from the main session
+    // (the same one checkpoint() uses). Sourced from deps.options.ask.
+    (deps.options as any).ask = async (promptText: string, options: any) => {
+      capturedPrompt = promptText;
+      capturedChoices = options?.choices;
+      return "B";
+    };
+    const out = await buildCallGlobal(deps)("t.asker", {});
+    assert.equal(capturedPrompt, "pick one");
+    assert.deepEqual(capturedChoices, ["A", "B"]);
+    assert.deepEqual(out, { chose: "B" });
+  });
+
+  it("ctx.ask is undefined when no callback threaded (headless) → host-fn falls back", async () => {
+    const r = new HostFnRegistry();
+    r.set("t.asker", {
+      fn: async (_a: any, ctx: any) => {
+        // Headless run: ctx.ask is undefined → the host-fn supplies its own default.
+        if (ctx.ask) return { chose: await ctx.ask("q") };
+        return { chose: "default" };
+      },
+    });
+    const { deps } = makeDeps({ hostFns: r });
+    // NO deps.options.ask → headless (mirrors checkpoint when confirm is absent)
+    const out = await buildCallGlobal(deps)("t.asker", {});
+    assert.deepEqual(out, { chose: "default" });
+  });
+
+  it("ctx.ask result shapes the journaled result; resume replays WITHOUT re-asking", async () => {
+    const r = new HostFnRegistry();
+    let askCount = 0;
+    r.set("t.asker", {
+      fn: async (_a: any, ctx: any) => {
+        const reply = ctx.ask ? await (ctx.ask("q") as Promise<unknown>) : "default";
+        askCount++;
+        return { chose: reply };
+      },
+    });
+    const run1 = makeDeps({ hostFns: r });
+    (run1.deps.options as any).ask = async () => "live-answer";
+    const out1 = await buildCallGlobal(run1.deps)("t.asker", {});
+    assert.deepEqual(out1, { chose: "live-answer" });
+    assert.equal(askCount, 1);
+
+    // Resume from journal: fn (and thus ask) must NOT be re-invoked.
+    const resume = new Map<number, JournalEntry>();
+    for (const e of run1.journal) resume.set(e.index, e);
+    const run2 = makeDeps({ hostFns: r, resumeJournal: resume });
+    let confirmCalled = false;
+    (run2.deps.options as any).ask = async () => {
+      confirmCalled = true;
+      return "should-not-happen";
+    };
+    const out2 = await buildCallGlobal(run2.deps)("t.asker", {});
+    assert.deepEqual(out2, { chose: "live-answer" }, "replayed the journaled answer-shaped result");
+    assert.equal(askCount, 1, "host-fn body NOT re-run on resume");
+    assert.equal(confirmCalled, false, "ask NOT re-invoked on resume");
+  });
+});

@@ -132,7 +132,11 @@ function makeStubAgent() {
 					return { ok: true };
 			}
 		},
-	};
+		// The real WorkflowAgent.run is a generic method (schema-typed return);
+		// this stub always returns the same discriminated-union shape regardless
+		// of TSchemaDef, so it can't structurally satisfy the generic signature —
+		// cast to match `Pick<WorkflowAgent, "run">` (see RunWorkflowScriptOptions.agent).
+	} as any;
 }
 
 describe("retrieval-quality-self-improve — harness contract", () => {
