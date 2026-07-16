@@ -4,9 +4,9 @@ The PR gate. Every pull request to `main` (and every push to `main`) runs
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), which turns the
 manual-`bun test` trust model into an enforced gate.
 
-## Branch protection — the 19 required checks on `main`
+## Branch protection — the 25 required checks on `main`
 
-`main` is under branch protection: the **19 checks** below are **required**
+`main` is under branch protection: the **25 checks** below are **required**
 (strict — no stale checks; branches must be up-to-date) before any merge,
 including the admin's (`enforce_admins`). A PR with a failing check is BLOCKED
 (merge button disabled); a green PR is mergeable. Applied via `gh api` (a repo
@@ -14,18 +14,21 @@ setting, not a committed file) — **if a check is renamed in `ci.yml`, update t
 protection rule too** so it stays required:
 
 ```bash
-# re-assert the 19 required checks on main (run after any check-rename)
+# re-assert the 25 required checks on main (run after any check-rename)
 gh api -X PUT repos/ziyu4huang/video_generation/branches/main/protection \
   --input - <<'JSON'
 { "required_status_checks": { "strict": true, "contexts": [
   "test · pi-agent", "test · pi-agent-cli", "test · pi-agent-ext-flux2",
   "test · pi-agent-ext-krea2", "test · pi-agent-ext-ltx",
   "test · pi-agent-ext-movie-director", "test · pi-agent-ext-power-tool",
-  "test · pi-agent-ext-web-access", "test · pi-agent-ext-file2md",
-  "test · gui-movie-director", "test · pi-agent-ext-knowledge-card", "test · pi-agent-ext-obsidian",
-  "test · pi-agent-ext-planning-with-files",
-  "test · pi-agent-ext-workflow", "test · pi-agent-ext-hermes-memory",
-  "extension-contract", "deploy --verify", "regression gates"
+  "test · pi-agent-ext-web-access", "test · gui-movie-director",
+  "extension-contract", "regression gates",
+  "test · pi-agent-ext-knowledge-card", "test · pi-agent-ext-hermes-memory",
+  "test · pi-agent-ext-planning-with-files", "test · pi-agent-ext-workflow",
+  "test · pi-agent-ext-ask-user", "test · pi-agent-ext-btw", "test · pi-agent-ext-goal-todo",
+  "test · pi-agent-ext-file2md", "test · pi-agent-ext-obsidian",
+  "test · pi-agent-ext-distill", "test · pi-agent-ext-research-tool",
+  "test · pi-agent-ext-zai-mcp", "test · pi-agent-ext-wayfind", "test · perf-harness"
 ] } } /* …preserve existing review/admin settings in the full PUT body… */
 JSON
 ```
@@ -34,7 +37,16 @@ JSON
 > `enforce_admins`, `required_pull_request_reviews`, and other settings (see
 > `gh api repos/ziyu4huang/video_generation/branches/main/protection`).
 >
-> The `determinism spot-check` job is intentionally NOT in the required 19 — it
+> **`deploy --verify` and `changed packages` are intentionally NOT required.**
+> `deploy --verify` is path-gated (`check-deploy-paths`) and only runs on PRs
+> touching `bun-apps/pi-agent/` — a job that doesn't run on most PRs can't be a
+> required check (it would permanently block them as "expected but never
+> reported"). `changed packages` doesn't need to be required either: the `tests`
+> job already fails open on its failure (runs every package rather than
+> skipping — see "Smart test routing" above), so the safety net lives in the
+> required `test · <package>` checks themselves, not in a separate gate.
+>
+> The `determinism spot-check` job is intentionally NOT in the required 25 — it
 > is v1 informational (`continue-on-error`): it runs the flake-prone subset 3×
 > and surfaces flakes without blocking. Promote it to required once the
 > false-positive rate is ≈ 0 (the same rollout the portability audit just
@@ -44,7 +56,8 @@ JSON
 
 | Job | What it gates | Fail behavior |
 |-----|---------------|---------------|
-| **test · `<package>`** (matrix of 16) | Each `bun-apps/*` package's test suite | **blocks** |
+| **changed packages** | Computes which `bun-apps/*` packages the `test` matrix actually needs to run, from the changed-file set (see "Smart test routing" below) | **blocks** (its own failure fails OPEN — see below, not a silent skip) |
+| **test · `<package>`** (matrix of 23) | Each `bun-apps/*` package's test suite — only the packages `changed packages` marks affected actually execute on a PR; push-to-main always runs all 23 | **blocks** |
 | **extension-contract** | The 5 extension-protocol tests (factory loads, wires up, no conflicts, valid schema, handler present) — a named, visible check, not buried in the pi-agent run | **blocks** |
 | **deploy --verify** | Builds pi-agent, bundles the 9 extensions, boots the deployed artifact from a foreign cwd, probes `getAllTools` for 0 conflicts | **blocks** |
 | **regression gates** | 2 MB file-size guard (twin of `.githooks/pre-commit`) **+** lockfile duplicate-version guard (the `@earendil-works/*` family must resolve to one version workspace-wide) **+** schema-cost regression (warns >5%) **+** test-portability audit (warn-only v1 — surfaces new ungated machine-coupled tests; see [TEST-PORTABILITY.md](TEST-PORTABILITY.md)) | file-size + lockfile-duplicate-version **block**; schema-cost + portability **warn only** |
@@ -52,6 +65,48 @@ JSON
 The test matrix gives a **native per-package check row** in the PR UI — a broken
 package goes red by name. `fail-fast: false` so every package reports even when
 one fails.
+
+### Smart test routing (changed_packages)
+
+A PR that only touches `bun-apps/pi-agent-ext-power-tool/` shouldn't pay for all
+23 matrix entries. `scripts/ci-changed-packages.sh` computes, per PR, which
+packages are actually affected:
+
+1. Reads every `bun-apps/*/package.json`'s `@repo/*` dependencies **live**
+   (grep, not a hand-maintained table) to build the workspace dependency graph.
+2. Diffs the PR's base...head file list.
+3. A change confined to `bun-apps/<pkg>/` marks `<pkg>` **and every package that
+   transitively depends on it** (reverse-BFS — e.g. touching
+   `pi-agent-ext-file2md` also marks `pi-agent-ext-flux2` and, through it,
+   `pi-agent-ext-movie-director`).
+4. **Fails OPEN**: any changed file outside a known `bun-apps/<pkg>/` path (root
+   config, `.github/`, `scripts/`, …) marks **every** package true — this script
+   has no way to know which package a shared-config change might affect, so it
+   doesn't guess.
+5. `push` events (post-merge on `main`) always run every package unconditionally
+   — same precedent as `deploy --verify`'s `check-deploy-paths` gate below.
+
+The gate lives on the `tests` job's **steps** (checkout, `setup-env`, ffmpeg
+install, the actual test run), not the job itself — `matrix` context isn't
+available in a job-level `if:` (only `github`/`needs`/`vars`/`inputs` are;
+`actionlint` catches this, a plain YAML parser doesn't, since the file stays
+syntactically valid YAML and only GitHub's own expression-schema check rejects
+it — at push/PR time, with **zero check-runs created** and no useful error
+surfaced via the API). Every `test · <package>` job instance — and its check —
+still always exists and reports for every PR; unaffected packages just no-op
+through skipped steps and the job reports success in seconds. Run
+`actionlint .github/workflows/ci.yml` after editing this file — a clean local
+`python3 -c "import yaml; yaml.safe_load(...)"` is NOT sufficient to catch
+this class of error.
+
+The condition also fails open if `changed_packages` itself **fails** (script
+bug, unresolvable diff range, …): rather than the default GitHub Actions
+behavior of silently *skipping* every dependent job (which would read as
+green/passing on the PR while never running a single test), every step still
+runs.
+
+Tests: `bun test scripts/ci-changed-packages.test.ts` (synthetic git repos, no
+mocking of the script's own logic).
 
 ### CI-specific setup steps (non-obvious)
 
@@ -70,16 +125,24 @@ Two setup quirks the workflow handles, documented so they aren't "lost":
 
 ## What is tested
 
-The 16 `bun-apps/*` packages that declare a `test` script, each via its
-documented command (see the `tests` matrix in the workflow):
+23 `bun-apps/*` packages, each via its documented command (see the `tests`
+matrix in the workflow; whether it actually RUNS on a given PR depends on
+`changed_packages` — see "Smart test routing" above):
 
 ```
 pi-agent, pi-agent-cli, pi-agent-ext-flux2, pi-agent-ext-krea2,
 pi-agent-ext-ltx, pi-agent-ext-movie-director, pi-agent-ext-power-tool,
+pi-agent-ext-btw, pi-agent-ext-ask-user, pi-agent-ext-goal-todo,
 pi-agent-ext-web-access, pi-agent-ext-file2md, gui-movie-director,
 pi-agent-ext-knowledge-card, pi-agent-ext-obsidian, pi-agent-ext-planning-with-files,
-pi-agent-ext-workflow, pi-agent-ext-hermes-memory
+pi-agent-ext-workflow, pi-agent-ext-hermes-memory,
+pi-agent-ext-distill, pi-agent-ext-research-tool, pi-agent-ext-zai-mcp,
+pi-agent-ext-wayfind, perf-harness
 ```
+
+`pi-agent-ext-btw`/`pi-agent-ext-ask-user`/`pi-agent-ext-goal-todo` were already
+in the `ci.yml` matrix but missing from this list (a doc-drift gap found and
+fixed alongside the 5 newly-added packages below).
 
 ## What is deliberately NOT tested in CI (and why)
 
@@ -127,8 +190,14 @@ These never run in CI; they're gated on explicit env vars:
 - **GPU / Metal / MLX tests** — `python/mlx-movie-director` pytest (incl.
   `--run-gpu`). No Apple Silicon on Actions runners; the MLX stack also needs the
   sibling-fork deps (`mflux`, `ltx-2-mlx`) not on PyPI. **Local-only.**
-- **3 packages with no test script** — `pi-agent-flux2`, `scripts`, `pi-agent-ext-zai-mcp`.
-  They have no `bun test` entry point, so they're not in the matrix.
+- **`scripts/`** — not a `bun-apps/*` workspace package (no `package.json`), so
+  it's outside this matrix by construction. Its own `*.test.ts` files (e.g.
+  `pr-finish.test.ts`, `sync-repo.test.ts`, `ci-changed-packages.test.ts`) run
+  directly via `bun test scripts/<file>.test.ts` in the jobs that need them
+  (`regression gates`), not through the package matrix.
+  (`pi-agent-ext-zai-mcp` was previously miscategorized here too — it has no
+  `package.json` `test` script, but `bun test` doesn't require one to discover
+  `*.test.ts` files; it's now correctly in the matrix.)
 - **pi-agent-ext-workflow biome lint** — the package's `test` script chains
   `npm run check` (biome), which has pre-existing formatting drift. CI runs the
   CLAUDE.md canonical command `bun run build && bun test` instead (build +
