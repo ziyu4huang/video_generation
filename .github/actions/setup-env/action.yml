@@ -32,7 +32,13 @@ runs:
     - name: Setup Bun
       uses: oven-sh/setup-bun@v2
       with:
-        bun-version: "1.3"
+        # Pin an EXACT version. A partial version ("1.3") makes setup-bun query
+        # api.github.com/repos/oven-sh/bun/git/refs/tags to resolve the latest
+        # matching tag — that endpoint intermittently 503s during GitHub
+        # degradation and fails EVERY downstream job (bun not found → exit 127).
+        # An exact version downloads the release asset directly and skips the
+        # tag-resolution call.
+        bun-version: "1.3.14"
 
     - name: Setup Node
       if: inputs.setup-node == 'true'
