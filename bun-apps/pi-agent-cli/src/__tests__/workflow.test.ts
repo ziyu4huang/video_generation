@@ -107,6 +107,90 @@ describe("resolveWorkflowScript", () => {
 
 // ── dispatch: `workflow` namespace reserved ────────────────────────────────
 
+// ── resolveWorkflowScript: workflow packs (folders + manifest.json) ───────
+
+/** Create a pack fixture: <root>/<packName>/manifest.json + the entry script.
+ *  Returns the pack dir. */
+function makePack(
+	root: string,
+	packName: string,
+	manifest: Record<string, unknown>,
+	entryScript = "export const meta = { name: 'pack', description: 'd' };\nreturn { ok: true, args };\n",
+): string {
+	const packDir = join(root, packName);
+	mkdirSync(packDir, { recursive: true });
+	writeFileSync(join(packDir, "manifest.json"), JSON.stringify(manifest));
+	writeFileSync(join(packDir, manifest.entry as string), entryScript);
+	return packDir;
+}
+
+describe("resolveWorkflowScript — workflow packs", () => {
+	test("resolves a literal pack dir path (manifest.json + entry)", () => {
+		const root = mkdtempSync(join(tmpdir(), "wf-"));
+		const packDir = makePack(root, "echo", { name: "echo", description: "smoke", entry: "index.js" });
+		const r = resolveWorkflowScript(packDir);
+		expect(r.source).toBe("path");
+		expect(r.pack?.packDir).toBe(packDir);
+		expect(r.pack?.manifest.name).toBe("echo");
+		expect(r.path).toBe(join(packDir, "index.js"));
+		expect(r.script).toContain("export const meta");
+	});
+
+	test("a literal dir WITHOUT manifest.json throws (not a silent not-found)", () => {
+		const root = mkdtempSync(join(tmpdir(), "wf-"));
+		const dir = join(root, "no-manifest");
+		mkdirSync(dir, { recursive: true });
+		expect(() => resolveWorkflowScript(dir)).toThrow(/without a manifest\.json/);
+	});
+
+	test("resolves a pack by NAME under .claude/workflows/<name>/", () => {
+		const root = mkdtempSync(join(tmpdir(), "wf-"));
+		mkdirSync(join(root, ".claude", "workflows"), { recursive: true });
+		makePack(join(root, ".claude", "workflows"), "echo", { name: "echo", description: "d", entry: "index.js" });
+		const r = resolveWorkflowScript("echo", { cwd: root });
+		expect(r.source).toBe(".claude/workflows");
+		expect(r.pack?.manifest.name).toBe("echo");
+		expect(r.path).toBe(join(root, ".claude", "workflows", "echo", "index.js"));
+	});
+
+	test("resolves a pack by NAME under bun-apps/<pkg>/workflows/<name>/", () => {
+		const root = mkdtempSync(join(tmpdir(), "wf-"));
+		mkdirSync(join(root, "bun-apps", "pi-agent-cli", "workflows"), { recursive: true });
+		makePack(join(root, "bun-apps", "pi-agent-cli", "workflows"), "args-demo", { name: "args-demo", description: "d", entry: "main.js" });
+		const r = resolveWorkflowScript("args-demo", { cwd: root });
+		expect(r.source).toBe("package-workflows");
+		expect(r.pack?.manifest.entry).toBe("main.js");
+	});
+
+	test("single-file name still resolves to .js (backward compatible)", () => {
+		const root = mkdtempSync(join(tmpdir(), "wf-"));
+		mkdirSync(join(root, ".claude", "workflows"), { recursive: true });
+		writeFileSync(join(root, ".claude", "workflows", "legacy.js"), "export const meta = { name: 'legacy', description: 'd' };\n");
+		const r = resolveWorkflowScript("legacy", { cwd: root });
+		expect(r.source).toBe(".claude/workflows");
+		expect(r.pack).toBeUndefined();
+		expect(r.path).toBe(join(root, ".claude", "workflows", "legacy.js"));
+	});
+
+	test("a pack DIR wins over a same-name .js file (dir-first precedence)", () => {
+		const root = mkdtempSync(join(tmpdir(), "wf-"));
+		const wfDir = join(root, ".claude", "workflows");
+		mkdirSync(wfDir, { recursive: true });
+		writeFileSync(join(wfDir, "echo.js"), "export const meta = { name: 'file-echo', description: 'd' };\n");
+		makePack(wfDir, "echo", { name: "pack-echo", description: "d", entry: "index.js" });
+		const r = resolveWorkflowScript("echo", { cwd: root });
+		expect(r.pack?.manifest.name).toBe("pack-echo");
+	});
+
+	test("a pack whose manifest entry file is missing throws a clear error", () => {
+		const root = mkdtempSync(join(tmpdir(), "wf-"));
+		const packDir = join(root, "broken");
+		mkdirSync(packDir, { recursive: true });
+		writeFileSync(join(packDir, "manifest.json"), JSON.stringify({ name: "broken", description: "d", entry: "nope.js" }));
+		expect(() => resolveWorkflowScript(packDir)).toThrow(/entry|nope\.js/i);
+	});
+});
+
 describe("workflow namespace dispatch", () => {
 	test("`workflow` is reserved so it dispatches (not a passthrough prompt)", () => {
 		expect(findCommandToken(["workflow", "run", "closed-loop-proof"])).toEqual({

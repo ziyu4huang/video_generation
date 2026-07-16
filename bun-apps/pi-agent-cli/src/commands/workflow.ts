@@ -33,6 +33,7 @@ import type { Command } from "../cli.ts";
 // engine + its script parser by name so the bundler treats them as externals
 // exactly like the other workspace deps (pi-obsidian, pi-file2md, …).
 import { runWorkflow, parseWorkflowScript, type WorkflowAgent } from "@repo/pi-agent-ext-workflow";
+import { readManifest, type Manifest } from "../manifest.ts";
 
 /** Where engine workflow scripts live in this repo (Claude-Code-shared). */
 const CLAUDE_WORKFLOWS_DIR = ".claude/workflows";
@@ -40,12 +41,16 @@ const CLAUDE_WORKFLOWS_DIR = ".claude/workflows";
 const PKG_WORKFLOWS_GLOB = "bun-apps";
 
 export interface ResolvedWorkflow {
-	/** Absolute path to the script file that was read. */
+	/** Absolute path to the entry script that was read (the .js/.mjs for a
+	 *  single file, or the pack's entry file for a workflow pack). */
 	path: string;
-	/** Script source text. */
+	/** Entry script source text. */
 	script: string;
 	/** How it was resolved, for the run receipt. */
 	source: "path" | ".claude/workflows" | "package-workflows";
+	/** Present iff a workflow pack (folder + manifest.json). The manifest carries
+	 *  default args/model/thinking the runner merges under CLI flags. */
+	pack?: { manifest: Manifest; packDir: string };
 }
 
 /**
@@ -64,32 +69,51 @@ export function resolveWorkflowScript(
 	const read = opts.read ?? ((p) => readFileSync(p, "utf8"));
 	const exists = opts.exists ?? ((p) => existsSync(p));
 
-	// 1. Literal path (absolute, or relative to cwd).
+	// 1. Literal path: a file OR a workflow-pack directory (manifest.json + entry).
 	const asPath = isAbsolute(name) ? name : resolve(cwd, name);
-	if (exists(asPath) && statSyncOrNull(asPath)?.isFile()) {
+	const pathStat = statSyncOrNull(asPath);
+	if (pathStat?.isFile()) {
 		return { path: asPath, script: read(asPath), source: "path" };
+	}
+	if (pathStat?.isDirectory()) {
+		const pack = tryResolvePack(asPath, { read, exists });
+		if (pack) return { ...pack, source: "path" };
+		// A directory that isn't a pack is an error, not a silent fall-through.
+		throw new Error(
+			`workflow: "${name}" is a directory without a manifest.json (not a workflow pack): ${asPath}`,
+		);
 	}
 
 	// Candidate names with and without the .js suffix (so `workflow run foo`
-	// and `workflow run foo.js` both work).
+	// and `workflow run foo.js` both work). Used only for single-file lookup.
 	const names = name.endsWith(".js") ? [name] : [`${name}.js`, name];
 
-	// 2. .claude/workflows/<name>(.js)
+	// 2-3. Name resolution under the workflow dirs. Per location, a workflow-pack
+	//      directory (<name>/manifest.json) wins over a same-name file — packs
+	//      are the richer, deliberate artifact.
 	const claudeRoot = findRepoRoot(cwd, exists);
 	if (claudeRoot) {
-		for (const candidate of names) {
-			const p = join(claudeRoot, CLAUDE_WORKFLOWS_DIR, candidate);
-			if (exists(p) && statSyncOrNull(p)?.isFile()) {
-				return { path: p, script: read(p), source: ".claude/workflows" };
+		const claudeDir = join(claudeRoot, CLAUDE_WORKFLOWS_DIR);
+		if (exists(claudeDir)) {
+			const pack = tryResolvePack(join(claudeDir, name), { read, exists });
+			if (pack) return { ...pack, source: ".claude/workflows" };
+			for (const candidate of names) {
+				const p = join(claudeDir, candidate);
+				if (exists(p) && statSyncOrNull(p)?.isFile()) {
+					return { path: p, script: read(p), source: ".claude/workflows" };
+				}
 			}
 		}
 
-		// 3. bun-apps/<pkg>/workflows/<name>(.js)
 		const pkgRoot = join(claudeRoot, PKG_WORKFLOWS_GLOB);
 		if (exists(pkgRoot) && statSyncOrNull(pkgRoot)?.isDirectory()) {
 			for (const pkg of readdirSync(pkgRoot)) {
+				const pkgDir = join(pkgRoot, pkg, "workflows");
+				if (!exists(pkgDir)) continue;
+				const pack = tryResolvePack(join(pkgDir, name), { read, exists });
+				if (pack) return { ...pack, source: "package-workflows" };
 				for (const candidate of names) {
-					const p = join(pkgRoot, pkg, "workflows", candidate);
+					const p = join(pkgDir, candidate);
 					if (exists(p) && statSyncOrNull(p)?.isFile()) {
 						return { path: p, script: read(p), source: "package-workflows" };
 					}
@@ -119,6 +143,23 @@ function statSyncOrNull(
 	} catch {
 		return undefined;
 	}
+}
+
+/** Resolve a workflow pack at `packDir`: validate its manifest.json (via
+ *  readManifest) then read the entry script text. Returns the entry path/script
+ *  + the validated manifest, or undefined when `packDir` has no manifest.json
+ *  (not a pack). Throws on a malformed pack (bad manifest, or entry missing). */
+function tryResolvePack(
+	packDir: string,
+	opts: { read: (p: string) => string; exists: (p: string) => boolean },
+): { path: string; script: string; pack: { manifest: Manifest; packDir: string } } | undefined {
+	if (!opts.exists(join(packDir, "manifest.json"))) return undefined;
+	const manifest = readManifest(packDir, { read: opts.read, exists: opts.exists });
+	const entryPath = join(packDir, manifest.entry);
+	if (!opts.exists(entryPath) || !statSyncOrNull(entryPath)?.isFile()) {
+		throw new Error(`workflow: pack entry "${manifest.entry}" not found in ${packDir}`);
+	}
+	return { path: entryPath, script: opts.read(entryPath), pack: { manifest, packDir } };
 }
 
 /**
