@@ -112,7 +112,7 @@ export function buildTamperMessage(status: PlanStatus): string {
     TAMPERED_PREFIX,
     attestation.expected ? `expected=${attestation.expected}` : "expected=<missing or invalid>",
     attestation.actual ? `actual=  ${attestation.actual}` : "actual=  <unreadable>",
-    "Run /plan-attest to re-approve current contents, or restore the file from git.",
+    "Run /plan attest to re-approve current contents, or restore the file from git.",
   ].join("\n");
 }
 

@@ -251,13 +251,13 @@ export function lintPlan(cwd: string): LintReport {
       level: "error",
       code: "TAMPERED",
       message:
-        "Attestation hash mismatch — plan was edited after /plan-attest. Run /plan-attest to re-lock, or restore the file from git.",
+        "Attestation hash mismatch — plan was edited after /plan attest. Run /plan attest to re-lock, or restore the file from git.",
     });
   } else if (!attestation.enabled) {
     findings.push({
       level: "info",
       code: "NOT_ATTESTED",
-      message: "Plan not attested — run /plan-attest to enable tamper detection.",
+      message: "Plan not attested — run /plan attest to enable tamper detection.",
     });
   }
 
@@ -329,10 +329,10 @@ function reportForStatus(status: PlanStatus): LintReport {
     findings.push({
       level: "error",
       code: "TAMPERED",
-      message: "Attestation hash mismatch — run /plan-attest to re-lock.",
+      message: "Attestation hash mismatch — run /plan attest to re-lock.",
     });
   } else if (!attestation.enabled) {
-    findings.push({ level: "info", code: "NOT_ATTESTED", message: "Not attested — run /plan-attest." });
+    findings.push({ level: "info", code: "NOT_ATTESTED", message: "Not attested — run /plan attest." });
   }
   const hasError = findings.some((f) => f.level === "error");
   const hasWarn = findings.some((f) => f.level === "warn");
@@ -390,7 +390,7 @@ export function switchActivePlan(cwd: string, id: string): SwitchResult {
   if (!existsSync(targetPlan)) {
     return {
       ok: false,
-      message: `No plan at .planning/${normalized}/task_plan.md — run /plan-list to see available plans.`,
+      message: `No plan at .planning/${normalized}/task_plan.md — run /plan list to see available plans.`,
     };
   }
 

@@ -52,7 +52,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
   async function handleGrillMe(args: string, ctx: ExtensionCommandContext): Promise<void> {
     const topic = args.trim();
     startGrill(ctx, topic, false);
-    overlay.setLine(`grill-me active${topic ? `: ${topic}` : ""}`);
+    overlay.setLine(`grill me active${topic ? `: ${topic}` : ""}`);
     ctx.ui.notify(
       `[${PKG_NAME}] grill-me started${topic ? ` (${topic})` : ""}. planning-with-files will yield while the grill is active.`,
       "info",
@@ -62,7 +62,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
   async function handleGrillDocs(args: string, ctx: ExtensionCommandContext): Promise<void> {
     const topic = args.trim();
     startGrill(ctx, topic, true);
-    overlay.setLine(`grill-me-with-docs active${topic ? `: ${topic}` : ""}`);
+    overlay.setLine(`grill docs active${topic ? `: ${topic}` : ""}`);
     ctx.ui.notify(
       [
         `[${PKG_NAME}] grill-me-with-docs started${topic ? ` (${topic})` : ""}.`,
