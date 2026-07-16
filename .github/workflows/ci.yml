@@ -1,8 +1,10 @@
 # CI — the PR gate. Turns the manual-test trust model into an enforced gate.
 #
-# Every PR to main runs the full Bun test suite (16 packages), the extension
-# contract test, the deploy --verify probe, and the regression baselines
-# (schema-cost + 2 MB file-size guard + lockfile duplicate-version guard).
+# Every PR to main runs the Bun test suite (23 packages, smart-routed by
+# changed_packages — see that job's comment), the extension contract test, the
+# deploy --verify probe, and the regression baselines (schema-cost + 2 MB
+# file-size guard + lockfile duplicate-version guard). Push-to-main always runs
+# every package unconditionally, same precedent as deploy-verify.
 # Machine-coupled tests (probing the
 # local Apple-Silicon generation stack: python/venv, built swift binaries,
 # run.py) skip under CI=true (set automatically by GitHub Actions) — see
@@ -25,12 +27,47 @@ concurrency:
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────────
+  # Smart test routing — computes which bun-apps/* packages actually need to
+  # re-run given the changed files, so a PR touching one package's tests
+  # doesn't pay for all 23 matrix entries below. push-to-main always runs
+  # everything (same "can't skip on the branch that ships" precedent as
+  # check-deploy-paths further down). See scripts/ci-changed-packages.sh for
+  # the algorithm (live @repo/* dependency graph, reverse-BFS propagation,
+  # fails OPEN to "run everything" on any change outside a known bun-apps/<pkg>/
+  # path). Gating lives on the `tests` job's STEPS, not the job itself —
+  # `matrix` context isn't available in a job-level `if:` (only github/needs/
+  # vars/inputs are; actionlint catches this, plain YAML parsing does not).
+  # Every "test · <package>" job/check still always exists and reports for
+  # every PR — unaffected packages just no-op through skipped steps.
+  # ──────────────────────────────────────────────────────────────────────────
+  changed_packages:
+    name: changed packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      packages: ${{ steps.filter.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            json=$(bash scripts/ci-changed-packages.sh --all)
+          else
+            json=$(bash scripts/ci-changed-packages.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+          fi
+          echo "packages=$json" >> "$GITHUB_OUTPUT"
+
+  # ──────────────────────────────────────────────────────────────────────────
   # Thrust A — the core test gate. One matrix entry per package → native
   # per-package pass/fail in the PR checks UI (a broken package goes red by
-  # name). fail-fast:false so every package reports even if one fails.
+  # name). fail-fast:false so every package reports even if one fails. Each
+  # entry's `if:` is gated by changed_packages — see that job's comment.
   # ──────────────────────────────────────────────────────────────────────────
   tests:
     name: test · ${{ matrix.package }}
+    needs: changed_packages
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -48,6 +85,14 @@ jobs:
           - { package: pi-agent-ext-btw, test-cmd: "bun test" }
           - { package: pi-agent-ext-ask-user, test-cmd: "bun test" }
           - { package: pi-agent-ext-goal-todo, test-cmd: "bun test" }
+          - { package: pi-agent-ext-distill, test-cmd: "bun test" }
+          - { package: pi-agent-ext-research-tool, test-cmd: "bun test" }
+          - { package: pi-agent-ext-zai-mcp, test-cmd: "bun test" }
+          - { package: perf-harness, test-cmd: "bun test" }
+          # wayfind's own `test` script chains check(biome) → build(tsc) →
+          # test:unit(bun test); `bun run test` (not plain `bun test`) so that
+          # full chain runs, matching gui-movie-director's convention below.
+          - { package: pi-agent-ext-wayfind, test-cmd: "bun run test" }
           - { package: pi-agent-ext-web-access, test-cmd: "bun test" }
           - { package: pi-agent-ext-planning-with-files, test-cmd: "bun test" }
           - { package: pi-agent-ext-file2md, test-cmd: "bun test" }
@@ -77,20 +122,40 @@ jobs:
           # platform. No Node setup needed.
           - { package: pi-agent-ext-hermes-memory, test-cmd: "bun test" }
 
+    # `matrix` context is NOT available in a job-level `if:` (only github/
+    # needs/vars/inputs are — see the context-availability table; actionlint
+    # catches this, a local YAML parse does not, since the file is
+    # syntactically valid YAML and only GitHub's expression-schema check
+    # rejects it, at push/PR time with zero check-runs created). So the
+    # affected-package gate lives on the STEPS below instead, where `matrix`
+    # IS available — every job instance (= every "test · <package>" check)
+    # still always exists and reports (its steps just no-op when the package
+    # isn't affected), which is what required-status-checks needs anyway.
     steps:
+      # "should this instance's steps actually run" — repeated verbatim on
+      # every step below (YAML aliases can't be string-concatenated inline
+      # with `&&`, so this comment is the single source of truth to keep them
+      # in sync, not a real anchor).  !cancelled() so an actually-cancelled
+      # run still stops cleanly; the needs.changed_packages.result check
+      # fails OPEN (runs everything) if that job itself errored, rather than
+      # silently skipping every package the way an unguarded `needs` failure
+      # would.
       - uses: actions/checkout@v4
+        if: "!cancelled() && (github.event_name == 'push' || needs.changed_packages.result != 'success' || fromJSON(needs.changed_packages.outputs.packages)[matrix.package] == true)"
       # Shared preamble (Bun + install + build pi-agent-ext-workflow). Every
       # matrix entry is now pure Bun (hermes-memory dropped its Node/tsx carve-out).
       - uses: ./.github/actions/setup-env
+        if: "!cancelled() && (github.event_name == 'push' || needs.changed_packages.result != 'success' || fromJSON(needs.changed_packages.outputs.packages)[matrix.package] == true)"
 
       # movie-director's preflight test probes ffmpeg on PATH (the composition
       # runtime). ubuntu-latest doesn't ship it; install only for that matrix
       # entry. (compose.test.ts uses mocked ffmpeg; e2e.local is opt-in.)
       - name: Install ffmpeg (movie-director preflight probe)
-        if: matrix.package == 'pi-agent-ext-movie-director'
+        if: "matrix.package == 'pi-agent-ext-movie-director' && !cancelled() && (github.event_name == 'push' || needs.changed_packages.result != 'success' || fromJSON(needs.changed_packages.outputs.packages)[matrix.package] == true)"
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - name: Test
+        if: "!cancelled() && (github.event_name == 'push' || needs.changed_packages.result != 'success' || fromJSON(needs.changed_packages.outputs.packages)[matrix.package] == true)"
         working-directory: bun-apps/${{ matrix.package }}
         env:
           # Set automatically by GitHub Actions; the signal machine-coupled
