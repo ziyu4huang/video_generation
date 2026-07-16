@@ -29,21 +29,11 @@ bun-apps/pi-agent-ext-workflow/docs/media/*.gif
 .claude/workflows/*.operation-lessons.proposed.jsonl
 .playwright-cli/
 tmp/
-comfyui_data/models/
-comfyui_data/input/
 python/mlx-movie-director/app/models/
 # face-restore: facexlib hardcodes a 'gfpgan/weights' download dir (relative to
 # cwd=repo root). Symlinked into app/models/face-restore (gitignored above) so
 # weights aren't re-downloaded; this wrapper dir is itself an artifact.
 /gfpgan/
-comfyui_data/user/**/*.db
-comfyui_data/user/**/*.log
-comfyui_data/user/__manager/
-comfyui_data/custom_nodes/
-comfyui_data/output/
-comfyui_data/user/default/ComfyUI-Impact-Subpack/model-whitelist.txt
-comfyui_data/user/default/test.json
-comfyui_data/user/default/workflows/.index.json
 .reasonix/
 dist/
 
@@ -58,8 +48,6 @@ python/mlx-movie-director/vendor/ltx-2-mlx/
 python/mlx-movie-director/vendor/ltx-2-mlx-dgrauet/
 python/mlx-movie-director/vendor/ltx-2-mlx-acelogic/
 
-# ComfyUI custom_nodes — third-party vendored, BUILD-TIME only, rebuildable
-comfyui_data/custom_nodes/
 # Swift build artifacts
 swift/*/.build/
 swift/*/.swiftpm/

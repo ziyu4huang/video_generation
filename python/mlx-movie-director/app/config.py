@@ -31,16 +31,6 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(APP_DIR)
 REPO_DIR = os.path.dirname(os.path.dirname(PROJECT_DIR))
 
-# ComfyUI model store — BUILD-TIME ONLY. Consumed solely by the SRC_* constants
-# below as convert.py re-conversion sources (moody/zimage/seedvr2). Runtime
-# pipelines must NEVER read from here — they use MODELS_DIR (the MLX-owned tree).
-# This keeps the bun/MLX app self-contained: comfyui_data/ is a gitignored ComfyUI
-# install artifact that can vanish on branch switch / git clean.
-COMFY_MODELS = os.path.join(REPO_DIR, "comfyui_data", "models")
-
-SRC_TRANSFORMER = os.path.join(COMFY_MODELS, "diffusion_models", "moody-porn-v12.6_00001_.safetensors")
-SRC_TEXT_ENCODER = os.path.join(COMFY_MODELS, "text_encoders", "qwen_3_4b.safetensors")
-
 def _resolve_models_dir(raw: str | None) -> str:
     """Resolve the MLX models root — runtime-PWD-relative by default.
 
@@ -73,8 +63,8 @@ def _resolve_models_dir(raw: str | None) -> str:
 
 # All constants below that derive from the models root are (re)computed by
 # ``_apply_models_dir`` so a runtime override (``set_models_dir``) propagates to
-# every call-time ``cfg.X`` reader. Non-derived constants (COMFY_MODELS, SRC_*,
-# OUTPUT_DIR) are unaffected by the models-root location.
+# every call-time ``cfg.X`` reader. Non-derived constants (OUTPUT_DIR) are
+# unaffected by the models-root location.
 _MODELS_DIR_GLOBALS = [
     "MODELS_DIR", "TRANSFORMER_DIR", "TEXT_ENCODER_DIR", "TOKENIZER_DIR",
     "VAE_DIR", "ZIMAGE_AE_VAE_DIR", "ULTRAFLUX_VAE_DIR", "LUT_DIR",
@@ -199,15 +189,12 @@ def _resolve_output_dir(raw: str) -> str:
 # Repo-relative by default; override via the MLX_OUTPUT_DIR env var or run.py --output-dir.
 DEFAULT_OUTPUT_DIR = "../video_generation__output"
 OUTPUT_DIR = _resolve_output_dir(os.environ.get("MLX_OUTPUT_DIR") or DEFAULT_OUTPUT_DIR)
-# SeedVR2 source models (for convert.py)
-SRC_SEEDVR2_DIT_7B = os.path.join(COMFY_MODELS, "SEEDVR2", "seedvr2_ema_7b_fp16.safetensors")
-SRC_SEEDVR2_VAE = os.path.join(COMFY_MODELS, "SEEDVR2", "ema_vae_fp16.safetensors")
 
 # SeedVR2 text embeddings — pre-computed positive/negative prompt embeddings,
 # loaded at inference (NOT converted). Co-located in the MLX tree
 # (app/seedvr2/embeddings/) so the SeedVR2 upscaler is SELF-CONTAINED: the MLX
 # pipeline must NOT depend on a ComfyUI custom node being installed. The previous
-# path pointed into comfyui_data/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler/,
+# path pointed into a ComfyUI custom-node install (ComfyUI-SeedVR2_VideoUpscaler),
 # which is a ComfyUI install artifact that vanishes on branch switch / git clean
 # and broke purify with "Text embedding not found". The bun app only ever calls
 # run.py (MLX) — it never invokes ComfyUI — so this asset belongs in the MLX tree.

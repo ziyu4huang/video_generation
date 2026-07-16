@@ -38,7 +38,7 @@ _MODELS_DIR = _cfg.MODELS_DIR
 _TE_DIR = os.path.join(_MODELS_DIR, "text_encoder", "gpt-oss-20b")
 _UNET_DIR = os.path.join(_MODELS_DIR, "lens-unet-int4")
 
-# Flux2 VAE (ComfyUI format) — lives in the MLX-owned model tree (NOT comfyui_data),
+# Flux2 VAE (ComfyUI format) — lives in the MLX-owned model tree (self-contained),
 # so Lens T2I is self-contained and survives a ComfyUI-clean.
 _LENS_VAE = os.path.join(_MODELS_DIR, "vae", "flux2-vae", "flux2-vae.safetensors")
 _MFLUX_SRC = os.path.join(_APP_DIR, "..", "vendor", "mflux", "src")
