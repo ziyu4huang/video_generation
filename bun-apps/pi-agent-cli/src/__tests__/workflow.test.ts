@@ -8,6 +8,7 @@ import {
 	runWorkflowScript,
 	mergeArgs,
 	resolvePackOverrides,
+	listWorkflows,
 } from "../commands/workflow.ts";
 import { findCommandToken } from "../cli.ts";
 
@@ -384,5 +385,59 @@ describe("runWorkflowScript — workflow packs", () => {
 		expect(receipt.meta.name).toBe("echo");
 		expect(receipt.agentCount).toBe(1);
 		expect((receipt.result as { args: unknown }).args).toEqual({ msg: "hello pack" });
+	});
+});
+
+// ── listWorkflows (enumerates packs + single-file scripts) ─────────────────
+
+describe("listWorkflows", () => {
+	test("lists packs and single-file scripts together", () => {
+		const root = mkdtempSync(join(tmpdir(), "wf-"));
+		const wfDir = join(root, ".claude", "workflows");
+		mkdirSync(wfDir, { recursive: true });
+		writeFileSync(join(wfDir, "legacy.js"), "export const meta = { name: 'legacy', description: 'a file' };\n");
+		makePack(wfDir, "echo", { name: "echo", description: "a pack", entry: "index.js" });
+		const { rows } = listWorkflows(root);
+		expect(rows.map((r) => r.name).sort()).toEqual(["echo", "legacy"]);
+		const echo = rows.find((r) => r.name === "echo")!;
+		expect(echo.kind).toBe("pack");
+		expect(echo.source).toBe(".claude/workflows");
+		const legacy = rows.find((r) => r.name === "legacy")!;
+		expect(legacy.kind).toBe("file");
+	});
+
+	test("pack rows render name/description from the manifest", () => {
+		const root = mkdtempSync(join(tmpdir(), "wf-"));
+		const wfDir = join(root, "bun-apps", "pi-agent-cli", "workflows");
+		mkdirSync(wfDir, { recursive: true });
+		makePack(wfDir, "args-demo", { name: "args-demo", description: "demo desc", entry: "main.js" });
+		const { rows } = listWorkflows(root);
+		const row = rows.find((r) => r.name === "args-demo")!;
+		expect(row.description).toBe("demo desc");
+		expect(row.source).toBe("bun-apps/pi-agent-cli/workflows");
+		expect(row.kind).toBe("pack");
+	});
+
+	test("a malformed pack is reported in errors, not dropped (other rows still list)", () => {
+		const root = mkdtempSync(join(tmpdir(), "wf-"));
+		const wfDir = join(root, ".claude", "workflows");
+		mkdirSync(wfDir, { recursive: true });
+		writeFileSync(join(wfDir, "good.js"), "export const meta = { name: 'good', description: 'g' };\n");
+		const badDir = join(wfDir, "broken");
+		mkdirSync(badDir, { recursive: true });
+		writeFileSync(join(badDir, "manifest.json"), "{not json}");
+		const { rows, errors } = listWorkflows(root);
+		expect(rows.map((r) => r.name)).toContain("good");
+		expect(errors.some((e) => e.path === badDir)).toBe(true);
+	});
+
+	test("directories without manifest.json are skipped silently", () => {
+		const root = mkdtempSync(join(tmpdir(), "wf-"));
+		const wfDir = join(root, ".claude", "workflows");
+		mkdirSync(wfDir, { recursive: true });
+		mkdirSync(join(wfDir, "just-a-dir"), { recursive: true });
+		const { rows, errors } = listWorkflows(root);
+		expect(rows).toEqual([]);
+		expect(errors).toEqual([]);
 	});
 });

@@ -414,6 +414,61 @@ Examples:
 	},
 };
 
+export interface WorkflowListRow {
+	source: string;
+	name: string;
+	description: string;
+	/** "pack" = folder + manifest.json; "file" = single-file .js script. */
+	kind: "pack" | "file";
+}
+
+export interface WorkflowListResult {
+	rows: WorkflowListRow[];
+	errors: { path: string; message: string }[];
+}
+
+/** Enumerate resolvable workflows under a repo root: workflow packs (folders
+ *  with manifest.json) AND single-file scripts (*.js). Pack rows render from
+ *  the manifest; file rows from `export const meta`. Broken packs/scripts are
+ *  reported in `errors` (not dropped). */
+export function listWorkflows(claudeRoot: string): WorkflowListResult {
+	const dirs = [
+		{ label: ".claude/workflows", dir: join(claudeRoot, CLAUDE_WORKFLOWS_DIR) },
+		...readdirSyncSafe(join(claudeRoot, PKG_WORKFLOWS_GLOB)).map((pkg) => ({
+			label: `bun-apps/${pkg}/workflows`,
+			dir: join(claudeRoot, PKG_WORKFLOWS_GLOB, pkg, "workflows"),
+		})),
+	];
+	const rows: WorkflowListRow[] = [];
+	const errors: { path: string; message: string }[] = [];
+	for (const { label, dir } of dirs) {
+		if (!existsSync(dir)) continue;
+		for (const entry of readdirSyncSafe(dir)) {
+			const p = join(dir, entry);
+			const stat = statSyncOrNull(p);
+			if (stat?.isDirectory()) {
+				// A workflow pack — only when it has a manifest.json.
+				if (!existsSync(join(p, "manifest.json"))) continue;
+				try {
+					const manifest = readManifest(p);
+					rows.push({ source: label, name: manifest.name, description: manifest.description, kind: "pack" });
+				} catch (e) {
+					errors.push({ path: p, message: (e as Error).message.split("\n")[0]! });
+				}
+				continue;
+			}
+			if (!stat?.isFile() || !entry.endsWith(".js")) continue;
+			try {
+				const { meta } = parseWorkflowScript(readFileSync(p, "utf8"));
+				rows.push({ source: label, name: meta.name, description: meta.description, kind: "file" });
+			} catch (e) {
+				errors.push({ path: p, message: (e as Error).message.split("\n")[0]! });
+			}
+		}
+	}
+	return { rows, errors };
+}
+
 /** `workflow list` — enumerate resolvable workflow scripts with their metas. */
 export const workflowListCommand: Command = {
 	name: "list",
@@ -427,28 +482,7 @@ is surfaced.`,
 	run: async (parsed: ParsedArgs): Promise<void> => {
 		const cwd = process.cwd();
 		const claudeRoot = findRepoRoot(cwd, existsSync) ?? cwd;
-		const dirs = [
-			{ label: ".claude/workflows", dir: join(claudeRoot, CLAUDE_WORKFLOWS_DIR) },
-			...readdirSyncSafe(join(claudeRoot, PKG_WORKFLOWS_GLOB)).map((pkg) => ({
-				label: `bun-apps/${pkg}/workflows`,
-				dir: join(claudeRoot, PKG_WORKFLOWS_GLOB, pkg, "workflows"),
-			})),
-		];
-		const rows: { source: string; name: string; description: string }[] = [];
-		const errors: { path: string; message: string }[] = [];
-		for (const { label, dir } of dirs) {
-			if (!existsSync(dir)) continue;
-			for (const file of readdirSyncSafe(dir)) {
-				if (!file.endsWith(".js")) continue;
-				const p = join(dir, file);
-				try {
-					const { meta } = parseWorkflowScript(readFileSync(p, "utf8"));
-					rows.push({ source: label, name: meta.name, description: meta.description });
-				} catch (e) {
-					errors.push({ path: p, message: (e as Error).message.split("\n")[0]! });
-				}
-			}
-		}
+		const { rows, errors } = listWorkflows(claudeRoot);
 		if (parsed.json) {
 			console.log(JSON.stringify({ workflows: rows, errors }, null, 2));
 			return;
@@ -460,10 +494,10 @@ is surfaced.`,
 		const nameW = Math.max(4, ...rows.map((r) => r.name.length));
 		const srcW = Math.max(6, ...rows.map((r) => r.source.length));
 		for (const r of rows) {
-			console.log(`  ${r.name.padEnd(nameW)}  ${r.source.padEnd(srcW)}  ${r.description}`);
+			console.log(`  ${r.name.padEnd(nameW)}  ${r.source.padEnd(srcW)}  [${r.kind}]  ${r.description}`);
 		}
 		if (errors.length) {
-			console.log(`\n${errors.length} script(s) failed to parse:`);
+			console.log(`\n${errors.length} workflow(s) failed to list:`);
 			for (const e of errors) console.log(`  ✗ ${e.path}: ${e.message}`);
 		}
 	},
