@@ -1,7 +1,10 @@
-import { describe, expect, it } from "bun:test";
-import { flattenTicketsToPlan, seedFromDecisions } from "../src/chain.js";
+import { afterEach, describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { flattenTicketsToPlan, seedFromDecisions, syncChainState } from "../src/chain.js";
 import type { GlossaryTerm, ResolvedDecision } from "../src/grill.js";
-import type { Ticket } from "../src/map.js";
+import { readMap, type Ticket, writeMap, writeTicket } from "../src/map.js";
 
 function mk(id: string, slug: string, title: string, blocking: string[] = [], opts: Partial<Ticket> = {}): Ticket {
   return { id, slug, title, question: "q", type: "task", blocking, status: "open", ...opts };
@@ -71,5 +74,65 @@ describe("seedFromDecisions", () => {
     const plan = seedFromDecisions([{ title: "Only decision", answer: "yes" }], []);
     expect(plan).toContain("### Phase 1");
     expect(plan).not.toContain("## Settled vocabulary");
+  });
+});
+
+// ─── end-to-end: the loop's two halves compose (forward + reverse) ───────────
+describe("continuous chain loop — end-to-end toy effort", () => {
+  const PHASES_KEY = "__piPlanPhases";
+  const roots: string[] = [];
+  function makeCwd(): string {
+    const c = mkdtempSync(join(tmpdir(), "wf-e2e-"));
+    roots.push(c);
+    return c;
+  }
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>)[PHASES_KEY];
+    while (roots.length > 0) {
+      const r = roots.pop();
+      if (r) rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it("ticket → flatten → task_plan.md → (phase completes) → syncChainState closes the ticket", () => {
+    const cwd = makeCwd();
+    const effort = "orders";
+    writeMap(cwd, {
+      effort,
+      destination: "ship the orders service",
+      notes: "",
+      decisions: [],
+      fog: [],
+      outOfScope: [],
+      tickets: [],
+    });
+    writeTicket(cwd, effort, {
+      id: "01",
+      slug: "storage",
+      title: "Pick storage",
+      question: "which db?",
+      type: "task",
+      blocking: [],
+      status: "open",
+      whatToBuild: "a storage layer",
+      acceptance: ["migration runs green"],
+    });
+
+    // FORWARD: flatten the ticket into a plan body (what /plan-seed writes).
+    const map = readMap(cwd, effort);
+    const plan = flattenTicketsToPlan(map?.tickets ?? [], []);
+    expect(plan).toMatch(/### Phase 1 — \[01-storage\] Pick storage/);
+    expect(plan).toContain("- [ ] migration runs green");
+
+    // Simulate pwf: the phase is now complete and exposes the ticket stem
+    // (exactly what readPlanPhases publishes on globalThis.__piPlanPhases).
+    (globalThis as Record<string, unknown>)[PHASES_KEY] = () => [
+      { id: "1", status: "complete", ticketIds: ["01-storage"] },
+    ];
+
+    // REVERSE: syncChainState closes the originating ticket.
+    const r = syncChainState(cwd, effort);
+    expect(r.closed).toEqual(["01-storage"]);
+    expect(readMap(cwd, effort)?.tickets.find((t) => t.id === "01")?.status).toBe("closed");
   });
 });

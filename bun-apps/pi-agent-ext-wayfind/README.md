@@ -9,9 +9,9 @@ A **Pi-native** port of [Matt Pocock's decision-chain skill suite](https://githu
 | capability | implementation |
 |---|---|
 | 7 skills | grilling, grill-me, grill-me-with-docs (flagship), domain-modeling, to-spec, to-tickets, wayfinder |
-| 5 slash commands | `/grill-me`, `/grill-me-with-docs` (flagship), `/grill-done [--seed-plan]`, `/domain-modeling`, `/wayfinder [destination]`, `/wayfinder-status` |
-| coordination seam | publishes `globalThis.__piWayfindActive`; **planning-with-files yields** its injection/auto-continue during a live grill (mirror of the `goal↔planning` pattern) |
-| grill→plan handoff | `/grill-done --seed-plan` reads the `CONTEXT.md` glossary + writes a `task_plan.md` seed → run `/plan-execute` |
+| 10 slash commands | `/grill-me`, `/grill-me-with-docs` (flagship), `/grill-done [--seed-plan]`, `/domain-modeling`, `/wayfinder`, `/wayfinder-status`, `/to-spec`, `/to-tickets`, `/plan-seed`, `/chain-sync` |
+| coordination seam | publishes `globalThis.__piWayfindActive`; **planning-with-files yields** its injection/auto-continue during a live grill (mirror of the `goal↔planning` pattern). Reverse: reads pwf's `globalThis.__piPlanPhases` to close tickets whose phase completed |
+| continuous chain | `/grill-me-with-docs → /to-spec → /to-tickets → /plan-seed → /plan-execute → /chain-sync` — lossless handoffs + a closed feedback loop (ADR-0001) |
 | wayfinder map store | local-markdown map + tickets under `.planning/<effort>/` (no issue-tracker dependency) |
 | domain artifacts | `CONTEXT.md` glossary + `docs/adr/` ADRs, written inline during a with-docs grill |
 
@@ -44,10 +44,16 @@ wayfinder ──► grill-me-with-docs ──► to-tickets ──► planning-w
 | `/domain-modeling` | kick off the glossary + ADR discipline directly |
 | `/wayfinder [destination]` | chart a new map under `.planning/<effort>/`; (no args) work the next frontier ticket |
 | `/wayfinder-status [effort]` | show the frontier + open/closed/claimed/fog counts |
+| `/to-spec [effort]` | synthesize the conversation + codebase into a spec (PRD) at `.planning/<effort>/spec.md` |
+| `/to-tickets [effort]` | break a spec/plan into tracer-bullet tickets (unified spine format) under `.planning/<effort>/tickets/` |
+| `/plan-seed [effort]` | route-aware: flatten tickets (topo-sorted, `[ticket-id]` phase headers) or CONTEXT.md decisions into a `task_plan.md`; refuses to overwrite |
+| `/chain-sync [effort]` | close wayfind tickets whose planning-with-files phase reported complete (the loop's feedback half) |
 
 ## Coordination with planning-with-files
 
 Both extensions are loaded in the same pi process. wayfind publishes `globalThis.__piWayfindActive = () => boolean`; planning-with-files reads it (via `isExternalDriverActive()`, alongside its existing `/goal` check) and **yields** its plan injection + auto-continue while a grill or wayfinder session is active — so the two never double-drive. The status bar shows `… — /goal or /grill driving, injection yielded`. Graceful: if either side is absent, the seam is a no-op.
+
+**Reverse seam (ADR-0001).** The coordination is bidirectional. `syncChainState` (auto-run at `/wayfinder`, `/wayfinder-status`, `/plan-seed`, and on demand via `/chain-sync`) reads pwf's published `globalThis.__piPlanPhases(cwd) → [{id, status, ticketIds?}]` and **closes any ticket whose phase reports `complete`** — appending a decision line to the effort's `map.md`. A phase header references a ticket by id or stem (`### Phase N — [03-foo]`); both resolve. Idempotent (already-closed → skipped) and graceful (no-op when pwf is absent). This is what makes the chain a *loop*, not a one-way handoff: ticket → phase → execute → close. The seam is 4 globalThis keys; neither package imports the other.
 
 ## Install (local)
 
