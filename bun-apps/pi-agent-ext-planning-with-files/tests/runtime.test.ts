@@ -287,14 +287,8 @@ describe("runtime handlers (parity mode, default no approval)", () => {
     // Decision-capture is observational logging, not a model-facing steer, so
     // (by design) it does NOT require /plan-execute approval — only an active,
     // non-closed plan. Do not call approvePlan here.
-    const qaText =
-      "[Auth method] Which auth method? \u2192 API key\n[Library] Which UI lib? \u2192 Bun";
-    await emit(
-      pi,
-      "tool_result",
-      { toolName: "ask_user_question", content: [{ type: "text", text: qaText }] },
-      ctx,
-    );
+    const qaText = "[Auth method] Which auth method? \u2192 API key\n[Library] Which UI lib? \u2192 Bun";
+    await emit(pi, "tool_result", { toolName: "ask_user_question", content: [{ type: "text", text: qaText }] }, ctx);
 
     const progress = readFileSync(join(cwd, ".planning", "demo", "progress.md"), "utf-8");
     expect(progress).toContain("ask_user_question");

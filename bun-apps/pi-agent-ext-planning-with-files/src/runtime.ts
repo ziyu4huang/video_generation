@@ -7,9 +7,9 @@
  * their own modules. The default export is what `extensions/index.ts` calls.
  */
 
+import { appendFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
-import { appendFileSync } from "node:fs";
 import { buildTamperMessage, checkPlanAttestation } from "./attestation.js";
 import { registerCommands } from "./commands.js";
 import {

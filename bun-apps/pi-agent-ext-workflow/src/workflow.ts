@@ -892,6 +892,9 @@ export async function runWorkflow<T = unknown>(
   // Deterministic, journaled, zero-token host-fn call (sub-project ②). Mirrors
   // checkpoint()'s journaling + maxAgents accounting; bypasses the concurrency
   // limiter (local compute). Value comes from a registered host fn, not an LLM.
+  // Capture confirm in a const so the ctx.ask closure keeps the non-undefined
+  // narrowing (avoids a non-null assertion). Undefined when headless.
+  const confirm = options.confirm;
   const call = buildCallGlobal({
     hostFns: options.hostFns,
     state,
@@ -909,9 +912,7 @@ export async function runWorkflow<T = unknown>(
       // CheckpointOptions arg while ctx.ask takes an optional HostFnAskOptions;
       // `{ ...o }` is a valid all-optional CheckpointOptions. Undefined when
       // headless (no confirm threaded) → ctx.ask undefined → host-fn falls back.
-      ask: options.confirm
-        ? (promptText: string, o?: HostFnAskOptions) => options.confirm!(promptText, { ...o })
-        : undefined,
+      ask: confirm ? (promptText: string, o?: HostFnAskOptions) => confirm(promptText, { ...o }) : undefined,
     },
     runId,
     throwIfAborted,
