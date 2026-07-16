@@ -1,4 +1,4 @@
-# ADR-0001: Shared status widget + command consolidation across wayfind and planning-with-files
+# ADR-0002: Shared status widget + command consolidation across wayfind and planning-with-files
 
 Date: 2026-07-17
 Status: accepted
