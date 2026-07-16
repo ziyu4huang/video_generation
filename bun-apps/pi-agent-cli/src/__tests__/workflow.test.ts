@@ -6,6 +6,8 @@ import {
 	resolveWorkflowScript,
 	parseWorkflowArgs,
 	runWorkflowScript,
+	mergeArgs,
+	resolvePackOverrides,
 } from "../commands/workflow.ts";
 import { findCommandToken } from "../cli.ts";
 
@@ -282,5 +284,83 @@ describe("runWorkflowScript", () => {
 		expect(
 			runWorkflowScript({ name: "nope", cwd: dir, agent: { run: async () => "x" } as any }),
 		).rejects.toThrow(/"nope" not found/);
+	});
+});
+
+// ── mergeArgs / resolvePackOverrides (pure, Decision 5 precedence) ─────────
+
+describe("mergeArgs — manifest default vs CLI override", () => {
+	test("no CLI args → manifest args used as-is", () => {
+		expect(mergeArgs({ a: 1 }, undefined)).toEqual({ a: 1 });
+	});
+	test("no manifest args → CLI args used as-is", () => {
+		expect(mergeArgs(undefined, { b: 2 })).toEqual({ b: 2 });
+	});
+	test("both objects → shallow-merge, CLI wins on key conflict", () => {
+		expect(mergeArgs({ a: 1, b: 2 }, { b: 99, c: 3 })).toEqual({ a: 1, b: 99, c: 3 });
+	});
+	test("neither → undefined", () => {
+		expect(mergeArgs(undefined, undefined)).toBeUndefined();
+	});
+	test("non-object args (array/string) → CLI replaces entirely", () => {
+		expect(mergeArgs([1, 2], [3])).toEqual([3]);
+		expect(mergeArgs("manifest", "cli")).toBe("cli");
+		expect(mergeArgs({ a: 1 }, "cli-overrides")).toBe("cli-overrides");
+	});
+});
+
+describe("resolvePackOverrides — model + args precedence", () => {
+	const pack = { manifest: { name: "p", description: "d", entry: "i.js", args: { x: 1 }, model: "manifest-model" } };
+	test("CLI model wins over manifest model", () => {
+		expect(resolvePackOverrides(pack, { model: "cli-model" }).model).toBe("cli-model");
+	});
+	test("manifest model used when no CLI model", () => {
+		expect(resolvePackOverrides(pack, {}).model).toBe("manifest-model");
+	});
+	test("no pack → CLI args/model pass through", () => {
+		expect(resolvePackOverrides(undefined, { args: { y: 2 }, model: "cli" })).toEqual({ args: { y: 2 }, model: "cli" });
+	});
+	test("args merge applied", () => {
+		expect(resolvePackOverrides(pack, { args: { x: 9, z: 2 } }).args).toEqual({ x: 9, z: 2 });
+	});
+});
+
+// ── runWorkflowScript: workflow packs (precedence end-to-end) ──────────────
+
+describe("runWorkflowScript — workflow packs", () => {
+	test("pack manifest.args flows as the default when no --args", async () => {
+		const root = mkdtempSync(join(tmpdir(), "wf-"));
+		makePack(root, "echo", { name: "echo", description: "d", entry: "index.js", args: { from: "manifest" } });
+		const receipt = await runWorkflowScript({
+			name: join(root, "echo"),
+			persistLogs: false,
+			agent: { run: async () => "stub" } as any,
+		});
+		expect(receipt.result).toEqual({ ok: true, args: { from: "manifest" } });
+	});
+
+	test("CLI --args shallow-merges over manifest.args (CLI wins)", async () => {
+		const root = mkdtempSync(join(tmpdir(), "wf-"));
+		makePack(root, "echo", { name: "echo", description: "d", entry: "index.js", args: { a: 1, b: 2 } });
+		const receipt = await runWorkflowScript({
+			name: join(root, "echo"),
+			args: { b: 99, c: 3 },
+			persistLogs: false,
+			agent: { run: async () => "stub" } as any,
+		});
+		expect((receipt.result as { args: unknown }).args).toEqual({ a: 1, b: 99, c: 3 });
+	});
+
+	test("pack dry-run parses the manifest + entry end-to-end (no agent)", async () => {
+		const root = mkdtempSync(join(tmpdir(), "wf-"));
+		makePack(root, "echo", { name: "echo", description: "smoke", entry: "index.js" });
+		const receipt = await runWorkflowScript({
+			name: join(root, "echo"),
+			dryRun: true,
+			agent: { run: async () => { throw new Error("dry-run must not call the agent"); } },
+		});
+		expect(receipt.dryRun).toBe(true);
+		expect(receipt.meta.name).toBe("echo");
+		expect(receipt.agentCount).toBe(0);
 	});
 });

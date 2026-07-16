@@ -197,6 +197,34 @@ export function parseWorkflowArgs(raw: string | undefined): unknown {
 }
 
 /** Build the `provider/modelId` spec passed as the workflow's main model. */
+/** Shallow-merge manifest default args under CLI args (Decision 5: CLI wins).
+ *  Both plain objects → merged; otherwise the CLI value replaces entirely. */
+export function mergeArgs(manifestArgs: unknown, cliArgs: unknown): unknown {
+	if (cliArgs === undefined) return manifestArgs;
+	if (manifestArgs === undefined) return cliArgs;
+	if (isPlainObject(manifestArgs) && isPlainObject(cliArgs)) {
+		return { ...(manifestArgs as Record<string, unknown>), ...(cliArgs as Record<string, unknown>) };
+	}
+	return cliArgs;
+}
+
+/** Resolve effective args/model for a run: manifest provides defaults, CLI
+ *  flags override (Decision 5). Pure. */
+export function resolvePackOverrides(
+	pack: { manifest: Manifest } | undefined,
+	cli: { args?: unknown; model?: string },
+): { args: unknown; model?: string } {
+	return {
+		args: mergeArgs(pack?.manifest.args, cli.args),
+		model: cli.model ?? pack?.manifest.model,
+	};
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+	return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** Build the `provider/modelId` spec passed as the workflow's main model. */
 function buildMainSpec(parsed: ParsedArgs): string | undefined {
 	const model = parsed.model;
 	const provider = parsed.provider;
@@ -248,12 +276,19 @@ export async function runWorkflowScript(
 }> {
 	const resolved = resolveWorkflowScript(opts.name, { cwd: opts.cwd });
 	const { meta } = parseWorkflowScript(resolved.script);
+	const overrides = resolvePackOverrides(resolved.pack, { args: opts.args, model: opts.model });
+	// A pack identifies itself by its manifest; a single-file script by its meta.
+	const identity = resolved.pack
+		? { name: resolved.pack.manifest.name, description: resolved.pack.manifest.description }
+		: { name: meta.name, description: meta.description };
 
 	if (opts.dryRun) {
 		return {
-			meta: { name: meta.name, description: meta.description },
+			meta: identity,
 			result: { validated: true },
-			logs: [`dry-run: script "${meta.name}" parsed and validated (${resolved.path})`],
+			logs: [
+				`dry-run: ${resolved.pack ? `pack "${identity.name}"` : `script "${meta.name}"`} parsed and validated (${resolved.path})`,
+			],
 			phases: [],
 			agentCount: 0,
 			durationMs: 0,
@@ -264,8 +299,8 @@ export async function runWorkflowScript(
 	}
 
 	const receipt = await runWorkflow(resolved.script, {
-		args: opts.args,
-		mainModel: opts.model,
+		args: overrides.args,
+		mainModel: overrides.model,
 		persistLogs: opts.persistLogs ?? true,
 		cwd: opts.cwd,
 		...(opts.agent ? { agent: opts.agent } : {}),
@@ -274,7 +309,7 @@ export async function runWorkflowScript(
 	});
 
 	return {
-		meta: { name: receipt.meta.name, description: receipt.meta.description },
+		meta: identity,
 		result: receipt.result,
 		logs: receipt.logs,
 		phases: receipt.phases,
