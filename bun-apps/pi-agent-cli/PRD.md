@@ -8,6 +8,63 @@ Agent workflows like `file2md`, `zk-extract`, `zk-ask`, and `pipeline pdf-to-vau
 
 A self-contained CLI with extensions baked in as workspace deps. Drives pi-agent via the SDK from TypeScript on Bun. Ships agent workflows (file2md, zk-extract, zk-ask, pipeline pdf-to-vault) plus a pi-compatible passthrough so the binary can serve as its own sub-agent target. Extensions are imported directly into the process (`pi-obsidian`, `pi-file2md`, `pi-knowledge-card` as `workspace:*` deps) without `.pi/settings.json` entries.
 
+## Architecture
+
+The CLI is a **thin, self-contained routing layer** over workspace extensions.
+It parses args, composes a task string, and drives one agent turn. Almost no
+business logic lives here — decomposition / retrieval / distillation all live
+in the workspace deps (`pi-agent-ext-*`).
+
+### Layers
+
+```
+cli.ts / args.ts        — entry + dispatch + pi-compatible arg parser
+commands/*.ts           — hand-written leaf commands (thin shells)
+extensions/             — extension-backed sub-commands (registry + runner)
+sessions/               — runtime engine (shared services, session creation,
+                          passthrough, pretty/JSON output + retry)
+workspace deps          — the actual logic (obsidian, knowledge-card, distill…)
+```
+
+### Dispatch (`cli.ts`)
+`main()` routes argv in order: global short-circuits → `help` →
+`findCommandToken` (the first **positional**, so global flags may precede the
+command) → META / `pipeline` / `workflow` namespaces / registered `COMMANDS`
+→ **passthrough** (mirrors `pi -p`, lets the binary be its own sub-agent
+target). Commands are plain `{ name, summary, details, run }` records in
+`COMMANDS` / `PIPELINES` / `WORKFLOWS` arrays.
+
+### Self-contained runtime (`sessions/shared.ts`)
+Single source of truth. (a) `resolveLLM()` — caller > env > user settings >
+fallback. (b) `buildBakedRegistry()` — `@repo/pi-agent`'s `PROVIDERS`
+(lm-studio) registered explicitly over global models.json;
+`PI_SKIP_MODELS_JSON=1` → hermetic in-memory. (c) `createSharedSession()` —
+pi-obsidian always in `extensionFactories`, plus `validateToolNames()`
+fail-fast, obsidian subagent floor, and `OB_PARENT_MODEL` publishing.
+
+### Shared session tail (`sessions/run-agent-session.ts`)
+The 5-step sequence every agent command ends with (LLM resolve → create
+session → log model → one turn → dispose), so leaf commands stay thin.
+
+### Two command patterns
+- **Hand-written** (`commands/*.ts`) — resolve inputs + build task from an
+  extension's builder (`buildDistillTask`, `DISTILL_TOOLS`), hand to
+  `runAgentSession`.
+- **Extension-backed** (`extensions/registry.ts` + `runner.ts`) — an extension
+  exports an `ExtensionSubcommandSpec`; adding a sub-command = one import line.
+
+### Output (`sessions/task-runner.ts`)
+Subscribes to session events; pretty (text deltas → stdout, tool lines →
+stderr) or NDJSON. Empty-turn retry recovers silent local-model failures
+(the dominant `refs=0` cause in retrieval runs).
+
+### Key design tradeoffs
+- obsidian **inline import** (not run-dir manifest) — CLI curates tools
+  per-command instead of loading every extension.
+- baked providers sourced from `pi-agent` — one-file model catalog, no drift.
+- `--dry-run` = exclude write tools (deterministic, not LLM-discipline).
+- `validateToolNames` fail-fast — pi-core silently drops unknown tool names.
+
 ## Tools / Commands
 
 | Command | Description |

@@ -40,6 +40,7 @@ describe("dispatch run-waypoint — wiring", () => {
 	test("returns valid:false (not a throw) when the waypoint exhausts retries", async () => {
 		const bad: WaypointDeps = {
 			completionFn: async () => "not even json",
+			agentFn: async () => "not even json",
 			validateFn: async () => ({ valid: false, errors: "bad" }),
 		};
 		const res = await dispatch(

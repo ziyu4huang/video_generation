@@ -7,6 +7,7 @@
  * their own modules. The default export is what `extensions/index.ts` calls.
  */
 
+import { appendFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { buildTamperMessage, checkPlanAttestation } from "./attestation.js";
@@ -31,6 +32,7 @@ import {
   isPlanIncompleteInDir,
   type PlanStatus,
   planProgressLine,
+  readPlanPhases,
   readPlanStatus,
   summarizePlan,
 } from "./plan.js";
@@ -88,8 +90,63 @@ function setPassivePlanStatus(ctx: ExtensionContext, status: PlanStatus): void {
  * froze on whatever was last set (e.g. a stale "0/4 phases complete") forever,
  * because the early `!status.exists` returns never touched the bar — so users
  * saw a ghost status long after the plan files were deleted. */
+/** ADR-0001: detect ticketed phases that newly completed since the last
+ *  agent_end for this (session, plan) and surface a /chain-sync nudge. Updates
+ *  the snapshot so each completion nudges exactly once. Returns null when no
+ *  ticketed phase is freshly complete (or none reference tickets at all). */
+function computeChainSyncNudge(state: RuntimeState, planKey: string, cwd: string): string | null {
+  const completeTicketed = readPlanPhases(cwd).flatMap((p) =>
+    p.status === "complete" && p.ticketIds ? p.ticketIds : [],
+  );
+  const current = new Set(completeTicketed);
+  const prev = state.lastCompleteTicketPhaseIdsBySessionPlan.get(planKey) ?? new Set<string>();
+  state.lastCompleteTicketPhaseIdsBySessionPlan.set(planKey, current);
+  const fresh = [...current].filter((id) => !prev.has(id));
+  if (fresh.length === 0) return null;
+  return `run /chain-sync to close [${fresh.join(", ")}]`;
+}
+
 function clearPlanStatus(ctx: ExtensionContext): void {
   ctx.ui.setStatus(PKG_NAME, "No active plan");
+}
+
+/** Pull concatenated text out of a tool_result content payload. Defensive: the
+ *  lifecycle event shape is stable but other tools may emit non-text blocks. */
+function extractResultText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter(
+      (b): b is { type: "text"; text: string } =>
+        typeof b === "object" &&
+        b !== null &&
+        (b as { type?: string }).type === "text" &&
+        typeof (b as { text?: unknown }).text === "string",
+    )
+    .map((b) => b.text)
+    .join("\n");
+}
+
+/** Append an ask_user_question Q&A as a durable decision record to progress.md.
+ *
+ *  WHY a dedicated branch: ask-user emits its answers as a tool_result whose
+ *  content is a human-readable `[header] Q \u2192 A` summary (see
+ *  pi-agent-ext-ask-user tool/response-envelope.ts). Capturing it here turns
+ *  every user clarification into working memory on disk — zero agent effort.
+ *
+ *  WHY no /plan-execute gate: this is observational logging of USER input, not
+ *  a model-facing steer (no injection / nag / auto-continue). Unlike the
+ *  write/edit branch, capturing decisions is safe and most useful from the
+ *  moment a plan exists. Gated only on: attached session + active, non-closed
+ *  plan + a resolvable progress.md path. */
+function captureAskUserDecision(event: { content?: unknown }, ctx: ExtensionContext): void {
+  const status = readPlanStatus(ctx.cwd);
+  if (!status.exists || status.closed) return;
+  if (!status.progressPath) return;
+  const text = extractResultText(event.content).trim();
+  if (!text) return;
+  const block = `\n\n## Decision (ask_user_question) \u2014 ${new Date().toISOString()}\n${text}\n`;
+  appendFileSync(status.progressPath, block);
 }
 
 export default function planningWithFilesExtension(pi: ExtensionAPI): void {
@@ -104,6 +161,11 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
   // roadmap it displaced when planning yielded its injection (Plan A) — without
   // it, a goal-driven agent would lose all plan visibility.
   (globalThis as Record<string, unknown>).__piPlanSummary = planProgressLine;
+  // ADR-0001 reverse seam: __piPlanPhases exposes per-phase {id, status,
+  // ticketIds?} so pi-agent-ext-wayfind's syncChainState can close the
+  // originating ticket when a phase completes — the feedback half of the
+  // continuous chain loop. Same globalThis/jiti rationale as the keys above.
+  (globalThis as Record<string, unknown>).__piPlanPhases = readPlanPhases;
 
   registerCommands(pi, state);
 
@@ -288,6 +350,15 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
 
   pi.on("tool_result", async (event, ctx) => {
     if (!isAttachedSession(ctx)) return;
+
+    // ask_user_question: capture the Q&A as a durable decision record in
+    // progress.md. Handled before the write/edit gate (which would otherwise
+    // drop it). See captureAskUserDecision for the no-approval rationale.
+    if (event.toolName === "ask_user_question") {
+      captureAskUserDecision(event, ctx);
+      return;
+    }
+
     if (!["write", "edit"].includes(event.toolName)) return;
 
     const status = readPlanStatus(ctx.cwd);
@@ -385,7 +456,10 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
     // at every agent_end — covers both the auto-continue fire and the cap-hit
     // (both reach this point). Without this the bar stayed frozen at whatever
     // before_agent_start set for the whole turn.
-    ctx.ui.setStatus(PKG_NAME, summarizePlan(status));
+    // ADR-0001: append a one-shot /chain-sync nudge when a ticketed phase just
+    // completed, so the loop's feedback half is discoverable without coupling.
+    const chainNudge = computeChainSyncNudge(state, planKey, ctx.cwd);
+    ctx.ui.setStatus(PKG_NAME, chainNudge ? `${summarizePlan(status)} — ${chainNudge}` : summarizePlan(status));
 
     const current = state.autoContinueCountBySessionPlan.get(planKey) ?? 0;
     if (current >= AUTO_CONTINUE_LIMIT) {

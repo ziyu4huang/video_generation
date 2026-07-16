@@ -126,7 +126,7 @@ async function main() {
       notes: report.verification_notes,
     };
     console.log("RECEIPT:" + JSON.stringify(receipt));
-    process.exit(receipt.verdict === "pass" ? 0 : 4);
+    process.exit(receipt.final_review === "pass" ? 0 : 4);
   } finally {
     if (process.env.KEEP_DIR) console.log("keeping", dir);
     else rmSync(dir, { recursive: true, force: true });

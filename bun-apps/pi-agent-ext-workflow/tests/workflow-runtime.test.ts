@@ -925,9 +925,7 @@ return { a }`;
 // ─── RCA#11: checkpoint threads the abort signal into confirm() ───────────────
 
 test("RCA#11: checkpoint threads the abort signal into confirm()", async () => {
-  let receivedSignal: AbortSignal | undefined;
-  const confirm = async (_prompt: string, opts: CheckpointOptions & { signal?: AbortSignal }) => {
-    receivedSignal = opts.signal;
+  const confirm = async (_prompt: string, _opts: CheckpointOptions & { signal?: AbortSignal }) => {
     return "yes";
   };
   const script = `export const meta = { name: 'rca11', description: 'checkpoint signal' }

@@ -62,6 +62,7 @@ export function registerMovieWorkflows(
     const taken = (pi.getCommands?.() ?? []).some((c: { name: string }) => c.name === wf.name);
     if (taken) continue;
     const script = scripts[wf.name];
+    if (script === undefined) continue; // script file missing/failed to load — nothing to register
     pi.registerCommand(wf.name, {
       description: wf.desc,
       async handler(args: string, ctx: ExtensionCommandContext) {

@@ -16,7 +16,7 @@ import {
 import { buildCallGlobal } from "./call-global.js";
 import { DEFAULT_AGENT_TIMEOUT_MS, MAX_AGENT_RETRIES, MAX_AGENTS_PER_RUN, MAX_CONCURRENCY } from "./config.js";
 import { WorkflowError, WorkflowErrorCode, wrapError } from "./errors.js";
-import type { HostFnRegistry } from "./host-fn-registry.js";
+import type { HostFnAskOptions, HostFnRegistry } from "./host-fn-registry.js";
 import { createWorkflowLogger } from "./logger.js";
 import { parseModelRoutingFromMeta, resolveModelForPhase } from "./model-routing.js";
 import { createWorktree, removeWorktree, type Worktree } from "./worktree.js";
@@ -745,9 +745,19 @@ export async function runWorkflow<T = unknown>(
     // distinguishable from a genuine zero — do not rank it above any scored
     // candidate (RCA#7). When every candidate is unscored, return the first.
     let best: (typeof scored)[0] | undefined;
+    let bestScore: number | undefined;
+    let bestIndex: number | undefined;
     for (const s of scored) {
       if (s.score === undefined) continue;
-      if (!best || s.score > best.score! || (s.score === best.score! && s.index < best.index)) best = s;
+      if (
+        bestScore === undefined ||
+        s.score > bestScore ||
+        (s.score === bestScore && s.index < (bestIndex ?? Infinity))
+      ) {
+        best = s;
+        bestScore = s.score;
+        bestIndex = s.index;
+      }
     }
     best ??= scored[0];
     return best;
@@ -892,6 +902,9 @@ export async function runWorkflow<T = unknown>(
   // Deterministic, journaled, zero-token host-fn call (sub-project ②). Mirrors
   // checkpoint()'s journaling + maxAgents accounting; bypasses the concurrency
   // limiter (local compute). Value comes from a registered host fn, not an LLM.
+  // Capture confirm in a const so the ctx.ask closure keeps the non-undefined
+  // narrowing (avoids a non-null assertion). Undefined when headless.
+  const confirm = options.confirm;
   const call = buildCallGlobal({
     hostFns: options.hostFns,
     state,
@@ -904,6 +917,12 @@ export async function runWorkflow<T = unknown>(
       onAgentEnd: options.onAgentEnd as Parameters<typeof buildCallGlobal>[0]["options"]["onAgentEnd"],
       cwd: options.cwd ?? process.cwd(),
       signal: options.signal,
+      // Thread the UI-bearing confirm() (the same callback checkpoint() uses)
+      // into host-fns as ctx.ask. Wrapped because confirm() requires a
+      // CheckpointOptions arg while ctx.ask takes an optional HostFnAskOptions;
+      // `{ ...o }` is a valid all-optional CheckpointOptions. Undefined when
+      // headless (no confirm threaded) → ctx.ask undefined → host-fn falls back.
+      ask: confirm ? (promptText: string, o?: HostFnAskOptions) => confirm(promptText, { ...o }) : undefined,
     },
     runId,
     throwIfAborted,

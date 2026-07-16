@@ -11,7 +11,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -277,6 +277,59 @@ describe("runtime handlers (parity mode, default no approval)", () => {
       { type: "text", text: "created task_plan.md" },
       { type: "text", text: expect.stringContaining("[planning-with-files] Update progress.md") },
     ]);
+  });
+
+  it("ask_user_question tool_result appends the Q&A as a decision block to progress.md", async () => {
+    const cwd = makeWorkspace();
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+
+    // Decision-capture is observational logging, not a model-facing steer, so
+    // (by design) it does NOT require /plan-execute approval — only an active,
+    // non-closed plan. Do not call approvePlan here.
+    const qaText = "[Auth method] Which auth method? \u2192 API key\n[Library] Which UI lib? \u2192 Bun";
+    await emit(pi, "tool_result", { toolName: "ask_user_question", content: [{ type: "text", text: qaText }] }, ctx);
+
+    const progress = readFileSync(join(cwd, ".planning", "demo", "progress.md"), "utf-8");
+    expect(progress).toContain("ask_user_question");
+    expect(progress).toContain("Auth method");
+    expect(progress).toContain("API key");
+    expect(progress).toContain("Library");
+  });
+
+  it("ask_user_question decision-capture is a no-op when no plan exists", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pwf-noplan-"));
+    tempRoots.push(cwd);
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+
+    await emit(
+      pi,
+      "tool_result",
+      { toolName: "ask_user_question", content: [{ type: "text", text: "Q \u2192 A" }] },
+      ctx,
+    );
+
+    // No progress.md should have been created in a planless workspace.
+    expect(existsSync(join(cwd, "progress.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".planning"))).toBe(false);
+  });
+
+  it("ask_user_question decision-capture is inert on a closed plan", async () => {
+    const cwd = makeWorkspace(closedPlan());
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+
+    const before = readFileSync(join(cwd, ".planning", "demo", "progress.md"), "utf-8");
+    await emit(
+      pi,
+      "tool_result",
+      { toolName: "ask_user_question", content: [{ type: "text", text: "Q \u2192 A" }] },
+      ctx,
+    );
+    const after = readFileSync(join(cwd, ".planning", "demo", "progress.md"), "utf-8");
+
+    expect(after).toBe(before);
   });
 
   it("agent_end does not auto-continue before approval", async () => {
@@ -884,5 +937,90 @@ describe("agent_end status-bar response", () => {
     // Bar must reflect the freshly-read 2/3 — proof it responds to the execution.
     expect(ctx.ui.setStatus).toHaveBeenCalledWith("planning-with-files", expect.stringContaining("2/3"));
     expect(pi.sendUserMessage).toHaveBeenCalledTimes(1); // still auto-continued
+  });
+});
+
+// ─── ADR-0001: __piPlanPhases reverse seam (publish + chain-sync nudge) ─────────
+// pwf publishes per-phase {id, status, ticketIds?} so wayfind's syncChainState
+// can close the originating ticket (feedback half of the chain loop). And on a
+// newly-complete TICKETED phase, agent_end nudges the user toward /chain-sync.
+describe("__piPlanPhases reverse seam (ADR-0001)", () => {
+  const PHASES_KEY = "__piPlanPhases";
+  const g = globalThis as Record<string, unknown>;
+  let savedPhases: unknown;
+
+  beforeEach(() => {
+    savedPhases = g[PHASES_KEY];
+  });
+  afterEach(() => {
+    if (savedPhases === undefined) delete g[PHASES_KEY];
+    else g[PHASES_KEY] = savedPhases;
+  });
+
+  it("factory publishes __piPlanPhases as a function on globalThis", () => {
+    delete g[PHASES_KEY];
+    loadExtension();
+    expect(typeof g[PHASES_KEY]).toBe("function");
+  });
+
+  it("agent_end nudges /chain-sync when a ticketed phase newly completes", async () => {
+    const planBefore = [
+      "# Plan",
+      "### Phase 1 — [03-foo] wire it",
+      "**Status:** in_progress",
+      "### Phase 2 — no ticket",
+      "**Status:** pending",
+      "",
+    ].join("\n");
+    const planAfter = [
+      "# Plan",
+      "### Phase 1 — [03-foo] wire it",
+      "**Status:** complete",
+      "### Phase 2 — no ticket",
+      "**Status:** pending",
+      "",
+    ].join("\n");
+    const cwd = makeWorkspace(planBefore);
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+    await approvePlan(pi, ctx);
+
+    // First fire: Phase 1 still in_progress → no complete ticketed phase → no nudge.
+    await emit(pi, "agent_end", {}, ctx);
+    // Agent marks Phase 1 complete.
+    writeFileSync(join(cwd, ".planning", "demo", "task_plan.md"), planAfter);
+    await emit(pi, "agent_end", {}, ctx);
+
+    const statusTexts = (ctx.ui.setStatus as ReturnType<typeof mock>).mock.calls.map((c) => c[1]);
+    expect(statusTexts.some((t) => t.includes("03-foo") && t.includes("/chain-sync"))).toBe(true);
+  });
+
+  it("agent_end does NOT nudge when a completing phase has no ticket id", async () => {
+    const planBefore = [
+      "# Plan",
+      "### Phase 1 — no ticket here",
+      "**Status:** in_progress",
+      "### Phase 2",
+      "**Status:** pending",
+      "",
+    ].join("\n");
+    const planAfter = [
+      "# Plan",
+      "### Phase 1 — no ticket here",
+      "**Status:** complete",
+      "### Phase 2",
+      "**Status:** pending",
+      "",
+    ].join("\n");
+    const cwd = makeWorkspace(planBefore);
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+    await approvePlan(pi, ctx);
+    await emit(pi, "agent_end", {}, ctx);
+    writeFileSync(join(cwd, ".planning", "demo", "task_plan.md"), planAfter);
+    await emit(pi, "agent_end", {}, ctx);
+
+    const statusTexts = (ctx.ui.setStatus as ReturnType<typeof mock>).mock.calls.map((c) => c[1]);
+    expect(statusTexts.every((t) => !t.includes("/chain-sync"))).toBe(true);
   });
 });

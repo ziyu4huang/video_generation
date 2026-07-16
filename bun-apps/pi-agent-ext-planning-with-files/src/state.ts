@@ -16,6 +16,10 @@ export interface RuntimeState {
    *  the auto-continue count is reset — a steadily-advancing agent gets a fresh
    *  budget per phase instead of hitting the 3-continue wall mid-task. */
   lastCompletePhasesBySessionPlan: Map<string, number>;
+  /** ADR-0001: per (session, plan) the set of ticket-ids whose phase was already
+   *  complete at the last agent_end — so a /chain-sync nudge fires exactly once
+   *  per newly-complete ticketed phase. */
+  lastCompleteTicketPhaseIdsBySessionPlan: Map<string, Set<string>>;
   loopTimersBySession: Map<string, ReturnType<typeof setInterval>>;
   goalBySession: Map<string, string>;
   preToolQueuedByLeaf: Set<string>;
@@ -26,6 +30,7 @@ export function createRuntimeState(): RuntimeState {
   return {
     autoContinueCountBySessionPlan: new Map(),
     lastCompletePhasesBySessionPlan: new Map(),
+    lastCompleteTicketPhaseIdsBySessionPlan: new Map(),
     loopTimersBySession: new Map(),
     goalBySession: new Map(),
     preToolQueuedByLeaf: new Set(),
@@ -54,6 +59,11 @@ export function clearSessionPrefixMap(state: RuntimeState, sessionId: string): v
   for (const key of state.lastCompletePhasesBySessionPlan.keys()) {
     if (key.startsWith(`${sessionId}:`)) {
       state.lastCompletePhasesBySessionPlan.delete(key);
+    }
+  }
+  for (const key of state.lastCompleteTicketPhaseIdsBySessionPlan.keys()) {
+    if (key.startsWith(`${sessionId}:`)) {
+      state.lastCompleteTicketPhaseIdsBySessionPlan.delete(key);
     }
   }
   for (const key of Array.from(state.preToolQueuedByLeaf)) {
