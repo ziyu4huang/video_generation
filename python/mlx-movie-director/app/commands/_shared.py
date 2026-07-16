@@ -20,7 +20,7 @@ from app import config as cfg
 
 # Canonical definition lives in app.config (MODELS_DIR/upscale/...); re-exported
 # here so the many `from app.commands._shared import DEFAULT_UPSCALE_MODEL` sites
-# keep working. The bun/MLX runtime must not depend on comfyui_data/.
+# keep working.
 from app.config import DEFAULT_UPSCALE_MODEL as DEFAULT_UPSCALE_MODEL  # noqa: F401 (re-export)
 
 RELAY_FINAL_MODE = "relay-final"
