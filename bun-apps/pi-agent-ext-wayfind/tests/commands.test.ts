@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { registerCommands } from "../src/commands.js";
@@ -248,5 +248,83 @@ describe("chain-sync — close tickets whose phase completed", () => {
 
     // The touchpoint auto-call closed the ticket before status was rendered.
     expect(readMap(cwd, effort)?.tickets.find((t) => t.id === "03")?.status).toBe("closed");
+  });
+});
+
+// ─── /plan-seed — route-aware forward bridge (tickets/decisions → task_plan.md) ──
+describe("plan-seed — route-aware forward bridge", () => {
+  function ctxWithCapturedNotify(cwd: string): { ctx: any; notifications: string[] } {
+    const notifications: string[] = [];
+    return {
+      ctx: {
+        cwd,
+        sessionManager: { getSessionId: () => "test-session" },
+        ui: { notify: (m: string) => notifications.push(m), setStatus: () => {} },
+      },
+      notifications,
+    };
+  }
+
+  it("is registered", () => {
+    const { pi } = setup();
+    expect(pi.commands.has("plan-seed")).toBe(true);
+  });
+
+  it("flattens an effort's tickets into .planning/<effort>/task_plan.md (topo order, parseable)", async () => {
+    const { pi } = setup();
+    const cwd = makeCwd();
+    const effort = "demo";
+    writeMap(cwd, {
+      effort,
+      destination: "d",
+      notes: "",
+      decisions: [],
+      fog: [],
+      outOfScope: [],
+      tickets: [],
+    });
+    writeTicket(cwd, effort, {
+      id: "02",
+      slug: "beta",
+      title: "Beta",
+      question: "q",
+      type: "task",
+      blocking: ["01"],
+      status: "open",
+    });
+    writeTicket(cwd, effort, {
+      id: "01",
+      slug: "alpha",
+      title: "Alpha",
+      question: "q",
+      type: "task",
+      blocking: [],
+      status: "open",
+    });
+    const { ctx, notifications } = ctxWithCapturedNotify(cwd);
+
+    await pi.commands.get("plan-seed")?.(effort, ctx);
+
+    const planPath = join(cwd, ".planning", effort, "task_plan.md");
+    expect(existsSync(planPath)).toBe(true);
+    const plan = readFileSync(planPath, "utf-8");
+    // topo order: 01 before 02 (even though 02 was written first)
+    expect(plan).toMatch(/### Phase 1 — \[01-alpha\] Alpha/);
+    expect(plan).toMatch(/### Phase 2 — \[02-beta\] Beta/);
+    expect(notifications.some((n) => n.includes("task_plan.md"))).toBe(true);
+  });
+
+  it("refuses to overwrite an existing task_plan.md (notifies, leaves file intact)", async () => {
+    const { pi } = setup();
+    const cwd = makeCwd();
+    const effort = "demo";
+    mkdirSync(join(cwd, ".planning", effort), { recursive: true });
+    writeFileSync(join(cwd, ".planning", effort, "task_plan.md"), "EXISTING PLAN", "utf-8");
+    const { ctx, notifications } = ctxWithCapturedNotify(cwd);
+
+    await pi.commands.get("plan-seed")?.(effort, ctx);
+
+    expect(readFileSync(join(cwd, ".planning", effort, "task_plan.md"), "utf-8")).toBe("EXISTING PLAN");
+    expect(notifications.some((n) => /exist|refuse|not overwrite/i.test(n))).toBe(true);
   });
 });

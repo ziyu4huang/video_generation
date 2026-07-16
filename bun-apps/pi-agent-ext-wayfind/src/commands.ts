@@ -9,13 +9,11 @@
  * Type-only imports keep this module cycle-free with index.ts.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { syncChainState } from "./chain.js";
+import { seedPlan, syncChainState } from "./chain.js";
 import { PKG_NAME } from "./constants.js";
 import { publishWayfindActive, unpublishWayfindActive } from "./coordination.js";
-import { buildGrillPriming, buildPlanSeed, parseGlossary } from "./grill.js";
+import { buildGrillPriming } from "./grill.js";
 import { getSessionId, isGrillActive, type RuntimeState } from "./state.js";
 import { chartMap, claimNextTicket, renderStatus, slugify, statusReport } from "./wayfinder.js";
 
@@ -77,7 +75,6 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
         return;
       }
 
-      const withDocs = state.grillWithDocsBySession.get(sessionId) ?? false;
       const topic = state.activeGrillBySession.get(sessionId);
       // Clear state + refresh the seam (so planning-with-files resumes).
       state.activeGrillBySession.delete(sessionId);
@@ -91,27 +88,30 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
         return;
       }
 
-      // --seed-plan: read CONTEXT.md glossary (only the with-docs variant writes
-      // one), build a task_plan.md seed, write it, and ask the agent to expand it.
-      let glossary: { term: string; definition: string }[] = [];
-      if (withDocs) {
-        const contextPath = join(ctx.cwd, "CONTEXT.md");
-        if (existsSync(contextPath)) glossary = parseGlossary(readFileSync(contextPath, "utf-8"));
-      }
-      const planSeed = buildPlanSeed([], glossary, topic);
-      if (!planSeed) {
-        ctx.ui.notify(`[${PKG_NAME}] --seed-plan: nothing to seed (no glossary, no topic).`, "warning");
+      // Phase 4: delegate to the route-aware seeder. It reads CONTEXT.md
+      // decisions + glossary itself, writes root task_plan.md, and refuses to
+      // overwrite an in-progress plan. Replaces the old skeleton-only seed.
+      const outcome = seedPlan(ctx.cwd, { topic });
+      if (!outcome) {
+        ctx.ui.notify(
+          `[${PKG_NAME}] --seed-plan: nothing to seed (no CONTEXT.md decisions, no glossary, no topic).`,
+          "warning",
+        );
         return;
       }
-      const seedPath = join(ctx.cwd, "task_plan.md");
-      writeFileSync(seedPath, planSeed, "utf-8");
-      ctx.ui.notify(`[${PKG_NAME}] Seeded ${seedPath} (${glossary.length} glossary terms).`, "info");
-      // Delegate decision-expansion to the agent (it has the conversation context).
+      if ("refused" in outcome) {
+        ctx.ui.notify(
+          `[${PKG_NAME}] --seed-plan: ${outcome.refused} already exists — run /plan-done --delete first to re-seed.`,
+          "warning",
+        );
+        return;
+      }
+      ctx.ui.notify(
+        `[${PKG_NAME}] Seeded ${outcome.path} (${outcome.phaseCount} phase(s), source: ${outcome.source}).`,
+        "info",
+      );
       pi.sendUserMessage(
-        [
-          "Grill ended. I seeded task_plan.md from the grill + CONTEXT.md glossary.",
-          "Expand the plan: one phase per resolved decision from our conversation. Keep the glossary section. Then stop — I'll run /plan-execute.",
-        ].join("\n"),
+        `Grill ended. I seeded ${outcome.path} from ${outcome.source}. Review the phases, then run /plan-execute (planning-with-files).`,
         { deliverAs: "steer" },
       );
     },
@@ -153,6 +153,40 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
           "info",
         );
       }
+    },
+  });
+
+  pi.registerCommand("plan-seed", {
+    description:
+      "Seed a task_plan.md from an effort's tickets (topo-sorted, [ticket-id] phase headers) or CONTEXT.md decisions. [effort]",
+    handler: async (args, ctx) => {
+      const sessionId = getSessionId(ctx);
+      const effort = args.trim() || state.activeEffortBySession.get(sessionId);
+      if (!effort) {
+        ctx.ui.notify(`Usage: /plan-seed <effort>  (or run /wayfinder <destination> first)`, "warning");
+        return;
+      }
+      const outcome = seedPlan(ctx.cwd, { effort });
+      if (!outcome) {
+        ctx.ui.notify(`[${PKG_NAME}] plan-seed: nothing to seed (no tickets, no CONTEXT.md decisions).`, "warning");
+        return;
+      }
+      if ("refused" in outcome) {
+        ctx.ui.notify(
+          `[${PKG_NAME}] plan-seed: ${outcome.refused} already exists — run /plan-done --delete first to re-seed.`,
+          "warning",
+        );
+        return;
+      }
+      ctx.ui.setStatus(PKG_NAME, `plan-seed: ${effort} (${outcome.source})`);
+      ctx.ui.notify(
+        `[${PKG_NAME}] Seeded ${outcome.path} (${outcome.phaseCount} phase(s), source: ${outcome.source}).`,
+        "info",
+      );
+      pi.sendUserMessage(
+        `Seeded ${outcome.path} from ${outcome.source}. Review the phases, then run /plan-execute (planning-with-files).`,
+        { deliverAs: "steer" },
+      );
     },
   });
 
