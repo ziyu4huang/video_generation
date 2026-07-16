@@ -73,9 +73,9 @@ const run = (pi: MockPi, name: string, args = "", ctx?: any) =>
   pi.commands.get(name)?.(args, ctx ?? makeCtx(makeCwd()));
 
 describe("registerCommands — command surface", () => {
-  it("registers grill-me, grill-me-with-docs, grill-done, domain-modeling", () => {
+  it("registers grill and wayfind", () => {
     const { pi } = setup();
-    for (const name of ["grill-me", "grill-me-with-docs", "grill-done", "domain-modeling"]) {
+    for (const name of ["grill", "wayfind"]) {
       expect(pi.commands.has(name)).toBe(true);
     }
   });
@@ -85,7 +85,7 @@ describe("grill-me / grill-me-with-docs — kickoff", () => {
   it("grill-me sets the active flag, publishes the seam, and sends a priming message", async () => {
     const { pi, state } = setup();
     const ctx = makeCtx(makeCwd());
-    await run(pi, "grill-me", "pick a database", ctx);
+    await run(pi, "grill", "me pick a database", ctx);
     expect(isGrillActive(state, "test-session")).toBe(true);
     expect(isWayfindActivePublished()).toBe(true);
     expect(pi.sent.length).toBe(1);
@@ -95,7 +95,7 @@ describe("grill-me / grill-me-with-docs — kickoff", () => {
 
   it("grill-me-with-docs priming includes the domain-modeling capture discipline", async () => {
     const { pi } = setup();
-    await run(pi, "grill-me-with-docs", "auth redesign");
+    await run(pi, "grill", "docs auth redesign");
     expect(pi.sent[0]).toContain("grill-me-with-docs");
     expect(pi.sent[0]).toContain("CONTEXT.md");
     expect(isWayfindActivePublished()).toBe(true);
@@ -105,9 +105,9 @@ describe("grill-me / grill-me-with-docs — kickoff", () => {
 describe("grill-done — end + handoff", () => {
   it("clears the active flag and unpublishes the seam when no sessions remain", async () => {
     const { pi, state } = setup();
-    await run(pi, "grill-me", "topic");
+    await run(pi, "grill", "me topic");
     expect(isWayfindActivePublished()).toBe(true);
-    await run(pi, "grill-done", "");
+    await run(pi, "grill", "done");
     expect(isGrillActive(state, "test-session")).toBe(false);
     expect(isWayfindActivePublished()).toBe(false);
   });
@@ -115,7 +115,7 @@ describe("grill-done — end + handoff", () => {
   it("notifies 'no active grill' when none is running", async () => {
     const { pi } = setup();
     // No grill started → handler returns early; no message sent.
-    await run(pi, "grill-done", "");
+    await run(pi, "grill", "done");
     expect(pi.sent.length).toBe(0);
   });
 
@@ -124,10 +124,10 @@ describe("grill-done — end + handoff", () => {
     const cwd = makeCwd();
     const ctx = makeCtx(cwd);
     // Start a with-docs grill + write a CONTEXT.md so the glossary is picked up.
-    await pi.commands.get("grill-me-with-docs")?.("orders service", ctx);
+    await pi.commands.get("grill")?.("docs orders service", ctx);
     writeFileSync(join(cwd, "CONTEXT.md"), "**Order**: a request to purchase.\n", "utf-8");
     // End with --seed-plan.
-    await pi.commands.get("grill-done")?.("--seed-plan", ctx);
+    await pi.commands.get("grill")?.("done --seed-plan", ctx);
 
     const seedPath = join(cwd, "task_plan.md");
     expect(existsSync(seedPath)).toBe(true);
@@ -142,8 +142,8 @@ describe("grill-done — end + handoff", () => {
     const { pi } = setup();
     const cwd = makeCwd();
     const ctx = makeCtx(cwd);
-    await pi.commands.get("grill-me")?.("some topic", ctx); // plain grill, no CONTEXT.md
-    await pi.commands.get("grill-done")?.("--seed-plan", ctx);
+    await pi.commands.get("grill")?.("me some topic", ctx); // plain grill, no CONTEXT.md
+    await pi.commands.get("grill")?.("done --seed-plan", ctx);
     const seed = readFileSync(join(cwd, "task_plan.md"), "utf-8");
     expect(seed).toContain("some topic");
     expect(seed).toContain("### Phase");
@@ -153,14 +153,14 @@ describe("grill-done — end + handoff", () => {
 describe("domain-modeling — direct kickoff", () => {
   it("sends a domain-modeling priming message", async () => {
     const { pi } = setup();
-    await run(pi, "domain-modeling", "");
+    await run(pi, "grill", "domain");
     expect(pi.sent.length).toBe(1);
     expect(pi.sent[0]).toContain("domain-modeling");
     expect(pi.sent[0]).toContain("CONTEXT.md");
   });
 });
 
-// ─── /chain-sync + touchpoint auto-sync (ADR-0001 feedback handle) ──────────
+// ─── /wayfind sync + touchpoint auto-sync (ADR-0001 feedback handle) ────────
 describe("chain-sync — close tickets whose phase completed", () => {
   const PHASES_KEY = "__piPlanPhases";
   afterEach(() => {
@@ -201,7 +201,7 @@ describe("chain-sync — close tickets whose phase completed", () => {
 
   it("is registered", () => {
     const { pi } = setup();
-    expect(pi.commands.has("chain-sync")).toBe(true);
+    expect(pi.commands.has("wayfind")).toBe(true);
   });
 
   it("closes the matching ticket and notifies the summary", async () => {
@@ -214,7 +214,7 @@ describe("chain-sync — close tickets whose phase completed", () => {
     ];
     const { ctx, notifications } = ctxWithCapturedNotify(cwd);
 
-    await pi.commands.get("chain-sync")?.(effort, ctx);
+    await pi.commands.get("wayfind")?.(`sync ${effort}`, ctx);
 
     const map = readMap(cwd, effort);
     expect(map?.tickets.find((t) => t.id === "03")?.status).toBe("closed");
@@ -229,13 +229,13 @@ describe("chain-sync — close tickets whose phase completed", () => {
     delete (globalThis as Record<string, unknown>)[PHASES_KEY];
     const { ctx, notifications } = ctxWithCapturedNotify(cwd);
 
-    await pi.commands.get("chain-sync")?.(effort, ctx);
+    await pi.commands.get("wayfind")?.(`sync ${effort}`, ctx);
 
     expect(readMap(cwd, effort)?.tickets.every((t) => t.status === "open")).toBe(true);
     expect(notifications.some((n) => n.includes("nothing") || n.toLowerCase().includes("no "))).toBe(true);
   });
 
-  it("/wayfinder-status auto-syncs before rendering (touchpoint closure)", async () => {
+  it("/wayfind status auto-syncs before rendering (touchpoint closure)", async () => {
     const { pi } = setup();
     const cwd = makeCwd();
     const effort = "demo";
@@ -245,14 +245,14 @@ describe("chain-sync — close tickets whose phase completed", () => {
     ];
     const { ctx } = ctxWithCapturedNotify(cwd);
 
-    await pi.commands.get("wayfinder-status")?.(effort, ctx);
+    await pi.commands.get("wayfind")?.(`status ${effort}`, ctx);
 
     // The touchpoint auto-call closed the ticket before status was rendered.
     expect(readMap(cwd, effort)?.tickets.find((t) => t.id === "03")?.status).toBe("closed");
   });
 });
 
-// ─── /plan-seed — route-aware forward bridge (tickets/decisions → task_plan.md) ──
+// ─── /wayfind seed — route-aware forward bridge (tickets/decisions → task_plan.md) ──
 describe("plan-seed — route-aware forward bridge", () => {
   function ctxWithCapturedNotify(cwd: string): { ctx: any; notifications: string[] } {
     const notifications: string[] = [];
@@ -268,7 +268,7 @@ describe("plan-seed — route-aware forward bridge", () => {
 
   it("is registered", () => {
     const { pi } = setup();
-    expect(pi.commands.has("plan-seed")).toBe(true);
+    expect(pi.commands.has("wayfind")).toBe(true);
   });
 
   it("flattens an effort's tickets into .planning/<effort>/task_plan.md (topo order, parseable)", async () => {
@@ -304,7 +304,7 @@ describe("plan-seed — route-aware forward bridge", () => {
     });
     const { ctx, notifications } = ctxWithCapturedNotify(cwd);
 
-    await pi.commands.get("plan-seed")?.(effort, ctx);
+    await pi.commands.get("wayfind")?.(`seed ${effort}`, ctx);
 
     const planPath = join(cwd, ".planning", effort, "task_plan.md");
     expect(existsSync(planPath)).toBe(true);
@@ -323,34 +323,54 @@ describe("plan-seed — route-aware forward bridge", () => {
     writeFileSync(join(cwd, ".planning", effort, "task_plan.md"), "EXISTING PLAN", "utf-8");
     const { ctx, notifications } = ctxWithCapturedNotify(cwd);
 
-    await pi.commands.get("plan-seed")?.(effort, ctx);
+    await pi.commands.get("wayfind")?.(`seed ${effort}`, ctx);
 
     expect(readFileSync(join(cwd, ".planning", effort, "task_plan.md"), "utf-8")).toBe("EXISTING PLAN");
     expect(notifications.some((n) => /exist|refuse|not overwrite/i.test(n))).toBe(true);
   });
 });
 
-// ─── /to-spec + /to-tickets — chain synthesis commands ───────────────────────
+// ─── /wayfind spec + /wayfind tickets — chain synthesis commands ────────────
 describe("to-spec / to-tickets — chain synthesis commands", () => {
-  it("both are registered", () => {
+  it("both are reachable via the wayfind dispatcher", () => {
     const { pi } = setup();
-    expect(pi.commands.has("to-spec")).toBe(true);
-    expect(pi.commands.has("to-tickets")).toBe(true);
+    expect(pi.commands.has("wayfind")).toBe(true);
   });
 
-  it("to-spec sends a priming steer that mentions the spec + the chain", async () => {
+  it("wayfind spec sends a priming steer that mentions the spec + the chain", async () => {
     const { pi } = setup();
-    await run(pi, "to-spec", "orders");
+    await run(pi, "wayfind", "spec orders");
     expect(pi.sent.length).toBe(1);
     expect(pi.sent[0].toLowerCase()).toContain("spec");
-    expect(pi.sent[0]).toContain("/to-tickets");
+    expect(pi.sent[0]).toContain("/wayfind tickets");
   });
 
-  it("to-tickets sends a priming steer naming the unified format + /plan-seed", async () => {
+  it("wayfind tickets sends a priming steer naming the unified format + /wayfind seed", async () => {
     const { pi } = setup();
-    await run(pi, "to-tickets", "orders");
+    await run(pi, "wayfind", "tickets orders");
     expect(pi.sent.length).toBe(1);
     expect(pi.sent[0].toLowerCase()).toContain("ticket");
-    expect(pi.sent[0]).toContain("/plan-seed");
+    expect(pi.sent[0]).toContain("/wayfind seed");
+  });
+});
+
+// ─── /grill and /wayfind dispatchers — routing ───────────────────────────────
+describe("/grill and /wayfind dispatchers — routing", () => {
+  it("unknown /grill subcommand prints usage and does not throw", async () => {
+    const { pi } = setup();
+    const ctx = makeCtx(makeCwd());
+    let notified = "";
+    ctx.ui.notify = (msg: string) => {
+      notified = msg;
+    };
+    await expect(run(pi, "grill", "bogus", ctx)).resolves.toBeUndefined();
+    expect(notified).toContain("Usage");
+  });
+
+  it("a bare destination with no keyword match charts a new wayfinder map", async () => {
+    const { pi } = setup();
+    const ctx = makeCtx(makeCwd());
+    await run(pi, "wayfind", "Redesign the checkout flow", ctx);
+    expect(pi.sent.some((s) => s.includes("Charting a wayfinder map"))).toBe(true);
   });
 });
