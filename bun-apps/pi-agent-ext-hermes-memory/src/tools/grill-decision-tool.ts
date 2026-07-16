@@ -4,7 +4,7 @@ import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { MemoryStore } from "../store/memory-store.js";
 import { DatabaseManager } from "../store/db.js";
-import { formatFailureMemoryContent, syncMemoryEntry } from "../store/sqlite-memory-store.js";
+import { syncMemoryEntry } from "../store/sqlite-memory-store.js";
 import type { MemoryCategory } from "../types.js";
 
 export type GrillSignal = "reject" | "refine" | "confirm" | "preference" | "insight";
@@ -23,10 +23,15 @@ export interface GrillGateResult {
   reason: string;
 }
 
+// Fired grill signals all resolve to a single topical label — `preference` —
+// because grill captures are user-traits (the user's preferences/priorities),
+// not lessons. The signal still drives the gate (confirm/refine suppress); the
+// stored category is uniform. (Experience-type labels failure/correction/insight
+// are lesson-only per the memory model and don't fit a user-trait.)
 const SIGNAL_TO_CATEGORY: Record<GrillSignal, MemoryCategory | null> = {
-  reject: "correction",
+  reject: "preference",
   preference: "preference",
-  insight: "insight",
+  insight: "preference",
   confirm: null,
   refine: null,
 };
@@ -114,7 +119,7 @@ export function registerGrillDecisionTool(
         signal,
         content,
         notes,
-        existingEntries: store.getAllFailureEntries(),
+        existingEntries: store.getUserEntries(),
       });
 
       if (!gate.fire) {
@@ -124,17 +129,17 @@ export function registerGrillDecisionTool(
         };
       }
 
-      const failureReason = `grill: ${decision}`;
-      const category = gate.category!;
+      const category = gate.category!; // "preference" for every fired grill signal
       try {
-        const result = await store.addFailure(content, { category, failureReason });
+        // Grill captures are user-traits: write to the `user` home carrying the
+        // topical category label (per the memory model — not the failure/lesson target).
+        const result = await store.add("user", content, { category });
         if (result.success && dbManager) {
           try {
             syncMemoryEntry(dbManager, {
-              content: formatFailureMemoryContent(content, { category, failureReason }),
-              target: "failure",
+              content: `[${category}] ${content}`,
+              target: "user",
               category,
-              failureReason,
             });
           } catch {
             // best-effort SQLite search sync — must not block the grill

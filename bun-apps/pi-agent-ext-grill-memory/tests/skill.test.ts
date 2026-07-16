@@ -18,9 +18,9 @@ test("description starts with 'Use when' (trigger-only, not a workflow summary)"
   expect(frontmatter.match(/description:\s*(.*)/)?.[1]?.trimStart()).toMatch(/^Use when/);
 });
 
-test("READ protocol instructs memory_search against the failure target", () => {
+test("READ protocol instructs memory_search against the user target (grill traits = user-traits)", () => {
   expect(body).toContain("memory_search");
-  expect(body).toContain("failure");
+  expect(body).toContain('target: "user"');
 });
 
 test("WRITE protocol instructs calling grill_decision per resolved decision", () => {

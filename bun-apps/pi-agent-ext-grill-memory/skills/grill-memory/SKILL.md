@@ -15,13 +15,15 @@ scoped to that decision and its trade-off:
 ```
 memory_search({
   query: <the sub-decision + its trade-off keywords>,
-  target: "failure",
-  categories: ["preference", "correction", "insight", "convention", "tool-quirk"]
+  target: "user",
+  categories: ["preference"]
 })
 ```
 
-Behavioral memory lives in the portable `failure` target (it is global and the
-only target that carries categories). Fold relevant hits into your recommendation
+Grill captures are user-traits, so they live in the portable `user` target
+(USER.md), labelled `preference`. (Pure avoids — "tried X, it failed" — still land
+in the `failure`/lesson target; search it as a fallback when the decision is about
+something that previously went wrong.) Fold relevant hits into your recommendation
 with a short citation — e.g. *"Recommendation: X. (Context: you've preferred X in
 similar trade-offs.)"* If nothing relevant returns, recommend from reasoning alone
 (cold start is fine).
