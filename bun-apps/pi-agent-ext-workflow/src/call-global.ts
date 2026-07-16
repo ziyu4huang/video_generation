@@ -14,7 +14,7 @@
 
 import { isWorkflowError, WorkflowError, WorkflowErrorCode } from "./errors.js";
 import { hashHostCall, runHostFnWithTimeout } from "./host-fn-helpers.js";
-import type { HostFnRegistry } from "./host-fn-registry.js";
+import type { HostFnAskOptions, HostFnRegistry } from "./host-fn-registry.js";
 
 export interface JournalEntryLike {
   index: number;
@@ -47,6 +47,11 @@ export interface CallDeps {
     onAgentEnd?: (e: AgentEndEventLike) => void;
     cwd?: string;
     signal?: AbortSignal;
+    /**
+     * UI-bearing ask callback threaded from the workflow's confirm() (the same
+     * one checkpoint() uses). When present it becomes HostFnCtx.ask so a host-fn
+     * can ask the human mid-flow; absent (undefined) in headless runs. */
+    ask?: (promptText: string, options?: HostFnAskOptions) => Promise<unknown>;
   };
   runId: string;
   throwIfAborted: () => void;
@@ -115,6 +120,7 @@ export function buildCallGlobal(deps: CallDeps): (namespaced: unknown, args?: un
           cwd: deps.options.cwd ?? process.cwd(),
           signal: deps.options.signal ?? new AbortController().signal,
           runId: deps.runId,
+          ask: deps.options.ask,
         },
         namespaced,
       );

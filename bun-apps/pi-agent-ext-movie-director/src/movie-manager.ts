@@ -28,7 +28,13 @@ export type MovieManagerFactory = (cwd: string, opts: MovieManagerOptions) => Wo
 
 export function createMovieManager(cwd: string, opts: MovieManagerOptions = {}): WorkflowManager {
   const mgr = new WM({ cwd, loadSavedWorkflow: opts.loadSavedWorkflow });
-  mgr.setHostFns(buildMovieHostFnRegistry());
+  // setHostFns()'s param type is the workflow package's HostFnRegistry CLASS
+  // (private `fns` field), so no plain object can structurally satisfy it —
+  // but runtime only ever calls .get()/.has()/.list() on it (see
+  // call-global.ts), which this duck-typed registry fully implements. Cast
+  // past the class-vs-object mismatch rather than depending on a private
+  // sibling-package type.
+  mgr.setHostFns(buildMovieHostFnRegistry() as unknown as Parameters<typeof mgr.setHostFns>[0]);
   mgr.setExtensionTools([...createCodingTools(cwd), ...createWebTools()]);
   return mgr;
 }

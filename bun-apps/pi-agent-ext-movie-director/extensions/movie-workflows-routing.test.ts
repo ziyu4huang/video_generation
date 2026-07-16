@@ -32,7 +32,7 @@ describe("movie-workflows routing (resume wiring)", () => {
 
     registerMovieWorkflows(pi as never, process.cwd(), { managerFactory: () => fakeMgr as never });
     expect(commands["produce-video"]).toBeDefined();
-    await commands["produce-video"].handler("concept=tides", ctx as never);
+    await commands["produce-video"]!.handler("concept=tides", ctx as never);
 
     expect(runSyncCalls).toBe(1);
   });

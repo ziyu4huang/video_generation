@@ -88,68 +88,30 @@ export function __setZkSpawnForTest(fn: ZkSpawnFn | null): void {
 // runSubagentWithRetry's `toolsCsv` parameter pre-migration).
 // ---------------------------------------------------------------------------
 
-export const DISTILL_TOOLS = [
-	"read",
-	"obsidian_distill",
-	"obsidian_list",
-	"obsidian_read",
-	"obsidian_search",
-];
+// pi-agent-ext-obsidian's Phase-3 refactor folded all 18 granular obsidian_*
+// tools (obsidian_list / obsidian_read / obsidian_search / obsidian_distill /
+// obsidian_garden / …) into ONE action-dispatched `obsidian` tool — only
+// `obsidian` and `obsidian_help` are real pi.registerTool()'d tools now (the
+// old names are internal-only action handlers, no longer independently
+// callable). Every list below collapses to the same two entries; they stay
+// separate exports (rather than one shared constant) so each command's
+// allowlist is independently auditable/overridable, matching
+// OBSIDIAN_DISTILL_TOOLS / GARDEN_*_TOOLS in obsidian.ts.
+export const DISTILL_TOOLS = ["read", "obsidian", "obsidian_help"];
+export const ADD_TOOLS = ["obsidian", "obsidian_help"];
+export const FIND_TOOLS = ["obsidian", "obsidian_help"];
+export const UPDATE_TOOLS = ["obsidian", "obsidian_help"];
+export const REMOVE_TOOLS = ["obsidian", "obsidian_help"];
+export const CHECK_TOOLS = ["obsidian", "obsidian_help"];
+export const RAG_TOOLS = ["obsidian", "obsidian_help"];
 
-export const ADD_TOOLS = [
-	"obsidian_search",
-	"obsidian_query",
-	"obsidian_read",
-	"obsidian_create",
-	"obsidian_append_section",
-	"obsidian_update_frontmatter",
-	"obsidian_list",
-];
-
-export const FIND_TOOLS = [
-	"obsidian_search",
-	"obsidian_query",
-	"obsidian_read",
-	"obsidian_list",
-];
-
-export const UPDATE_TOOLS = [
-	"obsidian_read",
-	"obsidian_search",
-	"obsidian_append",
-	"obsidian_append_section",
-	"obsidian_update_frontmatter",
-];
-
-export const REMOVE_TOOLS = [
-	"obsidian_read",
-	"obsidian_search",
-	"obsidian_delete",
-];
-
-export const CHECK_TOOLS = [
-	"obsidian_garden",
-	"obsidian_list",
-	"obsidian_read",
-	"obsidian_search",
-	"obsidian_query",
-];
-
-// Same tools as find — graph expansion is just a parameter to obsidian_search
-// (graph:"neighbors"), so no separate tool is needed.
-export const RAG_TOOLS = [
-	"obsidian_search",
-	"obsidian_query",
-	"obsidian_read",
-	"obsidian_list",
-];
-
-/** Three-way blend adds the vault-mind semantic (vector) seed. Kept out of the
- *  default allowlist because it needs a running vault-mind service. */
-export const RAG_TOOLS_THREE_WAY = [
-	...RAG_TOOLS,
-	"obsidian_semantic_search",
-];
+/** Three-way blend adds the vault-mind semantic (vector) seed via
+ *  `obsidian` action:"semantic_search" — already covered by RAG_TOOLS since
+ *  the fat `obsidian` tool dispatches every action, so this is currently
+ *  identical to RAG_TOOLS. Kept as a separate export (rather than an alias)
+ *  so a future need to gate the vault-mind-dependent action behind its own
+ *  allowlist has a place to land without touching call sites. */
+export const RAG_TOOLS_THREE_WAY = [...RAG_TOOLS];
 
 /** zk-ask retrieval blend mode.
  *  - default        : lexical (title/tags/body) + graph neighbors.
@@ -264,8 +226,8 @@ async function resolveKnowledgeVault(cwd: string): Promise<string> {
 // ---------------------------------------------------------------------------
 
 const DISTILL_TASK_PREFIX =
-	"Call the `obsidian_distill` tool immediately with the input files listed below. " +
-	"Your FIRST action MUST be a tool call to `obsidian_distill` — do NOT write any text before invoking the tool.";
+	'Call the `obsidian` tool with action:"distill" immediately, using the input files listed below. ' +
+	'Your FIRST action MUST be a tool call to `obsidian` (action:"distill") — do NOT write any text before invoking the tool.';
 
 export function buildDistillTask(
 	files: string[],
@@ -280,10 +242,10 @@ export function buildDistillTask(
 		maxNotes
 			? `Hint: produce no more than ${maxNotes} notes total (quality over quantity).`
 			: "",
-		"Input files (pass as the files parameter to obsidian_distill):",
+		'Input files (pass as the `files` arg of action:"distill"):',
 		...rel,
 		"",
-		"After obsidian_distill returns, briefly report the number of notes created in Traditional Chinese.",
+		'After the `obsidian` (action:"distill") call returns, briefly report the number of notes created in Traditional Chinese.',
 	].filter(Boolean);
 	return parts.join("\n");
 }
@@ -300,9 +262,9 @@ export function buildAddTask(
 			]
 		: [
 				"## Duplicate-check protocol (4 layers)",
-				"Layer 1: obsidian_search matchMode:fuzzy fields:title — check for similar titles",
-				"Layer 2: obsidian_search matchMode:words fields:body — check for keyword overlap",
-				"Layer 3: obsidian_query — check for matching tags",
+				'Layer 1: obsidian action:"search" matchMode:fuzzy fields:title — check for similar titles',
+				'Layer 2: obsidian action:"search" matchMode:words fields:body — check for keyword overlap',
+				'Layer 3: obsidian action:"query" — check for matching tags',
 				"Layer 4: compare top candidates against the new content",
 				"",
 				"Similarity thresholds:",
@@ -365,10 +327,10 @@ export function buildUpdateTask(notePath: string, content: string): string {
 		"",
 		"## Smart-merge rules (apply in order)",
 		"1. New content already exists verbatim → SKIP (no duplicate insertion)",
-		"2. New content is supplementary → obsidian_append_section to the relevant heading",
-		"3. No relevant heading exists → obsidian_append to the end of the note",
-		"4. New tags discovered → obsidian_update_frontmatter to union-merge tags",
-		"5. New sources discovered → obsidian_update_frontmatter to append to sources[]",
+		'2. New content is supplementary → obsidian action:"append_section" to the relevant heading',
+		'3. No relevant heading exists → obsidian action:"append" to the end of the note',
+		'4. New tags discovered → obsidian action:"update_frontmatter" to union-merge tags',
+		'5. New sources discovered → obsidian action:"update_frontmatter" to append to sources[]',
 		"",
 		"After completion, report a summary of the changes made in Traditional Chinese.",
 	].join("\n");
@@ -379,7 +341,7 @@ export function buildRemoveTask(notePath: string, force: boolean): string {
 		return [
 			`--force mode: delete the following note: ${notePath}`,
 			"",
-			"1. Delete this note with obsidian_delete (including link cleanup).",
+			'1. Delete this note with obsidian action:"delete" (including link cleanup).',
 			"",
 			"After completion, report the deletion result in Traditional Chinese.",
 		].join("\n");
@@ -388,17 +350,17 @@ export function buildRemoveTask(notePath: string, force: boolean): string {
 		`Verify that the following note can be safely deleted, then delete it if so: ${notePath}`,
 		"",
 		"## Safe-delete protocol",
-		"1. obsidian_read — confirm the note exists",
-		"2. obsidian_search backlinks:true — find notes that link to this one",
+		'1. obsidian action:"read" — confirm the note exists',
+		'2. obsidian action:"search" backlinks:true — find notes that link to this one',
 		"3. If backlinks are found → abort: list the affected notes and advise using --force",
-		"4. If no backlinks → obsidian_delete (confirm: true)",
+		'4. If no backlinks → obsidian action:"delete" (confirm: true)',
 		"",
 		"After completion, report the result in Traditional Chinese.",
 	].join("\n");
 }
 
 export const CHECK_TASK = [
-	"Use obsidian_garden in audit mode to diagnose vault health.",
+	'Use obsidian action:"garden" mode:"audit" to diagnose vault health.',
 	"",
 	"Check for:",
 	"- Duplicate notes (identical or near-identical content)",
@@ -479,11 +441,11 @@ export function buildRagTask(
 					`## Step 1: Seed retrieval (run all 4 strategies — ${blend} blend)`,
 					"Run all 4 strategies and integrate results to identify the top 3 seed note paths.",
 					"Track which mode(s) surfaced each seed — you will tag it in Step 3 provenance:",
-					"1. obsidian_search matchMode:fuzzy fields:title — title lexical (lexical:title)",
-					"2. obsidian_search matchMode:words fields:tags — tag lexical (lexical:tags)",
-					"3. obsidian_search matchMode:words fields:body — body keyword (lexical:body)",
-					"4. obsidian_semantic_search query:\"<the question>\" limit:8 similarity_threshold:0.3 — vector (semantic).",
-					"   If obsidian_semantic_search returns isError (vault-mind unreachable), skip it",
+					'1. obsidian action:"search" matchMode:fuzzy fields:title — title lexical (lexical:title)',
+					'2. obsidian action:"search" matchMode:words fields:tags — tag lexical (lexical:tags)',
+					'3. obsidian action:"search" matchMode:words fields:body — body keyword (lexical:body)',
+					'4. obsidian action:"semantic_search" query:"<the question>" limit:8 similarity_threshold:0.3 — vector (semantic).',
+					'   If action:"semantic_search" returns isError (vault-mind unreachable), skip it',
 					"   and fall back to the 3 lexical strategies — never abort the pipeline.",
 					folderScope,
 					seedQualityGate,
@@ -491,9 +453,9 @@ export function buildRagTask(
 			: [
 					"## Step 1: Seed retrieval (run all 3 strategies)",
 					"Run all 3 strategies and integrate results to identify the top 3 seed note paths:",
-					"1. obsidian_search matchMode:fuzzy fields:title — title similarity (highest priority)",
-					"2. obsidian_search matchMode:words fields:tags — tag match",
-					"3. obsidian_search matchMode:words fields:body — body keyword (lowest priority)",
+					'1. obsidian action:"search" matchMode:fuzzy fields:title — title similarity (highest priority)',
+					'2. obsidian action:"search" matchMode:words fields:tags — tag match',
+					'3. obsidian action:"search" matchMode:words fields:body — body keyword (lowest priority)',
 					folderScope,
 					seedQualityGate,
 				],
@@ -501,7 +463,7 @@ export function buildRagTask(
 		graphEnabled
 			? [
 					"## Step 2: Graph expansion",
-					`For each seed note, run obsidian_search graph:"neighbors" up to ${safeDepth} hop(s).`,
+					`For each seed note, run obsidian action:"search" graph:"neighbors" up to ${safeDepth} hop(s).`,
 					"",
 					"Constraints (must follow):",
 					progressiveDeepening,
@@ -520,8 +482,8 @@ export function buildRagTask(
 		"",
 		blend === "three-way"
 			? [
-					"  score = 0.4 × semantic   (cosine similarity from obsidian_semantic_search; 0 if not surfaced by it)",
-					"        + 0.3 × lexical    (the search_score from obsidian_search; use 0.5 if unavailable, -1 sentinel → 0)",
+					'  score = 0.4 × semantic   (cosine similarity from action:"semantic_search"; 0 if not surfaced by it)',
+					'        + 0.3 × lexical    (the search_score from action:"search"; use 0.5 if unavailable, -1 sentinel → 0)',
 					"        + 0.3 × link_count (number of [[wikilink]] occurrences in the note body)",
 					"",
 					"Provenance: for each selected note, record which mode(s) surfaced it —",
@@ -530,15 +492,15 @@ export function buildRagTask(
 				]
 			: blend === "semantic-lexical"
 			? [
-					"  score = 0.55 × semantic  (cosine similarity from obsidian_semantic_search; 0 if not surfaced by it)",
-					"        + 0.45 × lexical   (the search_score from obsidian_search; use 0.5 if unavailable, -1 sentinel → 0)",
+					'  score = 0.55 × semantic  (cosine similarity from action:"semantic_search"; 0 if not surfaced by it)',
+					'        + 0.45 × lexical   (the search_score from action:"search"; use 0.5 if unavailable, -1 sentinel → 0)',
 					"        (NO link_count term — graph popularity is disabled in this blend)",
 					"",
 					"Provenance: for each selected note, record which mode(s) surfaced it —",
 					"  semantic, lexical:title, lexical:tags, lexical:body. There is no graph neighbor tag.",
 				]
 			: [
-					"  score = 0.7 × search_score  (the score field from obsidian_search; use 0.5 if unavailable)",
+					'  score = 0.7 × search_score  (the score field from action:"search"; use 0.5 if unavailable)',
 					"        + 0.3 × link_count    (number of [[wikilink]] occurrences in the note body)",
 				],
 		"",
@@ -550,12 +512,12 @@ export function buildRagTask(
 		"Use a 2-tier strategy to assemble context:",
 		"",
 		`Tier 1 (full read): for notes ranked in the top ${tier1Count}, or with score ≥ 0.7:`,
-		`  Run obsidian_read. Truncate each note's content to ${maxNoteTokens} tokens`,
+		`  Run obsidian action:"read". Truncate each note's content to ${maxNoteTokens} tokens`,
 		"  (take from the beginning if it exceeds the limit).",
 		assembleNote,
 		"",
 		"Tier 2 (snippet only): for all other notes:",
-		"  Use the snippet from obsidian_search directly. Do NOT call obsidian_read.",
+		'  Use the snippet from action:"search" directly. Do NOT call action:"read".',
 		"",
 		"Feature surfacing (P1): when a note contains an Obsidian callout block",
 		"(`> [!warning|tip|info|caution|...] ...`), surface the callout text FIRST in",
@@ -565,7 +527,7 @@ export function buildRagTask(
 		"  BY-DESIGN: zk_ask SURFACES callouts (Step 4, after the note is read) but",
 		"  does NOT boost them in the Step-3 score. retrieveRecords (the other read",
 		"  path) DOES apply a +0.5 callout boost — because it reads frontmatter at",
-		"  rank time, which the agent cannot here (notes are read via obsidian_read",
+		'  rank time, which the agent cannot here (notes are read via action:"read"',
 		"  only in Step 4). See src/retrieve.ts + the drift-guard test.",
 		...outputInstruction,
 		"",
@@ -894,7 +856,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 					[Type.Literal("default"), Type.Literal("three-way"), Type.Literal("semantic-lexical")],
 					{
 						description:
-							"Retrieval blend mode. 'default' = lexical (title/tags/body) + graph — the vault-wide default, kept as default PERMANENTLY (a DECISION, not a pending measurement): across iter-3→iter-7 the semantic blends never won a regime on this corpus — iter-7 receipt 2026-07-07T01-00-52 (English queries) lexical mean rel 0.770 vs semantic-lexical 0.466 (lexical wins 4/5); iter-6 receipt 2026-07-05T22-57-51 (zh-TW queries) 0.332 vs 0.100. RETIRED from the default READ path — diagnostic/opt-in only; do NOT re-measure on the current corpus/regime (a genuinely NEW regime — a 10× vault, or a different vault-mind embedding model — would legitimately re-open it). The graph layer (wiki-link expansion) is the structure signal that bridges concepts across languages better than semantic vectors. 'three-way' adds a semantic (vector) seed via obsidian_semantic_search and rebalances the rank score to 0.4 semantic / 0.3 lexical / 0.3 graph. 'semantic-lexical' drops graph expansion entirely (0.55 semantic / 0.45 lexical, no link term). Both remain as explicit opt-in (`--blend`) for paraphrase / cross-lingual probes; both require a running vault-mind service and fall back gracefully. Default: 'default'.",
+							"Retrieval blend mode. 'default' = lexical (title/tags/body) + graph — the vault-wide default, kept as default PERMANENTLY (a DECISION, not a pending measurement): across iter-3→iter-7 the semantic blends never won a regime on this corpus — iter-7 receipt 2026-07-07T01-00-52 (English queries) lexical mean rel 0.770 vs semantic-lexical 0.466 (lexical wins 4/5); iter-6 receipt 2026-07-05T22-57-51 (zh-TW queries) 0.332 vs 0.100. RETIRED from the default READ path — diagnostic/opt-in only; do NOT re-measure on the current corpus/regime (a genuinely NEW regime — a 10× vault, or a different vault-mind embedding model — would legitimately re-open it). The graph layer (wiki-link expansion) is the structure signal that bridges concepts across languages better than semantic vectors. 'three-way' adds a semantic (vector) seed via `obsidian` action:\"semantic_search\" and rebalances the rank score to 0.4 semantic / 0.3 lexical / 0.3 graph. 'semantic-lexical' drops graph expansion entirely (0.55 semantic / 0.45 lexical, no link term). Both remain as explicit opt-in (`--blend`) for paraphrase / cross-lingual probes; both require a running vault-mind service and fall back gracefully. Default: 'default'.",
 					},
 				),
 			),

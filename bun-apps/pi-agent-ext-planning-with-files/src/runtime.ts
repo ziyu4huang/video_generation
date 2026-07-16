@@ -7,6 +7,7 @@
  * their own modules. The default export is what `extensions/index.ts` calls.
  */
 
+import { appendFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { buildTamperMessage, checkPlanAttestation } from "./attestation.js";
@@ -90,6 +91,45 @@ function setPassivePlanStatus(ctx: ExtensionContext, status: PlanStatus): void {
  * saw a ghost status long after the plan files were deleted. */
 function clearPlanStatus(ctx: ExtensionContext): void {
   ctx.ui.setStatus(PKG_NAME, "No active plan");
+}
+
+/** Pull concatenated text out of a tool_result content payload. Defensive: the
+ *  lifecycle event shape is stable but other tools may emit non-text blocks. */
+function extractResultText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter(
+      (b): b is { type: "text"; text: string } =>
+        typeof b === "object" &&
+        b !== null &&
+        (b as { type?: string }).type === "text" &&
+        typeof (b as { text?: unknown }).text === "string",
+    )
+    .map((b) => b.text)
+    .join("\n");
+}
+
+/** Append an ask_user_question Q&A as a durable decision record to progress.md.
+ *
+ *  WHY a dedicated branch: ask-user emits its answers as a tool_result whose
+ *  content is a human-readable `[header] Q \u2192 A` summary (see
+ *  pi-agent-ext-ask-user tool/response-envelope.ts). Capturing it here turns
+ *  every user clarification into working memory on disk — zero agent effort.
+ *
+ *  WHY no /plan-execute gate: this is observational logging of USER input, not
+ *  a model-facing steer (no injection / nag / auto-continue). Unlike the
+ *  write/edit branch, capturing decisions is safe and most useful from the
+ *  moment a plan exists. Gated only on: attached session + active, non-closed
+ *  plan + a resolvable progress.md path. */
+function captureAskUserDecision(event: { content?: unknown }, ctx: ExtensionContext): void {
+  const status = readPlanStatus(ctx.cwd);
+  if (!status.exists || status.closed) return;
+  if (!status.progressPath) return;
+  const text = extractResultText(event.content).trim();
+  if (!text) return;
+  const block = `\n\n## Decision (ask_user_question) \u2014 ${new Date().toISOString()}\n${text}\n`;
+  appendFileSync(status.progressPath, block);
 }
 
 export default function planningWithFilesExtension(pi: ExtensionAPI): void {
@@ -288,6 +328,15 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
 
   pi.on("tool_result", async (event, ctx) => {
     if (!isAttachedSession(ctx)) return;
+
+    // ask_user_question: capture the Q&A as a durable decision record in
+    // progress.md. Handled before the write/edit gate (which would otherwise
+    // drop it). See captureAskUserDecision for the no-approval rationale.
+    if (event.toolName === "ask_user_question") {
+      captureAskUserDecision(event, ctx);
+      return;
+    }
+
     if (!["write", "edit"].includes(event.toolName)) return;
 
     const status = readPlanStatus(ctx.cwd);

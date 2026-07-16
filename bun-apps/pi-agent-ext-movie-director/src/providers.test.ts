@@ -284,7 +284,7 @@ describe("probeConfigured + probedMenuSummary", () => {
   it("Item J: compose_hyperframes stays a documented vendor-gated GAP", () => {
     const hf = REGISTRY.find((p) => p.name === "compose_hyperframes")!;
     expect(hf.configured).toBe(false);
-    expect(hf.notes.startsWith("GAP")).toBe(true);
+    expect(hf.notes!.startsWith("GAP")).toBe(true);
     expect(probeConfigured(hf, NO_ENV)).toBe(false); // never callable headless
     const m = probedMenuSummary(NO_ENV);
     expect(m.gaps.map((g) => g.name)).toContain("compose_hyperframes");
@@ -867,7 +867,7 @@ function spawnCode(cmd: string, argv: string[]): Promise<number> {
   const { spawn } = require("node:child_process");
   return new Promise((res) => {
     const p = spawn(cmd, argv, { stdio: ["ignore", "pipe", "pipe"] });
-    p.on("exit", (c) => res(c ?? -1));
+    p.on("exit", (c: number | null) => res(c ?? -1));
     p.on("error", () => res(-1));
   });
 }

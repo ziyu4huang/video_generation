@@ -41,7 +41,7 @@ function dirtyProposalPacket(): Record<string, unknown> {
 	(p as Record<string, unknown>).stray_top = "should be stripped"; // top-level additionalProperties:false
 	(p.approval as Record<string, unknown>).approved_by = "alice"; // /approval extra — THE real failure
 	(p.approval as Record<string, unknown>).timestamp = "2026-07-14";
-	((p.concept_options as Record<string, unknown>[])[0]).badge = "gold"; // array-item strict object extra
+	((p.concept_options as Record<string, unknown>[])[0]!).badge = "gold"; // array-item strict object extra
 	(p.cost_estimate as Record<string, unknown>).note = "extra"; // cost_estimate strict object extra
 	(p.production_plan as Record<string, unknown>).whimsy = "no"; // production_plan strict object extra
 	return p;
@@ -65,7 +65,7 @@ test("proposal_packet: strips unknown /approval sub-fields — the real failure 
 	);
 	expect((cleaned.approval as Record<string, unknown>).approved_by).toBeUndefined();
 	expect((cleaned.approval as Record<string, unknown>).timestamp).toBeUndefined();
-	expect(((cleaned.concept_options as Record<string, unknown>[])[0]).badge).toBeUndefined();
+	expect(((cleaned.concept_options as Record<string, unknown>[])[0]!).badge).toBeUndefined();
 	expect((cleaned.cost_estimate as Record<string, unknown>).note).toBeUndefined();
 	expect((cleaned.production_plan as Record<string, unknown>).whimsy).toBeUndefined();
 
@@ -88,8 +88,8 @@ test("nested object with additionalProperties:false drops extras recursively (in
 	const dirty = { outer: { a: "hi", stray: "drop", inner: { x: 1, junk: "drop" } } };
 	const cleaned = cleanToSchema(schema, dirty) as { outer: { a: string; inner: { x: number } } };
 	expect(cleaned.outer).toEqual({ a: "hi", inner: { x: 1 } });
-	expect(cleaned.outer.stray).toBeUndefined();
-	expect(cleaned.outer.inner.junk).toBeUndefined();
+	expect((cleaned.outer as Record<string, unknown>).stray).toBeUndefined();
+	expect((cleaned.outer.inner as Record<string, unknown>).junk).toBeUndefined();
 });
 
 test("additionalProperties:true (or absent) objects are NOT stripped — only false strips", () => {

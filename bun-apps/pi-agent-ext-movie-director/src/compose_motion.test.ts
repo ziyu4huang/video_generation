@@ -93,7 +93,7 @@ describe("composeMotion (mocked ffmpeg)", () => {
         .filter((c) => c.cmd === "ffmpeg" && c.argv.includes("-vf"))
         .map((c) => c.argv[c.argv.indexOf("-vf") + 1]);
       expect(motionVf).toHaveLength(2);
-      expect(motionVf.every((vf) => vf.includes("zoompan"))).toBe(true);
+      expect(motionVf.every((vf) => vf?.includes("zoompan"))).toBe(true);
       // The final join uses xfade (crossfade + 2 segments).
       const joinCall = calls.find((c) => c.cmd === "ffmpeg" && c.argv.includes("-filter_complex"));
       expect(joinCall).toBeDefined();
@@ -390,8 +390,8 @@ describe("composeMotion captions (drawtext ladder mirror)", () => {
         writeFileSync(srt, "1\n00:00:00,500 --> 00:00:01,500\nmotion caption\n");
         const edit: RemotionEditDecisions = {
           version: "1.0",
-          cuts: [{ id: "a", type: "video", source: src, in_seconds: 0, out_seconds: 1, animation: "zoom-in" }],
-          transition: "concat",
+          cuts: [{ id: "a", type: "media", source: src, in_seconds: 0, out_seconds: 1, animation: "zoom-in" }],
+          transition: "none",
         };
         const out = join(dir, "motion.mp4");
         const report = await composeMotion(

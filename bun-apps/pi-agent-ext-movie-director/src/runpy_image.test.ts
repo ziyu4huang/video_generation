@@ -50,8 +50,10 @@ describe("buildImageArgs", () => {
       { action: "faceswap", input: "/in/body.png", face: "/in/face.png" },
       null,
     );
-    expect(args).toContain("--input", "/in/body.png");
-    expect(args).toContain("--face", "/in/face.png");
+    expect(args).toContain("--input");
+    expect(args).toContain("/in/body.png");
+    expect(args).toContain("--face");
+    expect(args).toContain("/in/face.png");
     expect(args[1]).toBe("faceswap");
   });
 

@@ -73,10 +73,7 @@ export function createWorkflowStorage(cwd: string): WorkflowStorage {
     return join(legacyProjectDir, `${name}.json`);
   };
 
-  const parseWorkflowFile = (
-    path: string,
-    location: "project" | "user",
-  ): SavedWorkflow | null => {
+  const parseWorkflowFile = (path: string, location: "project" | "user"): SavedWorkflow | null => {
     if (!existsSync(path)) return null;
     const data = JSON.parse(readFileSync(path, "utf-8"));
     if (!data || typeof data !== "object" || !isSafeSavedWorkflowName((data as { name?: string }).name ?? "")) {
