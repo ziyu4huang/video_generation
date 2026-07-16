@@ -11,7 +11,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -277,6 +277,59 @@ describe("runtime handlers (parity mode, default no approval)", () => {
       { type: "text", text: "created task_plan.md" },
       { type: "text", text: expect.stringContaining("[planning-with-files] Update progress.md") },
     ]);
+  });
+
+  it("ask_user_question tool_result appends the Q&A as a decision block to progress.md", async () => {
+    const cwd = makeWorkspace();
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+
+    // Decision-capture is observational logging, not a model-facing steer, so
+    // (by design) it does NOT require /plan-execute approval — only an active,
+    // non-closed plan. Do not call approvePlan here.
+    const qaText = "[Auth method] Which auth method? \u2192 API key\n[Library] Which UI lib? \u2192 Bun";
+    await emit(pi, "tool_result", { toolName: "ask_user_question", content: [{ type: "text", text: qaText }] }, ctx);
+
+    const progress = readFileSync(join(cwd, ".planning", "demo", "progress.md"), "utf-8");
+    expect(progress).toContain("ask_user_question");
+    expect(progress).toContain("Auth method");
+    expect(progress).toContain("API key");
+    expect(progress).toContain("Library");
+  });
+
+  it("ask_user_question decision-capture is a no-op when no plan exists", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pwf-noplan-"));
+    tempRoots.push(cwd);
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+
+    await emit(
+      pi,
+      "tool_result",
+      { toolName: "ask_user_question", content: [{ type: "text", text: "Q \u2192 A" }] },
+      ctx,
+    );
+
+    // No progress.md should have been created in a planless workspace.
+    expect(existsSync(join(cwd, "progress.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".planning"))).toBe(false);
+  });
+
+  it("ask_user_question decision-capture is inert on a closed plan", async () => {
+    const cwd = makeWorkspace(closedPlan());
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+
+    const before = readFileSync(join(cwd, ".planning", "demo", "progress.md"), "utf-8");
+    await emit(
+      pi,
+      "tool_result",
+      { toolName: "ask_user_question", content: [{ type: "text", text: "Q \u2192 A" }] },
+      ctx,
+    );
+    const after = readFileSync(join(cwd, ".planning", "demo", "progress.md"), "utf-8");
+
+    expect(after).toBe(before);
   });
 
   it("agent_end does not auto-continue before approval", async () => {
