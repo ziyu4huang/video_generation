@@ -1,6 +1,6 @@
 ---
 name: to-tickets
-description: Use when breaking an agreed plan, spec, or conversation into tracer-bullet tickets — each a complete vertical slice declaring its blocking edges. Writes one file per ticket under .planning/<effort>/tickets/. Invocation-only via /to-tickets.
+description: Use when breaking an agreed plan, spec, or conversation into tracer-bullet tickets — each a complete vertical slice declaring its blocking edges. Writes one file per ticket under .planning/<effort>/tickets/. Invocation via `/to-tickets` (or load the skill directly).
 disable-model-invocation: true
 ---
 
@@ -59,12 +59,21 @@ Write one file per ticket under `.planning/<effort>/tickets/<NN>-<slug>.md`, num
 
 # <NN> — <Ticket title>
 
-**What to build:** the end-to-end behaviour this ticket makes work, from the user's perspective — not a layer-by-layer implementation list.
+---
+type: task
+blocking: 02, 05      # the ticket ids (NN) that gate this one; omit the line if none
+status: open
+---
 
-**Blocked by:** the numbers/titles of the tickets that gate this one, or "None — can start immediately".
+# <NN> — <Ticket title>
 
-**Status:** ready-for-agent
+## Question
+The decision this ticket resolves, or the slice's scope — one sentence.
 
+## What to build
+The end-to-end behaviour this ticket makes work, from the user's perspective — not a layer-by-layer implementation list.
+
+## Acceptance
 - [ ] Acceptance criterion 1
 - [ ] Acceptance criterion 2
 
@@ -74,6 +83,6 @@ Avoid specific file paths or code snippets — they go stale fast. Exception: if
 
 Work the **frontier** — any ticket whose blockers are all done — one ticket at a time, clearing context between tickets.
 
-### Optional: seed a task_plan.md
+### Seed the plan
 
-If the user wants to drive these tickets through the planning-with-files substrate, the linear frontier can be flattened into a `task_plan.md` (one phase per ticket, dependencies preserved as phase ordering). This is the bridge from wayfind's decision artifacts into planning-with-files' execution substrate — run `/plan-execute` on it once written.
+Flatten the frontier into a `task_plan.md` with **`/plan-seed <effort>`** — one phase per ticket (topo-sorted by `blocking`), `[NN-slug]` phase headers, acceptance criteria carried through. This is the bridge from wayfind's decision artifacts into planning-with-files' execution substrate. Then run `/plan-execute` to activate the hooks; when a phase completes, `/chain-sync` (or any `/wayfinder*` touchpoint) closes the originating ticket.

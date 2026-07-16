@@ -939,3 +939,88 @@ describe("agent_end status-bar response", () => {
     expect(pi.sendUserMessage).toHaveBeenCalledTimes(1); // still auto-continued
   });
 });
+
+// ─── ADR-0001: __piPlanPhases reverse seam (publish + chain-sync nudge) ─────────
+// pwf publishes per-phase {id, status, ticketIds?} so wayfind's syncChainState
+// can close the originating ticket (feedback half of the chain loop). And on a
+// newly-complete TICKETED phase, agent_end nudges the user toward /chain-sync.
+describe("__piPlanPhases reverse seam (ADR-0001)", () => {
+  const PHASES_KEY = "__piPlanPhases";
+  const g = globalThis as Record<string, unknown>;
+  let savedPhases: unknown;
+
+  beforeEach(() => {
+    savedPhases = g[PHASES_KEY];
+  });
+  afterEach(() => {
+    if (savedPhases === undefined) delete g[PHASES_KEY];
+    else g[PHASES_KEY] = savedPhases;
+  });
+
+  it("factory publishes __piPlanPhases as a function on globalThis", () => {
+    delete g[PHASES_KEY];
+    loadExtension();
+    expect(typeof g[PHASES_KEY]).toBe("function");
+  });
+
+  it("agent_end nudges /chain-sync when a ticketed phase newly completes", async () => {
+    const planBefore = [
+      "# Plan",
+      "### Phase 1 — [03-foo] wire it",
+      "**Status:** in_progress",
+      "### Phase 2 — no ticket",
+      "**Status:** pending",
+      "",
+    ].join("\n");
+    const planAfter = [
+      "# Plan",
+      "### Phase 1 — [03-foo] wire it",
+      "**Status:** complete",
+      "### Phase 2 — no ticket",
+      "**Status:** pending",
+      "",
+    ].join("\n");
+    const cwd = makeWorkspace(planBefore);
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+    await approvePlan(pi, ctx);
+
+    // First fire: Phase 1 still in_progress → no complete ticketed phase → no nudge.
+    await emit(pi, "agent_end", {}, ctx);
+    // Agent marks Phase 1 complete.
+    writeFileSync(join(cwd, ".planning", "demo", "task_plan.md"), planAfter);
+    await emit(pi, "agent_end", {}, ctx);
+
+    const statusTexts = (ctx.ui.setStatus as ReturnType<typeof mock>).mock.calls.map((c) => c[1]);
+    expect(statusTexts.some((t) => t.includes("03-foo") && t.includes("/chain-sync"))).toBe(true);
+  });
+
+  it("agent_end does NOT nudge when a completing phase has no ticket id", async () => {
+    const planBefore = [
+      "# Plan",
+      "### Phase 1 — no ticket here",
+      "**Status:** in_progress",
+      "### Phase 2",
+      "**Status:** pending",
+      "",
+    ].join("\n");
+    const planAfter = [
+      "# Plan",
+      "### Phase 1 — no ticket here",
+      "**Status:** complete",
+      "### Phase 2",
+      "**Status:** pending",
+      "",
+    ].join("\n");
+    const cwd = makeWorkspace(planBefore);
+    const pi = loadExtension();
+    const ctx = createContext(cwd);
+    await approvePlan(pi, ctx);
+    await emit(pi, "agent_end", {}, ctx);
+    writeFileSync(join(cwd, ".planning", "demo", "task_plan.md"), planAfter);
+    await emit(pi, "agent_end", {}, ctx);
+
+    const statusTexts = (ctx.ui.setStatus as ReturnType<typeof mock>).mock.calls.map((c) => c[1]);
+    expect(statusTexts.every((t) => !t.includes("/chain-sync"))).toBe(true);
+  });
+});

@@ -21,20 +21,62 @@ export interface GlossaryTerm {
   definition: string;
 }
 
+/** Shared `**Term**: value` matcher for the two CONTEXT.md readers.
+ *  - requireBullet=false (glossary): `**Term**: def`, empty value allowed.
+ *  - requireBullet=true  (decisions): `- **Term**: answer`, answer required.
+ *  Returns null when the line doesn't match the requested shape. */
+function parseBoldColonLine(line: string, requireBullet: boolean): { term: string; value: string } | null {
+  const re = requireBullet ? /^\s*-\s*\*\*([^*]+)\*\*\s*:\s*(.+)$/ : /^\*\*([^*]+)\*\*\s*:\s*(.*)$/;
+  const m = line.match(re);
+  return m ? { term: m[1].trim(), value: m[2].trim() } : null;
+}
+
 /** Parse `**Term**: definition` lines out of a CONTEXT.md body. Tolerant: skips
  *  headings, blank lines, and `_Avoid_:` lines. Returns [] if none found. */
 export function parseGlossary(contextMd: string): GlossaryTerm[] {
   const out: GlossaryTerm[] = [];
   for (const raw of contextMd.split(/\r?\n/)) {
-    const line = raw.trim();
-    // Match a bold term followed by a colon: **Term**: definition  OR  **Term**:\n def
-    const m = line.match(/^\*\*([^*]+)\*\*\s*:\s*(.*)$/);
+    const m = parseBoldColonLine(raw.trim(), false);
     if (!m) continue;
-    const term = m[1].trim();
-    const definition = m[2].trim();
-    if (term.toLowerCase() === "avoid") continue;
-    if (!definition) continue; // definition on next line — skip bare bold headers
-    out.push({ term, definition });
+    if (m.term.toLowerCase() === "avoid") continue;
+    if (!m.value) continue; // definition on next line — skip bare bold headers
+    out.push({ term: m.term, definition: m.value });
+  }
+  return out;
+}
+
+/** Extract the body of a named `## Section` from a markdown doc (the text
+ *  between this heading and the next `## ` or end-of-doc). Self-contained so
+ *  grill.ts stays fs-free (it deliberately does not import map.ts, which pulls
+ *  node:fs). Returns "" when the section is absent. */
+function extractSection(md: string, heading: string): string {
+  const target = `## ${heading}`;
+  const lines = md.split(/\r?\n/);
+  let started = false;
+  const out: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith("## ")) {
+      if (started) break; // reached the next section
+      if (line.trim() === target) started = true;
+      continue;
+    }
+    if (started) out.push(line);
+  }
+  return out.join("\n");
+}
+
+/** Parse the `## Decisions` section of a CONTEXT.md into `{title, answer}`
+ *  records — the information backbone of the continuous chain (every handoff
+ *  reads this, so no resolved decision is lost). Only bulleted
+ *  `- **title**: answer` lines count; glossary-style `**Term**: def` lines
+ *  (no bullet, anywhere) are ignored. Returns [] when the section is absent. */
+export function parseDecisions(contextMd: string): ResolvedDecision[] {
+  const section = extractSection(contextMd, "Decisions");
+  if (!section.trim()) return [];
+  const out: ResolvedDecision[] = [];
+  for (const raw of section.split(/\r?\n/)) {
+    const m = parseBoldColonLine(raw, true);
+    if (m) out.push({ title: m.term, answer: m.value });
   }
   return out;
 }

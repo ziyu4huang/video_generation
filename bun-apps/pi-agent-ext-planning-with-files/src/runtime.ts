@@ -32,6 +32,7 @@ import {
   isPlanIncompleteInDir,
   type PlanStatus,
   planProgressLine,
+  readPlanPhases,
   readPlanStatus,
   summarizePlan,
 } from "./plan.js";
@@ -89,6 +90,22 @@ function setPassivePlanStatus(ctx: ExtensionContext, status: PlanStatus): void {
  * froze on whatever was last set (e.g. a stale "0/4 phases complete") forever,
  * because the early `!status.exists` returns never touched the bar — so users
  * saw a ghost status long after the plan files were deleted. */
+/** ADR-0001: detect ticketed phases that newly completed since the last
+ *  agent_end for this (session, plan) and surface a /chain-sync nudge. Updates
+ *  the snapshot so each completion nudges exactly once. Returns null when no
+ *  ticketed phase is freshly complete (or none reference tickets at all). */
+function computeChainSyncNudge(state: RuntimeState, planKey: string, cwd: string): string | null {
+  const completeTicketed = readPlanPhases(cwd).flatMap((p) =>
+    p.status === "complete" && p.ticketIds ? p.ticketIds : [],
+  );
+  const current = new Set(completeTicketed);
+  const prev = state.lastCompleteTicketPhaseIdsBySessionPlan.get(planKey) ?? new Set<string>();
+  state.lastCompleteTicketPhaseIdsBySessionPlan.set(planKey, current);
+  const fresh = [...current].filter((id) => !prev.has(id));
+  if (fresh.length === 0) return null;
+  return `run /chain-sync to close [${fresh.join(", ")}]`;
+}
+
 function clearPlanStatus(ctx: ExtensionContext): void {
   ctx.ui.setStatus(PKG_NAME, "No active plan");
 }
@@ -144,6 +161,11 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
   // roadmap it displaced when planning yielded its injection (Plan A) — without
   // it, a goal-driven agent would lose all plan visibility.
   (globalThis as Record<string, unknown>).__piPlanSummary = planProgressLine;
+  // ADR-0001 reverse seam: __piPlanPhases exposes per-phase {id, status,
+  // ticketIds?} so pi-agent-ext-wayfind's syncChainState can close the
+  // originating ticket when a phase completes — the feedback half of the
+  // continuous chain loop. Same globalThis/jiti rationale as the keys above.
+  (globalThis as Record<string, unknown>).__piPlanPhases = readPlanPhases;
 
   registerCommands(pi, state);
 
@@ -434,7 +456,10 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
     // at every agent_end — covers both the auto-continue fire and the cap-hit
     // (both reach this point). Without this the bar stayed frozen at whatever
     // before_agent_start set for the whole turn.
-    ctx.ui.setStatus(PKG_NAME, summarizePlan(status));
+    // ADR-0001: append a one-shot /chain-sync nudge when a ticketed phase just
+    // completed, so the loop's feedback half is discoverable without coupling.
+    const chainNudge = computeChainSyncNudge(state, planKey, ctx.cwd);
+    ctx.ui.setStatus(PKG_NAME, chainNudge ? `${summarizePlan(status)} — ${chainNudge}` : summarizePlan(status));
 
     const current = state.autoContinueCountBySessionPlan.get(planKey) ?? 0;
     if (current >= AUTO_CONTINUE_LIMIT) {
