@@ -386,6 +386,38 @@ describe("runWorkflowScript — workflow packs", () => {
 		expect(receipt.agentCount).toBe(1);
 		expect((receipt.result as { args: unknown }).args).toEqual({ msg: "hello pack" });
 	});
+
+	test("the real `args-demo` pack dry-runs (parses)", async () => {
+		const dir = resolve(import.meta.dirname, "../../workflows/args-demo");
+		const receipt = await runWorkflowScript({ name: dir, dryRun: true });
+		expect(receipt.meta.name).toBe("args-demo");
+		expect(receipt.dryRun).toBe(true);
+	});
+
+	test("the real `args-demo` pack exercises parallel() with manifest default args", async () => {
+		const dir = resolve(import.meta.dirname, "../../workflows/args-demo");
+		const receipt = await runWorkflowScript({
+			name: dir,
+			persistLogs: false,
+			agent: { run: async () => "stub" } as any,
+		});
+		expect(receipt.agentCount).toBe(2); // parallel() fans out over default topics [alpha, beta]
+		expect(receipt.phases).toEqual(["FanOut"]);
+		const result = receipt.result as { topics: string[]; results: unknown[] };
+		expect(result.topics).toEqual(["alpha", "beta"]);
+		expect(result.results).toHaveLength(2);
+	});
+
+	test("the real `args-demo` pack: --args overrides manifest topics", async () => {
+		const dir = resolve(import.meta.dirname, "../../workflows/args-demo");
+		const receipt = await runWorkflowScript({
+			name: dir,
+			args: { topics: ["only-one"] },
+			persistLogs: false,
+			agent: { run: async () => "x" } as any,
+		});
+		expect(receipt.agentCount).toBe(1);
+	});
 });
 
 // ── listWorkflows (enumerates packs + single-file scripts) ─────────────────
