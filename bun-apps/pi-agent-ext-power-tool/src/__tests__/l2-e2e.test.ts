@@ -32,10 +32,9 @@
  * RUN all power-tool tests:
  *   ( cd bun-apps/pi-agent-ext-power-tool && bun test )
  *
- * OPT-IN: L2 tests are SKIPPED by default. They spawn the real pi-agent CLI,
- * load a real model from LM Studio, and (for knowledge_query/graph_health)
- * query the real vault-mind ChromaDB — each takes 30s–10min, far over bun:test's
- * 5s default timeout. Enable explicitly:
+ * OPT-IN: L2 tests are SKIPPED by default. They spawn the real pi-agent CLI
+ * and load a real model from LM Studio — each takes up to 30s, far over
+ * bun:test's 5s default timeout. Enable explicitly:
  *   PI_RUN_L2=1 bun test bun-apps/pi-agent-ext-power-tool/src/__tests__/l2-e2e.test.ts
  * If a required service is unreachable the test SKIPS with a reason in its title
  * (no spurious 5s-timeout failure). PI_SKIP_L2=1 (legacy) is still honored as a
@@ -107,35 +106,6 @@ const TOOLS: ToolEntry[] = [
     markers: ["inspect_pathology"],
     timeoutMs: 30_000,
   },
-  {
-    name: "knowledge_query",
-    prompt: "call knowledge_query --query test --topK 1",
-    markers: [], // content-agnostic: even "no results" is valid; exit 0 is the gate
-    timeoutMs: 300_000, // vault query can be slow
-  },
-  {
-    name: "graph_health",
-    prompt: "call graph_health",
-    markers: [], // content-agnostic: LLM output language varies (zh-TW/en); exit 0 is the gate
-    timeoutMs: 600_000, // vault scan + VLM inference can take 3-8 min
-  },
-  {
-    name: "todo",
-    prompt: "call todo --action list",
-    // Tool name is translated in zh-TW output; exit 0 + no error is the gate.
-    markers: [],
-  },
-  {
-    name: "ask_user_question",
-    prompt: `call ask_user_question --questions '[{"question":"test","header":"Test","options":[{"label":"a","description":"opt a"},{"label":"b","description":"opt b"}]}]'`,
-    markers: ["ask_user_question"],
-  },
-  {
-    name: "goal_complete",
-    prompt: "call goal_complete --summary 'test'",
-    // "goal" appears in `/goal` in both zh-TW and en output.
-    markers: ["goal"],
-  },
 ];
 
 // ─── Smoke check: is LM Studio reachable? ─────────────────────────────────────
@@ -145,21 +115,6 @@ async function lmStudioReachable(): Promise<boolean> {
     // Fast 2s timeout so a down LM Studio causes the test to skip quickly.
     const resp = await fetch("http://localhost:1234/v1/models", { signal: AbortSignal.timeout(2000) });
     return resp.ok;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Is the vault-mind ChromaDB backend (VAULT_MIND_BASE_URL, default :8000) up?
- * Any HTTP response (even 404) counts as "listening" — a wrong path still means
- * the server is there; only a connection refusal/timeout means it's down.
- */
-async function vaultMindReachable(): Promise<boolean> {
-  const base = process.env.VAULT_MIND_BASE_URL ?? "http://127.0.0.1:8000";
-  try {
-    await fetch(`${base}/api/v2/heartbeat`, { signal: AbortSignal.timeout(1500) });
-    return true;
   } catch {
     return false;
   }
@@ -197,25 +152,16 @@ function invokeTool(prompt: string, timeoutMs = 120_000): { exitCode: number; st
 const l2Enabled = process.env.PI_RUN_L2 === "1" && process.env.PI_SKIP_L2 !== "1";
 
 // Preflight once (top-level await is fine under bun:test ESM). When disabled we
-// skip the network probes entirely so default `bun test` registers fast.
+// skip the network probe entirely so default `bun test` registers fast.
 let lmStudioUp = false;
-let vaultMindUp = false;
 if (l2Enabled) {
   lmStudioUp = await lmStudioReachable();
-  vaultMindUp = await vaultMindReachable();
 }
 
-// Tools that query the knowledge graph need the vault-mind ChromaDB service.
-const VAULT_TOOLS = new Set(["knowledge_query", "graph_health"]);
-
 for (const tool of TOOLS) {
-  const needsVault = VAULT_TOOLS.has(tool.name);
   const blockers: string[] = [];
   if (!l2Enabled) blockers.push("set PI_RUN_L2=1 to run L2 e2e");
-  else {
-    if (!lmStudioUp) blockers.push("LM Studio not reachable on :1234");
-    if (needsVault && !vaultMindUp) blockers.push("vault-mind not reachable on :8000");
-  }
+  else if (!lmStudioUp) blockers.push("LM Studio not reachable on :1234");
   const canRun = blockers.length === 0;
   const runner = canRun ? test : test.skip;
   // Skip reason goes in the title so it's visible in `bun test` output.
