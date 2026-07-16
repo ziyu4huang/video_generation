@@ -7,11 +7,14 @@
  *   bun-pi-agent-cli power-tool <diagnostic request...>
  *   bun-pi-agent-cli --model sonnet power-tool "call inspect_context"
  *
- * The power-tool suite provides 8 diagnostic tools (inspect_context,
- * inspect_agent, inspect_extensions, knowledge_query, graph_health,
- * todo, ask_user_question, goal_complete). The CLI passes the user's
- * request as a natural-language task; the agent maps it onto the
- * appropriate tool.
+ * The power-tool suite provides 4 diagnostic tools (inspect_context,
+ * inspect_agent, inspect_extensions, inspect_pathology). The CLI passes
+ * the user's request as a natural-language task; the agent maps it onto
+ * the appropriate tool.
+ *
+ * Post-monolith-split (#504/#502/#499): knowledge_query/graph_health moved to
+ * pi-agent-ext-knowledge-card, todo/goal_complete moved to
+ * pi-agent-ext-goal-todo, ask_user_question moved to pi-agent-ext-ask-user.
  *
  * This file is dependency-free of pi-agent-cli on purpose: the workspace dep
  * direction is pi-agent-cli → pi-agent-ext-power-tool, so the spec is typed
@@ -30,37 +33,29 @@ interface ExtensionSubcommandSpec {
   task: (parsed: { positionals: string[] }) => string;
 }
 
-/** All 8 power-tool tool names, as the curated default allowlist. */
+/** All 4 power-tool tool names, as the curated default allowlist. */
 const POWER_TOOLS = [
   "inspect_context",
   "inspect_agent",
   "inspect_extensions",
-  "knowledge_query",
-  "graph_health",
-  "todo",
-  "ask_user_question",
-  "goal_complete",
+  "inspect_pathology",
 ];
 
 export const powerToolSubcommand: ExtensionSubcommandSpec = {
   name: "power-tool",
-  summary: "runtime diagnostics: context analysis, agent inventory, extension linting, knowledge graph health",
+  summary: "runtime diagnostics: context analysis, agent inventory, extension linting, pathology detection",
   details: `Usage:
   bun-pi-agent-cli power-tool <diagnostic request...> [options]
 
-The power-tool suite provides 8 diagnostic tools for analyzing pi-agent's own
+The power-tool suite provides 4 diagnostic tools for analyzing pi-agent's own
 runtime state. Give a natural-language request as positionals; the agent maps
 it onto the right tool.
 
 Tools available:
   inspect_context    — full context window breakdown (system prompt vs tool schema vs conversation)
-  inspect_agent     — dump agent state (extensions, tools, skills, model, cwd) to YAML
+  inspect_agent      — dump agent state (extensions, tools, skills, model, cwd) to YAML
   inspect_extensions — lint loaded extensions for duplicate names, oversized schemas, stale refs
-  knowledge_query    — query the Zettelkasten knowledge graph by tags or natural language
-  graph_health       — audit knowledge graph structural health (dead links, MOC drift, orphans)
-  todo               — manage task lists for tracking multi-step progress
-  ask_user_question  — ask the user structured questions with 2-4 options each
-  goal_complete      — mark the active /goal as complete
+  inspect_pathology  — diagnose retry loops / tool error storms / context saturation this session
 
 Options (pi-aligned globals):
   --model <pattern>      provider/id[:thinking]  (e.g. gemma-4-26b, sonnet)
@@ -80,7 +75,7 @@ Examples:
     const request = parsed.positionals.join(" ").trim();
     if (!request) {
       // No explicit request — prompt the agent to ask or infer intent.
-      return "You have access to 8 power-tool diagnostic tools. Help the user " +
+      return "You have access to 4 power-tool diagnostic tools. Help the user " +
         "choose one or infer their intent. Tools available:\n" +
         POWER_TOOLS.map((t) => "  - " + t).join("\n");
     }
