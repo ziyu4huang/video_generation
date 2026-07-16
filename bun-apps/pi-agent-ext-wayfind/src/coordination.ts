@@ -49,8 +49,8 @@ export function isWayfindActivePublished(): boolean {
 
 /** Publish the grill-specific active reader. Closure reads live RuntimeState. */
 export function publishWayfindGrill(state: RuntimeState): void {
-  (globalThis as Record<string, unknown>)[WAYFIND_GRILL_KEY] =
-    (sessionId: string) => state.activeGrillBySession.has(sessionId);
+  (globalThis as Record<string, unknown>)[WAYFIND_GRILL_KEY] = (sessionId: string) =>
+    state.activeGrillBySession.has(sessionId);
 }
 
 /** Remove the grill reader (session_shutdown / unload). */
