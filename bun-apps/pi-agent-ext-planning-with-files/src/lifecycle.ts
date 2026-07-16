@@ -208,7 +208,7 @@ export function lintPlan(cwd: string): LintReport {
     findings.push({
       level: "info",
       code: "CLOSED",
-      message: "Plan is closed (via /plan-done) — hooks are inert by design. Remove the close marker to reactivate.",
+      message: "Plan is closed (via /plan done) — hooks are inert by design. Remove the close marker to reactivate.",
     });
   }
 

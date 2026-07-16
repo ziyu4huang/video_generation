@@ -81,10 +81,10 @@ function buildPreToolParityRecitation(status: PlanStatus): string {
 
 function setPassivePlanStatus(overlay: PlanningOverlay, status: PlanStatus): void {
   if (status.closed) {
-    overlay.setLine("Plan closed (via /plan-done) — hooks inactive");
+    overlay.setLine("Plan closed (via /plan done) — hooks inactive");
     return;
   }
-  overlay.setLine(`${summarizePlan(status)} — run /plan-execute to activate hooks`);
+  overlay.setLine(`${summarizePlan(status)} — run /plan execute to activate hooks`);
 }
 
 /** Refresh the status bar to reflect a plan-less state. Without this the bar
@@ -135,7 +135,7 @@ function extractResultText(content: unknown): string {
  *  pi-agent-ext-ask-user tool/response-envelope.ts). Capturing it here turns
  *  every user clarification into working memory on disk — zero agent effort.
  *
- *  WHY no /plan-execute gate: this is observational logging of USER input, not
+ *  WHY no /plan execute gate: this is observational logging of USER input, not
  *  a model-facing steer (no injection / nag / auto-continue). Unlike the
  *  write/edit branch, capturing decisions is safe and most useful from the
  *  moment a plan exists. Gated only on: attached session + active, non-closed
@@ -203,7 +203,7 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
     const status = readPlanStatus(ctx.cwd);
     if (status.exists) {
       // Opt-in auto-approval (PWF_AUTO_APPROVE / settings) activates hooks at
-      // session start without an interactive /plan-execute. Used by CI and the
+      // session start without an interactive /plan execute. Used by CI and the
       // e2e test; interactive flows still require explicit approval.
       if (resolveAutoApprove(ctx.cwd)) {
         state.executionApprovedBySessionPlan.add(getPlanSessionKey(ctx, status));
@@ -240,11 +240,11 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
       return;
     }
 
-    // A closed plan (finished/abandoned via /plan-done) is inert: never inject
+    // A closed plan (finished/abandoned via /plan done) is inert: never inject
     // its contents, never nag. Keeps a stale-but-closed plan from polluting
     // context or firing the incomplete-warning loop.
     if (status.closed) {
-      overlay.setLine("Plan closed (via /plan-done) — hooks inactive");
+      overlay.setLine("Plan closed (via /plan done) — hooks inactive");
       return;
     }
 
@@ -354,7 +354,7 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
     // exists when planning-with-files is in use. Without this gate the warning
     // nagged every session (isSessionAttached defaults true when no .planning/
     // sessions dir exists) and pointed at a plan that doesn't exist —
-    // contradicting the documented "hooks stay passive until /plan-execute"
+    // contradicting the documented "hooks stay passive until /plan execute"
     // safety gate that every other hook in this handler respects.
     if (status.exists && isToolCallEventType("bash", event) && isDangerousBashCommand(event.input.command)) {
       ctx.ui.notify(
@@ -412,10 +412,10 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
     const planKey = getPlanSessionKey(ctx, status);
     const mode = deriveEffectiveMode(resolveConfiguredMode(ctx.cwd), ctx);
 
-    // Closed plan (finished/abandoned via /plan-done): no nag, no auto-continue.
+    // Closed plan (finished/abandoned via /plan done): no nag, no auto-continue.
     if (isPlanClosed(status)) {
       state.autoContinueCountBySessionPlan.set(planKey, 0);
-      overlay.setLine("Plan closed (via /plan-done) — hooks inactive");
+      overlay.setLine("Plan closed (via /plan done) — hooks inactive");
       return;
     }
 
@@ -443,7 +443,7 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
 
     if (!isExecutionApproved(state, ctx, status)) {
       ctx.ui.notify(
-        `[planning-with-files] Task incomplete (${status.completePhases}/${status.totalPhases}). Run /plan-execute to activate hooks.`,
+        `[planning-with-files] Task incomplete (${status.completePhases}/${status.totalPhases}). Run /plan execute to activate hooks.`,
         "warning",
       );
       setPassivePlanStatus(overlay, status);

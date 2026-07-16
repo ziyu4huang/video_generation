@@ -75,7 +75,7 @@ function completePlan(): string {
 }
 
 function closedPlan(): string {
-  // A plan finished/abandoned via /plan-done carries the close marker; the
+  // A plan finished/abandoned via /plan done carries the close marker; the
   // runtime treats it as fully inert (no injection / nag / auto-continue).
   return `${incompletePlan()}\n${CLOSE_MARKER_COMMENT}\n`;
 }
@@ -140,10 +140,17 @@ async function emit(pi: MockPi, eventName: string, event: any, ctx: MockContext)
   return handler?.(event, ctx);
 }
 
+// `name` accepts the legacy hyphenated form (e.g. "plan-execute") for
+// call-site readability and translates it to the consolidated `/plan`
+// dispatcher: pi.commands only has a single "plan" entry now, with the
+// former command name passed as its first word of `args`.
 async function runCommand(pi: MockPi, name: string, args: string, ctx: MockContext): Promise<void> {
-  const command = pi.commands.get(name);
-  expect(command, `missing command: ${name}`).toBeDefined();
-  await command?.handler(args, ctx);
+  const [commandName, commandArgs] = name.startsWith("plan-")
+    ? ["plan", args ? `${name.slice("plan-".length)} ${args}` : name.slice("plan-".length)]
+    : [name, args];
+  const command = pi.commands.get(commandName);
+  expect(command, `missing command: ${commandName}`).toBeDefined();
+  await command?.handler(commandArgs, ctx);
 }
 
 const approvePlan = (pi: MockPi, ctx: MockContext) => runCommand(pi, "plan-execute", "", ctx);
@@ -181,19 +188,9 @@ describe("runtime lifecycle registration", () => {
     ]);
   });
 
-  it("registers the nine slash commands (6 base + 3 PLI v2)", () => {
+  it("registers the single /plan dispatcher command", () => {
     const pi = loadExtension();
-    expect(Array.from(pi.commands.keys()).sort()).toEqual([
-      "plan-attest",
-      "plan-done",
-      "plan-execute",
-      "plan-goal",
-      "plan-lint",
-      "plan-list",
-      "plan-loop",
-      "plan-status",
-      "plan-switch",
-    ]);
+    expect(Array.from(pi.commands.keys()).sort()).toEqual(["plan"]);
   });
 });
 
@@ -205,7 +202,7 @@ describe("runtime handlers (parity mode, default no approval)", () => {
 
     await emit(pi, "session_start", { reason: "new" }, ctx);
 
-    expect(setLineSpy).toHaveBeenCalledWith("1/2 phases complete — run /plan-execute to activate hooks");
+    expect(setLineSpy).toHaveBeenCalledWith("1/2 phases complete — run /plan execute to activate hooks");
   });
 
   it("before_agent_start stays passive before plan-execute approval", async () => {
@@ -216,7 +213,7 @@ describe("runtime handlers (parity mode, default no approval)", () => {
     const result = await emit(pi, "before_agent_start", {}, ctx);
 
     expect(result).toBeUndefined();
-    expect(setLineSpy).toHaveBeenCalledWith("1/2 phases complete — run /plan-execute to activate hooks");
+    expect(setLineSpy).toHaveBeenCalledWith("1/2 phases complete — run /plan execute to activate hooks");
   });
 
   it("before_agent_start injects the ACTIVE PLAN when attested + approved", async () => {
@@ -290,7 +287,7 @@ describe("runtime handlers (parity mode, default no approval)", () => {
     const ctx = createContext(cwd);
 
     // Decision-capture is observational logging, not a model-facing steer, so
-    // (by design) it does NOT require /plan-execute approval — only an active,
+    // (by design) it does NOT require /plan execute approval — only an active,
     // non-closed plan. Do not call approvePlan here.
     const qaText = "[Auth method] Which auth method? \u2192 API key\n[Library] Which UI lib? \u2192 Bun";
     await emit(pi, "tool_result", { toolName: "ask_user_question", content: [{ type: "text", text: qaText }] }, ctx);
@@ -346,7 +343,7 @@ describe("runtime handlers (parity mode, default no approval)", () => {
 
     expect(pi.sendUserMessage).not.toHaveBeenCalled();
     expect(ctx.ui.notify).toHaveBeenCalledWith(
-      "[planning-with-files] Task incomplete (1/2). Run /plan-execute to activate hooks.",
+      "[planning-with-files] Task incomplete (1/2). Run /plan execute to activate hooks.",
       "warning",
     );
   });
@@ -534,7 +531,7 @@ describe("dangerous-bash guard", () => {
     );
   });
 
-  it("stays silent when NO plan is active (hooks are passive until /plan-execute)", async () => {
+  it("stays silent when NO plan is active (hooks are passive until /plan execute)", async () => {
     // Plain temp dir: no .planning/, so status.exists is false yet the session
     // is still "attached" (isSessionAttached defaults true without a sessions
     // dir). Before the status.exists gate this fired the warning and pointed at
@@ -561,7 +558,7 @@ describe("dangerous-bash guard", () => {
 });
 
 describe("auto-approve (PWF_AUTO_APPROVE)", () => {
-  it("activates hooks at session_start without /plan-execute", async () => {
+  it("activates hooks at session_start without /plan execute", async () => {
     process.env.PWF_AUTO_APPROVE = "1";
     const plan = incompletePlan();
     const cwd = makeWorkspace(plan);
@@ -570,7 +567,7 @@ describe("auto-approve (PWF_AUTO_APPROVE)", () => {
     const ctx = createContext(cwd);
 
     await emit(pi, "session_start", { reason: "new" }, ctx);
-    // No /plan-execute call — yet before_agent_start should inject (approved at session_start).
+    // No /plan execute call — yet before_agent_start should inject (approved at session_start).
     const result = await emit(pi, "before_agent_start", {}, ctx);
 
     expect(result?.message?.content).toContain("[planning-with-files] ACTIVE PLAN");
@@ -670,11 +667,11 @@ describe("Plan A coordination (runtime yield)", () => {
   });
 });
 
-// ─── GAP-B: closed-plan (/plan-done) inertness ─────────────────────────────
+// ─── GAP-B: closed-plan (/plan done) inertness ─────────────────────────────
 // Every handler has a status.closed guard; none were exercised at runtime.
 // (This is the exact contract whose violation made the plan-loop tick forever
 // on a closed plan — fixed in 17f93dce. These guard the regression.)
-describe("closed-plan inertness (/plan-done)", () => {
+describe("closed-plan inertness (/plan done)", () => {
   it("before_agent_start is inert on a closed plan even when approved", async () => {
     const cwd = makeWorkspace(closedPlan());
     const pi = loadExtension();
@@ -684,7 +681,7 @@ describe("closed-plan inertness (/plan-done)", () => {
     const result = await emit(pi, "before_agent_start", {}, ctx);
 
     expect(result).toBeUndefined();
-    expect(setLineSpy).toHaveBeenCalledWith("Plan closed (via /plan-done) — hooks inactive");
+    expect(setLineSpy).toHaveBeenCalledWith("Plan closed (via /plan done) — hooks inactive");
   });
 
   it("agent_end is inert on a closed plan (no followUp, resets auto-continue)", async () => {
@@ -696,7 +693,7 @@ describe("closed-plan inertness (/plan-done)", () => {
     await emit(pi, "agent_end", {}, ctx);
 
     expect(pi.sendUserMessage).not.toHaveBeenCalled();
-    expect(setLineSpy).toHaveBeenCalledWith("Plan closed (via /plan-done) — hooks inactive");
+    expect(setLineSpy).toHaveBeenCalledWith("Plan closed (via /plan done) — hooks inactive");
   });
 
   it("tool_call is inert on a closed plan (no pre-tool recitation)", async () => {
@@ -760,13 +757,13 @@ describe("agent_end auto-continue (approved, incomplete, no goal)", () => {
 // ─── Status-bar refresh during execution (iter-4 TUI fix) ─────────────────
 // The status bar (ctx.ui.setStatus) was refreshed only at turn boundaries
 // (before_agent_start / agent_end). Two gaps left it stale mid-execution:
-//   GAP-1: /plan-execute (approve) never called setStatus → after approving,
-//          the bar kept showing the passive "run /plan-execute" prompt.
+//   GAP-1: /plan execute (approve) never called setStatus → after approving,
+//          the bar kept showing the passive "run /plan execute" prompt.
 //   GAP-2: tool_result (write/edit, approved) never called setStatus → as the
 //          agent marked phases complete, the bar's phase count stayed stale
 //          until the next turn.
 describe("status bar refresh during execution", () => {
-  it("GAP-1: /plan-execute refreshes the status bar to the active plan summary", async () => {
+  it("GAP-1: /plan execute refreshes the status bar to the active plan summary", async () => {
     const cwd = makeWorkspace(); // incomplete plan (1/2 phases)
     const pi = loadExtension();
     const ctx = createContext(cwd);
@@ -776,10 +773,10 @@ describe("status bar refresh during execution", () => {
     await approvePlan(pi, ctx);
 
     // After approve the bar must reflect the live plan (phase summary), not the
-    // passive "run /plan-execute to activate hooks" prompt.
+    // passive "run /plan execute to activate hooks" prompt.
     expect(setLineSpy).toHaveBeenCalledWith(expect.stringContaining("1/2 phases complete"));
     for (const [text] of setLineSpy.mock.calls) {
-      expect(text).not.toContain("run /plan-execute to activate hooks");
+      expect(text).not.toContain("run /plan execute to activate hooks");
     }
   });
 

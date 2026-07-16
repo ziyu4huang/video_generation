@@ -54,7 +54,7 @@ export const DEFAULT_GOAL_CONDITION =
 
 /**
  * Close marker for a plan that has been finished or abandoned. Written by
- * `/plan-done`. Two equivalent spellings are recognized (see isCloseMarker in
+ * `/plan done`. Two equivalent spellings are recognized (see isCloseMarker in
  * plan.ts): an inert HTML comment and a visible heading. The comment form is
  * preferred for programmatic writes because it renders as nothing in markdown
  * preview and is unlikely to collide with human-authored content.
@@ -63,5 +63,5 @@ export const CLOSE_MARKER_COMMENT = "<!-- pwf: closed -->";
 
 /** Human-readable blurb appended alongside the close marker. */
 export const CLOSE_MARKER_NOTE =
-  "> **[planning-with-files] Plan closed via /plan-done.** Hooks deactivated for this plan. " +
+  "> **[planning-with-files] Plan closed via /plan done.** Hooks deactivated for this plan. " +
   "Remove this line + the `<!-- pwf: closed -->` marker above to reactivate.";

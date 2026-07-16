@@ -145,7 +145,7 @@ describe("readPlanStatus — emoji / inline status tolerance", () => {
 });
 
 describe("close marker / closed plan", () => {
-  it("detects the comment close marker written by /plan-done", () => {
+  it("detects the comment close marker written by /plan done", () => {
     expect(isCloseMarker("# Plan\n<!-- pwf: closed -->\n")).toBe(true);
     expect(isCloseMarker("# Plan\n<!-- pwf:closed -->\n")).toBe(true);
   });
@@ -173,7 +173,7 @@ describe("close marker / closed plan", () => {
     expect(isPlanIncomplete(status)).toBe(false);
     // And must not report "all complete" either (it's closed, not completed).
     expect(isAllPhasesComplete(status)).toBe(false);
-    expect(summarizePlan(status)).toBe("Plan closed (via /plan-done)");
+    expect(summarizePlan(status)).toBe("Plan closed (via /plan done)");
   });
 });
 

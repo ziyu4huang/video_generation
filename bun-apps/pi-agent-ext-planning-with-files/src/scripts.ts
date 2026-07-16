@@ -49,7 +49,7 @@ export function runSessionCatchup(cwd: string): CatchupResult {
   if (!tail) {
     return {
       relevant: true,
-      summary: `${PKG_NAME}: ${summarizePlan(status)} — run /plan-execute to activate hooks`,
+      summary: `${PKG_NAME}: ${summarizePlan(status)} — run /plan execute to activate hooks`,
       diffStat: "",
     };
   }

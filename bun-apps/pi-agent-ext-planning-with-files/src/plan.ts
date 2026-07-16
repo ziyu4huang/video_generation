@@ -39,7 +39,7 @@ export interface PlanStatus extends PlanPaths {
    * emoji/inline status conventions the legacy parser didn't recognize). */
   hasParseableStatus: boolean;
   /** True when the plan carries a close marker (`<!-- pwf: closed -->` or a
-   * `## Plan Status: closed` heading) written by `/plan-done` or by hand. A
+   * `## Plan Status: closed` heading) written by `/plan done` or by hand. A
    * closed plan is finished/abandoned: hooks skip it entirely (no injection,
    * no auto-continue, no incomplete nag). */
   closed: boolean;
@@ -197,7 +197,7 @@ function classifyPhaseStatus(header: string, body: string[]): PhaseStatus {
 }
 
 /** True when the raw plan content carries a close marker. Recognizes both the
- * inert comment form written by `/plan-done` and a human-writable heading. */
+ * inert comment form written by `/plan done` and a human-writable heading. */
 export function isCloseMarker(planContent: string): boolean {
   return (
     /<!--\s*pwf:\s*closed\s*-->/i.test(planContent) ||
@@ -375,7 +375,7 @@ export function isPlanIncomplete(status: PlanStatus): boolean {
   // Don't nag when the status format is unparseable (no phase had a recognized
   // token) — that previously produced false "0/N incomplete" warnings on plans
   // using conventions the parser didn't understand. Also never nag a closed
-  // plan (finished/abandoned via /plan-done).
+  // plan (finished/abandoned via /plan done).
   if (status.closed || !status.hasParseableStatus) return false;
   return status.exists && status.totalPhases > 0 && status.completePhases < status.totalPhases;
 }
@@ -387,10 +387,10 @@ export function isPlanIncomplete(status: PlanStatus): boolean {
  * a hard dependency on planning-with-files' session-scoped RuntimeState.
  *
  * Returns true only when: a plan exists, it is NOT closed (no
- * `<!-- pwf: closed -->` marker from /plan-done), its phase-status format is
+ * `<!-- pwf: closed -->` marker from /plan done), its phase-status format is
  * parseable, and at least one phase is still incomplete.
  *
- * Release valve: `/plan-done` writes the close marker → this returns false →
+ * Release valve: `/plan done` writes the close marker → this returns false →
  * the goal completion gate lets goal_complete through.
  */
 export function isPlanIncompleteInDir(cwd: string): boolean {
@@ -429,7 +429,7 @@ export function isSessionAttached(cwd: string, sessionId: string | undefined): b
 /** One-line status summary, e.g. "1/2 phases complete". Pure + testable. */
 export function summarizePlan(status: PlanStatus): string {
   if (!status.exists) return "No active task_plan.md";
-  if (status.closed) return "Plan closed (via /plan-done)";
+  if (status.closed) return "Plan closed (via /plan done)";
   if (status.totalPhases <= 0) return "task_plan.md detected (no phase headers yet)";
   if (!status.hasParseableStatus) return `${status.totalPhases} phases (status format unrecognized)`;
   return `${status.completePhases}/${status.totalPhases} phases complete`;

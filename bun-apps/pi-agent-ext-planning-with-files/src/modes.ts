@@ -76,12 +76,12 @@ const TRUTHY = new Set(["1", "true", "yes", "on"]);
 /**
  * Opt-in auto-approval of the active plan at session start.
  *
- * Upstream requires an explicit interactive `/plan-execute`. For non-interactive
+ * Upstream requires an explicit interactive `/plan execute`. For non-interactive
  * workflows (CI, `-p` batch runs with an already-finalized plan) this is an
  * opt-in escape hatch so the hooks activate without a human in the loop:
  *   - `PWF_AUTO_APPROVE=1` env var, OR
  *   - `{ "planningWithFiles": { "autoApprove": true } }` in `.pi/settings.json`
- * Off by default — interactive users still use `/plan-execute`.
+ * Off by default — interactive users still use `/plan execute`.
  */
 export function resolveAutoApprove(cwd: string): boolean {
   if (TRUTHY.has((process.env.PWF_AUTO_APPROVE ?? "").trim().toLowerCase())) return true;
