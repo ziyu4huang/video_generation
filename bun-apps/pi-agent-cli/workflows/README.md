@@ -6,6 +6,24 @@ gate / retry / loopUntilDry / journaling / resume primitives only exist in the
 pi-agent-ext-workflow engine vm, NOT in Claude Code's `Workflow` tool. See
 `../docs/workflow-cli.md` (two-runtime boundary).
 
+## Example workflow packs (folders + manifest.json)
+
+A **workflow pack** is a folder with a `manifest.json` + an entry script, run
+via `workflow run <name>` exactly like a single-file script. See
+`../docs/workflow-cli.md#workflow-packs` for the manifest schema, resolution,
+and precedence. These two prove the shape end-to-end:
+
+- **`echo/`** — the smoke test. Minimal manifest + a one-`agent()` entry that
+  echoes its args. Proves folder → `manifest.json` → engine.
+- **`args-demo/`** — optional manifest `args` (`topics`) + `model`, and an entry
+  that uses the `parallel()` primitive to fan out one `agent()` per topic. Proves
+  packs carry real workflow behaviour and exercise the optional fields.
+
+```bash
+bun --cwd bun-apps/pi-agent-cli src/cli.ts workflow run echo --dry-run
+bun --cwd bun-apps/pi-agent-cli src/cli.ts workflow run args-demo --dry-run
+```
+
 ## knowledge-distill
 
 WRITE-side distill pipeline. Takes a codebase source and atomises it into
