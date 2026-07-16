@@ -1,0 +1,89 @@
+# pi-agent-ext-hermes-memory
+
+The ubiquitous language of pi-agent-ext-hermes-memory — persistent memory, session search, and secret scanning for Pi. The agent that normally forgets everything at session close instead keeps facts, failures, corrections, and procedures across sessions, searchable on demand.
+
+## Language
+
+### The five stores
+
+**Memory** (`memory` target, `MEMORY.md`):
+The agent's personal notes — env facts, project conventions, tool quirks, lessons. Size-limited (default 5,000 chars), human-readable Markdown, searchable by default.
+_Avoid_: notes, log (it is the curated, bounded fact store — distinct from the `memory` *tool* and from "a memory" as a single entry)
+
+**User profile** (`user` target, `USER.md`):
+Who the user is — name, preferences, communication style, habits. Kept separate from Memory so identity isn't mixed with facts.
+_Avoid_: profile, settings (it is persona/identity, not configuration)
+
+**Skills** (`skill_manage` tool, `SKILL.md`):
+Procedures — *how* to do something reusable across sessions (debug, deploy, test). Unlimited; stored as Pi-native `SKILL.md`.
+_Avoid_: snippets, docs (skills are procedural and Pi-discoverable, not reference text)
+
+**Extended store** (`sessions.db`):
+The SQLite mirror of Markdown memory beyond the core char limit. Fresh `memory` writes mirror here automatically; older entries backfilled via `/memory-sync-markdown`. Searching it does **not** bypass the core Markdown limit.
+_Avoid_: cache, index (it is a durable searchable store; core Markdown stays the source of truth)
+
+**Sessions** (`sessions.db`, FTS5):
+Indexed past conversation history, searchable via `session_search`. Indexed on shutdown plus a bounded incremental startup backfill.
+_Avoid_: history, transcripts (it is FTS5-indexed, queryable conversation memory)
+
+### Two-tier scoping
+
+**Global memory** (`~/.pi/agent/pi-hermes-memory/`):
+Facts that apply everywhere — your name, OS, tools. Searchable in every session.
+_Avoid_: base memory, default memory
+
+**Project memory** (`~/.pi/agent/projects-memory/<project>/`):
+Facts scoped to one codebase — architecture decisions, API quirks, team norms. Searchable only when cwd matches the project.
+_Avoid_: local memory, repo memory
+
+### Memory categories
+
+**Failure**:
+A categorized memory of what didn't work and why, so the agent doesn't repeat it.
+_Avoid_: error, mistake (it is a saved, searchable lesson, not a runtime error)
+
+**Correction**:
+A categorized memory of a user correction ("use pnpm, not npm") — saved *immediately* on detection, not waiting for background review.
+_Avoid_: feedback, fix
+
+**Insight / Preference / Convention / Tool-quirk**:
+The remaining memory categories — durable learning, stable user want, team/repo norm, and non-obvious tool behavior respectively.
+_Avoid_: tags (these are semantic categories with retrieval semantics, not labels)
+
+### Prompt behavior
+
+**Policy-only mode** (`memoryMode: "policy-only"`, default):
+Injects only the *memory policy* (guidance on when to call `memory_search`) into the system prompt — not the memories themselves. Keeps first-turn token cost low.
+_Avoid_: disabled, off (memory is fully available via search; only auto-injection is absent)
+
+**Legacy-inject mode** (`memoryMode: "legacy-inject"`):
+Restores the old behavior — injects MEMORY.md, USER.md, project memory, and recent failures into the prompt.
+_Avoid_: full mode, inject mode
+
+**Memory policy**:
+The `<memory-policy>` block injected in policy-only mode, telling the agent *when* to search and how to treat results (context, not instruction; repo/tool evidence wins).
+_Avoid_: rules, instructions (it is guidance, not commands)
+
+### The learning loop
+
+**Background review**:
+The activity-triggered learning cycle — every `nudgeInterval` turns (default 10) OR every `nudgeToolCalls` tool calls (default 15), reviews the session and saves what matters. Counters reset after each review.
+_Avoid_: auto-save, indexer, cron (it is an LLM-judged review loop, not a keyword extractor)
+
+**Review transport** (`reviewTransport`):
+How background review reaches a model — `direct` (in-process `completeSimple()`, default, preserves the main session's prefix cache) with `subprocess` (`pi -p`) fallback.
+_Avoid_: backend, runner
+
+**Correction detection**:
+Immediate save when the user corrects the agent ("no, use yarn"), bypassing the background-review cadence.
+_Avoid_: feedback capture, listener
+
+**Auto-consolidation** (`memoryOverflowStrategy: "auto-consolidate"`):
+When a store hits its char limit, a one-shot child agent merges related entries and drops stale ones, then retries the write — instead of erroring.
+_Avoid_: compaction, garbage collection, truncation (it is a semantic merge, not byte-level compression or FIFO drop)
+
+### Security
+
+**Content scanning**:
+Every memory/skill write passes a scanner that blocks API keys, tokens, and SSH keys — preventing the LLM from being tricked into storing secrets or injection payloads later surfaced via search.
+_Avoid_: filter, sanitizer (it is a security gate on persistence)
