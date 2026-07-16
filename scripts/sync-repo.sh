@@ -128,6 +128,38 @@ worktree_for_branch() {  # <branch>
     | awk -v b="refs/heads/$1" '/^worktree /{wt=$2} /^branch /{if($2==b) print wt}'
 }
 
+# Detect a PAUSED git operation (rebase/merge/cherry-pick/revert/bisect) in <repo-dir>.
+# Echoes a short label + returns 0 if one is in progress; returns 1 otherwise.
+# Why this exists: a paused operation makes the tree look "dirty", but the correct
+# fix is `--continue`/`--abort` — NOT `stash`/`checkout`, which can DESTROY the
+# in-progress work. Callers MUST check this before any mutating command. Resolves
+# the real git-dir via `--absolute-git-dir` (handles worktrees + submodules whose
+# .git is a file pointer, not a directory).
+in_progress_op() {  # <repo-dir>
+  local repo="${1:-.}" gd
+  gd="$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null)" || return 1
+  [[ -d "$gd/rebase-merge"     ]] && { echo "interactive rebase"; return 0; }
+  [[ -d "$gd/rebase-apply"     ]] && { echo "rebase / git am";   return 0; }
+  [[ -f "$gd/MERGE_HEAD"       ]] && { echo "merge";             return 0; }
+  [[ -f "$gd/CHERRY_PICK_HEAD" ]] && { echo "cherry-pick";       return 0; }
+  [[ -f "$gd/REVERT_HEAD"      ]] && { echo "revert";            return 0; }
+  [[ -f "$gd/BISECT_LOG"       ]] && { echo "bisect";            return 0; }
+  return 1
+}
+
+# --- Pre-flight: refuse to touch a superproject with a paused operation -------
+# Runs before ANY mutation (--full checkout/pull, branch switch, ff, submodule
+# update are all unsafe mid-rebase). Surfaces the exact op + recovery command
+# instead of the old misleading "uncommitted changes" message.
+if op="$(in_progress_op "$REPO_ROOT")"; then
+  echo "✗ Paused git operation in superproject ($REPO_ROOT): $op" >&2
+  echo "  This is NOT ordinary dirty state — stash/checkout can destroy the work." >&2
+  echo "  Resolve it first:" >&2
+  echo "    git -C \"$REPO_ROOT\" status            # see the paused op" >&2
+  echo "    git -C \"$REPO_ROOT\" rebase --continue # (or: rebase --abort | merge --continue | cherry-pick --continue)" >&2
+  exit 1
+fi
+
 # --- 0a. --full: advance superproject default branch (worktree-aware) ---------
 # Old behavior blindly ran `git checkout main`, which fatals with
 #   "fatal: '<branch>' is already used by worktree at <path>"
@@ -148,7 +180,9 @@ if [[ "$FULL_SYNC" == true ]]; then
       echo "→ '$DEFAULT_BRANCH' is checked out in another worktree:"
       echo "    $MAIN_WT"
       echo "  Advancing '$DEFAULT_BRANCH' there; keeping this worktree on '$CURRENT_FF'."
-      if git -C "$MAIN_WT" diff --quiet && git -C "$MAIN_WT" diff --cached --quiet; then
+      if op="$(in_progress_op "$MAIN_WT")"; then
+        echo "  ⚠ $MAIN_WT has a paused git op ($op) — '$DEFAULT_BRANCH' not advanced there." >&2
+      elif git -C "$MAIN_WT" diff --quiet && git -C "$MAIN_WT" diff --cached --quiet; then
         run "git -C \"$MAIN_WT\" pull --ff-only origin $DEFAULT_BRANCH" \
             git -C "$MAIN_WT" pull --ff-only origin "$DEFAULT_BRANCH"
       else
@@ -226,7 +260,29 @@ if [[ "$SYNC_SUBMODULES" == true ]]; then
   sm_args=(--init --recursive)
   [[ -n "$DEPTH" ]] && sm_args+=(--depth "$DEPTH")
 
-  if [[ "$FULL_SYNC" == true ]]; then
+  # Pre-flight: detect a PAUSED git operation in ANY submodule (recursive).
+  # `git submodule update` can't safely skip a single paused submodule, and
+  # advancing the superproject pointer past a mid-operation checkout can destroy
+  # the in-progress work (the exact footgun that bit this repo on 2026-07-16).
+  # foreach cd's into each submodule, so `pwd` yields its ABSOLUTE path — correct
+  # even for NESTED submodules (whose $sm_path is relative to the parent, not
+  # top-level; $REPO_ROOT/$sm_path would silently miss them).
+  BLOCKED_SM=""
+  while IFS= read -r sm; do
+    [[ -z "$sm" ]] && continue
+    if op="$(in_progress_op "$sm")"; then
+      echo "  ⚠ $sm: paused git op ($op) — checkout/update would be UNSAFE"
+      BLOCKED_SM+="${sm}"$'
+'
+    fi
+  done < <(git -C "$REPO_ROOT" submodule --quiet foreach --recursive 'pwd' 2>/dev/null)
+  if [[ -n "$BLOCKED_SM" ]]; then
+    echo "✗ Paused git operation in submodule(s); skipping checkout/update." >&2
+    echo "  A paused op is NOT ordinary dirty state — stash/checkout can destroy work." >&2
+    echo "  Resolve each, then re-run:" >&2
+    echo "    git -C \"<submodule>\" status            # see the paused op" >&2
+    echo "    git -C \"<submodule>\" rebase --continue # (or --abort / merge --continue / cherry-pick --continue)" >&2
+  elif [[ "$FULL_SYNC" == true ]]; then
     # --full: checkout each submodule's DEFAULT branch (auto-detected per submodule) + pull.
     echo "→ --full: fetching submodules (recursive) …"
     run "git submodule foreach --recursive git fetch --all --prune" \
