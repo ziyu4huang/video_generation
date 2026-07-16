@@ -1,7 +1,7 @@
 import { test, expect, describe } from "bun:test";
 import { tmpdir } from "node:os";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
 	resolveWorkflowScript,
 	parseWorkflowArgs,
@@ -362,5 +362,27 @@ describe("runWorkflowScript — workflow packs", () => {
 		expect(receipt.dryRun).toBe(true);
 		expect(receipt.meta.name).toBe("echo");
 		expect(receipt.agentCount).toBe(0);
+	});
+
+	test("the real `echo` example pack resolves + dry-runs (destination proof)", async () => {
+		const echoPackDir = resolve(import.meta.dirname, "../../workflows/echo");
+		const receipt = await runWorkflowScript({ name: echoPackDir, dryRun: true });
+		expect(receipt.dryRun).toBe(true);
+		expect(receipt.meta.name).toBe("echo");
+		expect(receipt.source).toBe("path");
+		expect(receipt.logs[0]).toContain("pack");
+	});
+
+	test("the real `echo` pack runs live with a stub agent", async () => {
+		const echoPackDir = resolve(import.meta.dirname, "../../workflows/echo");
+		const receipt = await runWorkflowScript({
+			name: echoPackDir,
+			args: { msg: "hello pack" },
+			persistLogs: false,
+			agent: { run: async () => "stub-echo" } as any,
+		});
+		expect(receipt.meta.name).toBe("echo");
+		expect(receipt.agentCount).toBe(1);
+		expect((receipt.result as { args: unknown }).args).toEqual({ msg: "hello pack" });
 	});
 });
