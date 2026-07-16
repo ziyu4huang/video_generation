@@ -266,7 +266,7 @@ def _find_orphans(models_dir: str) -> Iterator[tuple[str, str]]:
 
     Skips dirs marked ``.raw-download`` — intentionally manifest-less drop-in
     weights (user-downloaded checkpoints loaded raw with no MLX conversion step,
-    e.g. the comfyui_data-decoupled LoRAs/VAE/upscaler under models/). Mirrors the
+    e.g. the ComfyUI-decoupled LoRAs/VAE/upscaler under models/). Mirrors the
     ``REMOVED`` marker convention in app/config.py.
     """
     for category in sorted(os.listdir(models_dir)):

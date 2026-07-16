@@ -134,9 +134,6 @@ class TestPathConstants:
         for d in model_dirs:
             assert d.startswith(cfg.MODELS_DIR), f"{d} not under MODELS_DIR"
 
-    def test_comfy_models_is_absolute(self):
-        assert os.path.isabs(cfg.COMFY_MODELS)
-
     def test_transformer_config_has_required_keys(self):
         # Config has nheads (alias n_heads) and infers out_channels = in_channels.
         required = {"dim", "nheads", "n_layers", "in_channels", "axes_dims", "cap_feat_dim"}

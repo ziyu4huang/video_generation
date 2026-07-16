@@ -16,7 +16,7 @@ This script:
 
 Usage:
     python/venv/bin/python python/mlx-movie-director/scripts/convert_lens_te_mlx.py \\
-        --src comfyui_data/models/text_encoders/gpt_oss_20b_nvfp4.safetensors \\
+        --src <path/to/gpt_oss_20b_nvfp4.safetensors> \\
         --dst python/mlx-movie-director/models/text_encoder/gpt-oss-20b \\
         --bits 4
 """

@@ -26,7 +26,10 @@ you must present it and get approval.
 
 > **Position in the chain:** brainstorming is what happens BEFORE `task_plan.md`. Its
 > output (an approved design/spec) is the input to the `writing-plans` skill, which
-> turns it into the plan content that `planning-with-files` then tracks.
+> turns it into the plan content that `planning-with-files` then tracks. For non-trivial
+> designs, stress-test the spec first via `grill-me-with-docs` (resolves the decision
+> tree → `CONTEXT.md` + ADRs) before writing the plan. See the full build chain in
+> `writing-plans`.
 
 ## Checklist
 
@@ -115,8 +118,12 @@ Fix problems inline. No re-review — fix and move on.
 Wait. If they want changes, make them and re-run the self-check. Only continue after
 approval.
 
-**Implementation:** call the `writing-plans` skill to create the detailed implementation
-plan. Do not call any other skill. `writing-plans` is the next step.
+**Implementation:** hand off to the `writing-plans` skill to create the detailed
+implementation plan. For non-trivial designs, first stress-test the approved spec through
+`grill-me-with-docs` (one-question-at-a-time decision-tree interview; captures resolved
+terms to `CONTEXT.md` and hard-to-reverse decisions as ADRs), *then* write the plan and
+run `/plan execute`. For genuinely simple designs, go straight to `writing-plans`. See
+the full build chain in `writing-plans`.
 
 ## Core principles
 

@@ -19,13 +19,20 @@ This is `grill-me` (the interview) **plus** `domain-modeling` (the paper trail),
 
 ## Where it fits
 
-`grill docs` is the **opening step** of the build chain — before anything is written down as a spec:
+`grill-me-with-docs` is the stress-test step of the build chain — it sits AFTER
+`brainstorming` (which produced the design/spec) and before the plan is written:
 
 ```txt
-grill docs → wayfind spec → wayfind tickets → (planning-with-files /plan execute) → implement → code-review
+brainstorm → grill-me-with-docs → (to-spec → to-tickets)? → /plan execute → implement → close
 ```
 
-It produces the shared understanding and settled vocabulary that `wayfind spec` then synthesizes into a spec without re-interviewing you.
+The chain is the DEFAULT path with documented skips: `brainstorm` is an optional opener
+(skip for clear, well-scoped tasks); `to-spec`/`to-tickets` are an OPTIONAL ticketed-
+planning variant (skip for the common direct `grill → /plan execute` path); `close` is
+`finishing-a-development-branch` + `/plan done`. The canonical, full statement of this
+chain lives in `writing-plans`. The grill produces the shared understanding and settled
+vocabulary that `to-spec` then synthesizes into a spec without re-interviewing you — or,
+skipping to-spec, that flows straight into `/plan execute`.
 
 ## It's working if
 

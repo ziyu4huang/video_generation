@@ -31,6 +31,10 @@ Resolves `<name>` to a script, then runs it through the engine.
 3. `bun-apps/<pkg>/workflows/<name>.js` (package-local engine scripts).
 4. The literal `<name>` with a `.js` suffix tried in (2) and (3).
 
+A `<name>` (or path) that resolves to a **directory containing `manifest.json`**
+is a **workflow pack** — see [Workflow packs](#workflow-packs) below. Per
+location, a pack directory wins over a same-name `.js` file.
+
 **Flags:**
 
 | Flag | Effect |
@@ -69,6 +73,71 @@ Enumerates `.claude/workflows/*.js` and `bun-apps/<pkg>/workflows/*.js`, parsing
 each script's `export const meta` to print name + description + source dir.
 Scripts that fail to parse are reported (not skipped), so a broken script is
 surfaced. Use `--json` for machine-readable output.
+
+## Workflow packs
+
+A **workflow pack** is a richer form of an engine workflow: a **folder**
+containing a `manifest.json` (what it is + how to run it) plus an entry workflow
+script. It runs with the same `workflow run <name|path>` and the same
+deterministic engine. A pack identifies itself by its manifest; a single-file
+script by its `export const meta`.
+
+### Folder shape
+
+```
+<name>/
+  manifest.json   # required — see schema below
+  <entry>.js      # the workflow script (entry is suffix-agnostic; .mjs ok)
+```
+
+### `manifest.json` schema
+
+Minimal load-bearing. Required fields gate execution; optional fields are
+defaults the CLI merges under its flags.
+
+| field | required | purpose |
+|---|---|---|
+| `name` | ✅ | pack identity (`workflow list`, the run receipt) |
+| `description` | ✅ | one-line description (`workflow list`) |
+| `entry` | ✅ | path to the entry script, relative to the pack dir (suffix-agnostic) |
+| `args` | optional | default `args` for the script's `args` global (shallow-merged under `--args`) |
+| `model` | optional | default model spec (overridden by `--model`) |
+| `thinking` | optional | declared, **not yet wired** (the engine exposes no `thinking` key on this path) |
+| `howToRun` | optional | human-facing "how to run it" prose |
+
+### Resolution (dir-or-file)
+
+`workflow run <name>` reuses the existing workflow dirs (`.claude/workflows/`,
+`bun-apps/<pkg>/workflows/`). A `<name>` that is a directory with `manifest.json`
+resolves as a pack; otherwise the single-file `<name>.js` resolution applies.
+**A pack directory wins over a same-name `.js` file** in the same location. A
+literal directory path also works (`workflow run ./my/pack`).
+
+### Precedence (manifest defaults vs CLI flags)
+
+CLI flags override manifest values; manifest fields are defaults.
+
+- `--args` shallow-merges over manifest `args` (CLI wins on key conflict;
+  non-object `args` replaces entirely).
+- `--model` overrides manifest `model`.
+
+### `--dry-run`
+
+`workflow run <pack> --dry-run` validates the manifest + parses the entry script
+— no agents, no LLM. The fastest way to check a pack is well-formed.
+
+### Example packs shipped
+
+| pack | location | purpose |
+|---|---|---|
+| `echo` | `bun-apps/pi-agent-cli/workflows/echo/` | smoke test — one `agent()` echoing args; proves folder → manifest → engine |
+| `args-demo` | `bun-apps/pi-agent-cli/workflows/args-demo/` | optional manifest `args` + the `parallel()` primitive; proves packs carry real behaviour |
+
+```bash
+bun --cwd bun-apps/pi-agent-cli src/cli.ts workflow run echo --dry-run
+bun --cwd bun-apps/pi-agent-cli src/cli.ts workflow run args-demo --dry-run
+bun --cwd bun-apps/pi-agent-cli src/cli.ts workflow list   # shows [pack] vs [file]
+```
 
 ## Two runtimes — pick deliberately
 

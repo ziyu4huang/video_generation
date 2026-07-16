@@ -1,0 +1,20 @@
+// echo — the simplest workflow pack.
+//
+// Proves the full path: a folder with manifest.json + an entry script, run via
+// `workflow run echo` through the pi-agent-ext-workflow engine. One agent()
+// call; returns its `args` so a run is observable in the receipt.
+//
+// See ../README.md and ../../../docs/workflow-cli.md (workflow packs).
+
+export const meta = {
+	name: "echo",
+	description: "smoke: one agent call that echoes the args it received",
+	phases: [{ title: "Echo" }],
+};
+
+const reply = await agent("Echo back, briefly, the args object you received.", {
+	label: "echo-1",
+	phase: "Echo",
+});
+
+return { echoed: reply, args };

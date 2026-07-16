@@ -33,6 +33,7 @@ import type { Command } from "../cli.ts";
 // engine + its script parser by name so the bundler treats them as externals
 // exactly like the other workspace deps (pi-obsidian, pi-file2md, …).
 import { runWorkflow, parseWorkflowScript, type WorkflowAgent } from "@repo/pi-agent-ext-workflow";
+import { readManifest, type Manifest } from "../manifest.ts";
 
 /** Where engine workflow scripts live in this repo (Claude-Code-shared). */
 const CLAUDE_WORKFLOWS_DIR = ".claude/workflows";
@@ -40,12 +41,16 @@ const CLAUDE_WORKFLOWS_DIR = ".claude/workflows";
 const PKG_WORKFLOWS_GLOB = "bun-apps";
 
 export interface ResolvedWorkflow {
-	/** Absolute path to the script file that was read. */
+	/** Absolute path to the entry script that was read (the .js/.mjs for a
+	 *  single file, or the pack's entry file for a workflow pack). */
 	path: string;
-	/** Script source text. */
+	/** Entry script source text. */
 	script: string;
 	/** How it was resolved, for the run receipt. */
 	source: "path" | ".claude/workflows" | "package-workflows";
+	/** Present iff a workflow pack (folder + manifest.json). The manifest carries
+	 *  default args/model/thinking the runner merges under CLI flags. */
+	pack?: { manifest: Manifest; packDir: string };
 }
 
 /**
@@ -64,32 +69,51 @@ export function resolveWorkflowScript(
 	const read = opts.read ?? ((p) => readFileSync(p, "utf8"));
 	const exists = opts.exists ?? ((p) => existsSync(p));
 
-	// 1. Literal path (absolute, or relative to cwd).
+	// 1. Literal path: a file OR a workflow-pack directory (manifest.json + entry).
 	const asPath = isAbsolute(name) ? name : resolve(cwd, name);
-	if (exists(asPath) && statSyncOrNull(asPath)?.isFile()) {
+	const pathStat = statSyncOrNull(asPath);
+	if (pathStat?.isFile()) {
 		return { path: asPath, script: read(asPath), source: "path" };
+	}
+	if (pathStat?.isDirectory()) {
+		const pack = tryResolvePack(asPath, { read, exists });
+		if (pack) return { ...pack, source: "path" };
+		// A directory that isn't a pack is an error, not a silent fall-through.
+		throw new Error(
+			`workflow: "${name}" is a directory without a manifest.json (not a workflow pack): ${asPath}`,
+		);
 	}
 
 	// Candidate names with and without the .js suffix (so `workflow run foo`
-	// and `workflow run foo.js` both work).
+	// and `workflow run foo.js` both work). Used only for single-file lookup.
 	const names = name.endsWith(".js") ? [name] : [`${name}.js`, name];
 
-	// 2. .claude/workflows/<name>(.js)
+	// 2-3. Name resolution under the workflow dirs. Per location, a workflow-pack
+	//      directory (<name>/manifest.json) wins over a same-name file — packs
+	//      are the richer, deliberate artifact.
 	const claudeRoot = findRepoRoot(cwd, exists);
 	if (claudeRoot) {
-		for (const candidate of names) {
-			const p = join(claudeRoot, CLAUDE_WORKFLOWS_DIR, candidate);
-			if (exists(p) && statSyncOrNull(p)?.isFile()) {
-				return { path: p, script: read(p), source: ".claude/workflows" };
+		const claudeDir = join(claudeRoot, CLAUDE_WORKFLOWS_DIR);
+		if (exists(claudeDir)) {
+			const pack = tryResolvePack(join(claudeDir, name), { read, exists });
+			if (pack) return { ...pack, source: ".claude/workflows" };
+			for (const candidate of names) {
+				const p = join(claudeDir, candidate);
+				if (exists(p) && statSyncOrNull(p)?.isFile()) {
+					return { path: p, script: read(p), source: ".claude/workflows" };
+				}
 			}
 		}
 
-		// 3. bun-apps/<pkg>/workflows/<name>(.js)
 		const pkgRoot = join(claudeRoot, PKG_WORKFLOWS_GLOB);
 		if (exists(pkgRoot) && statSyncOrNull(pkgRoot)?.isDirectory()) {
 			for (const pkg of readdirSync(pkgRoot)) {
+				const pkgDir = join(pkgRoot, pkg, "workflows");
+				if (!exists(pkgDir)) continue;
+				const pack = tryResolvePack(join(pkgDir, name), { read, exists });
+				if (pack) return { ...pack, source: "package-workflows" };
 				for (const candidate of names) {
-					const p = join(pkgRoot, pkg, "workflows", candidate);
+					const p = join(pkgDir, candidate);
 					if (exists(p) && statSyncOrNull(p)?.isFile()) {
 						return { path: p, script: read(p), source: "package-workflows" };
 					}
@@ -119,6 +143,23 @@ function statSyncOrNull(
 	} catch {
 		return undefined;
 	}
+}
+
+/** Resolve a workflow pack at `packDir`: validate its manifest.json (via
+ *  readManifest) then read the entry script text. Returns the entry path/script
+ *  + the validated manifest, or undefined when `packDir` has no manifest.json
+ *  (not a pack). Throws on a malformed pack (bad manifest, or entry missing). */
+function tryResolvePack(
+	packDir: string,
+	opts: { read: (p: string) => string; exists: (p: string) => boolean },
+): { path: string; script: string; pack: { manifest: Manifest; packDir: string } } | undefined {
+	if (!opts.exists(join(packDir, "manifest.json"))) return undefined;
+	const manifest = readManifest(packDir, { read: opts.read, exists: opts.exists });
+	const entryPath = join(packDir, manifest.entry);
+	if (!opts.exists(entryPath) || !statSyncOrNull(entryPath)?.isFile()) {
+		throw new Error(`workflow: pack entry "${manifest.entry}" not found in ${packDir}`);
+	}
+	return { path: entryPath, script: opts.read(entryPath), pack: { manifest, packDir } };
 }
 
 /**
@@ -153,6 +194,34 @@ export function parseWorkflowArgs(raw: string | undefined): unknown {
 			`workflow: --args must be valid JSON (${(e as Error).message}). Got: ${raw}`,
 		);
 	}
+}
+
+/** Build the `provider/modelId` spec passed as the workflow's main model. */
+/** Shallow-merge manifest default args under CLI args (Decision 5: CLI wins).
+ *  Both plain objects → merged; otherwise the CLI value replaces entirely. */
+export function mergeArgs(manifestArgs: unknown, cliArgs: unknown): unknown {
+	if (cliArgs === undefined) return manifestArgs;
+	if (manifestArgs === undefined) return cliArgs;
+	if (isPlainObject(manifestArgs) && isPlainObject(cliArgs)) {
+		return { ...(manifestArgs as Record<string, unknown>), ...(cliArgs as Record<string, unknown>) };
+	}
+	return cliArgs;
+}
+
+/** Resolve effective args/model for a run: manifest provides defaults, CLI
+ *  flags override (Decision 5). Pure. */
+export function resolvePackOverrides(
+	pack: { manifest: Manifest } | undefined,
+	cli: { args?: unknown; model?: string },
+): { args: unknown; model?: string } {
+	return {
+		args: mergeArgs(pack?.manifest.args, cli.args),
+		model: cli.model ?? pack?.manifest.model,
+	};
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+	return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 /** Build the `provider/modelId` spec passed as the workflow's main model. */
@@ -207,12 +276,19 @@ export async function runWorkflowScript(
 }> {
 	const resolved = resolveWorkflowScript(opts.name, { cwd: opts.cwd });
 	const { meta } = parseWorkflowScript(resolved.script);
+	const overrides = resolvePackOverrides(resolved.pack, { args: opts.args, model: opts.model });
+	// A pack identifies itself by its manifest; a single-file script by its meta.
+	const identity = resolved.pack
+		? { name: resolved.pack.manifest.name, description: resolved.pack.manifest.description }
+		: { name: meta.name, description: meta.description };
 
 	if (opts.dryRun) {
 		return {
-			meta: { name: meta.name, description: meta.description },
+			meta: identity,
 			result: { validated: true },
-			logs: [`dry-run: script "${meta.name}" parsed and validated (${resolved.path})`],
+			logs: [
+				`dry-run: ${resolved.pack ? `pack "${identity.name}"` : `script "${meta.name}"`} parsed and validated (${resolved.path})`,
+			],
 			phases: [],
 			agentCount: 0,
 			durationMs: 0,
@@ -223,8 +299,8 @@ export async function runWorkflowScript(
 	}
 
 	const receipt = await runWorkflow(resolved.script, {
-		args: opts.args,
-		mainModel: opts.model,
+		args: overrides.args,
+		mainModel: overrides.model,
 		persistLogs: opts.persistLogs ?? true,
 		cwd: opts.cwd,
 		...(opts.agent ? { agent: opts.agent } : {}),
@@ -233,7 +309,7 @@ export async function runWorkflowScript(
 	});
 
 	return {
-		meta: { name: receipt.meta.name, description: receipt.meta.description },
+		meta: identity,
 		result: receipt.result,
 		logs: receipt.logs,
 		phases: receipt.phases,
@@ -338,6 +414,61 @@ Examples:
 	},
 };
 
+export interface WorkflowListRow {
+	source: string;
+	name: string;
+	description: string;
+	/** "pack" = folder + manifest.json; "file" = single-file .js script. */
+	kind: "pack" | "file";
+}
+
+export interface WorkflowListResult {
+	rows: WorkflowListRow[];
+	errors: { path: string; message: string }[];
+}
+
+/** Enumerate resolvable workflows under a repo root: workflow packs (folders
+ *  with manifest.json) AND single-file scripts (*.js). Pack rows render from
+ *  the manifest; file rows from `export const meta`. Broken packs/scripts are
+ *  reported in `errors` (not dropped). */
+export function listWorkflows(claudeRoot: string): WorkflowListResult {
+	const dirs = [
+		{ label: ".claude/workflows", dir: join(claudeRoot, CLAUDE_WORKFLOWS_DIR) },
+		...readdirSyncSafe(join(claudeRoot, PKG_WORKFLOWS_GLOB)).map((pkg) => ({
+			label: `bun-apps/${pkg}/workflows`,
+			dir: join(claudeRoot, PKG_WORKFLOWS_GLOB, pkg, "workflows"),
+		})),
+	];
+	const rows: WorkflowListRow[] = [];
+	const errors: { path: string; message: string }[] = [];
+	for (const { label, dir } of dirs) {
+		if (!existsSync(dir)) continue;
+		for (const entry of readdirSyncSafe(dir)) {
+			const p = join(dir, entry);
+			const stat = statSyncOrNull(p);
+			if (stat?.isDirectory()) {
+				// A workflow pack — only when it has a manifest.json.
+				if (!existsSync(join(p, "manifest.json"))) continue;
+				try {
+					const manifest = readManifest(p);
+					rows.push({ source: label, name: manifest.name, description: manifest.description, kind: "pack" });
+				} catch (e) {
+					errors.push({ path: p, message: (e as Error).message.split("\n")[0]! });
+				}
+				continue;
+			}
+			if (!stat?.isFile() || !entry.endsWith(".js")) continue;
+			try {
+				const { meta } = parseWorkflowScript(readFileSync(p, "utf8"));
+				rows.push({ source: label, name: meta.name, description: meta.description, kind: "file" });
+			} catch (e) {
+				errors.push({ path: p, message: (e as Error).message.split("\n")[0]! });
+			}
+		}
+	}
+	return { rows, errors };
+}
+
 /** `workflow list` — enumerate resolvable workflow scripts with their metas. */
 export const workflowListCommand: Command = {
 	name: "list",
@@ -351,28 +482,7 @@ is surfaced.`,
 	run: async (parsed: ParsedArgs): Promise<void> => {
 		const cwd = process.cwd();
 		const claudeRoot = findRepoRoot(cwd, existsSync) ?? cwd;
-		const dirs = [
-			{ label: ".claude/workflows", dir: join(claudeRoot, CLAUDE_WORKFLOWS_DIR) },
-			...readdirSyncSafe(join(claudeRoot, PKG_WORKFLOWS_GLOB)).map((pkg) => ({
-				label: `bun-apps/${pkg}/workflows`,
-				dir: join(claudeRoot, PKG_WORKFLOWS_GLOB, pkg, "workflows"),
-			})),
-		];
-		const rows: { source: string; name: string; description: string }[] = [];
-		const errors: { path: string; message: string }[] = [];
-		for (const { label, dir } of dirs) {
-			if (!existsSync(dir)) continue;
-			for (const file of readdirSyncSafe(dir)) {
-				if (!file.endsWith(".js")) continue;
-				const p = join(dir, file);
-				try {
-					const { meta } = parseWorkflowScript(readFileSync(p, "utf8"));
-					rows.push({ source: label, name: meta.name, description: meta.description });
-				} catch (e) {
-					errors.push({ path: p, message: (e as Error).message.split("\n")[0]! });
-				}
-			}
-		}
+		const { rows, errors } = listWorkflows(claudeRoot);
 		if (parsed.json) {
 			console.log(JSON.stringify({ workflows: rows, errors }, null, 2));
 			return;
@@ -384,10 +494,10 @@ is surfaced.`,
 		const nameW = Math.max(4, ...rows.map((r) => r.name.length));
 		const srcW = Math.max(6, ...rows.map((r) => r.source.length));
 		for (const r of rows) {
-			console.log(`  ${r.name.padEnd(nameW)}  ${r.source.padEnd(srcW)}  ${r.description}`);
+			console.log(`  ${r.name.padEnd(nameW)}  ${r.source.padEnd(srcW)}  [${r.kind}]  ${r.description}`);
 		}
 		if (errors.length) {
-			console.log(`\n${errors.length} script(s) failed to parse:`);
+			console.log(`\n${errors.length} workflow(s) failed to list:`);
 			for (const e of errors) console.log(`  ✗ ${e.path}: ${e.message}`);
 		}
 	},
