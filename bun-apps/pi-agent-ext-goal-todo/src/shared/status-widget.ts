@@ -102,6 +102,18 @@ export class PowerToolStatusWidget {
 		}
 	}
 
+	/**
+	 * Tears down the ENTIRE shared widget — ALL registered sections from
+	 * EVERY consumer package are wiped, not just the caller's own. This is
+	 * process-wide shared state (see `getSharedStatusWidget`), so only the
+	 * package that owns true end-of-session lifecycle should ever call this.
+	 * Currently that's `pi-agent-ext-goal-todo` (positioned first in load
+	 * order), which calls it exactly once, from its own `session_shutdown`
+	 * handler — the point where every extension is tearing down anyway.
+	 * Other consumer packages (wayfind, planning-with-files, ...) must
+	 * dispose only their own overlay/section state and must NEVER call this
+	 * method on the shared widget.
+	 */
 	dispose(): void {
 		this.sections = [];
 		if (this.uiCtx?.setWidget) this.uiCtx.setWidget(WIDGET_KEY, undefined);
@@ -136,10 +148,20 @@ export class PowerToolStatusWidget {
  * itself, wayfind, planning-with-files) calls this — never `new
  * PowerToolStatusWidget()` directly, or it will get its own disconnected
  * widget instance.
+ *
+ * NOTE: deliberately NOT an `instanceof PowerToolStatusWidget` guard. Since
+ * pi loads extensions via jiti, a jiti-loaded copy of this module and a
+ * natively-imported copy can produce DIFFERENT class identities for
+ * `PowerToolStatusWidget` even though they're "the same" class — `instanceof`
+ * would then return false for whichever loader didn't create the instance,
+ * causing that caller to overwrite the global slot with its own instance and
+ * defeating the whole point of this function. Instead we trust whatever
+ * object already occupies the global slot (first writer wins) and only
+ * construct a new one when the slot is empty.
  */
 export function getSharedStatusWidget(): PowerToolStatusWidget {
 	const g = globalThis as Record<string, unknown>;
-	if (!(g[SINGLETON_GLOBAL_KEY] instanceof PowerToolStatusWidget)) {
+	if (!g[SINGLETON_GLOBAL_KEY]) {
 		g[SINGLETON_GLOBAL_KEY] = new PowerToolStatusWidget();
 	}
 	return g[SINGLETON_GLOBAL_KEY] as PowerToolStatusWidget;
