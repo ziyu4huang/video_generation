@@ -19,10 +19,11 @@ import {
   unpublishWayfindGrill,
 } from "./coordination.js";
 import { buildGrillPriming } from "./grill.js";
+import type { WayfindOverlay } from "./overlay.js";
 import { getSessionId, isGrillActive, type RuntimeState } from "./state.js";
 import { chartMap, claimNextTicket, renderStatus, slugify, statusReport } from "./wayfinder.js";
 
-export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
+export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay: WayfindOverlay): void {
   /** Shared kickoff: set the active-grill state, refresh the published seam, and
    *  send the priming user-message so the agent enters grilling mode. */
   function startGrill(
@@ -45,7 +46,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
     handler: async (args, ctx) => {
       const topic = args.trim();
       startGrill(ctx, topic, false);
-      ctx.ui.setStatus(PKG_NAME, `grill-me active${topic ? `: ${topic}` : ""}`);
+      overlay.setLine(`grill-me active${topic ? `: ${topic}` : ""}`);
       ctx.ui.notify(
         `[${PKG_NAME}] grill-me started${topic ? ` (${topic})` : ""}. planning-with-files will yield while the grill is active.`,
         "info",
@@ -59,7 +60,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
     handler: async (args, ctx) => {
       const topic = args.trim();
       startGrill(ctx, topic, true);
-      ctx.ui.setStatus(PKG_NAME, `grill-me-with-docs active${topic ? `: ${topic}` : ""}`);
+      overlay.setLine(`grill-me-with-docs active${topic ? `: ${topic}` : ""}`);
       ctx.ui.notify(
         [
           `[${PKG_NAME}] grill-me-with-docs started${topic ? ` (${topic})` : ""}.`,
@@ -86,7 +87,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
       state.activeGrillBySession.delete(sessionId);
       state.grillWithDocsBySession.delete(sessionId);
       publishWayfindActive(state);
-      ctx.ui.setStatus(PKG_NAME, "grill ended");
+      overlay.setLine("grill ended");
 
       const seed = args.includes("--seed-plan") || args.includes("seed-plan");
       if (!seed) {
@@ -125,7 +126,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
 
   pi.registerCommand("domain-modeling", {
     description: "Kick off the glossary (CONTEXT.md) + ADR discipline directly, without the grilling interview",
-    handler: async (_args, ctx) => {
+    handler: async (_args, _ctx) => {
       pi.sendUserMessage(
         [
           "Starting a domain-modeling session.",
@@ -136,7 +137,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
         ].join("\n"),
         { deliverAs: "steer" },
       );
-      ctx.ui.setStatus(PKG_NAME, "domain-modeling active");
+      overlay.setLine("domain-modeling active");
     },
   });
 
@@ -184,7 +185,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
         );
         return;
       }
-      ctx.ui.setStatus(PKG_NAME, `plan-seed: ${effort} (${outcome.source})`);
+      overlay.setLine(`plan-seed: ${effort} (${outcome.source})`);
       ctx.ui.notify(
         `[${PKG_NAME}] Seeded ${outcome.path} (${outcome.phaseCount} phase(s), source: ${outcome.source}).`,
         "info",
@@ -199,7 +200,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
   pi.registerCommand("to-spec", {
     description:
       "Synthesize the current conversation + codebase into a spec (PRD) at .planning/<effort>/spec.md. [effort]",
-    handler: async (args, ctx) => {
+    handler: async (args, _ctx) => {
       const effort = args.trim() || undefined;
       pi.sendUserMessage(
         [
@@ -213,14 +214,14 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
         ].join("\n"),
         { deliverAs: "steer" },
       );
-      ctx.ui.setStatus(PKG_NAME, `to-spec${effort ? `: ${effort}` : ""}`);
+      overlay.setLine(`to-spec${effort ? `: ${effort}` : ""}`);
     },
   });
 
   pi.registerCommand("to-tickets", {
     description:
       "Break a spec/plan/conversation into tracer-bullet tickets (unified format) under .planning/<effort>/tickets/. [effort]",
-    handler: async (args, ctx) => {
+    handler: async (args, _ctx) => {
       const effort = args.trim() || undefined;
       pi.sendUserMessage(
         [
@@ -234,7 +235,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
         ].join("\n"),
         { deliverAs: "steer" },
       );
-      ctx.ui.setStatus(PKG_NAME, `to-tickets${effort ? `: ${effort}` : ""}`);
+      overlay.setLine(`to-tickets${effort ? `: ${effort}` : ""}`);
     },
   });
 
@@ -272,7 +273,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
         }
         state.activeEffortBySession.set(sessionId, effort);
         publishWayfindActive(state);
-        ctx.ui.setStatus(PKG_NAME, `wayfinder: ${effort} — ticket ${claimed.id} ${claimed.title}`);
+        overlay.setLine(`wayfinder: ${effort} — ticket ${claimed.id} ${claimed.title}`);
         pi.sendUserMessage(
           [
             `Working wayfinder ticket ${claimed.id} "${claimed.title}" on effort ${effort}.`,
@@ -290,7 +291,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
       chartMap(ctx.cwd, effort, destination);
       state.activeEffortBySession.set(sessionId, effort);
       publishWayfindActive(state);
-      ctx.ui.setStatus(PKG_NAME, `wayfinder: charting ${effort}`);
+      overlay.setLine(`wayfinder: charting ${effort}`);
       ctx.ui.notify(`[${PKG_NAME}] Map created at .planning/${effort}/map.md`, "info");
       pi.sendUserMessage(
         [

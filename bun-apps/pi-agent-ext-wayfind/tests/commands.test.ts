@@ -6,6 +6,7 @@ import { registerCommands } from "../src/commands.js";
 import { WAYFIND_ACTIVE_KEY } from "../src/constants.js";
 import { isWayfindActivePublished } from "../src/coordination.js";
 import { readMap, writeMap, writeTicket } from "../src/map.js";
+import { WayfindOverlay } from "../src/overlay.js";
 import { createRuntimeState, isGrillActive, type RuntimeState } from "../src/state.js";
 
 /** Minimal ExtensionAPI mock: captures registered commands into a Map and
@@ -64,7 +65,7 @@ afterEach(() => {
 function setup(): { pi: MockPi; state: RuntimeState } {
   const state = createRuntimeState();
   const pi = createPi();
-  registerCommands(pi as unknown as Parameters<typeof registerCommands>[0], state);
+  registerCommands(pi as unknown as Parameters<typeof registerCommands>[0], state, new WayfindOverlay());
   return { pi, state };
 }
 

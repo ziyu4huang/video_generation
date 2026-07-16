@@ -8,7 +8,8 @@
   "type": "module",
   "exports": {
     "./extensions/*": "./extensions/*",
-    "./src/*": "./src/*"
+    "./src/*": "./src/*",
+    "./src/*.js": "./src/*.ts"
   },
   "pi": {
     "extensions": ["./extensions"]
