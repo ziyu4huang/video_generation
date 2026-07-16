@@ -3,7 +3,7 @@
 Concrete walkthroughs of the 3-file pattern (task_plan.md / findings.md /
 progress.md) on Pi. Tool names below are Pi's (`write`, `edit`, `read`, `bash`,
 `web_search`/`fetch_content`) — not the upstream Claude-style verbs. The
-extension's hooks stay **passive** until you run `/plan-execute`; before that,
+extension's hooks stay **passive** until you run `/plan execute`; before that,
 the files are just durable notes.
 
 ## Example 1: Research Task
@@ -38,7 +38,7 @@ Create a research summary on the benefits of morning exercise.
 **Currently in Phase 1** - Creating plan
 ```
 
-Run `/plan-execute` to activate hooks (parity/cache-safe injection on each turn).
+Run `/plan execute` to activate hooks (parity/cache-safe injection on each turn).
 
 ### Loop 2: Research
 ```

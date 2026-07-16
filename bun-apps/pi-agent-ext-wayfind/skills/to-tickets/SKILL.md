@@ -1,6 +1,6 @@
 ---
 name: to-tickets
-description: Use when breaking an agreed plan, spec, or conversation into tracer-bullet tickets — each a complete vertical slice declaring its blocking edges. Writes one file per ticket under .planning/<effort>/tickets/. Invocation via `/to-tickets` (or load the skill directly).
+description: Use when breaking an agreed plan, spec, or conversation into tracer-bullet tickets — each a complete vertical slice declaring its blocking edges. Writes one file per ticket under .planning/<effort>/tickets/. Invocation via `/wayfind tickets` (or load the skill directly).
 disable-model-invocation: true
 ---
 
@@ -85,4 +85,4 @@ Work the **frontier** — any ticket whose blockers are all done — one ticket 
 
 ### Seed the plan
 
-Flatten the frontier into a `task_plan.md` with **`/plan-seed <effort>`** — one phase per ticket (topo-sorted by `blocking`), `[NN-slug]` phase headers, acceptance criteria carried through. This is the bridge from wayfind's decision artifacts into planning-with-files' execution substrate. Then run `/plan-execute` to activate the hooks; when a phase completes, `/chain-sync` (or any `/wayfinder*` touchpoint) closes the originating ticket.
+Flatten the frontier into a `task_plan.md` with **`/wayfind seed <effort>`** — one phase per ticket (topo-sorted by `blocking`), `[NN-slug]` phase headers, acceptance criteria carried through. This is the bridge from wayfind's decision artifacts into planning-with-files' execution substrate. Then run `/plan execute` to activate the hooks; when a phase completes, `/wayfind sync` (or any `/wayfind*` touchpoint) closes the originating ticket.

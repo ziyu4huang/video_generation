@@ -17,7 +17,7 @@ and problem domain, and is not great at test design.
 
 > **Scope boundary:** planning-with-files owns *where* plans live (`task_plan.md` /
 > `findings.md` / `progress.md` under `.planning/<slug>/`), the hooks, the nags, the
-> `/plan-execute` gate, and progress tracking. This skill owns *what* makes the plan's
+> `/plan execute` gate, and progress tracking. This skill owns *what* makes the plan's
 > content good. Do not duplicate the substrate here.
 
 **Announce at the start:** "I am using the writing-plans skill to author the plan content."
