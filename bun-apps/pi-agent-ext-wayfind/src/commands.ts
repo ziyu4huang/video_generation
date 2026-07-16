@@ -190,6 +190,48 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
     },
   });
 
+  pi.registerCommand("to-spec", {
+    description:
+      "Synthesize the current conversation + codebase into a spec (PRD) at .planning/<effort>/spec.md. [effort]",
+    handler: async (args, ctx) => {
+      const effort = args.trim() || undefined;
+      pi.sendUserMessage(
+        [
+          "Synthesizing a spec from the current conversation.",
+          "Load the `to-spec` skill: turn what's already on the table into a spec (PRD) — no interview, just synthesis.",
+          "Use the project's CONTEXT.md glossary vocabulary; respect ADRs in the area you touch.",
+          effort
+            ? `Write the spec to .planning/${effort}/spec.md.`
+            : "Write the spec to .planning/<effort>/spec.md (or docs/specs/<slug>.md).",
+          "Tell me the path when written. The natural next step is /to-tickets, then /plan-seed → /plan-execute.",
+        ].join("\n"),
+        { deliverAs: "steer" },
+      );
+      ctx.ui.setStatus(PKG_NAME, `to-spec${effort ? `: ${effort}` : ""}`);
+    },
+  });
+
+  pi.registerCommand("to-tickets", {
+    description:
+      "Break a spec/plan/conversation into tracer-bullet tickets (unified format) under .planning/<effort>/tickets/. [effort]",
+    handler: async (args, ctx) => {
+      const effort = args.trim() || undefined;
+      pi.sendUserMessage(
+        [
+          "Breaking the work into tracer-bullet tickets.",
+          "Load the `to-tickets` skill: vertical slices, each declaring its blocking edges.",
+          effort
+            ? `Write one ticket per file under .planning/${effort}/tickets/ (NN-slug.md).`
+            : "Write one ticket per file under .planning/<effort>/tickets/ (NN-slug.md).",
+          "Use the UNIFIED ticket format: YAML frontmatter (type/blocking/status) + ## Question + ## What to build + ## Acceptance — the same schema wayfinder uses (parseTicketFile reads it).",
+          "Then flatten the frontier into a task_plan.md with /plan-seed, and run /plan-execute (planning-with-files).",
+        ].join("\n"),
+        { deliverAs: "steer" },
+      );
+      ctx.ui.setStatus(PKG_NAME, `to-tickets${effort ? `: ${effort}` : ""}`);
+    },
+  });
+
   pi.registerCommand("wayfinder", {
     description:
       "Chart a huge effort as a local-markdown map of decision tickets (.planning/<effort>/), or work the next frontier ticket if a map exists.",

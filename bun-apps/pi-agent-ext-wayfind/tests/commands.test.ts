@@ -328,3 +328,28 @@ describe("plan-seed — route-aware forward bridge", () => {
     expect(notifications.some((n) => /exist|refuse|not overwrite/i.test(n))).toBe(true);
   });
 });
+
+// ─── /to-spec + /to-tickets — chain synthesis commands ───────────────────────
+describe("to-spec / to-tickets — chain synthesis commands", () => {
+  it("both are registered", () => {
+    const { pi } = setup();
+    expect(pi.commands.has("to-spec")).toBe(true);
+    expect(pi.commands.has("to-tickets")).toBe(true);
+  });
+
+  it("to-spec sends a priming steer that mentions the spec + the chain", async () => {
+    const { pi } = setup();
+    await run(pi, "to-spec", "orders");
+    expect(pi.sent.length).toBe(1);
+    expect(pi.sent[0].toLowerCase()).toContain("spec");
+    expect(pi.sent[0]).toContain("/to-tickets");
+  });
+
+  it("to-tickets sends a priming steer naming the unified format + /plan-seed", async () => {
+    const { pi } = setup();
+    await run(pi, "to-tickets", "orders");
+    expect(pi.sent.length).toBe(1);
+    expect(pi.sent[0].toLowerCase()).toContain("ticket");
+    expect(pi.sent[0]).toContain("/plan-seed");
+  });
+});
