@@ -1,0 +1,28 @@
+{
+  "name": "@repo/pi-agent-ext-grill-memory",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Memory-augmented grilling — companion to wayfind's grill-me / grill-me-with-docs. Ships the grill-memory skill: READ behavioral memory into each recommendation and capture resolved decisions durably via the grill_decision tool (implemented in pi-agent-ext-hermes-memory). Pure TypeScript.",
+  "type": "module",
+  "files": ["extensions/", "skills/", "README.md"],
+  "scripts": {
+    "test": "biome check . && bun test",
+    "check": "biome check .",
+    "format": "biome format --write ."
+  },
+  "keywords": ["pi-package", "pi", "pi-coding-agent", "grill", "memory", "learning", "agent"],
+  "pi": {
+    "extensions": ["./extensions/index.ts"],
+    "skills": ["./skills"]
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "0.80.7"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.16",
+    "@earendil-works/pi-coding-agent": "0.80.7",
+    "@types/bun": "^1.3.14",
+    "typescript": "latest"
+  }
+}

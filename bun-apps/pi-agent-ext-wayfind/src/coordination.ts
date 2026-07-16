@@ -11,7 +11,7 @@
  * Graceful fallback: if either side is absent, the globals are undefined → false.
  */
 
-import { PLAN_INCOMPLETE_KEY, PLAN_SUMMARY_KEY, WAYFIND_ACTIVE_KEY } from "./constants.js";
+import { PLAN_INCOMPLETE_KEY, PLAN_SUMMARY_KEY, WAYFIND_ACTIVE_KEY, WAYFIND_GRILL_KEY } from "./constants.js";
 import { isAnyWayfindSessionActive, type RuntimeState } from "./state.js";
 
 /** Publish the "is a wayfind session active" reader so planning-with-files can
@@ -45,4 +45,22 @@ export function readPlanSummary(cwd: string): string {
 export function isWayfindActivePublished(): boolean {
   const fn = (globalThis as Record<string, unknown> | undefined)?.[WAYFIND_ACTIVE_KEY];
   return typeof fn === "function" ? (fn as () => boolean)() : false;
+}
+
+/** Publish the grill-specific active reader. Closure reads live RuntimeState. */
+export function publishWayfindGrill(state: RuntimeState): void {
+  (globalThis as Record<string, unknown>)[WAYFIND_GRILL_KEY] =
+    (sessionId: string) => state.activeGrillBySession.has(sessionId);
+}
+
+/** Remove the grill reader (session_shutdown / unload). */
+export function unpublishWayfindGrill(): void {
+  delete (globalThis as Record<string, unknown>)[WAYFIND_GRILL_KEY];
+}
+
+/** Read whether a GRILL (not wayfinder) is active for this session.
+ *  Graceful: false when wayfind is absent or no grill is active. */
+export function readWayfindGrill(sessionId: string): boolean {
+  const fn = (globalThis as Record<string, unknown> | undefined)?.[WAYFIND_GRILL_KEY];
+  return typeof fn === "function" ? (fn as (id: string) => boolean)(sessionId) : false;
 }

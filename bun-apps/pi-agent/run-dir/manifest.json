@@ -78,7 +78,8 @@
     "pi-agent-ext-obsidian/skills",
     "pi-agent-ext-planning-with-files/skills",
     "pi-agent-ext-research-tool/skills",
-    "pi-agent-ext-wayfind/skills"
+    "pi-agent-ext-wayfind/skills",
+    "pi-agent-ext-grill-memory/skills"
   ],
   "npmExtensions": [],
   "lazyExtensions": {

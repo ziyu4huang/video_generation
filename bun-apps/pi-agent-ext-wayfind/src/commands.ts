@@ -12,7 +12,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { seedPlan, syncChainState } from "./chain.js";
 import { PKG_NAME } from "./constants.js";
-import { publishWayfindActive, unpublishWayfindActive } from "./coordination.js";
+import {
+  publishWayfindActive,
+  publishWayfindGrill,
+  unpublishWayfindActive,
+  unpublishWayfindGrill,
+} from "./coordination.js";
 import { buildGrillPriming } from "./grill.js";
 import { getSessionId, isGrillActive, type RuntimeState } from "./state.js";
 import { chartMap, claimNextTicket, renderStatus, slugify, statusReport } from "./wayfinder.js";
@@ -30,6 +35,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
     state.grillWithDocsBySession.set(sessionId, withDocs);
     // Refresh the published seam so planning-with-files sees the live value.
     publishWayfindActive(state);
+    publishWayfindGrill(state);
     const priming = buildGrillPriming(topic || undefined, withDocs);
     pi.sendUserMessage(priming, { deliverAs: "steer" });
   }
@@ -329,6 +335,7 @@ export function endGrillForSession(state: RuntimeState, sessionId: string): void
   publishWayfindActive(state); // refresh; if no sessions remain, the seam reads false
   // If nothing is active anymore, unpublish so globalThis is clean.
   if (state.activeGrillBySession.size === 0 && state.activeEffortBySession.size === 0) {
+    unpublishWayfindGrill();
     unpublishWayfindActive();
   }
 }

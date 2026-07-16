@@ -151,7 +151,18 @@ export class MemoryStore {
 
   // ─── CRUD ───
 
-  async add(target: "memory" | "user" | "failure", content: string, signal?: AbortSignal): Promise<MemoryResult> {
+  async add(
+    target: "memory" | "user" | "failure",
+    content: string,
+    options?: { category?: MemoryCategory; signal?: AbortSignal },
+  ): Promise<MemoryResult> {
+    const signal = options?.signal;
+    if (options?.category) {
+      // Tag the entry with its category label (decoupled from the storage home,
+      // per the memory model: any home may carry category labels for retrieval).
+      const tagged = `[${options.category}] ${content.trim()}`;
+      return this._add(target, tagged, signal);
+    }
     return this._add(target, content, signal);
   }
 

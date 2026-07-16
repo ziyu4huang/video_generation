@@ -32,3 +32,11 @@ export const PLAN_INCOMPLETE_KEY = "__piPlanIncomplete";
  * `(cwd: string) => string` returning a one-line plan summary. Read-only here.
  */
 export const PLAN_SUMMARY_KEY = "__piPlanSummary";
+
+/**
+ * globalThis key under which wayfind publishes a GRILL-SPECIFIC active reader:
+ * `(sessionId: string) => boolean`. Distinct from WAYFIND_ACTIVE_KEY, which
+ * conflates grill + wayfinder. Consumers that must scope to grills only (e.g.
+ * hermes-memory's correction-detector yield) read THIS key.
+ */
+export const WAYFIND_GRILL_KEY = "__piWayfindGrill";
