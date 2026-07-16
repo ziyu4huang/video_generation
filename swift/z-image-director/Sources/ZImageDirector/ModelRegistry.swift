@@ -103,7 +103,7 @@ public struct ModelManifest: @unchecked Sendable {
 /// Scans `models/{type}/{name}/manifest.json` files under a root directory.
 ///
 /// The root is resolved by `ModelPaths` (env var `MLX_MODELS_DIR` overrides,
-/// otherwise the repo's `python/mlx-movie-director/models` tree).
+/// otherwise the repo's `mlx-models` tree).
 public enum ModelRegistry {
 
     /// The models root this registry scans.

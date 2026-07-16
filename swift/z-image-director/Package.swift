@@ -4,7 +4,7 @@
 //
 // Initial scope: text-to-image generation using the Z-Image (6B S3-DiT) model,
 // reusing the MLX weights already converted under
-// python/mlx-movie-director/models/transformer/*.
+// mlx-models/transformer/*.
 
 import PackageDescription
 
