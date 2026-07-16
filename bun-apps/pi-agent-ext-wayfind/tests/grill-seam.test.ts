@@ -1,11 +1,21 @@
 // tests/grill-seam.test.ts
-import { test, expect, beforeEach, afterEach } from "bun:test";
-import { createRuntimeState } from "../src/state.js";
-import { publishWayfindGrill, unpublishWayfindGrill, readWayfindGrill, isWayfindActivePublished, publishWayfindActive } from "../src/coordination.js";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { WAYFIND_GRILL_KEY } from "../src/constants.js";
+import {
+  isWayfindActivePublished,
+  publishWayfindActive,
+  publishWayfindGrill,
+  readWayfindGrill,
+  unpublishWayfindGrill,
+} from "../src/coordination.js";
+import { createRuntimeState } from "../src/state.js";
 
-beforeEach(() => { delete (globalThis as any)[WAYFIND_GRILL_KEY]; });
-afterEach(() => { delete (globalThis as any)[WAYFIND_GRILL_KEY]; });
+beforeEach(() => {
+  delete (globalThis as any)[WAYFIND_GRILL_KEY];
+});
+afterEach(() => {
+  delete (globalThis as any)[WAYFIND_GRILL_KEY];
+});
 
 test("readWayfindGrill returns false when no seam published", () => {
   expect(readWayfindGrill("sess-1")).toBe(false);
