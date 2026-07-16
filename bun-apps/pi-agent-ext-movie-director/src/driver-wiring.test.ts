@@ -90,7 +90,7 @@ describe("wireProduce — assets execution (the frozen-frame fix, wired)", () =>
 		expect(vids).toHaveLength(2); // ceil(16/8)
 		expect(vids[0]!.options).not.toHaveProperty("image"); // first link: no continuation frame
 		expect(vids[1]!.options).toHaveProperty("image"); // second link continues from prior last frame
-		expect(vids[1]!.options.image).toMatch(/lastframe\.png$/);
+		expect((vids[1]!.options as Record<string, unknown>).image).toMatch(/lastframe\.png$/);
 	});
 
 	test("returns a SCHEMA-VALID asset_manifest (version + id/type/path/source_tool/scene_id per asset)", async () => {

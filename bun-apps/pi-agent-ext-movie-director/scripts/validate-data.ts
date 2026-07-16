@@ -2,7 +2,7 @@
  * validate-data.ts — contract check: every bundled pipeline manifest + every
  * bundled JSON schema is loadable + self-consistent. Run via `bun run check:schemas`.
  */
-import { listPipelines, loadPipeline } from "../src/pipeline.ts";
+import { listPipelines, loadPipeline, type PipelineLoadError } from "../src/pipeline.ts";
 import { listSchemas } from "../src/schema.ts";
 
 let failures = 0;
@@ -11,8 +11,12 @@ const pipelines = listPipelines();
 console.log(`pipelines: ${pipelines.join(", ")}`);
 for (const name of pipelines) {
   const m = loadPipeline(name);
+  // PipelineManifest's `[k: string]: unknown` index signature means "ok" in m
+  // doesn't discriminate the union for TS (m.errors would type as unknown) —
+  // the explicit cast is safe since PipelineLoadError.ok is a `false` literal.
   if ("ok" in m && m.ok === false) {
-    console.error(`  ✗ ${name}: ${m.errors.join("; ")}`);
+    const err = m as PipelineLoadError;
+    console.error(`  ✗ ${name}: ${err.errors.join("; ")}`);
     failures++;
   } else {
     console.log(`  ✓ ${name}`);

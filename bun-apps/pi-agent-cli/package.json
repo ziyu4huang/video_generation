@@ -12,6 +12,7 @@
     "list": "bun src/cli.ts list",
     "postinstall": "[ -f node_modules/@repo/pi-agent-ext-workflow/dist/index.js ] || (cd node_modules/@repo/pi-agent-ext-workflow && bun run build)",
     "test": "bun test",
+    "typecheck": "bunx tsc --noEmit",
     "build": "bun scripts/build.ts",
     "build:watch": "bun --watch scripts/build.ts",
     "build:obf": "bun scripts/build.ts --obfuscate",

@@ -43,12 +43,10 @@ describe("tool allowlists", () => {
 	});
 
 	test('csv-joinable (the extension passes .join(",") to runSubagentWithRetry)', () => {
-		expect(DISTILL_TOOLS.join(",")).toBe(
-			"read,obsidian_distill,obsidian_list,obsidian_read,obsidian_search",
-		);
-		expect(RAG_TOOLS.join(",")).toBe(
-			"obsidian_search,obsidian_query,obsidian_read,obsidian_list",
-		);
+		// Post Phase-3 obsidian fat-tool migration: only `obsidian`/`obsidian_help`
+		// are real registered tools (see pi-knowledge-card.ts's allowlist comment).
+		expect(DISTILL_TOOLS.join(",")).toBe("read,obsidian,obsidian_help");
+		expect(RAG_TOOLS.join(",")).toBe("obsidian,obsidian_help");
 	});
 
 	test("FIND_TOOLS == RAG_TOOLS (graph expansion is a search param, not a new tool)", () => {
@@ -103,9 +101,9 @@ describe("buildDistillTask", () => {
 		expect(task).not.toContain("no more than");
 	});
 
-	test("instructs to call obsidian_distill and summarise in zh-TW", () => {
+	test('instructs to call obsidian action:"distill" and summarise in zh-TW', () => {
 		const task = buildDistillTask(["a.md"], "/cwd", "Zettelkasten");
-		expect(task).toContain("obsidian_distill");
+		expect(task).toContain('action:"distill"');
 		expect(task).toContain("Traditional Chinese");
 	});
 });
@@ -214,9 +212,9 @@ describe("buildUpdateTask", () => {
 	test("includes all 5 smart merge rules", () => {
 		const task = buildUpdateTask("note.md", "content");
 		expect(task).toContain("SKIP");
-		expect(task).toContain("obsidian_append_section");
-		expect(task).toContain("obsidian_append");
-		expect(task).toContain("obsidian_update_frontmatter");
+		expect(task).toContain('action:"append_section"');
+		expect(task).toContain('action:"append"');
+		expect(task).toContain('action:"update_frontmatter"');
 		expect(task).toContain("sources[]");
 	});
 });
@@ -229,7 +227,7 @@ describe("buildRemoveTask", () => {
 	test("safe mode: includes backlink check steps", () => {
 		const task = buildRemoveTask("Zettelkasten/Note.md", false);
 		expect(task).toContain("Zettelkasten/Note.md");
-		expect(task).toContain("obsidian_read");
+		expect(task).toContain('action:"read"');
 		expect(task).toContain("backlinks:true");
 		expect(task).toContain("--force");
 	});
@@ -242,7 +240,7 @@ describe("buildRemoveTask", () => {
 	test("force mode: immediate delete instruction", () => {
 		const task = buildRemoveTask("Zettelkasten/Note.md", true);
 		expect(task).toContain("--force mode");
-		expect(task).toContain("obsidian_delete");
+		expect(task).toContain('action:"delete"');
 		expect(task).toContain("link cleanup");
 	});
 
@@ -268,8 +266,8 @@ describe("CHECK_TASK", () => {
 		expect(CHECK_TASK.length).toBeGreaterThan(0);
 	});
 
-	test("references obsidian_garden", () => {
-		expect(CHECK_TASK).toContain("obsidian_garden");
+	test('references obsidian action:"garden"', () => {
+		expect(CHECK_TASK).toContain('action:"garden"');
 	});
 
 	test("covers all 4 audit categories", () => {
@@ -413,7 +411,7 @@ describe("buildRagTask", () => {
 		expect(t).toContain("Tier 1 (full read)");
 		expect(t).toContain("Tier 2 (snippet only)");
 		expect(t).toContain("score ≥ 0.7");
-		expect(t).toContain("Do NOT call obsidian_read");
+		expect(t).toContain('Do NOT call action:"read"');
 	});
 
 	// P1: callout surfacing instruction is wired into context assembly

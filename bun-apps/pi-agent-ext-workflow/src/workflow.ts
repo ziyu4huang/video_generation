@@ -745,9 +745,19 @@ export async function runWorkflow<T = unknown>(
     // distinguishable from a genuine zero — do not rank it above any scored
     // candidate (RCA#7). When every candidate is unscored, return the first.
     let best: (typeof scored)[0] | undefined;
+    let bestScore: number | undefined;
+    let bestIndex: number | undefined;
     for (const s of scored) {
       if (s.score === undefined) continue;
-      if (!best || s.score > best.score! || (s.score === best.score! && s.index < best.index)) best = s;
+      if (
+        bestScore === undefined ||
+        s.score > bestScore ||
+        (s.score === bestScore && s.index < (bestIndex ?? Infinity))
+      ) {
+        best = s;
+        bestScore = s.score;
+        bestIndex = s.index;
+      }
     }
     best ??= scored[0];
     return best;

@@ -660,7 +660,7 @@ export const whisperAdapter: Adapter = async (req: GenerateRequest): Promise<Too
   if (!whisperRuntimePresent(process.env as Record<string, string | undefined>)) {
     return fail(req, "whisper", "whisper runtime not found (set MD_WHISPER_PYTHON or create python/whisper-venv)");
   }
-  const opts = (req.options ?? {}) as WhisperOptions;
+  const opts = (req.options ?? {}) as unknown as WhisperOptions;
   if (!opts.audio || !existsSync(opts.audio)) {
     return fail(req, "whisper", `audio missing or not found: ${opts.audio ?? "(none)"}`);
   }
@@ -841,7 +841,7 @@ export const esrganAdapter: Adapter = async (req: GenerateRequest): Promise<Tool
   if (!visionRuntimePresent(process.env as Record<string, string | undefined>, ESRGAN_SCRIPT)) {
     return fail(req, "esrgan", "esrgan runtime not found (set MD_VISION_PYTHON or create python/vision-venv)");
   }
-  const opts = (req.options ?? {}) as EsrganOptions;
+  const opts = (req.options ?? {}) as unknown as EsrganOptions;
   if (!opts.image || !existsSync(opts.image)) {
     return fail(req, "esrgan", `image missing or not found: ${opts.image ?? "(none)"}`);
   }
@@ -970,7 +970,7 @@ export const clipAdapter: Adapter = async (req: GenerateRequest): Promise<ToolRe
   if (!visionRuntimePresent(process.env as Record<string, string | undefined>, CLIP_SCRIPT)) {
     return fail(req, "clip", "clip runtime not found (set MD_VISION_PYTHON or create python/vision-venv)");
   }
-  const opts = (req.options ?? {}) as ClipOptions;
+  const opts = (req.options ?? {}) as unknown as ClipOptions;
   if (!opts.prompt) {
     return fail(req, "clip", "prompt is required for video_understand");
   }
@@ -1067,7 +1067,12 @@ async function openaiTts(opts: CloudTtsOptions, env: Record<string, string | und
 }
 
 /** cloud HTTP adapter: synthesizes audio via a cloud TTS API. */
-export const cloudHttpAdapter: Adapter = async (req: GenerateRequest, env: Record<string, string | undefined> = process.env): Promise<ToolResult> => {
+// NOT typed `: Adapter` (unlike the other adapters below) — it takes an extra
+// optional `env` param (test/DI injection point) that the shared 1-arg
+// Adapter signature would erase, breaking the `cloudHttpAdapter(req, env)`
+// call below and every test that passes env explicitly. The registry entry
+// at the `fetch:` key is still Adapter-shaped via its wrapping arrow.
+export const cloudHttpAdapter = async (req: GenerateRequest, env: Record<string, string | undefined> = process.env): Promise<ToolResult> => {
   const opts = (req.options ?? {}) as CloudTtsOptions;
   const provider = opts.provider ?? "openai";
   const started = Date.now();

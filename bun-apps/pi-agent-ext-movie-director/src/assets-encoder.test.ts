@@ -73,7 +73,9 @@ describe("planAssetGeneration — non-video scenes", () => {
 			script as any,
 			{ fps: 25, maxCallSeconds: 8 },
 		);
-		expect(plan.calls.filter((c) => c.capability === "video_generation" || c.capability === "image_generation")).toEqual([]);
+		// AssetGenCall.capability is "video_generation" | "tts" — planAssetGeneration
+		// never emits "image_generation" (there is no such capability in this planner).
+		expect(plan.calls.filter((c) => c.capability === "video_generation")).toEqual([]);
 	});
 });
 

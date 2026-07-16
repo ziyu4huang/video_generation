@@ -18,6 +18,7 @@
   },
   "scripts": {
     "test": "bun test",
+    "typecheck": "bunx tsc --noEmit",
     "check:schemas": "bun scripts/validate-data.ts",
     "cli": "bun src/cli.ts",
     "md": "bun src/cli.ts"
@@ -35,7 +36,7 @@
     "yaml": "latest"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-coding-agent": "0.80.7",
     "typebox": "*"
   },
   "devDependencies": {

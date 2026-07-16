@@ -322,7 +322,7 @@ export async function finalReview(mp4Path: string, deps: ComposeDeps = {}, opts:
   const vol = await run("ffmpeg", ["-hide_banner", "-i", mp4Path, "-af", "volumedetect", "-f", "null", "-"]);
   const meanMatch = vol.stderr.match(/mean_volume:\s*(-?[\d.]+)\s*dB/);
   const peakMatch = vol.stderr.match(/max_volume:\s*(-?[\d.]+)\s*dB/);
-  if (meanMatch) meanDb = parseFloat(meanMatch[1]);
+  if (meanMatch) meanDb = parseFloat(meanMatch[1]!);
   if (meanDb == null) {
     checks.push({ name: "audio_level", status: "warn", detail: "volumedetect did not report (no audio?)" });
   } else if (meanDb < -45) {
@@ -335,7 +335,7 @@ export async function finalReview(mp4Path: string, deps: ComposeDeps = {}, opts:
         : `mean=${meanDb}dB (near-silent)`,
     });
   } else {
-    const peak = peakMatch ? parseFloat(peakMatch[1]) : 0;
+    const peak = peakMatch ? parseFloat(peakMatch[1]!) : 0;
     checks.push({ name: "audio_level", status: peak > -0.5 ? "warn" : "pass", detail: `mean=${meanDb}dB peak=${peak}dB` });
   }
 
