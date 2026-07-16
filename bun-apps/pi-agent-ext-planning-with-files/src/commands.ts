@@ -25,6 +25,7 @@ import {
 } from "./constants.js";
 import { enumeratePlans, lintAllPlans, lintPlan, renderPlanList, switchActivePlan } from "./lifecycle.js";
 import { deriveEffectiveMode, resolveConfiguredMode } from "./modes.js";
+import type { PlanningOverlay } from "./overlay.js";
 import { isAllPhasesComplete, isCloseMarker, readPlanStatus, resolvePlanPaths, summarizePlan } from "./plan.js";
 import { checkCompleteReport } from "./scripts.js";
 import { getPlanSessionKey, getSessionId, type RuntimeState } from "./state.js";
@@ -50,7 +51,7 @@ export function parseIntervalSpec(raw: string | undefined): number | undefined {
   return amount * factors[unit];
 }
 
-export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
+export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay: PlanningOverlay): void {
   pi.registerCommand("plan-status", {
     description: "Show current planning-with-files plan status (+ injection token cost)",
     handler: async (_args, ctx) => {
@@ -142,7 +143,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
       if (["clear", "off", "reset", "disable"].includes(normalized)) {
         state.executionApprovedBySessionPlan.delete(planKey);
         ctx.ui.notify(`Plan execution approval cleared: ${summarizePlan(status)}`, "info");
-        ctx.ui.setStatus(PKG_NAME, `${summarizePlan(status)} — run /plan-execute to activate hooks`);
+        overlay.setLine(`${summarizePlan(status)} — run /plan-execute to activate hooks`);
         return;
       }
 
@@ -156,7 +157,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
       // Refresh the status bar so it reflects the approved/executing state
       // immediately — without this the bar kept showing the passive
       // "run /plan-execute" prompt until the next agent turn boundary.
-      ctx.ui.setStatus(PKG_NAME, `${summarizePlan(status)} — hooks active`);
+      overlay.setLine(`${summarizePlan(status)} — hooks active`);
       ctx.ui.notify(
         [
           `Plan execution approved: ${summarizePlan(status)}`,
@@ -205,7 +206,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
             // best-effort; report what we can below
           }
         }
-        ctx.ui.setStatus(PKG_NAME, "No active plan");
+        overlay.setLine("No active plan");
         ctx.ui.notify(`[planning-with-files] Plan deleted: ${targets.join(", ")}`, "info");
         return;
       }
@@ -223,7 +224,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
       if (isCloseMarker(existing)) {
         // Already closed — just clear approval + confirm.
         state.executionApprovedBySessionPlan.delete(getPlanSessionKey(ctx, status));
-        ctx.ui.setStatus(PKG_NAME, "Plan closed (via /plan-done)");
+        overlay.setLine("Plan closed (via /plan-done)");
         ctx.ui.notify(`[planning-with-files] Plan already closed: ${status.planPath}`, "info");
         return;
       }
@@ -240,7 +241,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState): void {
       // auto-continue branch before the closed guard short-circuits it.
       state.executionApprovedBySessionPlan.delete(getPlanSessionKey(ctx, status));
       state.goalBySession.delete(getSessionId(ctx));
-      ctx.ui.setStatus(PKG_NAME, "Plan closed (via /plan-done)");
+      overlay.setLine("Plan closed (via /plan-done)");
       ctx.ui.notify(
         [
           `[planning-with-files] Plan closed: ${summarizePlan(readPlanStatus(ctx.cwd))}`,

@@ -9,19 +9,28 @@
  * are type-only there), so the stub does not leak.
  */
 
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { CLOSE_MARKER_COMMENT } from "../src/constants.js";
+import { PlanningOverlay } from "../src/overlay.js";
 
 mock.module("@earendil-works/pi-coding-agent", () => ({
   isToolCallEventType: (type: string, event: { toolName: string }) => event.toolName === type,
 }));
 
 const { default: planningWithFilesExtension } = await import("../src/runtime.js");
+
+// The runtime now routes its status text through PlanningOverlay.setLine
+// (which feeds the shared composite status widget) instead of directly
+// calling ctx.ui.setStatus(PKG_NAME, text). Spying on the prototype method
+// lets every test in this file assert on the same status text as before,
+// regardless of which PlanningOverlay instance a given loadExtension() call
+// created internally.
+let setLineSpy: ReturnType<typeof spyOn<PlanningOverlay, "setLine">>;
 
 interface MockPi {
   commands: Map<string, { handler: (args: string, ctx: any) => Promise<void> }>;
@@ -144,10 +153,12 @@ beforeEach(() => {
   process.env.PWF_MODE = "parity";
   delete process.env.PLAN_ID;
   delete process.env.PWF_AUTO_APPROVE;
+  setLineSpy = spyOn(PlanningOverlay.prototype, "setLine");
 });
 
 afterEach(() => {
   process.env = originalEnv;
+  setLineSpy.mockRestore();
   mock.clearAllMocks();
   while (tempRoots.length > 0) {
     const root = tempRoots.pop();
@@ -194,10 +205,7 @@ describe("runtime handlers (parity mode, default no approval)", () => {
 
     await emit(pi, "session_start", { reason: "new" }, ctx);
 
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith(
-      "planning-with-files",
-      "1/2 phases complete — run /plan-execute to activate hooks",
-    );
+    expect(setLineSpy).toHaveBeenCalledWith("1/2 phases complete — run /plan-execute to activate hooks");
   });
 
   it("before_agent_start stays passive before plan-execute approval", async () => {
@@ -208,10 +216,7 @@ describe("runtime handlers (parity mode, default no approval)", () => {
     const result = await emit(pi, "before_agent_start", {}, ctx);
 
     expect(result).toBeUndefined();
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith(
-      "planning-with-files",
-      "1/2 phases complete — run /plan-execute to activate hooks",
-    );
+    expect(setLineSpy).toHaveBeenCalledWith("1/2 phases complete — run /plan-execute to activate hooks");
   });
 
   it("before_agent_start injects the ACTIVE PLAN when attested + approved", async () => {
@@ -368,7 +373,7 @@ describe("runtime handlers (parity mode, default no approval)", () => {
 
     // The fix: the bar is refreshed to reality instead of freezing on a stale
     // value from a previous turn.
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("planning-with-files", "No active plan");
+    expect(setLineSpy).toHaveBeenCalledWith("No active plan");
     expect(pi.sendUserMessage).not.toHaveBeenCalled();
     expect(ctx.ui.notify).not.toHaveBeenCalled();
   });
@@ -382,7 +387,7 @@ describe("runtime handlers (parity mode, default no approval)", () => {
     const result = await emit(pi, "before_agent_start", {}, ctx);
 
     expect(result).toBeUndefined();
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("planning-with-files", "No active plan");
+    expect(setLineSpy).toHaveBeenCalledWith("No active plan");
   });
 
   it("session_before_compact preserves plan context with a compaction reminder", async () => {
@@ -507,7 +512,7 @@ describe("runtime modes", () => {
 
     expect(startResult).toBeUndefined();
     expect(toolResult).toBeUndefined();
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("planning-with-files", "1/2 phases complete");
+    expect(setLineSpy).toHaveBeenCalledWith("1/2 phases complete");
     expect(ctx.ui.notify).toHaveBeenCalledWith(
       "[planning-with-files] Update progress.md with what you just did. If a phase is now complete, update task_plan.md status.",
       "info",
@@ -620,10 +625,7 @@ describe("Plan A coordination (runtime yield)", () => {
     const result = await emit(pi, "before_agent_start", {}, ctx);
 
     expect(result).toBeUndefined();
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith(
-      "planning-with-files",
-      expect.stringContaining("/goal or /grill driving, injection yielded"),
-    );
+    expect(setLineSpy).toHaveBeenCalledWith(expect.stringContaining("/goal or /grill driving, injection yielded"));
   });
 
   it("agent_end YIELDS auto-continue when /goal is active (no followUp)", async () => {
@@ -636,10 +638,7 @@ describe("Plan A coordination (runtime yield)", () => {
     await emit(pi, "agent_end", {}, ctx);
 
     expect(pi.sendUserMessage).not.toHaveBeenCalled();
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith(
-      "planning-with-files",
-      expect.stringContaining("/goal or /grill driving, auto-continue yielded"),
-    );
+    expect(setLineSpy).toHaveBeenCalledWith(expect.stringContaining("/goal or /grill driving, auto-continue yielded"));
   });
 
   it("session_before_compact YIELDS the parity nextTurn injection when /goal is active", async () => {
@@ -685,10 +684,7 @@ describe("closed-plan inertness (/plan-done)", () => {
     const result = await emit(pi, "before_agent_start", {}, ctx);
 
     expect(result).toBeUndefined();
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith(
-      "planning-with-files",
-      "Plan closed (via /plan-done) — hooks inactive",
-    );
+    expect(setLineSpy).toHaveBeenCalledWith("Plan closed (via /plan-done) — hooks inactive");
   });
 
   it("agent_end is inert on a closed plan (no followUp, resets auto-continue)", async () => {
@@ -700,10 +696,7 @@ describe("closed-plan inertness (/plan-done)", () => {
     await emit(pi, "agent_end", {}, ctx);
 
     expect(pi.sendUserMessage).not.toHaveBeenCalled();
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith(
-      "planning-with-files",
-      "Plan closed (via /plan-done) — hooks inactive",
-    );
+    expect(setLineSpy).toHaveBeenCalledWith("Plan closed (via /plan-done) — hooks inactive");
   });
 
   it("tool_call is inert on a closed plan (no pre-tool recitation)", async () => {
@@ -779,16 +772,13 @@ describe("status bar refresh during execution", () => {
     const ctx = createContext(cwd);
 
     await emit(pi, "session_start", { reason: "new" }, ctx); // sets passive status
-    (ctx.ui.setStatus as ReturnType<typeof mock>).mockClear();
+    setLineSpy.mockClear();
     await approvePlan(pi, ctx);
 
     // After approve the bar must reflect the live plan (phase summary), not the
     // passive "run /plan-execute to activate hooks" prompt.
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith(
-      "planning-with-files",
-      expect.stringContaining("1/2 phases complete"),
-    );
-    for (const [, text] of (ctx.ui.setStatus as ReturnType<typeof mock>).mock.calls) {
+    expect(setLineSpy).toHaveBeenCalledWith(expect.stringContaining("1/2 phases complete"));
+    for (const [text] of setLineSpy.mock.calls) {
       expect(text).not.toContain("run /plan-execute to activate hooks");
     }
   });
@@ -800,7 +790,7 @@ describe("status bar refresh during execution", () => {
 
     await emit(pi, "session_start", { reason: "new" }, ctx);
     await approvePlan(pi, ctx);
-    (ctx.ui.setStatus as ReturnType<typeof mock>).mockClear();
+    setLineSpy.mockClear();
 
     // Simulate the agent marking Phase 2 complete, then the write tool_result.
     writeFileSync(join(cwd, ".planning", "demo", "task_plan.md"), completePlan());
@@ -812,10 +802,7 @@ describe("status bar refresh during execution", () => {
     );
 
     // The bar must now read the fresh 2/2 (not the stale 1/2)...
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith(
-      "planning-with-files",
-      expect.stringContaining("2/2 phases complete"),
-    );
+    expect(setLineSpy).toHaveBeenCalledWith(expect.stringContaining("2/2 phases complete"));
     // ...and the post-write reminder still works (regression guard).
     expect(result.content).toEqual([
       { type: "text", text: "updated task_plan.md" },
@@ -914,12 +901,12 @@ describe("agent_end status-bar response", () => {
     const ctx = createContext(cwd);
     await emit(pi, "session_start", { reason: "new" }, ctx);
     await approvePlan(pi, ctx);
-    (ctx.ui.setStatus as ReturnType<typeof mock>).mockClear();
+    setLineSpy.mockClear();
 
     await emit(pi, "agent_end", {}, ctx);
 
     // Bar must reflect completion (2/2), not stay frozen at a pre-turn value.
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("planning-with-files", expect.stringContaining("2/2"));
+    expect(setLineSpy).toHaveBeenCalledWith(expect.stringContaining("2/2"));
   });
 
   it("an auto-continue fire refreshes the status bar with the live phase count (responds to execution)", async () => {
@@ -930,12 +917,12 @@ describe("agent_end status-bar response", () => {
     await approvePlan(pi, ctx);
     // Advance to 2/3 (still incomplete) so agent_end takes the auto-continue path.
     writeFileSync(join(cwd, ".planning", "demo", "task_plan.md"), plan3_2of3);
-    (ctx.ui.setStatus as ReturnType<typeof mock>).mockClear();
+    setLineSpy.mockClear();
 
     await emit(pi, "agent_end", {}, ctx);
 
     // Bar must reflect the freshly-read 2/3 — proof it responds to the execution.
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("planning-with-files", expect.stringContaining("2/3"));
+    expect(setLineSpy).toHaveBeenCalledWith(expect.stringContaining("2/3"));
     expect(pi.sendUserMessage).toHaveBeenCalledTimes(1); // still auto-continued
   });
 });
@@ -991,7 +978,7 @@ describe("__piPlanPhases reverse seam (ADR-0001)", () => {
     writeFileSync(join(cwd, ".planning", "demo", "task_plan.md"), planAfter);
     await emit(pi, "agent_end", {}, ctx);
 
-    const statusTexts = (ctx.ui.setStatus as ReturnType<typeof mock>).mock.calls.map((c) => c[1]);
+    const statusTexts = setLineSpy.mock.calls.map((c) => c[0]);
     expect(statusTexts.some((t) => t.includes("03-foo") && t.includes("/chain-sync"))).toBe(true);
   });
 
@@ -1020,7 +1007,7 @@ describe("__piPlanPhases reverse seam (ADR-0001)", () => {
     writeFileSync(join(cwd, ".planning", "demo", "task_plan.md"), planAfter);
     await emit(pi, "agent_end", {}, ctx);
 
-    const statusTexts = (ctx.ui.setStatus as ReturnType<typeof mock>).mock.calls.map((c) => c[1]);
+    const statusTexts = setLineSpy.mock.calls.map((c) => c[0]);
     expect(statusTexts.every((t) => !t.includes("/chain-sync"))).toBe(true);
   });
 });
