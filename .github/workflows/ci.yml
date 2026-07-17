@@ -74,11 +74,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ── uniform `bun test` runner ──
           # typecheck folded in: bun's transpiler skips tsc, so 0.80.10 cast-rule
           # / private-member drift in src/patches/* once landed ungated (PR #620
           # postmortem). tsc --noEmit keeps SDK-internal patches type-honest.
           - { package: pi-agent, test-cmd: "bun test && bun run typecheck" }
+          # ── uniform `bun test` runner ──
           - { package: pi-agent-cli, test-cmd: "bun test" }
           - { package: pi-agent-ext-flux2, test-cmd: "bun test" }
           - { package: pi-agent-ext-krea2, test-cmd: "bun test" }
