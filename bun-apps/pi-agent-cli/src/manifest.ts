@@ -3,9 +3,9 @@
  *
  * A workflow pack is a folder with a `manifest.json` describing "what it is +
  * how to run it" (wayfinder Decision 2: minimal load-bearing). Required:
- * `name`, `description`, `entry`. Optional: `args`, `model`, `thinking`,
- * `howToRun`. This module is the contract every later phase (resolver, runner,
- * list, examples) reads a pack through — pure, no engine, no network.
+ * `name`, `description`, `entry`. Optional: `kind`, `engine`, `args`, `model`,
+ * `thinking`, `howToRun`. This module is the contract every later phase (resolver,
+ * runner, list, examples) reads a pack through — pure, no engine, no network.
  *
  * Optional fields are present on a returned `Manifest` ONLY when supplied, so
  * `"key" in manifest` is a sound "was it declared?" check (absent ≠ undefined).
@@ -28,6 +28,11 @@ export interface Manifest {
 	thinking?: string;
 	/** Human-facing "how to run it" prose. Not read for execution. */
 	howToRun?: string;
+	/** Self-identification: "workflow-pack". Lets a pack folder self-describe the
+	 *  way a pi extension folder does (wayfinder ticket 05 — minimal alignment). */
+	kind?: string;
+	/** Which engine runs the entry (e.g. "pi-agent-ext-workflow"). Optional self-id. */
+	engine?: string;
 }
 
 /** Required-field order (also the validation order — name, description, entry). */
@@ -73,6 +78,8 @@ export function validateManifest(value: unknown): Manifest {
 	if (hasBadString(obj, "model")) throw new Error('manifest: optional field "model" must be a string');
 	if (hasBadString(obj, "thinking")) throw new Error('manifest: optional field "thinking" must be a string');
 	if (hasBadString(obj, "howToRun")) throw new Error('manifest: optional field "howToRun" must be a string');
+	if (hasBadString(obj, "kind")) throw new Error('manifest: optional field "kind" must be a string');
+	if (hasBadString(obj, "engine")) throw new Error('manifest: optional field "engine" must be a string');
 	// args: any JSON value is allowed (Decision 5 — no schema validation in v1).
 
 	const manifest: Manifest = {
@@ -84,6 +91,8 @@ export function validateManifest(value: unknown): Manifest {
 	if (obj.model !== undefined) manifest.model = obj.model as string;
 	if (obj.thinking !== undefined) manifest.thinking = obj.thinking as string;
 	if (obj.howToRun !== undefined) manifest.howToRun = obj.howToRun as string;
+	if (obj.kind !== undefined) manifest.kind = obj.kind as string;
+	if (obj.engine !== undefined) manifest.engine = obj.engine as string;
 	return manifest;
 }
 
