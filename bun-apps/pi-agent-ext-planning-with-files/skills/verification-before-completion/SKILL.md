@@ -99,7 +99,7 @@ A claim that survives the grill is one you can state with evidence. One that doe
 in progress — fix it before speaking.
 
 Grilling is especially mandatory before: committing, opening a PR, marking a `todo` complete,
-accepting a subagent's report, and the final `/plan-done`.
+accepting a subagent's report, and the final `/plan done`.
 
 ## Dogfooding — self-hosting verification for tools you build
 

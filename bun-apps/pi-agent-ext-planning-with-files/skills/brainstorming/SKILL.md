@@ -122,7 +122,7 @@ approval.
 implementation plan. For non-trivial designs, first stress-test the approved spec through
 `grill-me-with-docs` (one-question-at-a-time decision-tree interview; captures resolved
 terms to `CONTEXT.md` and hard-to-reverse decisions as ADRs), *then* write the plan and
-run `/plan-execute`. For genuinely simple designs, go straight to `writing-plans`. See
+run `/plan execute`. For genuinely simple designs, go straight to `writing-plans`. See
 the full build chain in `writing-plans`.
 
 ## Core principles

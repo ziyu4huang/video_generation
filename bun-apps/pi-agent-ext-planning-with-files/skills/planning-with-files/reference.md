@@ -148,7 +148,7 @@ follow-up that asks the agent to update `progress.md` and continue.
 - **Parallel calls:** Pi supports parallel tool calls; the plan file (not a
   one-call-per-turn rule) is the coordination point. Parallel calls and
   sub-agents share state through the durable markdown plan on disk.
-- **Attestation is opt-in:** run `/plan-attest` after finalizing the plan to
+- **Attestation is opt-in:** run `/plan attest` after finalizing the plan to
   SHA-256 lock it. A later silent edit fails the hash check and blocks
   injection with a `[PLAN TAMPERED]` warning (pure TS — no Python sidecar).
 

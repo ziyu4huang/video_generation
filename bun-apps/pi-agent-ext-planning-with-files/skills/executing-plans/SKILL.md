@@ -10,7 +10,7 @@ description: Use when you have a written implementation plan to execute across t
 Load the plan, review it critically, execute every task, then report.
 
 > **Scope boundary:** planning-with-files owns *tracking* execution — `progress.md`,
-> the "Task incomplete (N/M)" status-bar nags, and the `/plan-execute` gate that
+> the "Task incomplete (N/M)" status-bar nags, and the `/plan execute` gate that
 > activates hooks. This skill owns the *discipline* of moving through the tasks well.
 > The two are complementary layers, not substitutes.
 

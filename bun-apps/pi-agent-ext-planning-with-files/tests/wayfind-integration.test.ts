@@ -13,7 +13,7 @@
  *   2. Content handoff (grill → plan):
  *        wayfind's `buildPlanSeed()` emits a planning-with-files-shaped
  *        `task_plan.md`; planning's `readPlanStatus()` must parse it and report
- *        `isPlanIncomplete = true` (ready for `/plan-execute`).
+ *        `isPlanIncomplete = true` (ready for `/plan execute`).
  *
  * Why this file is separate from coordination.test.ts: that one stubs
  * `globalThis.__piWayfindActive` to unit-test planning's READER in isolation
@@ -112,7 +112,7 @@ describe("coordination seam — real wayfind publish drives planning's reader", 
 });
 
 describe("grill → plan handoff — real buildPlanSeed parses via real readPlanStatus", () => {
-  it("seeds a task_plan.md that planning recognizes as incomplete (ready for /plan-execute)", () => {
+  it("seeds a task_plan.md that planning recognizes as incomplete (ready for /plan execute)", () => {
     const seed = buildPlanSeed(DECISIONS, GLOSSARY, TOPIC);
     expect(seed).not.toBeNull();
 
@@ -124,7 +124,7 @@ describe("grill → plan handoff — real buildPlanSeed parses via real readPlan
       expect(status.exists).toBe(true);
       expect(status.totalPhases).toBeGreaterThanOrEqual(1);
       expect(status.pendingPhases).toBeGreaterThanOrEqual(1);
-      expect(isPlanIncomplete(status)).toBe(true); // ← /plan-execute would activate
+      expect(isPlanIncomplete(status)).toBe(true); // ← /plan execute would activate
       expect(summarizePlan(status)).toMatch(/\d+\/\d+ phases complete/);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
