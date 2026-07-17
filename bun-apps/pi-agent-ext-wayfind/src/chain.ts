@@ -76,7 +76,7 @@ export function syncChainState(cwd: string, effort: string): ChainSyncResult {
       skipped.push(ref);
       continue;
     }
-    const resolution = "Closed by /chain-sync — its planning-with-files phase reported complete.";
+    const resolution = "Closed by /wayfind sync — its planning-with-files phase reported complete.";
     if (closeTicket(cwd, effort, ticket, resolution)) {
       appendDecision(cwd, effort, {
         title: ticket.title,

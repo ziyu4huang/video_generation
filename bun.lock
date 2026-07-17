@@ -277,6 +277,9 @@
     "bun-apps/pi-agent-ext-planning-with-files": {
       "name": "@repo/pi-agent-ext-planning-with-files",
       "version": "1.4.3",
+      "dependencies": {
+        "@repo/pi-agent-ext-goal-todo": "workspace:*",
+      },
       "devDependencies": {
         "@biomejs/biome": "2.4.16",
         "@earendil-works/pi-coding-agent": "0.80.7",
@@ -320,6 +323,9 @@
     "bun-apps/pi-agent-ext-wayfind": {
       "name": "@repo/pi-agent-ext-wayfind",
       "version": "0.1.0",
+      "dependencies": {
+        "@repo/pi-agent-ext-goal-todo": "workspace:*",
+      },
       "devDependencies": {
         "@biomejs/biome": "2.4.16",
         "@earendil-works/pi-coding-agent": "0.80.7",

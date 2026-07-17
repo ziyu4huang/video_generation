@@ -17,7 +17,7 @@ and problem domain, and is not great at test design.
 
 > **Scope boundary:** planning-with-files owns *where* plans live (`task_plan.md` /
 > `findings.md` / `progress.md` under `.planning/<slug>/`), the hooks, the nags, the
-> `/plan-execute` gate, and progress tracking. This skill owns *what* makes the plan's
+> `/plan execute` gate, and progress tracking. This skill owns *what* makes the plan's
 > content good. Do not duplicate the substrate here.
 
 **Announce at the start:** "I am using the writing-plans skill to author the plan content."
@@ -29,16 +29,16 @@ of the chain — `brainstorming` and `grill-me-with-docs` cross-reference it rat
 duplicate:
 
 ```txt
-brainstorm → grill-me-with-docs → (to-spec → to-tickets)? → [writing-plans] → /plan-execute → implement → close
+brainstorm → grill-me-with-docs → (to-spec → to-tickets)? → [writing-plans] → /plan execute → implement → close
 ```
 
 - **brainstorm** (`brainstorming` skill) — explore intent, propose 2–3 options, produce an approved design/spec. Optional opener; skip for clear, well-scoped tasks.
-- **grill-me-with-docs** (`/grill-me-with-docs`) — stress-test the design one decision at a time; captures `CONTEXT.md` glossary + ADRs. Optional; strongest for non-trivial designs with real decision trees.
-- **to-spec / to-tickets** — OPTIONAL ticketed-planning variant (`/to-spec`, `/to-tickets`). Skip for the common direct path.
+- **grill-me-with-docs** (`/grill docs`) — stress-test the design one decision at a time; captures `CONTEXT.md` glossary + ADRs. Optional; strongest for non-trivial designs with real decision trees.
+- **to-spec / to-tickets** — OPTIONAL ticketed-planning variant (`/wayfind spec`, `/wayfind tickets`). Skip for the common direct path.
 - **writing-plans** ← *this skill* — turn the approved design + resolved decisions into the plan content (the rest of this file).
-- **/plan-execute** (`planning-with-files`) — approve the plan; activates TDD phase tracking + nags.
+- **/plan execute** (`planning-with-files`) — approve the plan; activates TDD phase tracking + nags.
 - **implement** (`executing-plans` inline, or `subagent-driven-development` when tasks are independent) — execute the plan, one commit per task.
-- **close** — `finishing-a-development-branch` (`./scripts/pr-finish.sh` — merge the code) + `/plan-done` (retire the planning-with-files plan, stop the nags). If this was a self-improve cycle, additionally record lessons per `self-improvement` step 8.
+- **close** — `finishing-a-development-branch` (`./scripts/pr-finish.sh` — merge the code) + `/plan done` (retire the planning-with-files plan, stop the nags). If this was a self-improve cycle, additionally record lessons per `self-improvement` step 8.
 
 The chain is the DEFAULT path; each skill keeps its own skip guidance (no new global rule). Branch the variant you need; don't run steps you can justify skipping.
 

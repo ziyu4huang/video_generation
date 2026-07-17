@@ -26,7 +26,7 @@ import { TodoOverlay } from "../src/todo/overlay";
 import { replayFromBranch } from "../src/todo/state/replay";
 import { replaceState } from "../src/todo/state/store";
 import { TOOL_NAME } from "../src/todo/tool/types";
-import { PowerToolStatusWidget } from "../src/shared/status-widget.js";
+import { getSharedStatusWidget } from "../src/shared/status-widget.js";
 
 /** Swallow the expected "stale after session replacement" error on compact/tree. */
 function isStaleCtxError(e: unknown): boolean {
@@ -47,14 +47,14 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 	// A single widget key makes stacking deterministic; goal renders on top,
 	// todo below. The overlays are thin render() state-holders; all setWidget
 	// lifecycle lives in PowerToolStatusWidget.
-	const statusWidget = new PowerToolStatusWidget();
+	const statusWidget = getSharedStatusWidget();
 	const goalOverlay = new GoalOverlay();
 	const todoOverlay = new TodoOverlay();
 	goal(pi, goalOverlay);
 	goalOverlay.setRefresh(() => statusWidget.update());
 	todoOverlay.setRefresh(() => statusWidget.update());
-	statusWidget.addSection({ id: "goal", render: (t, w) => goalOverlay.render(t, w) });
-	statusWidget.addSection({ id: "todo", render: (t, w) => todoOverlay.render(t, w) });
+	statusWidget.addSection({ id: "goal", order: 0, render: (t, w) => goalOverlay.render(t, w) });
+	statusWidget.addSection({ id: "todo", order: 1, render: (t, w) => todoOverlay.render(t, w) });
 
 	pi.on("session_start", async (_event, ctx) => {
 		replaceState(replayFromBranch(ctx));

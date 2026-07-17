@@ -9,51 +9,51 @@ A **Pi-native** port of [Matt Pocock's decision-chain skill suite](https://githu
 | capability | implementation |
 |---|---|
 | 7 skills | grilling, grill-me, grill-me-with-docs (flagship), domain-modeling, to-spec, to-tickets, wayfinder |
-| 10 slash commands | `/grill-me`, `/grill-me-with-docs` (flagship), `/grill-done [--seed-plan]`, `/domain-modeling`, `/wayfinder`, `/wayfinder-status`, `/to-spec`, `/to-tickets`, `/plan-seed`, `/chain-sync` |
+| 2 dispatcher slash commands | `/grill [me\|docs\|done\|domain]` (`docs` is flagship), `/wayfind [<destination>\|status\|spec\|tickets\|seed\|sync]` |
 | coordination seam | publishes `globalThis.__piWayfindActive`; **planning-with-files yields** its injection/auto-continue during a live grill (mirror of the `goal↔planning` pattern). Reverse: reads pwf's `globalThis.__piPlanPhases` to close tickets whose phase completed |
-| continuous chain | `/grill-me-with-docs → /to-spec → /to-tickets → /plan-seed → /plan-execute → /chain-sync` — lossless handoffs + a closed feedback loop (ADR-0001) |
+| continuous chain | `/grill docs → /wayfind spec → /wayfind tickets → /wayfind seed → /plan execute → /wayfind sync` — lossless handoffs + a closed feedback loop (ADR-0001) |
 | wayfinder map store | local-markdown map + tickets under `.planning/<effort>/` (no issue-tracker dependency) |
 | domain artifacts | `CONTEXT.md` glossary + `docs/adr/` ADRs, written inline during a with-docs grill |
 
-## The flagship: `/grill-me-with-docs`
+## The flagship: `/grill docs`
 
-A relentless, one-question-at-a-time interview that **leaves a paper trail**. As terms resolve they're written to `CONTEXT.md`; hard-to-reverse decisions land as ADRs. When you reach shared understanding, `/grill-done --seed-plan` synthesizes the resolved decisions + glossary into a `task_plan.md` — hand it to planning-with-files with `/plan-execute`.
+A relentless, one-question-at-a-time interview that **leaves a paper trail**. As terms resolve they're written to `CONTEXT.md`; hard-to-reverse decisions land as ADRs. When you reach shared understanding, `/grill done --seed-plan` synthesizes the resolved decisions + glossary into a `task_plan.md` — hand it to planning-with-files with `/plan execute`.
 
 ```
-grill-me-with-docs → to-spec → to-tickets → (planning-with-files /plan-execute) → implement → code-review
+grill docs → wayfind spec → wayfind tickets → (planning-with-files /plan execute) → implement → code-review
 ```
 
 ## Where it fits
 
 ```
-wayfinder ──► grill-me-with-docs ──► to-tickets ──► planning-with-files
+wayfind ──► grill docs ──► wayfind tickets ──► planning-with-files
 (decompose)   (interview + CONTEXT/ADR)  (synthesize)   (task_plan.md substrate)
 ```
 
 - **grilling** is the engine: one question at a time, a recommended answer for each, facts from the environment, decisions to the user.
-- **grill-me-with-docs** = grilling + `domain-modeling` (the glossary + ADR capture), fused.
+- **grill docs** = grilling + `domain-modeling` (the glossary + ADR capture), fused.
 - **wayfinder** charts an effort too big for one session as a local-markdown map of decision tickets, then works them one at a time until the route is clear.
 
 ## Commands
 
 | command | what it does |
 |---|---|
-| `/grill-me [topic]` | kick off a plain grilling interview (no artifacts) |
-| `/grill-me-with-docs [topic]` | **flagship** — grilling + writes `CONTEXT.md` glossary + ADRs inline; publishes the coordination seam |
-| `/grill-done [--seed-plan]` | end the grill; `--seed-plan` reads `CONTEXT.md` + writes a `task_plan.md` seed (handoff to planning-with-files) |
-| `/domain-modeling` | kick off the glossary + ADR discipline directly |
-| `/wayfinder [destination]` | chart a new map under `.planning/<effort>/`; (no args) work the next frontier ticket |
-| `/wayfinder-status [effort]` | show the frontier + open/closed/claimed/fog counts |
-| `/to-spec [effort]` | synthesize the conversation + codebase into a spec (PRD) at `.planning/<effort>/spec.md` |
-| `/to-tickets [effort]` | break a spec/plan into tracer-bullet tickets (unified spine format) under `.planning/<effort>/tickets/` |
-| `/plan-seed [effort]` | route-aware: flatten tickets (topo-sorted, `[ticket-id]` phase headers) or CONTEXT.md decisions into a `task_plan.md`; refuses to overwrite |
-| `/chain-sync [effort]` | close wayfind tickets whose planning-with-files phase reported complete (the loop's feedback half) |
+| `/grill me [topic]` | kick off a plain grilling interview (no artifacts) |
+| `/grill docs [topic]` | **flagship** — grilling + writes `CONTEXT.md` glossary + ADRs inline; publishes the coordination seam |
+| `/grill done [--seed-plan]` | end the grill; `--seed-plan` reads `CONTEXT.md` + writes a `task_plan.md` seed (handoff to planning-with-files) |
+| `/grill domain` | kick off the glossary + ADR discipline directly |
+| `/wayfind [destination]` | chart a new map under `.planning/<effort>/`; (no args) work the next frontier ticket |
+| `/wayfind status [effort]` | show the frontier + open/closed/claimed/fog counts |
+| `/wayfind spec [effort]` | synthesize the conversation + codebase into a spec (PRD) at `.planning/<effort>/spec.md` |
+| `/wayfind tickets [effort]` | break a spec/plan into tracer-bullet tickets (unified spine format) under `.planning/<effort>/tickets/` |
+| `/wayfind seed [effort]` | route-aware: flatten tickets (topo-sorted, `[ticket-id]` phase headers) or CONTEXT.md decisions into a `task_plan.md`; refuses to overwrite |
+| `/wayfind sync [effort]` | close wayfind tickets whose planning-with-files phase reported complete (the loop's feedback half) |
 
 ## Coordination with planning-with-files
 
 Both extensions are loaded in the same pi process. wayfind publishes `globalThis.__piWayfindActive = () => boolean`; planning-with-files reads it (via `isExternalDriverActive()`, alongside its existing `/goal` check) and **yields** its plan injection + auto-continue while a grill or wayfinder session is active — so the two never double-drive. The status bar shows `… — /goal or /grill driving, injection yielded`. Graceful: if either side is absent, the seam is a no-op.
 
-**Reverse seam (ADR-0001).** The coordination is bidirectional. `syncChainState` (auto-run at `/wayfinder`, `/wayfinder-status`, `/plan-seed`, and on demand via `/chain-sync`) reads pwf's published `globalThis.__piPlanPhases(cwd) → [{id, status, ticketIds?}]` and **closes any ticket whose phase reports `complete`** — appending a decision line to the effort's `map.md`. A phase header references a ticket by id or stem (`### Phase N — [03-foo]`); both resolve. Idempotent (already-closed → skipped) and graceful (no-op when pwf is absent). This is what makes the chain a *loop*, not a one-way handoff: ticket → phase → execute → close. The seam is 4 globalThis keys; neither package imports the other.
+**Reverse seam (ADR-0001).** The coordination is bidirectional. `syncChainState` (auto-run at `/wayfind`, `/wayfind status`, `/wayfind seed`, and on demand via `/wayfind sync`) reads pwf's published `globalThis.__piPlanPhases(cwd) → [{id, status, ticketIds?}]` and **closes any ticket whose phase reports `complete`** — appending a decision line to the effort's `map.md`. A phase header references a ticket by id or stem (`### Phase N — [03-foo]`); both resolve. Idempotent (already-closed → skipped) and graceful (no-op when pwf is absent). This is what makes the chain a *loop*, not a one-way handoff: ticket → phase → execute → close. The seam is 4 globalThis keys; neither package imports the other.
 
 ## Install (local)
 

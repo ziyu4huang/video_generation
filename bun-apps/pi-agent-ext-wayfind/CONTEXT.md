@@ -10,11 +10,11 @@ The ubiquitous language of pi-agent-ext-wayfind — a Pi-native port of Matt Poc
 The relentless, one-question-at-a-time interview at the heart of the suite. One question, a recommended answer for each, facts pulled from the environment, decisions deferred to the user.
 _Avoid_: interview, Q&A, brainstorming (it is a single-question-at-a-time decision resolver, not open discussion)
 
-**`grill-me`**:
+**`grill me`**:
 The plain grilling variant — an interview with no artifacts.
 _Avoid_: chat, session (it is a no-artifact grilling run)
 
-**`grill-me-with-docs`** (flagship):
+**`grill docs`** (flagship):
 Grilling fused with `domain-modeling` — as terms resolve they're written to `CONTEXT.md`; hard-to-reverse decisions land as ADRs. The variant that leaves a paper trail.
 _Avoid_: documented grilling, annotated grill (it is grilling + live domain capture, fused)
 
@@ -25,7 +25,7 @@ _Avoid_: notes, transcript (it is structured domain artifacts, not a record)
 ### Domain capture
 
 **`domain-modeling`**:
-The glossary + ADR discipline — captures ubiquitous language into `CONTEXT.md` and crystallizes decisions as ADRs the moment they settle. Usable standalone (`/domain-modeling`) or fused into the flagship grill.
+The glossary + ADR discipline — captures ubiquitous language into `CONTEXT.md` and crystallizes decisions as ADRs the moment they settle. Usable standalone (`/grill domain`) or fused into the flagship grill.
 _Avoid_: documentation, specing (it is ubiquitous-language + decision capture, not prose docs)
 
 **CONTEXT.md glossary**:
@@ -70,6 +70,6 @@ _Avoid_: planning, breakdown (it is the decision→ticket synthesis)
 The process-singleton reader wayfind publishes so planning-with-files can **yield** during a live grill/wayfinder session — mirror of the `goal↔planning` pattern. Graceful: if either side is absent, the seam is a no-op.
 _Avoid_: hook, signal (it is a published globalThis reader for cross-extension turn-ownership)
 
-**grill→plan handoff** (`/grill-done --seed-plan`):
-Ends the grill and synthesizes the resolved decisions + `CONTEXT.md` glossary into a `task_plan.md` seed, which planning-with-files then drives via `/plan-execute`.
+**grill→plan handoff** (`/grill done --seed-plan`):
+Ends the grill and synthesizes the resolved decisions + `CONTEXT.md` glossary into a `task_plan.md` seed, which planning-with-files then drives via `/plan execute`.
 _Avoid_: export, transfer (it is a synthesis + handoff into the planning substrate)

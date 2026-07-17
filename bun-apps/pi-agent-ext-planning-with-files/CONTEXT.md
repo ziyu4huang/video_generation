@@ -7,7 +7,7 @@ The ubiquitous language of pi-agent-ext-planning-with-files — a Layer-3 runtim
 ### The foundational split
 
 **Substrate**:
-The file/orchestration layer — where plans live (the three files), the lifecycle hooks, the `/plan-*` commands. What the extension *is*.
+The file/orchestration layer — where plans live (the three files), the lifecycle hooks, the `/plan <subcommand>` commands. What the extension *is*.
 _Avoid_: runtime, engine (the substrate is the file + hook layer specifically)
 
 **Methodology**:
@@ -26,11 +26,11 @@ _Avoid_: step, task (a *step* is a `todo`-tool item within a phase; a *phase* is
 
 ### Plan lifecycle
 
-**`/plan-execute` gate**:
-The approval gate — hooks stay **passive** until the user runs `/plan-execute`. A safety gate so an unapproved plan never auto-drives.
+**`/plan execute` gate**:
+The approval gate — hooks stay **passive** until the user runs `/plan execute`. A safety gate so an unapproved plan never auto-drives.
 _Avoid_: start, run (it is an explicit approval that activates the hooks)
 
-**`/plan-done` close-out**:
+**`/plan done` close-out**:
 Closing a plan writes the `<!-- pwf: closed -->` marker and makes the hooks inert (no nag, no auto-continue). **Mandatory** — a finished-but-unclosed plan nags at every `agent_end`.
 _Avoid_: finish, complete (it is an explicit close that silences the hooks)
 
@@ -41,7 +41,7 @@ _Avoid_: loop, retry (it is bounded auto-follow-up, not a loop)
 ### Injection
 
 **Injection mode**:
-How the plan reaches the model — `auto` (default: `parity` except DeepSeek → `cache-safe`), `parity` (full plan + progress block), `cache-safe` (stable one-line reminders, KV-cache friendly), `notify` (status-bar only). Choose from data via `/plan-status` token cost.
+How the plan reaches the model — `auto` (default: `parity` except DeepSeek → `cache-safe`), `parity` (full plan + progress block), `cache-safe` (stable one-line reminders, KV-cache friendly), `notify` (status-bar only). Choose from data via `/plan status` token cost.
 _Avoid_: prompt mode, setting (it is the injection strategy, picked per-model)
 
 **Recitation**:
@@ -54,7 +54,7 @@ _Avoid_: caching, memoization (it is KV-cache-friendly injection, not data cachi
 
 ### Integrity
 
-**Attestation** (`/plan-attest`):
+**Attestation** (`/plan attest`):
 A SHA-256 lock over `task_plan.md` (pure-TS, `node:crypto`). Any later silent edit fails the hash → injection blocked with `[PLAN TAMPERED]`.
 _Avoid_: lock, checksum (it is tamper-detection that gates injection)
 
@@ -65,7 +65,7 @@ _Avoid_: linter, validator (it is a destructive-command guard)
 ### Multi-plan
 
 **PLI v2** (Plan Lifecycle Intelligence):
-The multi-plan commands — `/plan-list` (all plans + status), `/plan-lint [--all]` (diagnose: missing headers, unparseable tokens, tamper), `/plan-switch <id>` (pin the active plan).
+The multi-plan commands — `/plan list` (all plans + status), `/plan lint [--all]` (diagnose: missing headers, unparseable tokens, tamper), `/plan switch <id>` (pin the active plan).
 _Avoid_: plan manager, organizer (it is the multi-plan intelligence layer)
 
 ### Coordination

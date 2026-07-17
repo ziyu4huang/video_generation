@@ -12,10 +12,10 @@ The extension maps the upstream planning-with-files hook design onto Pi's lifecy
 |---|---|
 | 6-event lifecycle | `session_start`, `before_agent_start`, `tool_call`, `tool_result`, `agent_end`, `session_before_compact` (+ `session_shutdown`, `input`) |
 | 4 injection modes | `auto` (default → `parity` except DeepSeek → `cache-safe`), `parity`, `cache-safe`, `notify` |
-| 9 slash commands | `/plan-status` (+token cost), `/plan-attest [--show\|--clear]`, `/plan-goal`, `/plan-execute [reset]`, `/plan-done [--delete]`, `/plan-loop [interval] [prompt]`, **`/plan-list`**, **`/plan-lint [--all]`**, **`/plan-switch <id>`** (PLI v2) |
+| 1 dispatcher slash command | `/plan [status\|execute\|done\|attest\|goal\|loop\|list\|lint\|switch]` — `status` (+token cost), `attest [--show\|--clear]`, `goal`, `execute [reset]`, `done [--delete]`, `loop [interval] [prompt]`, **`list`**, **`lint [--all]`**, **`switch <id>`** (PLI v2) |
 | SHA-256 attestation | tamper detection → injection blocked (`[PLAN TAMPERED]`); pure-TS via `node:crypto` |
-| `/plan-execute` gate | hooks stay passive until the user approves the plan (v3.3.0) |
-| `/plan-done` close-out | finished/abandoned plan → `<!-- pwf: closed -->` marker; hooks go inert (no nag/auto-continue). `--delete` removes the files |
+| `/plan execute` gate | hooks stay passive until the user approves the plan (v3.3.0) |
+| `/plan done` close-out | finished/abandoned plan → `<!-- pwf: closed -->` marker; hooks go inert (no nag/auto-continue). `--delete` removes the files |
 | auto-continue | incomplete plan → follow-up, limit 3 per (session, plan) |
 | plan-loop timer | periodic re-tick (default 10m), auto-stop on completion |
 | dangerous-bash guard | word-boundary regex: `rm -rf`, `sudo`, `git push --force`, fork-bomb… |
@@ -31,7 +31,7 @@ test-driven-development = the FOUNDATION (red-green-refactor) every plan step as
 
 brainstorming  ──(approved design)──►
 writing-plans   ──(good plan CONTENT)──►  planning-with-files  = file/orchestration SUBSTRATE
-executing-plans ──(per-task EXECUTION)──►    (hooks, nags, progress.md, /plan-execute gate)
+executing-plans ──(per-task EXECUTION)──►    (hooks, nags, progress.md, /plan execute gate)
                      ├── verification-before-completion  (gate at every task + at completion)
                      └── systematic-debugging            (on any test failure / blocker)
 
@@ -40,7 +40,7 @@ writing-skills = the META — governs how to author/maintain the whole suite
 
 | skill | role | discipline elements |
 |---|---|---|
-| `planning-with-files` | substrate — where plans live, hooks, `/plan-*` commands | — |
+| `planning-with-files` | substrate — where plans live, hooks, `/plan <subcommand>` commands | — |
 | `test-driven-development` | the **foundation** — red-green-refactor; no production code without a failing test | rationalization table + red-line list |
 | `brainstorming` | **before** planning — explore intent → design → approval (hard-gated) | hard-gate |
 | `writing-plans` | plan **content quality** — small TDD steps, no placeholders, self-check | no-placeholder rules |
@@ -68,8 +68,8 @@ Both load the extension **and** the skill (`skills/planning-with-files/SKILL.md`
 ## Usage
 
 1. Create the three planning files in your project root (or under `.planning/<slug>/` for parallel tasks). Templates live in [`skills/planning-with-files/templates/`](./skills/planning-with-files/templates/).
-2. Run `/plan-execute` to approve the plan and activate the hooks (the hooks stay passive until you do — a safety gate).
-3. (Optional) `/plan-attest` to SHA-256-lock the plan; any later silent edit fails the hash check and blocks injection.
+2. Run `/plan execute` to approve the plan and activate the hooks (the hooks stay passive until you do — a safety gate).
+3. (Optional) `/plan attest` to SHA-256-lock the plan; any later silent edit fails the hash check and blocks injection.
 4. Work. The extension injects the current plan + progress into each turn, recites the plan head before tool calls, guards dangerous bash, and auto-continues until all phases are complete.
 
 ## Recommended workflows
@@ -100,12 +100,12 @@ Use for any feature or non-trivial change. This is the intended end-to-end flow.
 ```
 1. brainstorming        -> explore intent, get an approved design (.planning/<slug>/design.md)
 2. writing-plans        -> turn the design into task_plan.md with small TDD steps
-3. /plan-execute        -> approve the plan, activate the hooks
+3. /plan execute        -> approve the plan, activate the hooks
 4. executing-plans      -> execute phase-by-phase, using:
      ├── test-driven-development        (red-green-refactor each step)
      ├── verification-before-completion (fresh evidence before "done")
      └── systematic-debugging           (on any test failure / blocker)
-5. /plan-done           -> close the plan when finished
+5. /plan done           -> close the plan when finished
 ```
 
 ### Workflow B — Lightweight planning (no ceremony)
@@ -115,9 +115,9 @@ For 5+ tool-call tasks that don't warrant full brainstorming.
 ```
 1. Copy templates  -> skills/planning-with-files/templates/{task_plan,findings,progress}.md
 2. Fill task_plan.md with phases
-3. /plan-execute   -> hooks active
+3. /plan execute   -> hooks active
 4. Work, updating progress.md after each phase
-5. /plan-done      -> when done
+5. /plan done      -> when done
 ```
 
 ### Workflow C — Parallel multi-task (PLI v2)
@@ -130,30 +130,30 @@ mkdir -p .planning/2026-07-12-add-lora-import
 # each session resolves its own plan; pin one with:
 export PLAN_ID=2026-07-12-refactor-auth
 # then navigate between them:
-/plan-list            # see all plans
-/plan-switch <id>     # jump between them
-/plan-lint --all      # health-check every plan
+/plan list            # see all plans
+/plan switch <id>     # jump between them
+/plan lint --all      # health-check every plan
 ```
 
 ### Workflow D — Long-running autonomous loop (CI / batch)
 
 ```bash
-# opt-in auto-approval (no interactive /plan-execute needed)
+# opt-in auto-approval (no interactive /plan execute needed)
 PWF_AUTO_APPROVE=1 pi -e ./extensions/index.ts -p "..."
 
 # or set a recurring tick that re-drives the agent every 10m until the plan is complete:
-/plan-loop 10m
-/plan-goal "all phases complete and tests green"
+/plan loop 10m
+/plan goal "all phases complete and tests green"
 ```
 
 ### Workflow E — Secure / audited plan (attestation)
 
 ```
 1. Finalize task_plan.md
-2. /plan-attest          -> SHA-256 lock
+2. /plan attest          -> SHA-256 lock
 3. Work — any silent edit to task_plan.md -> injection blocked with [PLAN TAMPERED]
-4. /plan-attest --show   -> audit the hash
-5. /plan-attest --clear  -> re-approve after intentional edits
+4. /plan attest --show   -> audit the hash
+5. /plan attest --clear  -> re-approve after intentional edits
 ```
 
 ### Workflow F — Coordinating with /goal (three-layer model)
@@ -166,20 +166,20 @@ When `/goal`, planning-with-files, and the `todo` tool are all active, they form
 | Plan | planning-with-files | multi-phase, cross-session | files on disk |
 | Steps | `todo` tool | within a phase, in-session | session JSONL (branch-aware) |
 
-When `/goal` is actively driving, the extension **yields** — it skips its own plan injection and auto-continue so the two don't double-drive, and `goal_complete` is blocked while a plan has open phases (run `/plan-done` to release). Use `todo` for the fine steps of the current phase, planning files for the cross-session phase breakdown, and `/goal` to drive the whole objective to done.
+When `/goal` is actively driving, the extension **yields** — it skips its own plan injection and auto-continue so the two don't double-drive, and `goal_complete` is blocked while a plan has open phases (run `/plan done` to release). Use `todo` for the fine steps of the current phase, planning files for the cross-session phase breakdown, and `/goal` to drive the whole objective to done.
 
 ### Coordination with pi-agent-ext-wayfind (grill / wayfinder)
 
-The same yield applies to an active [`pi-agent-ext-wayfind`](../pi-agent-ext-wayfind) session — a live `/grill-me-with-docs` or `/wayfinder` interview owns the turn just like `/goal` does. wayfind publishes `globalThis.__piWayfindActive`; this extension reads it via `isExternalDriverActive()` (alongside `isGoalActive()`) and yields its injection + auto-continue while the grill runs. The status bar reads `… — /goal or /grill driving, injection yielded`. The grill hands back with `/grill-done --seed-plan`, which delegates to wayfind's route-aware `/plan-seed` to write a `task_plan.md` you then drive here with `/plan-execute`. Graceful: if wayfind isn't loaded, the seam is inert.
+The same yield applies to an active [`pi-agent-ext-wayfind`](../pi-agent-ext-wayfind) session — a live `/grill docs` or `/wayfind` interview owns the turn just like `/goal` does. wayfind publishes `globalThis.__piWayfindActive`; this extension reads it via `isExternalDriverActive()` (alongside `isGoalActive()`) and yields its injection + auto-continue while the grill runs. The status bar reads `… — /goal or /grill driving, injection yielded`. The grill hands back with `/grill done --seed-plan`, which delegates to wayfind's route-aware `/wayfind seed` to write a `task_plan.md` you then drive here with `/plan execute`. Graceful: if wayfind isn't loaded, the seam is inert.
 
-**Reverse seam (`__piPlanPhases`, ADR-0001).** The coordination is bidirectional, not just a yield. This extension also publishes `globalThis.__piPlanPhases = (cwd) => [{ id, status, ticketIds? }]` — the per-phase state wayfind's `syncChainState` reads to **close the originating ticket when a phase completes** (the chain's feedback half). The seam is now 4 keys (`__piGoalActive` consumer-side; `__piWayfindActive`, `__piPlanIncomplete`, `__piPlanSummary`, `__piPlanPhases`). On `agent_end`, when a phase that references a ticket id (`### Phase N — [03-foo] …`) newly completes, the status bar appends a one-shot nudge: `… — run /chain-sync to close [03-foo]`. pwf stays ticket-format-agnostic — it only emits the id; wayfind does the closing. The continuous chain: `/grill-me-with-docs → /to-spec → /to-tickets → /plan-seed → /plan-execute → (phase done) → /chain-sync`.
+**Reverse seam (`__piPlanPhases`, ADR-0001).** The coordination is bidirectional, not just a yield. This extension also publishes `globalThis.__piPlanPhases = (cwd) => [{ id, status, ticketIds? }]` — the per-phase state wayfind's `syncChainState` reads to **close the originating ticket when a phase completes** (the chain's feedback half). The seam is now 4 keys (`__piGoalActive` consumer-side; `__piWayfindActive`, `__piPlanIncomplete`, `__piPlanSummary`, `__piPlanPhases`). On `agent_end`, when a phase that references a ticket id (`### Phase N — [03-foo] …`) newly completes, the status bar appends a one-shot nudge: `… — run /wayfind sync to close [03-foo]`. pwf stays ticket-format-agnostic — it only emits the id; wayfind does the closing. The continuous chain: `/grill docs → /wayfind spec → /wayfind tickets → /wayfind seed → /plan execute → (phase done) → /wayfind sync`.
 
 ### Practical tips
 
 - **Skip the substrate for** simple questions, single-file edits, or quick lookups (< 5 tool calls).
-- **Closing a plan is mandatory.** A finished-but-unclosed plan nags at every `agent_end`. Always run `/plan-done` when done.
+- **Closing a plan is mandatory.** A finished-but-unclosed plan nags at every `agent_end`. Always run `/plan done` when done.
 - **Write external/web content to `findings.md` only**, never `task_plan.md` — the plan is injected into the model on every turn, so untrusted content there is a prompt-injection amplifier.
-- **Choose a mode from data**: run `/plan-status` to see the token cost (e.g. `~1137 tokens (parity)` vs `~45 tokens (cache-safe)`), then set `PWF_MODE` accordingly.
+- **Choose a mode from data**: run `/plan status` to see the token cost (e.g. `~1137 tokens (parity)` vs `~45 tokens (cache-safe)`), then set `PWF_MODE` accordingly.
 
 ### Modes
 
@@ -198,15 +198,15 @@ Configure via `PWF_MODE` env, project `.pi/settings.json`, or global `~/.pi/agen
 
 | Command | Description |
 |---------|-------------|
-| `/plan-list` | List **all** plans under `.planning/` (+ root) with status, phase progress, attestation state, and which is active |
-| `/plan-lint [--all]` | Diagnose a plan: missing phase headers, unparseable status tokens, missing progress/findings, attestation tamper. `--all` lints every plan |
-| `/plan-switch <id>` | Pin the active plan to `.planning/<id>` (validates existence + not-closed). `/plan-switch root` clears the pin |
+| `/plan list` | List **all** plans under `.planning/` (+ root) with status, phase progress, attestation state, and which is active |
+| `/plan lint [--all]` | Diagnose a plan: missing phase headers, unparseable status tokens, missing progress/findings, attestation tamper. `--all` lints every plan |
+| `/plan switch <id>` | Pin the active plan to `.planning/<id>` (validates existence + not-closed). `/plan switch root` clears the pin |
 
-`/plan-status` also now reports the **injection token cost** of the active mode (e.g. `~1137 tokens (parity)` vs `~45 tokens (cache-safe)`) so you can pick a mode from data.
+`/plan status` also now reports the **injection token cost** of the active mode (e.g. `~1137 tokens (parity)` vs `~45 tokens (cache-safe)`) so you can pick a mode from data.
 
 ### Non-interactive / CI auto-approval
 
-Upstream requires an interactive `/plan-execute`. For CI or `pi -p` batch runs with an already-finalized plan, opt in:
+Upstream requires an interactive `/plan execute`. For CI or `pi -p` batch runs with an already-finalized plan, opt in:
 
 ```bash
 PWF_AUTO_APPROVE=1 pi -e ./extensions/index.ts -p "..."
@@ -228,7 +228,7 @@ src/
   state.ts        per-session RuntimeState + session-key helpers
   lifecycle.ts    PLI v2: multi-plan enumerate / lint / switch (pure)
   tokens.ts       PLI v2: injection token-cost estimate (pure, no tokenizer dep)
-  commands.ts     the 9 slash commands
+  commands.ts     the /plan dispatcher command (9 subcommands)
   runtime.ts      event handlers + injection builders + default export
   index.ts        public API re-exports
 extensions/

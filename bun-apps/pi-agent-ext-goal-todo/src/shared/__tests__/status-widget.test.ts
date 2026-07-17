@@ -7,7 +7,7 @@
  */
 import { test, expect, describe } from "bun:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { PowerToolStatusWidget } from "../status-widget.ts";
+import { PowerToolStatusWidget, getSharedStatusWidget } from "../status-widget.ts";
 import { GoalOverlay } from "../../goal/overlay.ts";
 import { TodoOverlay } from "../../todo/overlay.ts";
 import { replaceState } from "../../todo/state/store.ts";
@@ -217,5 +217,47 @@ describe("composite + real overlays", () => {
 		expect(lines[0]).toContain("🎯"); // goal first
 		expect(lines[1]).toBe(""); // separator
 		expect(lines[2]).toContain("Todos"); // todo below
+	});
+});
+
+// ─── Section ordering by `order` field ─────────────────────────────────────
+
+describe("PowerToolStatusWidget order field", () => {
+	test("sections render sorted by `order`, independent of addSection call order", () => {
+		const w = new PowerToolStatusWidget();
+		const cap = captureWidget();
+		w.setUICtx(cap.uiCtx as never);
+		w.addSection({ id: "wayfind", order: 2, render: () => ["WAYFIND"] });
+		w.addSection({ id: "goal", order: 0, render: () => ["GOAL"] });
+		w.addSection({ id: "pwf", order: 3, render: () => ["PWF"] });
+		w.addSection({ id: "todo", order: 1, render: () => ["TODO"] });
+		w.update();
+		expect(cap.render(40)).toEqual(["GOAL", "", "TODO", "", "WAYFIND", "", "PWF"]);
+	});
+
+	test("sections without `order` sort after ordered sections, in addSection order", () => {
+		const w = new PowerToolStatusWidget();
+		const cap = captureWidget();
+		w.setUICtx(cap.uiCtx as never);
+		w.addSection({ id: "goal", order: 0, render: () => ["GOAL"] });
+		w.addSection({ id: "unordered-a", render: () => ["A"] });
+		w.addSection({ id: "unordered-b", render: () => ["B"] });
+		w.update();
+		expect(cap.render(40)).toEqual(["GOAL", "", "A", "", "B"]);
+	});
+});
+
+// ─── Singleton getter ───────────────────────────────────────────────────────
+
+describe("getSharedStatusWidget", () => {
+	test("returns the same instance across repeated calls", () => {
+		const a = getSharedStatusWidget();
+		const b = getSharedStatusWidget();
+		expect(a).toBe(b);
+	});
+
+	test("the instance is stored on globalThis (survives module-identity gaps)", () => {
+		const w = getSharedStatusWidget();
+		expect((globalThis as Record<string, unknown>).__piPowerToolStatusWidget).toBe(w);
 	});
 });
