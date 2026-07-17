@@ -10,13 +10,13 @@
 import { appendFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
+import { getSharedStatusWidget } from "@repo/pi-agent-ext-goal-todo/src/shared/status-widget.js";
 import { buildTamperMessage, checkPlanAttestation } from "./attestation.js";
 import { registerCommands } from "./commands.js";
 import {
   AUTO_CONTINUE_LIMIT,
   CACHE_SAFE_REMINDER,
   CUSTOM_TYPE,
-  PKG_NAME,
   PLAN_DATA_BEGIN,
   PLAN_DATA_END,
   POST_WRITE_REMINDER,
@@ -25,6 +25,7 @@ import {
 import { isExternalDriverActive } from "./coordination.js";
 import { isDangerousBashCommand } from "./guard.js";
 import { deriveEffectiveMode, resolveAutoApprove, resolveConfiguredMode } from "./modes.js";
+import { PlanningOverlay } from "./overlay.js";
 import {
   isAllPhasesComplete,
   isPlanClosed,
@@ -78,12 +79,12 @@ function buildPreToolParityRecitation(status: PlanStatus): string {
   ].join("\n");
 }
 
-function setPassivePlanStatus(ctx: ExtensionContext, status: PlanStatus): void {
+function setPassivePlanStatus(overlay: PlanningOverlay, status: PlanStatus): void {
   if (status.closed) {
-    ctx.ui.setStatus(PKG_NAME, "Plan closed (via /plan-done) — hooks inactive");
+    overlay.setLine("Plan closed (via /plan done) — hooks inactive");
     return;
   }
-  ctx.ui.setStatus(PKG_NAME, `${summarizePlan(status)} — run /plan-execute to activate hooks`);
+  overlay.setLine(`${summarizePlan(status)} — run /plan execute to activate hooks`);
 }
 
 /** Refresh the status bar to reflect a plan-less state. Without this the bar
@@ -106,8 +107,8 @@ function computeChainSyncNudge(state: RuntimeState, planKey: string, cwd: string
   return `run /chain-sync to close [${fresh.join(", ")}]`;
 }
 
-function clearPlanStatus(ctx: ExtensionContext): void {
-  ctx.ui.setStatus(PKG_NAME, "No active plan");
+function clearPlanStatus(overlay: PlanningOverlay): void {
+  overlay.setLine("No active plan");
 }
 
 /** Pull concatenated text out of a tool_result content payload. Defensive: the
@@ -134,7 +135,7 @@ function extractResultText(content: unknown): string {
  *  pi-agent-ext-ask-user tool/response-envelope.ts). Capturing it here turns
  *  every user clarification into working memory on disk — zero agent effort.
  *
- *  WHY no /plan-execute gate: this is observational logging of USER input, not
+ *  WHY no /plan execute gate: this is observational logging of USER input, not
  *  a model-facing steer (no injection / nag / auto-continue). Unlike the
  *  write/edit branch, capturing decisions is safe and most useful from the
  *  moment a plan exists. Gated only on: attached session + active, non-closed
@@ -152,6 +153,11 @@ function captureAskUserDecision(event: { content?: unknown }, ctx: ExtensionCont
 export default function planningWithFilesExtension(pi: ExtensionAPI): void {
   const state: RuntimeState = createRuntimeState();
 
+  const widget = getSharedStatusWidget();
+  const overlay = new PlanningOverlay();
+  overlay.setRefresh(() => widget.update());
+  widget.addSection({ id: "planning-with-files", order: 3, render: (t, w) => overlay.render(t, w) });
+
   // Plan A coordination seam: publish the plan-incomplete query on globalThis
   // so the /goal completion gate can read it WITHOUT a hard dep or relying on
   // jiti<->native module identity. globalThis is process-singleton → always
@@ -167,15 +173,20 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
   // continuous chain loop. Same globalThis/jiti rationale as the keys above.
   (globalThis as Record<string, unknown>).__piPlanPhases = readPlanPhases;
 
-  registerCommands(pi, state);
+  registerCommands(pi, state, overlay);
 
   pi.on("session_start", async (event, ctx) => {
     const sessionId = getSessionId(ctx);
     clearSessionPrefixMap(state, sessionId);
     clearSessionExecutionApprovals(state, sessionId);
 
+    if (ctx.hasUI) {
+      widget.setUICtx(ctx.ui);
+      widget.update();
+    }
+
     if (!isAttachedSession(ctx)) {
-      ctx.ui.setStatus(PKG_NAME, "session not attached to planning context");
+      overlay.setLine("session not attached to planning context");
       return;
     }
 
@@ -185,19 +196,19 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
       // result in the status bar; never blocks.
       const catchup = runSessionCatchup(ctx.cwd);
       if (catchup.relevant) {
-        ctx.ui.setStatus(PKG_NAME, catchup.summary);
+        overlay.setLine(catchup.summary);
       }
     }
 
     const status = readPlanStatus(ctx.cwd);
     if (status.exists) {
       // Opt-in auto-approval (PWF_AUTO_APPROVE / settings) activates hooks at
-      // session start without an interactive /plan-execute. Used by CI and the
+      // session start without an interactive /plan execute. Used by CI and the
       // e2e test; interactive flows still require explicit approval.
       if (resolveAutoApprove(ctx.cwd)) {
         state.executionApprovedBySessionPlan.add(getPlanSessionKey(ctx, status));
       }
-      setPassivePlanStatus(ctx, status);
+      setPassivePlanStatus(overlay, status);
     }
   });
 
@@ -208,6 +219,11 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
     state.loopTimersBySession.delete(sessionId);
     clearSessionPrefixMap(state, sessionId);
     clearSessionExecutionApprovals(state, sessionId);
+    // Clear only this package's own overlay section — NEVER call
+    // widget.dispose(), which would tear down every other package's section
+    // too (see status-widget.ts's dispose() doc comment: only
+    // pi-agent-ext-goal-todo's own session_shutdown owns that).
+    overlay.dispose();
   });
 
   pi.on("input", async (event, ctx) => {
@@ -220,20 +236,20 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
 
     const status = readPlanStatus(ctx.cwd);
     if (!status.exists) {
-      clearPlanStatus(ctx);
+      clearPlanStatus(overlay);
       return;
     }
 
-    // A closed plan (finished/abandoned via /plan-done) is inert: never inject
+    // A closed plan (finished/abandoned via /plan done) is inert: never inject
     // its contents, never nag. Keeps a stale-but-closed plan from polluting
     // context or firing the incomplete-warning loop.
     if (status.closed) {
-      ctx.ui.setStatus(PKG_NAME, "Plan closed (via /plan-done) — hooks inactive");
+      overlay.setLine("Plan closed (via /plan done) — hooks inactive");
       return;
     }
 
     if (!isExecutionApproved(state, ctx, status)) {
-      setPassivePlanStatus(ctx, status);
+      setPassivePlanStatus(overlay, status);
       return;
     }
 
@@ -243,7 +259,7 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
     // Keep the status bar (zero model tokens) for user visibility. Driver
     // paused/absent → planning resumes normal injection.
     if (isExternalDriverActive()) {
-      ctx.ui.setStatus(PKG_NAME, `${summarizePlan(status)} — /goal or /grill driving, injection yielded`);
+      overlay.setLine(`${summarizePlan(status)} — /goal or /grill driving, injection yielded`);
       return;
     }
 
@@ -261,7 +277,7 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
     }
 
     if (mode === "notify") {
-      ctx.ui.setStatus(PKG_NAME, summarizePlan(status));
+      overlay.setLine(summarizePlan(status));
       return;
     }
 
@@ -338,7 +354,7 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
     // exists when planning-with-files is in use. Without this gate the warning
     // nagged every session (isSessionAttached defaults true when no .planning/
     // sessions dir exists) and pointed at a plan that doesn't exist —
-    // contradicting the documented "hooks stay passive until /plan-execute"
+    // contradicting the documented "hooks stay passive until /plan execute"
     // safety gate that every other hook in this handler respects.
     if (status.exists && isToolCallEventType("bash", event) && isDangerousBashCommand(event.input.command)) {
       ctx.ui.notify(
@@ -364,14 +380,14 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
     const status = readPlanStatus(ctx.cwd);
     if (!status.exists) return;
     if (!isExecutionApproved(state, ctx, status)) {
-      setPassivePlanStatus(ctx, status);
+      setPassivePlanStatus(overlay, status);
       return;
     }
 
     // Refresh the status bar with the freshly-read phase count. Without this
     // the bar stayed frozen at whatever before_agent_start set (e.g. "1/2") for
     // the whole turn, even as the agent marked phases complete in task_plan.md.
-    ctx.ui.setStatus(PKG_NAME, summarizePlan(status));
+    overlay.setLine(summarizePlan(status));
 
     const mode = deriveEffectiveMode(resolveConfiguredMode(ctx.cwd), ctx);
     if (mode === "parity") {
@@ -388,7 +404,7 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
 
     const status = readPlanStatus(ctx.cwd);
     if (!status.exists) {
-      clearPlanStatus(ctx);
+      clearPlanStatus(overlay);
       return;
     }
 
@@ -396,16 +412,16 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
     const planKey = getPlanSessionKey(ctx, status);
     const mode = deriveEffectiveMode(resolveConfiguredMode(ctx.cwd), ctx);
 
-    // Closed plan (finished/abandoned via /plan-done): no nag, no auto-continue.
+    // Closed plan (finished/abandoned via /plan done): no nag, no auto-continue.
     if (isPlanClosed(status)) {
       state.autoContinueCountBySessionPlan.set(planKey, 0);
-      ctx.ui.setStatus(PKG_NAME, "Plan closed (via /plan-done) — hooks inactive");
+      overlay.setLine("Plan closed (via /plan done) — hooks inactive");
       return;
     }
 
     if (isAllPhasesComplete(status)) {
       state.autoContinueCountBySessionPlan.set(planKey, 0);
-      ctx.ui.setStatus(PKG_NAME, summarizePlan(status));
+      overlay.setLine(summarizePlan(status));
       ctx.ui.notify(
         `[planning-with-files] ALL PHASES COMPLETE (${status.completePhases}/${status.totalPhases}).`,
         "info",
@@ -421,16 +437,16 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
     // prompt (double-drive). Driver paused/absent → planning resumes its bounded
     // (3x) auto-continue below.
     if (isExternalDriverActive()) {
-      ctx.ui.setStatus(PKG_NAME, `${summarizePlan(status)} — /goal or /grill driving, auto-continue yielded`);
+      overlay.setLine(`${summarizePlan(status)} — /goal or /grill driving, auto-continue yielded`);
       return;
     }
 
     if (!isExecutionApproved(state, ctx, status)) {
       ctx.ui.notify(
-        `[planning-with-files] Task incomplete (${status.completePhases}/${status.totalPhases}). Run /plan-execute to activate hooks.`,
+        `[planning-with-files] Task incomplete (${status.completePhases}/${status.totalPhases}). Run /plan execute to activate hooks.`,
         "warning",
       );
-      setPassivePlanStatus(ctx, status);
+      setPassivePlanStatus(overlay, status);
       return;
     }
 
@@ -459,7 +475,7 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
     // ADR-0001: append a one-shot /chain-sync nudge when a ticketed phase just
     // completed, so the loop's feedback half is discoverable without coupling.
     const chainNudge = computeChainSyncNudge(state, planKey, ctx.cwd);
-    ctx.ui.setStatus(PKG_NAME, chainNudge ? `${summarizePlan(status)} — ${chainNudge}` : summarizePlan(status));
+    overlay.setLine(chainNudge ? `${summarizePlan(status)} — ${chainNudge}` : summarizePlan(status));
 
     const current = state.autoContinueCountBySessionPlan.get(planKey) ?? 0;
     if (current >= AUTO_CONTINUE_LIMIT) {
@@ -491,7 +507,7 @@ export default function planningWithFilesExtension(pi: ExtensionAPI): void {
 
     if (!isExecutionApproved(state, ctx, status)) {
       ctx.ui.notify("[planning-with-files] PreCompact: flush progress.md and task_plan.md updates.", "info");
-      setPassivePlanStatus(ctx, status);
+      setPassivePlanStatus(overlay, status);
       return;
     }
 

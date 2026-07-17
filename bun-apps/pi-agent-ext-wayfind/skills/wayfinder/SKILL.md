@@ -1,6 +1,6 @@
 ---
 name: wayfinder
-description: Use when planning a huge chunk of work — more than one agent session can hold — whose route is still foggy. Charts the effort as a shared local-markdown map of decision tickets under .planning/<effort>/ and resolves them one at a time until the way to the destination is clear. Invocation-only via /wayfinder.
+description: Use when planning a huge chunk of work — more than one agent session can hold — whose route is still foggy. Charts the effort as a shared local-markdown map of decision tickets under .planning/<effort>/ and resolves them one at a time until the way to the destination is clear. Invocation-only via /wayfind.
 disable-model-invocation: true
 ---
 
@@ -66,7 +66,7 @@ Each ticket carries a `type:` — one of `research`, `prototype`, `grilling`, `t
 
 A session **claims** a ticket by adding a `claimed:` line with a label (the dev/agent driving the map) **first**, before any work, so concurrent sessions skip it. That claim _is_ the lock: an open, unclaimed ticket is unclaimed.
 
-Blocking uses **text edges** — each ticket lists `blocked by:` the ticket numbers/titles that must close before it can start. (There is no native tracker dependency link in the local-markdown store, so the frontier is computed, not rendered by a UI — `/wayfinder-status` does this.) A ticket is **unblocked** when every ticket blocking it is closed; the **frontier** is the open, unblocked, unclaimed tickets — the edge of the known.
+Blocking uses **text edges** — each ticket lists `blocked by:` the ticket numbers/titles that must close before it can start. (There is no native tracker dependency link in the local-markdown store, so the frontier is computed, not rendered by a UI — `/wayfind status` does this.) A ticket is **unblocked** when every ticket blocking it is closed; the **frontier** is the open, unblocked, unclaimed tickets — the edge of the known.
 
 The answer isn't part of the body — it's recorded on resolution (see [Work through the map](#work-through-the-map)). Assets created while resolving a ticket are linked from the issue, not pasted in.
 

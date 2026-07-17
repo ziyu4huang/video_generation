@@ -37,7 +37,6 @@ export const DEFAULT_DENIED_PREFIXES: readonly string[] = [
   "python/", // mlx-movie-director runtime + venvs (the #291 ungrounded edit)
   "swift/", // native director sources
   "mlx-models/", // MLX-owned model tree
-  "comfyui_data/", // build-time-only model sources
   "bun-apps/", // every pi-extension + the GUI (this package included)
   ".claude/", // hooks, workflows, memory, settings
   ".githooks/", // pre-commit guards

@@ -70,8 +70,8 @@ extension ZImageCLI {
 
         func run() throws {
             print("zimage verify-vae — Phase 4 checkpoint")
-            let vaeURL = ModelPaths.repoRoot
-                .appendingPathComponent("python/mlx-movie-director/models/vae/\(vae)")
+            let vaeURL = ModelPaths.modelsRoot
+                .appendingPathComponent("vae/\(vae)")
             let weights = try loadArrays(url: vaeURL.appendingPathComponent("model.safetensors"))
             print("loaded \(weights.count) VAE weights from \(vae)")
             let results = try ZImageDirector.Verify.runVAECheck(
@@ -119,8 +119,8 @@ extension ZImageCLI {
 
         func run() throws {
             print("zimage verify-encoder — i2i VAE encoder checkpoint")
-            let vaeURL = ModelPaths.repoRoot
-                .appendingPathComponent("python/mlx-movie-director/models/vae/\(vae)")
+            let vaeURL = ModelPaths.modelsRoot
+                .appendingPathComponent("vae/\(vae)")
             let weights = try loadArrays(url: vaeURL.appendingPathComponent("model.safetensors"))
             print("loaded \(weights.count) VAE weights from \(vae)")
 
@@ -255,8 +255,8 @@ extension ZImageCLI {
 
         func run() throws {
             print("zimage verify-encoder — Phase 3 text encoder checkpoint")
-            let encoderURL = ModelPaths.repoRoot
-                .appendingPathComponent("python/mlx-movie-director/models/text_encoder/\(encoder)")
+            let encoderURL = ModelPaths.modelsRoot
+                .appendingPathComponent("text_encoder/\(encoder)")
             let weights = try TextEncoderWeights.load(dir: encoderURL)
             print("loaded \(weights.arrays.count) text-encoder weights from \(encoder)")
             let model = Qwen3TextEncoder.build(weights: weights)
@@ -307,8 +307,8 @@ extension ZImageCLI {
 
         func run() throws {
             print("zimage verify-tokenizer — Phase 3 BPE tokenizer checkpoint")
-            let tokURL = ModelPaths.repoRoot
-                .appendingPathComponent("python/mlx-movie-director/models/tokenizer/\(tokenizer)/tokenizer.json")
+            let tokURL = ModelPaths.modelsRoot
+                .appendingPathComponent("tokenizer/\(tokenizer)/tokenizer.json")
             var tokenizer = BPETokenizer(jsonURL: tokURL)!
             print("loaded tokenizer: \(tokenizer.vocabCount) vocab, \(tokenizer.mergeCount) merges")
 
@@ -364,8 +364,8 @@ extension ZImageCLI {
 
         func run() throws {
             print("zimage verify-controlnet — Union ControlNet 2.1 sanity check")
-            let dir = ModelPaths.repoRoot
-                .appendingPathComponent("python/mlx-movie-director/models/controlnet/\(controlnet)")
+            let dir = ModelPaths.modelsRoot
+                .appendingPathComponent("controlnet/\(controlnet)")
             let file = dir.appendingPathComponent("model.safetensors")
             guard FileManager.default.fileExists(atPath: file.path) else {
                 throw ValidationError("controlnet weights not found: \(file.path)")

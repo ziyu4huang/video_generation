@@ -11,7 +11,7 @@ A self-contained Swift package porting the **Z-Image** text-to-image pipeline fr
 
 - Pure-Swift, Metal-accelerated image generation (no Python runtime at execution time).
 - Reuse the MLX weights already converted under
-  `python/mlx-movie-director/models/transformer/*` (8-bit MLX `safetensors`).
+  `mlx-models/transformer/*` (8-bit MLX `safetensors`).
 - CLI surface mirroring `run.py image t2i` (`zimage t2i --prompt ... --seed ...`).
 
 ## Architecture (ported from)
@@ -22,7 +22,7 @@ A self-contained Swift package porting the **Z-Image** text-to-image pipeline fr
 | T2I pipeline / denoise | `app/pipeline.py` `ZImagePipeline`          | `Sources/ZImageDirector/Pipeline/` |
 | VAE (16-ch Flux latent) | `mflux.models.z_image.model.z_image_vae`    | `Sources/ZImageDirector/VAE/` |
 | Text encoder     | `app/text_encoder.py` (Qwen-based)              | `Sources/ZImageDirector/TextEncoder/` |
-| Weights / config | `python/mlx-movie-director/models/transformer/*/config.json` | `Sources/ZImageDirector/Config.swift` |
+| Weights / config | `mlx-models/transformer/*/config.json` | `Sources/ZImageDirector/Config.swift` |
 
 ## Requirements
 

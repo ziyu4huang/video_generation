@@ -4,7 +4,7 @@
  * Covers:
  *   - coordination.isGoalActive: reads globalThis.__piGoalActive, graceful fallback
  *   - isPlanIncompleteInDir: pure cwd-based gate (exists + not closed + incomplete)
- *   - close marker (/plan-done) is the release valve
+ *   - close marker (/plan done) is the release valve
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -149,7 +149,7 @@ const COMPLETE_PLAN = [
   "**Status:** complete",
 ].join("\n");
 
-const CLOSED_MARKER = "\n\n---\n<!-- pwf: closed -->\nPlan closed via /plan-done (2026-07-11)\n";
+const CLOSED_MARKER = "\n\n---\n<!-- pwf: closed -->\nPlan closed via /plan done (2026-07-11)\n";
 
 describe("planProgressLine (fusion: roadmap summary for goal)", () => {
   it("returns null when no plan exists", () => {
@@ -183,7 +183,7 @@ describe("planProgressLine (fusion: roadmap summary for goal)", () => {
     expect(planProgressLine(cwd)).toBe("Phase 1/1 (all complete) — see task_plan.md");
   });
 
-  it("returns null for a closed plan (/plan-done)", () => {
+  it("returns null for a closed plan (/plan done)", () => {
     const cwd = makeCwd();
     const dir = join(cwd, ".planning", "demo");
     mkdirSync(dir, { recursive: true });
@@ -218,7 +218,7 @@ describe("isPlanIncompleteInDir (goal completion gate)", () => {
     expect(isPlanIncompleteInDir(cwd)).toBe(false);
   });
 
-  it("returns false for a closed plan (/plan-done is the release valve)", () => {
+  it("returns false for a closed plan (/plan done is the release valve)", () => {
     const cwd = makeCwd();
     const dir = join(cwd, ".planning", "demo");
     mkdirSync(dir, { recursive: true });

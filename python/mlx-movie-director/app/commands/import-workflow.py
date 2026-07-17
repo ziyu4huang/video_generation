@@ -82,7 +82,7 @@ def add_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--output-dir", type=str, default=None,
         help="Output directory for downloaded workflows "
-             "(default: comfyui_data/user/default/workflows/)",
+             "(default: workflows/)",
     )
     parser.add_argument(
         "--dry-run", action="store_true", default=False,
@@ -116,14 +116,14 @@ def run(args: argparse.Namespace) -> None:
         print("  Expected format: https://civitai.com/models/<id>/...", file=sys.stderr)
         sys.exit(1)
 
-    # Default output: repo_root/comfyui_data/user/default/workflows/
+    # Default output: repo_root/workflows/
     # __file__ = .../python/mlx-movie-director/app/commands/import-workflow.py
     _this_dir = os.path.dirname(os.path.abspath(__file__))
     _repo_root = os.path.normpath(os.path.join(
         _this_dir, "..", "..", "..", ".."
     ))
     output_dir = args.output_dir or os.path.join(
-        _repo_root, "comfyui_data", "user", "default", "workflows"
+        _repo_root, "workflows"
     )
     output_dir = os.path.abspath(output_dir)
 

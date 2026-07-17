@@ -19,7 +19,7 @@ export interface AppConfig {
 }
 
 const DEFAULTS: AppConfig = {
-  outputDir: ["../video_generation__output", "comfyui_data/output"],
+  outputDir: "../video_generation__output",
   modelsDir: "mlx-models",
   vlmApiUrl: "http://localhost:1234/v1",
   // "auto" = don't force a model: run.py caption auto-resolves (prefers the heavier
@@ -60,9 +60,8 @@ export function loadConfig(): AppConfig {
   // env (MLX_OUTPUT_DIR) > config.json > default. bun spawns run.py with the
   // resolved value passed explicitly via --gen-output-dir (lib/subprocess.ts),
   // so the generator always writes where the GUI watches — no env-inheritance
-  // drift. Secondary sources (e.g. comfyui_data/output) are preserved, and
-  // repo-relative values resolve against REPO_DIR in lib/paths.ts (absolute
-  // values pass through unchanged).
+  // drift. Repo-relative values resolve against REPO_DIR in lib/paths.ts
+  // (absolute values pass through unchanged).
   const overrideDir = getServerArgs().genOutputDir ?? process.env.MLX_OUTPUT_DIR;
   if (overrideDir) {
     const dirs = Array.isArray(_config!.outputDir) ? [..._config!.outputDir] : [_config!.outputDir];

@@ -221,8 +221,8 @@ extension ZImageCLI {
             print("transformer weights loaded: \(loaded.keyAudit.totalKeys) keys " +
                   "(\(loaded.config.quantBits)-bit, group_size=\(loaded.config.quantGroupSize))")
 
-            let vaeURL = ModelPaths.repoRoot
-                .appendingPathComponent("python/mlx-movie-director/models/vae/\(vae)")
+            let vaeURL = ModelPaths.modelsRoot
+                .appendingPathComponent("vae/\(vae)")
             let vaeWeights = try loadArrays(url: vaeURL.appendingPathComponent("model.safetensors"))
             print("vae weights loaded: \(vaeWeights.count) keys")
 
@@ -282,13 +282,13 @@ extension ZImageCLI {
                 return (capFeats, uncondFeats, cfgActive)
             }
             print("loading text encoder...")
-            let encoderURL = ModelPaths.repoRoot
-                .appendingPathComponent("python/mlx-movie-director/models/text_encoder/\(encoder)")
+            let encoderURL = ModelPaths.modelsRoot
+                .appendingPathComponent("text_encoder/\(encoder)")
             let encWeights = try TextEncoderWeights.load(dir: encoderURL)
             let textEncoder = Qwen3TextEncoder.build(weights: encWeights)
             print("loading tokenizer...")
-            let tokURL = ModelPaths.repoRoot
-                .appendingPathComponent("python/mlx-movie-director/models/tokenizer/\(tokenizerDir)/tokenizer.json")
+            let tokURL = ModelPaths.modelsRoot
+                .appendingPathComponent("tokenizer/\(tokenizerDir)/tokenizer.json")
             var tokenizer = BPETokenizer(jsonURL: tokURL)!
             print("encoding prompt...")
             let capFeats = encode(textEncoder, &tokenizer, params.prompt)

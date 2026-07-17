@@ -1,6 +1,0 @@
-# Raw benchmark outputs (large images, regenerated on demand)
-image_gen_compare/raw_output/
-image_gen_compare/analysis/reports/*.html
-*.png
-*.jpg
-*.jpeg
