@@ -588,17 +588,13 @@ Note: this package's `test` script is scoped to `bun test extensions/__tests__/`
 
 ---
 
-## Task 16: pi-agent-ext-planning-with-files
+## Task 16: ~~pi-agent-ext-planning-with-files~~ — REMOVED, package no longer exists
 
-**Files:**
-- Create: `bun-apps/pi-agent-ext-planning-with-files/tests/extension-contract.test.ts`
-- Create: `bun-apps/pi-agent-ext-planning-with-files/run-test.sh`
+`origin/main` commit `76d55502` ("remove planning-with-files ext + migrate to pi-coding-agent 0.80.10 ModelRuntime API", landed after this plan was written, merged into this branch via rebase) deleted `bun-apps/pi-agent-ext-planning-with-files` entirely — the directory, its `package.json`, its manifest entry, and its skills entry are all gone from git. Superpowers is now authoritative for the methodology skills it used to shell.
 
-Substitutions: `<RELATIVE_IMPORT_PATH>` = `../extensions/index.ts`, `<PKG_NAME>` = `pi-agent-ext-planning-with-files`, `<PKG_SLUG>` = `pi-agent-ext-planning-with-files`, `<TEST_CMD>` = `npm run check && npm run build && npm run test:unit`, `<CONTRACT_PATH>` = `tests/extension-contract.test.ts`.
+This task is dropped. No replacement action needed — there is nothing to add tests to. Package count is now **20** `pi-agent-ext-*` packages: the spec originally said 20, this plan corrected it to 21 (+grill-memory, +power-tool, both real packages the spec missed), and this removal brings it back to 20. 19 per-package tasks remain (Tasks 3-15, 17-23; Task 16 is this stub).
 
-Note: keep `<TEST_CMD>` as the package's real `test` script (lint + build + unit), not a shortcut to bare `bun test` — dropping the build/check steps would silently narrow coverage vs. what `bun run test` does today.
-
-- [ ] Steps 1-5: same pattern as Task 3, but Step 2 runs `( cd bun-apps/pi-agent-ext-planning-with-files && bun test tests/extension-contract.test.ts )` directly (isolated-file check, not through the full npm chain). Commit message: `test(pi-agent-ext-planning-with-files): add extension-contract test + run-test.sh`.
+If a leftover `bun-apps/pi-agent-ext-planning-with-files/` directory still exists on disk in your checkout, it is untracked cruft from before the removal commit (verified via `git ls-files` — 0 tracked files under that path) — not this plan's concern to clean up.
 
 ---
 
@@ -841,9 +837,9 @@ exit "$OVERALL"
 
 - [ ] **Step 2:** `chmod +x run-all-tests.sh`
 - [ ] **Step 3:** Run: `./run-all-tests.sh --list`
-Expected: prints one resolved command per package (22 lines: `pi-agent` + 21 extensions), each either the manifest `testGate` or `./run-test.sh quick` — no line should read `bun run test` (the bare fallback) once Tasks 3-23 are complete, since every package now has a `run-test.sh`. If any line does show the fallback, that package's Task above didn't complete — go back and finish it before proceeding.
+Expected: prints one resolved command per package (21 lines: `pi-agent` + 20 extensions), each either the manifest `testGate` or `./run-test.sh quick` — no line should read `bun run test` (the bare fallback) once Tasks 3-23 (minus the removed Task 16) are complete, since every remaining package now has a `run-test.sh`. If any line does show the fallback, that package's Task above didn't complete — go back and finish it before proceeding.
 - [ ] **Step 4:** Run: `./run-all-tests.sh`
-Expected: exit 0, all 22 steps show `✓`.
+Expected: exit 0, all 21 steps show `✓`.
 - [ ] **Step 5:** Run: `./run-all-tests.sh --only=pi-agent-ext-flux2`
 Expected: exit 0, only the `pi-agent-ext-flux2` step runs.
 - [ ] **Step 6: Commit**
