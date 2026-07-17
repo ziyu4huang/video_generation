@@ -82,6 +82,12 @@ export interface WorkflowRunOptions extends WorkflowAgentOptions {
   persistLogs?: boolean;
   /** Run ID for persistence. Auto-generated if not provided. */
   runId?: string;
+  /**
+   * Directory for the persisted run log. Overrides the default cwd-hashed runs
+   * dir; absolute or relative to `cwd`. Lets headless callers (pi-agent-cli)
+   * redirect output to `PWD/.pi/` or any folder. Absent → existing behavior.
+   */
+  runsDir?: string;
   /** Resume: cached agent results keyed by deterministic call index. */
   resumeJournal?: Map<number, JournalEntry>;
   /** Resume: the run being resumed (informational; enables resume mode). */
@@ -280,6 +286,7 @@ export async function runWorkflow<T = unknown>(
     runId,
     cwd: options.cwd ?? process.cwd(),
     persist: options.persistLogs ?? true,
+    runsDir: options.runsDir,
     onLog: options.onLog,
   });
 

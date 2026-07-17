@@ -69,7 +69,11 @@ A folder of `manifest.json` + an entry workflow script, run headless by the
 workflow sub-command (`workflow run <name|path>`) via `runWorkflow()` — a
 dispatch branch, NOT an extension: no factory, no agent session, no session
 tools. Its folder+manifest shape echoes a pi extension folder, but it is not
-loaded via `-e` and ADR 0001 never applies to it.
+loaded via `-e` and ADR 0001 never applies to it. Named resolution lives under
+`PWD/.pi/workflows/` (the project engine dir) + `bun-apps/<pkg>/workflows/`; a
+literal path reaches any folder. The run log defaults to `PWD/.pi/workflows/runs/`
+(override: `--out-dir` / `PI_WORKFLOWS_OUT_DIR`). `.claude/workflows/` is
+Claude Code's Workflow-tool dir and is NOT name-resolved here.
 _Avoid_: "extension" / "headless pack-extension" (deprecated ADR 0007 term —
 a pack is not an extension); "loaded via `-e`"
 

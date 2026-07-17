@@ -170,6 +170,9 @@ export interface ParsedArgs {
 	workflowArgs?: string;
 	/** workflow: disable log persistence (logs persist by default). */
 	noPersistLogs?: boolean;
+	/** workflow: override the run-log output dir (default PWD/.pi/workflows/runs).
+	 *  Also via PI_WORKFLOWS_OUT_DIR env. Absolute or relative to cwd. */
+	outDir?: string;
 	/** kcard-loop: cross-link weighting (count | idf) — also used by zk-ingest. */
 	linkWeighting?: string;
 	/** kcard-loop: path to a probe eval JSON ({queries:[{q,expect}]}). */
