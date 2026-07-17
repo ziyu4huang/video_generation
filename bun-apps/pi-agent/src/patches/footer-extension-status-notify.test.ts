@@ -37,6 +37,13 @@ function makeMockFdp() {
     getExtensionStatuses() {
       return extensionStatuses;
     },
+    // Stubs for the methods wrapFooterDataProviderForNotify() installs at runtime
+    // (overwritten by the wrapper). Declared here so the mock's type admits them
+    // and the 7 fdp.onExtensionStatusChange(...) call sites type-check.
+    onExtensionStatusChange(_cb: () => void): () => void {
+      return () => {};
+    },
+    notifyExtensionStatusChange() {},
   };
 }
 
