@@ -22,7 +22,8 @@ import "./ext-context-get-system-prompt-options.ts";
 function makeRunner() {
   // createCommandContext needs getSystemPromptOptionsFn + assertActive bound.
   // Minimally stub them; createContext()'s getter still calls assertActive().
-  const runner = new ExtensionRunner([], {}, "/tmp", {}, {});
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const runner = new ExtensionRunner([], {} as any, "/tmp", {} as any, {} as any);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (runner as any).getSystemPromptOptionsFn = () => ({ patched: true });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -32,7 +33,7 @@ function makeRunner() {
 
 describe("ext-context-get-system-prompt-options patch", () => {
   test("createContext() exposes a working getSystemPromptOptions()", () => {
-    const ctx = makeRunner().createContext() as { getSystemPromptOptions: () => unknown };
+    const ctx = makeRunner().createContext() as unknown as { getSystemPromptOptions: () => unknown };
     expect(typeof ctx.getSystemPromptOptions).toBe("function");
     expect(ctx.getSystemPromptOptions()).toEqual({ patched: true });
   });
