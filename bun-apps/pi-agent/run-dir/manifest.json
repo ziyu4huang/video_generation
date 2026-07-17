@@ -45,13 +45,6 @@
     },
     "pi-agent-ext-web-access/index.ts",
     {
-      "name": "pi-agent-ext-planning-with-files",
-      "entry": "pi-agent-ext-planning-with-files/extensions/index.ts",
-      "bundleMode": "thin",
-      "testGate": "cd bun-apps/pi-agent-ext-planning-with-files && bun test",
-      "version": "1.0.0"
-    },
-    {
       "name": "pi-agent-ext-wayfind",
       "entry": "pi-agent-ext-wayfind/extensions/index.ts",
       "bundleMode": "thin",
@@ -97,7 +90,6 @@
   ],
   "skills": [
     "pi-agent-ext-obsidian/skills",
-    "pi-agent-ext-planning-with-files/skills",
     "pi-agent-ext-research-tool/skills",
     "pi-agent-ext-wayfind/skills",
     "pi-agent-ext-grill-memory/skills",

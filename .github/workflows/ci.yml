@@ -94,7 +94,6 @@ jobs:
           # full chain runs, matching gui-movie-director's convention below.
           - { package: pi-agent-ext-wayfind, test-cmd: "bun run test" }
           - { package: pi-agent-ext-web-access, test-cmd: "bun test" }
-          - { package: pi-agent-ext-planning-with-files, test-cmd: "bun test" }
           - { package: pi-agent-ext-file2md, test-cmd: "bun test" }
           # gui-movie-director: lint is pure static analysis (CI-safe); the
           # check-runtime suite probes run.py via the venv and skips under CI.

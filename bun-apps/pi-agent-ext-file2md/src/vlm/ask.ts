@@ -9,7 +9,7 @@
  */
 import { extname } from "node:path";
 import { readFileSync } from "node:fs";
-import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createSharedSession, resolveLLM, type ResolvedLLM } from "../sessions.ts";
 
 export interface AskImageResult {
@@ -50,20 +50,20 @@ function readImage(abs: string, mimeType: string) {
  * @param opts.llm      explicit LLM target; defaults to resolveLLM({}) (lm-studio Gemma)
  * @param opts.agentDir  resolve models.json from THIS directory instead of the
  *                        global ~/.pi/agent (see createSharedSession's doc)
- * @param opts.modelRegistry  explicit, file-independent ModelRegistry (see
+ * @param opts.modelRuntime  explicit, file-independent ModelRuntime (see
  *                        createSharedSession's doc) — takes precedence over agentDir
  */
 export async function askImage(
   imagePath: string,
   question: string,
-  opts: { mimeType?: string; systemPrompt?: string; llm?: ResolvedLLM; agentDir?: string; modelRegistry?: ModelRegistry } = {},
+  opts: { mimeType?: string; systemPrompt?: string; llm?: ResolvedLLM; agentDir?: string; modelRuntime?: ModelRuntime } = {},
 ): Promise<AskImageResult> {
   const llm = opts.llm ?? resolveLLM({});
   const mimeType = opts.mimeType ?? guessImageMimeType(imagePath);
   const { session } = await createSharedSession(llm, {
     appendSystemPrompt: opts.systemPrompt ? [opts.systemPrompt] : undefined,
     agentDir: opts.agentDir,
-    modelRegistry: opts.modelRegistry,
+    modelRuntime: opts.modelRuntime,
   });
 
   const image = readImage(imagePath, mimeType);
