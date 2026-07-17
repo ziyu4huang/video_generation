@@ -36,6 +36,49 @@ _Avoid_: chain, stream
 Groups agents in the live view (and optionally caps a per-phase token budget); a display/budget boundary, not an execution primitive.
 _Avoid_: step, stage (a *stage* is a pipeline transform; a *phase* is a grouping label)
 
+### LLM layer — thin adapter over Pi
+
+**`WorkflowAgent`**:
+The engine's LLM caller — a **thin adapter over Pi's agent session, NOT a
+parallel LLM implementation**. It owns no `fetch`, no provider SDK, no HTTP path
+to any LLM: its only runtime dependency is `acorn` (the script parser). Every
+`agent()` call constructs a fresh Pi session via `createAgentSession()` and drives
+it with `session.prompt()`. The engine's value is the workflow control-flow
+layered *on top* of those sessions (fan-out / gate / retry / loopUntilDry /
+journaling / resume / structured-output repair / token+cost accounting) — never a
+second LLM transport.
+_Avoid_: "the engine's own agent" / "its own LLM provider" (it delegates all of
+that to `@earendil-works/pi-coding-agent`); "provider layer" (there is none in
+this package)
+
+**Provider / auth / model resolution (shared, not re-implemented)**:
+Model objects resolve through Pi's `ModelRegistry` + `AuthStorage` reading the
+*same* `~/.pi/auth.json`, `models.json`, and `SettingsManager` every other Pi
+command uses. A `mainModel` is a `provider/modelId` string handed to the session;
+the engine never opens its own provider connection or reads its own key.
+_Avoid_: "workflow's model registry" (it is Pi's)
+
+**Tool layer (shared, not re-implemented)**:
+Tools are Pi's `ToolDefinition` / `defineTool`; the default set is Pi's
+`createCodingTools(cwd)`. Engine-defined tools (`structured_output`, web fetch,
+workflow trigger, spawn-subagent) are built with `defineTool` and injected via
+`createAgentSession({ customTools })` — Pi's extension point, not a second tool
+registry. `applyToolPolicy` is an allow/denylist *filter* over Pi's definitions,
+not a new registry.
+_Avoid_: "workflow tool registry" / "workflow skills" (neither exists; skills are
+parsed-but-ignored, `ToolSearch` is absent from this package)
+
+**Per-agent session isolation**:
+Each `agent()` call opens a **fresh in-memory session**
+(`SessionManager.inMemory()`), not a continuation of any parent session. This is
+what makes each call a journaled, resumable, deterministic atom — sharing session
+state across agents would break resume. The CLI (`workflow run`) passes only a
+model string + `cwd`; the extension path (`/workflows`) additionally threads the
+parent's extension tool definitions + model string, but the child session is still
+newly constructed. Connection objects are never shared; only the config files are.
+_Avoid_: "child reuses the parent's connection" (it reuses the parent's *config*,
+not its connection or state)
+
 ### Model routing & isolation
 
 **Tier**:

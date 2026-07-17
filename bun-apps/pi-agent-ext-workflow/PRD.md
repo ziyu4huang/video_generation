@@ -23,6 +23,34 @@ Claude Code–style dynamic workflows for Pi. The agent writes a small JavaScrip
 - Self-contained npm package: `npm:@quintinshaw/pi-dynamic-workflows`
 - Loaded via pi-agent's run-dir manifest, or headlessly via `pi-agent-cli workflow run`
 
+## Architecture — thin adapter, not a parallel LLM stack
+
+This package **delegates its entire LLM / agent / tool layer to Pi** and adds
+*only* workflow orchestration on top. It does NOT implement a competing LLM
+provider, agent runtime, or tool registry.
+
+- **LLM transport**: every `agent()` call constructs a fresh Pi session via
+  `createAgentSession()` and drives it with `session.prompt()`. No `fetch`, no
+  provider SDK (`openai` / `@anthropic-ai/sdk` / `@lmstudio/sdk`), no custom HTTP
+  path to any LLM exists in this package.
+- **Provider / auth / model resolution**: shared — Pi's `ModelRegistry` +
+  `AuthStorage` reading the same `~/.pi/auth.json`, `models.json`, and
+  `SettingsManager` as every other Pi command. `mainModel` is a `provider/modelId`
+  string handed to the session.
+- **Tools**: shared — Pi's `ToolDefinition` / `defineTool`, default set
+  `createCodingTools(cwd)`. Engine tools (`structured_output`, web fetch, workflow
+  trigger, spawn-subagent) are defined via `defineTool` and injected through Pi's
+  `customTools` extension point. No second tool registry; no skills/`ToolSearch`.
+- **The only runtime dep is `acorn`** (the script parser); the LLM capability
+  comes entirely from the peer dep `@earendil-works/pi-coding-agent`.
+- **What this package owns**: the workflow control-flow layered on top of those
+  sessions — fan-out (`parallel` / `pipeline`), `phase`, deterministic gates
+  (`gate` / retry / `loopUntilDry`), journaling, resume, structured-output repair,
+  tier routing, and real token/cost accounting read back from each session.
+
+> Design intent: one LLM / agent / tool stack (Pi's). This package is a workflow
+> orchestration layer, never a second implementation of the layers below it.
+
 ## Install
 
 ```bash

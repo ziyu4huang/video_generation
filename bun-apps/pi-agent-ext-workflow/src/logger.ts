@@ -3,7 +3,7 @@
  */
 
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { workflowProjectPaths } from "./workflow-paths.js";
 
 export interface WorkflowLogger {
@@ -19,6 +19,12 @@ export interface WorkflowLoggerOptions {
   runId?: string;
   /** Working directory for file paths. */
   cwd?: string;
+  /**
+   * Directory for the persisted run log. When set, overrides the default
+   * (cwd-hashed) runs dir from `workflowProjectPaths`. Absolute, or relative
+   * to `cwd`. Lets a headless caller redirect output to `PWD/.pi/` or anywhere.
+   */
+  runsDir?: string;
   /** Whether to persist logs to disk. */
   persist?: boolean;
   /** Callback for each log entry. */
@@ -30,7 +36,9 @@ export function createWorkflowLogger(options: WorkflowLoggerOptions = {}): Workf
   const persistLogs = options.persist ?? true;
   const cwd = options.cwd ?? process.cwd();
   const runId = options.runId ?? `run-${Date.now()}`;
-  const runsDir = workflowProjectPaths(cwd).runsDir;
+  const runsDir = options.runsDir
+    ? (isAbsolute(options.runsDir) ? options.runsDir : resolve(cwd, options.runsDir))
+    : workflowProjectPaths(cwd).runsDir;
   let logFile: string | null = null;
 
   const write = (level: string, message: string) => {
