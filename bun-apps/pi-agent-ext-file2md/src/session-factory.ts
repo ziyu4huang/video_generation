@@ -14,7 +14,6 @@ import {
   createAgentSessionServices,
   getAgentDir,
   ModelRegistry,
-  type ModelRuntime,
   SessionManager,
   type AgentSessionServices,
 } from "@earendil-works/pi-coding-agent";
@@ -23,10 +22,7 @@ import type { ResolvedLLM } from "./sessions.js";
 
 /** Find model in registry — exact match first, then substring fallback. */
 function resolveModel(services: AgentSessionServices, provider: string, modelId: string): Model<any> {
-  // 0.80.10: AgentSessionServices exposes a ModelRuntime (auth+models folded
-  // together). Wrap it in the sync ModelRegistry compatibility facade so the
-  // find/getAll/getAvailable reads below stay unchanged.
-  const reg = new ModelRegistry(services.modelRuntime);
+  const reg = services.modelRegistry;
   const exact = reg.find(provider, modelId);
   if (exact) return exact;
 
@@ -62,12 +58,13 @@ function resolveModel(services: AgentSessionServices, provider: string, modelId:
  * No obsidian extension — suitable for pure VLM page extraction.
  *
  * Model resolution, in order of precedence:
- *  1. `opts.modelRuntime` — an explicit `ModelRuntime` instance (e.g. built
- *     via `ModelRuntime.create()` + `.registerProvider(...)`). Fully
- *     file-independent — use this when a caller ships its own provider config
- *     in CODE rather than depending on ANY models.json existing at a
- *     particular path (global or project-local paths can be deleted/moved by
- *     unrelated changes — see memory [[pi-vlm-agentdir-global-vs-project]]).
+ *  1. `opts.modelRegistry` — an explicit `ModelRegistry` instance (e.g. built
+ *     via `new ModelRegistry(await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null }))` +
+ *     `.registerProvider(...)`). Fully file-independent — use this when a
+ *     caller ships its own provider config in CODE rather than depending on
+ *     ANY models.json existing at a particular path (global or project-local
+ *     paths can be deleted/moved by unrelated changes — see memory
+ *     [[pi-vlm-agentdir-global-vs-project]]).
  *  2. `opts.agentDir` — resolve models.json from this directory instead of
  *     the global ~/.pi/agent.
  *  3. default: the global `getAgentDir()` (~/.pi/agent), matching the
@@ -75,12 +72,12 @@ function resolveModel(services: AgentSessionServices, provider: string, modelId:
  */
 export async function createSharedSession(
   llm: ResolvedLLM,
-  opts: { appendSystemPrompt?: string[]; agentDir?: string; modelRuntime?: ModelRuntime } = {},
+  opts: { appendSystemPrompt?: string[]; agentDir?: string; modelRegistry?: ModelRegistry } = {},
 ) {
   const services = await createAgentSessionServices({
     cwd: process.cwd(),
     agentDir: opts.agentDir ?? getAgentDir(),
-    modelRuntime: opts.modelRuntime,
+    modelRegistry: opts.modelRegistry,
     resourceLoaderOptions: {
       ...(opts.appendSystemPrompt?.length
         ? { appendSystemPrompt: opts.appendSystemPrompt }

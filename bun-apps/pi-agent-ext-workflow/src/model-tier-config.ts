@@ -14,6 +14,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { listAvailableModelSpecs } from "./agent.js";
 import { MODEL_TIERS_FILE } from "./config.js";
 import { homeDir } from "./home.js";
 
@@ -47,14 +48,9 @@ export function getModelTierConfigPath(): string {
  * the user's currently active Pi model when known, else the first available
  * model. New users get consistent behaviour (every tier == the model they're
  * already chatting with) and can refine tiers later via `/workflows-models`.
- *
- * `availableModels` is injected by the caller (which fetches it via the async
- * `listAvailableModelSpecs()`). Kept as a sync pure fn so prompt/default
- * builders stay sync — the async I/O lives at the call site, not in here.
- * Defaults to [] so callers without a live list still get a usable config.
  */
-export function buildDefaultTierConfig(currentModelSpec?: string, availableModels: string[] = []): ModelTierConfig {
-  const model = currentModelSpec ?? availableModels[0] ?? "";
+export async function buildDefaultTierConfig(currentModelSpec?: string): Promise<ModelTierConfig> {
+  const model = currentModelSpec ?? (await listAvailableModelSpecs())[0] ?? "";
   return {
     tiers: {
       small: model,

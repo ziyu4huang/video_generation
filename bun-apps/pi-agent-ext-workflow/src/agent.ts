@@ -234,10 +234,6 @@ export interface WorkflowAgentOptions {
  * List the user's currently available models (those with auth configured) as
  * `provider/modelId` specs. Used to tell the workflow author which models it may
  * route agents to. Best-effort: returns [] if the registry can't be built.
- *
- * 0.80.10 migration: ModelRuntime.create() is async (auth + models.json
- * orchestration folded into ModelRuntime; the old sync ModelRegistry.create /
- * AuthStorage factories were removed from the public exports).
  */
 export async function listAvailableModelSpecs(): Promise<string[]> {
   try {
@@ -327,7 +323,7 @@ export class WorkflowAgent {
   private readonly instructions?: string;
   private readonly mainModel?: string;
   /** Lazily built once; shares the SDK's agentDir/auth so resolved models are authed. */
-  private registry?: ModelRegistry;
+  private registryPromise?: Promise<ModelRegistry>;
   /**
    * Lazily loaded once per instance. `undefined` = not yet read; `null` = read
    * and the file is absent (callers fall back to a default). Caching avoids an
@@ -354,19 +350,17 @@ export class WorkflowAgent {
     return this.tierConfigCache;
   }
 
-  private async getRegistry(): Promise<ModelRegistry> {
-    if (!this.registry) {
+  private getRegistry(): Promise<ModelRegistry> {
+    if (!this.registryPromise) {
       const dir = getAgentDir();
       // Same agentDir/auth files createAgentSession uses by default, so a model
-      // resolved here carries valid credentials. 0.80.10: ModelRuntime.create
-      // owns auth; wrap it in the sync ModelRegistry facade for find/getAll.
-      const runtime = await ModelRuntime.create({
+      // resolved here carries valid credentials.
+      this.registryPromise = ModelRuntime.create({
         authPath: join(dir, "auth.json"),
         modelsPath: join(dir, "models.json"),
-      });
-      this.registry = new ModelRegistry(runtime);
+      }).then((runtime) => new ModelRegistry(runtime));
     }
-    return this.registry;
+    return this.registryPromise;
   }
 
   /**

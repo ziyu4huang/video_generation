@@ -243,6 +243,7 @@
       "name": "@repo/pi-agent-ext-movie-director",
       "version": "0.1.0",
       "dependencies": {
+        "@earendil-works/pi-ai": "0.80.10",
         "@earendil-works/pi-coding-agent": "0.80.10",
         "@repo/pi-agent-ext-flux2": "workspace:*",
         "@repo/pi-agent-ext-krea2": "workspace:*",

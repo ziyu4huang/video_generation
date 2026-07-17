@@ -116,8 +116,8 @@ test("createWorkflowTool schema exposes concurrency and agentRetries", () => {
   assert.match(parameters.properties?.agentRetries?.description ?? "", /Retry attempts/i);
 });
 
-test("buildVerboseGuidelines mentions retry and concurrency controls", () => {
-  const all = buildVerboseGuidelines().join(" ");
+test("buildVerboseGuidelines mentions retry and concurrency controls", async () => {
+  const all = (await buildVerboseGuidelines()).join(" ");
   assert.match(all, /low concurrency/i);
   assert.match(all, /agentRetries/i);
   assert.match(all, /null handling/i);
@@ -176,8 +176,8 @@ test("buildWorkflowPointerGuideline is a short pointer advertising workflow_help
   assert.match(pointer, /workflow_help/i, "pointer must advertise workflow_help for self-correction");
 });
 
-test("buildWorkflowGuidelinesForTurn: full turn returns the full authoring block", () => {
-  const full = buildWorkflowGuidelinesForTurn({ full: true });
+test("buildWorkflowGuidelinesForTurn: full turn returns the full authoring block", async () => {
+  const full = await buildWorkflowGuidelinesForTurn({ full: true });
   const simplified = buildSimplifiedGuidelines().join("\n");
   assert.equal(full, simplified, "full non-verbose turn = simplified set joined by newlines");
   // Sanity: the full block carries the correctness essentials.
@@ -186,24 +186,24 @@ test("buildWorkflowGuidelinesForTurn: full turn returns the full authoring block
   assert.match(full, /defaults are unbounded/);
 });
 
-test("buildWorkflowGuidelinesForTurn: full+verbose returns the verbose set", () => {
-  const fullVerbose = buildWorkflowGuidelinesForTurn({ full: true, verbose: true });
-  const verbose = buildVerboseGuidelines().join("\n");
+test("buildWorkflowGuidelinesForTurn: full+verbose returns the verbose set", async () => {
+  const fullVerbose = await buildWorkflowGuidelinesForTurn({ full: true, verbose: true });
+  const verbose = (await buildVerboseGuidelines()).join("\n");
   assert.equal(fullVerbose, verbose, "full verbose turn = verbose set joined by newlines");
   assert.match(fullVerbose, /low concurrency/);
 });
 
-test("buildWorkflowGuidelinesForTurn: non-workflow turn returns only the pointer", () => {
-  const pointer = buildWorkflowGuidelinesForTurn({ full: false });
+test("buildWorkflowGuidelinesForTurn: non-workflow turn returns only the pointer", async () => {
+  const pointer = await buildWorkflowGuidelinesForTurn({ full: false });
   assert.equal(pointer, buildWorkflowPointerGuideline());
   // The pointer must NOT contain the heavy authoring bullets.
   assert.doesNotMatch(pointer, /export const meta/);
   assert.doesNotMatch(pointer, /parallel\(\) takes functions/);
 });
 
-test("buildWorkflowGuidelinesForTurn: full block is much larger than the pointer (the tax we save)", () => {
-  const full = buildWorkflowGuidelinesForTurn({ full: true });
-  const pointer = buildWorkflowGuidelinesForTurn({ full: false });
+test("buildWorkflowGuidelinesForTurn: full block is much larger than the pointer (the tax we save)", async () => {
+  const full = await buildWorkflowGuidelinesForTurn({ full: true });
+  const pointer = await buildWorkflowGuidelinesForTurn({ full: false });
   // Measured: full ≈668 tok, pointer ≈71 tok (~9x). Net ~−597 tok on every
   // non-workflow turn vs. the old always-on static promptGuidelines.
   assert.ok(full.length > pointer.length * 8, "full block should be ~9x the pointer length");
@@ -211,22 +211,22 @@ test("buildWorkflowGuidelinesForTurn: full block is much larger than the pointer
 
 // ─── modelRoutingGuideline ──────────────────────────────────────────────────────
 
-test("modelRoutingGuideline mentions all three tier names", () => {
-  const text = modelRoutingGuideline();
+test("modelRoutingGuideline mentions all three tier names", async () => {
+  const text = await modelRoutingGuideline();
   assert.ok(text.includes("small"), "should mention small tier");
   assert.ok(text.includes("medium"), "should mention medium tier");
   assert.ok(text.includes("big"), "should mention big tier");
 });
 
-test("modelRoutingGuideline describes each tier purpose", () => {
-  const text = modelRoutingGuideline();
+test("modelRoutingGuideline describes each tier purpose", async () => {
+  const text = await modelRoutingGuideline();
   assert.ok(text.includes("lightweight"), "should contain lightweight");
   assert.ok(text.includes("balanced"), "should contain balanced");
   assert.ok(text.includes("synthesis"), "should contain synthesis");
 });
 
-test("modelRoutingGuideline explains tier vs model priority", () => {
-  const text = modelRoutingGuideline();
+test("modelRoutingGuideline explains tier vs model priority", async () => {
+  const text = await modelRoutingGuideline();
   assert.ok(text.includes("opts.tier"), "should mention opts.tier");
   assert.ok(text.includes("opts.model"), "should mention opts.model");
   assert.ok(
@@ -235,8 +235,8 @@ test("modelRoutingGuideline explains tier vs model priority", () => {
   );
 });
 
-test("modelRoutingGuideline references the model scope (auth-independent)", () => {
-  const text = modelRoutingGuideline();
+test("modelRoutingGuideline references the model scope (auth-independent)", async () => {
+  const text = await modelRoutingGuideline();
   // With auth configured it lists the available models; on a fresh/CI machine
   // with no models it falls back to a generic line. Accept either so the test
   // doesn't depend on the runner's authenticated providers.
@@ -246,8 +246,8 @@ test("modelRoutingGuideline references the model scope (auth-independent)", () =
   );
 });
 
-test("modelRoutingGuideline explains when to use each option", () => {
-  const text = modelRoutingGuideline();
+test("modelRoutingGuideline explains when to use each option", async () => {
+  const text = await modelRoutingGuideline();
   assert.ok(/small.*(exploration|search|inventory|agents)/i.test(text), "small tier should mention light workloads");
   assert.ok(/big.*(synthesis|judgment|decision)/i.test(text), "big tier should mention heavy reasoning");
 });
@@ -267,8 +267,8 @@ test("createWorkflowTool with custom cwd creates tool", () => {
   assert.equal(tool.name, "workflow");
 });
 
-test("modelRoutingGuideline output is non-empty and well-formed", () => {
-  const text = modelRoutingGuideline();
+test("modelRoutingGuideline output is non-empty and well-formed", async () => {
+  const text = await modelRoutingGuideline();
   assert.ok(text.length > 50, "should be a substantial instruction");
   assert.ok(text.endsWith(".") || text.endsWith("") || text.endsWith("`"), "should end properly");
   assert.ok(!text.includes("undefined"), "no undefined interpolation");

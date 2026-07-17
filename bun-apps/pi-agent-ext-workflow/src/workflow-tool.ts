@@ -23,15 +23,9 @@ import { loadWorkflowSettings } from "./workflow-settings.js";
  *
  * This string is injected into the workflow tool's promptGuidelines and
  * therefore appears in the LLM's system prompt for every workflow execution.
- *
- * `availableModels` is injected by the caller (fetched via the async
- * `listAvailableModelSpecs()`). Defaults to [] — the static verbose-guideline
- * builder (called at registration time, no async) passes nothing and gets the
- * "Use models the user has configured." fallback; the on-demand
- * `workflow_help({topic:"models"})` path awaits the live list and passes it.
  */
-export function modelRoutingGuideline(availableModels: string[] = []): string {
-  const available = availableModels;
+export async function modelRoutingGuideline(): Promise<string> {
+  const available = await listAvailableModelSpecs();
   const list = available.length
     ? `The user's currently available models (route only to these) are: ${available.join(", ")}.`
     : "Use models the user has configured.";
@@ -253,7 +247,7 @@ export function buildSimplifiedGuidelines(): string[] {
  * the simplified set defers to workflow_help. Extracted verbatim from the old
  * static promptGuidelines so verbose-mode behavior is byte-identical.
  */
-export function buildVerboseGuidelines(): string[] {
+export async function buildVerboseGuidelines(): Promise<string[]> {
   return [
     "Use workflow only when the user explicitly asks for a workflow, workflows, fan-out, or multi-agent orchestration.",
     "For workflow, always pass one raw JavaScript string in the required script parameter; do not include Markdown fences or prose around the script.",
@@ -272,7 +266,7 @@ export function buildVerboseGuidelines(): string[] {
     "For workflow, failed agent(), parallel(), or pipeline() branches return null and log the failure unless the workflow is aborted. Check for nulls before synthesizing conclusions.",
     "For workflow, include a final synthesis/assertion agent when combining multiple subagent results; return a compact JSON-serializable value with ok/verdict plus the important outputs.",
     "For workflow, if agent() needs machine-readable output, pass a plain JSON Schema via opts.schema; agent() will return the validated object. Use JSON Schema syntax, not TypeScript or TypeBox constructors.",
-    modelRoutingGuideline(),
+    await modelRoutingGuideline(),
     agentTypeGuideline(),
     "For workflow, do not assume the parent assistant has repository code context inside subagents; include enough task context and relevant paths in each agent prompt.",
     "For workflow, runs are background by default: the tool returns immediately with a run ID, the turn ends so the user isn't blocked, and the result is delivered back into the conversation when the run finishes. Pass background: false only when you must use the result inline in this same turn (it will block).",
@@ -333,9 +327,9 @@ export interface WorkflowGuidelinesForTurnOptions {
  * newlines, or the pointer). The extension handler simply does
  * `{ systemPrompt: base + "\n\n" + block }`.
  */
-export function buildWorkflowGuidelinesForTurn(options: WorkflowGuidelinesForTurnOptions): string {
+export async function buildWorkflowGuidelinesForTurn(options: WorkflowGuidelinesForTurnOptions): Promise<string> {
   if (options.full) {
-    return (options.verbose ? buildVerboseGuidelines() : buildSimplifiedGuidelines()).join("\n");
+    return (options.verbose ? await buildVerboseGuidelines() : buildSimplifiedGuidelines()).join("\n");
   }
   return buildWorkflowPointerGuideline();
 }
@@ -550,7 +544,7 @@ export function createWorkflowHelpTool() {
           text = workflowPatternsDoc();
           break;
         case "models":
-          text = modelRoutingGuideline(await listAvailableModelSpecs());
+          text = await modelRoutingGuideline();
           break;
         default:
           text =
