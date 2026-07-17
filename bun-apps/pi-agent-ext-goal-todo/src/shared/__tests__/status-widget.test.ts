@@ -229,10 +229,10 @@ describe("PowerToolStatusWidget order field", () => {
 		w.setUICtx(cap.uiCtx as never);
 		w.addSection({ id: "wayfind", order: 2, render: () => ["WAYFIND"] });
 		w.addSection({ id: "goal", order: 0, render: () => ["GOAL"] });
-		w.addSection({ id: "pwf", order: 3, render: () => ["PWF"] });
+		w.addSection({ id: "plan", order: 3, render: () => ["PLAN"] });
 		w.addSection({ id: "todo", order: 1, render: () => ["TODO"] });
 		w.update();
-		expect(cap.render(40)).toEqual(["GOAL", "", "TODO", "", "WAYFIND", "", "PWF"]);
+		expect(cap.render(40)).toEqual(["GOAL", "", "TODO", "", "WAYFIND", "", "PLAN"]);
 	});
 
 	test("sections without `order` sort after ordered sections, in addSection order", () => {

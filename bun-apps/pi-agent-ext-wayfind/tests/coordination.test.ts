@@ -57,8 +57,8 @@ describe("unpublishWayfindActive", () => {
   });
 });
 
-describe("readPlanIncomplete / readPlanSummary (planning-with-files seam)", () => {
-  it("graceful fallback when planning-with-files is absent", () => {
+describe("readPlanIncomplete / readPlanSummary (plan-coordinator seam)", () => {
+  it("graceful fallback when the plan coordinator is absent", () => {
     delete (globalThis as Record<string, unknown>).__piPlanIncomplete;
     delete (globalThis as Record<string, unknown>).__piPlanSummary;
     expect(readPlanIncomplete("/any/cwd")).toBe(false);
@@ -166,7 +166,7 @@ describe("syncChainState (ADR-0001: close tickets whose phase completed)", () =>
     expect(syncChainState(cwd, effort).closed).toEqual(["03"]);
   });
 
-  it("is a graceful no-op when __piPlanPhases is undefined (pwf absent)", () => {
+  it("is a graceful no-op when __piPlanPhases is undefined (no plan coordinator)", () => {
     const cwd = makeCwd();
     const effort = "demo";
     seed(cwd, effort);

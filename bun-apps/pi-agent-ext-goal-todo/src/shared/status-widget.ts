@@ -1,6 +1,6 @@
 /**
  * shared/status-widget.ts — single above-editor widget for the composite
- * status display (goal, todo, and now wayfind / planning-with-files),
+ * status display (goal, todo, and now wayfind / the plan coordinator),
  * rendered in a FIXED order.
  *
  * WHY ONE KEY (not one per feature):
@@ -14,14 +14,14 @@
  * One composite key ("pi-power-tool") makes stacking deterministic by
  * construction: the only above-editor widget can't reorder relative to itself.
  * Sections render sorted by their `order` field (goal=0, todo=1, wayfind=2,
- * planning-with-files=3); sections without an explicit `order` sort after all
+ * the plan coordinator=3); sections without an explicit `order` sort after all
  * ordered sections, in `addSection` call order.
  *
  * WHY A `globalThis`-BACKED SINGLETON (not a module-level `let instance`):
  * pi loads extensions via jiti. Module identity across a jiti-loaded extension
  * and a native `import()` of the same package is NOT guaranteed — two
  * "instances" of this module can exist in the same process, each with its own
- * module-level `let instance`, so wayfind and planning-with-files could each
+ * module-level `let instance`, so wayfind and the plan coordinator could each
  * get a DIFFERENT widget and silently stop sharing state. `globalThis` is
  * process-singleton → always the same object regardless of which loader
  * resolved this module. Same rationale as the existing
@@ -47,7 +47,7 @@ export interface StatusSection {
 	/**
 	 * Sort key, ascending. Sections sharing an `order` (or all omitting it)
 	 * keep `addSection` call order relative to each other. Known assignments:
-	 * goal=0, todo=1, wayfind=2, planning-with-files=3.
+	 * goal=0, todo=1, wayfind=2, the plan coordinator=3.
 	 */
 	order?: number;
 	/** Render this section's lines. Empty array = section hidden. */
@@ -110,7 +110,7 @@ export class PowerToolStatusWidget {
 	 * Currently that's `pi-agent-ext-goal-todo` (positioned first in load
 	 * order), which calls it exactly once, from its own `session_shutdown`
 	 * handler — the point where every extension is tearing down anyway.
-	 * Other consumer packages (wayfind, planning-with-files, ...) must
+	 * Other consumer packages (wayfind, the plan coordinator, ...) must
 	 * dispose only their own overlay/section state and must NEVER call this
 	 * method on the shared widget.
 	 */
@@ -145,7 +145,7 @@ export class PowerToolStatusWidget {
  * Process-singleton accessor. See the class doc comment for why this is
  * `globalThis`-backed rather than a module-level `let instance`. Every
  * package that wants a section on the composite status widget (goal-todo
- * itself, wayfind, planning-with-files) calls this — never `new
+ * itself, wayfind, the plan coordinator) calls this — never `new
  * PowerToolStatusWidget()` directly, or it will get its own disconnected
  * widget instance.
  *

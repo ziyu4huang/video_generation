@@ -124,7 +124,7 @@ describe("continuous chain loop — end-to-end toy effort", () => {
     expect(plan).toMatch(/### Phase 1 — \[01-storage\] Pick storage/);
     expect(plan).toContain("- [ ] migration runs green");
 
-    // Simulate pwf: the phase is now complete and exposes the ticket stem
+    // Simulate the plan coordinator: the phase is now complete and exposes the ticket stem
     // (exactly what readPlanPhases publishes on globalThis.__piPlanPhases).
     (globalThis as Record<string, unknown>)[PHASES_KEY] = () => [
       { id: "1", status: "complete", ticketIds: ["01-storage"] },

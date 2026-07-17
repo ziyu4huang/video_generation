@@ -12,7 +12,7 @@
  *     tool-execution-end refresh, agent-start hide-completed).
  *
  * Plan A coordination seam: publishes `isGoalActive` on globalThis so peer
- * extensions (planning-with-files) can read it WITHOUT a hard dep. The peer
+ * extensions (the plan coordinator) can read it WITHOUT a hard dep. The peer
  * reads `globalThis.__piGoalActive?.() ?? false`. This is a runtime globalThis
  * contract — load order only affects the brief startup window, handled by the
  * `?? false` fallback. Positioned early in run-dir/manifest.json (right after
@@ -36,7 +36,7 @@ function isStaleCtxError(e: unknown): boolean {
 const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 	// ── Plan A coordination seam ─────────────────────────────────────────
 	// globalThis is process-singleton → the function always reads goal/goal's
-	// activeGoal. Peer (planning-with-files) reads globalThis.__piGoalActive?.().
+	// activeGoal. Peer (the plan coordinator) reads globalThis.__piGoalActive?.().
 	(globalThis as Record<string, unknown>).__piGoalActive = isGoalActive;
 
 	// ── Todo tool + /todos command ────────────────────────────────────────

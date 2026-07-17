@@ -11,7 +11,7 @@
  *   /wayfind spec [effort]     — synthesize the conversation into a spec (was /to-spec)
  *   /wayfind tickets [effort]  — break a spec into tracer-bullet tickets (was /to-tickets)
  *   /wayfind seed [effort]     — seed a task_plan.md from tickets/decisions (was /plan-seed)
- *   /wayfind sync [effort]     — close tickets whose pwf phase completed (was /chain-sync)
+ *   /wayfind sync [effort]     — close tickets whose plan phase completed (was /chain-sync)
  *
  * Each subcommand's logic lives in its own private handler function, unchanged
  * from the pre-consolidation per-command registrations — only the routing
@@ -54,7 +54,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
     startGrill(ctx, topic, false);
     overlay.setLine(`grill me active${topic ? `: ${topic}` : ""}`);
     ctx.ui.notify(
-      `[${PKG_NAME}] grill-me started${topic ? ` (${topic})` : ""}. planning-with-files will yield while the grill is active.`,
+      `[${PKG_NAME}] grill-me started${topic ? ` (${topic})` : ""}. The plan coordinator yields while the grill is active.`,
       "info",
     );
   }
@@ -67,7 +67,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       [
         `[${PKG_NAME}] grill-me-with-docs started${topic ? ` (${topic})` : ""}.`,
         "Resolving terms will be written to CONTEXT.md; hard-to-reverse decisions offered as ADRs.",
-        "End with /grill done (or /grill done --seed-plan to hand off to planning-with-files).",
+        "End with /grill done (or /grill done --seed-plan to hand off to a task_plan.md seed).",
       ].join("\n"),
       "info",
     );
@@ -102,7 +102,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
     }
     if ("refused" in outcome) {
       ctx.ui.notify(
-        `[${PKG_NAME}] --seed-plan: ${outcome.refused} already exists — run /plan done --delete first to re-seed.`,
+        `[${PKG_NAME}] --seed-plan: ${outcome.refused} already exists — delete it first to re-seed.`,
         "warning",
       );
       return;
@@ -112,7 +112,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       "info",
     );
     pi.sendUserMessage(
-      `Grill ended. I seeded ${outcome.path} from ${outcome.source}. Review the phases, then run /plan execute (planning-with-files).`,
+      `Grill ended. I seeded ${outcome.path} from ${outcome.source}. Review the phases, then execute the plan.`,
       { deliverAs: "steer" },
     );
   }
@@ -162,10 +162,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       return;
     }
     if ("refused" in outcome) {
-      ctx.ui.notify(
-        `[${PKG_NAME}] seed: ${outcome.refused} already exists — run /plan done --delete first to re-seed.`,
-        "warning",
-      );
+      ctx.ui.notify(`[${PKG_NAME}] seed: ${outcome.refused} already exists — delete it first to re-seed.`, "warning");
       return;
     }
     overlay.setLine(`seed: ${effort} (${outcome.source})`);
@@ -173,10 +170,9 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       `[${PKG_NAME}] Seeded ${outcome.path} (${outcome.phaseCount} phase(s), source: ${outcome.source}).`,
       "info",
     );
-    pi.sendUserMessage(
-      `Seeded ${outcome.path} from ${outcome.source}. Review the phases, then run /plan execute (planning-with-files).`,
-      { deliverAs: "steer" },
-    );
+    pi.sendUserMessage(`Seeded ${outcome.path} from ${outcome.source}. Review the phases, then execute the plan.`, {
+      deliverAs: "steer",
+    });
   }
 
   async function handleToSpec(args: string, _ctx: ExtensionCommandContext): Promise<void> {
@@ -189,7 +185,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
         effort
           ? `Write the spec to .planning/${effort}/spec.md.`
           : "Write the spec to .planning/<effort>/spec.md (or docs/specs/<slug>.md).",
-        "Tell me the path when written. The natural next step is /wayfind tickets, then /wayfind seed → /plan execute.",
+        "Tell me the path when written. The natural next step is /wayfind tickets, then /wayfind seed → execute the plan.",
       ].join("\n"),
       { deliverAs: "steer" },
     );
@@ -206,7 +202,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
           ? `Write one ticket per file under .planning/${effort}/tickets/ (NN-slug.md).`
           : "Write one ticket per file under .planning/<effort>/tickets/ (NN-slug.md).",
         "Use the UNIFIED ticket format: YAML frontmatter (type/blocking/status) + ## Question + ## What to build + ## Acceptance — the same schema wayfinder uses (parseTicketFile reads it).",
-        "Then flatten the frontier into a task_plan.md with /wayfind seed, and run /plan execute (planning-with-files).",
+        "Then flatten the frontier into a task_plan.md with /wayfind seed, and execute the plan.",
       ].join("\n"),
       { deliverAs: "steer" },
     );
