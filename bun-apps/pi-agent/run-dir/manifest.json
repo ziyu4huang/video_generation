@@ -86,6 +86,13 @@
       "bundleMode": "thin",
       "testGate": "cd bun-apps/pi-agent-ext-movie-director && bun test",
       "version": "0.1.0"
+    },
+    {
+      "name": "pi-agent-ext-superpowers",
+      "entry": "pi-agent-ext-superpowers/extensions/index.ts",
+      "bundleMode": "thin",
+      "testGate": "cd bun-apps/pi-agent-ext-superpowers && bun test",
+      "version": "6.1.1"
     }
   ],
   "skills": [
@@ -93,7 +100,8 @@
     "pi-agent-ext-planning-with-files/skills",
     "pi-agent-ext-research-tool/skills",
     "pi-agent-ext-wayfind/skills",
-    "pi-agent-ext-grill-memory/skills"
+    "pi-agent-ext-grill-memory/skills",
+    "pi-agent-ext-superpowers/skills"
   ],
   "npmExtensions": [],
   "lazyExtensions": {
