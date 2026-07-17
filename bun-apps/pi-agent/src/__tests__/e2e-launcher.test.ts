@@ -6,12 +6,17 @@
  *
  * Run: bun test src/__tests__/e2e-launcher.test.ts  (folded into run-test.sh's
  * `high` tier via run_extensions() — bun test auto-discovers *.test.ts files).
+ *
+ * Gated on PI_AGENT_E2E=1 (keeps `bun test` baseline fast), same convention as
+ * e2e-patches.test.ts / e2e-extensions.test.ts / e2e-readonly.test.ts. Run via
+ * `./bun-apps/pi-agent/run-test.sh high` or `PI_AGENT_E2E=1 bun test`.
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, chmodSync, symlinkSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { E2E_ENABLED } from "./e2e-harness.ts";
 
 const RUN_SH = path.resolve(import.meta.dirname, "../../run.sh");
 const REAL_PKG_DIR = path.dirname(RUN_SH); // bun-apps/pi-agent — source (dev) mode in this checkout
@@ -34,7 +39,7 @@ function run(args: string[], opts: { cwd?: string; env?: Record<string, string> 
 	});
 }
 
-describe("symlink resolution", () => {
+describe.skipIf(!E2E_ENABLED)("symlink resolution", () => {
 	test("entry/mode resolve against the REAL script dir, not the symlink's dir", () => {
 		// bun-apps/pi-agent ships src/cli.ts (no pi-agent.js) in this checkout, so
 		// real behavior here is "source (dev)". --list-models is a fast, offline,
@@ -71,7 +76,7 @@ describe("symlink resolution", () => {
 	});
 });
 
-describe("entry-mode detection", () => {
+describe.skipIf(!E2E_ENABLED)("entry-mode detection", () => {
 	function makeFixture(name: string, files: Record<string, string>) {
 		const dir = path.join(TMP, name);
 		mkdirSync(dir, { recursive: true });
@@ -119,7 +124,7 @@ describe("entry-mode detection", () => {
 	});
 });
 
-describe("--update-help", () => {
+describe.skipIf(!E2E_ENABLED)("--update-help", () => {
 	test("exits 0, prints the upgrade wrapper docs, never execs bun", () => {
 		const result = run(["--update-help"]);
 		expect(result.status).toBe(0);
@@ -135,7 +140,7 @@ describe("--update-help", () => {
 	});
 });
 
-describe("--upgrade / -U passthrough", () => {
+describe.skipIf(!E2E_ENABLED)("--upgrade / -U passthrough", () => {
 	function makeUpgradeFixture(name: string) {
 		const dir = path.join(TMP, name);
 		mkdirSync(dir, { recursive: true });
@@ -166,7 +171,7 @@ describe("--upgrade / -U passthrough", () => {
 	});
 });
 
-describe("read-only deploy env exports", () => {
+describe.skipIf(!E2E_ENABLED)("read-only deploy env exports", () => {
 	test(".deploy-readonly sets JITI_FS_CACHE and PI_CODING_AGENT_DIR for the child", () => {
 		const dir = path.join(TMP, "readonly-fixture");
 		mkdirSync(dir, { recursive: true });
