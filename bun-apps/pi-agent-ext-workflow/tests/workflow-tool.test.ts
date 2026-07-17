@@ -257,7 +257,8 @@ test("createWorkflowTool invalid args throws descriptive error", () => {
   // We can test prepareArguments through the tool definition
   if (tool.prepareArguments) {
     const prepare = tool.prepareArguments as (args: unknown) => unknown;
-    assert.throws(() => prepare({ script: 123 }), /script.*string/);
+    // A non-string `script` with no `name` falls into the "neither provided" branch.
+    assert.throws(() => prepare({ script: 123 }), /script|name/);
     assert.throws(() => prepare("not-an-object"), /object argument/);
   }
 });

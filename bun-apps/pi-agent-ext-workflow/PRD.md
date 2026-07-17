@@ -51,6 +51,28 @@ provider, agent runtime, or tool registry.
 > Design intent: one LLM / agent / tool stack (Pi's). This package is a workflow
 > orchestration layer, never a second implementation of the layers below it.
 
+## Workflow packs — two entry paths, one resolver
+
+A **workflow pack** (a `manifest.json` + entry script folder) is the reusable,
+named form of a workflow. It is reachable through **two** entry paths that
+share a single pack resolver (`workflow-pack.ts` in this package):
+
+- **Path A — CLI**: `pi-agent-cli workflow run <name>` (headless meta-command;
+  the CLI layer is a thin wrapper — flag parsing + receipt).
+- **Path B — interactive tool**: the `workflow` tool's optional `name` parameter
+  (mutually exclusive with `script`). The workflow extension is built-in in the
+  pi TUI (`./pi-agent.sh`), so any session can resolve + run a pack by name.
+
+Both paths call the same `resolveWorkflowScript` → `runWorkflow`, so name
+resolution, pack-over-file precedence, and args merging are identical. The
+pack resolver, manifest model, and the `runWorkflowScript` orchestration are
+exported from this package and consumed by the CLI (no resolver code lives in
+the CLI anymore).
+
+> `manifest.model` is applied on Path A (`--model` overrides it) but NOT on
+> Path B (the session's `mainModel` governs; per-run model is future work).
+
+
 ## Install
 
 ```bash

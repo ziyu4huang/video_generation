@@ -12,6 +12,7 @@ import {
 } from "./display.js";
 import { WorkflowError, WorkflowErrorCode } from "./errors.js";
 import { parseWorkflowScript, type WorkflowRunResult } from "./workflow.js";
+import { mergeArgs, resolveWorkflowPack } from "./workflow-pack.js";
 import { WorkflowManager } from "./workflow-manager.js";
 import { createWorkflowStorage, type WorkflowStorage } from "./workflow-saved.js";
 import { loadWorkflowSettings } from "./workflow-settings.js";
@@ -119,14 +120,26 @@ const WORKFLOW_HELP_TOPIC_ENUM = Type.Union(
 );
 
 const workflowToolSchema = Type.Object({
-  script: Type.String({
-    description: [
-      "Required raw JavaScript workflow script, with no Markdown fences.",
-      "First statement: export const meta = { name: 'short_snake_case', description: 'non-empty description', phases: [{ title: 'Phase' }] }",
-      "Use phase('Name'), agent(prompt, opts), parallel(arrayOfFunctions), pipeline(items, ...stages), log(message), args, and budget. The workflow must call agent() at least once.",
-      "parallel() requires functions, not promises: await parallel(items.map(item => () => agent(...))).",
-    ].join(" "),
-  }),
+  script: Type.Optional(
+    Type.String({
+      description: [
+        "Raw JavaScript workflow script, with no Markdown fences.",
+        "First statement: export const meta = { name: 'short_snake_case', description: 'non-empty description', phases: [{ title: 'Phase' }] }",
+        "Use phase('Name'), agent(prompt, opts), parallel(arrayOfFunctions), pipeline(items, ...stages), log(message), args, and budget. The workflow must call agent() at least once.",
+        "parallel() requires functions, not promises: await parallel(items.map(item => () => agent(...))).",
+        "Mutually exclusive with `name`: provide exactly one of `script` (inline) or `name` (an installed pack).",
+      ].join(" "),
+    }),
+  ),
+  name: Type.Optional(
+    Type.String({
+      description: [
+        "Run an installed workflow pack by name (or path), resolved under .pi/workflows/ or bun-apps/<pkg>/workflows/.",
+        "The pack's manifest.json provides default args (shallow-merged under `args`) and identity; its entry script supplies export const meta.",
+        "Mutually exclusive with `script`: provide exactly one of `name` (a pack) or `script` (inline).",
+      ].join(" "),
+    }),
+  ),
   args: Type.Optional(
     Type.Any({ description: "Optional JSON value exposed to the workflow script as global `args`." }),
   ),
@@ -168,7 +181,10 @@ const workflowToolSchema = Type.Object({
 });
 
 export type WorkflowToolInput = {
-  script: string;
+  /** Inline workflow script. Exactly one of `script` / `name` is required. */
+  script?: string;
+  /** Installed workflow-pack name or path. Exactly one of `script` / `name` is required. */
+  name?: string;
   args?: unknown;
   background?: boolean;
   maxAgents?: number;
@@ -354,7 +370,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
     label: "Workflow",
     description: [
       "Execute a deterministic JavaScript workflow that orchestrates multiple subagents with agent(), parallel(), and pipeline().",
-      "script is required raw JavaScript. It must start with export const meta = { name, description, phases? } and must call agent() at least once.",
+      "Provide exactly one of: `script` (raw JavaScript starting with export const meta = { name, description, phases? }, calling agent() at least once) OR `name` (an installed workflow pack under .pi/workflows/ or bun-apps/<pkg>/workflows/, resolved via its manifest.json).",
     ].join(" "),
     promptSnippet:
       "Run a deterministic JavaScript workflow. Required script header: export const meta = { name: 'short_snake_case', description: 'non-empty description', phases: [{ title: 'Phase' }] }.",
@@ -369,7 +385,23 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       return normalizeWorkflowToolArgs(args);
     },
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
-      const script = normalizeWorkflowScript(params.script);
+      // Exactly one of `script` (inline JS) or `name` (installed pack) is allowed.
+      // A pack is resolved to its entry script text here; manifest default args are
+      // shallow-merged under `params.args` (caller wins). manifest.model is NOT
+      // applied on this path — the session's mainModel governs (per-run model
+      // would need an ExecOptions.mainModel hook; see workflow-pack plan, OOS).
+      let script: string;
+      let mergedArgs = params.args;
+      if (params.name) {
+        const resolved = resolveWorkflowPack(params.name, { cwd });
+        script = resolved.script;
+        if (resolved.manifest) mergedArgs = mergeArgs(resolved.manifest.args, params.args);
+      } else {
+        if (typeof params.script !== "string") {
+          throw new Error("workflow requires exactly one of `script` (inline JS) or `name` (a pack)");
+        }
+        script = normalizeWorkflowScript(params.script);
+      }
       const parsed = parseWorkflowScript(script);
 
       // checkpoint() reaches the human only on a UI-bearing foreground run; a
@@ -388,7 +420,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       // conversation when the run finishes (see installResultDelivery). Only an
       // explicit `background: false` blocks for the result inline.
       if (params.background ?? true) {
-        const { runId } = manager.startInBackground(script, params.args, {
+        const { runId } = manager.startInBackground(script, mergedArgs, {
           maxAgents: params.maxAgents,
           concurrency: params.concurrency,
           agentRetries: params.agentRetries,
@@ -415,7 +447,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
 
       let result: WorkflowRunResult;
       try {
-        result = await manager.runSync(script, params.args, {
+        result = await manager.runSync(script, mergedArgs, {
           maxAgents: params.maxAgents,
           concurrency: params.concurrency,
           agentRetries: params.agentRetries,
@@ -599,10 +631,18 @@ export function backgroundStartedText(name: string, runId: string): string {
 }
 
 function normalizeWorkflowToolArgs(args: unknown): WorkflowToolInput {
-  if (!args || typeof args !== "object") throw new Error("workflow requires an object argument with a script string");
+  if (!args || typeof args !== "object") throw new Error("workflow requires an object argument with a `script` string or a `name`");
   const value = args as Record<string, unknown>;
-  if (typeof value.script !== "string") throw new Error("workflow requires `script` to be a string");
-  return { ...value, script: normalizeWorkflowScript(value.script) } as WorkflowToolInput;
+  const hasScript = typeof value.script === "string" && value.script.trim() !== "";
+  const hasName = typeof value.name === "string" && value.name.trim() !== "";
+  if (hasScript && hasName) {
+    throw new Error("workflow accepts exactly one of `script` or `name` — both were provided");
+  }
+  if (!hasScript && !hasName) {
+    throw new Error("workflow requires exactly one of `script` (inline JS) or `name` (a pack) — neither was provided");
+  }
+  // Normalize only the inline-script path; the pack (`name`) path is resolved in execute.
+  return hasScript ? { ...value, script: normalizeWorkflowScript(value.script as string) } : (value as WorkflowToolInput);
 }
 
 function normalizeWorkflowScript(script: string): string {

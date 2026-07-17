@@ -18,6 +18,44 @@ _Avoid_: program, recipe, workflow-file (a file holds the script; the script is 
 The Node `vm` the script runs in — `Date.now` / `Math.random` / `require` / `fs` / network unavailable, so runs are reproducible. Determinism is what makes resume reliable.
 _Avoid_: container, isolate (it is a deterministic vm, not an OS container)
 
+### Workflow pack resolution
+
+**Workflow pack**:
+A folder of `manifest.json` + an entry orchestration script — the reusable,
+named form of a workflow. Identified by its manifest (vs a single-file script's
+`export const meta`). Runs through the same engine as an inline script.
+_Avoid_: "extension" (a pack is NOT a pi extension); "template"
+
+**Pack resolver** (`resolveWorkflowScript` / `resolveWorkflowPack`):
+The SINGLE source of truth that maps a `<name>` (or path) to runnable script
+text, owned by this package (`workflow-pack.ts`). Shared by BOTH entry paths —
+the CLI (`pi-agent-cli workflow run`) and the `workflow` tool's `name`
+parameter — so resolution never drifts between them. Pure + injectable fs.
+_Avoid_: "CLI resolver" / "tool resolver" (there is one, in the engine)
+
+**Resolution order** (first hit wins; per location a pack directory beats a
+same-name `.js`):
+1. `<name>` as a literal path (file, or a pack directory via its manifest).
+2. `.pi/workflows/<name>` (project packs, under `PWD/.pi`).
+3. `bun-apps/<pkg>/workflows/<name>` (package-local packs).
+_Avoid_: ".claude/workflows" (that is Claude Code's Workflow-tool dir, not resolved here)
+
+**`name` (tool parameter)**:
+The `workflow` tool's optional pack selector — mutually exclusive with `script`
+(exactly one required). Resolves a pack via the shared resolver; the manifest's
+default `args` are shallow-merged under the caller's `args`. `manifest.model`
+is NOT applied on this path (the session's `mainModel` governs — per-run model
+is future work).
+_Avoid_: conflating with the inline `script` parameter; "loadSavedWorkflow"
+(that resolves saved single-file workflows from `/workflows`, a separate namespace)
+
+**Entry path**:
+One of the two ways a pack is reached. Path A: the CLI meta-command (headless,
+`--model` overrides `manifest.model`). Path B: the interactive `workflow` tool
+`name` param (the workflow extension is built-in in the TUI). Both converge on
+the same resolver + engine.
+_Avoid_: "mode" (a path is an entry surface, not an execution mode)
+
 ### Orchestration primitives
 
 **`agent(prompt, opts)`**:
