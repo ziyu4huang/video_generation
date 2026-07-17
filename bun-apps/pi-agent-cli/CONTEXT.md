@@ -64,6 +64,15 @@ The CLI layer creates no session; the engine's own internal agents drive the
 LLM. The structural exception to "every command is an agent run."
 _Avoid_: conflating with agent command (it is NOT one)
 
+**Workflow pack**:
+A folder of `manifest.json` + an entry workflow script, run headless by the
+workflow sub-command (`workflow run <name|path>`) via `runWorkflow()` — a
+dispatch branch, NOT an extension: no factory, no agent session, no session
+tools. Its folder+manifest shape echoes a pi extension folder, but it is not
+loaded via `-e` and ADR 0001 never applies to it.
+_Avoid_: "extension" / "headless pack-extension" (deprecated ADR 0007 term —
+a pack is not an extension); "loaded via `-e`"
+
 **Meta command**:
 A typed token handled inline without a Command record (`list`, `version`,
 `completions`, `help`). Produces no agent session.
