@@ -8,7 +8,10 @@
 #   quick   (0)  unit only (pure fn + import-time smoke). No build.        ~0.2s
 #   medium  (1)  + build bundle + patch e2e (patches fire, env→argv         ~5s
 #                 splice, providers injected). DEFAULT.
-#   high    (2)  + deploy + 4-cwd extension-loading e2e (the ~15s tier).    ~18s
+#   high    (2)  + deploy + 4-cwd extension-loading e2e (the ~15s tier)     ~18s
+#                 + run.sh/pi-agent.sh launcher e2e (symlink resolution,
+#                 entry-mode detection, --update-help, --upgrade passthrough,
+#                 read-only env exports — auto-discovered by `bun test`).
 #   readonly (2.5) + read-only deploy e2e (freeze + foreign-cwd run + zero   ~20s
 #                  writes to the frozen tree). Opt-in tier (not in the stack).
 #   full    (3)  + readonly + sibling pi-* unit baseline (whole stack).     ~40s
@@ -62,7 +65,7 @@ $(Y "pi-agent run-test.sh — effort tiers (each ⊇ the one above)"):
 
   $(G quick)   $(D '~0.2s')  unit only (pure fn + import-time smoke); no build
   $(G medium)  $(D '~5s')    + build + patch e2e (patches fire / splice / providers)  $(Y "[default]")
-  $(G high)    $(D '~18s')   + deploy + 4-cwd extension-loading e2e
+  $(G high)    $(D '~18s')   + deploy + 4-cwd extension-loading e2e + run.sh/pi-agent.sh launcher e2e
   $(G readonly) $(D '~20s')  read-only deploy e2e ONLY (freeze + foreign-cwd run + zero writes)
   $(G full)    $(D '~40s')   + readonly + sibling pi-* unit baseline (whole stack)
 
