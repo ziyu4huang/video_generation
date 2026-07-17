@@ -36,6 +36,8 @@ describe("validateManifest", () => {
 		expect("model" in m).toBe(false);
 		expect("thinking" in m).toBe(false);
 		expect("howToRun" in m).toBe(false);
+		expect("kind" in m).toBe(false);
+		expect("engine" in m).toBe(false);
 	});
 
 	test("optional fields are present when supplied (args may be any JSON value)", () => {
@@ -77,6 +79,17 @@ describe("validateManifest", () => {
 		expect(() => validateManifest({ ...VALID, model: 42 })).toThrow(/"model"/);
 		expect(() => validateManifest({ ...VALID, thinking: 1 })).toThrow(/"thinking"/);
 		expect(() => validateManifest({ ...VALID, howToRun: false })).toThrow(/"howToRun"/);
+	});
+
+	test("optional kind/engine are present when supplied (self-identification)", () => {
+		const m = validateManifest({ ...VALID, kind: "workflow-pack", engine: "pi-agent-ext-workflow" });
+		expect(m.kind).toBe("workflow-pack");
+		expect(m.engine).toBe("pi-agent-ext-workflow");
+	});
+
+	test("optional kind/engine must be strings when present", () => {
+		expect(() => validateManifest({ ...VALID, kind: 42 })).toThrow(/"kind"/);
+		expect(() => validateManifest({ ...VALID, engine: false })).toThrow(/"engine"/);
 	});
 });
 

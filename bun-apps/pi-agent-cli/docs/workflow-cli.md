@@ -104,6 +104,8 @@ defaults the CLI merges under its flags.
 | `model` | optional | default model spec (overridden by `--model`) |
 | `thinking` | optional | declared, **not yet wired** (the engine exposes no `thinking` key on this path) |
 | `howToRun` | optional | human-facing "how to run it" prose |
+| `kind` | optional | self-identification — `"workflow-pack"`; lets a pack folder self-describe the way a pi extension folder does (minimal alignment with pi's extension folder form) |
+| `engine` | optional | which engine runs the entry (e.g. `"pi-agent-ext-workflow"`) |
 
 ### Resolution (dir-or-file)
 
