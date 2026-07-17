@@ -15,34 +15,39 @@
  *     workflow('research-first'|'scene-assets'|'review-cut', …) calls resolve
  *     to the sibling scripts without each being a separately-saved workflow.
  *   • managerFactory — test injection; defaults to createMovieManager.
+ *
+ * The 4 scripts are statically imported as text (Bun's `with { type: "text" }`
+ * loader) rather than read via readFileSync(import.meta.url-relative path) —
+ * the latter breaks once this extension is bundled for deploy (thin or full):
+ * the bundle lands under dist/pi-ext-bundles/ with no sibling workflows/ dir,
+ * so a runtime-relative read throws ENOENT. A statically-analyzable import
+ * gets its content inlined into the bundle by the bundler, so it survives.
  */
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import sceneAssetsSrc from "../workflows/scene-assets.js" with { type: "text" };
+import researchFirstSrc from "../workflows/research-first.js" with { type: "text" };
+import reviewCutSrc from "../workflows/review-cut.js" with { type: "text" };
+import produceVideoSrc from "../workflows/produce-video.js" with { type: "text" };
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { createMovieManager, type MovieManagerFactory } from "../src/movie-manager.ts";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const WORKFLOWS_DIR = join(HERE, "..", "workflows");
 
 interface WfDef {
   name: string;
   desc: string;
-  file: string;
+  source: string;
 }
 
 const WORKFLOWS: WfDef[] = [
-  { name: "scene-assets", desc: "Parallel T2I→I2V→TTS asset generation per scene", file: "scene-assets.js" },
-  { name: "research-first", desc: "Web research + cross-check → proposal_packet", file: "research-first.js" },
-  { name: "review-cut", desc: "Adversarial review of a composed cut vs the script", file: "review-cut.js" },
-  { name: "produce-video", desc: "Full movie pipeline (idea→publish) as a resumable workflow", file: "produce-video.js" },
+  { name: "scene-assets", desc: "Parallel T2I→I2V→TTS asset generation per scene", source: sceneAssetsSrc },
+  { name: "research-first", desc: "Web research + cross-check → proposal_packet", source: researchFirstSrc },
+  { name: "review-cut", desc: "Adversarial review of a composed cut vs the script", source: reviewCutSrc },
+  { name: "produce-video", desc: "Full movie pipeline (idea→publish) as a resumable workflow", source: produceVideoSrc },
 ];
 
-/** Read every workflow script into a name→source map (for loadSavedWorkflow). */
+/** Every workflow script's source, keyed by name (for loadSavedWorkflow). */
 function loadAllScripts(): Record<string, string> {
   const out: Record<string, string> = {};
   for (const wf of WORKFLOWS) {
-    out[wf.name] = readFileSync(join(WORKFLOWS_DIR, wf.file), "utf8");
+    out[wf.name] = wf.source;
   }
   return out;
 }
@@ -59,7 +64,17 @@ export function registerMovieWorkflows(
   const factory = opts.managerFactory ?? createMovieManager;
 
   for (const wf of WORKFLOWS) {
-    const taken = (pi.getCommands?.() ?? []).some((c: { name: string }) => c.name === wf.name);
+    // getCommands() throws "Extension runtime not initialized" when called
+    // during extension loading (before Runner.bindCore() swaps in the real
+    // implementation) — which is exactly when this factory normally runs.
+    // Treat that as "not taken" (registerCommand itself is a Map.set(), so a
+    // genuine duplicate is a harmless overwrite, not a crash).
+    let taken = false;
+    try {
+      taken = (pi.getCommands?.() ?? []).some((c: { name: string }) => c.name === wf.name);
+    } catch {
+      taken = false;
+    }
     if (taken) continue;
     const script = scripts[wf.name];
     if (script === undefined) continue; // script file missing/failed to load — nothing to register
