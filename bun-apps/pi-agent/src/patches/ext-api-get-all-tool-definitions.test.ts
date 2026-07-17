@@ -13,6 +13,7 @@ import { describe, expect, test } from "bun:test";
 /** A mock ExtensionRunner-like instance for testing the patch logic. */
 function createMockRunner(): {
   runtime: Record<string, unknown>;
+  bindCore: (...args: unknown[]) => void;
   bindCoreCallCount: number;
   bindCoreArgs: unknown[][];
   getAllRegisteredToolsCallCount: number;
@@ -75,7 +76,7 @@ describe("applyGetAllToolDefinitionsPatch logic", () => {
     expect(runner.bindCoreCallCount).toBe(1);
     expect(typeof runner.runtime.getAllToolDefinitions).toBe("function");
 
-    const defs = runner.runtime.getAllToolDefinitions() as Array<Record<string, unknown>>;
+    const defs = (runner.runtime.getAllToolDefinitions as () => unknown[])() as Array<Record<string, unknown>>;
     expect(defs).toHaveLength(2);
     expect(defs[0]!.name).toBe("tool_a");
     expect(defs[0]!.execute).toBeInstanceOf(Function);
@@ -87,9 +88,9 @@ describe("applyGetAllToolDefinitionsPatch logic", () => {
     applyPatchToMock(runner);
     runner.bindCore();
 
-    const defs = runner.runtime.getAllToolDefinitions() as Array<Record<string, unknown>>;
-    expect(defs[0]!.execute()).toBe("a");
-    expect(defs[1]!.execute()).toBe("b");
+    const defs = (runner.runtime.getAllToolDefinitions as () => unknown[])() as Array<Record<string, unknown>>;
+    expect((defs[0]!.execute as () => string)()).toBe("a");
+    expect((defs[1]!.execute as () => string)()).toBe("b");
   });
 
   test("does not override existing getAllToolDefinitions (upstream fix safety)", () => {
@@ -98,7 +99,7 @@ describe("applyGetAllToolDefinitionsPatch logic", () => {
     applyPatchToMock(runner);
     runner.bindCore();
 
-    const defs = runner.runtime.getAllToolDefinitions() as Array<Record<string, unknown>>;
+    const defs = (runner.runtime.getAllToolDefinitions as () => unknown[])() as Array<Record<string, unknown>>;
     expect(defs).toHaveLength(1);
     expect(defs[0]!.name).toBe("upstream"); // kept the original
   });
@@ -110,7 +111,7 @@ describe("applyGetAllToolDefinitionsPatch logic", () => {
 
     // Verify getAllToolDefinitions calls getAllRegisteredTools
     const before = runner.getAllRegisteredToolsCallCount;
-    runner.runtime.getAllToolDefinitions();
+    (runner.runtime.getAllToolDefinitions as () => unknown[])();
     expect(runner.getAllRegisteredToolsCallCount).toBe(before + 1);
   });
 
@@ -120,7 +121,7 @@ describe("applyGetAllToolDefinitionsPatch logic", () => {
     applyPatchToMock(runner);
     runner.bindCore();
 
-    const defs = runner.runtime.getAllToolDefinitions();
+    const defs = (runner.runtime.getAllToolDefinitions as () => unknown[])();
     expect(defs).toEqual([]);
   });
 });

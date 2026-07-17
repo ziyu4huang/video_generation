@@ -48,7 +48,7 @@ let applied = false;
  */
 export function applyGetSystemPromptOptionsPatch(): boolean {
   if (applied) return false;
-  const proto = ExtensionRunner.prototype as Record<string, unknown>;
+  const proto = ExtensionRunner.prototype as unknown as Record<string, unknown>;
   const original = proto.createContext as (() => Record<string, unknown>) | undefined;
   if (!original || typeof original !== "function") return false;
 
