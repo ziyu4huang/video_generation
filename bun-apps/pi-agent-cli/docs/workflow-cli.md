@@ -13,6 +13,25 @@ way `zk-extract` or `file2md` do. The engine's own `WorkflowAgent` calls
 the LLM (via the same `createAgentSession` SDK the rest of the CLI uses — no
 VSCode dependency).
 
+## Two entry paths, one resolver
+
+A workflow pack is reachable through **two** entry paths that share the **same**
+pack resolver (in the engine's `workflow-pack.ts`):
+
+| Path | Entry | How |
+|------|-------|-----|
+| **A — CLI (this command)** | `pi-agent-cli workflow run <name>` | headless meta-command; this layer is a thin wrapper (flag parsing + receipt). |
+| **B — interactive `workflow` tool** | `./pi-agent.sh` → TUI → the `workflow` tool with `name: "<pack>"` | the workflow extension is built-in in the TUI; the tool's `name` param resolves the pack through the same resolver. |
+
+Both call the same `resolveWorkflowScript` → `runWorkflow`, so name resolution,
+pack-over-file precedence, and args/model merging are identical across paths.
+
+> **`manifest.model` asymmetry.** On Path A, `--model` overrides `manifest.model`
+> (CLI flag wins). On Path B, the session's `mainModel` governs and
+> `manifest.model` is **not** applied (the manager has no per-run model hook;
+> applying it would mutate shared session state). Per-run model on Path B is
+> future work (an `ExecOptions.mainModel` → `runWorkflow` thread).
+
 ## Usage
 
 ```bash

@@ -59,6 +59,17 @@ the expected value signals a regression in the resolver/runner or the manifest
 
 ### How a pack runs (end-to-end)
 
+A pack has **two entry paths** that share the SAME resolver (the engine's
+`workflow-pack.ts`):
+
+- **Path A — CLI**: `workflow run <name>` (headless meta-command; shown below).
+- **Path B — interactive tool**: the `workflow` tool with `name: "<pack>"` in a
+  pi TUI session (the workflow extension is built-in via `./pi-agent.sh`). The
+  tool resolves the pack through the same resolver, then runs via its manager.
+
+> `manifest.model` is applied on Path A (`--model` overrides it) but **not** on
+> Path B (the session's `mainModel` governs; per-run model is future work).
+
 ```
               bun --cwd bun-apps/pi-agent-cli src/cli.ts workflow run <name> --model <spec>
                                                  │
@@ -94,9 +105,11 @@ the expected value signals a regression in the resolver/runner or the manifest
         └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-Two runtimes share the script *syntax* but not the gates: `workflow run` targets
-this engine (real gate/retry/loopUntilDry/resume); Claude Code's `Workflow`
-tool is best-effort only. The diagram above is the engine path.
+Two runtimes share the script *syntax* but not the gates: `workflow run` AND the
+`workflow` tool's `name` param both target this engine (real
+gate/retry/loopUntilDry/resume) through the same shared resolver; Claude Code's
+`Workflow` tool is best-effort only. The diagram above is the Path A (CLI) flow;
+Path B converges on the same resolver + engine from the `workflow` tool.
 
 ## knowledge-distill
 
