@@ -59,11 +59,11 @@
     "@repo/pi-agent-ext-goal-todo": "workspace:*"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "0.80.7"
+    "@earendil-works/pi-coding-agent": "0.80.10"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.16",
-    "@earendil-works/pi-coding-agent": "0.80.7",
+    "@earendil-works/pi-coding-agent": "0.80.10",
     "@types/bun": "^1.3.14",
     "tsx": "latest",
     "typescript": "latest"

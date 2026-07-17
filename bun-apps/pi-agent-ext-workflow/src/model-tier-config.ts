@@ -49,8 +49,8 @@ export function getModelTierConfigPath(): string {
  * model. New users get consistent behaviour (every tier == the model they're
  * already chatting with) and can refine tiers later via `/workflows-models`.
  */
-export function buildDefaultTierConfig(currentModelSpec?: string): ModelTierConfig {
-  const model = currentModelSpec ?? listAvailableModelSpecs()[0] ?? "";
+export async function buildDefaultTierConfig(currentModelSpec?: string): Promise<ModelTierConfig> {
+  const model = currentModelSpec ?? (await listAvailableModelSpecs())[0] ?? "";
   return {
     tiers: {
       small: model,

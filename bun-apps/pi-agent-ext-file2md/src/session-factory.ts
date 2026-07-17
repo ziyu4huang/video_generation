@@ -59,7 +59,7 @@ function resolveModel(services: AgentSessionServices, provider: string, modelId:
  *
  * Model resolution, in order of precedence:
  *  1. `opts.modelRegistry` — an explicit `ModelRegistry` instance (e.g. built
- *     via `ModelRegistry.inMemory(AuthStorage.inMemory())` +
+ *     via `new ModelRegistry(await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null }))` +
  *     `.registerProvider(...)`). Fully file-independent — use this when a
  *     caller ships its own provider config in CODE rather than depending on
  *     ANY models.json existing at a particular path (global or project-local

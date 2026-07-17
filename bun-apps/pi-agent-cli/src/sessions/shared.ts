@@ -20,8 +20,8 @@
  *   4. hardcoded fallback below
  */
 import {
-	AuthStorage,
 	ModelRegistry,
+	ModelRuntime,
 	createAgentSessionFromServices,
 	createAgentSessionServices,
 	getAgentDir,
@@ -29,6 +29,7 @@ import {
 	type AgentSessionServices,
 	type CreateAgentSessionResult,
 } from "@earendil-works/pi-coding-agent";
+import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
@@ -214,11 +215,12 @@ function isSkipModelsJson(): boolean {
 }
 
 /**
- * Build the shared auth + model registry with pi-agent's PROVIDERS baked in.
+ * Build the shared model runtime + registry with pi-agent's PROVIDERS baked in.
  *
  * Resolution:
- *   1. GLOBAL ~/.pi/agent/models.json — loaded natively by ModelRegistry.create
- *      (skipped under PI_SKIP_MODELS_JSON). Honors PI_CODING_AGENT_DIR.
+ *   1. GLOBAL ~/.pi/agent/models.json — loaded natively by ModelRuntime.create
+ *      (skipped under PI_SKIP_MODELS_JSON via `modelsPath: null`). Honors
+ *      PI_CODING_AGENT_DIR.
  *   2. BAKED — pi-agent's PROVIDERS (lm-studio today), registered explicitly so
  *      they unconditionally overwrite any same-named global entry. This is what
  *      makes the compiled binary hermetic: baked providers work with ZERO
@@ -226,20 +228,21 @@ function isSkipModelsJson(): boolean {
  *      providers.
  *
  * Auth storage: real file by default (so credentials in auth.json still work
- * for non-baked providers), in-memory only under opt-out.
+ * for non-baked providers), in-memory (InMemoryCredentialStore) only under
+ * opt-out.
  */
-export function buildBakedRegistry(): {
-	authStorage: AuthStorage;
+export async function buildBakedRegistry(): Promise<{
+	modelRuntime: ModelRuntime;
 	modelRegistry: ModelRegistry;
-} {
+}> {
 	const skip = isSkipModelsJson();
 	const agentDir = getAgentDir();
-	const authStorage = skip
-		? AuthStorage.inMemory()
-		: AuthStorage.create(join(agentDir, "auth.json"));
-	const modelRegistry = skip
-		? ModelRegistry.inMemory(authStorage)
-		: ModelRegistry.create(authStorage);
+	const modelRuntime = await ModelRuntime.create(
+		skip
+			? { credentials: new InMemoryCredentialStore(), modelsPath: null }
+			: { authPath: join(agentDir, "auth.json") },
+	);
+	const modelRegistry = new ModelRegistry(modelRuntime);
 	for (const [name, entry] of Object.entries(PROVIDERS)) {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		modelRegistry.registerProvider(name, {
@@ -248,7 +251,7 @@ export function buildBakedRegistry(): {
 			models: entry.models.map((m) => ({ ...m, cost: ZERO_COST })),
 		} as any);
 	}
-	return { authStorage, modelRegistry };
+	return { modelRuntime, modelRegistry };
 }
 
 /**
@@ -271,18 +274,17 @@ export async function getSharedServices(
 		...(opts.extraExtensionFactories ?? []),
 	];
 
-	// Build a registry with the baked provider catalog (pi-agent's PROVIDERS)
+	// Build a runtime with the baked provider catalog (pi-agent's PROVIDERS)
 	// layered over the global ~/.pi/agent/models.json. PI_SKIP_MODELS_JSON=1
-	// yields a hermetic in-memory registry (baked providers only). The same
-	// authStorage is injected so the registry and services agree on credential
+	// yields a hermetic in-memory runtime (baked providers only). The same
+	// modelRuntime is injected so services and the registry agree on credential
 	// resolution.
-	const { authStorage, modelRegistry } = buildBakedRegistry();
+	const { modelRuntime } = await buildBakedRegistry();
 
 	const services = await createAgentSessionServices({
 		cwd,
 		agentDir: getAgentDir(),
-		authStorage,
-		modelRegistry,
+		modelRuntime,
 		resourceLoaderOptions: {
 			extensionFactories: extensionFactories as any,
 			...(opts.appendSystemPrompt?.length
@@ -300,12 +302,15 @@ export async function getSharedServices(
  * `gpt-4o-mini`, `gemma-4-26b` all work like the pi TUI).
  */
 export function resolveModel(
-	services: AgentSessionServices,
+	// `modelRegistry` is accepted directly for test injection (a fake registry
+	// with no real ModelRuntime behind it); real callers pass AgentSessionServices
+	// and get one built from `modelRuntime`.
+	services: Partial<Pick<AgentSessionServices, "modelRuntime">> & { modelRegistry?: ModelRegistry },
 	provider: string,
 	modelId: string,
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): any {
-	const reg = services.modelRegistry;
+	const reg = services.modelRegistry ?? new ModelRegistry(services.modelRuntime as ModelRuntime);
 	const exact = reg.find(provider, modelId);
 	if (exact) return exact;
 
@@ -493,7 +498,7 @@ export async function listRegisteredTools(): Promise<any[]> {
 	try {
 		model = resolveModel(services, FALLBACK.provider, FALLBACK.modelId);
 	} catch {
-		const all = allModels(services.modelRegistry);
+		const all = allModels(new ModelRegistry(services.modelRuntime));
 		model = all?.[0];
 		if (!model)
 			throw new Error(
