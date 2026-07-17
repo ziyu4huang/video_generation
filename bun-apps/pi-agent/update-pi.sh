@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 ########################################
-# update-pi.sh — upgrade the @earendil-works/{pi-agent-core,pi-ai,
-# pi-coding-agent,pi-tui} package set in this workspace
+# update-pi.sh — upgrade + keep-lockstep the @earendil-works/{pi-agent-core,
+# pi-ai, pi-coding-agent, pi-tui} core package set across every workspace.
 #
 # WHY THIS EXISTS
 #   pi's built-in `pi update` (self-update) is DISABLED for this repo.
@@ -10,22 +10,32 @@
 #   pi's self-updater only works for global installs, so `pi update` prints
 #   "pi cannot self-update this installation." and bails.
 #
-#   The correct path is a workspace bump via `bun update` at the monorepo
-#   root — which is what this script does.
+#   The 4 core packages are the runtime every pi-agent-* extension builds on.
+#   They are declared (exact-pinned) across MANY bun-apps/* workspaces — none
+#   in root, and no single workspace depends on all 4. They MUST all carry the
+#   SAME version everywhere: the upstream vendor publishes them IN LOCKSTEP
+#   (confirmed 2026-07-15: all 4 moved 0.80.6→0.80.7 together), and mixing
+#   versions across extensions breaks the shared runtime. This script is the
+#   single lever that bumps them together and the single guard that verifies
+#   they agree.
 #
-#   All 4 packages are published by the same upstream vendor IN LOCKSTEP
-#   (confirmed 2026-07-15: all 4 moved 0.80.6→0.80.7 together within one
-#   session). Every bun-apps/*/package.json now pins them to an EXACT
-#   version (no "latest"/"*"/range) to stop that drift from silently
-#   breaking `bun install --frozen-lockfile` in CI — see
-#   fix(ci): pin @earendil-works packages to exact versions. That means
-#   upgrades no longer happen automatically; this script is the deliberate
-#   trigger, and it now updates all 4 together so they never drift apart
-#   from each other again.
+#   The upgrade path edits the exact pin in every declaring package.json
+#   directly, then one `bun install` reconciles bun.lock. It deliberately does
+#   NOT use `bun update <pkgs> --latest`: in bun 1.3.14 that command, run at
+#   the workspace root, fails to bump exact pins inside sub-workspace
+#   package.json files (it splices them into root instead), which leaves
+#   bun.lock resolving to BOTH old and new versions.
+#
+# INVARIANT (lockstep)
+#   (A) each of the 4 packages is pinned to exactly ONE version across all
+#       bun-apps/*/package.json; (B) all 4 share that same version.
+#   check_lockstep() enforces both offline. Run before merges / in CI:
+#       ./bun-apps/pi-agent/update-pi.sh --lockstep   # offline gate, exits non-zero on drift
 #
 # USAGE
-#   ./bun-apps/pi-agent/update-pi.sh            # upgrade all 4 to latest
-#   ./bun-apps/pi-agent/update-pi.sh --check    # show current vs latest only
+#   ./bun-apps/pi-agent/update-pi.sh            # upgrade all 4 to latest (unifies any drift)
+#   ./bun-apps/pi-agent/update-pi.sh --check    # current vs latest + lockstep report (network)
+#   ./bun-apps/pi-agent/update-pi.sh --lockstep # OFFLINE lockstep invariant gate (CI-friendly)
 #   ./bun-apps/pi-agent/update-pi.sh --rebuild  # also rebuild pi-agent dist bundle
 #   ./bun-apps/pi-agent/update-pi.sh -h|--help  # print this header
 #
@@ -46,7 +56,7 @@ done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# The 4 lockstep-versioned packages. Order matters only for display.
+# The 4 lockstep-versioned core packages. Order matters only for display.
 PKG_NAMES=(pi-agent-core pi-ai pi-coding-agent pi-tui)
 FULL_PKGS=()
 for n in "${PKG_NAMES[@]}"; do FULL_PKGS+=("@earendil-works/$n"); done
@@ -60,11 +70,21 @@ dim()    { color 2  "$1"; }
 
 die() { echo "$(red 'error:') $*" >&2; exit 1; }
 
-# Reads the resolved version(s) for a package straight out of bun.lock —
-# robust regardless of WHICH workspace(s) declare it as a direct dependency
-# (no single workspace depends on all 4). Prints one version per line; more
-# than one line means the pin is inconsistent across workspaces (should not
-# happen post-fix, but this is the signal if it does).
+# Source of truth: distinct exact-pinned versions for one package across ALL
+# bun-apps/*/package.json. We read pins (not bun.lock) because bun.lock is a
+# derived artifact that can transiently hold multiple versions during a broken
+# state, while package.json is the authoritative spec humans commit. Prints one
+# version per line (sorted, unique); empty if the package isn't declared.
+pinned_versions() {
+  local pkg="$1"
+  grep -rhoE "\"@earendil-works/${pkg}\": \"[^\"]+\"" \
+    "$REPO_ROOT"/bun-apps/*/package.json 2>/dev/null \
+    | sed -E "s/.*: \"([^\"]+)\"/\1/" | sort -u
+}
+
+# Derived: distinct resolved versions for a package in bun.lock. More than one
+# line means the lockfile is stale/corrupt and needs `bun install` to reconcile
+# (a symptom, not the source of truth).
 lockfile_versions() {
   local pkg="$1"
   grep -oE "\"@earendil-works/${pkg}@[0-9][0-9A-Za-z.+-]*\"" "$REPO_ROOT/bun.lock" 2>/dev/null \
@@ -75,44 +95,119 @@ latest_version() {
   bun pm view "$1" version 2>/dev/null || npm view "$1" version 2>/dev/null
 }
 
+# LOCKSTEP invariant gate. Verifies (A) each of the 4 packages is pinned to a
+# single version across all workspaces, and (B) all 4 share that version.
+# Sets globals: LOCKSTEP_OK (1/0), LOCKSTEP_VER (uniform version when OK),
+# LOCKSTEP_DRIFT (human-readable detail when not OK). Prints a one-line verdict
+# + detail. Returns 0 iff the invariant holds. Network-free.
+LOCKSTEP_OK=0; LOCKSTEP_VER=""; LOCKSTEP_DRIFT=""
+check_lockstep() {
+  LOCKSTEP_OK=1; LOCKSTEP_VER=""; LOCKSTEP_DRIFT=""
+  local all_versions="" n full pins pcount
+  for n in "${PKG_NAMES[@]}"; do
+    full="@earendil-works/$n"
+    pins="$(pinned_versions "$n" || true)"
+    pcount=$(printf '%s\n' "$pins" | grep -c . || true)
+    if [[ "$pcount" -gt 1 ]]; then
+      LOCKSTEP_OK=0
+      LOCKSTEP_DRIFT+="${full} is pinned to ${pcount} different versions across workspaces:"$'\n'
+      LOCKSTEP_DRIFT+="$(printf '      %s\n' $pins)"$'\n'
+    elif [[ "$pcount" -eq 1 ]]; then
+      all_versions+="${pins}"$'\n'
+    fi
+  done
+  # (B) cross-package: every declared version must be identical (upstream lockstep)
+  local uniq_all ucount
+  uniq_all="$(printf '%s' "$all_versions" | sort -u)"
+  ucount=$(printf '%s\n' "$uniq_all" | grep -c . || true)
+  if [[ "$ucount" -gt 1 ]]; then
+    LOCKSTEP_OK=0
+    LOCKSTEP_DRIFT+="the 4 core packages disagree on version (not lockstep):"$'\n'
+    LOCKSTEP_DRIFT+="$(printf '      %s\n' $uniq_all)"
+  fi
+  if [[ "$LOCKSTEP_OK" -eq 1 ]]; then
+    LOCKSTEP_VER="${uniq_all}"
+    echo "$(green '✓') lockstep OK — every pi-agent-* workspace pins all 4 core packages at ${LOCKSTEP_VER}."
+  else
+    echo "$(red '✗') lockstep BROKEN — pi-agent-* workspaces disagree on pi-* core version:"
+    printf '%s\n' "$LOCKSTEP_DRIFT" | sed 's/^/    /'
+    echo "    $(dim 'fix: ./bun-apps/pi-agent/update-pi.sh  (unifies all 4 to latest)')"
+  fi
+  [[ "$LOCKSTEP_OK" -eq 1 ]]
+}
+
 cd "$REPO_ROOT"
 command -v bun >/dev/null || die "bun not found on PATH."
 [[ -f bun.lock ]] || die "bun.lock not found at repo root — run from a full checkout."
 
 # ── args ─────────────────────────────────────────────────────────────────────
-CHECK=0; REBUILD=0
+CHECK=0; LOCKSTEP_ONLY=0; REBUILD=0
 for a in "$@"; do
   case "$a" in
-    --check)   CHECK=1 ;;
-    --rebuild) REBUILD=1 ;;
-    -h|--help) sed -n '2,29p' "$0"; exit 0 ;;
+    --check)    CHECK=1 ;;
+    --lockstep) LOCKSTEP_ONLY=1 ;;
+    --rebuild)  REBUILD=1 ;;
+    -h|--help)  sed -n '2,46p' "$0"; exit 0 ;;
     *) die "unknown flag: $a (try --help)" ;;
   esac
 done
 
-# ── preflight: current vs latest, per package ────────────────────────────────
+# ── --lockstep: offline invariant gate only (CI-friendly) ────────────────────
+if [[ "$LOCKSTEP_ONLY" -eq 1 ]]; then
+  check_lockstep
+  [[ "$LOCKSTEP_OK" -eq 1 ]] || exit 1
+  # also flag a stale lockfile (pins agree but bun.lock lags) — warning only
+  for n in "${PKG_NAMES[@]}"; do
+    lcount=$(lockfile_versions "$n" | grep -c . || true)
+    [[ "$lcount" -le 1 ]] || echo "$(yellow 'warn:') bun.lock still has multiple @earendil-works/$n versions — run \`bun install\`."
+  done
+  exit 0
+fi
+
+# ── preflight: current (pins) vs latest, per package ─────────────────────────
+echo "$(dim '— lockstep invariant —')"
+check_lockstep || true
+echo
+echo "$(dim '— current vs latest —')"
 declare -a CUR NEW
 ANY_STALE=0
 for i in "${!PKG_NAMES[@]}"; do
   n="${PKG_NAMES[$i]}"; full="${FULL_PKGS[$i]}"
-  cur_lines="$(lockfile_versions "$n" || true)"
-  cur_count=$(echo "$cur_lines" | grep -c . || true)
-  if [[ "$cur_count" -gt 1 ]]; then
-    echo "$(yellow 'warn:') $full has multiple resolved versions in bun.lock:"
-    echo "$cur_lines" | sed 's/^/    /'
-  fi
-  cur="$(echo "$cur_lines" | tail -1)"; cur="${cur:-(not installed)}"
+  cur_lines="$(pinned_versions "$n" || true)"
+  cur_count=$(printf '%s\n' "$cur_lines" | grep -c . || true)
+  cur="$(printf '%s\n' "$cur_lines" | tail -1)"; cur="${cur:-(not declared)}"
   new="$(latest_version "$full" || true)"
   [[ -n "$new" ]] || die "could not reach npm to fetch latest version of $full."
   CUR[$i]="$cur"; NEW[$i]="$new"
   marker="$(green '=')"
-  [[ "$cur" != "$new" ]] && { marker="$(yellow '<')"; ANY_STALE=1; }
-  printf '  %-28s current: %-12s latest: %-12s %s\n' "$full" "$cur" "$new" "$marker"
+  { [[ "$cur" == "$new" ]] && [[ "$cur_count" -le 1 ]]; } || { marker="$(yellow '<')"; ANY_STALE=1; }
+  printf '  %-32s current: %-12s latest: %-12s %s\n' "$full" "$cur" "$new" "$marker"
 done
 
-[[ "$CHECK" -eq 1 ]] && exit 0
-if [[ "$ANY_STALE" -eq 0 ]]; then
-  echo "$(green 'already up to date.') all 4 packages match latest."
+# Stale lockfile warning (pins are source of truth; lockfile should match).
+for i in "${!PKG_NAMES[@]}"; do
+  n="${PKG_NAMES[$i]}"; full="${FULL_PKGS[$i]}"
+  lcount=$(lockfile_versions "$n" | grep -c . || true)
+  [[ "$lcount" -le 1 ]] || echo "$(yellow 'warn:') $full — bun.lock has $lcount resolved versions (needs \`bun install\`)."
+done
+
+# --check: report + gate. Exit non-zero iff the lockstep invariant is broken
+# (NOT merely because we're behind latest — that's a normal, non-fatal state).
+if [[ "$CHECK" -eq 1 ]]; then
+  check_lockstep || exit 1
+  exit 0
+fi
+
+# Determine the single target version (the 4 are lockstep upstream).
+NEW_VER="${NEW[0]}"
+for i in "${!PKG_NAMES[@]}"; do
+  [[ "${NEW[$i]}" == "$NEW_VER" ]] \
+    || die "upstream broke lockstep: latest versions differ (${NEW[*]}). Resolve manually — this script refuses to pick one."
+done
+
+# Nothing to do if already uniform at latest.
+if [[ "$ANY_STALE" -eq 0 ]] && [[ "$LOCKSTEP_OK" -eq 1 ]] && [[ "$LOCKSTEP_VER" == "$NEW_VER" ]]; then
+  echo "$(green 'already up to date.') all 4 packages pinned at $NEW_VER everywhere."
   exit 0
 fi
 
@@ -121,68 +216,67 @@ if ! git -C "$REPO_ROOT" diff --quiet -- bun.lock package.json bun-apps/*/packag
   echo "$(yellow 'note:') bun.lock / package.json already have uncommitted changes."
 fi
 
-# ── upgrade (all 4 in ONE bun update call, so bun.lock is written once and
-#    they can never drift apart from each other again) ──────────────────────
-echo
-echo "$(green '▶') bun update ${FULL_PKGS[*]} --latest"
-# Every package.json now pins these 4 to an EXACT version (no "latest"/"*"/
-# range left in dependencies/devDependencies — see the fix this script's
-# header references), so --latest bumps the exact pin to the newest
-# published version everywhere it's declared.
+# ── upgrade: set all 4 to NEW_VER in every declaring workspace ───────────────
+# WHY NOT `bun update <pkgs> --latest`: in bun 1.3.14 that command, run at the
+# workspace root, does NOT bump exact pins inside sub-workspace package.json
+# files — it splices the pkgs into ROOT package.json (a side effect) and writes
+# bun.lock only partially, leaving per-workspace pins at the old version. The
+# net result is bun.lock resolving to BOTH old and new versions.
 #
-# Capture root-package.json state BEFORE the bump (see de-pollute step below).
-ROOT_PKG_CLEAN=no
-git -C "$REPO_ROOT" diff --quiet -- package.json 2>/dev/null && ROOT_PKG_CLEAN=yes
-ROOT_HAD_ANY=no
-for full in "${FULL_PKGS[@]}"; do
-  grep -q "\"$full\"" "$REPO_ROOT/package.json" 2>/dev/null && ROOT_HAD_ANY=yes
-done
-bun update "${FULL_PKGS[@]}" --latest
-
-# De-pollute root package.json. KNOWN SIDE EFFECT: `bun update <pkg>` at the
-# workspace root ADDS the pkg to root package.json when it was not already a
-# root dependency (observed in bun 1.3.14). The root manifest must stay minimal
-# (only @types/bun), so if bun spliced any of the 4 in we revert and re-run
-# `bun install` to reconcile bun.lock — legitimate per-consumer version bumps
-# are preserved. Auto-revert only when root package.json was clean before, so
-# pre-existing uncommitted edits (warned about above) are never silently
-# destroyed.
-ROOT_HAS_ANY_NOW=no
-for full in "${FULL_PKGS[@]}"; do
-  grep -q "\"$full\"" "$REPO_ROOT/package.json" 2>/dev/null && ROOT_HAS_ANY_NOW=yes
-done
-if [[ "$ROOT_HAD_ANY" == no ]] && [[ "$ROOT_HAS_ANY_NOW" == yes ]]; then
-  if [[ "$ROOT_PKG_CLEAN" == yes ]]; then
-    echo "$(yellow 'note:') bun added one or more of the 4 packages to root package.json as a side effect — reverting to keep root minimal."
-    git -C "$REPO_ROOT" checkout -- package.json
-    bun install >/dev/null 2>&1 || die "bun install failed while reconciling bun.lock after the root revert."
-  else
-    echo "$(yellow 'note:') bun added package(s) to root package.json, but it had pre-existing uncommitted edits — NOT auto-reverting. Review: git diff package.json"
-  fi
-fi
-
-# ── verify ───────────────────────────────────────────────────────────────────
+# So we set the version directly. We rewrite the version value to NEW_VER on
+# every line declaring one of the 4 packages, regardless of its current value
+# — that INHERENTLY unifies any drift (the whole point). No OLD_VER needed,
+# nothing missed when a dep is the last entry in its block (no trailing comma).
+# Package alternation is a fixed literal; only NEW_VER is dynamic (via ENV to
+# avoid fragile shell-quoting of the regex).
 echo
+if [[ "$LOCKSTEP_OK" -eq 1 ]]; then
+  echo "$(green '▶') set all 4 core packages → $NEW_VER across bun-apps/*/package.json (was $LOCKSTEP_VER)"
+else
+  echo "$(green '▶') unify all 4 core packages → $NEW_VER across bun-apps/*/package.json (drift detected, fixing)"
+fi
+export NEW_VER
+bumped=0
+for pj in "$REPO_ROOT"/bun-apps/*/package.json; do
+  # Skip files that don't declare any of the 4 at all.
+  grep -qE '"@earendil-works/(pi-agent-core|pi-ai|pi-coding-agent|pi-tui)":' "$pj" 2>/dev/null || continue
+  perl -i -pe '
+    s/("\@earendil-works\/(?:pi-agent-core|pi-ai|pi-coding-agent|pi-tui)": ")[^"]*(")/$1$ENV{NEW_VER}$2/;
+  ' "$pj" || die "perl pin-set failed for $pj"
+  bumped=$((bumped + 1))
+done
+[[ "$bumped" -gt 0 ]] || die "no bun-apps/*/package.json declares any of the 4 packages — nothing to bump."
+
+bun install --cwd "$REPO_ROOT" >/dev/null 2>&1 \
+  || die "bun install failed while reconciling bun.lock after the pin set."
+
+# ── verify: lockstep invariant (hard gate) + per-package resolution ──────────
+echo
+echo "$(dim '— verify —')"
+check_lockstep || die "lockstep invariant still violated after upgrade. Inspect bun-apps/*/package.json."
+[[ "$LOCKSTEP_VER" == "$NEW_VER" ]] \
+  || die "post-upgrade lockstep version ($LOCKSTEP_VER) != target ($NEW_VER)."
+
 FAILED=0
 for i in "${!PKG_NAMES[@]}"; do
   n="${PKG_NAMES[$i]}"; full="${FULL_PKGS[$i]}"
   after_lines="$(lockfile_versions "$n" || true)"
-  after="$(echo "$after_lines" | tail -1)"
-  after_count=$(echo "$after_lines" | grep -c . || true)
+  after="$(printf '%s\n' "$after_lines" | tail -1)"
+  after_count=$(printf '%s\n' "$after_lines" | grep -c . || true)
   if [[ "$after_count" -gt 1 ]]; then
-    echo "$(red 'error:') $full still has multiple resolved versions after upgrade:"
-    echo "$after_lines" | sed 's/^/    /'
+    echo "$(red 'error:') $full — bun.lock still has multiple resolved versions:"
+    printf '%s\n' "$after_lines" | sed 's/^/    /'
     FAILED=1
     continue
   fi
-  if [[ "$after" != "${NEW[$i]}" ]]; then
-    echo "$(red 'error:') $full version mismatch — expected ${NEW[$i]}, got ${after:-(unknown)}."
+  if [[ "$after" != "$NEW_VER" ]]; then
+    echo "$(red 'error:') $full resolved to ${after:-(unknown)}, expected $NEW_VER."
     FAILED=1
     continue
   fi
-  echo "$(green '✓') $full upgraded ${CUR[$i]} → $after"
+  echo "$(green '✓') $full → $after"
 done
-[[ "$FAILED" -eq 0 ]] || die "one or more packages failed to upgrade cleanly. Inspect bun.lock."
+[[ "$FAILED" -eq 0 ]] || die "one or more packages failed to reconcile in bun.lock."
 
 # Surface any package.json spec changes so the user can review the diff.
 if rewritten=$(git -C "$REPO_ROOT" diff --name-only -- bun-apps/ 2>/dev/null | grep 'package\.json$'); then
