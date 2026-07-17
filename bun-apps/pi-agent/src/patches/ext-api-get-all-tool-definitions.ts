@@ -47,7 +47,7 @@ let applied = false;
  */
 export function applyGetAllToolDefinitionsPatch(): boolean {
   if (applied) return false;
-  const proto = ExtensionRunner.prototype as Record<string, unknown>;
+  const proto = ExtensionRunner.prototype as unknown as Record<string, unknown>;
   const original = proto.bindCore as ((...args: unknown[]) => void) | undefined;
   if (!original || typeof original !== "function") return false;
 
@@ -64,7 +64,10 @@ export function applyGetAllToolDefinitionsPatch(): boolean {
     // Only set if not already provided (upstream fix landed).
     if (typeof runtime.getAllToolDefinitions === "function") return;
 
-    const self = this as unknown as ExtensionRunner;
+    const self = this as unknown as {
+      assertActive: () => void;
+      getAllRegisteredTools: () => Array<{ definition: unknown }>;
+    };
     runtime.getAllToolDefinitions = () => {
       try {
         self.assertActive();
