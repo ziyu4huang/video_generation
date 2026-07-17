@@ -30,6 +30,87 @@ bun --cwd bun-apps/pi-agent-cli src/cli.ts workflow run args-demo --dry-run
 bun --cwd bun-apps/pi-agent-cli src/cli.ts workflow run sample --dry-run
 ```
 
+> **Where packs resolve + where output lands.** Named resolution looks under
+> `PWD/.pi/workflows/` and `bun-apps/<pkg>/workflows/` (a literal path works
+> anywhere). The run log defaults to `PWD/.pi/workflows/runs/`; override with
+> `--out-dir <dir>` or `PI_WORKFLOWS_OUT_DIR`. The legacy `.claude/workflows/`
+> dir is no longer name-resolved by `workflow run` — call those scripts by path
+> (`workflow run .claude/workflows/<name>.js`) or via Claude Code's Workflow tool.
+
+### Regression baseline
+
+Reference run captured against `deepseek/deepseek-v4-flash` (2026-07-17). Re-run
+the same commands after any change to the manifest schema, the dir/file
+resolver, or the runner — the **agent count** is the deterministic invariant
+(structure of the fan-out), not the reply text or wall-clock. All three packs
+are hermetic (no bash / no writes / no network), so they are safe to run live.
+
+| pack | invocation | primitive(s) exercised | expected `agents` |
+|---|---|---|---|
+| `echo` | `workflow run echo --model deepseek/deepseek-v4-flash` | `agent()` | **1** |
+| `sample` | `workflow run sample --model deepseek/deepseek-v4-flash` | `pipeline()` + `phase()` + `log()` | **3** (one per default item) |
+| `args-demo` (manifest) | `workflow run args-demo --model deepseek/deepseek-v4-flash` | `parallel()` + manifest `args` | **2** (default `topics:[alpha,beta]`) |
+| `args-demo` (`--args`) | `... --args '{"topics":["x","y","z"]}'` | `parallel()` + `--args` override | **3** |
+
+Add `--json` to capture the full receipt (`runId`, `agents`, `phases`,
+`result`) for diffing against this table. A run whose `agents` diverges from
+the expected value signals a regression in the resolver/runner or the manifest
+`args` precedence — investigate before trusting the change.
+
+### How a pack runs (end-to-end)
+
+A pack has **two entry paths** that share the SAME resolver (the engine's
+`workflow-pack.ts`):
+
+- **Path A — CLI**: `workflow run <name>` (headless meta-command; shown below).
+- **Path B — interactive tool**: the `workflow` tool with `name: "<pack>"` in a
+  pi TUI session (the workflow extension is built-in via `./pi-agent.sh`). The
+  tool resolves the pack through the same resolver, then runs via its manager.
+
+> `manifest.model` is applied on Path A (`--model` overrides it) but **not** on
+> Path B (the session's `mainModel` governs; per-run model is future work).
+
+```
+              bun --cwd bun-apps/pi-agent-cli src/cli.ts workflow run <name> --model <spec>
+                                                 │
+                                                 ▼
+        ┌───────────────────────────── pi-agent-cli (Command dispatch) ─────────────────────────────┐
+        │  workflow sub-command: NON-AGENT meta-command (creates NO agent session, injects 0 tools) │
+        │                                                                                           │
+        │   resolve <name>  (first hit wins; a manifest.json DIR beats a same-name .js)             │
+        │      1. literal path                 ┌─────────────────────────────────────────────┐      │
+        │      2. .pi/workflows/<name>         │  WORKFLOW PACK = a FOLDER                    │      │
+        │      3. bun-apps/<pkg>/workflows/    │   ├── manifest.json   (name/entry/args/...)  │      │
+        │      4. <name>.js fallback           │   └── <entry>.js      (export const meta)    │      │
+        │                                      └─────────────────────────────────────────────┘      │
+        │                                                                                           │
+        │   precedence:  --model  >  manifest.model         --args (shallow-merge) > manifest.args  │
+        │   output dir:  --out-dir  >  PI_WORKFLOWS_OUT_DIR  >  PWD/.pi/workflows/runs (default)    │
+        └───────────────────────────────────────┬───────────────────────────────────────────────────┘
+                                                │  runWorkflow(entry, { args, model, runsDir })
+                                                ▼
+        ┌──────────────── pi-agent-ext-workflow ENGINE VM (the only place gates live) ────────────────┐
+        │   strict-parse entry  (acorn sourceType:module; Date.now/Math.random/new Date() THROW)     │
+        │   expose globals →  agent() | parallel() | pipeline() | phase() | log()                     │
+        │   deterministic primitives →  gate() / retry / loopUntilDry / journaling / resume           │
+        │                                                                                             │
+        │   the engine's own WorkflowAgent drives the LLM via createAgentSession SDK (no VSCode)     │
+        └───────────────────────────────────────┬─────────────────────────────────────────────────────┘
+                                                │
+                                                ▼
+        ┌──────────────────────── receipt + side effects ─────────────────────────┐
+        │  stdout:  ✓ <name> — agents=N Tms (source: …) run=<id> → <kind>          │
+        │  --json:  { meta, runId, agents, durationMs, phases, result }            │
+        │  disk:    <runsDir>/<RUN_ID>.log  (run log; default PWD/.pi/workflows/)   │
+        └─────────────────────────────────────────────────────────────────────────┘
+```
+
+Two runtimes share the script *syntax* but not the gates: `workflow run` AND the
+`workflow` tool's `name` param both target this engine (real
+gate/retry/loopUntilDry/resume) through the same shared resolver; Claude Code's
+`Workflow` tool is best-effort only. The diagram above is the Path A (CLI) flow;
+Path B converges on the same resolver + engine from the `workflow` tool.
+
 ## knowledge-distill
 
 WRITE-side distill pipeline. Takes a codebase source and atomises it into
