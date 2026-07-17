@@ -131,7 +131,7 @@ export function probeMissingExtensionDeps(bunAppsDir: string | undefined): strin
     consider(typeof e === "string" ? e : e?.entry);
   }
   for (const e of Object.values(manifest.lazyExtensions ?? {})) {
-    consider(typeof e === "string" ? e : e?.entry);
+    consider(typeof e === "string" ? e : (e as { entry?: string })?.entry);
   }
   const missing: string[] = [];
   for (const dir of dirs) {
