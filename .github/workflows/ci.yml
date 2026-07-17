@@ -167,9 +167,14 @@ jobs:
   # Thrust B — extension contract as a NAMED, visible check (not buried in the
   # pi-agent test run). The 5 tests gate every manifest extension: factory
   # loads, wires up, no tool-name conflicts, valid schema, handler present.
+  # Path-gated on check-deploy-paths (same condition as deploy-verify below —
+  # this test file lives in bun-apps/pi-agent/ and only that package's changes
+  # can affect it) so PRs untouched by pi-agent don't pay for it.
   # ──────────────────────────────────────────────────────────────────────────
   extension-contract:
     name: extension-contract
+    needs: check-deploy-paths
+    if: needs.check-deploy-paths.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -181,7 +186,8 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────────────────
   # Pre-check: does this PR touch bun-apps/pi-agent/? Push-to-main always runs.
-  # Saves ~8 min of CI time on PRs that don't touch the agent surface.
+  # Gates both extension-contract (above) and deploy-verify (below) — both
+  # only exercise pi-agent's own surface, so a PR untouched by it skips both.
   # ──────────────────────────────────────────────────────────────────────────
   check-deploy-paths:
     runs-on: ubuntu-latest
@@ -291,9 +297,15 @@ jobs:
   # to blocking once trusted — same rollout discipline as the portability audit.
   # The structural audit (test-determinism-audit.sh) is the proof; this is the
   # detection backstop. See .github/TEST-DETERMINISM.md.
+  #
+  # Path-gated via changed_packages, same mechanism as the `tests` matrix
+  # above: a PR that doesn't touch one of these 3 packages (directly or via
+  # a @repo/* dependency edge) no-ops that package's steps instead of paying
+  # for 3× its test command. Push-to-main always runs everything.
   # ──────────────────────────────────────────────────────────────────────
   determinism-spotcheck:
     name: determinism · ${{ matrix.package }}
+    needs: changed_packages
     runs-on: ubuntu-latest
     timeout-minutes: 6
     continue-on-error: true
@@ -314,9 +326,15 @@ jobs:
           - pi-agent-ext-workflow
           - pi-agent-ext-obsidian
     steps:
+      # "should this instance's steps actually run" — same gate as the `tests`
+      # matrix above (see that job's steps comment for why this can't move to
+      # a job-level `if:` — `matrix` isn't available there).
       - uses: actions/checkout@v4
+        if: "!cancelled() && (github.event_name == 'push' || needs.changed_packages.result != 'success' || fromJSON(needs.changed_packages.outputs.packages)[matrix.package] == true)"
       # All three flake-prone packages now run under `bun test` (hermes-memory
       # dropped its Node/tsx carve-out), so no Node setup is needed here.
       - uses: ./.github/actions/setup-env
+        if: "!cancelled() && (github.event_name == 'push' || needs.changed_packages.result != 'success' || fromJSON(needs.changed_packages.outputs.packages)[matrix.package] == true)"
       - name: Determinism spot-check (3× ${{ matrix.package }})
+        if: "!cancelled() && (github.event_name == 'push' || needs.changed_packages.result != 'success' || fromJSON(needs.changed_packages.outputs.packages)[matrix.package] == true)"
         run: bash scripts/test-determinism-spotcheck.sh "${{ matrix.package }}"
