@@ -418,6 +418,41 @@ describe("runWorkflowScript — workflow packs", () => {
 		});
 		expect(receipt.agentCount).toBe(1);
 	});
+
+	test("the real `sample` pack dry-runs (full-surface manifest parses)", async () => {
+		const dir = resolve(import.meta.dirname, "../../workflows/sample");
+		const receipt = await runWorkflowScript({ name: dir, dryRun: true });
+		expect(receipt.dryRun).toBe(true);
+		expect(receipt.meta.name).toBe("sample");
+		expect(receipt.source).toBe("path");
+		expect(receipt.agentCount).toBe(0);
+	});
+
+	test("the real `sample` pack exercises pipeline()/phase()/log() with default args", async () => {
+		const dir = resolve(import.meta.dirname, "../../workflows/sample");
+		const receipt = await runWorkflowScript({
+			name: dir,
+			persistLogs: false,
+			agent: { run: async () => "stub" } as any,
+		});
+		expect(receipt.meta.name).toBe("sample");
+		expect(receipt.agentCount).toBe(3); // pipeline() over default items [alpha, beta, gamma], one agent() each
+		expect(receipt.phases).toEqual(["FanOut", "Summarise"]);
+		const result = receipt.result as { items: string[]; notes: unknown[] };
+		expect(result.items).toEqual(["alpha", "beta", "gamma"]);
+		expect(result.notes).toHaveLength(3);
+	});
+
+	test("the real `sample` pack: --args overrides manifest items", async () => {
+		const dir = resolve(import.meta.dirname, "../../workflows/sample");
+		const receipt = await runWorkflowScript({
+			name: dir,
+			args: { items: ["solo"] },
+			persistLogs: false,
+			agent: { run: async () => "x" } as any,
+		});
+		expect(receipt.agentCount).toBe(1);
+	});
 });
 
 // ── listWorkflows (enumerates packs + single-file scripts) ─────────────────
