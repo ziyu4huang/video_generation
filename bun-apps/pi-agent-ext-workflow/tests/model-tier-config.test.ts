@@ -24,7 +24,7 @@ describe("model-tier-config", () => {
   describe("buildDefaultTierConfig", () => {
     it("sets every tier to the provided current model", async () => {
       const { buildDefaultTierConfig } = await loadModule();
-      const cfg = buildDefaultTierConfig("openai/gpt-4.1");
+      const cfg = await buildDefaultTierConfig("openai/gpt-4.1");
       assert.deepEqual(cfg.tiers, {
         small: "openai/gpt-4.1",
         medium: "openai/gpt-4.1",
@@ -34,7 +34,7 @@ describe("model-tier-config", () => {
 
     it("each tier holds a single string", async () => {
       const { buildDefaultTierConfig } = await loadModule();
-      const cfg = buildDefaultTierConfig("openai/gpt-4.1");
+      const cfg = await buildDefaultTierConfig("openai/gpt-4.1");
       for (const [name, model] of Object.entries(cfg.tiers)) {
         assert.equal(typeof model, "string", `${name} tier should hold a string`);
       }
@@ -42,7 +42,7 @@ describe("model-tier-config", () => {
 
     it("always produces the three standard tiers", async () => {
       const { buildDefaultTierConfig } = await loadModule();
-      const cfg = buildDefaultTierConfig("openai/gpt-4.1");
+      const cfg = await buildDefaultTierConfig("openai/gpt-4.1");
       assert.deepEqual(Object.keys(cfg.tiers).sort(), ["big", "medium", "small"]);
     });
   });

@@ -13,15 +13,15 @@ type WorkflowAgentPrivates = {
   getTierConfig(): ModelTierConfig | null;
 };
 
-test("listAvailableModelSpecs returns an array (empty when no auth configured)", () => {
-  const result = listAvailableModelSpecs();
+test("listAvailableModelSpecs returns an array (empty when no auth configured)", async () => {
+  const result = await listAvailableModelSpecs();
   assert.ok(Array.isArray(result), "should always return an array");
   // On CI or fresh installs there may be no models configured
   // The important thing is it doesn't throw
 });
 
-test("listAvailableModelSpecs entries have provider/model format when non-empty", () => {
-  const result = listAvailableModelSpecs();
+test("listAvailableModelSpecs entries have provider/model format when non-empty", async () => {
+  const result = await listAvailableModelSpecs();
   for (const spec of result) {
     assert.ok(spec.includes("/"), `model spec "${spec}" should use provider/id format`);
     const [provider, id] = spec.split("/");

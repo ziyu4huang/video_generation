@@ -42,7 +42,7 @@ export function registerWorkflowModelsCommand(pi: ExtensionAPI): void {
       // user's current Pi model). Nothing is written to disk until the user
       // explicitly chooses "Save and exit".
       const currentModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
-      let config = loadModelTierConfig() ?? buildDefaultTierConfig(currentModel);
+      let config = loadModelTierConfig() ?? (await buildDefaultTierConfig(currentModel));
       let dirty = false;
 
       const ensureFresh = (cfg: typeof config) => {
@@ -86,7 +86,7 @@ export function registerWorkflowModelsCommand(pi: ExtensionAPI): void {
             "This will reset every tier to your current Pi model. Continue?",
           );
           if (confirmed) {
-            ensureFresh(buildDefaultTierConfig(currentModel));
+            ensureFresh(await buildDefaultTierConfig(currentModel));
             ctx.ui.notify("Tiers reset to defaults. Use 'Save and exit' to persist.", "info");
           }
         }
@@ -119,7 +119,7 @@ export async function editSingleTier(
   tiers: Record<string, string>,
   tierName: string,
 ): Promise<Record<string, string> | null> {
-  const available = listAvailableModelSpecs();
+  const available = await listAvailableModelSpecs();
   const current = tiers[tierName];
 
   // Build SelectItems: all available models as scrollable list

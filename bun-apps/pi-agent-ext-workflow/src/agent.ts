@@ -1,12 +1,12 @@
 import { join } from "node:path";
 import type { AssistantMessage, Model, TextContent } from "@earendil-works/pi-ai";
 import {
-  AuthStorage,
   type CreateAgentSessionOptions,
   createAgentSession,
   createCodingTools,
   getAgentDir,
   ModelRegistry,
+  ModelRuntime,
   SessionManager,
   SettingsManager,
   type ToolDefinition,
@@ -235,11 +235,14 @@ export interface WorkflowAgentOptions {
  * `provider/modelId` specs. Used to tell the workflow author which models it may
  * route agents to. Best-effort: returns [] if the registry can't be built.
  */
-export function listAvailableModelSpecs(): string[] {
+export async function listAvailableModelSpecs(): Promise<string[]> {
   try {
     const dir = getAgentDir();
-    const auth = AuthStorage.create(join(dir, "auth.json"));
-    const registry = ModelRegistry.create(auth, join(dir, "models.json"));
+    const runtime = await ModelRuntime.create({
+      authPath: join(dir, "auth.json"),
+      modelsPath: join(dir, "models.json"),
+    });
+    const registry = new ModelRegistry(runtime);
     return registry.getAvailable().map((m) => `${m.provider}/${m.id}`);
   } catch {
     return [];
@@ -320,7 +323,7 @@ export class WorkflowAgent {
   private readonly instructions?: string;
   private readonly mainModel?: string;
   /** Lazily built once; shares the SDK's agentDir/auth so resolved models are authed. */
-  private registry?: ModelRegistry;
+  private registryPromise?: Promise<ModelRegistry>;
   /**
    * Lazily loaded once per instance. `undefined` = not yet read; `null` = read
    * and the file is absent (callers fall back to a default). Caching avoids an
@@ -347,15 +350,17 @@ export class WorkflowAgent {
     return this.tierConfigCache;
   }
 
-  private getRegistry(): ModelRegistry {
-    if (!this.registry) {
+  private getRegistry(): Promise<ModelRegistry> {
+    if (!this.registryPromise) {
       const dir = getAgentDir();
       // Same agentDir/auth files createAgentSession uses by default, so a model
       // resolved here carries valid credentials.
-      const auth = AuthStorage.create(join(dir, "auth.json"));
-      this.registry = ModelRegistry.create(auth, join(dir, "models.json"));
+      this.registryPromise = ModelRuntime.create({
+        authPath: join(dir, "auth.json"),
+        modelsPath: join(dir, "models.json"),
+      }).then((runtime) => new ModelRegistry(runtime));
     }
-    return this.registry;
+    return this.registryPromise;
   }
 
   /**
@@ -363,8 +368,8 @@ export class WorkflowAgent {
    * or a bare `modelId` (prefers auth-configured models, then any known model).
    * Returns undefined when nothing matches.
    */
-  private resolveModel(spec: string): Model<any> | undefined {
-    const registry = this.getRegistry();
+  private async resolveModel(spec: string): Promise<Model<any> | undefined> {
+    const registry = await this.getRegistry();
     const slash = spec.indexOf("/");
     if (slash > 0) {
       return registry.find(spec.slice(0, slash), spec.slice(slash + 1));
@@ -404,7 +409,7 @@ export class WorkflowAgent {
     // spec falls back to the session default (with a warning) rather than failing.
     let resolvedModel: Model<any> | undefined;
     if (modelSpec) {
-      resolvedModel = this.resolveModel(modelSpec);
+      resolvedModel = await this.resolveModel(modelSpec);
       if (resolvedModel) {
         options.onModelResolved?.(`${resolvedModel.provider}/${resolvedModel.id}`);
       } else {
