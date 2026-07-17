@@ -120,7 +120,12 @@ describe("checkProviders", () => {
 
 describe("runChecks (aggregate)", () => {
 	test("ok=true when no FAIL", () => {
-		const r = runChecks(ctx({ mode: "portable", listDir: () => Array.from({ length: 20 }, (_, i) => `e${i}.js`) }));
+		// expectedExtCount(portable) = manifest.extensions + npmExtensions; keep the
+		// fake bundle count in lockstep with the manifest so this test doesn't rot
+		// every time an extension is added (the other checkExtensions tests already
+		// derive `want` from the manifest the same way).
+		const want = (manifest.extensions?.length ?? 0) + (manifest.npmExtensions?.length ?? 0);
+		const r = runChecks(ctx({ mode: "portable", listDir: () => Array.from({ length: want }, (_, i) => `e${i}.js`) }));
 		expect(r.ok).toBe(true);
 		expect(r.mode).toBe("portable");
 	});
