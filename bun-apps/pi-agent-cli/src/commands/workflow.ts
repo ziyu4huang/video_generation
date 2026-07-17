@@ -10,13 +10,15 @@
  *
  * Script resolution order (first hit wins):
  *   1. `<name>` as a literal path (absolute, or relative to cwd) when it exists.
- *   2. `.claude/workflows/<name>.js` (repo engine scripts — closed-loop-proof, …).
+ *   2. `.pi/workflows/<name>.js` (project engine scripts — closed-loop-proof, …).
  *   3. `bun-apps/<pkg>/workflows/<name>.js` (package-local engine scripts).
  *   4. The literal `<name>` with a `.js` suffix tried in (2) and (3).
  *
- * `.claude/workflows/*.js` are ALSO runnable by Claude Code's own `Workflow`
- * tool (best-effort); running them HERE gives them the deterministic gates. The
- * two runtimes share the `agent()`/`phase()`/`export const meta` script syntax.
+ * The project engine dir is `.pi/workflows/` (under PWD). Claude Code's own
+ * `Workflow` tool reads its separate `.claude/workflows/` dir (best-effort, no
+ * gates); this command does NOT resolve that dir — pass a literal path to reach
+ * those scripts. The two runtimes share the `agent()`/`phase()`/`export const
+ * meta` script syntax, but only this path has the deterministic engine gates.
  *
  * Flags: `--args '<JSON>'` (the script's `args` global), `--model <spec>`
  * (session main model, also the default for untagged agents), `--dry-run`
@@ -35,10 +37,12 @@ import type { Command } from "../cli.ts";
 import { runWorkflow, parseWorkflowScript, type WorkflowAgent } from "@repo/pi-agent-ext-workflow";
 import { readManifest, type Manifest } from "../manifest.ts";
 
-/** Where engine workflow scripts live in this repo (Claude-Code-shared). */
-const CLAUDE_WORKFLOWS_DIR = ".claude/workflows";
+/** Where engine workflow scripts live (project-local, under PWD/.pi). */
+const PI_WORKFLOWS_DIR = ".pi/workflows";
 /** Package-local engine workflow script directories. */
 const PKG_WORKFLOWS_GLOB = "bun-apps";
+/** Default run-log output dir (under PWD/.pi). Override via --out-dir / PI_WORKFLOWS_OUT_DIR. */
+const DEFAULT_RUNS_DIR = ".pi/workflows/runs";
 
 export interface ResolvedWorkflow {
 	/** Absolute path to the entry script that was read (the .js/.mjs for a
@@ -47,7 +51,7 @@ export interface ResolvedWorkflow {
 	/** Entry script source text. */
 	script: string;
 	/** How it was resolved, for the run receipt. */
-	source: "path" | ".claude/workflows" | "package-workflows";
+	source: "path" | ".pi/workflows" | "package-workflows";
 	/** Present iff a workflow pack (folder + manifest.json). The manifest carries
 	 *  default args/model/thinking the runner merges under CLI flags. */
 	pack?: { manifest: Manifest; packDir: string };
@@ -91,21 +95,21 @@ export function resolveWorkflowScript(
 	// 2-3. Name resolution under the workflow dirs. Per location, a workflow-pack
 	//      directory (<name>/manifest.json) wins over a same-name file — packs
 	//      are the richer, deliberate artifact.
-	const claudeRoot = findRepoRoot(cwd, exists);
-	if (claudeRoot) {
-		const claudeDir = join(claudeRoot, CLAUDE_WORKFLOWS_DIR);
-		if (exists(claudeDir)) {
-			const pack = tryResolvePack(join(claudeDir, name), { read, exists });
-			if (pack) return { ...pack, source: ".claude/workflows" };
+	const root = findRepoRoot(cwd, exists);
+	if (root) {
+		const piDir = join(root, PI_WORKFLOWS_DIR);
+		if (exists(piDir)) {
+			const pack = tryResolvePack(join(piDir, name), { read, exists });
+			if (pack) return { ...pack, source: ".pi/workflows" };
 			for (const candidate of names) {
-				const p = join(claudeDir, candidate);
+				const p = join(piDir, candidate);
 				if (exists(p) && statSyncOrNull(p)?.isFile()) {
-					return { path: p, script: read(p), source: ".claude/workflows" };
+					return { path: p, script: read(p), source: ".pi/workflows" };
 				}
 			}
 		}
 
-		const pkgRoot = join(claudeRoot, PKG_WORKFLOWS_GLOB);
+		const pkgRoot = join(root, PKG_WORKFLOWS_GLOB);
 		if (exists(pkgRoot) && statSyncOrNull(pkgRoot)?.isDirectory()) {
 			for (const pkg of readdirSync(pkgRoot)) {
 				const pkgDir = join(pkgRoot, pkg, "workflows");
@@ -125,11 +129,11 @@ export function resolveWorkflowScript(
 	throw new Error(
 		`workflow: script "${name}" not found.\n` +
 			`Looked for: ${asPath}\n` +
-			(claudeRoot
-				? `  ${join(claudeRoot, CLAUDE_WORKFLOWS_DIR, names[0]!)}\n` +
-					`  ${join(claudeRoot, PKG_WORKFLOWS_GLOB, "<pkg>", "workflows", names[0]!)}\n`
+			(root
+				? `  ${join(root, PI_WORKFLOWS_DIR, names[0]!)}\n` +
+					`  ${join(root, PKG_WORKFLOWS_GLOB, "<pkg>", "workflows", names[0]!)}\n`
 				: "") +
-			`Pass an absolute path or a name under .claude/workflows/ or bun-apps/<pkg>/workflows/.`,
+			`Pass an absolute path or a name under .pi/workflows/ or bun-apps/<pkg>/workflows/.`,
 	);
 }
 
@@ -163,15 +167,15 @@ function tryResolvePack(
 }
 
 /**
- * Walk up from `start` to the first dir containing `.claude/workflows/` or a
- * `bun-apps/` dir — the repo root for workflow-script resolution. Falls back to
- * `start` itself so an absolute-path run outside a repo still resolves the path
- * branch above. Pure (uses the injected `exists`).
+ * Walk up from `start` to the first dir containing `.pi/workflows/` or a
+ * `bun-apps/` dir — the project root for workflow-script resolution. Falls back
+ * to `start` itself so an absolute-path run outside a project still resolves the
+ * path branch above. Pure (uses the injected `exists`).
  */
 function findRepoRoot(start: string, exists: (p: string) => boolean): string | undefined {
 	let dir = start;
 	for (let i = 0; i < 12; i++) {
-		if (exists(join(dir, CLAUDE_WORKFLOWS_DIR)) || exists(join(dir, PKG_WORKFLOWS_GLOB))) {
+		if (exists(join(dir, PI_WORKFLOWS_DIR)) || exists(join(dir, PKG_WORKFLOWS_GLOB))) {
 			return dir;
 		}
 		const parent = dirname(dir);
@@ -224,6 +228,18 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 	return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/**
+ * Resolve the run-log output dir for a workflow run. Absolute paths are kept;
+ * relative paths resolve against `cwd`. Falls back to the PWD/.pi default.
+ * Pure — the env read is done by the caller (the command layer) so this stays
+ * testable; pass the resolved override (or undefined) here.
+ */
+function resolveRunsDir(outDir: string | undefined, cwd?: string): string {
+	const base = cwd ?? process.cwd();
+	const dir = outDir ?? DEFAULT_RUNS_DIR;
+	return isAbsolute(dir) ? dir : resolve(base, dir);
+}
+
 /** Build the `provider/modelId` spec passed as the workflow's main model. */
 function buildMainSpec(parsed: ParsedArgs): string | undefined {
 	const model = parsed.model;
@@ -241,6 +257,12 @@ export interface RunWorkflowScriptOptions {
 	dryRun?: boolean;
 	persistLogs?: boolean;
 	cwd?: string;
+	/**
+	 * Run-log output dir (absolute or relative to cwd). Default
+	 * `PWD/.pi/workflows/runs`. Also overridable via PI_WORKFLOWS_OUT_DIR env at
+	 * the command layer; this field is the resolved value passed to the engine.
+	 */
+	outDir?: string;
 	/**
 	 * Injectable agent (the LLM caller). Defaults to a real WorkflowAgent; tests
 	 * pass a stub so the engine's gates run without network/LLM access. Typed to
@@ -303,6 +325,7 @@ export async function runWorkflowScript(
 		mainModel: overrides.model,
 		persistLogs: opts.persistLogs ?? true,
 		cwd: opts.cwd,
+		runsDir: resolveRunsDir(opts.outDir, opts.cwd),
 		...(opts.agent ? { agent: opts.agent } : {}),
 		onPhase: opts.onPhase,
 		onAgentEnd: opts.onAgentEnd as any,
@@ -335,7 +358,7 @@ resume primitives are therefore reachable from the CLI, a script, or a hook.
 
 Script resolution (first hit wins):
   1. <name> as a literal path (absolute or relative to cwd)
-  2. .claude/workflows/<name>.js
+  2. .pi/workflows/<name>.js
   3. bun-apps/<pkg>/workflows/<name>.js
 
 Options:
@@ -346,6 +369,8 @@ Options:
   --thinking <level>     off|minimal|low|medium|high|xhigh
   --dry-run              parse + validate the script only (no agents, no LLM)
   --no-persist-logs      skip writing the run log to disk (logs persist by default)
+  --out-dir <dir>        run-log output dir (default PWD/.pi/workflows/runs;
+                         also via PI_WORKFLOWS_OUT_DIR env; absolute or cwd-relative)
 
 Output: a one-line receipt (run id, agents, duration, result kind) + the final
 result as JSON when --json is set.
@@ -359,12 +384,14 @@ Examples:
 		const name = parsed.positionals[0];
 		if (!name) {
 			console.error("Usage: workflow run <name> [--args JSON] [--model spec] [--dry-run]\n");
-			console.error("Resolve a name from .claude/workflows/ or bun-apps/<pkg>/workflows/, or pass a path.");
+			console.error("Resolve a name from .pi/workflows/ or bun-apps/<pkg>/workflows/, or pass a path.");
 			throw new Error("workflow run: <name> is required");
 		}
 
 		const args = parseWorkflowArgs(parsed.workflowArgs);
 		const model = buildMainSpec(parsed);
+		// Output dir precedence: --out-dir flag > PI_WORKFLOWS_OUT_DIR env > PWD/.pi default.
+		const outDir = parsed.outDir ?? process.env.PI_WORKFLOWS_OUT_DIR;
 
 		const receipt = await runWorkflowScript({
 			name,
@@ -372,6 +399,7 @@ Examples:
 			model,
 			dryRun: parsed.dryRun,
 			persistLogs: !parsed.noPersistLogs,
+			outDir,
 			onPhase: (title) => {
 				if (parsed.verbose >= 1) console.log(`▶ phase: ${title}`);
 			},
@@ -433,7 +461,7 @@ export interface WorkflowListResult {
  *  reported in `errors` (not dropped). */
 export function listWorkflows(claudeRoot: string): WorkflowListResult {
 	const dirs = [
-		{ label: ".claude/workflows", dir: join(claudeRoot, CLAUDE_WORKFLOWS_DIR) },
+		{ label: ".pi/workflows", dir: join(claudeRoot, PI_WORKFLOWS_DIR) },
 		...readdirSyncSafe(join(claudeRoot, PKG_WORKFLOWS_GLOB)).map((pkg) => ({
 			label: `bun-apps/${pkg}/workflows`,
 			dir: join(claudeRoot, PKG_WORKFLOWS_GLOB, pkg, "workflows"),
@@ -475,7 +503,7 @@ export const workflowListCommand: Command = {
 	summary: "List resolvable workflow scripts (with name + description).",
 	details: `Usage: bun-pi-agent-cli workflow list
 
-Enumerates .claude/workflows/*.js and bun-apps/<pkg>/workflows/*.js, parsing
+Enumerates .pi/workflows/*.js and bun-apps/<pkg>/workflows/*.js, parsing
 each script's \`export const meta\` to print name + description. Scripts that
 fail to parse are reported as errors (not skipped silently) so a broken script
 is surfaced.`,

@@ -40,6 +40,7 @@ export type ValueField =
 	| "tags" | "excludeFromKb" | "excludeIds" | "workflowArgs" | "blend"
 	| "proxy" | "outputPath" | "hermesDir" | "vaultRoot" | "order"
 	| "linkWeighting" | "probeEval"
+	| "outDir"
 	| "only" | "filesCsv" | "projectsDir" | "memoryDir";
 
 export type BoolField =
@@ -130,6 +131,7 @@ const PDF_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 // ── workflow — engine args ──────────────────────────────────────────────────
 const WORKFLOW_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	{ flag: "--args", field: "workflowArgs" },
+	{ flag: "--out-dir", field: "outDir" },
 ];
 
 // ── kcard-loop — convergence loop tuning (link-weighting shared with zk-ingest) ─

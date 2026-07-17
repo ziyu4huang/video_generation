@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import { tmpdir } from "node:os";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
 	resolveWorkflowScript,
@@ -76,13 +76,13 @@ describe("resolveWorkflowScript", () => {
 		);
 	});
 
-	test("resolves .claude/workflows/<name>.js from a fake repo root", () => {
+	test("resolves .pi/workflows/<name>.js from a fake repo root", () => {
 		const root = mkdtempSync(join(tmpdir(), "wf-"));
-		mkdirSync(join(root, ".claude", "workflows"), { recursive: true });
-		const p = join(root, ".claude", "workflows", "demo.js");
+		mkdirSync(join(root, ".pi", "workflows"), { recursive: true });
+		const p = join(root, ".pi", "workflows", "demo.js");
 		writeFileSync(p, "export const meta = { name: 'demo', description: 'd' };\n");
 		const r = resolveWorkflowScript("demo", { cwd: root });
-		expect(r.source).toBe(".claude/workflows");
+		expect(r.source).toBe(".pi/workflows");
 		expect(r.path).toBe(p);
 	});
 
@@ -96,15 +96,15 @@ describe("resolveWorkflowScript", () => {
 		expect(r.path).toBe(p);
 	});
 
-	test("accepts a name with explicit .js suffix under .claude/workflows", () => {
+	test("accepts a name with explicit .js suffix under .pi/workflows", () => {
 		const root = mkdtempSync(join(tmpdir(), "wf-"));
-		mkdirSync(join(root, ".claude", "workflows"), { recursive: true });
+		mkdirSync(join(root, ".pi", "workflows"), { recursive: true });
 		writeFileSync(
-			join(root, ".claude", "workflows", "suf.js"),
+			join(root, ".pi", "workflows", "suf.js"),
 			"export const meta = { name: 'suf', description: 'd' };\n",
 		);
 		const r = resolveWorkflowScript("suf.js", { cwd: root });
-		expect(r.source).toBe(".claude/workflows");
+		expect(r.source).toBe(".pi/workflows");
 	});
 });
 
@@ -146,14 +146,14 @@ describe("resolveWorkflowScript — workflow packs", () => {
 		expect(() => resolveWorkflowScript(dir)).toThrow(/without a manifest\.json/);
 	});
 
-	test("resolves a pack by NAME under .claude/workflows/<name>/", () => {
+	test("resolves a pack by NAME under .pi/workflows/<name>/", () => {
 		const root = mkdtempSync(join(tmpdir(), "wf-"));
-		mkdirSync(join(root, ".claude", "workflows"), { recursive: true });
-		makePack(join(root, ".claude", "workflows"), "echo", { name: "echo", description: "d", entry: "index.js" });
+		mkdirSync(join(root, ".pi", "workflows"), { recursive: true });
+		makePack(join(root, ".pi", "workflows"), "echo", { name: "echo", description: "d", entry: "index.js" });
 		const r = resolveWorkflowScript("echo", { cwd: root });
-		expect(r.source).toBe(".claude/workflows");
+		expect(r.source).toBe(".pi/workflows");
 		expect(r.pack?.manifest.name).toBe("echo");
-		expect(r.path).toBe(join(root, ".claude", "workflows", "echo", "index.js"));
+		expect(r.path).toBe(join(root, ".pi", "workflows", "echo", "index.js"));
 	});
 
 	test("resolves a pack by NAME under bun-apps/<pkg>/workflows/<name>/", () => {
@@ -167,17 +167,17 @@ describe("resolveWorkflowScript — workflow packs", () => {
 
 	test("single-file name still resolves to .js (backward compatible)", () => {
 		const root = mkdtempSync(join(tmpdir(), "wf-"));
-		mkdirSync(join(root, ".claude", "workflows"), { recursive: true });
-		writeFileSync(join(root, ".claude", "workflows", "legacy.js"), "export const meta = { name: 'legacy', description: 'd' };\n");
+		mkdirSync(join(root, ".pi", "workflows"), { recursive: true });
+		writeFileSync(join(root, ".pi", "workflows", "legacy.js"), "export const meta = { name: 'legacy', description: 'd' };\n");
 		const r = resolveWorkflowScript("legacy", { cwd: root });
-		expect(r.source).toBe(".claude/workflows");
+		expect(r.source).toBe(".pi/workflows");
 		expect(r.pack).toBeUndefined();
-		expect(r.path).toBe(join(root, ".claude", "workflows", "legacy.js"));
+		expect(r.path).toBe(join(root, ".pi", "workflows", "legacy.js"));
 	});
 
 	test("a pack DIR wins over a same-name .js file (dir-first precedence)", () => {
 		const root = mkdtempSync(join(tmpdir(), "wf-"));
-		const wfDir = join(root, ".claude", "workflows");
+		const wfDir = join(root, ".pi", "workflows");
 		mkdirSync(wfDir, { recursive: true });
 		writeFileSync(join(wfDir, "echo.js"), "export const meta = { name: 'file-echo', description: 'd' };\n");
 		makePack(wfDir, "echo", { name: "pack-echo", description: "d", entry: "index.js" });
@@ -285,6 +285,39 @@ describe("runWorkflowScript", () => {
 		expect(
 			runWorkflowScript({ name: "nope", cwd: dir, agent: { run: async () => "x" } as any }),
 		).rejects.toThrow(/"nope" not found/);
+	});
+
+	test("--out-dir redirects the persisted run log to that folder", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "wf-"));
+		writeFileSync(join(dir, "echo.js"), ECHO_WORKFLOW);
+		const outDir = mkdtempSync(join(tmpdir(), "wf-out-"));
+		const receipt = await runWorkflowScript({
+			name: "echo.js",
+			cwd: dir,
+			outDir,
+			persistLogs: true,
+			agent: { run: async () => "stub" } as any,
+		});
+		expect(receipt.agentCount).toBe(1);
+		// The engine's logger writes <runId>.log into the overridden runsDir.
+		expect(receipt.runId).toBeTruthy();
+		const logFile = join(outDir, `${receipt.runId}.log`);
+		expect(existsSync(logFile)).toBe(true);
+	});
+
+	test("default outDir is PWD/.pi/workflows/runs when outDir omitted", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "wf-"));
+		writeFileSync(join(dir, "echo.js"), ECHO_WORKFLOW);
+		const receipt = await runWorkflowScript({
+			name: "echo.js",
+			cwd: dir,
+			// no outDir → default resolve(cwd, ".pi/workflows/runs")
+			persistLogs: true,
+			agent: { run: async () => "stub" } as any,
+		});
+		const expectedDir = join(dir, ".pi", "workflows", "runs");
+		expect(existsSync(expectedDir)).toBe(true);
+		expect(readdirSync(expectedDir).some((f) => f === `${receipt.runId}.log`)).toBe(true);
 	});
 });
 
@@ -460,7 +493,7 @@ describe("runWorkflowScript — workflow packs", () => {
 describe("listWorkflows", () => {
 	test("lists packs and single-file scripts together", () => {
 		const root = mkdtempSync(join(tmpdir(), "wf-"));
-		const wfDir = join(root, ".claude", "workflows");
+		const wfDir = join(root, ".pi", "workflows");
 		mkdirSync(wfDir, { recursive: true });
 		writeFileSync(join(wfDir, "legacy.js"), "export const meta = { name: 'legacy', description: 'a file' };\n");
 		makePack(wfDir, "echo", { name: "echo", description: "a pack", entry: "index.js" });
@@ -468,7 +501,7 @@ describe("listWorkflows", () => {
 		expect(rows.map((r) => r.name).sort()).toEqual(["echo", "legacy"]);
 		const echo = rows.find((r) => r.name === "echo")!;
 		expect(echo.kind).toBe("pack");
-		expect(echo.source).toBe(".claude/workflows");
+		expect(echo.source).toBe(".pi/workflows");
 		const legacy = rows.find((r) => r.name === "legacy")!;
 		expect(legacy.kind).toBe("file");
 	});
@@ -487,7 +520,7 @@ describe("listWorkflows", () => {
 
 	test("a malformed pack is reported in errors, not dropped (other rows still list)", () => {
 		const root = mkdtempSync(join(tmpdir(), "wf-"));
-		const wfDir = join(root, ".claude", "workflows");
+		const wfDir = join(root, ".pi", "workflows");
 		mkdirSync(wfDir, { recursive: true });
 		writeFileSync(join(wfDir, "good.js"), "export const meta = { name: 'good', description: 'g' };\n");
 		const badDir = join(wfDir, "broken");
@@ -500,7 +533,7 @@ describe("listWorkflows", () => {
 
 	test("directories without manifest.json are skipped silently", () => {
 		const root = mkdtempSync(join(tmpdir(), "wf-"));
-		const wfDir = join(root, ".claude", "workflows");
+		const wfDir = join(root, ".pi", "workflows");
 		mkdirSync(wfDir, { recursive: true });
 		mkdirSync(join(wfDir, "just-a-dir"), { recursive: true });
 		const { rows, errors } = listWorkflows(root);

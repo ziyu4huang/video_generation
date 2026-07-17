@@ -27,9 +27,13 @@ Resolves `<name>` to a script, then runs it through the engine.
 **Script resolution (first hit wins):**
 
 1. `<name>` as a literal path (absolute, or relative to cwd).
-2. `.claude/workflows/<name>.js` (repo engine scripts).
+2. `.pi/workflows/<name>.js` (project engine scripts, under `PWD/.pi`).
 3. `bun-apps/<pkg>/workflows/<name>.js` (package-local engine scripts).
 4. The literal `<name>` with a `.js` suffix tried in (2) and (3).
+
+> `.claude/workflows/` is **no longer name-resolved** by `workflow run` (it is
+> Claude Code's Workflow-tool dir). To run one of those scripts, pass its path
+> explicitly: `workflow run .claude/workflows/<name>.js`.
 
 A `<name>` (or path) that resolves to a **directory containing `manifest.json`**
 is a **workflow pack** — see [Workflow packs](#workflow-packs) below. Per
@@ -45,6 +49,7 @@ location, a pack directory wins over a same-name `.js` file.
 | `--thinking <level>` | off\|minimal\|low\|medium\|high\|xhigh |
 | `--dry-run` | parse + validate the script only (no agents, no LLM) |
 | `--no-persist-logs` | skip writing the run log to disk (logs persist by default) |
+| `--out-dir <dir>` | run-log output dir (default `PWD/.pi/workflows/runs`; also via `PI_WORKFLOWS_OUT_DIR` env; absolute or cwd-relative) |
 | `--json` | emit the full receipt + result as JSON |
 | `-V` / `--verbose` | show per-phase + per-agent progress |
 
@@ -65,11 +70,13 @@ bun bun-apps/pi-agent-cli/src/cli.ts workflow run ./my-workflow.js --json
 
 **Output:** a one-line receipt (`✓ <name> — agents=N Tms (source: …) run=<id> → <kind>`)
 plus, under `--json`, the full receipt and result. A run log is written to disk
-unless `--no-persist-logs` is set.
+(`<runsDir>/<runId>.log`, default `PWD/.pi/workflows/runs/`) unless
+`--no-persist-logs` is set. Redirect it with `--out-dir <dir>` or
+`PI_WORKFLOWS_OUT_DIR`.
 
 ### `workflow list`
 
-Enumerates `.claude/workflows/*.js` and `bun-apps/<pkg>/workflows/*.js`, parsing
+Enumerates `.pi/workflows/*.js` and `bun-apps/<pkg>/workflows/*.js`, parsing
 each script's `export const meta` to print name + description + source dir.
 Scripts that fail to parse are reported (not skipped), so a broken script is
 surfaced. Use `--json` for machine-readable output.
@@ -109,11 +116,12 @@ defaults the CLI merges under its flags.
 
 ### Resolution (dir-or-file)
 
-`workflow run <name>` reuses the existing workflow dirs (`.claude/workflows/`,
+`workflow run <name>` resolves under the project workflow dirs (`.pi/workflows/`,
 `bun-apps/<pkg>/workflows/`). A `<name>` that is a directory with `manifest.json`
 resolves as a pack; otherwise the single-file `<name>.js` resolution applies.
 **A pack directory wins over a same-name `.js` file** in the same location. A
-literal directory path also works (`workflow run ./my/pack`).
+literal directory path also works (`workflow run ./my/pack`), so a pack can live
+in any folder.
 
 ### Precedence (manifest defaults vs CLI flags)
 
@@ -148,7 +156,7 @@ This repo has TWO executors that share the workflow script *syntax*
 
 | Runtime | Where | Gates |
 |---------|-------|-------|
-| **pi-agent-ext-workflow engine** (`runWorkflow`) | `bun-apps/<pkg>/workflows/` + `.claude/workflows/`, run by `workflow run` or the VSCode editor | real deterministic gate / retry / loopUntilDry / journaling / resume |
+| **pi-agent-ext-workflow engine** (`runWorkflow`) | `.pi/workflows/` + `bun-apps/<pkg>/workflows/` (named), or any path, run by `workflow run` or the VSCode editor | real deterministic gate / retry / loopUntilDry / journaling / resume |
 | Claude Code's `Workflow` tool | `.claude/workflows/*.js`, run interactively by Claude Code | best-effort `agent()`/`parallel()` — no deterministic gates |
 
 `workflow run` targets the **engine**. That is the whole point: deterministic
@@ -175,11 +183,15 @@ run through the engine.
 
 | Workflow | Location | Purpose |
 |----------|----------|---------|
-| `closed-loop-proof` | `.claude/workflows/` | End-to-end proof of the knowledge-graph closed loop (READ + gate + WRITE) — a live receipt is the proof. |
+| `closed-loop-proof` | `.claude/workflows/` *(path-only)* | End-to-end proof of the knowledge-graph closed loop (READ + gate + WRITE) — a live receipt is the proof. |
 | `knowledge-distill` | `bun-apps/pi-agent-cli/workflows/` | WRITE-side distill: PR/markdown → atomic vault cards under gate/retry + garden gate. |
 | `retrieval-quality-self-improve` | `bun-apps/pi-agent-cli/workflows/` | READ-side retrieval loop: adversarial query-gen → zk-ask in two blend modes → blind judge → receipt + `.knowledge.jsonl`. |
 
-All three are runnable via `pi-agent workflow run <name> --model <spec>`.
+`knowledge-distill` and `retrieval-quality-self-improve` are name-runnable
+(`workflow run <name>`). `closed-loop-proof` lives in `.claude/workflows/`, which
+is no longer name-resolved — run it by path:
+`workflow run .claude/workflows/closed-loop-proof.js --model <spec>`. All accept
+`--model <spec>`.
 
 ## Why this matters
 
