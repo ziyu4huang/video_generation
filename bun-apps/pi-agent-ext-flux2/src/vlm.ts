@@ -21,36 +21,48 @@
  * (t2i/scene/upscale/... without a pipeline) never pays for pi-file2md's session
  * machinery.
  */
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { askImage, resolveLLM, type ResolvedLLM } from "@repo/pi-agent-ext-file2md";
 
-let _lmStudioRegistry: ModelRegistry | null = null;
+// Cache the async-init *promise* so the runtime is built exactly once and
+// every caller awaits the same in-flight build. (ModelRuntime.create is async
+// in 0.80.10 — auth/model orchestration was folded into ModelRuntime and the
+// old sync ModelRegistry.create/inMemory + AuthStorage factories were removed
+// from the public exports.)
+let _lmStudioRuntimePromise: Promise<ModelRuntime> | null = null;
 
 /** Zero cost — LM Studio is a free local server, not a metered API. */
 const FREE_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } as const;
 const LM_STUDIO_COMPAT = { supportsDeveloperRole: false, supportsReasoningEffort: false } as const;
 
 /**
- * Build (and cache) an in-memory ModelRegistry that registers the lm-studio
- * provider directly — no models.json file read, ever. Mirrors the config
- * this repo previously shipped at `.pi/agent/models.json` (deleted upstream
- * by an unrelated commit — see the module doc above).
+ * Build (and cache) a ModelRuntime that registers the lm-studio provider
+ * directly — no models.json file read, ever. Mirrors the config this repo
+ * previously shipped at `.pi/agent/models.json` (deleted upstream by an
+ * unrelated commit — see the module doc above).
+ *
+ * 0.80.10 migration: ModelRuntime.create() owns auth (LM Studio's apiKey is
+ * baked into the registered provider config, so no credential store is
+ * needed). ModelRuntime is the new interchange type pi-file2md's askImage
+ * consumes.
  */
-function lmStudioRegistry(): ModelRegistry {
-  if (_lmStudioRegistry) return _lmStudioRegistry;
-  const reg = ModelRegistry.inMemory(AuthStorage.inMemory());
-  reg.registerProvider("lm-studio", {
-    baseUrl: "http://localhost:1234/v1",
-    api: "openai-completions",
-    apiKey: "lm-studio",
-    models: [
-      { id: "google/gemma-4-26b-a4b-qat", name: "Gemma 4 26B (LM Studio)", reasoning: true, input: ["text", "image"], contextWindow: 128000, maxTokens: 16384, cost: FREE_COST, compat: LM_STUDIO_COMPAT },
-      { id: "google/gemma-4-31b-qat", name: "Gemma 4 31B (LM Studio)", reasoning: true, input: ["text", "image"], contextWindow: 128000, maxTokens: 16384, cost: FREE_COST, compat: LM_STUDIO_COMPAT },
-      { id: "qwen/qwen3-vl-4b", name: "Qwen3 VL 4B (LM Studio)", reasoning: true, input: ["text", "image"], contextWindow: 131072, maxTokens: 16384, cost: FREE_COST, compat: LM_STUDIO_COMPAT },
-    ],
-  });
-  _lmStudioRegistry = reg;
-  return reg;
+function lmStudioRuntime(): Promise<ModelRuntime> {
+  if (_lmStudioRuntimePromise) return _lmStudioRuntimePromise;
+  _lmStudioRuntimePromise = (async () => {
+    const runtime = await ModelRuntime.create();
+    runtime.registerProvider("lm-studio", {
+      baseUrl: "http://localhost:1234/v1",
+      api: "openai-completions",
+      apiKey: "lm-studio",
+      models: [
+        { id: "google/gemma-4-26b-a4b-qat", name: "Gemma 4 26B (LM Studio)", reasoning: true, input: ["text", "image"], contextWindow: 128000, maxTokens: 16384, cost: FREE_COST, compat: LM_STUDIO_COMPAT },
+        { id: "google/gemma-4-31b-qat", name: "Gemma 4 31B (LM Studio)", reasoning: true, input: ["text", "image"], contextWindow: 128000, maxTokens: 16384, cost: FREE_COST, compat: LM_STUDIO_COMPAT },
+        { id: "qwen/qwen3-vl-4b", name: "Qwen3 VL 4B (LM Studio)", reasoning: true, input: ["text", "image"], contextWindow: 131072, maxTokens: 16384, cost: FREE_COST, compat: LM_STUDIO_COMPAT },
+      ],
+    });
+    return runtime;
+  })();
+  return _lmStudioRuntimePromise;
 }
 
 /** Default: lm-studio/google/gemma-4-26b-a4b-qat (per pi-file2md's resolveLLM default). */
@@ -69,7 +81,7 @@ export async function askAboutImage(
     // block, so a not-yet-flushed image or an LM Studio connection failure
     // throws instead of resolving {ok:false} as this function's own return
     // type promises its callers. Never let that escape as an uncaught throw.
-    const result = await askImage(imagePath, question, { llm, modelRegistry: lmStudioRegistry() });
+    const result = await askImage(imagePath, question, { llm, modelRuntime: await lmStudioRuntime() });
     return { reply: result.reply, ok: result.ok };
   } catch {
     return { reply: "", ok: false };

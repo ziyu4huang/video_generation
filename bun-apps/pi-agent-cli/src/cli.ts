@@ -339,12 +339,12 @@ function humanizeTokens(n: number | undefined): string {
  *   provider  model  context  max-out  thinking  images
  */
 async function listModels(): Promise<void> {
-  const { getSharedServices, allModels } = await import("./sessions/shared.ts");
+  const { getSharedServices, allModels, registryOf } = await import("./sessions/shared.ts");
   const { services } = await getSharedServices();
 
   // Show ALL registered models (global → repo-local → baked-in), so the user
   // sees everything available to the CLI regardless of credential state.
-  const rows = allModels(services.modelRegistry).map((m: any) => ({
+  const rows = allModels(registryOf(services)).map((m: any) => ({
     provider: String(m.provider ?? ""),
     model: String(m.id ?? ""),
     context: humanizeTokens(m.contextWindow),

@@ -1,4 +1,5 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import {
 	validateToolNames,
 	modelLabel,
@@ -95,8 +96,9 @@ describe("buildBakedRegistry — pi-agent PROVIDERS baked in", () => {
     }
   });
 
-  test("baked lm-studio is registered with the pi-agent catalog + zero cost", () => {
-    const { modelRegistry } = buildBakedRegistry();
+  test("baked lm-studio is registered with the pi-agent catalog + zero cost", async () => {
+    const { modelRuntime } = await buildBakedRegistry();
+    const modelRegistry = new ModelRegistry(modelRuntime);
     const m = modelRegistry.find("lm-studio", "google/gemma-4-26b-a4b-qat");
     expect(m).toBeDefined();
     expect(m!.baseUrl).toBe(BAKED_BASE_URL);
@@ -110,12 +112,11 @@ describe("buildBakedRegistry — pi-agent PROVIDERS baked in", () => {
     expect(modelRegistry.hasConfiguredAuth(m!)).toBe(true);
   });
 
-  test("PI_SKIP_MODELS_JSON=1 → hermetic: in-memory auth + still baked", () => {
+  test("PI_SKIP_MODELS_JSON=1 → hermetic: no models.json read + still baked", async () => {
     process.env.PI_SKIP_MODELS_JSON = "1";
-    const { authStorage, modelRegistry } = buildBakedRegistry();
-    // in-memory auth storage has no file backend
-    expect(typeof authStorage.get).toBe("function");
-    // baked lm-studio still present in hermetic mode
+    const { modelRuntime } = await buildBakedRegistry();
+    const modelRegistry = new ModelRegistry(modelRuntime);
+    // baked lm-studio still present in hermetic mode (no models.json needed)
     const m = modelRegistry.find("lm-studio", "google/gemma-4-26b-a4b-qat");
     expect(m).toBeDefined();
     expect(m!.baseUrl).toBe(BAKED_BASE_URL);

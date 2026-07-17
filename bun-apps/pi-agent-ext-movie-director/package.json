@@ -24,7 +24,7 @@
     "md": "bun src/cli.ts"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.80.7",
+    "@earendil-works/pi-coding-agent": "0.80.10",
     "@repo/pi-agent-ext-flux2": "workspace:*",
     "@repo/pi-agent-ext-krea2": "workspace:*",
     "@repo/pi-agent-ext-ltx": "workspace:*",
@@ -36,7 +36,7 @@
     "yaml": "latest"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "0.80.7",
+    "@earendil-works/pi-coding-agent": "0.80.10",
     "typebox": "*"
   },
   "devDependencies": {

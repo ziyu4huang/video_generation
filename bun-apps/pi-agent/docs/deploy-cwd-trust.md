@@ -106,8 +106,8 @@ all 3 DEPLOY modes (foreign cwd + repo), and asserts:
 - `matched > 0` — tool-bearing extensions loaded (probe counts `getAllTools()`
   by source-path marker).
 - `cmdMatched > 0` — command-bearing extensions registered (covers extensions
-  like pi-planning-with-files that register slash commands but 0 tools).
-- `skillMatched > 0` — a manifest-declared skill (`pi-planning-with-files`)
+  like pi-agent-ext-wayfind / -goal-todo that register slash commands but 0 tools).
+- `skillMatched > 0` — a manifest-declared skill (`pi-agent-ext-superpowers`)
   loaded into `systemPromptOptions.skills` (probe on `before_agent_start`).
 
 Kills on probe fire — no model call, fully offline. Catches cwd-coupled bugs

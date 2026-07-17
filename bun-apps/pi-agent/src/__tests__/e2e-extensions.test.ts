@@ -32,7 +32,7 @@ import {
 // fires — no model call, fully offline.
 //
 // `cmdMatched` covers extensions that register slash commands but NO tools
-// (e.g. pi-planning-with-files — 5 /plan-* commands, 0 registerTool calls).
+// (e.g. a command-only extension — /plan-* / /goal-* style, 0 registerTool calls).
 // The tool-only `matched` count alone would never see such an extension, so the
 // command count is the load proof for command-only extensions. Commands register
 // synchronously in the factory (load time), so they are available at session_start.
@@ -58,11 +58,11 @@ export default (pi) => {
 // Skill-load probe: fires on before_agent_start (the ONLY event that carries
 // the assembled systemPromptOptions with loaded skills — session_start's ctx
 // does not expose getSystemPromptOptions). Asserts a manifest-declared skill
-// (pi-planning-with-files) actually loaded end-to-end, closing the gap the
+// (pi-agent-ext-superpowers) actually loaded end-to-end, closing the gap the
 // extension-conversion goal left open (it proved extension injection, not skill
-// loading). The skill's filePath/baseDir includes "planning-with-files" in every
-// layout (source bun-apps/..., deploy-bundle skills/pi-planning-with-files-...,
-// deploy-package packages/pi-planning-with-files/...), so a substring check is
+// loading). The skill's filePath/baseDir includes "superpowers" in every layout
+// (source bun-apps/..., deploy-bundle skills/pi-superpowers-...,
+// deploy-package packages/pi-superpowers/...), so a substring check is
 // layout-agnostic. Kills on [PROBE-SKILL] — still before the provider call, so
 // offline.
 const PROBE_TS_SKILL = `
@@ -72,7 +72,7 @@ export default (pi) => {
     let skillMatched = 0;
     for (const s of skills) {
       const loc = String((s && s.filePath) || "") + " " + String((s && s.baseDir) || "");
-      if (loc.includes("planning-with-files")) skillMatched++;
+      if (loc.includes("superpowers")) skillMatched++;
     }
     process.stderr.write("[PROBE-SKILL] skillMatched=" + skillMatched + " totalSkills=" + skills.length + "\\n");
   });
@@ -197,8 +197,8 @@ async function runScenario(s: Scenario): Promise<Result> {
 // Shared assertions for one scenario's Result (tool/command probe on
 // session_start). Asserts ZERO load errors, the probe extension loaded
 // (matched > 0 — tool-bearing extensions), AND command-bearing extensions
-// registered (cmdMatched > 0 — covers pi-planning-with-files, which registers
-// 5 /plan-* commands but 0 tools).
+// registered (cmdMatched > 0 — covers command-only extensions like
+// pi-agent-ext-wayfind / -goal-todo, which register commands but 0 tools).
 function assertCleanLoad(r: Result) {
 	// ZERO conflict/cannot-find/failed-to-load.
 	expect(r.errors).toEqual([]);
@@ -208,15 +208,15 @@ function assertCleanLoad(r: Result) {
 	expect(r.total).not.toBeNull();
 	// Built-in tool floor (7) plus the matched extension's tools.
 	expect(r.total as number).toBeGreaterThanOrEqual(7 + (r.matched as number));
-	// Command-bearing extensions registered (cmdMatched > 0). PwF has no tools
-	// but 5 commands — without this, a command-only extension could silently
-	// fail to load and the tool probe would never notice.
+	// Command-bearing extensions registered (cmdMatched > 0). A command-only
+	// extension has no tools but several commands — without this, it could
+	// silently fail to load and the tool probe would never notice.
 	expect(r.cmdMatched).not.toBeNull();
 	expect(r.cmdMatched as number).toBeGreaterThan(0);
 }
 
 // Shared assertion for a skill-load scenario's Result (skill probe on
-// before_agent_start). Asserts the PwF skill is in systemPromptOptions.skills.
+// before_agent_start). Asserts the superpowers skill is in systemPromptOptions.skills.
 function assertSkillLoaded(r: Result) {
 	expect(r.errors).toEqual([]);
 	expect(r.skillMatched).not.toBeNull();
@@ -305,8 +305,8 @@ async function deployPkg(extraFlags: string[]): Promise<{
 
 // SOURCE mode is identical for both deploy modes — cover it once here.
 // Also covers the skill-load assertion (PROBE_TS_SKILL on before_agent_start)
-// for SOURCE — proving the manifest's `skills` entry loads the PwF SKILL.md
-// end-to-end, not just the extension injection.
+// for SOURCE — proving the manifest's `skills` entry loads the superpowers
+// SKILL.md end-to-end, not just the extension injection.
 describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: SOURCE extension loading (reference)", () => {
 	let probePath = "";
 	let skillProbePath = "";
@@ -345,7 +345,7 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: SOURCE extension loading 
 		expect(r.ok).toBe(true);
 		expect(r.matched).toBeGreaterThan(0);
 	}, 60_000); // spawns a real session_start (offline, but needs headroom)
-	test("SOURCE skill-load: pi-planning-with-files SKILL.md is in systemPromptOptions.skills", async () => {
+	test("SOURCE skill-load: pi-agent-ext-superpowers SKILL.md is in systemPromptOptions.skills", async () => {
 		// Closes the gap the extension-conversion goal left open: it proved the
 		// EXTENSION injects, not that the declared SKILL loads. before_agent_start
 		// is the only event carrying the assembled systemPromptOptions.skills.
@@ -485,7 +485,7 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-PACKAGE (--release
 		expect(r.ok).toBe(true);
 		expect(r.matched).toBeGreaterThan(0);
 	}, 60_000);
-	test("DEPLOY-PACKAGE skill-load: PwF SKILL.md is in systemPromptOptions.skills", async () => {
+	test("DEPLOY-PACKAGE skill-load: superpowers SKILL.md is in systemPromptOptions.skills", async () => {
 		const r = await runScenario({
 			name: "deploy-pkg-skill",
 			cmd: ["bun", pkg.pkgPiAgent, "-e", join(pkg.pkgDir, ".verify-skill-probe.ts"), "-p", "hi"],
@@ -531,7 +531,7 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-BUNDLE (default) e
 		expect(r.ok).toBe(true);
 		expect(r.matched).toBeGreaterThan(0);
 	}, 60_000);
-	test("DEPLOY-BUNDLE skill-load: PwF SKILL.md is in systemPromptOptions.skills", async () => {
+	test("DEPLOY-BUNDLE skill-load: superpowers SKILL.md is in systemPromptOptions.skills", async () => {
 		const r = await runScenario({
 			name: "deploy-bundle-skill",
 			cmd: ["bun", pkg.pkgPiAgent, "-e", join(pkg.pkgDir, ".verify-skill-probe.ts"), "-p", "hi"],
@@ -602,7 +602,7 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-PORTABLE (--portab
 		expect(r.ok).toBe(true);
 		expect(r.matched).toBeGreaterThan(0);
 	}, 60_000);
-	test("DEPLOY-PORTABLE skill-load: PwF SKILL.md is in systemPromptOptions.skills", async () => {
+	test("DEPLOY-PORTABLE skill-load: superpowers SKILL.md is in systemPromptOptions.skills", async () => {
 		const r = await runScenario({
 			name: "deploy-portable-skill",
 			cmd: ["bun", pkg.pkgPiAgent, "-e", join(pkg.pkgDir, ".verify-skill-probe.ts"), "-p", "hi"],

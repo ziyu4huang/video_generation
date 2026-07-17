@@ -23,9 +23,15 @@ import { loadWorkflowSettings } from "./workflow-settings.js";
  *
  * This string is injected into the workflow tool's promptGuidelines and
  * therefore appears in the LLM's system prompt for every workflow execution.
+ *
+ * `availableModels` is injected by the caller (fetched via the async
+ * `listAvailableModelSpecs()`). Defaults to [] — the static verbose-guideline
+ * builder (called at registration time, no async) passes nothing and gets the
+ * "Use models the user has configured." fallback; the on-demand
+ * `workflow_help({topic:"models"})` path awaits the live list and passes it.
  */
-export function modelRoutingGuideline(): string {
-  const available = listAvailableModelSpecs();
+export function modelRoutingGuideline(availableModels: string[] = []): string {
+  const available = availableModels;
   const list = available.length
     ? `The user's currently available models (route only to these) are: ${available.join(", ")}.`
     : "Use models the user has configured.";
@@ -544,7 +550,7 @@ export function createWorkflowHelpTool() {
           text = workflowPatternsDoc();
           break;
         case "models":
-          text = modelRoutingGuideline();
+          text = modelRoutingGuideline(await listAvailableModelSpecs());
           break;
         default:
           text =
