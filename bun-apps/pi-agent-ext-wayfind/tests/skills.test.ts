@@ -3,8 +3,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * Guards the skill-authoring CSO rules (mirrors pi-agent-ext-planning-with-files'
- * tests/skills.test.ts — the same rules pi's skill loader enforces):
+ * Guards the skill-authoring CSO rules (the same rules pi's skill loader enforces):
  *  - frontmatter present with `name` + `description`
  *  - frontmatter parses as valid YAML under a REAL parser (Bun.YAML) — pi's skill
  *    loader uses a real YAML parser; the naive split-on-first-colon parser below

@@ -35,7 +35,7 @@ via a pull request in this **multi-worktree** monorepo.
 
 ### Excluding noise from commits
 - **Submodules** (e.g. `vaults_root/pi-agent-vault`): `git add` only when the recorded pointer (commit SHA) actually changed — "modified content" in the submodule's own working tree is **not** a parent-repo change. Check `git diff --submodule`.
-- **Planning artifacts** (`task_plan.md`, `findings.md`, `progress.md` from the `pi-planning-with-files` skill): transient working memory — exclude from real commits (or gitignore them).
+- **Planning artifacts** (`task_plan.md`, `findings.md`, `progress.md` from planning skills): transient working memory — exclude from real commits (or gitignore them).
 
 ---
 

@@ -2,9 +2,9 @@
  * pi-agent-ext-wayfind — Pi-native port of Matt Pocock's decision-chain skill suite.
  *
  * The default factory registers the slash commands + publishes the coordination
- * seam (globalThis.__piWayfindActive) so pi-agent-ext-planning-with-files can
- * yield its injection/auto-continue during a live grill session — the same
- * process-singleton pattern planning-with-files uses for /goal. It also joins
+ * seam (globalThis.__piWayfindActive) so the plan coordinator can yield its
+ * injection/auto-continue during a live grill session — the same
+ * process-singleton pattern the goal side uses for /goal. It also joins
  * the shared composite status widget owned by pi-agent-ext-goal-todo instead of
  * writing an independent ctx.ui.setStatus() footer line.
  *
@@ -27,9 +27,9 @@ export default function wayfindExtension(pi: ExtensionAPI): void {
   widget.addSection({ id: "wayfind", order: 2, render: (t, w) => overlay.render(t, w) });
 
   // Publish the coordination seam up-front (inactive until a grill starts).
-  // planning-with-files reads globalThis.__piWayfindActive to decide whether to
-  // yield during a live grill. The closure reads live RuntimeState, so it always
-  // returns the current value without re-publishing on every change.
+  // The plan coordinator reads globalThis.__piWayfindActive to decide whether
+  // to yield during a live grill. The closure reads live RuntimeState, so it
+  // always returns the current value without re-publishing on every change.
   publishWayfindActive(state);
 
   registerCommands(pi, state, overlay);
@@ -43,7 +43,7 @@ export default function wayfindExtension(pi: ExtensionAPI): void {
 
   pi.on("session_shutdown", async (_event, ctx) => {
     // Clear this session's grill + refresh/unpublish the seam, mirroring
-    // planning-with-files' session_shutdown cleanup. Only clears wayfind's own
+    // the plan coordinator's session_shutdown cleanup. Only clears wayfind's own
     // overlay section — NEVER calls widget.dispose(), which would tear down
     // every other package's section too (see status-widget.ts's dispose() doc
     // comment: only pi-agent-ext-goal-todo's own session_shutdown owns that).

@@ -3,6 +3,14 @@
 Date: 2026-07-17
 Status: accepted
 
+> **Historical note (2026-07-18):** `pi-agent-ext-planning-with-files` was
+> removed in PR #620. The shared-widget design this ADR established still holds
+> for wayfind; the `planning-with-files` party no longer ships, and the
+> coordination seam it published (`__piPlan*`) is now read best-effort by
+> wayfind / goal-todo (graceful no-op when absent). The references to
+> "planning-with-files" below are retained as the historical record of this
+> decision.
+
 ## Context
 
 wayfind and planning-with-files each wrote directly to the TUI footer via

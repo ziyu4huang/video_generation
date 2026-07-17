@@ -221,7 +221,7 @@ describe("chain-sync — close tickets whose phase completed", () => {
     expect(notifications.some((n) => n.includes("03-foo") || n.includes("Foo"))).toBe(true);
   });
 
-  it("notifies a graceful no-op when pwf is absent (no ticket touched)", async () => {
+  it("notifies a graceful no-op when the plan coordinator is absent (no ticket touched)", async () => {
     const { pi } = setup();
     const cwd = makeCwd();
     const effort = "demo";

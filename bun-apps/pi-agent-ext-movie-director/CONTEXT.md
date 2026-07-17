@@ -16,7 +16,7 @@ _Avoid_: workflow (reserved for pi-agent-ext-workflow), job, DAG (a pipeline is 
 
 **Stage**:
 One step of a pipeline, producing a canonical artifact and gated by a checkpoint.
-_Avoid_: step, phase (a *phase* is a planning-with-files unit; a *stage* is a pipeline unit)
+_Avoid_: step, phase (a *phase* is a plan-execution unit; a *stage* is a pipeline unit)
 
 **`dispatch()`**:
 The single orchestration core — the 18 commands the `movie` agent tool, the standalone CLI, and the `movie.*` workflow host-fns all call. One code path, three entry points.

@@ -1,6 +1,6 @@
 # pi-agent-ext-goal-todo
 
-The ubiquitous language of pi-agent-ext-goal-todo — the `/goal` objective driver (with `goal_complete`) and the `todo` step tracker (with `/todos`), kept together because they share a composite status widget and six lifecycle hooks. Extracted from power-tool. Publishes the `__piGoalActive` coordination seam that planning-with-files and wayfind read.
+The ubiquitous language of pi-agent-ext-goal-todo — the `/goal` objective driver (with `goal_complete`) and the `todo` step tracker (with `/todos`), kept together because they share a composite status widget and six lifecycle hooks. Extracted from power-tool. Publishes the `__piGoalActive` coordination seam that the plan coordinator and wayfind read.
 
 ## Language
 
@@ -14,17 +14,17 @@ _Avoid_: status bar, overlay (it is the composite goal+todo widget keyed for det
 
 **`/goal`**:
 The command that drives one objective to completion within a session — owns iteration counting, token budget, and recovery. Published to the coordination seam while active.
-_Avoid_: task, target (a goal is a session-scoped objective driven to done — distinct from a todo step or a planning-with-files phase)
+_Avoid_: task, target (a goal is a session-scoped objective driven to done — distinct from a todo step or a plan phase)
 
 **`goal_complete`**:
-The tool that marks the active goal complete (only after all required work is verified). Blocked while a planning-with-files plan has open phases.
+The tool that marks the active goal complete (only after all required work is verified). Blocked while the plan coordinator reports open phases.
 _Avoid_: finish, done (it is the verified completion signal for `/goal`)
 
 ### Step layer
 
 **`todo`**:
 The in-session step tracker — fine-grained steps within a phase, branch-aware (replayed from the session branch). The bottom section of the composite widget.
-_Avoid_: checklist, tasks (it is the in-session, branch-aware step tracker — see planning-with-files' three-layer model)
+_Avoid_: checklist, tasks (it is the in-session, branch-aware step tracker — see the plan coordinator's three-layer model)
 
 **`/todos`**:
 The command to view and manage the todo list.
@@ -33,7 +33,7 @@ _Avoid_: task list
 ### Coordination
 
 **Coordination seam** (`globalThis.__piGoalActive`):
-The process-singleton reader goal-todo publishes so peer extensions (planning-with-files, wayfind) can detect an active goal WITHOUT a hard dep. The peer reads `globalThis.__piGoalActive?.() ?? false`. goal-todo is the publisher; planning-with-files yields to it.
+The process-singleton reader goal-todo publishes so peer extensions (the plan coordinator, wayfind) can detect an active goal WITHOUT a hard dep. The peer reads `globalThis.__piGoalActive?.() ?? false`. goal-todo is the publisher; the plan coordinator yields to it.
 _Avoid_: hook, signal (it is a published globalThis reader for cross-extension turn-ownership)
 
 **Replay-from-branch**:

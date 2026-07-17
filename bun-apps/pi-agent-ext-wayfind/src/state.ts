@@ -1,7 +1,7 @@
 /**
- * Per-session runtime state and session helpers (mirrors
- * pi-agent-ext-planning-with-files/src/state.ts). Kept in its own module so
- * commands.ts and index.ts can both consume it without an ESM cycle.
+ * Per-session runtime state and session helpers (mirrors the plan coordinator's
+ * state-module pattern). Kept in its own module so commands.ts and index.ts can
+ * both consume it without an ESM cycle.
  */
 
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -37,7 +37,7 @@ export function isGrillActive(state: RuntimeState, sessionId: string): boolean {
 }
 
 /** Process-global: is ANY grill/wayfinder session active? This is what the
- *  coordination seam publishes so planning-with-files can yield. */
+ *  coordination seam publishes so the plan coordinator can yield. */
 export function isAnyWayfindSessionActive(state: RuntimeState): boolean {
   return state.activeGrillBySession.size > 0 || state.activeEffortBySession.size > 0;
 }
