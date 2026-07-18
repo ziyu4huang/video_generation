@@ -97,6 +97,45 @@ describe("workflow tool — `name` (pack resolution)", () => {
     ).rejects.toThrow(/not found|manifest/);
     expect(calls).toHaveLength(0);
   });
+
+  test("manifest.model is NOT applied on the `name` path (session mainModel governs)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wf-tool-"));
+    // Pack declares BOTH args AND a model in its manifest.
+    const packDir = makePack(dir, "echo", {
+      name: "echo", description: "d", entry: "index.js",
+      args: { fromManifest: true },
+      model: "manifest-declared/model",
+    });
+    // Capturing manager that records the FULL (script, args, options) triple —
+    // including the options object where a forwarded model would appear.
+    const calls: { script: string; args: unknown; options: unknown }[] = [];
+    const manager = {
+      startInBackground(script: string, args: unknown, options: unknown) {
+        calls.push({ script, args, options });
+        return { runId: "stub-run" };
+      },
+      runSync(script: string, args: unknown, options: unknown) {
+        calls.push({ script, args, options });
+        return { result: { ok: true }, meta: { name: "pack", description: "d" }, phases: ["P"], logs: [], agentCount: 1, durationMs: 0, runId: "stub-run", tokenUsage: null };
+      },
+    };
+    const tool = createWorkflowTool({ cwd: dir, manager: manager as any });
+
+    await tool.execute(
+      "call-model",
+      { name: packDir, args: { fromCaller: true }, background: true } as any,
+      undefined as any, undefined as any, {} as any,
+    );
+
+    expect(calls).toHaveLength(1);
+    // args ARE merged (sanity: the existing behavior still works).
+    expect(calls[0]!.args).toEqual({ fromManifest: true, fromCaller: true });
+    // The options object handed to the manager MUST NOT carry a model sourced
+    // from the manifest. Assert no model-bearing key is present.
+    const opt = calls[0]!.options as Record<string, unknown>;
+    expect(opt).not.toHaveProperty("model");
+    expect(opt).not.toHaveProperty("mainModel");
+  });
 });
 
 describe("workflow tool — `script` XOR `name` contract", () => {
