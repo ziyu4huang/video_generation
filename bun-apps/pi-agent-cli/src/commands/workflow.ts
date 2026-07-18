@@ -30,6 +30,13 @@ import type { Command } from "../cli.ts";
 // resolver + orchestration by name so the bundler treats them as externals
 // exactly like the other workspace deps (pi-obsidian, pi-file2md, …).
 import { runWorkflowScript, listWorkflows, findRepoRoot } from "@repo/pi-agent-ext-workflow";
+// pi-default model spec: reuse the SAME settings-read as `resolveLLMFromArgs`
+// (no second reader) and feed it through `resolveLLM` with NO provider/model
+// override so only user settings + the hardcoded fallback apply. The resulting
+// `provider/modelId` is forwarded to the engine as the lowest-precedence tier
+// (--model > PI_MODEL > manifest.model > pi-default).
+import { resolveLLM } from "../sessions/shared.ts";
+import { readUserDefaults } from "../sessions/passthrough.ts";
 
 /**
  * Parse the `--args` value (a JSON string, or omitted). Throws a clear error on
@@ -105,10 +112,21 @@ Examples:
 		// Output dir precedence: --out-dir flag > PI_WORKFLOWS_OUT_DIR env > PWD/.pi default.
 		const outDir = parsed.outDir ?? process.env.PI_WORKFLOWS_OUT_DIR;
 
+		// pi-default model spec: resolveLLM with NO caller/provider override, so
+		// only user settings + the hardcoded fallback (zai/glm-5.2) apply. The
+		// engine's 4-tier precedence then picks among callerModel (--model),
+		// envModel (PI_MODEL), manifest.model, and this pi-default — surfaced in
+		// the receipt as `model` + `modelSource`.
+		const piDefault = resolveLLM({ userDefaults: await readUserDefaults() });
+		const piDefaultModel = `${piDefault.provider}/${piDefault.modelId}`;
+		const envModel = process.env.PI_MODEL;
+
 		const receipt = await runWorkflowScript({
 			name,
 			args,
-			model,
+			callerModel: model,
+			envModel,
+			piDefaultModel,
 			dryRun: parsed.dryRun,
 			persistLogs: !parsed.noPersistLogs,
 			outDir,
@@ -124,6 +142,9 @@ Examples:
 		});
 
 		const resultKind = kindOf(receipt.result);
+		// `model` may be undefined when no tier produced a spec (source "none") —
+		// omit the tag entirely in that case instead of rendering `model: ?`.
+		const modelTag = receipt.model ? ` (model: ${receipt.model} [${receipt.modelSource}])` : "";
 		if (parsed.json) {
 			console.log(
 				JSON.stringify(
@@ -135,6 +156,8 @@ Examples:
 						phases: receipt.phases,
 						scriptPath: receipt.scriptPath,
 						source: receipt.source,
+						model: receipt.model,
+						modelSource: receipt.modelSource,
 						dryRun: receipt.dryRun,
 						result: receipt.result,
 					},
@@ -146,6 +169,7 @@ Examples:
 			console.log(
 				`✓ ${receipt.meta.name} — agents=${receipt.agentCount} ` +
 					`${receipt.durationMs ? `${receipt.durationMs}ms ` : ""}` +
+					`${modelTag}` +
 					`(source: ${receipt.source})` +
 					(receipt.runId ? ` run=${receipt.runId}` : "") +
 					` → ${resultKind}`,
