@@ -526,10 +526,14 @@ export interface RunOptions {
 export function realContext(moduleUrl: string, env: Record<string, string | undefined>): DoctorContext {
 	const coarse = coarseFromUrl(moduleUrl);
 	const selfDir = dirname(fileURLToPath(moduleUrl));
+	// Binary mode has no separate entry FILE to verify — the compiled exe IS
+	// the entry (there's no sibling pi-agent.js shipped alongside `--compile`
+	// output). Point at process.execPath so checkEntry's existsSync trivially
+	// passes instead of always failing against a pi-agent.js that never ships
+	// in this mode (a pre-existing gap: this branch was never binary-mode-aware
+	// before the compiled binary shipped real extensions worth doctoring).
 	const entryPath =
-		coarse === "source"
-			? join(selfDir, "cli.ts")
-			: join(selfDir, "pi-agent.js");
+		coarse === "source" ? join(selfDir, "cli.ts") : coarse === "binary" ? process.execPath : join(selfDir, "pi-agent.js");
 	const markers = {
 		dotDeployBundle: existsSync(join(selfDir, ".deploy-bundle")),
 		dotDeployPortable: existsSync(join(selfDir, ".deploy-portable")),

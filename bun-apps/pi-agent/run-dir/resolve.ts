@@ -336,19 +336,38 @@ export function detectRunDirMode(selfDir: string, exists: (p: string) => boolean
 
 /** Returns a flat argv fragment: ["-e", absPath, ..., "--skill", absPath, ...] */
 export async function resolveRunDirArgv(): Promise<string[]> {
-  // Compiled-binary mode: no-op. pi can't load .ts extensions here anyway
-  // (jiti feeds each extension as a base64 data: URL → Bun ENAMETOOLONG — see
-  // README "Build modes"), and import.meta.url is the $bunfs virtual scheme so
-  // the absolute-path resolution below yields garbage (e.g. BUN_APPS_DIR
-  // collapsing to "/", producing "/zai-mcp/…" non-paths). Without this guard
-  // every binary invocation — even --version — spews ~7 "skipping" warnings.
-  // The bundled .js (not the --compile binary) is the supported shipped path.
-  // (The binary detection itself is unit-tested via detectMode in resolve.test.ts.)
+  // Compiled-binary mode: `-e` extension paths are still a no-op — pi can't
+  // load .ts extensions here (jiti feeds each extension as a base64 data: URL
+  // → Bun ENAMETOOLONG — see README "Build modes"), and import.meta.url is the
+  // $bunfs virtual scheme so the absolute-path resolution below yields garbage
+  // (e.g. BUN_APPS_DIR collapsing to "/", producing "/zai-mcp/…" non-paths).
+  // The "general productivity" extension set (goal-todo/hermes-memory/
+  // superpowers/wayfind/web-access) survives compilation instead via
+  // src/static-extensions.ts's MainOptions.extensionFactories — a native
+  // in-memory call, no jiti involved.
+  //
+  // `--skill` paths ARE compile-safe though: @earendil-works/pi-coding-agent's
+  // skill reader uses only node:fs (existsSync/readdirSync/readFileSync/
+  // statSync) — zero jiti, zero dynamic code execution — and
+  // scripts/build.ts's stageCopyAssets() ships manifest.binarySkills'
+  // directories alongside the compiled exe. Resolve them relative to
+  // dirname(process.execPath) (the exe's own dir), mirroring how
+  // getThemesDir()/getAssetsDir() resolve shipped assets in binary mode.
   if (mode === "binary") {
-    if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
-      warn("compiled-binary mode — extensions can't load here; returning no argv");
+    const exeDir = dirname(process.execPath);
+    const argv: string[] = [];
+    for (const rel of manifest.binarySkills ?? []) {
+      const p = join(exeDir, rel);
+      if (existsSync(p)) {
+        argv.push("--skill", p);
+      } else if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
+        warn(`binary mode: skill path not found, skipping: ${p}`);
+      }
     }
-    return [];
+    if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
+      warn(`compiled-binary mode — extensions can't load here; emitting ${argv.length / 2} --skill flag(s)`);
+    }
+    return argv;
   }
 
   const selfDir = dirname(fileURLToPath(url));

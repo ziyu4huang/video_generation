@@ -25,6 +25,7 @@ import { main } from "@earendil-works/pi-coding-agent";
 import { applyPatches } from "./patches/index.ts";
 import { runDoctor } from "./doctor.ts";
 import { isDoctorCommand, isExtDoctorCommand } from "./cli-argv.ts";
+import { STATIC_EXTENSION_FACTORIES } from "./static-extensions.ts";
 
 // Extension loading: handled by the `ensure-extension-deps` patch (see
 // src/patches/ensure-extension-deps.ts), which creates repo-root node_modules
@@ -76,4 +77,4 @@ await applyPatches();
 // Re-slice AFTER patches so the run-dir splice (and any other process.argv
 // mutation above) reaches main(). main(args) consumes the passed array
 // directly — it does NOT re-read process.argv.
-await main(process.argv.slice(2));
+await main(process.argv.slice(2), { extensionFactories: STATIC_EXTENSION_FACTORIES });

@@ -235,6 +235,7 @@ const manifest = readJson<{
 	extensions?: (string | { entry: string })[];
 	skills?: string[];
 	npmExtensions?: { pkg: string; entry: string }[];
+	staticExtensions?: string[];
 }>(manifestPath);
 if (!manifest) die(`run-dir/manifest.json not found at ${manifestPath}`);
 
@@ -247,6 +248,17 @@ for (const rel of [...extEntries, ...(manifest.skills ?? [])]) {
 	const seg = rel.split("/")[0];
 	if (seg) pkgDirs.add(seg);
 }
+// staticExtensions (goal-todo/hermes-memory/superpowers/wayfind/web-access) are
+// inlined directly into pi-agent.js's own bundle (see src/static-extensions.ts)
+// — they don't need an `-e <path>`/`--skill` manifest entry to LOAD. But
+// --release mode still needs their source directories under packages/: (a)
+// pi-agent's own package.json now declares them as `workspace:*`
+// dependencies, and (b) other copied packages depend on them directly (e.g.
+// pi-agent-ext-wayfind imports pi-agent-ext-goal-todo's shared status-widget
+// module) — omitting them breaks `bun install`'s workspace resolution inside
+// packages/ even though goal-todo itself has no skills dir to otherwise pull
+// it into pkgDirs.
+for (const dir of manifest.staticExtensions ?? []) pkgDirs.add(dir);
 if (pkgDirs.size === 0 && RELEASE) die("manifest lists no extensions/skills to bundle.");
 
 // ── build pi-agent bundle (shared by both modes) ─────────────────────────────
