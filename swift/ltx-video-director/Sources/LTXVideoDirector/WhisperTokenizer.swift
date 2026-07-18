@@ -158,4 +158,97 @@ public enum WhisperTokenizer {
         }
         return String(decoding: bytes, as: UTF8.self)
     }
+
+    /// mlx_whisper's `decode_with_timestamps`: like `decode` but emits the
+    /// textual form of special/timestamp tokens instead of dropping them
+    /// (`<|endoftext|>`, `<|1.08|>`). Needed by `splitToWordTokens` — the
+    /// unicode-boundary word-splitter runs on token lists that include the
+    /// trailing `<|endoftext|>` sentinel (non-empty, U+FFFD-free, so the
+    /// final partial-byte run always flushes). `String(decoding:as:UTF8.self)`
+    /// replaces each maximal ill-formed byte subsequence with one U+FFFD,
+    /// matching Python's `bytes.decode("utf-8", errors="replace")`.
+    public static func decodeWithTimestamps(_ ids: [Int]) -> String {
+        var bytes: [UInt8] = []
+        for id in ids {
+            if id >= 0 && id < numBaseTokens {
+                bytes.append(contentsOf: rankToBytes[id])
+            } else if id == endOfText {
+                bytes.append(contentsOf: Array("<|endoftext|>".utf8))
+            } else if id >= timestampBegin {
+                let secs = Double(id - timestampBegin) * 0.02
+                bytes.append(contentsOf: Array(String(format: "<|%.2f|>", secs).utf8))
+            }
+        }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
+    /// Languages whose scripts don't use spaces → split at every unicode point
+    /// rather than at spaces. Matches mlx_whisper.tokenizer.split_to_word_tokens.
+    private static let noSpaceLanguages: Set<String> = ["zh", "ja", "th", "lo", "my", "yue"]
+
+    /// mlx_whisper.tokenizer.Tokenizer.split_to_word_tokens.
+    public static func splitToWordTokens(_ tokens: [Int], language: String) -> (words: [String], wordTokens: [[Int]]) {
+        if noSpaceLanguages.contains(language) {
+            return splitTokensOnUnicode(tokens)
+        }
+        return splitTokensOnSpaces(tokens)
+    }
+
+    /// mlx_whisper.tokenizer.split_tokens_on_unicode: decode the token stream
+    /// incrementally; flush a word whenever the accumulated decode has NO
+    /// replacement char, OR its replacement char aligns with a real one in the
+    /// full decode (i.e. the bytes are genuinely invalid, not just awaiting a
+    /// completing token). Works on Unicode scalar arrays so the offset
+    /// arithmetic matches Python codepoint indexing.
+    private static func splitTokensOnUnicode(_ tokens: [Int]) -> (words: [String], wordTokens: [[Int]]) {
+        let fullScalars = Array(decodeWithTimestamps(tokens).unicodeScalars)
+        let replacement = Unicode.Scalar(0xFFFD)!
+        var words: [String] = []
+        var wordTokens: [[Int]] = []
+        var current: [Int] = []
+        var offset = 0
+        for token in tokens {
+            current.append(token)
+            let decoded = decodeWithTimestamps(current)
+            let scalars = Array(decoded.unicodeScalars)
+            let flush: Bool
+            if let ridx = scalars.firstIndex(of: replacement) {
+                let pos = offset + ridx
+                flush = pos < fullScalars.count && fullScalars[pos] == replacement
+            } else {
+                flush = true
+            }
+            if flush {
+                words.append(decoded)
+                wordTokens.append(current)
+                current = []
+                offset += scalars.count
+            }
+        }
+        return (words, wordTokens)
+    }
+
+    /// mlx_whisper.tokenizer.split_tokens_on_spaces: split on unicode, then
+    /// merge subwords that are non-special, non-space-leading, and
+    /// non-punctuation into the previous word.
+    private static func splitTokensOnSpaces(_ tokens: [Int]) -> (words: [String], wordTokens: [[Int]]) {
+        let punctuation: Set<Character> = Set("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
+        let (subwords, subwordTokens) = splitTokensOnUnicode(tokens)
+        var words: [String] = []
+        var wordTokens: [[Int]] = []
+        for (subword, tk) in zip(subwords, subwordTokens) {
+            let isSpecial = (tk.first ?? 0) >= endOfText
+            let withSpace = subword.hasPrefix(" ")
+            let stripped = subword.trimmingCharacters(in: .whitespaces)
+            let isPunct = stripped.count == 1 && punctuation.contains(Character(stripped))
+            if isSpecial || withSpace || isPunct || words.isEmpty {
+                words.append(subword)
+                wordTokens.append(tk)
+            } else {
+                words[words.count - 1] += subword
+                wordTokens[wordTokens.count - 1].append(contentsOf: tk)
+            }
+        }
+        return (words, wordTokens)
+    }
 }
