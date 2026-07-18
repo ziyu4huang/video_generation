@@ -77,6 +77,11 @@ Claude Code's Workflow-tool dir and is NOT name-resolved here.
 _Avoid_: "extension" / "headless pack-extension" (deprecated ADR 0007 term —
 a pack is not an extension); "loaded via `-e`"
 
+**Workflow-pack resolution precedence**: the order `workflow run <name>` looks
+for a pack — absolute path → `<cwd>/workflows` → `<binDir>/workflows` → repo
+`.pi/workflows` → repo `bun-apps/<pkg>/workflows`. "Most local wins": cwd-local
+and binary-bundled packs shadow repo packs. See ADR 0008.
+
 **Meta command**:
 A typed token handled inline without a Command record (`list`, `version`,
 `completions`, `help`). Produces no agent session.
