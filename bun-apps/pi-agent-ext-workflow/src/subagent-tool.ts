@@ -10,7 +10,8 @@
  * Minimal v1: { agent?, task, model?, cwd?, tools?, excludeTools? } → child output.
  * No clarify-TUI / acceptance / turnBudget / toolBudget (deferred — see spec.md).
  */
-import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { defineTool, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import {
   spawnSubagent,
@@ -21,6 +22,15 @@ import {
 export interface SubagentToolDetails {
   exitCode: number;
   timedOut: boolean;
+  /** Role label (params.agent), if provided. */
+  agent?: string;
+  /** params.model, or "default". */
+  model?: string;
+  /** First ~80 chars of params.task, single-lined. */
+  taskPreview: string;
+  /** Wall-clock of the run, ms. */
+  elapsedMs: number;
+  status: "done" | "failed" | "timedout";
 }
 
 export const subagentToolSchema = Type.Object({
@@ -61,6 +71,53 @@ export interface SubagentToolOptions {
   spawn?: (opts: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
 }
 
+/** Collapse a task prompt to a single-line preview of at most `n` chars. */
+export function taskPreview(task: string, n = 80): string {
+  const oneLine = task.replace(/\s+/g, " ").trim();
+  return oneLine.length > n ? oneLine.slice(0, n - 1) + "…" : oneLine;
+}
+
+/** Theme the call line shown WHILE the subagent runs (pi's spinner conveys activity). */
+export function renderSubagentCall(
+  args: { agent?: string; model?: string; task: string },
+  theme: Theme,
+): string {
+  const parts: string[] = [theme.bold(theme.fg("toolTitle", "subagent"))];
+  if (args.agent) parts.push(theme.fg("accent", args.agent));
+  parts.push(theme.fg("muted", args.model ?? "default"));
+  parts.push(theme.fg("dim", `"${taskPreview(args.task, 60)}"`));
+  return parts.join(" ▸ ");
+}
+
+/** Theme the result: collapsed = badge+meta+headline; expanded = full report. */
+export function renderSubagentResult(
+  result: { content: Array<{ type: string; text?: string }>; details?: SubagentToolDetails },
+  options: { expanded?: boolean },
+  theme: Theme,
+): string {
+  const d = result.details;
+  const text = result.content.find((c) => c.type === "text")?.text ?? "";
+  if (!d) return text;
+  const badge =
+    d.status === "done"
+      ? theme.fg("success", "✓ done")
+      : d.status === "timedout"
+        ? theme.fg("warning", "⏱ timedout")
+        : theme.fg("error", "✗ failed");
+  const meta = theme.fg("muted", `${d.model ?? "default"} · ${(d.elapsedMs / 1000).toFixed(1)}s`);
+  if (!options.expanded) {
+    const firstLine = text.split("\n").map((l) => l.trim()).find((l) => l) ?? "";
+    return `${badge} ${meta} ${theme.fg("dim", truncateToWidth(firstLine, 60))}`;
+  }
+  return `${badge} ${meta}\n${theme.fg("toolOutput", text)}`;
+}
+
+/** Derive a human status from the spawn result. */
+export function deriveSubagentStatus(r: SpawnSubagentResult): SubagentToolDetails["status"] {
+  if (r.exitCode === 0) return "done";
+  return r.timedOut ? "timedout" : "failed";
+}
+
 /** Format the subagent result into the text the parent agent reads. */
 export function formatSubagentResult(result: SpawnSubagentResult): string {
   if (result.exitCode === 0) return result.output;
@@ -88,6 +145,7 @@ export function createSubagentTool(
       "Dispatch an isolated-context subagent for one focused task (implementer / reviewer / researcher). Pass a self-contained `task`; choose `model` per role; restrict with `tools`/`excludeTools`.",
     parameters: subagentToolSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const t0 = Date.now();
       const result = await spawn({
         task: params.task,
         tools: params.tools,
@@ -99,8 +157,26 @@ export function createSubagentTool(
       });
       return {
         content: [{ type: "text" as const, text: formatSubagentResult(result) }],
-        details: { exitCode: result.exitCode, timedOut: result.timedOut },
+        details: {
+          exitCode: result.exitCode,
+          timedOut: result.timedOut,
+          agent: params.agent,
+          model: params.model ?? "default",
+          taskPreview: taskPreview(params.task),
+          elapsedMs: Date.now() - t0,
+          status: deriveSubagentStatus(result),
+        },
       };
+    },
+    renderCall(args, theme, context) {
+      const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+      text.setText(renderSubagentCall(args, theme));
+      return text;
+    },
+    renderResult(result, options, theme, _context) {
+      const text = (_context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+      text.setText(renderSubagentResult(result, options, theme));
+      return text;
     },
   });
 }
