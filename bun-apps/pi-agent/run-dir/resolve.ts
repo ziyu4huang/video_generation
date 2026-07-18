@@ -176,7 +176,7 @@ export function missingExtensionPackages(bunAppsDir: string | undefined): string
 /**
  * Opt-in auto-resolve. When BUN_PI_AUTO_INSTALL=1 (or the legacy
  * BUN_PI_AUTO_RESOLVE alias) and a declared npm extension package can't be
- * resolved in source mode, run `bun install` at the detected repo root; the
+ * resolved in source mode, run `bun install` at the workspace root (bun-apps/); the
  * subsequent resolveNpmExtensionPaths() re-probes and picks up the install.
  * OFF by default: keeps `bun test` / CI deterministic and avoids a surprising
  * mutating side effect inside the interactive TUI. Deploy layouts are
@@ -189,13 +189,14 @@ function maybeAutoInstall(bunAppsDir: string | undefined): boolean {
   if (mode !== "source") return false;
   const missing = missingExtensionPackages(bunAppsDir);
   if (missing.length === 0) return false;
-  const repoRoot = bunAppsDir ? resolve(bunAppsDir, "..") : process.cwd();
+  // bun-apps/ is the workspace root (package.json + bun.lock live here).
+  const workspaceRoot = bunAppsDir ?? process.cwd();
   warn(
     `auto-resolve: ${missing.length} npm extension package(s) unresolved ` +
-      `(${missing.join(", ")}) — running \`bun install\` at ${repoRoot}`,
+      `(${missing.join(", ")}) — running \`bun install\` at ${workspaceRoot}`,
   );
   const res = spawnSync("bun", ["install"], {
-    cwd: repoRoot,
+    cwd: workspaceRoot,
     stdio: ["ignore", "inherit", "inherit"],
   });
   if (res.status !== 0) {
@@ -218,7 +219,7 @@ function maybeAutoInstall(bunAppsDir: string | undefined): boolean {
  * Consolidated, actionable guidance emitted once after resolution when any
  * declared npm extension package remains unresolved (and any auto-install
  * attempt has run). Replaces N terse per-package "skipping" lines with one
- * block: the affected packages, the EXACT fix command at the detected repo
+ * block: the affected packages, the EXACT fix command at the workspace root,
  * root, and a note that the SAME `bun install` also clears the transitive
  * "Failed to load extension: Cannot find module" errors the pi extension
  * loader emits (e.g. pi-knowledge-card → pi-obsidian,
@@ -238,15 +239,15 @@ function emitMissingDepsGuide(bunAppsDir: string | undefined): void {
   if (autoInstalled) return;
   const missing = missingExtensionPackages(bunAppsDir);
   if (missing.length === 0) return;
-  const repoRoot = bunAppsDir ? resolve(bunAppsDir, "..") : "<repo-root>";
+  const workspaceRoot = bunAppsDir ?? "<bun-apps>";
   warn("──────── dependency resolution guide ────────");
   warn(
     `${missing.length} extension dependency package(s) are not installed ` +
       "(not linked into node_modules):",
   );
   for (const p of missing) warn(`  • ${p}`);
-  warn("Some extensions were skipped or failed to load. Fix by installing deps at the repo root:");
-  warn(`    cd ${repoRoot} && bun install`);
+  warn("Some extensions were skipped or failed to load. Fix by installing deps at the workspace root (bun-apps/):");
+  warn(`    cd ${workspaceRoot} && bun install`);
   warn(
     "This clears the loader's " +
       '"Failed to load extension: Cannot find module" errors thrown by ' +
@@ -396,7 +397,7 @@ export async function resolveRunDirArgv(): Promise<string[]> {
   // a repo .pi/ would, so pi dedupes them.
   const bunAppsDir = await resolveBunAppsDir();
   // Opt-in: if a declared npm ext is missing and the user set
-  // BUN_PI_AUTO_INSTALL=1, run `bun install` at the repo root BEFORE building
+  // BUN_PI_AUTO_INSTALL=1, run `bun install` at the workspace root (bun-apps/) BEFORE building
   // argv (buildArgv re-probes via resolveNpmExtensionPaths and picks it up).
   maybeAutoInstall(bunAppsDir);
   const argv = await buildArgv(bunAppsDir);
