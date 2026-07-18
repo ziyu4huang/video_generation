@@ -79,8 +79,10 @@ if (isBunBinary(import.meta.url) && EMBEDDED_ASSETS.length > 0) {
     markExtracted(cacheDir);
   }
   // Set PI_PACKAGE_DIR so pi's getThemesDir()/getAssetsDir() resolve here.
-  // Uses ??= so an existing explicit override takes precedence.
-  process.env.PI_PACKAGE_DIR ??= cacheDir;
+  // Uses ??= so an existing explicit override takes precedence. cacheDir is
+  // guaranteed non-null here: computeEmbeddedExtractDir() only returns null
+  // when EMBEDDED_ASSETS is empty, already ruled out by the outer `if`.
+  process.env.PI_PACKAGE_DIR ??= cacheDir!;
   // Also export the extract dir via env var so run-dir/resolve.ts can use it.
   process.env.BUN_PI_EMBEDDED_EXTRACT_DIR = cacheDir ?? "";
 }

@@ -37,13 +37,13 @@ _Avoid_: optional extension, plugin (it is alias-gated, zero-cost-until-invoked)
 _Avoid_: alias mapping, shortcut
 
 **npmExtensions**:
-The single array in `manifest.json` that is the source of truth for npm-sourced extensions, read by both `resolve.ts` (source) and `scripts/build.ts` (bundle).
+The single array in `manifest.json` that is the source of truth for npm-sourced extensions, read by both `resolve.ts` (source) and `scripts/lib/codegen.ts` (bundle).
 _Avoid_: deps list, package array
 
 ### Build & deploy
 
 **Source / bundle / binary modes**:
-The three execution modes. Source (`bun src/cli.ts`) resolves deps via the real node_modules; bundle (`dist/pi-agent/pi-agent.js`) symlinks a node_modules for `getAliases()`; the `--compile` binary cannot load `.ts` extensions (jiti + Bun-compile `ENAMETOOLONG`).
+The three execution modes. Source (`bun src/cli.ts`) resolves deps via the real node_modules; bundle (`dist/pi-agent/pi-agent.js`) symlinks a node_modules for `getAliases()`; the compiled binary (`--exe`) cannot dynamically load `.ts` extensions (jiti + Bun-compile `ENAMETOOLONG`) — it statically imports a fixed 5-extension set instead. `deploy.ts` also has `--snapshot` (raw source copy) and `--standalone` (bundle + bun binary), both still "source" or "bundle" at the `detectMode()` level.
 _Avoid_: dev/prod modes (these are packaging modes, not environments)
 
 **THIN bundle**:
@@ -69,5 +69,5 @@ Spawns a throwaway probe that calls `pi.getAllTools()` at `session_start` and co
 _Avoid_: runtime test, integration check (it is an offline tool-count probe at session_start)
 
 **`doctor --fix`**:
-Derives a fix plan from the report, applies it (e.g. `bun install` for a broken `--portable` node_modules), then re-checks.
+Derives a fix plan from the report, applies it (e.g. `bun install` for a broken `--snapshot`/`--standalone` node_modules), then re-checks.
 _Avoid_: auto-repair, remediation

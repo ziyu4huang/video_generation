@@ -109,7 +109,7 @@ export function checkEntry(ctx: DoctorContext): CheckResult {
 			label: "pi-agent entry",
 			status: "fail",
 			detail: `not found: ${ctx.entryPath}`,
-			hint: "rebuild: `bun scripts/build.ts` (source) or re-deploy",
+			hint: "rebuild: `bun scripts/deploy.ts` (source) or re-deploy",
 		};
 	}
 	return { id: "entry", label: "pi-agent entry", status: "pass", detail: ctx.entryPath };

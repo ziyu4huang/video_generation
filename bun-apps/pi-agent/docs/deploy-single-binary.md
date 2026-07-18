@@ -3,7 +3,7 @@
 `bun scripts/deploy.ts --exe` builds pi-agent as a standalone executable
 (`dist/pi-agent/pi-agent`, ~73 MB) with no `bun` runtime required on the
 target machine. This doc is the key knowledge for building, re-building, and
-maintaining this repo's deploy pipeline — see [README.md § Build / Deploy modes](../README.md#build-modes)
+maintaining this repo's deploy pipeline — see [README.md § Build / Deploy modes](../README.md#build--deploy-modes)
 for quick commands; this doc is the deeper "why" + "how to
 change it" doc.
 
@@ -196,24 +196,16 @@ Keep these two in lockstep by construction (both read `manifest.binarySkills`)
    `bun src/cli.ts ext doctor --json` both need to show it registering with
    0 conflicts.
 
-## `--exe` mode — truly single-file binary
+## How `--exe` ships a truly single-file binary
 
-The `--compile` binary described above still ships 7 companion directories
-next to the exe (`theme/`, `export-html/`, `assets/`, 4 skill dirs).
-Copy just the exe to another machine and it boots, but theme/template
-resolution and `--skill` paths silently degrade.
-
-`--exe` eliminates this gap by embedding all those files
-directly into the binary via `type: "file"` import:
-
-### Build
-
-```bash
-bun scripts/deploy.ts --exe-embed   # 74 MB, self-contained
-```
-
-The resulting `dist/pi-agent/pi-agent` can be copied to an **empty**
-directory and run — no companion files needed.
+An earlier iteration of `--compile` shipped 7 companion directories next to
+the exe (`theme/`, `export-html/`, `assets/`, 4 skill dirs) — copy just the
+exe to another machine and it booted, but theme/template resolution and
+`--skill` paths silently degraded. `--exe` closes that gap: it embeds all of
+those files directly into the binary via `type: "file"` import, so the
+resulting `dist/pi-agent/pi-agent` can be copied to an **empty** directory
+and run — no companion files needed (verified in
+[README.md § Build / Deploy modes](../README.md#build--deploy-modes)'s CI job).
 
 ### How it works
 
@@ -254,9 +246,6 @@ ls ~/.pi/agent/embedded-assets/*/pi-agent-ext-*/skills  # 4 skill dirs
 
 ### Design decisions
 
-- **Additive, not a replacement** — the classic `--compile` mode (companion
-  dirs) stays unchanged, CI-verified. `--exe` is an independent
-  flag.
 - **JS/TS files excluded** — `export-html/` contains JS modules
   (`tool-renderer.js`, `ansi-to-html.js`) that pi imports natively.
   Embedding them via `type: "file"` confuses the bundler. They are excluded
@@ -266,13 +255,6 @@ ls ~/.pi/agent/embedded-assets/*/pi-agent-ext-*/skills  # 4 skill dirs
   "all per-user state". No new env-var contract.
 - **`.extracted` marker** — a killed/partial extraction retries on next
   launch.
-
-### Comparison
-
-| Mode | Files needed | Size | Extension support |
-|------|-------------|------|-------------------|
-| `--compile` | exe + 7 companion dirs | 73 MB exe + ~1.6 MB assets | 5 static |
-| `--exe` | exe only | 74 MB | 5 static |
 
 ### Adding files to the embed set
 

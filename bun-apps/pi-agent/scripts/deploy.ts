@@ -122,6 +122,12 @@ function assertWorkspaceDeps(): void {
 function writeRunSh(outDir: string, bunCmd: string, entry: string) {
 	const content = `#!/usr/bin/env bash
 DIR=$(cd "$(dirname "$0")" && pwd)
+if [ -f "$DIR/.deploy-readonly" ]; then
+  # Frozen deploy (chmod a-w): route jiti's fs cache + per-user state OFF the
+  # read-only tree. See docs/deploy-readonly.md.
+  export JITI_FS_CACHE="\${JITI_FS_CACHE:-0}"
+  export PI_CODING_AGENT_DIR="\${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
+fi
 exec "${bunCmd}" run "$DIR/${entry}" "$@"
 `;
 	writeFileSync(join(outDir, "run.sh"), content, { mode: 0o755 });
@@ -189,6 +195,30 @@ async function stageExe() {
 	console.log(`  ✓ ${outfile}  (${formatSize(outfile)})`);
 }
 
+// Every sibling package dir pi-agent's manifest (or static-extensions.ts)
+// resolves via a relative/workspace path — mirrors the set build-extensions.ts
+// and static-extensions.ts depend on. Snapshot mode runs raw, unbundled source
+// (mode="source" per src/mode.ts), so resolve.ts computes bunAppsDir LIVE from
+// the copied file's own on-disk location (dirname(fileURLToPath(url)), '..',
+// '..') — it does NOT read the baked src/generated/run-dir-base.ts (that's
+// bundle-mode-only). That means every one of these dirs must actually exist as
+// a sibling of the copied `pi-agent/` under target/, or module resolution
+// throws immediately (relative imports resolve against real on-disk paths).
+function collectRequiredPkgDirs(): Set<string> {
+	const dirs = new Set<string>();
+	const addFromEntry = (e: string | { entry?: string } | undefined) => {
+		const rel = typeof e === "string" ? e : e?.entry;
+		if (rel) dirs.add(rel.split("/")[0]!);
+	};
+	for (const e of manifest.extensions ?? []) addFromEntry(e as any);
+	for (const rel of manifest.skills ?? []) dirs.add(rel.split("/")[0]!);
+	for (const rel of manifest.binarySkills ?? []) dirs.add(rel.split("/")[0]!);
+	for (const pkg of manifest.staticExtensions ?? []) dirs.add(pkg);
+	for (const e of Object.values(manifest.lazyExtensions ?? {})) addFromEntry(e as any);
+	dirs.delete("pi-agent"); // copied separately, unconditionally
+	return dirs;
+}
+
 // ── Stage: --snapshot (copy source + node_modules, no bundling) ──────────────
 async function stageSnapshot(bunAppsDir: string) {
 	console.log(`▶ snapshot → ${target}`);
@@ -197,6 +227,26 @@ async function stageSnapshot(bunAppsDir: string) {
 	const piAgentSrc = join(bunAppsDir, "pi-agent");
 	cpSync(piAgentSrc, join(target, "pi-agent"), { recursive: true, force: true });
 	console.log(`  ✓ pi-agent/ source tree`);
+
+	// Copy every sibling extension package pi-agent's manifest/static-extensions
+	// reference — without these, resolve.ts's relative-path resolution (source
+	// mode) throws "Cannot find module" on the very first import. Each package's
+	// own node_modules/ IS copied (not filtered out): the isolated linker
+	// (bunfig.toml) gives every workspace package its own node_modules/ of
+	// symlinks into the machine-global store, and cpSync preserves symlinks
+	// (dereference defaults to false) — the symlink TARGETS are absolute paths
+	// into the global store, so this only works on the SAME machine (same
+	// caveat bundle mode's node_modules symlink already documents).
+	const pkgDirs = collectRequiredPkgDirs();
+	for (const dir of pkgDirs) {
+		const src = join(bunAppsDir, dir);
+		if (!existsSync(src)) {
+			console.log(`  · skipping missing package dir: ${dir}`);
+			continue;
+		}
+		cpSync(src, join(target, dir), { recursive: true, force: true });
+	}
+	console.log(`  ✓ ${pkgDirs.size} sibling extension package dir(s)`);
 
 	// Copy bun-apps node_modules (the workspace root — needed for dep resolution)
 	console.log(`  · copying node_modules...`);

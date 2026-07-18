@@ -23,7 +23,7 @@ export const PI_AGENT_DIR = dirname(dirname(import.meta.dir));
 export const REPO_ROOT = dirname(dirname(PI_AGENT_DIR));
 /** Source-mode entry — what `bun src/cli.ts` runs. */
 export const SRC_CLI = join(PI_AGENT_DIR, "src", "cli.ts");
-/** Bundle entry, produced by `bun scripts/build.ts` (next to a node_modules symlink). */
+/** Bundle entry, produced by `bun scripts/deploy.ts` default (--bundle) mode. */
 export const DIST_BUNDLE = join(REPO_ROOT, "dist", "pi-agent", "pi-agent.js");
 
 const truthy = (v: string | undefined) =>
@@ -53,13 +53,13 @@ export function ensureBundle(): Promise<string> {
 		if (existsSync(DIST_BUNDLE) && truthy(process.env.PI_AGENT_E2E_NO_BUILD)) {
 			return DIST_BUNDLE;
 		}
-		const build = Bun.spawn(["bun", "scripts/build.ts"], {
+		const build = Bun.spawn(["bun", "scripts/deploy.ts"], {
 			cwd: PI_AGENT_DIR,
 			stdout: "inherit",
 			stderr: "inherit",
 		});
 		const code = await build.exited;
-		if (code !== 0) throw new Error(`bun scripts/build.ts exited ${code}`);
+		if (code !== 0) throw new Error(`bun scripts/deploy.ts exited ${code}`);
 		if (!existsSync(DIST_BUNDLE)) {
 			throw new Error(`build ok but ${DIST_BUNDLE} not found`);
 		}

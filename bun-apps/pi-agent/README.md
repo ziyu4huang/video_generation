@@ -236,6 +236,7 @@ The result drops onto `/opt`, an app bundle, or any read-only prefix as-is.
 deploy actually run:
 | env | value | why |
 |---|---|---|
+| `JITI_FS_CACHE` | `0` (if unset) | `--snapshot` ships `.ts` source loaded by jiti at runtime; jiti's fs cache would otherwise write into the frozen tree (defensive — the current jiti version's unset default is already no-FS-cache) |
 | `PI_CODING_AGENT_DIR` | `$HOME/.pi/agent` (if unset) | pins per-user state to a writable dir, never the deploy tree |
 
 ```bash
@@ -243,7 +244,7 @@ bun scripts/deploy.ts /opt/pi-agent           # frozen by default (chmod a-w + m
 sudo chown -R root:wheel /opt/pi-agent        # now truly immutable to non-root
 cd ~/project && /opt/pi-agent/run.sh          # runs; state → ~/.pi/agent
 /opt/pi-agent/run.sh doctor --smoke           # proves extensions load despite the freeze
-bun scripts/deploy.ts /tmp/dev-deploy --writable   # opt OUT of the freeze (iteration/cleanup)
+bun scripts/deploy.ts /tmp/dev-deploy --no-freeze   # opt OUT of the freeze (iteration/cleanup)
 ```
 Two contract rules for a read-only deploy: invoke `run.sh` from a **non-deploy
 cwd** (so `<cwd>/.pi` isn't the frozen tree), and keep `PI_CODING_AGENT_DIR` on a
@@ -304,8 +305,8 @@ rm -rf /tmp/pi-snapshot/node_modules
 ```
 Applies to `--snapshot` too. The default THIN **bundle** is skipped: its `package.json` is
 minimal `{name,private,type}` with no deps, so `bun install` is a no-op there —
-it stays hint-only WARN (use `--with-nm-copy` at deploy time, or copy a
-`node_modules` in by hand). `source`/`binary` print "nothing to fix" (host-deps
+it stays hint-only WARN (copy a `node_modules` in by hand if extensions fail to
+load). `source`/`binary` print "nothing to fix" (host-deps
 is INFO — pi resolves its own deps).
 ## Add your own patch
 1. Create `src/patches/<name>.ts` that patches a prototype/module.
@@ -315,18 +316,18 @@ is INFO — pi resolves its own deps).
 `run-test.sh` is a multi-effort-level launcher — each level is a superset of the
 one below (cost is driven by the build + deploy, not the tests):
 ```bash
-./run-test.sh                  # = medium  (~5s)  unit + build + patch e2e   [default]
+./run-test.sh                  # = medium  (~11s)  unit + build + patch e2e   [default]
 ./run-test.sh quick            # (~0.2s)   unit only, no build — pre-commit safe
-./run-test.sh high             # (~18s)    + deploy + 4-cwd extension-loading e2e
-./run-test.sh readonly         # (~20s)    read-only deploy e2e ONLY (freeze + zero-write contract)
-./run-test.sh full             # (~40s)    + readonly + sibling pi-* unit baseline (whole stack)
+./run-test.sh high             # (~46s)    + deploy + 4-cwd extension-loading e2e (bundle/snapshot/standalone)
+./run-test.sh readonly         # (~6s)     read-only deploy e2e ONLY (freeze + zero-write contract)
+./run-test.sh full             # (~70s)    + readonly + sibling pi-* unit baseline (whole stack)
 ./run-test.sh --list           # print the tier table
 ```
 | Level | Adds | Catches |
 |---|---|---|
 | **quick** | unit (pure fn + import-time smoke) | decision-logic regressions |
 | **medium** | build bundle + patch e2e (`--help`/`--list-models` spawns) | patch module dropped from bundle, env→argv splice, **providers not injected** |
-| **high** | deploy + 4-cwd extension-loading e2e (was `scripts/verify.ts`) | cwd-coupled extension loader, deploy-package conflicts |
+| **high** | deploy + 4-cwd extension-loading e2e (was `scripts/verify.ts`) | cwd-coupled extension loader, cross-deploy-mode conflicts |
 | **readonly** | frozen-deploy e2e (chmod a-w + foreign-cwd `doctor`/`--smoke` + zero-write assertion) | a patch/extension that writes into the deploy tree; run.sh losing the `JITI_FS_CACHE=0`/`PI_CODING_AGENT_DIR` hardening |
 | **full** | sibling pi-* unit baseline (obs/kc/cli/vlm) | the whole stack pi-agent loads as extensions |
 Plain `bun test` is the `quick` tier (the e2e files skip themselves without
@@ -345,6 +346,12 @@ pi-agent/
 │   ├── manifest.json          # this repo's fixed extension/skill list (eager; edit this)
 │   ├── settings.json          # lazy/opt-in extension aliases (loaded only via -e <alias>)
 │   └── resolve.ts             # resolves manifest.json + lazy aliases to absolute argv
+├── scripts/
+│   ├── deploy.ts               # unified build+deploy: --bundle/--snapshot/--standalone/--exe
+│   ├── generate-embedded-assets.ts  # codegen for --exe's embedded theme/skills/assets
+│   └── lib/
+│       ├── codegen.ts               # pi-pkg-dir.ts / run-dir-base.ts / embedded-assets.ts generators
+│       └── build-extensions.ts      # THIN ext-bundles/*.thin.js builder (bundle/standalone modes)
 └── src/
     ├── cli.ts                    # applyPatches() → main(argv)
     ├── pre-load-providers.ts     # PROVIDERS config, pure, no side effects (edit this)

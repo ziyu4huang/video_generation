@@ -6,12 +6,13 @@
 # plus more. Cost is driven by the build + deploy, not the tests themselves.
 #
 #   quick   (0)  unit only (pure fn + import-time smoke). No build.        ~0.2s
-#   medium  (1)  + build bundle + patch e2e (patches fire, env→argv         ~5s
+#   medium  (1)  + build bundle + patch e2e (patches fire, env→argv         ~11s
 #                 splice, providers injected). DEFAULT.
-#   high    (2)  + deploy + 4-cwd extension-loading e2e (the ~15s tier).    ~18s
-#   readonly (2.5) + read-only deploy e2e (freeze + foreign-cwd run + zero   ~20s
+#   high    (2)  + deploy + 4-cwd extension-loading e2e across ALL 3        ~46s
+#                 non-exe deploy modes (bundle/snapshot/standalone).
+#   readonly (2.5) + read-only deploy e2e (freeze + foreign-cwd run + zero   ~6s
 #                  writes to the frozen tree). Opt-in tier (not in the stack).
-#   full    (3)  + readonly + sibling pi-* unit baseline (whole stack).     ~40s
+#   full    (3)  + readonly + sibling pi-* unit baseline (whole stack).     ~70s
 #
 # USAGE
 #   ./run-test.sh                  # = medium
@@ -61,10 +62,10 @@ print_list() {
 $(Y "pi-agent run-test.sh — effort tiers (each ⊇ the one above)"):
 
   $(G quick)   $(D '~0.2s')  unit only (pure fn + import-time smoke); no build
-  $(G medium)  $(D '~5s')    + build + patch e2e (patches fire / splice / providers)  $(Y "[default]")
-  $(G high)    $(D '~18s')   + deploy + 4-cwd extension-loading e2e
-  $(G readonly) $(D '~20s')  read-only deploy e2e ONLY (freeze + foreign-cwd run + zero writes)
-  $(G full)    $(D '~40s')   + readonly + sibling pi-* unit baseline (whole stack)
+  $(G medium)  $(D '~11s')   + build + patch e2e (patches fire / splice / providers)  $(Y "[default]")
+  $(G high)    $(D '~46s')   + deploy + 4-cwd extension-loading e2e (bundle/snapshot/standalone)
+  $(G readonly) $(D '~6s')   read-only deploy e2e ONLY (freeze + foreign-cwd run + zero writes)
+  $(G full)    $(D '~70s')   + readonly + sibling pi-* unit baseline (whole stack)
 
 Env gates the e2e test files read:
   PI_AGENT_E2E=1          enable e2e-patches        (medium+)
