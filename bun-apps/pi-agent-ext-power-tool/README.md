@@ -16,7 +16,9 @@ CLI subcommand).
 
 > **Extracted (2026-07, monolith split A1–A3):** `todo`+`/todos`+`/goal`+`goal_complete`
 > → `pi-agent-ext-goal-todo` (#504); `ask_user_question` → `pi-agent-ext-ask-user`
-> (#502); `/btw` → `pi-agent-ext-btw` (#499). Knowledge tools left earlier for
+> (#502, merged into `pi-agent-ext-goal-todo` 2026-07-18 — no shared code,
+> relocated as the first step of the core-task pi-ext consolidation);
+> `/btw` → `pi-agent-ext-btw` (#499). Knowledge tools left earlier for
 > `pi-knowledge-card` (#351/#354).
 
 > **Note:** the diagnostics below are this extension's full public surface.

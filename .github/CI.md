@@ -4,9 +4,9 @@ The PR gate. Every pull request to `main` (and every push to `main`) runs
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), which turns the
 manual-`bun test` trust model into an enforced gate.
 
-## Branch protection — the 25 required checks on `main`
+## Branch protection — the 24 required checks on `main`
 
-`main` is under branch protection: the **25 checks** below are **required**
+`main` is under branch protection: the **24 checks** below are **required**
 (strict — no stale checks; branches must be up-to-date) before any merge,
 including the admin's (`enforce_admins`). A PR with a failing check is BLOCKED
 (merge button disabled); a green PR is mergeable. Applied via `gh api` (a repo
@@ -14,7 +14,7 @@ setting, not a committed file) — **if a check is renamed in `ci.yml`, update t
 protection rule too** so it stays required:
 
 ```bash
-# re-assert the 25 required checks on main (run after any check-rename)
+# re-assert the 24 required checks on main (run after any check-rename)
 gh api -X PUT repos/ziyu4huang/video_generation/branches/main/protection \
   --input - <<'JSON'
 { "required_status_checks": { "strict": true, "contexts": [
@@ -25,7 +25,7 @@ gh api -X PUT repos/ziyu4huang/video_generation/branches/main/protection \
   "extension-contract", "regression gates",
   "test · pi-agent-ext-knowledge-card", "test · pi-agent-ext-hermes-memory",
   "test · pi-agent-ext-workflow",
-  "test · pi-agent-ext-ask-user", "test · pi-agent-ext-btw", "test · pi-agent-ext-goal-todo",
+  "test · pi-agent-ext-btw", "test · pi-agent-ext-goal-todo",
   "test · pi-agent-ext-file2md", "test · pi-agent-ext-obsidian",
   "test · pi-agent-ext-research-tool",
   "test · pi-agent-ext-zai-mcp", "test · pi-agent-ext-wayfind", "test · perf-harness"
@@ -46,7 +46,7 @@ JSON
 > skipping — see "Smart test routing" above), so the safety net lives in the
 > required `test · <package>` checks themselves, not in a separate gate.
 >
-> The `determinism spot-check` job is intentionally NOT in the required 25 — it
+> The `determinism spot-check` job is intentionally NOT in the required 24 — it
 > is v1 informational (`continue-on-error`): it runs the flake-prone subset 3×
 > and surfaces flakes without blocking. Promote it to required once the
 > false-positive rate is ≈ 0 (the same rollout the portability audit just
@@ -57,7 +57,7 @@ JSON
 | Job | What it gates | Fail behavior |
 |-----|---------------|---------------|
 | **changed packages** | Computes which `bun-apps/*` packages the `test` matrix actually needs to run, from the changed-file set (see "Smart test routing" below) | **blocks** (its own failure fails OPEN — see below, not a silent skip) |
-| **test · `<package>`** (matrix of 23) | Each `bun-apps/*` package's test suite — only the packages `changed packages` marks affected actually execute on a PR; push-to-main always runs all 23 | **blocks** |
+| **test · `<package>`** (matrix of 22) | Each `bun-apps/*` package's test suite — only the packages `changed packages` marks affected actually execute on a PR; push-to-main always runs all 22 | **blocks** |
 | **extension-contract** | The 5 extension-protocol tests (factory loads, wires up, no conflicts, valid schema, handler present) — a named, visible check, not buried in the pi-agent run | **blocks** |
 | **deploy --verify** | Builds pi-agent, bundles the 9 extensions, boots the deployed artifact from a foreign cwd, probes `getAllTools` for 0 conflicts | **blocks** |
 | **regression gates** | 2 MB file-size guard (twin of `.githooks/pre-commit`) **+** lockfile duplicate-version guard (the `@earendil-works/*` family must resolve to one version workspace-wide) **+** schema-cost regression (warns >5%) **+** test-portability audit (warn-only v1 — surfaces new ungated machine-coupled tests; see [TEST-PORTABILITY.md](TEST-PORTABILITY.md)) | file-size + lockfile-duplicate-version **block**; schema-cost + portability **warn only** |
@@ -69,7 +69,7 @@ one fails.
 ### Smart test routing (changed_packages)
 
 A PR that only touches `bun-apps/pi-agent-ext-power-tool/` shouldn't pay for all
-23 matrix entries. `scripts/ci-changed-packages.sh` computes, per PR, which
+22 matrix entries. `scripts/ci-changed-packages.sh` computes, per PR, which
 packages are actually affected:
 
 1. Reads every `bun-apps/*/package.json`'s `@repo/*` dependencies **live**
@@ -125,14 +125,14 @@ Two setup quirks the workflow handles, documented so they aren't "lost":
 
 ## What is tested
 
-23 `bun-apps/*` packages, each via its documented command (see the `tests`
+22 `bun-apps/*` packages, each via its documented command (see the `tests`
 matrix in the workflow; whether it actually RUNS on a given PR depends on
 `changed_packages` — see "Smart test routing" above):
 
 ```
 pi-agent, pi-agent-cli, pi-agent-ext-flux2, pi-agent-ext-krea2,
 pi-agent-ext-ltx, pi-agent-ext-movie-director, pi-agent-ext-power-tool,
-pi-agent-ext-btw, pi-agent-ext-ask-user, pi-agent-ext-goal-todo,
+pi-agent-ext-btw, pi-agent-ext-goal-todo,
 pi-agent-ext-web-access, pi-agent-ext-file2md, gui-movie-director,
 pi-agent-ext-knowledge-card, pi-agent-ext-obsidian,
 pi-agent-ext-workflow, pi-agent-ext-hermes-memory,
@@ -143,6 +143,10 @@ pi-agent-ext-wayfind, perf-harness
 `pi-agent-ext-btw`/`pi-agent-ext-ask-user`/`pi-agent-ext-goal-todo` were already
 in the `ci.yml` matrix but missing from this list (a doc-drift gap found and
 fixed alongside the 5 newly-added packages below).
+
+Later, `pi-agent-ext-ask-user`'s standalone check was retired on 2026-07-18
+when the package was merged into `pi-agent-ext-goal-todo` (see that package's
+`CONTEXT.md`) — its tests now run under `test · pi-agent-ext-goal-todo`.
 
 ## What is deliberately NOT tested in CI (and why)
 

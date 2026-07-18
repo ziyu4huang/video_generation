@@ -20,9 +20,8 @@
     },
     {
       "name": "pi-agent-ext-ask-user",
-      "entry": "pi-agent-ext-ask-user/extensions/pi-ask-user.ts",
+      "entry": "pi-agent-ext-goal-todo/extensions/pi-ask-user.ts",
       "bundleMode": "thin",
-      "testGate": "cd bun-apps/pi-agent-ext-ask-user && bun test",
       "version": "0.1.0"
     },
     {
