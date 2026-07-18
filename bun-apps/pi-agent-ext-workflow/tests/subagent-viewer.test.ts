@@ -1,0 +1,67 @@
+import { test } from "bun:test";
+import assert from "node:assert/strict";
+import { reconstructSubagentRuns, SubagentViewer } from "../src/subagent-viewer.js";
+import type { SubagentToolDetails } from "../src/subagent-tool.js";
+
+// Identity theme so render() returns plain text we can assert on.
+const T = { fg: (_c: string, s: string) => s, bg: (_c: string, s: string) => s, bold: (s: string) => s } as never;
+
+function toolResultEntry(toolName: string, text: string, details?: Partial<SubagentToolDetails>) {
+  return { type: "message", message: { role: "toolResult", toolName, content: [{ type: "text", text }], details } };
+}
+
+test("reconstructSubagentRuns collects only subagent toolResults, in order, with 1-based index", () => {
+  const branch = [
+    toolResultEntry("read", "ignored"),
+    toolResultEntry("subagent", "Status: DONE\nreport A", {
+      exitCode: 0, timedOut: false, agent: "implementer", model: "x/flash", taskPreview: "task A", elapsedMs: 1000, status: "done",
+    }),
+    toolResultEntry("bash", "ignored"),
+    toolResultEntry("subagent", "failed report B", {
+      exitCode: 1, timedOut: false, agent: "reviewer", model: "y/pro", taskPreview: "task B", elapsedMs: 2000, status: "failed",
+    }),
+  ];
+  const runs = reconstructSubagentRuns(branch as never);
+  assert.equal(runs.length, 2);
+  assert.equal(runs[0].index, 1);
+  assert.equal(runs[0].agent, "implementer");
+  assert.equal(runs[0].output, "Status: DONE\nreport A");
+  assert.equal(runs[1].index, 2);
+  assert.equal(runs[1].status, "failed");
+});
+
+test("reconstructSubagentRuns tolerates missing details (falls back to done/failed by exitCode)", () => {
+  const branch = [toolResultEntry("subagent", "legacy", { exitCode: 0, timedOut: false } as Partial<SubagentToolDetails>)];
+  const runs = reconstructSubagentRuns(branch as never);
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].status, "done");
+  assert.equal(runs[0].model, "default");
+});
+
+test("viewer list shows all runs; enter opens the selected run's full output; esc goes back", () => {
+  const runs = reconstructSubagentRuns([
+    toolResultEntry("subagent", "report A line one", {
+      exitCode: 0, timedOut: false, agent: "implementer", model: "x/flash", taskPreview: "task A", elapsedMs: 1000, status: "done",
+    }),
+    toolResultEntry("subagent", "report B line one", {
+      exitCode: 1, timedOut: false, agent: "reviewer", model: "y/pro", taskPreview: "task B", elapsedMs: 2000, status: "failed",
+    }),
+  ] as never);
+  const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
+  const list = viewer.render(80).join("\n");
+  assert.ok(list.includes("#1"), "list shows run #1");
+  assert.ok(list.includes("#2"), "list shows run #2");
+  assert.ok(list.includes("task A"));
+
+  // select the second run (down) then open it (enter)
+  viewer.handleInput("\x1b[B"); // down
+  viewer.handleInput("\r"); // enter
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("report B line one"), "output view shows the selected run's report");
+  assert.ok(!out.includes("report A"), "output view is the selected run only");
+
+  // esc returns to the list
+  viewer.handleInput("\x1b"); // escape
+  const back = viewer.render(80).join("\n");
+  assert.ok(back.includes("#1") && back.includes("#2"), "back to list view");
+});

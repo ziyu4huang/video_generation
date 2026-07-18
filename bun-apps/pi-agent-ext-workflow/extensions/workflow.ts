@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { applyHostFnRegistration, HostFnRegistry } from "../src/host-fn-registry.js";
 import { createSubagentTool } from "../src/subagent-tool.js";
+import { reconstructSubagentRuns, SubagentViewer } from "../src/subagent-viewer.js";
 import {
   buildWorkflowGuidelinesForTurn,
   createEffortState,
@@ -82,6 +83,31 @@ export default function extension(pi: ExtensionAPI) {
     // getActiveTools may be unavailable in some hosts — best-effort only.
   }
   pi.registerTool(subagentTool);
+
+  // /subagents — list past subagent runs on this branch and view their full
+  // output (todo-style: reconstruct from session toolResults, no live stream).
+  pi.registerCommand("subagents", {
+    description: "List past subagent runs on this branch and view their output",
+    handler: async (_args, ctx) => {
+      if (ctx.mode !== "tui") {
+        ctx.ui.notify("/subagents requires interactive mode", "error");
+        return;
+      }
+      const branch = (ctx.sessionManager?.getBranch() ?? []) as never;
+      const runs = reconstructSubagentRuns(branch);
+      await ctx.ui.custom<void>((tui, theme, _kb, done) => {
+        const viewer = new SubagentViewer({ runs, onClose: () => done() }, theme);
+        return {
+          render: (w: number) => viewer.render(w),
+          invalidate: () => viewer.invalidate(),
+          handleInput: (data: string) => {
+            viewer.handleInput(data);
+            tui.requestRender();
+          },
+        };
+      });
+    },
+  });
 
   // Layer-3 conditional guideline injection. The workflow tool's authoring
   // guidelines are NO LONGER a static promptGuidelines tax on every turn; they
