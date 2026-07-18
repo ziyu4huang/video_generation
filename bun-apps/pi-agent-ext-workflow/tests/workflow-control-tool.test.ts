@@ -160,3 +160,87 @@ test("action=list renders every run + a no-poll hint", async () => {
   assert.match(text, /run-2/);
   assert.match(text, /wait/i, "includes the prefer-notification-over-polling hint");
 });
+
+test("action=wait with no runId throws", async () => {
+  const { manager } = fakeManager();
+  const tool = createWorkflowControlTool({ manager });
+  await assert.rejects(() => tool.execute("id", { action: "wait" }, NO_SIGNAL, undefined, NO_CTX));
+});
+
+test("action=wait on an already-finished run returns immediately, no event needed", async () => {
+  const { manager } = fakeManager({
+    getRun: () => undefined, // not live in this process
+    getSnapshot: () => null,
+    listRuns: () => [{ runId: "run-1", workflowName: "audit", status: "completed", phases: [], agents: [], logs: [] }],
+  });
+  const tool = createWorkflowControlTool({ manager });
+  const res = await tool.execute("id", { action: "wait", runId: "run-1" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.match(await textOf(res), /audit/);
+});
+
+test("action=wait on a running run resolves when the manager emits complete for that runId", async () => {
+  const snapshot = createWorkflowSnapshot({ name: "audit", description: "d", phases: [] });
+  const { manager } = fakeManager({
+    getRun: (id: string) => (id === "run-1" ? { status: "running" } : undefined),
+    getSnapshot: (id: string) => (id === "run-1" ? snapshot : null),
+  });
+  const tool = createWorkflowControlTool({ manager });
+  const pending = tool.execute("id", { action: "wait", runId: "run-1", timeoutMs: 5000 }, NO_SIGNAL, undefined, NO_CTX);
+  // Let execute() reach its event-subscribe point, then emit completion.
+  await Promise.resolve();
+  (manager as unknown as EventEmitter).emit("complete", { runId: "run-1" });
+  const res = await pending;
+  assert.match(await textOf(res), /audit/);
+});
+
+test("action=wait ignores events for other runIds", async () => {
+  const snapshot = createWorkflowSnapshot({ name: "audit", description: "d", phases: [] });
+  const { manager } = fakeManager({
+    getRun: (id: string) => (id === "run-1" ? { status: "running" } : undefined),
+    getSnapshot: (id: string) => (id === "run-1" ? snapshot : null),
+  });
+  const tool = createWorkflowControlTool({ manager });
+  const pending = tool.execute("id", { action: "wait", runId: "run-1", timeoutMs: 1000 }, NO_SIGNAL, undefined, NO_CTX);
+  await Promise.resolve();
+  (manager as unknown as EventEmitter).emit("complete", { runId: "run-OTHER" });
+  const res = await pending; // times out at 1000ms (the clamped floor) since the event was for a different run
+  assert.match(await textOf(res), /audit/, "times out and returns the current (still-running) snapshot");
+});
+
+test("action=wait times out and returns the current snapshot, not an error", async () => {
+  const snapshot = createWorkflowSnapshot({ name: "audit", description: "d", phases: [] });
+  const { manager } = fakeManager({
+    getRun: (id: string) => (id === "run-1" ? { status: "running" } : undefined),
+    getSnapshot: (id: string) => (id === "run-1" ? snapshot : null),
+  });
+  const tool = createWorkflowControlTool({ manager });
+  const res = await tool.execute(
+    "id",
+    { action: "wait", runId: "run-1", timeoutMs: 1000 },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.match(await textOf(res), /audit/);
+});
+
+test("action=wait resolves early when the runtime abort signal fires", async () => {
+  const snapshot = createWorkflowSnapshot({ name: "audit", description: "d", phases: [] });
+  const { manager } = fakeManager({
+    getRun: (id: string) => (id === "run-1" ? { status: "running" } : undefined),
+    getSnapshot: (id: string) => (id === "run-1" ? snapshot : null),
+  });
+  const tool = createWorkflowControlTool({ manager });
+  const controller = new AbortController();
+  const pending = tool.execute(
+    "id",
+    { action: "wait", runId: "run-1", timeoutMs: 300_000 },
+    controller.signal,
+    undefined,
+    NO_CTX,
+  );
+  await Promise.resolve();
+  controller.abort();
+  const res = await pending;
+  assert.match(await textOf(res), /audit/, "resolves with current status on abort, not a hang or throw");
+});

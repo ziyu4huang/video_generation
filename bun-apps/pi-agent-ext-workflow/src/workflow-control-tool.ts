@@ -69,6 +69,52 @@ function runningIds(manager: WorkflowManager): string[] {
 
 const NO_POLL_HINT = "Prefer waiting for the automatic completion notification over polling repeatedly.";
 
+const WAIT_DEFAULT_MS = 30_000;
+const WAIT_MIN_MS = 1_000;
+const WAIT_MAX_MS = 300_000;
+const WAIT_FINAL_EVENTS = ["complete", "error", "stopped", "paused"] as const;
+
+function clampWaitTimeoutMs(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return WAIT_DEFAULT_MS;
+  return Math.min(WAIT_MAX_MS, Math.max(WAIT_MIN_MS, Math.floor(value)));
+}
+
+/** Block until `runId` reaches a terminal/paused state or `timeoutMs` elapses,
+ *  then return its current status text. A run that is not actively "running"
+ *  in this process (already finished, or unknown) resolves immediately —
+ *  there is nothing to wait for. A timeout is not an error: it returns the
+ *  still-running snapshot so the model can decide to wait again or yield. */
+function waitForRun(
+  manager: WorkflowManager,
+  runId: string,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<string | undefined> {
+  const managed = manager.getRun(runId);
+  if (!managed || (managed as { status?: string }).status !== "running") {
+    return Promise.resolve(renderRunStatus(manager, runId));
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const finish = (e?: { runId?: string }) => {
+      if (settled || (e && e.runId !== runId)) return;
+      settled = true;
+      clearTimeout(timer);
+      for (const ev of WAIT_FINAL_EVENTS) manager.off(ev, finish);
+      signal?.removeEventListener("abort", onAbort);
+      resolve(renderRunStatus(manager, runId));
+    };
+    const onAbort = () => finish();
+    for (const ev of WAIT_FINAL_EVENTS) manager.on(ev, finish);
+    timer = setTimeout(() => finish(), timeoutMs);
+    if (signal) {
+      if (signal.aborted) onAbort();
+      else signal.addEventListener("abort", onAbort, { once: true });
+    }
+  });
+}
+
 /** Live snapshot if the run is active in this process, else the persisted
  *  status if it exists at all, else undefined. Mirrors the fallback chain
  *  the /workflows status|watch slash command already uses. */
@@ -97,7 +143,7 @@ export function createWorkflowControlTool(
     promptSnippet:
       "Control a background workflow run: workflow_control({ action, runId }). action is one of stop | pause | resume | status | list | wait.",
     parameters: workflowControlToolSchema,
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+    async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
       switch (params.action) {
         case "stop": {
           const runId = requireRunId("stop", params.runId);
@@ -126,6 +172,11 @@ export function createWorkflowControlTool(
         }
         case "list":
           return textResult(renderRunList(manager));
+        case "wait": {
+          const runId = requireRunId("wait", params.runId);
+          const text = await waitForRun(manager, runId, clampWaitTimeoutMs(params.timeoutMs), signal);
+          return textResult(text ?? `No workflow run "${runId}".`);
+        }
         default:
           throw new Error(`workflow_control: action "${params.action}" not yet implemented`);
       }
