@@ -664,6 +664,11 @@ describe("listWorkflows", () => {
     const sources = rows.map((r) => r.source);
     expect(sources).toContain("cwd/workflows");
     expect(sources).toContain("bin/workflows");
+    // Display ordering mirrors resolution precedence (first hit wins):
+    // <cwd>/workflows ranks ABOVE <binDir>/workflows. This fixture's claudeRoot
+    // is a bare mkdtemp with no .pi/bun-apps dirs, so only the two portable
+    // tiers are present — assert cwd-before-bin here.
+    expect(sources.indexOf("cwd/workflows")).toBeLessThan(sources.indexOf("bin/workflows"));
     expect(rows.find((r) => r.source === "cwd/workflows" && r.name === "echo")).toBeTruthy();
   });
 });

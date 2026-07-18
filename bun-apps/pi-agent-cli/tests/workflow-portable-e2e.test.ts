@@ -44,7 +44,9 @@ describe.skipIf(!existsSync(EXE))("compiled pi-agent-cli: portable workflow-pack
     const proc = Bun.spawn([EXE, "workflow", "run", join(packDir, "workflows", "echo"), "--dry-run"], { cwd: foreign, stdout: "pipe", stderr: "pipe" });
     const code = await proc.exited;
     const out = await new Response(proc.stdout).text();
+    const err = await new Response(proc.stderr).text();
     expect(code).toBe(0);
     expect(out).toContain("source: path");
+    expect(err).toBe("");
   });
 });

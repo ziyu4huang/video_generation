@@ -77,8 +77,10 @@ CLI, a script, or a hook.
 
 Script resolution (first hit wins) — shared with the \`workflow\` tool's \`name\`:
   1. <name> as a literal path (absolute or relative to cwd)
-  2. .pi/workflows/<name>   (a pack folder wins over a same-name .js)
-  3. bun-apps/<pkg>/workflows/<name>
+  2. <cwd>/workflows/<name>   (portable tier; a pack folder wins over a same-name .js)
+  3. <binDir>/workflows/<name>   (binDir = dirname(process.execPath); pack-over-file)
+  4. .pi/workflows/<name>   (under the repo root; pack-over-file)
+  5. bun-apps/<pkg>/workflows/<name>
 
 Options:
   --args '<JSON>'        JSON value for the script's \`args\` global
@@ -103,7 +105,7 @@ Examples:
 		const name = parsed.positionals[0];
 		if (!name) {
 			console.error("Usage: workflow run <name> [--args JSON] [--model spec] [--dry-run]\n");
-			console.error("Resolve a name from .pi/workflows/ or bun-apps/<pkg>/workflows/, or pass a path.");
+			console.error("Resolve a name from <cwd>/workflows/, <binDir>/workflows/, .pi/workflows/, or bun-apps/<pkg>/workflows/, or pass a path.");
 			throw new Error("workflow run: <name> is required");
 		}
 
@@ -184,10 +186,11 @@ export const workflowListCommand: Command = {
 	summary: "List resolvable workflow scripts (with name + description).",
 	details: `Usage: bun-pi-agent-cli workflow list
 
-Enumerates .pi/workflows/* and bun-apps/<pkg>/workflows/* — both workflow packs
-(folders with manifest.json) and single-file scripts (*.js) — parsing each to
-print name + description. Entries that fail to parse are reported as errors
-(not skipped silently) so a broken artifact is surfaced.`,
+Enumerates <cwd>/workflows/*, <binDir>/workflows/*, .pi/workflows/*, and
+bun-apps/<pkg>/workflows/* — both workflow packs (folders with manifest.json)
+and single-file scripts (*.js) — parsing each to print name + description.
+Entries that fail to parse are reported as errors (not skipped silently) so a
+broken artifact is surfaced.`,
 	run: async (parsed: ParsedArgs): Promise<void> => {
 		const cwd = process.cwd();
 		const claudeRoot = findRepoRoot(cwd, existsSync) ?? cwd;
