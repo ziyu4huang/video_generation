@@ -10,6 +10,7 @@ import {
   listWorkflows,
   resolveWorkflowPack,
   findRepoRoot,
+  resolveModel,
 } from "../src/workflow-pack.js";
 
 /**
@@ -290,6 +291,37 @@ describe("runWorkflowScript", () => {
     expect(existsSync(expectedDir)).toBe(true);
     expect(readdirSync(expectedDir).some((f) => f === `${receipt.runId}.log`)).toBe(true);
   });
+
+  // ── model resolution (Task 2): resolveModel wired into runWorkflowScript ──
+
+  test("no overrides -> model is the pi default (source pi-default), not undefined", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wf-"));
+    writeFileSync(join(dir, "echo.js"), ECHO_WORKFLOW);
+    const receipt = await runWorkflowScript({
+      name: "echo.js",
+      cwd: dir,
+      dryRun: true,
+      piDefaultModel: "zai/glm-5.2",
+      agent: { run: async () => { throw new Error("dry-run must not call the agent"); } },
+    });
+    expect(receipt.model).toBe("zai/glm-5.2");
+    expect(receipt.modelSource).toBe("pi-default");
+  });
+
+  test("manifest.model beats pi default (source manifest)", async () => {
+    // args-demo is a real pack that declares
+    //   "model": "lm-studio/google/gemma-4-26b-a4b-qat"
+    // in its manifest. Even with a pi default supplied, the manifest must win.
+    const argsDemoPack = resolve(import.meta.dirname, "../../pi-agent-cli/workflows/args-demo");
+    const manifest = require(`${argsDemoPack}/manifest.json`);
+    const receipt = await runWorkflowScript({
+      name: argsDemoPack,
+      dryRun: true,
+      piDefaultModel: "zai/glm-5.2",
+    });
+    expect(receipt.model).toBe(manifest.model);
+    expect(receipt.modelSource).toBe("manifest");
+  });
 });
 
 // ── mergeArgs / resolvePackOverrides (pure, Decision 5 precedence) ─────────
@@ -327,6 +359,31 @@ describe("resolvePackOverrides — model + args precedence", () => {
   });
   test("args merge applied", () => {
     expect(resolvePackOverrides(pack, { args: { x: 9, z: 2 } }).args).toEqual({ x: 9, z: 2 });
+  });
+});
+
+// ── resolveModel (pure, 4-tier model precedence) ─────────────────────────────
+
+describe("resolveModel — precedence --model > PI_MODEL > manifest > pi-default", () => {
+  test("caller --model wins", () => {
+    const r = resolveModel("cli/x", "env/y", "manifest/z", "pi/d");
+    expect(r).toEqual({ model: "cli/x", source: "--model" });
+  });
+  test("env wins when no caller (PI_MODEL above manifest)", () => {
+    const r = resolveModel(undefined, "env/y", "manifest/z", "pi/d");
+    expect(r).toEqual({ model: "env/y", source: "env" });
+  });
+  test("manifest wins when no caller/env", () => {
+    const r = resolveModel(undefined, undefined, "manifest/z", "pi/d");
+    expect(r).toEqual({ model: "manifest/z", source: "manifest" });
+  });
+  test("pi-default wins when no caller/env/manifest", () => {
+    const r = resolveModel(undefined, undefined, undefined, "pi/d");
+    expect(r).toEqual({ model: "pi/d", source: "pi-default" });
+  });
+  test("all undefined -> {undefined, none}", () => {
+    const r = resolveModel(undefined, undefined, undefined, undefined);
+    expect(r).toEqual({ model: undefined, source: "none" });
   });
 });
 
