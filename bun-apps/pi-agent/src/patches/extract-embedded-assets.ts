@@ -25,8 +25,29 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { EMBEDDED_ASSETS } from "../generated/embedded-assets.ts";
 import { isBunBinary } from "../mode.ts";
+
+// src/generated/embedded-assets.ts is build-time-generated + gitignored (same
+// convention as pi-pkg-dir.ts / run-dir-base.ts) — absent on a fresh checkout
+// until a deploy codegen step runs. Dynamic import + fallback (the same
+// pattern run-dir/resolve.ts's loadRunDirBase() already uses for the other
+// two generated files) so a fresh clone / plain `bun test` / `bun src/cli.ts`
+// never crashes on the missing file. A static top-level import here would
+// hard-fail module resolution with no way to catch it. Falling back to []
+// degrades to exactly what a real (non---exe) build's generated file already
+// contains anyway — stageGenerateEmbeddedAssets() writes an "empty manifest"
+// for every mode except --exe.
+async function loadEmbeddedAssets(): Promise<Array<{ relPath: string; blobPath: string }>> {
+  try {
+    // @ts-ignore — generated at build time; absent in a clean source tree
+    const mod = await import("../generated/embedded-assets.ts");
+    return mod.EMBEDDED_ASSETS ?? [];
+  } catch {
+    return [];
+  }
+}
+
+const EMBEDDED_ASSETS = await loadEmbeddedAssets();
 
 const MARKER_FILENAME = ".extracted";
 
