@@ -24,6 +24,7 @@
  */
 import { resolve, sep } from "node:path";
 import { EXT_ROOT } from "./paths.ts";
+import { isMovieActive } from "./session-state.ts";
 
 /** Repo root = the extension's grandparent (this pkg is bun-apps/pi-agent-ext-movie-director). */
 export const REPO_ROOT = resolve(EXT_ROOT, "..", "..");
@@ -80,8 +81,8 @@ export function isDeniedEditPath(
   rawPath: string,
   opts: { cwd?: string; repoRoot?: string; env?: Record<string, string | undefined> } = {},
 ): { denied: boolean; prefix?: string; resolved: string } {
-  if (opts.env?.MD_TOOL_SCOPE_DISABLE === "1") return { denied: false, resolved: resolveTarget(rawPath, opts.cwd) };
   const env = opts.env ?? process.env;
+  if (env.MD_TOOL_SCOPE_DISABLE === "1") return { denied: false, resolved: resolveTarget(rawPath, opts.cwd) };
   const cwd = opts.cwd ?? process.cwd();
   const repoRoot = opts.repoRoot ?? REPO_ROOT;
   const resolved = resolveTarget(rawPath, cwd);
@@ -117,6 +118,11 @@ export function scopeViolationForToolCall(
   event: { toolName: string; input: unknown },
   opts: { cwd?: string; repoRoot?: string; env?: Record<string, string | undefined> } = {},
 ): { block: true; reason: string } | undefined {
+  // Session gate: the guard constrains the movie-DRIVING agent. In a session
+  // with no movie activity there is nothing to guard against, so this is a
+  // no-op until markMovieActive() fires (first movie command/host-fn). The
+  // MD_TOOL_SCOPE_DISABLE bypass still overrides even when armed. See session-state.ts.
+  if (!isMovieActive()) return undefined;
   if (!GUARDED_TOOLS.has(event.toolName)) return undefined;
   const path = editPathFromToolInput(event.toolName, event.input);
   if (path === undefined) return undefined;

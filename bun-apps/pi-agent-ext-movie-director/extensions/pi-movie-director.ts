@@ -28,6 +28,7 @@ import {
   type Command,
 } from "../src/dispatch.ts";
 import { scopeViolationForToolCall } from "../src/index.ts";
+import { markMovieActive } from "../src/session-state.ts";
 import { registerMovieHostFns } from "./movie-host-fns.ts";
 import { registerMovieWorkflows } from "./movie-workflows.ts";
 
@@ -46,6 +47,7 @@ function makeMovieTool() {
       }),
     }),
     async execute(_id, params) {
+      markMovieActive();
       const opts = coerceOptions(params.options);
       const res = await dispatch(params.command as Command, opts);
       const text = res.ok ? res.text : `movie-director errored: ${res.error}`;
