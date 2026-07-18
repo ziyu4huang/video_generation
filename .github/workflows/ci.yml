@@ -383,6 +383,18 @@ jobs:
       - name: Lockfile duplicate-version guard (blocks)
         run: bash scripts/check-lockfile-duplicate-versions.sh
 
+      # Dependency-direction + import-hygiene guard (ADR-0001, blocks). The
+      # remote twin of `bun run test:deps` — 5 invariants over every @repo/*
+      # import in bun-apps/*: declared deps, no self-import, knowledge-layer
+      # TIER-0 (obsidian/hermes-memory) imports NOTHING from TIER-1
+      # (knowledge-card), no extension imports the host, acyclic graph. Without
+      # this step the upward hermes→hub edge ADR-0001 removed could be
+      # reintroduced and ship green — the test existed locally but nothing in
+      # CI ran it (bun-apps/tests/ lives outside every per-package matrix entry).
+      - name: Dependency-direction guard (ADR-0001, blocks)
+        working-directory: bun-apps
+        run: bun run test:deps
+
       # Test-portability prevention check — now BLOCKING (--strict). Scans the
       # test surface for the four "works on my machine" signal patterns and
       # exits non-zero on any UNGATED P1/P2 hit (existsSync of a machine-coupled
