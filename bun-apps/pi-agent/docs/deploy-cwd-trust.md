@@ -118,7 +118,7 @@ IS the entry). Picks its entry by what's present:
 
 | detected | gate | entry |
 |---|---|---|
-| Bundle / Standalone | `.deploy-bundle` + `ext-bundles/` | `bun pi-agent.js` (or `./bun` for Standalone) |
+| Bundle / Standalone | `.deploy-bundle` + `ext-bundles/` | `bun pi-agent.js` (or `$DIR/bun` for Standalone — DIR-relative so it works from any cwd) |
 | Snapshot / source / dev | `src/cli.ts` present | `bun pi-agent/src/cli.ts` (Snapshot) or `bun src/cli.ts` (dev) |
 
 When the `.deploy-readonly` marker is present, `run.sh` exports `JITI_FS_CACHE=0` +
