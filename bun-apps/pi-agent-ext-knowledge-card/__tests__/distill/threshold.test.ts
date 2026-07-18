@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test";
-import { adjustThreshold } from "../src/threshold.ts";
-import type { ConvergeMetrics } from "../src/types.ts";
+import { adjustThreshold } from "../../src/distill/threshold.ts";
+import type { ConvergeMetrics } from "../../src/distill/types.ts";
 
 describe("adaptive threshold", () => {
 	test("efficient pipeline (high kill + high pass) lowers N by 5", () => {

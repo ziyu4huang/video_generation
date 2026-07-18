@@ -98,4 +98,25 @@ describe("spawnSubagent", () => {
     assert.equal(out.output, "out");
     assert.equal(runner.calls.length, 1, "prime did not add a retrieve call (③ owns it)");
   });
+
+  // D8-1: when opts.schema is set, WorkflowAgent.run returns a validated OBJECT.
+  // The adapter MUST preserve it as JSON — `String(obj)` would yield "[object Object]"
+  // and silently destroy the schema payload (returned as a success-shaped result).
+  it("schema object result is JSON-serialized, not String()'d to [object Object]", async () => {
+    const runner = mkRunner(async () => ({ ok: true }));
+    const out = await spawnSubagent({
+      task: "t",
+      schema: { type: "object", properties: { ok: { type: "boolean" } } } as never,
+      agent: runner,
+    });
+    assert.equal(out.exitCode, 0);
+    assert.equal(out.output, '{"ok":true}', "schema payload preserved as JSON, NOT [object Object]");
+  });
+
+  it("null result (recoverable exhaustion) → empty string output, not 'null' or [object Object]", async () => {
+    const runner = mkRunner(async () => null);
+    const out = await spawnSubagent({ task: "t", agent: runner });
+    assert.equal(out.exitCode, 0);
+    assert.equal(out.output, "", "null result serializes to empty string");
+  });
 });

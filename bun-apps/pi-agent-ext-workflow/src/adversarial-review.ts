@@ -40,7 +40,8 @@ const investigation = await agent(
   'Investigate the following and list concrete, individually-checkable findings:\\n' + task,
   { label: 'investigate', schema: { type: 'object', properties: { findings: { type: 'array', items: { type: 'string' } } }, required: ['findings'] } }
 )
-const findings = investigation.findings || []
+const findings = (investigation && Array.isArray(investigation.findings) ? investigation.findings : [])
+if (!investigation) throw new Error('adversarial-review: investigation agent returned no result (recoverable exhaustion); cannot list findings')
 
 phase('Refute')
 const judged = await parallel(findings.map((f, i) => () =>

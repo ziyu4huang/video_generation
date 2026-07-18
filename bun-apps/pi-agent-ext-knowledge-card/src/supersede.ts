@@ -1,7 +1,7 @@
 /**
  * markSuperseded — flip a card's `status` to `superseded` + set `superseded_by`.
  *
- * Used by pi-agent-ext-distill (mechanism B) to retire a raw `pi-memory:*` card
+ * Used by zk_ingest converge action (mechanism B) to retire a raw `pi-memory:*` card
  * when a curated `distill:*` card is written on top of it. retrieveRecords already
  * excludes `status: superseded` cards (`retrieve.ts:426,572`), so the raw card
  * silently drops out of answers once superseded — leaving the curated one as the

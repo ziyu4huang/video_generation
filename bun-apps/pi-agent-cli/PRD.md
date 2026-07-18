@@ -85,7 +85,7 @@ stderr) or NDJSON. Empty-turn retry recovers silent local-model failures
 - `pi-agent-ext-hermes-memory` (persistent memory: memory_search, session_search, skill_manage)
 - `pi-agent-ext-obsidian` (always loaded for vault access)
 - `pi-agent-ext-knowledge-card` (zk-extract, zk-ask, zk-ingest, knowledge_query)
-- `pi-agent-ext-distill` (knowledge distillation pipeline: hermes-memory → vault → graph)
+- `pi-agent-ext-knowledge-card` `zk_ingest` actions `gate`/`converge`/`status` (knowledge distillation pipeline: hermes-memory → vault → graph)
 - `pi-agent-ext-file2md` (VLM describe)
 - `pi-agent-ext-power-tool` (doctor diagnostics)
 
@@ -93,7 +93,7 @@ stderr) or NDJSON. Empty-turn retry recovers silent local-model failures
 
 Four extensions form a self-regulating knowledge pipeline: raw memories
 accumulate, are filtered and enriched, then converge into a linked graph.
-The combined agent tool surface is **12 tools / ~3835 schema tokens**.
+The combined agent tool surface is **11 tools / ~4160 schema tokens** (distill folded into zk_ingest).
 
 ```
 pi-agent-cli
@@ -140,7 +140,7 @@ exceeds the threshold.
 ### Schema-cost regression guard
 
 The combined tool surface is pinned by `perf-harness/tests/grand-total.regression.test.ts`
-(budget: 4200 tok, baseline 3835). Per-extension guards exist in each
+(budget: 4576 tok, baseline 4160). Per-extension guards exist in each
 extension's `perf/` test directory. Any schema inflation (reverted
 promptSnippet, verbose description, new tool) fails CI.
 

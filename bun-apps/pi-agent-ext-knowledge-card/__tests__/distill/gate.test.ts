@@ -2,8 +2,8 @@ import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runGate } from "../src/gate.ts";
-import type { MemoryEntry } from "../src/types.ts";
+import { runGate } from "../../src/distill/gate.ts";
+import type { MemoryEntry } from "../../src/distill/types.ts";
 
 describe("distill gate", () => {
 	let vault: string;

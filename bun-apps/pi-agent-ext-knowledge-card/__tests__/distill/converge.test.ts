@@ -2,8 +2,8 @@ import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, readdirSync, existsSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runConverge } from "../src/converge.ts";
-import type { EnrichedNote, ConvergeMetrics } from "../src/types.ts";
+import { runConverge } from "../../src/distill/converge.ts";
+import type { EnrichedNote, ConvergeMetrics } from "../../src/distill/types.ts";
 
 describe("distill converge", () => {
 	let vault: string;

@@ -2,11 +2,12 @@
   "name": "@repo/pi-agent-ext-hermes-memory",
   "private": true,
   "version": "0.7.23",
-  "description": "🧠 Persistent memory + 🔍 session search + 🛡️ secret scanning for Pi. Token-aware policy-only memory by default, SQLite FTS5 search, auto-consolidation, procedural skills. 368 tests. Ported from Hermes agent.",
+  "description": "🧠 Persistent memory + 🔍 session search + 🛡️ secret scanning for Pi. Token-aware policy-only memory by default, SQLite FTS5 search, auto-consolidation, procedural skills. 640 tests. Ported from Hermes agent.",
   "type": "module",
   "main": "src/index.ts",
   "files": [
     "src",
+    "skills",
     "README.md",
     "LICENSE",
     "docs"
@@ -14,7 +15,8 @@
   "pi": {
     "extensions": [
       "./src/index.ts"
-    ]
+    ],
+    "skills": ["./skills"]
   },
   "scripts": {
     "check": "tsc --noEmit",

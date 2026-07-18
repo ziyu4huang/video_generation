@@ -239,7 +239,7 @@ export default function (pi: ExtensionAPI) {
   // ── 11. SQLite session search + extended memory ──
   registerSessionSearchTool(pi, dbManager, config.sessionSearch ?? { variant: "legacy" });
   registerMemorySearchTool(pi, dbManager);
-  registerIndexSessionsCommand(pi);
+  registerIndexSessionsCommand(pi, globalDir);
 
   // ── 11b. Passive vault convergence on shutdown (closes the loop) ──
   // New/changed memory entries captured during the session are converged to

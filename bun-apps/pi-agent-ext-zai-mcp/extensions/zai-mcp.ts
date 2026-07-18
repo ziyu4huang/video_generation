@@ -341,6 +341,40 @@ export default function (pi: ExtensionAPI): void {
 	let sessionClients: ManagedClient[] = [];
 
 	pi.on("session_start", async (event, ctx) => {
+		// DEBUG VERIFICATION MODE — ZAI_MCP_DEBUG_BANNER forces the startup
+		// banner with NO MCP connection, NO API key, fired immediately, and
+		// mirrored to stderr so the trigger + rendered message are observable
+		// in any mode (incl. headless print/RPC where setWidget is a no-op).
+		//   ZAI_MCP_DEBUG_BANNER=1      → success banner (synthetic tools)
+		//   ZAI_MCP_DEBUG_BANNER=empty  → no-tools banner
+		// Returns early so the real connection path is skipped entirely.
+		const debugBanner = process.env.ZAI_MCP_DEBUG_BANNER;
+		if (debugBanner !== undefined && debugBanner !== "") {
+			const theme = ctx.ui.theme;
+			const noTools = debugBanner === "empty";
+			const syntheticTools = noTools
+				? []
+				: ["zai_web_search_web_search_prime", "zai_web_reader_webReader"];
+			const syntheticServers = noTools ? 0 : 2;
+			if (syntheticTools.length > 0) {
+				scheduleReadyBanner(
+					ctx,
+					[
+						theme.fg("accent", `🛰 zai-mcp ready — ${syntheticTools.length} tool(s) · ${syntheticServers} server(s)`),
+						theme.fg("dim", syntheticTools.join(" · ")),
+					],
+					{ immediate: true, log: true },
+				);
+			} else {
+				scheduleReadyBanner(
+					ctx,
+					[theme.fg("warning", "⚠ zai-mcp: no MCP tools registered (check ZAI_API_KEY / network)")],
+					{ immediate: true, log: true },
+				);
+			}
+			return;
+		}
+
 		// Dependency check: @modelcontextprotocol/sdk must be installed (bun install at repo root).
 		const missing = missingDeps(["@modelcontextprotocol/sdk"], _EXT_DIR);
 		if (missing.length > 0) {
@@ -378,23 +412,23 @@ export default function (pi: ExtensionAPI): void {
 			}
 		}
 
-		// Startup-only notification (transient toast). Deliberately NOT using
-		// setStatus() — that would pin a permanent entry in the footer status
-		// bar. A notify shows the info once at load and then gets out of the way.
-		//
-		// Type is "warning" on purpose, NOT "info": pi's showStatus() merges
-		// consecutive info notifies into one (overwriting earlier text), so
-		// back-to-back extension startup messages would clobber each other.
-		// showWarning() always appends a new line, so every extension's
-		// startup line stays visible. Trade-off: a "Warning:" prefix +
-		// warning color on what is really an info message.
+		// Transient above-editor banner (like the /goal banner), delayed past the
+		// hard-error notifies above so they settle first. setWidget is keyed
+		// ("zai-mcp"), so this never clobbers — or is clobbered by — other
+		// extensions' banners; that independence is what previously forced the
+		// scary "Warning:" notify hack. In non-interactive (RPC / print) modes
+		// setWidget is a silent no-op while theme is still present, so this
+		// degrades gracefully with no output.
+		const theme = ctx.ui.theme;
 		if (registeredToolNames.length > 0) {
-			ctx.ui.notify(
-				`zai-mcp ready — ${registeredToolNames.length} tool(s) from ${sessionClients.length} server(s):\n${formatToolList(registeredToolNames)}`,
-				"warning",
-			);
+			scheduleReadyBanner(ctx, [
+				theme.fg("accent", `🛰 zai-mcp ready — ${registeredToolNames.length} tool(s) · ${sessionClients.length} server(s)`),
+				theme.fg("dim", registeredToolNames.join(" · ")),
+			]);
 		} else {
-			ctx.ui.notify("zai-mcp: no MCP tools registered (check ZAI_API_KEY / network).", "warning");
+			scheduleReadyBanner(ctx, [
+				theme.fg("warning", "⚠ zai-mcp: no MCP tools registered (check ZAI_API_KEY / network)"),
+			]);
 		}
 	});
 
@@ -413,9 +447,54 @@ async function closeAll(clients: ManagedClient[]): Promise<void> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Format tool names into a compact, readable list for the load summary. */
-function formatToolList(names: string[]): string {
-	return names.map((n) => `  • ${n}`).join("\n");
+/**
+ * Schedule a transient above-editor banner (like the /goal banner): show once
+ * after a short delay, then auto-dismiss. Mirrors pi-agent-ext-obsidian's
+ * scheduleVaultBanner(). Uses setWidget (keyed) instead of notify() so this
+ * extension's startup line never clobbers — or is clobbered by — other
+ * extensions' messages, which is what forced the old "warning" notify hack.
+ *
+ * Both deferred ctx.ui calls are guarded: a session switch (/resume, ctx.fork,
+ * ctx.switchSession) between schedule and fire leaves ctx stale, and ctx.ui's
+ * assertActive() would otherwise throw an uncaughtException that crashes pi.
+ * The banner is non-essential — a replacement session renders its own on its
+ * own session_start — so swallow.
+ *
+ * `opts.immediate` skips the 5s show delay (debug). `opts.log` mirrors the
+ * rendered lines to stderr so the trigger is observable where setWidget is a
+ * no-op (print/RPC). Both default off; prod calls omit `opts` entirely.
+ */
+export function scheduleReadyBanner(
+	ctx: { ui: { setWidget(key: string, lines: string[] | undefined): void } },
+	lines: string[],
+	opts?: { immediate?: boolean; log?: boolean },
+): void {
+	// Prod: delay 5s so the banner lands after the startup notify burst (and
+	// before obsidian's 10s vault banner). Debug (ZAI_MCP_DEBUG_BANNER): 0.
+	const SHOW_DELAY_MS = opts?.immediate ? 0 : 5_000;
+	const DISPLAY_MS = 8_000; // visible window before auto-dismiss (matches obsidian)
+	if (opts?.log) {
+		// Mirror the rendered lines (incl. ANSI colors from theme.fg) to stderr so
+		// the trigger + exact message are visible even where setWidget is a no-op
+		// (print / RPC / noOpUIContext).
+		console.error(`[zai-mcp banner]\n${lines.join("\n")}`);
+	}
+	setTimeout(() => {
+		try {
+			ctx.ui.setWidget("zai-mcp", lines);
+		} catch {
+			return; // ctx stale after session switch — banner is non-essential
+		}
+		// Auto-dismiss after DISPLAY_MS. Guarded the same way: a session switch
+		// between show and dismiss leaves ctx stale.
+		setTimeout(() => {
+			try {
+				ctx.ui.setWidget("zai-mcp", undefined);
+			} catch {
+				/* ctx stale after session switch */
+			}
+		}, DISPLAY_MS);
+	}, SHOW_DELAY_MS);
 }
 
 function errMessage(err: unknown): string {
