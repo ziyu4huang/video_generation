@@ -23,7 +23,7 @@ TIER 1 — CONVERGENCE HUB: pi-agent-ext-knowledge-card
         │           │ BOTH WRITE via ingestRecords
         ▼           ▼
 TIER 2 — TWO WRITERS → ONE shared graph folder
-  pi-agent-ext-hermes-memory        pi-agent-ext-distill (v0.0.0, NOT runtime-wired)
+  pi-agent-ext-hermes-memory        pi-agent-ext-knowledge-card (zk_ingest actions gate/converge/status)
     AUTO-converge                     AGENT-triggered gate→enrich→converge
         └──────────┬───────────────────┘
                    ▼
@@ -37,7 +37,7 @@ TIER 2 — TWO WRITERS → ONE shared graph folder
 | [`pi-agent-ext-obsidian`](./pi-agent-ext-obsidian/docs/KNOWLEDGE-LAYER.md) | Foundation: vault I/O, frontmatter parser/validation, `resolveVault`, subagent runner | `obsidian` (1 fat tool, ~17 actions) |
 | [`pi-agent-ext-knowledge-card`](./pi-agent-ext-knowledge-card/docs/ARCHITECTURE.md) | Convergence hub: deterministic ingest + retrieval over the shared graph | `zk_card`, `zk_ask`, `zk_ingest`, `knowledge_query` |
 | [`pi-agent-ext-hermes-memory`](./pi-agent-ext-hermes-memory/docs/KNOWLEDGE-LAYER.md) | Working memory + session search; auto-converges memory into the graph | `memory`, `memory_search`, `session_search` |
-| [`pi-agent-ext-distill`](./pi-agent-ext-distill/) | (New, unwired) agent-self-triggered distillation of hermes entries | `distill` (`status`/`gate`/`converge`) |
+| [`zk_ingest` distill actions](./pi-agent-ext-knowledge-card/) | Agent-self-triggered distillation of hermes entries (Gate→Enrich→Converge) | `zk_ingest` with `action=gate`/`converge`/`status` |
 
 ## Write path — sources → ONE shared graph
 
@@ -102,4 +102,3 @@ anything hermes touched.
 - [pi-agent-ext-obsidian — KNOWLEDGE-LAYER](./pi-agent-ext-obsidian/docs/KNOWLEDGE-LAYER.md)
 - [pi-agent-ext-knowledge-card — ARCHITECTURE](./pi-agent-ext-knowledge-card/docs/ARCHITECTURE.md)
 - [pi-agent-ext-hermes-memory — KNOWLEDGE-LAYER](./pi-agent-ext-hermes-memory/docs/KNOWLEDGE-LAYER.md)
-- [pi-agent-ext-distill](./pi-agent-ext-distill/) (no docs yet — v0.0.0, not runtime-wired)
