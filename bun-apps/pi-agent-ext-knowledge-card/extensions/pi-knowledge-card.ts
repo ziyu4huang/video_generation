@@ -33,8 +33,9 @@
  *   OB_SUBAGENT_TIMEOUT_MS         subagent timeout (default 5 min)
  */
 
-import { relative } from "node:path";
-import { readFileSync } from "node:fs";
+import { relative, join } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { zkRetrieve, zkIngest, zkHealth, zkHeal } from "../src/host-fns.ts";
@@ -567,6 +568,36 @@ registerDeterministicHealthCheck(async (opts) => {
 // Extension registration
 // ---------------------------------------------------------------------------
 
+/**
+ * ADR-0001: converge hermes-memory §-entries into the vault knowledge graph.
+ * Owned by the HUB (not hermes) so hermes stays a pure TIER-0 foundation with
+ * no upward dependency edge. Reads every `.md` in `hermesDir`, adapts via
+ * `adaptHermesMarkdown`, ingests via `ingestRecords` (idempotent by canonical
+ * id). Returns the ingest summary, or null if the dir is absent (hermes not
+ * installed) or holds no records. Directly testable (no resolveVault/env coupling).
+ */
+export async function convergeHermesMemory(
+	vaultPath: string,
+	hermesDir: string,
+) {
+	let files: string[];
+	try {
+		files = readdirSync(hermesDir).filter((f) => f.endsWith(".md"));
+	} catch {
+		return null; // hermes dir absent/unreadable — hermes not installed
+	}
+	const records = files.flatMap((f) =>
+		adaptHermesMarkdown(readFileSync(join(hermesDir, f), "utf8")),
+	);
+	if (records.length === 0) return null;
+	return ingestRecords(records, {
+		vaultPath,
+		source: "hermes",
+		sourceLabel: "hermes:auto-converge",
+		wikiAware: true,
+	});
+}
+
 export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	// zk_extract tool removed (Phase 1 de-dup): it was a 100% passthrough to
 	// obsidian_distill. Use obsidian_distill directly. buildDistillTask remains
@@ -581,6 +612,26 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				parentExtensionTools;
 		} catch {
 			// getAllToolDefinitions is a runtime patch — absent in some contexts.
+		}
+	});
+
+	// ── Auto-converge hermes memory → graph on session_shutdown (ADR-0001) ──
+	// Convergence ownership lives in the HUB, not in hermes. Hermes is a pure
+	// TIER-0 foundation; this handler PULLS its memory files at shutdown and
+	// converges them via convergeHermesMemory() — so there is NO hermes→hub
+	// dependency edge. Best-effort + config-gated (OB_HERMES_AUTOCONVERGE=0
+	// disables); convergeHermesMemory tolerates a missing hermes dir. Never
+	// blocks shutdown.
+	pi.on("session_shutdown", async (_event, ctx) => {
+		if (process.env.OB_HERMES_AUTOCONVERGE === "0") return;
+		try {
+			const cwd = (ctx as { cwd?: string } | undefined)?.cwd ?? process.cwd();
+			const vaultPath = (await resolveVault(cwd)).path;
+			const hermesDir =
+				process.env.OB_HERMES_MEMORY_DIR ?? join(homedir(), ".pi", "agent", "pi-hermes-memory");
+			await convergeHermesMemory(vaultPath, hermesDir);
+		} catch {
+			// Silent fail — best-effort; never block shutdown.
 		}
 	});
 

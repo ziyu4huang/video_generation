@@ -62,7 +62,6 @@ const DEFAULT_CONFIG: MemoryConfig = {
   consolidationTimeoutMs: DEFAULT_CONSOLIDATION_TIMEOUT_MS,
   nudgeToolCalls: DEFAULT_NUDGE_TOOL_CALLS,
   projectsMemoryDir: DEFAULT_PROJECTS_MEMORY_DIR,
-  passiveConverge: true,
   sessionSearch: { variant: "legacy" },
 };
 
@@ -114,7 +113,6 @@ export function loadConfig(configPath = DEFAULT_CONFIG_PATH): MemoryConfig {
       }
       if (typeof parsed.correctionDetection === "boolean") config.correctionDetection = parsed.correctionDetection;
       if (typeof parsed.errorCapture === "boolean") config.errorCapture = parsed.errorCapture;
-      if (typeof parsed.passiveConverge === "boolean") config.passiveConverge = parsed.passiveConverge;
       if (isStringArray(parsed.correctionStrongPatterns)) config.correctionStrongPatterns = parsed.correctionStrongPatterns;
       if (isStringArray(parsed.correctionWeakPatterns)) config.correctionWeakPatterns = parsed.correctionWeakPatterns;
       if (isStringArray(parsed.correctionNegativePatterns)) config.correctionNegativePatterns = parsed.correctionNegativePatterns;
