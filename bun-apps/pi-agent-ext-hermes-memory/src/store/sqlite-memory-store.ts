@@ -179,6 +179,31 @@ function escapeLikePattern(text: string): string {
   return text.replace(/[\\%_]/g, '\\$&');
 }
 
+/**
+ * Run `fn` inside an IMMEDIATE transaction on the given connection.
+ *
+ * `BEGIN IMMEDIATE` acquires the write lock BEFORE any SELECT runs, so a
+ * concurrent process/connection that runs the same dedup logic (e.g. the live
+ * extension vs. a `pi -p` child that reloads hermes-memory) is forced to wait
+ * (see `PRAGMA busy_timeout` in db.ts) and then observes the row this txn
+ * already wrote. Without this, two connections can both SELECT "no existing
+ * row" and both INSERT, producing duplicate memories.
+ *
+ * Throws if a transaction is already active on the connection (SQLite cannot
+ * nest BEGIN); no current call site of syncMemoryEntry runs inside one.
+ */
+function runExclusive<T>(db: import('./db.js').DatabaseLike, fn: () => T): T {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const result = fn();
+    db.exec('COMMIT');
+    return result;
+  } catch (err) {
+    try { db.exec('ROLLBACK'); } catch { /* tx may already have rolled back */ }
+    throw err;
+  }
+}
+
 function parseMetadataComment(raw: string): { text: string; created: string; lastReferenced: string } {
   const match = raw.match(/^(.*?)\s*<!--\s*created=([^,]+),\s*last=([^>]+)\s*-->\s*$/);
   if (match) {
@@ -339,68 +364,73 @@ export function syncMemoryEntry(
   conditions.push('content = ?');
   params.push(content);
 
-  const existing = db.prepare(`
-    SELECT ${MEMORY_SELECT_COLUMNS}
-    FROM memories
-    WHERE ${conditions.join(' AND ')}
-    ORDER BY id ASC
-    LIMIT 1
-  `).get(...params) as {
-    id: number;
-    project: string | null;
-    target: string;
-    category: string | null;
-    content: string;
-    failure_reason: string | null;
-    tool_state: string | null;
-    corrected_to: string | null;
-    created: string;
-    last_referenced: string;
-  } | undefined;
+  // Dedup identity is project + target + category + content. The read-then-
+  // write is wrapped in BEGIN IMMEDIATE so a concurrent connection cannot pass
+  // the same SELECT and also INSERT (see runExclusive).
+  return runExclusive(db, () => {
+    const existing = db.prepare(`
+      SELECT ${MEMORY_SELECT_COLUMNS}
+      FROM memories
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY id ASC
+      LIMIT 1
+    `).get(...params) as {
+      id: number;
+      project: string | null;
+      target: string;
+      category: string | null;
+      content: string;
+      failure_reason: string | null;
+      tool_state: string | null;
+      corrected_to: string | null;
+      created: string;
+      last_referenced: string;
+    } | undefined;
 
-  if (!existing) {
+    if (!existing) {
+      return {
+        action: 'inserted' as const,
+        entry: addMemory(
+          dbManager,
+          content,
+          input.target,
+          project,
+          category,
+          failureReason,
+          toolState,
+          correctedTo,
+          created,
+          lastReferenced,
+        ),
+      };
+    }
+
+    const updatedCreated = minDate(existing.created, created);
+    const updatedLastReferenced = maxDate(existing.last_referenced, lastReferenced);
+    const updatedCategory = (existing.category as MemoryCategory | null) ?? category;
+    const updatedFailureReason = existing.failure_reason ?? failureReason;
+    const updatedToolState = existing.tool_state ?? toolState;
+    const updatedCorrectedTo = existing.corrected_to ?? correctedTo;
+
+    db.prepare(`
+      UPDATE memories
+      SET category = ?, failure_reason = ?, tool_state = ?, corrected_to = ?, created = ?, last_referenced = ?
+      WHERE id = ?
+    `).run(
+      updatedCategory,
+      updatedFailureReason,
+      updatedToolState,
+      updatedCorrectedTo,
+      updatedCreated,
+      updatedLastReferenced,
+      existing.id,
+    );
+
     return {
-      action: 'inserted',
-      entry: addMemory(
-        dbManager,
-        content,
-        input.target,
-        project,
-        category,
-        failureReason,
-        toolState,
-        correctedTo,
-        created,
-        lastReferenced,
-      ),
+      action: 'existing' as const,
+      entry: getMemoryById(dbManager, existing.id)!,
     };
-  }
-
-  const updatedCreated = minDate(existing.created, created);
-  const updatedLastReferenced = maxDate(existing.last_referenced, lastReferenced);
-  const updatedCategory = (existing.category as MemoryCategory | null) ?? category;
-  const updatedFailureReason = existing.failure_reason ?? failureReason;
-  const updatedToolState = existing.tool_state ?? toolState;
-  const updatedCorrectedTo = existing.corrected_to ?? correctedTo;
-
-  db.prepare(`
-    UPDATE memories
-    SET category = ?, failure_reason = ?, tool_state = ?, corrected_to = ?, created = ?, last_referenced = ?
-    WHERE id = ?
-  `).run(
-    updatedCategory,
-    updatedFailureReason,
-    updatedToolState,
-    updatedCorrectedTo,
-    updatedCreated,
-    updatedLastReferenced,
-    existing.id,
-  );
-
-  return {
-    action: 'existing',
-    entry: getMemoryById(dbManager, existing.id)!,
-  };
+  });
 }
 
 /**
