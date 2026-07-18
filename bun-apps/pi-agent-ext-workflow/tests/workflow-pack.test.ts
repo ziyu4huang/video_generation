@@ -522,7 +522,8 @@ describe("findRepoRoot — walk-up cap", () => {
     const start = "/" + segments.join("/") + "/leaf";
     // exists() returns true only for the path ending in rootMarker/.pi/workflows
     const exists = (p: string) => p.endsWith("/rootMarker/.pi/workflows");
-    expect(findRepoRoot(start, exists)?.endsWith("rootMarker") ?? "").toBeTruthy();
+    const expectedRoot = "/" + segments.join("/");
+    expect(findRepoRoot(start, exists)).toBe(expectedRoot);
   });
   test("returns undefined when no marker is found within 12 levels (cap prevents infinite walk)", () => {
     // A path deeper than 12 segments with no marker anywhere → undefined, fast.
