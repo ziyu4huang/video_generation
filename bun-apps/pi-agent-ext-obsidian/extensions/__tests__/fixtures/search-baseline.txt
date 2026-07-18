@@ -1,6 +1,6 @@
 # obsidian_search baseline (real submodule vault — drifts on content growth)
-Generated: 2026-07-10T23:50
-Vault note count: 686
+Generated: 2026-07-18T13:08
+Vault note count: 2185
 
 Real-vault snapshot (NOT the contract). This legitimately drifts whenever
 notes are added/removed; baseline.test.mjs is skip-gated on submodule
@@ -50,15 +50,15 @@ README.md:12: 由 `.pi/extensions/obsidian.ts` 提供，pi agent 可以直接讀
 README.md:13: 建立筆記、全文搜尋、在指定標題下追加內容、把筆記在 Obsidian app 裡打開。
 README.md:30: > 若使用者要「記到 Obsidian / 記一筆 / 筆記一下」，預設寫進 `Inbox/`，
 README.md:37: - 設定細節見 repo 根目錄 `.pi/extensions/obsidian.ts`
-Tags/Index.md:18: - [[Design/pi-Obsidian Integration]]
-Tags/Index.md:19: - [[Design/pi-Obsidian Package]]
-Tags/Index.md:27: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:35: ## #obsidian
-Tags/Index.md:37: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:54: ## #obsidian
-Tags/Index.md:150: - [[Design/pi-Obsidian Package]]
-Tags/Index.md:159: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:253: > pi agent 可用 `obsidian_append_section` 工具自動追加。
+Tags/Index.md:28: - [[Zettelkasten/distill/memory-snapshot/14-pi-obsidian-and-vault]]
+Tags/Index.md:45: - [[Design/pi-Obsidian Integration]]
+Tags/Index.md:46: - [[Design/pi-Obsidian Package]]
+Tags/Index.md:54: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:74: ## #obsidian
+Tags/Index.md:76: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:113: ## #obsidian
+Tags/Index.md:245: - [[Design/pi-Obsidian Package]]
+Tags/Index.md:254: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
 
 ### title-ish term [SUBSTRING-DEFAULT]
 query="Zettelkasten"
@@ -69,50 +69,50 @@ Design/pi-Obsidian Package.md:84: - [[Zettelkasten/Pi Packages]] — pi package 
 Design/pi-Obsidian Package.md:85: - [[Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount]] — vault 以 submodule 掛載的部署模式
 Inbox/Plan - Enhance obsidian_search.md:33: 複用既有 `listNotes(vault, folder)`，讓搜尋可限定子樹（Zettelkasten/、Inbox/…）。
 README.md:25: └─ Zettelkasten/          ← 既有卡片盒筆記
-Tags/Index.md:27: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:28: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
-Tags/Index.md:29: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
-Tags/Index.md:33: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
-Tags/Index.md:37: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:41: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
-Tags/Index.md:42: - [[Zettelkasten/Workflow Pattern - Meta Name Consistency]]
-Tags/Index.md:43: - [[Zettelkasten/Workflow Pattern - Knowledge Schema Drift]]
-Tags/Index.md:44: - [[Zettelkasten/Workflow Pattern - Bun Workspaces node_modules Dedup]]
-Tags/Index.md:45: - [[Zettelkasten/Workflow Pattern - PR Cleanup and Squash]]
-Tags/Index.md:46: - [[Zettelkasten/Workflow Pattern - Style-Aware Judge Branching]]
-Tags/Index.md:52: - [[Zettelkasten/Skill Verification Process]]
-Tags/Index.md:56: - [[Zettelkasten/Architecture Pattern - Wrapper Tools Share Base Resolver]]
-Tags/Index.md:57: - [[Zettelkasten/Bug Pattern - Persistent Config Silent Stale Drift]]
-Tags/Index.md:58: - [[Zettelkasten/Implementation Pattern - Resolution Transparency Triple]]
-Tags/Index.md:62: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
-Tags/Index.md:63: - [[Zettelkasten/Architecture Pattern - Wrapper Tools Share Base Resolver]]
-Tags/Index.md:68: - [[Zettelkasten/Bug Pattern - Persistent Config Silent Stale Drift]]
-Tags/Index.md:69: - [[Zettelkasten/Bug Pattern - Holistic VLM Score Over-Praises Poses]]
-Tags/Index.md:77: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
-Tags/Index.md:78: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
-Tags/Index.md:79: - [[Zettelkasten/Implementation Pattern - Resolution Transparency Triple]]
-Tags/Index.md:80: - [[Zettelkasten/Implementation Pattern - pose_dsg Atomic Pose Validator]]
-Tags/Index.md:81: - [[Zettelkasten/Implementation Pattern - Per-Atom Regression Matrix]]
-Tags/Index.md:85: - [[Zettelkasten/Skill Verification Process]]
-Tags/Index.md:89: - [[Zettelkasten/Skill Verification Process]]
-Tags/Index.md:90: - [[Zettelkasten/distill/Krea2組合式引擎驗證結果.md]]
-Tags/Index.md:95: - [[Zettelkasten/Workflow Pattern - Knowledge Schema Drift]]
-Tags/Index.md:99: - [[Zettelkasten/Workflow Pattern - Meta Name Consistency]]
-Tags/Index.md:103: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
-Tags/Index.md:109: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
-Tags/Index.md:110: - [[Zettelkasten/Implementation Pattern - pi Footer Stats Data Driven]]
-Tags/Index.md:111: - [[Zettelkasten/Implementation Pattern - VLM as Image Orientation Oracle]]
-Tags/Index.md:112: - [[Zettelkasten/Implementation Pattern - vlm-describe Pipeline]]
-Tags/Index.md:116: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
-Tags/Index.md:121: - [[Zettelkasten/Bug Pattern - Orchestrator Tool Contamination]]
-Tags/Index.md:128: - [[Zettelkasten/Implementation Pattern - VLM as Image Orientation Oracle]]
-Tags/Index.md:129: - [[Zettelkasten/Implementation Pattern - vlm-describe Pipeline]]
-Tags/Index.md:151: - [[Zettelkasten/Pi Packages]]
-Tags/Index.md:155: - [[Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount]]
-Tags/Index.md:159: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:160: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
-Tags/Index.md:161: - [[Zettelkasten/Workflow Pattern - Knowledge Schema Drift]]
-Tags/Index.md:162: - [[Zettelkasten/Workflow Pattern - Meta Name Consistency]]
+Tags/Index.md:12: > 把 `CLAUDE.md` + 211 條 auto-memory 蒸餾成的 21 張主題卡，MOC 在 [[Zettelkasten/distill/memory-snapshot/00-index]]。
+Tags/Index.md:14: - [[Zettelkasten/distill/memory-snapshot/00-index]] — 🗂️ MOC（全 21 卡導覽 + 閱讀路徑）
+Tags/Index.md:15: - [[Zettelkasten/distill/memory-snapshot/01-north-stars-and-project-stack]]
+Tags/Index.md:16: - [[Zettelkasten/distill/memory-snapshot/02-runpy-cli-and-mlx-pipeline]]
+Tags/Index.md:17: - [[Zettelkasten/distill/memory-snapshot/03-vendor-patches-and-mlx-bugs]]
+Tags/Index.md:18: - [[Zettelkasten/distill/memory-snapshot/04-mlx-runtime-models-interop]]
+Tags/Index.md:19: - [[Zettelkasten/distill/memory-snapshot/05-t2i-flux2-zimage-lens]]
+Tags/Index.md:20: - [[Zettelkasten/distill/memory-snapshot/06-t2i-faceswap-anime-anatomy]]
+Tags/Index.md:21: - [[Zettelkasten/distill/memory-snapshot/07-multichar-identity-story-facerestore]]
+Tags/Index.md:22: - [[Zettelkasten/distill/memory-snapshot/08-video-ltx-purify-controlnet]]
+Tags/Index.md:23: - [[Zettelkasten/distill/memory-snapshot/09-models-import-and-quality]]
+Tags/Index.md:24: - [[Zettelkasten/distill/memory-snapshot/10-vlm-captions]]
+Tags/Index.md:25: - [[Zettelkasten/distill/memory-snapshot/11-gui-movie-director]]
+Tags/Index.md:26: - [[Zettelkasten/distill/memory-snapshot/12-pi-agent-deploy-runtime]]
+Tags/Index.md:27: - [[Zettelkasten/distill/memory-snapshot/13-pi-agent-cli-bundling]]
+Tags/Index.md:28: - [[Zettelkasten/distill/memory-snapshot/14-pi-obsidian-and-vault]]
+Tags/Index.md:29: - [[Zettelkasten/distill/memory-snapshot/15-pi-knowledge-graph-retrieval]]
+Tags/Index.md:30: - [[Zettelkasten/distill/memory-snapshot/16-self-improve-workflows-engine]]
+Tags/Index.md:31: - [[Zettelkasten/distill/memory-snapshot/17-self-improve-gui-ux-lanes]]
+Tags/Index.md:32: - [[Zettelkasten/distill/memory-snapshot/18-bun-toolchain]]
+Tags/Index.md:33: - [[Zettelkasten/distill/memory-snapshot/19-git-repo-sop]]
+Tags/Index.md:34: - [[Zettelkasten/distill/memory-snapshot/20-workflow-engine-and-testing-sop]]
+Tags/Index.md:35: - [[Zettelkasten/distill/memory-snapshot/21-long-term-om-projects]]
+Tags/Index.md:54: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:55: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
+Tags/Index.md:56: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
+Tags/Index.md:57: - [[Zettelkasten/knowledge-graph/Bun-Isolated-Linker-Hoisted-Breaks-Build]]
+Tags/Index.md:58: - [[Zettelkasten/knowledge-graph/Bun-Resolution-Is-Per-Package-Context]]
+Tags/Index.md:59: - [[Zettelkasten/knowledge-graph/Subagent-Schema-Description-Layer-Correctness]]
+Tags/Index.md:60: - [[Zettelkasten/knowledge-graph/Subagent-Token-Reduction-Envelope-Pattern]]
+Tags/Index.md:61: - [[Zettelkasten/knowledge-graph/Planning-With-Files-Scratch-Conventions]]
+Tags/Index.md:62: - [[Zettelkasten/knowledge-graph/Planning-With-Files-Status-Parser-Emoji-Update]]
+Tags/Index.md:63: - [[Zettelkasten/knowledge-graph/Planning-With-Files-Extensions-Require-Session-Restart]]
+Tags/Index.md:64: - [[Zettelkasten/knowledge-graph/knowledge-agent-integration-workflow-only]]
+Tags/Index.md:70: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
+Tags/Index.md:71: - [[Zettelkasten/knowledge-graph/多步驟任務自主執行規則]]
+Tags/Index.md:76: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:80: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
+Tags/Index.md:81: - [[Zettelkasten/Workflow Pattern - Meta Name Consistency]]
+Tags/Index.md:82: - [[Zettelkasten/Workflow Pattern - Knowledge Schema Drift]]
+Tags/Index.md:83: - [[Zettelkasten/Workflow Pattern - Bun Workspaces node_modules Dedup]]
+Tags/Index.md:84: - [[Zettelkasten/Workflow Pattern - PR Cleanup and Squash]]
+Tags/Index.md:85: - [[Zettelkasten/Workflow Pattern - Style-Aware Judge Branching]]
+Tags/Index.md:86: - [[Zettelkasten/Workflow Pattern - Planning with Files Skill Suite]]
 
 ### mixed-case query, default insensitive [SUBSTRING-DEFAULT]
 query="Obsidian"
@@ -158,19 +158,19 @@ README.md:12: 由 `.pi/extensions/obsidian.ts` 提供，pi agent 可以直接讀
 README.md:13: 建立筆記、全文搜尋、在指定標題下追加內容、把筆記在 Obsidian app 裡打開。
 README.md:30: > 若使用者要「記到 Obsidian / 記一筆 / 筆記一下」，預設寫進 `Inbox/`，
 README.md:37: - 設定細節見 repo 根目錄 `.pi/extensions/obsidian.ts`
-Tags/Index.md:18: - [[Design/pi-Obsidian Integration]]
-Tags/Index.md:19: - [[Design/pi-Obsidian Package]]
-Tags/Index.md:27: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:35: ## #obsidian
-Tags/Index.md:37: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:54: ## #obsidian
-Tags/Index.md:150: - [[Design/pi-Obsidian Package]]
-Tags/Index.md:159: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:253: > pi agent 可用 `obsidian_append_section` 工具自動追加。
+Tags/Index.md:28: - [[Zettelkasten/distill/memory-snapshot/14-pi-obsidian-and-vault]]
+Tags/Index.md:45: - [[Design/pi-Obsidian Integration]]
+Tags/Index.md:46: - [[Design/pi-Obsidian Package]]
+Tags/Index.md:54: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:74: ## #obsidian
+Tags/Index.md:76: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:113: ## #obsidian
+Tags/Index.md:245: - [[Design/pi-Obsidian Package]]
+Tags/Index.md:254: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
 
 ### case-sensitive mismatch
 query="Obsidian"
-48 match(es):
+50 match(es):
 Design/pi-Obsidian Integration.md:6: # 📐 Design — pi-Obsidian 整合
 Design/pi-Obsidian Integration.md:9: - 需要讓 pi agent 能直接讀寫 Obsidian 知識庫，不必切換 app。
 Design/pi-Obsidian Integration.md:16: - ❌ 不處理 Obsidian 設定同步
@@ -183,12 +183,13 @@ Design/pi-Obsidian Package.md:81: - [[Design/pi-Obsidian Integration]]
 README.md:8: 這是 `pi-agent` 專案的 project-local Obsidian 知識庫，位於 `<repo>/vault/`。
 README.md:13: 建立筆記、全文搜尋、在指定標題下追加內容、把筆記在 Obsidian app 裡打開。
 README.md:30: > 若使用者要「記到 Obsidian / 記一筆 / 筆記一下」，預設寫進 `Inbox/`，
-Tags/Index.md:18: - [[Design/pi-Obsidian Integration]]
-Tags/Index.md:19: - [[Design/pi-Obsidian Package]]
-Tags/Index.md:27: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:37: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:150: - [[Design/pi-Obsidian Package]]
-Tags/Index.md:159: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:45: - [[Design/pi-Obsidian Integration]]
+Tags/Index.md:46: - [[Design/pi-Obsidian Package]]
+Tags/Index.md:54: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:76: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:245: - [[Design/pi-Obsidian Package]]
+Tags/Index.md:254: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Knowledge Graph.md:1877: - [[Obsidian Tools Testing Gap]]
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:8: # Agent Knowledge — Obsidian Integration
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:11: - 把 agent skill 與 Obsidian 透過 `pi-obsidian` extension 結合：用 `obsidian_append` 記錄決策、`obsidian_create` 產生 Zettelkasten 筆記、`sync-mcp.sh` 同步遠近端 vault，是整個知識庫的上層概念卡。
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:14: This note explores how to integrate Agent skills with Obsidian via the `pi-obsidian` extension.
@@ -209,23 +210,27 @@ Zettelkasten/Skill Verification Process.md:32: - 相關：[[Zettelkasten/Agent K
 Zettelkasten/Workflow Pattern - Knowledge Schema Drift.md:32: - 上層概念：[[Zettelkasten/Agent Knowledge - Obsidian Integration]]
 Zettelkasten/Workflow Pattern - Meta Name Consistency.md:28: - 上層概念：[[Zettelkasten/Agent Knowledge - Obsidian Integration]]
 Zettelkasten/Workflow Pattern - Schema-less Consumed Agents.md:33: - 上層概念：[[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Zettelkasten/distill/memory-snapshot/14-pi-obsidian-and-vault.md:32: - **Vault 蒸餾（2026-07-04）**：`vaults_root/pi-agent-vault` 33 md，記錄 `bun-apps/pi-obsidian/` 4,981 行 obsidian.ts、44 test 檔、332 tests GREEN。`resolveVault(cwd)`（obsidian.ts:268）三層 fallback：Tier 1 `OB_VAULT_PATH` env → `run-dir/obsidian_config.json` `vault_path`（`mode:"app"` 時跳過）／Tier 2 Obsidian app `obsidian.json` `open:true`／Tier 3 `<cwd>/${OB_VAULT_DIR ?? "vault"}` 並從 `vault-template/` 種入。指 vault 用 `OB_VAULT_PATH=$PWD/vaults_root/pi-agent-vault` 或 `--vault-dir`，不要改 generic `"vault"` runtime default。已關閉 bug：persistent config silent stale drift（記 `staleReason` 並 fallback，不 abort）、orchestrator tool contamination（orchestrator tools 只給 `["subagent"]`）、PDFKit orientation trap（`PDFPage.draw` 已正立、嚴禁 Y-flip）、`getModel(provider,id)` 對 user-defined models 回 null（改用 `services.modelRegistry.find()`）。設計原則：wrapper 共用 base resolver、resolution transparency triple（`source` enum + `obsidian_status` + `/obsidian-config` + zk header）、consumed agent 必加 `schema:`（`scripts/check-workflow-patterns.mjs` 強制）、TS→Swift subprocess 自帶源碼。本 session 還修了 `appendUnderHeading` 對 `## #tag` heading 的 leading-`#` 双向 normalize（obsidian.ts ~line 2689，+3 regression tests，335 pass）。Tags/Index.md 仍有歷史 duplicate section 待 garden dedup。(auto-memory:pi-obsidian-vault-distilled)
+Zettelkasten/knowledge-graph/False fix — do not revive FULL-bundle obsidian approach.md:5: # False Fix — Do Not Revive FULL-Bundle Obsidian Approach
+Zettelkasten/knowledge-graph/Next-Goal-File-Naming-SOP.md:11: - AI 撰寫的 goal note 必須存放在 `<REPO_ROOT>/output/` 目錄，不可放在 `.output/`、`bun-apps/pi-agent/goals/`、repo 根目錄或 Obsidian vault。
+Zettelkasten/knowledge-graph/Obsidian Tools Testing Gap.md:8: # Obsidian Tools Testing Gap
+Zettelkasten/knowledge-graph/Pi-obsidian Enhancement Objectives.md:15: - 注意事項：`pi-agent` 僅作為 TUI 封裝，實際處理 Obsidian 的邏輯位於 `pi-agent-cli`（內聯了 `pi-obsidian`）。
+Zettelkasten/knowledge-graph/Unified_Knowledge_Convergence.md:11: - 透過將分散在各處的知識孤島（如 `.knowledge.jsonl`、Obsidian 庫、自動記憶檔案）匯聚成一個單一、可查詢且具備雙向連結的 Zettelkasten 圖譜，實現知識的全面整合。
+Zettelkasten/knowledge-graph/Unified_Knowledge_Convergence.md:14: - 將原本分散的 5 個知識池（包含多個工作流的 `.knowledge.jsonl`、Hermes、Obsidian vault、kcard vault、MEMORY.md）轉換為單一的知識圖譜。
+Zettelkasten/knowledge-graph/_archive/hermes-next-goal-naming-sop-ai-written-goal-notes-live-in-repo_root-output-not-..md:16: next-goal-naming SOP — AI-written goal notes live in `<REPO_ROOT>/output/` (NOT .output/, NOT bun-apps/pi-agent/goals/, NOT repo root, NOT the Obsidian vault — vault is knowledge/Zettelkasten only). Canonical filename: `next-goal-YYYYMMDD_HHMMSS.md` (8-digit date, UNDERSCORE separator, 6-digit time WITH seconds, local time; never dash, never omit seconds). Planning/goal docs belong in output/; keep only 10 newest. Enforce both rules via idempotent `bash scripts/tidy-next-goals.sh [KEEP=10]` (bash 3.2-safe, sorts by fixed-width name so lex order==recency). These are AI artifacts, gitignored under /output/.
 Zettelkasten/knowledge-graph/auto-memory-pi-obsidian-vault-distilled.md:26: 2. **Tier 2 auto-follow** — the vault currently `open: true` in Obsidian app's `obsidian.json`.
 Zettelkasten/knowledge-graph/gotcha-resolvevault-tier2-app-fallback.md:16: # resolveVault Tier-2 reads the Obsidian app open vault — can't fail deterministically in tests
 Zettelkasten/knowledge-graph/gotcha-resolvevault-tier2-app-fallback.md:19: > [!warning] pi-obsidian's resolveVault(cwd) has a Tier-2 fallback that resolves the REAL open Obsidian app vault.
-Zettelkasten/knowledge-graph/gotcha-resolvevault-tier2-app-fallback.md:20: Implication: you CANNOT make resolveVault fail by just clearing OB_VAULT_PATH on a dev machine with Obsidian installed — Tier-2 resolves the real open vault and the call succeeds with the WRONG vault. To test the vault-resolution-FAILURE path, inject a throwing resolver via a test seam (pi-knowledge-card exports __setVaultResolverForTest) rather than manipulating env vars. Also: resolveVault finds the run-dir config only when cwd is the REPO ROOT — tools must pass ctx.cwd, not process.cwd() of the package.
-Zettelkasten/knowledge-graph/pi-ext-dev-convergence-batch-crowding-low-maxlinks.md:20: The cross-link algorithm (src/ingest.ts step 3) ranks candidate neighbours by shared-tag count. A cohesive batch (e.g. 11 pi-ext-dev records all carrying the 'pi-ext-dev' + 'pi-extension' tags) produces intra-batch matches at shared=2-3, which dominate the top-8 and crowd out the shared=1 edges to pre-existing cards. Measured on the production vault (604 existing cards): at maxLinks=8 the 11 new cards got 84 intra-pi-ext-dev edges and ZERO edges to the existing graph; at maxLinks=20 they got 110 intra + 110 external. Fix for a cohesive extraction: pass maxLinks:20 (or higher) so weaker-but-meaningful cross-source edges survive. Extra edges do not hurt retrieveRecords (it re-ranks by the caller's query tags at read time, not the static links); they only enrich Obsidian's graph view + zk_ask's link_count term.
-Zettelkasten/knowledge-graph/pi-ext-dev-delegate-vault-resolution-dont-roll-own.md:19: > [!warning] A simplified resolver that only checks an env var + cwd/'vault' fails at runtime when the vault is registered via config or the Obsidian app.
-Zettelkasten/knowledge-graph/pi-ext-dev-delegate-vault-resolution-dont-roll-own.md:20: Always call pi-obsidian's resolveVault(cwd) (the multi-tier resolver: OB_VAULT_PATH env -> run-dir obsidian_config.json -> Obsidian app -> cwd/vault walk). The hub asks its forward-dep to SERVE vault resolution rather than reimplementing it — this reads the run-dir config the simplified resolver missed. pi-knowledge-card's knowledge_query and graph_health tools both delegate to resolveKnowledgeVault -> resolveVault. For deterministic test injection, expose a __setVaultResolverForTest(fn|null) seam that overrides the resolver in tests and restores it (null = use real).
-Zettelkasten/knowledge-graph/pi-ext-dev-ob-vault-path-env-as-deterministic-e2e-seam.md:17: For a true end-to-end test of vault tools that needs real file I/O but must NOT touch the production vault, set process.env.OB_VAULT_PATH = mkdtempSync(...) in beforeEach (save/restore the original in afterEach). resolveVault checks OB_VAULT_PATH FIRST (Tier-1a, wins over run-dir config and the Obsidian-app fallback), so EVERY tool that resolves the vault — zk_ingest, knowledge_query, graph_health, and even the vaultHeader formatter — writes/reads the temp dir. This avoids mocking the whole pi-obsidian module (which would break the real parseFrontmatter/getIndex the deterministic library needs). bun:test isolates each test FILE in its own process, so the env override cannot leak into sibling test files. Call invalidateCache(vault) between write/read phases so the cached VaultIndex sees new files.
-Zettelkasten/knowledge-graph/pi-memory-memory-1ey9otm.md:17: When creating a "next goals" or planning document after completing a task, write it to `./output/next-goal-<YYYYMMDD-HHMM>.md` in the repo root (timestamp includes date AND time, e.g. `next-goal-20260706-0531.md`). Do NOT write planning/goal documents to the Obsidian vault — the vault is for knowledge/Zettelkasten/reflections only. Goal/planning docs belong in `output/`.
-Zettelkasten/knowledge-graph/review-case-insensitive-blocklist.md:17: A security-relevant correctness bug in bun-apps/pi-obsidian/extensions/obsidian.ts (assertWritablePath). The WRITE_BLOCKLIST check uses `['.git', '.obsidian'].includes(first)` which is exact-case string comparison. On case-insensitive filesystems (macOS APFS/HFS+ default), `.Git`, `.GIT`, `.Obsidian`, `.OBSIDIAN` bypass the blocklist and allow writes to git/Obsidian internal directories. An agent obsidian_create tool receiving note path `.Git/config` or `.OBSIDIAN/app.json` will proceed to overwrite critical configuration files. Fix: use a case-insensitive comparison (`.toLowerCase()` or case-insensitive regex) on the first path segment against the blocklist entries, or use realpath resolution and compare against disallowed canonical paths.
 
 ### tag-like inline token [SUBSTRING-DEFAULT]
 query="#tag"
-3 match(es):
+6 match(es):
 Inbox/Plan - Enhance obsidian_search.md:28: - `tags`：解析 frontmatter `tags` 與內文 `#tag`。
-Tags/Index.md:252: > 💡 維護方式：新增筆記後，把它的 wiki-link 加到對應的 `#tag` 段落下。
+Tags/Index.md:354: > 💡 維護方式：新增筆記後，把它的 wiki-link 加到對應的 `#tag` 段落下。
+Zettelkasten/distill/memory-snapshot/14-pi-obsidian-and-vault.md:32: - **Vault 蒸餾（2026-07-04）**：`vaults_root/pi-agent-vault` 33 md，記錄 `bun-apps/pi-obsidian/` 4,981 行 obsidian.ts、44 test 檔、332 tests GREEN。`resolveVault(cwd)`（obsidian.ts:268）三層 fallback：Tier 1 `OB_VAULT_PATH` env → `run-dir/obsidian_config.json` `vault_path`（`mode:"app"` 時跳過）／Tier 2 Obsidian app `obsidian.json` `open:true`／Tier 3 `<cwd>/${OB_VAULT_DIR ?? "vault"}` 並從 `vault-template/` 種入。指 vault 用 `OB_VAULT_PATH=$PWD/vaults_root/pi-agent-vault` 或 `--vault-dir`，不要改 generic `"vault"` runtime default。已關閉 bug：persistent config silent stale drift（記 `staleReason` 並 fallback，不 abort）、orchestrator tool contamination（orchestrator tools 只給 `["subagent"]`）、PDFKit orientation trap（`PDFPage.draw` 已正立、嚴禁 Y-flip）、`getModel(provider,id)` 對 user-defined models 回 null（改用 `services.modelRegistry.find()`）。設計原則：wrapper 共用 base resolver、resolution transparency triple（`source` enum + `obsidian_status` + `/obsidian-config` + zk header）、consumed agent 必加 `schema:`（`scripts/check-workflow-patterns.mjs` 強制）、TS→Swift subprocess 自帶源碼。本 session 還修了 `appendUnderHeading` 對 `## #tag` heading 的 leading-`#` 双向 normalize（obsidian.ts ~line 2689，+3 regression tests，335 pass）。Tags/Index.md 仍有歷史 duplicate section 待 garden dedup。(auto-memory:pi-obsidian-vault-distilled)
+Zettelkasten/knowledge-graph/_archive/pi-memory-failure-161ipvt.md:16: [tool-quirk] [tool-quirk] obsidian `append_section` (→ appendUnderHeading, pi-agent-ext-obsidian/src/obsidian-lib.ts:2656): NEVER pass the markdown `##` prefix in the `heading` arg. Normalizer `heading.replace(/^#/, "")` strips only ONE leading `#` (handles `#tag` vs `tag`), so `## #workflow-pattern` → `# #workflow-pattern` → heading-match MISSES the existing line → `idx===-1` → appends `## ` + your arg = a malformed `## ## #workflow-pattern` DUPLICATE at EOF. Verified 2026-07-12 on Tags/Index.md. CORRECT: pass BARE text (`workflow-pattern`) or single-`#` (`#workflow-pattern`). Recover via `edit` tool: single link lines recur across duplicated MOC sections, so use a 2-3 line unique oldText; kill the `## ## ` ghost via a unique neighbor line. seed-vault SKILL.md example "e.g. `## Log`" is the broken form (doc bug — should be `Log`).
 Zettelkasten/knowledge-graph/auto-memory-pi-obsidian-vault-distilled.md:48: `appendUnderHeading` heading-match was brittle to a leading `#` on EITHER side: a tag-MOC section is conventionally `## #tag`, but distill/garden subagents pass the heading sometimes as `#tag`, sometimes as `tag`. The `tag` form failed regex `^#{1,6}\s+tag$}` vs literal `#tag` → `findIndex` returned -1 → created a DUPLICATE section at end-of-file. **Verified deterministic repro.** Fix (obsidian.ts ~line 2689): normalize one leading `#` off the arg + make the line's tag-`#` optional (`^#{1,6}\s+#?<esc>\s*$`). +3 regression tests in `appendUnderHeading.test.mjs` ("leading '#' normalization"). Full suite 335 pass / 0 fail. NOTE: the real Tags/Index.md still has pre-existing duplicate sections (from when the LLM also used `obsidian_append` plain-to-EOF, which no heading fix prevents) — those need a manual/garden dedup, but the deterministic creation path is now closed.
+Zettelkasten/knowledge-graph/hermes-tool-quirk-obsidian-append_section-appendunderheading-pi-agent-ext-obsidi.md:18: [tool-quirk] obsidian `append_section` (→ appendUnderHeading, pi-agent-ext-obsidian/src/obsidian-lib.ts:2656): NEVER pass the markdown `##` prefix in the `heading` arg. Normalizer `heading.replace(/^#/, "")` strips only ONE leading `#` (handles `#tag` vs `tag`), so `## #workflow-pattern` → `# #workflow-pattern` → heading-match MISSES the existing line → `idx===-1` → appends `## ` + your arg = a malformed `## ## #workflow-pattern` DUPLICATE at EOF. Verified 2026-07-12 on Tags/Index.md. CORRECT: pass BARE text (`workflow-pattern`) or single-`#` (`#workflow-pattern`). Recover via `edit` tool: single link lines recur across duplicated MOC sections, so use a 2-3 line unique oldText; kill the `## ## ` ghost via a unique neighbor line. seed-vault SKILL.md example "e.g. `## Log`" is the broken form (doc bug — should be `Log`).
 
 ### frontmatter key [SUBSTRING-DEFAULT]
 query="sources:"
@@ -260,6 +265,7 @@ Zettelkasten/Workflow Pattern - Bun Workspaces node_modules Dedup.md:5: sources:
 Zettelkasten/Workflow Pattern - Knowledge Schema Drift.md:5: sources: []
 Zettelkasten/Workflow Pattern - Meta Name Consistency.md:5: sources: []
 Zettelkasten/Workflow Pattern - PR Cleanup and Squash.md:5: sources: []
+Zettelkasten/Workflow Pattern - Planning with Files Skill Suite.md:5: sources:
 Zettelkasten/Workflow Pattern - Schema-less Consumed Agents.md:5: sources: []
 Zettelkasten/Workflow Pattern - Self-Improving Agent Loop Mechanisms.md:5: sources: [https://yoheinakajima.com/better-ways-to-build-self-improving-ai-agents/, https://arxiv.org/abs/2303.17651, NeurIPS2025]
 Zettelkasten/Workflow Pattern - Style-Aware Judge Branching.md:5: sources: []
@@ -273,13 +279,12 @@ Zettelkasten/distill/Native-relay-scope-completeness.md:5: sources: ["pr-255.md"
 Zettelkasten/distill/Native-relay-variant-implementation.md:5: sources: ["pr-255.md"]
 Zettelkasten/distill/Variant-loop-error-isolation.md:5: sources: ["pr-255.md"]
 Zettelkasten/distill/Variant-output-organization.md:5: sources: ["pr-255.md"]
-Zettelkasten/knowledge-graph/_archive/correctness-ab-variation-shared-state-mutation.md:5: sources: ["workflow-knowledge-jsonl:gui-movie-director-review-optimize"]
-Zettelkasten/knowledge-graph/_archive/correctness-obfuscated-dim-divisibility-assumption.md:5: sources: ["workflow-knowledge-jsonl:gui-movie-director-review-optimize"]
-Zettelkasten/knowledge-graph/_archive/correctness-video-generate-events-lost-in-timings.md:5: sources: ["workflow-knowledge-jsonl:gui-movie-director-review-optimize"]
-Zettelkasten/knowledge-graph/_archive/error-handling-long-download-no-retry.md:5: sources: ["workflow-knowledge-jsonl:gui-movie-director-review-optimize"]
-Zettelkasten/knowledge-graph/_archive/false_positive-seedvr2-single-step-euler-math.md:5: sources: ["workflow-knowledge-jsonl:gui-movie-director-review-optimize"]
-Zettelkasten/knowledge-graph/_archive/gotcha-coerce-int-field-swallows-json-bool.md:5: sources: ["workflow-knowledge-jsonl:gui-movie-director-review-optimize"]
-Zettelkasten/knowledge-graph/_archive/gotcha-distilled-generate-unconditional-cfg-stg-override.md:5: sources: ["workflow-knowledge-jsonl:gui-movie-director-review-optimize"]
+Zettelkasten/distill/memory-snapshot/00-index.md:5: sources: ["CLAUDE.md", "MEMORY.md"]
+Zettelkasten/distill/memory-snapshot/01-north-stars-and-project-stack.md:5: sources: ["auto-memory:no-cloud-gai-local-mlx-pi-agent-brain", "auto-memory:always-self-reflect-and-write-next-goal", "auto-memory:superpowers-owns-methodology-skills", "CLAUDE.md"]
+Zettelkasten/distill/memory-snapshot/02-runpy-cli-and-mlx-pipeline.md:5: sources: ["auto-memory:mlx-movie-director-python-path", "auto-memory:mlx-movie-director-regression-suite", "auto-memory:runpy-cli-schema-source-of-truth", "auto-memory:argparse-sentinel-for-user-override", "auto-memory:argv-injection-positional-paths", "auto-memory:argparse-lora-scale-override-bug", "auto-memory:count-without-seed-start-identical-images", "auto-memory:pyflakes-real-bug-hunting", "auto-memory:pytest-stale-pycache-false-failures"]
+Zettelkasten/distill/memory-snapshot/03-vendor-patches-and-mlx-bugs.md:5: sources: ["auto-memory:mflux-int8-lora-noise-bug", "auto-memory:ltx-connector-int4-g32-quant-bug", "auto-memory:ltx-av-ca-timestep-scale-bug", "auto-memory:acelogic-text-encoder-fixes", "auto-memory:audio-noise-detection-false-positive", "auto-memory:i2i-controlnet-lazy-tensor-fix", "auto-memory:i2i-flux2klein-tembedder-shape-bug", "auto-memory:mlx-naive-attention-perf-bug", "auto-memory:fp8-compute-mps-incompatible", "auto-memory:seedvr2-offload-device-mps", "auto-memory:seedvr2-7b-config-fixes", "auto-memory:sam3-mlx-text-segmentation", "auto-memory:mlx-vlm-version-pin-sam3-load", "auto-memory:mflux-dev-kontext-native-support"]
+Zettelkasten/distill/memory-snapshot/04-mlx-runtime-models-interop.md:5: sources: ["auto-memory:mlx-runtime-no-comfyui-custom-nodes", "auto-memory:custom-nodes-restore-approach", "auto-memory:vendor-submodule-cleared-on-branch-switch", "auto-memory:ideogram4-fork-free-nf4-pipeline", "auto-memory:krea2-swift-parity-quant-lessons", "auto-memory:shared-imagegate-common-lib", "auto-memory:bench-workflow-investigation", "auto-memory:swift-directors-verified-and-verify-sop"]
+Zettelkasten/distill/memory-snapshot/05-t2i-flux2-zimage-lens.md:5: sources: ["auto-memory:zimage-cfg-wired-biggest-quality-lever", "auto-memory:flux2-klein-cfg-inert-when-distilled", "auto-memory:zimage-all-in-one-creator-workflow", "auto-memory:zimage-moody-plasticky-skin-base-not-lora", "auto-memory:t2i-resolution-tier-system", "auto-memory:flux2-lora-three-key-formats-silent-noop", "auto-memory:flux2-regional-net-negative-tested", "auto-memory:flux2-region-attention-no-binding-distilled", "auto-memory:flux2-scene-command-provenance", "auto-memory:flux2-klein-seed-deterministic-across-runs", "auto-memory:klein-int8-local-models", "auto-memory:lens-mlx-t2i-rope-patchify", "auto-memory:lens-reasoner-token-cap-not-quality-levers", "auto-memory:krea2-controlnet-styletransfer-swift-port"]
 
 ### no-match term [SUBSTRING-DEFAULT]
 query="zzznomatchzzz"
@@ -308,41 +313,41 @@ README.md:6: # 📓 pi-agent Vault
 README.md:8: 這是 `pi-agent` 專案的 project-local Obsidian 知識庫，位於 `<repo>/vault/`。
 README.md:12: 由 `.pi/extensions/obsidian.ts` 提供，pi agent 可以直接讀寫這個 vault——
 README.md:28: ## 給 pi agent 的提示
-Tags/Index.md:25: ## #agent
-Tags/Index.md:27: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:28: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
-Tags/Index.md:29: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
-Tags/Index.md:31: ## #agentic-loop
-Tags/Index.md:33: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
-Tags/Index.md:37: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:41: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
-Tags/Index.md:62: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
-Tags/Index.md:77: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
-Tags/Index.md:78: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
-Tags/Index.md:103: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
-Tags/Index.md:109: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
-Tags/Index.md:116: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
-Tags/Index.md:155: - [[Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount]]
-Tags/Index.md:159: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:160: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
-Tags/Index.md:166: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
-Tags/Index.md:167: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
-Tags/Index.md:168: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
-Tags/Index.md:176: - [[Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount]]
-Tags/Index.md:188: - [[Zettelkasten/Workflow Pattern - Self-Improving Agent Loop Mechanisms]]
-Tags/Index.md:233: - [[Zettelkasten/Workflow Pattern - Self-Improving Agent Loop Mechanisms]]
-Tags/Index.md:236: ## #agent-loop
-Tags/Index.md:238: - [[Zettelkasten/Workflow Pattern - Self-Improving Agent Loop Mechanisms]]
-Tags/Index.md:253: > pi agent 可用 `obsidian_append_section` 工具自動追加。
-Tags/Index.md:257: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
-Tags/Knowledge Graph.md:119: - [[hermes-zai-glm-5.2-structured-output-flake-on-verify-bun-pi-agent-cli-knowledge-]]
-Tags/Knowledge Graph.md:152: - [[vg-pi-agent-cli-tools-metrics-obsidian-gap]]
-Tags/Knowledge Graph.md:157: - [[contract-pi-agent-obsidian-ws-regression]]
-Tags/Knowledge Graph.md:171: - [[hermes-arg-parse-loop-must-advance-index-on-every-branch-bun-pi-agent-cli-src-ar]]
-Tags/Knowledge Graph.md:328: - [[auto-memory-pi-agent-cli-based-on-pi-agent]]
-Tags/Knowledge Graph.md:329: - [[auto-memory-pi-agent-cli-deploy-single-bundle]]
-Tags/Knowledge Graph.md:330: - [[auto-memory-pi-agent-cli-slice-before-patch-drops-splice]]
-Tags/Knowledge Graph.md:331: - [[auto-memory-pi-agent-deploy-bundle-nodemodules-symlink]]
-Tags/Knowledge Graph.md:332: - [[auto-memory-pi-agent-deploy-efficiency-tier-a]]
-Tags/Knowledge Graph.md:333: - [[auto-memory-pi-agent-deploy-modes-portability-ceiling]]
+Tags/Index.md:26: - [[Zettelkasten/distill/memory-snapshot/12-pi-agent-deploy-runtime]]
+Tags/Index.md:27: - [[Zettelkasten/distill/memory-snapshot/13-pi-agent-cli-bundling]]
+Tags/Index.md:52: ## #agent
+Tags/Index.md:54: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:55: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
+Tags/Index.md:56: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
+Tags/Index.md:59: - [[Zettelkasten/knowledge-graph/Subagent-Schema-Description-Layer-Correctness]]
+Tags/Index.md:60: - [[Zettelkasten/knowledge-graph/Subagent-Token-Reduction-Envelope-Pattern]]
+Tags/Index.md:64: - [[Zettelkasten/knowledge-graph/knowledge-agent-integration-workflow-only]]
+Tags/Index.md:68: ## #agentic-loop
+Tags/Index.md:70: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
+Tags/Index.md:76: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:80: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
+Tags/Index.md:87: - [[Zettelkasten/distill/Headless workflow execution in pi-agent.md]]
+Tags/Index.md:88: - [[Zettelkasten/distill/Decoupling workflow engine from agent sessions.md]]
+Tags/Index.md:89: - [[Zettelkasten/distill/Non-agent architecture for workflow runners.md]]
+Tags/Index.md:121: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Tags/Index.md:154: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Tags/Index.md:155: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
+Tags/Index.md:170: - [[Zettelkasten/knowledge-graph/Verify-Bun-Pi-Agent-CLI-Workflow-Structure]]
+Tags/Index.md:181: - [[Zettelkasten/knowledge-graph/CLI-Command-Rename-History-in-Bun-Pi-Agent-CLI]]
+Tags/Index.md:198: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
+Tags/Index.md:204: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
+Tags/Index.md:211: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Tags/Index.md:250: - [[Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount]]
+Tags/Index.md:254: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:255: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
+Tags/Index.md:261: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
+Tags/Index.md:262: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Tags/Index.md:263: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
+Tags/Index.md:271: - [[Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount]]
+Tags/Index.md:283: - [[Zettelkasten/Workflow Pattern - Self-Improving Agent Loop Mechanisms]]
+Tags/Index.md:335: - [[Zettelkasten/Workflow Pattern - Self-Improving Agent Loop Mechanisms]]
+Tags/Index.md:338: ## #agent-loop
+Tags/Index.md:340: - [[Zettelkasten/Workflow Pattern - Self-Improving Agent Loop Mechanisms]]
+Tags/Index.md:355: > pi agent 可用 `obsidian_append_section` 工具自動追加。
+Tags/Index.md:359: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
 
