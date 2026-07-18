@@ -229,6 +229,81 @@ jobs:
         run: bun scripts/deploy.ts dist/ci-verify --writable --verify
 
   # ──────────────────────────────────────────────────────────────────────────
+  # compile-verify — builds the standalone `bun build --compile` binary and
+  # smoke-tests it. Before this job, NOTHING in CI ever built or ran the
+  # compiled binary (deploy-verify above only exercises bundle mode); the
+  # binary previously shipped with ZERO extensions with no regression
+  # coverage catching it. Checks: (1) the binary boots and `doctor --json`
+  # reports ok:true (entry/mode/providers/patches all healthy in binary
+  # mode); (2) the 5 statically-bundled "general productivity" extensions
+  # (goal-todo/hermes-memory/superpowers/wayfind/web-access — see
+  # src/static-extensions.ts) register cleanly, via `ext doctor` in source
+  # mode (the compiled binary's own `ext doctor` subcommand isn't binary-
+  # mode-aware — it resolves paths via import.meta.url, which is the $bunfs
+  # virtual scheme in binary mode — so this checks the same static factories
+  # the binary embeds, just through the source-mode entry point); (3) the 4
+  # binarySkills dirs resolve to real `--skill` paths next to the exe; (4)
+  # pi-agent-ext-hermes-memory's optional obsidian/knowledge-card peers did
+  # NOT get transitively bundled in (they're `external`'d in scripts/build.ts
+  # specifically to keep the binary scoped to the intended 5 extensions).
+  # Path-gated same as deploy-verify — both only exercise pi-agent's surface.
+  # ──────────────────────────────────────────────────────────────────────────
+  compile-verify:
+    needs: check-deploy-paths
+    if: needs.check-deploy-paths.outputs.deploy == 'true'
+    name: compile -- verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-env
+      - name: Build standalone binary
+        working-directory: bun-apps/pi-agent
+        run: bun run build:exe
+      - name: Smoke — binary boots + doctor reports healthy
+        working-directory: bun-apps/pi-agent
+        run: |
+          set -e
+          ../../dist/pi-agent/pi-agent --version
+          ../../dist/pi-agent/pi-agent doctor --json | tee /tmp/doctor.json
+          python3 -c "import json,sys; d=json.load(open('/tmp/doctor.json')); sys.exit(0 if d['ok'] else 1)"
+      - name: Smoke — 5 statically-bundled extensions register (ext doctor, source mode)
+        working-directory: bun-apps/pi-agent
+        run: |
+          set -e
+          bun src/cli.ts ext doctor --json | tee /tmp/ext-doctor.json
+          python3 -c "
+          import json
+          d = json.load(open('/tmp/ext-doctor.json'))
+          statics = [e for e in d['entries'] if e['bundleMode'] == 'static']
+          assert len(statics) == 5, f'expected 5 static extensions, got {len(statics)}'
+          failed = [e['name'] for e in statics if e['status'] == 'FAIL']
+          assert not failed, f'static extension(s) failed to register: {failed}'
+          print('5/5 static extensions OK:', [e['name'] for e in statics])
+          "
+      - name: Smoke — binarySkills resolve to real --skill paths
+        working-directory: bun-apps/pi-agent
+        run: |
+          set -e
+          # Grep the resolver's own summary line, not a raw "--skill" count —
+          # --help's own usage text also mentions the --skill FLAG itself,
+          # which inflates a naive count.
+          BUN_PI_DEBUG_RUN_DIR=1 ../../dist/pi-agent/pi-agent --help 2>&1 | grep -q "emitting 4 --skill flag(s)" \
+            || { echo "expected resolve.ts to emit exactly 4 --skill flags in binary mode"; exit 1; }
+      - name: Verify hermes-memory's optional obsidian/knowledge-card peers excluded
+        working-directory: bun-apps/pi-agent
+        run: |
+          set -e
+          # "obsidian_list" is a tool NAME string literal registered inside
+          # pi-agent-ext-obsidian's own implementation — unlike "resolveVault"
+          # (which vault-converge.ts's own code legitimately references once
+          # as a property name regardless of whether obsidian is bundled),
+          # this string only exists if obsidian's actual module body got
+          # inlined, so it's a precise "did external actually work" signal.
+          hits=$(strings ../../dist/pi-agent/pi-agent | grep -c "obsidian_list" || true)
+          test "$hits" -eq 0 || { echo "pi-obsidian's implementation leaked into the binary ($hits hits of 'obsidian_list') — external exclusion regressed"; exit 1; }
+
+  # ──────────────────────────────────────────────────────────────────────────
   # Thrust B2 — clean-launch self-heal. Exercises the path that escaped CI when
   # the workspace root moved into bun-apps/ (#625): every other job runs
   # `setup-env` (which `bun install`s) BEFORE launching pi, so the launcher's

@@ -63,6 +63,33 @@ const GENERATED_RUN_DIR_BASE = `${GENERATED_DIR}/run-dir-base.ts`;
 // run-dir/manifest.json (read by run-dir/resolve.ts at runtime too).
 const NPM_EXTENSIONS = manifest.npmExtensions ?? [];
 
+// Skill dirs shipped alongside the compiled binary for the statically-bundled
+// "general productivity" extension set (src/static-extensions.ts). Single
+// source of truth (manifest.json's binarySkills) shared with
+// run-dir/resolve.ts's binary-mode --skill emission — keep the two in
+// lockstep by construction (both read this field), not by convention.
+const BINARY_SKILLS: string[] = manifest.binarySkills ?? [];
+
+// pi-agent-ext-hermes-memory's src/store/vault-converge.ts has two OPTIONAL
+// (try/catch-guarded) dynamic imports of pi-obsidian/pi-knowledge-card as
+// LITERAL bare specifiers. Now that hermes-memory is a static import
+// reachable from cli.ts's entrypoint (src/static-extensions.ts), Bun's
+// bundler (splitting: false) would otherwise statically resolve + inline
+// those two packages too (they're linked via hermes-memory's own
+// devDependencies under the isolated linker) — silently blowing past the
+// intended 5-extension scope. Marking them external leaves the two
+// `await import("literal-specifier")` calls as genuine unresolved runtime
+// imports, so vault-converge.ts's existing try/catch degrades gracefully
+// (its original "optional integration if available" design) instead of the
+// specifier resolving at build time. Glob-pattern precedent:
+// scripts/build-extensions.ts's THIN_EXTERNALS.
+const HERMES_OPTIONAL_EXTERNALS = [
+	"@repo/pi-agent-ext-obsidian",
+	"@repo/pi-agent-ext-obsidian/*",
+	"@repo/pi-agent-ext-knowledge-card",
+	"@repo/pi-agent-ext-knowledge-card/*",
+];
+
 const OUTDIR = resolve(process.cwd(), "..", "..", "dist", APP_NAME);
 const OUTFILE = `${OUTDIR}/${APP_NAME}.js`;
 const MAPFILE = `${OUTFILE}.map`;
@@ -150,6 +177,7 @@ async function stageBundle() {
     minify: { whitespace: true, identifiers: true, syntax: true },
     sourcemap: WITH_SOURCEMAP ? "external" : "none",
     splitting: false,
+    external: HERMES_OPTIONAL_EXTERNALS,
   });
 
   if (!result.success) {
@@ -205,8 +233,12 @@ function lstatSyncSafe(path: string): boolean {
 async function stageCompile() {
   console.log(`▶ compile → dist/${APP_NAME}/${APP_NAME}  (standalone binary)`);
   clean(EXE);
+  // stageCompile() is a SECOND, independent bundling pass over OUTFILE (not a
+  // passthrough of stage 1's bundle) — re-apply the same --external exclusion
+  // here, don't assume stage 1's `external` carries over.
+  const externalFlags = HERMES_OPTIONAL_EXTERNALS.flatMap((p) => ["--external", p]);
   const proc = Bun.spawn(
-    ["bun", "build", OUTFILE, "--compile", `--outfile=${EXE}`, "--minify"],
+    ["bun", "build", OUTFILE, "--compile", `--outfile=${EXE}`, "--minify", ...externalFlags],
     { stdout: "inherit", stderr: "inherit" },
   );
   const code = await proc.exited;
@@ -224,10 +256,17 @@ async function stageCompile() {
 // getAssetsDir()       → <exe-dir>/assets/
 function stageCopyAssets(piPkgDir: string) {
   console.log(`▶ copy pi assets alongside binary`);
+  // bun-apps/ is the parent of process.cwd() (pi-agent/) — see
+  // stageGenerateRunDirBase()'s identical resolve(process.cwd(), "..").
+  const bunAppsDir = resolve(process.cwd(), "..");
   const assetMap: Array<[string, string]> = [
     [`${piPkgDir}/dist/modes/interactive/theme`, `${OUTDIR}/theme`],
     [`${piPkgDir}/dist/core/export-html`, `${OUTDIR}/export-html`],
     [`${piPkgDir}/dist/modes/interactive/assets`, `${OUTDIR}/assets`],
+    // Skill dirs for the statically-bundled extension set (BINARY_SKILLS, read
+    // from manifest.json's binarySkills — the same field run-dir/resolve.ts's
+    // binary-mode branch reads to emit matching --skill <dst> paths).
+    ...BINARY_SKILLS.map((rel): [string, string] => [`${bunAppsDir}/${rel}`, `${OUTDIR}/${rel}`]),
   ];
   for (const [src, dst] of assetMap) {
     if (!existsSync(src)) {

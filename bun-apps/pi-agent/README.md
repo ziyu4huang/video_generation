@@ -194,17 +194,22 @@ bun bun-apps/pi-agent-cli/src/cli.ts doctor [--json] [--fix]
 
 ## Build modes
 
-Two execution modes are supported and **both load extensions correctly**:
+Three execution modes are supported. Source and bundle load **every**
+extension in `run-dir/manifest.json`; the compiled binary loads a fixed
+**static subset** (see [Standalone binary](#standalone-binary---compile) below):
 
 | Mode | Command | How extensions resolve deps |
 |------|---------|------------------------------|
 | **Source** (no build) | `bun src/cli.ts` | pi resolves via the real node_modules tree |
 | **Bundle** | `bun ../../dist/pi-agent/pi-agent.js` | build symlinks `dist/pi-agent/node_modules` → pi's bun-store so `getAliases()` can `require.resolve("typebox")` |
+| **Binary** (`--compile`) | `dist/pi-agent/pi-agent` | 5 extensions statically imported (`src/static-extensions.ts`, no jiti); everything else in `manifest.json` can't load here |
 
 ```bash
 bun scripts/build.ts          # bundle → dist/pi-agent/pi-agent.js (+ node_modules symlink)
 bun scripts/build.ts --sourcemap  # also emit dist/pi-agent/pi-agent.js.map (debug; never shipped)
-bun scripts/build.ts --all    # bundle + standalone binary
+bun scripts/build.ts --compile    # also compile → dist/pi-agent/pi-agent (standalone binary)
+bun scripts/build.ts --all        # bundle + standalone binary
+bun run build:exe                 # shorthand for --compile
 ```
 
 The sourcemap is **opt-in** — the `.map` is ~20 MB (embeds full source) and is
@@ -219,11 +224,61 @@ was built on* (same trade-off the existing `PI_PKG_DIR`/node_modules-symlink pat
 already accepts) — not relocatable to a different host/filesystem layout unless
 `bun-apps/` is copied to the identical absolute path there too.
 
-The `--compile` binary (`dist/pi-agent/pi-agent`) **cannot load `.ts` extensions**:
-in `isBunBinary` mode jiti feeds each extension as a `data:text/javascript;base64,…`
-URL, and Bun's compiled resolver rejects it with `NameTooLong` (`ENAMETOOLONG`).
-This is a bun-compile + jiti limitation, not a pi-agent bug — run the binary with
-`-ne` (no extensions) or use source/bundle mode when extensions are needed.
+### Standalone binary (`--compile`)
+
+`run-dir/manifest.json`'s normal `-e <path>.ts` extension loading is jiti-based
+(runtime TS transpilation): in `isBunBinary` mode jiti feeds each extension as
+a `data:text/javascript;base64,…` URL, and Bun's compiled resolver rejects it
+with `NameTooLong` (`ENAMETOOLONG`). That's a bun-compile + jiti limitation,
+not a pi-agent bug, and it can't be worked around for extensions loaded that
+way — `run-dir/resolve.ts` detects binary mode and never emits `-e` at all.
+
+To still ship *some* extensions in the binary, 5 of them — the "general
+productivity" set — are **statically imported** instead, in
+`src/static-extensions.ts`:
+
+```
+pi-agent-ext-goal-todo · pi-agent-ext-hermes-memory · pi-agent-ext-superpowers
+pi-agent-ext-wayfind   · pi-agent-ext-web-access
+```
+
+A static `import` is a native in-memory reference (no jiti involved), so
+`bun build --compile` inlines it into the executable like any other code —
+`main(argv, { extensionFactories: STATIC_EXTENSION_FACTORIES })` registers
+them without ever touching the `-e` path. These 5 are deliberately **absent**
+from `manifest.json`'s `extensions` array (keeping both would double-register
+them — a jiti-loaded module and a natively-imported module aren't guaranteed
+to be the same module identity) but do keep a `binarySkills` entry there:
+their skill directories are plain markdown (no jiti/dynamic code involved),
+so `scripts/build.ts`'s `stageCopyAssets()` ships them as sibling dirs next
+to the exe (`dist/pi-agent/<ext>/skills/`), and `resolve.ts` still emits
+`--skill <path>` for them in binary mode.
+
+Everything else in `manifest.json` (movie-director, flux2, obsidian, …) —
+roughly a dozen extensions — is **not available in the compiled binary**.
+Use source or bundle mode for those, or run the binary with `-ne` if you want
+zero extensions at all.
+
+```bash
+bun run build:exe                          # build dist/pi-agent/pi-agent
+dist/pi-agent/pi-agent --version
+dist/pi-agent/pi-agent doctor --json       # mode:"binary", ok:true
+bun src/cli.ts ext doctor --json           # verify the 5 static factories register (source-mode check;
+                                            # the binary's own `ext doctor` isn't binary-mode-aware)
+```
+
+CI's `compile-verify` job (`.github/workflows/ci.yml`) builds the binary on
+every `pi-agent`-touching PR and asserts: `doctor --json` is healthy, all 5
+static extensions register with 0 conflicts, all 4 `binarySkills` paths
+resolve, and hermes-memory's optional obsidian/knowledge-card integration
+(see `pi-agent-ext-hermes-memory/src/store/vault-converge.ts`) did NOT get
+transitively bundled in — those two stay `external` in `scripts/build.ts` so
+the binary stays scoped to exactly the 5 intended extensions.
+
+See [`docs/deploy-single-binary.md`](docs/deploy-single-binary.md) for the
+full rationale (why `require()` doesn't work, why some files carry
+`// @ts-nocheck`, the `manifest.json` field reference) and the steps to add
+or remove an extension from this static set.
 
 ## Deploy
 
@@ -447,14 +502,19 @@ pi-agent/
 
 ## Known issues
 
-- **Standalone binary cannot load `.ts` extensions** (`./dist/pi-agent/pi-agent`).
-  In `isBunBinary` mode, jiti feeds each extension as a
-  `data:text/javascript;base64,…` URL; Bun's compiled resolver treats it as a
-  path and fails with `NameTooLong` (`ENAMETOOLONG`). This is a bun-compile +
-  jiti limitation, not a pi-agent regression. Workaround: run the binary with
-  `-ne` (no extensions), or use **source** / **bundle** mode when extensions
-  are needed. Provider injection (`pre-load-providers`) still works in the
-  binary — only `.ts` extension loading is affected.
+- **Standalone binary can't dynamically `-e`-load `.ts` extensions**
+  (`./dist/pi-agent/pi-agent`). In `isBunBinary` mode, jiti feeds each
+  extension as a `data:text/javascript;base64,…` URL; Bun's compiled
+  resolver treats it as a path and fails with `NameTooLong` (`ENAMETOOLONG`).
+  This is a bun-compile + jiti limitation, not a pi-agent regression, and it
+  can't be fixed for extensions loaded that way. **5 extensions sidestep
+  this** by being statically imported instead (see
+  [Standalone binary](#standalone-binary---compile) above /
+  [`docs/deploy-single-binary.md`](docs/deploy-single-binary.md)) — the
+  binary is not extension-less, just limited to that fixed set. Everything
+  else in `manifest.json` needs **source** / **bundle** mode, or run the
+  binary with `-ne` for zero extensions. Provider injection
+  (`pre-load-providers`) works in the binary regardless.
 
 ## Related
 
