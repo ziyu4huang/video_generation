@@ -5,13 +5,6 @@
     "pi-agent-ext-knowledge-card/extensions/pi-knowledge-card.ts",
     "pi-agent-ext-power-tool/src/index.ts",
     {
-      "name": "pi-agent-ext-goal-todo-ask",
-      "entry": "pi-agent-ext-goal-todo/extensions/pi-goal-todo-ask.ts",
-      "bundleMode": "thin",
-      "testGate": "cd bun-apps/pi-agent-ext-goal-todo && bun test",
-      "version": "0.1.0"
-    },
-    {
       "name": "pi-agent-ext-btw",
       "entry": "pi-agent-ext-btw/extensions/pi-btw.ts",
       "bundleMode": "thin",
@@ -27,22 +20,6 @@
     "pi-agent-ext-flux2/extensions/pi-flux2.ts",
     "pi-agent-ext-krea2/extensions/pi-krea2.ts",
     "pi-agent-ext-ltx/extensions/pi-ltx.ts",
-    {
-      "name": "pi-agent-ext-hermes-memory",
-      "entry": "pi-agent-ext-hermes-memory/src/index.ts",
-      "bundleMode": "thin",
-      "fullReason": "Was FULL due to deep pi-ai/* subpath imports + better-sqlite3 native addon. Switched to THIN after the Bun.resolveSync fix (criterion 1) \u2014 deep subpaths now resolve, and better-sqlite3 stays as a residual bare specifier (same as FULL).",
-      "testGate": "cd bun-apps/pi-agent-ext-hermes-memory && bun test",
-      "version": "0.80.3"
-    },
-    "pi-agent-ext-web-access/index.ts",
-    {
-      "name": "pi-agent-ext-wayfind",
-      "entry": "pi-agent-ext-wayfind/extensions/index.ts",
-      "bundleMode": "thin",
-      "testGate": "cd bun-apps/pi-agent-ext-wayfind && bun test",
-      "version": "0.1.0"
-    },
     {
       "name": "pi-agent-ext-research-tool",
       "entry": "pi-agent-ext-research-tool/extensions/research.ts",
@@ -71,13 +48,6 @@
       "bundleMode": "thin",
       "testGate": "cd bun-apps/pi-agent-ext-movie-director && bun test",
       "version": "0.1.0"
-    },
-    {
-      "name": "pi-agent-ext-superpowers",
-      "entry": "pi-agent-ext-superpowers/extensions/index.ts",
-      "bundleMode": "thin",
-      "testGate": "cd bun-apps/pi-agent-ext-superpowers && bun test",
-      "version": "6.1.1"
     }
   ],
   "skills": [
@@ -85,7 +55,21 @@
     "pi-agent-ext-research-tool/skills",
     "pi-agent-ext-wayfind/skills",
     "pi-agent-ext-hermes-memory/skills",
-    "pi-agent-ext-superpowers/skills"
+    "pi-agent-ext-superpowers/skills",
+    "pi-agent-ext-web-access/skills"
+  ],
+  "binarySkills": [
+    "pi-agent-ext-hermes-memory/skills",
+    "pi-agent-ext-superpowers/skills",
+    "pi-agent-ext-wayfind/skills",
+    "pi-agent-ext-web-access/skills"
+  ],
+  "staticExtensions": [
+    "pi-agent-ext-goal-todo",
+    "pi-agent-ext-hermes-memory",
+    "pi-agent-ext-superpowers",
+    "pi-agent-ext-wayfind",
+    "pi-agent-ext-web-access"
   ],
   "npmExtensions": [],
   "lazyExtensions": {
