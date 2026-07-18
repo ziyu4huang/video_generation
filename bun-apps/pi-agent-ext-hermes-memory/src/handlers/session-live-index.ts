@@ -1,59 +1,12 @@
 import type { DatabaseManager } from '../store/db.js';
+import { runWithTransientRetry } from '../store/db.js';
 import { indexLiveSession } from '../store/session-indexer.js';
 
 export const SESSION_LIVE_INDEX_DELAY_MS = 50;
 export const SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS = 5000;
-export const SESSION_LIVE_INDEX_TRANSIENT_MAX_ATTEMPTS = 3;
-export const SESSION_LIVE_INDEX_TRANSIENT_BACKOFF_MS = 50;
-
-/**
- * True for transient SQLite write failures (lock contention / momentary I-O
- * blips) common when multiple processes share the WAL database. These are NOT
- * corruption (DatabaseManager.isCorruptionError + withCorruptionRecovery handle
- * that path) and usually clear on a retry, so the live indexer retries them
- * instead of surfacing a noisy `disk I/O error` warning on every blip.
- */
-export function isTransientDbError(err: unknown): boolean {
-  if (!err) return false;
-  const code = typeof err === 'object' && 'code' in err ? String((err as { code?: unknown }).code) : '';
-  if (code === 'SQLITE_BUSY' || code === 'SQLITE_LOCKED' || code === 'SQLITE_IOERR') return true;
-  const message = (err instanceof Error ? err.message : String(err)).toLowerCase();
-  return message.includes('disk i/o error')
-    || message.includes('database is locked')
-    || message.includes('sqlite_busy')
-    || message.includes('sqlite_locked')
-    || message.includes('sqlite_ioerr');
-}
-
-/**
- * Run an operation with a bounded retry on transient (non-corruption) errors.
- * Corruption-class errors are NOT retried here — the caller wraps the operation
- * in withCorruptionRecovery, which rebuilds the DB; this layer only absorbs
- * contention/I-O blips a rebuild cannot fix. `sleep` is injectable for tests.
- */
-export async function runWithTransientRetry<T>(
-  operation: () => T,
-  opts: { maxAttempts?: number; isRetryable?: (err: unknown) => boolean; sleep?: (ms: number) => Promise<void> } = {},
-): Promise<T> {
-  const maxAttempts = opts.maxAttempts ?? SESSION_LIVE_INDEX_TRANSIENT_MAX_ATTEMPTS;
-  const isRetryable = opts.isRetryable ?? isTransientDbError;
-  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-
-  let lastErr: unknown;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      return operation();
-    } catch (err) {
-      lastErr = err;
-      if (attempt < maxAttempts && isRetryable(err)) {
-        await sleep(SESSION_LIVE_INDEX_TRANSIENT_BACKOFF_MS * attempt);
-        continue;
-      }
-      throw err;
-    }
-  }
-  throw lastErr; // unreachable — loop always returns or throws
-}
+// Transient-DB-error retry helpers (isTransientDbError, runWithTransientRetry,
+// TRANSIENT_DB_RETRY_*) now live in store/db.ts — imported above — so both the
+// live indexer and the memory tool share one implementation.
 
 type SetTimeoutFn = (callback: () => void, ms: number) => unknown;
 
