@@ -59,7 +59,6 @@
         "@earendil-works/pi-ai": "0.80.10",
         "@earendil-works/pi-coding-agent": "0.80.10",
         "@repo/pi-agent": "workspace:*",
-        "@repo/pi-agent-ext-distill": "workspace:*",
         "@repo/pi-agent-ext-file2md": "workspace:*",
         "@repo/pi-agent-ext-flux2": "workspace:*",
         "@repo/pi-agent-ext-knowledge-card": "workspace:*",
