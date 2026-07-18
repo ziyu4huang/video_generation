@@ -151,7 +151,7 @@ bun-apps/pi-obsidian/
 ├── scripts/            # bench-trigram-search · bench-index-persistence ·
 │                       # measure-schema-tokens · validate-real-vault
 ├── skills/
-│   └── seed-vault/     # optional skill that documents vault conventions
+│   └── using-obsidian-vault/  # optional skill: vault conventions + zk_* hand-off
 └── vault-template/     # starter notes copied into a fresh vault
     ├── README.md
     ├── Inbox/README.md
