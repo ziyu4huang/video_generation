@@ -19,7 +19,6 @@ beforeAll(() => {
   _setMotionFiltersForTest(false);
   _setWhisperRuntimeForTest(true);
   _setVisionRuntimeForTest("clip", true);
-  _setVisionRuntimeForTest("esrgan", true);
   // Pin the swift image-director binaries present so the default image_generation
   // pick stays deterministic (krea2, first-declared native_swift) regardless of
   // whether this host has built the swift binaries — the probe now checks the
@@ -37,7 +36,6 @@ afterAll(() => {
   _setMotionFiltersForTest(undefined);
   _setWhisperRuntimeForTest(undefined);
   _setVisionRuntimeForTest("clip", undefined);
-  _setVisionRuntimeForTest("esrgan", undefined);
   _setKrea2BinaryForTest(undefined);
   _setFlux2BinaryForTest(undefined);
   _setRunPyRuntimeForTest(undefined);
@@ -311,7 +309,7 @@ describe("selectProvider command routing", () => {
     expect(e.invoke).toBe("swift:krea2");
   });
 
-  it("routes enhancement:upscale → flux2 (Swift-native) when the binary is built, esrgan otherwise", () => {
+  it("routes enhancement:upscale → flux2 (sole upscale provider; esrgan removed 2026-07-19)", () => {
     const e = selectProvider("enhancement", { command: "upscale", env: NO_ENV });
     expect(e.provider).toBe("flux2");
     expect(e.invoke).toBe("swift:flux2");

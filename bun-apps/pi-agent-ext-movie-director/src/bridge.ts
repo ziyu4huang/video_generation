@@ -319,9 +319,10 @@ export function adaptLtx(
  */
 export function normalizeLegacyImageRequest(req: GenerateRequest): GenerateRequest {
   if (req.capability === "enhancement" && req.command === "upscale") {
-    // esrgan (Python/torch MPS) → flux2 upscale (Swift/MLX), same model family
-    // (4x-nomos-webphoto-realplksr). esrganAdapter's field name is "image"/
-    // "output"; flux2's upscale command uses "input"/"output".
+    // flux2 upscale (Swift/MLX, RealPLKSR 4x-nomos-webphoto-realplksr) is the sole
+    // upscale provider since the Python esrgan adapter was removed (2026-07-19).
+    // flux2's upscale command uses "input"/"output"; this maps any legacy caller
+    // still passing "image" (the old esrgan field name) onto "input".
     const o = req.options ?? {};
     return { ...req, options: { ...o, input: o.input ?? o.image } };
   }
