@@ -333,9 +333,13 @@ export interface WorkflowListResult {
  *  with manifest.json) AND single-file scripts (*.js). Pack rows render from
  *  the manifest; file rows from `export const meta`. Broken packs/scripts are
  *  reported in `errors` (not dropped). Injectable fs for hermetic tests. */
-export function listWorkflows(claudeRoot: string, opts: WorkflowPackFs = {}): WorkflowListResult {
+export function listWorkflows(claudeRoot: string, opts: { cwd?: string; binDir?: string } & WorkflowPackFs = {}): WorkflowListResult {
   const fs = resolveFs(opts);
+  const cwd = opts.cwd ?? process.cwd();
+  const binDir = opts.binDir ?? dirname(process.execPath);
   const dirs = [
+    { label: "cwd/workflows", dir: join(cwd, "workflows") },
+    { label: "bin/workflows", dir: join(binDir, "workflows") },
     { label: ".pi/workflows", dir: join(claudeRoot, PI_WORKFLOWS_DIR) },
     ...fs.readdir(join(claudeRoot, PKG_WORKFLOWS_GLOB)).map((pkg) => ({
       label: `bun-apps/${pkg}/workflows`,

@@ -649,6 +649,23 @@ describe("listWorkflows", () => {
     expect(pkgIdx).toBeGreaterThanOrEqual(0);
     expect(piIdx).toBeLessThan(pkgIdx);
   });
+
+  test("enumerates packs in <cwd>/workflows and <binDir>/workflows (portable tiers)", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-ls-cwd-"));
+    const bin = mkdtempSync(join(tmpdir(), "pi-ls-bin-"));
+    // claudeRoot with no repo dirs → only the portable tiers should surface
+    const claudeRoot = mkdtempSync(join(tmpdir(), "pi-ls-root-"));
+    for (const [base, label] of [[cwd, "cwd"], [bin, "bin"]] as const) {
+      mkdirSync(join(base, "workflows", "echo"), { recursive: true });
+      writeFileSync(join(base, "workflows", "echo", "manifest.json"), JSON.stringify({ name: "echo", description: label, entry: "index.js" }));
+      writeFileSync(join(base, "workflows", "echo", "index.js"), `export const meta = { name: "echo", description: "${label}" };\nreturn {};\n`);
+    }
+    const { rows } = listWorkflows(claudeRoot, { cwd, binDir: bin });
+    const sources = rows.map((r) => r.source);
+    expect(sources).toContain("cwd/workflows");
+    expect(sources).toContain("bin/workflows");
+    expect(rows.find((r) => r.source === "cwd/workflows" && r.name === "echo")).toBeTruthy();
+  });
 });
 
 // ── findRepoRoot — walk-up cap ─────────────────────────────────────────────
