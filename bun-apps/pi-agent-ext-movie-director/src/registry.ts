@@ -59,7 +59,6 @@ export interface ProviderEntry {
     | "bun:builtin"
     | "bun:whisper"
     | "bun:clip"
-    | "bun:esrgan"
     | "compose:remotion"
     | "compose:motion";
   configured: boolean;
@@ -358,14 +357,12 @@ export const REGISTRY: ProviderEntry[] = [
 
   // Enhancement.
   { name: "bg_remove", capability: "enhancement", provider: "vision", backend: "macos_native", invoke: "macos:vision", configured: true, notes: "macOS Vision VNGeneratePersonSegmentationRequest" },
-  // flux2's native `upscale` command (RealPLKSR/ESRGAN, same default model —
-  // 4x-nomos-webphoto-realplksr — as esrgan_upscale.py below) is a Swift/MLX
-  // replacement for the Python/torch-MPS esrgan adapter (2026-07-13). Declared
-  // first + commands-claimed so it wins whenever the flux2 binary is built;
-  // bridge.ts's normalizeLegacyImageRequest translates the esrgan adapter's
-  // `image`/`output` field names onto flux2's `input`/`output`.
-  { name: "upscale_flux2", capability: "enhancement", provider: "flux2", backend: "native_swift", invoke: "swift:flux2", configured: true, commands: ["upscale"], notes: "swift/flux2-image-director upscale (RealPLKSR/ESRGAN, native Swift MLX) — supersedes esrgan_upscale.py for this capability." },
-  { name: "upscale", capability: "enhancement", provider: "esrgan", backend: "native_swift", invoke: "bun:esrgan", configured: true, notes: "ESRGAN upscale (python/esrgan_upscale.py) — spandrel + torch MPS, mirrors run.py upscale path. Fallback for when the flux2 Swift binary isn't built (see upscale_flux2 above, which wins when configured)." },
+  // flux2's native `upscale` command (RealPLKSR/ESRGAN, default model
+  // 4x-nomos-webphoto-realplksr) — the sole enhancement:upscale provider since
+  // the Python/torch-MPS esrgan adapter was removed (2026-07-19, zero-python
+  // ext). bridge.ts's normalizeLegacyImageRequest still maps a legacy `image`/
+  // `output` request onto flux2's `input`/`output` field names.
+  { name: "upscale_flux2", capability: "enhancement", provider: "flux2", backend: "native_swift", invoke: "swift:flux2", configured: true, commands: ["upscale"], notes: "swift/flux2-image-director upscale (RealPLKSR/ESRGAN, native Swift MLX) — the sole upscale provider (esrgan_upscale.py removed 2026-07-19)." },
 ];
 
 export interface CapabilityRollup {
