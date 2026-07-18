@@ -3,7 +3,6 @@
     "pi-agent-ext-obsidian/extensions/obsidian.ts",
     "pi-agent-ext-file2md/extensions/pi-file2md.ts",
     "pi-agent-ext-knowledge-card/extensions/pi-knowledge-card.ts",
-    "pi-agent-ext-distill/extensions/pi-distill.ts",
     "pi-agent-ext-power-tool/src/index.ts",
     {
       "name": "pi-agent-ext-goal-todo",
@@ -92,7 +91,7 @@
     "pi-agent-ext-obsidian/skills",
     "pi-agent-ext-research-tool/skills",
     "pi-agent-ext-wayfind/skills",
-    "pi-agent-ext-grill-memory/skills",
+    "pi-agent-ext-hermes-memory/skills",
     "pi-agent-ext-superpowers/skills"
   ],
   "npmExtensions": [],

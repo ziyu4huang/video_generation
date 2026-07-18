@@ -27,7 +27,7 @@ gh api -X PUT repos/ziyu4huang/video_generation/branches/main/protection \
   "test · pi-agent-ext-workflow",
   "test · pi-agent-ext-ask-user", "test · pi-agent-ext-btw", "test · pi-agent-ext-goal-todo",
   "test · pi-agent-ext-file2md", "test · pi-agent-ext-obsidian",
-  "test · pi-agent-ext-distill", "test · pi-agent-ext-research-tool",
+  "test · pi-agent-ext-research-tool",
   "test · pi-agent-ext-zai-mcp", "test · pi-agent-ext-wayfind", "test · perf-harness"
 ] } } /* …preserve existing review/admin settings in the full PUT body… */
 JSON
@@ -136,7 +136,7 @@ pi-agent-ext-btw, pi-agent-ext-ask-user, pi-agent-ext-goal-todo,
 pi-agent-ext-web-access, pi-agent-ext-file2md, gui-movie-director,
 pi-agent-ext-knowledge-card, pi-agent-ext-obsidian,
 pi-agent-ext-workflow, pi-agent-ext-hermes-memory,
-pi-agent-ext-distill, pi-agent-ext-research-tool, pi-agent-ext-zai-mcp,
+pi-agent-ext-research-tool, pi-agent-ext-zai-mcp,
 pi-agent-ext-wayfind, perf-harness
 ```
 

@@ -2,10 +2,10 @@ import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runGate } from "../src/gate.ts";
-import { runConverge } from "../src/converge.ts";
-import { retrieveRecords } from "../../pi-agent-ext-knowledge-card/src/retrieve.ts";
-import type { MemoryEntry } from "../src/types.ts";
+import { runGate } from "../../src/distill/gate.ts";
+import { runConverge } from "../../src/distill/converge.ts";
+import { retrieveRecords } from "../../src/retrieve.ts";
+import type { MemoryEntry } from "../../src/distill/types.ts";
 
 /**
  * E2E for mechanism B (C1 fix): a raw hermes-style `pi-memory:failure:*` card

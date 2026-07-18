@@ -1,7 +1,7 @@
 import type { EnrichedNote, ConvergeMetrics, ConvergeResult } from "./types.ts";
-import type { KnowledgeRecord, IngestSummary } from "../../pi-agent-ext-knowledge-card/src/ingest.ts";
-import { ingestRecords } from "../../pi-agent-ext-knowledge-card/src/ingest.ts";
-import { markSuperseded } from "../../pi-agent-ext-knowledge-card/src/supersede.ts";
+import type { KnowledgeRecord, IngestSummary } from "../ingest.ts";
+import { ingestRecords } from "../ingest.ts";
+import { markSuperseded } from "../supersede.ts";
 import { readState, writeState } from "./state.ts";
 import { adjustThreshold } from "./threshold.ts";
 
