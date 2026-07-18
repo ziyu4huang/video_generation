@@ -1,8 +1,10 @@
 /**
- * pi-agent-ext-goal-todo — /goal + todo with a shared composite status widget.
+ * pi-agent-ext-goal-todo-ask — /goal + todo + ask_user_question unified.
  *
- * Extracted from pi-agent-ext-power-tool (2026-07-12, monolith-split A3).
- * goal and todo are kept TOGETHER because they share:
+ * Merged from pi-agent-ext-goal-todo (pi-goal-todo.ts) and
+ * pi-agent-ext-ask-user (pi-ask-user.ts) into a single extension entry.
+ *
+ * goal + todo are kept together because they share:
  *   • PowerToolStatusWidget — a single above-editor widget key ("pi-power-tool")
  *     that renders goal (top) + todo (bottom) in fixed order. Splitting them
  *     across two extensions would reintroduce the widget-key flicker bug the
@@ -11,12 +13,14 @@
  *   • Six session lifecycle hooks (replay-from-branch, overlay reset/dispose,
  *     tool-execution-end refresh, agent-start hide-completed).
  *
+ * ask_user_question is a self-contained modal dialog tool with no shared code
+ * against goal/todo — merged here purely for entry-point consolidation.
+ *
  * Plan A coordination seam: publishes `isGoalActive` on globalThis so peer
  * extensions (the plan coordinator) can read it WITHOUT a hard dep. The peer
  * reads `globalThis.__piGoalActive?.() ?? false`. This is a runtime globalThis
  * contract — load order only affects the brief startup window, handled by the
- * `?? false` fallback. Positioned early in run-dir/manifest.json (right after
- * power-tool) to mirror the pre-extraction ordering.
+ * `?? false` fallback.
  */
 import type { ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import goal, { isGoalActive } from "../src/goal/goal.js";
@@ -27,6 +31,7 @@ import { replayFromBranch } from "../src/todo/state/replay";
 import { replaceState } from "../src/todo/state/store";
 import { TOOL_NAME } from "../src/todo/tool/types";
 import { getSharedStatusWidget } from "../src/shared/status-widget.js";
+import registerAskUser from "../src/ask-user";
 
 /** Swallow the expected "stale after session replacement" error on compact/tree. */
 function isStaleCtxError(e: unknown): boolean {
@@ -38,6 +43,9 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 	// globalThis is process-singleton → the function always reads goal/goal's
 	// activeGoal. Peer (the plan coordinator) reads globalThis.__piGoalActive?.().
 	(globalThis as Record<string, unknown>).__piGoalActive = isGoalActive;
+
+	// ── Ask-user tool (self-contained modal dialog) ──────────────────────
+	registerAskUser(pi);
 
 	// ── Todo tool + /todos command ────────────────────────────────────────
 	registerTodoTool(pi);
