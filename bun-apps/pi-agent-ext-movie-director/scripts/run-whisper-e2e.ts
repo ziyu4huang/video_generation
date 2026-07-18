@@ -1,30 +1,36 @@
 /**
- * run-whisper-e2e.ts — Item I native Whisper director: end-to-end proof.
+ * run-whisper-e2e.ts — native Whisper director: end-to-end proof.
  *
  * Drives the FULL captions chain on a real audio fixture, deterministically:
  *
  *   narration.m4a
- *     → whisperAdapter (real mlx-whisper, word-level timestamps)
+ *     → whisperAdapter (pure swift/MLX `ltx-video transcribe`, segment-level
+ *                       timestamps; per-word DTW alignment is P2b, so the
+ *                       segment-mode cues below are the current ceiling)
  *       → transcript.txt + words.json
- *         → cuesFromWhisper → buildSubtitle → captions.srt (subtitle_gen)
+ *         → cuesFromWhisper(segments) → buildSubtitle → captions.srt (subtitle_gen)
  *           → composeVideo {captions:{srtPath, burn:true}} → captioned .mp4
  *             → finalReview {transcriptPath} → advisory spoken-content check
  *
  * Why deterministic (no LLM in the loop)? Every stage that does real work here
- * — transcription (mlx-whisper), subtitle_gen (pure Bun), compose (ffmpeg),
- * final-review (ffprobe) — is deterministic. There is no model judgment in the
- * captions primitive; the LLM orchestrator is the replaceable layer. This
- * script isolates ONE variable: "does the native transcriber produce real word
- * timestamps that flow into burned captions?" — exactly the Item I gate.
+ * — transcription (swift/MLX Whisper), subtitle_gen (pure Bun), compose
+ * (ffmpeg), final-review (ffprobe) — is deterministic. There is no model
+ * judgment in the captions primitive; the LLM orchestrator is the replaceable
+ * layer. This script isolates ONE variable: "does the native transcriber
+ * produce real segment timestamps that flow into burned captions?"
+ *
+ * Prereq: the swift/ltx-video-director binary must be built
+ *   (`swift build -c release` in swift/ltx-video-director) with a whisper
+ *   checkpoint resolvable by `ltx-video transcribe` (cached
+ *   mlx-community/whisper-large-v3-mlx, WHISPER_NATIVE_CHECKPOINT, or
+ *   --checkpoint).
  *
  * Run:
  *   bun run --cwd bun-apps/pi-agent-ext-movie-director scripts/run-whisper-e2e.ts
  *
  * Env:
- *   MD_WHISPER_PYTHON  python binary running mlx_whisper
- *                      (default: <repo>/python/whisper-venv/bin/python)
- *   MLX_OUTPUT_DIR     project workspace root (default repo convention)
- *   MD_WHISPER_MODEL   mlx-whisper repo (default mlx-community/whisper-small-mlx)
+ *   MLX_OUTPUT_DIR           project workspace root (default repo convention)
+ *   WHISPER_NATIVE_CHECKPOINT  weights.safetensors path (ltx-video transcribe flag)
  */
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -76,14 +82,14 @@ async function main() {
   line(`- transcriber in gaps? ${menu.gaps.some((g) => g.name === "transcriber") ? "YES (BUG)" : "no ✓"}`);
   line("");
 
-  // 1. Transcribe (REAL mlx-whisper).
-  line("## 1. Transcribe — `whisperAdapter` (real mlx-whisper)");
+  // 1. Transcribe (pure swift/MLX ltx-video transcribe — segment-level).
+  line("## 1. Transcribe — `whisperAdapter` (swift/MLX ltx-video transcribe)");
   const t1 = Date.now();
   const res = await whisperAdapter({
     capability: "analysis",
     command: "transcribe",
     outputDir: OUT,
-    options: { audio: FIXTURE, model: process.env.MD_WHISPER_MODEL },
+    options: { audio: FIXTURE, model: process.env.WHISPER_NATIVE_CHECKPOINT },
   });
   line(`- success: ${res.success}, provider: ${res.provider}, model: ${res.model}, duration: ${res.duration_seconds}s`);
   if (!res.success || !res.artifacts.length) {
@@ -96,16 +102,16 @@ async function main() {
   const transcript = readFileSync(transcriptPath, "utf8").trim();
   line(`- transcript: "${transcript}"`);
   line(`- language: ${words.language}, segments: ${words.segments?.length}, words: ${words.segments?.flatMap((s: { words?: unknown[] }) => s.words ?? []).length}`);
-  line(`- wall time: ${((Date.now() - t1) / 1000).toFixed(2)}s (incl. first-run model fetch)`);
+  line(`- wall time: ${((Date.now() - t1) / 1000).toFixed(2)}s`);
   line("");
 
-  // 2. subtitle_gen: words → cues → SRT.
-  line("## 2. subtitle_gen — word timestamps → SRT");
-  const cues = cuesFromWhisper(words, "words", 4);
+  // 2. subtitle_gen: segments → cues → SRT.
+  line("## 2. subtitle_gen — segment timestamps → SRT");
+  const cues = cuesFromWhisper(words, "segments");
   const srt = buildSubtitle({ cues });
   const srtPath = join(OUT, "captions.srt");
   writeFileSync(srtPath, srt, "utf8");
-  line(`- ${cues.length} cues (4 words each) → \`${srtPath}\``);
+  line(`- ${cues.length} segment cues → \`${srtPath}\``);
   line("```srt");
   line(srt.trim());
   line("```");
