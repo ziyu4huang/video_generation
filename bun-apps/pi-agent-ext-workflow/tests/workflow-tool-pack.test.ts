@@ -136,6 +136,56 @@ describe("workflow tool — `name` (pack resolution)", () => {
     expect(opt).not.toHaveProperty("model");
     expect(opt).not.toHaveProperty("mainModel");
   });
+
+  // D3-2 — Path B (the `workflow` tool) does NOT thread persistLogs / runsDir /
+  // outDir into the manager. This is an intentional asymmetry with Path A
+  // (`runWorkflowScript`, the CLI `workflow run` path), which owns those fields
+  // and passes them to the engine. Path B builds an options object of only
+  // { maxAgents, concurrency, agentRetries, agentTimeoutMs, tokenBudget } so the
+  // engine defaults take effect. Pin the omission so a divergence (accidentally
+  // forwarding persistLogs=false from the tool, or runsDir from a pack manifest)
+  // is caught at the boundary.
+  test("`name` path (Path B) does NOT pass persistLogs / runsDir / outDir to the manager (D3-2)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wf-tool-"));
+    const packDir = makePack(dir, "echo", { name: "echo", description: "d", entry: "index.js" });
+
+    // Capturing manager that records the FULL (script, args, options) triple.
+    const calls: { script: string; args: unknown; options: unknown }[] = [];
+    const manager = {
+      startInBackground(script: string, args: unknown, options: unknown) {
+        calls.push({ script, args, options });
+        return { runId: "stub-run" };
+      },
+      runSync(script: string, args: unknown, options: unknown) {
+        calls.push({ script, args, options });
+        return { result: { ok: true }, meta: { name: "pack", description: "d" }, phases: ["P"], logs: [], agentCount: 1, durationMs: 0, runId: "stub-run", tokenUsage: null };
+      },
+    };
+    const tool = createWorkflowTool({ cwd: dir, manager: manager as any });
+
+    await tool.execute(
+      "call-d3-2",
+      { name: packDir, args: { x: 1 }, background: true } as any,
+      undefined as any,
+      undefined as any,
+      {} as any,
+    );
+
+    expect(calls).toHaveLength(1);
+    // The options object handed to startInBackground must omit the Path-A-only
+    // fields. A divergence here would mean the tool silently overrode the
+    // engine's default log persistence or redirect a pack manifest declared.
+    const opt = calls[0]!.options as Record<string, unknown>;
+    expect(opt).not.toHaveProperty("persistLogs");
+    expect(opt).not.toHaveProperty("runsDir");
+    expect(opt).not.toHaveProperty("outDir");
+    // And the run-shaping knobs that Path B DOES own are still threaded.
+    expect(opt).toHaveProperty("maxAgents");
+    expect(opt).toHaveProperty("concurrency");
+    expect(opt).toHaveProperty("agentRetries");
+    expect(opt).toHaveProperty("agentTimeoutMs");
+    expect(opt).toHaveProperty("tokenBudget");
+  });
 });
 
 describe("workflow tool — no-agent script rejection (D9-8)", () => {

@@ -510,6 +510,38 @@ describe("listWorkflows", () => {
     expect(rows).toEqual([]);
     expect(errors).toEqual([]);
   });
+
+  // D5-1 — listWorkflows enumerates `.pi/workflows` BEFORE any `bun-apps/<pkg>`
+  // row. The dirs[] array in listWorkflows is built as
+  //   [ { ".pi/workflows", ... }, ...bun-apps/<pkg>/workflows (one per pkg) ]
+  // so .pi rows always come first. This pins the source-ordering guarantee so a
+  // refactor that reorders the dirs[] array (or sorts rows[] alphabetically by
+  // source AFTER the fact) cannot silently break the .pi-first precedence.
+  //
+  // NOTE: the per-package ordering among `bun-apps/<pkg>` entries is
+  // filesystem-dependent (readdir order, NOT sorted) — this test deliberately
+  // does NOT assert any specific pkg-vs-pkg order, only the .pi-before-bun-apps
+  // guarantee.
+  test("a `.pi/workflows` row is always listed BEFORE any `bun-apps/<pkg>` row (D5-1)", () => {
+    const root = mkdtempSync(join(tmpdir(), "wf-"));
+    // Place a pack under .pi/workflows (the user-private root).
+    const piDir = join(root, ".pi", "workflows");
+    mkdirSync(piDir, { recursive: true });
+    makePack(piDir, "pi-first", { name: "pi-first", description: "from .pi", entry: "index.js" });
+    // Place a DIFFERENT pack under bun-apps/<pkg>/workflows (a shipped pack).
+    const pkgDir = join(root, "bun-apps", "pi-agent-cli", "workflows");
+    mkdirSync(pkgDir, { recursive: true });
+    makePack(pkgDir, "pkg-second", { name: "pkg-second", description: "from pkg", entry: "main.js" });
+
+    const { rows } = listWorkflows(root);
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+
+    const piIdx = rows.findIndex((r) => r.source === ".pi/workflows");
+    const pkgIdx = rows.findIndex((r) => r.source.startsWith("bun-apps/"));
+    expect(piIdx).toBeGreaterThanOrEqual(0);
+    expect(pkgIdx).toBeGreaterThanOrEqual(0);
+    expect(piIdx).toBeLessThan(pkgIdx);
+  });
 });
 
 // ── findRepoRoot — walk-up cap ─────────────────────────────────────────────
