@@ -21,6 +21,7 @@ import {
   _setMotionFiltersForTest,
   _setWhisperRuntimeForTest,
   _setVisionRuntimeForTest,
+  _setFlux2BinaryForTest,
   type WhisperResult,
   type ClipResult,
 } from "./providers.ts";
@@ -32,6 +33,11 @@ beforeAll(() => {
   _setMotionFiltersForTest(true);
   _setWhisperRuntimeForTest(true);
   _setVisionRuntimeForTest("clip", true);
+  // Pin the swift flux2 binary present so upscale_flux2 (the sole enhancement:upscale
+  // provider after the esrgan removal) is callable on every CI runner regardless of
+  // platform / whether the swift binary was built. bg_remove (macos:vision) is
+  // darwin-only, so without this pin enhancement would be a gap on Linux CI.
+  _setFlux2BinaryForTest(true);
 });
 afterAll(() => {
   _setFfmpegAvailableForTest(undefined);
@@ -39,6 +45,7 @@ afterAll(() => {
   _setMotionFiltersForTest(undefined);
   _setWhisperRuntimeForTest(undefined);
   _setVisionRuntimeForTest("clip", undefined);
+  _setFlux2BinaryForTest(undefined);
 });
 
 describe("buildSubtitle (pure)", () => {
@@ -199,10 +206,11 @@ describe("probeConfigured + probedMenuSummary", () => {
     const analysis = m.capabilities.find((c) => c.capability === "analysis")!;
     expect(analysis.available_providers).toContain("whisper");
     expect(analysis.available_providers).toContain("clip");
-    // enhancement capability: bg_remove (macos vision) wired; upscale via flux2
-    // (esrgan adapter removed 2026-07-19).
+    // enhancement capability: upscale via flux2 (the sole upscale provider since
+    // the esrgan adapter was removed 2026-07-19); bg_remove (macos:vision) is
+    // darwin-only, so flux2 is the platform-independent guarantee here.
     const enhancement = m.capabilities.find((c) => c.capability === "enhancement")!;
-    expect(enhancement.available_providers).toContain("vision");
+    expect(enhancement.available_providers).toContain("flux2");
   });
 
   it("probedMenuSummary reports callable providers per capability", () => {
