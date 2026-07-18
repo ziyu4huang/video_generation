@@ -13,7 +13,12 @@ function dryRunArgs(promptText: string): unknown {
 	return JSON.parse(jsonText);
 }
 
-describe("run-self-improve-loop.sh --dry-run", () => {
+// Spawns `bash` as a real subprocess (portability P2: host-binary probe — see
+// .github/TEST-PORTABILITY.md). --dry-run is offline/pure (flag-parsing + jq
+// JSON construction, no GPU/model calls), and bash+jq are always present on
+// GitHub-hosted ubuntu-latest runners, but this repo's convention gates every
+// P2 spawn hit behind process.env.CI regardless — run locally to exercise it.
+describe.skipIf(!!process.env.CI)("run-self-improve-loop.sh --dry-run", () => {
 	test("a plain prompt round-trips", () => {
 		const parsed = dryRunArgs("a red apple") as { prompts: string[] };
 		expect(parsed.prompts).toEqual(["a red apple"]);

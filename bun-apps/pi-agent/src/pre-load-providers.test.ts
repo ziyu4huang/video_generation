@@ -88,7 +88,9 @@ describe("PROVIDERS config (contract)", () => {
 describe("module purity (no ModelRegistry side effects)", () => {
   test("importing pre-load-providers.ts does not patch ModelRegistry.prototype.loadModels", () => {
     const fixture = join(import.meta.dir, "__tests__", "fixtures", "check-pre-load-providers-pure.ts");
-    const proc = spawnSync("bun", [fixture], { encoding: "utf8", cwd: import.meta.dir });
+    // process.execPath (not the literal "bun") — spawns the running runtime
+    // itself, always present on CI (portability P2, see .github/TEST-PORTABILITY.md).
+    const proc = spawnSync(process.execPath, [fixture], { encoding: "utf8", cwd: import.meta.dir });
     expect(proc.status).toBe(0);
     const result = JSON.parse(proc.stdout.trim());
     expect(result.unchanged).toBe(true);
