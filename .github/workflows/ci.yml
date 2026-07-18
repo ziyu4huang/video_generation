@@ -231,6 +231,56 @@ jobs:
         run: bun scripts/deploy.ts dist/ci-verify --writable --verify
 
   # ──────────────────────────────────────────────────────────────────────────
+  # Thrust B2 — clean-launch self-heal. Exercises the path that escaped CI when
+  # the workspace root moved into bun-apps/ (#625): every other job runs
+  # `setup-env` (which `bun install`s) BEFORE launching pi, so the launcher's
+  # OWN pre-flight self-heal (run-dir/check-deps.ts → `bun install` at the
+  # detected workspace root) was never exercised. A `git clean -dxf` +
+  # `./pi-agent.sh` then failed: check-deps ran `bun install` at the repo root,
+  # where package.json no longer lives → "could not find a package.json" →
+  # unlinked @repo/* extension deps → jiti NameTooLong cascade. This job
+  # reproduces that exact clean-checkout state: setup Bun but do NOT install,
+  # then drive check-deps.ts directly and assert it installs at bun-apps/ and
+  # exits 0. Also pins the #625 workspace-root location invariant. Always runs
+  # (cheap; the invariant is repo-wide, not path-scoped).
+  # ──────────────────────────────────────────────────────────────────────────
+  clean-launch-self-heal:
+    name: clean-launch self-heal
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      # Deliberately NOT ./.github/actions/setup-env — that pre-installs and
+      # would hide the very regression this job guards.
+      - name: Setup Bun (no install)
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - name: Workspace-root location invariant (#625)
+        run: |
+          set -e
+          # The workspace root lives at bun-apps/, NOT the repo root.
+          test ! -e package.json || { echo "FAIL: package.json must not live at repo root"; exit 1; }
+          test ! -e bun.lock    || { echo "FAIL: bun.lock must not live at repo root"; exit 1; }
+          test -f bun-apps/package.json || { echo "FAIL: bun-apps/package.json missing"; exit 1; }
+          test -f bun-apps/bun.lock      || { echo "FAIL: bun-apps/bun.lock missing"; exit 1; }
+          echo "OK: workspace root is bun-apps/"
+      - name: Fresh checkout has no node_modules (self-heal MUST trigger)
+        run: |
+          test ! -d bun-apps/node_modules || { echo "FAIL: node_modules pre-exists — clean-checkout premise broken"; exit 1; }
+          echo "OK: clean tree — check-deps self-heal will run"
+      - name: check-deps self-heal installs at bun-apps/ and exits 0
+        run: |
+          set -e
+          # On a clean checkout, missingExtensionPackages() is non-empty →
+          # check-deps runs `bun install` at its detected workspace root and
+          # must exit 0. If anyone re-introduces a repo-root install assumption,
+          # this fails with "could not find a package.json".
+          bun bun-apps/pi-agent/run-dir/check-deps.ts
+          test -d bun-apps/node_modules || { echo "FAIL: self-heal did not materialize bun-apps/node_modules"; exit 1; }
+          echo "OK: self-heal installed at the workspace root (bun-apps/)"
+
+  # ──────────────────────────────────────────────────────────────────────────
   # Thrust C — regression baselines. schema-cost (WARNING at >5%, not a block —
   # schema growth is sometimes intentional) + the 2 MB file-size guard (BLOCK —
   # the remote twin of .githooks/pre-commit, so a bypassed local hook can't ship
