@@ -35,8 +35,7 @@ import {
 import { REGISTRY, type Capability, type ProviderEntry } from "./registry.ts";
 import { selectProvider, type SelectorOptions } from "./selector.ts";
 import { nonNativeAdapters } from "./providers.ts";
-import { runPyCaption, type CaptionDetails, type CaptionOptions } from "./caption.ts";
-import { isNativeCaptionRequest } from "./caption_native.ts";
+import { type CaptionDetails, type CaptionOptions } from "./caption.ts";
 import {
   runPyImage,
   type RunPyImageDetails,
@@ -489,23 +488,17 @@ export function adaptCaption(
 }
 
 /**
- * realCaption — style-routed caption dispatch. Unlike story/tts (which split
- * cleanly by COMMAND), caption splits by STYLE within the single "caption"
- * command, so the native/run.py fork happens here rather than via a second
- * registry entry. `default`/`t2i`/`score`/`review` are pure LM Studio HTTP
- * calls underneath (caption_native.ts, 2026-07-13 migration — see its
- * header); every other style (photography/profile/pose_dsg/video_* /...) still
- * needs run.py's richer parsing, so a request naming ANY unported style falls
- * through to the Python bridge in full (never a mixed native+python run).
+ * realCaption — caption dispatch. All 14 styles (default/t2i/photography/profile/
+ * style/score/review/video_score/video_analysis/compare/playwright/lora_quality/
+ * ltx_i2v/pose_dsg) run natively via caption_native.ts → LM Studio VLM (zero
+ * run.py): `--samples` median, pose_dsg recomputed aggregates, and video keyframe
+ * captioning are all ported. The Python `run.py caption` path is no longer on the
+ * runtime dispatch (2026-07-19 zero-python migration).
  */
 async function realCaption(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
   const options = (req.options ?? {}) as unknown as CaptionOptions;
-  if (isNativeCaptionRequest(options)) {
-    const { runCaptionNative } = await import("./caption_native.ts");
-    const out = await runCaptionNative({ options });
-    return adaptCaption(req, out.details, out.summary, out.stderrTail, env);
-  }
-  const out = await runPyCaption({ options });
+  const { runCaptionNative } = await import("./caption_native.ts");
+  const out = await runCaptionNative({ options });
   return adaptCaption(req, out.details, out.summary, out.stderrTail, env);
 }
 

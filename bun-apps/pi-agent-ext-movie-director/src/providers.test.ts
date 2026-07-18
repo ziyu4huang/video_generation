@@ -22,6 +22,7 @@ import {
   _setWhisperRuntimeForTest,
   _setVisionRuntimeForTest,
   _setFlux2BinaryForTest,
+  _setLmStudioReachableForTest,
   type WhisperResult,
   type ClipResult,
 } from "./providers.ts";
@@ -38,6 +39,7 @@ beforeAll(() => {
   // platform / whether the swift binary was built. bg_remove (macos:vision) is
   // darwin-only, so without this pin enhancement would be a gap on Linux CI.
   _setFlux2BinaryForTest(true);
+  _setLmStudioReachableForTest(true);
 });
 afterAll(() => {
   _setFfmpegAvailableForTest(undefined);
@@ -46,6 +48,7 @@ afterAll(() => {
   _setWhisperRuntimeForTest(undefined);
   _setVisionRuntimeForTest("clip", undefined);
   _setFlux2BinaryForTest(undefined);
+  _setLmStudioReachableForTest(undefined);
 });
 
 describe("buildSubtitle (pure)", () => {
