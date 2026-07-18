@@ -13,6 +13,7 @@ import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { MemoryStore } from "../store/memory-store.js";
 import { DatabaseManager } from "../store/db.js";
+import { runWithTransientRetry } from "../store/db.js";
 import {
   formatFailureMemoryContent,
   removeExactSyncedMemories,
@@ -173,7 +174,7 @@ async function syncAddToSqlite(
 
     if (rawTarget === "failure") {
       const failureCategory = category ?? "failure";
-      syncMemoryEntry(dbManager, {
+      await runWithTransientRetry(() => syncMemoryEntry(dbManager, {
         content: formatFailureMemoryContent(content, {
           category: failureCategory,
           failureReason,
@@ -182,15 +183,15 @@ async function syncAddToSqlite(
         project: sqliteProject ?? null,
         category: failureCategory,
         failureReason,
-      });
+      }));
       return null;
     }
 
-    syncMemoryEntry(dbManager, {
+    await runWithTransientRetry(() => syncMemoryEntry(dbManager, {
       content,
       target: sqliteTarget,
       project: sqliteProject ?? null,
-    });
+    }));
     return null;
   } catch (err) {
     return `Saved to Markdown, but SQLite search sync failed: ${err instanceof Error ? err.message : String(err)}`;
@@ -209,11 +210,11 @@ async function syncReplaceToSqlite(
   try {
     const sqliteTarget = sqliteTargetFor(rawTarget);
     const sqliteProject = sqliteProjectFor(rawTarget, projectName);
-    const syncResult = replaceSyncedMemories(dbManager, oldText, {
+    const syncResult = await runWithTransientRetry(() => replaceSyncedMemories(dbManager, oldText, {
       content: newContent,
       target: sqliteTarget,
       project: sqliteProject,
-    });
+    }));
 
     if (syncResult.matched === 0) {
       return "Saved to Markdown, but no matching SQLite memory row was updated. Run /memory-sync-markdown if search results look stale.";
@@ -236,10 +237,10 @@ async function syncRemoveFromSqlite(
   try {
     const sqliteTarget = sqliteTargetFor(rawTarget);
     const sqliteProject = sqliteProjectFor(rawTarget, projectName);
-    const syncResult = removeSyncedMemories(dbManager, oldText, {
+    const syncResult = await runWithTransientRetry(() => removeSyncedMemories(dbManager, oldText, {
       target: sqliteTarget,
       project: sqliteProject,
-    });
+    }));
 
     if (syncResult.matched === 0) {
       return "Saved to Markdown, but no matching SQLite memory row was removed. Run /memory-sync-markdown if search results look stale.";

@@ -7,10 +7,9 @@ import { DatabaseManager } from '../../src/store/db.js';
 import {
   scheduleLiveSessionIndex,
   waitForLiveSessionIndex,
-  isTransientDbError,
-  runWithTransientRetry,
   type SessionLiveIndexState,
 } from '../../src/handlers/session-live-index.js';
+import { isTransientDbError, runWithTransientRetry } from '../../src/store/db.js';
 
 describe('session live indexing handler', () => {
   let tmpDir: string;

@@ -51,6 +51,57 @@ class DatabaseCorruptionError extends Error {
 
 export const SQLITE_WAL_AUTOCHECKPOINT_PAGES = 1000;
 
+export const TRANSIENT_DB_RETRY_MAX_ATTEMPTS = 3;
+export const TRANSIENT_DB_RETRY_BACKOFF_MS = 50;
+
+/**
+ * True for transient SQLite write failures (lock contention / momentary I-O
+ * blips) common when multiple processes share the WAL database. These are NOT
+ * corruption (DatabaseManager.isCorruptionError + withCorruptionRecovery handle
+ * that path) and usually clear on a retry.
+ */
+export function isTransientDbError(err: unknown): boolean {
+  if (!err) return false;
+  const code = typeof err === 'object' && 'code' in err ? String((err as { code?: unknown }).code) : '';
+  if (code === 'SQLITE_BUSY' || code === 'SQLITE_LOCKED' || code === 'SQLITE_IOERR') return true;
+  const message = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return message.includes('disk i/o error')
+    || message.includes('database is locked')
+    || message.includes('sqlite_busy')
+    || message.includes('sqlite_locked')
+    || message.includes('sqlite_ioerr');
+}
+
+/**
+ * Run an operation with a bounded retry on transient (non-corruption) errors.
+ * Corruption-class errors are NOT retried here — the caller wraps the operation
+ * in withCorruptionRecovery for the rebuild path; this layer only absorbs
+ * contention/I-O blips a rebuild cannot fix. `sleep` is injectable for tests.
+ */
+export async function runWithTransientRetry<T>(
+  operation: () => T,
+  opts: { maxAttempts?: number; isRetryable?: (err: unknown) => boolean; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<T> {
+  const maxAttempts = opts.maxAttempts ?? TRANSIENT_DB_RETRY_MAX_ATTEMPTS;
+  const isRetryable = opts.isRetryable ?? isTransientDbError;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return operation();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxAttempts && isRetryable(err)) {
+        await sleep(TRANSIENT_DB_RETRY_BACKOFF_MS * attempt);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr; // unreachable — loop always returns or throws
+}
+
 const DATABASE_FILE_SUFFIXES: readonly DatabaseFileSuffix[] = ['', '-wal', '-shm'];
 const MEMORY_TARGETS = new Set(['memory', 'user', 'failure']);
 const MEMORY_CATEGORIES = new Set(['failure', 'correction', 'insight', 'preference', 'convention', 'tool-quirk']);
