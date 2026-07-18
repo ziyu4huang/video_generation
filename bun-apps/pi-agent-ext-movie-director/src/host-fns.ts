@@ -18,6 +18,7 @@
  * Pure Bun (no pi-SDK, no workflow import) so it is unit-testable in isolation.
  */
 import { dispatch, COMMANDS, coerceOptions, type Command } from "./dispatch.ts";
+import { markMovieActive } from "./session-state.ts";
 
 /** Context handed to every movie.* host fn (matches workflow's HostFnCtx shape). */
 export interface MovieHostFnCtx {
@@ -60,13 +61,14 @@ export function buildMovieHostFnEntries(): MovieHostFnEntry[] {
   const entries: MovieHostFnEntry[] = COMMANDS.map((cmd) => ({
     ns: "movie",
     name: cmd,
-    fn: async (args: unknown, _ctx: MovieHostFnCtx) => unwrap(await dispatch(cmd as Command, coerceOptions(args)), cmd),
+    fn: async (args: unknown, _ctx: MovieHostFnCtx) => { markMovieActive(); return unwrap(await dispatch(cmd as Command, coerceOptions(args)), cmd); },
     timeoutMs: HOST_FN_TIMEOUT_MS[cmd],
   }));
   entries.push({
     ns: "movie",
     name: "dispatch",
     fn: async (args: unknown, _ctx: MovieHostFnCtx) => {
+      markMovieActive();
       const a = coerceOptions(args);
       const cmd = String(a.command ?? "") as Command;
       return unwrap(await dispatch(cmd, coerceOptions(a.options)), "dispatch");

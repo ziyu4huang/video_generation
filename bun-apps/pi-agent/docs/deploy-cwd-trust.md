@@ -1,7 +1,13 @@
 # Deploy packaging: self-contained pi-agent, any cwd
 
 How `scripts/deploy.ts` + `run-dir/resolve.ts` produce a self-contained pi-agent
-that runs from **any** cwd, independent of the repo (same machine).
+that runs from **any** cwd, independent of the repo (same machine). See
+[README.md § Build / Deploy modes](../README.md#build--deploy-modes) for the
+canonical quick-command table; this doc is the deeper layout + resolution
+reference (`resolve.ts` mode detection, `-ne` layering, per-mode directory
+tree). [`deploy-single-binary.md`](./deploy-single-binary.md) covers `--exe`
+specifically; [`deploy-readonly.md`](./deploy-readonly.md) covers the
+read-only freeze contract.
 
 ## The gap `deploy.ts` closes
 
@@ -112,7 +118,7 @@ IS the entry). Picks its entry by what's present:
 
 | detected | gate | entry |
 |---|---|---|
-| Bundle / Standalone | `.deploy-bundle` + `ext-bundles/` | `bun pi-agent.js` (or `./bun` for Standalone) |
+| Bundle / Standalone | `.deploy-bundle` + `ext-bundles/` | `bun pi-agent.js` (or `$DIR/bun` for Standalone — DIR-relative so it works from any cwd) |
 | Snapshot / source / dev | `src/cli.ts` present | `bun pi-agent/src/cli.ts` (Snapshot) or `bun src/cli.ts` (dev) |
 
 When the `.deploy-readonly` marker is present, `run.sh` exports `JITI_FS_CACHE=0` +

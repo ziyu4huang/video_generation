@@ -5,7 +5,7 @@
 > 每個 patch 都註冊在 `src/patches/index.ts` 的 `PATCH_TABLE` 中，
 > 透過 env gate 控制啟用，可獨立關閉、可除錯。
 >
-> 時間軸：從 monorepo 初期基礎建設到 2026-07-05 的 SDK 擴充。
+> 時間軸：從 monorepo 初期基礎建設到 2026-07-18 的 `pre-load-providers` 純化拆分。
 
 ---
 
@@ -27,6 +27,8 @@
 
 2026-07-05  ─┬─ ext-context-get-system-prompt-options   PR #297
              └─ ext-api-get-all-tool-definitions         PR #297
+
+2026-07-18  ─── pre-load-providers   拆分修復（見 Patch 1 章節）
 ```
 
 ---
@@ -72,7 +74,7 @@
 | **檔案** | `src/patches/pre-load-providers-patch.ts`（實際 monkey-patch）+ `src/pre-load-providers.ts`（純資料/helper，`PROVIDERS` 目錄 + `registerAllProviders()`，無 import-time side effect） |
 | **Created** | 2026-06-30 |
 | **Last updated** | 2026-07-18 |
-| **PR** | 初期基礎建設；2026-07-18 拆分修復（見下方 2026-07-18 條目） |
+| **PR** | 初期基礎建設；2026-07-18 拆分修復（見下方「2026-07-18 修復」段落） |
 
 在 `ModelRegistry` 建構時注入客製 provider（lm-studio, ollama, llamacpp, openrouter 等），不需外部 models.json。
 

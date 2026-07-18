@@ -650,7 +650,8 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-BUNDLE (default) e
 // binary alongside, so the target machine needs no system-installed bun). Same
 // resolve.ts layout/doctor classification as bundle ("bundle"); the thing
 // worth its own coverage is the standalone promise itself — run.sh invokes
-// `./bun`, not `bun` from PATH, so it must work with no bun on PATH at all.
+// `$DIR/bun` (DIR-relative, so it works from any cwd), not `bun` from PATH,
+// so it must work with no bun on PATH at all.
 describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: STANDALONE (--standalone) extension loading", () => {
 	let pkg = { pkgDir: "", pkgPiAgent: "", probePath: "" };
 	beforeAll(async () => {
@@ -661,17 +662,20 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: STANDALONE (--standalone)
 		if (pkg.pkgDir) rmSync(pkg.pkgDir, { recursive: true, force: true });
 	});
 
-	test("run.sh works via the bundled ./bun binary with NO bun on PATH", async () => {
+	test("run.sh works via the bundled bun binary with NO bun on PATH, from a FOREIGN cwd", async () => {
 		const bunBin = join(pkg.pkgDir, "bun");
 		expect(existsSync(bunBin)).toBe(true);
 		// Strip every dir containing a `bun` executable from PATH so a pass here
-		// can only mean run.sh actually invoked ./bun, not a system fallback.
+		// can only mean run.sh actually invoked $DIR/bun, not a system fallback.
 		const strippedPath = (process.env.PATH ?? "")
 			.split(":")
 			.filter((d) => d && !existsSync(join(d, "bun")))
 			.join(":");
+		// Run from a FOREIGN cwd (tmpdir, NOT the deploy dir): run.sh must resolve
+		// the bundled bun via $DIR/bun (DIR-relative), never a cwd-relative "./bun"
+		// (which would look for <cwd>/bun and fail — the exact regression this guards).
 		const proc = Bun.spawn([join(pkg.pkgDir, "run.sh"), "--version"], {
-			cwd: pkg.pkgDir,
+			cwd: tmpdir(),
 			env: { ...process.env, PATH: strippedPath },
 			stdout: "pipe",
 			stderr: "pipe",

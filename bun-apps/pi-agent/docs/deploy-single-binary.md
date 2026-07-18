@@ -9,17 +9,11 @@ change it" doc.
 
 ## Deploy modes overview
 
-pi-agent has four deploy modes. Quick reference:
-
-| Mode | Command | Output |
-|------|---------|--------|
-| **Bundle** (default) | `bun scripts/deploy.ts` | `pi-agent.js` + thin ext bundles + skills |
-| **Snapshot** | `bun scripts/deploy.ts --snapshot` | Full source copy + node_modules |
-| **Standalone** | `bun scripts/deploy.ts --standalone` | Bundle + bun binary + run.sh |
-| **Exe** | `bun scripts/deploy.ts --exe` | Single executable (all assets embedded) |
-
-See [README.md § Build / Deploy modes](../README.md#build--deploy-modes) for the full command reference.
-This doc focuses on the `--exe` (standalone binary) mode — why it exists, how it works, and how to maintain it.
+pi-agent has four deploy modes — see [README.md § Build / Deploy modes](../README.md#build--deploy-modes)
+for the canonical mode table and command reference, and
+[`deploy-cwd-trust.md`](./deploy-cwd-trust.md) for the full layout/resolution
+detail per mode. This doc focuses on just the `--exe` (standalone binary) mode —
+why it exists, how it works, and how to maintain it.
 
 ## Why the binary can't just load every extension
 

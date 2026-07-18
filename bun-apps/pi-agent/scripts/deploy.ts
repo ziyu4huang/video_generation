@@ -117,7 +117,9 @@ function assertWorkspaceDeps(): void {
 
 // ── run.sh generator ─────────────────────────────────────────────────────────
 // Writes a minimal launcher for non-exe modes.
-// - `bunCmd`: the bun binary to invoke ("bun" for system PATH, "./bun" for standalone)
+// - `bunCmd`: the bun binary to invoke ("bun" for system PATH, "$DIR/bun" for
+//   standalone — DIR-relative so run.sh works from ANY cwd, not just the deploy dir;
+//   a bare "./bun" would be cwd-relative and break the documented foreign-cwd use)
 // - `entry`: the entry point relative to the deploy root ("pi-agent.js" or "pi-agent/src/cli.ts")
 function writeRunSh(outDir: string, bunCmd: string, entry: string) {
 	const content = `#!/usr/bin/env bash
@@ -359,7 +361,7 @@ async function main() {
 		);
 
 		// Write run.sh (always for non-exe modes)
-		writeRunSh(target, IS_STANDALONE ? "./bun" : "bun", "pi-agent.js");
+		writeRunSh(target, IS_STANDALONE ? "$DIR/bun" : "bun", "pi-agent.js");
 
 		// --standalone: also copy the bun binary
 		if (IS_STANDALONE) {

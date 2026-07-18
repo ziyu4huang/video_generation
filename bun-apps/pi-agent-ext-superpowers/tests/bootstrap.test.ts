@@ -140,4 +140,13 @@ describe("bootstrap payload assembly", () => {
     expect(payload).toContain("## Pi tool mapping");
     expect(payload).toContain("pi-agent-ext-workflow");
   });
+
+  it("Pi tool mapping names the workflow 'subagent' tool + its documented params", () => {
+    _resetBootstrapCacheForTests();
+    const payload = getBootstrapContent() ?? "";
+    expect(payload).toContain("subagent");
+    // the documented call signature the agent is told to use
+    expect(payload).toContain("task");
+    expect(payload).toMatch(/tools|excludeTools|cwd|model/);
+  });
 });
