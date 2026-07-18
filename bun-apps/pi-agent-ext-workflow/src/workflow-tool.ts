@@ -429,6 +429,17 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
         ? (promptText: string) => uiConfirm.call(uiCtx?.ui, "Workflow checkpoint", promptText)
         : undefined;
 
+      // Task 4 — Path B label: the model governing this run is the host session's
+      // mainModel (= pi default by construction), NOT manifest.model. ExtensionContext
+      // exposes it as `ctx.model: Model<any> | undefined` (see pi-coding-agent
+      // core/extensions/types.d.ts). We forward its id when observable so callers
+      // can see which model a background run inherits; the label `modelSource` is
+      // always emitted so Path B is distinguishable from Path A (cli `workflow run`).
+      // NB: this is a LABEL only — manifest.model stays OUT of the manager options
+      // (per-run model would need an ExecOptions.mainModel hook; see #630, OOS).
+      const sessionModelId = (ctx as { model?: { id?: string } } | undefined)?.model?.id;
+      const modelLabel = sessionModelId ? { model: sessionModelId } : {};
+
       // Background execution is the default: return immediately so the turn ends
       // and the user isn't blocked. The result is delivered back into the
       // conversation when the run finishes (see installResultDelivery). Only an
@@ -443,7 +454,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
         });
         return {
           content: [{ type: "text", text: backgroundStartedText(parsed.meta.name, runId) }],
-          details: { runId, background: true },
+          details: { runId, background: true, modelSource: "session", ...modelLabel },
         };
       }
 
@@ -526,6 +537,8 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
           durationMs: result.durationMs,
           tokenUsage: result.tokenUsage,
           runId: result.runId,
+          modelSource: "session",
+          ...modelLabel,
         },
       };
     },
