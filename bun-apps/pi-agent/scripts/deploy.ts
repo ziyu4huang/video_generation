@@ -74,6 +74,7 @@ import {
 import { basename, dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
+import { healInterruptedSwap } from "./lib/deploy-swap.ts";
 
 const argv = process.argv.slice(2);
 if (argv.some((a) => a === "-h" || a === "--help")) {
@@ -129,6 +130,15 @@ const FINAL_OUTDIR = positionalOutdir
 // actually replaces FINAL_OUTDIR; every step below (bundleDeploy/portableDeploy/
 // releaseDeploy, --readonly freeze, --verify boot) still operates on `OUTDIR`.
 const OUTDIR = `${FINAL_OUTDIR}.staging`;
+
+// Crash recovery: a process kill between the two renameSync calls in the
+// atomic-swap section below (on a PRIOR run) can leave FINAL_OUTDIR missing
+// while the last-good deploy sits at `${FINAL_OUTDIR}.prev`. Self-heal here,
+// before any build work starts, so a half-swapped deploy is never left
+// missing indefinitely.
+if (healInterruptedSwap(FINAL_OUTDIR)) {
+	console.log(`\x1b[33m⚠\x1b[0m detected an interrupted deploy swap from a prior run — restored ${FINAL_OUTDIR} from ${FINAL_OUTDIR}.prev`);
+}
 
 const piAgentDir = dirname(import.meta.dir); // bun-apps/pi-agent
 const repoRoot = dirname(dirname(piAgentDir));
