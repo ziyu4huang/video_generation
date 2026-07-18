@@ -8,7 +8,9 @@
  * Baseline:  41 tools → ~18,500 tok/req
  * Gated:    ~27 tools → ~10,000 tok/req  (saves ~8,500 tok per turn)
  *
- * Tools reactivate instantly when the prompt mentions relevant keywords.
+ * Tools reactivate instantly when the prompt mentions relevant keywords, and
+ * once activated stay active for the rest of the session (they never re-gate
+ * on a later turn).
  *
  * Install: registered in bun-apps/pi-agent/run-dir/manifest.json
  */
@@ -18,7 +20,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 // ── Tool categories ──────────────────────────────────────────────
 
 /** Tools that must always be available (core workflow) */
-const CORE_TOOLS = new Set([
+export const CORE_TOOLS = new Set([
   // Built-in essentials
   "read", "write", "edit", "bash",
   // Task & goal
@@ -109,37 +111,53 @@ const GATES: ToolGate[] = [
 
 // ── Extension entry ──────────────────────────────────────────────
 
+/**
+ * Compute which tools should be active for this turn.
+ *
+ * `sticky` is the accumulator of every tool activated so far THIS SESSION —
+ * it starts as a copy of CORE_TOOLS and callers mutate it in place across
+ * turns, so a gate that fires once stays active for the rest of the session
+ * (a workflow using flux2 must not lose the tool mid-task just because a
+ * follow-up prompt like "make it bigger" doesn't repeat the trigger keyword).
+ *
+ * Fail-open for UNKNOWN tools: only tools this file explicitly tracks (in
+ * CORE_TOOLS or a GATES entry) are ever gated off. A tool from a new/renamed
+ * extension that this file hasn't been updated for is never hidden — gating
+ * is an opt-in allowlist for a KNOWN heavy set, not a default-deny for
+ * everything else.
+ */
+export function computeActiveTools(
+  prompt: string,
+  allToolNames: string[],
+  sticky: Set<string>,
+): string[] {
+  const promptLower = prompt.toLowerCase();
+
+  const known = new Set(CORE_TOOLS);
+  for (const gate of GATES) for (const name of gate.names) known.add(name);
+
+  for (const gate of GATES) {
+    const matches = gate.keywords.some((kw) => promptLower.includes(kw));
+    if (matches) {
+      for (const name of gate.names) sticky.add(name);
+    }
+  }
+
+  return allToolNames.filter((name) => !known.has(name) || sticky.has(name));
+}
+
 export default function toolGateExtension(pi: ExtensionAPI) {
   let allToolNames: string[] = [];
-
-  function computeActiveTools(prompt: string): string[] {
-    const promptLower = prompt.toLowerCase();
-
-    // Start with core tools
-    const active = new Set(CORE_TOOLS);
-
-    // Add tools whose gate keywords match
-    for (const gate of GATES) {
-      const matches = gate.keywords.some((kw) => promptLower.includes(kw));
-      if (matches) {
-        for (const name of gate.names) {
-          active.add(name);
-        }
-      }
-    }
-
-    // Only return tools that actually exist
-    return allToolNames.filter((name) => active.has(name));
-  }
+  let sticky = new Set<string>(CORE_TOOLS);
 
   // ── On session start: capture full tool list and gate ──
   pi.on("session_start", async (_event, ctx) => {
     allToolNames = pi.getAllTools().map((t: { name: string }) => t.name);
+    sticky = new Set(CORE_TOOLS);
 
-    const active = computeActiveTools("");
+    const active = computeActiveTools("", allToolNames, sticky);
     pi.setActiveTools(active);
 
-    const gatedCount = allToolNames.length - active.length;
     const saved = GATES.filter(
       (g) => !g.names.some((n) => active.includes(n)),
     ).reduce((sum, g) => sum + g.savedTokens, 0);
@@ -150,10 +168,10 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     );
   });
 
-  // ── Per-turn: re-evaluate gates based on prompt ──
+  // ── Per-turn: re-evaluate gates based on prompt (sticky — never un-gates) ──
   pi.on("before_agent_start", async (event, _ctx) => {
     const prompt = event.prompt ?? "";
-    const active = computeActiveTools(prompt);
+    const active = computeActiveTools(prompt, allToolNames, sticky);
     pi.setActiveTools(active);
   });
 }
