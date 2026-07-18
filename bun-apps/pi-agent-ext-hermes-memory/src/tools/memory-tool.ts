@@ -25,7 +25,6 @@ import { tmpdir } from "node:os";
 import { join as pathJoin } from "node:path";
 import { MEMORY_TOOL_DESCRIPTION, DEFAULT_STALENESS_THRESHOLD_DAYS } from "../constants.js";
 import type { MemoryCategory, MemoryResult } from "../types.js";
-import { convergeToVault, type ConvergeResult } from "../store/vault-converge.js";
 
 function appendSyncWarning(result: MemoryResult, warning: string): MemoryResult {
   const warnings = [...(((result as any).warnings ?? []) as string[]), warning];
@@ -74,7 +73,6 @@ function writeTransferArchive(
 function formatTransferResult(
   result: MemoryResult,
   archivePath: string | undefined,
-  converge: ConvergeResult | null,
 ): string {
   const lines: string[] = [];
   lines.push(result.message ?? "Transfer complete.");
@@ -88,30 +86,15 @@ function formatTransferResult(
     lines.push("");
   });
 
-  // ── Single-hop convergence outcome ──
-  // When pi-knowledge-card is installed, the entries were ingested directly as
-  // atomic zettel cards in the default vault — no manual zk_ingest needed.
-  if (converge && converge.ok) {
-    const n = transferred.length;
-    lines.push(
-      `Converged ${n} entr${n === 1 ? "y" : "ies"} → ${
-        (converge.created ?? 0) + (converge.updated ?? 0)
-      } zettel card(s) in the default vault (${converge.created ?? 0} created, ${converge.updated ?? 0} updated, ${converge.unchanged ?? 0} unchanged, ${converge.linked ?? 0} cross-link(s)).`,
-    );
-    if (converge.vaultPath) lines.push(`vault: ${converge.vaultPath}`);
-  } else if (converge && converge.unavailable && archivePath) {
-    // Fallback: knowledge-card extension absent — keep the archive handoff.
+  // ── Archive handoff (convergence moved to the hub — ADR-0001) ──
+  // Entries are archived for audit; the knowledge-card hub auto-converges
+  // hermes memory into the graph on session_shutdown. The archive stays as a
+  // manual-converge fallback.
+  if (archivePath) {
     lines.push(`Archive file: ${archivePath}`);
     lines.push("");
-    lines.push("Run zk_ingest on this file to import entries into the Obsidian vault:");
-    lines.push(`  zk_ingest --files "${archivePath}"`);
-    lines.push("");
-    if (converge.reason) lines.push(`(auto-converge unavailable: ${converge.reason})`);
-  } else if (archivePath) {
-    lines.push(`Archive file: ${archivePath}`);
-    lines.push("");
-    lines.push("Run zk_ingest on this file to import entries into the Obsidian vault:");
-    lines.push(`  zk_ingest --files "${archivePath}"`);
+    lines.push("Entries auto-converge into the knowledge graph on session shutdown (knowledge-card hub).");
+    lines.push(`To converge manually now: zk_ingest --files "${archivePath}"`);
     lines.push("");
   }
 
@@ -462,17 +445,8 @@ export function registerMemoryTool(
             const archivePath = writeTransferArchive(target, result.transferred_entries);
             result = { ...result, archive_path: archivePath };
 
-            // Single-hop convergence: ingest the entries directly into the
-            // default vault as atomic zettel cards. Stays standalone-safe —
-            // if pi-knowledge-card is absent, converge returns unavailable and
-            // the formatter falls back to the archive-handoff message.
-            const cwd = (ctx as { cwd?: string } | undefined)?.cwd ?? process.cwd();
-            const converge = await convergeToVault(
-              result.transferred_entries,
-              target,
-              cwd,
-              projectName,
-            );
+            // (Convergence moved to the knowledge-card hub — ADR-0001.
+            //  Hub auto-converges hermes memory on session_shutdown.)
 
             // Sync removal to SQLite — use exact match to avoid overly broad removal
             if (dbManager) {
@@ -491,8 +465,8 @@ export function registerMemoryTool(
             }
 
             return {
-              content: [{ type: "text", text: formatTransferResult(result, archivePath, converge) }],
-              details: { ...result, converge },
+              content: [{ type: "text", text: formatTransferResult(result, archivePath) }],
+              details: { ...result },
             };
           }
           break;
