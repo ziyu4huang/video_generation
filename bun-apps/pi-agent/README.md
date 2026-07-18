@@ -58,7 +58,7 @@ See [docs/HISTORY.md](docs/HISTORY.md) for the full development history of all p
 | `BUN_PI_DEFAULT_MODEL_ENV` | `1` (on) | Bridge `PI_MODEL` / `PI_PROVIDER` / `PI_THINKING` env into argv as `--model` / `--provider` / `--thinking` when not already passed — the real pi TUI ignores these env vars (only pi-agent-cli reads them); this makes a shell `PI_MODEL=…` default apply to the interactive TUI too |
 | `BUN_PI_EXT_CTX_GET_SYSTEM_PROMPT_OPTIONS` | `1` (on) | Monkey-patch `ExtensionRunner.createContext()` to expose `getSystemPromptOptions()` on base `ExtensionContext` |
 | `BUN_PI_EXT_API_GET_ALL_TOOL_DEFS` | `1` (on) | Monkey-patch `ExtensionRunner.bindCore()` to expose `getAllToolDefinitions(): ToolDefinition[]` on the ExtensionAPI (`pi`) object |
-| `BUN_PI_EXTRACT_EMBEDDED_ASSETS` | `1` (on) | Extract embedded assets from --compile-embed binary to cache dir (no-op in non-binary modes) |
+| `BUN_PI_EXTRACT_EMBEDDED_ASSETS` | `1` (on) | Extract embedded assets from the `--exe` binary to cache dir (no-op in non-binary modes) |
 | `BUN_PI_DEBUG_PATCHES` | `0` (off) | Print which patches were applied on startup |
 | `BUN_PI_DEBUG_RUN_DIR` | `0` (off) | Print the resolved `run-dir/` argv fragment on startup |
 Toggle:

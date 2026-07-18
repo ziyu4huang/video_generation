@@ -47,8 +47,8 @@ The three execution modes. Source (`bun src/cli.ts`) resolves deps via the real 
 _Avoid_: dev/prod modes (these are packaging modes, not environments)
 
 **THIN bundle**:
-A bundle mode where each extension is pre-bundled to one `.js` sharing a single typebox (vs a FULL bundle). Deployed as `ext-bundles/*.thin.js`.
-_Avoid_: minified bundle, slim bundle
+The (only, since the unified `deploy.ts`) extension-bundling mode: each extension is pre-bundled to one `.js` sharing a single typebox instance instead of each pulling its own copy. Deployed as `ext-bundles/*.thin.js`.
+_Avoid_: minified bundle, slim bundle, FULL bundle (a FULL/per-extension-typebox mode existed historically but was removed — see `docs/superpowers/plans/2026-07-18-unified-deploy.md`)
 
 **Read-only deploy**:
 The default deploy artifact — immutable (chmod a-w + `.deploy-readonly` marker), with all per-user state routed to `~/.pi/agent`. Drops onto `/opt` or an app bundle as-is.

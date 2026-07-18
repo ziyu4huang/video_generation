@@ -1,7 +1,13 @@
 # Deploy packaging: self-contained pi-agent, any cwd
 
 How `scripts/deploy.ts` + `run-dir/resolve.ts` produce a self-contained pi-agent
-that runs from **any** cwd, independent of the repo (same machine).
+that runs from **any** cwd, independent of the repo (same machine). See
+[README.md § Build / Deploy modes](../README.md#build--deploy-modes) for the
+canonical quick-command table; this doc is the deeper layout + resolution
+reference (`resolve.ts` mode detection, `-ne` layering, per-mode directory
+tree). [`deploy-single-binary.md`](./deploy-single-binary.md) covers `--exe`
+specifically; [`deploy-readonly.md`](./deploy-readonly.md) covers the
+read-only freeze contract.
 
 ## The gap `deploy.ts` closes
 

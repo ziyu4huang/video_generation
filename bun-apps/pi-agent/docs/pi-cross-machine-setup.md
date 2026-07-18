@@ -43,7 +43,7 @@ bun bun-apps/pi-agent-cli/src/cli.ts doctor
 
 The MLX model tree and output store live **outside** the repo by default
 (`../video_generation__models`, `../video_generation__output`), content-addressed — see
-[docs/model-store.md](../../docs/model-store.md). On a fresh machine, set `MLX_MODELS_DIR` /
+[docs/model-store.md](../../../docs/model-store.md). On a fresh machine, set `MLX_MODELS_DIR` /
 `MLX_OUTPUT_DIR` to wherever you keep them.
 
 ---
@@ -155,10 +155,10 @@ startup. See the "Extensions via run-dir" section of `bun-apps/pi-agent/README.m
 
 Two machine-specific consequences:
 
-1. **FULL bundle mode bakes absolute paths at build time** (`src/generated/run-dir-base.ts`,
-   gitignored). A FULL bundle is NOT relocatable across machines — rebuild it on the target.
-   THIN mode intentionally embeds absolute dep paths (that's the fix), and is likewise
-   machine-specific.
+1. **Bundle mode bakes absolute paths at build time** (`src/generated/run-dir-base.ts`,
+   gitignored). This is intentional — see [`extension-registry.PRD.md §3`](./extension-registry.PRD.md)
+   for why baked absolute paths are the fix, not a workaround — but it means a
+   Bundle/Standalone deploy is NOT relocatable across machines; rebuild on the target.
 2. **`MLX_OUTPUT_DIR` / `MLX_MODELS_DIR` / `FLUX2_REPO_ROOT` have defaults computed from the
    repo root, so they work in source mode without configuration. In bundle/binary mode on a
    fresh machine, set them explicitly (the bundle may not sit next to the model tree).
