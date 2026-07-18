@@ -46,6 +46,8 @@ export interface SpawnSubagentOptions {
   extensionTools?: ToolDefinition[];
   /** Injectable runner (tests pass a mock; production omits → new WorkflowAgent). */
   agent?: Pick<WorkflowAgent, "run">;
+  /** Host signal (e.g. tool-call Ctrl+C) that should cancel this call when fired. */
+  externalSignal?: AbortSignal;
 }
 
 export interface SpawnSubagentResult {
@@ -85,6 +87,10 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
 
   const tryOnce = async (): Promise<{ result: SpawnSubagentResult; transient: boolean }> => {
     const ac = new AbortController();
+    if (opts.externalSignal) {
+      if (opts.externalSignal.aborted) ac.abort();
+      else opts.externalSignal.addEventListener("abort", () => ac.abort(), { once: true });
+    }
     const timer = opts.timeoutMs ? setTimeout(() => ac.abort(), opts.timeoutMs) : undefined;
     try {
       // `prime` is intentionally NOT used here (③ owns the auto-primer).
@@ -117,6 +123,9 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
 
   const first = await tryOnce();
   if (first.result.exitCode === 0 || !retry || !first.transient) return first.result;
+  // Never retry a cancel the caller (or user) explicitly requested — retrying
+  // would re-run work that was just aborted.
+  if (opts.externalSignal?.aborted) return first.result;
   // Single retry on a transient failure (mirrors runSubagentWithRetry).
   return (await tryOnce()).result;
 }

@@ -5,6 +5,7 @@ import { reconstructSubagentRuns, SubagentViewer } from "../src/subagent-viewer.
 import {
   buildWorkflowGuidelinesForTurn,
   createEffortState,
+  createWorkflowControlTool,
   createWorkflowHelpTool,
   createWorkflowStorage,
   createWorkflowTool,
@@ -83,6 +84,8 @@ export default function extension(pi: ExtensionAPI) {
     // getActiveTools may be unavailable in some hosts — best-effort only.
   }
   pi.registerTool(subagentTool);
+  const workflowControlTool = createWorkflowControlTool({ manager });
+  pi.registerTool(workflowControlTool);
 
   // /subagents — list past subagent runs on this branch and view their full
   // output (todo-style: reconstruct from session toolResults, no live stream).
@@ -152,7 +155,9 @@ export default function extension(pi: ExtensionAPI) {
   // gap so the tools are visible on every turn (not just after the first).
   const activateWorkflowTools = () => {
     const active = pi.getActiveTools();
-    const missing = [workflowTool.name, workflowHelpTool.name, subagentTool.name].filter((nm) => !active.includes(nm));
+    const missing = [workflowTool.name, workflowHelpTool.name, subagentTool.name, workflowControlTool.name].filter(
+      (nm) => !active.includes(nm),
+    );
     if (missing.length) {
       pi.setActiveTools([...active, ...missing]);
     }
