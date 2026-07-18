@@ -88,6 +88,56 @@ describe("resolveWorkflowScript", () => {
     const r = resolveWorkflowScript("suf.js", { cwd: root });
     expect(r.source).toBe(".pi/workflows");
   });
+
+  test("resolves a pack from <cwd>/workflows with source cwd-workflows (portable tier)", () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-wf-cwd-"));
+    const echoDir = join(root, "workflows", "echo");
+    mkdirSync(echoDir, { recursive: true });
+    writeFileSync(join(echoDir, "manifest.json"), JSON.stringify({ name: "echo", description: "cwd", entry: "index.js" }));
+    writeFileSync(join(echoDir, "index.js"), `export const meta = { name: "echo", description: "cwd" };\nreturn { tier: "cwd" };\n`);
+    const r = resolveWorkflowScript("echo", { cwd: root });
+    expect(r.source).toBe("cwd-workflows");
+    expect(r.script).toContain("tier: \"cwd\"");
+  });
+
+  test("resolves a pack from <binDir>/workflows with source bin-workflows (injectable binDir)", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-wf-cwd2-"));
+    const bin = mkdtempSync(join(tmpdir(), "pi-wf-bin-"));
+    const echoDir = join(bin, "workflows", "echo");
+    mkdirSync(echoDir, { recursive: true });
+    writeFileSync(join(echoDir, "manifest.json"), JSON.stringify({ name: "echo", description: "bin", entry: "index.js" }));
+    writeFileSync(join(echoDir, "index.js"), `export const meta = { name: "echo", description: "bin" };\nreturn { tier: "bin" };\n`);
+    const r = resolveWorkflowScript("echo", { cwd, binDir: bin });
+    expect(r.source).toBe("bin-workflows");
+    expect(r.script).toContain("tier: \"bin\"");
+  });
+
+  test("cwd tier ranks ABOVE repo .pi/workflows (most local wins)", () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-wf-prec-"));
+    // cwd-tier pack (bare <root>/workflows/echo)
+    mkdirSync(join(root, "workflows", "echo"), { recursive: true });
+    writeFileSync(join(root, "workflows", "echo", "manifest.json"), JSON.stringify({ name: "echo", description: "cwd", entry: "index.js" }));
+    writeFileSync(join(root, "workflows", "echo", "index.js"), `export const meta = { name: "echo", description: "cwd" };\nreturn { tier: "cwd" };\n`);
+    // repo-tier pack (<root>/.pi/workflows/echo) — different content to distinguish
+    mkdirSync(join(root, ".pi", "workflows", "echo"), { recursive: true });
+    writeFileSync(join(root, ".pi", "workflows", "echo", "manifest.json"), JSON.stringify({ name: "echo", description: "repo", entry: "index.js" }));
+    writeFileSync(join(root, ".pi", "workflows", "echo", "index.js"), `export const meta = { name: "echo", description: "repo" };\nreturn { tier: "repo" };\n`);
+    const r = resolveWorkflowScript("echo", { cwd: root }); // findRepoRoot(root) finds .pi/workflows → repo tiers reachable
+    expect(r.source).toBe("cwd-workflows");
+    expect(r.script).toContain("tier: \"cwd\"");
+  });
+
+  test("bin tier ranks BELOW cwd tier", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-wf-cwd3-"));
+    const bin = mkdtempSync(join(tmpdir(), "pi-wf-bin2-"));
+    for (const base of [cwd, bin]) {
+      mkdirSync(join(base, "workflows", "echo"), { recursive: true });
+      writeFileSync(join(base, "workflows", "echo", "manifest.json"), JSON.stringify({ name: "echo", description: base === cwd ? "cwd" : "bin", entry: "index.js" }));
+      writeFileSync(join(base, "workflows", "echo", "index.js"), `export const meta = { name: "echo", description: "${base === cwd ? "cwd" : "bin"}" };\nreturn { tier: "${base === cwd ? "cwd" : "bin"}" };\n`);
+    }
+    const r = resolveWorkflowScript("echo", { cwd, binDir: bin });
+    expect(r.source).toBe("cwd-workflows");
+  });
 });
 
 // ── resolveWorkflowScript: workflow packs (folders + manifest.json) ───────
