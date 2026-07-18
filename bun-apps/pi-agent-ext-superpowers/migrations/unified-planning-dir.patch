@@ -1,7 +1,7 @@
 # unified-planning-dir.patch — forks superpowers' hardcoded docs/superpowers/
 # paths to the unified .planning/<effort>/ layout. Applied by scripts/apply-patches.sh.
 # Format: <path-relative-to-package-root><TAB><old-string><TAB><new-string>
-# Idempotent: the applier skips a row whose new-string is already present.
+# Idempotent: the applier skips a row whose old-string is no longer present.
 # Note: brainstorming/SKILL.md has the same path string on L29 + L106; the /g
 # flag replaces both in one pass.
 skills/brainstorming/SKILL.md	docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md	.planning/<effort>/spec.md
