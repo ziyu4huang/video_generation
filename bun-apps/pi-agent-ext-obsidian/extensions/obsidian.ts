@@ -174,12 +174,15 @@ import {
 	parseFrontmatter,
 	parseNoteMeta,
 	parseStructuredResult,
+	personalConfigPath,
 	pickField,
+	projectConfigPath,
 	queryNotes,
 	readBatched,
 	readCached,
 	readObsidianVaults,
-	readVaultConfig,
+	readPersonalConfig,
+	readProjectConfig,
 	rebuildReverseAdjacency,
 	refreshIndex,
 	reindexFile,
@@ -223,7 +226,6 @@ import {
 	validateNoteIntegrityBatch,
 	validateZettelNote,
 	validateZettelNotes,
-	vaultConfigPath,
 	writeVaultConfig
 } from "../src/obsidian-lib.ts";
 
@@ -1747,7 +1749,8 @@ ${output.slice(-2000)}`,
 			const cwd = ctx.cwd;
 			const active = await getVault(cwd);
 			const candidates = await listVaultCandidates(cwd);
-			const cfg = await readVaultConfig(cwd);
+			const personal = await readPersonalConfig();
+			const projCfg = await readProjectConfig(cwd);
 			const noteCount = await countNotes(active.path);
 			const text = [
 				`Active vault: ${active.name}`,
@@ -1755,12 +1758,13 @@ ${output.slice(-2000)}`,
 				`  source:     ${active.source}${active.registered ? " (registered)" : " (not registered)"}`,
 				active.staleReason ? `  ⚠ stale:     ${active.staleReason}` : null,
 				`  notes:      ${noteCount}`,
-				`  config:     ${vaultConfigPath(cwd)} (mode: ${cfg.mode ?? "(unset)"}${cfg.vault_path ? ", vault_path: " + cfg.vault_path : ""})`,
+				`  personal:   ${personalConfigPath()}${personal.vault_path ? ` → ${personal.vault_path}` : " (unset)"}`,
+				`  project:    ${projectConfigPath(cwd)}${projCfg.vault_path ? ` → ${projCfg.vault_path}` : " (unset)"}${projCfg.mode ? ` (mode: ${projCfg.mode})` : ""}`,
 				"",
 				"Candidates:",
 				...candidates.map((c) => {
 					const here = c.path === active.path ? " ← active" : "";
-					return `  ${c.exists ? "✓" : "✗"} ${c.source.padEnd(7)} ${c.path}${c.open ? " [open]" : ""}${here}`;
+					return `  ${c.exists ? "✓" : "✗"} ${c.source.padEnd(8)} ${c.path}${c.open ? " [open]" : ""}${here}`;
 				}),
 			]
 				.filter((s) => s !== null)
@@ -1777,8 +1781,10 @@ ${output.slice(-2000)}`,
 						noteCount,
 					},
 					candidates,
-					configPath: vaultConfigPath(cwd),
-					config: cfg,
+					personalConfigPath: personalConfigPath(),
+					projectConfigPath: projectConfigPath(cwd),
+					personal,
+					project: projCfg,
 				},
 			};
 		},
@@ -1835,19 +1841,34 @@ ${output.slice(-2000)}`,
 	// Human-friendly vault inspection / switching. One-stop view of which vault
 	// the obsidian_* and zk_* tools will actually hit, and a way to change it.
 	//
-	//   /obsidian-config              show active vault + source + all candidates
-	//   /obsidian-config <path>       set explicit vault path (mode "explicit")
-	//   /obsidian-config --use-app    follow the Obsidian app's open vault (mode "app")
-	//   /obsidian-config --list       list all registered vaults from obsidian.json
-	//   /obsidian-config --clear      forget the explicit setting (fall back to app/local)
+	//   /obsidian-config                          show active vault + source + all candidates
+	//   /obsidian-config <path>                   set vault (default scope = personal ~/.pi; mode "explicit")
+	//   /obsidian-config <path> --scope project   set a PROJECT-scoped vault (<cwd>/.pi)
+	//   /obsidian-config --use-app                follow the Obsidian app's open vault (always PROJECT scope — mode "app" is project-only)
+	//   /obsidian-config --list                   list all registered vaults from obsidian.json
+	//   /obsidian-config --clear                  forget the personal setting (--scope project clears the project one)
 	pi.registerCommand("obsidian-config", {
 		description:
-			"Show or set the active Obsidian vault. Usage: /obsidian-config [path | --use-app | --list | --clear]",
+			"Show or set the active Obsidian vault. Usage: /obsidian-config [path | --use-app | --list | --clear] [--scope project]",
 		handler: async (args, ctx) => {
 			const cwd = ctx.cwd;
-			const raw = (args ?? "").trim();
-			const flag = raw.startsWith("--") ? raw : null;
-			const setPath = !flag && raw.length > 0 ? raw : null;
+			const tokens = (args ?? "").trim().split(/\s+/).filter(Boolean);
+			const scopeProject =
+				tokens.some((t, i) => t === "--scope" && tokens[i + 1] === "project") ||
+				tokens.includes("--scope=project");
+			const scope: "personal" | "project" = scopeProject ? "project" : "personal";
+			const flagSet = new Set(tokens.filter((t) => t.startsWith("--")));
+			const setPathTokens = tokens.filter((t, i) => {
+				if (t.startsWith("--")) return false;
+				// Skip the "project" value token of a "--scope project" pair.
+				if (t === "project" && i > 0 && tokens[i - 1] === "--scope") return false;
+				return true;
+			});
+			const setPath =
+				setPathTokens.length > 0 ? setPathTokens.join(" ") : null;
+			const hasUseApp = flagSet.has("--use-app");
+			const hasList = flagSet.has("--list");
+			const hasClear = flagSet.has("--clear");
 
 			const lines: string[] = [];
 			const push = (s: string) => lines.push(s);
@@ -1865,26 +1886,50 @@ ${output.slice(-2000)}`,
 						const count = await countNotes(abs);
 						push(`✓ Active vault set to: ${abs} (${count} notes)`);
 					}
-					await writeVaultConfig(cwd, { vault_path: abs, mode: "explicit" });
-					push(`  Written to ${vaultConfigPath(cwd)} (mode: explicit)`);
+					await writeVaultConfig(
+						cwd,
+						{ vault_path: abs, mode: "explicit" },
+						scope,
+					);
+					push(
+						`  Written to ${scope === "project" ? projectConfigPath(cwd) : personalConfigPath()} (mode: explicit, scope: ${scope})`,
+					);
 					ctx.ui.notify(`obsidian vault → ${basenameOf(abs)}`, "info");
-				} else if (flag === "--use-app") {
-					await writeVaultConfig(cwd, { mode: "app" });
+				} else if (hasUseApp) {
+					// mode:"app" is a PROJECT-tier feature (personal is explicit-only).
+					await writeVaultConfig(cwd, { mode: "app" }, "project");
 					push(
-						`✓ Mode set to "app": obsidian_* will follow the Obsidian app's open vault.`,
+						`✓ Mode set to "app" (project scope): obsidian_* will follow the Obsidian app's open vault.`,
 					);
-					push(`  (Tier 1 env/config overrides still win if set.)`);
+					const personal = await readPersonalConfig();
+					if (personal.vault_path)
+						push(
+							`  ⚠ A personal config (~/.pi → ${personal.vault_path}) is set and still wins over project mode:"app". Clear it (/obsidian-config --clear) to let app-follow take effect.`,
+						);
 					ctx.ui.notify("obsidian mode → app", "info");
-				} else if (flag === "--clear") {
-					await writeVaultConfig(cwd, { vault_path: "", mode: "app" });
-					push(
-						`✓ Cleared explicit vault_path. Resolution falls back to app/local.`,
-					);
-					ctx.ui.notify("obsidian config cleared", "info");
+				} else if (hasClear) {
+					if (scope === "personal") {
+						await writeVaultConfig(cwd, { vault_path: "" }, "personal");
+						push(
+							`✓ Cleared personal vault_path (~/.pi). Resolution falls through to project/app/local.`,
+						);
+					} else {
+						await writeVaultConfig(
+							cwd,
+							{ vault_path: "", mode: "app" },
+							"project",
+						);
+						push(
+							`✓ Cleared project vault_path (<cwd>/.pi). Resolution falls through to app/local.`,
+						);
+					}
+					ctx.ui.notify(`obsidian config cleared (${scope})`, "info");
 				}
 
 				// --- status (always shown) ---
 				const active = await resolveVault(cwd);
+				const personal = await readPersonalConfig();
+				const projCfg = await readProjectConfig(cwd);
 				push("");
 				push(`Active vault: ${active.name}`);
 				push(`  path:       ${active.path}`);
@@ -1893,9 +1938,15 @@ ${output.slice(-2000)}`,
 				);
 				if (active.staleReason) push(`  ⚠ stale:     ${active.staleReason}`);
 				push(`  notes:      ${await countNotes(active.path)}`);
+				push(
+					`  personal:   ${personalConfigPath()}${personal.vault_path ? ` → ${personal.vault_path}` : " (unset)"}`,
+				);
+				push(
+					`  project:    ${projectConfigPath(cwd)}${projCfg.vault_path ? ` → ${projCfg.vault_path}` : " (unset)"}${projCfg.mode ? ` (mode: ${projCfg.mode})` : ""}`,
+				);
 
 				// --- candidates (for --list or whenever helpful) ---
-				if (flag === "--list" || !flag) {
+				if (hasList || flagSet.size === 0) {
 					push("");
 					push("Candidates:");
 					const seen = new Set<string>();
@@ -1908,19 +1959,18 @@ ${output.slice(-2000)}`,
 							? " [open in app]"
 							: c.source === "env"
 								? " [env]"
-								: c.source === "config"
-									? " [config]"
-									: c.source === "local"
-										? " [local fallback]"
-										: "";
+								: c.source === "personal"
+									? " [personal]"
+									: c.source === "config"
+										? " [config]"
+										: c.source === "local"
+											? " [local fallback]"
+											: "";
 						push(
-							`  ${c.exists ? "✓" : "✗"} ${c.source.padEnd(7)} ${c.path}${extra}${here}`,
+							`  ${c.exists ? "✓" : "✗"} ${c.source.padEnd(8)} ${c.path}${extra}${here}`,
 						);
 					}
 				}
-
-				push("");
-				push(`Config file: ${vaultConfigPath(cwd)}`);
 				ctx.ui.notify(lines.join("\n"), "info");
 			} catch (e) {
 				ctx.ui.notify(
