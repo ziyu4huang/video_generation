@@ -577,54 +577,46 @@ export const subtitleAdapter: Adapter = async (req: GenerateRequest): Promise<To
   }
 };
 
-// ─── whisper adapter (native mlx-whisper via python subprocess) ──────────────
+// ─── whisper adapter (native Swift/MLX via the ltx-video binary) ─────────────
 
 /**
- * The python entry script + the whisper venv. The script lives inside the ext
- * (<EXT_ROOT>/python/whisper_transcribe.py); the venv is repo infra
- * (<repo>/python/whisper-venv) created by `uv venv` + `uv pip install mlx-whisper`.
- * Resolution order for the python binary:
- *   1. MD_WHISPER_PYTHON env (explicit override — mirrors REMOTION_BIN).
- *   2. <repo>/python/whisper-venv/bin/python — walk up from EXT_ROOT.
- *   3. "python3" on PATH (last resort; needs mlx_whisper importable there).
+ * The transcribe backend is `ltx-video transcribe` — a PURE SWIFT/MLX Whisper
+ * port (swift/ltx-video-director's WhisperModel + the segment-level seek loop
+ * in WhisperTranscribe.swift), emitting the WhisperResult JSON below. This
+ * replaces the former python `whisper_transcribe.py` → mlx_whisper spawn — no
+ * python/whisper-venv is involved at runtime. Per-word DTW alignment is a
+ * separate follow-up (P2b); until then each segment's `words` array is empty
+ * (segment-level timestamps are always present).
+ *
+ * The binary is the SAME ltx-video binary the other swift:ltx commands use
+ * (defaultBinaryPath, the one ltxBinaryPresent probes). `--checkpoint` /
+ * `WHISPER_NATIVE_CHECKPOINT` / the cached whisper-large-v3-mlx snapshot are
+ * resolved inside the binary, not here.
  */
-const WHISPER_SCRIPT = join(EXT_ROOT, "python", "whisper_transcribe.py");
 
-export function whisperScriptPath(): string {
-  return WHISPER_SCRIPT;
+/** Resolve the ltx-video binary path (throws if the repo root can't be walked). */
+function whisperBinaryPath(): string {
+  return defaultBinaryPath(resolveRepoRoot());
 }
 
-/** Resolve the python binary that runs mlx_whisper (cached per process). */
-export function resolveWhisperPython(env: Record<string, string | undefined> = process.env): string {
-  if (env.MD_WHISPER_PYTHON && existsSync(env.MD_WHISPER_PYTHON)) return env.MD_WHISPER_PYTHON;
-  // Walk up from EXT_ROOT looking for python/whisper-venv/bin/python.
-  let dir = EXT_ROOT;
-  for (let i = 0; i < 8; i++) {
-    const cand = join(dir, "python", "whisper-venv", "bin", "python");
-    if (existsSync(cand)) return cand;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return "python3";
-}
-
-/** Test-only override (when set, short-circuits the real probe). */
+/**
+ * True if the built ltx-video binary is on disk (never throws). The `env` arg
+ * is kept for signature parity with the other probes even though the binary
+ * path is env-independent.
+ */
 let whisperRuntimeOverride: boolean | undefined;
 function whisperRuntimePresent(env: Record<string, string | undefined>): boolean {
   if (whisperRuntimeOverride != null) return whisperRuntimeOverride;
-  if (!existsSync(WHISPER_SCRIPT)) return false;
-  const py = env.MD_WHISPER_PYTHON ? env.MD_WHISPER_PYTHON : resolveWhisperPython(env);
-  // "python3" is the PATH fallback (no whisper-venv discovered). Don't assume it
-  // has mlx_whisper — that was the false-positive (system python3 usually lacks
-  // it, so generation would ImportError). Require a real python path, and for
-  // ANY resolved python do a cached import probe (keyed by py+stmt, so different
-  // envs / overrides each get their own cache entry — no stale cross-env result).
-  if (py === "python3" || !existsSync(py)) return false;
-  return pythonImportsModule(py, "import mlx_whisper");
+  try {
+    return existsSync(whisperBinaryPath());
+  } catch {
+    // resolveRepoRoot throws if it can't walk to swift/ltx-video-director —
+    // treat as "binary absent" so the selector falls through rather than crash.
+    return false;
+  }
 }
 
-/** Force the whisper-runtime probe result (tests inject a deterministic value). */
+/** Force the whisper-backend probe result (tests inject a deterministic value). */
 export function _setWhisperRuntimeForTest(v: boolean | undefined): void {
   whisperRuntimeOverride = v;
 }
@@ -632,11 +624,19 @@ export function _setWhisperRuntimeForTest(v: boolean | undefined): void {
 export interface WhisperOptions {
   /** Path to the audio file to transcribe (required). */
   audio: string;
-  /** HuggingFace mlx-whisper repo. Default: mlx-community/whisper-small-mlx. */
+  /**
+   * Optional weights.safetensors checkpoint path forwarded as `--checkpoint`.
+   * Omit to let the binary resolve the cached whisper-large-v3-mlx snapshot.
+   * (The old python `--model <hf-repo>` form is no longer meaningful for swift.)
+   */
   model?: string;
   /** Language hint (e.g. "en"). Default: auto-detect. */
   language?: string;
-  /** Skip word-level timestamps (segment-level only). */
+  /**
+   * Kept for API compatibility but ignored: the swift transcribe currently
+   * emits segment-level timestamps only (no per-word DTW), so there are no
+   * word timestamps to skip.
+   */
   noWords?: boolean;
   /** Output dir for transcript.txt + words.json. Defaults to req.outputDir. */
   output?: string;
@@ -644,7 +644,7 @@ export interface WhisperOptions {
   _spawnImpl?: (cmd: string, argv: string[]) => Promise<number>;
 }
 
-/** Normalized shape emitted by whisper_transcribe.py (the adapter's parse target). */
+/** Normalized shape emitted by `ltx-video transcribe` (the adapter's parse target). */
 export interface WhisperResult {
   ok: boolean;
   error?: string;
@@ -661,17 +661,15 @@ export interface WhisperResult {
   }>;
 }
 
-/** Run the whisper python entry and parse its normalized JSON result. */
-async function runWhisper(opts: WhisperOptions, env: Record<string, string | undefined>): Promise<WhisperResult> {
+/** Spawn `ltx-video transcribe` and parse its WhisperResult JSON. */
+async function runWhisper(opts: WhisperOptions): Promise<WhisperResult> {
   const spawnImpl = opts._spawnImpl ?? runSpawn;
-  const py = resolveWhisperPython(env);
   const outDir = opts.output ?? process.cwd();
   const jsonOut = join(outDir, `whisper_${process.pid}_${Date.now() % 100000}.json`);
-  const argv = [WHISPER_SCRIPT, "--audio", opts.audio, "--output", jsonOut];
-  if (opts.model) argv.push("--model", opts.model);
+  const argv = ["transcribe", "--audio", opts.audio, "--output", jsonOut];
+  if (opts.model) argv.push("--checkpoint", opts.model);
   if (opts.language) argv.push("--language", opts.language);
-  if (opts.noWords) argv.push("--no-words");
-  const code = await spawnImpl(py, argv);
+  const code = await spawnImpl(whisperBinaryPath(), argv);
   let payload: WhisperResult;
   try {
     payload = JSON.parse(readFileSync(jsonOut, "utf8")) as WhisperResult;
@@ -681,10 +679,10 @@ async function runWhisper(opts: WhisperOptions, env: Record<string, string | und
   return payload;
 }
 
-/** whisper adapter: spawns mlx-whisper, returns a ToolResult with transcript + words artifacts. */
+/** whisper adapter: spawns ltx-video transcribe, returns a ToolResult with transcript + words artifacts. */
 export const whisperAdapter: Adapter = async (req: GenerateRequest): Promise<ToolResult> => {
   if (!whisperRuntimePresent(process.env as Record<string, string | undefined>)) {
-    return fail(req, "whisper", "whisper runtime not found (set MD_WHISPER_PYTHON or create python/whisper-venv)");
+    return fail(req, "whisper", "whisper backend not found (build swift/ltx-video-director: swift build -c release)");
   }
   const opts = (req.options ?? {}) as unknown as WhisperOptions;
   if (!opts.audio || !existsSync(opts.audio)) {
@@ -697,7 +695,7 @@ export const whisperAdapter: Adapter = async (req: GenerateRequest): Promise<Too
   const outputDir = req.outputDir ?? mkdtempSync(join(tmpdir(), "md-transcribe-"));
   const started = Date.now();
   try {
-    const res = await runWhisper({ ...opts, output: outputDir }, process.env as Record<string, string | undefined>);
+    const res = await runWhisper({ ...opts, output: outputDir });
     if (!res.ok || !res.text) {
       return fail(req, "whisper", res.error ?? "whisper returned no text", (Date.now() - started) / 1000);
     }
