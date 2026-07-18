@@ -12,9 +12,18 @@
  */
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseManifestEntries } from "../run-dir/manifest-types.ts";
 
-const PI_AGENT_DIR = resolve(dirname(import.meta.url.replace("file://", "")), "..");
+/** Resolve pi-agent's package root from this module's URL. Uses fileURLToPath
+ *  (not a naive `.replace("file://", "")`) so percent-encoded characters —
+ *  e.g. a space in the checkout path — are decoded correctly. Exported for
+ *  direct unit testing without needing a real special-character checkout. */
+export function resolvePiAgentDir(moduleUrl: string): string {
+	return resolve(dirname(fileURLToPath(moduleUrl)), "..");
+}
+
+const PI_AGENT_DIR = resolvePiAgentDir(import.meta.url);
 const REPO_ROOT = resolve(PI_AGENT_DIR, "../..");
 const MANIFEST_PATH = join(PI_AGENT_DIR, "run-dir", "manifest.json");
 
