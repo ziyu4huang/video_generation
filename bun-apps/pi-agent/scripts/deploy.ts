@@ -193,7 +193,7 @@ function resolvePiStoreNodeModules(piAgentDir: string): string | null {
 // gracefully (returns the floating range unchanged with a warning).
 function readLockPackages(): Record<string, unknown[]> {
 	try {
-		const raw = readFileSync(join(repoRoot, "bun.lock"), "utf8");
+		const raw = readFileSync(join(repoRoot, "bun-apps", "bun.lock"), "utf8");
 		const json = raw.replace(/,(\s*[}\]])/g, "$1");
 		return (JSON.parse(json) as { packages?: Record<string, unknown[]> }).packages ?? {};
 	} catch {
@@ -515,8 +515,8 @@ async function bundleDeploy() {
 		console.log(`    ${Y("·")} node_modules symlink skipped (dist/pi-agent/node_modules + pi store not found)`);
 	}
 	if (WITH_NM_COPY) {
-		const nmSrc = join(repoRoot, "node_modules");
-		if (!existsSync(nmSrc)) die(`repo node_modules missing: ${nmSrc} (run \`bun install\` at repo root)`);
+		const nmSrc = join(repoRoot, "bun-apps", "node_modules");
+		if (!existsSync(nmSrc)) die(`repo node_modules missing: ${nmSrc} (run \`bun install\` inside bun-apps/)`);
 		console.log(`${G("▶")} copy node_modules  ${D("(--with-nm-copy — recursive copy over the symlink, for offline inspection)")}`);
 		rmSync(join(OUTDIR, "node_modules"), { recursive: true, force: true });
 		cpSync(nmSrc, join(OUTDIR, "node_modules"), { recursive: true });

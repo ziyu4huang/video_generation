@@ -8,7 +8,7 @@
         "@types/bun": "latest",
       },
     },
-    "bun-apps/gui-movie-director": {
+    "gui-movie-director": {
       "name": "@repo/gui-movie-director",
       "version": "0.1.0",
       "dependencies": {
@@ -33,11 +33,11 @@
         "typescript-eslint": "^8.61.1",
       },
     },
-    "bun-apps/perf-harness": {
+    "perf-harness": {
       "name": "@repo/perf-harness",
       "version": "0.0.1",
     },
-    "bun-apps/pi-agent": {
+    "pi-agent": {
       "name": "@repo/pi-agent",
       "version": "0.1.0",
       "bin": {
@@ -51,7 +51,7 @@
         "@types/bun": "latest",
       },
     },
-    "bun-apps/pi-agent-cli": {
+    "pi-agent-cli": {
       "name": "@repo/pi-agent-cli",
       "version": "0.1.0",
       "dependencies": {
@@ -78,7 +78,7 @@
         "javascript-obfuscator": "^5.4.3",
       },
     },
-    "bun-apps/pi-agent-ext-ask-user": {
+    "pi-agent-ext-ask-user": {
       "name": "@repo/pi-agent-ext-ask-user",
       "version": "0.1.0",
       "devDependencies": {
@@ -91,7 +91,7 @@
         "typebox": "^1.3.6",
       },
     },
-    "bun-apps/pi-agent-ext-btw": {
+    "pi-agent-ext-btw": {
       "name": "@repo/pi-agent-ext-btw",
       "version": "0.1.0",
       "devDependencies": {
@@ -104,7 +104,7 @@
         "@earendil-works/pi-tui": "0.80.10",
       },
     },
-    "bun-apps/pi-agent-ext-distill": {
+    "pi-agent-ext-distill": {
       "name": "@repo/pi-agent-ext-distill",
       "version": "0.0.0",
       "peerDependencies": {
@@ -112,7 +112,7 @@
         "typebox": "*",
       },
     },
-    "bun-apps/pi-agent-ext-file2md": {
+    "pi-agent-ext-file2md": {
       "name": "@repo/pi-agent-ext-file2md",
       "version": "0.1.0",
       "devDependencies": {
@@ -126,7 +126,7 @@
         "typebox": "*",
       },
     },
-    "bun-apps/pi-agent-ext-flux2": {
+    "pi-agent-ext-flux2": {
       "name": "@repo/pi-agent-ext-flux2",
       "version": "0.1.0",
       "dependencies": {
@@ -143,7 +143,7 @@
         "typebox": "*",
       },
     },
-    "bun-apps/pi-agent-ext-goal-todo": {
+    "pi-agent-ext-goal-todo": {
       "name": "@repo/pi-agent-ext-goal-todo",
       "version": "0.1.0",
       "devDependencies": {
@@ -156,7 +156,7 @@
         "typebox": "^1.3.6",
       },
     },
-    "bun-apps/pi-agent-ext-grill-memory": {
+    "pi-agent-ext-grill-memory": {
       "name": "@repo/pi-agent-ext-grill-memory",
       "version": "0.1.0",
       "devDependencies": {
@@ -169,7 +169,7 @@
         "@earendil-works/pi-coding-agent": "0.80.10",
       },
     },
-    "bun-apps/pi-agent-ext-hermes-memory": {
+    "pi-agent-ext-hermes-memory": {
       "name": "@repo/pi-agent-ext-hermes-memory",
       "version": "0.7.23",
       "dependencies": {
@@ -194,7 +194,7 @@
         "@repo/pi-agent-ext-obsidian",
       ],
     },
-    "bun-apps/pi-agent-ext-knowledge-card": {
+    "pi-agent-ext-knowledge-card": {
       "name": "@repo/pi-agent-ext-knowledge-card",
       "version": "0.1.0",
       "peerDependencies": {
@@ -207,7 +207,7 @@
         "typebox": "*",
       },
     },
-    "bun-apps/pi-agent-ext-krea2": {
+    "pi-agent-ext-krea2": {
       "name": "@repo/pi-agent-ext-krea2",
       "version": "0.1.0",
       "dependencies": {
@@ -223,7 +223,7 @@
         "typebox": "*",
       },
     },
-    "bun-apps/pi-agent-ext-ltx": {
+    "pi-agent-ext-ltx": {
       "name": "@repo/pi-agent-ext-ltx",
       "version": "0.1.0",
       "dependencies": {
@@ -239,7 +239,7 @@
         "typebox": "*",
       },
     },
-    "bun-apps/pi-agent-ext-movie-director": {
+    "pi-agent-ext-movie-director": {
       "name": "@repo/pi-agent-ext-movie-director",
       "version": "0.1.0",
       "dependencies": {
@@ -264,7 +264,7 @@
         "typebox": "*",
       },
     },
-    "bun-apps/pi-agent-ext-obsidian": {
+    "pi-agent-ext-obsidian": {
       "name": "@repo/pi-agent-ext-obsidian",
       "version": "0.1.0",
       "peerDependencies": {
@@ -275,7 +275,7 @@
         "typebox": "*",
       },
     },
-    "bun-apps/pi-agent-ext-power-tool": {
+    "pi-agent-ext-power-tool": {
       "name": "@repo/pi-agent-ext-power-tool",
       "version": "0.1.0",
       "dependencies": {
@@ -290,7 +290,7 @@
         "typescript": "^6.0.3",
       },
     },
-    "bun-apps/pi-agent-ext-research-tool": {
+    "pi-agent-ext-research-tool": {
       "name": "@repo/pi-agent-ext-research-tool",
       "version": "0.1.0",
       "devDependencies": {
@@ -303,7 +303,7 @@
         "typebox": "*",
       },
     },
-    "bun-apps/pi-agent-ext-superpowers": {
+    "pi-agent-ext-superpowers": {
       "name": "@repo/pi-agent-ext-superpowers",
       "version": "6.1.1",
       "devDependencies": {
@@ -317,7 +317,7 @@
         "@earendil-works/pi-coding-agent": "0.80.10",
       },
     },
-    "bun-apps/pi-agent-ext-wayfind": {
+    "pi-agent-ext-wayfind": {
       "name": "@repo/pi-agent-ext-wayfind",
       "version": "0.1.0",
       "dependencies": {
@@ -334,7 +334,7 @@
         "@earendil-works/pi-coding-agent": "0.80.10",
       },
     },
-    "bun-apps/pi-agent-ext-web-access": {
+    "pi-agent-ext-web-access": {
       "name": "@repo/pi-agent-ext-web-access",
       "version": "0.1.0",
       "dependencies": {
@@ -355,7 +355,7 @@
         "typebox": "*",
       },
     },
-    "bun-apps/pi-agent-ext-workflow": {
+    "pi-agent-ext-workflow": {
       "name": "@repo/pi-agent-ext-workflow",
       "version": "2.9.0",
       "dependencies": {
@@ -377,7 +377,7 @@
         "typebox": "*",
       },
     },
-    "bun-apps/pi-agent-ext-zai-mcp": {
+    "pi-agent-ext-zai-mcp": {
       "name": "@repo/pi-agent-ext-zai-mcp",
       "version": "0.1.0",
       "dependencies": {
@@ -685,53 +685,53 @@
 
     "@radix-ui/rect": ["@radix-ui/rect@1.1.2", "", {}, "sha512-xnXE7wG13PI+cxieVssYXlQJuYVRhH9NBoxt3KNwzghDIA69GMm7d4wXRouHIYjE+KvS6U/MsMO73NdS2MH9ZA=="],
 
-    "@repo/gui-movie-director": ["@repo/gui-movie-director@workspace:bun-apps/gui-movie-director"],
+    "@repo/gui-movie-director": ["@repo/gui-movie-director@workspace:gui-movie-director"],
 
-    "@repo/perf-harness": ["@repo/perf-harness@workspace:bun-apps/perf-harness"],
+    "@repo/perf-harness": ["@repo/perf-harness@workspace:perf-harness"],
 
-    "@repo/pi-agent": ["@repo/pi-agent@workspace:bun-apps/pi-agent"],
+    "@repo/pi-agent": ["@repo/pi-agent@workspace:pi-agent"],
 
-    "@repo/pi-agent-cli": ["@repo/pi-agent-cli@workspace:bun-apps/pi-agent-cli"],
+    "@repo/pi-agent-cli": ["@repo/pi-agent-cli@workspace:pi-agent-cli"],
 
-    "@repo/pi-agent-ext-ask-user": ["@repo/pi-agent-ext-ask-user@workspace:bun-apps/pi-agent-ext-ask-user"],
+    "@repo/pi-agent-ext-ask-user": ["@repo/pi-agent-ext-ask-user@workspace:pi-agent-ext-ask-user"],
 
-    "@repo/pi-agent-ext-btw": ["@repo/pi-agent-ext-btw@workspace:bun-apps/pi-agent-ext-btw"],
+    "@repo/pi-agent-ext-btw": ["@repo/pi-agent-ext-btw@workspace:pi-agent-ext-btw"],
 
-    "@repo/pi-agent-ext-distill": ["@repo/pi-agent-ext-distill@workspace:bun-apps/pi-agent-ext-distill"],
+    "@repo/pi-agent-ext-distill": ["@repo/pi-agent-ext-distill@workspace:pi-agent-ext-distill"],
 
-    "@repo/pi-agent-ext-file2md": ["@repo/pi-agent-ext-file2md@workspace:bun-apps/pi-agent-ext-file2md"],
+    "@repo/pi-agent-ext-file2md": ["@repo/pi-agent-ext-file2md@workspace:pi-agent-ext-file2md"],
 
-    "@repo/pi-agent-ext-flux2": ["@repo/pi-agent-ext-flux2@workspace:bun-apps/pi-agent-ext-flux2"],
+    "@repo/pi-agent-ext-flux2": ["@repo/pi-agent-ext-flux2@workspace:pi-agent-ext-flux2"],
 
-    "@repo/pi-agent-ext-goal-todo": ["@repo/pi-agent-ext-goal-todo@workspace:bun-apps/pi-agent-ext-goal-todo"],
+    "@repo/pi-agent-ext-goal-todo": ["@repo/pi-agent-ext-goal-todo@workspace:pi-agent-ext-goal-todo"],
 
-    "@repo/pi-agent-ext-grill-memory": ["@repo/pi-agent-ext-grill-memory@workspace:bun-apps/pi-agent-ext-grill-memory"],
+    "@repo/pi-agent-ext-grill-memory": ["@repo/pi-agent-ext-grill-memory@workspace:pi-agent-ext-grill-memory"],
 
-    "@repo/pi-agent-ext-hermes-memory": ["@repo/pi-agent-ext-hermes-memory@workspace:bun-apps/pi-agent-ext-hermes-memory"],
+    "@repo/pi-agent-ext-hermes-memory": ["@repo/pi-agent-ext-hermes-memory@workspace:pi-agent-ext-hermes-memory"],
 
-    "@repo/pi-agent-ext-knowledge-card": ["@repo/pi-agent-ext-knowledge-card@workspace:bun-apps/pi-agent-ext-knowledge-card"],
+    "@repo/pi-agent-ext-knowledge-card": ["@repo/pi-agent-ext-knowledge-card@workspace:pi-agent-ext-knowledge-card"],
 
-    "@repo/pi-agent-ext-krea2": ["@repo/pi-agent-ext-krea2@workspace:bun-apps/pi-agent-ext-krea2"],
+    "@repo/pi-agent-ext-krea2": ["@repo/pi-agent-ext-krea2@workspace:pi-agent-ext-krea2"],
 
-    "@repo/pi-agent-ext-ltx": ["@repo/pi-agent-ext-ltx@workspace:bun-apps/pi-agent-ext-ltx"],
+    "@repo/pi-agent-ext-ltx": ["@repo/pi-agent-ext-ltx@workspace:pi-agent-ext-ltx"],
 
-    "@repo/pi-agent-ext-movie-director": ["@repo/pi-agent-ext-movie-director@workspace:bun-apps/pi-agent-ext-movie-director"],
+    "@repo/pi-agent-ext-movie-director": ["@repo/pi-agent-ext-movie-director@workspace:pi-agent-ext-movie-director"],
 
-    "@repo/pi-agent-ext-obsidian": ["@repo/pi-agent-ext-obsidian@workspace:bun-apps/pi-agent-ext-obsidian"],
+    "@repo/pi-agent-ext-obsidian": ["@repo/pi-agent-ext-obsidian@workspace:pi-agent-ext-obsidian"],
 
-    "@repo/pi-agent-ext-power-tool": ["@repo/pi-agent-ext-power-tool@workspace:bun-apps/pi-agent-ext-power-tool"],
+    "@repo/pi-agent-ext-power-tool": ["@repo/pi-agent-ext-power-tool@workspace:pi-agent-ext-power-tool"],
 
-    "@repo/pi-agent-ext-research-tool": ["@repo/pi-agent-ext-research-tool@workspace:bun-apps/pi-agent-ext-research-tool"],
+    "@repo/pi-agent-ext-research-tool": ["@repo/pi-agent-ext-research-tool@workspace:pi-agent-ext-research-tool"],
 
-    "@repo/pi-agent-ext-superpowers": ["@repo/pi-agent-ext-superpowers@workspace:bun-apps/pi-agent-ext-superpowers"],
+    "@repo/pi-agent-ext-superpowers": ["@repo/pi-agent-ext-superpowers@workspace:pi-agent-ext-superpowers"],
 
-    "@repo/pi-agent-ext-wayfind": ["@repo/pi-agent-ext-wayfind@workspace:bun-apps/pi-agent-ext-wayfind"],
+    "@repo/pi-agent-ext-wayfind": ["@repo/pi-agent-ext-wayfind@workspace:pi-agent-ext-wayfind"],
 
-    "@repo/pi-agent-ext-web-access": ["@repo/pi-agent-ext-web-access@workspace:bun-apps/pi-agent-ext-web-access"],
+    "@repo/pi-agent-ext-web-access": ["@repo/pi-agent-ext-web-access@workspace:pi-agent-ext-web-access"],
 
-    "@repo/pi-agent-ext-workflow": ["@repo/pi-agent-ext-workflow@workspace:bun-apps/pi-agent-ext-workflow"],
+    "@repo/pi-agent-ext-workflow": ["@repo/pi-agent-ext-workflow@workspace:pi-agent-ext-workflow"],
 
-    "@repo/pi-agent-ext-zai-mcp": ["@repo/pi-agent-ext-zai-mcp@workspace:bun-apps/pi-agent-ext-zai-mcp"],
+    "@repo/pi-agent-ext-zai-mcp": ["@repo/pi-agent-ext-zai-mcp@workspace:pi-agent-ext-zai-mcp"],
 
     "@silvia-odwyer/photon-node": ["@silvia-odwyer/photon-node@0.3.4", "", {}, "sha512-bnly4BKB3KDTFxrUIcgCLbaeVVS8lrAkri1pEzskpmxu9MdfGQTy8b8EgcD83ywD3RPMsIulY8xJH5Awa+t9fA=="],
 
