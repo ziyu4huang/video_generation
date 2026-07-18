@@ -67,6 +67,20 @@ export default function extension(pi: ExtensionAPI) {
     cwd,
     getExtensionTools: () => extensionToolsHolder.current,
   });
+  // Best-effort guard: this repo expects pi-agent-ext-workflow to own the
+  // 'subagent' tool name. If another extension (e.g. a real pi-subagents
+  // install) already activated 'subagent' before us, warn loudly — the two
+  // would shadow each other. (Load-order dependent; a no-op in the normal case.)
+  try {
+    const activeAtLoad = pi.getActiveTools();
+    if (Array.isArray(activeAtLoad) && activeAtLoad.includes("subagent")) {
+      console.warn(
+        "[pi-agent-ext-workflow] a 'subagent' tool is already active (likely pi-subagents); the workflow-provided 'subagent' will shadow or be shadowed. This repo expects workflow to own the 'subagent' name.",
+      );
+    }
+  } catch {
+    // getActiveTools may be unavailable in some hosts — best-effort only.
+  }
   pi.registerTool(subagentTool);
 
   // Layer-3 conditional guideline injection. The workflow tool's authoring

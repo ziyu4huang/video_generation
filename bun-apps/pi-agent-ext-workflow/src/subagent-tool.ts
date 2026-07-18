@@ -94,7 +94,7 @@ export function createSubagentTool(
         excludeTools: params.excludeTools,
         model: params.model,
         cwd: params.cwd ?? defaultCwd,
-        instructions: params.agent ? `Role: ${params.agent}` : undefined,
+        instructions: params.agent ? `You are the ${params.agent} for this task.` : undefined,
         extensionTools: options.getExtensionTools?.(),
       });
       return {
