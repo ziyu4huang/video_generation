@@ -4,7 +4,7 @@ import {
   rankedProviders,
   NoConfiguredProviderError,
 } from "./selector.ts";
-import { _setFfmpegAvailableForTest, _setRemotionProbeForTest, _setMotionFiltersForTest, _setWhisperRuntimeForTest, _setVisionRuntimeForTest, _setRunPyRuntimeForTest, _setKrea2BinaryForTest, _setFlux2BinaryForTest, probeConfigured } from "./providers.ts";
+import { _setFfmpegAvailableForTest, _setRemotionProbeForTest, _setMotionFiltersForTest, _setWhisperRuntimeForTest, _setVisionRuntimeForTest, _setRunPyRuntimeForTest, _setKrea2BinaryForTest, _setFlux2BinaryForTest, _setLmStudioReachableForTest, probeConfigured } from "./providers.ts";
 import { REGISTRY, type Capability } from "./registry.ts";
 
 // Selector availability is runtime-probed (ffmpeg on PATH, cloud keys in env).
@@ -29,6 +29,9 @@ beforeAll(() => {
   // of whether this host has recreated python/venv (keeps the command-routing +
   // capability-coverage tests host-independent).
   _setRunPyRuntimeForTest(true);
+  // LM Studio reachable so mlx:caption (caption_native.ts VLM path) is callable
+  // regardless of whether the host has LM Studio running.
+  _setLmStudioReachableForTest(true);
 });
 afterAll(() => {
   _setFfmpegAvailableForTest(undefined);
@@ -38,6 +41,7 @@ afterAll(() => {
   _setVisionRuntimeForTest("clip", undefined);
   _setKrea2BinaryForTest(undefined);
   _setFlux2BinaryForTest(undefined);
+  _setLmStudioReachableForTest(undefined);
   _setRunPyRuntimeForTest(undefined);
 });
 
