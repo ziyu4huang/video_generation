@@ -76,3 +76,13 @@ None discarded at the defect level — all 13 defect claims verified true. (Cove
 **Deferred → backlog issue (contract change / OOS) — 7:** D3-1, D6-1, D6-2, D7-1, D7-3, D7-5, D7-6 → tracked in `docs/superpowers/audit/2026-07-18-workflow-pack-finding-docket.md` and one consolidated GitHub issue.
 
 **Remaining coverage gaps (37):** not pinned this pass; recorded here as the residual backlog for a future pass.
+
+## Summary (pass complete — 2026-07-18)
+
+**Branch result:** 13 commits, all tasks reviewed clean. Final whole-branch review (opus): **Ready to merge**, 0 Critical / 0 Important, 3 non-blocking Minors. CI gate (`pi-agent-ext-workflow`: `bun run build && bun test`; `pi-agent-cli`: `bun test`) is green on the branch (one known flaky `usage-limit-integration.test.ts` timeout under parallel load passes in isolation; pi-agent-cli's pre-existing e2e timeouts are unrelated). biome `check` formatting drift is pre-existing and intentionally excluded from this package's CI gate (see `.github/workflows/ci.yml`).
+
+**Fixed + guarded (6):** D2-1 (empty/whitespace optional manifest fields — repo-wide grep confirms no in-repo pack is affected), D2-4 (read vs JSON error split), D8-1 (spawn-subagent schema → JSON.stringify), D8-2/D8-3 (builtin workflow null-guards with clear errors), D9-8 (no-agent workflow rejected on background path too).
+**Pinned guards (4):** D3-2 (Path B omits persistLogs/runsDir/outDir), D5-1 (listWorkflows `.pi`-first), D4-1 (CLI `--out-dir` > env > default), plus the Task 2/3 guards (Path B model asymmetry, findRepoRoot cap).
+**`.todo` RCA targets (3):** D6-3/4/5 (latent verify/judgePanel/gate null→default coercions).
+**Deferred → issue #630 (7):** D3-1 (manifest.thinking dropped), D6-1 (completenessCheck null), D6-2 (loopUntilDry null-round), D7-1 (concurrent tmp race), D7-3 (pid-recycle lease wedge), D7-5 (`.bak` semantics), D7-6 (no fsync).
+**Residual (37 coverage gaps):** recorded in §4 for a future pass.
