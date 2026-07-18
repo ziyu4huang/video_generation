@@ -149,6 +149,10 @@ _Avoid_: log, history, cache (it is replay-resume state, not a record)
 A run's script turned into a reusable `/<name>` command; composable from inside other scripts via `workflow(name, args)`.
 _Avoid_: template, macro
 
+**`workflow_control`**:
+The model-callable control surface for a background run — `stop`/`pause`/`resume`/`status`/`list`/`wait` — mirroring `/workflows`'s human-typed surface but reachable by the LLM itself without a user typing a command. Only knows `workflow`-tool run ids; a `subagent`-tool call has no run identity to control.
+_Avoid_: task management, subagent control
+
 ### Quality & control
 
 **Quality pattern**:

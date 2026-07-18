@@ -119,4 +119,54 @@ describe("spawnSubagent", () => {
     assert.equal(out.exitCode, 0);
     assert.equal(out.output, "", "null result serializes to empty string");
   });
+
+  it("externalSignal already aborted before the call → the internal signal passed to runner.run is aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const runner = mkRunner(async (p) => {
+      assert.equal((p.opts.signal as AbortSignal).aborted, true, "internal signal should already be aborted");
+      const err = new Error("The operation was aborted");
+      err.name = "AbortError";
+      throw err;
+    });
+    const out = await spawnSubagent({ task: "t", externalSignal: controller.signal, agent: runner });
+    assert.equal(out.timedOut, true);
+    assert.equal(out.exitCode, 124);
+  });
+
+  it("externalSignal that aborts mid-run propagates to the internal signal (addEventListener path)", async () => {
+    const controller = new AbortController();
+    const runner = mkRunner(async (p) => {
+      const sig = p.opts.signal as AbortSignal;
+      assert.equal(sig.aborted, false, "not aborted yet at call time");
+      controller.abort();
+      await Promise.resolve();
+      assert.equal(sig.aborted, true, "external abort propagated to the internal signal");
+      const err = new Error("The operation was aborted");
+      err.name = "AbortError";
+      throw err;
+    });
+    const out = await spawnSubagent({ task: "t", externalSignal: controller.signal, agent: runner });
+    assert.equal(out.timedOut, true);
+  });
+
+  it("REGRESSION: an external abort must not trigger the transient-failure retry", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let n = 0;
+    const runner = mkRunner(async () => {
+      n++;
+      const err = new Error("The operation was aborted");
+      err.name = "AbortError";
+      throw err;
+    });
+    const out = await spawnSubagent({
+      task: "t",
+      externalSignal: controller.signal,
+      retryOnTransient: true,
+      agent: runner,
+    });
+    assert.equal(n, 1, "external abort must not cause a retry — that would re-run work the user just cancelled");
+    assert.equal(out.timedOut, true);
+  });
 });
