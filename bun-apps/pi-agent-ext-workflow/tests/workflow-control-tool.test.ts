@@ -1,6 +1,7 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { createWorkflowSnapshot } from "../src/display.js";
 import { createWorkflowControlTool } from "../src/workflow-control-tool.js";
 import type { WorkflowManager } from "../src/workflow-manager.js";
 
@@ -102,4 +103,60 @@ test("action=resume reports failure when nothing resumable", async () => {
   const tool = createWorkflowControlTool({ manager });
   const res = await tool.execute("id", { action: "resume", runId: "run-1" }, NO_SIGNAL, undefined, NO_CTX);
   assert.match(await textOf(res), /Resume not available/);
+});
+
+test("action=status with no runId throws", async () => {
+  const { manager } = fakeManager();
+  const tool = createWorkflowControlTool({ manager });
+  await assert.rejects(() => tool.execute("id", { action: "status" }, NO_SIGNAL, undefined, NO_CTX));
+});
+
+test("action=status on a live run renders the live snapshot + a no-poll hint", async () => {
+  const snapshot = createWorkflowSnapshot({ name: "audit", description: "d", phases: [] });
+  snapshot.agents.push({ id: 1, label: "scan", status: "running" } as never);
+  const { manager } = fakeManager({ getSnapshot: (id: string) => (id === "run-1" ? snapshot : null) });
+  const tool = createWorkflowControlTool({ manager });
+  const res = await tool.execute("id", { action: "status", runId: "run-1" }, NO_SIGNAL, undefined, NO_CTX);
+  const text = await textOf(res);
+  assert.match(text, /audit/);
+  assert.match(text, /wait/i, "includes the prefer-notification-over-polling hint");
+});
+
+test("action=status on a finished (persisted-only) run falls back to renderPersistedStatus", async () => {
+  const { manager } = fakeManager({
+    getSnapshot: () => null,
+    listRuns: () => [{ runId: "run-1", workflowName: "audit", status: "completed", phases: [], agents: [], logs: [] }],
+  });
+  const tool = createWorkflowControlTool({ manager });
+  const res = await tool.execute("id", { action: "status", runId: "run-1" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.match(await textOf(res), /audit/);
+});
+
+test("action=status on an unknown runId says so", async () => {
+  const { manager } = fakeManager({ getSnapshot: () => null, listRuns: () => [] });
+  const tool = createWorkflowControlTool({ manager });
+  const res = await tool.execute("id", { action: "status", runId: "nope" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.match(await textOf(res), /No workflow run "nope"/);
+});
+
+test("action=list with no runs says so", async () => {
+  const { manager } = fakeManager({ listRuns: () => [] });
+  const tool = createWorkflowControlTool({ manager });
+  const res = await tool.execute("id", { action: "list" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.match(await textOf(res), /No workflow runs yet/);
+});
+
+test("action=list renders every run + a no-poll hint", async () => {
+  const { manager } = fakeManager({
+    listRuns: () => [
+      { runId: "run-1", workflowName: "audit", status: "running", phases: [], agents: [], logs: [] },
+      { runId: "run-2", workflowName: "review", status: "completed", phases: [], agents: [], logs: [] },
+    ],
+  });
+  const tool = createWorkflowControlTool({ manager });
+  const res = await tool.execute("id", { action: "list" }, NO_SIGNAL, undefined, NO_CTX);
+  const text = await textOf(res);
+  assert.match(text, /run-1/);
+  assert.match(text, /run-2/);
+  assert.match(text, /wait/i, "includes the prefer-notification-over-polling hint");
 });

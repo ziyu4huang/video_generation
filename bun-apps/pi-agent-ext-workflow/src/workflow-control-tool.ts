@@ -10,6 +10,8 @@
  */
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { recomputeWorkflowSnapshot, renderWorkflowText } from "./display.js";
+import { renderPersistedStatus, summarizeRun } from "./workflow-commands.js";
 import type { WorkflowManager } from "./workflow-manager.js";
 
 const workflowControlActionEnum = Type.Union([
@@ -65,6 +67,24 @@ function runningIds(manager: WorkflowManager): string[] {
     .map((r) => r.runId);
 }
 
+const NO_POLL_HINT = "Prefer waiting for the automatic completion notification over polling repeatedly.";
+
+/** Live snapshot if the run is active in this process, else the persisted
+ *  status if it exists at all, else undefined. Mirrors the fallback chain
+ *  the /workflows status|watch slash command already uses. */
+function renderRunStatus(manager: WorkflowManager, runId: string): string | undefined {
+  const live = manager.getSnapshot(runId);
+  if (live) return renderWorkflowText(recomputeWorkflowSnapshot(live), false);
+  const run = manager.listRuns().find((r) => r.runId === runId);
+  return run ? renderPersistedStatus(run) : undefined;
+}
+
+function renderRunList(manager: WorkflowManager): string {
+  const runs = manager.listRuns();
+  if (!runs.length) return "No workflow runs yet.";
+  return [...runs.map(summarizeRun), "", NO_POLL_HINT].join("\n");
+}
+
 export function createWorkflowControlTool(
   options: WorkflowControlToolOptions,
 ): ToolDefinition<typeof workflowControlToolSchema, undefined> {
@@ -99,6 +119,13 @@ export function createWorkflowControlTool(
           const ok = await manager.resume(runId);
           return textResult(ok ? `Resumed ${runId}.` : `Resume not available for ${runId} yet.`);
         }
+        case "status": {
+          const runId = requireRunId("status", params.runId);
+          const text = renderRunStatus(manager, runId);
+          return textResult(text ? `${text}\n\n${NO_POLL_HINT}` : `No workflow run "${runId}".`);
+        }
+        case "list":
+          return textResult(renderRunList(manager));
         default:
           throw new Error(`workflow_control: action "${params.action}" not yet implemented`);
       }
