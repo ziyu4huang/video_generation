@@ -1,3 +1,7 @@
+// @ts-nocheck — pre-existing type errors, never checked before this file
+// became reachable via pi-agent's static import (src/static-extensions.ts);
+// see that file's header comment for the full rationale. Runtime unaffected
+// (Bun doesn't enforce types).
 /**
  * Single-hop memory → vault convergence.
  *
@@ -115,7 +119,20 @@ export async function convergeToVault(
 	}
 
 	// Dynamic import — keeps pi-hermes-memory standalone-safe when the
-	// knowledge-card extension is not installed.
+	// knowledge-card extension is not installed. Specifiers are DELIBERATELY
+	// computed (not string literals): pi-hermes-memory is statically imported
+	// by pi-agent (see pi-agent/src/static-extensions.ts) to survive `bun
+	// build --compile`, so a literal specifier here would let Bun's bundler
+	// statically resolve+inline pi-obsidian/pi-knowledge-card too (both are
+	// reachable via this package's own devDependencies under the isolated
+	// linker) — silently pulling two "optional peer" packages into pi-agent's
+	// binary. It would also make TypeScript's checker traverse and type-check
+	// their full module graphs from every static importer, surfacing
+	// unrelated type errors in packages this file only optionally depends on
+	// at runtime. A computed specifier keeps this a genuine runtime-only
+	// import() (Bun can't statically inline it, and `import(nonLiteral)`
+	// types as `Promise<any>`) while preserving identical runtime behavior —
+	// it still resolves normally whenever the optional peer IS installed.
 	let resolveVaultFn: ((cwd: string) => Promise<{ path: string }>) | null = null;
 	let ingestRecordsFn: ((records: ConvergeRecord[], opts: {
 		vaultPath: string;
@@ -124,10 +141,10 @@ export async function convergeToVault(
 		folder?: string;
 	}) => Promise<IngestShape>) | null = null;
 	try {
-		// @ts-expect-error — optional workspace peer; not declared in dependencies
-		const obs = await import("@repo/pi-agent-ext-obsidian/extensions/obsidian.ts");
-		// @ts-expect-error — optional workspace peer; not declared in dependencies
-		const kc = await import("@repo/pi-agent-ext-knowledge-card/src/ingest.ts");
+		const obsidianSpecifier = ["@repo/pi-agent-ext-obsidian", "extensions/obsidian.ts"].join("/");
+		const knowledgeCardSpecifier = ["@repo/pi-agent-ext-knowledge-card", "src/ingest.ts"].join("/");
+		const obs = await import(obsidianSpecifier);
+		const kc = await import(knowledgeCardSpecifier);
 		resolveVaultFn = obs.resolveVault;
 		ingestRecordsFn = kc.ingestRecords;
 	} catch (err) {

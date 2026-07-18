@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { applyHostFnRegistration, HostFnRegistry } from "../src/host-fn-registry.js";
+import { createSubagentTool } from "../src/subagent-tool.js";
 import {
   buildWorkflowGuidelinesForTurn,
   createEffortState,
@@ -58,6 +59,30 @@ export default function extension(pi: ExtensionAPI) {
   const workflowHelpTool = createWorkflowHelpTool();
   pi.registerTool(workflowHelpTool);
 
+  // Shared holder for parent-session tool definitions, updated in session_start.
+  // Both WorkflowManager (workflow runs) and the subagent tool (direct dispatches)
+  // bridge these into child sessions so children inherit the parent's extension tools.
+  const extensionToolsHolder: { current: ToolDefinition[] | undefined } = { current: undefined };
+  const subagentTool = createSubagentTool({
+    cwd,
+    getExtensionTools: () => extensionToolsHolder.current,
+  });
+  // Best-effort guard: this repo expects pi-agent-ext-workflow to own the
+  // 'subagent' tool name. If another extension (e.g. a real pi-subagents
+  // install) already activated 'subagent' before us, warn loudly — the two
+  // would shadow each other. (Load-order dependent; a no-op in the normal case.)
+  try {
+    const activeAtLoad = pi.getActiveTools();
+    if (Array.isArray(activeAtLoad) && activeAtLoad.includes("subagent")) {
+      console.warn(
+        "[pi-agent-ext-workflow] a 'subagent' tool is already active (likely pi-subagents); the workflow-provided 'subagent' will shadow or be shadowed. This repo expects workflow to own the 'subagent' name.",
+      );
+    }
+  } catch {
+    // getActiveTools may be unavailable in some hosts — best-effort only.
+  }
+  pi.registerTool(subagentTool);
+
   // Layer-3 conditional guideline injection. The workflow tool's authoring
   // guidelines are NO LONGER a static promptGuidelines tax on every turn; they
   // are injected here, per-turn, by before_agent_start:
@@ -93,6 +118,24 @@ export default function extension(pi: ExtensionAPI) {
   // the editor itself is installed once the UI is available (session_start).
   let editorInstalled = false;
 
+  // ── Tool activation ──────────────────────────────────────────────────
+  // Activate workflow + workflow_help at EVERY lifecycle hook that precedes
+  // a system-prompt rebuild.  Relying on session_start alone is not enough
+  // because getSystemPromptOptions().selectedTools sometimes lags behind the
+  // setActiveTools() call — the before_agent_start hook below bridges that
+  // gap so the tools are visible on every turn (not just after the first).
+  const activateWorkflowTools = () => {
+    const active = pi.getActiveTools();
+    const missing = [workflowTool.name, workflowHelpTool.name, subagentTool.name].filter((nm) => !active.includes(nm));
+    if (missing.length) {
+      pi.setActiveTools([...active, ...missing]);
+    }
+  };
+
+  pi.on("before_agent_start", (_event) => {
+    activateWorkflowTools();
+  });
+
   pi.on("session_start", (_event: unknown, ctx: ExtensionContext) => {
     // Solicit host-fn registrations from peer extensions (load-order robust:
     // catches peers that loaded — and eagerly emitted — before this listener
@@ -102,10 +145,7 @@ export default function extension(pi: ExtensionAPI) {
     } catch {
       // pi.events is optional in some contexts — host fns just stay absent.
     }
-    const active = pi.getActiveTools();
-    const wantActive = [workflowTool.name, workflowHelpTool.name];
-    const missing = wantActive.filter((nm) => !active.includes(nm));
-    if (missing.length) pi.setActiveTools([...active, ...missing]);
+    activateWorkflowTools();
     // Inject extension-registered tool definitions so WorkflowAgent child
     // sessions can call the same extension tools the parent session has.
     // getAllToolDefinitions() is added by the ext-api-get-all-tool-definitions
@@ -113,6 +153,7 @@ export default function extension(pi: ExtensionAPI) {
     const extTools = (pi as unknown as { getAllToolDefinitions?: () => ToolDefinition[] }).getAllToolDefinitions?.();
     if (extTools?.length) {
       manager.setExtensionTools(extTools);
+      extensionToolsHolder.current = extTools;
     }
     // Tell the manager the session's main model so "explore" agents auto-tier
     // down to a lighter same-family sibling (e.g. Claude → Haiku).

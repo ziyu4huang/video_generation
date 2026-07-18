@@ -289,6 +289,15 @@ function makeKrea2HelpTool() {
 const extension: ExtensionFactory = (pi) => {
   pi.registerTool(makeKrea2Tool());
   pi.registerTool(makeKrea2HelpTool());
+
+  // Promote to default-load (always active) so the agent sees krea2/krea2_help
+  // on every turn without tool-search.
+  pi.on('session_start', () => {
+    const current = pi.getActiveTools();
+    if (!current.includes('krea2')) {
+      pi.setActiveTools([...new Set([...current, 'krea2', 'krea2_help'])]);
+    }
+  });
 };
 
 export default extension;

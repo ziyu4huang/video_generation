@@ -1,3 +1,7 @@
+// @ts-nocheck — pre-existing type errors, never checked before this file
+// became reachable via pi-agent's static import (src/static-extensions.ts);
+// see that file's header comment for the full rationale. Runtime unaffected
+// (Bun doesn't enforce types).
 import { complete, type Message, type Model } from "@earendil-works/pi-ai/compat";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";

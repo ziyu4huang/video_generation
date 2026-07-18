@@ -30,6 +30,10 @@
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.80.10",
+    "@repo/pi-agent-ext-goal-todo": "workspace:*",
+    "@repo/pi-agent-ext-hermes-memory": "workspace:*",
+    "@repo/pi-agent-ext-superpowers": "workspace:*",
+    "@repo/pi-agent-ext-wayfind": "workspace:*",
     "@repo/pi-agent-ext-web-access": "workspace:*"
   },
   "devDependencies": {

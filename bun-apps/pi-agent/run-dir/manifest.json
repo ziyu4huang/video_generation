@@ -5,24 +5,10 @@
     "pi-agent-ext-knowledge-card/extensions/pi-knowledge-card.ts",
     "pi-agent-ext-power-tool/src/index.ts",
     {
-      "name": "pi-agent-ext-goal-todo",
-      "entry": "pi-agent-ext-goal-todo/extensions/pi-goal-todo.ts",
-      "bundleMode": "thin",
-      "testGate": "cd bun-apps/pi-agent-ext-goal-todo && bun test",
-      "version": "0.1.0"
-    },
-    {
       "name": "pi-agent-ext-btw",
       "entry": "pi-agent-ext-btw/extensions/pi-btw.ts",
       "bundleMode": "thin",
       "testGate": "cd bun-apps/pi-agent-ext-btw && bun test",
-      "version": "0.1.0"
-    },
-    {
-      "name": "pi-agent-ext-ask-user",
-      "entry": "pi-agent-ext-ask-user/extensions/pi-ask-user.ts",
-      "bundleMode": "thin",
-      "testGate": "cd bun-apps/pi-agent-ext-ask-user && bun test",
       "version": "0.1.0"
     },
     {
@@ -35,22 +21,6 @@
     "pi-agent-ext-krea2/extensions/pi-krea2.ts",
     "pi-agent-ext-ltx/extensions/pi-ltx.ts",
     {
-      "name": "pi-agent-ext-hermes-memory",
-      "entry": "pi-agent-ext-hermes-memory/src/index.ts",
-      "bundleMode": "thin",
-      "fullReason": "Was FULL due to deep pi-ai/* subpath imports + better-sqlite3 native addon. Switched to THIN after the Bun.resolveSync fix (criterion 1) — deep subpaths now resolve, and better-sqlite3 stays as a residual bare specifier (same as FULL).",
-      "testGate": "cd bun-apps/pi-agent-ext-hermes-memory && bun test",
-      "version": "0.80.3"
-    },
-    "pi-agent-ext-web-access/index.ts",
-    {
-      "name": "pi-agent-ext-wayfind",
-      "entry": "pi-agent-ext-wayfind/extensions/index.ts",
-      "bundleMode": "thin",
-      "testGate": "cd bun-apps/pi-agent-ext-wayfind && bun test",
-      "version": "0.1.0"
-    },
-    {
       "name": "pi-agent-ext-research-tool",
       "entry": "pi-agent-ext-research-tool/extensions/research.ts",
       "bundleMode": "thin",
@@ -61,7 +31,7 @@
       "name": "pi-agent-ext-workflow",
       "entry": "pi-agent-ext-workflow/extensions/workflow.ts",
       "bundleMode": "thin",
-      "fullReason": "Thin because the extension imports compiled ../src/index.js which pulls in @earendil-works/pi-ai/* deep subpaths + acorn — all resolve as residual bare specifiers under thin. Was previously lazy-only (opt-in via -e workflow); promoted to eager (default-enabled) 2026-07-10. The lazyExtensions aliases below are kept for backwards-compat (scripts/docs still pass -e workflow); the SDK loader dedups the resulting duplicate path so there is no double-load.",
+      "fullReason": "Thin because the extension imports compiled ../src/index.js which pulls in @earendil-works/pi-ai/* deep subpaths + acorn \u2014 all resolve as residual bare specifiers under thin. Was previously lazy-only (opt-in via -e workflow); promoted to eager (default-enabled) 2026-07-10. The lazyExtensions aliases below are kept for backwards-compat (scripts/docs still pass -e workflow); the SDK loader dedups the resulting duplicate path so there is no double-load.",
       "testGate": "cd bun-apps/pi-agent-ext-workflow && bun run build && bun test",
       "version": "2.9.0"
     },
@@ -78,13 +48,6 @@
       "bundleMode": "thin",
       "testGate": "cd bun-apps/pi-agent-ext-movie-director && bun test",
       "version": "0.1.0"
-    },
-    {
-      "name": "pi-agent-ext-superpowers",
-      "entry": "pi-agent-ext-superpowers/extensions/index.ts",
-      "bundleMode": "thin",
-      "testGate": "cd bun-apps/pi-agent-ext-superpowers && bun test",
-      "version": "6.1.1"
     }
   ],
   "skills": [
@@ -92,7 +55,21 @@
     "pi-agent-ext-research-tool/skills",
     "pi-agent-ext-wayfind/skills",
     "pi-agent-ext-hermes-memory/skills",
-    "pi-agent-ext-superpowers/skills"
+    "pi-agent-ext-superpowers/skills",
+    "pi-agent-ext-web-access/skills"
+  ],
+  "binarySkills": [
+    "pi-agent-ext-hermes-memory/skills",
+    "pi-agent-ext-superpowers/skills",
+    "pi-agent-ext-wayfind/skills",
+    "pi-agent-ext-web-access/skills"
+  ],
+  "staticExtensions": [
+    "pi-agent-ext-goal-todo",
+    "pi-agent-ext-hermes-memory",
+    "pi-agent-ext-superpowers",
+    "pi-agent-ext-wayfind",
+    "pi-agent-ext-web-access"
   ],
   "npmExtensions": [],
   "lazyExtensions": {

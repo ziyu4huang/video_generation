@@ -137,6 +137,96 @@ describe("workflow tool — `name` (pack resolution)", () => {
     expect(opt).not.toHaveProperty("mainModel");
   });
 
+  // Task 4 — Path B (the `workflow` tool) labels its result `details` with
+  // `modelSource: "session"` on BOTH return paths (background + inline snapshot).
+  // Path B's model is the host session's mainModel (= pi default by construction);
+  // `ctx.model` exposes it to execute(). This is a LABEL only — manifest.model is
+  // still NOT applied (Task-2 guard re-asserted below).
+  test("Path B background result details label modelSource:'session' (manifest.model still NOT applied)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wf-tool-"));
+    // Pack declares BOTH args AND a model in its manifest.
+    const packDir = makePack(dir, "echo", {
+      name: "echo", description: "d", entry: "index.js",
+      args: { fromManifest: true },
+      model: "manifest-declared/model",
+    });
+    // Capturing manager that records the FULL (script, args, options) triple.
+    const calls: { script: string; args: unknown; options: unknown }[] = [];
+    const manager = {
+      startInBackground(script: string, args: unknown, options: unknown) {
+        calls.push({ script, args, options });
+        return { runId: "stub-run" };
+      },
+      runSync(script: string, args: unknown, options: unknown) {
+        calls.push({ script, args, options });
+        return { result: { ok: true }, meta: { name: "pack", description: "d" }, phases: ["P"], logs: [], agentCount: 1, durationMs: 0, runId: "stub-run", tokenUsage: null };
+      },
+    };
+    const tool = createWorkflowTool({ cwd: dir, manager: manager as any });
+
+    // ctx.model exposes the host session's mainModel (see ExtensionContext.model
+    // in pi-coding-agent types.d.ts). A real session populates it; we pass a
+    // minimal stand-in to verify the value is threaded into the result details.
+    const ctx = { model: { id: "session-main/model" } } as any;
+
+    const result = await tool.execute(
+      "call-task4-bg",
+      { name: packDir, args: { fromCaller: true }, background: true } as any,
+      undefined as any, undefined as any, ctx,
+    );
+
+    // Task 4 label: modelSource is "session" on the background return.
+    const details = (result as { details: Record<string, unknown> }).details;
+    expect(details.modelSource).toBe("session");
+    // When ctx.model is observable, its id is forwarded as `model`.
+    expect(details.model).toBe("session-main/model");
+    // runId + background flag still present (no regression on the existing shape).
+    expect(details.runId).toBe("stub-run");
+    expect(details.background).toBe(true);
+
+    // Task-2 guard (re-asserted): manifest.model is NOT applied — the options
+    // object handed to startInBackground carries no model-bearing key.
+    expect(calls).toHaveLength(1);
+    const opt = calls[0]!.options as Record<string, unknown>;
+    expect(opt).not.toHaveProperty("model");
+    expect(opt).not.toHaveProperty("mainModel");
+  });
+
+  test("Path B inline (background:false) snapshot details also label modelSource:'session'", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wf-tool-"));
+    const packDir = makePack(dir, "echo", {
+      name: "echo", description: "d", entry: "index.js",
+      model: "manifest-declared/model",
+    });
+    const calls: { script: string; args: unknown; options: unknown }[] = [];
+    const manager = {
+      startInBackground(script: string, args: unknown, options: unknown) {
+        calls.push({ script, args, options });
+        return { runId: "stub-run" };
+      },
+      runSync(script: string, args: unknown, options: unknown) {
+        calls.push({ script, args, options });
+        return { result: { ok: true }, meta: { name: "pack", description: "d" }, phases: ["P"], logs: [], agentCount: 1, durationMs: 0, runId: "stub-run", tokenUsage: null };
+      },
+    };
+    const tool = createWorkflowTool({ cwd: dir, manager: manager as any });
+    const ctx = { model: { id: "session-main/model" } } as any;
+
+    const result = await tool.execute(
+      "call-task4-sync",
+      { name: packDir, background: false } as any,
+      undefined as any, undefined as any, ctx,
+    );
+
+    const details = (result as { details: Record<string, unknown> }).details;
+    expect(details.modelSource).toBe("session");
+    expect(details.model).toBe("session-main/model");
+    // Task-2 guard holds on the inline path too.
+    const opt = calls[0]!.options as Record<string, unknown>;
+    expect(opt).not.toHaveProperty("model");
+    expect(opt).not.toHaveProperty("mainModel");
+  });
+
   // D3-2 — Path B (the `workflow` tool) does NOT thread persistLogs / runsDir /
   // outDir into the manager. This is an intentional asymmetry with Path A
   // (`runWorkflowScript`, the CLI `workflow run` path), which owns those fields

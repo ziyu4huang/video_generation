@@ -402,6 +402,17 @@ function makeFlux2HelpTool() {
 const extension: ExtensionFactory = (pi) => {
   pi.registerTool(makeFlux2Tool());
   pi.registerTool(makeFlux2HelpTool());
+
+  // Promote to default-load (always active) so the agent sees flux2/flux2_help
+  // on every turn without tool-search. This is a deliberate deviation from the
+  // Tool-Search / Lazy-Loading design header above — the project standard is
+  // default-load for generation tools that get called often.
+  pi.on('session_start', () => {
+    const current = pi.getActiveTools();
+    if (!current.includes('flux2')) {
+      pi.setActiveTools([...new Set([...current, 'flux2', 'flux2_help'])]);
+    }
+  });
 };
 
 export default extension;
