@@ -21,6 +21,15 @@ import {
 export interface SubagentToolDetails {
   exitCode: number;
   timedOut: boolean;
+  /** Role label (params.agent), if provided. */
+  agent?: string;
+  /** params.model, or "default". */
+  model?: string;
+  /** First ~80 chars of params.task, single-lined. */
+  taskPreview: string;
+  /** Wall-clock of the run, ms. */
+  elapsedMs: number;
+  status: "done" | "failed" | "timedout";
 }
 
 export const subagentToolSchema = Type.Object({
@@ -61,6 +70,18 @@ export interface SubagentToolOptions {
   spawn?: (opts: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
 }
 
+/** Collapse a task prompt to a single-line preview of at most `n` chars. */
+export function taskPreview(task: string, n = 80): string {
+  const oneLine = task.replace(/\s+/g, " ").trim();
+  return oneLine.length > n ? oneLine.slice(0, n - 1) + "…" : oneLine;
+}
+
+/** Derive a human status from the spawn result. */
+export function deriveSubagentStatus(r: SpawnSubagentResult): SubagentToolDetails["status"] {
+  if (r.exitCode === 0) return "done";
+  return r.timedOut ? "timedout" : "failed";
+}
+
 /** Format the subagent result into the text the parent agent reads. */
 export function formatSubagentResult(result: SpawnSubagentResult): string {
   if (result.exitCode === 0) return result.output;
@@ -88,6 +109,7 @@ export function createSubagentTool(
       "Dispatch an isolated-context subagent for one focused task (implementer / reviewer / researcher). Pass a self-contained `task`; choose `model` per role; restrict with `tools`/`excludeTools`.",
     parameters: subagentToolSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const t0 = Date.now();
       const result = await spawn({
         task: params.task,
         tools: params.tools,
@@ -99,7 +121,15 @@ export function createSubagentTool(
       });
       return {
         content: [{ type: "text" as const, text: formatSubagentResult(result) }],
-        details: { exitCode: result.exitCode, timedOut: result.timedOut },
+        details: {
+          exitCode: result.exitCode,
+          timedOut: result.timedOut,
+          agent: params.agent,
+          model: params.model ?? "default",
+          taskPreview: taskPreview(params.task),
+          elapsedMs: Date.now() - t0,
+          status: deriveSubagentStatus(result),
+        },
       };
     },
   });

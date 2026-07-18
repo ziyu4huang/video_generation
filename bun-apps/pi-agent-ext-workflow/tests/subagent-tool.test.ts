@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import { createSubagentTool, formatSubagentResult } from "../src/subagent-tool.js";
+import { createSubagentTool, deriveSubagentStatus, formatSubagentResult, taskPreview } from "../src/subagent-tool.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
 
 /** Injectable spawn that records the opts it was called with. */
@@ -107,4 +107,53 @@ test("execute forwards getExtensionTools() === undefined when holder unset", asy
   const tool = createSubagentTool({ spawn: f.spawn, getExtensionTools: () => undefined });
   await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.extensionTools, undefined);
+});
+
+// ── details enrichment (renderResult + /subagents data source) ──
+test("execute enriches details with agent/model/taskPreview/elapsedMs/status for a done run", async () => {
+  const f = fakeSpawn(() => ({ output: "Status: DONE", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  const res = await tool.execute(
+    "id",
+    { task: "do something\nwith newlines   and spaces", agent: "implementer", model: "x/flash" },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  const d = res.details;
+  assert.equal(d.status, "done");
+  assert.equal(d.agent, "implementer");
+  assert.equal(d.model, "x/flash");
+  assert.equal(d.exitCode, 0);
+  assert.ok(d.elapsedMs >= 0, "elapsedMs recorded");
+  assert.ok(!d.taskPreview.includes("\n"), "taskPreview is single-line");
+  assert.ok(d.taskPreview.length <= 80, "taskPreview bounded to 80");
+});
+
+test("execute defaults model to 'default' and omits agent when absent", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  const res = await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(res.details.model, "default");
+  assert.equal(res.details.agent, undefined);
+});
+
+test("execute reports status 'timedout' and 'failed' from the spawn result", async () => {
+  const t = createSubagentTool({ spawn: fakeSpawn(() => ({ output: "", exitCode: 124, stderr: "x", timedOut: true })).spawn });
+  const rt = await t.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(rt.details.status, "timedout");
+  const f = createSubagentTool({ spawn: fakeSpawn(() => ({ output: "", exitCode: 1, stderr: "boom", timedOut: false })).spawn });
+  const rf = await f.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(rf.details.status, "failed");
+});
+
+test("deriveSubagentStatus + taskPreview helpers", () => {
+  assert.equal(deriveSubagentStatus({ output: "", exitCode: 0, stderr: "", timedOut: false }), "done");
+  assert.equal(deriveSubagentStatus({ output: "", exitCode: 1, stderr: "", timedOut: false }), "failed");
+  assert.equal(deriveSubagentStatus({ output: "", exitCode: 124, stderr: "", timedOut: true }), "timedout");
+  assert.equal(taskPreview("hello"), "hello");
+  const long = "x".repeat(120);
+  assert.equal(taskPreview(long).length, 80);
+  assert.ok(taskPreview(long).endsWith("…"));
+  assert.equal(taskPreview("a\n b\n  c"), "a b c");
 });
