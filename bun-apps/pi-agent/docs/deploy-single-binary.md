@@ -10,7 +10,7 @@ change it" doc.
 ## TL;DR — build and verify
 
 ```bash
-bun run build:exe                          # bun-apps/pi-agent/ → dist/pi-agent/pi-agent
+bun run deploy:exe                          # bun-apps/pi-agent/ → dist/pi-agent/pi-agent
 dist/pi-agent/pi-agent --version
 dist/pi-agent/pi-agent doctor --json       # expect ok:true, mode:"binary"
 bun src/cli.ts ext doctor --json           # source-mode check that the 5 static extensions register
@@ -192,7 +192,7 @@ Keep these two in lockstep by construction (both read `manifest.binarySkills`)
 5. Run `bunx tsc --noEmit` — if it drags in pre-existing type errors from
    the new extension's own source (see the `@ts-nocheck` section above),
    decide then whether to silence or fix them.
-6. Rebuild (`bun run build:exe`) and re-run the verification commands from
+6. Rebuild (`bun run deploy:exe`) and re-run the verification commands from
    the TL;DR above. `bun test` (`extension-contract.test.ts`) and
    `bun src/cli.ts ext doctor --json` both need to show it registering with
    0 conflicts.
@@ -210,7 +210,7 @@ directly into the binary via `type: "file"` import:
 ### Build
 
 ```bash
-bun scripts/build.ts --compile-embed   # 74 MB, self-contained
+bun scripts/deploy.ts --exe-embed   # 74 MB, self-contained
 ```
 
 The resulting `dist/pi-agent/pi-agent` can be copied to an **empty**

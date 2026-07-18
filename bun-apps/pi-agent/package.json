@@ -15,18 +15,11 @@
     "pi-agent": "src/cli.ts"
   },
   "scripts": {
-    "cli": "bun src/cli.ts",
-    "list": "bun src/cli.ts --list-models",
-    "test": "bun test",
-    "typecheck": "bunx tsc --noEmit",
-    "test:e2e": "PI_AGENT_E2E=1 bun test",
-    "build": "bun scripts/build.ts",
     "deploy": "bun scripts/deploy.ts",
-    "verify": "PI_AGENT_E2E=1 bun test src/__tests__/e2e-extensions.test.ts",
-    "build:exe": "bun scripts/build.ts --compile",
-    "build:all": "bun scripts/build.ts --all",
-    "dist": "bun ../../dist/pi-agent/pi-agent.js",
-    "exe": "../../dist/pi-agent/pi-agent"
+    "deploy:bundle": "bun scripts/deploy.ts --bundle",
+    "deploy:snapshot": "bun scripts/deploy.ts --snapshot",
+    "deploy:standalone": "bun scripts/deploy.ts --standalone",
+    "deploy:exe": "bun scripts/deploy.ts --exe"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.80.10",

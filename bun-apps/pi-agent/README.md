@@ -208,11 +208,11 @@ extension in `run-dir/manifest.json`; the compiled binary loads a fixed
 
 ```bash
 bun scripts/build.ts          # bundle → dist/pi-agent/pi-agent.js (+ node_modules symlink)
-bun scripts/build.ts --compile-embed  # bundle + compile + embed (truly single file, no companion dirs)
+bun scripts/deploy.ts --exe-embed  # bundle + compile + embed (truly single file, no companion dirs)
 bun scripts/build.ts --sourcemap  # also emit dist/pi-agent/pi-agent.js.map (debug; never shipped)
-bun scripts/build.ts --compile    # also compile → dist/pi-agent/pi-agent (standalone binary)
-bun scripts/build.ts --all        # bundle + standalone binary
-bun run build:exe                 # shorthand for --compile
+bun scripts/deploy.ts --exe    # also compile → dist/pi-agent/pi-agent (standalone binary)
+bun scripts/deploy.ts --bundle        # bundle + standalone binary
+bun run deploy:exe                 # shorthand for --compile
 ```
 
 The sourcemap is **opt-in** — the `.map` is ~20 MB (embeds full source) and is
@@ -263,7 +263,7 @@ Use source or bundle mode for those, or run the binary with `-ne` if you want
 zero extensions at all.
 
 ```bash
-bun run build:exe                          # build dist/pi-agent/pi-agent
+bun run deploy:exe                          # build dist/pi-agent/pi-agent
 dist/pi-agent/pi-agent --version
 dist/pi-agent/pi-agent doctor --json       # mode:"binary", ok:true
 bun src/cli.ts ext doctor --json           # verify the 5 static factories register (source-mode check;
