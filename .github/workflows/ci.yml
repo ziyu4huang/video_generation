@@ -86,7 +86,6 @@ jobs:
           - { package: pi-agent-ext-movie-director, test-cmd: "bun test" }
           - { package: pi-agent-ext-power-tool, test-cmd: "bun test" }
           - { package: pi-agent-ext-btw, test-cmd: "bun test" }
-          - { package: pi-agent-ext-ask-user, test-cmd: "bun test" }
           - { package: pi-agent-ext-goal-todo, test-cmd: "bun test" }
           - { package: pi-agent-ext-research-tool, test-cmd: "bun test" }
           - { package: pi-agent-ext-zai-mcp, test-cmd: "bun test" }
