@@ -72,10 +72,9 @@ vault/
 # pi-subagents runtime artifacts
 .pi-subagents/
 
-# Per-session planning scratch files (task_plan/progress/findings).
-# These are transient working memory produced by planning skills during a task;
-# they must NOT be committed. Canonical location is ./.planning/<dir>/.
+# Planning artifacts under .planning/<effort>/ (wayfinder decision maps +
+# tickets) ARE committed — they are durable, shared, and persist across sessions.
+# Only per-task TRANSIENT scratch stays ignored (matched by filename, anywhere):
 task_plan.md
 progress.md
 findings.md
-.planning/
