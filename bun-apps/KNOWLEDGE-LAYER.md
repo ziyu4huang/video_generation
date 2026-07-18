@@ -65,7 +65,7 @@ anything hermes touched.
 - retrieve already excludes `superseded`/`retired` cards, so the raw card silently
   drops out of answers. (Caveat: `ingestRecords` defaults `status: active`, so
   superseding is an explicit 2-step op, not automatic.)
-- **Precondition: do not runtime-wire distill until this partition lands.**
+- distill is now runtime-wired as `zk_ingest` actions (`gate`/`converge`/`status`) inside knowledge-card; the gate→enrich→converge flow is the surface above.
 
 ## Read path — which tool when (R4 decision tree)
 
@@ -83,7 +83,7 @@ anything hermes touched.
 | --- | --- |
 | `obsidian distill` (action) | Raw LLM decomposition of free-form markdown → atomic notes |
 | `zk_ingest` (tool) | Deterministic structured-records → graph sink (no LLM) |
-| `distill` (extension) | hermes curated-upgrade path: gate → enrich → converge |
+| `zk_ingest` `action=gate`/`converge`/`status` | distill pipeline (was the `distill` extension): gate → enrich → converge |
 | `buildDistillTask` (knowledge-card export) | **Live** builder — backs the CLI `zk-extract` subcommand (`pi-agent-cli/.../zk-extract.ts:30,139`). The `zk_extract` *tool* registration was removed in #450; the *builder* remains. Not vestigial. |
 
 ## Known issues tracked in the review
@@ -95,7 +95,7 @@ anything hermes touched.
   *(Correction 2026-07-14: `buildDistillTask` is LIVE CLI code, not vestigial —
   the original review conflated the removed `zk_extract` tool with the live builder.)*
 - **C4** 🟡 five overlapping search surfaces → R4 (above).
-- **C5** 🟢 distill not runtime-wired → R5 (wire after R1).
+- **C5** ✅ resolved — distill is now runtime-wired as `zk_ingest` actions (`gate`/`converge`/`status`) inside knowledge-card; the standalone `distill` extension was folded in.
 
 ## Package deep-dives
 
