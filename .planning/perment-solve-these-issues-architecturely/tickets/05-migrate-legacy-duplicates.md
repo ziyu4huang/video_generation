@@ -30,5 +30,48 @@ for future writes?
   "optional follow-up" the 2026-07-11 memory flagged as unwritten?
 
 type: grilling
+claimed: wayfinder-session
 blocked by: 02
-status: open
+status: closed
+
+## Resolution (closed this session)
+
+**Merge via existing `mergeDuplicates`, dry-run-gated at 0.9.**
+
+**Decision 1 — approach: MERGE** via the existing `zk-query --merge-duplicates
+[--fix]` → `mergeDuplicates` (`src/merge.ts`). Corrects a stale memory entry
+("the tool was unwritten" — it's actually built, tested, and used by
+`memory-to-vault`). Merge is **conservative + reversible**: the loser moves to
+`<folder>/_archive/`, is marked `status:superseded` + `superseded_by`, its
+`相關：[[...]]` links union into the canonical card, every inbound `[[loser]]`
+rewrites to `[[canonical]]`, and both titles record as aliases. Canonical =
+card with more inbound graph weight (tie-break: confidence, then lex-smaller
+id). Chosen over supersede-only (leaves ~116 dead cards as clutter) and
+delete-reconverge (destructive across 1883 cards; loses hand-edited /
+non-reproducible cards).
+
+**Decision 2 — threshold/process:** dry-run at the default **0.9** (whole-
+folder — the tool has no namespace filter), REVIEW the proposed pair list
+(focus on legacy `pi-memory:*` ↔ `hermes:*`), then `--fix`. If the review
+shows true cross-namespace dupes falling below 0.9 (tokenization drift between
+the old `entryToRecord` adapter and `adaptHermesMarkdown`), run a second
+targeted pass at 0.85. "Measure first."
+
+**One-shot + recurring guard:** the migration is a one-shot NOW (clears the
+~116 legacy `pi-memory:*` cards + any other pre-wiki-aware dupes); going
+forward, T02's unified path prevents new dupes at the source, and
+`mergeDuplicates` becomes a periodic health check in T07's enforcement
+surface.
+
+**Build includes (run from the PRIMARY worktree per T04):**
+- `zk-query --merge-duplicates` (dry-run) → review the pair list.
+- `zk-query --merge-duplicates --fix` at 0.9 → apply; targeted 0.85 pass if
+  the review warrants.
+- Commit the vault-submodule diff (losers moved to `_archive/`) + bump the
+  parent submodule pointer.
+- **Flag for T07/build:** `coverageReport` (T03) must EXCLUDE `_archive/` from
+  the active set so superseded losers don't count as active/sourceOrphaned.
+
+**No new tickets; no fog graduation.** The remaining fog ("does `zk_ask` need
+change once the vault is clean?") becomes verifiable only AFTER this migration
+actually runs — it stays in *Not yet specified* until then.
