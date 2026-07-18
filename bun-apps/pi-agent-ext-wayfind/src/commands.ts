@@ -203,7 +203,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
           ? `Write one ticket per file under .planning/${effort}/tickets/ (NN-slug.md).`
           : "Write one ticket per file under .planning/<effort>/tickets/ (NN-slug.md).",
         "Use the UNIFIED ticket format: YAML frontmatter (type/blocking/status) + ## Question + ## What to build + ## Acceptance — the same schema wayfinder uses (parseTicketFile reads it).",
-        "Then flatten the frontier into a task_plan.md with /wayfind seed, and execute the plan.",
+        "Then flatten the frontier into a task_plan.md with /wayfind seed, then load the executing-plans (or subagent-driven-development) skill to execute the plan.",
       ].join("\n"),
       { deliverAs: "steer" },
     );
