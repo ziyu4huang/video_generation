@@ -150,7 +150,7 @@ step() {
 	fi
 	# Surface the tail of a failed step so the failure isn't hidden.
 	if [ "$rc" -ne 0 ]; then
-		sed 's/^/      /' /tmp/pi-agent-runtest.log | tail -n 200 >&2
+		sed 's/^/      /' /tmp/pi-agent-runtest.log | tail -n 60 >&2
 	fi
 }
 

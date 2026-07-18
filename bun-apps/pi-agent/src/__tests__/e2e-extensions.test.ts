@@ -134,7 +134,18 @@ async function runScenario(s: Scenario): Promise<Result> {
 		cwd: s.cwd,
 		env: { ...process.env, PI_VERIFY_MARKER: s.marker },
 		stderr: "pipe",
-		stdout: "pipe",
+		// "ignore" (not "pipe"): only stderr's [PROBE]/[PROBE-SKILL] lines matter
+		// here. A piped stdout that's never read fills the OS pipe buffer
+		// (~64KB on Linux) once the child writes enough (TUI rendering,
+		// provider-selection banners, the model's actual reply text) and the
+		// child then BLOCKS on its next stdout write, waiting for a reader that
+		// never comes — a real hang, not a slow-but-eventual completion. More
+		// output accumulates by the time before_agent_start fires than by
+		// session_start, and CI's non-TTY/slower rendering emits more of it
+		// than a local terminal — which is why this only ever surfaced as
+		// CI-only failures in the skill-load scenarios (before_agent_start),
+		// never the session_start ones, before this fix.
+		stdout: "ignore",
 	});
 	const reader = proc.stderr.getReader();
 	const dec = new TextDecoder();
