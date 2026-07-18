@@ -118,6 +118,24 @@ export default function extension(pi: ExtensionAPI) {
   // the editor itself is installed once the UI is available (session_start).
   let editorInstalled = false;
 
+  // ── Tool activation ──────────────────────────────────────────────────
+  // Activate workflow + workflow_help at EVERY lifecycle hook that precedes
+  // a system-prompt rebuild.  Relying on session_start alone is not enough
+  // because getSystemPromptOptions().selectedTools sometimes lags behind the
+  // setActiveTools() call — the before_agent_start hook below bridges that
+  // gap so the tools are visible on every turn (not just after the first).
+  const activateWorkflowTools = () => {
+    const active = pi.getActiveTools();
+    const missing = [workflowTool.name, workflowHelpTool.name, subagentTool.name].filter((nm) => !active.includes(nm));
+    if (missing.length) {
+      pi.setActiveTools([...active, ...missing]);
+    }
+  };
+
+  pi.on("before_agent_start", (_event) => {
+    activateWorkflowTools();
+  });
+
   pi.on("session_start", (_event: unknown, ctx: ExtensionContext) => {
     // Solicit host-fn registrations from peer extensions (load-order robust:
     // catches peers that loaded — and eagerly emitted — before this listener
@@ -127,10 +145,7 @@ export default function extension(pi: ExtensionAPI) {
     } catch {
       // pi.events is optional in some contexts — host fns just stay absent.
     }
-    const active = pi.getActiveTools();
-    const wantActive = [workflowTool.name, workflowHelpTool.name, subagentTool.name];
-    const missing = wantActive.filter((nm) => !active.includes(nm));
-    if (missing.length) pi.setActiveTools([...active, ...missing]);
+    activateWorkflowTools();
     // Inject extension-registered tool definitions so WorkflowAgent child
     // sessions can call the same extension tools the parent session has.
     // getAllToolDefinitions() is added by the ext-api-get-all-tool-definitions
