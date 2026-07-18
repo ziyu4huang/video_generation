@@ -145,7 +145,7 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
         await import("./skip-update-check.ts");
         break;
       case "pre-load-providers":
-        await import("../pre-load-providers.ts");
+        await import("./pre-load-providers-patch.ts");
         break;
       case "load-run-dir-resources":
         await import("./load-run-dir-resources.ts");
