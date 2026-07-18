@@ -47,7 +47,7 @@ export function parseWorkflowArgs(raw: string | undefined): unknown {
 }
 
 /** Build the `provider/modelId` spec passed as the workflow's main model. */
-function buildMainSpec(parsed: ParsedArgs): string | undefined {
+export function buildMainSpec(parsed: ParsedArgs): string | undefined {
 	const model = parsed.model;
 	const provider = parsed.provider;
 	if (!model) return undefined;

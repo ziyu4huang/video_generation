@@ -53,9 +53,15 @@ export function readManifest(packDir: string, opts: ReadManifestOptions = {}): M
   if (!exists(manifestPath)) {
     throw new Error(`manifest: no manifest.json in ${packDir} (not a workflow pack)`);
   }
+  let text: string;
+  try {
+    text = read(manifestPath);
+  } catch (e) {
+    throw new Error(`manifest: could not read manifest.json (${(e as Error).message})`);
+  }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(read(manifestPath));
+    parsed = JSON.parse(text);
   } catch (e) {
     throw new Error(`manifest: manifest.json is not valid JSON (${(e as Error).message})`);
   }
@@ -80,6 +86,11 @@ export function validateManifest(value: unknown): Manifest {
   if (hasBadString(obj, "howToRun")) throw new Error('manifest: optional field "howToRun" must be a string');
   if (hasBadString(obj, "kind")) throw new Error('manifest: optional field "kind" must be a string');
   if (hasBadString(obj, "engine")) throw new Error('manifest: optional field "engine" must be a string');
+  if (hasEmptyString(obj, "model")) throw new Error('manifest: optional field "model" must be a non-empty string');
+  if (hasEmptyString(obj, "thinking")) throw new Error('manifest: optional field "thinking" must be a non-empty string');
+  if (hasEmptyString(obj, "howToRun")) throw new Error('manifest: optional field "howToRun" must be a non-empty string');
+  if (hasEmptyString(obj, "kind")) throw new Error('manifest: optional field "kind" must be a non-empty string');
+  if (hasEmptyString(obj, "engine")) throw new Error('manifest: optional field "engine" must be a non-empty string');
   // args: any JSON value is allowed (Decision 5 — no schema validation in v1).
 
   const manifest: Manifest = {
@@ -99,4 +110,9 @@ export function validateManifest(value: unknown): Manifest {
 /** True when `obj[key]` is present but not a string (absent is allowed). */
 function hasBadString(obj: Record<string, unknown>, key: string): boolean {
   return key in obj && obj[key] !== undefined && typeof obj[key] !== "string";
+}
+
+/** True when `obj[key]` is a string that is empty or whitespace-only. */
+function hasEmptyString(obj: Record<string, unknown>, key: string): boolean {
+  return key in obj && typeof obj[key] === "string" && (obj[key] as string).trim() === "";
 }

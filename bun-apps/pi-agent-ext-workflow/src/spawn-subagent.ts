@@ -98,7 +98,11 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
         cwd: opts.cwd,
         signal: ac.signal,
       } as Parameters<WorkflowAgent["run"]>[1]);
-      const output = typeof out === "string" ? out : String(out ?? "");
+      // When `opts.schema` is set, `run()` returns a validated OBJECT (not a
+      // string). `String(obj)` would yield "[object Object]" and silently
+      // destroy the schema payload — JSON-serialize it instead so callers
+      // that parse `output` keep working. Null/undefined → empty string.
+      const output = typeof out === "string" ? out : out == null ? "" : JSON.stringify(out);
       return { result: { output, exitCode: 0, stderr: "", timedOut: false }, transient: false };
     } catch (e) {
       const c = classifyError(e);
