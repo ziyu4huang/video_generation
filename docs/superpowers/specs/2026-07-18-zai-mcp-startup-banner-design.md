@@ -142,6 +142,28 @@ From `@earendil-works/pi-coding-agent` types (`core/extensions/types.d.ts`):
   interactive session) → confirm a clean `🛰 zai-mcp ready …` banner above the
   editor ~5s in, auto-dismissed ~8s later, with no `Warning:` toast.
 
+## Debug verification mode
+
+`ZAI_MCP_DEBUG_BANNER` lets you confirm the trigger + rendered message **without**
+an interactive TTY, `ZAI_API_KEY`, or network — useful for headless / CI checks.
+
+| Value | Behavior |
+|---|---|
+| `1` (or any non-`empty`) | Skip real connection; fire the **success** banner immediately with synthetic tools (`zai_web_search_web_search_prime`, `zai_web_reader_webReader`) |
+| `empty` | Skip real connection; fire the **no-tools** banner immediately |
+| unset / `""` | Normal path (unchanged) |
+
+In debug mode `scheduleReadyBanner` is called with `{ immediate: true, log: true }`:
+
+- `immediate` → `SHOW_DELAY_MS = 0` (fires now, not at 5s).
+- `log` → `console.error(\`[zai-mcp banner]\\n${lines.join("\\n")}\`)` mirrors the
+  rendered lines (incl. ANSI colors) to stderr, so the trigger is observable
+  in print/RPC/noOpUIContext where `setWidget` is a silent no-op.
+
+Both are options on the existing helper (optional 3rd arg); prod calls omit
+`opts`, so the tested happy/stale paths are unchanged. Verified end-to-end with
+a throwaway harness driving the real `session_start` handler (see commit).
+
 ## Out of scope
 
 - No change to obsidian's helper or its 10s delay.
