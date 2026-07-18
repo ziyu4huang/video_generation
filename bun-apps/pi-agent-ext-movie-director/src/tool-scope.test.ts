@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   DEFAULT_DENIED_PREFIXES,
   GUARDED_TOOLS,
@@ -8,6 +8,7 @@ import {
   isDeniedEditPath,
   scopeViolationForToolCall,
 } from "./tool-scope.ts";
+import { markMovieActive, _resetMovieActiveForTests } from "./session-state.ts";
 
 // The guard is a pure function over resolved paths. The repo root in tests is
 // the REAL repo root (the extension's grandparent), so the denied-prefix
@@ -62,6 +63,22 @@ describe("tool-scope guard — isDeniedEditPath", () => {
     expect(isDeniedEditPath("python/x.py", { ...OPTS, env }).denied).toBe(false);
   });
 
+  test("MD_TOOL_SCOPE_DISABLE=1 in process.env bypasses even when NO opts.env is passed (the real-hook path)", () => {
+    // Reproduces the production wiring: scopeViolationForToolCall(event) calls
+    // isDeniedEditPath(path, {}) — no opts.env — so the bypass MUST consult
+    // process.env. Before the fix this returned denied:true (the bypass only
+    // checked opts.env), blocking all bun-apps/ edits even with the env var set.
+    const saved = process.env.MD_TOOL_SCOPE_DISABLE;
+    process.env.MD_TOOL_SCOPE_DISABLE = "1";
+    try {
+      const v = isDeniedEditPath("bun-apps/pi-agent/scripts/deploy.ts", { cwd: REPO_ROOT, repoRoot: REPO_ROOT });
+      expect(v.denied).toBe(false);
+    } finally {
+      if (saved === undefined) delete process.env.MD_TOOL_SCOPE_DISABLE;
+      else process.env.MD_TOOL_SCOPE_DISABLE = saved;
+    }
+  });
+
   test("MD_TOOL_SCOPE_DENY overrides the default list", () => {
     const env = { MD_TOOL_SCOPE_DENY: "python/:mlx-models/" };
     expect(deniedPrefixes(env)).toEqual(["python/", "mlx-models/"]);
@@ -85,7 +102,40 @@ describe("tool-scope guard — editPathFromToolInput", () => {
   });
 });
 
+describe("tool-scope guard — session movie-active gate", () => {
+  afterEach(() => _resetMovieActiveForTests());
+
+  test("NO-OP when no movie has run this session (unblocks normal repo work)", () => {
+    _resetMovieActiveForTests();
+    const v = scopeViolationForToolCall(
+      { toolName: "edit", input: { path: "bun-apps/pi-agent/scripts/deploy.ts", edits: [] } },
+      OPTS,
+    );
+    expect(v).toBeUndefined();
+  });
+
+  test("markMovieActive() arms the guard (a denied edit now blocks)", () => {
+    markMovieActive();
+    const v = scopeViolationForToolCall(
+      { toolName: "edit", input: { path: "bun-apps/pi-agent/scripts/deploy.ts", edits: [] } },
+      OPTS,
+    );
+    expect(v?.block).toBe(true);
+  });
+
+  test("the flag is sticky across calls within the session", () => {
+    markMovieActive();
+    expect(scopeViolationForToolCall({ toolName: "write", input: { path: "python/x.py", content: "" } }, OPTS)?.block).toBe(true);
+    expect(scopeViolationForToolCall({ toolName: "write", input: { path: "python/y.py", content: "" } }, OPTS)?.block).toBe(true);
+  });
+});
+
 describe("tool-scope guard — scopeViolationForToolCall", () => {
+  // These tests exercise the deny logic, which only runs when the guard is
+  // armed — so mark a movie active for the whole describe.
+  beforeEach(() => markMovieActive());
+  afterEach(() => _resetMovieActiveForTests());
+
   test("blocks an edit into python/", () => {
     const v = scopeViolationForToolCall(
       { toolName: "edit", input: { path: "python/mlx-movie-director/app/config.py", edits: [] } },
