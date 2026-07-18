@@ -339,7 +339,22 @@ export function listWorkflows(claudeRoot: string, opts: WorkflowPackFs = {}): Wo
 export interface RunWorkflowScriptOptions {
   name: string;
   args?: unknown;
+  /**
+   * Caller --model flag (provider/id) — the highest-precedence model source.
+   * The four-tier precedence (--model > PI_MODEL env > manifest.model > pi
+   * default) is resolved by `resolveModel` before the run is dispatched.
+   */
+  callerModel?: string;
+  /**
+   * @deprecated use `callerModel`. Kept as a backward-compat alias so existing
+   * callers/tests that pass `{ model }` keep working — `runWorkflowScript`
+   * treats `opts.callerModel ?? opts.model` as the caller value.
+   */
   model?: string;
+  /** PI_MODEL env value (provider/id), if the CLI reads it. */
+  envModel?: string;
+  /** Resolved pi default (provider/id), computed by the CLI from settings. */
+  piDefaultModel?: string;
   dryRun?: boolean;
   persistLogs?: boolean;
   cwd?: string;
@@ -380,11 +395,28 @@ export async function runWorkflowScript(
   runId?: string;
   scriptPath: string;
   source: ResolvedWorkflow["source"];
+  /** Effective main model (may be undefined — the engine then hands undefined
+   *  to createAgentSession as the last-resort fallback). */
+  model: string | undefined;
+  /** How `model` was chosen — surfaced in the run receipt. */
+  modelSource: ModelSource;
   dryRun: boolean;
 }> {
   const resolved = resolveWorkflowScript(opts.name, { cwd: opts.cwd });
   const { meta } = parseWorkflowScript(resolved.script);
-  const overrides = resolvePackOverrides(resolved.pack, { args: opts.args, model: opts.model });
+  // Model resolution: 4-tier precedence (--model > PI_MODEL env > manifest.model
+  // > pi default). `resolveModel` is pure (every tier is an explicit input);
+  // args still merge via mergeArgs (manifest.args under caller args). The legacy
+  // `opts.model` field is kept as an alias for `callerModel` so existing callers
+  // and tests that pass `{ model }` keep working unchanged.
+  const callerModel = opts.callerModel ?? opts.model;
+  const { model, source: modelSource } = resolveModel(
+    callerModel,
+    opts.envModel,
+    resolved.pack?.manifest.model,
+    opts.piDefaultModel,
+  );
+  const args = mergeArgs(resolved.pack?.manifest.args, opts.args);
   // A pack identifies itself by its manifest; a single-file script by its meta.
   const identity = resolved.pack
     ? { name: resolved.pack.manifest.name, description: resolved.pack.manifest.description }
@@ -402,13 +434,15 @@ export async function runWorkflowScript(
       durationMs: 0,
       scriptPath: resolved.path,
       source: resolved.source,
+      model,
+      modelSource,
       dryRun: true,
     };
   }
 
   const receipt = await runWorkflow(resolved.script, {
-    args: overrides.args,
-    mainModel: overrides.model,
+    args,
+    mainModel: model,
     persistLogs: opts.persistLogs ?? true,
     cwd: opts.cwd,
     runsDir: resolveRunsDir(opts.outDir, opts.cwd),
@@ -427,6 +461,8 @@ export async function runWorkflowScript(
     runId: receipt.runId,
     scriptPath: resolved.path,
     source: resolved.source,
+    model,
+    modelSource,
     dryRun: false,
   };
 }

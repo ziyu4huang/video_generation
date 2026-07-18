@@ -291,6 +291,37 @@ describe("runWorkflowScript", () => {
     expect(existsSync(expectedDir)).toBe(true);
     expect(readdirSync(expectedDir).some((f) => f === `${receipt.runId}.log`)).toBe(true);
   });
+
+  // ── model resolution (Task 2): resolveModel wired into runWorkflowScript ──
+
+  test("no overrides -> model is the pi default (source pi-default), not undefined", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wf-"));
+    writeFileSync(join(dir, "echo.js"), ECHO_WORKFLOW);
+    const receipt = await runWorkflowScript({
+      name: "echo.js",
+      cwd: dir,
+      dryRun: true,
+      piDefaultModel: "zai/glm-5.2",
+      agent: { run: async () => { throw new Error("dry-run must not call the agent"); } },
+    });
+    expect(receipt.model).toBe("zai/glm-5.2");
+    expect(receipt.modelSource).toBe("pi-default");
+  });
+
+  test("manifest.model beats pi default (source manifest)", async () => {
+    // args-demo is a real pack that declares
+    //   "model": "lm-studio/google/gemma-4-26b-a4b-qat"
+    // in its manifest. Even with a pi default supplied, the manifest must win.
+    const argsDemoPack = resolve(import.meta.dirname, "../../pi-agent-cli/workflows/args-demo");
+    const manifest = require(`${argsDemoPack}/manifest.json`);
+    const receipt = await runWorkflowScript({
+      name: argsDemoPack,
+      dryRun: true,
+      piDefaultModel: "zai/glm-5.2",
+    });
+    expect(receipt.model).toBe(manifest.model);
+    expect(receipt.modelSource).toBe("manifest");
+  });
 });
 
 // ── mergeArgs / resolvePackOverrides (pure, Decision 5 precedence) ─────────
