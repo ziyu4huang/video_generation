@@ -36,49 +36,38 @@ let resolveVaultRet = {
 // module's export list, so omitting any export causes a SyntaxError.
 // Only `runSubagentWithRetry` and `resolveVault` are functional; the rest
 // are never invoked in wiring-only tests.
-const obsidianExports = [
-	"runSubagentWithRetry", "resolveVault",
-	"__fileCacheOrder", "appendUnderHeading", "assertExtensionApi",
-	"assertWithinVault", "assertWritablePath", "atomicWriteFile",
-	"backlinkPaths", "buildIndex", "buildMatcher", "buildSubagentArgs",
-	"computeFieldLabels", "deleteNote", "detectTitleStyleOutliers",
-	"dropIndex", "findBacklinks", "findTagNotes", "fuzzyMatch",
-	"getAdjacency", "getIndex", "graphDeadLinks", "graphNeighbors",
-	"graphOrphans", "graphOutgoing", "invalidateCache", "isTransientError",
-	"isWeakModel", "launcherForUri", "listVaultCandidates",
-	"loadCachedIndex", "makeSubagentProgressLogger", "moveNote",
-	"parseFrontmatter", "parseStructuredResult", "queryNotes",
-	"readCached", "refreshIndex", "reindexFile", "resolveSubagentModel",
-	"resolveVault", "resolveWikiLink", "rewriteLinksProtected",
-	"runSubagent", "runSubagentWithRetry", "safeNotePath", "saveIndex",
-	"scheduleVaultBanner", "searchVault", "serializeIndex", "tagPaths",
-	"toolAllowlist", "trigramCandidates", "updateFrontmatter",
-	"validateNoteIntegrity", "validateNoteIntegrityBatch",
-	"validateZettelNote", "validateZettelNotes",
-	"ZETTEL_MAX_BYTES", "ZETTEL_REQUIRED_KEYS",
-	"registerDeterministicHealthCheck", "runDeterministicHealthCheck",
-	"repairZettelFrontmatter", "mtimeToZettelIds",
-];
-const mockObj = {};
-for (const name of obsidianExports) {
-	mockObj[name] = async () => {};
-}
+//
+// MOCK.GUARD (mock.module leak insulation — see e2e-orchestration.test.ts):
+// Under `bun test` (no --isolate), test files share ONE process. The
+// mock.module registered here leaks into sibling test files' static imports.
+// If we stub `parseFrontmatter = () => ({ data: {}, bodyStart: 0 })`, that
+// empty stub poisons every downstream test that reads frontmatter via
+// pi-obsidian (distill gate's cross-vault card match, converge's supersede,
+// retrieve's status filter), silently breaking the distill pipeline.
+//
+// We prevent this by pre-loading the REAL obsidian module via absolute
+// filesystem path BEFORE registering our mock (which SPREADS the real exports
+// and overrides only resolveVault + runSubagentWithRetry). The absolute-path
+// import bypasses Bun's mock interception, so the real parseFrontmatter,
+// validateZettelNote, graphDeadLinks, etc. flow through to sibling test files
+// even when our mock leaks.
+const _obsRealAbs = new URL(
+	"../../pi-agent-ext-obsidian/extensions/obsidian.ts",
+	import.meta.url,
+).pathname;
+const _obsReal = await import(_obsRealAbs);
+
+const mockObj = { ..._obsReal };
 mockObj.runSubagentWithRetry = (...args) => {
 	calls.push(args);
 	return Promise.resolve(nextResult);
 };
 mockObj.resolveVault = async () => resolveVaultRet;
+// Keep invalidateCache as a no-op so the mock does not touch the real
+// module-level file/index caches during wiring tests.
 mockObj.invalidateCache = () => {};
 mockObj.toolAllowlist = (e, d) => d;
-mockObj.parseFrontmatter = () => ({ data: {}, bodyStart: 0 });
-mockObj.validateZettelNote = () => ({ ok: true, errors: [] });
-mockObj.validateZettelNotes = async () => ({ valid: 0, invalid: [] });
-mockObj.ZETTEL_MAX_BYTES = 64 * 1024;
-mockObj.ZETTEL_REQUIRED_KEYS = ["id", "created", "tags", "sources"];
 mockObj.registerDeterministicHealthCheck = () => {};
-mockObj.fuzzyMatch = () => false;
-mockObj.isWeakModel = () => false;
-mockObj.isTransientError = () => false;
 
 // MUST be registered before any import of pi-knowledge-card (which pulls
 // runSubagentWithRetry and resolveVault from pi-obsidian at module-eval time).

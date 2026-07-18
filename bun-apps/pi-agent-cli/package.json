@@ -37,7 +37,6 @@
     "@repo/pi-agent-ext-knowledge-card": "workspace:*",
     "@repo/pi-agent-ext-obsidian": "workspace:*",
     "@repo/pi-agent-ext-file2md": "workspace:*",
-    "@repo/pi-agent-ext-distill": "workspace:*",
     "typebox": "latest"
   },
   "devDependencies": {

@@ -1,7 +1,9 @@
 /**
  * schema-cost.regression.test.ts — pins the total schema-token cost of
- * knowledge-card's 4 tools. Baseline measured 2026-07-13 at commit 2b3f987c.
- * knowledge-card is the fattest ext (1927 tok, 52% of the agent surface).
+ * knowledge-card's 4 tools. Baseline measured 2026-07-18 at commit ca0e4c58
+ * after folding the distill pipeline (action/entries/notes/metrics) into
+ * zk_ingest. Pre-distill-fold baseline was 1927 tok at 2b3f987c (2026-07-13).
+ * knowledge-card is the fattest ext (2367 tok now, ~57% of the agent surface).
  * Uses the main default-export factory (needs pi.events for host-fn bus,
  * which createCapturePi provides).
  */
@@ -17,7 +19,7 @@ describe("knowledge-card schema-cost regression", () => {
     );
   });
 
-  test("total schema ≤ 2120 tokens (baseline 1927, +10% headroom)", () => {
+  test("total schema ≤ 2604 tokens (baseline 2367, +10% headroom)", () => {
     const tools = captureTools(kcardFactory);
     const { perTool, total } = estimateTotalSchemaTokens(tools);
     for (const t of perTool) console.log(`  ${t.name.padEnd(26)} ${String(t.tokens).padStart(5)} tok`);
@@ -25,10 +27,10 @@ describe("knowledge-card schema-cost regression", () => {
 
     assertWithinBudget(total.tokens, {
       label: "knowledge-card schema (4 tools)",
-      max: 2120,
-      baseline: 1927,
-      measuredAt: "2026-07-13",
-      commit: "2b3f987c",
+      max: 2604,
+      baseline: 2367,
+      measuredAt: "2026-07-18",
+      commit: "ca0e4c58",
     });
   });
 

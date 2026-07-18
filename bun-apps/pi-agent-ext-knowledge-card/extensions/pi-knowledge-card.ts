@@ -65,6 +65,10 @@ import {
 	type SpawnSubagentOptions,
 	type SpawnSubagentResult,
 } from "@repo/pi-agent-ext-workflow/src/spawn-subagent.ts";
+import { runGate } from "../src/distill/gate.ts";
+import { runConverge } from "../src/distill/converge.ts";
+import { readState } from "../src/distill/state.ts";
+import type { MemoryEntry, EnrichedNote, ConvergeMetrics } from "../src/distill/types.ts";
 
 // ---------------------------------------------------------------------------
 // zk_* spawn seam (sub-project ①) — zk_card / zk_ask spawn through this
@@ -947,8 +951,65 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			"and indexed by a Knowledge Graph MOC. No LLM — lossless + idempotent, unlike obsidian_distill.",
 			"This is the convergence sink that lets every self-improve loop's distilled knowledge flow",
 			"into ONE queryable, backlinked graph that zk_ask can traverse cross-source.",
+			"Optionally, with action='gate'|'converge'|'status' it drives the agent self-triggered distill pipeline ",
+			"(Gate→Enrich-in-agent→Converge) over hermes-memory entries.",
 		].join(" "),
 		parameters: Type.Object({
+			action: Type.Optional(
+				Type.Union(
+					[
+						Type.Literal("gate"),
+						Type.Literal("converge"),
+						Type.Literal("status"),
+					],
+					{
+						description:
+							"Distill pipeline action (absent = deterministic ingest, the default). " +
+							"'gate' filters raw hermes-memory entries (dedup/stale/malformed) and returns " +
+							"survivors for in-context enrichment (read-only). 'converge' writes enriched " +
+							"notes via the ingest path, supersedes raw pi-memory cards, and adjusts the " +
+							"adaptive threshold. 'status' reports the current threshold + run history. " +
+							"Workflow: status → gate → enrich survivors in your reasoning → converge.",
+					},
+				),
+			),
+			entries: Type.Optional(
+				Type.Array(
+					Type.Object({
+						id: Type.String(),
+						target: Type.String(),
+						content: Type.String(),
+						created: Type.String(),
+						last: Type.Optional(Type.String()),
+					}),
+					{ description: "Raw hermes-memory entries (required for action='gate')." },
+				),
+			),
+			notes: Type.Optional(
+				Type.Array(
+					Type.Object({
+						id: Type.String(),
+						type: Type.String(),
+						title: Type.String(),
+						detail: Type.String(),
+						tags: Type.Array(Type.String()),
+						dimension: Type.Optional(Type.String()),
+						confidence: Type.Optional(Type.Number()),
+						supersedesCardId: Type.Optional(Type.String()),
+					}),
+					{ description: "Enriched notes (required for action='converge')." },
+				),
+			),
+			metrics: Type.Optional(
+				Type.Object(
+					{
+						candidates: Type.Number(),
+						killed: Type.Number(),
+						survivors: Type.Number(),
+					},
+					{ description: "Gate metrics (required for action='converge')." },
+				),
+			),
 			files: Type.Array(Type.String(), {
 				description:
 					"Paths to input files (absolute or relative to cwd). Each entry may also be a DIRECTORY — recursively expanded for the source's file type (.md for auto-memory/hermes/generic, .knowledge.jsonl for workflow-jsonl); MEMORY.md/README.md index files are skipped. For a random .md folder, use source=generic.",
@@ -992,6 +1053,86 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_id, params, _signal, _u, ctx) {
+			// ── distill pipeline actions (folded from pi-agent-ext-distill) ──
+			const action = params.action as "gate" | "converge" | "status" | undefined;
+			if (action === "gate" || action === "converge" || action === "status") {
+				let vaultPath: string;
+				try {
+					vaultPath = params.vault ?? (await resolveVault(ctx.cwd)).path;
+				} catch (e) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `zk_ingest: vault resolution failed: ${(e as Error).message}`,
+							},
+						],
+						isError: true,
+						details: { code: "vault_resolution_failed" },
+					};
+				}
+
+				if (action === "status") {
+					const state = readState(vaultPath);
+					return {
+						content: [
+							{
+								type: "text",
+								text: JSON.stringify({
+									threshold: state.threshold,
+									lastRun: state.lastRun,
+									historyEntries: state.history.length,
+									recentRuns: state.history.slice(-3),
+								}),
+							},
+						],
+						isError: false,
+						details: null,
+					};
+				}
+
+				if (action === "gate") {
+					const entries = (params.entries ?? []) as MemoryEntry[];
+					const result = runGate(entries, vaultPath);
+					return {
+						content: [
+							{
+								type: "text",
+								text: JSON.stringify({
+									candidates: result.candidates,
+									killed: result.killed.length,
+									survivors: result.survivors.map((s) => ({
+										id: s.entry.id,
+										content: s.entry.content,
+										target: s.entry.target,
+										reason: s.reason,
+									})),
+									killReasons: result.killed.reduce(
+										(acc: Record<string, number>, k) => {
+											acc[k.reason] = (acc[k.reason] ?? 0) + 1;
+											return acc;
+										},
+										{},
+									),
+								}),
+							},
+						],
+						isError: false,
+						details: null,
+					};
+				}
+
+				// action === "converge"
+				const notes = (params.notes ?? []) as EnrichedNote[];
+				const metrics = (params.metrics ?? { candidates: 0, killed: 0, survivors: 0 }) as ConvergeMetrics;
+				const result = await runConverge(notes, vaultPath, metrics);
+				return {
+					content: [{ type: "text", text: JSON.stringify(result) }],
+					isError: false,
+					details: null,
+				};
+			}
+
 			const { cwd } = ctx;
 			const inputs = [...(params.files ?? []), ...(params.dir ? [params.dir] : [])];
 			if (inputs.length === 0) {

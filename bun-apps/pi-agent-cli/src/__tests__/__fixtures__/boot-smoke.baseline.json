@@ -1,5 +1,5 @@
 {
-  "toolCountFloor": 30,
+  "toolCountFloor": 29,
   "expectedErrorSources": [],
   "expectedContractFailures": [],
   "sourceMinimum": [
@@ -12,7 +12,6 @@
     "movie-director",
     "goal-todo",
     "file2md",
-    "power-tool",
-    "distill"
+    "power-tool"
   ]
 }

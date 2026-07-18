@@ -7,6 +7,7 @@
   "main": "src/index.ts",
   "files": [
     "src",
+    "skills",
     "README.md",
     "LICENSE",
     "docs"
@@ -14,7 +15,8 @@
   "pi": {
     "extensions": [
       "./src/index.ts"
-    ]
+    ],
+    "skills": ["./skills"]
   },
   "scripts": {
     "check": "tsc --noEmit",

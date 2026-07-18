@@ -2,8 +2,8 @@ import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readState, writeState } from "../src/state.ts";
-import type { DistillState } from "../src/types.ts";
+import { readState, writeState } from "../../src/distill/state.ts";
+import type { DistillState } from "../../src/distill/types.ts";
 
 describe("distill state", () => {
 	let dir: string;

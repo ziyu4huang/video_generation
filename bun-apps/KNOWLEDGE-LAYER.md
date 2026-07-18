@@ -23,7 +23,7 @@ TIER 1 — CONVERGENCE HUB: pi-agent-ext-knowledge-card
         │           │ BOTH WRITE via ingestRecords
         ▼           ▼
 TIER 2 — TWO WRITERS → ONE shared graph folder
-  pi-agent-ext-hermes-memory        pi-agent-ext-distill (v0.0.0, NOT runtime-wired)
+  pi-agent-ext-hermes-memory        pi-agent-ext-knowledge-card (zk_ingest actions gate/converge/status)
     AUTO-converge                     AGENT-triggered gate→enrich→converge
         └──────────┬───────────────────┘
                    ▼
@@ -37,7 +37,7 @@ TIER 2 — TWO WRITERS → ONE shared graph folder
 | [`pi-agent-ext-obsidian`](./pi-agent-ext-obsidian/docs/KNOWLEDGE-LAYER.md) | Foundation: vault I/O, frontmatter parser/validation, `resolveVault`, subagent runner | `obsidian` (1 fat tool, ~17 actions) |
 | [`pi-agent-ext-knowledge-card`](./pi-agent-ext-knowledge-card/docs/ARCHITECTURE.md) | Convergence hub: deterministic ingest + retrieval over the shared graph | `zk_card`, `zk_ask`, `zk_ingest`, `knowledge_query` |
 | [`pi-agent-ext-hermes-memory`](./pi-agent-ext-hermes-memory/docs/KNOWLEDGE-LAYER.md) | Working memory + session search; auto-converges memory into the graph | `memory`, `memory_search`, `session_search` |
-| [`pi-agent-ext-distill`](./pi-agent-ext-distill/) | (New, unwired) agent-self-triggered distillation of hermes entries | `distill` (`status`/`gate`/`converge`) |
+| [`zk_ingest` distill actions](./pi-agent-ext-knowledge-card/) | Agent-self-triggered distillation of hermes entries (Gate→Enrich→Converge) | `zk_ingest` with `action=gate`/`converge`/`status` |
 
 ## Write path — sources → ONE shared graph
 
@@ -65,7 +65,7 @@ anything hermes touched.
 - retrieve already excludes `superseded`/`retired` cards, so the raw card silently
   drops out of answers. (Caveat: `ingestRecords` defaults `status: active`, so
   superseding is an explicit 2-step op, not automatic.)
-- **Precondition: do not runtime-wire distill until this partition lands.**
+- distill is now runtime-wired as `zk_ingest` actions (`gate`/`converge`/`status`) inside knowledge-card; the gate→enrich→converge flow is the surface above.
 
 ## Read path — which tool when (R4 decision tree)
 
@@ -83,7 +83,7 @@ anything hermes touched.
 | --- | --- |
 | `obsidian distill` (action) | Raw LLM decomposition of free-form markdown → atomic notes |
 | `zk_ingest` (tool) | Deterministic structured-records → graph sink (no LLM) |
-| `distill` (extension) | hermes curated-upgrade path: gate → enrich → converge |
+| `zk_ingest` `action=gate`/`converge`/`status` | distill pipeline (was the `distill` extension): gate → enrich → converge |
 | `buildDistillTask` (knowledge-card export) | **Live** builder — backs the CLI `zk-extract` subcommand (`pi-agent-cli/.../zk-extract.ts:30,139`). The `zk_extract` *tool* registration was removed in #450; the *builder* remains. Not vestigial. |
 
 ## Known issues tracked in the review
@@ -95,11 +95,10 @@ anything hermes touched.
   *(Correction 2026-07-14: `buildDistillTask` is LIVE CLI code, not vestigial —
   the original review conflated the removed `zk_extract` tool with the live builder.)*
 - **C4** 🟡 five overlapping search surfaces → R4 (above).
-- **C5** 🟢 distill not runtime-wired → R5 (wire after R1).
+- **C5** ✅ resolved — distill is now runtime-wired as `zk_ingest` actions (`gate`/`converge`/`status`) inside knowledge-card; the standalone `distill` extension was folded in.
 
 ## Package deep-dives
 
 - [pi-agent-ext-obsidian — KNOWLEDGE-LAYER](./pi-agent-ext-obsidian/docs/KNOWLEDGE-LAYER.md)
 - [pi-agent-ext-knowledge-card — ARCHITECTURE](./pi-agent-ext-knowledge-card/docs/ARCHITECTURE.md)
 - [pi-agent-ext-hermes-memory — KNOWLEDGE-LAYER](./pi-agent-ext-hermes-memory/docs/KNOWLEDGE-LAYER.md)
-- [pi-agent-ext-distill](./pi-agent-ext-distill/) (no docs yet — v0.0.0, not runtime-wired)

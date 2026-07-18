@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { parseFrontmatter } from "../../pi-agent-ext-obsidian/extensions/obsidian.ts";
+import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 import type { MemoryEntry, Survivor, KilledEntry, GateResult } from "./types.ts";
 
 const STALE_DAYS = 90;

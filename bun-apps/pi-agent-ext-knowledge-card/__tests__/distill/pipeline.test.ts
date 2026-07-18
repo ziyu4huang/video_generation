@@ -2,10 +2,10 @@ import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, readdirSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runGate } from "../src/gate.ts";
-import { runConverge } from "../src/converge.ts";
-import { readState } from "../src/state.ts";
-import type { MemoryEntry, EnrichedNote } from "../src/types.ts";
+import { runGate } from "../../src/distill/gate.ts";
+import { runConverge } from "../../src/distill/converge.ts";
+import { readState } from "../../src/distill/state.ts";
+import type { MemoryEntry, EnrichedNote } from "../../src/distill/types.ts";
 
 describe("distill full pipeline integration", () => {
 	let vault: string;
