@@ -245,6 +245,29 @@ export function resolvePackOverrides(
   };
 }
 
+/** How the workflow's main model was chosen — surfaced in the run receipt. */
+export type ModelSource = "--model" | "env" | "manifest" | "pi-default" | "none";
+
+/**
+ * Resolve the workflow's main model from the four-tier precedence
+ * (--model flag > PI_MODEL env > manifest.model > pi default). Pure — every
+ * tier is an explicit input so each branch is unit-testable with no disk/LLM.
+ * `{ model: undefined, source: "none" }` when nothing is configured (the engine
+ * then hands undefined to createAgentSession as the original last-resort fallback).
+ */
+export function resolveModel(
+  callerModel: string | undefined,
+  envModel: string | undefined,
+  manifestModel: string | undefined,
+  piDefaultModel: string | undefined,
+): { model: string | undefined; source: ModelSource } {
+  if (callerModel) return { model: callerModel, source: "--model" };
+  if (envModel) return { model: envModel, source: "env" };
+  if (manifestModel) return { model: manifestModel, source: "manifest" };
+  if (piDefaultModel) return { model: piDefaultModel, source: "pi-default" };
+  return { model: undefined, source: "none" };
+}
+
 /**
  * Resolve the run-log output dir for a workflow run. Absolute paths are kept;
  * relative paths resolve against `cwd`. Falls back to the PWD/.pi default.

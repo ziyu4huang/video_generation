@@ -10,6 +10,7 @@ import {
   listWorkflows,
   resolveWorkflowPack,
   findRepoRoot,
+  resolveModel,
 } from "../src/workflow-pack.js";
 
 /**
@@ -327,6 +328,31 @@ describe("resolvePackOverrides — model + args precedence", () => {
   });
   test("args merge applied", () => {
     expect(resolvePackOverrides(pack, { args: { x: 9, z: 2 } }).args).toEqual({ x: 9, z: 2 });
+  });
+});
+
+// ── resolveModel (pure, 4-tier model precedence) ─────────────────────────────
+
+describe("resolveModel — precedence --model > PI_MODEL > manifest > pi-default", () => {
+  test("caller --model wins", () => {
+    const r = resolveModel("cli/x", "env/y", "manifest/z", "pi/d");
+    expect(r).toEqual({ model: "cli/x", source: "--model" });
+  });
+  test("env wins when no caller (PI_MODEL above manifest)", () => {
+    const r = resolveModel(undefined, "env/y", "manifest/z", "pi/d");
+    expect(r).toEqual({ model: "env/y", source: "env" });
+  });
+  test("manifest wins when no caller/env", () => {
+    const r = resolveModel(undefined, undefined, "manifest/z", "pi/d");
+    expect(r).toEqual({ model: "manifest/z", source: "manifest" });
+  });
+  test("pi-default wins when no caller/env/manifest", () => {
+    const r = resolveModel(undefined, undefined, undefined, "pi/d");
+    expect(r).toEqual({ model: "pi/d", source: "pi-default" });
+  });
+  test("all undefined -> {undefined, none}", () => {
+    const r = resolveModel(undefined, undefined, undefined, undefined);
+    expect(r).toEqual({ model: undefined, source: "none" });
   });
 });
 
