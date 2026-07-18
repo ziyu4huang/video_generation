@@ -10,7 +10,8 @@
  * Minimal v1: { agent?, task, model?, cwd?, tools?, excludeTools? } → child output.
  * No clarify-TUI / acceptance / turnBudget / toolBudget (deferred — see spec.md).
  */
-import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { defineTool, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import {
   spawnSubagent,
@@ -77,6 +78,41 @@ export function taskPreview(task: string, n = 80): string {
 }
 
 /** Derive a human status from the spawn result. */
+/** Theme the call line shown WHILE the subagent runs (pi's spinner conveys activity). */
+export function renderSubagentCall(
+  args: { agent?: string; model?: string; task: string },
+  theme: Theme,
+): string {
+  const parts: string[] = [theme.bold(theme.fg("toolTitle", "subagent"))];
+  if (args.agent) parts.push(theme.fg("accent", args.agent));
+  parts.push(theme.fg("muted", args.model ?? "default"));
+  parts.push(theme.fg("dim", `"${taskPreview(args.task, 60)}"`));
+  return parts.join(" ▸ ");
+}
+
+/** Theme the result: collapsed = badge+meta+headline; expanded = full report. */
+export function renderSubagentResult(
+  result: { content: Array<{ type: string; text?: string }>; details?: SubagentToolDetails },
+  options: { expanded?: boolean },
+  theme: Theme,
+): string {
+  const d = result.details;
+  const text = result.content.find((c) => c.type === "text")?.text ?? "";
+  if (!d) return text;
+  const badge =
+    d.status === "done"
+      ? theme.fg("success", "✓ done")
+      : d.status === "timedout"
+        ? theme.fg("warning", "⏱ timedout")
+        : theme.fg("error", "✗ failed");
+  const meta = theme.fg("muted", `${d.model ?? "default"} · ${(d.elapsedMs / 1000).toFixed(1)}s`);
+  if (!options.expanded) {
+    const firstLine = text.split("\n").map((l) => l.trim()).find((l) => l) ?? "";
+    return `${badge} ${meta} ${theme.fg("dim", truncateToWidth(firstLine, 60))}`;
+  }
+  return `${badge} ${meta}\n${theme.fg("toolOutput", text)}`;
+}
+
 export function deriveSubagentStatus(r: SpawnSubagentResult): SubagentToolDetails["status"] {
   if (r.exitCode === 0) return "done";
   return r.timedOut ? "timedout" : "failed";
@@ -131,6 +167,16 @@ export function createSubagentTool(
           status: deriveSubagentStatus(result),
         },
       };
+    },
+    renderCall(args, theme, context) {
+      const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+      text.setText(renderSubagentCall(args, theme));
+      return text;
+    },
+    renderResult(result, options, theme, _context) {
+      const text = (_context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+      text.setText(renderSubagentResult(result, options, theme));
+      return text;
     },
   });
 }
