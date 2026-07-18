@@ -112,7 +112,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       "info",
     );
     pi.sendUserMessage(
-      `Grill ended. I seeded ${outcome.path} from ${outcome.source}. Review the phases, then execute the plan.`,
+      `Grill ended. I seeded ${outcome.path} from ${outcome.source}. Review the phases, then load the executing-plans (or subagent-driven-development) skill to execute the plan.`,
       { deliverAs: "steer" },
     );
   }
@@ -170,9 +170,12 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       `[${PKG_NAME}] Seeded ${outcome.path} (${outcome.phaseCount} phase(s), source: ${outcome.source}).`,
       "info",
     );
-    pi.sendUserMessage(`Seeded ${outcome.path} from ${outcome.source}. Review the phases, then execute the plan.`, {
-      deliverAs: "steer",
-    });
+    pi.sendUserMessage(
+      `Seeded ${outcome.path} from ${outcome.source}. Review the phases, then load the executing-plans (or subagent-driven-development) skill to execute the plan.`,
+      {
+        deliverAs: "steer",
+      },
+    );
   }
 
   async function handleToSpec(args: string, _ctx: ExtensionCommandContext): Promise<void> {
@@ -182,10 +185,8 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
         "Synthesizing a spec from the current conversation.",
         "Load the `to-spec` skill: turn what's already on the table into a spec (PRD) — no interview, just synthesis.",
         "Use the project's CONTEXT.md glossary vocabulary; respect ADRs in the area you touch.",
-        effort
-          ? `Write the spec to .planning/${effort}/spec.md.`
-          : "Write the spec to .planning/<effort>/spec.md (or docs/specs/<slug>.md).",
-        "Tell me the path when written. The natural next step is /wayfind tickets, then /wayfind seed → execute the plan.",
+        effort ? `Write the spec to .planning/${effort}/spec.md.` : "Write the spec to .planning/<effort>/spec.md.",
+        "Tell me the path when written. The natural next step is /wayfind tickets, then /wayfind seed → executing-plans.",
       ].join("\n"),
       { deliverAs: "steer" },
     );
