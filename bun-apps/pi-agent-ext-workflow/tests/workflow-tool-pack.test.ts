@@ -17,7 +17,7 @@ function makePack(
   dir: string,
   name: string,
   manifest: Record<string, unknown>,
-  entry = "export const meta = { name: 'pack', description: 'd', phases: [{ title: 'P' }] };\nreturn { args };\n",
+  entry = "export const meta = { name: 'pack', description: 'd', phases: [{ title: 'P' }] };\nconst r = await agent('task');\nreturn { args, r };\n",
 ): string {
   const packDir = join(dir, name);
   mkdirSync(packDir, { recursive: true });
@@ -135,6 +135,52 @@ describe("workflow tool — `name` (pack resolution)", () => {
     const opt = calls[0]!.options as Record<string, unknown>;
     expect(opt).not.toHaveProperty("model");
     expect(opt).not.toHaveProperty("mainModel");
+  });
+});
+
+describe("workflow tool — no-agent script rejection (D9-8)", () => {
+  // A script that parses (has `export const meta`) but never invokes `agent()`.
+  // Both the background path and the inline path must reject this BEFORE
+  // returning a runId / running the workflow, otherwise a no-agent script gets
+  // a false-positive "started" runId the caller trusts (background) or fails
+  // late inside the manager.
+  const NO_AGENT_SCRIPT =
+    "export const meta = { name: 'noagent', description: 'd', phases: [{ title: 'P' }] };\nreturn { done: true };\n";
+
+  test("background: true rejects a no-agent script (does NOT return a runId)", async () => {
+    const { manager, calls } = recordingManager();
+    const tool = createWorkflowTool({ manager: manager as any });
+
+    await expect(
+      tool.execute(
+        "call-noagent-bg",
+        { script: NO_AGENT_SCRIPT, background: true } as any,
+        undefined as any,
+        undefined as any,
+        {} as any,
+      ),
+    ).rejects.toThrow(/agent\(\) at least once/);
+
+    // The background path must not have handed the script to the manager.
+    expect(calls).toHaveLength(0);
+  });
+
+  test("background: false rejects a no-agent script (shared pre-flight)", async () => {
+    const { manager, calls } = recordingManager();
+    const tool = createWorkflowTool({ manager: manager as any });
+
+    await expect(
+      tool.execute(
+        "call-noagent-sync",
+        { script: NO_AGENT_SCRIPT, background: false } as any,
+        undefined as any,
+        undefined as any,
+        {} as any,
+      ),
+    ).rejects.toThrow(/agent\(\) at least once/);
+
+    // Pre-flight rejected before reaching the manager.
+    expect(calls).toHaveLength(0);
   });
 });
 
