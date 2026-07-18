@@ -32,7 +32,7 @@ import {
 import { buildGrillPriming } from "./grill.js";
 import type { WayfindOverlay } from "./overlay.js";
 import { getSessionId, isGrillActive, type RuntimeState } from "./state.js";
-import { chartMap, claimNextTicket, renderStatus, slugify, statusReport } from "./wayfinder.js";
+import { chartMap, claimNextTicket, effortSlug, renderStatus, statusReport } from "./wayfinder.js";
 
 const WAYFIND_KEYWORDS = new Set(["status", "spec", "tickets", "seed", "sync"]);
 
@@ -261,7 +261,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       return;
     }
 
-    const effort = slugify(destination);
+    const effort = effortSlug(destination);
     chartMap(ctx.cwd, effort, destination);
     state.activeEffortBySession.set(sessionId, effort);
     publishWayfindActive(state);
