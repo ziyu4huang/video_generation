@@ -3,7 +3,7 @@
  * knowledge-card's 4 tools. Baseline measured 2026-07-18 at commit ca0e4c58
  * after folding the distill pipeline (action/entries/notes/metrics) into
  * zk_ingest. Pre-distill-fold baseline was 1927 tok at 2b3f987c (2026-07-13).
- * knowledge-card is the fattest ext (2367 tok now, ~52% of the agent surface).
+ * knowledge-card is the fattest ext (2367 tok now, ~57% of the agent surface).
  * Uses the main default-export factory (needs pi.events for host-fn bus,
  * which createCapturePi provides).
  */

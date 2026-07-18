@@ -39,6 +39,8 @@ describe("zk_ingest distill actions", () => {
     expect(data.candidates).toBe(2);
     expect(Array.isArray(data.survivors)).toBe(true);
     expect(data.killed).toBeGreaterThanOrEqual(1); // the "short" malformed entry
+    // positive assertion: the well-formed entry "b" survives (catches a gate that wrongly kills both)
+    expect(data.survivors.some((s: any) => s.id === "b")).toBe(true);
   });
 
   test("zk_ingest action='status' returns threshold + history shape", async () => {

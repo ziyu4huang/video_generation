@@ -68,7 +68,7 @@ import {
 import { runGate } from "../src/distill/gate.ts";
 import { runConverge } from "../src/distill/converge.ts";
 import { readState } from "../src/distill/state.ts";
-import type { MemoryEntry } from "../src/distill/types.ts";
+import type { MemoryEntry, EnrichedNote, ConvergeMetrics } from "../src/distill/types.ts";
 
 // ---------------------------------------------------------------------------
 // zk_* spawn seam (sub-project ①) — zk_card / zk_ask spawn through this
@@ -1123,8 +1123,8 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				}
 
 				// action === "converge"
-				const notes = (params.notes ?? []) as any[];
-				const metrics = (params.metrics ?? { candidates: 0, killed: 0, survivors: 0 }) as any;
+				const notes = (params.notes ?? []) as EnrichedNote[];
+				const metrics = (params.metrics ?? { candidates: 0, killed: 0, survivors: 0 }) as ConvergeMetrics;
 				const result = await runConverge(notes, vaultPath, metrics);
 				return {
 					content: [{ type: "text", text: JSON.stringify(result) }],
