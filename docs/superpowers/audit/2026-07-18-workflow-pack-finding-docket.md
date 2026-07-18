@@ -58,5 +58,21 @@ All verified as real unpinned branches (no source change; guard only). Grouped b
 ## Discarded (false positives)
 None discarded at the defect level — all 13 defect claims verified true. (Coverage-gap claims were not exhaustively re-verified line-by-line; they will be confirmed during guard implementation — a wrong gap claim simply produces a guard that needs adjustment, no silent risk.)
 
-## Pending decision (blocks Task 6)
-The finding volume (~54) exceeds a tidy single-pass PR. Several defects are contract changes needing confirmation (§2). **Controller recommendation:** proceed to Task 6 with (a) all 6 clear low-risk fixes + their guards, and (b) pin a representative high-value subset of the 41 coverage gaps (the cross-path asymmetry + the null→default engine paths D6-3/D6-4/D6-5 + the CLI precedence gaps), deferring the remaining gaps and all §2/§3 contract changes to issues. Awaiting user scope decision.
+## Final dispositions (Task 6 scope — user-approved "recommended scope")
+
+**Fix (source edit + guard) — 6:**
+- D2-1, D2-4 (manifest validation, `workflow-pack-manifest.ts`)
+- D8-1 (`spawn-subagent.ts`), D8-2 (`deep-research.ts`), D8-3 (`adversarial-review.ts`)
+- D9-8 (hoist `agentCount===0` guard, `workflow-tool.ts`)
+
+**Pin guards (current correct behavior) — 4:**
+- D3-2 + D3-3 (Path A owns persistLogs/runsDir; cross-path args-merge equivalence) — `workflow-tool-pack.test.ts`
+- D4-1 (CLI `--out-dir` > `PI_WORKFLOWS_OUT_DIR` > default precedence) — `pi-agent-cli/tests/workflow-command.test.ts`
+- D5-1 (`listWorkflows` `.pi`-first + deterministic pkg ordering) — `workflow-pack.test.ts`
+
+**`.todo` pending guards (document correct behavior for latent coercion) — 3:**
+- D6-3, D6-4, D6-5 (verify / judgePanel / gate null→default; currently unreachable in production via schema enforcement but latent in engine logic) — `regression-rca.test.ts`
+
+**Deferred → backlog issue (contract change / OOS) — 7:** D3-1, D6-1, D6-2, D7-1, D7-3, D7-5, D7-6 → tracked in `docs/superpowers/audit/2026-07-18-workflow-pack-finding-docket.md` and one consolidated GitHub issue.
+
+**Remaining coverage gaps (37):** not pinned this pass; recorded here as the residual backlog for a future pass.
