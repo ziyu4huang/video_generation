@@ -138,6 +138,6 @@ describe("bootstrap payload assembly", () => {
     expect(payload).toContain(BOOTSTRAP_MARKER);
     expect(payload).toContain("You have superpowers.");
     expect(payload).toContain("## Pi tool mapping");
-    expect(payload).toContain("pi-subagents");
+    expect(payload).toContain("pi-agent-ext-workflow");
   });
 });
