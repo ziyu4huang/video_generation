@@ -107,6 +107,63 @@ const GATES: ToolGate[] = [
   },
 ];
 
+// ── Startup banner (obsidian-style above-editor widget) ──────────
+
+/**
+ * Schedule a transient above-editor banner (like the /goal banner): show once
+ * after a short delay, then auto-dismiss. Mirrors pi-agent-ext-obsidian's
+ * scheduleVaultBanner() and pi-agent-ext-zai-mcp's scheduleReadyBanner()
+ * (commit 58a6b0b5). Uses setWidget (keyed "tool-gate") instead of notify() so
+ * this extension's startup line never clobbers — or is clobbered by — other
+ * extensions' messages: pi's notify("info", …) merges consecutive startup
+ * notifies (later overwrites earlier), which previously made the tool-gate
+ * confirmation line disappear depending on notify ordering.
+ *
+ * Both deferred ctx.ui calls are guarded: a session switch (/resume, ctx.fork,
+ * ctx.switchSession) between schedule and fire leaves ctx stale, and ctx.ui's
+ * assertActive() would otherwise throw an uncaughtException that crashes pi.
+ * The banner is non-essential — a replacement session renders its own on its
+ * own session_start — so swallow.
+ *
+ * `opts.immediate` skips the 5s show delay (debug). `opts.log` mirrors the
+ * rendered lines to stderr so the trigger is observable where setWidget is a
+ * no-op (print/RPC/noOpUIContext). Both default off; prod calls omit `opts`.
+ */
+export function scheduleToolGateBanner(
+	ctx: { ui: { setWidget(key: string, lines: string[] | undefined): void } },
+	lines: string[],
+	opts?: { immediate?: boolean; log?: boolean },
+): void {
+	// Prod: delay 5s so the banner lands after the startup notify burst
+	// (alongside zai-mcp's 5s banner, before obsidian's 10s vault banner — all
+	// keyed widgets, so no collision; brief overlap shows confirmations together).
+	// Debug (TOOL_GATE_DEBUG_BANNER): 0.
+	const SHOW_DELAY_MS = opts?.immediate ? 0 : 5_000;
+	const DISPLAY_MS = 8_000; // visible window before auto-dismiss (matches obsidian/zai-mcp)
+	if (opts?.log) {
+		// Mirror the rendered lines (incl. ANSI colors from theme.fg) to stderr so
+		// the trigger + exact message are visible even where setWidget is a no-op
+		// (print / RPC / noOpUIContext).
+		console.error(`[tool-gate banner]\n${lines.join("\n")}`);
+	}
+	setTimeout(() => {
+		try {
+			ctx.ui.setWidget("tool-gate", lines);
+		} catch {
+			return; // ctx stale after session switch — banner is non-essential
+		}
+		// Auto-dismiss after DISPLAY_MS. Guarded the same way: a session switch
+		// between show and dismiss leaves ctx stale.
+		setTimeout(() => {
+			try {
+				ctx.ui.setWidget("tool-gate", undefined);
+			} catch {
+				/* ctx stale after session switch */
+			}
+		}, DISPLAY_MS);
+	}, SHOW_DELAY_MS);
+}
+
 // ── Extension entry ──────────────────────────────────────────────
 
 export default function toolGateExtension(pi: ExtensionAPI) {
@@ -139,14 +196,33 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     const active = computeActiveTools("");
     pi.setActiveTools(active);
 
-    const gatedCount = allToolNames.length - active.length;
     const saved = GATES.filter(
       (g) => !g.names.some((n) => active.includes(n)),
     ).reduce((sum, g) => sum + g.savedTokens, 0);
 
-    ctx.ui.notify(
-      `🔧 Tool gate: ${active.length}/${allToolNames.length} active (saves ~${saved} tok/req)`,
-      "info",
+    // Transient above-editor banner (like the /goal banner), delayed 5s past
+    // the startup notify burst. setWidget is keyed ("tool-gate"), so this never
+    // clobbers — or is clobbered by — other extensions' banners; that
+    // independence is what previously forced the lossy notify("info") (pi merges
+    // consecutive startup info-notifies, later overwriting earlier, so the
+    // tool-gate confirmation line could vanish depending on notify ordering).
+    // Mirrors pi-agent-ext-obsidian's scheduleVaultBanner and pi-agent-ext-zai-
+    // mcp's scheduleReadyBanner (commit 58a6b0b5). In non-interactive (RPC /
+    // print) modes setWidget is a silent no-op while theme is still present, so
+    // this degrades gracefully with no output.
+    //
+    // TOOL_GATE_DEBUG_BANNER=1 fires the banner immediately (no 5s delay) and
+    // mirrors the rendered lines to stderr — lets you confirm the trigger +
+    // exact message in print/RPC/noOpUIContext where setWidget is a no-op.
+    const debug = process.env.TOOL_GATE_DEBUG_BANNER === "1";
+    const theme = ctx.ui.theme;
+    scheduleToolGateBanner(
+      ctx,
+      [
+        theme.fg("accent", `🔧 Tool gate: ${active.length}/${allToolNames.length} active`),
+        theme.fg("dim", `saves ~${saved} tok/req`),
+      ],
+      debug ? { immediate: true, log: true } : undefined,
     );
   });
 
