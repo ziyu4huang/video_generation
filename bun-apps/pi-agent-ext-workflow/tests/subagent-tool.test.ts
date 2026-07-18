@@ -108,3 +108,11 @@ test("execute forwards getExtensionTools() === undefined when holder unset", asy
   await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.extensionTools, undefined);
 });
+
+test("execute forwards the runtime abort signal to spawn as externalSignal", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  const controller = new AbortController();
+  await tool.execute("id", { task: "t" }, controller.signal, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.externalSignal, controller.signal, "the tool-call signal must reach spawn()");
+});

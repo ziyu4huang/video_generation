@@ -87,7 +87,7 @@ export function createSubagentTool(
     promptSnippet:
       "Dispatch an isolated-context subagent for one focused task (implementer / reviewer / researcher). Pass a self-contained `task`; choose `model` per role; restrict with `tools`/`excludeTools`.",
     parameters: subagentToolSchema,
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+    async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
       const result = await spawn({
         task: params.task,
         tools: params.tools,
@@ -96,6 +96,7 @@ export function createSubagentTool(
         cwd: params.cwd ?? defaultCwd,
         instructions: params.agent ? `You are the ${params.agent} for this task.` : undefined,
         extensionTools: options.getExtensionTools?.(),
+        externalSignal: signal,
       });
       return {
         content: [{ type: "text" as const, text: formatSubagentResult(result) }],
