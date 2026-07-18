@@ -15,6 +15,14 @@
     "pi-agent": "src/cli.ts"
   },
   "scripts": {
+    "cli": "bun src/cli.ts",
+    "list": "bun src/cli.ts --list-models",
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit",
+    "test:e2e": "PI_AGENT_E2E=1 bun test",
+    "verify": "PI_AGENT_E2E=1 bun test src/__tests__/e2e-extensions.test.ts",
+    "dist": "bun ../../dist/pi-agent/pi-agent.js",
+    "exe": "../../dist/pi-agent/pi-agent",
     "//deploy": "4 modes — read docs BEFORE running: docs/deploy-cwd-trust.md (self-contained packaging), docs/deploy-readonly.md (default chmod a-w freeze), docs/deploy-single-binary.md (--exe), docs/deploy-efficiency.md (incremental warm rebuild). Mode flags: --bundle (default), --snapshot, --standalone, --exe. Also see the mode table in scripts/deploy.ts header. Run via `bun run deploy[:mode]` from this dir.",
     "deploy": "bun scripts/deploy.ts",
     "deploy:bundle": "bun scripts/deploy.ts --bundle",

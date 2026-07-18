@@ -199,6 +199,7 @@ async function runScenario(s: Scenario): Promise<Result> {
 // registered (cmdMatched > 0 — covers command-only extensions like
 // pi-agent-ext-wayfind / -goal-todo, which register commands but 0 tools).
 function assertCleanLoad(r: Result) {
+	if (r.errors.length > 0) console.error("[assertCleanLoad] non-empty errors:", JSON.stringify(r));
 	// ZERO conflict/cannot-find/failed-to-load.
 	expect(r.errors).toEqual([]);
 	// The probe extension itself was loaded (matched > 0).
@@ -217,6 +218,7 @@ function assertCleanLoad(r: Result) {
 // Shared assertion for a skill-load scenario's Result (skill probe on
 // before_agent_start). Asserts the superpowers skill is in systemPromptOptions.skills.
 function assertSkillLoaded(r: Result) {
+	if (r.errors.length > 0 || !r.skillMatched) console.error("[assertSkillLoaded] diagnostic:", JSON.stringify(r));
 	expect(r.errors).toEqual([]);
 	expect(r.skillMatched).not.toBeNull();
 	expect(r.skillMatched as number).toBeGreaterThan(0);
@@ -434,6 +436,7 @@ describe.skipIf(!E2E_ENABLED)("e2e: SOURCE lazy `-e <alias>` splice loads the ex
 			cwd: REPO_ROOT,
 			marker: LAZY_ALIAS_MARKER,
 		});
+		if (r.errors.length > 0 || !r.matched) console.error("[lazy-alias splice] diagnostic:", JSON.stringify(r));
 		// ZERO conflict/cannot-find/failed-to-load.
 		expect(r.errors).toEqual([]);
 		// The lazy extension's own tools were loaded by the alias (not just the
