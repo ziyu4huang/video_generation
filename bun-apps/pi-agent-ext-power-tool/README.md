@@ -308,9 +308,8 @@ pi-agent-ext-power-tool/
 ```
 
 `high`/`full` spawn the real `pi-agent` CLI and call a real LM Studio model
-(`google/gemma-4-26b-a4b-qat` by default, override via `PI_L2_MODEL`) —
-`knowledge_query`/`graph_health` additionally need vault-mind's ChromaDB on
-`:8000`. There is no standalone "real CLI, no model" tier: invoking a tool
+(`google/gemma-4-26b-a4b-qat` by default, override via `PI_L2_MODEL`).
+There is no standalone "real CLI, no model" tier: invoking a tool
 through the CLI always triggers model inference, so `high` and `full` run the
 same suite and differ only in whether a blocked service skips (`high`) or
 fails (`full`) the run. See `src/__tests__/l2-e2e.test.ts` for the per-tool
