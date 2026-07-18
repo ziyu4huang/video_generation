@@ -17,6 +17,7 @@ Claude Code–style dynamic workflows for Pi. The agent writes a small JavaScrip
 | `/deep-research <topic>` | Multi-perspective research workflow |
 | `/adversarial-review` | Cross-checked review workflow |
 | `/workflows-trigger set/off/status` | Manage keyword auto-trigger |
+| `workflow_control` tool | Model-callable stop/pause/resume/status/list/wait for a background run |
 
 ## Key Dependencies
 

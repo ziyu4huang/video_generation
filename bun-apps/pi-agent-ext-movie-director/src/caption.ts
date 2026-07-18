@@ -16,20 +16,38 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolveRepoRoot, resolveRunPyPaths } from "@repo/pi-agent-ext-ltx";
 
-/** Options passed through to `run.py caption` (camelCase → kebab by run.py). */
+/** Options passed through to the caption path (camelCase). The input `image` may
+ * be an image OR a video file (video is detected by extension → keyframe path). */
 export interface CaptionOptions {
-  /** Input image path (required; run.py verifies it exists). */
+  /** Input image OR video path (required). Video ext (.mp4/.mov/...) → keyframe captioning. */
   image: string;
-  /** Caption style(s): score / t2i / photography / pose_dsg / compare / .... Default run.py = t2i. */
+  /** Caption style(s): default / t2i / photography / profile / style / score / review /
+   *  video_score / video_analysis / compare / playwright / lora_quality / ltx_i2v / pose_dsg.
+   *  Default = t2i. */
   style?: string | string[];
-  /** Output language: zh_TW | zh_CN | en | ja. Default run.py = zh_TW. */
+  /** Output language: zh_TW | zh_CN | en | ja. Default = zh_TW. */
   lang?: string;
-  /** Explicit VLM id override; if omitted, run.py auto-resolves (gemma brain). */
+  /** Explicit VLM id override; if omitted, auto-resolves (loaded gemma brain). */
   model?: string;
   /** Skip the LM Studio auto-load probe (assume the model is already loaded). */
   noAutoLoad?: boolean;
-  /** Original T2I prompt (required by the 'review' style for adherence evaluation). */
+  /** Original T2I prompt (required by 'review' and 'pose_dsg' styles). */
   prompt?: string;
+  /** Run N independent VLM samples and write the per-dimension MEDIAN (score-family
+   *  denoising; ignored for pose_dsg and video). Default 1. */
+  samples?: number;
+  /** 'ltx_i2v' action intent text (required by 'ltx_i2v'). */
+  action?: string;
+  /** LoRA name (used by 'lora_quality'). */
+  loraName?: string;
+  /** LoRA description (used by 'lora_quality'). */
+  loraDescription?: string;
+  /** LoRA scale applied (used by 'lora_quality'). */
+  loraScale?: number | string;
+  /** pose_dsg atoms: path to or inline JSON of {atoms:[{id,q}]} (optional; VLM self-decomposes if absent). */
+  atoms?: string;
+  /** Number of keyframes to extract for video captioning (default 8). */
+  frames?: number;
 }
 
 export interface CaptionDetails {
