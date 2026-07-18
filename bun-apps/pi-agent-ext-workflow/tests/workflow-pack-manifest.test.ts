@@ -91,6 +91,20 @@ describe("validateManifest", () => {
     expect(() => validateManifest({ ...VALID, kind: 42 })).toThrow(/"kind"/);
     expect(() => validateManifest({ ...VALID, engine: false })).toThrow(/"engine"/);
   });
+
+  test("empty/whitespace optional string fields are rejected (D2-1)", () => {
+    expect(() => validateManifest({ ...VALID, model: "" })).toThrow(/non-empty string/);
+    expect(() => validateManifest({ ...VALID, model: "   " })).toThrow(/non-empty string/);
+    expect(() => validateManifest({ ...VALID, thinking: "  " })).toThrow(/non-empty string/);
+    expect(() => validateManifest({ ...VALID, howToRun: "" })).toThrow(/non-empty string/);
+    expect(() => validateManifest({ ...VALID, kind: " " })).toThrow(/non-empty string/);
+    expect(() => validateManifest({ ...VALID, engine: "" })).toThrow(/non-empty string/);
+  });
+
+  test("a non-empty optional model still passes (D2-1 regression guard)", () => {
+    const m = validateManifest({ ...VALID, model: "lm-studio/x" });
+    expect(m.model).toBe("lm-studio/x");
+  });
 });
 
 // ── readManifest (real fs via mkdtemp) ─────────────────────────────────────
@@ -128,6 +142,17 @@ describe("readManifest", () => {
       read: (p) => files.get(p)!,
     });
     expect(m.name).toBe("echo");
+  });
+
+  test("a read failure is reported as 'could not read' not 'not valid JSON' (D2-4)", () => {
+    expect(() =>
+      readManifest("/fake", {
+        exists: () => true,
+        read: () => {
+          throw new Error("EACCES: permission denied");
+        },
+      }),
+    ).toThrow(/could not read manifest\.json/);
   });
 });
 
