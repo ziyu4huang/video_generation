@@ -170,4 +170,24 @@ describe("RCA design-level findings (regression targets — not yet fixed)", () 
   // checkpoint cancels it instead of orphaning the run. Test:
   // workflow-runtime.test.ts > "RCA#11: checkpoint threads the abort signal
   // into confirm()".
+
+  // ─── Audit 2026-07-18 — latent null→default coercions in verify() /
+  //     judgePanel() / gate() (docket D6-3 / D6-4 / D6-5) ────────────────────
+  //
+  // These three describe CORRECT behavior for engine-level code paths that
+  // today rely on the OUTER schema enforcement (the real WorkflowAgent throws
+  // SCHEMA_NONCOMPLIANCE on a noncompliant judge/reviewer/validator verdict
+  // before it reaches verify/judgePanel/gate). The engine helpers themselves
+  // do NOT re-validate: a truthy-but-schema-noncompliant reviewer verdict, a
+  // schema-noncompliant judge score, or a null/undefined validator verdict
+  // would each be silently coerced to a wrong default (real:false, score:0,
+  // ok:false) if it ever reached them. They are currently UNREACHABLE in
+  // production (the agent layer enforces schemas), so these are latent —
+  // recorded here as `.todo` pending a design decision on whether the engine
+  // should re-validate, and tracked in the audit docket
+  // (docs/superpowers/audit/2026-07-18-workflow-pack-finding-docket.md).
+  // Promote each to a real test once the design call is made.
+  test.todo("RCA: verify() should not count a truthy-but-schema-noncompliant reviewer as a definitive real:false vote (workflow.ts ~702-709)");
+  test.todo("RCA: judgePanel should not silently score a schema-noncompliant judge as 0 in the average (workflow.ts ~745)");
+  test.todo("RCA: gate() should not treat a null/undefined validator verdict as a definitive ok:false (workflow.ts ~858-860)");
 });

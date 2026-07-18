@@ -39,7 +39,8 @@ const plan = await agent(
   '\\n\\nProduce ' + angles + ' diverse, specific search queries that together cover the question from different angles.',
   { label: 'plan queries', schema: { type: 'object', properties: { queries: { type: 'array', items: { type: 'string' } } }, required: ['queries'] } }
 )
-const queries = (plan.queries || []).slice(0, angles)
+const queries = (plan && Array.isArray(plan.queries) ? plan.queries : []).slice(0, angles)
+if (!plan) throw new Error('deep-research: plan-queries agent returned no result (recoverable exhaustion); cannot build search plan')
 
 phase('Gather')
 const gathered = await parallel(queries.map((q, i) => () =>

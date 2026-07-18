@@ -9,6 +9,7 @@ import {
   resolvePackOverrides,
   listWorkflows,
   resolveWorkflowPack,
+  findRepoRoot,
 } from "../src/workflow-pack.js";
 
 /**
@@ -508,5 +509,61 @@ describe("listWorkflows", () => {
     const { rows, errors } = listWorkflows(root);
     expect(rows).toEqual([]);
     expect(errors).toEqual([]);
+  });
+
+  // D5-1 — listWorkflows enumerates `.pi/workflows` BEFORE any `bun-apps/<pkg>`
+  // row. The dirs[] array in listWorkflows is built as
+  //   [ { ".pi/workflows", ... }, ...bun-apps/<pkg>/workflows (one per pkg) ]
+  // so .pi rows always come first. This pins the source-ordering guarantee so a
+  // refactor that reorders the dirs[] array (or sorts rows[] alphabetically by
+  // source AFTER the fact) cannot silently break the .pi-first precedence.
+  //
+  // NOTE: the per-package ordering among `bun-apps/<pkg>` entries is
+  // filesystem-dependent (readdir order, NOT sorted) — this test deliberately
+  // does NOT assert any specific pkg-vs-pkg order, only the .pi-before-bun-apps
+  // guarantee.
+  test("a `.pi/workflows` row is always listed BEFORE any `bun-apps/<pkg>` row (D5-1)", () => {
+    const root = mkdtempSync(join(tmpdir(), "wf-"));
+    // Place a pack under .pi/workflows (the user-private root).
+    const piDir = join(root, ".pi", "workflows");
+    mkdirSync(piDir, { recursive: true });
+    makePack(piDir, "pi-first", { name: "pi-first", description: "from .pi", entry: "index.js" });
+    // Place a DIFFERENT pack under bun-apps/<pkg>/workflows (a shipped pack).
+    const pkgDir = join(root, "bun-apps", "pi-agent-cli", "workflows");
+    mkdirSync(pkgDir, { recursive: true });
+    makePack(pkgDir, "pkg-second", { name: "pkg-second", description: "from pkg", entry: "main.js" });
+
+    const { rows } = listWorkflows(root);
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+
+    const piIdx = rows.findIndex((r) => r.source === ".pi/workflows");
+    const pkgIdx = rows.findIndex((r) => r.source.startsWith("bun-apps/"));
+    expect(piIdx).toBeGreaterThanOrEqual(0);
+    expect(pkgIdx).toBeGreaterThanOrEqual(0);
+    expect(piIdx).toBeLessThan(pkgIdx);
+  });
+});
+
+// ── findRepoRoot — walk-up cap ─────────────────────────────────────────────
+
+describe("findRepoRoot — walk-up cap", () => {
+  test("returns the root when a marker is found within the 12-iteration cap", () => {
+    // Build a synthetic exists() that reports a marker exactly at depth 11.
+    // Each dirname step peels one segment; count segments from `start`.
+    const segments = ["d0","d1","d2","d3","d4","d5","d6","d7","d8","d9","d10","rootMarker"];
+    const start = "/" + segments.join("/") + "/leaf";
+    // exists() returns true only for the path ending in rootMarker/.pi/workflows
+    const exists = (p: string) => p.endsWith("/rootMarker/.pi/workflows");
+    const expectedRoot = "/" + segments.join("/");
+    expect(findRepoRoot(start, exists)).toBe(expectedRoot);
+  });
+  test("returns undefined when no marker is found within 12 levels (cap prevents infinite walk)", () => {
+    // A path deeper than 12 segments with no marker anywhere → undefined, fast.
+    const deep = "/" + Array.from({length: 30}, (_,i)=>`d${i}`).join("/") + "/leaf";
+    const exists = (_p: string) => false;
+    expect(findRepoRoot(deep, exists)).toBeUndefined();
+  });
+  test("stops at the filesystem root without throwing (dirname === dir termination)", () => {
+    expect(findRepoRoot("/", () => false)).toBeUndefined();
   });
 });
