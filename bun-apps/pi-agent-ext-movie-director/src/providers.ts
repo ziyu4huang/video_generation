@@ -205,10 +205,10 @@ export function _setFlux2BinaryForTest(v: boolean | undefined): void {
   flux2BinaryCached = v;
 }
 
-// ─── python import probe (whisper / clip / esrgan deps honesty) ──────────────
+// ─── python import probe (whisper / clip deps honesty) ──────────────────────
 
 /**
- * Cached `python -c "<importStmt>"` probe. The whisper/clip/esrgan adapters
+ * Cached `python -c "<importStmt>"` probe. The whisper/clip adapters
  * resolve a python binary (a venv or the "python3" PATH fallback); the PRIOR
  * probe assumed "python3" had the deps (a false-positive when system python3
  * lacks mlx_whisper / torch / spandrel → generation then ImportError'd). This
@@ -247,7 +247,7 @@ export function _setImportProbeForTest(py: string, importStmt: string, v: boolea
  * already marks GAPs / unimplemented providers false); the probe refines it for
  * every strategy with an environment/disk signal: ffmpeg (binary on PATH), fetch
  * (cloud API key), the swift directors (built binary on disk), run.py (venv+
- * run.py present), whisper/clip/esrgan (a real python that imports its deps),
+ * run.py present), whisper/clip (a real python that imports its deps),
  * and the compose runtimes (remotion binary / motion filters). Thus a cloud
  * provider upgrades to callable when its key appears; an ffmpeg/swift provider
  * downgrades when its binary is gone; the python adapters downgrade when their
@@ -272,9 +272,6 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
     case "bun:clip":
       // callable iff the vision-venv python + clip entry script resolve.
       return entry.configured && visionRuntimePresent(env, CLIP_SCRIPT);
-    case "bun:esrgan":
-      // callable iff the vision-venv python + esrgan entry script resolve.
-      return entry.configured && visionRuntimePresent(env, ESRGAN_SCRIPT);
     case "compose:remotion":
       // callable iff the registry flag is set AND a real remotion binary resolves
       // (REMOTION_BIN on disk OR `remotion` on PATH — NOT the bunx fallback).
@@ -729,29 +726,26 @@ export function cuesFromWhisper(
   return cues;
 }
 
-// ─── vision venv (CLIP + ESRGAN share torch) ─────────────────────────────────
+// ─── vision venv (CLIP only — ESRGAN removed 2026-07-19) ─────────────────────
 
 /**
  * The Item I sibling pattern: a lightweight python venv that holds the deps the
- * builtin Bun layer doesn't (here torch + transformers + spandrel). Two entry
- * scripts share ONE venv because CLIP and ESRGAN both ride torch MPS — keeping
- * disk honest (torch is the heavy dep; install it once). The venv is repo infra
- * at <repo>/python/vision-venv; resolution order:
+ * builtin Bun layer doesn't (here torch + transformers for CLIP). The venv is
+ * repo infra at <repo>/python/vision-venv; resolution order:
  *   1. MD_VISION_PYTHON env (explicit override).
  *   2. <repo>/python/vision-venv/bin/python — walk up from EXT_ROOT.
  *   3. "python3" on PATH (last resort; needs the deps importable there).
+ *
+ * NOTE: CLIP itself moves to a native swift port in Phase 3 of the zero-python
+ * plan; this venv + probe are temporary until that lands.
  */
 const CLIP_SCRIPT = join(EXT_ROOT, "python", "clip_understand.py");
-const ESRGAN_SCRIPT = join(EXT_ROOT, "python", "esrgan_upscale.py");
 
 export function clipScriptPath(): string {
   return CLIP_SCRIPT;
 }
-export function esrganScriptPath(): string {
-  return ESRGAN_SCRIPT;
-}
 
-/** Resolve the python binary backing CLIP/ESRGAN (cached per process). */
+/** Resolve the python binary backing CLIP (cached per process). */
 export function resolveVisionPython(env: Record<string, string | undefined> = process.env): string {
   if (env.MD_VISION_PYTHON && existsSync(env.MD_VISION_PYTHON)) return env.MD_VISION_PYTHON;
   let dir = EXT_ROOT;
@@ -765,136 +759,28 @@ export function resolveVisionPython(env: Record<string, string | undefined> = pr
   return "python3";
 }
 
-/** Test-only overrides per entry (when set, short-circuit the real probe). */
-const visionRuntimeOverride = new Map<string /*"clip"|"esrgan"*/, boolean>();
-/** The import statement each vision entry needs (clip → transformers; esrgan → spandrel). */
+/** Test-only override (when set, short-circuits the real probe). */
+const visionRuntimeOverride = new Map<string /*"clip"*/, boolean>();
+/** The import statement CLIP needs (transformers). */
 const VISION_IMPORT_FOR: Record<string, string> = {
   [CLIP_SCRIPT]: "import torch, transformers",
-  [ESRGAN_SCRIPT]: "import torch, spandrel",
 };
 function visionRuntimePresent(env: Record<string, string | undefined>, script: string): boolean {
-  const overrideKey = script === CLIP_SCRIPT ? "clip" : "esrgan";
-  if (visionRuntimeOverride.has(overrideKey)) return visionRuntimeOverride.get(overrideKey)!;
+  if (visionRuntimeOverride.has("clip")) return visionRuntimeOverride.get("clip")!;
   if (!existsSync(script)) return false;
   const py = env.MD_VISION_PYTHON ? env.MD_VISION_PYTHON : resolveVisionPython(env);
   // Same honesty fix as whisper: "python3" (PATH fallback) is not assumed to have
-  // torch/transformers/spandrel. Require a real python path + a cached import
+  // torch/transformers. Require a real python path + a cached import
   // probe (keyed by py+stmt → env-correct, no stale cross-env cache entry).
   if (py === "python3" || !existsSync(py)) return false;
   return pythonImportsModule(py, VISION_IMPORT_FOR[script] ?? "import torch");
 }
 
 /** Force the vision-runtime probe result (tests inject a deterministic value). */
-export function _setVisionRuntimeForTest(script: "clip" | "esrgan", v: boolean | undefined): void {
+export function _setVisionRuntimeForTest(script: "clip", v: boolean | undefined): void {
   if (v == null) visionRuntimeOverride.delete(script);
   else visionRuntimeOverride.set(script, v);
 }
-
-// ─── ESRGAN adapter (native upscale via python subprocess) ───────────────────
-
-export interface EsrganOptions {
-  /** Path to the input image (required). */
-  image: string;
-  /**
-   * ESRGAN .pth path. Defaults to the repo's DEFAULT_UPSCALE_MODEL
-   * (mlx-models/upscale/4x-nomos-webphoto-realplksr/4xNomosWebPhoto_RealPLKSR.pth)
-   * resolved from the models root; overridable via MD_ESRGAN_MODEL.
-   */
-  model?: string;
-  /** Output PNG path. Defaults to <image-dir>/<stem>_4x.png. */
-  output?: string;
-  /** Test-only spawn injection. */
-  _spawnImpl?: (cmd: string, argv: string[]) => Promise<number>;
-}
-
-/** Normalized shape emitted by esrgan_upscale.py. */
-export interface EsrganResult {
-  ok: boolean;
-  error?: string;
-  image?: string;
-  model?: string;
-  scale?: number;
-  in_w?: number;
-  in_h?: number;
-  out_w?: number;
-  out_h?: number;
-  out?: string;
-  duration_s?: number;
-}
-
-/** Resolve the default ESRGAN .pth from the models root (mlx-models/...). */
-function defaultEsrganModel(env: Record<string, string | undefined>): string {
-  if (env.MD_ESRGAN_MODEL && existsSync(env.MD_ESRGAN_MODEL)) return env.MD_ESRGAN_MODEL;
-  let dir = EXT_ROOT;
-  for (let i = 0; i < 8; i++) {
-    const cand = join(dir, "mlx-models", "upscale", "4x-nomos-webphoto-realplksr", "4xNomosWebPhoto_RealPLKSR.pth");
-    if (existsSync(cand)) return cand;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return env.MD_ESRGAN_MODEL ?? "4xNomosWebPhoto_RealPLKSR.pth";
-}
-
-/** esrgan adapter: spawns esrgan_upscale.py, returns a ToolResult with the upscaled PNG. */
-export const esrganAdapter: Adapter = async (req: GenerateRequest): Promise<ToolResult> => {
-  if (!visionRuntimePresent(process.env as Record<string, string | undefined>, ESRGAN_SCRIPT)) {
-    return fail(req, "esrgan", "esrgan runtime not found (set MD_VISION_PYTHON or create python/vision-venv)");
-  }
-  const opts = (req.options ?? {}) as unknown as EsrganOptions;
-  if (!opts.image || !existsSync(opts.image)) {
-    return fail(req, "esrgan", `image missing or not found: ${opts.image ?? "(none)"}`);
-  }
-  const env = process.env as Record<string, string | undefined>;
-  const model = opts.model ?? defaultEsrganModel(env);
-  if (!existsSync(model)) {
-    return fail(req, "esrgan", `model not found: ${model} (set MD_ESRGAN_MODEL)`);
-  }
-  const spawnImpl = opts._spawnImpl ?? runSpawn;
-  // Workspace-relative default (same drift fix as whisper/clip): when outputDir
-  // is omitted the per-call JSON scratch + any artifacts land in a temp dir, not
-  // the repo root. The upscaled PNG path comes from the python entry (next to
-  // the source image), so this only affects the JSON scratch file.
-  const esrganOutDir = req.outputDir ?? mkdtempSync(join(tmpdir(), "md-esrgan-"));
-  const jsonOut = join(esrganOutDir, `esrgan_${process.pid}_${Date.now() % 100000}.json`);
-  const argv = [ESRGAN_SCRIPT, "--image", opts.image, "--model", model, "--output", jsonOut];
-  if (opts.output) argv.push("--out-image", opts.output);
-  const started = Date.now();
-  try {
-    const code = await spawnImpl(resolveVisionPython(env), argv);
-    let payload: EsrganResult;
-    try {
-      payload = JSON.parse(readFileSync(jsonOut, "utf8")) as EsrganResult;
-    } catch {
-      payload = { ok: false, error: `esrgan exited ${code} (no JSON output)` };
-    }
-    if (!payload.ok || !payload.out) {
-      return fail(req, "esrgan", payload.error ?? "esrgan returned no output", (Date.now() - started) / 1000);
-    }
-    return {
-      success: true,
-      provider: "esrgan",
-      command: req.command || "upscale",
-      artifacts: [
-        {
-          path: resolve(payload.out),
-          kind: "image",
-          bytes: byteSize(payload.out),
-          width: payload.out_w ?? null,
-          height: payload.out_h ?? null,
-          role: "upscaled",
-        },
-      ],
-      error: null,
-      cost_usd: 0, // local torch MPS — honest $0 marginal
-      duration_seconds: payload.duration_s ?? (Date.now() - started) / 1000,
-      seed: null,
-      model: "esrgan-4x-nomos-webphoto-realplksr",
-    };
-  } catch (err) {
-    return fail(req, "esrgan", err instanceof Error ? err.message : String(err), (Date.now() - started) / 1000);
-  }
-};
 
 // ─── CLIP adapter (native video understanding via python subprocess) ─────────
 
@@ -1357,7 +1243,6 @@ export function nonNativeAdapters(_env?: Record<string, string | undefined>): Pa
     "bun:builtin": subtitleAdapter, // subtitle_gen is the shipped bun:builtin provider
     "bun:whisper": whisperAdapter, // transcriber (Item I) spawns mlx-whisper via python
     "bun:clip": clipAdapter, // video_understand (Item I sibling) — CLIP via torch MPS
-    "bun:esrgan": esrganAdapter, // upscale (Item I sibling) — ESRGAN via torch MPS
     "compose:remotion": composeRemotionAdapter, // composition runtime (iteration G #280) — Remotion Node subprocess
     "compose:motion": composeMotionAdapter, // composition runtime (Item J) — ffmpeg zoompan+xfade motion compositor
     "macos:say": macosSayAdapter, // tts fallback — macOS `say`, zero-cost/zero-key local narration
