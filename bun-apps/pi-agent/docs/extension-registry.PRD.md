@@ -113,7 +113,7 @@ run-dir/manifest.json          # SOURCE OF TRUTH — the registry
    ```
 4. Add `"bun-apps/pi-agent-ext-<name>/extensions/<name>.ts"` to
    `run-dir/manifest.json` `extensions[]` (or `lazyExtensions` if on-demand).
-5. `bun bun-apps/pi-agent/scripts/verify-extensions.ts` — must load + wire.
+5. `bun test bun-apps/pi-agent/src/__tests__/extension-contract.test.ts` — must load + wire (see §5).
 
 If an extension imports a **new** bare specifier not in the patch's `targets`,
 add it there too (mirroring `getAliases`). Don't reach for jiti env knobs.
@@ -129,9 +129,11 @@ add it there too (mirroring `getAliases`). Don't reach for jiti env knobs.
 ## 5. Verification
 
 - **Fast / authoritative:**
-  `bun bun-apps/pi-agent/scripts/verify-extensions.ts`
+  `bun test bun-apps/pi-agent/src/__tests__/extension-contract.test.ts`
+  (replaced the old standalone `scripts/verify-extensions.ts` script) —
   native-imports every factory in the manifest (+ lazy exts) with a mock `pi`,
-  asserts each loads without error and wires ≥1 tool/command/on-handler.
+  asserts each loads without error, wires ≥1 tool/command, has zero tool-name
+  conflicts, and every tool/command is fully shaped.
   No agent boot, no providers, no network — milliseconds. Run after any
   manifest or extension change.
 - **End-to-end:** `./pi-agent.sh -e <ext.ts> -p "…"` (slow; real session).
