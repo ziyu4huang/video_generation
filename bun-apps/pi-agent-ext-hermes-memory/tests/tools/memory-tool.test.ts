@@ -302,6 +302,63 @@ describe("registerMemoryTool", () => {
     assert.match(parsed.warning, /sqlite unavailable/);
   });
 
+  it("absorbs a transient SQLite I/O blip via retry (no warning, entry synced)", async () => {
+    let capturedResult: any;
+    const mockPi = {
+      registerTool: (def: any) => { capturedResult = def; },
+    } as unknown as ExtensionAPI;
+    const mockStore = {
+      add: () => ({
+        success: true, target: "memory", entries: ["Entry one"],
+        usage: "5% — 110/5000 chars", entry_count: 1, message: "Entry added.",
+      }),
+    } as unknown as MemoryStore;
+
+    let flakyCalls = 0;
+    const flakyDbManager = {
+      getDb: () => {
+        flakyCalls++;
+        if (flakyCalls <= 2) throw Object.assign(new Error("disk I/O error"), { code: "SQLITE_IOERR" });
+        return dbManager.getDb(); // delegate to the real DB once the blip clears
+      },
+    } as unknown as DatabaseManager;
+
+    registerMemoryTool(mockPi, mockStore, null, flakyDbManager);
+    const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry one" }, undefined as any, undefined as any, undefined as any);
+    const parsed = JSON.parse(result.content[0].text);
+
+    assert.strictEqual(parsed.success, true);
+    assert.strictEqual(parsed.warning, undefined, "transient blip absorbed — no sync-warning surfaced");
+    assert.ok(flakyCalls >= 3, "should have retried past the transient throws");
+    const rows = getMemories(dbManager, { target: "memory", project: null });
+    assert.strictEqual(rows.length, 1, "entry synced to SQLite after retry");
+  });
+
+  it("still warns when a transient SQLite error persists across retries", async () => {
+    let capturedResult: any;
+    const mockPi = {
+      registerTool: (def: any) => { capturedResult = def; },
+    } as unknown as ExtensionAPI;
+    const mockStore = {
+      add: () => ({
+        success: true, target: "memory", entries: ["Entry two"],
+        usage: "5% — 110/5000 chars", entry_count: 1, message: "Entry added.",
+      }),
+    } as unknown as MemoryStore;
+
+    const persistentFlaky = {
+      getDb: () => { throw Object.assign(new Error("disk I/O error"), { code: "SQLITE_IOERR" }); },
+    } as unknown as DatabaseManager;
+
+    registerMemoryTool(mockPi, mockStore, null, persistentFlaky);
+    const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry two" }, undefined as any, undefined as any, undefined as any);
+    const parsed = JSON.parse(result.content[0].text);
+
+    assert.strictEqual(parsed.success, true);
+    assert.match(parsed.message, /SQLite search sync failed/);
+    assert.match(parsed.warning, /disk I\/O error/);
+  });
+
   it("does not sync to SQLite when core Markdown add fails", async () => {
     let capturedResult: any;
     const mockPi = {
