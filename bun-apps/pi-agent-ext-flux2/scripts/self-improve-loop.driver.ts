@@ -30,7 +30,10 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 // pi-agent uses available to the workflow's per-attempt bash agents. Without
 // this, a bare `bun` driver has no lm-studio provider and the generate/judge
 // agents cannot call a model. (Mirrors pi-agent's applyPatches → pre-load-providers.)
-await import("../../pi-agent/src/pre-load-providers.ts");
+// NOTE: as of the pre-load-providers purity fix, the actual monkey-patch lives in
+// patches/pre-load-providers-patch.ts — pre-load-providers.ts itself is now a pure
+// data/helper module with no import-time side effects.
+await import("../../pi-agent/src/patches/pre-load-providers-patch.ts");
 
 /**
  * Deterministic exemplar append — the non-model persistence path (goal 0402

@@ -29,8 +29,9 @@
  *
  * HASH CACHE (warm-build skip)
  *   Each successful build writes a `<name>.<thin|full>.hash` sidecar hashed over
- *   the entry's whole package source tree + thin/full flag + THIN_EXTERNALS list
- *   + Bun.version. A warm run whose inputs hash-match skips the build+resolve+
+ *   the entry's whole package source tree (plus every `@repo/*` workspace
+ *   package reachable transitively from it) + thin/full flag + THIN_EXTERNALS
+ *   list + Bun.version. A warm run whose inputs hash-match skips the build+resolve+
  *   verify stages entirely ("skipped (hash match)"). The OUTDIR is no longer
  *   blanket-wiped — only stale bundles (no matching ext / changed hash) are
  *   removed. `--force` bypasses the cache for the rare false-skip (e.g. a bun
@@ -56,14 +57,13 @@ import {
 	readFileSync,
 	readdirSync,
 	rmSync,
-	statSync,
 	writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { parseManifestEntries, type ExtensionManifestEntry } from "../run-dir/manifest-types.ts";
+import { hashExtInputs } from "./lib/ext-hash.ts";
 
 // Anchor module resolution at the WORKSPACE ROOT: bun hoists every dep
 // (typebox, @earendil-works/*, @modelcontextprotocol/sdk, …) to
@@ -212,68 +212,16 @@ function formatSize(bytes: number): string {
 
 // ── Hash cache helpers ───────────────────────────────────────────────────────
 // A build is deterministic given the same bun version + same inputs, so a
-// content hash over the INPUTS lets a warm run skip the build entirely. Inputs:
-//   • every source file under the entry's package dir (so an edit to a sibling
-//     module the entry imports is caught — not just the entry file)
+// content hash over the INPUTS lets a warm run skip the build entirely. Inputs
+// (hashing logic lives in ./lib/ext-hash.ts, extracted for standalone testing):
+//   • every source file under the entry's package dir AND every `@repo/*`
+//     workspace package reachable transitively from it (so a fix in a shared
+//     package the extension imports invalidates the cache, not just an edit
+//     to the extension's own files)
 //   • the thin/full flag + THIN_EXTERNALS list (the external config) when thin
 //   • the minify config (a constant below) + Bun.version (so a bun upgrade that
 //     silently changes codegen forces a rebuild)
 const MINIFY_CFG = "whitespace,identifiers,syntax";
-// Source globs included in the package hash. Excludes build output, tests,
-// type defs, and deps — a change to any of those must NOT force an ext rebuild.
-const SOURCE_GLOBS = /\.(ts|mts|cts|js|mjs|cjs|json)$/;
-
-/** Walk a package dir, returning [relpath, content] pairs for source files. */
-function collectPackageSources(pkgDir: string): Array<[string, string]> {
-	const out: Array<[string, string]> = [];
-	const SKIP = new Set(["node_modules", "dist", ".git", "__tests__"]);
-	if (!existsSync(pkgDir)) return out;
-	const walk = (dir: string) => {
-		let entries: string[];
-		try {
-			entries = readdirSync(dir);
-		} catch {
-			return;
-		}
-		for (const name of entries) {
-			const full = join(dir, name);
-			let st;
-			try {
-				st = statSync(full);
-			} catch {
-				continue;
-			}
-			if (st.isDirectory()) {
-				if (SKIP.has(name)) continue;
-				walk(full);
-			} else if (st.isFile() && SOURCE_GLOBS.test(name) && !/\.d\.ts$|\.test\.[jt]s$/.test(name)) {
-				try {
-					out.push([full.slice(pkgDir.length), readFileSync(full, "utf8")]);
-				} catch {
-					/* unreadable — skip */
-				}
-			}
-		}
-	};
-	walk(pkgDir);
-	return out;
-}
-
-/** Hash the inputs that determine an ext bundle's output. Stable across runs. */
-function hashExtInputs(opts: { entry: string; pkgDir: string; thin: boolean }): string {
-	const h = createHash("sha256");
-	h.update(`thin=${opts.thin}\n`);
-	h.update(`minify=${MINIFY_CFG}\n`);
-	h.update(`bun=${Bun.version}\n`);
-	if (opts.thin) h.update(`externals=${THIN_EXTERNALS.join(",")}\n`);
-	// entry is inside pkgDir, so it's covered by the tree walk; pin pkgDir identity.
-	h.update(`pkgDir=${opts.pkgDir}\n`);
-	const sources = collectPackageSources(opts.pkgDir).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-	for (const [rel, content] of sources) {
-		h.update(`:${rel}\n${content}\n`);
-	}
-	return h.digest("hex").slice(0, 16);
-}
 
 // ── Stage 1: bundle + minify (one extension) ────────────────────────────────
 async function stageBundle(opts: { entry: string; outfile: string; thin: boolean }) {
@@ -585,7 +533,15 @@ async function buildOne(spec: { name: string; entry: string; pkgDir: string }): 
 	// unchanged (bun's bundling is deterministic per version). Skips build +
 	// abs-resolve + verify. --force bypasses; a stale/missing sidecar falls through.
 	if (!FORCE) {
-		const inputsHash = hashExtInputs({ entry, pkgDir, thin });
+		const inputsHash = hashExtInputs({
+			entry,
+			pkgDir,
+			thin,
+			workspaceRoot: join(REPO_ROOT, "bun-apps"),
+			minifyCfg: MINIFY_CFG,
+			thinExternals: THIN_EXTERNALS,
+			bunVersion: Bun.version,
+		});
 		if (existsSync(outfile) && existsSync(hashFile)) {
 			const stored = readFileSync(hashFile, "utf8").trim();
 			if (stored === inputsHash) {
@@ -613,7 +569,18 @@ async function buildOne(spec: { name: string; entry: string; pkgDir: string }): 
 	// Write the sidecar AFTER verify passed, so a half-built/failed bundle is
 	// never marked cache-hot. Re-derive the hash (cheap) rather than capturing
 	// it above, so --force (which skipped the derive) still works on the write.
-	writeFileSync(hashFile, hashExtInputs({ entry, pkgDir, thin }) + "\n");
+	writeFileSync(
+		hashFile,
+		hashExtInputs({
+			entry,
+			pkgDir,
+			thin,
+			workspaceRoot: join(REPO_ROOT, "bun-apps"),
+			minifyCfg: MINIFY_CFG,
+			thinExternals: THIN_EXTERNALS,
+			bunVersion: Bun.version,
+		}) + "\n",
+	);
 	return true;
 }
 

@@ -166,7 +166,12 @@ export function checkHostDeps(ctx: DoctorContext): CheckResult {
 	if (ctx.mode === "source" || ctx.mode === "binary") {
 		return { id: "host-deps", label: "host deps", status: "info", detail: `${ctx.mode} mode — pi resolves deps from its own loader` };
 	}
-	const need = ["typebox", "@earendil-works/pi-coding-agent"];
+	const need = [
+		"typebox",
+		"@earendil-works/pi-coding-agent",
+		"@earendil-works/pi-agent-core",
+		"@earendil-works/pi-ai",
+	];
 	const missing = need.filter((s) => !ctx.depInstalled(s));
 	const failMode = ctx.mode === "portable";
 	if (missing.length) {

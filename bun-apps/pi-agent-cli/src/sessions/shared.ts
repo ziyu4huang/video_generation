@@ -37,10 +37,13 @@ import { existsSync, readFileSync } from "node:fs";
 import obsidianExtension from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 // The baked provider CATALOG (lm-studio) is sourced from `pi-agent` — single
 // source of truth across both CLIs. We register it explicitly here (the
-// programmatic-session path) rather than via pi-agent's main()-oriented
-// pre-load-providers monkey-patch, which splices process.argv and is wrong for
-// this entry point. See bun-apps/pi-agent/src/pre-load-providers.ts.
-import { PROVIDERS, resolveApiKey } from "@repo/pi-agent";
+// programmatic-session path) via the shared registerAllProviders() helper,
+// rather than pi-agent's main()-oriented pre-load-providers PATCH (which
+// splices process.argv and is wrong for this entry point — see
+// bun-apps/pi-agent/src/patches/pre-load-providers-patch.ts). Importing
+// registerAllProviders here is safe: pi-agent/src/pre-load-providers.ts has no
+// import-time side effects, so this never applies that patch.
+import { registerAllProviders } from "@repo/pi-agent";
 
 /** Allowed thinking levels (mirrors pi-agent-core). */
 const THINKING_LEVELS: readonly ThinkingLevel[] = [
@@ -168,9 +171,6 @@ export function allModels(reg: any): any[] {
 	return typeof reg.getAll === "function" ? reg.getAll() : reg.getAvailable();
 }
 
-/** Zero-cost policy for baked providers (local servers, no billing). */
-const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-
 /**
  * Obsidian tools capable of MUTATING the vault. Excluded under `--dry-run` so an
  * agent-driven command (zk-card add, zk-extract, zk-ask, url-to-vault, …) can
@@ -243,14 +243,7 @@ export async function buildBakedRegistry(): Promise<{
 			: { authPath: join(agentDir, "auth.json") },
 	);
 	const modelRegistry = new ModelRegistry(modelRuntime);
-	for (const [name, entry] of Object.entries(PROVIDERS)) {
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		modelRegistry.registerProvider(name, {
-			...entry,
-			apiKey: resolveApiKey(entry.apiKey),
-			models: entry.models.map((m) => ({ ...m, cost: ZERO_COST })),
-		} as any);
-	}
+	registerAllProviders(modelRegistry);
 	return { modelRuntime, modelRegistry };
 }
 

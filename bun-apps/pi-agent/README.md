@@ -432,10 +432,11 @@ pi-agent/
 │   └── resolve.ts             # resolves manifest.json + lazy aliases to absolute argv
 └── src/
     ├── cli.ts                    # applyPatches() → main(argv)
-    ├── pre-load-providers.ts     # PROVIDERS config + patch logic (edit this)
+    ├── pre-load-providers.ts     # PROVIDERS config, pure, no side effects (edit this)
     ├── generated/                # build-time-baked constants (gitignored)
     ├── patches/
     │   ├── index.ts                    # registry (env-gated) + debug
+    │   ├── pre-load-providers-patch.ts # the actual ModelRegistry.loadModels monkey-patch
     │   ├── default-model-env.ts        # bridges PI_MODEL/PI_PROVIDER/PI_THINKING into argv
     │   └── load-run-dir-resources.ts   # splices run-dir/ into argv
     └── __tests__/
