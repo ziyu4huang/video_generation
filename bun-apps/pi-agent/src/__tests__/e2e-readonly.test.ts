@@ -1,28 +1,29 @@
 /**
  * e2e-readonly — a deploy is an IMMUTABLE artifact: code + extensions, with all
  * per-user state in ~/.pi/agent. This test freezes one (the DEFAULT — deploy.ts
- * writes `.deploy-readonly` + chmod a-w unless --writable is passed) and proves
+ * writes `.deploy-readonly` + chmod a-w unless --no-freeze is passed) and proves
  * it still runs end-to-end from a foreign cwd, with ZERO writes landing inside
  * the frozen tree.
  *
- * Run for EVERY deploy mode — bundle AND release — because the read-only
+ * Run for EVERY deploy mode — bundle AND snapshot — because the read-only
  * contract is cross-cutting, and the two modes exercise DIFFERENT runtime
  * write-paths:
- *   • bundle  — extensions are pre-compiled .js; no jiti involved.
- *   • release — extensions are .ts source, loaded by jiti at runtime. jiti CAN
- *     cache compiled .ts to node_modules/.cache/jiti, which lives INSIDE the
- *     frozen tree. run.sh's JITI_FS_CACHE=0 export (gated on .deploy-readonly)
- *     neutralizes that. NOTE: on the current jiti version the unset default is
- *     already no-FS-cache, so JITI_FS_CACHE=0 is DEFENSIVE insurance against a
- *     future jiti that flips that default — the release loop passes with or
- *     without it. The loop's real load-bearing assertions are the zero-write
- *     snapshot + the EACCES/EPERM stderr guard below: any patch that introduces
- *     a runtime write into the frozen release tree surfaces there.
+ *   • bundle    — extensions are pre-compiled .js; no jiti involved.
+ *   • snapshot  — extensions are .ts source, loaded by jiti at runtime. jiti
+ *     CAN cache compiled .ts to node_modules/.cache/jiti, which lives INSIDE
+ *     the frozen tree. run.sh's JITI_FS_CACHE=0 export (gated on
+ *     .deploy-readonly) neutralizes that. NOTE: on the current jiti version
+ *     the unset default is already no-FS-cache, so JITI_FS_CACHE=0 is
+ *     DEFENSIVE insurance against a future jiti that flips that default — the
+ *     snapshot loop passes with or without it. The loop's real load-bearing
+ *     assertions are the zero-write snapshot + the EACCES/EPERM stderr guard
+ *     below: any patch that introduces a runtime write into the frozen
+ *     snapshot tree surfaces there.
  *
  * Why this is its own file: a regression in any leg — e.g. a new patch that
  * writes a cache into the deploy dir, or run.sh losing the JITI_FS_CACHE=0
  * export — would silently break `drop on /opt` deploys, and no other e2e catches
- * it (e2e-extensions deploys --writable precisely so it can clean up).
+ * it (e2e-extensions deploys --no-freeze precisely so it can clean up).
  *
  * Run via `./run-test.sh readonly` (or `full`). Gates: PI_AGENT_E2E +
  * PI_AGENT_E2E_DEPLOY (same as e2e-extensions).
@@ -31,16 +32,16 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { E2E_ENABLED, DEPLOY_ENABLED, ensureBundle, PI_AGENT_DIR } from "./e2e-harness.ts";
+import { E2E_ENABLED, DEPLOY_ENABLED, PI_AGENT_DIR } from "./e2e-harness.ts";
 
 const SKIPPED = !(E2E_ENABLED && DEPLOY_ENABLED);
 
 // Both modes share the same assertions; only the deploy flags + the doctor
-// `mode` field + the beforeAll timeout differ. release is slower (its `bun
-// install --production` materializes a workspace node_modules before freezing).
+// `mode` field + the beforeAll timeout differ. snapshot is slower (copies
+// pi-agent + every sibling extension package dir + all of node_modules).
 const MODES = [
 	{ name: "bundle", flag: [] as string[], doctorMode: "bundle", deployMs: 120_000 },
-	{ name: "release", flag: ["--release"], doctorMode: "release", deployMs: 180_000 },
+	{ name: "snapshot", flag: ["--snapshot"], doctorMode: "source", deployMs: 180_000 },
 ] as const;
 
 for (const MODE of MODES) {
@@ -53,15 +54,14 @@ for (const MODE of MODES) {
 		let frozenFiles: string[];
 
 		async function deployFrozen() {
-			await ensureBundle();
 			pkgDir = mkdtempSync(join(tmpdir(), `pi-agent-ro-${MODE.name}-`));
 			userDir = mkdtempSync(join(tmpdir(), `pi-agent-ro-${MODE.name}-user-`));
 			foreignCwd = mkdtempSync(join(tmpdir(), `pi-agent-ro-${MODE.name}-cwd-`));
-			// DEFAULT deploy (no --writable) → deploy.ts freezes it.
-			// --verify: boot the frozen artifact + probe getAllTools at deploy
-			// time (same gate as e2e-extensions). Runs before the test's own
-			// doctor/smoke probes, catching broken bundles early.
-			const deploy = Bun.spawn(["bun", "scripts/deploy.ts", pkgDir, "--no-build", "--verify", ...MODE.flag], {
+			// DEFAULT deploy (no --no-freeze) → deploy.ts freezes it. (deploy.ts no
+			// longer has a --verify flag — its old boot+probe step was dropped in
+			// the bundle/snapshot/standalone/exe unification; the doctor/smoke
+			// probes below cover the same ground.)
+			const deploy = Bun.spawn(["bun", "scripts/deploy.ts", pkgDir, ...MODE.flag], {
 				cwd: PI_AGENT_DIR,
 				stdout: "inherit",
 				stderr: "inherit",
@@ -99,13 +99,16 @@ for (const MODE of MODES) {
 
 		test("deploy.ts froze the tree (.deploy-readonly marker present)", () => {
 			expect(existsSync(join(pkgDir, ".deploy-readonly"))).toBe(true);
-			expect(existsSync(join(pkgDir, "pi-agent.js"))).toBe(true);
+			// snapshot ships raw source (pi-agent/src/cli.ts), not a bundled pi-agent.js.
+			const entry = MODE.name === "snapshot" ? join(pkgDir, "pi-agent", "src", "cli.ts") : join(pkgDir, "pi-agent.js");
+			expect(existsSync(entry)).toBe(true);
 		});
 
 		test("doctor runs from a foreign cwd on the frozen deploy", async () => {
-			// Invoke run.sh (NOT pi-agent.js directly) so the .deploy-readonly marker
-			// detection + env hardening in run.sh is exercised end-to-end. For release
-			// this is the path where jiti loads .ts extensions under a frozen tree.
+			// Invoke run.sh (NOT the entry directly) so the .deploy-readonly marker
+			// detection + env hardening in run.sh is exercised end-to-end. For
+			// snapshot this is the path where jiti loads .ts extensions under a
+			// frozen tree.
 			const proc = Bun.spawn([join(pkgDir, "run.sh"), "doctor", "--json"], {
 				cwd: foreignCwd,
 				env: { ...process.env, PI_CODING_AGENT_DIR: userDir },
@@ -146,7 +149,7 @@ for (const MODE of MODES) {
 
 		test("NO file was written into the frozen deploy tree across the runs above", () => {
 			// The load-bearing invariant: the deploy tree is byte-identical before and
-			// after doctor + smoke ran against it. For release this is the guard that
+			// after doctor + smoke ran against it. For snapshot this is the guard that
 			// catches a runtime write into the frozen tree — be it a jiti FS cache
 			// (if JITI_FS_CACHE=0 ever stops neutralizing it) or any new patch that
 			// drops a cache/log/sqlite file into the deploy dir.
