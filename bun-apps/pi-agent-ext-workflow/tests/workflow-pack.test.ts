@@ -9,6 +9,7 @@ import {
   resolvePackOverrides,
   listWorkflows,
   resolveWorkflowPack,
+  findRepoRoot,
 } from "../src/workflow-pack.js";
 
 /**
@@ -508,5 +509,28 @@ describe("listWorkflows", () => {
     const { rows, errors } = listWorkflows(root);
     expect(rows).toEqual([]);
     expect(errors).toEqual([]);
+  });
+});
+
+// ── findRepoRoot — walk-up cap ─────────────────────────────────────────────
+
+describe("findRepoRoot — walk-up cap", () => {
+  test("returns the root when a marker is found within the 12-iteration cap", () => {
+    // Build a synthetic exists() that reports a marker exactly at depth 11.
+    // Each dirname step peels one segment; count segments from `start`.
+    const segments = ["d0","d1","d2","d3","d4","d5","d6","d7","d8","d9","d10","rootMarker"];
+    const start = "/" + segments.join("/") + "/leaf";
+    // exists() returns true only for the path ending in rootMarker/.pi/workflows
+    const exists = (p: string) => p.endsWith("/rootMarker/.pi/workflows");
+    expect(findRepoRoot(start, exists)?.endsWith("rootMarker") ?? "").toBeTruthy();
+  });
+  test("returns undefined when no marker is found within 12 levels (cap prevents infinite walk)", () => {
+    // A path deeper than 12 segments with no marker anywhere → undefined, fast.
+    const deep = "/" + Array.from({length: 30}, (_,i)=>`d${i}`).join("/") + "/leaf";
+    const exists = (_p: string) => false;
+    expect(findRepoRoot(deep, exists)).toBeUndefined();
+  });
+  test("stops at the filesystem root without throwing (dirname === dir termination)", () => {
+    expect(findRepoRoot("/", () => false)).toBeUndefined();
   });
 });
