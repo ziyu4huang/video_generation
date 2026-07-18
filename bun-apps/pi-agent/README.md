@@ -42,7 +42,7 @@ No source fork, no passthrough rewrite.
 ## Setup
 
 ```bash
-bun install          # at the monorepo root (never inside pi-agent/)
+bun install          # from bun-apps/ (the workspace root; never inside pi-agent/)
 ```
 
 ## Usage

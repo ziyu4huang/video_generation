@@ -268,7 +268,8 @@ CI uses `CI=true` to trigger the machine-coupled skips. To reproduce the CI
 run exactly:
 
 ```bash
-bun install --frozen-lockfile
+# The Bun workspace root is bun-apps/ (not the repo root) — install from there:
+( cd bun-apps && bun install --frozen-lockfile )
 
 # any package, CI semantics (machine-coupled tests skip):
 ( cd bun-apps/<package> && CI=true bun test )

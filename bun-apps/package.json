@@ -2,7 +2,7 @@
   "name": "video-generation-monorepo",
   "private": true,
   "workspaces": [
-    "bun-apps/*"
+    "./*"
   ],
   "devDependencies": {
     "@types/bun": "latest"
