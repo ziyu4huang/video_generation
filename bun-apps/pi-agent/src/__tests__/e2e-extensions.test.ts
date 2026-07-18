@@ -156,9 +156,31 @@ async function runScenario(s: Scenario): Promise<Result> {
 	// load failure. Match "failed to load extension" specifically.
 	const ERR = /conflict|cannot find|failed to load extension/i;
 	let killed = false;
+	let timedOut = false;
+	// No timeout existed here before — a probe that never fires (for ANY
+	// reason: hang, crash before session_start, a blocked pipe) left the loop
+	// waiting on reader.read() with nothing to bound it, only the outer bun
+	// `test(..., 60_000)` override to eventually kill it — which produces a
+	// bare "(fail) ... [Nms]" with zero diagnostic content (confirmed: this is
+	// exactly what CI's skill-load failures looked like). A deadline here
+	// turns that into an actionable message instead.
+	const deadlineMs = 25_000;
+	const deadline = Date.now() + deadlineMs;
 	try {
 		while (true) {
-			const { value, done } = await reader.read();
+			const remaining = deadline - Date.now();
+			if (remaining <= 0) {
+				timedOut = true;
+				break;
+			}
+			const readP = reader.read();
+			const timeoutP = new Promise<{ timedOut: true }>((r) => setTimeout(() => r({ timedOut: true }), remaining));
+			const res = (await Promise.race([readP, timeoutP])) as { timedOut?: true; value?: Uint8Array; done?: boolean };
+			if (res.timedOut) {
+				timedOut = true;
+				break;
+			}
+			const { value, done } = res as { value?: Uint8Array; done?: boolean };
 			if (done) break;
 			buf += dec.decode(value, { stream: true });
 			let nl: number;
@@ -200,6 +222,12 @@ async function runScenario(s: Scenario): Promise<Result> {
 		} catch {
 			/* */
 		}
+	}
+	if (timedOut) {
+		errors.push(
+			`[runScenario timeout] no [PROBE]/[PROBE-SKILL] line within ${deadlineMs}ms ` +
+				`(cmd: ${s.cmd.join(" ")}, cwd: ${s.cwd}, buffered stderr tail: ${JSON.stringify(buf.slice(-500))})`,
+		);
 	}
 	return { total, matched, cmdMatched, skillMatched, totalSkills, errors };
 }
