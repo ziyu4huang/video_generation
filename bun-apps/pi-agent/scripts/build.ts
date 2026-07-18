@@ -6,6 +6,8 @@
  *   bun scripts/build.ts --sourcemap also emit the external sourcemap (.map)
  *   bun scripts/build.ts --compile  bun --compile → standalone executable
  *   bun scripts/build.ts --all      bundle + compile
+ *   bun scripts/build.ts --compile-embed  bundle + compile + embed assets (no companion dirs)
+
  *
  * Sourcemap is OPT-IN: the .map embeds full original source (~20 MB) and is
  * never shipped — deploy.ts only copies pi-agent.js. Emitting it bloats dist/,
@@ -38,6 +40,12 @@
  *
  *   Source (`bun src/cli.ts`): no build step. pi resolves everything via the
  *   real node_modules tree; the set-package-dir patch skips entirely.
+ *
+ *   --compile-embed: builds a STANDALONE SINGLE executable with theme/,
+ *   export-html/, assets/, and binarySkills embedded via `type: "file"`
+ *   imports. At startup, an extraction patch (extract-embedded-assets.ts)
+ *   unpacks these to ~/.pi/agent/embedded-assets/<hash>/ and sets
+ *   PI_PACKAGE_DIR. The binary can be copied to an empty directory and run.
  */
 import {
   appendFileSync,
@@ -51,6 +59,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
+import { generateEmbeddedAssets } from './generate-embedded-assets.ts';
 import manifest from "../run-dir/manifest.json";
 
 const APP_NAME: string = basename(process.cwd()); // "pi-agent"
@@ -96,7 +105,8 @@ const MAPFILE = `${OUTFILE}.map`;
 const EXE = `${OUTDIR}/${APP_NAME}`;
 
 const argv = process.argv.slice(2);
-const DO_COMPILE = argv.includes("--compile") || argv.includes("--all");
+const DO_EMBED = argv.includes("--compile-embed");
+const DO_COMPILE = argv.includes("--compile") || argv.includes("--all") || argv.includes("--compile-embed");
 // Sourcemap is opt-in (see file header): the .map is ~20 MB, embeds full source,
 // and is never shipped (deploy.ts copies only pi-agent.js). Default off.
 const WITH_SOURCEMAP = argv.includes("--sourcemap");
@@ -161,6 +171,21 @@ function stageGenerateRunDirBase() {
   console.log(`  ✓ BUN_APPS_DIR = ${bunAppsDir}`);
   console.log(`  ✓ ${npmExtensionPaths.length} npm extension path(s) resolved`);
 }
+
+// ── Stage 0c: generate embedded-assets.ts (embed with type:file imports, or empty) ─
+
+function stageGenerateEmbeddedAssets(piPkgDir: string) {
+
+  console.log(`▶ generate src/generated/embedded-assets.ts${DO_EMBED ? " (with imports)" : " (empty manifest)"}`);
+
+  ensureOutdir();
+
+  const bunAppsDir = resolve(process.cwd(), "..");
+
+  generateEmbeddedAssets(piPkgDir, bunAppsDir, BINARY_SKILLS, DO_EMBED);
+
+}
+
 
 // ── Stage 1: bundle + minify ─────────────────────────────────────────────────
 async function stageBundle() {
@@ -249,6 +274,26 @@ async function stageCompile() {
   console.log(`  ✓ ${EXE}  (${formatSize(EXE)})`);
 }
 
+// ── Stage 2b: compile-embed (single-pass from source, preserves $bunfs paths) ─
+// Unlike stageCompile which re-bundles the bundled .js output (two-pass),
+// this compiles directly from source --embed so type:file imports produce
+// correct $bunfs virtual paths instead of relative hashed names.
+async function stageCompileEmbed() {
+  console.log(`▶ compile-embed → dist/${APP_NAME}/${APP_NAME}  (single-pass embed binary)`);
+  clean(EXE);
+  const externalFlags = HERMES_OPTIONAL_EXTERNALS.flatMap((p) => ["--external", p]);
+  const proc = Bun.spawn(
+    ["bun", "build", "--compile", ENTRY, `--outfile=${EXE}`, "--minify", ...externalFlags],
+    { stdout: "inherit", stderr: "inherit" },
+  );
+  const code = await proc.exited;
+  if (code !== 0) {
+    console.error(`  ✗ bun build --compile exited ${code}`);
+    process.exit(code);
+  }
+  console.log(`  ✓ ${EXE}  (${formatSize(EXE)})`);
+}
+
 // ── Stage 3: copy assets alongside the binary ────────────────────────────────
 // pi's isBunBinary path expects these dirs next to the executable.
 // getThemesDir()       → <exe-dir>/theme/
@@ -323,11 +368,17 @@ assertWorkspaceDeps();
 const piPkgDir = resolvePiPkgDir();
 stageGeneratePkgDir(piPkgDir);
 stageGenerateRunDirBase();
+stageGenerateEmbeddedAssets(piPkgDir);
+
 await stageBundle();
 stageLinkDeps(piPkgDir);
 if (DO_COMPILE) {
-  await stageCompile();
-  stageCopyAssets(piPkgDir);
+  if (DO_EMBED) {
+    await stageCompileEmbed();
+  } else {
+    await stageCompile();
+    stageCopyAssets(piPkgDir);
+  }
 }
 // Keep the generated pi-pkg-dir.ts on disk (gitignored — machine-specific).
 // Source mode never needs it: the set-package-dir patch loads it via a

@@ -197,6 +197,91 @@ Keep these two in lockstep by construction (both read `manifest.binarySkills`)
    `bun src/cli.ts ext doctor --json` both need to show it registering with
    0 conflicts.
 
+## `--compile-embed` mode — truly single-file binary
+
+The `--compile` binary described above still ships 7 companion directories
+next to the exe (`theme/`, `export-html/`, `assets/`, 4 skill dirs).
+Copy just the exe to another machine and it boots, but theme/template
+resolution and `--skill` paths silently degrade.
+
+`--compile-embed` eliminates this gap by embedding all those files
+directly into the binary via `type: "file"` import:
+
+### Build
+
+```bash
+bun scripts/build.ts --compile-embed   # 74 MB, self-contained
+```
+
+The resulting `dist/pi-agent/pi-agent` can be copied to an **empty**
+directory and run — no companion files needed.
+
+### How it works
+
+1. **Build-time codegen** (`scripts/generate-embedded-assets.ts`): walks the
+   same 7 directories `stageCopyAssets()` copies today, writes
+   `src/generated/embedded-assets.ts` with 71 `import … with { type: "file" }`
+   statements — one per file (~1.4 MB of theme JSON, export HTML templates,
+   assets PNG, and skill markdown files). `.js/.ts` module files are skipped
+   to avoid conflicts with pi`s own module imports.
+
+2. **Single-pass compilation** (`stageCompileEmbed()`): compiles directly
+   from `src/cli.ts` (`bun build --compile`), not via the intermediate
+   bundle — preserves `` virtual paths so `Bun.file()` can read
+   embedded blobs at runtime.
+
+3. **Runtime extraction** (`src/patches/extract-embedded-assets.ts`): on
+   first launch in binary mode, detects embedded assets and extracts them
+   to `~/.pi/agent/embedded-assets/<manifest-hash>/`. An `.extracted` marker
+   prevents re-extraction (second launch: ~170ms). Sets `PI_PACKAGE_DIR` so
+   pi`s `getThemesDir()`, `getAssetsDir()`, and `getExportTemplateDir()`
+   resolve from the extracted cache.
+
+4. **Skill path resolution** (`run-dir/resolve.ts`): when
+   `BUN_PI_EMBEDDED_EXTRACT_DIR` is set, binary-mode `--skill` paths resolve
+   from the extraction cache instead of `dirname(process.execPath)`.
+
+### Verification
+
+```bash
+mkdir -p /tmp/single-test && cp dist/pi-agent/pi-agent /tmp/single-test/
+cd /tmp/single-test
+./pi-agent --version                # works
+./pi-agent doctor --json            # ok:true
+ls ~/.pi/agent/embedded-assets/*/theme  # 3 JSONs extracted
+ls ~/.pi/agent/embedded-assets/*/pi-agent-ext-*/skills  # 4 skill dirs
+./pi-agent --version                # second run: fast, no re-extraction
+```
+
+### Design decisions
+
+- **Additive, not a replacement** — the classic `--compile` mode (companion
+  dirs) stays unchanged, CI-verified. `--compile-embed` is an independent
+  flag.
+- **JS/TS files excluded** — `export-html/` contains JS modules
+  (`tool-renderer.js`, `ansi-to-html.js`) that pi imports natively.
+  Embedding them via `type: "file"` confuses the bundler. They are excluded
+  from the manifest, which means the HTML export feature has reduced
+  interactivity (no client-side JS in exported pages) in the embed binary.
+- **Cache dir under `~/.pi/agent/`** — same root the README documents as
+  "all per-user state". No new env-var contract.
+- **`.extracted` marker** — a killed/partial extraction retries on next
+  launch.
+
+### Comparison
+
+| Mode | Files needed | Size | Extension support |
+|------|-------------|------|-------------------|
+| `--compile` | exe + 7 companion dirs | 73 MB exe + ~1.6 MB assets | 5 static |
+| `--compile-embed` | exe only | 74 MB | 5 static |
+
+### Adding files to the embed set
+
+Edit `scripts/generate-embedded-assets.ts` if you need to embed additional
+asset directories. The codegen walks the same source dirs as
+`stageCopyAssets()` — keep them in sync.
+
+
 ## Known limitation
 
 The compiled binary only ever carries these 5 extensions. There is no

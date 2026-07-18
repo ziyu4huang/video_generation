@@ -70,6 +70,7 @@ describe("PATCH_TABLE", () => {
         "ensure-extension-deps",
         "ext-api-get-all-tool-definitions",
         "ext-context-get-system-prompt-options",
+        "extract-embedded-assets",
         "footer-extension-status-notify",
         "load-run-dir-resources",
         "pre-load-providers",
