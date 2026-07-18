@@ -9,9 +9,13 @@
  * Resolution order (first hit wins):
  *   1. `<name>` as a literal path (absolute, or relative to cwd) when it exists.
  *      A directory here is a workflow pack (folder + manifest.json + entry).
- *   2. `.pi/workflows/<name>` — a pack dir wins over a same-name `.js` file.
- *   3. `bun-apps/<pkg>/workflows/<name>` — same pack-over-file precedence.
- *   4. The literal `<name>` with a `.js` suffix tried in (2) and (3).
+ *   2. `<cwd>/workflows/<name>` — portable tier (no repo root needed); a pack
+ *      dir wins over a same-name `.js` file.
+ *   3. `<binDir>/workflows/<name>` — packs shipped next to the binary (binDir
+ *      defaults to dirname(process.execPath)). Same pack-over-file precedence.
+ *   4. `.pi/workflows/<name>` under the repo root (walk-up) — pack-over-file.
+ *   5. `bun-apps/<pkg>/workflows/<name>` under the repo root — pack-over-file.
+ *   6. The literal `<name>` with a `.js` suffix tried in (2)-(5).
  *
  * Pure + injectable (read/exists/stat/readdir default to node:fs) so contract
  * tests exercise every branch without touching disk or an LLM. The orchestration
@@ -47,7 +51,7 @@ export interface ResolvedWorkflow {
   /** Entry script source text. */
   script: string;
   /** How it was resolved, for the run receipt. */
-  source: "path" | ".pi/workflows" | "package-workflows";
+  source: "path" | "cwd-workflows" | "bin-workflows" | ".pi/workflows" | "package-workflows";
   /** Present iff a workflow pack (folder + manifest.json). The manifest carries
    *  default args/model/thinking the runner merges under CLI flags. */
   pack?: { manifest: Manifest; packDir: string };
@@ -102,11 +106,12 @@ function resolveFs(opts: WorkflowPackFs): Required<WorkflowPackFs> {
  * (read/exists/stat/readdir + cwd) so the contract test can exercise every
  * branch without touching the engine or an LLM.
  */
-export function resolveWorkflowScript(name: string, opts: { cwd?: string } & WorkflowPackFs = {}): ResolvedWorkflow {
+export function resolveWorkflowScript(name: string, opts: { cwd?: string; binDir?: string } & WorkflowPackFs = {}): ResolvedWorkflow {
   if (!name || typeof name !== "string" || !name.trim()) {
     throw new Error(`workflow: a script name or path is required (got "${name}")`);
   }
   const cwd = opts.cwd ?? process.cwd();
+  const binDir = opts.binDir ?? dirname(process.execPath);
   const fs = resolveFs(opts);
 
   // 1. Literal path: a file OR a workflow-pack directory (manifest.json + entry).
@@ -128,9 +133,38 @@ export function resolveWorkflowScript(name: string, opts: { cwd?: string } & Wor
   // and `workflow run foo.js` both work). Used only for single-file lookup.
   const names = name.endsWith(".js") ? [name] : [`${name}.js`, name];
 
-  // 2-3. Name resolution under the workflow dirs. Per location, a workflow-pack
-  //      directory (<name>/manifest.json) wins over a same-name file — packs
-  //      are the richer, deliberate artifact.
+  // 2. <cwd>/workflows/<name> — portable tier (no repo root needed); a pack
+  //    folder wins over a same-name .js. Ranks ABOVE repo tiers ("most local
+  //    wins" — Decision: portable-workflow-pack-discovery, ADR 0008).
+  const cwdWorkflowsDir = join(cwd, "workflows");
+  if (fs.exists(cwdWorkflowsDir)) {
+    const pack = tryResolvePack(join(cwdWorkflowsDir, name), fs);
+    if (pack) return { ...pack, source: "cwd-workflows" };
+    for (const candidate of names) {
+      const p = join(cwdWorkflowsDir, candidate);
+      if (fs.exists(p) && fs.stat(p)?.isFile()) {
+        return { path: p, script: fs.read(p), source: "cwd-workflows" };
+      }
+    }
+  }
+
+  // 3. <binDir>/workflows/<name> — packs shipped next to the binary. binDir
+  //    defaults to dirname(process.execPath) (the compiled exe's real location
+  //    in `bun --compile`); injectable so tests don't depend on the real exe.
+  const binWorkflowsDir = join(binDir, "workflows");
+  if (fs.exists(binWorkflowsDir)) {
+    const pack = tryResolvePack(join(binWorkflowsDir, name), fs);
+    if (pack) return { ...pack, source: "bin-workflows" };
+    for (const candidate of names) {
+      const p = join(binWorkflowsDir, candidate);
+      if (fs.exists(p) && fs.stat(p)?.isFile()) {
+        return { path: p, script: fs.read(p), source: "bin-workflows" };
+      }
+    }
+  }
+
+  // 4-5. Name resolution under the repo workflow dirs (walk-up). Per location, a
+  //      workflow-pack directory (<name>/manifest.json) wins over a same-name file.
   const root = findRepoRoot(cwd, fs.exists);
   if (root) {
     const piDir = join(root, PI_WORKFLOWS_DIR);
@@ -165,11 +199,13 @@ export function resolveWorkflowScript(name: string, opts: { cwd?: string } & Wor
   throw new Error(
     `workflow: script "${name}" not found.\n` +
       `Looked for: ${asPath}\n` +
+      `  ${join(cwd, "workflows", names[0]!)}\n` +
+      `  ${join(binDir, "workflows", names[0]!)}\n` +
       (root
         ? `  ${join(root, PI_WORKFLOWS_DIR, names[0]!)}\n` +
           `  ${join(root, PKG_WORKFLOWS_GLOB, "<pkg>", "workflows", names[0]!)}\n`
         : "") +
-      `Pass an absolute path or a name under .pi/workflows/ or bun-apps/<pkg>/workflows/.`,
+      `Pass an absolute path or a name under <cwd>/workflows/, <binDir>/workflows/, .pi/workflows/, or bun-apps/<pkg>/workflows/.`,
   );
 }
 
@@ -297,9 +333,13 @@ export interface WorkflowListResult {
  *  with manifest.json) AND single-file scripts (*.js). Pack rows render from
  *  the manifest; file rows from `export const meta`. Broken packs/scripts are
  *  reported in `errors` (not dropped). Injectable fs for hermetic tests. */
-export function listWorkflows(claudeRoot: string, opts: WorkflowPackFs = {}): WorkflowListResult {
+export function listWorkflows(claudeRoot: string, opts: { cwd?: string; binDir?: string } & WorkflowPackFs = {}): WorkflowListResult {
   const fs = resolveFs(opts);
+  const cwd = opts.cwd ?? process.cwd();
+  const binDir = opts.binDir ?? dirname(process.execPath);
   const dirs = [
+    { label: "cwd/workflows", dir: join(cwd, "workflows") },
+    { label: "bin/workflows", dir: join(binDir, "workflows") },
     { label: ".pi/workflows", dir: join(claudeRoot, PI_WORKFLOWS_DIR) },
     ...fs.readdir(join(claudeRoot, PKG_WORKFLOWS_GLOB)).map((pkg) => ({
       label: `bun-apps/${pkg}/workflows`,
