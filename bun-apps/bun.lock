@@ -77,19 +77,6 @@
         "javascript-obfuscator": "^5.4.3",
       },
     },
-    "pi-agent-ext-ask-user": {
-      "name": "@repo/pi-agent-ext-ask-user",
-      "version": "0.1.0",
-      "devDependencies": {
-        "@types/bun": "latest",
-        "typescript": "^6.0.3",
-      },
-      "peerDependencies": {
-        "@earendil-works/pi-coding-agent": "0.80.10",
-        "@earendil-works/pi-tui": "0.80.10",
-        "typebox": "^1.3.6",
-      },
-    },
     "pi-agent-ext-btw": {
       "name": "@repo/pi-agent-ext-btw",
       "version": "0.1.0",
@@ -670,8 +657,6 @@
     "@repo/pi-agent": ["@repo/pi-agent@workspace:pi-agent"],
 
     "@repo/pi-agent-cli": ["@repo/pi-agent-cli@workspace:pi-agent-cli"],
-
-    "@repo/pi-agent-ext-ask-user": ["@repo/pi-agent-ext-ask-user@workspace:pi-agent-ext-ask-user"],
 
     "@repo/pi-agent-ext-btw": ["@repo/pi-agent-ext-btw@workspace:pi-agent-ext-btw"],
 
@@ -1516,8 +1501,6 @@
     "@javascript-obfuscator/escodegen/optionator": ["optionator@0.8.3", "", { "dependencies": { "deep-is": "~0.1.3", "fast-levenshtein": "~2.0.6", "levn": "~0.3.0", "prelude-ls": "~1.1.2", "type-check": "~0.3.2", "word-wrap": "~1.2.3" } }, "sha512-+IW9pACdk3XWmmTXG8m3upGUJst5XRGzxMRjXzAuJ1XnIFNvfhjjIuYkDvysnPQ7qzqVzLt78BCruntqRhWQbA=="],
 
     "@playwright/cli/playwright": ["playwright@1.62.0-alpha-1783623505000", "", { "dependencies": { "playwright-core": "1.62.0-alpha-1783623505000" }, "optionalDependencies": { "fsevents": "2.3.2" }, "bin": { "playwright": "cli.js" } }, "sha512-6KV9h4PP3hqu4NaGdxxcijWfYh9LJcFI/R2sP4TTC4I5cFo3oRawN0ETlW5MkE3cQEgKhhoj0KUNz4sfpCT0Tg=="],
-
-    "@repo/pi-agent-ext-ask-user/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "@repo/pi-agent-ext-btw/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
