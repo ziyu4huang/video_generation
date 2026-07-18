@@ -3,7 +3,7 @@
 > **Tech note** — recorded 2026-07-03.
 
 Since 2026-07-03, `scripts/deploy.ts` **freezes every deploy by default**:
-`chmod -R a-w` the out-dir and write a `.deploy-readonly` marker. `--writable`
+`chmod -R a-w` the out-dir and write a `.deploy-readonly` marker. `--no-freeze`
 opts out (the e2e harness uses it to clean up). A re-deploy auto-`chmod -R u+w`s
 the frozen tree before `rmSync`.
 
@@ -18,10 +18,10 @@ the deploy tree:
 - **pi-hermes-memory** `src/paths.ts:8-9`: its sqlite DB reads the SAME
   `PI_CODING_AGENT_DIR`, else `~/.pi/agent`. (Not the deploy dir.)
 - **jiti fs cache** (`node_modules/.cache/jiti`): only potentially writes for
-  compiled `.ts`. Bundle/portable ship pre-compiled `.js` → no jiti → no cache
-  write. `--release` ships `.ts` source, so jiti IS in the load path; on the
+  compiled `.ts`. Bundle/Standalone ship pre-compiled `.js` → no jiti → no cache
+  write. `--snapshot` ships `.ts` source, so jiti IS in the load path; on the
   current jiti version its unset default is already no-FS-cache, so a frozen
-  release deploy runs even WITHOUT `JITI_FS_CACHE=0` (verified by mutation:
+  snapshot deploy runs even WITHOUT `JITI_FS_CACHE=0` (verified by mutation:
   removing the export, `doctor --smoke` still PASS, zero-write snapshot still
   holds). `run.sh` sets `JITI_FS_CACHE=0` anyway as DEFENSIVE insurance against a
   future jiti that flips that default to write-back.
@@ -43,14 +43,15 @@ Invoke `run.sh` from a NON-deploy cwd (so `<cwd>/.pi` isn't the frozen tree).
 
 ## Contract guard
 
-`./run-test.sh readonly` (a tier, ~7-20s) — runs the contract for EVERY deploy
-mode: it freezes BOTH a bundle deploy AND a `--release` deploy, and for each
-runs `doctor` + `--smoke` from a foreign cwd via `run.sh`, asserting `matched >
-0` AND a before/after `find` snapshot of the frozen tree is IDENTICAL (zero
-writes leaked in) AND per-user state landed in `PI_CODING_AGENT_DIR`. The
-release loop is the one that exercises jiti loading `.ts` under a frozen tree.
-Also folded into `full`. Test file: `src/__tests__/e2e-readonly.test.ts`; the
-existing `e2e-extensions` deploys `--writable`.
+`./run-test.sh readonly` (a tier, ~6s) — runs the contract for the two modes
+with different runtime write-paths: it freezes BOTH a bundle deploy AND a
+`--snapshot` deploy, and for each runs `doctor` + `--smoke` from a foreign cwd
+via `run.sh`, asserting `matched > 0` AND a before/after `find` snapshot of the
+frozen tree is IDENTICAL (zero writes leaked in) AND per-user state landed in
+`PI_CODING_AGENT_DIR`. The snapshot loop is the one that exercises jiti loading
+`.ts` under a frozen tree. Also folded into `full`. Test file:
+`src/__tests__/e2e-readonly.test.ts`; the existing `e2e-extensions` deploys
+`--no-freeze`.
 
 ## Cleanup gotcha
 
@@ -63,7 +64,7 @@ A frozen tmp deploy needs `chmod -R u+w` before `rmSync` or EPERMs (the test's
 bun scripts/deploy.ts /opt/pi-agent        # frozen by default
 sudo chown -R root:wheel /opt/pi-agent     # truly read-only
 cd ~/project && /opt/pi-agent/run.sh       # runs; state → ~/.pi/agent
-bun scripts/deploy.ts /tmp/dev --writable  # opt out of freeze (iteration)
+bun scripts/deploy.ts /tmp/dev --no-freeze # opt out of freeze (iteration)
 ```
 
 ## Note on `doctor --fix`

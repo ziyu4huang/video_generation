@@ -20,13 +20,15 @@
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit",
     "test:e2e": "PI_AGENT_E2E=1 bun test",
-    "build": "bun scripts/build.ts",
-    "deploy": "bun scripts/deploy.ts",
     "verify": "PI_AGENT_E2E=1 bun test src/__tests__/e2e-extensions.test.ts",
-    "build:exe": "bun scripts/build.ts --compile",
-    "build:all": "bun scripts/build.ts --all",
     "dist": "bun ../../dist/pi-agent/pi-agent.js",
-    "exe": "../../dist/pi-agent/pi-agent"
+    "exe": "../../dist/pi-agent/pi-agent",
+    "//deploy": "4 modes — read docs BEFORE running: docs/deploy-cwd-trust.md (self-contained packaging), docs/deploy-readonly.md (default chmod a-w freeze), docs/deploy-single-binary.md (--exe), docs/deploy-efficiency.md (incremental warm rebuild). Mode flags: --bundle (default), --snapshot, --standalone, --exe. Also see the mode table in scripts/deploy.ts header. Run via `bun run deploy[:mode]` from this dir.",
+    "deploy": "bun scripts/deploy.ts",
+    "deploy:bundle": "bun scripts/deploy.ts --bundle",
+    "deploy:snapshot": "bun scripts/deploy.ts --snapshot",
+    "deploy:standalone": "bun scripts/deploy.ts --standalone",
+    "deploy:exe": "bun scripts/deploy.ts --exe"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.80.10",

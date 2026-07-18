@@ -1,61 +1,21 @@
 /**
- * deploy — package pi-agent + its extension set into a SELF-CONTAINED, runnable
- * directory that works from ANY cwd. Two modes:
+ * deploy.ts — unified build + deploy orchestrator for pi-agent.
  *
- *   bun scripts/deploy.ts [out-dir]              # DEFAULT: bundle deploy (THIN)
- *   bun scripts/deploy.ts [out-dir] --portable   # PORTABLE: FULL bundles + host node_modules (repo-independent)
- *   bun scripts/deploy.ts [out-dir] --release    # RELEASE: source-copy deploy
- *
- * ── DEFAULT (bundle deploy) ────────────────────────────────────────────────
- * Ships pi-agent.js + every extension pre-bundled into a single `.js`
- * (scripts/build-extensions.ts, THIN mode) + a COPIED monorepo node_modules.
- * No per-extension source folder, no `bun install` at deploy time. Target:
- * `bun <outdir>/pi-agent.js` (bun runtime required on the host — the compiled
- * binary cannot load `-e` extensions).
- *
- *   <outdir>/
- *   ├── pi-agent.js            # bundle (from dist/pi-agent/)
- *   ├── ext-bundles/*.thin.js  # pre-bundled extensions (THIN — shared deps)
- *   ├── skills/<…>/            # copied skill dirs
- *   ├── run-dir/manifest.json  # compat/debug (resolve.ts uses dir listings)
- *   ├── .deploy-bundle         # marker — resolve.ts DEPLOY-BUNDLE detection
- *   ├── package.json           # minimal {name,private,type} — NO workspaces
- *   └── run.sh                 # layout-aware launcher
- *   (node_modules is NOT copied by default — everything resolves via baked
- *   repo .bun-store abs paths; opt in with --with-nm-copy for a fallback copy)
- *
- * ── --release (source-copy deploy; the ORIGINAL behavior) ──────────────────
- * Copies every extension's source folder into packages/<pkg>/, generates a
- * workspaces package.json, and runs `bun install`. Self-contained workspace.
- * Heavier; ships readable source; intended for protected/release distribution.
- *
- *   <outdir>/
- *   ├── pi-agent.js, run-dir/manifest.json, run.sh
- *   ├── packages/<pkg>/…       # copied extension source
- *   ├── package.json           # workspaces root + npm-ext deps
- *   └── node_modules/          # wired by `bun install`
- *
- * run-dir/resolve.ts detects the layout at runtime: `.deploy-bundle` +
- * `ext-bundles/` → DEPLOY-BUNDLE mode (this default); `packages/` +
- * `run-dir/manifest.json` → DEPLOY-PACKAGE mode (--release). Both inject `-ne`
- * + the resolved `-e`/`--skill` paths so the package is self-contained.
+ * Four modes:
+ *   --bundle (default)   Build pi-agent.js + thin ext bundles + skills + run.sh
+ *   --snapshot           Copy source tree + node_modules (no bundling)
+ *   --standalone         --bundle + copy $(which bun) binary alongside
+ *   --exe                bun build --compile single-pass embed binary (no deps dir)
  *
  * USAGE
- *   bun scripts/deploy.ts [options] [out-dir]
- *     --release       use the source-copy deploy (the original behavior)
- *     --portable      FULL-bundle exts + host node_modules subset + assets
- *                    (repo-independent, same machine)
- *     --no-build      reuse existing dist/pi-agent/pi-agent.js
- *     --no-install    skip `bun install` in out-dir (--release / --portable)
- *     --with-nm-copy  also copy the repo node_modules into out-dir (bundle mode;
- *                    redundant for resolution — opt-in fallback)
- *     --writable     opt OUT of the default read-only freeze (keep the tree
- *                    writable). The test harness uses this to clean up; a normal
- *                    deploy is frozen (chmod a-w + `.deploy-readonly` marker).
- *   Read-only is the DEFAULT: every deploy is frozen via chmod a-w + a marker;
- *   run.sh reads the marker and applies the env hardening that makes a frozen
- *   artifact run. Drop it on /opt or any read-only prefix as-is.
- *   Default out-dir: ../../dist/pi-agent-bundle (bundle) | ../../dist/pi-agent-deploy (release)
+ *   bun scripts/deploy.ts [out-dir]                 # default: --bundle
+ *   bun scripts/deploy.ts [out-dir] --bundle        # explicit (same as default)
+ *   bun scripts/deploy.ts [out-dir] --snapshot      # source-copy deploy
+ *   bun scripts/deploy.ts [out-dir] --standalone    # bundle + bundled bun
+ *   bun scripts/deploy.ts [out-dir] --exe           # compiled binary
+ *   bun scripts/deploy.ts [out-dir] --no-freeze     # skip chmod a-w
+ *
+ * Default out-dir: ../../dist/pi-agent
  */
 import {
 	chmodSync,
@@ -64,591 +24,355 @@ import {
 	lstatSync,
 	mkdirSync,
 	readFileSync,
-	readlinkSync,
-	readdirSync,
-	renameSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
-import { healInterruptedSwap } from "./lib/deploy-swap.ts";
+import { spawnSync } from "node:child_process";
+import {
+	stageGeneratePkgDir,
+	stageGenerateRunDirBase,
+	stageGenerateEmbeddedAssets,
+	type NpmExt,
+} from "./lib/codegen.ts";
+import { buildExtensions } from "./lib/build-extensions.ts";
+import manifest from "../run-dir/manifest.json";
 
+const APP_NAME = "pi-agent";
+
+// pi-agent-ext-hermes-memory's src/store/vault-converge.ts has two OPTIONAL
+// (try/catch-guarded) dynamic imports of pi-obsidian/pi-knowledge-card as
+// LITERAL bare specifiers. Mark them external so the try/catch degrades
+// gracefully instead of resolving at build time.
+const HERMES_OPTIONAL_EXTERNALS = [
+	"@repo/pi-agent-ext-obsidian",
+	"@repo/pi-agent-ext-obsidian/*",
+	"@repo/pi-agent-ext-knowledge-card",
+	"@repo/pi-agent-ext-knowledge-card/*",
+];
+
+// ── Flag parsing ─────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
-if (argv.some((a) => a === "-h" || a === "--help")) {
-	console.log((await Bun.file(import.meta.path).text()).split("*/")[0].replace(/^\/\*\*?|\*\/?$/gm, "").trim());
-	process.exit(0);
-}
-const RELEASE = argv.includes("--release");
-// --portable: FULL-bundle every ext (incl. npm exts) + `bun install` a host
-// node_modules subset + copy assets + pin PI_PACKAGE_DIR via run.sh. Produces a
-// repo-independent deploy (same machine — bun's global-store node_modules isn't
-// relocatable across machines). Mutually exclusive with --release.
-const PORTABLE = argv.includes("--portable");
-const NO_BUILD = argv.includes("--no-build");
-const NO_INSTALL = argv.includes("--no-install");
-// node_modules copy is OPT-IN for the default (THIN) deploy. Everything (THIN
-// ext bundles + pi-agent.js + npm exts) resolves deps via baked absolute paths
-// into the repo's .bun store, so <outdir>/node_modules is NOT read at runtime —
-// the deploy is same-machine-repo-present regardless. The copy exists only as a
-// fallback / for inspection; opt in with --with-nm-copy. (--portable ALWAYS
-// installs its own node_modules subset — FULL bundles have residual bare
-// specifiers that resolve from it, and the host's getAliases() needs it.)
-const WITH_NM_COPY = argv.includes("--with-nm-copy");
-// READ-ONLY IS THE DEFAULT. A deploy is an immutable artifact: code + bundled
-// extensions, with ALL per-user state routed to ~/.pi/agent (pi's sessions/auth
-// + pi-hermes-memory's sqlite DB both honor PI_CODING_AGENT_DIR → ~/.pi/agent).
-// So the deploy dir is never written to at runtime — freezing it costs nothing
-// and makes the artifact safe to drop on /opt, an app bundle, or any read-only
-// prefix. `--writable` opts out (the test harness uses it to clean up between
-// runs). run.sh reads the `.deploy-readonly` marker and applies the env
-// hardening (JITI_FS_CACHE=0 for --release's .ts extensions, PI_CODING_AGENT_DIR
-// default) that makes a frozen deploy actually run.
-const WRITABLE = argv.includes("--writable");
-// --verify: after deploy, boot the deployed pi-agent.js from a FOREIGN cwd and
-// probe pi.getAllTools() — catches resolve.ts mode bugs, broken bundles, and
-// tool-conflicts at DEPLOY time, not at runtime. Adds ~3-5s (no model call;
-// kills the instant the probe fires). Off by default; opt in with --verify.
-const VERIFY = argv.includes("--verify");
-const READONLY = !WRITABLE;
-if (RELEASE && PORTABLE) die("--release and --portable are mutually exclusive");
-const positionalOutdir = argv.find((a) => !a.startsWith("-"));
-const FINAL_OUTDIR = positionalOutdir
-	? resolve(process.cwd(), positionalOutdir)
-	: resolve(
-			process.cwd(),
-			"..",
-			"..",
-			"dist",
-			RELEASE ? "pi-agent-deploy" : PORTABLE ? "pi-agent-portable" : "pi-agent-bundle",
-		);
-// Build into a staging dir, not FINAL_OUTDIR directly — a mid-build throw
-// (permission error, ENOSPC, a missing skill dir) must never destroy the
-// last-good deploy. The atomic rename-swap at the end of the script is what
-// actually replaces FINAL_OUTDIR; every step below (bundleDeploy/portableDeploy/
-// releaseDeploy, --readonly freeze, --verify boot) still operates on `OUTDIR`.
-const OUTDIR = `${FINAL_OUTDIR}.staging`;
+const target = argv.find((a) => !a.startsWith("--")) || resolve(process.cwd(), "..", "..", "dist", APP_NAME);
+const IS_BUNDLE = !argv.some((a) => ["--snapshot", "--standalone", "--exe"].includes(a));
+const IS_SNAPSHOT = argv.includes("--snapshot");
+const IS_STANDALONE = argv.includes("--standalone");
+const IS_EXE = argv.includes("--exe");
+const NO_FREEZE = argv.includes("--no-freeze");
 
-// Crash recovery: a process kill between the two renameSync calls in the
-// atomic-swap section below (on a PRIOR run) can leave FINAL_OUTDIR missing
-// while the last-good deploy sits at `${FINAL_OUTDIR}.prev`. Self-heal here,
-// before any build work starts, so a half-swapped deploy is never left
-// missing indefinitely.
-if (healInterruptedSwap(FINAL_OUTDIR)) {
-	console.log(`\x1b[33m⚠\x1b[0m detected an interrupted deploy swap from a prior run — restored ${FINAL_OUTDIR} from ${FINAL_OUTDIR}.prev`);
-}
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-const piAgentDir = dirname(import.meta.dir); // bun-apps/pi-agent
-const repoRoot = dirname(dirname(piAgentDir));
-const G = (s: string) => `\x1b[32m${s}\x1b[0m`;
-const Y = (s: string) => `\x1b[33m${s}\x1b[0m`;
-const D = (s: string) => `\x1b[2m${s}\x1b[0m`;
-const R = (s: string) => `\x1b[31m${s}\x1b[0m`;
 function die(msg: string): never {
-	console.error(R(`error: ${msg}`));
+	console.error(msg);
 	process.exit(1);
 }
-function readJson<T>(p: string): T | null {
+
+function clean(...files: string[]) {
+	for (const f of files) if (existsSync(f)) rmSync(f, { recursive: true });
+}
+
+function formatSize(p: string): string {
 	try {
-		return JSON.parse(readFileSync(p, "utf8")) as T;
+		const bytes = Bun.file(p).size;
+		if (bytes > 1_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
+		if (bytes > 1_000) return `${(bytes / 1_000).toFixed(0)} KB`;
+		return `${bytes} B`;
 	} catch {
-		return null;
+		return "?";
 	}
 }
-/** True if `p` exists AND is a symlink (lstat, so symlinks to missing targets count). */
-function lstatSyncSafeForBundle(p: string): string | null {
+
+function lstatSyncSafe(p: string): boolean {
 	try {
-		return lstatSync(p).isSymbolicLink() ? p : null;
+		return lstatSync(p).isSymbolicLink();
 	} catch {
-		return null;
-	}
-}
-/**
- * Resolve the pi deps-store node_modules (the same target build.ts stageLinkDeps
- * symlinks dist/pi-agent/node_modules at) — the dir that holds typebox +
- * @earendil-works/* + jiti, which pi-agent.js's bare peer-dep specifiers resolve
- * from. Anchored at pi-agent's package.json so the workspace link is followed.
- */
-function resolvePiStoreNodeModules(piAgentDir: string): string | null {
-	try {
-		const r = createRequire(join(piAgentDir, "package.json"));
-		const pj = r.resolve("@earendil-works/pi-coding-agent/package.json");
-		const piPkgDir = pj.replace(/\/package\.json$/, ""); // <store>/node_modules/@earendil-works/pi-coding-agent
-		const storeNm = resolve(piPkgDir, "..", ".."); // <store>/node_modules
-		return existsSync(storeNm) ? storeNm : null;
-	} catch {
-		return null;
+		return false;
 	}
 }
 
-// ── reproducible dep pinning ─────────────────────────────────────────────────
-//
-// The deploy generates a `package.json` for the out-dir and runs `bun install`
-// against it. If a dep is written as "latest" or "*", that install re-resolves
-// to whatever the registry serves AT DEPLOY TIME — so two deploys from the same
-// source tree can drift onto different versions. Pin those floating ranges to
-// the EXACT version the repo's own `bun.lock` already resolved, so a deploy is
-// reproducible from a given source tree. (Bounded "^x.y.z" ranges are left
-// alone — they're already constrained; only unbounded floats are the problem.)
-//
-// `bun.lock` (text format, v1.2+) `packages` maps a dep key to
-// ["<@scope/name>@<version>", "", { deps... }, "sha512-..."]. The version is the
-// substring after the LAST "@" (scoped names start with "@").
-//
-// NOTE: bun.lock is JSON5-ish — it allows trailing commas, which JSON.parse
-// rejects. Strip them before parsing (handles `,}` and `,]`). This is the
-// documented text-lockfile shape; if Bun changes the format, pinRange degrades
-// gracefully (returns the floating range unchanged with a warning).
-function readLockPackages(): Record<string, unknown[]> {
-	try {
-		const raw = readFileSync(join(repoRoot, "bun-apps", "bun.lock"), "utf8");
-		const json = raw.replace(/,(\s*[}\]])/g, "$1");
-		return (JSON.parse(json) as { packages?: Record<string, unknown[]> }).packages ?? {};
-	} catch {
-		return {};
-	}
-}
-const lockPackages = readLockPackages();
-function resolvedVersion(pkg: string): string | undefined {
-	const entry = lockPackages[pkg];
-	if (!Array.isArray(entry) || typeof entry[0] !== "string") return undefined;
-	const id = entry[0] as string; // "<@scope/name>@<version>"
-	const at = id.lastIndexOf("@");
-	return at > 0 ? id.slice(at + 1) : undefined;
-}
-/** Pin a floating "latest"/"*" range to the exact resolved version; pass others through. */
-function pinRange(range: string, pkg: string, warnFn: (m: string) => void = console.error): string {
-	if (range !== "latest" && range !== "*") return range;
-	const ver = resolvedVersion(pkg);
-	if (!ver) {
-		warnFn(`${Y("·")} could not pin ${pkg} (${range}) — not in bun.lock; leaving floating`);
-		return range;
-	}
-	return `^${ver}`;
+function resolvePiPkgDir(): string {
+	const pkgJsonUrl = import.meta.resolve("@earendil-works/pi-coding-agent/package.json");
+	return dirname(new URL(pkgJsonUrl).pathname);
 }
 
-// ── manifest = the single source of truth for what to bundle ─────────────────
-const manifestPath = join(piAgentDir, "run-dir", "manifest.json");
-const manifest = readJson<{
-	extensions?: (string | { entry: string })[];
-	skills?: string[];
-	npmExtensions?: { pkg: string; entry: string }[];
-	staticExtensions?: string[];
-}>(manifestPath);
-if (!manifest) die(`run-dir/manifest.json not found at ${manifestPath}`);
-
-// Normalize manifest v2 entries: objects → their `entry` string, strings pass through.
-const extEntries = (manifest.extensions ?? []).map((e) => (typeof e === "string" ? e : e.entry));
-
-// Collect the package DIR names to copy (top-level segment of each ext/skill path).
-const pkgDirs = new Set<string>();
-for (const rel of [...extEntries, ...(manifest.skills ?? [])]) {
-	const seg = rel.split("/")[0];
-	if (seg) pkgDirs.add(seg);
-}
-// staticExtensions (goal-todo/hermes-memory/superpowers/wayfind/web-access) are
-// inlined directly into pi-agent.js's own bundle (see src/static-extensions.ts)
-// — they don't need an `-e <path>`/`--skill` manifest entry to LOAD. But
-// --release mode still needs their source directories under packages/: (a)
-// pi-agent's own package.json now declares them as `workspace:*`
-// dependencies, and (b) other copied packages depend on them directly (e.g.
-// pi-agent-ext-wayfind imports pi-agent-ext-goal-todo's shared status-widget
-// module) — omitting them breaks `bun install`'s workspace resolution inside
-// packages/ even though goal-todo itself has no skills dir to otherwise pull
-// it into pkgDirs.
-for (const dir of manifest.staticExtensions ?? []) pkgDirs.add(dir);
-if (pkgDirs.size === 0 && RELEASE) die("manifest lists no extensions/skills to bundle.");
-
-// ── build pi-agent bundle (shared by both modes) ─────────────────────────────
-const bundleSrc = join(repoRoot, "dist", "pi-agent", "pi-agent.js");
-if (!NO_BUILD || !existsSync(bundleSrc)) {
-	console.log(`${G("▶")} build bundle  ${D("(bun scripts/build.ts)")}`);
-	const b = Bun.spawn(["bun", "scripts/build.ts"], { cwd: piAgentDir, stdout: "inherit", stderr: "inherit" });
-	if ((await b.exited) !== 0) die("build.ts failed");
-} else {
-	console.log(`${G("▶")} build bundle  ${D("(skipped --no-build)")}`);
-}
-if (!existsSync(bundleSrc)) die(`bundle missing: ${bundleSrc}`);
-
-// ── materialize out-dir ──────────────────────────────────────────────────────
-console.log(
-	`${G("▶")} out-dir  ${D(OUTDIR)}  ${D(`[${RELEASE ? "release" : PORTABLE ? "portable" : "bundle"}]`)}`,
-);
-if (existsSync(OUTDIR)) {
-	// A previous deploy is FROZEN by default (chmod a-w + .deploy-readonly). rmSync
-	// can't remove a-w entries, so unfreeze first. chmod -R u+w is a no-op if the
-	// dir is already writable; the spawn is cheap and only runs on re-deploy.
-	if (existsSync(join(OUTDIR, ".deploy-readonly"))) {
-		const unfreeze = Bun.spawn(["chmod", "-R", "u+w", OUTDIR], { stdout: "ignore", stderr: "ignore" });
-		await unfreeze.exited;
-	}
-	rmSync(OUTDIR, { recursive: true });
-}
-mkdirSync(OUTDIR, { recursive: true });
-mkdirSync(join(OUTDIR, "run-dir"), { recursive: true });
-
-cpSync(bundleSrc, join(OUTDIR, "pi-agent.js"));
-cpSync(manifestPath, join(OUTDIR, "run-dir", "manifest.json"));
-const runSh = join(piAgentDir, "run.sh");
-if (existsSync(runSh)) {
-	cpSync(runSh, join(OUTDIR, "run.sh"));
-	chmodSync(join(OUTDIR, "run.sh"), 0o755);
-}
-
-if (RELEASE) {
-	await releaseDeploy();
-} else if (PORTABLE) {
-	await portableDeploy();
-} else {
-	await bundleDeploy();
-}
-
-// ── --readonly: freeze the artifact for a read-only path ─────────────────────
-if (READONLY) {
-	// The marker is what run.sh keys off of to apply the env hardening. chmod is
-	// the "make this tree immutable" convenience. A deploy dropped onto an
-	// already-read-only fs (root-owned /opt run as a non-root user) needs only
-	// the marker — the fs itself enforces immutability.
-	writeFileSync(
-		join(OUTDIR, ".deploy-readonly"),
-		`read-only deploy\nmode: ${RELEASE ? "release" : PORTABLE ? "portable" : "bundle"}\nbuilt: ${new Date().toISOString()}\n` +
-			"run.sh applies JITI_FS_CACHE=0 + PI_CODING_AGENT_DIR=$HOME/.pi/agent so this runs as-is.\n",
-	);
-	const chmod = Bun.spawn(["chmod", "-R", "a-w", OUTDIR], { stdout: "inherit", stderr: "inherit" });
-	if ((await chmod.exited) !== 0) die("chmod -R a-w failed");
-}
-
-// ── --verify: boot the deployed artifact + probe getAllTools from a foreign cwd ─
-// Catches resolve.ts mode bugs, broken extension bundles, and tool-conflicts at
-// DEPLOY time. Writes a probe extension to /tmp, boots pi-agent.js with -ne -e
-// <probe> -p, reads the [PROBE] output, kills the process (no model call).
-if (VERIFY) {
-	console.log(`\n${G("▶")} verify — boot deployed artifact + probe getAllTools`);
-	const PROBE_TS = join(tmpdir(), `deploy-verify-${Date.now()}.ts`);
-	writeFileSync(
-		PROBE_TS,
-		`export default (pi) => {
-  pi.on("session_start", () => {
-    const tools = pi.getAllTools();
-    const names = tools.map((t) => t.name).sort();
-    const dupes = names.filter((n, i) => n === names[i - 1]);
-    // Canary: one stable primary tool per extension bundle. A bundle whose
-    // factory loads but silently bails in session_start (e.g. a missing-dep
-    // guard firing) leaves its tool ABSENT — getAllTools() still returns >0
-    // and dupes stays empty, so the count+dupes gate passes (the false-pass
-    // that let the build-extensions string-replacement bug ship). Asserting
-    // these canaries are present catches that class. ctx.ui.notify() does
-    // NOT render in -p mode, so an output scan can't catch it — the tool
-    // registry is the only signal. Update this set if an extension is
-    // added/removed/renamed.
-    const CANARY = ["file2md","web_search","flux2","obsidian","memory","ltx","krea2"];
-    const missingCanaries = CANARY.filter((c) => !names.includes(c));
-    const ok = names.length > 0 && dupes.length === 0 && missingCanaries.length === 0;
-    // console.log flushes synchronously in Bun; process.exit() would skip the flush.
-    console.log("[PROBE] " + JSON.stringify({ toolCount: names.length, dupes, missingCanaries, ok }));
-    setTimeout(() => process.exit(ok ? 0 : 1), 100);
-  });
-};\n`,
-	);
-	const agentJs = join(OUTDIR, "pi-agent.js");
-	if (!existsSync(agentJs)) {
-		console.error(`${R("✗")} verify: ${agentJs} not found — nothing to probe`);
+function assertWorkspaceDeps(): void {
+	const pj = JSON.parse(readFileSync("package.json", "utf8")) as {
+		dependencies?: Record<string, string>;
+		peerDependencies?: Record<string, string>;
+	};
+	const all = { ...pj.dependencies, ...pj.peerDependencies };
+	const ws = Object.keys(all).filter((d) => d.startsWith("@repo/"));
+	const missing = ws.filter((d) => !existsSync(`node_modules/${d}`));
+	if (missing.length > 0) {
+		console.error(
+			`\n✗ missing workspace symlinks: ${missing.join(", ")}\n` +
+				`  The monorepo's node_modules is stale. Fix:\n` +
+				`    bun install            # at bun-apps/ (not here)\n` +
+				`    bun scripts/deploy.ts  # then re-deploy\n`,
+		);
 		process.exit(1);
 	}
-	// Boot from /tmp (foreign cwd) to catch cwd-coupled resolve.ts bugs.
+}
+
+// ── run.sh generator ─────────────────────────────────────────────────────────
+// Writes a minimal launcher for non-exe modes.
+// - `bunCmd`: the bun binary to invoke ("bun" for system PATH, "./bun" for standalone)
+// - `entry`: the entry point relative to the deploy root ("pi-agent.js" or "pi-agent/src/cli.ts")
+function writeRunSh(outDir: string, bunCmd: string, entry: string) {
+	const content = `#!/usr/bin/env bash
+DIR=$(cd "$(dirname "$0")" && pwd)
+if [ -f "$DIR/.deploy-readonly" ]; then
+  # Frozen deploy (chmod a-w): route jiti's fs cache + per-user state OFF the
+  # read-only tree. See docs/deploy-readonly.md.
+  export JITI_FS_CACHE="\${JITI_FS_CACHE:-0}"
+  export PI_CODING_AGENT_DIR="\${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
+fi
+exec "${bunCmd}" run "$DIR/${entry}" "$@"
+`;
+	writeFileSync(join(outDir, "run.sh"), content, { mode: 0o755 });
+	console.log(`  ✓ run.sh  (entry: ${entry}, bun: ${bunCmd})`);
+}
+
+// ── Stage: bundle pi-agent.js ────────────────────────────────────────────────
+async function stageBundle(piPkgDir: string) {
+	const outfile = join(target, `${APP_NAME}.js`);
+	console.log(`▶ bundle → ${outfile}`);
+	clean(outfile, `${outfile}.map`);
+
+	const { build } = await import("bun");
+	const result = await build({
+		entrypoints: ["src/cli.ts"],
+		outdir: target,
+		target: "bun",
+		format: "esm",
+		naming: `${APP_NAME}.js`,
+		minify: { whitespace: true, identifiers: true, syntax: true },
+		sourcemap: "none",
+		splitting: false,
+		external: HERMES_OPTIONAL_EXTERNALS,
+	});
+
+	if (!result.success) {
+		for (const l of result.logs) console.error(l);
+		process.exit(1);
+	}
+	console.log(`  ✓ ${outfile}  (${formatSize(outfile)})`);
+
+	// Symlink node_modules for bundle-mode extension resolution.
+	// The bundle keeps typebox + @earendil-works/* as bare peer-dep specifiers;
+	// pi's extension loader resolves them via require.resolve relative to the
+	// bundle file. Symlinking <target>/node_modules to the bun store makes
+	// this work at any path on the same machine.
+	linkNodeModules(piPkgDir);
+}
+
+function linkNodeModules(piPkgDir: string) {
+	const storeNodeModules = resolve(piPkgDir, "..", ".."); // <store-root>/node_modules
+	const link = join(target, "node_modules");
+	if (!existsSync(storeNodeModules)) {
+		console.log(`  · node_modules symlink skipped (store not found at ${storeNodeModules})`);
+		return;
+	}
+	if (existsSync(link) || lstatSyncSafe(link)) rmSync(link, { recursive: true });
+	symlinkSync(storeNodeModules, link);
+	console.log(`  ✓ node_modules → ${storeNodeModules}`);
+}
+
+// ── Stage: --exe (compile directly from source, single-pass embed binary) ────
+async function stageExe() {
+	const outfile = join(target, APP_NAME);
+	console.log(`▶ compile (single-pass embed) → ${outfile}`);
+	clean(outfile);
+
+	const externalFlags = HERMES_OPTIONAL_EXTERNALS.flatMap((p) => ["--external", p]);
 	const proc = Bun.spawn(
-		["bun", agentJs, "-ne", "-e", PROBE_TS, "-p", "verify"],
-		{ cwd: tmpdir(), stdout: "pipe", stderr: "pipe", env: { ...process.env, PI_VERIFY_MODE: "deploy" } },
+		["bun", "build", "--compile", "src/cli.ts", `--outfile=${outfile}`, "--minify", ...externalFlags],
+		{ stdout: "inherit", stderr: "inherit" },
 	);
-	const [stdout, stderr] = await Promise.all([
-		new Response(proc.stdout).text(),
-		new Response(proc.stderr).text(),
-	]);
 	const code = await proc.exited;
-	rmSync(PROBE_TS, { force: true });
-	const probeLine = stdout.split("\n").find((l) => l.startsWith("[PROBE]"));
-	if (!probeLine) {
-		console.error(`${R("✗")} verify: no [PROBE] line — agent failed to boot or probe never fired`);
-		if (stderr) console.error(stderr.slice(0, 500));
-		process.exit(1);
-	}
-	const probe = JSON.parse(probeLine.slice("[PROBE] ".length));
-	if (!probe.ok) {
-		const missing = probe.missingCanaries?.length
-			? `\n    ${R("missing canary tools")}: ${probe.missingCanaries.join(", ")} — an extension bundle loaded but failed to register its tool (update the PROBE CANARY set if an extension was intentionally removed/renamed)`
-			: "";
-		console.error(`${R("✗")} verify FAILED: ${probe.toolCount} tools, dupes: ${JSON.stringify(probe.dupes)}${missing}`);
-		process.exit(1);
-	}
-	console.log(`    ${G("✓")} deployed artifact booted from ${tmpdir()}: ${probe.toolCount} tools, 0 conflicts, all canaries present`);
+	if (code !== 0) die(`  ✗ bun build --compile exited ${code}`);
+	console.log(`  ✓ ${outfile}  (${formatSize(outfile)})`);
 }
 
-// ── atomic swap: move the fully-built staging dir into place ────────────────
-// Only now — after build + (optional) freeze + (optional) verify have all
-// succeeded — does the previous good deploy at FINAL_OUTDIR get touched. A
-// throw at any point above leaves the half-built `OUTDIR` staging dir next to
-// an untouched previous deploy, instead of destroying it (the old behavior:
-// `rmSync(OUTDIR)` ran up front, before any of the new content existed).
-if (existsSync(FINAL_OUTDIR)) {
-	if (existsSync(join(FINAL_OUTDIR, ".deploy-readonly"))) {
-		const unfreezePrev = Bun.spawn(["chmod", "-R", "u+w", FINAL_OUTDIR], { stdout: "ignore", stderr: "ignore" });
-		await unfreezePrev.exited;
-	}
-	renameSync(FINAL_OUTDIR, `${FINAL_OUTDIR}.prev`);
+// Every sibling package dir pi-agent's manifest (or static-extensions.ts)
+// resolves via a relative/workspace path — mirrors the set build-extensions.ts
+// and static-extensions.ts depend on. Snapshot mode runs raw, unbundled source
+// (mode="source" per src/mode.ts), so resolve.ts computes bunAppsDir LIVE from
+// the copied file's own on-disk location (dirname(fileURLToPath(url)), '..',
+// '..') — it does NOT read the baked src/generated/run-dir-base.ts (that's
+// bundle-mode-only). That means every one of these dirs must actually exist as
+// a sibling of the copied `pi-agent/` under target/, or module resolution
+// throws immediately (relative imports resolve against real on-disk paths).
+function collectRequiredPkgDirs(): Set<string> {
+	const dirs = new Set<string>();
+	const addFromEntry = (e: string | { entry?: string } | undefined) => {
+		const rel = typeof e === "string" ? e : e?.entry;
+		if (rel) dirs.add(rel.split("/")[0]!);
+	};
+	for (const e of manifest.extensions ?? []) addFromEntry(e as any);
+	for (const rel of manifest.skills ?? []) dirs.add(rel.split("/")[0]!);
+	for (const rel of manifest.binarySkills ?? []) dirs.add(rel.split("/")[0]!);
+	for (const pkg of manifest.staticExtensions ?? []) dirs.add(pkg);
+	for (const e of Object.values(manifest.lazyExtensions ?? {})) addFromEntry(e as any);
+	dirs.delete("pi-agent"); // copied separately, unconditionally
+	return dirs;
 }
-renameSync(OUTDIR, FINAL_OUTDIR);
-rmSync(`${FINAL_OUTDIR}.prev`, { recursive: true, force: true });
 
-// ── done ─────────────────────────────────────────────────────────────────────
-console.log(`\n${G("✓ deployed")} → ${FINAL_OUTDIR}${READONLY ? ` ${Y("(read-only)")}` : ""}`);
-console.log(D(`    ${FINAL_OUTDIR}/pi-agent.js --list-models   # smoke test`));
-console.log(D(`    ${FINAL_OUTDIR}/pi-agent.js -p "hello"      # print mode (any cwd)`));
-if (READONLY) {
-	console.log(D(`    (frozen via chmod a-w; invoke run.sh from a non-deploy cwd)`));
-}
+// ── Stage: --snapshot (copy source + node_modules, no bundling) ──────────────
+async function stageSnapshot(bunAppsDir: string) {
+	console.log(`▶ snapshot → ${target}`);
 
-// ════════════════════════════════════════════════════════════════════════════
-// --release: copy every extension source folder + workspaces + bun install.
-// (The ORIGINAL deploy behavior, preserved verbatim behind the flag.)
-// ════════════════════════════════════════════════════════════════════════════
-async function releaseDeploy() {
-	mkdirSync(join(OUTDIR, "packages"), { recursive: true });
+	// Copy entire pi-agent source tree (including generated files from codegen)
+	const piAgentSrc = join(bunAppsDir, "pi-agent");
+	cpSync(piAgentSrc, join(target, "pi-agent"), { recursive: true, force: true });
+	console.log(`  ✓ pi-agent/ source tree`);
 
-	const SKIP = new Set(["node_modules", "dist", ".git", "__tests__"]);
-	for (const dir of [...pkgDirs].sort()) {
-		const src = join(repoRoot, "bun-apps", dir);
+	// Copy every sibling extension package pi-agent's manifest/static-extensions
+	// reference — without these, resolve.ts's relative-path resolution (source
+	// mode) throws "Cannot find module" on the very first import. Each package's
+	// own node_modules/ IS copied (not filtered out): the isolated linker
+	// (bunfig.toml) gives every workspace package its own node_modules/ of
+	// symlinks into the machine-global store, and cpSync preserves symlinks
+	// (dereference defaults to false) — the symlink TARGETS are absolute paths
+	// into the global store, so this only works on the SAME machine (same
+	// caveat bundle mode's node_modules symlink already documents).
+	const pkgDirs = collectRequiredPkgDirs();
+	for (const dir of pkgDirs) {
+		const src = join(bunAppsDir, dir);
 		if (!existsSync(src)) {
-			console.log(`${Y("·")} skip missing ${dir}`);
+			console.log(`  · skipping missing package dir: ${dir}`);
 			continue;
 		}
-		cpSync(src, join(OUTDIR, "packages", dir), {
-			recursive: true,
-			filter: (s) => !SKIP.has(basename(dirname(s))) || basename(s) === "",
-		});
-		console.log(`    ${G("✓")} ${dir}  ${D("(copied)")}`);
+		cpSync(src, join(target, dir), { recursive: true, force: true });
 	}
+	console.log(`  ✓ ${pkgDirs.size} sibling extension package dir(s)`);
 
-	// workspace root package.json (workspaces + npm-ext deps)
-	const rootDeps: Record<string, string> = {};
-	const localNames = new Set(pkgDirs);
-	for (const dir of pkgDirs) {
-		const m = readJson<any>(join(repoRoot, "bun-apps", dir, "package.json"));
-		if (!m) continue;
-		for (const f of ["dependencies", "peerDependencies"] as const) {
-			for (const [dep, ver] of Object.entries<any>(m[f] ?? {})) {
-				if (!localNames.has(dep) && !pkgDirs.has(dep) && !rootDeps[dep]) rootDeps[dep] = String(ver);
-			}
-		}
-	}
-	for (const { pkg } of manifest.npmExtensions ?? []) rootDeps[pkg] = "latest";
-	if (!rootDeps["@earendil-works/pi-coding-agent"]) rootDeps["@earendil-works/pi-coding-agent"] = "latest";
-	// Pin floating "latest"/"*" ranges to the exact versions the repo's bun.lock
-	// resolved, so the deploy is reproducible from this source tree (a fresh
-	// `bun install` in OUTDIR would otherwise re-resolve "latest" to whatever the
-	// registry serves at deploy time). Bounded ^ ranges pass through unchanged.
-	for (const [dep, range] of Object.entries(rootDeps)) rootDeps[dep] = pinRange(range, dep);
-	writeFileSync(
-		join(OUTDIR, "package.json"),
-		JSON.stringify(
-			{ name: "pi-agent-deploy", private: true, type: "module", workspaces: ["packages/*"], dependencies: rootDeps },
-			null,
-			2,
-		) + "\n",
-	);
+	// Copy bun-apps node_modules (the workspace root — needed for dep resolution)
+	console.log(`  · copying node_modules...`);
+	const nmSrc = join(bunAppsDir, "node_modules");
+	if (!existsSync(nmSrc)) die(`  ✗ node_modules not found at ${nmSrc} — run \`bun install\` in bun-apps/`);
+	cpSync(nmSrc, join(target, "node_modules"), { recursive: true, force: true });
+	console.log(`  ✓ node_modules/`);
 
-	if (!NO_INSTALL) {
-		// `--production` skips devDependencies. The copied packages/<pkg>/ folders
-		// retain their own devDependencies (typescript, javascript-obfuscator,
-		// @types/bun, @biomejs/biome, …) — without --production the workspace
-		// install materializes them into the deploy. They're build/test-only and
-		// don't belong in a shipped runtime node_modules.
-		console.log(`${G("▶")} bun install --production  ${D(`(cwd: ${OUTDIR})`)}`);
-		const p = Bun.spawn(["bun", "install", "--production"], { cwd: OUTDIR, stdout: "inherit", stderr: "inherit" });
-		if ((await p.exited) !== 0) die("bun install failed");
-	} else {
-		console.log(`${Y("·")} bun install skipped (--no-install)`);
-	}
+	// Write run.sh pointing at pi-agent/src/cli.ts (uses system bun)
+	writeRunSh(target, "bun", "pi-agent/src/cli.ts");
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// default: pre-bundle extensions + copy monorepo node_modules. No install.
-// ════════════════════════════════════════════════════════════════════════════
-async function bundleDeploy() {
-	// 1. build extension bundles
-	const extBundlesSrc = join(repoRoot, "dist", "pi-ext-bundles");
-	console.log(`${G("▶")} build extension bundles  ${D("(bun scripts/build-extensions.ts)")}`);
-	const be = Bun.spawn(["bun", "scripts/build-extensions.ts"], {
-		cwd: piAgentDir,
-		stdout: "inherit",
-		stderr: "inherit",
-	});
-	if ((await be.exited) !== 0) die("build-extensions.ts failed");
-	if (!existsSync(extBundlesSrc)) die(`ext bundles missing: ${extBundlesSrc}`);
-
-	// 2. copy bundles → <outdir>/ext-bundles/
-	mkdirSync(join(OUTDIR, "ext-bundles"), { recursive: true });
-	for (const f of readdirSync(extBundlesSrc).filter((f) => f.endsWith(".js"))) {
-		cpSync(join(extBundlesSrc, f), join(OUTDIR, "ext-bundles", f));
-		console.log(`    ${G("✓")} ext-bundles/${f}`);
-	}
-
-	// 3. copy skill dirs → <outdir>/skills/<name>
-	if (manifest.skills?.length) {
-		mkdirSync(join(OUTDIR, "skills"), { recursive: true });
-		const SKIP = new Set(["node_modules", "dist", ".git"]);
-		for (const rel of manifest.skills) {
-			const src = join(repoRoot, "bun-apps", rel);
-			if (!existsSync(src)) {
-				console.log(`${Y("·")} skip missing skill ${rel}`);
-				continue;
-			}
-			const destName = rel.replace(/\//g, "-"); // pi-obsidian/skills → pi-obsidian-skills
-			cpSync(src, join(OUTDIR, "skills", destName), {
-				recursive: true,
-				filter: (s) => !SKIP.has(basename(dirname(s))) || basename(s) === "",
-			});
-			console.log(`    ${G("✓")} skills/${destName}`);
-		}
-	}
-
-	// 4. node_modules — ALWAYS-ON symlink into the pi deps store. pi-agent.js
-	// keeps typebox + @earendil-works/* as bare peer-dep specifiers (bun's bundler
-	// externalizes them); pi's extension loader resolves them via require.resolve
-	// from pi-agent.js's own dir. In dev, dist/pi-agent/node_modules (created by
-	// build.ts stageLinkDeps) is that neighbor; a DEPLOY loses it, so a deploy
-	// placed INSIDE the repo walks up to the repo's isolated-layout node_modules
-	// and HARD-FAILS on typebox (ResolveMessage) for every extension. Symlinking
-	// <outdir>/node_modules at the same store target makes resolution match dev
-	// exactly. The link is an ABSOLUTE path into the machine-global .bun store, so
-	// the bundle deploy runs at ANY path on the same machine (its stated model).
-	// --with-nm-copy still opts in a real (recursive) copy for offline inspection.
-	const storeNm = lstatSyncSafeForBundle(join(repoRoot, "dist", "pi-agent", "node_modules"));
-	const nmTarget = storeNm
-		? readlinkSync(storeNm)
-		: resolvePiStoreNodeModules(piAgentDir);
-	if (nmTarget) {
-		const link = join(OUTDIR, "node_modules");
-		if (existsSync(link) || lstatSyncSafeForBundle(link)) rmSync(link, { recursive: true, force: true });
-		symlinkSync(nmTarget, link);
-		console.log(`    ${G("✓")} node_modules → ${nmTarget}  ${D("(symlink — pi-agent.js peer-dep resolution)")}`);
-	} else {
-		console.log(`    ${Y("·")} node_modules symlink skipped (dist/pi-agent/node_modules + pi store not found)`);
-	}
-	if (WITH_NM_COPY) {
-		const nmSrc = join(repoRoot, "bun-apps", "node_modules");
-		if (!existsSync(nmSrc)) die(`repo node_modules missing: ${nmSrc} (run \`bun install\` inside bun-apps/)`);
-		console.log(`${G("▶")} copy node_modules  ${D("(--with-nm-copy — recursive copy over the symlink, for offline inspection)")}`);
-		rmSync(join(OUTDIR, "node_modules"), { recursive: true, force: true });
-		cpSync(nmSrc, join(OUTDIR, "node_modules"), { recursive: true });
-		console.log(`    ${G("✓")} node_modules/`);
-	}
-
-	// 5. marker (resolve.ts DEPLOY-BUNDLE detection) + minimal package.json
-	writeFileSync(join(OUTDIR, ".deploy-bundle"), `bundle deploy\nbuilt: ${new Date().toISOString()}\n`);
-	writeFileSync(
-		join(OUTDIR, "package.json"),
-		JSON.stringify({ name: "pi-agent-bundle", private: true, type: "module" }, null, 2) + "\n",
-	);
+// ── Stage: copy bun binary alongside (--standalone) ──────────────────────────
+async function stageCopyLocalBun() {
+	const result = spawnSync("which", ["bun"], { stdio: "pipe" });
+	if (result.status !== 0) die("  ✗ bun not found in PATH — cannot build --standalone");
+	const bunPath = result.stdout.toString().trim();
+	console.log(`  · copying bun binary: ${bunPath}`);
+	cpSync(bunPath, join(target, "bun"));
+	console.log(`  ✓ ${join(target, "bun")}`);
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// --portable: FULL-bundle every ext (incl. npm) + host node_modules subset
-// (bun install) + assets + PI_PACKAGE_DIR pin via run.sh. Repo-independent
-// (same machine — bun's global-store node_modules isn't cross-machine).
-// ════════════════════════════════════════════════════════════════════════════
-async function portableDeploy() {
-	// 1. FULL-bundle extensions (incl. npm exts) → dist/pi-ext-bundles/*.full.js
-	const extBundlesSrc = join(repoRoot, "dist", "pi-ext-bundles");
-	console.log(`${G("▶")} build FULL extension bundles  ${D("(bun scripts/build-extensions.ts --portable)")}`);
-	const be = Bun.spawn(["bun", "scripts/build-extensions.ts", "--portable"], {
-		cwd: piAgentDir,
-		stdout: "inherit",
-		stderr: "inherit",
-	});
-	if ((await be.exited) !== 0) die("build-extensions.ts --portable failed");
-	if (!existsSync(extBundlesSrc)) die(`ext bundles missing: ${extBundlesSrc}`);
+// ── Stage: freeze (read-only artifact) ───────────────────────────────────────
+async function stageFreeze() {
+	writeFileSync(
+		join(target, ".deploy-readonly"),
+		`read-only deploy\n` +
+			`mode: ${IS_EXE ? "exe" : IS_SNAPSHOT ? "snapshot" : IS_STANDALONE ? "standalone" : "bundle"}\n` +
+			`built: ${new Date().toISOString()}\n` +
+			"run.sh applies JITI_FS_CACHE=0 + PI_CODING_AGENT_DIR=$HOME/.pi/agent so this runs as-is.\n",
+	);
+	const unfreeze = Bun.spawn(["chmod", "-R", "a-w", target], { stdout: "inherit", stderr: "inherit" });
+	if ((await unfreeze.exited) !== 0) die("chmod -R a-w failed");
+	console.log(`  ✓ frozen (chmod a-w + .deploy-readonly)`);
+}
 
-	// 2. copy bundles → <outdir>/ext-bundles/
-	mkdirSync(join(OUTDIR, "ext-bundles"), { recursive: true });
-	for (const f of readdirSync(extBundlesSrc).filter((f) => f.endsWith(".js"))) {
-		cpSync(join(extBundlesSrc, f), join(OUTDIR, "ext-bundles", f));
-		console.log(`    ${G("✓")} ext-bundles/${f}`);
-	}
+// ── Main ─────────────────────────────────────────────────────────────────────
 
-	// 3. copy skill dirs → <outdir>/skills/<name> (same as default bundle)
-	if (manifest.skills?.length) {
-		mkdirSync(join(OUTDIR, "skills"), { recursive: true });
-		const SKIP = new Set(["node_modules", "dist", ".git"]);
-		for (const rel of manifest.skills) {
-			const src = join(repoRoot, "bun-apps", rel);
-			if (!existsSync(src)) continue;
-			const destName = rel.replace(/\//g, "-");
-			cpSync(src, join(OUTDIR, "skills", destName), {
-				recursive: true,
-				filter: (s) => !SKIP.has(basename(dirname(s))) || basename(s) === "",
-			});
-			console.log(`    ${G("✓")} skills/${destName}`);
+async function main() {
+	assertWorkspaceDeps();
+
+	const piPkgDir = resolvePiPkgDir();
+	const bunAppsDir = resolve(process.cwd(), "..");
+	const npmExts: NpmExt[] = manifest.npmExtensions ?? [];
+	const binarySkills: string[] = manifest.binarySkills ?? [];
+
+	// Stage 1: Codegen (all modes — generates pi-pkg-dir.ts, run-dir-base.ts,
+	// and embedded-assets.ts). The embed mode flag for embedded-assets is
+	// IS_EXE: only --exe compiles with type:file imports.
+	console.log(`▶ target: ${target}`);
+	if (existsSync(target)) {
+		// A previous freeze may have set a-w; unfreeze so rmSync works.
+		if (existsSync(join(target, ".deploy-readonly"))) {
+			const unfreeze = Bun.spawn(["chmod", "-R", "u+w", target], { stdout: "ignore", stderr: "ignore" });
+			await unfreeze.exited;
 		}
+		rmSync(target, { recursive: true });
 	}
+	mkdirSync(target, { recursive: true });
 
-	// 4. assets (theme/export-html/assets): NO separate copy. They ship inside
-	// node_modules/@earendil-works/pi-coding-agent/dist/{modes/interactive/{theme,
-	// assets}, core/export-html}, installed in step 5. run.sh pins PI_PACKAGE_DIR
-	// at that package dir so pi's getPackageDir() finds <pkgDir>/dist/... — no
-	// duplication, and no dependency on build.ts's --compile-only asset staging.
+	stageGeneratePkgDir(piPkgDir);
+	stageGenerateRunDirBase(npmExts);
+	stageGenerateEmbeddedAssets(piPkgDir, bunAppsDir, binarySkills, IS_EXE);
 
-	// 5. host node_modules subset via `bun install` against the machine-global
-	// store. Covers: typebox + @earendil-works/* (getAliases require.resolve) +
-	// jiti + any FULL-bundle residual bare specifiers (node-fetch, ws, …). The
-	// deps list is pi-agent's own deps (which pull the pi-coding-agent graph) +
-	// typebox explicitly + EVERY manifest extension package's npm deps (a
-	// FULL-bundled extension may leave residual bare specifiers — native addons,
-	// WASM, dynamic imports — that resolve from this node_modules at runtime).
-	// Workspace deps (range starts with "workspace:") are EXCLUDED: they are the
-	// local extension packages themselves, FULL-bundled into ext-bundles, NOT
-	// npm-installable (a `workspace:*` range fails `bun install` outside the
-	// monorepo — the bug that broke --portable since web-access became workspace).
-	const deps: Record<string, string> = { typebox: "latest" };
-	const depSources = [join(piAgentDir, "package.json")];
-	for (const dir of pkgDirs) depSources.push(join(repoRoot, "bun-apps", dir, "package.json"));
-	for (const pjPath of depSources) {
-		const pj = readJson<{ dependencies?: Record<string, string>; peerDependencies?: Record<string, string> }>(pjPath);
-		if (!pj) continue;
-		for (const f of ["dependencies", "peerDependencies"] as const) {
-			for (const [dep, range] of Object.entries(pj[f] ?? {})) {
-				if (String(range).startsWith("workspace:")) continue; // bundled, not npm-installed
-				if (!deps[dep]) deps[dep] = String(range);
+	if (IS_EXE) {
+		// --exe: compile directly from source, skip bundle/ext-bundles/skills/run.sh
+		await stageExe();
+	} else if (IS_SNAPSHOT) {
+		// --snapshot: copy source + node_modules, no bundling
+		await stageSnapshot(bunAppsDir);
+	} else {
+		// --bundle (default) or --standalone: bundle pi-agent.js + ext bundles + skills
+		await stageBundle(piPkgDir);
+
+		// Build thin extension bundles
+		const extBundlesDir = join(target, "ext-bundles");
+		mkdirSync(extBundlesDir, { recursive: true });
+		console.log(`▶ build thin extension bundles → ${extBundlesDir}`);
+		const { count } = await buildExtensions(extBundlesDir);
+		console.log(`  ✓ ${count} extension bundle(s)`);
+
+		// Copy skills
+		if (manifest.skills?.length) {
+			const skillsDir = join(target, "skills");
+			mkdirSync(skillsDir, { recursive: true });
+			const SKIP = new Set(["node_modules", "dist", ".git"]);
+			for (const rel of manifest.skills) {
+				const src = join(bunAppsDir, rel);
+				if (!existsSync(src)) {
+					console.log(`  · skipping missing skill: ${rel}`);
+					continue;
+				}
+				const destName = rel.replace(/\//g, "-");
+				cpSync(src, join(skillsDir, destName), {
+					recursive: true,
+					filter: (s) => !SKIP.has(basename(dirname(s))) || basename(s) === "",
+				});
+				console.log(`  ✓ skills/${destName}`);
 			}
 		}
-	}
-	for (const [dep, range] of Object.entries(deps)) deps[dep] = pinRange(range, dep);
-	// Exclude workspace ranges AFTER pinning: pinRange can turn a floating
-	// "*"/"latest" into "^workspace:..." (when bun.lock records the dep as a
-	// local workspace package). Those are the bundled extensions themselves —
-	// not npm-installable. Drop them so `bun install` doesn't 404 on the registry.
-	for (const [dep, range] of Object.entries(deps)) {
-		if (String(range).includes("workspace:")) delete deps[dep];
-	}
-	writeFileSync(
-		join(OUTDIR, "package.json"),
-		JSON.stringify({ name: "pi-agent-portable", private: true, type: "module", dependencies: deps }, null, 2) + "\n",
-	);
-	if (!NO_INSTALL) {
-		// `--production` (same as releaseDeploy): portable's deps list is all
-		// runtime (typebox, jiti, @earendil-works/*, npm-exts) — trim any devDeps
-		// that leak via the pi-agent package.json (@types/bun). Smaller install,
-		// faster, and consistent with --release.
-		console.log(`${G("▶")} bun install --production  ${D("(host node_modules subset — repo-independent, same machine)")}`);
-		const p = Bun.spawn(["bun", "install", "--production"], { cwd: OUTDIR, stdout: "inherit", stderr: "inherit" });
-		if ((await p.exited) !== 0) die("bun install failed (portable)");
-	} else {
-		console.log(`${Y("·")} bun install skipped (--no-install)`);
+
+		// Write marker and minimal package.json (resolve.ts DEPLOY-BUNDLE detection)
+		writeFileSync(
+			join(target, ".deploy-bundle"),
+			`bundle deploy\nbuilt: ${new Date().toISOString()}\n`,
+		);
+		writeFileSync(
+			join(target, "package.json"),
+			JSON.stringify({ name: "pi-agent-bundle", private: true, type: "module" }, null, 2) + "\n",
+		);
+
+		// Write run.sh (always for non-exe modes)
+		writeRunSh(target, IS_STANDALONE ? "./bun" : "bun", "pi-agent.js");
+
+		// --standalone: also copy the bun binary
+		if (IS_STANDALONE) {
+			await stageCopyLocalBun();
+		}
 	}
 
-	// 6. markers — .deploy-bundle (resolve.ts DEPLOY-BUNDLE mode) + .deploy-portable
-	// (resolve.ts skips the baked repo npm-abs-paths since npm exts are bundled).
-	writeFileSync(join(OUTDIR, ".deploy-bundle"), `portable deploy\nbuilt: ${new Date().toISOString()}\n`);
-	writeFileSync(join(OUTDIR, ".deploy-portable"), `repo-independent (same machine)\n`);
+	// Final stage: freeze (unless --no-freeze)
+	if (!NO_FREEZE) {
+		await stageFreeze();
+	}
+
+	console.log(`\n✓ deployed → ${target}${NO_FREEZE ? "" : " (read-only)"}`);
 }
+
+await main();

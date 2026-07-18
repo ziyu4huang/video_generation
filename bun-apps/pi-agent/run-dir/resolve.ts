@@ -354,10 +354,14 @@ export async function resolveRunDirArgv(): Promise<string[]> {
   // dirname(process.execPath) (the exe's own dir), mirroring how
   // getThemesDir()/getAssetsDir() resolve shipped assets in binary mode.
   if (mode === "binary") {
+    // --compile-embed mode: extract-embedded-assets patch sets BUN_PI_EMBEDDED_EXTRACT_DIR
+    // before this runs (during applyPatches). Use that dir for skill resolution.
+    const embedDir = process.env.BUN_PI_EMBEDDED_EXTRACT_DIR;
     const exeDir = dirname(process.execPath);
+    const baseDir = embedDir && existsSync(embedDir) ? embedDir : exeDir;
     const argv: string[] = [];
     for (const rel of manifest.binarySkills ?? []) {
-      const p = join(exeDir, rel);
+      const p = join(baseDir, rel);
       if (existsSync(p)) {
         argv.push("--skill", p);
       } else if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {

@@ -1,26 +1,25 @@
-# Deploying pi-agent as a single binary
+# Deploying pi-agent
 
-`bun build --compile` turns `pi-agent` into one standalone executable
+`bun scripts/deploy.ts --exe` builds pi-agent as a standalone executable
 (`dist/pi-agent/pi-agent`, ~73 MB) with no `bun` runtime required on the
 target machine. This doc is the key knowledge for building, re-building, and
-maintaining that binary — see [README.md § Build modes](../README.md#build-modes)
-for the user-facing quick reference; this is the deeper "why" + "how to
+maintaining this repo's deploy pipeline — see [README.md § Build / Deploy modes](../README.md#build--deploy-modes)
+for quick commands; this doc is the deeper "why" + "how to
 change it" doc.
 
-## TL;DR — build and verify
+## Deploy modes overview
 
-```bash
-bun run build:exe                          # bun-apps/pi-agent/ → dist/pi-agent/pi-agent
-dist/pi-agent/pi-agent --version
-dist/pi-agent/pi-agent doctor --json       # expect ok:true, mode:"binary"
-bun src/cli.ts ext doctor --json           # source-mode check that the 5 static extensions register
-```
+pi-agent has four deploy modes. Quick reference:
 
-Re-running is the same command — `build.ts` cleans and rebuilds `dist/pi-agent/`
-from scratch every time (no incremental cache), so there's no separate
-"redeploy" step distinct from "build again". CI (`compile-verify` job in
-`.github/workflows/ci.yml`) runs exactly this sequence on every PR that
-touches `bun-apps/pi-agent/`.
+| Mode | Command | Output |
+|------|---------|--------|
+| **Bundle** (default) | `bun scripts/deploy.ts` | `pi-agent.js` + thin ext bundles + skills |
+| **Snapshot** | `bun scripts/deploy.ts --snapshot` | Full source copy + node_modules |
+| **Standalone** | `bun scripts/deploy.ts --standalone` | Bundle + bun binary + run.sh |
+| **Exe** | `bun scripts/deploy.ts --exe` | Single executable (all assets embedded) |
+
+See [README.md § Build / Deploy modes](../README.md#build--deploy-modes) for the full command reference.
+This doc focuses on the `--exe` (standalone binary) mode — why it exists, how it works, and how to maintain it.
 
 ## Why the binary can't just load every extension
 
@@ -53,7 +52,7 @@ await main(process.argv.slice(2), { extensionFactories: STATIC_EXTENSION_FACTORI
 ```
 
 This registration happens in **every** mode (source/bundle/binary), not just
-binary — so all 3 modes exercise identical code for these 5, and they are
+binary — so all 4 modes exercise identical code for these 5, and they are
 deliberately **removed** from `manifest.json`'s dynamic `extensions` array
 (keeping both would double-register: a jiti-loaded module and a natively
 imported module aren't guaranteed to be the same module identity).
@@ -132,8 +131,8 @@ fixes to stay scoped to exactly 5 extensions:
    pattern `pi-agent-ext-web-access`'s `findGlimpseMjs()` already used, and
    already known to survive `--compile`). This also happens to keep
    TypeScript from traversing obsidian/knowledge-card's own module graphs.
-2. **`external` in `scripts/build.ts`** — defense in depth: both
-   `stageBundle()`'s `Bun.build()` call and `stageCompile()`'s
+2. **`external` in `scripts/deploy.ts`** — defense in depth: both
+   `stageBundle()`'s `Bun.build()` call and `stageExe()`'s
    `bun build --compile` CLI invocation list
    `@repo/pi-agent-ext-obsidian`, `@repo/pi-agent-ext-obsidian/*`,
    `@repo/pi-agent-ext-knowledge-card`, `@repo/pi-agent-ext-knowledge-card/*`
@@ -160,7 +159,7 @@ mode along with `-e`.
 `run-dir/manifest.json`'s `binarySkills` array is the single source of truth,
 read by both:
 
-- `scripts/build.ts`'s `stageCopyAssets()` — copies each dir to
+- `scripts/deploy.ts`'s bundle mode copies each dir to
   `dist/pi-agent/<ext-name>/skills/`, alongside the exe (same pattern as
   `theme/`/`assets/`/`export-html/`).
 - `run-dir/resolve.ts`'s binary-mode branch — emits
@@ -174,8 +173,8 @@ Keep these two in lockstep by construction (both read `manifest.binarySkills`)
 | Field | Read by | Purpose |
 |---|---|---|
 | `extensions` | `resolve.ts` (source/bundle), `build-extensions.ts` | Dynamic jiti-loaded set. The 5 static extensions are **absent** here. |
-| `binarySkills` | `build.ts`, `resolve.ts` | Skill dirs shipped + `--skill`'d in binary mode (subset: only the 4 skill-bearing static extensions). |
-| `staticExtensions` | `deploy.ts` (`--release` mode) | Package **directory names** (not paths) of the 5 static extensions. Needed so `--release`'s self-contained `packages/` tree includes them — even though their code is inlined into `pi-agent.js`, `pi-agent`'s own `package.json` now `workspace:*`-depends on them, and other copied packages (e.g. `pi-agent-ext-wayfind` importing `pi-agent-ext-goal-todo`'s shared status-widget module) reference them as real workspace siblings that `bun install` must resolve. |
+| `binarySkills` | `deploy.ts`, `resolve.ts` | Skill dirs shipped + `--skill`'d in binary mode (subset: only the 4 skill-bearing static extensions). |
+| `staticExtensions` | `deploy.ts` (`--snapshot` mode) | Package **directory names** (not paths) of the 5 static extensions. Needed so `--snapshot`'s self-contained `packages/` tree includes them — even though their code is inlined into `pi-agent.js`, `pi-agent`'s own `package.json` now `workspace:*`-depends on them, and other copied packages (e.g. `pi-agent-ext-wayfind` importing `pi-agent-ext-goal-todo`'s shared status-widget module) reference them as real workspace siblings that `bun install` must resolve. |
 
 ## Adding / removing a statically-bundled extension
 
@@ -186,16 +185,83 @@ Keep these two in lockstep by construction (both read `manifest.binarySkills`)
    the binary), never both.
 3. If it has a `skills/` dir you want shipped in binary mode, add it to
    `manifest.json`'s `binarySkills`.
-4. Add its package to `manifest.json`'s `staticExtensions` (for `--release`
+4. Add its package to `manifest.json`'s `staticExtensions` (for `--snapshot`
    mode) and to `bun-apps/pi-agent/package.json`'s `dependencies` as
    `workspace:*`.
 5. Run `bunx tsc --noEmit` — if it drags in pre-existing type errors from
    the new extension's own source (see the `@ts-nocheck` section above),
    decide then whether to silence or fix them.
-6. Rebuild (`bun run build:exe`) and re-run the verification commands from
+6. Rebuild (`bun run deploy:exe`) and re-run the verification commands from
    the TL;DR above. `bun test` (`extension-contract.test.ts`) and
    `bun src/cli.ts ext doctor --json` both need to show it registering with
    0 conflicts.
+
+## How `--exe` ships a truly single-file binary
+
+An earlier iteration of `--compile` shipped 7 companion directories next to
+the exe (`theme/`, `export-html/`, `assets/`, 4 skill dirs) — copy just the
+exe to another machine and it booted, but theme/template resolution and
+`--skill` paths silently degraded. `--exe` closes that gap: it embeds all of
+those files directly into the binary via `type: "file"` import, so the
+resulting `dist/pi-agent/pi-agent` can be copied to an **empty** directory
+and run — no companion files needed (verified in
+[README.md § Build / Deploy modes](../README.md#build--deploy-modes)'s CI job).
+
+### How it works
+
+1. **Build-time codegen** (`scripts/generate-embedded-assets.ts`): walks the
+   same 7 directories `stageCopyAssets()` copies today, writes
+   `src/generated/embedded-assets.ts` with 71 `import … with { type: "file" }`
+   statements — one per file (~1.4 MB of theme JSON, export HTML templates,
+   assets PNG, and skill markdown files). `.js/.ts` module files are skipped
+   to avoid conflicts with pi`s own module imports.
+
+2. **Single-pass compilation** (`stageCompileEmbed()`): compiles directly
+   from `src/cli.ts` (`bun build --compile`), not via the intermediate
+   bundle — preserves `` virtual paths so `Bun.file()` can read
+   embedded blobs at runtime.
+
+3. **Runtime extraction** (`src/patches/extract-embedded-assets.ts`): on
+   first launch in binary mode, detects embedded assets and extracts them
+   to `~/.pi/agent/embedded-assets/<manifest-hash>/`. An `.extracted` marker
+   prevents re-extraction (second launch: ~170ms). Sets `PI_PACKAGE_DIR` so
+   pi`s `getThemesDir()`, `getAssetsDir()`, and `getExportTemplateDir()`
+   resolve from the extracted cache.
+
+4. **Skill path resolution** (`run-dir/resolve.ts`): when
+   `BUN_PI_EMBEDDED_EXTRACT_DIR` is set, binary-mode `--skill` paths resolve
+   from the extraction cache instead of `dirname(process.execPath)`.
+
+### Verification
+
+```bash
+mkdir -p /tmp/single-test && cp dist/pi-agent/pi-agent /tmp/single-test/
+cd /tmp/single-test
+./pi-agent --version                # works
+./pi-agent doctor --json            # ok:true
+ls ~/.pi/agent/embedded-assets/*/theme  # 3 JSONs extracted
+ls ~/.pi/agent/embedded-assets/*/pi-agent-ext-*/skills  # 4 skill dirs
+./pi-agent --version                # second run: fast, no re-extraction
+```
+
+### Design decisions
+
+- **JS/TS files excluded** — `export-html/` contains JS modules
+  (`tool-renderer.js`, `ansi-to-html.js`) that pi imports natively.
+  Embedding them via `type: "file"` confuses the bundler. They are excluded
+  from the manifest, which means the HTML export feature has reduced
+  interactivity (no client-side JS in exported pages) in the embed binary.
+- **Cache dir under `~/.pi/agent/`** — same root the README documents as
+  "all per-user state". No new env-var contract.
+- **`.extracted` marker** — a killed/partial extraction retries on next
+  launch.
+
+### Adding files to the embed set
+
+Edit `scripts/generate-embedded-assets.ts` if you need to embed additional
+asset directories. The codegen walks the same source dirs as
+`stageCopyAssets()` — keep them in sync.
+
 
 ## Known limitation
 
