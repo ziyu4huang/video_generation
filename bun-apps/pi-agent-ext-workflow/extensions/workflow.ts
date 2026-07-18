@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { applyHostFnRegistration, HostFnRegistry } from "../src/host-fn-registry.js";
+import { createSubagentTool } from "../src/subagent-tool.js";
 import {
   buildWorkflowGuidelinesForTurn,
   createEffortState,
@@ -58,6 +59,16 @@ export default function extension(pi: ExtensionAPI) {
   const workflowHelpTool = createWorkflowHelpTool();
   pi.registerTool(workflowHelpTool);
 
+  // Shared holder for parent-session tool definitions, updated in session_start.
+  // Both WorkflowManager (workflow runs) and the subagent tool (direct dispatches)
+  // bridge these into child sessions so children inherit the parent's extension tools.
+  const extensionToolsHolder: { current: ToolDefinition[] | undefined } = { current: undefined };
+  const subagentTool = createSubagentTool({
+    cwd,
+    getExtensionTools: () => extensionToolsHolder.current,
+  });
+  pi.registerTool(subagentTool);
+
   // Layer-3 conditional guideline injection. The workflow tool's authoring
   // guidelines are NO LONGER a static promptGuidelines tax on every turn; they
   // are injected here, per-turn, by before_agent_start:
@@ -103,7 +114,7 @@ export default function extension(pi: ExtensionAPI) {
       // pi.events is optional in some contexts — host fns just stay absent.
     }
     const active = pi.getActiveTools();
-    const wantActive = [workflowTool.name, workflowHelpTool.name];
+    const wantActive = [workflowTool.name, workflowHelpTool.name, subagentTool.name];
     const missing = wantActive.filter((nm) => !active.includes(nm));
     if (missing.length) pi.setActiveTools([...active, ...missing]);
     // Inject extension-registered tool definitions so WorkflowAgent child
@@ -113,6 +124,7 @@ export default function extension(pi: ExtensionAPI) {
     const extTools = (pi as unknown as { getAllToolDefinitions?: () => ToolDefinition[] }).getAllToolDefinitions?.();
     if (extTools?.length) {
       manager.setExtensionTools(extTools);
+      extensionToolsHolder.current = extTools;
     }
     // Tell the manager the session's main model so "explore" agents auto-tier
     // down to a lighter same-family sibling (e.g. Claude → Haiku).
