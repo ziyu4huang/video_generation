@@ -57,5 +57,5 @@ planning-with-files' `/plan-*` namespace).
   planning-with-files each dispose only their own small overlay object.
 - Breaking, hard-to-reverse change for anyone with muscle memory around the
   old command names — no aliases are kept.
-  Full spec: `docs/superpowers/specs/2026-07-17-wayfind-pwf-status-widget-unification-design.md`.
-  Full implementation plan: `docs/superpowers/plans/2026-07-17-wayfind-pwf-status-widget-unification.md`.
+  Full spec: `.planning/2026-07-17-wayfind-pwf-unification/spec.md`.
+  Full implementation plan: `.planning/2026-07-17-wayfind-pwf-unification/plan.md`.
