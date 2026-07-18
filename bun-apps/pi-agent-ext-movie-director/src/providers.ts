@@ -160,6 +160,35 @@ export function _setRunPyRuntimeForTest(v: boolean | undefined): void {
   runPyRuntimeCached = v;
 }
 
+// ─── LM Studio reachability probe (caption VLM) ──────────────────────────────
+
+/**
+ * True if the local LM Studio server answers on its OpenAI-compatible port (used by
+ * the mlx:caption probe — caption_native.ts calls LM Studio's VLM directly, no run.py).
+ * Sync + cached per process, mirroring the ffmpeg/probe pattern: a short `curl` to
+ * /v1/models (2s timeout). The specific VLM is auto-loaded at call time, so the probe
+ * only asserts the server is up.
+ */
+let lmStudioReachableCached: boolean | undefined;
+function lmStudioReachable(): boolean {
+  if (lmStudioReachableCached != null) return lmStudioReachableCached;
+  try {
+    const r = spawnSync("curl", [
+      "-s", "-o", "/dev/null", "--max-time", "2",
+      "http://localhost:1234/v1/models",
+    ]);
+    lmStudioReachableCached = r.status === 0;
+  } catch {
+    lmStudioReachableCached = false;
+  }
+  return lmStudioReachableCached;
+}
+
+/** Force the LM-Studio-reachability probe result (tests inject a deterministic value). */
+export function _setLmStudioReachableForTest(v: boolean | undefined): void {
+  lmStudioReachableCached = v;
+}
+
 // ─── swift image-director binary probes (krea2 / flux2) ───────────────────────
 
 /**
@@ -321,12 +350,12 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
       // here, mirrors the caption/story adapters not probing LM Studio either).
       return entry.configured && runPyRuntimePresent();
     case "mlx:caption":
-      // callable iff run.py + the MLX venv resolve — same presence signal as
-      // mlx:runpy (caption is a run.py subcommand). Whether a VLM is actually
-      // loaded is a RUNTIME concern (run.py auto-resolves the gemma brain, or
-      // auto-loads it, or falls back to Qwen); the static probe stays honest
-      // about the runtime being present, not the model being loaded.
-      return entry.configured && runPyRuntimePresent();
+      // caption runs entirely through caption_native.ts → LM Studio's VLM (zero
+      // run.py since the 2026-07-19 port). Callable iff the local LM Studio
+      // server is reachable (the model is auto-loaded at call time). Whether a
+      // specific VLM is loaded is a RUNTIME concern; the probe stays honest about
+      // the server being up.
+      return entry.configured && lmStudioReachable();
     default:
       // bun:builtin (subtitle_gen): pure-Bun, in-repo, availability == the
       // registry's configured flag. (All native_swift directors now have explicit

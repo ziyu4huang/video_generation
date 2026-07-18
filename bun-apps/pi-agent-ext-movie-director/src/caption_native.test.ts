@@ -5,6 +5,10 @@ import { join } from "node:path";
 import {
   buildCaptionPrompt,
   isNativeCaptionRequest,
+  isVideoInput,
+  loadAtoms,
+  medianScoreCaption,
+  parsePoseDsg,
   requestedStyles,
   runCaptionNative,
   STYLE_PROMPTS,
@@ -56,14 +60,20 @@ function fakeFetch(chatContentFor: (bodyStyleHint: string) => string): typeof fe
   }) as typeof fetch;
 }
 
-describe("STYLE_PROMPTS — the 4 ported styles", () => {
-  it("carries exactly default/t2i/score/review", () => {
-    expect(new Set(Object.keys(STYLE_PROMPTS))).toEqual(new Set(["default", "t2i", "score", "review"]));
+const ALL_14 = [
+  "default", "photography", "t2i", "profile", "style", "score", "video_score",
+  "video_analysis", "compare", "review", "playwright", "lora_quality", "ltx_i2v", "pose_dsg",
+];
+
+describe("STYLE_PROMPTS — all 14 styles ported verbatim", () => {
+  it("carries exactly the 14 caption.py styles", () => {
+    expect(new Set(Object.keys(STYLE_PROMPTS))).toEqual(new Set(ALL_14));
   });
 
-  it("score and review both carry the shared defect-check guardrail (anti drift)", () => {
-    expect(STYLE_PROMPTS.score).toContain("PLASTICKY / WAXY / OVERSMOOTHED SKIN");
-    expect(STYLE_PROMPTS.review).toContain("PLASTICKY / WAXY / OVERSMOOTHED SKIN");
+  it("the four defect-check styles share the guardrail (anti drift)", () => {
+    for (const s of ["score", "review", "lora_quality", "pose_dsg"]) {
+      expect(STYLE_PROMPTS[s]).toContain("PLASTICKY / WAXY / OVERSMOOTHED SKIN");
+    }
   });
 });
 
@@ -76,34 +86,141 @@ describe("requestedStyles / isNativeCaptionRequest", () => {
     expect(requestedStyles({ image: "x.png", style: "score" })).toEqual(["score"]);
   });
 
-  it("accepts a native style array", () => {
-    expect(isNativeCaptionRequest({ image: "x.png", style: ["default", "score"] })).toBe(true);
+  it("accepts any of the 14 native styles", () => {
+    expect(isNativeCaptionRequest({ image: "x.png", style: ["default", "photography", "pose_dsg"] })).toBe(true);
   });
 
-  it("rejects a request naming any unported style", () => {
-    expect(isNativeCaptionRequest({ image: "x.png", style: ["t2i", "photography"] })).toBe(false);
+  it("rejects a request naming an unknown style", () => {
+    expect(isNativeCaptionRequest({ image: "x.png", style: ["t2i", "bogus"] })).toBe(false);
   });
 });
 
-describe("buildCaptionPrompt", () => {
+describe("buildCaptionPrompt — placeholder substitution", () => {
   it("appends the language instruction", () => {
-    const p = buildCaptionPrompt("t2i", "en");
+    const p = buildCaptionPrompt("t2i", "en", { image: "x.png" });
     expect(p).toContain("Write a detailed text-to-image generation prompt");
     expect(p.endsWith("Answer in English.")).toBe(true);
   });
 
   it("substitutes {prompt} for the review style", () => {
-    const p = buildCaptionPrompt("review", "en", { prompt: "a red fox in snow" });
+    const p = buildCaptionPrompt("review", "en", { image: "x.png", prompt: "a red fox in snow" });
     expect(p).toContain("a red fox in snow");
     expect(p).not.toContain("{prompt}");
   });
 
+  it("substitutes {action} for the ltx_i2v style", () => {
+    const p = buildCaptionPrompt("ltx_i2v", "en", { image: "x.png", action: "she waves and smiles" });
+    expect(p).toContain("she waves and smiles");
+    expect(p).not.toContain("{action}");
+  });
+
+  it("substitutes {lora_name}/{lora_description}/{scale} for the lora_quality style", () => {
+    const p = buildCaptionPrompt("lora_quality", "en", {
+      image: "x.png", loraName: "anime-v2", loraDescription: "anime look", loraScale: 0.8,
+    });
+    expect(p).toContain("LoRA: anime-v2");
+    expect(p).toContain("Description: anime look");
+    expect(p).toContain("Scale applied: 0.8");
+  });
+
+  it("substitutes {prompt} + {atoms_block} for pose_dsg with explicit atoms", () => {
+    const atomsFile = join(tmpDir(), "atoms.json");
+    writeFileSync(atomsFile, JSON.stringify({ atoms: [{ id: "a1", q: "exactly one woman" }] }));
+    const p = buildCaptionPrompt("pose_dsg", "en", { image: "x.png", prompt: "a woman standing", atoms: atomsFile });
+    expect(p).toContain("a woman standing");
+    expect(p).toContain("Use EXACTLY these atoms");
+    expect(p).toContain("- a1: exactly one woman");
+    expect(p).not.toContain("{atoms_block}");
+  });
+
+  it("pose_dsg without atoms instructs self-decomposition", () => {
+    const p = buildCaptionPrompt("pose_dsg", "en", { image: "x.png", prompt: "a woman standing" });
+    expect(p).toContain("Derive 5-10 atoms yourself");
+  });
+
   it("throws when review is requested without a prompt", () => {
-    expect(() => buildCaptionPrompt("review", "en")).toThrow(/--prompt is required/);
+    expect(() => buildCaptionPrompt("review", "en", { image: "x.png" })).toThrow(/--prompt is required/);
   });
 
   it("throws for a style outside the native set", () => {
-    expect(() => buildCaptionPrompt("photography", "en")).toThrow(/unsupported style/);
+    expect(() => buildCaptionPrompt("bogus", "en", { image: "x.png" })).toThrow(/unsupported style/);
+  });
+});
+
+describe("video input detection", () => {
+  it("flags video extensions and not images", () => {
+    for (const ext of [".mp4", ".mov", ".avi", ".webm", ".mkv", ".gif"]) {
+      expect(isVideoInput(`/x/v${ext}`)).toBe(true);
+    }
+    for (const ext of [".png", ".jpg", ".jpeg", ".webp"]) {
+      expect(isVideoInput(`/x/i${ext}`)).toBe(false);
+    }
+  });
+});
+
+describe("medianScoreCaption — --samples N denoising (port of median_score_caption)", () => {
+  it("returns the single raw when only one parses", () => {
+    expect(medianScoreCaption(['{"overall": 7}'])).toBe('{"overall":7,"scoreSamples":1}');
+  });
+
+  it("medians numeric dims and unions array dims across samples", () => {
+    const raws = [
+      '{"overall": 6, "detail": 5, "issues": ["hands"], "summary": "ok"}',
+      '{"overall": 8, "detail": 7, "issues": ["skin"], "summary": "decent"}',
+    ];
+    const out = JSON.parse(medianScoreCaption(raws));
+    expect(out.overall).toBe(7); // median(6,8)
+    expect(out.detail).toBe(6); // median(5,7)
+    expect(out.issues).toEqual(["hands", "skin"]); // order-preserving union
+    expect(out.summary).toBe("ok"); // carrier = sample whose overall is closest to median (6 vs 7)
+    expect(out.scoreSamples).toBe(2);
+  });
+
+  it("falls back to the first raw on total parse failure", () => {
+    expect(medianScoreCaption(["not json", "also not"])).toBe("not json");
+  });
+});
+
+describe("parsePoseDsg — recomputes aggregates (never trusts model arithmetic)", () => {
+  it("recomputes faithfulness from atoms and anatomy_pass from anatomy fields", () => {
+    const vlm = {
+      atoms: [
+        { id: "a1", q: "one woman", present: true, confidence: 0.9 },
+        { id: "a2", q: "standing", present: false, confidence: 0.4 },
+        { id: "a3", q: "smiling", present: true, confidence: 0.8 },
+      ],
+      faithfulness: 1.0, // model lies — must be recomputed to 2/3
+      anatomy: { limb_count: true, hands: true, face: true, pose_plausible: true },
+      anatomy_pass: false, // model lies — all anatomy true → must be true
+      issues: ["a2 missing"],
+      summary: "two of three",
+    };
+    const out = parsePoseDsg(JSON.stringify(vlm));
+    expect(out.faithfulness).toBe(0.667);
+    expect(out.anatomy_pass).toBe(true);
+    expect(out.atoms).toHaveLength(3);
+    expect(out.issues).toEqual(["a2 missing"]);
+  });
+
+  it("face 'n/a' never fails the gate; a visible-but-false face does", () => {
+    expect(parsePoseDsg({ anatomy: { limb_count: true, hands: true, face: "n/a", pose_plausible: true }, atoms: [] }).anatomy_pass).toBe(true);
+    expect(parsePoseDsg({ anatomy: { limb_count: true, hands: true, face: false, pose_plausible: true }, atoms: [] }).anatomy_pass).toBe(false);
+  });
+});
+
+describe("loadAtoms", () => {
+  it("accepts inline JSON and a bare list, defaulting ids", () => {
+    expect(loadAtoms(JSON.stringify({ atoms: [{ id: "a1", q: "x" }] }))).toEqual([{ id: "a1", q: "x" }]);
+    expect(loadAtoms(JSON.stringify([{ q: "y" }]))).toEqual([{ id: "a1", q: "y" }]);
+  });
+
+  it("returns null when no spec given (VLM self-decomposes)", () => {
+    expect(loadAtoms(undefined)).toBeNull();
+  });
+
+  it("rejects an empty / malformed list", () => {
+    expect(() => loadAtoms("[]")).toThrow(/non-empty/);
+    expect(() => loadAtoms("[{}")).toThrow();
   });
 });
 
@@ -119,9 +236,6 @@ describe("runCaptionNative", () => {
     expect(out.details.captionPath).toBe(join(dir, "img.caption.json"));
     expect(out.details.model).toBe("google/gemma-4-26b-a4b-qat");
     expect(out.details.styles).toEqual(["t2i"]);
-    // readCaption's single-style branch reads the nested {model,elapsed_sec,caption}
-    // entry object (see caption.ts), same as it does for a run.py-produced file —
-    // parity with the existing bridge, not a native-path quirk.
     expect(out.details.text).toContain("a cat sitting on a windowsill");
 
     const saved = JSON.parse(readFileSync(out.details.captionPath!, "utf8"));
@@ -146,7 +260,7 @@ describe("runCaptionNative", () => {
     expect(saved.caption).toBe("a quiet street at dusk");
   });
 
-  it("merges a second style into an existing caption.json without dropping the first (mirrors test_second_style_preserves_first)", async () => {
+  it("merges a second style into an existing caption.json without dropping the first", async () => {
     const dir = tmpDir();
     const image = writeTinyPng(dir);
     const fetchImpl1 = fakeFetch(() => "a description of the scene");
@@ -176,10 +290,42 @@ describe("runCaptionNative", () => {
     expect(saved.styles_run).toEqual(["default", "score"]);
   });
 
+  it("runs --samples N for a score style (median across N VLM calls)", async () => {
+    const dir = tmpDir();
+    const image = writeTinyPng(dir);
+    const seq = ['{"overall": 6, "summary": "a"}', '{"overall": 8, "summary": "b"}', '{"overall": 7, "summary": "c"}'];
+    const fetchImpl = fakeFetch(() => seq.shift() ?? '{"overall": 7}');
+
+    const out = await runCaptionNative({ options: { image, style: "score", samples: 3 }, _fetchImpl: fetchImpl });
+
+    expect(out.details.ok).toBe(true);
+    const saved = JSON.parse(readFileSync(out.details.captionPath!, "utf8"));
+    expect(saved.styles.score.caption).toContain('"scoreSamples":3');
+    expect(JSON.parse(saved.styles.score.caption).overall).toBe(7); // median(6,8,7)
+  });
+
+  it("recomputes pose_dsg aggregates after the VLM call", async () => {
+    const dir = tmpDir();
+    const image = writeTinyPng(dir);
+    const fetchImpl = fakeFetch(() =>
+      '{"atoms":[{"id":"a1","q":"one woman","present":true,"confidence":0.9},' +
+      '{"id":"a2","q":"standing","present":false,"confidence":0.4}],' +
+      '"faithfulness":1.0,"anatomy":{"limb_count":true,"hands":true,"face":true,"pose_plausible":true},' +
+      '"anatomy_pass":false,"summary":"x"}',
+    );
+
+    const out = await runCaptionNative({ options: { image, style: "pose_dsg", prompt: "a woman standing" }, _fetchImpl: fetchImpl });
+    expect(out.details.ok).toBe(true);
+    const saved = JSON.parse(readFileSync(out.details.captionPath!, "utf8"));
+    // pose_dsg caption is the recomputed dict, NOT the raw VLM string.
+    expect(saved.styles.pose_dsg.caption.faithfulness).toBe(0.5);
+    expect(saved.styles.pose_dsg.caption.anatomy_pass).toBe(true);
+  });
+
   it("fails cleanly when the image does not exist", async () => {
     const out = await runCaptionNative({ options: { image: "/does/not/exist.png", style: "t2i" } });
     expect(out.details.ok).toBe(false);
-    expect(out.summary).toContain("image not found");
+    expect(out.summary).toContain("input not found");
   });
 
   it("fails cleanly when review is requested without --prompt", async () => {
