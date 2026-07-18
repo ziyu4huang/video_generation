@@ -77,7 +77,6 @@ export class SubagentViewer {
   }
 
   handleInput(data: string): void {
-    const th = this.theme;
     if (matchesKey(data, Key.escape)) {
       if (this.view === "output") {
         this.view = "list";
@@ -99,7 +98,6 @@ export class SubagentViewer {
         this.invalidate();
       }
     }
-    void th; // theme used in render
   }
 
   render(width: number): string[] {

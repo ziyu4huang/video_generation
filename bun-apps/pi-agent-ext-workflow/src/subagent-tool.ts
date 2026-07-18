@@ -77,7 +77,6 @@ export function taskPreview(task: string, n = 80): string {
   return oneLine.length > n ? oneLine.slice(0, n - 1) + "…" : oneLine;
 }
 
-/** Derive a human status from the spawn result. */
 /** Theme the call line shown WHILE the subagent runs (pi's spinner conveys activity). */
 export function renderSubagentCall(
   args: { agent?: string; model?: string; task: string },
@@ -113,6 +112,7 @@ export function renderSubagentResult(
   return `${badge} ${meta}\n${theme.fg("toolOutput", text)}`;
 }
 
+/** Derive a human status from the spawn result. */
 export function deriveSubagentStatus(r: SpawnSubagentResult): SubagentToolDetails["status"] {
   if (r.exitCode === 0) return "done";
   return r.timedOut ? "timedout" : "failed";
