@@ -147,21 +147,13 @@
       "devDependencies": {
         "@earendil-works/pi-ai": "0.80.10",
         "@earendil-works/pi-coding-agent": "0.80.10",
-        "@repo/pi-agent-ext-knowledge-card": "workspace:*",
-        "@repo/pi-agent-ext-obsidian": "workspace:*",
         "typebox": "^1.1.33",
         "typescript": "^6.0.3",
       },
       "peerDependencies": {
         "@earendil-works/pi-ai": "0.80.10",
         "@earendil-works/pi-coding-agent": "0.80.10",
-        "@repo/pi-agent-ext-knowledge-card": "*",
-        "@repo/pi-agent-ext-obsidian": "*",
       },
-      "optionalPeers": [
-        "@repo/pi-agent-ext-knowledge-card",
-        "@repo/pi-agent-ext-obsidian",
-      ],
     },
     "pi-agent-ext-knowledge-card": {
       "name": "@repo/pi-agent-ext-knowledge-card",
