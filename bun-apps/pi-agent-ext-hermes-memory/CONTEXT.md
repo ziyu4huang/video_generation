@@ -7,7 +7,7 @@ The ubiquitous language of pi-agent-ext-hermes-memory — persistent memory, ses
 ### The five stores
 
 **Memory** (`memory` target, `MEMORY.md`):
-The agent's personal notes — env facts, project conventions, tool quirks, lessons. Size-limited (default 5,000 chars), human-readable Markdown, searchable by default.
+The agent's personal notes — env facts, project conventions, tool quirks, lessons. Size-limited (default 10,000 chars), human-readable Markdown, searchable by default.
 _Avoid_: notes, log (it is the curated, bounded fact store — distinct from the `memory` *tool* and from "a memory" as a single entry)
 
 **User profile** (`user` target, `USER.md`):

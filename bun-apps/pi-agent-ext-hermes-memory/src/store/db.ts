@@ -236,6 +236,13 @@ export class DatabaseManager {
     db.exec(`PRAGMA wal_autocheckpoint = ${SQLITE_WAL_AUTOCHECKPOINT_PAGES}`);
     db.exec('PRAGMA journal_size_limit = 5242880');
     db.exec('PRAGMA foreign_keys = ON');
+    // Multiple connections open the same DB file (the extension singleton plus
+    // short-lived child `pi -p` processes that reload this extension, and the
+    // /memory-index-sessions command). Under WAL only one writer is allowed at
+    // a time; without a busy timeout the second writer receives SQLITE_BUSY
+    // immediately instead of waiting. 5s is well above any normal write and
+    // cheap because it only elapses on actual contention.
+    db.exec('PRAGMA busy_timeout = 5000');
   }
 
   private initializeSchema(db: DatabaseLike): void {
