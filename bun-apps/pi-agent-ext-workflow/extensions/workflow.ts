@@ -4,6 +4,7 @@ import { createSubagentTool } from "../src/subagent-tool.js";
 import {
   buildWorkflowGuidelinesForTurn,
   createEffortState,
+  createWorkflowControlTool,
   createWorkflowHelpTool,
   createWorkflowStorage,
   createWorkflowTool,
@@ -82,6 +83,8 @@ export default function extension(pi: ExtensionAPI) {
     // getActiveTools may be unavailable in some hosts — best-effort only.
   }
   pi.registerTool(subagentTool);
+  const workflowControlTool = createWorkflowControlTool({ manager });
+  pi.registerTool(workflowControlTool);
 
   // Layer-3 conditional guideline injection. The workflow tool's authoring
   // guidelines are NO LONGER a static promptGuidelines tax on every turn; they
@@ -126,7 +129,9 @@ export default function extension(pi: ExtensionAPI) {
   // gap so the tools are visible on every turn (not just after the first).
   const activateWorkflowTools = () => {
     const active = pi.getActiveTools();
-    const missing = [workflowTool.name, workflowHelpTool.name, subagentTool.name].filter((nm) => !active.includes(nm));
+    const missing = [workflowTool.name, workflowHelpTool.name, subagentTool.name, workflowControlTool.name].filter(
+      (nm) => !active.includes(nm),
+    );
     if (missing.length) {
       pi.setActiveTools([...active, ...missing]);
     }
