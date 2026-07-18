@@ -193,8 +193,9 @@ export class DatabaseManager {
       fs.mkdirSync(dir, { recursive: true });
     }
 
+    let db: DatabaseLike;
     try {
-      return this.openUnchecked();
+      db = this.openUnchecked();
     } catch (err) {
       if (!DatabaseManager.isCorruptionError(err)) {
         throw err;
@@ -202,8 +203,14 @@ export class DatabaseManager {
 
       const recovery = this.recoverDatabaseFile(err);
       this.lastRecovery = recovery;
-      return this.openUnchecked();
+      db = this.openUnchecked();
     }
+
+    // Best-effort: prune accumulated quarantine/backup clutter so a self-heal
+    // storm (or repeated consolidate/dedup runs) can't grow the memory dir
+    // without bound. Never fatal — a failed prune must not break the DB open.
+    this.pruneStaleBackups();
+    return db;
   }
 
   private openUnchecked(): DatabaseLike {
@@ -793,5 +800,54 @@ export class DatabaseManager {
       messages: messages.count,
       memories: memories.count,
     };
+  }
+
+  /** Default number of newest quarantine/backup files pruneStaleBackups keeps. */
+  static readonly PRUNE_KEEP_RECENT_DEFAULT = 3;
+
+  /**
+   * Best-effort cleanup of accumulated quarantine/backup files left beside the
+   * database by corruption self-heal (.corrupt-*) and consolidate/dedup runs
+   * (.bak-*), plus leaked rebuild temps (.rebuild-*.tmp). Keeps the
+   * `keepRecent` (default 3) newest such files and deletes the rest. NEVER
+   * touches the live sessions.db / -wal / -shm. Safe to call from every open:
+   * concurrent processes racing on readdir/rmSync only ever no-op on files the
+   * other already removed (rmSync force:true is idempotent). Returns the names
+   * of deleted files (for diagnostics/tests).
+   */
+  pruneStaleBackups(opts: { keepRecent?: number } = {}): string[] {
+    const keepRecent = opts.keepRecent ?? DatabaseManager.PRUNE_KEEP_RECENT_DEFAULT;
+    const dir = path.dirname(this.dbPath);
+    const base = path.basename(this.dbPath);
+
+    let entries: { name: string; mtimeMs: number }[] = [];
+    try {
+      for (const name of fs.readdirSync(dir)) {
+        if (name === base || name === `${base}-wal` || name === `${base}-shm`) continue;
+        if (!name.startsWith(`${base}.`)) continue;
+        const rest = name.slice(base.length + 1);
+        if (!/^(corrupt-|bak-|rebuild-.*\.tmp$)/.test(rest)) continue;
+        try {
+          const st = fs.statSync(path.join(dir, name));
+          entries.push({ name, mtimeMs: st.mtimeMs });
+        } catch {
+          /* unreadable entry — skip */
+        }
+      }
+    } catch {
+      return [];
+    }
+
+    entries.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    const deleted: string[] = [];
+    for (const entry of entries.slice(keepRecent)) {
+      try {
+        fs.rmSync(path.join(dir, entry.name), { force: true });
+        deleted.push(entry.name);
+      } catch {
+        /* best effort */
+      }
+    }
+    return deleted;
   }
 }
