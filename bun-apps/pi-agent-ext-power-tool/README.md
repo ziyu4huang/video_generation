@@ -296,6 +296,26 @@ pi-agent-ext-power-tool/
         └── index.ts        #   makeInspectPathologyTool() + re-exports
 ```
 
+## Testing
+
+```bash
+./run-test.sh                  # medium (default): unit + typecheck
+./run-test.sh quick            # unit only, no typecheck
+./run-test.sh high             # + PI_RUN_L2=1 (blocked services SKIP)
+./run-test.sh readonly         # PI_RUN_L2=1, l2-e2e.test.ts only (skip allowed)
+./run-test.sh full             # + PI_REQUIRE_L2=1 (blocked services FAIL, not skip)
+./run-test.sh --list           # print the tier table
+```
+
+`high`/`full` spawn the real `pi-agent` CLI and call a real LM Studio model
+(`google/gemma-4-26b-a4b-qat` by default, override via `PI_L2_MODEL`) —
+`knowledge_query`/`graph_health` additionally need vault-mind's ChromaDB on
+`:8000`. There is no standalone "real CLI, no model" tier: invoking a tool
+through the CLI always triggers model inference, so `high` and `full` run the
+same suite and differ only in whether a blocked service skips (`high`) or
+fails (`full`) the run. See `src/__tests__/l2-e2e.test.ts` for the per-tool
+gate list.
+
 ## What the numbers mean
 
 A fresh default pi session in this repo uses **~19,924 tokens (~10.0% of 200k)** before any conversation.
