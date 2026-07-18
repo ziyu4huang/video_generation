@@ -492,4 +492,56 @@ describe('DatabaseManager', () => {
       }, /FOREIGN KEY/);
     });
   });
+
+  describe('stale backup pruning (fixes unbounded quarantine clutter)', () => {
+    function seedClutter(dir: string, tags: string[]): void {
+      const now = Math.floor(Date.now() / 1000);
+      tags.forEach((tag, i) => {
+        const f = path.join(dir, `sessions.db.${tag}`);
+        fs.writeFileSync(f, 'x');
+        // distinct mtimes, monotonically newer per index (index 0 = oldest)
+        const t = now - (tags.length - i) * 1000;
+        fs.utimesSync(f, t, t);
+      });
+    }
+
+    it('pruneStaleBackups keeps the N newest clutter files, deletes the rest', () => {
+      dbManager.getDb();
+      seedClutter(tmpDir, ['corrupt-0', 'bak-0', 'corrupt-1', 'bak-1', 'corrupt-2']);
+      const deleted = dbManager.pruneStaleBackups({ keepRecent: 2 });
+      assert.equal(deleted.length, 3, 'deletes 3 of 5 (keeps 2 newest)');
+      const remaining = fs.readdirSync(tmpDir).filter((n) => /^sessions\.db\.(corrupt|bak)-/.test(n)).sort();
+      assert.deepEqual(remaining, ['sessions.db.bak-1', 'sessions.db.corrupt-2']);
+    });
+
+    it('never touches the live sessions.db / wal / shm', () => {
+      dbManager.getDb();
+      seedClutter(tmpDir, ['corrupt-x']);
+      assert.ok(fs.existsSync(path.join(tmpDir, 'sessions.db')));
+      const deleted = dbManager.pruneStaleBackups({ keepRecent: 0 });
+      assert.ok(deleted.includes('sessions.db.corrupt-x'), 'clutter deleted');
+      assert.ok(fs.existsSync(path.join(tmpDir, 'sessions.db')), 'live db survives');
+    });
+
+    it('ignores out-of-scope files (markdown backups live in the same dir)', () => {
+      dbManager.getDb();
+      const md = path.join(tmpDir, 'failures.md.bak-old');
+      fs.writeFileSync(md, 'x');
+      dbManager.pruneStaleBackups({ keepRecent: 0 });
+      assert.ok(fs.existsSync(md), 'markdown backups are out of scope');
+    });
+
+    it('auto-prunes on first open (default keepRecent)', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-prune-on-open-'));
+      try {
+        seedClutter(dir, ['corrupt-0', 'bak-0', 'corrupt-1', 'bak-1', 'corrupt-2']);
+        const mgr = new DatabaseManager(dir);
+        mgr.getDb(); // first open auto-prunes
+        const remaining = fs.readdirSync(dir).filter((n) => /^sessions\.db\.(corrupt|bak)-/.test(n));
+        assert.equal(remaining.length, 3, 'open prunes to default keepRecent=3');
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
 });
