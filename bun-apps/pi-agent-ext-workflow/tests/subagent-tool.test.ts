@@ -125,6 +125,22 @@ test("execute forwards the runtime abort signal to spawn as externalSignal", asy
   assert.equal(f.calls[0]?.externalSignal, controller.signal, "the tool-call signal must reach spawn()");
 });
 
+test("execute forwards timeoutMs/retryOnTransient to spawn", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  await tool.execute("id", { task: "t", timeoutMs: 5000, retryOnTransient: false }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.timeoutMs, 5000);
+  assert.equal(f.calls[0]?.retryOnTransient, false);
+});
+
+test("execute carries usage from the spawn result into details", async () => {
+  const usage = { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, total: 15, cost: 0.001 };
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false, usage }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  const res = await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.deepEqual(res.details.usage, usage);
+});
+
 // ── details enrichment (renderResult + /subagents data source) ──
 test("execute enriches details with agent/model/taskPreview/elapsedMs/status for a done run", async () => {
   const f = fakeSpawn(() => ({ output: "Status: DONE", exitCode: 0, stderr: "", timedOut: false }));
@@ -213,6 +229,39 @@ test("renderSubagentResult collapsed is short; expanded contains the full report
   assert.ok(expanded.includes("Line one of report"));
   assert.ok(expanded.includes("Line three"), "expanded keeps everything");
   assert.ok(expanded.includes("12.3s") || expanded.includes("12."), "expanded shows elapsed seconds");
+});
+
+test("renderSubagentResult shows cost/tokens when usage.total > 0, omits when 0 or absent", () => {
+  const base: Omit<SubagentToolDetails, "usage"> = {
+    exitCode: 0, timedOut: false, taskPreview: "p", elapsedMs: 1000, status: "done",
+  };
+  const withUsage = renderSubagentResult(
+    {
+      content: [{ type: "text", text: "ok" }],
+      details: { ...base, usage: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0, total: 150, cost: 0.0023 } },
+    },
+    { expanded: false },
+    T,
+  );
+  assert.ok(withUsage.includes("$0.002"), "shows cost to 3 decimals");
+  assert.ok(withUsage.includes("150 tok"), "shows total tokens");
+
+  const zeroUsage = renderSubagentResult(
+    {
+      content: [{ type: "text", text: "ok" }],
+      details: { ...base, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, cost: 0 } },
+    },
+    { expanded: false },
+    T,
+  );
+  assert.ok(!zeroUsage.includes("$"), "omits cost when total usage is 0");
+
+  const noUsage = renderSubagentResult(
+    { content: [{ type: "text", text: "ok" }], details: base as SubagentToolDetails },
+    { expanded: false },
+    T,
+  );
+  assert.ok(!noUsage.includes("$"), "omits cost when usage is absent entirely");
 });
 
 test("renderSubagentResult failed/timedout badges + missing-details fallback", () => {

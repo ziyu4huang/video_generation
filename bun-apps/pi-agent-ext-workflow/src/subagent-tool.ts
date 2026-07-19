@@ -13,6 +13,7 @@
 import { defineTool, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import type { AgentUsage } from "./agent.js";
 import {
   spawnSubagent,
   type SpawnSubagentOptions,
@@ -31,6 +32,8 @@ export interface SubagentToolDetails {
   /** Wall-clock of the run, ms. */
   elapsedMs: number;
   status: "done" | "failed" | "timedout";
+  /** Real token/cost usage from the child session, when reported. */
+  usage?: AgentUsage;
 }
 
 export const subagentToolSchema = Type.Object({
@@ -60,6 +63,16 @@ export const subagentToolSchema = Type.Object({
   ),
   excludeTools: Type.Optional(
     Type.Array(Type.String(), { description: "Tool names to deny after the allowlist (e.g. ['edit','write'])." }),
+  ),
+  timeoutMs: Type.Optional(
+    Type.Number({
+      description: "Abort the subagent if it runs longer than this many milliseconds. Omit for no timeout.",
+    }),
+  ),
+  retryOnTransient: Type.Optional(
+    Type.Boolean({
+      description: "Retry once on a transient failure (timeout/network/rate-limit). Default true.",
+    }),
   ),
 });
 
@@ -104,7 +117,9 @@ export function renderSubagentResult(
       : d.status === "timedout"
         ? theme.fg("warning", "⏱ timedout")
         : theme.fg("error", "✗ failed");
-  const meta = theme.fg("muted", `${d.model ?? "default"} · ${(d.elapsedMs / 1000).toFixed(1)}s`);
+  const usageStr =
+    d.usage && d.usage.total > 0 ? ` · $${d.usage.cost.toFixed(3)} · ${d.usage.total} tok` : "";
+  const meta = theme.fg("muted", `${d.model ?? "default"} · ${(d.elapsedMs / 1000).toFixed(1)}s${usageStr}`);
   if (!options.expanded) {
     const firstLine = text.split("\n").map((l) => l.trim()).find((l) => l) ?? "";
     return `${badge} ${meta} ${theme.fg("dim", truncateToWidth(firstLine, 60))}`;
@@ -155,6 +170,8 @@ export function createSubagentTool(
         instructions: params.agent ? `You are the ${params.agent} for this task.` : undefined,
         extensionTools: options.getExtensionTools?.(),
         externalSignal: signal,
+        timeoutMs: params.timeoutMs,
+        retryOnTransient: params.retryOnTransient,
       });
       return {
         content: [{ type: "text" as const, text: formatSubagentResult(result) }],
@@ -166,6 +183,7 @@ export function createSubagentTool(
           taskPreview: taskPreview(params.task),
           elapsedMs: Date.now() - t0,
           status: deriveSubagentStatus(result),
+          usage: result.usage,
         },
       };
     },
