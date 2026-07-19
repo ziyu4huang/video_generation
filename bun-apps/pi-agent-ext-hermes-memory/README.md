@@ -65,7 +65,7 @@ No manual action is needed. Launch Pi once after upgrade to let migration/normal
 | 🛡️ **Secret Scanning** | API keys, tokens, SSH keys blocked from persistence |
 | 📊 **Memory Aging** | Entries carry timestamps — consolidation knows what's stale |
 | 🏗️ **Two-Tier Memory** | Global + per-project memory, both searchable |
-| 💾 **Extended Store** | Unlimited searchable memories beyond core 5,000-char limit |
+| 💾 **Extended Store** | Unlimited searchable memories beyond core 10,000-char limit |
 | 🎓 **Onboarding** | `/memory-interview` pre-fills your profile on first session |
 
 ## How It Works
@@ -80,8 +80,8 @@ The extension manages three types of knowledge:
 
 | Type | What | Storage | Token cost |
 |---|---|---|---|
-| **Memory** (MEMORY.md) | Facts — env details, project conventions, tool quirks | 5,000 chars max | Searchable by default |
-| **User Profile** (USER.md) | Who you are — name, preferences, communication style | 5,000 chars max | Searchable by default |
+| **Memory** (MEMORY.md) | Facts — env details, project conventions, tool quirks | 10,000 chars max | Searchable by default |
+| **User Profile** (USER.md) | Who you are — name, preferences, communication style | 10,000 chars max | Searchable by default |
 | **Skills** (Pi-native `SKILL.md`) | Procedures — *how* to do something, reusable across sessions | Unlimited | Discoverable by Pi + manageable via the `skill_manage` tool |
 
 ![Memory + Skills Architecture](docs/images/memory-architecture.svg)
@@ -263,8 +263,8 @@ This lets Pi discover project skills as native skills without copying them into 
 
 | Store | File | What goes here | Limit |
 |---|---|---|---|
-| **memory** | `MEMORY.md` | Agent's notes — env facts, project conventions, tool quirks, lessons learned | 5,000 chars |
-| **user** | `USER.md` | User profile — name, preferences, communication style, habits | 5,000 chars |
+| **memory** | `MEMORY.md` | Agent's notes — env facts, project conventions, tool quirks, lessons learned | 10,000 chars |
+| **user** | `USER.md` | User profile — name, preferences, communication style, habits | 10,000 chars |
 | **skills** | `~/.pi/agent/pi-hermes-memory/skills/<slug>/SKILL.md` or `projects-memory/<project>/skills/<slug>/SKILL.md` | Procedures — *how* to debug, deploy, test, or fix something | Unlimited |
 | **extended** | `sessions.db` | Searchable memories beyond the core limit | Unlimited |
 | **sessions** | `sessions.db` | Past conversation history (searchable via FTS5) | Unlimited |
@@ -431,9 +431,9 @@ Create `~/.pi/agent/hermes-memory-config.json`:
 {
   "memoryMode": "policy-only",
   "memoryPolicyStyle": "full",
-  "memoryCharLimit": 5000,
-  "userCharLimit": 5000,
-  "projectCharLimit": 5000,
+  "memoryCharLimit": 10000,
+  "userCharLimit": 10000,
+  "projectCharLimit": 10000,
   "memoryDir": "~/.pi/agent/pi-hermes-memory",
   "projectsMemoryDir": "projects-memory",
   "sessionSearch": { "variant": "legacy" },
@@ -463,9 +463,9 @@ Create `~/.pi/agent/hermes-memory-config.json`:
 | `memoryMode` | `policy-only` | Prompt behavior: `policy-only` injects only memory policy; `legacy-inject` restores full memory prompt injection |
 | `memoryPolicyStyle` | `full` | Policy text used in `policy-only` mode: `full` preserves the default v0.7 policy; `compact` uses shorter built-in guidance; `custom` uses `memoryPolicyCustomText`; `none` injects no policy text |
 | `memoryPolicyCustomText` | unset | Custom policy text used when `memoryPolicyStyle` is `custom`; blank or missing text falls back to `compact` |
-| `memoryCharLimit` | `5000` | Max characters in MEMORY.md |
-| `userCharLimit` | `5000` | Max characters in USER.md |
-| `projectCharLimit` | `5000` | Max characters in project-scoped MEMORY.md |
+| `memoryCharLimit` | `10000` | Max characters in MEMORY.md |
+| `userCharLimit` | `10000` | Max characters in USER.md |
+| `projectCharLimit` | `10000` | Max characters in project-scoped MEMORY.md |
 | `memoryDir` | `~/.pi/agent/pi-hermes-memory` | Custom directory for extension storage files |
 | `projectsMemoryDir` | `projects-memory` | Subdirectory under `~/.pi/agent/` for project-scoped memory |
 | `sessionSearch` | `{ "variant": "legacy" }` | Session search implementation: `legacy` keeps the existing SQLite/FTS snippet search; `anchors` uses the opt-in Markdown request surface and returns compact JSONL line-range anchors from `~/.pi/agent/sessions/` |
@@ -530,7 +530,7 @@ The `sessions.db` SQLite database stores session history and extended memory ent
 - **Background review cost**: Each review cycle costs one full LLM API call via a child `pi -p` process. Correction detection and explicit skill saves can add additional calls when the agent decides they are worth it.
 - **Session search requires indexing**: Past sessions must be indexed before they're searchable. Run `/memory-index-sessions` to bulk-import, or let the extension auto-index on session shutdown.
 - **Older Markdown memories may need backfill**: If you saved memories before the SQLite mirror existed or search looks stale, run `/memory-sync-markdown`.
-- **Core memory limits still apply**: SQLite search mirroring does not bypass the 5,000-char core Markdown limit. If consolidation cannot free space, the write fails instead of becoming SQLite-only memory invisibly.
+- **Core memory limits still apply**: SQLite search mirroring does not bypass the 10,000-char core Markdown limit. If consolidation cannot free space, the write fails instead of becoming SQLite-only memory invisibly.
 - **System prompts are invisible**: Pi's TUI does not display the system prompt. Use `/memory-preview-context` to inspect whether policy-only or legacy memory injection is active.
 - **Project skill visibility depends on Pi discovery cycles**: project skills are exposed through `resources_discover` using the active project's `skills/` path. If a moved or newly created project skill doesn't show up immediately in a running session, trigger a reload/new session so Pi refreshes discovered resources.
 - **Project move requires active project context**: in `/memory-skills`, the `p` hotkey is disabled when Pi is not currently in a detected project directory.

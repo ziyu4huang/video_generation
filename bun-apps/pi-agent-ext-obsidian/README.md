@@ -42,14 +42,20 @@ in so you start with a structured knowledge base.
 
 ## Vault resolution
 
-Resolution runs in 3 tiers (top-down, first match wins):
+Resolution runs top-down (first match wins):
 
 | Tier | Source | What it is |
 |------|--------|------------|
-| **1 — explicit** | `OB_VAULT_PATH` env | Absolute path; overrides everything (for CI / one-off runs) |
-| **1 — explicit** | `run-dir/obsidian_config.json` `vault_path` | Persistent per-project setting (written by `/obsidian-config <path>`); skipped when `mode: "app"` |
+| **1a — explicit** | `OB_VAULT_PATH` env | Absolute path; overrides everything (for CI / one-off runs) |
+| **1b — personal** | `~/.pi/obsidian_config.json` `vault_path` | Your **user-global default** — the vault that follows you across every project. `vault_path` only (absolute, machine-local); `mode` is **not** honored here. Written by `/obsidian-config <path>` (default scope). |
+| **1c — project** | `<cwd>/.pi/obsidian_config.json` `vault_path` | Per-project override. Full schema (`vault_path` + `mode`); skipped when `mode: "app"`. Written by `/obsidian-config <path> --scope project`. |
 | **2 — auto-follow app** | `obsidian.json` `open: true` vault | The vault currently open in the Obsidian app — what you see is what the agent uses |
 | **3 — fallback** | `<cwd>/${OB_VAULT_DIR \|\| "vault"}` | Zero-config project-local folder, auto-created + seeded on first use |
+
+**Personal beats project:** the personal tier (1b) always wins over the project
+tier (1c) — a project cannot override your personal default short of an env
+var. Set your usual vault once at `~/.pi` and it applies everywhere; use
+`--scope project` only when a specific project needs a different vault.
 
 **Stale-config handling:** if a Tier 1 target is configured but its path no
 longer exists, resolution does **not** abort — it records a warning and falls
@@ -68,28 +74,39 @@ resolution. All `obsidian_*` and `zk_*` tools operate on whichever vault it
 reports as active.
 
 ```
-/obsidian-config              # show active vault + source + all candidates
-/obsidian-config <path>       # set explicit vault (mode "explicit"), e.g.
-                              #   /obsidian-config ./my-vault
-                              #   /obsidian-config /abs/path/to/vault
-/obsidian-config --use-app    # follow the Obsidian app's open vault (mode "app")
-/obsidian-config --list       # list all registered vaults
-/obsidian-config --clear      # forget the explicit path (fall back to app/local)
+/obsidian-config                      # show active vault + source + all candidates
+/obsidian-config <path>               # set personal vault (~/.pi; mode "explicit"), e.g.
+                                      #   /obsidian-config ./my-vault
+                                      #   /obsidian-config /abs/path/to/vault
+/obsidian-config <path> --scope project  # set a PROJECT-scoped vault (<cwd>/.pi)
+/obsidian-config --use-app            # follow the Obsidian app's open vault (always project scope)
+/obsidian-config --list               # list all registered vaults
+/obsidian-config --clear              # forget the personal path (--scope project clears the project one)
 ```
 
-The persistent config file is `run-dir/obsidian_config.json`:
+There are two persistent config files:
+
+| Location | Scope | Honors `mode`? |
+|----------|-------|----------------|
+| `~/.pi/obsidian_config.json` | **personal** (user-global default — Tier 1b) | **No** — `vault_path` only; a stray `mode: "app"` is warned about and ignored |
+| `<cwd>/.pi/obsidian_config.json` | **project** (per-project override — Tier 1c) | Yes (`"explicit"` default, or `"app"`) |
 
 ```json
 {
-  "vault_path": "/abs/path/to/vault",   // Tier 1 explicit (absolute or cwd-relative)
-  "mode": "explicit"                      // "explicit" (default) or "app"
+  "vault_path": "/abs/path/to/vault",   // absolute, or cwd-relative (project tier) / HOME-relative (personal tier)
+  "mode": "explicit"                      // project tier only — "explicit" (default) or "app"
 }
 ```
 
-`mode: "app"` makes the agent follow whatever vault you have open in the
-Obsidian app — convenient when you switch vaults in the app and want the agent
-to follow without editing config. Tier 1 env (`OB_VAULT_PATH`) always wins over
-both, so CI can pin a vault regardless of config/app state.
+`mode: "app"` (project tier) makes the agent follow whatever vault you have
+open in the Obsidian app — convenient when you switch vaults in the app and want
+the agent to follow without editing config. Tier 1 env (`OB_VAULT_PATH`) always
+wins over both tiers, so CI can pin a vault regardless of config/app state.
+
+> **`run-dir/obsidian_config.json` is retired.** Earlier versions wrote the
+> persistent config to `run-dir/`; that location is no longer read or written.
+> On first read, any pre-existing `run-dir/obsidian_config.json` is migrated
+> once into `<cwd>/.pi/obsidian_config.json` (and the old file removed).
 
 ## Install
 
@@ -151,7 +168,7 @@ bun-apps/pi-obsidian/
 ├── scripts/            # bench-trigram-search · bench-index-persistence ·
 │                       # measure-schema-tokens · validate-real-vault
 ├── skills/
-│   └── seed-vault/     # optional skill that documents vault conventions
+│   └── using-obsidian-vault/  # optional skill: vault conventions + zk_* hand-off
 └── vault-template/     # starter notes copied into a fresh vault
     ├── README.md
     ├── Inbox/README.md

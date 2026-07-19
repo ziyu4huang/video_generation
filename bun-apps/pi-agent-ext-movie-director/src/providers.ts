@@ -160,6 +160,35 @@ export function _setRunPyRuntimeForTest(v: boolean | undefined): void {
   runPyRuntimeCached = v;
 }
 
+// ─── LM Studio reachability probe (caption VLM) ──────────────────────────────
+
+/**
+ * True if the local LM Studio server answers on its OpenAI-compatible port (used by
+ * the mlx:caption probe — caption_native.ts calls LM Studio's VLM directly, no run.py).
+ * Sync + cached per process, mirroring the ffmpeg/probe pattern: a short `curl` to
+ * /v1/models (2s timeout). The specific VLM is auto-loaded at call time, so the probe
+ * only asserts the server is up.
+ */
+let lmStudioReachableCached: boolean | undefined;
+function lmStudioReachable(): boolean {
+  if (lmStudioReachableCached != null) return lmStudioReachableCached;
+  try {
+    const r = spawnSync("curl", [
+      "-s", "-o", "/dev/null", "--max-time", "2",
+      "http://localhost:1234/v1/models",
+    ]);
+    lmStudioReachableCached = r.status === 0;
+  } catch {
+    lmStudioReachableCached = false;
+  }
+  return lmStudioReachableCached;
+}
+
+/** Force the LM-Studio-reachability probe result (tests inject a deterministic value). */
+export function _setLmStudioReachableForTest(v: boolean | undefined): void {
+  lmStudioReachableCached = v;
+}
+
 // ─── swift image-director binary probes (krea2 / flux2) ───────────────────────
 
 /**
@@ -205,10 +234,10 @@ export function _setFlux2BinaryForTest(v: boolean | undefined): void {
   flux2BinaryCached = v;
 }
 
-// ─── python import probe (whisper / clip / esrgan deps honesty) ──────────────
+// ─── python import probe (whisper / clip deps honesty) ──────────────────────
 
 /**
- * Cached `python -c "<importStmt>"` probe. The whisper/clip/esrgan adapters
+ * Cached `python -c "<importStmt>"` probe. The whisper/clip adapters
  * resolve a python binary (a venv or the "python3" PATH fallback); the PRIOR
  * probe assumed "python3" had the deps (a false-positive when system python3
  * lacks mlx_whisper / torch / spandrel → generation then ImportError'd). This
@@ -247,7 +276,7 @@ export function _setImportProbeForTest(py: string, importStmt: string, v: boolea
  * already marks GAPs / unimplemented providers false); the probe refines it for
  * every strategy with an environment/disk signal: ffmpeg (binary on PATH), fetch
  * (cloud API key), the swift directors (built binary on disk), run.py (venv+
- * run.py present), whisper/clip/esrgan (a real python that imports its deps),
+ * run.py present), whisper/clip (a real python that imports its deps),
  * and the compose runtimes (remotion binary / motion filters). Thus a cloud
  * provider upgrades to callable when its key appears; an ffmpeg/swift provider
  * downgrades when its binary is gone; the python adapters downgrade when their
@@ -272,9 +301,6 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
     case "bun:clip":
       // callable iff the vision-venv python + clip entry script resolve.
       return entry.configured && visionRuntimePresent(env, CLIP_SCRIPT);
-    case "bun:esrgan":
-      // callable iff the vision-venv python + esrgan entry script resolve.
-      return entry.configured && visionRuntimePresent(env, ESRGAN_SCRIPT);
     case "compose:remotion":
       // callable iff the registry flag is set AND a real remotion binary resolves
       // (REMOTION_BIN on disk OR `remotion` on PATH — NOT the bunx fallback).
@@ -324,12 +350,12 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
       // here, mirrors the caption/story adapters not probing LM Studio either).
       return entry.configured && runPyRuntimePresent();
     case "mlx:caption":
-      // callable iff run.py + the MLX venv resolve — same presence signal as
-      // mlx:runpy (caption is a run.py subcommand). Whether a VLM is actually
-      // loaded is a RUNTIME concern (run.py auto-resolves the gemma brain, or
-      // auto-loads it, or falls back to Qwen); the static probe stays honest
-      // about the runtime being present, not the model being loaded.
-      return entry.configured && runPyRuntimePresent();
+      // caption runs entirely through caption_native.ts → LM Studio's VLM (zero
+      // run.py since the 2026-07-19 port). Callable iff the local LM Studio
+      // server is reachable (the model is auto-loaded at call time). Whether a
+      // specific VLM is loaded is a RUNTIME concern; the probe stays honest about
+      // the server being up.
+      return entry.configured && lmStudioReachable();
     default:
       // bun:builtin (subtitle_gen): pure-Bun, in-repo, availability == the
       // registry's configured flag. (All native_swift directors now have explicit
@@ -551,54 +577,46 @@ export const subtitleAdapter: Adapter = async (req: GenerateRequest): Promise<To
   }
 };
 
-// ─── whisper adapter (native mlx-whisper via python subprocess) ──────────────
+// ─── whisper adapter (native Swift/MLX via the ltx-video binary) ─────────────
 
 /**
- * The python entry script + the whisper venv. The script lives inside the ext
- * (<EXT_ROOT>/python/whisper_transcribe.py); the venv is repo infra
- * (<repo>/python/whisper-venv) created by `uv venv` + `uv pip install mlx-whisper`.
- * Resolution order for the python binary:
- *   1. MD_WHISPER_PYTHON env (explicit override — mirrors REMOTION_BIN).
- *   2. <repo>/python/whisper-venv/bin/python — walk up from EXT_ROOT.
- *   3. "python3" on PATH (last resort; needs mlx_whisper importable there).
+ * The transcribe backend is `ltx-video transcribe` — a PURE SWIFT/MLX Whisper
+ * port (swift/ltx-video-director's WhisperModel + the segment-level seek loop
+ * in WhisperTranscribe.swift), emitting the WhisperResult JSON below. This
+ * replaces the former python `whisper_transcribe.py` → mlx_whisper spawn — no
+ * python/whisper-venv is involved at runtime. Per-word DTW alignment is a
+ * separate follow-up (P2b); until then each segment's `words` array is empty
+ * (segment-level timestamps are always present).
+ *
+ * The binary is the SAME ltx-video binary the other swift:ltx commands use
+ * (defaultBinaryPath, the one ltxBinaryPresent probes). `--checkpoint` /
+ * `WHISPER_NATIVE_CHECKPOINT` / the cached whisper-large-v3-mlx snapshot are
+ * resolved inside the binary, not here.
  */
-const WHISPER_SCRIPT = join(EXT_ROOT, "python", "whisper_transcribe.py");
 
-export function whisperScriptPath(): string {
-  return WHISPER_SCRIPT;
+/** Resolve the ltx-video binary path (throws if the repo root can't be walked). */
+function whisperBinaryPath(): string {
+  return defaultBinaryPath(resolveRepoRoot());
 }
 
-/** Resolve the python binary that runs mlx_whisper (cached per process). */
-export function resolveWhisperPython(env: Record<string, string | undefined> = process.env): string {
-  if (env.MD_WHISPER_PYTHON && existsSync(env.MD_WHISPER_PYTHON)) return env.MD_WHISPER_PYTHON;
-  // Walk up from EXT_ROOT looking for python/whisper-venv/bin/python.
-  let dir = EXT_ROOT;
-  for (let i = 0; i < 8; i++) {
-    const cand = join(dir, "python", "whisper-venv", "bin", "python");
-    if (existsSync(cand)) return cand;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return "python3";
-}
-
-/** Test-only override (when set, short-circuits the real probe). */
+/**
+ * True if the built ltx-video binary is on disk (never throws). The `env` arg
+ * is kept for signature parity with the other probes even though the binary
+ * path is env-independent.
+ */
 let whisperRuntimeOverride: boolean | undefined;
 function whisperRuntimePresent(env: Record<string, string | undefined>): boolean {
   if (whisperRuntimeOverride != null) return whisperRuntimeOverride;
-  if (!existsSync(WHISPER_SCRIPT)) return false;
-  const py = env.MD_WHISPER_PYTHON ? env.MD_WHISPER_PYTHON : resolveWhisperPython(env);
-  // "python3" is the PATH fallback (no whisper-venv discovered). Don't assume it
-  // has mlx_whisper — that was the false-positive (system python3 usually lacks
-  // it, so generation would ImportError). Require a real python path, and for
-  // ANY resolved python do a cached import probe (keyed by py+stmt, so different
-  // envs / overrides each get their own cache entry — no stale cross-env result).
-  if (py === "python3" || !existsSync(py)) return false;
-  return pythonImportsModule(py, "import mlx_whisper");
+  try {
+    return existsSync(whisperBinaryPath());
+  } catch {
+    // resolveRepoRoot throws if it can't walk to swift/ltx-video-director —
+    // treat as "binary absent" so the selector falls through rather than crash.
+    return false;
+  }
 }
 
-/** Force the whisper-runtime probe result (tests inject a deterministic value). */
+/** Force the whisper-backend probe result (tests inject a deterministic value). */
 export function _setWhisperRuntimeForTest(v: boolean | undefined): void {
   whisperRuntimeOverride = v;
 }
@@ -606,11 +624,19 @@ export function _setWhisperRuntimeForTest(v: boolean | undefined): void {
 export interface WhisperOptions {
   /** Path to the audio file to transcribe (required). */
   audio: string;
-  /** HuggingFace mlx-whisper repo. Default: mlx-community/whisper-small-mlx. */
+  /**
+   * Optional weights.safetensors checkpoint path forwarded as `--checkpoint`.
+   * Omit to let the binary resolve the cached whisper-large-v3-mlx snapshot.
+   * (The old python `--model <hf-repo>` form is no longer meaningful for swift.)
+   */
   model?: string;
   /** Language hint (e.g. "en"). Default: auto-detect. */
   language?: string;
-  /** Skip word-level timestamps (segment-level only). */
+  /**
+   * Kept for API compatibility but ignored: the swift transcribe currently
+   * emits segment-level timestamps only (no per-word DTW), so there are no
+   * word timestamps to skip.
+   */
   noWords?: boolean;
   /** Output dir for transcript.txt + words.json. Defaults to req.outputDir. */
   output?: string;
@@ -618,7 +644,7 @@ export interface WhisperOptions {
   _spawnImpl?: (cmd: string, argv: string[]) => Promise<number>;
 }
 
-/** Normalized shape emitted by whisper_transcribe.py (the adapter's parse target). */
+/** Normalized shape emitted by `ltx-video transcribe` (the adapter's parse target). */
 export interface WhisperResult {
   ok: boolean;
   error?: string;
@@ -635,17 +661,15 @@ export interface WhisperResult {
   }>;
 }
 
-/** Run the whisper python entry and parse its normalized JSON result. */
-async function runWhisper(opts: WhisperOptions, env: Record<string, string | undefined>): Promise<WhisperResult> {
+/** Spawn `ltx-video transcribe` and parse its WhisperResult JSON. */
+async function runWhisper(opts: WhisperOptions): Promise<WhisperResult> {
   const spawnImpl = opts._spawnImpl ?? runSpawn;
-  const py = resolveWhisperPython(env);
   const outDir = opts.output ?? process.cwd();
   const jsonOut = join(outDir, `whisper_${process.pid}_${Date.now() % 100000}.json`);
-  const argv = [WHISPER_SCRIPT, "--audio", opts.audio, "--output", jsonOut];
-  if (opts.model) argv.push("--model", opts.model);
+  const argv = ["transcribe", "--audio", opts.audio, "--output", jsonOut];
+  if (opts.model) argv.push("--checkpoint", opts.model);
   if (opts.language) argv.push("--language", opts.language);
-  if (opts.noWords) argv.push("--no-words");
-  const code = await spawnImpl(py, argv);
+  const code = await spawnImpl(whisperBinaryPath(), argv);
   let payload: WhisperResult;
   try {
     payload = JSON.parse(readFileSync(jsonOut, "utf8")) as WhisperResult;
@@ -655,10 +679,10 @@ async function runWhisper(opts: WhisperOptions, env: Record<string, string | und
   return payload;
 }
 
-/** whisper adapter: spawns mlx-whisper, returns a ToolResult with transcript + words artifacts. */
+/** whisper adapter: spawns ltx-video transcribe, returns a ToolResult with transcript + words artifacts. */
 export const whisperAdapter: Adapter = async (req: GenerateRequest): Promise<ToolResult> => {
   if (!whisperRuntimePresent(process.env as Record<string, string | undefined>)) {
-    return fail(req, "whisper", "whisper runtime not found (set MD_WHISPER_PYTHON or create python/whisper-venv)");
+    return fail(req, "whisper", "whisper backend not found (build swift/ltx-video-director: swift build -c release)");
   }
   const opts = (req.options ?? {}) as unknown as WhisperOptions;
   if (!opts.audio || !existsSync(opts.audio)) {
@@ -671,7 +695,7 @@ export const whisperAdapter: Adapter = async (req: GenerateRequest): Promise<Too
   const outputDir = req.outputDir ?? mkdtempSync(join(tmpdir(), "md-transcribe-"));
   const started = Date.now();
   try {
-    const res = await runWhisper({ ...opts, output: outputDir }, process.env as Record<string, string | undefined>);
+    const res = await runWhisper({ ...opts, output: outputDir });
     if (!res.ok || !res.text) {
       return fail(req, "whisper", res.error ?? "whisper returned no text", (Date.now() - started) / 1000);
     }
@@ -729,29 +753,26 @@ export function cuesFromWhisper(
   return cues;
 }
 
-// ─── vision venv (CLIP + ESRGAN share torch) ─────────────────────────────────
+// ─── vision venv (CLIP only — ESRGAN removed 2026-07-19) ─────────────────────
 
 /**
  * The Item I sibling pattern: a lightweight python venv that holds the deps the
- * builtin Bun layer doesn't (here torch + transformers + spandrel). Two entry
- * scripts share ONE venv because CLIP and ESRGAN both ride torch MPS — keeping
- * disk honest (torch is the heavy dep; install it once). The venv is repo infra
- * at <repo>/python/vision-venv; resolution order:
+ * builtin Bun layer doesn't (here torch + transformers for CLIP). The venv is
+ * repo infra at <repo>/python/vision-venv; resolution order:
  *   1. MD_VISION_PYTHON env (explicit override).
  *   2. <repo>/python/vision-venv/bin/python — walk up from EXT_ROOT.
  *   3. "python3" on PATH (last resort; needs the deps importable there).
+ *
+ * NOTE: CLIP itself moves to a native swift port in Phase 3 of the zero-python
+ * plan; this venv + probe are temporary until that lands.
  */
 const CLIP_SCRIPT = join(EXT_ROOT, "python", "clip_understand.py");
-const ESRGAN_SCRIPT = join(EXT_ROOT, "python", "esrgan_upscale.py");
 
 export function clipScriptPath(): string {
   return CLIP_SCRIPT;
 }
-export function esrganScriptPath(): string {
-  return ESRGAN_SCRIPT;
-}
 
-/** Resolve the python binary backing CLIP/ESRGAN (cached per process). */
+/** Resolve the python binary backing CLIP (cached per process). */
 export function resolveVisionPython(env: Record<string, string | undefined> = process.env): string {
   if (env.MD_VISION_PYTHON && existsSync(env.MD_VISION_PYTHON)) return env.MD_VISION_PYTHON;
   let dir = EXT_ROOT;
@@ -765,136 +786,28 @@ export function resolveVisionPython(env: Record<string, string | undefined> = pr
   return "python3";
 }
 
-/** Test-only overrides per entry (when set, short-circuit the real probe). */
-const visionRuntimeOverride = new Map<string /*"clip"|"esrgan"*/, boolean>();
-/** The import statement each vision entry needs (clip → transformers; esrgan → spandrel). */
+/** Test-only override (when set, short-circuits the real probe). */
+const visionRuntimeOverride = new Map<string /*"clip"*/, boolean>();
+/** The import statement CLIP needs (transformers). */
 const VISION_IMPORT_FOR: Record<string, string> = {
   [CLIP_SCRIPT]: "import torch, transformers",
-  [ESRGAN_SCRIPT]: "import torch, spandrel",
 };
 function visionRuntimePresent(env: Record<string, string | undefined>, script: string): boolean {
-  const overrideKey = script === CLIP_SCRIPT ? "clip" : "esrgan";
-  if (visionRuntimeOverride.has(overrideKey)) return visionRuntimeOverride.get(overrideKey)!;
+  if (visionRuntimeOverride.has("clip")) return visionRuntimeOverride.get("clip")!;
   if (!existsSync(script)) return false;
   const py = env.MD_VISION_PYTHON ? env.MD_VISION_PYTHON : resolveVisionPython(env);
   // Same honesty fix as whisper: "python3" (PATH fallback) is not assumed to have
-  // torch/transformers/spandrel. Require a real python path + a cached import
+  // torch/transformers. Require a real python path + a cached import
   // probe (keyed by py+stmt → env-correct, no stale cross-env cache entry).
   if (py === "python3" || !existsSync(py)) return false;
   return pythonImportsModule(py, VISION_IMPORT_FOR[script] ?? "import torch");
 }
 
 /** Force the vision-runtime probe result (tests inject a deterministic value). */
-export function _setVisionRuntimeForTest(script: "clip" | "esrgan", v: boolean | undefined): void {
+export function _setVisionRuntimeForTest(script: "clip", v: boolean | undefined): void {
   if (v == null) visionRuntimeOverride.delete(script);
   else visionRuntimeOverride.set(script, v);
 }
-
-// ─── ESRGAN adapter (native upscale via python subprocess) ───────────────────
-
-export interface EsrganOptions {
-  /** Path to the input image (required). */
-  image: string;
-  /**
-   * ESRGAN .pth path. Defaults to the repo's DEFAULT_UPSCALE_MODEL
-   * (mlx-models/upscale/4x-nomos-webphoto-realplksr/4xNomosWebPhoto_RealPLKSR.pth)
-   * resolved from the models root; overridable via MD_ESRGAN_MODEL.
-   */
-  model?: string;
-  /** Output PNG path. Defaults to <image-dir>/<stem>_4x.png. */
-  output?: string;
-  /** Test-only spawn injection. */
-  _spawnImpl?: (cmd: string, argv: string[]) => Promise<number>;
-}
-
-/** Normalized shape emitted by esrgan_upscale.py. */
-export interface EsrganResult {
-  ok: boolean;
-  error?: string;
-  image?: string;
-  model?: string;
-  scale?: number;
-  in_w?: number;
-  in_h?: number;
-  out_w?: number;
-  out_h?: number;
-  out?: string;
-  duration_s?: number;
-}
-
-/** Resolve the default ESRGAN .pth from the models root (mlx-models/...). */
-function defaultEsrganModel(env: Record<string, string | undefined>): string {
-  if (env.MD_ESRGAN_MODEL && existsSync(env.MD_ESRGAN_MODEL)) return env.MD_ESRGAN_MODEL;
-  let dir = EXT_ROOT;
-  for (let i = 0; i < 8; i++) {
-    const cand = join(dir, "mlx-models", "upscale", "4x-nomos-webphoto-realplksr", "4xNomosWebPhoto_RealPLKSR.pth");
-    if (existsSync(cand)) return cand;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return env.MD_ESRGAN_MODEL ?? "4xNomosWebPhoto_RealPLKSR.pth";
-}
-
-/** esrgan adapter: spawns esrgan_upscale.py, returns a ToolResult with the upscaled PNG. */
-export const esrganAdapter: Adapter = async (req: GenerateRequest): Promise<ToolResult> => {
-  if (!visionRuntimePresent(process.env as Record<string, string | undefined>, ESRGAN_SCRIPT)) {
-    return fail(req, "esrgan", "esrgan runtime not found (set MD_VISION_PYTHON or create python/vision-venv)");
-  }
-  const opts = (req.options ?? {}) as unknown as EsrganOptions;
-  if (!opts.image || !existsSync(opts.image)) {
-    return fail(req, "esrgan", `image missing or not found: ${opts.image ?? "(none)"}`);
-  }
-  const env = process.env as Record<string, string | undefined>;
-  const model = opts.model ?? defaultEsrganModel(env);
-  if (!existsSync(model)) {
-    return fail(req, "esrgan", `model not found: ${model} (set MD_ESRGAN_MODEL)`);
-  }
-  const spawnImpl = opts._spawnImpl ?? runSpawn;
-  // Workspace-relative default (same drift fix as whisper/clip): when outputDir
-  // is omitted the per-call JSON scratch + any artifacts land in a temp dir, not
-  // the repo root. The upscaled PNG path comes from the python entry (next to
-  // the source image), so this only affects the JSON scratch file.
-  const esrganOutDir = req.outputDir ?? mkdtempSync(join(tmpdir(), "md-esrgan-"));
-  const jsonOut = join(esrganOutDir, `esrgan_${process.pid}_${Date.now() % 100000}.json`);
-  const argv = [ESRGAN_SCRIPT, "--image", opts.image, "--model", model, "--output", jsonOut];
-  if (opts.output) argv.push("--out-image", opts.output);
-  const started = Date.now();
-  try {
-    const code = await spawnImpl(resolveVisionPython(env), argv);
-    let payload: EsrganResult;
-    try {
-      payload = JSON.parse(readFileSync(jsonOut, "utf8")) as EsrganResult;
-    } catch {
-      payload = { ok: false, error: `esrgan exited ${code} (no JSON output)` };
-    }
-    if (!payload.ok || !payload.out) {
-      return fail(req, "esrgan", payload.error ?? "esrgan returned no output", (Date.now() - started) / 1000);
-    }
-    return {
-      success: true,
-      provider: "esrgan",
-      command: req.command || "upscale",
-      artifacts: [
-        {
-          path: resolve(payload.out),
-          kind: "image",
-          bytes: byteSize(payload.out),
-          width: payload.out_w ?? null,
-          height: payload.out_h ?? null,
-          role: "upscaled",
-        },
-      ],
-      error: null,
-      cost_usd: 0, // local torch MPS — honest $0 marginal
-      duration_seconds: payload.duration_s ?? (Date.now() - started) / 1000,
-      seed: null,
-      model: "esrgan-4x-nomos-webphoto-realplksr",
-    };
-  } catch (err) {
-    return fail(req, "esrgan", err instanceof Error ? err.message : String(err), (Date.now() - started) / 1000);
-  }
-};
 
 // ─── CLIP adapter (native video understanding via python subprocess) ─────────
 
@@ -1357,7 +1270,6 @@ export function nonNativeAdapters(_env?: Record<string, string | undefined>): Pa
     "bun:builtin": subtitleAdapter, // subtitle_gen is the shipped bun:builtin provider
     "bun:whisper": whisperAdapter, // transcriber (Item I) spawns mlx-whisper via python
     "bun:clip": clipAdapter, // video_understand (Item I sibling) — CLIP via torch MPS
-    "bun:esrgan": esrganAdapter, // upscale (Item I sibling) — ESRGAN via torch MPS
     "compose:remotion": composeRemotionAdapter, // composition runtime (iteration G #280) — Remotion Node subprocess
     "compose:motion": composeMotionAdapter, // composition runtime (Item J) — ffmpeg zoompan+xfade motion compositor
     "macos:say": macosSayAdapter, // tts fallback — macOS `say`, zero-cost/zero-key local narration

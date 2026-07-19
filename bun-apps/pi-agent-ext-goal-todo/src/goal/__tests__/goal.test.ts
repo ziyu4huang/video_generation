@@ -1158,7 +1158,7 @@ describe("planningGateBlocking (Plan A completion gate)", () => {
 		else (globalThis as Record<string, unknown>)[KEY] = saved;
 	});
 
-	test("undefined when planning-with-files global is absent (standalone)", () => {
+	test("undefined when the plan coordinator global is absent (standalone)", () => {
 		delete (globalThis as Record<string, unknown>)[KEY];
 		expect(planningGateBlocking(process.cwd())).toBeUndefined();
 	});
@@ -1193,8 +1193,8 @@ describe("goal_complete planning gate (Plan A integration)", () => {
 		else (globalThis as Record<string, unknown>)[KEY] = saved;
 	});
 
-	test("blocks goal_complete while plan has open phases; releases when /plan-done clears it", async () => {
-		// Simulate planning-with-files reporting an incomplete plan.
+	test("blocks goal_complete while plan has open phases; releases when the plan is closed", async () => {
+		// Simulate the plan coordinator reporting an incomplete plan.
 		let planIncomplete = true;
 		(globalThis as Record<string, unknown>)[KEY] = (_cwd: string) => planIncomplete;
 
@@ -1211,10 +1211,10 @@ describe("goal_complete planning gate (Plan A integration)", () => {
 		);
 		expect(blocked.terminate).toBeUndefined();
 		expect(blocked.content?.[0]?.text ?? "").toMatch(/incomplete phases/);
-		expect(blocked.content?.[0]?.text ?? "").toMatch(/\/plan-done/);
+		expect(blocked.content?.[0]?.text ?? "").toMatch(/close the plan/);
 		expect(lastGoalStatus(mock)).toBe("active"); // goal stays active
 
-		// Release: simulate /plan-done → plan no longer incomplete.
+		// Release: simulate closing the plan → plan no longer incomplete.
 		planIncomplete = false;
 		const accepted = await tool.execute(
 			"call-accept",
@@ -1230,7 +1230,7 @@ describe("goal_complete planning gate (Plan A integration)", () => {
 		await (shutdown as (e: unknown, c: unknown) => void)?.({}, ctx);
 	});
 
-	test("goal_complete proceeds when planning-with-files is not loaded (standalone)", async () => {
+	test("goal_complete proceeds when the plan coordinator is not loaded (standalone)", async () => {
 		delete (globalThis as Record<string, unknown>)[KEY];
 		const { mock, ctx } = await startGoalForTest();
 		const tool = mock.tools[0]!;
@@ -1261,7 +1261,7 @@ describe("planProgressLineFromPeer + buildGoalSystemPrompt (fusion)", () => {
 		else (globalThis as Record<string, unknown>)[KEY] = saved;
 	});
 
-	test("empty when planning-with-files global absent (standalone goal drive)", async () => {
+	test("empty when the plan coordinator global is absent (standalone goal drive)", async () => {
 		delete (globalThis as Record<string, unknown>)[KEY];
 		const { mock, ctx } = await startGoalForTest(); // sets latestCtx via session_start
 		expect(planProgressLineFromPeer()).toBe("");

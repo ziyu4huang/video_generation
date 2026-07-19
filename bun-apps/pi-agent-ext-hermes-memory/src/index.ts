@@ -49,8 +49,6 @@ import { registerIndexSessionsCommand } from "./handlers/index-sessions.js";
 import { registerLearnMemoryCommand } from "./handlers/learn-memory.js";
 import { registerSyncMarkdownMemoriesCommand, syncMarkdownMemoriesToSqlite } from "./handlers/sync-markdown-memories.js";
 import { registerPreviewContextCommand } from "./handlers/preview-context.js";
-import { registerConvergeHealthCommand } from "./handlers/converge-health-command.js";
-import { passiveConverge } from "./handlers/passive-converge.js";
 import { loadConfig } from "./config.js";
 import { detectProject, detectProjectSkills } from "./project.js";
 import { buildPromptContext } from "./prompt-context.js";
@@ -227,7 +225,6 @@ export default function (pi: ExtensionAPI) {
   registerLearnMemoryCommand(pi);
   registerSyncMarkdownMemoriesCommand(pi, dbManager, globalDir, config.projectsMemoryDir, agentRoot);
   registerPreviewContextCommand(pi, store, projectStore, projectName, config);
-  registerConvergeHealthCommand(pi, store, projectStore, globalDir, projectName);
 
   // ── 10. Live session indexing ──
   pi.on("message_end", async (_event, ctx) => {
@@ -239,28 +236,10 @@ export default function (pi: ExtensionAPI) {
   // ── 11. SQLite session search + extended memory ──
   registerSessionSearchTool(pi, dbManager, config.sessionSearch ?? { variant: "legacy" });
   registerMemorySearchTool(pi, dbManager);
-  registerIndexSessionsCommand(pi);
+  registerIndexSessionsCommand(pi, globalDir);
 
-  // ── 11b. Passive vault convergence on shutdown (closes the loop) ──
-  // New/changed memory entries captured during the session are converged to
-  // the durable vault automatically — no manual `memory transfer` needed.
-  // Wiki-aware + idempotent + bounded by a timeout; never blocks/errors
-  // shutdown (best-effort). Registered BEFORE the auto-index handler (block 12)
-  // so it runs before dbManager.close().
-  if (config.passiveConverge !== false) {
-    pi.on("session_shutdown", async (_event, ctx) => {
-      try {
-        // Global store: failure / memory / user entries.
-        await passiveConverge(store, ctx.cwd ?? process.cwd(), globalDir, projectName || null);
-        // Project-scoped store (if any): converge with the project name as a tag.
-        if (projectStore) {
-          await passiveConverge(projectStore, ctx.cwd ?? process.cwd(), globalDir, projectName || null);
-        }
-      } catch {
-        // Silent fail — convergence is best-effort; never block shutdown.
-      }
-    });
-  }
+  // (11b removed — convergence moved to the knowledge-card hub; ADR-0001.
+  //  Hermes is now a pure TIER-0 foundation: store / search / flush only.)
 
   // ── 12. Auto-index session on shutdown ──
   // Registered last, so this runs after the session-flush shutdown handler and

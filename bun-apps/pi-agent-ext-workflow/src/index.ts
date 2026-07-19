@@ -83,6 +83,8 @@ export type {
 } from "./workflow.js";
 export { parseWorkflowScript, runWorkflow } from "./workflow.js";
 export { registerWorkflowCommands } from "./workflow-commands.js";
+export type { WorkflowControlToolInput, WorkflowControlToolOptions } from "./workflow-control-tool.js";
+export { createWorkflowControlTool } from "./workflow-control-tool.js";
 export {
   buildForcedWorkflowPrompt,
   colorizeWorkflow,
@@ -99,6 +101,29 @@ export {
 } from "./workflow-editor.js";
 export type { ManagedRun, WorkflowManagerOptions } from "./workflow-manager.js";
 export { WorkflowManager } from "./workflow-manager.js";
+export type { Manifest, ReadManifestOptions } from "./workflow-pack-manifest.js";
+export { readManifest, validateManifest } from "./workflow-pack-manifest.js";
+export type {
+  ResolvedWorkflow,
+  ResolvedWorkflowPack,
+  RunWorkflowScriptOptions,
+  WorkflowListResult,
+  WorkflowListRow,
+  WorkflowPackFs,
+} from "./workflow-pack.js";
+export {
+  DEFAULT_RUNS_DIR,
+  PI_WORKFLOWS_DIR,
+  PKG_WORKFLOWS_GLOB,
+  findRepoRoot,
+  listWorkflows,
+  mergeArgs,
+  resolvePackOverrides,
+  resolveRunsDir,
+  resolveWorkflowPack,
+  resolveWorkflowScript,
+  runWorkflowScript,
+} from "./workflow-pack.js";
 export type { WorkflowProjectPaths } from "./workflow-paths.js";
 export {
   WORKFLOW_HOME_RELATIVE_DIR,

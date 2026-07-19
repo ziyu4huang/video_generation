@@ -1,21 +1,19 @@
 /**
- * Plan-seed CONTRACT test — the output shape `buildPlanSeed` MUST emit so that
- * `pi-agent-ext-planning-with-files`'s plan parser (`readPlanStatus` /
- * `parsePlanMetrics`) recognizes the seeded `task_plan.md`.
+ * Plan-seed CONTRACT test — the output shape `buildPlanSeed` MUST emit so a
+ * task_plan.md consumer (a plan parser reading `### Phase` / `**Status:**`)
+ * recognizes the seeded `task_plan.md`.
  *
- * This is intentionally STANDALONE: it does NOT import planning-with-files, so
- * wayfind stays testable in isolation. It pins the exact tokens planning's
- * parser keys on (verified against
- * pi-agent-ext-planning-with-files/src/plan.ts):
+ * This is intentionally STANDALONE: it does NOT import the plan coordinator, so
+ * wayfind stays testable in isolation. It pins the exact tokens a plan parser
+ * keys on:
  *
  *   - phase heading regex: `/^###\s+Phase\b/i`   →  needs `### Phase`
  *   - status token regex:  `**Status:** pending`  (primary pending matcher)
  *
- * and the structural markers planning's own summary/agent-facing flow assumes
+ * and the structural markers a plan summary / agent-facing flow assumes
  * (`# Task Plan`, `## Goal`, `## Phases`). If any of these drift in buildPlanSeed,
- * this test fails BEFORE planning does — it is the producer-side half of the
- * grill→plan handoff contract. (The consumer-side round-trip — real buildPlanSeed
- * parsed by real readPlanStatus — lives in planning's tests/wayfind-integration.test.ts.)
+ * this test fails — it is the producer-side half of the grill→plan handoff
+ * contract.
  *
  * This complements grill.test.ts: that file covers buildPlanSeed's UNIT behavior
  * (null cases, one-phase-per-decision, skeleton); THIS file covers its CONSUMER
@@ -35,22 +33,20 @@ const GLOSSARY = [
 ];
 
 describe("WAYFIND_ACTIVE_KEY — the coordination-seam contract string", () => {
-  it("is exported and equals the globalThis key planning-with-files reads", () => {
-    // This literal MUST match the one hardcoded in
-    // pi-agent-ext-planning-with-files/src/coordination.ts. A cross-package
-    // equality assertion (planning's tests/wayfind-integration.test.ts) guards
-    // drift from the other side; here we pin the producer's half.
+  it("is exported and equals the globalThis key the plan coordinator reads", () => {
+    // This literal MUST match the one the plan coordinator reads on globalThis.
+    // Here we pin the producer's half of the seam contract.
     expect(WAYFIND_ACTIVE_KEY).toBe("__piWayfindActive");
     expect(typeof WAYFIND_ACTIVE_KEY).toBe("string");
     expect(WAYFIND_ACTIVE_KEY.length).toBeGreaterThan(0);
   });
 });
 
-describe("buildPlanSeed — output tokens planning's parser depends on", () => {
-  it("emits the planning-with-files-shaped H1 + Goal + Phases structure", () => {
+describe("buildPlanSeed — output tokens the plan parser depends on", () => {
+  it("emits the task_plan-shaped H1 + Goal + Phases structure", () => {
     const seed = buildPlanSeed(DECISIONS, GLOSSARY, "add a video relay subcommand");
     expect(seed).not.toBeNull();
-    // Structural markers planning's summary + agent flow assume.
+    // Structural markers the plan summary + agent flow assume.
     expect(seed).toContain("# Task Plan");
     expect(seed).toContain("## Goal");
     expect(seed).toContain("## Phases");

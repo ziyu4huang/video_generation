@@ -387,6 +387,31 @@ describe("setupCorrectionDetector handler", () => {
     assert.strictEqual(execCalls.length, firstCallCount, "second correction should be rate-limited");
   });
 
+  it("defers (does not drop) a correction that arrives inside the rate-limit window", async () => {
+    const pi = createMockPi();
+    setupCorrectionDetector(pi, mockStore, null, config);
+
+    // First correction fires and resets the rate-limit window.
+    fireMessageEnd("user", "don't do that");
+    fireTurnEnd([]);
+    await settle();
+    const firstCount = execCalls.length;
+    assert.ok(firstCount >= 1, "first correction should trigger");
+
+    // Second correction is detected but arrives inside the 3-turn window.
+    fireMessageEnd("user", "not like that");
+    fireTurnEnd([]); // window turn 1
+    fireTurnEnd([]); // window turn 2
+    fireTurnEnd([]); // window turn 3
+    await settle();
+    assert.strictEqual(execCalls.length, firstCount, "still rate-limited inside the window");
+
+    // Once the window opens, the deferred correction fires instead of being lost.
+    fireTurnEnd([]);
+    await settle();
+    assert.ok(execCalls.length > firstCount, "deferred correction fires after the window opens");
+  });
+
   it("syncs direct correction saves into SQLite", async () => {
     const pi = createMockPi();
     const correctionStore = {

@@ -1,5 +1,6 @@
 /**
- * pre-load-providers — inject custom LLM providers into pi's ModelRegistry.
+ * pre-load-providers — the baked LLM provider catalog + pure helpers to
+ * register it onto a ModelRegistry.
  *
  * HOW TO ADD A PROVIDER
  * ---------------------
@@ -11,14 +12,19 @@
  *   apiKey: "literal-string"         — hardcode (OK for local servers with fake keys)
  *   apiKey: { env: "MY_API_KEY" }   — read from environment variable at runtime
  *
- * HOW IT WORKS (internals)
- * ------------------------
- * ModelRegistry constructor calls the private loadModels(), not refresh().
- * We wrap loadModels() so that after the built-in catalog loads, we call the
- * real registerProvider() for every entry in PROVIDERS. registerProvider() stores
- * the config in registeredProviders, so any later refresh() replays it automatically.
+ * SIDE-EFFECT-FREE BY DESIGN
+ * ---------------------------
+ * This module has NO top-level side effects — importing PROVIDERS / resolveApiKey /
+ * registerAllProviders from anywhere (including pi-agent-cli, via `@repo/pi-agent`)
+ * must never monkey-patch anything. The actual ModelRegistry.prototype.loadModels
+ * patch lives in `./patches/pre-load-providers-patch.ts` and is applied ONLY via
+ * applyPatches() (env-gated, main()-oriented). A prior version patched the
+ * prototype right here at module scope, which meant ANY import of this file —
+ * even just `{ PROVIDERS }` — applied the patch as an ES-module evaluation side
+ * effect, double-registering every provider for pi-agent-cli's programmatic
+ * session builder (which explicitly imports PROVIDERS to AVOID that patch; see
+ * bun-apps/pi-agent-cli/src/sessions/shared.ts). Keep it that way.
  */
-import { ModelRegistry } from "@earendil-works/pi-coding-agent";
 
 // ─── Provider config ──────────────────────────────────────────────────────────
 
@@ -93,36 +99,30 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
 
 };
 
-// ─── Patch ────────────────────────────────────────────────────────────────────
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const Proto = ModelRegistry.prototype as any;
-
-// Capture real methods before any other patch can touch them.
-const _realLoadModels = Proto.loadModels as (this: unknown) => void;
-const _realRegisterProvider = Proto.registerProvider as (
-  this: unknown,
-  name: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  config: any,
-) => void;
-
 /** Resolve an ApiKey spec: a literal string, or {env} → process.env ("" if unset). */
 export function resolveApiKey(key: ApiKey, env: Record<string, string | undefined> = process.env): string {
   if (typeof key === "string") return key;
   return env[key.env] ?? "";
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-Proto.loadModels = function (this: any) {
-  _realLoadModels.call(this);
+/**
+ * Register every PROVIDERS entry onto a live ModelRegistry via its real
+ * registerProvider(name, config). Pure aside from the registry mutation the
+ * caller passes in — shared by the pre-load-providers monkey-patch
+ * (./patches/pre-load-providers-patch.ts) AND pi-agent-cli's programmatic
+ * session builder (bun-apps/pi-agent-cli/src/sessions/shared.ts), so the
+ * "baked provider catalog → registerProvider calls" logic exists in exactly
+ * one place.
+ */
+export function registerAllProviders(
+  registry: { registerProvider(name: string, config: unknown): void },
+  env: Record<string, string | undefined> = process.env,
+): void {
   for (const [name, entry] of Object.entries(PROVIDERS)) {
-    _realRegisterProvider.call(this, name, {
+    registry.registerProvider(name, {
       ...entry,
-      apiKey: resolveApiKey(entry.apiKey),
+      apiKey: resolveApiKey(entry.apiKey, env),
       models: entry.models.map((m) => ({ ...m, cost: ZERO_COST })),
     });
   }
-};
-
-export const preLoadProvidersPatchApplied = true;
+}

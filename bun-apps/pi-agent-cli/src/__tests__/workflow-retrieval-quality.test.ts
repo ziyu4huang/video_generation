@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { runWorkflowScript } from "../commands/workflow.ts";
+import { runWorkflowScript } from "@repo/pi-agent-ext-workflow";
 
 /**
  * retrieval-quality-self-improve — harness-contract tests.

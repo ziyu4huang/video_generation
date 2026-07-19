@@ -70,6 +70,20 @@ describe("checkHostDeps (mode-aware severity)", () => {
 		const r = checkHostDeps(ctx({ mode: "bundle", ...noDeps }));
 		expect(r.status).toBe("warn");
 	});
+
+	test("fails (portable) when @earendil-works/pi-agent-core is missing, even though typebox + pi-coding-agent resolve", () => {
+		const depInstalled = (spec: string) => spec !== "@earendil-works/pi-agent-core";
+		const r = checkHostDeps(ctx({ mode: "portable", depInstalled }));
+		expect(r.status).toBe("fail");
+		expect(r.detail).toContain("@earendil-works/pi-agent-core");
+	});
+
+	test("warns (bundle) when @earendil-works/pi-ai is missing", () => {
+		const depInstalled = (spec: string) => spec !== "@earendil-works/pi-ai";
+		const r = checkHostDeps(ctx({ mode: "bundle", depInstalled }));
+		expect(r.status).toBe("warn");
+		expect(r.detail).toContain("@earendil-works/pi-ai");
+	});
 });
 
 describe("checkExtensions (mode-aware)", () => {

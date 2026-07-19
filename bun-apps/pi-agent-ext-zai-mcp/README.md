@@ -64,6 +64,7 @@ Environment variables (all optional except `ZAI_API_KEY`):
 | `WEB_SEARCH_ENABLED` | `1` | Set `0` to skip `web-search-prime` |
 | `WEB_READER_ENABLED` | `1` | Set `0` to skip `web-reader` |
 | `ZREAD_ENABLED` | `1` | Set `0` to skip `zread` |
+| `ZAI_MCP_DEBUG_BANNER` | — | Debug: force the startup banner with **no** MCP connection / API key, fired immediately and mirrored to stderr. `=1` → success banner (synthetic tools); `=empty` → no-tools banner. Headless-visible (works in print/RPC where the banner widget is a no-op). |
 
 ## How it works
 

@@ -7,7 +7,7 @@ The ubiquitous language of pi-agent-ext-hermes-memory — persistent memory, ses
 ### The five stores
 
 **Memory** (`memory` target, `MEMORY.md`):
-The agent's personal notes — env facts, project conventions, tool quirks, lessons. Size-limited (default 5,000 chars), human-readable Markdown, searchable by default.
+The agent's personal notes — env facts, project conventions, tool quirks, lessons. Size-limited (default 10,000 chars), human-readable Markdown, searchable by default.
 _Avoid_: notes, log (it is the curated, bounded fact store — distinct from the `memory` *tool* and from "a memory" as a single entry)
 
 **User profile** (`user` target, `USER.md`):
@@ -87,3 +87,13 @@ _Avoid_: compaction, garbage collection, truncation (it is a semantic merge, not
 **Content scanning**:
 Every memory/skill write passes a scanner that blocks API keys, tokens, and SSH keys — preventing the LLM from being tricked into storing secrets or injection payloads later surfaced via search.
 _Avoid_: filter, sanitizer (it is a security gate on persistence)
+
+### grill-memory skill
+
+**grill-memory** (skill, `skills/grill-memory/SKILL.md`):
+A trigger-on-description Pi skill shipped from this package's `skills/` dir.
+Co-fires with the `grilling` skill during a grill — READ behavioral memory
+into each recommendation via `memory_search`, WRITE each resolved decision via
+the `grill_decision` tool (whose runtime lives in this package's
+`src/tools/grill-decision-tool.ts`). Formerly its own package
+(`pi-agent-ext-grill-memory`); merged in because the runtime was already here.

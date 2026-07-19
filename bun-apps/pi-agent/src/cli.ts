@@ -24,6 +24,8 @@
 import { main } from "@earendil-works/pi-coding-agent";
 import { applyPatches } from "./patches/index.ts";
 import { runDoctor } from "./doctor.ts";
+import { isDoctorCommand, isExtDoctorCommand } from "./cli-argv.ts";
+import { STATIC_EXTENSION_FACTORIES } from "./static-extensions.ts";
 
 // Extension loading: handled by the `ensure-extension-deps` patch (see
 // src/patches/ensure-extension-deps.ts), which creates repo-root node_modules
@@ -46,7 +48,7 @@ const argv = process.argv.slice(2);
 // `doctor` self-check: intercept BEFORE patches/main so the diagnostic runs
 // even when patches/deploys are broken. `bun src/cli.ts doctor [--json]` or
 // `./run.sh doctor`. Exits 0 (all hard checks pass) or 1 (any fail).
-if (argv[0] === "doctor" || argv.includes("--doctor")) {
+if (isDoctorCommand(argv)) {
 	// `--smoke`: opt-in runtime check that actually spawns a probe and verifies
 	// run-dir extensions load (catches the silent-no-op class the static checks
 	// miss). Default doctor stays pure/offline/fast.
@@ -62,7 +64,7 @@ if (argv[0] === "doctor" || argv.includes("--doctor")) {
 
 // `ext doctor`: per-extension health report (loads every manifest extension,
 // checks factory + tools/commands/events + cross-extension conflicts). Offline.
-if (argv[0] === "ext" && argv[1] === "doctor") {
+if (isExtDoctorCommand(argv)) {
 	const { runExtDoctor } = await import("./ext-doctor.ts");
 	const report = await runExtDoctor({ json: argv.includes("--json") });
 	process.exit(report.ok ? 0 : 1);
@@ -75,4 +77,4 @@ await applyPatches();
 // Re-slice AFTER patches so the run-dir splice (and any other process.argv
 // mutation above) reaches main(). main(args) consumes the passed array
 // directly — it does NOT re-read process.argv.
-await main(process.argv.slice(2));
+await main(process.argv.slice(2), { extensionFactories: STATIC_EXTENSION_FACTORIES });

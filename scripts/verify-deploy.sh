@@ -55,7 +55,7 @@ if [ "$NO_INSTALL" -eq 1 ]; then
   echo "${Y}·${X} bun install skipped (--no-install)"
 else
   step "bun install" "(fresh node_modules — prevents stale-symlink silent breaks)"
-  bun install >/dev/null 2>&1 || fail "bun install" "step 1: bun install"
+  bun install --cwd bun-apps >/dev/null 2>&1 || fail "bun install" "step 1: bun install"
   ok "node_modules fresh"
 fi
 

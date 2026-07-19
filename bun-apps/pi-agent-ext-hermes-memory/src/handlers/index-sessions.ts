@@ -11,7 +11,7 @@ import { AGENT_ROOT } from '../paths.js';
 
 const SESSIONS_DIR = process.env.PI_CODING_AGENT_SESSION_DIR || path.join(AGENT_ROOT, 'sessions');
 
-export function registerIndexSessionsCommand(pi: ExtensionAPI): void {
+export function registerIndexSessionsCommand(pi: ExtensionAPI, memoryDir: string): void {
   pi.registerCommand("memory-index-sessions", {
     description: "Import past Pi sessions into the search database",
     handler: async (_args, ctx: ExtensionCommandContext) => {
@@ -34,7 +34,11 @@ export function registerIndexSessionsCommand(pi: ExtensionAPI): void {
 
         ctx.ui.notify(`📁 Found ${totalFiles} session files across ${projectDirs.length} projects\n⏳ Indexing...`, 'info');
 
-        const memoryDir = path.join(AGENT_ROOT, 'pi-hermes-memory');
+        // Use the same resolved memory dir as the rest of the extension so the
+        // bulk import lands in the same sessions.db the live indexer writes to
+        // (and honors user config.memoryDir / migration). Previously this was
+        // hardcoded to AGENT_ROOT/pi-hermes-memory, which silently diverged
+        // into a second database when a user overrode the memory dir.
         const dbManager = new DatabaseManager(memoryDir);
 
         try {

@@ -37,9 +37,10 @@ import { fileURLToPath } from "node:url";
 import { missingExtensionPackages } from "./resolve.ts";
 
 const url = import.meta.url;
-// run-dir/ → pi-agent/ → bun-apps/  (mirrors resolve.ts's source-mode computation)
+// run-dir/ → pi-agent/ → bun-apps/  (mirrors resolve.ts's source-mode computation).
+// bun-apps/ IS the Bun workspace root (package.json + bun.lock + bunfig.toml live
+// here), so `bun install` must run here — NOT at the repo root.
 const bunAppsDir = pResolve(dirname(fileURLToPath(url)), "..", "..");
-const repoRoot = pResolve(bunAppsDir, "..");
 
 const missing = missingExtensionPackages(bunAppsDir);
 if (missing.length === 0) process.exit(0);
@@ -68,9 +69,9 @@ if (opt === "0" || opt === "false") {
   process.exit(1);
 }
 
-log(`running \`bun install\` at ${repoRoot} …`);
+log(`running \`bun install\` at ${bunAppsDir} (workspace root) …`);
 const res = spawnSync("bun", ["install"], {
-  cwd: repoRoot,
+  cwd: bunAppsDir,
   stdio: ["ignore", "inherit", "inherit"],
 });
 if (res.status === 0) {

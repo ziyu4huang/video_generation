@@ -81,3 +81,29 @@ _Avoid_: prompt builder, task factory (it is the shared contract between CLI + e
 **Allowlist** (`DISTILL_TOOLS` / `ADD_TOOLS` / …):
 The per-action tool set each subagent may call — pinned by a cross-package contract test that loads the real pi-obsidian extension and asserts every named tool is registered.
 _Avoid_: tool list, permissions (it is a tested per-action tool contract)
+
+### Distill pipeline (folded into zk_ingest)
+
+**Distill actions** (`zk_ingest` `action=gate|converge|status`):
+The agent-self-triggered hermes-memory bloat reducer, surfaced as actions on
+`zk_ingest` (no separate tool). `gate` deterministically filters raw entries;
+enrichment happens in the driving agent's reasoning turn; `converge` writes via
+`ingestRecords` + supersedes raw cards + adjusts the adaptive threshold.
+_Avoid:_ distill tool (it is zk_ingest actions, not a tool).
+
+**Survivors / Killed**:
+Gate outputs — survivors are entries that passed (dedup/stale/malformed filter,
+each with a reason), ready for in-context enrichment; killed are the rejected
+entries (reason: duplicate/stale/malformed).
+_Avoid:_ kept/passed, rejected/filtered.
+
+**EnrichedNote**:
+The agent-enriched shape handed to converge — id/type/title/detail/tags,
+optional dimension/confidence/supersedesCardId.
+_Avoid:_ note, card (it is the enriched-shape input to converge).
+
+**DistillState**:
+Per-vault pipeline state — adaptive threshold (N ∈ [20,200]) + run history +
+lastRun. Read via `action=status`; converge adjusts the threshold from killRate
++ passRate (high kill+pass → −5; low pass → +10; else stable) and persists.
+_Avoid:_ config, settings (it is the distill run-state + threshold + history).

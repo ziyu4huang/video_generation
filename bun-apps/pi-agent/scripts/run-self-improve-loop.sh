@@ -87,8 +87,10 @@ if [ -n "$SEEDS" ]; then
 fi
 
 if [ -n "$PROMPT" ]; then
-  # Holistic-score loop (non-pose).
-  ARGS="$ARGS,\"prompts\":[\"$PROMPT\"]}"
+  # Holistic-score loop (non-pose). jq -Rs safely JSON-encodes PROMPT (quotes,
+  # backslashes, newlines) instead of splicing it raw into the JSON string.
+  PROMPT_JSON="$(printf '%s' "$PROMPT" | jq -Rs '.')"
+  ARGS="$ARGS,\"prompts\":[$PROMPT_JSON]}"
 else
   if [ ! -f "$POSES_JSON" ]; then
     echo "error: poses.json not found at $POSES_JSON (pass --prompt instead)" >&2

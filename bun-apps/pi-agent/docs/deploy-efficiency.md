@@ -1,6 +1,12 @@
 # Deploy efficiency — baseline + Tier A optimizations
 
-> **Tech note** — recorded 2026-07-03.
+> **Tech note** — recorded 2026-07-03. Historical snapshot: `--release`/
+> `--portable` were later replaced by `--snapshot`/`--standalone`/`--exe`
+> (see `docs/deploy-cwd-trust.md`), and `scripts/build.ts` /
+> `scripts/build-extensions.ts` were folded into `scripts/deploy.ts` /
+> `scripts/lib/build-extensions.ts`. The mechanisms below (hash cache,
+> THIN externals, sourcemap opt-in) are still accurate; the flag/file names
+> in the narrative are as they were on this date.
 
 An audit of the pi-agent deploy pipeline (`scripts/build.ts`,
 `scripts/build-extensions.ts`, `scripts/deploy.ts`) for efficiency: build speed,
@@ -71,5 +77,13 @@ Verified: cold `--force` build 6/6 PASS; immediate warm run 6/6 skipped.
 
 - `./run-test.sh high` — deploy e2e across all modes (no map needed).
 - `./run-test.sh full` — incl. readonly + sibling stack baseline.
-- Hash-skip proof: `( cd bun-apps/pi-agent && bun scripts/build-extensions.ts )`
+- Hash-skip proof at the time of writing: `( cd bun-apps/pi-agent && bun scripts/build-extensions.ts )`
   twice → second run logs "skipped (hash match)" for every ext.
+  **Currently NOT exercised via `deploy.ts`**: confirmed by re-running
+  `bun scripts/deploy.ts <same-dir>` twice — 0 hash hits either time. Root
+  cause: `deploy.ts`'s `main()` unconditionally `rmSync(target, {recursive:true})`s
+  an existing target before rebuilding, deleting the `.hash` sidecars the cache
+  needs to compare against. `buildExtensions()`'s hash-cache code itself is
+  intact (see `scripts/lib/build-extensions.ts` + `scripts/lib/ext-hash.ts`)
+  — it just never gets a chance to hit under the current `deploy.ts` entry
+  point. Flagged, not fixed as part of this note.

@@ -69,9 +69,18 @@ A folder of `manifest.json` + an entry workflow script, run headless by the
 workflow sub-command (`workflow run <name|path>`) via `runWorkflow()` — a
 dispatch branch, NOT an extension: no factory, no agent session, no session
 tools. Its folder+manifest shape echoes a pi extension folder, but it is not
-loaded via `-e` and ADR 0001 never applies to it.
+loaded via `-e` and ADR 0001 never applies to it. Named resolution lives under
+`PWD/.pi/workflows/` (the project engine dir) + `bun-apps/<pkg>/workflows/`; a
+literal path reaches any folder. The run log defaults to `PWD/.pi/workflows/runs/`
+(override: `--out-dir` / `PI_WORKFLOWS_OUT_DIR`). `.claude/workflows/` is
+Claude Code's Workflow-tool dir and is NOT name-resolved here.
 _Avoid_: "extension" / "headless pack-extension" (deprecated ADR 0007 term —
 a pack is not an extension); "loaded via `-e`"
+
+**Workflow-pack resolution precedence**: the order `workflow run <name>` looks
+for a pack — absolute path → `<cwd>/workflows` → `<binDir>/workflows` → repo
+`.pi/workflows` → repo `bun-apps/<pkg>/workflows`. "Most local wins": cwd-local
+and binary-bundled packs shadow repo packs. See ADR 0008.
 
 **Meta command**:
 A typed token handled inline without a Command record (`list`, `version`,

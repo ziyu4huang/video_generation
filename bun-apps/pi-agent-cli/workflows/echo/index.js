@@ -12,7 +12,11 @@ export const meta = {
 	phases: [{ title: "Echo" }],
 };
 
-const reply = await agent("Echo back, briefly, the args object you received.", {
+// Interpolate `args` into the prompt text so the agent actually sees them —
+// the `args` global exists in the workflow scope and is returned below, but
+// only strings passed in the prompt reach the agent's view.
+const argsJson = JSON.stringify(args) ?? "none";
+const reply = await agent(`Echo back, briefly, the args object you received: ${argsJson}`, {
 	label: "echo-1",
 	phase: "Echo",
 });

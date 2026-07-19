@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { PROVIDERS, resolveApiKey } from "./pre-load-providers.ts";
+import { spawnSync } from "node:child_process";
+import { join } from "node:path";
+import { PROVIDERS, resolveApiKey, registerAllProviders } from "./pre-load-providers.ts";
 
 describe("resolveApiKey", () => {
   test("literal string → returned as-is", () => {
@@ -79,6 +81,42 @@ describe("PROVIDERS config (contract)", () => {
     const lm = PROVIDERS["lm-studio"];
     for (const m of lm.models) {
       expect(m.input).toContain("image");
+    }
+  });
+});
+
+describe("module purity (no ModelRegistry side effects)", () => {
+  test("importing pre-load-providers.ts does not patch ModelRegistry.prototype.loadModels", () => {
+    const fixture = join(import.meta.dir, "__tests__", "fixtures", "check-pre-load-providers-pure.ts");
+    // process.execPath (not the literal "bun") — spawns the running runtime
+    // itself, always present on CI (portability P2, see .github/TEST-PORTABILITY.md).
+    const proc = spawnSync(process.execPath, [fixture], { encoding: "utf8", cwd: import.meta.dir });
+    expect(proc.status).toBe(0);
+    const result = JSON.parse(proc.stdout.trim());
+    expect(result.unchanged).toBe(true);
+  });
+});
+
+describe("registerAllProviders", () => {
+  test("calls registerProvider exactly once per PROVIDERS entry", () => {
+    const calls: Array<[string, unknown]> = [];
+    const fakeRegistry = { registerProvider: (name: string, config: unknown) => calls.push([name, config]) };
+    registerAllProviders(fakeRegistry, {});
+    expect(calls.length).toBe(Object.keys(PROVIDERS).length);
+    expect(calls.map(([name]) => name).sort()).toEqual(Object.keys(PROVIDERS).sort());
+  });
+
+  test("resolves apiKey and zeroes cost for every registered model", () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const calls: Array<[string, any]> = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fakeRegistry = { registerProvider: (name: string, config: any) => calls.push([name, config]) };
+    registerAllProviders(fakeRegistry, {});
+    for (const [, config] of calls) {
+      expect(typeof config.apiKey).toBe("string");
+      for (const m of config.models) {
+        expect(m.cost).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+      }
     }
   });
 });

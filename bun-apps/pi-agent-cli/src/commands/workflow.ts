@@ -1,22 +1,20 @@
 /**
  * `workflow run <name>` — headless runner for pi-agent-ext-workflow scripts.
  *
- * This is a NON-agent meta-command: it calls `runWorkflow()` DIRECTLY (from
- * `@repo/pi-agent-ext-workflow`), bypassing the agent session pipeline
- * that `commands/zk-*.ts` and the extension sub-commands use. That is the whole
- * point — the deterministic engine (gate / retry / loopUntilDry / journaling /
- * resume) is reachable from the CLI, a script, or a hook, not only from the
- * VSCode workflow editor. See `../docs/workflow-cli.md`.
+ * This is a NON-agent meta-command: it calls the engine's shared
+ * `runWorkflowScript` DIRECTLY (from `@repo/pi-agent-ext-workflow`), bypassing
+ * the agent session pipeline that `commands/zk-*.ts` and the extension
+ * sub-commands use. That is the whole point — the deterministic engine
+ * (gate / retry / loopUntilDry / journaling / resume) is reachable from the
+ * CLI, a script, or a hook, not only from the VSCode workflow editor or the
+ * interactive `workflow` tool. See `../docs/workflow-cli.md`.
  *
- * Script resolution order (first hit wins):
- *   1. `<name>` as a literal path (absolute, or relative to cwd) when it exists.
- *   2. `.claude/workflows/<name>.js` (repo engine scripts — closed-loop-proof, …).
- *   3. `bun-apps/<pkg>/workflows/<name>.js` (package-local engine scripts).
- *   4. The literal `<name>` with a `.js` suffix tried in (2) and (3).
- *
- * `.claude/workflows/*.js` are ALSO runnable by Claude Code's own `Workflow`
- * tool (best-effort); running them HERE gives them the deterministic gates. The
- * two runtimes share the `agent()`/`phase()`/`export const meta` script syntax.
+ * The pack resolver + orchestration LIVE IN THE ENGINE (`workflow-pack.ts`) and
+ * are shared with the `workflow` tool's `name` parameter (Path B). This CLI
+ * layer is a thin wrapper: flag parsing (--args/--model/--out-dir/...), env
+ * read (PI_WORKFLOWS_OUT_DIR), and receipt printing. Resolution order, pack
+ * precedence, and args/model merging are owned by the engine — one source of
+ * truth across both entry paths.
  *
  * Flags: `--args '<JSON>'` (the script's `args` global), `--model <spec>`
  * (session main model, also the default for untagged agents), `--dry-run`
@@ -24,162 +22,21 @@
  * (logs persist by default). Global flags (`--thinking`, `--provider`, …) are
  * accepted but only `--model`/`--provider` feed the workflow agent.
  */
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { basename, join, resolve, isAbsolute, dirname } from "node:path";
+import { existsSync } from "node:fs";
 import type { ParsedArgs } from "../args.ts";
 import type { Command } from "../cli.ts";
 
-// `@repo/pi-agent-ext-workflow` is a workspace dependency. Import the
-// engine + its script parser by name so the bundler treats them as externals
+// `@repo/pi-agent-ext-workflow` is a workspace dependency. Import the shared
+// resolver + orchestration by name so the bundler treats them as externals
 // exactly like the other workspace deps (pi-obsidian, pi-file2md, …).
-import { runWorkflow, parseWorkflowScript, type WorkflowAgent } from "@repo/pi-agent-ext-workflow";
-import { readManifest, type Manifest } from "../manifest.ts";
-
-/** Where engine workflow scripts live in this repo (Claude-Code-shared). */
-const CLAUDE_WORKFLOWS_DIR = ".claude/workflows";
-/** Package-local engine workflow script directories. */
-const PKG_WORKFLOWS_GLOB = "bun-apps";
-
-export interface ResolvedWorkflow {
-	/** Absolute path to the entry script that was read (the .js/.mjs for a
-	 *  single file, or the pack's entry file for a workflow pack). */
-	path: string;
-	/** Entry script source text. */
-	script: string;
-	/** How it was resolved, for the run receipt. */
-	source: "path" | ".claude/workflows" | "package-workflows";
-	/** Present iff a workflow pack (folder + manifest.json). The manifest carries
-	 *  default args/model/thinking the runner merges under CLI flags. */
-	pack?: { manifest: Manifest; packDir: string };
-}
-
-/**
- * Resolve a workflow `<name>` (or path) to its script text. Pure + injectable
- * (readFileSync + repo root) so the contract test can exercise every branch
- * without touching the engine or an LLM.
- */
-export function resolveWorkflowScript(
-	name: string,
-	opts: { cwd?: string; read?: (p: string) => string; exists?: (p: string) => boolean } = {},
-): ResolvedWorkflow {
-	if (!name || typeof name !== "string" || !name.trim()) {
-		throw new Error(`workflow: a script name or path is required (got "${name}")`);
-	}
-	const cwd = opts.cwd ?? process.cwd();
-	const read = opts.read ?? ((p) => readFileSync(p, "utf8"));
-	const exists = opts.exists ?? ((p) => existsSync(p));
-
-	// 1. Literal path: a file OR a workflow-pack directory (manifest.json + entry).
-	const asPath = isAbsolute(name) ? name : resolve(cwd, name);
-	const pathStat = statSyncOrNull(asPath);
-	if (pathStat?.isFile()) {
-		return { path: asPath, script: read(asPath), source: "path" };
-	}
-	if (pathStat?.isDirectory()) {
-		const pack = tryResolvePack(asPath, { read, exists });
-		if (pack) return { ...pack, source: "path" };
-		// A directory that isn't a pack is an error, not a silent fall-through.
-		throw new Error(
-			`workflow: "${name}" is a directory without a manifest.json (not a workflow pack): ${asPath}`,
-		);
-	}
-
-	// Candidate names with and without the .js suffix (so `workflow run foo`
-	// and `workflow run foo.js` both work). Used only for single-file lookup.
-	const names = name.endsWith(".js") ? [name] : [`${name}.js`, name];
-
-	// 2-3. Name resolution under the workflow dirs. Per location, a workflow-pack
-	//      directory (<name>/manifest.json) wins over a same-name file — packs
-	//      are the richer, deliberate artifact.
-	const claudeRoot = findRepoRoot(cwd, exists);
-	if (claudeRoot) {
-		const claudeDir = join(claudeRoot, CLAUDE_WORKFLOWS_DIR);
-		if (exists(claudeDir)) {
-			const pack = tryResolvePack(join(claudeDir, name), { read, exists });
-			if (pack) return { ...pack, source: ".claude/workflows" };
-			for (const candidate of names) {
-				const p = join(claudeDir, candidate);
-				if (exists(p) && statSyncOrNull(p)?.isFile()) {
-					return { path: p, script: read(p), source: ".claude/workflows" };
-				}
-			}
-		}
-
-		const pkgRoot = join(claudeRoot, PKG_WORKFLOWS_GLOB);
-		if (exists(pkgRoot) && statSyncOrNull(pkgRoot)?.isDirectory()) {
-			for (const pkg of readdirSync(pkgRoot)) {
-				const pkgDir = join(pkgRoot, pkg, "workflows");
-				if (!exists(pkgDir)) continue;
-				const pack = tryResolvePack(join(pkgDir, name), { read, exists });
-				if (pack) return { ...pack, source: "package-workflows" };
-				for (const candidate of names) {
-					const p = join(pkgDir, candidate);
-					if (exists(p) && statSyncOrNull(p)?.isFile()) {
-						return { path: p, script: read(p), source: "package-workflows" };
-					}
-				}
-			}
-		}
-	}
-
-	throw new Error(
-		`workflow: script "${name}" not found.\n` +
-			`Looked for: ${asPath}\n` +
-			(claudeRoot
-				? `  ${join(claudeRoot, CLAUDE_WORKFLOWS_DIR, names[0]!)}\n` +
-					`  ${join(claudeRoot, PKG_WORKFLOWS_GLOB, "<pkg>", "workflows", names[0]!)}\n`
-				: "") +
-			`Pass an absolute path or a name under .claude/workflows/ or bun-apps/<pkg>/workflows/.`,
-	);
-}
-
-/** Stats a path, returning undefined on ENOENT/etc. Use `?.isFile()` — undefined
- *  (unlike `false`) is nullish so the optional-chaining narrows correctly. */
-function statSyncOrNull(
-	p: string,
-): { isFile: () => boolean; isDirectory: () => boolean } | undefined {
-	try {
-		return statSync(p);
-	} catch {
-		return undefined;
-	}
-}
-
-/** Resolve a workflow pack at `packDir`: validate its manifest.json (via
- *  readManifest) then read the entry script text. Returns the entry path/script
- *  + the validated manifest, or undefined when `packDir` has no manifest.json
- *  (not a pack). Throws on a malformed pack (bad manifest, or entry missing). */
-function tryResolvePack(
-	packDir: string,
-	opts: { read: (p: string) => string; exists: (p: string) => boolean },
-): { path: string; script: string; pack: { manifest: Manifest; packDir: string } } | undefined {
-	if (!opts.exists(join(packDir, "manifest.json"))) return undefined;
-	const manifest = readManifest(packDir, { read: opts.read, exists: opts.exists });
-	const entryPath = join(packDir, manifest.entry);
-	if (!opts.exists(entryPath) || !statSyncOrNull(entryPath)?.isFile()) {
-		throw new Error(`workflow: pack entry "${manifest.entry}" not found in ${packDir}`);
-	}
-	return { path: entryPath, script: opts.read(entryPath), pack: { manifest, packDir } };
-}
-
-/**
- * Walk up from `start` to the first dir containing `.claude/workflows/` or a
- * `bun-apps/` dir — the repo root for workflow-script resolution. Falls back to
- * `start` itself so an absolute-path run outside a repo still resolves the path
- * branch above. Pure (uses the injected `exists`).
- */
-function findRepoRoot(start: string, exists: (p: string) => boolean): string | undefined {
-	let dir = start;
-	for (let i = 0; i < 12; i++) {
-		if (exists(join(dir, CLAUDE_WORKFLOWS_DIR)) || exists(join(dir, PKG_WORKFLOWS_GLOB))) {
-			return dir;
-		}
-		const parent = dirname(dir);
-		if (parent === dir) break;
-		dir = parent;
-	}
-	return undefined;
-}
+import { runWorkflowScript, listWorkflows, findRepoRoot } from "@repo/pi-agent-ext-workflow";
+// pi-default model spec: reuse the SAME settings-read as `resolveLLMFromArgs`
+// (no second reader) and feed it through `resolveLLM` with NO provider/model
+// override so only user settings + the hardcoded fallback apply. The resulting
+// `provider/modelId` is forwarded to the engine as the lowest-precedence tier
+// (--model > PI_MODEL > manifest.model > pi-default).
+import { resolveLLM } from "../sessions/shared.ts";
+import { readUserDefaults } from "../sessions/passthrough.ts";
 
 /**
  * Parse the `--args` value (a JSON string, or omitted). Throws a clear error on
@@ -197,129 +54,13 @@ export function parseWorkflowArgs(raw: string | undefined): unknown {
 }
 
 /** Build the `provider/modelId` spec passed as the workflow's main model. */
-/** Shallow-merge manifest default args under CLI args (Decision 5: CLI wins).
- *  Both plain objects → merged; otherwise the CLI value replaces entirely. */
-export function mergeArgs(manifestArgs: unknown, cliArgs: unknown): unknown {
-	if (cliArgs === undefined) return manifestArgs;
-	if (manifestArgs === undefined) return cliArgs;
-	if (isPlainObject(manifestArgs) && isPlainObject(cliArgs)) {
-		return { ...(manifestArgs as Record<string, unknown>), ...(cliArgs as Record<string, unknown>) };
-	}
-	return cliArgs;
-}
-
-/** Resolve effective args/model for a run: manifest provides defaults, CLI
- *  flags override (Decision 5). Pure. */
-export function resolvePackOverrides(
-	pack: { manifest: Manifest } | undefined,
-	cli: { args?: unknown; model?: string },
-): { args: unknown; model?: string } {
-	return {
-		args: mergeArgs(pack?.manifest.args, cli.args),
-		model: cli.model ?? pack?.manifest.model,
-	};
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-	return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-/** Build the `provider/modelId` spec passed as the workflow's main model. */
-function buildMainSpec(parsed: ParsedArgs): string | undefined {
+export function buildMainSpec(parsed: ParsedArgs): string | undefined {
 	const model = parsed.model;
 	const provider = parsed.provider;
 	if (!model) return undefined;
 	// Already provider-qualified?
 	if (model.includes("/")) return model;
 	return provider ? `${provider}/${model}` : model;
-}
-
-export interface RunWorkflowScriptOptions {
-	name: string;
-	args?: unknown;
-	model?: string;
-	dryRun?: boolean;
-	persistLogs?: boolean;
-	cwd?: string;
-	/**
-	 * Injectable agent (the LLM caller). Defaults to a real WorkflowAgent; tests
-	 * pass a stub so the engine's gates run without network/LLM access. Typed to
-	 * match `Pick<WorkflowAgent, "run">` so it threads straight into runWorkflow.
-	 */
-	agent?: Pick<WorkflowAgent, "run">;
-	/**
-	 * Streaming callbacks so the CLI can show phase/agent progress. Same shapes
-	 * as runWorkflow's onPhase/onAgentEnd.
-	 */
-	onPhase?: (title: string) => void;
-	onAgentEnd?: (event: { label: string; phase?: string; result: unknown; error?: string }) => void;
-}
-
-/**
- * Core runner: resolve → (dry-run validates only) → runWorkflow. Returns the
- * engine's receipt plus the resolved script path. Exported so the contract test
- * drives it with a stub agent and no LLM.
- */
-export async function runWorkflowScript(
-	opts: RunWorkflowScriptOptions,
-): Promise<{
-	meta: { name: string; description: string };
-	result: unknown;
-	logs: string[];
-	phases: string[];
-	agentCount: number;
-	durationMs: number;
-	runId?: string;
-	scriptPath: string;
-	source: ResolvedWorkflow["source"];
-	dryRun: boolean;
-}> {
-	const resolved = resolveWorkflowScript(opts.name, { cwd: opts.cwd });
-	const { meta } = parseWorkflowScript(resolved.script);
-	const overrides = resolvePackOverrides(resolved.pack, { args: opts.args, model: opts.model });
-	// A pack identifies itself by its manifest; a single-file script by its meta.
-	const identity = resolved.pack
-		? { name: resolved.pack.manifest.name, description: resolved.pack.manifest.description }
-		: { name: meta.name, description: meta.description };
-
-	if (opts.dryRun) {
-		return {
-			meta: identity,
-			result: { validated: true },
-			logs: [
-				`dry-run: ${resolved.pack ? `pack "${identity.name}"` : `script "${meta.name}"`} parsed and validated (${resolved.path})`,
-			],
-			phases: [],
-			agentCount: 0,
-			durationMs: 0,
-			scriptPath: resolved.path,
-			source: resolved.source,
-			dryRun: true,
-		};
-	}
-
-	const receipt = await runWorkflow(resolved.script, {
-		args: overrides.args,
-		mainModel: overrides.model,
-		persistLogs: opts.persistLogs ?? true,
-		cwd: opts.cwd,
-		...(opts.agent ? { agent: opts.agent } : {}),
-		onPhase: opts.onPhase,
-		onAgentEnd: opts.onAgentEnd as any,
-	});
-
-	return {
-		meta: identity,
-		result: receipt.result,
-		logs: receipt.logs,
-		phases: receipt.phases,
-		agentCount: receipt.agentCount,
-		durationMs: receipt.durationMs,
-		runId: receipt.runId,
-		scriptPath: resolved.path,
-		source: resolved.source,
-		dryRun: false,
-	};
 }
 
 /** `workflow run <name> [options]`. */
@@ -329,14 +70,17 @@ export const workflowRunCommand: Command = {
 	details: `Usage: bun-pi-agent-cli workflow run <name> [options]
 
 Runs a workflow script through the deterministic engine (runWorkflow from
-@repo/pi-agent-ext-workflow) — the SAME engine the VSCode workflow editor
-uses, but headlessly. The engine's gate / retry / loopUntilDry / journaling /
-resume primitives are therefore reachable from the CLI, a script, or a hook.
+@repo/pi-agent-ext-workflow) — the SAME engine the VSCode workflow editor and
+the interactive \`workflow\` tool use, but headlessly. The engine's gate / retry /
+loopUntilDry / journaling / resume primitives are therefore reachable from the
+CLI, a script, or a hook.
 
-Script resolution (first hit wins):
+Script resolution (first hit wins) — shared with the \`workflow\` tool's \`name\`:
   1. <name> as a literal path (absolute or relative to cwd)
-  2. .claude/workflows/<name>.js
-  3. bun-apps/<pkg>/workflows/<name>.js
+  2. <cwd>/workflows/<name>   (portable tier; a pack folder wins over a same-name .js)
+  3. <binDir>/workflows/<name>   (binDir = dirname(process.execPath); pack-over-file)
+  4. .pi/workflows/<name>   (under the repo root; pack-over-file)
+  5. bun-apps/<pkg>/workflows/<name>
 
 Options:
   --args '<JSON>'        JSON value for the script's \`args\` global
@@ -346,32 +90,48 @@ Options:
   --thinking <level>     off|minimal|low|medium|high|xhigh
   --dry-run              parse + validate the script only (no agents, no LLM)
   --no-persist-logs      skip writing the run log to disk (logs persist by default)
+  --out-dir <dir>        run-log output dir (default PWD/.pi/workflows/runs;
+                         also via PI_WORKFLOWS_OUT_DIR env; absolute or cwd-relative)
 
 Output: a one-line receipt (run id, agents, duration, result kind) + the final
 result as JSON when --json is set.
 
 Examples:
-  bun-pi-agent-cli workflow run closed-loop-proof
-  bun-pi-agent-cli workflow run closed-loop-proof --args '{"kbFile":"mlx-movie-director-self-improve"}'
+  bun-pi-agent-cli workflow run echo
+  bun-pi-agent-cli workflow run echo --args '{"msg":"hi"}'
   bun-pi-agent-cli workflow run ./my-workflow.js --model lm-studio/google/gemma-4-26b-a4b-qat
-  bun-pi-agent-cli workflow run closed-loop-proof --dry-run`,
+  bun-pi-agent-cli workflow run echo --dry-run`,
 	run: async (parsed: ParsedArgs): Promise<void> => {
 		const name = parsed.positionals[0];
 		if (!name) {
 			console.error("Usage: workflow run <name> [--args JSON] [--model spec] [--dry-run]\n");
-			console.error("Resolve a name from .claude/workflows/ or bun-apps/<pkg>/workflows/, or pass a path.");
+			console.error("Resolve a name from <cwd>/workflows/, <binDir>/workflows/, .pi/workflows/, or bun-apps/<pkg>/workflows/, or pass a path.");
 			throw new Error("workflow run: <name> is required");
 		}
 
 		const args = parseWorkflowArgs(parsed.workflowArgs);
 		const model = buildMainSpec(parsed);
+		// Output dir precedence: --out-dir flag > PI_WORKFLOWS_OUT_DIR env > PWD/.pi default.
+		const outDir = parsed.outDir ?? process.env.PI_WORKFLOWS_OUT_DIR;
+
+		// pi-default model spec: resolveLLM with NO caller/provider override, so
+		// only user settings + the hardcoded fallback (zai/glm-5.2) apply. The
+		// engine's 4-tier precedence then picks among callerModel (--model),
+		// envModel (PI_MODEL), manifest.model, and this pi-default — surfaced in
+		// the receipt as `model` + `modelSource`.
+		const piDefault = resolveLLM({ userDefaults: await readUserDefaults() });
+		const piDefaultModel = `${piDefault.provider}/${piDefault.modelId}`;
+		const envModel = process.env.PI_MODEL;
 
 		const receipt = await runWorkflowScript({
 			name,
 			args,
-			model,
+			callerModel: model,
+			envModel,
+			piDefaultModel,
 			dryRun: parsed.dryRun,
 			persistLogs: !parsed.noPersistLogs,
+			outDir,
 			onPhase: (title) => {
 				if (parsed.verbose >= 1) console.log(`▶ phase: ${title}`);
 			},
@@ -384,6 +144,9 @@ Examples:
 		});
 
 		const resultKind = kindOf(receipt.result);
+		// `model` may be undefined when no tier produced a spec (source "none") —
+		// omit the tag entirely in that case instead of rendering `model: ?`.
+		const modelTag = receipt.model ? ` (model: ${receipt.model} [${receipt.modelSource}])` : "";
 		if (parsed.json) {
 			console.log(
 				JSON.stringify(
@@ -395,6 +158,8 @@ Examples:
 						phases: receipt.phases,
 						scriptPath: receipt.scriptPath,
 						source: receipt.source,
+						model: receipt.model,
+						modelSource: receipt.modelSource,
 						dryRun: receipt.dryRun,
 						result: receipt.result,
 					},
@@ -406,6 +171,7 @@ Examples:
 			console.log(
 				`✓ ${receipt.meta.name} — agents=${receipt.agentCount} ` +
 					`${receipt.durationMs ? `${receipt.durationMs}ms ` : ""}` +
+					`${modelTag}` +
 					`(source: ${receipt.source})` +
 					(receipt.runId ? ` run=${receipt.runId}` : "") +
 					` → ${resultKind}`,
@@ -414,71 +180,17 @@ Examples:
 	},
 };
 
-export interface WorkflowListRow {
-	source: string;
-	name: string;
-	description: string;
-	/** "pack" = folder + manifest.json; "file" = single-file .js script. */
-	kind: "pack" | "file";
-}
-
-export interface WorkflowListResult {
-	rows: WorkflowListRow[];
-	errors: { path: string; message: string }[];
-}
-
-/** Enumerate resolvable workflows under a repo root: workflow packs (folders
- *  with manifest.json) AND single-file scripts (*.js). Pack rows render from
- *  the manifest; file rows from `export const meta`. Broken packs/scripts are
- *  reported in `errors` (not dropped). */
-export function listWorkflows(claudeRoot: string): WorkflowListResult {
-	const dirs = [
-		{ label: ".claude/workflows", dir: join(claudeRoot, CLAUDE_WORKFLOWS_DIR) },
-		...readdirSyncSafe(join(claudeRoot, PKG_WORKFLOWS_GLOB)).map((pkg) => ({
-			label: `bun-apps/${pkg}/workflows`,
-			dir: join(claudeRoot, PKG_WORKFLOWS_GLOB, pkg, "workflows"),
-		})),
-	];
-	const rows: WorkflowListRow[] = [];
-	const errors: { path: string; message: string }[] = [];
-	for (const { label, dir } of dirs) {
-		if (!existsSync(dir)) continue;
-		for (const entry of readdirSyncSafe(dir)) {
-			const p = join(dir, entry);
-			const stat = statSyncOrNull(p);
-			if (stat?.isDirectory()) {
-				// A workflow pack — only when it has a manifest.json.
-				if (!existsSync(join(p, "manifest.json"))) continue;
-				try {
-					const manifest = readManifest(p);
-					rows.push({ source: label, name: manifest.name, description: manifest.description, kind: "pack" });
-				} catch (e) {
-					errors.push({ path: p, message: (e as Error).message.split("\n")[0]! });
-				}
-				continue;
-			}
-			if (!stat?.isFile() || !entry.endsWith(".js")) continue;
-			try {
-				const { meta } = parseWorkflowScript(readFileSync(p, "utf8"));
-				rows.push({ source: label, name: meta.name, description: meta.description, kind: "file" });
-			} catch (e) {
-				errors.push({ path: p, message: (e as Error).message.split("\n")[0]! });
-			}
-		}
-	}
-	return { rows, errors };
-}
-
 /** `workflow list` — enumerate resolvable workflow scripts with their metas. */
 export const workflowListCommand: Command = {
 	name: "list",
 	summary: "List resolvable workflow scripts (with name + description).",
 	details: `Usage: bun-pi-agent-cli workflow list
 
-Enumerates .claude/workflows/*.js and bun-apps/<pkg>/workflows/*.js, parsing
-each script's \`export const meta\` to print name + description. Scripts that
-fail to parse are reported as errors (not skipped silently) so a broken script
-is surfaced.`,
+Enumerates <cwd>/workflows/*, <binDir>/workflows/*, .pi/workflows/*, and
+bun-apps/<pkg>/workflows/* — both workflow packs (folders with manifest.json)
+and single-file scripts (*.js) — parsing each to print name + description.
+Entries that fail to parse are reported as errors (not skipped silently) so a
+broken artifact is surfaced.`,
 	run: async (parsed: ParsedArgs): Promise<void> => {
 		const cwd = process.cwd();
 		const claudeRoot = findRepoRoot(cwd, existsSync) ?? cwd;
@@ -503,14 +215,6 @@ is surfaced.`,
 	},
 };
 
-function readdirSyncSafe(dir: string): string[] {
-	try {
-		return readdirSync(dir);
-	} catch {
-		return [];
-	}
-}
-
 function kindOf(value: unknown): string {
 	if (value === null) return "null";
 	if (typeof value === "string") return `string (${value.length} chars)`;
@@ -523,7 +227,3 @@ function kindOf(value: unknown): string {
 		return "object";
 	}
 }
-
-// Re-export `basename` so callers/tests importing this module can derive a
-// short label from a resolved path without a second import.
-export const _basename = basename;

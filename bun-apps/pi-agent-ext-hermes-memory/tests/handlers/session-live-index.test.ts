@@ -9,6 +9,7 @@ import {
   waitForLiveSessionIndex,
   type SessionLiveIndexState,
 } from '../../src/handlers/session-live-index.js';
+import { isTransientDbError, runWithTransientRetry } from '../../src/store/db.js';
 
 describe('session live indexing handler', () => {
   let tmpDir: string;
@@ -221,5 +222,84 @@ describe('session live indexing handler', () => {
     const completed = await waitForLiveSessionIndex(5, state);
 
     assert.equal(completed, false);
+  });
+
+  describe('transient-error retry (absorbs multi-process WAL I/O blips)', () => {
+    const transientErr = () => Object.assign(new Error('disk I/O error'), { code: 'SQLITE_IOERR' });
+
+    it('isTransientDbError classifies SQLITE_BUSY / IOERR / "disk I/O error"', () => {
+      assert.equal(isTransientDbError(transientErr()), true);
+      assert.equal(isTransientDbError(Object.assign(new Error('database is locked'), { code: 'SQLITE_BUSY' })), true);
+      assert.equal(isTransientDbError(new Error('no such table: messages')), false);
+      assert.equal(isTransientDbError(null), false);
+    });
+
+    it('runWithTransientRetry retries a transient error then succeeds', async () => {
+      let calls = 0;
+      const result = await runWithTransientRetry(() => {
+        calls++;
+        if (calls < 3) throw transientErr();
+        return 'ok';
+      }, { maxAttempts: 3, sleep: async () => {} });
+      assert.equal(result, 'ok');
+      assert.equal(calls, 3);
+    });
+
+    it('runWithTransientRetry does NOT retry non-transient errors', async () => {
+      let calls = 0;
+      await assert.rejects(
+        () => runWithTransientRetry(() => { calls++; throw new Error('no such table: messages'); }, { maxAttempts: 3, sleep: async () => {} }),
+        /no such table/,
+      );
+      assert.equal(calls, 1);
+    });
+
+    it('runWithTransientRetry gives up after maxAttempts of persistent transient errors', async () => {
+      let calls = 0;
+      await assert.rejects(
+        () => runWithTransientRetry(() => { calls++; throw transientErr(); }, { maxAttempts: 3, sleep: async () => {} }),
+        /disk I\/O error/,
+      );
+      assert.equal(calls, 3);
+    });
+
+    it('scheduleLiveSessionIndex absorbs a transient I/O blip without calling onError', async () => {
+      let indexCalls = 0;
+      const fakeIndex = (): void => {
+        indexCalls++;
+        if (indexCalls < 3) throw transientErr();
+      };
+      const errors: unknown[] = [];
+      const state: SessionLiveIndexState = { inProgress: false, promise: null };
+      scheduleLiveSessionIndex(dbManager, createSnapshot([]), {
+        state,
+        delayMs: 0,
+        indexLiveSessionFn: fakeIndex,
+        sleepFn: async () => {},
+        onError: (e) => errors.push(e),
+        setTimeoutFn: (cb) => { queueMicrotask(cb); return 0; },
+      });
+      await state.promise;
+      assert.equal(indexCalls, 3, 'retried the transient blip to success');
+      assert.equal(errors.length, 0, 'transient blip absorbed — onError not called');
+    });
+
+    it('scheduleLiveSessionIndex still reports a persistent (non-transient) failure', async () => {
+      let indexCalls = 0;
+      const fakeIndex = (): void => { indexCalls++; throw new Error('no such table: messages'); };
+      const errors: unknown[] = [];
+      const state: SessionLiveIndexState = { inProgress: false, promise: null };
+      scheduleLiveSessionIndex(dbManager, createSnapshot([]), {
+        state,
+        delayMs: 0,
+        indexLiveSessionFn: fakeIndex,
+        sleepFn: async () => {},
+        onError: (e) => errors.push(e),
+        setTimeoutFn: (cb) => { queueMicrotask(cb); return 0; },
+      });
+      await state.promise;
+      assert.equal(indexCalls, 1, 'non-transient not retried');
+      assert.equal(errors.length, 1, 'persistent failure reported');
+    });
   });
 });

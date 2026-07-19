@@ -222,17 +222,17 @@ let latestCtx: StatusContext | undefined;
 const cancelledContinuationMarkers = new Set<string>();
 const STATUS_REFRESH_INTERVAL_MS = 1_000;
 
-// ─── Coordination seam (Plan A: goal ⇄ planning-with-files mutual-exclusion) ──
+// ─── Coordination seam (Plan A: goal ⇄ plan coordinator mutual-exclusion) ──
 
 /**
  * Whether a /goal is currently in the "active" (driving) state.
  *
- * Exported so planning-with-files can query it (dynamic import + fallback to
+ * Exported so the plan coordinator can query it (dynamic import + fallback to
  * false) and yield its own before_agent_start injection + agent_end
  * auto-continue to the goal, which owns iteration counting, token budget, and
  * recovery. Returns FALSE for paused / budget_limited / complete / no-goal —
- * so planning may resume its own continuation when the goal is NOT actively
- * driving (e.g. user paused the goal).
+ * so the plan coordinator may resume its own continuation when the goal is NOT
+ * actively driving (e.g. user paused the goal).
  */
 export function isGoalActive(): boolean {
 	return activeGoal?.status === "active";
@@ -283,11 +283,11 @@ const goalCompleteTool = defineTool({
 			};
 		}
 
-		// Plan A coordination seam: block goal_complete while a planning-with-files
-		// plan has open phases. The goal's own summary audit can't see plan state; this
-		// closes the gap. Release valve: /plan-done (writes the close marker →
-		// __piPlanIncomplete returns false). Best-effort: if planning-with-files isn't
-		// loaded or errors, the gate is a no-op (goal_complete proceeds).
+		// Plan A coordination seam: block goal_complete while the plan coordinator
+		// reports open phases. The goal's own summary audit can't see plan state; this
+		// closes the gap. Release valve: close the plan (→ __piPlanIncomplete returns
+		// false). Best-effort: if no plan coordinator is loaded or it errors, the
+		// gate is a no-op (goal_complete proceeds).
 		const planningReason = planningGateBlocking(ctx.cwd);
 		if (planningReason) {
 			updateGoalUsage(completedGoal, ctx);
@@ -295,7 +295,7 @@ const goalCompleteTool = defineTool({
 			updateStatus(ctx, completedGoal);
 			const rejection =
 				`Goal completion rejected: ${planningReason}. ` +
-				"Finish the remaining plan phases, or run /plan-done to close the plan, then call goal_complete again.";
+				"Finish the remaining plan phases, or close the plan, then call goal_complete again.";
 			ctx.ui.notify(rejection, "warning");
 			return {
 				content: [{ type: "text", text: rejection }],
@@ -974,11 +974,11 @@ export function isContradictoryCompletionSummary(summary: string) {
 }
 
 /**
- * Plan A coordination seam: read planning-with-files' published
+ * Plan A coordination seam: read the plan coordinator's published
  * `globalThis.__piPlanIncomplete` to decide whether goal_complete should be
  * blocked by an open (exists + not closed + incomplete-phases) plan. Returns an
- * actionable reason string, or undefined if no gate applies (planning-with-files
- * not loaded, no plan, plan closed, or all phases complete). Best-effort: a
+ * actionable reason string, or undefined if no gate applies (no plan coordinator
+ * loaded, no plan, plan closed, or all phases complete). Best-effort: a
  * peer-extension error never blocks goal_complete.
  */
 export function planningGateBlocking(cwd: string): string | undefined {
@@ -986,7 +986,7 @@ export function planningGateBlocking(cwd: string): string | undefined {
 	if (typeof fn !== "function") return undefined;
 	try {
 		if ((fn as (cwd: string) => boolean)(cwd)) {
-			return "a planning-with-files plan still has incomplete phases";
+			return "the plan still has incomplete phases";
 		}
 	} catch {
 		// best-effort: never block goal_complete on a peer-extension read error
@@ -995,11 +995,11 @@ export function planningGateBlocking(cwd: string): string | undefined {
 }
 
 /**
- * Fusion seam: read planning-with-files' published `globalThis.__piPlanSummary`
- * to surface the active plan's phase progress. When the goal drives (and
- * planning yielded its injection per Plan A), the agent would otherwise lose
- * plan visibility — this keeps the roadmap in front of it. Best-effort: empty
- * string when planning is absent / no plan / latestCtx unset / error.
+ * Fusion seam: read the plan coordinator's published `globalThis.__piPlanSummary`
+ * to surface the active plan's phase progress. When the goal drives (and the
+ * plan coordinator yielded its injection per Plan A), the agent would otherwise
+ * lose plan visibility — this keeps the roadmap in front of it. Best-effort:
+ * empty string when no plan coordinator is present / no plan / latestCtx unset / error.
  */
 export function planProgressLineFromPeer(): string {
 	const cwd = latestCtx?.cwd;
@@ -1013,12 +1013,12 @@ export function planProgressLineFromPeer(): string {
 	}
 }
 
-// Three-layer fusion guidance: teaches the agent that planning-with-files (the
+// Three-layer fusion guidance: teaches the agent that the plan coordinator (the
 // roadmap) and the `todo` tool (in-session steps) are tools to FINISH the goal,
 // not stopping points. Goal drives; the other two structure the drive.
 const THREE_LAYER_GUIDANCE =
 	"You have three cooperating layers: this /goal (drives to completion), " +
-	"planning-with-files (the cross-session phase roadmap in task_plan.md), and " +
+	"the plan coordinator (the cross-session phase roadmap in task_plan.md), and " +
 	"the `todo` tool (in-session step tracking). Use the plan as your roadmap " +
 	"and todo to track steps — neither is a stopping point; they are tools to finish this goal.";
 

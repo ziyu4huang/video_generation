@@ -1,15 +1,15 @@
 /**
- * Continuous-chain orchestration — the feedback half of the pwf⇄wayfind loop.
+ * Continuous-chain orchestration — the feedback half of the plan⇄wayfind loop.
  *
- * `syncChainState` reads pwf's published `globalThis.__piPlanPhases` (per-phase
- * `{id, status, ticketIds?}`), closes any wayfind ticket whose phase reports
- * `"complete"`, and records the closure on the effort's map.md. Idempotent.
+ * `syncChainState` reads the plan coordinator's published `globalThis.__piPlanPhases`
+ * (per-phase `{id, status, ticketIds?}`), closes any wayfind ticket whose phase
+ * reports `"complete"`, and records the closure on the effort's map.md. Idempotent.
  *
- * Pure-ish: reads globalThis + fs; NEVER imports planning-with-files — the only
+ * Pure-ish: reads globalThis + fs; NEVER imports the plan coordinator — the only
  * contact surface is the globalThis keys (see ADR-0001). That keeps the two
  * extensions decoupled: wayfind closes tickets without knowing task_plan.md's
- * format, exactly as pwf publishes phase state without knowing the ticket
- * format.
+ * format, exactly as the plan coordinator publishes phase state without knowing
+ * the ticket format.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -17,10 +17,10 @@ import { buildPlanSeed, type GlossaryTerm, parseDecisions, parseGlossary, type R
 import { appendDecision, closeTicket, readMap, type Ticket } from "./map.js";
 
 /**
- * Structural mirror of pwf's `PhaseInfo` — NO cross-package import (the seam is
- * globalThis, typed structurally so the two packages never depend on each
- * other's types). `status` is widened to `string` so any unknown token simply
- * fails the `=== "complete"` check rather than failing to type-check.
+ * Structural mirror of the plan coordinator's `PhaseInfo` — NO cross-package
+ * import (the seam is globalThis, typed structurally so the two packages never
+ * depend on each other's types). `status` is widened to `string` so any unknown
+ * token simply fails the `=== "complete"` check rather than failing to type-check.
  */
 interface PlanPhaseInfo {
   id: string;
@@ -42,17 +42,17 @@ function findTicketByRef(tickets: Ticket[], ref: string): Ticket | undefined {
 }
 
 /**
- * Close wayfind tickets whose planning-with-files phase reports complete — the
- * feedback half of the continuous chain loop (ADR-0001).
+ * Close wayfind tickets whose plan phase reports complete — the feedback half
+ * of the continuous chain loop (ADR-0001).
  *
  * Reads `globalThis.__piPlanPhases(cwd)`; for each complete phase's `ticketIds`,
  * closes the matching ticket (status → "closed", resolution set) and appends a
  * one-line decision to the effort's `map.md`.
  *
  * Idempotent: already-closed tickets are skipped (no duplicate decision line).
- * Graceful: returns `{closed:[], skipped:[]}` when pwf is absent
- * (`__piPlanPhases` undefined), no map exists, or no complete phase references a
- * ticket.
+ * Graceful: returns `{closed:[], skipped:[]}` when no plan coordinator is
+ * present (`__piPlanPhases` undefined), no map exists, or no complete phase
+ * references a ticket.
  */
 export function syncChainState(cwd: string, effort: string): ChainSyncResult {
   const reader = (globalThis as Record<string, unknown> | undefined)?.__piPlanPhases;
@@ -76,7 +76,7 @@ export function syncChainState(cwd: string, effort: string): ChainSyncResult {
       skipped.push(ref);
       continue;
     }
-    const resolution = "Closed by /wayfind sync — its planning-with-files phase reported complete.";
+    const resolution = "Closed by /wayfind sync — its plan phase reported complete.";
     if (closeTicket(cwd, effort, ticket, resolution)) {
       appendDecision(cwd, effort, {
         title: ticket.title,
@@ -113,10 +113,10 @@ function topoSortTickets(tickets: Ticket[]): Ticket[] {
   return result;
 }
 
-/** Flatten a wayfind ticket set into a planning-with-files `task_plan.md` body —
- *  the forward half of the chain. Lossless: every ticket becomes a phase, in
- *  dependency order, carrying its `What to build` + acceptance criteria. Phase
- *  headers embed the ticket stem (`[id-slug]`) so pwf's `readPlanPhases` +
+/** Flatten a wayfind ticket set into a `task_plan.md` body — the forward half of
+ *  the chain. Lossless: every ticket becomes a phase, in dependency order,
+ *  carrying its `What to build` + acceptance criteria. Phase headers embed the
+ *  ticket stem (`[id-slug]`) so the plan coordinator's `readPlanPhases` +
  *  wayfind's `syncChainState` can close the originating ticket when the phase
  *  completes (ADR-0001 round-trip). */
 export function flattenTicketsToPlan(tickets: Ticket[], glossary: GlossaryTerm[]): string {

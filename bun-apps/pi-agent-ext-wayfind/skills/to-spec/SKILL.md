@@ -58,4 +58,4 @@ Anything else worth recording.
 
 </spec-template>
 
-Once the spec is written, the natural next step is `to-tickets` (slice it into tracer-bullet tickets) and from there into the planning-with-files execution substrate.
+Once the spec is written, the natural next step is `to-tickets` (slice it into tracer-bullet tickets) and from there into the plan coordinator's execution substrate.
