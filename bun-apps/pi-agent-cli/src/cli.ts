@@ -479,15 +479,7 @@ async function main(): Promise<void> {
       const KP_SUBS = new Set(["status", "run", "dry-run", "lint"]);
       if (pname && KP_SUBS.has(pname)) {
         // Keep the sub-command as positionals[0]; only strip the `pipeline` token.
-        await runAgentCommand(
-          {
-            name: "pipeline",
-            summary: knowledgePipelineCommand.summary,
-            details: knowledgePipelineCommand.details,
-            run: knowledgePipelineCommand.run,
-          },
-          withoutIndices(stripped, [cmdIdx]),
-        );
+        await runAgentCommand(knowledgePipelineCommand, withoutIndices(stripped, [cmdIdx]));
         return;
       }
       if (!pname) {
