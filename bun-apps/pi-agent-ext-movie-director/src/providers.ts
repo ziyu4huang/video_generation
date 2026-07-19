@@ -234,53 +234,18 @@ export function _setFlux2BinaryForTest(v: boolean | undefined): void {
   flux2BinaryCached = v;
 }
 
-// ─── python import probe (whisper / clip deps honesty) ──────────────────────
-
-/**
- * Cached `python -c "<importStmt>"` probe. The whisper/clip adapters
- * resolve a python binary (a venv or the "python3" PATH fallback); the PRIOR
- * probe assumed "python3" had the deps (a false-positive when system python3
- * lacks mlx_whisper / torch / spandrel → generation then ImportError'd). This
- * probe asks the resolved python whether it can actually import the module, so
- * "callable" is honest. Spawned once per (python, importStmt), then cached.
- */
-const importProbeCache = new Map<string, boolean>();
-function pythonImportsModule(py: string, importStmt: string): boolean {
-  const key = `${py}::${importStmt}`;
-  const cached = importProbeCache.get(key);
-  if (cached !== undefined) return cached;
-  try {
-    const r = spawnSync(py, ["-c", importStmt], {
-      stdio: ["ignore", "ignore", "ignore"],
-      timeout: 20_000,
-      encoding: "utf8",
-    });
-    const ok = r.status === 0;
-    importProbeCache.set(key, ok);
-    return ok;
-  } catch {
-    importProbeCache.set(key, false);
-    return false;
-  }
-}
-/** Force an import-probe result (tests inject a deterministic value). */
-export function _setImportProbeForTest(py: string, importStmt: string, v: boolean | undefined): void {
-  const key = `${py}::${importStmt}`;
-  if (v === undefined) importProbeCache.delete(key);
-  else importProbeCache.set(key, v);
-}
-
 /**
  * Runtime availability for a provider. Authoritative: a provider is callable iff
  * this returns true. The static `configured` is the declarative baseline (which
  * already marks GAPs / unimplemented providers false); the probe refines it for
  * every strategy with an environment/disk signal: ffmpeg (binary on PATH), fetch
  * (cloud API key), the swift directors (built binary on disk), run.py (venv+
- * run.py present), whisper/clip (a real python that imports its deps),
- * and the compose runtimes (remotion binary / motion filters). Thus a cloud
- * provider upgrades to callable when its key appears; an ffmpeg/swift provider
- * downgrades when its binary is gone; the python adapters downgrade when their
- * venv is absent or lacks the deps. bun:builtin (subtitle_gen) honors its flag.
+ * run.py present), whisper/clip (built swift binary on disk), LM Studio
+ * (caption server reachable), and the compose runtimes (remotion binary /
+ * motion filters). Thus a cloud provider upgrades to callable when its key
+ * appears; an ffmpeg/swift provider downgrades when its binary is gone;
+ * run.py providers downgrade when the venv is absent. bun:builtin (subtitle_gen)
+ * honors its flag.
  */
 export function probeConfigured(entry: ProviderEntry, env: Record<string, string | undefined> = process.env): boolean {
   switch (entry.invoke) {
@@ -295,8 +260,8 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
     case "macos:say":
       return entry.configured && process.platform === "darwin";
     case "bun:whisper":
-      // callable iff we can resolve BOTH a python binary and the entry script.
-      // (cheap: stat only — we do NOT import mlx_whisper on every probe.)
+      // callable iff the built ltx-video binary is on disk (the transcribe
+      // subcommand lives in swift/ltx-video-director). Cheap: stat only.
       return entry.configured && whisperRuntimePresent(env);
     case "bun:clip":
       // callable iff the built swift/clip-director binary is on disk.
@@ -787,9 +752,9 @@ export function _setVisionRuntimeForTest(script: "clip", v: boolean | undefined)
 export interface ClipOptions {
   /**
    * Pre-sampled frame image paths. If absent, the adapter samples `numFrames`
-   * evenly-spaced frames from `video` via ffmpeg (the CLIP entry does the same
-   * when --video is passed, but Bun-side sampling keeps the python entry stateless
-   * about ffmpeg timing and lets the agent re-use the frames artifact).
+   * evenly-spaced frames from `video` via ffmpeg. Bun-side sampling keeps the
+   * clip binary stateless about ffmpeg timing and lets the agent re-use the
+   * frames artifact.
    */
   frames?: string[];
   /** Video path — sampled into `numFrames` frames when `frames` is absent. */
@@ -806,7 +771,7 @@ export interface ClipOptions {
   _spawnImpl?: (cmd: string, argv: string[]) => Promise<number>;
 }
 
-/** Normalized shape emitted by clip_understand.py. */
+/** Normalized shape emitted by the `clip` swift binary (parse target). */
 export interface ClipResult {
   ok: boolean;
   error?: string;
