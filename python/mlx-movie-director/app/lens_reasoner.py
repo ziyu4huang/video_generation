@@ -82,7 +82,7 @@ _DEFAULT_API_URL = "http://localhost:1234/v1"
 # TEXT prompt-rewriting gemma is the stronger instruction follower). NOTE:
 # gemma-4-26b is a REASONING model — it emits <think> tokens before the answer,
 # so max_tokens must leave room for BOTH reasoning and the final prompt.
-_DEFAULT_MODEL = "google/gemma-4-26b-a4b-qat"
+_DEFAULT_MODEL = "google/gemma-4-12b-qat"
 _DEFAULT_MAX_TOKENS = 1024
 _DEFAULT_TEMPERATURE = 0.7
 _DEFAULT_TIMEOUT = 180.0

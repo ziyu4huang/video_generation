@@ -122,7 +122,7 @@ def add_storyboard_args(parser: argparse.ArgumentParser) -> None:
     # prompt/parse problem (now hardened in _vlm_verify_identity via
     # reasoning_effort:none + strict parse), not a model problem.
     parser.add_argument(
-        "--identity-judge-model", type=str, default="google/gemma-4-26b-a4b-qat",
+        "--identity-judge-model", type=str, default="google/gemma-4-12b-qat",
         dest="identity_judge_model",
         help="Local VLM model id for the multi-image identity judge "
              "(_vlm_verify_identity). Default the gemma brain — the same local "
@@ -688,7 +688,7 @@ def _resolve_identity_judge_model(api_url: str, args: argparse.Namespace) -> str
     shared ``--vlm-model`` or the gemma brain resolver (so the loop still runs)
     rather than None-binding.
     """
-    preferred = getattr(args, "identity_judge_model", None) or "google/gemma-4-26b-a4b-qat"
+    preferred = getattr(args, "identity_judge_model", None) or "google/gemma-4-12b-qat"
     available = _identity_judge_models(api_url)
     if not available or preferred in available:
         return preferred

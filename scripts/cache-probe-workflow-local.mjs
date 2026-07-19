@@ -23,7 +23,7 @@
  * If C1/D1 latency ≈ A1 (cold) → single-entry cache → transitions cost a full recompute.
  */
 const BASE_URL = process.env.LMSTUDIO_BASE_URL ?? "http://127.0.0.1:1234/v1";
-const MODEL = process.env.CACHE_PROBE_LOCAL_MODEL ?? "google/gemma-4-26b-a4b-qat";
+const MODEL = process.env.CACHE_PROBE_LOCAL_MODEL ?? "google/gemma-4-12b-qat";
 const R = 3.7;
 const tok = (s) => Math.round(s.length / R);
 

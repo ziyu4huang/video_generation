@@ -32,7 +32,7 @@ import {
 } from "./vlm/manifest.ts";
 import { resolveLLM, type ResolvedLLM } from "./sessions.ts";
 
-export const DEFAULT_VLM_MODEL = "lm-studio/google/gemma-4-26b-a4b-qat";
+export const DEFAULT_VLM_MODEL = "lm-studio/google/gemma-4-12b-qat";
 
 // Read lazily at call time (not module load) so tests / callers can set the env
 // vars any time before the pipeline runs — evaluating at load froze the values

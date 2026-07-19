@@ -48,7 +48,7 @@ const OUT_DIR = join(REPO, "output/live-zk-ask-measurements");
 // Measurement knobs (flags that make the run honest + comparable).
 const TOP_K = "4"; // hit-rate@4, matching the tag-path baseline's top-4
 const BLEND = "default"; // lexical+graph (the vault-wide default, a DECISION)
-const MODEL = process.env.ZK_ASK_MODEL ?? "lm-studio/google/gemma-4-26b-a4b-qat";
+const MODEL = process.env.ZK_ASK_MODEL ?? "lm-studio/google/gemma-4-12b-qat";
 const THINKING = process.env.ZK_ASK_THINKING ?? "off"; // local model: no reasoning tax
 const PER_QUERY_TIMEOUT_MS = Number(process.env.ZK_ASK_TIMEOUT_MS ?? 600_000); // 10 min/query
 const MAX_QUERIES = process.env.ZK_ASK_MAX ? Number(process.env.ZK_ASK_MAX) : null;

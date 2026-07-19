@@ -97,7 +97,7 @@ describe("buildBakedRegistry — pi-agent PROVIDERS baked in", () => {
 
   test("baked lm-studio is registered with the pi-agent catalog + zero cost", async () => {
     const { modelRegistry } = await buildBakedRegistry();
-    const m = modelRegistry.find("lm-studio", "google/gemma-4-26b-a4b-qat");
+    const m = modelRegistry.find("lm-studio", "google/gemma-4-12b-qat");
     expect(m).toBeDefined();
     expect(m!.baseUrl).toBe(BAKED_BASE_URL);
     expect(m!.reasoning).toBe(true);
@@ -116,7 +116,7 @@ describe("buildBakedRegistry — pi-agent PROVIDERS baked in", () => {
     // in-memory credential store has no file backend
     expect(typeof modelRuntime.getAuth).toBe("function");
     // baked lm-studio still present in hermetic mode
-    const m = modelRegistry.find("lm-studio", "google/gemma-4-26b-a4b-qat");
+    const m = modelRegistry.find("lm-studio", "google/gemma-4-12b-qat");
     expect(m).toBeDefined();
     expect(m!.baseUrl).toBe(BAKED_BASE_URL);
   });

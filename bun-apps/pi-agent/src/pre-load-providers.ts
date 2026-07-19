@@ -57,7 +57,7 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
     apiKey: "lm-studio",
     models: [
       {
-        id: "google/gemma-4-26b-a4b-qat",
+        id: "google/gemma-4-12b-qat",
         name: "Gemma 4 26B (LM Studio)",
         reasoning: true,
         input: ["text", "image"],

@@ -51,6 +51,6 @@ if __name__ == "__main__":
             continue
         print(f"\n===== {c} (gemma-4-26b harsh) =====")
         try:
-            print(ask("google/gemma-4-26b-a4b-qat", p))
+            print(ask("google/gemma-4-12b-qat", p))
         except Exception as e:
             print(f"ERROR: {e}")

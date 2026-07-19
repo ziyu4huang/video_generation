@@ -1,7 +1,7 @@
 export const meta = {
   name: 'verify-bun-pi-agent-cli',
   description: 'Dynamic end-to-end verification of bun-pi-agent-cli (resolve paths -> build bundle+sourcemap -> smoke -> regression on academic-paper fixture)',
-  whenToUse: 'Verifies the bun-pi-agent-cli bundle end-to-end and writes <runDir>/result.jsonl for compare.ts. TWO MODES selected by `stage1From`: (1) FULL baseline re-check — OMIT stage1From to re-run VLM stage1 + distill stage2 (validates both stage code paths; ~6 min; needs LM Studio + distill creds + fixture). (2) DISTILL-MODEL comparison — pass stage1From=docs/benchmarks/verify-bun-pi-agent-cli/stage1-seed-emnlp-893 to reuse the committed stage1 and SKIP the VLM (vary only the distill model; regression ~2 min / full ~5 min; needs distill creds, NOT LM Studio). ARGS: distillModel (default zai/glm-5.2), vlmModel (default lm-studio/google/gemma-4-26b-a4b-qat), regPages (1-3), fixtureName, repoRoot (default git toplevel), runRoot (default <repoRoot>/tmp, gitignored). Phases degrade gracefully (skipped + logged) when a prerequisite is absent — see the file-top comment for the full phase list, prerequisites & graceful-degradation rules.',
+  whenToUse: 'Verifies the bun-pi-agent-cli bundle end-to-end and writes <runDir>/result.jsonl for compare.ts. TWO MODES selected by `stage1From`: (1) FULL baseline re-check — OMIT stage1From to re-run VLM stage1 + distill stage2 (validates both stage code paths; ~6 min; needs LM Studio + distill creds + fixture). (2) DISTILL-MODEL comparison — pass stage1From=docs/benchmarks/verify-bun-pi-agent-cli/stage1-seed-emnlp-893 to reuse the committed stage1 and SKIP the VLM (vary only the distill model; regression ~2 min / full ~5 min; needs distill creds, NOT LM Studio). ARGS: distillModel (default zai/glm-5.2), vlmModel (default lm-studio/google/gemma-4-12b-qat), regPages (1-3), fixtureName, repoRoot (default git toplevel), runRoot (default <repoRoot>/tmp, gitignored). Phases degrade gracefully (skipped + logged) when a prerequisite is absent — see the file-top comment for the full phase list, prerequisites & graceful-degradation rules.',
   phases: [
     { title: 'Resolve', detail: 'resolve absolute paths + health-check + fresh runDir (no cwd/worktree drift)' },
     { title: 'Build', detail: 'bundle + external sourcemap; gate on success' },
@@ -30,7 +30,7 @@ const CFG = {
   fixtureName: A.fixtureName ?? '2025.emnlp-main.893.pdf',
   runRoot: A.runRoot ?? '',              // '' => <repoRoot>/tmp (gitignored; resolved in Resolve)
   distillModel: A.distillModel ?? 'zai/glm-5.2',
-  vlmModel: A.vlmModel ?? 'lm-studio/google/gemma-4-26b-a4b-qat',
+  vlmModel: A.vlmModel ?? 'lm-studio/google/gemma-4-12b-qat',
   regPages: A.regPages ?? '1-3',
   stage1From: A.stage1From ?? '',        // dir containing 1-pdf-to-md/<slug>/ to REUSE (skip VLM stage1; control variation across distill models)
 }

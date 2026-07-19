@@ -342,7 +342,7 @@ _DEFAULT_API_URL = "http://localhost:1234/v1"
 # load-flakey ([[lm-studio-vlm-load-failure]]); gemma-4-26b is already the
 # project brain + lens_reasoner default + outperforms Qwen on vision
 # (see note below). It is auto-loaded when nothing is running.
-_DEFAULT_MODEL = "google/gemma-4-26b-a4b-qat"
+_DEFAULT_MODEL = "google/gemma-4-12b-qat"
 # Preferred VLMs in priority order — first loaded one wins.
 # Gemma-4 variants outperform Qwen3-VL-4B on vision tasks; prefer any loaded
 # Gemma-4 over Qwen. Gemma is auto-loadable as the default (the brain is
@@ -350,7 +350,7 @@ _DEFAULT_MODEL = "google/gemma-4-26b-a4b-qat"
 # a4b-qat is the auto-load target (better speed/quality tradeoff for cold start).
 _PREFERRED_MODELS = [
     "google/gemma-4-31b-qat",      # best quality (31B)
-    "google/gemma-4-26b-a4b-qat",  # good quality (26B, faster) — also the default
+    "google/gemma-4-12b-qat",  # good quality (26B, faster) — also the default
 ]
 # Lightweight fallback chain — used ONLY when the default (gemma) is not
 # downloaded on this machine. Qwen3-VL-4B is the lightweight VL model that
