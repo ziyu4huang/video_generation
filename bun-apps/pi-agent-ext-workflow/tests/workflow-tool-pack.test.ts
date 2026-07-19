@@ -322,6 +322,38 @@ describe("workflow tool — no-agent script rejection (D9-8)", () => {
     // Pre-flight rejected before reaching the manager.
     expect(calls).toHaveLength(0);
   });
+
+  // The stdlib quality helpers (verify/judgePanel/loopUntilDry/completenessCheck)
+  // and nested workflow('name') spawn agents INSIDE the engine — the script text
+  // never mentions the `agent(` token. The static guard must not reject them.
+  const HELPER_ONLY_SCRIPTS: Record<string, string> = {
+    verify:
+      "export const meta = { name: 'v', description: 'd' };\nreturn await verify('claim', { reviewers: 3 });\n",
+    judgePanel:
+      "export const meta = { name: 'j', description: 'd' };\nreturn await judgePanel(['a', 'b'], { judges: 3 });\n",
+    loopUntilDry:
+      "export const meta = { name: 'l', description: 'd' };\nreturn await loopUntilDry({ round: (i) => [] });\n",
+    "nested workflow":
+      "export const meta = { name: 'n', description: 'd' };\nreturn await workflow('saved-name', { q: 1 });\n",
+  };
+
+  for (const [label, script] of Object.entries(HELPER_ONLY_SCRIPTS)) {
+    test(`background: true accepts a ${label}-only script (helpers spawn agents internally)`, async () => {
+      const { manager, calls } = recordingManager();
+      const tool = createWorkflowTool({ manager: manager as any });
+
+      await tool.execute(
+        `call-${label}`,
+        { script, background: true } as any,
+        undefined as any,
+        undefined as any,
+        {} as any,
+      );
+
+      // The guard let the script through to the manager.
+      expect(calls).toHaveLength(1);
+    });
+  }
 });
 
 describe("workflow tool — `script` XOR `name` contract", () => {

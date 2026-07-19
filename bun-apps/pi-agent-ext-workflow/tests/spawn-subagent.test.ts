@@ -197,6 +197,46 @@ describe("spawnSubagent", () => {
     assert.equal(out.exitCode, 1);
   });
 
+  // REGRESSION (2026-07 review): the REAL WorkflowAgent.run abort paths throw a
+  // plain `Error("Subagent was aborted")` — name "Error", NOT a DOMException
+  // named AbortError like the mocks above. A timeoutMs-triggered abort was
+  // classified as a generic failure (exitCode 1, timedOut:false, no retry).
+  it("timeoutMs abort with a runner-shaped Error('Subagent was aborted') → timedOut:true, 124, retried", async () => {
+    let n = 0;
+    const runner = mkRunner(async (p) => {
+      n++;
+      const sig = p.opts.signal as AbortSignal;
+      await new Promise<void>((resolve) => {
+        if (sig.aborted) resolve();
+        else sig.addEventListener("abort", () => resolve(), { once: true });
+      });
+      throw new Error("Subagent was aborted");
+    });
+    const out = await spawnSubagent({ task: "t", timeoutMs: 20, retryOnTransient: true, agent: runner });
+    assert.equal(n, 2, "a timeout is transient and must be retried once");
+    assert.equal(out.timedOut, true, "signal-driven abort must classify as a timeout");
+    assert.equal(out.exitCode, 124);
+  });
+
+  // REGRESSION (2026-07 review): usage was a tryOnce-local — a transient first
+  // attempt's tokens (largest exactly when it timed out) vanished on retry.
+  it("usage is summed across a transient failure + retry, not just the second attempt's", async () => {
+    let n = 0;
+    const runner = mkRunner(async (p) => {
+      n++;
+      const onUsage = p.opts.onUsage as ((u: Record<string, number>) => void) | undefined;
+      if (n === 1) {
+        onUsage?.({ input: 100, output: 40, cacheRead: 10, cacheWrite: 5, total: 140, cost: 0.01 });
+        throw new WorkflowError("agent timed out", WorkflowErrorCode.AGENT_TIMEOUT, { recoverable: true });
+      }
+      onUsage?.({ input: 200, output: 60, cacheRead: 20, cacheWrite: 5, total: 260, cost: 0.02 });
+      return "ok";
+    });
+    const out = await spawnSubagent({ task: "t", retryOnTransient: true, agent: runner });
+    assert.equal(n, 2);
+    assert.deepEqual(out.usage, { input: 300, output: 100, cacheRead: 30, cacheWrite: 10, total: 400, cost: 0.03 });
+  });
+
   it("onHistory is forwarded to runner.run and fires with what the runner reports", async () => {
     const fixtureHistory = [{ role: "assistant" as const, kind: "toolCall" as const, toolName: "read", text: "{}" }];
     const seen: unknown[] = [];
