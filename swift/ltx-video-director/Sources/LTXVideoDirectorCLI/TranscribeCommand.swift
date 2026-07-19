@@ -51,6 +51,9 @@ extension LTXVideoDirectorCLI {
         @Option(help: "Write the WhisperResult JSON here (also printed to stdout).")
         var output: String?
 
+        @Flag(help: "Skip per-word DTW alignment (segment-level timestamps only).")
+        var noWords: Bool = false
+
         func run() throws {
             var payload: [String: Any] = [:]
             var hasError = false
@@ -74,11 +77,14 @@ extension LTXVideoDirectorCLI {
 
                 let started = ProcessInfo.processInfo.systemUptime
                 let forced = language?.trimmingCharacters(in: .whitespaces).nilIfEmpty
-                let tx = model.transcribeSegments(mel: mel, forcedLanguage: forced)
+                let tx = model.transcribeSegments(mel: mel, forcedLanguage: forced, wordTimestamps: !noWords)
                 let elapsed = ProcessInfo.processInfo.systemUptime - started
 
-                let segs: [[String: Any]] = tx.segments.map {
-                    ["start": $0.start, "end": $0.end, "text": $0.text, "words": [[String: Any]]()]
+                let segs: [[String: Any]] = tx.segments.map { seg in
+                    let words: [[String: Any]] = seg.words.map { w in
+                        ["word": w.word, "start": w.start, "end": w.end, "probability": w.probability]
+                    }
+                    return ["start": seg.start, "end": seg.end, "text": seg.text, "words": words] as [String: Any]
                 }
                 payload = [
                     "ok": true,
