@@ -348,21 +348,22 @@ export async function resolveRunDirArgv(
 }
 
 async function resolveRunDirArgvUnfiltered(): Promise<string[]> {
-  // Compiled-binary mode: `-e` extension paths are still a no-op — pi can't
-  // load .ts extensions here (jiti feeds each extension as a base64 data: URL
-  // → Bun ENAMETOOLONG — see README "Build modes"), and import.meta.url is the
-  // $bunfs virtual scheme so the absolute-path resolution below yields garbage
-  // (e.g. BUN_APPS_DIR collapsing to "/", producing "/zai-mcp/…" non-paths).
-  // The "general productivity" extension set (goal-todo/hermes-memory/
-  // superpowers/wayfind/web-access) survives compilation instead via
-  // src/static-extensions.ts's MainOptions.extensionFactories — a native
-  // in-memory call, no jiti involved.
+  // Compiled-binary mode: emit NO -e flags — the default extension set ships
+  // as STATIC factories instead (src/static-extensions.ts, native in-memory
+  // call). Two reasons this stays -e-free even though upstream 0.80.10+ CAN
+  // load user `-e <path>.ts` in a compiled binary (jiti virtualModules +
+  // tryNative:false — verified live 2026-07-20): (1) the manifest's relative
+  // .ts entries don't exist in the $bunfs virtual FS, and (2) import.meta.url
+  // is the $bunfs scheme so the absolute-path resolution below would yield
+  // garbage (e.g. BUN_APPS_DIR collapsing to "/", producing "/zai-mcp/…"
+  // non-paths). A USER's own -e paths are untouched by this function and load
+  // fine.
   //
-  // `--skill` paths ARE compile-safe though: @earendil-works/pi-coding-agent's
-  // skill reader uses only node:fs (existsSync/readdirSync/readFileSync/
-  // statSync) — zero jiti, zero dynamic code execution — and
-  // scripts/build.ts's stageCopyAssets() ships manifest.binarySkills'
-  // directories alongside the compiled exe. Resolve them relative to
+  // `--skill` paths ARE emitted: @earendil-works/pi-coding-agent's skill
+  // reader uses only node:fs (existsSync/readdirSync/readFileSync/statSync) —
+  // zero jiti, zero dynamic code execution — and the extract-embedded-assets
+  // patch extracts manifest.binarySkills' directories to a real on-disk dir
+  // before this runs. Resolve them against that dir, falling back to
   // dirname(process.execPath) (the exe's own dir), mirroring how
   // getThemesDir()/getAssetsDir() resolve shipped assets in binary mode.
   if (mode === "binary") {
@@ -381,7 +382,7 @@ async function resolveRunDirArgvUnfiltered(): Promise<string[]> {
       }
     }
     if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
-      warn(`compiled-binary mode — extensions can't load here; emitting ${argv.length / 2} --skill flag(s)`);
+      warn(`compiled-binary mode — default extensions ship as static factories; emitting ${argv.length / 2} --skill flag(s)`);
     }
     return argv;
   }

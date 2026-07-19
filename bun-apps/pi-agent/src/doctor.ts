@@ -366,14 +366,17 @@ export async function applyFixes(
 // exits at session_start, before main() reaches the provider).
 
 /**
- * The directory whose tools the smoke probe should count as "run-dir loaded".
- * Pure (no fs). Returns null where smoke does not apply (binary can't load .ts).
+ * The marker the smoke probe greps tool sourceInfo.path for, per mode.
+ * Pure (no fs).
  *  - source:  the bun-apps dir (selfDir is .../pi-agent/src → ../.. = bun-apps)
  *  - bundle / portable: <selfDir>/ext-bundles
  *  - release: <selfDir>/packages
+ *  - binary:  "<inline:" — static-factory tools report sourceInfo.path
+ *             "<inline:<pkg-name>>"; the probe itself loading via -e also
+ *             proves the upstream jiti binary path works (0.80.10+).
  */
-export function smokeMarker(mode: DeployMode, selfDir: string): string | null {
-	if (mode === "binary") return null;
+export function smokeMarker(mode: DeployMode, selfDir: string): string {
+	if (mode === "binary") return "<inline:";
 	if (mode === "source") return resolve(selfDir, "..", "..");
 	if (mode === "release") return join(selfDir, "packages");
 	return join(selfDir, "ext-bundles"); // bundle + portable
@@ -417,9 +420,14 @@ export async function defaultSmokeSpawn(args: {
 	cwd: string;
 	env: Record<string, string | undefined>;
 	timeoutMs?: number;
+	/** Binary mode: `entry` IS the compiled exe — spawn it directly, not `bun <entry>`. */
+	exeDirect?: boolean;
 }): Promise<{ stderr: string; code: number | null }> {
 	const timeoutMs = args.timeoutMs ?? 30_000;
-	const proc = Bun.spawn(["bun", args.entry, "-e", args.probe, "-p", "hi"], {
+	const cmd = args.exeDirect
+		? [args.entry, "-e", args.probe, "-p", "hi"]
+		: ["bun", args.entry, "-e", args.probe, "-p", "hi"];
+	const proc = Bun.spawn(cmd, {
 		cwd: args.cwd,
 		env: args.env,
 		stdout: "pipe",
@@ -459,7 +467,8 @@ export async function defaultSmokeSpawn(args: {
 
 /**
  * Run the runtime-smoke check. Imperative (fs + spawn). Returns a CheckResult:
- *  - binary mode → INFO (skipped — compiled binary can't load .ts extensions)
+ *  - binary mode → spawns the exe directly; marker "<inline:" counts
+ *    static-factory tools (and the -e probe loading proves the jiti binary path)
  *  - matched > 0 → PASS (run-dir extensions loaded)
  *  - matched = 0 → FAIL (silent no-op class; the slice-bug regression)
  *  - no [SMOKE] line → FAIL (probe never fired — entry error or a heavy
@@ -469,9 +478,9 @@ export async function runSmokeCheck(ctx: DoctorContext, opts: SmokeOptions = {})
 	const id = "runtime-smoke";
 	const label = "runtime smoke (extension load)";
 	const marker = smokeMarker(ctx.mode, ctx.selfDir);
-	if (marker === null) {
-		return { id, label, status: "info", detail: "binary mode cannot load .ts extensions — smoke skipped" };
-	}
+	// Binary mode: selfDir is the non-existent $bunfs virtual dir — cwd there
+	// would fail the spawn. Use the exe's real on-disk dir instead.
+	const cwd = ctx.mode === "binary" ? dirname(ctx.entryPath) : ctx.selfDir;
 	const dir = mkdtempSync(join(tmpdir(), "pi-agent-smoke-"));
 	const probePath = join(dir, "smoke-probe.ts");
 	writeFileSync(probePath, SMOKE_PROBE);
@@ -479,8 +488,15 @@ export async function runSmokeCheck(ctx: DoctorContext, opts: SmokeOptions = {})
 	let result: { stderr: string; code: number | null };
 	try {
 		result = opts.spawn
-			? await opts.spawn({ entry: ctx.entryPath, probe: probePath, cwd: ctx.selfDir, env })
-			: await defaultSmokeSpawn({ entry: ctx.entryPath, probe: probePath, cwd: ctx.selfDir, env, timeoutMs: opts.timeoutMs });
+			? await opts.spawn({ entry: ctx.entryPath, probe: probePath, cwd, env })
+			: await defaultSmokeSpawn({
+					entry: ctx.entryPath,
+					probe: probePath,
+					cwd,
+					env,
+					timeoutMs: opts.timeoutMs,
+					exeDirect: ctx.mode === "binary",
+				});
 	} finally {
 		try {
 			rmSync(dir, { recursive: true, force: true });

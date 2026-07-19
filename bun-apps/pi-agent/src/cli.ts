@@ -25,7 +25,7 @@
 import { main } from "@earendil-works/pi-coding-agent";
 import { applyPatches } from "./patches/index.ts";
 import { runDoctor } from "./doctor.ts";
-import { isDoctorCommand, isExtDoctorCommand, userSuppressFlags } from "./cli-argv.ts";
+import { isDoctorCommand, isExtDoctorCommand, userSuppressFlags, overriddenStaticExtensions } from "./cli-argv.ts";
 import { STATIC_EXTENSION_FACTORIES } from "./static-extensions.ts";
 
 // Extension loading: handled by the `ensure-extension-deps` patch (see
@@ -84,7 +84,21 @@ await applyPatches();
 // can't turn the static factories off. Upstream pi never gates
 // extensionFactories on -ne (resource-loader loads them unconditionally), so
 // this gate is what makes `pi-agent -ne` actually mean "no injected extensions".
+//
+// A user `-e` path pointing into a static package's dir overrides the baked-in
+// factory (see overriddenStaticExtensions) — otherwise the two copies register
+// the same tool names and extension loading crashes with `Tool conflicts`.
 const userNoExtensions = userSuppressFlags(argv).noExtensions;
+const overridden = overriddenStaticExtensions(
+	argv,
+	STATIC_EXTENSION_FACTORIES.map((f) => f.name),
+);
+const factories = userNoExtensions
+	? []
+	: STATIC_EXTENSION_FACTORIES.filter((f) => !overridden.has(f.name));
+if (!userNoExtensions && overridden.size > 0) {
+	console.error(`[pi-agent] static extension(s) overridden by user -e: ${[...overridden].join(", ")}`);
+}
 await main(process.argv.slice(2), {
-	extensionFactories: userNoExtensions ? [] : STATIC_EXTENSION_FACTORIES,
+	extensionFactories: factories,
 });
