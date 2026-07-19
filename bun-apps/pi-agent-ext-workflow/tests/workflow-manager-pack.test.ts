@@ -137,3 +137,56 @@ test("workflow-tool passes pack context into ExecOptions when a pack is named (T
   expect(execFields.intermediateDir).toBe(join(packDir, "intermediate"));
   expect(execFields.outputsDir).toBe(join(packDir, "outputs"));
 });
+
+test("read/delivery path locates + delivers + deletes a pack run across stores (T5b)", async () => {
+  const cwd = mkdtempSync(join(os.tmpdir(), "mgr-cwd-"));
+  const stateRoot = mkdtempSync(join(os.tmpdir(), "pack-state-"));
+  const mgr = new WorkflowManager({ cwd, agent: mockAgent as any });
+  const { runId } = mgr.startInBackground(
+    `export const meta={name:"p",description:"d"};await agent("x");`,
+    {},
+    { stateRoot, packId: "demo-t5b" },
+  );
+  await new Promise((r) => setTimeout(r, 100));
+  // getPersistedRun finds it in the pack store, NOT the cwd store
+  const run = mgr.getPersistedRun(runId);
+  expect(run).not.toBeNull();
+  expect(run?.packId).toBe("demo-t5b");
+  expect(createRunPersistence(cwd).load(runId)).toBeNull();
+  // markDelivered stamps deliveredAt on the pack-store record
+  mgr.markDelivered(runId);
+  expect(mgr.getPersistedRun(runId)?.deliveredAt).toBeDefined();
+  // deleteRun removes it from the pack store
+  expect(mgr.deleteRun(runId)).toBe(true);
+  expect(mgr.getPersistedRun(runId)).toBeNull();
+});
+
+test("listUndelivered includes a finished pack run from a cached pack store (T5b)", async () => {
+  const cwd = mkdtempSync(join(os.tmpdir(), "mgr-cwd-"));
+  const stateRoot = mkdtempSync(join(os.tmpdir(), "pack-state-"));
+  const mgr = new WorkflowManager({ cwd, agent: mockAgent as any });
+  const { runId } = mgr.startInBackground(
+    `export const meta={name:"p",description:"d"};await agent("x");`,
+    {},
+    { stateRoot, packId: "demo-t5b-list" },
+  );
+  await new Promise((r) => setTimeout(r, 100));
+  expect(mgr.listUndeliveredCompletedBackgroundRuns().some((r) => r.runId === runId)).toBe(true);
+});
+
+test("a pack run's persisted exec carries stateRoot + packId so resume routes to the pack store (T5b)", async () => {
+  const cwd = mkdtempSync(join(os.tmpdir(), "mgr-cwd-"));
+  const stateRoot = mkdtempSync(join(os.tmpdir(), "pack-state-"));
+  const mgr = new WorkflowManager({ cwd, agent: mockAgent as any });
+  const { runId } = mgr.startInBackground(
+    `export const meta={name:"p",description:"d"};await agent("x");`,
+    {},
+    { stateRoot, packId: "demo-t5b-exec", intermediateDir: join(stateRoot, "intermediate"), outputsDir: join(stateRoot, "outputs"), io: { intermediate: { persist: true } } },
+  );
+  await new Promise((r) => setTimeout(r, 100));
+  const run = mgr.getPersistedRun(runId);
+  expect(run?.exec?.stateRoot).toBe(stateRoot);
+  expect(run?.exec?.packId).toBe("demo-t5b-exec");
+  expect(run?.exec?.intermediateDir).toBe(join(stateRoot, "intermediate"));
+  expect(run?.exec?.io?.intermediate?.persist).toBe(true);
+});

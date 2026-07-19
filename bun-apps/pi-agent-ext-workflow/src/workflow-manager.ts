@@ -121,8 +121,8 @@ export interface WorkflowManagerOptions {
 
 /** Project the serializable caps out of ExecOptions (drops signals/callbacks). */
 function toPersistedExec(exec: ExecOptions): PersistedExecOptions {
-  const { maxAgents, agentTimeoutMs, tokenBudget, concurrency, agentRetries } = exec;
-  return { maxAgents, agentTimeoutMs, tokenBudget, concurrency, agentRetries };
+  const { maxAgents, agentTimeoutMs, tokenBudget, concurrency, agentRetries, packId, stateRoot, intermediateDir, outputsDir, io } = exec;
+  return { maxAgents, agentTimeoutMs, tokenBudget, concurrency, agentRetries, packId, stateRoot, intermediateDir, outputsDir, io };
 }
 
 export class WorkflowManager extends EventEmitter {
@@ -139,6 +139,22 @@ export class WorkflowManager extends EventEmitter {
       this.persistences.set(stateRoot, p);
     }
     return p;
+  }
+
+  /** Locate a run across stores: the cwd store first, then cached pack stores.
+   *  Covers in-session delivery/resume/delete of pack runs — the pack store is
+   *  cached the moment executeRun starts the run in this process, so a background
+   *  pack run that finishes in-session is found here. Cross-session pack-run
+   *  redelivery (originating session closed before finish → cold cache) needs a
+   *  pack-store registry / fs scan and is deferred to Plan C. */
+  private locateRun(runId: string): { run: PersistedRunState; persistence: RunPersistence } | null {
+    const cwdHit = this.persistence.load(runId);
+    if (cwdHit) return { run: cwdHit, persistence: this.persistence };
+    for (const p of this.persistences.values()) {
+      const r = p.load(runId);
+      if (r) return { run: r, persistence: p };
+    }
+    return null;
   }
 
   private cwd: string;
@@ -647,9 +663,11 @@ export class WorkflowManager extends EventEmitter {
     if (active?.status === "running") return false;
     if (active?.status === "aborted") return false;
 
-    const persisted = this.persistence.load(runId);
+    const located = this.locateRun(runId);
+    const persisted = located?.run ?? null;
     if (!persisted?.script || persisted.status === "completed" || persisted.status === "aborted") return false;
-    const lease = this.persistence.acquireRunLease(runId);
+    const persistence = located?.persistence ?? this.persistence;
+    const lease = persistence.acquireRunLease(runId);
     if (!lease) return false;
 
     const controller = new AbortController();
@@ -734,7 +752,7 @@ export class WorkflowManager extends EventEmitter {
    * is still retrievable. Returns null if the run id is unknown in this project.
    */
   getPersistedRun(runId: string): PersistedRunState | null {
-    return this.persistence.load(runId);
+    return this.locateRun(runId)?.run ?? null;
   }
 
   /**
@@ -745,10 +763,10 @@ export class WorkflowManager extends EventEmitter {
    * exactly once across the process lifetime + across sessions.
    */
   markDelivered(runId: string): void {
-    const run = this.persistence.load(runId);
-    if (!run) return;
+    const located = this.locateRun(runId);
+    if (!located) return;
     try {
-      this.persistence.save({ ...run, deliveredAt: new Date().toISOString() });
+      located.persistence.save({ ...located.run, deliveredAt: new Date().toISOString() });
     } catch {
       // Best-effort: a failed mark just means the run may redeliver once more — harmless.
     }
@@ -763,8 +781,11 @@ export class WorkflowManager extends EventEmitter {
    * not eligible); recover those via `/workflows result <id>`.
    */
   listUndeliveredCompletedBackgroundRuns(): PersistedRunState[] {
-    return this.persistence
-      .list()
+    // Scan the cwd store + every cached pack store so an in-session pack run
+    // that finished is redeliverable. Cross-session pack runs (cold cache) are a
+    // known gap (Plan C: needs a pack-store registry / fs scan).
+    const all = [this.persistence, ...this.persistences.values()].flatMap((p) => p.list());
+    return all
       .filter((r) => r.background === true && r.status === "completed" && !r.deliveredAt)
       .sort((a, b) => (a.completedAt ?? a.updatedAt).localeCompare(b.completedAt ?? b.updatedAt));
   }
@@ -783,7 +804,8 @@ export class WorkflowManager extends EventEmitter {
     const managed = this.runs.get(runId);
     if (managed) this.releaseRunLease(managed);
     this.runs.delete(runId);
-    return this.persistence.delete(runId);
+    const located = this.locateRun(runId);
+    return located ? located.persistence.delete(runId) : this.persistence.delete(runId);
   }
 
   /**

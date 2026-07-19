@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSyn
 import { join } from "node:path";
 import type { AgentHistoryEntry } from "./agent-history.js";
 import type { WorkflowErrorCode } from "./errors.js";
+import type { ManifestIo } from "./workflow-pack-manifest.js";
 import { workflowProjectPaths } from "./workflow-paths.js";
 
 export type RunStatus = "pending" | "running" | "paused" | "completed" | "failed" | "aborted";
@@ -39,6 +40,14 @@ export interface PersistedExecOptions {
   tokenBudget?: number | null;
   concurrency?: number;
   agentRetries?: number;
+  /** Pack identity (decision 08); absent for inline scripts. */
+  packId?: string;
+  /** Pack-local state root; routes resume() to the pack store (T5b). */
+  stateRoot?: string;
+  /** Pack dirs + io contract; re-threaded into executeRun on resume (T5b). */
+  intermediateDir?: string;
+  outputsDir?: string;
+  io?: ManifestIo;
 }
 
 export interface PersistedRunState {
