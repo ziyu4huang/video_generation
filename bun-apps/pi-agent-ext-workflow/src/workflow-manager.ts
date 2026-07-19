@@ -2,12 +2,16 @@
  * Workflow manager for background execution, pause/resume, and run management.
  */
 
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { WorkflowAgent } from "./agent.js";
 import { preview, type WorkflowSnapshot } from "./display.js";
 import { WorkflowError, WorkflowErrorCode } from "./errors.js";
 import type { HostFnRegistry } from "./host-fn-registry.js";
+import { mirrorIntermediate } from "./pack-run-context.js";
 import {
   createRunPersistence,
   generateRunId,
@@ -19,6 +23,16 @@ import {
 } from "./run-persistence.js";
 import { type JournalEntry, parseWorkflowScript, runWorkflow, type WorkflowRunResult } from "./workflow.js";
 import type { ManifestIo } from "./workflow-pack-manifest.js";
+
+/** Hash of run args for run-meta.json (decision 11). */
+function inputHash(args: unknown): string {
+  return createHash("sha256").update(JSON.stringify(args ?? null)).digest("hex").slice(0, 12);
+}
+
+/** Filesystem-safe compact ISO timestamp for output subdir naming (decision 11). */
+function compactTimestamp(d = new Date()): string {
+  return d.toISOString().replace(/[:.]/g, "-");
+}
 
 export interface ManagedRun {
   runId: string;
@@ -394,6 +408,9 @@ export class WorkflowManager extends EventEmitter {
           // Append (crash-safe-ish): keep the latest entry per index, then persist.
           managed.journal = managed.journal.filter((e) => e.index !== entry.index);
           managed.journal.push(entry);
+          if (exec.io?.intermediate?.persist && exec.intermediateDir) {
+            mirrorIntermediate(exec.intermediateDir, entry.phase, entry);
+          }
           this.persistRun(managed);
         },
         onLog: (message) => {
@@ -457,6 +474,26 @@ export class WorkflowManager extends EventEmitter {
       managed.status = "completed";
       managed.result = result;
       this.emit("complete", { runId: managed.runId, result });
+
+      // Write outputs/<ts>/result.json + run-meta.json when outputsDir is set (decision 11).
+      if (exec.outputsDir) {
+        try {
+          const ts = compactTimestamp();
+          const runOut = join(exec.outputsDir, ts);
+          mkdirSync(runOut, { recursive: true });
+          writeFileSync(join(runOut, "result.json"), JSON.stringify(result.result ?? null, null, 2));
+          writeFileSync(
+            join(runOut, "run-meta.json"),
+            JSON.stringify(
+              { runId: managed.runId, packId: managed.packId, inputHash: inputHash(args), startedAt: managed.startedAt.toISOString(), finishedAt: new Date().toISOString() },
+              null,
+              2,
+            ),
+          );
+        } catch {
+          // outputs/<ts>/ is an inspection aid, never a correctness gate.
+        }
+      }
 
       // Persist final state
       this.persistRun(managed);
