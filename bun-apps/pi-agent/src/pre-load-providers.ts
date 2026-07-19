@@ -75,6 +75,15 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
         compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
       },
       {
+        id: "google/gemma-4-12b-qat",
+        name: "Gemma 4 12B (LM Studio)",
+        reasoning: true,
+        input: ["text", "image"],
+        contextWindow: 200_000,
+        maxTokens: 16_384,
+        compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
+      },
+      {
         id: "qwen/qwen3-vl-4b",
         name: "Qwen3 VL 4B (LM Studio)",
         reasoning: true,
