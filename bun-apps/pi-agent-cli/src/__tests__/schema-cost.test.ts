@@ -12,10 +12,13 @@ import {
 	collectExtensionToolCosts,
 	collectBuiltinToolCosts,
 	resolveRepoRoot,
+	discoverExtensionEntries,
 	formatSchemaCostReport,
 	formatSchemaCostJson,
 } from "../commands/schema-cost.ts";
 import { Type } from "typebox";
+import { existsSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 
 // A realistic-ish TypeBox schema (nested object + enum + descriptions).
 const sampleDef = {
@@ -195,5 +198,31 @@ describe("formatting", () => {
 		expect(obj.totalTokens).toBe(2);
 		expect(obj.toolsRanked[0].name).toBe("x");
 		expect(obj.toolsRanked[0].approxTokens).toBe(2);
+	});
+});
+
+describe("discoverExtensionEntries (manifest-derived)", () => {
+	// repo root = walk up from the package dir
+	const root = resolveRepoRoot(join(import.meta.dir, "..", ".."));
+
+	test("covers every manifest extension and every static extension", () => {
+		const sources = new Set(discoverExtensionEntries(root).map((e) => e.source));
+		// dynamic manifest.extensions
+		for (const s of ["power-tool", "tool-gate", "flux2", "krea2", "ltx", "research-tool", "zai-mcp", "movie-director"]) {
+			expect(sources.has(s)).toBe(true);
+		}
+		// staticExtensions via the extensions/<X>.ts convention
+		for (const s of ["goal-todo", "hermes-memory", "superpowers", "wayfind", "web-access", "obsidian", "btw", "file2md", "workflow", "knowledge-card"]) {
+			expect(sources.has(s)).toBe(true);
+		}
+		// curated extra kept
+		expect(sources.has("movie-director-cost")).toBe(true);
+	});
+
+	test("every derived path exists on disk and is absolute", () => {
+		for (const e of discoverExtensionEntries(root)) {
+			expect(isAbsolute(e.path)).toBe(true);
+			expect(existsSync(e.path)).toBe(true);
+		}
 	});
 });

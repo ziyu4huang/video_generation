@@ -1,5 +1,5 @@
 /**
- * pre-load-providers-patch — wraps ModelRuntime.create() to register
+ * patches/pre-load-providers — wraps ModelRuntime.create() to register
  * pi-agent's baked PROVIDERS catalog onto every runtime the SDK constructs.
  *
  * HOW IT WORKS

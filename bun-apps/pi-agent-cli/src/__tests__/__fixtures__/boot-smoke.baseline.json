@@ -1,6 +1,6 @@
 {
-  "toolCountFloor": 29,
-  "expectedErrorSources": [],
+  "toolCountFloor": 40,
+  "expectedErrorSources": ["workflow"],
   "expectedContractFailures": [],
   "sourceMinimum": [
     "knowledge-card",
@@ -11,6 +11,9 @@
     "movie-director",
     "goal-todo",
     "file2md",
-    "power-tool"
+    "power-tool",
+    "research-tool",
+    "hermes-memory",
+    "obsidian"
   ]
 }

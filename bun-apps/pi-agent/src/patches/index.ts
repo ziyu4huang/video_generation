@@ -153,7 +153,7 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
         await import("./extract-embedded-assets.ts");
         break;
       case "pre-load-providers":
-        await import("./pre-load-providers-patch.ts");
+        await import("./pre-load-providers.ts");
         break;
       case "load-run-dir-resources":
         await import("./load-run-dir-resources.ts");

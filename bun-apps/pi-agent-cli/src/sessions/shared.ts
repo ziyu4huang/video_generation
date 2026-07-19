@@ -40,7 +40,7 @@ import obsidianExtension from "@repo/pi-agent-ext-obsidian/extensions/obsidian.t
 // programmatic-session path) via the shared registerAllProviders() helper,
 // rather than pi-agent's main()-oriented pre-load-providers PATCH (which
 // splices process.argv and is wrong for this entry point — see
-// bun-apps/pi-agent/src/patches/pre-load-providers-patch.ts). Importing
+// bun-apps/pi-agent/src/patches/pre-load-providers.ts). Importing
 // registerAllProviders here is safe: pi-agent/src/pre-load-providers.ts has no
 // import-time side effects, so this never applies that patch.
 import { registerAllProviders } from "@repo/pi-agent";
