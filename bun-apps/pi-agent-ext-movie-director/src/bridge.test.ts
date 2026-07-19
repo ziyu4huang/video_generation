@@ -17,7 +17,7 @@ import {
   type Adapter,
 } from "./bridge.ts";
 import { selectProvider, rankedProviders } from "./selector.ts";
-import { REGISTRY, type ProviderEntry } from "./registry.ts";
+import { REGISTRY, type ProviderEntry, type Capability } from "./registry.ts";
 import { probeConfigured } from "./providers.ts";
 import { defaultBinaryPath, resolveRepoRoot } from "@repo/pi-agent-ext-ltx";
 import { existsSync } from "node:fs";
@@ -665,9 +665,10 @@ describe("selectAndGenerate — selector + bridge integration (mocked)", () => {
   });
 
   it("propagates NoConfiguredProviderError for an unwired capability", async () => {
-    // music_generation has no registered provider at all (not even a GAP entry)
-    // — unlike tts, which now always resolves via the local macOS `say` fallback.
-    expect(() => selectProvider("music_generation")).toThrow();
+    // Every real Capability now has ≥1 configured provider (music_generation was
+    // the last gap — wired by local MLX MusicGen, ticket 04). Use a synthetic
+    // unknown capability to exercise the no-provider error path.
+    expect(() => selectProvider("nonexistent_capability" as Capability)).toThrow();
   });
 });
 

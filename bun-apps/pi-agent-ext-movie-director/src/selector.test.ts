@@ -100,12 +100,16 @@ describe("selectProvider", () => {
   });
 
   it("throws NoConfiguredProviderError for a genuinely unwired capability", () => {
-    expect(() => selectProvider("music_generation", { env: NO_ENV })).toThrow(NoConfiguredProviderError);
+    // music_generation WAS the last capability with no provider; it's now wired
+    // (local MLX MusicGen, ticket 04), so use a synthetic unknown capability to
+    // exercise the no-provider error path.
+    const unknown = "nonexistent_capability" as Capability;
+    expect(() => selectProvider(unknown, { env: NO_ENV })).toThrow(NoConfiguredProviderError);
     try {
-      selectProvider("music_generation", { env: NO_ENV });
+      selectProvider(unknown, { env: NO_ENV });
     } catch (err) {
       expect(err).toBeInstanceOf(NoConfiguredProviderError);
-      expect((err as NoConfiguredProviderError).capability).toBe("music_generation");
+      expect((err as NoConfiguredProviderError).capability).toBe(unknown);
     }
   });
 
