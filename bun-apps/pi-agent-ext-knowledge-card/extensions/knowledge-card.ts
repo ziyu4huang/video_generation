@@ -31,6 +31,14 @@
  * Env:
  *   OB_VAULT_PATH / OB_VAULT_DIR   vault resolution (passed through to obsidian)
  *   OB_SUBAGENT_TIMEOUT_MS         subagent timeout (default 5 min)
+ *   KC_SUBAGENT_MODEL              distill/CRUD/RAG subagent model (default
+ *                                  google/gemma-4-12b-qat — a LOCAL LM Studio
+ *                                  model, keeps knowledge-card's LLM spend
+ *                                  off the cloud bill; override per-call via
+ *                                  the tool's `model` arg). Does NOT honor the
+ *                                  sibling OB_SUBAGENT_MODEL (that one defaults
+ *                                  to a cloud model); use KC_SUBAGENT_MODEL to
+ *                                  override knowledge-card specifically.
  */
 
 import { relative, join } from "node:path";
@@ -117,6 +125,26 @@ export const RAG_TOOLS = ["obsidian", "obsidian_help"];
  *  so a future need to gate the vault-mind-dependent action behind its own
  *  allowlist has a place to land without touching call sites. */
 export const RAG_TOOLS_THREE_WAY = [...RAG_TOOLS];
+
+// ---------------------------------------------------------------------------
+// Distill / subagent model resolution.
+//
+// Knowledge-card's LLM-touching tools (zk_card CRUD, zk_ask graph-RAG) each
+// spawn an isolated subagent. The subagent model is resolved here, with this
+// precedence:
+//   1. explicit `model` arg on the tool call  — highest (caller override)
+//   2. KC_SUBAGENT_MODEL env                   — per-session / global override
+//   3. DISTILL_MODEL_DEFAULT                   — google/gemma-4-12b-qat
+//
+// The default is a LOCAL LM Studio model, deliberately: it keeps
+// knowledge-card's LLM spend off the cloud bill. The deterministic paths
+// (zk_ingest convergence, knowledge_query digest) use no model at all, so this
+// resolver only governs the two subagent-backed tools.
+// ---------------------------------------------------------------------------
+export const DISTILL_MODEL_DEFAULT = "google/gemma-4-12b-qat";
+export function resolveDistillModel(explicit?: string): string {
+	return explicit ?? process.env.KC_SUBAGENT_MODEL ?? DISTILL_MODEL_DEFAULT;
+}
 
 /** zk-ask retrieval blend mode.
  *  - default        : lexical (title/tags/body) + graph neighbors.
@@ -698,7 +726,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			model: Type.Optional(
 				Type.String({
 					description:
-						"Override the subagent's model (provider/id[:thinking]). Omit to use the pi default — mirrors the CLI --model flag.",
+						"Override the subagent's model (provider/id[:thinking]). Default: google/gemma-4-12b-qat (local LM Studio); override session-wide via KC_SUBAGENT_MODEL env. Mirrors the CLI --model flag.",
 				}),
 			),
 			exclude_tools: Type.Optional(
@@ -799,7 +827,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				cwd,
 				task,
 				tools,
-				model: params.model,
+				model: resolveDistillModel(params.model),
 				excludeTools: params.exclude_tools,
 				externalSignal: signal,
 				extensionTools: parentExtensionTools,
@@ -918,7 +946,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			model: Type.Optional(
 				Type.String({
 					description:
-						"Override the RAG subagent's model (provider/id[:thinking]). Omit to use the pi default — mirrors the CLI --model flag.",
+						"Override the RAG subagent's model (provider/id[:thinking]). Default: google/gemma-4-12b-qat (local LM Studio); override session-wide via KC_SUBAGENT_MODEL env. Mirrors the CLI --model flag.",
 				}),
 			),
 			exclude_tools: Type.Optional(
@@ -946,7 +974,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				cwd,
 				task,
 				tools: ragToolsFor(params.blend ?? "default"),
-				model: params.model,
+				model: resolveDistillModel(params.model),
 				excludeTools: params.exclude_tools,
 				externalSignal: signal,
 				extensionTools: parentExtensionTools,
