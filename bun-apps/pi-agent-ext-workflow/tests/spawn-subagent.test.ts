@@ -196,4 +196,19 @@ describe("spawnSubagent", () => {
     assert.deepEqual(out.usage, fixtureUsage);
     assert.equal(out.exitCode, 1);
   });
+
+  it("onHistory is forwarded to runner.run and fires with what the runner reports", async () => {
+    const fixtureHistory = [{ role: "assistant" as const, kind: "toolCall" as const, toolName: "read", text: "{}" }];
+    const seen: unknown[] = [];
+    const runner = mkRunner(async (p) => {
+      (p.opts.onHistory as ((h: typeof fixtureHistory) => void) | undefined)?.(fixtureHistory);
+      return "ok";
+    });
+    await spawnSubagent({
+      task: "t",
+      agent: runner,
+      onHistory: (h) => seen.push(h),
+    });
+    assert.deepEqual(seen, [fixtureHistory]);
+  });
 });

@@ -19,6 +19,7 @@
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { type AgentUsage, WorkflowAgent } from "./agent.js";
+import type { AgentHistoryEntry } from "./agent-history.js";
 import { isWorkflowError, WorkflowErrorCode } from "./errors.js";
 
 export interface SpawnSubagentPrime {
@@ -48,6 +49,12 @@ export interface SpawnSubagentOptions {
   agent?: Pick<WorkflowAgent, "run">;
   /** Host signal (e.g. tool-call Ctrl+C) that should cancel this call when fired. */
   externalSignal?: AbortSignal;
+  /**
+   * Compact live snapshot of the child's message/tool history, forwarded
+   * verbatim from `WorkflowAgent.run()`'s own `onHistory` (already throttled
+   * to ≥250ms there — no additional throttling needed here).
+   */
+  onHistory?: (history: AgentHistoryEntry[]) => void;
 }
 
 export interface SpawnSubagentResult {
@@ -109,6 +116,7 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
         onUsage: (u) => {
           usage = u;
         },
+        onHistory: opts.onHistory,
       } as Parameters<WorkflowAgent["run"]>[1]);
       // When `opts.schema` is set, `run()` returns a validated OBJECT (not a
       // string). `String(obj)` would yield "[object Object]" and silently
