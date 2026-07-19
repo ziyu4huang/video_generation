@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+########################################
+# update-superpowers.sh — sync superpowers skills/ from the plugin cache
+# (upstream verbatim), then re-apply this package's path forks. The whole
+# upstream-convergence flow is self-contained in the superpowers ext folder;
+# bun-apps/pi-agent/update-pi.sh is unrelated (it only locks the pi-* core).
+#
+# USAGE
+#   ./bun-apps/pi-agent-ext-superpowers/scripts/update-superpowers.sh [version]
+#     version  plugin version to sync (default: newest under the cache).
+#   CLAUDE_PLUGINS_CACHE  override the plugin cache root.
+########################################
+set -euo pipefail
+
+PKG="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # pi-agent-ext-superpowers/
+CACHE="${CLAUDE_PLUGINS_CACHE:-$HOME/.claude-glm/plugins/cache/claude-plugins-official/superpowers}"
+
+if [[ $# -ge 1 ]]; then
+  VER="$1"
+else
+  VER="$(ls -1 "$CACHE" 2>/dev/null | sort -V | tail -1)"
+fi
+[[ -n "$VER" ]] || { echo "error: no superpowers plugin cache at $CACHE" >&2; exit 1; }
+SRC="$CACHE/$VER/skills"
+[[ -d "$SRC" ]] || { echo "error: $SRC not found" >&2; exit 1; }
+
+echo "▶ sync skills/ from $CACHE/$VER"
+rm -rf "$PKG/skills"
+cp -R "$SRC" "$PKG/skills"
+
+echo "▶ re-apply path forks"
+"$PKG/scripts/apply-patches.sh"
+
+echo
+echo "done. review the diff:  git diff bun-apps/pi-agent-ext-superpowers/skills/"

@@ -32,7 +32,7 @@ import {
 import { buildGrillPriming } from "./grill.js";
 import type { WayfindOverlay } from "./overlay.js";
 import { getSessionId, isGrillActive, type RuntimeState } from "./state.js";
-import { chartMap, claimNextTicket, renderStatus, slugify, statusReport } from "./wayfinder.js";
+import { chartMap, claimNextTicket, effortSlug, renderStatus, statusReport } from "./wayfinder.js";
 
 const WAYFIND_KEYWORDS = new Set(["status", "spec", "tickets", "seed", "sync"]);
 
@@ -112,7 +112,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       "info",
     );
     pi.sendUserMessage(
-      `Grill ended. I seeded ${outcome.path} from ${outcome.source}. Review the phases, then execute the plan.`,
+      `Grill ended. I seeded ${outcome.path} from ${outcome.source}. Review the phases, then load the executing-plans (or subagent-driven-development) skill to execute the plan.`,
       { deliverAs: "steer" },
     );
   }
@@ -170,9 +170,12 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       `[${PKG_NAME}] Seeded ${outcome.path} (${outcome.phaseCount} phase(s), source: ${outcome.source}).`,
       "info",
     );
-    pi.sendUserMessage(`Seeded ${outcome.path} from ${outcome.source}. Review the phases, then execute the plan.`, {
-      deliverAs: "steer",
-    });
+    pi.sendUserMessage(
+      `Seeded ${outcome.path} from ${outcome.source}. Review the phases, then load the executing-plans (or subagent-driven-development) skill to execute the plan.`,
+      {
+        deliverAs: "steer",
+      },
+    );
   }
 
   async function handleToSpec(args: string, _ctx: ExtensionCommandContext): Promise<void> {
@@ -182,10 +185,8 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
         "Synthesizing a spec from the current conversation.",
         "Load the `to-spec` skill: turn what's already on the table into a spec (PRD) — no interview, just synthesis.",
         "Use the project's CONTEXT.md glossary vocabulary; respect ADRs in the area you touch.",
-        effort
-          ? `Write the spec to .planning/${effort}/spec.md.`
-          : "Write the spec to .planning/<effort>/spec.md (or docs/specs/<slug>.md).",
-        "Tell me the path when written. The natural next step is /wayfind tickets, then /wayfind seed → execute the plan.",
+        effort ? `Write the spec to .planning/${effort}/spec.md.` : "Write the spec to .planning/<effort>/spec.md.",
+        "Tell me the path when written. The natural next step is /wayfind tickets, then /wayfind seed → executing-plans.",
       ].join("\n"),
       { deliverAs: "steer" },
     );
@@ -202,7 +203,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
           ? `Write one ticket per file under .planning/${effort}/tickets/ (NN-slug.md).`
           : "Write one ticket per file under .planning/<effort>/tickets/ (NN-slug.md).",
         "Use the UNIFIED ticket format: YAML frontmatter (type/blocking/status) + ## Question + ## What to build + ## Acceptance — the same schema wayfinder uses (parseTicketFile reads it).",
-        "Then flatten the frontier into a task_plan.md with /wayfind seed, and execute the plan.",
+        "Then flatten the frontier into a task_plan.md with /wayfind seed, then load the executing-plans (or subagent-driven-development) skill to execute the plan.",
       ].join("\n"),
       { deliverAs: "steer" },
     );
@@ -261,7 +262,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       return;
     }
 
-    const effort = slugify(destination);
+    const effort = effortSlug(destination);
     chartMap(ctx.cwd, effort, destination);
     state.activeEffortBySession.set(sessionId, effort);
     publishWayfindActive(state);
