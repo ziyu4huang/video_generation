@@ -82,7 +82,7 @@ is markdown loaded on demand, not a TS handler.
   `pi.registerCommand("goal", { description, getArgumentCompletions:
   completeGoalArguments, handler })`, registered from the default factory
   `export default function goal(pi, overlay)` at `goal.ts:326`. Wired in via
-  `"pi-agent-ext-goal-todo/extensions/pi-goal-todo-ask.ts"` in
+  `"pi-agent-ext-goal-todo/extensions/goal-todo.ts"` in
   `run-dir/manifest.json`.
 
 - **Command spawning a workflow**:

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import extension, { coerceOptions } from "./pi-flux2.ts";
+import extension, { coerceOptions } from "./flux2.ts";
 import { PathSafetyError, COMMAND_LIST } from "../src/index.ts";
 
 // Wiring test for the extension factory itself — exercises the same

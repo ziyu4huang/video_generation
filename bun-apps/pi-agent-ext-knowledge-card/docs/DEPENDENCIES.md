@@ -45,7 +45,7 @@ Actual import sites in the package:
 ```ts
 // src/ingest.ts, src/retrieve.ts
 import { parseFrontmatter, validateZettelNote, ZETTEL_MAX_BYTES, ... } from "pi-obsidian/extensions/obsidian.ts";
-// extensions/pi-knowledge-card.ts
+// extensions/knowledge-card.ts
 import { runSubagentWithRetry, resolveVault } from "pi-obsidian/...";
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -73,9 +73,9 @@ The CLI shells. Each `zk-*` command imports the task builders / library directly
 
 | CLI command | Imports from `pi-knowledge-card/...` |
 | ----------- | ------------------------------------- |
-| `zk-ask.ts` | `buildRagTask`, `ragToolsFor`, `BlendMode` ← `extensions/pi-knowledge-card.ts` |
-| `zk-card.ts` | `buildAddTask` / `buildFindTask` / … ← `extensions/pi-knowledge-card.ts` |
-| `zk-extract.ts` | `buildDistillTask` + `DISTILL_TOOLS` ← `extensions/pi-knowledge-card.ts` |
+| `zk-ask.ts` | `buildRagTask`, `ragToolsFor`, `BlendMode` ← `extensions/knowledge-card.ts` |
+| `zk-card.ts` | `buildAddTask` / `buildFindTask` / … ← `extensions/knowledge-card.ts` |
+| `zk-extract.ts` | `buildDistillTask` + `DISTILL_TOOLS` ← `extensions/knowledge-card.ts` |
 | `zk-ingest.ts` | `ingestRecords`, `parseKnowledgeJsonl`, `adaptAutoMemoryMarkdown`, `formatSummary` ← `src/ingest.ts` |
 | `zk-query.ts` | `retrieveRecords`, `formatDigest`(implicit), `graphHealth`, `formatHealth`, `mergeDuplicates`, `formatMerge` ← `src/retrieve.ts` + `src/merge.ts` |
 

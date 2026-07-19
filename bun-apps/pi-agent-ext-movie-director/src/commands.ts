@@ -123,7 +123,7 @@ export function resolvePiBin(opts: { exists?: (p: string) => boolean; dir?: stri
 export function resolveExtensionPath(opts: { exists?: (p: string) => boolean; dir?: string } = {}): string {
 	const exists = opts.exists ?? existsSync;
 	const base = opts.dir ?? import.meta.dir;
-	const ext = join(base, "..", "extensions", "pi-movie-director.ts");
+	const ext = join(base, "..", "extensions", "movie-director.ts");
 	if (exists(ext)) return ext;
 	throw new Error(`agent: movie-director extension not found at ${ext}`);
 }

@@ -8,7 +8,7 @@
  * ACTUAL tool definition the LLM sees — without exporting internals.
  */
 import { test, expect } from "bun:test";
-import extensionFactory from "../pi-ltx.ts";
+import extensionFactory from "../ltx.ts";
 
 function captureTools(): Record<string, Record<string, unknown>> {
 	const tools: Record<string, Record<string, unknown>> = {};

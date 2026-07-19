@@ -1,7 +1,7 @@
 # PRD — pi-agent-ext-knowledge-card
 
 > **Current-state snapshot: 2026-07-13.** Grounded in the live extension
-> registration (`extensions/pi-knowledge-card.ts` registers **4** agent tools),
+> registration (`extensions/knowledge-card.ts` registers **4** agent tools),
 > `package.json` peer deps, and the in-flight integration roadmap. The
 > `docs/TOOL-ORCHESTRATION.md` (2026-07-10) snapshot listed 6 tools — two have
 > since moved/merged (see "Tool history" below).
@@ -70,7 +70,7 @@ at rank time → bounded callout boost applies. Drift-guarded by `retrieve.test.
 
 ## Architecture
 
-- `extensions/pi-knowledge-card.ts` — the hub: tool registration, task-builder
+- `extensions/knowledge-card.ts` — the hub: tool registration, task-builder
   single source of truth (`buildAdd/Find/Update/Remove/Rag/DistillTask`), tool
   allowlists, vault resolution (delegates to pi-obsidian's multi-tier
   `resolveVault`).

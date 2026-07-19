@@ -180,7 +180,7 @@ describe("agent command — pure helpers", () => {
 	test("buildAgentArgv forwards globals + extension + prompt", () => {
 		const argv = buildAgentArgv(parseArgs(["--model", "sonnet", "--provider", "lm-studio", "agent", "hi"]), {
 			piBin: "/p/pi-cli.ts",
-			extPath: "/e/pi-movie-director.ts",
+			extPath: "/e/movie-director.ts",
 		});
 		expect(argv[0]).toBe("bun");
 		expect(argv[1]).toBe("/p/pi-cli.ts");
@@ -188,7 +188,7 @@ describe("agent command — pure helpers", () => {
 		expect(argv).toContain("sonnet");
 		expect(argv).toContain("--provider");
 		expect(argv).toContain("-e");
-		expect(argv).toContain("/e/pi-movie-director.ts");
+		expect(argv).toContain("/e/movie-director.ts");
 		expect(argv).toContain("-p");
 		// the prompt token references the task builder output
 		const promptIdx = argv.indexOf("-p");
@@ -226,7 +226,7 @@ describe("agent command — pure helpers", () => {
 			exists: () => true,
 			dir: join(import.meta.dir, "..", "src"),
 		});
-		expect(ext).toContain("pi-movie-director.ts");
+		expect(ext).toContain("movie-director.ts");
 	});
 
 	test("resolvePiBin throws a clear error when nothing resolves", () => {

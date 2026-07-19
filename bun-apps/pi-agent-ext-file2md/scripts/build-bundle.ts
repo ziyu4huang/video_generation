@@ -78,7 +78,7 @@ import { pathToFileURL } from "node:url";
 import { findLeakedHomePaths } from "./verify-portability.ts";
 
 const APP_NAME = "pi-file2md";
-const ENTRY = "extensions/pi-file2md.ts";
+const ENTRY = "extensions/file2md.ts";
 const OUTDIR = resolve(process.cwd(), "..", "..", "dist", "pi-extensions");
 const DEFAULT_OUTFILE = `${OUTDIR}/${APP_NAME}.bundle.js`;
 
@@ -277,7 +277,7 @@ async function stageObfuscate() {
 }
 
 // ── Stage 2b: deterministic factory invocation (verify tier B) ────────────────
-// The pi-file2md factory (extensions/pi-file2md.ts) touches exactly two pi-API surfaces
+// The pi-file2md factory (extensions/file2md.ts) touches exactly two pi-API surfaces
 // at registration time — pi.on("session_start", …) and pi.registerTool({name:
 // "file2md", parameters: Type.Object({...})}). So a mock with just those
 // two methods exercises the REAL registration path, including the typebox

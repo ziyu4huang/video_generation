@@ -7,7 +7,7 @@
  * this package) instead of only being caught centrally in pi-agent.
  */
 import { describe, test, expect } from "bun:test";
-import extensionFactory from "../extensions/pi-knowledge-card.ts";
+import extensionFactory from "../extensions/knowledge-card.ts";
 
 interface ToolLike {
 	name?: string;

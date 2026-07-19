@@ -26,7 +26,7 @@
  * vacuously).
  */
 import { describe, it, expect, afterEach } from "bun:test";
-import { scheduleToolGateBanner } from "../tool-gate.ts";
+import { scheduleToolGateBanner } from "../extensions/tool-gate.ts";
 
 // ─── setTimeout shim ────────────────────────────────────────────────────────
 // Capture timers instead of waiting 5s/8s. MUST restore globalThis.setTimeout

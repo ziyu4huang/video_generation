@@ -23,7 +23,7 @@ Two open questions carried from `output/next-goal-20260711_172202.md`:
   dates, no sources) — the agent had to research and cite them itself.
 - Pipeline: `animated-explainer`, project `issyk-kul-sunken-city` (new).
 - Driver: `bun bun-apps/pi-agent/src/cli.ts --model deepseek-v4-flash
-  --thinking medium -e bun-apps/pi-agent-ext-movie-director/extensions/pi-movie-director.ts
+  --thinking medium -e bun-apps/pi-agent-ext-movie-director/extensions/movie-director.ts
   --no-extensions -p "<task prompt>"`, run from repo root, backgrounded (nohup).
 - Task prompt hard requirements (verbatim from the goal doc): (1) real web
   search, cited URLs with credibility ratings, one fact-checkable specific

@@ -18,7 +18,7 @@ import piKnowledgeCardExtension, {
 	buildRemoveTask,
 	buildUpdateTask,
 	__setVaultResolverForTest,
-} from "../extensions/pi-knowledge-card.ts";
+} from "../extensions/knowledge-card.ts";
 import { ingestRecords, type KnowledgeRecord } from "../src/ingest.ts";
 
 // ---------------------------------------------------------------------------
@@ -44,7 +44,7 @@ describe("tool allowlists", () => {
 
 	test('csv-joinable (the extension passes .join(",") to runSubagentWithRetry)', () => {
 		// Post Phase-3 obsidian fat-tool migration: only `obsidian`/`obsidian_help`
-		// are real registered tools (see pi-knowledge-card.ts's allowlist comment).
+		// are real registered tools (see knowledge-card.ts's allowlist comment).
 		expect(DISTILL_TOOLS.join(",")).toBe("read,obsidian,obsidian_help");
 		expect(RAG_TOOLS.join(",")).toBe("obsidian,obsidian_help");
 	});

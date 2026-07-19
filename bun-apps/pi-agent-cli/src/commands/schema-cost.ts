@@ -24,7 +24,7 @@
  * across changes. Mirrors the approach `inspect_context` reports in-agent.
  */
 import { createCodingTools } from "@earendil-works/pi-coding-agent";
-import { globSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { resolve, relative, isAbsolute, join } from "node:path";
 
 // --- pure core delegated to the schema-cost submodule ----------------------
@@ -127,31 +127,37 @@ export async function collectExtensionToolCosts(
 }
 
 /**
- * Discover the repo's extension entry points:
- *   - `bun-apps/<pkg>/extensions/pi-*.ts` (flux2/ltx/krea2/movie-director/vlm/knowledge-card)
- *   - `bun-apps/pi-agent-ext-power-tool/src/index.ts`
- *   - any `bun-apps/pi-agent-ext-<name>/index.ts` (web-access uses a root index.ts)
+ * Discover the repo's domain extension entry points for schema-cost
+ * measurement. Convention: each entry lives at
+ * `bun-apps/pi-agent-ext-<X>/extensions/<X>.ts` (filename == folder suffix).
+ *
+ * This is the curated set of tool-registering DOMAIN extensions the canary
+ * measures (the heavy media/model tools + power-tool + web-access). The
+ * lightweight static "general productivity" set (hermes-memory, superpowers,
+ * wayfind, etc.) is intentionally not measured here — those are always-on and
+ * some need setup (DB / dist build) that the capturing mock can't satisfy.
  */
 export function discoverExtensionEntries(cwd: string): { source: string; path: string }[] {
+	const entries: { source: string; path: string }[] = [
+		{ source: "flux2", path: "bun-apps/pi-agent-ext-flux2/extensions/flux2.ts" },
+		{ source: "ltx", path: "bun-apps/pi-agent-ext-ltx/extensions/ltx.ts" },
+		{ source: "krea2", path: "bun-apps/pi-agent-ext-krea2/extensions/krea2.ts" },
+		{ source: "movie-director", path: "bun-apps/pi-agent-ext-movie-director/extensions/movie-director.ts" },
+		{ source: "movie-director-cost", path: "bun-apps/pi-agent-ext-movie-director/extensions/movie-director-cost.ts" },
+		{ source: "file2md", path: "bun-apps/pi-agent-ext-file2md/extensions/file2md.ts" },
+		{ source: "knowledge-card", path: "bun-apps/pi-agent-ext-knowledge-card/extensions/knowledge-card.ts" },
+		{ source: "goal-todo", path: "bun-apps/pi-agent-ext-goal-todo/extensions/goal-todo.ts" },
+		{ source: "btw", path: "bun-apps/pi-agent-ext-btw/extensions/btw.ts" },
+		{ source: "power-tool", path: "bun-apps/pi-agent-ext-power-tool/extensions/power-tool.ts" },
+		{ source: "web-access", path: "bun-apps/pi-agent-ext-web-access/extensions/web-access.ts" },
+	];
 	const out: { source: string; path: string }[] = [];
 	const seen = new Set<string>();
-	const add = (source: string, p: string) => {
-		const abs = isAbsolute(p) ? p : resolve(cwd, p);
-		if (seen.has(abs)) return;
+	for (const e of entries) {
+		const abs = isAbsolute(e.path) ? e.path : resolve(cwd, e.path);
+		if (seen.has(abs)) continue;
 		seen.add(abs);
-		out.push({ source, path: abs });
-	};
-	// extensions/pi-*.ts pattern (skip .test.ts)
-	for (const p of globSync("bun-apps/*/extensions/pi-*.ts", { cwd })) {
-		if (p.includes(".test.")) continue;
-		const pkg = p.split("/").find((s) => s.startsWith("pi-agent-ext-") || s.startsWith("pi-")) ?? p;
-		add(pkg.replace(/^pi-agent-ext-/, "").replace(/^pi-/, ""), p);
-	}
-	// power-tool + web-access (src/index.ts or root index.ts)
-	add("power-tool", "bun-apps/pi-agent-ext-power-tool/src/index.ts");
-	for (const p of globSync("bun-apps/pi-agent-ext-*/index.ts", { cwd })) {
-		const pkg = p.split("/").find((s) => s.startsWith("pi-agent-ext-"))!.replace(/^pi-agent-ext-/, "");
-		add(pkg, p);
+		out.push({ source: e.source, path: abs });
 	}
 	return out;
 }

@@ -221,7 +221,7 @@ describe("resolveLazyExtension", () => {
 		lazyExtensions: {
 			workflow: "pkg-a/extensions/workflow.ts",
 			"dynamic-workflows": "pkg-a/extensions/workflow.ts",
-			flux2: "pkg-b/extensions/pi-flux2.ts",
+			flux2: "pkg-b/extensions/flux2.ts",
 		},
 	};
 	function setup() {
@@ -247,7 +247,7 @@ describe("resolveLazyExtension", () => {
 		const r = resolveLazyExtension("Workflow", settings, base, existsSync);
 		expect(r).toBe(join(base, "pkg-a/extensions/workflow.ts"));
 		const r2 = resolveLazyExtension("flux2", settings, base, existsSync);
-		expect(r2).toBe(join(base, "pkg-b/extensions/pi-flux2.ts"));
+		expect(r2).toBe(join(base, "pkg-b/extensions/flux2.ts"));
 	});
 
 	test("unique substring match", () => {
@@ -255,7 +255,7 @@ describe("resolveLazyExtension", () => {
 		// "workflows" is a substring of "dynamic-workflows" only (and also of
 		// "workflow" — so use a substring that hits exactly one key)
 		const r = resolveLazyExtension("flux", settings, base, existsSync);
-		expect(r).toBe(join(base, "pkg-b/extensions/pi-flux2.ts"));
+		expect(r).toBe(join(base, "pkg-b/extensions/flux2.ts"));
 	});
 
 	test("ambiguous substring → undefined (no guess)", () => {

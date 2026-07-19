@@ -72,7 +72,7 @@ describe("checkpoint gate enforcement", () => {
   });
 });
 
-// Relocated from extensions/pi-movie-director.ts's next-stage case (Item 1,
+// Relocated from extensions/movie-director.ts's next-stage case (Item 1,
 // gate unification, output/next-goal-20260712_135012.md) — pure move, same
 // GATE VIOLATION wording/override-flag behavior as before, now unit-testable
 // without instantiating the extension/dispatcher.

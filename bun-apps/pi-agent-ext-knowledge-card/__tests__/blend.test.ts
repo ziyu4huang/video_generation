@@ -11,7 +11,7 @@ import {
 	RAG_TOOLS_THREE_WAY,
 	buildRagTask,
 	type BlendScoreParts,
-} from "../extensions/pi-knowledge-card.ts";
+} from "../extensions/knowledge-card.ts";
 
 describe("rankBlendScore — default mode (lexical + graph)", () => {
 	test("matches the historical 0.7×lexical + 0.3×link formula", () => {
@@ -98,7 +98,7 @@ describe("ragToolsFor", () => {
 	// action (including semantic_search) — there is no separate tool name left
 	// to gate, so all three blend modes currently resolve to the same
 	// allowlist. RAG_TOOLS_THREE_WAY stays a distinct export for a future
-	// vault-mind-specific gate (see its doc comment in pi-knowledge-card.ts).
+	// vault-mind-specific gate (see its doc comment in knowledge-card.ts).
 	test("default returns the lexical+graph allowlist unchanged", () => {
 		expect(ragToolsFor("default")).toEqual(RAG_TOOLS);
 		expect(ragToolsFor()).toEqual(RAG_TOOLS); // default arg

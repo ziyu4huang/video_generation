@@ -278,6 +278,13 @@
         "@earendil-works/pi-coding-agent": "0.80.10",
       },
     },
+    "pi-agent-ext-tool-gate": {
+      "name": "@repo/pi-agent-ext-tool-gate",
+      "version": "0.1.0",
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "0.80.10",
+      },
+    },
     "pi-agent-ext-wayfind": {
       "name": "@repo/pi-agent-ext-wayfind",
       "version": "0.1.0",
@@ -679,6 +686,8 @@
     "@repo/pi-agent-ext-research-tool": ["@repo/pi-agent-ext-research-tool@workspace:pi-agent-ext-research-tool"],
 
     "@repo/pi-agent-ext-superpowers": ["@repo/pi-agent-ext-superpowers@workspace:pi-agent-ext-superpowers"],
+
+    "@repo/pi-agent-ext-tool-gate": ["@repo/pi-agent-ext-tool-gate@workspace:pi-agent-ext-tool-gate"],
 
     "@repo/pi-agent-ext-wayfind": ["@repo/pi-agent-ext-wayfind@workspace:pi-agent-ext-wayfind"],
 

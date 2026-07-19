@@ -17,7 +17,7 @@
  *   • tool-scope.ts scopeViolationForToolCall — reads isMovieActive() to gate.
  *   • host-fns.ts buildMovieHostFnEntries — marks active on every movie.* call
  *     (covers both the event-bus + explicit-registry workflow paths).
- *   • extensions/pi-movie-director.ts movie tool execute — marks active on the
+ *   • extensions/movie-director.ts movie tool execute — marks active on the
  *     agent-driven path (calls dispatch() directly, bypassing host-fns).
  */
 let movieActive = false;
