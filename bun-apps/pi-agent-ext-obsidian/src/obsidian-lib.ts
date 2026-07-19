@@ -81,6 +81,10 @@ export function _findMonorepoRoot(from: string | undefined): string {
 
 export function _missingDeps(deps: string[], from: string | undefined): string[] {
 	if (!from) return [];
+	// Compiled-binary mode: `from` is a $bunfs/~BUN virtual path — deps are
+	// inlined into the binary at build time, and walking the REAL filesystem up
+	// from a virtual path can never find node_modules (always false-alarms).
+	if (from.includes("$bunfs") || from.includes("~BUN") || from.includes("%7EBUN")) return [];
 	return deps.filter((dep) => {
 		const pkgName = dep.startsWith("@")
 			? dep.split("/").slice(0, 2).join("/")

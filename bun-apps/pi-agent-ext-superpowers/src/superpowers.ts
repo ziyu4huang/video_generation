@@ -15,8 +15,8 @@
  * bootstrap SKILL.md (cached). Deterministic — no LLM, no network.
  */
 
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -26,12 +26,33 @@ const BOOTSTRAP_MARKER = "superpowers:using-superpowers bootstrap for pi";
 export { BOOTSTRAP_MARKER };
 
 /**
+ * True when `fromUrl` is inside Bun's compiled-binary virtual filesystem
+ * ($bunfs, or its ~BUN / URL-encoded %7EBUN variants). Same marker check as
+ * pi-agent/src/mode.ts isBunBinary() — inlined here to keep this package
+ * dependency-free of pi-agent.
+ */
+function isBunBinaryUrl(fromUrl: string): boolean {
+  return fromUrl.includes("$bunfs") || fromUrl.includes("~BUN") || fromUrl.includes("%7EBUN");
+}
+
+/**
  * Resolve the package's `skills/` directory from this compiled module's URL.
  * Works whether the entry runs from `src/` (tsx/dev) or `dist/` (built) because
  * the `skills/` dir is a sibling of both under the package root
  * (`<pkg>/src|dist/...` → `<pkg>/skills`).
+ *
+ * Compiled-binary mode (`bun build --compile`): the module URL is a $bunfs
+ * virtual path, so `../skills` resolves to a path that does not exist on the
+ * real filesystem. pi-agent's extract-embedded-assets patch extracts the real
+ * skills to $BUN_PI_EMBEDDED_EXTRACT_DIR/pi-agent-ext-superpowers/skills (the
+ * same dir its run-dir resolver passes via `--skill`, so pi dedups the two) —
+ * resolve there instead.
  */
 export function resolveSkillsDir(fromUrl: string = import.meta.url): string {
+  if (isBunBinaryUrl(fromUrl)) {
+    const extractDir = process.env.BUN_PI_EMBEDDED_EXTRACT_DIR;
+    if (extractDir) return join(extractDir, "pi-agent-ext-superpowers", "skills");
+  }
   const moduleDir = dirname(fileURLToPath(fromUrl));
   // src/superpowers.ts → ../skills ; dist/superpowers.js → ../skills
   return resolve(moduleDir, "..", "skills");
@@ -46,12 +67,15 @@ export function resolveBootstrapSkillPath(fromUrl: string = import.meta.url): st
  * Register the Superpowers Pi extension. The default export of `src/index.ts`
  * (and the thin `extensions/index.ts` wrapper) calls this.
  */
-export function superpowersExtension(pi: ExtensionAPI): void {
-  const skillsDir = resolveSkillsDir();
+export function superpowersExtension(pi: ExtensionAPI, fromUrl: string = import.meta.url): void {
+  const skillsDir = resolveSkillsDir(fromUrl);
   let injectBootstrap = true;
 
+  // Never advertise a non-existent dir (e.g. a classic --compile binary with no
+  // embedded-assets extraction): pi reports each missing skill path as a
+  // "[Skill conflicts] skill path does not exist" startup warning.
   pi.on("resources_discover", async () => ({
-    skillPaths: [skillsDir],
+    skillPaths: existsSync(skillsDir) ? [skillsDir] : [],
   }));
 
   pi.on("session_start", async () => {

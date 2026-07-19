@@ -63,8 +63,12 @@ function pkgBaseName(spec: string): string {
   return spec.split("/")[0];
 }
 
-function missingDeps(deps: string[], from: string | undefined): string[] {
+export function missingDeps(deps: string[], from: string | undefined): string[] {
   if (!from) return [];
+  // Compiled-binary mode: `from` is a $bunfs/~BUN virtual path — deps are
+  // inlined into the binary at build time, and walking the REAL filesystem up
+  // from a virtual path can never find node_modules (always false-alarms).
+  if (from.includes("$bunfs") || from.includes("~BUN") || from.includes("%7EBUN")) return [];
   return deps.filter((dep) => {
     const pkgName = pkgBaseName(dep);
     let dir = from;
