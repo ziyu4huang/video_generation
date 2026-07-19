@@ -307,6 +307,47 @@ test("a throwing _onUpdate does not fail the subagent run (caught and swallowed)
   assert.equal(res.details.status, "done", "the throwing onUpdate must not fail the actual task result");
 });
 
+test("live progress: displayed tool-call count never regresses across a retryOnTransient retry", async () => {
+  // spawnSubagent's retryOnTransient retry runs a brand-new child session on
+  // attempt 2 (agent.ts), so the AgentHistoryEntry[] snapshot onHistory sees
+  // resets to a shorter array. Simulate that here: attempt 1 reports 3
+  // toolCall entries (then "times out"); attempt 2 reports only 1 entry
+  // before succeeding. The number shown to the user must never drop.
+  const attempt1History = [
+    { role: "assistant" as const, kind: "toolCall" as const, toolName: "read", text: "{}" },
+    { role: "assistant" as const, kind: "toolCall" as const, toolName: "grep", text: "{}" },
+    { role: "assistant" as const, kind: "toolCall" as const, toolName: "ls", text: "{}" },
+  ];
+  const attempt2History = [{ role: "assistant" as const, kind: "toolCall" as const, toolName: "read", text: "{}" }];
+  const f = fakeSpawn(async (opts) => {
+    const onHistory = opts.onHistory as ((h: typeof attempt1History) => void) | undefined;
+    onHistory?.(attempt1History);
+    onHistory?.(attempt2History);
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  });
+  const tool = createSubagentTool({ spawn: f.spawn });
+  const updates: Array<{ content: Array<{ type: string; text?: string }> }> = [];
+  await tool.execute(
+    "id",
+    { task: "t", retryOnTransient: true },
+    NO_SIGNAL,
+    (u) => updates.push(u as never),
+    NO_CTX,
+  );
+
+  assert.equal(updates.length, 2);
+  const toolCallCounts = updates.map((u) => {
+    const text = (u.content[0] as { text: string }).text;
+    const m = text.match(/(\d+) tool calls?/);
+    return m ? Number(m[1]) : -1;
+  });
+  assert.deepEqual(
+    toolCallCounts,
+    [3, 3],
+    "the retry's shorter history (1 entry) must not drag the displayed count back down from 3",
+  );
+});
+
 test("renderSubagentResult with isPartial:true renders the streamed text, ignoring details", () => {
   const out = renderSubagentResult(
     { content: [{ type: "text", text: "↳ reading src/foo.ts" }], details: undefined },
@@ -420,6 +461,17 @@ test("formatSubagentProgress pluralizes the tool-call count (1 vs N)", () => {
 test("formatSubagentProgress includes elapsed seconds", () => {
   const out = formatSubagentProgress([], 12300);
   assert.match(out, /12\.3s/);
+});
+
+test("formatSubagentProgress's minToolCalls floors the displayed count without going below the actual count", () => {
+  const oneCall: AgentHistoryEntry[] = [{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }];
+  assert.match(formatSubagentProgress(oneCall, 0, 3), /3 tool calls/, "floor wins when history reports fewer");
+  const threeCalls: AgentHistoryEntry[] = [
+    { role: "assistant", kind: "toolCall", toolName: "a", text: "{}" },
+    { role: "assistant", kind: "toolCall", toolName: "b", text: "{}" },
+    { role: "assistant", kind: "toolCall", toolName: "c", text: "{}" },
+  ];
+  assert.match(formatSubagentProgress(threeCalls, 0, 1), /3 tool calls/, "actual count wins when it exceeds the floor");
 });
 
 // ── renderCall / renderResult (pure helpers, themed strings) ──

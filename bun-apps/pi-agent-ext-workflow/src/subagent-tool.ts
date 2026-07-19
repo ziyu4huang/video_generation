@@ -141,10 +141,22 @@ function describeLastActivity(last: AgentHistoryEntry | undefined): string {
   }
 }
 
-/** Render the latest compact history snapshot as a one/two-line progress update. */
-export function formatSubagentProgress(history: AgentHistoryEntry[], elapsedMs: number): string {
+/**
+ * Render the latest compact history snapshot as a one/two-line progress update.
+ *
+ * `minToolCalls` floors the displayed count (default 0, i.e. no floor). Callers
+ * that stream across a `retryOnTransient` retry pass their own running max here:
+ * a retry gets a fresh (shorter) history array from a brand-new child session
+ * (see spawnSubagent/tryOnce), and without the floor the displayed count would
+ * visibly jump backward — read by the user as "did it lose progress?".
+ */
+export function formatSubagentProgress(
+  history: AgentHistoryEntry[],
+  elapsedMs: number,
+  minToolCalls = 0,
+): string {
   const last = history[history.length - 1];
-  const toolCalls = history.filter((h) => h.kind === "toolCall").length;
+  const toolCalls = Math.max(history.filter((h) => h.kind === "toolCall").length, minToolCalls);
   const activity = describeLastActivity(last);
   const elapsedS = (elapsedMs / 1000).toFixed(1);
   return `↳ ${activity}\n  ↳ ${elapsedS}s elapsed · ${toolCalls} tool call${toolCalls === 1 ? "" : "s"}`;
@@ -227,6 +239,11 @@ export function createSubagentTool(
     parameters: subagentToolSchema,
     async execute(toolCallId, params, signal, onUpdate, _ctx) {
       const t0 = Date.now();
+      // A retryOnTransient retry hands onHistory a fresh (shorter) history array
+      // from a brand-new child session — track the running max across the whole
+      // call so the displayed tool-call count never visibly regresses. See
+      // formatSubagentProgress's `minToolCalls` param.
+      let maxToolCallsSeen = 0;
       const runCwd = params.cwd ?? defaultCwd;
       const makeWorktree = options.createWorktree ?? createWorktree;
       const teardownWorktree = options.removeWorktree ?? removeWorktree;
@@ -298,8 +315,12 @@ export function createSubagentTool(
                 // (e.g. a TUI re-render failure) must never fail the subagent's
                 // actual task result.
                 try {
+                  const toolCallsNow = history.filter((h) => h.kind === "toolCall").length;
+                  maxToolCallsSeen = Math.max(maxToolCallsSeen, toolCallsNow);
                   onUpdate({
-                    content: [{ type: "text" as const, text: formatSubagentProgress(history, Date.now() - t0) }],
+                    content: [
+                      { type: "text" as const, text: formatSubagentProgress(history, Date.now() - t0, maxToolCallsSeen) },
+                    ],
                     details: undefined as unknown as SubagentToolDetails,
                   });
                 } catch {
