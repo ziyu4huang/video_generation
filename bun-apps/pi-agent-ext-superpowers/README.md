@@ -18,6 +18,10 @@ Only the Pi extension wrapper (`src/`, `extensions/`, `tests/`, config) is this 
 
 No slash commands, no coordination globals — Superpowers is skill-driven, not command-driven (contrast with [`@repo/pi-agent-ext-wayfind`](../pi-agent-ext-wayfind)).
 
+## Related packages
+
+- [**wayfind**](../pi-agent-ext-wayfind/README.md) — decision-chain skills (grilling, wayfinder, domain-modeling) for the decompose-and-decide phase that precedes Superpowers' brainstorming→writing-plans flow.
+
 ## Layout
 
 ```
