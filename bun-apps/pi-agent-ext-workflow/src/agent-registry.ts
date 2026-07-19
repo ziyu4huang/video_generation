@@ -63,7 +63,7 @@ function toStringArray(value: unknown): string[] | undefined {
  */
 export function parseAgentDefinition(
   content: string,
-  source: "project" | "user",
+  source: "project" | "pack" | "user",
   fileName: string,
 ): AgentDefinition | null {
   let parsed: { frontmatter: Record<string, unknown>; body: string };
