@@ -355,15 +355,19 @@ export async function buildWorkflowGuidelinesForTurn(options: WorkflowGuidelines
 export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefinition<typeof workflowToolSchema, any> {
   const storage = options.storage ?? createWorkflowStorage(options.cwd ?? process.cwd());
   const cwd = options.cwd ?? process.cwd();
-  const defaults = resolveWorkflowToolDefaults(options, cwd);
+  // Read settings from disk ONLY when constructing the fallback manager. When
+  // the extension supplies options.manager (the normal path), skip the read.
+  // The `?? null` / `?? 0` mirror WorkflowManager's own constructor defaults so
+  // behavior is identical when fallbackDefaults is present.
+  const fallbackDefaults = options.manager ? undefined : resolveWorkflowToolDefaults(options, cwd);
   const manager =
     options.manager ??
     new WorkflowManager({
       cwd: options.cwd,
-      concurrency: defaults.concurrency,
+      concurrency: fallbackDefaults?.concurrency,
       loadSavedWorkflow: (name: string) => storage.load(name)?.script,
-      defaultAgentTimeoutMs: defaults.agentTimeoutMs,
-      defaultAgentRetries: defaults.agentRetries,
+      defaultAgentTimeoutMs: fallbackDefaults?.agentTimeoutMs ?? null,
+      defaultAgentRetries: fallbackDefaults?.agentRetries ?? 0,
       extensionTools: options.extensionTools,
     });
 
@@ -744,9 +748,4 @@ function scriptInvokesAgent(script: string): boolean {
   // script text but all of which run real subagents at runtime. The `\s*\(`
   // ensures we don't match the bare words in prose.
   return /\b(?:agent|verify|judgePanel|loopUntilDry|completenessCheck|workflow)\s*\(/.test(body);
-}
-
-function _isAbortError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return /\babort(?:ed)?\b/i.test(error.message);
 }
