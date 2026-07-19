@@ -18,7 +18,7 @@
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
-import { WorkflowAgent, type AgentUsage } from "./agent.js";
+import { type AgentUsage, WorkflowAgent } from "./agent.js";
 import { isWorkflowError, WorkflowErrorCode } from "./errors.js";
 
 export interface SpawnSubagentPrime {
