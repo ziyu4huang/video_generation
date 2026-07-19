@@ -37,6 +37,12 @@ function slug(name: string): string {
  * Create an isolated worktree under `<repoRoot>/.pi/worktrees/<name>` on branch
  * `pi/wf/<name>`. The `name` must be deterministic (derived from runId + call index,
  * never wall-clock) so resume keys stay stable. Returns a no-op Worktree on any failure.
+ *
+ * The determinism requirement above applies to resumable workflow-script callers
+ * (`workflow.ts`'s `agent()`) whose worktree may need to be recognized across a
+ * resumed run. Callers with no resume/journal semantics (e.g. the single-shot
+ * `subagent` tool, which creates and tears down its worktree within one `execute()`
+ * call) may use any unique-enough name.
  */
 export async function createWorktree(baseCwd: string, name: string): Promise<Worktree> {
   const id = slug(name);

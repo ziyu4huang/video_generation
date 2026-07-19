@@ -217,6 +217,9 @@ export function createSubagentTool(
       let worktree: Worktree | undefined;
       let spawnCwd = runCwd;
       if (agentDef?.isolation === "worktree") {
+        // toolCallId (not runId+callIndex) is fine here: this tool has no resume/journal
+        // semantics, unlike workflow.ts's agent() — see the determinism note on
+        // createWorktree() in worktree.ts.
         worktree = await makeWorktree(runCwd, `subagent-${toolCallId}`);
         if (worktree.isolated) spawnCwd = worktree.cwd;
       }

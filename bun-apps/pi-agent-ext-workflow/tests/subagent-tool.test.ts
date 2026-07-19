@@ -203,7 +203,12 @@ test("agentType with isolation:'worktree' passes the worktree cwd to spawn", asy
     cwd: "/repo",
     createWorktree: async (baseCwd: string, name: string) => {
       fakeWorktree.createCalls.push({ baseCwd, name });
-      return { isolated: true, cwd: "/repo/.pi/worktrees/isolated-worker", repoRoot: "/repo", branch: "pi/wf/isolated-worker" };
+      return {
+        isolated: true,
+        cwd: "/repo/.pi/worktrees/isolated-worker",
+        repoRoot: "/repo",
+        branch: "pi/wf/isolated-worker",
+      };
     },
     removeWorktree: async () => {
       fakeWorktree.removeCalls++;
@@ -213,6 +218,30 @@ test("agentType with isolation:'worktree' passes the worktree cwd to spawn", asy
   assert.equal(f.calls[0]?.cwd, "/repo/.pi/worktrees/isolated-worker");
   assert.equal(fakeWorktree.createCalls.length, 1);
   assert.equal(fakeWorktree.removeCalls, 1, "worktree is cleaned up after the run");
+});
+
+test("agentType with isolation:'worktree' falls back to runCwd when createWorktree reports isolated:false", async () => {
+  const registry = mkRegistry([
+    { name: "isolated-worker", isolation: "worktree", prompt: "Work in isolation.", source: "project" },
+  ]);
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const fakeWorktree = { createCalls: 0, removeCalls: 0 };
+  const tool = createSubagentTool({
+    spawn: f.spawn,
+    agentRegistry: registry,
+    cwd: "/repo",
+    createWorktree: async () => {
+      fakeWorktree.createCalls++;
+      return { isolated: false, cwd: "/repo", reason: "not a git repository" };
+    },
+    removeWorktree: async () => {
+      fakeWorktree.removeCalls++;
+    },
+  });
+  await tool.execute("id", { task: "t", agentType: "isolated-worker" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.cwd, "/repo", "spawn still runs, using the original cwd");
+  assert.equal(fakeWorktree.createCalls, 1);
+  assert.equal(fakeWorktree.removeCalls, 1, "teardown is still invoked even for a no-op worktree");
 });
 
 test("execute carries usage from the spawn result into details", async () => {
