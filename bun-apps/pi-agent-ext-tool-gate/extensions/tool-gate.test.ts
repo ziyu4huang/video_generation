@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { computeActiveTools, CORE_TOOLS, GATES, computeBannerSaved, matchIntent } from "./tool-gate.ts";
 import { emitToolGateLog, isMissCandidate } from "./tool-gate.ts";
+import toolGateExtension from "./tool-gate.ts";
 
 describe("computeActiveTools", () => {
   test("a tool not listed in CORE_TOOLS or any gate is always active (fail-open)", () => {
@@ -152,5 +153,80 @@ describe("computeBannerSaved (S1 G fix)", () => {
     const saved = computeBannerSaved(active, loaded);
     // flux2 (1411) + ltx (1802) only; movie (632) excluded because it isn't loaded
     expect(saved).toBe(1411 + 1802);
+  });
+});
+
+describe("enable_tool (S1 A escape hatch)", () => {
+  function setupPi(loadedTools: string[]) {
+    const calls: { setActiveTools: string[] }[] = [];
+    const registered: { name: string; execute: (a: string, p: any) => Promise<any> }[] = [];
+    const handlers: Record<string, (e?: any, ctx?: any) => Promise<void> | void> = {};
+    const pi: any = {
+      getAllTools: () => loadedTools.map((name) => ({ name })),
+      setActiveTools: (names: string[]) => { calls.push({ setActiveTools: names }); },
+      registerTool: (def: any) => { registered.push(def); },
+      on: (ev: string, h: any) => { handlers[ev] = h; },
+    };
+    toolGateExtension(pi);
+    // fire session_start so the closure populates allToolNames + sticky (as a real session does)
+    if (handlers.session_start) {
+      handlers.session_start({}, {
+        ui: { theme: { fg: (_k: string, s: string) => s }, setWidget: () => {} },
+      });
+    }
+    const enableTool = registered.find((r) => r.name === "enable_tool")!;
+    return { pi, calls, registered, enableTool, handlers };
+  }
+
+  test("enable_tool is registered and is in CORE_TOOLS (always active)", () => {
+    expect(CORE_TOOLS.has("enable_tool")).toBe(true);
+    const { enableTool } = setupPi([...CORE_TOOLS, "ltx", "ltx_help", "flux2", "flux2_help", "movie", "movie_help"]);
+    expect(enableTool).toBeTruthy();
+  });
+
+  test("list:true returns only dormant gates", async () => {
+    const { enableTool } = setupPi([...CORE_TOOLS, "ltx", "ltx_help", "flux2", "flux2_help"]);
+    const res = await enableTool.execute("id", { list: true });
+    const text = res.content[0].text;
+    expect(text).toContain("ltx");
+    expect(text).toContain("flux2");
+  });
+
+  test("intent 'make a video' activates ltx (sticky) and calls setActiveTools", async () => {
+    const { enableTool, calls } = setupPi([...CORE_TOOLS, "ltx", "ltx_help"]);
+    const res = await enableTool.execute("id", { intent: "make a video" });
+    expect(res.content[0].text).toContain("ltx");
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls[calls.length - 1].setActiveTools).toEqual(expect.arrayContaining(["ltx", "ltx_help"]));
+  });
+
+  test("name 'movie' activates the movie gate", async () => {
+    const { enableTool, calls } = setupPi([...CORE_TOOLS, "movie", "movie_help"]);
+    const res = await enableTool.execute("id", { name: "movie" });
+    expect(res.content[0].text).toContain("movie");
+    expect(calls[calls.length - 1].setActiveTools).toEqual(expect.arrayContaining(["movie", "movie_help"]));
+  });
+
+  test("no-match intent returns a non-error result pointing to list", async () => {
+    const { enableTool } = setupPi([...CORE_TOOLS, "ltx", "ltx_help"]);
+    const res = await enableTool.execute("id", { intent: "what's the weather" });
+    expect(res.content[0].text).toMatch(/no dormant tool matched/i);
+    expect(res.content[0].text).toMatch(/list:true/i);
+  });
+
+  test("mutation guard: execute never throws even if setActiveTools fails", async () => {
+    // setActiveTools throwing inside execute must be caught → error result, not a throw.
+    const handlers: Record<string, any> = {};
+    const pi: any = {
+      getAllTools: () => [...CORE_TOOLS, "ltx", "ltx_help"].map((name) => ({ name })),
+      setActiveTools: () => { throw new Error("setActiveTools boom"); },
+      registerTool: (def: any) => { (pi as any)._t = def; },
+      on: (ev: string, h: any) => { handlers[ev] = h; },
+    };
+    toolGateExtension(pi);
+    if (handlers.session_start) handlers.session_start({}, { ui: { theme: { fg: (_k: string, s: string) => s }, setWidget: () => {} } });
+    const enableTool = (pi as any)._t;
+    const res = await enableTool.execute("id", { intent: "make a video" });
+    expect(res.content[0].text).toMatch(/error/i);
   });
 });

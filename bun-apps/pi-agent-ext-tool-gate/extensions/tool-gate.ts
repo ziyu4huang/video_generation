@@ -17,6 +17,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { appendFileSync } from "node:fs";
+import { Type } from "typebox";
 
 // ── Tool categories ──────────────────────────────────────────────
 
@@ -30,6 +31,8 @@ export const CORE_TOOLS = new Set([
   "memory", "memory_search", "session_search",
   // User interaction
   "ask_user_question",
+  // Escape hatch for dormant gated tools (always active)
+  "enable_tool",
   // Skills
   "skill_manage",
   // Vault & knowledge (used frequently)
@@ -311,7 +314,14 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     lastPrompt = "";
 
     const active = computeActiveTools("", allToolNames, sticky);
-    pi.setActiveTools(active);
+    // setActiveTools failure is non-fatal: the closure vars (allToolNames /
+    // sticky) are already populated, so enable_tool still operates. Escape-hatch
+    // reliability — a throwing setActiveTools must never crash session_start.
+    try {
+      pi.setActiveTools(active);
+    } catch {
+      /* degraded: tools ungated this turn; enable_tool can still activate */
+    }
 
     // G fix: only count loaded gates (computeBannerSaved filters by allToolNames).
     const saved = computeBannerSaved(active, allToolNames);
@@ -337,7 +347,13 @@ export default function toolGateExtension(pi: ExtensionAPI) {
 
     const before = new Set(sticky);
     const active = computeActiveTools(prompt, allToolNames, sticky);
-    pi.setActiveTools(active);
+    // Same escape-hatch reliability contract as session_start: a throwing
+    // setActiveTools must never crash the per-turn handler.
+    try {
+      pi.setActiveTools(active);
+    } catch {
+      /* degraded: tools ungated this turn; enable_tool can still activate */
+    }
 
     // telemetry: which gates newly fired this turn, which are still dormant
     const gatesFired = GATES
@@ -360,5 +376,95 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     }
   });
 
-  // enable_tool is registered in Task 5 (appended here).
+  // ── Escape hatch: enable_tool (always active; activates dormant gates) ──
+  pi.registerTool({
+    name: "enable_tool",
+    label: "Enable a gated tool",
+    description:
+      "Heavy tools (ltx video, flux2 image, movie orchestrator, krea2, file2md/vision, inspect, workflow, research) are GATED out of your tool list to save context. If you need a capability you don't see, call this tool: use `intent` to describe what you want (e.g. 'make a video', 'generate an image', 'orchestrate a montage'), `name` to activate a specific tool (e.g. 'ltx', 'flux2', 'movie'), or `list:true` to see dormant tools. Activation is sticky — once enabled, the tool stays available for the session.",
+    promptSnippet: "Enable a gated heavy tool (video/image/movie/...) by intent or name.",
+    promptGuidelines: [
+      "If you need a capability not in your tool list (e.g. video/image/movie generation), call enable_tool first rather than telling the user it's unavailable.",
+    ],
+    parameters: Type.Object({
+      intent: Type.Optional(Type.String({ description: "Natural-language description of what you want to do; the matching gated tool is activated." })),
+      name: Type.Optional(Type.String({ description: "Exact tool or gate name to activate (e.g. 'ltx', 'flux2', 'movie')." })),
+      list: Type.Optional(Type.Boolean({ description: "If true, return the list of currently dormant gated tools." })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      try {
+        if (params.list) {
+          const dormant = GATES.filter((g) => !g.names.every((n) => sticky.has(n)));
+          const lines = dormant.map(
+            (g) => `- ${g.names.join(", ")} — ${g.description} (keywords: ${g.keywords.slice(0, 6).join(", ")})`,
+          );
+          return {
+            details: undefined,
+            content: [{
+              type: "text" as const,
+              text: dormant.length
+                ? `Dormant gated tools:\n${lines.join("\n")}`
+                : "No dormant tools — all gates are active.",
+            }],
+          };
+        }
+
+        let matched: ToolGate[] = [];
+        let via: "name" | "intent" = "intent";
+        if (params.name) {
+          via = "name";
+          matched = GATES.filter((g) => g.names.includes(params.name as string));
+        } else if (params.intent) {
+          matched = matchIntent(params.intent, GATES, sticky);
+        } else {
+          return {
+            details: undefined,
+            content: [{
+              type: "text" as const,
+              text: "Call enable_tool with exactly one of: intent, name, or list:true.",
+            }],
+          };
+        }
+
+        const askedFor = (params.name ?? params.intent) as string;
+        if (matched.length === 0) {
+          emitToolGateLog({
+            kind: "activate", ts: new Date().toISOString(),
+            via, intent: askedFor, matchedGate: null, activated: [],
+          });
+          return {
+            details: undefined,
+            content: [{
+              type: "text" as const,
+              text: `No dormant tool matched '${askedFor}'. Call enable_tool with list:true to see available tools.`,
+            }],
+          };
+        }
+
+        const activated: string[] = [];
+        for (const g of matched) for (const n of g.names) { sticky.add(n); activated.push(n); }
+        const active = computeActiveTools(lastPrompt, allToolNames, sticky);
+        pi.setActiveTools(active);
+        emitToolGateLog({
+          kind: "activate", ts: new Date().toISOString(),
+          via, intent: askedFor, matchedGate: matched.map((g) => g.names[0]), activated,
+        });
+        return {
+          details: undefined,
+          content: [{
+            type: "text" as const,
+            text: `✓ Activated: ${activated.join(", ")}. They are available now (this turn if the runtime refreshes tools per iteration; otherwise on your next message). You can call them directly.`,
+          }],
+        };
+      } catch (err) {
+        return {
+          details: undefined,
+          content: [{
+            type: "text" as const,
+            text: `enable_tool error: ${(err as Error).message ?? String(err)}`,
+          }],
+        };
+      }
+    },
+  });
 }
