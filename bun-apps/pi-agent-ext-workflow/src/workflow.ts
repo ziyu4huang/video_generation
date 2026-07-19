@@ -41,6 +41,8 @@ export interface JournalEntry {
   /** sha256 of the call's identity (prompt + model + phase + agentType + schema). */
   hash: string;
   result: unknown;
+  /** The phase the agent ran under, for the disposable intermediate mirror (decision 12). */
+  phase?: string;
 }
 
 /**
@@ -527,7 +529,7 @@ export async function runWorkflow<T = unknown>(
             }
 
             const tokens = recordTokens(result);
-            options.onAgentJournal?.({ index: callIndex, hash: callHash, result });
+            options.onAgentJournal?.({ index: callIndex, hash: callHash, result, phase: assignedPhase });
             options.onAgentEnd?.({
               label,
               phase: assignedPhase,
@@ -902,7 +904,7 @@ export async function runWorkflow<T = unknown>(
       reply = checkpointOptions.default ?? true;
     }
     throwIfAborted();
-    options.onAgentJournal?.({ index: callIndex, hash: callHash, result: reply });
+    options.onAgentJournal?.({ index: callIndex, hash: callHash, result: reply, phase: state.currentPhase });
     return reply;
   };
 
