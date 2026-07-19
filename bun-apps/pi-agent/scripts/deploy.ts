@@ -41,16 +41,23 @@ import manifest from "../run-dir/manifest.json";
 
 const APP_NAME = "pi-agent";
 
-// pi-agent-ext-hermes-memory's src/store/vault-converge.ts has two OPTIONAL
-// (try/catch-guarded) dynamic imports of pi-obsidian/pi-knowledge-card as
-// LITERAL bare specifiers. Mark them external so the try/catch degrades
-// gracefully instead of resolving at build time.
-const HERMES_OPTIONAL_EXTERNALS = [
-	"@repo/pi-agent-ext-obsidian",
-	"@repo/pi-agent-ext-obsidian/*",
-	"@repo/pi-agent-ext-knowledge-card",
-	"@repo/pi-agent-ext-knowledge-card/*",
-];
+// External bare-specifier patterns for the bundle/compile steps.
+//
+// HISTORY: this was once `HERMES_OPTIONAL_EXTERNALS` — pi-agent-ext-hermes-
+// memory's (since-removed) src/store/vault-converge.ts had OPTIONAL try/catch-
+// guarded dynamic imports of pi-obsidian/pi-knowledge-card as bare specifiers,
+// so they were marked external to let the try/catch degrade gracefully.
+//
+// That file no longer exists (hermes-memory imports neither package today),
+// AND obsidian + knowledge-card are now STATIC extensions (static-extensions.ts)
+// — bundled into every build. knowledge-card itself imports obsidian via the
+// bare specifier `@repo/pi-agent-ext-obsidian/extensions/obsidian.ts` (a STATIC
+// import, not optional). Leaving that pattern external would make the compiled
+// binary crash at runtime (`Cannot find module ... from '/$bunfs/root/pi-agent'`)
+// because $bunfs has no node_modules to resolve the bare specifier against. So
+// the list is now EMPTY: every @repo/* sibling resolves at build time and is
+// inlined (deduped by resolved path with the relative static import).
+const OPTIONAL_EXTERNALS: string[] = [];
 
 // ── Flag parsing ─────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
@@ -152,7 +159,7 @@ async function stageBundle(piPkgDir: string) {
 		minify: { whitespace: true, identifiers: true, syntax: true },
 		sourcemap: "none",
 		splitting: false,
-		external: HERMES_OPTIONAL_EXTERNALS,
+		external: OPTIONAL_EXTERNALS,
 	});
 
 	if (!result.success) {
@@ -187,7 +194,7 @@ async function stageExe() {
 	console.log(`▶ compile (single-pass embed) → ${outfile}`);
 	clean(outfile);
 
-	const externalFlags = HERMES_OPTIONAL_EXTERNALS.flatMap((p) => ["--external", p]);
+	const externalFlags = OPTIONAL_EXTERNALS.flatMap((p) => ["--external", p]);
 	const proc = Bun.spawn(
 		["bun", "build", "--compile", "src/cli.ts", `--outfile=${outfile}`, "--minify", ...externalFlags],
 		{ stdout: "inherit", stderr: "inherit" },

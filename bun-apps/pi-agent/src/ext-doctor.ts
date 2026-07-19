@@ -52,7 +52,16 @@ function makeMockPi() {
 		onCount: 0,
 		registerTool: (t: ToolLike) => { tools.push(t); return t; },
 		registerCommand: (name: string) => { commands.push(name); },
+		registerMessageRenderer: () => {},
+		registerShortcut: () => {},
+		appendEntry: () => {},
+		sendMessage: () => {},
+		getThinkingLevel: () => "medium",
 		on: () => { pi.onCount++; },
+		// Minimal event bus: some extensions (workflow, btw) wire lifecycle
+		// handlers via `pi.events.on(...)` at factory time. Provide a no-op bus
+		// so their factories load instead of false-failing on `undefined.events`.
+		events: { on: () => () => {}, off: () => {}, emit: () => {}, once: () => () => {} },
 		getAllTools: () => tools,
 		exec: async () => "",
 		z: { undefined: () => ({}) },
@@ -62,13 +71,24 @@ function makeMockPi() {
 }
 
 export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok: boolean; entries: ExtDoctorEntry[] }> {
-	// Ensure repo-root node_modules symlinks exist.
+	// Ensure repo-root node_modules symlinks exist. (No-op in compiled-binary mode —
+	// the patch's import resolves but there's no node_modules to symlink; harmless.)
 	await import("./patches/ensure-extension-deps.ts");
 
-	const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8")) as {
-		extensions: (string | object)[];
-		lazyExtensions?: Record<string, string>;
-	};
+	// Compiled-binary mode (`bun build --compile`): manifest.json is NOT embedded
+	// in the $bunfs virtual FS, so readFileSync(MANIFEST_PATH) throws ENOENT. The
+	// dynamic `-e` extensions can't load in a binary anyway (no .ts paths, no
+	// jiti). Fall back to checking ONLY the statically-bundled factories
+	// (STATIC_EXTENSION_FACTORIES below) — which is exactly the set that matters
+	// for verifying a compiled binary ships its tools.
+	let manifest: { extensions: (string | object)[]; lazyExtensions?: Record<string, string> };
+	let binaryMode = false;
+	try {
+		manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
+	} catch {
+		manifest = { extensions: [], lazyExtensions: {} };
+		binaryMode = true;
+	}
 	const entries = parseManifestEntries(manifest.extensions ?? []);
 	const results: ExtDoctorEntry[] = [];
 
@@ -207,7 +227,7 @@ export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok:
 		process.stdout.write(JSON.stringify({ ok, entries: results, conflicts }) + "\n");
 	} else {
 		const G = "\x1b[32m", R = "\x1b[31m", Y = "\x1b[33m", D = "\x1b[2m", B = "\x1b[1m", RST = "\x1b[0m";
-		process.stdout.write(`\n${B}pi-agent ext doctor${RST}  (${results.length} extensions)\n\n`);
+		process.stdout.write(`\n${B}pi-agent ext doctor${RST}  (${results.length} extensions)${binaryMode ? `${D}  [compiled binary — static factories only, manifest.json not in \$bunfs]${RST}` : ""}\n\n`);
 		for (const r of results) {
 			const badge = r.status === "OK" ? `${G}OK   ${RST}` : r.status === "DYNAMIC" ? `${Y}DYN  ${RST}` : `${R}FAIL ${RST}`;
 			const meta = [r.bundleMode, r.version, r.testGate].filter(Boolean).join(" · ");

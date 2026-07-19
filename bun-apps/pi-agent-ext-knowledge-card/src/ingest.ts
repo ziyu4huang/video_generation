@@ -43,7 +43,7 @@
  *
  * Env (passed through from pi-obsidian): OB_VAULT_PATH / OB_VAULT_DIR.
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, type Dirent } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import {
 	parseFrontmatter,
@@ -181,13 +181,12 @@ const DIR_SKIP_BASENAMES = new Set(["MEMORY.md", "README.md"]);
  *  basenames. Returns absolute paths. */
 function collectDir(dir: string, ext: "md" | "knowledge.jsonl"): string[] {
 	const out: string[] = [];
-	let entries: string[];
+	let entries: Dirent[];
 	try {
 		entries = readdirSync(dir, { withFileTypes: true });
 	} catch {
 		return out;
 	}
-	// `withFileTypes` typing under Bun's node-compat can be loose; guard.
 	for (const ent of entries) {
 		const isDir = ent.isDirectory();
 		const isFile = ent.isFile();

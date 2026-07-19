@@ -801,7 +801,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				tools,
 				model: params.model,
 				excludeTools: params.exclude_tools,
-				signal,
+				externalSignal: signal,
 				extensionTools: parentExtensionTools,
 			});
 			if (timedOut) {
@@ -948,7 +948,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				tools: ragToolsFor(params.blend ?? "default"),
 				model: params.model,
 				excludeTools: params.exclude_tools,
-				signal,
+				externalSignal: signal,
 				extensionTools: parentExtensionTools,
 			});
 			if (timedOut) {

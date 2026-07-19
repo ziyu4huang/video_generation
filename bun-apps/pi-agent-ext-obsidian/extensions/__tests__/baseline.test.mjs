@@ -14,7 +14,7 @@ import { describe, it, expect } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { buildMatcher, searchVault } from "../obsidian.ts";
-import { vaultAvailable, VAULT, SKIP_REASON } from "./_vault-fixture.ts";
+import { vaultAvailable, VAULT, SKIP_REASON, vaultDriftReason } from "./_vault-fixture.ts";
 
 const HERE = import.meta.dir;
 const FIXTURE = join(HERE, "fixtures", "search-baseline.txt");
@@ -49,6 +49,14 @@ function stripHeader(text) {
 
 describe.skipIf(!vaultAvailable())("A0.9 regression baseline (substring default contract) — skipped: " + SKIP_REASON, () => {
 	it("reproduces the committed search-baseline.txt byte-for-byte (excl. header)", async () => {
+		// Fail fast on submodule pointer drift: a drifted vault has the anchor
+		// file present but DIFFERENT content, which would otherwise surface as a
+		// meaningless 200-line byte-diff. `vaultDriftReason()` returns null when
+		// the submodule is at the recorded commit (clean) — so a real mismatch
+		// below is always a genuine content/regen issue, never silent drift.
+		const drift = vaultDriftReason();
+		if (drift) throw new Error(drift);
+
 		const out = [];
 		for (const [label, query, opts] of CASES) {
 			const isDefault = Object.keys(opts).length === 0;
