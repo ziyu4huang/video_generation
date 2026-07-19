@@ -96,10 +96,6 @@ before execution begins, not one interrupt per discovery mid-plan. If the
 scan is clean, proceed without comment. The review loop remains the net for
 conflicts that only emerge from implementation.
 
-### Session objective + todos
-
-Seed one `todo` per plan task at the start (via the `todo` tool) and mark each `in_progress → completed` as its review comes back clean — this is what lights up the TUI's step tracker. If no `/goal` is active, prompt the user to set one for the effort; once the whole branch is verified, close it with `goal_complete` (ADR-0003 — the plan coordinator that would automate this is not yet built).
-
 ## Model Selection
 
 Use the least powerful model that can handle each role to conserve cost and increase speed.
@@ -278,7 +274,7 @@ a ledger file, not only in todos.
 ```
 You: I'm using Subagent-Driven Development to execute this plan.
 
-[Read plan file once: .planning/<effort>/plans/<NN>-<slug>.md]
+[Read plan file once: docs/superpowers/plans/feature-plan.md]
 [Create todos for all tasks]
 
 Task 1: Hook installation script
