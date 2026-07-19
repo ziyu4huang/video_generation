@@ -23,8 +23,10 @@
  * version drift). Repo root is on the walk-up path from every `bun-apps/*` member.
  *
  * SOURCE mode only. Bundle mode symlinks its own node_modules at build; binary
- * mode cannot load .ts extensions at all. Idempotent + cheap (relinks only when
- * the target moved, e.g. after a `bun install` that re-pinned a version).
+ * mode ships its default set as static factories (a user's `-e` .ts loads via
+ * upstream's jiti binary path, which needs no repo symlinks). Idempotent +
+ * cheap (relinks only when the target moved, e.g. after a `bun install` that
+ * re-pinned a version).
  *
  * Env gate: BUN_PI_ENSURE_EXT_DEPS (default on). Reversible for debugging.
  */
