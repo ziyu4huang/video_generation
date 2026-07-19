@@ -1982,3 +1982,51 @@ return r`,
     assert.equal(result.tokenUsage.total, 0, "call() spends zero tokens via the manager path too");
   }),
 );
+
+/**
+ * Stub agent whose Nth call waits delay[N] then returns its prompt verbatim.
+ * Delays are chosen so finish order != start order (middle call finishes first),
+ * which is what exposes label-based start↔end mis-correlation.
+ */
+function reversedFinishAgent() {
+  let n = 0;
+  const delays = [30, 10, 20]; // start order AAA,BBB,CCC -> finish BBB,CCC,AAA
+  return {
+    async run(prompt: string, options?: { onUsage?: (u: AgentUsage) => void }) {
+      const delay = delays[n++] ?? 10;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      options?.onUsage?.({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, cost: 0 });
+      return prompt;
+    },
+  };
+}
+
+test(
+  "F2: parallel agents sharing a label correlate start↔end by callIndex, not label",
+  withTempCwd(async (cwd) => {
+    const manager = new WorkflowManager({ cwd, agent: reversedFinishAgent() });
+    const script = `export const meta = { name: 'dup_label', description: 'shared label parallel' }
+const prompts = ['AAA', 'BBB', 'CCC']
+const out = await parallel(prompts.map((p) => () => agent(p, { label: 'shared' })))
+return out`;
+    await manager.runSync(script, undefined, { concurrency: 3 });
+
+    const runs = manager.listRuns();
+    const agents = manager.getRun(runs[0]!.runId)!.snapshot.agents;
+
+    // Sanity: three agents ran, all under the shared label.
+    assert.equal(agents.length, 3);
+    assert.ok(agents.every((a) => a.label === "shared"));
+
+    // The regression: with label-based matching, finisher BBB's result was
+    // attached to entry "CCC" (last-pushed running), etc. Each agent's stored
+    // resultPreview MUST equal its own prompt — identity pairing.
+    for (const a of agents) {
+      assert.equal(
+        a.resultPreview,
+        a.prompt,
+        `agent prompt "${a.prompt}" got result "${a.resultPreview}" (label-based mis-correlation)`,
+      );
+    }
+  }),
+);

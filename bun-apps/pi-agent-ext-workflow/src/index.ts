@@ -101,8 +101,6 @@ export {
 } from "./workflow-editor.js";
 export type { ManagedRun, WorkflowManagerOptions } from "./workflow-manager.js";
 export { WorkflowManager } from "./workflow-manager.js";
-export type { Manifest, ReadManifestOptions } from "./workflow-pack-manifest.js";
-export { readManifest, validateManifest } from "./workflow-pack-manifest.js";
 export type {
   ResolvedWorkflow,
   ResolvedWorkflowPack,
@@ -113,17 +111,19 @@ export type {
 } from "./workflow-pack.js";
 export {
   DEFAULT_RUNS_DIR,
-  PI_WORKFLOWS_DIR,
-  PKG_WORKFLOWS_GLOB,
   findRepoRoot,
   listWorkflows,
   mergeArgs,
+  PI_WORKFLOWS_DIR,
+  PKG_WORKFLOWS_GLOB,
   resolvePackOverrides,
   resolveRunsDir,
   resolveWorkflowPack,
   resolveWorkflowScript,
   runWorkflowScript,
 } from "./workflow-pack.js";
+export type { Manifest, ReadManifestOptions } from "./workflow-pack-manifest.js";
+export { readManifest, validateManifest } from "./workflow-pack-manifest.js";
 export type { WorkflowProjectPaths } from "./workflow-paths.js";
 export {
   WORKFLOW_HOME_RELATIVE_DIR,

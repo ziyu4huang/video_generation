@@ -29,6 +29,7 @@ A single coordination layer publishes the `__piPlan*` seams, parses BOTH plan co
 - [01 — Revert skill edits; restore fidelity](tickets/01-revert-skill-edits-restore-fidelity.md) — reverted #664/#676/#678 convention injections → #617-port verbatim; kept #639 pi-port glue; invariant refined to "byte-identical except necessary pi-port glue"; conventions relocate to [02](tickets/02-unified-coordination-layer.md) / wayfind.
 - [02 — Unified coordination layer](tickets/02-unified-coordination-layer.md) — lives **inside goal-todo** (no new package; publishes `__piPlan*` for wayfind); parses ONE canonical format = **writing-plans** (wayfind adjusts; Task≡phase preserves the `__piPlanPhases` reader model + `/wayfind sync` loop); older `__piSuperpowersPlan*` design superseded.
 - [03 — Seam contract](tickets/03-seam-name-unification.md) — contract pinned by existing readers: goal-todo publishes `__piPlanPhases`/`__piPlanIncomplete`/`__piPlanSummary` (one-way to wayfind); goal-todo self-consumes via **internal-call** (no self-read, goal.ts refactored to direct calls); older `__piSuperpowersPlan*`/`__piApplyTodoToggle` superseded; Task≡phase.
+- [06 — Close & supersede prior efforts](tickets/06-close-and-supersede-prior-efforts.md) — bookkeeping executed: closed `let-s-make-superpower-` 03/05/06 (folded → 04/05 here) + `build-plan-coordinator/01`; both prior maps annotated `superseded-by: 2026-07-19-a`. `2026-07-19-a` is now the single live coordination-layer effort.
 
 ## Not yet specified
 

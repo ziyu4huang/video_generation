@@ -1,7 +1,7 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import { reconstructSubagentRuns, SubagentViewer } from "../src/subagent-viewer.js";
 import type { SubagentToolDetails } from "../src/subagent-tool.js";
+import { reconstructSubagentRuns, SubagentViewer } from "../src/subagent-viewer.js";
 
 // Identity theme so render() returns plain text we can assert on.
 const T = { fg: (_c: string, s: string) => s, bg: (_c: string, s: string) => s, bold: (s: string) => s } as never;
@@ -14,11 +14,23 @@ test("reconstructSubagentRuns collects only subagent toolResults, in order, with
   const branch = [
     toolResultEntry("read", "ignored"),
     toolResultEntry("subagent", "Status: DONE\nreport A", {
-      exitCode: 0, timedOut: false, agent: "implementer", model: "x/flash", taskPreview: "task A", elapsedMs: 1000, status: "done",
+      exitCode: 0,
+      timedOut: false,
+      agent: "implementer",
+      model: "x/flash",
+      taskPreview: "task A",
+      elapsedMs: 1000,
+      status: "done",
     }),
     toolResultEntry("bash", "ignored"),
     toolResultEntry("subagent", "failed report B", {
-      exitCode: 1, timedOut: false, agent: "reviewer", model: "y/pro", taskPreview: "task B", elapsedMs: 2000, status: "failed",
+      exitCode: 1,
+      timedOut: false,
+      agent: "reviewer",
+      model: "y/pro",
+      taskPreview: "task B",
+      elapsedMs: 2000,
+      status: "failed",
     }),
   ];
   const runs = reconstructSubagentRuns(branch as never);
@@ -31,7 +43,9 @@ test("reconstructSubagentRuns collects only subagent toolResults, in order, with
 });
 
 test("reconstructSubagentRuns tolerates missing details (falls back to done/failed by exitCode)", () => {
-  const branch = [toolResultEntry("subagent", "legacy", { exitCode: 0, timedOut: false } as Partial<SubagentToolDetails>)];
+  const branch = [
+    toolResultEntry("subagent", "legacy", { exitCode: 0, timedOut: false } as Partial<SubagentToolDetails>),
+  ];
   const runs = reconstructSubagentRuns(branch as never);
   assert.equal(runs.length, 1);
   assert.equal(runs[0].status, "done");
@@ -41,10 +55,22 @@ test("reconstructSubagentRuns tolerates missing details (falls back to done/fail
 test("viewer list shows all runs; enter opens the selected run's full output; esc goes back", () => {
   const runs = reconstructSubagentRuns([
     toolResultEntry("subagent", "report A line one", {
-      exitCode: 0, timedOut: false, agent: "implementer", model: "x/flash", taskPreview: "task A", elapsedMs: 1000, status: "done",
+      exitCode: 0,
+      timedOut: false,
+      agent: "implementer",
+      model: "x/flash",
+      taskPreview: "task A",
+      elapsedMs: 1000,
+      status: "done",
     }),
     toolResultEntry("subagent", "report B line one", {
-      exitCode: 1, timedOut: false, agent: "reviewer", model: "y/pro", taskPreview: "task B", elapsedMs: 2000, status: "failed",
+      exitCode: 1,
+      timedOut: false,
+      agent: "reviewer",
+      model: "y/pro",
+      taskPreview: "task B",
+      elapsedMs: 2000,
+      status: "failed",
     }),
   ] as never);
   const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
@@ -70,8 +96,14 @@ test("reconstructSubagentRuns carries usage through from details", () => {
   const usage = { input: 100, output: 50, cacheRead: 0, cacheWrite: 0, total: 150, cost: 0.0023 };
   const branch = [
     toolResultEntry("subagent", "report", {
-      exitCode: 0, timedOut: false, agent: "implementer", model: "x/flash",
-      taskPreview: "task A", elapsedMs: 1000, status: "done", usage,
+      exitCode: 0,
+      timedOut: false,
+      agent: "implementer",
+      model: "x/flash",
+      taskPreview: "task A",
+      elapsedMs: 1000,
+      status: "done",
+      usage,
     } as Partial<SubagentToolDetails>),
   ];
   const runs = reconstructSubagentRuns(branch as never);
@@ -81,8 +113,13 @@ test("reconstructSubagentRuns carries usage through from details", () => {
 test("viewer output view shows cost/tokens when usage.total > 0", () => {
   const runs = reconstructSubagentRuns([
     toolResultEntry("subagent", "report A", {
-      exitCode: 0, timedOut: false, agent: "implementer", model: "x/flash", taskPreview: "task A",
-      elapsedMs: 1000, status: "done",
+      exitCode: 0,
+      timedOut: false,
+      agent: "implementer",
+      model: "x/flash",
+      taskPreview: "task A",
+      elapsedMs: 1000,
+      status: "done",
       usage: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0, total: 150, cost: 0.0023 },
     } as Partial<SubagentToolDetails>),
   ] as never);

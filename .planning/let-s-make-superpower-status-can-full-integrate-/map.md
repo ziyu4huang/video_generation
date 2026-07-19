@@ -1,3 +1,7 @@
+---
+superseded-by: 2026-07-19-a
+---
+
 # Map — superpowers status ↔ goal-todo
 
 ## Destination
@@ -32,6 +36,9 @@ Superpowers methodology progress **auto-syncs into the goal-todo extension**: th
 - [01 — Plan convention](tickets/01-plan-convention.md) — adopt `writing-plans`' existing convention wholesale (`docs/superpowers/plans/`; header `# [Feature] Implementation Plan`→`/goal`, `- [ ] **Step N**` checkbox→todos); scope is location-driven & skill-agnostic; stable step-ID deferred to 04; soft-instruction near-free.
 - [02 — Cross-ext store access](tickets/02-cross-ext-store-access.md) — direct cross-ext store import is UNSAFE (jiti dual-instance, verified); no tool-invoke API exists; use the repo's globalThis publish/subscribe pattern — superpowers parses+publishes, goal-todo reads+mutates its own store. Coordination is **two-sided** (goal-todo must gain a subscriber).
 - [04 — Sync mapping](tickets/04-sync-mapping.md) — **bidirectional** with a clean master-split: structure=plan-master (plan→todo), completion=todo-master (todo→plan via `__piApplyTodoToggle`); title-hash step IDs; signals `__piSuperpowersPlan`/`__piApplyTodoToggle`/`__piSuperpowersPlanIncomplete`; `goal_complete` gated on plan-completion (verification stays soft); one-active-plan assumed (multi-plan → 06).
+- [03 — Bootstrap soft-instruction](tickets/03-bootstrap-soft-instruction.md) — **closed, superseded (moot).** The unified layer lives in goal-todo and reads plans directly → zero skill editing / zero bootstrap nudge. Folded into 2026-07-19-a.
+- [05 — Sync timing & lifecycle](tickets/05-timing-and-lifecycle.md) — **closed, folded** into 2026-07-19-a/04 (timing decision deferred to the build at 2026-07-19-a/09).
+- [06 — Multi-plan representation](tickets/06-multi-plan-representation.md) — **closed, folded** into 2026-07-19-a/05.
 
 ## Not yet specified
 
@@ -39,6 +46,7 @@ Superpowers methodology progress **auto-syncs into the goal-todo extension**: th
 
 ## Out of scope
 
+- **⚠️ SUPERSEDED by [`2026-07-19-a`](../2026-07-19-a/map.md)** — this effort's design (coordination layer inside superpowers, publishing `__piSuperpowersPlan*`) was reconciled into a single unified layer living inside goal-todo publishing `__piPlan*` (2026-07-19-a decisions 02+03). Tickets 03/05/06 closed & folded; this map is retained for history. See [2026-07-19-a/06](../2026-07-19-a/tickets/06-close-and-supersede-prior-efforts.md).
 - **Editing the upstream superpowers skills** to add `todo`/`goal_complete` calls — violates the byte-identical fidelity invariant (README, biome, `skills.test.ts`). The bridge is built OUTSIDE the skills.
 - **A superpowers status-widget section** in the goal-todo composite widget — explicitly rejected at the destination grill (shape B, not A).
 - **Tool-call-heuristic or context-message-scan signal detection** — rejected at the signal-source grill in favour of the convention-based plan file.

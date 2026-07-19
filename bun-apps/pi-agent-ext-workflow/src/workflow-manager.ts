@@ -26,7 +26,10 @@ import type { ManifestIo } from "./workflow-pack-manifest.js";
 
 /** Hash of run args for run-meta.json (decision 11). */
 function inputHash(args: unknown): string {
-  return createHash("sha256").update(JSON.stringify(args ?? null)).digest("hex").slice(0, 12);
+  return createHash("sha256")
+    .update(JSON.stringify(args ?? null))
+    .digest("hex")
+    .slice(0, 12);
 }
 
 /** Filesystem-safe compact ISO timestamp for output subdir naming (decision 11). */
@@ -121,8 +124,30 @@ export interface WorkflowManagerOptions {
 
 /** Project the serializable caps out of ExecOptions (drops signals/callbacks). */
 function toPersistedExec(exec: ExecOptions): PersistedExecOptions {
-  const { maxAgents, agentTimeoutMs, tokenBudget, concurrency, agentRetries, packId, stateRoot, intermediateDir, outputsDir, io } = exec;
-  return { maxAgents, agentTimeoutMs, tokenBudget, concurrency, agentRetries, packId, stateRoot, intermediateDir, outputsDir, io };
+  const {
+    maxAgents,
+    agentTimeoutMs,
+    tokenBudget,
+    concurrency,
+    agentRetries,
+    packId,
+    stateRoot,
+    intermediateDir,
+    outputsDir,
+    io,
+  } = exec;
+  return {
+    maxAgents,
+    agentTimeoutMs,
+    tokenBudget,
+    concurrency,
+    agentRetries,
+    packId,
+    stateRoot,
+    intermediateDir,
+    outputsDir,
+    io,
+  };
 }
 
 export class WorkflowManager extends EventEmitter {
@@ -445,6 +470,7 @@ export class WorkflowManager extends EventEmitter {
         onAgentStart: (event) => {
           managed.snapshot.agents.push({
             id: managed.snapshot.agents.length + 1,
+            callIndex: event.callIndex,
             label: event.label,
             phase: event.phase,
             prompt: event.prompt,
@@ -457,7 +483,7 @@ export class WorkflowManager extends EventEmitter {
         onAgentEnd: (event) => {
           const agent = [...managed.snapshot.agents]
             .reverse()
-            .find((a) => a.label === event.label && a.status === "running");
+            .find((a) => a.callIndex === event.callIndex && a.status === "running");
           if (agent) {
             agent.status = event.result === null ? "error" : "done";
             agent.resultPreview = preview(event.result);
@@ -473,7 +499,7 @@ export class WorkflowManager extends EventEmitter {
         onAgentHistory: (event) => {
           const agent = [...managed.snapshot.agents]
             .reverse()
-            .find((a) => a.label === event.label && a.status === "running");
+            .find((a) => a.callIndex === event.callIndex && a.status === "running");
           if (agent) {
             agent.history = event.history;
           }
@@ -501,7 +527,13 @@ export class WorkflowManager extends EventEmitter {
           writeFileSync(
             join(runOut, "run-meta.json"),
             JSON.stringify(
-              { runId: managed.runId, packId: managed.packId, inputHash: inputHash(args), startedAt: managed.startedAt.toISOString(), finishedAt: new Date().toISOString() },
+              {
+                runId: managed.runId,
+                packId: managed.packId,
+                inputHash: inputHash(args),
+                startedAt: managed.startedAt.toISOString(),
+                finishedAt: new Date().toISOString(),
+              },
               null,
               2,
             ),
