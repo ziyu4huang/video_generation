@@ -598,9 +598,11 @@ export interface WhisperOptions {
   /** Language hint (e.g. "en"). Default: auto-detect. */
   language?: string;
   /**
-   * Kept for API compatibility but ignored: the swift transcribe currently
-   * emits segment-level timestamps only (no per-word DTW), so there are no
-   * word timestamps to skip.
+   * Kept for API compatibility. Note: the swift transcribe now emits per-word
+   * timestamps (each segment carries a `words[]` with start/end/probability),
+   * so word-level cues ARE available — observed end-to-end in the story-video
+   * run (receipts/story-example-lighthouse-keeper-20260719.md). `noWords`
+   * remains un-honored by the swift binary.
    */
   noWords?: boolean;
   /** Output dir for transcript.txt + words.json. Defaults to req.outputDir. */
