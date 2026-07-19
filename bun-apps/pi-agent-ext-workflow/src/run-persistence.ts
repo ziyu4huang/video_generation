@@ -140,7 +140,7 @@ export type FsLayer = {
   writeFileSync: typeof writeFileSync;
 };
 
-export function createRunPersistence(cwd: string, fsOverride?: Partial<FsLayer>): RunPersistence {
+export function createRunPersistence(cwd: string, fsOverride?: Partial<FsLayer>, stateRoot?: string): RunPersistence {
   const _existsSync = fsOverride?.existsSync ?? existsSync;
   const _mkdirSync = fsOverride?.mkdirSync ?? mkdirSync;
   const _readdirSync = fsOverride?.readdirSync ?? readdirSync;
@@ -150,7 +150,7 @@ export function createRunPersistence(cwd: string, fsOverride?: Partial<FsLayer>)
   const _writeFileSync = fsOverride?.writeFileSync ?? writeFileSync;
 
   const paths = workflowProjectPaths(cwd);
-  const runsDir = paths.runsDir;
+  const runsDir = stateRoot ? join(stateRoot, "runs") : paths.runsDir;
   const legacyRunsDir = paths.legacyRunsDir;
 
   const ensureDir = () => {
