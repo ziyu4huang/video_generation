@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 ########################################
-# run-test.sh — tiered test launcher for pi-agent-ext-goal-todo.
+# run-test.sh — tiered test launcher for pi-agent-ext-core-task.
 #   quick (default) — this package's existing test command, unchanged.
 #   full            — quick + extension-contract.test.ts re-asserted standalone.
 # USAGE
@@ -29,7 +29,7 @@ done
 
 print_list() {
 	cat <<EOF
-$(Y "pi-agent-ext-goal-todo run-test.sh — tiers"):
+$(Y "pi-agent-ext-core-task run-test.sh — tiers"):
   $(G quick)  bun test (this package's existing test command)  $(Y "[default]")
   $(G full)   quick + extension-contract.test.ts re-asserted standalone
 EOF
@@ -42,7 +42,7 @@ step() {
 	local name="$1"; shift
 	local start rc elapsed
 	start=$(date +%s)
-	"$@" >/tmp/pi-agent-ext-goal-todo-runtest.log 2>&1
+	"$@" >/tmp/pi-agent-ext-core-task-runtest.log 2>&1
 	rc=$?
 	elapsed=$(( $(date +%s) - start ))
 	if [ "$rc" -eq 0 ]; then
@@ -51,13 +51,13 @@ step() {
 		echo "$(R '✗') ${name}  $(D "(${elapsed}s)")"
 		OVERALL=1
 	fi
-	if [ "$rc" -ne 0 ]; then sed 's/^/      /' /tmp/pi-agent-ext-goal-todo-runtest.log | tail -n 25 >&2; fi
+	if [ "$rc" -ne 0 ]; then sed 's/^/      /' /tmp/pi-agent-ext-core-task-runtest.log | tail -n 25 >&2; fi
 }
 
 run_quick() { ( cd "$SCRIPT_DIR" && bun test ${EXTRA[@]+"${EXTRA[@]}"} ) ; }
 run_contract() { ( cd "$SCRIPT_DIR" && bun test __tests__/extension-contract.test.ts ) ; }
 
-echo "$(Y "▶ pi-agent-ext-goal-todo run-test.sh — tier=$TIER")"
+echo "$(Y "▶ pi-agent-ext-core-task run-test.sh — tier=$TIER")"
 case "$TIER" in
 	quick) step "quick" run_quick ;;
 	full)  step "quick" run_quick

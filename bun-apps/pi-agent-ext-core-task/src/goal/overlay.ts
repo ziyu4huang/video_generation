@@ -1,8 +1,8 @@
 /**
- * goal/overlay.ts — goal section renderer for the PowerToolStatusWidget.
+ * goal/overlay.ts — goal section renderer for the CoreTaskStatusWidget.
  *
  * As of the overlay-unification refactor this no longer owns a `setWidget`
- * lifecycle. The PowerToolStatusWidget (shared/status-widget.ts) owns ONE
+ * lifecycle. The CoreTaskStatusWidget (shared/status-widget.ts) owns ONE
  * above-editor widget key and renders this section alongside the todo section
  * in a fixed order. GoalOverlay is now a state-holder that exposes
  * `render(theme, width)` and pokes `refresh()` (the composite's update) when
@@ -38,7 +38,7 @@ export class GoalOverlay implements GoalOverlayLike {
 	private flashTimer: ReturnType<typeof setTimeout> | undefined;
 	private refresh: (() => void) | undefined;
 
-	/** No-op now — the PowerToolStatusWidget owns the UI ctx. Kept for DI compat. */
+	/** No-op now — the CoreTaskStatusWidget owns the UI ctx. Kept for DI compat. */
 	setUICtx(_ctx: ExtensionUIContext): void {}
 
 	/** Register the composite's update as the refresh callback. */

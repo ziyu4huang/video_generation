@@ -184,7 +184,7 @@ describe("tool registration", () => {
   test("registers all 4 inspect_* tools", () => {
     const { captured } = loadExtension([]);
     // ask_user_question -> pi-agent-ext-ask-user (A2, merged into
-    // pi-agent-ext-goal-todo 2026-07-18); goal+todo -> pi-agent-ext-goal-todo
+    // pi-agent-ext-core-task 2026-07-18); goal+todo -> pi-agent-ext-core-task
     // (A3); knowledge_query + graph_health -> knowledge-graph hub.
     // power-tool is now self-contained diagnostics: inspect_* only, plus
     // inspect_pathology (F v1) for failure-pattern detection.

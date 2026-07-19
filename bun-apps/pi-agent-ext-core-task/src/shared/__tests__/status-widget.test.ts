@@ -1,13 +1,13 @@
 /**
  * status-widget.test.ts — golden + ordering tests for the composite
- * PowerToolStatusWidget and its two section renderers (GoalOverlay, TodoOverlay).
+ * CoreTaskStatusWidget and its two section renderers (GoalOverlay, TodoOverlay).
  *
  * Covers the A1 gate (fixed stacking order survives re-render) and the A2 gate
  * (deterministic, golden-string section output).
  */
 import { test, expect, describe } from "bun:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { PowerToolStatusWidget, getSharedStatusWidget } from "../status-widget.ts";
+import { CoreTaskStatusWidget, getSharedStatusWidget } from "../status-widget.ts";
 import { GoalOverlay } from "../../goal/overlay.ts";
 import { TodoOverlay } from "../../todo/overlay.ts";
 import { replaceState } from "../../todo/state/store.ts";
@@ -55,9 +55,9 @@ const sampleGoal = (over: Partial<ActiveGoal> = {}): ActiveGoal => ({
 
 // ─── Composite ordering (A1) ────────────────────────────────────────────────
 
-describe("PowerToolStatusWidget ordering", () => {
+describe("CoreTaskStatusWidget ordering", () => {
 	test("renders sections in addSection order with a blank separator", () => {
-		const w = new PowerToolStatusWidget();
+		const w = new CoreTaskStatusWidget();
 		const cap = captureWidget();
 		w.setUICtx(cap.uiCtx as never);
 		w.addSection({ id: "goal", render: () => ["GOAL"] });
@@ -69,7 +69,7 @@ describe("PowerToolStatusWidget ordering", () => {
 	test("order survives repeated update() (the flicker regression)", () => {
 		// The old two-key design flickered because clear+re-register moved a key
 		// to the end. One composite key cannot reorder relative to itself.
-		const w = new PowerToolStatusWidget();
+		const w = new CoreTaskStatusWidget();
 		const cap = captureWidget();
 		w.setUICtx(cap.uiCtx as never);
 		w.addSection({ id: "goal", render: () => ["GOAL"] });
@@ -83,7 +83,7 @@ describe("PowerToolStatusWidget ordering", () => {
 	});
 
 	test("empty sections are skipped (no stray blank lines)", () => {
-		const w = new PowerToolStatusWidget();
+		const w = new CoreTaskStatusWidget();
 		const cap = captureWidget();
 		w.setUICtx(cap.uiCtx as never);
 		w.addSection({ id: "goal", render: () => [] });
@@ -93,7 +93,7 @@ describe("PowerToolStatusWidget ordering", () => {
 	});
 
 	test("addSection with a duplicate id is ignored (order preserved)", () => {
-		const w = new PowerToolStatusWidget();
+		const w = new CoreTaskStatusWidget();
 		const cap = captureWidget();
 		w.setUICtx(cap.uiCtx as never);
 		w.addSection({ id: "goal", render: () => ["G"] });
@@ -104,7 +104,7 @@ describe("PowerToolStatusWidget ordering", () => {
 	});
 
 	test("update() is a safe no-op when UI ctx has no setWidget (RPC/CLI mode)", () => {
-		const w = new PowerToolStatusWidget();
+		const w = new CoreTaskStatusWidget();
 		w.setUICtx({} as never); // no setWidget
 		w.addSection({ id: "goal", render: () => ["G"] });
 		expect(() => w.update()).not.toThrow();
@@ -205,7 +205,7 @@ describe("composite + real overlays", () => {
 		});
 		const goal = new GoalOverlay();
 		const todo = new TodoOverlay();
-		const w = new PowerToolStatusWidget();
+		const w = new CoreTaskStatusWidget();
 		const cap = captureWidget();
 		w.setUICtx(cap.uiCtx as never);
 		goal.setRefresh(() => w.update());
@@ -222,9 +222,9 @@ describe("composite + real overlays", () => {
 
 // ─── Section ordering by `order` field ─────────────────────────────────────
 
-describe("PowerToolStatusWidget order field", () => {
+describe("CoreTaskStatusWidget order field", () => {
 	test("sections render sorted by `order`, independent of addSection call order", () => {
-		const w = new PowerToolStatusWidget();
+		const w = new CoreTaskStatusWidget();
 		const cap = captureWidget();
 		w.setUICtx(cap.uiCtx as never);
 		w.addSection({ id: "wayfind", order: 2, render: () => ["WAYFIND"] });
@@ -236,7 +236,7 @@ describe("PowerToolStatusWidget order field", () => {
 	});
 
 	test("sections without `order` sort after ordered sections, in addSection order", () => {
-		const w = new PowerToolStatusWidget();
+		const w = new CoreTaskStatusWidget();
 		const cap = captureWidget();
 		w.setUICtx(cap.uiCtx as never);
 		w.addSection({ id: "goal", order: 0, render: () => ["GOAL"] });
@@ -258,6 +258,6 @@ describe("getSharedStatusWidget", () => {
 
 	test("the instance is stored on globalThis (survives module-identity gaps)", () => {
 		const w = getSharedStatusWidget();
-		expect((globalThis as Record<string, unknown>).__piPowerToolStatusWidget).toBe(w);
+		expect((globalThis as Record<string, unknown>).__piCoreTaskStatusWidget).toBe(w);
 	});
 });

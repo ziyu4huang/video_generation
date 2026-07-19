@@ -23,7 +23,7 @@ planning-with-files' `/plan-*` namespace).
 
 ## Decision
 
-1. Promote `pi-agent-ext-goal-todo`'s `PowerToolStatusWidget` to a
+1. Promote `pi-agent-ext-core-task`'s `CoreTaskStatusWidget` to a
    `globalThis`-backed singleton (`getSharedStatusWidget()`), exposed via the
    package's `./src/*` + `./src/*.js` export map entries. wayfind and
    planning-with-files take a `workspace:*` dependency on goal-todo and each
@@ -52,7 +52,7 @@ planning-with-files' `/plan-*` namespace).
   singleton guard also cannot rely on `instanceof` for the same cross-loader
   reason — it uses existence, not class-identity, checking.
 - The shared widget's `dispose()` tears down every registered package's
-  section, not just the caller's — only `pi-agent-ext-goal-todo`'s own
+  section, not just the caller's — only `pi-agent-ext-core-task`'s own
   `session_shutdown` handler is allowed to call it. wayfind and
   planning-with-files each dispose only their own small overlay object.
 - Breaking, hard-to-reverse change for anyone with muscle memory around the

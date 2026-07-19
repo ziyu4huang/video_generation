@@ -1,14 +1,14 @@
-# pi-agent-ext-goal-todo
+# pi-agent-ext-core-task
 
 Also owns `ask_user_question` (merged from `pi-agent-ext-ask-user` on 2026-07-18 — see the "ask_user_question" section below). It shares no code or state with goal/todo; it was relocated here as the first step of a broader "core-task pi-ext" consolidation, not because of a runtime coupling.
 
-The ubiquitous language of pi-agent-ext-goal-todo — the `/goal` objective driver (with `goal_complete`) and the `todo` step tracker (with `/todos`), kept together because they share a composite status widget and six lifecycle hooks. Extracted from power-tool. Publishes the `__piGoalActive` coordination seam that the plan coordinator and wayfind read.
+The ubiquitous language of pi-agent-ext-core-task — the `/goal` objective driver (with `goal_complete`) and the `todo` step tracker (with `/todos`), kept together because they share a composite status widget and six lifecycle hooks. Extracted from power-tool. Publishes the `__piGoalActive` coordination seam that the plan coordinator and wayfind read.
 
 ## Language
 
 ### The composite widget
 
-**Composite status widget** (`PowerToolStatusWidget`, key `pi-power-tool`):
+**Composite status widget** (`CoreTaskStatusWidget`, key `pi-core-task`):
 A single above-editor widget rendering goal (top) + todo (bottom) in fixed order. The reason goal+todo share a package — splitting them across two extensions reintroduces a widget-key ordering flicker (the SDK orders widgets by Map insertion with no index API).
 _Avoid_: status bar, overlay (it is the composite goal+todo widget keyed for deterministic stacking)
 
