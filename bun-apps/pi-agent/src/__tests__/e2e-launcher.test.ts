@@ -1,0 +1,205 @@
+/**
+ * e2e-launcher — spawns real child processes against run.sh itself (not the
+ * TS modules it loads). Covers symlink resolution, entry-mode detection,
+ * --update-help, --upgrade passthrough, and read-only env exports — none of
+ * which any other test file exercises (they all import TS directly).
+ *
+ * Run: bun test src/__tests__/e2e-launcher.test.ts  (folded into run-test.sh's
+ * `high` tier via run_extensions() — bun test auto-discovers *.test.ts files).
+ *
+ * Gated on PI_AGENT_E2E=1 (keeps `bun test` baseline fast), same convention as
+ * e2e-patches.test.ts / e2e-extensions.test.ts / e2e-readonly.test.ts. Run via
+ * `./bun-apps/pi-agent/run-test.sh high` or `PI_AGENT_E2E=1 bun test`.
+ */
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync, chmodSync, symlinkSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { E2E_ENABLED } from "./e2e-harness.ts";
+
+const RUN_SH = path.resolve(import.meta.dirname, "../../run.sh");
+const REAL_PKG_DIR = path.dirname(RUN_SH); // bun-apps/pi-agent — source (dev) mode in this checkout
+let TMP: string;
+
+beforeAll(() => {
+	TMP = mkdtempSync(path.join(tmpdir(), "pi-agent-e2e-launcher-"));
+});
+
+afterAll(() => {
+	rmSync(TMP, { recursive: true, force: true });
+});
+
+function run(args: string[], opts: { cwd?: string; env?: Record<string, string> } = {}) {
+	return spawnSync("bash", [opts.cwd ? path.join(opts.cwd, "run.sh") : RUN_SH, ...args], {
+		cwd: opts.cwd ?? path.dirname(RUN_SH),
+		env: { ...process.env, ...opts.env },
+		encoding: "utf8",
+		timeout: 15_000,
+	});
+}
+
+describe.skipIf(!E2E_ENABLED)("symlink resolution", () => {
+	test("entry/mode resolve against the REAL script dir, not the symlink's dir", () => {
+		// bun-apps/pi-agent ships src/cli.ts (no pi-agent.js) in this checkout, so
+		// real behavior here is "source (dev)". --list-models is a fast, offline,
+		// no-model-server-required subcommand — good for proving the launcher
+		// reaches the real cli.ts through the symlink without spinning up a TUI.
+		const linkDir = path.join(TMP, "symlink-caller");
+		mkdirSync(linkDir, { recursive: true });
+		const linkPath = path.join(linkDir, "pi-agent.sh");
+		symlinkSync(RUN_SH, linkPath);
+
+		const result = spawnSync("bash", [linkPath, "--list-models"], {
+			cwd: linkDir,
+			env: { ...process.env, PIAGENT_DEBUG: "1" },
+			encoding: "utf8",
+			timeout: 15_000,
+		});
+
+		expect(result.status).toBe(0);
+		// entry/mode must resolve to the REAL package dir (where run.sh actually
+		// lives), not linkDir (where the symlink was invoked from) — this is
+		// exactly the bug the BASH_SOURCE symlink-following loop guards against.
+		expect(result.stderr).toMatch(/mode=source \(dev\)/);
+		// entry must resolve to the REAL package dir (where run.sh actually
+		// lives, via BASH_SOURCE symlink-following), NOT linkDir (where the
+		// symlink itself sits) — proven by exact equality with REAL_PKG_DIR.
+		expect(result.stderr).toContain(`entry=${REAL_PKG_DIR}/src/cli.ts`);
+		// cwd in the debug line reflects the invoking cwd (linkDir), confirming
+		// SCRIPT_DIR (entry resolution) and cwd (process.cwd()) are independently
+		// tracked — not both accidentally collapsed to one directory. bash's
+		// $(pwd) resolves /tmp -> /private/tmp on macOS, so compare via realpath.
+		const realLinkDir = realpathSync(linkDir);
+		expect(result.stderr).toContain(`cwd=${realLinkDir}`);
+		expect(realLinkDir).not.toBe(REAL_PKG_DIR);
+	});
+});
+
+describe.skipIf(!E2E_ENABLED)("entry-mode detection", () => {
+	function makeFixture(name: string, files: Record<string, string>) {
+		const dir = path.join(TMP, name);
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(path.join(dir, "run.sh"), readFileSync(RUN_SH, "utf8"));
+		chmodSync(path.join(dir, "run.sh"), 0o755);
+		for (const [rel, content] of Object.entries(files)) {
+			const full = path.join(dir, rel);
+			mkdirSync(path.dirname(full), { recursive: true });
+			writeFileSync(full, content);
+		}
+		return dir;
+	}
+
+	const STUB_ENTRY = "console.log('stub-entry', process.argv.slice(2).join(' '));\n";
+
+	test("pi-agent.js alone -> deployed (bundle)", () => {
+		const dir = makeFixture("bundle", { "pi-agent.js": STUB_ENTRY });
+		const result = run(["--list-models"], { cwd: dir, env: { PIAGENT_DEBUG: "1" } });
+		expect(result.stderr).toMatch(/mode=deployed \(bundle\)/);
+	});
+
+	test("pi-agent.js + packages/ -> deployed (release)", () => {
+		const dir = makeFixture("release", { "pi-agent.js": STUB_ENTRY, "packages/.keep": "" });
+		const result = run(["--list-models"], { cwd: dir, env: { PIAGENT_DEBUG: "1" } });
+		expect(result.stderr).toMatch(/mode=deployed \(release\)/);
+	});
+
+	test("pi-agent.js + .deploy-portable -> deployed (portable)", () => {
+		const dir = makeFixture("portable", { "pi-agent.js": STUB_ENTRY, ".deploy-portable": "" });
+		const result = run(["--list-models"], { cwd: dir, env: { PIAGENT_DEBUG: "1" } });
+		expect(result.stderr).toMatch(/mode=deployed \(portable\)/);
+	});
+
+	test("src/cli.ts alone -> source (dev)", () => {
+		const dir = makeFixture("source", { "src/cli.ts": STUB_ENTRY });
+		const result = run(["--list-models"], { cwd: dir, env: { PIAGENT_DEBUG: "1" } });
+		expect(result.stderr).toMatch(/mode=source \(dev\)/);
+	});
+
+	test("neither marker present -> error, exit 1", () => {
+		const dir = makeFixture("empty", {});
+		const result = run(["--list-models"], { cwd: dir });
+		expect(result.status).toBe(1);
+		expect(result.stderr).toMatch(/no pi-agent entry found/);
+	});
+});
+
+describe.skipIf(!E2E_ENABLED)("--update-help", () => {
+	test("exits 0, prints the upgrade wrapper docs, never execs bun", () => {
+		const result = run(["--update-help"]);
+		expect(result.status).toBe(0);
+		expect(result.stdout).toMatch(/update-pi\.sh/);
+		expect(result.stdout).toMatch(/--check/);
+		expect(result.stdout).toMatch(/--rebuild/);
+		// Early-return branch: no entry/mode resolution happens, so the debug
+		// line (which fires after entry detection) must NOT appear even with
+		// PIAGENT_DEBUG=1.
+		const debugResult = run(["--update-help"], { env: { PIAGENT_DEBUG: "1" } });
+		expect(debugResult.status).toBe(0);
+		expect(debugResult.stderr).not.toMatch(/\[run\.sh\] mode=/);
+	});
+});
+
+describe.skipIf(!E2E_ENABLED)("--upgrade / -U passthrough", () => {
+	function makeUpgradeFixture(name: string) {
+		const dir = path.join(TMP, name);
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(path.join(dir, "run.sh"), readFileSync(RUN_SH, "utf8"));
+		chmodSync(path.join(dir, "run.sh"), 0o755);
+		mkdirSync(path.join(dir, "src"), { recursive: true });
+		writeFileSync(path.join(dir, "src", "cli.ts"), "console.log('unused');\n");
+		const stub = ["#!/usr/bin/env bash", 'echo "$@" > "$(dirname "$0")/received-args.txt"', "exit 0"].join("\n");
+		writeFileSync(path.join(dir, "update-pi.sh"), stub);
+		chmodSync(path.join(dir, "update-pi.sh"), 0o755);
+		return dir;
+	}
+
+	test("forwards flags to update-pi.sh without touching the network", () => {
+		const dir = makeUpgradeFixture("upgrade-fixture");
+		const result = run(["--upgrade", "--check"], { cwd: dir });
+		expect(result.status).toBe(0);
+		const received = readFileSync(path.join(dir, "received-args.txt"), "utf8").trim();
+		expect(received).toBe("--check");
+	});
+
+	test("-U is equivalent to --upgrade", () => {
+		const dir = makeUpgradeFixture("upgrade-fixture-short");
+		const result = run(["-U", "--rebuild"], { cwd: dir });
+		expect(result.status).toBe(0);
+		const received = readFileSync(path.join(dir, "received-args.txt"), "utf8").trim();
+		expect(received).toBe("--rebuild");
+	});
+});
+
+describe.skipIf(!E2E_ENABLED)("read-only deploy env exports", () => {
+	test(".deploy-readonly sets JITI_FS_CACHE and PI_CODING_AGENT_DIR for the child", () => {
+		const dir = path.join(TMP, "readonly-fixture");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(path.join(dir, "run.sh"), readFileSync(RUN_SH, "utf8"));
+		chmodSync(path.join(dir, "run.sh"), 0o755);
+		writeFileSync(
+			path.join(dir, "pi-agent.js"),
+			"require('fs').writeFileSync(require('path').join(__dirname, 'env.json'), JSON.stringify(process.env));\n",
+		);
+		writeFileSync(path.join(dir, ".deploy-readonly"), "");
+
+		const result = run([], { cwd: dir });
+		expect(result.status).toBe(0);
+		const env = JSON.parse(readFileSync(path.join(dir, "env.json"), "utf8"));
+		expect(env.JITI_FS_CACHE).toBe("0");
+		expect(env.PI_CODING_AGENT_DIR).toBeTruthy();
+	});
+
+	test("PIAGENT_DEBUG=1 also prints the read-only export line", () => {
+		const dir = path.join(TMP, "readonly-fixture-debug");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(path.join(dir, "run.sh"), readFileSync(RUN_SH, "utf8"));
+		chmodSync(path.join(dir, "run.sh"), 0o755);
+		writeFileSync(path.join(dir, "pi-agent.js"), "console.log('stub');\n");
+		writeFileSync(path.join(dir, ".deploy-readonly"), "");
+
+		const result = run([], { cwd: dir, env: { PIAGENT_DEBUG: "1" } });
+		expect(result.status).toBe(0);
+		expect(result.stderr).toMatch(/read-only deploy: JITI_FS_CACHE=0 PI_CODING_AGENT_DIR=/);
+	});
+});
