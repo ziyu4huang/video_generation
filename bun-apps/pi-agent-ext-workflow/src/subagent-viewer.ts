@@ -6,6 +6,7 @@
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import type { AgentUsage } from "./agent.js";
 import type { SubagentToolDetails } from "./subagent-tool.js";
 
 export interface SubagentRun {
@@ -16,6 +17,8 @@ export interface SubagentRun {
   taskPreview: string;
   status: "done" | "failed" | "timedout";
   elapsedMs: number;
+  /** Real token/cost usage, when reported. */
+  usage?: AgentUsage;
   /** The full text the parent agent read (content[0].text). */
   output: string;
 }
@@ -49,6 +52,7 @@ export function reconstructSubagentRuns(branch: Iterable<BranchEntry>): Subagent
       taskPreview: d?.taskPreview ?? "",
       status,
       elapsedMs: d?.elapsedMs ?? 0,
+      usage: d?.usage,
       output: msg.content?.find((c) => c.type === "text")?.text ?? "",
     });
   }
@@ -138,9 +142,10 @@ export class SubagentViewer {
     const r = this.runs[this.selected];
     if (!r) return [""];
     const lines: string[] = [""];
+    const usageStr = r.usage && r.usage.total > 0 ? ` • $${r.usage.cost.toFixed(3)} • ${r.usage.total} tok` : "";
     lines.push(
       truncateToWidth(
-        `  ${th.fg("accent", `#${r.index}`)} ${th.fg("muted", r.agent ?? "general-purpose")} ▸ ${r.model} • ${r.status} • ${(r.elapsedMs / 1000).toFixed(1)}s`,
+        `  ${th.fg("accent", `#${r.index}`)} ${th.fg("muted", r.agent ?? "general-purpose")} ▸ ${r.model} • ${r.status} • ${(r.elapsedMs / 1000).toFixed(1)}s${usageStr}`,
         width,
       ),
     );
