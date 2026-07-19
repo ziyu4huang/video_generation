@@ -3,9 +3,12 @@
 The movie-director **orchestration extension** — an instruction-driven (agent-first)
 video production pipeline, rewritten from [OpenMontage](https://github.com/jieg9341-lab/ComfyUI-Krea2-StyleTransfer-adjacent) (Python) into pure Bun + Swift-MLX-native.
 
-> Iteration 1 (foundation): pipeline manifest loader, gate-enforced checkpoints,
-> artifact schema validation, budget tracker, provider registry. Media generation
-> bridges (native directors + ffmpeg + cloud) land in later iterations.
+> Iterations shipped: foundation (manifest loader, gate-enforced checkpoints,
+> artifact schema validation, budget tracker, provider registry) + native
+> directors (flux2 / z-image / lens / ltx), ffmpeg, edge-tts, mlx-whisper, and
+> the Remotion compose tier (Explainer + Story). MLX MusicGen score + a
+> cinematic `story` pipeline are wired end-to-end. Cloud HTTP bridges remain a
+> later iteration.
 
 ## Why
 
@@ -87,7 +90,8 @@ Options map straight onto the `dispatch()` call:
 .../cli.ts write-checkpoint \
   --projectId demo --pipeline talking-head --stage idea --humanApproved
 
-# --options '<JSON>' merge (escape hatch for nested values)
+# --options '<JSON>' merge — provider opts MUST nest under "options" (flat
+# {"prompt":...} silently drops the value; always use {"options":{...}})
 .../cli.ts generate --capability image_generation --command t2i \
   --options '{"options":{"prompt":"a red cube","width":1024}}'
 
@@ -211,19 +215,25 @@ kill→resume receipt: `receipts/resume-robustness-20260712.md`.
 
 ## Roadmap (later iterations)
 
-2. Native director bridge — registry → `krea2`/`flux2`/`ltx` via the shared
-   `ToolResult` JSON contract; `image`/`video` selectors wire the `assets` stage.
-3. FFmpeg + cloud HTTP providers (audio_mixer, color_grade, video_stitch,
-   subtitle_gen, TTS/music/stock via `fetch`).
-4. Compose (templated) — Remotion as a Node subprocess; `final_review` self-checks.
-5. First end-to-end pipeline (`animated-explainer`) → a shipped video.
+2. ~~Native director bridge~~ ✓ — registry → `flux2`/`z-image`/`lens`/`ltx` via
+   the shared `ToolResult` JSON contract; `image`/`video` selectors wire the
+   `assets` stage.
+3. Providers — ~~ffmpeg~~ ✓, ~~TTS (edge-tts)~~ ✓, ~~music (local MLX MusicGen)~~ ✓,
+   subtitle_gen ✓; cloud HTTP (color_grade, video_stitch, stock via `fetch`) later.
+4. ~~Compose (templated)~~ ✓ — Remotion as a Node subprocess (`compose-remotion`:
+   `Explainer` + `Story` compositions); `final_review` self-checks.
+5. ~~First end-to-end pipeline~~ ✓ — `animated-explainer` (rainbows) and cinematic
+   `story` ("The Lighthouse Keeper") each shipped a verified non-silent video.
 6. Native gap closure — ~~Whisper (captions)~~ ✓ (Item I — `mlx-whisper` director
    via `bun:whisper`: word-level timestamps → `subtitle_gen` SRT → burned/sidecar
    captions; `final_review` advisory transcript check), CLIP, upscale.
-7. More pipelines + the native atelier compose arc.
+7. More pipelines + the native atelier compose arc — `story.yaml` landed (Item II).
 
 ## Status
-Iteration 1 of a multi-iteration rewrite. Foundation only — no media calls yet.
+Past foundation: native directors, ffmpeg, edge-tts, mlx-whisper, MLX MusicGen,
+and the Remotion compose tier (Explainer + Story) are all wired. Two pipelines —
+`animated-explainer` and cinematic `story` — have each shipped a verified,
+non-silent end-to-end video. Cloud HTTP bridges remain.
 
 ## Native transcriber (Item I — `mlx-whisper`)
 
@@ -253,6 +263,30 @@ deterministic script) feeds the transcribe `words.json` straight into
 `generate {capability:"subtitle", options:{wordsPath}}` — `subtitle_gen` derives
 the cues itself, so the agent does no timestamp math. See
 `receipts/agent-captions-20260705.md`.
+
+## Native music generator (Item II — MLX MusicGen)
+
+The `music_generation` provider (`invoke: "mlx:runpy-music"`) generates a local
+background score via Meta **MusicGen** (`mlx-audiocraft`, weights CC-BY-4.0 —
+attribution required for commercial use). It mirrors the TTS provider shape and
+drives `run.py music` through `src/runpy_music.ts`.
+
+```bash
+python/venv/bin/python python/mlx-movie-director/run.py music \
+  --prompt "gentle solo piano, melancholic, slow" --seconds 8 \
+  --output assets/music.wav
+# or via the extension CLI (note the nested --options):
+bun bun-apps/pi-agent-ext-movie-director/src/cli.ts generate \
+  --capability music_generation --command music \
+  --options '{"options":{"prompt":"...","seconds":8}}'
+```
+
+Override the model via `MD_MUSICGEN_MODEL` (default `facebook/musicgen-small`,
+auto-downloads from HuggingFace on first use — ~1–2 GB). Stable at <=8s; the
+bridge can OOM around 10s, so prefer shorter clips (looped in compose) or call
+`run.py music` directly for long scores. End-to-end proof:
+`receipts/music-provider-mlx-musicgen-20260719.md` + the shipped story-video
+(`receipts/story-example-lighthouse-keeper-20260719.md`).
 
 ## Tool-scope guard (agent guardrail)
 
