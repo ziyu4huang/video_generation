@@ -16,6 +16,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { appendFileSync } from "node:fs";
 
 // ── Tool categories ──────────────────────────────────────────────
 
@@ -250,6 +251,39 @@ export function matchIntent(
     const fields = g.keywords.map((k) => k.toLowerCase());
     return fields.some((f) => f.length > 0 && needle.includes(f));
   });
+}
+
+// ── Telemetry (S3-lite, baked in) ─────────────────────────────────
+// stderr by default; opt-in JSONL file via TOOL_GATE_LOG_PATH; disable via
+// TOOL_GATE_LOG=0. Non-essential: write failures are swallowed. Purpose:
+// quantify the dormant-tool miss rate (the "miss_candidate" kind) so the
+// escape-hatch risk becomes measurable instead of structural-but-invisible.
+
+export interface ToolGateLogEntry {
+  kind: "turn" | "activate" | "miss_candidate";
+  ts: string;
+  [k: string]: unknown;
+}
+
+export function emitToolGateLog(entry: ToolGateLogEntry): void {
+  if (process.env.TOOL_GATE_LOG === "0") return;
+  const line = JSON.stringify(entry);
+  try {
+    const file = process.env.TOOL_GATE_LOG_PATH;
+    if (file) appendFileSync(file, line + "\n");
+    else process.stderr.write(line + "\n");
+  } catch {
+    /* non-essential */
+  }
+}
+
+/** A turn is a miss-candidate iff prompt non-empty, no gate fired, ≥1 dormant gate. */
+export function isMissCandidate(
+  prompt: string,
+  gatesFired: string[],
+  dormantGates: string[],
+): boolean {
+  return prompt.trim().length > 0 && gatesFired.length === 0 && dormantGates.length > 0;
 }
 
 export default function toolGateExtension(pi: ExtensionAPI) {
