@@ -21,7 +21,7 @@ import { runAgentSession } from "../sessions/run-agent-session.ts";
 // (shared.ts); these provide web_search/fetch_content (web-access) and
 // zk_card/zk_ask/knowledge_query (knowledge-card).
 import webAccessExtension from "@repo/pi-agent-ext-web-access";
-import knowledgeCardExtension from "@repo/pi-agent-ext-knowledge-card/extensions/pi-knowledge-card.ts";
+import knowledgeCardExtension from "@repo/pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 
 /**
  * The broad default toolset for the `agent` command. This is the full palette

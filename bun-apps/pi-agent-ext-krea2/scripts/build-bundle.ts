@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 
 const APP_NAME = "pi-agent-ext-krea2";
-const ENTRY = "extensions/pi-krea2.ts";
+const ENTRY = "extensions/krea2.ts";
 const OUTDIR = resolve(process.cwd(), "..", "..", "dist", "pi-extensions");
 const DEFAULT_OUTFILE = `${OUTDIR}/${APP_NAME}.bundle.js`;
 

@@ -10,7 +10,7 @@
 - Pipeline: `animated-explainer`, project `neuralnet-agent-driven-v1` (new,
   disjoint from `neuralnet-real-e2e-v1`, the scripted run's project).
 - Driver: `bun bun-apps/pi-agent/src/cli.ts --model deepseek-v4-flash -e
-  bun-apps/pi-agent-ext-movie-director/extensions/pi-movie-director.ts
+  bun-apps/pi-agent-ext-movie-director/extensions/movie-director.ts
   --no-extensions -p "<task prompt>"`, run from repo root
   `/Users/huangziyu/proj/video_generation__ltx` (not a worktree).
 - Assets: real local MLX Z-Image T2I (invoked directly via `python/venv/bin/python

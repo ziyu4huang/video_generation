@@ -7,7 +7,7 @@ import { zkRetrieve, zkIngest, zkHealth, zkHeal, buildRetrieveOptions } from "..
 import { retrieveRecords } from "../src/retrieve.js";
 import { coverageReport } from "../src/ingest.js";
 import { resolveSpecsToRecords } from "../src/source-watchlist.js";
-import piKnowledgeCardExtension from "../extensions/pi-knowledge-card.ts";
+import piKnowledgeCardExtension from "../extensions/knowledge-card.ts";
 
 const mkctx = (vaultPath: string) => ({ cwd: "/", signal: new AbortController().signal, runId: "test", vaultPath });
 const tmpVault = () => mkdtempSync(join(tmpdir(), "kc-hostfn-"));

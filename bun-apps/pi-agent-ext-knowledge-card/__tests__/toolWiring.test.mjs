@@ -74,7 +74,7 @@ mockObj.registerDeterministicHealthCheck = () => {};
 mock.module("@repo/pi-agent-ext-obsidian/extensions/obsidian.ts", () => mockObj);
 
 // --- load the extension + its pure builders/allowlists for comparison --------
-const kc = await import("../extensions/pi-knowledge-card.ts");
+const kc = await import("../extensions/knowledge-card.ts");
 const {
 	DISTILL_TOOLS,
 	ADD_TOOLS,

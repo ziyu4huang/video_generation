@@ -125,7 +125,7 @@ MLX_MODELS_DIR=$(pwd)/mlx-models \
 # agent-driven (gemma; expect partial — use deepseek-v4-flash for a clean full chain)
 BUN_PI_LOAD_RUN_DIR=FALSE MLX_OUTPUT_DIR=<out> MLX_MODELS_DIR=$(pwd)/mlx-models \
   bun bun-apps/pi-agent/src/cli.ts --no-extensions \
-    -e bun-apps/pi-agent-ext-movie-director/extensions/pi-movie-director.ts \
+    -e bun-apps/pi-agent-ext-movie-director/extensions/movie-director.ts \
     --provider lm-studio --model google/gemma-4-26b-a4b-qat --thinking medium \
     --name <run> -p "<task>"
 ```

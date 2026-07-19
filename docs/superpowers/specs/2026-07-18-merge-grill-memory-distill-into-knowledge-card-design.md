@@ -56,7 +56,7 @@ references (manifest, CI, workspace deps, docs) are updated.
   `knowledge_query` / `graph_health`.
 - `zk_ingest` already supports `source: "hermes"` (§-separated memory .md) and
   documents "hermes + auto-memory later" — distill is the planned higher layer.
-- One extension file `extensions/pi-knowledge-card.ts` registers all tools.
+- One extension file `extensions/knowledge-card.ts` registers all tools.
 
 ### hermes-memory (grill runtime host)
 - Owns `grill-decision-tool.ts`, `grill-seam.ts`, `tests/grill-*.test.ts`.
@@ -103,7 +103,7 @@ signals "this is the distill pipeline, owned by knowledge-card"):
 - `../../pi-agent-ext-knowledge-card/src/supersede.ts` → `../supersede.ts`
 - type imports (`KnowledgeRecord`, `IngestSummary`) same path change.
 
-**Fold the `distill` tool into `zk_ingest`** — `extensions/pi-knowledge-card.ts`:
+**Fold the `distill` tool into `zk_ingest`** — `extensions/knowledge-card.ts`:
 - Add an `action` parameter to the `zk_ingest` tool schema:
   `Type.Optional(Type.Union(Type.Literal("gate"), Type.Literal("converge"), Type.Literal("status")))`.
 - When `action` is **absent** → current deterministic-ingest behavior

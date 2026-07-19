@@ -51,7 +51,7 @@ both work; the agent simply had no way to *find* the command.
 
 ## The fix
 
-`extensions/pi-movie-director.ts` — the `generate` bullet now documents BOTH
+`extensions/movie-director.ts` — the `generate` bullet now documents BOTH
 analysis subcommands and the `command`-selects-subcommand contract, with the
 exact option keys (so the agent stops guessing `video_path` → `video`):
 

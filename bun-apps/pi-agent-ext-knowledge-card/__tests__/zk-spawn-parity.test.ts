@@ -7,7 +7,7 @@ import piKnowledgeCardExtension, {
 	UPDATE_TOOLS,
 	REMOVE_TOOLS,
 	CHECK_TOOLS,
-} from "../extensions/pi-knowledge-card.ts";
+} from "../extensions/knowledge-card.ts";
 
 /** Minimal pi double that captures registered tools. Returns { pi, tools }. */
 function mkPi() {

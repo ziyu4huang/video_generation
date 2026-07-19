@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 
 const APP_NAME = "pi-agent-ext-ltx";
-const ENTRY = "extensions/pi-ltx.ts";
+const ENTRY = "extensions/ltx.ts";
 const OUTDIR = resolve(process.cwd(), "..", "..", "dist", "pi-extensions");
 const DEFAULT_OUTFILE = `${OUTDIR}/${APP_NAME}.bundle.js`;
 

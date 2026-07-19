@@ -3,7 +3,7 @@
  * optimized tool PLUS a cheap `krea2_help` companion.
  *
  * Design: TWO tools, on the Tool-Search / Lazy-Loading pattern (mirrors
- * pi-flux2.ts).
+ * flux2.ts).
  *
  *   • `krea2` — the dispatcher. The agent picks `command` (t2i | i2i) and
  *     passes typed `options` (camelCase keys). Its `description` is
@@ -28,7 +28,7 @@
  *     agent can chain t2i → i2i via `details.output`.
  *
  * Load (source mode):
- *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-krea2/extensions/pi-krea2.ts -p "..."
+ *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-krea2/extensions/krea2.ts -p "..."
  * Bundle:
  *   bun scripts/build-bundle.ts  →  dist/pi-extensions/pi-agent-ext-krea2.bundle.js
  *

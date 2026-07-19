@@ -93,7 +93,7 @@ function probeMissingNpm(): string[] {
  * Extension dependency packages (workspace OR npm) that are NOT resolvable from
  * their owning extension's package dir right now. The extensions themselves
  * load fine by ABSOLUTE PATH, but they import other packages as BARE
- * SPECIFIERS — e.g. pi-knowledge-card.ts imports `@repo/pi-agent-ext-obsidian`,
+ * SPECIFIERS — e.g. knowledge-card.ts imports `@repo/pi-agent-ext-obsidian`,
  * power-tool imports `js-yaml`, web-access imports `@mozilla/readability`.
  * When `bun install` hasn't run (fresh clone / clean tree) those packages aren't
  * linked into node_modules, and pi's loader throws the unhelpful

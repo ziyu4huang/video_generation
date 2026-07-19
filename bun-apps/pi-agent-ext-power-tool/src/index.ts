@@ -20,8 +20,8 @@
  *     surfaced proactively (Phase 1.1) — no context injection, dedup'd per loop.
  *
  * Usage:
- *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-power-tool/src/index.ts -p "call inspect_context"
- *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-power-tool/src/index.ts -p "call inspect_agent"
+ *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-power-tool/extensions/power-tool.ts -p "call inspect_context"
+ *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-power-tool/extensions/power-tool.ts -p "call inspect_agent"
  */
 import {
   type BuildSystemPromptOptions,

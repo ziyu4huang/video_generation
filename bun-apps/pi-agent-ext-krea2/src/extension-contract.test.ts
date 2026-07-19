@@ -7,7 +7,7 @@
  * this package) instead of only being caught centrally in pi-agent.
  */
 import { describe, test, expect } from "bun:test";
-import extensionFactory from "../extensions/pi-krea2.ts";
+import extensionFactory from "../extensions/krea2.ts";
 
 interface ToolLike {
 	name?: string;
