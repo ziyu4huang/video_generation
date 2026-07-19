@@ -187,7 +187,13 @@ describe("RCA design-level findings (regression targets — not yet fixed)", () 
   // should re-validate, and tracked in the audit docket
   // (docs/superpowers/audit/2026-07-18-workflow-pack-finding-docket.md).
   // Promote each to a real test once the design call is made.
-  test.todo("RCA: verify() should not count a truthy-but-schema-noncompliant reviewer as a definitive real:false vote (workflow.ts ~702-709)");
-  test.todo("RCA: judgePanel should not silently score a schema-noncompliant judge as 0 in the average (workflow.ts ~745)");
-  test.todo("RCA: gate() should not treat a null/undefined validator verdict as a definitive ok:false (workflow.ts ~858-860)");
+  test.todo(
+    "RCA: verify() should not count a truthy-but-schema-noncompliant reviewer as a definitive real:false vote (workflow.ts ~702-709)",
+  );
+  test.todo(
+    "RCA: judgePanel should not silently score a schema-noncompliant judge as 0 in the average (workflow.ts ~745)",
+  );
+  test.todo(
+    "RCA: gate() should not treat a null/undefined validator verdict as a definitive ok:false (workflow.ts ~858-860)",
+  );
 });

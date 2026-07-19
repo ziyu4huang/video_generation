@@ -26,7 +26,10 @@ import type { ManifestIo } from "./workflow-pack-manifest.js";
 
 /** Hash of run args for run-meta.json (decision 11). */
 function inputHash(args: unknown): string {
-  return createHash("sha256").update(JSON.stringify(args ?? null)).digest("hex").slice(0, 12);
+  return createHash("sha256")
+    .update(JSON.stringify(args ?? null))
+    .digest("hex")
+    .slice(0, 12);
 }
 
 /** Filesystem-safe compact ISO timestamp for output subdir naming (decision 11). */
@@ -121,8 +124,30 @@ export interface WorkflowManagerOptions {
 
 /** Project the serializable caps out of ExecOptions (drops signals/callbacks). */
 function toPersistedExec(exec: ExecOptions): PersistedExecOptions {
-  const { maxAgents, agentTimeoutMs, tokenBudget, concurrency, agentRetries, packId, stateRoot, intermediateDir, outputsDir, io } = exec;
-  return { maxAgents, agentTimeoutMs, tokenBudget, concurrency, agentRetries, packId, stateRoot, intermediateDir, outputsDir, io };
+  const {
+    maxAgents,
+    agentTimeoutMs,
+    tokenBudget,
+    concurrency,
+    agentRetries,
+    packId,
+    stateRoot,
+    intermediateDir,
+    outputsDir,
+    io,
+  } = exec;
+  return {
+    maxAgents,
+    agentTimeoutMs,
+    tokenBudget,
+    concurrency,
+    agentRetries,
+    packId,
+    stateRoot,
+    intermediateDir,
+    outputsDir,
+    io,
+  };
 }
 
 export class WorkflowManager extends EventEmitter {
@@ -501,7 +526,13 @@ export class WorkflowManager extends EventEmitter {
           writeFileSync(
             join(runOut, "run-meta.json"),
             JSON.stringify(
-              { runId: managed.runId, packId: managed.packId, inputHash: inputHash(args), startedAt: managed.startedAt.toISOString(), finishedAt: new Date().toISOString() },
+              {
+                runId: managed.runId,
+                packId: managed.packId,
+                inputHash: inputHash(args),
+                startedAt: managed.startedAt.toISOString(),
+                finishedAt: new Date().toISOString(),
+              },
               null,
               2,
             ),

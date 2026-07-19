@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -11,11 +12,10 @@ import {
   type WorkflowSnapshot,
 } from "./display.js";
 import { WorkflowError, WorkflowErrorCode } from "./errors.js";
-import { parseWorkflowScript, type WorkflowRunResult } from "./workflow.js";
-import { existsSync } from "node:fs";
 import { resolvePackRunContext } from "./pack-run-context.js";
-import { findRepoRoot, mergeArgs, resolveWorkflowPack } from "./workflow-pack.js";
+import { parseWorkflowScript, type WorkflowRunResult } from "./workflow.js";
 import { WorkflowManager } from "./workflow-manager.js";
+import { findRepoRoot, mergeArgs, resolveWorkflowPack } from "./workflow-pack.js";
 import { createWorkflowStorage, type WorkflowStorage } from "./workflow-saved.js";
 import { loadWorkflowSettings } from "./workflow-settings.js";
 
@@ -686,7 +686,8 @@ export function backgroundStartedText(name: string, runId: string): string {
 }
 
 function normalizeWorkflowToolArgs(args: unknown): WorkflowToolInput {
-  if (!args || typeof args !== "object") throw new Error("workflow requires an object argument with a `script` string or a `name`");
+  if (!args || typeof args !== "object")
+    throw new Error("workflow requires an object argument with a `script` string or a `name`");
   const value = args as Record<string, unknown>;
   const hasScript = typeof value.script === "string" && value.script.trim() !== "";
   const hasName = typeof value.name === "string" && value.name.trim() !== "";
@@ -697,7 +698,9 @@ function normalizeWorkflowToolArgs(args: unknown): WorkflowToolInput {
     throw new Error("workflow requires exactly one of `script` (inline JS) or `name` (a pack) — neither was provided");
   }
   // Normalize only the inline-script path; the pack (`name`) path is resolved in execute.
-  return hasScript ? { ...value, script: normalizeWorkflowScript(value.script as string) } : (value as WorkflowToolInput);
+  return hasScript
+    ? { ...value, script: normalizeWorkflowScript(value.script as string) }
+    : (value as WorkflowToolInput);
 }
 
 function normalizeWorkflowScript(script: string): string {

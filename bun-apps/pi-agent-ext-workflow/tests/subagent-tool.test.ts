@@ -1,5 +1,9 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
+import type { AgentHistoryEntry } from "../src/agent-history.js";
+import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
+import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
+import type { SubagentToolDetails } from "../src/subagent-tool.js";
 import {
   createSubagentTool,
   deriveSubagentStatus,
@@ -10,10 +14,6 @@ import {
   renderSubagentResult,
   taskPreview,
 } from "../src/subagent-tool.js";
-import type { SubagentToolDetails } from "../src/subagent-tool.js";
-import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
-import type { AgentHistoryEntry } from "../src/agent-history.js";
-import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
 
 /** Injectable spawn that records the opts it was called with. */
 function fakeSpawn(impl: (opts: SpawnSubagentOptions) => SpawnSubagentResult | Promise<SpawnSubagentResult>) {
@@ -263,7 +263,13 @@ test("malformed schema (not an object, or missing 'type') is rejected before spa
   const res1 = await tool.execute("id", { task: "t", schema: "not an object" as never }, NO_SIGNAL, undefined, NO_CTX);
   assert.match((res1.content[0] as { text: string }).text, /Invalid schema/);
 
-  const res2 = await tool.execute("id", { task: "t", schema: { properties: {} } as never }, NO_SIGNAL, undefined, NO_CTX);
+  const res2 = await tool.execute(
+    "id",
+    { task: "t", schema: { properties: {} } as never },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
   assert.match((res2.content[0] as { text: string }).text, /Invalid schema/);
 
   assert.equal(f.calls.length, 0, "spawn is never called for a malformed schema");
@@ -329,13 +335,7 @@ test("live progress: displayed tool-call count never regresses across a retryOnT
   });
   const tool = createSubagentTool({ spawn: f.spawn });
   const updates: Array<{ content: Array<{ type: string; text?: string }> }> = [];
-  await tool.execute(
-    "id",
-    { task: "t", retryOnTransient: true },
-    NO_SIGNAL,
-    (u) => updates.push(u as never),
-    NO_CTX,
-  );
+  await tool.execute("id", { task: "t", retryOnTransient: true }, NO_SIGNAL, (u) => updates.push(u as never), NO_CTX);
 
   assert.equal(updates.length, 2);
   const toolCallCounts = updates.map((u) => {
@@ -397,10 +397,14 @@ test("execute defaults model to 'default' and omits agent when absent", async ()
 });
 
 test("execute reports status 'timedout' and 'failed' from the spawn result", async () => {
-  const t = createSubagentTool({ spawn: fakeSpawn(() => ({ output: "", exitCode: 124, stderr: "x", timedOut: true })).spawn });
+  const t = createSubagentTool({
+    spawn: fakeSpawn(() => ({ output: "", exitCode: 124, stderr: "x", timedOut: true })).spawn,
+  });
   const rt = await t.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(rt.details.status, "timedout");
-  const f = createSubagentTool({ spawn: fakeSpawn(() => ({ output: "", exitCode: 1, stderr: "boom", timedOut: false })).spawn });
+  const f = createSubagentTool({
+    spawn: fakeSpawn(() => ({ output: "", exitCode: 1, stderr: "boom", timedOut: false })).spawn,
+  });
   const rf = await f.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(rf.details.status, "failed");
 });
@@ -435,7 +439,9 @@ test("formatSubagentProgress toolResult entry includes '→ done'", () => {
 });
 
 test("formatSubagentProgress text entry includes the (truncated) first line", () => {
-  const history: AgentHistoryEntry[] = [{ role: "assistant", kind: "text", text: "Investigating the failure\nmore detail" }];
+  const history: AgentHistoryEntry[] = [
+    { role: "assistant", kind: "text", text: "Investigating the failure\nmore detail" },
+  ];
   const out = formatSubagentProgress(history, 1000);
   assert.match(out, /Investigating the failure/);
   assert.ok(!out.includes("more detail"), "only the first line is shown");
@@ -498,16 +504,17 @@ test("renderSubagentCall shows subagent ▸ agent ▸ model ▸ task (omits agen
 
 test("renderSubagentResult collapsed is short; expanded contains the full report", () => {
   const details: SubagentToolDetails = {
-    exitCode: 0, timedOut: false, agent: "implementer", model: "x/flash",
-    taskPreview: "p", elapsedMs: 12350, status: "done",
+    exitCode: 0,
+    timedOut: false,
+    agent: "implementer",
+    model: "x/flash",
+    taskPreview: "p",
+    elapsedMs: 12350,
+    status: "done",
   };
   const full = "Line one of report\nLine two of report\nLine three";
-  const collapsed = renderSubagentResult(
-    { content: [{ type: "text", text: full }], details }, { expanded: false }, T,
-  );
-  const expanded = renderSubagentResult(
-    { content: [{ type: "text", text: full }], details }, { expanded: true }, T,
-  );
+  const collapsed = renderSubagentResult({ content: [{ type: "text", text: full }], details }, { expanded: false }, T);
+  const expanded = renderSubagentResult({ content: [{ type: "text", text: full }], details }, { expanded: true }, T);
   assert.ok(collapsed.length < expanded.length, "collapsed is shorter");
   assert.ok(collapsed.includes("done"));
   assert.ok(collapsed.includes("Line one of report"));
@@ -519,7 +526,11 @@ test("renderSubagentResult collapsed is short; expanded contains the full report
 
 test("renderSubagentResult shows cost/tokens when usage.total > 0, omits when 0 or absent", () => {
   const base: Omit<SubagentToolDetails, "usage"> = {
-    exitCode: 0, timedOut: false, taskPreview: "p", elapsedMs: 1000, status: "done",
+    exitCode: 0,
+    timedOut: false,
+    taskPreview: "p",
+    elapsedMs: 1000,
+    status: "done",
   };
   const withUsage = renderSubagentResult(
     {
@@ -552,13 +563,21 @@ test("renderSubagentResult shows cost/tokens when usage.total > 0, omits when 0 
 
 test("renderSubagentResult failed/timedout badges + missing-details fallback", () => {
   const failStr = renderSubagentResult(
-    { content: [{ type: "text", text: "err" }], details: { exitCode: 1, timedOut: false, taskPreview: "p", elapsedMs: 0, status: "failed" } },
-    { expanded: false }, T,
+    {
+      content: [{ type: "text", text: "err" }],
+      details: { exitCode: 1, timedOut: false, taskPreview: "p", elapsedMs: 0, status: "failed" },
+    },
+    { expanded: false },
+    T,
   );
   assert.ok(failStr.includes("failed"));
   const toStr = renderSubagentResult(
-    { content: [{ type: "text", text: "err" }], details: { exitCode: 124, timedOut: true, taskPreview: "p", elapsedMs: 0, status: "timedout" } },
-    { expanded: false }, T,
+    {
+      content: [{ type: "text", text: "err" }],
+      details: { exitCode: 124, timedOut: true, taskPreview: "p", elapsedMs: 0, status: "timedout" },
+    },
+    { expanded: false },
+    T,
   );
   assert.ok(toStr.includes("timedout"));
   // No details → just the raw text
@@ -568,9 +587,7 @@ test("renderSubagentResult failed/timedout badges + missing-details fallback", (
 // ── Part A: Ctrl-O live output (formatSubagentLive + isPartial expanded) ──
 
 test("formatSubagentLive includes the progress header (elapsed + tool-call count)", () => {
-  const history: AgentHistoryEntry[] = [
-    { role: "assistant", kind: "toolCall", toolName: "read", text: "{}" },
-  ];
+  const history: AgentHistoryEntry[] = [{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }];
   const out = formatSubagentLive(history, 5500);
   assert.match(out, /5\.5s/);
   assert.match(out, /1 tool call/);
@@ -615,11 +632,7 @@ test("renderSubagentResult isPartial+collapsed shows ≤2 header lines; expanded
     { expanded: false, isPartial: true },
     T,
   );
-  const expanded = renderSubagentResult(
-    { content: [{ type: "text", text }] },
-    { expanded: true, isPartial: true },
-    T,
-  );
+  const expanded = renderSubagentResult({ content: [{ type: "text", text }] }, { expanded: true, isPartial: true }, T);
   assert.ok(collapsed.split("\n").length <= 2, "collapsed shows at most the 2-line header");
   assert.ok(expanded.split("\n").length > collapsed.split("\n").length, "expanded shows the trace too");
   assert.match(expanded, /→ read/);
@@ -643,16 +656,29 @@ test("renderSubagentResult isPartial preserves a plain streamed line when collap
 test("execute registers on inFlight at start, streams history, deregisters on completion", async () => {
   const reg = new SubagentInFlightRegistry();
   let resolveSpawn: (r: SpawnSubagentResult) => void = () => {};
-  const f = fakeSpawn((_opts) => new Promise<SpawnSubagentResult>((res) => { resolveSpawn = res; }));
+  const f = fakeSpawn(
+    (_opts) =>
+      new Promise<SpawnSubagentResult>((res) => {
+        resolveSpawn = res;
+      }),
+  );
   const tool = createSubagentTool({ spawn: f.spawn, inFlight: reg });
-  const p = tool.execute("id-7", { task: "do work", agent: "implementer", model: "x/flash" }, NO_SIGNAL, undefined, NO_CTX);
+  const p = tool.execute(
+    "id-7",
+    { task: "do work", agent: "implementer", model: "x/flash" },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
   await Promise.resolve(); // reach the registered-but-pending window
   assert.equal(reg.list().length, 1, "registered while in flight");
   assert.equal(reg.list()[0].id, "id-7");
   assert.equal(reg.list()[0].agent, "implementer");
   assert.equal(reg.list()[0].model, "x/flash");
   // history streams through onHistory → registry.update
-  (f.calls[0]?.onHistory as ((h: never[]) => void) | undefined)?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }] as never);
+  (f.calls[0]?.onHistory as ((h: never[]) => void) | undefined)?.([
+    { role: "assistant", kind: "toolCall", toolName: "read", text: "{}" },
+  ] as never);
   assert.equal(reg.list()[0].history?.[0]?.toolName, "read");
   // complete → deregistered
   resolveSpawn({ output: "ok", exitCode: 0, stderr: "", timedOut: false });

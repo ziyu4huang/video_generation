@@ -147,7 +147,11 @@ export class SubagentViewer {
       for (const r of this.runs) {
         const cur = r.index - 1 === this.selected;
         const badge =
-          r.status === "done" ? th.fg("success", "✓") : r.status === "timedout" ? th.fg("warning", "⏱") : th.fg("error", "✗");
+          r.status === "done"
+            ? th.fg("success", "✓")
+            : r.status === "timedout"
+              ? th.fg("warning", "⏱")
+              : th.fg("error", "✗");
         const head = `${badge} ${th.fg("accent", `#${r.index}`)} ${th.fg("muted", r.agent ?? "general-purpose")} ▸ ${th.fg("dim", truncateToWidth(r.taskPreview, 50))}`;
         lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", "▶ " + head) : "  " + head}`, width));
       }

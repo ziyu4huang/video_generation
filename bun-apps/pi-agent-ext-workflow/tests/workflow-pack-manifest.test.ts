@@ -1,8 +1,8 @@
-import { test, expect, describe } from "bun:test";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readManifest, validateManifest, type Manifest } from "../src/workflow-pack-manifest.js";
+import { type Manifest, readManifest, validateManifest } from "../src/workflow-pack-manifest.js";
 
 /**
  * `workflow-pack-manifest.ts` — the workflow-pack manifest model (Decision 2:
@@ -54,14 +54,15 @@ describe("validateManifest", () => {
     expect(validateManifest({ ...VALID, args: null }).args).toBeNull();
   });
 
-  test.each(["name", "description", "entry"] as const)(
-    'missing required field "%s" throws naming the field',
-    (field) => {
-      const partial = { ...VALID } as Record<string, unknown>;
-      delete partial[field];
-      expect(() => validateManifest(partial)).toThrow(new RegExp(`"${field}"`));
-    },
-  );
+  test.each([
+    "name",
+    "description",
+    "entry",
+  ] as const)('missing required field "%s" throws naming the field', (field) => {
+    const partial = { ...VALID } as Record<string, unknown>;
+    delete partial[field];
+    expect(() => validateManifest(partial)).toThrow(new RegExp(`"${field}"`));
+  });
 
   test("empty/whitespace required field throws naming the field", () => {
     expect(() => validateManifest({ ...VALID, name: "" })).toThrow(/"name"/);

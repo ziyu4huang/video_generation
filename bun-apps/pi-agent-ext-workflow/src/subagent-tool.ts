@@ -12,22 +12,18 @@
  */
 import { defineTool, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
-import { Type, type TSchema } from "typebox";
+import { type TSchema, Type } from "typebox";
 import type { AgentUsage } from "./agent.js";
 import type { AgentHistoryEntry } from "./agent-history.js";
-import type { SubagentInFlightRegistry } from "./subagent-in-flight.js";
 import {
+  type AgentDefinition,
+  type AgentRegistry,
   listAgentTypes,
   loadAgentRegistry,
   resolveAgentType,
-  type AgentDefinition,
-  type AgentRegistry,
 } from "./agent-registry.js";
-import {
-  spawnSubagent,
-  type SpawnSubagentOptions,
-  type SpawnSubagentResult,
-} from "./spawn-subagent.js";
+import { type SpawnSubagentOptions, type SpawnSubagentResult, spawnSubagent } from "./spawn-subagent.js";
+import type { SubagentInFlightRegistry } from "./subagent-in-flight.js";
 import { createWorktree, removeWorktree, type Worktree } from "./worktree.js";
 
 export interface SubagentToolDetails {
@@ -74,7 +70,8 @@ export const subagentToolSchema = Type.Object({
   ),
   tools: Type.Optional(
     Type.Array(Type.String(), {
-      description: "Tool allowlist for the child (e.g. ['read','grep','find','ls'] for a read-only explorer). Omit to inherit the default coding toolset.",
+      description:
+        "Tool allowlist for the child (e.g. ['read','grep','find','ls'] for a read-only explorer). Omit to inherit the default coding toolset.",
     }),
   ),
   excludeTools: Type.Optional(
@@ -153,11 +150,7 @@ function describeLastActivity(last: AgentHistoryEntry | undefined): string {
  * (see spawnSubagent/tryOnce), and without the floor the displayed count would
  * visibly jump backward — read by the user as "did it lose progress?".
  */
-export function formatSubagentProgress(
-  history: AgentHistoryEntry[],
-  elapsedMs: number,
-  minToolCalls = 0,
-): string {
+export function formatSubagentProgress(history: AgentHistoryEntry[], elapsedMs: number, minToolCalls = 0): string {
   const last = history[history.length - 1];
   const toolCalls = Math.max(history.filter((h) => h.kind === "toolCall").length, minToolCalls);
   const activity = describeLastActivity(last);
@@ -202,10 +195,7 @@ export function formatSubagentLive(
 }
 
 /** Theme the call line shown WHILE the subagent runs (pi's spinner conveys activity). */
-export function renderSubagentCall(
-  args: { agent?: string; model?: string; task: string },
-  theme: Theme,
-): string {
+export function renderSubagentCall(args: { agent?: string; model?: string; task: string }, theme: Theme): string {
   const parts: string[] = [theme.bold(theme.fg("toolTitle", "subagent"))];
   if (args.agent) parts.push(theme.fg("accent", args.agent));
   parts.push(theme.fg("muted", args.model ?? "default"));
@@ -237,11 +227,14 @@ export function renderSubagentResult(
       : d.status === "timedout"
         ? theme.fg("warning", "⏱ timedout")
         : theme.fg("error", "✗ failed");
-  const usageStr =
-    d.usage && d.usage.total > 0 ? ` · $${d.usage.cost.toFixed(3)} · ${d.usage.total} tok` : "";
+  const usageStr = d.usage && d.usage.total > 0 ? ` · $${d.usage.cost.toFixed(3)} · ${d.usage.total} tok` : "";
   const meta = theme.fg("muted", `${d.model ?? "default"} · ${(d.elapsedMs / 1000).toFixed(1)}s${usageStr}`);
   if (!options.expanded) {
-    const firstLine = text.split("\n").map((l) => l.trim()).find((l) => l) ?? "";
+    const firstLine =
+      text
+        .split("\n")
+        .map((l) => l.trim())
+        .find((l) => l) ?? "";
     return `${badge} ${meta} ${theme.fg("dim", truncateToWidth(firstLine, 60))}`;
   }
   return `${badge} ${meta}\n${theme.fg("toolOutput", text)}`;
@@ -290,7 +283,9 @@ export function createSubagentTool(
       const makeWorktree = options.createWorktree ?? createWorktree;
       const teardownWorktree = options.removeWorktree ?? removeWorktree;
 
-      const failEarly = (text: string): { content: Array<{ type: "text"; text: string }>; details: SubagentToolDetails } => ({
+      const failEarly = (
+        text: string,
+      ): { content: Array<{ type: "text"; text: string }>; details: SubagentToolDetails } => ({
         content: [{ type: "text" as const, text }],
         details: {
           exitCode: 1,
@@ -358,26 +353,27 @@ export function createSubagentTool(
           timeoutMs: params.timeoutMs,
           retryOnTransient: params.retryOnTransient,
           schema: params.schema as TSchema | undefined,
-          onHistory: (onUpdate || options.inFlight)
-            ? (history: AgentHistoryEntry[]) => {
-                // Progress streaming is diagnostic only — a throwing onUpdate
-                // (e.g. a TUI re-render failure) must never fail the subagent's
-                // actual task result.
-                try {
-                  const toolCallsNow = history.filter((h) => h.kind === "toolCall").length;
-                  maxToolCallsSeen = Math.max(maxToolCallsSeen, toolCallsNow);
-                  options.inFlight?.update(toolCallId, history);
-                  onUpdate?.({
-                    content: [
-                      { type: "text" as const, text: formatSubagentLive(history, Date.now() - t0, maxToolCallsSeen) },
-                    ],
-                    details: undefined as unknown as SubagentToolDetails,
-                  });
-                } catch {
-                  // swallowed — see comment above
+          onHistory:
+            onUpdate || options.inFlight
+              ? (history: AgentHistoryEntry[]) => {
+                  // Progress streaming is diagnostic only — a throwing onUpdate
+                  // (e.g. a TUI re-render failure) must never fail the subagent's
+                  // actual task result.
+                  try {
+                    const toolCallsNow = history.filter((h) => h.kind === "toolCall").length;
+                    maxToolCallsSeen = Math.max(maxToolCallsSeen, toolCallsNow);
+                    options.inFlight?.update(toolCallId, history);
+                    onUpdate?.({
+                      content: [
+                        { type: "text" as const, text: formatSubagentLive(history, Date.now() - t0, maxToolCallsSeen) },
+                      ],
+                      details: undefined as unknown as SubagentToolDetails,
+                    });
+                  } catch {
+                    // swallowed — see comment above
+                  }
                 }
-              }
-            : undefined,
+              : undefined,
         });
         return {
           content: [{ type: "text" as const, text: formatSubagentResult(result) }],

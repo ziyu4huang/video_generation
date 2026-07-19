@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, test } from "bun:test";
 import assert from "node:assert/strict";
-import { createSubagentsCommand } from "../src/subagents-command.js";
 import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
+import { createSubagentsCommand } from "../src/subagents-command.js";
 
 // Identity theme so render() returns plain text we can assert on.
 const T = { fg: (_c: string, s: string) => s, bg: (_c: string, s: string) => s, bold: (s: string) => s } as never;
@@ -10,7 +10,14 @@ const T = { fg: (_c: string, s: string) => s, bg: (_c: string, s: string) => s, 
 // re-renders.
 function fakeTui() {
   let renders = 0;
-  return { tui: { requestRender: () => { renders += 1; } }, renders: () => renders };
+  return {
+    tui: {
+      requestRender: () => {
+        renders += 1;
+      },
+    },
+    renders: () => renders,
+  };
 }
 
 // Fake host context: captures the viewer factory pi would invoke, and resolves
@@ -28,7 +35,12 @@ function harness(branch: unknown[], mode = "tui") {
   return {
     ctx: {
       mode,
-      ui: { notify: (m: string) => { lastNotify = m; }, custom },
+      ui: {
+        notify: (m: string) => {
+          lastNotify = m;
+        },
+        custom,
+      },
       sessionManager: { getBranch: () => branch },
     } as never,
     getFactory: () => factory,
@@ -76,7 +88,10 @@ test("command: a running subagent renders in the Running section with live elaps
   const factory = h.getFactory();
   assert.ok(factory, "ui.custom was invoked in tui mode");
   const { tui, renders } = fakeTui();
-  const ret = factory(tui, T, undefined, h.done) as { render: (w: number) => string[]; handleInput: (d: string) => void };
+  const ret = factory(tui, T, undefined, h.done) as {
+    render: (w: number) => string[];
+    handleInput: (d: string) => void;
+  };
   const out = ret.render(80).join("\n");
   assert.match(out, /Running/);
   assert.ok(out.includes("implementer"), "running entry shows the agent role");

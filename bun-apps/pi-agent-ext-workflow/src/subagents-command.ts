@@ -8,8 +8,9 @@
  * friction against the host's broader command context while keeping the contract
  * explicit and testable.
  */
-import { reconstructSubagentRuns, SubagentViewer } from "./subagent-viewer.js";
+
 import type { SubagentInFlightRegistry } from "./subagent-in-flight.js";
+import { reconstructSubagentRuns, SubagentViewer } from "./subagent-viewer.js";
 
 /** Minimal slice of the pi host command context this command depends on. */
 export interface SubagentsCommandCtx {
@@ -22,18 +23,16 @@ export interface SubagentsCommandCtx {
 }
 
 /** The factory pi's `ui.custom` invokes with TUI primitives. */
-export interface SubagentsViewerFactory<T> {
-  (
-    tui: { requestRender: () => void },
-    theme: unknown,
-    kb: unknown,
-    done: () => void,
-  ): {
-    render: (width: number) => string[];
-    invalidate: () => void;
-    handleInput: (data: string) => void;
-  };
-}
+export type SubagentsViewerFactory<T> = (
+  tui: { requestRender: () => void },
+  theme: unknown,
+  kb: unknown,
+  done: () => void,
+) => {
+  render: (width: number) => string[];
+  invalidate: () => void;
+  handleInput: (data: string) => void;
+};
 
 export interface SubagentsCommand {
   description: string;
@@ -48,9 +47,7 @@ const LIVE_RENDER_INTERVAL_MS = 1000;
  * is read live each render (via `getRunning`), so a running subagent shows up
  * the moment it is registered and its elapsed ticks while the viewer is open.
  */
-export function createSubagentsCommand(opts: {
-  subagentInFlight: SubagentInFlightRegistry;
-}): SubagentsCommand {
+export function createSubagentsCommand(opts: { subagentInFlight: SubagentInFlightRegistry }): SubagentsCommand {
   const { subagentInFlight } = opts;
   return {
     description: "List subagent runs (running + past) on this branch and view their output",

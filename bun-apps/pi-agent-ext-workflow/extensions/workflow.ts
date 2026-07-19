@@ -1,8 +1,5 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { applyHostFnRegistration, HostFnRegistry } from "../src/host-fn-registry.js";
-import { createSubagentTool } from "../src/subagent-tool.js";
-import { createSubagentsCommand } from "../src/subagents-command.js";
-import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
 import {
   buildWorkflowGuidelinesForTurn,
   createEffortState,
@@ -24,6 +21,9 @@ import {
   shouldInjectFullWorkflowGuidelines,
   WorkflowManager,
 } from "../src/index.js";
+import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
+import { createSubagentTool } from "../src/subagent-tool.js";
+import { createSubagentsCommand } from "../src/subagents-command.js";
 
 export default function extension(pi: ExtensionAPI) {
   // Single manager/storage shared by the workflow tool and the /workflows command,

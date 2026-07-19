@@ -836,8 +836,15 @@ test("a stateRoot-routed persistence writes its run file under <stateRoot>/runs"
   const stateRoot = join(tmp, "pack-state");
   const p = createRunPersistence(tmp, undefined, stateRoot);
   p.save({
-    runId: "r1", workflowName: "w", script: "x", status: "running",
-    phases: [], agents: [], logs: [], startedAt: "t", updatedAt: "t",
+    runId: "r1",
+    workflowName: "w",
+    script: "x",
+    status: "running",
+    phases: [],
+    agents: [],
+    logs: [],
+    startedAt: "t",
+    updatedAt: "t",
   });
   assert.equal(p.load("r1")?.runId, "r1");
   assert.ok(p.getRunsDir().includes("pack-state"));

@@ -37,7 +37,9 @@ export function createWorkflowLogger(options: WorkflowLoggerOptions = {}): Workf
   const cwd = options.cwd ?? process.cwd();
   const runId = options.runId ?? `run-${Date.now()}`;
   const runsDir = options.runsDir
-    ? (isAbsolute(options.runsDir) ? options.runsDir : resolve(cwd, options.runsDir))
+    ? isAbsolute(options.runsDir)
+      ? options.runsDir
+      : resolve(cwd, options.runsDir)
     : workflowProjectPaths(cwd).runsDir;
   let logFile: string | null = null;
 

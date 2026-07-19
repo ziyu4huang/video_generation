@@ -21,12 +21,12 @@
  * tests exercise every branch without touching disk or an LLM. The orchestration
  * (`runWorkflowScript`) calls this package's own `runWorkflow` / `parseWorkflowScript`.
  */
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import type { WorkflowAgent } from "./agent.js";
-import { runWorkflow, parseWorkflowScript } from "./workflow.js";
-import { readManifest, type Manifest } from "./workflow-pack-manifest.js";
+import { parseWorkflowScript, runWorkflow } from "./workflow.js";
+import { type Manifest, readManifest } from "./workflow-pack-manifest.js";
 
 /** Where engine workflow scripts live (project-local, under PWD/.pi). */
 export const PI_WORKFLOWS_DIR = ".pi/workflows";
@@ -106,7 +106,10 @@ function resolveFs(opts: WorkflowPackFs): Required<WorkflowPackFs> {
  * (read/exists/stat/readdir + cwd) so the contract test can exercise every
  * branch without touching the engine or an LLM.
  */
-export function resolveWorkflowScript(name: string, opts: { cwd?: string; binDir?: string } & WorkflowPackFs = {}): ResolvedWorkflow {
+export function resolveWorkflowScript(
+  name: string,
+  opts: { cwd?: string; binDir?: string } & WorkflowPackFs = {},
+): ResolvedWorkflow {
   if (!name || typeof name !== "string" || !name.trim()) {
     throw new Error(`workflow: a script name or path is required (got "${name}")`);
   }
@@ -124,9 +127,7 @@ export function resolveWorkflowScript(name: string, opts: { cwd?: string; binDir
     const pack = tryResolvePack(asPath, fs);
     if (pack) return { ...pack, source: "path" };
     // A directory that isn't a pack is an error, not a silent fall-through.
-    throw new Error(
-      `workflow: "${name}" is a directory without a manifest.json (not a workflow pack): ${asPath}`,
-    );
+    throw new Error(`workflow: "${name}" is a directory without a manifest.json (not a workflow pack): ${asPath}`);
   }
 
   // Candidate names with and without the .js suffix (so `workflow run foo`
@@ -333,7 +334,10 @@ export interface WorkflowListResult {
  *  with manifest.json) AND single-file scripts (*.js). Pack rows render from
  *  the manifest; file rows from `export const meta`. Broken packs/scripts are
  *  reported in `errors` (not dropped). Injectable fs for hermetic tests. */
-export function listWorkflows(claudeRoot: string, opts: { cwd?: string; binDir?: string } & WorkflowPackFs = {}): WorkflowListResult {
+export function listWorkflows(
+  claudeRoot: string,
+  opts: { cwd?: string; binDir?: string } & WorkflowPackFs = {},
+): WorkflowListResult {
   const fs = resolveFs(opts);
   const cwd = opts.cwd ?? process.cwd();
   const binDir = opts.binDir ?? dirname(process.execPath);
@@ -423,9 +427,7 @@ export interface RunWorkflowScriptOptions {
  * engine's receipt plus the resolved script path. Exported so the CLI command
  * and contract tests drive it with a stub agent and no LLM.
  */
-export async function runWorkflowScript(
-  opts: RunWorkflowScriptOptions,
-): Promise<{
+export async function runWorkflowScript(opts: RunWorkflowScriptOptions): Promise<{
   meta: { name: string; description: string };
   result: unknown;
   logs: string[];
