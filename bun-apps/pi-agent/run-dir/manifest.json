@@ -1,18 +1,18 @@
 {
   "extensions": [
-    "pi-agent-ext-power-tool/src/index.ts",
+    "pi-agent-ext-power-tool/extensions/power-tool.ts",
     {
       "name": "pi-agent-ext-tool-gate",
-      "entry": "pi-agent/extensions/tool-gate.ts",
+      "entry": "pi-agent-ext-tool-gate/extensions/tool-gate.ts",
       "bundleMode": "thin",
       "version": "0.1.0"
     },
-    "pi-agent-ext-flux2/extensions/pi-flux2.ts",
-    "pi-agent-ext-krea2/extensions/pi-krea2.ts",
-    "pi-agent-ext-ltx/extensions/pi-ltx.ts",
+    "pi-agent-ext-flux2/extensions/flux2.ts",
+    "pi-agent-ext-krea2/extensions/krea2.ts",
+    "pi-agent-ext-ltx/extensions/ltx.ts",
     {
       "name": "pi-agent-ext-research-tool",
-      "entry": "pi-agent-ext-research-tool/extensions/research.ts",
+      "entry": "pi-agent-ext-research-tool/extensions/research-tool.ts",
       "bundleMode": "thin",
       "testGate": "cd bun-apps/pi-agent-ext-research-tool && bun test",
       "version": "0.1.0"
@@ -26,7 +26,7 @@
     },
     {
       "name": "pi-agent-ext-movie-director",
-      "entry": "pi-agent-ext-movie-director/extensions/pi-movie-director.ts",
+      "entry": "pi-agent-ext-movie-director/extensions/movie-director.ts",
       "bundleMode": "thin",
       "testGate": "cd bun-apps/pi-agent-ext-movie-director && bun test",
       "version": "0.1.0"

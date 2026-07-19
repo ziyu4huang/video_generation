@@ -15,7 +15,7 @@
   (new, disjoint from both prior projects).
 - Driver: `bun bun-apps/pi-agent/src/cli.ts --model deepseek-v4-flash
   --thinking medium -e
-  bun-apps/pi-agent-ext-movie-director/extensions/pi-movie-director.ts
+  bun-apps/pi-agent-ext-movie-director/extensions/movie-director.ts
   --no-extensions -p "<task prompt>"`, run from repo root
   `/Users/huangziyu/proj/video_generation__ltx`. Model choice: deepseek-v4-flash,
   matching what converged cleanly on the schema-strict full pipeline in the

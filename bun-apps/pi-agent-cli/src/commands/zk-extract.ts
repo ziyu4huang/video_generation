@@ -29,7 +29,7 @@ import { runAgentSession } from "../sessions/run-agent-session.ts";
 import {
 	buildDistillTask,
 	DISTILL_TOOLS,
-} from "@repo/pi-agent-ext-knowledge-card/extensions/pi-knowledge-card.ts";
+} from "@repo/pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 
 const MD_TXT_RE = /\.(md|markdown|txt|text)$/i;
 

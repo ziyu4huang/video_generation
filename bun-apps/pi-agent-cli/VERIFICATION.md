@@ -25,7 +25,7 @@ end. Findings:
 - **Found + fixed a live-blocking bug in a sibling package.** `distill` /
   `zk-extract` / `zk-card` / `zk-ask` / `pipeline pdf-to-vault` stage 2 were
   **all broken** at runtime: `pi-agent-ext-knowledge-card/extensions/
-  pi-knowledge-card.ts`'s tool allowlists (`DISTILL_TOOLS`, `ADD_TOOLS`,
+  knowledge-card.ts`'s tool allowlists (`DISTILL_TOOLS`, `ADD_TOOLS`,
   `FIND_TOOLS`, `UPDATE_TOOLS`, `REMOVE_TOOLS`, `CHECK_TOOLS`, `RAG_TOOLS`)
   still referenced the pre-Phase-3 granular `obsidian_*` tool names
   (`obsidian_list`, `obsidian_read`, `obsidian_search`, `obsidian_distill`, …).
@@ -40,7 +40,7 @@ end. Findings:
   the stale CSV. Re-verified: `pipeline pdf-to-vault` and `distill` both now
   complete successfully end to end (see updated test matrix below).
   - **Not fixed this pass:** several task-prompt strings in
-    `pi-knowledge-card.ts` still tell the subagent to "call the
+    `knowledge-card.ts` still tell the subagent to "call the
     `obsidian_distill` tool" / "`obsidian_search` matchMode:…" as if those
     were standalone tool names, instead of `obsidian` with `action:"distill"`
     / `action:"search"`. These are prompt-quality issues, not hard failures

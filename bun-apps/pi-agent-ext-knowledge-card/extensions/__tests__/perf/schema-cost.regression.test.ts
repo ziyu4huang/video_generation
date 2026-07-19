@@ -9,7 +9,7 @@
  */
 import { test, expect, describe } from "bun:test";
 import { captureTools, estimateTotalSchemaTokens, assertWithinBudget } from "../../../../perf-harness/src/index.ts";
-import kcardFactory from "../../pi-knowledge-card.ts";
+import kcardFactory from "../../knowledge-card.ts";
 
 describe("knowledge-card schema-cost regression", () => {
   test("4 tools registered", () => {

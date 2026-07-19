@@ -19,7 +19,7 @@ All four done-when gates met:
 | Tool-adherence receipt | ✅ see below |
 
 ## Runtime configuration
-- `bun bun-apps/pi-agent/src/cli.ts --no-extensions -e .../pi-movie-director.ts`
+- `bun bun-apps/pi-agent/src/cli.ts --no-extensions -e .../movie-director.ts`
 - Provider `lm-studio`, model `google/gemma-4-26b-a4b-qat`, **thinking `medium`**
 - `BUN_PI_LOAD_RUN_DIR=FALSE` (the run-dir manifest splices `pi-agent-ext-power-tool`,
   which currently trips the JITI `NameTooLong` bug; disabling the splice and

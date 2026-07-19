@@ -436,7 +436,7 @@ git commit -m "test(pi-agent-ext-ask-user): add extension-contract test + run-te
 - Create: `bun-apps/pi-agent-ext-btw/__tests__/extension-contract.test.ts`
 - Create: `bun-apps/pi-agent-ext-btw/run-test.sh`
 
-Substitutions: `<RELATIVE_IMPORT_PATH>` = `../extensions/pi-btw.ts`, `<PKG_NAME>` = `pi-agent-ext-btw`, `<PKG_SLUG>` = `pi-agent-ext-btw`, `<TEST_CMD>` = `bun test`, `<CONTRACT_PATH>` = `__tests__/extension-contract.test.ts`.
+Substitutions: `<RELATIVE_IMPORT_PATH>` = `../extensions/btw.ts`, `<PKG_NAME>` = `pi-agent-ext-btw`, `<PKG_SLUG>` = `pi-agent-ext-btw`, `<TEST_CMD>` = `bun test`, `<CONTRACT_PATH>` = `__tests__/extension-contract.test.ts`.
 
 - [ ] Steps 1-5: same pattern as Task 3, with these substitutions. Commit message: `test(pi-agent-ext-btw): add extension-contract test + run-test.sh`.
 
@@ -462,7 +462,7 @@ Note: the factory is exported as `export default distillExtension` — importing
 - Create: `bun-apps/pi-agent-ext-file2md/extensions/__tests__/extension-contract.test.ts`
 - Create: `bun-apps/pi-agent-ext-file2md/run-test.sh`
 
-Substitutions: `<RELATIVE_IMPORT_PATH>` = `../pi-file2md.ts`, `<PKG_NAME>` = `pi-agent-ext-file2md`, `<PKG_SLUG>` = `pi-agent-ext-file2md`, `<TEST_CMD>` = `bun test`, `<CONTRACT_PATH>` = `extensions/__tests__/extension-contract.test.ts`.
+Substitutions: `<RELATIVE_IMPORT_PATH>` = `../file2md.ts`, `<PKG_NAME>` = `pi-agent-ext-file2md`, `<PKG_SLUG>` = `pi-agent-ext-file2md`, `<TEST_CMD>` = `bun test`, `<CONTRACT_PATH>` = `extensions/__tests__/extension-contract.test.ts`.
 
 Note: this directory already has `extensions/__tests__/stealth-trim.test.ts` — the new file joins it, no conflict (different filename).
 
@@ -476,7 +476,7 @@ Note: this directory already has `extensions/__tests__/stealth-trim.test.ts` —
 - Create: `bun-apps/pi-agent-ext-flux2/extensions/__tests__/extension-contract.test.ts`
 - Create: `bun-apps/pi-agent-ext-flux2/run-test.sh`
 
-Substitutions: `<RELATIVE_IMPORT_PATH>` = `../pi-flux2.ts`, `<PKG_NAME>` = `pi-agent-ext-flux2`, `<PKG_SLUG>` = `pi-agent-ext-flux2`, `<TEST_CMD>` = `bun test`, `<CONTRACT_PATH>` = `extensions/__tests__/extension-contract.test.ts`.
+Substitutions: `<RELATIVE_IMPORT_PATH>` = `../flux2.ts`, `<PKG_NAME>` = `pi-agent-ext-flux2`, `<PKG_SLUG>` = `pi-agent-ext-flux2`, `<TEST_CMD>` = `bun test`, `<CONTRACT_PATH>` = `extensions/__tests__/extension-contract.test.ts`.
 
 - [ ] Steps 1-5: same pattern as Task 3. Commit message: `test(pi-agent-ext-flux2): add extension-contract test + run-test.sh`.
 
@@ -526,7 +526,7 @@ Substitutions: `<RELATIVE_IMPORT_PATH>` = `../src/index.ts`, `<PKG_NAME>` = `pi-
 - Create: `bun-apps/pi-agent-ext-knowledge-card/__tests__/extension-contract.test.ts`
 - Create: `bun-apps/pi-agent-ext-knowledge-card/run-test.sh`
 
-Substitutions: `<RELATIVE_IMPORT_PATH>` = `../extensions/pi-knowledge-card.ts`, `<PKG_NAME>` = `pi-agent-ext-knowledge-card`, `<PKG_SLUG>` = `pi-agent-ext-knowledge-card`, `<TEST_CMD>` = `bun test __tests__/`, `<CONTRACT_PATH>` = `__tests__/extension-contract.test.ts`.
+Substitutions: `<RELATIVE_IMPORT_PATH>` = `../extensions/knowledge-card.ts`, `<PKG_NAME>` = `pi-agent-ext-knowledge-card`, `<PKG_SLUG>` = `pi-agent-ext-knowledge-card`, `<TEST_CMD>` = `bun test __tests__/`, `<CONTRACT_PATH>` = `__tests__/extension-contract.test.ts`.
 
 Note: this package's existing `test` script is scoped to `bun test __tests__/` (not the whole tree) — the new file MUST live under `__tests__/` (not `extensions/__tests__/`, which exists but is out of that script's scope) or `run_quick` won't pick it up. Keep `<TEST_CMD>` exactly as `bun test __tests__/`.
 
@@ -540,7 +540,7 @@ Note: this package's existing `test` script is scoped to `bun test __tests__/` (
 - Create: `bun-apps/pi-agent-ext-krea2/src/extension-contract.test.ts`
 - Create: `bun-apps/pi-agent-ext-krea2/run-test.sh`
 
-Substitutions: `<RELATIVE_IMPORT_PATH>` = `../extensions/pi-krea2.ts`, `<PKG_NAME>` = `pi-agent-ext-krea2`, `<PKG_SLUG>` = `pi-agent-ext-krea2`, `<TEST_CMD>` = `bun test`, `<CONTRACT_PATH>` = `src/extension-contract.test.ts`.
+Substitutions: `<RELATIVE_IMPORT_PATH>` = `../extensions/krea2.ts`, `<PKG_NAME>` = `pi-agent-ext-krea2`, `<PKG_SLUG>` = `pi-agent-ext-krea2`, `<TEST_CMD>` = `bun test`, `<CONTRACT_PATH>` = `src/extension-contract.test.ts`.
 
 Note: this package's existing tests are flat files directly under `src/` (`src/commands.test.ts`, `src/result.test.ts`, `src/paths.test.ts`) — follow that convention (flat, not a nested `__tests__/` dir).
 
@@ -554,7 +554,7 @@ Note: this package's existing tests are flat files directly under `src/` (`src/c
 - Create: `bun-apps/pi-agent-ext-ltx/extensions/__tests__/extension-contract.test.ts`
 - Create: `bun-apps/pi-agent-ext-ltx/run-test.sh`
 
-Substitutions: `<RELATIVE_IMPORT_PATH>` = `../pi-ltx.ts`, `<PKG_NAME>` = `pi-agent-ext-ltx`, `<PKG_SLUG>` = `pi-agent-ext-ltx`, `<TEST_CMD>` = `bun test`, `<CONTRACT_PATH>` = `extensions/__tests__/extension-contract.test.ts`.
+Substitutions: `<RELATIVE_IMPORT_PATH>` = `../ltx.ts`, `<PKG_NAME>` = `pi-agent-ext-ltx`, `<PKG_SLUG>` = `pi-agent-ext-ltx`, `<TEST_CMD>` = `bun test`, `<CONTRACT_PATH>` = `extensions/__tests__/extension-contract.test.ts`.
 
 - [ ] Steps 1-5: same pattern as Task 3. Commit message: `test(pi-agent-ext-ltx): add extension-contract test + run-test.sh`.
 
@@ -566,7 +566,7 @@ Substitutions: `<RELATIVE_IMPORT_PATH>` = `../pi-ltx.ts`, `<PKG_NAME>` = `pi-age
 - Create: `bun-apps/pi-agent-ext-movie-director/extensions/extension-contract.test.ts`
 - Create: `bun-apps/pi-agent-ext-movie-director/run-test.sh`
 
-Substitutions: `<RELATIVE_IMPORT_PATH>` = `./pi-movie-director.ts`, `<PKG_NAME>` = `pi-agent-ext-movie-director`, `<PKG_SLUG>` = `pi-agent-ext-movie-director`, `<TEST_CMD>` = `bun test`, `<CONTRACT_PATH>` = `extensions/extension-contract.test.ts`.
+Substitutions: `<RELATIVE_IMPORT_PATH>` = `./movie-director.ts`, `<PKG_NAME>` = `pi-agent-ext-movie-director`, `<PKG_SLUG>` = `pi-agent-ext-movie-director`, `<TEST_CMD>` = `bun test`, `<CONTRACT_PATH>` = `extensions/extension-contract.test.ts`.
 
 Note: this package's existing convention is flat test files directly under `extensions/` (`pi-movie-director.test.ts`, `movie-workflows.test.ts`, etc., no `__tests__/` subdir) — follow that, hence the `./` relative import (same directory) rather than `../`.
 

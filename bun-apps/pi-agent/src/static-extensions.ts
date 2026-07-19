@@ -27,15 +27,18 @@
  * rather than being deep-fixed here — silences without altering runtime
  * behavior (Bun doesn't enforce types).
  *
- * Relative (not package-specifier) paths: pi-agent-ext-superpowers and
- * pi-agent-ext-wayfind's package.json `exports` map only declares the root
- * "." entry, pointing at a `dist/index.js` build output that isn't present in
- * this checkout (no build step has run) — a
- * `@repo/pi-agent-ext-superpowers/extensions/index.ts` subpath specifier
- * can't resolve through that exports map at all. Relative imports bypass
- * `exports` map resolution entirely (same reason the old dynamic `-e
- * <absPath>` mechanism worked via raw filesystem paths), so this works
- * uniformly across all entries regardless of each package's own exports map.
+ * UNIFORM ENTRY CONVENTION: every extension is registered from
+ * `pi-agent-ext-<X>/extensions/<X>.ts`. Three packages (power-tool,
+ * hermes-memory, web-access) keep their implementation at `src/index.ts` /
+ * root `index.ts` (also their package.json `main` for programmatic use) and
+ * expose a 1-line re-export shim at `extensions/<X>.ts` as the registered
+ * entry, so the registration path is uniform without disturbing the lib.
+ *
+ * Relative (not package-specifier) paths: relative imports bypass each
+ * package's `exports` map resolution entirely (some packages' `exports` only
+ * declares the root "." entry pointing at a `dist/index.js` build output that
+ * isn't present in this checkout). This works uniformly across all entries
+ * regardless of each package's own exports map.
  *
  * TWO groups, added at different times:
  *   - Group A (original "general productivity" 5): goal-todo, hermes-memory,
@@ -49,16 +52,16 @@
  *     manifest.extensions AND (for workflow) manifest.lazyExtensions at the
  *     same time to avoid the static+dynamic double-registration noted above.
  */
-import goalTodoExtension from "../../pi-agent-ext-goal-todo/extensions/pi-goal-todo-ask.ts";
-import hermesMemoryExtension from "../../pi-agent-ext-hermes-memory/src/index.ts";
-import superpowersExtension from "../../pi-agent-ext-superpowers/extensions/index.ts";
-import wayfindExtension from "../../pi-agent-ext-wayfind/extensions/index.ts";
-import webAccessExtension from "../../pi-agent-ext-web-access/index.ts";
+import goalTodoExtension from "../../pi-agent-ext-goal-todo/extensions/goal-todo.ts";
+import hermesMemoryExtension from "../../pi-agent-ext-hermes-memory/extensions/hermes-memory.ts";
+import superpowersExtension from "../../pi-agent-ext-superpowers/extensions/superpowers.ts";
+import wayfindExtension from "../../pi-agent-ext-wayfind/extensions/wayfind.ts";
+import webAccessExtension from "../../pi-agent-ext-web-access/extensions/web-access.ts";
 import obsidianExtension from "../../pi-agent-ext-obsidian/extensions/obsidian.ts";
-import btwExtension from "../../pi-agent-ext-btw/extensions/pi-btw.ts";
-import file2mdExtension from "../../pi-agent-ext-file2md/extensions/pi-file2md.ts";
+import btwExtension from "../../pi-agent-ext-btw/extensions/btw.ts";
+import file2mdExtension from "../../pi-agent-ext-file2md/extensions/file2md.ts";
 import workflowExtension from "../../pi-agent-ext-workflow/extensions/workflow.ts";
-import knowledgeCardExtension from "../../pi-agent-ext-knowledge-card/extensions/pi-knowledge-card.ts";
+import knowledgeCardExtension from "../../pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 
 export const STATIC_EXTENSION_FACTORIES = [
 	// Group A — original "general productivity" set

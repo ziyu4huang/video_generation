@@ -21,7 +21,7 @@ extension is under 50% of the requested duration, `fail` (blocking the
 render) above that. Image-source cuts are exempt (ken-burns legitimately
 holds a still for the full cut window).
 
-Call sites updated to `await`: `extensions/pi-movie-director.ts` (`pre-compose`
+Call sites updated to `await`: `extensions/movie-director.ts` (`pre-compose`
 command), and the three e2e scripts that call `preComposeGate` directly
 (`scripts/run-h-real.ts`, `scripts/run-real-e2e-neuralnet.ts`,
 `scripts/run-real-e2e-neuralnet-v4-motion.ts`).
@@ -46,7 +46,7 @@ Investigation found `--frames` was already a fully wired, typed option
 `--frames` at line 153) — the gap was that `movie_help`'s `generate` command
 reference never mentioned `capability:'video_generation'` at all (it had
 worked examples for `analysis`/`subtitle` but not for the actual video-gen
-path). Added a worked-example block to `extensions/pi-movie-director.ts`'s
+path). Added a worked-example block to `extensions/movie-director.ts`'s
 `COMMAND_REFERENCE` under `generate`, and cross-referenced the new
 `cut_duration_vs_source` check under `pre-compose`'s block — so an agent
 discovers `frames` from `movie_help generate` before ever needing to guess or

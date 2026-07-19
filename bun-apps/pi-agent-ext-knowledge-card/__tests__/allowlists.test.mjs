@@ -24,7 +24,7 @@ import {
 	REMOVE_TOOLS,
 	CHECK_TOOLS,
 	RAG_TOOLS,
-} from "../extensions/pi-knowledge-card.ts";
+} from "../extensions/knowledge-card.ts";
 
 const LISTS = {
 	DISTILL_TOOLS,

@@ -86,7 +86,7 @@ confirmation, but the MLX venv is per-machine and absent here; the deterministic
 
 ## Item B — analysis selector command-routing
 
-**The footgun:** `extensions/pi-movie-director.ts:247` called
+**The footgun:** `extensions/movie-director.ts:247` called
 `selectProvider(capability, { provider })` — the agent's `command` never reached
 the selector. Both `transcriber` (whisper) and `video_understand` (clip) are
 `native_swift`; whisper is declared first; so the backend-then-declaration
@@ -108,7 +108,7 @@ command:"video_understand"}` could not reach CLIP without a manual
 - `bridge.ts` `selectAndGenerate` — defaults `selectorOpts.command` to
   `req.command` so a caller addressing `{capability, command}` routes correctly
   without re-passing command.
-- `extensions/pi-movie-director.ts` — passes `command` into the pre-resolve
+- `extensions/movie-director.ts` — passes `command` into the pre-resolve
   `selectProvider` call (the cost-lifecycle pre-resolve now sees the same
   command-routed entry the generate call uses).
 

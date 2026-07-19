@@ -18,7 +18,7 @@ the internet (astronomy news, not from OpenMontage's own prompt list).
   numbers/sources and told the agent to find them itself.
 - Pipeline: `animated-explainer`, project `ancient-quasars-v1` (new).
 - Driver: `bun bun-apps/pi-agent/src/cli.ts --model deepseek-v4-flash
-  --thinking medium -e bun-apps/pi-agent-ext-movie-director/extensions/pi-movie-director.ts
+  --thinking medium -e bun-apps/pi-agent-ext-movie-director/extensions/movie-director.ts
   --no-extensions -p "<task prompt>"`, run from repo root, backgrounded (nohup).
   Model choice matches the standing note that deepseek-v4-flash converges
   cleanly on deep artifact nesting where gemma-4-26b stalls.

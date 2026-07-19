@@ -9,7 +9,7 @@ of swallowed?
 ### Context (pre-gathered)
 
 The invisible-failure tax is the `session_shutdown` auto-converge hook being
-**silent-fail** (`pi-knowledge-card.ts:618`: empty `catch`, "Never blocks
+**silent-fail** (`knowledge-card.ts:618`: empty `catch`, "Never blocks
 shutdown"). `coverageReport` (per-family E−V id-diff) and `healthGate`
 (dead-links / MOC / orphans) already exist as dry-run primitives but are not
 surfaced to any human-visible health state.

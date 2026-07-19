@@ -24,7 +24,7 @@ for the full long-term goal + roadmap.
 ## What's here (iteration 1)
 
 ```
-extensions/pi-movie-director.ts    # ONE `movie` dispatcher tool (18 commands)
+extensions/movie-director.ts    # ONE `movie` dispatcher tool (18 commands)
 src/pipeline.ts                    # manifest loader + stage accessors (port of lib/pipeline_loader.py)
 src/checkpoint.ts                  # gate-enforced checkpoint writer/reader (port of lib/checkpoint.py)
 src/schema.ts                      # ajv validation over bundled OpenMontage schemas
@@ -120,7 +120,7 @@ bun run check:schemas                      # validate every bundled manifest + s
 Load the extension (source mode):
 ```bash
 bun bun-apps/pi-agent/src/cli.ts \
-  -e bun-apps/pi-agent-ext-movie-director/extensions/pi-movie-director.ts \
+  -e bun-apps/pi-agent-ext-movie-director/extensions/movie-director.ts \
   -p "run preflight, then plan a 30s animated-explainer"
 ```
 

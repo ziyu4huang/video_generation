@@ -3,7 +3,7 @@
  * optimized tool PLUS a cheap `ltx_help` companion.
  *
  * Design: TWO tools, on the Tool-Search / Lazy-Loading pattern (mirrors
- * pi-agent-ext-flux2/extensions/pi-flux2.ts).
+ * pi-agent-ext-flux2/extensions/flux2.ts).
  *
  *   • `ltx` — the dispatcher. The agent picks `command` (one of the ltx-video
  *     subcommands modeled in src/commands.ts — see COMMAND_LIST.length for the
@@ -29,7 +29,7 @@
  *     gate verdict) so the agent can chain steps — e.g. native-i2v -> gate.
  *
  * Load (source mode):
- *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-ltx/extensions/pi-ltx.ts -p "..."
+ *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-ltx/extensions/ltx.ts -p "..."
  * Bundle:
  *   bun scripts/build-bundle.ts  ->  dist/pi-extensions/pi-agent-ext-ltx.bundle.js
  *
@@ -212,7 +212,7 @@ function shotLanguageDoc(): string {
  * `key in options`, which throws "options is not an Object" when `options` is a
  * string — killing every invocation, including `{}`. Normalize here at the tool
  * boundary so runLtx always receives a real Record. Mirrors
- * pi-agent-ext-flux2/extensions/pi-flux2.ts's coerceOptions exactly.
+ * pi-agent-ext-flux2/extensions/flux2.ts's coerceOptions exactly.
  */
 export function coerceOptions(v: unknown): Record<string, unknown> {
   if (v && typeof v === "object" && !Array.isArray(v)) return v as Record<string, unknown>;

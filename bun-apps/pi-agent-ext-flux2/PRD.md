@@ -23,5 +23,5 @@ A pi extension that wraps the `swift/flux2-image-director` CLI as one `flux2` di
 ## Use
 
 ```bash
-bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-flux2/extensions/pi-flux2.ts -p "generate..."
+bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-flux2/extensions/flux2.ts -p "generate..."
 ```

@@ -64,7 +64,7 @@ function findRepoRoot(from: string): string {
 const FILE_DIR = resolve(import.meta.dirname ?? process.cwd());
 const REPO_ROOT = findRepoRoot(FILE_DIR);
 const CLI = `${REPO_ROOT}/bun-apps/pi-agent/src/cli.ts`;
-const EXT = `${REPO_ROOT}/bun-apps/pi-agent-ext-power-tool/src/index.ts`;
+const EXT = `${REPO_ROOT}/bun-apps/pi-agent-ext-power-tool/extensions/power-tool.ts`;
 const MODEL = process.env.PI_L2_MODEL || "google/gemma-4-26b-a4b-qat";
 
 // Each tool: prompt to invoke it + expected-content markers (case-insensitive).

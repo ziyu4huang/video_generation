@@ -2,7 +2,7 @@
  * manifest-types.ts — Extension manifest schema v2.
  *
  * The manifest's `extensions` array supports TWO entry formats:
- *   1. Bare string (backward compat): "pi-file2md/extensions/pi-file2md.ts"
+ *   1. Bare string (backward compat): "pi-file2md/extensions/file2md.ts"
  *   2. Declared object (v2): { name, entry, bundleMode, fullReason, testGate, version }
  *
  * The declared format lets each extension specify HOW it should be bundled

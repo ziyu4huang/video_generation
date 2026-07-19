@@ -22,7 +22,7 @@
  * assignable to pi-agent-cli's `ExtensionSubcommandSpec`). See
  * `bun-apps/pi-agent-cli/src/extensions/types.ts` for the canonical shape.
  */
-import extension from "./research.ts";
+import extension from "./research-tool.ts";
 
 /** Local shape of pi-agent-cli's ExtensionSubcommandSpec (structural match). */
 interface ExtensionSubcommandSpec {

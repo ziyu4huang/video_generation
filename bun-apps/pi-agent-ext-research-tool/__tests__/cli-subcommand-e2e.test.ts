@@ -19,7 +19,7 @@ import {
 	organizeVaultSubcommand,
 	importMemorySubcommand,
 } from "../extensions/cli-subcommand.ts";
-import extension from "../extensions/research.ts";
+import extension from "../extensions/research-tool.ts";
 
 /** Minimal cast helper: adds runtime flag fields to `{ positionals: string[] }`. */
 function taskInput(positionals: string[], flags?: Record<string, unknown>) {

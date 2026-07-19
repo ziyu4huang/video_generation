@@ -10,7 +10,7 @@ import * as assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, rmSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { convergeHermesMemory } from "../pi-knowledge-card.ts";
+import { convergeHermesMemory } from "../knowledge-card.ts";
 
 describe("ADR-0001 hub convergeHermesMemory", () => {
 	let vault: string;

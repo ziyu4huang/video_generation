@@ -19,7 +19,7 @@ side-by-side) was deferred pending this run's output.
   everything on purpose).
 - Pipeline: `animated-explainer`, project `optical-hall-detective` (new).
 - Driver: `bun bun-apps/pi-agent/src/cli.ts --model deepseek-v4-flash
-  --thinking medium -e bun-apps/pi-agent-ext-movie-director/extensions/pi-movie-director.ts
+  --thinking medium -e bun-apps/pi-agent-ext-movie-director/extensions/movie-director.ts
   --no-extensions -p "<task prompt>"`, backgrounded (nohup), run from repo root.
 - Hard requirements (verbatim intent): real cited web research with a
   fact-checkable number; 3 differentiated `concept_options`; zero
