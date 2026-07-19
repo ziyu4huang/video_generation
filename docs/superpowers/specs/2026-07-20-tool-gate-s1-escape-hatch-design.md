@@ -202,9 +202,7 @@ fail-open).
 ### 2.9 Testing
 
 - **Keep:** the 4 existing `computeActiveTools` tests + 4 banner tests (all still pass).
-- **New unit — `matchIntent`:** `"make a video" → [ltx]`; `"docker image" → []` (must NOT
-  activate flux2 — documents the false-positive boundary); `"upscale this clip" → [ltx]`;
-  `"orchestrate a montage" → [movie]`.
+- **New unit — `matchIntent`** (S1-accurate; keyword narrowing of `image` is deferred to S2 per §2.4, so `matchIntent` uses the *current* keyword set): `"make a video" → [ltx]`; `"generate an image of a cat" → [flux2]`; `"describe this picture" → [file2md]`; `"orchestrate a montage" → [movie]`; `"docker image cleanup" → [flux2]` (**pins S1's over-broad `image` behavior** — S2 will flip this to `[]` via word boundaries); `"what's the weather" → []`; dormant-skip: with `ltx` already in `sticky`, `"make a video" → []`.
 - **New unit — `enable_tool.execute` (mock `pi`):** activation mutates `sticky`; calls
   `pi.setActiveTools`; `list` returns only dormant gates; no-match returns a non-error result.
 - **New unit — gates:** movie fires on `"分鏡"` / `"movie"`; inspect does **not** fire on
