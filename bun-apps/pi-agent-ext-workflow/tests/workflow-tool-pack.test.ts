@@ -1,6 +1,6 @@
-import { test, expect, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createWorkflowTool } from "../src/workflow-tool.js";
 
@@ -36,7 +36,16 @@ function recordingManager(): { manager: any; calls: { script: string; args: unkn
     },
     runSync(script: string, args: unknown) {
       calls.push({ script, args });
-      return { result: { ok: true, args }, meta: { name: "pack", description: "d" }, phases: ["P"], logs: [], agentCount: 1, durationMs: 0, runId: "stub-run", tokenUsage: null };
+      return {
+        result: { ok: true, args },
+        meta: { name: "pack", description: "d" },
+        phases: ["P"],
+        logs: [],
+        agentCount: 1,
+        durationMs: 0,
+        runId: "stub-run",
+        tokenUsage: null,
+      };
     },
   };
   return { manager, calls };
@@ -45,7 +54,12 @@ function recordingManager(): { manager: any; calls: { script: string; args: unkn
 describe("workflow tool — `name` (pack resolution)", () => {
   test("`name` resolves a pack dir + merges manifest args under caller args", async () => {
     const dir = mkdtempSync(join(tmpdir(), "wf-tool-"));
-    const packDir = makePack(dir, "echo", { name: "echo", description: "d", entry: "index.js", args: { m: 1, shared: "manifest" } });
+    const packDir = makePack(dir, "echo", {
+      name: "echo",
+      description: "d",
+      entry: "index.js",
+      args: { m: 1, shared: "manifest" },
+    });
     const { manager, calls } = recordingManager();
     const tool = createWorkflowTool({ cwd: dir, manager: manager as any });
 
@@ -67,11 +81,22 @@ describe("workflow tool — `name` (pack resolution)", () => {
 
   test("`name` with no caller args uses manifest args as-is", async () => {
     const dir = mkdtempSync(join(tmpdir(), "wf-tool-"));
-    const packDir = makePack(dir, "echo", { name: "echo", description: "d", entry: "index.js", args: { only: "manifest" } });
+    const packDir = makePack(dir, "echo", {
+      name: "echo",
+      description: "d",
+      entry: "index.js",
+      args: { only: "manifest" },
+    });
     const { manager, calls } = recordingManager();
     const tool = createWorkflowTool({ cwd: dir, manager: manager as any });
 
-    await tool.execute("call-2", { name: packDir, background: true } as any, undefined as any, undefined as any, {} as any);
+    await tool.execute(
+      "call-2",
+      { name: packDir, background: true } as any,
+      undefined as any,
+      undefined as any,
+      {} as any,
+    );
 
     expect(calls[0]!.args).toEqual({ only: "manifest" });
   });
@@ -82,7 +107,13 @@ describe("workflow tool — `name` (pack resolution)", () => {
     const { manager, calls } = recordingManager();
     const tool = createWorkflowTool({ cwd: dir, manager: manager as any });
 
-    await tool.execute("call-3", { name: packDir, args: { x: 9 }, background: true } as any, undefined as any, undefined as any, {} as any);
+    await tool.execute(
+      "call-3",
+      { name: packDir, args: { x: 9 }, background: true } as any,
+      undefined as any,
+      undefined as any,
+      {} as any,
+    );
 
     expect(calls[0]!.args).toEqual({ x: 9 });
   });
@@ -93,7 +124,13 @@ describe("workflow tool — `name` (pack resolution)", () => {
     const tool = createWorkflowTool({ cwd: dir, manager: manager as any });
 
     await expect(
-      tool.execute("call-4", { name: join(dir, "missing"), background: true } as any, undefined as any, undefined as any, {} as any),
+      tool.execute(
+        "call-4",
+        { name: join(dir, "missing"), background: true } as any,
+        undefined as any,
+        undefined as any,
+        {} as any,
+      ),
     ).rejects.toThrow(/not found|manifest/);
     expect(calls).toHaveLength(0);
   });
@@ -102,7 +139,9 @@ describe("workflow tool — `name` (pack resolution)", () => {
     const dir = mkdtempSync(join(tmpdir(), "wf-tool-"));
     // Pack declares BOTH args AND a model in its manifest.
     const packDir = makePack(dir, "echo", {
-      name: "echo", description: "d", entry: "index.js",
+      name: "echo",
+      description: "d",
+      entry: "index.js",
       args: { fromManifest: true },
       model: "manifest-declared/model",
     });
@@ -116,7 +155,16 @@ describe("workflow tool — `name` (pack resolution)", () => {
       },
       runSync(script: string, args: unknown, options: unknown) {
         calls.push({ script, args, options });
-        return { result: { ok: true }, meta: { name: "pack", description: "d" }, phases: ["P"], logs: [], agentCount: 1, durationMs: 0, runId: "stub-run", tokenUsage: null };
+        return {
+          result: { ok: true },
+          meta: { name: "pack", description: "d" },
+          phases: ["P"],
+          logs: [],
+          agentCount: 1,
+          durationMs: 0,
+          runId: "stub-run",
+          tokenUsage: null,
+        };
       },
     };
     const tool = createWorkflowTool({ cwd: dir, manager: manager as any });
@@ -124,7 +172,9 @@ describe("workflow tool — `name` (pack resolution)", () => {
     await tool.execute(
       "call-model",
       { name: packDir, args: { fromCaller: true }, background: true } as any,
-      undefined as any, undefined as any, {} as any,
+      undefined as any,
+      undefined as any,
+      {} as any,
     );
 
     expect(calls).toHaveLength(1);
@@ -146,7 +196,9 @@ describe("workflow tool — `name` (pack resolution)", () => {
     const dir = mkdtempSync(join(tmpdir(), "wf-tool-"));
     // Pack declares BOTH args AND a model in its manifest.
     const packDir = makePack(dir, "echo", {
-      name: "echo", description: "d", entry: "index.js",
+      name: "echo",
+      description: "d",
+      entry: "index.js",
       args: { fromManifest: true },
       model: "manifest-declared/model",
     });
@@ -159,7 +211,16 @@ describe("workflow tool — `name` (pack resolution)", () => {
       },
       runSync(script: string, args: unknown, options: unknown) {
         calls.push({ script, args, options });
-        return { result: { ok: true }, meta: { name: "pack", description: "d" }, phases: ["P"], logs: [], agentCount: 1, durationMs: 0, runId: "stub-run", tokenUsage: null };
+        return {
+          result: { ok: true },
+          meta: { name: "pack", description: "d" },
+          phases: ["P"],
+          logs: [],
+          agentCount: 1,
+          durationMs: 0,
+          runId: "stub-run",
+          tokenUsage: null,
+        };
       },
     };
     const tool = createWorkflowTool({ cwd: dir, manager: manager as any });
@@ -172,7 +233,9 @@ describe("workflow tool — `name` (pack resolution)", () => {
     const result = await tool.execute(
       "call-task4-bg",
       { name: packDir, args: { fromCaller: true }, background: true } as any,
-      undefined as any, undefined as any, ctx,
+      undefined as any,
+      undefined as any,
+      ctx,
     );
 
     // Task 4 label: modelSource is "session" on the background return.
@@ -195,7 +258,9 @@ describe("workflow tool — `name` (pack resolution)", () => {
   test("Path B inline (background:false) snapshot details also label modelSource:'session'", async () => {
     const dir = mkdtempSync(join(tmpdir(), "wf-tool-"));
     const packDir = makePack(dir, "echo", {
-      name: "echo", description: "d", entry: "index.js",
+      name: "echo",
+      description: "d",
+      entry: "index.js",
       model: "manifest-declared/model",
     });
     const calls: { script: string; args: unknown; options: unknown }[] = [];
@@ -206,7 +271,16 @@ describe("workflow tool — `name` (pack resolution)", () => {
       },
       runSync(script: string, args: unknown, options: unknown) {
         calls.push({ script, args, options });
-        return { result: { ok: true }, meta: { name: "pack", description: "d" }, phases: ["P"], logs: [], agentCount: 1, durationMs: 0, runId: "stub-run", tokenUsage: null };
+        return {
+          result: { ok: true },
+          meta: { name: "pack", description: "d" },
+          phases: ["P"],
+          logs: [],
+          agentCount: 1,
+          durationMs: 0,
+          runId: "stub-run",
+          tokenUsage: null,
+        };
       },
     };
     const tool = createWorkflowTool({ cwd: dir, manager: manager as any });
@@ -215,7 +289,9 @@ describe("workflow tool — `name` (pack resolution)", () => {
     const result = await tool.execute(
       "call-task4-sync",
       { name: packDir, background: false } as any,
-      undefined as any, undefined as any, ctx,
+      undefined as any,
+      undefined as any,
+      ctx,
     );
 
     const details = (result as { details: Record<string, unknown> }).details;
@@ -248,7 +324,16 @@ describe("workflow tool — `name` (pack resolution)", () => {
       },
       runSync(script: string, args: unknown, options: unknown) {
         calls.push({ script, args, options });
-        return { result: { ok: true }, meta: { name: "pack", description: "d" }, phases: ["P"], logs: [], agentCount: 1, durationMs: 0, runId: "stub-run", tokenUsage: null };
+        return {
+          result: { ok: true },
+          meta: { name: "pack", description: "d" },
+          phases: ["P"],
+          logs: [],
+          agentCount: 1,
+          durationMs: 0,
+          runId: "stub-run",
+          tokenUsage: null,
+        };
       },
     };
     const tool = createWorkflowTool({ cwd: dir, manager: manager as any });
@@ -327,8 +412,7 @@ describe("workflow tool — no-agent script rejection (D9-8)", () => {
   // and nested workflow('name') spawn agents INSIDE the engine — the script text
   // never mentions the `agent(` token. The static guard must not reject them.
   const HELPER_ONLY_SCRIPTS: Record<string, string> = {
-    verify:
-      "export const meta = { name: 'v', description: 'd' };\nreturn await verify('claim', { reviewers: 3 });\n",
+    verify: "export const meta = { name: 'v', description: 'd' };\nreturn await verify('claim', { reviewers: 3 });\n",
     judgePanel:
       "export const meta = { name: 'j', description: 'd' };\nreturn await judgePanel(['a', 'b'], { judges: 3 });\n",
     loopUntilDry:

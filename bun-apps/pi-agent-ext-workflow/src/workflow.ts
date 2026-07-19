@@ -108,8 +108,9 @@ export interface WorkflowRunOptions extends WorkflowAgentOptions {
   confirm?: (promptText: string, options: CheckpointOptions) => Promise<unknown>;
   onLog?: (message: string) => void;
   onPhase?: (title: string) => void;
-  onAgentStart?: (event: { label: string; phase?: string; prompt: string; model?: string }) => void;
+  onAgentStart?: (event: { callIndex: number; label: string; phase?: string; prompt: string; model?: string }) => void;
   onAgentEnd?: (event: {
+    callIndex: number;
     label: string;
     phase?: string;
     result: unknown;
@@ -120,7 +121,7 @@ export interface WorkflowRunOptions extends WorkflowAgentOptions {
     errorCode?: WorkflowErrorCode;
     recoverable?: boolean;
   }) => void;
-  onAgentHistory?: (event: { label: string; phase?: string; history: AgentHistoryEntry[] }) => void;
+  onAgentHistory?: (event: { callIndex: number; label: string; phase?: string; history: AgentHistoryEntry[] }) => void;
   onTokenUsage?: (usage: {
     input: number;
     output: number;
@@ -433,8 +434,15 @@ export async function runWorkflow<T = unknown>(
     const hashMatches = cached != null && cached.hash === callHash;
     const cachedEmptyOutput = hashMatches && isEmptyTextAgentResult(cached.result, agentOptions.schema);
     if (hashMatches && !cachedEmptyOutput && callIndex < state.firstMiss) {
-      options.onAgentStart?.({ label, phase: assignedPhase, prompt, model: displayModel });
-      options.onAgentEnd?.({ label, phase: assignedPhase, result: cached.result, tokens: 0, model: displayModel });
+      options.onAgentStart?.({ callIndex, label, phase: assignedPhase, prompt, model: displayModel });
+      options.onAgentEnd?.({
+        callIndex,
+        label,
+        phase: assignedPhase,
+        result: cached.result,
+        tokens: 0,
+        model: displayModel,
+      });
       return cached.result;
     }
     // A genuine miss (no journal entry, or the hash changed) marks where the
@@ -446,7 +454,7 @@ export async function runWorkflow<T = unknown>(
       const retryAttempts = normalizeAgentRetries(agentOptions.retries ?? options.agentRetries ?? 0);
       const maxAttempts = retryAttempts + 1;
 
-      options.onAgentStart?.({ label, phase: assignedPhase, prompt, model: displayModel });
+      options.onAgentStart?.({ callIndex, label, phase: assignedPhase, prompt, model: displayModel });
 
       // Optional per-agent worktree isolation (deterministic name -> stable resume keys).
       // Precedence: explicit call-site isolation > agentDef isolation.
@@ -512,7 +520,7 @@ export async function runWorkflow<T = unknown>(
                     usage = u;
                   },
                   onHistory: (history: AgentHistoryEntry[]) => {
-                    options.onAgentHistory?.({ label, phase: assignedPhase, history });
+                    options.onAgentHistory?.({ callIndex, label, phase: assignedPhase, history });
                   },
                 } as any),
               timeout,
@@ -531,6 +539,7 @@ export async function runWorkflow<T = unknown>(
             const tokens = recordTokens(result);
             options.onAgentJournal?.({ index: callIndex, hash: callHash, result, phase: assignedPhase });
             options.onAgentEnd?.({
+              callIndex,
               label,
               phase: assignedPhase,
               result,
@@ -554,6 +563,7 @@ export async function runWorkflow<T = unknown>(
             }
 
             options.onAgentEnd?.({
+              callIndex,
               label,
               phase: assignedPhase,
               result: null,

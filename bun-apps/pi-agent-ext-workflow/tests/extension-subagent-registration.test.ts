@@ -12,9 +12,10 @@ describe("workflow extension — subagent tool registration", () => {
       { events: { on: () => {}, emit: () => {} } },
       {
         get(target, prop) {
-          if (prop === "registerTool") return (t: ToolDefinition) => {
-            registered.push(t);
-          };
+          if (prop === "registerTool")
+            return (t: ToolDefinition) => {
+              registered.push(t);
+            };
           if (prop === "events") return target.events;
           if (prop in target) return (target as Record<PropertyKey, unknown>)[prop];
           return () => {};
@@ -26,9 +27,6 @@ describe("workflow extension — subagent tool registration", () => {
     extension(pi);
 
     const names = registered.map((t) => t.name);
-    assert.ok(
-      names.includes("subagent"),
-      `expected 'subagent' registered; got: ${names.join(", ")}`,
-    );
+    assert.ok(names.includes("subagent"), `expected 'subagent' registered; got: ${names.join(", ")}`);
   });
 });

@@ -104,8 +104,10 @@ export function validateManifest(value: unknown): Manifest {
   if (hasBadString(obj, "kind")) throw new Error('manifest: optional field "kind" must be a string');
   if (hasBadString(obj, "engine")) throw new Error('manifest: optional field "engine" must be a string');
   if (hasEmptyString(obj, "model")) throw new Error('manifest: optional field "model" must be a non-empty string');
-  if (hasEmptyString(obj, "thinking")) throw new Error('manifest: optional field "thinking" must be a non-empty string');
-  if (hasEmptyString(obj, "howToRun")) throw new Error('manifest: optional field "howToRun" must be a non-empty string');
+  if (hasEmptyString(obj, "thinking"))
+    throw new Error('manifest: optional field "thinking" must be a non-empty string');
+  if (hasEmptyString(obj, "howToRun"))
+    throw new Error('manifest: optional field "howToRun" must be a non-empty string');
   if (hasEmptyString(obj, "version")) throw new Error('manifest: optional field "version" must be a non-empty string');
   if (hasEmptyString(obj, "agents")) throw new Error('manifest: optional field "agents" must be a non-empty string');
   if (hasEmptyString(obj, "kind")) throw new Error('manifest: optional field "kind" must be a non-empty string');

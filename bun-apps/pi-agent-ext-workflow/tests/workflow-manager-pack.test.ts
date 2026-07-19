@@ -1,12 +1,12 @@
-import { test, expect } from "bun:test";
+import { expect, test } from "bun:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import os from "node:os";
-import { createRunPersistence } from "../src/run-persistence.js";
-import { WorkflowManager } from "../src/workflow-manager.js";
-import { runWorkflow } from "../src/workflow.js";
+import { join } from "node:path";
 import { resolvePackRunContext } from "../src/pack-run-context.js";
+import { createRunPersistence } from "../src/run-persistence.js";
+import { runWorkflow } from "../src/workflow.js";
+import { WorkflowManager } from "../src/workflow-manager.js";
 
 /** A mock agent that returns a canned string without any provider call. */
 const mockAgent = {
@@ -68,7 +68,12 @@ test("onAgentJournal mirrors to intermediate/ when io.intermediate.persist is tr
   mgr.startInBackground(
     `export const meta={name:"p",description:"d",phases:[{title:"research"}]};phase("research");await agent("x");`,
     {},
-    { stateRoot, packId: "demo-x", intermediateDir: join(stateRoot,"intermediate"), io: { intermediate: { persist: true } } },
+    {
+      stateRoot,
+      packId: "demo-x",
+      intermediateDir: join(stateRoot, "intermediate"),
+      io: { intermediate: { persist: true } },
+    },
   );
   await new Promise((r) => setTimeout(r, 80));
   const researchDir = join(stateRoot, "intermediate", "research");
@@ -83,7 +88,7 @@ test("intermediate mirror is NOT written when io.intermediate.persist is absent 
   mgr.startInBackground(
     `export const meta={name:"p",description:"d"};await agent("x");`,
     {},
-    { stateRoot, packId: "demo-y", intermediateDir: join(stateRoot,"intermediate"), io: {} },
+    { stateRoot, packId: "demo-y", intermediateDir: join(stateRoot, "intermediate"), io: {} },
   );
   await new Promise((r) => setTimeout(r, 80));
   // intermediate dir should NOT exist because mirrorIntermediate is never called
@@ -130,7 +135,11 @@ test("workflow-tool passes pack context into ExecOptions when a pack is named (T
   const packDir = join(repo, ".pi", "workflows", "wired");
   const ctx = resolvePackRunContext({ name: "wired", packDir, repoRoot: repo });
   const execFields = (({ packId, stateRoot, intermediateDir, outputsDir, io }) => ({
-    packId, stateRoot, intermediateDir, outputsDir, io,
+    packId,
+    stateRoot,
+    intermediateDir,
+    outputsDir,
+    io,
   }))(ctx);
   expect(execFields.packId).toBeDefined();
   expect(execFields.stateRoot).toBe(packDir);
@@ -181,7 +190,13 @@ test("a pack run's persisted exec carries stateRoot + packId so resume routes to
   const { runId } = mgr.startInBackground(
     `export const meta={name:"p",description:"d"};await agent("x");`,
     {},
-    { stateRoot, packId: "demo-t5b-exec", intermediateDir: join(stateRoot, "intermediate"), outputsDir: join(stateRoot, "outputs"), io: { intermediate: { persist: true } } },
+    {
+      stateRoot,
+      packId: "demo-t5b-exec",
+      intermediateDir: join(stateRoot, "intermediate"),
+      outputsDir: join(stateRoot, "outputs"),
+      io: { intermediate: { persist: true } },
+    },
   );
   await new Promise((r) => setTimeout(r, 100));
   const run = mgr.getPersistedRun(runId);

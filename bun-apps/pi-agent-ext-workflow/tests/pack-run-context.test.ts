@@ -1,11 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolvePackRunContext } from "../src/pack-run-context.js";
+import { mirrorIntermediate, resolvePackRunContext } from "../src/pack-run-context.js";
 import { packId } from "../src/workflow-pack-id.js";
-import { readFileSync } from "node:fs";
-import { mirrorIntermediate } from "../src/pack-run-context.js";
 
 /**
  * `pack-run-context.ts` — resolve a pack's runtime filesystem context.
@@ -87,6 +85,8 @@ describe("mirrorIntermediate", () => {
   });
 
   test("mirrorIntermediate never throws on a bad path", () => {
-    expect(() => mirrorIntermediate("/proc/cannot/write/here", "p", { index: 0, hash: "h", result: "x" })).not.toThrow();
+    expect(() =>
+      mirrorIntermediate("/proc/cannot/write/here", "p", { index: 0, hash: "h", result: "x" }),
+    ).not.toThrow();
   });
 });
