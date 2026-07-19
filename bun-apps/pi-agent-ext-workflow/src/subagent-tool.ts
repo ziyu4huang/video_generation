@@ -15,6 +15,7 @@ import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type, type TSchema } from "typebox";
 import type { AgentUsage } from "./agent.js";
 import type { AgentHistoryEntry } from "./agent-history.js";
+import type { SubagentInFlightRegistry } from "./subagent-in-flight.js";
 import {
   listAgentTypes,
   loadAgentRegistry,
@@ -109,6 +110,8 @@ export interface SubagentToolOptions {
   createWorktree?: typeof createWorktree;
   /** Injectable worktree teardown for tests (defaults to the real removeWorktree). */
   removeWorktree?: typeof removeWorktree;
+  /** Live registry of in-flight runs; when set, the tool registers/updates/deregisters so /subagents can show running subagents. */
+  inFlight?: SubagentInFlightRegistry;
 }
 
 /** Minimal pre-flight check: a JSON-Schema-shaped object needs at least a `type` field. */
@@ -162,6 +165,42 @@ export function formatSubagentProgress(
   return `↳ ${activity}\n  ↳ ${elapsedS}s elapsed · ${toolCalls} tool call${toolCalls === 1 ? "" : "s"}`;
 }
 
+/** Render one history entry as a single readable trace line (live-output buffer). */
+function formatHistoryLine(e: AgentHistoryEntry): string {
+  switch (e.kind) {
+    case "toolCall":
+      return `→ ${e.toolName ?? "tool"}`;
+    case "toolResult":
+      return `← ${e.toolName ?? "tool"} ✓`;
+    case "error":
+      return `⚠ ${e.text.slice(0, 200)}`;
+    case "text":
+      return (e.text.split("\n")[0] ?? "").slice(0, 200);
+    default:
+      return e.text.slice(0, 200);
+  }
+}
+
+/**
+ * Live-output payload sent while the subagent runs. The first 2 lines are the
+ * progress header (elapsed + tool-call count, via formatSubagentProgress); the
+ * rest is the latest ≤`maxTraceLines` activity trace (one line per history
+ * entry). `renderSubagentResult`'s isPartial branch shows just the 2-line
+ * header when collapsed and the full trace when expanded (ctrl+o /
+ * app.tools.expand), so a long-running subagent's recent work is inspectable
+ * without aborting it (decision: Ctrl-O live output, default 100 lines).
+ */
+export function formatSubagentLive(
+  history: AgentHistoryEntry[],
+  elapsedMs: number,
+  minToolCalls = 0,
+  maxTraceLines = 100,
+): string {
+  const header = formatSubagentProgress(history, elapsedMs, minToolCalls);
+  const trace = history.slice(-maxTraceLines).map(formatHistoryLine);
+  return trace.length ? `${header}\n${trace.join("\n")}` : header;
+}
+
 /** Theme the call line shown WHILE the subagent runs (pi's spinner conveys activity). */
 export function renderSubagentCall(
   args: { agent?: string; model?: string; task: string },
@@ -182,10 +221,13 @@ export function renderSubagentResult(
 ): string {
   const text = result.content.find((c) => c.type === "text")?.text ?? "";
   if (options.isPartial) {
-    // Streaming progress update: the SDK's onUpdate contract carries no
-    // `details` yet (mirrors pi-agent-ext-flux2's onProgress usage) — just
-    // show the latest line.
-    return theme.fg("dim", text);
+    // Streaming progress update. The payload (formatSubagentLive) is a 2-line
+    // header + a ≤100-line activity trace. Collapsed (default) shows just the
+    // header; expanded (ctrl+o / app.tools.expand) shows the trace so a
+    // long-running subagent's recent work is inspectable without aborting.
+    const lines = text.split("\n");
+    const shown = options.expanded ? lines : lines.slice(0, 2);
+    return shown.map((l) => theme.fg("dim", l)).join("\n");
   }
   const d = result.details;
   if (!d) return text;
@@ -291,6 +333,13 @@ export function createSubagentTool(
         if (worktree.isolated) spawnCwd = worktree.cwd;
       }
 
+      options.inFlight?.start({
+        id: toolCallId,
+        agent: params.agent,
+        model: params.model ?? agentDef?.model ?? "default",
+        taskPreview: taskPreview(params.task),
+        startedAt: t0,
+      });
       try {
         const instructions =
           [params.agent ? `You are the ${params.agent} for this task.` : undefined, agentDef?.prompt]
@@ -309,7 +358,7 @@ export function createSubagentTool(
           timeoutMs: params.timeoutMs,
           retryOnTransient: params.retryOnTransient,
           schema: params.schema as TSchema | undefined,
-          onHistory: onUpdate
+          onHistory: (onUpdate || options.inFlight)
             ? (history: AgentHistoryEntry[]) => {
                 // Progress streaming is diagnostic only — a throwing onUpdate
                 // (e.g. a TUI re-render failure) must never fail the subagent's
@@ -317,9 +366,10 @@ export function createSubagentTool(
                 try {
                   const toolCallsNow = history.filter((h) => h.kind === "toolCall").length;
                   maxToolCallsSeen = Math.max(maxToolCallsSeen, toolCallsNow);
-                  onUpdate({
+                  options.inFlight?.update(toolCallId, history);
+                  onUpdate?.({
                     content: [
-                      { type: "text" as const, text: formatSubagentProgress(history, Date.now() - t0, maxToolCallsSeen) },
+                      { type: "text" as const, text: formatSubagentLive(history, Date.now() - t0, maxToolCallsSeen) },
                     ],
                     details: undefined as unknown as SubagentToolDetails,
                   });
@@ -343,6 +393,7 @@ export function createSubagentTool(
           },
         };
       } finally {
+        options.inFlight?.end(toolCallId);
         if (worktree) await teardownWorktree(worktree);
       }
     },

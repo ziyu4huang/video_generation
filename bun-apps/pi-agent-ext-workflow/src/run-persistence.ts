@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSyn
 import { join } from "node:path";
 import type { AgentHistoryEntry } from "./agent-history.js";
 import type { WorkflowErrorCode } from "./errors.js";
+import type { ManifestIo } from "./workflow-pack-manifest.js";
 import { workflowProjectPaths } from "./workflow-paths.js";
 
 export type RunStatus = "pending" | "running" | "paused" | "completed" | "failed" | "aborted";
@@ -39,6 +40,14 @@ export interface PersistedExecOptions {
   tokenBudget?: number | null;
   concurrency?: number;
   agentRetries?: number;
+  /** Pack identity (decision 08); absent for inline scripts. */
+  packId?: string;
+  /** Pack-local state root; routes resume() to the pack store (T5b). */
+  stateRoot?: string;
+  /** Pack dirs + io contract; re-threaded into executeRun on resume (T5b). */
+  intermediateDir?: string;
+  outputsDir?: string;
+  io?: ManifestIo;
 }
 
 export interface PersistedRunState {
@@ -140,7 +149,7 @@ export type FsLayer = {
   writeFileSync: typeof writeFileSync;
 };
 
-export function createRunPersistence(cwd: string, fsOverride?: Partial<FsLayer>): RunPersistence {
+export function createRunPersistence(cwd: string, fsOverride?: Partial<FsLayer>, stateRoot?: string): RunPersistence {
   const _existsSync = fsOverride?.existsSync ?? existsSync;
   const _mkdirSync = fsOverride?.mkdirSync ?? mkdirSync;
   const _readdirSync = fsOverride?.readdirSync ?? readdirSync;
@@ -150,7 +159,7 @@ export function createRunPersistence(cwd: string, fsOverride?: Partial<FsLayer>)
   const _writeFileSync = fsOverride?.writeFileSync ?? writeFileSync;
 
   const paths = workflowProjectPaths(cwd);
-  const runsDir = paths.runsDir;
+  const runsDir = stateRoot ? join(stateRoot, "runs") : paths.runsDir;
   const legacyRunsDir = paths.legacyRunsDir;
 
   const ensureDir = () => {

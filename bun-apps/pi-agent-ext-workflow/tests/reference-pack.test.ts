@@ -17,7 +17,7 @@ describe("reference-pack", () => {
     expect(m.name).toBe("reference-pack");
     expect(m.agents).toBe("agents/*.md");
     expect(m.io?.outputs?.naming).toBe("timestamped");
-    expect(m.io?.intermediate?.persist).toBe(false);
+    expect(m.io?.intermediate?.persist).toBe(true);
     expect(m.version).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
@@ -40,5 +40,14 @@ describe("reference-pack", () => {
   test("entry.js + manifest.json both present", () => {
     expect(existsSync(join(PACK, "entry.js"))).toBe(true);
     expect(existsSync(join(PACK, "manifest.json"))).toBe(true);
+  });
+
+  test("manifest declares an io block exercising intermediate + outputs (T8)", () => {
+    // Re-validate the on-disk manifest.json through the T1 parser: the io block
+    // must survive validation and exercise decisions 11 (outputs/<ts>/) + 12
+    // (intermediate mirror). The sample is a faithful end-to-end exerciser.
+    const manifest = validateManifest(JSON.parse(readFileSync(join(PACK, "manifest.json"), "utf8")));
+    expect(manifest.io?.intermediate?.persist).toBe(true);
+    expect(manifest.io?.outputs?.naming).toBe("timestamped");
   });
 });
