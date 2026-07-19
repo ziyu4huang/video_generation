@@ -575,4 +575,10 @@ describe("suppressResolvedArgv", () => {
 		expect(suppressResolvedArgv(argv, { noExtensions: true, noSkills: true })).toEqual(["-ne"]);
 		expect(suppressResolvedArgv(argv, {})).toEqual(argv);
 	});
+
+	test("--extension long form is stripped like -e", () => {
+		expect(
+			suppressResolvedArgv(["--extension", "/a/ext.ts", "--skill", "/s"], { noExtensions: true }),
+		).toEqual(["--skill", "/s"]);
+	});
 });

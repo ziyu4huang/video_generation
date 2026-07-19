@@ -21,6 +21,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import manifest from "./manifest.json";
 import { detectMode } from "../src/mode.ts";
+import type { UserSuppressFlags } from "../src/cli-argv.ts";
 
 // Re-export so callers (and tests) can import detectMode from the resolver
 // surface; the implementation lives in the shared src/mode.ts.
@@ -570,7 +571,7 @@ export function buildArgvFromManifest(
  */
 export function suppressResolvedArgv(
   argv: string[],
-  flags: { noExtensions?: boolean; noSkills?: boolean },
+  flags: Partial<UserSuppressFlags>,
 ): string[] {
   const out: string[] = [];
   for (let i = 0; i < argv.length; i++) {
