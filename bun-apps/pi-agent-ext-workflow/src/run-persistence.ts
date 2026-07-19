@@ -47,6 +47,10 @@ export interface PersistedRunState {
    * re-delivery (the originating session closed before the run finished). Set
    * once by installResultDelivery's complete handler and by redeliverPendingResults. */
   deliveredAt?: string;
+  /** Pack identity (decision 08) when this run is pack-sourced; ABSENT for inline
+   *  scripts. Presence is the branch signal (13): packId set → pack-local state;
+   *  absent → unchanged createRunPersistence(cwd) (~/.pi/workflows/projects/<key>/). */
+  packId?: string;
   status: RunStatus;
   /** Why a paused run is paused (e.g. "usage_limit" when a provider quota was hit). */
   pauseReason?: string;
