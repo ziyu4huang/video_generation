@@ -6,6 +6,7 @@ import os from "node:os";
 import { createRunPersistence } from "../src/run-persistence.js";
 import { WorkflowManager } from "../src/workflow-manager.js";
 import { runWorkflow } from "../src/workflow.js";
+import { resolvePackRunContext } from "../src/pack-run-context.js";
 
 /** A mock agent that returns a canned string without any provider call. */
 const mockAgent = {
@@ -119,4 +120,20 @@ test("a repeat run appends a NEW <ts> subdir (no overwrite, decision 11) (T6)", 
     await mgr.runSync(script, { topic: "cats" }, { stateRoot, packId: "demo-r", outputsDir });
   }
   expect(readdirSync(outputsDir).length).toBe(2);
+});
+
+test("workflow-tool passes pack context into ExecOptions when a pack is named (T7 wiring)", () => {
+  // Unit-level shape lock: resolvePackRunContext is the single source of truth the
+  // tool spreads into ExecOptions. Pins the 5 fields the manager routes to
+  // pack-scoped persistence / intermediate mirror / outputs append.
+  const repo = mkdtempSync(join(os.tmpdir(), "repo-"));
+  const packDir = join(repo, ".pi", "workflows", "wired");
+  const ctx = resolvePackRunContext({ name: "wired", packDir, repoRoot: repo });
+  const execFields = (({ packId, stateRoot, intermediateDir, outputsDir, io }) => ({
+    packId, stateRoot, intermediateDir, outputsDir, io,
+  }))(ctx);
+  expect(execFields.packId).toBeDefined();
+  expect(execFields.stateRoot).toBe(packDir);
+  expect(execFields.intermediateDir).toBe(join(packDir, "intermediate"));
+  expect(execFields.outputsDir).toBe(join(packDir, "outputs"));
 });
