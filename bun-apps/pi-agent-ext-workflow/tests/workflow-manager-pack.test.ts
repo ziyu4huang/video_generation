@@ -190,3 +190,21 @@ test("a pack run's persisted exec carries stateRoot + packId so resume routes to
   expect(run?.exec?.intermediateDir).toBe(join(stateRoot, "intermediate"));
   expect(run?.exec?.io?.intermediate?.persist).toBe(true);
 });
+
+test("an `export default async function` pack entry executes + completes (export-default blocker fix)", async () => {
+  // Packs (reference-pack + scaffold template) use `export default async function`.
+  // Pre-fix this SyntaxErrored inside the IIFE wrap and stalled at "running".
+  const cwd = mkdtempSync(join(os.tmpdir(), "mgr-cwd-"));
+  const stateRoot = mkdtempSync(join(os.tmpdir(), "pack-state-"));
+  const mgr = new WorkflowManager({ cwd, agent: mockAgent as any });
+  const { runId } = mgr.startInBackground(
+    `export const meta={name:"p",description:"d"};export default async function({agent}){ return await agent("x"); };`,
+    {},
+    { stateRoot, packId: "demo-entry" },
+  );
+  await new Promise((r) => setTimeout(r, 120));
+  const run = mgr.getPersistedRun(runId);
+  expect(run?.status).toBe("completed");
+  expect(run?.agents?.length).toBe(1);
+  expect(run?.result).toBe("mocked");
+});
