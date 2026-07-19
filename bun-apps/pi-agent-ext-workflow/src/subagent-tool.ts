@@ -62,7 +62,13 @@ export const subagentToolSchema = Type.Object({
   model: Type.Optional(
     Type.String({
       description:
-        "Model override for the child as provider/id (e.g. 'anthropic/claude-sonnet-4', 'google/gemini-3-pro'). Omit to use the session default.",
+        "Optional model override as `provider/model-id`. Prefer omitting this (the child then uses the session's CURRENT model) or setting `tier` instead — an unauthed model here will warn and fall back to the current model. Do NOT copy a model id from an example; only pass a model you know is configured.",
+    }),
+  ),
+  tier: Type.Optional(
+    Type.String({
+      description:
+        "Model tier for the child: 'small', 'medium', or 'big' (resolved from the user's model-tiers config via /workflows-models). Omit to inherit the session's current model. An explicit `model` takes priority over this.",
     }),
   ),
   cwd: Type.Optional(
@@ -99,6 +105,8 @@ export interface SubagentToolOptions {
   cwd?: string;
   /** Parent-session tools to bridge into the child. Updated by session_start. */
   getExtensionTools?: () => ToolDefinition[] | undefined;
+  /** Parent session's current model (provider/id), captured at session_start. Lets an untagged dispatch default to the live session model. */
+  getMainModel?: () => string | undefined;
   /** Injectable spawn for tests (defaults to the real spawnSubagent). */
   spawn?: (opts: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
   /** Injectable agentType registry for tests (defaults to loadAgentRegistry(cwd) per call). */
@@ -195,10 +203,11 @@ export function formatSubagentLive(
 }
 
 /** Theme the call line shown WHILE the subagent runs (pi's spinner conveys activity). */
-export function renderSubagentCall(args: { agent?: string; model?: string; task: string }, theme: Theme): string {
+export function renderSubagentCall(args: { agent?: string; model?: string; tier?: string; task: string }, theme: Theme): string {
   const parts: string[] = [theme.bold(theme.fg("toolTitle", "subagent"))];
   if (args.agent) parts.push(theme.fg("accent", args.agent));
-  parts.push(theme.fg("muted", args.model ?? "default"));
+  const slot = args.model ?? (args.tier ? `tier:${args.tier}` : "default");
+  parts.push(theme.fg("muted", slot));
   parts.push(theme.fg("dim", `"${taskPreview(args.task, 60)}"`));
   return parts.join(" ▸ ");
 }
@@ -270,7 +279,7 @@ export function createSubagentTool(
       "Returns the subagent's output, plus an exit/timed-out status in `details`.",
     ].join(" "),
     promptSnippet:
-      "Dispatch an isolated-context subagent for one focused task (implementer / reviewer / researcher). Pass a self-contained `task`; choose `model` per role; restrict with `tools`/`excludeTools`.",
+      "Dispatch an isolated-context subagent for one focused task (implementer / reviewer / researcher). Pass a self-contained `task`; pick `model`/`tier` per role (omit to use the current model); restrict with `tools`/`excludeTools`.",
     parameters: subagentToolSchema,
     async execute(toolCallId, params, signal, onUpdate, _ctx) {
       const t0 = Date.now();
@@ -328,10 +337,20 @@ export function createSubagentTool(
         if (worktree.isolated) spawnCwd = worktree.cwd;
       }
 
+      const requestedModel = params.model ?? agentDef?.model;
+      const tier = params.tier ?? agentDef?.tier;
+      const mainModel = options.getMainModel?.();
+      // Shown WHILE the subagent runs, before the resolved model is known: the
+      // requested model, else the tier, else the live session model, else "default".
+      const displayModelBeforeResolve = requestedModel ?? (tier ? `tier:${tier}` : mainModel) ?? "default";
+      // The concrete provider/id the child actually ran on, captured from
+      // WorkflowAgent once resolved. Falls back to the requested display string.
+      let resolvedModel: string | undefined;
+
       options.inFlight?.start({
         id: toolCallId,
         agent: params.agent,
-        model: params.model ?? agentDef?.model ?? "default",
+        model: displayModelBeforeResolve,
         taskPreview: taskPreview(params.task),
         startedAt: t0,
       });
@@ -345,7 +364,9 @@ export function createSubagentTool(
           task: params.task,
           tools: params.tools ?? agentDef?.tools,
           excludeTools: params.excludeTools ?? agentDef?.disallowedTools,
-          model: params.model ?? agentDef?.model,
+          model: requestedModel,
+          tier,
+          mainModel,
           cwd: spawnCwd,
           instructions,
           extensionTools: options.getExtensionTools?.(),
@@ -353,6 +374,9 @@ export function createSubagentTool(
           timeoutMs: params.timeoutMs,
           retryOnTransient: params.retryOnTransient,
           schema: params.schema as TSchema | undefined,
+          onModelResolved: (id) => {
+            resolvedModel = id;
+          },
           onHistory:
             onUpdate || options.inFlight
               ? (history: AgentHistoryEntry[]) => {
@@ -381,7 +405,7 @@ export function createSubagentTool(
             exitCode: result.exitCode,
             timedOut: result.timedOut,
             agent: params.agent,
-            model: params.model ?? agentDef?.model ?? "default",
+            model: resolvedModel ?? displayModelBeforeResolve,
             taskPreview: taskPreview(params.task),
             elapsedMs: Date.now() - t0,
             status: deriveSubagentStatus(result),

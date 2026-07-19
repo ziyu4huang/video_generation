@@ -35,6 +35,8 @@ export interface SpawnSubagentOptions {
   /** Tool names to deny after the allowlist. */
   excludeTools?: string[];
   model?: string;
+  /** Model tier name (e.g. "small"/"medium"/"big"), resolved from model-tiers config. */
+  tier?: string;
   schema?: TSchema;
   instructions?: string;
   cwd?: string;
@@ -45,6 +47,17 @@ export interface SpawnSubagentOptions {
   prime?: SpawnSubagentPrime;
   /** Parent-session tools to bridge into the child (R2). */
   extensionTools?: ToolDefinition[];
+  /**
+   * The parent session's current model (provider/id). When neither `model` nor
+   * `tier` is set, the child defaults to this (the live session model) rather
+   * than a possibly-stale medium tier. Also threaded into WorkflowAgent so an
+   * unknown-tier warning can name the fallback model.
+   */
+  mainModel?: string;
+  /** Fires with the concrete `provider/id` the child actually runs on, once known. */
+  onModelResolved?: (modelId: string) => void;
+  /** Fires when a requested model/tier spec couldn't be resolved (fell back). */
+  onModelFallback?: (requestedSpec: string) => void;
   /** Injectable runner (tests pass a mock; production omits → new WorkflowAgent). */
   agent?: Pick<WorkflowAgent, "run">;
   /** Host signal (e.g. tool-call Ctrl+C) that should cancel this call when fired. */
@@ -112,8 +125,13 @@ function mergeUsage(a: AgentUsage | undefined, b: AgentUsage | undefined): Agent
 }
 
 export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> {
-  const runner = opts.agent ?? new WorkflowAgent({ cwd: opts.cwd, extensionTools: opts.extensionTools });
+  const runner =
+    opts.agent ?? new WorkflowAgent({ cwd: opts.cwd, extensionTools: opts.extensionTools, mainModel: opts.mainModel });
   const retry = opts.retryOnTransient !== false;
+  // Default-to-current-LLM: when the caller neither picks a model nor a tier, fall
+  // back to the live session model (not a stale medium tier). Explicit model or
+  // tier always wins; resolveAgentModelSpec in agent.ts handles the rest.
+  const effectiveModel = opts.model ?? (opts.tier ? undefined : opts.mainModel);
 
   const tryOnce = async (): Promise<{ result: SpawnSubagentResult; transient: boolean }> => {
     const ac = new AbortController();
@@ -129,11 +147,14 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
         label: "zk-spawn",
         schema: opts.schema,
         instructions: opts.instructions,
-        model: opts.model,
+        model: effectiveModel,
+        tier: opts.tier,
         toolNames: opts.tools,
         disallowedToolNames: opts.excludeTools,
         cwd: opts.cwd,
         signal: ac.signal,
+        onModelResolved: opts.onModelResolved,
+        onModelFallback: opts.onModelFallback,
         onUsage: (u) => {
           usage = u;
         },

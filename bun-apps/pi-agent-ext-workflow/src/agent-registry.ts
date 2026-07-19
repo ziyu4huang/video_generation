@@ -33,6 +33,8 @@ export interface AgentDefinition {
   disallowedTools?: string[];
   /** Model spec (`provider/modelId` or bare id) for this subagent. */
   model?: string;
+  /** Model tier name (e.g. "small"/"medium"/"big") resolved from model-tiers config. */
+  tier?: string;
   /** Isolation mode. When "worktree", agents using this type run in a git worktree. */
   isolation?: "worktree";
   /** Markdown body, prepended to the subagent's task as role guidance. */
@@ -88,6 +90,7 @@ export function parseAgentDefinition(
     tools: toStringArray(fm.tools),
     disallowedTools: toStringArray(fm.disallowedTools),
     model: typeof fm.model === "string" ? fm.model.trim() || undefined : undefined,
+    tier: typeof fm.tier === "string" ? fm.tier.trim() || undefined : undefined,
     isolation:
       typeof fm.isolation === "string" && fm.isolation.toLowerCase().trim() === "worktree" ? "worktree" : undefined,
     prompt,
