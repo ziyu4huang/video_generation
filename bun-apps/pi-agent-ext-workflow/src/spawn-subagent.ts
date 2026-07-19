@@ -18,7 +18,7 @@
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
-import { WorkflowAgent } from "./agent.js";
+import { WorkflowAgent, type AgentUsage } from "./agent.js";
 import { isWorkflowError, WorkflowErrorCode } from "./errors.js";
 
 export interface SpawnSubagentPrime {
@@ -55,6 +55,8 @@ export interface SpawnSubagentResult {
   exitCode: number;
   stderr: string;
   timedOut: boolean;
+  /** Real token/cost usage read from the child session, when the runner reports it. */
+  usage?: AgentUsage;
 }
 
 const TRANSIENT_NETWORK_RE =
@@ -92,6 +94,7 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
       else opts.externalSignal.addEventListener("abort", () => ac.abort(), { once: true });
     }
     const timer = opts.timeoutMs ? setTimeout(() => ac.abort(), opts.timeoutMs) : undefined;
+    let usage: AgentUsage | undefined;
     try {
       // `prime` is intentionally NOT used here (③ owns the auto-primer).
       const out = await runner.run(opts.task, {
@@ -103,17 +106,20 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
         disallowedToolNames: opts.excludeTools,
         cwd: opts.cwd,
         signal: ac.signal,
+        onUsage: (u) => {
+          usage = u;
+        },
       } as Parameters<WorkflowAgent["run"]>[1]);
       // When `opts.schema` is set, `run()` returns a validated OBJECT (not a
       // string). `String(obj)` would yield "[object Object]" and silently
       // destroy the schema payload — JSON-serialize it instead so callers
       // that parse `output` keep working. Null/undefined → empty string.
       const output = typeof out === "string" ? out : out == null ? "" : JSON.stringify(out);
-      return { result: { output, exitCode: 0, stderr: "", timedOut: false }, transient: false };
+      return { result: { output, exitCode: 0, stderr: "", timedOut: false, usage }, transient: false };
     } catch (e) {
       const c = classifyError(e);
       return {
-        result: { output: "", exitCode: c.timedOut ? 124 : 1, stderr: c.message, timedOut: c.timedOut },
+        result: { output: "", exitCode: c.timedOut ? 124 : 1, stderr: c.message, timedOut: c.timedOut, usage },
         transient: c.transient,
       };
     } finally {
