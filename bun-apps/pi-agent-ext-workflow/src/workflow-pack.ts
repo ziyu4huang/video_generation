@@ -135,7 +135,7 @@ export function resolveWorkflowScript(name: string, opts: { cwd?: string; binDir
 
   // 2. <cwd>/workflows/<name> — portable tier (no repo root needed); a pack
   //    folder wins over a same-name .js. Ranks ABOVE repo tiers ("most local
-  //    wins" — Decision: portable-workflow-pack-discovery, ADR 0008).
+  //    wins" — see docs/adr/0003-portable-name-resolution-tiers.md).
   const cwdWorkflowsDir = join(cwd, "workflows");
   if (fs.exists(cwdWorkflowsDir)) {
     const pack = tryResolvePack(join(cwdWorkflowsDir, name), fs);

@@ -62,4 +62,60 @@ describe("cleanPack", () => {
     expect(dry.removed).toBe(0);
     p.cleanup();
   });
+
+  // REGRESSION (2026-07 review): an explicit dry-run must always win — a caller
+  // combining `--dry-run --yes` previously EXECUTED the deletion.
+  test("explicit dryRun:true beats yes:true (nothing deleted)", () => {
+    const p = makePack({ "runs/r1.json": "{}" });
+    const report = cleanPack({
+      packDir: p.packDir,
+      name: "demo",
+      repoRoot: p.root,
+      scope: "runs",
+      dryRun: true,
+      yes: true,
+    });
+    expect(report.dryRun).toBe(true);
+    expect(report.removed).toBe(0);
+    expect(existsSync(join(p.packDir, "runs", "r1.json"))).toBe(true);
+    p.cleanup();
+  });
+
+  // REGRESSION (2026-07 review): `keep` (last-N retention) was accepted in the
+  // signature but never implemented — `keep: 2` deleted ALL runs.
+  test("keep: N retains the N newest entries (by mtime) and deletes the rest", () => {
+    const p = makePack({ "runs/old.json": "{}", "runs/mid.json": "{}", "runs/new.json": "{}" });
+    // Stamp distinct mtimes: old < mid < new.
+    const now = Date.now();
+    const { utimesSync } = require("node:fs") as typeof import("node:fs");
+    utimesSync(join(p.packDir, "runs", "old.json"), new Date(now - 30000), new Date(now - 30000));
+    utimesSync(join(p.packDir, "runs", "mid.json"), new Date(now - 20000), new Date(now - 20000));
+    utimesSync(join(p.packDir, "runs", "new.json"), new Date(now - 10000), new Date(now - 10000));
+
+    const report = cleanPack({ packDir: p.packDir, name: "demo", repoRoot: p.root, scope: "runs", keep: 2, yes: true });
+    expect(report.removed).toBe(1);
+    expect(existsSync(join(p.packDir, "runs", "old.json"))).toBe(false);
+    expect(existsSync(join(p.packDir, "runs", "mid.json"))).toBe(true);
+    expect(existsSync(join(p.packDir, "runs", "new.json"))).toBe(true);
+    p.cleanup();
+  });
+
+  test("keep larger than the entry count deletes nothing", () => {
+    const p = makePack({ "runs/r1.json": "{}" });
+    const report = cleanPack({ packDir: p.packDir, name: "demo", repoRoot: p.root, scope: "runs", keep: 5, yes: true });
+    expect(report.removed).toBe(0);
+    expect(existsSync(join(p.packDir, "runs", "r1.json"))).toBe(true);
+    p.cleanup();
+  });
+
+  test("keep rejects a negative or non-integer value loudly", () => {
+    const p = makePack({ "runs/r1.json": "{}" });
+    expect(() =>
+      cleanPack({ packDir: p.packDir, name: "demo", repoRoot: p.root, scope: "runs", keep: -1, yes: true }),
+    ).toThrow(/--keep/);
+    expect(() =>
+      cleanPack({ packDir: p.packDir, name: "demo", repoRoot: p.root, scope: "runs", keep: 1.5, yes: true }),
+    ).toThrow(/--keep/);
+    p.cleanup();
+  });
 });

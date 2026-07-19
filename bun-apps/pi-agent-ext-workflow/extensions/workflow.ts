@@ -122,11 +122,11 @@ export default function extension(pi: ExtensionAPI) {
   // probes (cache-probe-workflow.mjs + cache-probe-workflow-local.mjs) confirmed
   // multi-entry prefix caching on zai AND on local LM Studio/MLX gemma
   // (transition latency 0.98× warm). Net ~−597 tok on every non-workflow turn.
-  pi.on("before_agent_start", (event: { prompt?: string; systemPrompt?: string }) => {
+  pi.on("before_agent_start", async (event: { prompt?: string; systemPrompt?: string }) => {
     const prompt = typeof event.prompt === "string" ? event.prompt : "";
     const effortArmed = effort.level !== "off";
     const full = shouldInjectFullWorkflowGuidelines(prompt, effortArmed);
-    const block = buildWorkflowGuidelinesForTurn({
+    const block = await buildWorkflowGuidelinesForTurn({
       full,
       verbose: settings.verboseWorkflowGuidelines,
     });
