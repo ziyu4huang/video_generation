@@ -680,16 +680,17 @@ function normalizeWorkflowScript(script: string): string {
 }
 
 /**
- * Static pre-flight check (D9-8): does the workflow script text reference the
- * `agent(` token at least once?
+ * Static pre-flight check (D9-8): does the workflow script text call anything
+ * that spawns agents at least once?
  *
  * This is a FAIL-FAST AUTHORING GUARD, not a security boundary. It exists so
  * that a no-agent workflow cannot reach the background path — which returns a
  * runId immediately without ever evaluating the runtime `agentCount === 0`
- * check on the inline path. The heuristic scans the raw script text for an
- * `agent(` call (tolerating whitespace and a leading `await`), so it will
- * match direct calls (`agent(prompt, opts)`), tagged helpers that forward to
- * `agent(`, and any authoring helper that legitimately mentions the token.
+ * check on the inline path. The heuristic scans the raw script text for a call
+ * to `agent(` OR to the stdlib quality helpers (`verify(`, `judgePanel(`,
+ * `loopUntilDry(`, `completenessCheck(`) OR to a nested `workflow(` — the
+ * helpers spawn agents inside the engine, so a legitimate helper-only script
+ * never mentions the `agent(` token itself.
  *
  * False positives (the token appears in a string or comment) are acceptable:
  * such a script would also have invoked `agent(` for real in almost every
@@ -706,9 +707,12 @@ function scriptInvokesAgent(script: string): boolean {
   // appearing inside meta (e.g. a description) does not trigger a false
   // positive. We only need to inspect the body the workflow will execute.
   const body = script.replace(/^[\s\S]*?\bexport\s+const\s+meta\s*=[\s\S]*?\};/, "");
-  // Match `agent(` optionally preceded by `await` and whitespace. The lookahead
-  // for `(` ensures we don't match the bare word `agent` in prose.
-  return /\bawait\s+agent\s*\(|\bagent\s*\(/.test(body);
+  // Match a call to `agent(` — or to any stdlib helper that spawns agents
+  // internally (verify/judgePanel/loopUntilDry/completenessCheck), or to a
+  // nested `workflow('name')`, none of which mention the `agent(` token in the
+  // script text but all of which run real subagents at runtime. The `\s*\(`
+  // ensures we don't match the bare words in prose.
+  return /\b(?:agent|verify|judgePanel|loopUntilDry|completenessCheck|workflow)\s*\(/.test(body);
 }
 
 function _isAbortError(error: unknown): boolean {
