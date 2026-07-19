@@ -35,8 +35,8 @@ import {
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { Type, type TSchema } from "typebox";
 import { Value } from "typebox/value";
 
 /** Runtime-validated args for the obsidian fat tool. After the param schema
@@ -254,9 +254,15 @@ export default function (pi: ExtensionAPI) {
 
 	// Phase 3: Capture all tool registrations internally — only ONE fat tool is
 	// exposed to the agent. The fat tool dispatches to these captured handlers.
+	// `registerTool` is generic so each captured tool literal is contextually
+	// typed as ToolDefinition<T> (T inferred from `parameters`) — this is what
+	// gives the `execute(id, params, signal, onUpdate, ctx)` callbacks their
+	// real param types instead of implicit-any. The old `t: any` signature
+	// threw generics away and surfaced ~80 implicit-any errors once this file
+	// became reachable via pi-agent's static import.
 	const _capture = {
-		_tools: {} as Record<string, any>,
-		registerTool(t: any) { this._tools[t.name] = t; },
+		_tools: {} as Record<string, ToolDefinition>,
+		registerTool<T extends TSchema>(t: ToolDefinition<T>) { this._tools[t.name] = t; },
 	};
 
 	_capture.registerTool({
@@ -2000,7 +2006,10 @@ ${output.slice(-2000)}`,
 	pi.registerTool({
 		name: "obsidian",
 		label: "Obsidian",
-		// Expose captured individual tools for backward compat (tests, CLI introspection)
+		// Expose captured individual tools for backward compat (tests, CLI
+		// introspection). Intentionally NOT part of ToolDefinition — read by
+		// __tests__ via a loosely-typed mock registerTool.
+		// @ts-expect-error — _capturedTools is runtime metadata, not a ToolDefinition field.
 		_capturedTools: _capture._tools,
 		// promptSnippet REMOVED (stealth): routing description + obsidian_help carry usage.
 		description: obsidianRoutingDescription(),

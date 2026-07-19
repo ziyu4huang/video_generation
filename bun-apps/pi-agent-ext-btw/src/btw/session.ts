@@ -453,7 +453,6 @@ export class BtwEngine {
     const { session } = await createAgentSession({
       sessionManager: SessionManager.inMemory(),
       model: settings.model,
-      modelRegistry: ctx.modelRegistry as AgentSession["modelRegistry"],
       thinkingLevel: settings.thinkingLevel,
       tools: ["read", "bash", "edit", "write"],
       resourceLoader: createBtwResourceLoader(ctx),
@@ -661,7 +660,6 @@ export class BtwEngine {
     const { session } = await createAgentSession({
       sessionManager: SessionManager.inMemory(),
       model,
-      modelRegistry: ctx.modelRegistry as AgentSession["modelRegistry"],
       thinkingLevel: "off",
       tools: [],
       resourceLoader: createBtwResourceLoader(ctx, [BTW_SUMMARIZE_SYSTEM_PROMPT]),
