@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { computeActiveTools, CORE_TOOLS } from "./tool-gate.ts";
+import { computeActiveTools, CORE_TOOLS, GATES } from "./tool-gate.ts";
 
 describe("computeActiveTools", () => {
   test("a tool not listed in CORE_TOOLS or any gate is always active (fail-open)", () => {
@@ -32,5 +32,36 @@ describe("computeActiveTools", () => {
     const sticky = new Set(CORE_TOOLS);
     const active = computeActiveTools("irrelevant prompt", allTools, sticky);
     for (const t of CORE_TOOLS) expect(active).toContain(t);
+  });
+});
+
+describe("GATES data (S1)", () => {
+  test("every gate has a non-empty description", () => {
+    for (const g of GATES) {
+      expect(g.description.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("movie gate exists and fires on 'movie' and '分鏡'", () => {
+    const sticky = new Set(CORE_TOOLS);
+    const all = [...CORE_TOOLS, "movie", "movie_help"];
+    const active = computeActiveTools("幫我用 movie 做一個分鏡", all, sticky);
+    expect(active).toEqual(expect.arrayContaining(["movie", "movie_help"]));
+  });
+
+  test("inspect does NOT fire on generic 'debug the docker build' (narrowed)", () => {
+    const sticky = new Set(CORE_TOOLS);
+    const inspectTools = ["inspect_context", "inspect_agent", "inspect_extensions", "inspect_pathology"];
+    const all = [...CORE_TOOLS, ...inspectTools];
+    const active = computeActiveTools("let's debug the docker build", all, sticky);
+    for (const t of inspectTools) {
+      expect(active).not.toContain(t);
+    }
+  });
+
+  test("inspect fires on 'inspect extension health'", () => {
+    const sticky = new Set(CORE_TOOLS);
+    const all = [...CORE_TOOLS, "inspect_extensions"];
+    expect(computeActiveTools("inspect extension health", all, sticky)).toContain("inspect_extensions");
   });
 });

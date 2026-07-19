@@ -38,18 +38,20 @@ export const CORE_TOOLS = new Set([
   "web_search", "fetch_content", "get_search_content",
 ]);
 
-/**
- * Gated tool groups — each activates when the prompt contains any keyword.
- * Keywords are matched case-insensitively as simple substring checks.
- */
 interface ToolGate {
   names: string[];
   keywords: string[];
+  /** One-line description — used for enable_tool intent matching + list output. */
+  description: string;
   /** Approximate tokens saved when gated (for logging) */
   savedTokens: number;
 }
 
-const GATES: ToolGate[] = [
+/**
+ * Gated tool groups — each activates when the prompt contains any keyword.
+ * Keywords are matched case-insensitively as simple substring checks.
+ */
+export const GATES: ToolGate[] = [
   {
     names: ["flux2", "flux2_help"],
     keywords: [
@@ -57,11 +59,13 @@ const GATES: ToolGate[] = [
       "t2i", "scene", "style", "swap", "outpaint", "upscale image",
       "flux2", "render", "把...做成",
     ],
+    description: "Flux2 image generation — text-to-image, i2i, faceswap, outpaint, upscale, restore",
     savedTokens: 1411,
   },
   {
     names: ["krea2", "krea2_help"],
     keywords: ["krea", "draft", "草圖", "快速生成"],
+    description: "Krea2 fast image generation — real-time draft to image",
     savedTokens: 641,
   },
   {
@@ -71,6 +75,7 @@ const GATES: ToolGate[] = [
       "t2v", "i2v", "vbvr", "relay", "storyboard",
       "generate video", "生成影片", "生成視頻",
     ],
+    description: "LTX video generation — text/image-to-video, upscale, storyboard, relay",
     savedTokens: 1802,
   },
   {
@@ -80,15 +85,18 @@ const GATES: ToolGate[] = [
       "分析圖片", "分析圖像", "read this image", "what is in",
       "pdf", "scan", "to markdown", "轉 markdown", "vision",
     ],
+    description: "Document/image understanding — file→markdown, VLM describe, OCR, caption",
     savedTokens: 685,
   },
   {
     names: ["inspect_context", "inspect_agent", "inspect_extensions", "inspect_pathology"],
+    // S1: narrowed — removed the over-broad "context" / "token" / "debug" which fired on
+    // ~every dev turn and made inspect effectively always-on. Kept phrase-level terms.
     keywords: [
-      "inspect", "context", "token", "debug", "除錯", "調試",
-      "schema", "extension", "pathology", "工具開銷",
-      "how many tokens", "工具佔用",
+      "inspect", "schema cost", "pathology", "extension health",
+      "工具開銷", "context window", "token usage",
     ],
+    description: "Agent/extension introspection — context tokens, extension health, pathology",
     savedTokens: 770,
   },
   {
@@ -97,6 +105,7 @@ const GATES: ToolGate[] = [
       "workflow", "pipeline", "orchestrate", "fan.out", "parallel agent",
       "multi-step", "chain",
     ],
+    description: "Workflow orchestrator — multi-agent fan-out/pipeline JavaScript scripts",
     savedTokens: 706,
   },
   {
@@ -105,7 +114,19 @@ const GATES: ToolGate[] = [
       "collect", "bilibili", "youtube", "video trending",
       "vault notes", "organize", "import memory",
     ],
+    description: "Research tools — collect trending videos, organize vault notes, import memory",
     savedTokens: 723,
+  },
+  {
+    // S1/B: movie was ungated (fail-open ⇒ always active). Now gated. savedTokens measured
+    // 2026-07-20 via schema-cost (movie=348 + movie_help=284, charsPerToken=4).
+    names: ["movie", "movie_help"],
+    keywords: [
+      "movie", "montage", "preflight", "compose",
+      "storyboard", "分鏡", "剪輯", "影片製作", "導演",
+    ],
+    description: "Movie orchestrator — idea→script→scene→assets→edit→compose pipeline",
+    savedTokens: 632,
   },
 ];
 
