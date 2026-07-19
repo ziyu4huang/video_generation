@@ -33,6 +33,23 @@ export function slugify(text: string): string {
   );
 }
 
+/** Today's date as `YYYY-MM-DD` (local). Used to prefix effort ids so they sort
+ *  chronologically under .planning/. */
+function datePrefix(): string {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+/** Effort id for a free-text destination: `YYYY-MM-DD-<slug>` (the unified
+ *  .planning/ convention). Use this for effort folder names; use `slugify`
+ *  (bare) for ticket slugs, which carry their own NN- prefix. */
+export function effortSlug(text: string): string {
+  return `${datePrefix()}-${slugify(text)}`;
+}
+
 /** Next zero-padded ticket id for an effort (max existing + 1, or "01"). */
 export function nextTicketId(tickets: Ticket[]): string {
   if (tickets.length === 0) return "01";
