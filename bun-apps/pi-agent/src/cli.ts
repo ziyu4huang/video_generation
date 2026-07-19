@@ -25,7 +25,7 @@
 import { main } from "@earendil-works/pi-coding-agent";
 import { applyPatches } from "./patches/index.ts";
 import { runDoctor } from "./doctor.ts";
-import { isDoctorCommand, isExtDoctorCommand } from "./cli-argv.ts";
+import { isDoctorCommand, isExtDoctorCommand, userSuppressFlags } from "./cli-argv.ts";
 import { STATIC_EXTENSION_FACTORIES } from "./static-extensions.ts";
 
 // Extension loading: handled by the `ensure-extension-deps` patch (see
@@ -78,4 +78,13 @@ await applyPatches();
 // Re-slice AFTER patches so the run-dir splice (and any other process.argv
 // mutation above) reaches main(). main(args) consumes the passed array
 // directly — it does NOT re-read process.argv.
-await main(process.argv.slice(2), { extensionFactories: STATIC_EXTENSION_FACTORIES });
+//
+// `argv` was sliced BEFORE applyPatches(), so this reflects only what the USER
+// typed — the deploy modes' self-injected "-ne" (spliced during applyPatches)
+// can't turn the static factories off. Upstream pi never gates
+// extensionFactories on -ne (resource-loader loads them unconditionally), so
+// this gate is what makes `pi-agent -ne` actually mean "no injected extensions".
+const userNoExtensions = userSuppressFlags(argv).noExtensions;
+await main(process.argv.slice(2), {
+	extensionFactories: userNoExtensions ? [] : STATIC_EXTENSION_FACTORIES,
+});
