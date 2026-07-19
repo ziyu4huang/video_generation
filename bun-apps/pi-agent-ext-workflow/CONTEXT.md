@@ -63,7 +63,7 @@ Spawns one isolated subagent; returns its final text, or a validated object when
 _Avoid_: call, request (it spawns a fresh in-memory Pi session)
 
 **`subagent` (tool)**:
-Single ad-hoc subagent dispatch outside a workflow script — the model calls it directly for one isolated child run, no orchestration. Shares the same runner as `agent()`. Reports real usage (`{input, output, cacheRead, cacheWrite, total, cost}`) and accepts `timeoutMs`/`retryOnTransient` overrides (previously hardcoded: no timeout, always retry once).
+Single ad-hoc subagent dispatch outside a workflow script — the model calls it directly for one isolated child run, no orchestration. Shares the same runner as `agent()`. Reports real usage (`{input, output, cacheRead, cacheWrite, total, cost}`) and accepts `timeoutMs`/`retryOnTransient` overrides (previously hardcoded: no timeout, always retry once). It also accepts `agentType` (resolves via the same `AgentRegistry` the `agentType` entry below describes — tools/model/prompt/worktree isolation from a `.pi/agents/*.md` definition, with explicit call-site `model`/`tools`/`excludeTools` overriding the binding) and `schema` (structured output via the existing `structured_output` machinery).
 _Avoid_: mini-workflow, single-agent script (it is a standalone tool call, not a `workflow` run of one agent)
 
 **`parallel(thunks)`**:
