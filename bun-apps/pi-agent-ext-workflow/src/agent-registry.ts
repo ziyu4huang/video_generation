@@ -49,7 +49,10 @@ function toStringArray(value: unknown): string[] | undefined {
   // This fixes the silent "no allowlist = all tools" trap: a CC string was parsed
   // as undefined → no allowlist → ALL tools (the opposite of intended).
   if (typeof value === "string") {
-    const arr = value.split(",").map((v) => v.trim()).filter((v) => v.length > 0);
+    const arr = value
+      .split(",")
+      .map((v) => v.trim())
+      .filter((v) => v.length > 0);
     return arr.length ? arr : undefined;
   }
   if (!Array.isArray(value)) return undefined;

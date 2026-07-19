@@ -111,6 +111,13 @@ export function validateManifest(value: unknown): Manifest {
   if (hasEmptyString(obj, "kind")) throw new Error('manifest: optional field "kind" must be a non-empty string');
   if (hasEmptyString(obj, "engine")) throw new Error('manifest: optional field "engine" must be a non-empty string');
   // args: any JSON value is allowed (Decision 5 — no schema validation in v1).
+  // io: validate the known shape — must be a plain object when present (05).
+  if ("io" in obj && obj.io !== undefined) {
+    const io = obj.io;
+    if (typeof io !== "object" || io === null || Array.isArray(io)) {
+      throw new Error('manifest: optional field "io" must be an object');
+    }
+  }
 
   const manifest: Manifest = {
     name: obj.name as string,

@@ -195,3 +195,10 @@ test("validateManifest omits io/version/agents when not supplied", () => {
   expect("version" in m).toBe(false);
   expect("agents" in m).toBe(false);
 });
+
+test("validateManifest rejects a non-object io (must be an object)", () => {
+  const valid = { name: "d", description: "d", entry: "e.js" };
+  expect(() => validateManifest({ ...valid, io: "not-an-object" })).toThrow(/"io".*object/);
+  expect(() => validateManifest({ ...valid, io: [1, 2] })).toThrow(/"io".*object/);
+  expect(() => validateManifest({ ...valid, io: null })).toThrow(/"io".*object/);
+});
