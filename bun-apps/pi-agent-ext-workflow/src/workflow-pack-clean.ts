@@ -65,13 +65,27 @@ export function cleanPack(args: {
   ensureStateDirs(root);
   const lossy = scope === "runs" || scope === "outputs" || scope === "all";
   const dryRun = args.dryRun ?? lossy; // lossy tiers default to dry-run
-  const willExecute = !dryRun || args.yes === true;
+  // An EXPLICIT dry-run always wins — `--dry-run --yes` must never delete.
+  // `--yes` only overrides the implicit lossy-tier dry-run default.
+  const willExecute = args.dryRun === true ? false : !dryRun || args.yes === true;
   const targets = scope === "all" ? ["intermediate", "outputs", "runs"] : [scope];
+  const keep = args.keep;
+  if (keep !== undefined && (!Number.isInteger(keep) || keep < 0)) {
+    throw new Error(`workflow clean: --keep must be a non-negative integer (got ${keep})`);
+  }
   let removed = 0;
   for (const t of targets) {
     const dir = join(root, t);
     if (!existsSync(dir)) continue;
-    const entries = readdirSync(dir);
+    let entries = readdirSync(dir);
+    if (keep !== undefined && keep > 0) {
+      // last-N retention: keep the `keep` newest entries (by mtime), delete the rest.
+      entries = entries
+        .map((e) => ({ name: e, mtime: statSync(join(dir, e)).mtimeMs }))
+        .sort((a, b) => b.mtime - a.mtime)
+        .slice(keep)
+        .map((e) => e.name);
+    }
     if (!willExecute) continue; // dry-run: count nothing, remove nothing
     for (const e of entries) rmSync(join(dir, e), { recursive: true, force: true });
     removed += entries.length;

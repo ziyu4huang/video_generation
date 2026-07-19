@@ -27,11 +27,27 @@ export interface PersistedAgentState {
   model?: string;
 }
 
+/**
+ * The serializable subset of a run's ExecOptions, captured at start so that
+ * resume() re-runs with the SAME caps the run was started with. Without this a
+ * run paused precisely because it hit its token budget would resume unbounded,
+ * and maxAgents/concurrency/timeout/retries would silently reset to defaults.
+ */
+export interface PersistedExecOptions {
+  maxAgents?: number;
+  agentTimeoutMs?: number | null;
+  tokenBudget?: number | null;
+  concurrency?: number;
+  agentRetries?: number;
+}
+
 export interface PersistedRunState {
   runId: string;
   workflowName: string;
   script: string;
   args?: unknown;
+  /** Execution caps captured at start; rehydrated by resume(). */
+  exec?: PersistedExecOptions;
   /** The pi session this run belongs to. Runs persist on disk across sessions but
    * the navigator shows only the current session's runs (undefined = legacy/global). */
   sessionId?: string;
