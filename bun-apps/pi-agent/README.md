@@ -137,6 +137,22 @@ fallback (`<bun-apps>/<alias>/extensions/` with exactly one `.ts`). Real paths
 and URL schemes (`npm:`, `git:`, `file:`, `./…`, `/abs/…`) are passed through
 untouched, so `-e /real/path.ts` still works. To register a new opt-in
 extension, add one line to `run-dir/settings.json`.
+### Flag semantics: `-ne` / `-ns`
+User-passed `-ne`/`--no-extensions` and `-ns`/`--no-skills` are honored by the
+wrapper (since 2026-07-19):
+- `-ne` — suppresses BOTH injection channels: the run-dir `-e` splice
+  (`src/patches/load-run-dir-resources.ts`) and the static factories
+  (`src/cli.ts` passes `[]` to `main()`). Your own explicit `-e <path>` still
+  loads — same as upstream pi, where `-ne` + explicit `-e` means "only this
+  extension".
+- `-ns` — suppresses the run-dir `--skill` splice. Your own `--skill <path>`
+  still loads.
+- Deploy layouts still self-inject `-ne` internally (run-dir/resolve.ts) so a
+  deployed pi-agent ignores whatever `.pi/` exists in your cwd. That injected
+  flag is invisible to the user-flag detection, which reads argv BEFORE the
+  splice happens.
+Detection lives in `src/cli-argv.ts` (`userSuppressFlags`); filtering lives in
+`run-dir/resolve.ts` (`suppressResolvedArgv`).
 ## Cross-machine portability
 The run-dir mechanism makes extension loading cwd-independent, but a fresh machine still
 needs its env-var contract in place (`MLX_MODELS_DIR`, `MLX_OUTPUT_DIR`, `OB_VAULT_PATH`,
@@ -174,42 +190,45 @@ a `data:text/javascript;base64,…` URL, and Bun's compiled resolver rejects it
 with `NameTooLong` (`ENAMETOOLONG`). That's a bun-compile + jiti limitation,
 not a pi-agent bug, and it can't be worked around for extensions loaded that
 way — `run-dir/resolve.ts` detects binary mode and never emits `-e` at all.
-To still ship *some* extensions in the binary, 5 of them — the "general
-productivity" set — are **statically imported** instead, in
-`src/static-extensions.ts`:
+To still ship *some* extensions in the binary, 10 of them — two groups of 5 —
+are **statically imported** instead, in `src/static-extensions.ts`:
 ```
-pi-agent-ext-goal-todo · pi-agent-ext-hermes-memory · pi-agent-ext-superpowers
-pi-agent-ext-wayfind   · pi-agent-ext-web-access
+Group A (original "general productivity" set):
+  pi-agent-ext-goal-todo · pi-agent-ext-hermes-memory · pi-agent-ext-superpowers
+  pi-agent-ext-wayfind   · pi-agent-ext-web-access
+Group B (migrated from dynamic `-e`, tool-providing):
+  pi-agent-ext-obsidian  · pi-agent-ext-btw · pi-agent-ext-file2md
+  pi-agent-ext-workflow  · pi-agent-ext-knowledge-card
 ```
 A static `import` is a native in-memory reference (no jiti involved), so
 `bun build --compile` inlines it into the executable like any other code —
 `main(argv, { extensionFactories: STATIC_EXTENSION_FACTORIES })` registers
-them without ever touching the `-e` path. These 5 are deliberately **absent**
+them without ever touching the `-e` path. These 10 are deliberately **absent**
 from `manifest.json`'s `extensions` array (keeping both would double-register
 them — a jiti-loaded module and a natively-imported module aren't guaranteed
-to be the same module identity) but do keep a `binarySkills` entry there:
-their skill directories are plain markdown (no jiti/dynamic code involved),
-so `scripts/deploy.ts`'s `--exe` mode ships them as sibling dirs next
-to the exe (`dist/pi-agent/<ext>/skills/`), and `resolve.ts` still emits
+to be the same module identity) but Group A does keep a `binarySkills` entry
+there: their skill directories are plain markdown (no jiti/dynamic code
+involved), so `scripts/deploy.ts`'s `--exe` mode ships them as sibling dirs
+next to the exe (`dist/pi-agent/<ext>/skills/`), and `resolve.ts` still emits
 `--skill <path>` for them in binary mode.
-Everything else in `manifest.json` (movie-director, flux2, obsidian, …) —
-roughly a dozen extensions — is **not available in the compiled binary**.
-Use source or bundle mode for those, or run the binary with `-ne` if you want
-zero extensions at all.
+Everything else in `manifest.json` (movie-director, flux2, research-tool, …)
+is **not available in the compiled binary**. Use source or bundle mode for
+those, or run the binary with `-ne` for a clean start with zero injected
+extensions (see "Flag semantics: `-ne` / `-ns`" below).
 ```bash
 bun run deploy:exe                          # build dist/pi-agent/pi-agent
 dist/pi-agent/pi-agent --version
 dist/pi-agent/pi-agent doctor --json       # mode:"binary", ok:true
-bun src/cli.ts ext doctor --json           # verify the 5 static factories register (source-mode check;
+bun src/cli.ts ext doctor --json           # verify all 10 static factories register (source-mode check;
                                             # the binary's own `ext doctor` isn't binary-mode-aware)
 ```
 CI's `compile-verify` job (`.github/workflows/ci.yml`) builds the binary on
-every `pi-agent`-touching PR and asserts: `doctor --json` is healthy, all 5
-static extensions register with 0 conflicts, all 4 `binarySkills` paths
-resolve, and hermes-memory's optional obsidian/knowledge-card integration
-(see `pi-agent-ext-hermes-memory/src/store/vault-converge.ts`) did NOT get
-transitively bundled in — those two stay `external` in `scripts/deploy.ts` so
-the binary stays scoped to exactly the 5 intended extensions.
+every `pi-agent`-touching PR and asserts: `doctor --json` is healthy, all 10
+static extensions (5 original productivity + 5 tool-providing) register with
+0 conflicts, all 4 `binarySkills` paths resolve, and obsidian's module body
+IS inlined into the compiled binary (`strings … | grep -c obsidian_list`
+must be `>0`) — proving Group B's static imports actually got bundled, not
+silently dropped.
 See [`docs/deploy-single-binary.md`](docs/deploy-single-binary.md) for the
 full rationale (why `require()` doesn't work, why some files carry
 `// @ts-nocheck`, the `manifest.json` field reference) and the steps to add
@@ -222,7 +241,7 @@ or remove an extension from this static set.
 | **Snapshot** | `bun scripts/deploy.ts --snapshot` | Full source tree + `run.sh` | `cp -R` from repo |
 | **Standalone** | `bun scripts/deploy.ts --standalone` | Bundle + `bun` binary + `run.sh` | none |
 | **Exe** | `bun scripts/deploy.ts --exe` | Single executable (74 MB) | none |
-See [`docs/deploy-single-binary.md`](docs/deploy-single-binary.md) for the full rationale — why extensions can't load in binary mode, how the 5 static extensions work, the `@ts-nocheck` pattern, and how `--compile-embed` (now `--exe`) packs all assets into one file.
+See [`docs/deploy-single-binary.md`](docs/deploy-single-binary.md) for the full rationale — why extensions can't load in binary mode, how the 10 static extensions work, the `@ts-nocheck` pattern, and how `--compile-embed` (now `--exe`) packs all assets into one file.
 ### Read-only deploy (the default)
 A deploy is an **immutable artifact**: code + bundled extensions, with ALL
 per-user state routed to `~/.pi/agent`. Both pi itself (`getAgentDir()` →
@@ -358,7 +377,7 @@ pi-agent/
     ├── generated/                # build-time-baked constants (gitignored)
     ├── patches/
     │   ├── index.ts                    # registry (env-gated) + debug
-    │   ├── pre-load-providers-patch.ts # the actual ModelRegistry.loadModels monkey-patch
+    │   ├── pre-load-providers.ts       # the actual ModelRegistry.loadModels monkey-patch
     │   ├── default-model-env.ts        # bridges PI_MODEL/PI_PROVIDER/PI_THINKING into argv
     │   └── load-run-dir-resources.ts   # splices run-dir/ into argv
     └── __tests__/
@@ -372,13 +391,14 @@ pi-agent/
   extension as a `data:text/javascript;base64,…` URL; Bun's compiled
   resolver treats it as a path and fails with `NameTooLong` (`ENAMETOOLONG`).
   This is a bun-compile + jiti limitation, not a pi-agent regression, and it
-  can't be fixed for extensions loaded that way. **5 extensions sidestep
+  can't be fixed for extensions loaded that way. **10 extensions sidestep
   this** by being statically imported instead (see
   [Standalone binary](#standalone-binary---exe) above /
   [`docs/deploy-single-binary.md`](docs/deploy-single-binary.md)) — the
   binary is not extension-less, just limited to that fixed set. Everything
   else in `manifest.json` needs **source** / **bundle** mode, or run the
-  binary with `-ne` for zero extensions. Provider injection
+  binary with `-ne` for a clean start with zero injected extensions (see
+  "Flag semantics: `-ne` / `-ns`" above). Provider injection
   (`pre-load-providers`) works in the binary regardless.
 ## Related
 - **[pi-agent-cli](../pi-agent-cli/README.md)** — single-turn scripted workflows

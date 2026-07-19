@@ -109,6 +109,7 @@ function loadMemoryFiles(memoryDir: string): Map<string, string> {
 }
 
 export const memoryCommand = {
+	name: "memory",
 	summary: "search pi-hermes-memory entries (MEMORY.md, failures.md, USER.md)",
 	details: `Usage:
   bun-pi-agent-cli memory <query> [options]

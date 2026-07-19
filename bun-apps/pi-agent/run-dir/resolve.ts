@@ -21,6 +21,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import manifest from "./manifest.json";
 import { detectMode } from "../src/mode.ts";
+import type { UserSuppressFlags } from "../src/cli-argv.ts";
 
 // Re-export so callers (and tests) can import detectMode from the resolver
 // surface; the implementation lives in the shared src/mode.ts.
@@ -334,8 +335,19 @@ export function detectRunDirMode(selfDir: string, exists: (p: string) => boolean
   return "source";
 }
 
-/** Returns a flat argv fragment: ["-e", absPath, ..., "--skill", absPath, ...] */
-export async function resolveRunDirArgv(): Promise<string[]> {
+/**
+ * Returns a flat argv fragment: ["-e", absPath, ..., "--skill", absPath, ...],
+ * filtered by user-passed `-ne`/`-ns` (userFlags — computed by the caller from
+ * the PRE-SPLICE argv, see src/patches/load-run-dir-resources.ts). The deploy
+ * modes' own self-injected "-ne" is a bare token and survives the filter.
+ */
+export async function resolveRunDirArgv(
+  userFlags: Partial<UserSuppressFlags> = {},
+): Promise<string[]> {
+  return suppressResolvedArgv(await resolveRunDirArgvUnfiltered(), userFlags);
+}
+
+async function resolveRunDirArgvUnfiltered(): Promise<string[]> {
   // Compiled-binary mode: `-e` extension paths are still a no-op — pi can't
   // load .ts extensions here (jiti feeds each extension as a base64 data: URL
   // → Bun ENAMETOOLONG — see README "Build modes"), and import.meta.url is the
@@ -557,6 +569,35 @@ export function buildArgvFromManifest(
     }
   }
   return argv;
+}
+
+/**
+ * Drop `-e <path>` / `--skill <path>` pairs from a RUN-DIR-RESOLVED argv
+ * fragment according to user-passed suppression flags (see
+ * src/cli-argv.ts userSuppressFlags). Only ever applied to the argv THIS
+ * module produced — the user's own `-e <path>` flags live elsewhere in
+ * process.argv and are untouched, which matches upstream pi's `-ne`
+ * semantics (explicit CLI extensions still load under -ne).
+ * Bare tokens (the deploy modes' self-injected "-ne") pass through.
+ */
+export function suppressResolvedArgv(
+  argv: string[],
+  flags: Partial<UserSuppressFlags>,
+): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const tok = argv[i]!;
+    if (flags.noExtensions && (tok === "-e" || tok === "--extension")) {
+      i++; // skip payload
+      continue;
+    }
+    if (flags.noSkills && tok === "--skill") {
+      i++; // skip payload
+      continue;
+    }
+    out.push(tok);
+  }
+  return out;
 }
 
 // ─── Lazy / opt-in extension aliases ──────────────────────────────────────────

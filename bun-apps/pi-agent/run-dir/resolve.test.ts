@@ -12,6 +12,7 @@ import {
 	looksLikeAlias,
 	resolveLazyExtension,
 	rewriteExtensionArgs,
+	suppressResolvedArgv,
 	type LazySettings,
 } from "./resolve.ts";
 
@@ -186,6 +187,21 @@ describe("resolveRunDirArgv (integration, source mode against the real repo)", (
 		for (const rel of manifest.skills ?? []) {
 			expect([...set].some((p) => p.endsWith(rel))).toBe(true);
 		}
+	});
+
+	test("user -ne/-ns suppress the injected -e/--skill pairs", async () => {
+		const suppressed = await resolveRunDirArgv({ noExtensions: true, noSkills: true });
+		expect(suppressed).not.toContain("-e");
+		expect(suppressed).not.toContain("--skill");
+
+		// -ne alone keeps skills flowing
+		const extOnly = await resolveRunDirArgv({ noExtensions: true });
+		expect(extOnly).not.toContain("-e");
+		expect(extOnly).toContain("--skill");
+
+		// default (no flags) is unchanged
+		const full = await resolveRunDirArgv();
+		expect(full).toContain("-e");
 	});
 });
 
@@ -546,5 +562,38 @@ describe("rewriteExtensionArgs — identity replacement", () => {
 	test("resolve returning undefined → no rewrite (deferred to SDK)", () => {
 		const argv = ["-e", "workflow", "-p", "hi"];
 		expect(rewriteExtensionArgs(argv, () => undefined)).toEqual(argv);
+	});
+});
+
+describe("suppressResolvedArgv", () => {
+	const argv = ["-ne", "-e", "/a/ext.ts", "--skill", "/a/skills", "-e", "/b/ext.js"];
+
+	test("noExtensions strips -e pairs, keeps --skill and bare -ne", () => {
+		expect(suppressResolvedArgv(argv, { noExtensions: true })).toEqual([
+			"-ne",
+			"--skill",
+			"/a/skills",
+		]);
+	});
+
+	test("noSkills strips --skill pairs only", () => {
+		expect(suppressResolvedArgv(argv, { noSkills: true })).toEqual([
+			"-ne",
+			"-e",
+			"/a/ext.ts",
+			"-e",
+			"/b/ext.js",
+		]);
+	});
+
+	test("both flags leave only the bare -ne marker; no flags is identity", () => {
+		expect(suppressResolvedArgv(argv, { noExtensions: true, noSkills: true })).toEqual(["-ne"]);
+		expect(suppressResolvedArgv(argv, {})).toEqual(argv);
+	});
+
+	test("--extension long form is stripped like -e", () => {
+		expect(
+			suppressResolvedArgv(["--extension", "/a/ext.ts", "--skill", "/s"], { noExtensions: true }),
+		).toEqual(["--skill", "/s"]);
 	});
 });

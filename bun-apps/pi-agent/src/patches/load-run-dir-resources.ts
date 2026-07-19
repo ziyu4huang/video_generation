@@ -11,8 +11,13 @@
  * work regardless of where pi-agent is invoked from.
  */
 import { resolveRunDirArgv, rewriteArgvLazyExtensions } from "../../run-dir/resolve.ts";
+import { userSuppressFlags } from "../cli-argv.ts";
 
-const extra = await resolveRunDirArgv();
+// process.argv is still the UNSPLICED user argv at this point (this patch is
+// what does the splicing), so the flags read here are exactly what the user
+// typed — the deploy modes' self-injected "-ne" hasn't been added yet.
+const userFlags = userSuppressFlags(process.argv.slice(2));
+const extra = await resolveRunDirArgv(userFlags);
 
 if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
   console.error("[bun-pi] run-dir resolved argv:", extra);
