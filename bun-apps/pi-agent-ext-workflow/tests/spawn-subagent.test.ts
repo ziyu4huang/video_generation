@@ -19,7 +19,7 @@ describe("spawnSubagent", () => {
   it("success → {output, exitCode:0, stderr:'', timedOut:false}", async () => {
     const runner = mkRunner(async () => "RESULT");
     const out = await spawnSubagent({ task: "do it", tools: ["read"], agent: runner });
-    assert.deepEqual(out, { output: "RESULT", exitCode: 0, stderr: "", timedOut: false });
+    assert.deepEqual(out, { output: "RESULT", exitCode: 0, stderr: "", timedOut: false, usage: undefined });
   });
 
   it("passes tools/excludeTools/model/cwd/instructions through to runner.run", async () => {
@@ -168,5 +168,47 @@ describe("spawnSubagent", () => {
     });
     assert.equal(n, 1, "external abort must not cause a retry — that would re-run work the user just cancelled");
     assert.equal(out.timedOut, true);
+  });
+
+  it("onUsage fires → result.usage carries the reported AgentUsage", async () => {
+    const fixtureUsage = { input: 100, output: 50, cacheRead: 0, cacheWrite: 0, total: 150, cost: 0.002 };
+    const runner = mkRunner(async (p) => {
+      (p.opts.onUsage as ((u: typeof fixtureUsage) => void) | undefined)?.(fixtureUsage);
+      return "ok";
+    });
+    const out = await spawnSubagent({ task: "t", agent: runner });
+    assert.deepEqual(out.usage, fixtureUsage);
+  });
+
+  it("usage is undefined when the runner never calls onUsage", async () => {
+    const runner = mkRunner(async () => "ok");
+    const out = await spawnSubagent({ task: "t", agent: runner });
+    assert.equal(out.usage, undefined);
+  });
+
+  it("usage is preserved on a failure path too (onUsage fires before the throw propagates)", async () => {
+    const fixtureUsage = { input: 20, output: 0, cacheRead: 0, cacheWrite: 0, total: 20, cost: 0.0001 };
+    const runner = mkRunner(async (p) => {
+      (p.opts.onUsage as ((u: typeof fixtureUsage) => void) | undefined)?.(fixtureUsage);
+      throw new Error("hard fail");
+    });
+    const out = await spawnSubagent({ task: "t", retryOnTransient: false, agent: runner });
+    assert.deepEqual(out.usage, fixtureUsage);
+    assert.equal(out.exitCode, 1);
+  });
+
+  it("onHistory is forwarded to runner.run and fires with what the runner reports", async () => {
+    const fixtureHistory = [{ role: "assistant" as const, kind: "toolCall" as const, toolName: "read", text: "{}" }];
+    const seen: unknown[] = [];
+    const runner = mkRunner(async (p) => {
+      (p.opts.onHistory as ((h: typeof fixtureHistory) => void) | undefined)?.(fixtureHistory);
+      return "ok";
+    });
+    await spawnSubagent({
+      task: "t",
+      agent: runner,
+      onHistory: (h) => seen.push(h),
+    });
+    assert.deepEqual(seen, [fixtureHistory]);
   });
 });
