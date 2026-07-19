@@ -29,12 +29,23 @@ this meant the compiled binary shipped with **zero extensions**.
 
 ## The fix: a static "general productivity" subset
 
-`src/static-extensions.ts` statically imports 5 extensions:
+`src/static-extensions.ts` statically imports 10 extensions, in two groups
+added at different times:
 
 ```
-pi-agent-ext-goal-todo, pi-agent-ext-hermes-memory, pi-agent-ext-superpowers,
-pi-agent-ext-wayfind, pi-agent-ext-web-access
+Group A — original "general productivity" set:
+  pi-agent-ext-goal-todo, pi-agent-ext-hermes-memory, pi-agent-ext-superpowers,
+  pi-agent-ext-wayfind, pi-agent-ext-web-access
+Group B — migrated from dynamic `-e` (tool-providing):
+  pi-agent-ext-obsidian, pi-agent-ext-btw, pi-agent-ext-file2md,
+  pi-agent-ext-workflow, pi-agent-ext-knowledge-card
 ```
+
+Group B extensions used to be in `manifest.json`'s dynamic `extensions`
+array (jiti `-e` paths) — which works in source/bundle mode but not in
+`--exe` mode (binary mode emits zero `-e` flags; the `.ts` paths don't exist
+in the compiled `$bunfs` virtual FS). Migrating them to static imports makes
+the single-exe build bundle them by default, same as Group A.
 
 A native ESM `import` never goes through jiti — Bun's bundler resolves and
 inlines it like any other module, so it survives `--compile`. The factories
@@ -46,26 +57,26 @@ await main(process.argv.slice(2), { extensionFactories: STATIC_EXTENSION_FACTORI
 ```
 
 This registration happens in **every** mode (source/bundle/binary), not just
-binary — so all 4 modes exercise identical code for these 5, and they are
+binary — so all 4 modes exercise identical code for these 10, and they are
 deliberately **removed** from `manifest.json`'s dynamic `extensions` array
 (keeping both would double-register: a jiti-loaded module and a natively
 imported module aren't guaranteed to be the same module identity).
 
-Everything else in `manifest.json` (movie-director, flux2, obsidian,
-file2md, …) is unaffected and still loads normally in source/bundle mode —
-it's simply unavailable in the compiled binary.
+Everything else in `manifest.json` (movie-director, flux2, research-tool,
+…) is unaffected and still loads normally in source/bundle mode — it's
+simply unavailable in the compiled binary.
 
 ### Why relative imports, not `@repo/pkg/...` specifiers
 
 `static-extensions.ts` imports each extension by relative path
 (`../../pi-agent-ext-goal-todo/extensions/goal-todo.ts`), not a
-package specifier. Two of the five (`pi-agent-ext-superpowers`,
+package specifier. Two of Group A's original five (`pi-agent-ext-superpowers`,
 `pi-agent-ext-wayfind`) declare a package.json `exports` map that only
 exposes the root `.` entry, pointing at a `dist/index.js` build output that
 doesn't exist in this checkout (no build step has run for them) — a
 `@repo/pi-agent-ext-superpowers/extensions/index.ts` subpath specifier
 can't resolve through that map at all. Relative imports bypass `exports`
-resolution entirely, so the same pattern works uniformly across all 5
+resolution entirely, so the same pattern works uniformly across all 10
 regardless of each package's own `exports` map.
 
 ### Why NOT `require()`
@@ -83,7 +94,7 @@ fully inlined, ~3 MB heavier). **The import must be a literal ESM `import`.**
 
 ## The `// @ts-nocheck` files — why they exist
 
-Making these 5 extensions reachable via a literal `import` has an
+Making these extensions reachable via a literal `import` has an
 unavoidable side effect: TypeScript's checker now traverses and type-checks
 their **full internals**, not just their exported shape. `pi-agent-ext-hermes-memory`
 and `pi-agent-ext-web-access` had never been reached by any static
@@ -92,7 +103,6 @@ entirely) — so this surfaced ~35 pre-existing, unrelated type errors. Per
 explicit decision (not a default), those files carry a `// @ts-nocheck` with
 a comment explaining why, rather than being deep-fixed:
 
-- `pi-agent-ext-hermes-memory/src/store/vault-converge.ts`
 - `pi-agent-ext-hermes-memory/src/tools/grill-decision-tool.ts`
 - `pi-agent-ext-hermes-memory/src/tools/memory-tool.ts`
 - `pi-agent-ext-web-access/index.ts`
@@ -104,45 +114,47 @@ a comment explaining why, rather than being deep-fixed:
 
 This is silent-at-runtime (Bun doesn't enforce types either way) but means
 `pi-agent`'s `bun run typecheck` no longer catches regressions in those
-specific files. If you add a 6th extension to the static set and its own
+specific files. If you add another extension to the static set and its own
 `tsc --noEmit` was never clean, expect the same cascade and the same
 mitigation.
 
-## hermes-memory's optional obsidian/knowledge-card peers
+## hermes-memory's obsidian/knowledge-card integration (historical, now removed)
 
-`pi-agent-ext-hermes-memory/src/store/vault-converge.ts` optionally
-integrates with `pi-obsidian` + `pi-knowledge-card` (both listed only in
-hermes-memory's own `devDependencies`/`peerDependenciesMeta.optional`, never
-`dependencies`) via two dynamic imports, wrapped in try/catch so the feature
-degrades gracefully when they're absent. Once hermes-memory became a static
-import reachable from `cli.ts`'s entrypoint, this needed two independent
-fixes to stay scoped to exactly 5 extensions:
+Earlier, `pi-agent-ext-hermes-memory/src/store/vault-converge.ts` optionally
+integrated with `pi-obsidian` + `pi-knowledge-card` via two dynamic imports,
+wrapped in try/catch so the feature degraded gracefully when they were
+absent (both were listed only in hermes-memory's own
+`devDependencies`/`peerDependenciesMeta.optional`, never `dependencies`).
+Once hermes-memory became a static import reachable from `cli.ts`'s
+entrypoint, that dynamic-import pattern needed two independent workarounds
+(computed, not literal, specifiers; and `external` entries in
+`scripts/deploy.ts`) to keep obsidian/knowledge-card's own module graphs out
+of the binary and out of TypeScript's traversal.
 
-1. **Computed, not literal, specifiers** — `vault-converge.ts` builds the
-   two import paths via `["@repo/pi-agent-ext-obsidian", "extensions/obsidian.ts"].join("/")`
-   rather than a literal string. Bun's bundler can't statically resolve a
-   computed specifier, so it stays a genuine runtime `import()` (same
-   pattern `pi-agent-ext-web-access`'s `findGlimpseMjs()` already used, and
-   already known to survive `--compile`). This also happens to keep
-   TypeScript from traversing obsidian/knowledge-card's own module graphs.
-2. **`external` in `scripts/deploy.ts`** — defense in depth: both
-   `stageBundle()`'s `Bun.build()` call and `stageExe()`'s
-   `bun build --compile` CLI invocation list
-   `@repo/pi-agent-ext-obsidian`, `@repo/pi-agent-ext-obsidian/*`,
-   `@repo/pi-agent-ext-knowledge-card`, `@repo/pi-agent-ext-knowledge-card/*`
-   as `external`.
+That file (`vault-converge.ts`) no longer exists, and hermes-memory imports
+neither `pi-agent-ext-obsidian` nor `pi-agent-ext-knowledge-card` today.
+Both packages are now **Group B static extensions** in their own right (see
+above) — statically imported directly in `src/static-extensions.ts` and
+bundled into every build. `pi-agent-ext-knowledge-card` itself imports
+`pi-agent-ext-obsidian` via the bare specifier
+`@repo/pi-agent-ext-obsidian/extensions/obsidian.ts` (now a genuine static
+import, not an optional one). Consequently `scripts/deploy.ts`'s
+`OPTIONAL_EXTERNALS` list is now **empty** — marking these packages
+`external` would make the compiled binary crash at runtime (`Cannot find
+module ... from '/$bunfs/root/pi-agent'`), since `$bunfs` has no
+`node_modules` to resolve a bare specifier against. Every `@repo/*` sibling
+now resolves at build time and is inlined.
 
-Verify this hasn't regressed with a string that only exists in obsidian's
-own implementation (not a generic property name like `resolveVault`, which
-`vault-converge.ts` legitimately references once regardless):
+The CI `compile-verify` job's smoke check reflects this: it asserts obsidian's
+module body IS inlined into the binary, not absent:
 
 ```bash
-strings dist/pi-agent/pi-agent | grep -c "obsidian_list"   # expect 0
+strings dist/pi-agent/pi-agent | grep -c "obsidian_list"   # expect > 0 (was: expect 0, pre-Group-B)
 ```
 
 ## Skills in binary mode
 
-3 of the 5 static extensions ship a `skills/` directory (markdown, no code):
+3 of the 10 static extensions ship a `skills/` directory (markdown, no code):
 `hermes-memory`, `superpowers`, `wayfind`. `pi-agent-ext-web-access` has one
 too (`skills/librarian/`) that was newly wired in alongside this work. Pi's
 skill loader reads `--skill <path>` using only `node:fs` — no jiti, no
@@ -166,9 +178,9 @@ Keep these two in lockstep by construction (both read `manifest.binarySkills`)
 
 | Field | Read by | Purpose |
 |---|---|---|
-| `extensions` | `resolve.ts` (source/bundle), `build-extensions.ts` | Dynamic jiti-loaded set. The 5 static extensions are **absent** here. |
-| `binarySkills` | `deploy.ts`, `resolve.ts` | Skill dirs shipped + `--skill`'d in binary mode (subset: only the 4 skill-bearing static extensions). |
-| `staticExtensions` | `deploy.ts` (`--snapshot` mode) | Package **directory names** (not paths) of the 5 static extensions. Needed so `--snapshot`'s self-contained `packages/` tree includes them — even though their code is inlined into `pi-agent.js`, `pi-agent`'s own `package.json` now `workspace:*`-depends on them, and other copied packages (e.g. `pi-agent-ext-wayfind` importing `pi-agent-ext-goal-todo`'s shared status-widget module) reference them as real workspace siblings that `bun install` must resolve. |
+| `extensions` | `resolve.ts` (source/bundle), `build-extensions.ts` | Dynamic jiti-loaded set. The 10 static extensions are **absent** here. |
+| `binarySkills` | `deploy.ts`, `resolve.ts` | Skill dirs shipped + `--skill`'d in binary mode (subset: only the 4 skill-bearing static extensions — Group A's hermes-memory/superpowers/wayfind + web-access; none of Group B ship a `skills/` dir today). |
+| `staticExtensions` | `deploy.ts` (`--snapshot` mode) | Package **directory names** (not paths) of the 10 static extensions. Needed so `--snapshot`'s self-contained `packages/` tree includes them — even though their code is inlined into `pi-agent.js`, `pi-agent`'s own `package.json` now `workspace:*`-depends on them, and other copied packages (e.g. `pi-agent-ext-wayfind` importing `pi-agent-ext-goal-todo`'s shared status-widget module) reference them as real workspace siblings that `bun install` must resolve. |
 
 ## Adding / removing a statically-bundled extension
 
@@ -259,7 +271,7 @@ asset directories. The codegen walks the same source dirs as
 
 ## Known limitation
 
-The compiled binary only ever carries these 5 extensions. There is no
+The compiled binary only ever carries these 10 extensions. There is no
 config flag to select a different subset at build time — the set is
 hardcoded in `src/static-extensions.ts` by design (curated, not automatic),
 so growing it is a source change + rebuild, not a runtime option.
