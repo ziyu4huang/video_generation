@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   createSubagentTool,
   deriveSubagentStatus,
+  formatSubagentLive,
   formatSubagentProgress,
   formatSubagentResult,
   renderSubagentCall,
@@ -561,4 +562,77 @@ test("renderSubagentResult failed/timedout badges + missing-details fallback", (
   assert.ok(toStr.includes("timedout"));
   // No details → just the raw text
   assert.equal(renderSubagentResult({ content: [{ type: "text", text: "raw" }] }, { expanded: false }, T), "raw");
+});
+
+// ── Part A: Ctrl-O live output (formatSubagentLive + isPartial expanded) ──
+
+test("formatSubagentLive includes the progress header (elapsed + tool-call count)", () => {
+  const history: AgentHistoryEntry[] = [
+    { role: "assistant", kind: "toolCall", toolName: "read", text: "{}" },
+  ];
+  const out = formatSubagentLive(history, 5500);
+  assert.match(out, /5\.5s/);
+  assert.match(out, /1 tool call/);
+});
+
+test("formatSubagentLive includes a trace line per recent history entry", () => {
+  const history: AgentHistoryEntry[] = [
+    { role: "assistant", kind: "toolCall", toolName: "read", text: "{}" },
+    { role: "tool", kind: "toolResult", toolName: "read", text: "contents" },
+    { role: "assistant", kind: "toolCall", toolName: "grep", text: "{}" },
+  ];
+  const out = formatSubagentLive(history, 1000);
+  assert.match(out, /→ read/);
+  assert.match(out, /← read/);
+  assert.match(out, /→ grep/);
+});
+
+test("formatSubagentLive caps the trace at maxTraceLines (default 100)", () => {
+  const history: AgentHistoryEntry[] = Array.from({ length: 150 }, (_, i) => ({
+    role: "assistant" as const,
+    kind: "toolCall" as const,
+    toolName: `t${i}`,
+    text: "{}",
+  }));
+  const out = formatSubagentLive(history, 0);
+  const lines = out.split("\n");
+  assert.ok(lines.length <= 102, `trace capped at 100 lines (+2 header); got ${lines.length}`);
+  assert.match(out, /t149/, "the most recent entry is retained");
+  assert.ok(!out.includes("t0"), "entries older than the cap are dropped");
+});
+
+test("renderSubagentResult isPartial+collapsed shows ≤2 header lines; expanded shows the trace (ctrl-o)", () => {
+  const text = formatSubagentLive(
+    [
+      { role: "assistant", kind: "toolCall", toolName: "read", text: "{}" },
+      { role: "tool", kind: "toolResult", toolName: "read", text: "x" },
+    ],
+    2000,
+  );
+  const collapsed = renderSubagentResult(
+    { content: [{ type: "text", text }] },
+    { expanded: false, isPartial: true },
+    T,
+  );
+  const expanded = renderSubagentResult(
+    { content: [{ type: "text", text }] },
+    { expanded: true, isPartial: true },
+    T,
+  );
+  assert.ok(collapsed.split("\n").length <= 2, "collapsed shows at most the 2-line header");
+  assert.ok(expanded.split("\n").length > collapsed.split("\n").length, "expanded shows the trace too");
+  assert.match(expanded, /→ read/);
+  assert.match(expanded, /← read/);
+  assert.ok(!collapsed.includes("← read"), "collapsed hides the trace");
+});
+
+test("renderSubagentResult isPartial preserves a plain streamed line when collapsed (backward-compat)", () => {
+  // The pre-Part-A behavior returned the streamed text verbatim (dim). A
+  // single-line payload must still render as that single line when collapsed.
+  const out = renderSubagentResult(
+    { content: [{ type: "text", text: "↳ reading src/foo.ts" }] },
+    { expanded: false, isPartial: true },
+    T,
+  );
+  assert.equal(out, "↳ reading src/foo.ts");
 });
