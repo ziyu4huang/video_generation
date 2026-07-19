@@ -1,7 +1,6 @@
 ---
 type: task
 status: open
-claimed: pi-agent
 ---
 
 # 09 — Build the goal-todo coordination layer (the destination)
