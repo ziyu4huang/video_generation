@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/character_design",
+  "title": "Character Design",
+  "description": "Locked recurring-character references produced by the story pipeline's conditional character_design stage. Each recurring character has a flux2 t2i reference image + style anchors that scene_plan references and assets enforces via faceswap.",
+  "type": "object",
+  "required": ["version", "characters"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "style_playbook": { "type": "string", "description": "Name of the active style playbook" },
+    "characters": {
+      "type": "array",
+      "description": "One entry per recurring character. Empty array is valid (the stage ran but found no recurring characters).",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "role", "reference_image"],
+        "properties": {
+          "id": { "type": "string", "description": "Stable character id referenced by scene_plan/asset_manifest" },
+          "name": { "type": "string" },
+          "role": { "type": "string", "description": "Narrative role (protagonist, companion, antagonist, etc.)" },
+          "reference_image": { "type": "string", "description": "Path to the locked flux2 t2i reference image used for per-scene faceswap" },
+          "description": { "type": "string", "description": "Physical/personality description" },
+          "silhouette": { "type": "string", "description": "Shape/readability note" },
+          "palette": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Recurring color anchors (hex or names)"
+          },
+          "key_features": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Distinguishing features that must hold across scenes"
+          },
+          "emotions": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Emotional range the character must express"
+          },
+          "prompt_seed": { "type": "string", "description": "The base prompt used to generate the reference image (provenance + reuse)" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": false
+}

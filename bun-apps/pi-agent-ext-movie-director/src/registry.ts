@@ -44,6 +44,7 @@ export interface ProviderEntry {
     | "mlx:runpy-story"
     | "bun:lmstudio-story"
     | "mlx:runpy-tts"
+    | "mlx:runpy-music"
     | "bun:tts-native"
     | "bun:twosubject-native"
     | "bun:profile-native"
@@ -342,6 +343,19 @@ export const REGISTRY: ProviderEntry[] = [
   // volumedetect mean -22dB, healthy, not near-silent).
   { name: "edge_tts", capability: "tts", provider: "edge-tts", backend: "cloud_http", invoke: "bun:tts-native", configured: true, notes: "Bun-native TTS adapter (src/tts_native.ts, via the `msedge-tts` npm package) — Microsoft neural TTS, same engine `video relay --relay-tts-engine edge-tts` already uses. Natural-sounding voice, near-zero generation cost (~1s per narration), but needs NETWORK EGRESS (not available under --offline). Statically ranked below say_tts, but selectAndGenerate tries it FIRST at runtime by default (see comment above) — falls back to say only on an actual network failure." },
   { name: "say_tts", capability: "tts", provider: "say", backend: "macos_native", invoke: "macos:say", configured: true, notes: "macOS `say` (AVSpeechSynthesizer-backed) — zero-cost, zero-key, fully offline narration; robotic voice quality vs edge_tts. Statically ranked as the default (the correct offline/no-network fallback), but selectAndGenerate opportunistically tries edge-tts first at runtime and only actually invokes say if that fails — see edge_tts's notes." },
+
+  // Music generation — local MLX MusicGen (mlx-audiocraft), open-source / free /
+  // on-device. This is movie-director's music SOURCE: it produces the audio
+  // file `edit.audio.music.src` points at (compose-motion's amix pass then
+  // mixes it under the narration — src/compose_motion.ts:mixAudioOnto). Fully
+  // local after a one-time model download: no network egress at synth time, no
+  // API key, no cloud. MusicGen weights are CC-BY-4.0 (attribution to Meta/
+  // MusicGen recorded in publish_log; the license imposes no fee). probeConfigured
+  // = runPyRuntimePresent (the python `music` command guards the mlx-audiocraft
+  // import + model-load at runtime, mirroring caption_vlm's stance). This
+  // INVERTS the earlier royalty-free-STOCK-via-network (Pixabay) decision toward
+  // local GENERATIVE music — see ticket 01's revision + ticket 04.
+  { name: "musicgen_music", capability: "music_generation", provider: "musicgen", backend: "native_swift", invoke: "mlx:runpy-music", configured: true, commands: ["music"], notes: "local MLX MusicGen via run.py music (app/commands/music.py → mlx-audiocraft). CC-BY-4.0, free, on-device. Setup: uv pip install mlx-audiocraft soundfile --python python/venv/bin/python; model via MD_MUSICGEN_MODEL (default facebook/musicgen-small)." },
 
   // Audio/video post — ffmpeg shells (iteration 3).
   { name: "audio_mixer", capability: "audio_processing", provider: "ffmpeg", backend: "ffmpeg", invoke: "ffmpeg", configured: true },

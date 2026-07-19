@@ -92,6 +92,7 @@
           },
           "checkpoint_required": { "type": "boolean", "default": true },
           "human_approval_default": { "type": "boolean", "default": false },
+          "condition": { "type": "string", "description": "When this stage activates (advisory; e.g. recurring_characters_declared). Mirrors sub_stages' condition — lets a stage be conditionally active so a pipeline can carry an optional stage (like character_design) without forcing it on every run." },
           "success_criteria": {
             "type": "array",
             "items": { "type": "string" }

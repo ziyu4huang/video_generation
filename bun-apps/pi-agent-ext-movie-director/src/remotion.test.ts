@@ -30,8 +30,9 @@ function fakeSpawn(behavior: { renderExit?: number } = {}): SpawnImpl {
   return async (cmd: string, argv: string[]): Promise<SpawnResult> => {
     if (argv.includes("--version")) return { code: 0, stdout: "remotion 4.0.0", stderr: "" };
     if (argv.includes("render")) {
-      const explIdx = argv.indexOf("Explainer");
-      const out = argv[explIdx + 1];
+      // The composition id sits right after the entry path: [..., "render", ENTRY, <id>, output, ...].
+      const idIdx = argv.indexOf("render") + 2;
+      const out = argv[idIdx + 1];
       if (behavior.renderExit !== 0 && behavior.renderExit !== undefined) {
         return { code: behavior.renderExit, stdout: "", stderr: "render boom" };
       }
@@ -199,5 +200,69 @@ describe("renderRemotion (mocked binary)", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("renderRemotion — Story composition (ticket 06)", () => {
+  it("renders the Story composition (argv uses 'Story', not 'Explainer') + carries wordCues/particles in props", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-remotion-story-"));
+    const src = join(dir, "a.png");
+    writeFileSync(src, "x");
+    const edit: RemotionEditDecisions = {
+      version: "1.0",
+      composition: "Story",
+      cuts: [{ id: "a", source: src, in_seconds: 0, out_seconds: 3, animation: "ken-burns", particles: { type: "firefly", density: 0.5, drift: 18 } }],
+      wordCues: [{ word: "Hello", start: 0, end: 0.5 }, { word: "world", start: 0.5, end: 1.0 }],
+      captionStyle: "tiktok",
+    };
+
+    let capturedId = "";
+    let propsJSON: any = null;
+    const spawn: SpawnImpl = async (cmd, argv) => {
+      if (argv.includes("--version")) return { code: 0, stdout: "remotion 4.0.0", stderr: "" };
+      if (argv.includes("render")) {
+        const idIdx = argv.indexOf("render") + 2;
+        capturedId = argv[idIdx] ?? "";
+        const out = argv[idIdx + 1];
+        const propsArg = argv.find((a) => a.startsWith("--props="));
+        if (propsArg) propsJSON = JSON.parse(readFileSync(propsArg.slice("--props=".length), "utf8"));
+        if (out) writeFileSync(out, "x");
+        return { code: 0, stdout: "rendered", stderr: "" };
+      }
+      if (cmd === "ffprobe") {
+        return { code: 0, stdout: JSON.stringify({ format: { duration: "3.0", format_name: "mov,mp4" }, streams: [{ codec_type: "video", codec_name: "h264", width: 1920, height: 1080, avg_frame_rate: "30/1" }, { codec_type: "audio", codec_name: "aac" }] }), stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    };
+
+    const report = await renderRemotion(edit, { workDir: dir, output: join(dir, "out.mp4") }, { spawnImpl: spawn });
+    expect(capturedId).toBe("Story");
+    expect(report.outputs.length).toBe(1);
+    expect(propsJSON.composition).toBe("Story");
+    expect(propsJSON.cuts[0].particles.type).toBe("firefly");
+    expect(propsJSON.wordCues.length).toBe(2);
+    expect(propsJSON.captionStyle).toBe("tiktok");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("defaults to Explainer when composition is absent (backward compat)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-remotion-default-"));
+    const src = join(dir, "a.png");
+    writeFileSync(src, "x");
+    let capturedId = "";
+    const spawn: SpawnImpl = async (cmd, argv) => {
+      if (argv.includes("--version")) return { code: 0, stdout: "remotion 4.0.0", stderr: "" };
+      if (argv.includes("render")) {
+        capturedId = argv[argv.indexOf("render") + 2] ?? "";
+        const out = argv[argv.indexOf("render") + 3];
+        if (out) writeFileSync(out, "x");
+        return { code: 0, stdout: "rendered", stderr: "" };
+      }
+      if (cmd === "ffprobe") return { code: 0, stdout: JSON.stringify({ format: { duration: "1.0", format_name: "mov,mp4" }, streams: [{ codec_type: "video", codec_name: "h264", width: 1920, height: 1080, avg_frame_rate: "30/1" }] }), stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    await renderRemotion({ version: "1.0", cuts: [{ id: "a", source: src, in_seconds: 0, out_seconds: 1 }] }, { workDir: dir, output: join(dir, "out.mp4") }, { spawnImpl: spawn });
+    expect(capturedId).toBe("Explainer");
+    rmSync(dir, { recursive: true, force: true });
   });
 });

@@ -18,11 +18,11 @@
 const VIDEO_TYPES = new Set(["generated", "character_scene", "broll", "talking_head"]);
 
 export interface AssetGenCall {
-	capability: "video_generation" | "tts";
-	command: "t2i2v" | "tts";
+	capability: "video_generation" | "tts" | "music_generation";
+	command: "t2i2v" | "tts" | "music";
 	options: Record<string, unknown>;
 	sceneId?: string;
-	/** 0-based index within a scene's t2i2v chain (absent for the TTS call). */
+	/** 0-based index within a scene's t2i2v chain (absent for the TTS/music call). */
 	chainIndex?: number;
 }
 
@@ -51,7 +51,7 @@ interface ScriptLike {
 export function planAssetGeneration(
 	scenePlan: { scenes: SceneLike[] },
 	script: ScriptLike | undefined,
-	opts: { fps: number; maxCallSeconds: number },
+	opts: { fps: number; maxCallSeconds: number; music?: { prompt: string; duration?: number } },
 ): AssetPlan {
 	const calls: AssetGenCall[] = [];
 
@@ -92,6 +92,23 @@ export function planAssetGeneration(
 				sceneId: scenePlan.scenes[0]?.id,
 			});
 		}
+	}
+
+	// Music — the score track, driven through the cost-tracked generate path
+	// (local MLX MusicGen). OPTIONAL: emitted only when the caller supplies a
+	// music prompt (opts.music). Compose-motion's amix pass mixes the result
+	// under the narration. Deriving the prompt from scene mood is the
+	// mood→query-mapping fog (map Not-yet-specified); until it graduates the
+	// driver/agent passes an explicit prompt. Tagged with the first scene's id.
+	if (opts.music && opts.music.prompt.trim()) {
+		const musicOpts: Record<string, unknown> = { prompt: opts.music.prompt };
+		if (opts.music.duration != null) musicOpts.duration = opts.music.duration;
+		calls.push({
+			capability: "music_generation",
+			command: "music",
+			options: musicOpts,
+			sceneId: scenePlan.scenes[0]?.id,
+		});
 	}
 
 	return { calls };

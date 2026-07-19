@@ -111,3 +111,46 @@ describe("planAssetGeneration — narration", () => {
 		expect(tts?.sceneId).toBe("sc1");
 	});
 });
+
+describe("planAssetGeneration — music", () => {
+	test("no opts.music → no music call (backward compat, e.g. silent rainbows run)", () => {
+		const plan = planAssetGeneration(
+			{ scenes: [scene({ end_seconds: 6 })] } as any,
+			{ narration: "none" } as any,
+			{ fps: 25, maxCallSeconds: 8 },
+		);
+		expect(plan.calls.some((c) => c.capability === "music_generation")).toBe(false);
+	});
+
+	test("opts.music.prompt → ONE music_generation call carrying the prompt", () => {
+		const plan = planAssetGeneration(
+			{ scenes: [scene({ id: "sc1", end_seconds: 6 })] } as any,
+			{ narration: "none" } as any,
+			{ fps: 25, maxCallSeconds: 8, music: { prompt: "gentle solo piano, melancholic" } },
+		);
+		const music = plan.calls.filter((c) => c.capability === "music_generation");
+		expect(music).toHaveLength(1);
+		expect(music[0]!.command).toBe("music");
+		expect(music[0]!.options.prompt).toBe("gentle solo piano, melancholic");
+		expect(music[0]!.sceneId).toBe("sc1");
+	});
+
+	test("opts.music.duration is forwarded when set", () => {
+		const plan = planAssetGeneration(
+			{ scenes: [scene({ end_seconds: 6 })] } as any,
+			{ narration: "none" } as any,
+			{ fps: 25, maxCallSeconds: 8, music: { prompt: "warm guitar", duration: 20 } },
+		);
+		const music = plan.calls.find((c) => c.capability === "music_generation")!;
+		expect(music.options.duration).toBe(20);
+	});
+
+	test("blank prompt → no music call (guard against empty generation)", () => {
+		const plan = planAssetGeneration(
+			{ scenes: [scene({ end_seconds: 6 })] } as any,
+			{ narration: "none" } as any,
+			{ fps: 25, maxCallSeconds: 8, music: { prompt: "   " } },
+		);
+		expect(plan.calls.some((c) => c.capability === "music_generation")).toBe(false);
+	});
+});

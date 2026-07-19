@@ -80,14 +80,14 @@ export interface ExplainerProps {
 
 // ─── palette ─────────────────────────────────────────────────────────────────
 
-const PALETTE = {
+export const PALETTE = {
   dark: { bg: "#0F172A", text: "#F8FAFC", accent: "#22D3EE", surface: "#1E293B", muted: "rgba(255,255,255,0.7)" },
   light: { bg: "#FFFFFF", text: "#1F2937", accent: "#2563EB", surface: "#F9FAFB", muted: "rgba(0,0,0,0.6)" },
 };
 
 // ─── asset resolution ────────────────────────────────────────────────────────
 
-function resolveAsset(src: string): string {
+export function resolveAsset(src: string): string {
   if (src.startsWith("http://") || src.startsWith("https://") || src.startsWith("data:")) return src;
   // Strip any accidental file:// / leading slash, then resolve via Remotion's
   // public-dir loader. The orchestrator stages sources into --public-dir and
@@ -97,7 +97,7 @@ function resolveAsset(src: string): string {
 }
 
 const VIDEO_EXT = [".mp4", ".mov", ".webm", ".avi", ".mkv"];
-function isVideo(src: string): boolean {
+export function isVideo(src: string): boolean {
   const l = src.toLowerCase();
   return VIDEO_EXT.some((e) => l.endsWith(e));
 }
@@ -111,7 +111,7 @@ function isVideo(src: string): boolean {
  * cross into). This is the manual equivalent of @remotion/transitions slide/cross
  * without the extra dependency.
  */
-const Crossfade: React.FC<{
+export const Crossfade: React.FC<{
   children: React.ReactNode;
   xfFrames: number;
   head: boolean;
@@ -126,7 +126,7 @@ const Crossfade: React.FC<{
 
 // ─── scenes ──────────────────────────────────────────────────────────────────
 
-const ImageScene: React.FC<{ src: string; animation?: Animation }> = ({ src, animation }) => {
+export const ImageScene: React.FC<{ src: string; animation?: Animation }> = ({ src, animation }) => {
   const frame = useCurrentFrame();
   const { fps, durationInFrames } = useVideoConfig();
   const fadeIn = interpolate(frame, [0, Math.min(fps, 12)], [0, 1], { extrapolateRight: "clamp" });
@@ -165,7 +165,7 @@ const ImageScene: React.FC<{ src: string; animation?: Animation }> = ({ src, ani
   );
 };
 
-const VideoScene: React.FC<{ src: string; startFrom?: number }> = ({ src, startFrom = 0 }) => {
+export const VideoScene: React.FC<{ src: string; startFrom?: number }> = ({ src, startFrom = 0 }) => {
   const { fps } = useVideoConfig();
   return (
     <AbsoluteFill style={{ background: "#000" }}>
@@ -179,7 +179,7 @@ const VideoScene: React.FC<{ src: string; startFrom?: number }> = ({ src, startF
   );
 };
 
-const TextScene: React.FC<{ text: string; subtitle?: string; bg: string; fg: string; accent: string }> = ({ text, subtitle, bg, fg, accent }) => {
+export const TextScene: React.FC<{ text: string; subtitle?: string; bg: string; fg: string; accent: string }> = ({ text, subtitle, bg, fg, accent }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const rise = interpolate(frame, [0, Math.min(fps, 18)], [40, 0], { extrapolateRight: "clamp" });
@@ -233,7 +233,7 @@ export const Explainer: React.FC<ExplainerProps> = (props) => {
       {ordered.map((cut, i) => {
         const from = Math.round(cut.in_seconds * fps);
         const duration = Math.max(1, Math.round((cut.out_seconds - cut.in_seconds) * fps));
-        const isText = cut.type === "text" || (!isVideo(cut.source) && !!cut.text && cut.animation === undefined && cut.type === "text");
+        const isText = cut.type === "text";
         const inner = isText ? (
           <TextScene text={cut.text || cut.id} subtitle={cut.subtitle} bg={cut.backgroundColor || palette.surface} fg={palette.text} accent={palette.accent} />
         ) : isVideo(cut.source) ? (
