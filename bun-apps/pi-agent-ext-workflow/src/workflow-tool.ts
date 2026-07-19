@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -11,11 +12,10 @@ import {
   type WorkflowSnapshot,
 } from "./display.js";
 import { WorkflowError, WorkflowErrorCode } from "./errors.js";
-import { parseWorkflowScript, type WorkflowRunResult } from "./workflow.js";
-import { existsSync } from "node:fs";
 import { resolvePackRunContext } from "./pack-run-context.js";
-import { findRepoRoot, mergeArgs, resolveWorkflowPack } from "./workflow-pack.js";
+import { parseWorkflowScript, type WorkflowRunResult } from "./workflow.js";
 import { WorkflowManager } from "./workflow-manager.js";
+import { findRepoRoot, mergeArgs, resolveWorkflowPack } from "./workflow-pack.js";
 import { createWorkflowStorage, type WorkflowStorage } from "./workflow-saved.js";
 import { loadWorkflowSettings } from "./workflow-settings.js";
 
@@ -355,15 +355,19 @@ export async function buildWorkflowGuidelinesForTurn(options: WorkflowGuidelines
 export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefinition<typeof workflowToolSchema, any> {
   const storage = options.storage ?? createWorkflowStorage(options.cwd ?? process.cwd());
   const cwd = options.cwd ?? process.cwd();
-  const defaults = resolveWorkflowToolDefaults(options, cwd);
+  // Read settings from disk ONLY when constructing the fallback manager. When
+  // the extension supplies options.manager (the normal path), skip the read.
+  // The `?? null` / `?? 0` mirror WorkflowManager's own constructor defaults so
+  // behavior is identical when fallbackDefaults is present.
+  const fallbackDefaults = options.manager ? undefined : resolveWorkflowToolDefaults(options, cwd);
   const manager =
     options.manager ??
     new WorkflowManager({
       cwd: options.cwd,
-      concurrency: defaults.concurrency,
+      concurrency: fallbackDefaults?.concurrency,
       loadSavedWorkflow: (name: string) => storage.load(name)?.script,
-      defaultAgentTimeoutMs: defaults.agentTimeoutMs,
-      defaultAgentRetries: defaults.agentRetries,
+      defaultAgentTimeoutMs: fallbackDefaults?.agentTimeoutMs ?? null,
+      defaultAgentRetries: fallbackDefaults?.agentRetries ?? 0,
       extensionTools: options.extensionTools,
     });
 
@@ -686,7 +690,8 @@ export function backgroundStartedText(name: string, runId: string): string {
 }
 
 function normalizeWorkflowToolArgs(args: unknown): WorkflowToolInput {
-  if (!args || typeof args !== "object") throw new Error("workflow requires an object argument with a `script` string or a `name`");
+  if (!args || typeof args !== "object")
+    throw new Error("workflow requires an object argument with a `script` string or a `name`");
   const value = args as Record<string, unknown>;
   const hasScript = typeof value.script === "string" && value.script.trim() !== "";
   const hasName = typeof value.name === "string" && value.name.trim() !== "";
@@ -697,7 +702,9 @@ function normalizeWorkflowToolArgs(args: unknown): WorkflowToolInput {
     throw new Error("workflow requires exactly one of `script` (inline JS) or `name` (a pack) — neither was provided");
   }
   // Normalize only the inline-script path; the pack (`name`) path is resolved in execute.
-  return hasScript ? { ...value, script: normalizeWorkflowScript(value.script as string) } : (value as WorkflowToolInput);
+  return hasScript
+    ? { ...value, script: normalizeWorkflowScript(value.script as string) }
+    : (value as WorkflowToolInput);
 }
 
 function normalizeWorkflowScript(script: string): string {
@@ -741,9 +748,4 @@ function scriptInvokesAgent(script: string): boolean {
   // script text but all of which run real subagents at runtime. The `\s*\(`
   // ensures we don't match the bare words in prose.
   return /\b(?:agent|verify|judgePanel|loopUntilDry|completenessCheck|workflow)\s*\(/.test(body);
-}
-
-function _isAbortError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return /\babort(?:ed)?\b/i.test(error.message);
 }

@@ -7,6 +7,8 @@ export type WorkflowAgentStatus = "queued" | "running" | "done" | "error" | "ski
 
 export interface WorkflowAgentSnapshot {
   id: number;
+  /** Deterministic call index (the journal key) — stable identity for start↔end correlation. */
+  callIndex?: number;
   label: string;
   phase?: string;
   prompt: string;

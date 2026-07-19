@@ -7,10 +7,11 @@
  * The tool layer calls this once per pack run and passes the result DOWN to the manager
  * as ExecOptions — the engine (runWorkflow) never imports pack concepts.
  */
-import { join } from "node:path";
+
 import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { ensureStateDirs, packStateRoot } from "./pack-state.js";
 import { packId } from "./workflow-pack-id.js";
-import { packStateRoot, ensureStateDirs } from "./pack-state.js";
 import type { Manifest, ManifestIo } from "./workflow-pack-manifest.js";
 
 export interface PackRunContext {
