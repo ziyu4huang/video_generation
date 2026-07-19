@@ -43,7 +43,7 @@
  *
  * Env (passed through from pi-obsidian): OB_VAULT_PATH / OB_VAULT_DIR.
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, type Dirent } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import {
 	parseFrontmatter,
@@ -181,12 +181,13 @@ const DIR_SKIP_BASENAMES = new Set(["MEMORY.md", "README.md"]);
  *  basenames. Returns absolute paths. */
 function collectDir(dir: string, ext: "md" | "knowledge.jsonl"): string[] {
 	const out: string[] = [];
-	let entries: Dirent[];
+	let entries: string[];
 	try {
 		entries = readdirSync(dir, { withFileTypes: true });
 	} catch {
 		return out;
 	}
+	// `withFileTypes` typing under Bun's node-compat can be loose; guard.
 	for (const ent of entries) {
 		const isDir = ent.isDirectory();
 		const isFile = ent.isFile();
@@ -377,15 +378,81 @@ const HERMES_TYPE: Record<string, string> = {
 	preference: "pattern",
 };
 
-/** Common English stopwords excluded from the keyword-tag harvest so hermes
- *  cards cross-link on *distinctive* tokens (argparse, fp8, metallib) rather
- *  than generic glue words (the, with, that). */
+/** Common English stopwords + generic glue/modal tokens excluded from the
+ *  keyword-tag harvest so hermes cards cross-link on *distinctive* tokens
+ *  (argparse, fp8, metallib, bun, vae) rather than filler (always, never,
+ *  the, with, test, runs). Min token length for harvest is 3 (catches bun/
+ *  mlx/vae/cli/tui), so this list must cover the 3-4 char filler that the old
+ *  ≥4 gate let through (always/never/test/runs/node/yarn). */
 const HERMES_STOP = new Set([
-	"the", "and", "for", "with", "that", "this", "how", "why", "does", "was",
-	"were", "when", "what", "have", "has", "not", "but", "are", "is", "its",
-	"all", "any", "can", "you", "your", "use", "using", "used", "from", "into",
-	"will", "must", "should", "then", "than", "via", "per", "each", "every",
+	// articles / conjunctions / prepositions / pronouns
+	"the", "and", "for", "with", "that", "this", "how", "why", "does", "did",
+	"was", "were", "when", "what", "have", "has", "had", "not", "but", "are",
+	"is", "its", "all", "any", "can", "you", "your", "from", "into", "than",
+	"via", "per", "each", "their", "they", "them", "our", "who", "which",
+	// modal / imperative filler (high-frequency, non-semantic)
+	"use", "using", "used", "will", "must", "should", "would", "could", "may",
+	"then", "every", "always", "never", "make", "makes", "made", "run", "runs",
+	"get", "got", "set", "try", "need", "keep", "let", "want", "way", "thing",
+	// generic dev-process nouns (too common to discriminate)
+	"test", "tests", "code", "file", "files", "build", "data", "line", "step",
+	"note", "here", "case", "cases", "real", "new", "old", "add", "fix",
+	"only", "just", "also", "both", "same", "even", "still", "now", "back",
 ]);
+
+/** Infer a hermes category for entries that lack a `[category]` prefix, so the
+ *  ~50% of cards that defaulted to `dimension: general` get a meaningful axis
+ *  for retrieval filtering. Conservative (precision over recall): only
+ *  reclassifies on a strong content signal, else returns "" → general.
+ *  Patterns derived from the study-news corpus (USER.md preferences,
+ *  MEMORY.md methodology entries). */
+function inferHermesCategory(text: string): string {
+	const t = text.toLowerCase();
+	// preference: user-facing rules / standing instructions
+	if (/\b(prefer|preference|always use|never |hard rule|standing|policy|rule:|一律|偏好|預設|務必|優先)\b/.test(t))
+		return "preference";
+	// tool-quirk: non-obvious / intermittent / surprising tool behavior
+	if (/\b(quirks?|intermittent|flake|flaky|silently|unexpected|behaves?|mask(ed|s)?|false-negative|false-positive|missing|lacks?|cannot|won't|refuses?)\b/.test(t))
+		return "tool-quirk";
+	// insight: transferable lessons / methodology / proven patterns
+	if (/\b(methodology|pattern|proven|lesson|generaliz(?:e|able)|consequence|signal|insight|verify-e2e|method)\b/.test(t))
+		return "insight";
+	// failure: a bug / hang / crash / regression that was fixed
+	if (/\b(fix:|bug|hang|hangs|crash|crashes|fails|failed|broken|error:|regression|infinite loop)\b/.test(t))
+		return "failure";
+	// convention: a chosen standard / formatting / naming rule
+	if (/\b(convention|standard|when generating|naming|format)\b/.test(t))
+		return "convention";
+	return ""; // genuinely unclassifiable → general
+}
+
+/** Extract an atomic, readable title from a hermes entry's first line.
+ *  Previously the title was the raw first line truncated at 120 chars — often
+ *  mid-word (`...scripts/foo.mjs\` / \`b`). Now: strip markdown + trailing
+ *  provenance, then (if long) cut at the first clause boundary (em-dash,
+ *  open-paren, colon+space, period+space, CJK punctuation) so the CONCEPT
+ *  clause survives, then cap at a word boundary ≤ 80 chars. Short first lines
+ *  pass through unchanged (preserves expectations like "Tool quirks"). */
+function extractAtomicTitle(firstLine: string): string {
+	let t = firstLine
+		.replace(/\*\*/g, "")
+		.replace(/\s*\(verified[^)]*\)\s*:?\s*$/, "")
+		.replace(/\s*\(\d{4}[^)]*\)\s*:?\s*$/, "")
+		.replace(/[:：]\s*$/, "")
+		.trim();
+	// Long line → cut at the first clause boundary, keeping a meaningful prefix.
+	if (t.length > 50) {
+		const m = t.match(/^(.{12,}?)\s*(?:—|–|\(|:\s|\.\s|[，：。])/);
+		if (m && m[1]!.trim().length >= 12) t = m[1]!.trim();
+	}
+	// Final cap at a word boundary (no mid-word truncation, no ellipsis).
+	if (t.length > 80) {
+		const cut = t.slice(0, 80);
+		const lastSpace = cut.lastIndexOf(" ");
+		t = (lastSpace > 40 ? cut.slice(0, lastSpace) : cut).trim();
+	}
+	return t;
+}
 
 /** Adapt a hermes memory file into an array of `KnowledgeRecord`s — one per
  *  `§`-separated entry. Unlike auto-memory (one fact per FILE), a hermes file
@@ -421,37 +488,50 @@ export function adaptHermesMarkdown(content: string): KnowledgeRecord[] {
 		const prefixMatch = entry.match(
 			/^\[(failure|correction|insight|tool-quirk|convention|preference)\]\s*/,
 		);
-		const category = prefixMatch?.[1] ?? "";
-		const type = category ? (HERMES_TYPE[category] ?? "pattern") : "pattern";
+		const prefixCategory = prefixMatch?.[1] ?? "";
 		const afterPrefix = prefixMatch ? entry.slice(prefixMatch[0]!.length) : entry;
+		// No `[category]` prefix → infer one from content (cuts the ~50% of cards
+		// that otherwise defaulted to dimension:"general"). Conservative: empty
+		// string (→ general) when no strong signal.
+		const category = prefixCategory || inferHermesCategory(afterPrefix);
+		const type = category ? (HERMES_TYPE[category] ?? "pattern") : "pattern";
 
 		// 2. Harvest provenance timestamps (may be duplicated; take first created,
 		//    last `last`). Strip the comment(s) from the body afterward.
 		const createdDates: string[] = [];
 		const lastDates: string[] = [];
-		const tsRe = /<!--\s*created=([^,\s>]+)[^>]*?last=([^,\s>]+)[^>]*?-->/g;
+		// Harvest provenance timestamps. Two forms occur in the wild:
+		//   `created=YYYY-MM-DD, last=YYYY-MM-DD` (full) and `created=YYYY-MM-DD`
+		//   (created-only — last falls back to created). The old single regex
+		//   REQUIRED `last=`, so created-only entries got first_seen="" and
+		//   rendered `created: 1970-01-01` downstream (2 cards in study-news).
+		const fullRe = /<!--\s*created=([^,\s>]+)[^>]*?last=([^,\s>]+)[^>]*?-->/g;
+		const onlyRe = /<!--\s*created=([^,\s>]+?)\s*-->/g;
 		let tm: RegExpExecArray | null;
-		while ((tm = tsRe.exec(entry)) !== null) {
+		while ((tm = fullRe.exec(entry)) !== null) {
 			const c = extractDate(tm[1]);
 			const l = extractDate(tm[2]);
 			if (c) createdDates.push(c);
 			if (l) lastDates.push(l);
+		}
+		// created-only comments (no `last=`): last defaults to created.
+		if (createdDates.length === 0) {
+			while ((tm = onlyRe.exec(entry)) !== null) {
+				const c = extractDate(tm[1]);
+				if (c) { createdDates.push(c); lastDates.push(c); }
+			}
 		}
 		const firstSeen = createdDates[0] ?? "";
 		const lastSeen = lastDates[lastDates.length - 1] ?? firstSeen ?? "";
 		const bodyNoTs = afterPrefix.replace(/<!--\s*created=[^>]*?-->/g, "").trim();
 		if (!bodyNoTs) continue;
 
-		// 3. Title = first non-empty line, cleaned of markdown bold + trailing
-		//    `:` / date parenthetical. Truncate for a stable, readable hook.
+		// 3. Title = atomic concept from the first line. Old behavior truncated
+		//    the raw first line at 120 chars (often mid-word). extractAtomicTitle
+		//    strips markdown + trailing provenance, then cuts at the first clause
+		//    boundary (em-dash / paren / colon / period) so the concept survives.
 		const firstLine = bodyNoTs.split(/\r?\n/)[0]!.trim();
-		const titleRaw = firstLine
-			.replace(/\*\*/g, "")
-			.replace(/\s*\(verified[^)]*\)\s*:?\s*$/, "")
-			.replace(/\s*\(\d{4}[^)]*\)\s*:?\s*$/, "")
-			.replace(/[:：]\s*$/, "")
-			.trim();
-		const title = (titleRaw || firstLine).slice(0, 120);
+		const title = extractAtomicTitle(firstLine) || firstLine.slice(0, 80);
 		if (!title) continue;
 
 		// 4. Detail = the full entry body (richest signal for zk_ask full-text).
@@ -465,10 +545,11 @@ export function adaptHermesMarkdown(content: string): KnowledgeRecord[] {
 			return alias || target || String(inner);
 		});
 
-		// 5. Tags: hermes + category + [[wikilink]] slugs + distinctive title
-		//    keywords (the keyword harvest is what lets a hermes fp8 entry
-		//    cross-link the existing gotcha-fp8-compute-mps-crash card via shared
-		//    tags — without it hermes cards would only link each other).
+		// 5. Tags: hermes + category + [[wikilink]] slugs + distinctive keywords
+		//    harvested from title AND detail (title alone is too sparse). Min
+		//    token length lowered 4→3 so semantic short tokens (bun/mlx/vae/cli/
+		//    tui) survive; the expanded HERMES_STOP absorbs the 3-4 char filler
+		//    (always/never/test/runs) that the old ≥4 gate let through.
 		const tagSet = new Set<string>();
 		tagSet.add("hermes");
 		tagSet.add(category || "note");
@@ -478,8 +559,8 @@ export function adaptHermesMarkdown(content: string): KnowledgeRecord[] {
 			const t = normTag(lm[1]!.split(/[#|]/)[0]!);
 			if (t) tagSet.add(t);
 		}
-		for (const tok of title.toLowerCase().split(/[^a-z0-9-]+/)) {
-			if (tok.length >= 4 && !HERMES_STOP.has(tok)) tagSet.add(tok);
+		for (const tok of `${title} ${detail}`.toLowerCase().split(/[^a-z0-9-]+/)) {
+			if (tok.length >= 3 && !HERMES_STOP.has(tok)) tagSet.add(tok);
 		}
 		const tags = [...tagSet].slice(0, 8);
 
