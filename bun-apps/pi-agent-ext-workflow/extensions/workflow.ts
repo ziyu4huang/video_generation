@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { applyHostFnRegistration, HostFnRegistry } from "../src/host-fn-registry.js";
 import { createSubagentTool } from "../src/subagent-tool.js";
-import { reconstructSubagentRuns, SubagentViewer } from "../src/subagent-viewer.js";
+import { createSubagentsCommand } from "../src/subagents-command.js";
 import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
 import {
   buildWorkflowGuidelinesForTurn,
@@ -90,40 +90,10 @@ export default function extension(pi: ExtensionAPI) {
   const workflowControlTool = createWorkflowControlTool({ manager });
   pi.registerTool(workflowControlTool);
 
-  // /subagents — list past subagent runs on this branch and view their full
-  // output (todo-style: reconstruct from session toolResults, no live stream).
-  pi.registerCommand("subagents", {
-    description: "List subagent runs (running + past) on this branch and view their output",
-    handler: async (_args, ctx) => {
-      if (ctx.mode !== "tui") {
-        ctx.ui.notify("/subagents requires interactive mode", "error");
-        return;
-      }
-      const branch = (ctx.sessionManager?.getBranch() ?? []) as never;
-      const runs = reconstructSubagentRuns(branch);
-      await ctx.ui.custom<void>((tui, theme, _kb, done) => {
-        let timer: ReturnType<typeof setInterval> | undefined;
-        const viewer = new SubagentViewer(
-          { runs, getRunning: () => subagentInFlight.list(), onClose: () => { if (timer) clearInterval(timer); done(); } },
-          theme,
-        );
-        // Live-elapsed: re-render every 1s while a subagent runs, so the
-        // "Running" section's elapsed/tool-call counts stay fresh.
-        timer = setInterval(() => {
-          viewer.invalidate();
-          tui.requestRender();
-        }, 1000);
-        return {
-          render: (w: number) => viewer.render(w),
-          invalidate: () => viewer.invalidate(),
-          handleInput: (data: string) => {
-            viewer.handleInput(data);
-            tui.requestRender();
-          },
-        };
-      });
-    },
-  });
+  // /subagents — list running + past subagent runs and view their output.
+  // Implemented in src/subagents-command.ts (extracted so the registry → viewer →
+  // live-timer wiring is unit-testable without a live TUI context).
+  pi.registerCommand("subagents", createSubagentsCommand({ subagentInFlight }));
 
   // Layer-3 conditional guideline injection. The workflow tool's authoring
   // guidelines are NO LONGER a static promptGuidelines tax on every turn; they
