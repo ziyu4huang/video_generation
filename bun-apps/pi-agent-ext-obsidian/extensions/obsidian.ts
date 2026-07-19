@@ -2085,7 +2085,9 @@ ${output.slice(-2000)}`,
 			const theme = ctx.ui.theme;
 			const icon = v.registered ? "📓" : "📎";
 			const label = theme.fg("dim", "obsidian vault active:");
-			const name = theme.fg("accent", v.name);
+			// Show the full resolved vault path (not just the folder basename)
+			// so the user can tell which vault on disk is actually in use.
+			const vault = theme.fg("accent", v.path);
 			const tag = v.registered ? "" : theme.fg("dim", " (local)");
 			// Timers can straddle a session switch (/resume, ctx.fork,
 			// ctx.switchSession): the captured ctx goes stale, and the ctx.ui
@@ -2093,7 +2095,7 @@ ${output.slice(-2000)}`,
 			// uncaughtException -> pi crashes. Guard every deferred ctx.ui call;
 			// a stale session needs no banner (the replacement session renders
 			// its own on its own session_start).
-			scheduleVaultBanner(ctx, `${icon} ${label} ${name}${tag}`);
+			scheduleVaultBanner(ctx, `${icon} ${label} ${vault}${tag}`);
 		} catch {
 			ctx.ui.notify("obsidian: no vault found", "warning");
 		}
