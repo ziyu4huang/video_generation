@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolvePackRunContext } from "../src/pack-run-context.js";
 import { packId } from "../src/workflow-pack-id.js";
+import { readFileSync } from "node:fs";
+import { mirrorIntermediate } from "../src/pack-run-context.js";
 
 /**
  * `pack-run-context.ts` — resolve a pack's runtime filesystem context.
@@ -53,5 +55,38 @@ describe("resolvePackRunContext", () => {
     expect(existsSync(join(ctx.stateRoot, "outputs"))).toBe(true);
     expect(existsSync(join(ctx.stateRoot, "intermediate"))).toBe(true);
     rmSync(repo, { recursive: true, force: true });
+  });
+});
+
+describe("mirrorIntermediate", () => {
+  test("mirrorIntermediate writes <phase>/<idx>-<hash>.json for an object result", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "mirror-"));
+    mirrorIntermediate(tmp, "research", { index: 3, hash: "abc123", result: { finding: "x" } });
+    const file = join(tmp, "research", "3-abc123.json");
+    expect(existsSync(file)).toBe(true);
+    expect(JSON.parse(readFileSync(file, "utf-8"))).toEqual({ finding: "x" });
+  });
+
+  test("mirrorIntermediate writes .txt for a string result", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "mirror-"));
+    mirrorIntermediate(tmp, "draft", { index: 1, hash: "h", result: "hello world" });
+    expect(readFileSync(join(tmp, "draft", "1-h.txt"), "utf-8")).toBe("hello world");
+  });
+
+  test("mirrorIntermediate uses _no-phase when phase is undefined", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "mirror-"));
+    mirrorIntermediate(tmp, undefined, { index: 0, hash: "z", result: 42 });
+    expect(existsSync(join(tmp, "_no-phase", "0-z.json"))).toBe(true);
+  });
+
+  test("mirrorIntermediate is idempotent (same name overwrites)", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "mirror-"));
+    mirrorIntermediate(tmp, "p", { index: 1, hash: "h", result: "v1" });
+    mirrorIntermediate(tmp, "p", { index: 1, hash: "h", result: "v2" });
+    expect(readFileSync(join(tmp, "p", "1-h.txt"), "utf-8")).toBe("v2");
+  });
+
+  test("mirrorIntermediate never throws on a bad path", () => {
+    expect(() => mirrorIntermediate("/proc/cannot/write/here", "p", { index: 0, hash: "h", result: "x" })).not.toThrow();
   });
 });

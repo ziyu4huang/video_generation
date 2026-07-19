@@ -8,6 +8,7 @@
  * as ExecOptions — the engine (runWorkflow) never imports pack concepts.
  */
 import { join } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { packId } from "./workflow-pack-id.js";
 import { packStateRoot, ensureStateDirs } from "./pack-state.js";
 import type { Manifest, ManifestIo } from "./workflow-pack-manifest.js";
@@ -43,4 +44,27 @@ export function resolvePackRunContext(args: {
     intermediateDir: join(root, "intermediate"),
     io: args.manifest?.io,
   };
+}
+
+/**
+ * Mirror one journal entry to the disposable on-disk intermediate tree (decision 12).
+ * Layout: <intermediateDir>/<phase|_no-phase>/<index>-<hash>.<ext>. The journal stays
+ * the resume source-of-truth; this file is purely for agent inspection and is safe to
+ * purge at any time. Best-effort: a write failure is swallowed so it can never break a run.
+ */
+export function mirrorIntermediate(
+  intermediateDir: string,
+  phase: string | undefined,
+  entry: { index: number; hash: string; result: unknown },
+): void {
+  try {
+    const phaseDir = join(intermediateDir, phase || "_no-phase");
+    mkdirSync(phaseDir, { recursive: true });
+    const isText = typeof entry.result === "string";
+    const ext = isText ? "txt" : "json";
+    const content = isText ? String(entry.result) : JSON.stringify(entry.result, null, 2);
+    writeFileSync(join(phaseDir, `${entry.index}-${entry.hash}.${ext}`), content);
+  } catch {
+    // Disposable mirror (decision 12): never let a side-write break the run.
+  }
 }
