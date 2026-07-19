@@ -15,10 +15,18 @@ import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import type { AgentUsage } from "./agent.js";
 import {
+  listAgentTypes,
+  loadAgentRegistry,
+  resolveAgentType,
+  type AgentDefinition,
+  type AgentRegistry,
+} from "./agent-registry.js";
+import {
   spawnSubagent,
   type SpawnSubagentOptions,
   type SpawnSubagentResult,
 } from "./spawn-subagent.js";
+import { createWorktree, removeWorktree, type Worktree } from "./worktree.js";
 
 export interface SubagentToolDetails {
   exitCode: number;
@@ -41,6 +49,12 @@ export const subagentToolSchema = Type.Object({
     Type.String({
       description:
         "Informational role/label for the subagent (e.g. 'implementer', 'reviewer', 'researcher'). Forwarded as an instructions prefix; does not change tool selection.",
+    }),
+  ),
+  agentType: Type.Optional(
+    Type.String({
+      description:
+        "Named agent definition (.pi/agents/<name>.md or ~/.pi/agents/<name>.md) binding tools/model/prompt/worktree-isolation for this call. Explicit `model`/`tools`/`excludeTools` on this call override the binding's values.",
     }),
   ),
   task: Type.String({
@@ -82,6 +96,12 @@ export interface SubagentToolOptions {
   getExtensionTools?: () => ToolDefinition[] | undefined;
   /** Injectable spawn for tests (defaults to the real spawnSubagent). */
   spawn?: (opts: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
+  /** Injectable agentType registry for tests (defaults to loadAgentRegistry(cwd) per call). */
+  agentRegistry?: AgentRegistry;
+  /** Injectable worktree creation for tests (defaults to the real createWorktree). */
+  createWorktree?: typeof createWorktree;
+  /** Injectable worktree teardown for tests (defaults to the real removeWorktree). */
+  removeWorktree?: typeof removeWorktree;
 }
 
 /** Collapse a task prompt to a single-line preview of at most `n` chars. */
@@ -159,33 +179,82 @@ export function createSubagentTool(
     promptSnippet:
       "Dispatch an isolated-context subagent for one focused task (implementer / reviewer / researcher). Pass a self-contained `task`; choose `model` per role; restrict with `tools`/`excludeTools`.",
     parameters: subagentToolSchema,
-    async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
+    async execute(toolCallId, params, signal, _onUpdate, _ctx) {
       const t0 = Date.now();
-      const result = await spawn({
-        task: params.task,
-        tools: params.tools,
-        excludeTools: params.excludeTools,
-        model: params.model,
-        cwd: params.cwd ?? defaultCwd,
-        instructions: params.agent ? `You are the ${params.agent} for this task.` : undefined,
-        extensionTools: options.getExtensionTools?.(),
-        externalSignal: signal,
-        timeoutMs: params.timeoutMs,
-        retryOnTransient: params.retryOnTransient,
-      });
-      return {
-        content: [{ type: "text" as const, text: formatSubagentResult(result) }],
+      const runCwd = params.cwd ?? defaultCwd;
+      const makeWorktree = options.createWorktree ?? createWorktree;
+      const teardownWorktree = options.removeWorktree ?? removeWorktree;
+
+      const failEarly = (text: string): { content: Array<{ type: "text"; text: string }>; details: SubagentToolDetails } => ({
+        content: [{ type: "text" as const, text }],
         details: {
-          exitCode: result.exitCode,
-          timedOut: result.timedOut,
+          exitCode: 1,
+          timedOut: false,
           agent: params.agent,
           model: params.model ?? "default",
           taskPreview: taskPreview(params.task),
           elapsedMs: Date.now() - t0,
-          status: deriveSubagentStatus(result),
-          usage: result.usage,
+          status: "failed",
         },
-      };
+      });
+
+      let agentDef: AgentDefinition | undefined;
+      if (params.agentType) {
+        const registry = options.agentRegistry ?? loadAgentRegistry(runCwd);
+        agentDef = resolveAgentType(params.agentType, registry);
+        if (!agentDef) {
+          const known = listAgentTypes(registry).map((t) => t.name);
+          return failEarly(
+            `Unknown agentType "${params.agentType}".${
+              known.length
+                ? ` Available: ${known.join(", ")}.`
+                : " No agentType definitions found (.pi/agents/*.md or ~/.pi/agents/*.md)."
+            }`,
+          );
+        }
+      }
+
+      let worktree: Worktree | undefined;
+      let spawnCwd = runCwd;
+      if (agentDef?.isolation === "worktree") {
+        worktree = await makeWorktree(runCwd, `subagent-${toolCallId}`);
+        if (worktree.isolated) spawnCwd = worktree.cwd;
+      }
+
+      try {
+        const instructions =
+          [params.agent ? `You are the ${params.agent} for this task.` : undefined, agentDef?.prompt]
+            .filter((s): s is string => Boolean(s))
+            .join("\n\n") || undefined;
+
+        const result = await spawn({
+          task: params.task,
+          tools: params.tools ?? agentDef?.tools,
+          excludeTools: params.excludeTools ?? agentDef?.disallowedTools,
+          model: params.model ?? agentDef?.model,
+          cwd: spawnCwd,
+          instructions,
+          extensionTools: options.getExtensionTools?.(),
+          externalSignal: signal,
+          timeoutMs: params.timeoutMs,
+          retryOnTransient: params.retryOnTransient,
+        });
+        return {
+          content: [{ type: "text" as const, text: formatSubagentResult(result) }],
+          details: {
+            exitCode: result.exitCode,
+            timedOut: result.timedOut,
+            agent: params.agent,
+            model: params.model ?? agentDef?.model ?? "default",
+            taskPreview: taskPreview(params.task),
+            elapsedMs: Date.now() - t0,
+            status: deriveSubagentStatus(result),
+            usage: result.usage,
+          },
+        };
+      } finally {
+        if (worktree) await teardownWorktree(worktree);
+      }
     },
     renderCall(args, theme, context) {
       const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);

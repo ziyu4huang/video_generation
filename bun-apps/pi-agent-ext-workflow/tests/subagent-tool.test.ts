@@ -25,6 +25,14 @@ function fakeSpawn(impl: (opts: SpawnSubagentOptions) => SpawnSubagentResult | P
 const NO_SIGNAL = undefined as never;
 const NO_CTX = { cwd: "/repo" } as never;
 
+import type { AgentDefinition, AgentRegistry } from "../src/agent-registry.js";
+
+function mkRegistry(defs: AgentDefinition[]): AgentRegistry {
+  const registry: AgentRegistry = new Map();
+  for (const d of defs) registry.set(d.name, d);
+  return registry;
+}
+
 // ── factory shape (mirrors tests/workflow-tool.test.ts) ──
 test("createSubagentTool has name 'subagent' + label 'Subagent'", () => {
   const tool = createSubagentTool();
@@ -131,6 +139,80 @@ test("execute forwards timeoutMs/retryOnTransient to spawn", async () => {
   await tool.execute("id", { task: "t", timeoutMs: 5000, retryOnTransient: false }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.timeoutMs, 5000);
   assert.equal(f.calls[0]?.retryOnTransient, false);
+});
+
+// ── agentType binding + worktree isolation ──
+test("agentType resolves tools/model/prompt from the registry when the call omits them", async () => {
+  const registry = mkRegistry([
+    {
+      name: "security-auditor",
+      tools: ["read", "grep"],
+      disallowedTools: ["write"],
+      model: "openai/gpt-4.1",
+      prompt: "You are a security auditor. Be thorough.",
+      source: "project",
+    },
+  ]);
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, agentRegistry: registry });
+  await tool.execute("id", { task: "audit this", agentType: "security-auditor" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.deepEqual(f.calls[0]?.tools, ["read", "grep"]);
+  assert.deepEqual(f.calls[0]?.excludeTools, ["write"]);
+  assert.equal(f.calls[0]?.model, "openai/gpt-4.1");
+  assert.ok((f.calls[0]?.instructions ?? "").includes("You are a security auditor. Be thorough."));
+});
+
+test("agentType: explicit params.model/tools/excludeTools override the binding", async () => {
+  const registry = mkRegistry([
+    { name: "security-auditor", tools: ["read"], model: "openai/gpt-4.1", prompt: "Be thorough.", source: "project" },
+  ]);
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, agentRegistry: registry });
+  await tool.execute(
+    "id",
+    { task: "audit this", agentType: "security-auditor", model: "anthropic/claude-sonnet-4", tools: ["read", "bash"] },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.equal(f.calls[0]?.model, "anthropic/claude-sonnet-4", "explicit model wins");
+  assert.deepEqual(f.calls[0]?.tools, ["read", "bash"], "explicit tools win");
+});
+
+test("unknown agentType returns a tool-level error listing available names, without calling spawn", async () => {
+  const registry = mkRegistry([{ name: "reviewer", prompt: "Review.", source: "project" }]);
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, agentRegistry: registry });
+  const res = await tool.execute("id", { task: "t", agentType: "nope" }, NO_SIGNAL, undefined, NO_CTX);
+  const text = (res.content[0] as { text: string }).text;
+  assert.match(text, /Unknown agentType "nope"/);
+  assert.match(text, /reviewer/);
+  assert.equal(f.calls.length, 0, "spawn is never called for an unresolvable agentType");
+  assert.equal(res.details.status, "failed");
+});
+
+test("agentType with isolation:'worktree' passes the worktree cwd to spawn", async () => {
+  const registry = mkRegistry([
+    { name: "isolated-worker", isolation: "worktree", prompt: "Work in isolation.", source: "project" },
+  ]);
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const fakeWorktree = { createCalls: [] as Array<{ baseCwd: string; name: string }>, removeCalls: 0 };
+  const tool = createSubagentTool({
+    spawn: f.spawn,
+    agentRegistry: registry,
+    cwd: "/repo",
+    createWorktree: async (baseCwd: string, name: string) => {
+      fakeWorktree.createCalls.push({ baseCwd, name });
+      return { isolated: true, cwd: "/repo/.pi/worktrees/isolated-worker", repoRoot: "/repo", branch: "pi/wf/isolated-worker" };
+    },
+    removeWorktree: async () => {
+      fakeWorktree.removeCalls++;
+    },
+  });
+  await tool.execute("id", { task: "t", agentType: "isolated-worker" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.cwd, "/repo/.pi/worktrees/isolated-worker");
+  assert.equal(fakeWorktree.createCalls.length, 1);
+  assert.equal(fakeWorktree.removeCalls, 1, "worktree is cleaned up after the run");
 });
 
 test("execute carries usage from the spawn result into details", async () => {
