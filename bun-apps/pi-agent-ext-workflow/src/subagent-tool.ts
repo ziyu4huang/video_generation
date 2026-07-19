@@ -12,7 +12,7 @@
  */
 import { defineTool, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
-import { Type } from "typebox";
+import { Type, type TSchema } from "typebox";
 import type { AgentUsage } from "./agent.js";
 import {
   listAgentTypes,
@@ -88,6 +88,12 @@ export const subagentToolSchema = Type.Object({
       description: "Retry once on a transient failure (timeout/network/rate-limit). Default true.",
     }),
   ),
+  schema: Type.Optional(
+    Type.Unknown({
+      description:
+        "JSON Schema for the subagent's final answer (e.g. {type:'object', properties:{...}}). When set, the child must return via a structured_output call matching this shape instead of prose; the tool result is the JSON-serialized object.",
+    }),
+  ),
 });
 
 export interface SubagentToolOptions {
@@ -102,6 +108,11 @@ export interface SubagentToolOptions {
   createWorktree?: typeof createWorktree;
   /** Injectable worktree teardown for tests (defaults to the real removeWorktree). */
   removeWorktree?: typeof removeWorktree;
+}
+
+/** Minimal pre-flight check: a JSON-Schema-shaped object needs at least a `type` field. */
+function isSchemaShaped(value: unknown): value is TSchema {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && "type" in value;
 }
 
 /** Collapse a task prompt to a single-line preview of at most `n` chars. */
@@ -214,6 +225,10 @@ export function createSubagentTool(
         }
       }
 
+      if (params.schema !== undefined && !isSchemaShaped(params.schema)) {
+        return failEarly(`Invalid schema: expected a JSON-Schema-shaped object with a "type" field.`);
+      }
+
       let worktree: Worktree | undefined;
       let spawnCwd = runCwd;
       if (agentDef?.isolation === "worktree") {
@@ -241,6 +256,7 @@ export function createSubagentTool(
           externalSignal: signal,
           timeoutMs: params.timeoutMs,
           retryOnTransient: params.retryOnTransient,
+          schema: params.schema as TSchema | undefined,
         });
         return {
           content: [{ type: "text" as const, text: formatSubagentResult(result) }],

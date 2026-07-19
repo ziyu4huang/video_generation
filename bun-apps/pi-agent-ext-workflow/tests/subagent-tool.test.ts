@@ -244,6 +244,27 @@ test("agentType with isolation:'worktree' falls back to runCwd when createWorktr
   assert.equal(fakeWorktree.removeCalls, 1, "teardown is still invoked even for a no-op worktree");
 });
 
+test("schema is forwarded to spawn unchanged", async () => {
+  const schema = { type: "object", properties: { ok: { type: "boolean" } } };
+  const f = fakeSpawn(() => ({ output: '{"ok":true}', exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  await tool.execute("id", { task: "t", schema }, NO_SIGNAL, undefined, NO_CTX);
+  assert.deepEqual(f.calls[0]?.schema, schema);
+});
+
+test("malformed schema (not an object, or missing 'type') is rejected before spawn is called", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+
+  const res1 = await tool.execute("id", { task: "t", schema: "not an object" as never }, NO_SIGNAL, undefined, NO_CTX);
+  assert.match((res1.content[0] as { text: string }).text, /Invalid schema/);
+
+  const res2 = await tool.execute("id", { task: "t", schema: { properties: {} } as never }, NO_SIGNAL, undefined, NO_CTX);
+  assert.match((res2.content[0] as { text: string }).text, /Invalid schema/);
+
+  assert.equal(f.calls.length, 0, "spawn is never called for a malformed schema");
+});
+
 test("execute carries usage from the spawn result into details", async () => {
   const usage = { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, total: 15, cost: 0.001 };
   const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false, usage }));
