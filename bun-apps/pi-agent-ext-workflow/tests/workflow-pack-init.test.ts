@@ -1,8 +1,8 @@
-import { describe, test, expect } from "bun:test";
-import { scaffoldPack } from "../src/workflow-pack-init.js";
+import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { scaffoldPack } from "../src/workflow-pack-init.js";
 
 /**
  * `workflow-pack-init.ts` — scaffolder (decision 07).

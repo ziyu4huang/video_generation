@@ -1,8 +1,8 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { validateManifest } from "../src/workflow-pack-manifest.js";
 import { loadAgentRegistry } from "../src/agent-registry.js";
+import { validateManifest } from "../src/workflow-pack-manifest.js";
 
 /**
  * `samples/reference-pack` — the living reference pack (ticket 14, T8).

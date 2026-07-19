@@ -1,8 +1,8 @@
-import { describe, test, expect } from "bun:test";
-import { packStateRoot, ensureStateDirs } from "../src/pack-state.js";
+import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ensureStateDirs, packStateRoot } from "../src/pack-state.js";
 
 /**
  * `pack-state.ts` — resolve a pack's runtime-state root (decisions 03/07).
@@ -30,8 +30,16 @@ describe("packStateRoot", () => {
 
   test("two same-named checked-in packs in different packages redirect to DIFFERENT roots", () => {
     const root = mkdtempSync(join(tmpdir(), "ps-"));
-    const a = packStateRoot({ packDir: join(root, "bun-apps", "pkgA", "workflows", "demo"), name: "demo", repoRoot: root });
-    const b = packStateRoot({ packDir: join(root, "bun-apps", "pkgB", "workflows", "demo"), name: "demo", repoRoot: root });
+    const a = packStateRoot({
+      packDir: join(root, "bun-apps", "pkgA", "workflows", "demo"),
+      name: "demo",
+      repoRoot: root,
+    });
+    const b = packStateRoot({
+      packDir: join(root, "bun-apps", "pkgB", "workflows", "demo"),
+      name: "demo",
+      repoRoot: root,
+    });
     expect(a.redirected).toBe(true);
     expect(b.redirected).toBe(true);
     expect(a.root).not.toBe(b.root);

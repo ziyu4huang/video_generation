@@ -15,11 +15,10 @@ import { packId } from "./workflow-pack-id.js";
 
 const PI_WORKFLOWS = join(".pi", "workflows");
 
-export function packStateRoot(args: {
-  packDir: string;
-  name: string;
-  repoRoot: string;
-}): { root: string; redirected: boolean } {
+export function packStateRoot(args: { packDir: string; name: string; repoRoot: string }): {
+  root: string;
+  redirected: boolean;
+} {
   const piWorkflowsRoot = join(args.repoRoot, PI_WORKFLOWS);
   const relToPi = relative(piWorkflowsRoot, args.packDir);
   const relToRoot = relative(args.repoRoot, args.packDir);

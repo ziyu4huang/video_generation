@@ -1,8 +1,8 @@
-import { describe, test, expect } from "bun:test";
-import { inspectPack, cleanPack } from "../src/workflow-pack-clean.js";
+import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { cleanPack, inspectPack } from "../src/workflow-pack-clean.js";
 
 /**
  * `workflow-pack-clean.ts` — inspect/clean/purge (decision 06, 3-tier safety).
