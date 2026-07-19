@@ -90,6 +90,41 @@ public struct WhisperAttention {
         out = out.transposed(0, 2, 1, 3).reshaped([b, n, numHeads * headDim])
         return linear(out, weight: outWeight, bias: outBias)
     }
+
+    /// Same Q/K projection + scaled QK + softmax-weighted output as
+    /// `callAsFunction`, but ALSO returns the scaled pre-softmax QK matrix
+    /// `(b, numHeads, n, nKV)` — the cross-attention score matrix mlx_whisper's
+    /// DTW word-alignment consumes (`forward_with_cross_qk` → `cross_qk`).
+    /// Computes Q/K once and derives both the attention output and the score
+    /// matrix from it (no duplicate projection). `qk` is the SCALED
+    /// (headDim**-0.25 on both q and k, matching qkv_attention) but
+    /// pre-softmax, pre-mask matrix — exactly what `find_alignment` re-softmaxes
+    /// with its own qk_scale.
+    public func callWithQK(_ x: MLXArray, crossInput: MLXArray?, mask: MLXArray?) -> (output: MLXArray, qk: MLXArray) {
+        let b = x.dim(0)
+        let n = x.dim(1)
+        let kvInput = crossInput ?? x
+        let nKV = kvInput.dim(1)
+        let headDim = queryWeight.dim(0) / numHeads
+        let scale = Float(pow(Double(headDim), -0.25))
+
+        let q = linear(x, weight: queryWeight, bias: queryBias)
+        let k = linear(kvInput, weight: keyWeight, bias: nil)
+        let v = linear(kvInput, weight: valueWeight, bias: valueBias)
+
+        let qh = (q.reshaped([b, n, numHeads, headDim]).transposed(0, 2, 1, 3)) * scale
+        let kh = (k.reshaped([b, nKV, numHeads, headDim]).transposed(0, 2, 3, 1)) * scale
+        let vh = v.reshaped([b, nKV, numHeads, headDim]).transposed(0, 2, 1, 3)
+
+        var qk = MLX.matmul(qh, kh)
+        if let mask {
+            qk = qk + mask[0..<n, 0..<n]
+        }
+        let w = MLX.softmax(qk, axis: -1, precise: true)
+        var out = MLX.matmul(w, vh)
+        out = out.transposed(0, 2, 1, 3).reshaped([b, n, numHeads * headDim])
+        return (linear(out, weight: outWeight, bias: outBias), qk)
+    }
 }
 
 func layerNorm(_ x: MLXArray, weight: MLXArray, bias: MLXArray, eps: Float = 1e-5) -> MLXArray {
@@ -170,14 +205,21 @@ public struct WhisperEncoder {
     ///   `mx.conv1d` channel-last (its log_mel_spectrogram output is
     ///   (n_frames, n_mels) with no transpose before encoder input either).
     public func callAsFunction(_ mel: MLXArray) -> MLXArray {
-        var x = MLX.conv1d(mel, conv1Weight, stride: 1, padding: 1)
+        // float16 in — mlx_whisper casts mel_segment to dtype (float16) before
+        // the encoder, and its audio positional embedding is
+        // `sinusoids(...).astype(dtype)`. Casting BOTH here keeps the whole
+        // encoder (and thus the cross-attention QK the DTW word-aligner reads)
+        // in float16 to match mlx_whisper; without these casts the float32
+        // sinusoids upcast the activations back to float32 and the alignment
+        // distribution drifts. See WhisperModel.load for the full rationale.
+        var x = MLX.conv1d(mel.asType(.float16), conv1Weight, stride: 1, padding: 1)
         x = x + conv1Bias
         x = MLXNN.gelu(x)
         x = MLX.conv1d(x, conv2Weight, stride: 2, padding: 1)
         x = x + conv2Bias
         x = MLXNN.gelu(x)
 
-        let posEmbedding = Self.sinusoids(length: x.dim(1), channels: x.dim(2))
+        let posEmbedding = Self.sinusoids(length: x.dim(1), channels: x.dim(2)).asType(.float16)
         x = x + posEmbedding
 
         for block in blocks {
