@@ -62,6 +62,10 @@ _Avoid_: "mode" (a path is an entry surface, not an execution mode)
 Spawns one isolated subagent; returns its final text, or a validated object when `opts.schema` is set. Recoverable failures return `null` with diagnostics in `/workflows`.
 _Avoid_: call, request (it spawns a fresh in-memory Pi session)
 
+**`subagent` (tool)**:
+Single ad-hoc subagent dispatch outside a workflow script — the model calls it directly for one isolated child run, no orchestration. Shares the same runner as `agent()`. Reports real usage (`{input, output, cacheRead, cacheWrite, total, cost}`) and accepts `timeoutMs`/`retryOnTransient` overrides (previously hardcoded: no timeout, always retry once).
+_Avoid_: mini-workflow, single-agent script (it is a standalone tool call, not a `workflow` run of one agent)
+
 **`parallel(thunks)`**:
 Runs many `() => agent(...)` thunks concurrently; results returned in input order. Bounded to 16 live / 1000 total.
 _Avoid_: map, forEach, batch
