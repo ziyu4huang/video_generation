@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   createSubagentTool,
   deriveSubagentStatus,
+  formatSubagentProgress,
   formatSubagentResult,
   renderSubagentCall,
   renderSubagentResult,
@@ -10,6 +11,7 @@ import {
 } from "../src/subagent-tool.js";
 import type { SubagentToolDetails } from "../src/subagent-tool.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
+import type { AgentHistoryEntry } from "../src/agent-history.js";
 
 /** Injectable spawn that records the opts it was called with. */
 function fakeSpawn(impl: (opts: SpawnSubagentOptions) => SpawnSubagentResult | Promise<SpawnSubagentResult>) {
@@ -369,6 +371,55 @@ test("deriveSubagentStatus + taskPreview helpers", () => {
   assert.equal(taskPreview(long).length, 80);
   assert.ok(taskPreview(long).endsWith("…"));
   assert.equal(taskPreview("a\n b\n  c"), "a b c");
+});
+
+// ── formatSubagentProgress (onHistory → progress-line rendering) ──
+test("formatSubagentProgress on empty history shows the '…' placeholder", () => {
+  const out = formatSubagentProgress([], 0);
+  assert.match(out, /…/);
+});
+
+test("formatSubagentProgress toolCall entry includes the tool name", () => {
+  const history: AgentHistoryEntry[] = [{ role: "assistant", kind: "toolCall", toolName: "grep", text: "{}" }];
+  const out = formatSubagentProgress(history, 1000);
+  assert.match(out, /grep/);
+});
+
+test("formatSubagentProgress toolResult entry includes '→ done'", () => {
+  const history: AgentHistoryEntry[] = [{ role: "tool", kind: "toolResult", toolName: "read", text: "contents" }];
+  const out = formatSubagentProgress(history, 1000);
+  assert.match(out, /read → done/);
+});
+
+test("formatSubagentProgress text entry includes the (truncated) first line", () => {
+  const history: AgentHistoryEntry[] = [{ role: "assistant", kind: "text", text: "Investigating the failure\nmore detail" }];
+  const out = formatSubagentProgress(history, 1000);
+  assert.match(out, /Investigating the failure/);
+  assert.ok(!out.includes("more detail"), "only the first line is shown");
+});
+
+test("formatSubagentProgress error entry is marked distinctly (not indistinguishable from plain text)", () => {
+  const history: AgentHistoryEntry[] = [
+    { role: "tool", kind: "error", toolName: "bash", text: "command not found: foo", isError: true },
+  ];
+  const out = formatSubagentProgress(history, 1000);
+  assert.match(out, /⚠/, "error entries carry a distinct marker");
+  assert.match(out, /command not found: foo/);
+});
+
+test("formatSubagentProgress pluralizes the tool-call count (1 vs N)", () => {
+  const one: AgentHistoryEntry[] = [{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }];
+  const two: AgentHistoryEntry[] = [
+    { role: "assistant", kind: "toolCall", toolName: "read", text: "{}" },
+    { role: "assistant", kind: "toolCall", toolName: "grep", text: "{}" },
+  ];
+  assert.match(formatSubagentProgress(one, 0), /1 tool call(?!s)/);
+  assert.match(formatSubagentProgress(two, 0), /2 tool calls/);
+});
+
+test("formatSubagentProgress includes elapsed seconds", () => {
+  const out = formatSubagentProgress([], 12300);
+  assert.match(out, /12\.3s/);
 });
 
 // ── renderCall / renderResult (pure helpers, themed strings) ──

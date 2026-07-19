@@ -122,19 +122,30 @@ export function taskPreview(task: string, n = 80): string {
   return oneLine.length > n ? oneLine.slice(0, n - 1) + "…" : oneLine;
 }
 
+/** Describe the most recent history entry as a short one-line activity string. */
+function describeLastActivity(last: AgentHistoryEntry | undefined): string {
+  if (!last) return "…";
+  switch (last.kind) {
+    case "toolCall":
+      return last.toolName ?? "tool";
+    case "toolResult":
+      return `${last.toolName ?? "tool"} → done`;
+    case "error":
+      // Errors are the moment progress streaming matters most — mark them
+      // distinctly so they never read as routine chatter.
+      return `⚠ ${last.text.slice(0, 60)}`;
+    case "text":
+      return (last.text.split("\n")[0] ?? "").slice(0, 60);
+    default:
+      return last.text.slice(0, 60);
+  }
+}
+
 /** Render the latest compact history snapshot as a one/two-line progress update. */
 export function formatSubagentProgress(history: AgentHistoryEntry[], elapsedMs: number): string {
   const last = history[history.length - 1];
   const toolCalls = history.filter((h) => h.kind === "toolCall").length;
-  const activity = !last
-    ? "…"
-    : last.kind === "toolCall"
-      ? (last.toolName ?? "tool")
-      : last.kind === "toolResult"
-        ? `${last.toolName ?? "tool"} → done`
-        : last.kind === "text"
-          ? (last.text.split("\n")[0] ?? "").slice(0, 60)
-          : last.text.slice(0, 60);
+  const activity = describeLastActivity(last);
   const elapsedS = (elapsedMs / 1000).toFixed(1);
   return `↳ ${activity}\n  ↳ ${elapsedS}s elapsed · ${toolCalls} tool call${toolCalls === 1 ? "" : "s"}`;
 }
