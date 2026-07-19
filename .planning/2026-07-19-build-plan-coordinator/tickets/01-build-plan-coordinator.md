@@ -1,6 +1,7 @@
 ---
 type: task
-status: open
+status: closed
+superseded-by: 2026-07-19-a (decisions 02, 03; build = 2026-07-19-a/09)
 ---
 
 # 01 — Build the plan coordinator (the missing middle phase layer)
@@ -24,4 +25,19 @@ A component that, at runtime: (a) parses the `task_plan.md` phase spine (contrac
 
 ## Resolution
 
-(open — deferred. When worked: grill the "Not yet specified" sub-decisions on the map into sub-tickets, then build. See ADR-0003 for the full diagnosis + grep evidence.)
+**Closed — superseded by the unified coordination-layer design.** Every
+sub-decision this seed ticket was to grill (where the coordinator lives,
+phase-driving, completion detection, command surface, widget section) was
+answered under one roof in [`2026-07-19-a`](../../2026-07-19-a/map.md):
+
+- **Where it lives** — inside `pi-agent-ext-goal-todo`, no separate package
+  (2026-07-19-a/02).
+- **Seam contract** — goal-todo publishes `__piPlanPhases` /
+  `__piPlanIncomplete` / `__piPlanSummary` one-way to wayfind; self-consumes
+  via internal call (2026-07-19-a/03).
+- **Build** — 2026-07-19-a/09.
+
+This effort's "Not yet specified" fog is resolved by those decisions; the
+effort itself is retired in favour of `2026-07-19-a`. See
+[2026-07-19-a/06](../../2026-07-19-a/tickets/06-close-and-supersede-prior-efforts.md).
+ADR-0003 stands as the diagnosis.

@@ -1,3 +1,10 @@
+---
+type: research
+status: closed
+superseded-by: 2026-07-19-a (ticket 06)
+blocked by: 01, 04
+---
+
 # 05 — Sync timing & lifecycle
 
 ## Question
@@ -14,5 +21,14 @@
 - **To verify during research:** what `tool_execution_end` exposes beyond `toolName` + `isError` (does it carry the tool args / output path needed to detect a plan write?), and whether pi offers any file-watch primitive to extensions.
 - **From [04](04-sync-mapping.md) (closed) — the timing surface is now TWO-SIDED:** (a) **superpowers** re-parses `docs/superpowers/plans/` + republishes `__piSuperpowersPlan()` / `__piSuperpowersPlanIncomplete()` — *when*? (session_start? file-watch? `tool_execution_end` after a write into the plan path?); (b) **goal-todo** pulls the signal on its hooks AND detects todo toggles by **diffing its own store** on `tool_execution_end` → calls `__piApplyTodoToggle(stepId, checked)`. The lifecycle crux: goal-todo's `replaceState(replayFromBranch(ctx))` on compact/tree reconstructs ITS store — does it **re-pull the plan after replay** (so synced todos survive) or does replay clobber them? Define the ordering (replay first, then re-sync from plan).
 
-type: research
-blocked by: 01 (Plan convention), 04 (Sync mapping)
+## Resolution
+
+**Closed — folded into the unified effort.** The timing/lifecycle decision this
+ticket was to research is carried forward as
+[2026-07-19-a/04 — sync-timing-and-lifecycle](../../2026-07-19-a/tickets/04-sync-timing-and-lifecycle.md)
+under the unified `__piPlan*` seam contract (2026-07-19-a/03: one-way
+goal-todo→wayfind; goal-todo self-consumes via internal call). The two-sided
+parsing model this ticket assumed (superpowers publishes + goal-todo
+subscribes) was superseded by the single-publisher-in-goal-todo design. The
+timing decision itself is deferred to the build (2026-07-19-a/09). See
+[2026-07-19-a/06](../../2026-07-19-a/tickets/06-close-and-supersede-prior-efforts.md).

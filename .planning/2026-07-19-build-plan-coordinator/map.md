@@ -1,3 +1,7 @@
+---
+superseded-by: 2026-07-19-a
+---
+
 # Map — build the plan coordinator (Option B)
 
 ## Destination
@@ -19,9 +23,9 @@ Implement the **plan coordinator** — the missing middle (phase) layer of the `
 
 ## Decisions so far
 
-- [01 — Build the plan coordinator](tickets/01-build-plan-coordinator.md) — **open, unclaimed, deferred.** The seed decision; working it = grill the "Not yet specified" sub-decisions into sub-tickets, then build.
+- [01 — Build the plan coordinator](tickets/01-build-plan-coordinator.md) — **closed, superseded** by [`2026-07-19-a`](../2026-07-19-a/map.md): coordinator lives inside goal-todo (decision 02), `__piPlan*` seam contract pinned (decision 03), build = 2026-07-19-a/09. This effort's "Not yet specified" fog is resolved by those decisions.
 
-**Frontier: [01]** (one open ticket, not yet worked).
+**Frontier: (empty — effort superseded by `2026-07-19-a`)**
 
 ## Not yet specified
 
@@ -35,5 +39,6 @@ Implement the **plan coordinator** — the missing middle (phase) layer of the `
 
 ## Out of scope
 
+- **⚠️ SUPERSEDED by [`2026-07-19-a`](../2026-07-19-a/map.md)** — the missing middle layer is built inside goal-todo as the unified coordination layer (decisions 02+03; build = 2026-07-19-a/09), not as the separate package / Option-B shape this map assumed. This map is retained for history. See [2026-07-19-a/06](../2026-07-19-a/tickets/06-close-and-supersede-prior-efforts.md).
 - **Re-litigating the stopgap.** ADR-0003 + PR #678 stand; this effort automates *around* them, not by reverting them. The manual skill-layer protocol stays as the graceful fallback for when the coordinator is absent.
 - **Changing the seam contract.** The four `globalThis` keys + the `task_plan.md` format tokens are pinned by `plan-seed-contract.test.ts` and consumed by three packages — this effort publishes against the existing contract, not rewrites it.
