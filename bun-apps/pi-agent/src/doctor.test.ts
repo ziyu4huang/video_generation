@@ -167,8 +167,8 @@ describe("smokeMarker (pure)", () => {
 	test("release → <selfDir>/packages", () => {
 		expect(smokeMarker("release", "/out")).toBe("/out/packages");
 	});
-	test("binary → null (smoke skipped)", () => {
-		expect(smokeMarker("binary", "/out")).toBeNull();
+	test("binary → the static-factory source prefix (tools report path '<inline:<pkg>>')", () => {
+		expect(smokeMarker("binary", "/out")).toBe("<inline:");
 	});
 });
 
@@ -197,16 +197,11 @@ describe("runSmokeCheck (via injected spawn seam)", () => {
 		expect(r.detail).toContain("did not report");
 		expect(r.hint).toContain("something broke");
 	});
-	test("INFO (skip) for binary mode — no spawn", async () => {
-		let spawned = false;
+	test("binary mode runs the probe (spawn injected) and passes on matched>0", async () => {
 		const r = await runSmokeCheck(ctx({ mode: "binary" }), {
-			spawn: async () => {
-				spawned = true;
-				return { stderr: "", code: 0 };
-			},
+			spawn: fakeSpawn("[SMOKE] total=31 matched=24\n"),
 		});
-		expect(r.status).toBe("info");
-		expect(spawned).toBe(false);
+		expect(r.status).toBe("pass");
 	});
 });
 
