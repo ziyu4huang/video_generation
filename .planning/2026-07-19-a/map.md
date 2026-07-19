@@ -27,13 +27,14 @@ A single coordination layer publishes the `__piPlan*` seams, parses BOTH plan co
 ## Decisions so far
 
 - [01 — Revert skill edits; restore fidelity](tickets/01-revert-skill-edits-restore-fidelity.md) — reverted #664/#676/#678 convention injections → #617-port verbatim; kept #639 pi-port glue; invariant refined to "byte-identical except necessary pi-port glue"; conventions relocate to [02](tickets/02-unified-coordination-layer.md) / wayfind.
+- [02 — Unified coordination layer](tickets/02-unified-coordination-layer.md) — lives **inside goal-todo** (no new package; publishes `__piPlan*` for wayfind); parses ONE canonical format = **writing-plans** (wayfind adjusts; Task≡phase preserves the `__piPlanPhases` reader model + `/wayfind sync` loop); older `__piSuperpowersPlan*` design superseded.
 
 ## Not yet specified
 
 <!-- fog — graduates as the frontier advances -->
 
 - **Upstream re-sync mechanics.** If upstream superpowers has advanced since the port, "restore byte-identical" is a re-port from current upstream, not a pure `git revert`. Graduates into a research sub-ticket when [01](tickets/01-revert-skill-edits-restore-fidelity.md) is worked.
-- **Plan-format convergence.** Should writing-plans' plan format and wayfind's `task_plan.md` converge to one, or stay distinct (layer parses both)? Sharpens out of [02](tickets/02-unified-coordination-layer.md).
+<!-- plan-format convergence RESOLVED by [02](tickets/02-unified-coordination-layer.md): writing-plans canonical, wayfind adjusts, Task≡phase. Graduated to [08](tickets/08-wayfind-migrates-to-writing-plans-format.md). -->
 
 ## Out of scope
 
