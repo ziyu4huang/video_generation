@@ -93,9 +93,14 @@ async function produceAndValidate(
 	for (let attempt = 1; attempt <= maxRetries; attempt++) {
 		const { system, user } = buildPrompt(stage, inputs, { feedback, schemaSpec: spec });
 		const raw = await produceFn(system, user);
+		// Strip markdown code fences (backtick-backtick-backtick-json ... backtick-backtick-backtick) before parsing —
+		// LLMs often wrap JSON in fences even when instructed not to.
+		let clean = raw.trim();
+		const fenceMatch = clean.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
+		if (fenceMatch) clean = fenceMatch[1]!.trim();
 		let parsed: unknown;
 		try {
-			parsed = JSON.parse(raw);
+			parsed = JSON.parse(clean);
 		} catch {
 			feedback = "Previous output was not valid JSON. Return ONLY a JSON object.";
 			continue;

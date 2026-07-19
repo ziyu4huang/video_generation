@@ -127,7 +127,7 @@ export function runBoundedSession(sess: BoundedSession, opts: { spawnImpl?: type
 	if (sess.toolset.length > 0) {
 		argv.push("--tools", [...sess.toolset, "read", "write"].join(","));
 	} else {
-		argv.push("--no-tools", "all");
+		argv.push("--no-tools");
 	}
 	argv.push("--exclude-tools", "movie,movie_help");
 	if (sess.model) argv.push("--model", sess.model);
