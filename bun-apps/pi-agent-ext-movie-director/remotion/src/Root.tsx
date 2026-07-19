@@ -1,23 +1,41 @@
 /**
  * Root.tsx — Composition registration + calculateMetadata.
  *
- * The composition id is `Explainer` (what the renderer's `--props` target). Its
- * duration is derived from the longest cut's out_seconds (+1s tail padding for
- * the final fade). Width/height/fps come from the props (`width`,`height`,`fps`)
- * so the orchestrator controls the delivery frame.
+ * Two compositions are registered:
+ *   • `Explainer` — the data-driven templated composition (explainer/animation).
+ *   • `Story` — the rich story composition (ticket 06): Explainer's scenes +
+ *     per-cut particle overlays + TikTok-style word-pop captions.
+ *
+ * The orchestrator (src/remotion.ts) selects which to render via the
+ * `composition` field in edit_decisions (default `Explainer`). Each composition's
+ * duration is derived from the longest cut's out_seconds (+1s tail padding).
  */
 import { Composition, type CalculateMetadataFunction } from "remotion";
+import React from "react";
 import { Explainer, type ExplainerProps } from "./Explainer";
+import { Story, type StoryProps } from "./Story";
 
-const calculateMetadata: CalculateMetadataFunction<ExplainerProps> = async ({ props }) => {
-  const cuts = props.cuts ?? [];
+const calculateExplainer: CalculateMetadataFunction<Record<string, unknown>> = async ({ props }) => {
+  const cuts = (props.cuts ?? []) as Array<{ out_seconds?: number }>;
   const lastEnd = cuts.length > 0 ? Math.max(...cuts.map((c) => c.out_seconds || 0)) : 0;
-  const durationInFrames = Math.max(1, Math.ceil((lastEnd + 1) * (props.fps ?? 30)));
+  const durationInFrames = Math.max(1, Math.ceil((lastEnd + 1) * ((props.fps as number) ?? 30)));
   return {
     durationInFrames,
-    fps: props.fps ?? 30,
-    width: props.width ?? 1920,
-    height: props.height ?? 1080,
+    fps: (props.fps as number) ?? 30,
+    width: (props.width as number) ?? 1920,
+    height: (props.height as number) ?? 1080,
+  };
+};
+
+const calculateStory: CalculateMetadataFunction<Record<string, unknown>> = async ({ props }) => {
+  const cuts = (props.cuts ?? []) as Array<{ out_seconds?: number }>;
+  const lastEnd = cuts.length > 0 ? Math.max(...cuts.map((c) => c.out_seconds || 0)) : 0;
+  const durationInFrames = Math.max(1, Math.ceil((lastEnd + 1) * ((props.fps as number) ?? 30)));
+  return {
+    durationInFrames,
+    fps: (props.fps as number) ?? 30,
+ width: (props.width as number) ?? 1920,
+    height: (props.height as number) ?? 1080,
   };
 };
 
@@ -26,7 +44,7 @@ export const Root: React.FC = () => {
     <>
       <Composition
         id="Explainer"
-        component={Explainer}
+        component={Explainer as unknown as React.FC<Record<string, unknown>>}
         durationInFrames={30 * 60}
         fps={30}
         width={1920}
@@ -42,7 +60,29 @@ export const Root: React.FC = () => {
           width: 1920,
           height: 1080,
         }}
-        calculateMetadata={calculateMetadata}
+        calculateMetadata={calculateExplainer}
+      />
+      <Composition
+        id="Story"
+        component={Story as unknown as React.FC<Record<string, unknown>>}
+        durationInFrames={30 * 60}
+        fps={30}
+        width={1920}
+        height={1080}
+        defaultProps={{
+          cuts: [],
+          overlays: [],
+          audio: {},
+          wordCues: [],
+          captionStyle: "tiktok",
+          transition: "crossfade",
+          transitionSeconds: 0.5,
+          theme: "dark",
+          fps: 30,
+          width: 1920,
+          height: 1080,
+        }}
+        calculateMetadata={calculateStory}
       />
     </>
   );

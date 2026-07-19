@@ -1,0 +1,286 @@
+name: story
+version: "1.0"
+description: >
+  Story / short-film pipeline: an original narrative (story → images/clips →
+  narration → music → captions → composed MP4), produced end-to-end by
+  movie-director's native-MLX stack. Mirrors the animated-explainer's lean 8-stage
+  spine with story-oriented review foci (narrative arc, emotional beats,
+  recurring-character consistency, shot readability), a CONDITIONAL character_design
+  stage that locks recurring characters before scene_plan, and a render_runtime
+  selector in proposal that points at the rich Story composition (particles +
+  word-pop captions) with a compose-motion fallback. SVG rig animation is out of
+  scope — consistency comes from locked flux2 reference images + per-scene
+  faceswap, not rigs.
+category: cinematic
+stability: beta
+
+default_checkpoint_policy: guided
+
+reference_input:
+  supported: true
+  analysis_depth: standard
+  analysis_tools:
+    - video_analyzer
+    - transcript_fetcher
+    - video_downloader
+    - scene_detect
+    - frame_sampler
+
+extensions:
+  custom_scripts: true
+  custom_playbooks: true
+  custom_skills: true
+  custom_tools: false
+
+required_skills:
+  - pipelines/story/executive-producer
+  - pipelines/story/research-director
+  - pipelines/story/proposal-director
+  - pipelines/story/script-director
+  - pipelines/story/character-design-director
+  - pipelines/story/scene-director
+  - pipelines/story/asset-director
+  - pipelines/story/edit-director
+  - pipelines/story/compose-director
+  - pipelines/story/publish-director
+  - meta/reviewer
+  - meta/checkpoint-protocol
+  - meta/animation-runtime-selector
+  - meta/voice-performance-director
+
+orchestration:
+  mode: executive-producer
+  skill: pipelines/story/executive-producer
+  budget_default_usd: 2.00
+  max_revisions_per_stage: 3
+  max_send_backs: 3
+  max_wall_time_minutes: 25
+
+compatible_playbooks:
+  recommended:
+    - anime-ghibli
+    - cinematic-narrative
+  also_works:
+    - clean-professional
+    - flat-motion-graphics
+  custom_allowed: true
+
+stages:
+  # ── Pre-Production ──────────────────────────────────────────────
+
+  - name: research
+    skill: pipelines/story/research-director
+    produces:
+      - research_brief
+    tools_available: []
+    checkpoint_required: false
+    human_approval_default: false
+    review_focus:
+      - Comparable story/short-film references researched (at least 3)
+      - Visual-style anchors and tone references gathered
+      - Narrative-technique notes (arc, pacing, emotional beats)
+    success_criteria:
+      - Schema-valid research_brief
+      - At least 3 angles or tone references grounded in findings
+
+  - name: proposal
+    skill: pipelines/story/proposal-director
+    required_artifacts_in:
+      - research_brief
+    produces:
+      - proposal_packet
+      - decision_log
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Concept options are genuinely different (premise, tone, visual treatment)
+      - Narrative arc is explicit (hook → rising action → climax → resolution)
+      - Recurring-character count and reuse strategy are explicit
+      - "render_runtime CHOICE presented: Story (rich — particles + word-pop, needs Remotion browser) vs compose-motion (ffmpeg, always-available fallback); default Story when a browser resolves. Recorded in decision_log (category render_runtime_selection)."
+      - Cost estimate is itemized and honest (image/video/TTS/music/compose)
+    success_criteria:
+      - Schema-valid proposal_packet with at least 3 concept_options
+      - selected_concept includes narrative_arc and audio_architecture
+      - render_runtime recorded in decision_log before proceeding
+      - approval.status is "approved" or "approved_with_changes"
+    sub_stages:
+      - name: sample
+        description: "10-15 second story preview for reference-driven productions"
+        condition: "video_analysis_brief_exists"
+        human_approval_default: true
+        tools_available: [tts_selector, image_selector, video_selector, video_compose, audio_mixer]
+        review_focus:
+          - "Sample proves the visual style and emotional tone faithfully"
+          - "Pacing matches the reference inspiration"
+
+  - name: script
+    skill: pipelines/story/script-director
+    required_artifacts_in:
+      - proposal_packet
+    optional_artifacts_in:
+      - research_brief
+    produces:
+      - script
+    tools_available:
+      - story_generator
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Script is written as action beats + narration, not narration alone
+      - Narrative arc from proposal is preserved (hook → climax → resolution)
+      - Every emotional turn is expressible visually
+      - Dialogue/narration architecture locked (single narrator / character dialogue)
+      - Recurring characters are identified for the character_design stage
+    success_criteria:
+      - Schema-valid script
+      - Total duration matches selected concept target within 10%
+      - recurring_characters declared (even if empty) so the condition below resolves
+
+  # ── Conditional character lock (only when the story has recurring characters) ─
+
+  - name: character_design
+    condition: "recurring_characters_declared"
+    skill: pipelines/story/character-design-director
+    required_artifacts_in:
+      - script
+      - proposal_packet
+    produces:
+      - character_design
+    tools_available:
+      - image_selector
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Each recurring character has a locked reference image (flux2 t2i) + spec
+      - Silhouette, palette, and key features are reusable across scenes
+      - Character count is realistic for per-scene faceswap consistency
+    success_criteria:
+      - Schema-valid character_design
+      - Every recurring character has a reference_image path + style anchors
+
+  - name: scene_plan
+    skill: pipelines/story/scene-director
+    required_artifacts_in:
+      - script
+    optional_artifacts_in:
+      - proposal_packet
+      - character_design
+    produces:
+      - scene_plan
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Scenes use character_scene / generated / broll types with timed actions
+      - Each scene has framing, movement, background, and emotional intent
+      - Recurring-character scenes reference the locked character_design
+      - Particle/overlay intent (sparkle/petal/firefly) noted where it serves mood
+      - Scene complexity fits the approved budget
+    success_criteria:
+      - Schema-valid scene_plan
+      - Full script duration covered; recurring characters reference character_design
+
+  - name: assets
+    skill: pipelines/story/asset-director
+    required_artifacts_in:
+      - scene_plan
+      - script
+    optional_artifacts_in:
+      - proposal_packet
+      - character_design
+    produces:
+      - asset_manifest
+    required_tools:
+      - tts_selector
+      - image_selector
+      - music_gen
+    optional_tools:
+      - video_selector
+    tools_available:
+      - tts_selector
+      - image_selector
+      - video_selector
+      - music_gen
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Narration covers all script sections (approved voice performance)
+      - Music track generated (local MLX MusicGen) and matches scene mood
+      - "Recurring-character consistency: every appearance uses faceswap against the locked character_design reference (no drift)"
+      - All asset files exist on disk; prompts + provenance recorded
+      - Total cost within approved budget
+    success_criteria:
+      - Schema-valid asset_manifest
+      - All referenced asset files exist
+      - Music asset present (non-silent) unless the concept is silent/ambient
+
+  - name: edit
+    skill: pipelines/story/edit-director
+    required_artifacts_in:
+      - scene_plan
+      - asset_manifest
+    optional_artifacts_in:
+      - script
+    produces:
+      - edit_decisions
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - All cuts reference valid assets from the manifest
+      - "render_runtime carried from proposal unchanged (Story vs compose-motion)"
+      - Particle + word-pop caption intent attached where the scene plan calls for it
+      - Music ducking configured under narration
+      - No timeline gaps or overlaps
+    success_criteria:
+      - Schema-valid edit_decisions
+      - Full video duration covered
+
+  - name: compose
+    skill: pipelines/story/compose-director
+    required_artifacts_in:
+      - edit_decisions
+      - asset_manifest
+    optional_artifacts_in:
+      - scene_plan
+    produces:
+      - render_report
+      - final_review
+    required_tools:
+      - video_compose
+      - audio_mixer
+    tools_available:
+      - video_compose
+      - audio_mixer
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - "render_runtime in edit_decisions matches proposal_packet — silent swap is a CRITICAL governance violation"
+      - "If render_runtime='Story': the Story composition (particles + word-pop captions) actually rendered; frame-sample to confirm particles + captions survive"
+      - Output video exists, is playable, and audio is non-silent (narration + music mixed)
+      - Duration within +/-5% of target
+    success_criteria:
+      - Schema-valid render_report
+      - Output file exists and passes ffprobe validation
+
+  - name: publish
+    skill: pipelines/story/publish-director
+    required_artifacts_in:
+      - render_report
+      - final_review
+    optional_artifacts_in:
+      - proposal_packet
+      - script
+    produces:
+      - publish_log
+    tools_available: [export_bundle]
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Metadata describes the story style honestly
+      - "Attribution recorded for MusicGen (CC-BY-4.0) and any reference inspirations"
+      - Thumbnail concept features the main character / emotional hook
+    success_criteria:
+      - Schema-valid publish_log
+      - Export directory contains video + metadata

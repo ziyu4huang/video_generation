@@ -48,6 +48,8 @@ export interface RemotionCut {
   subtitle?: string;
   source_in_seconds?: number;
   backgroundColor?: string;
+  /** Per-cut particle overlay (Story composition only). Omit / "none" for none. */
+  particles?: { type: "sparkle" | "petal" | "firefly" | "none"; density?: number; drift?: number };
 }
 
 export interface RemotionOverlay {
@@ -97,6 +99,12 @@ export interface RemotionEditDecisions {
   transitionSeconds?: number;
   /** Palette. Default "dark". */
   theme?: "dark" | "light";
+  /** Which composition to render. Default "Explainer"; "Story" adds particle + word-pop caption layers. */
+  composition?: "Explainer" | "Story";
+  /** Per-word cues (seconds) for the Story composition's TikTok-style captions (from whisper words.json). Ignored by Explainer. */
+  wordCues?: Array<{ word: string; start: number; end: number }>;
+  /** Caption style for the Story composition. Default "tiktok". */
+  captionStyle?: "tiktok" | "none";
 }
 
 export interface RemotionProps extends RemotionEditDecisions {
@@ -283,6 +291,9 @@ export async function renderRemotion(
     transition: edit.transition ?? "crossfade",
     transitionSeconds: edit.transitionSeconds ?? 0.5,
     theme: edit.theme ?? "dark",
+    composition: edit.composition,
+    wordCues: edit.wordCues,
+    captionStyle: edit.captionStyle,
     width,
     height,
     fps,
@@ -293,11 +304,12 @@ export async function renderRemotion(
   writeFileSync(propsPath, JSON.stringify(props, null, 2));
 
   const output = opts.output ?? join(opts.workDir, `compose_remotion_${Math.floor(Date.now() / 1000)}.mp4`);
+  const compositionId = edit.composition ?? "Explainer";
   const argv = [
     ...bin.pre,
     "render",
     REMOTION_ENTRY,
-    "Explainer",
+    compositionId,
     output,
     `--props=${propsPath}`,
     `--public-dir=${publicDir}`,
