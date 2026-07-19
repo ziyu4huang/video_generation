@@ -1,16 +1,6 @@
 {
   "extensions": [
-    "pi-agent-ext-obsidian/extensions/obsidian.ts",
-    "pi-agent-ext-file2md/extensions/pi-file2md.ts",
-    "pi-agent-ext-knowledge-card/extensions/pi-knowledge-card.ts",
     "pi-agent-ext-power-tool/src/index.ts",
-    {
-      "name": "pi-agent-ext-btw",
-      "entry": "pi-agent-ext-btw/extensions/pi-btw.ts",
-      "bundleMode": "thin",
-      "testGate": "cd bun-apps/pi-agent-ext-btw && bun test",
-      "version": "0.1.0"
-    },
     {
       "name": "pi-agent-ext-tool-gate",
       "entry": "pi-agent/extensions/tool-gate.ts",
@@ -26,14 +16,6 @@
       "bundleMode": "thin",
       "testGate": "cd bun-apps/pi-agent-ext-research-tool && bun test",
       "version": "0.1.0"
-    },
-    {
-      "name": "pi-agent-ext-workflow",
-      "entry": "pi-agent-ext-workflow/extensions/workflow.ts",
-      "bundleMode": "thin",
-      "fullReason": "Thin because the extension imports compiled ../src/index.js which pulls in @earendil-works/pi-ai/* deep subpaths + acorn \u2014 all resolve as residual bare specifiers under thin. Was previously lazy-only (opt-in via -e workflow); promoted to eager (default-enabled) 2026-07-10. The lazyExtensions aliases below are kept for backwards-compat (scripts/docs still pass -e workflow); the SDK loader dedups the resulting duplicate path so there is no double-load.",
-      "testGate": "cd bun-apps/pi-agent-ext-workflow && bun run build && bun test",
-      "version": "2.9.0"
     },
     {
       "name": "pi-agent-ext-zai-mcp",
@@ -69,11 +51,13 @@
     "pi-agent-ext-hermes-memory",
     "pi-agent-ext-superpowers",
     "pi-agent-ext-wayfind",
-    "pi-agent-ext-web-access"
+    "pi-agent-ext-web-access",
+    "pi-agent-ext-obsidian",
+    "pi-agent-ext-btw",
+    "pi-agent-ext-file2md",
+    "pi-agent-ext-workflow",
+    "pi-agent-ext-knowledge-card"
   ],
   "npmExtensions": [],
-  "lazyExtensions": {
-    "workflow": "pi-agent-ext-workflow/extensions/workflow.ts",
-    "dynamic-workflows": "pi-agent-ext-workflow/extensions/workflow.ts"
-  }
+  "lazyExtensions": {}
 }

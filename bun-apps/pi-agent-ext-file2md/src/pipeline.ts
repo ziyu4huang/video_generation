@@ -83,7 +83,7 @@ function parsePageSpec(spec: string, total: number): Set<number> {
 }
 
 /** Run `fn` over `items` with at most `limit` concurrent invocations (T2). */
-export async function runPool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+export async function runPool<T>(items: T[], limit: number, fn: (item: T) => Promise<unknown>): Promise<void> {
   if (limit < 1) limit = 1;
   let cursor = 0;
   const worker = async () => {

@@ -13,6 +13,9 @@ export interface MemoryEntry {
 export interface Survivor {
 	entry: MemoryEntry;
 	reason: string;
+	/** Raw pi-memory card this survivor supersedes (set when upgrading a raw
+	 *  card via the converge pipeline). Optional — absent for unique survivors. */
+	supersedesCardId?: string;
 }
 
 export interface KilledEntry {
