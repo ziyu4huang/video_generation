@@ -10,7 +10,7 @@ A single coordination layer publishes the `__piPlan*` seams, parses BOTH plan co
 
 **Two settled decisions (this effort's trunk — resolved in the charting grill):**
 
-1. **Destination = restore the byte-identical invariant.** PR #676 + #678 edited superpowers skill CONTENT, violating README:7,10,27 ("byte-identical to upstream; do not rewrite"). The test (`tests/skills.test.ts`) enforces structure only, so it passed CI silently. The invariant is restored; goal/todo driving moves OUT of the skills.
+1. **Destination = restore skill fidelity** — refined in [01](tickets/01-revert-skill-edits-restore-fidelity.md) to **"byte-identical to upstream EXCEPT necessary pi-port glue"** (the literal "byte-identical" was always too strict; a pi-port necessarily diverges for tool/action mapping). Four commits edited superpowers skills since the #617 port: #664 / #676 / #678 (convention injections — reverted by 01) + #639 (subagent-dispatch glue — kept). `tests/skills.test.ts` enforces structure only, so the violations passed CI silently.
 2. **Architecture = ONE unified coordination layer** (not two). It publishes `__piPlan*` (the names `goal.ts` + `coordination.ts` already read), parses both plan conventions, feeds the singleton goal/todo + widget. Merges the two prior efforts into one.
 
 **Key facts (already verified — don't re-litigate):**
@@ -26,7 +26,7 @@ A single coordination layer publishes the `__piPlan*` seams, parses BOTH plan co
 
 ## Decisions so far
 
-<!-- none closed yet — charting session -->
+- [01 — Revert skill edits; restore fidelity](tickets/01-revert-skill-edits-restore-fidelity.md) — reverted #664/#676/#678 convention injections → #617-port verbatim; kept #639 pi-port glue; invariant refined to "byte-identical except necessary pi-port glue"; conventions relocate to [02](tickets/02-unified-coordination-layer.md) / wayfind.
 
 ## Not yet specified
 
