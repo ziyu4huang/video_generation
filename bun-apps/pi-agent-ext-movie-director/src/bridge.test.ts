@@ -409,7 +409,7 @@ describe("adaptCaption — run.py caption adapter contract (Details → ToolResu
       exitCode: 0,
       aborted: false,
       captionPath: "/out/img.png.caption.json",
-      model: "google/gemma-4-26b-a4b-qat",
+      model: "google/gemma-4-12b-qat",
       styles: ["score"],
       text: '{"overall": 7, "issues": ["oversmoothed skin"]}',
       stdout: "[caption] done",
@@ -425,7 +425,7 @@ describe("adaptCaption — run.py caption adapter contract (Details → ToolResu
     expect(r.command).toBe("caption");
     expect(r.seed).toBeNull();
     // model from the caption JSON — the local gemma brain, NEVER a cloud id.
-    expect(r.model).toBe("google/gemma-4-26b-a4b-qat");
+    expect(r.model).toBe("google/gemma-4-12b-qat");
     expect(r.cost_usd).toBe(0); // local silicon analysis — honest $0
     expect(r.artifacts).toEqual([
       { path: "/out/img.png.caption.json", kind: "text", role: "caption" },

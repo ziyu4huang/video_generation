@@ -37,7 +37,7 @@ def test_fast_path_sends_reasoning_effort_none(monkeypatch):
         }}]})
 
     monkeypatch.setattr(gb, "_lmstudio_ensure_model", lambda *a, **k: None)
-    monkeypatch.setattr(gb, "resolve_default_model", lambda api_url: "google/gemma-4-26b-a4b-qat")
+    monkeypatch.setattr(gb, "resolve_default_model", lambda api_url: "google/gemma-4-12b-qat")
     monkeypatch.setattr("requests.post", fake_post)
 
     scenes = gb.decompose_story("a short detective story", num_panels=1)
@@ -68,7 +68,7 @@ def test_decompose_fast_path_no_json_retries_large(monkeypatch):
         }}]})
 
     monkeypatch.setattr(gb, "_lmstudio_ensure_model", lambda *a, **k: None)
-    monkeypatch.setattr(gb, "resolve_default_model", lambda api_url: "google/gemma-4-26b-a4b-qat")
+    monkeypatch.setattr(gb, "resolve_default_model", lambda api_url: "google/gemma-4-12b-qat")
     monkeypatch.setattr("requests.post", fake_post)
 
     scenes = gb.decompose_story("a short detective story", num_panels=1)
@@ -91,7 +91,7 @@ def test_decompose_reasoning_content_fallback(monkeypatch):
         }}]})
 
     monkeypatch.setattr(gb, "_lmstudio_ensure_model", lambda *a, **k: None)
-    monkeypatch.setattr(gb, "resolve_default_model", lambda api_url: "google/gemma-4-26b-a4b-qat")
+    monkeypatch.setattr(gb, "resolve_default_model", lambda api_url: "google/gemma-4-12b-qat")
     monkeypatch.setattr("requests.post", fake_post)
 
     scenes = gb.decompose_story("story", num_panels=1)

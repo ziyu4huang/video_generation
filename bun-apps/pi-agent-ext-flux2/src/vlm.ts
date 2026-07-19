@@ -47,7 +47,7 @@ async function lmStudioRegistry(): Promise<ModelRegistry> {
         api: "openai-completions",
         apiKey: "lm-studio",
         models: [
-          { id: "google/gemma-4-26b-a4b-qat", name: "Gemma 4 26B (LM Studio)", reasoning: true, input: ["text", "image"], contextWindow: 128000, maxTokens: 16384, cost: FREE_COST, compat: LM_STUDIO_COMPAT },
+          { id: "google/gemma-4-12b-qat", name: "Gemma 4 26B (LM Studio)", reasoning: true, input: ["text", "image"], contextWindow: 128000, maxTokens: 16384, cost: FREE_COST, compat: LM_STUDIO_COMPAT },
           { id: "google/gemma-4-31b-qat", name: "Gemma 4 31B (LM Studio)", reasoning: true, input: ["text", "image"], contextWindow: 128000, maxTokens: 16384, cost: FREE_COST, compat: LM_STUDIO_COMPAT },
           { id: "qwen/qwen3-vl-4b", name: "Qwen3 VL 4B (LM Studio)", reasoning: true, input: ["text", "image"], contextWindow: 131072, maxTokens: 16384, cost: FREE_COST, compat: LM_STUDIO_COMPAT },
         ],
@@ -58,7 +58,7 @@ async function lmStudioRegistry(): Promise<ModelRegistry> {
   return _lmStudioRegistry;
 }
 
-/** Default: lm-studio/google/gemma-4-26b-a4b-qat (per pi-file2md's resolveLLM default). */
+/** Default: lm-studio/google/gemma-4-12b-qat (per pi-file2md's resolveLLM default). */
 export function resolveVlmLLM(modelOverride?: string): ResolvedLLM {
   return resolveLLM(modelOverride ? { model: modelOverride } : {});
 }

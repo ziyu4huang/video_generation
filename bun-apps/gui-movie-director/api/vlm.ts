@@ -1,7 +1,7 @@
 import { loadConfig, vlmModelIsAuto } from "../lib/config";
 
 // Mirror caption.py constants — kept in sync manually.
-const PREFERRED_VLM = "google/gemma-4-26b-a4b-qat";  // Gemma 26B (better, never auto-loaded)
+const PREFERRED_VLM = "google/gemma-4-12b-qat";  // Gemma 26B (better, never auto-loaded)
 const DEFAULT_VLM   = "qwen/qwen3-vl-4b";              // Qwen 4B  (default, auto-loaded when needed)
 
 interface VlmTestResult {

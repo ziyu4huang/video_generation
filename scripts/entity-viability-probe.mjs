@@ -20,7 +20,7 @@ const CACHE = join(OUT_DIR, "viability-entities.json");
 const VAULT = process.env.OB_VAULT_PATH ?? "/Users/huangziyu/proj/video_generation/vaults_root/pi-agent-vault";
 const FOLDER_DIR = join(VAULT, "Zettelkasten/knowledge-graph");
 const LM_URL = "http://127.0.0.1:1234/v1/chat/completions";
-const MODEL = "google/gemma-4-26b-a4b-qat";
+const MODEL = "google/gemma-4-12b-qat";
 
 function normName(n) { return n.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
 

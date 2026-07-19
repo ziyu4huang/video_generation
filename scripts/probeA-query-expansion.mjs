@@ -13,7 +13,7 @@ import { writeFileSync, readFileSync, existsSync } from "node:fs";
 const REPO = resolve(import.meta.dirname, "..");
 const CACHE = resolve(REPO, ".planning/recall-regime-change-eval/probes/probeA-expansions.json");
 const FOLDER = "Zettelkasten/knowledge-graph";
-const MODEL = "google/gemma-4-26b-a4b-qat";
+const MODEL = "google/gemma-4-12b-qat";
 
 // Instruction-echo + common-word stopwords (gemma echoes the prompt — filter hard).
 const STOP = new Set(["the","and","for","with","that","this","are","was","were","only","into","about","from","each","then","than","when","what","which","have","has","they","them","their","will","can","may","might","must","all","any","some","out","off","over","your","you","not","but","its","our","his","her","she","him","get","got","run","set","put","new","old","one","two","use","used","using","also","would","should","could","keyword","keywords","lowercase","comma","separated","reply","list","term","terms","topic","root","cause","search","developer","user","query","goal","constraint","type","types","synonym","synonyms","card","title","nothing","only","problem","suspected","likely","framework","mechanism","behavior","unexpected","goalgenerate","goalextract","goallist","topicterms","causeterms","cardtitle","etc","items","output","format","question","answer","description","above","below","backticks","highlight","exactly"]);

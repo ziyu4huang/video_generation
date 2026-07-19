@@ -105,7 +105,7 @@ describe("buildMainSpec — provider/model composition", () => {
 		assert.equal(buildMainSpec(args({})), undefined);
 	});
 	it("keeps an already-qualified model (contains '/') verbatim", () => {
-		assert.equal(buildMainSpec(args({ model: "lm-studio/google/gemma-4-26b-a4b-qat" })), "lm-studio/google/gemma-4-26b-a4b-qat");
+		assert.equal(buildMainSpec(args({ model: "lm-studio/google/gemma-4-12b-qat" })), "lm-studio/google/gemma-4-12b-qat");
 	});
 	it("prefixes provider when model has no '/'", () => {
 		assert.equal(buildMainSpec(args({ model: "gemma-4-26b", provider: "lm-studio" })), "lm-studio/gemma-4-26b");

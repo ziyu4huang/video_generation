@@ -64,7 +64,7 @@ export function ConfigVlmSection({ vlmApiUrl, vlmModel, config, onUpdate }: Prop
           />
           <small style={{ color: "var(--text-dim)", fontSize: 11 }}>
             <code>auto</code> (default) = use the best loaded VLM (prefers Gemma 26B
-            when loaded, else Qwen 4B). Or paste a specific id (e.g. <code>google/gemma-4-26b-a4b-qat</code>) to force it.
+            when loaded, else Qwen 4B). Or paste a specific id (e.g. <code>google/gemma-4-12b-qat</code>) to force it.
           </small>
         </div>
       </div>
