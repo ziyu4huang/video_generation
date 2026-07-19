@@ -149,6 +149,7 @@ function loadSessionFiles(sessionsDir: string, maxFiles = 500): SessionFile[] {
 }
 
 export const sessionsCommand = {
+	name: "sessions",
 	summary: "search past pi-agent session transcripts (offline, no LLM)",
 	details: `Usage:
   bun-pi-agent-cli sessions <query> [options]

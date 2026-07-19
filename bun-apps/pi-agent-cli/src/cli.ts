@@ -61,84 +61,19 @@ export interface Command {
  * Order = display order in `help`.
  */
 const COMMANDS: Command[] = [
-  {
-    name: "chat",
-    summary: chatCommand.summary,
-    details: chatCommand.details,
-    run: chatCommand.run,
-  },
-  {
-    name: "agent",
-    summary: agentCommand.summary,
-    details: agentCommand.details,
-    run: agentCommand.run,
-  },
-  {
-    name: "file2md",
-    summary: file2mdCommand.summary,
-    details: file2mdCommand.details,
-    run: file2mdCommand.run,
-  },
-  {
-    name: "zk-extract",
-    summary: zkExtractCommand.summary,
-    details: zkExtractCommand.details,
-    run: zkExtractCommand.run,
-  },
-  {
-    name: "zk-card",
-    summary: zkCardCommand.summary,
-    details: zkCardCommand.details,
-    run: zkCardCommand.run,
-  },
-  {
-    name: "zk-ask",
-    summary: zkAskCommand.summary,
-    details: zkAskCommand.details,
-    run: zkAskCommand.run,
-  },
-  {
-    name: "zk-ingest",
-    summary: zkIngestCommand.summary,
-    details: zkIngestCommand.details,
-    run: zkIngestCommand.run,
-  },
-  {
-    name: "zk-query",
-    summary: zkQueryCommand.summary,
-    details: zkQueryCommand.details,
-    run: zkQueryCommand.run,
-  },
-  {
-    name: "kcard-loop",
-    summary: kcardLoopCommand.summary,
-    details: kcardLoopCommand.details,
-    run: kcardLoopCommand.run,
-  },
-  {
-    name: "doctor",
-    summary: doctorCommand.summary,
-    details: doctorCommand.details,
-    run: doctorCommand.run,
-  },
-  {
-    name: "tools-metrics",
-    summary: toolsMetricsCommand.summary,
-    details: toolsMetricsCommand.details,
-    run: toolsMetricsCommand.run,
-  },
-  {
-    name: "sessions",
-    summary: sessionsCommand.summary,
-    details: sessionsCommand.details,
-    run: sessionsCommand.run,
-  },
-  {
-    name: "memory",
-    summary: memoryCommand.summary,
-    details: memoryCommand.details,
-    run: memoryCommand.run,
-  },
+  chatCommand,
+  agentCommand,
+  file2mdCommand,
+  zkExtractCommand,
+  zkCardCommand,
+  zkAskCommand,
+  zkIngestCommand,
+  zkQueryCommand,
+  kcardLoopCommand,
+  doctorCommand,
+  toolsMetricsCommand,
+  sessionsCommand,
+  memoryCommand,
   // Extension-backed sub-commands (each = one workspace extension exporting an
   // ExtensionSubcommandSpec). See src/extensions/registry.ts.
   ...EXTENSION_COMMANDS,
@@ -149,36 +84,11 @@ const COMMANDS: Command[] = [
  * Order = display order in `help`.
  */
 const PIPELINES: Command[] = [
-  {
-    name: "pdf-to-vault",
-    summary: pdfToVaultCommand.summary,
-    details: pdfToVaultCommand.details,
-    run: pdfToVaultCommand.run,
-  },
-  {
-    name: "image-to-vault",
-    summary: imageToVaultCommand.summary,
-    details: imageToVaultCommand.details,
-    run: imageToVaultCommand.run,
-  },
-  {
-    name: "url-to-vault",
-    summary: urlToVaultCommand.summary,
-    details: urlToVaultCommand.details,
-    run: urlToVaultCommand.run,
-  },
-  {
-    name: "youtube-to-vault",
-    summary: youtubeToVaultCommand.summary,
-    details: youtubeToVaultCommand.details,
-    run: youtubeToVaultCommand.run,
-  },
-  {
-    name: "memory-to-vault",
-    summary: memoryToVaultCommand.summary,
-    details: memoryToVaultCommand.details,
-    run: memoryToVaultCommand.run,
-  },
+  pdfToVaultCommand,
+  imageToVaultCommand,
+  urlToVaultCommand,
+  youtubeToVaultCommand,
+  memoryToVaultCommand,
 ];
 
 /**
@@ -186,20 +96,7 @@ const PIPELINES: Command[] = [
  * NOT an agent command: calls `runWorkflow()` directly (deterministic gates).
  * See commands/workflow.ts + ../docs/workflow-cli.md.
  */
-const WORKFLOWS: Command[] = [
-  {
-    name: "run",
-    summary: workflowRunCommand.summary,
-    details: workflowRunCommand.details,
-    run: workflowRunCommand.run,
-  },
-  {
-    name: "list",
-    summary: workflowListCommand.summary,
-    details: workflowListCommand.details,
-    run: workflowListCommand.run,
-  },
-];
+const WORKFLOWS: Command[] = [workflowRunCommand, workflowListCommand];
 
 /** Meta commands (not agent workflows). */
 const META = ["list", "list-tools", "completions", "version", "help"] as const;
