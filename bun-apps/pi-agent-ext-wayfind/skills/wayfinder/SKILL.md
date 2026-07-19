@@ -121,8 +121,9 @@ User invokes with a map (path) or an effort slug. A ticket is **optional** — w
 
 1. Load the **map** — the low-res view, not every ticket body.
 2. Choose the ticket. If the user named one, use it. Otherwise take the first frontier ticket in order. **Claim it**: add a `claimed:` line before any work.
-3. Resolve it — **zoom as needed**: read the full body of any related or closed ticket on demand; invoke the skills the `## Notes` block names. If in doubt, use `grilling` and `domain-modeling`.
-4. Record the resolution: append the answer as a **resolution** to the ticket, mark it **closed**, and **append a pointer** to the map's Decisions-so-far.
-5. Add newly-surfaced tickets (create-then-wire); graduate any fog the answer has made specifiable, clearing each graduated patch from **Not yet specified** so it lives only as its new ticket. If the answer reveals a ticket — this one or another — sits beyond the destination, **rule it out of scope** rather than resolving it on the route. If the decision invalidates other parts of the map, update or delete those tickets.
+3. **Set a `/goal`** with the ticket's title as the objective and its acceptance criteria as completion targets. This activates plan-mode coordination (`goal_complete` gating, `todo` tracking, progress publishing via `__piPlan*` seams) so mid-resolution tooling works correctly. Use the built-in goal-setting mechanism (the tool or command that creates the active goal).
+4. Resolve it — **zoom as needed**: read the full body of any related or closed ticket on demand; invoke the skills the `## Notes` block names. If in doubt, use `grilling` and `domain-modeling`. For **Task** tickets, call `goal_complete` when the deliverable is met — the goal gate validates plan completion before the ticket can close.
+5. Record the resolution: append the answer as a **resolution** to the ticket, mark it **closed**, and **append a pointer** to the map's Decisions-so-far. The goal auto-closes with `goal_complete`; no separate cleanup needed.
+6. Add newly-surfaced tickets (create-then-wire); graduate any fog the answer has made specifiable, clearing each graduated patch from **Not yet specified** so it lives only as its new ticket. If the answer reveals a ticket — this one or another — sits beyond the destination, **rule it out of scope** rather than resolving it on the route. If the decision invalidates other parts of the map, update or delete those tickets.
 
 The user may run unblocked tickets in parallel, so expect other sessions to be editing the map dir concurrently.

@@ -1,5 +1,7 @@
 # pi-agent-ext-wayfind
 
+> **Part of the [Superpowers](../pi-agent-ext-superpowers/README.md) ecosystem** — the grilling + wayfinder family is the decompose-and-decide phase of the Superpowers methodology.
+
 A **Pi-native** port of [Matt Pocock's decision-chain skill suite](https://github.com/mattpocock/skills) — the grilling + wayfinder family that turns a fuzzy plan or a huge effort into settled decisions before any code is written. Ships as a first-class Pi extension package: CSO-compliant skills **plus** slash commands that kick off grilling/wayfinding sessions.
 
 **Pure TypeScript — no `python3`, no shell.** The grilling/wayfinding interview is driven by the agent; the extension provides the commands, the on-disk map store, and a coordination seam with the plan coordinator.
