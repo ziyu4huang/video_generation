@@ -353,7 +353,7 @@ export const REGISTRY: ProviderEntry[] = [
   // Pure swift/MLX Whisper (ltx-video transcribe) entry, spawned by the
   // bun:whisper adapter. Segment-level timestamps now; per-word DTW is P2b.
   { name: "transcriber", capability: "analysis", provider: "whisper", backend: "native_swift", invoke: "bun:whisper", configured: true, commands: ["transcribe"], notes: "swift/MLX Whisper (ltx-video transcribe) → segment timestamps + transcript" },
-  { name: "video_understand", capability: "analysis", provider: "clip", backend: "native_swift", invoke: "bun:clip", configured: true, commands: ["video_understand"], notes: "CLIP video understanding (python/clip_understand.py) — frame×prompt cosine score via transformers + torch MPS" },
+  { name: "video_understand", capability: "analysis", provider: "clip", backend: "native_swift", invoke: "bun:clip", configured: true, commands: ["video_understand"], notes: "CLIP video understanding (swift/clip-director, native MLX) — frame×prompt cosine score via ViT-B/32 + projections" },
   { name: "caption_vlm", capability: "analysis", provider: "caption-vlm", backend: "native_swift", invoke: "mlx:caption", configured: true, commands: ["caption"], notes: "Local VLM captioning (run.py caption → gemma brain; Qwen3-VL only as no-gemma fallback). 14 styles incl score/pose_dsg/photography. The explicit callable replacement for OM's 'orchestrator-LLM-is-the-vision-model' assumption — probeConfigured checks run.py+venv presence (model-load is runtime). Emits <image>.caption.json (kind:text artifact)" },
 
   // Enhancement.
