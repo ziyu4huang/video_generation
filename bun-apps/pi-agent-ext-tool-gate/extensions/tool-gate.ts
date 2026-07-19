@@ -314,14 +314,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     lastPrompt = "";
 
     const active = computeActiveTools("", allToolNames, sticky);
-    // setActiveTools failure is non-fatal: the closure vars (allToolNames /
-    // sticky) are already populated, so enable_tool still operates. Escape-hatch
-    // reliability — a throwing setActiveTools must never crash session_start.
-    try {
-      pi.setActiveTools(active);
-    } catch {
-      /* degraded: tools ungated this turn; enable_tool can still activate */
-    }
+    pi.setActiveTools(active);
 
     // G fix: only count loaded gates (computeBannerSaved filters by allToolNames).
     const saved = computeBannerSaved(active, allToolNames);
@@ -347,13 +340,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
 
     const before = new Set(sticky);
     const active = computeActiveTools(prompt, allToolNames, sticky);
-    // Same escape-hatch reliability contract as session_start: a throwing
-    // setActiveTools must never crash the per-turn handler.
-    try {
-      pi.setActiveTools(active);
-    } catch {
-      /* degraded: tools ungated this turn; enable_tool can still activate */
-    }
+    pi.setActiveTools(active);
 
     // telemetry: which gates newly fired this turn, which are still dormant
     const gatesFired = GATES

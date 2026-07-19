@@ -224,7 +224,6 @@ describe("enable_tool (S1 A escape hatch)", () => {
       on: (ev: string, h: any) => { handlers[ev] = h; },
     };
     toolGateExtension(pi);
-    if (handlers.session_start) handlers.session_start({}, { ui: { theme: { fg: (_k: string, s: string) => s }, setWidget: () => {} } });
     const enableTool = (pi as any)._t;
     const res = await enableTool.execute("id", { intent: "make a video" });
     expect(res.content[0].text).toMatch(/error/i);
