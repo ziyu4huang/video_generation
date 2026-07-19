@@ -17,7 +17,7 @@
  * assignable to pi-agent-cli's `ExtensionSubcommandSpec`). See
  * `bun-apps/pi-agent-cli/src/extensions/types.ts` for the canonical shape.
  */
-import extension from "./pi-flux2.ts";
+import extension from "./flux2.ts";
 
 /** Local shape of pi-agent-cli's ExtensionSubcommandSpec (structural match). */
 interface ExtensionSubcommandSpec {

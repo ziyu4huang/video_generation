@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import extension from "./pi-ltx.ts";
+import extension from "./ltx.ts";
 import { PathSafetyError, COMMAND_LIST } from "../src/index.ts";
 
 // Wiring test for the extension factory itself — exercises the same

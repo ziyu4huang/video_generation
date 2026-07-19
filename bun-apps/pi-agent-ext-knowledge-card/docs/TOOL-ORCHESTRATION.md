@@ -56,7 +56,7 @@ flowchart TB
       L4["emit.ts<br/><small>emitKnowledge · onKnowledge<br/>(event bus)</small>"]:::lib
       L5["similarity.ts<br/><small>tokenise · jaccard · bestMatch</small>"]:::lib
     end
-    EXT["extensions/pi-knowledge-card.ts<br/><small>buildXxxTask builders + allowlists<br/>(SINGLE SOURCE OF TRUTH)</small>"]:::hub
+    EXT["extensions/knowledge-card.ts<br/><small>buildXxxTask builders + allowlists<br/>(SINGLE SOURCE OF TRUTH)</small>"]:::hub
 
     EXT --- T2 & T3 & T4 & T5
     T4 -->|"execute() calls"| L1

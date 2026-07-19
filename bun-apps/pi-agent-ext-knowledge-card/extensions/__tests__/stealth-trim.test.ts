@@ -7,7 +7,7 @@
  * `pi.registerCommand`/`pi.on` etc.; only `registerTool` is captured).
  */
 import { test, expect } from "bun:test";
-import piKnowledgeCardExtension from "../pi-knowledge-card.ts";
+import piKnowledgeCardExtension from "../knowledge-card.ts";
 
 function captureTools(): Record<string, Record<string, unknown>> {
 	// knowledge-card's factory also reads `pi.events` (the workflow host-fn bus),

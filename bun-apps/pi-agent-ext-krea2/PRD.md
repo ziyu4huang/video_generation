@@ -22,5 +22,5 @@ A pi extension that wraps the `swift/krea2-image-director` CLI as one `krea2` di
 ## Use
 
 ```bash
-bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-krea2/extensions/pi-krea2.ts -p "generate..."
+bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-krea2/extensions/krea2.ts -p "generate..."
 ```

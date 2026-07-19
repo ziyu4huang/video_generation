@@ -23,7 +23,7 @@ MLX_OUTPUT_DIR=../video_generation__output/agent-local-llm-20260707 \
 BUN_PI_LOAD_RUN_DIR=FALSE \
 bun bun-apps/pi-agent/src/cli.ts \
   --no-extensions \
-  -e bun-apps/pi-agent-ext-movie-director/extensions/pi-movie-director.ts \
+  -e bun-apps/pi-agent-ext-movie-director/extensions/movie-director.ts \
   --model "lm-studio/google/gemma-4-26b-a4b-qat:medium" \
   -p "<directive: call movie generate {image_generation, t2i, ...} once>"
 ```
@@ -33,7 +33,7 @@ bun bun-apps/pi-agent/src/cli.ts \
 - `BUN_PI_LOAD_RUN_DIR=FALSE` + `--no-extensions` isolates the session to ONLY the
   `-e` path (sidesteps the JITI `NameTooLong` splice from power-tool — same shape
   the 2026-07-05 `h-real-agent-driven` receipt established).
-- `movie` is an **extension action** (`extensions/pi-movie-director.ts`), not a
+- `movie` is an **extension action** (`extensions/movie-director.ts`), not a
   built-in tool — loaded solely via `-e`.
 
 ## 2. Outcome

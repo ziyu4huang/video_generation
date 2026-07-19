@@ -23,7 +23,7 @@ import {
 	healGraph,
 	formatHealth,
 } from "../src/retrieve.ts";
-import { buildRagTask } from "../extensions/pi-knowledge-card.ts";
+import { buildRagTask } from "../extensions/knowledge-card.ts";
 import type { Embedder } from "../src/semantic.ts";
 
 let vault: string;

@@ -1,5 +1,5 @@
 /**
- * vision_ask tool wrapper — the tool registered by extensions/pi-file2md.ts.
+ * vision_ask tool wrapper — the tool registered by extensions/file2md.ts.
  *
  * The tool is a thin wrapper over askImage() (whose I/O is covered by
  * ask-io.test.ts). Here we mock session-factory.ts and exercise the actual
@@ -55,7 +55,7 @@ const fakePi = {
     tools[def.name] = def;
   },
 };
-const ext = (await import("../extensions/pi-file2md.ts")).default;
+const ext = (await import("../extensions/file2md.ts")).default;
 ext(fakePi as any);
 
 let dir: string;

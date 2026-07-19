@@ -24,5 +24,5 @@ A pi extension that wraps the `swift/ltx-video-director` CLI as one `ltx` dispat
 ## Use
 
 ```bash
-bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-ltx/extensions/pi-ltx.ts -p "generate video..."
+bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-ltx/extensions/ltx.ts -p "generate video..."
 ```

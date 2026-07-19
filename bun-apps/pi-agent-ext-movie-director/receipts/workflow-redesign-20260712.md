@@ -17,7 +17,7 @@ and standalone CLI. Three new surfaces:
   `runWorkflow({ hostFns })`.
 - `extensions/movie-host-fns.ts` — `registerMovieHostFns(pi)` emits the entries
   over the `workflow:hostfn:v1:register` event bus + re-emits on request
-  (knowledge-card `zk.*` pattern). Wired into `pi-movie-director.ts`.
+  (knowledge-card `zk.*` pattern). Wired into `movie-director.ts`.
 
 The full surface (callable from any workflow script):
 `movie.preflight | pipeline-list | pipeline-show | init-project | list-projects |
@@ -99,7 +99,7 @@ src/host-fns.test.ts                 # 13 unit tests
 extensions/movie-host-fns.ts         # event-bus registration (workflow-ext runs)
 extensions/movie-workflows.ts        # /command registration (own runWorkflow runs)
 extensions/movie-workflows.test.ts   # structural test (parse + ref resolution)
-extensions/pi-movie-director.ts      # wired: registerMovieHostFns + registerMovieWorkflows
+extensions/movie-director.ts      # wired: registerMovieHostFns + registerMovieWorkflows
 workflows/scene-assets.js
 workflows/research-first.js
 workflows/review-cut.js

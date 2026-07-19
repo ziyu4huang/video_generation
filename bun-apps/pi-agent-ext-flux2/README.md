@@ -33,7 +33,7 @@ guards — so an agent can generate, gate, and chain images without memorizing f
 ```bash
 # Source mode (hot):
 bun bun-apps/pi-agent/src/cli.ts \
-  -e bun-apps/pi-agent-ext-flux2/extensions/pi-flux2.ts \
+  -e bun-apps/pi-agent-ext-flux2/extensions/flux2.ts \
   -p "generate a 1024×1024 t2i image of a cat, seed 42"
 ```
 
@@ -90,7 +90,7 @@ bun run build:bundle    # produce the single-file bundle
 ## Layout
 
 ```
-extensions/pi-flux2.ts   # the dispatcher tool (thin wrapper around runFlux2)
+extensions/flux2.ts   # the dispatcher tool (thin wrapper around runFlux2)
 src/index.ts             # runFlux2() — pure, pi-free pipeline
 src/commands.ts          # 18 commands: typed params + flag map (source of truth)
 src/binary.ts            # resolve / auto-build the flux2 binary

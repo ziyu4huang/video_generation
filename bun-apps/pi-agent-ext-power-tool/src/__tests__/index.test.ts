@@ -598,9 +598,9 @@ describe("analyzeExtensions — lazy-loaded extensions", () => {
       { name: "a", description: "d", parameters: { type: "object" }, promptGuidelines: [], sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "active.ts" } },
     ];
     const inactive = [
-      { name: "flux2", description: "dd", parameters: { type: "object" }, promptGuidelines: [], sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "bun-apps/pi-agent-ext-flux2/extensions/pi-flux2.ts" } },
-      { name: "flux2_help", description: "dd", parameters: { type: "object" }, promptGuidelines: [], sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "bun-apps/pi-agent-ext-flux2/extensions/pi-flux2.ts" } },
-      { name: "ltx", description: "dd", parameters: { type: "object" }, promptGuidelines: [], sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "bun-apps/pi-agent-ext-ltx/extensions/pi-ltx.ts" } },
+      { name: "flux2", description: "dd", parameters: { type: "object" }, promptGuidelines: [], sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "bun-apps/pi-agent-ext-flux2/extensions/flux2.ts" } },
+      { name: "flux2_help", description: "dd", parameters: { type: "object" }, promptGuidelines: [], sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "bun-apps/pi-agent-ext-flux2/extensions/flux2.ts" } },
+      { name: "ltx", description: "dd", parameters: { type: "object" }, promptGuidelines: [], sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "bun-apps/pi-agent-ext-ltx/extensions/ltx.ts" } },
     ];
     const findings = analyzeWith(active, { inactiveTools: inactive });
     const lazy = findings.filter((x) => x.check === "lazy-loaded-extension");
@@ -649,7 +649,7 @@ describe("analyzeExtensions — lazy-loaded extensions", () => {
 
   test("formatExtensionReport renders a lazy-loaded section", () => {
     const inactive = [
-      { name: "flux2", description: "dd", parameters: { type: "object" }, promptGuidelines: [], sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "bun-apps/pi-agent-ext-flux2/extensions/pi-flux2.ts" } },
+      { name: "flux2", description: "dd", parameters: { type: "object" }, promptGuidelines: [], sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "bun-apps/pi-agent-ext-flux2/extensions/flux2.ts" } },
     ];
     const text = formatExtensionReport(analyzeWith(HEALTHY_TOOLS, { inactiveTools: inactive }));
     expect(text).toContain("Lazy-loaded extensions");
@@ -729,14 +729,14 @@ describe("inspect_extensions (tool end-to-end)", () => {
         description: "Generate images with Flux2.",
         parameters: { type: "object", properties: { cmd: { type: "string" } } },
         promptGuidelines: [],
-        sourceInfo: { source: "cli", scope: "user", origin: "top-level", path: "bun-apps/pi-agent-ext-flux2/extensions/pi-flux2.ts" },
+        sourceInfo: { source: "cli", scope: "user", origin: "top-level", path: "bun-apps/pi-agent-ext-flux2/extensions/flux2.ts" },
       },
       {
         name: "ltx",
         description: "Generate video with LTX.",
         parameters: { type: "object", properties: { cmd: { type: "string" } } },
         promptGuidelines: [],
-        sourceInfo: { source: "cli", scope: "user", origin: "top-level", path: "bun-apps/pi-agent-ext-ltx/extensions/pi-ltx.ts" },
+        sourceInfo: { source: "cli", scope: "user", origin: "top-level", path: "bun-apps/pi-agent-ext-ltx/extensions/ltx.ts" },
       },
     ];
     const { captured } = loadExtension(allTools);

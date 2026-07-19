@@ -30,11 +30,11 @@ NOT hermes.** Hermes is a pure TIER-0 foundation with no upward dependency
 edge. But the dual-namespace is STILL ALIVE in two emitters:
 
 **Path X — canonical/good:** `convergeHermesMemory(vaultPath, hermesDir)`
-(`extensions/pi-knowledge-card.ts:579`) reads every `.md` in the hermes dir,
+(`extensions/knowledge-card.ts:579`) reads every `.md` in the hermes dir,
 adapts via `adaptHermesMarkdown`, ingests via `ingestRecords` with
 `wikiAware: true`. Mints **`hermes:<slug>`** — deterministic, idempotent,
 canonical. Triggered by a `session_shutdown` auto-converge hook
-(`pi-knowledge-card.ts:618`) that is **best-effort + silent-fail** (empty
+(`knowledge-card.ts:618`) that is **best-effort + silent-fail** (empty
 `catch`, "Never blocks shutdown", `OB_HERMES_AUTOCONVERGE=0` disables). Also
 reachable via `zk_ingest --source hermes`.
 

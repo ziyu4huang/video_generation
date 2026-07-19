@@ -5,7 +5,7 @@
  * args → spawn → parse. It has NO dependency on the pi SDK, so it is unit-
  * testable and importable from the extension OR a future CLI command.
  *
- * The extension (extensions/pi-flux2.ts) is a thin wrapper that maps the typed
+ * The extension (extensions/flux2.ts) is a thin wrapper that maps the typed
  * tool parameters onto this function and shapes the ToolResult.
  */
 import { ensureBinary, resolveRepoRoot } from "./binary.ts";

@@ -15,7 +15,7 @@
  * local structurally-compatible interface (TS structural typing makes it
  * assignable to pi-agent-cli's `ExtensionSubcommandSpec`).
  */
-import extension from "./pi-krea2.ts";
+import extension from "./krea2.ts";
 
 /** Local shape of pi-agent-cli's ExtensionSubcommandSpec (structural match). */
 interface ExtensionSubcommandSpec {

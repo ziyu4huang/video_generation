@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import extension from "./pi-movie-director.ts";
+import extension from "./movie-director.ts";
 import { scopeViolationForToolCall, configureBudget, recordDecision } from "../src/index.ts";
 
 // Wiring test for the extension factory — registers one well-formed tool and

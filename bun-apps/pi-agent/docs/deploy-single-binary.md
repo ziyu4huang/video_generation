@@ -58,7 +58,7 @@ it's simply unavailable in the compiled binary.
 ### Why relative imports, not `@repo/pkg/...` specifiers
 
 `static-extensions.ts` imports each extension by relative path
-(`../../pi-agent-ext-goal-todo/extensions/pi-goal-todo-ask.ts`), not a
+(`../../pi-agent-ext-goal-todo/extensions/goal-todo.ts`), not a
 package specifier. Two of the five (`pi-agent-ext-superpowers`,
 `pi-agent-ext-wayfind`) declare a package.json `exports` map that only
 exposes the root `.` entry, pointing at a `dist/index.js` build output that
