@@ -1,7 +1,8 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { applyHostFnRegistration, HostFnRegistry } from "../src/host-fn-registry.js";
 import { createSubagentTool } from "../src/subagent-tool.js";
-import { reconstructSubagentRuns, SubagentViewer } from "../src/subagent-viewer.js";
+import { createSubagentsCommand } from "../src/subagents-command.js";
+import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
 import {
   buildWorkflowGuidelinesForTurn,
   createEffortState,
@@ -65,9 +66,11 @@ export default function extension(pi: ExtensionAPI) {
   // Both WorkflowManager (workflow runs) and the subagent tool (direct dispatches)
   // bridge these into child sessions so children inherit the parent's extension tools.
   const extensionToolsHolder: { current: ToolDefinition[] | undefined } = { current: undefined };
+  const subagentInFlight = new SubagentInFlightRegistry();
   const subagentTool = createSubagentTool({
     cwd,
     getExtensionTools: () => extensionToolsHolder.current,
+    inFlight: subagentInFlight,
   });
   // Best-effort guard: this repo expects pi-agent-ext-workflow to own the
   // 'subagent' tool name. If another extension (e.g. a real pi-subagents
@@ -87,30 +90,10 @@ export default function extension(pi: ExtensionAPI) {
   const workflowControlTool = createWorkflowControlTool({ manager });
   pi.registerTool(workflowControlTool);
 
-  // /subagents — list past subagent runs on this branch and view their full
-  // output (todo-style: reconstruct from session toolResults, no live stream).
-  pi.registerCommand("subagents", {
-    description: "List past subagent runs on this branch and view their output",
-    handler: async (_args, ctx) => {
-      if (ctx.mode !== "tui") {
-        ctx.ui.notify("/subagents requires interactive mode", "error");
-        return;
-      }
-      const branch = (ctx.sessionManager?.getBranch() ?? []) as never;
-      const runs = reconstructSubagentRuns(branch);
-      await ctx.ui.custom<void>((tui, theme, _kb, done) => {
-        const viewer = new SubagentViewer({ runs, onClose: () => done() }, theme);
-        return {
-          render: (w: number) => viewer.render(w),
-          invalidate: () => viewer.invalidate(),
-          handleInput: (data: string) => {
-            viewer.handleInput(data);
-            tui.requestRender();
-          },
-        };
-      });
-    },
-  });
+  // /subagents — list running + past subagent runs and view their output.
+  // Implemented in src/subagents-command.ts (extracted so the registry → viewer →
+  // live-timer wiring is unit-testable without a live TUI context).
+  pi.registerCommand("subagents", createSubagentsCommand({ subagentInFlight }));
 
   // Layer-3 conditional guideline injection. The workflow tool's authoring
   // guidelines are NO LONGER a static promptGuidelines tax on every turn; they

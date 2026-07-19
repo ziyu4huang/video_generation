@@ -12,7 +12,9 @@ import {
 } from "./display.js";
 import { WorkflowError, WorkflowErrorCode } from "./errors.js";
 import { parseWorkflowScript, type WorkflowRunResult } from "./workflow.js";
-import { mergeArgs, resolveWorkflowPack } from "./workflow-pack.js";
+import { existsSync } from "node:fs";
+import { resolvePackRunContext } from "./pack-run-context.js";
+import { findRepoRoot, mergeArgs, resolveWorkflowPack } from "./workflow-pack.js";
 import { WorkflowManager } from "./workflow-manager.js";
 import { createWorkflowStorage, type WorkflowStorage } from "./workflow-saved.js";
 import { loadWorkflowSettings } from "./workflow-settings.js";
@@ -392,16 +394,40 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       // would need an ExecOptions.mainModel hook; see workflow-pack plan, OOS).
       let script: string;
       let mergedArgs = params.args;
+      // T7: pack-local context (identity + state root + dirs + io) resolved once at
+      // the tool layer and spread into both execution paths below. Undefined for
+      // inline scripts → legacy cwd-scoped persistence (decision 13).
+      let packCtx: ReturnType<typeof resolvePackRunContext> | undefined;
       if (params.name) {
         const resolved = resolveWorkflowPack(params.name, { cwd });
         script = resolved.script;
         if (resolved.manifest) mergedArgs = mergeArgs(resolved.manifest.args, params.args);
+        if (resolved.packDir) {
+          packCtx = resolvePackRunContext({
+            name: resolved.manifest?.name ?? params.name,
+            packDir: resolved.packDir,
+            manifest: resolved.manifest,
+            repoRoot: findRepoRoot(resolved.packDir, (p) => existsSync(p)) ?? cwd,
+          });
+        }
       } else {
         if (typeof params.script !== "string") {
           throw new Error("workflow requires exactly one of `script` (inline JS) or `name` (a pack)");
         }
         script = normalizeWorkflowScript(params.script);
       }
+      // The 5 ExecOptions fields the manager routes to pack-scoped persistence,
+      // intermediate mirror, and outputs append (decisions 05/11/12). Empty for
+      // inline scripts so they stay byte-identical to the legacy cwd store.
+      const packExec = packCtx
+        ? {
+            packId: packCtx.packId,
+            stateRoot: packCtx.stateRoot,
+            intermediateDir: packCtx.intermediateDir,
+            outputsDir: packCtx.outputsDir,
+            io: packCtx.io,
+          }
+        : {};
       const parsed = parseWorkflowScript(script);
 
       // D9-8: statically reject scripts that never call agent() BEFORE forking
@@ -451,6 +477,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
           agentRetries: params.agentRetries,
           agentTimeoutMs: params.agentTimeoutMs,
           tokenBudget: params.tokenBudget,
+          ...packExec,
         });
         return {
           content: [{ type: "text", text: backgroundStartedText(parsed.meta.name, runId) }],
@@ -478,6 +505,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
           agentRetries: params.agentRetries,
           agentTimeoutMs: params.agentTimeoutMs,
           tokenBudget: params.tokenBudget,
+          ...packExec,
           confirm,
           externalSignal: signal,
           onProgress(live) {

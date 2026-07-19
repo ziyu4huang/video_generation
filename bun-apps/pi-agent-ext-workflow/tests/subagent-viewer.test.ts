@@ -92,3 +92,29 @@ test("viewer output view shows cost/tokens when usage.total > 0", () => {
   assert.ok(out.includes("$0.002"));
   assert.ok(out.includes("150 tok"));
 });
+
+test("viewer list shows a Running section with live elapsed when getRunning returns in-flight runs", () => {
+  const running = [
+    {
+      id: "r1",
+      agent: "implementer",
+      model: "x/flash",
+      taskPreview: "doing X",
+      startedAt: Date.now() - 1500,
+      history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }],
+    },
+  ];
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+  const out = viewer.render(80).join("\n");
+  assert.match(out, /Running/);
+  assert.ok(out.includes("implementer"), "running section shows the agent role");
+  assert.ok(out.includes("x/flash"), "running section shows the model");
+  assert.match(out, /\d+\.\d+s/, "running section shows live elapsed");
+  assert.match(out, /1 call/, "running section shows the live tool-call count");
+});
+
+test("viewer list omits the Running section when no in-flight runs", () => {
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => [], onClose: () => {} }, T);
+  const out = viewer.render(80).join("\n");
+  assert.ok(!out.includes("Running"), "no Running section when getRunning is empty");
+});

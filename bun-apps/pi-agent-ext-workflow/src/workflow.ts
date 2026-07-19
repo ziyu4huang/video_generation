@@ -41,6 +41,8 @@ export interface JournalEntry {
   /** sha256 of the call's identity (prompt + model + phase + agentType + schema). */
   hash: string;
   result: unknown;
+  /** The phase the agent ran under, for the disposable intermediate mirror (decision 12). */
+  phase?: string;
 }
 
 /**
@@ -270,7 +272,7 @@ export async function runWorkflow<T = unknown>(
   options: WorkflowRunOptions = {},
 ): Promise<WorkflowRunResult<T>> {
   const started = Date.now();
-  const { meta, body } = parseWorkflowScript(script);
+  const { meta, body, defaultExport } = parseWorkflowScript(script);
   // Per-phase model routing from meta.phases[].model, with meta.model as the default.
   const routingConfig = parseModelRoutingFromMeta(meta.phases, meta.model);
   const maxAgents = options.maxAgents ?? MAX_AGENTS_PER_RUN;
@@ -527,7 +529,7 @@ export async function runWorkflow<T = unknown>(
             }
 
             const tokens = recordTokens(result);
-            options.onAgentJournal?.({ index: callIndex, hash: callHash, result });
+            options.onAgentJournal?.({ index: callIndex, hash: callHash, result, phase: assignedPhase });
             options.onAgentEnd?.({
               label,
               phase: assignedPhase,
@@ -902,7 +904,7 @@ export async function runWorkflow<T = unknown>(
       reply = checkpointOptions.default ?? true;
     }
     throwIfAborted();
-    options.onAgentJournal?.({ index: callIndex, hash: callHash, result: reply });
+    options.onAgentJournal?.({ index: callIndex, hash: callHash, result: reply, phase: state.currentPhase });
     return reply;
   };
 
@@ -965,8 +967,14 @@ export async function runWorkflow<T = unknown>(
     // would be the host Function (a determinism-guard bypass). Math/Date are
     // neutered in-realm by DETERMINISM_PRELUDE below.
   });
+  // Expose the context object itself so an `export default` entry function can
+  // receive it: packs destructure {agent, args, log, ...} from their parameter,
+  // and this passes every injected global in one object.
+  (context as Record<string, unknown>).__ctx = context;
 
-  const wrapped = `${DETERMINISM_PRELUDE}\n(async () => {\n${body}\n})()`;
+  const wrapped = defaultExport
+    ? `${DETERMINISM_PRELUDE}\n(async () => {\n${body}\n  const __entry = ${defaultExport};\n  return await __entry(__ctx);\n})()`
+    : `${DETERMINISM_PRELUDE}\n(async () => {\n${body}\n})()`;
   const result = await new vm.Script(wrapped, { filename: `${meta.name || "workflow"}.js` }).runInContext(context);
 
   // Persist logs
@@ -1025,7 +1033,7 @@ function describeLeadingStatement(node: AnyNode | undefined, script: string): st
   }
 }
 
-export function parseWorkflowScript(script: string): { meta: WorkflowMeta; body: string } {
+export function parseWorkflowScript(script: string): { meta: WorkflowMeta; body: string; defaultExport?: string } {
   if (DETERMINISM_BLOCKLIST.test(script)) {
     throw new WorkflowError(
       "Workflow scripts must be deterministic: Date.now()/Math.random()/new Date() are unavailable",
@@ -1088,10 +1096,28 @@ export function parseWorkflowScript(script: string): { meta: WorkflowMeta; body:
   const meta = evaluateLiteral(declarator.init, "meta");
   validateMeta(meta);
 
-  return {
-    meta,
-    body: script.slice(0, first.start) + script.slice(first.end),
-  };
+  // Detect an optional `export default <fn>` entry point (the pack form). When
+  // present, runWorkflow CALLS the entry with the vm context object instead of
+  // running it as a bare top-level statement (which would SyntaxError — `export`
+  // is illegal inside the IIFE wrap, and the function expects {agent,...} as a
+  // parameter, not as globals).
+  const defaultNode = ast.body.find((n: AnyNode) => n.type === "ExportDefaultDeclaration") as AnyNode | undefined;
+  const defaultExport = defaultNode?.declaration
+    ? script.slice((defaultNode.declaration as AnyNode).start, (defaultNode.declaration as AnyNode).end)
+    : undefined;
+  // Body = source with BOTH the meta export and (if present) the default export
+  // removed; any other top-level statements (helpers, consts, etc.) are preserved
+  // and run before the entry is called.
+  const removals = [first, defaultNode].filter(Boolean) as AnyNode[];
+  removals.sort((a, b) => a.start - b.start);
+  let reconstructed = "";
+  let cursor = 0;
+  for (const r of removals) {
+    reconstructed += script.slice(cursor, r.start);
+    cursor = r.end;
+  }
+  reconstructed += script.slice(cursor);
+  return { meta, body: reconstructed, defaultExport };
 }
 
 function evaluateLiteral(node: AnyNode, path: string): unknown {
