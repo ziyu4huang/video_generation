@@ -13,3 +13,5 @@ The older effort designed `__piSuperpowersPlan` / `__piApplyTodoToggle` / `__piS
 ### Context
 
 - Older 04 baked a master-split: structure = plan-master (plan→todo), completion = todo-master (todo→plan via `__piApplyTodoToggle`). Decide whether that split survives under `__piPlan*` naming, or collapses into phase-status-only.
+
+**Context update (post-[02](02-unified-coordination-layer.md)):** the layer lives **inside goal-todo** and publishes `__piPlan*` for wayfind to read; the canonical plan format is **writing-plans** (Task≡phase). So this ticket now defines the `__piPlan*` contract under that model (goal-todo publishes; wayfind reads via `chain.ts`/`coordination.ts`) and **supersedes** the older `__piSuperpowersPlan*` / `__piApplyTodoToggle` design — one publisher (goal-todo), `__piPlan*` names, Task≡phase shape.
