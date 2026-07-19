@@ -234,53 +234,18 @@ export function _setFlux2BinaryForTest(v: boolean | undefined): void {
   flux2BinaryCached = v;
 }
 
-// ─── python import probe (whisper / clip deps honesty) ──────────────────────
-
-/**
- * Cached `python -c "<importStmt>"` probe. The whisper/clip adapters
- * resolve a python binary (a venv or the "python3" PATH fallback); the PRIOR
- * probe assumed "python3" had the deps (a false-positive when system python3
- * lacks mlx_whisper / torch / spandrel → generation then ImportError'd). This
- * probe asks the resolved python whether it can actually import the module, so
- * "callable" is honest. Spawned once per (python, importStmt), then cached.
- */
-const importProbeCache = new Map<string, boolean>();
-function pythonImportsModule(py: string, importStmt: string): boolean {
-  const key = `${py}::${importStmt}`;
-  const cached = importProbeCache.get(key);
-  if (cached !== undefined) return cached;
-  try {
-    const r = spawnSync(py, ["-c", importStmt], {
-      stdio: ["ignore", "ignore", "ignore"],
-      timeout: 20_000,
-      encoding: "utf8",
-    });
-    const ok = r.status === 0;
-    importProbeCache.set(key, ok);
-    return ok;
-  } catch {
-    importProbeCache.set(key, false);
-    return false;
-  }
-}
-/** Force an import-probe result (tests inject a deterministic value). */
-export function _setImportProbeForTest(py: string, importStmt: string, v: boolean | undefined): void {
-  const key = `${py}::${importStmt}`;
-  if (v === undefined) importProbeCache.delete(key);
-  else importProbeCache.set(key, v);
-}
-
 /**
  * Runtime availability for a provider. Authoritative: a provider is callable iff
  * this returns true. The static `configured` is the declarative baseline (which
  * already marks GAPs / unimplemented providers false); the probe refines it for
  * every strategy with an environment/disk signal: ffmpeg (binary on PATH), fetch
  * (cloud API key), the swift directors (built binary on disk), run.py (venv+
- * run.py present), whisper/clip (a real python that imports its deps),
- * and the compose runtimes (remotion binary / motion filters). Thus a cloud
- * provider upgrades to callable when its key appears; an ffmpeg/swift provider
- * downgrades when its binary is gone; the python adapters downgrade when their
- * venv is absent or lacks the deps. bun:builtin (subtitle_gen) honors its flag.
+ * run.py present), whisper/clip (built swift binary on disk), LM Studio
+ * (caption server reachable), and the compose runtimes (remotion binary /
+ * motion filters). Thus a cloud provider upgrades to callable when its key
+ * appears; an ffmpeg/swift provider downgrades when its binary is gone;
+ * run.py providers downgrade when the venv is absent. bun:builtin (subtitle_gen)
+ * honors its flag.
  */
 export function probeConfigured(entry: ProviderEntry, env: Record<string, string | undefined> = process.env): boolean {
   switch (entry.invoke) {
@@ -295,12 +260,12 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
     case "macos:say":
       return entry.configured && process.platform === "darwin";
     case "bun:whisper":
-      // callable iff we can resolve BOTH a python binary and the entry script.
-      // (cheap: stat only — we do NOT import mlx_whisper on every probe.)
+      // callable iff the built ltx-video binary is on disk (the transcribe
+      // subcommand lives in swift/ltx-video-director). Cheap: stat only.
       return entry.configured && whisperRuntimePresent(env);
     case "bun:clip":
-      // callable iff the vision-venv python + clip entry script resolve.
-      return entry.configured && visionRuntimePresent(env, CLIP_SCRIPT);
+      // callable iff the built swift/clip-director binary is on disk.
+      return entry.configured && clipBinaryPresent();
     case "compose:remotion":
       // callable iff the registry flag is set AND a real remotion binary resolves
       // (REMOTION_BIN on disk OR `remotion` on PATH — NOT the bunx fallback).
@@ -577,54 +542,46 @@ export const subtitleAdapter: Adapter = async (req: GenerateRequest): Promise<To
   }
 };
 
-// ─── whisper adapter (native mlx-whisper via python subprocess) ──────────────
+// ─── whisper adapter (native Swift/MLX via the ltx-video binary) ─────────────
 
 /**
- * The python entry script + the whisper venv. The script lives inside the ext
- * (<EXT_ROOT>/python/whisper_transcribe.py); the venv is repo infra
- * (<repo>/python/whisper-venv) created by `uv venv` + `uv pip install mlx-whisper`.
- * Resolution order for the python binary:
- *   1. MD_WHISPER_PYTHON env (explicit override — mirrors REMOTION_BIN).
- *   2. <repo>/python/whisper-venv/bin/python — walk up from EXT_ROOT.
- *   3. "python3" on PATH (last resort; needs mlx_whisper importable there).
+ * The transcribe backend is `ltx-video transcribe` — a PURE SWIFT/MLX Whisper
+ * port (swift/ltx-video-director's WhisperModel + the segment-level seek loop
+ * in WhisperTranscribe.swift), emitting the WhisperResult JSON below. This
+ * replaces the former python `whisper_transcribe.py` → mlx_whisper spawn — no
+ * python/whisper-venv is involved at runtime. Per-word DTW alignment is a
+ * separate follow-up (P2b); until then each segment's `words` array is empty
+ * (segment-level timestamps are always present).
+ *
+ * The binary is the SAME ltx-video binary the other swift:ltx commands use
+ * (defaultBinaryPath, the one ltxBinaryPresent probes). `--checkpoint` /
+ * `WHISPER_NATIVE_CHECKPOINT` / the cached whisper-large-v3-mlx snapshot are
+ * resolved inside the binary, not here.
  */
-const WHISPER_SCRIPT = join(EXT_ROOT, "python", "whisper_transcribe.py");
 
-export function whisperScriptPath(): string {
-  return WHISPER_SCRIPT;
+/** Resolve the ltx-video binary path (throws if the repo root can't be walked). */
+function whisperBinaryPath(): string {
+  return defaultBinaryPath(resolveRepoRoot());
 }
 
-/** Resolve the python binary that runs mlx_whisper (cached per process). */
-export function resolveWhisperPython(env: Record<string, string | undefined> = process.env): string {
-  if (env.MD_WHISPER_PYTHON && existsSync(env.MD_WHISPER_PYTHON)) return env.MD_WHISPER_PYTHON;
-  // Walk up from EXT_ROOT looking for python/whisper-venv/bin/python.
-  let dir = EXT_ROOT;
-  for (let i = 0; i < 8; i++) {
-    const cand = join(dir, "python", "whisper-venv", "bin", "python");
-    if (existsSync(cand)) return cand;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return "python3";
-}
-
-/** Test-only override (when set, short-circuits the real probe). */
+/**
+ * True if the built ltx-video binary is on disk (never throws). The `env` arg
+ * is kept for signature parity with the other probes even though the binary
+ * path is env-independent.
+ */
 let whisperRuntimeOverride: boolean | undefined;
 function whisperRuntimePresent(env: Record<string, string | undefined>): boolean {
   if (whisperRuntimeOverride != null) return whisperRuntimeOverride;
-  if (!existsSync(WHISPER_SCRIPT)) return false;
-  const py = env.MD_WHISPER_PYTHON ? env.MD_WHISPER_PYTHON : resolveWhisperPython(env);
-  // "python3" is the PATH fallback (no whisper-venv discovered). Don't assume it
-  // has mlx_whisper — that was the false-positive (system python3 usually lacks
-  // it, so generation would ImportError). Require a real python path, and for
-  // ANY resolved python do a cached import probe (keyed by py+stmt, so different
-  // envs / overrides each get their own cache entry — no stale cross-env result).
-  if (py === "python3" || !existsSync(py)) return false;
-  return pythonImportsModule(py, "import mlx_whisper");
+  try {
+    return existsSync(whisperBinaryPath());
+  } catch {
+    // resolveRepoRoot throws if it can't walk to swift/ltx-video-director —
+    // treat as "binary absent" so the selector falls through rather than crash.
+    return false;
+  }
 }
 
-/** Force the whisper-runtime probe result (tests inject a deterministic value). */
+/** Force the whisper-backend probe result (tests inject a deterministic value). */
 export function _setWhisperRuntimeForTest(v: boolean | undefined): void {
   whisperRuntimeOverride = v;
 }
@@ -632,11 +589,19 @@ export function _setWhisperRuntimeForTest(v: boolean | undefined): void {
 export interface WhisperOptions {
   /** Path to the audio file to transcribe (required). */
   audio: string;
-  /** HuggingFace mlx-whisper repo. Default: mlx-community/whisper-small-mlx. */
+  /**
+   * Optional weights.safetensors checkpoint path forwarded as `--checkpoint`.
+   * Omit to let the binary resolve the cached whisper-large-v3-mlx snapshot.
+   * (The old python `--model <hf-repo>` form is no longer meaningful for swift.)
+   */
   model?: string;
   /** Language hint (e.g. "en"). Default: auto-detect. */
   language?: string;
-  /** Skip word-level timestamps (segment-level only). */
+  /**
+   * Kept for API compatibility but ignored: the swift transcribe currently
+   * emits segment-level timestamps only (no per-word DTW), so there are no
+   * word timestamps to skip.
+   */
   noWords?: boolean;
   /** Output dir for transcript.txt + words.json. Defaults to req.outputDir. */
   output?: string;
@@ -644,7 +609,7 @@ export interface WhisperOptions {
   _spawnImpl?: (cmd: string, argv: string[]) => Promise<number>;
 }
 
-/** Normalized shape emitted by whisper_transcribe.py (the adapter's parse target). */
+/** Normalized shape emitted by `ltx-video transcribe` (the adapter's parse target). */
 export interface WhisperResult {
   ok: boolean;
   error?: string;
@@ -661,17 +626,15 @@ export interface WhisperResult {
   }>;
 }
 
-/** Run the whisper python entry and parse its normalized JSON result. */
-async function runWhisper(opts: WhisperOptions, env: Record<string, string | undefined>): Promise<WhisperResult> {
+/** Spawn `ltx-video transcribe` and parse its WhisperResult JSON. */
+async function runWhisper(opts: WhisperOptions): Promise<WhisperResult> {
   const spawnImpl = opts._spawnImpl ?? runSpawn;
-  const py = resolveWhisperPython(env);
   const outDir = opts.output ?? process.cwd();
   const jsonOut = join(outDir, `whisper_${process.pid}_${Date.now() % 100000}.json`);
-  const argv = [WHISPER_SCRIPT, "--audio", opts.audio, "--output", jsonOut];
-  if (opts.model) argv.push("--model", opts.model);
+  const argv = ["transcribe", "--audio", opts.audio, "--output", jsonOut];
+  if (opts.model) argv.push("--checkpoint", opts.model);
   if (opts.language) argv.push("--language", opts.language);
-  if (opts.noWords) argv.push("--no-words");
-  const code = await spawnImpl(py, argv);
+  const code = await spawnImpl(whisperBinaryPath(), argv);
   let payload: WhisperResult;
   try {
     payload = JSON.parse(readFileSync(jsonOut, "utf8")) as WhisperResult;
@@ -681,10 +644,10 @@ async function runWhisper(opts: WhisperOptions, env: Record<string, string | und
   return payload;
 }
 
-/** whisper adapter: spawns mlx-whisper, returns a ToolResult with transcript + words artifacts. */
+/** whisper adapter: spawns ltx-video transcribe, returns a ToolResult with transcript + words artifacts. */
 export const whisperAdapter: Adapter = async (req: GenerateRequest): Promise<ToolResult> => {
   if (!whisperRuntimePresent(process.env as Record<string, string | undefined>)) {
-    return fail(req, "whisper", "whisper runtime not found (set MD_WHISPER_PYTHON or create python/whisper-venv)");
+    return fail(req, "whisper", "whisper backend not found (build swift/ltx-video-director: swift build -c release)");
   }
   const opts = (req.options ?? {}) as unknown as WhisperOptions;
   if (!opts.audio || !existsSync(opts.audio)) {
@@ -697,7 +660,7 @@ export const whisperAdapter: Adapter = async (req: GenerateRequest): Promise<Too
   const outputDir = req.outputDir ?? mkdtempSync(join(tmpdir(), "md-transcribe-"));
   const started = Date.now();
   try {
-    const res = await runWhisper({ ...opts, output: outputDir }, process.env as Record<string, string | undefined>);
+    const res = await runWhisper({ ...opts, output: outputDir });
     if (!res.ok || !res.text) {
       return fail(req, "whisper", res.error ?? "whisper returned no text", (Date.now() - started) / 1000);
     }
@@ -755,70 +718,43 @@ export function cuesFromWhisper(
   return cues;
 }
 
-// ─── vision venv (CLIP only — ESRGAN removed 2026-07-19) ─────────────────────
+// ─── CLIP adapter (native Swift/MLX via the clip-director binary) ────────────
 
 /**
- * The Item I sibling pattern: a lightweight python venv that holds the deps the
- * builtin Bun layer doesn't (here torch + transformers for CLIP). The venv is
- * repo infra at <repo>/python/vision-venv; resolution order:
- *   1. MD_VISION_PYTHON env (explicit override).
- *   2. <repo>/python/vision-venv/bin/python — walk up from EXT_ROOT.
- *   3. "python3" on PATH (last resort; needs the deps importable there).
- *
- * NOTE: CLIP itself moves to a native swift port in Phase 3 of the zero-python
- * plan; this venv + probe are temporary until that lands.
+ * `analysis:video_understand` now runs the pure-Swift/MLX `clip` binary
+ * (swift/clip-director) — CLIP ViT-B/32 text+vision towers + projections,
+ * scoring frames against a prompt via cosine similarity. Replaces the former
+ * python `clip_understand.py` (transformers + torch MPS); no python/vision-venv
+ * is involved at runtime. Checkpoint resolved inside the binary (--checkpoint
+ * > MD_CLIP_CHECKPOINT env > cached openai/clip-vit-base-patch32).
  */
-const CLIP_SCRIPT = join(EXT_ROOT, "python", "clip_understand.py");
-
-export function clipScriptPath(): string {
-  return CLIP_SCRIPT;
+function clipBinaryPath(): string {
+  return join(resolveRepoRoot(), "swift", "clip-director", ".build", "release", "clip");
 }
 
-/** Resolve the python binary backing CLIP (cached per process). */
-export function resolveVisionPython(env: Record<string, string | undefined> = process.env): string {
-  if (env.MD_VISION_PYTHON && existsSync(env.MD_VISION_PYTHON)) return env.MD_VISION_PYTHON;
-  let dir = EXT_ROOT;
-  for (let i = 0; i < 8; i++) {
-    const cand = join(dir, "python", "vision-venv", "bin", "python");
-    if (existsSync(cand)) return cand;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return "python3";
+let clipBinaryOverride: boolean | undefined;
+function clipBinaryPresent(): boolean {
+  if (clipBinaryOverride != null) return clipBinaryOverride;
+  try { return existsSync(clipBinaryPath()); } catch { return false; }
 }
 
-/** Test-only override (when set, short-circuits the real probe). */
-const visionRuntimeOverride = new Map<string /*"clip"*/, boolean>();
-/** The import statement CLIP needs (transformers). */
-const VISION_IMPORT_FOR: Record<string, string> = {
-  [CLIP_SCRIPT]: "import torch, transformers",
-};
-function visionRuntimePresent(env: Record<string, string | undefined>, script: string): boolean {
-  if (visionRuntimeOverride.has("clip")) return visionRuntimeOverride.get("clip")!;
-  if (!existsSync(script)) return false;
-  const py = env.MD_VISION_PYTHON ? env.MD_VISION_PYTHON : resolveVisionPython(env);
-  // Same honesty fix as whisper: "python3" (PATH fallback) is not assumed to have
-  // torch/transformers. Require a real python path + a cached import
-  // probe (keyed by py+stmt → env-correct, no stale cross-env cache entry).
-  if (py === "python3" || !existsSync(py)) return false;
-  return pythonImportsModule(py, VISION_IMPORT_FOR[script] ?? "import torch");
-}
-
-/** Force the vision-runtime probe result (tests inject a deterministic value). */
+/**
+ * Force the CLIP-backend probe result. Kept under the historical
+ * `_setVisionRuntimeForTest` name (the probe was a python-vision import check
+ * before the swift port) so existing test pins are unchanged.
+ */
 export function _setVisionRuntimeForTest(script: "clip", v: boolean | undefined): void {
-  if (v == null) visionRuntimeOverride.delete(script);
-  else visionRuntimeOverride.set(script, v);
+  clipBinaryOverride = v;
 }
 
-// ─── CLIP adapter (native video understanding via python subprocess) ─────────
+
 
 export interface ClipOptions {
   /**
    * Pre-sampled frame image paths. If absent, the adapter samples `numFrames`
-   * evenly-spaced frames from `video` via ffmpeg (the CLIP entry does the same
-   * when --video is passed, but Bun-side sampling keeps the python entry stateless
-   * about ffmpeg timing and lets the agent re-use the frames artifact).
+   * evenly-spaced frames from `video` via ffmpeg. Bun-side sampling keeps the
+   * clip binary stateless about ffmpeg timing and lets the agent re-use the
+   * frames artifact.
    */
   frames?: string[];
   /** Video path — sampled into `numFrames` frames when `frames` is absent. */
@@ -835,7 +771,7 @@ export interface ClipOptions {
   _spawnImpl?: (cmd: string, argv: string[]) => Promise<number>;
 }
 
-/** Normalized shape emitted by clip_understand.py. */
+/** Normalized shape emitted by the `clip` swift binary (parse target). */
 export interface ClipResult {
   ok: boolean;
   error?: string;
@@ -880,16 +816,15 @@ function ffprobeDuration(video: string): Promise<number> {
   });
 }
 
-/** clip adapter: samples frames (if needed), spawns clip_understand.py, returns a scored ToolResult. */
+/** clip adapter: samples frames (if needed), spawns the swift `clip` binary, returns a scored ToolResult. */
 export const clipAdapter: Adapter = async (req: GenerateRequest): Promise<ToolResult> => {
-  if (!visionRuntimePresent(process.env as Record<string, string | undefined>, CLIP_SCRIPT)) {
-    return fail(req, "clip", "clip runtime not found (set MD_VISION_PYTHON or create python/vision-venv)");
+  if (!clipBinaryPresent()) {
+    return fail(req, "clip", "clip backend not found (build swift/clip-director: swift build -c release)");
   }
   const opts = (req.options ?? {}) as unknown as ClipOptions;
   if (!opts.prompt) {
     return fail(req, "clip", "prompt is required for video_understand");
   }
-  const env = process.env as Record<string, string | undefined>;
   const outDir = req.outputDir ?? mkdtempSync(join(tmpdir(), "md-clip-"));
   const started = Date.now();
   try {
@@ -912,10 +847,12 @@ export const clipAdapter: Adapter = async (req: GenerateRequest): Promise<ToolRe
 
     const spawnImpl = opts._spawnImpl ?? runSpawn;
     const jsonOut = join(outDir, `clip_${process.pid}_${Date.now() % 100000}.json`);
-    const argv = [CLIP_SCRIPT, "--prompt", opts.prompt, "--output", jsonOut, "--frames", ...frames];
-    if (opts.labels && opts.labels.length) argv.push("--labels", ...opts.labels);
-    if (opts.model) argv.push("--model", opts.model);
-    const code = await spawnImpl(resolveVisionPython(env), argv);
+    // The swift `clip` binary takes --frames <p...> --prompt <p> [--labels <p...>...]
+    // (--labels repeats per label — ArgumentParser array-by-occurrence).
+    const argv = ["--frames", ...frames, "--prompt", opts.prompt, "--output", jsonOut];
+    if (opts.labels && opts.labels.length) for (const l of opts.labels) argv.push("--labels", l);
+    if (opts.model) argv.push("--checkpoint", opts.model);
+    const code = await spawnImpl(clipBinaryPath(), argv);
     let payload: ClipResult;
     try {
       payload = JSON.parse(readFileSync(jsonOut, "utf8")) as ClipResult;
@@ -939,7 +876,7 @@ export const clipAdapter: Adapter = async (req: GenerateRequest): Promise<ToolRe
           : (frames ?? []).map((f, i) => ({ path: resolve(f), kind: "frames" as const, bytes: byteSize(f), role: `frame-${i}` }))),
       ],
       error: null,
-      cost_usd: 0, // local torch MPS — honest $0 marginal
+      cost_usd: 0, // local MLX — honest $0 marginal
       duration_seconds: payload.duration_s ?? (Date.now() - started) / 1000,
       seed: null,
       model: payload.model ?? "clip-vit-base-patch32",

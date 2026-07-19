@@ -300,13 +300,22 @@ describe("resolveLazyExtension", () => {
 		expect(warns.length).toBeGreaterThan(0);
 	});
 
-	test("integration: real manifest.json lazyExtensions + repo resolve 'workflow'", () => {
+	// workflow was migrated from a lazy alias to a STATIC extension
+	// (src/static-extensions.ts) so the single-exe build bundles it. A lazy
+	// alias for a static extension would double-register it (jiti-loaded module
+	// ≠ natively-imported module identity; pi dedups `-e`×`-e` by path, NOT
+	// static-factory×`-e`). This test now guards that invariant: `workflow`
+	// must NOT resolve via the lazy mechanism against the real manifest.
+	test("integration: real manifest.json has NO lazy alias for the static 'workflow' ext", () => {
 		// run-dir/resolve.ts sits at <repo>/bun-apps/pi-agent/run-dir/ → base is ../../
 		const base = resolve(join(import.meta.dir, "..", ".."));
+		// lazyExtensions is {} now; the directory-fallback arm looks for
+		// <base>/workflow/extensions/ which doesn't exist (the package dir is
+		// pi-agent-ext-workflow, not workflow) → undefined either way.
 		const r = resolveLazyExtension("workflow", manifest, base, existsSync);
-		expect(r).toBeDefined();
-		expect(r!.endsWith("pi-agent-ext-workflow/extensions/workflow.ts")).toBe(true);
-		expect(existsSync(r!)).toBe(true);
+		expect(r).toBeUndefined();
+		// And the real manifest's lazyExtensions is empty (no aliases left).
+		expect(Object.keys(manifest.lazyExtensions ?? {})).toEqual([]);
 	});
 });
 

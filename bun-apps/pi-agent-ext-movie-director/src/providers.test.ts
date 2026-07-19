@@ -11,11 +11,7 @@ import {
   probedMenuSummary,
   whisperAdapter,
   cuesFromWhisper,
-  resolveWhisperPython,
-  whisperScriptPath,
   clipAdapter,
-  clipScriptPath,
-  resolveVisionPython,
   _setFfmpegAvailableForTest,
   _setRemotionProbeForTest,
   _setMotionFiltersForTest,
@@ -407,21 +403,6 @@ const FIXTURE_RESULT: WhisperResult = {
   ],
 };
 
-describe("resolveWhisperPython + whisperScriptPath", () => {
-  it("resolves the entry script under the ext root", () => {
-    expect(whisperScriptPath()).toMatch(/python[\/\\]whisper_transcribe\.py$/);
-  });
-  it("honors MD_WHISPER_PYTHON when the path exists", () => {
-    const fake = process.execPath; // a real binary on disk
-    expect(resolveWhisperPython({ MD_WHISPER_PYTHON: fake })).toBe(fake);
-  });
-  it("falls back when the override does not exist", () => {
-    // Walk-up discovery or python3 fallback — either is a non-empty string.
-    const got = resolveWhisperPython({ MD_WHISPER_PYTHON: "/no/such/python" });
-    expect(typeof got === "string" && got.length > 0).toBe(true);
-  });
-});
-
 describe("cuesFromWhisper (pure)", () => {
   it("segments mode → one cue per segment", () => {
     const cues = cuesFromWhisper(FIXTURE_RESULT, "segments");
@@ -499,7 +480,7 @@ describe("whisperAdapter (mocked spawn)", () => {
         options: { audio: "/tmp/anything" },
       });
       expect(r.success).toBe(false);
-      expect(r.error).toContain("whisper runtime not found");
+      expect(r.error).toContain("whisper backend not found");
     } finally {
       _setWhisperRuntimeForTest(true);
     }
@@ -535,20 +516,6 @@ describe("whisperAdapter (mocked spawn)", () => {
 
 // ─── clip adapter (Item I sibling) ────────────────────────────────────────────
 
-describe("resolveVisionPython + clip script path", () => {
-  it("resolves the CLIP entry script under the ext root", () => {
-    expect(clipScriptPath()).toMatch(/python[\/\\]clip_understand\.py$/);
-  });
-  it("honors MD_VISION_PYTHON when the path exists", () => {
-    const fake = process.execPath;
-    expect(resolveVisionPython({ MD_VISION_PYTHON: fake })).toBe(fake);
-  });
-  it("falls back when the override does not exist", () => {
-    const got = resolveVisionPython({ MD_VISION_PYTHON: "/no/such/python" });
-    expect(typeof got === "string" && got.length > 0).toBe(true);
-  });
-});
-
 const CLIP_RESULT: ClipResult = {
   ok: true,
   video: null,
@@ -565,7 +532,7 @@ const CLIP_RESULT: ClipResult = {
 };
 
 describe("clipAdapter (mocked spawn)", () => {
-  it("spawns clip_understand.py on pre-sampled frames and returns a scored ToolResult", async () => {
+  it("spawns the swift clip binary on pre-sampled frames and returns a scored ToolResult", async () => {
     const dir = mkdtempSync(join(tmpdir(), "md-clip-"));
     try {
       // Two pre-sampled frame files (adapter checks existence).
@@ -628,7 +595,7 @@ describe("clipAdapter (mocked spawn)", () => {
         options: { prompt: "x", frames: ["/tmp/anything.png"] },
       });
       expect(r.success).toBe(false);
-      expect(r.error).toContain("clip runtime not found");
+      expect(r.error).toContain("clip backend not found");
     } finally {
       _setVisionRuntimeForTest("clip", true);
     }

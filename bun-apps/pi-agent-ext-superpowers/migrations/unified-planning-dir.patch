@@ -1,0 +1,12 @@
+# unified-planning-dir.patch — forks superpowers' hardcoded docs/superpowers/
+# paths to the unified .planning/<effort>/ layout. Applied by scripts/apply-patches.sh.
+# Format: <path-relative-to-package-root><TAB><old-string><TAB><new-string>
+# Idempotent: the applier skips a row whose old-string is no longer present.
+# Note: brainstorming/SKILL.md has the same path string on L29 + L106; the /g
+# flag replaces both in one pass.
+skills/brainstorming/SKILL.md	docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md	.planning/<effort>/spec.md
+skills/brainstorming/spec-document-reviewer-prompt.md	docs/superpowers/specs/	.planning/<effort>/
+skills/writing-plans/SKILL.md	docs/superpowers/plans/YYYY-MM-DD-<feature-name>.md	.planning/<effort>/plan.md
+skills/writing-plans/SKILL.md	docs/superpowers/plans/<filename>.md	.planning/<effort>/plan.md
+skills/subagent-driven-development/SKILL.md	docs/superpowers/plans/feature-plan.md	.planning/<effort>/plan.md
+skills/requesting-code-review/SKILL.md	docs/superpowers/plans/deployment-plan.md	.planning/<effort>/plan.md
