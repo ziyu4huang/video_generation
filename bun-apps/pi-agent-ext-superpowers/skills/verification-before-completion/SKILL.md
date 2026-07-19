@@ -130,10 +130,6 @@ From 24 failure memories:
 - Implications of success
 - ANY communication suggesting completion/correctness
 
-## Closing the session goal
-
-Once your completion claim is backed by fresh evidence (per the Iron Law above) AND all session `todo`s read completed, close the objective with `goal_complete` — but only if a `/goal` is active. If `goal_complete` returns "no active goal", one was never set (the hand-off should have prompted `/goal`; see ADR-0003). Do not call `goal_complete` for partial work or unverified claims.
-
 ## The Bottom Line
 
 **No shortcuts for verification.**

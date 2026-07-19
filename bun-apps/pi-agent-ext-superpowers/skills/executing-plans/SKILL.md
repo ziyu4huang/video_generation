@@ -19,7 +19,7 @@ Load plan, review critically, execute all tasks, report when complete.
 1. Read plan file
 2. Review critically - identify any questions or concerns about the plan
 3. If concerns: Raise them with your human partner before starting
-4. If no concerns: Create `todo` entries (via the `todo` tool) for the plan items and proceed. If no `/goal` is active, prompt the user to set one — execution drives that objective to completion and closes it with `goal_complete` when verified (ADR-0003)
+4. If no concerns: Create todos for the plan items and proceed
 
 ### Step 2: Execute Tasks
 
