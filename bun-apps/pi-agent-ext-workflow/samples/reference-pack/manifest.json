@@ -1,0 +1,13 @@
+{
+  "name": "reference-pack",
+  "description": "Living reference pack exercising the self-contained workflow-pack model.",
+  "entry": "entry.js",
+  "kind": "workflow-pack",
+  "version": "0.1.0",
+  "agents": "agents/*.md",
+  "io": {
+    "outputs": { "naming": "timestamped", "retention": "all" },
+    "intermediate": { "persist": false, "retention": "all" },
+    "runs": { "retention": "all" }
+  }
+}

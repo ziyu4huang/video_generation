@@ -383,3 +383,46 @@ return r`;
     assert.equal(second.seen.length, 0, "unchanged definition → cache hit → no live run");
   });
 });
+
+// ── T3 (ticket 14 / decision 09): CC-style tools string + packDirs + precedence ──
+
+describe("agent-registry T3: tools comma-string + packDirs", () => {
+  it("splits a comma-separated tools string (Claude-Code form) into an allowlist", () => {
+    const md = "---\nname: auditor\ntools: Read, Edit, Bash\n---\nbody";
+    const def = parseAgentDefinition(md, "project", "auditor.md");
+    assert.deepEqual(def?.tools, ["Read", "Edit", "Bash"], "string split, NOT undefined (all-tools)");
+  });
+
+  it("keeps a YAML array tools field unchanged (backward-compatible)", () => {
+    const md = "---\nname: auditor\ntools: [Read, Edit]\n---\nbody";
+    const def = parseAgentDefinition(md, "project", "auditor.md");
+    assert.deepEqual(def?.tools, ["Read", "Edit"]);
+  });
+
+  it("trims + drops empty entries in a comma-string", () => {
+    const md = "---\nname: auditor\ntools: Read, , Edit ,\n---\nbody";
+    const def = parseAgentDefinition(md, "project", "auditor.md");
+    assert.deepEqual(def?.tools, ["Read", "Edit"]);
+  });
+
+  it("loads pack defs from packDirs (source 'pack'); precedence project > pack > user", () => {
+    const root = mkdtempSync(join(tmpdir(), "agents-t3-"));
+    const projectDir = join(root, "project");
+    const packDir = join(root, "pack");
+    const userDir = join(root, "user");
+    const w = (dir: string, file: string, body: string) => {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, file), body, "utf-8");
+    };
+    w(projectDir, "shared.md", "---\nname: shared\nmodel: project/m\n---\nproject");
+    w(packDir, "shared.md", "---\nname: shared\nmodel: pack/m\n---\npack");
+    w(packDir, "packonly.md", "---\nname: packonly\n---\npack-only");
+    w(userDir, "useronly.md", "---\nname: useronly\n---\nuser-only");
+    const reg = loadAgentRegistry(root, { projectDir, userDir, packDirs: [packDir] });
+    assert.equal(reg.get("shared")?.source, "project", "project wins over pack");
+    assert.equal(reg.get("shared")?.model, "project/m");
+    assert.equal(reg.get("packonly")?.source, "pack");
+    assert.equal(reg.get("useronly")?.source, "user");
+    rmSync(root, { recursive: true, force: true });
+  });
+});
