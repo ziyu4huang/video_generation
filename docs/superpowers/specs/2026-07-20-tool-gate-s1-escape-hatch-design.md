@@ -81,10 +81,11 @@ so no separate system-prompt injection is needed.
 1. `list: true` → return the currently **dormant** gates (those whose `names` are not all in
    `sticky`) with each gate's `description` + `keywords`.
 2. `name: "ltx"` → find the gate containing that tool name → activate.
-3. `intent: "做個會動的版本"` → lowercase substring match against every gate's `keywords` ∪
-   `description`. **Match rule: a gate matches if any keyword/description is a substring of
-   the intent; all matching dormant gates are activated** (no fuzzy scoring or threshold —
-   activation is sticky, so over-activation is harmless and the rule stays trivially testable).
+3. `intent: "做個會動的版本"` → lowercase substring match against every gate's
+   **keywords only** (not description — see §2.3). **Match rule: a gate matches if
+   any keyword is a substring of the intent; all matching dormant gates are
+   activated** (no fuzzy scoring or threshold — activation is sticky, so
+   over-activation is harmless and the rule stays trivially testable).
 4. **Activate(gate)** = `gate.names.forEach(n => sticky.add(n))` for each matched gate, then
    `pi.setActiveTools(computeActiveTools(lastPrompt, allToolNames, sticky))`.
 5. Return a structured `AgentToolResult`: which tools were activated, and a usage hint.
@@ -104,12 +105,21 @@ export function matchIntent(
   intent: string,
   gates: ToolGate[],
   sticky: Set<string>,
-): ToolGate[]   // dormant gates whose keywords∪description substring-match the intent; order = gate declaration order (empty = no match)
+): ToolGate[]   // dormant gates whose KEYWORDS substring-match the intent; declaration order (empty = no match)
 ```
 
-Lowercase substring match; a gate is "dormant" iff `!gate.names.every(n => sticky.has(n))`.
-This is the seam the tests target (e.g. `"make a video" → ltx`, `"docker image" → ∅`,
-`"upscale this clip" → ltx`).
+Lowercase substring match over **keywords only**; a gate is "dormant" iff
+`!gate.names.every(n => sticky.has(n))`. This is the seam the tests target
+(e.g. `"make a video" → ltx`, `"generate an image of a cat" → flux2`,
+`"describe this picture" → file2md`).
+
+**Why not keywords∪description?** Description-word matching was prototyped and
+rejected during plan verification: prose words like `image`/`pipeline` appear in
+several gates' one-line descriptions and over-match (krea2 fired on an image
+intent via the word "image" in its description; movie fired on a workflow intent
+via "pipeline"). The curated `keywords` list is the right match surface; `description`
+stays valuable for the human-readable `list` output (§2.2 step 1) and a future
+semantic matcher, but not for substring matching.
 
 ### 2.4 Gate data changes
 
