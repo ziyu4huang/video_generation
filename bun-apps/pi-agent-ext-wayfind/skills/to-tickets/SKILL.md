@@ -86,3 +86,7 @@ Work the **frontier** — any ticket whose blockers are all done — one ticket 
 ### Seed the plan
 
 Flatten the frontier into a `task_plan.md` with **`/wayfind seed <effort>`** — one phase per ticket (topo-sorted by `blocking`), `[NN-slug]` phase headers, acceptance criteria carried through. This is the bridge from wayfind's decision artifacts into the plan coordinator's execution substrate. Then execute the plan to activate the hooks; when a phase completes, `/wayfind sync` (or any `/wayfind*` touchpoint) closes the originating ticket.
+
+### Set the session objective
+
+The destination is now settled — hand it to the user as a trackable objective. **Prompt the user to run** `/goal <one-line destination>` (e.g. `/goal unify planning-artifact homes under .planning/<effort>/`). You cannot set `/goal` yourself — it is a TUI command with no agent-side tool; your job is to hand over the exact command, then seed `todo`s and call `goal_complete` during execution (ADR-0003).
