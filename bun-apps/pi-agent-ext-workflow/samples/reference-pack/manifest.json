@@ -7,7 +7,7 @@
   "agents": "agents/*.md",
   "io": {
     "outputs": { "naming": "timestamped", "retention": "all" },
-    "intermediate": { "persist": false, "retention": "all" },
+    "intermediate": { "persist": true, "retention": "last-N" },
     "runs": { "retention": "all" }
   }
 }
