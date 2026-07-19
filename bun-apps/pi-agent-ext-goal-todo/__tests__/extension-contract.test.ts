@@ -7,7 +7,7 @@
  * this package) instead of only being caught centrally in pi-agent.
  */
 import { describe, test, expect } from "bun:test";
-import extensionFactory from "../extensions/pi-goal-todo.ts";
+import extensionFactory from "../extensions/pi-goal-todo-ask.ts";
 
 interface ToolLike {
 	name?: string;
