@@ -154,13 +154,18 @@ strings dist/pi-agent/pi-agent | grep -c "obsidian_list"   # expect > 0 (was: ex
 
 ## Skills in binary mode
 
-3 of the 10 static extensions ship a `skills/` directory (markdown, no code):
-`hermes-memory`, `superpowers`, `wayfind`. `pi-agent-ext-web-access` has one
-too (`skills/librarian/`) that was newly wired in alongside this work. Pi's
-skill loader reads `--skill <path>` using only `node:fs` — no jiti, no
-dynamic code execution — so skills are compile-safe by nature; the only gap
-was that `resolve.ts` used to blanket-suppress `--skill` emission in binary
-mode along with `-e`.
+6 of the 10 static extensions ship a `skills/` directory (markdown, no code):
+Group A's `hermes-memory`, `superpowers`, `wayfind`, and `web-access` (which
+has `skills/librarian/`, wired in alongside this work), plus Group B's
+`obsidian` (`skills/using-obsidian-vault/`) and `knowledge-card`
+(`skills/using-knowledge-cards/`). Only the first 4 are actually shipped in
+binary mode — `manifest.json`'s `binarySkills` is a curated subset, not
+"every static extension with a skills dir" (see below); obsidian's and
+knowledge-card's skills dirs exist and are git-tracked but are deliberately
+excluded. Pi's skill loader reads `--skill <path>` using only `node:fs` — no
+jiti, no dynamic code execution — so skills are compile-safe by nature; the
+only gap was that `resolve.ts` used to blanket-suppress `--skill` emission in
+binary mode along with `-e`.
 
 `run-dir/manifest.json`'s `binarySkills` array is the single source of truth,
 read by both:
@@ -179,7 +184,7 @@ Keep these two in lockstep by construction (both read `manifest.binarySkills`)
 | Field | Read by | Purpose |
 |---|---|---|
 | `extensions` | `resolve.ts` (source/bundle), `build-extensions.ts` | Dynamic jiti-loaded set. The 10 static extensions are **absent** here. |
-| `binarySkills` | `deploy.ts`, `resolve.ts` | Skill dirs shipped + `--skill`'d in binary mode (subset: only the 4 skill-bearing static extensions — Group A's hermes-memory/superpowers/wayfind + web-access; none of Group B ship a `skills/` dir today). |
+| `binarySkills` | `deploy.ts`, `resolve.ts` | Skill dirs shipped + `--skill`'d in binary mode: a curated 4-of-6 subset (Group A's hermes-memory/superpowers/wayfind + web-access). Group B's obsidian and knowledge-card also ship `skills/` dirs but are intentionally NOT in this list, so their skills aren't `--skill`'d in binary mode even though their extension code is statically bundled. |
 | `staticExtensions` | `deploy.ts` (`--snapshot` mode) | Package **directory names** (not paths) of the 10 static extensions. Needed so `--snapshot`'s self-contained `packages/` tree includes them — even though their code is inlined into `pi-agent.js`, `pi-agent`'s own `package.json` now `workspace:*`-depends on them, and other copied packages (e.g. `pi-agent-ext-wayfind` importing `pi-agent-ext-goal-todo`'s shared status-widget module) reference them as real workspace siblings that `bun install` must resolve. |
 
 ## Adding / removing a statically-bundled extension
