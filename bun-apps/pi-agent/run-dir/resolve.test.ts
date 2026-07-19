@@ -12,6 +12,7 @@ import {
 	looksLikeAlias,
 	resolveLazyExtension,
 	rewriteExtensionArgs,
+	suppressResolvedArgv,
 	type LazySettings,
 } from "./resolve.ts";
 
@@ -546,5 +547,32 @@ describe("rewriteExtensionArgs — identity replacement", () => {
 	test("resolve returning undefined → no rewrite (deferred to SDK)", () => {
 		const argv = ["-e", "workflow", "-p", "hi"];
 		expect(rewriteExtensionArgs(argv, () => undefined)).toEqual(argv);
+	});
+});
+
+describe("suppressResolvedArgv", () => {
+	const argv = ["-ne", "-e", "/a/ext.ts", "--skill", "/a/skills", "-e", "/b/ext.js"];
+
+	test("noExtensions strips -e pairs, keeps --skill and bare -ne", () => {
+		expect(suppressResolvedArgv(argv, { noExtensions: true })).toEqual([
+			"-ne",
+			"--skill",
+			"/a/skills",
+		]);
+	});
+
+	test("noSkills strips --skill pairs only", () => {
+		expect(suppressResolvedArgv(argv, { noSkills: true })).toEqual([
+			"-ne",
+			"-e",
+			"/a/ext.ts",
+			"-e",
+			"/b/ext.js",
+		]);
+	});
+
+	test("both flags leave only the bare -ne marker; no flags is identity", () => {
+		expect(suppressResolvedArgv(argv, { noExtensions: true, noSkills: true })).toEqual(["-ne"]);
+		expect(suppressResolvedArgv(argv, {})).toEqual(argv);
 	});
 });

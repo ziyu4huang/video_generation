@@ -559,6 +559,35 @@ export function buildArgvFromManifest(
   return argv;
 }
 
+/**
+ * Drop `-e <path>` / `--skill <path>` pairs from a RUN-DIR-RESOLVED argv
+ * fragment according to user-passed suppression flags (see
+ * src/cli-argv.ts userSuppressFlags). Only ever applied to the argv THIS
+ * module produced — the user's own `-e <path>` flags live elsewhere in
+ * process.argv and are untouched, which matches upstream pi's `-ne`
+ * semantics (explicit CLI extensions still load under -ne).
+ * Bare tokens (the deploy modes' self-injected "-ne") pass through.
+ */
+export function suppressResolvedArgv(
+  argv: string[],
+  flags: { noExtensions?: boolean; noSkills?: boolean },
+): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const tok = argv[i]!;
+    if (flags.noExtensions && (tok === "-e" || tok === "--extension")) {
+      i++; // skip payload
+      continue;
+    }
+    if (flags.noSkills && tok === "--skill") {
+      i++; // skip payload
+      continue;
+    }
+    out.push(tok);
+  }
+  return out;
+}
+
 // ─── Lazy / opt-in extension aliases ──────────────────────────────────────────
 //
 // Bare-name aliases (`-e workflow`) that rewrite to absolute extension paths
