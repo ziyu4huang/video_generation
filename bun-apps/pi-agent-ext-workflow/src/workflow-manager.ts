@@ -470,6 +470,7 @@ export class WorkflowManager extends EventEmitter {
         onAgentStart: (event) => {
           managed.snapshot.agents.push({
             id: managed.snapshot.agents.length + 1,
+            callIndex: event.callIndex,
             label: event.label,
             phase: event.phase,
             prompt: event.prompt,
@@ -482,7 +483,7 @@ export class WorkflowManager extends EventEmitter {
         onAgentEnd: (event) => {
           const agent = [...managed.snapshot.agents]
             .reverse()
-            .find((a) => a.label === event.label && a.status === "running");
+            .find((a) => a.callIndex === event.callIndex && a.status === "running");
           if (agent) {
             agent.status = event.result === null ? "error" : "done";
             agent.resultPreview = preview(event.result);
@@ -498,7 +499,7 @@ export class WorkflowManager extends EventEmitter {
         onAgentHistory: (event) => {
           const agent = [...managed.snapshot.agents]
             .reverse()
-            .find((a) => a.label === event.label && a.status === "running");
+            .find((a) => a.callIndex === event.callIndex && a.status === "running");
           if (agent) {
             agent.history = event.history;
           }

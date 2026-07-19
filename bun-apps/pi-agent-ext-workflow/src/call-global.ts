@@ -22,12 +22,14 @@ export interface JournalEntryLike {
   result: unknown;
 }
 export interface AgentStartEventLike {
+  callIndex: number;
   label: string;
   phase: string;
   prompt: string;
   model: string;
 }
 export interface AgentEndEventLike {
+  callIndex: number;
   label: string;
   phase: string;
   result: unknown;
@@ -92,8 +94,9 @@ export function buildCallGlobal(deps: CallDeps): (namespaced: unknown, args?: un
     const cached = deps.options.resumeJournal?.get(callIndex);
     if (cached != null && cached.hash === callHash && callIndex < deps.state.firstMiss) {
       deps.shared.agentCount++;
-      deps.options.onAgentStart?.({ label: namespaced, phase: phase(), prompt: "", model: HOST_FN_MODEL });
+      deps.options.onAgentStart?.({ callIndex, label: namespaced, phase: phase(), prompt: "", model: HOST_FN_MODEL });
       deps.options.onAgentEnd?.({
+        callIndex,
         label: namespaced,
         phase: phase(),
         result: cached.result,
@@ -106,7 +109,7 @@ export function buildCallGlobal(deps: CallDeps): (namespaced: unknown, args?: un
       deps.state.firstMiss = Math.min(deps.state.firstMiss, callIndex);
     }
     deps.shared.agentCount++;
-    deps.options.onAgentStart?.({ label: namespaced, phase: phase(), prompt: "", model: HOST_FN_MODEL });
+    deps.options.onAgentStart?.({ callIndex, label: namespaced, phase: phase(), prompt: "", model: HOST_FN_MODEL });
 
     // NOT routed through the concurrency limiter — local compute, awaited inline.
     // (The optional deps.limiter is an assertion hook only; it is intentionally
@@ -134,7 +137,14 @@ export function buildCallGlobal(deps: CallDeps): (namespaced: unknown, args?: un
     }
     deps.throwIfAborted();
     deps.options.onAgentJournal?.({ index: callIndex, hash: callHash, result });
-    deps.options.onAgentEnd?.({ label: namespaced, phase: phase(), result, tokens: 0, model: HOST_FN_MODEL });
+    deps.options.onAgentEnd?.({
+      callIndex,
+      label: namespaced,
+      phase: phase(),
+      result,
+      tokens: 0,
+      model: HOST_FN_MODEL,
+    });
     return result;
   };
 }
