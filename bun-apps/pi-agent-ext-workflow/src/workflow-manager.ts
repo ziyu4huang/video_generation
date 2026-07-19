@@ -11,6 +11,7 @@ import type { HostFnRegistry } from "./host-fn-registry.js";
 import {
   createRunPersistence,
   generateRunId,
+  type PersistedExecOptions,
   type PersistedRunState,
   type RunLease,
   type RunPersistence,
@@ -31,6 +32,8 @@ export interface ManagedRun {
   args?: unknown;
   /** Accumulated agent results for resume (deterministic call index -> result). */
   journal: JournalEntry[];
+  /** Serializable execution caps captured at start, persisted for resume(). */
+  exec?: PersistedExecOptions;
   /** Cross-process execution lease for this run, when it is actively executing. */
   lease?: RunLease;
   /**
@@ -85,6 +88,12 @@ export interface WorkflowManagerOptions {
    * call the same extension tools the parent session has.
    */
   extensionTools?: ToolDefinition[];
+}
+
+/** Project the serializable caps out of ExecOptions (drops signals/callbacks). */
+function toPersistedExec(exec: ExecOptions): PersistedExecOptions {
+  const { maxAgents, agentTimeoutMs, tokenBudget, concurrency, agentRetries } = exec;
+  return { maxAgents, agentTimeoutMs, tokenBudget, concurrency, agentRetries };
 }
 
 export class WorkflowManager extends EventEmitter {
@@ -209,6 +218,7 @@ export class WorkflowManager extends EventEmitter {
       journal: [],
       background: true,
       lease,
+      exec: toPersistedExec(exec),
     };
 
     this.runs.set(runId, managed);
@@ -220,6 +230,7 @@ export class WorkflowManager extends EventEmitter {
         workflowName: parsed.meta.name,
         script,
         args,
+        exec: managed.exec,
         sessionId: this.sessionId,
         background: true,
         status: "running",
@@ -254,6 +265,7 @@ export class WorkflowManager extends EventEmitter {
    */
   async runSync(script: string, args?: unknown, exec: ExecOptions = {}): Promise<WorkflowRunResult> {
     const managed = this.createManaged(script, args);
+    managed.exec = toPersistedExec(exec);
     const lease = this.persistence.acquireRunLease(managed.runId);
     if (!lease) throw new Error(`Could not acquire workflow run lease for ${managed.runId}`);
     managed.lease = lease;
@@ -310,6 +322,11 @@ export class WorkflowManager extends EventEmitter {
     const resolvedAgentTimeoutMs = agentTimeoutMs !== undefined ? agentTimeoutMs : this.defaultAgentTimeoutMs;
     const resolvedConcurrency = concurrency ?? this.concurrency;
     const resolvedAgentRetries = agentRetries ?? this.defaultAgentRetries;
+    // Capture the raw (un-defaulted) caps so persistRun writes them and resume()
+    // re-runs with the SAME budget/limits instead of resetting to defaults.
+    // (Start paths set this before their initial persist; this re-capture covers
+    // resume(), whose fresh ManagedRun is built without exec.)
+    managed.exec = toPersistedExec(exec);
     const progress = () => onProgress?.(managed.snapshot);
     // Let a host abort (e.g. Esc during a blocking tool call) cancel this run.
     if (externalSignal) {
@@ -417,9 +434,14 @@ export class WorkflowManager extends EventEmitter {
               { recoverable: true },
             );
 
-      const usageLimitPaused =
-        !managed.controller.signal.aborted && workflowError.code === WorkflowErrorCode.PROVIDER_USAGE_LIMIT;
-      if (managed.controller.signal.aborted) {
+      const intentionalAbort = managed.controller.signal.aborted;
+      const usageLimitPaused = !intentionalAbort && workflowError.code === WorkflowErrorCode.PROVIDER_USAGE_LIMIT;
+      // The run is over either way — abort the controller so in-flight sibling
+      // agents (spawned by parallel()/pipeline() before the failure) stop
+      // instead of running to completion for a run that is already dead.
+      // No-op for the intentional pause/stop/Esc paths, which aborted already.
+      if (!intentionalAbort) managed.controller.abort();
+      if (intentionalAbort) {
         // Intentional abort (pause/stop/Esc) — preserve status set by pause()/stop()
         if (managed.status === "running") {
           managed.status = "aborted";
@@ -459,6 +481,13 @@ export class WorkflowManager extends EventEmitter {
   }
 
   private persistRun(managed: ManagedRun) {
+    // Refuse stale writes: once this ManagedRun was superseded in the map (a
+    // resume() created a fresh run object for the same runId), a late write from
+    // the old executeRun's teardown would clobber the newer state — e.g. the
+    // resumed run's "running" record + fresh journal overwritten by the paused
+    // run's dying snapshot. (Cross-PROCESS staleness is still governed by the
+    // run lease at acquire time; save() itself does not verify lock ownership.)
+    if (this.runs.get(managed.runId) !== managed) return;
     try {
       this.persistence.save({
         runId: managed.runId,
@@ -467,6 +496,7 @@ export class WorkflowManager extends EventEmitter {
         // in workflow run storage — protect via directory permissions, not blanking.
         script: managed.script,
         args: managed.args,
+        exec: managed.exec,
         sessionId: this.sessionId,
         background: managed.background,
         journal: managed.journal,
@@ -571,7 +601,12 @@ export class WorkflowManager extends EventEmitter {
     const resumeJournal = new Map((persisted.journal ?? []).map((e) => [e.index, e] as const));
     this.emit("resumed", { runId });
     // Run in the background; executeRun records status/errors on the managed run.
-    void this.executeRun(managed, persisted.script, persisted.args, { resumeJournal }).catch(() => {});
+    // Rehydrate the caps the run was started with (token budget, maxAgents, …)
+    // so e.g. a run paused for exhausting its budget does not resume unbounded.
+    void this.executeRun(managed, persisted.script, persisted.args, {
+      resumeJournal,
+      ...(persisted.exec ?? {}),
+    }).catch(() => {});
     return true;
   }
 

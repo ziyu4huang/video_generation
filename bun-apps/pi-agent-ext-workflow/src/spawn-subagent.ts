@@ -75,19 +75,40 @@ interface ErrorClass {
   message: string;
 }
 
-function classifyError(e: unknown): ErrorClass {
+function classifyError(e: unknown, signalAborted = false): ErrorClass {
   const message = e instanceof Error ? e.message : String(e);
   if (isWorkflowError(e) && e.code === WorkflowErrorCode.AGENT_TIMEOUT) {
     return { transient: true, timedOut: true, message };
   }
-  // A signal abort (from our timeoutMs gate) looks like an AbortError.
-  if (e instanceof Error && /\babort/i.test(e.name) && /\babort/i.test(message)) {
+  // Our own timeoutMs gate fires by aborting the call's controller — checking
+  // the signal directly is authoritative, because the real WorkflowAgent runner
+  // surfaces that abort as a plain `Error("Subagent was aborted")` (name
+  // "Error"), NOT a DOMException named AbortError.
+  if (signalAborted) {
+    return { transient: true, timedOut: true, message };
+  }
+  // Fallback for runner-shaped abort errors: match name OR message.
+  if (e instanceof Error && (/\babort/i.test(e.name) || /\baborted?\b/i.test(message))) {
     return { transient: true, timedOut: true, message };
   }
   if (TRANSIENT_NETWORK_RE.test(message)) {
     return { transient: true, timedOut: false, message };
   }
   return { transient: false, timedOut: false, message };
+}
+
+/** Sum token/cost usage across retry attempts (undefined-safe). */
+function mergeUsage(a: AgentUsage | undefined, b: AgentUsage | undefined): AgentUsage | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    input: a.input + b.input,
+    output: a.output + b.output,
+    cacheRead: a.cacheRead + b.cacheRead,
+    cacheWrite: a.cacheWrite + b.cacheWrite,
+    total: a.total + b.total,
+    cost: a.cost + b.cost,
+  };
 }
 
 export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> {
@@ -125,7 +146,7 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
       const output = typeof out === "string" ? out : out == null ? "" : JSON.stringify(out);
       return { result: { output, exitCode: 0, stderr: "", timedOut: false, usage }, transient: false };
     } catch (e) {
-      const c = classifyError(e);
+      const c = classifyError(e, ac.signal.aborted);
       return {
         result: { output: "", exitCode: c.timedOut ? 124 : 1, stderr: c.message, timedOut: c.timedOut, usage },
         transient: c.transient,
@@ -140,6 +161,9 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
   // Never retry a cancel the caller (or user) explicitly requested — retrying
   // would re-run work that was just aborted.
   if (opts.externalSignal?.aborted) return first.result;
-  // Single retry on a transient failure (mirrors runSubagentWithRetry).
-  return (await tryOnce()).result;
+  // Single retry on a transient failure (mirrors runSubagentWithRetry). The
+  // failed first attempt still burned real tokens (largest exactly when it
+  // timed out) — surface the SUM of both attempts, not just the second.
+  const second = await tryOnce();
+  return { ...second.result, usage: mergeUsage(first.result.usage, second.result.usage) };
 }
