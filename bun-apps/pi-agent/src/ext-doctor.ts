@@ -77,8 +77,9 @@ export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok:
 
 	// Compiled-binary mode (`bun build --compile`): manifest.json is NOT embedded
 	// in the $bunfs virtual FS, so readFileSync(MANIFEST_PATH) throws ENOENT. The
-	// dynamic `-e` extensions can't load in a binary anyway (no .ts paths, no
-	// jiti). Fall back to checking ONLY the statically-bundled factories
+	// manifest's relative .ts paths don't exist in a binary either (a user's own
+	// `-e` .ts paths DO load — upstream 0.80.10+ jiti binary path — but those
+	// aren't this doctor's concern). Fall back to checking ONLY the statically-bundled factories
 	// (STATIC_EXTENSION_FACTORIES below) — which is exactly the set that matters
 	// for verifying a compiled binary ships its tools.
 	let manifest: { extensions: (string | object)[]; lazyExtensions?: Record<string, string> };

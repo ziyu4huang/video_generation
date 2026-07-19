@@ -61,8 +61,15 @@ const OPTIONAL_EXTERNALS: string[] = [];
 
 // ── Flag parsing ─────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
+const KNOWN_FLAGS = new Set(["--bundle", "--snapshot", "--standalone", "--exe", "--no-freeze"]);
+{
+	const unknown = argv.filter((a) => a.startsWith("--") && !KNOWN_FLAGS.has(a));
+	if (unknown.length > 0) {
+		console.error(`✗ unknown flag(s): ${unknown.join(", ")}\n  known: ${[...KNOWN_FLAGS].join(", ")}`);
+		process.exit(1);
+	}
+}
 const target = argv.find((a) => !a.startsWith("--")) || resolve(process.cwd(), "..", "..", "dist", APP_NAME);
-const IS_BUNDLE = !argv.some((a) => ["--snapshot", "--standalone", "--exe"].includes(a));
 const IS_SNAPSHOT = argv.includes("--snapshot");
 const IS_STANDALONE = argv.includes("--standalone");
 const IS_EXE = argv.includes("--exe");
