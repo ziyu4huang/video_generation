@@ -7,7 +7,7 @@
  * this package) instead of only being caught centrally in pi-agent.
  */
 import { describe, test, expect } from "bun:test";
-import extensionFactory from "./pi-movie-director.ts";
+import extensionFactory from "./movie-director.ts";
 
 interface ToolLike {
 	name?: string;

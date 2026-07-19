@@ -65,3 +65,30 @@ test("viewer list shows all runs; enter opens the selected run's full output; es
   const back = viewer.render(80).join("\n");
   assert.ok(back.includes("#1") && back.includes("#2"), "back to list view");
 });
+
+test("reconstructSubagentRuns carries usage through from details", () => {
+  const usage = { input: 100, output: 50, cacheRead: 0, cacheWrite: 0, total: 150, cost: 0.0023 };
+  const branch = [
+    toolResultEntry("subagent", "report", {
+      exitCode: 0, timedOut: false, agent: "implementer", model: "x/flash",
+      taskPreview: "task A", elapsedMs: 1000, status: "done", usage,
+    } as Partial<SubagentToolDetails>),
+  ];
+  const runs = reconstructSubagentRuns(branch as never);
+  assert.deepEqual(runs[0].usage, usage);
+});
+
+test("viewer output view shows cost/tokens when usage.total > 0", () => {
+  const runs = reconstructSubagentRuns([
+    toolResultEntry("subagent", "report A", {
+      exitCode: 0, timedOut: false, agent: "implementer", model: "x/flash", taskPreview: "task A",
+      elapsedMs: 1000, status: "done",
+      usage: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0, total: 150, cost: 0.0023 },
+    } as Partial<SubagentToolDetails>),
+  ] as never);
+  const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
+  viewer.handleInput("\r"); // enter → output view
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("$0.002"));
+  assert.ok(out.includes("150 tok"));
+});

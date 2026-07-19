@@ -21,7 +21,7 @@ Both done-when gates met:
 ## A. Agent-driven captions (primary)
 
 ### Runtime configuration
-- `bun bun-apps/pi-agent/src/cli.ts --no-extensions -e …/pi-movie-director.ts`
+- `bun bun-apps/pi-agent/src/cli.ts --no-extensions -e …/movie-director.ts`
 - Provider `lm-studio`, model `google/gemma-4-26b-a4b-qat`, **thinking `medium`**
 - `--exclude-tools bash,edit,write,read,grep,find,ls` → the agent had **only**
   the `movie` tool. The thesis ("the agent drives `movie`") is exercised pure.
@@ -78,7 +78,7 @@ movie-director extension blocks the built-in `edit`/`write` tools when the
 target path resolves under a repo infra root (`python/`, `swift/`, `mlx-models/`,
 `comfyui_data/`, `bun-apps/`, `.claude/`, `.githooks/`, `scripts/`). Pure logic
 in `src/tool-scope.ts` (override via `MD_TOOL_SCOPE_DENY`; bypass via
-`MD_TOOL_SCOPE_DISABLE=1`); wired in `extensions/pi-movie-director.ts`.
+`MD_TOOL_SCOPE_DISABLE=1`); wired in `extensions/movie-director.ts`.
 
 **Why.** The #291 H-real agent-driven run produced one ungrounded edit to
 `python/mlx-movie-director/app/config.py` (a wrong Python-3.9 diagnosis,

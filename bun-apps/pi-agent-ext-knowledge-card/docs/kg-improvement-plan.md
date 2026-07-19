@@ -253,7 +253,7 @@ Each: **lever** (what moves), **effort** (S/M/L), **risk**, **proof metric**
 > lexical wins **4/5**. Semantic-lexical did NOT exceed the ≥0.05 gate (it was
 > 0.304 worse). Cross-regime confirmation: iter-6 (zh-TW) was 0.332 vs 0.100.
 > **Verdict: RETIRE** the semantic blend from `zk_ask`'s default READ path —
-> done (see the `pi-knowledge-card.ts` blend description + `zk-ask.ts` NOTE).
+> done (see the `knowledge-card.ts` blend description + `zk-ask.ts` NOTE).
 > Receipt: `output/iter7-receipt-2026-07-07T01-00-52.json`
 > (history `2026-07-07T01-00-52.json`).
 >

@@ -25,14 +25,14 @@
     "README.md"
   ],
   "scripts": {
-    "test": "npm run check && npm run build && npm run test:unit",
+    "test": "bun run check && bun run build && bun run test:unit",
     "test:unit": "bun test",
     "check": "biome check .",
     "format": "biome format --write .",
     "lint": "biome lint .",
     "build": "bunx tsc",
     "dev": "tsx src/index.ts",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "bun run build"
   },
   "keywords": [
     "pi-package",

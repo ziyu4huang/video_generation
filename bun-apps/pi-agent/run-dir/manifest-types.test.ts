@@ -10,9 +10,9 @@ import { parseManifestEntry, parseManifestEntries } from "./manifest-types.ts";
 
 describe("parseManifestEntry", () => {
 	test("bare string → { entry, bundleMode: thin }", () => {
-		const e = parseManifestEntry("pi-file2md/extensions/pi-file2md.ts");
-		expect(e.entry).toBe("pi-file2md/extensions/pi-file2md.ts");
-		expect(e.name).toBe("pi-file2md");
+		const e = parseManifestEntry("pi-file2md/extensions/file2md.ts");
+		expect(e.entry).toBe("pi-file2md/extensions/file2md.ts");
+		expect(e.name).toBe("file2md");
 		expect(e.bundleMode).toBe("thin");
 	});
 
@@ -45,15 +45,15 @@ describe("parseManifestEntry", () => {
 	});
 
 	test("declared object infers name from entry when missing", () => {
-		const e = parseManifestEntry({ entry: "pi-flux2/extensions/pi-flux2.ts" });
-		expect(e.name).toBe("pi-flux2");
+		const e = parseManifestEntry({ entry: "pi-flux2/extensions/flux2.ts" });
+		expect(e.name).toBe("flux2");
 	});
 });
 
 describe("parseManifestEntries", () => {
 	test("mixed bare strings + declared objects", () => {
 		const entries = parseManifestEntries([
-			"pi-file2md/extensions/pi-file2md.ts",
+			"pi-file2md/extensions/file2md.ts",
 			{ name: "pi-hermes-memory", entry: "pi-hermes-memory/src/index.ts", bundleMode: "full" },
 			"@repo/pi-agent-ext-obsidian/extensions/obsidian.ts",
 		]);

@@ -16,7 +16,7 @@ CLIP was deterministic-e2e only).
 | Parity with ESRGAN receipt | ✅ same invocation shape, same single-tool thesis |
 
 ## Runtime configuration
-- `bun bun-apps/pi-agent/src/cli.ts --no-extensions -e …/pi-movie-director.ts`
+- `bun bun-apps/pi-agent/src/cli.ts --no-extensions -e …/movie-director.ts`
 - Provider `lm-studio`, model `google/gemma-4-26b-a4b-qat`, **thinking `medium`**
 - `--no-builtin-tools` → the agent had **only** the `movie` tool.
 - `BUN_PI_LOAD_RUN_DIR=FALSE`.

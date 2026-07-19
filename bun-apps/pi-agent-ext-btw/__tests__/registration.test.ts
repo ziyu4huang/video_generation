@@ -8,7 +8,7 @@
  * so this runs without spawning any subprocess.
  */
 import { test, expect } from "bun:test";
-import factory from "../extensions/pi-btw";
+import factory from "../extensions/btw";
 import { BTW_MESSAGE_TYPE } from "../src/btw/constants";
 
 function makeRecorderPi() {

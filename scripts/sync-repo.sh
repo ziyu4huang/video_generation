@@ -77,6 +77,37 @@ detect_default_branch() {  # <repo-dir>
   echo "main"
 }
 
+# Verify the local default-branch ref equals origin/<branch>; return 1 with a clear
+# message if not. Called at the end of --full's superproject sync to turn the OLD
+# silent-success footgun (advance skipped because the worktree holding the default
+# branch is dirty/paused, or this worktree's branch has no upstream → "✓ Sync
+# complete" + exit 0 while local main is still behind origin) into a LOUD failure.
+# Reads shared refs only — main advances wherever the worktree that holds it runs
+# the pull, so this check is correct from any worktree of the same repo.
+verify_default_at_latest() {  # <repo> <branch>
+  local repo="${1:?repo}" branch="${2:?branch}" local_sha remote_sha behind ahead
+  # --verify -q: on a missing ref prints nothing to stdout + exits non-zero
+  # (a bare `git rev-parse <ref>` would echo the ref NAME to stdout, masking the
+  # missing-ref case as a non-empty string).
+  remote_sha="$(git -C "$repo" rev-parse --verify -q "origin/$branch" 2>/dev/null || true)"
+  if [[ -z "$remote_sha" ]]; then
+    echo "✗ --full: cannot resolve 'origin/$branch' — is remote 'origin' fetched?" >&2
+    return 1
+  fi
+  local_sha="$(git -C "$repo" rev-parse --verify -q "$branch" 2>/dev/null || true)"
+  if [[ "$local_sha" != "$remote_sha" ]]; then
+    behind=$(git -C "$repo" rev-list --count "$branch..origin/$branch" 2>/dev/null || echo "?")
+    ahead=$( git -C "$repo" rev-list --count "origin/$branch..$branch" 2>/dev/null || echo "?")
+    echo "✗ --full FAILED: default branch '$branch' is NOT at latest remote." >&2
+    echo "    local  $branch         = ${local_sha:0:12}  (ahead $ahead / behind $behind)" >&2
+    echo "    remote origin/$branch  = ${remote_sha:0:12}" >&2
+    echo "  The advance was skipped — usually the worktree holding '$branch' has" >&2
+    echo "  uncommitted changes or a paused git op. Resolve it there, then re-run." >&2
+    return 1
+  fi
+  return 0
+}
+
 # Lib mode: resolve + print the default branch for <dir> (default: cwd), then exit.
 # Lets every submodule reuse the superproject's detection via `git submodule foreach`.
 if [[ "${1:-}" == "--detect-default-branch" ]]; then
@@ -251,6 +282,23 @@ else
           fi ;;
       esac
     fi
+  fi
+fi
+
+# --- 2b. --full guard: superproject default branch MUST be at latest remote ----
+# The whole point of --full is "everything to latest default branch". The advance
+# above can be SILENTLY skipped — the sibling worktree holding the default branch
+# is dirty/paused (section 0a), or this worktree's branch has no upstream
+# (section 2) — leaving local main behind origin while the OLD code still printed
+# "✓ Sync complete" + exit 0. That silent success is the footgun the user hit.
+# verify_default_at_latest() fails loudly instead. Skipped under --dry-run because
+# the (skipped) advance never ran, so the refs legitimately don't match yet.
+if [[ "$FULL_SYNC" == true && "$DRY_RUN" == false ]]; then
+  if ! verify_default_at_latest "$REPO_ROOT" "$DEFAULT_BRANCH"; then
+    if [[ -n "${MAIN_WT:-}" ]]; then
+      echo "    check:  git -C "${MAIN_WT}" status" >&2
+    fi
+    exit 1
   fi
 fi
 

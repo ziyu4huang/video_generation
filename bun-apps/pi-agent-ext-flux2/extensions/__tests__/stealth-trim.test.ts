@@ -4,7 +4,7 @@
  * Bulk semantics live in the on-demand `flux2_help` tool, not the static schema.
  */
 import { test, expect } from "bun:test";
-import extensionFactory from "../pi-flux2.ts";
+import extensionFactory from "../flux2.ts";
 
 function captureTools(): Record<string, Record<string, unknown>> {
 	const tools: Record<string, Record<string, unknown>> = {};

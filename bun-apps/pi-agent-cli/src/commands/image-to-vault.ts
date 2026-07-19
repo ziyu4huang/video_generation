@@ -41,7 +41,7 @@ Resume: re-run with the same <out> and input image to reuse the run dir.
 
 Options:
   --out <dir>            pipeline root (default: ./tmp)
-  --vlm-model <id>       stage 1 model (default: lm-studio/google/gemma-4-26b-a4b-qat)
+  --vlm-model <id>       stage 1 model (default: lm-studio/google/gemma-4-12b-qat)
   --model <id>           stage 2 (distill) model — global flag; defaults to CLI default
   --retries <n>          VLM retries on 429/transient errors (default 3)
   --retry-wait <sec>     seconds to wait between retries (default 10)

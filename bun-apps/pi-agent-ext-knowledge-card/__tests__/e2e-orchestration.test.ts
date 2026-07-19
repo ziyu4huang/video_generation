@@ -101,7 +101,7 @@ function makeFakePi() {
 
 async function ensureExtension() {
 	if (Object.keys(_tools).length === 0) {
-		const kc = await import("../extensions/pi-knowledge-card.ts");
+		const kc = await import("../extensions/knowledge-card.ts");
 		const { pi, tools } = makeFakePi();
 		(kc.default as (pi: unknown) => void)(pi as never);
 		_tools = tools;

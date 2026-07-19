@@ -149,7 +149,7 @@ recommended for any measured regime on this vault.
 | Anti-lexical-dilution (diagnostic only) | `semantic-lexical` | No measured regime where it wins outright; keep as a diagnostic, not a recommendation |
 
 The blend score is a pure exported function `rankBlendScore(parts, mode)` in
-`pi-knowledge-card/extensions/pi-knowledge-card.ts` — unit-tested in
+`pi-knowledge-card/extensions/knowledge-card.ts` — unit-tested in
 `__tests__/blend.test.ts`, re-used by the `retrieval-quality-self-improve`
 engine workflow to prove (or refute) blend > lexical with a blind judge.
 
@@ -195,7 +195,7 @@ Stage 5  Generate / Output
 ## Tool Allowlist
 
 ```typescript
-// Defined in packages/pi-knowledge-card/extensions/pi-knowledge-card.ts
+// Defined in packages/pi-knowledge-card/extensions/knowledge-card.ts
 RAG_TOOLS = [
   "obsidian_search",   // seed (fuzzy/words) + graph expansion (neighbors)
   "obsidian_query",    // tag/metadata seed queries
@@ -212,12 +212,12 @@ Identical to `FIND_TOOLS` — graph expansion is a parameter
 ## Single Source of Truth (packages/pi-knowledge-card)
 
 The task builder and tool allowlist are **not** local to this command. They live
-in `packages/pi-knowledge-card/extensions/pi-knowledge-card.ts`, which is the
+in `packages/pi-knowledge-card/extensions/knowledge-card.ts`, which is the
 shared source for both the `zk_ask` pi-extension tool and this CLI command. This
 file imports them so the CLI and the extension never drift apart:
 
 ```typescript
-import { buildRagTask, RAG_TOOLS } from "pi-knowledge-card/extensions/pi-knowledge-card.ts";
+import { buildRagTask, RAG_TOOLS } from "pi-knowledge-card/extensions/knowledge-card.ts";
 ```
 
 | Concern | Decision |
@@ -231,7 +231,7 @@ import { buildRagTask, RAG_TOOLS } from "pi-knowledge-card/extensions/pi-knowled
 ## Pure Function
 
 ```typescript
-// Exported from packages/pi-knowledge-card/extensions/pi-knowledge-card.ts
+// Exported from packages/pi-knowledge-card/extensions/knowledge-card.ts
 buildRagTask(
   query: string,
   depth: number,
