@@ -299,8 +299,8 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
       // (cheap: stat only — we do NOT import mlx_whisper on every probe.)
       return entry.configured && whisperRuntimePresent(env);
     case "bun:clip":
-      // callable iff the vision-venv python + clip entry script resolve.
-      return entry.configured && visionRuntimePresent(env, CLIP_SCRIPT);
+      // callable iff the built swift/clip-director binary is on disk.
+      return entry.configured && clipBinaryPresent();
     case "compose:remotion":
       // callable iff the registry flag is set AND a real remotion binary resolves
       // (REMOTION_BIN on disk OR `remotion` on PATH — NOT the bunx fallback).
@@ -753,63 +753,36 @@ export function cuesFromWhisper(
   return cues;
 }
 
-// ─── vision venv (CLIP only — ESRGAN removed 2026-07-19) ─────────────────────
+// ─── CLIP adapter (native Swift/MLX via the clip-director binary) ────────────
 
 /**
- * The Item I sibling pattern: a lightweight python venv that holds the deps the
- * builtin Bun layer doesn't (here torch + transformers for CLIP). The venv is
- * repo infra at <repo>/python/vision-venv; resolution order:
- *   1. MD_VISION_PYTHON env (explicit override).
- *   2. <repo>/python/vision-venv/bin/python — walk up from EXT_ROOT.
- *   3. "python3" on PATH (last resort; needs the deps importable there).
- *
- * NOTE: CLIP itself moves to a native swift port in Phase 3 of the zero-python
- * plan; this venv + probe are temporary until that lands.
+ * `analysis:video_understand` now runs the pure-Swift/MLX `clip` binary
+ * (swift/clip-director) — CLIP ViT-B/32 text+vision towers + projections,
+ * scoring frames against a prompt via cosine similarity. Replaces the former
+ * python `clip_understand.py` (transformers + torch MPS); no python/vision-venv
+ * is involved at runtime. Checkpoint resolved inside the binary (--checkpoint
+ * > MD_CLIP_CHECKPOINT env > cached openai/clip-vit-base-patch32).
  */
-const CLIP_SCRIPT = join(EXT_ROOT, "python", "clip_understand.py");
-
-export function clipScriptPath(): string {
-  return CLIP_SCRIPT;
+function clipBinaryPath(): string {
+  return join(resolveRepoRoot(), "swift", "clip-director", ".build", "release", "clip");
 }
 
-/** Resolve the python binary backing CLIP (cached per process). */
-export function resolveVisionPython(env: Record<string, string | undefined> = process.env): string {
-  if (env.MD_VISION_PYTHON && existsSync(env.MD_VISION_PYTHON)) return env.MD_VISION_PYTHON;
-  let dir = EXT_ROOT;
-  for (let i = 0; i < 8; i++) {
-    const cand = join(dir, "python", "vision-venv", "bin", "python");
-    if (existsSync(cand)) return cand;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return "python3";
+let clipBinaryOverride: boolean | undefined;
+function clipBinaryPresent(): boolean {
+  if (clipBinaryOverride != null) return clipBinaryOverride;
+  try { return existsSync(clipBinaryPath()); } catch { return false; }
 }
 
-/** Test-only override (when set, short-circuits the real probe). */
-const visionRuntimeOverride = new Map<string /*"clip"*/, boolean>();
-/** The import statement CLIP needs (transformers). */
-const VISION_IMPORT_FOR: Record<string, string> = {
-  [CLIP_SCRIPT]: "import torch, transformers",
-};
-function visionRuntimePresent(env: Record<string, string | undefined>, script: string): boolean {
-  if (visionRuntimeOverride.has("clip")) return visionRuntimeOverride.get("clip")!;
-  if (!existsSync(script)) return false;
-  const py = env.MD_VISION_PYTHON ? env.MD_VISION_PYTHON : resolveVisionPython(env);
-  // Same honesty fix as whisper: "python3" (PATH fallback) is not assumed to have
-  // torch/transformers. Require a real python path + a cached import
-  // probe (keyed by py+stmt → env-correct, no stale cross-env cache entry).
-  if (py === "python3" || !existsSync(py)) return false;
-  return pythonImportsModule(py, VISION_IMPORT_FOR[script] ?? "import torch");
-}
-
-/** Force the vision-runtime probe result (tests inject a deterministic value). */
+/**
+ * Force the CLIP-backend probe result. Kept under the historical
+ * `_setVisionRuntimeForTest` name (the probe was a python-vision import check
+ * before the swift port) so existing test pins are unchanged.
+ */
 export function _setVisionRuntimeForTest(script: "clip", v: boolean | undefined): void {
-  if (v == null) visionRuntimeOverride.delete(script);
-  else visionRuntimeOverride.set(script, v);
+  clipBinaryOverride = v;
 }
 
-// ─── CLIP adapter (native video understanding via python subprocess) ─────────
+
 
 export interface ClipOptions {
   /**
@@ -878,16 +851,15 @@ function ffprobeDuration(video: string): Promise<number> {
   });
 }
 
-/** clip adapter: samples frames (if needed), spawns clip_understand.py, returns a scored ToolResult. */
+/** clip adapter: samples frames (if needed), spawns the swift `clip` binary, returns a scored ToolResult. */
 export const clipAdapter: Adapter = async (req: GenerateRequest): Promise<ToolResult> => {
-  if (!visionRuntimePresent(process.env as Record<string, string | undefined>, CLIP_SCRIPT)) {
-    return fail(req, "clip", "clip runtime not found (set MD_VISION_PYTHON or create python/vision-venv)");
+  if (!clipBinaryPresent()) {
+    return fail(req, "clip", "clip backend not found (build swift/clip-director: swift build -c release)");
   }
   const opts = (req.options ?? {}) as unknown as ClipOptions;
   if (!opts.prompt) {
     return fail(req, "clip", "prompt is required for video_understand");
   }
-  const env = process.env as Record<string, string | undefined>;
   const outDir = req.outputDir ?? mkdtempSync(join(tmpdir(), "md-clip-"));
   const started = Date.now();
   try {
@@ -910,10 +882,12 @@ export const clipAdapter: Adapter = async (req: GenerateRequest): Promise<ToolRe
 
     const spawnImpl = opts._spawnImpl ?? runSpawn;
     const jsonOut = join(outDir, `clip_${process.pid}_${Date.now() % 100000}.json`);
-    const argv = [CLIP_SCRIPT, "--prompt", opts.prompt, "--output", jsonOut, "--frames", ...frames];
-    if (opts.labels && opts.labels.length) argv.push("--labels", ...opts.labels);
-    if (opts.model) argv.push("--model", opts.model);
-    const code = await spawnImpl(resolveVisionPython(env), argv);
+    // The swift `clip` binary takes --frames <p...> --prompt <p> [--labels <p...>...]
+    // (--labels repeats per label — ArgumentParser array-by-occurrence).
+    const argv = ["--frames", ...frames, "--prompt", opts.prompt, "--output", jsonOut];
+    if (opts.labels && opts.labels.length) for (const l of opts.labels) argv.push("--labels", l);
+    if (opts.model) argv.push("--checkpoint", opts.model);
+    const code = await spawnImpl(clipBinaryPath(), argv);
     let payload: ClipResult;
     try {
       payload = JSON.parse(readFileSync(jsonOut, "utf8")) as ClipResult;
@@ -937,7 +911,7 @@ export const clipAdapter: Adapter = async (req: GenerateRequest): Promise<ToolRe
           : (frames ?? []).map((f, i) => ({ path: resolve(f), kind: "frames" as const, bytes: byteSize(f), role: `frame-${i}` }))),
       ],
       error: null,
-      cost_usd: 0, // local torch MPS — honest $0 marginal
+      cost_usd: 0, // local MLX — honest $0 marginal
       duration_seconds: payload.duration_s ?? (Date.now() - started) / 1000,
       seed: null,
       model: payload.model ?? "clip-vit-base-patch32",
