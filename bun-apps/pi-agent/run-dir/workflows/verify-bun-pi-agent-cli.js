@@ -30,7 +30,7 @@ const CFG = {
   fixtureName: A.fixtureName ?? '2025.emnlp-main.893.pdf',
   runRoot: A.runRoot ?? '',              // '' => <repoRoot>/tmp (gitignored; resolved in Resolve)
   distillModel: A.distillModel ?? 'zai/glm-5.2',
-  vlmModel: A.vlmModel ?? 'lm-studio/google/gemma-4-26b-a4b-qat',
+  vlmModel: A.vlmModel ?? 'lm-studio/google/gemma-4-12b-qat',
   regPages: A.regPages ?? '1-3',
   stage1From: A.stage1From ?? '',        // dir containing 1-pdf-to-md/<slug>/ to REUSE (skip VLM stage1; control variation across distill models)
 }

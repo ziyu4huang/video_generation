@@ -75,8 +75,8 @@ export async function catalogModelKeys(apiUrl: string, fetchImpl: typeof fetch =
  * downloaded, then the lightweight fallback. Never silently prefers the
  * over-praising Qwen3-VL fallback when Gemma is available.
  */
-const PREFERRED_MODELS = ["google/gemma-4-31b-qat", "google/gemma-4-26b-a4b-qat"];
-const DEFAULT_MODEL = "google/gemma-4-26b-a4b-qat";
+const PREFERRED_MODELS = ["google/gemma-4-12b-qat"];
+const DEFAULT_MODEL = "google/gemma-4-12b-qat";
 const FALLBACK_MODELS = ["qwen/qwen3-vl-4b"];
 
 export async function resolveDefaultModel(apiUrl: string = DEFAULT_API_URL, fetchImpl: typeof fetch = fetch): Promise<string> {

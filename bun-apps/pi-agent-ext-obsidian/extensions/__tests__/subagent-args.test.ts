@@ -10,10 +10,10 @@ describe("buildSubagentArgs — subagent argv construction", () => {
   });
 
   test("model opt → appends --model", () => {
-    const args = buildSubagentArgs("read", "/s", "/p", { model: "lm-studio/google/gemma-4-26b" });
+    const args = buildSubagentArgs("read", "/s", "/p", { model: "lm-studio/google/gemma-4-12b" });
     const i = args.indexOf("--model");
     expect(i).toBeGreaterThan(-1);
-    expect(args[i + 1]).toBe("lm-studio/google/gemma-4-26b");
+    expect(args[i + 1]).toBe("lm-studio/google/gemma-4-12b");
   });
 
   test("excludeTools → joined as CSV under --exclude-tools", () => {

@@ -33,9 +33,9 @@ describe("resolveLLM — defaults", () => {
   test("no opts, no env → lm-studio + default gemma model, thinking off", () => {
     const r = resolveLLM({});
     expect(r.provider).toBe("lm-studio");
-    // DEFAULT_MODEL "lm-studio/google/gemma-4-26b-a4b-qat" splits on the FIRST
+    // DEFAULT_MODEL "lm-studio/google/gemma-4-12b-qat" splits on the FIRST
     // slash, so modelId keeps the "google/" prefix.
-    expect(r.modelId).toBe("google/gemma-4-26b-a4b-qat");
+    expect(r.modelId).toBe("google/gemma-4-12b-qat");
     expect(r.thinkingLevel).toBe("off");
   });
 });

@@ -27,14 +27,14 @@ export interface ResolvedLLM {
 
 /**
  * Resolve LLM target from options. Accepts "provider/modelId" shorthand in model.
- * Defaults to lm-studio/google/gemma-4-26b-a4b-qat for VLM work.
+ * Defaults to lm-studio/google/gemma-4-12b-qat for VLM work.
  */
 export function resolveLLM(opts: {
   provider?: string;
   model?: string;
   thinking?: string;
 }): ResolvedLLM {
-  const DEFAULT_MODEL = "lm-studio/google/gemma-4-26b-a4b-qat";
+  const DEFAULT_MODEL = "lm-studio/google/gemma-4-12b-qat";
 
   let model = opts.model ?? process.env.PI_MODEL ?? DEFAULT_MODEL;
   let provider = opts.provider ?? process.env.PI_PROVIDER ?? "lm-studio";
