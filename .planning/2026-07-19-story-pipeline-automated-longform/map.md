@@ -42,20 +42,19 @@ scripts bypassing the pipeline.
 
 ## Not yet specified
 
-1. **Post-restart verification (R2).** After session restart (cached imports
-   pick up the T1 fixes), confirm `run-pipeline story` completes proposal →
-   script → ... → publish. Expected to work now — the model produces valid JSON
-   (fence-stripping handles the wrapper), and `--no-tools` is correct.
-2. **Story content structure.** What narrative fills 1–2 min? A traditional
-   3-act structure? Multiple vignettes? The orchestrator + model will generate
-   this — the remaining open question is whether the generated content hits the
-   90s target duration.
-3. **Music scaling.** 8s MusicGen clip looped to 1–2 min — does the loop
-   sound repetitive? Or generate multiple clips with different prompts per
-   scene mood?
-4. **Faceswap batch scaling.** 15–20 scenes × ~1 min each = 15–20 min —
-   acceptable for a batch run. The assets encoder's proactive plan already
-   handles I2V chaining; faceswap just needs to be woven in.
+<!-- all core decisions resolved — effort is closed -->
+
+### Post-effort notes
+
+- LLM creative waypoints work but content quality varies — scene_plan and edit
+  produced generic explainer content instead of following the clockmaker
+  script. Prompt engineering or model upgrade (gemma-4-26b) would help.
+- LM Studio config must live in `~/.pi/agent/models.json` — settings.json
+  provider change without models.json won't resolve.
+- compose-motion handles still-image slideshows correctly but lacks
+  transitions/Ken Burns without richer edit_decisions.
+- MusicGen 8s → 90s loop is clean but repetitive; multi-clip mood-varied music
+  would be better for a polished production.
 
 ## Out of scope
 
