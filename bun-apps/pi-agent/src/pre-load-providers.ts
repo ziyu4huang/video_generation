@@ -16,19 +16,24 @@
  * ---------------------------
  * This module has NO top-level side effects — importing PROVIDERS / resolveApiKey /
  * registerAllProviders from anywhere (including pi-agent-cli, via `@repo/pi-agent`)
- * must never monkey-patch anything. The actual ModelRegistry.prototype.loadModels
- * patch lives in `./patches/pre-load-providers-patch.ts` and is applied ONLY via
- * applyPatches() (env-gated, main()-oriented). A prior version patched the
- * prototype right here at module scope, which meant ANY import of this file —
- * even just `{ PROVIDERS }` — applied the patch as an ES-module evaluation side
- * effect, double-registering every provider for pi-agent-cli's programmatic
- * session builder (which explicitly imports PROVIDERS to AVOID that patch; see
+ * must never monkey-patch anything. The actual ModelRuntime.create() wrap lives in
+ * `./patches/pre-load-providers-patch.ts` and is applied ONLY via applyPatches()
+ * (env-gated, main()-oriented). A prior version patched the prototype right here
+ * at module scope, which meant ANY import of this file — even just `{ PROVIDERS }`
+ * — applied the patch as an ES-module evaluation side effect, double-registering
+ * every provider for pi-agent-cli's programmatic session builder (which
+ * explicitly imports PROVIDERS to AVOID that patch; see
  * bun-apps/pi-agent-cli/src/sessions/shared.ts). Keep it that way.
  */
 
 // ─── Provider config ──────────────────────────────────────────────────────────
 
 export type ApiKey = string | { env: string };
+
+interface Compat {
+  supportsDeveloperRole?: boolean;
+  supportsReasoningEffort?: boolean;
+}
 
 interface ModelEntry {
   id: string;
@@ -37,17 +42,29 @@ interface ModelEntry {
   input: ("text" | "image")[];
   contextWindow: number;
   maxTokens: number;
-  compat?: { supportsDeveloperRole?: boolean; supportsReasoningEffort?: boolean };
+  /** Per-model compat; merged ON TOP of the provider-level compat. */
+  compat?: Compat;
 }
 
 interface ProviderEntry {
   baseUrl: string;
   api: string;
   apiKey: ApiKey;
+  /** Provider-level compat, applied to every model (merged with per-model compat). */
+  compat?: Compat;
   models: ModelEntry[];
 }
 
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+
+// LM Studio runs locally with a fake key; both compat flags are off for every
+// model it serves, so the compat is declared once at the provider level and
+// registerAllProviders merges it onto each model for the extension-provider
+// path (which honors only model-level compat via object spread).
+const LM_STUDIO_COMPAT: Compat = {
+  supportsDeveloperRole: false,
+  supportsReasoningEffort: false,
+};
 
 export const PROVIDERS: Record<string, ProviderEntry> = {
 
@@ -55,6 +72,7 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
     baseUrl: "http://localhost:1234/v1",
     api: "openai-completions",
     apiKey: "lm-studio",
+    compat: LM_STUDIO_COMPAT,
     models: [
       {
         id: "google/gemma-4-12b-qat",
@@ -63,7 +81,38 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
         input: ["text", "image"],
         contextWindow: 200_000,
         maxTokens: 16_384,
-        compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
+      },
+      {
+        id: "google/gemma-4-26b-a4b-qat",
+        name: "Gemma 4 26B A4B (LM Studio)",
+        reasoning: true,
+        input: ["text", "image"],
+        contextWindow: 128_000,
+        maxTokens: 16_384,
+      },
+      {
+        id: "google/gemma-4-31b-qat",
+        name: "Gemma 4 31B (LM Studio)",
+        reasoning: true,
+        input: ["text", "image"],
+        contextWindow: 128_000,
+        maxTokens: 16_384,
+      },
+      {
+        id: "qwen3.6-27b-mtp",
+        name: "Qwen3.6 27B MTP (LM Studio)",
+        reasoning: false,
+        input: ["text", "image"],
+        contextWindow: 200_000,
+        maxTokens: 16_384,
+      },
+      {
+        id: "qwen/qwen3-vl-4b",
+        name: "Qwen3 VL 4B (LM Studio)",
+        reasoning: true,
+        input: ["text", "image"],
+        contextWindow: 131_072,
+        maxTokens: 16_384,
       },
     ],
   },
@@ -101,10 +150,17 @@ export function registerAllProviders(
   env: Record<string, string | undefined> = process.env,
 ): void {
   for (const [name, entry] of Object.entries(PROVIDERS)) {
+    const { compat: providerCompat, ...rest } = entry;
     registry.registerProvider(name, {
-      ...entry,
+      ...rest,
       apiKey: resolveApiKey(entry.apiKey, env),
-      models: entry.models.map((m) => ({ ...m, cost: ZERO_COST })),
+      models: entry.models.map((m) => ({
+        ...m,
+        // The SDK's extension-provider path (applyExtension) honors only
+        // model-level compat, so fold the provider-level compat down here.
+        compat: { ...providerCompat, ...m.compat },
+        cost: ZERO_COST,
+      })),
     });
   }
 }
