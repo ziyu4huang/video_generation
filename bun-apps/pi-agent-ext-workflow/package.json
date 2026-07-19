@@ -21,6 +21,7 @@
     "dist/",
     "extensions/",
     "src/",
+    "workflow-pack/",
     "README.md"
   ],
   "scripts": {
