@@ -36,6 +36,7 @@ A single coordination layer publishes the `__piPlan*` seams, parses BOTH plan co
 
 - **Upstream re-sync mechanics.** If upstream superpowers has advanced since the port, "restore byte-identical" is a re-port from current upstream, not a pure `git revert`. Graduates into a research sub-ticket when [01](tickets/01-revert-skill-edits-restore-fidelity.md) is worked.
 <!-- plan-format convergence RESOLVED by [02](tickets/02-unified-coordination-layer.md): writing-plans canonical, wayfind adjusts, Task≡phase. Graduated to [08](tickets/08-wayfind-migrates-to-writing-plans-format.md). -->
+- **[04](tickets/04-sync-timing-and-lifecycle.md) / [05](tickets/05-multi-plan-representation.md) are build-time.** Their decisions (parse trigger, replay ordering; multi-plan) are best made inside the [09](tickets/09-build-coordination-layer.md) build with the implementation in hand, not abstractly beforehand.
 
 ## Out of scope
 
