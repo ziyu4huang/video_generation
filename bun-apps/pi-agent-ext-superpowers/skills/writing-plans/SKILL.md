@@ -155,7 +155,7 @@ If you find issues, fix them inline. No need to re-review — just fix and move 
 
 ## Execution Handoff
 
-After saving the plan, offer execution choice:
+After saving the plan, seed the session's `todo` list from this plan's tasks — one `todo` per Task N, in dependency order — so progress is trackable in the TUI; the executing skill (executing-plans or subagent-driven-development) then drives each `in_progress → completed`. If the user has not already set a session objective, prompt them to `/goal <one-line goal>` first. Until the plan coordinator is built these are driven manually at the skill layer (ADR-0003). Then offer the execution choice:
 
 **"Plan complete and saved to `.planning/<effort>/plans/<NN>-<slug>.md`. Two execution options:**
 
