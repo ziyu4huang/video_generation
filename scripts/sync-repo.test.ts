@@ -34,16 +34,19 @@ const tmpDirs: string[] = [];
 
 beforeAll(() => {
   if (!existsSync(SYNC_REPO)) throw new Error(`sync-repo.sh not found at ${SYNC_REPO}`);
-  // Extract detect_default_branch() from the REAL script ONCE (sourcing the full
-  // script would EXECUTE the sync, so we lift just the function — same trick
-  // pr-finish.test.ts uses for ci_running/wait_ci).
+  // Extract the pure functions from the REAL script ONCE (sourcing the full
+  // script would EXECUTE the sync, so we lift just the functions — same trick
+  // pr-finish.test.ts uses for ci_running/wait_ci). Both detect_default_branch()
+  // and verify_default_at_latest() are self-contained (no script globals), so a
+  // single sourced file gives the unit tests both.
   funcsFile = join(tmpdir(), `sr-funcs-${process.pid}-${crypto.randomUUID()}.sh`);
   execFileSync("bash", [
     "-c",
-    `sed -n '/^detect_default_branch()/,/^}/p' "${SYNC_REPO}" > "${funcsFile}"`,
+    `sed -n '/^detect_default_branch()/,/^}/p' "${SYNC_REPO}" > "${funcsFile}" && ` +
+    `sed -n '/^verify_default_at_latest()/,/^}/p' "${SYNC_REPO}" >> "${funcsFile}"`,
   ]);
   if (!existsSync(funcsFile) || statSync(funcsFile).size === 0) {
-    throw new Error("sed extraction of detect_default_branch produced an empty file");
+    throw new Error("sed extraction of functions produced an empty file");
   }
 });
 
@@ -174,4 +177,62 @@ test("lib-mode: produces no side effects (short-circuits before any sync)", asyn
     .toString()
     .trim();
   expect(after).toBe(before);
+});
+
+// --- UNIT: verify_default_at_latest() (sourced from the real script) ---------
+// This is the --full loud-failure guard: the OLD code printed "✓ Sync complete" +
+// exit 0 even when the default-branch advance was silently skipped (dirty sibling
+// worktree / no upstream / ff refused), leaving local main behind origin/main.
+// verify_default_at_latest() turns that silent success into exit 1 + a message.
+
+/**
+ * Build an offline temp repo whose refs simulate a default-branch sync state.
+ * mode:
+ *   "behind"    — local main is 1 behind origin/main (advance was skipped)
+ *   "latest"    — local main == origin/main (synced)
+ *   "no-origin" — no origin/main ref at all (remote missing/unfetched)
+ */
+function mkSyncRepo(mode: "behind" | "latest" | "no-origin"): string {
+  const dir = mkdtempSync(join(tmpdir(), "sr-v-"));
+  tmpDirs.push(dir);
+  const sh = (c: string) => execFileSync("bash", ["-c", c]);
+  sh(`git init -q -b main "${dir}"`);
+  sh(`git -C "${dir}" commit -q --allow-empty -m base`);
+  const base = sh(`git -C "${dir}" rev-parse main`).toString().trim();
+  if (mode === "no-origin") return dir; // no origin/main ref seeded
+  if (mode === "latest") {
+    sh(`git -C "${dir}" update-ref refs/remotes/origin/main "${base}"`);
+    return dir;
+  }
+  // behind: advance origin/main by one commit, then rewind local main to base
+  sh(`git -C "${dir}" commit -q --allow-empty -m remote-only`);
+  const tip = sh(`git -C "${dir}" rev-parse main`).toString().trim();
+  sh(`git -C "${dir}" update-ref refs/remotes/origin/main "${tip}"`);
+  sh(`git -C "${dir}" reset -q --hard "${base}"`);
+  return dir;
+}
+
+/** Source the extracted function and call verify_default_at_latest <repo> <branch>. */
+async function verifyViaSource(repo: string, branch: string): Promise<BashResult> {
+  const snippet = `source "${funcsFile}"; verify_default_at_latest "${repo}" "${branch}"; echo "EXIT:$?"`;
+  return bash(snippet);
+}
+
+test("unit: verify_default_at_latest — behind → exit 1 + loud stderr", async () => {
+  const r = await verifyViaSource(mkSyncRepo("behind"), "main");
+  expect(exitOf(r)).toBe(1);
+  expect(r.stderr).toContain("NOT at latest remote");
+  expect(r.stderr).toContain("behind 1");
+});
+
+test("unit: verify_default_at_latest — at latest → exit 0, silent", async () => {
+  const r = await verifyViaSource(mkSyncRepo("latest"), "main");
+  expect(exitOf(r)).toBe(0);
+  expect(r.stderr.trim()).toBe("");
+});
+
+test("unit: verify_default_at_latest — no origin ref → exit 1 + clear message", async () => {
+  const r = await verifyViaSource(mkSyncRepo("no-origin"), "main");
+  expect(exitOf(r)).toBe(1);
+  expect(r.stderr).toContain("cannot resolve");
 });
