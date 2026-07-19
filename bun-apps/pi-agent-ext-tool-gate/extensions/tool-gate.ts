@@ -286,36 +286,36 @@ export function isMissCandidate(
   return prompt.trim().length > 0 && gatesFired.length === 0 && dormantGates.length > 0;
 }
 
+/**
+ * Sum `savedTokens` for gates that are (a) actually loaded this session
+ * (at least one name in `allToolNames`) and (b) currently gated (no name in
+ * `active`). Fixes the phantom-tool over-report: previously a gate whose
+ * tools were never registered still counted its savedTokens.
+ */
+export function computeBannerSaved(active: string[], allToolNames: string[]): number {
+  return GATES
+    .filter((g) => g.names.some((n) => allToolNames.includes(n))) // loaded
+    .filter((g) => !g.names.some((n) => active.includes(n)))      // gated
+    .reduce((sum, g) => sum + g.savedTokens, 0);
+}
+
 export default function toolGateExtension(pi: ExtensionAPI) {
   let allToolNames: string[] = [];
   let sticky = new Set<string>(CORE_TOOLS);
+  let lastPrompt = ""; // captured each turn; read by enable_tool (T5)
 
   // ── On session start: capture full tool list and gate ──
   pi.on("session_start", async (_event, ctx) => {
     allToolNames = pi.getAllTools().map((t: { name: string }) => t.name);
     sticky = new Set(CORE_TOOLS);
+    lastPrompt = "";
 
     const active = computeActiveTools("", allToolNames, sticky);
     pi.setActiveTools(active);
 
-    const saved = GATES.filter(
-      (g) => !g.names.some((n) => active.includes(n)),
-    ).reduce((sum, g) => sum + g.savedTokens, 0);
+    // G fix: only count loaded gates (computeBannerSaved filters by allToolNames).
+    const saved = computeBannerSaved(active, allToolNames);
 
-    // Transient above-editor banner (like the /goal banner), delayed 5s past
-    // the startup notify burst. setWidget is keyed ("tool-gate"), so this never
-    // clobbers — or is clobbered by — other extensions' banners; that
-    // independence is what previously forced the lossy notify("info") (pi merges
-    // consecutive startup info-notifies, later overwriting earlier, so the
-    // tool-gate confirmation line could vanish depending on notify ordering).
-    // Mirrors pi-agent-ext-obsidian's scheduleVaultBanner and pi-agent-ext-zai-
-    // mcp's scheduleReadyBanner (commit 58a6b0b5). In non-interactive (RPC /
-    // print) modes setWidget is a silent no-op while theme is still present, so
-    // this degrades gracefully with no output.
-    //
-    // TOOL_GATE_DEBUG_BANNER=1 fires the banner immediately (no 5s delay) and
-    // mirrors the rendered lines to stderr — lets you confirm the trigger +
-    // exact message in print/RPC/noOpUIContext where setWidget is a no-op.
     const debug = process.env.TOOL_GATE_DEBUG_BANNER === "1";
     const theme = ctx.ui.theme;
     scheduleToolGateBanner(
@@ -328,10 +328,37 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     );
   });
 
-  // ── Per-turn: re-evaluate gates based on prompt (sticky — never un-gates) ──
+  // ── Per-turn: refresh tool list (D), re-evaluate gates (sticky), emit telemetry ──
   pi.on("before_agent_start", async (event, _ctx) => {
+    // D: re-fetch each turn so dynamically-registered or renamed tools are seen.
+    allToolNames = pi.getAllTools().map((t: { name: string }) => t.name);
     const prompt = event.prompt ?? "";
+    lastPrompt = prompt;
+
+    const before = new Set(sticky);
     const active = computeActiveTools(prompt, allToolNames, sticky);
     pi.setActiveTools(active);
+
+    // telemetry: which gates newly fired this turn, which are still dormant
+    const gatesFired = GATES
+      .filter((g) => g.names.some((n) => sticky.has(n) && !before.has(n)))
+      .map((g) => g.names[0]);
+    const dormantGates = GATES
+      .filter((g) => !g.names.every((n) => sticky.has(n)))
+      .map((g) => g.names[0]);
+
+    emitToolGateLog({
+      kind: "turn", ts: new Date().toISOString(),
+      promptLen: prompt.length, gatesFired, dormantGates,
+      activeCount: active.length, totalCount: allToolNames.length,
+    });
+    if (isMissCandidate(prompt, gatesFired, dormantGates)) {
+      emitToolGateLog({
+        kind: "miss_candidate", ts: new Date().toISOString(),
+        dormantGates, promptHead: prompt.slice(0, 80),
+      });
+    }
   });
+
+  // enable_tool is registered in Task 5 (appended here).
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { computeActiveTools, CORE_TOOLS, GATES, matchIntent } from "./tool-gate.ts";
+import { computeActiveTools, CORE_TOOLS, GATES, computeBannerSaved, matchIntent } from "./tool-gate.ts";
 import { emitToolGateLog, isMissCandidate } from "./tool-gate.ts";
 
 describe("computeActiveTools", () => {
@@ -140,5 +140,17 @@ describe("telemetry helpers (S1)", () => {
       process.env.TOOL_GATE_LOG = orig;
     }
     expect(sink.length).toBe(0);
+  });
+});
+
+describe("computeBannerSaved (S1 G fix)", () => {
+  test("counts only gates whose tools are actually loaded (excludes phantom movie)", () => {
+    // only ltx + flux2 tools are loaded this session; movie is NOT loaded
+    const loaded = [...CORE_TOOLS, "ltx", "ltx_help", "flux2", "flux2_help"];
+    const sticky = new Set(CORE_TOOLS);
+    const active = computeActiveTools("", loaded, sticky); // CORE-only ⇒ ltx & flux2 gated
+    const saved = computeBannerSaved(active, loaded);
+    // flux2 (1411) + ltx (1802) only; movie (632) excluded because it isn't loaded
+    expect(saved).toBe(1411 + 1802);
   });
 });
