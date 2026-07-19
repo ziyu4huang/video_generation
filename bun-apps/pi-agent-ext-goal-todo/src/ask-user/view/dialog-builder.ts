@@ -5,7 +5,7 @@
  * Stripped of @juicesharp/rpiv-i18n — all hint strings are inline English.
  */
 import { type Theme } from "@earendil-works/pi-coding-agent";
-import { type Component, type Input, Spacer } from "@earendil-works/pi-tui";
+import { type Component, type Input, Spacer, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { QuestionnaireState } from "../state/state.js";
 import type { QuestionData } from "../tool/types.js";
 import type { PreviewPaneProps } from "./components/preview/preview-pane.js";
@@ -85,7 +85,15 @@ export class DialogView implements StatefulView<DialogProps> {
 		if (state.currentTab < this.config.questions.length) {
 			const q = this.config.questions[state.currentTab];
 			const header = q?.header ?? "";
-			if (header) lines.push(this.config.theme.bold(`${header}: ${q?.question ?? ""}`));
+			if (header) {
+				// Word-wrap header+question so long questions stay fully visible.
+				// Previously this was a single line that overflowed/truncated at
+				// the terminal width, hiding the tail of long questions. Every
+				// other text surface (options/descriptions/preview) already used
+				// wrapTextWithAnsi — only this header line was missed.
+				const wrapped = wrapTextWithAnsi(`${header}: ${q?.question ?? ""}`, width);
+				for (const segment of wrapped) lines.push(this.config.theme.bold(segment));
+			}
 		} else {
 			lines.push(this.config.theme.bold(REVIEW_HEADING));
 		}
@@ -99,9 +107,14 @@ export class DialogView implements StatefulView<DialogProps> {
 		const bodyLines = this.renderBody(state, width);
 		lines.push(...bodyLines);
 
-		// Footer with keybindings
+		// Footer with keybindings — word-wrap so the whole hint stays
+		// visible on narrow terminals (previously a single overflowing line).
 		const footer = this.buildHintText(state);
-		if (footer) lines.push(this.config.theme.fg("dim", footer));
+		if (footer) {
+			for (const segment of wrapTextWithAnsi(footer, width)) {
+				lines.push(this.config.theme.fg("dim", segment));
+			}
+		}
 
 		return lines;
 	}
