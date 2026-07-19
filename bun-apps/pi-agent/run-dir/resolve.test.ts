@@ -188,6 +188,21 @@ describe("resolveRunDirArgv (integration, source mode against the real repo)", (
 			expect([...set].some((p) => p.endsWith(rel))).toBe(true);
 		}
 	});
+
+	test("user -ne/-ns suppress the injected -e/--skill pairs", async () => {
+		const suppressed = await resolveRunDirArgv({ noExtensions: true, noSkills: true });
+		expect(suppressed).not.toContain("-e");
+		expect(suppressed).not.toContain("--skill");
+
+		// -ne alone keeps skills flowing
+		const extOnly = await resolveRunDirArgv({ noExtensions: true });
+		expect(extOnly).not.toContain("-e");
+		expect(extOnly).toContain("--skill");
+
+		// default (no flags) is unchanged
+		const full = await resolveRunDirArgv();
+		expect(full).toContain("-e");
+	});
 });
 
 // ─── Lazy / opt-in extension aliases ─────────────────────────────────────────

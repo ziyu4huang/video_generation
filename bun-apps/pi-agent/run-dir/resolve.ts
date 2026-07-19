@@ -335,8 +335,19 @@ export function detectRunDirMode(selfDir: string, exists: (p: string) => boolean
   return "source";
 }
 
-/** Returns a flat argv fragment: ["-e", absPath, ..., "--skill", absPath, ...] */
-export async function resolveRunDirArgv(): Promise<string[]> {
+/**
+ * Returns a flat argv fragment: ["-e", absPath, ..., "--skill", absPath, ...],
+ * filtered by user-passed `-ne`/`-ns` (userFlags — computed by the caller from
+ * the PRE-SPLICE argv, see src/patches/load-run-dir-resources.ts). The deploy
+ * modes' own self-injected "-ne" is a bare token and survives the filter.
+ */
+export async function resolveRunDirArgv(
+  userFlags: Partial<UserSuppressFlags> = {},
+): Promise<string[]> {
+  return suppressResolvedArgv(await resolveRunDirArgvUnfiltered(), userFlags);
+}
+
+async function resolveRunDirArgvUnfiltered(): Promise<string[]> {
   // Compiled-binary mode: `-e` extension paths are still a no-op — pi can't
   // load .ts extensions here (jiti feeds each extension as a base64 data: URL
   // → Bun ENAMETOOLONG — see README "Build modes"), and import.meta.url is the
