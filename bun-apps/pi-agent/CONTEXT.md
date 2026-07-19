@@ -11,11 +11,11 @@ pi-agent calls the official `main()` from `@earendil-works/pi-coding-agent` unto
 _Avoid_: fork, reimplementation, port (it is a passthrough that patches in place)
 
 **Patch** (`src/patches/<name>.ts`):
-A reversible monkey-patch on a pi prototype/module (e.g. `ModelRegistry.prototype.loadModels`), applied before `main()` runs. Bun's shared module cache means one prototype patch affects every instance `main()` constructs.
+A reversible monkey-patch on a pi prototype/module (e.g. `ModelRuntime.create`), applied before `main()` runs. Bun's shared module cache means one patch affects every instance `main()` constructs.
 _Avoid_: override, hook, plugin (it is a prototype monkey-patch, not a subclass or lifecycle hook)
 
 **pre-load-providers** (`src/pre-load-providers.ts` + `src/patches/pre-load-providers-patch.ts`):
-The hardcoded provider catalog (lm-studio, ollama, openrouter, …), injected by patching `loadModels()` — no `~/.pi/agent/models.json` is read. Split across two files: `src/pre-load-providers.ts` holds the pure catalog (`PROVIDERS`) + `resolveApiKey`/`registerAllProviders` helpers, with no import-time side effects — safe for any consumer (e.g. `pi-agent-cli`) to import directly. The actual `ModelRegistry.prototype.loadModels` monkey-patch lives in `src/patches/pre-load-providers-patch.ts`, reached only through the env-gated `applyPatches()`.
+The hardcoded provider catalog (lm-studio, ollama, openrouter, …), injected by wrapping `ModelRuntime.create()` — no `~/.pi/agent/models.json` is read. Split across two files: `src/pre-load-providers.ts` holds the pure catalog (`PROVIDERS`) + `resolveApiKey`/`registerAllProviders` helpers, with no import-time side effects — safe for any consumer (e.g. `pi-agent-cli`) to import directly. The actual `ModelRuntime.create` wrap lives in `src/patches/pre-load-providers-patch.ts`, reached only through the env-gated `applyPatches()`. (Pre-0.80 SDK this hooked `ModelRegistry.prototype.loadModels`; that method was removed when ModelRegistry became a stateless facade over ModelRuntime, silently breaking the old patch — every runtime now goes through `ModelRuntime.create()`.)
 _Avoid_: provider config, model list (it is source-hardcoded, not config-file-driven); don't reintroduce the patch into `pre-load-providers.ts` itself — that was the exact bug this split fixed (importing the catalog alone used to silently apply the patch)
 
 ### Resource loading

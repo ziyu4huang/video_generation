@@ -3,8 +3,9 @@
  * pi-agent — thin wrapper around the REAL pi TUI with monkey-patch hooks.
  *
  * What this does:
- *   1. Apply env-gated monkey-patches (default: force pi to load models ONLY
- *      from ~/.pi/agent/models.json).
+ *   1. Apply env-gated monkey-patches (default: inject the baked PROVIDERS
+ *      catalog from src/pre-load-providers.ts into every ModelRuntime, so no
+ *      ~/.pi/agent/models.json is required).
  *   2. Delegate everything else — argv parsing, TUI, print/rpc mode, sessions,
  *      tools — to the official `main()` from @earendil-works/pi-coding-agent.
  *
@@ -13,10 +14,10 @@
  * Usage (after `bun install` at the repo root):
  *   bun ./pi-agent/src/cli.ts                 # interactive TUI
  *   bun ./pi-agent/src/cli.ts -p "hello"      # print mode
- *   bun ./pi-agent/src/cli.ts --list-models   # list (only models.json entries)
+ *   bun ./pi-agent/src/cli.ts --list-models   # list models (baked PROVIDERS + builtins)
  *
- * Toggle the model patch:
- *   BUN_PI_ONLY_MODELS_JSON=0 bun ./pi-agent/src/cli.ts --list-models
+ * Toggle the provider-injection patch:
+ *   BUN_PI_PRE_LOAD_PROVIDERS=0 bun ./pi-agent/src/cli.ts --list-models
  *
  * Debug which patches ran:
  *   BUN_PI_DEBUG_PATCHES=1 bun ./pi-agent/src/cli.ts
