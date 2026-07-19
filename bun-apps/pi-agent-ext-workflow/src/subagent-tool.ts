@@ -15,6 +15,7 @@ import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type, type TSchema } from "typebox";
 import type { AgentUsage } from "./agent.js";
 import type { AgentHistoryEntry } from "./agent-history.js";
+import type { SubagentInFlightRegistry } from "./subagent-in-flight.js";
 import {
   listAgentTypes,
   loadAgentRegistry,
@@ -109,6 +110,8 @@ export interface SubagentToolOptions {
   createWorktree?: typeof createWorktree;
   /** Injectable worktree teardown for tests (defaults to the real removeWorktree). */
   removeWorktree?: typeof removeWorktree;
+  /** Live registry of in-flight runs; when set, the tool registers/updates/deregisters so /subagents can show running subagents. */
+  inFlight?: SubagentInFlightRegistry;
 }
 
 /** Minimal pre-flight check: a JSON-Schema-shaped object needs at least a `type` field. */
@@ -330,6 +333,13 @@ export function createSubagentTool(
         if (worktree.isolated) spawnCwd = worktree.cwd;
       }
 
+      options.inFlight?.start({
+        id: toolCallId,
+        agent: params.agent,
+        model: params.model ?? agentDef?.model ?? "default",
+        taskPreview: taskPreview(params.task),
+        startedAt: t0,
+      });
       try {
         const instructions =
           [params.agent ? `You are the ${params.agent} for this task.` : undefined, agentDef?.prompt]
@@ -348,7 +358,7 @@ export function createSubagentTool(
           timeoutMs: params.timeoutMs,
           retryOnTransient: params.retryOnTransient,
           schema: params.schema as TSchema | undefined,
-          onHistory: onUpdate
+          onHistory: (onUpdate || options.inFlight)
             ? (history: AgentHistoryEntry[]) => {
                 // Progress streaming is diagnostic only — a throwing onUpdate
                 // (e.g. a TUI re-render failure) must never fail the subagent's
@@ -356,7 +366,8 @@ export function createSubagentTool(
                 try {
                   const toolCallsNow = history.filter((h) => h.kind === "toolCall").length;
                   maxToolCallsSeen = Math.max(maxToolCallsSeen, toolCallsNow);
-                  onUpdate({
+                  options.inFlight?.update(toolCallId, history);
+                  onUpdate?.({
                     content: [
                       { type: "text" as const, text: formatSubagentLive(history, Date.now() - t0, maxToolCallsSeen) },
                     ],
@@ -382,6 +393,7 @@ export function createSubagentTool(
           },
         };
       } finally {
+        options.inFlight?.end(toolCallId);
         if (worktree) await teardownWorktree(worktree);
       }
     },

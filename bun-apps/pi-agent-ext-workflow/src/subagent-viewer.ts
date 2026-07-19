@@ -7,6 +7,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import type { AgentUsage } from "./agent.js";
+import type { InFlightSubagent } from "./subagent-in-flight.js";
 import type { SubagentToolDetails } from "./subagent-tool.js";
 
 export interface SubagentRun {
@@ -61,12 +62,15 @@ export function reconstructSubagentRuns(branch: Iterable<BranchEntry>): Subagent
 
 interface ViewerOpts {
   runs: SubagentRun[];
+  /** Live in-flight runs (read each render so elapsed stays fresh). */
+  getRunning?: () => InFlightSubagent[];
   onClose: () => void;
 }
 
 /** Stateful list↔output viewer. `view` flips on enter/esc; no second UI mount. */
 export class SubagentViewer {
   private runs: SubagentRun[];
+  private getRunning?: () => InFlightSubagent[];
   private view: "list" | "output" = "list";
   private selected = 0;
   private onClose: () => void;
@@ -76,6 +80,7 @@ export class SubagentViewer {
 
   constructor(opts: ViewerOpts, theme: Theme) {
     this.runs = opts.runs;
+    this.getRunning = opts.getRunning;
     this.onClose = opts.onClose;
     this.theme = theme;
   }
@@ -118,6 +123,21 @@ export class SubagentViewer {
 
   private renderList(width: number, th: Theme): string[] {
     const lines: string[] = [""];
+    // Running section — live in-flight subagents (read fresh each render so a
+    // 1s invalidate timer keeps elapsed counting up). Closes the gap that
+    // running subagents were invisible in /subagents until they finished.
+    const running = this.getRunning?.() ?? [];
+    if (running.length > 0) {
+      const runningTitle = th.fg("accent", th.bold(" Running "));
+      lines.push(truncateToWidth(runningTitle + th.fg("borderMuted", "─".repeat(Math.max(0, width - 9))), width));
+      for (const r of running) {
+        const elapsedS = ((Date.now() - r.startedAt) / 1000).toFixed(1);
+        const toolCalls = r.history?.filter((h) => h.kind === "toolCall").length ?? 0;
+        const head = `${th.fg("warning", "⏳")} ${th.fg("muted", r.agent ?? "general-purpose")} ▸ ${th.fg("dim", r.model)} • ${elapsedS}s • ${toolCalls} call${toolCalls === 1 ? "" : "s"} • ${truncateToWidth(r.taskPreview, 40)}`;
+        lines.push(truncateToWidth(`  ${head}`, width));
+      }
+      lines.push("");
+    }
     const title = th.fg("accent", th.bold(" Subagent runs "));
     lines.push(truncateToWidth(title + th.fg("borderMuted", "─".repeat(Math.max(0, width - 15))), width));
     lines.push("");

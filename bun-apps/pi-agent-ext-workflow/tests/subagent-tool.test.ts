@@ -13,6 +13,7 @@ import {
 import type { SubagentToolDetails } from "../src/subagent-tool.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
 import type { AgentHistoryEntry } from "../src/agent-history.js";
+import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
 
 /** Injectable spawn that records the opts it was called with. */
 function fakeSpawn(impl: (opts: SpawnSubagentOptions) => SpawnSubagentResult | Promise<SpawnSubagentResult>) {
@@ -635,4 +636,34 @@ test("renderSubagentResult isPartial preserves a plain streamed line when collap
     T,
   );
   assert.equal(out, "↳ reading src/foo.ts");
+});
+
+// ── Part B: in-flight registry wiring ──
+
+test("execute registers on inFlight at start, streams history, deregisters on completion", async () => {
+  const reg = new SubagentInFlightRegistry();
+  let resolveSpawn: (r: SpawnSubagentResult) => void = () => {};
+  const f = fakeSpawn((_opts) => new Promise<SpawnSubagentResult>((res) => { resolveSpawn = res; }));
+  const tool = createSubagentTool({ spawn: f.spawn, inFlight: reg });
+  const p = tool.execute("id-7", { task: "do work", agent: "implementer", model: "x/flash" }, NO_SIGNAL, undefined, NO_CTX);
+  await Promise.resolve(); // reach the registered-but-pending window
+  assert.equal(reg.list().length, 1, "registered while in flight");
+  assert.equal(reg.list()[0].id, "id-7");
+  assert.equal(reg.list()[0].agent, "implementer");
+  assert.equal(reg.list()[0].model, "x/flash");
+  // history streams through onHistory → registry.update
+  (f.calls[0]?.onHistory as ((h: never[]) => void) | undefined)?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }] as never);
+  assert.equal(reg.list()[0].history?.[0]?.toolName, "read");
+  // complete → deregistered
+  resolveSpawn({ output: "ok", exitCode: 0, stderr: "", timedOut: false });
+  await p;
+  assert.equal(reg.list().length, 0, "deregistered after completion");
+});
+
+test("execute deregisters from inFlight even on failure", async () => {
+  const reg = new SubagentInFlightRegistry();
+  const f = fakeSpawn(() => ({ output: "", exitCode: 1, stderr: "boom", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, inFlight: reg });
+  await tool.execute("id-8", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(reg.list().length, 0, "deregistered even after a failed run");
 });
