@@ -796,3 +796,25 @@ test(
     assert.equal(new WorkflowManager({ cwd, sessionId: "s1" }).listAllRuns().length, 2);
   }),
 );
+
+test(
+  "PersistedRunState round-trips an optional packId (13 branch signal)",
+  withTempCwd(async (cwd) => {
+    const rp = createRunPersistence(cwd);
+    const startedAt = new Date().toISOString();
+    const runId = generateRunId();
+    rp.save({
+      runId,
+      workflowName: "w",
+      script: "s",
+      status: "running",
+      phases: [],
+      agents: [],
+      logs: [],
+      startedAt,
+      packId: "demo-abcdef012345",
+    });
+    const loaded = rp.load(runId);
+    assert.equal(loaded?.packId, "demo-abcdef012345");
+  }),
+);

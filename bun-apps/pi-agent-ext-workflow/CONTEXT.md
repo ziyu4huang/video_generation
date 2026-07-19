@@ -56,6 +56,60 @@ One of the two ways a pack is reached. Path A: the CLI meta-command (headless,
 the same resolver + engine.
 _Avoid_: "mode" (a path is an entry surface, not an execution mode)
 
+### Workflow pack self-containment
+
+**Pack-local state**:
+A pack's runtime state (`runs/ outputs/ intermediate/`) lives INSIDE the pack
+folder, never in `~/.pi`. Inline scripts keep the global
+`~/.pi/workflows/projects/<key>/` store; the two diverge at the `packId` branch
+(decision 03 / ADR-0001).
+_Avoid_: "pack store in ~/.pi" (there is none); "global pack state"
+
+**`pack-id`**:
+Stable identity `<name-slug>-<sha256(absPath)[:12]>`, derived at resolve time,
+**version-INDEPENDENT**. Disambiguates same-named packs across locations; keys
+redirected state for checked-in packs (decision 08 / ADR-0002).
+_Avoid_: name@version (a version bump would orphan `runs/`/`outputs/`)
+
+**`version` (manifest)**:
+Optional semver-recommended metadata; NOT part of `pack-id`. Groundwork for the
+deferred self-improve loop (north star, out of scope here).
+
+**Checked-in pack state redirect**:
+A pack under `bun-apps/<pkg>/workflows/` (a read-only package dir) can't hold
+writable state, so its runtime state redirects to
+`.pi/workflows/.state/<pack-id>/` (project-local, never `~/.pi`). The pack's
+static files (manifest/entry/agents) stay in the package dir.
+_Avoid_: a global pack store; "state lives in the package"
+
+**I/O contract** (`io:` block):
+Optional manifest fields declaring where inputs/outputs/intermediate/runs live +
+retention (`all` | `last-N`). Schema/vocab only; semantics live in the runner.
+
+**Bundled agents** (`agents/*.md`):
+A pack's subagent definitions, shipped in the pack, registered per-run via
+`packDirs` (precedence project > pack > user). Claude-Code-compatible
+comma-string `tools` form supported (the `.pi/agents` mirror extended, not
+forked).
+
+**Folder template** (`workflow-pack/template/`):
+The canonical skeleton a new pack is scaffolded from (`workflow pack init <name>`):
+manifest stub + entry + `agents/` + README + `.gitignore`, plus empty state
+dirs with `.gitkeep`. Ships in the published `files:`.
+
+**clean / inspect** (`workflow pack clean|inspect`):
+The agent-callable state surface. 3-tier safety: `intermediate` 🟢 (safe,
+default scope, no confirm), `runs` 🟡 + `outputs` 🟠 (lossy; dry-run-default,
+`--yes` to execute).
+_Avoid_: "delete" (clean is a scoped, gated surface)
+
+**On-disk intermediates** (opt-in):
+A disposable MIRROR of journal results, materialized to
+`intermediate/<phase>/<idx>-<hash>.<ext>` only when `io.intermediate.persist` is
+set. The journal stays the resume source-of-truth, so purging the mirror is
+always safe (decision 12).
+_Avoid_: "intermediates replace the journal" (the journal is canonical)
+
 ### Orchestration primitives
 
 **`agent(prompt, opts)`**:

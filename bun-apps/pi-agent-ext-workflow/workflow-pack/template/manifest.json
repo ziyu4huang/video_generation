@@ -1,0 +1,7 @@
+{
+  "name": "REPLACE_ME",
+  "description": "A self-contained workflow pack.",
+  "entry": "entry.js",
+  "kind": "workflow-pack",
+  "agents": "agents/*.md"
+}
