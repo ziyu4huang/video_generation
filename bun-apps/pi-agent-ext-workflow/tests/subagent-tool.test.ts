@@ -265,6 +265,55 @@ test("malformed schema (not an object, or missing 'type') is rejected before spa
   assert.equal(f.calls.length, 0, "spawn is never called for a malformed schema");
 });
 
+test("execute wires onHistory to _onUpdate as a partial content update", async () => {
+  const fixtureHistory = [{ role: "assistant" as const, kind: "toolCall" as const, toolName: "read", text: "{}" }];
+  const f = fakeSpawn(async (opts) => {
+    (opts.onHistory as ((h: typeof fixtureHistory) => void) | undefined)?.(fixtureHistory);
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  });
+  const tool = createSubagentTool({ spawn: f.spawn });
+  const updates: Array<{ content: Array<{ type: string; text?: string }>; details?: unknown }> = [];
+  await tool.execute("id", { task: "t" }, NO_SIGNAL, (u) => updates.push(u as never), NO_CTX);
+  assert.equal(updates.length, 1);
+  assert.match((updates[0]?.content[0] as { text: string }).text, /read/);
+  assert.equal(updates[0]?.details, undefined, "partial updates carry no details yet, per the SDK contract");
+});
+
+test("execute passes no onHistory to spawn when the caller gave no _onUpdate", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.onHistory, undefined);
+});
+
+test("a throwing _onUpdate does not fail the subagent run (caught and swallowed)", async () => {
+  const fixtureHistory = [{ role: "assistant" as const, kind: "toolCall" as const, toolName: "read", text: "{}" }];
+  const f = fakeSpawn(async (opts) => {
+    (opts.onHistory as ((h: typeof fixtureHistory) => void) | undefined)?.(fixtureHistory);
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  });
+  const tool = createSubagentTool({ spawn: f.spawn });
+  const res = await tool.execute(
+    "id",
+    { task: "t" },
+    NO_SIGNAL,
+    () => {
+      throw new Error("TUI re-render blew up");
+    },
+    NO_CTX,
+  );
+  assert.equal(res.details.status, "done", "the throwing onUpdate must not fail the actual task result");
+});
+
+test("renderSubagentResult with isPartial:true renders the streamed text, ignoring details", () => {
+  const out = renderSubagentResult(
+    { content: [{ type: "text", text: "↳ reading src/foo.ts" }], details: undefined },
+    { expanded: false, isPartial: true },
+    T,
+  );
+  assert.equal(out, "↳ reading src/foo.ts");
+});
+
 test("execute carries usage from the spawn result into details", async () => {
   const usage = { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, total: 15, cost: 0.001 };
   const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false, usage }));

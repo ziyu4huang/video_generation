@@ -14,6 +14,7 @@ import { defineTool, type Theme, type ToolDefinition } from "@earendil-works/pi-
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type, type TSchema } from "typebox";
 import type { AgentUsage } from "./agent.js";
+import type { AgentHistoryEntry } from "./agent-history.js";
 import {
   listAgentTypes,
   loadAgentRegistry,
@@ -121,6 +122,23 @@ export function taskPreview(task: string, n = 80): string {
   return oneLine.length > n ? oneLine.slice(0, n - 1) + "…" : oneLine;
 }
 
+/** Render the latest compact history snapshot as a one/two-line progress update. */
+export function formatSubagentProgress(history: AgentHistoryEntry[], elapsedMs: number): string {
+  const last = history[history.length - 1];
+  const toolCalls = history.filter((h) => h.kind === "toolCall").length;
+  const activity = !last
+    ? "…"
+    : last.kind === "toolCall"
+      ? (last.toolName ?? "tool")
+      : last.kind === "toolResult"
+        ? `${last.toolName ?? "tool"} → done`
+        : last.kind === "text"
+          ? (last.text.split("\n")[0] ?? "").slice(0, 60)
+          : last.text.slice(0, 60);
+  const elapsedS = (elapsedMs / 1000).toFixed(1);
+  return `↳ ${activity}\n  ↳ ${elapsedS}s elapsed · ${toolCalls} tool call${toolCalls === 1 ? "" : "s"}`;
+}
+
 /** Theme the call line shown WHILE the subagent runs (pi's spinner conveys activity). */
 export function renderSubagentCall(
   args: { agent?: string; model?: string; task: string },
@@ -136,11 +154,17 @@ export function renderSubagentCall(
 /** Theme the result: collapsed = badge+meta+headline; expanded = full report. */
 export function renderSubagentResult(
   result: { content: Array<{ type: string; text?: string }>; details?: SubagentToolDetails },
-  options: { expanded?: boolean },
+  options: { expanded?: boolean; isPartial?: boolean },
   theme: Theme,
 ): string {
-  const d = result.details;
   const text = result.content.find((c) => c.type === "text")?.text ?? "";
+  if (options.isPartial) {
+    // Streaming progress update: the SDK's onUpdate contract carries no
+    // `details` yet (mirrors pi-agent-ext-flux2's onProgress usage) — just
+    // show the latest line.
+    return theme.fg("dim", text);
+  }
+  const d = result.details;
   if (!d) return text;
   const badge =
     d.status === "done"
@@ -190,7 +214,7 @@ export function createSubagentTool(
     promptSnippet:
       "Dispatch an isolated-context subagent for one focused task (implementer / reviewer / researcher). Pass a self-contained `task`; choose `model` per role; restrict with `tools`/`excludeTools`.",
     parameters: subagentToolSchema,
-    async execute(toolCallId, params, signal, _onUpdate, _ctx) {
+    async execute(toolCallId, params, signal, onUpdate, _ctx) {
       const t0 = Date.now();
       const runCwd = params.cwd ?? defaultCwd;
       const makeWorktree = options.createWorktree ?? createWorktree;
@@ -257,6 +281,21 @@ export function createSubagentTool(
           timeoutMs: params.timeoutMs,
           retryOnTransient: params.retryOnTransient,
           schema: params.schema as TSchema | undefined,
+          onHistory: onUpdate
+            ? (history: AgentHistoryEntry[]) => {
+                // Progress streaming is diagnostic only — a throwing onUpdate
+                // (e.g. a TUI re-render failure) must never fail the subagent's
+                // actual task result.
+                try {
+                  onUpdate({
+                    content: [{ type: "text" as const, text: formatSubagentProgress(history, Date.now() - t0) }],
+                    details: undefined as unknown as SubagentToolDetails,
+                  });
+                } catch {
+                  // swallowed — see comment above
+                }
+              }
+            : undefined,
         });
         return {
           content: [{ type: "text" as const, text: formatSubagentResult(result) }],
