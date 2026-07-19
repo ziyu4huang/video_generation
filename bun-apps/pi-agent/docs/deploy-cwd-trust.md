@@ -1,106 +1,136 @@
 # Deploy packaging: self-contained pi-agent, any cwd
 
 How `scripts/deploy.ts` + `run-dir/resolve.ts` produce a self-contained pi-agent
-that runs from **any** cwd, independent of the repo (same machine).
+that runs from **any** cwd, independent of the repo (same machine). See
+[README.md § Build / Deploy modes](../README.md#build--deploy-modes) for the
+canonical quick-command table; this doc is the deeper layout + resolution
+reference (`resolve.ts` mode detection, `-ne` layering, per-mode directory
+tree). [`deploy-single-binary.md`](./deploy-single-binary.md) covers `--exe`
+specifically; [`deploy-readonly.md`](./deploy-readonly.md) covers the
+read-only freeze contract.
 
 ## The gap `deploy.ts` closes
 
-`scripts/build.ts` bundles pi-agent to `dist/pi-agent/pi-agent.js`, but that bundle
-resolves its extension set from the **repo's** `bun-apps/` (baked into
-`src/generated/run-dir-base.ts` at build time). So the bundle only runs where
-that repo path exists. `deploy.ts` copies/bundles the extension packages INTO
-the output dir alongside `run-dir/manifest.json`, and `resolve.ts`'s deploy
-modes resolve from there — so the result runs anywhere (same machine), no
-checkout required.
+A raw `bun src/cli.ts` (or the default-mode bundle) resolves its extension set
+from the **repo's** `bun-apps/` (baked into `src/generated/run-dir-base.ts` at
+build time for bundle mode). So it only runs where that repo path exists.
+`deploy.ts` copies/bundles the extension packages INTO the output dir, and
+`resolve.ts`'s deploy-mode branch resolves from there — so the result runs
+anywhere (same machine), no checkout required.
 
 ## The four deploy modes (`deploy.ts <flags>`)
 
 | Mode | flag | what ships | resolve.ts layout | `bun install`? |
 |---|---|---|---|---|
-| **DEPLOY-BUNDLE** (default) | *(none)* | pre-bundled `ext-bundles/*.thin.js` + symlinked node_modules | `.deploy-bundle` + `ext-bundles/` | no (symlink) |
-| **DEPLOY-PORTABLE** | `--portable` | FULL-bundled `ext-bundles/*.full.js` + host node_modules subset | `.deploy-bundle` + `.deploy-portable` | yes (`--production`) |
-| **DEPLOY-PACKAGE** | `--release` | copied `packages/<pkg>/` source | `packages/` + `run-dir/manifest.json` | yes (`--production`) |
-| *(SOURCE / REPO-BUNDLE)* | — | *(not a deploy — `bun src/cli.ts` or the in-repo `dist/pi-agent`)* | none of the markers | — |
+| **Bundle** (default) | *(none)* | pre-bundled `ext-bundles/*.thin.js` + symlinked node_modules | `.deploy-bundle` + `ext-bundles/` → **deploy-bundle** | no (symlink) |
+| **Standalone** | `--standalone` | same as Bundle **+** a copied `bun` binary (no system bun needed) | same as Bundle → **deploy-bundle** | no (symlink) |
+| **Snapshot** | `--snapshot` | raw `pi-agent/` + every sibling extension package dir, verbatim source, no bundling | no markers → **source** (see caveat below) | no (node_modules copied verbatim) |
+| **Exe** | `--exe` | single compiled executable, 5 static extensions + theme/skills/assets embedded | binary (`$bunfs` scheme, not a run-dir layout) | n/a |
 
 ### resolve.ts layout detection (marker-based)
 
 `detectRunDirMode(selfDir)` checks, in precedence order:
 
-1. `.deploy-bundle` marker **+** `ext-bundles/` dir → **deploy-bundle** (default + `--portable`)
-2. `packages/` dir **+** `run-dir/manifest.json` → **deploy-package** (`--release`)
-3. otherwise → **source** (repo source / a plain in-repo bundle)
+1. `.deploy-bundle` marker **+** `ext-bundles/` dir → **deploy-bundle** (Bundle + Standalone)
+2. `packages/` dir **+** `run-dir/manifest.json` → **deploy-package** (no current deploy.ts
+   mode produces this layout — kept for forward-compat / hand-built layouts, otherwise dead code)
+3. otherwise → **source** (repo source, a plain in-repo bundle, **and Snapshot**)
 
-The `.deploy-portable` marker (set by `--portable`) is a sub-flag of
-deploy-bundle: it tells resolve.ts to skip npm-extension abs paths (they're
-FULL-bundled, so emitting a separate `-e` would re-introduce a repo dependency).
+Binary mode (`--exe`) is detected separately, via `src/mode.ts`'s `$bunfs`
+scheme check — it's never a run-dir layout at all.
 
-### Why deploy modes use `-ne` (and source doesn't)
+### Why Bundle/Standalone use `-ne` but Snapshot doesn't
 
 `resource-loader.js` does `noExtensions ? cliPaths : merge(cliPaths, settingsPaths)`.
 
-- Source/repo-bundle resolve extensions from `bun-apps/<pkg>/…` — the **same**
-  canonical paths a repo `.pi/` would declare → pi dedupes them → additive
-  layering with `.pi/` + `~/.pi/` is safe.
-- Deploy modes resolve from `packages/<pkg>/…` or `ext-bundles/*.js` —
-  **different** paths than a repo declaring the same extensions. Without `-ne`,
-  running the deploy inside such a repo loads both sets → `Tool "X" conflicts`.
-  So deploy modes prepend `-ne`: pi loads ONLY the deploy's `-e` paths, ignoring
-  `<cwd>/.pi/`. This is the bug that bit twice; `-ne` is the fix.
+- Source resolves extensions from `bun-apps/<pkg>/…` — the **same** canonical
+  paths a repo `.pi/` would declare → pi dedupes them → additive layering with
+  `.pi/` + `~/.pi/` is safe.
+- Bundle/Standalone resolve from `ext-bundles/*.js` — **different** paths than
+  a repo declaring the same extensions. Without `-ne`, running the deploy
+  inside such a repo loads both sets → `Tool "X" conflicts`. So these two modes
+  prepend `-ne`: pi loads ONLY the deploy's `-e` paths, ignoring `<cwd>/.pi/`.
+  This is the bug that bit twice; `-ne` is the fix.
+- **Snapshot is the one exception, and it's a real caveat, not an oversight**:
+  because it ships raw unbundled `.ts` and resolve.ts's own module URL still
+  contains `/run-dir/`, `src/mode.ts` classifies it as `mode === "source"` —
+  the SAME code path plain `bun src/cli.ts` takes, additive layering and all.
+  Confirmed empirically (`BUN_PI_DEBUG_RUN_DIR=1 ./run.sh --help`): a Bundle
+  deploy's resolved argv contains `-ne`; a Snapshot deploy's does not. Running
+  a `--snapshot` deploy from inside another repo that declares the same
+  extensions via its own `.pi/` can hit the exact `Tool "X" conflicts` bug
+  `-ne` exists to prevent. Prefer Bundle/Standalone/Exe when isolation from
+  the invocation cwd's own `.pi/` matters; Snapshot is for same-repo-tree
+  redistribution (e.g. a versioned working copy), not cwd isolation.
 
 `-e` is `temporary` scope = trust-free + cwd-independent in all modes.
 
 ## What deploy.ts produces
 
-### DEPLOY-BUNDLE (default)
+### Bundle (default)
 
 ```
 <outdir>/
-├── pi-agent.js            # bundle (from dist/pi-agent/)
+├── pi-agent.js            # bundle
 ├── ext-bundles/*.thin.js  # pre-bundled extensions (THIN — shared deps external)
 ├── skills/<dir>/          # copied skill dirs (manifest.skills)
 ├── run-dir/manifest.json  # compat/debug (resolve.ts uses dir listings, not this)
 ├── node_modules           # symlink → pi deps store (pi-agent.js peer-dep resolution)
-├── .deploy-bundle         # marker — resolve.ts DEPLOY-BUNDLE detection
+├── .deploy-bundle         # marker — resolve.ts deploy-bundle detection
 ├── package.json           # minimal {name,private,type} — NO workspaces
 └── run.sh                 # layout-aware launcher
 ```
 
-### DEPLOY-PACKAGE (`--release`)
+### Standalone (`--standalone`)
+
+Same as Bundle, plus a copied `bun` binary at `<outdir>/bun` — `run.sh` invokes
+`./bun run pi-agent.js` instead of the system `bun`, so the target machine
+needs no bun install at all.
+
+### Snapshot (`--snapshot`)
 
 ```
 <outdir>/
-├── pi-agent.js, run-dir/manifest.json, run.sh
-├── packages/<pkg>/…       # copied extension source (readable)
-├── package.json           # workspaces root + npm-ext deps
-└── node_modules/          # wired by `bun install --production`
+├── pi-agent/…                      # verbatim copy of bun-apps/pi-agent/
+├── <ext-pkg>/…                     # verbatim copy of every sibling package the
+│                                    #   manifest/static-extensions reference
+│                                    #   (collectRequiredPkgDirs() in deploy.ts)
+├── node_modules/                   # verbatim copy of bun-apps/node_modules —
+│                                    #   isolated-linker symlinks preserved as-is
+│                                    #   (same-machine only: symlink targets are
+│                                    #   absolute paths into the global store)
+└── run.sh                          # → `bun pi-agent/src/cli.ts`
 ```
 
-### DEPLOY-PORTABLE (`--portable`)
+No bundling at all — raw `.ts`, loaded by jiti at runtime same as a plain
+source checkout. See the `-ne` caveat above.
 
-Same layout as DEPLOY-BUNDLE but `ext-bundles/*.full.js` (FULL-bundled, zero
-bare specifiers) + a real `node_modules/` subset (installed, not symlinked) +
-`.deploy-portable` marker. Repo-independent on the same machine (bun's global
-store isn't cross-machine relocatable).
+### Exe (`--exe`)
+
+A single compiled executable — see
+[`deploy-single-binary.md`](deploy-single-binary.md) for the full mechanism
+(static extension imports, embedded theme/skills/assets, runtime extraction).
 
 ## `run.sh` — one layout-aware launcher
 
-Copied into every package. Picks its entry by what's present:
+Copied into every non-Exe package (Exe ships no run.sh — the compiled binary
+IS the entry). Picks its entry by what's present:
 
 | detected | gate | entry |
 |---|---|---|
-| deployed (bundle/release/portable) | `pi-agent.js` + (`ext-bundles/` or `packages/`) | `bun pi-agent.js` |
-| source / dev | `src/cli.ts` | `bun src/cli.ts` |
+| Bundle / Standalone | `.deploy-bundle` + `ext-bundles/` | `bun pi-agent.js` (or `$DIR/bun` for Standalone — DIR-relative so it works from any cwd) |
+| Snapshot / source / dev | `src/cli.ts` present | `bun pi-agent/src/cli.ts` (Snapshot) or `bun src/cli.ts` (dev) |
 
-`PIAGENT_DEBUG=1 ./run.sh …` prints the chosen mode/entry/cwd. When the
-`.deploy-readonly` marker is present, `run.sh` exports `JITI_FS_CACHE=0` +
+When the `.deploy-readonly` marker is present, `run.sh` exports `JITI_FS_CACHE=0` +
 `PI_CODING_AGENT_DIR=$HOME/.pi/agent` (see `deploy-readonly.md`).
 
 ## Verify (the stable test)
 
 `./run-test.sh high` (or `full`) — a `bun:test` suite
-(`src/__tests__/e2e-extensions.test.ts`, gated on `PI_AGENT_E2E=1`) that builds +
-deploys a fresh package, runs a probe extension across SOURCE (repo + /tmp) and
-all 3 DEPLOY modes (foreign cwd + repo), and asserts:
+(`src/__tests__/e2e-extensions.test.ts`, gated on `PI_AGENT_E2E=1` +
+`PI_AGENT_E2E_DEPLOY=1`) that deploys fresh packages, runs a probe extension
+across SOURCE (repo + /tmp) and Bundle/Snapshot/Standalone (foreign cwd +
+repo), and asserts:
 
 - ZERO `conflict`/`cannot find`/`failed to load extension` in stderr.
 - `matched > 0` — tool-bearing extensions loaded (probe counts `getAllTools()`
@@ -113,7 +143,7 @@ all 3 DEPLOY modes (foreign cwd + repo), and asserts:
 Kills on probe fire — no model call, fully offline. Catches cwd-coupled bugs
 invisible to in-artifact testing or the model's `-p` self-report.
 
-## Testing portable artifacts — lessons
+## Testing deployed artifacts — lessons
 
 - **Run from a FOREIGN cwd**, not only from inside the artifact.
 - **Test against a REAL installed repo** declaring the same extensions (surfaces

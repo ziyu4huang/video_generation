@@ -12,9 +12,19 @@
  */
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseManifestEntries } from "../run-dir/manifest-types.ts";
+import { STATIC_EXTENSION_FACTORIES } from "./static-extensions.ts";
 
-const PI_AGENT_DIR = resolve(dirname(import.meta.url.replace("file://", "")), "..");
+/** Resolve pi-agent's package root from this module's URL. Uses fileURLToPath
+ *  (not a naive `.replace("file://", "")`) so percent-encoded characters —
+ *  e.g. a space in the checkout path — are decoded correctly. Exported for
+ *  direct unit testing without needing a real special-character checkout. */
+export function resolvePiAgentDir(moduleUrl: string): string {
+	return resolve(dirname(fileURLToPath(moduleUrl)), "..");
+}
+
+const PI_AGENT_DIR = resolvePiAgentDir(import.meta.url);
 const REPO_ROOT = resolve(PI_AGENT_DIR, "../..");
 const MANIFEST_PATH = join(PI_AGENT_DIR, "run-dir", "manifest.json");
 
@@ -87,6 +97,47 @@ export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok:
 			results.push({
 				...entry,
 				bundleMode: entry.bundleMode ?? "thin",
+				status: "FAIL",
+				tools: [],
+				commands: [],
+				error: (e as Error).message?.split("\n")[0] ?? String(e),
+			});
+		}
+	}
+
+	// Also check the statically-bundled "general productivity" extension set
+	// (src/static-extensions.ts) — these are deliberately ABSENT from
+	// manifest.extensions (loaded via MainOptions.extensionFactories, not `-e
+	// <path>.ts`, so they survive `bun build --compile`), but ext doctor must
+	// still cover them or this report silently loses 5 extensions' worth of
+	// health/conflict checking.
+	for (const { name, factory } of STATIC_EXTENSION_FACTORIES) {
+		try {
+			const mock = makeMockPi();
+			// mock.pi is a deliberately minimal duck-typed stand-in (see
+			// makeMockPi() above) — it satisfies every extension factory at
+			// runtime (they only call the handful of methods it implements) but
+			// not the full ExtensionAPI shape, so a cast is required here. The
+			// dynamically-`import()`ed factories above don't need this because
+			// `mod.default` is untyped (any); these factories are strongly typed
+			// via the static import in static-extensions.ts.
+			const maybe = factory(mock.pi as unknown as Parameters<typeof factory>[0]);
+			if (maybe && typeof (maybe as Promise<void>).then === "function") await maybe;
+			const toolNames = mock.tools.map((t) => String(t.name ?? "?"));
+			const wired = toolNames.length > 0 || mock.commands.length > 0 || mock.onCount > 0;
+			results.push({
+				name,
+				entry: `static-extensions.ts (${name})`,
+				bundleMode: "static",
+				status: wired ? "OK" : "DYNAMIC",
+				tools: toolNames,
+				commands: mock.commands,
+			});
+		} catch (e) {
+			results.push({
+				name,
+				entry: `static-extensions.ts (${name})`,
+				bundleMode: "static",
 				status: "FAIL",
 				tools: [],
 				commands: [],

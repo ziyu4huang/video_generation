@@ -1,0 +1,13 @@
+{
+  "name": "video-generation-monorepo",
+  "private": true,
+  "workspaces": [
+    "./*"
+  ],
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "scripts": {
+    "test:deps": "bun test tests/dep-guard.test.ts"
+  }
+}

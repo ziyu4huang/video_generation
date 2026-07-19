@@ -87,7 +87,7 @@ pinned_versions() {
 # (a symptom, not the source of truth).
 lockfile_versions() {
   local pkg="$1"
-  grep -oE "\"@earendil-works/${pkg}@[0-9][0-9A-Za-z.+-]*\"" "$REPO_ROOT/bun.lock" 2>/dev/null \
+  grep -oE "\"@earendil-works/${pkg}@[0-9][0-9A-Za-z.+-]*\"" "$REPO_ROOT/bun-apps/bun.lock" 2>/dev/null \
     | sed -E "s/.*@([0-9][0-9A-Za-z.+-]*)\"/\1/" | sort -u
 }
 
@@ -138,7 +138,7 @@ check_lockstep() {
 
 cd "$REPO_ROOT"
 command -v bun >/dev/null || die "bun not found on PATH."
-[[ -f bun.lock ]] || die "bun.lock not found at repo root — run from a full checkout."
+[[ -f bun-apps/bun.lock ]] || die "bun-apps/bun.lock not found — run from a full checkout."
 
 # ── args ─────────────────────────────────────────────────────────────────────
 CHECK=0; LOCKSTEP_ONLY=0; REBUILD=0
@@ -212,8 +212,8 @@ if [[ "$ANY_STALE" -eq 0 ]] && [[ "$LOCKSTEP_OK" -eq 1 ]] && [[ "$LOCKSTEP_VER" 
 fi
 
 # Warn (don't fail) on dirty lock/package — the upgrade edits these anyway.
-if ! git -C "$REPO_ROOT" diff --quiet -- bun.lock package.json bun-apps/*/package.json 2>/dev/null; then
-  echo "$(yellow 'note:') bun.lock / package.json already have uncommitted changes."
+if ! git -C "$REPO_ROOT" diff --quiet -- bun-apps/bun.lock bun-apps/package.json bun-apps/*/package.json 2>/dev/null; then
+  echo "$(yellow 'note:') bun-apps/bun.lock / package.json already have uncommitted changes."
 fi
 
 # ── upgrade: set all 4 to NEW_VER in every declaring workspace ───────────────
@@ -247,8 +247,8 @@ for pj in "$REPO_ROOT"/bun-apps/*/package.json; do
 done
 [[ "$bumped" -gt 0 ]] || die "no bun-apps/*/package.json declares any of the 4 packages — nothing to bump."
 
-bun install --cwd "$REPO_ROOT" >/dev/null 2>&1 \
-  || die "bun install failed while reconciling bun.lock after the pin set."
+bun install --cwd "$REPO_ROOT/bun-apps" >/dev/null 2>&1 \
+  || die "bun install failed while reconciling bun-apps/bun.lock after the pin set."
 
 # ── verify: lockstep invariant (hard gate) + per-package resolution ──────────
 echo
@@ -296,5 +296,5 @@ fi
 echo
 echo "$(green 'done.') Next:"
 echo "  - restart any running pi session so it loads the new version"
-echo "  - review the lockfile change:  git diff bun.lock"
+echo "  - review the lockfile change:  git diff bun-apps/bun.lock"
 [[ "$REBUILD" -eq 1 ]] || echo "  - rebuild the bundle when ready:  $0 --rebuild"

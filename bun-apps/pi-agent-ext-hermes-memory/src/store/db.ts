@@ -51,6 +51,57 @@ class DatabaseCorruptionError extends Error {
 
 export const SQLITE_WAL_AUTOCHECKPOINT_PAGES = 1000;
 
+export const TRANSIENT_DB_RETRY_MAX_ATTEMPTS = 3;
+export const TRANSIENT_DB_RETRY_BACKOFF_MS = 50;
+
+/**
+ * True for transient SQLite write failures (lock contention / momentary I-O
+ * blips) common when multiple processes share the WAL database. These are NOT
+ * corruption (DatabaseManager.isCorruptionError + withCorruptionRecovery handle
+ * that path) and usually clear on a retry.
+ */
+export function isTransientDbError(err: unknown): boolean {
+  if (!err) return false;
+  const code = typeof err === 'object' && 'code' in err ? String((err as { code?: unknown }).code) : '';
+  if (code === 'SQLITE_BUSY' || code === 'SQLITE_LOCKED' || code === 'SQLITE_IOERR') return true;
+  const message = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return message.includes('disk i/o error')
+    || message.includes('database is locked')
+    || message.includes('sqlite_busy')
+    || message.includes('sqlite_locked')
+    || message.includes('sqlite_ioerr');
+}
+
+/**
+ * Run an operation with a bounded retry on transient (non-corruption) errors.
+ * Corruption-class errors are NOT retried here — the caller wraps the operation
+ * in withCorruptionRecovery for the rebuild path; this layer only absorbs
+ * contention/I-O blips a rebuild cannot fix. `sleep` is injectable for tests.
+ */
+export async function runWithTransientRetry<T>(
+  operation: () => T,
+  opts: { maxAttempts?: number; isRetryable?: (err: unknown) => boolean; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<T> {
+  const maxAttempts = opts.maxAttempts ?? TRANSIENT_DB_RETRY_MAX_ATTEMPTS;
+  const isRetryable = opts.isRetryable ?? isTransientDbError;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return operation();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxAttempts && isRetryable(err)) {
+        await sleep(TRANSIENT_DB_RETRY_BACKOFF_MS * attempt);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr; // unreachable — loop always returns or throws
+}
+
 const DATABASE_FILE_SUFFIXES: readonly DatabaseFileSuffix[] = ['', '-wal', '-shm'];
 const MEMORY_TARGETS = new Set(['memory', 'user', 'failure']);
 const MEMORY_CATEGORIES = new Set(['failure', 'correction', 'insight', 'preference', 'convention', 'tool-quirk']);
@@ -193,8 +244,9 @@ export class DatabaseManager {
       fs.mkdirSync(dir, { recursive: true });
     }
 
+    let db: DatabaseLike;
     try {
-      return this.openUnchecked();
+      db = this.openUnchecked();
     } catch (err) {
       if (!DatabaseManager.isCorruptionError(err)) {
         throw err;
@@ -202,8 +254,14 @@ export class DatabaseManager {
 
       const recovery = this.recoverDatabaseFile(err);
       this.lastRecovery = recovery;
-      return this.openUnchecked();
+      db = this.openUnchecked();
     }
+
+    // Best-effort: prune accumulated quarantine/backup clutter so a self-heal
+    // storm (or repeated consolidate/dedup runs) can't grow the memory dir
+    // without bound. Never fatal — a failed prune must not break the DB open.
+    this.pruneStaleBackups();
+    return db;
   }
 
   private openUnchecked(): DatabaseLike {
@@ -236,6 +294,13 @@ export class DatabaseManager {
     db.exec(`PRAGMA wal_autocheckpoint = ${SQLITE_WAL_AUTOCHECKPOINT_PAGES}`);
     db.exec('PRAGMA journal_size_limit = 5242880');
     db.exec('PRAGMA foreign_keys = ON');
+    // Multiple connections open the same DB file (the extension singleton plus
+    // short-lived child `pi -p` processes that reload this extension, and the
+    // /memory-index-sessions command). Under WAL only one writer is allowed at
+    // a time; without a busy timeout the second writer receives SQLITE_BUSY
+    // immediately instead of waiting. 5s is well above any normal write and
+    // cheap because it only elapses on actual contention.
+    db.exec('PRAGMA busy_timeout = 5000');
   }
 
   private initializeSchema(db: DatabaseLike): void {
@@ -786,5 +851,54 @@ export class DatabaseManager {
       messages: messages.count,
       memories: memories.count,
     };
+  }
+
+  /** Default number of newest quarantine/backup files pruneStaleBackups keeps. */
+  static readonly PRUNE_KEEP_RECENT_DEFAULT = 3;
+
+  /**
+   * Best-effort cleanup of accumulated quarantine/backup files left beside the
+   * database by corruption self-heal (.corrupt-*) and consolidate/dedup runs
+   * (.bak-*), plus leaked rebuild temps (.rebuild-*.tmp). Keeps the
+   * `keepRecent` (default 3) newest such files and deletes the rest. NEVER
+   * touches the live sessions.db / -wal / -shm. Safe to call from every open:
+   * concurrent processes racing on readdir/rmSync only ever no-op on files the
+   * other already removed (rmSync force:true is idempotent). Returns the names
+   * of deleted files (for diagnostics/tests).
+   */
+  pruneStaleBackups(opts: { keepRecent?: number } = {}): string[] {
+    const keepRecent = opts.keepRecent ?? DatabaseManager.PRUNE_KEEP_RECENT_DEFAULT;
+    const dir = path.dirname(this.dbPath);
+    const base = path.basename(this.dbPath);
+
+    let entries: { name: string; mtimeMs: number }[] = [];
+    try {
+      for (const name of fs.readdirSync(dir)) {
+        if (name === base || name === `${base}-wal` || name === `${base}-shm`) continue;
+        if (!name.startsWith(`${base}.`)) continue;
+        const rest = name.slice(base.length + 1);
+        if (!/^(corrupt-|bak-|rebuild-.*\.tmp$)/.test(rest)) continue;
+        try {
+          const st = fs.statSync(path.join(dir, name));
+          entries.push({ name, mtimeMs: st.mtimeMs });
+        } catch {
+          /* unreadable entry — skip */
+        }
+      }
+    } catch {
+      return [];
+    }
+
+    entries.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    const deleted: string[] = [];
+    for (const entry of entries.slice(keepRecent)) {
+      try {
+        fs.rmSync(path.join(dir, entry.name), { force: true });
+        deleted.push(entry.name);
+      } catch {
+        /* best effort */
+      }
+    }
+    return deleted;
   }
 }

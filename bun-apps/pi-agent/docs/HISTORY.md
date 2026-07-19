@@ -5,7 +5,7 @@
 > 每個 patch 都註冊在 `src/patches/index.ts` 的 `PATCH_TABLE` 中，
 > 透過 env gate 控制啟用，可獨立關閉、可除錯。
 >
-> 時間軸：從 monorepo 初期基礎建設到 2026-07-05 的 SDK 擴充。
+> 時間軸：從 monorepo 初期基礎建設到 2026-07-18 的 `pre-load-providers` 純化拆分。
 
 ---
 
@@ -27,6 +27,8 @@
 
 2026-07-05  ─┬─ ext-context-get-system-prompt-options   PR #297
              └─ ext-api-get-all-tool-definitions         PR #297
+
+2026-07-18  ─── pre-load-providers   拆分修復（見 Patch 1 章節）
 ```
 
 ---
@@ -69,12 +71,14 @@
 | 屬性 | 值 |
 |---|---|
 | **Env gate** | `BUN_PI_PRE_LOAD_PROVIDERS` (default `true`) |
-| **檔案** | `src/pre-load-providers.ts`（不在 patches/ 子目錄） |
+| **檔案** | `src/patches/pre-load-providers-patch.ts`（實際 monkey-patch）+ `src/pre-load-providers.ts`（純資料/helper，`PROVIDERS` 目錄 + `registerAllProviders()`，無 import-time side effect） |
 | **Created** | 2026-06-30 |
-| **Last updated** | 2026-07-02 |
-| **PR** | 初期基礎建設 |
+| **Last updated** | 2026-07-18 |
+| **PR** | 初期基礎建設；2026-07-18 拆分修復（見下方「2026-07-18 修復」段落） |
 
 在 `ModelRegistry` 建構時注入客製 provider（lm-studio, ollama, llamacpp, openrouter 等），不需外部 models.json。
+
+**2026-07-18 修復**：原本 `src/pre-load-providers.ts` 本身在 import 時就會執行 `Proto.loadModels = ...` 這個 monkey-patch（module-scope side effect），導致任何只想拿 `PROVIDERS`/`resolveApiKey` 資料的 consumer（例如 `pi-agent-cli`）一旦 import 就會意外套用這個 patch，造成 provider 重複註冊。修復後，`src/pre-load-providers.ts` 變成純資料模組（無 side effect），實際的 patch 邏輯搬到 `src/patches/pre-load-providers-patch.ts`，只有 `applyPatches()`（env-gated）才會載入它。兩處呼叫端（patch 本身、`pi-agent-cli`）都改用共用的 `registerAllProviders(registry, env)` helper。
 
 ---
 

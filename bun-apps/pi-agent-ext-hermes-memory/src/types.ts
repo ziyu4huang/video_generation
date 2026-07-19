@@ -65,11 +65,6 @@ export interface MemoryConfig {
   /** Auto-capture lesson-worthy tool errors (stack traces, definitive
    *  failures) to the failure store without an agent memory call. Default: true */
   errorCapture?: boolean;
-  /** Passively converge new/changed memory entries to the durable vault on
-   *  session_shutdown (no manual `memory transfer` needed). Wiki-aware +
-   *  idempotent + bounded by a timeout; never blocks/errors shutdown.
-   *  Default: true */
-  passiveConverge?: boolean;
   /** Override strong correction regex sources. Missing = defaults; [] = none. */
   correctionStrongPatterns?: string[];
   /** Override weak correction regex sources. Missing = defaults; [] = none. */

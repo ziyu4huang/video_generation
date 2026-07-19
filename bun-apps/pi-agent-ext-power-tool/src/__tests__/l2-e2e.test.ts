@@ -42,6 +42,7 @@
  */
 
 import { test, expect } from "bun:test";
+import { resolveTestMode } from "./l2-test-mode";
 import { resolve, join } from "node:path";
 import { existsSync } from "node:fs";
 
@@ -151,6 +152,11 @@ function invokeTool(prompt: string, timeoutMs = 120_000): { exitCode: number; st
 // PI_SKIP_L2=1 (legacy) is honored as a force-skip regardless of PI_RUN_L2.
 const l2Enabled = process.env.PI_RUN_L2 === "1" && process.env.PI_SKIP_L2 !== "1";
 
+// PI_REQUIRE_L2=1 turns a blocked L2 test into a hard failure instead of a
+// skip — used by run-test.sh's `full` tier so a down LM Studio/vault-mind
+// fails the run rather than silently passing via skip.
+const requireL2 = process.env.PI_REQUIRE_L2 === "1";
+
 // Preflight once (top-level await is fine under bun:test ESM). When disabled we
 // skip the network probe entirely so default `bun test` registers fast.
 let lmStudioUp = false;
@@ -162,14 +168,14 @@ for (const tool of TOOLS) {
   const blockers: string[] = [];
   if (!l2Enabled) blockers.push("set PI_RUN_L2=1 to run L2 e2e");
   else if (!lmStudioUp) blockers.push("LM Studio not reachable on :1234");
-  const canRun = blockers.length === 0;
-  const runner = canRun ? test : test.skip;
-  // Skip reason goes in the title so it's visible in `bun test` output.
-  const title = canRun
-    ? `L2: ${tool.name}`
-    : `L2: ${tool.name} — skipped (${blockers.join("; ")})`;
+  const { mode, title } = resolveTestMode(tool.name, blockers, l2Enabled, requireL2);
+  const runner = mode === "skip" ? test.skip : test;
 
   runner(title, async () => {
+    if (mode === "fail") {
+      throw new Error(`${tool.name}: blocked — ${blockers.join("; ")}`);
+    }
+
     const { exitCode, stdout } = invokeTool(tool.prompt, tool.timeoutMs);
 
     // Gate 1: exit code must be 0

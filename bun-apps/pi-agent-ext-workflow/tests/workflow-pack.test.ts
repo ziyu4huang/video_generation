@@ -9,6 +9,8 @@ import {
   resolvePackOverrides,
   listWorkflows,
   resolveWorkflowPack,
+  findRepoRoot,
+  resolveModel,
 } from "../src/workflow-pack.js";
 
 /**
@@ -85,6 +87,56 @@ describe("resolveWorkflowScript", () => {
     );
     const r = resolveWorkflowScript("suf.js", { cwd: root });
     expect(r.source).toBe(".pi/workflows");
+  });
+
+  test("resolves a pack from <cwd>/workflows with source cwd-workflows (portable tier)", () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-wf-cwd-"));
+    const echoDir = join(root, "workflows", "echo");
+    mkdirSync(echoDir, { recursive: true });
+    writeFileSync(join(echoDir, "manifest.json"), JSON.stringify({ name: "echo", description: "cwd", entry: "index.js" }));
+    writeFileSync(join(echoDir, "index.js"), `export const meta = { name: "echo", description: "cwd" };\nreturn { tier: "cwd" };\n`);
+    const r = resolveWorkflowScript("echo", { cwd: root });
+    expect(r.source).toBe("cwd-workflows");
+    expect(r.script).toContain("tier: \"cwd\"");
+  });
+
+  test("resolves a pack from <binDir>/workflows with source bin-workflows (injectable binDir)", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-wf-cwd2-"));
+    const bin = mkdtempSync(join(tmpdir(), "pi-wf-bin-"));
+    const echoDir = join(bin, "workflows", "echo");
+    mkdirSync(echoDir, { recursive: true });
+    writeFileSync(join(echoDir, "manifest.json"), JSON.stringify({ name: "echo", description: "bin", entry: "index.js" }));
+    writeFileSync(join(echoDir, "index.js"), `export const meta = { name: "echo", description: "bin" };\nreturn { tier: "bin" };\n`);
+    const r = resolveWorkflowScript("echo", { cwd, binDir: bin });
+    expect(r.source).toBe("bin-workflows");
+    expect(r.script).toContain("tier: \"bin\"");
+  });
+
+  test("cwd tier ranks ABOVE repo .pi/workflows (most local wins)", () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-wf-prec-"));
+    // cwd-tier pack (bare <root>/workflows/echo)
+    mkdirSync(join(root, "workflows", "echo"), { recursive: true });
+    writeFileSync(join(root, "workflows", "echo", "manifest.json"), JSON.stringify({ name: "echo", description: "cwd", entry: "index.js" }));
+    writeFileSync(join(root, "workflows", "echo", "index.js"), `export const meta = { name: "echo", description: "cwd" };\nreturn { tier: "cwd" };\n`);
+    // repo-tier pack (<root>/.pi/workflows/echo) — different content to distinguish
+    mkdirSync(join(root, ".pi", "workflows", "echo"), { recursive: true });
+    writeFileSync(join(root, ".pi", "workflows", "echo", "manifest.json"), JSON.stringify({ name: "echo", description: "repo", entry: "index.js" }));
+    writeFileSync(join(root, ".pi", "workflows", "echo", "index.js"), `export const meta = { name: "echo", description: "repo" };\nreturn { tier: "repo" };\n`);
+    const r = resolveWorkflowScript("echo", { cwd: root }); // findRepoRoot(root) finds .pi/workflows → repo tiers reachable
+    expect(r.source).toBe("cwd-workflows");
+    expect(r.script).toContain("tier: \"cwd\"");
+  });
+
+  test("bin tier ranks BELOW cwd tier", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-wf-cwd3-"));
+    const bin = mkdtempSync(join(tmpdir(), "pi-wf-bin2-"));
+    for (const base of [cwd, bin]) {
+      mkdirSync(join(base, "workflows", "echo"), { recursive: true });
+      writeFileSync(join(base, "workflows", "echo", "manifest.json"), JSON.stringify({ name: "echo", description: base === cwd ? "cwd" : "bin", entry: "index.js" }));
+      writeFileSync(join(base, "workflows", "echo", "index.js"), `export const meta = { name: "echo", description: "${base === cwd ? "cwd" : "bin"}" };\nreturn { tier: "${base === cwd ? "cwd" : "bin"}" };\n`);
+    }
+    const r = resolveWorkflowScript("echo", { cwd, binDir: bin });
+    expect(r.source).toBe("cwd-workflows");
   });
 });
 
@@ -289,6 +341,37 @@ describe("runWorkflowScript", () => {
     expect(existsSync(expectedDir)).toBe(true);
     expect(readdirSync(expectedDir).some((f) => f === `${receipt.runId}.log`)).toBe(true);
   });
+
+  // ── model resolution (Task 2): resolveModel wired into runWorkflowScript ──
+
+  test("no overrides -> model is the pi default (source pi-default), not undefined", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wf-"));
+    writeFileSync(join(dir, "echo.js"), ECHO_WORKFLOW);
+    const receipt = await runWorkflowScript({
+      name: "echo.js",
+      cwd: dir,
+      dryRun: true,
+      piDefaultModel: "zai/glm-5.2",
+      agent: { run: async () => { throw new Error("dry-run must not call the agent"); } },
+    });
+    expect(receipt.model).toBe("zai/glm-5.2");
+    expect(receipt.modelSource).toBe("pi-default");
+  });
+
+  test("manifest.model beats pi default (source manifest)", async () => {
+    // args-demo is a real pack that declares
+    //   "model": "lm-studio/google/gemma-4-26b-a4b-qat"
+    // in its manifest. Even with a pi default supplied, the manifest must win.
+    const argsDemoPack = resolve(import.meta.dirname, "../../pi-agent-cli/workflows/args-demo");
+    const manifest = require(`${argsDemoPack}/manifest.json`);
+    const receipt = await runWorkflowScript({
+      name: argsDemoPack,
+      dryRun: true,
+      piDefaultModel: "zai/glm-5.2",
+    });
+    expect(receipt.model).toBe(manifest.model);
+    expect(receipt.modelSource).toBe("manifest");
+  });
 });
 
 // ── mergeArgs / resolvePackOverrides (pure, Decision 5 precedence) ─────────
@@ -326,6 +409,31 @@ describe("resolvePackOverrides — model + args precedence", () => {
   });
   test("args merge applied", () => {
     expect(resolvePackOverrides(pack, { args: { x: 9, z: 2 } }).args).toEqual({ x: 9, z: 2 });
+  });
+});
+
+// ── resolveModel (pure, 4-tier model precedence) ─────────────────────────────
+
+describe("resolveModel — precedence --model > PI_MODEL > manifest > pi-default", () => {
+  test("caller --model wins", () => {
+    const r = resolveModel("cli/x", "env/y", "manifest/z", "pi/d");
+    expect(r).toEqual({ model: "cli/x", source: "--model" });
+  });
+  test("env wins when no caller (PI_MODEL above manifest)", () => {
+    const r = resolveModel(undefined, "env/y", "manifest/z", "pi/d");
+    expect(r).toEqual({ model: "env/y", source: "env" });
+  });
+  test("manifest wins when no caller/env", () => {
+    const r = resolveModel(undefined, undefined, "manifest/z", "pi/d");
+    expect(r).toEqual({ model: "manifest/z", source: "manifest" });
+  });
+  test("pi-default wins when no caller/env/manifest", () => {
+    const r = resolveModel(undefined, undefined, undefined, "pi/d");
+    expect(r).toEqual({ model: "pi/d", source: "pi-default" });
+  });
+  test("all undefined -> {undefined, none}", () => {
+    const r = resolveModel(undefined, undefined, undefined, undefined);
+    expect(r).toEqual({ model: undefined, source: "none" });
   });
 });
 
@@ -508,5 +616,83 @@ describe("listWorkflows", () => {
     const { rows, errors } = listWorkflows(root);
     expect(rows).toEqual([]);
     expect(errors).toEqual([]);
+  });
+
+  // D5-1 — listWorkflows enumerates `.pi/workflows` BEFORE any `bun-apps/<pkg>`
+  // row. The dirs[] array in listWorkflows is built as
+  //   [ { ".pi/workflows", ... }, ...bun-apps/<pkg>/workflows (one per pkg) ]
+  // so .pi rows always come first. This pins the source-ordering guarantee so a
+  // refactor that reorders the dirs[] array (or sorts rows[] alphabetically by
+  // source AFTER the fact) cannot silently break the .pi-first precedence.
+  //
+  // NOTE: the per-package ordering among `bun-apps/<pkg>` entries is
+  // filesystem-dependent (readdir order, NOT sorted) — this test deliberately
+  // does NOT assert any specific pkg-vs-pkg order, only the .pi-before-bun-apps
+  // guarantee.
+  test("a `.pi/workflows` row is always listed BEFORE any `bun-apps/<pkg>` row (D5-1)", () => {
+    const root = mkdtempSync(join(tmpdir(), "wf-"));
+    // Place a pack under .pi/workflows (the user-private root).
+    const piDir = join(root, ".pi", "workflows");
+    mkdirSync(piDir, { recursive: true });
+    makePack(piDir, "pi-first", { name: "pi-first", description: "from .pi", entry: "index.js" });
+    // Place a DIFFERENT pack under bun-apps/<pkg>/workflows (a shipped pack).
+    const pkgDir = join(root, "bun-apps", "pi-agent-cli", "workflows");
+    mkdirSync(pkgDir, { recursive: true });
+    makePack(pkgDir, "pkg-second", { name: "pkg-second", description: "from pkg", entry: "main.js" });
+
+    const { rows } = listWorkflows(root);
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+
+    const piIdx = rows.findIndex((r) => r.source === ".pi/workflows");
+    const pkgIdx = rows.findIndex((r) => r.source.startsWith("bun-apps/"));
+    expect(piIdx).toBeGreaterThanOrEqual(0);
+    expect(pkgIdx).toBeGreaterThanOrEqual(0);
+    expect(piIdx).toBeLessThan(pkgIdx);
+  });
+
+  test("enumerates packs in <cwd>/workflows and <binDir>/workflows (portable tiers)", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-ls-cwd-"));
+    const bin = mkdtempSync(join(tmpdir(), "pi-ls-bin-"));
+    // claudeRoot with no repo dirs → only the portable tiers should surface
+    const claudeRoot = mkdtempSync(join(tmpdir(), "pi-ls-root-"));
+    for (const [base, label] of [[cwd, "cwd"], [bin, "bin"]] as const) {
+      mkdirSync(join(base, "workflows", "echo"), { recursive: true });
+      writeFileSync(join(base, "workflows", "echo", "manifest.json"), JSON.stringify({ name: "echo", description: label, entry: "index.js" }));
+      writeFileSync(join(base, "workflows", "echo", "index.js"), `export const meta = { name: "echo", description: "${label}" };\nreturn {};\n`);
+    }
+    const { rows } = listWorkflows(claudeRoot, { cwd, binDir: bin });
+    const sources = rows.map((r) => r.source);
+    expect(sources).toContain("cwd/workflows");
+    expect(sources).toContain("bin/workflows");
+    // Display ordering mirrors resolution precedence (first hit wins):
+    // <cwd>/workflows ranks ABOVE <binDir>/workflows. This fixture's claudeRoot
+    // is a bare mkdtemp with no .pi/bun-apps dirs, so only the two portable
+    // tiers are present — assert cwd-before-bin here.
+    expect(sources.indexOf("cwd/workflows")).toBeLessThan(sources.indexOf("bin/workflows"));
+    expect(rows.find((r) => r.source === "cwd/workflows" && r.name === "echo")).toBeTruthy();
+  });
+});
+
+// ── findRepoRoot — walk-up cap ─────────────────────────────────────────────
+
+describe("findRepoRoot — walk-up cap", () => {
+  test("returns the root when a marker is found within the 12-iteration cap", () => {
+    // Build a synthetic exists() that reports a marker exactly at depth 11.
+    // Each dirname step peels one segment; count segments from `start`.
+    const segments = ["d0","d1","d2","d3","d4","d5","d6","d7","d8","d9","d10","rootMarker"];
+    const start = "/" + segments.join("/") + "/leaf";
+    // exists() returns true only for the path ending in rootMarker/.pi/workflows
+    const exists = (p: string) => p.endsWith("/rootMarker/.pi/workflows");
+    const expectedRoot = "/" + segments.join("/");
+    expect(findRepoRoot(start, exists)).toBe(expectedRoot);
+  });
+  test("returns undefined when no marker is found within 12 levels (cap prevents infinite walk)", () => {
+    // A path deeper than 12 segments with no marker anywhere → undefined, fast.
+    const deep = "/" + Array.from({length: 30}, (_,i)=>`d${i}`).join("/") + "/leaf";
+    const exists = (_p: string) => false;
+    expect(findRepoRoot(deep, exists)).toBeUndefined();
+  });
+  test("stops at the filesystem root without throwing (dirname === dir termination)", () => {
+    expect(findRepoRoot("/", () => false)).toBeUndefined();
   });
 });

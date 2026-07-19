@@ -14,9 +14,9 @@ _Avoid_: fork, reimplementation, port (it is a passthrough that patches in place
 A reversible monkey-patch on a pi prototype/module (e.g. `ModelRegistry.prototype.loadModels`), applied before `main()` runs. Bun's shared module cache means one prototype patch affects every instance `main()` constructs.
 _Avoid_: override, hook, plugin (it is a prototype monkey-patch, not a subclass or lifecycle hook)
 
-**pre-load-providers** (`src/pre-load-providers.ts`):
-The hardcoded provider catalog (lm-studio, ollama, openrouter, …) injected by patching `loadModels()` — no `~/.pi/agent/models.json` is read.
-_Avoid_: provider config, model list (it is source-hardcoded, not config-file-driven)
+**pre-load-providers** (`src/pre-load-providers.ts` + `src/patches/pre-load-providers-patch.ts`):
+The hardcoded provider catalog (lm-studio, ollama, openrouter, …), injected by patching `loadModels()` — no `~/.pi/agent/models.json` is read. Split across two files: `src/pre-load-providers.ts` holds the pure catalog (`PROVIDERS`) + `resolveApiKey`/`registerAllProviders` helpers, with no import-time side effects — safe for any consumer (e.g. `pi-agent-cli`) to import directly. The actual `ModelRegistry.prototype.loadModels` monkey-patch lives in `src/patches/pre-load-providers-patch.ts`, reached only through the env-gated `applyPatches()`.
+_Avoid_: provider config, model list (it is source-hardcoded, not config-file-driven); don't reintroduce the patch into `pre-load-providers.ts` itself — that was the exact bug this split fixed (importing the catalog alone used to silently apply the patch)
 
 ### Resource loading
 
@@ -37,18 +37,18 @@ _Avoid_: optional extension, plugin (it is alias-gated, zero-cost-until-invoked)
 _Avoid_: alias mapping, shortcut
 
 **npmExtensions**:
-The single array in `manifest.json` that is the source of truth for npm-sourced extensions, read by both `resolve.ts` (source) and `scripts/build.ts` (bundle).
+The single array in `manifest.json` that is the source of truth for npm-sourced extensions, read by both `resolve.ts` (source) and `scripts/lib/codegen.ts` (bundle).
 _Avoid_: deps list, package array
 
 ### Build & deploy
 
 **Source / bundle / binary modes**:
-The three execution modes. Source (`bun src/cli.ts`) resolves deps via the real node_modules; bundle (`dist/pi-agent/pi-agent.js`) symlinks a node_modules for `getAliases()`; the `--compile` binary cannot load `.ts` extensions (jiti + Bun-compile `ENAMETOOLONG`).
+The three execution modes. Source (`bun src/cli.ts`) resolves deps via the real node_modules; bundle (`dist/pi-agent/pi-agent.js`) symlinks a node_modules for `getAliases()`; the compiled binary (`--exe`) cannot dynamically load `.ts` extensions (jiti + Bun-compile `ENAMETOOLONG`) — it statically imports a fixed 5-extension set instead. `deploy.ts` also has `--snapshot` (raw source copy) and `--standalone` (bundle + bun binary), both still "source" or "bundle" at the `detectMode()` level.
 _Avoid_: dev/prod modes (these are packaging modes, not environments)
 
 **THIN bundle**:
-A bundle mode where each extension is pre-bundled to one `.js` sharing a single typebox (vs a FULL bundle). Deployed as `ext-bundles/*.thin.js`.
-_Avoid_: minified bundle, slim bundle
+The (only, since the unified `deploy.ts`) extension-bundling mode: each extension is pre-bundled to one `.js` sharing a single typebox instance instead of each pulling its own copy. Deployed as `ext-bundles/*.thin.js`.
+_Avoid_: minified bundle, slim bundle, FULL bundle (a FULL/per-extension-typebox mode existed historically but was removed — see `docs/superpowers/plans/2026-07-18-unified-deploy.md`)
 
 **Read-only deploy**:
 The default deploy artifact — immutable (chmod a-w + `.deploy-readonly` marker), with all per-user state routed to `~/.pi/agent`. Drops onto `/opt` or an app bundle as-is.
@@ -69,5 +69,5 @@ Spawns a throwaway probe that calls `pi.getAllTools()` at `session_start` and co
 _Avoid_: runtime test, integration check (it is an offline tool-count probe at session_start)
 
 **`doctor --fix`**:
-Derives a fix plan from the report, applies it (e.g. `bun install` for a broken `--portable` node_modules), then re-checks.
+Derives a fix plan from the report, applies it (e.g. `bun install` for a broken `--snapshot`/`--standalone` node_modules), then re-checks.
 _Avoid_: auto-repair, remediation

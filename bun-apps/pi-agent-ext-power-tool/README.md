@@ -16,7 +16,9 @@ CLI subcommand).
 
 > **Extracted (2026-07, monolith split A1–A3):** `todo`+`/todos`+`/goal`+`goal_complete`
 > → `pi-agent-ext-goal-todo` (#504); `ask_user_question` → `pi-agent-ext-ask-user`
-> (#502); `/btw` → `pi-agent-ext-btw` (#499). Knowledge tools left earlier for
+> (#502, merged into `pi-agent-ext-goal-todo` 2026-07-18 — no shared code,
+> relocated as the first step of the core-task pi-ext consolidation);
+> `/btw` → `pi-agent-ext-btw` (#499). Knowledge tools left earlier for
 > `pi-knowledge-card` (#351/#354).
 
 > **Note:** the diagnostics below are this extension's full public surface.
@@ -295,6 +297,25 @@ pi-agent-ext-power-tool/
         ├── accumulator.ts  #   hook-fed bounded call buffer (tool_execution_start/end)
         └── index.ts        #   makeInspectPathologyTool() + re-exports
 ```
+
+## Testing
+
+```bash
+./run-test.sh                  # medium (default): unit + typecheck
+./run-test.sh quick            # unit only, no typecheck
+./run-test.sh high             # + PI_RUN_L2=1 (blocked services SKIP)
+./run-test.sh readonly         # PI_RUN_L2=1, l2-e2e.test.ts only (skip allowed)
+./run-test.sh full             # + PI_REQUIRE_L2=1 (blocked services FAIL, not skip)
+./run-test.sh --list           # print the tier table
+```
+
+`high`/`full` spawn the real `pi-agent` CLI and call a real LM Studio model
+(`google/gemma-4-26b-a4b-qat` by default, override via `PI_L2_MODEL`).
+There is no standalone "real CLI, no model" tier: invoking a tool
+through the CLI always triggers model inference, so `high` and `full` run the
+same suite and differ only in whether a blocked service skips (`high`) or
+fails (`full`) the run. See `src/__tests__/l2-e2e.test.ts` for the per-tool
+gate list.
 
 ## What the numbers mean
 

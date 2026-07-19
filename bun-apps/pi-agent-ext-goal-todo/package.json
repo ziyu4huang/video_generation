@@ -2,9 +2,16 @@
   "name": "@repo/pi-agent-ext-goal-todo",
   "private": true,
   "version": "0.1.0",
-  "description": "Pi extension: /goal (+ goal_complete tool) and todo (+ /todos) with a shared composite above-editor status widget. Extracted from pi-agent-ext-power-tool; goal+todo kept together because they share the widget + lifecycle hooks.",
+  "description": "Pi extension: /goal (+ goal_complete tool), todo (+ /todos) with a shared composite above-editor status widget, and ask_user_question (structured option selector). goal+todo kept together because they share the widget + lifecycle hooks; ask_user_question merged in 2026-07-18 (no shared code with goal/todo \u2014 a self-contained modal dialog tool). Unified into a single extension entry pi-goal-todo-ask.ts on 2026-07-23.",
   "license": "MIT",
-  "keywords": ["pi-package", "goal", "todo", "task-tracking"],
+  "keywords": [
+    "pi-package",
+    "goal",
+    "todo",
+    "task-tracking",
+    "ask-user",
+    "questionnaire"
+  ],
   "type": "module",
   "exports": {
     "./extensions/*": "./extensions/*",
@@ -12,7 +19,9 @@
     "./src/*.js": "./src/*.ts"
   },
   "pi": {
-    "extensions": ["./extensions"]
+    "extensions": [
+      "./extensions"
+    ]
   },
   "scripts": {
     "test": "bun test",

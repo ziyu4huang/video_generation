@@ -82,7 +82,7 @@ is markdown loaded on demand, not a TS handler.
   `pi.registerCommand("goal", { description, getArgumentCompletions:
   completeGoalArguments, handler })`, registered from the default factory
   `export default function goal(pi, overlay)` at `goal.ts:326`. Wired in via
-  `"pi-agent-ext-goal-todo/extensions/pi-goal-todo.ts"` in
+  `"pi-agent-ext-goal-todo/extensions/pi-goal-todo-ask.ts"` in
   `run-dir/manifest.json`.
 
 - **Command spawning a workflow**:
@@ -107,7 +107,7 @@ is markdown loaded on demand, not a TS handler.
   the handler decides whether to shell out, spawn a workflow, or just mutate
   session state. See [`extension-registry.PRD.md §4`](./extension-registry.PRD.md#4-registry-model-how-to-author--register-an-extension)
   for the full "add an extension" checklist (manifest entry, peerDeps,
-  `verify-extensions.ts`).
+  `extension-contract.test.ts`).
 - A command's `handler` runs untrusted-by-the-LLM, synchronously-to-input —
   good place for guardrails/validation that a tool (LLM-gated) can't enforce
   before execution.

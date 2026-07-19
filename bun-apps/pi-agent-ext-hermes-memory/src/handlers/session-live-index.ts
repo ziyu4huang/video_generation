@@ -1,8 +1,12 @@
 import type { DatabaseManager } from '../store/db.js';
+import { runWithTransientRetry } from '../store/db.js';
 import { indexLiveSession } from '../store/session-indexer.js';
 
 export const SESSION_LIVE_INDEX_DELAY_MS = 50;
 export const SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS = 5000;
+// Transient-DB-error retry helpers (isTransientDbError, runWithTransientRetry,
+// TRANSIENT_DB_RETRY_*) now live in store/db.ts — imported above — so both the
+// live indexer and the memory tool share one implementation.
 
 type SetTimeoutFn = (callback: () => void, ms: number) => unknown;
 
@@ -24,6 +28,10 @@ export interface ScheduleLiveSessionIndexOptions {
   indexLiveSessionFn?: typeof indexLiveSession;
   delayMs?: number;
   onError?: (error: unknown) => void;
+  /** Max attempts for transient-error retry (default 3). */
+  maxAttempts?: number;
+  /** Injectable backoff sleep for the transient retry (default: setTimeout). */
+  sleepFn?: (ms: number) => Promise<void>;
 }
 
 /**
@@ -50,11 +58,16 @@ export function scheduleLiveSessionIndex(
 
   state.inProgress = true;
   state.promise = new Promise<void>((resolve) => {
-    setTimeoutFn(() => {
+    setTimeoutFn(async () => {
       try {
-        dbManager.withCorruptionRecovery(() => {
-          indexLiveSessionFn(dbManager, sessionManager);
-        });
+        // Corruption errors get the DB-rebuild treatment (withCorruptionRecovery);
+        // transient contention/I-O blips are absorbed by runWithTransientRetry so
+        // multi-process WAL races don't surface a scary `disk I/O error` warning
+        // on every message_end.
+        await runWithTransientRetry(
+          () => dbManager.withCorruptionRecovery(() => indexLiveSessionFn(dbManager, sessionManager)),
+          { maxAttempts: options.maxAttempts, sleep: options.sleepFn },
+        );
       } catch (err) {
         try { options.onError?.(err); } catch { /* best effort */ }
       } finally {

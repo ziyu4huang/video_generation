@@ -404,6 +404,20 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       }
       const parsed = parseWorkflowScript(script);
 
+      // D9-8: statically reject scripts that never call agent() BEFORE forking
+      // into background vs. inline. The inline path's runtime `agentCount === 0`
+      // check below only fires after runSync — the background path returns a
+      // runId immediately and never sees that guard, so a no-agent script would
+      // get a false-positive "started" receipt the caller trusts. This static
+      // pre-flight closes that gap on both paths. See scriptInvokesAgent() for
+      // the heuristic (it scans for `agent(` token usage; not a security
+      // boundary, just a fail-fast authoring guard).
+      if (!scriptInvokesAgent(script)) {
+        throw new Error(
+          "workflow scripts must call agent() at least once; this workflow declared phases but did not run any subagents",
+        );
+      }
+
       // checkpoint() reaches the human only on a UI-bearing foreground run; a
       // background run is detached, so checkpoint() falls back to its headless
       // default. Map a checkpoint to ctx.ui.confirm (a yes/no gate) when available.
@@ -414,6 +428,17 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       const confirm = uiConfirm
         ? (promptText: string) => uiConfirm.call(uiCtx?.ui, "Workflow checkpoint", promptText)
         : undefined;
+
+      // Task 4 — Path B label: the model governing this run is the host session's
+      // mainModel (= pi default by construction), NOT manifest.model. ExtensionContext
+      // exposes it as `ctx.model: Model<any> | undefined` (see pi-coding-agent
+      // core/extensions/types.d.ts). We forward its id when observable so callers
+      // can see which model a background run inherits; the label `modelSource` is
+      // always emitted so Path B is distinguishable from Path A (cli `workflow run`).
+      // NB: this is a LABEL only — manifest.model stays OUT of the manager options
+      // (per-run model would need an ExecOptions.mainModel hook; see #630, OOS).
+      const sessionModelId = (ctx as { model?: { id?: string } } | undefined)?.model?.id;
+      const modelLabel = sessionModelId ? { model: sessionModelId } : {};
 
       // Background execution is the default: return immediately so the turn ends
       // and the user isn't blocked. The result is delivered back into the
@@ -429,7 +454,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
         });
         return {
           content: [{ type: "text", text: backgroundStartedText(parsed.meta.name, runId) }],
-          details: { runId, background: true },
+          details: { runId, background: true, modelSource: "session", ...modelLabel },
         };
       }
 
@@ -512,6 +537,8 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
           durationMs: result.durationMs,
           tokenUsage: result.tokenUsage,
           runId: result.runId,
+          modelSource: "session",
+          ...modelLabel,
         },
       };
     },
@@ -650,6 +677,38 @@ function normalizeWorkflowScript(script: string): string {
   const fence = text.match(/^```(?:js|javascript)?\s*\n([\s\S]*?)\n```$/i);
   if (fence) text = fence[1].trim();
   return text;
+}
+
+/**
+ * Static pre-flight check (D9-8): does the workflow script text reference the
+ * `agent(` token at least once?
+ *
+ * This is a FAIL-FAST AUTHORING GUARD, not a security boundary. It exists so
+ * that a no-agent workflow cannot reach the background path — which returns a
+ * runId immediately without ever evaluating the runtime `agentCount === 0`
+ * check on the inline path. The heuristic scans the raw script text for an
+ * `agent(` call (tolerating whitespace and a leading `await`), so it will
+ * match direct calls (`agent(prompt, opts)`), tagged helpers that forward to
+ * `agent(`, and any authoring helper that legitimately mentions the token.
+ *
+ * False positives (the token appears in a string or comment) are acceptable:
+ * such a script would also have invoked `agent(` for real in almost every
+ * practical case, and the worst case is "we let a script through that the
+ * runtime `agentCount === 0` check on the inline path then catches." False
+ * negatives (the script calls agent via dynamic indirection like `const f =
+ * agent; f(...)`) are also acceptable — those scripts still get the runtime
+ * `agentCount` check on the inline path, and on the background path they
+ * degrade to the pre-existing behavior (start, then no-op), which is no worse
+ * than today.
+ */
+function scriptInvokesAgent(script: string): boolean {
+  // Strip the `export const meta = {...}` literal so a `agent` substring
+  // appearing inside meta (e.g. a description) does not trigger a false
+  // positive. We only need to inspect the body the workflow will execute.
+  const body = script.replace(/^[\s\S]*?\bexport\s+const\s+meta\s*=[\s\S]*?\};/, "");
+  // Match `agent(` optionally preceded by `await` and whitespace. The lookahead
+  // for `(` ensures we don't match the bare word `agent` in prose.
+  return /\bawait\s+agent\s*\(|\bagent\s*\(/.test(body);
 }
 
 function _isAbortError(error: unknown): boolean {

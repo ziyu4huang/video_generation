@@ -49,18 +49,20 @@ runs:
     - name: Cache Bun install (global store)
       uses: actions/cache@v4
       with:
-        # This repo uses the isolated linker + globalStore (see root bunfig.toml),
-        # so the global virtual store at ~/.bun/install/cache is the source of
-        # truth — node_modules is just symlinks into it. Cache the store so a
-        # hit makes `bun install --frozen-lockfile` symlink-only (no re-fetch /
-        # re-extract). Keyed on bun.lock for exact hits; restore-keys falls back
-        # to a partial (same-OS) hit when deps change.
+        # This repo uses the isolated linker + globalStore (see bun-apps/bunfig.toml
+        # — the workspace root lives at bun-apps/, not the repo root), so the
+        # global virtual store at ~/.bun/install/cache is the source of truth —
+        # node_modules is just symlinks into it. Cache the store so a hit makes
+        # `bun install --frozen-lockfile` symlink-only (no re-fetch / re-extract).
+        # Keyed on bun-apps/bun.lock for exact hits; restore-keys falls back to
+        # a partial (same-OS) hit when deps change.
         path: ~/.bun/install/cache
-        key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+        key: ${{ runner.os }}-bun-${{ hashFiles('bun-apps/bun.lock') }}
         restore-keys: |
           ${{ runner.os }}-bun-
 
     - name: Install (workspace, frozen lockfile)
+      working-directory: bun-apps
       run: bun install --frozen-lockfile
       shell: bash
 

@@ -56,33 +56,39 @@ export function applyVaultEnv(parsed: ParsedArgs): void {
 	if (parsed.vaultDir) process.env.OB_VAULT_DIR = parsed.vaultDir;
 }
 
-/** Build the LLM target from parsed flags + user settings defaults. */
-export async function resolveLLMFromArgs(
-	parsed: ParsedArgs,
-): Promise<ResolvedLLM> {
-	// Read user default provider/model from settings (best-effort, non-fatal).
-	let userDefaults: { provider?: string; model?: string } | undefined;
+/**
+ * Read user default provider/model from ~/.pi/agent/settings.json (best-effort,
+ * non-fatal). Extracted from `resolveLLMFromArgs` so the workflow command can
+ * reuse the SAME settings-read when computing the pi-default model spec — no
+ * second reader. Honors PI_CODING_AGENT_DIR (via getAgentDir) just like the
+ * inline read did; returns undefined on any read/parse error or missing file.
+ *
+ * Preserves the original dynamic-`await import(...)` style so module-loading
+ * behavior (binary vs source mode) is unchanged.
+ */
+export async function readUserDefaults(): Promise<{ provider?: string; model?: string } | undefined> {
 	try {
 		const { getAgentDir } = await import("@earendil-works/pi-coding-agent");
 		const { readFileSync, existsSync } = await import("node:fs");
 		const { join } = await import("node:path");
 		const settingsPath = join(getAgentDir(), "settings.json");
-		if (existsSync(settingsPath)) {
-			const s = JSON.parse(readFileSync(settingsPath, "utf8"));
-			userDefaults = {
-				provider: s.defaultProvider,
-				model: s.defaultModel,
-			};
-		}
+		if (!existsSync(settingsPath)) return undefined;
+		const s = JSON.parse(readFileSync(settingsPath, "utf8"));
+		return { provider: s.defaultProvider, model: s.defaultModel };
 	} catch {
-		/* ignore */
+		return undefined;
 	}
+}
 
+/** Build the LLM target from parsed flags + user settings defaults. */
+export async function resolveLLMFromArgs(
+	parsed: ParsedArgs,
+): Promise<ResolvedLLM> {
 	return resolveLLM({
 		provider: parsed.provider,
 		model: parsed.model,
 		thinking: parsed.thinking,
-		userDefaults,
+		userDefaults: await readUserDefaults(),
 	});
 }
 

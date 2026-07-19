@@ -23,7 +23,7 @@
 # Usage (from repo root): bash scripts/check-lockfile-duplicate-versions.sh
 set -uo pipefail
 
-LOCKFILE="bun.lock"
+LOCKFILE="bun-apps/bun.lock"
 SCOPE='@earendil-works/'
 
 if [ ! -f "$LOCKFILE" ]; then

@@ -9,9 +9,13 @@
  * Resolution order (first hit wins):
  *   1. `<name>` as a literal path (absolute, or relative to cwd) when it exists.
  *      A directory here is a workflow pack (folder + manifest.json + entry).
- *   2. `.pi/workflows/<name>` — a pack dir wins over a same-name `.js` file.
- *   3. `bun-apps/<pkg>/workflows/<name>` — same pack-over-file precedence.
- *   4. The literal `<name>` with a `.js` suffix tried in (2) and (3).
+ *   2. `<cwd>/workflows/<name>` — portable tier (no repo root needed); a pack
+ *      dir wins over a same-name `.js` file.
+ *   3. `<binDir>/workflows/<name>` — packs shipped next to the binary (binDir
+ *      defaults to dirname(process.execPath)). Same pack-over-file precedence.
+ *   4. `.pi/workflows/<name>` under the repo root (walk-up) — pack-over-file.
+ *   5. `bun-apps/<pkg>/workflows/<name>` under the repo root — pack-over-file.
+ *   6. The literal `<name>` with a `.js` suffix tried in (2)-(5).
  *
  * Pure + injectable (read/exists/stat/readdir default to node:fs) so contract
  * tests exercise every branch without touching disk or an LLM. The orchestration
@@ -47,7 +51,7 @@ export interface ResolvedWorkflow {
   /** Entry script source text. */
   script: string;
   /** How it was resolved, for the run receipt. */
-  source: "path" | ".pi/workflows" | "package-workflows";
+  source: "path" | "cwd-workflows" | "bin-workflows" | ".pi/workflows" | "package-workflows";
   /** Present iff a workflow pack (folder + manifest.json). The manifest carries
    *  default args/model/thinking the runner merges under CLI flags. */
   pack?: { manifest: Manifest; packDir: string };
@@ -102,11 +106,12 @@ function resolveFs(opts: WorkflowPackFs): Required<WorkflowPackFs> {
  * (read/exists/stat/readdir + cwd) so the contract test can exercise every
  * branch without touching the engine or an LLM.
  */
-export function resolveWorkflowScript(name: string, opts: { cwd?: string } & WorkflowPackFs = {}): ResolvedWorkflow {
+export function resolveWorkflowScript(name: string, opts: { cwd?: string; binDir?: string } & WorkflowPackFs = {}): ResolvedWorkflow {
   if (!name || typeof name !== "string" || !name.trim()) {
     throw new Error(`workflow: a script name or path is required (got "${name}")`);
   }
   const cwd = opts.cwd ?? process.cwd();
+  const binDir = opts.binDir ?? dirname(process.execPath);
   const fs = resolveFs(opts);
 
   // 1. Literal path: a file OR a workflow-pack directory (manifest.json + entry).
@@ -128,9 +133,38 @@ export function resolveWorkflowScript(name: string, opts: { cwd?: string } & Wor
   // and `workflow run foo.js` both work). Used only for single-file lookup.
   const names = name.endsWith(".js") ? [name] : [`${name}.js`, name];
 
-  // 2-3. Name resolution under the workflow dirs. Per location, a workflow-pack
-  //      directory (<name>/manifest.json) wins over a same-name file — packs
-  //      are the richer, deliberate artifact.
+  // 2. <cwd>/workflows/<name> — portable tier (no repo root needed); a pack
+  //    folder wins over a same-name .js. Ranks ABOVE repo tiers ("most local
+  //    wins" — Decision: portable-workflow-pack-discovery, ADR 0008).
+  const cwdWorkflowsDir = join(cwd, "workflows");
+  if (fs.exists(cwdWorkflowsDir)) {
+    const pack = tryResolvePack(join(cwdWorkflowsDir, name), fs);
+    if (pack) return { ...pack, source: "cwd-workflows" };
+    for (const candidate of names) {
+      const p = join(cwdWorkflowsDir, candidate);
+      if (fs.exists(p) && fs.stat(p)?.isFile()) {
+        return { path: p, script: fs.read(p), source: "cwd-workflows" };
+      }
+    }
+  }
+
+  // 3. <binDir>/workflows/<name> — packs shipped next to the binary. binDir
+  //    defaults to dirname(process.execPath) (the compiled exe's real location
+  //    in `bun --compile`); injectable so tests don't depend on the real exe.
+  const binWorkflowsDir = join(binDir, "workflows");
+  if (fs.exists(binWorkflowsDir)) {
+    const pack = tryResolvePack(join(binWorkflowsDir, name), fs);
+    if (pack) return { ...pack, source: "bin-workflows" };
+    for (const candidate of names) {
+      const p = join(binWorkflowsDir, candidate);
+      if (fs.exists(p) && fs.stat(p)?.isFile()) {
+        return { path: p, script: fs.read(p), source: "bin-workflows" };
+      }
+    }
+  }
+
+  // 4-5. Name resolution under the repo workflow dirs (walk-up). Per location, a
+  //      workflow-pack directory (<name>/manifest.json) wins over a same-name file.
   const root = findRepoRoot(cwd, fs.exists);
   if (root) {
     const piDir = join(root, PI_WORKFLOWS_DIR);
@@ -165,11 +199,13 @@ export function resolveWorkflowScript(name: string, opts: { cwd?: string } & Wor
   throw new Error(
     `workflow: script "${name}" not found.\n` +
       `Looked for: ${asPath}\n` +
+      `  ${join(cwd, "workflows", names[0]!)}\n` +
+      `  ${join(binDir, "workflows", names[0]!)}\n` +
       (root
         ? `  ${join(root, PI_WORKFLOWS_DIR, names[0]!)}\n` +
           `  ${join(root, PKG_WORKFLOWS_GLOB, "<pkg>", "workflows", names[0]!)}\n`
         : "") +
-      `Pass an absolute path or a name under .pi/workflows/ or bun-apps/<pkg>/workflows/.`,
+      `Pass an absolute path or a name under <cwd>/workflows/, <binDir>/workflows/, .pi/workflows/, or bun-apps/<pkg>/workflows/.`,
   );
 }
 
@@ -245,6 +281,29 @@ export function resolvePackOverrides(
   };
 }
 
+/** How the workflow's main model was chosen — surfaced in the run receipt. */
+export type ModelSource = "--model" | "env" | "manifest" | "pi-default" | "none";
+
+/**
+ * Resolve the workflow's main model from the four-tier precedence
+ * (--model flag > PI_MODEL env > manifest.model > pi default). Pure — every
+ * tier is an explicit input so each branch is unit-testable with no disk/LLM.
+ * `{ model: undefined, source: "none" }` when nothing is configured (the engine
+ * then hands undefined to createAgentSession as the original last-resort fallback).
+ */
+export function resolveModel(
+  callerModel: string | undefined,
+  envModel: string | undefined,
+  manifestModel: string | undefined,
+  piDefaultModel: string | undefined,
+): { model: string | undefined; source: ModelSource } {
+  if (callerModel) return { model: callerModel, source: "--model" };
+  if (envModel) return { model: envModel, source: "env" };
+  if (manifestModel) return { model: manifestModel, source: "manifest" };
+  if (piDefaultModel) return { model: piDefaultModel, source: "pi-default" };
+  return { model: undefined, source: "none" };
+}
+
 /**
  * Resolve the run-log output dir for a workflow run. Absolute paths are kept;
  * relative paths resolve against `cwd`. Falls back to the PWD/.pi default.
@@ -274,9 +333,13 @@ export interface WorkflowListResult {
  *  with manifest.json) AND single-file scripts (*.js). Pack rows render from
  *  the manifest; file rows from `export const meta`. Broken packs/scripts are
  *  reported in `errors` (not dropped). Injectable fs for hermetic tests. */
-export function listWorkflows(claudeRoot: string, opts: WorkflowPackFs = {}): WorkflowListResult {
+export function listWorkflows(claudeRoot: string, opts: { cwd?: string; binDir?: string } & WorkflowPackFs = {}): WorkflowListResult {
   const fs = resolveFs(opts);
+  const cwd = opts.cwd ?? process.cwd();
+  const binDir = opts.binDir ?? dirname(process.execPath);
   const dirs = [
+    { label: "cwd/workflows", dir: join(cwd, "workflows") },
+    { label: "bin/workflows", dir: join(binDir, "workflows") },
     { label: ".pi/workflows", dir: join(claudeRoot, PI_WORKFLOWS_DIR) },
     ...fs.readdir(join(claudeRoot, PKG_WORKFLOWS_GLOB)).map((pkg) => ({
       label: `bun-apps/${pkg}/workflows`,
@@ -316,7 +379,22 @@ export function listWorkflows(claudeRoot: string, opts: WorkflowPackFs = {}): Wo
 export interface RunWorkflowScriptOptions {
   name: string;
   args?: unknown;
+  /**
+   * Caller --model flag (provider/id) — the highest-precedence model source.
+   * The four-tier precedence (--model > PI_MODEL env > manifest.model > pi
+   * default) is resolved by `resolveModel` before the run is dispatched.
+   */
+  callerModel?: string;
+  /**
+   * @deprecated use `callerModel`. Kept as a backward-compat alias so existing
+   * callers/tests that pass `{ model }` keep working — `runWorkflowScript`
+   * treats `opts.callerModel ?? opts.model` as the caller value.
+   */
   model?: string;
+  /** PI_MODEL env value (provider/id), if the CLI reads it. */
+  envModel?: string;
+  /** Resolved pi default (provider/id), computed by the CLI from settings. */
+  piDefaultModel?: string;
   dryRun?: boolean;
   persistLogs?: boolean;
   cwd?: string;
@@ -357,11 +435,28 @@ export async function runWorkflowScript(
   runId?: string;
   scriptPath: string;
   source: ResolvedWorkflow["source"];
+  /** Effective main model (may be undefined — the engine then hands undefined
+   *  to createAgentSession as the last-resort fallback). */
+  model: string | undefined;
+  /** How `model` was chosen — surfaced in the run receipt. */
+  modelSource: ModelSource;
   dryRun: boolean;
 }> {
   const resolved = resolveWorkflowScript(opts.name, { cwd: opts.cwd });
   const { meta } = parseWorkflowScript(resolved.script);
-  const overrides = resolvePackOverrides(resolved.pack, { args: opts.args, model: opts.model });
+  // Model resolution: 4-tier precedence (--model > PI_MODEL env > manifest.model
+  // > pi default). `resolveModel` is pure (every tier is an explicit input);
+  // args still merge via mergeArgs (manifest.args under caller args). The legacy
+  // `opts.model` field is kept as an alias for `callerModel` so existing callers
+  // and tests that pass `{ model }` keep working unchanged.
+  const callerModel = opts.callerModel ?? opts.model;
+  const { model, source: modelSource } = resolveModel(
+    callerModel,
+    opts.envModel,
+    resolved.pack?.manifest.model,
+    opts.piDefaultModel,
+  );
+  const args = mergeArgs(resolved.pack?.manifest.args, opts.args);
   // A pack identifies itself by its manifest; a single-file script by its meta.
   const identity = resolved.pack
     ? { name: resolved.pack.manifest.name, description: resolved.pack.manifest.description }
@@ -379,13 +474,15 @@ export async function runWorkflowScript(
       durationMs: 0,
       scriptPath: resolved.path,
       source: resolved.source,
+      model,
+      modelSource,
       dryRun: true,
     };
   }
 
   const receipt = await runWorkflow(resolved.script, {
-    args: overrides.args,
-    mainModel: overrides.model,
+    args,
+    mainModel: model,
     persistLogs: opts.persistLogs ?? true,
     cwd: opts.cwd,
     runsDir: resolveRunsDir(opts.outDir, opts.cwd),
@@ -404,6 +501,8 @@ export async function runWorkflowScript(
     runId: receipt.runId,
     scriptPath: resolved.path,
     source: resolved.source,
+    model,
+    modelSource,
     dryRun: false,
   };
 }

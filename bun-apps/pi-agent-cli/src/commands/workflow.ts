@@ -30,6 +30,13 @@ import type { Command } from "../cli.ts";
 // resolver + orchestration by name so the bundler treats them as externals
 // exactly like the other workspace deps (pi-obsidian, pi-file2md, …).
 import { runWorkflowScript, listWorkflows, findRepoRoot } from "@repo/pi-agent-ext-workflow";
+// pi-default model spec: reuse the SAME settings-read as `resolveLLMFromArgs`
+// (no second reader) and feed it through `resolveLLM` with NO provider/model
+// override so only user settings + the hardcoded fallback apply. The resulting
+// `provider/modelId` is forwarded to the engine as the lowest-precedence tier
+// (--model > PI_MODEL > manifest.model > pi-default).
+import { resolveLLM } from "../sessions/shared.ts";
+import { readUserDefaults } from "../sessions/passthrough.ts";
 
 /**
  * Parse the `--args` value (a JSON string, or omitted). Throws a clear error on
@@ -47,7 +54,7 @@ export function parseWorkflowArgs(raw: string | undefined): unknown {
 }
 
 /** Build the `provider/modelId` spec passed as the workflow's main model. */
-function buildMainSpec(parsed: ParsedArgs): string | undefined {
+export function buildMainSpec(parsed: ParsedArgs): string | undefined {
 	const model = parsed.model;
 	const provider = parsed.provider;
 	if (!model) return undefined;
@@ -70,8 +77,10 @@ CLI, a script, or a hook.
 
 Script resolution (first hit wins) — shared with the \`workflow\` tool's \`name\`:
   1. <name> as a literal path (absolute or relative to cwd)
-  2. .pi/workflows/<name>   (a pack folder wins over a same-name .js)
-  3. bun-apps/<pkg>/workflows/<name>
+  2. <cwd>/workflows/<name>   (portable tier; a pack folder wins over a same-name .js)
+  3. <binDir>/workflows/<name>   (binDir = dirname(process.execPath); pack-over-file)
+  4. .pi/workflows/<name>   (under the repo root; pack-over-file)
+  5. bun-apps/<pkg>/workflows/<name>
 
 Options:
   --args '<JSON>'        JSON value for the script's \`args\` global
@@ -96,7 +105,7 @@ Examples:
 		const name = parsed.positionals[0];
 		if (!name) {
 			console.error("Usage: workflow run <name> [--args JSON] [--model spec] [--dry-run]\n");
-			console.error("Resolve a name from .pi/workflows/ or bun-apps/<pkg>/workflows/, or pass a path.");
+			console.error("Resolve a name from <cwd>/workflows/, <binDir>/workflows/, .pi/workflows/, or bun-apps/<pkg>/workflows/, or pass a path.");
 			throw new Error("workflow run: <name> is required");
 		}
 
@@ -105,10 +114,21 @@ Examples:
 		// Output dir precedence: --out-dir flag > PI_WORKFLOWS_OUT_DIR env > PWD/.pi default.
 		const outDir = parsed.outDir ?? process.env.PI_WORKFLOWS_OUT_DIR;
 
+		// pi-default model spec: resolveLLM with NO caller/provider override, so
+		// only user settings + the hardcoded fallback (zai/glm-5.2) apply. The
+		// engine's 4-tier precedence then picks among callerModel (--model),
+		// envModel (PI_MODEL), manifest.model, and this pi-default — surfaced in
+		// the receipt as `model` + `modelSource`.
+		const piDefault = resolveLLM({ userDefaults: await readUserDefaults() });
+		const piDefaultModel = `${piDefault.provider}/${piDefault.modelId}`;
+		const envModel = process.env.PI_MODEL;
+
 		const receipt = await runWorkflowScript({
 			name,
 			args,
-			model,
+			callerModel: model,
+			envModel,
+			piDefaultModel,
 			dryRun: parsed.dryRun,
 			persistLogs: !parsed.noPersistLogs,
 			outDir,
@@ -124,6 +144,9 @@ Examples:
 		});
 
 		const resultKind = kindOf(receipt.result);
+		// `model` may be undefined when no tier produced a spec (source "none") —
+		// omit the tag entirely in that case instead of rendering `model: ?`.
+		const modelTag = receipt.model ? ` (model: ${receipt.model} [${receipt.modelSource}])` : "";
 		if (parsed.json) {
 			console.log(
 				JSON.stringify(
@@ -135,6 +158,8 @@ Examples:
 						phases: receipt.phases,
 						scriptPath: receipt.scriptPath,
 						source: receipt.source,
+						model: receipt.model,
+						modelSource: receipt.modelSource,
 						dryRun: receipt.dryRun,
 						result: receipt.result,
 					},
@@ -146,6 +171,7 @@ Examples:
 			console.log(
 				`✓ ${receipt.meta.name} — agents=${receipt.agentCount} ` +
 					`${receipt.durationMs ? `${receipt.durationMs}ms ` : ""}` +
+					`${modelTag}` +
 					`(source: ${receipt.source})` +
 					(receipt.runId ? ` run=${receipt.runId}` : "") +
 					` → ${resultKind}`,
@@ -160,10 +186,11 @@ export const workflowListCommand: Command = {
 	summary: "List resolvable workflow scripts (with name + description).",
 	details: `Usage: bun-pi-agent-cli workflow list
 
-Enumerates .pi/workflows/* and bun-apps/<pkg>/workflows/* — both workflow packs
-(folders with manifest.json) and single-file scripts (*.js) — parsing each to
-print name + description. Entries that fail to parse are reported as errors
-(not skipped silently) so a broken artifact is surfaced.`,
+Enumerates <cwd>/workflows/*, <binDir>/workflows/*, .pi/workflows/*, and
+bun-apps/<pkg>/workflows/* — both workflow packs (folders with manifest.json)
+and single-file scripts (*.js) — parsing each to print name + description.
+Entries that fail to parse are reported as errors (not skipped silently) so a
+broken artifact is surfaced.`,
 	run: async (parsed: ParsedArgs): Promise<void> => {
 		const cwd = process.cwd();
 		const claudeRoot = findRepoRoot(cwd, existsSync) ?? cwd;

@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Monorepo SOP
 
-Bun workspace (isolated linker + globalStore via root `bunfig.toml`); `bun.lock` is canonical. Never commit `package-lock.json`. Add deps with `bun add`.
+Bun workspace root is `bun-apps/` (isolated linker + globalStore via `bun-apps/bunfig.toml`); `bun-apps/bun.lock` is canonical. Run `bun install` from `bun-apps/`, never the repo root. Never commit `package-lock.json`. Add deps with `bun add` (inside `bun-apps/`).
 
 ## Python venv
 

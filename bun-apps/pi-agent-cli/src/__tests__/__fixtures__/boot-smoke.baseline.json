@@ -1,18 +1,16 @@
 {
-  "toolCountFloor": 30,
+  "toolCountFloor": 29,
   "expectedErrorSources": [],
   "expectedContractFailures": [],
   "sourceMinimum": [
     "knowledge-card",
     "flux2",
-    "ask-user",
     "web-access",
     "ltx",
     "krea2",
     "movie-director",
     "goal-todo",
     "file2md",
-    "power-tool",
-    "distill"
+    "power-tool"
   ]
 }

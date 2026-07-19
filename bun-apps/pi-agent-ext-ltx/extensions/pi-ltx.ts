@@ -353,6 +353,15 @@ function makeLtxHelpTool() {
 const extension: ExtensionFactory = (pi) => {
   pi.registerTool(makeLtxTool());
   pi.registerTool(makeLtxHelpTool());
+
+  // Promote to default-load (always active) so the agent sees ltx/ltx_help
+  // on every turn without tool-search.
+  pi.on('session_start', () => {
+    const current = pi.getActiveTools();
+    if (!current.includes('ltx')) {
+      pi.setActiveTools([...new Set([...current, 'ltx', 'ltx_help'])]);
+    }
+  });
 };
 
 export default extension;

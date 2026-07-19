@@ -151,19 +151,27 @@ export function setupCorrectionDetector(
   pi.on("turn_end", async (event, ctx) => {
     // Yield to grill_decision during an active grill: the grill tool is the
     // sole writer for grill-time corrections (richer context, gated writes),
-    // so the generic detector must not double-capture. Grill-only seam (the
+    // so the generic detector must not double-capture. Drop the pending flag so
+    // a correction captured during the grill is not deferred and later written
+    // by this generic path (which would double-capture). Grill-only seam (the
     // process-global boolean conflates grill + wayfinder, but scope is grills).
-    if (readGrillActive(ctx.sessionManager?.getSessionId?.())) return;
-    if (!pendingCorrection) {
+    if (readGrillActive(ctx.sessionManager?.getSessionId?.())) {
+      pendingCorrection = false;
+      return;
+    }
+
+    // Rate limit: max 1 correction save per 3 turns. Checked BEFORE consuming
+    // pendingCorrection and advanced every turn, so a correction that arrives
+    // inside the window is DEFERRED to a later turn rather than silently
+    // dropped (previously the flag was cleared first and the correction lost).
+    if (turnsSinceLastCorrection < 3) {
       turnsSinceLastCorrection++;
       return;
     }
-    pendingCorrection = false;
-
-    // Rate limit: max 1 correction save per 3 turns
-    if (turnsSinceLastCorrection < 3) return;
     if (correctionInProgress) return;
+    if (!pendingCorrection) return;
 
+    pendingCorrection = false;
     turnsSinceLastCorrection = 0;
     correctionInProgress = true;
 

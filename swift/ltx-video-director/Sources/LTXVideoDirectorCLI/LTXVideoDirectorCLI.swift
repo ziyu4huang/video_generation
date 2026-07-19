@@ -26,6 +26,8 @@
 //    video-decode  — PURE SWIFT (no run.py): video latent -> PNG frame sequence
 //    t2i           — PURE SWIFT (no run.py): prompt -> image (ZImageDirector in-process)
 //    segment       — PURE SWIFT (no run.py): scene-cut detection (VideoSceneDetector)
+//    transcribe    — PURE SWIFT (no run.py): native Whisper → WhisperResult JSON
+//                    (segment-level timestamps), the bun:whisper backend
 //
 
 import ArgumentParser
@@ -36,6 +38,6 @@ struct LTXVideoDirectorCLI: ParsableCommand {
         commandName: "ltx-video",
         abstract: "LTX-2.3 I2V generation + video/image/voice quality gateway (Apple Silicon MLX).",
         version: "0.1.0",
-        subcommands: [I2V.self, NativeI2V.self, NativeRelay.self, NativeStoryboard.self, NativeT2A.self, Vbvr.self, Gate.self, AsrGate.self, Review.self, Compare.self, Quality.self, Verify.self, Upscale.self, NativeUpscale.self, NativeRestyle.self, NativeIngredients.self, Models.self, AudioDecode.self, VideoDecode.self, T2I.self, Segment.self]
+        subcommands: [I2V.self, NativeI2V.self, NativeRelay.self, NativeStoryboard.self, NativeT2A.self, Vbvr.self, Gate.self, AsrGate.self, Review.self, Compare.self, Quality.self, Verify.self, Upscale.self, NativeUpscale.self, NativeRestyle.self, NativeIngredients.self, Models.self, AudioDecode.self, VideoDecode.self, T2I.self, Segment.self, Transcribe.self]
     )
 }

@@ -18,10 +18,10 @@
  *   - doctor     : the offline self-check (runChecks/runDoctor) + smoke probe
  *   - mode       : bundler-mode detection (source / bundle / binary)
  */
-export * as providers from "./pre-load-providers.ts";
 export {
 	PROVIDERS,
 	resolveApiKey,
+	registerAllProviders,
 	type ApiKey,
 } from "./pre-load-providers.ts";
 
