@@ -125,9 +125,9 @@ describe.skipIf(!E2E_ENABLED)("e2e: patches fire in the built bundle", () => {
 	test.skipIf(!LM_STUDIO_REACHABLE)(
 		"pre-load-providers injects custom providers (lm-studio appears in --list-models)",
 		async () => {
-			// If pre-load-providers is misconfigured or the loadModels() patch
-			// didn't bind in bundle mode, the lm-studio rows vanish even when the
-			// server IS reachable.
+			// If pre-load-providers is misconfigured or the ModelRuntime.create()
+			// patch didn't bind in bundle mode, the lm-studio rows vanish even
+			// when the server IS reachable.
 			const { stdout, stderr, code } = await runBundle(["--list-models"], {
 				env: { BUN_PI_PRE_LOAD_PROVIDERS: "1" },
 			});

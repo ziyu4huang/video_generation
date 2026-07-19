@@ -1,41 +1,52 @@
 /**
- * pre-load-providers-patch — monkey-patches ModelRegistry.prototype.loadModels
- * to register pi-agent's baked PROVIDERS catalog.
+ * pre-load-providers-patch — wraps ModelRuntime.create() to register
+ * pi-agent's baked PROVIDERS catalog onto every runtime the SDK constructs.
  *
  * HOW IT WORKS
  * ------------
- * ModelRegistry's constructor calls the private loadModels(), not refresh().
- * We wrap loadModels() so that after the built-in catalog loads, we call the
- * real registerProvider() for every PROVIDERS entry (via registerAllProviders,
- * shared with pi-agent-cli). registerProvider() stores the config in
- * registeredProviders, so any later refresh() replays it automatically.
+ * pi's SDK (>=0.80) builds every ModelRuntime via the async static factory
+ * `ModelRuntime.create()` — used by main()/--list-models, the SDK entry, and
+ * the package-manager CLI alike (all three ModelRuntime construction sites go
+ * through it). We wrap that factory so the freshly-built runtime gets every
+ * PROVIDERS entry registered through its real `registerProvider()` before it
+ * is handed back to the caller. registerProvider() stores the config in the
+ * runtime's extensionProviders map, recomposes the provider, and updates the
+ * model snapshot synchronously — so the baked providers appear in
+ * getAvailable() / --list-models immediately, with NO ~/.pi/agent/models.json
+ * required.
+ *
+ * HISTORY
+ * -------
+ * Before the 0.80 SDK refactor this patch hooked
+ * `ModelRegistry.prototype.loadModels`, which the (old, stateful) registry's
+ * constructor used to call. That method no longer exists: ModelRegistry is now
+ * a stateless facade delegating to ModelRuntime, and has no loadModels() at
+ * all. The old hook therefore silently no-op'd — it installed a method that
+ * nothing ever invoked, so registerAllProviders never ran and the baked
+ * providers were only ever visible because ~/.pi/agent/models.json happened to
+ * duplicate them. Hooking create() fixes that.
  *
  * Side-effecting — only ever imported from applyPatches() (./index.ts), gated
  * by BUN_PI_PRE_LOAD_PROVIDERS. Never import this from the library barrel
  * (../index.ts) or anywhere PROVIDERS/resolveApiKey/registerAllProviders alone
  * would suffice — see ../pre-load-providers.ts's header for why.
  */
-import { ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { registerAllProviders } from "../pre-load-providers.ts";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const Proto = ModelRegistry.prototype as any;
+// Capture the real factory before any other patch can touch it.
+type CreateFn = typeof ModelRuntime.create;
+const _realCreate: CreateFn = ModelRuntime.create;
 
-// Capture the real method before any other patch can touch it.
-const _realLoadModels = Proto.loadModels as (this: unknown) => void;
-const _realRegisterProvider = Proto.registerProvider as (
-  this: unknown,
-  name: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  config: any,
-) => void;
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-Proto.loadModels = function (this: any) {
-  _realLoadModels.call(this);
-  registerAllProviders({
-    registerProvider: (name, config) => _realRegisterProvider.call(this, name, config),
-  });
-};
+ModelRuntime.create = (async (options = {}) => {
+  const runtime = await _realCreate(options);
+  // registerProvider recomposes + updates the snapshot synchronously, so the
+  // baked providers are visible before the caller ever reads
+  // getAvailable()/getModel(). A literal-string apiKey marks the provider
+  // configured (configuredRequestAuthStatus → "fallback"), so it shows up in
+  // snapshot.available / --list-models with no stored credential needed.
+  registerAllProviders(runtime);
+  return runtime;
+}) as CreateFn;
 
 export const preLoadProvidersPatchApplied = true;
