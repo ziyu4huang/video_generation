@@ -17,7 +17,7 @@
  * This module has NO top-level side effects — importing PROVIDERS / resolveApiKey /
  * registerAllProviders from anywhere (including pi-agent-cli, via `@repo/pi-agent`)
  * must never monkey-patch anything. The actual ModelRuntime.create() wrap lives in
- * `./patches/pre-load-providers-patch.ts` and is applied ONLY via applyPatches()
+ * `./patches/pre-load-providers.ts` and is applied ONLY via applyPatches()
  * (env-gated, main()-oriented). A prior version patched the prototype right here
  * at module scope, which meant ANY import of this file — even just `{ PROVIDERS }`
  * — applied the patch as an ES-module evaluation side effect, double-registering
@@ -140,7 +140,7 @@ export function resolveApiKey(key: ApiKey, env: Record<string, string | undefine
  * Register every PROVIDERS entry onto a live ModelRegistry via its real
  * registerProvider(name, config). Pure aside from the registry mutation the
  * caller passes in — shared by the pre-load-providers monkey-patch
- * (./patches/pre-load-providers-patch.ts) AND pi-agent-cli's programmatic
+ * (./patches/pre-load-providers.ts) AND pi-agent-cli's programmatic
  * session builder (bun-apps/pi-agent-cli/src/sessions/shared.ts), so the
  * "baked provider catalog → registerProvider calls" logic exists in exactly
  * one place.
