@@ -224,6 +224,34 @@ export function computeActiveTools(
   return allToolNames.filter((name) => !known.has(name) || sticky.has(name));
 }
 
+/**
+ * Find dormant gates whose **keywords** are a substring of `intent`. Pure: no
+ * pi dependency. Used by enable_tool's intent mode. Returns gates in declaration
+ * order; empty = no match.
+ *
+ * "Dormant" = not all of the gate's tools are already in `sticky`. A gate matches
+ * if any keyword appears as a substring of the (lowercased) intent.
+ *
+ * NOTE: matching is keywords-only, NOT keywords∪description. Description-word
+ * matching was prototyped and rejected: prose words like "image"/"pipeline"
+ * appear in several gates' descriptions and over-match (krea2/movie fired on
+ * intents that should hit only flux2/workflow). The `description` field is still
+ * valuable for the human-readable `list` output (T5) and a future semantic
+ * matcher, but not for substring matching. Verified 2026-07-20.
+ */
+export function matchIntent(
+  intent: string,
+  gates: ToolGate[],
+  sticky: Set<string>,
+): ToolGate[] {
+  const needle = intent.toLowerCase();
+  return gates.filter((g) => {
+    if (g.names.every((n) => sticky.has(n))) return false; // skip already-active
+    const fields = g.keywords.map((k) => k.toLowerCase());
+    return fields.some((f) => f.length > 0 && needle.includes(f));
+  });
+}
+
 export default function toolGateExtension(pi: ExtensionAPI) {
   let allToolNames: string[] = [];
   let sticky = new Set<string>(CORE_TOOLS);

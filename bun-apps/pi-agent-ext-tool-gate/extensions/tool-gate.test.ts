@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { computeActiveTools, CORE_TOOLS, GATES } from "./tool-gate.ts";
+import { computeActiveTools, CORE_TOOLS, GATES, matchIntent } from "./tool-gate.ts";
 
 describe("computeActiveTools", () => {
   test("a tool not listed in CORE_TOOLS or any gate is always active (fail-open)", () => {
@@ -63,5 +63,36 @@ describe("GATES data (S1)", () => {
     const sticky = new Set(CORE_TOOLS);
     const all = [...CORE_TOOLS, "inspect_extensions"];
     expect(computeActiveTools("inspect extension health", all, sticky)).toContain("inspect_extensions");
+  });
+});
+
+describe("matchIntent (S1)", () => {
+  const sticky = () => new Set(CORE_TOOLS);
+
+  test("video intent → ltx", () => {
+    expect(matchIntent("make a video", GATES, sticky()).map((g) => g.names[0])).toEqual(["ltx"]);
+  });
+  test("image intent → flux2", () => {
+    expect(matchIntent("generate an image of a cat", GATES, sticky()).map((g) => g.names[0])).toEqual(["flux2"]);
+  });
+  test("describe intent → file2md", () => {
+    expect(matchIntent("describe this picture", GATES, sticky()).map((g) => g.names[0])).toEqual(["file2md"]);
+  });
+  test("movie intent (CJK) → movie", () => {
+    expect(matchIntent("做一個 movie 分鏡", GATES, sticky()).map((g) => g.names[0])).toEqual(["movie"]);
+  });
+  test("workflow intent → workflow", () => {
+    expect(matchIntent("orchestrate a parallel pipeline", GATES, sticky()).map((g) => g.names[0])).toEqual(["workflow"]);
+  });
+  test("S1 over-broad pin: 'docker image cleanup' → flux2 (image keyword); S2 narrows", () => {
+    expect(matchIntent("docker image cleanup", GATES, sticky()).map((g) => g.names[0])).toEqual(["flux2"]);
+  });
+  test("no match → []", () => {
+    expect(matchIntent("what's the weather", GATES, sticky())).toEqual([]);
+  });
+  test("dormant-skip: already-active gate is not returned", () => {
+    const s = sticky();
+    s.add("ltx"); s.add("ltx_help");
+    expect(matchIntent("make a video", GATES, s)).toEqual([]);
   });
 });
