@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { computeActiveTools, CORE_TOOLS, GATES, computeBannerSaved, matchIntent, matchesKeyword } from "./tool-gate.ts";
+import { computeActiveTools, CORE_TOOLS, GATES, computeBannerSaved, matchIntent, matchesKeyword, gateFires } from "./tool-gate.ts";
+import type { ToolGate } from "./tool-gate.ts";
 import { emitToolGateLog, isMissCandidate } from "./tool-gate.ts";
 import toolGateExtension from "./tool-gate.ts";
 
@@ -246,5 +247,32 @@ describe("matchesKeyword (S2)", () => {
   });
   test("CJK substring: '做動畫' matches a CJK prompt", () => {
     expect(matchesKeyword("做動畫", "幫我做動畫")).toBe(true);
+  });
+});
+
+describe("gateFires (S2 co-occurrence)", () => {
+  const coreNounGate: ToolGate = {
+    names: ["fake"],
+    keywords: ["outpaint"],
+    description: "x",
+    requires: { nouns: ["image", "picture"], verbs: ["generate", "make"] },
+  };
+
+  test("keyword match fires regardless of requires", () => {
+    expect(gateFires(coreNounGate, "please outpaint this")).toBe(true);
+  });
+  test("noun + verb co-occurrence fires", () => {
+    expect(gateFires(coreNounGate, "generate an image of a cat")).toBe(true);
+  });
+  test("noun without a gen-verb does NOT fire (the docker-image case)", () => {
+    expect(gateFires(coreNounGate, "docker image cleanup")).toBe(false);
+  });
+  test("verb without a noun does NOT fire", () => {
+    expect(gateFires(coreNounGate, "generate a report")).toBe(false);
+  });
+  test("gate without requires fires only on keywords", () => {
+    const plain: ToolGate = { names: ["p"], keywords: ["montage"], description: "x" };
+    expect(gateFires(plain, "orchestrate a montage")).toBe(true);
+    expect(gateFires(plain, "generate an image")).toBe(false);
   });
 });

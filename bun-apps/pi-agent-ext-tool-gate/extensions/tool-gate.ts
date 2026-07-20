@@ -42,11 +42,23 @@ export const CORE_TOOLS = new Set([
   "web_search", "fetch_content", "get_search_content",
 ]);
 
+/** Co-occurrence trigger: a gate fires when the prompt has ≥1 noun AND ≥1 verb.
+ *  Used only for core nouns (image/video/pdf) whose bare form false-fires
+ *  (docker image, video call) but whose recall on common intents
+ *  (generate an image, make a video) must survive. */
+export interface CoOccurrence {
+  nouns: string[];
+  verbs: string[];
+}
+
 interface ToolGate {
   names: string[];
+  /** Unambiguous triggers — matched via matchesKeyword. */
   keywords: string[];
   /** One-line description — used for enable_tool intent matching + list output. */
   description: string;
+  /** Optional co-occurrence trigger (noun ∧ verb). See CoOccurrence. */
+  requires?: CoOccurrence;
   /** Approximate tokens saved when gated (for logging) */
   savedTokens: number;
 }
@@ -210,6 +222,18 @@ export function matchesKeyword(keyword: string, promptLower: string): boolean {
 		return new RegExp(`\\b${escapeRegExp(kw)}\\b`, "i").test(promptLower);
 	}
 	return promptLower.includes(kw);
+}
+
+/** A gate fires if any keyword matches, OR its `requires` co-occurrence
+ *  (≥1 noun AND ≥1 verb) is met. Pure: no pi dependency. */
+export function gateFires(gate: ToolGate, promptLower: string): boolean {
+	if (gate.keywords.some((kw) => matchesKeyword(kw, promptLower))) return true;
+	if (gate.requires) {
+		const noun = gate.requires.nouns.some((n) => matchesKeyword(n, promptLower));
+		const verb = gate.requires.verbs.some((v) => matchesKeyword(v, promptLower));
+		if (noun && verb) return true;
+	}
+	return false;
 }
 
 // ── Extension entry ──────────────────────────────────────────────
