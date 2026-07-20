@@ -42,15 +42,16 @@ function appendSyncWarning(result: MemoryResult, warning: string): MemoryResult 
  * Write transferred entries as a .knowledge.jsonl archive file.
  * Returns the file path for the caller to pass to zk_ingest.
  */
-function writeTransferArchive(
+export function writeTransferArchive(
   target: "memory" | "user" | "failure",
   entries: string[],
+  archiveDir: string = pathJoin(tmpdir(), "pi-memory-archive"),
 ): string {
   const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const dir = pathJoin(tmpdir(), "pi-memory-archive");
-  mkdirSync(dir, { recursive: true });
+  const suffix = Math.random().toString(36).slice(2, 8);
+  mkdirSync(archiveDir, { recursive: true });
 
-  const jsonlPath = pathJoin(dir, `memory-transfer-${target}-${ts}.knowledge.jsonl`);
+  const jsonlPath = pathJoin(archiveDir, `memory-transfer-${target}-${ts}-${suffix}.knowledge.jsonl`);
 
   const lines = entries.map((entry) => {
     const record = {

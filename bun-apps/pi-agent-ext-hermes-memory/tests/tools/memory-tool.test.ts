@@ -6,7 +6,7 @@ import * as assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { registerMemoryTool } from "../../src/tools/memory-tool.js";
+import { registerMemoryTool, writeTransferArchive } from "../../src/tools/memory-tool.js";
 import { MemoryStore } from "../../src/store/memory-store.js";
 import { DatabaseManager } from "../../src/store/db.js";
 import { getMemories, syncMemoryEntry } from "../../src/store/sqlite-memory-store.js";
@@ -491,5 +491,20 @@ describe("registerMemoryTool", () => {
     await capturedResult.execute("tc-1", { action: "remove", target: "memory", old_text: "old entry" }, undefined as any, undefined as any, undefined as any);
 
     assert.deepStrictEqual(removeArgs, ["memory", "old entry"], "should pass target, old_text to store.remove");
+  });
+
+  it("writeTransferArchive: two same-second calls produce distinct, non-overwriting files", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "transfer-archive-test-"));
+    try {
+      const p1 = writeTransferArchive("memory", ["entry A content"], dir);
+      const p2 = writeTransferArchive("memory", ["entry B content"], dir);
+      assert.notStrictEqual(p1, p2, "two same-second calls must not collide on filename");
+      assert.ok(fs.existsSync(p1), "first archive must still exist (not overwritten)");
+      assert.ok(fs.existsSync(p2), "second archive must exist");
+      assert.ok(fs.readFileSync(p1, "utf-8").includes("entry A content"), "first archive keeps its own content");
+      assert.ok(fs.readFileSync(p2, "utf-8").includes("entry B content"), "second archive keeps its own content");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
