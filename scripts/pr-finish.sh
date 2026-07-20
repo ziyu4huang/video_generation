@@ -198,8 +198,17 @@ try_merge() {
     # iter-11: GitHub's merge decision can lag check completion by ~5-10s — a
     # "required status checks" / "not mergeable" error right after CI went green
     # is transient, not a real block. Retry after a short settle.
+    # BUT the same GraphQL "N of N required status checks expected" error is also
+    # surfaced when the branch is actually BEHIND (base moved during CI) — the
+    # up-to-date guard is never reached, so the message masquerades as lag. A
+    # BEHIND branch needs a re-sync (rc=2); rc=3's settle-retry never converges.
+    # (Dogfooded on #721: first merge attempt misclassified BEHIND as rc=3 and
+    # gave up after 3 settle-retries instead of re-syncing.)
     if grep -qiE "required status check|not mergeable|is not mergeable" <<<"$err"; then
-      echo "$err" >&2; return 3
+      local st; st=$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q '.mergeStateStatus' 2>/dev/null || echo UNKNOWN)
+      echo "$err" >&2
+      [[ "$st" == "BEHIND" ]] && return 2
+      return 3
     fi
     echo "$err" >&2; return 1
   fi
