@@ -3,7 +3,7 @@
  *
  * `syncChainState` reads the plan coordinator's published `globalThis.__piPlanPhases`
  * (per-phase `{id, status, ticketIds?}`), closes any wayfind ticket whose phase
- * reports `"complete"`, and records the closure on the effort's map.md. Idempotent.
+ * reports `"completed"`, and records the closure on the effort's map.md. Idempotent.
  *
  * Pure-ish: reads globalThis + fs; NEVER imports the plan coordinator — the only
  * contact surface is the globalThis keys (see ADR-0001). That keeps the two
@@ -20,7 +20,7 @@ import { appendDecision, closeTicket, readMap, type Ticket } from "./map.js";
  * Structural mirror of the plan coordinator's `PhaseInfo` — NO cross-package
  * import (the seam is globalThis, typed structurally so the two packages never
  * depend on each other's types). `status` is widened to `string` so any unknown
- * token simply fails the `=== "complete"` check rather than failing to type-check.
+ * token simply fails the `=== "completed"` check rather than failing to type-check.
  */
 interface PlanPhaseInfo {
   id: string;
@@ -60,7 +60,7 @@ export function syncChainState(cwd: string, effort: string): ChainSyncResult {
 
   const phases = (reader as (cwd: string) => PlanPhaseInfo[])(cwd);
   const refsToClose = phases.flatMap((p) =>
-    p.status === "complete" && p.ticketIds && p.ticketIds.length > 0 ? p.ticketIds : [],
+    p.status === "completed" && p.ticketIds && p.ticketIds.length > 0 ? p.ticketIds : [],
   );
   if (refsToClose.length === 0) return { closed: [], skipped: [] };
 

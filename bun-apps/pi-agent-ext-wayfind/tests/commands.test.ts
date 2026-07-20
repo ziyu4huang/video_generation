@@ -210,7 +210,7 @@ describe("chain-sync — close tickets whose phase completed", () => {
     const effort = "demo";
     seedEffort(cwd, effort);
     (globalThis as Record<string, unknown>)[PHASES_KEY] = () => [
-      { id: "1", status: "complete", ticketIds: ["03-foo"] },
+      { id: "1", status: "completed", ticketIds: ["03-foo"] },
     ];
     const { ctx, notifications } = ctxWithCapturedNotify(cwd);
 
@@ -241,7 +241,7 @@ describe("chain-sync — close tickets whose phase completed", () => {
     const effort = "demo";
     seedEffort(cwd, effort);
     (globalThis as Record<string, unknown>)[PHASES_KEY] = () => [
-      { id: "1", status: "complete", ticketIds: ["03-foo"] },
+      { id: "1", status: "completed", ticketIds: ["03-foo"] },
     ];
     const { ctx } = ctxWithCapturedNotify(cwd);
 

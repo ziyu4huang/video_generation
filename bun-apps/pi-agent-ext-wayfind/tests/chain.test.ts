@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { parsePlan } from "../../pi-agent-ext-core-task/src/plan/parse.ts";
 import { flattenTicketsToPlan, seedFromDecisions, syncChainState } from "../src/chain.js";
 import type { GlossaryTerm, ResolvedDecision } from "../src/grill.js";
 import { readMap, type Ticket, writeMap, writeTicket } from "../src/map.js";
@@ -127,12 +128,42 @@ describe("continuous chain loop — end-to-end toy effort", () => {
     // Simulate the plan coordinator: the phase is now complete and exposes the ticket stem
     // (exactly what readPlanPhases publishes on globalThis.__piPlanPhases).
     (globalThis as Record<string, unknown>)[PHASES_KEY] = () => [
-      { id: "1", status: "complete", ticketIds: ["01-storage"] },
+      { id: "1", status: "completed", ticketIds: ["01-storage"] },
     ];
 
     // REVERSE: syncChainState closes the originating ticket.
     const r = syncChainState(cwd, effort);
     expect(r.closed).toEqual(["01-storage"]);
     expect(readMap(cwd, effort)?.tickets.find((t) => t.id === "01")?.status).toBe("closed");
+  });
+
+  it("writing-plans plan (real core-task parsePlan) → __piPlanPhases → syncChainState closes the ticket", () => {
+    // Proves the cross-package contract with the REAL publisher output (status
+    // "completed" + stem ticketIds), not a hand-written mock. Guards the seam
+    // against drift that isolated mock tests miss (the TB6 status-token bug).
+    const cwd = makeCwd();
+    const effort = "e2e";
+    writeMap(cwd, { effort, destination: "d", notes: "", decisions: [], fog: [], outOfScope: [], tickets: [] });
+    writeTicket(cwd, effort, {
+      id: "03",
+      slug: "foo",
+      title: "Foo",
+      question: "q",
+      type: "task",
+      blocking: [],
+      status: "open",
+      whatToBuild: "b",
+      acceptance: ["done"],
+    });
+
+    // A writing-plans doc: Task header references ticket [03-foo], checkbox done.
+    const phases = parsePlan("### Task 1: [03-foo] Foo\n- [x] done\n", "<e2e>").phases;
+    expect(phases[0]?.status).toBe("completed"); // the canonical token
+    expect(phases[0]?.ticketIds).toEqual(["03-foo"]); // stem, matches findTicketByRef
+    (globalThis as Record<string, unknown>)[PHASES_KEY] = () => phases;
+
+    const r = syncChainState(cwd, effort);
+    expect(r.closed).toEqual(["03-foo"]);
+    expect(readMap(cwd, effort)?.tickets.find((t) => t.id === "03")?.status).toBe("closed");
   });
 });
