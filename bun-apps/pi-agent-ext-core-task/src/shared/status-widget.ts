@@ -144,7 +144,7 @@ export class CoreTaskStatusWidget {
 /**
  * Process-singleton accessor. See the class doc comment for why this is
  * `globalThis`-backed rather than a module-level `let instance`. Every
- * package that wants a section on the composite status widget (goal-todo
+ * package that wants a section on the composite status widget (core-task
  * itself, wayfind, the plan coordinator) calls this — never `new
  * CoreTaskStatusWidget()` directly, or it will get its own disconnected
  * widget instance.

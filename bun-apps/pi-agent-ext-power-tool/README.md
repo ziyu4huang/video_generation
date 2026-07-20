@@ -244,7 +244,7 @@ ranked report reusing the `inspect_extensions` Severity framework.
 
 **Design notes:** the detector (`analyzePathology`) is a **pure function** over a
 typed `PathologyInput` — fully unit-tested without the SDK or accumulator. The
-hook-fed accumulator mirrors the goal-todo pattern already proven in this repo.
+hook-fed accumulator mirrors the core-task pattern already proven in this repo.
 
 **Proactive warning (Phase 1.1):** in addition to the on-demand tool, the
 `tool_execution_end` hook re-runs the detector after every call and, when a

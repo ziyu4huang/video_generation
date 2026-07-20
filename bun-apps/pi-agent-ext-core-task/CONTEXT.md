@@ -35,7 +35,7 @@ _Avoid_: task list
 ### Coordination
 
 **Coordination seam** (`globalThis.__piGoalActive`):
-The process-singleton reader goal-todo publishes so peer extensions (the plan coordinator, wayfind) can detect an active goal WITHOUT a hard dep. The peer reads `globalThis.__piGoalActive?.() ?? false`. goal-todo is the publisher; the plan coordinator yields to it.
+The process-singleton reader core-task publishes so peer extensions (the plan coordinator, wayfind) can detect an active goal WITHOUT a hard dep. The peer reads `globalThis.__piGoalActive?.() ?? false`. core-task is the publisher; the plan coordinator yields to it.
 _Avoid_: hook, signal (it is a published globalThis reader for cross-extension turn-ownership)
 
 **Replay-from-branch**:

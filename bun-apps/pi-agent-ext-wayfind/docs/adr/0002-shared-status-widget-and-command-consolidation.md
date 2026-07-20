@@ -7,7 +7,7 @@ Status: accepted
 > removed in PR #620. The shared-widget design this ADR established still holds
 > for wayfind; the `planning-with-files` party no longer ships, and the
 > coordination seam it published (`__piPlan*`) is now read best-effort by
-> wayfind / goal-todo (graceful no-op when absent). The references to
+> wayfind / core-task (graceful no-op when absent). The references to
 > "planning-with-files" below are retained as the historical record of this
 > decision.
 
@@ -26,7 +26,7 @@ planning-with-files' `/plan-*` namespace).
 1. Promote `pi-agent-ext-core-task`'s `CoreTaskStatusWidget` to a
    `globalThis`-backed singleton (`getSharedStatusWidget()`), exposed via the
    package's `./src/*` + `./src/*.js` export map entries. wayfind and
-   planning-with-files take a `workspace:*` dependency on goal-todo and each
+   planning-with-files take a `workspace:*` dependency on core-task and each
    register one `StatusSection` (order 2 and 3, after goal=0/todo=1) instead
    of an independent footer line.
 2. Consolidate wayfind's 10 commands into `/grill [me|docs|done|domain]` and
@@ -38,10 +38,10 @@ planning-with-files' `/plan-*` namespace).
 
 ## Consequences
 
-- wayfind and planning-with-files now hard-depend on goal-todo for status
-  display; if goal-todo is not loaded, their status sections simply never
+- wayfind and planning-with-files now hard-depend on core-task for status
+  display; if core-task is not loaded, their status sections simply never
   render (no fallback to standalone `setStatus`). Acceptable because
-  goal-todo is already the earliest-loaded core package in
+  core-task is already the earliest-loaded core package in
   `bun-apps/pi-agent/run-dir/manifest.json`.
 - The singleton MUST be `globalThis`-backed, not a module-level `let
   instance` — pi loads extensions via jiti, and jiti-loaded module identity is
