@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { computeActiveTools, CORE_TOOLS, GATES, computeBannerSaved, matchIntent } from "./tool-gate.ts";
+import { computeActiveTools, CORE_TOOLS, GATES, computeBannerSaved, matchIntent, matchesKeyword, gateFires, measureToolTokens } from "./tool-gate.ts";
+import type { ToolGate } from "./tool-gate.ts";
 import { emitToolGateLog, isMissCandidate } from "./tool-gate.ts";
 import toolGateExtension from "./tool-gate.ts";
+
+/** Spread CORE_TOOLS into an array of names (CORE_TOOLS is a Set). */
+const CORE_TOOLS_ARRAY = (): string[] => Array.from(CORE_TOOLS);
 
 describe("computeActiveTools", () => {
   test("a tool not listed in CORE_TOOLS or any gate is always active (fail-open)", () => {
@@ -86,8 +90,8 @@ describe("matchIntent (S1)", () => {
   test("workflow intent → workflow", () => {
     expect(matchIntent("orchestrate a parallel pipeline", GATES, sticky()).map((g) => g.names[0])).toEqual(["workflow"]);
   });
-  test("S1 over-broad pin: 'docker image cleanup' → flux2 (image keyword); S2 narrows", () => {
-    expect(matchIntent("docker image cleanup", GATES, sticky()).map((g) => g.names[0])).toEqual(["flux2"]);
+  test("S2 flip: 'docker image cleanup' → [] (image noun, no gen-verb)", () => {
+    expect(matchIntent("docker image cleanup", GATES, sticky()).map((g) => g.names[0])).toEqual([]);
   });
   test("no match → []", () => {
     expect(matchIntent("what's the weather", GATES, sticky())).toEqual([]);
@@ -144,15 +148,32 @@ describe("telemetry helpers (S1)", () => {
   });
 });
 
-describe("computeBannerSaved (S1 G fix)", () => {
-  test("counts only gates whose tools are actually loaded (excludes phantom movie)", () => {
-    // only ltx + flux2 tools are loaded this session; movie is NOT loaded
-    const loaded = [...CORE_TOOLS, "ltx", "ltx_help", "flux2", "flux2_help"];
-    const sticky = new Set(CORE_TOOLS);
-    const active = computeActiveTools("", loaded, sticky); // CORE-only ⇒ ltx & flux2 gated
-    const saved = computeBannerSaved(active, loaded);
-    // flux2 (1411) + ltx (1802) only; movie (632) excluded because it isn't loaded
-    expect(saved).toBe(1411 + 1802);
+describe("computeBannerSaved (S3 — runtime measured tokens)", () => {
+  test("sums measured tokens of loaded+gated gates only (no phantom, no static field)", () => {
+    // Mock tools with real description+parameters so measureToolTokens is deterministic.
+    const mockTool = (name: string, desc: string) => ({ name, description: desc, parameters: { p: 1 } });
+    const loadedNames = [...CORE_TOOLS, "ltx", "ltx_help", "flux2", "flux2_help"];
+    const loadedTools = [
+      ...CORE_TOOLS_ARRAY().map((n) => mockTool(n, "core")),
+      mockTool("ltx", "video tool"),
+      mockTool("ltx_help", "video help"),
+      mockTool("flux2", "image tool"),
+      mockTool("flux2_help", "image help"),
+    ];
+    const measured = new Map(loadedTools.map((t) => [t.name, measureToolTokens(t)]));
+    // CORE-only active ⇒ ltx & flux2 are gated; movie is NOT loaded ⇒ excluded.
+    const active = computeActiveTools("", loadedNames, new Set(CORE_TOOLS));
+    const saved = computeBannerSaved(active, loadedNames, measured);
+    const expected = measured.get("ltx")! + measured.get("ltx_help")!
+      + measured.get("flux2")! + measured.get("flux2_help")!;
+    expect(saved).toBe(expected);
+  });
+
+  test("a gate whose tools are absent from allToolNames contributes 0 (no phantom)", () => {
+    const measured = new Map([["movie", 999], ["movie_help", 999]]);
+    // movie not in allToolNames → excluded even though measured + gated
+    const saved = computeBannerSaved([...CORE_TOOLS], [...CORE_TOOLS], measured);
+    expect(saved).toBe(0);
   });
 });
 
@@ -227,5 +248,148 @@ describe("enable_tool (S1 A escape hatch)", () => {
     const enableTool = (pi as any)._t;
     const res = await enableTool.execute("id", { intent: "make a video" });
     expect(res.content[0].text).toMatch(/error/i);
+  });
+});
+
+describe("matchesKeyword (S2)", () => {
+  test("word-boundary: 'flux' does NOT match inside 'conflux'", () => {
+    expect(matchesKeyword("flux", "use the conflux library")).toBe(false);
+  });
+  test("word-boundary: 'flux' matches as a whole word", () => {
+    expect(matchesKeyword("flux", "use the flux model")).toBe(true);
+  });
+  test("phrase substring: 'generate image' is NOT a substring of 'generate an image' (the gap co-occurrence closes)", () => {
+    // This is the brittleness that motivates the requires:{nouns,verbs} design in Task 2/3.
+    expect(matchesKeyword("generate image", "generate an image of a cat")).toBe(false);
+  });
+  test("phrase substring: 'generate image' matches 'generate image now'", () => {
+    expect(matchesKeyword("generate image", "generate image now")).toBe(true);
+  });
+  test("CJK substring: '做動畫' matches a CJK prompt", () => {
+    expect(matchesKeyword("做動畫", "幫我做動畫")).toBe(true);
+  });
+});
+
+describe("gateFires (S2 co-occurrence)", () => {
+  const coreNounGate: ToolGate = {
+    names: ["fake"],
+    keywords: ["outpaint"],
+    description: "x",
+    requires: { nouns: ["image", "picture"], verbs: ["generate", "make"] },
+  };
+
+  test("keyword match fires regardless of requires", () => {
+    expect(gateFires(coreNounGate, "please outpaint this")).toBe(true);
+  });
+  test("noun + verb co-occurrence fires", () => {
+    expect(gateFires(coreNounGate, "generate an image of a cat")).toBe(true);
+  });
+  test("noun without a gen-verb does NOT fire (the docker-image case)", () => {
+    expect(gateFires(coreNounGate, "docker image cleanup")).toBe(false);
+  });
+  test("verb without a noun does NOT fire", () => {
+    expect(gateFires(coreNounGate, "generate a report")).toBe(false);
+  });
+  test("gate without requires fires only on keywords", () => {
+    const plain: ToolGate = { names: ["p"], keywords: ["montage"], description: "x" };
+    expect(gateFires(plain, "orchestrate a montage")).toBe(true);
+    expect(gateFires(plain, "generate an image")).toBe(false);
+  });
+});
+
+describe("S2 keyword audit (computeActiveTools Effect table)", () => {
+  const all = [...CORE_TOOLS, "flux2", "flux2_help", "krea2", "krea2_help", "ltx", "ltx_help",
+    "file2md", "vision_ask", "inspect_extensions", "workflow", "workflow_help",
+    "collect_videos", "movie", "movie_help"];
+  const act = (prompt: string) => computeActiveTools(prompt, all, new Set(CORE_TOOLS));
+
+  test("docker image cleanup → []", () => {
+    expect(act("docker image cleanup")).toEqual(expect.arrayContaining([...CORE_TOOLS]));
+    expect(act("docker image cleanup")).not.toContain("flux2");
+  });
+  test("generate an image of a cat → flux2 (generate+image)", () => {
+    expect(act("generate an image of a cat")).toContain("flux2");
+  });
+  test("coding style → []", () => {
+    expect(act("coding style")).not.toContain("flux2");
+  });
+  test("video call → []", () => {
+    expect(act("video call")).not.toContain("ltx");
+  });
+  test("make a video → ltx (make+video)", () => {
+    expect(act("make a video")).toContain("ltx");
+  });
+  test("做動畫 → ltx (做+動畫)", () => {
+    expect(act("做動畫")).toContain("ltx");
+  });
+  test("下載影片 → [] (影片 noun, no gen-verb)", () => {
+    expect(act("下載影片")).not.toContain("ltx");
+  });
+  test("draft an email → []", () => {
+    expect(act("draft an email")).not.toContain("krea2");
+  });
+  test("describe the problem → []", () => {
+    expect(act("describe the problem")).not.toContain("file2md");
+  });
+  test("read this pdf → file2md (read+pdf)", () => {
+    expect(act("read this pdf")).toContain("file2md");
+  });
+  test("supply chain → []", () => {
+    expect(act("supply chain")).not.toContain("workflow");
+  });
+  test("collect the data → []", () => {
+    expect(act("collect the data")).not.toContain("collect_videos");
+  });
+  test("orchestrate a montage → movie (montage keyword)", () => {
+    expect(act("orchestrate a montage")).toContain("movie");
+  });
+});
+
+describe("S2 cross-gate invariant — shared noun, disjoint verbs ⇒ only one fires", () => {
+  const all = [...CORE_TOOLS, "flux2", "flux2_help", "ltx", "ltx_help",
+    "file2md", "vision_ask"];
+  const act = (prompt: string) => computeActiveTools(prompt, all, new Set(CORE_TOOLS));
+
+  test("'generate an image' fires flux2 but NOT file2md (generate ∉ file2md verbs)", () => {
+    const a = act("generate an image");
+    expect(a).toContain("flux2");
+    expect(a).not.toContain("file2md");
+  });
+  test("'describe this picture' fires file2md but NOT flux2 (describe ∉ flux2 verbs)", () => {
+    const a = act("describe this picture");
+    expect(a).toContain("file2md");
+    expect(a).not.toContain("flux2");
+  });
+});
+
+describe("S2 matchIntent false-fire cases", () => {
+  const sticky = () => new Set(CORE_TOOLS);
+  const first = (prompt: string) => matchIntent(prompt, GATES, sticky()).map((g) => g.names[0]);
+
+  test("describe the architecture → []", () => {
+    expect(first("describe the architecture")).toEqual([]);
+  });
+  test("make an image → [flux2] (make+image via requires)", () => {
+    expect(first("make an image")).toEqual(["flux2"]);
+  });
+  test("conflux library → [] (flux word-boundary, not inside conflux)", () => {
+    expect(first("use the conflux library")).toEqual([]);
+  });
+});
+
+describe("measureToolTokens (S3)", () => {
+  test("replicates schema-cost.ts:20 — round((desc + params) / 4)", () => {
+    const tool = { description: "abcd", parameters: { a: 1 } }; // desc=4, params=JSON.stringify({a:1})='{"a":1}'=7
+    const expected = Math.round((4 + 7) / 4); // = round(2.75) = 3
+    expect(measureToolTokens(tool)).toBe(expected);
+  });
+  test("missing description + parameters → treats as empty (0 + '{}')", () => {
+    // desc="" (0), params=JSON.stringify({})='{}' (2) → round(2/4)=1
+    expect(measureToolTokens({})).toBe(1);
+  });
+  test("long description scales linearly", () => {
+    const short = measureToolTokens({ description: "x", parameters: {} });
+    const long = measureToolTokens({ description: "x".repeat(400), parameters: {} });
+    expect(long).toBeGreaterThan(short * 50);
   });
 });
