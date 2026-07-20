@@ -95,7 +95,7 @@ test("command: a running subagent renders in the Running section with live elaps
   const out = ret.render(80).join("\n");
   assert.match(out, /Running/);
   assert.ok(out.includes("implementer"), "running entry shows the agent role");
-  assert.ok(out.includes("x/flash"), "running entry shows the model");
+  assert.ok(out.includes("flash"), "running entry shows the (shortened) model");
   assert.match(out, /\d+\.\d+s/, "running entry shows live elapsed");
   ret.handleInput("\x1b"); // esc from list view → onClose → done → handler completes
   await p;

@@ -214,6 +214,10 @@ _Avoid_: template, macro
 The model-callable control surface for a background run — `stop`/`pause`/`resume`/`status`/`list`/`wait` — mirroring `/workflows`'s human-typed surface but reachable by the LLM itself without a user typing a command. Only knows `workflow`-tool run ids; a `subagent`-tool call has no run identity to control.
 _Avoid_: task management, subagent control
 
+**Activity row**:
+The shared one-line renderer (`display.ts`, `renderActivityRow`) for an agent/subagent's live status — icon, actor, model, tokens, and (while running) its most recent tool call — used by the bottom task panel, the `/workflows` navigator's agent list and detail live-tail, and the `/subagents` viewer, so the three surfaces speak one visual language.
+_Avoid_: three independent hand-built status-line templates (the pre-existing state this replaces)
+
 ### Quality & control
 
 **Quality pattern**:

@@ -16,7 +16,15 @@
 import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Component, Focusable, TUI } from "@earendil-works/pi-tui";
 import { parseKey, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import type { WorkflowAgentSnapshot, WorkflowSnapshot } from "./display.js";
+import type { AgentHistoryEntry } from "./agent-history.js";
+import { summarizeLatestAction } from "./agent-history.js";
+import {
+  type ActivityRow,
+  renderActivityRow,
+  shortModel,
+  type WorkflowAgentSnapshot,
+  type WorkflowSnapshot,
+} from "./display.js";
 import type { PersistedRunState } from "./run-persistence.js";
 import { registerSavedWorkflow } from "./saved-commands.js";
 import type { WorkflowManager } from "./workflow-manager.js";
@@ -74,13 +82,7 @@ interface AgentRow {
   phase?: string;
   tokens?: number;
   model?: string;
-}
-
-/** Short, human-friendly model label: drop the provider prefix for display. */
-export function shortModel(model: string | undefined): string | undefined {
-  if (!model) return undefined;
-  const slash = model.indexOf("/");
-  return slash > 0 ? model.slice(slash + 1) : model;
+  history?: AgentHistoryEntry[];
 }
 
 /** Reads run/phase/agent data from the manager, preferring live snapshots. */
@@ -161,7 +163,15 @@ export class NavigatorModel {
     if (!snap) return [];
     return snap.agents
       .filter((a) => (a.phase ?? "(no phase)") === phase)
-      .map((a) => ({ id: a.id, label: a.label, status: a.status, phase: a.phase, tokens: a.tokens, model: a.model }));
+      .map((a) => ({
+        id: a.id,
+        label: a.label,
+        status: a.status,
+        phase: a.phase,
+        tokens: a.tokens,
+        model: a.model,
+        history: a.history,
+      }));
   }
 
   agentDetail(runId: string, agentId: number): WorkflowAgentSnapshot | undefined {
@@ -211,6 +221,8 @@ function persistedToSnapshot(p: PersistedRunState): WorkflowSnapshot {
 export class NavigatorState {
   private stack: StackFrame[] = [{ kind: "runs", cursor: 0 }];
   scroll = 0;
+  /** Auto-scroll-to-bottom for a running agent's detail live tail (Task 7). */
+  followLive = true;
 
   private top(): StackFrame {
     return this.stack[this.stack.length - 1];
@@ -258,6 +270,7 @@ export class NavigatorState {
 
   move(delta: number, count: number) {
     if (this.kind === "detail" || this.kind === "savedDetail") {
+      if (this.kind === "detail" && delta < 0) this.followLive = false;
       this.scroll = Math.max(0, this.scroll + delta);
       return;
     }
@@ -298,6 +311,7 @@ export class NavigatorState {
       const ag = agents[t.cursor];
       if (!ag) return false;
       this.scroll = 0;
+      this.followLive = true;
       this.stack.push({ kind: "detail", cursor: 0, runId: t.runId, phase: t.phase, agentId: ag.id });
       return true;
     }
@@ -347,14 +361,20 @@ export function renderNavigator(
   // Render a detail body inside a FIXED-height viewport so j/k scrolls within a
   // stable box (clamping state.scroll) instead of slicing to the end — which
   // shrank the overlay and looked like it was collapsing.
-  const pushScrollable = (body: string[]) => {
+  const pushScrollable = (body: string[], live = false) => {
     const viewport = Math.max(5, viewportRows - 4); // reserve title + blank + footer + indicator
     const maxScroll = Math.max(0, body.length - viewport);
-    state.scroll = Math.min(Math.max(0, state.scroll), maxScroll);
+    if (live && state.followLive) {
+      state.scroll = maxScroll;
+    } else {
+      state.scroll = Math.min(Math.max(0, state.scroll), maxScroll);
+    }
+    if (live) state.followLive = state.scroll >= maxScroll;
     lines.push(...body.slice(state.scroll, state.scroll + viewport));
     if (body.length > viewport) {
       const end = Math.min(state.scroll + viewport, body.length);
-      lines.push(dim(`  [${state.scroll + 1}-${end} / ${body.length}]`));
+      const liveTag = live && state.followLive ? `${dim("live")} ` : "";
+      lines.push(dim(`  ${liveTag}[${state.scroll + 1}-${end} / ${body.length}]`));
     }
   };
 
@@ -398,10 +418,14 @@ export function renderNavigator(
     state.clamp(agents.length);
     lines.push(theme.bold(`${model.runName(state.runId)} › ${state.phase}`));
     agents.forEach((a, i) => {
-      const icon = STATUS_ICON[a.status] ?? "?";
-      const mdl = shortModel(a.model);
-      const meta = [mdl, a.tokens ? fmtTokens(a.tokens) : undefined].filter(Boolean).join(" · ");
-      lines.push(sel(i, `${icon} ${a.label}${meta ? dim(`  ${meta}`) : ""}`));
+      const row: ActivityRow = {
+        status: a.status as ActivityRow["status"],
+        actor: a.label,
+        model: a.model,
+        tokens: a.tokens,
+        latestAction: a.status === "running" ? summarizeLatestAction(a.history) : undefined,
+      };
+      lines.push(sel(i, renderActivityRow(row, theme)));
     });
   } else if (state.kind === "detail" && state.runId && state.agentId != null) {
     const a = model.agentDetail(state.runId, state.agentId);
@@ -422,7 +446,7 @@ export function renderNavigator(
           body.push(...wrap(`${historyLabel(entry)}: ${entry.text}`, width));
         }
       }
-      pushScrollable(body);
+      pushScrollable(body, a.status === "running");
     }
   } else if (state.kind === "savedDetail" && state.savedName) {
     const saved = model.saved();
@@ -563,7 +587,18 @@ export function openWorkflowNavigator(
   return ui.custom<void>(
     (tui: TUI, theme: Theme, _keybindings, done: (r: undefined) => void) => {
       const rerender = () => tui.requestRender();
-      const events = ["agentStart", "agentEnd", "phase", "log", "complete", "error", "stopped", "paused", "resumed"];
+      const events = [
+        "agentStart",
+        "agentEnd",
+        "agentHistory",
+        "phase",
+        "log",
+        "complete",
+        "error",
+        "stopped",
+        "paused",
+        "resumed",
+      ];
       const onEvent = () => rerender();
       for (const ev of events) manager.on(ev, onEvent);
       const cleanup = () => {

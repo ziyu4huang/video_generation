@@ -727,6 +727,21 @@ describe("renderPanelDetailed", () => {
     const lines = renderPanelDetailed(detailedManager(3000, "paused") as never, theme as never, undefined, 8, 2000);
     assert.ok(!lines.some((l) => /tok\/s/.test(l)), "paused run shows no token rate");
   });
+
+  it("shows the running agent's latest tool call as a live activity line", async () => {
+    const { renderPanelDetailed, clearTokenSamples } = await import("../src/task-panel.js");
+    clearTokenSamples("r1");
+    const manager = detailedManager(2100);
+    const running = manager.getRun("r1")?.snapshot.agents.find((a: { id: number }) => a.id === 2) as {
+      history?: unknown[];
+    };
+    running.history = [{ role: "assistant", kind: "toolCall", toolName: "grep", text: "{}" }];
+    const lines = renderPanelDetailed(manager as never, theme as never, undefined, 8, 1000);
+    assert.ok(
+      lines.some((l) => l.includes("[2] ● audit_auth") && l.includes("▸ grep")),
+      `expected the running agent's latest tool call, got:\n${lines.join("\n")}`,
+    );
+  });
 });
 
 // ─── mode selection in installTaskPanel ───────────────────────────────────────────
@@ -795,5 +810,27 @@ describe("installTaskPanel mode selection", () => {
       lines.some((l) => /\[1\] ● a/.test(l)),
       "per-agent row in detailed mode",
     );
+  });
+
+  it("re-renders when the manager emits an agentHistory event", () => {
+    const manager = activeManager();
+    let renderCount = 0;
+    let factory: ((tui: { requestRender(): void }, theme: unknown) => { render(w: number): string[] }) | undefined;
+    const ui = {
+      setWidget: (_n: string, f: typeof factory) => {
+        factory = f;
+      },
+    };
+    mod.installTaskPanel(null, manager as never, ui as never);
+    factory?.(
+      {
+        requestRender: () => {
+          renderCount += 1;
+        },
+      },
+      theme,
+    );
+    manager.emit("agentHistory", { runId: "r1" });
+    assert.ok(renderCount > 0, "widget requests a re-render on agentHistory events");
   });
 });

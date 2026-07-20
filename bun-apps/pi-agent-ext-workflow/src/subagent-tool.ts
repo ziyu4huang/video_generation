@@ -203,7 +203,10 @@ export function formatSubagentLive(
 }
 
 /** Theme the call line shown WHILE the subagent runs (pi's spinner conveys activity). */
-export function renderSubagentCall(args: { agent?: string; model?: string; tier?: string; task: string }, theme: Theme): string {
+export function renderSubagentCall(
+  args: { agent?: string; model?: string; tier?: string; task: string },
+  theme: Theme,
+): string {
   const parts: string[] = [theme.bold(theme.fg("toolTitle", "subagent"))];
   if (args.agent) parts.push(theme.fg("accent", args.agent));
   const slot = args.model ?? (args.tier ? `tier:${args.tier}` : "default");

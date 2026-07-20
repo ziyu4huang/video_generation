@@ -145,7 +145,7 @@ test("viewer list shows a Running section with live elapsed when getRunning retu
   const out = viewer.render(80).join("\n");
   assert.match(out, /Running/);
   assert.ok(out.includes("implementer"), "running section shows the agent role");
-  assert.ok(out.includes("x/flash"), "running section shows the model");
+  assert.ok(out.includes("flash"), "running section shows the (shortened) model");
   assert.match(out, /\d+\.\d+s/, "running section shows live elapsed");
   assert.match(out, /1 call/, "running section shows the live tool-call count");
 });
@@ -154,4 +154,36 @@ test("viewer list omits the Running section when no in-flight runs", () => {
   const viewer = new SubagentViewer({ runs: [], getRunning: () => [], onClose: () => {} }, T);
   const out = viewer.render(80).join("\n");
   assert.ok(!out.includes("Running"), "no Running section when getRunning is empty");
+});
+
+test("viewer Running section shows the agent's latest tool call instead of the static task preview once it has history", () => {
+  const running = [
+    {
+      id: "r1",
+      agent: "implementer",
+      model: "x/flash",
+      taskPreview: "doing X",
+      startedAt: Date.now() - 1500,
+      history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }],
+    },
+  ];
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("▸ read"), "shows the live latest tool call");
+});
+
+test("viewer Running section falls back to the task preview before any history exists", () => {
+  const running = [
+    {
+      id: "r1",
+      agent: "implementer",
+      model: "x/flash",
+      taskPreview: "doing X",
+      startedAt: Date.now() - 1500,
+      history: [],
+    },
+  ];
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("doing X"), "falls back to the static task preview before any tool call happened");
 });
