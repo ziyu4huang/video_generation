@@ -13,9 +13,9 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { PLAN_PHASES_KEY } from "./constants.js";
 import { buildPlanSeed, type GlossaryTerm, parseDecisions, parseGlossary, type ResolvedDecision } from "./grill.js";
 import { appendDecision, closeTicket, readMap, type Ticket } from "./map.js";
-import { PLAN_PHASES_KEY } from "./constants.js";
 
 /**
  * Structural mirror of the plan coordinator's `PhaseInfo` — NO cross-package
