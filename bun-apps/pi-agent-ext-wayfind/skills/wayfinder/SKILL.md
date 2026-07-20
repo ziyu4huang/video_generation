@@ -18,6 +18,10 @@ Wayfinder is **planning** by default: each ticket resolves a decision, and the m
 
 Every map and ticket is a file, so it has a **name** — its title. In everything the human reads — narration, the map's Decisions-so-far — refer to it by that name, never by a bare number or slug. A wall of `#42, #43, #44` is illegible; names read at a glance. The number doesn't vanish — a name wraps its file link — but it rides *inside* the name, never stands in for it.
 
+## Fact freshness
+
+The working tree reflects the *current branch*, which may lag the line of development (`origin/<default>`). A map built on facts gathered from a stale tree rests on a false premise — wasted work that only surfaces at commit time. The `/wayfind` command checks this at start and warns when the branch is behind; heed it: warn the human and prefer rebasing before charting. If you reach this skill without the command, run `git rev-list --count HEAD..origin/<default>` yourself — if the count is non-zero, flag it before gathering facts.
+
 ## The Map
 
 The map is a single file `.planning/<effort>/map.md` — the canonical artifact. Its tickets are files under `.planning/<effort>/tickets/`.
@@ -108,18 +112,19 @@ Two modes. Either way, **never resolve more than one ticket per session** — wi
 
 User invokes with a loose idea.
 
-1. **Name the destination.** Run a `grilling` and `domain-modeling` session to pin down what this map is finding its way to — the spec, decision, or change. The destination fixes the scope, so it's settled first.
-2. **Map the frontier.** Grill again, **breadth-first** this time: fan out across the whole space rather than deep on any one thread, surfacing the open decisions and the first steps takeable now. **If this surfaces no fog** — the way to the destination is already clear, the whole journey small enough for one session — you don't need a map. Stop and ask the user how they'd like to proceed.
-3. **Create the map** (`.planning/<effort>/map.md`): Destination and Notes filled in, Decisions-so-far empty, the fog sketched into **Not yet specified**.
-4. **Create the tickets you can specify now** as files under `tickets/` — then wire `blocked by:` edges in a **second pass** (tickets need numbers before they can reference each other). Wiring sorts them into the frontier and the blocked; everything you can't yet specify stays in the fog — the **Not yet specified** section.
-5. **Fire the research passes.** For each `research` ticket you just created, run a `web_search`/`workflow` research pass to resolve it in parallel, capturing its findings as a ticket answer.
-6. Stop — charting is one session's work; it hand-resolves nothing.
+1. **Confirm fact freshness.** If the `/wayfind` command warned the branch is behind `origin/<default>`, tell the human and prefer rebasing first — see **Fact freshness** above. A map charted on a stale premise is wasted work.
+2. **Name the destination.** Run a `grilling` and `domain-modeling` session to pin down what this map is finding its way to — the spec, decision, or change. The destination fixes the scope, so it's settled first.
+3. **Map the frontier.** Grill again, **breadth-first** this time: fan out across the whole space rather than deep on any one thread, surfacing the open decisions and the first steps takeable now. **If this surfaces no fog** — the way to the destination is already clear, the whole journey small enough for one session — you don't need a map. Stop and ask the user how they'd like to proceed.
+4. **Create the map** (`.planning/<effort>/map.md`): Destination and Notes filled in, Decisions-so-far empty, the fog sketched into **Not yet specified**.
+5. **Create the tickets you can specify now** as files under `tickets/` — then wire `blocked by:` edges in a **second pass** (tickets need numbers before they can reference each other). Wiring sorts them into the frontier and the blocked; everything you can't yet specify stays in the fog — the **Not yet specified** section.
+6. **Fire the research passes.** For each `research` ticket you just created, run a `web_search`/`workflow` research pass to resolve it in parallel, capturing its findings as a ticket answer.
+7. Stop — charting is one session's work; it hand-resolves nothing.
 
 ### Work through the map
 
 User invokes with a map (path) or an effort slug. A ticket is **optional** — without one, you pick the next decision, not the user.
 
-1. Load the **map** — the low-res view, not every ticket body.
+1. **Load the map** — the low-res view, not every ticket body. If the `/wayfind` command warned the branch is behind `origin/<default>`, flag it before resolving — see **Fact freshness**.
 2. Choose the ticket. If the user named one, use it. Otherwise take the first frontier ticket in order. **Claim it**: add a `claimed:` line before any work.
 3. **Set a `/goal`** with the ticket's title as the objective and its acceptance criteria as completion targets. This activates plan-mode coordination (`goal_complete` gating, `todo` tracking, progress publishing via `__piPlan*` seams) so mid-resolution tooling works correctly. Use the built-in goal-setting mechanism (the tool or command that creates the active goal).
 4. Resolve it — **zoom as needed**: read the full body of any related or closed ticket on demand; invoke the skills the `## Notes` block names. If in doubt, use `grilling` and `domain-modeling`. For **Task** tickets, call `goal_complete` when the deliverable is met — the goal gate validates plan completion before the ticket can close.

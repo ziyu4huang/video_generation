@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -372,5 +373,71 @@ describe("/grill and /wayfind dispatchers — routing", () => {
     const ctx = makeCtx(makeCwd());
     await run(pi, "wayfind", "Redesign the checkout flow", ctx);
     expect(pi.sent.some((s) => s.includes("Charting a wayfinder map"))).toBe(true);
+  });
+});
+
+// ─── /wayfind — fact-freshness guard (warns when HEAD lags origin/main) ──────
+// Spawns `git` to build a real temp repo (host-binary coupling, portability P2).
+// Runs locally; skips on bare CI runners — see .github/TEST-PORTABILITY.md. The
+// freshness module itself is unit-tested hermetically (injected spawnImpl) in
+// tests/freshness.test.ts, which DOES run on CI.
+describe.skipIf(!!process.env.CI)("/wayfind — fact-freshness guard", () => {
+  function ctxCapturing(cwd: string): { ctx: any; notifications: string[] } {
+    const notifications: string[] = [];
+    return {
+      notifications,
+      ctx: {
+        cwd,
+        sessionManager: { getSessionId: () => "test-session" },
+        ui: { notify: (m: string) => notifications.push(m), setStatus: () => {} },
+      },
+    };
+  }
+
+  /** Initialize `cwd` as a git repo where HEAD is `behind` commits behind origin/main. */
+  function gitBehind(cwd: string, behind: number): void {
+    const g = (...a: string[]) => spawnSync("git", a, { cwd, encoding: "utf8" });
+    g("init", "-b", "main");
+    g("config", "user.email", "t@t");
+    g("config", "user.name", "t");
+    g("commit", "--allow-empty", "-m", "base");
+    for (let i = 0; i < behind; i++) g("commit", "--allow-empty", "-m", `a${i}`);
+    g("checkout", "-b", "feature", `HEAD~${behind}`);
+    g("update-ref", "refs/remotes/origin/main", "refs/heads/main");
+    g("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+  }
+
+  it("warns (notify + steer) when charting on a branch behind origin/main", async () => {
+    const { pi } = setup();
+    const cwd = makeCwd();
+    gitBehind(cwd, 4);
+    const { ctx, notifications } = ctxCapturing(cwd);
+
+    await pi.commands.get("wayfind")?.("some destination", ctx);
+
+    expect(notifications.some((n) => n.includes("4") && n.includes("origin/main"))).toBe(true);
+    expect(pi.sent.some((s) => s.includes("4") && s.includes("origin/main"))).toBe(true);
+  });
+
+  it("stays silent (no fact-freshness warning) on a current branch", async () => {
+    const { pi } = setup();
+    const cwd = makeCwd();
+    gitBehind(cwd, 0);
+    const { ctx, notifications } = ctxCapturing(cwd);
+
+    await pi.commands.get("wayfind")?.("some destination", ctx);
+
+    expect(notifications.every((n) => !n.includes("Fact freshness"))).toBe(true);
+    expect(pi.sent.every((s) => !s.includes("Fact freshness"))).toBe(true);
+  });
+
+  it("stays silent in a non-git cwd (graceful)", async () => {
+    const { pi } = setup();
+    const { ctx, notifications } = ctxCapturing(makeCwd()); // plain temp dir, not a repo
+
+    await pi.commands.get("wayfind")?.("some destination", ctx);
+
+    expect(notifications.every((n) => !n.includes("Fact freshness"))).toBe(true);
+    expect(pi.sent.every((s) => !s.includes("Fact freshness"))).toBe(true);
   });
 });

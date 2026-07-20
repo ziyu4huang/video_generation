@@ -29,6 +29,7 @@ import {
   unpublishWayfindActive,
   unpublishWayfindGrill,
 } from "./coordination.js";
+import { buildFreshnessWarning, checkFactFreshness } from "./freshness.js";
 import { buildGrillPriming } from "./grill.js";
 import type { WayfindOverlay } from "./overlay.js";
 import { getSessionId, isGrillActive, type RuntimeState } from "./state.js";
@@ -228,6 +229,8 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
 
   async function handleWayfinderChart(destination: string, ctx: ExtensionCommandContext): Promise<void> {
     const sessionId = getSessionId(ctx);
+    const freshnessWarn = buildFreshnessWarning(checkFactFreshness(ctx.cwd));
+    if (freshnessWarn) ctx.ui.notify(freshnessWarn, "warning");
 
     if (!destination) {
       const effort = state.activeEffortBySession.get(sessionId);
@@ -256,6 +259,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
           `Load the \`wayfinder\` skill. Ticket type: ${claimed.type}.`,
           `Question: ${claimed.question}`,
           "Resolve it (one ticket this session): record the answer, then close the ticket + append to the map's Decisions so far. Graduate any newly-specifiable fog into fresh tickets.",
+          ...(freshnessWarn ? [freshnessWarn] : []),
         ].join("\n"),
         { deliverAs: "steer" },
       );
@@ -275,6 +279,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
         "1. Grill to pin the destination + scope. 2. Map the frontier breadth-first — surface open decisions + first takeable steps. 3. If no fog surfaces, the journey is small enough to skip the map (tell me). 4. Otherwise create tickets under .planning/" +
           effort +
           "/tickets/ (one file each, wired with blocking edges).",
+        ...(freshnessWarn ? [freshnessWarn] : []),
       ].join("\n"),
       { deliverAs: "steer" },
     );
