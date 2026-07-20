@@ -487,7 +487,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
 
 // ─── Args builder ────────────────────────────────────────────────────────────
 
-function fmtScalar(v: number | string): string {
+function fmtScalar(v: number | string | boolean): string {
   return String(v);
 }
 
@@ -528,7 +528,7 @@ export function buildArgs(spec: CommandSpec, options: Record<string, unknown>): 
       // ltx-video's repeatable options (--lora, gate's positional videos) take
       // one flag occurrence per value (ArgumentParser's `parsing: .upToNextOption`
       // / @Argument [String]), not a joined comma-list.
-      for (const item of v) args.push(f.flag, f.type === "boolean[]" ? String(Boolean(item)) : fmtScalar(item as number | string));
+      for (const item of v) args.push(f.flag, fmtScalar(item as number | string | boolean));
       continue;
     }
 
