@@ -377,7 +377,11 @@ describe("/grill and /wayfind dispatchers — routing", () => {
 });
 
 // ─── /wayfind — fact-freshness guard (warns when HEAD lags origin/main) ──────
-describe("/wayfind — fact-freshness guard", () => {
+// Spawns `git` to build a real temp repo (host-binary coupling, portability P2).
+// Runs locally; skips on bare CI runners — see .github/TEST-PORTABILITY.md. The
+// freshness module itself is unit-tested hermetically (injected spawnImpl) in
+// tests/freshness.test.ts, which DOES run on CI.
+describe.skipIf(!!process.env.CI)("/wayfind — fact-freshness guard", () => {
   function ctxCapturing(cwd: string): { ctx: any; notifications: string[] } {
     const notifications: string[] = [];
     return {

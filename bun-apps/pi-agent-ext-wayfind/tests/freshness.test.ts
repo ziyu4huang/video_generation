@@ -1,96 +1,84 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import type { SpawnSyncReturns } from "node:child_process";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { buildFreshnessWarning, checkFactFreshness } from "../src/freshness.js";
 
-const roots: string[] = [];
+/**
+ * Hermetic unit tests. checkFactFreshness takes an injectable spawnImpl, so we
+ * feed it canned git responses instead of spawning a real `git` (a real spawn
+ * would be a portability P2 host-binary probe — see .github/TEST-PORTABILITY.md).
+ * The command-layer wiring (real git, local-only + CI-skipped) lives in
+ * tests/commands.test.ts.
+ */
 
-/** Make a temp dir, run `setup` to initialize it, track it for cleanup. */
-function makeDir(setup: (cwd: string) => void): string {
-  const cwd = mkdtempSync(join(tmpdir(), "wf-fresh-"));
-  roots.push(cwd);
-  setup(cwd);
-  return cwd;
+/** Minimal git response — only `status` + `stdout` are read by freshness.ts. */
+function resp(status: number, stdout = ""): SpawnSyncReturns<string> {
+  return { pid: 0, output: [null, stdout, ""], stdout, stderr: "", status, signal: null };
 }
 
-afterEach(() => {
-  while (roots.length > 0) {
-    const r = roots.pop();
-    if (r) rmSync(r, { recursive: true, force: true });
-  }
-});
-
-/** Run git in `cwd`; throw on failure so a broken fixture fails loud. */
-function git(cwd: string, ...args: string[]): void {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8" });
-  if (r.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${r.stderr}`);
-}
-
-/** Fixture: a repo where HEAD is exactly `behind` commits behind origin/main. */
-function behindRepo(behind: number): string {
-  return makeDir((cwd) => {
-    git(cwd, "init", "-b", "main");
-    git(cwd, "config", "user.email", "t@t");
-    git(cwd, "config", "user.name", "t");
-    git(cwd, "commit", "--allow-empty", "-m", "base");
-    for (let i = 0; i < behind; i++) git(cwd, "commit", "--allow-empty", "-m", `ahead-${i}`);
-    // main now sits `behind` commits ahead of "base".
-    git(cwd, "checkout", "-b", "feature", `HEAD~${behind}`);
-    git(cwd, "update-ref", "refs/remotes/origin/main", "refs/heads/main");
-    git(cwd, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
-  });
+/** A fake spawnImpl keyed on the git subcommand (args[0]); unmatched → failure. */
+function fakeGit(table: Record<string, () => SpawnSyncReturns<string>>) {
+  return (_cmd: string, args: readonly string[]): SpawnSyncReturns<string> => {
+    const hit = table[args[0]];
+    return hit ? hit() : resp(1);
+  };
 }
 
 describe("checkFactFreshness", () => {
-  it("reports the behind count + base when HEAD lags origin/main", () => {
-    const f = checkFactFreshness(behindRepo(3));
-    expect(f).not.toBeNull();
-    expect(f?.behind).toBe(3);
-    expect(f?.base).toBe("origin/main");
+  it("reports behind count + base when HEAD lags origin/main", () => {
+    const spawn = fakeGit({
+      "symbolic-ref": () => resp(0, "origin/main\n"),
+      "rev-parse": () => resp(0),
+      "rev-list": () => resp(0, "3\n"),
+    });
+    expect(checkFactFreshness("/cwd", { spawnImpl: spawn })).toEqual({ behind: 3, base: "origin/main" });
   });
 
   it("reports behind 0 when HEAD is current with origin/main", () => {
-    const f = checkFactFreshness(behindRepo(0));
-    expect(f?.behind).toBe(0);
-    expect(f?.base).toBe("origin/main");
+    const spawn = fakeGit({
+      "symbolic-ref": () => resp(0, "origin/main\n"),
+      "rev-parse": () => resp(0),
+      "rev-list": () => resp(0, "0\n"),
+    });
+    expect(checkFactFreshness("/cwd", { spawnImpl: spawn })).toEqual({ behind: 0, base: "origin/main" });
   });
 
   it("falls back to origin/main when origin/HEAD is unset but origin/main exists", () => {
-    const cwd = makeDir((c) => {
-      git(c, "init", "-b", "main");
-      git(c, "config", "user.email", "t@t");
-      git(c, "config", "user.name", "t");
-      git(c, "commit", "--allow-empty", "-m", "x");
-      git(c, "update-ref", "refs/remotes/origin/main", "refs/heads/main");
-      // deliberately no symbolic-ref for refs/remotes/origin/HEAD
+    const spawn = fakeGit({
+      "symbolic-ref": () => resp(1), // origin/HEAD unset
+      "rev-parse": () => resp(0), // origin/main exists (fallback)
+      "rev-list": () => resp(0, "0\n"),
     });
-    const f = checkFactFreshness(cwd);
-    expect(f?.base).toBe("origin/main");
-    expect(f?.behind).toBe(0);
+    expect(checkFactFreshness("/cwd", { spawnImpl: spawn })).toEqual({ behind: 0, base: "origin/main" });
   });
 
   it("returns null when there is no origin ref (graceful)", () => {
-    const cwd = makeDir((c) => {
-      git(c, "init", "-b", "main");
-      git(c, "config", "user.email", "t@t");
-      git(c, "config", "user.name", "t");
-      git(c, "commit", "--allow-empty", "-m", "x");
-    });
-    expect(checkFactFreshness(cwd)).toBeNull();
+    const spawn = fakeGit({}); // every git call fails → resolveBase null
+    expect(checkFactFreshness("/cwd", { spawnImpl: spawn })).toBeNull();
   });
 
-  it("returns null in a non-git directory (graceful)", () => {
-    expect(checkFactFreshness(makeDir(() => {}))).toBeNull();
+  it("returns null when the base resolves but rev-list fails (graceful)", () => {
+    const spawn = fakeGit({
+      "symbolic-ref": () => resp(0, "origin/main\n"),
+      "rev-parse": () => resp(0),
+      "rev-list": () => resp(1),
+    });
+    expect(checkFactFreshness("/cwd", { spawnImpl: spawn })).toBeNull();
+  });
+
+  it("returns null when rev-list yields a non-numeric count (graceful)", () => {
+    const spawn = fakeGit({
+      "symbolic-ref": () => resp(0, "origin/main\n"),
+      "rev-parse": () => resp(0),
+      "rev-list": () => resp(0, "not-a-number\n"),
+    });
+    expect(checkFactFreshness("/cwd", { spawnImpl: spawn })).toBeNull();
   });
 
   it("returns null when spawn throws (git unavailable) — via injected spawn", () => {
-    const failing = (): SpawnSyncReturns<string> => {
+    const throwing = (): SpawnSyncReturns<string> => {
       throw new Error("ENOENT");
     };
-    expect(checkFactFreshness(behindRepo(1), { spawnImpl: failing })).toBeNull();
+    expect(checkFactFreshness("/cwd", { spawnImpl: throwing })).toBeNull();
   });
 });
 
