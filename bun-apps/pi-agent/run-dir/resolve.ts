@@ -91,6 +91,39 @@ function probeMissingNpm(): string[] {
 }
 
 /**
+ * The dependency sections of a package.json that may be imported at runtime.
+ * Kept narrow (only the three Bun populates) so the type is self-documenting.
+ */
+type PackageJsonWithDeps = {
+	dependencies?: Record<string, string>;
+	peerDependencies?: Record<string, string>;
+	devDependencies?: Record<string, string>;
+};
+
+/**
+ * Names of packages an extension may import as bare specifiers at runtime,
+ * unioned across ALL three declaration sections: dependencies +
+ * peerDependencies + devDependencies, deduped, dependencies-first order.
+ *
+ * Why all three (not just `.dependencies`): in source mode the extensions load
+ * via jiti, which resolves a bare specifier the SAME way regardless of how the
+ * package classifies it. Several extensions import `@earendil-works/pi-tui`
+ * (declared as a peerDependency) and `typebox` (a devDependency in some exts);
+ * a probe that only read `.dependencies` was blind to both, so the pre-flight
+ * self-heal in check-deps.ts never triggered for them and pi crashed on launch.
+ * Source-mode `bun install` (never --production) materializes devDeps too, so
+ * including them never produces a false "missing" on a healthy install — the
+ * probe only tests specifiers the extension itself declares.
+ */
+export function runtimeDependencyNames(pkg: PackageJsonWithDeps): string[] {
+	return Object.keys({
+		...(pkg.dependencies ?? {}),
+		...(pkg.peerDependencies ?? {}),
+		...(pkg.devDependencies ?? {}),
+	});
+}
+
+/**
  * Extension dependency packages (workspace OR npm) that are NOT resolvable from
  * their owning extension's package dir right now. The extensions themselves
  * load fine by ABSOLUTE PATH, but they import other packages as BARE
@@ -111,8 +144,20 @@ function probeMissingNpm(): string[] {
  * each dep from `<bunAppsDir>/<extDir>` via `Bun.resolveSync(dep, extDir)`
  * mirrors the loader exactly, so detection is accurate. (The real package names
  * are also scoped — `@repo/pi-agent-ext-obsidian`, `@repo/…` — so we read
- * them from each extension's package.json `dependencies` rather than guessing
- * the scope from the directory name.)
+ * them from each extension's package.json dependency sections rather than
+ * guessing the scope from the directory name.)
+ *
+ * Covers ALL three runtime-relevant sections — dependencies,
+ * peerDependencies, AND devDependencies — because source-mode loading via
+ * jiti resolves bare specifiers regardless of how the package classifies them,
+ * and a missing peerDep is just as fatal as a missing dependency. The classic
+ * victim is `@earendil-works/pi-tui`: most extensions import it but declare it
+ * as a peerDependency, so a probe that only read `.dependencies` never reported
+ * it missing → check-deps.ts skipped the self-heal → pi crashed on launch with
+ * `Cannot find module '@earendil-works/pi-tui'` after every clean node_modules.
+ * `typebox` (a runtime import declared as a devDependency in some exts) is the
+ * same shape of bug. See `runtimeDependencyNames` below — the single source of
+ * truth for which sections count.
  *
  * Returns missing dependency names, deduped.
  */
@@ -131,21 +176,27 @@ export function probeMissingExtensionDeps(bunAppsDir: string | undefined): strin
   for (const e of manifest.extensions) {
     consider(typeof e === "string" ? e : e?.entry);
   }
+  // staticExtensions are bare dir names ("pi-agent-ext-core-task", not full
+  // entry paths) and are loaded just like `extensions` — they MUST be probed
+  // too, or a missing dep on a static extension (e.g. pi-tui on core-task) is
+  // invisible to the self-heal and crashes pi on launch.
+  for (const e of manifest.staticExtensions ?? []) {
+    consider(typeof e === "string" ? e : (e as { entry?: string })?.entry);
+  }
   for (const e of Object.values(manifest.lazyExtensions ?? {})) {
     consider(typeof e === "string" ? e : (e as { entry?: string })?.entry);
   }
   const missing: string[] = [];
   for (const dir of dirs) {
     const extDir = join(bunAppsDir, dir);
-    let deps: Record<string, string> | undefined;
+    let parsed: PackageJsonWithDeps;
     try {
-      deps = JSON.parse(readFileSync(join(extDir, "package.json"), "utf8")).dependencies;
+      parsed = JSON.parse(readFileSync(join(extDir, "package.json"), "utf8"));
     } catch {
       // No/unreadable package.json for this extension dir — nothing to probe.
       continue;
     }
-    if (!deps) continue;
-    for (const dep of Object.keys(deps)) {
+    for (const dep of runtimeDependencyNames(parsed)) {
       if (missing.includes(dep)) continue;
       // `<dep>/package.json` is the most reliable "is this package linked"
       // signal: every installed package has one, regardless of main/exports.

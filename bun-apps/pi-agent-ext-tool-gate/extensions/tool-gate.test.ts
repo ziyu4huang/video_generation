@@ -560,6 +560,16 @@ describe("previously-leaked tools regression (2026-07-21)", () => {
     expect(active).not.toContain("zai_web_search_web_search_prime");
     expect(active).not.toContain("zai_web_reader_webReader");
   });
+
+  test("obsidian_help is in CORE_TOOLS (always active, not fail-open)", () => {
+    expect(CORE_TOOLS.has("obsidian_help")).toBe(true);
+  });
+
+  test("inspect_tui is in the inspect gate (gated, not fail-open)", () => {
+    const inspectGate = GATES.find((g) => g.names.includes("inspect_context"));
+    expect(inspectGate).toBeDefined();
+    expect(inspectGate!.names).toContain("inspect_tui");
+  });
 });
 
 describe("measureToolTokens (S3)", () => {

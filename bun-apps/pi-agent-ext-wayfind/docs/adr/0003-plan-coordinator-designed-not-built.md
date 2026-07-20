@@ -1,7 +1,17 @@
 # ADR-0003: Plan coordinator — designed, not built (goal/todo driven manually for now)
 
 Date: 2026-07-19
-Status: Accepted
+Status: Superseded — the coordinator was BUILT (see Update below).
+
+## Update (2026-07-21) — the coordinator is now built
+
+The coordinator this ADR parked as "designed, not built" was subsequently built as **`pi-agent-ext-core-task`** (the `goal-todo` package, renamed). It publishes all three `__piPlan*` seams on `globalThis`:
+
+- `pi-agent-ext-core-task/extensions/core-task.ts:56-58` — `__piPlanPhases` / `__piPlanIncomplete` / `__piPlanSummary`
+- contract-pinned by `pi-agent-ext-core-task/__tests__/extension-contract.test.ts` ("publishes `__piPlan*` coordination seams on globalThis")
+- end-to-end wired with wayfind: commit `501e59f5` ("align syncChainState status token to 'completed' (09 tracer-bullet 6 / e2e)")
+
+Consequences of the build: the "graceful no-ops" recorded below are **no longer no-ops when `core-task` is loaded** — `/wayfind sync` now closes tickets whose phase reports `completed`, and `goal_complete`'s `planningGateBlocking()` now gates on `__piPlanIncomplete`. The manual skill-layer protocol (the original Decision) remains the graceful fallback for when `core-task` is absent, but is no longer the only path. The rest of this ADR is preserved verbatim as the historical record of the pre-build state.
 
 ## Context
 
