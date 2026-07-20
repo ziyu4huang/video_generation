@@ -41,6 +41,50 @@ describe("spawnSubagent", () => {
     assert.equal(runner.calls[0]?.prompt, "t");
   });
 
+  it("mainModel is the default effective model when model+tier are omitted (default = current LLM)", async () => {
+    const runner = mkRunner(async () => "ok");
+    await spawnSubagent({ task: "t", mainModel: "deepseek/deepseek-v4-flash", agent: runner });
+    assert.equal(runner.calls[0]?.opts.model, "deepseek/deepseek-v4-flash", "omit → live session model, not stale medium tier");
+    assert.equal(runner.calls[0]?.opts.tier, undefined);
+  });
+
+  it("tier set + model omitted → tier forwarded, effectiveModel NOT defaulted to mainModel", async () => {
+    const runner = mkRunner(async () => "ok");
+    await spawnSubagent({ task: "t", tier: "small", mainModel: "deepseek/deepseek-v4-flash", agent: runner });
+    assert.equal(runner.calls[0]?.opts.model, undefined, "tier path: model stays undefined for resolveAgentModelSpec");
+    assert.equal(runner.calls[0]?.opts.tier, "small");
+  });
+
+  it("explicit model wins over mainModel", async () => {
+    const runner = mkRunner(async () => "ok");
+    await spawnSubagent({ task: "t", model: "openai/gpt-5", mainModel: "deepseek/deepseek-v4-flash", agent: runner });
+    assert.equal(runner.calls[0]?.opts.model, "openai/gpt-5");
+  });
+
+  it("forwards tier/onModelResolved/onModelFallback to runner.run", async () => {
+    const runner = mkRunner(async ({ opts }) => {
+      opts.onModelResolved?.("deepseek/deepseek-v4-flash");
+      return "ok";
+    });
+    let resolved = "";
+    let fallback = "";
+    await spawnSubagent({
+      task: "t",
+      tier: "big",
+      onModelResolved: (id) => {
+        resolved = id;
+      },
+      onModelFallback: (spec) => {
+        fallback = spec;
+      },
+      agent: runner,
+    });
+    assert.equal(runner.calls[0]?.opts.tier, "big");
+    assert.equal(resolved, "deepseek/deepseek-v4-flash", "onModelResolved forwarded + fires");
+    assert.equal(typeof runner.calls[0]?.opts.onModelFallback, "function", "onModelFallback forwarded");
+    assert.equal(fallback, "", "runner did not trigger fallback here");
+  });
+
   it("timeout (AGENT_TIMEOUT) → timedOut:true, retried once when retryOnTransient:true", async () => {
     let n = 0;
     const runner = mkRunner(async () => {
