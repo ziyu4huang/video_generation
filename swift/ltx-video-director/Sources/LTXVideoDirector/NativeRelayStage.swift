@@ -244,6 +244,9 @@ public struct NativeRelayStage {
                 // — deliberately skip the continuity chain (`nextInputImage`)
                 // so this segment's frame 0 is generated fresh from its own
                 // `prompt`, then pinned to its own storyboard panel below.
+                // Note: this branch takes silent precedence over
+                // `segmentContinuity[index]` when both are set for the same
+                // segment — the grid-panel hard-cut always wins.
                 let panelIdx = segmentGridPanels[index]
                 let panelPNG = segDir.appendingPathComponent("panel_source.png")
                 FrameLoad.savePNG(gridPanels[panelIdx], to: panelPNG)
@@ -255,7 +258,12 @@ public struct NativeRelayStage {
                 segRequest.gridFrameIndices = [0]
                 segRequest.gridStrengths = [strength]
             } else {
-                let continueFromPrevious = request.segmentContinuity?[index] ?? true
+                // Segment 0 always resolves `nextInputImage` (== firstImagePath,
+                // or nil if none given) regardless of segmentContinuity[0] — per
+                // the doc comment's guarantee that "segment 0 never continues
+                // regardless of this array"; only segments 1+ can opt out of
+                // consuming the previous segment's forwarded last frame.
+                let continueFromPrevious = index == 0 ? true : (request.segmentContinuity?[index] ?? true)
                 segRequest.inputImagePath = continueFromPrevious ? nextInputImage : nil
                 if !request.gridFrameIndices.isEmpty {
                     segRequest.gridImagePath = request.gridImagePath
