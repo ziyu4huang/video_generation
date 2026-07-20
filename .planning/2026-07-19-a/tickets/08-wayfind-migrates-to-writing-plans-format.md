@@ -1,6 +1,7 @@
 ---
 type: task
-status: open
+status: closed
+closed: 2026-07-20 (#724)
 blocked by: 03
 ---
 
@@ -17,3 +18,11 @@ Migrate wayfind's plan artifacts from the `task_plan.md` phase-spine format to t
 - wayfind is repo-owned → free to adjust (no invariant constraint, unlike superpowers).
 - The wayfind↔ticket close loop (`/wayfind sync` reads `__piPlanPhases` `ticketIds`) needs each Task header to carry `[NN-slug]`.
 - `chain.ts`'s `findTicketByPhaseHeader` (accepts bare id `03` or stem) → adapts to find-by-Task-header.
+
+## Resolution — DONE (2026-07-20, #724)
+
+wayfind's three producers (`flattenTicketsToPlan`, `seedFromDecisions`, `buildPlanSeed`) now emit canonical writing-plans format: `### Task N — [NN-slug]` + `- [ ]` steps, `# Implementation Plan` + `**Goal:**` inline. **Dropped `**Status:** pending`** — `parse.ts` derives status from step completion, never reads it. The `[NN-slug]` stem already matched `parse.ts`'s `TICKET_RE` + `findTicketByRef`, so the close-loop round-trip survived unchanged (the ticket's `findTicketByPhaseHeader` note was a misnomer — the real resolver `findTicketByRef` operates on the `ticketIds` parsePlan captures from the Task header, so it needed no change).
+
+Re-pinned `plan-seed-contract.test.ts` + fixed `commands/chain/grill` assertion tests + README. New e2e (`chain.test.ts`): `flattenTicketsToPlan` output → `parsePlan` → ticketIds + status — proves **wayfind-generated** plans feed the loop (TB6 verified only hand-authored). 145 pass, biome clean, tsc exit 0.
+
+**Frontier now: 04 (yield/timing design — TB5b) + 05 (multi-plan, deferred).**
