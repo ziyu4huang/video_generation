@@ -87,7 +87,7 @@ jobs:
           - { package: pi-agent-ext-movie-director, test-cmd: "bun test" }
           - { package: pi-agent-ext-power-tool, test-cmd: "bun test" }
           - { package: pi-agent-ext-btw, test-cmd: "bun test" }
-          - { package: pi-agent-ext-goal-todo, test-cmd: "bun test" }
+          - { package: pi-agent-ext-core-task, test-cmd: "bun test" }
           - { package: pi-agent-ext-research-tool, test-cmd: "bun test" }
           - { package: pi-agent-ext-zai-mcp, test-cmd: "bun test" }
           - { package: perf-harness, test-cmd: "bun test" }
@@ -208,7 +208,7 @@ jobs:
           fetch-depth: 0
       - id: filter
         run: |
-          PATTERN='^bun-apps/pi-agent/|^bun-apps/pi-agent-ext-(goal-todo|hermes-memory|superpowers|wayfind|web-access)/'
+          PATTERN='^bun-apps/pi-agent/|^bun-apps/pi-agent-ext-(core-task|hermes-memory|superpowers|wayfind|web-access)/'
           if [ "${{ github.event_name }}" = "push" ]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           elif git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }} | grep -qE "$PATTERN"; then
@@ -254,7 +254,7 @@ jobs:
   # coverage catching it. Checks: (1) the binary boots and `doctor --json`
   # reports ok:true (entry/mode/providers/patches all healthy in binary
   # mode); (2) the 10 statically-bundled extensions (5 original productivity:
-  # goal-todo/hermes-memory/superpowers/wayfind/web-access + 5 tool-providing:
+  # core-task/hermes-memory/superpowers/wayfind/web-access + 5 tool-providing:
   # obsidian/btw/file2md/workflow/knowledge-card — see src/static-extensions.ts)
   # register cleanly, via `ext doctor` in source
   # mode (the compiled binary's own `ext doctor` subcommand isn't binary-

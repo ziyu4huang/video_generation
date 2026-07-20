@@ -1,11 +1,11 @@
 /**
- * pi-agent-ext-goal-todo-ask — /goal + todo + ask_user_question unified.
+ * pi-agent-ext-core-task — the task-execution cockpit: /goal + todo + ask_user_question + shared composite status widget.
  *
- * Merged from pi-agent-ext-goal-todo (pi-goal-todo.ts) and
+ * Merged from pi-agent-ext-core-task (pi-core-task.ts) and
  * pi-agent-ext-ask-user (pi-ask-user.ts) into a single extension entry.
  *
  * goal + todo are kept together because they share:
- *   • PowerToolStatusWidget — a single above-editor widget key ("pi-power-tool")
+ *   • CoreTaskStatusWidget — a single above-editor widget key ("pi-core-task")
  *     that renders goal (top) + todo (bottom) in fixed order. Splitting them
  *     across two extensions would reintroduce the widget-key flicker bug the
  *     composite widget was built to fix (the SDK orders widgets by Map
@@ -54,7 +54,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 	// ── Goal + Todo overlays → ONE composite above-editor widget ─────────────
 	// A single widget key makes stacking deterministic; goal renders on top,
 	// todo below. The overlays are thin render() state-holders; all setWidget
-	// lifecycle lives in PowerToolStatusWidget.
+	// lifecycle lives in CoreTaskStatusWidget.
 	const statusWidget = getSharedStatusWidget();
 	const goalOverlay = new GoalOverlay();
 	const todoOverlay = new TodoOverlay();

@@ -194,7 +194,7 @@ To still ship *some* extensions in the binary, 10 of them — two groups of 5 �
 are **statically imported** instead, in `src/static-extensions.ts`:
 ```
 Group A (original "general productivity" set):
-  pi-agent-ext-goal-todo · pi-agent-ext-hermes-memory · pi-agent-ext-superpowers
+  pi-agent-ext-core-task · pi-agent-ext-hermes-memory · pi-agent-ext-superpowers
   pi-agent-ext-wayfind   · pi-agent-ext-web-access
 Group B (migrated from dynamic `-e`, tool-providing):
   pi-agent-ext-obsidian  · pi-agent-ext-btw · pi-agent-ext-file2md

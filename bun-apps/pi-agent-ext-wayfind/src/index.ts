@@ -5,7 +5,7 @@
  * seam (globalThis.__piWayfindActive) so the plan coordinator can yield its
  * injection/auto-continue during a live grill session — the same
  * process-singleton pattern the goal side uses for /goal. It also joins
- * the shared composite status widget owned by pi-agent-ext-goal-todo instead of
+ * the shared composite status widget owned by pi-agent-ext-core-task instead of
  * writing an independent ctx.ui.setStatus() footer line.
  *
  * Pure TypeScript: no python3, no shell. Loaded by Pi via the `pi.extensions`
@@ -13,7 +13,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { getSharedStatusWidget } from "@repo/pi-agent-ext-goal-todo/src/shared/status-widget.js";
+import { getSharedStatusWidget } from "@repo/pi-agent-ext-core-task/src/shared/status-widget.js";
 import { endGrillForSession, registerCommands } from "./commands.js";
 import { publishWayfindActive } from "./coordination.js";
 import { WayfindOverlay } from "./overlay.js";
@@ -46,7 +46,7 @@ export default function wayfindExtension(pi: ExtensionAPI): void {
     // the plan coordinator's session_shutdown cleanup. Only clears wayfind's own
     // overlay section — NEVER calls widget.dispose(), which would tear down
     // every other package's section too (see status-widget.ts's dispose() doc
-    // comment: only pi-agent-ext-goal-todo's own session_shutdown owns that).
+    // comment: only pi-agent-ext-core-task's own session_shutdown owns that).
     endGrillForSession(state, getSessionId(ctx));
     overlay.dispose();
   });

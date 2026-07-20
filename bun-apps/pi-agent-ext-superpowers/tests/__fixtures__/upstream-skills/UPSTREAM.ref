@@ -1,0 +1,21 @@
+# Provenance for upstream-skills baseline fixtures.
+# Guarded by tests/skills-fidelity.test.ts (ADR-0004). This file MUST be
+# non-empty — every re-baseline declares its source here.
+#
+# Baseline established: 2026-07-20
+# Source state: post-#684 restored skills — commit 4fc140be
+#   "revert(superpowers): restore skill byte-identicality (wayfind ticket 01)".
+#   The 14 superpowers SKILL.md reverted to byte-identical upstream EXCEPT the
+#   sanctioned #639 pi-port glue (using-superpowers/references/*.md, out of scope).
+# Upstream origin: obra/superpowers (ported during the superpowers monolith
+#   split; exact upstream commit SHA not pinned at baseline time — record it on
+#   the next re-sync).
+#
+# Re-sync procedure (NEVER automatic):
+#   1. Re-port the 14 SKILL.md from current upstream obra/superpowers.
+#   2. bun scripts/rebaseline-upstream-skills.ts   (regenerates these fixtures)
+#   3. Edit this file: set upstream-ref to the NEW commit SHA / version + date.
+#   4. Review the fixture diff in the PR — confirm no repo-convention strings
+#      (.planning/, goal_complete, ADR-, task_plan.md) sneaked back in.
+upstream-ref: obra/superpowers @ post-#684 restored state (commit 4fc140be)
+baselined: 2026-07-20

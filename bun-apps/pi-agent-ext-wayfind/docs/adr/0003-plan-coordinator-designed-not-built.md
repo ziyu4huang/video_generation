@@ -5,11 +5,11 @@ Status: Accepted
 
 ## Context
 
-The `goal ↔ plan ↔ todo` three-layer coordination model is described in two `CONTEXT.md` files (goal-todo, wayfind) and the wayfind README as a live runtime: a "plan coordinator" (the phase layer) parses `task_plan.md`, drives/tracks phases, publishes `globalThis.__piPlanPhases` / `__piPlanIncomplete` / `__piPlanSummary`, yields to an active `/goal` or grill, and feeds `/wayfind sync` + `goal_complete`'s phase-gate.
+The `goal ↔ plan ↔ todo` three-layer coordination model is described in two `CONTEXT.md` files (core-task, wayfind) and the wayfind README as a live runtime: a "plan coordinator" (the phase layer) parses `task_plan.md`, drives/tracks phases, publishes `globalThis.__piPlanPhases` / `__piPlanIncomplete` / `__piPlanSummary`, yields to an active `/goal` or grill, and feeds `/wayfind sync` + `goal_complete`'s phase-gate.
 
 grep-verified reality: the coordinator was **designed but never built**.
 
-- No package publishes the `__piPlan*` seams — zero publishers across ts+js, including `pi-agent-cli` and `pi-agent-ext-power-tool`; wayfind (`chain.ts`, `coordination.ts`) and goal-todo (`goal.ts`) only read them.
+- No package publishes the `__piPlan*` seams — zero publishers across ts+js, including `pi-agent-cli` and `pi-agent-ext-power-tool`; wayfind (`chain.ts`, `coordination.ts`) and core-task (`goal.ts`) only read them.
 - `isExternalDriverActive`, the "injection yielded" status string, and plan-injection / auto-continue logic do not exist in code (comments only).
 - `goal_complete`'s phase-gate `planningGateBlocking()` reads `__piPlanIncomplete` → `typeof fn !== "function"` → always `undefined` → never blocks.
 - The composite status widget (`status-widget.ts`) reserves slot order=3 for "the plan coordinator" — no package registers a section there.
