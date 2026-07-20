@@ -344,6 +344,20 @@ describe("adaptLtx — contract parse", () => {
     expect(paths).toContain("/out/audio.wav");
     expect(paths).toContain("/out/frames");
   });
+
+  it("native-relay: segment_N extraOutputs surface as kind:video artifacts", () => {
+    const details: LtxDetails = {
+      ok: true, command: "native-relay", exitCode: 0, aborted: false,
+      output: "/tmp/relay/relay.mp4",
+      extraOutputs: { segment_1: "/tmp/relay/seg01/segment.mp4", segment_2: "/tmp/relay/seg02/segment.mp4" },
+      width: 640, height: 960, wallSeconds: 42.1, gate: null, stdout: "",
+    };
+    const r = adaptLtx({ capability: "video_generation", command: "native-relay", options: {} }, details, "ok", "");
+    const seg1 = r.artifacts.find((a) => a.role === "segment_1");
+    const seg2 = r.artifacts.find((a) => a.role === "segment_2");
+    expect(seg1).toMatchObject({ path: "/tmp/relay/seg01/segment.mp4", kind: "video" });
+    expect(seg2).toMatchObject({ path: "/tmp/relay/seg02/segment.mp4", kind: "video" });
+  });
 });
 
 describe("adaptRunPy — run.py video adapter contract (Details → ToolResult)", () => {

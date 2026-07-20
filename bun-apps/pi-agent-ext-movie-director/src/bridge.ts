@@ -282,7 +282,7 @@ export function adaptLtx(
       ? "audio"
       : role.includes("frame") || role.includes("Frame")
         ? "frames"
-        : role.includes("mp4") || role.includes("video")
+        : role.includes("mp4") || role.includes("video") || role.startsWith("segment")
           ? "video"
           : role.includes("dir")
             ? "directory"
