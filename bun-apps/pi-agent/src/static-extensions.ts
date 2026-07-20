@@ -41,7 +41,7 @@
  * regardless of each package's own exports map.
  *
  * TWO groups, added at different times:
- *   - Group A (original "general productivity" 5): goal-todo, hermes-memory,
+ *   - Group A (original "general productivity" 5): core-task, hermes-memory,
  *     superpowers, wayfind, web-access.
  *   - Group B (migrated from dynamic `-e`): obsidian, btw, file2md,
  *     workflow, knowledge-card. These were PREVIOUSLY in manifest.extensions
@@ -52,7 +52,7 @@
  *     manifest.extensions AND (for workflow) manifest.lazyExtensions at the
  *     same time to avoid the static+dynamic double-registration noted above.
  */
-import goalTodoExtension from "../../pi-agent-ext-goal-todo/extensions/goal-todo.ts";
+import coreTaskExtension from "../../pi-agent-ext-core-task/extensions/core-task.ts";
 import hermesMemoryExtension from "../../pi-agent-ext-hermes-memory/extensions/hermes-memory.ts";
 import superpowersExtension from "../../pi-agent-ext-superpowers/extensions/superpowers.ts";
 import wayfindExtension from "../../pi-agent-ext-wayfind/extensions/wayfind.ts";
@@ -65,7 +65,7 @@ import knowledgeCardExtension from "../../pi-agent-ext-knowledge-card/extensions
 
 export const STATIC_EXTENSION_FACTORIES = [
 	// Group A — original "general productivity" set
-	{ name: "pi-agent-ext-goal-todo", factory: goalTodoExtension },
+	{ name: "pi-agent-ext-core-task", factory: coreTaskExtension },
 	{ name: "pi-agent-ext-hermes-memory", factory: hermesMemoryExtension },
 	{ name: "pi-agent-ext-superpowers", factory: superpowersExtension },
 	{ name: "pi-agent-ext-wayfind", factory: wayfindExtension },

@@ -7,7 +7,7 @@
  * call time via getCalls(). State is reset on session_start so each session's
  * diagnostics are self-contained.
  *
- * Module-scoped (not a class) to mirror the goal-todo accumulator pattern
+ * Module-scoped (not a class) to mirror the core-task accumulator pattern
  * already proven in this repo. Memory is bounded by MAX_CALLS via a soft cap
  * that slices the oldest entries when the buffer grows to 2× the cap (indices in
  * `pending` are re-based accordingly).

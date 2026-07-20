@@ -47,7 +47,7 @@
     "pi-agent-ext-web-access/skills"
   ],
   "staticExtensions": [
-    "pi-agent-ext-goal-todo",
+    "pi-agent-ext-core-task",
     "pi-agent-ext-hermes-memory",
     "pi-agent-ext-superpowers",
     "pi-agent-ext-wayfind",

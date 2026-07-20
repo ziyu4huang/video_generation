@@ -7,7 +7,7 @@
  * this package) instead of only being caught centrally in pi-agent.
  */
 import { describe, test, expect } from "bun:test";
-import extensionFactory from "../extensions/goal-todo.ts";
+import extensionFactory from "../extensions/core-task.ts";
 
 interface ToolLike {
 	name?: string;
@@ -46,7 +46,7 @@ function makeMockPi() {
 	return { pi, tools, commands };
 }
 
-describe("pi-agent-ext-goal-todo extension contract", () => {
+describe("pi-agent-ext-core-task extension contract", () => {
 	test("factory loads without throwing and registers at least one tool/command", () => {
 		const { pi, tools, commands } = makeMockPi();
 		expect(() => extensionFactory(pi as never)).not.toThrow();

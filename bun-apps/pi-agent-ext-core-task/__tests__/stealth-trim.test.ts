@@ -3,7 +3,7 @@
  * tools must stay free of per-turn `promptSnippet`/`promptGuidelines`. Their
  * rich `description`s already route the model.
  *
- * goal-todo's factory is heavy (overlays/widgets/globalThis/6 lifecycle hooks),
+ * core-task's factory is heavy (overlays/widgets/globalThis/6 lifecycle hooks),
  * so rather than drive the full factory we capture each tool via its own
  * registration function (`registerTodoTool`, `goal()`) with Proxy mock pi +
  * overlay (swallows any extra method calls).

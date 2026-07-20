@@ -11,7 +11,7 @@
  * (`setWidget(key, undefined)`) and later re-registered it jumps to the END →
  * visible flicker/reorder while a /goal is active with a non-empty todo list.
  *
- * One composite key ("pi-power-tool") makes stacking deterministic by
+ * One composite key ("pi-core-task") makes stacking deterministic by
  * construction: the only above-editor widget can't reorder relative to itself.
  * Sections render sorted by their `order` field (goal=0, todo=1, wayfind=2,
  * the plan coordinator=3); sections without an explicit `order` sort after all
@@ -38,8 +38,8 @@
 import type { ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { type TUI } from "@earendil-works/pi-tui";
 
-const WIDGET_KEY = "pi-power-tool";
-const SINGLETON_GLOBAL_KEY = "__piPowerToolStatusWidget";
+const WIDGET_KEY = "pi-core-task";
+const SINGLETON_GLOBAL_KEY = "__piCoreTaskStatusWidget";
 
 export interface StatusSection {
 	/** Stable id (dedupe + debug/ordering only). */
@@ -54,7 +54,7 @@ export interface StatusSection {
 	render(theme: Theme, width: number): string[];
 }
 
-export class PowerToolStatusWidget {
+export class CoreTaskStatusWidget {
 	private uiCtx: ExtensionUIContext | undefined;
 	private widgetRegistered = false;
 	private tui: TUI | undefined;
@@ -107,7 +107,7 @@ export class PowerToolStatusWidget {
 	 * EVERY consumer package are wiped, not just the caller's own. This is
 	 * process-wide shared state (see `getSharedStatusWidget`), so only the
 	 * package that owns true end-of-session lifecycle should ever call this.
-	 * Currently that's `pi-agent-ext-goal-todo` (positioned first in load
+	 * Currently that's `pi-agent-ext-core-task` (positioned first in load
 	 * order), which calls it exactly once, from its own `session_shutdown`
 	 * handler — the point where every extension is tearing down anyway.
 	 * Other consumer packages (wayfind, the plan coordinator, ...) must
@@ -144,25 +144,25 @@ export class PowerToolStatusWidget {
 /**
  * Process-singleton accessor. See the class doc comment for why this is
  * `globalThis`-backed rather than a module-level `let instance`. Every
- * package that wants a section on the composite status widget (goal-todo
+ * package that wants a section on the composite status widget (core-task
  * itself, wayfind, the plan coordinator) calls this — never `new
- * PowerToolStatusWidget()` directly, or it will get its own disconnected
+ * CoreTaskStatusWidget()` directly, or it will get its own disconnected
  * widget instance.
  *
- * NOTE: deliberately NOT an `instanceof PowerToolStatusWidget` guard. Since
+ * NOTE: deliberately NOT an `instanceof CoreTaskStatusWidget` guard. Since
  * pi loads extensions via jiti, a jiti-loaded copy of this module and a
  * natively-imported copy can produce DIFFERENT class identities for
- * `PowerToolStatusWidget` even though they're "the same" class — `instanceof`
+ * `CoreTaskStatusWidget` even though they're "the same" class — `instanceof`
  * would then return false for whichever loader didn't create the instance,
  * causing that caller to overwrite the global slot with its own instance and
  * defeating the whole point of this function. Instead we trust whatever
  * object already occupies the global slot (first writer wins) and only
  * construct a new one when the slot is empty.
  */
-export function getSharedStatusWidget(): PowerToolStatusWidget {
+export function getSharedStatusWidget(): CoreTaskStatusWidget {
 	const g = globalThis as Record<string, unknown>;
 	if (!g[SINGLETON_GLOBAL_KEY]) {
-		g[SINGLETON_GLOBAL_KEY] = new PowerToolStatusWidget();
+		g[SINGLETON_GLOBAL_KEY] = new CoreTaskStatusWidget();
 	}
-	return g[SINGLETON_GLOBAL_KEY] as PowerToolStatusWidget;
+	return g[SINGLETON_GLOBAL_KEY] as CoreTaskStatusWidget;
 }
