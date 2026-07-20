@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { computeActiveTools, CORE_TOOLS, GATES, computeBannerSaved, matchIntent, matchesKeyword, gateFires } from "./tool-gate.ts";
+import { computeActiveTools, CORE_TOOLS, GATES, computeBannerSaved, matchIntent, matchesKeyword, gateFires, measureToolTokens } from "./tool-gate.ts";
 import type { ToolGate } from "./tool-gate.ts";
 import { emitToolGateLog, isMissCandidate } from "./tool-gate.ts";
 import toolGateExtension from "./tool-gate.ts";
@@ -337,5 +337,22 @@ describe("S2 matchIntent false-fire cases", () => {
   });
   test("conflux library → [] (flux word-boundary, not inside conflux)", () => {
     expect(first("use the conflux library")).toEqual([]);
+  });
+});
+
+describe("measureToolTokens (S3)", () => {
+  test("replicates schema-cost.ts:20 — round((desc + params) / 4)", () => {
+    const tool = { description: "abcd", parameters: { a: 1 } }; // desc=4, params=JSON.stringify({a:1})='{"a":1}'=7
+    const expected = Math.round((4 + 7) / 4); // = round(2.75) = 3
+    expect(measureToolTokens(tool)).toBe(expected);
+  });
+  test("missing description + parameters → treats as empty (0 + '{}'", () => {
+    // desc="" (0), params=JSON.stringify({})='{}' (2) → round(2/4)=1
+    expect(measureToolTokens({})).toBe(1);
+  });
+  test("long description scales linearly", () => {
+    const short = measureToolTokens({ description: "x", parameters: {} });
+    const long = measureToolTokens({ description: "x".repeat(400), parameters: {} });
+    expect(long).toBeGreaterThan(short * 50);
   });
 });
