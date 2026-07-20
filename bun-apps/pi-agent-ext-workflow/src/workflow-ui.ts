@@ -215,6 +215,8 @@ function persistedToSnapshot(p: PersistedRunState): WorkflowSnapshot {
 export class NavigatorState {
   private stack: StackFrame[] = [{ kind: "runs", cursor: 0 }];
   scroll = 0;
+  /** Auto-scroll-to-bottom for a running agent's detail live tail (Task 7). */
+  followLive = true;
 
   private top(): StackFrame {
     return this.stack[this.stack.length - 1];
@@ -262,6 +264,7 @@ export class NavigatorState {
 
   move(delta: number, count: number) {
     if (this.kind === "detail" || this.kind === "savedDetail") {
+      if (this.kind === "detail" && delta < 0) this.followLive = false;
       this.scroll = Math.max(0, this.scroll + delta);
       return;
     }
@@ -302,6 +305,7 @@ export class NavigatorState {
       const ag = agents[t.cursor];
       if (!ag) return false;
       this.scroll = 0;
+      this.followLive = true;
       this.stack.push({ kind: "detail", cursor: 0, runId: t.runId, phase: t.phase, agentId: ag.id });
       return true;
     }
@@ -351,14 +355,20 @@ export function renderNavigator(
   // Render a detail body inside a FIXED-height viewport so j/k scrolls within a
   // stable box (clamping state.scroll) instead of slicing to the end — which
   // shrank the overlay and looked like it was collapsing.
-  const pushScrollable = (body: string[]) => {
+  const pushScrollable = (body: string[], live = false) => {
     const viewport = Math.max(5, viewportRows - 4); // reserve title + blank + footer + indicator
     const maxScroll = Math.max(0, body.length - viewport);
-    state.scroll = Math.min(Math.max(0, state.scroll), maxScroll);
+    if (live && state.followLive) {
+      state.scroll = maxScroll;
+    } else {
+      state.scroll = Math.min(Math.max(0, state.scroll), maxScroll);
+    }
+    if (live) state.followLive = state.scroll >= maxScroll;
     lines.push(...body.slice(state.scroll, state.scroll + viewport));
     if (body.length > viewport) {
       const end = Math.min(state.scroll + viewport, body.length);
-      lines.push(dim(`  [${state.scroll + 1}-${end} / ${body.length}]`));
+      const liveTag = live && state.followLive ? `${dim("live")} ` : "";
+      lines.push(dim(`  ${liveTag}[${state.scroll + 1}-${end} / ${body.length}]`));
     }
   };
 
@@ -430,7 +440,7 @@ export function renderNavigator(
           body.push(...wrap(`${historyLabel(entry)}: ${entry.text}`, width));
         }
       }
-      pushScrollable(body);
+      pushScrollable(body, a.status === "running");
     }
   } else if (state.kind === "savedDetail" && state.savedName) {
     const saved = model.saved();
