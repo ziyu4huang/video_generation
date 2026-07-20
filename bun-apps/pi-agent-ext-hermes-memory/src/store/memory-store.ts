@@ -314,20 +314,26 @@ export class MemoryStore {
         return this.vaultOffloadAndAdd(target, entries, encoded, content.length, limit);
       }
 
-      // Auto-consolidate once if configured — limit retries to prevent infinite loops
-      if (strategy === "auto-consolidate" && this.consolidator && _retriesLeft > 0) {
-        try {
-          const result = await this.consolidator(target, signal);
-          if (result.consolidated) {
-            // CRITICAL: reload from disk — child process modified files, our arrays are stale
-            await this.loadFromDisk();
-            // Retry the add exactly once (retriesLeft = 0 means no more consolidation).
-            // Recurse on _addInner (not _add) to avoid re-acquiring the write lock.
-            return this._addInner(target, content, signal, _retriesLeft - 1, addedMessage);
+      if (strategy === "auto-consolidate") {
+        // Primary: info-preserving LLM consolidation (one retry).
+        if (this.consolidator && _retriesLeft > 0) {
+          try {
+            const result = await this.consolidator(target, signal);
+            if (result.consolidated) {
+              // CRITICAL: reload from disk — child process modified files, our arrays are stale
+              await this.loadFromDisk();
+              // Retry the add exactly once (retriesLeft = 0 means no more consolidation).
+              // Recurse on _addInner (not _add) to avoid re-acquiring the write lock.
+              return this._addInner(target, content, signal, _retriesLeft - 1, addedMessage);
+            }
+          } catch {
+            // Consolidation failed — fall through to the vault-offload floor.
           }
-        } catch {
-          // Consolidation failed — fall through to error
         }
+        // FLOOR: vault-offload guarantees the write never hard-rejects on overflow.
+        // Only a single entry larger than the whole budget is unrecoverable —
+        // vaultOffloadAndAdd returns memoryFullError for that case itself.
+        return this.vaultOffloadAndAdd(target, entries, encoded, content.length, limit);
       }
       return this.memoryFullError(target, content.length);
     }
@@ -370,6 +376,57 @@ export class MemoryStore {
     // Write evicted entries to a .knowledge.jsonl archive file
     const archivePath = await this.writeKnowledgeArchive(target, evictedDecoded);
 
+    const strippedEvicted = evictedDecoded.map((e) => e.text);
+    return {
+      ...this.successResponse(
+        target,
+        `Memory updated. Offloaded ${evictedDecoded.length} older ${evictedDecoded.length === 1 ? "entry" : "entries"} to vault archive to stay within the limit.`,
+      ),
+      evicted_entries: strippedEvicted,
+      evicted_count: evictedDecoded.length,
+      transferred_entries: strippedEvicted,
+      transferred_count: evictedDecoded.length,
+      freed_chars: strippedEvicted.join(ENTRY_DELIMITER).length,
+      archive_path: archivePath,
+    };
+  }
+
+  /**
+   * Replace-path vault-offload floor: apply the replacement, then FIFO-evict the
+   * OLDEST entries (by file position) EXCEPT the replaced one to the vault
+   * archive until within limit. Guarantees a replacement never hard-rejects on
+   * overflow (only a single replacement larger than the whole budget is
+   * unrecoverable). Mirrors vaultOffloadAndAdd but keeps the replaced entry.
+   */
+  private async vaultOffloadAndReplace(
+    target: "memory" | "user" | "failure",
+    entries: string[],
+    protectedIdx: number,
+    encoded: string,
+    contentLength: number,
+    limit: number,
+  ): Promise<MemoryResult> {
+    if (encoded.length > limit) {
+      return this.memoryFullError(target, contentLength);
+    }
+
+    // Evict oldest (lowest file position) entries other than the replaced one.
+    const evictOrder = entries.map((_, i) => i).filter((i) => i !== protectedIdx);
+    const present = new Set<number>(entries.map((_, i) => i));
+    const evictedDecoded: Array<{ text: string; created: string; lastReferenced: string }> = [];
+    const liveJoin = () =>
+      [...present].sort((a, b) => a - b).map((j) => (j === protectedIdx ? encoded : entries[j])).join(ENTRY_DELIMITER);
+    for (const i of evictOrder) {
+      if (liveJoin().length <= limit) break;
+      evictedDecoded.push(this.decodeEntry(entries[i]));
+      present.delete(i);
+    }
+
+    const remaining = [...present].sort((a, b) => a - b).map((j) => (j === protectedIdx ? encoded : entries[j]));
+    this.setEntries(target, remaining);
+    await this.saveToDisk(target);
+
+    const archivePath = await this.writeKnowledgeArchive(target, evictedDecoded);
     const strippedEvicted = evictedDecoded.map((e) => e.text);
     return {
       ...this.successResponse(
@@ -501,11 +558,20 @@ export class MemoryStore {
     testEntries[idx] = encoded;
     const newTotal = testEntries.join(ENTRY_DELIMITER).length;
 
-    if (newTotal > this.charLimit(target)) {
-      return {
-        success: false,
-        error: `Replacement would put memory at ${newTotal}/${this.charLimit(target)} chars. Shorten or remove other entries first.`,
-      };
+    const limit = this.charLimit(target);
+    if (newTotal > limit) {
+      // Overflow on replace. `reject` preserves the hard error; every other
+      // strategy routes to the vault-offload floor so a replacement NEVER
+      // hard-rejects (archive is the safe superset of fifo-discard).
+      // (Consolidate-then-re-match is deliberately skipped for replace: the
+      // target entry may not survive an LLM merge, making the retry fragile.)
+      if (this.memoryOverflowStrategy() === "reject") {
+        return {
+          success: false,
+          error: `Replacement would put memory at ${newTotal}/${limit} chars. Shorten or remove other entries first.`,
+        };
+      }
+      return this.vaultOffloadAndReplace(target, entries, idx, encoded, newContent.length, limit);
     }
 
     entries[idx] = encoded;
