@@ -493,6 +493,75 @@ describe("S2 matchIntent false-fire cases", () => {
   });
 });
 
+describe("previously-leaked tools regression (2026-07-21)", () => {
+  // These 5 tools were untracked (fail-open → always active) before the fix.
+  // Each must now be explicitly tracked — either in CORE_TOOLS or a GATE.
+
+  test("grill_decision is in CORE_TOOLS (always active, not fail-open)", () => {
+    expect(CORE_TOOLS.has("grill_decision")).toBe(true);
+  });
+
+  test("subagent + workflow_control are in the workflow gate (gated, not fail-open)", () => {
+    const wfGate = GATES.find((g) => g.names.includes("workflow"));
+    expect(wfGate).toBeDefined();
+    expect(wfGate!.names).toContain("subagent");
+    expect(wfGate!.names).toContain("workflow_control");
+  });
+
+  test("zai-mcp proxy tools are in a dedicated gate (gated, not fail-open)", () => {
+    const zaiGate = GATES.find((g) =>
+      g.names.includes("zai_web_search_web_search_prime"));
+    expect(zaiGate).toBeDefined();
+    expect(zaiGate!.names).toContain("zai_web_reader_webReader");
+  });
+
+  test("none of the 5 previously-leaked tools are untracked (fail-open)", () => {
+    // Build the full tracked set from CORE_TOOLS + all gate names
+    const tracked = new Set([
+      ...CORE_TOOLS,
+      ...GATES.flatMap((g) => g.names),
+    ]);
+    const leaked = [
+      "grill_decision",
+      "subagent",
+      "workflow_control",
+      "zai_web_search_web_search_prime",
+      "zai_web_reader_webReader",
+    ];
+    for (const name of leaked) {
+      expect(tracked.has(name)).toBe(true);
+    }
+  });
+
+  test("subagent + workflow_control gate behind 'workflow' keyword", () => {
+    const sticky = new Set(CORE_TOOLS);
+    const allTools = [...CORE_TOOLS, "workflow", "workflow_help", "subagent", "workflow_control"];
+    updateSticky("run a multi-step workflow", sticky);
+    const active = filterActive(allTools, sticky);
+    expect(active).toContain("subagent");
+    expect(active).toContain("workflow_control");
+  });
+
+  test("zai-mcp gate fires on 'zai search' keyword", () => {
+    const sticky = new Set(CORE_TOOLS);
+    const allTools = [...CORE_TOOLS, "zai_web_search_web_search_prime", "zai_web_reader_webReader"];
+    updateSticky("use zai search to find results", sticky);
+    const active = filterActive(allTools, sticky);
+    expect(active).toContain("zai_web_search_web_search_prime");
+    expect(active).toContain("zai_web_reader_webReader");
+  });
+
+  test("zai-mcp tools stay dormant without keyword (the savings)", () => {
+    const sticky = new Set(CORE_TOOLS);
+    const allTools = [...CORE_TOOLS, "zai_web_search_web_search_prime", "zai_web_reader_webReader"];
+    updateSticky("search the web for cats", sticky);
+    const active = filterActive(allTools, sticky);
+    // 'search' alone doesn't fire the zai gate — only 'zai search' does
+    expect(active).not.toContain("zai_web_search_web_search_prime");
+    expect(active).not.toContain("zai_web_reader_webReader");
+  });
+});
+
 describe("measureToolTokens (S3)", () => {
   test("replicates schema-cost.ts:20 — round((desc + params) / 4)", () => {
     const tool = { description: "abcd", parameters: { a: 1 } }; // desc=4, params=JSON.stringify({a:1})='{"a":1}'=7
