@@ -37,7 +37,7 @@ export const CORE_TOOLS = new Set([
   "skill_manage",
   "grill_decision", // hermes-memory — grilling is a frequent workflow
   // Vault & knowledge (used frequently)
-  "obsidian",
+  "obsidian", "obsidian_help",
   "zk_card", "zk_ask", "zk_ingest", "knowledge_query",
   // Web access
   "web_search", "fetch_content", "get_search_content",
@@ -120,7 +120,7 @@ export const GATES: ToolGate[] = [
     description: "Document/image understanding — file→markdown, VLM describe, OCR, caption",
   },
   {
-    names: ["inspect_context", "inspect_agent", "inspect_extensions", "inspect_pathology"],
+    names: ["inspect_context", "inspect_agent", "inspect_extensions", "inspect_pathology", "inspect_tui"],
     keywords: [
       "inspect", "schema cost", "pathology", "extension health",
       "工具開銷", "context window", "token usage",
