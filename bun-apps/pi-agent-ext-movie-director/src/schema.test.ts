@@ -156,3 +156,25 @@ describe("scene_plan", () => {
     expect(validateArtifact("scene_plan", scenePlan).ok).toBe(false);
   });
 });
+
+describe("edit_decisions", () => {
+  test("edit_decisions: top-level transition accepts 'none' or 'crossfade'", () => {
+    const edit = {
+      version: "1.0",
+      render_runtime: "ffmpeg",
+      transition: "none",
+      cuts: [{ id: "cut-1", source: "/tmp/relay.mp4", in_seconds: 0, out_seconds: 8 }],
+    };
+    expect(validateArtifact("edit_decisions", edit).ok).toBe(true);
+  });
+
+  test("edit_decisions: transition rejects values outside 'none'/'crossfade'", () => {
+    const edit = {
+      version: "1.0",
+      render_runtime: "ffmpeg",
+      transition: "wipe",
+      cuts: [{ id: "cut-1", source: "/tmp/relay.mp4", in_seconds: 0, out_seconds: 8 }],
+    };
+    expect(validateArtifact("edit_decisions", edit).ok).toBe(false);
+  });
+});
