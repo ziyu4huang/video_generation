@@ -507,7 +507,14 @@ function runningAgentManager(): Pick<WorkflowManager, "listRuns" | "getRun"> {
   return {
     listRuns: () =>
       [
-        { runId: "run-2", workflowName: "audit", status: "running", phases: ["Scan"], agents: snapshot.agents, logs: [] },
+        {
+          runId: "run-2",
+          workflowName: "audit",
+          status: "running",
+          phases: ["Scan"],
+          agents: snapshot.agents,
+          logs: [],
+        },
       ] as unknown as PersistedRunState[],
     getRun: (id: string) =>
       id === "run-2" ? ({ runId: "run-2", status: "running", snapshot } as unknown as ManagedRun) : undefined,
@@ -725,7 +732,9 @@ function runningDetailManager(historyLen: number): Pick<WorkflowManager, "listRu
   };
   return {
     listRuns: () =>
-      [{ runId: "r", workflowName: "wf", status: "running", phases: ["P"], agents: snapshot.agents, logs: [] }] as unknown as PersistedRunState[],
+      [
+        { runId: "r", workflowName: "wf", status: "running", phases: ["P"], agents: snapshot.agents, logs: [] },
+      ] as unknown as PersistedRunState[],
     getRun: (id: string) =>
       id === "r" ? ({ runId: "r", status: "running", snapshot } as unknown as ManagedRun) : undefined,
   };
