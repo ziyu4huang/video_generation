@@ -1,33 +1,42 @@
 /**
  * assets-encoder.ts — the proactive asset-generation planner.
  *
- * This is the frozen-frame fix, by construction. Instead of asking the agent
- * what to generate (it forgets and accepts the ~4s I2V default, then paper-overs
- * with frozen-frame extension — see receipts/real-e2e-20260711-v5-…), the driver
- * COMPUTES the exact generate calls from scene_plan: each video scene's clip
- * length is `frames = ceil(duration × fps)`, and when a scene exceeds the
- * practical per-call ceiling it is split into a CHAIN of real t2i2v sub-clips —
- * link 0 is a self-contained T2I2V (no anchor image), and each later link
- * continues from the previous clip's last frame (wired at execution).
+ * Instead of asking the agent what to generate, the driver COMPUTES the exact
+ * native-relay call from scene_plan: every video scene's duration flattens
+ * into ONE ordered list of relay links (prompt + per-link duration +
+ * continuity flag) across the WHOLE movie, split across a scene's own
+ * boundary only when that scene's duration exceeds the practical per-link
+ * quality ceiling (maxCallSeconds). A SINGLE native-relay dispatch executes
+ * the entire chain natively — the model loads once, last-frame reseed and
+ * concatenation happen inside Swift (see driver-wiring.ts's produceAssets).
  *
- * Pure: emits the call list. Execution (dispatch("generate") + ffmpeg last-frame
- * extraction between chain links) is wired in driver-wiring.ts.
+ * Pure: emits the relay-link list + tts text. Execution (one dispatch("generate",
+ * {command:"native-relay", provider:"ltx", ...}) call + per-segment duration
+ * probing) is wired in driver-wiring.ts.
  */
 
 /** Scene types that need a real generated video clip, not just an overlay. */
 const VIDEO_TYPES = new Set(["generated", "character_scene", "broll", "talking_head"]);
 
-export interface AssetGenCall {
-	capability: "video_generation" | "tts";
-	command: "t2i2v" | "tts";
-	options: Record<string, unknown>;
+/** One native-relay segment: a single I2V generation within the whole-movie chain. */
+export interface RelayLink {
+	sceneId: string;
+	/** 0-based index within THIS scene's own chain (not the flattened array index). */
+	chainIndex: number;
+	prompt: string;
+	seconds: number;
+	/** false = fresh T2I for this link (hard cut); true = continue from the previous link's last frame. */
+	continuity: boolean;
+}
+
+export interface TtsCall {
+	text: string;
 	sceneId?: string;
-	/** 0-based index within a scene's t2i2v chain (absent for the TTS call). */
-	chainIndex?: number;
 }
 
 export interface AssetPlan {
-	calls: AssetGenCall[];
+	relayLinks: RelayLink[];
+	tts?: TtsCall;
 }
 
 interface SceneLike {
@@ -36,6 +45,8 @@ interface SceneLike {
 	description: string;
 	start_seconds: number;
 	end_seconds: number;
+	/** Chaining behavior into this scene's FIRST link. Default "continue" when absent. */
+	continuity?: "continue" | "cut";
 }
 
 interface ScriptLike {
@@ -44,55 +55,46 @@ interface ScriptLike {
 }
 
 /**
- * Plan the generate calls for the whole video: per video-scene a t2i2v chain
- * (frames from real duration, split across ≤ maxCallSeconds per link), plus one
- * TTS narration call.
+ * Plan the whole movie's asset generation: one flattened list of native-relay
+ * links across ALL video scenes in scene_plan order (each scene's duration
+ * split across ≤ maxCallSeconds links so no single link exceeds the practical
+ * per-link quality ceiling), plus one TTS narration call.
  */
 export function planAssetGeneration(
 	scenePlan: { scenes: SceneLike[] },
 	script: ScriptLike | undefined,
-	opts: { fps: number; maxCallSeconds: number },
+	opts: { maxCallSeconds: number },
 ): AssetPlan {
-	const calls: AssetGenCall[] = [];
+	const relayLinks: RelayLink[] = [];
 
 	for (const scene of scenePlan.scenes) {
 		const duration = Math.max(0, scene.end_seconds - scene.start_seconds);
 		if (!VIDEO_TYPES.has(scene.type) || duration <= 0) continue;
 
-		// t2i2v chain: split the scene's duration across ≤ maxCallSeconds links so
-		// each generate stays within the practical per-call ceiling. Link 0 is a
-		// self-contained T2I2V; each later link continues from the prior clip's
-		// last frame (wired at execution via `options.image`).
 		const linkCount = Math.max(1, Math.ceil(duration / opts.maxCallSeconds));
-		const perCallFrames = Math.ceil((duration / linkCount) * opts.fps);
+		const perLinkSeconds = duration / linkCount;
 		for (let i = 0; i < linkCount; i++) {
-			calls.push({
-				capability: "video_generation",
-				command: "t2i2v",
-				options: { prompt: scene.description, frames: perCallFrames, fps: opts.fps },
+			relayLinks.push({
 				sceneId: scene.id,
 				chainIndex: i,
+				prompt: scene.description,
+				seconds: perLinkSeconds,
+				// Only a scene's FIRST link can be a hard cut; later links within
+				// the same scene are the SAME shot split across the per-link
+				// ceiling, so they always continue.
+				continuity: i === 0 ? scene.continuity !== "cut" : true,
 			});
 		}
 	}
 
-	// TTS narration — the full spoken track, driven through the cost-tracked
-	// generate path (never raw say/edge-tts). SKIPPED when the script declares
-	// narration:"none" (a silent/ambient video). Text = explicit narration, else
-	// the concatenation of the script's section texts. Tagged with the first
-	// scene's id so the resulting manifest asset has a valid scene_id.
+	let tts: TtsCall | undefined;
 	if (script?.narration !== "none") {
 		const narrationText =
 			script?.narration ?? script?.sections?.map((s) => s.text ?? "").filter(Boolean).join(" ") ?? "";
 		if (narrationText.trim()) {
-			calls.push({
-				capability: "tts",
-				command: "tts",
-				options: { text: narrationText },
-				sceneId: scenePlan.scenes[0]?.id,
-			});
+			tts = { text: narrationText, sceneId: scenePlan.scenes[0]?.id };
 		}
 	}
 
-	return { calls };
+	return { relayLinks, tts };
 }
