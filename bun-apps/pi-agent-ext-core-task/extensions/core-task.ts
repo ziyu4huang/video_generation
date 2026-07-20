@@ -27,18 +27,12 @@ import goal, { isGoalActive } from "../src/goal/goal.js";
 import { GoalOverlay } from "../src/goal/overlay.js";
 import { registerTodoTool, registerTodosCommand } from "../src/todo/todo";
 import { TodoOverlay } from "../src/todo/overlay";
-import { replayFromBranch } from "../src/todo/state/replay";
 import { replaceState } from "../src/todo/state/store";
+import { EMPTY_STATE } from "../src/todo/state/state";
 import { TOOL_NAME } from "../src/todo/tool/types";
 import { getSharedStatusWidget } from "../src/shared/status-widget.js";
 import registerAskUser from "../src/ask-user";
 import { getPlanPhases, getPlanSummary, isPlanIncomplete, refreshPlan, shouldRefreshAfterTool } from "../src/plan/coordinator.js";
-import { seedTodoFromPlan } from "../src/plan/todo-seed.js";
-
-/** Swallow the expected "stale after session replacement" error on compact/tree. */
-function isStaleCtxError(e: unknown): boolean {
-	return /stale after session replacement/.test(String(e));
-}
 
 const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 	// ── Plan A coordination seam ─────────────────────────────────────────
@@ -78,10 +72,13 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 	statusWidget.addSection({ id: "todo", order: 1, render: (t, w) => todoOverlay.render(t, w), inspect: () => todoOverlay.inspect() });
 
 	pi.on("session_start", async (_event, ctx) => {
-		replaceState(replayFromBranch(ctx));
+		// Todos are SESSION-ONLY: never replayed from the session branch and
+		// never seeded from disk plans, so each session starts empty. Permanent
+		// task tracking lives in wayfind/superpowers plans & tickets — read
+		// those on demand; do not auto-load them into the session todo.
+		replaceState(EMPTY_STATE);
 		latestCwd = ctx.cwd;
-		refreshPlan(ctx.cwd); // parse + cache the active effort's plan
-		seedTodoFromPlan(ctx.cwd); // plan-master: seed the todo from the plan when empty (no-op if replay populated it)
+		refreshPlan(ctx.cwd); // parse + cache the active effort's plan (for the plan coordinator; NOT for todo seeding)
 		if (ctx.hasUI) {
 			statusWidget.setUICtx(ctx.ui);
 			todoOverlay.resetCompletedDisplayState();
@@ -89,22 +86,17 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 		}
 	});
 
-	pi.on("session_compact", async (_event, ctx) => {
-		try {
-			replaceState(replayFromBranch(ctx));
-		} catch (e) {
-			if (!isStaleCtxError(e)) throw e;
-		}
+	pi.on("session_compact", async () => {
+		// No replay: todos are in-memory only and survive compaction naturally.
+		// Replaying the (now-summarized) branch would either drop current todos
+		// or restore stale ones. See the session_start note.
 		todoOverlay.resetCompletedDisplayState();
 		statusWidget.update();
 	});
 
-	pi.on("session_tree", async (_event, ctx) => {
-		try {
-			replaceState(replayFromBranch(ctx));
-		} catch (e) {
-			if (!isStaleCtxError(e)) throw e;
-		}
+	pi.on("session_tree", async () => {
+		// No replay: todos are session-only in-memory state. Branch switches do
+		// not restore per-branch todos (deliberate — see session_start note).
 		todoOverlay.resetCompletedDisplayState();
 		statusWidget.update();
 	});
