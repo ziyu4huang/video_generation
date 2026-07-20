@@ -21,6 +21,7 @@ import { dirname, join } from "path";
 import { randomUUID } from "crypto";
 import { defineTool, type ExtensionAPI, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { getPlanSummary, isPlanIncomplete } from "../plan/coordinator.js";
 import { GoalOverlay, type GoalOverlayLike } from "./overlay.js";
 import {
 	formatBudget,
@@ -974,43 +975,28 @@ export function isContradictoryCompletionSummary(summary: string) {
 }
 
 /**
- * Plan A coordination seam: read the plan coordinator's published
- * `globalThis.__piPlanIncomplete` to decide whether goal_complete should be
- * blocked by an open (exists + not closed + incomplete-phases) plan. Returns an
- * actionable reason string, or undefined if no gate applies (no plan coordinator
- * loaded, no plan, plan closed, or all phases complete). Best-effort: a
- * peer-extension error never blocks goal_complete.
+ * Direct internal call to the in-package plan coordinator (ticket 03:
+ * self-consume = internal-call, NOT globalThis). Returns an actionable reason
+ * string when the active plan has incomplete phases, or undefined if no gate
+ * applies (no plan, plan closed, or all phases complete). The coordinator
+ * publishes `__piPlanIncomplete` on globalThis ONLY for wayfind — goal.ts calls
+ * it directly here.
  */
 export function planningGateBlocking(cwd: string): string | undefined {
-	const fn = (globalThis as Record<string, unknown> | undefined)?.__piPlanIncomplete;
-	if (typeof fn !== "function") return undefined;
-	try {
-		if ((fn as (cwd: string) => boolean)(cwd)) {
-			return "the plan still has incomplete phases";
-		}
-	} catch {
-		// best-effort: never block goal_complete on a peer-extension read error
-	}
-	return undefined;
+	return isPlanIncomplete(cwd) ? "the plan still has incomplete phases" : undefined;
 }
 
 /**
- * Fusion seam: read the plan coordinator's published `globalThis.__piPlanSummary`
- * to surface the active plan's phase progress. When the goal drives (and the
- * plan coordinator yielded its injection per Plan A), the agent would otherwise
- * lose plan visibility — this keeps the roadmap in front of it. Best-effort:
- * empty string when no plan coordinator is present / no plan / latestCtx unset / error.
+ * Fusion: direct internal call to the in-package plan coordinator (ticket 03:
+ * self-consume = internal-call, NOT globalThis). Surfaces the active plan's
+ * phase progress so a goal-driven agent keeps roadmap visibility. Empty string
+ * when latestCtx is unset or no plan is cached. The coordinator publishes
+ * `__piPlanSummary` on globalThis ONLY for wayfind — goal.ts calls it directly.
  */
 export function planProgressLineFromPeer(): string {
 	const cwd = latestCtx?.cwd;
 	if (!cwd) return "";
-	const fn = (globalThis as Record<string, unknown> | undefined)?.__piPlanSummary;
-	if (typeof fn !== "function") return "";
-	try {
-		return (fn as (cwd: string) => string | null)(cwd) ?? "";
-	} catch {
-		return "";
-	}
+	return getPlanSummary(cwd);
 }
 
 // Three-layer fusion guidance: teaches the agent that the plan coordinator (the

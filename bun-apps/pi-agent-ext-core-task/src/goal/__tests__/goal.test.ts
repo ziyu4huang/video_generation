@@ -38,6 +38,10 @@ import goal, {
 	type ActiveGoal,
 	type StatusContext,
 } from "../goal.js";
+import { __resetCoordinator, refreshPlan } from "../../plan/coordinator.js";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // ─── Mock pi helpers ─────────────────────────────────────────────────────────
 
@@ -1144,164 +1148,151 @@ describe("isGoalActive (Plan A coordination seam)", () => {
 	});
 });
 
+// ─── Plan-coordinator temp-dir helper (ticket 09 tracer-bullet 3) ─────────────
+// goal.ts now calls the coordinator DIRECTLY (internal-call, ticket 03), so tests
+// drive the coordinator's cache via a temp dir + refreshPlan — not globalThis.
+function makePlanTmp(planMd?: string): string {
+	const tmp = mkdtempSync(join(tmpdir(), "goal-plan-"));
+	mkdirSync(join(tmp, ".planning", "eff", "plans"), { recursive: true });
+	writeFileSync(join(tmp, ".planning", "eff", "map.md"), "# eff\n");
+	if (planMd !== undefined) writeFileSync(join(tmp, ".planning", "eff", "plans", "01.md"), planMd);
+	refreshPlan(tmp);
+	return tmp;
+}
+function cleanupPlanTmp(tmp: string): void {
+	__resetCoordinator();
+	try {
+		rmSync(tmp, { recursive: true, force: true });
+	} catch {
+		/* best effort */
+	}
+}
+
 // ─── Plan A coordination seam: planningGateBlocking + goal_complete gate ─────
 
 describe("planningGateBlocking (Plan A completion gate)", () => {
-	const KEY = "__piPlanIncomplete";
-	let saved: unknown;
+	let tmp: string;
+	afterEach(() => cleanupPlanTmp(tmp));
 
-	beforeEach(() => {
-		saved = (globalThis as Record<string, unknown>)[KEY];
-	});
-	afterEach(() => {
-		if (saved === undefined) delete (globalThis as Record<string, unknown>)[KEY];
-		else (globalThis as Record<string, unknown>)[KEY] = saved;
-	});
-
-	test("undefined when the plan coordinator global is absent (standalone)", () => {
-		delete (globalThis as Record<string, unknown>)[KEY];
-		expect(planningGateBlocking(process.cwd())).toBeUndefined();
+	test("undefined when no plan is cached (standalone)", () => {
+		tmp = makePlanTmp(); // empty effort → no plan
+		expect(planningGateBlocking(tmp)).toBeUndefined();
 	});
 
 	test("reason string when the plan has open phases", () => {
-		(globalThis as Record<string, unknown>)[KEY] = (_cwd: string) => true;
-		expect(planningGateBlocking(process.cwd())).toMatch(/incomplete phases/);
+		tmp = makePlanTmp("# P\n### Task 1: A\n- [ ] do it\n");
+		expect(planningGateBlocking(tmp)).toMatch(/incomplete phases/);
 	});
 
-	test("undefined when plan is complete / closed / absent", () => {
-		(globalThis as Record<string, unknown>)[KEY] = (_cwd: string) => false;
-		expect(planningGateBlocking(process.cwd())).toBeUndefined();
-	});
-
-	test("undefined (never throws) when the peer query throws", () => {
-		(globalThis as Record<string, unknown>)[KEY] = () => {
-			throw new Error("boom");
-		};
-		expect(planningGateBlocking(process.cwd())).toBeUndefined();
+	test("undefined when all phases are complete", () => {
+		tmp = makePlanTmp("# P\n### Task 1: A\n- [x] done\n");
+		expect(planningGateBlocking(tmp)).toBeUndefined();
 	});
 });
 
 describe("goal_complete planning gate (Plan A integration)", () => {
-	const KEY = "__piPlanIncomplete";
-	let saved: unknown;
+	test("blocks goal_complete while plan has open phases; releases when the plan completes", async () => {
+		const tmp = makePlanTmp("# P\n### Task 1: A\n- [ ] do it\n");
+		try {
+			const { mock, ctx } = await startGoalForTest({ cwd: tmp });
+			const tool = mock.tools[0]!;
 
-	beforeEach(() => {
-		saved = (globalThis as Record<string, unknown>)[KEY];
-	});
-	afterEach(async () => {
-		if (saved === undefined) delete (globalThis as Record<string, unknown>)[KEY];
-		else (globalThis as Record<string, unknown>)[KEY] = saved;
-	});
+			// Blocked: valid summary but plan still open.
+			const blocked = await tool.execute(
+				"call-block",
+				{ summary: "Implemented and verified with bun test." },
+				new AbortController().signal,
+				() => undefined,
+				ctx,
+			);
+			expect(blocked.terminate).toBeUndefined();
+			expect(blocked.content?.[0]?.text ?? "").toMatch(/incomplete phases/);
+			expect(blocked.content?.[0]?.text ?? "").toMatch(/close the plan/);
+			expect(lastGoalStatus(mock)).toBe("active"); // goal stays active
 
-	test("blocks goal_complete while plan has open phases; releases when the plan is closed", async () => {
-		// Simulate the plan coordinator reporting an incomplete plan.
-		let planIncomplete = true;
-		(globalThis as Record<string, unknown>)[KEY] = (_cwd: string) => planIncomplete;
+			// Release: complete the phase → re-parse → plan no longer incomplete.
+			writeFileSync(join(tmp, ".planning", "eff", "plans", "01.md"), "# P\n### Task 1: A\n- [x] done\n");
+			refreshPlan(tmp);
+			const accepted = await tool.execute(
+				"call-accept",
+				{ summary: "Implemented and verified with bun test." },
+				new AbortController().signal,
+				() => undefined,
+				ctx,
+			);
+			expect(accepted.terminate).toBe(true);
+			expect(lastGoalStatus(mock)).toBeNull();
 
-		const { mock, ctx } = await startGoalForTest();
-		const tool = mock.tools[0]!;
-
-		// Blocked: valid summary but plan still open.
-		const blocked = await tool.execute(
-			"call-block",
-			{ summary: "Implemented and verified with bun test." },
-			new AbortController().signal,
-			() => undefined,
-			ctx,
-		);
-		expect(blocked.terminate).toBeUndefined();
-		expect(blocked.content?.[0]?.text ?? "").toMatch(/incomplete phases/);
-		expect(blocked.content?.[0]?.text ?? "").toMatch(/close the plan/);
-		expect(lastGoalStatus(mock)).toBe("active"); // goal stays active
-
-		// Release: simulate closing the plan → plan no longer incomplete.
-		planIncomplete = false;
-		const accepted = await tool.execute(
-			"call-accept",
-			{ summary: "Implemented and verified with bun test." },
-			new AbortController().signal,
-			() => undefined,
-			ctx,
-		);
-		expect(accepted.terminate).toBe(true);
-		expect(lastGoalStatus(mock)).toBeNull();
-
-		const shutdown = mock.events.get("session_shutdown")?.[0];
-		await (shutdown as (e: unknown, c: unknown) => void)?.({}, ctx);
+			const shutdown = mock.events.get("session_shutdown")?.[0];
+			await (shutdown as (e: unknown, c: unknown) => void)?.({}, ctx);
+		} finally {
+			cleanupPlanTmp(tmp);
+		}
 	});
 
-	test("goal_complete proceeds when the plan coordinator is not loaded (standalone)", async () => {
-		delete (globalThis as Record<string, unknown>)[KEY];
-		const { mock, ctx } = await startGoalForTest();
-		const tool = mock.tools[0]!;
-		const accepted = await tool.execute(
-			"call",
-			{ summary: "Implemented and verified." },
-			new AbortController().signal,
-			() => undefined,
-			ctx,
-		);
-		expect(accepted.terminate).toBe(true);
-		const shutdown = mock.events.get("session_shutdown")?.[0];
-		await (shutdown as (e: unknown, c: unknown) => void)?.({}, ctx);
+	test("goal_complete proceeds when no plan is cached (standalone)", async () => {
+		const tmp = makePlanTmp(); // empty effort → no plan
+		try {
+			const { mock, ctx } = await startGoalForTest({ cwd: tmp });
+			const tool = mock.tools[0]!;
+			const accepted = await tool.execute(
+				"call",
+				{ summary: "Implemented and verified." },
+				new AbortController().signal,
+				() => undefined,
+				ctx,
+			);
+			expect(accepted.terminate).toBe(true);
+			const shutdown = mock.events.get("session_shutdown")?.[0];
+			await (shutdown as (e: unknown, c: unknown) => void)?.({}, ctx);
+		} finally {
+			cleanupPlanTmp(tmp);
+		}
 	});
 });
 
 // ─── Fusion: goal surfaces the plan roadmap it displaced ──────────────────────
 
 describe("planProgressLineFromPeer + buildGoalSystemPrompt (fusion)", () => {
-	const KEY = "__piPlanSummary";
-	let saved: unknown;
-
-	beforeEach(() => {
-		saved = (globalThis as Record<string, unknown>)[KEY];
-	});
-	afterEach(async () => {
-		if (saved === undefined) delete (globalThis as Record<string, unknown>)[KEY];
-		else (globalThis as Record<string, unknown>)[KEY] = saved;
-	});
-
-	test("empty when the plan coordinator global is absent (standalone goal drive)", async () => {
-		delete (globalThis as Record<string, unknown>)[KEY];
-		const { mock, ctx } = await startGoalForTest(); // sets latestCtx via session_start
-		expect(planProgressLineFromPeer()).toBe("");
-		const shutdown = mock.events.get("session_shutdown")?.[0];
-		await (shutdown as (e: unknown, c: unknown) => void)?.({}, ctx);
+	test("empty when no plan is cached (standalone goal drive)", async () => {
+		const tmp = makePlanTmp(); // empty effort → no plan
+		try {
+			const { mock, ctx } = await startGoalForTest({ cwd: tmp }); // sets latestCtx.cwd = tmp
+			expect(planProgressLineFromPeer()).toBe("");
+			const shutdown = mock.events.get("session_shutdown")?.[0];
+			await (shutdown as (e: unknown, c: unknown) => void)?.({}, ctx);
+		} finally {
+			cleanupPlanTmp(tmp);
+		}
 	});
 
-	test("returns the peer summary and buildGoalSystemPrompt surfaces it as a roadmap bullet", async () => {
-		(globalThis as Record<string, unknown>)[KEY] = (_cwd: string) => "Phase 1/3 — see task_plan.md";
-		const { mock, ctx } = await startGoalForTest();
-		expect(planProgressLineFromPeer()).toBe("Phase 1/3 — see task_plan.md");
+	test("returns the coordinator summary and buildGoalSystemPrompt surfaces it as a roadmap bullet", async () => {
+		const tmp = makePlanTmp("# P\n### Task 1: A\n- [ ] do it\n"); // 1 phase, 0 done → "0/1 phases"
+		try {
+			const { mock, ctx } = await startGoalForTest({ cwd: tmp });
+			expect(planProgressLineFromPeer()).toMatch(/0\/1 phases/);
 
-		const prompt = buildGoalSystemPrompt({
-			id: "g-fuse",
-			text: "fuse the layers",
-			status: "active",
-			startedAt: 0,
-			updatedAt: 0,
-			iteration: 0,
-			tokensUsed: 0,
-			timeUsedSeconds: 0,
-			baselineTokens: 0,
-		});
-		// The displaced roadmap is surfaced so a goal-driven agent keeps plan visibility.
-		expect(prompt).toMatch(/Active plan progress: Phase 1\/3/);
-		expect(prompt).toMatch(/roadmap, not a stopping point/);
-		// Three-layer guidance teaches todo+plan as tools to finish, not stops.
-		expect(prompt).toMatch(/three cooperating layers/);
+			const prompt = buildGoalSystemPrompt({
+				id: "g-fuse",
+				text: "fuse the layers",
+				status: "active",
+				startedAt: 0,
+				updatedAt: 0,
+				iteration: 0,
+				tokensUsed: 0,
+				timeUsedSeconds: 0,
+				baselineTokens: 0,
+			});
+			// The displaced roadmap is surfaced so a goal-driven agent keeps plan visibility.
+			expect(prompt).toMatch(/Active plan progress: 0\/1 phases/);
+			expect(prompt).toMatch(/roadmap, not a stopping point/);
+			// Three-layer guidance teaches todo+plan as tools to finish, not stops.
+			expect(prompt).toMatch(/three cooperating layers/);
 
-		const shutdown = mock.events.get("session_shutdown")?.[0];
-		await (shutdown as (e: unknown, c: unknown) => void)?.({}, ctx);
-	});
-
-	test("never throws when the peer summary function throws", async () => {
-		(globalThis as Record<string, unknown>)[KEY] = () => {
-			throw new Error("boom");
-		};
-		const { mock, ctx } = await startGoalForTest();
-		expect(planProgressLineFromPeer()).toBe("");
-		const shutdown = mock.events.get("session_shutdown")?.[0];
-		await (shutdown as (e: unknown, c: unknown) => void)?.({}, ctx);
+			const shutdown = mock.events.get("session_shutdown")?.[0];
+			await (shutdown as (e: unknown, c: unknown) => void)?.({}, ctx);
+		} finally {
+			cleanupPlanTmp(tmp);
+		}
 	});
 });
