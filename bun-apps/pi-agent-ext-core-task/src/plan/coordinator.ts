@@ -86,6 +86,14 @@ export function discoverActivePlan(cwd: string): ParsedPlan | undefined {
 	return undefined;
 }
 
+/** Tools that can modify a plan file → trigger a plan re-parse (TB5a: refresh gating). */
+const MUTATING_TOOLS = new Set(["write", "edit", "bash"]);
+
+/** Whether the plan cache should refresh after a tool ran (TB5a: mutating tools only). */
+export function shouldRefreshAfterTool(toolName: string): boolean {
+	return MUTATING_TOOLS.has(toolName);
+}
+
 export function refreshPlan(cwd: string): void {
 	cache.set(cwd, discoverActivePlan(cwd));
 }

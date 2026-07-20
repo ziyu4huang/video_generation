@@ -10,6 +10,7 @@ import {
 	getPlanSummary,
 	isPlanIncomplete,
 	refreshPlan,
+	shouldRefreshAfterTool,
 } from "../coordinator.ts";
 import type { PlanPhaseInfo } from "../types.ts";
 
@@ -67,5 +68,16 @@ describe("discoverActivePlan (fs)", () => {
 		expect(getPlanPhases(tmp)).toEqual([]);
 		expect(isPlanIncomplete(tmp)).toBe(false);
 		expect(getPlanSummary(tmp)).toBe("");
+	});
+});
+
+describe("shouldRefreshAfterTool (TB5a refresh gating)", () => {
+	it("true for file-mutating tools (write/edit/bash)", () => {
+		for (const t of ["write", "edit", "bash"]) expect(shouldRefreshAfterTool(t), `${t} should refresh`).toBe(true);
+	});
+
+	it("false for read-only / non-plan tools", () => {
+		for (const t of ["read", "grep", "ls", "find", "todo", "memory", "web_search"])
+			expect(shouldRefreshAfterTool(t), `${t} should not refresh`).toBe(false);
 	});
 });

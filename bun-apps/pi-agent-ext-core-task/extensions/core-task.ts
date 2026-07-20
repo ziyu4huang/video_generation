@@ -32,7 +32,7 @@ import { replaceState } from "../src/todo/state/store";
 import { TOOL_NAME } from "../src/todo/tool/types";
 import { getSharedStatusWidget } from "../src/shared/status-widget.js";
 import registerAskUser from "../src/ask-user";
-import { getPlanPhases, getPlanSummary, isPlanIncomplete, refreshPlan } from "../src/plan/coordinator.js";
+import { getPlanPhases, getPlanSummary, isPlanIncomplete, refreshPlan, shouldRefreshAfterTool } from "../src/plan/coordinator.js";
 import { seedTodoFromPlan } from "../src/plan/todo-seed.js";
 
 /** Swallow the expected "stale after session replacement" error on compact/tree. */
@@ -116,7 +116,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 	});
 
 	pi.on("tool_execution_end", async (event) => {
-		if (latestCwd) refreshPlan(latestCwd); // re-parse after a possible plan edit (tracer-bullet 5 refines timing)
+		if (latestCwd && shouldRefreshAfterTool(event.toolName)) refreshPlan(latestCwd); // TB5a: re-parse only after a mutating tool (write/edit/bash)
 		if (event.toolName !== TOOL_NAME || event.isError) return;
 		todoOverlay.update();
 	});
