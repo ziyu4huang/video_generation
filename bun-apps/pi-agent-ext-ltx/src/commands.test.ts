@@ -85,6 +85,19 @@ describe("buildArgs", () => {
     ]);
   });
 
+  test("native-relay's secondsPerSegment/segmentContinuity emit one flag occurrence per array element", () => {
+    const args = buildArgs(COMMANDS["native-relay"], {
+      prompts: ["a", "b"],
+      secondsPerSegment: [8, 6.5],
+      segmentContinuity: [true, false],
+    });
+    expect(args).toEqual([
+      "--prompts", "a", "--prompts", "b",
+      "--seconds-per-segment", "8", "--seconds-per-segment", "6.5",
+      "--segment-continuity", "true", "--segment-continuity", "false",
+    ]);
+  });
+
   test("native-ingredients/native-restyle emit their required scalar flags", () => {
     expect(buildArgs(COMMANDS["native-ingredients"], { input: "ref.png", prompt: "a scene", lora: "ing.safetensors" }))
       .toEqual(["--input", "ref.png", "--prompt", "a scene", "--lora", "ing.safetensors"]);

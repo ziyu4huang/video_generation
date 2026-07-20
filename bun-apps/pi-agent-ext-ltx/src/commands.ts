@@ -15,7 +15,7 @@
  */
 import { Type, type TSchema } from "typebox";
 
-export type FieldType = "string" | "number" | "int" | "boolean" | "string[]" | "number[]";
+export type FieldType = "string" | "number" | "int" | "boolean" | "string[]" | "number[]" | "boolean[]";
 
 export interface FieldSpec {
   /** CLI flag including dashes, e.g. "--prompt", "--cfg-scale". Use "" for positional. */
@@ -114,6 +114,8 @@ function fieldSchema(f: FieldSpec): TSchema {
       return wrap(Type.Array(Type.String(), { description: f.description }));
     case "number[]":
       return wrap(Type.Array(Type.Number(), { description: f.description }));
+    case "boolean[]":
+      return wrap(Type.Array(Type.Boolean(), { description: f.description }));
   }
 }
 
@@ -224,6 +226,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
       prompts: { flag: "--prompts", type: "string[]", description: "One prompt per segment (2+ args = multi-segment relay)." },
       firstImage: { flag: "--first-image", type: "string", isPath: true, description: "Reference image for segment 1 (I2V). Must already be exactly width x height. Omit for T2I-then-I2V on segment 1." },
       seconds: { flag: "--seconds", type: "number", description: "Duration per segment in seconds (frame count snapped to LTX's 8k+1 stride). Default 2.0." },
+      secondsPerSegment: { flag: "--seconds-per-segment", type: "number[]", description: "Per-segment duration override (seconds), one value per prompts entry. Omit to use seconds uniformly for every segment." },
+      segmentContinuity: { flag: "--segment-continuity", type: "boolean[]", description: "Per-segment continuity override, one value per prompts entry. false = fresh T2I for that segment (hard cut), ignoring the previous segment's last frame. Omit to continue every non-first segment from the previous segment's last frame (default)." },
       fps: { flag: "--fps", type: "number", description: "Output frame rate. Default 24.0." },
       width: { flag: "--width", type: "int", description: "Output width (must be a multiple of 32). Default 640." },
       height: { flag: "--height", type: "int", description: "Output height (must be a multiple of 32). Default 960." },
@@ -517,14 +521,14 @@ export function buildArgs(spec: CommandSpec, options: Record<string, unknown>): 
       continue;
     }
 
-    if (f.type === "string[]" || f.type === "number[]") {
+    if (f.type === "string[]" || f.type === "number[]" || f.type === "boolean[]") {
       if (!Array.isArray(v)) {
         throw new Error(`field "${key}" expects an array, got ${typeof v}`);
       }
       // ltx-video's repeatable options (--lora, gate's positional videos) take
       // one flag occurrence per value (ArgumentParser's `parsing: .upToNextOption`
       // / @Argument [String]), not a joined comma-list.
-      for (const item of v) args.push(f.flag, fmtScalar(item as number | string));
+      for (const item of v) args.push(f.flag, f.type === "boolean[]" ? String(Boolean(item)) : fmtScalar(item as number | string));
       continue;
     }
 
