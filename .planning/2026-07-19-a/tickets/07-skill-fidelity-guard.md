@@ -1,6 +1,7 @@
 ---
 type: grilling
-status: resolved
+status: closed
+closed: 2026-07-20 (resolved via grilling)
 grilled: 2026-07-20
 ---
 
