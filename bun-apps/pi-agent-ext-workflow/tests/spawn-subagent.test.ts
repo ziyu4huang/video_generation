@@ -44,7 +44,11 @@ describe("spawnSubagent", () => {
   it("mainModel is the default effective model when model+tier are omitted (default = current LLM)", async () => {
     const runner = mkRunner(async () => "ok");
     await spawnSubagent({ task: "t", mainModel: "deepseek/deepseek-v4-flash", agent: runner });
-    assert.equal(runner.calls[0]?.opts.model, "deepseek/deepseek-v4-flash", "omit → live session model, not stale medium tier");
+    assert.equal(
+      runner.calls[0]?.opts.model,
+      "deepseek/deepseek-v4-flash",
+      "omit → live session model, not stale medium tier",
+    );
     assert.equal(runner.calls[0]?.opts.tier, undefined);
   });
 
