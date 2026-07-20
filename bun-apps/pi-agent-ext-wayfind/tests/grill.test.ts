@@ -42,12 +42,12 @@ describe("buildPlanSeed", () => {
       [],
     );
     expect(seed).toBeTruthy();
-    expect(seed).toContain("# Task Plan");
+    expect(seed).toContain("# Implementation Plan");
     expect(seed).toContain("Use Postgres");
     expect(seed).toContain("Event sourcing");
-    expect(seed).toContain("- **Status:** pending");
-    // one phase block
-    expect((seed?.match(/### Phase/g) ?? []).length).toBe(1);
+    expect(seed).not.toContain("**Status:**");
+    // one Task block
+    expect((seed?.match(/### Task/g) ?? []).length).toBe(1);
   });
 
   it("builds a skeleton seed from glossary + topic when decisions are not extractable", () => {

@@ -12,7 +12,7 @@ function mk(id: string, slug: string, title: string, blocking: string[] = [], op
 }
 
 describe("flattenTicketsToPlan", () => {
-  it("emits phases in topo (blocking) order with [stem] headers + Status pending + glossary", () => {
+  it("emits Tasks in topo (blocking) order with [stem] headers + glossary", () => {
     // 03 blocked-by 02, 02 blocked-by 01 → topo order 01, 02, 03 (NOT input order).
     const tickets = [
       mk("03", "gamma", "Gamma", ["02"]),
@@ -23,10 +23,10 @@ describe("flattenTicketsToPlan", () => {
 
     const plan = flattenTicketsToPlan(tickets, glossary);
 
-    expect(plan).toMatch(/^### Phase 1 — \[01-alpha\] Alpha$/m);
-    expect(plan).toMatch(/^### Phase 2 — \[02-beta\] Beta$/m);
-    expect(plan).toMatch(/^### Phase 3 — \[03-gamma\] Gamma$/m);
-    expect((plan.match(/- \*\*Status:\*\* pending/g) ?? []).length).toBe(3);
+    expect(plan).toMatch(/^### Task 1 — \[01-alpha\] Alpha$/m);
+    expect(plan).toMatch(/^### Task 2 — \[02-beta\] Beta$/m);
+    expect(plan).toMatch(/^### Task 3 — \[03-gamma\] Gamma$/m);
+    expect(plan).not.toContain("**Status:**");
     expect(plan).toContain("## Settled vocabulary");
     expect(plan).toContain("**Foo**: a foo");
     // headers come out in topo order, not input order
@@ -34,16 +34,16 @@ describe("flattenTicketsToPlan", () => {
     expect(plan.indexOf("[02-beta]")).toBeLessThan(plan.indexOf("[03-gamma]"));
   });
 
-  it("carries a ticket's acceptance criteria as phase checkboxes when present", () => {
+  it("carries a ticket's acceptance criteria as `- [ ]` steps when present", () => {
     const tickets = [mk("01", "a", "Alpha", [], { acceptance: ["criterion 1", "criterion 2"] })];
     const plan = flattenTicketsToPlan(tickets, []);
     expect(plan).toContain("- [ ] criterion 1");
     expect(plan).toContain("- [ ] criterion 2");
   });
 
-  it("emits a frontier ticket (no blocking) as Phase 1", () => {
+  it("emits a frontier ticket (no blocking) as Task 1", () => {
     const plan = flattenTicketsToPlan([mk("07", "solo", "Solo", [])], []);
-    expect(plan).toMatch(/^### Phase 1 — \[07-solo\] Solo$/m);
+    expect(plan).toMatch(/^### Task 1 — \[07-solo\] Solo$/m);
   });
 
   it("omits the glossary section when there are no terms", () => {
@@ -53,7 +53,7 @@ describe("flattenTicketsToPlan", () => {
 });
 
 describe("seedFromDecisions", () => {
-  it("emits one phase per decision (in order) with glossary + Status pending", () => {
+  it("emits one Task per decision (in order) with glossary", () => {
     const decisions: ResolvedDecision[] = [
       { title: "Use Postgres", answer: "over SQLite for concurrency" },
       { title: "REST API", answer: "not GraphQL" },
@@ -62,18 +62,18 @@ describe("seedFromDecisions", () => {
 
     const plan = seedFromDecisions(decisions, glossary);
 
-    expect(plan).toContain("### Phase 1");
-    expect(plan).toContain("### Phase 2");
+    expect(plan).toContain("### Task 1");
+    expect(plan).toContain("### Task 2");
     expect(plan).toContain("Use Postgres");
     expect(plan).toContain("REST API");
     expect(plan).toContain("## Settled vocabulary");
     expect(plan).toContain("**Order**: a purchase request");
-    expect((plan.match(/- \*\*Status:\*\* pending/g) ?? []).length).toBe(2);
+    expect(plan).not.toContain("**Status:**");
   });
 
   it("works with no glossary (omits the section)", () => {
     const plan = seedFromDecisions([{ title: "Only decision", answer: "yes" }], []);
-    expect(plan).toContain("### Phase 1");
+    expect(plan).toContain("### Task 1");
     expect(plan).not.toContain("## Settled vocabulary");
   });
 });
@@ -95,7 +95,7 @@ describe("continuous chain loop — end-to-end toy effort", () => {
     }
   });
 
-  it("ticket → flatten → task_plan.md → (phase completes) → syncChainState closes the ticket", () => {
+  it("ticket → flatten → task_plan.md → (Task completes) → syncChainState closes the ticket", () => {
     const cwd = makeCwd();
     const effort = "orders";
     writeMap(cwd, {
@@ -122,7 +122,7 @@ describe("continuous chain loop — end-to-end toy effort", () => {
     // FORWARD: flatten the ticket into a plan body (what /plan-seed writes).
     const map = readMap(cwd, effort);
     const plan = flattenTicketsToPlan(map?.tickets ?? [], []);
-    expect(plan).toMatch(/### Phase 1 — \[01-storage\] Pick storage/);
+    expect(plan).toMatch(/### Task 1 — \[01-storage\] Pick storage/);
     expect(plan).toContain("- [ ] migration runs green");
 
     // Simulate the plan coordinator: the phase is now complete and exposes the ticket stem
@@ -165,5 +165,24 @@ describe("continuous chain loop — end-to-end toy effort", () => {
     const r = syncChainState(cwd, effort);
     expect(r.closed).toEqual(["03-foo"]);
     expect(readMap(cwd, effort)?.tickets.find((t) => t.id === "03")?.status).toBe("closed");
+  });
+
+  it("flattenTicketsToPlan output feeds parsePlan — wayfind-GENERATED plans enter the loop (ticket 08)", () => {
+    // The TB6 e2e above used a hand-written Task string; this proves the REAL
+    // wayfind producer (flattenTicketsToPlan, now writing-plans format) parses
+    // into the phases/ticketIds/status the close loop needs.
+    const plan = flattenTicketsToPlan([mk("03", "foo", "Foo", [], { acceptance: ["step one", "step two"] })], []);
+    const parsed = parsePlan(plan, "<wayfind-seed>").phases;
+
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].id).toBe("task-1");
+    expect(parsed[0].ticketIds).toEqual(["03-foo"]);
+    expect(parsed[0].status).toBe("pending");
+    expect(parsed[0].stepCount).toBe(2);
+    expect(parsed[0].completedSteps).toBe(0);
+
+    // Both steps checked → completed → close-loop fires.
+    const completed = parsePlan(plan.replaceAll("- [ ]", "- [x]"), "<wayfind-seed>").phases;
+    expect(completed[0].status).toBe("completed");
   });
 });
