@@ -88,6 +88,11 @@ export const GATES: ToolGate[] = [
     description: "Flux2 image generation — text-to-image, i2i, faceswap, outpaint, upscale, restore",
   },
   {
+    // No `requires` co-occurrence: krea2's keywords ("krea", "草圖", "快速生成",
+    // ...) are narrow enough that bare-word false-fires are unlikely, unlike
+    // the core nouns (image/video/pdf) that need noun∧verb gating. A prompt
+    // like "快速生成一個圖" fires flux2 (via requires) but not krea2 unless
+    // "krea"/"草圖" literally appears — intentional precision tradeoff.
     names: ["krea2", "krea2_help"],
     keywords: ["krea", "krea2", "草圖", "快速生成", "即時生成", "實時繪圖"],
     description: "Krea2 fast image generation — real-time draft to image",
@@ -148,6 +153,20 @@ export const GATES: ToolGate[] = [
     description: "Movie orchestrator — idea→script→scene→assets→edit→compose pipeline",
   },
 ];
+
+/** Union of CORE_TOOLS and every gate's tool names — the set of tools this
+ *  extension explicitly tracks. Unknown tools (not in this set) are always
+ *  active (fail-open). Precomputed at module load so callers that need the
+ *  active list without re-firing gates can filter directly. */
+const TRACKED_TOOLS = new Set([...CORE_TOOLS, ...GATES.flatMap((g) => g.names)]);
+
+/** Pure: filter `allToolNames` to those that should be active given `sticky`.
+ *  Tools not in TRACKED_TOOLS are always active (fail-open); tracked tools
+ *  are active only when present in `sticky`. Does NOT mutate sticky or
+ *  evaluate gate keywords — gate firing is a separate concern. */
+export function filterActive(allToolNames: string[], sticky: Set<string>): string[] {
+  return allToolNames.filter((name) => !TRACKED_TOOLS.has(name) || sticky.has(name));
+}
 
 // ── Startup banner (obsidian-style above-editor widget) ──────────
 
@@ -242,37 +261,23 @@ export function gateFires(gate: ToolGate, promptLower: string): boolean {
 // ── Extension entry ──────────────────────────────────────────────
 
 /**
- * Compute which tools should be active for this turn.
+ * Fire any gates whose keywords or `requires` co-occurrence match `prompt`,
+ * adding their tool names to `sticky`. This is the MUTATION half of the
+ * per-turn pipeline; {@link filterActive} is the pure (compute) half.
  *
  * `sticky` is the accumulator of every tool activated so far THIS SESSION —
- * it starts as a copy of CORE_TOOLS and callers mutate it in place across
- * turns, so a gate that fires once stays active for the rest of the session
- * (a workflow using flux2 must not lose the tool mid-task just because a
- * follow-up prompt like "make it bigger" doesn't repeat the trigger keyword).
- *
- * Fail-open for UNKNOWN tools: only tools this file explicitly tracks (in
- * CORE_TOOLS or a GATES entry) are ever gated off. A tool from a new/renamed
- * extension that this file hasn't been updated for is never hidden — gating
- * is an opt-in allowlist for a KNOWN heavy set, not a default-deny for
- * everything else.
+ * it starts as a copy of CORE_TOOLS and is mutated in place across turns, so
+ * a gate that fires once stays active for the rest of the session (a workflow
+ * using flux2 must not lose the tool mid-task just because a follow-up prompt
+ * like "make it bigger" doesn't repeat the trigger keyword).
  */
-export function computeActiveTools(
-  prompt: string,
-  allToolNames: string[],
-  sticky: Set<string>,
-): string[] {
-  const promptLower = prompt.toLowerCase();
-
-  const known = new Set(CORE_TOOLS);
-  for (const gate of GATES) for (const name of gate.names) known.add(name);
-
-  for (const gate of GATES) {
-    if (gateFires(gate, promptLower)) {
-      for (const name of gate.names) sticky.add(name);
-    }
-  }
-
-  return allToolNames.filter((name) => !known.has(name) || sticky.has(name));
+export function updateSticky(prompt: string, sticky: Set<string>): void {
+	const promptLower = prompt.toLowerCase();
+	for (const gate of GATES) {
+		if (gateFires(gate, promptLower)) {
+			for (const name of gate.names) sticky.add(name);
+		}
+	}
 }
 
 /**
@@ -304,10 +309,12 @@ export function matchIntent(
 }
 
 // ── Telemetry (S3-lite, baked in) ─────────────────────────────────
-// stderr by default; opt-in JSONL file via TOOL_GATE_LOG_PATH; disable via
-// TOOL_GATE_LOG=0. Non-essential: write failures are swallowed. Purpose:
-// quantify the dormant-tool miss rate (the "miss_candidate" kind) so the
-// escape-hatch risk becomes measurable instead of structural-but-invisible.
+// Opt-in: silent by default. Enable stderr output via TOOL_GATE_LOG=1, or
+// write JSONL to a file via TOOL_GATE_LOG_PATH. Non-essential: write failures
+// are swallowed. Purpose: quantify the dormant-tool miss rate (the
+// "miss_candidate" kind) so the escape-hatch risk becomes measurable instead
+// of structural-but-invisible. F4 (2026-07-20): flipped from opt-out to opt-in
+// so production sessions stay quiet unless the developer explicitly enables it.
 
 export interface ToolGateLogEntry {
   kind: "turn" | "activate" | "miss_candidate";
@@ -316,10 +323,10 @@ export interface ToolGateLogEntry {
 }
 
 export function emitToolGateLog(entry: ToolGateLogEntry): void {
-  if (process.env.TOOL_GATE_LOG === "0") return;
+  const file = process.env.TOOL_GATE_LOG_PATH;
+  if (process.env.TOOL_GATE_LOG !== "1" && !file) return; // opt-in (F4)
   const line = JSON.stringify(entry);
   try {
-    const file = process.env.TOOL_GATE_LOG_PATH;
     if (file) appendFileSync(file, line + "\n");
     else process.stderr.write(line + "\n");
   } catch {
@@ -347,9 +354,11 @@ export function computeBannerSaved(
   allToolNames: string[],
   measuredTokens: Map<string, number>,
 ): number {
+  const activeSet = new Set(active);
   return GATES
-    .filter((g) => g.names.some((n) => allToolNames.includes(n))) // loaded
-    .filter((g) => !g.names.some((n) => active.includes(n)))      // gated
+    .filter((g) =>
+      g.names.some((n) => allToolNames.includes(n)) && // loaded
+      !g.names.some((n) => activeSet.has(n)))            // gated
     .reduce(
       (sum, g) => sum + g.names.reduce((s, n) => s + (measuredTokens.get(n) ?? 0), 0),
       0,
@@ -395,7 +404,8 @@ export default function toolGateExtension(pi: ExtensionAPI) {
         [t.name, measureToolTokens(t)]),
     );
 
-    const active = computeActiveTools("", allToolNames, sticky);
+    // session_start prompt is "" → updateSticky is a no-op; just filter.
+    const active = filterActive(allToolNames, sticky);
     pi.setActiveTools(active);
 
     // G fix + S3: only count loaded gates, using measured (not stale) token costs.
@@ -421,7 +431,8 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     lastPrompt = prompt;
 
     const before = new Set(sticky);
-    const active = computeActiveTools(prompt, allToolNames, sticky);
+    updateSticky(prompt, sticky);
+    const active = filterActive(allToolNames, sticky);
     pi.setActiveTools(active);
 
     // telemetry: which gates newly fired this turn, which are still dormant
@@ -483,7 +494,20 @@ export default function toolGateExtension(pi: ExtensionAPI) {
         let via: "name" | "intent" = "intent";
         if (params.name) {
           via = "name";
-          matched = GATES.filter((g) => g.names.includes(params.name as string));
+          const gate = GATES.find((g) => g.names.includes(params.name as string));
+          // F3: if the gate exists but is already fully active, say so instead
+          // of misleadingly reporting "Activated".
+          if (gate && gate.names.every((n) => sticky.has(n))) {
+            emitToolGateLog({
+              kind: "activate", ts: new Date().toISOString(),
+              via, intent: params.name as string, matchedGate: null, activated: [],
+            });
+            return {
+              details: undefined,
+              content: [{ type: "text" as const, text: `'${params.name}' is already active.` }],
+            };
+          }
+          matched = gate ? [gate] : [];
         } else if (params.intent) {
           matched = matchIntent(params.intent, GATES, sticky);
         } else {
@@ -513,7 +537,10 @@ export default function toolGateExtension(pi: ExtensionAPI) {
 
         const activated: string[] = [];
         for (const g of matched) for (const n of g.names) { sticky.add(n); activated.push(n); }
-        const active = computeActiveTools(lastPrompt, allToolNames, sticky);
+        // F1 fix: compute the active list directly from sticky — do NOT
+        // re-fire gates against lastPrompt, which would silently activate
+        // additional gates beyond the one explicitly requested.
+        const active = filterActive(allToolNames, sticky);
         pi.setActiveTools(active);
         emitToolGateLog({
           kind: "activate", ts: new Date().toISOString(),
@@ -523,7 +550,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
           details: undefined,
           content: [{
             type: "text" as const,
-            text: `✓ Activated: ${activated.join(", ")}. They are available now (this turn if the runtime refreshes tools per iteration; otherwise on your next message). You can call them directly.`,
+            text: `✓ Activated: ${activated.join(", ")}. You can call them directly.`,
           }],
         };
       } catch (err) {
