@@ -8,8 +8,9 @@
 #   2. checks     — poll for check registration, then watch ALL checks to a FINAL
 #                    state; merge only if the final aggregate is green (NO
 #                    --fail-fast). Preflight does NOT abort while CI is running.
-#   3. merge      — gh pr merge --squash; if "head not up to date", sync the
-#                   branch with origin/main, push, re-watch CI, retry the merge
+#   3. merge      — gh pr merge --squash; retry loop absorbs base-moved
+#                   (re-sync + re-watch CI) and the mergeability-computation
+#                   lag (short settle after CI green — iter-11)
 #   4. cleanup    — detach at origin/main (NOT `git checkout main` — main is
 #                   checked out in a sibling worktree, so that fails), delete the
 #                   local + remote branch, fetch --prune
@@ -83,31 +84,47 @@ ci_running() {
 #   required=true  → checks are KNOWN to exist (watched in step 2); if they don't
 #                    re-register after a base-update push, ABORT (iter-4 race).
 wait_ci() {
-  local pr="$1" required="${2:-false}" bad deadline
-  # Registration poll: right after a push GitHub hasn't created the check runs
-  # yet, so `gh pr checks` is briefly empty. Wait for them to appear.
-  if [[ -z "$(gh pr checks "$pr" 2>/dev/null)" ]]; then
-    deadline=$(( $(date +%s) + CHECKS_REGISTER_TIMEOUT ))
-    while [[ -z "$(gh pr checks "$pr" 2>/dev/null)" ]]; do
-      if [[ $(date +%s) -ge $deadline ]]; then break; fi
-      sleep 3
-    done
-    if [[ -z "$(gh pr checks "$pr" 2>/dev/null)" ]]; then
-      if [[ "$required" == true ]]; then
-        echo "CI checks did not register within ${CHECKS_REGISTER_TIMEOUT}s. Aborting." >&2
-        return 1
+  local pr="$1" required="${2:-false}" total bad deadline
+  # Unified poll: wait until the check set is POPULATED AND all-terminal, then
+  # gate on the aggregate. Replaces the old `--watch` + `|| echo "?"` gate, which
+  # false-failed when `gh pr checks` exited non-zero on an EMPTY check set right
+  # after a push (the post-push window: the new commit's checks haven't
+  # registered yet, or stale old-commit checks just cleared) — `?` != `0` aborted
+  # the whole merge. Empty is now "wait", not failure. (iter-11 RCA, dogfooded on
+  # #712's base-update re-watch, which aborted with a bogus '?' gate failure.)
+  deadline=$(( $(date +%s) + CHECKS_REGISTER_TIMEOUT ))
+  while :; do
+    total=$(gh pr checks "$pr" --json state -q 'length' 2>/dev/null || echo 0)
+    [[ "$total" =~ ^[0-9]+$ ]] || total=0
+    if [[ "$total" -gt 0 ]]; then
+      if ci_running "$pr"; then
+        echo "  CI: $total check(s), still running…"
+      else
+        break   # populated + all terminal → gate
       fi
-      echo "  (no checks detected within ${CHECKS_REGISTER_TIMEOUT}s — assuming none configured; use --no-checks to skip this wait)" >&2
-      return 0
+    else
+      echo "  CI: waiting for checks to register…"
     fi
-  fi
+    if [[ $(date +%s) -ge $deadline ]]; then
+      if [[ "$total" -eq 0 ]]; then
+        if [[ "$required" == true ]]; then
+          echo "CI checks did not register within ${CHECKS_REGISTER_TIMEOUT}s. Aborting." >&2
+          return 1
+        fi
+        echo "  (no checks detected within ${CHECKS_REGISTER_TIMEOUT}s — assuming none configured; use --no-checks to skip)" >&2
+        return 0
+      fi
+      break  # populated but still running past the deadline → gate anyway (best-effort)
+    fi
+    sleep 5
+  done
   SAW_CHECKS=true
-  gh pr checks "$pr" --watch --interval 15 || true   # wait for all; exit code ignored
   bad=$(gh pr checks "$pr" --json state \
         -q '[.[]|select(.state!="SUCCESS" and .state!="NEUTRAL" and .state!="SKIPPED")]|length' \
-        2>/dev/null || echo "?")
-  if [[ "$bad" != "0" ]]; then
-    echo "CI not all-green after watch ($bad non-passing check(s)). Inspect: gh pr checks $pr" >&2
+        2>/dev/null || echo 0)
+  [[ "$bad" =~ ^[0-9]+$ ]] || bad=0
+  if [[ "$bad" -gt 0 ]]; then
+    echo "CI not all-green ($bad non-passing check(s)). Inspect: gh pr checks $pr" >&2
     return 1
   fi
 }
@@ -157,7 +174,9 @@ else
 fi
 
 # --- 3. merge (with base-update handling) -------------------------------------
-# Returns: 0 = merged; 2 = "head not up to date" (base moved); 1 = other failure.
+# Returns: 0 = merged; 2 = "head not up to date" (base moved → re-sync + retry);
+#          3 = mergeability/required-checks lag (transient → settle + retry);
+#          1 = other (hard) failure.
 try_merge() {
   local err rc
   err=$(gh pr merge "$PR_NUMBER" --squash 2>&1 >/dev/null) && rc=0 || rc=$?
@@ -165,6 +184,12 @@ try_merge() {
   if [[ $rc -ne 0 ]]; then
     if grep -qiE "up to date|out of date|outdated|behind" <<<"$err"; then
       echo "$err" >&2; return 2
+    fi
+    # iter-11: GitHub's merge decision can lag check completion by ~5-10s — a
+    # "required status checks" / "not mergeable" error right after CI went green
+    # is transient, not a real block. Retry after a short settle.
+    if grep -qiE "required status check|not mergeable|is not mergeable" <<<"$err"; then
+      echo "$err" >&2; return 3
     fi
     echo "$err" >&2; return 1
   fi
@@ -174,24 +199,39 @@ try_merge() {
 say "Squash-merging PR #${PR_NUMBER}…"
 BASE_UPDATED=false
 if [[ "$DRY_RUN" != true ]]; then
-  try_merge && rc=0 || rc=$?
-  if [[ $rc -eq 2 ]]; then
-    BASE_UPDATED=true
-    say "Base moved — syncing '$PR_HEAD' with $REMOTE/$BASE_BRANCH, then re-running CI…"
-    run git merge "$REMOTE/$BASE_BRANCH" --no-edit
-    run git push "$REMOTE" "$PR_HEAD"
-    if [[ "$NO_CHECKS" != true && "$SAW_CHECKS" == true ]]; then
-      say "Re-watching CI after base-update…"
-      # wait_ci(required=true) re-polls for registration (CI existed in step 2,
-      # so it MUST re-register after the base-update push) then watches + gates.
-      wait_ci "$PR_NUMBER" true || { echo "CI failed after base-update. Aborting." >&2; exit 1; }
-    fi
-    say "Re-merging…"
+  # Retry loop absorbs BOTH the base-moved re-sync (rc=2) and the
+  # mergeability-computation lag (rc=3, short settles after CI goes green).
+  # iter-11: GitHub mergeability ≠ check completion — a green check run does not
+  # mean `gh pr merge` will accept it for ~5-10s, so retry instead of aborting.
+  attempt=0
+  rc=1
+  while [[ $attempt -lt ${MERGE_MAX_ATTEMPTS:-3} ]]; do
+    attempt=$((attempt + 1))
     try_merge && rc=0 || rc=$?
-    [[ $rc -eq 0 ]] || { echo "Merge still failing after base-update. Inspect manually." >&2; exit 1; }
-  elif [[ $rc -ne 0 ]]; then
-    echo "Merge failed for a non-base-update reason. Inspect manually." >&2; exit 1
-  fi
+    [[ $rc -eq 0 ]] && break
+    if [[ $rc -eq 2 ]]; then            # base moved → sync, re-run CI, retry
+      BASE_UPDATED=true
+      say "Base moved — syncing '$PR_HEAD' with $REMOTE/$BASE_BRANCH, then re-running CI…"
+      run git merge "$REMOTE/$BASE_BRANCH" --no-edit
+      run git push "$REMOTE" "$PR_HEAD"
+      if [[ "$NO_CHECKS" != true && "$SAW_CHECKS" == true ]]; then
+        say "Re-watching CI after base-update…"
+        # wait_ci(required=true) re-polls for registration (CI existed in step 2,
+        # so it MUST re-register after the base-update push) then gates. The
+        # unified poll now rides through the empty-checks window that previously
+        # aborted with a bogus '?' gate failure.
+        wait_ci "$PR_NUMBER" true || { echo "CI failed after base-update. Aborting." >&2; exit 1; }
+      fi
+      continue
+    fi
+    if [[ $rc -eq 3 && $attempt -lt ${MERGE_MAX_ATTEMPTS:-3} ]]; then  # mergeability lag → settle + retry
+      say "Merge decision lagging CI (attempt $attempt) — settling ${MERGE_SETTLE_S:-8}s and retrying…"
+      sleep "${MERGE_SETTLE_S:-8}"
+      continue
+    fi
+    echo "Merge failed (rc=$rc). Inspect manually." >&2; exit 1
+  done
+  [[ $rc -eq 0 ]] || { echo "Merge did not complete after $attempt attempt(s). Inspect manually." >&2; exit 1; }
 fi
 
 # --- 4. cleanup (worktree-safe: detach, never `checkout main`) ----------------
