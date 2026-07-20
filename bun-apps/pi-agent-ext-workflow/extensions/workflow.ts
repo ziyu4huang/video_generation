@@ -70,6 +70,7 @@ export default function extension(pi: ExtensionAPI) {
   const subagentTool = createSubagentTool({
     cwd,
     getExtensionTools: () => extensionToolsHolder.current,
+    getMainModel: () => manager.getMainModel(),
     inFlight: subagentInFlight,
   });
   // Best-effort guard: this repo expects pi-agent-ext-workflow to own the
