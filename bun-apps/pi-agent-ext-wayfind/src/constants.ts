@@ -34,6 +34,16 @@ export const PLAN_INCOMPLETE_KEY = "__piPlanIncomplete";
 export const PLAN_SUMMARY_KEY = "__piPlanSummary";
 
 /**
+ * globalThis key under which the plan coordinator publishes an
+ * `(cwd: string) => PlanPhaseInfo[]` (per-phase `{id, status, ticketIds?}`).
+ * Read by `syncChainState` (`/wayfind sync`) to close tickets whose phase
+ * reports complete. Read-only on the wayfind side (graceful fallback → empty
+ * when no publisher is present — the coordinator is now built as
+ * pi-agent-ext-core-task; see ADR-0003).
+ */
+export const PLAN_PHASES_KEY = "__piPlanPhases";
+
+/**
  * globalThis key under which wayfind publishes a GRILL-SPECIFIC active reader:
  * `(sessionId: string) => boolean`. Distinct from WAYFIND_ACTIVE_KEY, which
  * conflates grill + wayfinder. Consumers that must scope to grills only (e.g.
