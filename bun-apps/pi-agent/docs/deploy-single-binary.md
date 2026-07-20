@@ -1,19 +1,12 @@
-# Deploying pi-agent
+# Deploying pi-agent as a single binary (`--exe`)
 
 `bun scripts/deploy.ts --exe` builds pi-agent as a standalone executable
-(`dist/pi-agent/pi-agent`, ~73 MB) with no `bun` runtime required on the
-target machine. This doc is the key knowledge for building, re-building, and
-maintaining this repo's deploy pipeline — see [README.md § Build / Deploy modes](../README.md#build--deploy-modes)
-for quick commands; this doc is the deeper "why" + "how to
-change it" doc.
-
-## Deploy modes overview
-
-pi-agent has four deploy modes — see [README.md § Build / Deploy modes](../README.md#build--deploy-modes)
-for the canonical mode table and command reference, and
+(`dist/pi-agent/pi-agent`, ~75 MB) with no `bun` runtime required on the
+target machine. This doc is the deep "why" + "how to change it" reference for
+the `--exe` mode only — see [README.md § Build / Deploy modes](../README.md#build--deploy-modes)
+for the canonical four-mode table, and
 [`deploy-cwd-trust.md`](./deploy-cwd-trust.md) for the full layout/resolution
-detail per mode. This doc focuses on just the `--exe` (standalone binary) mode —
-why it exists, how it works, and how to maintain it.
+detail across all modes.
 
 ## Why the binary can't just load every extension
 
@@ -27,7 +20,7 @@ bun-compile + jiti interaction, not fixable from pi-agent's side — so
 `resolve.ts` detects binary mode and never emits `-e` at all. Historically
 this meant the compiled binary shipped with **zero extensions**.
 
-## The fix: a static "general productivity" subset
+## The fix: a static 10-extension subset (two groups)
 
 `src/static-extensions.ts` statically imports 10 extensions, in two groups
 added at different times:

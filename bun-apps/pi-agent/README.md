@@ -166,10 +166,10 @@ bun bun-apps/pi-agent-cli/src/cli.ts doctor [--json] [--fix]
 pi-agent ships via four deploy modes, all driven by `scripts/deploy.ts`.
 See the [Deploy](#deploy) section for full details.
 ```bash
-bun scripts/deploy.ts                    # --bundle (default): thin bundles, no node_modules
-bun scripts/deploy.ts --exe              # single executable (all assets embedded)
-bun scripts/deploy.ts --snapshot         # full source copy + node_modules
-bun scripts/deploy.ts --standalone       # bundle + local bun binary + run.sh
+bun scripts/deploy.ts                    # --bundle (default): thin bundles + node_modules symlink (same-machine)
+bun scripts/deploy.ts --exe              # single self-contained executable (all assets embedded, ~75 MB)
+bun scripts/deploy.ts --snapshot         # full source copy + node_modules symlink tree (same-machine)
+bun scripts/deploy.ts --standalone       # bundle + local bun binary + run.sh (same-machine)
 bun scripts/deploy.ts --no-freeze        # skip read-only freeze
 bun run deploy:exe                       # shorthand for --exe
 ```
@@ -234,14 +234,14 @@ full rationale (why `require()` doesn't work, why some files carry
 `// @ts-nocheck`, the `manifest.json` field reference) and the steps to add
 or remove an extension from this static set.
 ## Deploy
-`scripts/deploy.ts` packages pi-agent + its extension set into a self-contained dir runnable from any cwd:
-| Mode | Command | Layout | node_modules |
-|------|---------|--------|-------------|
-| **Bundle** (default) | `bun scripts/deploy.ts` | `pi-agent.js` + `ext-bundles/*.thin.js` + `skills/` | none (baked abs paths) |
-| **Snapshot** | `bun scripts/deploy.ts --snapshot` | Full source tree + `run.sh` | `cp -R` from repo |
-| **Standalone** | `bun scripts/deploy.ts --standalone` | Bundle + `bun` binary + `run.sh` | none |
-| **Exe** | `bun scripts/deploy.ts --exe` | Single executable (74 MB) | none |
-See [`docs/deploy-single-binary.md`](docs/deploy-single-binary.md) for the full rationale — why extensions can't load in binary mode, how the 10 static extensions work, the `@ts-nocheck` pattern, and how `--compile-embed` (now `--exe`) packs all assets into one file.
+`scripts/deploy.ts` packages pi-agent + its extension set into a dir runnable from **any cwd on the build machine**. Only `--exe` is fully self-contained/portable; the other three modes rely on a `node_modules` symlink (Bundle/Standalone) or a copied symlink tree (Snapshot) into the machine-global bun store, so they are **same-machine only**.
+| Mode | Command | Layout | node_modules | Portable? |
+|------|---------|--------|-------------|-----------|
+| **Bundle** (default) | `bun scripts/deploy.ts` | `pi-agent.js` + `ext-bundles/*.thin.js` + `skills/` | symlink → global store | same-machine only |
+| **Snapshot** | `bun scripts/deploy.ts --snapshot` | Full source tree + sibling ext pkgs + `run.sh` | copied symlinks → global store | same-machine only |
+| **Standalone** | `bun scripts/deploy.ts --standalone` | Bundle + `bun` binary + `run.sh` | symlink → global store | same-machine only (no system `bun` needed) |
+| **Exe** | `bun scripts/deploy.ts --exe` | Single executable (~75 MB) | none (all embedded) | **yes — fully self-contained** |
+See [`docs/deploy-cwd-trust.md`](docs/deploy-cwd-trust.md) for the packaging/mode-detection details and [`docs/deploy-single-binary.md`](docs/deploy-single-binary.md) for the `--exe` rationale — why extensions can't load in binary mode, how the 10 static extensions work, the `@ts-nocheck` pattern, and how `--exe` packs all assets into one file.
 ### Read-only deploy (the default)
 A deploy is an **immutable artifact**: code + bundled extensions, with ALL
 per-user state routed to `~/.pi/agent`. Both pi itself (`getAgentDir()` →
