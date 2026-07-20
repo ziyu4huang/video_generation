@@ -8,11 +8,12 @@
 
 import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { summarizeLatestAction } from "./agent-history.js";
 import {
+  type ActivityRow,
   fmtTokensShort,
+  renderActivityRow,
   shorten,
-  shortModel,
-  statusIcon,
   type WorkflowAgentSnapshot,
   type WorkflowSnapshot,
 } from "./display.js";
@@ -27,6 +28,7 @@ import type { WorkflowSettings } from "./workflow-settings.js";
 const RUN_EVENTS = [
   "agentStart",
   "agentEnd",
+  "agentHistory",
   "phase",
   "log",
   "tokenUsage",
@@ -338,10 +340,15 @@ function renderRunBody(
 
     const visible = phaseAgents.slice(-maxAgents);
     for (const a of visible) {
-      const tok = a.tokens ? dim(` ${fmtTokensShort(a.tokens)} tok`) : "";
-      const mdl = shortModel(a.model);
-      const model = mdl ? dim(` · ${mdl}`) : "";
-      lines.push(`    [${a.id}] ${statusIcon(a.status)} ${shorten(a.label, 40)}${tok}${model}`);
+      const row: ActivityRow = {
+        status: a.status,
+        actor: shorten(a.label, 40),
+        model: a.model,
+        tokens: a.tokens,
+        badge: `[${a.id}]`,
+        latestAction: a.status === "running" ? summarizeLatestAction(a.history) : undefined,
+      };
+      lines.push(`    ${renderActivityRow(row, theme)}`);
     }
     if (phaseAgents.length > visible.length) {
       lines.push(dim(`    … ${phaseAgents.length - visible.length} earlier agents`));
