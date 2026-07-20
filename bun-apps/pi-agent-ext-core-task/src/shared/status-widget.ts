@@ -52,6 +52,8 @@ export interface StatusSection {
 	order?: number;
 	/** Render this section's lines. Empty array = section hidden. */
 	render(theme: Theme, width: number): string[];
+	/** Optional debug snapshot for inspect_tui. */
+	inspect?(): unknown;
 }
 
 export class CoreTaskStatusWidget {
@@ -138,6 +140,31 @@ export class CoreTaskStatusWidget {
 			lines.push(...out);
 		}
 		return lines;
+	}
+
+	/** Debug snapshot for inspect_tui — widget state + each section's inspect()
+	 *  + the actual rendered output (plain text, ANSI stripped). */
+	inspect(): {
+		widgetKey: string;
+		registered: boolean;
+		sections: { id: string; order?: number; detail?: unknown }[];
+		renderedLines: string[];
+	} {
+		const plainTheme = {
+			fg: (_c: string, s: string) => s,
+			bg: (_c: string, s: string) => s,
+			bold: (s: string) => s,
+			italic: (s: string) => s,
+			underline: (s: string) => s,
+			inverse: (s: string) => s,
+			strikethrough: (s: string) => s,
+		} as unknown as Theme;
+		return {
+			widgetKey: WIDGET_KEY,
+			registered: this.widgetRegistered,
+			sections: this.sections.map((s) => ({ id: s.id, order: s.order, detail: s.inspect?.() })),
+			renderedLines: this.renderAll(plainTheme, 120),
+		};
 	}
 }
 

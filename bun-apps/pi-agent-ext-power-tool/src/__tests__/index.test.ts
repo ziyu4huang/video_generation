@@ -181,24 +181,26 @@ interface ToolInfoStub {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("tool registration", () => {
-  test("registers all 4 inspect_* tools", () => {
+  test("registers all 5 inspect_* tools", () => {
     const { captured } = loadExtension([]);
     // ask_user_question -> pi-agent-ext-ask-user (A2, merged into
     // pi-agent-ext-core-task 2026-07-18); goal+todo -> pi-agent-ext-core-task
     // (A3); knowledge_query + graph_health -> knowledge-graph hub.
     // power-tool is now self-contained diagnostics: inspect_* only, plus
-    // inspect_pathology (F v1) for failure-pattern detection.
+    // inspect_pathology (F v1) for failure-pattern detection, plus
+    // inspect_tui for above-editor widget debugging.
     expect(Object.keys(captured).sort()).toEqual([
       "inspect_agent",
       "inspect_context",
       "inspect_extensions",
       "inspect_pathology",
+      "inspect_tui",
     ]);
   });
 
   test("each registered tool has label, description, and execute fn", () => {
     const { captured } = loadExtension([]);
-    expect(Object.keys(captured).length).toBe(4);
+    expect(Object.keys(captured).length).toBe(5);
     for (const name of Object.keys(captured)) {
       expect(typeof captured[name].label).toBe("string");
       expect(captured[name].label.length).toBeGreaterThan(0);
@@ -865,5 +867,106 @@ describe("extension-auditor subagent definition", () => {
     expect(tools).toContain("inspect_extensions");
     expect(tools).not.toContain("write");
     expect(tools).not.toContain("edit");
+  });
+});
+
+describe("inspect_tui", () => {
+  const BASE_CTX: Record<string, unknown> = {
+    cwd: "/tmp/test",
+    mode: "cli",
+    hasUI: false,
+    isIdle: () => true,
+    isProjectTrusted: () => true,
+    getContextUsage: () => null,
+  };
+
+  test("self_test returns deterministic mock", async () => {
+    const { captured } = loadExtension([]);
+    const res = await captured.inspect_tui.execute(undefined, { self_test: true }, undefined, undefined, BASE_CTX);
+    expect(res.content[0].text).toContain("self_test: true");
+    expect(res.content[0].text).toContain("Inspect TUI");
+  });
+
+  test("reports NOT FOUND when globalThis has no widget singleton", async () => {
+    const g = globalThis as Record<string, unknown>;
+    const orig = g.__piCoreTaskStatusWidget;
+    delete g.__piCoreTaskStatusWidget;
+    try {
+      const { captured } = loadExtension([]);
+      const res = await captured.inspect_tui.execute(undefined, {}, undefined, undefined, BASE_CTX);
+      expect(res.content[0].text).toContain("NOT FOUND");
+      expect(res.content[0].text).toContain("pi-agent-ext-core-task");
+    } finally {
+      if (orig !== undefined) g.__piCoreTaskStatusWidget = orig;
+    }
+  });
+
+  test("formats widget snapshot when singleton has inspect()", async () => {
+    const g = globalThis as Record<string, unknown>;
+    const orig = g.__piCoreTaskStatusWidget;
+    g.__piCoreTaskStatusWidget = {
+      inspect: () => ({
+        widgetKey: "pi-core-task",
+        registered: true,
+        sections: [
+          { id: "goal", order: 0 },
+          {
+            id: "todo", order: 1,
+            detail: {
+              totalTasks: 9,
+              visibleTasks: 2,
+              hiddenCompletedTaskIds: [3, 4, 5, 6, 7, 8, 9],
+              pendingHideIds: [],
+              fullTaskList: [
+                { id: 1, subject: "Task A", status: "pending" },
+                { id: 2, subject: "Task B", status: "pending" },
+                { id: 3, subject: "Task C", status: "completed" },
+              ],
+            },
+          },
+        ],
+        renderedLines: ["● Todos (7/9)", "├─ ○ #1 Task A", "├─ ○ #2 Task B"],
+      }),
+    };
+    try {
+      const { captured } = loadExtension([]);
+      const res = await captured.inspect_tui.execute(undefined, {}, undefined, undefined, BASE_CTX);
+      const text = res.content[0].text;
+      expect(text).toContain("pi-core-task");
+      expect(text).toContain("registered: true");
+      expect(text).toContain("[0] goal");
+      expect(text).toContain("[1] todo (inspectable)");
+      expect(text).toContain("Todos (7/9)");
+      expect(text).toContain("total: 9 (2 pending, 0 in-progress, 1 completed)");
+      expect(text).toContain("hidden completed: #3, #4, #5, #6, #7, #8, #9");
+      expect(text).toContain("(hidden)");
+    } finally {
+      if (orig !== undefined) g.__piCoreTaskStatusWidget = orig;
+      else delete g.__piCoreTaskStatusWidget;
+    }
+  });
+
+  test("return_json returns machine-readable snapshot", async () => {
+    const g = globalThis as Record<string, unknown>;
+    const orig = g.__piCoreTaskStatusWidget;
+    g.__piCoreTaskStatusWidget = {
+      inspect: () => ({
+        widgetKey: "pi-core-task",
+        registered: false,
+        sections: [],
+        renderedLines: [],
+      }),
+    };
+    try {
+      const { captured } = loadExtension([]);
+      const res = await captured.inspect_tui.execute(undefined, { return_json: true }, undefined, undefined, BASE_CTX);
+      const parsed = JSON.parse(res.content[0].text);
+      expect(parsed.widget.widgetKey).toBe("pi-core-task");
+      expect(parsed.widget.registered).toBe(false);
+      expect(parsed.seams).toBeDefined();
+    } finally {
+      if (orig !== undefined) g.__piCoreTaskStatusWidget = orig;
+      else delete g.__piCoreTaskStatusWidget;
+    }
   });
 });
