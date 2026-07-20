@@ -85,40 +85,50 @@ ci_running() {
 #                    re-register after a base-update push, ABORT (iter-4 race).
 wait_ci() {
   local pr="$1" required="${2:-false}" total bad deadline
-  # Unified poll: wait until the check set is POPULATED AND all-terminal, then
-  # gate on the aggregate. Replaces the old `--watch` + `|| echo "?"` gate, which
-  # false-failed when `gh pr checks` exited non-zero on an EMPTY check set right
-  # after a push (the post-push window: the new commit's checks haven't
-  # registered yet, or stale old-commit checks just cleared) — `?` != `0` aborted
-  # the whole merge. Empty is now "wait", not failure. (iter-11 RCA, dogfooded on
-  # #712's base-update re-watch, which aborted with a bogus '?' gate failure.)
+  # Registration + watch loop. Two races to handle (iter-11 RCA, dogfooded on
+  # #712's base-update and #714's late-registration):
+  #  (a) Post-push empty window: right after a push, `gh pr checks` can briefly
+  #      report NO checks (new commit not registered) OR stale checks (old
+  #      commit). `--watch` exits IMMEDIATELY on an empty set ("no checks
+  #      reported", non-zero), which previously made the gate's `|| echo "?"`
+  #      yield bad="?" and abort the merge (`"?" != "0"`). Now: re-poll for
+  #      registration and re-watch instead of failing.
+  #  (b) Late registration: jobs can register AFTER others finish. `--watch`
+  #      re-polls every 15s to pick them up (a unified one-shot poll broke too
+  #      early on #714, gating while 2 late jobs were still IN_PROGRESS). A
+  #      check that registers after --watch's final poll is caught by the
+  #      merge step's rc=3 (mergeability-lag) retry.
   deadline=$(( $(date +%s) + CHECKS_REGISTER_TIMEOUT ))
   while :; do
+    # Phase 1 — registration: wait for at least one check to appear.
+    while [[ -z "$(gh pr checks "$pr" 2>/dev/null)" ]]; do
+      if [[ $(date +%s) -ge $deadline ]]; then
+        if [[ "$required" == true ]]; then
+          echo "CI checks did not register within ${CHECKS_REGISTER_TIMEOUT}s. Aborting." >&2; return 1
+        fi
+        echo "  (no checks detected within ${CHECKS_REGISTER_TIMEOUT}s — assuming none configured; use --no-checks to skip)" >&2; return 0
+      fi
+      echo "  CI: waiting for checks to register…"
+      sleep 5
+    done
+    SAW_CHECKS=true
+    # Phase 2 — watch ALL checks (incl. late-registering) to a terminal state.
+    # `|| true`: --watch exits non-zero if it catches an empty set mid-race.
+    gh pr checks "$pr" --watch --interval 15 2>/dev/null || true
+    # Confirm the set is actually populated (not an empty-set race after a push).
     total=$(gh pr checks "$pr" --json state -q 'length' 2>/dev/null || echo 0)
     [[ "$total" =~ ^[0-9]+$ ]] || total=0
-    if [[ "$total" -gt 0 ]]; then
-      if ci_running "$pr"; then
-        echo "  CI: $total check(s), still running…"
-      else
-        break   # populated + all terminal → gate
-      fi
-    else
-      echo "  CI: waiting for checks to register…"
-    fi
+    [[ "$total" -gt 0 ]] && break
+    # Empty after watch (post-push race) → re-register and re-watch.
     if [[ $(date +%s) -ge $deadline ]]; then
-      if [[ "$total" -eq 0 ]]; then
-        if [[ "$required" == true ]]; then
-          echo "CI checks did not register within ${CHECKS_REGISTER_TIMEOUT}s. Aborting." >&2
-          return 1
-        fi
-        echo "  (no checks detected within ${CHECKS_REGISTER_TIMEOUT}s — assuming none configured; use --no-checks to skip)" >&2
-        return 0
+      if [[ "$required" == true ]]; then
+        echo "CI checks did not register within ${CHECKS_REGISTER_TIMEOUT}s. Aborting." >&2; return 1
       fi
-      break  # populated but still running past the deadline → gate anyway (best-effort)
+      echo "  (no checks detected within ${CHECKS_REGISTER_TIMEOUT}s — assuming none configured; use --no-checks to skip)" >&2; return 0
     fi
-    sleep 5
   done
-  SAW_CHECKS=true
+  # Phase 3 — gate on the aggregate. `|| echo 0` (was `|| echo "?"`): empty is
+  # already ruled out above, and a transient query failure must not read as "?".
   bad=$(gh pr checks "$pr" --json state \
         -q '[.[]|select(.state!="SUCCESS" and .state!="NEUTRAL" and .state!="SKIPPED")]|length' \
         2>/dev/null || echo 0)
