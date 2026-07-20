@@ -14,6 +14,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
+import lockfile from "proper-lockfile";
 import { scanContent } from "./content-scanner.js";
 import { normalizeMemoryLookupText } from "./memory-lookup.js";
 import {
@@ -68,6 +69,12 @@ export class MemoryStore {
   private _writeChain: Promise<unknown> = Promise.resolve();
   private _writeOwner: AsyncLocalStorage<boolean> = new AsyncLocalStorage<boolean>();
 
+  /** Cross-process lock paths currently held by THIS process. Re-entrancy guard:
+   *  runExclusive serializes within the process; the only re-entry is a
+   *  same-instance consolidator (production ones run in a child process —
+   *  see runConsolidator), which must not re-acquire its own file lock. */
+  private _heldFileLocks: Set<string> = new Set();
+
   private runExclusive<T>(fn: () => Promise<T>): Promise<T> {
     // Already inside a locked critical section on this async chain → re-enter.
     if (this._writeOwner.getStore() === true) {
@@ -84,6 +91,73 @@ export class MemoryStore {
       () => undefined,
     );
     return result;
+  }
+
+  // ─── Cross-process file lock ───
+  //
+  // proper-lockfile advisory lock on the .md source-of-truth, wrapping the
+  // loadFromDisk → mutate → saveToDisk critical section so concurrent writers
+  // across PROCESSES (other live sessions, dedup.sh) serialize. The lockfile is
+  // a directory `<mdPath>.lock` whose mtime proves liveness; `stale` bounds how
+  // long a crashed holder can block others. `retries` makes acquisition BLOCK
+  // (poll) until the lock is free rather than failing fast — a writer waits for
+  // an in-flight dedup instead of losing its update.
+  //
+  // Layering: runExclusive (in-process) is OUTER, withFileLock (cross-process)
+  // is INNER. This keeps the cross-process lock scope tight to the disk touch.
+  //
+  // BYPASS via PI_MEMORY_FILE_LOCK=bypass: the consolidator CHILD process
+  // inherits this env and skips the lock — see runConsolidator for why that's
+  // safe (the parent still holds the lock, making the child the sole writer).
+  private async withFileLock<T>(
+    target: "memory" | "user" | "failure",
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    if (process.env.PI_MEMORY_FILE_LOCK === "bypass") return fn();
+    const lockPath = this.pathFor(target);
+    if (this._heldFileLocks.has(lockPath)) return fn(); // re-entrant same-instance call
+    // Ensure the memory dir exists before creating the `<mdPath>.lock` sibling
+    // (loadFromDisk mkdir's too, but it runs INSIDE fn — after we'd try to lock).
+    await fs.mkdir(path.dirname(lockPath), { recursive: true });
+    const release = await lockfile.lock(lockPath, {
+      stale: 10_000,
+      realpath: false, // the .md may not exist yet on first write — don't realpath it
+      retries: { retries: 200, minTimeout: 50, maxTimeout: 250 },
+    });
+    this._heldFileLocks.add(lockPath);
+    try {
+      return await fn();
+    } finally {
+      this._heldFileLocks.delete(lockPath);
+      await release().catch(() => {});
+    }
+  }
+
+  /**
+   * Run the consolidator with the file-lock bypass env set, so the spawned
+   * child process (pi.exec — a SEPARATE OS process with its own MemoryStore)
+   * does not contend on the cross-process lock the parent holds here. Without
+   * this the child's _addInner would ELOCKED on the parent's held lock →
+   * consolidation always fails (or deadlocks if retries block).
+   *
+   * Safety: runExclusive guarantees only one mutating op runs in this process,
+   * so the env toggle can't leak to a concurrent op. The parent keeps the
+   * cross-process lock for the whole await, making the child the sole writer
+   * in flight (no lost update, no deadlock).
+   */
+  private async runConsolidator(
+    target: "memory" | "user" | "failure",
+    signal?: AbortSignal,
+  ): Promise<ConsolidationResult> {
+    if (!this.consolidator) return { consolidated: false, error: "no consolidator configured" };
+    const prev = process.env.PI_MEMORY_FILE_LOCK;
+    process.env.PI_MEMORY_FILE_LOCK = "bypass";
+    try {
+      return await this.consolidator(target, signal);
+    } finally {
+      if (prev === undefined) delete process.env.PI_MEMORY_FILE_LOCK;
+      else process.env.PI_MEMORY_FILE_LOCK = prev;
+    }
   }
 
   // ─── Path helpers ───
@@ -191,7 +265,7 @@ export class MemoryStore {
     target: "memory" | "user" | "failure",
     query?: string,
   ): Promise<MemoryResult> {
-    return this.runExclusive(() => this._transferEntriesInner(target, query));
+    return this.runExclusive(() => this.withFileLock(target, () => this._transferEntriesInner(target, query)));
   }
 
   private async _transferEntriesInner(
@@ -267,7 +341,8 @@ export class MemoryStore {
     addedMessage = "Entry added.",
   ): Promise<MemoryResult> {
     // Serialize so reload-read → mutate-array → saveToDisk stays atomic.
-    return this.runExclusive(() => this._addInner(target, content, signal, _retriesLeft, addedMessage));
+    // runExclusive = in-process; withFileLock = cross-process (see withFileLock).
+    return this.runExclusive(() => this.withFileLock(target, () => this._addInner(target, content, signal, _retriesLeft, addedMessage)));
   }
 
   private async _addInner(
@@ -318,7 +393,7 @@ export class MemoryStore {
         // Primary: info-preserving LLM consolidation (one retry).
         if (this.consolidator && _retriesLeft > 0) {
           try {
-            const result = await this.consolidator(target, signal);
+            const result = await this.runConsolidator(target, signal);
             if (result.consolidated) {
               // CRITICAL: reload from disk — child process modified files, our arrays are stale
               await this.loadFromDisk();
@@ -520,7 +595,7 @@ export class MemoryStore {
   }
 
   async replace(target: "memory" | "user" | "failure", oldText: string, newContent: string): Promise<MemoryResult> {
-    return this.runExclusive(() => this._replaceInner(target, oldText, newContent));
+    return this.runExclusive(() => this.withFileLock(target, () => this._replaceInner(target, oldText, newContent)));
   }
 
   private async _replaceInner(target: "memory" | "user" | "failure", oldText: string, newContent: string): Promise<MemoryResult> {

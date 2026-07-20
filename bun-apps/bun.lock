@@ -143,6 +143,7 @@
       "version": "0.7.23",
       "dependencies": {
         "@earendil-works/pi-tui": "0.80.10",
+        "proper-lockfile": "^4.1.2",
       },
       "devDependencies": {
         "@earendil-works/pi-ai": "0.80.10",
@@ -283,6 +284,7 @@
       "version": "0.1.0",
       "peerDependencies": {
         "@earendil-works/pi-coding-agent": "0.80.10",
+        "typebox": "*",
       },
     },
     "pi-agent-ext-wayfind": {
