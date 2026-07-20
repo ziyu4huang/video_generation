@@ -135,3 +135,24 @@ describe("artifact schema validation", () => {
     }
   });
 });
+
+describe("scene_plan", () => {
+  test("scene_plan: a scene may declare continuity 'cut' or 'continue'", () => {
+    const scenePlan = {
+      version: "1.0",
+      scenes: [
+        { id: "s1", type: "generated", description: "a cube", start_seconds: 0, end_seconds: 6, continuity: "cut" },
+        { id: "s2", type: "generated", description: "a sphere", start_seconds: 6, end_seconds: 12, continuity: "continue" },
+      ],
+    };
+    expect(validateArtifact("scene_plan", scenePlan).ok).toBe(true);
+  });
+
+  test("scene_plan: continuity rejects values outside 'continue'/'cut'", () => {
+    const scenePlan = {
+      version: "1.0",
+      scenes: [{ id: "s1", type: "generated", description: "a cube", start_seconds: 0, end_seconds: 6, continuity: "maybe" }],
+    };
+    expect(validateArtifact("scene_plan", scenePlan).ok).toBe(false);
+  });
+});

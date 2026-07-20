@@ -68,6 +68,12 @@
             "default": false,
             "description": "True if this is the visual peak of the video — deserves extra attention"
           },
+          "continuity": {
+            "type": "string",
+            "enum": ["continue", "cut"],
+            "default": "continue",
+            "description": "Chaining behavior into this scene's first generated link during native-relay long-movie assembly. 'continue' (default when omitted) reseeds from the previous scene's last frame; 'cut' starts fresh via T2I — a genuine scene change (new location/time/subject)."
+          },
           "character_actions": {
             "type": "array",
             "description": "Character-specific acting beats for rigged character animation scenes",
