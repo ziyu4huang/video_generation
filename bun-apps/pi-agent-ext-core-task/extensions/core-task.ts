@@ -75,7 +75,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 	goalOverlay.setRefresh(() => statusWidget.update());
 	todoOverlay.setRefresh(() => statusWidget.update());
 	statusWidget.addSection({ id: "goal", order: 0, render: (t, w) => goalOverlay.render(t, w) });
-	statusWidget.addSection({ id: "todo", order: 1, render: (t, w) => todoOverlay.render(t, w) });
+	statusWidget.addSection({ id: "todo", order: 1, render: (t, w) => todoOverlay.render(t, w), inspect: () => todoOverlay.inspect() });
 
 	pi.on("session_start", async (_event, ctx) => {
 		replaceState(replayFromBranch(ctx));

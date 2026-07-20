@@ -58,6 +58,26 @@ export class TodoOverlay {
 		this.resetCompletedDisplayState();
 	}
 
+	/** Debug snapshot for inspect_tui — exposes the hidden/display state that
+	 *  drives the render but isn't visible in the TUI output. */
+	inspect(): {
+		totalTasks: number;
+		visibleTasks: number;
+		hiddenCompletedTaskIds: number[];
+		pendingHideIds: number[];
+		fullTaskList: { id: number; subject: string; status: string }[];
+	} {
+		const state = getState();
+		const nonDeleted = state.tasks.filter((t) => t.status !== "deleted");
+		return {
+			totalTasks: nonDeleted.length,
+			visibleTasks: nonDeleted.filter((t) => !this.shouldHideCompletedTask(t)).length,
+			hiddenCompletedTaskIds: [...this.hiddenCompletedTaskIds],
+			pendingHideIds: [...this.completedTaskIdsPendingHide],
+			fullTaskList: nonDeleted.map((t) => ({ id: t.id, subject: t.subject, status: t.status })),
+		};
+	}
+
 	private getSnapshot() {
 		const state = getState();
 		if (this.lastNextId !== undefined && state.nextId < this.lastNextId) {
@@ -92,7 +112,14 @@ export class TodoOverlay {
 
 		const overlayState = { tasks: overlayTasks, nextId: snapshot.nextId };
 		const truncate = (line: string): string => truncateToWidth(line, width, "…");
-		const counts = selectTodoCounts(overlayState);
+		// Heading counts reflect REAL progress over ALL non-deleted tasks, not
+		// just the visible subset. Completed tasks are hidden from the list
+		// after agent_start but must still count — otherwise the heading shows
+		// "0/2" when 7 tasks are completed+hidden, looking like nothing was done.
+		const counts = selectTodoCounts({
+			tasks: snapshot.tasks.filter((t) => t.status !== "deleted"),
+			nextId: snapshot.nextId,
+		});
 		const hasActive = selectHasActive(overlayState);
 		const showIds = selectShowTaskIds(overlayState);
 

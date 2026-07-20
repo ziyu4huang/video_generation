@@ -249,7 +249,7 @@ describe("CoreTaskStatusWidget order field", () => {
 
 // ─── Singleton getter ───────────────────────────────────────────────────────
 
-describe("getSharedStatusWidget", () => {
+	describe("getSharedStatusWidget", () => {
 	test("returns the same instance across repeated calls", () => {
 		const a = getSharedStatusWidget();
 		const b = getSharedStatusWidget();
@@ -259,5 +259,77 @@ describe("getSharedStatusWidget", () => {
 	test("the instance is stored on globalThis (survives module-identity gaps)", () => {
 		const w = getSharedStatusWidget();
 		expect((globalThis as Record<string, unknown>).__piCoreTaskStatusWidget).toBe(w);
+	});
+});
+
+// ─── Heading count over full store (0/2 bug fix) ───────────────────────
+
+describe("TodoOverlay heading count includes hidden completed tasks", () => {
+	test("heading shows REAL progress (completed/total) even when completed tasks are hidden", () => {
+		replaceState({
+			tasks: [
+				{ id: 1, subject: "task A", status: "pending" },
+				{ id: 2, subject: "task B", status: "pending" },
+				{ id: 3, subject: "task C", status: "completed" },
+			],
+			nextId: 4,
+		});
+		const o = new TodoOverlay();
+		// First render: completed task #3 is displayed and staged in pendingHide
+		o.render(plainTheme, 200);
+		// Simulate agent_start: hide completed tasks from the previous turn
+		o.hideCompletedTasksFromPreviousTurn();
+		// Second render: #3 is now hidden from the list, BUT the heading count
+		// must still show 1/3 (real progress), NOT 0/2 (visible-only).
+		const lines = o.render(plainTheme, 200);
+		expect(lines[0]).toContain("Todos (1/3)");
+		expect(lines[0]).not.toContain("0/2");
+		// The hidden task #3 should NOT appear in the task list
+		expect(lines.join("\n")).not.toContain("task C");
+		// But the visible pending tasks should
+		expect(lines.join("\n")).toContain("task A");
+		expect(lines.join("\n")).toContain("task B");
+	});
+});
+
+// ─── inspect() debug snapshots ─────────────────────────────────────────
+
+describe("TodoOverlay.inspect", () => {
+	test("exposes hidden completed + full task list", () => {
+		replaceState({
+			tasks: [
+				{ id: 1, subject: "visible task", status: "pending" },
+				{ id: 2, subject: "hidden task", status: "completed" },
+			],
+			nextId: 3,
+		});
+		const o = new TodoOverlay();
+		o.render(plainTheme, 200); // stage #2 in pendingHide
+		o.hideCompletedTasksFromPreviousTurn(); // move #2 to hidden
+		const snap = o.inspect();
+		expect(snap.totalTasks).toBe(2);
+		expect(snap.visibleTasks).toBe(1);
+		expect(snap.hiddenCompletedTaskIds).toEqual([2]);
+		expect(snap.fullTaskList).toHaveLength(2);
+		expect(snap.fullTaskList.find((t) => t.id === 2)?.status).toBe("completed");
+	});
+});
+
+describe("CoreTaskStatusWidget.inspect", () => {
+	test("returns widget key, registered state, sections, and rendered output", () => {
+		const w = new CoreTaskStatusWidget();
+		const cap = captureWidget();
+		w.setUICtx(cap.uiCtx as never);
+		w.addSection({ id: "goal", order: 0, render: () => ["GOAL"] });
+		w.addSection({ id: "todo", order: 1, render: () => ["TODO"], inspect: () => ({ totalTasks: 5 }) });
+		w.update();
+		const snap = w.inspect();
+		expect(snap.widgetKey).toBe("pi-core-task");
+		expect(snap.registered).toBe(true);
+		expect(snap.sections).toHaveLength(2);
+		expect(snap.sections[0]).toEqual({ id: "goal", order: 0, detail: undefined });
+		expect(snap.sections[1]?.detail).toEqual({ totalTasks: 5 });
+		expect(snap.renderedLines).toContain("GOAL");
+		expect(snap.renderedLines).toContain("TODO");
 	});
 });
