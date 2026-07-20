@@ -33,6 +33,7 @@ import { TOOL_NAME } from "../src/todo/tool/types";
 import { getSharedStatusWidget } from "../src/shared/status-widget.js";
 import registerAskUser from "../src/ask-user";
 import { getPlanPhases, getPlanSummary, isPlanIncomplete, refreshPlan } from "../src/plan/coordinator.js";
+import { seedTodoFromPlan } from "../src/plan/todo-seed.js";
 
 /** Swallow the expected "stale after session replacement" error on compact/tree. */
 function isStaleCtxError(e: unknown): boolean {
@@ -80,6 +81,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 		replaceState(replayFromBranch(ctx));
 		latestCwd = ctx.cwd;
 		refreshPlan(ctx.cwd); // parse + cache the active effort's plan
+		seedTodoFromPlan(ctx.cwd); // plan-master: seed the todo from the plan when empty (no-op if replay populated it)
 		if (ctx.hasUI) {
 			statusWidget.setUICtx(ctx.ui);
 			todoOverlay.resetCompletedDisplayState();
