@@ -345,6 +345,23 @@ describe("S2 keyword audit (computeActiveTools Effect table)", () => {
   });
 });
 
+describe("S2 cross-gate invariant — shared noun, disjoint verbs ⇒ only one fires", () => {
+  const all = [...CORE_TOOLS, "flux2", "flux2_help", "ltx", "ltx_help",
+    "file2md", "vision_ask"];
+  const act = (prompt: string) => computeActiveTools(prompt, all, new Set(CORE_TOOLS));
+
+  test("'generate an image' fires flux2 but NOT file2md (generate ∉ file2md verbs)", () => {
+    const a = act("generate an image");
+    expect(a).toContain("flux2");
+    expect(a).not.toContain("file2md");
+  });
+  test("'describe this picture' fires file2md but NOT flux2 (describe ∉ flux2 verbs)", () => {
+    const a = act("describe this picture");
+    expect(a).toContain("file2md");
+    expect(a).not.toContain("flux2");
+  });
+});
+
 describe("S2 matchIntent false-fire cases", () => {
   const sticky = () => new Set(CORE_TOOLS);
   const first = (prompt: string) => matchIntent(prompt, GATES, sticky()).map((g) => g.names[0]);
@@ -366,7 +383,7 @@ describe("measureToolTokens (S3)", () => {
     const expected = Math.round((4 + 7) / 4); // = round(2.75) = 3
     expect(measureToolTokens(tool)).toBe(expected);
   });
-  test("missing description + parameters → treats as empty (0 + '{}'", () => {
+  test("missing description + parameters → treats as empty (0 + '{}')", () => {
     // desc="" (0), params=JSON.stringify({})='{}' (2) → round(2/4)=1
     expect(measureToolTokens({})).toBe(1);
   });

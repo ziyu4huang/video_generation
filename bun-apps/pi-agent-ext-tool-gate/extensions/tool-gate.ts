@@ -384,13 +384,14 @@ export default function toolGateExtension(pi: ExtensionAPI) {
 
   // ── On session start: capture full tool list and gate ──
   pi.on("session_start", async (_event, ctx) => {
-    allToolNames = pi.getAllTools().map((t: { name: string }) => t.name);
+    const all = pi.getAllTools();
+    allToolNames = all.map((t: { name: string }) => t.name);
     sticky = new Set(CORE_TOOLS);
     lastPrompt = "";
 
     // S3: measure each loaded tool's schema cost once for the session.
     measuredTokens = new Map(
-      pi.getAllTools().map((t: { name: string; description?: string; parameters?: unknown }) =>
+      all.map((t: { name: string; description?: string; parameters?: unknown }) =>
         [t.name, measureToolTokens(t)]),
     );
 
