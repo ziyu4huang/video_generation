@@ -968,4 +968,84 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.ok(raw.includes(`${TEST_MARKER} concurrent B`), "concurrent B should persist");
     });
   });
+
+  describe("cross-process file lock (withFileLock)", () => {
+    /** True iff a lock directory exists for the given source file. */
+    async function lockExists(srcPath: string): Promise<boolean> {
+      try { await fs.stat(`${srcPath}.lock`); return true; } catch { return false; }
+    }
+
+    it("acquires the lock during a write, then releases it (no leftover .lock dir)", async () => {
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+      assert.equal(await lockExists(memoryPath), false, "no lock before write");
+      assert.ok((await store.add("memory", `${TEST_MARKER} lock-release`)).success);
+      assert.equal(await lockExists(memoryPath), false, "lock released after write");
+      assert.ok((await readRaw(memoryPath)).includes("lock-release"));
+    });
+
+    it("PI_MEMORY_FILE_LOCK=bypass skips the cross-process lock (consolidator child path)", async () => {
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+      const prev = process.env.PI_MEMORY_FILE_LOCK;
+      process.env.PI_MEMORY_FILE_LOCK = "bypass";
+      try {
+        assert.ok((await store.add("memory", `${TEST_MARKER} bypass-no-lock`)).success);
+        assert.equal(await lockExists(memoryPath), false, "bypass must not create a lock dir");
+      } finally {
+        if (prev === undefined) delete process.env.PI_MEMORY_FILE_LOCK;
+        else process.env.PI_MEMORY_FILE_LOCK = prev;
+      }
+      assert.ok((await readRaw(memoryPath)).includes("bypass-no-lock"));
+    });
+
+    it("serializes concurrent writes from two store instances on the same .md (no lost update)", async () => {
+      // THE core cross-process guarantee: two store instances (simulating two
+      // sessions) writing the same .md concurrently must BOTH land. Without
+      // withFileLock, loadFromDisk→saveToDisk races → last-writer-wins → one is
+      // lost. With the lock, instance B blocks on the lockfile until A releases,
+      // then reloads (seeing A's entry) and appends.
+      const storeA = new MemoryStore(makeConfig());
+      const storeB = new MemoryStore(makeConfig());
+      await storeA.loadFromDisk();
+      await storeB.loadFromDisk();
+
+      const [a, b] = await Promise.all([
+        storeA.add("memory", `${TEST_MARKER} cross-instance A`),
+        storeB.add("memory", `${TEST_MARKER} cross-instance B`),
+      ]);
+      assert.ok(a.success, `A failed: ${a.error}`);
+      assert.ok(b.success, `B failed: ${b.error}`);
+
+      await storeA.loadFromDisk();
+      const raw = await readRaw(memoryPath);
+      assert.ok(raw.includes("cross-instance A"), "A's entry must persist (no lost update)");
+      assert.ok(raw.includes("cross-instance B"), "B's entry must persist (no lost update)");
+    });
+
+    it("runConsolidator sets PI_MEMORY_FILE_LOCK=bypass for the child, then restores it", async () => {
+      const store = new MemoryStore(makeConfig({
+        memoryCharLimit: 200,
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      let envDuringConsolidation: string | undefined = "<not called>";
+      store.setConsolidator(async () => {
+        envDuringConsolidation = process.env.PI_MEMORY_FILE_LOCK;
+        return { consolidated: false }; // frees nothing → floor to vault-offload
+      });
+      await store.loadFromDisk();
+      const prev = process.env.PI_MEMORY_FILE_LOCK;
+
+      await store.add("memory", `${TEST_MARKER} consolidate env 1`);
+      await store.add("memory", `${TEST_MARKER} consolidate env 2`);
+      // third overflows → auto-consolidate → runConsolidator wraps the child spawn
+      const result = await store.add("memory", `${TEST_MARKER} consolidate env 3`);
+
+      assert.equal(envDuringConsolidation, "bypass",
+        `consolidator child must inherit bypass env; got ${envDuringConsolidation}`);
+      assert.equal(process.env.PI_MEMORY_FILE_LOCK, prev, "env restored after consolidation");
+      assert.ok(result.success, `floor should still save (never-reject): ${result.error}`);
+    });
+  });
 });
