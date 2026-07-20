@@ -266,6 +266,15 @@ export class WorkflowManager extends EventEmitter {
   }
 
   /**
+   * The session's current model (provider/id), captured at session_start. Used by
+   * the `subagent` tool so an untagged dispatch defaults to the live session model
+   * instead of a stale medium tier. Undefined before session_start fires.
+   */
+  getMainModel(): string | undefined {
+    return this.mainModel;
+  }
+
+  /**
    * Start a workflow in the background.
    * Returns immediately with a run ID; the workflow executes asynchronously.
    */

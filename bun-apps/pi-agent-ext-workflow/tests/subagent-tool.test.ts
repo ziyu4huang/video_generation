@@ -145,6 +145,47 @@ test("execute forwards timeoutMs/retryOnTransient to spawn", async () => {
   assert.equal(f.calls[0]?.retryOnTransient, false);
 });
 
+// ── tier / mainModel / resolved-model (D: model-selection fix) ──
+test("execute forwards params.tier to spawn", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  await tool.execute("id", { task: "t", tier: "small" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.tier, "small");
+  assert.equal(f.calls[0]?.model, undefined, "no explicit model when only tier is set");
+});
+
+test("execute forwards getMainModel() into spawn.mainModel", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, getMainModel: () => "deepseek/deepseek-v4-flash" });
+  await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.mainModel, "deepseek/deepseek-v4-flash");
+});
+
+test("details.model reflects the resolved model id (onModelResolved wins over requested)", async () => {
+  const f = fakeSpawn((opts) => {
+    opts.onModelResolved?.("deepseek/deepseek-v4-flash");
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  });
+  const tool = createSubagentTool({ spawn: f.spawn });
+  const res = await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(res.details.model, "deepseek/deepseek-v4-flash", "TUI shows what actually ran, not 'default'");
+});
+
+test("details.model falls back to the live session model when the runner never resolves", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, getMainModel: () => "deepseek/deepseek-v4-flash" });
+  const res = await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(res.details.model, "deepseek/deepseek-v4-flash", "omitted model → live session model shown");
+});
+
+test("agentType resolves tier from the registry when the call omits it", async () => {
+  const registry = mkRegistry([{ name: "scout", tier: "small", prompt: "Be quick.", source: "project" }]);
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, agentRegistry: registry });
+  await tool.execute("id", { task: "scan", agentType: "scout" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.tier, "small");
+});
+
 // ── agentType binding + worktree isolation ──
 test("agentType resolves tools/model/prompt from the registry when the call omits them", async () => {
   const registry = mkRegistry([
@@ -500,6 +541,12 @@ test("renderSubagentCall shows subagent ▸ agent ▸ model ▸ task (omits agen
   assert.ok(noRole.includes("subagent"));
   assert.ok(!noRole.includes("▸ implementer"));
   assert.ok(noRole.includes("default")); // model defaults to "default" when undefined
+});
+
+test("renderSubagentCall shows 'tier:small' in the model slot when model is omitted", () => {
+  const out = renderSubagentCall({ agent: "scout", tier: "small", task: "x" }, T);
+  assert.match(out, /tier:small/);
+  assert.doesNotMatch(out, /default/);
 });
 
 test("renderSubagentResult collapsed is short; expanded contains the full report", () => {
