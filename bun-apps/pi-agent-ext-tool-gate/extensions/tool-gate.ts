@@ -42,95 +42,110 @@ export const CORE_TOOLS = new Set([
   "web_search", "fetch_content", "get_search_content",
 ]);
 
+/** Co-occurrence trigger: a gate fires when the prompt has ≥1 noun AND ≥1 verb.
+ *  Used only for core nouns (image/video/pdf) whose bare form false-fires
+ *  (docker image, video call) but whose recall on common intents
+ *  (generate an image, make a video) must survive. */
+export interface CoOccurrence {
+  nouns: string[];
+  verbs: string[];
+}
+
 interface ToolGate {
   names: string[];
+  /** Unambiguous triggers — matched via matchesKeyword. */
   keywords: string[];
   /** One-line description — used for enable_tool intent matching + list output. */
   description: string;
-  /** Approximate tokens saved when gated (for logging) */
-  savedTokens: number;
+  /** Optional co-occurrence trigger (noun ∧ verb). See CoOccurrence. */
+  requires?: CoOccurrence;
 }
 
 /**
- * Gated tool groups — each activates when the prompt contains any keyword.
- * Keywords are matched case-insensitively as simple substring checks.
+ * Gated tool groups. A gate fires (via gateFires) if any keyword matches, OR
+ * its optional `requires` co-occurrence (≥1 noun AND ≥1 verb) is met.
+ *
+ * S2 audit (2026-07-20): over-broad bare words removed (image/scene/style/swap/
+ * render/draft/video/電影/動畫/describe/what is in/vision/pdf/chain/collect/
+ * organize/movie/compose). Core nouns (image/video/pdf) moved behind `requires`
+ * so they fire only alongside a generation/action verb — killing false-fires
+ * (docker image, video call) while preserving recall (generate an image, make a
+ * video). Keywords are matched case-insensitively; single ASCII tokens use word
+ * boundaries, phrases/CJK use substring.
  */
 export const GATES: ToolGate[] = [
   {
     names: ["flux2", "flux2_help"],
     keywords: [
-      "flux", "image", "圖像", "圖片", "生成圖", "generate image",
-      "t2i", "scene", "style", "swap", "outpaint", "upscale image",
-      "flux2", "render", "把...做成",
+      "flux", "flux2", "outpaint", "upscale image", "t2i", "txt2img",
+      "圖像", "圖片", "生成圖", "產圖", "繪圖", "修圖", "去背", "換臉",
+      "做成圖", "轉成圖",
     ],
+    requires: {
+      nouns: ["image", "picture", "photo", "圖"],
+      verbs: ["generate", "create", "make", "draw", "render", "produce", "生成", "做", "畫", "繪"],
+    },
     description: "Flux2 image generation — text-to-image, i2i, faceswap, outpaint, upscale, restore",
-    savedTokens: 1411,
   },
   {
     names: ["krea2", "krea2_help"],
-    keywords: ["krea", "draft", "草圖", "快速生成"],
+    keywords: ["krea", "krea2", "草圖", "快速生成", "即時生成", "實時繪圖"],
     description: "Krea2 fast image generation — real-time draft to image",
-    savedTokens: 641,
   },
   {
     names: ["ltx", "ltx_help"],
-    keywords: [
-      "ltx", "video", "影片", "視頻", "電影", "動畫",
-      "t2v", "i2v", "vbvr", "relay", "storyboard",
-      "generate video", "生成影片", "生成視頻",
-    ],
+    keywords: ["ltx", "t2v", "i2v", "vbvr", "relay", "storyboard", "影片特效"],
+    requires: {
+      nouns: ["video", "影片", "視頻", "視訊", "動畫", "電影"],
+      verbs: ["generate", "create", "make", "animate", "produce", "render", "生成", "做", "製作", "剪"],
+    },
     description: "LTX video generation — text/image-to-video, upscale, storyboard, relay",
-    savedTokens: 1802,
   },
   {
     names: ["file2md", "vision_ask"],
     keywords: [
-      "file2md", "vlm", "describe", "caption", "ocr", "識別", "讀圖",
-      "分析圖片", "分析圖像", "read this image", "what is in",
-      "pdf", "scan", "to markdown", "轉 markdown", "vision",
+      "file2md", "vlm", "ocr", "caption", "to markdown", "轉 markdown",
+      "read this image", "分析圖片", "分析圖像", "識別", "讀圖", "看圖",
     ],
+    requires: {
+      nouns: ["pdf", "document", "文件", "scan", "image", "picture", "photo", "圖"],
+      verbs: ["read", "convert", "parse", "extract", "ocr", "describe", "caption", "讀", "轉", "解析", "分析"],
+    },
     description: "Document/image understanding — file→markdown, VLM describe, OCR, caption",
-    savedTokens: 685,
   },
   {
     names: ["inspect_context", "inspect_agent", "inspect_extensions", "inspect_pathology"],
-    // S1: narrowed — removed the over-broad "context" / "token" / "debug" which fired on
-    // ~every dev turn and made inspect effectively always-on. Kept phrase-level terms.
     keywords: [
       "inspect", "schema cost", "pathology", "extension health",
       "工具開銷", "context window", "token usage",
     ],
     description: "Agent/extension introspection — context tokens, extension health, pathology",
-    savedTokens: 770,
   },
   {
     names: ["workflow", "workflow_help"],
     keywords: [
       "workflow", "pipeline", "orchestrate", "fan.out", "parallel agent",
-      "multi-step", "chain",
+      "multi-step",
     ],
     description: "Workflow orchestrator — multi-agent fan-out/pipeline JavaScript scripts",
-    savedTokens: 706,
   },
   {
     names: ["collect_videos", "organize_vault_notes", "import_memory_to_vault"],
     keywords: [
-      "collect", "bilibili", "youtube", "video trending",
-      "vault notes", "organize", "import memory",
+      "bilibili", "youtube", "collect videos", "video trending",
+      "vault notes", "organize vault", "import memory",
+      "收集影片", "整理筆記",
     ],
     description: "Research tools — collect trending videos, organize vault notes, import memory",
-    savedTokens: 723,
   },
   {
-    // S1/B: movie was ungated (fail-open ⇒ always active). Now gated. savedTokens measured
-    // 2026-07-20 via schema-cost (movie=348 + movie_help=284, charsPerToken=4).
     names: ["movie", "movie_help"],
     keywords: [
-      "movie", "montage", "preflight", "compose",
-      "storyboard", "分鏡", "剪輯", "影片製作", "導演",
+      "montage", "preflight", "storyboard", "分鏡", "剪輯",
+      "影片製作", "導演", "make a movie", "movie director",
+      "compose video", "compose scene", "電影製作",
     ],
     description: "Movie orchestrator — idea→script→scene→assets→edit→compose pipeline",
-    savedTokens: 632,
   },
 ];
 
@@ -191,6 +206,39 @@ export function scheduleToolGateBanner(
 	}, SHOW_DELAY_MS);
 }
 
+// ── Keyword matching (S2) ────────────────────────────────────────
+
+/** Escape a string for safe embedding in a RegExp (prevents regex-injection
+ *  from keyword/noun/verb content). */
+export function escapeRegExp(s: string): string {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Does `keyword` appear in the (already lowercased) prompt?
+ *  - Single ASCII token (`^[a-z0-9]+$`): word-boundary match — prevents "flux"
+ *    matching inside "conflux", "image" inside "images".
+ *  - Multi-word phrase or CJK: substring (no word boundaries without a
+ *    segmenter; phrases are specific enough once bare words are removed). */
+export function matchesKeyword(keyword: string, promptLower: string): boolean {
+	const kw = keyword.toLowerCase();
+	if (/^[a-z0-9]+$/i.test(keyword)) {
+		return new RegExp(`\\b${escapeRegExp(kw)}\\b`, "i").test(promptLower);
+	}
+	return promptLower.includes(kw);
+}
+
+/** A gate fires if any keyword matches, OR its `requires` co-occurrence
+ *  (≥1 noun AND ≥1 verb) is met. Pure: no pi dependency. */
+export function gateFires(gate: ToolGate, promptLower: string): boolean {
+	if (gate.keywords.some((kw) => matchesKeyword(kw, promptLower))) return true;
+	if (gate.requires) {
+		const noun = gate.requires.nouns.some((n) => matchesKeyword(n, promptLower));
+		const verb = gate.requires.verbs.some((v) => matchesKeyword(v, promptLower));
+		if (noun && verb) return true;
+	}
+	return false;
+}
+
 // ── Extension entry ──────────────────────────────────────────────
 
 /**
@@ -219,8 +267,7 @@ export function computeActiveTools(
   for (const gate of GATES) for (const name of gate.names) known.add(name);
 
   for (const gate of GATES) {
-    const matches = gate.keywords.some((kw) => promptLower.includes(kw));
-    if (matches) {
+    if (gateFires(gate, promptLower)) {
       for (const name of gate.names) sticky.add(name);
     }
   }
@@ -229,19 +276,20 @@ export function computeActiveTools(
 }
 
 /**
- * Find dormant gates whose **keywords** are a substring of `intent`. Pure: no
- * pi dependency. Used by enable_tool's intent mode. Returns gates in declaration
- * order; empty = no match.
+ * Find dormant gates that match `intent`. Pure: no pi dependency. Used by
+ * enable_tool's intent mode. Returns gates in declaration order; empty = no
+ * match.
  *
- * "Dormant" = not all of the gate's tools are already in `sticky`. A gate matches
- * if any keyword appears as a substring of the (lowercased) intent.
+ * "Dormant" = not all of the gate's tools are already in `sticky`. A gate
+ * matches when its `gateFires` predicate holds — i.e. a keyword match (single
+ * ASCII tokens use word boundaries, phrases/CJK use substring) OR its optional
+ * `requires` noun∧verb co-occurrence.
  *
- * NOTE: matching is keywords-only, NOT keywords∪description. Description-word
- * matching was prototyped and rejected: prose words like "image"/"pipeline"
- * appear in several gates' descriptions and over-match (krea2/movie fired on
- * intents that should hit only flux2/workflow). The `description` field is still
- * valuable for the human-readable `list` output (T5) and a future semantic
- * matcher, but not for substring matching. Verified 2026-07-20.
+ * NOTE: the `description` field is NOT a match surface — only keywords and
+ * `requires`. Description-word matching was prototyped and rejected (prose
+ * words like "image"/"pipeline" appear in several gates' descriptions and
+ * over-match). `description` is still used for the human-readable `list` output
+ * and a future semantic matcher. Verified 2026-07-20.
  */
 export function matchIntent(
   intent: string,
@@ -251,8 +299,7 @@ export function matchIntent(
   const needle = intent.toLowerCase();
   return gates.filter((g) => {
     if (g.names.every((n) => sticky.has(n))) return false; // skip already-active
-    const fields = g.keywords.map((k) => k.toLowerCase());
-    return fields.some((f) => f.length > 0 && needle.includes(f));
+    return gateFires(g, needle);
   });
 }
 
@@ -290,34 +337,69 @@ export function isMissCandidate(
 }
 
 /**
- * Sum `savedTokens` for gates that are (a) actually loaded this session
- * (at least one name in `allToolNames`) and (b) currently gated (no name in
- * `active`). Fixes the phantom-tool over-report: previously a gate whose
- * tools were never registered still counted its savedTokens.
+ * Sum the measured schema-token cost of gates that are (a) actually loaded
+ * this session (at least one name in `allToolNames`) and (b) currently gated
+ * (no name in `active`). `measuredTokens` is built once at session_start from
+ * measureToolTokens — never drifts, measures the tools actually present.
  */
-export function computeBannerSaved(active: string[], allToolNames: string[]): number {
+export function computeBannerSaved(
+  active: string[],
+  allToolNames: string[],
+  measuredTokens: Map<string, number>,
+): number {
   return GATES
     .filter((g) => g.names.some((n) => allToolNames.includes(n))) // loaded
     .filter((g) => !g.names.some((n) => active.includes(n)))      // gated
-    .reduce((sum, g) => sum + g.savedTokens, 0);
+    .reduce(
+      (sum, g) => sum + g.names.reduce((s, n) => s + (measuredTokens.get(n) ?? 0), 0),
+      0,
+    );
+}
+
+/**
+ * Estimate a single tool's API schema-cost in tokens. Replicates the
+ * schema-cost CLI heuristic verbatim (`schema-cost.ts:20`):
+ *   Math.round((description.length + JSON.stringify(parameters).length) / 4)
+ * charsPerToken = 4 (no real tokenizer). Pure + dependency-free — inlined here
+ * (not imported from pi-agent-ext-power-tool) to keep this always-on extension
+ * decoupled. Missing description/parameters are treated as empty (0). The
+ * JSON.stringify is guarded so a malformed schema never crashes session_start.
+ */
+export function measureToolTokens(tool: { description?: string; parameters?: unknown }): number {
+  const desc = (tool.description ?? "").length;
+  let params = 0;
+  try {
+    params = JSON.stringify(tool.parameters ?? {}).length;
+  } catch {
+    params = 0; // non-serializable schema — fail-safe, never crash
+  }
+  return Math.round((desc + params) / 4);
 }
 
 export default function toolGateExtension(pi: ExtensionAPI) {
   let allToolNames: string[] = [];
   let sticky = new Set<string>(CORE_TOOLS);
   let lastPrompt = ""; // captured each turn; read by enable_tool (T5)
+  let measuredTokens = new Map<string, number>(); // built at session_start (S3)
 
   // ── On session start: capture full tool list and gate ──
   pi.on("session_start", async (_event, ctx) => {
-    allToolNames = pi.getAllTools().map((t: { name: string }) => t.name);
+    const all = pi.getAllTools();
+    allToolNames = all.map((t: { name: string }) => t.name);
     sticky = new Set(CORE_TOOLS);
     lastPrompt = "";
+
+    // S3: measure each loaded tool's schema cost once for the session.
+    measuredTokens = new Map(
+      all.map((t: { name: string; description?: string; parameters?: unknown }) =>
+        [t.name, measureToolTokens(t)]),
+    );
 
     const active = computeActiveTools("", allToolNames, sticky);
     pi.setActiveTools(active);
 
-    // G fix: only count loaded gates (computeBannerSaved filters by allToolNames).
-    const saved = computeBannerSaved(active, allToolNames);
+    // G fix + S3: only count loaded gates, using measured (not stale) token costs.
+    const saved = computeBannerSaved(active, allToolNames, measuredTokens);
 
     const debug = process.env.TOOL_GATE_DEBUG_BANNER === "1";
     const theme = ctx.ui.theme;
@@ -354,6 +436,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
       kind: "turn", ts: new Date().toISOString(),
       promptLen: prompt.length, gatesFired, dormantGates,
       activeCount: active.length, totalCount: allToolNames.length,
+      savedTok: computeBannerSaved(active, allToolNames, measuredTokens),
     });
     if (isMissCandidate(prompt, gatesFired, dormantGates)) {
       emitToolGateLog({

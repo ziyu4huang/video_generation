@@ -250,6 +250,74 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.ok(raw.includes(existing));
     });
 
+    it("auto-consolidate floor: when consolidation frees nothing, vault-offloads oldest instead of hard-rejecting", async () => {
+      const store = new MemoryStore(makeConfig({
+        memoryCharLimit: 200,
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      store.setConsolidator(async () => ({ consolidated: false }));
+      await store.loadFromDisk();
+
+      const first = `${TEST_MARKER} floor first oldest`;
+      const second = `${TEST_MARKER} floor second`;
+      const next = `${TEST_MARKER} floor next incoming`;
+      assert.ok((await store.add("memory", first)).success);
+      assert.ok((await store.add("memory", second)).success);
+
+      const result = await store.add("memory", next);
+
+      assert.ok(result.success, result.error);
+      assert.equal(result.evicted_count, 1);
+      assert.deepEqual(result.evicted_entries, [first]);
+      assert.ok(result.archive_path, "floor should write a vault archive");
+
+      const raw = await readRaw(memoryPath);
+      assert.ok(!raw.includes(first), "oldest evicted to archive");
+      assert.ok(raw.includes(second));
+      assert.ok(raw.includes(next));
+    });
+
+    it("auto-consolidate floor: fires with no consolidator wired (never hard-rejects)", async () => {
+      const store = new MemoryStore(makeConfig({
+        memoryCharLimit: 200,
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      // no setConsolidator — consolidator unavailable
+      await store.loadFromDisk();
+
+      const first = `${TEST_MARKER} nocons first`;
+      const second = `${TEST_MARKER} nocons second`;
+      const next = `${TEST_MARKER} nocons next`;
+      assert.ok((await store.add("memory", first)).success);
+      assert.ok((await store.add("memory", second)).success);
+
+      const result = await store.add("memory", next);
+
+      assert.ok(result.success, result.error);
+      assert.equal(result.evicted_count, 1);
+      const raw = await readRaw(memoryPath);
+      assert.ok(raw.includes(next));
+      assert.ok(raw.includes(second));
+      assert.ok(!raw.includes(first));
+    });
+
+    it("auto-consolidate floor: a single entry larger than the whole budget still rejects", async () => {
+      const store = new MemoryStore(makeConfig({
+        memoryCharLimit: 50,
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      store.setConsolidator(async () => ({ consolidated: false }));
+      await store.loadFromDisk();
+
+      const result = await store.add("memory", `${TEST_MARKER} ${"x".repeat(60)}`);
+
+      assert.ok(!result.success);
+      assert.ok(result.error!.includes("exceed the limit"));
+    });
+
     it("returns error for empty content", async () => {
       const store = new MemoryStore(makeConfig());
 
@@ -443,6 +511,71 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       assert.ok(!result.success);
       assert.equal(result.error, "new_content cannot be empty. Use 'remove' to delete entries.");
+    });
+
+    it("replace() overflow with non-reject strategy vault-offloads oldest OTHER entries (never hard-rejects)", async () => {
+      const store = new MemoryStore(makeConfig({
+        memoryCharLimit: 250,
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      await store.loadFromDisk();
+
+      const oldest = `${TEST_MARKER} repl oldest evicted`;
+      const mid = `${TEST_MARKER} repl mid keep`;
+      const target = `${TEST_MARKER} repl target orig`;
+      assert.ok((await store.add("memory", oldest)).success);
+      assert.ok((await store.add("memory", mid)).success);
+      assert.ok((await store.add("memory", target)).success);
+
+      // Grow `target` so the replacement overflows; the floor must evict the
+      // OLDEST OTHER entry (oldest), never the replaced one (target).
+      const grown = `${TEST_MARKER} repl target grown ${"z".repeat(70)}`;
+      const result = await store.replace("memory", target, grown);
+
+      assert.ok(result.success, result.error);
+      assert.equal(result.evicted_count, 1);
+      assert.deepEqual(result.evicted_entries, [oldest], "evict oldest OTHER, not the replaced entry");
+
+      const raw = await readRaw(memoryPath);
+      assert.ok(!raw.includes(oldest), "oldest other evicted");
+      assert.ok(raw.includes(grown), "replacement landed");
+      assert.ok(raw.includes(mid), "unrelated entry kept");
+      assert.ok(!raw.includes("repl target orig"), "old target text replaced away");
+    });
+
+    it("replace() overflow with reject strategy preserves the hard error", async () => {
+      const store = new MemoryStore(makeConfig({
+        memoryCharLimit: 250,
+        memoryOverflowStrategy: "reject",
+        autoConsolidate: false,
+      }));
+      await store.loadFromDisk();
+
+      const keep = `${TEST_MARKER} rj keep`;
+      const target = `${TEST_MARKER} rj target`;
+      assert.ok((await store.add("memory", keep)).success);
+      assert.ok((await store.add("memory", target)).success);
+
+      const result = await store.replace("memory", target, `${TEST_MARKER} ${"y".repeat(200)}`);
+
+      assert.ok(!result.success);
+      assert.ok(result.error!.includes("would put memory at"));
+    });
+
+    it("replace() a single replacement larger than the whole budget still rejects", async () => {
+      const store = new MemoryStore(makeConfig({
+        memoryCharLimit: 100,
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      await store.loadFromDisk();
+      assert.ok((await store.add("memory", `${TEST_MARKER} tiny`)).success);
+
+      const result = await store.replace("memory", "tiny", `${TEST_MARKER} ${"w".repeat(60)}`);
+
+      assert.ok(!result.success);
+      assert.ok(result.error!.includes("exceed the limit"));
     });
   });
 
@@ -833,6 +966,86 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const raw = await readRaw(memoryPath);
       assert.ok(raw.includes(`${TEST_MARKER} concurrent A`), "concurrent A should persist");
       assert.ok(raw.includes(`${TEST_MARKER} concurrent B`), "concurrent B should persist");
+    });
+  });
+
+  describe("cross-process file lock (withFileLock)", () => {
+    /** True iff a lock directory exists for the given source file. */
+    async function lockExists(srcPath: string): Promise<boolean> {
+      try { await fs.stat(`${srcPath}.lock`); return true; } catch { return false; }
+    }
+
+    it("acquires the lock during a write, then releases it (no leftover .lock dir)", async () => {
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+      assert.equal(await lockExists(memoryPath), false, "no lock before write");
+      assert.ok((await store.add("memory", `${TEST_MARKER} lock-release`)).success);
+      assert.equal(await lockExists(memoryPath), false, "lock released after write");
+      assert.ok((await readRaw(memoryPath)).includes("lock-release"));
+    });
+
+    it("PI_MEMORY_FILE_LOCK=bypass skips the cross-process lock (consolidator child path)", async () => {
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+      const prev = process.env.PI_MEMORY_FILE_LOCK;
+      process.env.PI_MEMORY_FILE_LOCK = "bypass";
+      try {
+        assert.ok((await store.add("memory", `${TEST_MARKER} bypass-no-lock`)).success);
+        assert.equal(await lockExists(memoryPath), false, "bypass must not create a lock dir");
+      } finally {
+        if (prev === undefined) delete process.env.PI_MEMORY_FILE_LOCK;
+        else process.env.PI_MEMORY_FILE_LOCK = prev;
+      }
+      assert.ok((await readRaw(memoryPath)).includes("bypass-no-lock"));
+    });
+
+    it("serializes concurrent writes from two store instances on the same .md (no lost update)", async () => {
+      // THE core cross-process guarantee: two store instances (simulating two
+      // sessions) writing the same .md concurrently must BOTH land. Without
+      // withFileLock, loadFromDisk→saveToDisk races → last-writer-wins → one is
+      // lost. With the lock, instance B blocks on the lockfile until A releases,
+      // then reloads (seeing A's entry) and appends.
+      const storeA = new MemoryStore(makeConfig());
+      const storeB = new MemoryStore(makeConfig());
+      await storeA.loadFromDisk();
+      await storeB.loadFromDisk();
+
+      const [a, b] = await Promise.all([
+        storeA.add("memory", `${TEST_MARKER} cross-instance A`),
+        storeB.add("memory", `${TEST_MARKER} cross-instance B`),
+      ]);
+      assert.ok(a.success, `A failed: ${a.error}`);
+      assert.ok(b.success, `B failed: ${b.error}`);
+
+      await storeA.loadFromDisk();
+      const raw = await readRaw(memoryPath);
+      assert.ok(raw.includes("cross-instance A"), "A's entry must persist (no lost update)");
+      assert.ok(raw.includes("cross-instance B"), "B's entry must persist (no lost update)");
+    });
+
+    it("runConsolidator sets PI_MEMORY_FILE_LOCK=bypass for the child, then restores it", async () => {
+      const store = new MemoryStore(makeConfig({
+        memoryCharLimit: 200,
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      let envDuringConsolidation: string | undefined = "<not called>";
+      store.setConsolidator(async () => {
+        envDuringConsolidation = process.env.PI_MEMORY_FILE_LOCK;
+        return { consolidated: false }; // frees nothing → floor to vault-offload
+      });
+      await store.loadFromDisk();
+      const prev = process.env.PI_MEMORY_FILE_LOCK;
+
+      await store.add("memory", `${TEST_MARKER} consolidate env 1`);
+      await store.add("memory", `${TEST_MARKER} consolidate env 2`);
+      // third overflows → auto-consolidate → runConsolidator wraps the child spawn
+      const result = await store.add("memory", `${TEST_MARKER} consolidate env 3`);
+
+      assert.equal(envDuringConsolidation, "bypass",
+        `consolidator child must inherit bypass env; got ${envDuringConsolidation}`);
+      assert.equal(process.env.PI_MEMORY_FILE_LOCK, prev, "env restored after consolidation");
+      assert.ok(result.success, `floor should still save (never-reject): ${result.error}`);
     });
   });
 });

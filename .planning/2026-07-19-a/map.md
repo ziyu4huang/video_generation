@@ -30,7 +30,7 @@ A single coordination layer publishes the `__piPlan*` seams, parses BOTH plan co
 - [02 — Unified coordination layer](tickets/02-unified-coordination-layer.md) — lives **inside goal-todo** (no new package; publishes `__piPlan*` for wayfind); parses ONE canonical format = **writing-plans** (wayfind adjusts; Task≡phase preserves the `__piPlanPhases` reader model + `/wayfind sync` loop); older `__piSuperpowersPlan*` design superseded.
 - [03 — Seam contract](tickets/03-seam-name-unification.md) — contract pinned by existing readers: goal-todo publishes `__piPlanPhases`/`__piPlanIncomplete`/`__piPlanSummary` (one-way to wayfind); goal-todo self-consumes via **internal-call** (no self-read, goal.ts refactored to direct calls); older `__piSuperpowersPlan*`/`__piApplyTodoToggle` superseded; Task≡phase.
 - [06 — Close & supersede prior efforts](tickets/06-close-and-supersede-prior-efforts.md) — bookkeeping executed: closed `let-s-make-superpower-` 03/05/06 (folded → 04/05 here) + `build-plan-coordinator/01`; both prior maps annotated `superseded-by: 2026-07-19-a`. `2026-07-19-a` is now the single live coordination-layer effort.
-- [07 — Skill fidelity guard](tickets/07-skill-fidelity-guard.md) — RESOLVED (grilled 2026-07-20): positive content pin of all 14 upstream-ported SKILL.md (not denylist — dep-guard ADR-0001 lesson); re-sync = explicit `rebaseline-upstream-skills.ts` + `UPSTREAM.ref` provenance (no auto). Implemented + ADR-0004. Frontier now 04/05/08/09.
+- [07 — Skill fidelity guard](tickets/07-skill-fidelity-guard.md) — RESOLVED (grilled 2026-07-20): positive content pin of all 14 upstream-ported SKILL.md (not denylist — dep-guard ADR-0001 lesson); re-sync = explicit `rebaseline-upstream-skills.ts` + `UPSTREAM.ref` provenance (no auto). Implemented + ADR-0004. Effort COMPLETE — all tickets resolved (05 deferred by decision, reopen if multi-plan bites; 04 resolved #726; 08 closed #724; 09 concrete-build complete #715–#719/#722).
 
 ## Not yet specified
 
@@ -38,7 +38,7 @@ A single coordination layer publishes the `__piPlan*` seams, parses BOTH plan co
 
 - **Upstream re-sync mechanics.** If upstream superpowers has advanced since the port, "restore byte-identical" is a re-port from current upstream, not a pure `git revert`. Graduates into a research sub-ticket when [01](tickets/01-revert-skill-edits-restore-fidelity.md) is worked.
 <!-- plan-format convergence RESOLVED by [02](tickets/02-unified-coordination-layer.md): writing-plans canonical, wayfind adjusts, Task≡phase. Graduated to [08](tickets/08-wayfind-migrates-to-writing-plans-format.md). -->
-- **[04](tickets/04-sync-timing-and-lifecycle.md) / [05](tickets/05-multi-plan-representation.md) are build-time.** Their decisions (parse trigger, replay ordering; multi-plan) are best made inside the [09](tickets/09-build-coordination-layer.md) build with the implementation in hand, not abstractly beforehand.
+- **[04](tickets/04-sync-timing-and-lifecycle.md) + [05](tickets/05-multi-plan-representation.md) both RESOLVED.** [04] (research, 2026-07-20, #726): timing/lifecycle/replay/idempotency verified in the [09](tickets/09-build-coordination-layer.md) build; yield (TB5b) = N/A (no auto-drive to yield); finding: `__piWayfindActive` is a harmless dangling publish. [05] (deferred by decision): single active-effort heuristic suffices; reopen when two parallel efforts actually collide in one session (options: aggregate+namespace / explicit active-plan / status quo).
 
 ## Out of scope
 
