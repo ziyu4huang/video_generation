@@ -46,6 +46,7 @@ const FAKE_GH = [
   '[[ "$want_watch" == "1" ]] && exit 0',
   'data="$(cat "${FAKE_CHECKS_FILE:-/dev/null}")"',
   'if [[ "$want_json" == "1" ]]; then',
+  '  if [[ "$data" == "[]" ]]; then echo "no checks reported on the branch" >&2; exit 1; fi',
   '  if [[ -n "$q" ]]; then printf \'%s\' "$data" | jq "$q"; else printf \'%s\' "$data"; fi',
   "else",
   '  [[ "$data" != "[]" ]] && printf \'fake-check\\tSUCCESS\\turl\\n\'',
@@ -214,4 +215,33 @@ test("wait_ci(false): no checks register → assumes no-CI, proceeds (exit 0)", 
 test("wait_ci(true): no checks re-register → ABORT (base-update race guard)", async () => {
   setChecks([]);
   expect(await waitCi(true)).toBe(1);
+});
+
+// --- iter-11 regression: the post-push empty-checks window ---
+// Real `gh pr checks` exits NON-ZERO on an empty check set (prints "no checks
+// reported on the branch"). The old wait_ci's `|| echo "?"` then made bad="?",
+// and `"?" != "0"` aborted the whole merge with a bogus gate failure right
+// after a base-update push (dogfooded on #712). The fake gh now mirrors real gh
+// (empty --json → exit 1); these tests pin the fix: empty is "wait / clean
+// abort", never a "?" gate false-fail.
+test("wait_ci(true): empty + gh-nonzero-on-empty → clean abort, NOT the '?' gate false-fail", async () => {
+  setChecks([]);
+  const r = await runFn(`wait_ci X true; echo "EXIT:$?"`);
+  expect(Number(r.stdout.match(/EXIT:(\d+)/)?.[1] ?? 99)).toBe(1);
+  expect(r.stderr).toContain("did not register");
+  expect(r.stderr).not.toContain("non-passing");
+});
+
+test("wait_ci(false): empty + gh-nonzero-on-empty → proceeds as no-CI, NOT '?' fail", async () => {
+  setChecks([]);
+  const r = await runFn(`wait_ci X false; echo "EXIT:$?"`);
+  expect(Number(r.stdout.match(/EXIT:(\d+)/)?.[1] ?? 99)).toBe(0);
+  expect(r.stderr).not.toContain("non-passing");
+});
+
+// The unified poll's "populated but still running" branch: with a zero deadline
+// it falls through to the gate, where PENDING counts as non-passing.
+test("wait_ci(false): populated PENDING + zero deadline → gates and fails (PENDING is non-passing)", async () => {
+  setChecks(["SUCCESS", "PENDING"]);
+  expect(await waitCi(false)).toBe(1);
 });
