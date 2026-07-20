@@ -113,20 +113,18 @@ function topoSortTickets(tickets: Ticket[]): Ticket[] {
   return result;
 }
 
-/** Flatten a wayfind ticket set into a `task_plan.md` body — the forward half of
- *  the chain. Lossless: every ticket becomes a phase, in dependency order,
- *  carrying its `What to build` + acceptance criteria. Phase headers embed the
- *  ticket stem (`[id-slug]`) so the plan coordinator's `readPlanPhases` +
- *  wayfind's `syncChainState` can close the originating ticket when the phase
- *  completes (ADR-0001 round-trip). */
+/** Flatten a wayfind ticket set into a writing-plans-format plan body — the
+ *  forward half of the chain (ticket 08). Lossless: every ticket becomes a Task,
+ *  in dependency order, carrying its `What to build` + acceptance criteria as
+ *  `- [ ]` steps. Task headers embed the ticket stem (`[id-slug]`) so the plan
+ *  coordinator's `parsePlan` + wayfind's `syncChainState` can close the
+ *  originating ticket when the Task's steps complete (ADR-0001 round-trip). */
 export function flattenTicketsToPlan(tickets: Ticket[], glossary: GlossaryTerm[]): string {
   const ordered = topoSortTickets(tickets);
   const lines: string[] = [
-    "# Task Plan: (seeded from wayfind tickets)",
+    "# Implementation Plan — seeded from wayfind tickets",
     "",
-    "## Goal",
-    "",
-    "_(Seeded from wayfind tickets — sharpen into a one-sentence end state.)_",
+    "**Goal:** _(Seeded from wayfind tickets — sharpen into a one-sentence end state.)_",
     "",
   ];
   if (glossary.length > 0) {
@@ -134,28 +132,26 @@ export function flattenTicketsToPlan(tickets: Ticket[], glossary: GlossaryTerm[]
     for (const g of glossary) lines.push(`- **${g.term}**: ${g.definition}`);
     lines.push("");
   }
-  lines.push("## Current Phase", "Phase 1", "", "## Phases", "");
   ordered.forEach((t, i) => {
-    lines.push(`### Phase ${i + 1} — [${t.id}-${t.slug}] ${t.title}`);
+    lines.push(`### Task ${i + 1} — [${t.id}-${t.slug}] ${t.title}`);
     if (t.whatToBuild) lines.push(`> ${t.whatToBuild.trim()}`);
     if (t.acceptance && t.acceptance.length > 0) {
       for (const c of t.acceptance) lines.push(`- [ ] ${c}`);
     }
-    lines.push("- **Status:** pending", "");
+    lines.push("");
   });
   return lines.join("\n");
 }
 
-/** Seed a `task_plan.md` from CONTEXT.md `## Decisions` — one phase per resolved
- *  decision. The lossless grill→plan handoff (replaces the old skeleton seed
- *  that dropped decisions because they lived only in the conversation). */
+/** Seed a writing-plans-format plan from CONTEXT.md `## Decisions` — one Task
+ *  per resolved decision (ticket 08). The lossless grill→plan handoff (replaces
+ *  the old skeleton seed that dropped decisions because they lived only in the
+ *  conversation). */
 export function seedFromDecisions(decisions: ResolvedDecision[], glossary: GlossaryTerm[]): string {
   const lines: string[] = [
-    "# Task Plan: (seeded from grill decisions)",
+    "# Implementation Plan — seeded from grill decisions",
     "",
-    "## Goal",
-    "",
-    "_(Seeded from resolved grill decisions — sharpen into a one-sentence end state.)_",
+    "**Goal:** _(Seeded from resolved grill decisions — sharpen into a one-sentence end state.)_",
     "",
   ];
   if (glossary.length > 0) {
@@ -163,9 +159,8 @@ export function seedFromDecisions(decisions: ResolvedDecision[], glossary: Gloss
     for (const g of glossary) lines.push(`- **${g.term}**: ${g.definition}`);
     lines.push("");
   }
-  lines.push("## Current Phase", "Phase 1", "", "## Phases", "");
   decisions.forEach((d, i) => {
-    lines.push(`### Phase ${i + 1} — ${d.title}`, `- ${d.answer}`, "- **Status:** pending", "");
+    lines.push(`### Task ${i + 1} — ${d.title}`, `- ${d.answer}`, "");
   });
   return lines.join("\n");
 }
@@ -230,6 +225,6 @@ export function seedPlan(cwd: string, opts: { effort?: string; topic?: string } 
 
   if (effort) mkdirSync(targetDir, { recursive: true });
   writeFileSync(targetPath, body, "utf-8");
-  const phaseCount = (body.match(/^### Phase\b/gim) ?? []).length;
+  const phaseCount = (body.match(/^### Task\b/gim) ?? []).length;
   return { path: targetPath, source, phaseCount };
 }

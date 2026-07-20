@@ -1,7 +1,7 @@
 ---
 type: task
-status: open
-concrete-build: complete 2026-07-20 (#715–#719)
+status: closed
+closed: 2026-07-20 (concrete build #715–#719/#722; TB5b/yield resolved via [04] #726)
 ---
 
 # 09 — Build the goal-todo coordination layer (the destination)
@@ -28,14 +28,14 @@ This is the **doing** (the destination), handed to superpowers `writing-plans` �
 - [x] goal-todo + wayfind `bun test` green. _(304 + 144)_
 - [x] Superpowers skills stay byte-identical (no skill edits — [01](01-revert-skill-edits-restore-fidelity.md) invariant holds). _(ADR-0004 guard)_
 
-## Status — concrete build complete (2026-07-20)
+## Status — COMPLETE (closed 2026-07-20)
 
 All 6 concrete tracer-bullets merged: **1** parser, **2** publish-seams, **3** goal.ts internal-call, **4** drive-todo (plan-master seed), **5a** refresh-gating (mutating tools), **6** e2e verify (found+fixed a cross-package `complete`→`completed` status-token bug). Plan docs: `.planning/2026-07-19-a/plans/01–06`.
 
-**Remaining — design/migration, NOT concrete code (→ other tickets):**
-- **Yield** (`__piGoalActive`/`__piWayfindGrill` double-drive guard) = the open **[04](04-sync-timing-and-lifecycle.md)** design question. Underspecified here: no plan-context-injection exists to gate (only publish+gate+seed); `session_start` refresh+seed are already correctly scoped (seed fires only when the todo is empty, before any goal is active). Resolve 04 via grilling, then a small follow-up.
-- **[05](05-multi-plan-representation.md)** multi-plan (deferred — single active-effort heuristic suffices).
-- **[08](08-wayfind-migrates-to-writing-plans-format.md)** wayfind's `flattenTicketsToPlan` still emits legacy `### Phase N — [stem]`; migrating to writing-plans `### Task N:` makes wayfind-GENERATED `task_plan.md` feed the loop (currently only hand-authored writing-plans verified by TB6).
+**All sub-items resolved (the design/migration tail once listed as "remaining" is now closed):**
+- **Yield** (TB5b) → resolved by **[04](04-sync-timing-and-lifecycle.md)** (#726, research): **N/A** — the plan coordinator has no auto-drive to yield (no injection/auto-continue; only passive publish + empty-only seed + user-initiated gate). The dangling `__piWayfindActive` publish is a harmless no-op.
+- **[05](05-multi-plan-representation.md)** → deferred by decision (#728): single active-effort heuristic suffices; reopen if multi-plan bites.
+- **[08](08-wayfind-migrates-to-writing-plans-format.md)** → **DONE** (#724/#725): wayfind producers migrated to writing-plans format; wayfind-GENERATED plans now feed the loop (e2e-verified).
 
 ## Inputs (the spec = settled design)
 
