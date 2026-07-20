@@ -46,6 +46,8 @@ export function parsePlan(markdown: string, sourcePath: string): ParsedPlan {
 				title: titleRaw.replace(TICKET_RE, "").trim(),
 				status: "pending",
 				ticketIds: ticketIds.length > 0 ? ticketIds : undefined,
+				stepCount: 0,
+				completedSteps: 0,
 				_steps: 0,
 				_done: 0,
 			};
