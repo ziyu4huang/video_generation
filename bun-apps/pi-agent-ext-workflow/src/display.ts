@@ -248,6 +248,21 @@ function statusLine(snapshot: WorkflowSnapshot, completed: boolean): string {
   return `workflow ${snapshot.name}: ${snapshot.doneCount}/${snapshot.agentCount} done`;
 }
 
+/** Short, human-friendly model label: drop the provider prefix for display. */
+export function shortModel(model: string | undefined): string | undefined {
+  if (!model) return undefined;
+  const slash = model.indexOf("/");
+  return slash > 0 ? model.slice(slash + 1) : model;
+}
+
+/** Compact token count for space-constrained rows: 980, 12.4K, 1.3M. */
+export function fmtTokensShort(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "";
+  if (n < 1000) return `${Math.round(n)}`;
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}K`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
 export function statusIcon(status: WorkflowAgentStatus): string {
   switch (status) {
     case "queued":

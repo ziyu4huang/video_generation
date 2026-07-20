@@ -8,12 +8,18 @@
 
 import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { shorten, statusIcon, type WorkflowAgentSnapshot, type WorkflowSnapshot } from "./display.js";
+import {
+  fmtTokensShort,
+  shorten,
+  shortModel,
+  statusIcon,
+  type WorkflowAgentSnapshot,
+  type WorkflowSnapshot,
+} from "./display.js";
 import type { PersistedRunState } from "./run-persistence.js";
 import type { ManagedRun, WorkflowManager } from "./workflow-manager.js";
 import type { WorkflowStorage } from "./workflow-saved.js";
 import type { WorkflowSettings } from "./workflow-settings.js";
-import { shortModel } from "./workflow-ui.js";
 
 // `tokenUsage` is included so the detailed panel's live token/s counter refreshes
 // as tokens accrue (not only on agent start/end). It is harmless in compact mode —
@@ -284,14 +290,6 @@ export function tokensPerSecond(runId: string): number {
 /** Forget a run's samples (call when it finishes) so the map can't grow unbounded. */
 export function clearTokenSamples(runId: string): void {
   tokenSamples.delete(runId);
-}
-
-/** Compact token count for the space-constrained panel: 980, 12.4K, 1.3M. */
-function fmtTokensShort(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) return "";
-  if (n < 1000) return `${Math.round(n)}`;
-  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}K`;
-  return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
 /** Normalize the configured per-phase agent cap to a sane integer (default 8). */
