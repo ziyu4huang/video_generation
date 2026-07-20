@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { computeActiveTools, CORE_TOOLS, GATES, computeBannerSaved, matchIntent, matchesKeyword, gateFires, measureToolTokens } from "./tool-gate.ts";
+import { updateSticky, CORE_TOOLS, GATES, computeBannerSaved, matchIntent, matchesKeyword, gateFires, measureToolTokens, filterActive } from "./tool-gate.ts";
 import type { ToolGate } from "./tool-gate.ts";
 import { emitToolGateLog, isMissCandidate } from "./tool-gate.ts";
 import toolGateExtension from "./tool-gate.ts";
@@ -7,20 +7,21 @@ import toolGateExtension from "./tool-gate.ts";
 /** Spread CORE_TOOLS into an array of names (CORE_TOOLS is a Set). */
 const CORE_TOOLS_ARRAY = (): string[] => Array.from(CORE_TOOLS);
 
-describe("computeActiveTools", () => {
+describe("updateSticky + filterActive", () => {
   test("a tool not listed in CORE_TOOLS or any gate is always active (fail-open)", () => {
     const allTools = [...CORE_TOOLS, "some_future_tool_not_in_any_gate"];
     const sticky = new Set(CORE_TOOLS);
-    const active = computeActiveTools("", allTools, sticky);
+    const active = filterActive(allTools, sticky);
     expect(active).toContain("some_future_tool_not_in_any_gate");
   });
 
   test("a gate stays active across turns even when a later prompt doesn't mention it", () => {
     const allTools = [...CORE_TOOLS, "flux2", "flux2_help"];
     const sticky = new Set(CORE_TOOLS);
-    const turn1 = computeActiveTools("generate an image of a cat", allTools, sticky);
-    expect(turn1).toContain("flux2");
-    const turn2 = computeActiveTools("make it bigger", allTools, sticky);
+    updateSticky("generate an image of a cat", sticky);
+    expect(filterActive(allTools, sticky)).toContain("flux2");
+    updateSticky("make it bigger", sticky);
+    const turn2 = filterActive(allTools, sticky);
     expect(turn2).toContain("flux2");
     expect(turn2).toContain("flux2_help");
   });
@@ -28,7 +29,8 @@ describe("computeActiveTools", () => {
   test("a gate never mentioned by any prompt stays inactive", () => {
     const allTools = [...CORE_TOOLS, "flux2", "flux2_help"];
     const sticky = new Set(CORE_TOOLS);
-    const active = computeActiveTools("what's the weather", allTools, sticky);
+    updateSticky("what's the weather", sticky);
+    const active = filterActive(allTools, sticky);
     expect(active).not.toContain("flux2");
     expect(active).not.toContain("flux2_help");
   });
@@ -36,8 +38,34 @@ describe("computeActiveTools", () => {
   test("CORE_TOOLS are always active regardless of prompt", () => {
     const allTools = [...CORE_TOOLS];
     const sticky = new Set(CORE_TOOLS);
-    const active = computeActiveTools("irrelevant prompt", allTools, sticky);
+    updateSticky("irrelevant prompt", sticky);
+    const active = filterActive(allTools, sticky);
     for (const t of CORE_TOOLS) expect(active).toContain(t);
+  });
+});
+
+describe("updateSticky (mutation half)", () => {
+  test("fires matching gates and mutates sticky in place", () => {
+    const sticky = new Set(CORE_TOOLS);
+    updateSticky("generate an image of a cat", sticky);
+    expect(sticky.has("flux2")).toBe(true);
+    expect(sticky.has("flux2_help")).toBe(true);
+  });
+
+  test("accumulates across turns (sticky persistence)", () => {
+    const sticky = new Set(CORE_TOOLS);
+    updateSticky("generate an image", sticky);
+    updateSticky("make a video", sticky);
+    // both flux2 and ltx should be in sticky after two prompts
+    expect(sticky.has("flux2")).toBe(true);
+    expect(sticky.has("ltx")).toBe(true);
+  });
+
+  test("empty prompt fires nothing", () => {
+    const sticky = new Set(CORE_TOOLS);
+    const before = sticky.size;
+    updateSticky("", sticky);
+    expect(sticky.size).toBe(before);
   });
 });
 
@@ -51,15 +79,16 @@ describe("GATES data (S1)", () => {
   test("movie gate exists and fires on 'movie' and '分鏡'", () => {
     const sticky = new Set(CORE_TOOLS);
     const all = [...CORE_TOOLS, "movie", "movie_help"];
-    const active = computeActiveTools("幫我用 movie 做一個分鏡", all, sticky);
-    expect(active).toEqual(expect.arrayContaining(["movie", "movie_help"]));
+    updateSticky("幫我用 movie 做一個分鏡", sticky);
+    expect(filterActive(all, sticky)).toEqual(expect.arrayContaining(["movie", "movie_help"]));
   });
 
   test("inspect does NOT fire on generic 'debug the docker build' (narrowed)", () => {
     const sticky = new Set(CORE_TOOLS);
     const inspectTools = ["inspect_context", "inspect_agent", "inspect_extensions", "inspect_pathology"];
     const all = [...CORE_TOOLS, ...inspectTools];
-    const active = computeActiveTools("let's debug the docker build", all, sticky);
+    updateSticky("let's debug the docker build", sticky);
+    const active = filterActive(all, sticky);
     for (const t of inspectTools) {
       expect(active).not.toContain(t);
     }
@@ -68,7 +97,8 @@ describe("GATES data (S1)", () => {
   test("inspect fires on 'inspect extension health'", () => {
     const sticky = new Set(CORE_TOOLS);
     const all = [...CORE_TOOLS, "inspect_extensions"];
-    expect(computeActiveTools("inspect extension health", all, sticky)).toContain("inspect_extensions");
+    updateSticky("inspect extension health", sticky);
+    expect(filterActive(all, sticky)).toContain("inspect_extensions");
   });
 });
 
@@ -117,7 +147,9 @@ describe("telemetry helpers (S1)", () => {
     expect(isMissCandidate("hello", [], [])).toBe(false);
   });
 
-  test("emitToolGateLog writes one JSON line to stderr by default", () => {
+  test("emitToolGateLog writes one JSON line to stderr when TOOL_GATE_LOG=1 (opt-in)", () => {
+    const origEnv = process.env.TOOL_GATE_LOG;
+    process.env.TOOL_GATE_LOG = "1";
     const sink: string[] = [];
     const orig = process.stderr.write.bind(process.stderr);
     (process.stderr as { write: (s: string) => boolean }).write = (s: string) => { sink.push(s); return true; };
@@ -125,11 +157,27 @@ describe("telemetry helpers (S1)", () => {
       emitToolGateLog({ kind: "turn", ts: "x", promptLen: 5, gatesFired: [], dormantGates: ["ltx"], activeCount: 20, totalCount: 40 });
     } finally {
       (process.stderr as { write: (s: string) => boolean }).write = orig;
+      process.env.TOOL_GATE_LOG = origEnv;
     }
     expect(sink.length).toBe(1);
     const parsed = JSON.parse(sink[0]);
     expect(parsed.kind).toBe("turn");
     expect(parsed.dormantGates).toEqual(["ltx"]);
+  });
+
+  test("emitToolGateLog is silent by default (F4: opt-in, not opt-out)", () => {
+    const origEnv = process.env.TOOL_GATE_LOG;
+    delete process.env.TOOL_GATE_LOG;
+    const sink: string[] = [];
+    const orig = process.stderr.write.bind(process.stderr);
+    (process.stderr as { write: (s: string) => boolean }).write = (s: string) => { sink.push(s); return true; };
+    try {
+      emitToolGateLog({ kind: "turn", ts: "x", promptLen: 5, gatesFired: [], dormantGates: ["ltx"], activeCount: 20, totalCount: 40 });
+    } finally {
+      (process.stderr as { write: (s: string) => boolean }).write = orig;
+      process.env.TOOL_GATE_LOG = origEnv;
+    }
+    expect(sink.length).toBe(0);
   });
 
   test("emitToolGateLog is a no-op when TOOL_GATE_LOG=0", () => {
@@ -162,7 +210,7 @@ describe("computeBannerSaved (S3 — runtime measured tokens)", () => {
     ];
     const measured = new Map(loadedTools.map((t) => [t.name, measureToolTokens(t)]));
     // CORE-only active ⇒ ltx & flux2 are gated; movie is NOT loaded ⇒ excluded.
-    const active = computeActiveTools("", loadedNames, new Set(CORE_TOOLS));
+    const active = filterActive(loadedNames, new Set(CORE_TOOLS));
     const saved = computeBannerSaved(active, loadedNames, measured);
     const expected = measured.get("ltx")! + measured.get("ltx_help")!
       + measured.get("flux2")! + measured.get("flux2_help")!;
@@ -235,6 +283,40 @@ describe("enable_tool (S1 A escape hatch)", () => {
     expect(res.content[0].text).toMatch(/list:true/i);
   });
 
+  test("F1 regression: enable_tool uses filterActive, not updateSticky (no re-firing of gates)", async () => {
+    // Verify that enable_tool.execute uses filterActive (not updateSticky)
+    // to build the active list. updateSticky re-evaluates every gate
+    // against lastPrompt, which is unnecessary work and couples enable_tool to
+    // the prompt-matching logic. filterActive computes the active list from
+    // sticky alone — no gate re-evaluation, no risk of lastPrompt side effects.
+    const loaded = [...CORE_TOOLS, "ltx", "ltx_help", "movie", "movie_help"];
+    const { enableTool, calls } = setupPi(loaded);
+    const res = await enableTool.execute("id", { name: "ltx" });
+    expect(res.content[0].text).toContain("ltx");
+    const lastActive = calls[calls.length - 1].setActiveTools;
+    // ltx must be active
+    expect(lastActive).toEqual(expect.arrayContaining(["ltx", "ltx_help"]));
+    // movie must NOT be active (was not requested, and filterActive doesn't
+    // re-fire gates against lastPrompt — only the named gate is activated)
+    expect(lastActive).not.toContain("movie");
+    expect(lastActive).not.toContain("movie_help");
+  });
+
+  test("F3 regression: enable_tool with already-active gate returns 'already active' (not 'Activated')", async () => {
+    // When a gate is already fully active, enable_tool({name}) must not claim
+    // it was "Activated" — it should say "already active".
+    const loaded = [...CORE_TOOLS, "ltx", "ltx_help"];
+    const { enableTool, handlers } = setupPi(loaded);
+    // Activate ltx first via before_agent_start
+    if (handlers.before_agent_start) {
+      await handlers.before_agent_start({ prompt: "make a video" });
+    }
+    // Now request ltx again — it's already active
+    const res = await enableTool.execute("id", { name: "ltx" });
+    expect(res.content[0].text).toMatch(/already active/i);
+    expect(res.content[0].text).not.toMatch(/Activated/i);
+  });
+
   test("mutation guard: execute never throws even if setActiveTools fails", async () => {
     // setActiveTools throwing inside execute must be caught → error result, not a throw.
     const handlers: Record<string, any> = {};
@@ -248,6 +330,32 @@ describe("enable_tool (S1 A escape hatch)", () => {
     const enableTool = (pi as any)._t;
     const res = await enableTool.execute("id", { intent: "make a video" });
     expect(res.content[0].text).toMatch(/error/i);
+  });
+});
+
+describe("filterActive (F1 fix)", () => {
+  test("tools not in TRACKED_TOOLS are always active (fail-open)", () => {
+    const sticky = new Set(CORE_TOOLS);
+    const active = filterActive([...CORE_TOOLS, "some_new_tool"], sticky);
+    expect(active).toContain("some_new_tool");
+  });
+
+  test("gated tool is active only when in sticky", () => {
+    const all = [...CORE_TOOLS, "ltx", "ltx_help", "flux2", "flux2_help"];
+    const sticky = new Set([...CORE_TOOLS, "ltx", "ltx_help"]);
+    const active = filterActive(all, sticky);
+    expect(active).toContain("ltx");
+    expect(active).toContain("ltx_help");
+    expect(active).not.toContain("flux2");
+    expect(active).not.toContain("flux2_help");
+  });
+
+  test("does NOT mutate sticky", () => {
+    const sticky = new Set(CORE_TOOLS);
+    const before = sticky.size;
+    filterActive([...CORE_TOOLS, "ltx", "ltx_help"], sticky);
+    expect(sticky.size).toBe(before);
+    expect(sticky.has("ltx")).toBe(false);
   });
 });
 
@@ -297,11 +405,15 @@ describe("gateFires (S2 co-occurrence)", () => {
   });
 });
 
-describe("S2 keyword audit (computeActiveTools Effect table)", () => {
+describe("S2 keyword audit (updateSticky + filterActive Effect table)", () => {
   const all = [...CORE_TOOLS, "flux2", "flux2_help", "krea2", "krea2_help", "ltx", "ltx_help",
     "file2md", "vision_ask", "inspect_extensions", "workflow", "workflow_help",
     "collect_videos", "movie", "movie_help"];
-  const act = (prompt: string) => computeActiveTools(prompt, all, new Set(CORE_TOOLS));
+  const act = (prompt: string) => {
+    const sticky = new Set(CORE_TOOLS);
+    updateSticky(prompt, sticky);
+    return filterActive(all, sticky);
+  };
 
   test("docker image cleanup → []", () => {
     expect(act("docker image cleanup")).toEqual(expect.arrayContaining([...CORE_TOOLS]));
@@ -348,7 +460,11 @@ describe("S2 keyword audit (computeActiveTools Effect table)", () => {
 describe("S2 cross-gate invariant — shared noun, disjoint verbs ⇒ only one fires", () => {
   const all = [...CORE_TOOLS, "flux2", "flux2_help", "ltx", "ltx_help",
     "file2md", "vision_ask"];
-  const act = (prompt: string) => computeActiveTools(prompt, all, new Set(CORE_TOOLS));
+  const act = (prompt: string) => {
+    const sticky = new Set(CORE_TOOLS);
+    updateSticky(prompt, sticky);
+    return filterActive(all, sticky);
+  };
 
   test("'generate an image' fires flux2 but NOT file2md (generate ∉ file2md verbs)", () => {
     const a = act("generate an image");
