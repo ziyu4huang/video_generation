@@ -131,3 +131,19 @@ function positiveInt(value: number | undefined, fallback: number): number {
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
 }
+
+/**
+ * A terse "what is it doing right now" label from an agent's compact history —
+ * derived from only the LAST entry. Full content stays available via the
+ * existing History block; this is a status-line snippet, not content.
+ */
+export function summarizeLatestAction(history?: AgentHistoryEntry[]): string | undefined {
+  const last = history?.[history.length - 1];
+  if (!last) return undefined;
+  if (last.kind === "toolCall") return `▸ ${last.toolName ?? "tool"}`;
+  if (last.kind === "toolResult") {
+    return last.isError ? `✗ ${last.toolName ?? "tool"}` : `${last.toolName ?? "tool"} done`;
+  }
+  if (last.kind === "error") return "✗ error";
+  return "…thinking";
+}
