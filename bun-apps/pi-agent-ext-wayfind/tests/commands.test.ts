@@ -434,5 +434,6 @@ describe("/wayfind — fact-freshness guard", () => {
     await pi.commands.get("wayfind")?.("some destination", ctx);
 
     expect(notifications.every((n) => !n.includes("Fact freshness"))).toBe(true);
+    expect(pi.sent.every((s) => !s.includes("Fact freshness"))).toBe(true);
   });
 });

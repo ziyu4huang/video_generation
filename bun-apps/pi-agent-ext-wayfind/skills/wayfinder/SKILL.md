@@ -124,7 +124,7 @@ User invokes with a loose idea.
 
 User invokes with a map (path) or an effort slug. A ticket is **optional** — without one, you pick the next decision, not the user.
 
-1. **Load the **map** — the low-res view, not every ticket body. If the `/wayfind` command warned the branch is behind `origin/<default>`, flag it before resolving — see **Fact freshness**.
+1. **Load the map** — the low-res view, not every ticket body. If the `/wayfind` command warned the branch is behind `origin/<default>`, flag it before resolving — see **Fact freshness**.
 2. Choose the ticket. If the user named one, use it. Otherwise take the first frontier ticket in order. **Claim it**: add a `claimed:` line before any work.
 3. **Set a `/goal`** with the ticket's title as the objective and its acceptance criteria as completion targets. This activates plan-mode coordination (`goal_complete` gating, `todo` tracking, progress publishing via `__piPlan*` seams) so mid-resolution tooling works correctly. Use the built-in goal-setting mechanism (the tool or command that creates the active goal).
 4. Resolve it — **zoom as needed**: read the full body of any related or closed ticket on demand; invoke the skills the `## Notes` block names. If in doubt, use `grilling` and `domain-modeling`. For **Task** tickets, call `goal_complete` when the deliverable is met — the goal gate validates plan completion before the ticket can close.
