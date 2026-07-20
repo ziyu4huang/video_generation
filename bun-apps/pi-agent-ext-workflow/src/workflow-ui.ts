@@ -16,7 +16,9 @@
 import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Component, Focusable, TUI } from "@earendil-works/pi-tui";
 import { parseKey, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { shortModel, type WorkflowAgentSnapshot, type WorkflowSnapshot } from "./display.js";
+import type { AgentHistoryEntry } from "./agent-history.js";
+import { summarizeLatestAction } from "./agent-history.js";
+import { type ActivityRow, renderActivityRow, shortModel, type WorkflowAgentSnapshot, type WorkflowSnapshot } from "./display.js";
 import type { PersistedRunState } from "./run-persistence.js";
 import { registerSavedWorkflow } from "./saved-commands.js";
 import type { WorkflowManager } from "./workflow-manager.js";
@@ -74,6 +76,7 @@ interface AgentRow {
   phase?: string;
   tokens?: number;
   model?: string;
+  history?: AgentHistoryEntry[];
 }
 
 /** Reads run/phase/agent data from the manager, preferring live snapshots. */
@@ -154,7 +157,15 @@ export class NavigatorModel {
     if (!snap) return [];
     return snap.agents
       .filter((a) => (a.phase ?? "(no phase)") === phase)
-      .map((a) => ({ id: a.id, label: a.label, status: a.status, phase: a.phase, tokens: a.tokens, model: a.model }));
+      .map((a) => ({
+        id: a.id,
+        label: a.label,
+        status: a.status,
+        phase: a.phase,
+        tokens: a.tokens,
+        model: a.model,
+        history: a.history,
+      }));
   }
 
   agentDetail(runId: string, agentId: number): WorkflowAgentSnapshot | undefined {
@@ -391,10 +402,14 @@ export function renderNavigator(
     state.clamp(agents.length);
     lines.push(theme.bold(`${model.runName(state.runId)} › ${state.phase}`));
     agents.forEach((a, i) => {
-      const icon = STATUS_ICON[a.status] ?? "?";
-      const mdl = shortModel(a.model);
-      const meta = [mdl, a.tokens ? fmtTokens(a.tokens) : undefined].filter(Boolean).join(" · ");
-      lines.push(sel(i, `${icon} ${a.label}${meta ? dim(`  ${meta}`) : ""}`));
+      const row: ActivityRow = {
+        status: a.status as ActivityRow["status"],
+        actor: a.label,
+        model: a.model,
+        tokens: a.tokens,
+        latestAction: a.status === "running" ? summarizeLatestAction(a.history) : undefined,
+      };
+      lines.push(sel(i, renderActivityRow(row, theme)));
     });
   } else if (state.kind === "detail" && state.runId && state.agentId != null) {
     const a = model.agentDetail(state.runId, state.agentId);
@@ -556,7 +571,18 @@ export function openWorkflowNavigator(
   return ui.custom<void>(
     (tui: TUI, theme: Theme, _keybindings, done: (r: undefined) => void) => {
       const rerender = () => tui.requestRender();
-      const events = ["agentStart", "agentEnd", "phase", "log", "complete", "error", "stopped", "paused", "resumed"];
+      const events = [
+        "agentStart",
+        "agentEnd",
+        "agentHistory",
+        "phase",
+        "log",
+        "complete",
+        "error",
+        "stopped",
+        "paused",
+        "resumed",
+      ];
       const onEvent = () => rerender();
       for (const ev of events) manager.on(ev, onEvent);
       const cleanup = () => {

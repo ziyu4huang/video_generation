@@ -483,6 +483,46 @@ test("renderNavigator shows model info in agent rows", () => {
   assert.match(text, /model/);
 });
 
+function runningAgentManager(): Pick<WorkflowManager, "listRuns" | "getRun"> {
+  const snapshot: WorkflowSnapshot = {
+    name: "audit",
+    phases: ["Scan"],
+    currentPhase: "Scan",
+    logs: [],
+    agents: [
+      {
+        id: 1,
+        label: "scan a",
+        phase: "Scan",
+        prompt: "scan the code",
+        status: "running",
+        history: [{ role: "assistant", kind: "toolCall", toolName: "grep", text: "{}" }],
+      },
+    ],
+    agentCount: 1,
+    runningCount: 1,
+    doneCount: 0,
+    errorCount: 0,
+  };
+  return {
+    listRuns: () =>
+      [
+        { runId: "run-2", workflowName: "audit", status: "running", phases: ["Scan"], agents: snapshot.agents, logs: [] },
+      ] as unknown as PersistedRunState[],
+    getRun: (id: string) =>
+      id === "run-2" ? ({ runId: "run-2", status: "running", snapshot } as unknown as ManagedRun) : undefined,
+  };
+}
+
+test("renderNavigator agents view shows a running agent's latest tool call", () => {
+  const model = new NavigatorModel(runningAgentManager());
+  const state = new NavigatorState();
+  state.drill(model); // runs -> phases
+  state.drill(model); // phases -> agents
+  const text = renderNavigator(state, model, 80).join("\n");
+  assert.ok(text.includes("▸ grep"), `expected the live tool call in the agents list, got:\n${text}`);
+});
+
 test("renderNavigator shows correct footer hint per view", () => {
   const model = new NavigatorModel(fakeManager());
 
