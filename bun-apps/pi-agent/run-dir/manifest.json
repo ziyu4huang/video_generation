@@ -1,6 +1,5 @@
 {
   "extensions": [
-    "pi-agent-ext-power-tool/extensions/power-tool.ts",
     {
       "name": "pi-agent-ext-tool-gate",
       "entry": "pi-agent-ext-tool-gate/extensions/tool-gate.ts",
@@ -56,7 +55,8 @@
     "pi-agent-ext-btw",
     "pi-agent-ext-file2md",
     "pi-agent-ext-workflow",
-    "pi-agent-ext-knowledge-card"
+    "pi-agent-ext-knowledge-card",
+    "pi-agent-ext-power-tool"
   ],
   "npmExtensions": [],
   "lazyExtensions": {}

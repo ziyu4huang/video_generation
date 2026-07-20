@@ -44,7 +44,7 @@
  *   - Group A (original "general productivity" 5): core-task, hermes-memory,
  *     superpowers, wayfind, web-access.
  *   - Group B (migrated from dynamic `-e`): obsidian, btw, file2md,
- *     workflow, knowledge-card. These were PREVIOUSLY in manifest.extensions
+ *     workflow, knowledge-card, power-tool. These were PREVIOUSLY in manifest.extensions
  *     (jiti `-e` paths) — which works in source/bundle mode but NOT in `--exe`
  *     mode (binary mode emits zero `-e` flags; the .ts paths don't exist in
  *     the compiled $bunfs virtual FS). Migrating them to static imports makes
@@ -62,6 +62,7 @@ import btwExtension from "../../pi-agent-ext-btw/extensions/btw.ts";
 import file2mdExtension from "../../pi-agent-ext-file2md/extensions/file2md.ts";
 import workflowExtension from "../../pi-agent-ext-workflow/extensions/workflow.ts";
 import knowledgeCardExtension from "../../pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
+import powerToolExtension from "../../pi-agent-ext-power-tool/extensions/power-tool.ts";
 
 export const STATIC_EXTENSION_FACTORIES = [
 	// Group A — original "general productivity" set
@@ -76,4 +77,7 @@ export const STATIC_EXTENSION_FACTORIES = [
 	{ name: "pi-agent-ext-file2md", factory: file2mdExtension },
 	{ name: "pi-agent-ext-workflow", factory: workflowExtension },
 	{ name: "pi-agent-ext-knowledge-card", factory: knowledgeCardExtension },
+	// power-tool — always-on diagnostics suite (inspect_context/agent/extensions/
+	// pathology/tui); active not lazy, so belongs inline like the rest of Group B
+	{ name: "pi-agent-ext-power-tool", factory: powerToolExtension },
 ];
