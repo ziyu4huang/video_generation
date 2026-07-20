@@ -132,7 +132,7 @@ describe("grill-done — end + handoff", () => {
     const seedPath = join(cwd, "task_plan.md");
     expect(existsSync(seedPath)).toBe(true);
     const seed = readFileSync(seedPath, "utf-8");
-    expect(seed).toContain("### Phase");
+    expect(seed).toContain("### Task");
     expect(seed).toContain("Order"); // glossary term carried through
     // an expansion message was sent to the agent
     expect(pi.sent.some((m) => m.includes("task_plan.md"))).toBe(true);
@@ -146,7 +146,7 @@ describe("grill-done — end + handoff", () => {
     await pi.commands.get("grill")?.("done --seed-plan", ctx);
     const seed = readFileSync(join(cwd, "task_plan.md"), "utf-8");
     expect(seed).toContain("some topic");
-    expect(seed).toContain("### Phase");
+    expect(seed).toContain("### Task");
   });
 });
 
@@ -310,8 +310,8 @@ describe("plan-seed — route-aware forward bridge", () => {
     expect(existsSync(planPath)).toBe(true);
     const plan = readFileSync(planPath, "utf-8");
     // topo order: 01 before 02 (even though 02 was written first)
-    expect(plan).toMatch(/### Phase 1 — \[01-alpha\] Alpha/);
-    expect(plan).toMatch(/### Phase 2 — \[02-beta\] Beta/);
+    expect(plan).toMatch(/### Task 1 — \[01-alpha\] Alpha/);
+    expect(plan).toMatch(/### Task 2 — \[02-beta\] Beta/);
     expect(notifications.some((n) => n.includes("task_plan.md"))).toBe(true);
   });
 
