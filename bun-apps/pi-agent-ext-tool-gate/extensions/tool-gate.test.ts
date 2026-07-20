@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { computeActiveTools, CORE_TOOLS, GATES, computeBannerSaved, matchIntent } from "./tool-gate.ts";
+import { computeActiveTools, CORE_TOOLS, GATES, computeBannerSaved, matchIntent, matchesKeyword } from "./tool-gate.ts";
 import { emitToolGateLog, isMissCandidate } from "./tool-gate.ts";
 import toolGateExtension from "./tool-gate.ts";
 
@@ -227,5 +227,24 @@ describe("enable_tool (S1 A escape hatch)", () => {
     const enableTool = (pi as any)._t;
     const res = await enableTool.execute("id", { intent: "make a video" });
     expect(res.content[0].text).toMatch(/error/i);
+  });
+});
+
+describe("matchesKeyword (S2)", () => {
+  test("word-boundary: 'flux' does NOT match inside 'conflux'", () => {
+    expect(matchesKeyword("flux", "use the conflux library")).toBe(false);
+  });
+  test("word-boundary: 'flux' matches as a whole word", () => {
+    expect(matchesKeyword("flux", "use the flux model")).toBe(true);
+  });
+  test("phrase substring: 'generate image' is NOT a substring of 'generate an image' (the gap co-occurrence closes)", () => {
+    // This is the brittleness that motivates the requires:{nouns,verbs} design in Task 2/3.
+    expect(matchesKeyword("generate image", "generate an image of a cat")).toBe(false);
+  });
+  test("phrase substring: 'generate image' matches 'generate image now'", () => {
+    expect(matchesKeyword("generate image", "generate image now")).toBe(true);
+  });
+  test("CJK substring: '做動畫' matches a CJK prompt", () => {
+    expect(matchesKeyword("做動畫", "幫我做動畫")).toBe(true);
   });
 });

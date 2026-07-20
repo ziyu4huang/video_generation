@@ -191,6 +191,27 @@ export function scheduleToolGateBanner(
 	}, SHOW_DELAY_MS);
 }
 
+// ── Keyword matching (S2) ────────────────────────────────────────
+
+/** Escape a string for safe embedding in a RegExp (prevents regex-injection
+ *  from keyword/noun/verb content). */
+export function escapeRegExp(s: string): string {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Does `keyword` appear in the (already lowercased) prompt?
+ *  - Single ASCII token (`^[a-z0-9]+$`): word-boundary match — prevents "flux"
+ *    matching inside "conflux", "image" inside "images".
+ *  - Multi-word phrase or CJK: substring (no word boundaries without a
+ *    segmenter; phrases are specific enough once bare words are removed). */
+export function matchesKeyword(keyword: string, promptLower: string): boolean {
+	const kw = keyword.toLowerCase();
+	if (/^[a-z0-9]+$/i.test(keyword)) {
+		return new RegExp(`\\b${escapeRegExp(kw)}\\b`, "i").test(promptLower);
+	}
+	return promptLower.includes(kw);
+}
+
 // ── Extension entry ──────────────────────────────────────────────
 
 /**
