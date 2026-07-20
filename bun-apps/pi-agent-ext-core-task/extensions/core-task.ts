@@ -32,6 +32,7 @@ import { replaceState } from "../src/todo/state/store";
 import { TOOL_NAME } from "../src/todo/tool/types";
 import { getSharedStatusWidget } from "../src/shared/status-widget.js";
 import registerAskUser from "../src/ask-user";
+import { getPlanPhases, getPlanSummary, isPlanIncomplete, refreshPlan } from "../src/plan/coordinator.js";
 
 /** Swallow the expected "stale after session replacement" error on compact/tree. */
 function isStaleCtxError(e: unknown): boolean {
@@ -43,6 +44,17 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 	// globalThis is process-singleton → the function always reads goal/goal's
 	// activeGoal. Peer (the plan coordinator) reads globalThis.__piGoalActive?.().
 	(globalThis as Record<string, unknown>).__piGoalActive = isGoalActive;
+
+	// ── Plan coordination seams (ticket 09, tracer-bullet 2) ────────────
+	// Publish __piPlan* so wayfind's existing readers light up (chain.ts:58
+	// syncChainState closes [NN-slug] tickets; coordination.ts reads incomplete/
+	// summary). Graceful no-op pre-refresh: empty phases, not-incomplete, "".
+	// Mirror the __piGoalActive pattern (direct globalThis assignment).
+	let latestCwd: string | undefined;
+	const g = globalThis as Record<string, unknown>;
+	g.__piPlanPhases = (cwd: string) => getPlanPhases(cwd);
+	g.__piPlanIncomplete = (cwd: string) => isPlanIncomplete(cwd);
+	g.__piPlanSummary = (cwd: string) => getPlanSummary(cwd);
 
 	// ── Ask-user tool (self-contained modal dialog) ──────────────────────
 	registerAskUser(pi);
@@ -66,6 +78,8 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 
 	pi.on("session_start", async (_event, ctx) => {
 		replaceState(replayFromBranch(ctx));
+		latestCwd = ctx.cwd;
+		refreshPlan(ctx.cwd); // parse + cache the active effort's plan
 		if (ctx.hasUI) {
 			statusWidget.setUICtx(ctx.ui);
 			todoOverlay.resetCompletedDisplayState();
@@ -100,6 +114,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 	});
 
 	pi.on("tool_execution_end", async (event) => {
+		if (latestCwd) refreshPlan(latestCwd); // re-parse after a possible plan edit (tracer-bullet 5 refines timing)
 		if (event.toolName !== TOOL_NAME || event.isError) return;
 		todoOverlay.update();
 	});

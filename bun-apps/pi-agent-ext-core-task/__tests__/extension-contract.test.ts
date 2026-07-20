@@ -53,6 +53,15 @@ describe("pi-agent-ext-core-task extension contract", () => {
 		expect(tools.length + commands.length).toBeGreaterThan(0);
 	});
 
+	test("publishes __piPlan* coordination seams on globalThis (09 tracer-bullet 2)", () => {
+		const { pi } = makeMockPi();
+		extensionFactory(pi as never);
+		const g = globalThis as Record<string, unknown>;
+		expect(typeof g.__piPlanPhases, "__piPlanPhases must be published").toBe("function");
+		expect(typeof g.__piPlanIncomplete, "__piPlanIncomplete must be published").toBe("function");
+		expect(typeof g.__piPlanSummary, "__piPlanSummary must be published").toBe("function");
+	});
+
 	test("every registered tool has a non-empty name/label/description", () => {
 		const { pi, tools } = makeMockPi();
 		extensionFactory(pi as never);
