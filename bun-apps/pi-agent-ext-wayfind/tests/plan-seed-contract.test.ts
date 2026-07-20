@@ -15,7 +15,7 @@
  * unit behavior). Ticket 08: migrated from legacy `### Phase` / `**Status:**`.
  */
 import { describe, expect, it } from "bun:test";
-import { WAYFIND_ACTIVE_KEY } from "../src/constants.js";
+import { PLAN_PHASES_KEY, WAYFIND_ACTIVE_KEY } from "../src/constants.js";
 import { buildPlanSeed } from "../src/grill.js";
 
 const DECISIONS = [
@@ -34,6 +34,17 @@ describe("WAYFIND_ACTIVE_KEY — the coordination-seam contract string", () => {
     expect(WAYFIND_ACTIVE_KEY).toBe("__piWayfindActive");
     expect(typeof WAYFIND_ACTIVE_KEY).toBe("string");
     expect(WAYFIND_ACTIVE_KEY.length).toBeGreaterThan(0);
+  });
+});
+
+describe("PLAN_PHASES_KEY — the reverse-seam contract string", () => {
+  it("is exported and equals the globalThis key syncChainState reads", () => {
+    // This literal MUST match the one the plan coordinator publishes on globalThis
+    // (the reader syncChainState closes tickets against). Pins wayfind's half of
+    // the reverse seam (ADR-0001). Coordinator now built as pi-agent-ext-core-task.
+    expect(PLAN_PHASES_KEY).toBe("__piPlanPhases");
+    expect(typeof PLAN_PHASES_KEY).toBe("string");
+    expect(PLAN_PHASES_KEY.length).toBeGreaterThan(0);
   });
 });
 

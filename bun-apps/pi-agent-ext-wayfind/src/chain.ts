@@ -1,7 +1,7 @@
 /**
  * Continuous-chain orchestration — the feedback half of the plan⇄wayfind loop.
  *
- * `syncChainState` reads the plan coordinator's published `globalThis.__piPlanPhases`
+ * `syncChainState` reads the plan coordinator's published phase state via `globalThis[PLAN_PHASES_KEY]`
  * (per-phase `{id, status, ticketIds?}`), closes any wayfind ticket whose phase
  * reports `"completed"`, and records the closure on the effort's map.md. Idempotent.
  *
@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildPlanSeed, type GlossaryTerm, parseDecisions, parseGlossary, type ResolvedDecision } from "./grill.js";
 import { appendDecision, closeTicket, readMap, type Ticket } from "./map.js";
+import { PLAN_PHASES_KEY } from "./constants.js";
 
 /**
  * Structural mirror of the plan coordinator's `PhaseInfo` — NO cross-package
@@ -45,17 +46,17 @@ function findTicketByRef(tickets: Ticket[], ref: string): Ticket | undefined {
  * Close wayfind tickets whose plan phase reports complete — the feedback half
  * of the continuous chain loop (ADR-0001).
  *
- * Reads `globalThis.__piPlanPhases(cwd)`; for each complete phase's `ticketIds`,
+ * Reads phase state via `globalThis[PLAN_PHASES_KEY](cwd)`; for each complete phase's `ticketIds`,
  * closes the matching ticket (status → "closed", resolution set) and appends a
  * one-line decision to the effort's `map.md`.
  *
  * Idempotent: already-closed tickets are skipped (no duplicate decision line).
  * Graceful: returns `{closed:[], skipped:[]}` when no plan coordinator is
- * present (`__piPlanPhases` undefined), no map exists, or no complete phase
+ * present (the `PLAN_PHASES_KEY` seam is undefined), no map exists, or no complete phase
  * references a ticket.
  */
 export function syncChainState(cwd: string, effort: string): ChainSyncResult {
-  const reader = (globalThis as Record<string, unknown> | undefined)?.__piPlanPhases;
+  const reader = (globalThis as Record<string, unknown> | undefined)?.[PLAN_PHASES_KEY];
   if (typeof reader !== "function") return { closed: [], skipped: [] };
 
   const phases = (reader as (cwd: string) => PlanPhaseInfo[])(cwd);
