@@ -87,8 +87,8 @@ describe("matchIntent (S1)", () => {
   test("workflow intent → workflow", () => {
     expect(matchIntent("orchestrate a parallel pipeline", GATES, sticky()).map((g) => g.names[0])).toEqual(["workflow"]);
   });
-  test("S1 over-broad pin: 'docker image cleanup' → flux2 (image keyword); S2 narrows", () => {
-    expect(matchIntent("docker image cleanup", GATES, sticky()).map((g) => g.names[0])).toEqual(["flux2"]);
+  test("S2 flip: 'docker image cleanup' → [] (image noun, no gen-verb)", () => {
+    expect(matchIntent("docker image cleanup", GATES, sticky()).map((g) => g.names[0])).toEqual([]);
   });
   test("no match → []", () => {
     expect(matchIntent("what's the weather", GATES, sticky())).toEqual([]);
@@ -274,5 +274,68 @@ describe("gateFires (S2 co-occurrence)", () => {
     const plain: ToolGate = { names: ["p"], keywords: ["montage"], description: "x" };
     expect(gateFires(plain, "orchestrate a montage")).toBe(true);
     expect(gateFires(plain, "generate an image")).toBe(false);
+  });
+});
+
+describe("S2 keyword audit (computeActiveTools Effect table)", () => {
+  const all = [...CORE_TOOLS, "flux2", "flux2_help", "krea2", "krea2_help", "ltx", "ltx_help",
+    "file2md", "vision_ask", "inspect_extensions", "workflow", "workflow_help",
+    "collect_videos", "movie", "movie_help"];
+  const act = (prompt: string) => computeActiveTools(prompt, all, new Set(CORE_TOOLS));
+
+  test("docker image cleanup → []", () => {
+    expect(act("docker image cleanup")).toEqual(expect.arrayContaining([...CORE_TOOLS]));
+    expect(act("docker image cleanup")).not.toContain("flux2");
+  });
+  test("generate an image of a cat → flux2 (generate+image)", () => {
+    expect(act("generate an image of a cat")).toContain("flux2");
+  });
+  test("coding style → []", () => {
+    expect(act("coding style")).not.toContain("flux2");
+  });
+  test("video call → []", () => {
+    expect(act("video call")).not.toContain("ltx");
+  });
+  test("make a video → ltx (make+video)", () => {
+    expect(act("make a video")).toContain("ltx");
+  });
+  test("做動畫 → ltx (做+動畫)", () => {
+    expect(act("做動畫")).toContain("ltx");
+  });
+  test("下載影片 → [] (影片 noun, no gen-verb)", () => {
+    expect(act("下載影片")).not.toContain("ltx");
+  });
+  test("draft an email → []", () => {
+    expect(act("draft an email")).not.toContain("krea2");
+  });
+  test("describe the problem → []", () => {
+    expect(act("describe the problem")).not.toContain("file2md");
+  });
+  test("read this pdf → file2md (read+pdf)", () => {
+    expect(act("read this pdf")).toContain("file2md");
+  });
+  test("supply chain → []", () => {
+    expect(act("supply chain")).not.toContain("workflow");
+  });
+  test("collect the data → []", () => {
+    expect(act("collect the data")).not.toContain("collect_videos");
+  });
+  test("orchestrate a montage → movie (montage keyword)", () => {
+    expect(act("orchestrate a montage")).toContain("movie");
+  });
+});
+
+describe("S2 matchIntent false-fire cases", () => {
+  const sticky = () => new Set(CORE_TOOLS);
+  const first = (prompt: string) => matchIntent(prompt, GATES, sticky()).map((g) => g.names[0]);
+
+  test("describe the architecture → []", () => {
+    expect(first("describe the architecture")).toEqual([]);
+  });
+  test("make an image → [flux2] (make+image via requires)", () => {
+    expect(first("make an image")).toEqual(["flux2"]);
+  });
+  test("conflux library → [] (flux word-boundary, not inside conflux)", () => {
+    expect(first("use the conflux library")).toEqual([]);
   });
 });

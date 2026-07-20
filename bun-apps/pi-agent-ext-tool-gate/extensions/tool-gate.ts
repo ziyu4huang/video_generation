@@ -64,50 +64,63 @@ interface ToolGate {
 }
 
 /**
- * Gated tool groups — each activates when the prompt contains any keyword.
- * Keywords are matched case-insensitively as simple substring checks.
+ * Gated tool groups. A gate fires (via gateFires) if any keyword matches, OR
+ * its optional `requires` co-occurrence (≥1 noun AND ≥1 verb) is met.
+ *
+ * S2 audit (2026-07-20): over-broad bare words removed (image/scene/style/swap/
+ * render/draft/video/電影/動畫/describe/what is in/vision/pdf/chain/collect/
+ * organize/movie/compose). Core nouns (image/video/pdf) moved behind `requires`
+ * so they fire only alongside a generation/action verb — killing false-fires
+ * (docker image, video call) while preserving recall (generate an image, make a
+ * video). Keywords are matched case-insensitively; single ASCII tokens use word
+ * boundaries, phrases/CJK use substring.
  */
 export const GATES: ToolGate[] = [
   {
     names: ["flux2", "flux2_help"],
     keywords: [
-      "flux", "image", "圖像", "圖片", "生成圖", "generate image",
-      "t2i", "scene", "style", "swap", "outpaint", "upscale image",
-      "flux2", "render", "把...做成",
+      "flux", "flux2", "outpaint", "upscale image", "t2i", "txt2img",
+      "圖像", "圖片", "生成圖", "產圖", "繪圖", "修圖", "去背", "換臉",
+      "做成圖", "轉成圖",
     ],
+    requires: {
+      nouns: ["image", "picture", "photo", "圖"],
+      verbs: ["generate", "create", "make", "draw", "render", "produce", "生成", "做", "畫", "繪"],
+    },
     description: "Flux2 image generation — text-to-image, i2i, faceswap, outpaint, upscale, restore",
     savedTokens: 1411,
   },
   {
     names: ["krea2", "krea2_help"],
-    keywords: ["krea", "draft", "草圖", "快速生成"],
+    keywords: ["krea", "krea2", "草圖", "快速生成", "即時生成", "實時繪圖"],
     description: "Krea2 fast image generation — real-time draft to image",
     savedTokens: 641,
   },
   {
     names: ["ltx", "ltx_help"],
-    keywords: [
-      "ltx", "video", "影片", "視頻", "電影", "動畫",
-      "t2v", "i2v", "vbvr", "relay", "storyboard",
-      "generate video", "生成影片", "生成視頻",
-    ],
+    keywords: ["ltx", "t2v", "i2v", "vbvr", "relay", "storyboard", "影片特效"],
+    requires: {
+      nouns: ["video", "影片", "視頻", "視訊", "動畫", "電影"],
+      verbs: ["generate", "create", "make", "animate", "produce", "render", "生成", "做", "製作", "剪"],
+    },
     description: "LTX video generation — text/image-to-video, upscale, storyboard, relay",
     savedTokens: 1802,
   },
   {
     names: ["file2md", "vision_ask"],
     keywords: [
-      "file2md", "vlm", "describe", "caption", "ocr", "識別", "讀圖",
-      "分析圖片", "分析圖像", "read this image", "what is in",
-      "pdf", "scan", "to markdown", "轉 markdown", "vision",
+      "file2md", "vlm", "ocr", "caption", "to markdown", "轉 markdown",
+      "read this image", "分析圖片", "分析圖像", "識別", "讀圖", "看圖",
     ],
+    requires: {
+      nouns: ["pdf", "document", "文件", "scan", "image", "picture", "photo", "圖"],
+      verbs: ["read", "convert", "parse", "extract", "ocr", "describe", "caption", "讀", "轉", "解析", "分析"],
+    },
     description: "Document/image understanding — file→markdown, VLM describe, OCR, caption",
     savedTokens: 685,
   },
   {
     names: ["inspect_context", "inspect_agent", "inspect_extensions", "inspect_pathology"],
-    // S1: narrowed — removed the over-broad "context" / "token" / "debug" which fired on
-    // ~every dev turn and made inspect effectively always-on. Kept phrase-level terms.
     keywords: [
       "inspect", "schema cost", "pathology", "extension health",
       "工具開銷", "context window", "token usage",
@@ -119,7 +132,7 @@ export const GATES: ToolGate[] = [
     names: ["workflow", "workflow_help"],
     keywords: [
       "workflow", "pipeline", "orchestrate", "fan.out", "parallel agent",
-      "multi-step", "chain",
+      "multi-step",
     ],
     description: "Workflow orchestrator — multi-agent fan-out/pipeline JavaScript scripts",
     savedTokens: 706,
@@ -127,19 +140,19 @@ export const GATES: ToolGate[] = [
   {
     names: ["collect_videos", "organize_vault_notes", "import_memory_to_vault"],
     keywords: [
-      "collect", "bilibili", "youtube", "video trending",
-      "vault notes", "organize", "import memory",
+      "bilibili", "youtube", "collect videos", "video trending",
+      "vault notes", "organize vault", "import memory",
+      "收集影片", "整理筆記",
     ],
     description: "Research tools — collect trending videos, organize vault notes, import memory",
     savedTokens: 723,
   },
   {
-    // S1/B: movie was ungated (fail-open ⇒ always active). Now gated. savedTokens measured
-    // 2026-07-20 via schema-cost (movie=348 + movie_help=284, charsPerToken=4).
     names: ["movie", "movie_help"],
     keywords: [
-      "movie", "montage", "preflight", "compose",
-      "storyboard", "分鏡", "剪輯", "影片製作", "導演",
+      "montage", "preflight", "storyboard", "分鏡", "剪輯",
+      "影片製作", "導演", "make a movie", "movie director",
+      "compose video", "compose scene", "電影製作",
     ],
     description: "Movie orchestrator — idea→script→scene→assets→edit→compose pipeline",
     savedTokens: 632,
@@ -264,8 +277,7 @@ export function computeActiveTools(
   for (const gate of GATES) for (const name of gate.names) known.add(name);
 
   for (const gate of GATES) {
-    const matches = gate.keywords.some((kw) => promptLower.includes(kw));
-    if (matches) {
+    if (gateFires(gate, promptLower)) {
       for (const name of gate.names) sticky.add(name);
     }
   }
@@ -296,8 +308,7 @@ export function matchIntent(
   const needle = intent.toLowerCase();
   return gates.filter((g) => {
     if (g.names.every((n) => sticky.has(n))) return false; // skip already-active
-    const fields = g.keywords.map((k) => k.toLowerCase());
-    return fields.some((f) => f.length > 0 && needle.includes(f));
+    return gateFires(g, needle);
   });
 }
 
