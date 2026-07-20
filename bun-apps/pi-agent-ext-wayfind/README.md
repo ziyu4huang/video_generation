@@ -49,13 +49,13 @@ wayfind ──► grill docs ──► wayfind tickets ──► the plan coordi
 | `/wayfind spec [effort]` | synthesize the conversation + codebase into a spec (PRD) at `.planning/<effort>/spec.md` |
 | `/wayfind tickets [effort]` | break a spec/plan into tracer-bullet tickets (unified spine format) under `.planning/<effort>/tickets/` |
 | `/wayfind seed [effort]` | route-aware: flatten tickets (topo-sorted, `[ticket-id]` phase headers) or CONTEXT.md decisions into a `task_plan.md`; refuses to overwrite |
-| `/wayfind sync [effort]` | close wayfind tickets whose plan coordinator phase reported complete (the loop's feedback half) |
+| `/wayfind sync [effort]` | close wayfind tickets whose plan coordinator phase reported completed (the loop's feedback half) |
 
 ## Coordination with the plan coordinator
 
 Both extensions are loaded in the same pi process. wayfind publishes `globalThis.__piWayfindActive = () => boolean`; the plan coordinator reads it (via `isExternalDriverActive()`, alongside its existing `/goal` check) and **yields** its plan injection + auto-continue while a grill or wayfinder session is active — so the two never double-drive. The status bar shows `… — /goal or /grill driving, injection yielded`. Graceful: if either side is absent, the seam is a no-op.
 
-**Reverse seam (ADR-0001).** The coordination is bidirectional. `syncChainState` (auto-run at `/wayfind`, `/wayfind status`, `/wayfind seed`, and on demand via `/wayfind sync`) reads the plan coordinator's published `globalThis.__piPlanPhases(cwd) → [{id, status, ticketIds?}]` and **closes any ticket whose phase reports `complete`** — appending a decision line to the effort's `map.md`. A phase header references a ticket by id or stem (`### Phase N — [03-foo]`); both resolve. Idempotent (already-closed → skipped) and graceful (no-op when the plan coordinator is absent). This is what makes the chain a *loop*, not a one-way handoff: ticket → phase → execute → close. The seam is 4 globalThis keys; neither package imports the other.
+**Reverse seam (ADR-0001).** The coordination is bidirectional. `syncChainState` (auto-run at `/wayfind`, `/wayfind status`, `/wayfind seed`, and on demand via `/wayfind sync`) reads the plan coordinator's published `globalThis.__piPlanPhases(cwd) → [{id, status, ticketIds?}]` and **closes any ticket whose phase reports `completed`** — appending a decision line to the effort's `map.md`. A phase header references a ticket by id or stem (`### Phase N — [03-foo]`); both resolve. Idempotent (already-closed → skipped) and graceful (no-op when the plan coordinator is absent). This is what makes the chain a *loop*, not a one-way handoff: ticket → phase → execute → close. The seam is 4 globalThis keys; neither package imports the other.
 
 ## Install (local)
 
