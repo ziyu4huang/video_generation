@@ -78,8 +78,7 @@ the e2e layers below, run per-mode instead of once at deploy time.
 - **build-extensions hash cache**: sha256 over source tree + thin/full flag + `Bun.version`
   — the mechanism is intact (`scripts/lib/build-extensions.ts` + `ext-hash.ts`)
   but currently never hits via `deploy.ts`, since `main()` wipes the target dir
-  (and its `.hash` sidecars) on every run before rebuilding. See
-  `docs/deploy-efficiency.md` for detail.
+  (and its `.hash` sidecars) on every run before rebuilding.
 - **read-only freeze**: every deploy is `chmod a-w` + `.deploy-readonly` marker by default; `run.sh` applies `JITI_FS_CACHE=0` + `PI_CODING_AGENT_DIR` routing
 
 Run via:

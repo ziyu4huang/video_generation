@@ -1,7 +1,10 @@
-# Deploy packaging: self-contained pi-agent, any cwd
+# Deploy packaging: repo-independent pi-agent, any cwd
 
-How `scripts/deploy.ts` + `run-dir/resolve.ts` produce a self-contained pi-agent
-that runs from **any** cwd, independent of the repo (same machine). See
+How `scripts/deploy.ts` + `run-dir/resolve.ts` produce a pi-agent dir that runs
+from **any** cwd, independent of a repo checkout (same machine). Note: only
+`--exe` is fully self-contained/portable — Bundle/Standalone/Snapshot all
+resolve `node_modules` through the machine-global bun store, so they are
+same-machine only. See
 [README.md § Build / Deploy modes](../README.md#build--deploy-modes) for the
 canonical quick-command table; this doc is the deeper layout + resolution
 reference (`resolve.ts` mode detection, `-ne` layering, per-mode directory
@@ -24,8 +27,8 @@ anywhere (same machine), no checkout required.
 |---|---|---|---|---|
 | **Bundle** (default) | *(none)* | pre-bundled `ext-bundles/*.thin.js` + symlinked node_modules | `.deploy-bundle` + `ext-bundles/` → **deploy-bundle** | no (symlink) |
 | **Standalone** | `--standalone` | same as Bundle **+** a copied `bun` binary (no system bun needed) | same as Bundle → **deploy-bundle** | no (symlink) |
-| **Snapshot** | `--snapshot` | raw `pi-agent/` + every sibling extension package dir, verbatim source, no bundling | no markers → **source** (see caveat below) | no (node_modules copied verbatim) |
-| **Exe** | `--exe` | single compiled executable, 5 static extensions + theme/skills/assets embedded | binary (`$bunfs` scheme, not a run-dir layout) | n/a |
+| **Snapshot** | `--snapshot` | raw `pi-agent/` + every sibling extension package dir, verbatim source, no bundling | no markers → **source** (see caveat below) | no (node_modules copied — symlinks into global store preserved, same-machine only) |
+| **Exe** | `--exe` | single compiled executable, 10 static extensions + theme/skills/assets embedded | binary (`$bunfs` scheme, not a run-dir layout) | n/a |
 
 ### resolve.ts layout detection (marker-based)
 
