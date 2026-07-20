@@ -1,8 +1,8 @@
 /**
- * todo/overlay.ts — todo section renderer for the PowerToolStatusWidget.
+ * todo/overlay.ts — todo section renderer for the CoreTaskStatusWidget.
  *
  * Refactored for overlay unification: no longer owns a `setWidget` lifecycle.
- * The PowerToolStatusWidget (shared/status-widget.ts) owns the single
+ * The CoreTaskStatusWidget (shared/status-widget.ts) owns the single
  * above-editor widget key and renders this section alongside the goal section
  * in a fixed order. TodoOverlay is now a state-holder that exposes
  * `render(theme, width)` and pokes `refresh()` (the composite's update) when

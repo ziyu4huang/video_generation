@@ -12,9 +12,9 @@ A pi extension with developer-focused diagnostic tools: `inspect_agent` dumps fu
 
 The 2026-07 monolith split **completed** the extraction this section once
 flagged as future work. `src/index.ts` now registers only the four diagnostics. The previously co-bundled features were extracted to focused extensions:
-`todo`+`/todos`+`/goal`+`goal_complete` → `pi-agent-ext-goal-todo` (#504);
+`todo`+`/todos`+`/goal`+`goal_complete` → `pi-agent-ext-core-task` (#504);
 `ask_user_question` → `pi-agent-ext-ask-user` (#502, merged into
-`pi-agent-ext-goal-todo` 2026-07-18 — no shared code, relocated as the first
+`pi-agent-ext-core-task` 2026-07-18 — no shared code, relocated as the first
 step of the core-task pi-ext consolidation); `/btw` →
 `pi-agent-ext-btw` (#499). Knowledge tools left earlier for `pi-knowledge-card`
 (#351/#354). The `schema-cost` export and CLI subcommand remain here. This

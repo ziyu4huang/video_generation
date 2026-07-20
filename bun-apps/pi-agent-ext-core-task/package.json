@@ -1,11 +1,12 @@
 {
-  "name": "@repo/pi-agent-ext-goal-todo",
+  "name": "@repo/pi-agent-ext-core-task",
   "private": true,
   "version": "0.1.0",
-  "description": "Pi extension: /goal (+ goal_complete tool), todo (+ /todos) with a shared composite above-editor status widget, and ask_user_question (structured option selector). goal+todo kept together because they share the widget + lifecycle hooks; ask_user_question merged in 2026-07-18 (no shared code with goal/todo \u2014 a self-contained modal dialog tool). Unified into a single extension entry goal-todo.ts on 2026-07-23.",
+  "description": "Pi extension: the task-execution cockpit — /goal (+ goal_complete tool) drives one objective to completion; todo (+ /todos) tracks in-session steps; ask_user_question is the structured option selector; plus the shared composite above-editor status widget. goal+todo share the widget + lifecycle hooks; ask_user_question is a self-contained modal (merged 2026-07-18). Unified entry core-task.ts.",
   "license": "MIT",
   "keywords": [
     "pi-package",
+    "core-task",
     "goal",
     "todo",
     "task-tracking",
