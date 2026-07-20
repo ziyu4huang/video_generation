@@ -7,6 +7,8 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import type { AgentUsage } from "./agent.js";
+import { summarizeLatestAction } from "./agent-history.js";
+import { type ActivityRow, renderActivityRow } from "./display.js";
 import type { InFlightSubagent } from "./subagent-in-flight.js";
 import type { SubagentToolDetails } from "./subagent-tool.js";
 
@@ -131,10 +133,16 @@ export class SubagentViewer {
       const runningTitle = th.fg("accent", th.bold(" Running "));
       lines.push(truncateToWidth(runningTitle + th.fg("borderMuted", "─".repeat(Math.max(0, width - 9))), width));
       for (const r of running) {
-        const elapsedS = ((Date.now() - r.startedAt) / 1000).toFixed(1);
         const toolCalls = r.history?.filter((h) => h.kind === "toolCall").length ?? 0;
-        const head = `${th.fg("warning", "⏳")} ${th.fg("muted", r.agent ?? "general-purpose")} ▸ ${th.fg("dim", r.model)} • ${elapsedS}s • ${toolCalls} call${toolCalls === 1 ? "" : "s"} • ${truncateToWidth(r.taskPreview, 40)}`;
-        lines.push(truncateToWidth(`  ${head}`, width));
+        const row: ActivityRow = {
+          status: "running",
+          actor: r.agent ?? "general-purpose",
+          model: r.model,
+          elapsedMs: Date.now() - r.startedAt,
+          toolCalls,
+          latestAction: summarizeLatestAction(r.history) ?? truncateToWidth(r.taskPreview, 40),
+        };
+        lines.push(truncateToWidth(`  ${renderActivityRow(row, th)}`, width));
       }
       lines.push("");
     }
@@ -146,13 +154,13 @@ export class SubagentViewer {
     } else {
       for (const r of this.runs) {
         const cur = r.index - 1 === this.selected;
-        const badge =
-          r.status === "done"
-            ? th.fg("success", "✓")
-            : r.status === "timedout"
-              ? th.fg("warning", "⏱")
-              : th.fg("error", "✗");
-        const head = `${badge} ${th.fg("accent", `#${r.index}`)} ${th.fg("muted", r.agent ?? "general-purpose")} ▸ ${th.fg("dim", truncateToWidth(r.taskPreview, 50))}`;
+        const row: ActivityRow = {
+          status: r.status,
+          actor: r.agent ?? "general-purpose",
+          badge: `#${r.index}`,
+          detail: r.taskPreview,
+        };
+        const head = renderActivityRow(row, th, 50);
         lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", "▶ " + head) : "  " + head}`, width));
       }
     }
