@@ -35,8 +35,9 @@ export const CORE_TOOLS = new Set([
   "enable_tool",
   // Skills
   "skill_manage",
+  "grill_decision", // hermes-memory — grilling is a frequent workflow
   // Vault & knowledge (used frequently)
-  "obsidian",
+  "obsidian", "obsidian_help",
   "zk_card", "zk_ask", "zk_ingest", "knowledge_query",
   // Web access
   "web_search", "fetch_content", "get_search_content",
@@ -119,7 +120,7 @@ export const GATES: ToolGate[] = [
     description: "Document/image understanding — file→markdown, VLM describe, OCR, caption",
   },
   {
-    names: ["inspect_context", "inspect_agent", "inspect_extensions", "inspect_pathology"],
+    names: ["inspect_context", "inspect_agent", "inspect_extensions", "inspect_pathology", "inspect_tui"],
     keywords: [
       "inspect", "schema cost", "pathology", "extension health",
       "工具開銷", "context window", "token usage",
@@ -127,7 +128,7 @@ export const GATES: ToolGate[] = [
     description: "Agent/extension introspection — context tokens, extension health, pathology",
   },
   {
-    names: ["workflow", "workflow_help"],
+    names: ["workflow", "workflow_help", "subagent", "workflow_control"],
     keywords: [
       "workflow", "pipeline", "orchestrate", "fan.out", "parallel agent",
       "multi-step",
@@ -151,6 +152,16 @@ export const GATES: ToolGate[] = [
       "compose video", "compose scene", "電影製作",
     ],
     description: "Movie orchestrator — idea→script→scene→assets→edit→compose pipeline",
+  },
+  {
+    // zai-mcp MCP proxy tools — redundant with core web_search/fetch_content
+    // but have large schemas (~1.1k tok combined). Gate behind intent so they
+    // only load when the agent explicitly needs Z.ai's search/reader endpoint.
+    names: ["zai_web_search_web_search_prime", "zai_web_reader_webReader"],
+    keywords: [
+      "zai search", "zai reader", "zai web", "zai_mcp",
+    ],
+    description: "Z.ai MCP web tools — web-search-prime + web-reader (redundant with core web tools)",
   },
 ];
 

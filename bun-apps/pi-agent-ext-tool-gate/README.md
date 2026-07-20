@@ -78,10 +78,11 @@ The current gate definitions (`GATES` array in `extensions/tool-gate.ts`):
 | **krea2** | `krea2`, `krea2_help` | krea, 草圖, 快速生成 | *(none — keywords are narrow enough)* | Krea2 fast image generation — real-time draft to image |
 | **ltx** | `ltx`, `ltx_help` | ltx, t2v, i2v, vbvr | `nouns` ∩ `verbs` | LTX video generation — t2v, i2v, upscale, storyboard |
 | **file2md** | `file2md`, `vision_ask` | file2md, ocr, caption, 識別 | `nouns` ∩ `verbs` | Document/image understanding — file→markdown, VLM, OCR |
-| **inspect** | `inspect_context`, `inspect_agent`, `inspect_extensions`, `inspect_pathology` | inspect, schema cost, pathology | *(none)* | Agent/extension introspection |
-| **workflow** | `workflow`, `workflow_help` | workflow, pipeline, orchestrate | *(none)* | Multi-agent fan-out/pipeline orchestration |
+| **inspect** | `inspect_context`, `inspect_agent`, `inspect_extensions`, `inspect_pathology`, `inspect_tui` | inspect, schema cost, pathology | *(none)* | Agent/extension introspection |
+| **workflow** | `workflow`, `workflow_help`, `subagent`, `workflow_control` | workflow, pipeline, orchestrate | *(none)* | Multi-agent fan-out/pipeline orchestration |
 | **research** | `collect_videos`, `organize_vault_notes`, `import_memory_to_vault` | bilibili, youtube, 收集影片 | *(none)* | Research — collect videos, organize vault |
 | **movie** | `movie`, `movie_help` | montage, storyboard, 分鏡, 剪輯 | *(none)* | Movie orchestrator — idea→script→scene→edit pipeline |
+| **zai-mcp** | `zai_web_search_web_search_prime`, `zai_web_reader_webReader` | zai search, zai reader | *(none)* | Z.ai MCP web tools (redundant with core web_search/fetch_content) |
 
 ### Co-occurrence gating (`requires`)
 
@@ -197,8 +198,9 @@ memory, memory_search              — persistent memory
 session_search                     — past session search
 ask_user_question                  — user interaction
 enable_tool                        — escape hatch for dormant gates
-skill_manage                       — procedural skills
-obsidian                           — vault I/O
+skill_manage                        — procedural skills
+grill_decision                      — grilling decision capture
+obsidian, obsidian_help            — vault I/O
 zk_card, zk_ask, zk_ingest         — Zettelkasten knowledge graph
 knowledge_query                    — knowledge graph query
 web_search, fetch_content          — web access

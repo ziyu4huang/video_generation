@@ -13,6 +13,7 @@ import {
 	resolveLazyExtension,
 	rewriteExtensionArgs,
 	suppressResolvedArgv,
+	runtimeDependencyNames,
 	type LazySettings,
 } from "./resolve.ts";
 
@@ -595,5 +596,37 @@ describe("suppressResolvedArgv", () => {
 		expect(
 			suppressResolvedArgv(["--extension", "/a/ext.ts", "--skill", "/s"], { noExtensions: true }),
 		).toEqual(["--skill", "/s"]);
+	});
+});
+
+describe("runtimeDependencyNames", () => {
+	test("returns dependencies when only those are declared", () => {
+		expect(runtimeDependencyNames({ dependencies: { "js-yaml": "^4.0.0" } })).toEqual(["js-yaml"]);
+	});
+
+	test("returns peerDependencies (the pi-tui regression)", () => {
+		// @earendil-works/pi-tui is declared as a peerDependency in several
+		// extensions; the probe MUST surface it or the self-heal in check-deps.ts
+		// never installs it, and pi crashes with "Cannot find module" on launch.
+		expect(
+			runtimeDependencyNames({ peerDependencies: { "@earendil-works/pi-tui": "0.80.10" } }),
+		).toEqual(["@earendil-works/pi-tui"]);
+	});
+
+	test("returns devDependencies (typebox is a runtime import in some exts)", () => {
+		expect(runtimeDependencyNames({ devDependencies: { typebox: "^1.3.6" } })).toEqual(["typebox"]);
+	});
+
+	test("unions + dedupes all three sections, dependencies-first order", () => {
+		const names = runtimeDependencyNames({
+			dependencies: { "js-yaml": "^4.0.0", shared: "*" },
+			peerDependencies: { "@earendil-works/pi-tui": "0.80.10", shared: "*" },
+			devDependencies: { typebox: "^1.3.6" },
+		});
+		expect(names).toEqual(["js-yaml", "shared", "@earendil-works/pi-tui", "typebox"]);
+	});
+
+	test("empty/undefined sections → empty array", () => {
+		expect(runtimeDependencyNames({})).toEqual([]);
 	});
 });
