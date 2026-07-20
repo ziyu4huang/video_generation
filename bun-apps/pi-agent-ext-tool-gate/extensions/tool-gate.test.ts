@@ -4,6 +4,9 @@ import type { ToolGate } from "./tool-gate.ts";
 import { emitToolGateLog, isMissCandidate } from "./tool-gate.ts";
 import toolGateExtension from "./tool-gate.ts";
 
+/** Spread CORE_TOOLS into an array of names (CORE_TOOLS is a Set). */
+const CORE_TOOLS_ARRAY = (): string[] => Array.from(CORE_TOOLS);
+
 describe("computeActiveTools", () => {
   test("a tool not listed in CORE_TOOLS or any gate is always active (fail-open)", () => {
     const allTools = [...CORE_TOOLS, "some_future_tool_not_in_any_gate"];
@@ -145,15 +148,32 @@ describe("telemetry helpers (S1)", () => {
   });
 });
 
-describe("computeBannerSaved (S1 G fix)", () => {
-  test("counts only gates whose tools are actually loaded (excludes phantom movie)", () => {
-    // only ltx + flux2 tools are loaded this session; movie is NOT loaded
-    const loaded = [...CORE_TOOLS, "ltx", "ltx_help", "flux2", "flux2_help"];
-    const sticky = new Set(CORE_TOOLS);
-    const active = computeActiveTools("", loaded, sticky); // CORE-only ⇒ ltx & flux2 gated
-    const saved = computeBannerSaved(active, loaded);
-    // flux2 (1411) + ltx (1802) only; movie (632) excluded because it isn't loaded
-    expect(saved).toBe(1411 + 1802);
+describe("computeBannerSaved (S3 — runtime measured tokens)", () => {
+  test("sums measured tokens of loaded+gated gates only (no phantom, no static field)", () => {
+    // Mock tools with real description+parameters so measureToolTokens is deterministic.
+    const mockTool = (name: string, desc: string) => ({ name, description: desc, parameters: { p: 1 } });
+    const loadedNames = [...CORE_TOOLS, "ltx", "ltx_help", "flux2", "flux2_help"];
+    const loadedTools = [
+      ...CORE_TOOLS_ARRAY().map((n) => mockTool(n, "core")),
+      mockTool("ltx", "video tool"),
+      mockTool("ltx_help", "video help"),
+      mockTool("flux2", "image tool"),
+      mockTool("flux2_help", "image help"),
+    ];
+    const measured = new Map(loadedTools.map((t) => [t.name, measureToolTokens(t)]));
+    // CORE-only active ⇒ ltx & flux2 are gated; movie is NOT loaded ⇒ excluded.
+    const active = computeActiveTools("", loadedNames, new Set(CORE_TOOLS));
+    const saved = computeBannerSaved(active, loadedNames, measured);
+    const expected = measured.get("ltx")! + measured.get("ltx_help")!
+      + measured.get("flux2")! + measured.get("flux2_help")!;
+    expect(saved).toBe(expected);
+  });
+
+  test("a gate whose tools are absent from allToolNames contributes 0 (no phantom)", () => {
+    const measured = new Map([["movie", 999], ["movie_help", 999]]);
+    // movie not in allToolNames → excluded even though measured + gated
+    const saved = computeBannerSaved([...CORE_TOOLS], [...CORE_TOOLS], measured);
+    expect(saved).toBe(0);
   });
 });
 

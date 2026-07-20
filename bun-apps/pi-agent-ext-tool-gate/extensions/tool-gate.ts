@@ -59,8 +59,6 @@ interface ToolGate {
   description: string;
   /** Optional co-occurrence trigger (noun ∧ verb). See CoOccurrence. */
   requires?: CoOccurrence;
-  /** Approximate tokens saved when gated (for logging) */
-  savedTokens: number;
 }
 
 /**
@@ -88,13 +86,11 @@ export const GATES: ToolGate[] = [
       verbs: ["generate", "create", "make", "draw", "render", "produce", "生成", "做", "畫", "繪"],
     },
     description: "Flux2 image generation — text-to-image, i2i, faceswap, outpaint, upscale, restore",
-    savedTokens: 1411,
   },
   {
     names: ["krea2", "krea2_help"],
     keywords: ["krea", "krea2", "草圖", "快速生成", "即時生成", "實時繪圖"],
     description: "Krea2 fast image generation — real-time draft to image",
-    savedTokens: 641,
   },
   {
     names: ["ltx", "ltx_help"],
@@ -104,7 +100,6 @@ export const GATES: ToolGate[] = [
       verbs: ["generate", "create", "make", "animate", "produce", "render", "生成", "做", "製作", "剪"],
     },
     description: "LTX video generation — text/image-to-video, upscale, storyboard, relay",
-    savedTokens: 1802,
   },
   {
     names: ["file2md", "vision_ask"],
@@ -117,7 +112,6 @@ export const GATES: ToolGate[] = [
       verbs: ["read", "convert", "parse", "extract", "ocr", "describe", "caption", "讀", "轉", "解析", "分析"],
     },
     description: "Document/image understanding — file→markdown, VLM describe, OCR, caption",
-    savedTokens: 685,
   },
   {
     names: ["inspect_context", "inspect_agent", "inspect_extensions", "inspect_pathology"],
@@ -126,7 +120,6 @@ export const GATES: ToolGate[] = [
       "工具開銷", "context window", "token usage",
     ],
     description: "Agent/extension introspection — context tokens, extension health, pathology",
-    savedTokens: 770,
   },
   {
     names: ["workflow", "workflow_help"],
@@ -135,7 +128,6 @@ export const GATES: ToolGate[] = [
       "multi-step",
     ],
     description: "Workflow orchestrator — multi-agent fan-out/pipeline JavaScript scripts",
-    savedTokens: 706,
   },
   {
     names: ["collect_videos", "organize_vault_notes", "import_memory_to_vault"],
@@ -145,7 +137,6 @@ export const GATES: ToolGate[] = [
       "收集影片", "整理筆記",
     ],
     description: "Research tools — collect trending videos, organize vault notes, import memory",
-    savedTokens: 723,
   },
   {
     names: ["movie", "movie_help"],
@@ -155,7 +146,6 @@ export const GATES: ToolGate[] = [
       "compose video", "compose scene", "電影製作",
     ],
     description: "Movie orchestrator — idea→script→scene→assets→edit→compose pipeline",
-    savedTokens: 632,
   },
 ];
 
@@ -286,19 +276,20 @@ export function computeActiveTools(
 }
 
 /**
- * Find dormant gates whose **keywords** are a substring of `intent`. Pure: no
- * pi dependency. Used by enable_tool's intent mode. Returns gates in declaration
- * order; empty = no match.
+ * Find dormant gates that match `intent`. Pure: no pi dependency. Used by
+ * enable_tool's intent mode. Returns gates in declaration order; empty = no
+ * match.
  *
- * "Dormant" = not all of the gate's tools are already in `sticky`. A gate matches
- * if any keyword appears as a substring of the (lowercased) intent.
+ * "Dormant" = not all of the gate's tools are already in `sticky`. A gate
+ * matches when its `gateFires` predicate holds — i.e. a keyword match (single
+ * ASCII tokens use word boundaries, phrases/CJK use substring) OR its optional
+ * `requires` noun∧verb co-occurrence.
  *
- * NOTE: matching is keywords-only, NOT keywords∪description. Description-word
- * matching was prototyped and rejected: prose words like "image"/"pipeline"
- * appear in several gates' descriptions and over-match (krea2/movie fired on
- * intents that should hit only flux2/workflow). The `description` field is still
- * valuable for the human-readable `list` output (T5) and a future semantic
- * matcher, but not for substring matching. Verified 2026-07-20.
+ * NOTE: the `description` field is NOT a match surface — only keywords and
+ * `requires`. Description-word matching was prototyped and rejected (prose
+ * words like "image"/"pipeline" appear in several gates' descriptions and
+ * over-match). `description` is still used for the human-readable `list` output
+ * and a future semantic matcher. Verified 2026-07-20.
  */
 export function matchIntent(
   intent: string,
@@ -346,16 +337,23 @@ export function isMissCandidate(
 }
 
 /**
- * Sum `savedTokens` for gates that are (a) actually loaded this session
- * (at least one name in `allToolNames`) and (b) currently gated (no name in
- * `active`). Fixes the phantom-tool over-report: previously a gate whose
- * tools were never registered still counted its savedTokens.
+ * Sum the measured schema-token cost of gates that are (a) actually loaded
+ * this session (at least one name in `allToolNames`) and (b) currently gated
+ * (no name in `active`). `measuredTokens` is built once at session_start from
+ * measureToolTokens — never drifts, measures the tools actually present.
  */
-export function computeBannerSaved(active: string[], allToolNames: string[]): number {
+export function computeBannerSaved(
+  active: string[],
+  allToolNames: string[],
+  measuredTokens: Map<string, number>,
+): number {
   return GATES
     .filter((g) => g.names.some((n) => allToolNames.includes(n))) // loaded
     .filter((g) => !g.names.some((n) => active.includes(n)))      // gated
-    .reduce((sum, g) => sum + g.savedTokens, 0);
+    .reduce(
+      (sum, g) => sum + g.names.reduce((s, n) => s + (measuredTokens.get(n) ?? 0), 0),
+      0,
+    );
 }
 
 /**
@@ -382,6 +380,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
   let allToolNames: string[] = [];
   let sticky = new Set<string>(CORE_TOOLS);
   let lastPrompt = ""; // captured each turn; read by enable_tool (T5)
+  let measuredTokens = new Map<string, number>(); // built at session_start (S3)
 
   // ── On session start: capture full tool list and gate ──
   pi.on("session_start", async (_event, ctx) => {
@@ -389,11 +388,17 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     sticky = new Set(CORE_TOOLS);
     lastPrompt = "";
 
+    // S3: measure each loaded tool's schema cost once for the session.
+    measuredTokens = new Map(
+      pi.getAllTools().map((t: { name: string; description?: string; parameters?: unknown }) =>
+        [t.name, measureToolTokens(t)]),
+    );
+
     const active = computeActiveTools("", allToolNames, sticky);
     pi.setActiveTools(active);
 
-    // G fix: only count loaded gates (computeBannerSaved filters by allToolNames).
-    const saved = computeBannerSaved(active, allToolNames);
+    // G fix + S3: only count loaded gates, using measured (not stale) token costs.
+    const saved = computeBannerSaved(active, allToolNames, measuredTokens);
 
     const debug = process.env.TOOL_GATE_DEBUG_BANNER === "1";
     const theme = ctx.ui.theme;
@@ -430,6 +435,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
       kind: "turn", ts: new Date().toISOString(),
       promptLen: prompt.length, gatesFired, dormantGates,
       activeCount: active.length, totalCount: allToolNames.length,
+      savedTok: computeBannerSaved(active, allToolNames, measuredTokens),
     });
     if (isMissCandidate(prompt, gatesFired, dormantGates)) {
       emitToolGateLog({
