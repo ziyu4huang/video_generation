@@ -97,6 +97,34 @@ bun dist/pi-agent/pi-agent.js      # bundled mode
 bash dist/pi-agent/run.sh          # deployed mode (any cwd)
 ```
 
+## Known behavior: `<REPO>/node_modules/` regenerates on launch (intentional)
+
+Running `./pi-agent.sh` in source mode creates a gitignored `<REPO>/node_modules/`
+(symlinks into Bun's global store: `@earendil-works/*` + `@repo/*` workspace links +
+`typebox`). `git clean -dxf` wipes it; the next launch recreates it. This is
+**deliberate** — created by the `ensure-extension-deps` patch
+(`src/patches/ensure-extension-deps.ts`) — and is **required** for extensions to load.
+Do not remove it.
+
+**Why it exists:** pi loads each `-e` extension via `jiti`, which first tries `try-native`
+(Bun imports the .ts directly). That try fails when the extension's bare specifiers
+(`@earendil-works/*`, `typebox`, `@repo/*` peerDeps) are not on the node_modules walk-up
+path from the extension's own file — Bun's isolated linker does not reliably symlink every
+workspace peerDep into each consumer. On failure, jiti falls back to transforming the whole
+graph, and under Bun + jiti 2.7.0 any transformed module over ~4 KB trips a broken
+temp-file path (`NameTooLong` / `Cannot find .../jiti-esm/binary-*.mjs`), leaving large
+extensions un-loadable (flux2/binary.ts, hermes 40 KB+, obsidian-lib 138 KB). Symlinking
+those packages at repo-root node_modules — which is on the walk-up path from every
+`bun-apps/*` member — makes `try-native` succeed, so Bun imports natively (no size limit)
+and jiti never transforms. Confirmed: `BUN_PI_ENSURE_EXT_DEPS=0` suppresses the root
+node_modules entirely (and re-exposes the extension load failures).
+
+**Scope & cost:** source mode only (bundle mode symlinks its own node_modules at build;
+binary mode ships static factories). Idempotent and cheap — relinks only when a target
+moved (e.g. after a `bun install` re-pinned a version). Gitignored, so harmless to git; a
+pure symlink folder, so near-free to recreate. If the folder is unwanted cosmetically,
+`git clean -dxf` removes it — it returns on the next launch by design.
+
 ## Cross-reference
 
 - [`PRD-e2e-testing.md`](./PRD-e2e-testing.md) — the e2e judgment test layer spec
