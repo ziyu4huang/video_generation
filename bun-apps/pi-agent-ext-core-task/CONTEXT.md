@@ -38,9 +38,9 @@ _Avoid_: task list
 The process-singleton reader core-task publishes so peer extensions (the plan coordinator, wayfind) can detect an active goal WITHOUT a hard dep. The peer reads `globalThis.__piGoalActive?.() ?? false`. core-task is the publisher; the plan coordinator yields to it.
 _Avoid_: hook, signal (it is a published globalThis reader for cross-extension turn-ownership)
 
-**Replay-from-branch**:
-On `session_start` / `session_compact` / `session_tree`, the todo state is replayed from the session branch (`replaceState(replayFromBranch(ctx))`) — so todos survive compaction and tree operations.
-_Avoid_: restore, persist (it is branch-replay state restoration)
+**Session-only todos**:
+Todos are SESSION-ONLY in-memory state. `session_start` resets to `EMPTY_STATE` — never replayed from the session branch, never seeded from disk plans. `session_compact` / `session_tree` do NOT replay either (in-memory todos survive naturally). Permanent task tracking lives in wayfind/superpowers plans & tickets; the session todo is a transient working scratchpad.
+_Avoid_: restore, persist, replay (todos are ephemeral session state, deliberately not reconstructed from history)
 
 ## Language — ask_user_question
 
