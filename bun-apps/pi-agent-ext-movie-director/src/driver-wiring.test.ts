@@ -330,3 +330,95 @@ describe("wireProduce — compose / publish", () => {
 		expect(entry.export_path).toBe("/tmp/f.mp4");
 	});
 });
+
+describe("wireProduce — full assets→edit→compose chain (multi-scene, mixed continuity)", () => {
+	test("chains REAL produceAssets output through REAL produceEdit and produceCompose across 3 scenes with mixed continuity", async () => {
+		const calls: Array<{ command: string; opts: Record<string, unknown> }> = [];
+		// Per-segment probed durations, in flattened relay-link order:
+		// [sceneA link0, sceneB link0, sceneB link1, sceneC link0]. Scene B's two
+		// links are deliberately asymmetric (9 + 7, not the planned 8 + 8) to model
+		// LTX's real per-clip over/under-generation vs. the planned even split.
+		const segDurations = [6, 9, 7, 8];
+		const narrationDuration = 26.4;
+
+		const dispatchFn: DispatchLike = async (command, opts) => {
+			calls.push({ command, opts });
+			if (command === "generate" && opts.capability === "tts") {
+				return { ok: true, text: JSON.stringify({ provider: "tts", result: { artifacts: [{ path: "/tmp/narration.wav" }] } }) };
+			}
+			if (command === "generate" && opts.command === "native-relay") {
+				const options = opts.options as Record<string, unknown>;
+				const prompts = options.prompts as string[];
+				const segmentArtifacts = prompts.map((_, i) => ({ path: `/tmp/relay/seg0${i + 1}/segment.mp4`, role: `segment_${i + 1}` }));
+				return {
+					ok: true,
+					text: JSON.stringify({ provider: "ltx", result: { artifacts: [{ path: "/tmp/relay/relay.mp4" }, ...segmentArtifacts] } }),
+				};
+			}
+			if (command === "compose-motion") {
+				return { ok: true, text: JSON.stringify({ output: "/tmp/final.mp4" }) };
+			}
+			if (command === "final-review") {
+				return { ok: true, text: JSON.stringify({ verdict: "pass" }) };
+			}
+			return { ok: true, text: JSON.stringify({}) };
+		};
+		const probeDuration = async (path: string) => {
+			if (path === "/tmp/narration.wav") return narrationDuration;
+			const m = path.match(/seg0(\d)\/segment\.mp4$/);
+			return m ? segDurations[Number(m[1]) - 1]! : 0;
+		};
+
+		const deps = makeWireDeps({ dispatchFn, probeDuration });
+		const produce = wireProduce(deps);
+
+		const scenePlan = {
+			scenes: [
+				// Scene A: 6s, no continuity field → defaults to "continue" (single link).
+				{ id: "sceneA", type: "generated", description: "Establishing wide shot of the city at dawn", start_seconds: 0, end_seconds: 6 },
+				// Scene B: 16s with a hard cut in → splits into 2 links (maxCallSeconds=8):
+				// link0 is the hard cut (continuity:false), link1 continues from it (continuity:true).
+				{ id: "sceneB", type: "generated", description: "Chase sequence through the market", start_seconds: 6, end_seconds: 22, continuity: "cut" },
+				// Scene C: 8s, explicit continuity:"continue" (single link).
+				{ id: "sceneC", type: "generated", description: "Quiet resolution on the rooftop", start_seconds: 22, end_seconds: 30, continuity: "continue" },
+			],
+		};
+		const script = { sections: [{ id: "s1", text: "A long narration describing the whole three-scene movie." }] };
+
+		// --- Stage 1: REAL produceAssets ---
+		const assetsOut = await produce("assets", { scene_plan: scenePlan, script });
+		expect(validateArtifact("asset_manifest", assetsOut.asset_manifest).ok).toBe(true);
+		const manifest = assetsOut.asset_manifest as Record<string, unknown>;
+		const metadata = manifest.metadata as Record<string, unknown>;
+		const boundaries = metadata.scene_boundaries as Array<Record<string, unknown>>;
+
+		// 4 relay links get dispatched (sceneA:1 + sceneB:2 + sceneC:1)...
+		const relayCall = calls.find((c) => c.command === "generate" && c.opts.command === "native-relay")!;
+		const relayOptions = relayCall.opts.options as Record<string, unknown>;
+		expect((relayOptions.prompts as string[]).length).toBe(4);
+		expect(relayOptions.segmentContinuity).toEqual([true, false, true, true]);
+
+		// ...but they group into exactly 3 scene_boundaries entries (one per SCENE), NOT 4.
+		expect(boundaries).toEqual([
+			{ sceneId: "sceneA", startSeconds: 0, endSeconds: 6 },
+			{ sceneId: "sceneB", startSeconds: 6, endSeconds: 22 },
+			{ sceneId: "sceneC", startSeconds: 22, endSeconds: 30 },
+		]);
+		expect(metadata.narrative_duration_seconds).toBe(narrationDuration);
+
+		// --- Stage 2: REAL produceEdit, fed the REAL asset_manifest merged with the script
+		//     (mirrors driver.ts's stage-to-stage inputArtifacts accumulation) ---
+		const editOut = await produce("edit", { asset_manifest: manifest, script });
+		expect(validateArtifact("edit_decisions", editOut.edit_decisions).ok).toBe(true);
+		const editDecisions = editOut.edit_decisions as Record<string, unknown>;
+		const cuts = editDecisions.cuts as Array<Record<string, unknown>>;
+		expect(cuts).toHaveLength(3); // one cut per SCENE, not per relay link
+		expect(editDecisions.transition).toBe("none");
+		expect(cuts.map((c) => c.id)).toEqual(["cut-sceneA", "cut-sceneB", "cut-sceneC"]);
+
+		// --- Stage 3: REAL produceCompose, fed both edit_decisions and asset_manifest ---
+		await produce("compose", { edit_decisions: editDecisions, asset_manifest: manifest, script });
+		const composeCall = calls.find((c) => c.command === "compose-motion")!;
+		expect(composeCall.opts.narrativeDurationSeconds).toBe(narrationDuration);
+	});
+});
