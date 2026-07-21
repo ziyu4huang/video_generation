@@ -130,6 +130,8 @@ The using-superpowers skill content is included below and is already loaded for 
 ${body}
 
 ${piToolMapping()}
+
+${piBoundaryOverrides()}
 </EXTREMELY_IMPORTANT>`;
     return cachedBootstrap;
   } catch {
@@ -158,6 +160,16 @@ Pi's built-in coding tools are lowercase: \`read\`, \`write\`, \`edit\`, \`bash\
 Pi does not ship a standard subagent tool in core. This repo's pi-agent-ext-workflow provides a 'subagent' tool (an isolated-context child via spawnSubagent). Use subagent({ task, model, tools, excludeTools, cwd }) for Superpowers subagent workflows - pass a self-contained 'task' (the child has no access to this session's history). If no 'subagent' tool is available, do the work in this session or explain the missing capability instead of inventing Task calls.
 
 Pi does not ship a standard task-list tool. If an installed todo/task tool is available, use it. Otherwise track work in plan files or a repo-local \`TODO.md\` when task tracking is needed. Treat older \`TodoWrite\` references as this task-tracking action.`;
+}
+
+function piBoundaryOverrides(): string {
+  return `## Path & routing overrides (this repo)
+
+Superpowers and Wayfind are two parallel, non-connecting pipelines that share the \`.planning/<effort>/\` layout. Two runtime rules keep them from colliding; apply them in addition to the skill bodies (which keep their upstream text verbatim).
+
+**1. Artifact-home override.** When a Superpowers skill tells you to save a spec under \`docs/superpowers/specs/\` or a plan under \`docs/superpowers/plans/\`, write it under the unified layout instead: \`docs/superpowers/specs/...\` → \`.planning/<effort>/spec.md\`; \`docs/superpowers/plans/...\` → \`.planning/<effort>/plan.md\`. This converges the homes at runtime without forking the upstream skill text.
+
+**2. Entry-path routing.** The discriminator for which pipeline to enter is *can I write a plan right now from what's already settled?* — **yes** (spec/requirements in hand, route clear) → Superpowers (\`brainstorming\` → \`writing-plans\`, any size; huge handled via sub-project decomposition); **no** (decisions still open, route foggy) → Wayfind (\`wayfinder\` if the effort is huge/multi-session, else \`grilling\`). When a Wayfind decide-phase (\`grilling\`/\`wayfinder\`) has already settled the decisions, \`brainstorming\` defers to \`to-spec\` (synthesize what's settled — do not re-explore).`;
 }
 
 function messageContainsBootstrap(message: unknown): boolean {

@@ -5,6 +5,13 @@
 # upstream-convergence flow is self-contained in the superpowers ext folder;
 # bun-apps/pi-agent/update-pi.sh is unrelated (it only locks the pi-* core).
 #
+# SYNC SOURCE: the plugin cache ($CLAUDE_PLUGINS_CACHE) is the CANONICAL sync
+# source — the blessed release artifact matching what Claude Code users receive.
+# The upstream git origin obra/superpowers may be checked out locally at
+# ../superpowers/ for REFERENCE ONLY (reading upstream to understand it); it is
+# NEVER a sync source. The fidelity tests (skills-fidelity.test.ts + UPSTREAM.ref)
+# catch drift regardless of source.
+#
 # USAGE
 #   ./bun-apps/pi-agent-ext-superpowers/scripts/update-superpowers.sh [version]
 #     version  plugin version to sync (default: newest under the cache).
