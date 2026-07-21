@@ -2,17 +2,20 @@
  * driver-wiring.ts — connect the driver's `produce` to real producers.
  *
  * Routes each stage via pickProducer():
- *   • agent        (research)        → runAgentWaypoint
- *   • completion   (proposal/script/scene_plan/edit) → runCompletionWaypoint
- *   • mechanical   (assets/compose/publish)          → dispatch()
+ *   • agent        (research)                        → runAgentWaypoint
+ *   • completion   (proposal/script/scene_plan)       → runCompletionWaypoint
+ *   • mechanical   (assets/edit/compose/publish)      → dispatch()
  *
- * The assets stage EXECUTES the proactive plan from assets-encoder.ts: each
- * generate call carries frames computed from the scene's real duration, and
- * chained I2V links continue from the prior clip's last frame (extractLastFrame,
- * injectable so the chaining is unit-testable without ffmpeg).
+ * The assets stage EXECUTES the proactive plan from assets-encoder.ts: it
+ * dispatches at most one `tts` call and ONE native-relay call for the whole
+ * movie (prompts/secondsPerSegment/segmentContinuity arrays derived from
+ * scene_plan), then probes each returned segment_N artifact's real duration
+ * to build asset_manifest.metadata.scene_boundaries. Last-frame reseed for
+ * chained links happens natively inside Swift's native-relay, not via an
+ * external ffmpeg extraction step.
  */
 import { runCompletionWaypoint, runAgentWaypoint, pickProducer, type WaypointDeps } from "./waypoints.ts";
-import { planAssetGeneration, type AssetGenCall } from "./assets-encoder.ts";
+import { planAssetGeneration } from "./assets-encoder.ts";
 
 export type DispatchLike = (
 	command: string,
@@ -38,8 +41,6 @@ export interface WireDeps {
 	pipeline?: string;
 	fps?: number;
 	maxCallSeconds?: number;
-	/** Extract the last frame of a generated clip → PNG path (ffmpeg at runtime; injected in tests). */
-	extractLastFrame?: (clipPath: string) => Promise<string>;
 	/** Probe a clip's REAL duration in seconds (ffprobe at runtime; injected in tests).
 	 *  The deterministic edit uses this so each cut's out_seconds matches the actual
 	 *  generated clip, not the planned frames/fps (LTX over/under-generates). */
@@ -74,6 +75,18 @@ function firstArtifactPath(result: unknown): string | undefined {
 	return r?.result?.artifacts?.[0]?.path ?? r?.artifacts?.[0]?.path;
 }
 
+/** Ordered per-segment clip paths from a native-relay generate() response —
+ *  artifacts with role "segment_1", "segment_2", ... (see adaptLtx / result.ts's
+ *  buildNativeRelayDetails). Order is the numeric suffix, not array position. */
+function relaySegmentPaths(result: unknown): string[] {
+	const r = result as { result?: { artifacts?: Array<{ path?: string; role?: string }> }; artifacts?: Array<{ path?: string; role?: string }> };
+	const artifacts = r?.result?.artifacts ?? r?.artifacts ?? [];
+	return artifacts
+		.filter((a): a is { path: string; role: string } => typeof a.role === "string" && /^segment_\d+$/.test(a.role) && typeof a.path === "string")
+		.sort((a, b) => Number(a.role.slice(8)) - Number(b.role.slice(8)))
+		.map((a) => a.path);
+}
+
 /** Extract the rendered mp4 path from a compose render_report — robust to either
  *  `output` (singular) or `outputs[0].path` (the real compose-motion shape). */
 function renderMp4Path(rr: Record<string, unknown> | undefined): string | undefined {
@@ -83,7 +96,7 @@ function renderMp4Path(rr: Record<string, unknown> | undefined): string | undefi
 	return outs?.[0]?.path;
 }
 
-/** Execute the proactive asset plan via generate calls, chaining I2V links. */
+/** Execute the proactive asset plan: one TTS call, then ONE native-relay call for the whole movie. */
 async function produceAssets(
 	deps: WireDeps,
 	fps: number,
@@ -93,62 +106,98 @@ async function produceAssets(
 	const scenePlan = inputs.scene_plan as { scenes: unknown[] } | undefined;
 	const script = inputs.script as Record<string, unknown> | undefined;
 	if (!scenePlan) throw new Error("assets: missing scene_plan input");
-	const plan = planAssetGeneration(scenePlan as never, script as never, { fps, maxCallSeconds });
+	const plan = planAssetGeneration(scenePlan as never, script as never, { maxCallSeconds });
+	const probe = deps.probeDuration ?? (async () => 0);
 
 	const assets: Array<Record<string, unknown>> = [];
-	const lastFrameByScene: Record<string, string> = {};
-	const extract = deps.extractLastFrame;
+	let narrationPath: string | undefined;
+	let narrativeDurationSeconds = 0;
 
-	for (const call of plan.calls) {
-		const options: Record<string, unknown> = { ...call.options };
-		// Chaining: a non-first I2V link continues from the prior clip's last frame.
-		if (
-			call.capability === "video_generation" &&
-			call.chainIndex &&
-			call.chainIndex > 0 &&
-			call.sceneId &&
-			lastFrameByScene[call.sceneId]
-		) {
-			options.image = lastFrameByScene[call.sceneId];
-		}
+	if (plan.tts) {
 		const res = await deps.dispatchFn("generate", {
-			capability: call.capability,
-			command: call.command,
-			options,
+			capability: "tts",
+			command: "tts",
+			options: { text: plan.tts.text },
 			projectId: deps.projectId,
 			pipeline: deps.pipeline,
 		});
-		if (!res.ok) throw new Error(`assets generate ${call.command} failed: ${res.error}`);
-		const parsed = JSON.parse(res.text) as { provider?: string; result?: { artifacts?: Array<{ path?: string }> } };
-		const outPath = firstArtifactPath(parsed) ?? "";
-		// Shape each asset to the canonical asset_manifest schema: required
-		// id/type/path/source_tool/scene_id + optional prompt/duration_seconds/
-		// generation_summary, and NOTHING else (the schema is additionalProperties:false).
-		// AssetGenCall.capability is only "video_generation" | "tts" (assets-encoder.ts
-		// never plans an "image_generation" call), so this reduces to those two cases.
-		const isNarration = call.capability === "tts";
-		const type = isNarration ? "narration" : "video";
-		const frames = Number((call.options as Record<string, unknown>)?.frames ?? 0);
-		const asset: Record<string, unknown> = {
-			id: isNarration ? "narration" : `${call.sceneId}-${call.chainIndex ?? 0}`,
-			type,
-			path: outPath,
-			source_tool: parsed.provider ?? call.command,
-			scene_id: call.sceneId ?? "",
-			generation_summary: `generated via ${call.command} (chain ${call.chainIndex ?? 0})`,
-		};
-		if (typeof (call.options as Record<string, unknown>)?.prompt === "string") asset.prompt = (call.options as Record<string, unknown>).prompt;
-		if (frames > 0 && fps > 0) asset.duration_seconds = Math.round((frames / fps) * 1000) / 1000;
-		assets.push(asset);
-		if (call.capability === "video_generation" && outPath && extract && call.sceneId) {
-			try {
-				lastFrameByScene[call.sceneId] = await extract(outPath);
-			} catch {
-				/* best-effort: a missing continuation frame just yields independent clips */
+		if (!res.ok) throw new Error(`assets generate tts failed: ${res.error}`);
+		const parsedResult = JSON.parse(res.text) as { provider?: string };
+		narrationPath = firstArtifactPath(parsedResult);
+		if (narrationPath) narrativeDurationSeconds = await probe(narrationPath);
+		assets.push({
+			id: "narration",
+			type: "narration",
+			path: narrationPath ?? "",
+			source_tool: parsedResult.provider ?? "tts",
+			scene_id: plan.tts.sceneId ?? "",
+			generation_summary: "generated via tts",
+			...(narrativeDurationSeconds > 0 ? { duration_seconds: Math.round(narrativeDurationSeconds * 1000) / 1000 } : {}),
+		});
+	}
+
+	const sceneBoundaries: Array<{ sceneId: string; startSeconds: number; endSeconds: number }> = [];
+
+	if (plan.relayLinks.length > 0) {
+		const res = await deps.dispatchFn("generate", {
+			capability: "video_generation",
+			command: "native-relay",
+			provider: "ltx",
+			options: {
+				prompts: plan.relayLinks.map((l) => l.prompt),
+				secondsPerSegment: plan.relayLinks.map((l) => l.seconds),
+				segmentContinuity: plan.relayLinks.map((l) => l.continuity),
+				fps,
+				...(narrationPath ? { relayAudio: narrationPath } : {}),
+			},
+			projectId: deps.projectId,
+			pipeline: deps.pipeline,
+		});
+		if (!res.ok) throw new Error(`assets generate native-relay failed: ${res.error}`);
+		const parsedResult = JSON.parse(res.text) as { provider?: string };
+		const relayMp4Path = firstArtifactPath(parsedResult) ?? "";
+		if (!relayMp4Path) {
+			throw new Error("assets native-relay response has no primary output artifact (malformed/empty relay output)");
+		}
+		const segmentPaths = relaySegmentPaths(parsedResult);
+		if (segmentPaths.length !== plan.relayLinks.length) {
+			throw new Error(
+				`assets native-relay returned ${segmentPaths.length} segment(s), expected ${plan.relayLinks.length} — partial/corrupt relay output`,
+			);
+		}
+
+		let cursor = 0;
+		for (let i = 0; i < plan.relayLinks.length; i++) {
+			const link = plan.relayLinks[i]!;
+			const segPath = segmentPaths[i];
+			const dur = segPath ? await probe(segPath) : 0;
+			const start = cursor;
+			cursor += dur;
+			if (link.chainIndex === 0) {
+				sceneBoundaries.push({ sceneId: link.sceneId, startSeconds: start, endSeconds: cursor });
+			} else {
+				sceneBoundaries[sceneBoundaries.length - 1]!.endSeconds = cursor;
 			}
 		}
+
+		assets.push({
+			id: "relay-movie",
+			type: "video",
+			path: relayMp4Path,
+			source_tool: parsedResult.provider ?? "native-relay",
+			scene_id: sceneBoundaries[0]?.sceneId ?? "",
+			generation_summary: `generated via native-relay (${plan.relayLinks.length} link(s))`,
+			duration_seconds: Math.round(cursor * 1000) / 1000,
+		});
 	}
-	return { asset_manifest: { version: "1.0", assets } };
+
+	return {
+		asset_manifest: {
+			version: "1.0",
+			assets,
+			metadata: { scene_boundaries: sceneBoundaries, narrative_duration_seconds: narrativeDurationSeconds },
+		},
+	};
 }
 
 /** The script's narration mode (for final-review: 'none' scores a silent track as warn). */
@@ -157,32 +206,43 @@ function narrationMode(script: Record<string, unknown> | undefined): "none" | "v
 	return n === "none" || n === "voiced" ? (n as "none" | "voiced") : undefined;
 }
 
-/** edit → deterministic edit_decisions: one cut per video clip at its REAL
- *  (probed) duration, concatenated in manifest order. No LLM — the driver owns
- *  this like the assets encoder, so every cut fits its source (defeats
- *  cut_duration_vs_source; the frozen-frame failure cannot occur by construction). */
+/** edit → deterministic edit_decisions: one cut per SCENE BOUNDARY, all sharing
+ *  the single native-relay output as source (produceAssets already probed each
+ *  segment's REAL duration to build scene_boundaries — no source-clip-per-cut
+ *  files anymore). transition:"none" because the relay's segments are already
+ *  visually continuous (last-frame reseed inside Swift); a crossfade here would
+ *  double-blend already-matching frames. No LLM — deterministic like before. */
 async function produceEdit(deps: WireDeps, inputs: Record<string, unknown>): Promise<Record<string, unknown>> {
-	const manifest = inputs.asset_manifest as { assets?: Array<{ type?: string; path?: string; duration_seconds?: number }> } | undefined;
+	const manifest = inputs.asset_manifest as
+		| { assets?: Array<{ type?: string; path?: string }>; metadata?: { scene_boundaries?: Array<{ sceneId: string; startSeconds: number; endSeconds: number }> } }
+		| undefined;
 	if (!manifest?.assets) throw new Error("edit: missing asset_manifest input");
-	const cuts: Array<Record<string, unknown>> = [];
-	let i = 0;
-	for (const a of manifest.assets) {
-		if (a.type !== "video" || !a.path) continue;
-		i++;
-		const dur = deps.probeDuration ? await deps.probeDuration(a.path) : Number(a.duration_seconds ?? 0);
-		cuts.push({ id: `cut-${i}`, source: a.path, in_seconds: 0, out_seconds: dur });
+	const videoAssets = manifest.assets.filter((a) => a.type === "video" && a.path);
+	if (videoAssets.length > 1) {
+		throw new Error(`edit: expected at most one video asset in asset_manifest, found ${videoAssets.length}`);
 	}
-	return { edit_decisions: { version: "1.0", render_runtime: "ffmpeg", cuts } };
+	const relayAsset = videoAssets[0];
+	const boundaries = manifest.metadata?.scene_boundaries ?? [];
+	const cuts =
+		relayAsset?.path && boundaries.length > 0
+			? boundaries
+					.filter((b) => b.endSeconds > b.startSeconds)
+					.map((b) => ({ id: `cut-${b.sceneId}`, source: relayAsset.path!, in_seconds: b.startSeconds, out_seconds: b.endSeconds }))
+			: [];
+	return { edit_decisions: { version: "1.0", render_runtime: "ffmpeg", transition: "none", cuts } };
 }
 
 /** compose → compose-motion (render_report) + final-review (final_review). */
 async function produceCompose(deps: WireDeps, inputs: Record<string, unknown>): Promise<Record<string, unknown>> {
 	const edit = inputs.edit_decisions as Record<string, unknown> | undefined;
 	if (!edit) throw new Error("compose: missing edit_decisions input");
+	const manifest = inputs.asset_manifest as { metadata?: { narrative_duration_seconds?: number } } | undefined;
+	const narrativeDurationSeconds = manifest?.metadata?.narrative_duration_seconds;
 	const res = await deps.dispatchFn("compose-motion", {
 		editDecisions: edit,
 		projectId: deps.projectId,
 		render_runtime: "ffmpeg",
+		...(narrativeDurationSeconds ? { narrativeDurationSeconds } : {}),
 	});
 	if (!res.ok) throw new Error(`compose-motion failed: ${res.error}`);
 	const renderReport = JSON.parse(res.text) as Record<string, unknown>;

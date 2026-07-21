@@ -40,6 +40,14 @@ struct NativeRelay: ParsableCommand {
     @Option(help: "Output frame rate.")
     var fps: Double = 24.0
 
+    @Option(name: .customLong("seconds-per-segment"), parsing: .upToNextOption,
+            help: "Per-segment duration override (seconds), one value per --prompts entry. Omit to use --seconds uniformly for every segment.")
+    var secondsPerSegment: [Double] = []
+
+    @Option(name: .customLong("segment-continuity"), parsing: .upToNextOption,
+            help: "Per-segment continuity override ('true'/'false'), one value per --prompts entry. false = fresh T2I for that segment (hard cut), ignoring the previous segment's last frame. Omit to continue every non-first segment from the previous segment's last frame (default).")
+    var segmentContinuity: [Bool] = []
+
     @Option(help: "Output width (must be a multiple of 32).")
     var width: Int = 640
 
@@ -141,6 +149,9 @@ struct NativeRelay: ParsableCommand {
             try MacTTS.synthesize(text: ttsText, voice: relayTTSVoice, rate: relayTTSRate, to: ttsURL)
             request.audioOverlayPath = ttsURL
         }
+
+        if !secondsPerSegment.isEmpty { request.secondsPerSegment = secondsPerSegment }
+        if !segmentContinuity.isEmpty { request.segmentContinuity = segmentContinuity }
         return request
     }
 
@@ -149,7 +160,8 @@ struct NativeRelay: ParsableCommand {
         let stage = NativeRelayStage()
         let result = try stage.generate(request, outputDir: outputDir)
         for (i, url) in result.segmentVideoURLs.enumerated() {
-            print("   segment \(i + 1): \(url.path)")
+            let duration = i < result.segmentDurations.count ? result.segmentDurations[i] : 0
+            print("   segment \(i + 1): \(url.path) (\(String(format: "%.2f", duration))s)")
         }
         print("   final: \(result.finalVideoURL.path)")
         print("   100% native Swift/MLX + AVFoundation — zero run.py calls, zero ffmpeg calls.")

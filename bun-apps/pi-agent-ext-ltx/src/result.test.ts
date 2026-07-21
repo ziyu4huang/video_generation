@@ -152,10 +152,26 @@ describe("buildDetails: native-relay", () => {
     const d = buildDetails("native-relay", ok(stdout));
     expect(d.ok).toBe(true);
     expect(d.output).toBe("/tmp/relay/relay.mp4");
-    expect(d.extraOutputs.segments).toEqual(["/tmp/relay/seg01/segment.mp4", "/tmp/relay/seg02/segment.mp4"]);
     expect(d.width).toBe(640);
     expect(d.height).toBe(960);
     expect(d.wallSeconds).toBe(92.3);
+  });
+
+  test("native-relay: final path + one numbered extraOutputs key per segment, in order", () => {
+    const stdout = [
+      "→ native relay (no run.py, no ffmpeg): 2 segment(s) @ 640x960, 8.0s/segment, transformer=distilled",
+      "[relay] segment 1 last frame: frame_0199.png — feeding forward as segment 2's --input-image",
+      "   segment 1: /tmp/relay/seg01/segment.mp4",
+      "[relay] segment 2 last frame: frame_0191.png — feeding forward as segment 3's --input-image",
+      "   segment 2: /tmp/relay/seg02/segment.mp4",
+      "   final: /tmp/relay/relay.mp4",
+      "wall time: 42.1s",
+    ].join("\n");
+    const d = buildDetails("native-relay", ok(stdout));
+    expect(d.output).toBe("/tmp/relay/relay.mp4");
+    expect(d.extraOutputs.segment_1).toBe("/tmp/relay/seg01/segment.mp4");
+    expect(d.extraOutputs.segment_2).toBe("/tmp/relay/seg02/segment.mp4");
+    expect(d.extraOutputs.segments).toBeUndefined();
   });
 });
 

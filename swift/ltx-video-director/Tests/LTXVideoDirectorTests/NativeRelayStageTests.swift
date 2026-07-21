@@ -86,4 +86,42 @@ final class NativeRelayStageTests: XCTestCase {
             }
         }
     }
+
+    func testSecondsPerSegmentCountMismatchThrows() {
+        let stage = NativeRelayStage()
+        var request = NativeRelayStage.Request(prompts: ["a red ball", "a blue ball"])
+        request.secondsPerSegment = [2.0] // 1 entry, need 2
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_relay_seconds_mismatch_\(UUID().uuidString)")
+        XCTAssertThrowsError(try stage.generate(request, outputDir: outputDir)) { error in
+            guard let stageError = error as? NativeRelayStage.StageError else {
+                XCTFail("expected StageError, got \(error)")
+                return
+            }
+            if case .secondsPerSegmentCountMismatch(let count, let segments) = stageError {
+                XCTAssertEqual(count, 1)
+                XCTAssertEqual(segments, 2)
+            } else {
+                XCTFail("expected .secondsPerSegmentCountMismatch, got \(stageError)")
+            }
+        }
+    }
+
+    func testSegmentContinuityCountMismatchThrows() {
+        let stage = NativeRelayStage()
+        var request = NativeRelayStage.Request(prompts: ["a red ball", "a blue ball"])
+        request.segmentContinuity = [true] // 1 entry, need 2
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_relay_continuity_mismatch_\(UUID().uuidString)")
+        XCTAssertThrowsError(try stage.generate(request, outputDir: outputDir)) { error in
+            guard let stageError = error as? NativeRelayStage.StageError else {
+                XCTFail("expected StageError, got \(error)")
+                return
+            }
+            if case .segmentContinuityCountMismatch(let count, let segments) = stageError {
+                XCTAssertEqual(count, 1)
+                XCTAssertEqual(segments, 2)
+            } else {
+                XCTFail("expected .segmentContinuityCountMismatch, got \(stageError)")
+            }
+        }
+    }
 }
