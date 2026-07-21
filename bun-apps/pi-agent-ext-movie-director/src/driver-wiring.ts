@@ -2,9 +2,9 @@
  * driver-wiring.ts — connect the driver's `produce` to real producers.
  *
  * Routes each stage via pickProducer():
- *   • agent        (research)        → runAgentWaypoint
- *   • completion   (proposal/script/scene_plan/edit) → runCompletionWaypoint
- *   • mechanical   (assets/compose/publish)          → dispatch()
+ *   • agent        (research)                        → runAgentWaypoint
+ *   • completion   (proposal/script/scene_plan)       → runCompletionWaypoint
+ *   • mechanical   (assets/edit/compose/publish)      → dispatch()
  *
  * The assets stage EXECUTES the proactive plan from assets-encoder.ts: it
  * dispatches at most one `tts` call and ONE native-relay call for the whole
