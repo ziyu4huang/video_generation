@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { MemoryConfig, MemoryOverflowStrategy, ReviewTransport, SessionSearchVariant, ThinkingLevel } from "./types.js";
+import type { MemoryConfig, MemoryOverflowStrategy, ReviewTransport, SessionSearchVariant, ThinkingLevel, DbBackend } from "./types.js";
 import {
   DEFAULT_MEMORY_CHAR_LIMIT,
   DEFAULT_USER_CHAR_LIMIT,
@@ -38,6 +38,12 @@ function isThinkingLevel(value: unknown): value is ThinkingLevel {
   return typeof value === "string" && THINKING_LEVELS.includes(value as ThinkingLevel);
 }
 
+const DB_BACKENDS: readonly DbBackend[] = ["sqlite", "surrealdb"];
+
+function isDbBackend(value: unknown): value is DbBackend {
+  return typeof value === "string" && DB_BACKENDS.includes(value as DbBackend);
+}
+
 const DEFAULT_CONFIG: MemoryConfig = {
   memoryMode: "policy-only",
   memoryPolicyStyle: "full",
@@ -63,6 +69,7 @@ const DEFAULT_CONFIG: MemoryConfig = {
   nudgeToolCalls: DEFAULT_NUDGE_TOOL_CALLS,
   projectsMemoryDir: DEFAULT_PROJECTS_MEMORY_DIR,
   sessionSearch: { variant: "legacy" },
+  dbBackend: "sqlite",
 };
 
 export const DEFAULT_CONFIG_PATH = path.join(
@@ -137,6 +144,15 @@ export function loadConfig(configPath = DEFAULT_CONFIG_PATH): MemoryConfig {
         isSessionSearchVariant(parsed.sessionSearch.variant)
       ) {
         config.sessionSearch = { variant: parsed.sessionSearch.variant };
+      }
+      if (isDbBackend(parsed.dbBackend)) config.dbBackend = parsed.dbBackend;
+      if (typeof parsed.surreal === "object" && parsed.surreal !== null) {
+        const s = parsed.surreal as Record<string, unknown>;
+        const surreal: Record<string, string> = {};
+        for (const key of ["endpoint", "namespace", "database", "username", "password"] as const) {
+          if (typeof s[key] === "string") surreal[key] = s[key] as string;
+        }
+        config.surreal = surreal;
       }
       if (typeof parsed.llmModelOverride === "string") {
         const trimmed = parsed.llmModelOverride.trim();
