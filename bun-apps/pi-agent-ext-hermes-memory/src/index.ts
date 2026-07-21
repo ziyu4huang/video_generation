@@ -26,7 +26,7 @@ import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MemoryStore } from "./store/memory-store.js";
 import { SkillStore } from "./store/skill-store.js";
-import { DatabaseManager } from "./store/db.js";
+import { DatabaseManager } from "./store/sqlite/sqlite-backend.js";
 import { indexSession, upsertSessionFileMetadata } from "./store/session-indexer.js";
 import { scheduleSessionBackfill, waitForSessionBackfill, SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-backfill.js";
 import { scheduleLiveSessionIndex, waitForLiveSessionIndex, SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-live-index.js";

@@ -3,8 +3,8 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { DatabaseManager, SQLITE_WAL_AUTOCHECKPOINT_PAGES, RawDatabase as Database } from '../../src/store/db.js';
-import type { DatabaseLike } from '../../src/store/db.js';
+import { DatabaseManager, SQLITE_WAL_AUTOCHECKPOINT_PAGES, RawDatabase as Database } from '../../src/store/sqlite/sqlite-backend.js';
+import type { DatabaseLike } from '../../src/store/sqlite/sqlite-backend.js';
 
 /**
  * Read a PRAGMA scalar the runtime-agnostic way (prepare + first cell). Mirrors

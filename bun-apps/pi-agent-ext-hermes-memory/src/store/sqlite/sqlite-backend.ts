@@ -1,7 +1,8 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
-import { SCHEMA_SQL } from './sqlite/schema.js';
+import { SCHEMA_SQL } from './schema.js';
+import type { Backend } from '../repository.js';
 
 type StatementLike = {
   run: (...args: any[]) => any;
@@ -57,7 +58,7 @@ export const TRANSIENT_DB_RETRY_BACKOFF_MS = 50;
 /**
  * True for transient SQLite write failures (lock contention / momentary I-O
  * blips) common when multiple processes share the WAL database. These are NOT
- * corruption (DatabaseManager.isCorruptionError + withCorruptionRecovery handle
+ * corruption (SqliteBackend.isCorruptionError + withCorruptionRecovery handle
  * that path) and usually clear on a retry.
  */
 export function isTransientDbError(err: unknown): boolean {
@@ -157,7 +158,7 @@ const Database = loadDatabaseCtor();
  *  without importing bun:sqlite directly. */
 export { Database as RawDatabase };
 
-export class DatabaseManager {
+export class SqliteBackend implements Backend {
   private db: DatabaseLike | null = null;
   private readonly dbPath: string;
   private lastRecovery: DatabaseRecoveryResult | null = null;
@@ -176,7 +177,7 @@ export class DatabaseManager {
     const code = typeof err === 'object' && 'code' in err ? String((err as { code?: unknown }).code) : '';
     if (code === 'SQLITE_CORRUPT' || code === 'SQLITE_NOTADB') return true;
 
-    const message = DatabaseManager.errorMessage(err).toLowerCase();
+    const message = SqliteBackend.errorMessage(err).toLowerCase();
     return message.includes('database disk image is malformed')
       || message.includes('file is not a database')
       || message.includes('database schema is corrupt')
@@ -216,7 +217,7 @@ export class DatabaseManager {
     try {
       return operation();
     } catch (err) {
-      if (!DatabaseManager.isCorruptionError(err)) {
+      if (!SqliteBackend.isCorruptionError(err)) {
         throw err;
       }
       this.recoverFromCorruption(err);
@@ -248,7 +249,7 @@ export class DatabaseManager {
     try {
       db = this.openUnchecked();
     } catch (err) {
-      if (!DatabaseManager.isCorruptionError(err)) {
+      if (!SqliteBackend.isCorruptionError(err)) {
         throw err;
       }
 
@@ -376,7 +377,7 @@ export class DatabaseManager {
     return {
       strategy: 'recreated-empty',
       backupPaths: moved.map((file) => file.backup),
-      error: DatabaseManager.errorMessage(rebuildError ?? cause ?? 'unknown corruption'),
+      error: SqliteBackend.errorMessage(rebuildError ?? cause ?? 'unknown corruption'),
     };
   }
 
@@ -814,9 +815,36 @@ export class DatabaseManager {
   }
 
   /**
-   * Close the database connection.
+   * Initialize the backend: open the database and set up the schema. Satisfies
+   * the Backend interface. Idempotent — the lazy getDb() already guards re-entry.
    */
-  close(): void {
+  async init(): Promise<void> {
+    this.getDb(); // triggers open() + schema init lazily, same as today
+  }
+
+  /**
+   * Verify backend health. Runs PRAGMA quick_check and throws if the database is
+   * not ok — mirrors the existing assertIntegrityOk logic.
+   */
+  async healthCheck(): Promise<void> {
+    const db = this.getDb();
+    const rows = db.prepare('PRAGMA quick_check').all() as Record<string, unknown>[];
+    const ok = rows.length > 0 && String(Object.values(rows[0])[0] ?? '').toLowerCase() === 'ok';
+    if (!ok) {
+      throw new Error('SQLite quick_check failed');
+    }
+  }
+
+  /**
+   * Close the database connection.
+   *
+   * The body is fully synchronous (no await inside): PRAGMA wal_checkpoint and
+   * db.close() run before the returned promise resolves, so callers that invoke
+   * `backend.close()` WITHOUT await (tests teardown, index.ts) still observe the
+   * full sync effect immediately. The async signature satisfies Backend.close()
+   * honestly without requiring an adapter.
+   */
+  async close(): Promise<void> {
     if (this.db) {
       try { this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch { /* best effort */ }
       try { this.db.close(); } catch { /* best effort — close may throw on a corrupt handle */ }
@@ -867,7 +895,7 @@ export class DatabaseManager {
    * of deleted files (for diagnostics/tests).
    */
   pruneStaleBackups(opts: { keepRecent?: number } = {}): string[] {
-    const keepRecent = opts.keepRecent ?? DatabaseManager.PRUNE_KEEP_RECENT_DEFAULT;
+    const keepRecent = opts.keepRecent ?? SqliteBackend.PRUNE_KEEP_RECENT_DEFAULT;
     const dir = path.dirname(this.dbPath);
     const base = path.basename(this.dbPath);
 
@@ -902,3 +930,13 @@ export class DatabaseManager {
     return deleted;
   }
 }
+
+/**
+ * Deprecated alias for in-flight code/tests during the backend-abstraction
+ * refactor. Removed in Task 8 cleanup. New code should import SqliteBackend.
+ * Both a value alias (class identity) and a type alias (instance type) are
+ * exported so existing usages of `DatabaseManager` as either a value or a type
+ * annotation continue to resolve during the transition.
+ */
+export const DatabaseManager = SqliteBackend;
+export type DatabaseManager = SqliteBackend;

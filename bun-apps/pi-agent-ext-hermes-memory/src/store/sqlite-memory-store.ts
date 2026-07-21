@@ -1,4 +1,4 @@
-import { DatabaseManager } from './db.js';
+import { DatabaseManager } from './sqlite/sqlite-backend.js';
 import { buildFallbackFts5Query, isFts5QueryError, normalizeFts5Query } from './sqlite/fts-query.js';
 import { normalizeMemoryLookupText } from './memory-lookup.js';
 import type { MemoryCategory } from '../types.js';
@@ -192,7 +192,7 @@ function escapeLikePattern(text: string): string {
  * Throws if a transaction is already active on the connection (SQLite cannot
  * nest BEGIN); no current call site of syncMemoryEntry runs inside one.
  */
-function runExclusive<T>(db: import('./db.js').DatabaseLike, fn: () => T): T {
+function runExclusive<T>(db: import('./sqlite/sqlite-backend.js').DatabaseLike, fn: () => T): T {
   db.exec('BEGIN IMMEDIATE');
   try {
     const result = fn();

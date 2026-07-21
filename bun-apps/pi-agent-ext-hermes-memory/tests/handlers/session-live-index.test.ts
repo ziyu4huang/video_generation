@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { DatabaseManager } from '../../src/store/db.js';
+import { DatabaseManager } from '../../src/store/sqlite/sqlite-backend.js';
 import {
   scheduleLiveSessionIndex,
   waitForLiveSessionIndex,
   type SessionLiveIndexState,
 } from '../../src/handlers/session-live-index.js';
-import { isTransientDbError, runWithTransientRetry } from '../../src/store/db.js';
+import { isTransientDbError, runWithTransientRetry } from '../../src/store/sqlite/sqlite-backend.js';
 
 describe('session live indexing handler', () => {
   let tmpDir: string;

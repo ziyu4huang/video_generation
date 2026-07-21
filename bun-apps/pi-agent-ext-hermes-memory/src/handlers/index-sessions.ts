@@ -5,7 +5,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { DatabaseManager } from '../store/db.js';
+import { DatabaseManager } from '../store/sqlite/sqlite-backend.js';
 import { indexAllSessions, getSessionStats } from '../store/session-indexer.js';
 import { AGENT_ROOT } from '../paths.js';
 

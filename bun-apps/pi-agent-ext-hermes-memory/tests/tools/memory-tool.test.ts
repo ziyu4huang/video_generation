@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { registerMemoryTool, writeTransferArchive } from "../../src/tools/memory-tool.js";
 import { MemoryStore } from "../../src/store/memory-store.js";
-import { DatabaseManager } from "../../src/store/db.js";
+import { DatabaseManager } from "../../src/store/sqlite/sqlite-backend.js";
 import { getMemories, syncMemoryEntry } from "../../src/store/sqlite-memory-store.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 

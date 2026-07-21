@@ -10,7 +10,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { COMBINED_REVIEW_PROMPT } from "../constants.js";
 import { MemoryStore } from "../store/memory-store.js";
-import { DatabaseManager } from "../store/db.js";
+import { DatabaseManager } from "../store/sqlite/sqlite-backend.js";
 import type { MemoryConfig } from "../types.js";
 import { applyRecentMessageLimit, collectMessageParts } from "./message-parts.js";
 import { execChildPrompt } from "./pi-child-process.js";

@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { DatabaseManager, type DatabaseLike } from './db.js';
+import { DatabaseManager, type DatabaseLike } from './sqlite/sqlite-backend.js';
 import { parseSessionFile, getSessionFiles, type ParsedSession } from './session-parser.js';
 
 export const LAST_SESSION_BACKFILL_KEY = 'last_session_backfill';

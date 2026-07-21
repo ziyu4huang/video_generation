@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
-import { DatabaseManager } from '../store/db.js';
+import { DatabaseManager } from '../store/sqlite/sqlite-backend.js';
 import { searchMemories, getMemoryStats, touchMemory } from '../store/sqlite-memory-store.js';
 import type { MemoryCategory } from '../types.js';
 

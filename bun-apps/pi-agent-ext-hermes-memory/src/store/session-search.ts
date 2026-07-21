@@ -1,4 +1,4 @@
-import { DatabaseManager } from './db.js';
+import { DatabaseManager } from './sqlite/sqlite-backend.js';
 import { buildFallbackFts5Query, hasExplicitFts5Operator, isFts5QueryError, normalizeFts5Query } from './sqlite/fts-query.js';
 
 /**

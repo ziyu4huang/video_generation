@@ -1,4 +1,4 @@
-import type { DatabaseManager } from '../store/db.js';
+import type { DatabaseManager } from '../store/sqlite/sqlite-backend.js';
 import {
   indexChangedSessions,
   needsBackfill,

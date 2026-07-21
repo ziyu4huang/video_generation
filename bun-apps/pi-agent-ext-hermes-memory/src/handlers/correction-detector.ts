@@ -11,7 +11,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MemoryStore } from "../store/memory-store.js";
 import { readGrillActive } from "../grill-seam.js";
-import { DatabaseManager } from "../store/db.js";
+import { DatabaseManager } from "../store/sqlite/sqlite-backend.js";
 import {
   formatFailureMemoryContent,
   syncMemoryEntry,

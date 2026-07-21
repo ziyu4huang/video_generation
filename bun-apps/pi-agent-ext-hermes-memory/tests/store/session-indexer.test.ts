@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { DatabaseManager } from '../../src/store/db.js';
+import { DatabaseManager } from '../../src/store/sqlite/sqlite-backend.js';
 import {
   indexSession,
   indexAllSessions,

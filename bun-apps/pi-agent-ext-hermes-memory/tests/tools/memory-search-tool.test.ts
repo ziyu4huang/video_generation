@@ -3,7 +3,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { DatabaseManager } from '../../src/store/db.js';
+import { DatabaseManager } from '../../src/store/sqlite/sqlite-backend.js';
 import { addMemory } from '../../src/store/sqlite-memory-store.js';
 import { registerMemorySearchTool } from '../../src/tools/memory-search-tool.js';
 

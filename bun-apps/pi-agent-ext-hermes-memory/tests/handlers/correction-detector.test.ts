@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { DatabaseManager } from "../../src/store/db.js";
+import { DatabaseManager } from "../../src/store/sqlite/sqlite-backend.js";
 import { getMemories } from "../../src/store/sqlite-memory-store.js";
 import { isCorrection, setupCorrectionDetector } from "../../src/handlers/correction-detector.js";
 import { resolveChildPiInvocation } from "../../src/handlers/pi-child-process.js";

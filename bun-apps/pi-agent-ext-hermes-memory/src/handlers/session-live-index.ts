@@ -1,11 +1,11 @@
-import type { DatabaseManager } from '../store/db.js';
-import { runWithTransientRetry } from '../store/db.js';
+import type { DatabaseManager } from '../store/sqlite/sqlite-backend.js';
+import { runWithTransientRetry } from '../store/sqlite/sqlite-backend.js';
 import { indexLiveSession } from '../store/session-indexer.js';
 
 export const SESSION_LIVE_INDEX_DELAY_MS = 50;
 export const SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS = 5000;
 // Transient-DB-error retry helpers (isTransientDbError, runWithTransientRetry,
-// TRANSIENT_DB_RETRY_*) now live in store/db.ts — imported above — so both the
+// TRANSIENT_DB_RETRY_*) now live in store/sqlite/sqlite-backend.ts — imported above — so both the
 // live indexer and the memory tool share one implementation.
 
 type SetTimeoutFn = (callback: () => void, ms: number) => unknown;

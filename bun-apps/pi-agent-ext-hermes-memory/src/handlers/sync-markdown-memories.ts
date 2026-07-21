@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { DatabaseManager } from '../store/db.js';
+import { DatabaseManager } from '../store/sqlite/sqlite-backend.js';
 import {
   parseMarkdownMemoryEntry,
   syncMemoryEntry,

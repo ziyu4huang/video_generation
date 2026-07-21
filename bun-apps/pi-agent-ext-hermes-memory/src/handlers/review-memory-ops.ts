@@ -7,7 +7,7 @@ import { completeSimple, type Message, type SimpleStreamOptions } from "@earendi
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DIRECT_REVIEW_SYSTEM_PROMPT } from "../constants.js";
 import { MemoryStore } from "../store/memory-store.js";
-import { DatabaseManager } from "../store/db.js";
+import { DatabaseManager } from "../store/sqlite/sqlite-backend.js";
 import {
   formatFailureMemoryContent,
   removeExactSyncedMemories,
