@@ -27,6 +27,11 @@ describe("movie-director saved workflows (structural)", () => {
     expect(workflowFiles.length).toBeGreaterThan(0);
   });
 
+  test("all 4 canonical saved workflows are discovered", () => {
+    const names = workflowFiles.map((f) => f.replace(/\.js$/, "")).sort();
+    expect(names).toEqual(["produce-video", "research-first", "review-cut", "scene-assets"]);
+  });
+
   for (const file of workflowFiles) {
     const name = file.replace(/\.js$/, "");
     const script = readFileSync(join(WORKFLOWS_DIR, file), "utf8");
