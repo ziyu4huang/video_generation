@@ -41,8 +41,6 @@ export interface WireDeps {
 	pipeline?: string;
 	fps?: number;
 	maxCallSeconds?: number;
-	/** Extract the last frame of a generated clip → PNG path (ffmpeg at runtime; injected in tests). */
-	extractLastFrame?: (clipPath: string) => Promise<string>;
 	/** Probe a clip's REAL duration in seconds (ffprobe at runtime; injected in tests).
 	 *  The deterministic edit uses this so each cut's out_seconds matches the actual
 	 *  generated clip, not the planned frames/fps (LTX over/under-generates). */
