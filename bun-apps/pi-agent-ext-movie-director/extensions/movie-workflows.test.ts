@@ -1,57 +1,87 @@
 /**
- * Structural test for the movie-director saved workflows. For each .js under
- * workflows/:
+ * Structural test for the movie-director saved workflows. Discovers both
+ * flat single-file scripts (workflows/<name>.js) and workflow-pack
+ * directories (workflows/<name>/manifest.json + entry) under workflows/.
+ * For each discovered workflow:
  *   (a) parseWorkflowScript must succeed (valid workflow syntax + meta export)
  *   (b) every call('movie.X', …) reference must resolve to a registered host-fn
  *       (catches typo'd command names before a real run hits "not registered")
  *
- * Deterministic, no GPU, no model. Applies to all 4 workflows as they land.
+ * Deterministic, no GPU, no model. Applies to all saved workflows as they land,
+ * regardless of whether they're a flat script or a pack.
  */
 import { describe, test, expect } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseWorkflowScript } from "@repo/pi-agent-ext-workflow";
+import { parseWorkflowScript, readManifest } from "@repo/pi-agent-ext-workflow";
 import { buildMovieHostFnRegistry } from "../src/host-fns.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WORKFLOWS_DIR = join(HERE, "..", "workflows");
 
-const workflowFiles = readdirSync(WORKFLOWS_DIR).filter((f) => f.endsWith(".js") && !f.startsWith("_"));
+interface DiscoveredWorkflow {
+  /** The workflow's name — from manifest.name (pack) or the filename minus .js (flat file). */
+  name: string;
+  /** The entry script's source text. */
+  script: string;
+}
+
+/** Discover every workflow under `dir`: pack directories (has manifest.json)
+ *  and flat `<name>.js` files. Entries starting with "_" are skipped (helper
+ *  scripts like _resume-probe.js, not saved workflows). */
+function discoverWorkflows(dir: string): DiscoveredWorkflow[] {
+  const out: DiscoveredWorkflow[] = [];
+  for (const entry of readdirSync(dir)) {
+    if (entry.startsWith("_")) continue;
+    const entryPath = join(dir, entry);
+    const stat = statSync(entryPath);
+    if (stat.isDirectory()) {
+      if (!existsSync(join(entryPath, "manifest.json"))) continue;
+      const manifest = readManifest(entryPath);
+      const script = readFileSync(join(entryPath, manifest.entry), "utf8");
+      out.push({ name: manifest.name, script });
+      continue;
+    }
+    if (stat.isFile() && entry.endsWith(".js")) {
+      out.push({ name: entry.replace(/\.js$/, ""), script: readFileSync(entryPath, "utf8") });
+    }
+  }
+  return out;
+}
+
+const workflows = discoverWorkflows(WORKFLOWS_DIR);
 
 describe("movie-director saved workflows (structural)", () => {
   const registry = buildMovieHostFnRegistry();
   const registered = new Set(registry.list());
 
-  test("there is at least one workflow file", () => {
-    expect(workflowFiles.length).toBeGreaterThan(0);
+  test("there is at least one workflow", () => {
+    expect(workflows.length).toBeGreaterThan(0);
   });
 
   test("all 4 canonical saved workflows are discovered", () => {
-    const names = workflowFiles.map((f) => f.replace(/\.js$/, "")).sort();
+    const names = workflows.map((w) => w.name).sort();
     expect(names).toEqual(["produce-video", "research-first", "review-cut", "scene-assets"]);
   });
 
-  for (const file of workflowFiles) {
-    const name = file.replace(/\.js$/, "");
-    const script = readFileSync(join(WORKFLOWS_DIR, file), "utf8");
-
-    describe(`${name}.js`, () => {
+  for (const wf of workflows) {
+    describe(wf.name, () => {
       test("parses as a valid workflow script", () => {
-        const { meta } = parseWorkflowScript(script);
-        expect(meta.name).toBe(name);
+        const { meta } = parseWorkflowScript(wf.script);
+        expect(meta.name).toBe(wf.name);
         expect(Array.isArray(meta.phases)).toBe(true);
         expect(meta.phases!.length).toBeGreaterThan(0);
       });
 
       test("every call('movie.X', …) reference resolves to a registered host-fn", () => {
         // match call('movie.write-checkpoint' or call("movie.generate" etc.
-        const refs = [...script.matchAll(/call\(\s*['"]movie\.([a-z0-9-]+)['"]/gi)].map(
+        const refs = [...wf.script.matchAll(/call\(\s*['"]movie\.([a-z0-9-]+)['"]/gi)].map(
           (m) => `movie.${m[1]}`,
         );
-        expect(refs.length, `${name} should use at least one movie.* host-fn`).toBeGreaterThan(0);
+        expect(refs.length, `${wf.name} should use at least one movie.* host-fn`).toBeGreaterThan(0);
         const unresolved = refs.filter((r) => !registered.has(r));
-        expect(unresolved, `unresolved movie.* refs in ${name}: ${unresolved.join(", ")}`).toEqual([]);
+        expect(unresolved, `unresolved movie.* refs in ${wf.name}: ${unresolved.join(", ")}`).toEqual([]);
       });
     });
   }
