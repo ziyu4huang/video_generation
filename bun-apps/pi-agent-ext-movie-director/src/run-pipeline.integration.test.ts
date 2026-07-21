@@ -26,7 +26,19 @@ function makeFakeInner() {
 		}
 		if (command === "validate-artifact") return { ok: true, text: JSON.stringify({ valid: true }) };
 		// generate / compose-motion / final-review → success
-		if (command === "generate") return { ok: true, text: JSON.stringify({ result: { artifacts: [{ path: "/tmp/c.mp4" }] } }) };
+		if (command === "generate") {
+			if (opts.command === "native-relay") {
+				// One segment_N artifact per requested relay link, matching produceAssets's
+				// expectation (see driver-wiring.ts's segment-count guard).
+				const linkCount = ((opts.options as Record<string, unknown> | undefined)?.secondsPerSegment as unknown[] | undefined)?.length ?? 1;
+				const segmentArtifacts = Array.from({ length: linkCount }, (_, i) => ({
+					path: `/tmp/relay/seg0${i + 1}/segment.mp4`,
+					role: `segment_${i + 1}`,
+				}));
+				return { ok: true, text: JSON.stringify({ result: { artifacts: [{ path: "/tmp/c.mp4" }, ...segmentArtifacts] } }) };
+			}
+			return { ok: true, text: JSON.stringify({ result: { artifacts: [{ path: "/tmp/c.mp4" }] } }) };
+		}
 		if (command === "compose-motion") return { ok: true, text: JSON.stringify({ output: "/tmp/final.mp4" }) };
 		if (command === "final-review") return { ok: true, text: JSON.stringify({ verdict: "pass" }) };
 		return { ok: true, text: JSON.stringify({ ok: true }) };

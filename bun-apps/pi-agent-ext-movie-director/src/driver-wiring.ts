@@ -6,10 +6,13 @@
  *   • completion   (proposal/script/scene_plan/edit) → runCompletionWaypoint
  *   • mechanical   (assets/compose/publish)          → dispatch()
  *
- * The assets stage EXECUTES the proactive plan from assets-encoder.ts: each
- * generate call carries frames computed from the scene's real duration, and
- * chained I2V links continue from the prior clip's last frame (extractLastFrame,
- * injectable so the chaining is unit-testable without ffmpeg).
+ * The assets stage EXECUTES the proactive plan from assets-encoder.ts: it
+ * dispatches at most one `tts` call and ONE native-relay call for the whole
+ * movie (prompts/secondsPerSegment/segmentContinuity arrays derived from
+ * scene_plan), then probes each returned segment_N artifact's real duration
+ * to build asset_manifest.metadata.scene_boundaries. Last-frame reseed for
+ * chained links happens natively inside Swift's native-relay, not via an
+ * external ffmpeg extraction step.
  */
 import { runCompletionWaypoint, runAgentWaypoint, pickProducer, type WaypointDeps } from "./waypoints.ts";
 import { planAssetGeneration } from "./assets-encoder.ts";
@@ -121,14 +124,14 @@ async function produceAssets(
 			pipeline: deps.pipeline,
 		});
 		if (!res.ok) throw new Error(`assets generate tts failed: ${res.error}`);
-		const parsed = JSON.parse(res.text) as { provider?: string };
-		narrationPath = firstArtifactPath(JSON.parse(res.text));
+		const parsedResult = JSON.parse(res.text) as { provider?: string };
+		narrationPath = firstArtifactPath(parsedResult);
 		if (narrationPath) narrativeDurationSeconds = await probe(narrationPath);
 		assets.push({
 			id: "narration",
 			type: "narration",
 			path: narrationPath ?? "",
-			source_tool: parsed.provider ?? "tts",
+			source_tool: parsedResult.provider ?? "tts",
 			scene_id: plan.tts.sceneId ?? "",
 			generation_summary: "generated via tts",
 			...(narrativeDurationSeconds > 0 ? { duration_seconds: Math.round(narrativeDurationSeconds * 1000) / 1000 } : {}),
@@ -153,9 +156,14 @@ async function produceAssets(
 			pipeline: deps.pipeline,
 		});
 		if (!res.ok) throw new Error(`assets generate native-relay failed: ${res.error}`);
-		const parsed = JSON.parse(res.text) as { provider?: string };
-		const relayMp4Path = firstArtifactPath(JSON.parse(res.text)) ?? "";
-		const segmentPaths = relaySegmentPaths(JSON.parse(res.text));
+		const parsedResult = JSON.parse(res.text) as { provider?: string };
+		const relayMp4Path = firstArtifactPath(parsedResult) ?? "";
+		const segmentPaths = relaySegmentPaths(parsedResult);
+		if (segmentPaths.length !== plan.relayLinks.length) {
+			throw new Error(
+				`assets native-relay returned ${segmentPaths.length} segment(s), expected ${plan.relayLinks.length} — partial/corrupt relay output`,
+			);
+		}
 
 		let cursor = 0;
 		for (let i = 0; i < plan.relayLinks.length; i++) {
@@ -175,7 +183,7 @@ async function produceAssets(
 			id: "relay-movie",
 			type: "video",
 			path: relayMp4Path,
-			source_tool: parsed.provider ?? "native-relay",
+			source_tool: parsedResult.provider ?? "native-relay",
 			scene_id: sceneBoundaries[0]?.sceneId ?? "",
 			generation_summary: `generated via native-relay (${plan.relayLinks.length} link(s))`,
 			duration_seconds: Math.round(cursor * 1000) / 1000,

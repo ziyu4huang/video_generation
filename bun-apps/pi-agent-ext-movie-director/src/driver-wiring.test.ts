@@ -142,7 +142,7 @@ describe("wireProduce — assets execution (single native-relay call for the who
 	});
 
 	test("narrative_duration_seconds in asset_manifest.metadata comes from the narration wav's real probed duration", async () => {
-		const { deps } = assetsDeps({ ttsDuration: 22.4 });
+		const { deps } = assetsDeps({ ttsDuration: 22.4, segmentDurations: [8] });
 		const out = await wireProduce(deps)("assets", {
 			scene_plan: { scenes: [{ id: "s1", type: "generated", description: "a cube", start_seconds: 0, end_seconds: 8 }] },
 			script: { sections: [{ id: "s1", text: "hi" }] },
@@ -158,6 +158,37 @@ describe("wireProduce — assets execution (single native-relay call for the who
 			script: { narration: "none" },
 		});
 		expect(genCalls.filter((c) => c.command === "native-relay")).toHaveLength(0);
+	});
+
+	test("throws when native-relay returns fewer segments than requested links (partial/corrupt output)", async () => {
+		const dispatchFn: DispatchLike = async (command, callOpts) => {
+			if (command !== "generate") return { ok: true, text: JSON.stringify({}) };
+			const capability = (callOpts as Record<string, unknown>).capability;
+			if (capability === "tts") {
+				return { ok: true, text: JSON.stringify({ provider: "tts", result: { artifacts: [{ path: "/tmp/narration.wav" }] } }) };
+			}
+			// Only 1 segment artifact even though 2 links were requested.
+			return {
+				ok: true,
+				text: JSON.stringify({
+					provider: "ltx",
+					result: { artifacts: [{ path: "/tmp/relay/relay.mp4" }, { path: "/tmp/relay/seg01/segment.mp4", role: "segment_1" }] },
+				}),
+			};
+		};
+		const probeDuration = async () => 8;
+		const deps = makeWireDeps({ dispatchFn, probeDuration });
+		await expect(
+			wireProduce(deps)("assets", {
+				scene_plan: {
+					scenes: [
+						{ id: "s1", type: "generated", description: "a cube", start_seconds: 0, end_seconds: 8 },
+						{ id: "s2", type: "generated", description: "a sphere", start_seconds: 8, end_seconds: 16 },
+					],
+				},
+				script: { sections: [{ id: "s1", text: "hi" }] },
+			}),
+		).rejects.toThrow(/segment/i);
 	});
 });
 
