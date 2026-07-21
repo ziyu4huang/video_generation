@@ -224,6 +224,51 @@ describe("wireProduce — deterministic edit (scene-boundary cuts on the shared 
 		expect(edit.cuts).toEqual([]);
 		expect(validateArtifact("edit_decisions", edit).ok).toBe(true);
 	});
+
+	test("metadata entirely absent from the manifest → empty cuts (still schema-valid)", async () => {
+		const out = await wireProduce(makeWireDeps())("edit", {
+			asset_manifest: {
+				version: "1.0",
+				assets: [{ id: "relay-movie", type: "video", path: "/tmp/relay/relay.mp4", source_tool: "native-relay", scene_id: "s1", duration_seconds: 15.7 }],
+			},
+		});
+		const edit = out.edit_decisions as Record<string, unknown>;
+		expect(edit.cuts).toEqual([]);
+		expect(validateArtifact("edit_decisions", edit).ok).toBe(true);
+	});
+
+	test("a zero-width scene boundary is dropped; a normal boundary alongside it still produces a cut", async () => {
+		const out = await wireProduce(makeWireDeps())("edit", {
+			asset_manifest: {
+				version: "1.0",
+				assets: [{ id: "relay-movie", type: "video", path: "/tmp/relay/relay.mp4", source_tool: "native-relay", scene_id: "s1", duration_seconds: 15.7 }],
+				metadata: {
+					scene_boundaries: [
+						{ sceneId: "s1", startSeconds: 0, endSeconds: 0 },
+						{ sceneId: "s2", startSeconds: 0, endSeconds: 7.5 },
+					],
+				},
+			},
+		});
+		const edit = out.edit_decisions as Record<string, unknown>;
+		expect(edit.cuts).toEqual([{ id: "cut-s2", source: "/tmp/relay/relay.mp4", in_seconds: 0, out_seconds: 7.5 }]);
+		expect(validateArtifact("edit_decisions", edit).ok).toBe(true);
+	});
+
+	test("more than one video asset in the manifest throws loudly instead of silently picking the first", async () => {
+		await expect(
+			wireProduce(makeWireDeps())("edit", {
+				asset_manifest: {
+					version: "1.0",
+					assets: [
+						{ id: "a", type: "video", path: "/tmp/a.mp4" },
+						{ id: "b", type: "video", path: "/tmp/b.mp4" },
+					],
+					metadata: { scene_boundaries: [{ sceneId: "s1", startSeconds: 0, endSeconds: 5 }] },
+				},
+			}),
+		).rejects.toThrow(/at most one video asset/i);
+	});
 });
 
 describe("wireProduce — compose / publish", () => {

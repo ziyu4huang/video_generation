@@ -216,11 +216,17 @@ async function produceEdit(deps: WireDeps, inputs: Record<string, unknown>): Pro
 		| { assets?: Array<{ type?: string; path?: string }>; metadata?: { scene_boundaries?: Array<{ sceneId: string; startSeconds: number; endSeconds: number }> } }
 		| undefined;
 	if (!manifest?.assets) throw new Error("edit: missing asset_manifest input");
-	const relayAsset = manifest.assets.find((a) => a.type === "video" && a.path);
+	const videoAssets = manifest.assets.filter((a) => a.type === "video" && a.path);
+	if (videoAssets.length > 1) {
+		throw new Error(`edit: expected at most one video asset in asset_manifest, found ${videoAssets.length}`);
+	}
+	const relayAsset = videoAssets[0];
 	const boundaries = manifest.metadata?.scene_boundaries ?? [];
 	const cuts =
 		relayAsset?.path && boundaries.length > 0
-			? boundaries.map((b) => ({ id: `cut-${b.sceneId}`, source: relayAsset.path!, in_seconds: b.startSeconds, out_seconds: b.endSeconds }))
+			? boundaries
+					.filter((b) => b.endSeconds > b.startSeconds)
+					.map((b) => ({ id: `cut-${b.sceneId}`, source: relayAsset.path!, in_seconds: b.startSeconds, out_seconds: b.endSeconds }))
 			: [];
 	return { edit_decisions: { version: "1.0", render_runtime: "ffmpeg", transition: "none", cuts } };
 }
