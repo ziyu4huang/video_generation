@@ -136,6 +136,21 @@ check_lockstep() {
   [[ "$LOCKSTEP_OK" -eq 1 ]]
 }
 
+# Rebuild the pi-agent dist bundle. Extracted to a function so the early-exit
+# "already up to date" path can honor --rebuild too: a prior run may have bumped
+# pins + reconciled bun.lock without rebuilding the bundle, and --rebuild is an
+# explicit request to rebuild regardless of whether versions changed this run.
+#
+# Builds via scripts/deploy.ts (default --bundle mode → dist/pi-agent/). NOTE:
+# this was once `scripts/build.ts --all`, but build.ts was unified INTO deploy.ts
+# (commit a0e512a7 / PR #647); the old command was a stale dead path that always
+# failed — fixed here.
+do_rebuild() {
+  echo
+  echo "$(green '▶') rebuild pi-agent dist bundle"
+  (cd "$REPO_ROOT/bun-apps/pi-agent" && bun scripts/deploy.ts)
+}
+
 cd "$REPO_ROOT"
 command -v bun >/dev/null || die "bun not found on PATH."
 [[ -f bun-apps/bun.lock ]] || die "bun-apps/bun.lock not found — run from a full checkout."
@@ -205,9 +220,14 @@ for i in "${!PKG_NAMES[@]}"; do
     || die "upstream broke lockstep: latest versions differ (${NEW[*]}). Resolve manually — this script refuses to pick one."
 done
 
-# Nothing to do if already uniform at latest.
+# Nothing to do if already uniform at latest. Still honor --rebuild: the bump
+# may have happened in a prior run (pins + bun.lock already aligned), leaving
+# the bundle unrebuilt against the now-installed core.
 if [[ "$ANY_STALE" -eq 0 ]] && [[ "$LOCKSTEP_OK" -eq 1 ]] && [[ "$LOCKSTEP_VER" == "$NEW_VER" ]]; then
   echo "$(green 'already up to date.') all 4 packages pinned at $NEW_VER everywhere."
+  if [[ "$REBUILD" -eq 1 ]]; then
+    do_rebuild
+  fi
   exit 0
 fi
 
@@ -287,9 +307,7 @@ fi
 
 # ── optional rebuild ─────────────────────────────────────────────────────────
 if [[ "$REBUILD" -eq 1 ]]; then
-  echo
-  echo "$(green '▶') rebuild pi-agent dist bundle"
-  (cd "$REPO_ROOT/bun-apps/pi-agent" && bun scripts/build.ts --all)
+  do_rebuild
 fi
 
 # ── next steps ───────────────────────────────────────────────────────────────
