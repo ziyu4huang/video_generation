@@ -205,22 +205,24 @@ function narrationMode(script: Record<string, unknown> | undefined): "none" | "v
 	return n === "none" || n === "voiced" ? (n as "none" | "voiced") : undefined;
 }
 
-/** edit → deterministic edit_decisions: one cut per video clip at its REAL
- *  (probed) duration, concatenated in manifest order. No LLM — the driver owns
- *  this like the assets encoder, so every cut fits its source (defeats
- *  cut_duration_vs_source; the frozen-frame failure cannot occur by construction). */
+/** edit → deterministic edit_decisions: one cut per SCENE BOUNDARY, all sharing
+ *  the single native-relay output as source (produceAssets already probed each
+ *  segment's REAL duration to build scene_boundaries — no source-clip-per-cut
+ *  files anymore). transition:"none" because the relay's segments are already
+ *  visually continuous (last-frame reseed inside Swift); a crossfade here would
+ *  double-blend already-matching frames. No LLM — deterministic like before. */
 async function produceEdit(deps: WireDeps, inputs: Record<string, unknown>): Promise<Record<string, unknown>> {
-	const manifest = inputs.asset_manifest as { assets?: Array<{ type?: string; path?: string; duration_seconds?: number }> } | undefined;
+	const manifest = inputs.asset_manifest as
+		| { assets?: Array<{ type?: string; path?: string }>; metadata?: { scene_boundaries?: Array<{ sceneId: string; startSeconds: number; endSeconds: number }> } }
+		| undefined;
 	if (!manifest?.assets) throw new Error("edit: missing asset_manifest input");
-	const cuts: Array<Record<string, unknown>> = [];
-	let i = 0;
-	for (const a of manifest.assets) {
-		if (a.type !== "video" || !a.path) continue;
-		i++;
-		const dur = deps.probeDuration ? await deps.probeDuration(a.path) : Number(a.duration_seconds ?? 0);
-		cuts.push({ id: `cut-${i}`, source: a.path, in_seconds: 0, out_seconds: dur });
-	}
-	return { edit_decisions: { version: "1.0", render_runtime: "ffmpeg", cuts } };
+	const relayAsset = manifest.assets.find((a) => a.type === "video" && a.path);
+	const boundaries = manifest.metadata?.scene_boundaries ?? [];
+	const cuts =
+		relayAsset?.path && boundaries.length > 0
+			? boundaries.map((b) => ({ id: `cut-${b.sceneId}`, source: relayAsset.path!, in_seconds: b.startSeconds, out_seconds: b.endSeconds }))
+			: [];
+	return { edit_decisions: { version: "1.0", render_runtime: "ffmpeg", transition: "none", cuts } };
 }
 
 /** compose → compose-motion (render_report) + final-review (final_review). */

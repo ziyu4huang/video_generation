@@ -192,28 +192,36 @@ describe("wireProduce — assets execution (single native-relay call for the who
 	});
 });
 
-describe("wireProduce — deterministic edit (one cut per clip at its REAL duration)", () => {
-	test("builds schema-valid edit_decisions from asset_manifest; cuts use the PROBED duration, not the planned one", async () => {
-		const probeDuration = async (p: string) => (p.includes("a.mp4") ? 3.88 : 5.16);
-		const deps = makeWireDeps({ probeDuration });
-		const out = await wireProduce(deps)("edit", {
+describe("wireProduce — deterministic edit (scene-boundary cuts on the shared relay source)", () => {
+	test("builds schema-valid edit_decisions with one cut per scene boundary, all sharing the relay mp4 as source, transition:none", async () => {
+		const out = await wireProduce(makeWireDeps())("edit", {
 			asset_manifest: {
 				version: "1.0",
-				assets: [
-					{ id: "sc1-0", type: "video", path: "/tmp/a.mp4", source_tool: "ltx", scene_id: "sc1", duration_seconds: 4 },
-					{ id: "sc2-0", type: "video", path: "/tmp/b.mp4", source_tool: "ltx", scene_id: "sc2", duration_seconds: 5 },
-				],
+				assets: [{ id: "relay-movie", type: "video", path: "/tmp/relay/relay.mp4", source_tool: "native-relay", scene_id: "s1", duration_seconds: 15.7 }],
+				metadata: {
+					scene_boundaries: [
+						{ sceneId: "s1", startSeconds: 0, endSeconds: 7.5 },
+						{ sceneId: "s2", startSeconds: 7.5, endSeconds: 15.7 },
+					],
+				},
 			},
 		});
 		const edit = out.edit_decisions as Record<string, unknown>;
 		expect(edit.version).toBe("1.0");
 		expect(edit.render_runtime).toBe("ffmpeg");
+		expect(edit.transition).toBe("none");
 		const cuts = edit.cuts as Array<Record<string, unknown>>;
-		expect(cuts).toHaveLength(2);
-		// REAL probed durations (3.88/5.16), NOT the planned 4/5 — this is what keeps
-		// each cut within its source and defeats cut_duration_vs_source.
-		expect(cuts[0]).toMatchObject({ id: "cut-1", source: "/tmp/a.mp4", in_seconds: 0, out_seconds: 3.88 });
-		expect(cuts[1]).toMatchObject({ id: "cut-2", source: "/tmp/b.mp4", in_seconds: 0, out_seconds: 5.16 });
+		expect(cuts).toEqual([
+			{ id: "cut-s1", source: "/tmp/relay/relay.mp4", in_seconds: 0, out_seconds: 7.5 },
+			{ id: "cut-s2", source: "/tmp/relay/relay.mp4", in_seconds: 7.5, out_seconds: 15.7 },
+		]);
+		expect(validateArtifact("edit_decisions", edit).ok).toBe(true);
+	});
+
+	test("no video asset / no scene_boundaries → empty cuts (still schema-valid)", async () => {
+		const out = await wireProduce(makeWireDeps())("edit", { asset_manifest: { version: "1.0", assets: [], metadata: {} } });
+		const edit = out.edit_decisions as Record<string, unknown>;
+		expect(edit.cuts).toEqual([]);
 		expect(validateArtifact("edit_decisions", edit).ok).toBe(true);
 	});
 });
