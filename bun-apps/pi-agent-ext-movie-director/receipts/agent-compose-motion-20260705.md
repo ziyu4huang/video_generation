@@ -16,7 +16,7 @@ drives the director through the `movie` tool to a real motion-composed .mp4
 | Converged unaided at thinking `medium` | ✅ single `movie` call — prompt pre-empted the double-nesting friction |
 
 ## Runtime configuration
-- `bun bun-apps/pi-agent/src/cli.ts --no-extensions -e …/pi-movie-director.ts`
+- `bun bun-apps/pi-agent/src/cli.ts --no-extensions -e …/movie-director.ts`
 - Provider `lm-studio`, model `google/gemma-4-26b-a4b-qat`, **thinking `medium`**
 - `--no-builtin-tools` → the agent had **only** the `movie` tool. The thesis
   ("the agent drives `movie`") is exercised pure.

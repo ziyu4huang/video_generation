@@ -9,7 +9,7 @@
 The **single source of truth** for Zettelkasten knowledge tooling in the pi
 ecosystem. It owns two things:
 
-1. **A pi extension** (`extensions/pi-knowledge-card.ts`) that registers **4
+1. **A pi extension** (`extensions/knowledge-card.ts`) that registers **4
    tools** — `zk_card`, `zk_ask`, `zk_ingest`, `knowledge_query`. (`zk_extract` was
    removed in #450 — it was a 100% passthrough to `obsidian_distill`, so callers use
    `obsidian_distill` directly; `graph_health` was merged into `obsidian garden`.)
@@ -64,7 +64,7 @@ src/emit.ts     (100 LOC) — in-session event-bus contract (runtime surface).
   KNOWLEDGE_CHANNEL="pi:knowledge" · emitKnowledge · onKnowledge
 ```
 
-`extensions/pi-knowledge-card.ts` (1132 LOC) is the tool layer: the 4
+`extensions/knowledge-card.ts` (1132 LOC) is the tool layer: the 4
 `registerTool` blocks + the pure task builders (`buildDistillTask` (LIVE — backs CLI `zk-extract`, not vestigial) /
 `buildAddTask` / `buildFindTask` / `buildUpdateTask` / `buildRemoveTask` /
 `buildRagTask`) + the per-action allowlists (`DISTILL_TOOLS` / … / `RAG_TOOLS`)

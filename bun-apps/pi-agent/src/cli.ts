@@ -3,8 +3,9 @@
  * pi-agent — thin wrapper around the REAL pi TUI with monkey-patch hooks.
  *
  * What this does:
- *   1. Apply env-gated monkey-patches (default: force pi to load models ONLY
- *      from ~/.pi/agent/models.json).
+ *   1. Apply env-gated monkey-patches (default: inject the baked PROVIDERS
+ *      catalog from src/pre-load-providers.ts into every ModelRuntime, so no
+ *      ~/.pi/agent/models.json is required).
  *   2. Delegate everything else — argv parsing, TUI, print/rpc mode, sessions,
  *      tools — to the official `main()` from @earendil-works/pi-coding-agent.
  *
@@ -13,10 +14,10 @@
  * Usage (after `bun install` at the repo root):
  *   bun ./pi-agent/src/cli.ts                 # interactive TUI
  *   bun ./pi-agent/src/cli.ts -p "hello"      # print mode
- *   bun ./pi-agent/src/cli.ts --list-models   # list (only models.json entries)
+ *   bun ./pi-agent/src/cli.ts --list-models   # list models (baked PROVIDERS + builtins)
  *
- * Toggle the model patch:
- *   BUN_PI_ONLY_MODELS_JSON=0 bun ./pi-agent/src/cli.ts --list-models
+ * Toggle the provider-injection patch:
+ *   BUN_PI_PRE_LOAD_PROVIDERS=0 bun ./pi-agent/src/cli.ts --list-models
  *
  * Debug which patches ran:
  *   BUN_PI_DEBUG_PATCHES=1 bun ./pi-agent/src/cli.ts
@@ -24,7 +25,8 @@
 import { main } from "@earendil-works/pi-coding-agent";
 import { applyPatches } from "./patches/index.ts";
 import { runDoctor } from "./doctor.ts";
-import { isDoctorCommand, isExtDoctorCommand } from "./cli-argv.ts";
+import { isDoctorCommand, isExtDoctorCommand, userSuppressFlags, overriddenStaticExtensions } from "./cli-argv.ts";
+import { STATIC_EXTENSION_FACTORIES } from "./static-extensions.ts";
 
 // Extension loading: handled by the `ensure-extension-deps` patch (see
 // src/patches/ensure-extension-deps.ts), which creates repo-root node_modules
@@ -76,4 +78,27 @@ await applyPatches();
 // Re-slice AFTER patches so the run-dir splice (and any other process.argv
 // mutation above) reaches main(). main(args) consumes the passed array
 // directly — it does NOT re-read process.argv.
-await main(process.argv.slice(2));
+//
+// `argv` was sliced BEFORE applyPatches(), so this reflects only what the USER
+// typed — the deploy modes' self-injected "-ne" (spliced during applyPatches)
+// can't turn the static factories off. Upstream pi never gates
+// extensionFactories on -ne (resource-loader loads them unconditionally), so
+// this gate is what makes `pi-agent -ne` actually mean "no injected extensions".
+//
+// A user `-e` path pointing into a static package's dir overrides the baked-in
+// factory (see overriddenStaticExtensions) — otherwise the two copies register
+// the same tool names and extension loading crashes with `Tool conflicts`.
+const userNoExtensions = userSuppressFlags(argv).noExtensions;
+const overridden = overriddenStaticExtensions(
+	argv,
+	STATIC_EXTENSION_FACTORIES.map((f) => f.name),
+);
+const factories = userNoExtensions
+	? []
+	: STATIC_EXTENSION_FACTORIES.filter((f) => !overridden.has(f.name));
+if (!userNoExtensions && overridden.size > 0) {
+	console.error(`[pi-agent] static extension(s) overridden by user -e: ${[...overridden].join(", ")}`);
+}
+await main(process.argv.slice(2), {
+	extensionFactories: factories,
+});

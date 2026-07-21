@@ -24,7 +24,7 @@
  * across changes. Mirrors the approach `inspect_context` reports in-agent.
  */
 import { createCodingTools } from "@earendil-works/pi-coding-agent";
-import { globSync, existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve, relative, isAbsolute, join } from "node:path";
 
 // --- pure core delegated to the schema-cost submodule ----------------------
@@ -127,31 +127,53 @@ export async function collectExtensionToolCosts(
 }
 
 /**
- * Discover the repo's extension entry points:
- *   - `bun-apps/<pkg>/extensions/pi-*.ts` (flux2/ltx/krea2/movie-director/vlm/knowledge-card)
- *   - `bun-apps/pi-agent-ext-power-tool/src/index.ts`
- *   - any `bun-apps/pi-agent-ext-<name>/index.ts` (web-access uses a root index.ts)
+ * Entries kept OUTSIDE the manifest derivation: measurable extension files
+ * that are not registered anywhere in pi-agent (neither manifest.extensions
+ * nor staticExtensions) but are still worth costing.
+ */
+const EXTRA_ENTRIES: { source: string; path: string }[] = [
+	{ source: "movie-director-cost", path: "bun-apps/pi-agent-ext-movie-director/extensions/movie-director-cost.ts" },
+];
+
+/**
+ * Discover extension entry files by DERIVING them from pi-agent's
+ * run-dir/manifest.json — the single source of truth for what a pi-agent
+ * session loads:
+ *   - `extensions[]`       → `bun-apps/<entry>` (dynamic `-e` set)
+ *   - `staticExtensions[]` → `bun-apps/<pkg>/extensions/<suffix>.ts` where
+ *     suffix = pkg minus the `pi-agent-ext-` prefix (the repo-wide canonical
+ *     entry convention, enforced since #675)
+ * plus EXTRA_ENTRIES above. Adding/removing an extension in pi-agent needs
+ * ZERO edits here. Falls back to EXTRA_ENTRIES only when the manifest is
+ * unreadable (e.g. a compiled CLI running outside the repo).
  */
 export function discoverExtensionEntries(cwd: string): { source: string; path: string }[] {
+	let manifest: { extensions?: (string | { entry: string })[]; staticExtensions?: string[] } = {};
+	try {
+		manifest = JSON.parse(
+			readFileSync(resolve(cwd, "bun-apps/pi-agent/run-dir/manifest.json"), "utf8"),
+		);
+	} catch {
+		// outside the repo — measure extras only
+	}
+	const entries: { source: string; path: string }[] = [];
+	for (const e of manifest.extensions ?? []) {
+		const rel = typeof e === "string" ? e : e.entry;
+		const pkg = rel.split("/")[0] ?? "";
+		entries.push({ source: pkg.replace(/^pi-agent-ext-/, ""), path: `bun-apps/${rel}` });
+	}
+	for (const pkg of manifest.staticExtensions ?? []) {
+		const suffix = pkg.replace(/^pi-agent-ext-/, "");
+		entries.push({ source: suffix, path: `bun-apps/${pkg}/extensions/${suffix}.ts` });
+	}
+	entries.push(...EXTRA_ENTRIES);
 	const out: { source: string; path: string }[] = [];
 	const seen = new Set<string>();
-	const add = (source: string, p: string) => {
-		const abs = isAbsolute(p) ? p : resolve(cwd, p);
-		if (seen.has(abs)) return;
+	for (const e of entries) {
+		const abs = isAbsolute(e.path) ? e.path : resolve(cwd, e.path);
+		if (seen.has(abs)) continue;
 		seen.add(abs);
-		out.push({ source, path: abs });
-	};
-	// extensions/pi-*.ts pattern (skip .test.ts)
-	for (const p of globSync("bun-apps/*/extensions/pi-*.ts", { cwd })) {
-		if (p.includes(".test.")) continue;
-		const pkg = p.split("/").find((s) => s.startsWith("pi-agent-ext-") || s.startsWith("pi-")) ?? p;
-		add(pkg.replace(/^pi-agent-ext-/, "").replace(/^pi-/, ""), p);
-	}
-	// power-tool + web-access (src/index.ts or root index.ts)
-	add("power-tool", "bun-apps/pi-agent-ext-power-tool/src/index.ts");
-	for (const p of globSync("bun-apps/pi-agent-ext-*/index.ts", { cwd })) {
-		const pkg = p.split("/").find((s) => s.startsWith("pi-agent-ext-"))!.replace(/^pi-agent-ext-/, "");
-		add(pkg, p);
+		out.push({ source: e.source, path: abs });
 	}
 	return out;
 }

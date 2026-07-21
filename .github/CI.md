@@ -25,7 +25,7 @@ gh api -X PUT repos/ziyu4huang/video_generation/branches/main/protection \
   "extension-contract", "regression gates",
   "test · pi-agent-ext-knowledge-card", "test · pi-agent-ext-hermes-memory",
   "test · pi-agent-ext-workflow",
-  "test · pi-agent-ext-btw", "test · pi-agent-ext-goal-todo",
+  "test · pi-agent-ext-btw", "test · pi-agent-ext-core-task",
   "test · pi-agent-ext-file2md", "test · pi-agent-ext-obsidian",
   "test · pi-agent-ext-research-tool",
   "test · pi-agent-ext-zai-mcp", "test · pi-agent-ext-wayfind", "test · perf-harness"
@@ -132,7 +132,7 @@ matrix in the workflow; whether it actually RUNS on a given PR depends on
 ```
 pi-agent, pi-agent-cli, pi-agent-ext-flux2, pi-agent-ext-krea2,
 pi-agent-ext-ltx, pi-agent-ext-movie-director, pi-agent-ext-power-tool,
-pi-agent-ext-btw, pi-agent-ext-goal-todo,
+pi-agent-ext-btw, pi-agent-ext-core-task,
 pi-agent-ext-web-access, pi-agent-ext-file2md, gui-movie-director,
 pi-agent-ext-knowledge-card, pi-agent-ext-obsidian,
 pi-agent-ext-workflow, pi-agent-ext-hermes-memory,
@@ -140,13 +140,13 @@ pi-agent-ext-research-tool, pi-agent-ext-zai-mcp,
 pi-agent-ext-wayfind, perf-harness
 ```
 
-`pi-agent-ext-btw`/`pi-agent-ext-ask-user`/`pi-agent-ext-goal-todo` were already
+`pi-agent-ext-btw`/`pi-agent-ext-ask-user`/`pi-agent-ext-core-task` were already
 in the `ci.yml` matrix but missing from this list (a doc-drift gap found and
 fixed alongside the 5 newly-added packages below).
 
 Later, `pi-agent-ext-ask-user`'s standalone check was retired on 2026-07-18
-when the package was merged into `pi-agent-ext-goal-todo` (see that package's
-`CONTEXT.md`) — its tests now run under `test · pi-agent-ext-goal-todo`.
+when the package was merged into `pi-agent-ext-core-task` (see that package's
+`CONTEXT.md`) — its tests now run under `test · pi-agent-ext-core-task`.
 
 ## What is deliberately NOT tested in CI (and why)
 

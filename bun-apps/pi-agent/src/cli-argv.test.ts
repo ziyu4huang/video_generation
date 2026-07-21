@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { isDoctorCommand, isExtDoctorCommand } from "./cli-argv.ts";
+import {
+	isDoctorCommand,
+	isExtDoctorCommand,
+	userSuppressFlags,
+	userExtensionPaths,
+	overriddenStaticExtensions,
+} from "./cli-argv.ts";
 
 describe("isDoctorCommand", () => {
 	test("true for the `doctor` subcommand", () => {
@@ -25,5 +31,73 @@ describe("isExtDoctorCommand", () => {
 		expect(isExtDoctorCommand(["doctor"])).toBe(false);
 		expect(isExtDoctorCommand(["ext"])).toBe(false);
 		expect(isExtDoctorCommand(["ext", "something-else"])).toBe(false);
+	});
+});
+
+describe("userSuppressFlags", () => {
+	test("-ne / --no-extensions set noExtensions", () => {
+		expect(userSuppressFlags(["-ne"])).toEqual({ noExtensions: true, noSkills: false });
+		expect(userSuppressFlags(["--no-extensions", "-p", "hi"])).toEqual({
+			noExtensions: true,
+			noSkills: false,
+		});
+	});
+
+	test("-ns / --no-skills set noSkills", () => {
+		expect(userSuppressFlags(["-ns"])).toEqual({ noExtensions: false, noSkills: true });
+		expect(userSuppressFlags(["--no-skills"])).toEqual({ noExtensions: false, noSkills: true });
+	});
+
+	test("both flags combine; empty argv is all-false", () => {
+		expect(userSuppressFlags(["-ne", "-ns"])).toEqual({ noExtensions: true, noSkills: true });
+		expect(userSuppressFlags([])).toEqual({ noExtensions: false, noSkills: false });
+	});
+
+	test("matches pi's own parser: token anywhere in argv counts", () => {
+		// pi's args.js treats `-ne` as a flag wherever it appears (prompts are
+		// positional), so plain includes() mirrors upstream semantics exactly.
+		expect(userSuppressFlags(["-p", "hello", "-ne"]).noExtensions).toBe(true);
+	});
+});
+
+describe("userExtensionPaths", () => {
+	test("collects -e and --extension values in order", () => {
+		expect(userExtensionPaths(["-e", "/a/x.ts", "--extension", "/b/y.ts", "-p", "hi"])).toEqual([
+			"/a/x.ts",
+			"/b/y.ts",
+		]);
+	});
+
+	test("empty when no -e present; trailing -e with no value is ignored", () => {
+		expect(userExtensionPaths(["-p", "hi"])).toEqual([]);
+		expect(userExtensionPaths(["-e"])).toEqual([]);
+	});
+});
+
+describe("overriddenStaticExtensions", () => {
+	const NAMES = ["pi-agent-ext-hermes-memory", "pi-agent-ext-workflow"];
+
+	test("a -e path inside a static package dir overrides that package", () => {
+		const argv = ["-e", "/repo/bun-apps/pi-agent-ext-hermes-memory/extensions/hermes-memory.ts"];
+		expect(overriddenStaticExtensions(argv, NAMES)).toEqual(new Set(["pi-agent-ext-hermes-memory"]));
+	});
+
+	test("unrelated -e paths override nothing", () => {
+		expect(overriddenStaticExtensions(["-e", "/tmp/probe.ts"], NAMES)).toEqual(new Set());
+	});
+
+	test("matches whole path segments only (no substring false-positives)", () => {
+		const argv = ["-e", "/x/pi-agent-ext-hermes-memory-v2/extensions/hm.ts"];
+		expect(overriddenStaticExtensions(argv, NAMES)).toEqual(new Set());
+	});
+
+	test("multiple -e paths accumulate; windows separators work", () => {
+		const argv = [
+			"-e", "/a/pi-agent-ext-workflow/extensions/workflow.ts",
+			"-e", "C:\\x\\pi-agent-ext-hermes-memory\\extensions\\hm.ts",
+		];
+		expect(overriddenStaticExtensions(argv, NAMES)).toEqual(
+			new Set(["pi-agent-ext-workflow", "pi-agent-ext-hermes-memory"]),
+		);
 	});
 });

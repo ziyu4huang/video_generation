@@ -18,7 +18,7 @@ Sister package `pi-agent-flux2` follows the same architecture for the larger Flu
 ## Load (source mode)
 
 ```bash
-bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-krea2/extensions/pi-krea2.ts -p "generate a red apple on a wooden table with krea2 t2i"
+bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-krea2/extensions/krea2.ts -p "generate a red apple on a wooden table with krea2 t2i"
 ```
 
 To make pi load it permanently, add it to the run-dir manifest (the source of truth in this fork — see [[pi-agent-extensions-source-of-truth-run-dir]]):
@@ -28,7 +28,7 @@ To make pi load it permanently, add it to the run-dir manifest (the source of tr
 {
   "extensions": [
     // …
-    "pi-agent-ext-krea2/extensions/pi-krea2.ts"
+    "pi-agent-ext-krea2/extensions/krea2.ts"
   ]
 }
 ```

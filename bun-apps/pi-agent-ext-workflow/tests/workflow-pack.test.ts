@@ -1,16 +1,16 @@
-import { test, expect, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
+  findRepoRoot,
+  listWorkflows,
+  mergeArgs,
+  resolveModel,
+  resolvePackOverrides,
+  resolveWorkflowPack,
   resolveWorkflowScript,
   runWorkflowScript,
-  mergeArgs,
-  resolvePackOverrides,
-  listWorkflows,
-  resolveWorkflowPack,
-  findRepoRoot,
-  resolveModel,
 } from "../src/workflow-pack.js";
 
 /**
@@ -53,9 +53,7 @@ describe("resolveWorkflowScript", () => {
 
   test("missing name under a fake root → clear not-found error", () => {
     const dir = mkdtempSync(join(tmpdir(), "wf-"));
-    expect(() => resolveWorkflowScript("does-not-exist", { cwd: dir })).toThrow(
-      /"does-not-exist" not found/,
-    );
+    expect(() => resolveWorkflowScript("does-not-exist", { cwd: dir })).toThrow(/"does-not-exist" not found/);
   });
 
   test("resolves .pi/workflows/<name>.js from a fake repo root", () => {
@@ -81,12 +79,89 @@ describe("resolveWorkflowScript", () => {
   test("accepts a name with explicit .js suffix under .pi/workflows", () => {
     const root = mkdtempSync(join(tmpdir(), "wf-"));
     mkdirSync(join(root, ".pi", "workflows"), { recursive: true });
-    writeFileSync(
-      join(root, ".pi", "workflows", "suf.js"),
-      "export const meta = { name: 'suf', description: 'd' };\n",
-    );
+    writeFileSync(join(root, ".pi", "workflows", "suf.js"), "export const meta = { name: 'suf', description: 'd' };\n");
     const r = resolveWorkflowScript("suf.js", { cwd: root });
     expect(r.source).toBe(".pi/workflows");
+  });
+
+  test("resolves a pack from <cwd>/workflows with source cwd-workflows (portable tier)", () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-wf-cwd-"));
+    const echoDir = join(root, "workflows", "echo");
+    mkdirSync(echoDir, { recursive: true });
+    writeFileSync(
+      join(echoDir, "manifest.json"),
+      JSON.stringify({ name: "echo", description: "cwd", entry: "index.js" }),
+    );
+    writeFileSync(
+      join(echoDir, "index.js"),
+      `export const meta = { name: "echo", description: "cwd" };\nreturn { tier: "cwd" };\n`,
+    );
+    const r = resolveWorkflowScript("echo", { cwd: root });
+    expect(r.source).toBe("cwd-workflows");
+    expect(r.script).toContain('tier: "cwd"');
+  });
+
+  test("resolves a pack from <binDir>/workflows with source bin-workflows (injectable binDir)", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-wf-cwd2-"));
+    const bin = mkdtempSync(join(tmpdir(), "pi-wf-bin-"));
+    const echoDir = join(bin, "workflows", "echo");
+    mkdirSync(echoDir, { recursive: true });
+    writeFileSync(
+      join(echoDir, "manifest.json"),
+      JSON.stringify({ name: "echo", description: "bin", entry: "index.js" }),
+    );
+    writeFileSync(
+      join(echoDir, "index.js"),
+      `export const meta = { name: "echo", description: "bin" };\nreturn { tier: "bin" };\n`,
+    );
+    const r = resolveWorkflowScript("echo", { cwd, binDir: bin });
+    expect(r.source).toBe("bin-workflows");
+    expect(r.script).toContain('tier: "bin"');
+  });
+
+  test("cwd tier ranks ABOVE repo .pi/workflows (most local wins)", () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-wf-prec-"));
+    // cwd-tier pack (bare <root>/workflows/echo)
+    mkdirSync(join(root, "workflows", "echo"), { recursive: true });
+    writeFileSync(
+      join(root, "workflows", "echo", "manifest.json"),
+      JSON.stringify({ name: "echo", description: "cwd", entry: "index.js" }),
+    );
+    writeFileSync(
+      join(root, "workflows", "echo", "index.js"),
+      `export const meta = { name: "echo", description: "cwd" };\nreturn { tier: "cwd" };\n`,
+    );
+    // repo-tier pack (<root>/.pi/workflows/echo) — different content to distinguish
+    mkdirSync(join(root, ".pi", "workflows", "echo"), { recursive: true });
+    writeFileSync(
+      join(root, ".pi", "workflows", "echo", "manifest.json"),
+      JSON.stringify({ name: "echo", description: "repo", entry: "index.js" }),
+    );
+    writeFileSync(
+      join(root, ".pi", "workflows", "echo", "index.js"),
+      `export const meta = { name: "echo", description: "repo" };\nreturn { tier: "repo" };\n`,
+    );
+    const r = resolveWorkflowScript("echo", { cwd: root }); // findRepoRoot(root) finds .pi/workflows → repo tiers reachable
+    expect(r.source).toBe("cwd-workflows");
+    expect(r.script).toContain('tier: "cwd"');
+  });
+
+  test("bin tier ranks BELOW cwd tier", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-wf-cwd3-"));
+    const bin = mkdtempSync(join(tmpdir(), "pi-wf-bin2-"));
+    for (const base of [cwd, bin]) {
+      mkdirSync(join(base, "workflows", "echo"), { recursive: true });
+      writeFileSync(
+        join(base, "workflows", "echo", "manifest.json"),
+        JSON.stringify({ name: "echo", description: base === cwd ? "cwd" : "bin", entry: "index.js" }),
+      );
+      writeFileSync(
+        join(base, "workflows", "echo", "index.js"),
+        `export const meta = { name: "echo", description: "${base === cwd ? "cwd" : "bin"}" };\nreturn { tier: "${base === cwd ? "cwd" : "bin"}" };\n`,
+      );
+    }
+    const r = resolveWorkflowScript("echo", { cwd, binDir: bin });
+    expect(r.source).toBe("cwd-workflows");
   });
 });
 
@@ -139,7 +214,11 @@ describe("resolveWorkflowScript — workflow packs", () => {
   test("resolves a pack by NAME under bun-apps/<pkg>/workflows/<name>/", () => {
     const root = mkdtempSync(join(tmpdir(), "wf-"));
     mkdirSync(join(root, "bun-apps", "pi-agent-cli", "workflows"), { recursive: true });
-    makePack(join(root, "bun-apps", "pi-agent-cli", "workflows"), "args-demo", { name: "args-demo", description: "d", entry: "main.js" });
+    makePack(join(root, "bun-apps", "pi-agent-cli", "workflows"), "args-demo", {
+      name: "args-demo",
+      description: "d",
+      entry: "main.js",
+    });
     const r = resolveWorkflowScript("args-demo", { cwd: root });
     expect(r.source).toBe("package-workflows");
     expect(r.pack?.manifest.entry).toBe("main.js");
@@ -148,7 +227,10 @@ describe("resolveWorkflowScript — workflow packs", () => {
   test("single-file name still resolves to .js (backward compatible)", () => {
     const root = mkdtempSync(join(tmpdir(), "wf-"));
     mkdirSync(join(root, ".pi", "workflows"), { recursive: true });
-    writeFileSync(join(root, ".pi", "workflows", "legacy.js"), "export const meta = { name: 'legacy', description: 'd' };\n");
+    writeFileSync(
+      join(root, ".pi", "workflows", "legacy.js"),
+      "export const meta = { name: 'legacy', description: 'd' };\n",
+    );
     const r = resolveWorkflowScript("legacy", { cwd: root });
     expect(r.source).toBe(".pi/workflows");
     expect(r.pack).toBeUndefined();
@@ -169,7 +251,10 @@ describe("resolveWorkflowScript — workflow packs", () => {
     const root = mkdtempSync(join(tmpdir(), "wf-"));
     const packDir = join(root, "broken");
     mkdirSync(packDir, { recursive: true });
-    writeFileSync(join(packDir, "manifest.json"), JSON.stringify({ name: "broken", description: "d", entry: "nope.js" }));
+    writeFileSync(
+      join(packDir, "manifest.json"),
+      JSON.stringify({ name: "broken", description: "d", entry: "nope.js" }),
+    );
     expect(() => resolveWorkflowScript(packDir)).toThrow(/entry|nope\.js/i);
   });
 });
@@ -219,7 +304,11 @@ describe("runWorkflowScript", () => {
       dryRun: true,
       cwd: dir,
       // Even without a stub agent, dry-run must NOT reach it.
-      agent: { run: async () => { throw new Error("dry-run must not call the agent"); } },
+      agent: {
+        run: async () => {
+          throw new Error("dry-run must not call the agent");
+        },
+      },
     });
 
     expect(receipt.dryRun).toBe(true);
@@ -256,9 +345,9 @@ describe("runWorkflowScript", () => {
 
   test("missing script → throws (does not silently produce an empty run)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "wf-"));
-    expect(
-      runWorkflowScript({ name: "nope", cwd: dir, agent: { run: async () => "x" } as any }),
-    ).rejects.toThrow(/"nope" not found/);
+    expect(runWorkflowScript({ name: "nope", cwd: dir, agent: { run: async () => "x" } as any })).rejects.toThrow(
+      /"nope" not found/,
+    );
   });
 
   test("--out-dir redirects the persisted run log to that folder", async () => {
@@ -302,7 +391,11 @@ describe("runWorkflowScript", () => {
       cwd: dir,
       dryRun: true,
       piDefaultModel: "zai/glm-5.2",
-      agent: { run: async () => { throw new Error("dry-run must not call the agent"); } },
+      agent: {
+        run: async () => {
+          throw new Error("dry-run must not call the agent");
+        },
+      },
     });
     expect(receipt.model).toBe("zai/glm-5.2");
     expect(receipt.modelSource).toBe("pi-default");
@@ -419,7 +512,11 @@ describe("runWorkflowScript — workflow packs", () => {
     const receipt = await runWorkflowScript({
       name: join(root, "echo"),
       dryRun: true,
-      agent: { run: async () => { throw new Error("dry-run must not call the agent"); } },
+      agent: {
+        run: async () => {
+          throw new Error("dry-run must not call the agent");
+        },
+      },
     });
     expect(receipt.dryRun).toBe(true);
     expect(receipt.meta.name).toBe("echo");
@@ -599,6 +696,37 @@ describe("listWorkflows", () => {
     expect(pkgIdx).toBeGreaterThanOrEqual(0);
     expect(piIdx).toBeLessThan(pkgIdx);
   });
+
+  test("enumerates packs in <cwd>/workflows and <binDir>/workflows (portable tiers)", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-ls-cwd-"));
+    const bin = mkdtempSync(join(tmpdir(), "pi-ls-bin-"));
+    // claudeRoot with no repo dirs → only the portable tiers should surface
+    const claudeRoot = mkdtempSync(join(tmpdir(), "pi-ls-root-"));
+    for (const [base, label] of [
+      [cwd, "cwd"],
+      [bin, "bin"],
+    ] as const) {
+      mkdirSync(join(base, "workflows", "echo"), { recursive: true });
+      writeFileSync(
+        join(base, "workflows", "echo", "manifest.json"),
+        JSON.stringify({ name: "echo", description: label, entry: "index.js" }),
+      );
+      writeFileSync(
+        join(base, "workflows", "echo", "index.js"),
+        `export const meta = { name: "echo", description: "${label}" };\nreturn {};\n`,
+      );
+    }
+    const { rows } = listWorkflows(claudeRoot, { cwd, binDir: bin });
+    const sources = rows.map((r) => r.source);
+    expect(sources).toContain("cwd/workflows");
+    expect(sources).toContain("bin/workflows");
+    // Display ordering mirrors resolution precedence (first hit wins):
+    // <cwd>/workflows ranks ABOVE <binDir>/workflows. This fixture's claudeRoot
+    // is a bare mkdtemp with no .pi/bun-apps dirs, so only the two portable
+    // tiers are present — assert cwd-before-bin here.
+    expect(sources.indexOf("cwd/workflows")).toBeLessThan(sources.indexOf("bin/workflows"));
+    expect(rows.find((r) => r.source === "cwd/workflows" && r.name === "echo")).toBeTruthy();
+  });
 });
 
 // ── findRepoRoot — walk-up cap ─────────────────────────────────────────────
@@ -607,7 +735,7 @@ describe("findRepoRoot — walk-up cap", () => {
   test("returns the root when a marker is found within the 12-iteration cap", () => {
     // Build a synthetic exists() that reports a marker exactly at depth 11.
     // Each dirname step peels one segment; count segments from `start`.
-    const segments = ["d0","d1","d2","d3","d4","d5","d6","d7","d8","d9","d10","rootMarker"];
+    const segments = ["d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9", "d10", "rootMarker"];
     const start = "/" + segments.join("/") + "/leaf";
     // exists() returns true only for the path ending in rootMarker/.pi/workflows
     const exists = (p: string) => p.endsWith("/rootMarker/.pi/workflows");
@@ -616,7 +744,7 @@ describe("findRepoRoot — walk-up cap", () => {
   });
   test("returns undefined when no marker is found within 12 levels (cap prevents infinite walk)", () => {
     // A path deeper than 12 segments with no marker anywhere → undefined, fast.
-    const deep = "/" + Array.from({length: 30}, (_,i)=>`d${i}`).join("/") + "/leaf";
+    const deep = "/" + Array.from({ length: 30 }, (_, i) => `d${i}`).join("/") + "/leaf";
     const exists = (_p: string) => false;
     expect(findRepoRoot(deep, exists)).toBeUndefined();
   });

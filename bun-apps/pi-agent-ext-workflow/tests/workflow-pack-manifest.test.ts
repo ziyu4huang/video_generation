@@ -1,8 +1,8 @@
-import { test, expect, describe } from "bun:test";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readManifest, validateManifest, type Manifest } from "../src/workflow-pack-manifest.js";
+import { type Manifest, readManifest, validateManifest } from "../src/workflow-pack-manifest.js";
 
 /**
  * `workflow-pack-manifest.ts` — the workflow-pack manifest model (Decision 2:
@@ -54,14 +54,15 @@ describe("validateManifest", () => {
     expect(validateManifest({ ...VALID, args: null }).args).toBeNull();
   });
 
-  test.each(["name", "description", "entry"] as const)(
-    'missing required field "%s" throws naming the field',
-    (field) => {
-      const partial = { ...VALID } as Record<string, unknown>;
-      delete partial[field];
-      expect(() => validateManifest(partial)).toThrow(new RegExp(`"${field}"`));
-    },
-  );
+  test.each([
+    "name",
+    "description",
+    "entry",
+  ] as const)('missing required field "%s" throws naming the field', (field) => {
+    const partial = { ...VALID } as Record<string, unknown>;
+    delete partial[field];
+    expect(() => validateManifest(partial)).toThrow(new RegExp(`"${field}"`));
+  });
 
   test("empty/whitespace required field throws naming the field", () => {
     expect(() => validateManifest({ ...VALID, name: "" })).toThrow(/"name"/);
@@ -161,4 +162,44 @@ describe("readManifest", () => {
 test("Manifest type compiles with required + optional fields", () => {
   const m: Manifest = { name: "x", description: "d", entry: "i.js" };
   expect(m.entry).toBe("i.js");
+});
+
+// ── io / version / agents (ticket 14, T1 — decision 05) ─────────────────────
+
+test("validateManifest accepts version, agents, and io block", () => {
+  const m = validateManifest({
+    name: "demo",
+    description: "d",
+    entry: "entry.js",
+    version: "0.1.0",
+    agents: "agents/*.md",
+    io: {
+      inputs: "inputs/",
+      outputs: { naming: "timestamped", retention: "last-N" },
+      intermediate: { persist: true, retention: "purge-after-run" },
+      runs: { retention: "all" },
+    },
+  });
+  expect(m.version).toBe("0.1.0");
+  expect(m.agents).toBe("agents/*.md");
+  expect(m.io?.outputs?.naming).toBe("timestamped");
+  expect(m.io?.intermediate?.persist).toBe(true);
+});
+
+test("validateManifest rejects a non-string version", () => {
+  expect(() => validateManifest({ name: "d", description: "d", entry: "e.js", version: 1 })).toThrow(/version/);
+});
+
+test("validateManifest omits io/version/agents when not supplied", () => {
+  const m = validateManifest({ name: "d", description: "d", entry: "e.js" });
+  expect("io" in m).toBe(false);
+  expect("version" in m).toBe(false);
+  expect("agents" in m).toBe(false);
+});
+
+test("validateManifest rejects a non-object io (must be an object)", () => {
+  const valid = { name: "d", description: "d", entry: "e.js" };
+  expect(() => validateManifest({ ...valid, io: "not-an-object" })).toThrow(/"io".*object/);
+  expect(() => validateManifest({ ...valid, io: [1, 2] })).toThrow(/"io".*object/);
+  expect(() => validateManifest({ ...valid, io: null })).toThrow(/"io".*object/);
 });

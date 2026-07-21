@@ -11,21 +11,16 @@ import {
   probedMenuSummary,
   whisperAdapter,
   cuesFromWhisper,
-  resolveWhisperPython,
-  whisperScriptPath,
   clipAdapter,
-  esrganAdapter,
-  clipScriptPath,
-  esrganScriptPath,
-  resolveVisionPython,
   _setFfmpegAvailableForTest,
   _setRemotionProbeForTest,
   _setMotionFiltersForTest,
   _setWhisperRuntimeForTest,
   _setVisionRuntimeForTest,
+  _setFlux2BinaryForTest,
+  _setLmStudioReachableForTest,
   type WhisperResult,
   type ClipResult,
-  type EsrganResult,
 } from "./providers.ts";
 import { REGISTRY } from "./registry.ts";
 
@@ -35,7 +30,12 @@ beforeAll(() => {
   _setMotionFiltersForTest(true);
   _setWhisperRuntimeForTest(true);
   _setVisionRuntimeForTest("clip", true);
-  _setVisionRuntimeForTest("esrgan", true);
+  // Pin the swift flux2 binary present so upscale_flux2 (the sole enhancement:upscale
+  // provider after the esrgan removal) is callable on every CI runner regardless of
+  // platform / whether the swift binary was built. bg_remove (macos:vision) is
+  // darwin-only, so without this pin enhancement would be a gap on Linux CI.
+  _setFlux2BinaryForTest(true);
+  _setLmStudioReachableForTest(true);
 });
 afterAll(() => {
   _setFfmpegAvailableForTest(undefined);
@@ -43,7 +43,8 @@ afterAll(() => {
   _setMotionFiltersForTest(undefined);
   _setWhisperRuntimeForTest(undefined);
   _setVisionRuntimeForTest("clip", undefined);
-  _setVisionRuntimeForTest("esrgan", undefined);
+  _setFlux2BinaryForTest(undefined);
+  _setLmStudioReachableForTest(undefined);
 });
 
 describe("buildSubtitle (pure)", () => {
@@ -204,9 +205,11 @@ describe("probeConfigured + probedMenuSummary", () => {
     const analysis = m.capabilities.find((c) => c.capability === "analysis")!;
     expect(analysis.available_providers).toContain("whisper");
     expect(analysis.available_providers).toContain("clip");
-    // enhancement capability: esrgan wired (vision/bg_remove was already there).
+    // enhancement capability: upscale via flux2 (the sole upscale provider since
+    // the esrgan adapter was removed 2026-07-19); bg_remove (macos:vision) is
+    // darwin-only, so flux2 is the platform-independent guarantee here.
     const enhancement = m.capabilities.find((c) => c.capability === "enhancement")!;
-    expect(enhancement.available_providers).toContain("esrgan");
+    expect(enhancement.available_providers).toContain("flux2");
   });
 
   it("probedMenuSummary reports callable providers per capability", () => {
@@ -400,21 +403,6 @@ const FIXTURE_RESULT: WhisperResult = {
   ],
 };
 
-describe("resolveWhisperPython + whisperScriptPath", () => {
-  it("resolves the entry script under the ext root", () => {
-    expect(whisperScriptPath()).toMatch(/python[\/\\]whisper_transcribe\.py$/);
-  });
-  it("honors MD_WHISPER_PYTHON when the path exists", () => {
-    const fake = process.execPath; // a real binary on disk
-    expect(resolveWhisperPython({ MD_WHISPER_PYTHON: fake })).toBe(fake);
-  });
-  it("falls back when the override does not exist", () => {
-    // Walk-up discovery or python3 fallback — either is a non-empty string.
-    const got = resolveWhisperPython({ MD_WHISPER_PYTHON: "/no/such/python" });
-    expect(typeof got === "string" && got.length > 0).toBe(true);
-  });
-});
-
 describe("cuesFromWhisper (pure)", () => {
   it("segments mode → one cue per segment", () => {
     const cues = cuesFromWhisper(FIXTURE_RESULT, "segments");
@@ -492,7 +480,7 @@ describe("whisperAdapter (mocked spawn)", () => {
         options: { audio: "/tmp/anything" },
       });
       expect(r.success).toBe(false);
-      expect(r.error).toContain("whisper runtime not found");
+      expect(r.error).toContain("whisper backend not found");
     } finally {
       _setWhisperRuntimeForTest(true);
     }
@@ -526,95 +514,6 @@ describe("whisperAdapter (mocked spawn)", () => {
   });
 });
 
-// ─── esrgan adapter (Item I sibling) ──────────────────────────────────────────
-
-const ESRGAN_RESULT: EsrganResult = {
-  ok: true,
-  image: "/tmp/test.png",
-  model: "/repo/mlx-models/upscale/4x-nomos-webphoto-realplksr/4xNomosWebPhoto_RealPLKSR.pth",
-  scale: 4,
-  in_w: 256,
-  in_h: 256,
-  out_w: 1024,
-  out_h: 1024,
-  out: "/tmp/test_4x.png",
-  duration_s: 1.4,
-};
-
-describe("resolveVisionPython + esrgan/clip script paths", () => {
-  it("resolves both entry scripts under the ext root", () => {
-    expect(clipScriptPath()).toMatch(/python[\/\\]clip_understand\.py$/);
-    expect(esrganScriptPath()).toMatch(/python[\/\\]esrgan_upscale\.py$/);
-  });
-  it("honors MD_VISION_PYTHON when the path exists", () => {
-    const fake = process.execPath;
-    expect(resolveVisionPython({ MD_VISION_PYTHON: fake })).toBe(fake);
-  });
-  it("falls back when the override does not exist", () => {
-    const got = resolveVisionPython({ MD_VISION_PYTHON: "/no/such/python" });
-    expect(typeof got === "string" && got.length > 0).toBe(true);
-  });
-});
-
-describe("esrganAdapter (mocked spawn)", () => {
-  it("spawns esrgan_upscale.py and returns a well-formed ToolResult", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "md-esrgan-"));
-    try {
-      const mockSpawn = async (_cmd: string, argv: string[]): Promise<number> => {
-        const outIdx = argv.indexOf("--output");
-        if (outIdx >= 0) writeFileSync(argv[outIdx + 1]!, JSON.stringify(ESRGAN_RESULT, null, 2));
-        return 0;
-      };
-      const image = join(dir, "test.png");
-      writeFileSync(image, "fake");
-      const fakeModel = join(dir, "model.pth");
-      writeFileSync(fakeModel, "fake");
-      const r = await esrganAdapter({
-        capability: "enhancement",
-        command: "upscale",
-        outputDir: dir,
-        options: { image, model: fakeModel, _spawnImpl: mockSpawn },
-      });
-      expect(r.success).toBe(true);
-      expect(r.provider).toBe("esrgan");
-      expect(r.command).toBe("upscale");
-      expect(r.cost_usd).toBe(0); // local torch MPS — honest $0
-      expect(r.artifacts).toHaveLength(1);
-      const a = r.artifacts[0]!;
-      expect(a.role).toBe("upscaled");
-      expect(a.width).toBe(1024);
-      expect(a.height).toBe(1024);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("fails cleanly when the image is missing", async () => {
-    const r = await esrganAdapter({
-      capability: "enhancement",
-      command: "upscale",
-      options: { image: "/no/such.png" },
-    });
-    expect(r.success).toBe(false);
-    expect(r.error).toContain("image missing");
-  });
-
-  it("fails cleanly when the runtime probe is off", async () => {
-    _setVisionRuntimeForTest("esrgan", false);
-    try {
-      const r = await esrganAdapter({
-        capability: "enhancement",
-        command: "upscale",
-        options: { image: "/tmp/anything" },
-      });
-      expect(r.success).toBe(false);
-      expect(r.error).toContain("esrgan runtime not found");
-    } finally {
-      _setVisionRuntimeForTest("esrgan", true);
-    }
-  });
-});
-
 // ─── clip adapter (Item I sibling) ────────────────────────────────────────────
 
 const CLIP_RESULT: ClipResult = {
@@ -633,7 +532,7 @@ const CLIP_RESULT: ClipResult = {
 };
 
 describe("clipAdapter (mocked spawn)", () => {
-  it("spawns clip_understand.py on pre-sampled frames and returns a scored ToolResult", async () => {
+  it("spawns the swift clip binary on pre-sampled frames and returns a scored ToolResult", async () => {
     const dir = mkdtempSync(join(tmpdir(), "md-clip-"));
     try {
       // Two pre-sampled frame files (adapter checks existence).
@@ -696,7 +595,7 @@ describe("clipAdapter (mocked spawn)", () => {
         options: { prompt: "x", frames: ["/tmp/anything.png"] },
       });
       expect(r.success).toBe(false);
-      expect(r.error).toContain("clip runtime not found");
+      expect(r.error).toContain("clip backend not found");
     } finally {
       _setVisionRuntimeForTest("clip", true);
     }

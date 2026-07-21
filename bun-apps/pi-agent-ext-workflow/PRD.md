@@ -13,10 +13,12 @@ Claude Code–style dynamic workflows for Pi. The agent writes a small JavaScrip
 | Tool/Command | Description |
 |--------------|-------------|
 | `workflow` tool | Execute workflow scripts: `agent()`, `parallel()`, `chain()`, `gate`, `retry`, `loopUntilDry`, `journaling` |
+| `subagent` tool | Dispatch one isolated-context subagent outside a script; reports real usage/cost, accepts `timeoutMs`/`retryOnTransient`, `agentType` (named tool/model/prompt/isolation bindings), and `schema` (structured output); streams live progress while running |
 | `/workflows run <prompt>` | Force an ad-hoc workflow |
 | `/deep-research <topic>` | Multi-perspective research workflow |
 | `/adversarial-review` | Cross-checked review workflow |
 | `/workflows-trigger set/off/status` | Manage keyword auto-trigger |
+| `workflow_control` tool | Model-callable stop/pause/resume/status/list/wait for a background run |
 
 ## Key Dependencies
 

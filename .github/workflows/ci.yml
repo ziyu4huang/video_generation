@@ -2,9 +2,10 @@
 #
 # Every PR to main runs the Bun test suite (23 packages, smart-routed by
 # changed_packages — see that job's comment), the extension contract test, the
-# deploy --verify probe, and the regression baselines (schema-cost + 2 MB
-# file-size guard + lockfile duplicate-version guard). Push-to-main always runs
-# every package unconditionally, same precedent as deploy-verify.
+# deploy-mode e2e + read-only contract + compiled-binary smoke (deploy-verify /
+# compile-verify), and the regression baselines (schema-cost + 2 MB file-size
+# guard + lockfile duplicate-version guard). Push-to-main always runs every
+# package unconditionally, same precedent as deploy-verify.
 # Machine-coupled tests (probing the
 # local Apple-Silicon generation stack: python/venv, built swift binaries,
 # run.py) skip under CI=true (set automatically by GitHub Actions) — see
@@ -86,7 +87,7 @@ jobs:
           - { package: pi-agent-ext-movie-director, test-cmd: "bun test" }
           - { package: pi-agent-ext-power-tool, test-cmd: "bun test" }
           - { package: pi-agent-ext-btw, test-cmd: "bun test" }
-          - { package: pi-agent-ext-goal-todo, test-cmd: "bun test" }
+          - { package: pi-agent-ext-core-task, test-cmd: "bun test" }
           - { package: pi-agent-ext-research-tool, test-cmd: "bun test" }
           - { package: pi-agent-ext-zai-mcp, test-cmd: "bun test" }
           - { package: perf-harness, test-cmd: "bun test" }
@@ -167,9 +168,10 @@ jobs:
   # Thrust B — extension contract as a NAMED, visible check (not buried in the
   # pi-agent test run). The 5 tests gate every manifest extension: factory
   # loads, wires up, no tool-name conflicts, valid schema, handler present.
-  # Path-gated on check-deploy-paths (same condition as deploy-verify below —
-  # this test file lives in bun-apps/pi-agent/ and only that package's changes
-  # can affect it) so PRs untouched by pi-agent don't pay for it.
+  # Path-gated on check-deploy-paths (same condition as deploy-verify/
+  # compile-verify below — a change inside pi-agent itself OR one of the 5
+  # statically-imported "core" extension packages can affect this) so PRs
+  # untouched by any of them don't pay for it.
   # ──────────────────────────────────────────────────────────────────────────
   extension-contract:
     name: extension-contract
@@ -185,10 +187,16 @@ jobs:
         run: bun test src/__tests__/extension-contract.test.ts
 
   # ──────────────────────────────────────────────────────────────────────────
-  # Pre-check: does this PR touch bun-apps/pi-agent/? Push-to-main always runs.
-  # Gates both extension-contract (above) and deploy-verify (below) — both
-  # only exercise pi-agent's own surface, so a PR untouched by it skips both.
-  # ──────────────────────────────────────────────────────────────────────────
+  # Pre-check: does this PR touch bun-apps/pi-agent/, or one of the 5 "core"
+  # (statically-imported) extension packages? Push-to-main always runs. Gates
+  # extension-contract, deploy-verify, AND compile-verify below.
+  # Also matches the 5 "core" extension packages that src/static-extensions.ts
+  # statically imports into every pi-agent deploy mode (see run-dir/
+  # manifest.json's `staticExtensions` field) — a change to any of THEIR
+  # source is just as capable of breaking a pi-agent deploy/binary as a change
+  # inside bun-apps/pi-agent/ itself, since their code is inlined directly
+  # into pi-agent.js / the compiled binary, not loaded as an independent
+  # jiti-dispatched extension.
   check-deploy-paths:
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -200,33 +208,139 @@ jobs:
           fetch-depth: 0
       - id: filter
         run: |
+          PATTERN='^bun-apps/pi-agent/|^bun-apps/pi-agent-ext-(core-task|hermes-memory|superpowers|wayfind|web-access)/'
           if [ "${{ github.event_name }}" = "push" ]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
-          elif git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }} | grep -q '^bun-apps/pi-agent/'; then
+          elif git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }} | grep -qE "$PATTERN"; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           else
             echo "deploy=false" >> "$GITHUB_OUTPUT"
           fi
 
   # ──────────────────────────────────────────────────────────────────────────
-  # Thrust B — deploy --verify. Builds pi-agent, bundles the 9 extensions, then
-  # boots the deployed artifact from a FOREIGN cwd and probes getAllTools for
-  # 0 conflicts. Catches resolve.ts mode bugs + broken bundles at DEPLOY time.
-  # Path-gated to bun-apps/pi-agent/ changes (unconditionally on push-to-main)
-  # so it no longer delays PRs that only touch CLAUDE.md or other packages.
+  # Thrust B — deploy-mode e2e + read-only contract. Runs run-test.sh's `high`
+  # tier (deploys + probes extension loading across bundle/snapshot/standalone,
+  # per-mode doctor/--smoke/skill-load — see src/__tests__/e2e-extensions.test.ts)
+  # and `readonly` tier (frozen-tree zero-write contract across bundle +
+  # snapshot — see src/__tests__/e2e-readonly.test.ts). Catches resolve.ts
+  # mode bugs, broken bundles, and read-only-deploy regressions at DEPLOY time.
+  # (Previously a one-off `deploy.ts --writable --verify` call; deploy.ts no
+  # longer has a --verify flag — reusing the same suite `./run-test.sh` runs
+  # locally means CI and local dev never drift out of sync on what "verified"
+  # means.) Path-gated to bun-apps/pi-agent/ + the 5 core extension packages
+  # (unconditionally on push-to-main) so it doesn't delay PRs untouched by them.
   # ──────────────────────────────────────────────────────────────────────────
   deploy-verify:
     needs: check-deploy-paths
     if: needs.check-deploy-paths.outputs.deploy == 'true'
     name: deploy -- verify
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-env
+      - name: Deploy-mode e2e (bundle/snapshot/standalone × doctor/smoke/skill-load)
+        working-directory: bun-apps/pi-agent
+        run: ./run-test.sh high
+      - name: Read-only deploy contract (frozen tree, zero writes)
+        working-directory: bun-apps/pi-agent
+        run: ./run-test.sh readonly
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # compile-verify — builds the standalone `bun build --compile` binary and
+  # smoke-tests it. Before this job, NOTHING in CI ever built or ran the
+  # compiled binary (deploy-verify above only exercises bundle mode); the
+  # binary previously shipped with ZERO extensions with no regression
+  # coverage catching it. Checks: (1) the binary boots and `doctor --json`
+  # reports ok:true (entry/mode/providers/patches all healthy in binary
+  # mode); (2) the 11 statically-bundled extensions (5 original productivity:
+  # core-task/hermes-memory/superpowers/wayfind/web-access + 6 tool-providing:
+  # obsidian/btw/file2md/workflow/knowledge-card/power-tool — see src/static-extensions.ts)
+  # register cleanly, via `ext doctor` in source
+  # mode (the compiled binary's own `ext doctor` subcommand isn't binary-
+  # mode-aware — it resolves paths via import.meta.url, which is the $bunfs
+  # virtual scheme in binary mode — so this checks the same static factories
+  # the binary embeds, just through the source-mode entry point); (3) the 4
+  # binarySkills dirs resolve to real `--skill` paths next to the exe; (4)
+  # the 5 newly-bundled tool extensions (obsidian et al.) ARE inlined into
+  # the binary — `strings` finds obsidian's module body, proving the static
+  # imports ship in the single-file exe (previously these were `external`'d
+  # out in scripts/deploy.ts to scope to 5; now deliberately bundled → 11, so
+  # PRESENCE is the invariant, not absence);
+  # (5) the exe is a genuine single file — copied ALONE to an empty,
+  # unrelated directory (no dist/pi-agent/ siblings), it still boots and
+  # `doctor --json` reports ok:true (the whole point of `--exe`'s embedded
+  # theme/skills/assets over the old --compile's 7 companion dirs).
+  # Path-gated same as deploy-verify — both only exercise pi-agent's surface.
+  # ──────────────────────────────────────────────────────────────────────────
+  compile-verify:
+    needs: check-deploy-paths
+    if: needs.check-deploy-paths.outputs.deploy == 'true'
+    name: compile -- verify
+    runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-env
-      - name: Deploy + verify (boot deployed artifact, probe getAllTools)
+      - name: Build standalone binary
         working-directory: bun-apps/pi-agent
-        run: bun scripts/deploy.ts dist/ci-verify --writable --verify
+        run: bun run deploy:exe
+      - name: Smoke — binary boots + doctor reports healthy
+        working-directory: bun-apps/pi-agent
+        run: |
+          set -e
+          ../../dist/pi-agent/pi-agent --version
+          ../../dist/pi-agent/pi-agent doctor --json | tee /tmp/doctor.json
+          python3 -c "import json,sys; d=json.load(open('/tmp/doctor.json')); sys.exit(0 if d['ok'] else 1)"
+      - name: Smoke — exe is a genuine single file (boots alone in an empty dir)
+        working-directory: bun-apps/pi-agent
+        run: |
+          set -e
+          mkdir -p /tmp/pi-agent-single-exe-test
+          cp ../../dist/pi-agent/pi-agent /tmp/pi-agent-single-exe-test/
+          cd /tmp/pi-agent-single-exe-test
+          ./pi-agent --version
+          ./pi-agent doctor --json | tee /tmp/single-exe-doctor.json
+          python3 -c "import json,sys; d=json.load(open('/tmp/single-exe-doctor.json')); sys.exit(0 if d['ok'] else 1)"
+      - name: Smoke — 11 statically-bundled extensions register (ext doctor, source mode)
+        working-directory: bun-apps/pi-agent
+        run: |
+          set -e
+          bun src/cli.ts ext doctor --json | tee /tmp/ext-doctor.json
+          python3 -c "
+          import json
+          d = json.load(open('/tmp/ext-doctor.json'))
+          statics = [e for e in d['entries'] if e['bundleMode'] == 'static']
+          assert len(statics) == 11, f'expected 11 static extensions (5 productivity + 6 tool-providing), got {len(statics)}'
+          failed = [e['name'] for e in statics if e['status'] == 'FAIL']
+          assert not failed, f'static extension(s) failed to register: {failed}'
+          print('11/11 static extensions OK:', [e['name'] for e in statics])
+          "
+      - name: Smoke — binarySkills resolve to real --skill paths
+        working-directory: bun-apps/pi-agent
+        run: |
+          set -e
+          # Grep the resolver's own summary line, not a raw "--skill" count —
+          # --help's own usage text also mentions the --skill FLAG itself,
+          # which inflates a naive count.
+          BUN_PI_DEBUG_RUN_DIR=1 ../../dist/pi-agent/pi-agent --help 2>&1 | grep -q "emitting 4 --skill flag(s)" \
+            || { echo "expected resolve.ts to emit exactly 4 --skill flags in binary mode"; exit 1; }
+      - name: Verify the 5 newly-bundled extensions are inlined into the binary
+        working-directory: bun-apps/pi-agent
+        run: |
+          set -e
+          # "obsidian_list" is a tool NAME string literal registered inside
+          # pi-agent-ext-obsidian's own implementation — it only appears if
+          # obsidian's actual module body got inlined into the --compile binary.
+          # The 5 new tool extensions (obsidian/btw/file2md/workflow/knowledge-
+          # card) are DELIBERATELY bundled now (see src/static-extensions.ts),
+          # so this string MUST be present — its absence would mean a static
+          # import silently failed to inline. (Source-mode `ext doctor` above
+          # proves the factories register; this proves they ship in the
+          # single-file binary itself.)
+          hits=$(strings ../../dist/pi-agent/pi-agent | grep -c "obsidian_list" || true)
+          test "$hits" -gt 0 || { echo "obsidian's module body is NOT in the binary ($hits hits of 'obsidian_list') — static inlining of the new extensions regressed"; exit 1; }
+          echo "obsidian inlined OK ($hits hits of 'obsidian_list')"
 
   # ──────────────────────────────────────────────────────────────────────────
   # Thrust B2 — clean-launch self-heal. Exercises the path that escaped CI when
@@ -307,6 +421,18 @@ jobs:
       # existed. See scripts/check-lockfile-duplicate-versions.sh.
       - name: Lockfile duplicate-version guard (blocks)
         run: bash scripts/check-lockfile-duplicate-versions.sh
+
+      # Dependency-direction + import-hygiene guard (ADR-0001, blocks). The
+      # remote twin of `bun run test:deps` — 5 invariants over every @repo/*
+      # import in bun-apps/*: declared deps, no self-import, knowledge-layer
+      # TIER-0 (obsidian/hermes-memory) imports NOTHING from TIER-1
+      # (knowledge-card), no extension imports the host, acyclic graph. Without
+      # this step the upward hermes→hub edge ADR-0001 removed could be
+      # reintroduced and ship green — the test existed locally but nothing in
+      # CI ran it (bun-apps/tests/ lives outside every per-package matrix entry).
+      - name: Dependency-direction guard (ADR-0001, blocks)
+        working-directory: bun-apps
+        run: bun run test:deps
 
       # Test-portability prevention check — now BLOCKING (--strict). Scans the
       # test surface for the four "works on my machine" signal patterns and

@@ -48,21 +48,21 @@ answering "how persistent, how prominent, how interactive?"
   elapsed time, depending on a separate `footer-extension-status-notify` patch.
 
 It was moved to **Tier 1** (`GoalOverlay`) in PR #323, then unified with
-`TodoOverlay` into a single composite widget (`PowerToolStatusWidget`) so the two
+`TodoOverlay` into a single composite widget (`CoreTaskStatusWidget`) so the two
 persistent features share one display mechanism and one stable stacking slot.
 
 ## The composite widget pattern (persistent features)
 
 `TodoOverlay` and `GoalOverlay` are **sections** of ONE widget, owned by
-`PowerToolStatusWidget` (`src/shared/status-widget.ts`). This is the pattern all
+`CoreTaskStatusWidget` (`src/shared/status-widget.ts`). This is the pattern all
 future persistent features should follow:
 
 - **One widget key.** The SDK orders above-editor widgets by `Map` insertion
   order with **no index API**. Two separate keys flicker/reorder whenever one is
-  cleared and re-registered. One composite key ("pi-power-tool") cannot reorder
+  cleared and re-registered. One composite key ("pi-core-task") cannot reorder
   relative to itself — stacking is deterministic by construction.
 - **Shared lifecycle.** All `setWidget`/`requestRender`/`dispose`/stale-ctx
-  handling lives in `PowerToolStatusWidget`. A new persistent feature is a thin
+  handling lives in `CoreTaskStatusWidget`. A new persistent feature is a thin
   state-holder that exposes `render(theme, width): string[]` + `setRefresh(fn)`
   and is added as a section via `addSection({id, render})`.
 - **Section order = addSection order.** Goal renders on top, todo below.
@@ -80,7 +80,7 @@ class MyIndicator {
 
 // 2. in src/index.ts factory:
 const myIndicator = new MyIndicator();
-const statusWidget = /* existing PowerToolStatusWidget */;
+const statusWidget = /* existing CoreTaskStatusWidget */;
 myIndicator.setRefresh(() => statusWidget.update());
 statusWidget.addSection({ id: "my-indicator", render: (t, w) => myIndicator.render(t, w) });
 // wire session lifecycle (update on session_start, dispose on shutdown)
@@ -94,7 +94,7 @@ behavior — don't build UI for its own sake.
 `ask_user_question` uses `ctx.ui.custom(...)` (Tier 2 modal dialog), NOT a
 widget. This is correct: it blocks for required input, with full keyboard
 interaction (tab navigation, multi-select, preview panes). It does NOT adopt the
-`PowerToolStatusWidget` base — overlays are render-only; dialogs are interactive.
+`CoreTaskStatusWidget` base — overlays are render-only; dialogs are interactive.
 The 38-file state-machine (`state/`, `selectors/`, `view/`) reflects that
 complexity, which is inherent to a multi-question modal, not accidental.
 

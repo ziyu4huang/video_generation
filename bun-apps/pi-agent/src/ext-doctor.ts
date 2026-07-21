@@ -14,6 +14,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseManifestEntries } from "../run-dir/manifest-types.ts";
+import { STATIC_EXTENSION_FACTORIES } from "./static-extensions.ts";
 
 /** Resolve pi-agent's package root from this module's URL. Uses fileURLToPath
  *  (not a naive `.replace("file://", "")`) so percent-encoded characters —
@@ -51,7 +52,16 @@ function makeMockPi() {
 		onCount: 0,
 		registerTool: (t: ToolLike) => { tools.push(t); return t; },
 		registerCommand: (name: string) => { commands.push(name); },
+		registerMessageRenderer: () => {},
+		registerShortcut: () => {},
+		appendEntry: () => {},
+		sendMessage: () => {},
+		getThinkingLevel: () => "medium",
 		on: () => { pi.onCount++; },
+		// Minimal event bus: some extensions (workflow, btw) wire lifecycle
+		// handlers via `pi.events.on(...)` at factory time. Provide a no-op bus
+		// so their factories load instead of false-failing on `undefined.events`.
+		events: { on: () => () => {}, off: () => {}, emit: () => {}, once: () => () => {} },
 		getAllTools: () => tools,
 		exec: async () => "",
 		z: { undefined: () => ({}) },
@@ -61,13 +71,25 @@ function makeMockPi() {
 }
 
 export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok: boolean; entries: ExtDoctorEntry[] }> {
-	// Ensure repo-root node_modules symlinks exist.
+	// Ensure repo-root node_modules symlinks exist. (No-op in compiled-binary mode —
+	// the patch's import resolves but there's no node_modules to symlink; harmless.)
 	await import("./patches/ensure-extension-deps.ts");
 
-	const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8")) as {
-		extensions: (string | object)[];
-		lazyExtensions?: Record<string, string>;
-	};
+	// Compiled-binary mode (`bun build --compile`): manifest.json is NOT embedded
+	// in the $bunfs virtual FS, so readFileSync(MANIFEST_PATH) throws ENOENT. The
+	// manifest's relative .ts paths don't exist in a binary either (a user's own
+	// `-e` .ts paths DO load — upstream 0.80.10+ jiti binary path — but those
+	// aren't this doctor's concern). Fall back to checking ONLY the statically-bundled factories
+	// (STATIC_EXTENSION_FACTORIES below) — which is exactly the set that matters
+	// for verifying a compiled binary ships its tools.
+	let manifest: { extensions: (string | object)[]; lazyExtensions?: Record<string, string> };
+	let binaryMode = false;
+	try {
+		manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
+	} catch {
+		manifest = { extensions: [], lazyExtensions: {} };
+		binaryMode = true;
+	}
 	const entries = parseManifestEntries(manifest.extensions ?? []);
 	const results: ExtDoctorEntry[] = [];
 
@@ -96,6 +118,47 @@ export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok:
 			results.push({
 				...entry,
 				bundleMode: entry.bundleMode ?? "thin",
+				status: "FAIL",
+				tools: [],
+				commands: [],
+				error: (e as Error).message?.split("\n")[0] ?? String(e),
+			});
+		}
+	}
+
+	// Also check the statically-bundled "general productivity" extension set
+	// (src/static-extensions.ts) — these are deliberately ABSENT from
+	// manifest.extensions (loaded via MainOptions.extensionFactories, not `-e
+	// <path>.ts`, so they survive `bun build --compile`), but ext doctor must
+	// still cover them or this report silently loses 5 extensions' worth of
+	// health/conflict checking.
+	for (const { name, factory } of STATIC_EXTENSION_FACTORIES) {
+		try {
+			const mock = makeMockPi();
+			// mock.pi is a deliberately minimal duck-typed stand-in (see
+			// makeMockPi() above) — it satisfies every extension factory at
+			// runtime (they only call the handful of methods it implements) but
+			// not the full ExtensionAPI shape, so a cast is required here. The
+			// dynamically-`import()`ed factories above don't need this because
+			// `mod.default` is untyped (any); these factories are strongly typed
+			// via the static import in static-extensions.ts.
+			const maybe = factory(mock.pi as unknown as Parameters<typeof factory>[0]);
+			if (maybe && typeof (maybe as Promise<void>).then === "function") await maybe;
+			const toolNames = mock.tools.map((t) => String(t.name ?? "?"));
+			const wired = toolNames.length > 0 || mock.commands.length > 0 || mock.onCount > 0;
+			results.push({
+				name,
+				entry: `static-extensions.ts (${name})`,
+				bundleMode: "static",
+				status: wired ? "OK" : "DYNAMIC",
+				tools: toolNames,
+				commands: mock.commands,
+			});
+		} catch (e) {
+			results.push({
+				name,
+				entry: `static-extensions.ts (${name})`,
+				bundleMode: "static",
 				status: "FAIL",
 				tools: [],
 				commands: [],
@@ -165,7 +228,7 @@ export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok:
 		process.stdout.write(JSON.stringify({ ok, entries: results, conflicts }) + "\n");
 	} else {
 		const G = "\x1b[32m", R = "\x1b[31m", Y = "\x1b[33m", D = "\x1b[2m", B = "\x1b[1m", RST = "\x1b[0m";
-		process.stdout.write(`\n${B}pi-agent ext doctor${RST}  (${results.length} extensions)\n\n`);
+		process.stdout.write(`\n${B}pi-agent ext doctor${RST}  (${results.length} extensions)${binaryMode ? `${D}  [compiled binary — static factories only, manifest.json not in \$bunfs]${RST}` : ""}\n\n`);
 		for (const r of results) {
 			const badge = r.status === "OK" ? `${G}OK   ${RST}` : r.status === "DYNAMIC" ? `${Y}DYN  ${RST}` : `${R}FAIL ${RST}`;
 			const meta = [r.bundleMode, r.version, r.testGate].filter(Boolean).join(" · ");

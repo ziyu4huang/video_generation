@@ -14,6 +14,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
+import * as lockfile from "proper-lockfile";
 import { scanContent } from "./content-scanner.js";
 import { normalizeMemoryLookupText } from "./memory-lookup.js";
 import {
@@ -68,6 +69,12 @@ export class MemoryStore {
   private _writeChain: Promise<unknown> = Promise.resolve();
   private _writeOwner: AsyncLocalStorage<boolean> = new AsyncLocalStorage<boolean>();
 
+  /** Cross-process lock paths currently held by THIS process. Re-entrancy guard:
+   *  runExclusive serializes within the process; the only re-entry is a
+   *  same-instance consolidator (production ones run in a child process —
+   *  see runConsolidator), which must not re-acquire its own file lock. */
+  private _heldFileLocks: Set<string> = new Set();
+
   private runExclusive<T>(fn: () => Promise<T>): Promise<T> {
     // Already inside a locked critical section on this async chain → re-enter.
     if (this._writeOwner.getStore() === true) {
@@ -84,6 +91,73 @@ export class MemoryStore {
       () => undefined,
     );
     return result;
+  }
+
+  // ─── Cross-process file lock ───
+  //
+  // proper-lockfile advisory lock on the .md source-of-truth, wrapping the
+  // loadFromDisk → mutate → saveToDisk critical section so concurrent writers
+  // across PROCESSES (other live sessions, dedup.sh) serialize. The lockfile is
+  // a directory `<mdPath>.lock` whose mtime proves liveness; `stale` bounds how
+  // long a crashed holder can block others. `retries` makes acquisition BLOCK
+  // (poll) until the lock is free rather than failing fast — a writer waits for
+  // an in-flight dedup instead of losing its update.
+  //
+  // Layering: runExclusive (in-process) is OUTER, withFileLock (cross-process)
+  // is INNER. This keeps the cross-process lock scope tight to the disk touch.
+  //
+  // BYPASS via PI_MEMORY_FILE_LOCK=bypass: the consolidator CHILD process
+  // inherits this env and skips the lock — see runConsolidator for why that's
+  // safe (the parent still holds the lock, making the child the sole writer).
+  private async withFileLock<T>(
+    target: "memory" | "user" | "failure",
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    if (process.env.PI_MEMORY_FILE_LOCK === "bypass") return fn();
+    const lockPath = this.pathFor(target);
+    if (this._heldFileLocks.has(lockPath)) return fn(); // re-entrant same-instance call
+    // Ensure the memory dir exists before creating the `<mdPath>.lock` sibling
+    // (loadFromDisk mkdir's too, but it runs INSIDE fn — after we'd try to lock).
+    await fs.mkdir(path.dirname(lockPath), { recursive: true });
+    const release = await lockfile.lock(lockPath, {
+      stale: 10_000,
+      realpath: false, // the .md may not exist yet on first write — don't realpath it
+      retries: { retries: 200, minTimeout: 50, maxTimeout: 250 },
+    });
+    this._heldFileLocks.add(lockPath);
+    try {
+      return await fn();
+    } finally {
+      this._heldFileLocks.delete(lockPath);
+      await release().catch(() => {});
+    }
+  }
+
+  /**
+   * Run the consolidator with the file-lock bypass env set, so the spawned
+   * child process (pi.exec — a SEPARATE OS process with its own MemoryStore)
+   * does not contend on the cross-process lock the parent holds here. Without
+   * this the child's _addInner would ELOCKED on the parent's held lock →
+   * consolidation always fails (or deadlocks if retries block).
+   *
+   * Safety: runExclusive guarantees only one mutating op runs in this process,
+   * so the env toggle can't leak to a concurrent op. The parent keeps the
+   * cross-process lock for the whole await, making the child the sole writer
+   * in flight (no lost update, no deadlock).
+   */
+  private async runConsolidator(
+    target: "memory" | "user" | "failure",
+    signal?: AbortSignal,
+  ): Promise<ConsolidationResult> {
+    if (!this.consolidator) return { consolidated: false, error: "no consolidator configured" };
+    const prev = process.env.PI_MEMORY_FILE_LOCK;
+    process.env.PI_MEMORY_FILE_LOCK = "bypass";
+    try {
+      return await this.consolidator(target, signal);
+    } finally {
+      if (prev === undefined) delete process.env.PI_MEMORY_FILE_LOCK;
+      else process.env.PI_MEMORY_FILE_LOCK = prev;
+    }
   }
 
   // ─── Path helpers ───
@@ -191,7 +265,7 @@ export class MemoryStore {
     target: "memory" | "user" | "failure",
     query?: string,
   ): Promise<MemoryResult> {
-    return this.runExclusive(() => this._transferEntriesInner(target, query));
+    return this.runExclusive(() => this.withFileLock(target, () => this._transferEntriesInner(target, query)));
   }
 
   private async _transferEntriesInner(
@@ -267,7 +341,8 @@ export class MemoryStore {
     addedMessage = "Entry added.",
   ): Promise<MemoryResult> {
     // Serialize so reload-read → mutate-array → saveToDisk stays atomic.
-    return this.runExclusive(() => this._addInner(target, content, signal, _retriesLeft, addedMessage));
+    // runExclusive = in-process; withFileLock = cross-process (see withFileLock).
+    return this.runExclusive(() => this.withFileLock(target, () => this._addInner(target, content, signal, _retriesLeft, addedMessage)));
   }
 
   private async _addInner(
@@ -314,20 +389,26 @@ export class MemoryStore {
         return this.vaultOffloadAndAdd(target, entries, encoded, content.length, limit);
       }
 
-      // Auto-consolidate once if configured — limit retries to prevent infinite loops
-      if (strategy === "auto-consolidate" && this.consolidator && _retriesLeft > 0) {
-        try {
-          const result = await this.consolidator(target, signal);
-          if (result.consolidated) {
-            // CRITICAL: reload from disk — child process modified files, our arrays are stale
-            await this.loadFromDisk();
-            // Retry the add exactly once (retriesLeft = 0 means no more consolidation).
-            // Recurse on _addInner (not _add) to avoid re-acquiring the write lock.
-            return this._addInner(target, content, signal, _retriesLeft - 1, addedMessage);
+      if (strategy === "auto-consolidate") {
+        // Primary: info-preserving LLM consolidation (one retry).
+        if (this.consolidator && _retriesLeft > 0) {
+          try {
+            const result = await this.runConsolidator(target, signal);
+            if (result.consolidated) {
+              // CRITICAL: reload from disk — child process modified files, our arrays are stale
+              await this.loadFromDisk();
+              // Retry the add exactly once (retriesLeft = 0 means no more consolidation).
+              // Recurse on _addInner (not _add) to avoid re-acquiring the write lock.
+              return this._addInner(target, content, signal, _retriesLeft - 1, addedMessage);
+            }
+          } catch {
+            // Consolidation failed — fall through to the vault-offload floor.
           }
-        } catch {
-          // Consolidation failed — fall through to error
         }
+        // FLOOR: vault-offload guarantees the write never hard-rejects on overflow.
+        // Only a single entry larger than the whole budget is unrecoverable —
+        // vaultOffloadAndAdd returns memoryFullError for that case itself.
+        return this.vaultOffloadAndAdd(target, entries, encoded, content.length, limit);
       }
       return this.memoryFullError(target, content.length);
     }
@@ -370,6 +451,57 @@ export class MemoryStore {
     // Write evicted entries to a .knowledge.jsonl archive file
     const archivePath = await this.writeKnowledgeArchive(target, evictedDecoded);
 
+    const strippedEvicted = evictedDecoded.map((e) => e.text);
+    return {
+      ...this.successResponse(
+        target,
+        `Memory updated. Offloaded ${evictedDecoded.length} older ${evictedDecoded.length === 1 ? "entry" : "entries"} to vault archive to stay within the limit.`,
+      ),
+      evicted_entries: strippedEvicted,
+      evicted_count: evictedDecoded.length,
+      transferred_entries: strippedEvicted,
+      transferred_count: evictedDecoded.length,
+      freed_chars: strippedEvicted.join(ENTRY_DELIMITER).length,
+      archive_path: archivePath,
+    };
+  }
+
+  /**
+   * Replace-path vault-offload floor: apply the replacement, then FIFO-evict the
+   * OLDEST entries (by file position) EXCEPT the replaced one to the vault
+   * archive until within limit. Guarantees a replacement never hard-rejects on
+   * overflow (only a single replacement larger than the whole budget is
+   * unrecoverable). Mirrors vaultOffloadAndAdd but keeps the replaced entry.
+   */
+  private async vaultOffloadAndReplace(
+    target: "memory" | "user" | "failure",
+    entries: string[],
+    protectedIdx: number,
+    encoded: string,
+    contentLength: number,
+    limit: number,
+  ): Promise<MemoryResult> {
+    if (encoded.length > limit) {
+      return this.memoryFullError(target, contentLength);
+    }
+
+    // Evict oldest (lowest file position) entries other than the replaced one.
+    const evictOrder = entries.map((_, i) => i).filter((i) => i !== protectedIdx);
+    const present = new Set<number>(entries.map((_, i) => i));
+    const evictedDecoded: Array<{ text: string; created: string; lastReferenced: string }> = [];
+    const liveJoin = () =>
+      [...present].sort((a, b) => a - b).map((j) => (j === protectedIdx ? encoded : entries[j])).join(ENTRY_DELIMITER);
+    for (const i of evictOrder) {
+      if (liveJoin().length <= limit) break;
+      evictedDecoded.push(this.decodeEntry(entries[i]));
+      present.delete(i);
+    }
+
+    const remaining = [...present].sort((a, b) => a - b).map((j) => (j === protectedIdx ? encoded : entries[j]));
+    this.setEntries(target, remaining);
+    await this.saveToDisk(target);
+
+    const archivePath = await this.writeKnowledgeArchive(target, evictedDecoded);
     const strippedEvicted = evictedDecoded.map((e) => e.text);
     return {
       ...this.successResponse(
@@ -463,7 +595,7 @@ export class MemoryStore {
   }
 
   async replace(target: "memory" | "user" | "failure", oldText: string, newContent: string): Promise<MemoryResult> {
-    return this.runExclusive(() => this._replaceInner(target, oldText, newContent));
+    return this.runExclusive(() => this.withFileLock(target, () => this._replaceInner(target, oldText, newContent)));
   }
 
   private async _replaceInner(target: "memory" | "user" | "failure", oldText: string, newContent: string): Promise<MemoryResult> {
@@ -501,11 +633,20 @@ export class MemoryStore {
     testEntries[idx] = encoded;
     const newTotal = testEntries.join(ENTRY_DELIMITER).length;
 
-    if (newTotal > this.charLimit(target)) {
-      return {
-        success: false,
-        error: `Replacement would put memory at ${newTotal}/${this.charLimit(target)} chars. Shorten or remove other entries first.`,
-      };
+    const limit = this.charLimit(target);
+    if (newTotal > limit) {
+      // Overflow on replace. `reject` preserves the hard error; every other
+      // strategy routes to the vault-offload floor so a replacement NEVER
+      // hard-rejects (archive is the safe superset of fifo-discard).
+      // (Consolidate-then-re-match is deliberately skipped for replace: the
+      // target entry may not survive an LLM merge, making the retry fragile.)
+      if (this.memoryOverflowStrategy() === "reject") {
+        return {
+          success: false,
+          error: `Replacement would put memory at ${newTotal}/${limit} chars. Shorten or remove other entries first.`,
+        };
+      }
+      return this.vaultOffloadAndReplace(target, entries, idx, encoded, newContent.length, limit);
     }
 
     entries[idx] = encoded;

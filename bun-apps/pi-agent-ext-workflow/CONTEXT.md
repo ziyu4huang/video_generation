@@ -34,10 +34,13 @@ parameter — so resolution never drifts between them. Pure + injectable fs.
 _Avoid_: "CLI resolver" / "tool resolver" (there is one, in the engine)
 
 **Resolution order** (first hit wins; per location a pack directory beats a
-same-name `.js`):
+same-name `.js`; the portable tiers 2–3 rank ABOVE the repo tiers — "most local
+wins", see `docs/adr/0003-portable-name-resolution-tiers.md`):
 1. `<name>` as a literal path (file, or a pack directory via its manifest).
-2. `.pi/workflows/<name>` (project packs, under `PWD/.pi`).
-3. `bun-apps/<pkg>/workflows/<name>` (package-local packs).
+2. `<cwd>/workflows/<name>` (portable tier; no repo root needed).
+3. `<binDir>/workflows/<name>` (packs shipped next to the compiled binary).
+4. `.pi/workflows/<name>` (project packs, under the repo-root walk-up).
+5. `bun-apps/<pkg>/workflows/<name>` (package-local packs).
 _Avoid_: ".claude/workflows" (that is Claude Code's Workflow-tool dir, not resolved here)
 
 **`name` (tool parameter)**:
@@ -56,11 +59,69 @@ One of the two ways a pack is reached. Path A: the CLI meta-command (headless,
 the same resolver + engine.
 _Avoid_: "mode" (a path is an entry surface, not an execution mode)
 
+### Workflow pack self-containment
+
+**Pack-local state**:
+A pack's runtime state (`runs/ outputs/ intermediate/`) lives INSIDE the pack
+folder, never in `~/.pi`. Inline scripts keep the global
+`~/.pi/workflows/projects/<key>/` store; the two diverge at the `packId` branch
+(decision 03 / ADR-0001).
+_Avoid_: "pack store in ~/.pi" (there is none); "global pack state"
+
+**`pack-id`**:
+Stable identity `<name-slug>-<sha256(absPath)[:12]>`, derived at resolve time,
+**version-INDEPENDENT**. Disambiguates same-named packs across locations; keys
+redirected state for checked-in packs (decision 08 / ADR-0002).
+_Avoid_: name@version (a version bump would orphan `runs/`/`outputs/`)
+
+**`version` (manifest)**:
+Optional semver-recommended metadata; NOT part of `pack-id`. Groundwork for the
+deferred self-improve loop (north star, out of scope here).
+
+**Checked-in pack state redirect**:
+A pack under `bun-apps/<pkg>/workflows/` (a read-only package dir) can't hold
+writable state, so its runtime state redirects to
+`.pi/workflows/.state/<pack-id>/` (project-local, never `~/.pi`). The pack's
+static files (manifest/entry/agents) stay in the package dir.
+_Avoid_: a global pack store; "state lives in the package"
+
+**I/O contract** (`io:` block):
+Optional manifest fields declaring where inputs/outputs/intermediate/runs live +
+retention (`all` | `last-N`). Schema/vocab only; semantics live in the runner.
+
+**Bundled agents** (`agents/*.md`):
+A pack's subagent definitions, shipped in the pack, registered per-run via
+`packDirs` (precedence project > pack > user). Claude-Code-compatible
+comma-string `tools` form supported (the `.pi/agents` mirror extended, not
+forked).
+
+**Folder template** (`workflow-pack/template/`):
+The canonical skeleton a new pack is scaffolded from (`workflow pack init <name>`):
+manifest stub + entry + `agents/` + README + `.gitignore`, plus empty state
+dirs with `.gitkeep`. Ships in the published `files:`.
+
+**clean / inspect** (`workflow pack clean|inspect`):
+The agent-callable state surface. 3-tier safety: `intermediate` 🟢 (safe,
+default scope, no confirm), `runs` 🟡 + `outputs` 🟠 (lossy; dry-run-default,
+`--yes` to execute).
+_Avoid_: "delete" (clean is a scoped, gated surface)
+
+**On-disk intermediates** (opt-in):
+A disposable MIRROR of journal results, materialized to
+`intermediate/<phase>/<idx>-<hash>.<ext>` only when `io.intermediate.persist` is
+set. The journal stays the resume source-of-truth, so purging the mirror is
+always safe (decision 12).
+_Avoid_: "intermediates replace the journal" (the journal is canonical)
+
 ### Orchestration primitives
 
 **`agent(prompt, opts)`**:
 Spawns one isolated subagent; returns its final text, or a validated object when `opts.schema` is set. Recoverable failures return `null` with diagnostics in `/workflows`.
 _Avoid_: call, request (it spawns a fresh in-memory Pi session)
+
+**`subagent` (tool)**:
+Single ad-hoc subagent dispatch outside a workflow script — the model calls it directly for one isolated child run, no orchestration. Shares the same runner as `agent()`. Reports real usage (`{input, output, cacheRead, cacheWrite, total, cost}`) and accepts `timeoutMs`/`retryOnTransient` overrides (previously hardcoded: no timeout, always retry once). It also accepts `agentType` (resolves via the same `AgentRegistry` the `agentType` entry below describes — tools/model/prompt/worktree isolation from a `.pi/agents/*.md` definition, with explicit call-site `model`/`tools`/`excludeTools` overriding the binding) and `schema` (structured output via the existing `structured_output` machinery). While running, it also streams throttled progress (≥250ms apart, via `WorkflowAgent.run()`'s existing `onHistory`) through the standard `_onUpdate`/`renderResult({isPartial: true})` SDK contract, so the TUI shows the child's latest tool call instead of a bare spinner until completion.
+_Avoid_: mini-workflow, single-agent script (it is a standalone tool call, not a `workflow` run of one agent)
 
 **`parallel(thunks)`**:
 Runs many `() => agent(...)` thunks concurrently; results returned in input order. Bounded to 16 live / 1000 total.
@@ -148,6 +209,14 @@ _Avoid_: log, history, cache (it is replay-resume state, not a record)
 **Saved workflow**:
 A run's script turned into a reusable `/<name>` command; composable from inside other scripts via `workflow(name, args)`.
 _Avoid_: template, macro
+
+**`workflow_control`**:
+The model-callable control surface for a background run — `stop`/`pause`/`resume`/`status`/`list`/`wait` — mirroring `/workflows`'s human-typed surface but reachable by the LLM itself without a user typing a command. Only knows `workflow`-tool run ids; a `subagent`-tool call has no run identity to control.
+_Avoid_: task management, subagent control
+
+**Activity row**:
+The shared one-line renderer (`display.ts`, `renderActivityRow`) for an agent/subagent's live status — icon, actor, model, tokens, and (while running) its most recent tool call — used by the bottom task panel, the `/workflows` navigator's agent list and detail live-tail, and the `/subagents` viewer, so the three surfaces speak one visual language.
+_Avoid_: three independent hand-built status-line templates (the pre-existing state this replaces)
 
 ### Quality & control
 

@@ -16,7 +16,7 @@ gate the goal set (the Item I bar), applied to the enhancement gap.
 | Director retired from `gaps` | ✅ `upscale` no longer in `probedMenuSummary().gaps` |
 
 ## Runtime configuration
-- `bun bun-apps/pi-agent/src/cli.ts --no-extensions -e …/pi-movie-director.ts`
+- `bun bun-apps/pi-agent/src/cli.ts --no-extensions -e …/movie-director.ts`
 - Provider `lm-studio`, model `google/gemma-4-26b-a4b-qat`, **thinking `medium`**
 - `--no-builtin-tools` → the agent had **only** the `movie` tool. The thesis
   ("the agent drives `movie`") is exercised pure.

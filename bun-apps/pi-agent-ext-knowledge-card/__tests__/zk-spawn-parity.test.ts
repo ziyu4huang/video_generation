@@ -2,12 +2,14 @@ import { describe, it, beforeEach, afterEach } from "bun:test";
 import assert from "node:assert/strict";
 import piKnowledgeCardExtension, {
 	__setZkSpawnForTest,
+	resolveDistillModel,
+	DISTILL_MODEL_DEFAULT,
 	ADD_TOOLS,
 	FIND_TOOLS,
 	UPDATE_TOOLS,
 	REMOVE_TOOLS,
 	CHECK_TOOLS,
-} from "../extensions/pi-knowledge-card.ts";
+} from "../extensions/knowledge-card.ts";
 
 /** Minimal pi double that captures registered tools. Returns { pi, tools }. */
 function mkPi() {
@@ -95,5 +97,51 @@ describe("zk_card spawn migration (① Phase 3 parity)", () => {
 		assert.equal(res.isError, true);
 		assert.match(res.content[0].text, /boom/);
 		assert.deepEqual(res.details, { exitCode: 2, stderr: "boom" });
+	});
+});
+
+describe("resolveDistillModel precedence (explicit arg > KC_SUBAGENT_MODEL env > default)", () => {
+	const ENV_KEY = "KC_SUBAGENT_MODEL";
+	let prev: string | undefined;
+	beforeEach(() => {
+		prev = process.env[ENV_KEY];
+	});
+	afterEach(() => {
+		if (prev === undefined) delete process.env[ENV_KEY];
+		else process.env[ENV_KEY] = prev;
+	});
+
+	it("DISTILL_MODEL_DEFAULT is the local LM Studio gemma", () => {
+		assert.equal(DISTILL_MODEL_DEFAULT, "google/gemma-4-12b-qat");
+	});
+
+	it("returns the explicit arg when provided (wins over env + default)", () => {
+		process.env[ENV_KEY] = "env/override";
+		assert.equal(resolveDistillModel("explicit/x"), "explicit/x");
+	});
+
+	it("falls back to KC_SUBAGENT_MODEL env when no explicit arg", () => {
+		process.env[ENV_KEY] = "env/override";
+		assert.equal(resolveDistillModel(undefined), "env/override");
+	});
+
+	it("falls back to the hardcoded default when neither arg nor env set", () => {
+		delete process.env[ENV_KEY];
+		assert.equal(resolveDistillModel(undefined), "google/gemma-4-12b-qat");
+	});
+
+	it("zk_card spawn receives the resolved default model when no explicit arg", async () => {
+		const calls: any[] = [];
+		__setZkSpawnForTest(async (opts: any) => {
+			calls.push(opts);
+			return { output: "OK", exitCode: 0, stderr: "", timedOut: false };
+		});
+		delete process.env[ENV_KEY];
+		const { pi, tools } = mkPi();
+		piKnowledgeCardExtension(pi);
+		const zkCard: any = tools.get("zk_card");
+		await zkCard.execute("id", { action: "check" }, undefined, undefined, CTX);
+		assert.equal(calls.at(-1)!.model, "google/gemma-4-12b-qat");
+		__setZkSpawnForTest(null);
 	});
 });

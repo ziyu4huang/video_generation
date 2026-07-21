@@ -796,3 +796,56 @@ test(
     assert.equal(new WorkflowManager({ cwd, sessionId: "s1" }).listAllRuns().length, 2);
   }),
 );
+
+test(
+  "PersistedRunState round-trips an optional packId (13 branch signal)",
+  withTempCwd(async (cwd) => {
+    const rp = createRunPersistence(cwd);
+    const startedAt = new Date().toISOString();
+    const runId = generateRunId();
+    rp.save({
+      runId,
+      workflowName: "w",
+      script: "s",
+      status: "running",
+      phases: [],
+      agents: [],
+      logs: [],
+      startedAt,
+      packId: "demo-abcdef012345",
+    });
+    const loaded = rp.load(runId);
+    assert.equal(loaded?.packId, "demo-abcdef012345");
+  }),
+);
+
+test("createRunPersistence redirects runsDir to <stateRoot>/runs when stateRoot is given", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "pr-state-"));
+  const stateRoot = join(tmp, "pack-state");
+  const p = createRunPersistence(tmp, undefined, stateRoot);
+  assert.equal(p.getRunsDir(), join(stateRoot, "runs"));
+});
+
+test("createRunPersistence uses cwd project runs when stateRoot is absent (backward-compat)", () => {
+  const p = createRunPersistence("/some/cwd");
+  assert.equal(p.getRunsDir(), workflowProjectPaths("/some/cwd").runsDir);
+});
+
+test("a stateRoot-routed persistence writes its run file under <stateRoot>/runs", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "pr-state-"));
+  const stateRoot = join(tmp, "pack-state");
+  const p = createRunPersistence(tmp, undefined, stateRoot);
+  p.save({
+    runId: "r1",
+    workflowName: "w",
+    script: "x",
+    status: "running",
+    phases: [],
+    agents: [],
+    logs: [],
+    startedAt: "t",
+    updatedAt: "t",
+  });
+  assert.equal(p.load("r1")?.runId, "r1");
+  assert.ok(p.getRunsDir().includes("pack-state"));
+});

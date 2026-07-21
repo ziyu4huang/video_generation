@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -11,9 +12,10 @@ import {
   type WorkflowSnapshot,
 } from "./display.js";
 import { WorkflowError, WorkflowErrorCode } from "./errors.js";
+import { resolvePackRunContext } from "./pack-run-context.js";
 import { parseWorkflowScript, type WorkflowRunResult } from "./workflow.js";
-import { mergeArgs, resolveWorkflowPack } from "./workflow-pack.js";
 import { WorkflowManager } from "./workflow-manager.js";
+import { findRepoRoot, mergeArgs, resolveWorkflowPack } from "./workflow-pack.js";
 import { createWorkflowStorage, type WorkflowStorage } from "./workflow-saved.js";
 import { loadWorkflowSettings } from "./workflow-settings.js";
 
@@ -353,15 +355,19 @@ export async function buildWorkflowGuidelinesForTurn(options: WorkflowGuidelines
 export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefinition<typeof workflowToolSchema, any> {
   const storage = options.storage ?? createWorkflowStorage(options.cwd ?? process.cwd());
   const cwd = options.cwd ?? process.cwd();
-  const defaults = resolveWorkflowToolDefaults(options, cwd);
+  // Read settings from disk ONLY when constructing the fallback manager. When
+  // the extension supplies options.manager (the normal path), skip the read.
+  // The `?? null` / `?? 0` mirror WorkflowManager's own constructor defaults so
+  // behavior is identical when fallbackDefaults is present.
+  const fallbackDefaults = options.manager ? undefined : resolveWorkflowToolDefaults(options, cwd);
   const manager =
     options.manager ??
     new WorkflowManager({
       cwd: options.cwd,
-      concurrency: defaults.concurrency,
+      concurrency: fallbackDefaults?.concurrency,
       loadSavedWorkflow: (name: string) => storage.load(name)?.script,
-      defaultAgentTimeoutMs: defaults.agentTimeoutMs,
-      defaultAgentRetries: defaults.agentRetries,
+      defaultAgentTimeoutMs: fallbackDefaults?.agentTimeoutMs ?? null,
+      defaultAgentRetries: fallbackDefaults?.agentRetries ?? 0,
       extensionTools: options.extensionTools,
     });
 
@@ -392,16 +398,40 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       // would need an ExecOptions.mainModel hook; see workflow-pack plan, OOS).
       let script: string;
       let mergedArgs = params.args;
+      // T7: pack-local context (identity + state root + dirs + io) resolved once at
+      // the tool layer and spread into both execution paths below. Undefined for
+      // inline scripts → legacy cwd-scoped persistence (decision 13).
+      let packCtx: ReturnType<typeof resolvePackRunContext> | undefined;
       if (params.name) {
         const resolved = resolveWorkflowPack(params.name, { cwd });
         script = resolved.script;
         if (resolved.manifest) mergedArgs = mergeArgs(resolved.manifest.args, params.args);
+        if (resolved.packDir) {
+          packCtx = resolvePackRunContext({
+            name: resolved.manifest?.name ?? params.name,
+            packDir: resolved.packDir,
+            manifest: resolved.manifest,
+            repoRoot: findRepoRoot(resolved.packDir, (p) => existsSync(p)) ?? cwd,
+          });
+        }
       } else {
         if (typeof params.script !== "string") {
           throw new Error("workflow requires exactly one of `script` (inline JS) or `name` (a pack)");
         }
         script = normalizeWorkflowScript(params.script);
       }
+      // The 5 ExecOptions fields the manager routes to pack-scoped persistence,
+      // intermediate mirror, and outputs append (decisions 05/11/12). Empty for
+      // inline scripts so they stay byte-identical to the legacy cwd store.
+      const packExec = packCtx
+        ? {
+            packId: packCtx.packId,
+            stateRoot: packCtx.stateRoot,
+            intermediateDir: packCtx.intermediateDir,
+            outputsDir: packCtx.outputsDir,
+            io: packCtx.io,
+          }
+        : {};
       const parsed = parseWorkflowScript(script);
 
       // D9-8: statically reject scripts that never call agent() BEFORE forking
@@ -451,6 +481,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
           agentRetries: params.agentRetries,
           agentTimeoutMs: params.agentTimeoutMs,
           tokenBudget: params.tokenBudget,
+          ...packExec,
         });
         return {
           content: [{ type: "text", text: backgroundStartedText(parsed.meta.name, runId) }],
@@ -478,6 +509,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
           agentRetries: params.agentRetries,
           agentTimeoutMs: params.agentTimeoutMs,
           tokenBudget: params.tokenBudget,
+          ...packExec,
           confirm,
           externalSignal: signal,
           onProgress(live) {
@@ -658,7 +690,8 @@ export function backgroundStartedText(name: string, runId: string): string {
 }
 
 function normalizeWorkflowToolArgs(args: unknown): WorkflowToolInput {
-  if (!args || typeof args !== "object") throw new Error("workflow requires an object argument with a `script` string or a `name`");
+  if (!args || typeof args !== "object")
+    throw new Error("workflow requires an object argument with a `script` string or a `name`");
   const value = args as Record<string, unknown>;
   const hasScript = typeof value.script === "string" && value.script.trim() !== "";
   const hasName = typeof value.name === "string" && value.name.trim() !== "";
@@ -669,7 +702,9 @@ function normalizeWorkflowToolArgs(args: unknown): WorkflowToolInput {
     throw new Error("workflow requires exactly one of `script` (inline JS) or `name` (a pack) — neither was provided");
   }
   // Normalize only the inline-script path; the pack (`name`) path is resolved in execute.
-  return hasScript ? { ...value, script: normalizeWorkflowScript(value.script as string) } : (value as WorkflowToolInput);
+  return hasScript
+    ? { ...value, script: normalizeWorkflowScript(value.script as string) }
+    : (value as WorkflowToolInput);
 }
 
 function normalizeWorkflowScript(script: string): string {
@@ -680,16 +715,17 @@ function normalizeWorkflowScript(script: string): string {
 }
 
 /**
- * Static pre-flight check (D9-8): does the workflow script text reference the
- * `agent(` token at least once?
+ * Static pre-flight check (D9-8): does the workflow script text call anything
+ * that spawns agents at least once?
  *
  * This is a FAIL-FAST AUTHORING GUARD, not a security boundary. It exists so
  * that a no-agent workflow cannot reach the background path — which returns a
  * runId immediately without ever evaluating the runtime `agentCount === 0`
- * check on the inline path. The heuristic scans the raw script text for an
- * `agent(` call (tolerating whitespace and a leading `await`), so it will
- * match direct calls (`agent(prompt, opts)`), tagged helpers that forward to
- * `agent(`, and any authoring helper that legitimately mentions the token.
+ * check on the inline path. The heuristic scans the raw script text for a call
+ * to `agent(` OR to the stdlib quality helpers (`verify(`, `judgePanel(`,
+ * `loopUntilDry(`, `completenessCheck(`) OR to a nested `workflow(` — the
+ * helpers spawn agents inside the engine, so a legitimate helper-only script
+ * never mentions the `agent(` token itself.
  *
  * False positives (the token appears in a string or comment) are acceptable:
  * such a script would also have invoked `agent(` for real in almost every
@@ -706,12 +742,10 @@ function scriptInvokesAgent(script: string): boolean {
   // appearing inside meta (e.g. a description) does not trigger a false
   // positive. We only need to inspect the body the workflow will execute.
   const body = script.replace(/^[\s\S]*?\bexport\s+const\s+meta\s*=[\s\S]*?\};/, "");
-  // Match `agent(` optionally preceded by `await` and whitespace. The lookahead
-  // for `(` ensures we don't match the bare word `agent` in prose.
-  return /\bawait\s+agent\s*\(|\bagent\s*\(/.test(body);
-}
-
-function _isAbortError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return /\babort(?:ed)?\b/i.test(error.message);
+  // Match a call to `agent(` — or to any stdlib helper that spawns agents
+  // internally (verify/judgePanel/loopUntilDry/completenessCheck), or to a
+  // nested `workflow('name')`, none of which mention the `agent(` token in the
+  // script text but all of which run real subagents at runtime. The `\s*\(`
+  // ensures we don't match the bare words in prose.
+  return /\b(?:agent|verify|judgePanel|loopUntilDry|completenessCheck|workflow)\s*\(/.test(body);
 }

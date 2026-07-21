@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSyn
 import { join } from "node:path";
 import type { AgentHistoryEntry } from "./agent-history.js";
 import type { WorkflowErrorCode } from "./errors.js";
+import type { ManifestIo } from "./workflow-pack-manifest.js";
 import { workflowProjectPaths } from "./workflow-paths.js";
 
 export type RunStatus = "pending" | "running" | "paused" | "completed" | "failed" | "aborted";
@@ -27,11 +28,35 @@ export interface PersistedAgentState {
   model?: string;
 }
 
+/**
+ * The serializable subset of a run's ExecOptions, captured at start so that
+ * resume() re-runs with the SAME caps the run was started with. Without this a
+ * run paused precisely because it hit its token budget would resume unbounded,
+ * and maxAgents/concurrency/timeout/retries would silently reset to defaults.
+ */
+export interface PersistedExecOptions {
+  maxAgents?: number;
+  agentTimeoutMs?: number | null;
+  tokenBudget?: number | null;
+  concurrency?: number;
+  agentRetries?: number;
+  /** Pack identity (decision 08); absent for inline scripts. */
+  packId?: string;
+  /** Pack-local state root; routes resume() to the pack store (T5b). */
+  stateRoot?: string;
+  /** Pack dirs + io contract; re-threaded into executeRun on resume (T5b). */
+  intermediateDir?: string;
+  outputsDir?: string;
+  io?: ManifestIo;
+}
+
 export interface PersistedRunState {
   runId: string;
   workflowName: string;
   script: string;
   args?: unknown;
+  /** Execution caps captured at start; rehydrated by resume(). */
+  exec?: PersistedExecOptions;
   /** The pi session this run belongs to. Runs persist on disk across sessions but
    * the navigator shows only the current session's runs (undefined = legacy/global). */
   sessionId?: string;
@@ -47,6 +72,10 @@ export interface PersistedRunState {
    * re-delivery (the originating session closed before the run finished). Set
    * once by installResultDelivery's complete handler and by redeliverPendingResults. */
   deliveredAt?: string;
+  /** Pack identity (decision 08) when this run is pack-sourced; ABSENT for inline
+   *  scripts. Presence is the branch signal (13): packId set → pack-local state;
+   *  absent → unchanged createRunPersistence(cwd) (~/.pi/workflows/projects/<key>/). */
+  packId?: string;
   status: RunStatus;
   /** Why a paused run is paused (e.g. "usage_limit" when a provider quota was hit). */
   pauseReason?: string;
@@ -120,7 +149,7 @@ export type FsLayer = {
   writeFileSync: typeof writeFileSync;
 };
 
-export function createRunPersistence(cwd: string, fsOverride?: Partial<FsLayer>): RunPersistence {
+export function createRunPersistence(cwd: string, fsOverride?: Partial<FsLayer>, stateRoot?: string): RunPersistence {
   const _existsSync = fsOverride?.existsSync ?? existsSync;
   const _mkdirSync = fsOverride?.mkdirSync ?? mkdirSync;
   const _readdirSync = fsOverride?.readdirSync ?? readdirSync;
@@ -130,7 +159,7 @@ export function createRunPersistence(cwd: string, fsOverride?: Partial<FsLayer>)
   const _writeFileSync = fsOverride?.writeFileSync ?? writeFileSync;
 
   const paths = workflowProjectPaths(cwd);
-  const runsDir = paths.runsDir;
+  const runsDir = stateRoot ? join(stateRoot, "runs") : paths.runsDir;
   const legacyRunsDir = paths.legacyRunsDir;
 
   const ensureDir = () => {

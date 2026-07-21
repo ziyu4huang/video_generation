@@ -15,8 +15,8 @@
  * bootstrap SKILL.md (cached). Deterministic — no LLM, no network.
  */
 
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -26,12 +26,33 @@ const BOOTSTRAP_MARKER = "superpowers:using-superpowers bootstrap for pi";
 export { BOOTSTRAP_MARKER };
 
 /**
+ * True when `fromUrl` is inside Bun's compiled-binary virtual filesystem
+ * ($bunfs, or its ~BUN / URL-encoded %7EBUN variants). Same marker check as
+ * pi-agent/src/mode.ts isBunBinary() — inlined here to keep this package
+ * dependency-free of pi-agent.
+ */
+function isBunBinaryUrl(fromUrl: string): boolean {
+  return fromUrl.includes("$bunfs") || fromUrl.includes("~BUN") || fromUrl.includes("%7EBUN");
+}
+
+/**
  * Resolve the package's `skills/` directory from this compiled module's URL.
  * Works whether the entry runs from `src/` (tsx/dev) or `dist/` (built) because
  * the `skills/` dir is a sibling of both under the package root
  * (`<pkg>/src|dist/...` → `<pkg>/skills`).
+ *
+ * Compiled-binary mode (`bun build --compile`): the module URL is a $bunfs
+ * virtual path, so `../skills` resolves to a path that does not exist on the
+ * real filesystem. pi-agent's extract-embedded-assets patch extracts the real
+ * skills to $BUN_PI_EMBEDDED_EXTRACT_DIR/pi-agent-ext-superpowers/skills (the
+ * same dir its run-dir resolver passes via `--skill`, so pi dedups the two) —
+ * resolve there instead.
  */
 export function resolveSkillsDir(fromUrl: string = import.meta.url): string {
+  if (isBunBinaryUrl(fromUrl)) {
+    const extractDir = process.env.BUN_PI_EMBEDDED_EXTRACT_DIR;
+    if (extractDir) return join(extractDir, "pi-agent-ext-superpowers", "skills");
+  }
   const moduleDir = dirname(fileURLToPath(fromUrl));
   // src/superpowers.ts → ../skills ; dist/superpowers.js → ../skills
   return resolve(moduleDir, "..", "skills");
@@ -46,12 +67,15 @@ export function resolveBootstrapSkillPath(fromUrl: string = import.meta.url): st
  * Register the Superpowers Pi extension. The default export of `src/index.ts`
  * (and the thin `extensions/index.ts` wrapper) calls this.
  */
-export function superpowersExtension(pi: ExtensionAPI): void {
-  const skillsDir = resolveSkillsDir();
+export function superpowersExtension(pi: ExtensionAPI, fromUrl: string = import.meta.url): void {
+  const skillsDir = resolveSkillsDir(fromUrl);
   let injectBootstrap = true;
 
+  // Never advertise a non-existent dir (e.g. a classic --compile binary with no
+  // embedded-assets extraction): pi reports each missing skill path as a
+  // "[Skill conflicts] skill path does not exist" startup warning.
   pi.on("resources_discover", async () => ({
-    skillPaths: [skillsDir],
+    skillPaths: existsSync(skillsDir) ? [skillsDir] : [],
   }));
 
   pi.on("session_start", async () => {
@@ -106,6 +130,8 @@ The using-superpowers skill content is included below and is already loaded for 
 ${body}
 
 ${piToolMapping()}
+
+${piBoundaryOverrides()}
 </EXTREMELY_IMPORTANT>`;
     return cachedBootstrap;
   } catch {
@@ -131,9 +157,19 @@ Pi has native skills but does not expose Claude Code's \`Skill\` tool. When a Su
 
 Pi's built-in coding tools are lowercase: \`read\`, \`write\`, \`edit\`, \`bash\`, plus optional \`grep\`, \`find\`, and \`ls\`. Use those for the corresponding actions: read a file, create or edit files, run shell commands, search file contents, find files by name, and list directories.
 
-Pi does not ship a standard subagent tool. If a subagent tool such as \`subagent\` from \`pi-subagents\` is available, use it for Superpowers subagent workflows. If no subagent tool is available, do the work in this session or explain the missing capability instead of inventing \`Task\` calls.
+Pi does not ship a standard subagent tool in core. This repo's pi-agent-ext-workflow provides a 'subagent' tool (an isolated-context child via spawnSubagent). Use subagent({ task, model, tools, excludeTools, cwd }) for Superpowers subagent workflows - pass a self-contained 'task' (the child has no access to this session's history). If no 'subagent' tool is available, do the work in this session or explain the missing capability instead of inventing Task calls.
 
 Pi does not ship a standard task-list tool. If an installed todo/task tool is available, use it. Otherwise track work in plan files or a repo-local \`TODO.md\` when task tracking is needed. Treat older \`TodoWrite\` references as this task-tracking action.`;
+}
+
+function piBoundaryOverrides(): string {
+  return `## Path & routing overrides (this repo)
+
+Superpowers and Wayfind are two parallel, non-connecting pipelines that share the \`.planning/<effort>/\` layout. Two runtime rules keep them from colliding; apply them in addition to the skill bodies (which keep their upstream text verbatim).
+
+**1. Artifact-home override.** When a Superpowers skill tells you to save a spec under \`docs/superpowers/specs/\` or a plan under \`docs/superpowers/plans/\`, write it under the unified layout instead: \`docs/superpowers/specs/...\` → \`.planning/<effort>/spec.md\`; \`docs/superpowers/plans/...\` → \`.planning/<effort>/plan.md\`. This converges the homes at runtime without forking the upstream skill text.
+
+**2. Entry-path routing.** The discriminator for which pipeline to enter is *can I write a plan right now from what's already settled?* — **yes** (spec/requirements in hand, route clear) → Superpowers (\`brainstorming\` → \`writing-plans\`, any size; huge handled via sub-project decomposition); **no** (decisions still open, route foggy) → Wayfind (\`wayfinder\` if the effort is huge/multi-session, else \`grilling\`). When a Wayfind decide-phase (\`grilling\`/\`wayfinder\`) has already settled the decisions, \`brainstorming\` defers to \`to-spec\` (synthesize what's settled — do not re-explore).`;
 }
 
 function messageContainsBootstrap(message: unknown): boolean {

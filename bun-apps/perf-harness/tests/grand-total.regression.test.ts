@@ -18,7 +18,7 @@ import { registerSkillTool } from "../../../bun-apps/pi-agent-ext-hermes-memory/
 import { registerMemoryTool } from "../../../bun-apps/pi-agent-ext-hermes-memory/src/tools/memory-tool.ts";
 // obsidian + knowledge-card — main factories
 import obsidianFactory from "../../../bun-apps/pi-agent-ext-obsidian/extensions/obsidian.ts";
-import kcardFactory from "../../../bun-apps/pi-agent-ext-knowledge-card/extensions/pi-knowledge-card.ts";
+import kcardFactory from "../../../bun-apps/pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 
 function captureAll(): Record<string, any> {
   const all: Record<string, any> = {};

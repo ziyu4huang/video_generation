@@ -74,6 +74,16 @@ mlx-models/                   # MLX model tree (override: MLX_MODELS_DIR / --mod
 bun-apps/gui-movie-director/  # ACTIVE — Bun + React GUI
 ```
 
+## Extension packages (pi-agent-ext-*)
+
+Every `bun-apps/pi-agent-ext-<X>/` registers its pi extension at **exactly one** canonical entry: `extensions/<X>.ts` (filename == folder suffix, no `pi-` prefix). One registered extension per folder.
+
+- **Naming**: `extensions/<X>.ts` where `<X>` is the folder minus `pi-agent-ext-`. Never `src/index.ts`, root `index.ts`, `extensions/index.ts`, or `extensions/pi-<X>.ts` as the registration entry.
+- **Lib entry stays separate**: if a package's lib `main` is `src/index.ts` (power-tool, hermes-memory) or root `index.ts` (web-access), add a 1-line re-export shim `export { default } from "../src/index.ts";` at `extensions/<X>.ts` as the registered entry — don't move the lib.
+- **Registration**: dynamic extensions → `bun-apps/pi-agent/run-dir/manifest.json` (`extensions[]`); always-on/static → `bun-apps/pi-agent/src/static-extensions.ts`. Never list the same extension in both (double-register).
+- **Schema-cost canary**: `bun-apps/pi-agent-cli/src/commands/schema-cost.ts` `discoverExtensionEntries()` derives its list from `bun-apps/pi-agent/run-dir/manifest.json` (`extensions[]` + `staticExtensions[]`) — extensions registered there are measured automatically. Only unregistered measure-worthy files need a manual `EXTRA_ENTRIES` row.
+- **CLI subcommands**: extension-backed CLI subcommands live at `extensions/cli-subcommand.ts` and are wired in `bun-apps/pi-agent-cli/src/extensions/registry.ts`.
+
 ## Vendor patches
 
 ltx-2-mlx / mflux patches in `python/mlx-movie-director/app/vendor_patches.py`. Never edit vendor submodules directly; add via `_patch_*()` → `apply_all_patches()`.

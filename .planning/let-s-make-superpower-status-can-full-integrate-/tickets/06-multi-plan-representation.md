@@ -1,3 +1,10 @@
+---
+type: grilling
+status: closed
+superseded-by: 2026-07-19-a (ticket 06)
+blocked by: 04
+---
+
 # 06 — Multi-plan representation
 
 ## Question
@@ -12,5 +19,12 @@ goal-todo has exactly ONE `/goal` and ONE todo list. When multiple plan files ex
 
 **Lower priority** — the common case is one plan at a time. The singular signals from 04 work until this is revisited.
 
-type: grilling
-blocked by: 04 (Sync mapping)
+## Resolution
+
+**Closed — folded into the unified effort.** The multi-plan question is carried
+forward as
+[2026-07-19-a/05 — multi-plan-representation](../../2026-07-19-a/tickets/05-multi-plan-representation.md).
+The one-active-plan assumption this ticket noted (from sync-mapping) still
+holds as the baseline; the multi-plan representation decision is a frontier
+ticket there. See
+[2026-07-19-a/06](../../2026-07-19-a/tickets/06-close-and-supersede-prior-efforts.md).

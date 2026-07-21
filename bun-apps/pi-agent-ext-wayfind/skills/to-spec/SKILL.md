@@ -1,6 +1,6 @@
 ---
 name: to-spec
-description: Use when turning an already-discussed conversation into a spec (PRD) — no interview, just synthesis of what's already on the table. Writes the spec to a local file; invocation via `/wayfind spec` (or load the skill directly).
+description: Use when synthesizing an already-decided conversation into a spec (PRD) — but ONLY after a Wayfind decide-phase (grilling/wayfinder) has settled the decisions; no interview, just synthesis of what's on the table. If the decisions aren't settled yet, use brainstorming or grilling first. Invocation via `/wayfind spec` (or load the skill directly).
 disable-model-invocation: true
 ---
 
@@ -14,7 +14,7 @@ This skill takes the current conversation context and codebase understanding and
 
 2. Sketch out the **seams** at which you're going to test the feature. Existing seams should be preferred to new ones. Use the highest seam possible. If new seams are needed, propose them at the highest point you can. The fewer seams across the codebase, the better — the ideal number is one. Check with the user that these seams match their expectations.
 
-3. Write the spec using the template below, then write it to a local file — `.planning/<effort>/spec.md` (or `docs/specs/<slug>.md` if you prefer a repo-committed location). Tell the user the path.
+3. Write the spec using the template below, then write it to a local file — `.planning/<effort>/spec.md`. Tell the user the path. (Superpowers' `brainstorming` writes its spec to `docs/superpowers/specs/` upstream; the using-superpowers bootstrap overrides that to `.planning/<effort>/spec.md` at runtime, so both converge on this home — but they are separate entry paths, not a shared artifact. Do not offer `docs/specs/` or any other location.)
 
 <spec-template>
 

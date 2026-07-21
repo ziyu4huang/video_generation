@@ -12,6 +12,8 @@ import {
 	looksLikeAlias,
 	resolveLazyExtension,
 	rewriteExtensionArgs,
+	suppressResolvedArgv,
+	runtimeDependencyNames,
 	type LazySettings,
 } from "./resolve.ts";
 
@@ -187,6 +189,21 @@ describe("resolveRunDirArgv (integration, source mode against the real repo)", (
 			expect([...set].some((p) => p.endsWith(rel))).toBe(true);
 		}
 	});
+
+	test("user -ne/-ns suppress the injected -e/--skill pairs", async () => {
+		const suppressed = await resolveRunDirArgv({ noExtensions: true, noSkills: true });
+		expect(suppressed).not.toContain("-e");
+		expect(suppressed).not.toContain("--skill");
+
+		// -ne alone keeps skills flowing
+		const extOnly = await resolveRunDirArgv({ noExtensions: true });
+		expect(extOnly).not.toContain("-e");
+		expect(extOnly).toContain("--skill");
+
+		// default (no flags) is unchanged
+		const full = await resolveRunDirArgv();
+		expect(full).toContain("-e");
+	});
 });
 
 // ─── Lazy / opt-in extension aliases ─────────────────────────────────────────
@@ -221,7 +238,7 @@ describe("resolveLazyExtension", () => {
 		lazyExtensions: {
 			workflow: "pkg-a/extensions/workflow.ts",
 			"dynamic-workflows": "pkg-a/extensions/workflow.ts",
-			flux2: "pkg-b/extensions/pi-flux2.ts",
+			flux2: "pkg-b/extensions/flux2.ts",
 		},
 	};
 	function setup() {
@@ -247,7 +264,7 @@ describe("resolveLazyExtension", () => {
 		const r = resolveLazyExtension("Workflow", settings, base, existsSync);
 		expect(r).toBe(join(base, "pkg-a/extensions/workflow.ts"));
 		const r2 = resolveLazyExtension("flux2", settings, base, existsSync);
-		expect(r2).toBe(join(base, "pkg-b/extensions/pi-flux2.ts"));
+		expect(r2).toBe(join(base, "pkg-b/extensions/flux2.ts"));
 	});
 
 	test("unique substring match", () => {
@@ -255,7 +272,7 @@ describe("resolveLazyExtension", () => {
 		// "workflows" is a substring of "dynamic-workflows" only (and also of
 		// "workflow" — so use a substring that hits exactly one key)
 		const r = resolveLazyExtension("flux", settings, base, existsSync);
-		expect(r).toBe(join(base, "pkg-b/extensions/pi-flux2.ts"));
+		expect(r).toBe(join(base, "pkg-b/extensions/flux2.ts"));
 	});
 
 	test("ambiguous substring → undefined (no guess)", () => {
@@ -300,13 +317,22 @@ describe("resolveLazyExtension", () => {
 		expect(warns.length).toBeGreaterThan(0);
 	});
 
-	test("integration: real manifest.json lazyExtensions + repo resolve 'workflow'", () => {
+	// workflow was migrated from a lazy alias to a STATIC extension
+	// (src/static-extensions.ts) so the single-exe build bundles it. A lazy
+	// alias for a static extension would double-register it (jiti-loaded module
+	// ≠ natively-imported module identity; pi dedups `-e`×`-e` by path, NOT
+	// static-factory×`-e`). This test now guards that invariant: `workflow`
+	// must NOT resolve via the lazy mechanism against the real manifest.
+	test("integration: real manifest.json has NO lazy alias for the static 'workflow' ext", () => {
 		// run-dir/resolve.ts sits at <repo>/bun-apps/pi-agent/run-dir/ → base is ../../
 		const base = resolve(join(import.meta.dir, "..", ".."));
+		// lazyExtensions is {} now; the directory-fallback arm looks for
+		// <base>/workflow/extensions/ which doesn't exist (the package dir is
+		// pi-agent-ext-workflow, not workflow) → undefined either way.
 		const r = resolveLazyExtension("workflow", manifest, base, existsSync);
-		expect(r).toBeDefined();
-		expect(r!.endsWith("pi-agent-ext-workflow/extensions/workflow.ts")).toBe(true);
-		expect(existsSync(r!)).toBe(true);
+		expect(r).toBeUndefined();
+		// And the real manifest's lazyExtensions is empty (no aliases left).
+		expect(Object.keys(manifest.lazyExtensions ?? {})).toEqual([]);
 	});
 });
 
@@ -537,5 +563,70 @@ describe("rewriteExtensionArgs — identity replacement", () => {
 	test("resolve returning undefined → no rewrite (deferred to SDK)", () => {
 		const argv = ["-e", "workflow", "-p", "hi"];
 		expect(rewriteExtensionArgs(argv, () => undefined)).toEqual(argv);
+	});
+});
+
+describe("suppressResolvedArgv", () => {
+	const argv = ["-ne", "-e", "/a/ext.ts", "--skill", "/a/skills", "-e", "/b/ext.js"];
+
+	test("noExtensions strips -e pairs, keeps --skill and bare -ne", () => {
+		expect(suppressResolvedArgv(argv, { noExtensions: true })).toEqual([
+			"-ne",
+			"--skill",
+			"/a/skills",
+		]);
+	});
+
+	test("noSkills strips --skill pairs only", () => {
+		expect(suppressResolvedArgv(argv, { noSkills: true })).toEqual([
+			"-ne",
+			"-e",
+			"/a/ext.ts",
+			"-e",
+			"/b/ext.js",
+		]);
+	});
+
+	test("both flags leave only the bare -ne marker; no flags is identity", () => {
+		expect(suppressResolvedArgv(argv, { noExtensions: true, noSkills: true })).toEqual(["-ne"]);
+		expect(suppressResolvedArgv(argv, {})).toEqual(argv);
+	});
+
+	test("--extension long form is stripped like -e", () => {
+		expect(
+			suppressResolvedArgv(["--extension", "/a/ext.ts", "--skill", "/s"], { noExtensions: true }),
+		).toEqual(["--skill", "/s"]);
+	});
+});
+
+describe("runtimeDependencyNames", () => {
+	test("returns dependencies when only those are declared", () => {
+		expect(runtimeDependencyNames({ dependencies: { "js-yaml": "^4.0.0" } })).toEqual(["js-yaml"]);
+	});
+
+	test("returns peerDependencies (the pi-tui regression)", () => {
+		// @earendil-works/pi-tui is declared as a peerDependency in several
+		// extensions; the probe MUST surface it or the self-heal in check-deps.ts
+		// never installs it, and pi crashes with "Cannot find module" on launch.
+		expect(
+			runtimeDependencyNames({ peerDependencies: { "@earendil-works/pi-tui": "0.80.10" } }),
+		).toEqual(["@earendil-works/pi-tui"]);
+	});
+
+	test("returns devDependencies (typebox is a runtime import in some exts)", () => {
+		expect(runtimeDependencyNames({ devDependencies: { typebox: "^1.3.6" } })).toEqual(["typebox"]);
+	});
+
+	test("unions + dedupes all three sections, dependencies-first order", () => {
+		const names = runtimeDependencyNames({
+			dependencies: { "js-yaml": "^4.0.0", shared: "*" },
+			peerDependencies: { "@earendil-works/pi-tui": "0.80.10", shared: "*" },
+			devDependencies: { typebox: "^1.3.6" },
+		});
+		expect(names).toEqual(["js-yaml", "shared", "@earendil-works/pi-tui", "typebox"]);
+	});
+
+	test("empty/undefined sections → empty array", () => {
+		expect(runtimeDependencyNames({})).toEqual([]);
 	});
 });

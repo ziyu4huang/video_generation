@@ -4,7 +4,7 @@
  * Bulk semantics live in the on-demand `flux2_help` tool, not the static schema.
  */
 import { test, expect } from "bun:test";
-import extensionFactory from "../pi-flux2.ts";
+import extensionFactory from "../flux2.ts";
 
 function captureTools(): Record<string, Record<string, unknown>> {
 	const tools: Record<string, Record<string, unknown>> = {};
@@ -12,6 +12,11 @@ function captureTools(): Record<string, Record<string, unknown>> {
 		registerTool: (t: Record<string, unknown>) => {
 			tools[t.name as string] = t;
 		},
+		on(_event: string, _handler: (...args: any[]) => void) {
+			// no-op: session_start handler not exercised in unit tests
+		},
+		getActiveTools: () => [],
+		setActiveTools: (_tools: string[]) => {},
 	};
 	extensionFactory(mockPi as never);
 	return tools;

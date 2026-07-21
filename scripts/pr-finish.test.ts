@@ -35,6 +35,8 @@ const PR_FINISH = join(SCRIPTS, "pr-finish.sh");
 const FAKE_GH = [
   "#!/usr/bin/env bash",
   "# fake gh for pr-finish.test.ts — serves `gh pr checks <pr> [...]",
+  'if [[ "${1:-}" == "pr" && "${2:-}" == "merge" ]]; then [[ -n "${FAKE_MERGE_ERR:-}" ]] && echo "${FAKE_MERGE_ERR}" >&2; exit "${FAKE_MERGE_RC:-0}"; fi',
+  'if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then printf \'%s\' "${FAKE_MERGE_STATE:-CLEAN}"; exit 0; fi',
   'if [[ "${1:-}" != "pr" || "${2:-}" != "checks" ]]; then echo "fake-gh unsupported: $*" >&2; exit 1; fi',
   'want_json=0; want_watch=0; q=""; prev=""',
   'for a in "$@"; do',
@@ -46,6 +48,7 @@ const FAKE_GH = [
   '[[ "$want_watch" == "1" ]] && exit 0',
   'data="$(cat "${FAKE_CHECKS_FILE:-/dev/null}")"',
   'if [[ "$want_json" == "1" ]]; then',
+  '  if [[ "$data" == "[]" ]]; then echo "no checks reported on the branch" >&2; exit 1; fi',
   '  if [[ -n "$q" ]]; then printf \'%s\' "$data" | jq "$q"; else printf \'%s\' "$data"; fi',
   "else",
   '  [[ "$data" != "[]" ]] && printf \'fake-check\\tSUCCESS\\turl\\n\'',
@@ -65,7 +68,7 @@ beforeAll(() => {
   funcsFile = join(tmpdir(), `prf-funcs-${process.pid}-${crypto.randomUUID()}.sh`);
   execFileSync("bash", [
     "-c",
-    `sed -n '/^ci_running()/,/^}/p;/^wait_ci()/,/^}/p' "${PR_FINISH}" > "${funcsFile}"`,
+    `sed -n '/^ci_running()/,/^}/p;/^wait_ci()/,/^}/p;/^try_merge()/,/^}/p' "${PR_FINISH}" > "${funcsFile}"`,
   ]);
   if (!existsSync(funcsFile) || statSync(funcsFile).size === 0) {
     throw new Error("sed extraction of ci_running/wait_ci produced an empty file");
@@ -132,6 +135,24 @@ async function waitCi(required: boolean): Promise<number> {
   const r = await runFn(`wait_ci X ${required}; echo "EXIT:$?"`);
   const m = r.stdout.match(/EXIT:(\d+)/);
   if (!m) throw new Error(`wait_ci produced no EXIT marker:\n${r.stdout}\n${r.stderr}`);
+  return Number(m[1]);
+}
+
+/** try_merge exit code for a canned `gh pr merge` error + mergeStateStatus. */
+async function tryMerge(opts: { err: string; rc?: number; state?: string }): Promise<number> {
+  const rc = opts.rc ?? 1;
+  const state = opts.state ?? "CLEAN";
+  const errB64 = Buffer.from(opts.err).toString("base64");
+  const call = [
+    "export PR_NUMBER=123",
+    `export FAKE_MERGE_RC=${rc}`,
+    `export FAKE_MERGE_STATE=${state}`,
+    `export FAKE_MERGE_ERR="$(printf '%s' '${errB64}' | base64 -d)"`,
+    'try_merge; echo "EXIT:$?"',
+  ].join("\n");
+  const r = await runFn(call);
+  const m = r.stdout.match(/EXIT:(\d+)/);
+  if (!m) throw new Error(`try_merge produced no EXIT marker:\n${r.stdout}\n${r.stderr}`);
   return Number(m[1]);
 }
 
@@ -214,4 +235,60 @@ test("wait_ci(false): no checks register → assumes no-CI, proceeds (exit 0)", 
 test("wait_ci(true): no checks re-register → ABORT (base-update race guard)", async () => {
   setChecks([]);
   expect(await waitCi(true)).toBe(1);
+});
+
+// --- iter-11 regression: the post-push empty-checks window ---
+// Real `gh pr checks` exits NON-ZERO on an empty check set (prints "no checks
+// reported on the branch"). The old wait_ci's `|| echo "?"` then made bad="?",
+// and `"?" != "0"` aborted the whole merge with a bogus gate failure right
+// after a base-update push (dogfooded on #712). The fake gh now mirrors real gh
+// (empty --json → exit 1); these tests pin the fix: empty is "wait / clean
+// abort", never a "?" gate false-fail.
+test("wait_ci(true): empty + gh-nonzero-on-empty → clean abort, NOT the '?' gate false-fail", async () => {
+  setChecks([]);
+  const r = await runFn(`wait_ci X true; echo "EXIT:$?"`);
+  expect(Number(r.stdout.match(/EXIT:(\d+)/)?.[1] ?? 99)).toBe(1);
+  expect(r.stderr).toContain("did not register");
+  expect(r.stderr).not.toContain("non-passing");
+});
+
+test("wait_ci(false): empty + gh-nonzero-on-empty → proceeds as no-CI, NOT '?' fail", async () => {
+  setChecks([]);
+  const r = await runFn(`wait_ci X false; echo "EXIT:$?"`);
+  expect(Number(r.stdout.match(/EXIT:(\d+)/)?.[1] ?? 99)).toBe(0);
+  expect(r.stderr).not.toContain("non-passing");
+});
+
+// The unified poll's "populated but still running" branch: with a zero deadline
+// it falls through to the gate, where PENDING counts as non-passing.
+test("wait_ci(false): populated PENDING + zero deadline → gates and fails (PENDING is non-passing)", async () => {
+  setChecks(["SUCCESS", "PENDING"]);
+  expect(await waitCi(false)).toBe(1);
+});
+
+// --- try_merge: rc classification (iter-11 BEHIND-vs-lag disambiguation) -----
+// GitHub surfaces "GraphQL: N of N required status checks expected" BOTH for
+// mergeability-computation lag (rc=3, transient) AND when the branch is actually
+// BEHIND (rc=2, needs re-sync). try_merge must disambiguate via mergeStateStatus
+// — otherwise a BEHIND branch loops on the rc=3 settle-retry (which never
+// converges) and gives up. (Dogfooded on #721.)
+test("try_merge: 'required status checks' + BEHIND → rc=2 (re-sync), NOT rc=3", async () => {
+  expect(await tryMerge({
+    err: "GraphQL: 22 of 22 required status checks are expected. (mergePullRequest)",
+    state: "BEHIND",
+  })).toBe(2);
+});
+
+test("try_merge: 'required status checks' + CLEAN → rc=3 (mergeability lag)", async () => {
+  expect(await tryMerge({
+    err: "GraphQL: 22 of 22 required status checks are expected. (mergePullRequest)",
+    state: "CLEAN",
+  })).toBe(3);
+});
+
+test("try_merge: 'not up to date' → rc=2 (regardless of mergeStateStatus)", async () => {
+  expect(await tryMerge({
+    err: "Pull request #721 is not mergeable: the head branch is not up to date with the base branch.",
+    state: "CLEAN",
+  })).toBe(2);
 });

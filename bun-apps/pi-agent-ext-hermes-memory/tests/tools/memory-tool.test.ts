@@ -6,7 +6,7 @@ import * as assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { registerMemoryTool } from "../../src/tools/memory-tool.js";
+import { registerMemoryTool, writeTransferArchive } from "../../src/tools/memory-tool.js";
 import { MemoryStore } from "../../src/store/memory-store.js";
 import { DatabaseManager } from "../../src/store/db.js";
 import { getMemories, syncMemoryEntry } from "../../src/store/sqlite-memory-store.js";
@@ -302,6 +302,63 @@ describe("registerMemoryTool", () => {
     assert.match(parsed.warning, /sqlite unavailable/);
   });
 
+  it("absorbs a transient SQLite I/O blip via retry (no warning, entry synced)", async () => {
+    let capturedResult: any;
+    const mockPi = {
+      registerTool: (def: any) => { capturedResult = def; },
+    } as unknown as ExtensionAPI;
+    const mockStore = {
+      add: () => ({
+        success: true, target: "memory", entries: ["Entry one"],
+        usage: "5% — 110/5000 chars", entry_count: 1, message: "Entry added.",
+      }),
+    } as unknown as MemoryStore;
+
+    let flakyCalls = 0;
+    const flakyDbManager = {
+      getDb: () => {
+        flakyCalls++;
+        if (flakyCalls <= 2) throw Object.assign(new Error("disk I/O error"), { code: "SQLITE_IOERR" });
+        return dbManager.getDb(); // delegate to the real DB once the blip clears
+      },
+    } as unknown as DatabaseManager;
+
+    registerMemoryTool(mockPi, mockStore, null, flakyDbManager);
+    const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry one" }, undefined as any, undefined as any, undefined as any);
+    const parsed = JSON.parse(result.content[0].text);
+
+    assert.strictEqual(parsed.success, true);
+    assert.strictEqual(parsed.warning, undefined, "transient blip absorbed — no sync-warning surfaced");
+    assert.ok(flakyCalls >= 3, "should have retried past the transient throws");
+    const rows = getMemories(dbManager, { target: "memory", project: null });
+    assert.strictEqual(rows.length, 1, "entry synced to SQLite after retry");
+  });
+
+  it("still warns when a transient SQLite error persists across retries", async () => {
+    let capturedResult: any;
+    const mockPi = {
+      registerTool: (def: any) => { capturedResult = def; },
+    } as unknown as ExtensionAPI;
+    const mockStore = {
+      add: () => ({
+        success: true, target: "memory", entries: ["Entry two"],
+        usage: "5% — 110/5000 chars", entry_count: 1, message: "Entry added.",
+      }),
+    } as unknown as MemoryStore;
+
+    const persistentFlaky = {
+      getDb: () => { throw Object.assign(new Error("disk I/O error"), { code: "SQLITE_IOERR" }); },
+    } as unknown as DatabaseManager;
+
+    registerMemoryTool(mockPi, mockStore, null, persistentFlaky);
+    const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry two" }, undefined as any, undefined as any, undefined as any);
+    const parsed = JSON.parse(result.content[0].text);
+
+    assert.strictEqual(parsed.success, true);
+    assert.match(parsed.message, /SQLite search sync failed/);
+    assert.match(parsed.warning, /disk I\/O error/);
+  });
+
   it("does not sync to SQLite when core Markdown add fails", async () => {
     let capturedResult: any;
     const mockPi = {
@@ -434,5 +491,20 @@ describe("registerMemoryTool", () => {
     await capturedResult.execute("tc-1", { action: "remove", target: "memory", old_text: "old entry" }, undefined as any, undefined as any, undefined as any);
 
     assert.deepStrictEqual(removeArgs, ["memory", "old entry"], "should pass target, old_text to store.remove");
+  });
+
+  it("writeTransferArchive: two same-second calls produce distinct, non-overwriting files", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "transfer-archive-test-"));
+    try {
+      const p1 = writeTransferArchive("memory", ["entry A content"], dir);
+      const p2 = writeTransferArchive("memory", ["entry B content"], dir);
+      assert.notStrictEqual(p1, p2, "two same-second calls must not collide on filename");
+      assert.ok(fs.existsSync(p1), "first archive must still exist (not overwritten)");
+      assert.ok(fs.existsSync(p2), "second archive must exist");
+      assert.ok(fs.readFileSync(p1, "utf-8").includes("entry A content"), "first archive keeps its own content");
+      assert.ok(fs.readFileSync(p2, "utf-8").includes("entry B content"), "second archive keeps its own content");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

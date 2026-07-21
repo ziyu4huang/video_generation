@@ -4,7 +4,7 @@
  * Pure Bun (no pi-SDK dependency), shared by BOTH consumers of the
  * movie-director command set:
  *
- *   • the pi extension (`extensions/pi-movie-director.ts`) — wraps `dispatch`
+ *   • the pi extension (`extensions/movie-director.ts`) — wraps `dispatch`
  *     in the `movie` tool + a `movie_help` reference tool.
  *   • the standalone CLI (`src/cli.ts`) — exposes each command as a direct,
  *     deterministic, no-LLM top-level command.

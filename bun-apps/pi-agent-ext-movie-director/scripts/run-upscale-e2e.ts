@@ -1,31 +1,30 @@
 /**
- * run-upscale-e2e.ts — Item I sibling: native ESRGAN director, end-to-end proof.
+ * run-upscale-e2e.ts — native upscale end-to-end proof (flux2 RealPLKSR/ESRGAN).
  *
- * Drives the upscale chain on a real fixture image, deterministically:
+ * Drives the upscale chain on a real fixture image, deterministically, via the
+ * SAME `dispatch("generate", …)` path the agent's `movie generate` lands on:
  *
  *   fixture.png (256×256, ffmpeg lavfi gradient)
- *     → esrganAdapter (real spandrel + torch MPS, 4xNomosWebPhoto_RealPLKSR)
+ *     → dispatch("generate", {enhancement, upscale}) → swift:flux2
+ *       (RealPLKSR 4xNomosWebPhoto, native Swift MLX)
  *       → fixture_4x.png (1024×1024)
  *         → ffprobe confirm (PNG, dimensions 4× the source)
  *
- * Why deterministic (no LLM in the loop)? Upscaling is a fixed function —
- * spandrel loads the .pth, torch runs the conv on MPS, pixels come out 4×
- * larger. No model judgment; the LLM orchestrator is the replaceable layer.
- * This isolates ONE variable: "does the native ESRGAN path produce a real
- * upscaled PNG?" — exactly the enhancement-gap gate.
+ * The Python/torch-MPS `esrganAdapter` was removed 2026-07-19 (zero-python ext);
+ * `swift:flux2 upscale` (same model family) is the sole upscale provider now.
+ *
+ * Why deterministic (no LLM in the loop)? Upscaling is a fixed function. No
+ * model judgment; this isolates ONE variable: "does the native upscale path
+ * produce a real 4× PNG?" — the enhancement-gap gate.
  *
  * Run:
- *   bun run --cwd bun-apps/pi-agent-ext-movie-director scripts/run-upscale-e2e.ts
- *
- * Env:
- *   MD_VISION_PYTHON  python binary with spandrel+torch (default: <repo>/python/vision-venv/bin/python)
- *   MD_ESRGAN_MODEL   ESRGAN .pth path (default: mlx-models/upscale/4x-nomos-webphoto-realplksr/…)
- *   MLX_OUTPUT_DIR    project workspace root (default repo convention)
+ *   MLX_MODELS_DIR=$(pwd)/mlx-models \
+ *     bun run --cwd bun-apps/pi-agent-ext-movie-director scripts/run-upscale-e2e.ts
  */
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { esrganAdapter, probedMenuSummary } from "../src/index.ts";
+import { join } from "node:path";
+import { dispatch } from "../src/dispatch.ts";
 
 const OUT = process.env.MLX_OUTPUT_DIR
   ? join(process.env.MLX_OUTPUT_DIR, "movie-director", "upscale-e2e")
@@ -49,18 +48,10 @@ async function main() {
 
   const receipt: string[] = [];
   const line = (s = "") => receipt.push(s);
-  line("# Item I sibling — native ESRGAN upscale director: live end-to-end receipt");
+  line("# Native upscale (flux2 RealPLKSR/ESRGAN): live end-to-end receipt");
   line("");
   line(`Generated: ${new Date().toISOString()}`);
   line(`Fixture: ffmpeg lavfi gradient → 256×256 PNG (synthetic, deterministic)`);
-  line("");
-
-  // 0. Preflight: upscale is no longer a gap.
-  const menu = probedMenuSummary();
-  const enhancement = menu.capabilities.find((c) => c.capability === "enhancement");
-  line("## 0. Preflight");
-  line(`- enhancement available_providers: ${JSON.stringify(enhancement?.available_providers)}`);
-  line(`- upscale in gaps? ${menu.gaps.some((g) => g.name === "upscale") ? "YES (BUG)" : "no ✓"}`);
   line("");
 
   // 1. Build a deterministic 256×256 fixture (no input file needed).
@@ -75,23 +66,29 @@ async function main() {
   line(`- \`${fixture}\` (${(await run("stat", ["-f%z", fixture])).stdout.trim()} bytes)`);
   line("");
 
-  // 2. Upscale (REAL spandrel + torch MPS).
-  line("## 2. Upscale — `esrganAdapter` (real ESRGAN 4×)");
+  // 2. Upscale via the movie-tool dispatch path → swift:flux2 (native Swift MLX).
+  line("## 2. Upscale — `dispatch(\"generate\", {enhancement, upscale})` → swift:flux2");
   const t1 = Date.now();
-  const res = await esrganAdapter({
+  const res = await dispatch("generate", {
     capability: "enhancement",
     command: "upscale",
     outputDir: OUT,
-    options: { image: fixture },
+    options: { input: fixture },
   });
-  line(`- success: ${res.success}, provider: ${res.provider}, model: ${res.model}, duration: ${res.duration_seconds}s`);
-  if (!res.success || !res.artifacts.length) {
+  const dt = ((Date.now() - t1) / 1000).toFixed(1);
+  if (!res.ok) {
     line(`- ERROR: ${res.error}`);
-    throw new Error(`upscale failed: ${res.error}`);
+    throw new Error(`upscale dispatch failed: ${res.error}`);
   }
-  const out = res.artifacts[0]!;
+  const parsed = JSON.parse(typeof res.text === "string" ? res.text : JSON.stringify(res.text));
+  const result = parsed.result ?? parsed;
+  line(`- success: ${result.success}, provider: ${result.provider}, model: ${result.model}, dispatch: ${dt}s`);
+  if (!result.success || !result.artifacts?.length) {
+    line(`- ERROR: ${result.error}`);
+    throw new Error(`upscale failed: ${result.error}`);
+  }
+  const out = result.artifacts[0];
   line(`- output: \`${out.path}\` (${out.width}×${out.height}, role=${out.role})`);
-  line(`- wall time: ${((Date.now() - t1) / 1000).toFixed(2)}s`);
   line("");
 
   // 3. Verify the output is a real PNG at 4× the source.
@@ -99,7 +96,6 @@ async function main() {
     "-v", "error", "-select_streams", "v:0",
     "-show_entries", "stream=width,height,codec_name", "-of", "csv=p=0", out.path,
   ]);
-  // ffprobe csv order is not guaranteed — pull the two ints + the codec token.
   const tokens = probe.stdout.trim().split(",");
   const nums = tokens.map((t) => Number(t)).filter((n) => Number.isFinite(n) && n > 0);
   const codec = tokens.find((t) => Number.isNaN(Number(t))) ?? "";
@@ -111,11 +107,11 @@ async function main() {
   line("");
 
   line("---");
-  line(`Gate: upscale retired from gaps ✓ · real 4× PNG produced ✓ · dims ${w}×${h} verified ✓`);
+  line(`Gate: real 4× PNG produced ✓ · dims ${w}×${h} verified ✓ · provider=${result.provider}`);
   const outReceipt = join(import.meta.dirname, "..", "receipts", "upscale-e2e-20260705.md");
   writeFileSync(outReceipt, receipt.join("\n") + "\n", "utf8");
   console.log(`receipt → ${outReceipt}`);
-  console.log(`verdict: dims ${w}×${h}, ok=${dimsOk}`);
+  console.log(`verdict: dims ${w}×${h}, ok=${dimsOk}, provider=${result.provider}`);
   if (!dimsOk) process.exit(1);
 }
 

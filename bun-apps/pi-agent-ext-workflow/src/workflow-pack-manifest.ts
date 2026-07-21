@@ -13,6 +13,15 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+/** I/O contract (05) — all optional; schema/vocab only, semantics live in the runner. */
+export interface ManifestIo {
+  /** Input source(s): a dir/glob string, a slot object, or an array of either. */
+  inputs?: unknown;
+  outputs?: { dir?: string; naming?: "timestamped" | "versioned" | "overwrite"; retention?: "all" | "last-N" };
+  intermediate?: { persist?: boolean; retention?: "all" | "last-N" | "purge-after-run" };
+  runs?: { retention?: "all" | "last-N" };
+}
+
 /** A validated workflow-pack manifest. */
 export interface Manifest {
   name: string;
@@ -28,6 +37,12 @@ export interface Manifest {
   thinking?: string;
   /** Human-facing "how to run it" prose. Not read for execution. */
   howToRun?: string;
+  /** Optional pack version (semver recommended; metadata only, not part of packId). */
+  version?: string;
+  /** Glob for bundled agent defs, relative to pack dir. Default "agents/*.md". */
+  agents?: string;
+  /** Optional I/O contract — where inputs/outputs/intermediate/runs live + retention. */
+  io?: ManifestIo;
   /** Self-identification: "workflow-pack". Lets a pack folder self-describe the
    *  way a pi extension folder does (wayfinder ticket 05 — minimal alignment). */
   kind?: string;
@@ -84,14 +99,27 @@ export function validateManifest(value: unknown): Manifest {
   if (hasBadString(obj, "model")) throw new Error('manifest: optional field "model" must be a string');
   if (hasBadString(obj, "thinking")) throw new Error('manifest: optional field "thinking" must be a string');
   if (hasBadString(obj, "howToRun")) throw new Error('manifest: optional field "howToRun" must be a string');
+  if (hasBadString(obj, "version")) throw new Error('manifest: optional field "version" must be a string');
+  if (hasBadString(obj, "agents")) throw new Error('manifest: optional field "agents" must be a string');
   if (hasBadString(obj, "kind")) throw new Error('manifest: optional field "kind" must be a string');
   if (hasBadString(obj, "engine")) throw new Error('manifest: optional field "engine" must be a string');
   if (hasEmptyString(obj, "model")) throw new Error('manifest: optional field "model" must be a non-empty string');
-  if (hasEmptyString(obj, "thinking")) throw new Error('manifest: optional field "thinking" must be a non-empty string');
-  if (hasEmptyString(obj, "howToRun")) throw new Error('manifest: optional field "howToRun" must be a non-empty string');
+  if (hasEmptyString(obj, "thinking"))
+    throw new Error('manifest: optional field "thinking" must be a non-empty string');
+  if (hasEmptyString(obj, "howToRun"))
+    throw new Error('manifest: optional field "howToRun" must be a non-empty string');
+  if (hasEmptyString(obj, "version")) throw new Error('manifest: optional field "version" must be a non-empty string');
+  if (hasEmptyString(obj, "agents")) throw new Error('manifest: optional field "agents" must be a non-empty string');
   if (hasEmptyString(obj, "kind")) throw new Error('manifest: optional field "kind" must be a non-empty string');
   if (hasEmptyString(obj, "engine")) throw new Error('manifest: optional field "engine" must be a non-empty string');
   // args: any JSON value is allowed (Decision 5 — no schema validation in v1).
+  // io: validate the known shape — must be a plain object when present (05).
+  if ("io" in obj && obj.io !== undefined) {
+    const io = obj.io;
+    if (typeof io !== "object" || io === null || Array.isArray(io)) {
+      throw new Error('manifest: optional field "io" must be an object');
+    }
+  }
 
   const manifest: Manifest = {
     name: obj.name as string,
@@ -102,6 +130,9 @@ export function validateManifest(value: unknown): Manifest {
   if (obj.model !== undefined) manifest.model = obj.model as string;
   if (obj.thinking !== undefined) manifest.thinking = obj.thinking as string;
   if (obj.howToRun !== undefined) manifest.howToRun = obj.howToRun as string;
+  if (obj.version !== undefined) manifest.version = obj.version as string;
+  if (obj.agents !== undefined) manifest.agents = obj.agents as string;
+  if (obj.io !== undefined) manifest.io = obj.io as ManifestIo;
   if (obj.kind !== undefined) manifest.kind = obj.kind as string;
   if (obj.engine !== undefined) manifest.engine = obj.engine as string;
   return manifest;

@@ -19,14 +19,39 @@ export function withFakeHome<T>(home: string, fn: () => T): T {
   }
 }
 
+/**
+ * Cross-file async mutex. `bun test` runs test files concurrently, and 9 files
+ * all mutate the process-global HOME env via this helper. Without serialization
+ * they race — one file's temp HOME clobbers another's mid-run, which hung the
+ * real faux session in usage-limit-integration.test.ts (intermittent 5s timeout).
+ * This queue guarantees only one withFakeHomeAsync critical section runs at a
+ * time, across every importing file (they share this module instance).
+ */
+let homeLockChain: Promise<void> = Promise.resolve();
+async function withHomeLock<T>(critical: () => Promise<T>): Promise<T> {
+  const previous = homeLockChain;
+  let release!: () => void;
+  homeLockChain = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    return await critical();
+  } finally {
+    release();
+  }
+}
+
 /** Async variant of withFakeHome(). */
 export async function withFakeHomeAsync<T>(home: string, fn: () => Promise<T>): Promise<T> {
-  const restore = installFakeHome(home);
-  try {
-    return await fn();
-  } finally {
-    restore();
-  }
+  return withHomeLock(async () => {
+    const restore = installFakeHome(home);
+    try {
+      return await fn();
+    } finally {
+      restore();
+    }
+  });
 }
 
 function installFakeHome(home: string): () => void {

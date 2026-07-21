@@ -29,7 +29,7 @@
 - Create: `src/distill/types.ts`, `src/distill/state.ts`, `src/distill/threshold.ts`, `src/distill/gate.ts`, `src/distill/converge.ts` (moved, imports rewritten)
 - Create: `__tests__/distill/gate.test.ts`, `state.test.ts`, `threshold.test.ts`, `converge.test.ts`, `pipeline.test.ts`, `e2e-supersede.test.ts` (moved, import paths rewritten)
 - Create: `__tests__/distill/zk-ingest-action.test.ts` (rewritten from distill.test.ts — asserts zk_ingest honors `action`)
-- Modify: `extensions/pi-knowledge-card.ts` (add `action` param + gate/converge/status branches to `zk_ingest`; update description)
+- Modify: `extensions/knowledge-card.ts` (add `action` param + gate/converge/status branches to `zk_ingest`; update description)
 - Modify: `extensions/__tests__/perf/schema-cost.regression.test.ts` (re-baseline zk_ingest schema cost)
 - Modify: `src/supersede.ts` (comment update only)
 
@@ -317,7 +317,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 ### Task 4: Fold the distill tool into zk_ingest (action: gate|converge|status)
 
 **Files:**
-- Modify: `bun-apps/pi-agent-ext-knowledge-card/extensions/pi-knowledge-card.ts` (zk_ingest registration block, ~lines 935–1140)
+- Modify: `bun-apps/pi-agent-ext-knowledge-card/extensions/knowledge-card.ts` (zk_ingest registration block, ~lines 935–1140)
 
 **Interfaces:**
 - Consumes: `runGate`, `runConverge`, `readState` from `../src/distill/` (Task 2); types `MemoryEntry`, `EnrichedNote`, `ConvergeMetrics`.
@@ -330,7 +330,7 @@ Create `bun-apps/pi-agent-ext-knowledge-card/__tests__/distill/zk-ingest-action.
 ```ts
 import { test, expect, describe } from "bun:test";
 import { captureTools } from "../../../perf-harness/src/index.ts";
-import kcardFactory from "../../extensions/pi-knowledge-card.ts";
+import kcardFactory from "../../extensions/knowledge-card.ts";
 
 const tools = captureTools(kcardFactory);
 
@@ -396,7 +396,7 @@ Expected: FAIL — `action`/`entries`/`notes`/`metrics` are undefined on the par
 
 - [ ] **Step 3: Add the new imports at the top of the extension**
 
-In `bun-apps/pi-agent-ext-knowledge-card/extensions/pi-knowledge-card.ts`, alongside the existing `../src/ingest.ts`-style imports near the top, add:
+In `bun-apps/pi-agent-ext-knowledge-card/extensions/knowledge-card.ts`, alongside the existing `../src/ingest.ts`-style imports near the top, add:
 
 ```ts
 import { runGate } from "../src/distill/gate.ts";
@@ -572,7 +572,7 @@ Expected: green, including the relocated distill tests + the existing zk_ingest 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add bun-apps/pi-agent-ext-knowledge-card/extensions/pi-knowledge-card.ts \
+git add bun-apps/pi-agent-ext-knowledge-card/extensions/knowledge-card.ts \
         bun-apps/pi-agent-ext-knowledge-card/__tests__/distill/zk-ingest-action.test.ts
 git commit -m "feat(knowledge-card): fold distill pipeline into zk_ingest actions
 

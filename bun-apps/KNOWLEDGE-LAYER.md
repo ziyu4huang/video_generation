@@ -4,6 +4,12 @@
 > memory → knowledge layer. For depth, see each package's own docs (linked below).
 > Snapshot: 2026-07-14 · branch `docs/memory-ext-architecture-review`.
 >
+> ⚠ **CORRECTED 2026-07-18 (ADR-0001):** `pi-agent-ext-hermes-memory` is a
+> **TIER-0 foundation** (raw memory I/O), NOT TIER-2. Its former auto-converge
+> created illegal upward edges (hermes→knowledge-card, hermes→obsidian); those
+> are removed — convergence ownership moves to the hub. See
+> [`docs/adr/0001-strict-downward-edges-knowledge-layer.md`](./docs/adr/0001-strict-downward-edges-knowledge-layer.md).
+>
 > This overview is a *distillation* of the detailed review at
 > `.planning/2026-07-14-memory-ext-architecture-review/findings.md` (every claim
 > there is backed by a runnable `rg`/`git` citation).
@@ -11,22 +17,21 @@
 ## The three tiers
 
 ```
-TIER 0 — FOUNDATION: pi-agent-ext-obsidian
-  vault I/O · parser · resolveVault · validateZettelNote · runSubagentWithRetry
-        │  hard forward dep (static import)
-        ▼
+TIER 0 — FOUNDATIONS (raw I/O; no upward edges allowed)
+  pi-agent-ext-obsidian         vault I/O · parser · resolveVault · validateZettelNote · runSubagentWithRetry
+  pi-agent-ext-hermes-memory    memory I/O · store · search · session index · flush
+        ▲                ▲
+        │ hard import     │ hub reads hermes memory files at well-known path
+        │ (down edge ✓)   │ on session_shutdown (NO hermes→hub edge — see ADR-0001)
+        └────────┬────────┘
+                 ▼
 TIER 1 — CONVERGENCE HUB: pi-agent-ext-knowledge-card
   zk_card · zk_ask · zk_ingest · knowledge_query
   src/ deterministic library: ingest.ts (WRITE) · retrieve.ts (READ) · merge · entities · emit
-  zk_ingest = canonical convergence sink (4 source families)
-        │           ┐
-        │           │ BOTH WRITE via ingestRecords
-        ▼           ▼
-TIER 2 — TWO WRITERS → ONE shared graph folder
-  pi-agent-ext-hermes-memory        pi-agent-ext-knowledge-card (zk_ingest actions gate/converge/status)
-    AUTO-converge                     AGENT-triggered gate→enrich→converge
-        └──────────┬───────────────────┘
-                   ▼
+  zk_ingest = canonical convergence sink (4 source families: workflow-jsonl / hermes / auto-memory / generic)
+  OWNS convergence: session_shutdown handler reads hermes + workflow sources → ingestRecords → obsidian write
+                 │
+                 ▼
         Zettelkasten/knowledge-graph/  ← single sink folder, shared-tag edges
 ```
 

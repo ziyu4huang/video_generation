@@ -483,6 +483,53 @@ test("renderNavigator shows model info in agent rows", () => {
   assert.match(text, /model/);
 });
 
+function runningAgentManager(): Pick<WorkflowManager, "listRuns" | "getRun"> {
+  const snapshot: WorkflowSnapshot = {
+    name: "audit",
+    phases: ["Scan"],
+    currentPhase: "Scan",
+    logs: [],
+    agents: [
+      {
+        id: 1,
+        label: "scan a",
+        phase: "Scan",
+        prompt: "scan the code",
+        status: "running",
+        history: [{ role: "assistant", kind: "toolCall", toolName: "grep", text: "{}" }],
+      },
+    ],
+    agentCount: 1,
+    runningCount: 1,
+    doneCount: 0,
+    errorCount: 0,
+  };
+  return {
+    listRuns: () =>
+      [
+        {
+          runId: "run-2",
+          workflowName: "audit",
+          status: "running",
+          phases: ["Scan"],
+          agents: snapshot.agents,
+          logs: [],
+        },
+      ] as unknown as PersistedRunState[],
+    getRun: (id: string) =>
+      id === "run-2" ? ({ runId: "run-2", status: "running", snapshot } as unknown as ManagedRun) : undefined,
+  };
+}
+
+test("renderNavigator agents view shows a running agent's latest tool call", () => {
+  const model = new NavigatorModel(runningAgentManager());
+  const state = new NavigatorState();
+  state.drill(model); // runs -> phases
+  state.drill(model); // phases -> agents
+  const text = renderNavigator(state, model, 80).join("\n");
+  assert.ok(text.includes("▸ grep"), `expected the live tool call in the agents list, got:\n${text}`);
+});
+
 test("renderNavigator shows correct footer hint per view", () => {
   const model = new NavigatorModel(fakeManager());
 
@@ -659,4 +706,92 @@ test("renderNavigator footer hint changes based on item under cursor", () => {
   const savedText = renderNavigator(state, model, 80).join("\n");
   assert.notEqual(savedText.indexOf("x delete"), -1, "saved item should show x delete");
   assert.equal(savedText.indexOf("x stop"), -1, "saved item should NOT show x stop");
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Task 7: running-agent detail auto-follow (live tail)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function runningDetailManager(historyLen: number): Pick<WorkflowManager, "listRuns" | "getRun"> {
+  const history = Array.from({ length: historyLen }, (_, i) => ({
+    role: "assistant" as const,
+    kind: "toolCall" as const,
+    toolName: "read",
+    text: `entry-${i}`,
+  }));
+  const snapshot: WorkflowSnapshot = {
+    name: "wf",
+    phases: ["P"],
+    currentPhase: "P",
+    logs: [],
+    agents: [{ id: 1, label: "worker", phase: "P", prompt: "p", status: "running", history }],
+    agentCount: 1,
+    runningCount: 1,
+    doneCount: 0,
+    errorCount: 0,
+  };
+  return {
+    listRuns: () =>
+      [
+        { runId: "r", workflowName: "wf", status: "running", phases: ["P"], agents: snapshot.agents, logs: [] },
+      ] as unknown as PersistedRunState[],
+    getRun: (id: string) =>
+      id === "r" ? ({ runId: "r", status: "running", snapshot } as unknown as ManagedRun) : undefined,
+  };
+}
+
+test("detail view of a running agent auto-follows to the bottom and shows a live tag", () => {
+  const model = new NavigatorModel(runningDetailManager(30));
+  const state = new NavigatorState();
+  state.drill(model); // runs -> phases
+  state.drill(model); // phases -> agents
+  state.drill(model); // agents -> detail
+  assert.equal(state.followLive, true);
+
+  const text = renderNavigator(state, model, 40, undefined, 14).join("\n");
+  assert.match(text, /live/);
+  assert.ok(text.includes("entry-29"), "last history entry visible at the bottom");
+  assert.ok(!text.includes("entry-0"), "oldest entries scrolled out of view");
+});
+
+test("scrolling up in a running agent's detail view disables auto-follow", () => {
+  const model = new NavigatorModel(runningDetailManager(30));
+  const state = new NavigatorState();
+  state.drill(model);
+  state.drill(model);
+  state.drill(model);
+  renderNavigator(state, model, 40, undefined, 14); // establish the followed-to-bottom scroll position
+  state.move(-1, 0);
+  assert.equal(state.followLive, false);
+  const text = renderNavigator(state, model, 40, undefined, 14).join("\n");
+  assert.ok(!/live/.test(text), "live tag hidden once auto-follow is paused");
+});
+
+test("scrolling back to the bottom re-enables auto-follow", () => {
+  const model = new NavigatorModel(runningDetailManager(30));
+  const state = new NavigatorState();
+  state.drill(model);
+  state.drill(model);
+  state.drill(model);
+  renderNavigator(state, model, 40, undefined, 14);
+  state.move(-1, 0);
+  assert.equal(state.followLive, false);
+  state.move(1000, 0); // scroll back to (or past) the bottom
+  const text = renderNavigator(state, model, 40, undefined, 14).join("\n");
+  assert.equal(state.followLive, true);
+  assert.match(text, /live/);
+});
+
+test("a finished agent's detail view never shows the live tag, even with a long history", () => {
+  const manager = runningDetailManager(30);
+  const run = manager.getRun("r") as unknown as { snapshot: WorkflowSnapshot };
+  run.snapshot.agents[0].status = "done";
+  const model = new NavigatorModel(manager);
+  const state = new NavigatorState();
+  state.drill(model);
+  state.drill(model);
+  state.drill(model);
+  const text = renderNavigator(state, model, 40, undefined, 14).join("\n");
+  assert.ok(!/live/.test(text), "no live tag for a finished agent");
+  assert.equal(state.scroll, 0, "starts at the top (not auto-scrolled) for a finished agent");
 });

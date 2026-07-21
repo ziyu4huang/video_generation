@@ -1,3 +1,10 @@
+---
+type: prototype
+status: closed
+superseded-by: 2026-07-19-a (ticket 06)
+blocked by: 01
+---
+
 # 03 — Bootstrap soft-instruction
 
 ## Question
@@ -14,5 +21,14 @@ Produce the line (or the no-op decision) and wire it. This is the small "soft co
 - `getBootstrapContent()` in `superpowers.ts` assembles the injected payload; `piToolMapping()` is the existing Pi-specific glue appended to it — the natural, lowest-risk place for the nudge.
 - The bootstrap is re-armed on `session_start` / `session_compact` and disarmed on `agent_end`.
 
-type: prototype
-blocked by: 01 (Plan convention)
+## Resolution
+
+**Closed as superseded (moot).** The unified design in
+[`2026-07-19-a`](../../2026-07-19-a/map.md) settled (decision 02) that the
+coordination layer lives **inside `pi-agent-ext-goal-todo`** and reads plans
+directly — **no superpowers skill editing and no bootstrap soft-instruction at
+all**. The invariant "skills byte-identical to upstream" (2026-07-19-a/01)
+removes the only place this nudge would have lived (`piToolMapping()`). The
+question this ticket posed is now answered by construction: **the layer needs
+zero instruction.** Folded into the unified effort; see
+[2026-07-19-a/06](../../2026-07-19-a/tickets/06-close-and-supersede-prior-efforts.md).

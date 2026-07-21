@@ -8,7 +8,7 @@
  * so this tests the ACTUAL tool definitions the LLM sees.
  */
 import { test, expect } from "bun:test";
-import extensionFactory from "../pi-file2md.ts";
+import extensionFactory from "../file2md.ts";
 
 function captureTools(): Record<string, Record<string, unknown>> {
 	const tools: Record<string, Record<string, unknown>> = {};

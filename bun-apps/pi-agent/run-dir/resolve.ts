@@ -21,6 +21,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import manifest from "./manifest.json";
 import { detectMode } from "../src/mode.ts";
+import type { UserSuppressFlags } from "../src/cli-argv.ts";
 
 // Re-export so callers (and tests) can import detectMode from the resolver
 // surface; the implementation lives in the shared src/mode.ts.
@@ -90,10 +91,43 @@ function probeMissingNpm(): string[] {
 }
 
 /**
+ * The dependency sections of a package.json that may be imported at runtime.
+ * Kept narrow (only the three Bun populates) so the type is self-documenting.
+ */
+type PackageJsonWithDeps = {
+	dependencies?: Record<string, string>;
+	peerDependencies?: Record<string, string>;
+	devDependencies?: Record<string, string>;
+};
+
+/**
+ * Names of packages an extension may import as bare specifiers at runtime,
+ * unioned across ALL three declaration sections: dependencies +
+ * peerDependencies + devDependencies, deduped, dependencies-first order.
+ *
+ * Why all three (not just `.dependencies`): in source mode the extensions load
+ * via jiti, which resolves a bare specifier the SAME way regardless of how the
+ * package classifies it. Several extensions import `@earendil-works/pi-tui`
+ * (declared as a peerDependency) and `typebox` (a devDependency in some exts);
+ * a probe that only read `.dependencies` was blind to both, so the pre-flight
+ * self-heal in check-deps.ts never triggered for them and pi crashed on launch.
+ * Source-mode `bun install` (never --production) materializes devDeps too, so
+ * including them never produces a false "missing" on a healthy install — the
+ * probe only tests specifiers the extension itself declares.
+ */
+export function runtimeDependencyNames(pkg: PackageJsonWithDeps): string[] {
+	return Object.keys({
+		...(pkg.dependencies ?? {}),
+		...(pkg.peerDependencies ?? {}),
+		...(pkg.devDependencies ?? {}),
+	});
+}
+
+/**
  * Extension dependency packages (workspace OR npm) that are NOT resolvable from
  * their owning extension's package dir right now. The extensions themselves
  * load fine by ABSOLUTE PATH, but they import other packages as BARE
- * SPECIFIERS — e.g. pi-knowledge-card.ts imports `@repo/pi-agent-ext-obsidian`,
+ * SPECIFIERS — e.g. knowledge-card.ts imports `@repo/pi-agent-ext-obsidian`,
  * power-tool imports `js-yaml`, web-access imports `@mozilla/readability`.
  * When `bun install` hasn't run (fresh clone / clean tree) those packages aren't
  * linked into node_modules, and pi's loader throws the unhelpful
@@ -110,8 +144,20 @@ function probeMissingNpm(): string[] {
  * each dep from `<bunAppsDir>/<extDir>` via `Bun.resolveSync(dep, extDir)`
  * mirrors the loader exactly, so detection is accurate. (The real package names
  * are also scoped — `@repo/pi-agent-ext-obsidian`, `@repo/…` — so we read
- * them from each extension's package.json `dependencies` rather than guessing
- * the scope from the directory name.)
+ * them from each extension's package.json dependency sections rather than
+ * guessing the scope from the directory name.)
+ *
+ * Covers ALL three runtime-relevant sections — dependencies,
+ * peerDependencies, AND devDependencies — because source-mode loading via
+ * jiti resolves bare specifiers regardless of how the package classifies them,
+ * and a missing peerDep is just as fatal as a missing dependency. The classic
+ * victim is `@earendil-works/pi-tui`: most extensions import it but declare it
+ * as a peerDependency, so a probe that only read `.dependencies` never reported
+ * it missing → check-deps.ts skipped the self-heal → pi crashed on launch with
+ * `Cannot find module '@earendil-works/pi-tui'` after every clean node_modules.
+ * `typebox` (a runtime import declared as a devDependency in some exts) is the
+ * same shape of bug. See `runtimeDependencyNames` below — the single source of
+ * truth for which sections count.
  *
  * Returns missing dependency names, deduped.
  */
@@ -130,21 +176,27 @@ export function probeMissingExtensionDeps(bunAppsDir: string | undefined): strin
   for (const e of manifest.extensions) {
     consider(typeof e === "string" ? e : e?.entry);
   }
+  // staticExtensions are bare dir names ("pi-agent-ext-core-task", not full
+  // entry paths) and are loaded just like `extensions` — they MUST be probed
+  // too, or a missing dep on a static extension (e.g. pi-tui on core-task) is
+  // invisible to the self-heal and crashes pi on launch.
+  for (const e of manifest.staticExtensions ?? []) {
+    consider(typeof e === "string" ? e : (e as { entry?: string })?.entry);
+  }
   for (const e of Object.values(manifest.lazyExtensions ?? {})) {
     consider(typeof e === "string" ? e : (e as { entry?: string })?.entry);
   }
   const missing: string[] = [];
   for (const dir of dirs) {
     const extDir = join(bunAppsDir, dir);
-    let deps: Record<string, string> | undefined;
+    let parsed: PackageJsonWithDeps;
     try {
-      deps = JSON.parse(readFileSync(join(extDir, "package.json"), "utf8")).dependencies;
+      parsed = JSON.parse(readFileSync(join(extDir, "package.json"), "utf8"));
     } catch {
       // No/unreadable package.json for this extension dir — nothing to probe.
       continue;
     }
-    if (!deps) continue;
-    for (const dep of Object.keys(deps)) {
+    for (const dep of runtimeDependencyNames(parsed)) {
       if (missing.includes(dep)) continue;
       // `<dep>/package.json` is the most reliable "is this package linked"
       // signal: every installed package has one, regardless of main/exports.
@@ -334,21 +386,56 @@ export function detectRunDirMode(selfDir: string, exists: (p: string) => boolean
   return "source";
 }
 
-/** Returns a flat argv fragment: ["-e", absPath, ..., "--skill", absPath, ...] */
-export async function resolveRunDirArgv(): Promise<string[]> {
-  // Compiled-binary mode: no-op. pi can't load .ts extensions here anyway
-  // (jiti feeds each extension as a base64 data: URL → Bun ENAMETOOLONG — see
-  // README "Build modes"), and import.meta.url is the $bunfs virtual scheme so
-  // the absolute-path resolution below yields garbage (e.g. BUN_APPS_DIR
-  // collapsing to "/", producing "/zai-mcp/…" non-paths). Without this guard
-  // every binary invocation — even --version — spews ~7 "skipping" warnings.
-  // The bundled .js (not the --compile binary) is the supported shipped path.
-  // (The binary detection itself is unit-tested via detectMode in resolve.test.ts.)
+/**
+ * Returns a flat argv fragment: ["-e", absPath, ..., "--skill", absPath, ...],
+ * filtered by user-passed `-ne`/`-ns` (userFlags — computed by the caller from
+ * the PRE-SPLICE argv, see src/patches/load-run-dir-resources.ts). The deploy
+ * modes' own self-injected "-ne" is a bare token and survives the filter.
+ */
+export async function resolveRunDirArgv(
+  userFlags: Partial<UserSuppressFlags> = {},
+): Promise<string[]> {
+  return suppressResolvedArgv(await resolveRunDirArgvUnfiltered(), userFlags);
+}
+
+async function resolveRunDirArgvUnfiltered(): Promise<string[]> {
+  // Compiled-binary mode: emit NO -e flags — the default extension set ships
+  // as STATIC factories instead (src/static-extensions.ts, native in-memory
+  // call). Two reasons this stays -e-free even though upstream 0.80.10+ CAN
+  // load user `-e <path>.ts` in a compiled binary (jiti virtualModules +
+  // tryNative:false — verified live 2026-07-20): (1) the manifest's relative
+  // .ts entries don't exist in the $bunfs virtual FS, and (2) import.meta.url
+  // is the $bunfs scheme so the absolute-path resolution below would yield
+  // garbage (e.g. BUN_APPS_DIR collapsing to "/", producing "/zai-mcp/…"
+  // non-paths). A USER's own -e paths are untouched by this function and load
+  // fine.
+  //
+  // `--skill` paths ARE emitted: @earendil-works/pi-coding-agent's skill
+  // reader uses only node:fs (existsSync/readdirSync/readFileSync/statSync) —
+  // zero jiti, zero dynamic code execution — and the extract-embedded-assets
+  // patch extracts manifest.binarySkills' directories to a real on-disk dir
+  // before this runs. Resolve them against that dir, falling back to
+  // dirname(process.execPath) (the exe's own dir), mirroring how
+  // getThemesDir()/getAssetsDir() resolve shipped assets in binary mode.
   if (mode === "binary") {
-    if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
-      warn("compiled-binary mode — extensions can't load here; returning no argv");
+    // --compile-embed mode: extract-embedded-assets patch sets BUN_PI_EMBEDDED_EXTRACT_DIR
+    // before this runs (during applyPatches). Use that dir for skill resolution.
+    const embedDir = process.env.BUN_PI_EMBEDDED_EXTRACT_DIR;
+    const exeDir = dirname(process.execPath);
+    const baseDir = embedDir && existsSync(embedDir) ? embedDir : exeDir;
+    const argv: string[] = [];
+    for (const rel of manifest.binarySkills ?? []) {
+      const p = join(baseDir, rel);
+      if (existsSync(p)) {
+        argv.push("--skill", p);
+      } else if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
+        warn(`binary mode: skill path not found, skipping: ${p}`);
+      }
     }
-    return [];
+    if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
+      warn(`compiled-binary mode — default extensions ship as static factories; emitting ${argv.length / 2} --skill flag(s)`);
+    }
+    return argv;
   }
 
   const selfDir = dirname(fileURLToPath(url));
@@ -534,6 +621,35 @@ export function buildArgvFromManifest(
     }
   }
   return argv;
+}
+
+/**
+ * Drop `-e <path>` / `--skill <path>` pairs from a RUN-DIR-RESOLVED argv
+ * fragment according to user-passed suppression flags (see
+ * src/cli-argv.ts userSuppressFlags). Only ever applied to the argv THIS
+ * module produced — the user's own `-e <path>` flags live elsewhere in
+ * process.argv and are untouched, which matches upstream pi's `-ne`
+ * semantics (explicit CLI extensions still load under -ne).
+ * Bare tokens (the deploy modes' self-injected "-ne") pass through.
+ */
+export function suppressResolvedArgv(
+  argv: string[],
+  flags: Partial<UserSuppressFlags>,
+): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const tok = argv[i]!;
+    if (flags.noExtensions && (tok === "-e" || tok === "--extension")) {
+      i++; // skip payload
+      continue;
+    }
+    if (flags.noSkills && tok === "--skill") {
+      i++; // skip payload
+      continue;
+    }
+    out.push(tok);
+  }
+  return out;
 }
 
 // ─── Lazy / opt-in extension aliases ──────────────────────────────────────────

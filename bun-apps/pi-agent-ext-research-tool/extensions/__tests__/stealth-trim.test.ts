@@ -7,7 +7,7 @@
  * `pi.registerCommand` etc.; only `registerTool` is captured).
  */
 import { test, expect } from "bun:test";
-import extension from "../research.ts";
+import extension from "../research-tool.ts";
 
 function captureTools(): Record<string, Record<string, unknown>> {
 	const tools: Record<string, Record<string, unknown>> = {};

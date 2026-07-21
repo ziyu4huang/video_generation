@@ -8,12 +8,19 @@
 
 import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { shorten, statusIcon, type WorkflowAgentSnapshot, type WorkflowSnapshot } from "./display.js";
+import { summarizeLatestAction } from "./agent-history.js";
+import {
+  type ActivityRow,
+  fmtTokensShort,
+  renderActivityRow,
+  shorten,
+  type WorkflowAgentSnapshot,
+  type WorkflowSnapshot,
+} from "./display.js";
 import type { PersistedRunState } from "./run-persistence.js";
 import type { ManagedRun, WorkflowManager } from "./workflow-manager.js";
 import type { WorkflowStorage } from "./workflow-saved.js";
 import type { WorkflowSettings } from "./workflow-settings.js";
-import { shortModel } from "./workflow-ui.js";
 
 // `tokenUsage` is included so the detailed panel's live token/s counter refreshes
 // as tokens accrue (not only on agent start/end). It is harmless in compact mode —
@@ -21,6 +28,7 @@ import { shortModel } from "./workflow-ui.js";
 const RUN_EVENTS = [
   "agentStart",
   "agentEnd",
+  "agentHistory",
   "phase",
   "log",
   "tokenUsage",
@@ -286,14 +294,6 @@ export function clearTokenSamples(runId: string): void {
   tokenSamples.delete(runId);
 }
 
-/** Compact token count for the space-constrained panel: 980, 12.4K, 1.3M. */
-function fmtTokensShort(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) return "";
-  if (n < 1000) return `${Math.round(n)}`;
-  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}K`;
-  return `${(n / 1_000_000).toFixed(1)}M`;
-}
-
 /** Normalize the configured per-phase agent cap to a sane integer (default 8). */
 export function clampMaxAgents(value: number | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 1) return 8;
@@ -340,10 +340,15 @@ function renderRunBody(
 
     const visible = phaseAgents.slice(-maxAgents);
     for (const a of visible) {
-      const tok = a.tokens ? dim(` ${fmtTokensShort(a.tokens)} tok`) : "";
-      const mdl = shortModel(a.model);
-      const model = mdl ? dim(` · ${mdl}`) : "";
-      lines.push(`    [${a.id}] ${statusIcon(a.status)} ${shorten(a.label, 40)}${tok}${model}`);
+      const row: ActivityRow = {
+        status: a.status,
+        actor: shorten(a.label, 40),
+        model: a.model,
+        tokens: a.tokens,
+        badge: `[${a.id}]`,
+        latestAction: a.status === "running" ? summarizeLatestAction(a.history) : undefined,
+      };
+      lines.push(`    ${renderActivityRow(row, theme)}`);
     }
     if (phaseAgents.length > visible.length) {
       lines.push(dim(`    … ${phaseAgents.length - visible.length} earlier agents`));

@@ -18,3 +18,60 @@ export function isDoctorCommand(argv: string[]): boolean {
 export function isExtDoctorCommand(argv: string[]): boolean {
 	return argv[0] === "ext" && argv[1] === "doctor";
 }
+
+/**
+ * User-passed suppression flags, read from the PRE-PATCH argv (the slice
+ * cli.ts captures before applyPatches() splices run-dir `-e`/`--skill` paths
+ * in). This is what distinguishes a USER's `-ne` from the `-ne` that deploy
+ * layouts self-inject inside resolveRunDirArgv() — at classification time the
+ * injected tokens don't exist yet.
+ *
+ * Upstream pi treats these tokens as flags wherever they appear in argv
+ * (dist/cli/args.js), so a plain includes() mirrors pi exactly.
+ */
+export interface UserSuppressFlags {
+	noExtensions: boolean;
+	noSkills: boolean;
+}
+
+export function userSuppressFlags(argv: string[]): UserSuppressFlags {
+	return {
+		noExtensions: argv.includes("-ne") || argv.includes("--no-extensions"),
+		noSkills: argv.includes("-ns") || argv.includes("--no-skills"),
+	};
+}
+
+/**
+ * Values of every `-e <path>` / `--extension <path>` pair in the PRE-PATCH
+ * argv (what the user actually typed — the run-dir splice hasn't run yet at
+ * classification time, same contract as userSuppressFlags above).
+ */
+export function userExtensionPaths(argv: string[]): string[] {
+	const out: string[] = [];
+	for (let i = 0; i < argv.length - 1; i++) {
+		if (argv[i] === "-e" || argv[i] === "--extension") out.push(argv[i + 1]!);
+	}
+	return out;
+}
+
+/**
+ * Which static extension packages the user's own `-e` paths override. A `-e`
+ * path that points INTO a static package's directory (any whole path segment
+ * equals the package name, e.g. `-e ~/dev/pi-agent-ext-hermes-memory/
+ * extensions/hermes-memory.ts`) means the user wants THAT copy — keeping the
+ * baked-in static factory too would register the same tool names twice and
+ * crash extension loading with `Tool "<name>" conflicts` (pi does not dedup a
+ * static factory against a -e path). cli.ts drops the overridden factories so
+ * the user's copy wins. Segment equality (not substring) so
+ * `pi-agent-ext-hermes-memory-v2` does not match `pi-agent-ext-hermes-memory`.
+ */
+export function overriddenStaticExtensions(argv: string[], staticNames: string[]): Set<string> {
+	const overridden = new Set<string>();
+	for (const p of userExtensionPaths(argv)) {
+		const segs = p.split(/[\\/]/);
+		for (const name of staticNames) {
+			if (segs.includes(name)) overridden.add(name);
+		}
+	}
+	return overridden;
+}

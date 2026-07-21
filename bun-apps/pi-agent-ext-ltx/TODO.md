@@ -69,7 +69,7 @@ provider pair in play serializes it as a JSON **string** rather than a
 nested object — `key in options` then throws "options is not an Object" on
 a string, discarding the whole call. `pi-agent-ext-flux2` had already hit
 and fixed the identical issue (`coerceOptions()`); ported that fix verbatim
-to `extensions/pi-ltx.ts` + 3 regression tests in `pi-ltx.test.ts`. Reran the
+to `extensions/ltx.ts` + 3 regression tests in `pi-ltx.test.ts`. Reran the
 exact same 3 tool calls afterward through the real `ltx` tool (no bypass) —
 all succeeded. 96/96 tests pass.
 
@@ -289,7 +289,7 @@ landed via PR #234). Fixed both ways:
 
 96 -> 99 tests (2 new `native-t2a`/`segment` describe blocks in
 `result.test.ts`, existing `commands.test.ts` registry-count assertions
-updated 10 -> 12). `README.md`/`extensions/pi-ltx.ts` doc counts and command
+updated 10 -> 12). `README.md`/`extensions/ltx.ts` doc counts and command
 lists updated to match (also fixed a stale "no mp4 muxer yet" line for
 `native-i2v` — mp4 muxing shipped in an earlier pass and the README hadn't
 been updated).
@@ -315,7 +315,7 @@ upheld findings). Fixed 7 of the 8:
    silently dropping any upscale/second-stage add-on's own timing line.
    Fixed: sums every occurrence (`allMatches`, not `firstMatch`).
 3-5/8 (`paths.ts`, `validateExtraArgs`) — three related argv-injection gaps
-   in the extraArgs escape hatch (agent-reachable via `extensions/pi-ltx.ts`'s
+   in the extraArgs escape hatch (agent-reachable via `extensions/ltx.ts`'s
    `extraArgs` param): `--flag=value` syntax bypassed validation on the value
    half entirely; a bare-word value (no `/`, no long extension) skipped
    `assertPathAllowed` under the old `looksPathy` heuristic — a symlink named

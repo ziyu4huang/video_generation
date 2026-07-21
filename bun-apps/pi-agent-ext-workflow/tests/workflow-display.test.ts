@@ -526,6 +526,86 @@ describe("display pure helpers", () => {
   });
 });
 
+describe("activityGlyph", () => {
+  it("returns the expected icon for every agent-level status", async () => {
+    const { activityGlyph } = await loadDisplay();
+    assert.equal(activityGlyph("queued").icon, "○");
+    assert.equal(activityGlyph("running").icon, "●");
+    assert.equal(activityGlyph("done").icon, "✓");
+    assert.equal(activityGlyph("error").icon, "✗");
+    assert.equal(activityGlyph("failed").icon, "✗");
+    assert.equal(activityGlyph("skipped").icon, "-");
+    assert.equal(activityGlyph("timedout").icon, "⏱");
+  });
+});
+
+describe("renderActivityRow", () => {
+  const theme = { fg: (_c: string, t: string) => t, bold: (t: string) => t };
+
+  it("renders icon, actor, model, and tokens", async () => {
+    const { renderActivityRow } = await loadDisplay();
+    const line = renderActivityRow(
+      { status: "done", actor: "audit_routes", model: "anthropic/claude-haiku-4-5", tokens: 2100 },
+      theme,
+    );
+    assert.ok(line.includes("✓ audit_routes"), `expected icon+actor, got: ${line}`);
+    assert.ok(line.includes("claude-haiku-4-5"), `expected shortened model, got: ${line}`);
+    assert.ok(line.includes("2.1K tok"), `expected short token count, got: ${line}`);
+  });
+
+  it("shows the badge before the icon when present", async () => {
+    const { renderActivityRow } = await loadDisplay();
+    const line = renderActivityRow({ status: "running", actor: "audit_auth", badge: "[2]" }, theme);
+    assert.ok(line.startsWith("[2] ● audit_auth"), `expected badge prefix, got: ${line}`);
+  });
+
+  it("shows latestAction when present, taking priority over detail", async () => {
+    const { renderActivityRow } = await loadDisplay();
+    const line = renderActivityRow(
+      { status: "running", actor: "worker", latestAction: "▸ grep", detail: "static task text" },
+      theme,
+    );
+    assert.ok(line.includes("▸ grep"), `expected latestAction, got: ${line}`);
+    assert.ok(!line.includes("static task text"), "detail should be suppressed when latestAction is present");
+  });
+
+  it("falls back to detail (truncated) when latestAction is absent", async () => {
+    const { renderActivityRow } = await loadDisplay();
+    const line = renderActivityRow({ status: "done", actor: "worker", detail: "a finished task" }, theme);
+    assert.ok(line.includes("a finished task"), `expected detail text, got: ${line}`);
+  });
+
+  it("omits every optional segment cleanly when absent", async () => {
+    const { renderActivityRow } = await loadDisplay();
+    const line = renderActivityRow({ status: "queued", actor: "worker" }, theme);
+    assert.equal(line.trim(), "○ worker");
+  });
+
+  it("shows elapsed time and tool-call count when present", async () => {
+    const { renderActivityRow } = await loadDisplay();
+    const line = renderActivityRow({ status: "running", actor: "worker", elapsedMs: 1500, toolCalls: 1 }, theme);
+    assert.match(line, /1\.5s/);
+    assert.match(line, /1 call\b/);
+  });
+
+  it("pluralizes tool-call count", async () => {
+    const { renderActivityRow } = await loadDisplay();
+    const line = renderActivityRow({ status: "running", actor: "worker", toolCalls: 3 }, theme);
+    assert.match(line, /3 calls/);
+  });
+});
+
+describe("statusIcon (unchanged for existing agent statuses)", () => {
+  it("matches the pre-refactor icons for queued/running/done/error/skipped", async () => {
+    const { statusIcon } = await loadDisplay();
+    assert.equal(statusIcon("queued"), "○");
+    assert.equal(statusIcon("running"), "●");
+    assert.equal(statusIcon("done"), "✓");
+    assert.equal(statusIcon("error"), "✗");
+    assert.equal(statusIcon("skipped"), "-");
+  });
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // deliverText — background result formatting
 // ═══════════════════════════════════════════════════════════════════════════

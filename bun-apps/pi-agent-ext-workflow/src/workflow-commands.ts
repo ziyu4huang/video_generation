@@ -27,7 +27,7 @@ const USAGE =
 
 const RUN_USAGE = "Usage: /workflows run <prompt> — force a dynamic workflow from the prompt";
 
-function summarizeRun(run: PersistedRunState): string {
+export function summarizeRun(run: PersistedRunState): string {
   const icon = STATUS_ICON[run.status] ?? "?";
   const done = run.agents.filter((a) => a.status === "done").length;
   const total = run.agents.length;
@@ -89,7 +89,7 @@ function watchRun(manager: WorkflowManager, pi: ExtensionAPI, ctx: ExtensionComm
   return true;
 }
 
-function renderPersistedStatus(run: PersistedRunState): string {
+export function renderPersistedStatus(run: PersistedRunState): string {
   const lines = [`${STATUS_ICON[run.status] ?? "?"} ${run.workflowName} (${run.runId}) — ${run.status}`];
   if (run.currentPhase) lines.push(`  phase: ${run.currentPhase}`);
   for (const agent of run.agents) {

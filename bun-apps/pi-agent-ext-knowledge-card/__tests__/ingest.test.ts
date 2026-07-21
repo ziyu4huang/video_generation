@@ -270,13 +270,16 @@ describe("adaptHermesMarkdown", () => {
 		expect(adaptHermesMarkdown(mk("[preference]"))[0]!.type).toBe("pattern");
 	});
 
-	test("a prefix-less entry becomes type=pattern (general note)", () => {
+	test("a prefix-less entry infers its category from content", () => {
 		const md =
 			"**Tool quirks** (verified 2026-06-29):\n• Some bullet fact. <!-- created=2026-06-29, last=2026-06-29 -->\n§\n";
 		const recs = adaptHermesMarkdown(md);
 		expect(recs.length).toBe(1);
-		expect(recs[0]!.type).toBe("pattern");
-		expect(recs[0]!.dimension).toBe("general");
+		// No `[category]` prefix, but content matches the tool-quirk signal
+		// ("quirks") → inferred category tool-quirk → type gotcha, dimension tool-quirk
+		// (previously defaulted to type=pattern / dimension=general).
+		expect(recs[0]!.type).toBe("gotcha");
+		expect(recs[0]!.dimension).toBe("tool-quirk");
 		expect(recs[0]!.title).toBe("Tool quirks"); // ** stripped, trailing (date): stripped
 	});
 
@@ -325,6 +328,33 @@ describe("adaptHermesMarkdown", () => {
 		const r = adaptHermesMarkdown("[insight] A timestamp-less note.\n§\n")[0]!;
 		expect(r.evidence).toBeUndefined();
 		expect(r.type).toBe("pattern");
+	});
+
+	test("title is cut at the first clause boundary, not mid-word", () => {
+		const md =
+			"[tool-quirk] Always use Bun — never node/npm/yarn. `bun test` runs files fine. <!-- created=2026-07-07, last=2026-07-11 -->";
+		const r = adaptHermesMarkdown(md)[0]!;
+		expect(r.title).toBe("Always use Bun"); // cut at ` — `, not truncated mid-word
+		expect(r.title.length).toBeLessThanOrEqual(80);
+		expect(r.id).toContain("always-use-bun");
+	});
+
+	test("created-only timestamp (no last=) is recovered instead of 1970", () => {
+		const md = "[preference] After PR squash-merge delete both branches. <!-- created=2026-07-06 -->";
+		const r = adaptHermesMarkdown(md)[0]!;
+		expect(r.evidence?.first_seen).toBe("2026-07-06");
+		expect(r.evidence?.last_seen).toBe("2026-07-06"); // last defaults to created
+	});
+
+	test("tags filter stopwords but keep semantic short tokens (bun/vae)", () => {
+		const md =
+			"[preference] Always use Bun for sqlite. The vae decode needs *0.5+0.5. <!-- created=2026-07-07, last=2026-07-11 -->";
+		const r = adaptHermesMarkdown(md)[0]!;
+		expect(r.tags).toContain("bun"); // 3-char semantic token survives (old ≥4 gate dropped it)
+		expect(r.tags).toContain("vae");
+		expect(r.tags).toContain("sqlite");
+		expect(r.tags).not.toContain("always"); // modal filler now filtered
+		expect(r.tags).not.toContain("never");
 	});
 
 	test("hermes records converge + cross-link a workflow card via shared tags", async () => {

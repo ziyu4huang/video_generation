@@ -85,8 +85,8 @@ describe("PROVIDERS config (contract)", () => {
   });
 });
 
-describe("module purity (no ModelRegistry side effects)", () => {
-  test("importing pre-load-providers.ts does not patch ModelRegistry.prototype.loadModels", () => {
+describe("module purity (no ModelRuntime side effects)", () => {
+  test("importing pre-load-providers.ts does not patch ModelRuntime.create", () => {
     const fixture = join(import.meta.dir, "__tests__", "fixtures", "check-pre-load-providers-pure.ts");
     // process.execPath (not the literal "bun") — spawns the running runtime
     // itself, always present on CI (portability P2, see .github/TEST-PORTABILITY.md).

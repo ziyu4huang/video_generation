@@ -72,7 +72,7 @@ unlike `pi-agent-ext-flux2`), progress streaming, abort support, and path-safety
 ```bash
 # Source mode (hot):
 bun bun-apps/pi-agent/src/cli.ts \
-  -e bun-apps/pi-agent-ext-ltx/extensions/pi-ltx.ts \
+  -e bun-apps/pi-agent-ext-ltx/extensions/ltx.ts \
   -p "list installed LTX-2.3 transformer variants"
 ```
 
@@ -109,7 +109,7 @@ untested paths — not the underlying Swift CLI's own roadmap, which lives in
 ## Layout
 
 ```
-extensions/pi-ltx.ts     # the dispatcher tool (thin wrapper around runLtx)
+extensions/ltx.ts     # the dispatcher tool (thin wrapper around runLtx)
 src/index.ts              # runLtx() — pure, pi-free pipeline
 src/commands.ts           # 15 commands: typed params + flag map (source of truth)
 src/binary.ts              # resolve / auto-build the ltx-video binary

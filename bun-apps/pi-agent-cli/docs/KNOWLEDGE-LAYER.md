@@ -10,9 +10,9 @@
 
 | Command | Imports from `pi-knowledge-card/...` | Does |
 | ------- | ------------------------------------ | ---- |
-| `zk-ask` | `buildRagTask`, `ragToolsFor`, `BlendMode` ← `extensions/pi-knowledge-card.ts` | graph-enhanced RAG answer (obsidian_search seed → graph expand → rank → generate) |
-| `zk-card` | `buildAddTask` / `buildFindTask` / `buildUpdateTask` / `buildRemoveTask` + allowlists ← `extensions/pi-knowledge-card.ts` | CRUD over vault notes |
-| `zk-extract` | `buildDistillTask` + `DISTILL_TOOLS` ← `extensions/pi-knowledge-card.ts` | LLM distill of free-form markdown → atomic notes |
+| `zk-ask` | `buildRagTask`, `ragToolsFor`, `BlendMode` ← `extensions/knowledge-card.ts` | graph-enhanced RAG answer (obsidian_search seed → graph expand → rank → generate) |
+| `zk-card` | `buildAddTask` / `buildFindTask` / `buildUpdateTask` / `buildRemoveTask` + allowlists ← `extensions/knowledge-card.ts` | CRUD over vault notes |
+| `zk-extract` | `buildDistillTask` + `DISTILL_TOOLS` ← `extensions/knowledge-card.ts` | LLM distill of free-form markdown → atomic notes |
 | `zk-ingest` | `ingestRecords`, `parseKnowledgeJsonl`, `adaptAutoMemoryMarkdown`, `formatSummary` ← `src/ingest.ts` | deterministic convergence of `.knowledge.jsonl` / auto-memory → cards |
 | `zk-query` | `retrieveRecords`, `graphHealth`, `formatHealth`, `mergeDuplicates`, `formatMerge` ← `src/retrieve.ts` + `src/merge.ts` | cross-workflow tag-ranked digest + graph health |
 

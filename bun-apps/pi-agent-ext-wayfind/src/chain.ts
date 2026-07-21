@@ -1,9 +1,9 @@
 /**
  * Continuous-chain orchestration — the feedback half of the plan⇄wayfind loop.
  *
- * `syncChainState` reads the plan coordinator's published `globalThis.__piPlanPhases`
+ * `syncChainState` reads the plan coordinator's published phase state via `globalThis[PLAN_PHASES_KEY]`
  * (per-phase `{id, status, ticketIds?}`), closes any wayfind ticket whose phase
- * reports `"complete"`, and records the closure on the effort's map.md. Idempotent.
+ * reports `"completed"`, and records the closure on the effort's map.md. Idempotent.
  *
  * Pure-ish: reads globalThis + fs; NEVER imports the plan coordinator — the only
  * contact surface is the globalThis keys (see ADR-0001). That keeps the two
@@ -13,6 +13,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { PLAN_PHASES_KEY } from "./constants.js";
 import { buildPlanSeed, type GlossaryTerm, parseDecisions, parseGlossary, type ResolvedDecision } from "./grill.js";
 import { appendDecision, closeTicket, readMap, type Ticket } from "./map.js";
 
@@ -20,7 +21,7 @@ import { appendDecision, closeTicket, readMap, type Ticket } from "./map.js";
  * Structural mirror of the plan coordinator's `PhaseInfo` — NO cross-package
  * import (the seam is globalThis, typed structurally so the two packages never
  * depend on each other's types). `status` is widened to `string` so any unknown
- * token simply fails the `=== "complete"` check rather than failing to type-check.
+ * token simply fails the `=== "completed"` check rather than failing to type-check.
  */
 interface PlanPhaseInfo {
   id: string;
@@ -45,22 +46,22 @@ function findTicketByRef(tickets: Ticket[], ref: string): Ticket | undefined {
  * Close wayfind tickets whose plan phase reports complete — the feedback half
  * of the continuous chain loop (ADR-0001).
  *
- * Reads `globalThis.__piPlanPhases(cwd)`; for each complete phase's `ticketIds`,
+ * Reads phase state via `globalThis[PLAN_PHASES_KEY](cwd)`; for each complete phase's `ticketIds`,
  * closes the matching ticket (status → "closed", resolution set) and appends a
  * one-line decision to the effort's `map.md`.
  *
  * Idempotent: already-closed tickets are skipped (no duplicate decision line).
  * Graceful: returns `{closed:[], skipped:[]}` when no plan coordinator is
- * present (`__piPlanPhases` undefined), no map exists, or no complete phase
+ * present (the `PLAN_PHASES_KEY` seam is undefined), no map exists, or no complete phase
  * references a ticket.
  */
 export function syncChainState(cwd: string, effort: string): ChainSyncResult {
-  const reader = (globalThis as Record<string, unknown> | undefined)?.__piPlanPhases;
+  const reader = (globalThis as Record<string, unknown> | undefined)?.[PLAN_PHASES_KEY];
   if (typeof reader !== "function") return { closed: [], skipped: [] };
 
   const phases = (reader as (cwd: string) => PlanPhaseInfo[])(cwd);
   const refsToClose = phases.flatMap((p) =>
-    p.status === "complete" && p.ticketIds && p.ticketIds.length > 0 ? p.ticketIds : [],
+    p.status === "completed" && p.ticketIds && p.ticketIds.length > 0 ? p.ticketIds : [],
   );
   if (refsToClose.length === 0) return { closed: [], skipped: [] };
 
@@ -113,20 +114,18 @@ function topoSortTickets(tickets: Ticket[]): Ticket[] {
   return result;
 }
 
-/** Flatten a wayfind ticket set into a `task_plan.md` body — the forward half of
- *  the chain. Lossless: every ticket becomes a phase, in dependency order,
- *  carrying its `What to build` + acceptance criteria. Phase headers embed the
- *  ticket stem (`[id-slug]`) so the plan coordinator's `readPlanPhases` +
- *  wayfind's `syncChainState` can close the originating ticket when the phase
- *  completes (ADR-0001 round-trip). */
+/** Flatten a wayfind ticket set into a writing-plans-format plan body — the
+ *  forward half of the chain (ticket 08). Lossless: every ticket becomes a Task,
+ *  in dependency order, carrying its `What to build` + acceptance criteria as
+ *  `- [ ]` steps. Task headers embed the ticket stem (`[id-slug]`) so the plan
+ *  coordinator's `parsePlan` + wayfind's `syncChainState` can close the
+ *  originating ticket when the Task's steps complete (ADR-0001 round-trip). */
 export function flattenTicketsToPlan(tickets: Ticket[], glossary: GlossaryTerm[]): string {
   const ordered = topoSortTickets(tickets);
   const lines: string[] = [
-    "# Task Plan: (seeded from wayfind tickets)",
+    "# Implementation Plan — seeded from wayfind tickets",
     "",
-    "## Goal",
-    "",
-    "_(Seeded from wayfind tickets — sharpen into a one-sentence end state.)_",
+    "**Goal:** _(Seeded from wayfind tickets — sharpen into a one-sentence end state.)_",
     "",
   ];
   if (glossary.length > 0) {
@@ -134,28 +133,26 @@ export function flattenTicketsToPlan(tickets: Ticket[], glossary: GlossaryTerm[]
     for (const g of glossary) lines.push(`- **${g.term}**: ${g.definition}`);
     lines.push("");
   }
-  lines.push("## Current Phase", "Phase 1", "", "## Phases", "");
   ordered.forEach((t, i) => {
-    lines.push(`### Phase ${i + 1} — [${t.id}-${t.slug}] ${t.title}`);
+    lines.push(`### Task ${i + 1} — [${t.id}-${t.slug}] ${t.title}`);
     if (t.whatToBuild) lines.push(`> ${t.whatToBuild.trim()}`);
     if (t.acceptance && t.acceptance.length > 0) {
       for (const c of t.acceptance) lines.push(`- [ ] ${c}`);
     }
-    lines.push("- **Status:** pending", "");
+    lines.push("");
   });
   return lines.join("\n");
 }
 
-/** Seed a `task_plan.md` from CONTEXT.md `## Decisions` — one phase per resolved
- *  decision. The lossless grill→plan handoff (replaces the old skeleton seed
- *  that dropped decisions because they lived only in the conversation). */
+/** Seed a writing-plans-format plan from CONTEXT.md `## Decisions` — one Task
+ *  per resolved decision (ticket 08). The lossless grill→plan handoff (replaces
+ *  the old skeleton seed that dropped decisions because they lived only in the
+ *  conversation). */
 export function seedFromDecisions(decisions: ResolvedDecision[], glossary: GlossaryTerm[]): string {
   const lines: string[] = [
-    "# Task Plan: (seeded from grill decisions)",
+    "# Implementation Plan — seeded from grill decisions",
     "",
-    "## Goal",
-    "",
-    "_(Seeded from resolved grill decisions — sharpen into a one-sentence end state.)_",
+    "**Goal:** _(Seeded from resolved grill decisions — sharpen into a one-sentence end state.)_",
     "",
   ];
   if (glossary.length > 0) {
@@ -163,9 +160,8 @@ export function seedFromDecisions(decisions: ResolvedDecision[], glossary: Gloss
     for (const g of glossary) lines.push(`- **${g.term}**: ${g.definition}`);
     lines.push("");
   }
-  lines.push("## Current Phase", "Phase 1", "", "## Phases", "");
   decisions.forEach((d, i) => {
-    lines.push(`### Phase ${i + 1} — ${d.title}`, `- ${d.answer}`, "- **Status:** pending", "");
+    lines.push(`### Task ${i + 1} — ${d.title}`, `- ${d.answer}`, "");
   });
   return lines.join("\n");
 }
@@ -230,6 +226,6 @@ export function seedPlan(cwd: string, opts: { effort?: string; topic?: string } 
 
   if (effort) mkdirSync(targetDir, { recursive: true });
   writeFileSync(targetPath, body, "utf-8");
-  const phaseCount = (body.match(/^### Phase\b/gim) ?? []).length;
+  const phaseCount = (body.match(/^### Task\b/gim) ?? []).length;
   return { path: targetPath, source, phaseCount };
 }

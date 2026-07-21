@@ -138,6 +138,30 @@ describe("bootstrap payload assembly", () => {
     expect(payload).toContain(BOOTSTRAP_MARKER);
     expect(payload).toContain("You have superpowers.");
     expect(payload).toContain("## Pi tool mapping");
-    expect(payload).toContain("pi-subagents");
+    expect(payload).toContain("pi-agent-ext-workflow");
+  });
+
+  it("Pi tool mapping names the workflow 'subagent' tool + its documented params", () => {
+    _resetBootstrapCacheForTests();
+    const payload = getBootstrapContent() ?? "";
+    expect(payload).toContain("subagent");
+    // the documented call signature the agent is told to use
+    expect(payload).toContain("task");
+    expect(payload).toMatch(/tools|excludeTools|cwd|model/);
+  });
+
+  it("carries the Path & routing overrides (boundary convergence, ADR-0004-safe)", () => {
+    _resetBootstrapCacheForTests();
+    const payload = getBootstrapContent() ?? "";
+    // the override section exists
+    expect(payload).toContain("## Path & routing overrides (this repo)");
+    // rule 1: artifact-home override converges upstream paths to .planning/<effort>/
+    expect(payload).toContain("docs/superpowers/specs/");
+    expect(payload).toContain(".planning/<effort>/spec.md");
+    expect(payload).toContain(".planning/<effort>/plan.md");
+    // rule 2: entry-path routing discriminator + brainstorming→to-spec deferral
+    expect(payload).toContain("can I write a plan right now");
+    expect(payload).toContain("brainstorming");
+    expect(payload).toContain("to-spec");
   });
 });

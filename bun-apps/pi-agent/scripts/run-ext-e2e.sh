@@ -8,8 +8,9 @@
 #
 # WHY A SEPARATE RUNNER
 #   The `workflow` tool takes a `script` STRING (no file-path param), so each
-#   invocation is: run.sh -e workflow -p "read <file> and execute it via the
+#   invocation is: run.sh -p "read <file> and execute it via the
 #   workflow tool (background:false)". This script just loops that over packages.
+#   (workflow is a default-on static extension now — no `-e workflow` needed.)
 #
 # USAGE
 #   bash bun-apps/pi-agent/scripts/run-ext-e2e.sh              # all extensions
@@ -68,7 +69,6 @@ for wf in "${WORKFLOWS[@]}"; do
   rel="${wf#$REPO_ROOT/}"
   echo "── running $rel ──"
   if bun "$SCRIPT_DIR/../src/cli.ts" \
-      -e workflow \
       -p "read the file $rel, then call the workflow tool with its FULL source as the script parameter (no markdown fences), background:false, and report the structured result it returns." \
       2>&1 | tee /dev/stderr | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true'; then
     echo "✓ $rel"

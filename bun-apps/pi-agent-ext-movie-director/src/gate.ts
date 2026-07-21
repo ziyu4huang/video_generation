@@ -5,7 +5,7 @@
  *
  *   - Deep-write-path gates (checkpoint.ts's human-approval, required_artifacts_in,
  *     and artifact-schema checks) THROW `GateViolationError`. `writeCheckpoint`
- *     has many callers beyond `extensions/pi-movie-director.ts`'s `dispatch()`
+ *     has many callers beyond `extensions/movie-director.ts`'s `dispatch()`
  *     (tests, future non-tool callers), so the gate must be impossible to
  *     silently ignore — a thrown error forces every caller to handle it.
  *   - Tool-dispatch-boundary gates (this file's `GateResult` — used by

@@ -8,7 +8,7 @@
  * `{command, options: Type.Any()}` shape every other `movie` command uses.
  * Additive: `movie`'s own cost-estimate/-reserve/-reconcile/-snapshot
  * subcommands are untouched, so this is cheap to revert (delete this file +
- * extensions/pi-movie-director-cost.ts) if the measurement doesn't pay off.
+ * extensions/movie-director-cost.ts) if the measurement doesn't pay off.
  */
 import { Type, type Static } from "typebox";
 import { estimate as costEstimate, reserve as costReserve, reconcile as costReconcile, costSnapshot } from "./cost.ts";

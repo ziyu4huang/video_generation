@@ -32,10 +32,16 @@ import MLX
 public struct WhisperModel {
     public let encoder: WhisperEncoder
     public let decoder: WhisperDecoder
+    /// Decoder layer / head counts — needed to compute the DTW alignment-head
+    /// set (default: last-half layers, all heads) for word alignment.
+    public let nDecoderLayer: Int
+    public let nHead: Int
 
-    public init(encoder: WhisperEncoder, decoder: WhisperDecoder) {
+    public init(encoder: WhisperEncoder, decoder: WhisperDecoder, nDecoderLayer: Int = 0, nHead: Int = 0) {
         self.encoder = encoder
         self.decoder = decoder
+        self.nDecoderLayer = nDecoderLayer
+        self.nHead = nHead
     }
 
     public enum LoadError: Error, CustomStringConvertible {
@@ -62,7 +68,19 @@ public struct WhisperModel {
         let weights = try MLX.loadArrays(url: URL(fileURLWithPath: checkpointPath))
         func w(_ key: String) throws -> MLXArray {
             guard let v = weights[key] else { throw LoadError.missingWeight(key) }
-            return v.asType(.float32)
+            // float16 — NOT float32. mlx_whisper loads the whole model with
+            // dtype=mx.float16 and runs the forward in float16. For DECODE this
+            // is cosmetic (argmax is dtype-robust, so P2a text parity held even
+            // when this port ran float32), but for DTW WORD ALIGNMENT it is
+            // load-bearing: find_alignment consumes the cross-attention QK
+            // (q@k over 1500 audio frames) → softmax → z-score → DTW, and that
+            // pipeline is acutely sensitive to float16 vs float32 rounding.
+            // A float32 forward produces a visibly different attention
+            // distribution (the noTimestamps row peaks at a different frame),
+            // which warps the DTW path and drifts per-word timestamps ~1.26×.
+            // Matching mlx_whisper's float16 here is what makes the alignment
+            // numerically match. See WhisperAlignment.swift.
+            return v.asType(.float16)
         }
 
         var encoderBlocks: [WhisperEncoderBlock] = []
@@ -122,7 +140,17 @@ public struct WhisperModel {
             lnWeight: try w("decoder.ln.weight"), lnBias: try w("decoder.ln.bias")
         )
 
-        return WhisperModel(encoder: encoder, decoder: decoder)
+        return WhisperModel(encoder: encoder, decoder: decoder, nDecoderLayer: nDecoderLayer, nHead: nHead)
+    }
+
+    /// Ports `mlx_whisper.whisper.Whisper.forward_with_cross_qk`: encode mel,
+    /// run the decoder over `tokens` once (no KV cache), return BOTH the
+    /// vocab logits and the per-layer cross-attention pre-softmax QK matrices
+    /// (each `(1, nHead, textLen, audioFrames)`). `find_alignment` (DTW word
+    /// alignment) consumes the cross QKs from the alignment-head subset.
+    public func forwardWithCrossQk(mel: MLXArray, tokens: MLXArray) -> (logits: MLXArray, crossQKs: [MLXArray]) {
+        let encoderOutput = encoder(mel)
+        return decoder.forwardWithCrossQk(tokens: tokens, encoderOutput: encoderOutput)
     }
 
     /// Greedy-decode a transcript for `mel` (a (1, n_frames, n_mels)

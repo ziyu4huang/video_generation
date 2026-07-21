@@ -14,8 +14,8 @@
  *
  * Post-monolith-split (#504/#502/#499): knowledge_query/graph_health moved to
  * pi-agent-ext-knowledge-card, todo/goal_complete moved to
- * pi-agent-ext-goal-todo, ask_user_question moved to pi-agent-ext-ask-user
- * (merged into pi-agent-ext-goal-todo 2026-07-18 — no shared code, relocated
+ * pi-agent-ext-core-task, ask_user_question moved to pi-agent-ext-ask-user
+ * (merged into pi-agent-ext-core-task 2026-07-18 — no shared code, relocated
  * as the first step of the core-task pi-ext consolidation).
  *
  * This file is dependency-free of pi-agent-cli on purpose: the workspace dep

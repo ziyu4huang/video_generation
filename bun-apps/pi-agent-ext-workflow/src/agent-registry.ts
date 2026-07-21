@@ -33,17 +33,30 @@ export interface AgentDefinition {
   disallowedTools?: string[];
   /** Model spec (`provider/modelId` or bare id) for this subagent. */
   model?: string;
+  /** Model tier name (e.g. "small"/"medium"/"big") resolved from model-tiers config. */
+  tier?: string;
   /** Isolation mode. When "worktree", agents using this type run in a git worktree. */
   isolation?: "worktree";
   /** Markdown body, prepended to the subagent's task as role guidance. */
   prompt: string;
-  /** Where the definition was loaded from (project wins over user). */
-  source: "project" | "user";
+  /** Where the definition was loaded from. Precedence: project > pack > user. */
+  source: "project" | "pack" | "user";
 }
 
 export type AgentRegistry = Map<string, AgentDefinition>;
 
 function toStringArray(value: unknown): string[] | undefined {
+  // Accept a YAML array OR a Claude-Code-style comma-separated string (ticket 14 /
+  // decision 09). A string is split on commas + trimmed; empty entries dropped.
+  // This fixes the silent "no allowlist = all tools" trap: a CC string was parsed
+  // as undefined → no allowlist → ALL tools (the opposite of intended).
+  if (typeof value === "string") {
+    const arr = value
+      .split(",")
+      .map((v) => v.trim())
+      .filter((v) => v.length > 0);
+    return arr.length ? arr : undefined;
+  }
   if (!Array.isArray(value)) return undefined;
   const arr = value.filter((v): v is string => typeof v === "string" && v.trim().length > 0).map((v) => v.trim());
   return arr.length ? arr : undefined;
@@ -55,7 +68,7 @@ function toStringArray(value: unknown): string[] | undefined {
  */
 export function parseAgentDefinition(
   content: string,
-  source: "project" | "user",
+  source: "project" | "pack" | "user",
   fileName: string,
 ): AgentDefinition | null {
   let parsed: { frontmatter: Record<string, unknown>; body: string };
@@ -77,6 +90,7 @@ export function parseAgentDefinition(
     tools: toStringArray(fm.tools),
     disallowedTools: toStringArray(fm.disallowedTools),
     model: typeof fm.model === "string" ? fm.model.trim() || undefined : undefined,
+    tier: typeof fm.tier === "string" ? fm.tier.trim() || undefined : undefined,
     isolation:
       typeof fm.isolation === "string" && fm.isolation.toLowerCase().trim() === "worktree" ? "worktree" : undefined,
     prompt,
@@ -84,7 +98,7 @@ export function parseAgentDefinition(
   };
 }
 
-function readDefsFromDir(dir: string, source: "project" | "user"): AgentDefinition[] {
+function readDefsFromDir(dir: string, source: "project" | "pack" | "user"): AgentDefinition[] {
   if (!existsSync(dir)) return [];
   let files: string[];
   try {
@@ -111,14 +125,23 @@ function readDefsFromDir(dir: string, source: "project" | "user"): AgentDefiniti
  *
  * `opts` overrides the scanned directories (used by tests).
  */
-export function loadAgentRegistry(cwd: string, opts?: { projectDir?: string; userDir?: string }): AgentRegistry {
+export function loadAgentRegistry(
+  cwd: string,
+  opts?: { projectDir?: string; userDir?: string; packDirs?: string[] },
+): AgentRegistry {
   const projectDir = opts?.projectDir ?? join(cwd, AGENTS_DIR);
   const userDir = opts?.userDir ?? join(homeDir(), AGENTS_DIR);
+  const packDirs = opts?.packDirs ?? [];
   const registry: AgentRegistry = new Map();
   for (const def of readDefsFromDir(projectDir, "project")) {
     if (def.name && !registry.has(def.name)) registry.set(def.name, def);
   }
-  if (userDir !== projectDir) {
+  for (const dir of packDirs) {
+    for (const def of readDefsFromDir(dir, "pack")) {
+      if (def.name && !registry.has(def.name)) registry.set(def.name, def);
+    }
+  }
+  if (userDir !== projectDir && !packDirs.includes(userDir)) {
     for (const def of readDefsFromDir(userDir, "user")) {
       if (def.name && !registry.has(def.name)) registry.set(def.name, def);
     }

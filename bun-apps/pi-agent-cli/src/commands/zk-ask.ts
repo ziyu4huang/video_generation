@@ -13,7 +13,7 @@
 import type { ParsedArgs } from "../args.ts";
 import { applyVaultEnv } from "../sessions/passthrough.ts";
 import { runAgentSession } from "../sessions/run-agent-session.ts";
-import { buildRagTask, ragToolsFor, type BlendMode } from "@repo/pi-agent-ext-knowledge-card/extensions/pi-knowledge-card.ts";
+import { buildRagTask, ragToolsFor, type BlendMode } from "@repo/pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 
 const DETAILS = `Ask a natural language question; returns a synthesized answer grounded in vault notes.
 

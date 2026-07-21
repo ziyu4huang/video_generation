@@ -18,7 +18,8 @@
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
-import { WorkflowAgent } from "./agent.js";
+import { type AgentUsage, WorkflowAgent } from "./agent.js";
+import type { AgentHistoryEntry } from "./agent-history.js";
 import { isWorkflowError, WorkflowErrorCode } from "./errors.js";
 
 export interface SpawnSubagentPrime {
@@ -34,6 +35,8 @@ export interface SpawnSubagentOptions {
   /** Tool names to deny after the allowlist. */
   excludeTools?: string[];
   model?: string;
+  /** Model tier name (e.g. "small"/"medium"/"big"), resolved from model-tiers config. */
+  tier?: string;
   schema?: TSchema;
   instructions?: string;
   cwd?: string;
@@ -44,8 +47,27 @@ export interface SpawnSubagentOptions {
   prime?: SpawnSubagentPrime;
   /** Parent-session tools to bridge into the child (R2). */
   extensionTools?: ToolDefinition[];
+  /**
+   * The parent session's current model (provider/id). When neither `model` nor
+   * `tier` is set, the child defaults to this (the live session model) rather
+   * than a possibly-stale medium tier. Also threaded into WorkflowAgent so an
+   * unknown-tier warning can name the fallback model.
+   */
+  mainModel?: string;
+  /** Fires with the concrete `provider/id` the child actually runs on, once known. */
+  onModelResolved?: (modelId: string) => void;
+  /** Fires when a requested model/tier spec couldn't be resolved (fell back). */
+  onModelFallback?: (requestedSpec: string) => void;
   /** Injectable runner (tests pass a mock; production omits → new WorkflowAgent). */
   agent?: Pick<WorkflowAgent, "run">;
+  /** Host signal (e.g. tool-call Ctrl+C) that should cancel this call when fired. */
+  externalSignal?: AbortSignal;
+  /**
+   * Compact live snapshot of the child's message/tool history, forwarded
+   * verbatim from `WorkflowAgent.run()`'s own `onHistory` (already throttled
+   * to ≥250ms there — no additional throttling needed here).
+   */
+  onHistory?: (history: AgentHistoryEntry[]) => void;
 }
 
 export interface SpawnSubagentResult {
@@ -53,6 +75,8 @@ export interface SpawnSubagentResult {
   exitCode: number;
   stderr: string;
   timedOut: boolean;
+  /** Real token/cost usage read from the child session, when the runner reports it. */
+  usage?: AgentUsage;
 }
 
 const TRANSIENT_NETWORK_RE =
@@ -64,13 +88,20 @@ interface ErrorClass {
   message: string;
 }
 
-function classifyError(e: unknown): ErrorClass {
+function classifyError(e: unknown, signalAborted = false): ErrorClass {
   const message = e instanceof Error ? e.message : String(e);
   if (isWorkflowError(e) && e.code === WorkflowErrorCode.AGENT_TIMEOUT) {
     return { transient: true, timedOut: true, message };
   }
-  // A signal abort (from our timeoutMs gate) looks like an AbortError.
-  if (e instanceof Error && /\babort/i.test(e.name) && /\babort/i.test(message)) {
+  // Our own timeoutMs gate fires by aborting the call's controller — checking
+  // the signal directly is authoritative, because the real WorkflowAgent runner
+  // surfaces that abort as a plain `Error("Subagent was aborted")` (name
+  // "Error"), NOT a DOMException named AbortError.
+  if (signalAborted) {
+    return { transient: true, timedOut: true, message };
+  }
+  // Fallback for runner-shaped abort errors: match name OR message.
+  if (e instanceof Error && (/\babort/i.test(e.name) || /\baborted?\b/i.test(message))) {
     return { transient: true, timedOut: true, message };
   }
   if (TRANSIENT_NETWORK_RE.test(message)) {
@@ -79,35 +110,66 @@ function classifyError(e: unknown): ErrorClass {
   return { transient: false, timedOut: false, message };
 }
 
+/** Sum token/cost usage across retry attempts (undefined-safe). */
+function mergeUsage(a: AgentUsage | undefined, b: AgentUsage | undefined): AgentUsage | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    input: a.input + b.input,
+    output: a.output + b.output,
+    cacheRead: a.cacheRead + b.cacheRead,
+    cacheWrite: a.cacheWrite + b.cacheWrite,
+    total: a.total + b.total,
+    cost: a.cost + b.cost,
+  };
+}
+
 export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> {
-  const runner = opts.agent ?? new WorkflowAgent({ cwd: opts.cwd, extensionTools: opts.extensionTools });
+  const runner =
+    opts.agent ?? new WorkflowAgent({ cwd: opts.cwd, extensionTools: opts.extensionTools, mainModel: opts.mainModel });
   const retry = opts.retryOnTransient !== false;
+  // Default-to-current-LLM: when the caller neither picks a model nor a tier, fall
+  // back to the live session model (not a stale medium tier). Explicit model or
+  // tier always wins; resolveAgentModelSpec in agent.ts handles the rest.
+  const effectiveModel = opts.model ?? (opts.tier ? undefined : opts.mainModel);
 
   const tryOnce = async (): Promise<{ result: SpawnSubagentResult; transient: boolean }> => {
     const ac = new AbortController();
+    if (opts.externalSignal) {
+      if (opts.externalSignal.aborted) ac.abort();
+      else opts.externalSignal.addEventListener("abort", () => ac.abort(), { once: true });
+    }
     const timer = opts.timeoutMs ? setTimeout(() => ac.abort(), opts.timeoutMs) : undefined;
+    let usage: AgentUsage | undefined;
     try {
       // `prime` is intentionally NOT used here (③ owns the auto-primer).
       const out = await runner.run(opts.task, {
         label: "zk-spawn",
         schema: opts.schema,
         instructions: opts.instructions,
-        model: opts.model,
+        model: effectiveModel,
+        tier: opts.tier,
         toolNames: opts.tools,
         disallowedToolNames: opts.excludeTools,
         cwd: opts.cwd,
         signal: ac.signal,
+        onModelResolved: opts.onModelResolved,
+        onModelFallback: opts.onModelFallback,
+        onUsage: (u) => {
+          usage = u;
+        },
+        onHistory: opts.onHistory,
       } as Parameters<WorkflowAgent["run"]>[1]);
       // When `opts.schema` is set, `run()` returns a validated OBJECT (not a
       // string). `String(obj)` would yield "[object Object]" and silently
       // destroy the schema payload — JSON-serialize it instead so callers
       // that parse `output` keep working. Null/undefined → empty string.
       const output = typeof out === "string" ? out : out == null ? "" : JSON.stringify(out);
-      return { result: { output, exitCode: 0, stderr: "", timedOut: false }, transient: false };
+      return { result: { output, exitCode: 0, stderr: "", timedOut: false, usage }, transient: false };
     } catch (e) {
-      const c = classifyError(e);
+      const c = classifyError(e, ac.signal.aborted);
       return {
-        result: { output: "", exitCode: c.timedOut ? 124 : 1, stderr: c.message, timedOut: c.timedOut },
+        result: { output: "", exitCode: c.timedOut ? 124 : 1, stderr: c.message, timedOut: c.timedOut, usage },
         transient: c.transient,
       };
     } finally {
@@ -117,6 +179,12 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
 
   const first = await tryOnce();
   if (first.result.exitCode === 0 || !retry || !first.transient) return first.result;
-  // Single retry on a transient failure (mirrors runSubagentWithRetry).
-  return (await tryOnce()).result;
+  // Never retry a cancel the caller (or user) explicitly requested — retrying
+  // would re-run work that was just aborted.
+  if (opts.externalSignal?.aborted) return first.result;
+  // Single retry on a transient failure (mirrors runSubagentWithRetry). The
+  // failed first attempt still burned real tokens (largest exactly when it
+  // timed out) — surface the SUM of both attempts, not just the second.
+  const second = await tryOnce();
+  return { ...second.result, usage: mergeUsage(first.result.usage, second.result.usage) };
 }

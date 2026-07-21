@@ -128,7 +128,7 @@ describe("syncChainState (ADR-0001: close tickets whose phase completed)", () =>
     const effort = "demo";
     seed(cwd, effort);
     (globalThis as Record<string, unknown>)[PHASES_KEY] = () => [
-      { id: "1", status: "complete", ticketIds: ["03-foo"] },
+      { id: "1", status: "completed", ticketIds: ["03-foo"] },
       { id: "2", status: "in_progress" },
     ];
 
@@ -149,7 +149,7 @@ describe("syncChainState (ADR-0001: close tickets whose phase completed)", () =>
     const effort = "demo";
     seed(cwd, effort);
     (globalThis as Record<string, unknown>)[PHASES_KEY] = () => [
-      { id: "1", status: "complete", ticketIds: ["03-foo"] },
+      { id: "1", status: "completed", ticketIds: ["03-foo"] },
     ];
     syncChainState(cwd, effort);
     const r2 = syncChainState(cwd, effort);
@@ -162,7 +162,7 @@ describe("syncChainState (ADR-0001: close tickets whose phase completed)", () =>
     const cwd = makeCwd();
     const effort = "demo";
     seed(cwd, effort);
-    (globalThis as Record<string, unknown>)[PHASES_KEY] = () => [{ id: "1", status: "complete", ticketIds: ["03"] }];
+    (globalThis as Record<string, unknown>)[PHASES_KEY] = () => [{ id: "1", status: "completed", ticketIds: ["03"] }];
     expect(syncChainState(cwd, effort).closed).toEqual(["03"]);
   });
 
@@ -181,7 +181,7 @@ describe("syncChainState (ADR-0001: close tickets whose phase completed)", () =>
     const effort = "demo";
     seed(cwd, effort);
     (globalThis as Record<string, unknown>)[PHASES_KEY] = () => [
-      { id: "1", status: "complete", ticketIds: ["99-missing"] },
+      { id: "1", status: "completed", ticketIds: ["99-missing"] },
     ];
     const r = syncChainState(cwd, effort);
     expect(r.closed).toEqual([]);
