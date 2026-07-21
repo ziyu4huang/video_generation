@@ -253,9 +253,9 @@ jobs:
   # binary previously shipped with ZERO extensions with no regression
   # coverage catching it. Checks: (1) the binary boots and `doctor --json`
   # reports ok:true (entry/mode/providers/patches all healthy in binary
-  # mode); (2) the 10 statically-bundled extensions (5 original productivity:
-  # core-task/hermes-memory/superpowers/wayfind/web-access + 5 tool-providing:
-  # obsidian/btw/file2md/workflow/knowledge-card — see src/static-extensions.ts)
+  # mode); (2) the 11 statically-bundled extensions (5 original productivity:
+  # core-task/hermes-memory/superpowers/wayfind/web-access + 6 tool-providing:
+  # obsidian/btw/file2md/workflow/knowledge-card/power-tool — see src/static-extensions.ts)
   # register cleanly, via `ext doctor` in source
   # mode (the compiled binary's own `ext doctor` subcommand isn't binary-
   # mode-aware — it resolves paths via import.meta.url, which is the $bunfs
@@ -265,7 +265,7 @@ jobs:
   # the 5 newly-bundled tool extensions (obsidian et al.) ARE inlined into
   # the binary — `strings` finds obsidian's module body, proving the static
   # imports ship in the single-file exe (previously these were `external`'d
-  # out in scripts/deploy.ts to scope to 5; now deliberately bundled → 10, so
+  # out in scripts/deploy.ts to scope to 5; now deliberately bundled → 11, so
   # PRESENCE is the invariant, not absence);
   # (5) the exe is a genuine single file — copied ALONE to an empty,
   # unrelated directory (no dist/pi-agent/ siblings), it still boots and
@@ -302,7 +302,7 @@ jobs:
           ./pi-agent --version
           ./pi-agent doctor --json | tee /tmp/single-exe-doctor.json
           python3 -c "import json,sys; d=json.load(open('/tmp/single-exe-doctor.json')); sys.exit(0 if d['ok'] else 1)"
-      - name: Smoke — 10 statically-bundled extensions register (ext doctor, source mode)
+      - name: Smoke — 11 statically-bundled extensions register (ext doctor, source mode)
         working-directory: bun-apps/pi-agent
         run: |
           set -e
@@ -311,10 +311,10 @@ jobs:
           import json
           d = json.load(open('/tmp/ext-doctor.json'))
           statics = [e for e in d['entries'] if e['bundleMode'] == 'static']
-          assert len(statics) == 10, f'expected 10 static extensions (5 productivity + 5 tool-providing), got {len(statics)}'
+          assert len(statics) == 11, f'expected 11 static extensions (5 productivity + 6 tool-providing), got {len(statics)}'
           failed = [e['name'] for e in statics if e['status'] == 'FAIL']
           assert not failed, f'static extension(s) failed to register: {failed}'
-          print('10/10 static extensions OK:', [e['name'] for e in statics])
+          print('11/11 static extensions OK:', [e['name'] for e in statics])
           "
       - name: Smoke — binarySkills resolve to real --skill paths
         working-directory: bun-apps/pi-agent
