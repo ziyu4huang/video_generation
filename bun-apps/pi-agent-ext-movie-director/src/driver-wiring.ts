@@ -235,10 +235,13 @@ async function produceEdit(deps: WireDeps, inputs: Record<string, unknown>): Pro
 async function produceCompose(deps: WireDeps, inputs: Record<string, unknown>): Promise<Record<string, unknown>> {
 	const edit = inputs.edit_decisions as Record<string, unknown> | undefined;
 	if (!edit) throw new Error("compose: missing edit_decisions input");
+	const manifest = inputs.asset_manifest as { metadata?: { narrative_duration_seconds?: number } } | undefined;
+	const narrativeDurationSeconds = manifest?.metadata?.narrative_duration_seconds;
 	const res = await deps.dispatchFn("compose-motion", {
 		editDecisions: edit,
 		projectId: deps.projectId,
 		render_runtime: "ffmpeg",
+		...(narrativeDurationSeconds ? { narrativeDurationSeconds } : {}),
 	});
 	if (!res.ok) throw new Error(`compose-motion failed: ${res.error}`);
 	const renderReport = JSON.parse(res.text) as Record<string, unknown>;

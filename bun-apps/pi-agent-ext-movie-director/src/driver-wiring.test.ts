@@ -272,16 +272,31 @@ describe("wireProduce — deterministic edit (scene-boundary cuts on the shared 
 });
 
 describe("wireProduce — compose / publish", () => {
-	test("compose → dispatch compose-motion with render_runtime ffmpeg", async () => {
+	test("compose → dispatch compose-motion with render_runtime ffmpeg AND narrativeDurationSeconds from asset_manifest.metadata", async () => {
 		const calls: Record<string, unknown>[] = [];
 		const dispatchFn: DispatchLike = async (command, opts) => {
 			calls.push({ command, opts });
 			if (command === "compose-motion") return { ok: true, text: JSON.stringify({ output: "/tmp/final.mp4", render_grammar: "motion" }) };
 			return { ok: true, text: JSON.stringify({ ok: true }) };
 		};
+		await wireProduce(makeWireDeps({ dispatchFn }))("compose", {
+			edit_decisions: { version: "1.0", cuts: [], render_runtime: "ffmpeg", transition: "none" },
+			asset_manifest: { version: "1.0", assets: [], metadata: { narrative_duration_seconds: 22.4 } },
+		});
+		const compose = calls.find((c) => c.command === "compose-motion")!;
+		expect((compose.opts as Record<string, unknown>).narrativeDurationSeconds).toBe(22.4);
+	});
+
+	test("compose → omits narrativeDurationSeconds when asset_manifest carries none (e.g. silent video)", async () => {
+		const calls: Record<string, unknown>[] = [];
+		const dispatchFn: DispatchLike = async (command, opts) => {
+			calls.push({ command, opts });
+			if (command === "compose-motion") return { ok: true, text: JSON.stringify({ output: "/tmp/final.mp4" }) };
+			return { ok: true, text: JSON.stringify({ ok: true }) };
+		};
 		await wireProduce(makeWireDeps({ dispatchFn }))("compose", { edit_decisions: { version: "1.0", cuts: [], render_runtime: "ffmpeg" } });
-		const compose = calls.find((c) => c.command === "compose-motion");
-		expect(compose).toBeTruthy();
+		const compose = calls.find((c) => c.command === "compose-motion")!;
+		expect(compose.opts).not.toHaveProperty("narrativeDurationSeconds");
 	});
 
 	test("publish → dispatch final-review on the rendered mp4", async () => {
