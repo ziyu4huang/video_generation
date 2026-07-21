@@ -58,52 +58,106 @@ describe("wireProduce — routing", () => {
 	});
 });
 
-describe("wireProduce — assets execution (the frozen-frame fix, wired)", () => {
-	function assetsDeps() {
+describe("wireProduce — assets execution (single native-relay call for the whole movie)", () => {
+	function assetsDeps(opts: { segmentDurations?: number[]; ttsDuration?: number } = {}) {
 		const genCalls: Record<string, unknown>[] = [];
-		const dispatchFn: DispatchLike = async (command, opts) => {
-			if (command === "generate") genCalls.push(opts);
-			return { ok: true, text: JSON.stringify({ result: { artifacts: [{ path: `/tmp/${(opts as any).command}-${(opts as any).sceneId ?? "x"}.mp4` }] } }) };
+		const segDurations = opts.segmentDurations ?? [8, 8];
+		const dispatchFn: DispatchLike = async (command, callOpts) => {
+			if (command !== "generate") return { ok: true, text: JSON.stringify({}) };
+			genCalls.push(callOpts);
+			const capability = (callOpts as Record<string, unknown>).capability;
+			if (capability === "tts") {
+				return { ok: true, text: JSON.stringify({ provider: "tts", result: { artifacts: [{ path: "/tmp/narration.wav" }] } }) };
+			}
+			// native-relay: one artifact per segment (role segment_1, segment_2, ...) + the final mp4 as the primary artifact.
+			const segmentArtifacts = segDurations.map((_, i) => ({ path: `/tmp/relay/seg0${i + 1}/segment.mp4`, role: `segment_${i + 1}` }));
+			return {
+				ok: true,
+				text: JSON.stringify({ provider: "ltx", result: { artifacts: [{ path: "/tmp/relay/relay.mp4" }, ...segmentArtifacts] } }),
+			};
 		};
-		const extractLastFrame = async (clip: string) => `${clip}.lastframe.png`;
-		return { deps: makeWireDeps({ dispatchFn, extractLastFrame }), genCalls };
+		const probeDuration = async (path: string) => {
+			if (path === "/tmp/narration.wav") return opts.ttsDuration ?? 16;
+			const m = path.match(/seg0(\d)\/segment\.mp4$/);
+			return m ? segDurations[Number(m[1]) - 1]! : 0;
+		};
+		return { deps: makeWireDeps({ dispatchFn, probeDuration }), genCalls };
 	}
 
-	test("executes the plan with frames = ceil(duration × fps)", async () => {
+	test("dispatches exactly ONE native-relay call for a two-scene movie, with provider:'ltx'", async () => {
 		const { deps, genCalls } = assetsDeps();
 		await wireProduce(deps)("assets", {
-			scene_plan: { scenes: [{ id: "s1", type: "generated", description: "a cube", start_seconds: 0, end_seconds: 6 }] },
+			scene_plan: {
+				scenes: [
+					{ id: "s1", type: "generated", description: "a cube", start_seconds: 0, end_seconds: 8 },
+					{ id: "s2", type: "generated", description: "a sphere", start_seconds: 8, end_seconds: 16 },
+				],
+			},
 			script: { sections: [{ id: "s1", text: "hi" }] },
 		});
-		const vids = genCalls.filter((c) => c.capability === "video_generation");
-		expect(vids).toHaveLength(1);
-		expect(vids[0]!.options).toMatchObject({ frames: 150, fps: 25 });
+		const relayCalls = genCalls.filter((c) => c.command === "native-relay");
+		expect(relayCalls).toHaveLength(1);
+		expect(relayCalls[0]!.provider).toBe("ltx");
+		const options = relayCalls[0]!.options as Record<string, unknown>;
+		expect(options.prompts).toEqual(["a cube", "a sphere"]);
+		expect(options.secondsPerSegment).toEqual([8, 8]);
+		expect(options.segmentContinuity).toEqual([true, true]); // no scene declared continuity:"cut"
+		expect(options.relayAudio).toBe("/tmp/narration.wav");
 	});
 
-	test("chaining: a >8s scene yields multiple I2V calls; links after the first carry `image`", async () => {
+	test("a scene with continuity:'cut' sets that scene's first link to false, others stay true", async () => {
 		const { deps, genCalls } = assetsDeps();
 		await wireProduce(deps)("assets", {
-			scene_plan: { scenes: [{ id: "s1", type: "generated", description: "a cube", start_seconds: 0, end_seconds: 16 }] },
+			scene_plan: {
+				scenes: [
+					{ id: "s1", type: "generated", description: "a cube", start_seconds: 0, end_seconds: 8 },
+					{ id: "s2", type: "generated", description: "a sphere", start_seconds: 8, end_seconds: 16, continuity: "cut" },
+				],
+			},
 			script: { sections: [{ id: "s1", text: "hi" }] },
 		});
-		const vids = genCalls.filter((c) => c.capability === "video_generation");
-		expect(vids).toHaveLength(2); // ceil(16/8)
-		expect(vids[0]!.options).not.toHaveProperty("image"); // first link: no continuation frame
-		expect(vids[1]!.options).toHaveProperty("image"); // second link continues from prior last frame
-		expect((vids[1]!.options as Record<string, unknown>).image).toMatch(/lastframe\.png$/);
+		const relayCall = genCalls.find((c) => c.command === "native-relay")!;
+		expect((relayCall.options as Record<string, unknown>).segmentContinuity).toEqual([true, false]);
 	});
 
-	test("returns a SCHEMA-VALID asset_manifest (version + id/type/path/source_tool/scene_id per asset)", async () => {
-		const { deps } = assetsDeps();
+	test("returns a SCHEMA-VALID asset_manifest with scene_boundaries derived from real probed segment durations", async () => {
+		const { deps } = assetsDeps({ segmentDurations: [7.5, 8.2] });
 		const out = await wireProduce(deps)("assets", {
-			scene_plan: { scenes: [{ id: "s1", type: "generated", description: "x", start_seconds: 0, end_seconds: 6 }] },
+			scene_plan: {
+				scenes: [
+					{ id: "s1", type: "generated", description: "a cube", start_seconds: 0, end_seconds: 8 },
+					{ id: "s2", type: "generated", description: "a sphere", start_seconds: 8, end_seconds: 16 },
+				],
+			},
 			script: { sections: [{ id: "s1", text: "hi" }] },
 		});
-		expect(out).toHaveProperty("asset_manifest");
 		const manifest = out.asset_manifest as Record<string, unknown>;
 		expect(manifest.version).toBe("1.0");
-		const v = validateArtifact("asset_manifest", manifest);
-		expect(v.ok).toBe(true);
+		expect(validateArtifact("asset_manifest", manifest).ok).toBe(true);
+		const boundaries = (manifest.metadata as Record<string, unknown>).scene_boundaries as Array<Record<string, unknown>>;
+		expect(boundaries).toEqual([
+			{ sceneId: "s1", startSeconds: 0, endSeconds: 7.5 },
+			{ sceneId: "s2", startSeconds: 7.5, endSeconds: 15.7 },
+		]);
+	});
+
+	test("narrative_duration_seconds in asset_manifest.metadata comes from the narration wav's real probed duration", async () => {
+		const { deps } = assetsDeps({ ttsDuration: 22.4 });
+		const out = await wireProduce(deps)("assets", {
+			scene_plan: { scenes: [{ id: "s1", type: "generated", description: "a cube", start_seconds: 0, end_seconds: 8 }] },
+			script: { sections: [{ id: "s1", text: "hi" }] },
+		});
+		const manifest = out.asset_manifest as Record<string, unknown>;
+		expect((manifest.metadata as Record<string, unknown>).narrative_duration_seconds).toBe(22.4);
+	});
+
+	test("a scene_plan with no video scenes dispatches no native-relay call", async () => {
+		const { deps, genCalls } = assetsDeps();
+		await wireProduce(deps)("assets", {
+			scene_plan: { scenes: [{ id: "s1", type: "text_card", description: "title", start_seconds: 0, end_seconds: 3 }] },
+			script: { narration: "none" },
+		});
+		expect(genCalls.filter((c) => c.command === "native-relay")).toHaveLength(0);
 	});
 });
 
