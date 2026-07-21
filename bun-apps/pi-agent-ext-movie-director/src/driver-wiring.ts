@@ -156,6 +156,9 @@ async function produceAssets(
 		if (!res.ok) throw new Error(`assets generate native-relay failed: ${res.error}`);
 		const parsedResult = JSON.parse(res.text) as { provider?: string };
 		const relayMp4Path = firstArtifactPath(parsedResult) ?? "";
+		if (!relayMp4Path) {
+			throw new Error("assets native-relay response has no primary output artifact (malformed/empty relay output)");
+		}
 		const segmentPaths = relaySegmentPaths(parsedResult);
 		if (segmentPaths.length !== plan.relayLinks.length) {
 			throw new Error(

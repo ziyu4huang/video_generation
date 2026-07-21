@@ -160,6 +160,32 @@ describe("wireProduce — assets execution (single native-relay call for the who
 		expect(genCalls.filter((c) => c.command === "native-relay")).toHaveLength(0);
 	});
 
+	test("throws when native-relay returns no primary output artifact (malformed/empty relay response)", async () => {
+		const dispatchFn: DispatchLike = async (command, callOpts) => {
+			if (command !== "generate") return { ok: true, text: JSON.stringify({}) };
+			const capability = (callOpts as Record<string, unknown>).capability;
+			if (capability === "tts") {
+				return { ok: true, text: JSON.stringify({ provider: "tts", result: { artifacts: [{ path: "/tmp/narration.wav" }] } }) };
+			}
+			// Only segment_N artifacts, no unroled primary output artifact at index 0.
+			return {
+				ok: true,
+				text: JSON.stringify({
+					provider: "ltx",
+					result: { artifacts: [{ path: "", role: undefined }, { path: "/tmp/relay/seg01/segment.mp4", role: "segment_1" }] },
+				}),
+			};
+		};
+		const probeDuration = async () => 8;
+		const deps = makeWireDeps({ dispatchFn, probeDuration });
+		await expect(
+			wireProduce(deps)("assets", {
+				scene_plan: { scenes: [{ id: "s1", type: "generated", description: "a cube", start_seconds: 0, end_seconds: 8 }] },
+				script: { sections: [{ id: "s1", text: "hi" }] },
+			}),
+		).rejects.toThrow(/primary output/i);
+	});
+
 	test("throws when native-relay returns fewer segments than requested links (partial/corrupt output)", async () => {
 		const dispatchFn: DispatchLike = async (command, callOpts) => {
 			if (command !== "generate") return { ok: true, text: JSON.stringify({}) };
