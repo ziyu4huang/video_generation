@@ -14,7 +14,7 @@ import { describe, test, expect } from "bun:test";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseWorkflowScript, readManifest } from "@repo/pi-agent-ext-workflow";
+import { parseWorkflowScript, readManifest, resolveWorkflowScript, runWorkflowScript } from "@repo/pi-agent-ext-workflow";
 import { buildMovieHostFnRegistry } from "../src/host-fns.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -85,4 +85,22 @@ describe("movie-director saved workflows (structural)", () => {
       });
     });
   }
+});
+
+describe("scene-assets pack resolves via the shared workflow-pack resolver", () => {
+  const REPO_ROOT = join(HERE, "..", "..", "..");
+
+  test("resolveWorkflowScript finds it as a package-workflows pack", () => {
+    const resolved = resolveWorkflowScript("scene-assets", { cwd: REPO_ROOT });
+    expect(resolved.source).toBe("package-workflows");
+    expect(resolved.pack?.manifest.name).toBe("scene-assets");
+    expect(resolved.pack?.manifest.entry).toBe("index.js");
+  });
+
+  test("runWorkflowScript dry-run parses and validates without executing", async () => {
+    const receipt = await runWorkflowScript({ name: "scene-assets", cwd: REPO_ROOT, dryRun: true });
+    expect(receipt.dryRun).toBe(true);
+    expect(receipt.meta.name).toBe("scene-assets");
+    expect(receipt.source).toBe("package-workflows");
+  });
 });
