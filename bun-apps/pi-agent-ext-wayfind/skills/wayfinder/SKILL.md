@@ -1,6 +1,6 @@
 ---
 name: wayfinder
-description: Use when planning a huge chunk of work — more than one agent session can hold — whose route is still foggy. Charts the effort as a shared local-markdown map of decision tickets under .planning/<effort>/ and resolves them one at a time until the way to the destination is clear. Invocation-only via /wayfind.
+description: Use when you can't yet write a plan because the route is still foggy — a huge chunk of work (more than one agent session can hold) whose decisions are unresolved. The discriminator is plan-writability — if you CAN write a plan from a settled spec, use writing-plans instead; if it's foggy but small, use grilling. Charts the effort as a shared local-markdown map of decision tickets under .planning/<effort>/ and resolves them one at a time until the way to the destination is clear. Invocation-only via /wayfind.
 disable-model-invocation: true
 ---
 

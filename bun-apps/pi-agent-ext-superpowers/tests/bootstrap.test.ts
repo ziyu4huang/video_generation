@@ -149,4 +149,19 @@ describe("bootstrap payload assembly", () => {
     expect(payload).toContain("task");
     expect(payload).toMatch(/tools|excludeTools|cwd|model/);
   });
+
+  it("carries the Path & routing overrides (boundary convergence, ADR-0004-safe)", () => {
+    _resetBootstrapCacheForTests();
+    const payload = getBootstrapContent() ?? "";
+    // the override section exists
+    expect(payload).toContain("## Path & routing overrides (this repo)");
+    // rule 1: artifact-home override converges upstream paths to .planning/<effort>/
+    expect(payload).toContain("docs/superpowers/specs/");
+    expect(payload).toContain(".planning/<effort>/spec.md");
+    expect(payload).toContain(".planning/<effort>/plan.md");
+    // rule 2: entry-path routing discriminator + brainstorming→to-spec deferral
+    expect(payload).toContain("can I write a plan right now");
+    expect(payload).toContain("brainstorming");
+    expect(payload).toContain("to-spec");
+  });
 });

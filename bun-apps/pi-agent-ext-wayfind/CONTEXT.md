@@ -73,3 +73,21 @@ _Avoid_: hook, signal (it is a published globalThis reader for cross-extension t
 **grill→plan handoff** (`/grill done --seed-plan`):
 Ends the grill and synthesizes the resolved decisions + `CONTEXT.md` glossary into a `task_plan.md` seed, which the plan coordinator then drives as you execute the plan.
 _Avoid_: export, transfer (it is a synthesis + handoff into the planning substrate)
+
+### Boundary
+
+**Decide-phase**:
+The wayfind half of the methodology — resolve fog into decisions before any code. Grilling, wayfinder, to-spec, to-tickets, domain-modeling. Terminates at `/wayfind seed` → the core-task coordinator. Entered when a plan can't yet be written.
+_Avoid_: planning, design phase (it is decision-resolution, not design or planning)
+
+**Plan/execute-phase**:
+The Superpowers half — turn a settled spec into bite-sized TDD tasks and deliver them. brainstorming → writing-plans → subagent-driven-development. Terminates at a merged branch / PR. Entered when a plan can be written.
+_Avoid_: build phase, implementation phase (it is plan-then-execute, not undifferentiated building)
+
+**Parallel coexistence**:
+The two pipelines are independent and non-connecting — they share the `.planning/<effort>/` layout but not a flow. Divergence (path convergence, trigger routing) is expressed in the using-superpowers bootstrap, never by patching upstream-verbatim skill bodies (ADR-0004 / ADR-0005).
+_Avoid_: handoff chain, pipeline stages (they are two entry paths, not stages of one flow)
+
+**Plan-writability**:
+The discriminator that picks the pipeline: *can I write a plan right now from what's already settled?* Yes → plan/execute-phase; no → decide-phase. Size is secondary (picks `wayfinder` vs `grilling` within the decide-phase only).
+_Avoid_: complexity, size (it is can-the-plan-be-written, not how-big)

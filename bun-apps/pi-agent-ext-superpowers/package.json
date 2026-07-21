@@ -48,7 +48,7 @@
   ],
   "pi": {
     "extensions": [
-      "./extensions/index.ts"
+      "./extensions/superpowers.ts"
     ],
     "skills": [
       "./skills"

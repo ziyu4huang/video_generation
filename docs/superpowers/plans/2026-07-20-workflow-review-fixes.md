@@ -1,6 +1,6 @@
 # pi-agent-ext-workflow Codebase-Review Fixes — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Resolve the four codebase-review findings (F1–F4) in `bun-apps/pi-agent-ext-workflow` so `bun run check` is green and agent start↔end snapshot correlation no longer depends on label uniqueness.
 
@@ -38,7 +38,7 @@
 
 **Files:** none (git only)
 
-- [ ] **Step 1: Create and switch to the branch**
+- [x] **Step 1: Create and switch to the branch**
 
 ```bash
 cd /Users/huangziyu/proj/video_generation__workflow
@@ -53,7 +53,7 @@ Expected: `Switched to a new branch 'fix/pi-workflow-review-f1-f4'`.
 
 **Files:** whole `bun-apps/pi-agent-ext-workflow` tree (format + import sort only, no logic).
 
-- [ ] **Step 1: Run the auto-fix**
+- [x] **Step 1: Run the auto-fix**
 
 ```bash
 ( cd bun-apps/pi-agent-ext-workflow && bunx biome check --write . )
@@ -61,7 +61,7 @@ Expected: `Switched to a new branch 'fix/pi-workflow-review-f1-f4'`.
 
 Expected: many files reformatted / imports reorganized; exit 0.
 
-- [ ] **Step 2: Verify the gate is green**
+- [x] **Step 2: Verify the gate is green**
 
 ```bash
 ( cd bun-apps/pi-agent-ext-workflow && bun run check )
@@ -69,7 +69,7 @@ Expected: many files reformatted / imports reorganized; exit 0.
 
 Expected: exit 0, `Found 0 errors`. (Before this task it was 35 errors.)
 
-- [ ] **Step 3: Verify build + tests still pass (formatting must not change behavior)**
+- [x] **Step 3: Verify build + tests still pass (formatting must not change behavior)**
 
 ```bash
 ( cd bun-apps/pi-agent-ext-workflow && bun run build && bun run test:unit )
@@ -77,7 +77,7 @@ Expected: exit 0, `Found 0 errors`. (Before this task it was 35 errors.)
 
 Expected: tsc exit 0; tests `1137 pass / 0 fail / 3 todo`.
 
-- [ ] **Step 4: Commit (F1 isolated — large mechanical diff must not mingle with logic)**
+- [x] **Step 4: Commit (F1 isolated — large mechanical diff must not mingle with logic)**
 
 ```bash
 cd /Users/huangziyu/proj/video_generation__workflow
@@ -103,7 +103,7 @@ formatting + import reordering, zero logic change."
 **Interfaces:**
 - Consumes: `WorkflowManager.runSync(script, args, exec)` with a stub `agent` runner; `WorkflowManager.getRun(runId)` → `ManagedRun.snapshot.agents` (`WorkflowAgentSnapshot[]`, each has `label`, `prompt`, `resultPreview`).
 
-- [ ] **Step 1: Add the helper + test at the end of `tests/workflow-manager.test.ts`**
+- [x] **Step 1: Add the helper + test at the end of `tests/workflow-manager.test.ts`**
 
 Append exactly:
 
@@ -157,7 +157,7 @@ return out`;
 );
 ```
 
-- [ ] **Step 2: Run the new test to verify it FAILS on the current (pre-fix) code**
+- [x] **Step 2: Run the new test to verify it FAILS on the current (pre-fix) code**
 
 ```bash
 ( cd bun-apps/pi-agent-ext-workflow && bun test tests/workflow-manager.test.ts -t "F2: parallel agents" )
@@ -178,7 +178,7 @@ Expected: **FAIL** — at least one assertion `agent prompt "BBB" got result "CC
 
 > **Execution note (oldText freshness):** the `Old:` snippets below were captured from the *pre-format* source. Task 1's biome pass may re-wrap some one-liners / object literals. Before applying each edit, re-read the actual region (`grep -n` the distinctive token) and adjust `oldText` to the post-format text. The *New:* side is what matters; only `callIndex,` / `callIndex: ...` is being added.
 
-- [ ] **Step 1: Add `callIndex` to the snapshot type (`src/display.ts`)**
+- [x] **Step 1: Add `callIndex` to the snapshot type (`src/display.ts`)**
 
 In `WorkflowAgentSnapshot` (the block starting `export interface WorkflowAgentSnapshot {`), add `callIndex` right after `id`:
 
@@ -197,7 +197,7 @@ export interface WorkflowAgentSnapshot {
   label: string;
 ```
 
-- [ ] **Step 2: Add `callIndex` to the three event types (`src/workflow.ts`)**
+- [x] **Step 2: Add `callIndex` to the three event types (`src/workflow.ts`)**
 
 Old (the `onAgentStart` line):
 ```ts
@@ -229,7 +229,7 @@ New:
   onAgentHistory?: (event: { callIndex: number; label: string; phase?: string; history: AgentHistoryEntry[] }) => void;
 ```
 
-- [ ] **Step 3: Pass `callIndex` at all 6 fire sites in `agent()` (`src/workflow.ts`)**
+- [x] **Step 3: Pass `callIndex` at all 6 fire sites in `agent()` (`src/workflow.ts`)**
 
 `callIndex` is already in scope at every site (`const callIndex = state.callSeq++`).
 
@@ -281,7 +281,7 @@ New:
               result: null,
 ```
 
-- [ ] **Step 4: Add `callIndex` to `call-global.ts` event types**
+- [x] **Step 4: Add `callIndex` to `call-global.ts` event types**
 
 Old:
 ```ts
@@ -325,7 +325,7 @@ export interface AgentEndEventLike {
 }
 ```
 
-- [ ] **Step 5: Pass `callIndex` at all 4 fire sites in `call-global.ts`**
+- [x] **Step 5: Pass `callIndex` at all 4 fire sites in `call-global.ts`**
 
 `callIndex` is already in scope in `buildCallGlobal`'s returned closure (`const callIndex = deps.state.callSeq++`).
 
@@ -360,7 +360,7 @@ Live end:
 Old: `    deps.options.onAgentEnd?.({ label: namespaced, phase: phase(), result, tokens: 0, model: HOST_FN_MODEL });`
 New: `    deps.options.onAgentEnd?.({ callIndex, label: namespaced, phase: phase(), result, tokens: 0, model: HOST_FN_MODEL });`
 
-- [ ] **Step 6: Store `callIndex` and match by it in `workflow-manager.ts`**
+- [x] **Step 6: Store `callIndex` and match by it in `workflow-manager.ts`**
 
 In the `onAgentStart` handler, add `callIndex` to the pushed object:
 Old:
@@ -391,7 +391,7 @@ New:
 
 > NOTE: this oldText appears twice (lines ~460 and ~476). Apply the replacement to both. If the edit tool rejects a duplicate oldText in one call, do two calls each scoped with adjacent unique context (e.g. include the preceding `const agent = [...managed.snapshot.agents]` line plus the following differing line — `onAgentEnd` is followed by `if (agent) { agent.status = ...` while `onAgentHistory` is followed by `if (agent) { agent.history = ...`).
 
-- [ ] **Step 7: Run the F2 regression test — verify it now PASSES**
+- [x] **Step 7: Run the F2 regression test — verify it now PASSES**
 
 ```bash
 ( cd bun-apps/pi-agent-ext-workflow && bun test tests/workflow-manager.test.ts -t "F2: parallel agents" )
@@ -399,7 +399,7 @@ New:
 
 Expected: **PASS**.
 
-- [ ] **Step 8: Run the FULL suite + build + gate (event-shape change is additive; nothing else should break)**
+- [x] **Step 8: Run the FULL suite + build + gate (event-shape change is additive; nothing else should break)**
 
 ```bash
 ( cd bun-apps/pi-agent-ext-workflow && bun run check && bun run build && bun run test:unit )
@@ -407,7 +407,7 @@ Expected: **PASS**.
 
 Expected: `check` exit 0; `build` exit 0; tests all pass (`1138 pass / 0 fail / 3 todo` — one more pass than before, the new F2 test).
 
-- [ ] **Step 9: Commit F2**
+- [x] **Step 9: Commit F2**
 
 ```bash
 cd /Users/huangziyu/proj/video_generation__workflow
@@ -429,7 +429,7 @@ adds a duplicate-label regression test."
 **Files:**
 - Modify: `src/workflow-tool.ts`
 
-- [ ] **Step 1: F4 — guard the redundant settings disk read**
+- [x] **Step 1: F4 — guard the redundant settings disk read**
 
 In `createWorkflowTool`, replace the always-eager defaults + manager construction:
 
@@ -466,7 +466,7 @@ New:
     });
 ```
 
-- [ ] **Step 2: F3 — delete the dead `_isAbortError`**
+- [x] **Step 2: F3 — delete the dead `_isAbortError`**
 
 Delete this entire function (it is defined but never called; `errors.ts` exports the canonical `isAbortError`):
 
@@ -477,7 +477,7 @@ function _isAbortError(error: unknown): boolean {
 }
 ```
 
-- [ ] **Step 3: Verify gate + build + full suite**
+- [x] **Step 3: Verify gate + build + full suite**
 
 ```bash
 ( cd bun-apps/pi-agent-ext-workflow && bun run check && bun run build && bun run test:unit )
@@ -485,7 +485,7 @@ function _isAbortError(error: unknown): boolean {
 
 Expected: `check` exit 0; `build` exit 0; all tests pass (no behavior change — the tool-construction path is covered by existing tests, e.g. `tests/workflow-tool*.test.ts`).
 
-- [ ] **Step 4: Commit F3 + F4**
+- [x] **Step 4: Commit F3 + F4**
 
 ```bash
 cd /Users/huangziyu/proj/video_generation__workflow
@@ -502,7 +502,7 @@ git commit -m "chore(pi-agent-ext-workflow): drop dead code, skip redundant sett
 
 ## Task 4: Final verification (definition of done)
 
-- [ ] **Step 1: Full gate from a clean build**
+- [x] **Step 1: Full gate from a clean build**
 
 ```bash
 ( cd bun-apps/pi-agent-ext-workflow && bun run check && bun run build && bun run test:unit )
@@ -510,7 +510,7 @@ git commit -m "chore(pi-agent-ext-workflow): drop dead code, skip redundant sett
 
 Expected: `check` exit 0 (was 35 errors); `build` exit 0; tests all pass with the new F2 test present; the 3 unrelated todo tests stay todo.
 
-- [ ] **Step 2: Confirm commit history is clean and F2/F3/F4 carry no formatting noise**
+- [x] **Step 2: Confirm commit history is clean and F2/F3/F4 carry no formatting noise**
 
 ```bash
 cd /Users/huangziyu/proj/video_generation__workflow
@@ -521,4 +521,4 @@ git diff HEAD~1..HEAD --stat              # F3+F4: only workflow-tool.ts
 
 Expected: 3 commits on top of the branch point; F2/F3/F4 diffs are logic-only (all formatting absorbed in the F1 commit).
 
-- [ ] **Step 3: Report results** — summarize the four green gates and the commit list to the user; do not merge (leave that to the user / a finishing-a-development-branch decision).
+- [x] **Step 3: Report results** — summarize the four green gates and the commit list to the user; do not merge (leave that to the user / a finishing-a-development-branch decision).

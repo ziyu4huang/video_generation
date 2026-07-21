@@ -13,7 +13,7 @@ Only the Pi extension wrapper (`src/`, `extensions/`, `tests/`, config) is this 
 
 1. `resources_discover` → hands Pi the package's `skills/` dir; all 14 skills load natively as Pi skills.
 2. `session_start` / `session_compact` → re-arm bootstrap injection.
-3. `context` → if armed and the bootstrap is absent from the visible messages, insert the `using-superpowers` payload (skill body + a Pi tool-mapping note) right after any leading `compactionSummary` messages.
+3. `context` → if armed and the bootstrap is absent from the visible messages, insert the `using-superpowers` payload (skill body + a Pi tool-mapping note + path/routing overrides) right after any leading `compactionSummary` messages.
 4. `agent_end` → stand down for the rest of the session.
 
 No slash commands, no coordination globals — Superpowers is skill-driven, not command-driven (contrast with [`@repo/pi-agent-ext-wayfind`](../pi-agent-ext-wayfind)).
@@ -25,12 +25,16 @@ No slash commands, no coordination globals — Superpowers is skill-driven, not 
 ## Layout
 
 ```
-extensions/index.ts   # thin Pi entry — delegates to src/index.ts
+extensions/superpowers.ts   # thin Pi entry — delegates to src/index.ts
 src/index.ts          # default factory (re-export)
 src/superpowers.ts    # discovery + bootstrap logic (port of upstream .pi/extensions/superpowers.ts)
 skills/               # 14 skills, byte-identical to upstream (assets — excluded from biome)
 tests/                # skills.test.ts (Pi-loader rules) + bootstrap.test.ts (wiring)
 ```
+
+## Upstream sync
+
+`scripts/update-superpowers.sh` syncs `skills/` from the **Claude plugin cache** (`~/.claude-glm/plugins/cache/...`) — the canonical release artifact matching what Claude Code users receive. The upstream git origin `obra/superpowers` (checked out at `../superpowers/` in this monorepo's parent) is **reference-only** — for reading upstream, never a sync source. Re-syncing is manual and guarded by `tests/skills-fidelity.test.ts` (ADR-0004); see `tests/__fixtures__/upstream-skills/UPSTREAM.ref` for provenance.
 
 ## Develop
 
