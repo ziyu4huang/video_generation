@@ -50,19 +50,19 @@
     "url": "https://github.com/chandra447/pi-hermes-memory"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "0.80.10",
-    "@earendil-works/pi-coding-agent": "0.80.10"
+    "@earendil-works/pi-ai": "0.81.1",
+    "@earendil-works/pi-coding-agent": "0.81.1"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "0.80.10",
-    "@earendil-works/pi-coding-agent": "0.80.10",
+    "@earendil-works/pi-ai": "0.81.1",
+    "@earendil-works/pi-coding-agent": "0.81.1",
     "@types/proper-lockfile": "^4.1.4",
     "@types/retry": "^0.12.5",
     "typebox": "^1.1.33",
     "typescript": "^6.0.3"
   },
   "dependencies": {
-    "@earendil-works/pi-tui": "0.80.10",
+    "@earendil-works/pi-tui": "0.81.1",
     "proper-lockfile": "^4.1.2"
   }
 }

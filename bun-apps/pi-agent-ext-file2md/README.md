@@ -15,6 +15,18 @@ vault. The point: give a text-only agent eyes — it never has to "see" the file
 - `DEFAULT_VLM_MODEL` and friends exported for reuse by downstream packages
   (e.g. `bun-pi-agent-cli`'s `pdf-to-vault` stage 1).
 
+## Internal docs
+
+[`docs/`](./docs) traces how `vision_ask` / `file2md` actually run, with
+source citations into the installed `pi-coding-agent` + `pi-ai`:
+
+- [docs/architecture.md](./docs/architecture.md) — end-to-end call chain,
+  sequence diagram, model resolution (`resolveLLM`), and how an image part is
+  serialized to the provider wire format by the pi-ai adapter.
+- [docs/configuring-vision-models.md](./docs/configuring-vision-models.md) —
+  registering vision models in `~/.pi/agent/models.json`, switching backends
+  at runtime, and the per-`api` image wire-format comparison.
+
 ## Requires
 
 - **[LM Studio](https://lmstudio.ai)** serving a vision model at
