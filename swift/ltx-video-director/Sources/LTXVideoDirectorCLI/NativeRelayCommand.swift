@@ -160,7 +160,8 @@ struct NativeRelay: ParsableCommand {
         let stage = NativeRelayStage()
         let result = try stage.generate(request, outputDir: outputDir)
         for (i, url) in result.segmentVideoURLs.enumerated() {
-            print("   segment \(i + 1): \(url.path)")
+            let duration = i < result.segmentDurations.count ? result.segmentDurations[i] : 0
+            print("   segment \(i + 1): \(url.path) (\(String(format: "%.2f", duration))s)")
         }
         print("   final: \(result.finalVideoURL.path)")
         print("   100% native Swift/MLX + AVFoundation — zero run.py calls, zero ffmpeg calls.")
