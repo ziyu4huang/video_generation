@@ -135,3 +135,46 @@ describe("artifact schema validation", () => {
     }
   });
 });
+
+describe("scene_plan", () => {
+  test("scene_plan: a scene may declare continuity 'cut' or 'continue'", () => {
+    const scenePlan = {
+      version: "1.0",
+      scenes: [
+        { id: "s1", type: "generated", description: "a cube", start_seconds: 0, end_seconds: 6, continuity: "cut" },
+        { id: "s2", type: "generated", description: "a sphere", start_seconds: 6, end_seconds: 12, continuity: "continue" },
+      ],
+    };
+    expect(validateArtifact("scene_plan", scenePlan).ok).toBe(true);
+  });
+
+  test("scene_plan: continuity rejects values outside 'continue'/'cut'", () => {
+    const scenePlan = {
+      version: "1.0",
+      scenes: [{ id: "s1", type: "generated", description: "a cube", start_seconds: 0, end_seconds: 6, continuity: "maybe" }],
+    };
+    expect(validateArtifact("scene_plan", scenePlan).ok).toBe(false);
+  });
+});
+
+describe("edit_decisions", () => {
+  test("edit_decisions: top-level transition accepts 'none' or 'crossfade'", () => {
+    const edit = {
+      version: "1.0",
+      render_runtime: "ffmpeg",
+      transition: "none",
+      cuts: [{ id: "cut-1", source: "/tmp/relay.mp4", in_seconds: 0, out_seconds: 8 }],
+    };
+    expect(validateArtifact("edit_decisions", edit).ok).toBe(true);
+  });
+
+  test("edit_decisions: transition rejects values outside 'none'/'crossfade'", () => {
+    const edit = {
+      version: "1.0",
+      render_runtime: "ffmpeg",
+      transition: "wipe",
+      cuts: [{ id: "cut-1", source: "/tmp/relay.mp4", in_seconds: 0, out_seconds: 8 }],
+    };
+    expect(validateArtifact("edit_decisions", edit).ok).toBe(false);
+  });
+});

@@ -26,7 +26,19 @@ function makeFakeInner() {
 		}
 		if (command === "validate-artifact") return { ok: true, text: JSON.stringify({ valid: true }) };
 		// generate / compose-motion / final-review → success
-		if (command === "generate") return { ok: true, text: JSON.stringify({ result: { artifacts: [{ path: "/tmp/c.mp4" }] } }) };
+		if (command === "generate") {
+			if (opts.command === "native-relay") {
+				// One segment_N artifact per requested relay link, matching produceAssets's
+				// expectation (see driver-wiring.ts's segment-count guard).
+				const linkCount = ((opts.options as Record<string, unknown> | undefined)?.secondsPerSegment as unknown[] | undefined)?.length ?? 1;
+				const segmentArtifacts = Array.from({ length: linkCount }, (_, i) => ({
+					path: `/tmp/relay/seg0${i + 1}/segment.mp4`,
+					role: `segment_${i + 1}`,
+				}));
+				return { ok: true, text: JSON.stringify({ result: { artifacts: [{ path: "/tmp/c.mp4" }, ...segmentArtifacts] } }) };
+			}
+			return { ok: true, text: JSON.stringify({ result: { artifacts: [{ path: "/tmp/c.mp4" }] } }) };
+		}
 		if (command === "compose-motion") return { ok: true, text: JSON.stringify({ output: "/tmp/final.mp4" }) };
 		if (command === "final-review") return { ok: true, text: JSON.stringify({ verdict: "pass" }) };
 		return { ok: true, text: JSON.stringify({ ok: true }) };
@@ -78,7 +90,7 @@ describe("dispatch run-pipeline — wiring", () => {
 		}
 	});
 
-	test("the assets stage passes frames derived from the scene's real duration", async () => {
+	test("the assets stage passes a single native-relay call with segment seconds derived from the scene's real duration", async () => {
 		const genCalls: Record<string, unknown>[] = [];
 		const base = makeFakeInner();
 		const inner: DispatchDeps["innerDispatch"] = async (command, opts) => {
@@ -91,9 +103,10 @@ describe("dispatch run-pipeline — wiring", () => {
 			{ innerDispatch: inner, waypointDeps: makeWaypointDeps() },
 		);
 		const vids = genCalls.filter((c) => c.capability === "video_generation");
-		expect(vids.length).toBeGreaterThanOrEqual(1);
-		// scene is 6s @ default 25fps → frames = ceil(6*25) = 150
-		expect(vids[0]!.options).toMatchObject({ frames: 150 });
+		expect(vids).toHaveLength(1); // ONE native-relay call for the whole movie, not one per scene/link
+		expect(vids[0]!.command).toBe("native-relay");
+		// scene is 6s, under the default 8s per-link ceiling → a single 6s relay link
+		expect(vids[0]!.options).toMatchObject({ secondsPerSegment: [6], segmentContinuity: [true] });
 	});
 
 	test("requireHumanApproval pauses at the named stage", async () => {

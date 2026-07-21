@@ -413,13 +413,17 @@ function buildNativeRelayDetails(res: InvokeResult): LtxDetails {
   const final = firstMatchLine(stdout, /final:\s*(\S+)/);
   const segments = allMatches(stdout, /segment \d+:\s*(\S+)/);
   const dims = parseDims(stdout);
+  const extraOutputs: Record<string, string> = {};
+  segments.forEach((path, i) => {
+    extraOutputs[`segment_${i + 1}`] = path;
+  });
   return {
     ok,
     command: "native-relay",
     exitCode: res.exitCode,
     aborted: res.aborted,
     output: final,
-    extraOutputs: segments.length ? { segments } : {},
+    extraOutputs,
     width: dims.width,
     height: dims.height,
     wallSeconds: parseWallSeconds(stdout),

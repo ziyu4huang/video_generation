@@ -199,6 +199,11 @@
       "enum": ["remotion", "hyperframes", "ffmpeg"],
       "description": "Locked at proposal stage — technical runtime that realizes renderer_family. Edit MUST carry this forward unchanged unless a logged render_runtime_selection decision overrides it."
     },
+    "transition": {
+      "type": "string",
+      "enum": ["none", "crossfade"],
+      "description": "Global transition compose-motion applies between cuts. 'none' is required when cuts are trimmed from a single native-relay output whose scene boundaries are already visually continuous (a crossfade would double-blend already-matching frames). Defaults to 'crossfade' behavior when omitted (legacy multi-source edits)."
+    },
     "composition_mode": {
       "type": "string",
       "enum": ["templated", "atelier"],

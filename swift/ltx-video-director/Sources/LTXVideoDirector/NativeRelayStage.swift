@@ -35,6 +35,8 @@ public struct NativeRelayStage {
         case segmentGridPanelsRequireGridImage
         case segmentGridImageNotFound(URL)
         case invalidSegmentGridPanel(segment: Int, panel: Int, panelCount: Int)
+        case secondsPerSegmentCountMismatch(count: Int, segments: Int)
+        case segmentContinuityCountMismatch(count: Int, segments: Int)
 
         public var description: String {
             switch self {
@@ -49,6 +51,10 @@ public struct NativeRelayStage {
                 return "NativeRelayStage: grid image not found at \(url.path)"
             case .invalidSegmentGridPanel(let segment, let panel, let panelCount):
                 return "NativeRelayStage: segmentGridPanels[\(segment)]=\(panel) out of range [0, \(panelCount)) for gridColumns*gridRows"
+            case .secondsPerSegmentCountMismatch(let count, let segments):
+                return "NativeRelayStage: secondsPerSegment has \(count) entries, expected \(segments) (one per segment/prompt)"
+            case .segmentContinuityCountMismatch(let count, let segments):
+                return "NativeRelayStage: segmentContinuity has \(count) entries, expected \(segments) (one per segment/prompt)"
             }
         }
     }
@@ -79,6 +85,19 @@ public struct NativeRelayStage {
         /// video's duration if longer; only the covered span is replaced
         /// if shorter.
         public var audioOverlayPath: URL?
+
+        /// Per-segment duration override (seconds), one entry per `prompts.count`
+        /// when given — overrides `seconds` for that segment only. Omitted (nil)
+        /// -> every segment uses the uniform `seconds` (unchanged default).
+        public var secondsPerSegment: [Double]?
+
+        /// Per-segment continuity override, one entry per `prompts.count` when
+        /// given. `false` at index i means segment i ignores `nextInputImage`
+        /// and generates fresh via T2I from `prompts[i]` (a hard cut) — exactly
+        /// like segment 0's default behavior. Omitted (nil) -> every non-first
+        /// segment continues from the previous segment's last frame (unchanged
+        /// default); segment 0 never continues regardless of this array.
+        public var segmentContinuity: [Bool]?
 
         /// Grid guide (see NativeI2VStage.Request.gridImagePath's header):
         /// applied IDENTICALLY to every segment, same as loraPaths — there
@@ -139,6 +158,10 @@ public struct NativeRelayStage {
         public let segmentResults: [NativeI2VStage.Result]
         public let segmentVideoURLs: [URL]
         public let finalVideoURL: URL
+        /// Actual generated duration per segment (frameCount / fps) — NOT the
+        /// requested value, since LTX's 8k+1 frame-stride alignment means
+        /// requested and actual can differ.
+        public let segmentDurations: [Double]
     }
 
     public init() {}
@@ -172,12 +195,23 @@ public struct NativeRelayStage {
                 }
             }
         }
+        if let secondsPerSegment = request.secondsPerSegment {
+            guard secondsPerSegment.count == request.prompts.count else {
+                throw StageError.secondsPerSegmentCountMismatch(count: secondsPerSegment.count, segments: request.prompts.count)
+            }
+        }
+        if let segmentContinuity = request.segmentContinuity {
+            guard segmentContinuity.count == request.prompts.count else {
+                throw StageError.segmentContinuityCountMismatch(count: segmentContinuity.count, segments: request.prompts.count)
+            }
+        }
 
         try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
 
         let stage = NativeI2VStage()
         var segmentResults: [NativeI2VStage.Result] = []
         var segmentVideoURLs: [URL] = []
+        var segmentDurations: [Double] = []
         var nextInputImage: URL? = request.firstImagePath
 
         // Split the shared grid image once, up front, if any segment needs a
@@ -197,8 +231,9 @@ public struct NativeRelayStage {
             let segDir = outputDir.appendingPathComponent("seg\(String(format: "%02d", segNum))")
             try FileManager.default.createDirectory(at: segDir, withIntermediateDirectories: true)
 
+            let segSeconds = request.secondsPerSegment?[index] ?? request.seconds
             var segRequest = NativeI2VStage.Request(
-                prompt: prompt, seconds: request.seconds, fps: request.fps,
+                prompt: prompt, seconds: segSeconds, fps: request.fps,
                 width: request.width, height: request.height,
                 seed: request.seed &+ UInt64(index),
                 t2iTransformer: request.t2iTransformer, textMaxLength: request.textMaxLength,
@@ -209,6 +244,9 @@ public struct NativeRelayStage {
                 // — deliberately skip the continuity chain (`nextInputImage`)
                 // so this segment's frame 0 is generated fresh from its own
                 // `prompt`, then pinned to its own storyboard panel below.
+                // Note: this branch takes silent precedence over
+                // `segmentContinuity[index]` when both are set for the same
+                // segment — the grid-panel hard-cut always wins.
                 let panelIdx = segmentGridPanels[index]
                 let panelPNG = segDir.appendingPathComponent("panel_source.png")
                 FrameLoad.savePNG(gridPanels[panelIdx], to: panelPNG)
@@ -220,7 +258,13 @@ public struct NativeRelayStage {
                 segRequest.gridFrameIndices = [0]
                 segRequest.gridStrengths = [strength]
             } else {
-                segRequest.inputImagePath = nextInputImage
+                // Segment 0 always resolves `nextInputImage` (== firstImagePath,
+                // or nil if none given) regardless of segmentContinuity[0] — per
+                // the doc comment's guarantee that "segment 0 never continues
+                // regardless of this array"; only segments 1+ can opt out of
+                // consuming the previous segment's forwarded last frame.
+                let continueFromPrevious = index == 0 ? true : (request.segmentContinuity?[index] ?? true)
+                segRequest.inputImagePath = continueFromPrevious ? nextInputImage : nil
                 if !request.gridFrameIndices.isEmpty {
                     segRequest.gridImagePath = request.gridImagePath
                     segRequest.gridColumns = request.gridColumns
@@ -232,6 +276,7 @@ public struct NativeRelayStage {
 
             let result = try stage.generate(segRequest, outputDir: segDir)
             segmentResults.append(result)
+            segmentDurations.append(Double(result.frameCount) / request.fps)
 
             let lastFrameURL = result.frameDirectory.appendingPathComponent(
                 String(format: "frame_%04d.png", result.frameCount - 1))
@@ -256,6 +301,6 @@ public struct NativeRelayStage {
             finalURL = overlaidURL
         }
 
-        return Result(segmentResults: segmentResults, segmentVideoURLs: segmentVideoURLs, finalVideoURL: finalURL)
+        return Result(segmentResults: segmentResults, segmentVideoURLs: segmentVideoURLs, finalVideoURL: finalURL, segmentDurations: segmentDurations)
     }
 }
