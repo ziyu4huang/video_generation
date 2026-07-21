@@ -1,5 +1,5 @@
 import { DatabaseManager } from './db.js';
-import { buildFallbackFts5Query, hasExplicitFts5Operator, isFts5QueryError, normalizeFts5Query } from './fts-query.js';
+import { buildFallbackFts5Query, hasExplicitFts5Operator, isFts5QueryError, normalizeFts5Query } from './sqlite/fts-query.js';
 
 /**
  * Search result from session history.

@@ -1,5 +1,5 @@
 import { DatabaseManager } from './db.js';
-import { buildFallbackFts5Query, isFts5QueryError, normalizeFts5Query } from './fts-query.js';
+import { buildFallbackFts5Query, isFts5QueryError, normalizeFts5Query } from './sqlite/fts-query.js';
 import { normalizeMemoryLookupText } from './memory-lookup.js';
 import type { MemoryCategory } from '../types.js';
 

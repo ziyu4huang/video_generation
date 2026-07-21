@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
-import { SCHEMA_SQL } from './schema.js';
+import { SCHEMA_SQL } from './sqlite/schema.js';
 
 type StatementLike = {
   run: (...args: any[]) => any;
