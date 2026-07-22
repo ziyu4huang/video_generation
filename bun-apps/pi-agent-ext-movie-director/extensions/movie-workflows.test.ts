@@ -87,20 +87,24 @@ describe("movie-director saved workflows (structural)", () => {
   }
 });
 
-describe("scene-assets pack resolves via the shared workflow-pack resolver", () => {
+describe("saved workflows resolve via the shared workflow-pack resolver", () => {
   const REPO_ROOT = join(HERE, "..", "..", "..");
 
-  test("resolveWorkflowScript finds it as a package-workflows pack", () => {
-    const resolved = resolveWorkflowScript("scene-assets", { cwd: REPO_ROOT });
-    expect(resolved.source).toBe("package-workflows");
-    expect(resolved.pack?.manifest.name).toBe("scene-assets");
-    expect(resolved.pack?.manifest.entry).toBe("index.js");
-  });
+  for (const name of ["produce-video", "research-first", "review-cut", "scene-assets"]) {
+    describe(name, () => {
+      test("resolveWorkflowScript finds it as a package-workflows pack", () => {
+        const resolved = resolveWorkflowScript(name, { cwd: REPO_ROOT });
+        expect(resolved.source).toBe("package-workflows");
+        expect(resolved.pack?.manifest.name).toBe(name);
+        expect(resolved.pack?.manifest.entry).toBe("index.js");
+      });
 
-  test("runWorkflowScript dry-run parses and validates without executing", async () => {
-    const receipt = await runWorkflowScript({ name: "scene-assets", cwd: REPO_ROOT, dryRun: true });
-    expect(receipt.dryRun).toBe(true);
-    expect(receipt.meta.name).toBe("scene-assets");
-    expect(receipt.source).toBe("package-workflows");
-  });
+      test("runWorkflowScript dry-run parses and validates without executing", async () => {
+        const receipt = await runWorkflowScript({ name, cwd: REPO_ROOT, dryRun: true });
+        expect(receipt.dryRun).toBe(true);
+        expect(receipt.meta.name).toBe(name);
+        expect(receipt.source).toBe("package-workflows");
+      });
+    });
+  }
 });
