@@ -12,6 +12,8 @@
  * against.
  */
 
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   appendDecision,
   computeFrontier,
@@ -176,4 +178,101 @@ export function renderStatus(r: StatusReport): string {
     lines.push("frontier: (clear — no open tickets; the way is found)");
   }
   return lines.join("\n");
+}
+
+// ─── closing ceremony: /wayfind done ────────────────────────────────────────
+// Distilled from the old "before goal_complete: write output/next-goal-*"
+// global-memory entry into a structural pure function (decision 01: passive +
+// auto-tidy). The MECHANICAL parts (completion check, timestamp filename,
+// harvest from fog, file write) live here; the REFLECTIVE parts (false
+// premises / footguns) stay with the agent — this writes a template the agent
+// fills. The command handler runs tidy + notifies; this function does not.
+
+/** Local timestamp as YYYYMMDD_HHMMSS (matches scripts/tidy-next-goals.sh). */
+function nextGoalTimestamp(now: Date = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  const d = now;
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+export interface CloseEffortReflection {
+  /** Repo-relative path written, e.g. "output/next-goal-20260723_033000.md". */
+  path: string;
+  /** Recommended next goal (= first fog bullet), or a fallback when fog is empty. */
+  nextGoal: string;
+  /** Harvested deferred prizes (the map's "Not yet specified" bullets). */
+  deferredPrizes: string[];
+  effort: string;
+}
+
+export interface CloseEffortRefused {
+  refused: string;
+}
+
+/** Closing ceremony for a completed effort: harvest its map into an
+ *  `output/next-goal-<ts>.md` self-reflect note. Returns `{ refused }` unless
+ *  the frontier is clear (no open unblocked tickets) — close them first. */
+export function closeEffortReflection(
+  cwd: string,
+  effort: string,
+  now: Date = new Date(),
+): CloseEffortReflection | CloseEffortRefused {
+  const map = readMap(cwd, effort);
+  if (!map) return { refused: `no map found for effort "${effort}" under .planning/` };
+  const frontier = computeFrontier(map.tickets);
+  if (frontier.length > 0) {
+    const ids = frontier.map((t) => `${t.id} ${t.title}`).join("; ");
+    return {
+      refused: `${frontier.length} open ticket(s) remain on "${effort}" (${ids}); resolve them (or /wayfind sync) before /wayfind done`,
+    };
+  }
+  const deferredPrizes = map.fog.filter((p) => !p.startsWith("<!--"));
+  const nextGoal = deferredPrizes[0] ?? "(fog is empty — no deferred prizes harvested; pick the next goal freely)";
+
+  const body = renderNextGoalNote({
+    effort,
+    destination: map.destination,
+    deferredPrizes,
+    nextGoal,
+  });
+  const filename = `next-goal-${nextGoalTimestamp(now)}.md`;
+  mkdirSync(join(cwd, "output"), { recursive: true });
+  writeFileSync(join(cwd, "output", filename), body, "utf-8");
+
+  return { path: `output/${filename}`, nextGoal, deferredPrizes, effort };
+}
+
+function renderNextGoalNote(args: {
+  effort: string;
+  destination: string;
+  deferredPrizes: string[];
+  nextGoal: string;
+}): string {
+  const prizes =
+    args.deferredPrizes.length > 0
+      ? args.deferredPrizes.map((p, i) => `${i + 1}. ${p}`).join("\n")
+      : "_(none harvested — fog was empty)_";
+  return `# Goal completed: ${args.destination || args.effort}
+
+Effort: \`.planning/${args.effort}/\`
+Self-reflect + next-goal note written by \`/wayfind done\` (the closing ceremony, distilled from the convention into a command).
+
+## Self-reflection — fill in (only the agent knows these)
+
+### False premises / course-corrections
+_(fill: hypotheses that were wrong, mental models that needed correcting)_
+
+### Footguns
+_(fill: non-obvious traps for future work in this area)_
+
+## Deferred prizes (harvested from the map's "Not yet specified")
+
+${prizes}
+
+## Next concrete goal (recommended)
+
+**${args.nextGoal}**
+
+_(Confirm or replace — the first deferred prize above; pick a concrete, non-gated, non-conflicting next goal.)_
+`;
 }
