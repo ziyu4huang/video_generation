@@ -163,6 +163,14 @@ export const GATES: ToolGate[] = [
     ],
     description: "Z.ai MCP web tools — web-search-prime + web-reader (redundant with core web tools)",
   },
+  {
+    names: ["pi_deploy", "pi_verify"],
+    keywords: [
+      "build bundle", "deploy", "verify", "run-test", "bundle pi-agent",
+      "部署", "建置", "驗證",
+    ],
+    description: "Build/verify/deploy the pi-agent bundle + extension bundles (wraps deploy.ts + run-test.sh)",
+  },
 ];
 
 /** Union of CORE_TOOLS and every gate's tool names — the set of tools this
