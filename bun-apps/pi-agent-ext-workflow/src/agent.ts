@@ -17,6 +17,7 @@ import { type AgentHistoryEntry, compactAgentHistory } from "./agent-history.js"
 import { applyToolPolicy } from "./agent-registry.js";
 import { classifyProviderLimit, WorkflowError, WorkflowErrorCode } from "./errors.js";
 import { loadModelTierConfig, type ModelTierConfig, resolveTierModel, sortedTierNames } from "./model-tier-config.js";
+import { parseSddReport, type SddReport } from "./sdd-report.js";
 import { createStructuredOutputTool, type StructuredOutputCapture } from "./structured-output.js";
 
 /**
@@ -292,6 +293,14 @@ export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefi
   onModelFallback?: (requestedSpec: string) => void;
   /** Called with a compact snapshot of this subagent's message/tool history. */
   onHistory?: (history: AgentHistoryEntry[]) => void;
+  /**
+   * Parsed SDD self-report block (parity with the `subagent` tool's
+   * `details.report`), when the agent's text output carries one. Fires on the
+   * text-success path with `parseSddReport(text)` — `undefined` when no block
+   * is present, and never fired for structured-output agents (no prose) or on
+   * error. Lets a workflow collect each agent's SDD status without re-parsing.
+   */
+  onSddReport?: (report: SddReport | undefined) => void;
   /** Run this agent in a different working directory (e.g. an isolated worktree). */
   cwd?: string;
   /**
@@ -478,6 +487,7 @@ export class WorkflowAgent {
           agentLabel: options.label,
         });
       }
+      options.onSddReport?.(parseSddReport(text));
       return text as AgentRunResult<TSchemaDef>;
     } finally {
       removeAbortListener?.();

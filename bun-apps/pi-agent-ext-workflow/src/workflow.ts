@@ -6,6 +6,7 @@ import type { TSchema } from "typebox";
 import type { AgentUsage } from "./agent.js";
 import { WorkflowAgent, type WorkflowAgentOptions } from "./agent.js";
 import type { AgentHistoryEntry } from "./agent-history.js";
+import type { SddReport } from "./sdd-report.js";
 import {
   type AgentDefinition,
   type AgentRegistry,
@@ -117,6 +118,7 @@ export interface WorkflowRunOptions extends WorkflowAgentOptions {
     tokens?: number;
     worktree?: string;
     model?: string;
+    sddReport?: SddReport;
     error?: string;
     errorCode?: WorkflowErrorCode;
     recoverable?: boolean;
@@ -473,6 +475,7 @@ export async function runWorkflow<T = unknown>(
       // estimate when the provider reports no usage (total === 0). Usage is reset
       // per retry attempt so a failed attempt does not double-count the next one.
       let usage: AgentUsage | undefined;
+      let sddReport: SddReport | undefined;
       const recordTokens = (result: unknown): number => {
         const tokens = usage && usage.total > 0 ? usage.total : estimateTokens(result) + estimateTokens(prompt);
         if (usage) {
@@ -490,6 +493,7 @@ export async function runWorkflow<T = unknown>(
       try {
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           usage = undefined;
+          sddReport = undefined;
           try {
             throwIfAborted();
 
@@ -522,6 +526,9 @@ export async function runWorkflow<T = unknown>(
                   onHistory: (history: AgentHistoryEntry[]) => {
                     options.onAgentHistory?.({ callIndex, label, phase: assignedPhase, history });
                   },
+                  onSddReport: (report: SddReport | undefined) => {
+                    sddReport = report;
+                  },
                 } as any),
               timeout,
               options.signal,
@@ -546,6 +553,7 @@ export async function runWorkflow<T = unknown>(
               tokens,
               worktree: runCwd,
               model: displayModel,
+              sddReport,
             });
             return result;
           } catch (error) {
