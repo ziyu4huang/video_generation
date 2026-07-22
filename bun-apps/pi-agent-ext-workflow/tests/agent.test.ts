@@ -4,6 +4,7 @@ import type { AgentRunOptions, AgentUsage } from "../src/agent.js";
 import { listAvailableModelSpecs, resolveAgentModelSpec, WorkflowAgent } from "../src/agent.js";
 import { WorkflowError, WorkflowErrorCode } from "../src/errors.js";
 import type { ModelTierConfig } from "../src/model-tier-config.js";
+import type { SddReport } from "../src/sdd-report.js";
 import { runWorkflow } from "../src/workflow.js";
 
 // Private methods used for testing - cast to this type to access them without `any`
@@ -419,6 +420,56 @@ test("agent() in workflow forwards compact subagent history snapshots", async ()
   assert.equal(histories.length, 1);
   assert.equal(histories[0].label, "greeter");
   assert.equal(histories[0].history[0].text, "working");
+});
+
+test("agent() in workflow surfaces the parsed SDD report on onAgentEnd (parity with subagent tool)", async () => {
+  const report: SddReport = {
+    status: "DONE",
+    commits: ["abc1234"],
+    testSummary: "14/14 passing",
+    concerns: "none",
+  };
+  const sddRunner = {
+    async run(_prompt: string, options: any) {
+      // The real WorkflowAgent.run fires this with parseSddReport(text); the
+      // mock fires it directly to test the workflow.ts wiring.
+      options.onSddReport?.(report);
+      return "done with an SDD self-report block";
+    },
+  };
+  const ends: Array<{ label: string; sddReport?: SddReport }> = [];
+
+  await runWorkflow(
+    `export const meta = { name: 'test', description: 't' }
+     await agent('implement', { label: 'impl' })
+     return 1`,
+    { agent: sddRunner, persistLogs: false, onAgentEnd: (e) => ends.push({ label: e.label, sddReport: e.sddReport }) },
+  );
+
+  assert.equal(ends.length, 1, "onAgentEnd fired once");
+  assert.equal(ends[0].label, "impl");
+  assert.deepEqual(ends[0].sddReport, report, "parsed SDD report surfaced on the end event");
+});
+
+test("agent() in workflow surfaces sddReport undefined when the output has no SDD block", async () => {
+  const noReportRunner = {
+    async run(_prompt: string, options: any) {
+      // No SDD block in the output → runner fires onSddReport with undefined.
+      options.onSddReport?.(undefined);
+      return "plain prose, no self-report";
+    },
+  };
+  const ends: Array<{ sddReport?: SddReport }> = [];
+
+  await runWorkflow(
+    `export const meta = { name: 'test', description: 't' }
+     await agent('work', { label: 'w' })
+     return 1`,
+    { agent: noReportRunner, persistLogs: false, onAgentEnd: (e) => ends.push({ sddReport: e.sddReport }) },
+  );
+
+  assert.equal(ends.length, 1);
+  assert.equal(ends[0].sddReport, undefined, "no SDD block → undefined, never an error");
 });
 
 test("agent() in workflow fires onAgentStart with phase info", async () => {
