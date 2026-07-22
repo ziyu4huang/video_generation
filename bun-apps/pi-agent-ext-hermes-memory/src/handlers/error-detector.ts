@@ -23,7 +23,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MemoryStore } from "../store/memory-store.js";
-import { formatFailureMemoryContent } from "../store/sqlite/sqlite-memory-repo.js";
+import { formatFailureMemoryContent } from "../store/memory-format.js";
 import type { MemoryRepository } from "../store/repository.js";
 import {
   LESSON_WORTHY_PATTERNS,

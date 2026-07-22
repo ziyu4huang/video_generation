@@ -3,11 +3,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
+import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
 import {
-  SqliteMemoryRepository,
   formatFailureMemoryContent,
   parseMarkdownMemoryEntry,
-} from "../../src/store/sqlite/sqlite-memory-repo.js";
+} from "../../src/store/memory-format.js";
 
 describe("SqliteMemoryRepository", () => {
   let dir: string;

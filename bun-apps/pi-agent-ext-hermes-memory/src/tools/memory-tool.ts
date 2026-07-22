@@ -12,7 +12,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { MemoryStore } from "../store/memory-store.js";
-import { formatFailureMemoryContent } from "../store/sqlite/sqlite-memory-repo.js";
+import { formatFailureMemoryContent } from "../store/memory-format.js";
 import type { MemoryRepository } from "../store/repository.js";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { MemoryRepository } from '../store/repository.js';
-import { parseMarkdownMemoryEntry } from '../store/sqlite/sqlite-memory-repo.js';
+import { parseMarkdownMemoryEntry } from '../store/memory-format.js';
 import { ENTRY_DELIMITER, MEMORY_FILE, USER_FILE } from '../constants.js';
 import { AGENT_ROOT } from '../paths.js';
 

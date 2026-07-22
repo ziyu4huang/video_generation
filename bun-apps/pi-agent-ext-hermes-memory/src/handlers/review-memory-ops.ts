@@ -7,7 +7,7 @@ import { completeSimple, type Message, type SimpleStreamOptions } from "@earendi
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DIRECT_REVIEW_SYSTEM_PROMPT } from "../constants.js";
 import { MemoryStore } from "../store/memory-store.js";
-import { formatFailureMemoryContent } from "../store/sqlite/sqlite-memory-repo.js";
+import { formatFailureMemoryContent } from "../store/memory-format.js";
 import type { MemoryRepository } from "../store/repository.js";
 import type { MemoryCategory, MemoryConfig, MemoryResult, ThinkingLevel } from "../types.js";
 
