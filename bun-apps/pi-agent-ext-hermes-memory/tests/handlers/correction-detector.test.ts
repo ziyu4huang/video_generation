@@ -8,8 +8,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { DatabaseManager } from "../../src/store/sqlite/sqlite-backend.js";
-import { getMemories } from "../../src/store/sqlite-memory-store.js";
+import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
+import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
+import type { MemoryRepository } from "../../src/store/repository.js";
 import { isCorrection, setupCorrectionDetector } from "../../src/handlers/correction-detector.js";
 import { resolveChildPiInvocation } from "../../src/handlers/pi-child-process.js";
 
@@ -224,7 +225,8 @@ describe("setupCorrectionDetector handler", () => {
   let execCalls: any[];
   let notifyCalls: any[];
   let tmpDir: string;
-  let dbManager: DatabaseManager;
+  let backend: SqliteBackend;
+  let memoryRepo: SqliteMemoryRepository;
 
   function createMockPi(execReturn?: { code: number; stdout: string; stderr: string }) {
     const ret = execReturn ?? { code: 0, stdout: "Saved correction", stderr: "" };
@@ -309,11 +311,12 @@ describe("setupCorrectionDetector handler", () => {
     execCalls = [];
     notifyCalls = [];
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "correction-detector-test-"));
-    dbManager = new DatabaseManager(tmpDir);
+    backend = new SqliteBackend(tmpDir);
+    memoryRepo = new SqliteMemoryRepository(backend);
   });
 
-  afterEach(() => {
-    dbManager.close();
+  afterEach(async () => {
+    await backend.close();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -419,7 +422,7 @@ describe("setupCorrectionDetector handler", () => {
       addFailure: async () => ({ success: true, target: 'failure', entry_count: 1, message: 'Failure memory saved: correction' }),
     } as any;
 
-    setupCorrectionDetector(pi, correctionStore, null, config, dbManager);
+    setupCorrectionDetector(pi, correctionStore, null, config, memoryRepo);
 
     const branch = [
       { type: "message", message: { role: "user", content: [{ type: "text", text: "no, use pnpm instead" }] } },
@@ -430,7 +433,7 @@ describe("setupCorrectionDetector handler", () => {
     fireTurnEnd(branch);
     await settle();
 
-    const failures = getMemories(dbManager, { target: 'failure' });
+    const failures = await memoryRepo.getMemories({ target: 'failure' });
     assert.strictEqual(failures.length, 1);
     assert.match(failures[0].content, /use pnpm instead/);
     assert.strictEqual(failures[0].category, 'correction');
@@ -446,7 +449,7 @@ describe("setupCorrectionDetector handler", () => {
       getMemoryEntries: () => [],
     } as any;
 
-    setupCorrectionDetector(pi, correctionStore, projectStore, config, dbManager, 'project-a');
+    setupCorrectionDetector(pi, correctionStore, projectStore, config, memoryRepo, 'project-a');
 
     const branch = [
       { type: "message", message: { role: "user", content: [{ type: "text", text: "no, use pnpm in this repo" }] } },
@@ -457,7 +460,7 @@ describe("setupCorrectionDetector handler", () => {
     fireTurnEnd(branch);
     await settle();
 
-    const projectFailures = getMemories(dbManager, { target: 'failure', project: 'project-a' });
+    const projectFailures = await memoryRepo.getMemories({ target: 'failure', project: 'project-a' });
     assert.strictEqual(projectFailures.length, 1);
     assert.match(projectFailures[0].content, /use pnpm in this repo/);
     assert.match(projectFailures[0].content, /Project: project-a/);
@@ -475,13 +478,11 @@ describe("setupCorrectionDetector handler", () => {
       },
     } as any;
 
-    const failingDbManager = {
-      getDb: () => {
-        throw new Error('sqlite unavailable');
-      },
-    } as unknown as DatabaseManager;
+    const failingMemoryRepo = {
+      syncMemoryEntry: async () => { throw new Error('sqlite unavailable'); },
+    } as unknown as MemoryRepository;
 
-    setupCorrectionDetector(pi, correctionStore, null, config, failingDbManager);
+    setupCorrectionDetector(pi, correctionStore, null, config, failingMemoryRepo);
 
     const branch = [
       { type: "message", message: { role: "user", content: [{ type: "text", text: "no, use yarn instead" }] } },

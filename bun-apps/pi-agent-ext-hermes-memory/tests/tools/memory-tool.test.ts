@@ -8,21 +8,24 @@ import os from "node:os";
 import path from "node:path";
 import { registerMemoryTool, writeTransferArchive } from "../../src/tools/memory-tool.js";
 import { MemoryStore } from "../../src/store/memory-store.js";
-import { DatabaseManager } from "../../src/store/sqlite/sqlite-backend.js";
-import { getMemories, syncMemoryEntry } from "../../src/store/sqlite-memory-store.js";
+import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
+import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
+import type { MemoryRepository } from "../../src/store/repository.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 describe("registerMemoryTool", () => {
   let tmpDir: string;
-  let dbManager: DatabaseManager;
+  let backend: SqliteBackend;
+  let memoryRepo: SqliteMemoryRepository;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "memory-tool-test-"));
-    dbManager = new DatabaseManager(tmpDir);
+    backend = new SqliteBackend(tmpDir);
+    memoryRepo = new SqliteMemoryRepository(backend);
   });
 
-  afterEach(() => {
-    dbManager.close();
+  afterEach(async () => {
+    await backend.close();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -74,7 +77,7 @@ describe("registerMemoryTool", () => {
       }),
     } as unknown as MemoryStore;
 
-    registerMemoryTool(mockPi, mockStore, null, dbManager);
+    registerMemoryTool(mockPi, mockStore, null, memoryRepo);
     const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry one" }, undefined as any, undefined as any, undefined as any);
 
     assert.strictEqual(result.content[0].type, "text", "content should be text type");
@@ -143,10 +146,10 @@ describe("registerMemoryTool", () => {
       }),
     } as unknown as MemoryStore;
 
-    registerMemoryTool(mockPi, mockStore, null, dbManager);
+    registerMemoryTool(mockPi, mockStore, null, memoryRepo);
     await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry one" }, undefined as any, undefined as any, undefined as any);
 
-    const results = getMemories(dbManager, { target: 'memory', project: null });
+    const results = await memoryRepo.getMemories({ target: 'memory', project: null });
     assert.strictEqual(results.length, 1);
     assert.strictEqual(results[0].content, 'Entry one');
   });
@@ -159,12 +162,12 @@ describe("registerMemoryTool", () => {
       },
     } as unknown as ExtensionAPI;
 
-    syncMemoryEntry(dbManager, {
+    await memoryRepo.syncMemoryEntry({
       content: "Older entry",
       target: "memory",
       project: null,
     });
-    syncMemoryEntry(dbManager, {
+    await memoryRepo.syncMemoryEntry({
       content: "Older entry with extra detail",
       target: "memory",
       project: null,
@@ -183,11 +186,11 @@ describe("registerMemoryTool", () => {
       }),
     } as unknown as MemoryStore;
 
-    registerMemoryTool(mockPi, mockStore, null, dbManager);
+    registerMemoryTool(mockPi, mockStore, null, memoryRepo);
     const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "New entry" }, undefined as any, undefined as any, undefined as any);
 
     assert.match(result.content[0].text, /Rotated active memory entries:/);
-    const rows = getMemories(dbManager, { target: "memory", project: null });
+    const rows = await memoryRepo.getMemories({ target: "memory", project: null });
     assert.deepStrictEqual(rows.map((row) => row.content).sort(), ["New entry", "Older entry with extra detail"].sort());
   });
 
@@ -199,12 +202,12 @@ describe("registerMemoryTool", () => {
       },
     } as unknown as ExtensionAPI;
 
-    syncMemoryEntry(dbManager, {
+    await memoryRepo.syncMemoryEntry({
       content: "Shared wording",
       target: "memory",
       project: null,
     });
-    syncMemoryEntry(dbManager, {
+    await memoryRepo.syncMemoryEntry({
       content: "Shared wording",
       target: "memory",
       project: "project-a",
@@ -223,11 +226,11 @@ describe("registerMemoryTool", () => {
       }),
     } as unknown as MemoryStore;
 
-    registerMemoryTool(mockPi, {} as MemoryStore, mockProjectStore, dbManager, "project-a");
+    registerMemoryTool(mockPi, {} as MemoryStore, mockProjectStore, memoryRepo, "project-a");
     await capturedResult.execute("tc-1", { action: "add", target: "project", content: "Project replacement" }, undefined as any, undefined as any, undefined as any);
 
-    const globalRows = getMemories(dbManager, { target: "memory", project: null });
-    const projectRows = getMemories(dbManager, { target: "memory", project: "project-a" });
+    const globalRows = await memoryRepo.getMemories({ target: "memory", project: null });
+    const projectRows = await memoryRepo.getMemories({ target: "memory", project: "project-a" });
     assert.deepStrictEqual(globalRows.map((row) => row.content), ["Shared wording"]);
     assert.deepStrictEqual(projectRows.map((row) => row.content), ["Project replacement"]);
   });
@@ -255,7 +258,7 @@ describe("registerMemoryTool", () => {
       },
     } as unknown as MemoryStore;
 
-    registerMemoryTool(mockPi, {} as MemoryStore, mockProjectStore, dbManager, 'project-a');
+    registerMemoryTool(mockPi, {} as MemoryStore, mockProjectStore, memoryRepo, 'project-a');
     const result = await capturedResult.execute("tc-1", { action: "add", target: "project", content: "Project entry" }, undefined as any, undefined as any, undefined as any);
 
     const parsed = JSON.parse(result.content[0].text);
@@ -263,7 +266,7 @@ describe("registerMemoryTool", () => {
     assert.strictEqual(result.details.target, 'project');
     assert.deepStrictEqual(addTargets, ['memory']);
 
-    const results = getMemories(dbManager, { project: 'project-a', target: 'memory' });
+    const results = await memoryRepo.getMemories({ project: 'project-a', target: 'memory' });
     assert.strictEqual(results.length, 1);
     assert.strictEqual(results[0].content, 'Project entry');
   });
@@ -287,13 +290,11 @@ describe("registerMemoryTool", () => {
       }),
     } as unknown as MemoryStore;
 
-    const failingDbManager = {
-      getDb: () => {
-        throw new Error('sqlite unavailable');
-      },
-    } as unknown as DatabaseManager;
+    const failingMemoryRepo = {
+      syncMemoryEntry: async () => { throw new Error('sqlite unavailable'); },
+    } as unknown as MemoryRepository;
 
-    registerMemoryTool(mockPi, mockStore, null, failingDbManager);
+    registerMemoryTool(mockPi, mockStore, null, failingMemoryRepo);
     const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry one" }, undefined as any, undefined as any, undefined as any);
 
     const parsed = JSON.parse(result.content[0].text);
@@ -302,7 +303,7 @@ describe("registerMemoryTool", () => {
     assert.match(parsed.warning, /sqlite unavailable/);
   });
 
-  it("absorbs a transient SQLite I/O blip via retry (no warning, entry synced)", async () => {
+  it("does not warn when repo sync succeeds (retry is now internal to the repo)", async () => {
     let capturedResult: any;
     const mockPi = {
       registerTool: (def: any) => { capturedResult = def; },
@@ -314,24 +315,14 @@ describe("registerMemoryTool", () => {
       }),
     } as unknown as MemoryStore;
 
-    let flakyCalls = 0;
-    const flakyDbManager = {
-      getDb: () => {
-        flakyCalls++;
-        if (flakyCalls <= 2) throw Object.assign(new Error("disk I/O error"), { code: "SQLITE_IOERR" });
-        return dbManager.getDb(); // delegate to the real DB once the blip clears
-      },
-    } as unknown as DatabaseManager;
-
-    registerMemoryTool(mockPi, mockStore, null, flakyDbManager);
+    registerMemoryTool(mockPi, mockStore, null, memoryRepo);
     const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry one" }, undefined as any, undefined as any, undefined as any);
     const parsed = JSON.parse(result.content[0].text);
 
     assert.strictEqual(parsed.success, true);
-    assert.strictEqual(parsed.warning, undefined, "transient blip absorbed — no sync-warning surfaced");
-    assert.ok(flakyCalls >= 3, "should have retried past the transient throws");
-    const rows = getMemories(dbManager, { target: "memory", project: null });
-    assert.strictEqual(rows.length, 1, "entry synced to SQLite after retry");
+    assert.strictEqual(parsed.warning, undefined, "no sync-warning when repo succeeds");
+    const rows = await memoryRepo.getMemories({ target: "memory", project: null });
+    assert.strictEqual(rows.length, 1, "entry synced to SQLite");
   });
 
   it("still warns when a transient SQLite error persists across retries", async () => {
@@ -347,8 +338,8 @@ describe("registerMemoryTool", () => {
     } as unknown as MemoryStore;
 
     const persistentFlaky = {
-      getDb: () => { throw Object.assign(new Error("disk I/O error"), { code: "SQLITE_IOERR" }); },
-    } as unknown as DatabaseManager;
+      syncMemoryEntry: async () => { throw Object.assign(new Error("disk I/O error"), { code: "SQLITE_IOERR" }); },
+    } as unknown as MemoryRepository;
 
     registerMemoryTool(mockPi, mockStore, null, persistentFlaky);
     const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry two" }, undefined as any, undefined as any, undefined as any);
@@ -374,7 +365,7 @@ describe("registerMemoryTool", () => {
       }),
     } as unknown as MemoryStore;
 
-    registerMemoryTool(mockPi, mockStore, null, dbManager);
+    registerMemoryTool(mockPi, mockStore, null, memoryRepo);
     const result = await capturedResult.execute(
       "tc-1",
       { action: "add", target: "memory", content: "overflow entry" },
@@ -386,7 +377,7 @@ describe("registerMemoryTool", () => {
     const parsed = JSON.parse(result.content[0].text);
     assert.strictEqual(parsed.success, false);
 
-    const rows = getMemories(dbManager, { target: "memory", project: null });
+    const rows = await memoryRepo.getMemories({ target: "memory", project: null });
     assert.strictEqual(rows.length, 0, "SQLite should stay unchanged when core add fails");
   });
 

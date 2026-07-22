@@ -1,8 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
-import { DatabaseManager } from '../store/sqlite/sqlite-backend.js';
-import { searchMemories, getMemoryStats, touchMemory } from '../store/sqlite-memory-store.js';
+import type { MemoryRepository, MemoryTarget } from '../store/repository.js';
 import type { MemoryCategory } from '../types.js';
 
 interface SearchResult {
@@ -12,7 +11,7 @@ interface SearchResult {
   output?: string;
 }
 
-export function registerMemorySearchTool(pi: ExtensionAPI, dbManager: DatabaseManager): void {
+export function registerMemorySearchTool(pi: ExtensionAPI, memoryRepo: MemoryRepository): void {
   pi.registerTool({
     name: 'memory_search',
     label: 'Memory Search',
@@ -35,7 +34,7 @@ Returns matching memory entries with project context and dates.`,
     execute: async (_id: string, args: { query: string; project?: string | null; target?: string; category?: string; limit?: number }) => {
       const query = args.query;
       const project = args.project;
-      const target = args.target;
+      const target = args.target as MemoryTarget | undefined;
       const category = args.category as MemoryCategory | undefined;
       const limit = Math.min(args.limit || 10, 20);
 
@@ -44,20 +43,20 @@ Returns matching memory entries with project context and dates.`,
         return { content: [{ type: 'text' as const, text: result.message! }], details: result };
       }
 
-      const stats = getMemoryStats(dbManager);
+      const stats = await memoryRepo.getMemoryStats();
       if (stats.total === 0) {
         const result: SearchResult = { success: false, message: 'No memories in extended store yet. Use the memory tool with add action to store memories.' };
         return { content: [{ type: 'text' as const, text: result.message! }], details: result };
       }
 
-      const results = searchMemories(dbManager, query, { project, target, category, limit });
+      const results = await memoryRepo.searchMemories(query, { project, target, category, limit });
 
       // Bump last_referenced for matched entries — the live "last surfaced by search"
       // signal. Only explicit agent searches reach here (prompt injection reads the .md
       // store directly, not searchMemories), so this won't artificially keep entries
       // fresh. Best-effort: a touch failure must never break search.
       for (const entry of results) {
-        try { touchMemory(dbManager, entry.id); } catch { /* best-effort */ }
+        try { await memoryRepo.touchMemory(entry.id); } catch { /* best-effort */ }
       }
 
       if (results.length === 0) {

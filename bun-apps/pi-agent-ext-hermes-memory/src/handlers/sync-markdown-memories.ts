@@ -6,11 +6,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { DatabaseManager } from '../store/sqlite/sqlite-backend.js';
-import {
-  parseMarkdownMemoryEntry,
-  syncMemoryEntry,
-} from '../store/sqlite-memory-store.js';
+import type { MemoryRepository } from '../store/repository.js';
+import { parseMarkdownMemoryEntry } from '../store/sqlite/sqlite-memory-repo.js';
 import { ENTRY_DELIMITER, MEMORY_FILE, USER_FILE } from '../constants.js';
 import { AGENT_ROOT } from '../paths.js';
 
@@ -29,18 +26,18 @@ function readEntries(filePath: string): string[] {
   return raw.split(ENTRY_DELIMITER).map((entry) => entry.trim()).filter(Boolean);
 }
 
-function importEntries(
-  dbManager: DatabaseManager,
+async function importEntries(
+  memoryRepo: MemoryRepository,
   counters: BackfillCounters,
   entries: string[],
   target: 'memory' | 'user' | 'failure',
   project: string | null = null,
-): void {
+): Promise<void> {
   for (const rawEntry of entries) {
     counters.entriesScanned++;
     try {
       const parsed = parseMarkdownMemoryEntry(rawEntry, target, project);
-      const result = syncMemoryEntry(dbManager, parsed);
+      const result = await memoryRepo.syncMemoryEntry(parsed);
       if (result.action === 'inserted') counters.imported++;
       else counters.skipped++;
     } catch (err) {
@@ -87,12 +84,12 @@ function scanProjectDirs(agentRoot: string, globalDir: string, projectsMemoryDir
     .filter(({ memoryFile }) => fs.existsSync(memoryFile));
 }
 
-export function syncMarkdownMemoriesToSqlite(
-  dbManager: DatabaseManager,
+export async function syncMarkdownMemoriesToSqlite(
+  memoryRepo: MemoryRepository,
   globalDir: string,
   projectsMemoryDir?: string,
   agentRoot = AGENT_ROOT,
-): BackfillCounters & { projectCount: number } {
+): Promise<BackfillCounters & { projectCount: number }> {
   const counters: BackfillCounters = {
     filesScanned: 0,
     entriesScanned: 0,
@@ -105,7 +102,7 @@ export function syncMarkdownMemoriesToSqlite(
   const globalUserFile = path.join(globalDir, USER_FILE);
   const globalFailureFile = path.join(globalDir, 'failures.md');
 
-  const importFile = (
+  const importFile = async (
     filePath: string,
     target: 'memory' | 'user' | 'failure',
     project: string | null = null,
@@ -113,16 +110,16 @@ export function syncMarkdownMemoriesToSqlite(
     if (!fs.existsSync(filePath)) return;
     counters.filesScanned++;
     const entries = readEntries(filePath);
-    importEntries(dbManager, counters, entries, target, project);
+    await importEntries(memoryRepo, counters, entries, target, project);
   };
 
-  importFile(globalMemoryFile, 'memory');
-  importFile(globalUserFile, 'user');
-  importFile(globalFailureFile, 'failure');
+  await importFile(globalMemoryFile, 'memory');
+  await importFile(globalUserFile, 'user');
+  await importFile(globalFailureFile, 'failure');
 
   const projects = scanProjectDirs(agentRoot, globalDir, projectsMemoryDir);
   for (const project of projects) {
-    importFile(project.memoryFile, 'memory', project.name);
+    await importFile(project.memoryFile, 'memory', project.name);
   }
 
   return { ...counters, projectCount: projects.length };
@@ -130,7 +127,7 @@ export function syncMarkdownMemoriesToSqlite(
 
 export function registerSyncMarkdownMemoriesCommand(
   pi: ExtensionAPI,
-  dbManager: DatabaseManager,
+  memoryRepo: MemoryRepository,
   globalDir: string,
   projectsMemoryDir?: string,
   agentRoot = AGENT_ROOT,
@@ -141,7 +138,7 @@ export function registerSyncMarkdownMemoriesCommand(
       ctx.ui.notify('🔄 Scanning Markdown memory files for SQLite backfill...', 'info');
 
       try {
-        const counters = syncMarkdownMemoriesToSqlite(dbManager, globalDir, projectsMemoryDir, agentRoot);
+        const counters = await syncMarkdownMemoriesToSqlite(memoryRepo, globalDir, projectsMemoryDir, agentRoot);
 
         let output = `\n✅ Markdown → SQLite sync complete!\n\n`;
         output += `📊 Results:\n`;

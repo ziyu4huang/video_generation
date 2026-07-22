@@ -12,15 +12,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { MemoryStore } from "../store/memory-store.js";
-import { DatabaseManager } from "../store/sqlite/sqlite-backend.js";
-import { runWithTransientRetry } from "../store/sqlite/sqlite-backend.js";
-import {
-  formatFailureMemoryContent,
-  removeExactSyncedMemories,
-  removeSyncedMemories,
-  replaceSyncedMemories,
-  syncMemoryEntry,
-} from "../store/sqlite-memory-store.js";
+import { formatFailureMemoryContent } from "../store/sqlite/sqlite-memory-repo.js";
+import type { MemoryRepository } from "../store/repository.js";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as pathJoin } from "node:path";
@@ -164,10 +157,10 @@ async function syncAddToSqlite(
   content: string,
   category: MemoryCategory | undefined,
   failureReason: string | undefined,
-  dbManager: DatabaseManager | null,
+  memoryRepo: MemoryRepository | null,
   projectName?: string | null,
 ): Promise<string | null> {
-  if (!dbManager) return null;
+  if (!memoryRepo) return null;
 
   try {
     const sqliteTarget = sqliteTargetFor(rawTarget);
@@ -175,7 +168,7 @@ async function syncAddToSqlite(
 
     if (rawTarget === "failure") {
       const failureCategory = category ?? "failure";
-      await runWithTransientRetry(() => syncMemoryEntry(dbManager, {
+      await memoryRepo.syncMemoryEntry({
         content: formatFailureMemoryContent(content, {
           category: failureCategory,
           failureReason,
@@ -184,15 +177,15 @@ async function syncAddToSqlite(
         project: sqliteProject ?? null,
         category: failureCategory,
         failureReason,
-      }));
+      });
       return null;
     }
 
-    await runWithTransientRetry(() => syncMemoryEntry(dbManager, {
+    await memoryRepo.syncMemoryEntry({
       content,
       target: sqliteTarget,
       project: sqliteProject ?? null,
-    }));
+    });
     return null;
   } catch (err) {
     return `Saved to Markdown, but SQLite search sync failed: ${err instanceof Error ? err.message : String(err)}`;
@@ -203,19 +196,19 @@ async function syncReplaceToSqlite(
   rawTarget: "memory" | "user" | "project" | "failure",
   oldText: string,
   newContent: string,
-  dbManager: DatabaseManager | null,
+  memoryRepo: MemoryRepository | null,
   projectName?: string | null,
 ): Promise<string | null> {
-  if (!dbManager) return null;
+  if (!memoryRepo) return null;
 
   try {
     const sqliteTarget = sqliteTargetFor(rawTarget);
     const sqliteProject = sqliteProjectFor(rawTarget, projectName);
-    const syncResult = await runWithTransientRetry(() => replaceSyncedMemories(dbManager, oldText, {
+    const syncResult = await memoryRepo.replaceSyncedMemories(oldText, {
       content: newContent,
       target: sqliteTarget,
       project: sqliteProject,
-    }));
+    });
 
     if (syncResult.matched === 0) {
       return "Saved to Markdown, but no matching SQLite memory row was updated. Run /memory-sync-markdown if search results look stale.";
@@ -230,18 +223,18 @@ async function syncReplaceToSqlite(
 async function syncRemoveFromSqlite(
   rawTarget: "memory" | "user" | "project" | "failure",
   oldText: string,
-  dbManager: DatabaseManager | null,
+  memoryRepo: MemoryRepository | null,
   projectName?: string | null,
 ): Promise<string | null> {
-  if (!dbManager) return null;
+  if (!memoryRepo) return null;
 
   try {
     const sqliteTarget = sqliteTargetFor(rawTarget);
     const sqliteProject = sqliteProjectFor(rawTarget, projectName);
-    const syncResult = await runWithTransientRetry(() => removeSyncedMemories(dbManager, oldText, {
+    const syncResult = await memoryRepo.removeSyncedMemories(oldText, {
       target: sqliteTarget,
       project: sqliteProject,
-    }));
+    });
 
     if (syncResult.matched === 0) {
       return "Saved to Markdown, but no matching SQLite memory row was removed. Run /memory-sync-markdown if search results look stale.";
@@ -256,10 +249,10 @@ async function syncRemoveFromSqlite(
 async function syncEvictionsFromSqlite(
   rawTarget: "memory" | "user" | "project" | "failure",
   evictedEntries: string[] | undefined,
-  dbManager: DatabaseManager | null,
+  memoryRepo: MemoryRepository | null,
   projectName?: string | null,
 ): Promise<void> {
-  if (!dbManager) return;
+  if (!memoryRepo) return;
   if (!evictedEntries || evictedEntries.length === 0) return;
 
   const sqliteTarget = sqliteTargetFor(rawTarget);
@@ -267,7 +260,7 @@ async function syncEvictionsFromSqlite(
 
   for (const entry of evictedEntries) {
     try {
-      removeExactSyncedMemories(dbManager, entry, {
+      await memoryRepo.removeExactSyncedMemories(entry, {
         target: sqliteTarget,
         project: sqliteProject,
       });
@@ -285,7 +278,7 @@ export function registerMemoryTool(
   pi: ExtensionAPI,
   store: MemoryStore,
   projectStore: MemoryStore | null,
-  dbManager: DatabaseManager | null = null,
+  memoryRepo: MemoryRepository | null = null,
   projectName?: string | null,
 ): void {
   pi.registerTool({
@@ -367,13 +360,13 @@ export function registerMemoryTool(
               failureReason: failure_reason,
             });
             if (result.success) {
-              syncWarning = await syncAddToSqlite(rawTarget, content, memoryCategory, failure_reason, dbManager, projectName);
+              syncWarning = await syncAddToSqlite(rawTarget, content, memoryCategory, failure_reason, memoryRepo, projectName);
             }
           } else {
             result = await store_.add(target, content);
             if (result.success) {
-              await syncEvictionsFromSqlite(rawTarget, result.evicted_entries, dbManager, projectName);
-              syncWarning = await syncAddToSqlite(rawTarget, content, undefined, undefined, dbManager, projectName);
+              await syncEvictionsFromSqlite(rawTarget, result.evicted_entries, memoryRepo, projectName);
+              syncWarning = await syncAddToSqlite(rawTarget, content, undefined, undefined, memoryRepo, projectName);
             }
           }
           break;
@@ -409,7 +402,7 @@ export function registerMemoryTool(
           }
           result = await store_.replace(target, old_text, content);
           if (result.success) {
-            syncWarning = await syncReplaceToSqlite(rawTarget, old_text, content, dbManager, projectName);
+            syncWarning = await syncReplaceToSqlite(rawTarget, old_text, content, memoryRepo, projectName);
           }
           break;
 
@@ -430,7 +423,7 @@ export function registerMemoryTool(
           }
           result = await store_.remove(target, old_text);
           if (result.success) {
-            syncWarning = await syncRemoveFromSqlite(rawTarget, old_text, dbManager, projectName);
+            syncWarning = await syncRemoveFromSqlite(rawTarget, old_text, memoryRepo, projectName);
           }
           break;
 
@@ -451,12 +444,12 @@ export function registerMemoryTool(
             //  Hub auto-converges hermes memory on session_shutdown.)
 
             // Sync removal to SQLite — use exact match to avoid overly broad removal
-            if (dbManager) {
+            if (memoryRepo) {
               const sqliteTarget = sqliteTargetFor(rawTarget);
               const sqliteProject = sqliteProjectFor(rawTarget, projectName);
               for (const entry of result.transferred_entries) {
                 try {
-                  removeExactSyncedMemories(dbManager, entry, {
+                  await memoryRepo.removeExactSyncedMemories(entry, {
                     target: sqliteTarget,
                     project: sqliteProject,
                   });

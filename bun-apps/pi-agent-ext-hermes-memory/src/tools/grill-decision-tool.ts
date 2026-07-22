@@ -7,8 +7,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { MemoryStore } from "../store/memory-store.js";
-import { DatabaseManager } from "../store/sqlite/sqlite-backend.js";
-import { syncMemoryEntry } from "../store/sqlite-memory-store.js";
+import type { MemoryRepository } from "../store/repository.js";
 import type { MemoryCategory } from "../types.js";
 
 export type GrillSignal = "reject" | "refine" | "confirm" | "preference" | "insight";
@@ -99,7 +98,7 @@ const GRILL_DECISION_DESCRIPTION = `Capture a resolved grill decision as durable
 export function registerGrillDecisionTool(
   pi: ExtensionAPI,
   store: MemoryStore,
-  dbManager: DatabaseManager | null,
+  memoryRepo: MemoryRepository | null,
 ): void {
   pi.registerTool({
     name: "grill_decision",
@@ -138,9 +137,9 @@ export function registerGrillDecisionTool(
         // Grill captures are user-traits: write to the `user` home carrying the
         // topical category label (per the memory model — not the failure/lesson target).
         const result = await store.add("user", content, { category });
-        if (result.success && dbManager) {
+        if (result.success && memoryRepo) {
           try {
-            syncMemoryEntry(dbManager, {
+            await memoryRepo.syncMemoryEntry({
               content: `[${category}] ${content}`,
               target: "user",
               category,

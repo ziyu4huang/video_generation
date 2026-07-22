@@ -23,11 +23,8 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MemoryStore } from "../store/memory-store.js";
-import { DatabaseManager } from "../store/sqlite/sqlite-backend.js";
-import {
-  formatFailureMemoryContent,
-  syncMemoryEntry,
-} from "../store/sqlite-memory-store.js";
+import { formatFailureMemoryContent } from "../store/sqlite/sqlite-memory-repo.js";
+import type { MemoryRepository } from "../store/repository.js";
 import {
   LESSON_WORTHY_PATTERNS,
   ERROR_NOISE_PATTERNS,
@@ -125,7 +122,7 @@ export function setupErrorDetector(
   store: MemoryStore,
   _projectStore: MemoryStore | null,
   config: MemoryConfig,
-  dbManager: DatabaseManager | null = null,
+  memoryRepo: MemoryRepository | null = null,
   projectName?: string | null,
 ): void {
   if (config.errorCapture === false) return;
@@ -160,9 +157,9 @@ export function setupErrorDetector(
         project: scopedProject,
       });
 
-      if (addResult.success && dbManager) {
+      if (addResult.success && memoryRepo) {
         try {
-          syncMemoryEntry(dbManager, {
+          await memoryRepo.syncMemoryEntry({
             content: formatFailureMemoryContent(content, {
               category: "failure",
               failureReason: reason,

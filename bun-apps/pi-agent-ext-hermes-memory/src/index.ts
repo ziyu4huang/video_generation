@@ -26,7 +26,8 @@ import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MemoryStore } from "./store/memory-store.js";
 import { SkillStore } from "./store/skill-store.js";
-import { DatabaseManager } from "./store/sqlite/sqlite-backend.js";
+import { SqliteBackend } from "./store/sqlite/sqlite-backend.js";
+import { SqliteMemoryRepository } from "./store/sqlite/sqlite-memory-repo.js";
 import { indexSession, upsertSessionFileMetadata } from "./store/session-indexer.js";
 import { scheduleSessionBackfill, waitForSessionBackfill, SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-backfill.js";
 import { scheduleLiveSessionIndex, waitForLiveSessionIndex, SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-live-index.js";
@@ -80,7 +81,7 @@ export function registerProjectSkillDiscoveryHandler(
   });
 }
 
-export default function (pi: ExtensionAPI) {
+export default async function (pi: ExtensionAPI) {
   const config = loadConfig();
 
   const agentRoot = AGENT_ROOT;
@@ -110,7 +111,9 @@ export default function (pi: ExtensionAPI) {
     legacyPiGlobalSkillsDir: path.join(agentRoot, "skills"),
     migrationSentinelPath: path.join(globalDir, ".skills-migrated-to-extension-storage"),
   });
-  const dbManager = new DatabaseManager(globalDir);
+  const backend = new SqliteBackend(globalDir);
+  await backend.init();
+  const memoryRepo = new SqliteMemoryRepository(backend);
   const sessionsDir = path.join(agentRoot, "sessions");
 
   const refreshSkillProjectContext = (cwd?: string) => {
@@ -127,7 +130,7 @@ export default function (pi: ExtensionAPI) {
   // remain in place while entries are copied/merged into projects-memory/.
   migrateLegacyProjectMemoryDirs(agentRoot, config.projectsMemoryDir);
   try {
-    syncMarkdownMemoriesToSqlite(dbManager, globalDir, config.projectsMemoryDir, agentRoot);
+    await syncMarkdownMemoriesToSqlite(memoryRepo, globalDir, config.projectsMemoryDir, agentRoot);
   } catch {
     // Best-effort only: failed SQLite backfill should not block extension startup.
   }
@@ -156,7 +159,7 @@ export default function (pi: ExtensionAPI) {
     await store.loadFromDisk();
     if (projectStore) await projectStore.loadFromDisk();
 
-    scheduleSessionBackfill(dbManager, sessionsDir, {
+    scheduleSessionBackfill(backend, sessionsDir, {
       notify: (message, level) => {
         const ui = (ctx as { ui?: { notify?: (message: string, level?: string) => void } }).ui;
         if (ui?.notify) {
@@ -184,15 +187,15 @@ export default function (pi: ExtensionAPI) {
   });
 
   // ── 3. Register the memory tool (with project store + SQLite sync) ──
-  registerMemoryTool(pi, store, projectStore, dbManager, projectName);
-  registerGrillDecisionTool(pi, store, dbManager);
+  registerMemoryTool(pi, store, projectStore, memoryRepo, projectName);
+  registerGrillDecisionTool(pi, store, memoryRepo);
 
   // ── 4. Register the skill tool ──
   registerSkillTool(pi, skillStore);
 
   // ── 5. Setup background learning loop (with tool-call-aware nudge) ──
   setupBackgroundReview(pi, store, projectStore, config, {
-    dbManager,
+    memoryRepo,
     projectName: projectName || null,
   });
 
@@ -212,10 +215,10 @@ export default function (pi: ExtensionAPI) {
   registerConsolidateCommand(pi, store, config.consolidationTimeoutMs, projectStore, projectName, config);
 
   // ── 8. Setup correction detection ──
-  setupCorrectionDetector(pi, store, projectStore, config, dbManager, projectName);
+  setupCorrectionDetector(pi, store, projectStore, config, memoryRepo, projectName);
 
   // ── 8b. Setup lesson-worthy error capture (auto-trigger on tool failures) ──
-  setupErrorDetector(pi, store, projectStore, config, dbManager, projectName);
+  setupErrorDetector(pi, store, projectStore, config, memoryRepo, projectName);
 
   // ── 9. Register commands ──
   registerInsightsCommand(pi, store, projectStore, projectName);
@@ -223,19 +226,19 @@ export default function (pi: ExtensionAPI) {
   registerInterviewCommand(pi, store);
   registerSwitchProjectCommand(pi, config);
   registerLearnMemoryCommand(pi);
-  registerSyncMarkdownMemoriesCommand(pi, dbManager, globalDir, config.projectsMemoryDir, agentRoot);
+  registerSyncMarkdownMemoriesCommand(pi, memoryRepo, globalDir, config.projectsMemoryDir, agentRoot);
   registerPreviewContextCommand(pi, store, projectStore, projectName, config);
 
   // ── 10. Live session indexing ──
   pi.on("message_end", async (_event, ctx) => {
-    scheduleLiveSessionIndex(dbManager, ctx.sessionManager, {
+    scheduleLiveSessionIndex(backend, ctx.sessionManager, {
       onError: (err) => console.warn(`⚠️ Live session indexing failed: ${err instanceof Error ? err.message : String(err)}`),
     });
   });
 
   // ── 11. SQLite session search + extended memory ──
-  registerSessionSearchTool(pi, dbManager, config.sessionSearch ?? { variant: "legacy" });
-  registerMemorySearchTool(pi, dbManager);
+  registerSessionSearchTool(pi, backend, config.sessionSearch ?? { variant: "legacy" });
+  registerMemorySearchTool(pi, memoryRepo);
   registerIndexSessionsCommand(pi, globalDir);
 
   // (11b removed — convergence moved to the knowledge-card hub; ADR-0001.
@@ -258,13 +261,13 @@ export default function (pi: ExtensionAPI) {
       if (sessionFile && require("node:fs").existsSync(sessionFile)) {
         const sessionData = parseSessionFile(sessionFile);
         if (sessionData) {
-          dbManager.withCorruptionRecovery(() => {
-            indexSession(dbManager, sessionData);
+          backend.withCorruptionRecovery(() => {
+            indexSession(backend, sessionData);
             // Keep session_files metadata in sync with the final on-disk state.
             // Pi appends the closing session entry on shutdown after the last
             // message_end, so without this upsert the stored size/mtime would be
             // stale and the next startup would re-parse this file unnecessarily.
-            upsertSessionFileMetadata(dbManager, sessionFile, sessionData.id);
+            upsertSessionFileMetadata(backend, sessionFile, sessionData.id);
           });
         }
       }
@@ -279,7 +282,7 @@ export default function (pi: ExtensionAPI) {
       } catch {
         // Best effort only — shutdown should not be held up by indexing errors.
       }
-      try { dbManager.close(); } catch { /* best effort — never block shutdown */ }
+      try { await backend.close(); } catch { /* best effort — never block shutdown */ }
     }
   });
 }

@@ -10,14 +10,14 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { COMBINED_REVIEW_PROMPT } from "../constants.js";
 import { MemoryStore } from "../store/memory-store.js";
-import { DatabaseManager } from "../store/sqlite/sqlite-backend.js";
+import type { MemoryRepository } from "../store/repository.js";
 import type { MemoryConfig } from "../types.js";
 import { applyRecentMessageLimit, collectMessageParts } from "./message-parts.js";
 import { execChildPrompt } from "./pi-child-process.js";
 import { runDirectBackgroundReview, type DirectReviewResult } from "./review-memory-ops.js";
 
 export interface BackgroundReviewOptions {
-  dbManager?: DatabaseManager | null;
+  memoryRepo?: MemoryRepository | null;
   projectName?: string | null;
   deps?: BackgroundReviewDeps;
 }
@@ -120,7 +120,7 @@ export function setupBackgroundReview(
   config: MemoryConfig,
   options: BackgroundReviewOptions = {},
 ): void {
-  const dbManager = options.dbManager ?? null;
+  const memoryRepo = options.memoryRepo ?? null;
   const projectName = options.projectName ?? null;
   const runDirectReview = options.deps?.runDirectReview ?? runDirectBackgroundReview;
   const execChild = options.deps?.execChildPrompt ?? execChildPrompt;
@@ -209,7 +209,7 @@ export function setupBackgroundReview(
           store,
           projectStore,
           { userPrompt: directPrompt, config, timeoutMs: 120000 },
-          dbManager,
+          memoryRepo,
           projectName,
         );
 
