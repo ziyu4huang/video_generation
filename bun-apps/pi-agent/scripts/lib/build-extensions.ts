@@ -117,15 +117,40 @@ function isValidModuleSpec(s: string): boolean {
 	return true;
 }
 
-function stageResolveExternals(outfile: string, resolveBare: (s: string) => string | undefined): string[] {
-	let code = readFileSync(outfile, "utf8");
+// The `from` / `import(` alternation matches ESM import + re-export forms.
+// The `(?<![\w$-])` lookbehind on `from` is REQUIRED: without it the regex
+// also matches the `from` that is merely the TAIL of a larger token — most
+// painfully the string `"sql-delete-from"` (from is-unsafe's SQL-injection
+// catalog, a transitive dep of fast-xml-parser). There `from` is followed by
+// the string's closing `"`, so the regex captured ",description:" as a bogus
+// bare specifier and aborted the deploy. A real `from` keyword is never
+// preceded by a word char or `-` (minified `export{a}from"x"` → preceded by
+// `}`; `import a from"x"` → preceded by a space), so the lookbehind rejects
+// only the false positives. `import(` needs no anchor (the `(` disambiguates).
+const BARE_SPEC_RE =
+	/(?:((?<![\w$-])from|import\()\s*)(["'])([^"'#.][^"'']*?)\2/g;
+
+/**
+ * Scan bundled code for ESM bare specifiers (`from "x"`, `import("x")`,
+ * re-export `}from"x"`) that must be abs-resolved or marked external. Pure +
+ * exported so the notoriously fragile regex is unit-testable. Returns the
+ * de-duplicated specifiers in first-seen order; template-concat and obviously
+ * invalid specs are filtered here so callers see only plausible specifiers.
+ */
+export function extractBareSpecifiers(code: string): string[] {
 	const bare = new Set<string>();
-	for (const m of code.matchAll(/(?:from|import\()\s*["']([^"'#.][^"'']*?)["']/g)) {
-		const spec = m[1];
+	for (const m of code.matchAll(BARE_SPEC_RE)) {
+		const spec = m[3];
 		if (spec.includes("${") || spec.includes(" + ")) continue;
 		if (!isValidModuleSpec(spec)) continue;
 		bare.add(spec);
 	}
+	return [...bare];
+}
+
+function stageResolveExternals(outfile: string, resolveBare: (s: string) => string | undefined): string[] {
+	let code = readFileSync(outfile, "utf8");
+	const bare = new Set(extractBareSpecifiers(code));
 	const unresolved: string[] = [];
 	let resolved = 0;
 	for (const spec of [...bare]) {
@@ -137,7 +162,7 @@ function stageResolveExternals(outfile: string, resolveBare: (s: string) => stri
 		}
 		const esc = spec.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 		code = code.replace(
-			new RegExp(`((?:from|import\\()\\s*)(["'])${esc}\\2`, "g"),
+			new RegExp(`(((?<![\\w$-])from|import\\()\\s*)(["'])${esc}\\3`, "g"),
 			`$1"${abs}"`,
 		);
 		resolved++;
