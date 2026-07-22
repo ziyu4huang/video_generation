@@ -163,5 +163,10 @@ describe("bootstrap payload assembly", () => {
     expect(payload).toContain("can I write a plan right now");
     expect(payload).toContain("brainstorming");
     expect(payload).toContain("to-spec");
+    // rule 3: SDD workspace override (.superpowers/sdd/ → .planning/<effort>/sdd/)
+    expect(payload).toContain("SDD workspace override");
+    expect(payload).toContain(".superpowers/sdd/");
+    expect(payload).toContain(".planning/<effort>/sdd/progress.md");
+    expect(payload).toContain("sdd-workspace");
   });
 });

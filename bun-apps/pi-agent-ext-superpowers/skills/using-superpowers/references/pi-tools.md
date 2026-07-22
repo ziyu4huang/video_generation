@@ -14,3 +14,7 @@ Pi core does not ship a standard subagent tool. This repo's `pi-agent-ext-workfl
 ## Task lists
 
 Pi core does not ship a standard task-list tool. If a todo/task extension is installed, use its documented tool. Otherwise use Superpowers plan files, checklists in Markdown, or a repo-local `TODO.md` for task tracking. Older Superpowers docs may refer to `TodoWrite`; treat that as the task-tracking action above.
+
+## SDD workspace & progress ledger
+
+The subagent-driven-development skill and its `sdd-workspace` script reference `.superpowers/sdd/` (task briefs, implementer reports, review packages, and the compaction-recovery progress ledger). On pi this is redirected to the effort layout: `.superpowers/sdd/...` → `.planning/<effort>/sdd/...` — briefs under `briefs/`, reports under `reports/`, review packages under `reviews/`, and the progress ledger at `progress.md`. Derive `<effort>` from the plan you are executing (`.planning/<effort>/plans/<plan>.md`). This override is injected every session via the bootstrap (see `piBoundaryOverrides` rule 3 in `src/superpowers.ts`); it converges the SDD runtime workspace beside the effort's map/tickets/plan without editing the byte-identical skill bodies. Do NOT call the byte-identical `sdd-workspace` script (it returns `.superpowers/sdd`); use the effort layout directly.
