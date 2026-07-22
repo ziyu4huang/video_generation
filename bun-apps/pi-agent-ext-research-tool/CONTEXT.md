@@ -73,7 +73,7 @@ _Source_: `lib/format.ts#weeklyFilename`; path via `lib/vault.ts#resolveWritePat
 The default output directory (under the active vault) where `arxiv_fetch2md` Markdown lands. See § arXiv discovery.
 _Source_: see § arXiv discovery
 
-**Vault resolution** (mirrors obsidian):
-Output location resolves like the obsidian extension — `OB_VAULT_PATH` → `run-dir/obsidian_config.json` → `<cwd>/.pi/obsidian_config.json` (legacy) → `<cwd>` fallback; overridable via `outputPath`.
-_Avoid_: vault config (it reuses the obsidian resolution tiers)
-_Source_: `lib/vault.ts#resolveVaultRoot` (tiers 1a/1b/1c + cwd fallback), `lib/vault.ts#resolveWritePath`
+**Vault resolution** (research-tool):
+`OB_VAULT_PATH` env → `~/.pi/obsidian_config.json` (personal) → `<cwd>/.pi/obsidian_config.json` (project, `mode != "app"`) → **throws** (no silent cwd fallback). Runtime is decoupled from `pi-agent-ext-obsidian`; a dev-only parity test guards against tier drift. Overridable via `outputPath`.
+_Avoid_: vault config, obsidian extension (the resolver is standalone; parity test guards drift)
+_Source_: `lib/vault.ts#resolveVaultRoot`, `lib/vault.ts#resolveWritePath`, `__tests__/vault-parity.test.ts`
