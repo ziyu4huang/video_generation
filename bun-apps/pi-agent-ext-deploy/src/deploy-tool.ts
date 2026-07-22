@@ -48,7 +48,9 @@ export interface DeployRunDeps {
 	run?: typeof runScript;
 }
 
-/** Run deploy.ts for the given params. Throws never — failures are { ok:false }. */
+/** Run deploy.ts for the given params. Failures are { ok:false }; the only throw
+ *  is assertSafeOutDir on an outDir outside <repo>/dist/ or $TMPDIR (fail-fast),
+ *  which the tool's execute() try/catch turns into a tool error. */
 export async function runDeploy(
 	params: DeployParams,
 	deps: DeployRunDeps = {},
