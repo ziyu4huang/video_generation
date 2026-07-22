@@ -4,9 +4,12 @@
  * `session-search.ts` into a class that implements `SessionRepository`.
  *
  * Every public method wraps its body in
- *   `this.backend.withCorruptionRecovery(() => runWithTransientRetry(() => { ... }))`
+ *   `runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => { ... }))`
  * absorbing the corruption-recovery + transient-retry wrappers that today live
- * at call sites. The SQL bodies are copied verbatim from the original free
+ * at call sites. `withCorruptionRecovery` is synchronous, so it MUST sit INSIDE
+ * `runWithTransientRetry` — otherwise its sync try/catch sees a Promise and a
+ * later async corruption rejection bypasses the rebuild. The SQL bodies are
+ * copied verbatim from the original free
  * functions (same SQL, same params, same logic); the SQLite driver calls are
  * sync, so we just `return` their result from the async method.
  *
@@ -233,8 +236,8 @@ export class SqliteSessionRepository implements SessionRepository {
     endedAt?: string;
     messages?: unknown[];
   }): Promise<IndexResult> {
-    return this.backend.withCorruptionRecovery(() =>
-      runWithTransientRetry(() => this.indexSessionOnce(session as SessionInput)),
+    return runWithTransientRetry(() =>
+      this.backend.withCorruptionRecovery(() => this.indexSessionOnce(session as SessionInput)),
     );
   }
 
@@ -406,8 +409,8 @@ export class SqliteSessionRepository implements SessionRepository {
     sessionsDir: string,
     projectDir?: string,
   ): Promise<BulkIndexResult> {
-    return this.backend.withCorruptionRecovery(() =>
-      runWithTransientRetry(() => {
+    return runWithTransientRetry(() =>
+      this.backend.withCorruptionRecovery(() => {
         const files = getSessionFiles(sessionsDir, projectDir);
         const result = this.emptyBulkIndexResult();
 
@@ -430,8 +433,8 @@ export class SqliteSessionRepository implements SessionRepository {
     sessionsDir: string,
     options: IncrementalIndexOptions = {},
   ): Promise<BulkIndexResult> {
-    return this.backend.withCorruptionRecovery(() =>
-      runWithTransientRetry(() => {
+    return runWithTransientRetry(() =>
+      this.backend.withCorruptionRecovery(() => {
         const files = getSessionFiles(sessionsDir, options.projectDir);
         const maxFilesToIndex = options.maxFilesToIndex ?? 50;
         const result = this.emptyBulkIndexResult();
@@ -479,8 +482,8 @@ export class SqliteSessionRepository implements SessionRepository {
     sessionId: string,
     options?: { size?: number; mtimeMs?: number },
   ): Promise<void> {
-    return this.backend.withCorruptionRecovery(() =>
-      runWithTransientRetry(() => {
+    return runWithTransientRetry(() =>
+      this.backend.withCorruptionRecovery(() => {
         const metadata: SessionFileMetadata =
           options && (options.size !== undefined || options.mtimeMs !== undefined)
             ? {
@@ -513,8 +516,8 @@ export class SqliteSessionRepository implements SessionRepository {
   }
 
   async needsBackfill(sessionsDir: string, now?: number): Promise<boolean> {
-    return this.backend.withCorruptionRecovery(() =>
-      runWithTransientRetry(() => {
+    return runWithTransientRetry(() =>
+      this.backend.withCorruptionRecovery(() => {
         const nowDate = now !== undefined ? new Date(now) : new Date();
         const files = getSessionFiles(sessionsDir);
         const indexed = this.db.prepare("SELECT COUNT(*) as count FROM sessions").get() as { count: number };
@@ -543,8 +546,8 @@ export class SqliteSessionRepository implements SessionRepository {
   // -------------------------------------------------------------------------
 
   async touchBackfillTimestamp(timestamp?: string): Promise<void> {
-    return this.backend.withCorruptionRecovery(() =>
-      runWithTransientRetry(() => {
+    return runWithTransientRetry(() =>
+      this.backend.withCorruptionRecovery(() => {
         const ts = timestamp ? new Date(timestamp) : new Date();
         this.db.prepare(`
           INSERT INTO extension_metadata (key, value)
@@ -563,8 +566,8 @@ export class SqliteSessionRepository implements SessionRepository {
     query: string,
     options: { project?: string | null; role?: "user" | "assistant" | "system"; limit?: number } = {},
   ): Promise<SessionSearchResult[]> {
-    return this.backend.withCorruptionRecovery(() =>
-      runWithTransientRetry(() => {
+    return runWithTransientRetry(() =>
+      this.backend.withCorruptionRecovery(() => {
         if (query.trim().length === 0) {
           return [];
         }
@@ -688,8 +691,8 @@ export class SqliteSessionRepository implements SessionRepository {
   // -------------------------------------------------------------------------
 
   async getIndexedMessageCount(): Promise<number> {
-    return this.backend.withCorruptionRecovery(() =>
-      runWithTransientRetry(() => {
+    return runWithTransientRetry(() =>
+      this.backend.withCorruptionRecovery(() => {
         const result = this.db.prepare("SELECT COUNT(*) as count FROM messages").get() as { count: number };
         return result.count;
       }),
@@ -701,8 +704,8 @@ export class SqliteSessionRepository implements SessionRepository {
   // -------------------------------------------------------------------------
 
   async getSessionStats(): Promise<SessionStats> {
-    return this.backend.withCorruptionRecovery(() =>
-      runWithTransientRetry(() => {
+    return runWithTransientRetry(() =>
+      this.backend.withCorruptionRecovery(() => {
         const totals = this.db.prepare(`
           SELECT
             (SELECT COUNT(*) FROM sessions) as sessions,

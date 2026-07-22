@@ -4,9 +4,12 @@
  * into a class that implements `MemoryRepository`.
  *
  * Every public method wraps its body in
- *   `this.backend.withCorruptionRecovery(() => runWithTransientRetry(() => { ... }))`
+ *   `runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => { ... }))`
  * absorbing the corruption-recovery + transient-retry wrappers that today live
- * at call sites. The SQL bodies are copied verbatim from the original free
+ * at call sites. `withCorruptionRecovery` is synchronous, so it MUST sit INSIDE
+ * `runWithTransientRetry` — otherwise its sync try/catch sees a Promise and a
+ * later async corruption rejection bypasses the rebuild. The SQL bodies are
+ * copied verbatim from the original free
  * functions (same SQL, same params, same logic); the SQLite driver calls are
  * sync, so we just `return` their result from the async method.
  *
@@ -308,7 +311,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
     created?: string;
     lastReferenced?: string;
   }): Promise<MemoryEntry> {
-    return this.backend.withCorruptionRecovery(() => runWithTransientRetry(() => {
+    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
       const content = input.content;
       const target = input.target ?? "memory";
       const project = input.project ?? null;
@@ -340,7 +343,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }
 
   async syncMemoryEntry(input: MemorySyncInput): Promise<MemorySyncResult> {
-    return this.backend.withCorruptionRecovery(() => runWithTransientRetry(() => {
+    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
       const content = input.content.trim();
       const project = normalizeNullable(input.project);
       const category = normalizeCategory(input.category);
@@ -430,7 +433,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
       lastReferenced?: string | null;
     },
   ): Promise<MemoryUpdateResult> {
-    return this.backend.withCorruptionRecovery(() => runWithTransientRetry(() => {
+    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
       const normalizedOldText = normalizeMemoryLookupText(oldText);
       if (!normalizedOldText) return { matched: 0, updated: 0, entries: [] };
       const params: unknown[] = [];
@@ -483,7 +486,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }
 
   async removeSyncedMemories(oldText: string, options: MemoryRemoveOptions): Promise<MemoryRemoveResult> {
-    return this.backend.withCorruptionRecovery(() => runWithTransientRetry(() => {
+    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
       const normalizedOldText = normalizeMemoryLookupText(oldText);
       if (!normalizedOldText) return { matched: 0, removed: 0 };
       const params: unknown[] = [];
@@ -513,7 +516,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }
 
   async removeExactSyncedMemories(content: string, options: MemoryRemoveOptions): Promise<MemoryRemoveResult> {
-    return this.backend.withCorruptionRecovery(() => runWithTransientRetry(() => {
+    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
       const params: unknown[] = [];
       const conditions = buildScopeConditions(params, options.target, options.project ?? undefined);
       conditions.push("content = ?");
@@ -541,7 +544,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }
 
   async searchMemories(query: string, options: MemorySearchOptions = {}): Promise<MemoryEntry[]> {
-    return this.backend.withCorruptionRecovery(() => runWithTransientRetry(() => {
+    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
       if (query.trim().length === 0) {
         return [];
       }
@@ -616,7 +619,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }
 
   async getMemories(options: MemoryListOptions = {}): Promise<MemoryEntry[]> {
-    return this.backend.withCorruptionRecovery(() => runWithTransientRetry(() => {
+    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
       const { project, target, category } = options;
 
       const conditions: string[] = [];
@@ -655,7 +658,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }
 
   async getRecentFailures(maxAgeDays = 7, project?: string | null): Promise<MemoryEntry[]> {
-    return this.backend.withCorruptionRecovery(() => runWithTransientRetry(() => {
+    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - maxAgeDays);
       const cutoffStr = cutoff.toISOString().split("T")[0];
@@ -685,7 +688,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }
 
   async getMemoryStats(): Promise<MemoryStats> {
-    return this.backend.withCorruptionRecovery(() => runWithTransientRetry(() => {
+    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
       const total = (this.db.prepare("SELECT COUNT(*) as count FROM memories").get() as { count: number }).count;
 
       const byProject = this.db.prepare(`
@@ -707,14 +710,14 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }
 
   async removeMemory(id: number): Promise<boolean> {
-    return this.backend.withCorruptionRecovery(() => runWithTransientRetry(() => {
+    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
       const result = this.db.prepare("DELETE FROM memories WHERE id = ?").run(id);
       return result.changes > 0;
     }));
   }
 
   async touchMemory(id: number): Promise<void> {
-    return this.backend.withCorruptionRecovery(() => runWithTransientRetry(() => {
+    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
       this.db.prepare("UPDATE memories SET last_referenced = ? WHERE id = ?").run(today(), id);
     }));
   }
