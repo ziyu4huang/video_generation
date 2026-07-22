@@ -1,0 +1,111 @@
+/**
+ * SurrealClient — minimal HTTP client for a SurrealDB v3 server's /sql
+ * endpoint. No external dependency: uses the global `fetch`.
+ *
+ * Variable binding is done by prepending `LET $name = <json>;` statements
+ * (JSON.stringify is a valid SurrealQL subset for string/number/bool/null/
+ * object/array). The caller passes a final SQL statement; query() returns
+ * the parsed `result` of the LAST statement in the batch.
+ *
+ * Transient retry (connection failure / 5xx / 429) lives here so repository
+ * methods just call client.query() and inherit retry. There is no corruption
+ * layer — a server has no file-corruption semantics.
+ */
+
+export interface SurrealClientOptions {
+  endpoint: string;       // e.g. http://127.0.0.1:8000
+  namespace: string;      // e.g. hermes
+  database: string;       // e.g. memory
+  username: string;       // e.g. root
+  password: string;       // e.g. root
+  fetch?: typeof fetch;   // injectable for tests
+  maxAttempts?: number;   // default 3
+  backoffMs?: number;     // default 100
+}
+
+type StatementResult =
+  | { status: "OK"; result: unknown }
+  | { status: string; result: unknown };
+
+export class SurrealClient {
+  private readonly fetchFn: typeof fetch;
+  private readonly maxAttempts: number;
+  private readonly backoffMs: number;
+  private readonly auth: string;
+
+  constructor(private readonly opts: SurrealClientOptions) {
+    this.fetchFn = opts.fetch ?? fetch;
+    this.maxAttempts = opts.maxAttempts ?? 3;
+    this.backoffMs = opts.backoffMs ?? 100;
+    this.auth = "Basic " + btoa(`${opts.username}:${opts.password}`);
+  }
+
+  /** Run SQL with optional params; return the last statement's result. */
+  async query<T = unknown[]>(sql: string, params: Record<string, unknown> = {}): Promise<T> {
+    const body = this.buildBody(sql, params);
+    const statements = await this.send<StatementResult[]>(body);
+    if (statements.length === 0) return [] as unknown as T;
+    const last = statements[statements.length - 1];
+    if (last.status !== "OK") {
+      const detail = typeof last.result === "string" ? last.result : JSON.stringify(last.result);
+      throw new Error(`SurrealDB error: ${detail}`);
+    }
+    return last.result as T;
+  }
+
+  private buildBody(sql: string, params: Record<string, unknown>): string {
+    const lets = Object.entries(params)
+      .map(([k, v]) => `LET $${k} = ${JSON.stringify(v)};`)
+      .join("\n");
+    return lets.length > 0 ? `${lets}\n${sql}` : sql;
+  }
+
+  private isRetryableStatus(status: number): boolean {
+    return status >= 500 || status === 429;
+  }
+
+  private async send<T>(body: string): Promise<T> {
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
+      let res: Response;
+      try {
+        res = await this.fetchFn(`${this.opts.endpoint}/sql`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "text/plain",
+            "Accept": "application/json",
+            "surreal-ns": this.opts.namespace,
+            "surreal-db": this.opts.database,
+            "Authorization": this.auth,
+          },
+          body,
+        });
+      } catch (err) {
+        lastErr = err;
+        if (attempt < this.maxAttempts) {
+          await this.sleep(this.backoffMs * attempt);
+          continue;
+        }
+        throw new Error(`SurrealDB request failed: ${this.errMsg(err)}`);
+      }
+      if (this.isRetryableStatus(res.status) && attempt < this.maxAttempts) {
+        await this.sleep(this.backoffMs * attempt);
+        continue;
+      }
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`SurrealDB HTTP ${res.status}: ${text}`);
+      }
+      return (await res.json()) as T;
+    }
+    throw new Error(`SurrealDB request failed after ${this.maxAttempts} attempts: ${this.errMsg(lastErr)}`);
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private errMsg(err: unknown): string {
+    return err instanceof Error ? err.message : String(err);
+  }
+}
