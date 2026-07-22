@@ -176,6 +176,9 @@ export function renderStatus(r: StatusReport): string {
     lines.push("frontier: (empty — all open tickets are blocked or claimed)");
   } else {
     lines.push("frontier: (clear — no open tickets; the way is found)");
+    if (r.closed > 0) {
+      lines.push("  → run `/wayfind done` for the closing ceremony (self-reflect + next-goal note)");
+    }
   }
   return lines.join("\n");
 }
