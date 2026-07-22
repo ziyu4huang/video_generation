@@ -30,6 +30,9 @@ import type {
   SessionRepository,
   SessionSearchResult,
   SessionStats,
+  IndexResult,
+  BulkIndexResult,
+  IncrementalIndexOptions,
 } from "../repository.js";
 import { parseSessionFile, getSessionFiles } from "../session-parser.js";
 import {
@@ -71,16 +74,7 @@ type SessionInput = {
   }>;
 };
 
-/** Mirror of the original BulkIndexResult (internal; mapped before return). */
-interface BulkIndexResult {
-  sessionsProcessed: number;
-  sessionsIndexed: number;
-  sessionsSkipped: number;
-  messagesIndexed: number;
-  errors: string[];
-  reachedLimit?: boolean;
-}
-
+/** Mirror of the original SessionFileMetadata (internal helper). */
 interface SessionFileMetadata {
   path: string;
   size: number;
@@ -182,7 +176,7 @@ export class SqliteSessionRepository implements SessionRepository {
   }
 
   /** Unwrapped core (the original indexSessionOnce). */
-  private indexSessionOnce(sessionRaw: SessionInput): void {
+  private indexSessionOnce(sessionRaw: SessionInput): IndexResult {
     const db = this.backend.getDb();
 
     // The interface types cwd/project/startedAt as optional, but the sessions
@@ -219,13 +213,16 @@ export class SqliteSessionRepository implements SessionRepository {
       write();
     }
 
-    // The original returned an IndexResult; the interface method returns void.
-    // The before/after bookkeeping is preserved verbatim (it drives the bulk
-    // path's per-session skipped accounting via indexSessionFileInTx, which
-    // does its own count diff; indexSessionOnce itself only used the counts to
-    // build IndexResult, which we no longer surface).
-    void existingSession;
-    void before;
+    const after = db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").get(session.id) as {
+      count: number;
+    };
+    const messagesIndexed = after.count - before.count;
+
+    return {
+      sessionId: session.id,
+      messagesIndexed,
+      skipped: Boolean(existingSession) && messagesIndexed === 0,
+    };
   }
 
   async indexSession(session: {
@@ -233,12 +230,11 @@ export class SqliteSessionRepository implements SessionRepository {
     project?: string;
     cwd?: string;
     startedAt?: string;
+    endedAt?: string;
     messages?: unknown[];
-  }): Promise<void> {
+  }): Promise<IndexResult> {
     return this.backend.withCorruptionRecovery(() =>
-      runWithTransientRetry(() => {
-        this.indexSessionOnce(session as SessionInput);
-      }),
+      runWithTransientRetry(() => this.indexSessionOnce(session as SessionInput)),
     );
   }
 
@@ -409,7 +405,7 @@ export class SqliteSessionRepository implements SessionRepository {
   async indexAllSessions(
     sessionsDir: string,
     projectDir?: string,
-  ): Promise<{ indexed: number; skipped: number }> {
+  ): Promise<BulkIndexResult> {
     return this.backend.withCorruptionRecovery(() =>
       runWithTransientRetry(() => {
         const files = getSessionFiles(sessionsDir, projectDir);
@@ -421,7 +417,7 @@ export class SqliteSessionRepository implements SessionRepository {
         // in a single fsync.
         this.runBulkIndexInTx(files, result);
 
-        return { indexed: result.sessionsIndexed, skipped: result.sessionsSkipped };
+        return result;
       }),
     );
   }
@@ -432,11 +428,11 @@ export class SqliteSessionRepository implements SessionRepository {
 
   async indexChangedSessions(
     sessionsDir: string,
-    options: { maxFilesToIndex?: number } = {},
-  ): Promise<{ indexed: number; skipped: number; reachedLimit: boolean }> {
+    options: IncrementalIndexOptions = {},
+  ): Promise<BulkIndexResult> {
     return this.backend.withCorruptionRecovery(() =>
       runWithTransientRetry(() => {
-        const files = getSessionFiles(sessionsDir);
+        const files = getSessionFiles(sessionsDir, options.projectDir);
         const maxFilesToIndex = options.maxFilesToIndex ?? 50;
         const result = this.emptyBulkIndexResult();
 
@@ -469,11 +465,7 @@ export class SqliteSessionRepository implements SessionRepository {
 
         this.runBulkIndexInTx(toIndex, result);
 
-        return {
-          indexed: result.sessionsIndexed,
-          skipped: result.sessionsSkipped,
-          reachedLimit: Boolean(result.reachedLimit),
-        };
+        return result;
       }),
     );
   }
@@ -711,6 +703,12 @@ export class SqliteSessionRepository implements SessionRepository {
   async getSessionStats(): Promise<SessionStats> {
     return this.backend.withCorruptionRecovery(() =>
       runWithTransientRetry(() => {
+        const totals = this.db.prepare(`
+          SELECT
+            (SELECT COUNT(*) FROM sessions) as sessions,
+            (SELECT COUNT(*) FROM messages) as messages
+        `).get() as { sessions: number; messages: number };
+
         const projects = this.db.prepare(`
           SELECT
             s.project,
@@ -722,7 +720,11 @@ export class SqliteSessionRepository implements SessionRepository {
           ORDER BY sessions DESC
         `).all() as { project: string | null; sessions: number; messages: number }[];
 
-        return { byProject: projects };
+        return {
+          totalSessions: totals.sessions,
+          totalMessages: totals.messages,
+          projects,
+        };
       }),
     );
   }

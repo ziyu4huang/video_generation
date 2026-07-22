@@ -68,12 +68,32 @@ export interface SessionRecord { id: string; project: string; cwd: string; start
 export interface MessageRecord { id: string; sessionId: string; role: "user" | "assistant" | "system"; content: string; timestamp: string; toolCalls: string | null; }
 export interface SessionFileMeta { path: string; sessionId: string; size: number; mtimeMs: number; indexedAt: string; }
 export interface SessionSearchResult { sessionId: string; messageId: string; role: "user" | "assistant" | "system"; content: string; timestamp: string; project: string; cwd: string; }
-export interface SessionStats { byProject: { project: string | null; sessions: number; messages: number }[]; }
+
+/** Result of indexing a single session (mirrors the original IndexResult). */
+export interface IndexResult { sessionId: string; messagesIndexed: number; skipped: boolean; }
+
+/** Result of a bulk index run (mirrors the original BulkIndexResult). Callers consume every field. */
+export interface BulkIndexResult {
+  sessionsProcessed: number;
+  sessionsIndexed: number;
+  sessionsSkipped: number;
+  messagesIndexed: number;
+  errors: string[];
+  reachedLimit?: boolean;
+}
+
+export interface IncrementalIndexOptions { projectDir?: string; maxFilesToIndex?: number; }
+
+export interface SessionStats {
+  totalSessions: number;
+  totalMessages: number;
+  projects: { project: string; sessions: number; messages: number }[];
+}
 
 export interface SessionRepository {
-  indexSession(session: { id: string; project?: string; cwd?: string; startedAt?: string; messages?: unknown[] }): Promise<void>;
-  indexAllSessions(sessionsDir: string, projectDir?: string): Promise<{ indexed: number; skipped: number }>;
-  indexChangedSessions(sessionsDir: string, options?: { maxFilesToIndex?: number }): Promise<{ indexed: number; skipped: number; reachedLimit: boolean }>;
+  indexSession(session: { id: string; project?: string; cwd?: string; startedAt?: string; endedAt?: string; messages?: unknown[] }): Promise<IndexResult>;
+  indexAllSessions(sessionsDir: string, projectDir?: string): Promise<BulkIndexResult>;
+  indexChangedSessions(sessionsDir: string, options?: IncrementalIndexOptions): Promise<BulkIndexResult>;
   upsertSessionFileMeta(filePath: string, sessionId: string, options?: { size?: number; mtimeMs?: number }): Promise<void>;
   needsBackfill(sessionsDir: string, now?: number): Promise<boolean>;
   touchBackfillTimestamp(timestamp?: string): Promise<void>;
