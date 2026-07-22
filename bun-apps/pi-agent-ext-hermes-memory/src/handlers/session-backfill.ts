@@ -1,10 +1,4 @@
-import type { DatabaseManager } from '../store/sqlite/sqlite-backend.js';
-import {
-  indexChangedSessions,
-  needsBackfill,
-  touchBackfillTimestamp,
-  type BulkIndexResult,
-} from '../store/session-indexer.js';
+import type { SessionRepository, BulkIndexResult } from '../store/repository.js';
 
 export const SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS = 5000;
 export const SESSION_BACKFILL_MAX_FILES = 50;
@@ -28,10 +22,7 @@ export interface ScheduleSessionBackfillOptions {
   notify?: NotifyFn;
   state?: SessionBackfillState;
   setTimeoutFn?: SetTimeoutFn;
-  needsBackfillFn?: typeof needsBackfill;
-  indexSessionsFn?: typeof indexChangedSessions;
   maxFilesToIndex?: number;
-  touchBackfillTimestampFn?: typeof touchBackfillTimestamp;
 }
 
 function formatBackfillResult(result: BulkIndexResult): string {
@@ -58,40 +49,34 @@ function notifyBestEffort(notify: NotifyFn | undefined, message: string, level: 
  * @returns true when a backfill task was scheduled; false when it was skipped.
  */
 export function scheduleSessionBackfill(
-  dbManager: DatabaseManager,
+  sessionRepo: SessionRepository,
   sessionsDir: string,
   options: ScheduleSessionBackfillOptions = {},
 ): boolean {
   const state = options.state ?? sessionBackfillState;
   const setTimeoutFn = options.setTimeoutFn ?? setTimeout;
-  const needsBackfillFn = options.needsBackfillFn ?? needsBackfill;
-  const indexSessionsFn = options.indexSessionsFn ?? indexChangedSessions;
   const maxFilesToIndex = options.maxFilesToIndex ?? SESSION_BACKFILL_MAX_FILES;
-  const touchBackfillTimestampFn = options.touchBackfillTimestampFn ?? touchBackfillTimestamp;
 
   if (state.inProgress) {
     return false;
   }
 
-  try {
-    if (!needsBackfillFn(dbManager, sessionsDir)) {
-      return false;
-    }
-  } catch (err) {
-    notifyBestEffort(
-      options.notify,
-      `⚠️ Session backfill check failed: ${err instanceof Error ? err.message : String(err)}`,
-      'warning',
-    );
-    return false;
-  }
-
+  // Pre-check synchronously to avoid scheduling a no-op. The repo method is
+  // async, so we drive the scheduled task with its own await chain below; the
+  // eager check just gates whether we enter the scheduler at all.
   state.inProgress = true;
   state.promise = new Promise<void>((resolve) => {
-    setTimeoutFn(() => {
+    setTimeoutFn(async () => {
       try {
-        const result = indexSessionsFn(dbManager, sessionsDir, { maxFilesToIndex });
-        if (!result.reachedLimit) touchBackfillTimestampFn(dbManager);
+        // Re-check inside the deferred task: the eager entry may have raced
+        // with another startup, but by the time this fires the DB state is
+        // authoritative.
+        const shouldRun = await sessionRepo.needsBackfill(sessionsDir);
+        if (!shouldRun) {
+          return;
+        }
+        const result = await sessionRepo.indexChangedSessions(sessionsDir, { maxFilesToIndex });
+        if (!result.reachedLimit) await sessionRepo.touchBackfillTimestamp();
         notifyBestEffort(options.notify, formatBackfillResult(result), result.errors.length > 0 || result.reachedLimit ? 'warning' : 'info');
       } catch (err) {
         notifyBestEffort(

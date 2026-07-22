@@ -27,7 +27,7 @@
  */
 
 import fs from "node:fs";
-import type { SqliteBackend, DatabaseLike } from "./sqlite-backend.js";
+import { SqliteBackend, type DatabaseLike } from "./sqlite-backend.js";
 import { runWithTransientRetry } from "./sqlite-backend.js";
 import type {
   SessionRepository,
@@ -233,7 +233,7 @@ export class SqliteSessionRepository implements SessionRepository {
     project?: string;
     cwd?: string;
     startedAt?: string;
-    endedAt?: string;
+    endedAt?: string | null;
     messages?: unknown[];
   }): Promise<IndexResult> {
     return runWithTransientRetry(() =>
@@ -726,7 +726,9 @@ export class SqliteSessionRepository implements SessionRepository {
         return {
           totalSessions: totals.sessions,
           totalMessages: totals.messages,
-          projects,
+          // SQLite GROUP BY can yield null for project on edge-case rows;
+          // coerce to empty string to match the SessionStats DTO (string).
+          projects: projects.map((p) => ({ ...p, project: p.project ?? "" })),
         };
       }),
     );

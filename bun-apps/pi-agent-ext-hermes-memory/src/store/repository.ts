@@ -91,7 +91,7 @@ export interface SessionStats {
 }
 
 export interface SessionRepository {
-  indexSession(session: { id: string; project?: string; cwd?: string; startedAt?: string; endedAt?: string; messages?: unknown[] }): Promise<IndexResult>;
+  indexSession(session: { id: string; project?: string; cwd?: string; startedAt?: string; endedAt?: string | null; messages?: unknown[] }): Promise<IndexResult>;
   indexAllSessions(sessionsDir: string, projectDir?: string): Promise<BulkIndexResult>;
   indexChangedSessions(sessionsDir: string, options?: IncrementalIndexOptions): Promise<BulkIndexResult>;
   upsertSessionFileMeta(filePath: string, sessionId: string, options?: { size?: number; mtimeMs?: number }): Promise<void>;

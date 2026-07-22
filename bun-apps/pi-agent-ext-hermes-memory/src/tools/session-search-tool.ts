@@ -2,8 +2,7 @@ import * as path from 'node:path';
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
-import { DatabaseManager } from '../store/sqlite/sqlite-backend.js';
-import { searchSessions, getIndexedMessageCount } from '../store/session-search.js';
+import type { SessionRepository } from '../store/repository.js';
 import { searchSessionAnchors } from '../store/session-anchor-search.js';
 import type { SessionAnchorRange, SessionAnchorSearchResult } from '../store/session-anchor-search.js';
 import type { SessionSearchConfig } from '../types.js';
@@ -25,7 +24,7 @@ const DEFAULT_SESSIONS_DIR = path.join(AGENT_ROOT, 'sessions');
 
 export function registerSessionSearchTool(
   pi: ExtensionAPI,
-  dbManager: DatabaseManager,
+  sessionRepo: SessionRepository,
   sessionSearchConfig: SessionSearchConfig = { variant: 'legacy' },
   options: SessionSearchToolOptions = {},
 ): void {
@@ -34,7 +33,7 @@ export function registerSessionSearchTool(
     return;
   }
 
-  registerLegacySessionSearchTool(pi, dbManager);
+  registerLegacySessionSearchTool(pi, sessionRepo);
 }
 
 function registerAnchorSessionSearchTool(pi: ExtensionAPI, sessionsDir: string): void {
@@ -110,7 +109,7 @@ function compactReason(reason: string | undefined): string {
   return oneLine.length <= 180 ? oneLine : `${oneLine.slice(0, 177)}...`;
 }
 
-function registerLegacySessionSearchTool(pi: ExtensionAPI, dbManager: DatabaseManager): void {
+function registerLegacySessionSearchTool(pi: ExtensionAPI, sessionRepo: SessionRepository): void {
   pi.registerTool({
     name: 'session_search',
     label: 'Session Search',
@@ -139,13 +138,17 @@ Returns conversation snippets with session dates and project context.`,
         return { content: [{ type: 'text' as const, text: result.message! }], details: result };
       }
 
-      const totalMessages = getIndexedMessageCount(dbManager);
+      const totalMessages = await sessionRepo.getIndexedMessageCount();
       if (totalMessages === 0) {
         const result: SearchResult = { success: false, message: 'No sessions indexed yet. Run /memory-index-sessions to import past sessions.' };
         return { content: [{ type: 'text' as const, text: result.message! }], details: result };
       }
 
-      const results = searchSessions(dbManager, query, { project, role, limit });
+      const results = await sessionRepo.searchSessions(query, {
+        project,
+        role: role as "user" | "assistant" | "system" | undefined,
+        limit,
+      });
 
       if (results.length === 0) {
         const result: SearchResult = { success: true, count: 0, message: `No results found for "${query}". Try a different search term or broader query.` };
@@ -163,7 +166,7 @@ Returns conversation snippets with session dates and project context.`,
 
         output += `---\n`;
         output += `📅 ${date} | 📁 ${r.project} | ${r.role === 'user' ? '👤 User' : '🤖 Assistant'}\n`;
-        output += `${r.snippet}\n\n`;
+        output += `${r.content}\n\n`;
       }
 
       const finalResult: SearchResult = { success: true, count: results.length, output: output.trim() };

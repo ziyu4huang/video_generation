@@ -1,16 +1,11 @@
-import type { DatabaseManager } from '../store/sqlite/sqlite-backend.js';
-import { runWithTransientRetry } from '../store/sqlite/sqlite-backend.js';
-import { indexLiveSession } from '../store/session-indexer.js';
+import type { SessionRepository } from '../store/repository.js';
+import type { SessionManagerSnapshot } from '../store/session-parser.js';
+import { parseSessionManagerSnapshot } from '../store/session-parser.js';
 
 export const SESSION_LIVE_INDEX_DELAY_MS = 50;
 export const SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS = 5000;
-// Transient-DB-error retry helpers (isTransientDbError, runWithTransientRetry,
-// TRANSIENT_DB_RETRY_*) now live in store/sqlite/sqlite-backend.ts — imported above — so both the
-// live indexer and the memory tool share one implementation.
 
 type SetTimeoutFn = (callback: () => void, ms: number) => unknown;
-
-type SessionManagerSnapshot = Parameters<typeof indexLiveSession>[1];
 
 export interface SessionLiveIndexState {
   inProgress: boolean;
@@ -25,13 +20,8 @@ export const sessionLiveIndexState: SessionLiveIndexState = {
 export interface ScheduleLiveSessionIndexOptions {
   state?: SessionLiveIndexState;
   setTimeoutFn?: SetTimeoutFn;
-  indexLiveSessionFn?: typeof indexLiveSession;
   delayMs?: number;
   onError?: (error: unknown) => void;
-  /** Max attempts for transient-error retry (default 3). */
-  maxAttempts?: number;
-  /** Injectable backoff sleep for the transient retry (default: setTimeout). */
-  sleepFn?: (ms: number) => Promise<void>;
 }
 
 /**
@@ -41,9 +31,12 @@ export interface ScheduleLiveSessionIndexOptions {
  * session file/session manager. Deferring briefly lets Pi persist the entry
  * first, then we index any message ids not already present in SQLite. Multiple
  * message_end events in the same window coalesce into one all-missing sync.
+ *
+ * Recovery + transient retry are owned by the repository; this scheduler does
+ * NOT double-wrap them.
  */
 export function scheduleLiveSessionIndex(
-  dbManager: DatabaseManager,
+  sessionRepo: SessionRepository,
   sessionManager: SessionManagerSnapshot,
   options: ScheduleLiveSessionIndexOptions = {},
 ): boolean {
@@ -53,21 +46,16 @@ export function scheduleLiveSessionIndex(
   }
 
   const setTimeoutFn = options.setTimeoutFn ?? setTimeout;
-  const indexLiveSessionFn = options.indexLiveSessionFn ?? indexLiveSession;
   const delayMs = options.delayMs ?? SESSION_LIVE_INDEX_DELAY_MS;
 
   state.inProgress = true;
   state.promise = new Promise<void>((resolve) => {
     setTimeoutFn(async () => {
       try {
-        // Corruption errors get the DB-rebuild treatment (withCorruptionRecovery);
-        // transient contention/I-O blips are absorbed by runWithTransientRetry so
-        // multi-process WAL races don't surface a scary `disk I/O error` warning
-        // on every message_end.
-        await runWithTransientRetry(
-          () => dbManager.withCorruptionRecovery(() => indexLiveSessionFn(dbManager, sessionManager)),
-          { maxAttempts: options.maxAttempts, sleep: options.sleepFn },
-        );
+        const session = parseSessionManagerSnapshot(sessionManager);
+        if (session) {
+          await sessionRepo.indexSession(session);
+        }
       } catch (err) {
         try { options.onError?.(err); } catch { /* best effort */ }
       } finally {

@@ -27,8 +27,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MemoryStore } from "./store/memory-store.js";
 import { SkillStore } from "./store/skill-store.js";
 import { SqliteBackend } from "./store/sqlite/sqlite-backend.js";
-import { SqliteMemoryRepository } from "./store/sqlite/sqlite-memory-repo.js";
-import { indexSession, upsertSessionFileMetadata } from "./store/session-indexer.js";
+import { createBackendBundle } from "./store/backend-factory.js";
 import { scheduleSessionBackfill, waitForSessionBackfill, SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-backfill.js";
 import { scheduleLiveSessionIndex, waitForLiveSessionIndex, SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-live-index.js";
 import { parseSessionFile } from "./store/session-parser.js";
@@ -111,9 +110,7 @@ export default async function (pi: ExtensionAPI) {
     legacyPiGlobalSkillsDir: path.join(agentRoot, "skills"),
     migrationSentinelPath: path.join(globalDir, ".skills-migrated-to-extension-storage"),
   });
-  const backend = new SqliteBackend(globalDir);
-  await backend.init();
-  const memoryRepo = new SqliteMemoryRepository(backend);
+  const { backend, memoryRepo, sessionRepo } = await createBackendBundle(config, globalDir);
   const sessionsDir = path.join(agentRoot, "sessions");
 
   const refreshSkillProjectContext = (cwd?: string) => {
@@ -159,7 +156,7 @@ export default async function (pi: ExtensionAPI) {
     await store.loadFromDisk();
     if (projectStore) await projectStore.loadFromDisk();
 
-    scheduleSessionBackfill(backend, sessionsDir, {
+    scheduleSessionBackfill(sessionRepo, sessionsDir, {
       notify: (message, level) => {
         const ui = (ctx as { ui?: { notify?: (message: string, level?: string) => void } }).ui;
         if (ui?.notify) {
@@ -231,15 +228,15 @@ export default async function (pi: ExtensionAPI) {
 
   // ── 10. Live session indexing ──
   pi.on("message_end", async (_event, ctx) => {
-    scheduleLiveSessionIndex(backend, ctx.sessionManager, {
+    scheduleLiveSessionIndex(sessionRepo, ctx.sessionManager, {
       onError: (err) => console.warn(`⚠️ Live session indexing failed: ${err instanceof Error ? err.message : String(err)}`),
     });
   });
 
   // ── 11. SQLite session search + extended memory ──
-  registerSessionSearchTool(pi, backend, config.sessionSearch ?? { variant: "legacy" });
+  registerSessionSearchTool(pi, sessionRepo, config.sessionSearch ?? { variant: "legacy" });
   registerMemorySearchTool(pi, memoryRepo);
-  registerIndexSessionsCommand(pi, globalDir);
+  registerIndexSessionsCommand(pi, globalDir, config);
 
   // (11b removed — convergence moved to the knowledge-card hub; ADR-0001.
   //  Hermes is now a pure TIER-0 foundation: store / search / flush only.)
@@ -261,14 +258,14 @@ export default async function (pi: ExtensionAPI) {
       if (sessionFile && require("node:fs").existsSync(sessionFile)) {
         const sessionData = parseSessionFile(sessionFile);
         if (sessionData) {
-          backend.withCorruptionRecovery(() => {
-            indexSession(backend, sessionData);
-            // Keep session_files metadata in sync with the final on-disk state.
-            // Pi appends the closing session entry on shutdown after the last
-            // message_end, so without this upsert the stored size/mtime would be
-            // stale and the next startup would re-parse this file unnecessarily.
-            upsertSessionFileMetadata(backend, sessionFile, sessionData.id);
-          });
+          // The repository methods already wrap recovery + transient retry, so
+          // there is no need to wrap them in backend.withCorruptionRecovery here.
+          await sessionRepo.indexSession(sessionData);
+          // Keep session_files metadata in sync with the final on-disk state.
+          // Pi appends the closing session entry on shutdown after the last
+          // message_end, so without this upsert the stored size/mtime would be
+          // stale and the next startup would re-parse this file unnecessarily.
+          await sessionRepo.upsertSessionFileMeta(sessionFile, sessionData.id);
         }
       }
     } catch {

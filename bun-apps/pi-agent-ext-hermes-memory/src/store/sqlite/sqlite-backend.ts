@@ -930,13 +930,3 @@ export class SqliteBackend implements Backend {
     return deleted;
   }
 }
-
-/**
- * Deprecated alias for in-flight code/tests during the backend-abstraction
- * refactor. Removed in Task 8 cleanup. New code should import SqliteBackend.
- * Both a value alias (class identity) and a type alias (instance type) are
- * exported so existing usages of `DatabaseManager` as either a value or a type
- * annotation continue to resolve during the transition.
- */
-export const DatabaseManager = SqliteBackend;
-export type DatabaseManager = SqliteBackend;
