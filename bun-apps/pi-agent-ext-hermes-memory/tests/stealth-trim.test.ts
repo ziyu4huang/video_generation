@@ -3,7 +3,7 @@
  * memory_search, session_search ×2, skill_*) must stay free of per-turn
  * `promptSnippet`/`promptGuidelines`. Rich `description`s already route.
  *
- * The full factory is heavy (constructs MemoryStore/SkillStore/DatabaseManager),
+ * The full factory is heavy (constructs MemoryStore/SkillStore/SqliteBackend),
  * so we capture via each tool's `registerXxxTool(pi, deps)` directly. Registration
  * only BUILDS the tool object (deps are consumed inside `execute`, never at
  * registration), so fake deps suffice.

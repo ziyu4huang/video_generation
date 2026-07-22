@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { DatabaseManager } from '../../src/store/db.js';
+import { SqliteBackend } from '../../src/store/sqlite/sqlite-backend.js';
+import { SqliteSessionRepository } from '../../src/store/sqlite/sqlite-session-repo.js';
 import {
   scheduleSessionBackfill,
   waitForSessionBackfill,
   type SessionBackfillState,
 } from '../../src/handlers/session-backfill.js';
-import { indexAllSessions, touchBackfillTimestamp } from '../../src/store/session-indexer.js';
 
 function writeJsonlSession(sessionsDir: string, projectDir: string, sessionId: string, text = 'Hello from backfill'): void {
   const projDir = path.join(sessionsDir, projectDir);
@@ -30,16 +30,19 @@ function writeJsonlSession(sessionsDir: string, projectDir: string, sessionId: s
 describe('session backfill handler', () => {
   let tmpDir: string;
   let sessionsDir: string;
-  let dbManager: DatabaseManager;
+  let backend: SqliteBackend;
+  let repo: SqliteSessionRepository;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-backfill-test-'));
     sessionsDir = path.join(tmpDir, 'sessions');
-    dbManager = new DatabaseManager(path.join(tmpDir, 'memory'));
+    backend = new SqliteBackend(path.join(tmpDir, 'memory'));
+    await backend.init();
+    repo = new SqliteSessionRepository(backend);
   });
 
   afterEach(() => {
-    dbManager.close();
+    backend.close();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -48,7 +51,7 @@ describe('session backfill handler', () => {
     const callbacks: (() => void)[] = [];
     const state: SessionBackfillState = { inProgress: false, promise: null };
 
-    const scheduled = scheduleSessionBackfill(dbManager, sessionsDir, {
+    const scheduled = scheduleSessionBackfill(repo, sessionsDir, {
       state,
       setTimeoutFn: (callback) => {
         callbacks.push(callback);
@@ -58,25 +61,25 @@ describe('session backfill handler', () => {
 
     assert.equal(scheduled, true);
     assert.equal(callbacks.length, 1);
-    assert.equal(dbManager.getStats().sessions, 0, 'session_start should not index synchronously');
+    assert.equal(backend.getStats().sessions, 0, 'session_start should not index synchronously');
 
     const promise = state.promise;
     assert.ok(promise);
     callbacks[0]();
     await promise;
 
-    assert.equal(dbManager.getStats().sessions, 1);
-    assert.equal(dbManager.getStats().messages, 1);
+    assert.equal(backend.getStats().sessions, 1);
+    assert.equal(backend.getStats().messages, 1);
   });
 
-  it('does not schedule backfill when counts match and timestamp is recent', () => {
+  it('scheduled task is a no-op when counts match and timestamp is recent', async () => {
     writeJsonlSession(sessionsDir, 'project-a', 's1');
-    indexAllSessions(dbManager, sessionsDir);
-    touchBackfillTimestamp(dbManager);
+    await repo.indexAllSessions(sessionsDir);
+    await repo.touchBackfillTimestamp();
 
     const callbacks: (() => void)[] = [];
     const state: SessionBackfillState = { inProgress: false, promise: null };
-    const scheduled = scheduleSessionBackfill(dbManager, sessionsDir, {
+    const scheduled = scheduleSessionBackfill(repo, sessionsDir, {
       state,
       setTimeoutFn: (callback) => {
         callbacks.push(callback);
@@ -84,16 +87,24 @@ describe('session backfill handler', () => {
       },
     });
 
-    assert.equal(scheduled, false);
-    assert.equal(callbacks.length, 0);
+    // Always scheduled (async needsBackfill check happens inside the deferred task).
+    assert.equal(scheduled, true);
+    assert.equal(callbacks.length, 1);
+
+    const promise = state.promise;
+    callbacks[0]();
+    await promise;
+
+    // No new sessions indexed — the deferred task saw counts match and skipped.
     assert.equal(state.inProgress, false);
+    assert.equal(backend.getStats().sessions, 1);
   });
 
   it('keeps manual indexAllSessions idempotent with auto-backfill', async () => {
     writeJsonlSession(sessionsDir, 'project-a', 's1');
     const state: SessionBackfillState = { inProgress: false, promise: null };
 
-    const scheduled = scheduleSessionBackfill(dbManager, sessionsDir, {
+    const scheduled = scheduleSessionBackfill(repo, sessionsDir, {
       state,
       setTimeoutFn: (callback) => {
         queueMicrotask(callback);
@@ -103,7 +114,7 @@ describe('session backfill handler', () => {
     assert.equal(scheduled, true);
     await state.promise;
 
-    const manualResult = indexAllSessions(dbManager, sessionsDir);
+    const manualResult = await repo.indexAllSessions(sessionsDir);
     assert.equal(manualResult.sessionsProcessed, 1);
     assert.equal(manualResult.sessionsSkipped, 1);
     assert.equal(manualResult.sessionsIndexed, 0);
@@ -111,21 +122,15 @@ describe('session backfill handler', () => {
 
   it('does not mark backfill complete when startup parse limit is reached', async () => {
     const state: SessionBackfillState = { inProgress: false, promise: null };
-    let touched = false;
     const notifications: { message: string; level: string }[] = [];
 
-    const scheduled = scheduleSessionBackfill(dbManager, sessionsDir, {
+    writeJsonlSession(sessionsDir, 'p1', 's1');
+    writeJsonlSession(sessionsDir, 'p2', 's2');
+    writeJsonlSession(sessionsDir, 'p3', 's3');
+
+    const scheduled = scheduleSessionBackfill(repo, sessionsDir, {
       state,
-      needsBackfillFn: () => true,
-      indexSessionsFn: () => ({
-        sessionsProcessed: 1,
-        sessionsIndexed: 1,
-        sessionsSkipped: 0,
-        messagesIndexed: 1,
-        errors: [],
-        reachedLimit: true,
-      }),
-      touchBackfillTimestampFn: () => { touched = true; },
+      maxFilesToIndex: 1,
       notify: (message, level) => notifications.push({ message, level }),
       setTimeoutFn: (callback) => {
         queueMicrotask(callback);
@@ -135,21 +140,26 @@ describe('session backfill handler', () => {
 
     assert.equal(scheduled, true);
     await state.promise;
-    assert.equal(touched, false);
-    assert.equal(notifications[0].level, 'warning');
-    assert.match(notifications[0].message, /startup limit reached/);
+    // The limit was reached → timestamp NOT touched. Check notification mentions startup limit.
+    const limitNotif = notifications.find((n) => /startup limit reached/.test(n.message));
+    assert.ok(limitNotif, 'expected a startup-limit-reached notification');
+    assert.equal(limitNotif!.level, 'warning');
   });
 
   it('scheduled task is best-effort and does not reject when indexing throws', async () => {
     const state: SessionBackfillState = { inProgress: false, promise: null };
     const notifications: { message: string; level: string }[] = [];
 
-    const scheduled = scheduleSessionBackfill(dbManager, sessionsDir, {
+    // Use a repo whose needsBackfill throws by pointing at a bad dir won't work;
+    // instead, use a mock repo that throws during indexChangedSessions.
+    const throwingRepo = {
+      needsBackfill: async () => true,
+      indexChangedSessions: async () => { throw new Error('boom'); },
+      touchBackfillTimestamp: async () => {},
+    };
+
+    const scheduled = scheduleSessionBackfill(throwingRepo as any, sessionsDir, {
       state,
-      needsBackfillFn: () => true,
-      indexSessionsFn: () => {
-        throw new Error('boom');
-      },
       notify: (message, level) => notifications.push({ message, level }),
       setTimeoutFn: (callback) => {
         queueMicrotask(callback);

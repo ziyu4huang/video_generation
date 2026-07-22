@@ -19,11 +19,11 @@ Procedures — *how* to do something reusable across sessions (debug, deploy, te
 _Avoid_: snippets, docs (skills are procedural and Pi-discoverable, not reference text)
 
 **Extended store** (`sessions.db`):
-The SQLite mirror of Markdown memory beyond the core char limit. Fresh `memory` writes mirror here automatically; older entries backfilled via `/memory-sync-markdown`. Searching it does **not** bypass the core Markdown limit.
+The SQLite mirror of Markdown memory beyond the core char limit. Fresh `memory` writes mirror here automatically; older entries backfilled via `/memory-sync-markdown`. Searching it does **not** bypass the core Markdown limit. Accessed only through the backend-neutral `MemoryRepository` interface (`src/store/repository.ts`); the SQLite implementation lives in `src/store/sqlite/`.
 _Avoid_: cache, index (it is a durable searchable store; core Markdown stays the source of truth)
 
 **Sessions** (`sessions.db`, FTS5):
-Indexed past conversation history, searchable via `session_search`. Indexed on shutdown plus a bounded incremental startup backfill.
+Indexed past conversation history, searchable via `session_search`. Indexed on shutdown plus a bounded incremental startup backfill. Accessed only through the backend-neutral `SessionRepository` interface; the SQLite implementation lives in `src/store/sqlite/`. A future SurrealDB backend implements the same interface (selected via `config.dbBackend`).
 _Avoid_: history, transcripts (it is FTS5-indexed, queryable conversation memory)
 
 ### Two-tier scoping

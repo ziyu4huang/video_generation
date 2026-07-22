@@ -219,3 +219,74 @@ export function decodeProjectDir(dirName: string): string {
   const segments = cleaned.split('-');
   return segments[segments.length - 1] ?? cleaned;
 }
+
+// ---------------------------------------------------------------------------
+// Live-session snapshot parsing (moved from session-indexer.ts).
+// Pure transform: sessionManager snapshot → ParsedSession. No DB access.
+// Reuses extractTextContent / extractToolCalls already defined above.
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal shape of a Pi SessionManager snapshot consumed by the live indexer.
+ * Only the methods read by `parseSessionManagerSnapshot` are required.
+ */
+export type SessionManagerSnapshot = {
+  getHeader: () => { id: string; timestamp: string; cwd: string } | null;
+  getEntries: () => unknown[];
+  getSessionFile?: () => string | undefined;
+};
+
+type SessionMessageEntryLike = {
+  type?: unknown;
+  id?: unknown;
+  timestamp?: unknown;
+  message?: {
+    role?: unknown;
+    content?: unknown;
+  };
+};
+
+function parseMessageEntry(entry: unknown): ParsedMessage | null {
+  if (!entry || typeof entry !== 'object') return null;
+  const e = entry as SessionMessageEntryLike;
+  if (e.type !== 'message' || typeof e.id !== 'string' || typeof e.timestamp !== 'string' || !e.message) return null;
+
+  const role = e.message.role;
+  if (role !== 'user' && role !== 'assistant' && role !== 'system') return null;
+
+  const content = extractTextContent(e.message.content);
+  if (!content) return null;
+
+  return {
+    id: e.id,
+    role,
+    content,
+    timestamp: e.timestamp,
+    toolCalls: role === 'assistant' ? extractToolCalls(e.message.content) : undefined,
+  };
+}
+
+/**
+ * Convert a live SessionManager snapshot into a ParsedSession for indexing.
+ *
+ * Returns null when the snapshot lacks a usable header (no id / cwd / timestamp).
+ * The output is a pure transform — no database access — so it can be unit-tested
+ * in isolation and reused by any indexing path.
+ */
+export function parseSessionManagerSnapshot(sessionManager: SessionManagerSnapshot): ParsedSession | null {
+  const header = sessionManager.getHeader();
+  if (!header?.id || !header.cwd || !header.timestamp) return null;
+
+  const messages = sessionManager.getEntries()
+    .map(parseMessageEntry)
+    .filter((msg): msg is ParsedMessage => msg !== null);
+
+  return {
+    id: header.id,
+    project: header.cwd.split('/').pop() ?? header.cwd,
+    cwd: header.cwd,
+    startedAt: header.timestamp,
+    endedAt: null,
+    messages,
+  };
+}

@@ -4,31 +4,33 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import { DatabaseManager } from '../../src/store/db.js';
+import { SqliteBackend } from '../../src/store/sqlite/sqlite-backend.js';
+import { SqliteMemoryRepository } from '../../src/store/sqlite/sqlite-memory-repo.js';
 import { registerMemoryTool } from '../../src/tools/memory-tool.js';
 import {
   registerSyncMarkdownMemoriesCommand,
   syncMarkdownMemoriesToSqlite,
 } from '../../src/handlers/sync-markdown-memories.js';
 import { ENTRY_DELIMITER } from '../../src/constants.js';
-import { getMemories, searchMemories } from '../../src/store/sqlite-memory-store.js';
 
 describe('memory sqlite sync + markdown backfill', () => {
   let tmpDir: string;
   let agentRoot: string;
   let globalDir: string;
-  let dbManager: DatabaseManager;
+  let backend: SqliteBackend;
+  let memoryRepo: SqliteMemoryRepository;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-sync-command-test-'));
     agentRoot = path.join(tmpDir, 'agent');
     globalDir = path.join(agentRoot, 'memory');
     fs.mkdirSync(globalDir, { recursive: true });
-    dbManager = new DatabaseManager(globalDir);
+    backend = new SqliteBackend(globalDir);
+    memoryRepo = new SqliteMemoryRepository(backend);
   });
 
-  afterEach(() => {
-    dbManager.close();
+  afterEach(async () => {
+    await backend.close();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -51,7 +53,7 @@ describe('memory sqlite sync + markdown backfill', () => {
       }),
     } as any;
 
-    registerMemoryTool(mockPi, mockStore, null, dbManager);
+    registerMemoryTool(mockPi, mockStore, null, memoryRepo);
 
     await capturedTool.execute(
       'tc-1',
@@ -61,7 +63,7 @@ describe('memory sqlite sync + markdown backfill', () => {
       undefined,
     );
 
-    const results = searchMemories(dbManager, 'sync token 2026-05-09', { target: 'memory' });
+    const results = await memoryRepo.searchMemories('sync token 2026-05-09', { target: 'memory' });
     assert.strictEqual(results.length, 1);
     assert.strictEqual(results[0].content, 'sync token 2026-05-09');
   });
@@ -106,21 +108,21 @@ describe('memory sqlite sync + markdown backfill', () => {
       },
     } as any;
 
-    registerSyncMarkdownMemoriesCommand(mockPi, dbManager, globalDir, undefined, agentRoot);
+    registerSyncMarkdownMemoriesCommand(mockPi, memoryRepo, globalDir, undefined, agentRoot);
 
     await handler({}, ctx);
-    const afterFirst = getMemories(dbManager);
+    const afterFirst = await memoryRepo.getMemories();
 
     await handler({}, ctx);
-    const afterSecond = getMemories(dbManager);
+    const afterSecond = await memoryRepo.getMemories();
 
     assert.strictEqual(afterFirst.length, 5, 'first run should import all unique entries');
     assert.strictEqual(afterSecond.length, 5, 'second run should not create duplicates');
 
-    const projectRows = getMemories(dbManager, { project: 'project-a', target: 'memory' });
+    const projectRows = await memoryRepo.getMemories({ project: 'project-a', target: 'memory' });
     assert.strictEqual(projectRows.length, 1);
 
-    const failureRows = getMemories(dbManager, { target: 'failure', category: 'tool-quirk' });
+    const failureRows = await memoryRepo.getMemories({ target: 'failure', category: 'tool-quirk' });
     assert.strictEqual(failureRows.length, 1);
 
     assert.ok(
@@ -151,15 +153,15 @@ describe('memory sqlite sync + markdown backfill', () => {
       },
     } as any;
 
-    registerSyncMarkdownMemoriesCommand(mockPi, dbManager, globalDir, undefined, agentRoot);
+    registerSyncMarkdownMemoriesCommand(mockPi, memoryRepo, globalDir, undefined, agentRoot);
     await handler({}, ctx);
 
-    const projectRows = getMemories(dbManager, { project: 'legacy-project', target: 'memory' });
+    const projectRows = await memoryRepo.getMemories({ project: 'legacy-project', target: 'memory' });
     assert.strictEqual(projectRows.length, 1);
     assert.strictEqual(projectRows[0].content, 'legacy project entry');
   });
 
-  it('makes new-layout project markdown searchable when startup sync runs', () => {
+  it('makes new-layout project markdown searchable when startup sync runs', async () => {
     const projectDir = path.join(agentRoot, 'projects-memory', 'latest-project');
     fs.mkdirSync(projectDir, { recursive: true });
     fs.writeFileSync(
@@ -168,12 +170,12 @@ describe('memory sqlite sync + markdown backfill', () => {
       'utf-8',
     );
 
-    const counters = syncMarkdownMemoriesToSqlite(dbManager, globalDir, undefined, agentRoot);
+    const counters = await syncMarkdownMemoriesToSqlite(memoryRepo, globalDir, undefined, agentRoot);
 
     assert.strictEqual(counters.projectCount, 1);
     assert.strictEqual(counters.imported, 1);
 
-    const results = searchMemories(dbManager, 'latest path searchable entry', {
+    const results = await memoryRepo.searchMemories('latest path searchable entry', {
       project: 'latest-project',
       target: 'memory',
     });
@@ -181,11 +183,12 @@ describe('memory sqlite sync + markdown backfill', () => {
     assert.strictEqual(results[0].content, 'latest path searchable entry');
   });
 
-  it('still scans project markdown under ~/.pi/agent when memoryDir is customized elsewhere', () => {
+  it('still scans project markdown under ~/.pi/agent when memoryDir is customized elsewhere', async () => {
     const customGlobalDir = path.join(tmpDir, 'external-memory-root');
     fs.mkdirSync(customGlobalDir, { recursive: true });
 
-    const customDbManager = new DatabaseManager(customGlobalDir);
+    const customBackend = new SqliteBackend(customGlobalDir);
+    const customMemoryRepo = new SqliteMemoryRepository(customBackend);
     try {
       const projectDir = path.join(agentRoot, 'projects-memory', 'custom-root-project');
       fs.mkdirSync(projectDir, { recursive: true });
@@ -195,17 +198,17 @@ describe('memory sqlite sync + markdown backfill', () => {
         'utf-8',
       );
 
-      const counters = syncMarkdownMemoriesToSqlite(customDbManager, customGlobalDir, undefined, agentRoot);
+      const counters = await syncMarkdownMemoriesToSqlite(customMemoryRepo, customGlobalDir, undefined, agentRoot);
 
       assert.strictEqual(counters.projectCount, 1);
-      const results = searchMemories(customDbManager, 'custom root project entry', {
+      const results = await customMemoryRepo.searchMemories('custom root project entry', {
         project: 'custom-root-project',
         target: 'memory',
       });
       assert.strictEqual(results.length, 1);
       assert.strictEqual(results[0].content, 'custom root project entry');
     } finally {
-      customDbManager.close();
+      await customBackend.close();
     }
   });
 });

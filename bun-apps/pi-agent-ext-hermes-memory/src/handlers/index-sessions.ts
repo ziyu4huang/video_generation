@@ -5,13 +5,13 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { DatabaseManager } from '../store/db.js';
-import { indexAllSessions, getSessionStats } from '../store/session-indexer.js';
+import { createBackendBundle } from '../store/backend-factory.js';
+import type { MemoryConfig } from '../types.js';
 import { AGENT_ROOT } from '../paths.js';
 
 const SESSIONS_DIR = process.env.PI_CODING_AGENT_SESSION_DIR || path.join(AGENT_ROOT, 'sessions');
 
-export function registerIndexSessionsCommand(pi: ExtensionAPI, memoryDir: string): void {
+export function registerIndexSessionsCommand(pi: ExtensionAPI, memoryDir: string, config: MemoryConfig): void {
   pi.registerCommand("memory-index-sessions", {
     description: "Import past Pi sessions into the search database",
     handler: async (_args, ctx: ExtensionCommandContext) => {
@@ -34,16 +34,11 @@ export function registerIndexSessionsCommand(pi: ExtensionAPI, memoryDir: string
 
         ctx.ui.notify(`📁 Found ${totalFiles} session files across ${projectDirs.length} projects\n⏳ Indexing...`, 'info');
 
-        // Use the same resolved memory dir as the rest of the extension so the
-        // bulk import lands in the same sessions.db the live indexer writes to
-        // (and honors user config.memoryDir / migration). Previously this was
-        // hardcoded to AGENT_ROOT/pi-hermes-memory, which silently diverged
-        // into a second database when a user overrode the memory dir.
-        const dbManager = new DatabaseManager(memoryDir);
+        const { backend, sessionRepo } = await createBackendBundle(config, memoryDir);
 
         try {
-          const result = indexAllSessions(dbManager, SESSIONS_DIR);
-          const stats = getSessionStats(dbManager);
+          const result = await sessionRepo.indexAllSessions(SESSIONS_DIR);
+          const stats = await sessionRepo.getSessionStats();
 
           let output = `\n✅ Session indexing complete!\n\n`;
           output += `📊 Results:\n`;
@@ -79,7 +74,7 @@ export function registerIndexSessionsCommand(pi: ExtensionAPI, memoryDir: string
 
           ctx.ui.notify(output, 'info');
         } finally {
-          dbManager.close();
+          await backend.close();
         }
       } catch (err) {
         ctx.ui.notify(`❌ Session indexing failed: ${err instanceof Error ? err.message : String(err)}`, 'error');

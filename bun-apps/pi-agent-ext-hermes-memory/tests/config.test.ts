@@ -387,3 +387,29 @@ describe("loadConfig", () => {
     assert.strictEqual(config.correctionDirectiveWords, undefined);
   });
 });
+
+describe("config dbBackend", () => {
+  it("defaults to sqlite when unset", () => {
+    const cfg = loadConfig(path.join(os.tmpdir(), `hm-cfg-${Date.now()}.json`));
+    assert.strictEqual(cfg.dbBackend, "sqlite");
+  });
+  it("parses dbBackend: surrealdb and surreal connection overrides", () => {
+    const p = path.join(os.tmpdir(), `hm-cfg-${Date.now()}.json`);
+    fs.writeFileSync(p, JSON.stringify({
+      dbBackend: "surrealdb",
+      surreal: { endpoint: "http://db:8000", namespace: "ns1", database: "db1" },
+    }));
+    const cfg = loadConfig(p);
+    assert.strictEqual(cfg.dbBackend, "surrealdb");
+    assert.strictEqual(cfg.surreal?.endpoint, "http://db:8000");
+    assert.strictEqual(cfg.surreal?.namespace, "ns1");
+    fs.rmSync(p, { force: true });
+  });
+  it("rejects unknown dbBackend and falls back to default", () => {
+    const p = path.join(os.tmpdir(), `hm-cfg-${Date.now()}.json`);
+    fs.writeFileSync(p, JSON.stringify({ dbBackend: "mongodb" }));
+    const cfg = loadConfig(p);
+    assert.strictEqual(cfg.dbBackend, "sqlite");
+    fs.rmSync(p, { force: true });
+  });
+});

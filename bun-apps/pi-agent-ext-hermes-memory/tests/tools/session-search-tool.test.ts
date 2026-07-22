@@ -4,6 +4,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { registerSessionSearchTool } from "../../src/tools/session-search-tool.js";
+import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
+import { SqliteSessionRepository } from "../../src/store/sqlite/sqlite-session-repo.js";
 
 let ROOT_DIR = "";
 
@@ -24,12 +26,15 @@ describe("registerSessionSearchTool", () => {
       registerTool: (def: any) => { captured = def; },
     } as any;
 
-    registerSessionSearchTool(mockPi, {} as any);
+    const backend = new SqliteBackend(makeSessionsDir());
+    const repo = new SqliteSessionRepository(backend);
+    registerSessionSearchTool(mockPi, repo);
 
     const schema = JSON.stringify(captured.parameters);
     assert.strictEqual(captured.name, "session_search");
     assert.match(schema, /query/);
     assert.doesNotMatch(schema, /markdown/);
+    backend.close();
   });
 
   it("registers and executes the anchor markdown-only schema when configured", async () => {
@@ -47,6 +52,7 @@ describe("registerSessionSearchTool", () => {
       message: { role: "user", content: "needle" },
     })}\n`);
 
+    // Anchor mode does not use the repo — any object is fine as the second arg.
     registerSessionSearchTool(mockPi, {} as any, { variant: "anchors" }, { sessionsDir });
 
     const schema = JSON.stringify(captured.parameters);
@@ -59,7 +65,6 @@ describe("registerSessionSearchTool", () => {
     assert.match(captured.description, /Output is plain text: count, optional message/);
     assert.match(captured.description, /path:startLine-endLine with a short reason/);
     assert.match(captured.description, /Example:\nfrom: 2026-05-14/);
-    // promptGuidelines removed (stealth — description routes); the markdown-only schema is still asserted below.
 
     const empty = await captured.execute("tc-1", { markdown: "" });
     assert.strictEqual(empty.details.success, false);
