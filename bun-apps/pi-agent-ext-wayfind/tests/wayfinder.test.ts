@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readMap, writeMap } from "../src/map.js";
+import type { StatusReport } from "../src/wayfinder.js";
 import {
   addTicket,
   chartMap,
@@ -109,12 +110,27 @@ describe("renderStatus", () => {
     expect(out).toContain("the orders spec");
   });
 
-  it("reports a clear frontier when no open tickets remain", () => {
+  it("reports a clear frontier when no open tickets remain (no nudge — nothing closed yet)", () => {
     const cwd = makeCwd();
     chartMap(cwd, "orders", "dest");
     const r = statusReport(cwd, "orders");
     if (!r) throw new Error("expected status report");
     expect(renderStatus(r)).toContain("the way is found");
+    expect(renderStatus(r)).not.toContain("/wayfind done");
+  });
+
+  it("nudges /wayfind done when the frontier is clear AND tickets were closed", () => {
+    const r: StatusReport = {
+      effort: "e",
+      destination: "d",
+      open: 0,
+      closed: 1,
+      claimed: 0,
+      frontier: [],
+      fog: 0,
+    };
+    expect(renderStatus(r)).toContain("the way is found");
+    expect(renderStatus(r)).toContain("/wayfind done");
   });
 });
 
