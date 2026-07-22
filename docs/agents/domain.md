@@ -4,11 +4,29 @@ How the engineering skills should consume this repo's domain documentation when 
 
 ## Before exploring, read these
 
+This repo uses a **progressive-disclosure** doc map (L1 → L2 → L3, plus a
+cross-cutting state view) — read only the depth your task needs:
+
+| Depth | Doc | Read it when… |
+|-------|-----|---------------|
+| **L1** system overview | root **`CONTEXT.md`** (glossary) + **`CLAUDE.md`** | you need the overall shape / ubiquitous language |
+| **L2** component overview | per-package **`CONTEXT.md`** (e.g. `bun-apps/<pkg>/CONTEXT.md`) | you're changing one package's behavior — start with its glossary |
+| **L3** deep decision | **`docs/adr/`** (and `src/<context>/docs/adr/` in multi-context repos) | you need to understand *why* a design choice was made |
+| **𝒵** cross-cutting state | **`docs/agents/shared-state-index.md`** | your change touches shared config / resolution rules consumed by >1 package |
+
 - **`CONTEXT.md`** at the repo root, or
 - **`CONTEXT-MAP.md`** at the repo root if it exists — it points at one `CONTEXT.md` per context. Read each one relevant to the topic.
 - **`docs/adr/`** — read ADRs that touch the area you're about to work in. In multi-context repos, also check `src/<context>/docs/adr/` for context-scoped decisions.
+- **`docs/agents/shared-state-index.md`** — cross-package shared state (vault root resolution, model dirs, venv, workspace root). Check this before assuming where output lands or where config is read from.
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.
+
+> **Glossary purity.** The root `CONTEXT.md` is a glossary only — definitions, no
+> implementation details (file paths, config keys, code). A per-package `CONTEXT.md`
+> follows the same rule **with one sanctioned exception**: each term may carry a
+> single `_Source_:` anchor in `file#symbol` form (the only implementation detail
+> allowed) — see `/domain-modeling`. All other implementation-level concerns belong
+> in `docs/adr/`, `docs/agents/shared-state-index.md`, or code comments.
 
 ## File structure
 
