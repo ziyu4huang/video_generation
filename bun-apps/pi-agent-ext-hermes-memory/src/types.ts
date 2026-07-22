@@ -12,6 +12,16 @@ export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhi
 
 export type ReviewTransport = "direct" | "subprocess";
 
+export type DbBackend = "sqlite" | "surrealdb";
+
+export interface SurrealConnection {
+  endpoint: string;
+  namespace: string;
+  database: string;
+  username: string;
+  password: string;
+}
+
 export interface SessionSearchConfig {
   /** Session search implementation variant. Default: legacy */
   variant: SessionSearchVariant;
@@ -83,6 +93,10 @@ export interface MemoryConfig {
   nudgeToolCalls: number;
   /** Maximum time in milliseconds for auto-consolidation to complete. Default: 60000 */
   consolidationTimeoutMs: number;
+  /** Database backend selection. Default: sqlite */
+  dbBackend?: DbBackend;
+  /** Optional SurrealDB connection configuration (only used when dbBackend is surrealdb) */
+  surreal?: Partial<SurrealConnection>;
 }
 
 export type MemoryCategory =

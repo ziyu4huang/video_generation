@@ -3,7 +3,7 @@
  * free of per-turn `promptSnippet`/`promptGuidelines`. The rich `description`
  * already routes the model.
  *
- * Captures the 3 registered tools via the factory + a mock pi (Proxy swallows
+ * Captures the registered tools via the factory + a mock pi (Proxy swallows
  * `pi.registerCommand` etc.; only `registerTool` is captured).
  */
 import { test, expect } from "bun:test";
@@ -29,7 +29,7 @@ function captureTools(): Record<string, Record<string, unknown>> {
 
 test("research-tool tools are stealth-trimmed: no promptSnippet/guidelines", () => {
 	const tools = captureTools();
-	expect(Object.keys(tools).length).toBe(3);
+	expect(Object.keys(tools).length).toBe(6);
 
 	for (const [name, tool] of Object.entries(tools)) {
 		expect(typeof tool.description).toBe("string");

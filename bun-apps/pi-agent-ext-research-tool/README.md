@@ -1,12 +1,15 @@
 # pi-agent-ext-research-tool
 
 A Pi Coding Agent extension for **research collection**: gather LLM/AI videos from
-Bilibili and YouTube, organize vault note frontmatter, and import pi-hermes-memory
-entries into a vault-mind collection.
+Bilibili and YouTube, organize vault note frontmatter, import pi-hermes-memory
+entries into a vault-mind collection, and discover/fetch arXiv papers.
 
 This extension **ports and unifies** the standalone `.ts` collection scripts from the
 study-news vault into a self-contained Pi extension. The two Bilibili scripts (LLM +
-media) collapsed into **one shared engine** — only the keyword preset differs.
+media) collapsed into **one shared engine** — only the keyword preset differs. The
+arXiv tools are ported from [`@wienerberliner/pi-arxiv`](https://github.com/dasomji/pi-arxiv)
+(logic in `lib/arxiv.ts`); the library-folder discovery + `/arxiv-library` command were
+dropped in favour of writing into the active vault's `papers/`.
 
 ## Tools
 
@@ -15,6 +18,9 @@ media) collapsed into **one shared engine** — only the keyword preset differs.
 | `collect_videos` | Unified collector. `platform` (bilibili\|youtube) + `preset` (llm\|media) + optional `keywords`, `pages`, `order`, `popular`, `proxy`, `outputPath`. Writes Markdown to the vault and returns it. |
 | `organize_vault_notes` | Auto-tag frontmatter (tags/aliases/created) on notes missing it, list orphans. Cross-platform — no hardcoded paths. |
 | `import_memory_to_vault` | Parse pi-hermes-memory `MEMORY.md` / `USER.md` / `failures.md` → append to a vault-mind `.jsonl` collection (dedup by id). |
+| `arxiv_search` | Search arXiv by query / optional category, with sorting + pagination. Returns titles, authors, abstracts, dates, categories, links. |
+| `arxiv_paper` | Exact metadata lookup for one paper by arXiv ID or URL. |
+| `arxiv_fetch2md` | Fetch a paper body as Markdown via the [arxiv2md](https://arxiv2md.org/) HTML pipeline (keeps sections + math). Saves to `<vault>/papers/` (override with `output_path`); `save=false` to skip writing. |
 
 ## Slash commands
 
@@ -31,13 +37,16 @@ media) collapsed into **one shared engine** — only the keyword preset differs.
   real proxy agent (the original script's `dispatcher` option silently did nothing).
 - **YouTube** — set `YOUTUBE_API_KEY` (YouTube Data API v3, Google Cloud Console). The
   tool errors clearly if absent. Daily quota: 10,000 units (each search ≈ 100 units).
+- **arXiv** — none required. The arXiv API and arxiv2md.org are keyless; arXiv API calls
+  self-throttle to one request per 3s per arXiv's polite-use guidance.
 
 ## Output
 
 Collected Markdown is written to the **active vault's** `weekly-news/` directory by
-default. Vault resolution mirrors the obsidian extension: `OB_VAULT_PATH` env →
-`run-dir/obsidian_config.json` vault_path → `<cwd>/weekly-news` fallback. Override with
-an explicit `outputPath` param (absolute or cwd-relative).
+default (`collect_videos`), or `papers/` for `arxiv_fetch2md`. Vault resolution mirrors
+the obsidian extension: `OB_VAULT_PATH` env → `run-dir/obsidian_config.json` vault_path →
+`<cwd>` fallback. Override with an explicit `outputPath` / `output_path` param
+(absolute or cwd-relative).
 
 ## Architecture
 
@@ -50,7 +59,8 @@ lib/
 ├── format.ts         # markdown generation (frontmatter, tables, fmtNum)
 ├── vault.ts          # output-dir resolution (mirrors obsidian tiers)
 ├── organize.ts       # frontmatter auto-tagging
-└── import-memory.ts  # hermes → jsonl
+├── import-memory.ts  # hermes → jsonl
+└── arxiv.ts          # arXiv search/lookup + arxiv2md fetch (ported from @wienerberliner/pi-arxiv)
 ```
 
 ## Development

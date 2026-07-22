@@ -3,8 +3,8 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { DatabaseManager, SQLITE_WAL_AUTOCHECKPOINT_PAGES, RawDatabase as Database } from '../../src/store/db.js';
-import type { DatabaseLike } from '../../src/store/db.js';
+import { SqliteBackend, SQLITE_WAL_AUTOCHECKPOINT_PAGES, RawDatabase as Database } from '../../src/store/sqlite/sqlite-backend.js';
+import type { DatabaseLike } from '../../src/store/sqlite/sqlite-backend.js';
 
 /**
  * Read a PRAGMA scalar the runtime-agnostic way (prepare + first cell). Mirrors
@@ -18,13 +18,13 @@ function pragmaSimple(db: DatabaseLike, query: string): unknown {
   return row ? Object.values(row)[0] : undefined;
 }
 
-describe('DatabaseManager', () => {
+describe('SqliteBackend', () => {
   let tmpDir: string;
-  let dbManager: DatabaseManager;
+  let dbManager: SqliteBackend;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-test-'));
-    dbManager = new DatabaseManager(tmpDir);
+    dbManager = new SqliteBackend(tmpDir);
   });
 
   afterEach(() => {
@@ -106,7 +106,7 @@ describe('DatabaseManager', () => {
 
     it('should create parent directory if it does not exist', () => {
       const nestedDir = path.join(tmpDir, 'nested', 'dir');
-      const manager = new DatabaseManager(nestedDir);
+      const manager = new SqliteBackend(nestedDir);
       manager.getDb();
       assert.ok(fs.existsSync(path.join(nestedDir, 'sessions.db')));
       manager.close();
@@ -157,7 +157,7 @@ describe('DatabaseManager', () => {
       // The schema uses IF NOT EXISTS, so running it again should be safe
       assert.doesNotThrow(() => {
         dbManager.close();
-        dbManager = new DatabaseManager(tmpDir);
+        dbManager = new SqliteBackend(tmpDir);
         dbManager.getDb();
       });
     });
@@ -178,7 +178,7 @@ describe('DatabaseManager', () => {
       `);
       legacyDb.close();
 
-      const migratedManager = new DatabaseManager(tmpDir);
+      const migratedManager = new SqliteBackend(tmpDir);
       const migratedDb = migratedManager.getDb();
       const columns = migratedDb.prepare('PRAGMA table_info(memories)').all() as { name: string }[];
       const names = columns.map((c) => c.name);
@@ -210,7 +210,7 @@ describe('DatabaseManager', () => {
       `).run('legacy-session', '/work/my-app', '2026-05-03T00:00:00Z');
       legacyDb.close();
 
-      const migratedManager = new DatabaseManager(tmpDir);
+      const migratedManager = new SqliteBackend(tmpDir);
       const migratedDb = migratedManager.getDb();
       const columns = migratedDb.prepare('PRAGMA table_info(sessions)').all() as { name: string }[];
       const names = columns.map((c) => c.name);
@@ -249,7 +249,7 @@ describe('DatabaseManager', () => {
       `).run('memory', 'legacy memory entry', '2026-05-09', '2026-05-09');
       legacyDb.close();
 
-      const migratedManager = new DatabaseManager(tmpDir);
+      const migratedManager = new SqliteBackend(tmpDir);
       const migratedDb = migratedManager.getDb();
       const columns = migratedDb.prepare('PRAGMA table_info(memories)').all() as { name: string }[];
       const names = columns.map((c) => c.name);
@@ -290,7 +290,7 @@ describe('DatabaseManager', () => {
       `).run(null, 'memory', null, 'existing memory', null, null, null, '2026-05-09', '2026-05-09');
       legacyDb.close();
 
-      const migratedManager = new DatabaseManager(tmpDir);
+      const migratedManager = new SqliteBackend(tmpDir);
       const migratedDb = migratedManager.getDb();
 
       assert.doesNotThrow(() => {
@@ -333,7 +333,7 @@ describe('DatabaseManager', () => {
 
       corruptRecoverableIndexPage(path.join(tmpDir, 'sessions.db'), 'idx_messages_timestamp');
 
-      dbManager = new DatabaseManager(tmpDir);
+      dbManager = new SqliteBackend(tmpDir);
       const repairedDb = dbManager.getDb();
 
       assert.strictEqual(dbManager.getLastRecovery()?.strategy, 'rebuilt');
@@ -359,7 +359,7 @@ describe('DatabaseManager', () => {
       const dbPath = path.join(tmpDir, 'sessions.db');
       fs.writeFileSync(dbPath, 'not a sqlite database');
 
-      dbManager = new DatabaseManager(tmpDir);
+      dbManager = new SqliteBackend(tmpDir);
       const db = dbManager.getDb();
 
       assert.strictEqual(dbManager.getLastRecovery()?.strategy, 'recreated-empty');
@@ -535,7 +535,7 @@ describe('DatabaseManager', () => {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-prune-on-open-'));
       try {
         seedClutter(dir, ['corrupt-0', 'bak-0', 'corrupt-1', 'bak-1', 'corrupt-2']);
-        const mgr = new DatabaseManager(dir);
+        const mgr = new SqliteBackend(dir);
         mgr.getDb(); // first open auto-prunes
         const remaining = fs.readdirSync(dir).filter((n) => /^sessions\.db\.(corrupt|bak)-/.test(n));
         assert.equal(remaining.length, 3, 'open prunes to default keepRecent=3');

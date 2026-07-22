@@ -18,7 +18,7 @@ import {
 } from "./bridge.ts";
 import { selectProvider, rankedProviders } from "./selector.ts";
 import { REGISTRY, type ProviderEntry } from "./registry.ts";
-import { probeConfigured } from "./providers.ts";
+import { probeConfigured, _setLmStudioReachableForTest } from "./providers.ts";
 import { defaultBinaryPath, resolveRepoRoot } from "@repo/pi-agent-ext-ltx";
 import { existsSync } from "node:fs";
 import type { Krea2Details } from "@repo/pi-agent-ext-krea2";
@@ -494,10 +494,21 @@ describe("analysis selector — caption command resolves to mlx:caption (the loc
     expect(entry.provider).toBe("caption-vlm");
   });
 
-  it("mlx:caption probe tracks run.py+venv presence (same honest signal as mlx:runpy)", () => {
+  // mlx:caption stopped sharing mlx:runpy's venv+run.py signal on 2026-07-19
+  // (caption_native.ts ports straight to LM Studio, zero run.py) — its probe
+  // now tracks LM Studio reachability instead. Pinned via the deterministic
+  // test hook (mirrors providers.test.ts) rather than machine-coupled to
+  // mlx:runpy, since the two probes are intentionally independent signals.
+  it("mlx:caption probe tracks LM Studio reachability (Bun-native since the 2026-07-19 port, no run.py)", () => {
     const e = REGISTRY.find((p) => p.invoke === "mlx:caption")!;
-    const runpy = REGISTRY.find((p) => p.invoke === "mlx:runpy")!;
-    expect(probeConfigured(e)).toBe(probeConfigured(runpy));
+    try {
+      _setLmStudioReachableForTest(true);
+      expect(probeConfigured(e)).toBe(true);
+      _setLmStudioReachableForTest(false);
+      expect(probeConfigured(e)).toBe(false);
+    } finally {
+      _setLmStudioReachableForTest(undefined);
+    }
   });
 });
 

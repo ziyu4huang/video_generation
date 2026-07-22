@@ -11,11 +11,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MemoryStore } from "../store/memory-store.js";
 import { readGrillActive } from "../grill-seam.js";
-import { DatabaseManager } from "../store/db.js";
-import {
-  formatFailureMemoryContent,
-  syncMemoryEntry,
-} from "../store/sqlite-memory-store.js";
+import { formatFailureMemoryContent } from "../store/memory-format.js";
+import type { MemoryRepository } from "../store/repository.js";
 import {
   CORRECTION_SAVE_PROMPT,
   CORRECTION_STRONG_PATTERNS,
@@ -128,7 +125,7 @@ export function setupCorrectionDetector(
   store: MemoryStore,
   projectStore: MemoryStore | null,
   config: MemoryConfig,
-  dbManager: DatabaseManager | null = null,
+  memoryRepo: MemoryRepository | null = null,
   projectName?: string | null,
 ): void {
   if (!config.correctionDetection) return;
@@ -246,9 +243,9 @@ export function setupCorrectionDetector(
             project: scopedProjectName ?? undefined,
           });
 
-          if (addResult.success && dbManager) {
+          if (addResult.success && memoryRepo) {
             try {
-              syncMemoryEntry(dbManager, {
+              await memoryRepo.syncMemoryEntry({
                 content: formatFailureMemoryContent(directive, {
                   category: "correction",
                   failureReason,

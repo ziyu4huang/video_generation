@@ -13,7 +13,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { MemoryStore } from "../../src/store/memory-store.js";
-import { DatabaseManager } from "../../src/store/db.js";
 import { isLessonWorthy, errorSignature, errorDedupKey } from "../../src/handlers/error-detector.js";
 
 let tmpDir: string;
