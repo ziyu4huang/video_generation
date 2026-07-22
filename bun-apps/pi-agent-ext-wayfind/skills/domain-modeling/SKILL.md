@@ -45,7 +45,35 @@ When the user states how something works, check whether the code agrees. If you 
 
 When a term is resolved, update `CONTEXT.md` right there. Don't batch these up — capture them as they happen. Use the format in [CONTEXT-FORMAT.md](./CONTEXT-FORMAT.md).
 
-`CONTEXT.md` should be totally devoid of implementation details. Do not treat `CONTEXT.md` as a spec, a scratch pad, or a repository for implementation decisions. It is a glossary and nothing else.
+`CONTEXT.md` is a glossary — definitions, not a spec or scratch pad. Keep it **devoid of implementation details** (file paths, config keys, code) with **one sanctioned exception**: a per-term `_Source_:` anchor in `file#symbol` form. The **root** `CONTEXT.md` stays a pure glossary (no anchors); a **per-package** `CONTEXT.md` may add a single `_Source_:` line per term. This exception exists so a behavior named in the glossary can be traced to its code in one hop — but only if the anchor stays live (see next section).
+
+### Verify `_Source_:` anchors stay live
+
+Whenever you add or edit a `_Source_:` anchor — or finish a session that touched code any anchor points at — verify every anchor **resolves against the current repo**: the file exists and the symbol is actually defined in it. A stale anchor actively misleads; refresh it to the new location or remove it. Do not leave it broken.
+
+Quick check (run from the package root that owns the CONTEXT.md; matches `.ts` and `.py`):
+
+```bash
+python3 - <<'PY'
+import re, os, sys
+pat = re.compile(r'`([A-Za-z0-9_./-]+\.(?:ts|py))#([A-Za-z0-9_]+)`')
+fail = 0
+for f in ("CONTEXT.md",):
+    if not os.path.exists(f):
+        continue
+    for path, sym in pat.findall(open(f).read()):
+        ok = os.path.exists(path) and bool(
+            re.search(rf'\b(def|export\s+(?:async\s+)?(?:function|const)|const)\s+{re.escape(sym)}\b',
+                      open(path).read()))
+        if not ok:
+            fail += 1
+            print(f"❌ {path}#{sym}")
+print(f"{fail} stale anchor(s)" if fail else "all anchors live")
+sys.exit(1 if fail else 0)
+PY
+```
+
+(For a multi-file sweep, point the loop at every `**/CONTEXT.md` under the repo.)
 
 ### Offer ADRs sparingly
 
