@@ -21,6 +21,7 @@ import type {
 } from "../repository.js";
 import type { MemoryCategory } from "../../types.js";
 import { today, normalizeNullable, normalizeCategory } from "../memory-format.js";
+import { normalizeMemoryLookupText } from "../memory-lookup.js";
 
 /** Keep the earliest of two YYYY-MM-DD strings. Mirrors sqlite helper. */
 function minDate(a: string, b: string): string {
@@ -167,13 +168,13 @@ export class SurrealMemoryRepository implements MemoryRepository {
     category?: MemoryCategory | null; failureReason?: string | null;
     toolState?: string | null; correctedTo?: string | null; lastReferenced?: string | null;
   }): Promise<MemoryUpdateResult> {
-    const trimmedOld = oldText.trim();
-    if (!trimmedOld) return { matched: 0, updated: 0, entries: [] };
+    const normalizedOldText = normalizeMemoryLookupText(oldText);
+    if (!normalizedOldText) return { matched: 0, updated: 0, entries: [] };
     const scope = buildScope(updates.target, updates.project ?? undefined);
     const nextLastReferenced = updates.lastReferenced?.trim() || today();
     const rows = await this.c.query<Row[]>(
       `SELECT ${FIELDS} FROM memories ${scope.where ? `${scope.where} AND` : "WHERE"} string::contains(content, $old) ORDER BY seq ASC;`,
-      { ...scope.params, old: trimmedOld },
+      { ...scope.params, old: normalizedOldText },
     );
     if (rows.length === 0) return { matched: 0, updated: 0, entries: [] };
     const entries: MemoryEntry[] = [];
@@ -200,15 +201,15 @@ export class SurrealMemoryRepository implements MemoryRepository {
   }
 
   async removeSyncedMemories(oldText: string, options: MemoryRemoveOptions): Promise<MemoryRemoveResult> {
-    const trimmedOld = oldText.trim();
-    if (!trimmedOld) return { matched: 0, removed: 0 };
+    const normalizedOldText = normalizeMemoryLookupText(oldText);
+    if (!normalizedOldText) return { matched: 0, removed: 0 };
     const scope = buildScope(options.target, options.project ?? undefined);
     const matched = await this.c.query<Row[]>(
       `SELECT seq FROM memories ${scope.where ? `${scope.where} AND` : "WHERE"} string::contains(content, $old);`,
-      { ...scope.params, old: trimmedOld },
+      { ...scope.params, old: normalizedOldText },
     );
     if (matched.length === 0) return { matched: 0, removed: 0 };
-    await this.c.query(`DELETE FROM memories ${scope.where ? `${scope.where} AND` : "WHERE"} string::contains(content, $old);`, { ...scope.params, old: trimmedOld });
+    await this.c.query(`DELETE FROM memories ${scope.where ? `${scope.where} AND` : "WHERE"} string::contains(content, $old);`, { ...scope.params, old: normalizedOldText });
     return { matched: matched.length, removed: matched.length };
   }
 
