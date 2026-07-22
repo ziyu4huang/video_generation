@@ -11,7 +11,7 @@ localDescribe("SurrealBackend", up, () => {
     try {
       await backend.init();            // defines ns/db, analyzer, indexes, tables, seq
       await backend.init();            // idempotent re-run must not throw
-      await backend.healthCheck();     // SELECT 1 — does not throw
+      await backend.healthCheck();     // RETURN 1 — does not throw
 
       // Counter bootstrapped to 0, incrementable to 1.
       const next = await backend.client.query<number>(
