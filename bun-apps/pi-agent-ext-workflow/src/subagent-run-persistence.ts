@@ -20,6 +20,7 @@ import { join } from "node:path";
 import type { AgentUsage } from "./agent.js";
 import type { AgentHistoryEntry } from "./agent-history.js";
 import { homeDir } from "./home.js";
+import type { SddReport } from "./sdd-report.js";
 
 export const SUBAGENT_HOME_RELATIVE_DIR = ".pi/subagents";
 export const SUBAGENT_RUNS_SUBDIR = "runs";
@@ -60,6 +61,8 @@ export interface SubagentRunRecord {
   output: string;
   /** Compact transcript (ticket 07) — tool calls + results, for replay. */
   history?: AgentHistoryEntry[];
+  /** Parsed SDD report block (ticket 04), when the run was an SDD dispatch. */
+  report?: SddReport;
 }
 
 export type SubagentFsLayer = {

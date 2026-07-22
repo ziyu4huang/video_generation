@@ -131,6 +131,10 @@ _Avoid_: re-implementing a child-process subagent runner in a peer extension (ca
 Durable, inspection-only records of completed `subagent`-tool runs, for post-session replay (`~/.pi/subagents/runs/<id>.json`, JSON-per-run, write-once at completion, last-N retention default 200). Carries the full task prompt, resolved model, status/exitCode, real usage, the final output, and the compact transcript (`AgentHistoryEntry[]`) — everything `/subagents` needs to inspect a run after the in-process child session is gone. **Deliberately separate from workflow `RunPersistence`**: that layer is workflow-RESUME machinery (journal = replay source-of-truth, cross-process lease, pause/resume); a subagent run is a one-shot dispatch with NO resume semantics, so its record exists purely for inspection. Mixing the two would muddy the journal's canonical-resume invariant.
 _Avoid_: persisting subagent runs through the workflow journal (use this separate store); treating the record as mutable (it is write-once)
 
+**`SddReport` / `parseSddReport()` (public API)**:
+Machine-readable view of a subagent-driven-development implementer's report block (ticket 04). The byte-identical SDD prompt makes the subagent return a ≤15-line prose block whose first line is `**Status:** DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED`; `parseSddReport(output)` turns that into a typed `SddReport` (`status` reliable; `commits`/`testSummary`/`concerns`/`reportFile` best-effort), or `undefined` for a plain non-SDD dispatch. Surfaces on `subagent`-tool `details.report` (a SEPARATE axis from the process `details.status` done/failed/timedout — a run can finish while self-reporting BLOCKED), badges in the result render, and is persisted on the run record. Parity with claude-code's controller, which parses the same prose prefix.
+_Avoid_: conflating SDD self-report status with process status (they are orthogonal); editing the SDD prompt template to emit JSON (byte-identical — parse its output instead)
+
 **`parallel(thunks)`**:
 Runs many `() => agent(...)` thunks concurrently; results returned in input order. Bounded to 16 live / 1000 total.
 _Avoid_: map, forEach, batch

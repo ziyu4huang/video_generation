@@ -22,6 +22,7 @@ import {
   loadAgentRegistry,
   resolveAgentType,
 } from "./agent-registry.js";
+import { isSddReportActionable, parseSddReport, type SddReport } from "./sdd-report.js";
 import { type SpawnSubagentOptions, type SpawnSubagentResult, spawnSubagent } from "./spawn-subagent.js";
 import type { SubagentInFlightRegistry } from "./subagent-in-flight.js";
 import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
@@ -41,6 +42,12 @@ export interface SubagentToolDetails {
   status: "done" | "failed" | "timedout";
   /** Real token/cost usage from the child session, when reported. */
   usage?: AgentUsage;
+  /**
+   * Parsed SDD report block (ticket 04), when the subagent's output carries the
+   * `**Status:**` marker. Absent for plain (non-SDD) dispatches, schema results,
+   * and failures. `report.status` is reliable; the rest are best-effort hints.
+   */
+  report?: SddReport;
 }
 
 export const subagentToolSchema = Type.Object({
@@ -268,7 +275,15 @@ export function renderSubagentResult(
         ? theme.fg("warning", "⏱ timedout")
         : theme.fg("error", "✗ failed");
   const usageStr = d.usage && d.usage.total > 0 ? ` · $${d.usage.cost.toFixed(3)} · ${d.usage.total} tok` : "";
-  const meta = theme.fg("muted", `${d.model ?? "default"} · ${(d.elapsedMs / 1000).toFixed(1)}s${usageStr}`);
+  // SDD self-report tag (ticket 04): separate axis from process status. A run
+  // can be process-done yet self-report BLOCKED — tint the actionable ones so
+  // they never read as routine success.
+  const sddTag = d.report
+    ? isSddReportActionable(d.report.status)
+      ? theme.fg("warning", ` · SDD:${d.report.status}`)
+      : theme.fg("success", ` · SDD:${d.report.status}`)
+    : "";
+  const meta = theme.fg("muted", `${d.model ?? "default"} · ${(d.elapsedMs / 1000).toFixed(1)}s${usageStr}`) + sddTag;
   if (!options.expanded) {
     const firstLine =
       text
@@ -446,6 +461,9 @@ export function createSubagentTool(
           elapsedMs,
           status: deriveSubagentStatus(result),
           usage: result.usage,
+          // SDD report (ticket 04): parse the implementer's `**Status:**` block when
+          // present (non-SDD / schema / failure outputs have no marker → undefined).
+          report: parseSddReport(result.output),
         };
         // Durable record for post-session replay (ticket 08). Write-once at
         // completion; best-effort — save() swallows errors so this can never
@@ -469,6 +487,7 @@ export function createSubagentTool(
           usage: details.usage,
           output,
           history: lastHistory,
+          report: details.report,
         });
         return { content: [{ type: "text" as const, text: output }], details };
       } finally {

@@ -62,6 +62,12 @@ export {
   registerAllSavedWorkflows,
   registerSavedWorkflow,
 } from "./saved-commands.js";
+export type { SddReport, SddReportStatus } from "./sdd-report.js";
+// ── Public SDD report parsing (stable) ────────────────────────────────
+// Machine-readable view of a subagent-driven-development implementer's report
+// block (ticket 04). Parsed from the `**Status:**` prose prefix the byte-identical
+// SDD prompt emits; controller branches on `report.status`.
+export { isSddReportActionable, parseSddReport, SDD_REPORT_STATUSES } from "./sdd-report.js";
 // `prime?` on SpawnSubagentOptions is a forward-reference to sub-project ③
 // (auto-primer) — accepted but currently a NO-OP. Exported for type completeness;
 // treat as experimental until ③ lands.
