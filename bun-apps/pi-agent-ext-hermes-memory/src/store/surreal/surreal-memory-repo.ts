@@ -22,6 +22,16 @@ import type {
 import type { MemoryCategory } from "../../types.js";
 import { today, normalizeNullable, normalizeCategory } from "../memory-format.js";
 
+/** Keep the earliest of two YYYY-MM-DD strings. Mirrors sqlite helper. */
+function minDate(a: string, b: string): string {
+  return a <= b ? a : b;
+}
+
+/** Keep the latest of two YYYY-MM-DD strings. Mirrors sqlite helper. */
+function maxDate(a: string, b: string): string {
+  return a >= b ? a : b;
+}
+
 type Row = Partial<{
   seq: number; project: string | null; target: string; category: string | null;
   content: string; failureReason: string | null; toolState: string | null;
@@ -117,13 +127,31 @@ export class SurrealMemoryRepository implements MemoryRepository {
     const lastReferenced = input.lastReferenced?.trim() || created;
 
     const scope = buildScope(input.target, project, category);
-    const selectSql = `SELECT seq FROM memories ${scope.where ? `${scope.where} AND` : "WHERE"} content = $content LIMIT 1;`;
+    // Fetch the full row so we can MERGE (sqlite semantics): keep earliest
+    // created, latest lastReferenced, and preserve existing non-null fields
+    // rather than overwriting them with new input.
+    const selectSql = `SELECT ${FIELDS} FROM memories ${scope.where ? `${scope.where} AND` : "WHERE"} content = $content ORDER BY seq ASC LIMIT 1;`;
     const existing = await this.c.query<Row[]>(selectSql, { ...scope.params, content });
     if (existing.length > 0) {
-      const seq = Number(existing[0].seq);
+      const ex = existing[0];
+      const seq = Number(ex.seq);
+      const mergedCreated = minDate(ex.created ?? created, created);
+      const mergedLastReferenced = maxDate(ex.lastReferenced ?? lastReferenced, lastReferenced);
+      const mergedCategory = (ex.category ?? null) ?? category;
+      const mergedFailureReason = ex.failureReason ?? failureReason;
+      const mergedToolState = ex.toolState ?? toolState;
+      const mergedCorrectedTo = ex.correctedTo ?? correctedTo;
       await this.c.query(
-        `UPDATE memories SET failureReason = $failureReason, toolState = $toolState, correctedTo = $correctedTo, lastReferenced = $lastReferenced WHERE seq = $seq RETURN ${FIELDS};`,
-        { seq, failureReason, toolState, correctedTo, lastReferenced },
+        `UPDATE memories SET category = $category, failureReason = $failureReason, toolState = $toolState, correctedTo = $correctedTo, created = $created, lastReferenced = $lastReferenced WHERE seq = $seq;`,
+        {
+          seq,
+          category: mergedCategory,
+          failureReason: mergedFailureReason,
+          toolState: mergedToolState,
+          correctedTo: mergedCorrectedTo,
+          created: mergedCreated,
+          lastReferenced: mergedLastReferenced,
+        },
       );
       const row = (await this.c.query<Row[]>(`SELECT ${FIELDS} FROM memories WHERE seq = $seq;`, { seq }))[0];
       return { action: "existing", entry: mapRow(row) };
@@ -139,19 +167,22 @@ export class SurrealMemoryRepository implements MemoryRepository {
     category?: MemoryCategory | null; failureReason?: string | null;
     toolState?: string | null; correctedTo?: string | null; lastReferenced?: string | null;
   }): Promise<MemoryUpdateResult> {
-    if (!oldText.trim()) return { matched: 0, updated: 0, entries: [] };
+    const trimmedOld = oldText.trim();
+    if (!trimmedOld) return { matched: 0, updated: 0, entries: [] };
     const scope = buildScope(updates.target, updates.project ?? undefined);
     const nextLastReferenced = updates.lastReferenced?.trim() || today();
     const rows = await this.c.query<Row[]>(
       `SELECT ${FIELDS} FROM memories ${scope.where ? `${scope.where} AND` : "WHERE"} string::contains(content, $old) ORDER BY seq ASC;`,
-      { ...scope.params, old: oldText },
+      { ...scope.params, old: trimmedOld },
     );
     if (rows.length === 0) return { matched: 0, updated: 0, entries: [] };
+    const entries: MemoryEntry[] = [];
     for (const r of rows) {
+      const seq = Number(r.seq);
       await this.c.query(
         `UPDATE memories SET content = $content, category = $category, failureReason = $failureReason, toolState = $toolState, correctedTo = $correctedTo, lastReferenced = $lastReferenced WHERE seq = $seq;`,
         {
-          seq: Number(r.seq),
+          seq,
           content: updates.content.trim(),
           category: updates.category === undefined ? r.category : normalizeNullable(updates.category),
           failureReason: updates.failureReason === undefined ? r.failureReason : normalizeNullable(updates.failureReason),
@@ -160,19 +191,24 @@ export class SurrealMemoryRepository implements MemoryRepository {
           lastReferenced: nextLastReferenced,
         },
       );
+      // Re-fetch by seq so returned entries reflect the NEW content (sqlite
+      // does getMemoryById(row.id) per row post-update).
+      const refreshed = (await this.c.query<Row[]>(`SELECT ${FIELDS} FROM memories WHERE seq = $seq;`, { seq }))[0];
+      if (refreshed) entries.push(mapRow(refreshed));
     }
-    return { matched: rows.length, updated: rows.length, entries: rows.map(mapRow) };
+    return { matched: rows.length, updated: rows.length, entries };
   }
 
   async removeSyncedMemories(oldText: string, options: MemoryRemoveOptions): Promise<MemoryRemoveResult> {
-    if (!oldText.trim()) return { matched: 0, removed: 0 };
+    const trimmedOld = oldText.trim();
+    if (!trimmedOld) return { matched: 0, removed: 0 };
     const scope = buildScope(options.target, options.project ?? undefined);
     const matched = await this.c.query<Row[]>(
       `SELECT seq FROM memories ${scope.where ? `${scope.where} AND` : "WHERE"} string::contains(content, $old);`,
-      { ...scope.params, old: oldText },
+      { ...scope.params, old: trimmedOld },
     );
     if (matched.length === 0) return { matched: 0, removed: 0 };
-    await this.c.query(`DELETE FROM memories ${scope.where ? `${scope.where} AND` : "WHERE"} string::contains(content, $old);`, { ...scope.params, old: oldText });
+    await this.c.query(`DELETE FROM memories ${scope.where ? `${scope.where} AND` : "WHERE"} string::contains(content, $old);`, { ...scope.params, old: trimmedOld });
     return { matched: matched.length, removed: matched.length };
   }
 
@@ -220,10 +256,23 @@ export class SurrealMemoryRepository implements MemoryRepository {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - maxAgeDays);
     const cutoffStr = cutoff.toISOString().split("T")[0];
-    const scope = buildScope("failure", project);
+    // Mirror sqlite: a non-null project matches `project = ? OR project IS NULL`
+    // so project-agnostic (null-project) failures still surface. Do NOT route
+    // through the strict buildScope for project here.
+    const params: Record<string, unknown> = { cutoff: cutoffStr };
+    const conds: string[] = ["target = $target", "created >= $cutoff"];
+    params.target = "failure";
+    if (project !== undefined) {
+      if (project === null) {
+        conds.push("project IS NULL");
+      } else {
+        params.project = project;
+        conds.push("(project = $project OR project IS NULL)");
+      }
+    }
     const rows = await this.c.query<Row[]>(
-      `SELECT ${FIELDS} FROM memories WHERE created >= $cutoff ${scope.where ? `AND ${scope.where.replace("WHERE ", "")}` : ""} ORDER BY created DESC LIMIT 5;`,
-      { cutoff: cutoffStr, ...scope.params },
+      `SELECT ${FIELDS} FROM memories WHERE ${conds.join(" AND ")} ORDER BY created DESC LIMIT 5;`,
+      params,
     );
     return rows.map(mapRow);
   }
