@@ -138,7 +138,7 @@ export class SurrealMemoryRepository implements MemoryRepository {
       const seq = Number(ex.seq);
       const mergedCreated = minDate(ex.created ?? created, created);
       const mergedLastReferenced = maxDate(ex.lastReferenced ?? lastReferenced, lastReferenced);
-      const mergedCategory = (ex.category ?? null) ?? category;
+      const mergedCategory = ex.category ?? category;
       const mergedFailureReason = ex.failureReason ?? failureReason;
       const mergedToolState = ex.toolState ?? toolState;
       const mergedCorrectedTo = ex.correctedTo ?? correctedTo;

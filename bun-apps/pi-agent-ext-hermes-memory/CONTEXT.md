@@ -26,6 +26,8 @@ _Avoid_: cache, index (it is a durable searchable store; core Markdown stays the
 Indexed past conversation history, searchable via `session_search`. Indexed on shutdown plus a bounded incremental startup backfill. Accessed only through the backend-neutral `SessionRepository` interface; the SQLite implementation lives in `src/store/sqlite/`. A future SurrealDB backend implements the same interface (selected via `config.dbBackend`).
 _Avoid_: history, transcripts (it is FTS5-indexed, queryable conversation memory)
 
+- `src/store/surreal/` — SurrealDB backend (default-off; `config.dbBackend: "surrealdb"`). Implements the same repository interfaces via a local SurrealDB v3 server (`/sql`, `snowball(english)` fulltext, `seq`-field ids). Shared `repository-contract.test.ts` proves equivalence.
+
 ### Two-tier scoping
 
 **Global memory** (`~/.pi/agent/pi-hermes-memory/`):
