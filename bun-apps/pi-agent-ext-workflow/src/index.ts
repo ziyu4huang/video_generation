@@ -1,6 +1,6 @@
 export type { AdversarialReviewConfig } from "./adversarial-review.js";
 export { generateAdversarialReviewWorkflow, generateMultiPerspectiveWorkflow } from "./adversarial-review.js";
-export type { AgentRunOptions, AgentRunResult, WorkflowAgentOptions } from "./agent.js";
+export type { AgentRunOptions, AgentRunResult, AgentUsage, WorkflowAgentOptions } from "./agent.js";
 export { listAvailableModelSpecs, WorkflowAgent } from "./agent.js";
 export type { AgentHistoryEntry, AgentHistoryKind, AgentHistoryRole } from "./agent-history.js";
 export { compactAgentHistory } from "./agent-history.js";
@@ -62,8 +62,40 @@ export {
   registerAllSavedWorkflows,
   registerSavedWorkflow,
 } from "./saved-commands.js";
+// `prime?` on SpawnSubagentOptions is a forward-reference to sub-project ③
+// (auto-primer) — accepted but currently a NO-OP. Exported for type completeness;
+// treat as experimental until ③ lands.
+export type { SpawnSubagentOptions, SpawnSubagentPrime, SpawnSubagentResult } from "./spawn-subagent.js";
+// ── Public subagent API (stable) ──────────────────────────────────────
+// Programmatic single-subagent dispatch for peer extensions. The LLM-callable
+// `subagent` tool (registered internally by extensions/workflow.ts) and the
+// `workflow` tool's in-script `agent()` both run on the same WorkflowAgent
+// runner; `spawnSubagent()` is the shared wrapper non-workflow callers use.
+// Canonical use: peer extensions (pi-agent-ext-wayfind, -superpowers,
+// -knowledge-card) invoking an isolated-context child from code rather than
+// driving the LLM `subagent` tool. See CONTEXT.md "spawnSubagent".
+export { spawnSubagent } from "./spawn-subagent.js";
 export type { StructuredOutputCapture, StructuredOutputToolOptions } from "./structured-output.js";
 export { createStructuredOutputTool } from "./structured-output.js";
+export type {
+  CreateSubagentRunPersistenceOptions,
+  SubagentFsLayer,
+  SubagentRunPersistence,
+  SubagentRunRecord,
+  SubagentRunStatus,
+} from "./subagent-run-persistence.js";
+// ── Public subagent run persistence (stable) ─────────────────────────
+// Durable, inspection-only records of completed `subagent`-tool runs, for
+// post-session replay (ticket 08). Deliberately separate from workflow
+// RunPersistence (no resume/lease semantics — see subagent-run-persistence.ts).
+export {
+  createSubagentRunPersistence,
+  generateSubagentRunId,
+  SUBAGENT_HOME_RELATIVE_DIR,
+  SUBAGENT_RUNS_SUBDIR,
+  subagentHomeDir,
+  subagentRunsDir,
+} from "./subagent-run-persistence.js";
 export {
   deliverText,
   installResultDelivery,
