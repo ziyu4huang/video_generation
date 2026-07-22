@@ -120,33 +120,42 @@ DEFINE INDEX IF NOT EXISTS message_fts ON TABLE messages FIELDS content FULLTEXT
 - `healthCheck()` = `SELECT 1` (or `VERSION()`).
 - `close()` = no-op (HTTP stateless).
 
-## id semantics: integer record keys (DTO unchanged)
+## id semantics: stored `seq` field (DTO unchanged)
 
-- SurrealDB stores `memories:<int>` integer record keys. The counter lives
-  in `extension_metadata:memory_seq` (`value` field). Each `addMemory`
-  atomically increments it via `UPSERT` and reads the new id in one
-  transaction.
-- `MemoryEntry.id: number` contract is **untouched**. The surreal-side id
-  is `type::number(record::id(r.id))` when mapping rows back to DTOs.
-- The contract test asserts `id > 0`, which integer keys satisfy directly.
-- `removeMemory(id)` / `touchMemory(id)` address the record as
-  `memories:<int>`.
+> Verified against the live v3.2.3 server during plan research: passing a
+> number to `type::record("memories", n)` produces an **array-encoded**
+> record id (`memories:[1]`), which breaks `record::id` → number extraction.
+> So integer record keys are NOT used. Instead:
+
+- The DTO `MemoryEntry.id: number` is stored as a plain integer field
+  `seq` on each `memories` record. The actual record key is SurrealDB's
+  native random id (opaque). `removeMemory(id)` / `touchMemory(id)`
+  address records via `WHERE seq = $id`.
+- The `seq` counter lives in a dedicated `seq:memory` record (`value`
+  field). Allocation is atomic:
+  `LET $next = (UPDATE seq:memory SET value += 1 RETURN VALUE value)[0];`
+  — the `[0]` unwrap is REQUIRED (`RETURN VALUE` wraps in a single-element
+  array; without `[0]` the value is stored as `[1]`).
+- `init()` bootstraps the counter idempotently:
+  `IF array::len((SELECT id FROM seq:memory)) = 0 { CREATE seq:memory SET value = 0; }`
+- `MemoryEntry.id: number` contract is **untouched**. The contract test
+  asserts `id > 0`, which `seq` satisfies directly.
 
 ## Repository implementation map
 
 | Interface method | SurrealQL technique |
 |---|---|
-| `addMemory` | allocate seq → `CREATE memories:<id> CONTENT {...}` |
-| `syncMemoryEntry` (dedup) | `BEGIN TRANSACTION` → `SELECT ... WHERE identity` → `CREATE`/`UPDATE` → `COMMIT` (transaction isolation replaces SQLite's `BEGIN IMMEDIATE` serialization) |
+| `addMemory` | `LET $next = (UPDATE seq:memory SET value += 1 RETURN VALUE value)[0]; CREATE memories SET seq=$next, ... RETURN seq, ...` |
+| `syncMemoryEntry` (dedup) | TS-side SELECT by identity → if found `UPDATE … WHERE seq=$seq`, else `addMemory`. (Verified `UPSERT … WHERE` always inserts, so dedup is SELECT-then-branch.) |
 | `replaceSyncedMemories` / `removeSyncedMemories` | `WHERE string::contains(content, $old) [AND scope]` → `UPDATE`/`DELETE` (mirrors SQLite `LIKE`) |
 | `removeExactSyncedMemories` | `WHERE content = $c [AND scope]` → `DELETE` |
 | `searchMemories` | `WHERE content @@ $query [AND scope] ORDER BY lastReferenced DESC LIMIT $n`; on no results, degrade to `string::contains(content, $term)` |
-| `getMemories` / `getRecentFailures` / `getMemoryStats` | `SELECT` / `COUNT` / `GROUP BY` with scope conditions |
-| `removeMemory` / `touchMemory` | `DELETE memories:<id>` / `UPDATE memories:<id> SET lastReferenced = $t` |
-| `indexSession` | upsert `sessions:<id>` + `CREATE messages:<...>` for each message |
+| `getMemories` / `getRecentFailures` / `getMemoryStats` | `SELECT` / `count()` / `GROUP BY` with scope conditions |
+| `removeMemory` / `touchMemory` | `DELETE FROM memories WHERE seq = $id` / `UPDATE memories SET lastReferenced = $t WHERE seq = $id` |
+| `indexSession` | upsert `sessions:<id>` + `CREATE messages` per message (messages carry denormalized `project`/`cwd` for single-table search) |
 | `indexAllSessions` / `indexChangedSessions` | walk sessions dir, dedup by `session_files` mtime/size (same logic as SQLite), `indexSession` per file |
-| `searchSessions` | `WHERE content @@ $query` (message_fts) + join session fields |
-| `upsertSessionFileMeta` / `needsBackfill` / `touchBackfillTimestamp` / `getIndexedMessageCount` / `getSessionStats` | `UPSERT` / `SELECT` / `COUNT` / `GROUP BY` |
+| `searchSessions` | `WHERE content @@ $query` on messages (denormalized project/cwd) |
+| `upsertSessionFileMeta` / `needsBackfill` / `touchBackfillTimestamp` / `getIndexedMessageCount` / `getSessionStats` | `UPSERT`/`SELECT`/`count()`/`GROUP BY` |
 
 - `fts-query.ts` (the FTS5 boolean-DSL builder) is **never called** on the
   surreal side. The `@@` operator runs the query string through the same
