@@ -43,7 +43,7 @@ dropped in favour of writing into the active vault's `papers/`.
 ## Output
 
 Collected Markdown is written to the **active vault's** `weekly-news/` directory by
-default (`collect_videos`), or `papers/` for `arxiv_fetch2md`. Vault resolution (research-tool): `OB_VAULT_PATH` env → `~/.pi/obsidian_config.json` (personal) → `<cwd>/.pi/obsidian_config.json` (project, `mode != "app"`) → **throws** (no silent cwd fallback). Runtime is decoupled from `pi-agent-ext-obsidian`; a dev-only parity test guards against tier drift. Override with an explicit `outputPath` / `output_path` param (absolute or cwd-relative).
+default (`collect_videos`), or `papers/` for `arxiv_fetch2md`. Vault resolution (research-tool): `OB_VAULT_PATH` env → `~/.pi/obsidian_config.json` (personal) → `<cwd>/.pi/obsidian_config.json` (project, `mode != "app"`) → **throws** (no silent cwd fallback). Runtime is decoupled from `pi-agent-ext-obsidian`, with a dev-only parity test guarding against tier drift. Override with an explicit `outputPath` / `output_path` param (absolute or cwd-relative).
 
 ## Architecture
 

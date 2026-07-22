@@ -53,6 +53,25 @@ test("parity: personal ~/.pi — research-tool == obsidian-lib", async () => {
 	}
 });
 
+test("parity: personal ~/.pi with RELATIVE vault_path — research-tool == obsidian-lib", async () => {
+	// Relative personal paths resolve against HOME (obsidian-lib._homeBase), so the
+	// vault lives under tmp (== HOME); cwd is a DIFFERENT dir so a cwd-base would diverge.
+	const vault = join(tmp, "relvault");
+	await mkdir(vault, { recursive: true });
+	await mkdir(join(tmp, ".pi"), { recursive: true });
+	await writeFile(
+		join(tmp, ".pi", "obsidian_config.json"),
+		JSON.stringify({ vault_path: "relvault" }), // RELATIVE
+	);
+	const cwd = await mkdtemp(join(tmpdir(), "cwd-"));
+	try {
+		expect(await resolveVaultRoot(cwd)).toBe((await obsidianResolveVault(cwd)).path);
+		expect(await resolveVaultRoot(cwd)).toBe(vault);
+	} finally {
+		await rm(cwd, { recursive: true, force: true });
+	}
+});
+
 test("parity: project <cwd>/.pi — research-tool == obsidian-lib", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "cwd-"));
 	const vault = join(cwd, "projvault");

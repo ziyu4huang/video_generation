@@ -60,9 +60,10 @@ export async function resolveVaultRoot(cwd: string): Promise<string> {
 	// Tier 1b — personal ~/.pi (vault_path only; mode is a project-tier concept)
 	const personal = await readConfig(personalConfigPath());
 	if (personal.vault_path) {
+		// Relative personal paths resolve against HOME (== obsidian-lib._homeBase), NOT cwd.
 		const p = isAbsolute(personal.vault_path)
 			? personal.vault_path
-			: resolve(cwd, personal.vault_path);
+			: resolve(homeBase(), personal.vault_path);
 		if (existsSync(p)) return p;
 	}
 
