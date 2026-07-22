@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { AgentHistoryEntry } from "../src/agent-history.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
 import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
+import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
 import type { SubagentToolDetails } from "../src/subagent-tool.js";
 import {
   createSubagentTool,
@@ -43,11 +44,15 @@ test("createSubagentTool has name 'subagent' + label 'Subagent'", () => {
   assert.equal(tool.name, "subagent");
   assert.equal(tool.label, "Subagent");
 });
-test("createSubagentTool exposes parameters, execute, promptSnippet", () => {
+test("createSubagentTool exposes parameters, execute, promptSnippet, executionMode", () => {
   const tool = createSubagentTool();
   assert.ok(tool.parameters, "parameters schema defined");
   assert.equal(typeof tool.execute, "function");
   assert.ok(tool.promptSnippet && tool.promptSnippet.toLowerCase().includes("subagent"));
+  // ticket 10: sequential enforces "parallel fan-out goes through workflow.parallel()"
+  // (workflow's parallel()/agent() dispatch via a separate createAgentSession path,
+  //  so this does not throttle workflow fan-out).
+  assert.equal(tool.executionMode, "sequential");
 });
 
 // ── execute maps params → spawn (success) ──
@@ -652,6 +657,27 @@ test("formatSubagentLive includes a trace line per recent history entry", () => 
   assert.match(out, /→ grep/);
 });
 
+test("formatSubagentLive surfaces a truncated tool-arg/result preview on each trace line (debug visibility)", () => {
+  // compactAgentHistory already captures tool-call arguments (as a compact JSON
+  // string) and tool-result text into `text`. The trace line must surface a
+  // short slice of each so the expanded view reads as a transcript.
+  const history: AgentHistoryEntry[] = [
+    { role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"src/foo.ts"}' },
+    { role: "tool", kind: "toolResult", toolName: "read", text: "export const x = 1;" },
+  ];
+  const out = formatSubagentLive(history, 1000);
+  assert.match(out, /→ read.*src\/foo\.ts/, "tool-call arguments are surfaced on the trace line");
+  assert.match(out, /← read.*export const x/, "tool-result text is surfaced on the trace line");
+});
+
+test("formatSubagentLive leaves a bare `{}` arg payload off the trace line (no noise)", () => {
+  // An empty-args tool call renders as a clean `→ name` marker — the `{}` adds
+  // no information and would clutter the trace.
+  const history: AgentHistoryEntry[] = [{ role: "assistant", kind: "toolCall", toolName: "ls", text: "{}" }];
+  const out = formatSubagentLive(history, 0);
+  assert.match(out, /→ ls$/m, "bare {} args are not appended");
+});
+
 test("formatSubagentLive caps the trace at maxTraceLines (default 100)", () => {
   const history: AgentHistoryEntry[] = Array.from({ length: 150 }, (_, i) => ({
     role: "assistant" as const,
@@ -739,4 +765,60 @@ test("execute deregisters from inFlight even on failure", async () => {
   const tool = createSubagentTool({ spawn: f.spawn, inFlight: reg });
   await tool.execute("id-8", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(reg.list().length, 0, "deregistered even after a failed run");
+});
+
+// ── persistence hook (ticket 08): durable record per completed run ──
+
+function fakePersistence() {
+  const saved: SubagentRunRecord[] = [];
+  return {
+    saved,
+    persistence: {
+      save: (r: SubagentRunRecord) => {
+        saved.push(r);
+      },
+      list: () => [...saved].reverse(),
+      load: () => null,
+      delete: () => false,
+      getRunsDir: () => "/tmp",
+    } as unknown as SubagentRunPersistence,
+  };
+}
+
+test("execute persists a durable record on completion (done), carrying the compact transcript", async () => {
+  const { saved, persistence } = fakePersistence();
+  const f = fakeSpawn((opts) => {
+    opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"x"}' }]);
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  });
+  const tool = createSubagentTool({ spawn: f.spawn, persistence, cwd: "/repo" });
+  await tool.execute("id-p1", { task: "do work", agent: "implementer" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(saved.length, 1, "one record saved");
+  const rec = saved[0];
+  assert.equal(rec.status, "done");
+  assert.equal(rec.exitCode, 0);
+  assert.equal(rec.output, "ok");
+  assert.equal(rec.agent, "implementer");
+  assert.equal(rec.cwd, "/repo");
+  assert.equal(rec.toolCallId, "id-p1");
+  assert.equal(rec.history?.[0]?.toolName, "read", "compact transcript captured for replay");
+  assert.match(rec.startedAt, /^\d{4}-\d{2}-\d{2}T/, "startedAt is ISO");
+});
+
+test("execute persists a record on failure too (failed runs are worth inspecting)", async () => {
+  const { saved, persistence } = fakePersistence();
+  const f = fakeSpawn(() => ({ output: "", exitCode: 1, stderr: "boom", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, persistence });
+  await tool.execute("id-p2", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].status, "failed");
+  assert.equal(saved[0].stderr, "boom");
+});
+
+test("execute does NOT persist on a pre-flight failure (invalid schema is not a real run)", async () => {
+  const { saved, persistence } = fakePersistence();
+  const f = fakeSpawn(() => ({ output: "x", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, persistence });
+  await tool.execute("id-p3", { task: "t", schema: "not-schema-shaped" as never }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(saved.length, 0, "pre-flight rejection must not create a run record");
 });

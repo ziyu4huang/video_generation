@@ -22,8 +22,10 @@ import {
   loadAgentRegistry,
   resolveAgentType,
 } from "./agent-registry.js";
+import { isSddReportActionable, parseSddReport, type SddReport } from "./sdd-report.js";
 import { type SpawnSubagentOptions, type SpawnSubagentResult, spawnSubagent } from "./spawn-subagent.js";
 import type { SubagentInFlightRegistry } from "./subagent-in-flight.js";
+import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
 import { createWorktree, removeWorktree, type Worktree } from "./worktree.js";
 
 export interface SubagentToolDetails {
@@ -40,6 +42,12 @@ export interface SubagentToolDetails {
   status: "done" | "failed" | "timedout";
   /** Real token/cost usage from the child session, when reported. */
   usage?: AgentUsage;
+  /**
+   * Parsed SDD report block (ticket 04), when the subagent's output carries the
+   * `**Status:**` marker. Absent for plain (non-SDD) dispatches, schema results,
+   * and failures. `report.status` is reliable; the rest are best-effort hints.
+   */
+  report?: SddReport;
 }
 
 export const subagentToolSchema = Type.Object({
@@ -117,6 +125,12 @@ export interface SubagentToolOptions {
   removeWorktree?: typeof removeWorktree;
   /** Live registry of in-flight runs; when set, the tool registers/updates/deregisters so /subagents can show running subagents. */
   inFlight?: SubagentInFlightRegistry;
+  /**
+   * Durable run persistence (ticket 08). When set, each completed run is written
+   * once to ~/.pi/subagents/runs/<id>.json (best-effort) for post-session
+   * replay/inspection by `/subagents`. Never affects the run's result.
+   */
+  persistence?: SubagentRunPersistence;
 }
 
 /** Minimal pre-flight check: a JSON-Schema-shaped object needs at least a `type` field. */
@@ -166,13 +180,34 @@ export function formatSubagentProgress(history: AgentHistoryEntry[], elapsedMs: 
   return `↳ ${activity}\n  ↳ ${elapsedS}s elapsed · ${toolCalls} tool call${toolCalls === 1 ? "" : "s"}`;
 }
 
+/**
+ * Short inline preview of a tool call's arguments or a tool result's text,
+ * for the expanded live-output trace. `compactAgentHistory` already captures
+ * both into `AgentHistoryEntry.text` (args as a compact JSON string, results as
+ * their text) — this surfaces a one-line slice so the trace reads as a real
+ * transcript (what was called + what came back), not just call markers.
+ * Returns "" for an empty payload or a bare `{}` (no useful args), so those
+ * lines stay as clean `→ name` / `← name ✓` markers.
+ */
+function previewPayload(text: string | undefined, max = 100): string {
+  if (!text) return "";
+  const one = text.replace(/\s+/g, " ").trim();
+  if (!one || one === "{}") return "";
+  return ` ${truncateToWidth(one, max)}`;
+}
+
 /** Render one history entry as a single readable trace line (live-output buffer). */
 function formatHistoryLine(e: AgentHistoryEntry): string {
   switch (e.kind) {
     case "toolCall":
-      return `→ ${e.toolName ?? "tool"}`;
+      // `text` holds the JSON-stringified arguments (compactAgentHistory).
+      // Surface a short preview so the expanded trace shows WHAT the subagent
+      // called, not just the tool name — the core debug-visibility gap.
+      return `→ ${e.toolName ?? "tool"}${previewPayload(e.text)}`;
     case "toolResult":
-      return `← ${e.toolName ?? "tool"} ✓`;
+      // `text` holds the tool's result text. Surface a short preview of it too,
+      // so the expanded trace reads as a real transcript, not just call markers.
+      return `← ${e.toolName ?? "tool"} ✓${previewPayload(e.text)}`;
     case "error":
       return `⚠ ${e.text.slice(0, 200)}`;
     case "text":
@@ -240,7 +275,15 @@ export function renderSubagentResult(
         ? theme.fg("warning", "⏱ timedout")
         : theme.fg("error", "✗ failed");
   const usageStr = d.usage && d.usage.total > 0 ? ` · $${d.usage.cost.toFixed(3)} · ${d.usage.total} tok` : "";
-  const meta = theme.fg("muted", `${d.model ?? "default"} · ${(d.elapsedMs / 1000).toFixed(1)}s${usageStr}`);
+  // SDD self-report tag (ticket 04): separate axis from process status. A run
+  // can be process-done yet self-report BLOCKED — tint the actionable ones so
+  // they never read as routine success.
+  const sddTag = d.report
+    ? isSddReportActionable(d.report.status)
+      ? theme.fg("warning", ` · SDD:${d.report.status}`)
+      : theme.fg("success", ` · SDD:${d.report.status}`)
+    : "";
+  const meta = theme.fg("muted", `${d.model ?? "default"} · ${(d.elapsedMs / 1000).toFixed(1)}s${usageStr}`) + sddTag;
   if (!options.expanded) {
     const firstLine =
       text
@@ -283,6 +326,14 @@ export function createSubagentTool(
     ].join(" "),
     promptSnippet:
       "Dispatch an isolated-context subagent for one focused task (implementer / reviewer / researcher). Pass a self-contained `task`; pick `model`/`tier` per role (omit to use the current model); restrict with `tools`/`excludeTools`.",
+    // Sequential: serialize any turn whose tool-call batch contains a
+    // subagent dispatch. Enforces the "parallel fan-out goes through the
+    // `workflow` tool's parallel()" contract at the engine level — pi's rule
+    // is "any sequential tool call in a turn ⇒ the whole batch runs serially"
+    // (pi-agent-core agent-loop). The `workflow` tool's parallel()/agent()
+    // dispatch via a SEPARATE createAgentSession() path, so this does NOT
+    // throttle workflow fan-out. (ticket 10)
+    executionMode: "sequential",
     parameters: subagentToolSchema,
     async execute(toolCallId, params, signal, onUpdate, _ctx) {
       const t0 = Date.now();
@@ -291,6 +342,9 @@ export function createSubagentTool(
       // call so the displayed tool-call count never visibly regresses. See
       // formatSubagentProgress's `minToolCalls` param.
       let maxToolCallsSeen = 0;
+      // Latest compact history snapshot, retained so the durable record (ticket
+      // 08) can persist the transcript. Updated in the onHistory callback.
+      let lastHistory: AgentHistoryEntry[] | undefined;
       const runCwd = params.cwd ?? defaultCwd;
       const makeWorktree = options.createWorktree ?? createWorktree;
       const teardownWorktree = options.removeWorktree ?? removeWorktree;
@@ -381,8 +435,9 @@ export function createSubagentTool(
             resolvedModel = id;
           },
           onHistory:
-            onUpdate || options.inFlight
+            onUpdate || options.inFlight || options.persistence
               ? (history: AgentHistoryEntry[]) => {
+                  lastHistory = history;
                   // Progress streaming is diagnostic only — a throwing onUpdate
                   // (e.g. a TUI re-render failure) must never fail the subagent's
                   // actual task result.
@@ -402,19 +457,47 @@ export function createSubagentTool(
                 }
               : undefined,
         });
-        return {
-          content: [{ type: "text" as const, text: formatSubagentResult(result) }],
-          details: {
-            exitCode: result.exitCode,
-            timedOut: result.timedOut,
-            agent: params.agent,
-            model: resolvedModel ?? displayModelBeforeResolve,
-            taskPreview: taskPreview(params.task),
-            elapsedMs: Date.now() - t0,
-            status: deriveSubagentStatus(result),
-            usage: result.usage,
-          },
+        const elapsedMs = Date.now() - t0;
+        const output = formatSubagentResult(result);
+        const model = resolvedModel ?? displayModelBeforeResolve;
+        const details: SubagentToolDetails = {
+          exitCode: result.exitCode,
+          timedOut: result.timedOut,
+          agent: params.agent,
+          model,
+          taskPreview: taskPreview(params.task),
+          elapsedMs,
+          status: deriveSubagentStatus(result),
+          usage: result.usage,
+          // SDD report (ticket 04): parse the implementer's `**Status:**` block when
+          // present (non-SDD / schema / failure outputs have no marker → undefined).
+          report: parseSddReport(result.output),
         };
+        // Durable record for post-session replay (ticket 08). Write-once at
+        // completion; best-effort — save() swallows errors so this can never
+        // fail the run. Covers done/failed/timedout (spawnSubagent returns a
+        // result, never throws, on child failure); the pre-flight failEarly
+        // paths above do not persist (they are not real runs).
+        options.persistence?.save({
+          id: generateSubagentRunId(),
+          toolCallId,
+          agent: params.agent,
+          task: params.task,
+          model,
+          tier,
+          cwd: runCwd,
+          status: details.status,
+          exitCode: details.exitCode,
+          timedOut: details.timedOut,
+          stderr: result.stderr || undefined,
+          startedAt: new Date(t0).toISOString(),
+          elapsedMs,
+          usage: details.usage,
+          output,
+          history: lastHistory,
+          report: details.report,
+        });
+        return { content: [{ type: "text" as const, text: output }], details };
       } finally {
         options.inFlight?.end(toolCallId);
         if (worktree) await teardownWorktree(worktree);

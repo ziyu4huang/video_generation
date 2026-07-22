@@ -73,7 +73,7 @@ import {
 	spawnSubagent as __defaultSpawnSubagent,
 	type SpawnSubagentOptions,
 	type SpawnSubagentResult,
-} from "@repo/pi-agent-ext-workflow/src/spawn-subagent.ts";
+} from "@repo/pi-agent-ext-workflow";
 import { runGate } from "../src/distill/gate.ts";
 import { runConverge } from "../src/distill/converge.ts";
 import { readState } from "../src/distill/state.ts";

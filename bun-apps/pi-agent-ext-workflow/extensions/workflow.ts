@@ -22,6 +22,7 @@ import {
   WorkflowManager,
 } from "../src/index.js";
 import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
+import { createSubagentRunPersistence } from "../src/subagent-run-persistence.js";
 import { createSubagentTool } from "../src/subagent-tool.js";
 import { createSubagentsCommand } from "../src/subagents-command.js";
 
@@ -72,6 +73,7 @@ export default function extension(pi: ExtensionAPI) {
     getExtensionTools: () => extensionToolsHolder.current,
     getMainModel: () => manager.getMainModel(),
     inFlight: subagentInFlight,
+    persistence: createSubagentRunPersistence(),
   });
   // Best-effort guard: this repo expects pi-agent-ext-workflow to own the
   // 'subagent' tool name. If another extension (e.g. a real pi-subagents
