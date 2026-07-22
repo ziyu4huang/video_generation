@@ -5,7 +5,10 @@
  * Variable binding is done by prepending `LET $name = <json>;` statements
  * (JSON.stringify is a valid SurrealQL subset for string/number/bool/null/
  * object/array). The caller passes a final SQL statement; query() returns
- * the parsed `result` of the LAST statement in the batch.
+ * the parsed `result` of the LAST statement in the batch. query() throws
+ * on the FIRST non-OK statement in the batch — SurrealDB's /sql endpoint
+ * processes each statement independently, so an early failure does NOT
+ * halt later statements and must be detected explicitly.
  *
  * Transient retry (connection failure / 5xx / 429) lives here so repository
  * methods just call client.query() and inherit retry. There is no corruption
@@ -40,17 +43,23 @@ export class SurrealClient {
     this.auth = "Basic " + btoa(`${opts.username}:${opts.password}`);
   }
 
-  /** Run SQL with optional params; return the last statement's result. */
+  /**
+   * Run SQL with optional params; return the last statement's result.
+   * Throws on the FIRST non-OK statement in the batch — SurrealDB's /sql
+   * endpoint processes each statement in a batch independently, so an
+   * early failing statement does NOT halt later ones.
+   */
   async query<T = unknown[]>(sql: string, params: Record<string, unknown> = {}): Promise<T> {
     const body = this.buildBody(sql, params);
     const statements = await this.send<StatementResult[]>(body);
     if (statements.length === 0) return [] as unknown as T;
-    const last = statements[statements.length - 1];
-    if (last.status !== "OK") {
-      const detail = typeof last.result === "string" ? last.result : JSON.stringify(last.result);
-      throw new Error(`SurrealDB error: ${detail}`);
+    for (const stmt of statements) {
+      if (stmt.status !== "OK") {
+        const detail = typeof stmt.result === "string" ? stmt.result : JSON.stringify(stmt.result);
+        throw new Error(`SurrealDB error: ${detail}`);
+      }
     }
-    return last.result as T;
+    return statements[statements.length - 1].result as T;
   }
 
   private buildBody(sql: string, params: Record<string, unknown>): string {

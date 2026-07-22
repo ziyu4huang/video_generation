@@ -57,6 +57,15 @@ export class SurrealSessionRepository implements SessionRepository {
       { sid: sessionRaw.id, project, cwd, startedAt, endedAt, n: messages.length },
     );
 
+    // PERF(todo): N+1 HTTP — each message issues its own `this.c.query()`
+    // (one POST /sql round-trip per message). A 50-message session is ~50
+    // round-trips, multiplied across every session during a backfill.
+    // Intended fix: concatenate all message UPSERTs into a SINGLE /sql body
+    // (SurrealClient.query already handles multi-statement batches and, as
+    // of the all-statements status check, surfaces any per-statement error).
+    // The per-message params would move into one combined `params` object
+    // with indexed keys ($m0_id, $m0_role, ...). Left as-is for now to keep
+    // the indexed-key shape stable; batch before optimizing further.
     for (const msg of messages) {
       await this.c.query(
         `UPSERT type::record("messages", $mid) SET sessionId = $sid, project = $project, cwd = $cwd, role = $role, content = $content, timestamp = $ts, toolCalls = $tc;`,
