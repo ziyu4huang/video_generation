@@ -326,6 +326,14 @@ export function createSubagentTool(
     ].join(" "),
     promptSnippet:
       "Dispatch an isolated-context subagent for one focused task (implementer / reviewer / researcher). Pass a self-contained `task`; pick `model`/`tier` per role (omit to use the current model); restrict with `tools`/`excludeTools`.",
+    // Sequential: serialize any turn whose tool-call batch contains a
+    // subagent dispatch. Enforces the "parallel fan-out goes through the
+    // `workflow` tool's parallel()" contract at the engine level — pi's rule
+    // is "any sequential tool call in a turn ⇒ the whole batch runs serially"
+    // (pi-agent-core agent-loop). The `workflow` tool's parallel()/agent()
+    // dispatch via a SEPARATE createAgentSession() path, so this does NOT
+    // throttle workflow fan-out. (ticket 10)
+    executionMode: "sequential",
     parameters: subagentToolSchema,
     async execute(toolCallId, params, signal, onUpdate, _ctx) {
       const t0 = Date.now();

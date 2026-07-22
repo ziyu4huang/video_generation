@@ -44,11 +44,15 @@ test("createSubagentTool has name 'subagent' + label 'Subagent'", () => {
   assert.equal(tool.name, "subagent");
   assert.equal(tool.label, "Subagent");
 });
-test("createSubagentTool exposes parameters, execute, promptSnippet", () => {
+test("createSubagentTool exposes parameters, execute, promptSnippet, executionMode", () => {
   const tool = createSubagentTool();
   assert.ok(tool.parameters, "parameters schema defined");
   assert.equal(typeof tool.execute, "function");
   assert.ok(tool.promptSnippet && tool.promptSnippet.toLowerCase().includes("subagent"));
+  // ticket 10: sequential enforces "parallel fan-out goes through workflow.parallel()"
+  // (workflow's parallel()/agent() dispatch via a separate createAgentSession path,
+  //  so this does not throttle workflow fan-out).
+  assert.equal(tool.executionMode, "sequential");
 });
 
 // ── execute maps params → spawn (success) ──
