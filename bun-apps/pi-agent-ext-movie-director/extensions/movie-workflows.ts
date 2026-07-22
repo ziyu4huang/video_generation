@@ -25,7 +25,7 @@
  */
 import sceneAssetsSrc from "../workflows/scene-assets/index.js" with { type: "text" };
 import researchFirstSrc from "../workflows/research-first/index.js" with { type: "text" };
-import reviewCutSrc from "../workflows/review-cut.js" with { type: "text" };
+import reviewCutSrc from "../workflows/review-cut/index.js" with { type: "text" };
 import produceVideoSrc from "../workflows/produce-video.js" with { type: "text" };
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { createMovieManager, type MovieManagerFactory } from "../src/movie-manager.ts";
