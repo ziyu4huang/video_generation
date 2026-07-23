@@ -16,6 +16,7 @@ import {
   DEFAULT_FAILURE_INJECTION_MAX_ENTRIES,
 } from "./constants.js";
 import { AGENT_ROOT, normalizeConfiguredMemoryDir, normalizeProjectsMemoryDir } from "./paths.js";
+import { derivePerUserDatabase } from "./store/surreal/per-user-db.js";
 
 const MEMORY_OVERFLOW_STRATEGIES: readonly MemoryOverflowStrategy[] = ["auto-consolidate", "reject", "fifo-evict", "vault-offload"];
 const SESSION_SEARCH_VARIANTS: readonly SessionSearchVariant[] = ["legacy", "anchors"];
@@ -76,6 +77,20 @@ export const DEFAULT_CONFIG_PATH = path.join(
   AGENT_ROOT,
   "hermes-memory-config.json",
 );
+
+/**
+ * Populate the per-user default SurrealDB `database` name when the config
+ * file didn't set one, so the resolved config carries it for the backend, the
+ * TUI label, and #772's live backend switching alike (single source of
+ * truth). An explicit `surreal.database` always wins. Deriving here (not in
+ * the backend) means even a sqlite→surrealdb live switch inherits the per-user
+ * db without re-deriving at bundle-build time.
+ */
+function resolveSurrealDbDefault(config: MemoryConfig): MemoryConfig {
+  if (!config.surreal) config.surreal = {};
+  if (!config.surreal.database) config.surreal.database = derivePerUserDatabase();
+  return config;
+}
 
 export function loadConfig(configPath = DEFAULT_CONFIG_PATH): MemoryConfig {
   try {
@@ -164,10 +179,10 @@ export function loadConfig(configPath = DEFAULT_CONFIG_PATH): MemoryConfig {
       } else if (hasLegacyAutoConsolidate) {
         config.memoryOverflowStrategy = config.autoConsolidate ? "auto-consolidate" : "reject";
       }
-      return config;
+      return resolveSurrealDbDefault(config);
     }
   } catch {
     // Fall back to defaults on parse error or access issues
   }
-  return { ...DEFAULT_CONFIG };
+  return resolveSurrealDbDefault({ ...DEFAULT_CONFIG });
 }
