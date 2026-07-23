@@ -511,10 +511,11 @@ export async function archifyValidate(params: { ir?: unknown; irPath?: string; t
     ? run(params.irPath)
     : withTempIr(params.ir ?? {}, run);
   if (status !== 0) return err(`archify validate failed (exit ${status}).\n${stdout}`);
-  const report = JSON.parse(stdout) as { ok?: boolean; errors?: unknown[] };
-  const ok = report.ok !== false && !(report.errors && report.errors.length > 0);
+  // archify validate --json emits { ok, error?, diagnostics?: [...] } — NOT `errors`.
+  const report = JSON.parse(stdout) as { ok?: boolean; error?: string; diagnostics?: unknown[] };
+  const ok = report.ok === true;
   return {
-    content: [{ type: "text" as const, text: ok ? `IR is valid (${type}).` : `IR has ${report.errors?.length ?? "?"} issue(s):\n${stdout}` }],
+    content: [{ type: "text" as const, text: ok ? `IR is valid (${type}).` : `IR has ${report.diagnostics?.length ?? 1} issue(s):\n${report.error ?? stdout}` }],
     details: { type, valid: ok, report },
     ...(ok ? {} : { isError: true }),
   };
