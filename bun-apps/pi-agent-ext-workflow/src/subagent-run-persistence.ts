@@ -19,6 +19,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSyn
 import { join } from "node:path";
 import type { AgentUsage } from "./agent.js";
 import type { AgentHistoryEntry } from "./agent-history.js";
+import type { SubagentScopeCheck } from "./git-scope.js";
 import { homeDir } from "./home.js";
 import type { SddReport } from "./sdd-report.js";
 
@@ -63,6 +64,8 @@ export interface SubagentRunRecord {
   history?: AgentHistoryEntry[];
   /** Parsed SDD report block (ticket 04), when the run was an SDD dispatch. */
   report?: SddReport;
+  /** Opt-in commit-scope check (`commitScope` param), when the caller set one. */
+  scopeCheck?: SubagentScopeCheck;
 }
 
 export type SubagentFsLayer = {
