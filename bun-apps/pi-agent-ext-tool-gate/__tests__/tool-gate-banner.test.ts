@@ -28,30 +28,49 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import { scheduleToolGateBanner } from "../extensions/tool-gate.ts";
 
-// ─── setTimeout shim ────────────────────────────────────────────────────────
-// Capture timers instead of waiting 5s/8s. MUST restore globalThis.setTimeout
-// after each test: bun:test shares one process across files, and a leaked mock
-// would break every later test's own timers.
+// ─── setTimeout / clearTimeout shim ───────────────────────────────────────
+// Capture timers instead of waiting 5s/8s. Uses an id→fn Map so clearTimeout
+// (used by scheduleToolGateBanner's M6 cross-session cleanup) can remove a
+// pending timer by id, mirroring real semantics. MUST restore both globals
+// after each test: bun:test shares one process across files, and a leaked
+// mock would break every later test's own timers.
 let origSetTimeout: typeof setTimeout | null = null;
-const pending: Array<() => void> = [];
+let origClearTimeout: typeof clearTimeout | null = null;
+let nextTimerId = 1;
+const timers = new Map<number, () => void>();
 function captureTimers(): void {
 	origSetTimeout = globalThis.setTimeout;
+	origClearTimeout = globalThis.clearTimeout;
+	nextTimerId = 1;
+	timers.clear();
 	globalThis.setTimeout = ((fn: () => void) => {
-		pending.push(fn);
-		return pending.length;
+		const id = nextTimerId++;
+		timers.set(id, fn);
+		return id as unknown as ReturnType<typeof setTimeout>;
 	}) as typeof setTimeout;
+	globalThis.clearTimeout = ((id: unknown) => {
+		if (typeof id === "number") timers.delete(id);
+	}) as typeof clearTimeout;
 }
 function restoreTimers(): void {
 	if (origSetTimeout) globalThis.setTimeout = origSetTimeout;
+	if (origClearTimeout) globalThis.clearTimeout = origClearTimeout;
 	origSetTimeout = null;
-	pending.length = 0;
+	origClearTimeout = null;
+	timers.clear();
 }
 function fireNext(): void {
-	const fn = pending.shift();
-	if (fn) fn();
+	// Fire in FIFO (insertion) order; delete BEFORE firing so a callback that
+	// schedules a new timer (the dismiss timer) gets a fresh id and can't
+	// re-fire itself this turn.
+	const entry = timers.entries().next();
+	if (entry.done) return;
+	const [id, fn] = entry.value;
+	timers.delete(id);
+	fn();
 }
 function fireAll(): void {
-	while (pending.length) fireNext();
+	while (timers.size) fireNext();
 }
 afterEach(restoreTimers);
 
@@ -140,6 +159,22 @@ describe("scheduleToolGateBanner — startup banner (replaces notify('info') mer
 		fireAll();
 		expect(ctx.uiCalls).toEqual([
 			["tool-gate", SUCCESS_LINES],
+			["tool-gate", undefined],
+		]);
+	});
+
+	it("M6: a second schedule clears the first's pending timers (no stale flash/clear)", () => {
+		captureTimers();
+		const ctxA = makeCtx();
+		const ctxB = makeCtx();
+		scheduleToolGateBanner(ctxA, SUCCESS_LINES); // session A
+		scheduleToolGateBanner(ctxB, ["B-line"]); // session B (fork/resume) clears A's timers
+		fireAll();
+		// A's show never fired — its timer was cleared when B scheduled.
+		expect(ctxA.uiCalls).toEqual([]);
+		// Only B's banner rendered and auto-dismissed.
+		expect(ctxB.uiCalls).toEqual([
+			["tool-gate", ["B-line"]],
 			["tool-gate", undefined],
 		]);
 	});

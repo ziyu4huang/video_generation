@@ -23,8 +23,16 @@
  *     real verdict would raise N and add a significance test).
  */
 import { spawn } from "node:child_process";
+import { dirname, resolve as resolvePath } from "node:path";
+import { fileURLToPath } from "node:url";
 import { GATES, gateFires, matchIntent } from "../extensions/tool-gate.ts";
 import { L2_TASKS, type L2Task } from "./l2-tasks.ts";
+
+// M9: resolve the pi-agent CLI absolutely from this file's location so the
+// live A/B spawn works regardless of process.cwd(). l2.ts lives at
+// bun-apps/pi-agent-ext-tool-gate/qa/, so ../../pi-agent/src/cli.ts.
+const __QA_DIR = dirname(fileURLToPath(import.meta.url));
+const PI_AGENT_CLI = resolvePath(__QA_DIR, "..", "..", "pi-agent", "src", "cli.ts");
 
 const findGate = (id: string) => {
 	const g = GATES.find((x) => x.names[0] === id);
@@ -137,12 +145,12 @@ export function detectToolUsage(output: string, toolName: string): boolean {
 function runOnce(prompt: string, arm: "on" | "off", opts: LiveOpts): Promise<{ output: string; error?: string }> {
 	const env = { ...process.env };
 	if (arm === "off") env.TOOL_GATE_DISABLE = "1";
-	const args = ["run", "src/cli.ts"];
+	const args = ["run", PI_AGENT_CLI];
 	if (opts.model) args.push("--model", opts.model);
 	args.push("-p", prompt);
 	return new Promise((resolve) => {
 		const child = spawn("bun", args, {
-			cwd: process.cwd(),
+			cwd: dirname(PI_AGENT_CLI),
 			env,
 			stdio: ["ignore", "pipe", "pipe"],
 		});

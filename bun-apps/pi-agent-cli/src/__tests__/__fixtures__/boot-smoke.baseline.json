@@ -1,6 +1,6 @@
 {
-  "toolCountFloor": 40,
-  "expectedErrorSources": ["workflow"],
+  "toolCountFloor": 50,
+  "expectedErrorSources": [],
   "expectedContractFailures": [],
   "sourceMinimum": [
     "knowledge-card",

@@ -376,6 +376,16 @@ describe("matchesKeyword (S2)", () => {
   test("CJK substring: '做動畫' matches a CJK prompt", () => {
     expect(matchesKeyword("做動畫", "幫我做動畫")).toBe(true);
   });
+  test("M8: repeated calls are consistent (word-boundary regex cache is transparent)", () => {
+    // The regex is now cached by lowercased keyword; verify correctness is
+    // unchanged across many calls and that cached entries still respect word
+    // boundaries (no cross-contamination between cached keywords).
+    for (let i = 0; i < 50; i++) {
+      expect(matchesKeyword("flux", "use the flux model")).toBe(true);
+      expect(matchesKeyword("flux", "use the conflux library")).toBe(false);
+      expect(matchesKeyword("image", "docker image pull")).toBe(true);
+    }
+  });
 });
 
 describe("gateFires (S2 co-occurrence)", () => {

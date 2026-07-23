@@ -26,7 +26,7 @@ import {
 import type { SchemaCostReport } from "../../pi-agent-cli/src/commands/schema-cost.ts";
 import { CORE_TOOLS, GATES } from "../extensions/tool-gate.ts";
 
-/** The savings figure tool-gate's README/banner claims (~8,500 tok/req). */
+/** The savings figure tool-gate's README/banner claims (~8,500 tok/req; zai-mcp env-gated — see caveats()). */
 export const CLAIMED_SAVED_TOK = 8500;
 
 export interface GateSavings {
