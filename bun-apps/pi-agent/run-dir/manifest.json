@@ -29,6 +29,13 @@
       "bundleMode": "thin",
       "testGate": "cd bun-apps/pi-agent-ext-movie-director && bun test",
       "version": "0.1.0"
+    },
+    {
+      "name": "pi-agent-ext-deploy",
+      "entry": "pi-agent-ext-deploy/extensions/deploy.ts",
+      "bundleMode": "thin",
+      "testGate": "cd bun-apps/pi-agent-ext-deploy && bun test",
+      "version": "0.1.0"
     }
   ],
   "skills": [
