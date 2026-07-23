@@ -82,7 +82,8 @@ def add_args(parser: argparse.ArgumentParser) -> None:
                         help="Speech rate as a signed percentage, e.g. -10%%, +15%% (default: +0%%). "
                         "For --engine mlx this is converted to a Kokoro speed multiplier.")
     parser.add_argument("--output", type=str, default=None, metavar="PATH",
-                        help="Output audio path (default: <gen-output-dir>/output_<ts>.mp3)")
+                        help="Output audio path (default: <gen-output-dir>/output_<ts>.wav for --engine mlx, "
+                        ".mp3 for --engine edge-tts)")
 
 
 def _parse_rate_to_speed(rate: str) -> float:
@@ -149,7 +150,8 @@ def run(args: argparse.Namespace) -> None:
         os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
         paths = None
     else:
-        paths = make_output_paths(ext=".mp3")
+        default_ext = ".wav" if engine == "mlx" else ".mp3"
+        paths = make_output_paths(ext=default_ext)
         out_path = paths.output_file
 
     import time
@@ -158,7 +160,11 @@ def run(args: argparse.Namespace) -> None:
     if engine == "mlx":
         voice = args.voice or _DEFAULT_MLX_VOICE
         _validate_mlx_voice(voice)
-        speed = _parse_rate_to_speed(rate)
+        try:
+            speed = _parse_rate_to_speed(rate)
+        except ValueError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            sys.exit(1)
         print(f"[tts] mlx (Kokoro) synthesizing ({len(text)} chars, voice={voice}, "
               f"model={args.mlx_model}, speed={speed})...", flush=True)
         try:

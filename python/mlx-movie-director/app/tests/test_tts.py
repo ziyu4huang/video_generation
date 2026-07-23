@@ -149,6 +149,44 @@ class TestRunDispatchMlx:
         with pytest.raises(SystemExit):
             run(args)
 
+    def test_mlx_engine_defaults_to_wav_output_without_explicit_output(self, monkeypatch):
+        """Issue 1: mlx engine should default to .wav, not .mp3."""
+        calls = []
+
+        def fake_synth(text, voice, model, speed, out_path):
+            calls.append(out_path)
+            with open(out_path, "wb") as f:
+                f.write(b"fake-wav-bytes")
+
+        monkeypatch.setattr(tts, "_synthesize_mlx", fake_synth)
+        monkeypatch.setenv("HOME", "/tmp")
+
+        args = argparse.Namespace(
+            text="Hello world", text_flag=None, text_file=None,
+            engine="mlx", voice=None, mlx_model=_DEFAULT_MLX_MODEL,
+            rate="+0%", output=None,  # No explicit output
+        )
+        run(args)
+
+        assert len(calls) == 1
+        out_path = calls[0]
+        assert out_path.endswith(".wav"), f"Expected .wav output, got: {out_path}"
+        assert os.path.exists(out_path)
+
+    def test_mlx_engine_malformed_rate_exits_cleanly(self, tmp_path, monkeypatch):
+        """Issue 2: malformed --rate should exit cleanly, not raise ValueError."""
+        monkeypatch.setattr(tts, "_synthesize_mlx", lambda *a, **k: None)
+
+        out_path = str(tmp_path / "line.wav")
+        args = argparse.Namespace(
+            text="Hi", text_flag=None, text_file=None,
+            engine="mlx", voice=None, mlx_model=_DEFAULT_MLX_MODEL,
+            rate="10",  # Missing % sign — malformed
+            output=out_path,
+        )
+        with pytest.raises(SystemExit):
+            run(args)
+
 
 class TestRunDispatchEdgeTts:
     def test_edge_tts_engine_still_used_by_default(self, tmp_path, monkeypatch):
