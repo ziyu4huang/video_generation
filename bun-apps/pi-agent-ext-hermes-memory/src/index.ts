@@ -95,6 +95,19 @@ export default async function (pi: ExtensionAPI) {
     ? defaultGlobalDir
     : configuredMemoryDir;
 
+  // Human-readable label for the active memory/search backend, surfaced once
+  // per session via a session_start TUI notify (see the handler below).
+  // dbBackend comes from hermes-memory-config.json; the surreal connection
+  // falls back to the defaults in src/store/surreal/surreal-backend.ts when
+  // the config file omits a `surreal` block (ns=hermes, db=memory,
+  // 127.0.0.1:8000). Switching backends is NOT runtime-hot: edit the config
+  // and restart pi.
+  const surrealCfg = config.surreal;
+  const backendLabel =
+    config.dbBackend === "surrealdb"
+      ? `surrealdb · ns=${surrealCfg?.namespace ?? "hermes"} db=${surrealCfg?.database ?? "memory"} @ ${surrealCfg?.endpoint ?? "http://127.0.0.1:8000"}`
+      : `sqlite · ${path.join(globalDir, "sessions.db")}`;
+
   const shouldMigrateExtensionRoot = !configuredMemoryDir || pointsToLegacyMemoryDir;
   let extensionRootMigrated = false;
 
@@ -140,6 +153,13 @@ export default async function (pi: ExtensionAPI) {
 
   // ── 1. Load memory from disk on session start ──
   pi.on("session_start", async (_event, ctx) => {
+    // Surface the active memory/search backend once per session start so the
+    // user can see at a glance whether hermes-memory is on sqlite or surrealdb
+    // (and where). Transient info notify; no-op if the host provides no ui.
+    {
+      const ui = (ctx as { ui?: { notify?: (message: string, level?: string) => void } }).ui;
+      ui?.notify?.(`🧠 hermes-memory backend: ${backendLabel}`, "info");
+    }
     if (shouldMigrateExtensionRoot && !extensionRootMigrated) {
       try {
         await migrateExtensionRoot(legacyGlobalDir, globalDir);
