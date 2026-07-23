@@ -5,8 +5,8 @@
  * (flux2, ltx, krea2, file2md, inspect, workflow, research) behind prompt
  * keyword matching.
  *
- * Baseline:  ~45 tools → ~14,400 tok/req   (measured via `bun run qa`)
- * Gated:    ~27 tools →  ~8,800 tok/req   (saves ~5,550 tok/turn, ~38%)
+ * Baseline:  ~45 tools → ~14,700 tok/req   (measured via `bun run qa`)
+ * Gated:    ~27 tools →  ~8,800 tok/req   (saves ~5,875 tok/turn, ~40%)
  *
  * Tools reactivate instantly when the prompt mentions relevant keywords, and
  * once activated stay active for the rest of the session (they never re-gate

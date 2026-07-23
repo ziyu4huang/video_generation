@@ -84,6 +84,9 @@ export const MUST_FIRE: Probe[] = [
 	// zai-mcp (keyword only — incl. "z.ai" after the fix)
 	{ gate: "zai_web_search_web_search_prime", prompt: "use zai search for this", note: 'keyword "zai search"' },
 	{ gate: "zai_web_search_web_search_prime", prompt: "read this webpage with Z.ai's reader endpoint", note: 'keyword "z.ai" (fix closed the blind gap)' },
+	// pi_deploy (upstream gate — wraps deploy.ts + run-test.sh)
+	{ gate: "pi_deploy", prompt: "build and deploy the pi-agent bundle", note: 'keyword deploy / build bundle' },
+	{ gate: "pi_deploy", prompt: "部署 pi-agent 建置", note: "keyword 部署 / 建置" },
 ];
 
 // ── MUST_NOT_FIRE (lookalikes the gate CORRECTLY rejects) ────────────────────
@@ -107,6 +110,7 @@ export const MUST_NOT_FIRE: Probe[] = [
 	{ gate: "movie", prompt: "film the event with my phone", note: "no movie/film keyword" },
 	{ gate: "zai_web_search_web_search_prime", prompt: "search the web for this", note: "generic web search → core web_search, not redundant zai-mcp" },
 	{ gate: "zai_web_search_web_search_prime", prompt: "zai is a company in Shanghai", note: 'bare "zai" is not a keyword' },
+	{ gate: "pi_deploy", prompt: "build the docker image", note: "no deploy/verify/bundle-pi-agent keyword (docker ≠ pi-agent deploy)" },
 ];
 
 // ── ESCAPE_NAME — every gate reachable by enable_tool({ name }) ──────────────
@@ -121,6 +125,7 @@ export const ESCAPE_NAME: { gate: string; name: string }[] = [
 	{ gate: "collect_videos", name: "collect_videos" },
 	{ gate: "movie", name: "movie" },
 	{ gate: "zai_web_search_web_search_prime", name: "zai_web_search_web_search_prime" },
+	{ gate: "pi_deploy", name: "pi_deploy" },
 ];
 
 // ── ESCAPE_INTENT — intents that DO surface the gate (asserted match) ───────
@@ -135,6 +140,7 @@ export const ESCAPE_INTENT: EscapeIntentProbe[] = [
 	{ gate: "collect_videos", intent: "collect videos from youtube", prompt: "(no keyword)", note: "keywords" },
 	{ gate: "movie", intent: "orchestrate scenes into a film", prompt: "(no keyword)", note: 'keyword "scenes into"/"film" (was a misroute pre-fix)' },
 	{ gate: "zai_web_search_web_search_prime", intent: "use z.ai reader", prompt: "(no keyword)", note: 'keyword "z.ai" (was blind pre-fix)' },
+	{ gate: "pi_deploy", intent: "build and deploy the bundle", prompt: "(no keyword)", note: 'keyword deploy / build bundle' },
 ];
 
 // ── ESCAPE_INTENT_BLIND — empty after the fix (all gates reachable by intent) ─
@@ -155,6 +161,7 @@ export const PRECISION_RISKS: PrecisionRisk[] = [
 	{ gate: "workflow", prompt: "the gitlab pipeline failed", why: 'keyword "pipeline" fires on CI/CD context', severity: "med" },
 	{ gate: "workflow", prompt: "review this multi-step todo list", why: 'keyword "multi-step" fires on a plain todo', severity: "med" },
 	{ gate: "movie", prompt: "the movie director won an oscar", why: 'keyword "movie director" fires on a person', severity: "med" },
+	{ gate: "pi_deploy", prompt: "verify the test results", why: 'bare "verify" fires on any verification request (upstream gate — broad keyword)', severity: "med" },
 ];
 
 // ── OVERLAPS — empty after the fix (storyboard removed from ltx; movie owns it) ─
