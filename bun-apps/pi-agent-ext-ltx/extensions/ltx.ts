@@ -309,7 +309,18 @@ function makeLtxHelpTool() {
     description:
       "On-demand reference for the `ltx` tool. Pass {command} for that command's option keys/defaults/path rules + example; omit args to list subcommands; {topic} for native-vs-prod / shot-language.",
     parameters: Type.Object({
-      command: Type.Optional(COMMAND_ENUM),
+      // COMMAND_ENUM is intentionally NOT used here — the main `ltx` tool
+      // already carries the full command enum in its schema (always co-active
+      // with ltx_help), so duplicating it here was pure schema tax. A free
+      // string + the no-args listing covers discovery; invalid names return the
+      // known list (wayfinder ticket 05 — ~−190 tok/req).
+      command: Type.Optional(
+        Type.String({
+          description:
+            "ltx subcommand to look up (valid values: the ltx tool's `command` enum). " +
+            "Omit to list all subcommands; an unknown name returns the known list.",
+        }),
+      ),
       topic: Type.Optional(HELP_TOPIC_ENUM),
     }),
 

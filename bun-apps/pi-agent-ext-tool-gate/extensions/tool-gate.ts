@@ -149,6 +149,21 @@ export const GATES: ToolGate[] = [
     description: "Research tools — collect trending videos, organize vault notes, import memory",
   },
   {
+    // ArXiv paper retrieval (research-tool ext). "arxiv" is a narrow
+    // word-boundary keyword (near-zero false-fire); CJK 論文 + the noun∧verb
+    // `requires` cover "search/find/read papers" intents WITHOUT firing on
+    // bare "paper" alone (paper cut, a paper trail). arxiv_paper (93 tok) is
+    // included for free — one more gated name costs nothing and removes a
+    // light always-on tool. Recovered ~566 tok/req (wayfinder ticket 04).
+    names: ["arxiv_search", "arxiv_fetch2md", "arxiv_paper"],
+    keywords: ["arxiv", "論文", "找論文", "抓論文", "讀論文", "search paper", "search papers", "find paper", "find papers"],
+    requires: {
+      nouns: ["paper", "papers", "論文"],
+      verbs: ["search", "find", "fetch", "read", "look up", "找", "查", "搜尋", "讀"],
+    },
+    description: "ArXiv paper retrieval — search, fetch-to-markdown, metadata lookup",
+  },
+  {
     names: ["movie", "movie_help"],
     keywords: [
       "montage", "preflight", "storyboard", "分鏡", "剪輯",
@@ -157,6 +172,22 @@ export const GATES: ToolGate[] = [
       "short film", "into a film", "scenes into",
     ],
     description: "Movie orchestrator — idea→script→scene→assets→edit→compose pipeline",
+  },
+  {
+    // Movie-production cost lifecycle (movie-director-cost ext). Bare "cost"
+    // must NOT be a keyword — it false-fires everywhere ("token cost", "cost
+    // of living", "what's the cost"). Gate behind noun∧verb `requires`
+    // (cost/budget/成本/預算 ∧ estimate/calculate/...) so only cost-ESTIMATION
+    // intent fires. Benign false-fires ("estimate the token cost") load the
+    // tool unused — non-gating per the QA verdict; documented in
+    // PRECISION_RISKS. Recovered ~538 tok/req (wayfinder ticket 04).
+    names: ["cost"],
+    keywords: ["cost estimate", "cost lifecycle", "budget estimate", "production cost", "成本估算", "預算估計", "報價單", "cost reserve", "cost reconcile", "cost snapshot"],
+    requires: {
+      nouns: ["cost", "budget", "報價", "成本", "預算", "quote"],
+      verbs: ["estimate", "reserve", "reconcile", "calculate", "breakdown", "snapshot", "估算", "計算", "評估", "估"],
+    },
+    description: "Movie-production cost lifecycle — estimate/reserve/reconcile/snapshot budget governance",
   },
   {
     // zai-mcp MCP proxy tools — redundant with core web_search/fetch_content
