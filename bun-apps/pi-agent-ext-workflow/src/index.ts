@@ -123,6 +123,8 @@ export { parseWorkflowScript, runWorkflow } from "./workflow.js";
 export { registerWorkflowCommands } from "./workflow-commands.js";
 export type { WorkflowControlToolInput, WorkflowControlToolOptions } from "./workflow-control-tool.js";
 export { createWorkflowControlTool } from "./workflow-control-tool.js";
+export { createSubagentRunsTool } from "./subagent-runs-tool.js";
+export type { SubagentRunsToolOptions } from "./subagent-runs-tool.js";
 export {
   buildForcedWorkflowPrompt,
   colorizeWorkflow,
