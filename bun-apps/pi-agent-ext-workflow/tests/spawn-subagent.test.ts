@@ -337,3 +337,37 @@ describe("spawnSubagent budget", () => {
     assert.equal(runner.calls.length, 1, "never retry a budget exhaustion even with retryOnTransient");
   });
 });
+
+describe("spawnSubagent schema repair", () => {
+  it("SCHEMA_NONCOMPLIANCE is transient → retried once (fresh re-run fixes the intermittent zai/glm flake)", async () => {
+    const runner = mkRunner(async () => {
+      if (runner.calls.length === 1) {
+        throw new WorkflowError(
+          "Subagent did not produce valid structured_output after repair attempts",
+          WorkflowErrorCode.SCHEMA_NONCOMPLIANCE,
+          { recoverable: false },
+        );
+      }
+      return "ok";
+    });
+    const out = await spawnSubagent({ task: "t", agent: runner });
+    assert.equal(out.exitCode, 0);
+    assert.equal(out.output, "ok");
+    assert.equal(runner.calls.length, 2, "SCHEMA_NONCOMPLIANCE retried once");
+  });
+
+  it("forwards schemaRepairAttempts to runner.run as maxSchemaRetries", async () => {
+    const runner = mkRunner(async () => "ok");
+    await spawnSubagent({ task: "t", schemaRepairAttempts: 5, agent: runner });
+    assert.equal(runner.calls[0]?.opts.maxSchemaRetries, 5);
+  });
+
+  it("SCHEMA_NONCOMPLIANCE NOT retried when retryOnTransient:false", async () => {
+    const runner = mkRunner(async () => {
+      throw new WorkflowError("no structured_output", WorkflowErrorCode.SCHEMA_NONCOMPLIANCE, { recoverable: false });
+    });
+    const out = await spawnSubagent({ task: "t", retryOnTransient: false, agent: runner });
+    assert.equal(out.exitCode, 1);
+    assert.equal(runner.calls.length, 1, "retryOnTransient:false → no retry");
+  });
+});
