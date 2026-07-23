@@ -17,7 +17,7 @@
 
 export interface SurrealClientOptions {
   endpoint: string;       // e.g. http://127.0.0.1:8000
-  namespace: string;      // e.g. hermes
+  namespace: string;      // e.g. user_<user>
   database: string;       // e.g. memory
   username: string;       // e.g. root
   password: string;       // e.g. root
