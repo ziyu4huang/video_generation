@@ -309,6 +309,7 @@ Expected: FAIL — `Cannot find module '../lib/output-path.ts'`.
 ```typescript
 import { isAbsolute, join } from "node:path";
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 
 export interface ResolveOutputPathOpts {
   cwd: string;
@@ -324,9 +325,7 @@ export function resolveOutputPath(opts: ResolveOutputPathOpts): string {
   const { cwd, diagramType } = opts;
   const named = opts.outputPath ?? opts.metaOutput;
   if (named) return isAbsolute(named) ? named : join(cwd, named);
-  const exists = opts.exists ?? ((p: string) => {
-    try { return Bun.file(p).size >= 0; } catch { return false; }
-  });
+  const exists = opts.exists ?? existsSync;
   const base = join(cwd, `${diagramType}.html`);
   if (!exists(base)) return base;
   const suffix = createHash("sha256").update(`${Date.now()}`).digest("hex").slice(0, 6);
