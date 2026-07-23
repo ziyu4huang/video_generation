@@ -183,7 +183,7 @@ Run from repo root (exact paths; do NOT use `cp -R` of the whole repo):
 cd /Users/huangziyu/proj/video_generation__archify
 SRC=/Users/huangziyu/proj/archify/archify
 DST=bun-apps/pi-agent-ext-archify/vendored
-mkdir -p "$DST/bin" "$DST/scripts" "$DST/delta" "$DST/assets"
+mkdir -p "$DST/bin" "$DST/scripts" "$DST/delta"   # do NOT pre-create $DST/assets here — BSD `cp -R` nests the source INTO a pre-existing dir; the `cp -R` below creates vendored/assets flat (mirrors renderers/ & schemas/).
 cp "$SRC/bin/archify.mjs"        "$DST/bin/archify.mjs"
 cp -R "$SRC/renderers"           "$DST/renderers"
 cp -R "$SRC/schemas"             "$DST/schemas"
