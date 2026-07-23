@@ -356,8 +356,17 @@ function makeFlux2HelpTool() {
     description:
       "On-demand reference for the `flux2` tool. Pass {command} for option keys/defaults/path rules + example; omit args to list subcommands; {topic} for scene-pipeline / self-improve.",
     parameters: Type.Object({
+      // COMMAND_ENUM is intentionally NOT used here — the main `flux2` tool
+      // already carries the full command enum in its schema (always co-active
+      // with flux2_help), so duplicating it here was pure schema tax. A free
+      // string + the no-args listing covers discovery; invalid names return the
+      // known list (wayfinder ticket 05 — ~−180 tok/req).
       command: Type.Optional(
-        COMMAND_ENUM,
+        Type.String({
+          description:
+            "flux2 subcommand to look up (valid values: the flux2 tool's `command` enum). " +
+            "Omit to list all subcommands; an unknown name returns the known list.",
+        }),
       ),
       topic: Type.Optional(HELP_TOPIC_ENUM),
     }),
