@@ -974,3 +974,60 @@ test("execute persists scopeCheck on the durable run record (for /subagents repl
   assert.equal(saved.length, 1);
   assert.deepEqual(saved[0].scopeCheck?.outOfScope, ["README.md"], "violation persisted for replay");
 });
+
+// ── tokenBudget/spendBudget (budget cap) ──
+
+test("execute forwards tokenBudget/spendBudget to spawn", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  await tool.execute("id", { task: "t", tokenBudget: 5000, spendBudget: 0.25 }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.tokenBudget, 5000);
+  assert.equal(f.calls[0]?.spendBudget, 0.25);
+});
+
+test("spawn result with budget → status 'budget', details.budget, distinct output", async () => {
+  const f = fakeSpawn(() => ({
+    output: "",
+    exitCode: 1,
+    stderr: "",
+    timedOut: false,
+    budget: { kind: "tokens", limit: 1000, actual: 1234 },
+  }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  const res = await tool.execute("id", { task: "t", tokenBudget: 1000 }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(res.details.status, "budget");
+  assert.deepEqual(res.details.budget, { kind: "tokens", limit: 1000, actual: 1234 });
+  const text = (res.content[0] as { text: string }).text;
+  assert.match(text, /budget exhausted/);
+  assert.match(text, /1234 tokens/);
+});
+
+test("renderSubagentResult renders a budget badge + budgetTag", () => {
+  const details: SubagentToolDetails = {
+    exitCode: 1,
+    timedOut: false,
+    taskPreview: "p",
+    elapsedMs: 1000,
+    status: "budget",
+    budget: { kind: "tokens", limit: 1000, actual: 1234 },
+  };
+  const out = renderSubagentResult({ content: [{ type: "text", text: "aborted" }], details }, { expanded: false }, T);
+  assert.match(out, /budget/);
+  assert.match(out, /tokens:1234\/1000/);
+});
+
+test("execute persists budget on the durable run record (status 'budget')", async () => {
+  const { saved, persistence } = fakePersistence();
+  const f = fakeSpawn(() => ({
+    output: "",
+    exitCode: 1,
+    stderr: "",
+    timedOut: false,
+    budget: { kind: "spend", limit: 0.5, actual: 0.62 },
+  }));
+  const tool = createSubagentTool({ spawn: f.spawn, persistence });
+  await tool.execute("id", { task: "t", spendBudget: 0.5 }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].status, "budget");
+  assert.deepEqual(saved[0].budget, { kind: "spend", limit: 0.5, actual: 0.62 });
+});

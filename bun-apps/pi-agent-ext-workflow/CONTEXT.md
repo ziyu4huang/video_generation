@@ -244,6 +244,24 @@ _Avoid_: prompt, pause (it is an approval gate with resume semantics)
 The real-token tracker `{ total, spent(), remaining() }`, read from each subagent's session (not estimated). No default cap unless `tokenBudget` / phase budgets add one.
 _Avoid_: limit, quota
 
+**`tokenBudget` / `spendBudget` (per-run subagent cap)**:
+Optional ceilings on the `subagent` tool (and `WorkflowAgent.run`) that ABORT a
+single run mid-run once cumulative token usage (`tokens.total`) or cost (`$`)
+exceeds the limit. Checked per-turn (on each session state change, the same
+subscribe seam as `onHistory`), so an in-flight turn may overshoot by up to one
+turn; on exhaustion the session is aborted and the run surfaces as status
+`"budget"` (`details.budget`: `{kind:"tokens"|"spend", limit, actual}`) —
+distinct from `done`/`failed`/`timedout`, non-recoverable (never retried —
+retrying would re-exhaust the same ceiling). Bounds a SINGLE runaway (looping)
+subagent that `timeoutMs` (wall-clock) alone cannot catch. DELIBERATELY distinct
+from workflow's run-wide `Budget` above: that is a between-agent SOFT gate
+(spent accrues after each agent; an in-flight agent may overshoot and only the
+NEXT dispatch is blocked), whereas this is a hard mid-run abort on ONE agent.
+`checkBudgetExhaustion` is the pure threshold helper; `BudgetExhaustion` the
+record type.
+_Avoid_: conflating with the workflow run-wide Budget (different scope +
+semantics); "quota"
+
 **`commitScope` (subagent guardrail)**:
 An opt-in allowlist of paths a `subagent`-tool run may commit (files or dirs,
 prefix-matched). When set, the tool records the repo HEAD before dispatch and,

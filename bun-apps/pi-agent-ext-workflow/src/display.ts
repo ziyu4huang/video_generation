@@ -265,7 +265,7 @@ export function fmtTokensShort(n: number): string {
 
 export interface ActivityRow {
   /** Covers the union of statuses across workflow agents, subagent runs, and in-flight subagents. */
-  status: WorkflowAgentStatus | "failed" | "timedout";
+  status: WorkflowAgentStatus | "failed" | "timedout" | "budget";
   actor: string;
   model?: string;
   elapsedMs?: number;
@@ -295,6 +295,8 @@ export function activityGlyph(status: ActivityRow["status"]): { icon: string; co
       return { icon: "-", color: "dim" };
     case "timedout":
       return { icon: "⏱", color: "warning" };
+    case "budget":
+      return { icon: "⛔", color: "warning" };
   }
 }
 
