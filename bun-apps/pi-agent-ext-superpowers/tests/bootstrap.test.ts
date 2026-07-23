@@ -148,6 +148,8 @@ describe("bootstrap payload assembly", () => {
     // the documented call signature the agent is told to use
     expect(payload).toContain("task");
     expect(payload).toMatch(/tools|excludeTools|cwd|model/);
+    // commitScope: the SDD commit-hygiene guardrail (catches the git add -A sweep)
+    expect(payload).toContain("commitScope");
   });
 
   it("carries the Path & routing overrides (boundary convergence, ADR-0004-safe)", () => {
