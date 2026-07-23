@@ -27,6 +27,9 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MemoryStore } from "./store/memory-store.js";
 import { SkillStore } from "./store/skill-store.js";
 import { createBackendBundle } from "./store/backend-factory.js";
+import { asSwappable } from "./store/swappable.js";
+import type { MemoryRepository, SessionRepository, BackendBundle } from "./store/repository.js";
+import type { DbBackend } from "./types.js";
 import { scheduleSessionBackfill, waitForSessionBackfill, SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-backfill.js";
 import { scheduleLiveSessionIndex, waitForLiveSessionIndex, SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-live-index.js";
 import { parseSessionFile } from "./store/session-parser.js";
@@ -47,6 +50,7 @@ import { registerSwitchProjectCommand } from "./handlers/switch-project.js";
 import { registerIndexSessionsCommand } from "./handlers/index-sessions.js";
 import { registerLearnMemoryCommand } from "./handlers/learn-memory.js";
 import { registerSyncMarkdownMemoriesCommand, syncMarkdownMemoriesToSqlite } from "./handlers/sync-markdown-memories.js";
+import { registerSwitchBackendCommand } from "./handlers/switch-backend.js";
 import { registerPreviewContextCommand } from "./handlers/preview-context.js";
 import { loadConfig } from "./config.js";
 import { detectProject, detectProjectSkills } from "./project.js";
@@ -103,10 +107,12 @@ export default async function (pi: ExtensionAPI) {
   // 127.0.0.1:8000). Switching backends is NOT runtime-hot: edit the config
   // and restart pi.
   const surrealCfg = config.surreal;
-  const backendLabel =
-    config.dbBackend === "surrealdb"
+  const labelFor = (db: DbBackend): string =>
+    db === "surrealdb"
       ? `surrealdb · ns=${surrealCfg?.namespace ?? "hermes"} db=${surrealCfg?.database ?? "memory"} @ ${surrealCfg?.endpoint ?? "http://127.0.0.1:8000"}`
       : `sqlite · ${path.join(globalDir, "sessions.db")}`;
+  let currentDbBackend: DbBackend = config.dbBackend ?? "sqlite";
+  let backendLabel = labelFor(currentDbBackend);
 
   const shouldMigrateExtensionRoot = !configuredMemoryDir || pointsToLegacyMemoryDir;
   let extensionRootMigrated = false;
@@ -122,7 +128,13 @@ export default async function (pi: ExtensionAPI) {
     legacyPiGlobalSkillsDir: path.join(agentRoot, "skills"),
     migrationSentinelPath: path.join(globalDir, ".skills-migrated-to-extension-storage"),
   });
-  const { backend, memoryRepo, sessionRepo } = await createBackendBundle(config, globalDir);
+  let currentBundle: BackendBundle = await createBackendBundle(config, globalDir);
+  // Swappable proxies: every tool/handler captured `memoryRepo`/`sessionRepo`
+  // at registration time. The proxy always delegates to the CURRENT bundle, so
+  // a live /memory-switch-backend swap is transparent downstream (zero
+  // signature changes) and in-flight background indexing follows the swap.
+  const memoryRepo: MemoryRepository = asSwappable<MemoryRepository>(() => currentBundle.memoryRepo);
+  const sessionRepo: SessionRepository = asSwappable<SessionRepository>(() => currentBundle.sessionRepo);
   const sessionsDir = path.join(agentRoot, "sessions");
 
   const refreshSkillProjectContext = (cwd?: string) => {
@@ -143,6 +155,61 @@ export default async function (pi: ExtensionAPI) {
   } catch {
     // Best-effort only: failed SQLite backfill should not block extension startup.
   }
+
+  // ── Live backend switching (sqlite <-> surrealdb) ──
+  // /memory-switch-backend swaps the active store in-process. The swappable
+  // proxies above make the swap transparent to every captured repo ref.
+  // Memory re-syncs from the .md source of truth; session history needs a
+  // manual /memory-index-sessions. The choice is persisted so the next session
+  // keeps it. Switching is NOT free: the new backend starts with only the
+  // re-synced memories (session index is backend-local).
+  const configPath = path.join(agentRoot, "hermes-memory-config.json");
+  const persistDbBackend = (target: DbBackend): void => {
+    try {
+      const fs = require("node:fs");
+      let existing: Record<string, unknown> = {};
+      if (fs.existsSync(configPath)) {
+        try { existing = JSON.parse(fs.readFileSync(configPath, "utf-8")); } catch { existing = {}; }
+      }
+      existing.dbBackend = target;
+      fs.writeFileSync(configPath, JSON.stringify(existing, null, 2) + "\n");
+    } catch {
+      // best effort — the live switch already took effect for this session
+    }
+  };
+  const switchTo = async (target: DbBackend): Promise<{ ok: boolean; message: string }> => {
+    if (target === currentDbBackend) return { ok: true, message: `already on ${target}` };
+    let nextBundle: BackendBundle;
+    try {
+      nextBundle = await createBackendBundle({ ...config, dbBackend: target }, globalDir);
+    } catch (err) {
+      return { ok: false, message: `failed to initialize ${target}: ${err instanceof Error ? err.message : String(err)}` };
+    }
+    // Quiesce in-flight background indexing (it captured the PROXY, which still
+    // points at the old bundle until we swap) so nothing writes to a backend
+    // we're about to close.
+    try {
+      await Promise.all([
+        waitForSessionBackfill(SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS),
+        waitForLiveSessionIndex(SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS),
+      ]);
+    } catch {
+      // best effort
+    }
+    const oldBundle = currentBundle;
+    currentBundle = nextBundle; // proxies now delegate to the new repos
+    currentDbBackend = target;
+    backendLabel = labelFor(target);
+    try {
+      await syncMarkdownMemoriesToSqlite(currentBundle.memoryRepo, globalDir, config.projectsMemoryDir, agentRoot);
+    } catch {
+      // best effort; next session_start re-syncs
+    }
+    try { await oldBundle.backend.close(); } catch { /* best effort */ }
+    try { persistDbBackend(target); } catch { /* best effort */ }
+    return { ok: true, message: `switched to ${target}` };
+  };
+  registerSwitchBackendCommand(pi, { getCurrent: () => currentDbBackend, switchTo, labelFor });
 
   // Detect project from cwd using shared helper
   // Project-scoped store: ~/.pi/agent/<projectsMemoryDir>/<project_name>/
@@ -298,7 +365,7 @@ export default async function (pi: ExtensionAPI) {
       } catch {
         // Best effort only — shutdown should not be held up by indexing errors.
       }
-      try { await backend.close(); } catch { /* best effort — never block shutdown */ }
+      try { await currentBundle.backend.close(); } catch { /* best effort — never block shutdown */ }
     }
   });
 }
