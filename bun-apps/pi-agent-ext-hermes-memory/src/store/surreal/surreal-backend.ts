@@ -2,11 +2,12 @@ import type { Backend } from "../repository.js";
 import type { SurrealConnection } from "../../types.js";
 import { SurrealClient } from "./surreal-client.js";
 import { SURREAL_BOOTSTRAP_SQL } from "./schema.js";
+import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./per-user-db.js";
 
 const DEFAULTS: SurrealConnection = {
   endpoint: "http://127.0.0.1:8000",
-  namespace: "hermes",
-  database: "memory",
+  namespace: derivePerUserNamespace(),
+  database: DEFAULT_SURREAL_DATABASE,
   username: "root",
   password: "root",
 };
