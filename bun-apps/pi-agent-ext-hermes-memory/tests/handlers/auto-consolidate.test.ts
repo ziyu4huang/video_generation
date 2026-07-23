@@ -91,6 +91,17 @@ describe("triggerConsolidation", () => {
     assert.ok(result.error!.includes("exit"), "error should mention exit code");
   });
 
+  it("surfaces stdout (not just stderr) when the child exits non-zero with empty stderr", async () => {
+    // Models the dead-launcher case: the child prints its real error to stdout,
+    // stderr is empty — must not collapse to "unknown error".
+    const pi = createMockPi({ code: 1, stdout: "error: Module not found '/x/cli.ts'", stderr: "" });
+    const result = await triggerConsolidation(pi, mockStore, "memory");
+
+    assert.strictEqual(result.consolidated, false);
+    assert.ok(result.error!.includes("Module not found"), "should surface the stdout error");
+    assert.ok(!result.error!.includes("unknown error"), "should not mask behind 'unknown error'");
+  });
+
   it("surfaces timeout-style child termination clearly", async () => {
     const pi = createMockPi({ code: 143, stdout: "", stderr: "", killed: true } as any);
     const result = await triggerConsolidation(pi, mockStore, "memory", undefined, 60000);
