@@ -31,6 +31,15 @@ scipy
 scikit-image
 mediapipe
 edge-tts
+mlx-audio      # local TTS (run.py tts --engine mlx, Kokoro-82M) — no
+               # per-call network egress. Needs 4 extra deps below, plus the
+               # system `espeak-ng` binary (brew install espeak-ng on macOS)
+               # and a one-time `en_core_web_sm` spaCy model download
+               # (auto-fetched on first --engine mlx call).
+misaki         # Kokoro's text-to-phoneme frontend
+num2words      # misaki's English G2P needs this for number expansion
+spacy          # misaki's English G2P needs this for POS tagging
+phonemizer     # misaki's espeak-ng bridge
 mlx-whisper
 mlx-vlm
 spandrel
