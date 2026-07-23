@@ -74,7 +74,7 @@
         "@repo/pi-agent-ext-research-tool": "workspace:*",
         "@repo/pi-agent-ext-web-access": "workspace:*",
         "@repo/pi-agent-ext-workflow": "workspace:*",
-        "typebox": "latest",
+        "typebox": "^1.3.7",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -204,7 +204,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@earendil-works/pi-coding-agent": "0.81.1",
-        "typebox": "latest",
+        "typebox": "^1.3.7",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -228,7 +228,7 @@
         "ajv": "latest",
         "ajv-formats": "latest",
         "msedge-tts": "^2.0.7",
-        "typebox": "latest",
+        "typebox": "^1.3.7",
         "yaml": "latest",
       },
       "devDependencies": {
@@ -259,7 +259,7 @@
         "@earendil-works/pi-tui": "0.81.1",
         "@playwright/cli": "^0.1.17",
         "js-yaml": "latest",
-        "typebox": "latest",
+        "typebox": "^1.3.7",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -357,7 +357,7 @@
         "@earendil-works/pi-tui": "0.81.1",
         "@types/bun": "^1.3.14",
         "tsx": "latest",
-        "typebox": "latest",
+        "typebox": "^1.3.7",
         "typescript": "latest",
       },
       "peerDependencies": {
