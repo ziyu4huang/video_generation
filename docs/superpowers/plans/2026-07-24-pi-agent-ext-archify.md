@@ -492,12 +492,12 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { runArchify, withTempIr } from "./run.ts";
 
 export const validateParams = Type.Object({
-  ir: Type.Optional(Type.Record(Type.String(), Type.Unknown()),
-    { description: "The diagram IR as a JSON object. Omit if passing irPath." }),
-  irPath: Type.Optional(Type.String(),
-    { description: "Path to an IR .json file (absolute or cwd-relative). Used if `ir` is omitted." }),
-  type: Type.Optional(Type.String(),
-    { description: "Diagram type: architecture|workflow|sequence|dataflow|lifecycle. Inferred from ir.diagram_type if omitted." }),
+  ir: Type.Optional(
+    Type.Record(Type.String(), Type.Unknown(), { description: "The diagram IR as a JSON object. Omit if passing irPath." })),
+  irPath: Type.Optional(
+    Type.String({ description: "Path to an IR .json file (absolute or cwd-relative). Used if `ir` is omitted." })),
+  type: Type.Optional(
+    Type.String({ description: "Diagram type: architecture|workflow|sequence|dataflow|lifecycle. Inferred from ir.diagram_type if omitted." })),
 });
 
 export interface ValidateCtx { cwd: string }
@@ -658,7 +658,7 @@ export const renderTool = defineTool({
     "Pass `ir` (JSON object) or `irPath`. Optional `outputPath` (absolute or cwd-relative); default honors ir.meta.output else <cwd>/<type>.html. " +
     "Validate first with archify_validate. Returns the absolute output path.",
   parameters: Type.Object({
-    ir: Type.Optional(Type.Record(Type.String(), Type.Unknown()), { description: "Diagram IR as a JSON object." }),
+    ir: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: "Diagram IR as a JSON object." })),
     irPath: Type.Optional(Type.String({ description: "Path to an IR .json file (absolute or cwd-relative)." })),
     outputPath: Type.Optional(Type.String({ description: "Output HTML path (absolute or cwd-relative). Default: ir.meta.output else <cwd>/<type>.html." })),
   }),
