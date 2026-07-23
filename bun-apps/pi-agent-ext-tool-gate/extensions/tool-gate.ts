@@ -405,6 +405,13 @@ export function measureToolTokens(tool: { description?: string; parameters?: unk
 }
 
 export default function toolGateExtension(pi: ExtensionAPI) {
+  // A/B kill-switch (wayfinder ticket 04): TOOL_GATE_DISABLE=1 makes the
+  // extension a no-op — registers nothing, sets no active tools — so every
+  // loaded tool stays active (the ungated OFF baseline). Used by `bun run qa
+  // --l2` to run identical tasks ON vs OFF. Cheap to respect early: the whole
+  // gate (CORE_TOOLS/GATES/sticky) is bypassed.
+  if (process.env.TOOL_GATE_DISABLE === "1") return;
+
   let allToolNames: string[] = [];
   let sticky = new Set<string>(CORE_TOOLS);
   let lastPrompt = ""; // captured each turn; read by enable_tool (T5)
