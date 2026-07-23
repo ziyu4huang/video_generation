@@ -125,7 +125,7 @@ export const subagentToolSchema = Type.Object({
   ),
   retryOnTransient: Type.Optional(
     Type.Boolean({
-      description: "Retry once on a transient failure (timeout/network/rate-limit). Default true.",
+      description: "Retry once on a transient failure (timeout/network/rate-limit/schema noncompliance). Default true.",
     }),
   ),
   commitScope: Type.Optional(
@@ -138,6 +138,12 @@ export const subagentToolSchema = Type.Object({
     Type.Unknown({
       description:
         "JSON Schema for the subagent's final answer (e.g. {type:'object', properties:{...}}). When set, the child must return via a structured_output call matching this shape instead of prose; the tool result is the JSON-serialized object.",
+    }),
+  ),
+  schemaRepairAttempts: Type.Optional(
+    Type.Number({
+      description:
+        "Max in-session repair re-prompts when the child returns prose instead of calling structured_output (default 2). Bump for models that unreliably emit structured output (e.g. zai/glm). A schema failure is also retried once via retryOnTransient (intermittent on some models).",
     }),
   ),
 });
@@ -503,6 +509,7 @@ export function createSubagentTool(
           spendBudget: params.spendBudget,
           retryOnTransient: params.retryOnTransient,
           schema: params.schema as TSchema | undefined,
+          schemaRepairAttempts: params.schemaRepairAttempts,
           onModelResolved: (id) => {
             resolvedModel = id;
           },

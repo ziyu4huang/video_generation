@@ -1031,3 +1031,12 @@ test("execute persists budget on the durable run record (status 'budget')", asyn
   assert.equal(saved[0].status, "budget");
   assert.deepEqual(saved[0].budget, { kind: "spend", limit: 0.5, actual: 0.62 });
 });
+
+// ── schemaRepairAttempts (structured-output repair) ──
+
+test("execute forwards schemaRepairAttempts to spawn", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  await tool.execute("id", { task: "t", schemaRepairAttempts: 4 }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.schemaRepairAttempts, 4);
+});
