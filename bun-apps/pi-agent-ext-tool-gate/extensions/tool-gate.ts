@@ -2,11 +2,11 @@
  * Dynamic Tool Gate Extension — reduces API tools schema overhead
  *
  * Keeps core tools always active while gating heavy domain-specific tools
- * (flux2, ltx, krea2, file2md, inspect, workflow, research) behind prompt
- * keyword matching.
+ * (flux2, ltx, krea2, file2md, inspect, workflow, movie, arxiv, cost,
+ * zai-mcp, pi_deploy) behind prompt keyword matching.
  *
- * Baseline:  ~45 tools → ~14,700 tok/req   (measured via `bun run qa`)
- * Gated:    ~27 tools →  ~8,800 tok/req   (saves ~5,875 tok/turn, ~40%)
+ * Baseline:  ~52 tools → ~16,500 tok/req   (measured via `bun run qa`)
+ * Gated:    ~24 tools →  ~7,900 tok/req   (saves ~8,500 tok/turn, ~52%; zai-mcp env-gated)
  *
  * Tools reactivate instantly when the prompt mentions relevant keywords, and
  * once activated stay active for the rest of the session (they never re-gate
@@ -84,7 +84,7 @@ export const GATES: ToolGate[] = [
     ],
     requires: {
       nouns: ["image", "picture", "photo", "圖"],
-      verbs: ["generate", "create", "make", "draw", "render", "produce", "生成", "做", "畫", "繪"],
+      verbs: ["generate", "create", "make", "draw", "render", "produce", "want", "need", "生成", "做", "畫", "繪"],
     },
     description: "Flux2 image generation — text-to-image, i2i, faceswap, outpaint, upscale, restore",
   },
@@ -103,9 +103,9 @@ export const GATES: ToolGate[] = [
     keywords: ["ltx", "t2v", "i2v", "vbvr", "relay", "影片特效"],
     requires: {
       nouns: ["video", "影片", "視頻", "視訊", "動畫", "電影"],
-      verbs: ["generate", "create", "make", "animate", "produce", "render", "生成", "做", "製作", "剪"],
+      verbs: ["generate", "create", "make", "animate", "produce", "render", "want", "need", "生成", "做", "製作", "剪"],
     },
-    description: "LTX video generation — text/image-to-video, upscale, storyboard, relay",
+    description: "LTX video generation — text/image-to-video, upscale, vbvr, relay",
   },
   {
     names: ["file2md", "vision_ask"],
@@ -201,11 +201,18 @@ export const GATES: ToolGate[] = [
     description: "Z.ai MCP web tools — web-search-prime + web-reader (redundant with core web tools)",
   },
   {
+    // Bare "deploy"/"verify" are NOT keywords — they false-fire everywhere
+    // ("deploy to vercel", "verify the fix"), violating the S2 bare-word rule
+    // the cost/image/video gates follow. Gate behind noun∧verb `requires`
+    // (bundle/pi-agent/extension noun ∧ build/deploy/verify/test verb) so only
+    // pi-agent-bundling intent fires. The prior "verify the test results"
+    // false-fire is now fixed (removed from PRECISION_RISKS).
     names: ["pi_deploy", "pi_verify"],
-    keywords: [
-      "build bundle", "deploy", "verify", "run-test", "bundle pi-agent",
-      "部署", "建置", "驗證",
-    ],
+    keywords: ["build bundle", "bundle pi-agent", "pi-agent bundle", "run-test"],
+    requires: {
+      nouns: ["bundle", "pi-agent", "pi agent", "extension"],
+      verbs: ["build", "deploy", "verify", "test", "bundle", "部署", "建置", "驗證", "打包"],
+    },
     description: "Build/verify/deploy the pi-agent bundle + extension bundles (wraps deploy.ts + run-test.sh)",
   },
 ];
@@ -246,6 +253,13 @@ export function filterActive(allToolNames: string[], sticky: Set<string>): strin
  * rendered lines to stderr so the trigger is observable where setWidget is a
  * no-op (print/RPC/noOpUIContext). Both default off; prod calls omit `opts`.
  */
+// M6: pending banner timer ids across the process. Cleared at the top of each
+// scheduleToolGateBanner call so a new session_start (/resume, ctx.fork)
+// doesn't leave a prior session's show/dismiss timers running — all banners
+// share the "tool-gate" widget key, so a stale show would flash the old
+// session's lines and a stale dismiss would prematurely clear the new one.
+let pendingBannerTimers: ReturnType<typeof setTimeout>[] = [];
+
 export function scheduleToolGateBanner(
 	ctx: { ui: { setWidget(key: string, lines: string[] | undefined): void } },
 	lines: string[],
@@ -263,7 +277,11 @@ export function scheduleToolGateBanner(
 		// (print / RPC / noOpUIContext).
 		console.error(`[tool-gate banner]\n${lines.join("\n")}`);
 	}
-	setTimeout(() => {
+	// M6: clear any banner timers still pending from a prior session_start.
+	for (const id of pendingBannerTimers) clearTimeout(id);
+	pendingBannerTimers = [];
+
+	const showTimer = setTimeout(() => {
 		try {
 			ctx.ui.setWidget("tool-gate", lines);
 		} catch {
@@ -271,14 +289,17 @@ export function scheduleToolGateBanner(
 		}
 		// Auto-dismiss after DISPLAY_MS. Guarded the same way: a session switch
 		// between show and dismiss leaves ctx stale.
-		setTimeout(() => {
+		const dismissTimer = setTimeout(() => {
 			try {
 				ctx.ui.setWidget("tool-gate", undefined);
 			} catch {
 				/* ctx stale after session switch */
 			}
+			pendingBannerTimers = pendingBannerTimers.filter((id) => id !== dismissTimer);
 		}, DISPLAY_MS);
+		pendingBannerTimers.push(dismissTimer);
 	}, SHOW_DELAY_MS);
+	pendingBannerTimers.push(showTimer);
 }
 
 // ── Keyword matching (S2) ────────────────────────────────────────
@@ -294,10 +315,26 @@ export function escapeRegExp(s: string): string {
  *    matching inside "conflux", "image" inside "images".
  *  - Multi-word phrase or CJK: substring (no word boundaries without a
  *    segmenter; phrases are specific enough once bare words are removed). */
+// Hoisted: the single-ASCII-token type test is constant — compiling it per
+// call (every gate × every keyword/noun/verb, every turn) was pure waste.
+const ASCII_TOKEN_RE = /^[a-z0-9]+$/i;
+// Cache of compiled word-boundary regexes, keyed by lowercased keyword. The
+// keyspace is the finite GATES keyword/noun/verb set (~120), so the cache is
+// bounded; `new RegExp` per call on the hot per-turn path was the cost.
+const wordBoundaryRegexCache = new Map<string, RegExp>();
+function wordBoundaryRegex(kw: string): RegExp {
+	let re = wordBoundaryRegexCache.get(kw);
+	if (!re) {
+		re = new RegExp(`\\b${escapeRegExp(kw)}\\b`, "i");
+		wordBoundaryRegexCache.set(kw, re);
+	}
+	return re;
+}
+
 export function matchesKeyword(keyword: string, promptLower: string): boolean {
 	const kw = keyword.toLowerCase();
-	if (/^[a-z0-9]+$/i.test(keyword)) {
-		return new RegExp(`\\b${escapeRegExp(kw)}\\b`, "i").test(promptLower);
+	if (ASCII_TOKEN_RE.test(keyword)) {
+		return wordBoundaryRegex(kw).test(promptLower);
 	}
 	return promptLower.includes(kw);
 }
@@ -451,15 +488,13 @@ export default function toolGateExtension(pi: ExtensionAPI) {
 
   let allToolNames: string[] = [];
   let sticky = new Set<string>(CORE_TOOLS);
-  let lastPrompt = ""; // captured each turn; read by enable_tool (T5)
-  let measuredTokens = new Map<string, number>(); // built at session_start (S3)
+  let measuredTokens = new Map<string, number>(); // built at session_start (S3), grown per-turn (M7)
 
   // ── On session start: capture full tool list and gate ──
   pi.on("session_start", async (_event, ctx) => {
     const all = pi.getAllTools();
     allToolNames = all.map((t: { name: string }) => t.name);
     sticky = new Set(CORE_TOOLS);
-    lastPrompt = "";
 
     // S3: measure each loaded tool's schema cost once for the session.
     measuredTokens = new Map(
@@ -475,7 +510,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     const saved = computeBannerSaved(active, allToolNames, measuredTokens);
 
     const debug = process.env.TOOL_GATE_DEBUG_BANNER === "1";
-    const theme = ctx.ui.theme;
+    const theme = ctx.ui?.theme ?? ({ fg: (_k: string, s: string) => s } as NonNullable<typeof ctx.ui.theme>);
     scheduleToolGateBanner(
       ctx,
       [
@@ -489,9 +524,15 @@ export default function toolGateExtension(pi: ExtensionAPI) {
   // ── Per-turn: refresh tool list (D), re-evaluate gates (sticky), emit telemetry ──
   pi.on("before_agent_start", async (event, _ctx) => {
     // D: re-fetch each turn so dynamically-registered or renamed tools are seen.
-    allToolNames = pi.getAllTools().map((t: { name: string }) => t.name);
+    const all = pi.getAllTools();
+    allToolNames = all.map((t: { name: string }) => t.name);
+    // M7: measure any tool that appeared since session_start (lazily-registered
+    // extensions) so savedTok/banner reflect the tools actually present this
+    // turn instead of under-counting late arrivals as 0 tokens.
+    for (const t of all as Array<{ name: string; description?: string; parameters?: unknown }>) {
+      if (!measuredTokens.has(t.name)) measuredTokens.set(t.name, measureToolTokens(t));
+    }
     const prompt = event.prompt ?? "";
-    lastPrompt = prompt;
 
     const before = new Set(sticky);
     updateSticky(prompt, sticky);
@@ -525,7 +566,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     name: "enable_tool",
     label: "Enable a gated tool",
     description:
-      "Heavy tools (ltx video, flux2 image, movie orchestrator, krea2, file2md/vision, inspect, workflow, research) are GATED out of your tool list to save context. If you need a capability you don't see, call this tool: use `intent` to describe what you want (e.g. 'make a video', 'generate an image', 'orchestrate a montage'), `name` to activate a specific tool (e.g. 'ltx', 'flux2', 'movie'), or `list:true` to see dormant tools. Activation is sticky — once enabled, the tool stays available for the session.",
+      "Heavy tools (flux2 image, ltx video, movie orchestrator, krea2, file2md/vision, inspect, workflow, research/video-collect, arxiv papers, movie-production cost, z.ai web tools, pi-agent deploy/verify) are GATED out of your tool list to save context. If you need a capability you don't see, call this tool: use `intent` to describe what you want (e.g. 'make a video', 'generate an image', 'orchestrate a montage'), `name` to activate a specific tool (e.g. 'ltx', 'flux2', 'movie'), or `list:true` to see dormant tools. Activation is sticky — once enabled, the tool stays available for the session.",
     promptSnippet: "Enable a gated heavy tool (video/image/movie/...) by intent or name.",
     promptGuidelines: [
       "If you need a capability not in your tool list (e.g. video/image/movie generation), call enable_tool first rather than telling the user it's unavailable.",
@@ -601,8 +642,9 @@ export default function toolGateExtension(pi: ExtensionAPI) {
         const activated: string[] = [];
         for (const g of matched) for (const n of g.names) { sticky.add(n); activated.push(n); }
         // F1 fix: compute the active list directly from sticky — do NOT
-        // re-fire gates against lastPrompt, which would silently activate
-        // additional gates beyond the one explicitly requested.
+        // re-evaluate gates against the turn prompt (updateSticky), which
+        // would silently activate additional gates beyond the one explicitly
+        // requested.
         const active = filterActive(allToolNames, sticky);
         pi.setActiveTools(active);
         emitToolGateLog({

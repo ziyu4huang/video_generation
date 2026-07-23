@@ -49,6 +49,7 @@ export const MUST_FIRE: Probe[] = [
 	// flux2 (requires: noun∧verb OR keyword)
 	{ gate: "flux2", prompt: "generate an image of a cat", note: "noun image ∧ verb generate" },
 	{ gate: "flux2", prompt: "draw me a picture of the scene", note: "noun picture ∧ verb draw" },
+	{ gate: "flux2", prompt: "I want an image of a cat", note: "noun image ∧ verb want (I5: intent verbs)" },
 	{ gate: "flux2", prompt: "use flux to render a poster", note: "keyword flux" },
 	{ gate: "flux2", prompt: "幫我把這張照片去背", note: "keyword 去背" },
 	{ gate: "flux2", prompt: "txt2img a snowy landscape", note: "keyword txt2img" },
@@ -59,6 +60,7 @@ export const MUST_FIRE: Probe[] = [
 	// ltx (requires OR keyword)
 	{ gate: "ltx", prompt: "generate a video of the scene", note: "noun video ∧ verb generate" },
 	{ gate: "ltx", prompt: "make a short video clip", note: "noun video ∧ verb make" },
+	{ gate: "ltx", prompt: "I need a video for this scene", note: "noun video ∧ verb need (I5: intent verbs)" },
 	{ gate: "ltx", prompt: "use ltx for t2v", note: "keyword ltx / t2v" },
 	{ gate: "ltx", prompt: "加入影片特效", note: "keyword 影片特效" },
 	// file2md (requires OR keyword)
@@ -85,8 +87,8 @@ export const MUST_FIRE: Probe[] = [
 	{ gate: "zai_web_search_web_search_prime", prompt: "use zai search for this", note: 'keyword "zai search"' },
 	{ gate: "zai_web_search_web_search_prime", prompt: "read this webpage with Z.ai's reader endpoint", note: 'keyword "z.ai" (fix closed the blind gap)' },
 	// pi_deploy (upstream gate — wraps deploy.ts + run-test.sh)
-	{ gate: "pi_deploy", prompt: "build and deploy the pi-agent bundle", note: 'keyword deploy / build bundle' },
-	{ gate: "pi_deploy", prompt: "部署 pi-agent 建置", note: "keyword 部署 / 建置" },
+	{ gate: "pi_deploy", prompt: "build and deploy the pi-agent bundle", note: "requires: noun bundle ∧ verb build/deploy" },
+	{ gate: "pi_deploy", prompt: "部署 pi-agent 建置", note: "requires: noun pi-agent ∧ verb 部署/建置" },
 	// arxiv (keyword arxiv OR requires noun∧verb)
 	{ gate: "arxiv_search", prompt: "find papers on diffusion policies", note: "noun papers ∧ verb find" },
 	{ gate: "arxiv_search", prompt: "fetch the arxiv paper 2401.12345", note: "keyword arxiv" },
@@ -171,12 +173,21 @@ export const ESCAPE_INTENT_BLIND: EscapeIntentProbe[] = [];
 //   over-matches the verdict (ticket 05) chose to leave non-gating.
 
 export const PRECISION_RISKS: PrecisionRisk[] = [
+	// — requires over-matches: dev/infra contexts that pair a media noun with a
+	//   generation/intent verb (I5 added want/need to raise recall on "I want
+	//   an image" / "I need a video"; the cost is these benign over-matches) —
 	{ gate: "flux2", prompt: "make the docker image smaller", why: 'noun "image" ∧ verb "make" (requires over-matches dev/infra)', severity: "med" },
 	{ gate: "ltx", prompt: "make the video buffer larger", why: 'noun "video" ∧ verb "make" (dev/infra context)', severity: "med" },
+	{ gate: "flux2", prompt: "I want to resize the image", why: 'noun "image" ∧ verb "want" (I5: intent verb over-matches an edit intent)', severity: "med" },
+	{ gate: "ltx", prompt: "I need to compress the video", why: 'noun "video" ∧ verb "need" (I5: intent verb over-matches a transcode intent)', severity: "med" },
+	{ gate: "flux2", prompt: "做一個圖表來比較數據", why: 'CJK noun "圖" (substring of 圖表) ∧ verb "做" — charts/maps false-fire', severity: "low" },
+	{ gate: "inspect_context", prompt: "check the context of this error", why: 'noun "context" ∧ verb "check" (debugging, not introspection)', severity: "low" },
+	// — bare/ambiguous keywords that fire on unrelated contexts —
 	{ gate: "workflow", prompt: "the gitlab pipeline failed", why: 'keyword "pipeline" fires on CI/CD context', severity: "med" },
 	{ gate: "workflow", prompt: "review this multi-step todo list", why: 'keyword "multi-step" fires on a plain todo', severity: "med" },
 	{ gate: "movie", prompt: "the movie director won an oscar", why: 'keyword "movie director" fires on a person', severity: "med" },
-	{ gate: "pi_deploy", prompt: "verify the test results", why: 'bare "verify" fires on any verification request (upstream gate — broad keyword)', severity: "med" },
+	{ gate: "krea2", prompt: "sketch out the plan first", why: 'keyword "sketch" fires on planning/architecture context', severity: "med" },
+	{ gate: "ltx", prompt: "relay the message to the team", why: 'keyword "relay" fires on communication context', severity: "med" },
 	{ gate: "arxiv_search", prompt: "read the white paper first", why: 'noun "paper" ∧ verb "read" (doc-reading, not arxiv retrieval)', severity: "low" },
 	{ gate: "cost", prompt: "estimate the token cost", why: 'noun "cost" ∧ verb "estimate" (dev/infra, not movie-production)', severity: "low" },
 ];

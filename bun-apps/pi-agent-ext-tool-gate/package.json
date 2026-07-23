@@ -2,7 +2,7 @@
   "name": "@repo/pi-agent-ext-tool-gate",
   "private": true,
   "version": "0.1.0",
-  "description": "Dynamic Tool Gate — keeps core tools always active while gating heavy domain-specific tools (flux2, ltx, krea2, file2md, inspect, workflow, research) behind prompt keyword matching. Reactivates instantly on keyword and stays active for the session.",
+  "description": "Dynamic Tool Gate — keeps core tools always active while gating heavy domain-specific tools (image/video/movie generation, document understanding, introspection, workflow orchestration, research, arxiv, production cost, z.ai web, deploy) behind prompt keyword matching. Reactivates instantly on keyword and stays active for the session.",
   "license": "MIT",
   "keywords": ["pi-package", "tool-gate", "token-optimization"],
   "type": "module",
