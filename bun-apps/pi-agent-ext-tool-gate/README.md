@@ -1,17 +1,22 @@
 # Dynamic Tool Gate
 
-> Keeps core tools always active while gating heavy domain-specific tools behind prompt keyword matching — saving ~8,500 tokens per request.
+> Keeps core tools always active while gating heavy domain-specific tools behind prompt keyword matching — saving ~5,900 tokens per request (~40%).
 
 ## The Problem
 
-Every registered tool adds to the API request's tools schema. With a full extension ecosystem loaded, a single pi session can carry **41 tools → ~18,500 tokens per request** — a fixed overhead charged on every turn, even when 95% of those tools are never used.
+Every registered tool adds to the API request's tools schema. With a full extension ecosystem loaded, a single pi session can carry **~45 tools → ~14,700 tokens per request** — a fixed overhead charged on every turn, even when 95% of those tools are never used.
 
 This extension solves that by keeping lightweight core tools always active and hiding heavy domain-specific tools (video generation, image generation, movie orchestration, etc.) behind keyword gates. When the user's prompt mentions a relevant keyword, the matching gate fires instantly and the tool becomes available for the rest of the session.
 
 ```
-Baseline:  41 tools → ~18,500 tok/req
-Gated:    ~27 tools → ~10,000 tok/req   (saves ~8,500 tok/turn)
+Baseline:  ~45 tools → ~14,700 tok/req   (measured via `bun run qa`)
+Gated:    ~27 tools →  ~8,800 tok/req   (saves ~5,875 tok/turn, ~40%)
 ```
+
+> Figures are measured by `bun run qa` (power-tool `schema-cost`) and are a
+> **lower bound**: the `workflow` gate is currently uncosted (its factory crashes
+> the capturing mock on `pi.events.on`) and `zai-mcp` is only loaded when
+> registered. Re-run `bun run qa` after changing the gate set for live numbers.
 
 ## How It Works
 
@@ -156,7 +161,7 @@ On session start, a transient above-editor widget (keyed `"tool-gate"`) shows th
 
 ```
 🔧 Tool gate: 27/41 active
-saves ~8500 tok/req
+saves ~5875 tok/req
 ```
 
 The banner uses `setWidget` (not `notify`) so it never clobbers or is clobbered by other extensions' startup messages. It auto-dismisses after 8 seconds.

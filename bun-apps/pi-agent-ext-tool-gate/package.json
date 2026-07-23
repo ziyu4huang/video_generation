@@ -14,7 +14,9 @@
     "extensions": ["./extensions"]
   },
   "scripts": {
-    "test": "bun test"
+    "test": "bun test",
+    "qa:savings": "bun run qa/savings.ts",
+    "qa": "bun run qa/run.ts"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "0.81.1",
