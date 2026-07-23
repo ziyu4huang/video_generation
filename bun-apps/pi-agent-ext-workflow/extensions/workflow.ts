@@ -49,7 +49,13 @@ export default function extension(pi: ExtensionAPI) {
   manager.setHostFns(sessionHostFns);
   const HOSTFN_REGISTER = "workflow:hostfn:v1:register";
   const HOSTFN_REQUEST = "workflow:hostfn:v1:request";
-  pi.events.on(HOSTFN_REGISTER, (payload: unknown) => applyHostFnRegistration(sessionHostFns, payload));
+  // `pi.events` is optional — absent in the schema-cost capturing mock and
+  // any host without the event bus (see the emit-side guard + comment below).
+  // Guard the host-fn registration so an absent bus skips instead of throwing
+  // `undefined is not an object (evaluating 'pi.events.on')`.
+  if (pi.events) {
+    pi.events.on(HOSTFN_REGISTER, (payload: unknown) => applyHostFnRegistration(sessionHostFns, payload));
+  }
 
   const workflowTool = createWorkflowTool({
     cwd,
