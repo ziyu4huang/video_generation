@@ -190,6 +190,15 @@ async function runScenario(s: Scenario): Promise<Result> {
 	// benign i18n fallback) is deliberately NOT matched — it's not an extension
 	// load failure. Match "failed to load extension" specifically.
 	const ERR = /conflict|cannot find|failed to load extension/i;
+	// run-dir's own advisory/diagnostic output (the "dependency resolution
+	// guide", debug logs, lazy-alias notice) all share the `[bun-pi] run-dir:`
+	// prefix and are INFORMATIONAL — never a real loader error. The guide text
+	// literally quotes "Failed to load extension: Cannot find module" to explain
+	// what `bun install` fixes, which ERR above would otherwise mis-flag as a
+	// load failure (false positive in SNAPSHOT/source mode, where the guide is
+	// allowed to fire). Real loader errors are emitted by the SDK WITHOUT this
+	// prefix, so excluding it does not weaken the check.
+	const RUN_DIR_ADVISORY = /\[bun-pi\] run-dir:/;
 	let killed = false;
 	let timedOut = false;
 	// No timeout existed here before — a probe that never fires (for ANY
@@ -244,7 +253,7 @@ async function runScenario(s: Scenario): Promise<Result> {
 							/* */
 						}
 						killed = true;
-					} else if (ERR.test(line)) {
+					} else if (ERR.test(line) && !RUN_DIR_ADVISORY.test(line)) {
 						errors.push(line.replace(/\x1b\[[0-9;]*m/g, "").trim());
 					}
 				}
