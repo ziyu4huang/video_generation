@@ -150,6 +150,9 @@ describe("bootstrap payload assembly", () => {
     expect(payload).toMatch(/tools|excludeTools|cwd|model/);
     // commitScope: the SDD commit-hygiene guardrail (catches the git add -A sweep)
     expect(payload).toContain("commitScope");
+    // tokenBudget/spendBudget: per-agent spend cap (soft guidance — bounds runaway dispatches)
+    expect(payload).toContain("tokenBudget");
+    expect(payload).toContain("spendBudget");
   });
 
   it("carries the Path & routing overrides (boundary convergence, ADR-0004-safe)", () => {
