@@ -1,5 +1,7 @@
 import { fileURLToPath } from "node:url";
 import * as path from "node:path";
+import * as fs from "node:fs";
+import * as os from "node:os";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { buildChildPiPromptArgs, execChildPrompt, inheritedExtensionArgs, resolveChildPiInvocation } from "../../src/handlers/pi-child-process.js";
@@ -103,6 +105,34 @@ describe("resolveChildPiInvocation", () => {
       resolveChildPiInvocation(args, { platform: "win32", piCliPath: null }),
       { command: "pi", args },
     );
+  });
+
+  it("prefers the parent process's own pi CLI entry (cli.ts) on non-Windows, avoiding a stale PATH pi shim", () => {
+    // Models the consolidation child: the parent runs a source cli.ts, so a
+    // broken PATH `pi` launcher must NOT be used when the running CLI is known.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-cli-"));
+    const fakeCli = path.join(tmp, "cli.ts");
+    fs.writeFileSync(fakeCli, "// fake pi cli");
+    try {
+      const result = resolveChildPiInvocation(["-p", "hello"], {
+        platform: "darwin",
+        execPath: "/usr/local/bin/bun",
+        argv: ["/usr/local/bin/bun", fakeCli],
+      });
+      assert.strictEqual(result.command, "/usr/local/bin/bun");
+      assert.strictEqual(result.args[0], fakeCli);
+      assert.deepStrictEqual(result.args.slice(1), ["-p", "hello"]);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to PATH `pi` on non-Windows when argv[1] is not a pi CLI entry", () => {
+    const result = resolveChildPiInvocation(["-p", "hello"], {
+      platform: "darwin",
+      argv: ["/usr/local/bin/bun", "/usr/local/lib/bun-test/runner.ts"],
+    });
+    assert.deepStrictEqual(result, { command: "pi", args: ["-p", "hello"] });
   });
 });
 
