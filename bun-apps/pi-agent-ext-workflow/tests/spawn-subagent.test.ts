@@ -300,3 +300,40 @@ describe("spawnSubagent", () => {
     assert.deepEqual(seen, [fixtureHistory]);
   });
 });
+
+describe("spawnSubagent budget", () => {
+  it("TOKEN_BUDGET_EXHAUSTED → result.budget set, non-transient (not retried)", async () => {
+    const runner = mkRunner(async () => {
+      throw new WorkflowError(
+        "subagent tokens budget exhausted (1234 tokens > limit 1000)",
+        WorkflowErrorCode.TOKEN_BUDGET_EXHAUSTED,
+        { recoverable: false, details: { kind: "tokens", limit: 1000, actual: 1234 } },
+      );
+    });
+    const out = await spawnSubagent({ task: "t", tokenBudget: 1000, agent: runner });
+    assert.deepEqual(out.budget, { kind: "tokens", limit: 1000, actual: 1234 });
+    assert.equal(out.exitCode, 1);
+    assert.equal(out.timedOut, false);
+    assert.match(out.stderr, /budget exhausted/);
+    assert.equal(runner.calls.length, 1, "budget exhaustion is non-transient → not retried");
+  });
+
+  it("forwards tokenBudget/spendBudget to runner.run", async () => {
+    const runner = mkRunner(async () => "ok");
+    await spawnSubagent({ task: "t", tokenBudget: 5000, spendBudget: 0.25, agent: runner });
+    assert.equal(runner.calls[0]?.opts.tokenBudget, 5000);
+    assert.equal(runner.calls[0]?.opts.spendBudget, 0.25);
+  });
+
+  it("budget exhaustion with retryOnTransient:true still does NOT retry", async () => {
+    const runner = mkRunner(async () => {
+      throw new WorkflowError("spend budget exhausted", WorkflowErrorCode.TOKEN_BUDGET_EXHAUSTED, {
+        recoverable: false,
+        details: { kind: "spend", limit: 0.5, actual: 0.62 },
+      });
+    });
+    const out = await spawnSubagent({ task: "t", spendBudget: 0.5, retryOnTransient: true, agent: runner });
+    assert.equal(out.budget?.kind, "spend");
+    assert.equal(runner.calls.length, 1, "never retry a budget exhaustion even with retryOnTransient");
+  });
+});

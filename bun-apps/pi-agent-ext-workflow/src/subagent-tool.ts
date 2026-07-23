@@ -13,7 +13,7 @@
 import { defineTool, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { type TSchema, Type } from "typebox";
-import type { AgentUsage } from "./agent.js";
+import type { AgentUsage, BudgetExhaustion } from "./agent.js";
 import type { AgentHistoryEntry } from "./agent-history.js";
 import {
   type AgentDefinition,
@@ -40,9 +40,15 @@ export interface SubagentToolDetails {
   taskPreview: string;
   /** Wall-clock of the run, ms. */
   elapsedMs: number;
-  status: "done" | "failed" | "timedout";
+  status: "done" | "failed" | "timedout" | "budget";
   /** Real token/cost usage from the child session, when reported. */
   usage?: AgentUsage;
+  /**
+   * Set when the run was aborted for exceeding `tokenBudget`/`spendBudget`
+   * (status "budget"). Carries which budget, the limit, and the actual usage
+   * at abort — distinct from a timeout (wall-clock) or a generic failure.
+   */
+  budget?: BudgetExhaustion;
   /**
    * Parsed SDD report block (ticket 04), when the subagent's output carries the
    * `**Status:**` marker. Absent for plain (non-SDD) dispatches, schema results,
@@ -103,6 +109,18 @@ export const subagentToolSchema = Type.Object({
   timeoutMs: Type.Optional(
     Type.Number({
       description: "Abort the subagent if it runs longer than this many milliseconds. Omit for no timeout.",
+    }),
+  ),
+  tokenBudget: Type.Optional(
+    Type.Number({
+      description:
+        "Abort the subagent mid-run once its cumulative token usage exceeds this many tokens. Bounds a runaway (looping) subagent that timeoutMs (wall-clock) alone cannot catch. Checked per-turn, so an in-flight turn may overshoot by up to one turn. Non-recoverable (not retried).",
+    }),
+  ),
+  spendBudget: Type.Optional(
+    Type.Number({
+      description:
+        "Abort the subagent mid-run once its cumulative cost ($) exceeds this. Pairs with tokenBudget or stands alone. Same per-turn check granularity.",
     }),
   ),
   retryOnTransient: Type.Optional(
@@ -290,7 +308,9 @@ export function renderSubagentResult(
       ? theme.fg("success", "✓ done")
       : d.status === "timedout"
         ? theme.fg("warning", "⏱ timedout")
-        : theme.fg("error", "✗ failed");
+        : d.status === "budget"
+          ? theme.fg("warning", "⛔ budget")
+          : theme.fg("error", "✗ failed");
   const usageStr = d.usage && d.usage.total > 0 ? ` · $${d.usage.cost.toFixed(3)} · ${d.usage.total} tok` : "";
   // SDD self-report tag (ticket 04): separate axis from process status. A run
   // can be process-done yet self-report BLOCKED — tint the actionable ones so
@@ -307,8 +327,12 @@ export function renderSubagentResult(
     d.scopeCheck && d.scopeCheck.outOfScope.length > 0
       ? theme.fg("warning", ` · ⚠ ${d.scopeCheck.outOfScope.length} out-of-scope`)
       : "";
+  const budgetTag = d.budget ? theme.fg("warning", ` · ${d.budget.kind}:${d.budget.actual}/${d.budget.limit}`) : "";
   const meta =
-    theme.fg("muted", `${d.model ?? "default"} · ${(d.elapsedMs / 1000).toFixed(1)}s${usageStr}`) + sddTag + scopeTag;
+    theme.fg("muted", `${d.model ?? "default"} · ${(d.elapsedMs / 1000).toFixed(1)}s${usageStr}`) +
+    sddTag +
+    scopeTag +
+    budgetTag;
   if (!options.expanded) {
     const firstLine =
       text
@@ -322,12 +346,18 @@ export function renderSubagentResult(
 
 /** Derive a human status from the spawn result. */
 export function deriveSubagentStatus(r: SpawnSubagentResult): SubagentToolDetails["status"] {
+  if (r.budget) return "budget";
   if (r.exitCode === 0) return "done";
   return r.timedOut ? "timedout" : "failed";
 }
 
 /** Format the subagent result into the text the parent agent reads. */
 export function formatSubagentResult(result: SpawnSubagentResult): string {
+  if (result.budget) {
+    const unit =
+      result.budget.kind === "tokens" ? `${result.budget.actual} tokens` : `$${result.budget.actual.toFixed(4)}`;
+    return `Subagent aborted: ${result.budget.kind} budget exhausted (${unit} > limit ${result.budget.limit}).`;
+  }
   if (result.exitCode === 0) return result.output;
   const fate = result.timedOut ? "timed out" : "failed";
   const head = `Subagent ${fate} (exit ${result.exitCode}).`;
@@ -469,6 +499,8 @@ export function createSubagentTool(
           extensionTools: options.getExtensionTools?.(),
           externalSignal: signal,
           timeoutMs: params.timeoutMs,
+          tokenBudget: params.tokenBudget,
+          spendBudget: params.spendBudget,
           retryOnTransient: params.retryOnTransient,
           schema: params.schema as TSchema | undefined,
           onModelResolved: (id) => {
@@ -526,6 +558,7 @@ export function createSubagentTool(
           elapsedMs,
           status: deriveSubagentStatus(result),
           usage: result.usage,
+          budget: result.budget,
           // SDD report (ticket 04): parse the implementer's `**Status:**` block when
           // present (non-SDD / schema / failure outputs have no marker → undefined).
           report: parseSddReport(result.output),
@@ -551,6 +584,7 @@ export function createSubagentTool(
           startedAt: new Date(t0).toISOString(),
           elapsedMs,
           usage: details.usage,
+          budget: details.budget,
           output,
           history: lastHistory,
           report: details.report,

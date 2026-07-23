@@ -17,7 +17,7 @@
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentUsage } from "./agent.js";
+import type { AgentUsage, BudgetExhaustion } from "./agent.js";
 import type { AgentHistoryEntry } from "./agent-history.js";
 import type { SubagentScopeCheck } from "./git-scope.js";
 import { homeDir } from "./home.js";
@@ -26,7 +26,7 @@ import type { SddReport } from "./sdd-report.js";
 export const SUBAGENT_HOME_RELATIVE_DIR = ".pi/subagents";
 export const SUBAGENT_RUNS_SUBDIR = "runs";
 
-export type SubagentRunStatus = "done" | "failed" | "timedout";
+export type SubagentRunStatus = "done" | "failed" | "timedout" | "budget";
 
 /**
  * A durable, serializable snapshot of one completed `subagent`-tool run.
@@ -66,6 +66,8 @@ export interface SubagentRunRecord {
   report?: SddReport;
   /** Opt-in commit-scope check (`commitScope` param), when the caller set one. */
   scopeCheck?: SubagentScopeCheck;
+  /** Set when the run was aborted for exceeding tokenBudget/spendBudget. */
+  budget?: BudgetExhaustion;
 }
 
 export type SubagentFsLayer = {

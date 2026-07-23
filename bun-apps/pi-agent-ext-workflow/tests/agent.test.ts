@@ -1,7 +1,7 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
 import type { AgentRunOptions, AgentUsage } from "../src/agent.js";
-import { listAvailableModelSpecs, resolveAgentModelSpec, WorkflowAgent } from "../src/agent.js";
+import { checkBudgetExhaustion, listAvailableModelSpecs, resolveAgentModelSpec, WorkflowAgent } from "../src/agent.js";
 import { WorkflowError, WorkflowErrorCode } from "../src/errors.js";
 import type { ModelTierConfig } from "../src/model-tier-config.js";
 import type { SddReport } from "../src/sdd-report.js";
@@ -745,4 +745,56 @@ test("agent() monitors agent count and calls onAgentStart/End for each", async (
   assert.equal(counts.length, 2);
   assert.ok(counts[0] > 0, "first agent tokens");
   assert.ok(counts[1] > 0, "second agent tokens");
+});
+
+// ── checkBudgetExhaustion (pure threshold logic for tokenBudget/spendBudget) ──
+
+test("checkBudgetExhaustion: tokens exceeded → {kind:'tokens'}", () => {
+  assert.deepEqual(checkBudgetExhaustion({ tokens: { total: 1234 }, cost: 0.01 }, { tokenBudget: 1000 }), {
+    kind: "tokens",
+    limit: 1000,
+    actual: 1234,
+  });
+});
+
+test("checkBudgetExhaustion: spend exceeded → {kind:'spend'}", () => {
+  assert.deepEqual(checkBudgetExhaustion({ tokens: { total: 10 }, cost: 0.62 }, { spendBudget: 0.5 }), {
+    kind: "spend",
+    limit: 0.5,
+    actual: 0.62,
+  });
+});
+
+test("checkBudgetExhaustion: both exceeded → tokens wins (checked first)", () => {
+  assert.equal(
+    checkBudgetExhaustion({ tokens: { total: 2000 }, cost: 1.0 }, { tokenBudget: 1000, spendBudget: 0.5 })?.kind,
+    "tokens",
+  );
+});
+
+test("checkBudgetExhaustion: under limit → undefined", () => {
+  assert.equal(
+    checkBudgetExhaustion({ tokens: { total: 500 }, cost: 0.1 }, { tokenBudget: 1000, spendBudget: 0.5 }),
+    undefined,
+  );
+});
+
+test("checkBudgetExhaustion: no budget set → undefined", () => {
+  assert.equal(checkBudgetExhaustion({ tokens: { total: 9999 }, cost: 99 }, {}), undefined);
+});
+
+test("checkBudgetExhaustion: exactly at limit is allowed (strict >)", () => {
+  assert.equal(
+    checkBudgetExhaustion({ tokens: { total: 1000 }, cost: 0.5 }, { tokenBudget: 1000, spendBudget: 0.5 }),
+    undefined,
+  );
+});
+
+test("checkBudgetExhaustion: only one budget set — checks just that one", () => {
+  assert.equal(
+    checkBudgetExhaustion({ tokens: { total: 9999 }, cost: 0.1 }, { spendBudget: 0.5 }),
+    undefined,
+    "tokenBudget unset → huge tokens ignored",
+  );
+  assert.equal(checkBudgetExhaustion({ tokens: { total: 10 }, cost: 2 }, { spendBudget: 0.5 })?.kind, "spend");
 });

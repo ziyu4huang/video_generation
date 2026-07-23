@@ -18,7 +18,7 @@ export interface SubagentRun {
   agent?: string;
   model: string;
   taskPreview: string;
-  status: "done" | "failed" | "timedout";
+  status: "done" | "failed" | "timedout" | "budget";
   elapsedMs: number;
   /** Real token/cost usage, when reported. */
   usage?: AgentUsage;
