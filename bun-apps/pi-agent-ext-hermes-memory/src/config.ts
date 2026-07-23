@@ -16,7 +16,7 @@ import {
   DEFAULT_FAILURE_INJECTION_MAX_ENTRIES,
 } from "./constants.js";
 import { AGENT_ROOT, normalizeConfiguredMemoryDir, normalizeProjectsMemoryDir } from "./paths.js";
-import { derivePerUserDatabase } from "./store/surreal/per-user-db.js";
+import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
 
 const MEMORY_OVERFLOW_STRATEGIES: readonly MemoryOverflowStrategy[] = ["auto-consolidate", "reject", "fifo-evict", "vault-offload"];
 const SESSION_SEARCH_VARIANTS: readonly SessionSearchVariant[] = ["legacy", "anchors"];
@@ -79,16 +79,19 @@ export const DEFAULT_CONFIG_PATH = path.join(
 );
 
 /**
- * Populate the per-user default SurrealDB `database` name when the config
- * file didn't set one, so the resolved config carries it for the backend, the
- * TUI label, and #772's live backend switching alike (single source of
- * truth). An explicit `surreal.database` always wins. Deriving here (not in
- * the backend) means even a sqlite→surrealdb live switch inherits the per-user
- * db without re-deriving at bundle-build time.
+ * Populate the per-user default SurrealDB `namespace` and `database` when the
+ * config file didn't set them, so the resolved config carries both for the
+ * backend, the TUI label, and #772's live backend switching alike (single
+ * source of truth). The per-user discriminator lives at the NAMESPACE level
+ * (`user_<user>`); the database name is the clean constant `memory`. An
+ * explicit `surreal.namespace` / `surreal.database` always wins. Deriving
+ * here (not in the backend) means even a sqlite→surrealdb live switch
+ * inherits the per-user namespace without re-deriving at bundle-build time.
  */
 function resolveSurrealDbDefault(config: MemoryConfig): MemoryConfig {
   if (!config.surreal) config.surreal = {};
-  if (!config.surreal.database) config.surreal.database = derivePerUserDatabase();
+  if (!config.surreal.namespace) config.surreal.namespace = derivePerUserNamespace();
+  if (!config.surreal.database) config.surreal.database = DEFAULT_SURREAL_DATABASE;
   return config;
 }
 

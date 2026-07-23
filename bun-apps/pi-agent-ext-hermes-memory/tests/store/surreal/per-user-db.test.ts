@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import { sanitizeUsername, currentUsername, derivePerUserDatabase } from "../../../src/store/surreal/per-user-db.ts";
+import { sanitizeUsername, currentUsername, derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "../../../src/store/surreal/per-user-db.ts";
 
 describe("sanitizeUsername", () => {
 	it("passes through a plain lowercase name", () => {
@@ -45,21 +45,27 @@ describe("currentUsername", () => {
 	});
 });
 
-describe("derivePerUserDatabase", () => {
-	it("produces the hermes_memory_<user> format", () => {
-		const db = derivePerUserDatabase();
-		assert.ok(db.startsWith("hermes_memory_"), `expected hermes_memory_ prefix, got ${db}`);
+describe("derivePerUserNamespace", () => {
+	it("produces the user_<user> format", () => {
+		const ns = derivePerUserNamespace();
+		assert.ok(ns.startsWith("user_"), `expected user_ prefix, got ${ns}`);
 		// suffix is a legal surrealdb identifier (lowercase alnum + underscore only)
-		assert.match(db, /^hermes_memory_[a-z0-9_]+$/);
+		assert.match(ns, /^user_[a-z0-9_]+$/);
 	});
 
 	it("is a valid unescaped SurrealDB identifier (no hyphens)", () => {
-		const db = derivePerUserDatabase();
-		assert.ok(!db.includes("-"), `db name must not contain hyphens: ${db}`);
-		assert.match(db, /^[a-z][a-z0-9_]*$/);
+		const ns = derivePerUserNamespace();
+		assert.ok(!ns.includes("-"), `namespace must not contain hyphens: ${ns}`);
+		assert.match(ns, /^[a-z][a-z0-9_]*$/);
 	});
 
 	it("is stable across calls (deterministic for the same OS user)", () => {
-		assert.strictEqual(derivePerUserDatabase(), derivePerUserDatabase());
+		assert.strictEqual(derivePerUserNamespace(), derivePerUserNamespace());
+	});
+});
+
+describe("DEFAULT_SURREAL_DATABASE", () => {
+	it("is the clean semantic database name 'memory'", () => {
+		assert.strictEqual(DEFAULT_SURREAL_DATABASE, "memory");
 	});
 });

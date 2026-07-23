@@ -28,7 +28,7 @@ import { MemoryStore } from "./store/memory-store.js";
 import { SkillStore } from "./store/skill-store.js";
 import { createBackendBundle } from "./store/backend-factory.js";
 import { asSwappable } from "./store/swappable.js";
-import { derivePerUserDatabase } from "./store/surreal/per-user-db.js";
+import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
 import type { MemoryRepository, SessionRepository, BackendBundle } from "./store/repository.js";
 import type { DbBackend } from "./types.js";
 import { scheduleSessionBackfill, waitForSessionBackfill, SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-backfill.js";
@@ -103,14 +103,14 @@ export default async function (pi: ExtensionAPI) {
   // Human-readable label for the active memory/search backend, surfaced once
   // per session via a session_start TUI notify (see the handler below).
   // dbBackend comes from hermes-memory-config.json. loadConfig resolves the
-  // per-user surreal db name (hermes_memory_<user>) when no `surreal.database`
-  // is set, so a shared local SurrealDB server isolates each OS-user's data;
-  // namespace defaults to `hermes`. Switching backends IS runtime-hot since
-  // #772: /memory-switch-backend.
+  // per-user surreal namespace (user_<user>) + database (memory) when unset,
+  // so a shared local SurrealDB server isolates each OS-user's data in its own
+  // namespace. Switching backends IS runtime-hot since #772:
+  // /memory-switch-backend.
   const surrealCfg = config.surreal;
   const labelFor = (db: DbBackend): string =>
     db === "surrealdb"
-      ? `surrealdb · ns=${surrealCfg?.namespace ?? "hermes"} db=${surrealCfg?.database ?? derivePerUserDatabase()} @ ${surrealCfg?.endpoint ?? "http://127.0.0.1:8000"}`
+      ? `surrealdb · ns=${surrealCfg?.namespace ?? derivePerUserNamespace()} db=${surrealCfg?.database ?? DEFAULT_SURREAL_DATABASE} @ ${surrealCfg?.endpoint ?? "http://127.0.0.1:8000"}`
       : `sqlite · ${path.join(globalDir, "sessions.db")}`;
   let currentDbBackend: DbBackend = config.dbBackend ?? "sqlite";
   let backendLabel = labelFor(currentDbBackend);

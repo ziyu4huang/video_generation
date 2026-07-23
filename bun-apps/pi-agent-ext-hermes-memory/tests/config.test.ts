@@ -5,7 +5,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { loadConfig } from "../src/config.js";
 import { AGENT_ROOT } from "../src/paths.js";
-import { derivePerUserDatabase } from "../src/store/surreal/per-user-db.js";
+import { derivePerUserNamespace } from "../src/store/surreal/per-user-db.js";
 
 const TEST_CONFIG_PATH = path.join(os.tmpdir(), `hermes-memory-config-test-${process.pid}.json`);
 
@@ -415,32 +415,35 @@ describe("config dbBackend", () => {
   });
 });
 
-describe("config surreal per-user database", () => {
-  it("derives hermes_memory_<user> when no surreal block exists", () => {
+describe("config surreal per-user namespace", () => {
+  it("derives user_<user> namespace + memory database when no surreal block exists", () => {
     const p = path.join(os.tmpdir(), `hm-cfg-${Date.now()}.json`);
     const cfg = loadConfig(p);
-    assert.ok(cfg.surreal, "loadConfig should populate a surreal block with the default db");
-    assert.strictEqual(cfg.surreal!.database, derivePerUserDatabase());
-    assert.match(cfg.surreal!.database, /^hermes_memory_[a-z0-9_]+$/);
-    assert.ok(!cfg.surreal!.database.includes("-"), "no hyphens — must be a valid unescaped surrealdb identifier");
+    assert.ok(cfg.surreal, "loadConfig should populate a surreal block with the default ns+db");
+    assert.strictEqual(cfg.surreal!.namespace, derivePerUserNamespace());
+    assert.match(cfg.surreal!.namespace, /^user_[a-z0-9_]+$/);
+    assert.ok(!cfg.surreal!.namespace.includes("-"), "no hyphens — must be a valid unescaped surrealdb identifier");
+    assert.strictEqual(cfg.surreal!.database, "memory");
     fs.rmSync(p, { force: true });
   });
 
-  it("derives the per-user db when a surreal block exists but database is unset", () => {
+  it("derives per-user namespace + memory database when a surreal block exists but ns/db are unset", () => {
     const p = path.join(os.tmpdir(), `hm-cfg-${Date.now()}.json`);
     fs.writeFileSync(p, JSON.stringify({ dbBackend: "surrealdb", surreal: { endpoint: "http://db:8000" } }));
     const cfg = loadConfig(p);
     assert.strictEqual(cfg.surreal?.endpoint, "http://db:8000");
-    assert.strictEqual(cfg.surreal?.database, derivePerUserDatabase());
+    assert.strictEqual(cfg.surreal?.namespace, derivePerUserNamespace());
+    assert.strictEqual(cfg.surreal?.database, "memory");
     fs.rmSync(p, { force: true });
   });
 
-  it("preserves an explicit surreal.database (explicit wins, not overwritten)", () => {
+  it("preserves explicit surreal.namespace and surreal.database (explicit wins, not overwritten)", () => {
     const p = path.join(os.tmpdir(), `hm-cfg-${Date.now()}.json`);
-    fs.writeFileSync(p, JSON.stringify({ dbBackend: "surrealdb", surreal: { database: "my_custom_db" } }));
+    fs.writeFileSync(p, JSON.stringify({ dbBackend: "surrealdb", surreal: { namespace: "my_ns", database: "my_db" } }));
     const cfg = loadConfig(p);
-    assert.strictEqual(cfg.surreal?.database, "my_custom_db");
-    assert.notStrictEqual(cfg.surreal?.database, derivePerUserDatabase());
+    assert.strictEqual(cfg.surreal?.namespace, "my_ns");
+    assert.strictEqual(cfg.surreal?.database, "my_db");
+    assert.notStrictEqual(cfg.surreal?.namespace, derivePerUserNamespace());
     fs.rmSync(p, { force: true });
   });
 });
