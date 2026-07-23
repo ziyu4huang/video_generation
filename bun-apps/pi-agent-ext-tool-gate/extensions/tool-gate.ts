@@ -5,8 +5,8 @@
  * (flux2, ltx, krea2, file2md, inspect, workflow, research) behind prompt
  * keyword matching.
  *
- * Baseline:  41 tools → ~18,500 tok/req
- * Gated:    ~27 tools → ~10,000 tok/req  (saves ~8,500 tok per turn)
+ * Baseline:  ~45 tools → ~14,400 tok/req   (measured via `bun run qa`)
+ * Gated:    ~27 tools →  ~8,800 tok/req   (saves ~5,550 tok/turn, ~38%)
  *
  * Tools reactivate instantly when the prompt mentions relevant keywords, and
  * once activated stay active for the rest of the session (they never re-gate
@@ -95,12 +95,12 @@ export const GATES: ToolGate[] = [
     // like "快速生成一個圖" fires flux2 (via requires) but not krea2 unless
     // "krea"/"草圖" literally appears — intentional precision tradeoff.
     names: ["krea2", "krea2_help"],
-    keywords: ["krea", "krea2", "草圖", "快速生成", "即時生成", "實時繪圖"],
+    keywords: ["krea", "krea2", "草圖", "快速生成", "即時生成", "實時繪圖", "sketch", "real-time", "real time"],
     description: "Krea2 fast image generation — real-time draft to image",
   },
   {
     names: ["ltx", "ltx_help"],
-    keywords: ["ltx", "t2v", "i2v", "vbvr", "relay", "storyboard", "影片特效"],
+    keywords: ["ltx", "t2v", "i2v", "vbvr", "relay", "影片特效"],
     requires: {
       nouns: ["video", "影片", "視頻", "視訊", "動畫", "電影"],
       verbs: ["generate", "create", "make", "animate", "produce", "render", "生成", "做", "製作", "剪"],
@@ -122,15 +122,19 @@ export const GATES: ToolGate[] = [
   {
     names: ["inspect_context", "inspect_agent", "inspect_extensions", "inspect_pathology", "inspect_tui"],
     keywords: [
-      "inspect", "schema cost", "pathology", "extension health",
+      "schema cost", "pathology", "extension health",
       "工具開銷", "context window", "token usage",
     ],
+    requires: {
+      nouns: ["agent", "context", "extension", "pathology", "token", "schema", "tui", "工具"],
+      verbs: ["inspect", "show", "check", "diagnose", "dump", "report"],
+    },
     description: "Agent/extension introspection — context tokens, extension health, pathology",
   },
   {
     names: ["workflow", "workflow_help", "subagent", "workflow_control"],
     keywords: [
-      "workflow", "pipeline", "orchestrate", "fan.out", "parallel agent",
+      "workflow", "pipeline", "orchestrate", "fan-out", "fan out", "parallel agent",
       "multi-step",
     ],
     description: "Workflow orchestrator — multi-agent fan-out/pipeline JavaScript scripts",
@@ -148,8 +152,9 @@ export const GATES: ToolGate[] = [
     names: ["movie", "movie_help"],
     keywords: [
       "montage", "preflight", "storyboard", "分鏡", "剪輯",
-      "影片製作", "導演", "make a movie", "movie director",
+      "影片製作", "導演", "make a movie", "make a film", "movie director",
       "compose video", "compose scene", "電影製作",
+      "short film", "into a film", "scenes into",
     ],
     description: "Movie orchestrator — idea→script→scene→assets→edit→compose pipeline",
   },
@@ -160,6 +165,7 @@ export const GATES: ToolGate[] = [
     names: ["zai_web_search_web_search_prime", "zai_web_reader_webReader"],
     keywords: [
       "zai search", "zai reader", "zai web", "zai_mcp",
+      "z.ai", "z.ai search", "z.ai reader",
     ],
     description: "Z.ai MCP web tools — web-search-prime + web-reader (redundant with core web tools)",
   },
