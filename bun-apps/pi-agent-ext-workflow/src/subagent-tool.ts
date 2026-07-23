@@ -22,6 +22,7 @@ import {
   loadAgentRegistry,
   resolveAgentType,
 } from "./agent-registry.js";
+import { computeScopeCheck, type GitScopeOps, realGitOps, type SubagentScopeCheck } from "./git-scope.js";
 import { isSddReportActionable, parseSddReport, type SddReport } from "./sdd-report.js";
 import { type SpawnSubagentOptions, type SpawnSubagentResult, spawnSubagent } from "./spawn-subagent.js";
 import type { SubagentInFlightRegistry } from "./subagent-in-flight.js";
@@ -48,6 +49,14 @@ export interface SubagentToolDetails {
    * and failures. `report.status` is reliable; the rest are best-effort hints.
    */
   report?: SddReport;
+  /**
+   * Opt-in commit-scope check (`commitScope` param). Present when the caller set
+   * `commitScope` AND the run operated on the real tree (not worktree-isolated).
+   * `outOfScope` lists the committed paths that fell outside the declared scope —
+   * the recurring `git add -A` sweep signal. Absent otherwise (no scope /
+   * worktree-isolated / not a repo). Detection only; never auto-reverts.
+   */
+  scopeCheck?: SubagentScopeCheck;
 }
 
 export const subagentToolSchema = Type.Object({
@@ -101,6 +110,12 @@ export const subagentToolSchema = Type.Object({
       description: "Retry once on a transient failure (timeout/network/rate-limit). Default true.",
     }),
   ),
+  commitScope: Type.Optional(
+    Type.Array(Type.String(), {
+      description:
+        "Optional allowlist of paths the subagent may commit (files or dirs, prefix-matched). When set, the tool records the repo HEAD before dispatch and, after the run, flags any committed path (git diff base..HEAD) that falls OUTSIDE this scope as a ⚠ scope violation in the result. Detection only (non-destructive — never auto-reverts); best-effort (skips silently if not a git repo). Use [] to flag ANY commit (e.g. a read-only subagent). Ignored for worktree-isolated runs (their commits are discarded anyway).",
+    }),
+  ),
   schema: Type.Optional(
     Type.Unknown({
       description:
@@ -131,6 +146,8 @@ export interface SubagentToolOptions {
    * replay/inspection by `/subagents`. Never affects the run's result.
    */
   persistence?: SubagentRunPersistence;
+  /** Injectable git-scope ops for tests (defaults to realGitOps). */
+  gitOps?: GitScopeOps;
 }
 
 /** Minimal pre-flight check: a JSON-Schema-shaped object needs at least a `type` field. */
@@ -283,7 +300,15 @@ export function renderSubagentResult(
       ? theme.fg("warning", ` · SDD:${d.report.status}`)
       : theme.fg("success", ` · SDD:${d.report.status}`)
     : "";
-  const meta = theme.fg("muted", `${d.model ?? "default"} · ${(d.elapsedMs / 1000).toFixed(1)}s${usageStr}`) + sddTag;
+  // commit-scope tag: a separate axis from process status and SDD self-report.
+  // Out-of-scope committed paths warrant a warning tint — the recurring
+  // `git add -A` sweep signal the controller must act on before merging.
+  const scopeTag =
+    d.scopeCheck && d.scopeCheck.outOfScope.length > 0
+      ? theme.fg("warning", ` · ⚠ ${d.scopeCheck.outOfScope.length} out-of-scope`)
+      : "";
+  const meta =
+    theme.fg("muted", `${d.model ?? "default"} · ${(d.elapsedMs / 1000).toFixed(1)}s${usageStr}`) + sddTag + scopeTag;
   if (!options.expanded) {
     const firstLine =
       text
@@ -316,6 +341,7 @@ export function createSubagentTool(
 ): ToolDefinition<typeof subagentToolSchema, SubagentToolDetails> {
   const defaultCwd = options.cwd ?? process.cwd();
   const spawn = options.spawn ?? spawnSubagent;
+  const gitOps = options.gitOps ?? realGitOps;
   return defineTool({
     name: "subagent",
     label: "Subagent",
@@ -394,6 +420,20 @@ export function createSubagentTool(
         if (worktree.isolated) spawnCwd = worktree.cwd;
       }
 
+      // Opt-in commit-scope guardrail (commitScope param): record the repo HEAD
+      // before dispatch so the post-run check can diff base..HEAD for out-of-scope
+      // committed paths. Only the real-tree case is checked — a worktree-isolated
+      // run is discarded after teardown, so it can never pollute the parent tree.
+      const scope = params.commitScope;
+      let baseCommit: string | undefined;
+      if (scope !== undefined && spawnCwd === runCwd) {
+        try {
+          baseCommit = await gitOps.headCommit(runCwd);
+        } catch {
+          baseCommit = undefined;
+        }
+      }
+
       const requestedModel = params.model ?? agentDef?.model;
       const tier = params.tier ?? agentDef?.tier;
       const mainModel = options.getMainModel?.();
@@ -458,7 +498,24 @@ export function createSubagentTool(
               : undefined,
         });
         const elapsedMs = Date.now() - t0;
-        const output = formatSubagentResult(result);
+        // Opt-in commit-scope check (commitScope param): detection only. A
+        // throwing op is swallowed — the scope guard never fails the run.
+        let scopeCheck: SubagentScopeCheck | undefined;
+        if (scope !== undefined && spawnCwd === runCwd && baseCommit !== undefined) {
+          try {
+            scopeCheck = await computeScopeCheck(gitOps, runCwd, baseCommit, scope);
+          } catch {
+            scopeCheck = undefined;
+          }
+        }
+        let output = formatSubagentResult(result);
+        if (scopeCheck && scopeCheck.outOfScope.length > 0) {
+          // Surface the violation to the parent agent in the result text (not
+          // just the details badge) so the controller cannot miss it — the
+          // recurring `git add -A` sweep lands stray files into squash-merges.
+          const paths = scopeCheck.outOfScope.map((p) => `  - ${p}`).join("\n");
+          output += `\n\n--- ⚠ commit-scope violation (${scopeCheck.outOfScope.length}) ---\nThe subagent committed path(s) OUTSIDE the declared commitScope:\n${paths}\nInspect before merging — this is the recurring \`git add -A\` sweep signal.`;
+        }
         const model = resolvedModel ?? displayModelBeforeResolve;
         const details: SubagentToolDetails = {
           exitCode: result.exitCode,
@@ -472,6 +529,7 @@ export function createSubagentTool(
           // SDD report (ticket 04): parse the implementer's `**Status:**` block when
           // present (non-SDD / schema / failure outputs have no marker → undefined).
           report: parseSddReport(result.output),
+          scopeCheck,
         };
         // Durable record for post-session replay (ticket 08). Write-once at
         // completion; best-effort — save() swallows errors so this can never
@@ -496,6 +554,7 @@ export function createSubagentTool(
           output,
           history: lastHistory,
           report: details.report,
+          scopeCheck: details.scopeCheck,
         });
         return { content: [{ type: "text" as const, text: output }], details };
       } finally {

@@ -244,6 +244,21 @@ _Avoid_: prompt, pause (it is an approval gate with resume semantics)
 The real-token tracker `{ total, spent(), remaining() }`, read from each subagent's session (not estimated). No default cap unless `tokenBudget` / phase budgets add one.
 _Avoid_: limit, quota
 
+**`commitScope` (subagent guardrail)**:
+An opt-in allowlist of paths a `subagent`-tool run may commit (files or dirs,
+prefix-matched). When set, the tool records the repo HEAD before dispatch and,
+after the run, diffs `base..HEAD` to flag any committed path that falls OUTSIDE
+the scope — the recurring `git add -A` sweep signal (a dispatched implementer
+sweeping an untracked `.planning/` stub into a later squash-merge). DETECTION,
+not prevention: the child has raw `bash`, so the tool never blocks the sweep;
+it surfaces a ⚠ violation in the result text, `details.scopeCheck`, and the
+durable run record, leaving the revert to the controller. Best-effort (non-repo
+/ git failure → skipped silently); ignored for worktree-isolated runs (their
+commits are discarded at teardown). `[]` means "flag any commit" (a read-only
+subagent). A separate axis from process status and SDD self-report.
+_Avoid_: sandbox, commit-policy, git-wrapper (it is a post-run scope audit, not
+an enforced policy)
+
 **Ultracode** (`/ultracode`, `/effort ultra`):
 A standing opt-in that auto-arms an exhaustive multi-agent workflow for every substantive message.
 _Avoid_: max mode, turbo (it is a per-message standing trigger, not a one-shot flag)

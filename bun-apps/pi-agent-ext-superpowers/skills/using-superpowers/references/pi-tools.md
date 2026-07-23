@@ -4,19 +4,21 @@ Skills speak in actions ("dispatch a subagent", "create a todo", "read a file").
 
 | Action skills request | Pi equivalent |
 | --- | --- |
-| Dispatch a subagent (`Subagent (general-purpose):` template) | Use the `subagent` tool provided by `pi-agent-ext-workflow` — `subagent({ task, model, tools, excludeTools, cwd })` |
+| Dispatch a subagent (`Subagent (general-purpose):` template) | Use the `subagent` tool provided by `pi-agent-ext-workflow` — `subagent({ task, model, tools, excludeTools, cwd, commitScope })` |
 | Dispatch many subagents in parallel (`dispatching-parallel-agents`) | Use the `workflow` tool's `parallel()` — see "Parallel fan-out" below (the `subagent` tool is single-dispatch + sequential) |
 | Task tracking ("create a todo", "mark complete") | Use an installed todo/task tool if available, otherwise track tasks in the plan or `TODO.md` |
 
 ## Subagents
 
-Pi core does not ship a standard subagent tool. This repo's `pi-agent-ext-workflow` provides a `subagent` tool — a single-agent, isolated-context dispatch (`subagent({ task, model, tools, excludeTools, cwd, schema, agentType, timeoutMs, retryOnTransient })`) backed by `spawnSubagent()`. It covers SDD's implementer/reviewer dispatch.
+Pi core does not ship a standard subagent tool. This repo's `pi-agent-ext-workflow` provides a `subagent` tool — a single-agent, isolated-context dispatch (`subagent({ task, model, tools, excludeTools, cwd, commitScope, schema, agentType, timeoutMs, retryOnTransient })`) backed by `spawnSubagent()`. It covers SDD's implementer/reviewer dispatch.
 
 **Single-dispatch + sequential.** The tool declares `executionMode: "sequential"`: if the model emits multiple tool calls in one turn (or a `subagent` call alongside others), pi serializes the whole batch (its rule: any sequential tool call in a turn ⇒ the batch runs serially). This ENFORCES that concurrent fan-out goes through the `workflow` tool (below) — a controller that wants concurrency must use `parallel()`, not ad-hoc multi-dispatch. (Safe for fan-out: the `workflow` tool's `parallel()`/`agent()` dispatch via a SEPARATE `createAgentSession()` path, so the `subagent` tool's sequential declaration does NOT throttle workflow runs.)
 
 **Status contract (automatic).** When a subagent is an SDD implementer, its byte-identical prompt makes it return a prose block starting `**Status:** DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED`. The tool parses this into `details.report` (`SddReport`) — a SEPARATE axis from the process status (`done`/`failed`/`timedout`): a run can finish while self-reporting BLOCKED. The result render badges `SDD:<status>`. No skill action needed; parsing is automatic.
 
 **Persistence (automatic).** Each completed run is written to `~/.pi/subagents/runs/<id>.json` (write-once, last-N=200) — full task prompt, model, status, usage, output, compact transcript — for post-session replay (`/subagents`).
+
+**Commit hygiene (SDD).** When dispatching an SDD implementer or fix subagent, pass `commitScope` with the task's declared file scope — the files/dirs the brief says it may touch, e.g. `subagent({ task, commitScope: ["src/auth/", "tests/auth/"], … })`. The tool records the repo HEAD before dispatch and, after the run, flags any committed path (`git diff base..HEAD`) that falls OUTSIDE that scope as a ⚠ violation in the result + `details.scopeCheck` + the run record — detection only, it never auto-reverts (you decide). This catches the recurring `git add -A` sweep where an implementer stages an untracked scratch file (`.planning/<effort>/sdd/…`, a stray stub) into its commit, which then lands on `main` at squash-merge. Derive the scope from the task brief, not a guess. Use `[]` for a read-only subagent that should commit nothing. Ignored for worktree-isolated runs (their commits are discarded at teardown).
 
 **Public API (peer-extension code).** Dispatching a subagent programmatically from another extension's CODE imports `spawnSubagent` (+ `SpawnSubagentOptions`/`Result`/`AgentUsage`) from `@repo/pi-agent-ext-workflow`, NOT the LLM tool path.
 

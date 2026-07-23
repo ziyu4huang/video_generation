@@ -1,6 +1,7 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
 import type { AgentHistoryEntry } from "../src/agent-history.js";
+import type { GitScopeOps } from "../src/git-scope.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
 import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
 import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
@@ -821,4 +822,155 @@ test("execute does NOT persist on a pre-flight failure (invalid schema is not a 
   const tool = createSubagentTool({ spawn: f.spawn, persistence });
   await tool.execute("id-p3", { task: "t", schema: "not-schema-shaped" as never }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(saved.length, 0, "pre-flight rejection must not create a run record");
+});
+
+// ── commitScope guardrail (git-scope integration) ──
+
+/**
+ * Fake git ops for the commitScope guardrail. headCommit is called twice per
+ * checked run — call 1 (pre-dispatch) returns `baseHead`; call 2 (post-run,
+ * inside computeScopeCheck) returns `postHead`. changedPaths returns `paths`.
+ */
+function fakeGitOps(opts: { baseHead?: string; postHead?: string; paths?: string[] }) {
+  const calls = {
+    headCwds: [] as string[],
+    changed: [] as Array<{ cwd: string; base: string; head: string }>,
+  };
+  const ops: GitScopeOps = {
+    async headCommit(cwd: string) {
+      calls.headCwds.push(cwd);
+      return calls.headCwds.length === 1 ? opts.baseHead : opts.postHead;
+    },
+    async changedPaths(cwd: string, base: string, head: string) {
+      calls.changed.push({ cwd, base, head });
+      return opts.paths ?? [];
+    },
+  };
+  return { calls, ops };
+}
+
+test("commitScope unset → no git ops called, details.scopeCheck undefined", async () => {
+  const { calls, ops } = fakeGitOps({ baseHead: "b1", postHead: "b1" });
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, cwd: "/repo" });
+  const res = await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(res.details.scopeCheck, undefined);
+  assert.equal(calls.headCwds.length, 0, "headCommit never invoked without commitScope");
+});
+
+test("commitScope set, all touched in scope → scopeCheck present, outOfScope empty, output clean", async () => {
+  const { calls, ops } = fakeGitOps({ baseHead: "b1", postHead: "h2", paths: ["src/a.ts", "src/sub/b.ts"] });
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, cwd: "/repo" });
+  const res = await tool.execute("id", { task: "t", commitScope: ["src/"] }, NO_SIGNAL, undefined, NO_CTX);
+  const sc = res.details.scopeCheck;
+  assert.ok(sc, "scopeCheck present");
+  assert.deepEqual(sc?.touchedPaths, ["src/a.ts", "src/sub/b.ts"]);
+  assert.deepEqual(sc?.outOfScope, []);
+  assert.equal(sc?.baseCommit, "b1");
+  assert.equal(sc?.headCommit, "h2");
+  assert.deepEqual(calls.changed, [{ cwd: "/repo", base: "b1", head: "h2" }]);
+  assert.ok(!(res.content[0] as { text: string }).text.includes("commit-scope violation"), "no warning when in scope");
+});
+
+test("commitScope set, out-of-scope paths → ⚠ block appended to output + details.outOfScope", async () => {
+  const { ops } = fakeGitOps({
+    baseHead: "b1",
+    postHead: "h2",
+    paths: ["src/a.ts", "README.md", ".planning/stub.md"],
+  });
+  const f = fakeSpawn(() => ({ output: "Status: DONE", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, cwd: "/repo" });
+  const res = await tool.execute("id", { task: "fix it", commitScope: ["src/"] }, NO_SIGNAL, undefined, NO_CTX);
+  const text = (res.content[0] as { text: string }).text;
+  assert.match(text, /⚠ commit-scope violation/);
+  assert.match(text, /README\.md/);
+  assert.match(text, /\.planning\/stub\.md/);
+  assert.deepEqual(res.details.scopeCheck?.outOfScope, ["README.md", ".planning/stub.md"]);
+});
+
+test("commitScope: [] flags ANY committed path (read-only guard)", async () => {
+  const { ops } = fakeGitOps({ baseHead: "b1", postHead: "h2", paths: ["src/a.ts"] });
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, cwd: "/repo" });
+  const res = await tool.execute("id", { task: "t", commitScope: [] }, NO_SIGNAL, undefined, NO_CTX);
+  assert.deepEqual(res.details.scopeCheck?.outOfScope, ["src/a.ts"]);
+  assert.match((res.content[0] as { text: string }).text, /commit-scope violation/);
+});
+
+test("commitScope set but child committed nothing (base === head) → empty, no violation, no diff call", async () => {
+  const { calls, ops } = fakeGitOps({ baseHead: "same", postHead: "same" });
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, cwd: "/repo" });
+  const res = await tool.execute("id", { task: "t", commitScope: ["src/"] }, NO_SIGNAL, undefined, NO_CTX);
+  assert.deepEqual(res.details.scopeCheck?.touchedPaths, []);
+  assert.deepEqual(res.details.scopeCheck?.outOfScope, []);
+  assert.equal(calls.changed.length, 0, "changedPaths skipped when base === head");
+});
+
+test("commitScope ignored for worktree-isolated runs (their commits are discarded anyway)", async () => {
+  const registry = mkRegistry([
+    { name: "isolated-worker", isolation: "worktree", prompt: "Work in isolation.", source: "project" },
+  ]);
+  const { calls, ops } = fakeGitOps({ baseHead: "b1", postHead: "h2", paths: ["src/a.ts"] });
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({
+    spawn: f.spawn,
+    gitOps: ops,
+    agentRegistry: registry,
+    cwd: "/repo",
+    createWorktree: async () => ({
+      isolated: true,
+      cwd: "/repo/.pi/worktrees/x",
+      repoRoot: "/repo",
+      branch: "pi/wf/x",
+    }),
+    removeWorktree: async () => {},
+  });
+  const res = await tool.execute(
+    "id",
+    { task: "t", agentType: "isolated-worker", commitScope: ["src/"] },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.equal(res.details.scopeCheck, undefined, "worktree-isolated run is not scope-checked");
+  assert.equal(calls.headCwds.length, 0, "no git ops for an isolated run");
+});
+
+test("commitScope set but not a repo (headCommit undefined before dispatch) → scopeCheck undefined", async () => {
+  const { calls, ops } = fakeGitOps({ baseHead: undefined, postHead: "h2" });
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, cwd: "/repo" });
+  const res = await tool.execute("id", { task: "t", commitScope: ["src/"] }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(res.details.scopeCheck, undefined);
+  assert.equal(calls.changed.length, 0, "no post-run diff when base could not resolve");
+});
+
+test("renderSubagentResult tints out-of-scope count as a warning (separate axis from status/SDD)", () => {
+  const details: SubagentToolDetails = {
+    exitCode: 0,
+    timedOut: false,
+    taskPreview: "p",
+    elapsedMs: 1000,
+    status: "done",
+    scopeCheck: {
+      baseCommit: "b",
+      headCommit: "h",
+      touchedPaths: ["x.ts", ".planning/y.md"],
+      outOfScope: [".planning/y.md"],
+    },
+  };
+  const out = renderSubagentResult({ content: [{ type: "text", text: "ok" }], details }, { expanded: false }, T);
+  assert.match(out, /1 out-of-scope/);
+});
+
+test("execute persists scopeCheck on the durable run record (for /subagents replay)", async () => {
+  const { saved, persistence } = fakePersistence();
+  const { ops } = fakeGitOps({ baseHead: "b1", postHead: "h2", paths: ["src/a.ts", "README.md"] });
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, persistence, cwd: "/repo" });
+  await tool.execute("id", { task: "t", commitScope: ["src/"] }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(saved.length, 1);
+  assert.deepEqual(saved[0].scopeCheck?.outOfScope, ["README.md"], "violation persisted for replay");
 });
