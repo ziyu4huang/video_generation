@@ -150,13 +150,21 @@ export class MemoryStore {
     signal?: AbortSignal,
   ): Promise<ConsolidationResult> {
     if (!this.consolidator) return { consolidated: false, error: "no consolidator configured" };
-    const prev = process.env.PI_MEMORY_FILE_LOCK;
+    const prevLock = process.env.PI_MEMORY_FILE_LOCK;
+    const prevCons = process.env.PI_HERMES_CONSOLIDATING;
+    // PI_MEMORY_FILE_LOCK=bypass: child skips the cross-process lock (parent holds it).
+    // PI_HERMES_CONSOLIDATING=1: child must NOT spawn its own consolidator — prevents
+    //   the nested-consolidation freeze (chain/overlap/race; wayfinder 01/05). The child
+    //   inherits this env; loadConfig forces autoConsolidate:false → vault-offload floor.
     process.env.PI_MEMORY_FILE_LOCK = "bypass";
+    process.env.PI_HERMES_CONSOLIDATING = "1";
     try {
       return await this.consolidator(target, signal);
     } finally {
-      if (prev === undefined) delete process.env.PI_MEMORY_FILE_LOCK;
-      else process.env.PI_MEMORY_FILE_LOCK = prev;
+      if (prevLock === undefined) delete process.env.PI_MEMORY_FILE_LOCK;
+      else process.env.PI_MEMORY_FILE_LOCK = prevLock;
+      if (prevCons === undefined) delete process.env.PI_HERMES_CONSOLIDATING;
+      else process.env.PI_HERMES_CONSOLIDATING = prevCons;
     }
   }
 
