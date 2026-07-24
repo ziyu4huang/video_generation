@@ -106,7 +106,7 @@ export function isConsolidatingChild(): boolean {
 }
 
 /** Whether the extension should run the startup markdown→db re-index
- *  (syncMarkdownMemoriesToSqlite). Skipped in the consolidation child, which
+ *  (syncMarkdownMemories). Skipped in the consolidation child, which
  *  never searches the index and would otherwise pay ~6.6s of surrealdb HTTP
  *  overhead per spawn (×4 targets on /memory-consolidate). */
 export function shouldRunStartupSync(): boolean {

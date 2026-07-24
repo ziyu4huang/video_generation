@@ -430,7 +430,7 @@ describe("config dbBackend", () => {
 
 describe("shouldRunStartupSync (consolidation child skips the .md→db re-index)", () => {
   // Root cause (wayfinder surrealdb-path repro): every consolidation child is
-  // a full extension session, so it re-ran the startup syncMarkdownMemoriesToSqlite
+  // a full extension session, so it re-ran the startup syncMarkdownMemories
   // — ~540 sequential HTTP round-trips on surrealdb (~6.6s × 4 targets) that sqlite
   // does in 15ms. The child only reads .md + writes the result, so the re-index
   // is pure waste. Guard it behind PI_HERMES_CONSOLIDATING (set by runConsolidator).
