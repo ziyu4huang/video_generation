@@ -1,15 +1,15 @@
 # pi-agent-ext-power-tool
 
 A **pi extension** for agent self-diagnostics — `inspect_agent`,
-`inspect_context`, `inspect_extensions`, `inspect_pathology`. The `src/index.ts`
-factory registers only these four tools (plus the `schema-cost` export and a
+`inspect_context`, `inspect_extensions`, `inspect_hooks`, `inspect_pathology`. The `src/index.ts`
+factory registers only these five tools (plus the `schema-cost` export and a
 CLI subcommand).
 
 ## Feature surface
 
 | Feature | Tool(s) / surface | Notes |
 |---------|-------------------|-------|
-| Diagnostics | `inspect_agent`, `inspect_context`, `inspect_extensions` | Static state diagnostics — documented ↓ |
+| Diagnostics | `inspect_agent`, `inspect_context`, `inspect_extensions`, `inspect_hooks` | Static state diagnostics — documented ↓ |
 | Failure pathology | `inspect_pathology` | Dynamic — detects retry loops / error storms / context saturation this session (F v1) |
 | Schema-cost accounting | `./schema-cost` export | Static tool-token estimator (also a publishable package, `pi-schema-cost`) |
 | CLI subcommand | `./extensions/cli-subcommand.ts` | Wired into `pi-agent-cli` |
@@ -206,6 +206,44 @@ bun bun-apps/pi-agent/src/cli.ts --model google/gemma-4-26b-a4b-qat \
 ```
 
 **What it found in this repo (real run):** pi-obsidian's 16 tools have no Available-tools snippets or `promptGuidelines`; `skill_manage` is over the schema threshold (1244 tok); pi-obsidian is the heaviest extension tax (~35%, 3237 tok/req) out of ~9,197 tok/req total across all non-builtin tools.
+
+---
+
+### `inspect_hooks`
+
+Lists every loaded extension's registered `pi.on(...)` lifecycle hooks (which events each extension listens on, handler counts) and flags any handler registered against an unknown event name (likely a typo / dead handler). Fact-finder companion to `inspect_extensions`.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `by_event` | boolean? | `false` | Group hooks by event instead of by extension |
+| `return_json` | boolean? | `false` | Return machine-readable JSON instead of a text report |
+| `self_test` | boolean? | `false` | Run built-in self-test and report results |
+
+**Output:**
+
+- **By extension (default):** For each loaded extension, shows the events it listens on and handler counts per event
+- **By event (`by_event=true`):** Groups all hooks by event name, showing which extensions subscribe to each
+- **Unknown event detection:** Medium-severity finding for any handler registered against an event not in the known event set
+
+**Usage:**
+
+```bash
+# Default: show hooks grouped by extension
+call inspect_hooks
+
+# Group by event to see which extensions listen to each event
+call inspect_hooks by_event=true
+
+# Machine-readable JSON
+call inspect_hooks return_json=true
+
+# Run self-test
+call inspect_hooks self_test=true
+```
+
+**Design notes:** Reads the aggregated `runner.extensions[].handlers` via a `getHooks()` polyfill on `sdk-patch.ts`'s `createContext` wrapper. Phase 2 (future): add firing counts and `never-fired` detection.
 
 ---
 
