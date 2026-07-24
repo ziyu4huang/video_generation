@@ -19,10 +19,14 @@ export interface ArtifactFacts {
   svgViewBox?: string;
   title?: string;
   generator?: string;
-  /** distinct data-kind values on SVG groups. */
-  nodeKinds: string[];
-  /** count of groups carrying a data-kind attribute. */
-  nodeCount: number;
+  /** distinct values among every `data-kind` attribute (includes the
+   *  template's legend/theme swatches); NOT a diagram-node-kind list — use
+   *  `textLabels` for node-content signals. */
+  dataKinds: string[];
+  /** counts every `data-kind` attribute (includes the template's legend/theme
+   *  swatches); NOT a diagram-node count — use `textLabels` for node-content
+   *  signals. */
+  dataKindAttrCount: number;
   /** <text> contents, inner tags stripped, trimmed, de-duped. */
   textLabels: string[];
   inlineScripts: number;
@@ -35,10 +39,17 @@ export interface ArtifactFacts {
 /** External hosts that are cosmetic/help-only (system-font fallback exists). */
 const OPTIONAL_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com", "tt-a1i.github.io"];
 
+/** Extract the lowercase hostname from a URL-ish string. Strips the scheme,
+ *  then takes everything up to the first `/`, `?`, or `#`. Returns "" for
+ *  schemeless/relative URLs so they never match an OPTIONAL_HOST. */
+function hostOf(url: string): string {
+  const noScheme = url.replace(/^https?:\/\//i, "").replace(/^\/\//, "");
+  return noScheme.split(/[/?#]/)[0]!.toLowerCase();
+}
+
 function isOptional(url: string): boolean {
-  return OPTIONAL_HOSTS.some(
-    (h) => url.startsWith(`https://${h}`) || url.startsWith(`http://${h}`) || url.startsWith(`//${h}`),
-  );
+  const host = hostOf(url);
+  return OPTIONAL_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
 }
 
 export function inspectArtifact(html: string): ArtifactFacts {
@@ -50,8 +61,8 @@ export function inspectArtifact(html: string): ArtifactFacts {
   const generator = /<meta[^>]*name="generator"[^>]*content="([^"]*)"/i.exec(html)?.[1];
 
   const kindMatches = [...html.matchAll(/data-kind="([^"]*)"/g)];
-  const nodeKinds = [...new Set(kindMatches.map((m) => m[1]!))];
-  const nodeCount = kindMatches.length;
+  const dataKinds = [...new Set(kindMatches.map((m) => m[1]!))];
+  const dataKindAttrCount = kindMatches.length;
 
   const textMatches = [...html.matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/gi)];
   const textLabels = [
@@ -95,7 +106,7 @@ export function inspectArtifact(html: string): ArtifactFacts {
 
   return {
     bytes, hasDoctype, hasSvg, svgViewBox, title, generator,
-    nodeKinds, nodeCount, textLabels, inlineScripts, externalScripts,
+    dataKinds, dataKindAttrCount, textLabels, inlineScripts, externalScripts,
     externalRefs, requiredExternalRefs,
   };
 }

@@ -38,8 +38,8 @@ describe("inspectArtifact", () => {
 
   test("counts data-kind nodes and dedups kinds", () => {
     const f = inspectArtifact(SAMPLE);
-    expect(f.nodeCount).toBe(4); // 4 groups carry data-kind (frontend x2)
-    expect(f.nodeKinds.sort()).toEqual(["backend", "database", "frontend"]);
+    expect(f.dataKindAttrCount).toBe(4); // 4 groups carry data-kind (frontend x2)
+    expect(f.dataKinds.sort()).toEqual(["backend", "database", "frontend"]);
   });
 
   test("extracts text labels, stripping nested tags", () => {
@@ -69,12 +69,35 @@ describe("inspectArtifact", () => {
     expect(f.externalScripts).toBe(1);
   });
 
+  test("isOptional host matching is boundary-anchored (no bypass via suffix-domain)", () => {
+    // attacker-controlled suffix domain must NOT be classified optional
+    const evil = `<!doctype html><html><head><title>X</title></head>
+      <body><svg viewBox="0 0 10 10"><g data-kind="a"><text>A</text></g></svg>
+      <script src="https://tt-a1i.github.io.evil.com/x.js"></script>
+      <img src="https://fonts.googleapis.com.evil.attacker/x.png">
+      <a href="https://evil.com#https://fonts.gstatic.com">link</a></body></html>`;
+    const f = inspectArtifact(evil);
+    const requiredUrls = f.requiredExternalRefs.map((r) => r.url);
+    expect(requiredUrls).toContain("https://tt-a1i.github.io.evil.com/x.js");
+    expect(requiredUrls.some((u) => u.endsWith("x.png"))).toBe(true);
+    expect(requiredUrls.some((u) => u.startsWith("https://evil.com"))).toBe(true);
+    expect(f.requiredExternalRefs.length).toBe(3);
+    // genuine allowlisted hosts (and subdomains) still classified optional
+    const clean = `<!doctype html><html><head><title>X</title></head>
+      <body><svg viewBox="0 0 10 10"><g data-kind="a"><text>A</text></g></svg>
+      <a href="https://tt-a1i.github.io/archify/start.html">help</a>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=x">
+      <link rel="preconnect" href="https://fonts.gstatic.com"></body></html>`;
+    const c = inspectArtifact(clean);
+    expect(c.requiredExternalRefs).toEqual([]);
+  });
+
   test("returns empty requiredExternalRefs for a clean offline artifact", () => {
     const clean = `<!doctype html><html><head><title>X</title></head>
       <body><svg viewBox="0 0 10 10"><g data-kind="a"><text>A</text></g></svg>
       <link rel="preconnect" href="https://fonts.gstatic.com"></body></html>`;
     const f = inspectArtifact(clean);
     expect(f.requiredExternalRefs).toEqual([]);
-    expect(f.nodeCount).toBe(1);
+    expect(f.dataKindAttrCount).toBe(1);
   });
 });
