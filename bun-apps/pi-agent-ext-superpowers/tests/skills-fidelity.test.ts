@@ -26,43 +26,43 @@ const fixturesDir = join(import.meta.dir, "__fixtures__", "upstream-skills");
 
 /** Every upstream-ported superpowers skill (the risk set, not the 6 incident skills). */
 const PORTED_SKILLS = [
-	"brainstorming",
-	"dispatching-parallel-agents",
-	"executing-plans",
-	"finishing-a-development-branch",
-	"receiving-code-review",
-	"requesting-code-review",
-	"subagent-driven-development",
-	"systematic-debugging",
-	"test-driven-development",
-	"using-git-worktrees",
-	"using-superpowers",
-	"verification-before-completion",
-	"writing-plans",
-	"writing-skills",
+  "brainstorming",
+  "dispatching-parallel-agents",
+  "executing-plans",
+  "finishing-a-development-branch",
+  "receiving-code-review",
+  "requesting-code-review",
+  "subagent-driven-development",
+  "systematic-debugging",
+  "test-driven-development",
+  "using-git-worktrees",
+  "using-superpowers",
+  "verification-before-completion",
+  "writing-plans",
+  "writing-skills",
 ] as const;
 
 describe("skill fidelity (ADR-0004) — upstream-ported SKILL.md byte-equal baseline", () => {
-	for (const name of PORTED_SKILLS) {
-		it(`${name}/SKILL.md matches its baseline fixture`, () => {
-			const skill = readFileSync(join(skillsDir, name, "SKILL.md"), "utf8");
-			const fixturePath = join(fixturesDir, `${name}.md`);
-			if (!existsSync(fixturePath)) {
-				// Missing fixture = guard not yet baselined for this skill.
-				throw new Error(
-					`Missing baseline fixture ${fixturePath}. ` +
-						`Run \`bun scripts/rebaseline-upstream-skills.ts\` to (re)baseline.`,
-				);
-			}
-			const fixture = readFileSync(fixturePath, "utf8");
-			expect(skill).toBe(fixture);
-		});
-	}
+  for (const name of PORTED_SKILLS) {
+    it(`${name}/SKILL.md matches its baseline fixture`, () => {
+      const skill = readFileSync(join(skillsDir, name, "SKILL.md"), "utf8");
+      const fixturePath = join(fixturesDir, `${name}.md`);
+      if (!existsSync(fixturePath)) {
+        // Missing fixture = guard not yet baselined for this skill.
+        throw new Error(
+          `Missing baseline fixture ${fixturePath}. ` +
+            `Run \`bun scripts/rebaseline-upstream-skills.ts\` to (re)baseline.`,
+        );
+      }
+      const fixture = readFileSync(fixturePath, "utf8");
+      expect(skill).toBe(fixture);
+    });
+  }
 
-	it("UPSTREAM.ref provenance record exists and is non-empty", () => {
-		const refPath = join(fixturesDir, "UPSTREAM.ref");
-		expect(existsSync(refPath), "UPSTREAM.ref missing — re-baseline without provenance").toBe(true);
-		const ref = readFileSync(refPath, "utf8").trim();
-		expect(ref.length, "UPSTREAM.ref is empty — every re-port must declare its source").toBeGreaterThan(0);
-	});
+  it("UPSTREAM.ref provenance record exists and is non-empty", () => {
+    const refPath = join(fixturesDir, "UPSTREAM.ref");
+    expect(existsSync(refPath), "UPSTREAM.ref missing — re-baseline without provenance").toBe(true);
+    const ref = readFileSync(refPath, "utf8").trim();
+    expect(ref.length, "UPSTREAM.ref is empty — every re-port must declare its source").toBeGreaterThan(0);
+  });
 });
