@@ -299,7 +299,7 @@ describe("registerMemoryTool", () => {
 
     const parsed = JSON.parse(result.content[0].text);
     assert.strictEqual(parsed.success, true);
-    assert.match(parsed.message, /SQLite search sync failed/);
+    assert.match(parsed.message, /search store sync failed/);
     assert.match(parsed.warning, /sqlite unavailable/);
   });
 
@@ -346,7 +346,7 @@ describe("registerMemoryTool", () => {
     const parsed = JSON.parse(result.content[0].text);
 
     assert.strictEqual(parsed.success, true);
-    assert.match(parsed.message, /SQLite search sync failed/);
+    assert.match(parsed.message, /search store sync failed/);
     assert.match(parsed.warning, /disk I\/O error/);
   });
 
@@ -497,5 +497,19 @@ describe("registerMemoryTool", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('memory-tool user-facing strings contain no hardcoded backend token', () => {
+    const src = fs.readFileSync(
+      path.join(import.meta.dir, '..', '..', 'src', 'tools', 'memory-tool.ts'),
+      'utf-8',
+    );
+    // Matches sqlite/surrealdb only INSIDE string literals (quoted), ignoring
+    // identifiers (e.g. syncAddToSqlite) and comments.
+    const backendInLiteral = /['"`][^'"`\n]*(sqlite|surrealdb)[^'"`\n]*['"`]/i;
+    assert.ok(
+      !backendInLiteral.test(src),
+      'memory-tool.ts must not hardcode a backend name inside any string literal',
+    );
   });
 });
