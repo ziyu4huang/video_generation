@@ -100,7 +100,7 @@ export function getSubagentRunPersistence() {
 ```
 
 - `SubagentInFlightRegistry` 類別與 `createSubagentRunPersistence` 工廠**繼續匯出**（測試注入用，符合現有 `createSubagentTool({ inFlight })` 注入模式）；單例只是 production 預設。
-- 兩個 extension（subagent 寫入、workflow 的 viewer/command 讀取）一致以 `@repo/pi-agent-ext-subagent` workspace 匯入 → 同一 module instance → 同一單例。
+- **Module-identity 規則（正確性關鍵）**：兩個 extension 必須解析到同一個 `subagent-in-flight.js` module instance，單例才會共享。subagent extension 由 `static-extensions.ts` 以相對 `.ts` 路徑載入 → 內部 `../src/subagent-in-flight.js` 為 **src** 實例。因此 workflow 不可用 root entry `@repo/pi-agent-ext-subagent`（其 `exports["."]` 指向 **dist**，會是不同 module instance），**必須改用 src subpath**：`import { getSubagentInFlightRegistry, getSubagentRunPersistence } from "@repo/pi-agent-ext-subagent/src/index.js"`（新套件 `exports` 須含 `"./src/*": "./src/*"`，比照 workflow）。此 subpath cross-extension 匯入已是本 repo 既有模式（`ensure-extension-deps.ts` 註解明列 `@repo/pi-agent-ext-workflow/src/spawn-subagent.ts`）。knowledge-card 不共享單例，維持 root（dist）匯入即可。
 
 ### `pi-agent-ext-workflow/extensions/workflow.ts` 對應改動
 
@@ -188,7 +188,7 @@ export function getSubagentRunPersistence() {
 
 ## Risks & Mitigations
 
-1. **跨 extension 單例一致性** — 兩 extension 必須一致用 `@repo/pi-agent-ext-subagent` workspace 匯入（不可用 `../../src/...` 相對路徑），確保 module identity → 同一 registry/persistence 實例。`pi-agent/src/patches/ensure-extension-deps.ts` 已強制 `@repo/<pkg>` bare specifier 慣例，為既有保障。
+1. **跨 extension 單例一致性** — 兩 extension 必須解析到同一 `subagent-in-flight.js` / `subagent-run-persistence.js` module instance。subagent extension 走 src；故 workflow 必須以 **src subpath** `@repo/pi-agent-ext-subagent/src/index.js` 匯入單例（見〈套件單例〉module-identity 規則），**不可**用 root entry（dist）。驗證：`/subagents` 能即時看到 `subagent` 工具觸發的 in-flight run。`pi-agent/src/patches/ensure-extension-deps.ts` 會 symlink 所有 `@repo/*` 於 repo-root node_modules，保障 subpath 解析。
 2. **Build 一致性** — 新套件須 `bun run build` 產 `dist/index.js`。比照 `pi-agent-cli/src/__tests__/boot-smoke.test.ts` 的 `buildIfMissing("pi-agent-ext-workflow", ...)` 模式，確保測試前已建置。
 3. **Load order** — registry/persistence 單例惰性建立；若 subagent extension 未載入（理論上不會，兩者皆 always-on），viewer 只看到空集合（graceful degrade）。
 4. **向後相容破壞** — workflow `index.ts` re-export 涵蓋所有原本公開符號；Plan 階段比對原 `index.ts` 匯出清單逐一 re-export，不可漏。
