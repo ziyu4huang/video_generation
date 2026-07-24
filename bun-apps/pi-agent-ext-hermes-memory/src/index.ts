@@ -50,7 +50,7 @@ import { registerInterviewCommand } from "./handlers/interview.js";
 import { registerSwitchProjectCommand } from "./handlers/switch-project.js";
 import { registerIndexSessionsCommand } from "./handlers/index-sessions.js";
 import { registerLearnMemoryCommand } from "./handlers/learn-memory.js";
-import { registerSyncMarkdownMemoriesCommand, syncMarkdownMemoriesToSqlite } from "./handlers/sync-markdown-memories.js";
+import { registerSyncMarkdownMemoriesCommand, syncMarkdownMemories } from "./handlers/sync-markdown-memories.js";
 import { registerSwitchBackendCommand } from "./handlers/switch-backend.js";
 import { registerPreviewContextCommand } from "./handlers/preview-context.js";
 import { loadConfig, shouldRunStartupSync } from "./config.js";
@@ -158,9 +158,9 @@ export default async function (pi: ExtensionAPI) {
   // freeze fix (wayfinder ticket 07). runConsolidator sets PI_HERMES_CONSOLIDATING=1.
   if (shouldRunStartupSync()) {
     try {
-      await syncMarkdownMemoriesToSqlite(memoryRepo, globalDir, config.projectsMemoryDir, agentRoot);
+      await syncMarkdownMemories(memoryRepo, globalDir, config.projectsMemoryDir, agentRoot);
     } catch {
-      // Best-effort only: failed SQLite backfill should not block extension startup.
+      // Best-effort only: failed markdown backfill should not block extension startup.
     }
   }
 
@@ -209,7 +209,7 @@ export default async function (pi: ExtensionAPI) {
     currentDbBackend = target;
     backendLabel = labelFor(target);
     try {
-      await syncMarkdownMemoriesToSqlite(currentBundle.memoryRepo, globalDir, config.projectsMemoryDir, agentRoot);
+      await syncMarkdownMemories(currentBundle.memoryRepo, globalDir, config.projectsMemoryDir, agentRoot);
     } catch {
       // best effort; next session_start re-syncs
     }

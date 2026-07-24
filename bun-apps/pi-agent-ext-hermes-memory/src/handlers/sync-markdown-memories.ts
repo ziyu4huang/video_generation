@@ -84,7 +84,7 @@ function scanProjectDirs(agentRoot: string, globalDir: string, projectsMemoryDir
     .filter(({ memoryFile }) => fs.existsSync(memoryFile));
 }
 
-export async function syncMarkdownMemoriesToSqlite(
+export async function syncMarkdownMemories(
   memoryRepo: MemoryRepository,
   globalDir: string,
   projectsMemoryDir?: string,
@@ -138,7 +138,7 @@ export function registerSyncMarkdownMemoriesCommand(
       ctx.ui.notify('🔄 Scanning Markdown memory files for SQLite backfill...', 'info');
 
       try {
-        const counters = await syncMarkdownMemoriesToSqlite(memoryRepo, globalDir, projectsMemoryDir, agentRoot);
+        const counters = await syncMarkdownMemories(memoryRepo, globalDir, projectsMemoryDir, agentRoot);
 
         let output = `\n✅ Markdown → SQLite sync complete!\n\n`;
         output += `📊 Results:\n`;

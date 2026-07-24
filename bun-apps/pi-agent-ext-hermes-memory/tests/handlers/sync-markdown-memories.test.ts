@@ -9,7 +9,7 @@ import { SqliteMemoryRepository } from '../../src/store/sqlite/sqlite-memory-rep
 import { registerMemoryTool } from '../../src/tools/memory-tool.js';
 import {
   registerSyncMarkdownMemoriesCommand,
-  syncMarkdownMemoriesToSqlite,
+  syncMarkdownMemories,
 } from '../../src/handlers/sync-markdown-memories.js';
 import { ENTRY_DELIMITER } from '../../src/constants.js';
 
@@ -170,7 +170,7 @@ describe('memory sqlite sync + markdown backfill', () => {
       'utf-8',
     );
 
-    const counters = await syncMarkdownMemoriesToSqlite(memoryRepo, globalDir, undefined, agentRoot);
+    const counters = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
 
     assert.strictEqual(counters.projectCount, 1);
     assert.strictEqual(counters.imported, 1);
@@ -198,7 +198,7 @@ describe('memory sqlite sync + markdown backfill', () => {
         'utf-8',
       );
 
-      const counters = await syncMarkdownMemoriesToSqlite(customMemoryRepo, customGlobalDir, undefined, agentRoot);
+      const counters = await syncMarkdownMemories(customMemoryRepo, customGlobalDir, undefined, agentRoot);
 
       assert.strictEqual(counters.projectCount, 1);
       const results = await customMemoryRepo.searchMemories('custom root project entry', {
