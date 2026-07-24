@@ -1,18 +1,18 @@
 {
-  "name": "@repo/pi-agent-ext-workflow",
-  "version": "2.9.0",
+  "name": "@repo/pi-agent-ext-subagent",
+  "version": "0.1.0",
   "private": true,
-  "description": "Claude-Code-style dynamic workflows for Pi — fan a task out across 100s of subagents with real model routing, token/cost accounting, resume, git-worktree isolation, an interactive /workflows TUI, and a real /deep-research.",
+  "description": "Isolated single-subagent dispatch for Pi — spawnSubagent + WorkflowAgent runner + subagent/subagent_runs tools. Extracted from pi-agent-ext-workflow as a lower-dependency library.",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
   "publishConfig": {
     "access": "public"
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
     },
     "./src/*": "./src/*",
     "./extensions/*": "./extensions/*"
@@ -21,7 +21,6 @@
     "dist/",
     "extensions/",
     "src/",
-    "workflow-pack/",
     "README.md"
   ],
   "scripts": {
@@ -38,39 +37,20 @@
     "pi-package",
     "pi",
     "pi-coding-agent",
-    "workflow",
-    "workflows",
-    "dynamic-workflows",
-    "orchestration",
     "subagents",
     "multi-agent",
-    "agents",
     "ai-agents",
-    "parallel",
-    "fan-out",
-    "claude-code",
-    "deep-research",
-    "code-review",
-    "llm"
+    "agents",
+    "isolated-context",
+    "spawn-subagent"
   ],
   "pi": {
     "extensions": [
-      "extensions/workflow.ts"
+      "extensions/subagent.ts"
     ]
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/QuintinShaw/pi-dynamic-workflows.git"
-  },
-  "author": "QuintinShaw",
-  "contributors": [
-    "michaelliv (original author)"
-  ],
   "license": "MIT",
-  "dependencies": {
-    "@repo/pi-agent-ext-subagent": "workspace:*",
-    "acorn": "^8.16.0"
-  },
+  "dependencies": {},
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "0.82.0",
     "@earendil-works/pi-tui": "0.82.0",

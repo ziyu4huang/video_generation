@@ -60,6 +60,7 @@ import webAccessExtension from "../../pi-agent-ext-web-access/extensions/web-acc
 import obsidianExtension from "../../pi-agent-ext-obsidian/extensions/obsidian.ts";
 import btwExtension from "../../pi-agent-ext-btw/extensions/btw.ts";
 import file2mdExtension from "../../pi-agent-ext-file2md/extensions/file2md.ts";
+import subagentExtension from "../../pi-agent-ext-subagent/extensions/subagent.ts";
 import workflowExtension from "../../pi-agent-ext-workflow/extensions/workflow.ts";
 import knowledgeCardExtension from "../../pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 import powerToolExtension from "../../pi-agent-ext-power-tool/extensions/power-tool.ts";
@@ -75,6 +76,9 @@ export const STATIC_EXTENSION_FACTORIES = [
 	{ name: "pi-agent-ext-obsidian", factory: obsidianExtension },
 	{ name: "pi-agent-ext-btw", factory: btwExtension },
 	{ name: "pi-agent-ext-file2md", factory: file2mdExtension },
+	// subagent — owns subagent + subagent_runs tools + shared singletons; must
+	// load before workflow so workflow's /subagents viewer reads a populated registry.
+	{ name: "pi-agent-ext-subagent", factory: subagentExtension },
 	{ name: "pi-agent-ext-workflow", factory: workflowExtension },
 	{ name: "pi-agent-ext-knowledge-card", factory: knowledgeCardExtension },
 	// power-tool — always-on diagnostics suite (inspect_context/agent/extensions/

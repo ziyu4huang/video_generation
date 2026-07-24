@@ -49,7 +49,7 @@ test("createSubagentTool exposes parameters, execute, promptSnippet, executionMo
   const tool = createSubagentTool();
   assert.ok(tool.parameters, "parameters schema defined");
   assert.equal(typeof tool.execute, "function");
-  assert.ok(tool.promptSnippet && tool.promptSnippet.toLowerCase().includes("subagent"));
+  assert.ok(tool.promptSnippet?.toLowerCase().includes("subagent"));
   // ticket 10: sequential enforces "parallel fan-out goes through workflow.parallel()"
   // (workflow's parallel()/agent() dispatch via a separate createAgentSession path,
   //  so this does not throttle workflow fan-out).

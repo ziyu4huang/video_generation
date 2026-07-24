@@ -1,7 +1,7 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
+import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
 import { createSubagentRunsTool } from "../src/subagent-runs-tool.js";
-import type { SubagentRunRecord, SubagentRunPersistence } from "../src/subagent-run-persistence.js";
 
 function mkRecord(over: Partial<SubagentRunRecord> = {}): SubagentRunRecord {
   return {
@@ -93,7 +93,13 @@ test("get includeHistory:true includes transcript; default omits", async () => {
   ]);
   const tool = createSubagentRunsTool({ persistence: p });
   const without = await tool.execute("id", { action: "get", id: "r1" }, NO_SIGNAL, undefined, undefined);
-  const withHist = await tool.execute("id", { action: "get", id: "r1", includeHistory: true }, NO_SIGNAL, undefined, undefined);
+  const withHist = await tool.execute(
+    "id",
+    { action: "get", id: "r1", includeHistory: true },
+    NO_SIGNAL,
+    undefined,
+    undefined,
+  );
   assert.doesNotMatch((without.content[0] as { text: string }).text, /transcript/);
   assert.match((withHist.content[0] as { text: string }).text, /transcript/);
   assert.match((withHist.content[0] as { text: string }).text, /ran grep/);

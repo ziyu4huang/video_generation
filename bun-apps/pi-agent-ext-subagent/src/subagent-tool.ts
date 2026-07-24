@@ -182,7 +182,7 @@ function isSchemaShaped(value: unknown): value is TSchema {
 /** Collapse a task prompt to a single-line preview of at most `n` chars. */
 export function taskPreview(task: string, n = 80): string {
   const oneLine = task.replace(/\s+/g, " ").trim();
-  return oneLine.length > n ? oneLine.slice(0, n - 1) + "…" : oneLine;
+  return oneLine.length > n ? `${oneLine.slice(0, n - 1)}…` : oneLine;
 }
 
 /** Describe the most recent history entry as a short one-line activity string. */

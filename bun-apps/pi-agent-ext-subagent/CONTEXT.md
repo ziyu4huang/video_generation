@@ -1,0 +1,66 @@
+# pi-agent-ext-subagent
+
+The ubiquitous language of the isolated single-subagent dispatch subsystem — the `subagent` + `subagent_runs` tools, the `WorkflowAgent` runner, the `spawnSubagent` programmatic API, and the process-wide singletons that let a viewer observe in-flight and completed runs. Extracted from `pi-agent-ext-workflow` so the subagent capability loads independently of the workflow DSL and so peer extensions can depend on it without the workflow engine.
+
+## Language
+
+### Core noun
+
+**Subagent**:
+One isolated child Pi session, spawned ad-hoc by the model (via the `subagent` tool) or by peer-extension code (via `spawnSubagent`/`agent()`). Runs in a fresh in-memory session with its own context window; the parent never sees its intermediate steps — only the final result.
+_Avoid_: child process, worker, thread (a subagent is an in-process Pi session driven by `WorkflowAgent`, not an OS process).
+
+**Spawn** (`spawnSubagent`):
+The publicly-exported wrapper over `WorkflowAgent.run` for **programmatic** single-subagent dispatch from peer-extension CODE (not the LLM tool path). Stabilized as a public surface so `pi-agent-ext-knowledge-card` (`zk_card`/`zk_ask`), `pi-agent-ext-wayfind`, `pi-agent-ext-superpowers` import it instead of re-implementing a child runner. Returns `{ output, exitCode, stderr, timedOut, usage? }`.
+_Avoid_: re-implementing a child runner in a peer extension (call `spawnSubagent` instead); reaching into `./src/spawn-subagent.ts` directly (it is exported from the package root).
+
+### LLM-facing tools (this package owns them)
+
+**`subagent` (tool)**:
+The LLM-facing tool for one ad-hoc isolated child run — the model calls it directly, no orchestration. Same runner as `agent()` and `spawnSubagent()`. Reports real usage, accepts `timeoutMs`/`retryOnTransient`/`agentType`/`schema`/`model`/`tier`. Declares `executionMode: "sequential"` so pi serializes any turn containing a `subagent` call. Owned by this package's extension (`extensions/subagent.ts`).
+_Avoid_: mini-workflow, single-agent script (it is a standalone tool call, not a `workflow` run of one agent).
+
+**`subagent_runs` (tool)**:
+The LLM-facing inspection tool — lists completed `subagent`-tool runs (newest-first, filterable by status, with a get-by-id subcommand) backed by the run-persistence store. Owned by this package's extension.
+_Avoid_: conflating with the `/subagents` interactive viewer (that is a TUI command living in `pi-agent-ext-workflow`, reading the same persistence singleton).
+
+### Runner
+
+**`WorkflowAgent`**:
+The engine's LLM caller — a thin adapter over Pi's `createAgentSession()`. Owns no `fetch`, no provider SDK, no HTTP path to any LLM (its only runtime dep is `acorn`, the script parser). Every spawn constructs a fresh Pi session and drives it with `session.prompt()`. Despite the `Workflow` prefix in the name (retained from the pre-extraction codebase for symbol continuity), it is the SHARED runner for `spawnSubagent`, the `subagent` tool, and workflow's `agent()` — not a workflow-only class.
+_Avoid_: "workflow agent" implying it only runs inside a workflow (it runs every subagent dispatch).
+
+### Singletons + the sharing contract
+
+**In-flight registry** (`getSubagentInFlightRegistry()` → `SubagentInFlightRegistry`):
+Process-local registry of RUNNING subagent dispatches. The `subagent` tool registers on start, streams throttled history, and deregisters on completion, so a viewer can show a "Running" section with live elapsed while a child is mid-flight — closing the gap that running subagents were invisible until they finished. Process-local by design: a subagent runs in-process, so all live runs are in this process.
+_Avoid_: persisting in-flight entries (they are transient; completed runs go to run-persistence).
+
+**Run-persistence** (`getSubagentRunPersistence()` → `SubagentRunRecord` store):
+Durable, inspection-only records of COMPLETED `subagent`-tool runs, for post-session replay/debug. Home: `~/.pi/subagents/runs/<id>.json` (global per-user; the record carries `cwd` so a viewer can scope later). JSON-per-run, atomic tmp+rename write, last-N retention (default 200). Records are write-once (never mutated).
+**Deliberately separate from workflow `RunPersistence`**: that layer is workflow-RESUME machinery (journal = replay source-of-truth, cross-process lease, pause/resume). A subagent run is a one-shot dispatch with NO resume semantics; its record exists purely for inspection. Mixing the two would muddy the journal's canonical-resume invariant.
+_Avoid_: persisting subagent runs through the workflow journal (use this separate store); treating the record as mutable (it is write-once).
+
+**Singleton-sharing contract** (the cross-extension invariant):
+`getSubagentInFlightRegistry()` and `getSubagentRunPersistence()` are **module-local lazy singletons**. For the `subagent` tool (this package) and the `/subagents` viewer/command (`pi-agent-ext-workflow`) to share ONE instance, both MUST resolve the singleton from the SAME module. This package's extension imports it via `../src/index.js`; peer extensions MUST import via the **`src/` subpath** (`@repo/pi-agent-ext-subagent/src/index.ts`) — NOT the dist root — so both land on the identical `src/index.ts` module instance. Importing via the dist root (`@repo/pi-agent-ext-subagent`) would resolve to `dist/index.js`, a different module identity, and each caller would get its own lazily-initialized singleton → the viewer sees an empty registry.
+_Avoid_: importing the singletons from the dist root and expecting the live instance (use the `src/` subpath); copying the registry/persistence into a peer extension (share the singleton instead).
+
+### Supporting concepts
+
+**Agent registry** (`loadAgentRegistry` / `AgentDefinition`):
+The `.pi/agents/*.md` definition store — name/description/tools/model/prompt/worktree-isolation per named agent type. Resolved via `agentType` on the `subagent` tool and `agent()`; explicit call-site `model`/`tools`/`excludeTools` override the binding. Bundled agents in a workflow pack register per-run with project > pack > user precedence.
+_Avoid_: conflating with the in-flight registry (the agent registry is definitions; the in-flight registry is running instances).
+
+**Model tier** (`loadModelTierConfig` / `resolveTierModel`):
+The named-tier → model-spec mapping (`~/.pi/models.json`, editable via `/models`). A dispatch's `tier` resolves through this; `tier` + `model` interaction: explicit `model` wins > `tier`-resolved model > session `mainModel` default.
+_Avoid_: hardcoding model ids in agent definitions (use tiers so `/models` stays the single source).
+
+**Worktree isolation** (`createWorktree` / `removeWorktree`):
+Git-worktree-based isolation for a subagent that should not touch the parent's working tree. An agent definition opts in; the runner creates a linked worktree for the run and removes it after.
+_Avoid_: "container" (it is a git worktree, not an OS container).
+
+## Ownership boundary (why this package exists)
+
+This package owns: the `subagent` + `subagent_runs` TOOLS, the `WorkflowAgent` runner, `spawnSubagent`, the singletons, agent-registry, model-tier, worktree, errors, history helpers, and the SDD-report parser.
+
+It does NOT own: the `/subagents` interactive TUI viewer, the `/subagents` slash command, the `workflow`/`workflow_control`/`workflow_help` tools, or the workflow orchestration engine. Those stayed in `pi-agent-ext-workflow` because the viewer imports `display.ts` which imports `workflow.ts` — moving them here would create a `display.ts ⟹ workflow.ts` cycle back into this package. See `docs/adr/0001-why-extracted.md`.

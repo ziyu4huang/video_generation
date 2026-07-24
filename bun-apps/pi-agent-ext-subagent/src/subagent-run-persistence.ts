@@ -207,3 +207,10 @@ export function generateSubagentRunId(): string {
   const random = Math.random().toString(36).slice(2, 8);
   return `${timestamp}-${random}`;
 }
+
+let _persistenceSingleton: ReturnType<typeof createSubagentRunPersistence> | undefined;
+/** Process-wide singleton (see getSubagentInFlightRegistry). */
+export function getSubagentRunPersistence() {
+  // biome-ignore lint/suspicious/noAssignInExpressions: lazy-init singleton idiom
+  return (_persistenceSingleton ??= createSubagentRunPersistence());
+}
