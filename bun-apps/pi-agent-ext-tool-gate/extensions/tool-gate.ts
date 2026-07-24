@@ -221,7 +221,7 @@ export const GATES: ToolGate[] = [
  *  extension explicitly tracks. Unknown tools (not in this set) are always
  *  active (fail-open). Precomputed at module load so callers that need the
  *  active list without re-firing gates can filter directly. */
-const TRACKED_TOOLS = new Set([...CORE_TOOLS, ...GATES.flatMap((g) => g.names)]);
+export const TRACKED_TOOLS = new Set([...CORE_TOOLS, ...GATES.flatMap((g) => g.names)]);
 
 /** Pure: filter `allToolNames` to those that should be active given `sticky`.
  *  Tools not in TRACKED_TOOLS are always active (fail-open); tracked tools
