@@ -1,10 +1,17 @@
 import { Type } from "typebox";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, extname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { runArchify } from "./run.ts";
 import { resolveOutputPath } from "./output-path.ts";
 
 export interface DeltaCtx { cwd: string }
+
+/** archify `compare` always writes a sidecar `<output>.receipt.json` beside the HTML. */
+function receiptPathFor(htmlPath: string): string {
+  const ext = extname(htmlPath);
+  return ext ? `${htmlPath.slice(0, -ext.length)}.receipt.json` : `${htmlPath}.receipt.json`;
+}
 
 /** archify `compare` is architecture-only (bin/archify.mjs rejects type !== 'architecture'). */
 export async function archifyDelta(params: { basePath: string; headPath: string; outputPath?: string; type?: string }, ctx: DeltaCtx) {
@@ -15,11 +22,23 @@ export async function archifyDelta(params: { basePath: string; headPath: string;
   const base = isAbsolute(params.basePath) ? params.basePath : join(ctx.cwd, params.basePath);
   const head = isAbsolute(params.headPath) ? params.headPath : join(ctx.cwd, params.headPath);
   const outPath = resolveOutputPath({ cwd: ctx.cwd, outputPath: params.outputPath, diagramType: "architecture-delta" });
-  const { status } = runArchify(["compare", "architecture", base, head, outPath], ctx.cwd);
+  const { status, stderr, stdout } = await runArchify(["compare", "architecture", base, head, outPath], ctx.cwd);
   if (status !== 0) {
-    return { content: [{ type: "text" as const, text: `Error: archify compare failed (exit ${status}). Ensure both IRs are valid architecture diagrams.` }], details: { error: "compare failed", status }, isError: true };
+    return { content: [{ type: "text" as const, text: `Error: archify compare failed (exit ${status}). Ensure both IRs are valid architecture diagrams.\n${stderr || stdout}` }], details: { error: "compare failed", status }, isError: true };
   }
-  return { content: [{ type: "text" as const, text: `Rendered architecture delta → ${outPath}` }], details: { path: outPath, type: "architecture-delta" } };
+  // compare writes a provenance receipt beside the HTML; surface it explicitly.
+  const receiptPath = receiptPathFor(outPath);
+  let summary = "";
+  if (existsSync(receiptPath)) {
+    try {
+      const r = JSON.parse(readFileSync(receiptPath, "utf8")) as { completeness?: string; proofLevel?: string; validation?: { checksPassed?: number; checkCount?: number } };
+      const v = r.validation;
+      summary = `\nReceipt → ${receiptPath} (${v ? `${v.checksPassed}/${v.checkCount} checks; ` : ""}completeness ${r.completeness ?? "?"}; ${r.proofLevel ?? "?"}).`;
+    } catch {
+      summary = `\nReceipt → ${receiptPath}.`;
+    }
+  }
+  return { content: [{ type: "text" as const, text: `Rendered architecture delta → ${outPath}${summary}` }], details: { path: outPath, receipt: receiptPath, type: "architecture-delta" } };
 }
 
 export const deltaTool = defineTool({
