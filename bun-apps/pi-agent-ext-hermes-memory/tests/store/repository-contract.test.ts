@@ -24,6 +24,8 @@ import type {
   MemoryRepository,
   SessionRepository,
 } from "../../src/store/repository.js";
+import { syncMarkdownMemories } from "../../src/handlers/sync-markdown-memories.js";
+import { ENTRY_DELIMITER } from "../../src/constants.js";
 
 // ---------------------------------------------------------------------------
 // MemoryRepository contract
@@ -200,6 +202,73 @@ export function runSessionRepositoryContract(
 }
 
 // ---------------------------------------------------------------------------
+// Markdown → store sync contract (backend-agnostic)
+//
+// Proves /memory-sync-markdown's sync function behaves identically on every
+// MemoryRepository: entries import, become searchable, and de-duplicate on
+// re-run. The markdown files are backend-agnostic; only the repo differs, so
+// the factory takes the same make() shape as the repository contract.
+// ---------------------------------------------------------------------------
+
+export function runMarkdownSyncContract(
+  name: string,
+  make: () => Promise<{ repo: MemoryRepository; close: () => Promise<void> }>,
+): void {
+  describe(`${name} markdown→store sync contract`, () => {
+    it("imports markdown entries and makes them searchable", async () => {
+      const { repo, close } = await make();
+      const root = mkdtempSync(join(tmpdir(), `hm-sync-${name.toLowerCase()}-`));
+      const agentRoot = join(root, "agent");
+      const globalDir = join(agentRoot, "memory");
+      mkdirSync(globalDir, { recursive: true });
+      try {
+        writeFileSync(
+          join(globalDir, "MEMORY.md"),
+          [
+            "contract memory one <!-- created=2026-05-08, last=2026-05-08 -->",
+            "contract memory two <!-- created=2026-05-08, last=2026-05-09 -->",
+          ].join(ENTRY_DELIMITER),
+          "utf-8",
+        );
+
+        const first = await syncMarkdownMemories(repo, globalDir, undefined, agentRoot);
+        expect(first.imported).toBe(2);
+
+        const hits = await repo.searchMemories("contract memory one", { target: "memory" });
+        expect(hits.some((m) => m.content === "contract memory one")).toBe(true);
+      } finally {
+        await close();
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it("is idempotent across repeated runs (no duplicate rows)", async () => {
+      const { repo, close } = await make();
+      const root = mkdtempSync(join(tmpdir(), `hm-sync-idem-${name.toLowerCase()}-`));
+      const agentRoot = join(root, "agent");
+      const globalDir = join(agentRoot, "memory");
+      mkdirSync(globalDir, { recursive: true });
+      try {
+        writeFileSync(
+          join(globalDir, "MEMORY.md"),
+          "idempotent entry <!-- created=2026-05-08, last=2026-05-09 -->",
+          "utf-8",
+        );
+
+        await syncMarkdownMemories(repo, globalDir, undefined, agentRoot);
+        const second = await syncMarkdownMemories(repo, globalDir, undefined, agentRoot);
+
+        expect(second.imported).toBe(0);
+        expect(second.skipped).toBe(1);
+      } finally {
+        await close();
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
 // SQLite instantiation of both contracts.
 //
 // Phase 3: call `runMemoryRepositoryContract("SurrealDB", ...)` and
@@ -231,6 +300,19 @@ runSessionRepositoryContract("SQLite", async () => {
   await backend.init();
   return {
     repo: new SqliteSessionRepository(backend),
+    close: async () => {
+      await backend.close();
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
+});
+
+runMarkdownSyncContract("SQLite", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "hm-contract-sync-"));
+  const backend = new SqliteBackend(dir);
+  await backend.init();
+  return {
+    repo: new SqliteMemoryRepository(backend),
     close: async () => {
       await backend.close();
       rmSync(dir, { recursive: true, force: true });
