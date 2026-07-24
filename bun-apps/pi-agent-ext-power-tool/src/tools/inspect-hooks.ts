@@ -236,18 +236,52 @@ export function makeInspectHooksTool() {
   return defineTool({
     name: "inspect_hooks",
     label: "Inspect Hooks",
-    description: "List every loaded extension's registered lifecycle hooks (pi.on handlers) — which events each extension listens on, handler counts, and any handler registered against an unknown event name (likely a typo / dead handler). Fact-finder companion to inspect_extensions.",
+    description:
+      "List every loaded extension's registered lifecycle hooks (pi.on handlers) — which events each extension listens on, handler counts, and any handler registered against an unknown event name (likely a typo / dead handler). Fact-finder companion to inspect_extensions.",
     parameters: Type.Object({
       by_event: Type.Optional(Type.Boolean({ description: "Group inventory by event instead of by extension (who listens on X?)" })),
       return_json: Type.Optional(Type.Boolean({ description: "Return machine-readable JSON instead of a text report" })),
       self_test: Type.Optional(Type.Boolean({ description: "When true, run against deterministic test data instead of live ctx" })),
     }),
+
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      // Filled in Task 3 — returns the real report. Placeholder so Task 1
-      // type-checks and tests for the pure logic land first.
-      const snapshot: HooksSnapshot = { extensions: [], available: false };
+      // self_test: deterministic mock, no live session.
+      if (params.self_test) {
+        const mock: HooksSnapshot = {
+          extensions: [
+            { path: "bun-apps/example/ext.ts", hooks: [{ event: "turn_end", count: 1 }, { event: "turn_starts", count: 1 }] },
+          ],
+          available: true,
+        };
+        const findings = analyzeHooks(mock);
+        return {
+          content: [{ type: "text" as const, text: "self_test: true\n\n" + formatHooksReport(mock, findings, Boolean(params.by_event)) }],
+          details: null,
+        };
+      }
+
+      const snapshot = (ctx as ExtensionContext).getHooks();
       const findings = analyzeHooks(snapshot);
-      return { content: [{ type: "text" as const, text: formatHooksReport(snapshot, findings, Boolean(params.by_event)) }], details: null };
+
+      if (params.return_json) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(
+                { findings, summary: summarizeFindings(findings), snapshot },
+                null,
+                2,
+              ),
+            },
+          ],
+          details: null,
+        };
+      }
+      return {
+        content: [{ type: "text" as const, text: formatHooksReport(snapshot, findings, Boolean(params.by_event)) }],
+        details: null,
+      };
     },
   });
 }

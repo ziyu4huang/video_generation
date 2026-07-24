@@ -102,3 +102,58 @@ describe("KNOWN_EVENTS", () => {
     }
   });
 });
+
+import { makeInspectHooksTool } from "../inspect-hooks.js";
+
+describe("inspect_hooks (tool end-to-end, fake ctx)", () => {
+  const fakeCtx = (snapshot: HooksSnapshot) =>
+    ({ getHooks: () => snapshot } as unknown as Parameters<
+      ReturnType<typeof makeInspectHooksTool>["execute"]
+    >[4]);
+
+  test("text report surfaces unknown-event finding", async () => {
+    const tool = makeInspectHooksTool();
+    const res = await tool.execute(
+      "id",
+      {},
+      undefined,
+      undefined,
+      fakeCtx(snap([{ path: "ext.ts", hooks: [{ event: "turn_starts", count: 1 }] }])),
+    );
+    const text = (res.content[0] as { text: string }).text;
+    expect(text).toContain('unknown event "turn_starts"');
+  });
+
+  test("return_json=true returns {findings, summary, snapshot}", async () => {
+    const tool = makeInspectHooksTool();
+    const res = await tool.execute(
+      "id",
+      { return_json: true },
+      undefined,
+      undefined,
+      fakeCtx(snap([{ path: "ext.ts", hooks: [{ event: "turn_end", count: 2 }] }])),
+    );
+    const parsed = JSON.parse((res.content[0] as { text: string }).text);
+    expect(parsed.summary).toEqual({ total: 0, high: 0, medium: 0, low: 0 });
+    expect(parsed.snapshot.extensions[0]).toEqual({
+      path: "ext.ts",
+      hooks: [{ event: "turn_end", count: 2 }],
+    });
+    expect(Array.isArray(parsed.findings)).toBe(true);
+  });
+
+  test("self_test=true returns deterministic mock (no live ctx)", async () => {
+    const tool = makeInspectHooksTool();
+    const res = await tool.execute("id", { self_test: true }, undefined, undefined, {} as never);
+    const text = (res.content[0] as { text: string }).text;
+    expect(text).toContain("self_test");
+    expect(text).toContain("Inspect Hooks");
+  });
+
+  test("hooks-unavailable (available:false) degrades gracefully", async () => {
+    const tool = makeInspectHooksTool();
+    const res = await tool.execute("id", {}, undefined, undefined, fakeCtx(snap([], false)));
+    const text = (res.content[0] as { text: string }).text;
+    expect(text).toContain("Hooks unavailable");
+  });
+});
