@@ -217,6 +217,7 @@ export function formatJson(r: QaResult): string {
 				gatedHeavy: r.coverage.gatedHeavy,
 				ungated: r.coverage.ungated,
 				pass: r.coverage.pass,
+				collectionErrors: r.coverage.errors,
 				structuralProblems: r.coverageProblems,
 			},
 			l1: {
@@ -252,7 +253,10 @@ function parseArgs(argv: string[]): QaOptions {
 		else if (a === "--json") opts.json = true;
 		else if (a === "--out") opts.out = argv[++i];
 		else if (a === "--root") opts.root = argv[++i];
-		else if (a === "--coverage-threshold") opts.coverageThreshold = Number(argv[++i]);
+		else if (a === "--coverage-threshold") {
+			const n = Number(argv[++i]);
+			opts.coverageThreshold = Number.isFinite(n) && n > 0 ? n : undefined;
+		}
 	}
 	return opts;
 }

@@ -45,6 +45,8 @@ export interface CoverageReport {
 	gatedHeavy: number;
 	/** True iff ungated is empty. */
 	pass: boolean;
+	/** Collection errors from the schema-cost pass (makes `ungated` a LOWER BOUND when non-empty). */
+	errors: { source: string; error: string }[];
 }
 
 /**
@@ -78,6 +80,7 @@ export function analyzeCoverage(
 		ungated,
 		gatedHeavy,
 		pass: ungated.length === 0,
+		errors: report.errors,
 	};
 }
 
@@ -95,13 +98,17 @@ export function formatCoverage(r: CoverageReport): string[] {
 	} else {
 		lines.push("", "✅ every heavy tool is tracked by a gate (or is a builtin)");
 	}
+	if (r.errors.length) {
+		lines.push("", `⚠ ungated list is a LOWER BOUND — ${r.errors.length} collection error(s) (see savings caveats for detail)`);
+	}
 	return lines;
 }
 
 /** Hard structural assertions (always-gating if violated). */
 export function assertSane(r: CoverageReport): string[] {
 	const problems: string[] = [];
-	if (r.threshold <= 0) problems.push("threshold <= 0 — nonsensical");
+	if (!Number.isFinite(r.threshold) || r.threshold <= 0)
+		problems.push("threshold must be a positive finite number");
 	if (r.totalTools === 0) problems.push("no tools captured — schema-cost collection returned nothing");
 	if (r.heavyTools < r.gatedHeavy) problems.push("gatedHeavy > heavyTools — impossible");
 	return problems;

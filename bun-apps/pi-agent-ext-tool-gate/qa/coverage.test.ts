@@ -101,11 +101,26 @@ describe("formatCoverage", () => {
 		expect(out).toContain("❌");
 		expect(out).toContain("synthetic_heavy");
 	});
+
+	it("flags collection errors as a lower-bound caveat", () => {
+		const rep = report([tool("synthetic_heavy", 500, "x")]);
+		rep.errors = [{ source: "broken-ext", error: "factory threw" }];
+		const r = analyzeCoverage(rep, TH, ROOT);
+		expect(r.errors.length).toBe(1);
+		const out = formatCoverage(r).join("\n");
+		expect(out).toContain("LOWER BOUND");
+		expect(out).toContain("1 collection error");
+	});
 });
 
 describe("assertSane", () => {
 	it("flags a non-positive threshold", () => {
 		const r = analyzeCoverage(report([tool("flux2", 500, "md")]), -1, ROOT);
+		expect(assertSane(r).some((p) => p.includes("threshold"))).toBe(true);
+	});
+
+	it("flags a NaN threshold", () => {
+		const r = analyzeCoverage(report([tool("flux2", 500, "md")]), NaN, ROOT);
 		expect(assertSane(r).some((p) => p.includes("threshold"))).toBe(true);
 	});
 
