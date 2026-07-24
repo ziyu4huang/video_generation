@@ -13,6 +13,7 @@ from app.lipsync_metrics import (
     _lagged_pearson,
     _mouth_open_ratio_from_landmarks,
     ADEQUATE_R_THRESHOLD,
+    MIN_MOUTH_STD_THRESHOLD,
     extract_audio_envelope,
     measure_lipsync_precision,
 )
@@ -198,3 +199,26 @@ class TestMeasureLipsyncPrecision:
         )
         result = measure_lipsync_precision("/fake.mp4")
         assert result["verdict"] == "no_audio"
+
+    def test_flat_mouth_with_spurious_correlation_is_inadequate(self, monkeypatch):
+        """A near-motionless mouth (std below MIN_MOUTH_STD_THRESHOLD) that happens
+        to correlate with audio by construction must NOT be called adequate —
+        this is the exact false-positive shape found in production (line2 of the
+        dialogue-scene proof-of-concept: r=0.31, mouth_ratio_std=0.0066)."""
+        rng = np.random.default_rng(10)
+        base = rng.normal(size=80)
+        ratios = base * 0.0001 + 0.03  # tiny variance, but linearly tied to base
+        audio = base.copy()
+        monkeypatch.setattr(
+            "app.lipsync_metrics.extract_mouth_open_series",
+            lambda path: {"ratios": ratios, "fps": 24.0, "n_frames": 80, "n_detected": 80},
+        )
+        monkeypatch.setattr(
+            "app.lipsync_metrics.extract_audio_envelope",
+            lambda path, n_samples: audio[:n_samples],
+        )
+        result = measure_lipsync_precision("/fake.mp4")
+        assert abs(result["pearson_r"]) >= ADEQUATE_R_THRESHOLD
+        assert result["mouth_ratio_std"] < MIN_MOUTH_STD_THRESHOLD
+        assert result["verdict"] == "inadequate"
+        assert "caveat" in result
