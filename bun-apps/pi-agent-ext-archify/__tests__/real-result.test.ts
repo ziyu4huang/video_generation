@@ -65,15 +65,17 @@ describeMaybe("archify real-result — generated-HTML structural fidelity", () =
     const ir = JSON.parse(
       readFileSync(join(VENDORED_EXAMPLES, "production-deployment.architecture.json"), "utf8"),
     ) as { components?: { label?: string }[] };
-    const components = (ir.components ?? []).filter((c) => typeof c.label === "string" && c.label!.length > 0);
+    const components = (ir.components ?? [])
+      .map((c) => c.label)
+      .filter((label): label is string => typeof label === "string" && label.length > 0);
 
     const res = await archifyRender({ ir, type: "architecture" }, { cwd });
     const htmlPath = (res.details as { path: string }).path;
     const f = inspectArtifact(readFileSync(htmlPath, "utf8"));
 
     expect(f.nodeCount).toBeGreaterThanOrEqual(components.length);
-    for (const c of components) {
-      expect(f.textLabels).toContain(c.label);
+    for (const label of components) {
+      expect(f.textLabels).toContain(label);
     }
   }, 60_000);
 });
