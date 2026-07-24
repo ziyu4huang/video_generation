@@ -519,6 +519,7 @@ export function createSubagentTool(
           schemaRepairAttempts: params.schemaRepairAttempts,
           onModelResolved: (id) => {
             resolvedModel = id;
+            options.inFlight?.updateModel(toolCallId, id);
           },
           onHistory:
             onUpdate || options.inFlight || options.persistence
@@ -612,7 +613,13 @@ export function createSubagentTool(
     },
     renderCall(args, theme, context) {
       const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-      text.setText(renderSubagentCall(args, theme));
+      // The concrete model is only known mid-run (onModelResolved). Read the
+      // latest from the registry (keyed by toolCallId) so the call line updates
+      // live, and bind invalidate so updateModel can force a redraw even before
+      // the next partial/history tick.
+      const resolvedModel = options.inFlight?.get(context.toolCallId)?.resolvedModel;
+      options.inFlight?.bindInvalidate(context.toolCallId, context.invalidate);
+      text.setText(renderSubagentCall({ ...args, resolvedModel }, theme));
       return text;
     },
     renderResult(result, options, theme, _context) {

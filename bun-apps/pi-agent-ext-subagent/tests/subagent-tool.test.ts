@@ -1,5 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
+import { Text } from "@earendil-works/pi-tui";
 import type { AgentHistoryEntry } from "../src/agent-history.js";
 import type { GitScopeOps } from "../src/git-scope.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
@@ -570,10 +571,7 @@ test("renderSubagentCall omits resolved model before resolution (undefined)", ()
 });
 
 test("renderSubagentCall omits resolved model when it equals the explicit model slot (no dup)", () => {
-  const out = renderSubagentCall(
-    { agent: "scout", model: "x/flash", task: "x", resolvedModel: "x/flash" },
-    T,
-  );
+  const out = renderSubagentCall({ agent: "scout", model: "x/flash", task: "x", resolvedModel: "x/flash" }, T);
   assert.equal((out.match(/x\/flash/g) || []).length, 1);
 });
 
@@ -1061,4 +1059,44 @@ test("execute forwards schemaRepairAttempts to spawn", async () => {
   const tool = createSubagentTool({ spawn: f.spawn });
   await tool.execute("id", { task: "t", schemaRepairAttempts: 4 }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.schemaRepairAttempts, 4);
+});
+
+// ── live resolved-model wiring (Task 3: call line shows provider/model mid-run) ──
+
+test("execute threads onModelResolved into registry.updateModel (live resolved model)", async () => {
+  const reg = new SubagentInFlightRegistry();
+  const updates: Array<[string, string]> = [];
+  const orig = reg.updateModel.bind(reg);
+  reg.updateModel = (id, model) => {
+    updates.push([id, model]);
+    orig(id, model);
+  };
+  const { spawn } = fakeSpawn(async (opts) => {
+    opts.onModelResolved?.("google/gemma-4-12b-qat");
+    return { exitCode: 0, output: "ok", stderr: "", timedOut: false, history: [] };
+  });
+  const tool = createSubagentTool({ spawn, inFlight: reg });
+  await tool.execute("tc1", { task: "audit", tier: "medium" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.deepEqual(updates, [["tc1", "google/gemma-4-12b-qat"]]);
+});
+
+test("renderCall reads resolvedModel from the registry and binds invalidate", () => {
+  const reg = new SubagentInFlightRegistry();
+  const tool = createSubagentTool({ inFlight: reg });
+  reg.start({ id: "tc9", model: "tier:medium", taskPreview: "x", startedAt: 0 });
+  reg.updateModel("tc9", "google/gemma-4-12b-qat");
+  let invalidated = 0;
+  const text = new Text("", 0, 0);
+  tool.renderCall?.({ agent: "auditor", tier: "medium", task: "x" }, T, {
+    toolCallId: "tc9",
+    lastComponent: text,
+    invalidate: () => {
+      invalidated++;
+    },
+  } as never);
+  // pi-tui Text has no getText(); read the private `text` field setText() writes.
+  assert.match((text as unknown as { text: string }).text, /tier:medium ▸ google\/gemma-4-12b-qat ▸/);
+  // invalidate was bound — a later updateModel re-renders the call line
+  reg.updateModel("tc9", "anthropic/claude-opus");
+  assert.equal(invalidated, 1);
 });
