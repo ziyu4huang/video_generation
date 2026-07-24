@@ -103,3 +103,30 @@ describeMaybe("archify e2e — Layer 2: dispatch integration", () => {
     expect(existsSync(res.details.receipt)).toBe(true);
   }, 30_000);
 });
+
+const MATRIX = [
+  { type: "architecture", file: "production-deployment.architecture.json" },
+  { type: "sequence", file: "async-job-roundtrip.sequence.json" },
+  { type: "workflow", file: "agent-tool-call.workflow.json" },
+  { type: "dataflow", file: "event-stream.dataflow.json" },
+  { type: "lifecycle", file: "agent-run.lifecycle.json" },
+] as const;
+
+describeMaybe("archify e2e — Layer 3: cross diagram-type matrix", () => {
+  for (const { type, file } of MATRIX) {
+    test(`render+validate ${type} via execute()`, async () => {
+      const cwd = withTempCwd();
+      const irPath = join(VENDORED_EXAMPLES, file);
+      const ir = JSON.parse(readFileSync(irPath, "utf8"));
+
+      const validate = registeredTool("archify_validate");
+      const vRes = (await validate.execute("e2e-id", { ir, type }, new AbortController().signal, undefined, ctxFor(cwd))) as { isError?: boolean };
+      expect(vRes.isError).toBeFalsy();
+
+      const render = registeredTool("archify_render");
+      const rRes = (await render.execute("e2e-id", { ir, type }, new AbortController().signal, undefined, ctxFor(cwd))) as { content: { text: string }[]; details: { path: string } };
+      expect(rRes.content[0]!.text).toContain(`Rendered ${type} diagram`);
+      expect(existsSync(rRes.details.path)).toBe(true);
+    }, 30_000);
+  }
+});
