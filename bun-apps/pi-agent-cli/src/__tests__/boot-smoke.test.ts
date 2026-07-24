@@ -60,6 +60,7 @@ describe("boot-smoke canary", () => {
     // builds it on CI, build-if-missing makes local `bun test` work. (KC now imports
     // obsidian.ts directly post-#558 — no obsidian bundle build needed.)
     buildIfMissing("pi-agent-ext-workflow", "build", "dist/index.js");
+    buildIfMissing("pi-agent-ext-subagent", "build", "dist/index.js");
   });
 
   test("CLI boots in source mode and the canary command exits 0 with valid JSON", () => {
