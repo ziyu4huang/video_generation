@@ -16,6 +16,7 @@
   "scripts": {
     "test": "bun test",
     "qa:savings": "bun run qa/savings.ts",
+    "qa:miss": "bun run qa/miss-rate.ts",
     "qa": "bun run qa/run.ts"
   },
   "peerDependencies": {
