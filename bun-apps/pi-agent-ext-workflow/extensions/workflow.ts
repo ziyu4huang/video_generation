@@ -78,6 +78,9 @@ export default function extension(pi: ExtensionAPI) {
   // (which loads via ../src/ too): the /subagents viewer reads `subagentInFlight`,
   // which the `subagent` tool writes to in the OTHER extension. (Persistence is
   // owned entirely by the subagent extension; workflow no longer touches it.)
+  // The literal `.ts` (not `.js`) is required: the package `exports` map exposes
+  // "./src/*" → "./src/*" verbatim, and only the `.ts` source exists under that
+  // subpath — a `.js` specifier would not resolve through Bun's runtime resolver.
   const subagentInFlight = getSubagentInFlightRegistry();
   const workflowControlTool = createWorkflowControlTool({ manager });
   pi.registerTool(workflowControlTool);
@@ -130,8 +133,9 @@ export default function extension(pi: ExtensionAPI) {
   // gap so the tools are visible on every turn (not just after the first).
   const activateWorkflowTools = () => {
     const active = pi.getActiveTools();
-    // Note: the `subagent` tool is activated by pi-agent-ext-subagent's own
-    // session_start; workflow no longer touches the subagent tool's activation.
+    // The `subagent` + `subagent_runs` tools are activated by pi-agent-ext-subagent's
+    // own before_agent_start + session_start hooks (same pattern as below); workflow
+    // no longer touches their activation.
     const missing = [workflowTool.name, workflowHelpTool.name, workflowControlTool.name].filter((nm) => !active.includes(nm));
     if (missing.length) {
       pi.setActiveTools([...active, ...missing]);

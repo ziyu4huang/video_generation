@@ -49,7 +49,31 @@ export default function extension(pi: ExtensionAPI) {
   const subagentRunsTool = createSubagentRunsTool({ persistence });
   pi.registerTool(subagentRunsTool);
 
+  // Force-activate on EVERY lifecycle hook that precedes a system-prompt rebuild.
+  // Mirrors pi-agent-ext-workflow's activateWorkflowTools: session_start alone is
+  // not enough — getSystemPromptOptions().selectedTools can lag setActiveTools(),
+  // so before_agent_start bridges it per-turn. Without this the registered tools
+  // would not reliably appear in the model's active toolset.
+  const activateSubagentTools = () => {
+    try {
+      const active = pi.getActiveTools();
+      const missing = [subagentTool.name, subagentRunsTool.name].filter(
+        (nm) => !Array.isArray(active) || !active.includes(nm),
+      );
+      if (missing.length) {
+        pi.setActiveTools([...(Array.isArray(active) ? active : []), ...missing]);
+      }
+    } catch {
+      // getActiveTools/setActiveTools may be unavailable in some hosts — best-effort.
+    }
+  };
+
+  pi.on("before_agent_start", () => {
+    activateSubagentTools();
+  });
+
   pi.on("session_start", (_event: unknown, ctx: ExtensionContext) => {
+    activateSubagentTools();
     const extTools = (pi as unknown as { getAllToolDefinitions?: () => ToolDefinition[] }).getAllToolDefinitions?.();
     if (extTools?.length) {
       extensionToolsHolder.current = extTools;
