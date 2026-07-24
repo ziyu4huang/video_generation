@@ -9,7 +9,12 @@
  * explicit and testable.
  */
 
-import type { SubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent";
+// Type imported via the SRC subpath (not root) so it matches the module instance
+// extensions/workflow.ts imports the VALUE from — otherwise TS sees the dist
+// `.d.ts` and src `.ts` as two distinct class declarations (private `runs`
+// field) and rejects passing the singleton to this function. Type-only, so it
+// is erased at runtime and never hits Bun's exports-map `.js` resolution gap.
+import type { SubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent/src/index.js";
 import { reconstructSubagentRuns, SubagentViewer } from "./subagent-viewer.js";
 
 /** Minimal slice of the pi host command context this command depends on. */

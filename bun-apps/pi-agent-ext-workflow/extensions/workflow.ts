@@ -21,10 +21,7 @@ import {
   shouldInjectFullWorkflowGuidelines,
   WorkflowManager,
 } from "../src/index.js";
-import { SubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent";
-import { createSubagentRunPersistence } from "@repo/pi-agent-ext-subagent";
-import { createSubagentTool } from "@repo/pi-agent-ext-subagent";
-import { createSubagentRunsTool } from "@repo/pi-agent-ext-subagent";
+import { getSubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent/src/index.ts";
 import { createSubagentsCommand } from "../src/subagents-command.js";
 
 export default function extension(pi: ExtensionAPI) {
@@ -71,36 +68,17 @@ export default function extension(pi: ExtensionAPI) {
   pi.registerTool(workflowHelpTool);
 
   // Shared holder for parent-session tool definitions, updated in session_start.
-  // Both WorkflowManager (workflow runs) and the subagent tool (direct dispatches)
-  // bridge these into child sessions so children inherit the parent's extension tools.
+  // WorkflowManager bridges these into child sessions so workflow-run children
+  // inherit the parent's extension tools. (The `subagent` tool — now owned by
+  // pi-agent-ext-subagent — reads the same set via its OWN holder; the two no
+  // longer share a closure.)
   const extensionToolsHolder: { current: ToolDefinition[] | undefined } = { current: undefined };
-  const subagentInFlight = new SubagentInFlightRegistry();
-  // Shared persistence: the dispatch tool writes; subagent_runs reads.
-  const subagentPersistence = createSubagentRunPersistence();
-  const subagentTool = createSubagentTool({
-    cwd,
-    getExtensionTools: () => extensionToolsHolder.current,
-    getMainModel: () => manager.getMainModel(),
-    inFlight: subagentInFlight,
-    persistence: subagentPersistence,
-  });
-  // Best-effort guard: this repo expects pi-agent-ext-workflow to own the
-  // 'subagent' tool name. If another extension (e.g. a real pi-subagents
-  // install) already activated 'subagent' before us, warn loudly — the two
-  // would shadow each other. (Load-order dependent; a no-op in the normal case.)
-  try {
-    const activeAtLoad = pi.getActiveTools();
-    if (Array.isArray(activeAtLoad) && activeAtLoad.includes("subagent")) {
-      console.warn(
-        "[pi-agent-ext-workflow] a 'subagent' tool is already active (likely pi-subagents); the workflow-provided 'subagent' will shadow or be shadowed. This repo expects workflow to own the 'subagent' name.",
-      );
-    }
-  } catch {
-    // getActiveTools may be unavailable in some hosts — best-effort only.
-  }
-  pi.registerTool(subagentTool);
-  const subagentRunsTool = createSubagentRunsTool({ persistence: subagentPersistence });
-  pi.registerTool(subagentRunsTool);
+  // Shared singleton from pi-agent-ext-subagent (process-wide). Imported via the
+  // SRC subpath so the SAME module instance is shared with the subagent extension
+  // (which loads via ../src/ too): the /subagents viewer reads `subagentInFlight`,
+  // which the `subagent` tool writes to in the OTHER extension. (Persistence is
+  // owned entirely by the subagent extension; workflow no longer touches it.)
+  const subagentInFlight = getSubagentInFlightRegistry();
   const workflowControlTool = createWorkflowControlTool({ manager });
   pi.registerTool(workflowControlTool);
 
@@ -152,9 +130,9 @@ export default function extension(pi: ExtensionAPI) {
   // gap so the tools are visible on every turn (not just after the first).
   const activateWorkflowTools = () => {
     const active = pi.getActiveTools();
-    const missing = [workflowTool.name, workflowHelpTool.name, subagentTool.name, workflowControlTool.name].filter(
-      (nm) => !active.includes(nm),
-    );
+    // Note: the `subagent` tool is activated by pi-agent-ext-subagent's own
+    // session_start; workflow no longer touches the subagent tool's activation.
+    const missing = [workflowTool.name, workflowHelpTool.name, workflowControlTool.name].filter((nm) => !active.includes(nm));
     if (missing.length) {
       pi.setActiveTools([...active, ...missing]);
     }

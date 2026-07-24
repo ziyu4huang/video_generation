@@ -2,8 +2,15 @@ import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 
-describe("workflow extension — subagent tool registration", () => {
-  it("registers a tool named 'subagent' at load", async () => {
+/**
+ * Moved from pi-agent-ext-workflow/tests/extension-subagent-registration.test.ts
+ * when the `subagent` + `subagent_runs` tools moved to THIS package
+ * (pi-agent-ext-subagent). The factory under test is now
+ * `../extensions/subagent.ts`; the assertion is broadened to cover BOTH tools
+ * the extension owns.
+ */
+describe("subagent extension — tool registration", () => {
+  it("registers tools named 'subagent' and 'subagent_runs' at load", async () => {
     const registered: ToolDefinition[] = [];
     // Permissive mock: record registerTool, no-op everything else the synchronous
     // load path touches (registerCommand, on, events, …). session_start handlers
@@ -23,10 +30,11 @@ describe("workflow extension — subagent tool registration", () => {
       },
     ) as unknown as ExtensionAPI;
 
-    const { default: extension } = await import("../extensions/workflow.js");
+    const { default: extension } = await import("../extensions/subagent.ts");
     extension(pi);
 
     const names = registered.map((t) => t.name);
     assert.ok(names.includes("subagent"), `expected 'subagent' registered; got: ${names.join(", ")}`);
+    assert.ok(names.includes("subagent_runs"), `expected 'subagent_runs' registered; got: ${names.join(", ")}`);
   });
 });
