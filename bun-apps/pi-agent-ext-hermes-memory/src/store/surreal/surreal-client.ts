@@ -24,6 +24,11 @@ export interface SurrealClientOptions {
   fetch?: typeof fetch;   // injectable for tests
   maxAttempts?: number;   // default 3
   backoffMs?: number;     // default 100
+  /** Per-request hard timeout (ms). A hung SurrealDB round-trip would otherwise
+   *  stall the caller INDEFINITELY (no default fetch timeout). A timeout fires
+   *  a clear error and is NOT retried — a stuck server would just multiply the
+   *  bound. Default 10000 (a normal round-trip is ~10–50ms). */
+  requestTimeoutMs?: number;
 }
 
 type StatementResult =
@@ -34,12 +39,14 @@ export class SurrealClient {
   private readonly fetchFn: typeof fetch;
   private readonly maxAttempts: number;
   private readonly backoffMs: number;
+  private readonly requestTimeoutMs: number;
   private readonly auth: string;
 
   constructor(private readonly opts: SurrealClientOptions) {
     this.fetchFn = opts.fetch ?? fetch;
     this.maxAttempts = opts.maxAttempts ?? 3;
     this.backoffMs = opts.backoffMs ?? 100;
+    this.requestTimeoutMs = opts.requestTimeoutMs ?? 10000;
     this.auth = "Basic " + btoa(`${opts.username}:${opts.password}`);
   }
 
@@ -88,8 +95,18 @@ export class SurrealClient {
             "Authorization": this.auth,
           },
           body,
+          // Hard per-request bound. AbortSignal.timeout fires a DOMException
+          // (name "TimeoutError"/"AbortError") that the catch below turns into
+          // a fail-fast timeout error — NOT retried (see catch).
+          signal: AbortSignal.timeout(this.requestTimeoutMs),
         });
       } catch (err) {
+        // Per-request timeout: the server is stuck. Fail fast rather than
+        // retrying (a retry would just multiply the bound). A genuine timeout
+        // is not a transient blip the retry loop exists to absorb.
+        if (err instanceof Error && /timeout/i.test(err.name)) {
+          throw new Error(`SurrealDB request timeout after ${this.requestTimeoutMs}ms`);
+        }
         lastErr = err;
         if (attempt < this.maxAttempts) {
           await this.sleep(this.backoffMs * attempt);

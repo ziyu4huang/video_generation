@@ -3,7 +3,7 @@ import assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { loadConfig } from "../src/config.js";
+import { loadConfig, shouldRunStartupSync } from "../src/config.js";
 import { AGENT_ROOT } from "../src/paths.js";
 import { derivePerUserNamespace } from "../src/store/surreal/per-user-db.js";
 
@@ -425,6 +425,34 @@ describe("config dbBackend", () => {
     const cfg = loadConfig(p);
     assert.strictEqual(cfg.dbBackend, "sqlite");
     fs.rmSync(p, { force: true });
+  });
+});
+
+describe("shouldRunStartupSync (consolidation child skips the .md→db re-index)", () => {
+  // Root cause (wayfinder surrealdb-path repro): every consolidation child is
+  // a full extension session, so it re-ran the startup syncMarkdownMemoriesToSqlite
+  // — ~540 sequential HTTP round-trips on surrealdb (~6.6s × 4 targets) that sqlite
+  // does in 15ms. The child only reads .md + writes the result, so the re-index
+  // is pure waste. Guard it behind PI_HERMES_CONSOLIDATING (set by runConsolidator).
+  it("runs the startup .md→db sync by default (normal sessions)", () => {
+    const prev = process.env.PI_HERMES_CONSOLIDATING;
+    delete process.env.PI_HERMES_CONSOLIDATING;
+    try {
+      assert.strictEqual(shouldRunStartupSync(), true);
+    } finally {
+      if (prev !== undefined) process.env.PI_HERMES_CONSOLIDATING = prev;
+    }
+  });
+
+  it("skips the startup .md→db sync when PI_HERMES_CONSOLIDATING=1 (consolidation child)", () => {
+    const prev = process.env.PI_HERMES_CONSOLIDATING;
+    process.env.PI_HERMES_CONSOLIDATING = "1";
+    try {
+      assert.strictEqual(shouldRunStartupSync(), false);
+    } finally {
+      if (prev === undefined) delete process.env.PI_HERMES_CONSOLIDATING;
+      else process.env.PI_HERMES_CONSOLIDATING = prev;
+    }
   });
 });
 

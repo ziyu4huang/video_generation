@@ -95,6 +95,24 @@ function resolveSurrealDbDefault(config: MemoryConfig): MemoryConfig {
   return config;
 }
 
+/** True when this process is a consolidation CHILD — i.e. runConsolidator set
+ *  PI_HERMES_CONSOLIDATING=1 before spawning it. Such a child:
+ *   - must not spawn its OWN consolidator (nested-loop freeze — ticket 05), and
+ *   - must not run the startup .md→db re-index (surrealdb-path freeze — ticket 07):
+ *     it only reads the .md + writes the consolidated result via saveToDisk, so the
+ *     ~540-round-trip re-index is pure waste. See shouldRunStartupSync(). */
+export function isConsolidatingChild(): boolean {
+  return process.env.PI_HERMES_CONSOLIDATING === "1";
+}
+
+/** Whether the extension should run the startup markdown→db re-index
+ *  (syncMarkdownMemoriesToSqlite). Skipped in the consolidation child, which
+ *  never searches the index and would otherwise pay ~6.6s of surrealdb HTTP
+ *  overhead per spawn (×4 targets on /memory-consolidate). */
+export function shouldRunStartupSync(): boolean {
+  return !isConsolidatingChild();
+}
+
 /**
  * A consolidation CHILD process inherits `PI_HERMES_CONSOLIDATING=1` (set by
  * `MemoryStore.runConsolidator` alongside `PI_MEMORY_FILE_LOCK=bypass`). Such
@@ -105,7 +123,7 @@ function resolveSurrealDbDefault(config: MemoryConfig): MemoryConfig {
  * overflow) but does not recurse into another consolidation.
  */
 function applyConsolidatingChildGuard(config: MemoryConfig): MemoryConfig {
-  if (process.env.PI_HERMES_CONSOLIDATING === "1") {
+  if (isConsolidatingChild()) {
     config.autoConsolidate = false;
     config.memoryOverflowStrategy = "vault-offload";
   }
