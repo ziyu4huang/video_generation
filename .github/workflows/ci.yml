@@ -90,6 +90,7 @@ jobs:
           - { package: pi-agent-ext-core-task, test-cmd: "bun test" }
           - { package: pi-agent-ext-research-tool, test-cmd: "bun test" }
           - { package: pi-agent-ext-zai-mcp, test-cmd: "bun test" }
+          - { package: pi-agent-ext-archify, test-cmd: "bun test" }
           - { package: perf-harness, test-cmd: "bun test" }
           # wayfind's own `test` script chains check(biome) → build(tsc) →
           # test:unit(bun test); `bun run test` (not plain `bun test`) so that
