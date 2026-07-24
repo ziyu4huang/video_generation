@@ -31,14 +31,17 @@ interface ExtensionSubcommandSpec {
   task: (parsed: { positionals: string[] }) => string;
 }
 
-/** Web-access tools + the baked-in vault note tools for saving digests. */
-const RESEARCH_TOOLS = [
-  "web_search",
-  "fetch_content",
-  "get_search_content",
-  "obsidian_create",
-  "obsidian_search",
-];
+/**
+ * Web-access tools + the baked-in vault tool for saving digests.
+ *
+ * `obsidian` is the single unified vault tool (action: "create" | "search" |
+ * …) — pi-agent-ext-obsidian consolidated the old per-verb tool names
+ * (obsidian_create, obsidian_search, …) into one tool with an `action` param.
+ * Listing the old names here made `--tools`'s fail-fast validator reject this
+ * subcommand's own default allowlist on every invocation (see
+ * validateToolNames in pi-agent-cli/src/sessions/shared.ts).
+ */
+const RESEARCH_TOOLS = ["web_search", "fetch_content", "get_search_content", "obsidian"];
 
 export const researchSubcommand: ExtensionSubcommandSpec = {
   name: "research",
@@ -55,8 +58,8 @@ Drives a web-research flow with the web-access tools:
   4. synthesize   — the agent writes a concise, cited answer (or digest)
 
 With \`--save\`, the synthesized digest is written to the Obsidian vault via
-\`obsidian_create\` (pi-obsidian is baked into every CLI session), so a web search
-becomes durable, searchable knowledge.
+the \`obsidian\` tool (action: "create") (pi-obsidian is baked into every CLI
+session), so a web search becomes durable, searchable knowledge.
 
 Positionals are the query verbatim. For multi-angle research, prefer a rich query
 ("compare X vs Y performance 2026") over a single term — the agent varies phrasing
@@ -94,9 +97,10 @@ Examples:
       "Query:\n" + query;
     if (save) {
       task += "\n\nAfter synthesizing, save a durable digest note to the Obsidian " +
-        "vault via obsidian_create: a frontmatter'd markdown note with the query as " +
-        "title, the synthesis as the body, and a '## Sources' section listing the " +
-        "URLs cited. Use obsidian_search first to avoid duplicating an existing note.";
+        "vault via the obsidian tool (action: \"create\"): a frontmatter'd markdown " +
+        "note with the query as title, the synthesis as the body, and a '## Sources' " +
+        "section listing the URLs cited. Use the obsidian tool (action: \"search\") " +
+        "first to avoid duplicating an existing note.";
     }
     return task;
   },

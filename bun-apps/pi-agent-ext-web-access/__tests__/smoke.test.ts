@@ -69,6 +69,35 @@ test("extension factory registers web_search, fetch_content, get_search_content"
   expect(api.tools.length).toBeGreaterThanOrEqual(3);
 });
 
+// The `research` CLI subcommand (extensions/cli-subcommand.ts) declares its own
+// curated `--tools` default (RESEARCH_TOOLS), separate from this factory's own
+// registrations. It once listed stale per-verb obsidian tool names
+// (obsidian_create, obsidian_search) from before pi-agent-ext-obsidian
+// consolidated into one unified `obsidian` tool (action: "create" | "search" |
+// ...) — pi-agent-cli's --tools fail-fast validator (sessions/shared.ts) then
+// rejected the subcommand's own default on every single invocation. Guard
+// against that regression class recurring: every name this extension itself
+// registers must appear in RESEARCH_TOOLS's web-access portion, and no
+// obsolete per-verb `obsidian_<verb>` name (anything but the unified
+// `obsidian` tool) may sneak back in.
+test("research subcommand's tool allowlist has no stale per-verb obsidian names", async () => {
+  const api = createMockAPI();
+  const ext = await import("../index.ts");
+  const factory = ext.default || ext.extension;
+  factory(api);
+  const ownToolNames = new Set(api.tools.map((t) => t.name));
+
+  const { researchSubcommand } = await import("../extensions/cli-subcommand.ts");
+  const allowlist = researchSubcommand.tools;
+
+  for (const name of allowlist) {
+    if (ownToolNames.has(name)) continue; // web_search / fetch_content / get_search_content
+    // Anything not registered by this extension itself must be the unified
+    // obsidian tool, not a stale per-verb name like obsidian_create.
+    expect(name).toBe("obsidian");
+  }
+});
+
 test("each tool has the required shape", async () => {
   const api = createMockAPI();
 

@@ -15,7 +15,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIG="${1:-debug}"
-VENV_METALLIB="../../python/venv/lib/python3.13/site-packages/mlx/lib/mlx.metallib"
+VENV_METALLIB="../../../video_generation__venv/lib/python3.13/site-packages/mlx/lib/mlx.metallib"
 
 if [ ! -f "$VENV_METALLIB" ]; then
 	echo "error: metallib not found at $VENV_METALLIB" >&2
