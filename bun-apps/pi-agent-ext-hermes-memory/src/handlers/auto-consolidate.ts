@@ -102,6 +102,7 @@ export function registerConsolidateCommand(
   projectStore: MemoryStore | null = null,
   projectName?: string | null,
   llmConfig: Pick<MemoryConfig, "llmModelOverride" | "llmThinkingOverride"> = {},
+  heartbeatMs: number = 15000,
 ): void {
   pi.registerCommand("memory-consolidate", {
     description: "Manually trigger memory consolidation to free up space",
@@ -155,15 +156,28 @@ export function registerConsolidateCommand(
           // Best-effort progress feedback only.
         }
 
-        const result = await triggerConsolidation(
-          pi,
-          item.store,
-          item.target,
-          ctx.signal,
-          manualTimeoutMs,
-          item.toolTarget,
-          llmConfig,
-        );
+        const t0 = Date.now();
+        const beat = setInterval(() => {
+          try {
+            ctx.ui.notify(`⏳ Consolidating ${item.label}… ${Math.round((Date.now() - t0) / 1000)}s elapsed`, "info");
+          } catch {
+            // Stale ctx (session reload mid-consolidation) — best-effort only.
+          }
+        }, heartbeatMs);
+        let result: ConsolidationResult;
+        try {
+          result = await triggerConsolidation(
+            pi,
+            item.store,
+            item.target,
+            ctx.signal,
+            manualTimeoutMs,
+            item.toolTarget,
+            llmConfig,
+          );
+        } finally {
+          clearInterval(beat);
+        }
 
         if (result.consolidated) {
           await item.store.loadFromDisk();

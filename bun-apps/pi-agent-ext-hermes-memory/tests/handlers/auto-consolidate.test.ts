@@ -313,6 +313,31 @@ describe("registerConsolidateCommand", () => {
     }
   });
 
+  it("emits an elapsed-time heartbeat while a consolidation target is in flight", async () => {
+    let handler: any;
+    const notifications: string[] = [];
+    const pi = {
+      on: () => {},
+      exec: async (...args: any[]) => {
+        execCalls.push(args);
+        await new Promise((r) => setTimeout(r, 60)); // slow consolidation → heartbeat window
+        return { code: 0, stdout: "Done", stderr: "" };
+      },
+      registerTool: () => {},
+      registerCommand: (_name: string, command: any) => { handler = command.handler; },
+    } as any;
+
+    registerConsolidateCommand(pi, mockStore, 60000, null, undefined, {}, 15); // heartbeatMs=15
+    await handler({}, {
+      signal: undefined,
+      ui: { notify: (m: string) => { notifications.push(m); } },
+    });
+
+    const beats = notifications.filter((m) => /elapsed/.test(m));
+    assert.ok(beats.length >= 1, `expected ≥1 elapsed heartbeat; got ${beats.length} among ${notifications.length} notifies`);
+    assert.match(beats[beats.length - 1]!, /\d+s elapsed/);
+  });
+
   it("does not throw if the command ctx becomes stale before the final summary notify", async () => {
     let handler: any;
 
