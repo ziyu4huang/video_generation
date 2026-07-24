@@ -16,10 +16,11 @@
   "scripts": {
     "test": "bun test",
     "qa:savings": "bun run qa/savings.ts",
+    "qa:miss": "bun run qa/miss-rate.ts",
     "qa": "bun run qa/run.ts"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "0.81.1",
+    "@earendil-works/pi-coding-agent": "0.82.0",
     "typebox": "*"
   }
 }

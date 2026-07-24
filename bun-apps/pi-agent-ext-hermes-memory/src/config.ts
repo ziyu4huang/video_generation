@@ -95,6 +95,41 @@ function resolveSurrealDbDefault(config: MemoryConfig): MemoryConfig {
   return config;
 }
 
+/** True when this process is a consolidation CHILD — i.e. runConsolidator set
+ *  PI_HERMES_CONSOLIDATING=1 before spawning it. Such a child:
+ *   - must not spawn its OWN consolidator (nested-loop freeze — ticket 05), and
+ *   - must not run the startup .md→db re-index (surrealdb-path freeze — ticket 07):
+ *     it only reads the .md + writes the consolidated result via saveToDisk, so the
+ *     ~540-round-trip re-index is pure waste. See shouldRunStartupSync(). */
+export function isConsolidatingChild(): boolean {
+  return process.env.PI_HERMES_CONSOLIDATING === "1";
+}
+
+/** Whether the extension should run the startup markdown→db re-index
+ *  (syncMarkdownMemoriesToSqlite). Skipped in the consolidation child, which
+ *  never searches the index and would otherwise pay ~6.6s of surrealdb HTTP
+ *  overhead per spawn (×4 targets on /memory-consolidate). */
+export function shouldRunStartupSync(): boolean {
+  return !isConsolidatingChild();
+}
+
+/**
+ * A consolidation CHILD process inherits `PI_HERMES_CONSOLIDATING=1` (set by
+ * `MemoryStore.runConsolidator` alongside `PI_MEMORY_FILE_LOCK=bypass`). Such
+ * a child must NEVER spawn its own consolidator — that recursion is the
+ * consolidation freeze: nested children chain/overlap/race on the
+ * bypass-unlocked `.md` (wayfinder ticket 05, diagnosed in 01). Force the
+ * vault-offload floor so the child still WRITES (never hard-rejects on
+ * overflow) but does not recurse into another consolidation.
+ */
+function applyConsolidatingChildGuard(config: MemoryConfig): MemoryConfig {
+  if (isConsolidatingChild()) {
+    config.autoConsolidate = false;
+    config.memoryOverflowStrategy = "vault-offload";
+  }
+  return config;
+}
+
 export function loadConfig(configPath = DEFAULT_CONFIG_PATH): MemoryConfig {
   try {
     if (fs.existsSync(configPath)) {
@@ -182,10 +217,10 @@ export function loadConfig(configPath = DEFAULT_CONFIG_PATH): MemoryConfig {
       } else if (hasLegacyAutoConsolidate) {
         config.memoryOverflowStrategy = config.autoConsolidate ? "auto-consolidate" : "reject";
       }
-      return resolveSurrealDbDefault(config);
+      return applyConsolidatingChildGuard(resolveSurrealDbDefault(config));
     }
   } catch {
     // Fall back to defaults on parse error or access issues
   }
-  return resolveSurrealDbDefault({ ...DEFAULT_CONFIG });
+  return applyConsolidatingChildGuard(resolveSurrealDbDefault({ ...DEFAULT_CONFIG }));
 }

@@ -1047,5 +1047,28 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.equal(process.env.PI_MEMORY_FILE_LOCK, prev, "env restored after consolidation");
       assert.ok(result.success, `floor should still save (never-reject): ${result.error}`);
     });
+
+    it("runConsolidator sets PI_HERMES_CONSOLIDATING=1 for the child (prevents nested consolidation), then restores it", async () => {
+      const store = new MemoryStore(makeConfig({
+        memoryCharLimit: 200,
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      let envDuringConsolidation: string | undefined = "<not called>";
+      store.setConsolidator(async () => {
+        envDuringConsolidation = process.env.PI_HERMES_CONSOLIDATING;
+        return { consolidated: false };
+      });
+      await store.loadFromDisk();
+      const prev = process.env.PI_HERMES_CONSOLIDATING;
+
+      await store.add("memory", `${TEST_MARKER} consol-flag 1`);
+      await store.add("memory", `${TEST_MARKER} consol-flag 2`);
+      await store.add("memory", `${TEST_MARKER} consol-flag 3`); // overflow → runConsolidator
+
+      assert.equal(envDuringConsolidation, "1",
+        `consolidator child must inherit PI_HERMES_CONSOLIDATING=1; got ${envDuringConsolidation}`);
+      assert.equal(process.env.PI_HERMES_CONSOLIDATING, prev, "env restored after consolidation");
+    });
   });
 });

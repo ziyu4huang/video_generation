@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
-import { registerConsolidateCommand, triggerConsolidation } from "../../src/handlers/auto-consolidate.js";
+import { registerConsolidateCommand, resolveConsolidatorModelLabel, triggerConsolidation } from "../../src/handlers/auto-consolidate.js";
 import { resolveChildPiInvocation } from "../../src/handlers/pi-child-process.js";
 import { ENTRY_DELIMITER } from "../../src/constants.js";
 
@@ -313,6 +313,47 @@ describe("registerConsolidateCommand", () => {
     }
   });
 
+  it("emits an elapsed-time heartbeat while a consolidation target is in flight", async () => {
+    let handler: any;
+    const notifications: string[] = [];
+    const pi = {
+      on: () => {},
+      exec: async (...args: any[]) => {
+        execCalls.push(args);
+        await new Promise((r) => setTimeout(r, 60)); // slow consolidation → heartbeat window
+        return { code: 0, stdout: "Done", stderr: "" };
+      },
+      registerTool: () => {},
+      registerCommand: (_name: string, command: any) => { handler = command.handler; },
+    } as any;
+
+    registerConsolidateCommand(pi, mockStore, 60000, null, undefined, {}, 15); // heartbeatMs=15
+    await handler({}, {
+      signal: undefined,
+      ui: { notify: (m: string) => { notifications.push(m); } },
+    });
+
+    const beats = notifications.filter((m) => /elapsed/.test(m));
+    assert.ok(beats.length >= 1, `expected ≥1 elapsed heartbeat; got ${beats.length} among ${notifications.length} notifies`);
+    assert.match(beats[beats.length - 1]!, /\d+s elapsed/);
+
+    // Progress format: target ratio (processed/total) + entry-count magnitude,
+    // not just elapsed time. Per-note streaming is infeasible (single opaque
+    // subprocess per target), so the feasible signal is which target we're on
+    // plus how many notes it holds. mockStore → memory(2), user(1), failure(2).
+    assert.ok(beats.some((m) => /\(\d+\/\d+\)/.test(m)), "heartbeat should include target progress ratio");
+    assert.ok(beats.some((m) => /notes?\b/.test(m)), "heartbeat should include entry count");
+    assert.ok(
+      beats.some((m) => /\(1\/3\) · 2 notes/.test(m)),
+      "first-target heartbeat should read '(1/3) · 2 notes'",
+    );
+    const expectedModelLabel = resolveConsolidatorModelLabel({});
+    assert.ok(
+      beats.some((m) => m.includes(expectedModelLabel)),
+      `heartbeat should include resolved model label '${expectedModelLabel}'`,
+    );
+  });
+
   it("does not throw if the command ctx becomes stale before the final summary notify", async () => {
     let handler: any;
 
@@ -340,6 +381,48 @@ describe("registerConsolidateCommand", () => {
         },
       });
     });
+  });
+});
+
+describe("resolveConsolidatorModelLabel", () => {
+  const savedModel = process.env.PI_MODEL;
+  const savedProvider = process.env.PI_PROVIDER;
+
+  after(() => {
+    if (savedModel === undefined) delete process.env.PI_MODEL;
+    else process.env.PI_MODEL = savedModel;
+    if (savedProvider === undefined) delete process.env.PI_PROVIDER;
+    else process.env.PI_PROVIDER = savedProvider;
+  });
+
+  it("returns the llmModelOverride verbatim when set (priority over env)", () => {
+    assert.strictEqual(
+      resolveConsolidatorModelLabel({ llmModelOverride: "anthropic/claude-opus-4" }),
+      "anthropic/claude-opus-4",
+    );
+    // surrounding whitespace is trimmed
+    assert.strictEqual(
+      resolveConsolidatorModelLabel({ llmModelOverride: "  glm-5.2  " }),
+      "glm-5.2",
+    );
+  });
+
+  it("falls back to PI_PROVIDER/PI_MODEL env when no override is set", () => {
+    process.env.PI_MODEL = "glm-5.2";
+    process.env.PI_PROVIDER = "zai";
+    assert.strictEqual(resolveConsolidatorModelLabel({}), "zai/glm-5.2");
+  });
+
+  it("falls back to PI_MODEL alone when PI_PROVIDER is absent", () => {
+    delete process.env.PI_PROVIDER;
+    process.env.PI_MODEL = "glm-5.2";
+    assert.strictEqual(resolveConsolidatorModelLabel({}), "glm-5.2");
+  });
+
+  it("returns 'default' when neither override nor PI_MODEL is set", () => {
+    delete process.env.PI_MODEL;
+    delete process.env.PI_PROVIDER;
+    assert.strictEqual(resolveConsolidatorModelLabel({}), "default");
   });
 });
 
