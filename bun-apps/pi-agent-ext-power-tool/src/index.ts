@@ -37,6 +37,7 @@ import * as yaml from "js-yaml";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join, resolve, sep } from "path";
 import { ensureGetSystemPromptOptions } from "./sdk-patch.js";
+import { makeInspectHooksTool } from "./tools/inspect-hooks.js";
 import { DEFAULT_CHARS_PER_TOKEN } from "./schema-cost";
 import {
   makeInspectPathologyTool,
@@ -1217,6 +1218,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
   pi.registerTool(makeInspectContextTool(getAllTools));
   pi.registerTool(makeInspectAgentTool(getAllTools));
   pi.registerTool(makeInspectExtensionsTool(getAllTools));
+  pi.registerTool(makeInspectHooksTool());
   pi.registerTool(makeInspectPathologyTool());
   pi.registerTool(makeInspectTuiTool());
 
