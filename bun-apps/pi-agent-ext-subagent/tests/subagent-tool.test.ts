@@ -1094,8 +1094,7 @@ test("renderCall reads resolvedModel from the registry and binds invalidate", ()
       invalidated++;
     },
   } as never);
-  // pi-tui Text has no getText(); read the private `text` field setText() writes.
-  assert.match((text as unknown as { text: string }).text, /tier:medium ▸ google\/gemma-4-12b-qat ▸/);
+  assert.match(text.render(200).join("\n"), /tier:medium ▸ google\/gemma-4-12b-qat ▸/);
   // invalidate was bound — a later updateModel re-renders the call line
   reg.updateModel("tc9", "anthropic/claude-opus");
   assert.equal(invalidated, 1);
