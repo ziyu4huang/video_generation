@@ -7,9 +7,9 @@ import {
   resolveStructuredOutput,
   type StructuredSession,
   throwIfProviderLimit,
-} from "../src/agent.js";
-import { WorkflowErrorCode } from "../src/errors.js";
-import type { StructuredOutputCapture } from "../src/structured-output.js";
+} from "@repo/pi-agent-ext-subagent";
+import { WorkflowErrorCode } from "@repo/pi-agent-ext-subagent";
+import type { StructuredOutputCapture } from "@repo/pi-agent-ext-subagent";
 
 const Schema = Type.Object({ word: Type.String() });
 

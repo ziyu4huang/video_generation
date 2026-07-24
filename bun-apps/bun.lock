@@ -382,6 +382,7 @@
       "name": "@repo/pi-agent-ext-workflow",
       "version": "2.9.0",
       "dependencies": {
+        "@repo/pi-agent-ext-subagent": "workspace:*",
         "acorn": "^8.16.0",
       },
       "devDependencies": {

@@ -68,18 +68,19 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@repo/pi-agent-ext-subagent": "workspace:*",
     "acorn": "^8.16.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "0.81.1",
-    "@earendil-works/pi-tui": "0.81.1",
+    "@earendil-works/pi-coding-agent": "0.82.0",
+    "@earendil-works/pi-tui": "0.82.0",
     "typebox": "*"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.16",
-    "@earendil-works/pi-ai": "0.81.1",
-    "@earendil-works/pi-coding-agent": "0.81.1",
-    "@earendil-works/pi-tui": "0.81.1",
+    "@earendil-works/pi-ai": "0.82.0",
+    "@earendil-works/pi-coding-agent": "0.82.0",
+    "@earendil-works/pi-tui": "0.82.0",
     "@types/bun": "^1.3.14",
     "tsx": "latest",
     "typebox": "^1.3.7",

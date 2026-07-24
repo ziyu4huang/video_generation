@@ -9,7 +9,7 @@
  * explicit and testable.
  */
 
-import type { SubagentInFlightRegistry } from "./subagent-in-flight.js";
+import type { SubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent";
 import { reconstructSubagentRuns, SubagentViewer } from "./subagent-viewer.js";
 
 /** Minimal slice of the pi host command context this command depends on. */

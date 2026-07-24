@@ -1,12 +1,28 @@
 // agent
-export type { AgentRunOptions, AgentRunResult, AgentUsage, WorkflowAgentOptions } from "./agent.js";
-export { listAvailableModelSpecs, WorkflowAgent } from "./agent.js";
+export type { AgentRunOptions, AgentRunResult, AgentUsage, StructuredSession, WorkflowAgentOptions } from "./agent.js";
+export {
+  checkBudgetExhaustion,
+  extractValidated,
+  lastAssistantError,
+  listAvailableModelSpecs,
+  resolveAgentModelSpec,
+  resolveStructuredOutput,
+  throwIfProviderLimit,
+  WorkflowAgent,
+} from "./agent.js";
 // agent-history
 export type { AgentHistoryEntry, AgentHistoryKind, AgentHistoryRole } from "./agent-history.js";
-export { compactAgentHistory } from "./agent-history.js";
+export { compactAgentHistory, summarizeLatestAction } from "./agent-history.js";
 // agent-registry
 export type { AgentDefinition, AgentRegistry } from "./agent-registry.js";
-export { applyToolPolicy, listAgentTypes, loadAgentRegistry, resolveAgentType } from "./agent-registry.js";
+export {
+  agentDefinitionKey,
+  applyToolPolicy,
+  listAgentTypes,
+  loadAgentRegistry,
+  parseAgentDefinition,
+  resolveAgentType,
+} from "./agent-registry.js";
 // config (split) + home
 export { AGENTS_DIR, MODEL_TIERS_FILE } from "./config.js";
 // errors

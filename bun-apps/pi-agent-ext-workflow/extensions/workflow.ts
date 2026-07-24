@@ -21,10 +21,10 @@ import {
   shouldInjectFullWorkflowGuidelines,
   WorkflowManager,
 } from "../src/index.js";
-import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
-import { createSubagentRunPersistence } from "../src/subagent-run-persistence.js";
-import { createSubagentTool } from "../src/subagent-tool.js";
-import { createSubagentRunsTool } from "../src/subagent-runs-tool.js";
+import { SubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent";
+import { createSubagentRunPersistence } from "@repo/pi-agent-ext-subagent";
+import { createSubagentTool } from "@repo/pi-agent-ext-subagent";
+import { createSubagentRunsTool } from "@repo/pi-agent-ext-subagent";
 import { createSubagentsCommand } from "../src/subagents-command.js";
 
 export default function extension(pi: ExtensionAPI) {

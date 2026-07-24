@@ -1,7 +1,7 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
 import type { WorkflowSnapshot } from "../src/display.js";
-import { WorkflowErrorCode } from "../src/errors.js";
+import { WorkflowErrorCode } from "@repo/pi-agent-ext-subagent";
 import type { PersistedRunState } from "../src/run-persistence.js";
 import type { ManagedRun, WorkflowManager } from "../src/workflow-manager.js";
 import type { SavedWorkflow } from "../src/workflow-saved.js";
