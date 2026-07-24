@@ -154,5 +154,26 @@ describeMaybe("archify e2e — negative cases across the defineTool wrapper", ()
     ac.abort();
     const res = (await tool.execute("e2e-id", { ir: JSON.parse(readFileSync(FIXTURE, "utf8")), type: "architecture" }, ac.signal, undefined, ctxFor(cwd))) as { isError?: boolean; content: { text: string }[] };
     expect(res.isError).toBe(true);
+    expect(res.content[0]!.text.toLowerCase()).toContain("abort");
+  }, 30_000);
+
+  test("an already-aborted signal short-circuits validate", async () => {
+    const cwd = withTempCwd();
+    const tool = registeredTool("archify_validate");
+    const ac = new AbortController();
+    ac.abort();
+    const res = (await tool.execute("e2e-id", { ir: JSON.parse(readFileSync(FIXTURE, "utf8")) }, ac.signal, undefined, ctxFor(cwd))) as { isError?: boolean; content: { text: string }[] };
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text.toLowerCase()).toContain("abort");
+  }, 30_000);
+
+  test("an already-aborted signal short-circuits delta", async () => {
+    const cwd = withTempCwd();
+    const tool = registeredTool("archify_delta");
+    const ac = new AbortController();
+    ac.abort();
+    const res = (await tool.execute("e2e-id", { basePath: FIXTURE, headPath: FIXTURE }, ac.signal, undefined, ctxFor(cwd))) as { isError?: boolean; content: { text: string }[] };
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text.toLowerCase()).toContain("abort");
   }, 30_000);
 });
