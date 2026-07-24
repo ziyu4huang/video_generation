@@ -12,15 +12,22 @@
  * Unlike runpy_tts's best-effort posture (which protects an already-succeeded
  * generation), evaluation IS the point here — callers get a real {ok, error}
  * on any failure, nothing is swallowed at this layer.
+ *
+ * This module returns a flat `{ok, metrics, error, stderrTail}` instead of the
+ * sibling `{details, summary, stderrTail}` shape because there's no multi-field
+ * "details" worth summarizing — `metrics` IS the whole payload, and `error`
+ * already carries the exit code inline for the (rare) transport-failure case.
  */
 import { join } from "node:path";
 import { resolveRepoRoot, resolveRunPyPaths } from "@repo/pi-agent-ext-ltx";
 
 export interface LipsyncMetrics {
   verdict: string;
-  pearson_r: number | null;
-  mouth_ratio_std: number | null;
+  pearson_r?: number | null;
+  mouth_ratio_std?: number | null;
   caveat?: string;
+  /** Human-readable reason, present on no_face/no_audio verdicts (and sometimes others). */
+  note?: string;
 }
 
 export interface RunPyLipsyncInput {
@@ -40,6 +47,11 @@ export interface RunPyLipsyncOutput {
   metrics: LipsyncMetrics | null;
   error: string | null;
   stderrTail: string;
+}
+
+/** Build the argv for `python -m app.lipsync_metrics <videoPath>`. */
+export function buildLipsyncArgs(videoPath: string): string[] {
+  return ["-m", "app.lipsync_metrics", videoPath];
 }
 
 async function defaultSpawn(
@@ -66,7 +78,7 @@ async function defaultSpawn(
 
 /** Run `python -m app.lipsync_metrics <videoPath>` and parse its JSON stdout. */
 export async function runPyLipsync(input: RunPyLipsyncInput): Promise<RunPyLipsyncOutput> {
-  const args = ["-m", "app.lipsync_metrics", input.videoPath];
+  const args = buildLipsyncArgs(input.videoPath);
   const spawnFn = input._spawnImpl ?? ((a: string[]) => defaultSpawn(a, input.signal));
 
   let res: { stdout: string; stderr: string; exitCode: number };

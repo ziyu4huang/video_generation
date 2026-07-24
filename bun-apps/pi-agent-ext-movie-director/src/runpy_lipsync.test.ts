@@ -1,20 +1,31 @@
 import { describe, expect, it } from "bun:test";
-import { runPyLipsync } from "./runpy_lipsync.ts";
+import { buildLipsyncArgs, runPyLipsync } from "./runpy_lipsync.ts";
+
+describe("buildLipsyncArgs", () => {
+  it("builds the exact module-invocation argv", () => {
+    expect(buildLipsyncArgs("/fake/shot.mp4")).toEqual(["-m", "app.lipsync_metrics", "/fake/shot.mp4"]);
+  });
+});
 
 describe("runPyLipsync — spawn injection (no venv)", () => {
   it("ok=true with parsed metrics on exit 0 + valid JSON stdout", async () => {
+    let capturedArgs: string[] = [];
     const result = await runPyLipsync({
       videoPath: "/fake/shot.mp4",
-      _spawnImpl: async () => ({
-        stdout: JSON.stringify({
-          verdict: "adequate",
-          pearson_r: 0.55,
-          mouth_ratio_std: 0.05,
-        }),
-        stderr: "",
-        exitCode: 0,
-      }),
+      _spawnImpl: async (args) => {
+        capturedArgs = args;
+        return {
+          stdout: JSON.stringify({
+            verdict: "adequate",
+            pearson_r: 0.55,
+            mouth_ratio_std: 0.05,
+          }),
+          stderr: "",
+          exitCode: 0,
+        };
+      },
     });
+    expect(capturedArgs).toEqual(["-m", "app.lipsync_metrics", "/fake/shot.mp4"]);
     expect(result.ok).toBe(true);
     expect(result.metrics?.verdict).toBe("adequate");
     expect(result.metrics?.pearson_r).toBe(0.55);
@@ -38,6 +49,27 @@ describe("runPyLipsync — spawn injection (no venv)", () => {
     });
     expect(result.ok).toBe(true);
     expect(result.metrics?.caveat).toContain("anti-phase");
+  });
+
+  it("ok=true when verdict is no_face/no_audio with pearson_r/mouth_ratio_std absent (not null)", async () => {
+    const result = await runPyLipsync({
+      videoPath: "/fake/shot.mp4",
+      _spawnImpl: async () => ({
+        stdout: JSON.stringify({
+          verdict: "no_face",
+          note: "No face detected in any sampled frame.",
+          n_frames: 73,
+          n_detected: 0,
+        }),
+        stderr: "",
+        exitCode: 0,
+      }),
+    });
+    expect(result.ok).toBe(true);
+    expect(result.metrics?.verdict).toBe("no_face");
+    expect(result.metrics?.note).toContain("No face detected");
+    expect(result.metrics?.pearson_r).toBeUndefined();
+    expect(result.metrics?.mouth_ratio_std).toBeUndefined();
   });
 
   it("ok=false on non-zero exit code", async () => {
