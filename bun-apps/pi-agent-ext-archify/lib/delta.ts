@@ -14,7 +14,10 @@ function receiptPathFor(htmlPath: string): string {
 }
 
 /** archify `compare` is architecture-only (bin/archify.mjs rejects type !== 'architecture'). */
-export async function archifyDelta(params: { basePath: string; headPath: string; outputPath?: string; type?: string }, ctx: DeltaCtx) {
+export async function archifyDelta(params: { basePath: string; headPath: string; outputPath?: string; type?: string }, ctx: DeltaCtx, signal?: AbortSignal) {
+  if (signal?.aborted) {
+    return { content: [{ type: "text" as const, text: "Aborted before delta: the AbortSignal was already aborted." }], details: { aborted: true }, isError: true };
+  }
   const type = params.type ?? "architecture";
   if (type !== "architecture") {
     return { content: [{ type: "text" as const, text: "Error: archify_delta is architecture-only (archify compare requires type 'architecture')." }], details: { error: "non-architecture delta unsupported", type }, isError: true };
@@ -22,7 +25,7 @@ export async function archifyDelta(params: { basePath: string; headPath: string;
   const base = isAbsolute(params.basePath) ? params.basePath : join(ctx.cwd, params.basePath);
   const head = isAbsolute(params.headPath) ? params.headPath : join(ctx.cwd, params.headPath);
   const outPath = resolveOutputPath({ cwd: ctx.cwd, outputPath: params.outputPath, diagramType: "architecture-delta" });
-  const { status, stderr, stdout } = await runArchify(["compare", "architecture", base, head, outPath], ctx.cwd);
+  const { status, stderr, stdout } = await runArchify(["compare", "architecture", base, head, outPath], ctx.cwd, signal);
   if (status !== 0) {
     return { content: [{ type: "text" as const, text: `Error: archify compare failed (exit ${status}). Ensure both IRs are valid architecture diagrams.\n${stderr || stdout}` }], details: { error: "compare failed", status }, isError: true };
   }
@@ -52,7 +55,7 @@ export const deltaTool = defineTool({
     headPath: Type.String({ description: "Head (after) architecture IR .json path." }),
     outputPath: Type.Optional(Type.String({ description: "Output HTML path. Default: <cwd>/architecture-delta.html." })),
   }),
-  async execute(_id, params, _signal, _onUpdate, ctx) {
-    return archifyDelta(params, { cwd: ctx.cwd });
+  async execute(_id, params, signal, _onUpdate, ctx) {
+    return archifyDelta(params, { cwd: ctx.cwd }, signal);
   },
 });

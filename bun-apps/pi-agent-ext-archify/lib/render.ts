@@ -29,7 +29,10 @@ interface DeliverReceipt {
  * artifact check → atomic commit → receipt) so the produced HTML is validated,
  * not just the IR. Returns the absolute HTML path plus the deliver receipt.
  */
-export async function archifyRender(params: { ir?: unknown; irPath?: string; outputPath?: string; type?: string }, ctx: RenderCtx) {
+export async function archifyRender(params: { ir?: unknown; irPath?: string; outputPath?: string; type?: string }, ctx: RenderCtx, signal?: AbortSignal) {
+  if (signal?.aborted) {
+    return { content: [{ type: "text" as const, text: "Aborted before render: the AbortSignal was already aborted." }], details: { aborted: true }, isError: true };
+  }
   const loaded = loadIrMeta({ ir: params.ir, irPath: params.irPath, cwd: ctx.cwd });
   if (!loaded.ok) {
     return { content: [{ type: "text" as const, text: `Error: ${loaded.error}` }], details: { error: loaded.error }, isError: true };
@@ -44,7 +47,7 @@ export async function archifyRender(params: { ir?: unknown; irPath?: string; out
   // deliver: render → check → atomic commit → JSON receipt. Never --open
   // (headless; snapshot lacks open-artifact.mjs). No --quality/--repo-root
   // (parity with the prior surface; add when needed).
-  const deliver = (irPath: string) => runArchify(["deliver", type, irPath, outPath, "--json"], ctx.cwd);
+  const deliver = (irPath: string) => runArchify(["deliver", type, irPath, outPath, "--json"], ctx.cwd, signal);
   const { stdout, stderr, status } = irPathGiven
     ? await deliver(irPathGiven)
     : await withTempIr(params.ir ?? {}, deliver);
@@ -90,7 +93,7 @@ export const renderTool = defineTool({
     outputPath: Type.Optional(Type.String({ description: "Output HTML path (absolute or cwd-relative). Default: ir.meta.output else <cwd>/<type>.html." })),
     type: Type.Optional(Type.String({ description: "Diagram type: architecture|workflow|sequence|dataflow|lifecycle. Inferred from ir.diagram_type (or the irPath file) if omitted." })),
   }),
-  async execute(_id, params, _signal, _onUpdate, ctx) {
-    return archifyRender(params, { cwd: ctx.cwd });
+  async execute(_id, params, signal, _onUpdate, ctx) {
+    return archifyRender(params, { cwd: ctx.cwd }, signal);
   },
 });

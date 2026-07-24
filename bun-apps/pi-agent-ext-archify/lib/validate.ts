@@ -15,12 +15,13 @@ export const validateParams = Type.Object({
 export interface ValidateCtx { cwd: string }
 
 /** Pure entry point reused by tests (no defineTool wrapper). */
-export async function archifyValidate(params: { ir?: unknown; irPath?: string; type?: string }, ctx: ValidateCtx) {
+export async function archifyValidate(params: { ir?: unknown; irPath?: string; type?: string }, ctx: ValidateCtx, signal?: AbortSignal) {
+  if (signal?.aborted) return err("aborted before validate: the AbortSignal was already aborted.");
   const loaded = loadIrMeta({ ir: params.ir, irPath: params.irPath, cwd: ctx.cwd });
   if (!loaded.ok) return err(loaded.error);
   const type = params.type ?? loaded.meta.type;
   if (!type) return err("diagram type could not be determined; pass `type` or set ir.diagram_type.");
-  const run = (irPath: string) => runArchify(["validate", type, irPath, "--json"], ctx.cwd);
+  const run = (irPath: string) => runArchify(["validate", type, irPath, "--json"], ctx.cwd, signal);
   const { stdout, stderr, status } = params.irPath
     ? await run(params.irPath)
     : await withTempIr(params.ir ?? {}, run);
@@ -57,7 +58,7 @@ export const validateTool = defineTool({
     "Validate a typed-JSON-IR diagram against its schema BEFORE rendering. Pass `ir` (the JSON object) or `irPath`. " +
     "Returns validation diagnostics. Always validate before archify_render; never deliver unvalidated IR.",
   parameters: validateParams,
-  async execute(_id, params, _signal, _onUpdate, ctx) {
-    return archifyValidate(params, { cwd: ctx.cwd });
+  async execute(_id, params, signal, _onUpdate, ctx) {
+    return archifyValidate(params, { cwd: ctx.cwd }, signal);
   },
 });
