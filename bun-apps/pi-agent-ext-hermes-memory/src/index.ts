@@ -53,7 +53,7 @@ import { registerLearnMemoryCommand } from "./handlers/learn-memory.js";
 import { registerSyncMarkdownMemoriesCommand, syncMarkdownMemoriesToSqlite } from "./handlers/sync-markdown-memories.js";
 import { registerSwitchBackendCommand } from "./handlers/switch-backend.js";
 import { registerPreviewContextCommand } from "./handlers/preview-context.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, shouldRunStartupSync } from "./config.js";
 import { detectProject, detectProjectSkills } from "./project.js";
 import { buildPromptContext } from "./prompt-context.js";
 import { migrateLegacyProjectMemoryDirs } from "./project-memory-migration.js";
@@ -151,10 +151,17 @@ export default async function (pi: ExtensionAPI) {
   // ~/.pi/agent/<project>/ layout. This is non-destructive: legacy folders
   // remain in place while entries are copied/merged into projects-memory/.
   migrateLegacyProjectMemoryDirs(agentRoot, config.projectsMemoryDir);
-  try {
-    await syncMarkdownMemoriesToSqlite(memoryRepo, globalDir, config.projectsMemoryDir, agentRoot);
-  } catch {
-    // Best-effort only: failed SQLite backfill should not block extension startup.
+  // The startup .md→db re-index is expensive on the surrealdb path (~6.6s of
+  // sequential HTTP round-trips per spawn) and the consolidation CHILD does
+  // not need it — the child only reads .md + writes the result via saveToDisk,
+  // never searching the index. Skipping it in the child is the surrealdb-path
+  // freeze fix (wayfinder ticket 07). runConsolidator sets PI_HERMES_CONSOLIDATING=1.
+  if (shouldRunStartupSync()) {
+    try {
+      await syncMarkdownMemoriesToSqlite(memoryRepo, globalDir, config.projectsMemoryDir, agentRoot);
+    } catch {
+      // Best-effort only: failed SQLite backfill should not block extension startup.
+    }
   }
 
   // ── Live backend switching (sqlite <-> surrealdb) ──
