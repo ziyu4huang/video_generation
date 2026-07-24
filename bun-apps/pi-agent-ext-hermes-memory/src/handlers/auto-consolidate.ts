@@ -15,6 +15,25 @@ import { execChildPrompt } from "./pi-child-process.js";
 
 type MemoryTarget = "memory" | "user" | "failure";
 type ToolMemoryTarget = MemoryTarget | "project";
+type ChildLlmConfig = Pick<MemoryConfig, "llmModelOverride" | "llmThinkingOverride">;
+
+/**
+ * Resolve the model-id the consolidator subprocess will actually use, for
+ * display in progress notifications. Mirrors execChildPrompt's resolution:
+ *   1. llmModelOverride wins (passed to the child as --model).
+ *   2. Otherwise the child inherits the parent env and pi uses PI_MODEL
+ *      (qualified by PI_PROVIDER) when no --model flag is given.
+ *   3. "default" when neither is present — the child then falls back to pi's
+ *      settings defaultModel, which we don't read here to avoid extra I/O.
+ */
+export function resolveConsolidatorModelLabel(config: ChildLlmConfig): string {
+  const override = config.llmModelOverride?.trim();
+  if (override) return override;
+  const model = process.env.PI_MODEL;
+  const provider = process.env.PI_PROVIDER;
+  if (model) return provider ? `${provider}/${model}` : model;
+  return "default";
+}
 
 function entriesForTarget(store: MemoryStore, target: MemoryTarget): string[] {
   if (target === "user") return store.getUserEntries();
@@ -129,9 +148,10 @@ export function registerConsolidateCommand(
         });
       }
 
+      const modelLabel = resolveConsolidatorModelLabel(llmConfig);
       try {
         ctx.ui.notify(
-          `🔄 Starting memory consolidation for ${targets.length} target${targets.length === 1 ? "" : "s"}...`,
+          `🔄 Starting memory consolidation for ${targets.length} target${targets.length === 1 ? "" : "s"} · model ${modelLabel}...`,
           "info",
         );
       } catch {
@@ -139,7 +159,8 @@ export function registerConsolidateCommand(
         // with the consolidation work rather than failing before it starts.
       }
 
-      for (const item of targets) {
+      for (let idx = 0; idx < targets.length; idx++) {
+        const item = targets[idx];
         const entries = entriesForTarget(item.store, item.target);
 
         if (entries.length === 0) {
@@ -147,9 +168,16 @@ export function registerConsolidateCommand(
           continue;
         }
 
+        // Per-note streaming is infeasible here: each target consolidates via
+        // a single opaque LLM subprocess (pi.exec) that only returns on exit.
+        // Surface the best feasible signal instead — which target we're on out
+        // of the total, plus the magnitude (entry count) of the current work.
+        const noteCount = `${entries.length} note${entries.length === 1 ? "" : "s"}`;
+        const progressLabel = `${item.label} (${idx + 1}/${targets.length}) · ${noteCount} · ${modelLabel}`;
+
         try {
           ctx.ui.notify(
-            `⏳ Consolidating ${item.label}...`,
+            `⏳ Consolidating ${progressLabel}...`,
             "info",
           );
         } catch {
@@ -159,7 +187,7 @@ export function registerConsolidateCommand(
         const t0 = Date.now();
         const beat = setInterval(() => {
           try {
-            ctx.ui.notify(`⏳ Consolidating ${item.label}… ${Math.round((Date.now() - t0) / 1000)}s elapsed`, "info");
+            ctx.ui.notify(`⏳ Consolidating ${progressLabel}… ${Math.round((Date.now() - t0) / 1000)}s elapsed`, "info");
           } catch {
             // Stale ctx (session reload mid-consolidation) — best-effort only.
           }
