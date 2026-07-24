@@ -106,7 +106,7 @@ if (isSource) {
 
 	// ALSO symlink every `@repo/*` workspace package at repo-root node_modules.
 	// Cross-extension imports (e.g. pi-knowledge-card → pi-agent-ext-obsidian AND →
-	// pi-agent-ext-workflow/src/spawn-subagent.ts) use `@repo/<pkg>` bare specifiers
+	// pi-agent-ext-subagent/src/spawn-subagent.ts) use `@repo/<pkg>` bare specifiers
 	// declared as peerDependencies. Bun's isolated linker does NOT reliably symlink
 	// every workspace peerDep into each consumer's own node_modules — when even one
 	// is missing (workflow was; obsidian wasn't), `try-native` fails on the
