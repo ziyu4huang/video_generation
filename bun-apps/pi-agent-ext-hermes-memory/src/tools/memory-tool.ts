@@ -8,7 +8,7 @@
  * See PLAN.md → "Hermes Source File Reference Map" for source lines.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { MemoryStore } from "../store/memory-store.js";
@@ -280,8 +280,8 @@ export function registerMemoryTool(
   projectStore: MemoryStore | null,
   memoryRepo: MemoryRepository | null = null,
   projectName?: string | null,
-): void {
-  pi.registerTool({
+): ToolDefinition {
+  const definition: ToolDefinition = {
     name: "memory",
     label: "Memory",
     description: MEMORY_TOOL_DESCRIPTION,
@@ -503,5 +503,7 @@ export function registerMemoryTool(
         details: result,
       };
     },
-  });
+  };
+  pi.registerTool(definition);
+  return definition;
 }

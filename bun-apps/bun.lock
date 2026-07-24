@@ -183,6 +183,7 @@
       "peerDependencies": {
         "@earendil-works/pi-ai": "0.82.0",
         "@earendil-works/pi-coding-agent": "0.82.0",
+        "@repo/pi-agent-ext-subagent": "workspace:*",
       },
     },
     "pi-agent-ext-knowledge-card": {

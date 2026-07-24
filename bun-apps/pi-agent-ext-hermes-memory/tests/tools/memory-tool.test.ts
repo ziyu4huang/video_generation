@@ -12,6 +12,7 @@ import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
 import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
 import type { MemoryRepository } from "../../src/store/repository.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 describe("registerMemoryTool", () => {
   let tmpDir: string;
@@ -22,6 +23,29 @@ describe("registerMemoryTool", () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "memory-tool-test-"));
     backend = new SqliteBackend(tmpDir);
     memoryRepo = new SqliteMemoryRepository(backend);
+  });
+
+  it("registerMemoryTool returns the memory ToolDefinition for bridging", () => {
+    const registeredTools: any[] = [];
+
+    const mockPi = {
+      registerTool: (def: any) => {
+        registeredTools.push(def);
+      },
+    } as unknown as ExtensionAPI;
+
+    const mockStore = {
+      add: () => ({ success: true, target: "memory", entries: ["test"], usage: "10% — 10/100 chars", entry_count: 1 }),
+      replace: () => ({ success: true, target: "memory", entries: [], usage: "0% — 0/100 chars", entry_count: 0 }),
+      remove: () => ({ success: true, target: "memory", entries: [], usage: "0% — 0/100 chars", entry_count: 0 }),
+    } as unknown as MemoryStore;
+
+    const def = registerMemoryTool(mockPi, mockStore, null);
+    assert.ok(def, "registerMemoryTool must return the ToolDefinition");
+    assert.equal(def.name, "memory");
+    assert.equal(typeof def.execute, "function");
+    // sanity: it is the same shape the host received
+    assert.equal(registeredTools[0]?.name, "memory");
   });
 
   afterEach(async () => {
