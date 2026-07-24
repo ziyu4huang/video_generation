@@ -1,6 +1,6 @@
 # CI — the PR gate. Turns the manual-test trust model into an enforced gate.
 #
-# Every PR to main runs the Bun test suite (21 packages, smart-routed by
+# Every PR to main runs the Bun test suite (22 packages, smart-routed by
 # changed_packages — see that job's comment), the extension contract test, the
 # deploy-mode e2e + read-only contract + compiled-binary smoke (deploy-verify /
 # compile-verify), and the regression baselines (schema-cost + 2 MB file-size
@@ -30,7 +30,7 @@ jobs:
   # ──────────────────────────────────────────────────────────────────────────
   # Smart test routing — computes which bun-apps/* packages actually need to
   # re-run given the changed files, so a PR touching one package's tests
-  # doesn't pay for all 21 matrix entries below. push-to-main always runs
+  # doesn't pay for all 22 matrix entries below. push-to-main always runs
   # everything (same "can't skip on the branch that ships" precedent as
   # check-deploy-paths further down). See scripts/ci-changed-packages.sh for
   # the algorithm (live @repo/* dependency graph, reverse-BFS propagation,
@@ -114,6 +114,12 @@ jobs:
           # `npm run check` chain (biome has pre-existing formatting drift — out
           # of scope for the CI cycle; the unit tests + build are the gate).
           - { package: pi-agent-ext-workflow, test-cmd: "bun run build && bun test" }
+          # pi-agent-ext-subagent: extracted from workflow (spawnSubagent +
+          # WorkflowAgent runner + subagent/subagent_runs tools). Uses the
+          # package's canonical `bun run test` chain (biome check → tsc build →
+          # bun test) — unlike workflow, its biome check is green, so the full
+          # chain is the gate (mirrors wayfind's `bun run test` convention).
+          - { package: pi-agent-ext-subagent, test-cmd: "bun run test" }
           # pi-agent-ext-hermes-memory: pure `bun test` (Bun-only package —
           # uses bun:sqlite via the BunCompatDatabase shim in src/store/db.ts;
           # better-sqlite3/Node support was removed). The historical tsx/Node
