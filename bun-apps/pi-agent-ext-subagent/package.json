@@ -6,13 +6,23 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "publishConfig": { "access": "public" },
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
     "./src/*": "./src/*",
     "./extensions/*": "./extensions/*"
   },
-  "files": ["dist/", "extensions/", "src/", "README.md"],
+  "files": [
+    "dist/",
+    "extensions/",
+    "src/",
+    "README.md"
+  ],
   "scripts": {
     "test": "bun run check && bun run build && bun run test:unit",
     "test:unit": "bun test",
@@ -23,8 +33,22 @@
     "dev": "tsx src/index.ts",
     "prepublishOnly": "bun run build"
   },
-  "keywords": ["pi-package", "pi", "pi-coding-agent", "subagents", "multi-agent", "ai-agents", "agents", "isolated-context", "spawn-subagent"],
-  "pi": { "extensions": ["extensions/subagent.ts"] },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "subagents",
+    "multi-agent",
+    "ai-agents",
+    "agents",
+    "isolated-context",
+    "spawn-subagent"
+  ],
+  "pi": {
+    "extensions": [
+      "extensions/subagent.ts"
+    ]
+  },
   "license": "MIT",
   "dependencies": {},
   "peerDependencies": {
