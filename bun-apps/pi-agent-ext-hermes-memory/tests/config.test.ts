@@ -40,6 +40,19 @@ describe("loadConfig", () => {
     assert.strictEqual(config.llmThinkingOverride, undefined);
   });
 
+  it("PI_HERMES_CONSOLIDATING=1 forces autoConsolidate:false + vault-offload (consolidation child must not recurse)", () => {
+    const prev = process.env.PI_HERMES_CONSOLIDATING;
+    process.env.PI_HERMES_CONSOLIDATING = "1";
+    try {
+      const config = loadConfig(TEST_CONFIG_PATH);
+      assert.strictEqual(config.autoConsolidate, false, "consolidating child must not auto-consolidate");
+      assert.strictEqual(config.memoryOverflowStrategy, "vault-offload", "consolidating child falls to vault-offload floor");
+    } finally {
+      if (prev === undefined) delete process.env.PI_HERMES_CONSOLIDATING;
+      else process.env.PI_HERMES_CONSOLIDATING = prev;
+    }
+  });
+
   it("overrides defaults when config file exists", () => {
     // Write a config file
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });

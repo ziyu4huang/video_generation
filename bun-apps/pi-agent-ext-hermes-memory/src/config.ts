@@ -95,6 +95,23 @@ function resolveSurrealDbDefault(config: MemoryConfig): MemoryConfig {
   return config;
 }
 
+/**
+ * A consolidation CHILD process inherits `PI_HERMES_CONSOLIDATING=1` (set by
+ * `MemoryStore.runConsolidator` alongside `PI_MEMORY_FILE_LOCK=bypass`). Such
+ * a child must NEVER spawn its own consolidator — that recursion is the
+ * consolidation freeze: nested children chain/overlap/race on the
+ * bypass-unlocked `.md` (wayfinder ticket 05, diagnosed in 01). Force the
+ * vault-offload floor so the child still WRITES (never hard-rejects on
+ * overflow) but does not recurse into another consolidation.
+ */
+function applyConsolidatingChildGuard(config: MemoryConfig): MemoryConfig {
+  if (process.env.PI_HERMES_CONSOLIDATING === "1") {
+    config.autoConsolidate = false;
+    config.memoryOverflowStrategy = "vault-offload";
+  }
+  return config;
+}
+
 export function loadConfig(configPath = DEFAULT_CONFIG_PATH): MemoryConfig {
   try {
     if (fs.existsSync(configPath)) {
@@ -182,10 +199,10 @@ export function loadConfig(configPath = DEFAULT_CONFIG_PATH): MemoryConfig {
       } else if (hasLegacyAutoConsolidate) {
         config.memoryOverflowStrategy = config.autoConsolidate ? "auto-consolidate" : "reject";
       }
-      return resolveSurrealDbDefault(config);
+      return applyConsolidatingChildGuard(resolveSurrealDbDefault(config));
     }
   } catch {
     // Fall back to defaults on parse error or access issues
   }
-  return resolveSurrealDbDefault({ ...DEFAULT_CONFIG });
+  return applyConsolidatingChildGuard(resolveSurrealDbDefault({ ...DEFAULT_CONFIG }));
 }
