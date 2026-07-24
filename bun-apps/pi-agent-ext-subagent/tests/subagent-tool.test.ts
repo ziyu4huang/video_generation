@@ -555,6 +555,28 @@ test("renderSubagentCall shows 'tier:small' in the model slot when model is omit
   assert.doesNotMatch(out, /default/);
 });
 
+test("renderSubagentCall appends resolved model as a separate segment when tier is shown", () => {
+  const out = renderSubagentCall(
+    { agent: "auditor", tier: "medium", task: "x", resolvedModel: "google/gemma-4-12b-qat" },
+    T,
+  );
+  assert.match(out, /tier:medium ▸ google\/gemma-4-12b-qat ▸/);
+});
+
+test("renderSubagentCall omits resolved model before resolution (undefined)", () => {
+  const out = renderSubagentCall({ agent: "auditor", tier: "medium", task: "x" }, T);
+  assert.match(out, /tier:medium/);
+  assert.doesNotMatch(out, /google/);
+});
+
+test("renderSubagentCall omits resolved model when it equals the explicit model slot (no dup)", () => {
+  const out = renderSubagentCall(
+    { agent: "scout", model: "x/flash", task: "x", resolvedModel: "x/flash" },
+    T,
+  );
+  assert.equal((out.match(/x\/flash/g) || []).length, 1);
+});
+
 test("renderSubagentResult collapsed is short; expanded contains the full report", () => {
   const details: SubagentToolDetails = {
     exitCode: 0,

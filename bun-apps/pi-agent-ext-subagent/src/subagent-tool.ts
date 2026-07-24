@@ -280,13 +280,20 @@ export function formatSubagentLive(
 
 /** Theme the call line shown WHILE the subagent runs (pi's spinner conveys activity). */
 export function renderSubagentCall(
-  args: { agent?: string; model?: string; tier?: string; task: string },
+  args: { agent?: string; model?: string; tier?: string; task: string; resolvedModel?: string },
   theme: Theme,
 ): string {
   const parts: string[] = [theme.bold(theme.fg("toolTitle", "subagent"))];
   if (args.agent) parts.push(theme.fg("accent", args.agent));
+  // Requested-model slot: explicit model, else tier, else "default".
   const slot = args.model ?? (args.tier ? `tier:${args.tier}` : "default");
   parts.push(theme.fg("muted", slot));
+  // Concrete model resolved mid-run (onModelResolved). Separate segment so the
+  // requested tier/model stays visible. Skipped when it matches the slot (e.g.
+  // an explicit model that resolved to itself) to avoid duplication.
+  if (args.resolvedModel && args.resolvedModel !== slot) {
+    parts.push(theme.fg("muted", args.resolvedModel));
+  }
   parts.push(theme.fg("dim", `"${taskPreview(args.task, 60)}"`));
   return parts.join(" ▸ ");
 }
