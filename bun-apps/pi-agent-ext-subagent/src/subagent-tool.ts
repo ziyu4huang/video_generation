@@ -617,6 +617,10 @@ export function createSubagentTool(
       // latest from the registry (keyed by toolCallId) so the call line updates
       // live, and bind invalidate so updateModel can force a redraw even before
       // the next partial/history tick.
+      // Live-run only: the registry entry is torn down in execute's finally
+      // (end()), so after completion this reads undefined and the segment
+      // reverts — the model then lives on the result line (d.model). While
+      // running, onModelResolved → updateModel keeps this fresh + re-renders.
       const resolvedModel = options.inFlight?.get(context.toolCallId)?.resolvedModel;
       options.inFlight?.bindInvalidate(context.toolCallId, context.invalidate);
       text.setText(renderSubagentCall({ ...args, resolvedModel }, theme));

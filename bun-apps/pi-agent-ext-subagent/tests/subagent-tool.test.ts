@@ -575,6 +575,15 @@ test("renderSubagentCall omits resolved model when it equals the explicit model 
   assert.equal((out.match(/x\/flash/g) || []).length, 1);
 });
 
+test("renderSubagentCall shows both explicit model and a different resolved model", () => {
+  const out = renderSubagentCall(
+    { agent: "scout", model: "x/flash", task: "x", resolvedModel: "google/gemma-4-12b-qat" },
+    T,
+  );
+  assert.match(out, /x\/flash/);
+  assert.match(out, /google\/gemma-4-12b-qat/);
+});
+
 test("renderSubagentResult collapsed is short; expanded contains the full report", () => {
   const details: SubagentToolDetails = {
     exitCode: 0,
@@ -1098,4 +1107,29 @@ test("renderCall reads resolvedModel from the registry and binds invalidate", ()
   // invalidate was bound — a later updateModel re-renders the call line
   reg.updateModel("tc9", "anthropic/claude-opus");
   assert.equal(invalidated, 1);
+});
+
+test("renderCall drops the resolved-model segment after the run ends (end() tears down the entry)", () => {
+  const reg = new SubagentInFlightRegistry();
+  const tool = createSubagentTool({ inFlight: reg });
+  reg.start({ id: "tc-end", model: "tier:medium", taskPreview: "x", startedAt: 0 });
+  reg.updateModel("tc-end", "google/gemma-4-12b-qat");
+  const before = new Text("", 0, 0);
+  tool.renderCall?.({ agent: "auditor", tier: "medium", task: "x" }, T, {
+    toolCallId: "tc-end",
+    lastComponent: before,
+    invalidate: () => {},
+  } as never);
+  assert.match(before.render(200).join("\n"), /google\/gemma-4-12b-qat/);
+  // After completion the entry is gone — segment reverts; model lives on the result line.
+  reg.end("tc-end");
+  const after = new Text("", 0, 0);
+  tool.renderCall?.({ agent: "auditor", tier: "medium", task: "x" }, T, {
+    toolCallId: "tc-end",
+    lastComponent: after,
+    invalidate: () => {},
+  } as never);
+  const rendered = after.render(200).join("\n");
+  assert.match(rendered, /tier:medium/);
+  assert.doesNotMatch(rendered, /google\/gemma-4-12b-qat/);
 });
