@@ -31,7 +31,7 @@
     "deploy:exe": "bun scripts/deploy.ts --exe"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.81.1",
+    "@earendil-works/pi-coding-agent": "0.82.0",
     "@repo/pi-agent-ext-core-task": "workspace:*",
     "@repo/pi-agent-ext-hermes-memory": "workspace:*",
     "@repo/pi-agent-ext-superpowers": "workspace:*",
