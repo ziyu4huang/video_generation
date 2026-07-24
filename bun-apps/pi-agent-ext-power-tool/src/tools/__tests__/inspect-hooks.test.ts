@@ -89,9 +89,11 @@ describe("formatHooksReport", () => {
     expect(out).toContain('unknown event "nope"');
     expect(out).toContain("ext-a/a.ts");
   });
-  test("byEvent=true groups the inventory by event", () => {
+  test("byEvent=true groups the inventory by event (and lists which extensions)", () => {
     const out = formatHooksReport(snapshot, analyzeHooks(snapshot), true);
+    expect(out).toContain("Hooks by event:");
     expect(out).toContain("turn_end");
+    expect(out).toContain("ext-a/a.ts"); // the who-list (Fix 1)
   });
 });
 

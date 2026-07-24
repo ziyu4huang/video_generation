@@ -37,7 +37,7 @@ PRD's diagnostics focus is now the literal truth, not just the original intent.
 
 ## inspect-*
 
-### inspect_hooks
+### `inspect_hooks`
 
 Hook observability for extension development — the last blind spot of the
 inspect surface. Phase 1 (this work): registration listing + `unknown-event-name`

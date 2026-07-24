@@ -213,6 +213,7 @@ export function formatHooksReport(
     for (const [event, e] of [...byEvt].sort((a, b) => b[1].handlers - a[1].handlers)) {
       const flag = KNOWN_EVENTS.has(event) ? "" : "  ⚠ unknown";
       lines.push(`  ${event.padEnd(28)} ${e.exts.length} ext(s)  ${e.handlers} handler(s)${flag}`);
+      lines.push(`  ${"".padEnd(30)}${e.exts.join(", ")}`);
     }
   } else {
     lines.push("▶ Hooks by extension:");

@@ -38,10 +38,16 @@ describe("applyContextPolyfills", () => {
     expect(typeof ctx.getSystemPromptOptions).toBe("function");
   });
 
-  test("installs getSystemPromptOptions + getSystemPrompt (unchanged behavior)", () => {
+  test("installs getSystemPromptOptions + getSystemPrompt and they invoke the runner fns", () => {
+    const marker = { __marker: true } as never;
     const ctx: Record<string, unknown> = {};
-    applyContextPolyfills(ctx, fakeRunner([]));
-    expect(typeof ctx.getSystemPromptOptions).toBe("function");
-    expect(typeof ctx.getSystemPrompt).toBe("function");
+    applyContextPolyfills(ctx, {
+      assertActive() {},
+      getSystemPromptOptionsFn: () => marker,
+      getSystemPromptFn: () => "SP",
+      extensions: [],
+    });
+    expect((ctx.getSystemPromptOptions as () => unknown)()).toBe(marker);
+    expect((ctx.getSystemPrompt as () => unknown)()).toBe("SP");
   });
 });
