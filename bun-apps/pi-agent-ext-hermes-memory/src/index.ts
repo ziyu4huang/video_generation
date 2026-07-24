@@ -278,7 +278,11 @@ export default async function (pi: ExtensionAPI) {
   });
 
   // ── 3. Register the memory tool (with project store + SQLite sync) ──
-  registerMemoryTool(pi, store, projectStore, memoryRepo, projectName);
+  // Capture the returned ToolDefinition so consolidation can bridge it into
+  // the in-process child subagent via spawnSubagent's `extensionTools`: the
+  // def's execute closure already binds this parent `store`, so the child's
+  // memory writes land in the parent store (same effect as the old -e subprocess).
+  const memoryToolDef = registerMemoryTool(pi, store, projectStore, memoryRepo, projectName);
   registerGrillDecisionTool(pi, store, memoryRepo);
 
   // ── 4. Register the skill tool ──
@@ -295,15 +299,15 @@ export default async function (pi: ExtensionAPI) {
 
   // ── 7. Setup auto-consolidation (inject consolidator into stores) ──
   store.setConsolidator(async (target, signal) => {
-    return triggerConsolidation(pi, store, target, signal, config.consolidationTimeoutMs, target, config);
+    return triggerConsolidation(store, target, memoryToolDef, signal, config.consolidationTimeoutMs, target, config);
   });
   if (projectStore) {
     projectStore.setConsolidator(async (target, signal) => {
       const toolTarget = target === "memory" ? "project" : target;
-      return triggerConsolidation(pi, projectStore, target, signal, config.consolidationTimeoutMs, toolTarget, config);
+      return triggerConsolidation(projectStore, target, memoryToolDef, signal, config.consolidationTimeoutMs, toolTarget, config);
     });
   }
-  registerConsolidateCommand(pi, store, config.consolidationTimeoutMs, projectStore, projectName, config);
+  registerConsolidateCommand(pi, store, memoryToolDef, config.consolidationTimeoutMs, projectStore, projectName, config);
 
   // ── 8. Setup correction detection ──
   setupCorrectionDetector(pi, store, projectStore, config, memoryRepo, projectName);
