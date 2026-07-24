@@ -62,4 +62,33 @@ describe("buildLipsyncLesson", () => {
     expect(lesson.content).toContain("dov_source_v3.png");
     expect(lesson.content).not.toContain("seed=undefined");
   });
+
+  test("setup/infra-error verdict (e.g. no_face) is worded distinctly from a real measured failure", () => {
+    const lesson = buildLipsyncLesson({
+      verdict: "no_face",
+      pearsonR: null,
+      mouthRatioStd: null,
+      identityRef: "dov_source_v3.png",
+      voice: "am_onyx",
+    });
+    expect(lesson.target).toBe("failure");
+    expect(lesson.category).toBe("tool-quirk");
+    expect(lesson.content).toContain("inconclusive");
+    expect(lesson.content).toContain("Not a quality judgment");
+    expect(lesson.content).not.toContain("Lipdub combo fails");
+    expect(lesson.reason).toBe("verdict=no_face");
+  });
+
+  test("setup/infra-error verdict with a caveat uses the caveat as reason", () => {
+    const lesson = buildLipsyncLesson({
+      verdict: "sync_venv_missing",
+      pearsonR: null,
+      mouthRatioStd: null,
+      identityRef: "kai_source.png",
+      voice: "am_michael",
+      caveat: "syncnet venv not found on this machine",
+    });
+    expect(lesson.reason).toBe("syncnet venv not found on this machine");
+    expect(lesson.content).toContain("inconclusive");
+  });
 });

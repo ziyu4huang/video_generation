@@ -42,10 +42,25 @@ export function buildLipsyncLesson(input: LipsyncLessonInput): LipsyncLesson {
     };
   }
 
+  if (input.verdict === "inadequate") {
+    return {
+      target: "failure",
+      category: "tool-quirk",
+      content: `Lipdub combo fails: ${who}${paramsSuffix} -> ${metrics}.`,
+      reason: input.caveat ?? `verdict=${input.verdict}`,
+    };
+  }
+
+  // Any other verdict (no_face, no_audio, sync_venv_missing, bridge_error,
+  // weights_missing, no_frames, too_short, inference_error, or an unknown
+  // future value) means the evaluation itself did not complete — NOT
+  // evidence that this seed/prompt/identity combo produces bad lip-sync.
+  // Worded distinctly from the "inadequate" case so it isn't misread later
+  // as a quality judgment when it's actually a setup/measurement failure.
   return {
     target: "failure",
     category: "tool-quirk",
-    content: `Lipdub combo fails: ${who}${paramsSuffix} -> ${metrics}.`,
+    content: `Lipdub evaluation inconclusive (verdict=${input.verdict}): ${who}${paramsSuffix} -> ${metrics}. Not a quality judgment on this combo — the evaluation itself didn't complete.`,
     reason: input.caveat ?? `verdict=${input.verdict}`,
   };
 }
