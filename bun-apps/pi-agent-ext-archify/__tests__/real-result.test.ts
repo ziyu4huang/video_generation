@@ -59,4 +59,21 @@ describeMaybe("archify real-result — generated-HTML structural fidelity", () =
       expect(check.status).toBe(0);
     }, 60_000);
   }
+
+  test("architecture: every IR component label renders and node count covers components", async () => {
+    const cwd = withTempCwd();
+    const ir = JSON.parse(
+      readFileSync(join(VENDORED_EXAMPLES, "production-deployment.architecture.json"), "utf8"),
+    ) as { components?: { label?: string }[] };
+    const components = (ir.components ?? []).filter((c) => typeof c.label === "string" && c.label!.length > 0);
+
+    const res = await archifyRender({ ir, type: "architecture" }, { cwd });
+    const htmlPath = (res.details as { path: string }).path;
+    const f = inspectArtifact(readFileSync(htmlPath, "utf8"));
+
+    expect(f.nodeCount).toBeGreaterThanOrEqual(components.length);
+    for (const c of components) {
+      expect(f.textLabels).toContain(c.label);
+    }
+  }, 60_000);
 });
