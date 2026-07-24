@@ -188,7 +188,7 @@ async function syncAddToSqlite(
     });
     return null;
   } catch (err) {
-    return `Saved to Markdown, but SQLite search sync failed: ${err instanceof Error ? err.message : String(err)}`;
+    return `Saved to Markdown, but search store sync failed: ${err instanceof Error ? err.message : String(err)}`;
   }
 }
 
@@ -211,12 +211,12 @@ async function syncReplaceToSqlite(
     });
 
     if (syncResult.matched === 0) {
-      return "Saved to Markdown, but no matching SQLite memory row was updated. Run /memory-sync-markdown if search results look stale.";
+      return "Saved to Markdown, but no matching search store row was updated. Run /memory-sync-markdown if search results look stale.";
     }
 
     return null;
   } catch (err) {
-    return `Saved to Markdown, but SQLite search sync failed: ${err instanceof Error ? err.message : String(err)}`;
+    return `Saved to Markdown, but search store sync failed: ${err instanceof Error ? err.message : String(err)}`;
   }
 }
 
@@ -237,12 +237,12 @@ async function syncRemoveFromSqlite(
     });
 
     if (syncResult.matched === 0) {
-      return "Saved to Markdown, but no matching SQLite memory row was removed. Run /memory-sync-markdown if search results look stale.";
+      return "Saved to Markdown, but no matching search store row was removed. Run /memory-sync-markdown if search results look stale.";
     }
 
     return null;
   } catch (err) {
-    return `Saved to Markdown, but SQLite search sync failed: ${err instanceof Error ? err.message : String(err)}`;
+    return `Saved to Markdown, but search store sync failed: ${err instanceof Error ? err.message : String(err)}`;
   }
 }
 
