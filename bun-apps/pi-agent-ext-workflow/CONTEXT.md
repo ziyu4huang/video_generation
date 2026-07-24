@@ -120,8 +120,20 @@ Spawns one isolated subagent; returns its final text, or a validated object when
 _Avoid_: call, request (it spawns a fresh in-memory Pi session)
 
 **`subagent` (tool)**:
-Single ad-hoc subagent dispatch outside a workflow script — the model calls it directly for one isolated child run, no orchestration. Shares the same runner as `agent()`. Reports real usage (`{input, output, cacheRead, cacheWrite, total, cost}`) and accepts `timeoutMs`/`retryOnTransient` overrides (previously hardcoded: no timeout, always retry once). It also accepts `agentType` (resolves via the same `AgentRegistry` the `agentType` entry below describes — tools/model/prompt/worktree isolation from a `.pi/agents/*.md` definition, with explicit call-site `model`/`tools`/`excludeTools` overriding the binding) and `schema` (structured output via the existing `structured_output` machinery). While running, it also streams throttled progress (≥250ms apart, via `WorkflowAgent.run()`'s existing `onHistory`) through the standard `_onUpdate`/`renderResult({isPartial: true})` SDK contract, so the TUI shows the child's latest tool call instead of a bare spinner until completion.
+Single ad-hoc subagent dispatch outside a workflow script — the model calls it directly for one isolated child run, no orchestration. Shares the same runner as `agent()`. Reports real usage (`{input, output, cacheRead, cacheWrite, total, cost}`) and accepts `timeoutMs`/`retryOnTransient` overrides (previously hardcoded: no timeout, always retry once). It also accepts `agentType` (resolves via the same `AgentRegistry` the `agentType` entry below describes — tools/model/prompt/worktree isolation from a `.pi/agents/*.md` definition, with explicit call-site `model`/`tools`/`excludeTools` overriding the binding) and `schema` (structured output via the existing `structured_output` machinery). While running, it also streams throttled progress (≥250ms apart, via `WorkflowAgent.run()`'s existing `onHistory`) through the standard `_onUpdate`/`renderResult({isPartial: true})` SDK contract, so the TUI shows the child's latest tool call instead of a bare spinner until completion. Declares `executionMode: "sequential"` (decision 10): pi serializes any turn whose tool-call batch contains a `subagent` call (engine rule — any sequential tool ⇒ batch runs serially), enforcing the contract that concurrent fan-out goes through the `workflow` tool's `parallel()` instead. The `workflow` tool's `parallel()`/`agent()` dispatch via a separate `createAgentSession()` path, so this does NOT throttle workflow fan-out.
 _Avoid_: mini-workflow, single-agent script (it is a standalone tool call, not a `workflow` run of one agent)
+
+**`spawnSubagent()` (public API)**:
+The shared, **publicly-exported** wrapper over `WorkflowAgent.run` for programmatic single-subagent dispatch from peer-extension CODE (not the LLM tool path). Stabilized as a public surface (`src/index.ts`) so `pi-agent-ext-wayfind`, `pi-agent-ext-superpowers`, `pi-agent-ext-knowledge-card` (`zk_card`/`zk_ask`) import `spawnSubagent` + `SpawnSubagentOptions` + `SpawnSubagentResult` + `AgentUsage` from the package root (`@repo/pi-agent-ext-workflow` → `dist/index.js`), NOT the `./src/*` source escape hatch. Same runner as the `subagent` tool and `agent()`; returns `{output, exitCode, stderr, timedOut, usage?}` (mirrors the old `runSubagentWithRetry` shape). `prime?` is a no-op forward-ref to ③ (experimental, NOT stable).
+_Avoid_: re-implementing a child-process subagent runner in a peer extension (call this instead); reaching into `./src/spawn-subagent.ts` directly now that it's public (import the package root)
+
+**`SubagentRunRecord` / `SubagentRunPersistence` (public API)**:
+Durable, inspection-only records of completed `subagent`-tool runs, for post-session replay (`~/.pi/subagents/runs/<id>.json`, JSON-per-run, write-once at completion, last-N retention default 200). Carries the full task prompt, resolved model, status/exitCode, real usage, the final output, and the compact transcript (`AgentHistoryEntry[]`) — everything `/subagents` needs to inspect a run after the in-process child session is gone. **Deliberately separate from workflow `RunPersistence`**: that layer is workflow-RESUME machinery (journal = replay source-of-truth, cross-process lease, pause/resume); a subagent run is a one-shot dispatch with NO resume semantics, so its record exists purely for inspection. Mixing the two would muddy the journal's canonical-resume invariant.
+_Avoid_: persisting subagent runs through the workflow journal (use this separate store); treating the record as mutable (it is write-once)
+
+**`SddReport` / `parseSddReport()` (public API)**:
+Machine-readable view of a subagent-driven-development implementer's report block (ticket 04). The byte-identical SDD prompt makes the subagent return a ≤15-line prose block whose first line is `**Status:** DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED`; `parseSddReport(output)` turns that into a typed `SddReport` (`status` reliable; `commits`/`testSummary`/`concerns`/`reportFile` best-effort), or `undefined` for a plain non-SDD dispatch. Surfaces on `subagent`-tool `details.report` (a SEPARATE axis from the process `details.status` done/failed/timedout — a run can finish while self-reporting BLOCKED), badges in the result render, and is persisted on the run record. Parity with claude-code's controller, which parses the same prose prefix.
+_Avoid_: conflating SDD self-report status with process status (they are orthogonal); editing the SDD prompt template to emit JSON (byte-identical — parse its output instead)
 
 **`parallel(thunks)`**:
 Runs many `() => agent(...)` thunks concurrently; results returned in input order. Bounded to 16 live / 1000 total.
@@ -231,6 +243,39 @@ _Avoid_: prompt, pause (it is an approval gate with resume semantics)
 **Budget**:
 The real-token tracker `{ total, spent(), remaining() }`, read from each subagent's session (not estimated). No default cap unless `tokenBudget` / phase budgets add one.
 _Avoid_: limit, quota
+
+**`tokenBudget` / `spendBudget` (per-run subagent cap)**:
+Optional ceilings on the `subagent` tool (and `WorkflowAgent.run`) that ABORT a
+single run mid-run once cumulative token usage (`tokens.total`) or cost (`$`)
+exceeds the limit. Checked per-turn (on each session state change, the same
+subscribe seam as `onHistory`), so an in-flight turn may overshoot by up to one
+turn; on exhaustion the session is aborted and the run surfaces as status
+`"budget"` (`details.budget`: `{kind:"tokens"|"spend", limit, actual}`) —
+distinct from `done`/`failed`/`timedout`, non-recoverable (never retried —
+retrying would re-exhaust the same ceiling). Bounds a SINGLE runaway (looping)
+subagent that `timeoutMs` (wall-clock) alone cannot catch. DELIBERATELY distinct
+from workflow's run-wide `Budget` above: that is a between-agent SOFT gate
+(spent accrues after each agent; an in-flight agent may overshoot and only the
+NEXT dispatch is blocked), whereas this is a hard mid-run abort on ONE agent.
+`checkBudgetExhaustion` is the pure threshold helper; `BudgetExhaustion` the
+record type.
+_Avoid_: conflating with the workflow run-wide Budget (different scope +
+semantics); "quota"
+
+**`commitScope` (subagent guardrail)**:
+An opt-in allowlist of paths a `subagent`-tool run may commit (files or dirs,
+prefix-matched). When set, the tool records the repo HEAD before dispatch and,
+after the run, diffs `base..HEAD` to flag any committed path that falls OUTSIDE
+the scope — the recurring `git add -A` sweep signal (a dispatched implementer
+sweeping an untracked `.planning/` stub into a later squash-merge). DETECTION,
+not prevention: the child has raw `bash`, so the tool never blocks the sweep;
+it surfaces a ⚠ violation in the result text, `details.scopeCheck`, and the
+durable run record, leaving the revert to the controller. Best-effort (non-repo
+/ git failure → skipped silently); ignored for worktree-isolated runs (their
+commits are discarded at teardown). `[]` means "flag any commit" (a read-only
+subagent). A separate axis from process status and SDD self-report.
+_Avoid_: sandbox, commit-policy, git-wrapper (it is a post-run scope audit, not
+an enforced policy)
 
 **Ultracode** (`/ultracode`, `/effort ultra`):
 A standing opt-in that auto-arms an exhaustive multi-agent workflow for every substantive message.

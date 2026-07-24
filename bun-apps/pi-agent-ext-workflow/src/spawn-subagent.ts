@@ -18,7 +18,7 @@
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
-import { type AgentUsage, WorkflowAgent } from "./agent.js";
+import { type AgentUsage, type BudgetExhaustion, WorkflowAgent } from "./agent.js";
 import type { AgentHistoryEntry } from "./agent-history.js";
 import { isWorkflowError, WorkflowErrorCode } from "./errors.js";
 
@@ -38,10 +38,22 @@ export interface SpawnSubagentOptions {
   /** Model tier name (e.g. "small"/"medium"/"big"), resolved from model-tiers config. */
   tier?: string;
   schema?: TSchema;
+  /**
+   * Max in-session repair re-prompts when the child returns prose instead of
+   * calling structured_output (default 2). Each repair restricts tools to
+   * structured_output and re-nudges; a schema-valid JSON block in prose is also
+   * accepted as a last resort. Bump for models that unreliably emit structured
+   * output (e.g. zai/glm).
+   */
+  schemaRepairAttempts?: number;
   instructions?: string;
   cwd?: string;
   timeoutMs?: number;
-  /** Retry once on a transient (timeout/abort/network) failure. Default true. */
+  /** Abort the child mid-run once cumulative tokens exceed this (per-run cap). */
+  tokenBudget?: number;
+  /** Abort the child mid-run once cumulative cost ($) exceeds this (per-run cap). */
+  spendBudget?: number;
+  /** Retry once on a transient (timeout/abort/network/schema-noncompliance) failure. Default true. */
   retryOnTransient?: boolean;
   /** Forward-ref to ③ — accepted but does NOT retrieve or alter output. */
   prime?: SpawnSubagentPrime;
@@ -77,6 +89,8 @@ export interface SpawnSubagentResult {
   timedOut: boolean;
   /** Real token/cost usage read from the child session, when the runner reports it. */
   usage?: AgentUsage;
+  /** Set when the run was aborted for exceeding tokenBudget/spendBudget (distinct from timedOut/failed). */
+  budget?: BudgetExhaustion;
 }
 
 const TRANSIENT_NETWORK_RE =
@@ -86,10 +100,24 @@ interface ErrorClass {
   transient: boolean;
   timedOut: boolean;
   message: string;
+  budget?: BudgetExhaustion;
 }
 
 function classifyError(e: unknown, signalAborted = false): ErrorClass {
   const message = e instanceof Error ? e.message : String(e);
+  // Budget exhaustion is non-recoverable: retrying would re-exhaust the same
+  // ceiling. Surfaced distinctly (result.budget) so the caller can tell a
+  // capped run apart from a generic failure or a timeout.
+  if (isWorkflowError(e) && e.code === WorkflowErrorCode.TOKEN_BUDGET_EXHAUSTED) {
+    return { transient: false, timedOut: false, message, budget: e.details as BudgetExhaustion | undefined };
+  }
+  // Schema noncompliance is intermittent on some models (zai/glm unreliably
+  // emits structured_output under load) — a fresh full re-run usually succeeds,
+  // so treat it as transient (the inner in-session repair already re-nudged
+  // twice). Retried only when retryOnTransient is on (default true).
+  if (isWorkflowError(e) && e.code === WorkflowErrorCode.SCHEMA_NONCOMPLIANCE) {
+    return { transient: true, timedOut: false, message };
+  }
   if (isWorkflowError(e) && e.code === WorkflowErrorCode.AGENT_TIMEOUT) {
     return { transient: true, timedOut: true, message };
   }
@@ -159,6 +187,9 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
           usage = u;
         },
         onHistory: opts.onHistory,
+        tokenBudget: opts.tokenBudget,
+        spendBudget: opts.spendBudget,
+        maxSchemaRetries: opts.schemaRepairAttempts,
       } as Parameters<WorkflowAgent["run"]>[1]);
       // When `opts.schema` is set, `run()` returns a validated OBJECT (not a
       // string). `String(obj)` would yield "[object Object]" and silently
@@ -169,7 +200,14 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
     } catch (e) {
       const c = classifyError(e, ac.signal.aborted);
       return {
-        result: { output: "", exitCode: c.timedOut ? 124 : 1, stderr: c.message, timedOut: c.timedOut, usage },
+        result: {
+          output: "",
+          exitCode: c.timedOut ? 124 : 1,
+          stderr: c.message,
+          timedOut: c.timedOut,
+          usage,
+          ...(c.budget ? { budget: c.budget } : {}),
+        },
         transient: c.transient,
       };
     } finally {

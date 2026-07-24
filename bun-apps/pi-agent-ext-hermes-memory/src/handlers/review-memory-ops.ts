@@ -7,14 +7,8 @@ import { completeSimple, type Message, type SimpleStreamOptions } from "@earendi
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DIRECT_REVIEW_SYSTEM_PROMPT } from "../constants.js";
 import { MemoryStore } from "../store/memory-store.js";
-import { DatabaseManager } from "../store/db.js";
-import {
-  formatFailureMemoryContent,
-  removeExactSyncedMemories,
-  removeSyncedMemories,
-  replaceSyncedMemories,
-  syncMemoryEntry,
-} from "../store/sqlite-memory-store.js";
+import { formatFailureMemoryContent } from "../store/memory-format.js";
+import type { MemoryRepository } from "../store/repository.js";
 import type { MemoryCategory, MemoryConfig, MemoryResult, ThinkingLevel } from "../types.js";
 
 export interface ReviewMemoryOperation {
@@ -221,17 +215,17 @@ async function syncAdd(
   content: string,
   category: MemoryCategory | undefined,
   failureReason: string | undefined,
-  dbManager: DatabaseManager | null,
+  memoryRepo: MemoryRepository | null,
   projectName?: string | null,
 ): Promise<void> {
-  if (!dbManager) return;
+  if (!memoryRepo) return;
 
   const sqliteTarget = sqliteTargetFor(rawTarget);
   const sqliteProject = sqliteProjectFor(rawTarget, projectName);
 
   if (rawTarget === "failure") {
     const failureCategory = category ?? "failure";
-    syncMemoryEntry(dbManager, {
+    await memoryRepo.syncMemoryEntry({
       content: formatFailureMemoryContent(content, {
         category: failureCategory,
         failureReason,
@@ -244,7 +238,7 @@ async function syncAdd(
     return;
   }
 
-  syncMemoryEntry(dbManager, {
+  await memoryRepo.syncMemoryEntry({
     content,
     target: sqliteTarget,
     project: sqliteProject ?? null,
@@ -255,11 +249,11 @@ async function syncReplace(
   rawTarget: ReviewMemoryOperation["target"],
   oldText: string,
   newContent: string,
-  dbManager: DatabaseManager | null,
+  memoryRepo: MemoryRepository | null,
   projectName?: string | null,
 ): Promise<void> {
-  if (!dbManager) return;
-  replaceSyncedMemories(dbManager, oldText, {
+  if (!memoryRepo) return;
+  await memoryRepo.replaceSyncedMemories(oldText, {
     content: newContent,
     target: sqliteTargetFor(rawTarget),
     project: sqliteProjectFor(rawTarget, projectName),
@@ -269,11 +263,11 @@ async function syncReplace(
 async function syncRemove(
   rawTarget: ReviewMemoryOperation["target"],
   oldText: string,
-  dbManager: DatabaseManager | null,
+  memoryRepo: MemoryRepository | null,
   projectName?: string | null,
 ): Promise<void> {
-  if (!dbManager) return;
-  removeSyncedMemories(dbManager, oldText, {
+  if (!memoryRepo) return;
+  await memoryRepo.removeSyncedMemories(oldText, {
     target: sqliteTargetFor(rawTarget),
     project: sqliteProjectFor(rawTarget, projectName),
   });
@@ -282,13 +276,13 @@ async function syncRemove(
 async function syncEvictions(
   rawTarget: ReviewMemoryOperation["target"],
   evictedEntries: string[] | undefined,
-  dbManager: DatabaseManager | null,
+  memoryRepo: MemoryRepository | null,
   projectName?: string | null,
 ): Promise<void> {
-  if (!dbManager || !evictedEntries?.length) return;
+  if (!memoryRepo || !evictedEntries?.length) return;
   for (const entry of evictedEntries) {
     try {
-      removeExactSyncedMemories(dbManager, entry, {
+      await memoryRepo.removeExactSyncedMemories(entry, {
         target: sqliteTargetFor(rawTarget),
         project: sqliteProjectFor(rawTarget, projectName),
       });
@@ -302,7 +296,7 @@ export async function applyReviewOperations(
   store: MemoryStore,
   projectStore: MemoryStore | null,
   operations: ReviewMemoryOperation[],
-  dbManager: DatabaseManager | null = null,
+  memoryRepo: MemoryRepository | null = null,
   projectName?: string | null,
 ): Promise<ApplyReviewOperationsResult> {
   let appliedCount = 0;
@@ -332,7 +326,7 @@ export async function applyReviewOperations(
             failureReason: op.failure_reason,
           });
           if (result.success) {
-            await syncAdd(rawTarget, op.content, category, op.failure_reason, dbManager, projectName);
+            await syncAdd(rawTarget, op.content, category, op.failure_reason, memoryRepo, projectName);
             appliedCount++;
           } else {
             skippedCount++;
@@ -340,8 +334,8 @@ export async function applyReviewOperations(
         } else {
           result = await activeStore.add(memoryTarget, op.content);
           if (result.success) {
-            await syncEvictions(rawTarget, result.evicted_entries, dbManager, projectName);
-            await syncAdd(rawTarget, op.content, undefined, undefined, dbManager, projectName);
+            await syncEvictions(rawTarget, result.evicted_entries, memoryRepo, projectName);
+            await syncAdd(rawTarget, op.content, undefined, undefined, memoryRepo, projectName);
             appliedCount++;
           } else {
             skippedCount++;
@@ -356,7 +350,7 @@ export async function applyReviewOperations(
         }
         result = await activeStore.replace(memoryTarget, op.old_text, op.content);
         if (result.success) {
-          await syncReplace(rawTarget, op.old_text, op.content, dbManager, projectName);
+          await syncReplace(rawTarget, op.old_text, op.content, memoryRepo, projectName);
           appliedCount++;
         } else {
           skippedCount++;
@@ -370,7 +364,7 @@ export async function applyReviewOperations(
         }
         result = await activeStore.remove(memoryTarget, op.old_text);
         if (result.success) {
-          await syncRemove(rawTarget, op.old_text, dbManager, projectName);
+          await syncRemove(rawTarget, op.old_text, memoryRepo, projectName);
           appliedCount++;
         } else {
           skippedCount++;
@@ -400,7 +394,7 @@ export async function runDirectBackgroundReview(
   store: MemoryStore,
   projectStore: MemoryStore | null,
   options: RunDirectBackgroundReviewOptions,
-  dbManager: DatabaseManager | null = null,
+  memoryRepo: MemoryRepository | null = null,
   projectName?: string | null,
 ): Promise<DirectReviewResult> {
   const model = resolveReviewModel(ctx.model, ctx.modelRegistry, options.config);
@@ -461,7 +455,7 @@ export async function runDirectBackgroundReview(
       store,
       projectStore,
       operations,
-      dbManager,
+      memoryRepo,
       projectName,
     );
     return { ok: true, appliedCount };

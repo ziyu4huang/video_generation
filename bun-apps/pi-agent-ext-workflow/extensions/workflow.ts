@@ -22,7 +22,9 @@ import {
   WorkflowManager,
 } from "../src/index.js";
 import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
+import { createSubagentRunPersistence } from "../src/subagent-run-persistence.js";
 import { createSubagentTool } from "../src/subagent-tool.js";
+import { createSubagentRunsTool } from "../src/subagent-runs-tool.js";
 import { createSubagentsCommand } from "../src/subagents-command.js";
 
 export default function extension(pi: ExtensionAPI) {
@@ -47,7 +49,13 @@ export default function extension(pi: ExtensionAPI) {
   manager.setHostFns(sessionHostFns);
   const HOSTFN_REGISTER = "workflow:hostfn:v1:register";
   const HOSTFN_REQUEST = "workflow:hostfn:v1:request";
-  pi.events.on(HOSTFN_REGISTER, (payload: unknown) => applyHostFnRegistration(sessionHostFns, payload));
+  // `pi.events` is optional — absent in the schema-cost capturing mock and
+  // any host without the event bus (see the emit-side guard + comment below).
+  // Guard the host-fn registration so an absent bus skips instead of throwing
+  // `undefined is not an object (evaluating 'pi.events.on')`.
+  if (pi.events) {
+    pi.events.on(HOSTFN_REGISTER, (payload: unknown) => applyHostFnRegistration(sessionHostFns, payload));
+  }
 
   const workflowTool = createWorkflowTool({
     cwd,
@@ -67,11 +75,14 @@ export default function extension(pi: ExtensionAPI) {
   // bridge these into child sessions so children inherit the parent's extension tools.
   const extensionToolsHolder: { current: ToolDefinition[] | undefined } = { current: undefined };
   const subagentInFlight = new SubagentInFlightRegistry();
+  // Shared persistence: the dispatch tool writes; subagent_runs reads.
+  const subagentPersistence = createSubagentRunPersistence();
   const subagentTool = createSubagentTool({
     cwd,
     getExtensionTools: () => extensionToolsHolder.current,
     getMainModel: () => manager.getMainModel(),
     inFlight: subagentInFlight,
+    persistence: subagentPersistence,
   });
   // Best-effort guard: this repo expects pi-agent-ext-workflow to own the
   // 'subagent' tool name. If another extension (e.g. a real pi-subagents
@@ -88,6 +99,8 @@ export default function extension(pi: ExtensionAPI) {
     // getActiveTools may be unavailable in some hosts — best-effort only.
   }
   pi.registerTool(subagentTool);
+  const subagentRunsTool = createSubagentRunsTool({ persistence: subagentPersistence });
+  pi.registerTool(subagentRunsTool);
   const workflowControlTool = createWorkflowControlTool({ manager });
   pi.registerTool(workflowControlTool);
 

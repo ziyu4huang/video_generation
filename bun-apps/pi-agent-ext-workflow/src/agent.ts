@@ -17,6 +17,7 @@ import { type AgentHistoryEntry, compactAgentHistory } from "./agent-history.js"
 import { applyToolPolicy } from "./agent-registry.js";
 import { classifyProviderLimit, WorkflowError, WorkflowErrorCode } from "./errors.js";
 import { loadModelTierConfig, type ModelTierConfig, resolveTierModel, sortedTierNames } from "./model-tier-config.js";
+import { parseSddReport, type SddReport } from "./sdd-report.js";
 import { createStructuredOutputTool, type StructuredOutputCapture } from "./structured-output.js";
 
 /**
@@ -259,12 +260,54 @@ export interface AgentUsage {
   cost: number;
 }
 
+/** Why a budget-capped subagent run was aborted mid-run. */
+export interface BudgetExhaustion {
+  /** Which budget was exceeded. */
+  kind: "tokens" | "spend";
+  /** The caller-declared ceiling. */
+  limit: number;
+  /** The cumulative usage at the moment of abort. */
+  actual: number;
+}
+
+/**
+ * Pure: check cumulative session usage against an optional per-run budget.
+ * Returns the first exceeded budget (tokens checked before spend), or
+ * `undefined` when neither is set or neither is exceeded. Uses `>` (strictly
+ * greater), so reaching the limit exactly is allowed. Extracted from
+ * `WorkflowAgent.run` so the threshold logic is unit-testable independent of
+ * the session/subscribe wiring (which mirrors the existing onHistory/timeout
+ * seams and is exercised via the spawnSubagent classification tests).
+ */
+export function checkBudgetExhaustion(
+  stats: { tokens: { total: number }; cost: number },
+  budget: { tokenBudget?: number; spendBudget?: number },
+): BudgetExhaustion | undefined {
+  if (budget.tokenBudget !== undefined && stats.tokens.total > budget.tokenBudget) {
+    return { kind: "tokens", limit: budget.tokenBudget, actual: stats.tokens.total };
+  }
+  if (budget.spendBudget !== undefined && stats.cost > budget.spendBudget) {
+    return { kind: "spend", limit: budget.spendBudget, actual: stats.cost };
+  }
+  return undefined;
+}
+
 export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefined> {
   label?: string;
   schema?: TSchemaDef;
   tools?: ToolDefinition[];
   instructions?: string;
   signal?: AbortSignal;
+  /**
+   * Abort the session mid-run once cumulative token usage (`tokens.total`)
+   * exceeds this. Checked on each session state change (per-turn granularity),
+   * so an in-flight turn may overshoot by up to one turn. Bounds a SINGLE
+   * runaway subagent — distinct from workflow's run-wide `tokenBudget` (a
+   * between-agent soft gate that never aborts an in-flight agent).
+   */
+  tokenBudget?: number;
+  /** Abort the session mid-run once cumulative cost ($) exceeds this. */
+  spendBudget?: number;
   /**
    * Called once with this subagent's real usage, read from the session right
    * before disposal. Fires on both the success and error paths so partial
@@ -292,6 +335,14 @@ export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefi
   onModelFallback?: (requestedSpec: string) => void;
   /** Called with a compact snapshot of this subagent's message/tool history. */
   onHistory?: (history: AgentHistoryEntry[]) => void;
+  /**
+   * Parsed SDD self-report block (parity with the `subagent` tool's
+   * `details.report`), when the agent's text output carries one. Fires on the
+   * text-success path with `parseSddReport(text)` — `undefined` when no block
+   * is present, and never fired for structured-output agents (no prose) or on
+   * error. Lets a workflow collect each agent's SDD status without re-parsing.
+   */
+  onSddReport?: (report: SddReport | undefined) => void;
   /** Run this agent in a different working directory (e.g. an isolated worktree). */
   cwd?: string;
   /**
@@ -445,6 +496,28 @@ export class WorkflowAgent {
       lastHistoryEmit = now;
       emitHistory();
     };
+    // Per-run token/spend budget (tokenBudget/spendBudget): abort the session
+    // mid-run once cumulative usage exceeds the ceiling. Checked on each session
+    // state change (the same subscribe seam as onHistory), so overshoot is
+    // bounded to ~one turn. Distinct from workflow's run-wide soft gate — this
+    // bounds a single runaway subagent. The pure threshold logic lives in
+    // checkBudgetExhaustion; session.abort() makes session.prompt() return
+    // (same contract as the signal/timeout abort below).
+    let budgetExhausted: BudgetExhaustion | undefined;
+    const hasBudget = options.tokenBudget !== undefined || options.spendBudget !== undefined;
+    const checkBudget = () => {
+      if (budgetExhausted || !hasBudget) return;
+      try {
+        const { tokens, cost } = session.getSessionStats();
+        budgetExhausted = checkBudgetExhaustion(
+          { tokens: { total: tokens.total }, cost },
+          { tokenBudget: options.tokenBudget, spendBudget: options.spendBudget },
+        );
+        if (budgetExhausted) session.abort();
+      } catch {
+        // getSessionStats not available yet (e.g. before the first turn) — skip.
+      }
+    };
     try {
       if (options.signal?.aborted) throw new Error("Subagent was aborted");
       if (options.signal) {
@@ -452,11 +525,29 @@ export class WorkflowAgent {
         options.signal.addEventListener("abort", onAbort, { once: true });
         removeAbortListener = () => options.signal?.removeEventListener("abort", onAbort);
       }
-      if (options.onHistory) {
-        removeHistoryListener = session.subscribe(() => maybeEmitHistory());
+      if (options.onHistory || hasBudget) {
+        removeHistoryListener = session.subscribe(() => {
+          maybeEmitHistory();
+          checkBudget();
+        });
       }
 
       await session.prompt(this.buildPrompt(prompt, options as AgentRunOptions<any>, Boolean(options.schema)));
+      // Budget exhaustion aborts the session directly (not via the caller's
+      // signal), so detect it via the flag BEFORE the signal-abort check and
+      // surface it as a non-recoverable TOKEN_BUDGET_EXHAUSTED — retrying would
+      // just re-exhaust the same budget. Distinct from a user/timeout abort.
+      if (budgetExhausted) {
+        const unit =
+          budgetExhausted.kind === "tokens"
+            ? `${budgetExhausted.actual} tokens`
+            : `$${budgetExhausted.actual.toFixed(4)}`;
+        throw new WorkflowError(
+          `subagent ${budgetExhausted.kind} budget exhausted (${unit} > limit ${budgetExhausted.limit})`,
+          WorkflowErrorCode.TOKEN_BUDGET_EXHAUSTED,
+          { recoverable: false, agentLabel: options.label, details: budgetExhausted },
+        );
+      }
       if (options.signal?.aborted) throw new Error("Subagent was aborted");
 
       // The SDK buries a provider usage/quota limit in the assistant message rather
@@ -478,6 +569,7 @@ export class WorkflowAgent {
           agentLabel: options.label,
         });
       }
+      options.onSddReport?.(parseSddReport(text));
       return text as AgentRunResult<TSchemaDef>;
     } finally {
       removeAbortListener?.();

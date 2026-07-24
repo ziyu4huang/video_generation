@@ -1,8 +1,10 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
 import type { AgentHistoryEntry } from "../src/agent-history.js";
+import type { GitScopeOps } from "../src/git-scope.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
 import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
+import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
 import type { SubagentToolDetails } from "../src/subagent-tool.js";
 import {
   createSubagentTool,
@@ -43,11 +45,15 @@ test("createSubagentTool has name 'subagent' + label 'Subagent'", () => {
   assert.equal(tool.name, "subagent");
   assert.equal(tool.label, "Subagent");
 });
-test("createSubagentTool exposes parameters, execute, promptSnippet", () => {
+test("createSubagentTool exposes parameters, execute, promptSnippet, executionMode", () => {
   const tool = createSubagentTool();
   assert.ok(tool.parameters, "parameters schema defined");
   assert.equal(typeof tool.execute, "function");
   assert.ok(tool.promptSnippet && tool.promptSnippet.toLowerCase().includes("subagent"));
+  // ticket 10: sequential enforces "parallel fan-out goes through workflow.parallel()"
+  // (workflow's parallel()/agent() dispatch via a separate createAgentSession path,
+  //  so this does not throttle workflow fan-out).
+  assert.equal(tool.executionMode, "sequential");
 });
 
 // ── execute maps params → spawn (success) ──
@@ -652,6 +658,27 @@ test("formatSubagentLive includes a trace line per recent history entry", () => 
   assert.match(out, /→ grep/);
 });
 
+test("formatSubagentLive surfaces a truncated tool-arg/result preview on each trace line (debug visibility)", () => {
+  // compactAgentHistory already captures tool-call arguments (as a compact JSON
+  // string) and tool-result text into `text`. The trace line must surface a
+  // short slice of each so the expanded view reads as a transcript.
+  const history: AgentHistoryEntry[] = [
+    { role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"src/foo.ts"}' },
+    { role: "tool", kind: "toolResult", toolName: "read", text: "export const x = 1;" },
+  ];
+  const out = formatSubagentLive(history, 1000);
+  assert.match(out, /→ read.*src\/foo\.ts/, "tool-call arguments are surfaced on the trace line");
+  assert.match(out, /← read.*export const x/, "tool-result text is surfaced on the trace line");
+});
+
+test("formatSubagentLive leaves a bare `{}` arg payload off the trace line (no noise)", () => {
+  // An empty-args tool call renders as a clean `→ name` marker — the `{}` adds
+  // no information and would clutter the trace.
+  const history: AgentHistoryEntry[] = [{ role: "assistant", kind: "toolCall", toolName: "ls", text: "{}" }];
+  const out = formatSubagentLive(history, 0);
+  assert.match(out, /→ ls$/m, "bare {} args are not appended");
+});
+
 test("formatSubagentLive caps the trace at maxTraceLines (default 100)", () => {
   const history: AgentHistoryEntry[] = Array.from({ length: 150 }, (_, i) => ({
     role: "assistant" as const,
@@ -739,4 +766,277 @@ test("execute deregisters from inFlight even on failure", async () => {
   const tool = createSubagentTool({ spawn: f.spawn, inFlight: reg });
   await tool.execute("id-8", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(reg.list().length, 0, "deregistered even after a failed run");
+});
+
+// ── persistence hook (ticket 08): durable record per completed run ──
+
+function fakePersistence() {
+  const saved: SubagentRunRecord[] = [];
+  return {
+    saved,
+    persistence: {
+      save: (r: SubagentRunRecord) => {
+        saved.push(r);
+      },
+      list: () => [...saved].reverse(),
+      load: () => null,
+      delete: () => false,
+      getRunsDir: () => "/tmp",
+    } as unknown as SubagentRunPersistence,
+  };
+}
+
+test("execute persists a durable record on completion (done), carrying the compact transcript", async () => {
+  const { saved, persistence } = fakePersistence();
+  const f = fakeSpawn((opts) => {
+    opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"x"}' }]);
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  });
+  const tool = createSubagentTool({ spawn: f.spawn, persistence, cwd: "/repo" });
+  await tool.execute("id-p1", { task: "do work", agent: "implementer" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(saved.length, 1, "one record saved");
+  const rec = saved[0];
+  assert.equal(rec.status, "done");
+  assert.equal(rec.exitCode, 0);
+  assert.equal(rec.output, "ok");
+  assert.equal(rec.agent, "implementer");
+  assert.equal(rec.cwd, "/repo");
+  assert.equal(rec.toolCallId, "id-p1");
+  assert.equal(rec.history?.[0]?.toolName, "read", "compact transcript captured for replay");
+  assert.match(rec.startedAt, /^\d{4}-\d{2}-\d{2}T/, "startedAt is ISO");
+});
+
+test("execute persists a record on failure too (failed runs are worth inspecting)", async () => {
+  const { saved, persistence } = fakePersistence();
+  const f = fakeSpawn(() => ({ output: "", exitCode: 1, stderr: "boom", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, persistence });
+  await tool.execute("id-p2", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].status, "failed");
+  assert.equal(saved[0].stderr, "boom");
+});
+
+test("execute does NOT persist on a pre-flight failure (invalid schema is not a real run)", async () => {
+  const { saved, persistence } = fakePersistence();
+  const f = fakeSpawn(() => ({ output: "x", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, persistence });
+  await tool.execute("id-p3", { task: "t", schema: "not-schema-shaped" as never }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(saved.length, 0, "pre-flight rejection must not create a run record");
+});
+
+// ── commitScope guardrail (git-scope integration) ──
+
+/**
+ * Fake git ops for the commitScope guardrail. headCommit is called twice per
+ * checked run — call 1 (pre-dispatch) returns `baseHead`; call 2 (post-run,
+ * inside computeScopeCheck) returns `postHead`. changedPaths returns `paths`.
+ */
+function fakeGitOps(opts: { baseHead?: string; postHead?: string; paths?: string[] }) {
+  const calls = {
+    headCwds: [] as string[],
+    changed: [] as Array<{ cwd: string; base: string; head: string }>,
+  };
+  const ops: GitScopeOps = {
+    async headCommit(cwd: string) {
+      calls.headCwds.push(cwd);
+      return calls.headCwds.length === 1 ? opts.baseHead : opts.postHead;
+    },
+    async changedPaths(cwd: string, base: string, head: string) {
+      calls.changed.push({ cwd, base, head });
+      return opts.paths ?? [];
+    },
+  };
+  return { calls, ops };
+}
+
+test("commitScope unset → no git ops called, details.scopeCheck undefined", async () => {
+  const { calls, ops } = fakeGitOps({ baseHead: "b1", postHead: "b1" });
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, cwd: "/repo" });
+  const res = await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(res.details.scopeCheck, undefined);
+  assert.equal(calls.headCwds.length, 0, "headCommit never invoked without commitScope");
+});
+
+test("commitScope set, all touched in scope → scopeCheck present, outOfScope empty, output clean", async () => {
+  const { calls, ops } = fakeGitOps({ baseHead: "b1", postHead: "h2", paths: ["src/a.ts", "src/sub/b.ts"] });
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, cwd: "/repo" });
+  const res = await tool.execute("id", { task: "t", commitScope: ["src/"] }, NO_SIGNAL, undefined, NO_CTX);
+  const sc = res.details.scopeCheck;
+  assert.ok(sc, "scopeCheck present");
+  assert.deepEqual(sc?.touchedPaths, ["src/a.ts", "src/sub/b.ts"]);
+  assert.deepEqual(sc?.outOfScope, []);
+  assert.equal(sc?.baseCommit, "b1");
+  assert.equal(sc?.headCommit, "h2");
+  assert.deepEqual(calls.changed, [{ cwd: "/repo", base: "b1", head: "h2" }]);
+  assert.ok(!(res.content[0] as { text: string }).text.includes("commit-scope violation"), "no warning when in scope");
+});
+
+test("commitScope set, out-of-scope paths → ⚠ block appended to output + details.outOfScope", async () => {
+  const { ops } = fakeGitOps({
+    baseHead: "b1",
+    postHead: "h2",
+    paths: ["src/a.ts", "README.md", ".planning/stub.md"],
+  });
+  const f = fakeSpawn(() => ({ output: "Status: DONE", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, cwd: "/repo" });
+  const res = await tool.execute("id", { task: "fix it", commitScope: ["src/"] }, NO_SIGNAL, undefined, NO_CTX);
+  const text = (res.content[0] as { text: string }).text;
+  assert.match(text, /⚠ commit-scope violation/);
+  assert.match(text, /README\.md/);
+  assert.match(text, /\.planning\/stub\.md/);
+  assert.deepEqual(res.details.scopeCheck?.outOfScope, ["README.md", ".planning/stub.md"]);
+});
+
+test("commitScope: [] flags ANY committed path (read-only guard)", async () => {
+  const { ops } = fakeGitOps({ baseHead: "b1", postHead: "h2", paths: ["src/a.ts"] });
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, cwd: "/repo" });
+  const res = await tool.execute("id", { task: "t", commitScope: [] }, NO_SIGNAL, undefined, NO_CTX);
+  assert.deepEqual(res.details.scopeCheck?.outOfScope, ["src/a.ts"]);
+  assert.match((res.content[0] as { text: string }).text, /commit-scope violation/);
+});
+
+test("commitScope set but child committed nothing (base === head) → empty, no violation, no diff call", async () => {
+  const { calls, ops } = fakeGitOps({ baseHead: "same", postHead: "same" });
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, cwd: "/repo" });
+  const res = await tool.execute("id", { task: "t", commitScope: ["src/"] }, NO_SIGNAL, undefined, NO_CTX);
+  assert.deepEqual(res.details.scopeCheck?.touchedPaths, []);
+  assert.deepEqual(res.details.scopeCheck?.outOfScope, []);
+  assert.equal(calls.changed.length, 0, "changedPaths skipped when base === head");
+});
+
+test("commitScope ignored for worktree-isolated runs (their commits are discarded anyway)", async () => {
+  const registry = mkRegistry([
+    { name: "isolated-worker", isolation: "worktree", prompt: "Work in isolation.", source: "project" },
+  ]);
+  const { calls, ops } = fakeGitOps({ baseHead: "b1", postHead: "h2", paths: ["src/a.ts"] });
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({
+    spawn: f.spawn,
+    gitOps: ops,
+    agentRegistry: registry,
+    cwd: "/repo",
+    createWorktree: async () => ({
+      isolated: true,
+      cwd: "/repo/.pi/worktrees/x",
+      repoRoot: "/repo",
+      branch: "pi/wf/x",
+    }),
+    removeWorktree: async () => {},
+  });
+  const res = await tool.execute(
+    "id",
+    { task: "t", agentType: "isolated-worker", commitScope: ["src/"] },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.equal(res.details.scopeCheck, undefined, "worktree-isolated run is not scope-checked");
+  assert.equal(calls.headCwds.length, 0, "no git ops for an isolated run");
+});
+
+test("commitScope set but not a repo (headCommit undefined before dispatch) → scopeCheck undefined", async () => {
+  const { calls, ops } = fakeGitOps({ baseHead: undefined, postHead: "h2" });
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, cwd: "/repo" });
+  const res = await tool.execute("id", { task: "t", commitScope: ["src/"] }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(res.details.scopeCheck, undefined);
+  assert.equal(calls.changed.length, 0, "no post-run diff when base could not resolve");
+});
+
+test("renderSubagentResult tints out-of-scope count as a warning (separate axis from status/SDD)", () => {
+  const details: SubagentToolDetails = {
+    exitCode: 0,
+    timedOut: false,
+    taskPreview: "p",
+    elapsedMs: 1000,
+    status: "done",
+    scopeCheck: {
+      baseCommit: "b",
+      headCommit: "h",
+      touchedPaths: ["x.ts", ".planning/y.md"],
+      outOfScope: [".planning/y.md"],
+    },
+  };
+  const out = renderSubagentResult({ content: [{ type: "text", text: "ok" }], details }, { expanded: false }, T);
+  assert.match(out, /1 out-of-scope/);
+});
+
+test("execute persists scopeCheck on the durable run record (for /subagents replay)", async () => {
+  const { saved, persistence } = fakePersistence();
+  const { ops } = fakeGitOps({ baseHead: "b1", postHead: "h2", paths: ["src/a.ts", "README.md"] });
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, persistence, cwd: "/repo" });
+  await tool.execute("id", { task: "t", commitScope: ["src/"] }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(saved.length, 1);
+  assert.deepEqual(saved[0].scopeCheck?.outOfScope, ["README.md"], "violation persisted for replay");
+});
+
+// ── tokenBudget/spendBudget (budget cap) ──
+
+test("execute forwards tokenBudget/spendBudget to spawn", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  await tool.execute("id", { task: "t", tokenBudget: 5000, spendBudget: 0.25 }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.tokenBudget, 5000);
+  assert.equal(f.calls[0]?.spendBudget, 0.25);
+});
+
+test("spawn result with budget → status 'budget', details.budget, distinct output", async () => {
+  const f = fakeSpawn(() => ({
+    output: "",
+    exitCode: 1,
+    stderr: "",
+    timedOut: false,
+    budget: { kind: "tokens", limit: 1000, actual: 1234 },
+  }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  const res = await tool.execute("id", { task: "t", tokenBudget: 1000 }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(res.details.status, "budget");
+  assert.deepEqual(res.details.budget, { kind: "tokens", limit: 1000, actual: 1234 });
+  const text = (res.content[0] as { text: string }).text;
+  assert.match(text, /budget exhausted/);
+  assert.match(text, /1234 tokens/);
+});
+
+test("renderSubagentResult renders a budget badge + budgetTag", () => {
+  const details: SubagentToolDetails = {
+    exitCode: 1,
+    timedOut: false,
+    taskPreview: "p",
+    elapsedMs: 1000,
+    status: "budget",
+    budget: { kind: "tokens", limit: 1000, actual: 1234 },
+  };
+  const out = renderSubagentResult({ content: [{ type: "text", text: "aborted" }], details }, { expanded: false }, T);
+  assert.match(out, /budget/);
+  assert.match(out, /tokens:1234\/1000/);
+});
+
+test("execute persists budget on the durable run record (status 'budget')", async () => {
+  const { saved, persistence } = fakePersistence();
+  const f = fakeSpawn(() => ({
+    output: "",
+    exitCode: 1,
+    stderr: "",
+    timedOut: false,
+    budget: { kind: "spend", limit: 0.5, actual: 0.62 },
+  }));
+  const tool = createSubagentTool({ spawn: f.spawn, persistence });
+  await tool.execute("id", { task: "t", spendBudget: 0.5 }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].status, "budget");
+  assert.deepEqual(saved[0].budget, { kind: "spend", limit: 0.5, actual: 0.62 });
+});
+
+// ── schemaRepairAttempts (structured-output repair) ──
+
+test("execute forwards schemaRepairAttempts to spawn", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  await tool.execute("id", { task: "t", schemaRepairAttempts: 4 }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.schemaRepairAttempts, 4);
 });

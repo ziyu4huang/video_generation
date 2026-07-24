@@ -66,7 +66,18 @@ function makeMovieHelpTool() {
     description:
       "On-demand reference for the `movie` tool. Pass {command} for option keys + example; omit to list all commands.",
     parameters: Type.Object({
-      command: Type.Optional(COMMAND_ENUM),
+      // COMMAND_ENUM is intentionally NOT used here — the main `movie` tool
+      // already carries the full command enum in its schema (always co-active
+      // with movie_help), so duplicating it here was pure schema tax. A free
+      // string + the no-args COMMAND_REFERENCE covers discovery; invalid names
+      // return the known list (wayfinder ticket 05 — ~−160 tok/req).
+      command: Type.Optional(
+        Type.String({
+          description:
+            "movie subcommand to look up (valid values: the movie tool's `command` enum). " +
+            "Omit to list all commands; an unknown name returns the known list.",
+        }),
+      ),
     }),
     async execute(_id, params) {
       const text = params.command

@@ -1,17 +1,30 @@
 /**
  * pi-agent-ext-research-tool — research collection extension.
  *
- * Three tools:
+ * Six tools:
  *   • collect_videos         — unified Bilibili/YouTube collector (platform + preset)
  *   • organize_vault_notes   — auto-tag missing frontmatter, list orphans
  *   • import_memory_to_vault — pi-hermes-memory → vault-mind jsonl
+ *   • arxiv_search           — search arXiv by query/category (ported from @wienerberliner/pi-arxiv)
+ *   • arxiv_paper            — exact metadata lookup by arXiv ID/URL
+ *   • arxiv_fetch2md         — fetch paper body as Markdown (arxiv2md) → <vault>/papers/
  *
  * Three slash commands mapping to the collection presets.
  *
- * Output lands in the active vault's weekly-news/ (mirrors obsidian vault
- * resolution) unless an explicit outputPath is given.
+ * Output lands in the active vault's weekly-news/ (collect_videos) or papers/
+ * (arxiv_fetch2md), mirroring obsidian vault resolution, unless an explicit
+ * outputPath is given.
  */
-import { defineTool, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import {
+	defineTool,
+	type ExtensionFactory,
+	DEFAULT_MAX_BYTES,
+	DEFAULT_MAX_LINES,
+	formatSize,
+	truncateHead,
+} from "@earendil-works/pi-coding-agent";
+import { StringEnum } from "@earendil-works/pi-ai";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -21,10 +34,22 @@ import { resolveKeywords, filterRelevant, parseKeywords } from "../lib/filter.ts
 import { fetchBuvid3, searchVideos, fetchHotVideos, sleep } from "../lib/bilibili.ts";
 import { searchYtKeyword, publishedAfterDays } from "../lib/youtube.ts";
 import { generateMarkdown, weeklyFilename } from "../lib/format.ts";
-import { resolveWritePath } from "../lib/vault.ts";
+import { resolveWritePath, resolveVaultRoot } from "../lib/vault.ts";
 import { organizeVault } from "../lib/organize.ts";
 import { importMemory, resolveHermesDir } from "../lib/import-memory.ts";
 import { join } from "node:path";
+import {
+	parseArxivId,
+	searchPapers,
+	lookupPaper,
+	fetchMarkdown,
+	formatPaper,
+	renderPaperSummary,
+	saveMarkdown,
+	type SearchDetails,
+	type PaperDetails,
+	type FetchMarkdownDetails,
+} from "../lib/arxiv.ts";
 
 /* ================================================================
  * collect_videos
@@ -226,6 +251,200 @@ function toolError(message: string) {
 }
 
 /* ================================================================
+ * arXiv tools — ported from @wienerberliner/pi-arxiv.
+ * Logic lives in lib/arxiv.ts (pure); this layer owns truncation,
+ * vault writes, and TUI rendering. Library-folder discovery /
+ * /arxiv-library command were dropped: arxiv_fetch2md writes into
+ * the active vault's papers/ via the shared vault resolver.
+ * ================================================================ */
+
+function truncateForTool(text: string): { text: string; truncated: boolean } {
+	const truncation = truncateHead(text, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
+	let output = truncation.content;
+	if (truncation.truncated) {
+		output += `\n\n[Output truncated: ${formatSize(truncation.outputBytes)} of ${formatSize(truncation.totalBytes)}]`;
+	}
+	return { text: output, truncated: truncation.truncated };
+}
+
+const arxivSearchTool = defineTool({
+	name: "arxiv_search",
+	label: "arXiv Search",
+	description:
+		"Search arXiv papers by query, optional category, sorting, and pagination. Returns titles, authors, abstracts, dates, categories, and links. Use arxiv_search when the user asks to find papers, recent papers, related work, or papers in an arXiv category; follow with arxiv_fetch2md when the full body of a specific paper is needed.",
+	parameters: Type.Object({
+		query: Type.String({ description: "Search query, e.g. 'diffusion policies robotics'" }),
+		category: Type.Optional(Type.String({ description: "Optional arXiv category filter, e.g. cs.RO, cs.LG, cs.CV, stat.ML" })),
+		max_results: Type.Optional(Type.Number({ description: "Max papers to return (default 10, max 50)", default: 10 })),
+		sort_by: Type.Optional(
+			StringEnum(["relevance", "lastUpdatedDate", "submittedDate"] as const, { description: "Sort order (default relevance)" }),
+		),
+		sort_order: Type.Optional(
+			StringEnum(["ascending", "descending"] as const, { description: "Sort direction (default descending)" }),
+		),
+		start: Type.Optional(Type.Number({ description: "Start index for pagination (default 0)", default: 0 })),
+	}),
+	async execute(_toolCallId, params, signal) {
+		const { papers, totalResults, start } = await searchPapers(
+			{
+				query: params.query,
+				category: params.category,
+				maxResults: params.max_results,
+				sortBy: params.sort_by,
+				sortOrder: params.sort_order,
+				start: params.start,
+			},
+			signal,
+		);
+
+		if (papers.length === 0) {
+			return {
+				content: [{ type: "text" as const, text: `No papers found for query: ${params.query}` }],
+				details: { query: params.query, category: params.category, totalResults: 0, returned: 0, start, papers: [] } satisfies SearchDetails,
+			};
+		}
+
+		const body = papers.map((paper, index) => formatPaper(paper, index)).join("\n\n");
+		const { text } = truncateForTool(`Found ${totalResults} papers (showing ${start + 1}-${start + papers.length}):\n\n${body}`);
+		return {
+			content: [{ type: "text" as const, text }],
+			details: { query: params.query, category: params.category, totalResults, returned: papers.length, start, papers } satisfies SearchDetails,
+		};
+	},
+	renderCall(args, theme) {
+		let text = `${theme.bold("arxiv_search")} ${theme.fg("accent", `"${String(args.query ?? "")}"`)}`;
+		if (args.category) text += theme.fg("muted", ` cat:${String(args.category)}`);
+		return new Text(text, 0, 0);
+	},
+	renderResult(result, { expanded }, theme) {
+		const details = result.details as SearchDetails | undefined;
+		if (!details || details.returned === 0) return new Text(theme.fg("dim", "No papers found"), 0, 0);
+		let text = theme.fg("success", `${details.totalResults} results`) + theme.fg("dim", ` (showing ${details.returned})`);
+		if (expanded) {
+			for (const paper of details.papers) {
+				text += "\n\n" + theme.fg("accent", theme.bold(paper.title));
+				text += "\n" + theme.fg("dim", `${paper.id} · ${paper.published.slice(0, 10)} · ${paper.authors.slice(0, 3).join(", ")}${paper.authors.length > 3 ? " et al." : ""}`);
+			}
+		}
+		return new Text(text, 0, 0);
+	},
+});
+
+const arxivPaperTool = defineTool({
+	name: "arxiv_paper",
+	label: "arXiv Paper",
+	description: "Fetch exact metadata for one arXiv paper by ID or URL. Returns title, authors, abstract, dates, categories, and links. Use arxiv_paper when the user gives a specific arXiv ID/URL and wants metadata or abstract.",
+	parameters: Type.Object({
+		id: Type.String({ description: "arXiv ID or URL, e.g. 2401.12345v2 or https://arxiv.org/abs/2401.12345" }),
+	}),
+	async execute(_toolCallId, params, signal) {
+		const paper = await lookupPaper(params.id, signal);
+		const details: PaperDetails = { paper };
+		return {
+			content: [{ type: "text" as const, text: paper ? formatPaper(paper) : `Paper not found: ${params.id}` }],
+			details,
+		};
+	},
+	renderCall(args, theme) {
+		return new Text(`${theme.bold("arxiv_paper")} ${theme.fg("accent", String(args.id ?? ""))}`, 0, 0);
+	},
+	renderResult(result, { expanded }, theme) {
+		const details = result.details as PaperDetails | undefined;
+		if (!details?.paper) return new Text(theme.fg("error", "Paper not found"), 0, 0);
+		let text = theme.fg("accent", theme.bold(details.paper.title));
+		text += "\n" + theme.fg("dim", `${details.paper.id} · ${details.paper.published.slice(0, 10)}`);
+		if (expanded) text += "\n\n" + details.paper.abstract;
+		return new Text(text, 0, 0);
+	},
+});
+
+const arxivFetchTool = defineTool({
+	name: "arxiv_fetch2md",
+	label: "arXiv Fetch Markdown",
+	description:
+		"Fetch the full body of an arXiv paper as Markdown using arxiv2md; prefer it over scraping PDFs (it preserves sections + math via the HTML pipeline). Saves the Markdown to <vault>/papers/ unless save=false or output_path is given. Use arxiv_fetch2md when the user asks to read, analyze, summarize, or quote the full body of a specific arXiv paper.",
+	parameters: Type.Object({
+		id: Type.String({ description: "arXiv ID or URL, e.g. 2501.11120v1 or https://arxiv.org/abs/2501.11120v1" }),
+		save: Type.Optional(Type.Boolean({ description: "Whether to save the Markdown file (default true)", default: true })),
+		output_path: Type.Optional(
+			Type.String({ description: "Explicit output file (absolute or cwd-relative). Default: <vault>/papers/<id> - <title>.md" }),
+		),
+		remove_refs: Type.Optional(Type.Boolean({ description: "Ask arxiv2md to remove references (default true)", default: true })),
+		remove_toc: Type.Optional(Type.Boolean({ description: "Ask arxiv2md to remove table of contents (default true)", default: true })),
+		remove_citations: Type.Optional(Type.Boolean({ description: "Ask arxiv2md to remove inline citations/internal links (default true)", default: true })),
+		frontmatter: Type.Optional(Type.Boolean({ description: "Ask arxiv2md to include YAML frontmatter (default true)", default: true })),
+	}),
+	async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+		const id = parseArxivId(params.id);
+		const paper = await lookupPaper(id, signal).catch(() => null);
+		const { markdown, sourceUrl } = await fetchMarkdown(
+			id,
+			{
+				removeRefs: params.remove_refs,
+				removeToc: params.remove_toc,
+				removeCitations: params.remove_citations,
+				frontmatter: params.frontmatter,
+			},
+			signal,
+		);
+
+		const save = params.save ?? true;
+		let outputPath: string | undefined;
+		let saveDirectory: string | undefined;
+		if (save) {
+			if (params.output_path) {
+				outputPath = params.output_path.startsWith("/") ? params.output_path : join(ctx.cwd, params.output_path);
+				saveDirectory = dirname(outputPath);
+				await mkdir(saveDirectory, { recursive: true });
+				await writeFile(outputPath, markdown, "utf8");
+			} else {
+				saveDirectory = join(await resolveVaultRoot(ctx.cwd), "papers");
+				outputPath = await saveMarkdown(id, paper?.title, markdown, saveDirectory);
+			}
+		}
+
+		const lineCount = markdown.split("\n").length;
+		const bytes = Buffer.byteLength(markdown);
+		const { text, truncated } = truncateForTool(
+			`${paper ? `# ${renderPaperSummary(paper)}\n\n` : ""}${outputPath ? `Saved Markdown to: ${outputPath}\nSource: ${sourceUrl}\n\n` : `Source: ${sourceUrl}\n\n`}${markdown}`,
+		);
+
+		return {
+			content: [{ type: "text" as const, text }],
+			details: {
+				id,
+				sourceUrl,
+				path: outputPath,
+				saved: Boolean(outputPath),
+				saveDirectory,
+				bytes,
+				lines: lineCount,
+				truncated,
+			} satisfies FetchMarkdownDetails,
+		};
+	},
+	renderCall(args, theme) {
+		return new Text(`${theme.bold("arxiv_fetch2md")} ${theme.fg("accent", String(args.id ?? ""))}`, 0, 0);
+	},
+	renderResult(result, { expanded }, theme, context) {
+		const details = result.details as FetchMarkdownDetails | undefined;
+		if (context.isError) {
+			const message = result.content.find((block) => block.type === "text")?.text ?? "Fetch failed";
+			return new Text(theme.fg("error", message), 0, 0);
+		}
+		if (!details) return new Text("", 0, 0);
+		let text = theme.fg("success", `Fetched ${details.id} as Markdown`);
+		text += theme.fg("dim", ` (${details.lines} lines, ${formatSize(details.bytes)})`);
+		if (details.path) text += "\n" + theme.fg("muted", `Saved: ${details.path}`);
+		if (expanded) {
+			const markdown = result.content.find((block) => block.type === "text")?.text;
+			if (markdown) text += "\n\n" + theme.fg("toolOutput", markdown);
+		}
+		return new Text(text, 0, 0);
+	},
+});
+
+/* ================================================================
  * Slash commands → collect_videos presets
  * Each injects a user message that the agent fulfils via collect_videos.
  * ================================================================ */
@@ -257,6 +476,9 @@ const extension: ExtensionFactory = (pi) => {
 	pi.registerTool(collectVideosTool);
 	pi.registerTool(organizeTool);
 	pi.registerTool(importMemoryTool);
+	pi.registerTool(arxivSearchTool);
+	pi.registerTool(arxivPaperTool);
+	pi.registerTool(arxivFetchTool);
 
 	registerCollectCommand(pi, "collect-bilibili-llm", "bilibili", "llm",
 		"Collect Bilibili LLM/大模型 videos → vault weekly-news/. Optional: comma keywords.");

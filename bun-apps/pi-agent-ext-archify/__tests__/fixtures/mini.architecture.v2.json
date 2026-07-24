@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": { "title": "Mini v2", "output": "mini-v2.html" },
+  "components": [
+    { "id": "client", "type": "frontend", "label": "Client", "pos": [40, 40], "size": [120, 60] },
+    { "id": "server", "type": "backend", "label": "Server", "pos": [260, 40], "size": [120, 60] },
+    { "id": "db", "type": "database", "label": "DB", "pos": [480, 40], "size": [120, 60] },
+    { "id": "cache", "type": "database", "label": "Cache", "pos": [480, 160], "size": [120, 60] }
+  ],
+  "connections": [
+    { "id": "c1", "from": "client", "to": "server" },
+    { "id": "c2", "from": "server", "to": "db", "label": "SQL" },
+    { "id": "c3", "from": "server", "to": "cache", "label": "read" }
+  ]
+}

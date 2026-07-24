@@ -12,6 +12,7 @@
  *   /wayfind tickets [effort]  — break a spec into tracer-bullet tickets (was /to-tickets)
  *   /wayfind seed [effort]     — seed a task_plan.md from tickets/decisions (was /plan-seed)
  *   /wayfind sync [effort]     — close tickets whose plan phase completed (was /chain-sync)
+ *   /wayfind done [effort]     — closing ceremony: harvest the map into output/next-goal-<ts>.md
  *
  * Each subcommand's logic lives in its own private handler function, unchanged
  * from the pre-consolidation per-command registrations — only the routing
@@ -20,6 +21,7 @@
  * Type-only imports keep this module cycle-free with index.ts.
  */
 
+import { spawnSync } from "node:child_process";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { seedPlan, syncChainState } from "./chain.js";
 import { PKG_NAME } from "./constants.js";
@@ -33,9 +35,16 @@ import { buildFreshnessWarning, checkFactFreshness } from "./freshness.js";
 import { buildGrillPriming } from "./grill.js";
 import type { WayfindOverlay } from "./overlay.js";
 import { getSessionId, isGrillActive, type RuntimeState } from "./state.js";
-import { chartMap, claimNextTicket, effortSlug, renderStatus, statusReport } from "./wayfinder.js";
+import {
+  chartMap,
+  claimNextTicket,
+  closeEffortReflection,
+  effortSlug,
+  renderStatus,
+  statusReport,
+} from "./wayfinder.js";
 
-const WAYFIND_KEYWORDS = new Set(["status", "spec", "tickets", "seed", "sync"]);
+const WAYFIND_KEYWORDS = new Set(["status", "spec", "tickets", "seed", "sync", "done"]);
 
 export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay: WayfindOverlay): void {
   /** Shared kickoff: set the active-grill state, refresh the published seam, and
@@ -148,6 +157,31 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
         "info",
       );
     }
+  }
+
+  async function handleWayfindDone(args: string, ctx: ExtensionCommandContext): Promise<void> {
+    const sessionId = getSessionId(ctx);
+    const effort = args.trim() || state.activeEffortBySession.get(sessionId);
+    if (!effort) {
+      ctx.ui.notify(`Usage: /wayfind done <effort>  (or run /wayfind <destination> first)`, "warning");
+      return;
+    }
+    const r = closeEffortReflection(ctx.cwd, effort);
+    if ("refused" in r) {
+      ctx.ui.notify(`[${PKG_NAME}] done: ${r.refused}`, "warning");
+      return;
+    }
+    // Best-effort tidy (keep last N); the note is already written regardless.
+    try {
+      spawnSync("bash", ["scripts/tidy-next-goals.sh"], { cwd: ctx.cwd });
+    } catch {
+      // tidy is best-effort; ignore if bash / the script is unavailable.
+    }
+    overlay.setLine(`done: ${effort}`);
+    ctx.ui.notify(
+      `[${PKG_NAME}] done: wrote ${r.path} (${r.deferredPrizes.length} deferred prize(s)). Next goal: ${r.nextGoal}`,
+      "info",
+    );
   }
 
   async function handleWayfindSeed(args: string, ctx: ExtensionCommandContext): Promise<void> {
@@ -308,7 +342,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
 
   pi.registerCommand("wayfind", {
     description:
-      "Wayfinder family: '<destination>' (chart a map) or no args (work next ticket); 'status'/'spec'/'tickets'/'seed'/'sync' [effort]",
+      "Wayfinder family: '<destination>' (chart a map) or no args (work next ticket); 'status'/'spec'/'tickets'/'seed'/'sync'/'done' [effort]",
     handler: async (args, ctx) => {
       const trimmed = args.trim();
       const [first, ...rest] = trimmed.split(/\s+/);
@@ -325,6 +359,8 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
             return handleWayfindSeed(remainder, ctx);
           case "sync":
             return handleChainSync(remainder, ctx);
+          case "done":
+            return handleWayfindDone(remainder, ctx);
         }
       }
       return handleWayfinderChart(trimmed, ctx);

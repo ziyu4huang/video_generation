@@ -2,7 +2,7 @@ import { test } from "bun:test";
 import assert from "node:assert/strict";
 import type { AgentUsage } from "../src/agent.js";
 import { WorkflowError, WorkflowErrorCode } from "../src/errors.js";
-import { type CheckpointOptions, type JournalEntry, runWorkflow } from "../src/workflow.js";
+import { type CheckpointOptions, hashAgentCall, type JournalEntry, runWorkflow } from "../src/workflow.js";
 
 /** Agent runner that counts real invocations and echoes a per-call result. */
 function countingAgent() {
@@ -305,6 +305,19 @@ test("runWorkflow routes models: explicit opts.model > phase model > default", a
   assert.deepEqual(seen, ["explicit-model", "phase-a-model", undefined]);
 });
 
+test("hashAgentCall invalidates on tokenBudget/spendBudget change (resume correctness)", () => {
+  // A budget is part of an agent's identity: changing it MUST yield a different
+  // hash so a resumed run does not replay a result computed under a different cap.
+  const h0 = hashAgentCall("p", undefined, undefined, {}, null);
+  const hTok1 = hashAgentCall("p", undefined, undefined, { tokenBudget: 1000 }, null);
+  const hTok2 = hashAgentCall("p", undefined, undefined, { tokenBudget: 2000 }, null);
+  const hSpend = hashAgentCall("p", undefined, undefined, { spendBudget: 0.5 }, null);
+  assert.notEqual(hTok1, h0, "tokenBudget present vs absent → different hash");
+  assert.notEqual(hTok1, hTok2, "different tokenBudget → different hash");
+  assert.notEqual(hSpend, h0, "spendBudget present vs absent → different hash");
+  assert.equal(hashAgentCall("p", undefined, undefined, { tokenBudget: 1000 }, null), hTok1, "stable for identical input");
+});
+
 test("runWorkflow plumbs opts.tier through to the agent with correct precedence", async () => {
   // Regression guard: tier must reach WorkflowAgent.run() (it was previously
   // dropped). Precedence: explicit model > tier > phase model.
@@ -332,6 +345,27 @@ test("runWorkflow plumbs opts.tier through to the agent with correct precedence"
   assert.deepEqual(seen[0], { model: undefined, tier: "small" });
   // 2) explicit model + tier: explicit model is forwarded and still wins.
   assert.deepEqual(seen[1], { model: "explicit-model", tier: "small" });
+});
+
+test("runWorkflow plumbs opts.tokenBudget/spendBudget through to the agent", async () => {
+  // Regression guard: per-agent budget must reach WorkflowAgent.run() (which
+  // enforces the hard mid-run cap per PR #764). Mirrors the opts.tier test.
+  const seen: Array<{ tokenBudget?: number; spendBudget?: number }> = [];
+  const capturingAgent = {
+    async run(_prompt: string, options: { tokenBudget?: number; spendBudget?: number }) {
+      seen.push({ tokenBudget: options.tokenBudget, spendBudget: options.spendBudget });
+      return "ok";
+    },
+  };
+
+  const script = `export const meta = { name: 'budget_fwd', description: 'budget forwarding', phases: [] }
+await agent('p', { label: 'b', tokenBudget: 5000, spendBudget: 0.25 })
+return {}`;
+
+  await runWorkflow(script, { agent: capturingAgent, persistLogs: false });
+
+  assert.equal(seen[0]?.tokenBudget, 5000);
+  assert.equal(seen[0]?.spendBudget, 0.25);
 });
 
 const resumeScript = `export const meta = { name: 'resume_demo', description: 'resume' }

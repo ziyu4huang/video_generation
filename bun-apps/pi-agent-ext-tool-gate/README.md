@@ -1,17 +1,22 @@
 # Dynamic Tool Gate
 
-> Keeps core tools always active while gating heavy domain-specific tools behind prompt keyword matching — saving ~8,500 tokens per request.
+> Keeps core tools always active while gating heavy domain-specific tools behind prompt keyword matching — saving ~8,500 tokens per request (~52%; zai-mcp adds ~1.1k when registered).
 
 ## The Problem
 
-Every registered tool adds to the API request's tools schema. With a full extension ecosystem loaded, a single pi session can carry **41 tools → ~18,500 tokens per request** — a fixed overhead charged on every turn, even when 95% of those tools are never used.
+Every registered tool adds to the API request's tools schema. With a full extension ecosystem loaded, a single pi session can carry **~52 tools → ~16,500 tokens per request** — a fixed overhead charged on every turn, even when 95% of those tools are never used.
 
 This extension solves that by keeping lightweight core tools always active and hiding heavy domain-specific tools (video generation, image generation, movie orchestration, etc.) behind keyword gates. When the user's prompt mentions a relevant keyword, the matching gate fires instantly and the tool becomes available for the rest of the session.
 
 ```
-Baseline:  41 tools → ~18,500 tok/req
-Gated:    ~27 tools → ~10,000 tok/req   (saves ~8,500 tok/turn)
+Baseline:  ~52 tools → ~16,500 tok/req   (measured via `bun run qa`)
+Gated:    ~24 tools →  ~7,900 tok/req   (saves ~8,500 tok/turn, ~52%; zai-mcp env-gated)
 ```
+
+> Figures are measured by `bun run qa` (power-tool `schema-cost`). Only
+> `zai-mcp` (~1.1k tok) is env-gated — it loads only when `ZAI_API_KEY` is set,
+> so the default run is a slight lower bound. Re-run `bun run qa` after changing
+> the gate set for live numbers.
 
 ## How It Works
 
@@ -76,13 +81,16 @@ The current gate definitions (`GATES` array in `extensions/tool-gate.ts`):
 |---|---|---|---|---|
 | **flux2** | `flux2`, `flux2_help` | flux, t2i, 圖像, 生成圖, 去背 | `nouns` ∩ `verbs` | Flux2 image generation — t2i, i2i, faceswap, outpaint, upscale |
 | **krea2** | `krea2`, `krea2_help` | krea, 草圖, 快速生成 | *(none — keywords are narrow enough)* | Krea2 fast image generation — real-time draft to image |
-| **ltx** | `ltx`, `ltx_help` | ltx, t2v, i2v, vbvr | `nouns` ∩ `verbs` | LTX video generation — t2v, i2v, upscale, storyboard |
+| **ltx** | `ltx`, `ltx_help` | ltx, t2v, i2v, vbvr | `nouns` ∩ `verbs` | LTX video generation — t2v, i2v, upscale, vbvr |
 | **file2md** | `file2md`, `vision_ask` | file2md, ocr, caption, 識別 | `nouns` ∩ `verbs` | Document/image understanding — file→markdown, VLM, OCR |
-| **inspect** | `inspect_context`, `inspect_agent`, `inspect_extensions`, `inspect_pathology`, `inspect_tui` | inspect, schema cost, pathology | *(none)* | Agent/extension introspection |
+| **inspect** | `inspect_context`, `inspect_agent`, `inspect_extensions`, `inspect_pathology`, `inspect_tui` | schema cost, pathology, extension health | `nouns` ∩ `verbs` | Agent/extension introspection |
 | **workflow** | `workflow`, `workflow_help`, `subagent`, `workflow_control` | workflow, pipeline, orchestrate | *(none)* | Multi-agent fan-out/pipeline orchestration |
 | **research** | `collect_videos`, `organize_vault_notes`, `import_memory_to_vault` | bilibili, youtube, 收集影片 | *(none)* | Research — collect videos, organize vault |
 | **movie** | `movie`, `movie_help` | montage, storyboard, 分鏡, 剪輯 | *(none)* | Movie orchestrator — idea→script→scene→edit pipeline |
 | **zai-mcp** | `zai_web_search_web_search_prime`, `zai_web_reader_webReader` | zai search, zai reader | *(none)* | Z.ai MCP web tools (redundant with core web_search/fetch_content) |
+| **arxiv** | `arxiv_search`, `arxiv_fetch2md`, `arxiv_paper` | arxiv, 論文 | `nouns` ∩ `verbs` | ArXiv paper retrieval — search, fetch-to-markdown |
+| **cost** | `cost` | 成本估算, cost estimate | `nouns` ∩ `verbs` | Movie-production cost lifecycle — estimate/reserve/reconcile |
+| **pi_deploy** | `pi_deploy`, `pi_verify` | build bundle, bundle pi-agent | `nouns` ∩ `verbs` | Build/verify/deploy the pi-agent bundle |
 
 ### Co-occurrence gating (`requires`)
 
@@ -99,7 +107,7 @@ Some core nouns like *image*, *video*, and *pdf* false-fire on common phrases ("
 }
 ```
 
-Gates whose keywords are already narrow enough (krea2, inspect, workflow, research, movie) skip `requires` entirely.
+Gates whose keywords are already narrow enough (krea2, workflow, research, movie, zai-mcp, pi_deploy) skip `requires` entirely.
 
 ### Keyword matching rules
 
@@ -155,7 +163,7 @@ The `miss_candidate` event quantifies the dormant-tool miss rate — making the 
 On session start, a transient above-editor widget (keyed `"tool-gate"`) shows the active/gated ratio and estimated savings:
 
 ```
-🔧 Tool gate: 27/41 active
+🔧 Tool gate: 24/52 active
 saves ~8500 tok/req
 ```
 

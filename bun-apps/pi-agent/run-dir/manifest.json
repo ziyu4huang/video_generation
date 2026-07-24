@@ -29,6 +29,20 @@
       "bundleMode": "thin",
       "testGate": "cd bun-apps/pi-agent-ext-movie-director && bun test",
       "version": "0.1.0"
+    },
+    {
+      "name": "pi-agent-ext-deploy",
+      "entry": "pi-agent-ext-deploy/extensions/deploy.ts",
+      "bundleMode": "thin",
+      "testGate": "cd bun-apps/pi-agent-ext-deploy && bun test",
+      "version": "0.1.0"
+    },
+    {
+      "name": "pi-agent-ext-archify",
+      "entry": "pi-agent-ext-archify/extensions/archify.ts",
+      "bundleMode": "thin",
+      "testGate": "cd bun-apps/pi-agent-ext-archify && bun test",
+      "version": "0.1.0"
     }
   ],
   "skills": [
@@ -37,7 +51,8 @@
     "pi-agent-ext-wayfind/skills",
     "pi-agent-ext-hermes-memory/skills",
     "pi-agent-ext-superpowers/skills",
-    "pi-agent-ext-web-access/skills"
+    "pi-agent-ext-web-access/skills",
+    "pi-agent-ext-archify/skills"
   ],
   "binarySkills": [
     "pi-agent-ext-hermes-memory/skills",

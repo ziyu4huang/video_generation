@@ -1,9 +1,10 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
 import type { AgentRunOptions, AgentUsage } from "../src/agent.js";
-import { listAvailableModelSpecs, resolveAgentModelSpec, WorkflowAgent } from "../src/agent.js";
+import { checkBudgetExhaustion, listAvailableModelSpecs, resolveAgentModelSpec, WorkflowAgent } from "../src/agent.js";
 import { WorkflowError, WorkflowErrorCode } from "../src/errors.js";
 import type { ModelTierConfig } from "../src/model-tier-config.js";
+import type { SddReport } from "../src/sdd-report.js";
 import { runWorkflow } from "../src/workflow.js";
 
 // Private methods used for testing - cast to this type to access them without `any`
@@ -421,6 +422,56 @@ test("agent() in workflow forwards compact subagent history snapshots", async ()
   assert.equal(histories[0].history[0].text, "working");
 });
 
+test("agent() in workflow surfaces the parsed SDD report on onAgentEnd (parity with subagent tool)", async () => {
+  const report: SddReport = {
+    status: "DONE",
+    commits: ["abc1234"],
+    testSummary: "14/14 passing",
+    concerns: "none",
+  };
+  const sddRunner = {
+    async run(_prompt: string, options: any) {
+      // The real WorkflowAgent.run fires this with parseSddReport(text); the
+      // mock fires it directly to test the workflow.ts wiring.
+      options.onSddReport?.(report);
+      return "done with an SDD self-report block";
+    },
+  };
+  const ends: Array<{ label: string; sddReport?: SddReport }> = [];
+
+  await runWorkflow(
+    `export const meta = { name: 'test', description: 't' }
+     await agent('implement', { label: 'impl' })
+     return 1`,
+    { agent: sddRunner, persistLogs: false, onAgentEnd: (e) => ends.push({ label: e.label, sddReport: e.sddReport }) },
+  );
+
+  assert.equal(ends.length, 1, "onAgentEnd fired once");
+  assert.equal(ends[0].label, "impl");
+  assert.deepEqual(ends[0].sddReport, report, "parsed SDD report surfaced on the end event");
+});
+
+test("agent() in workflow surfaces sddReport undefined when the output has no SDD block", async () => {
+  const noReportRunner = {
+    async run(_prompt: string, options: any) {
+      // No SDD block in the output → runner fires onSddReport with undefined.
+      options.onSddReport?.(undefined);
+      return "plain prose, no self-report";
+    },
+  };
+  const ends: Array<{ sddReport?: SddReport }> = [];
+
+  await runWorkflow(
+    `export const meta = { name: 'test', description: 't' }
+     await agent('work', { label: 'w' })
+     return 1`,
+    { agent: noReportRunner, persistLogs: false, onAgentEnd: (e) => ends.push({ sddReport: e.sddReport }) },
+  );
+
+  assert.equal(ends.length, 1);
+  assert.equal(ends[0].sddReport, undefined, "no SDD block → undefined, never an error");
+});
+
 test("agent() in workflow fires onAgentStart with phase info", async () => {
   const rec = new CallRecordingAgent();
   const starts: Array<{ label: string; phase?: string }> = [];
@@ -694,4 +745,56 @@ test("agent() monitors agent count and calls onAgentStart/End for each", async (
   assert.equal(counts.length, 2);
   assert.ok(counts[0] > 0, "first agent tokens");
   assert.ok(counts[1] > 0, "second agent tokens");
+});
+
+// ── checkBudgetExhaustion (pure threshold logic for tokenBudget/spendBudget) ──
+
+test("checkBudgetExhaustion: tokens exceeded → {kind:'tokens'}", () => {
+  assert.deepEqual(checkBudgetExhaustion({ tokens: { total: 1234 }, cost: 0.01 }, { tokenBudget: 1000 }), {
+    kind: "tokens",
+    limit: 1000,
+    actual: 1234,
+  });
+});
+
+test("checkBudgetExhaustion: spend exceeded → {kind:'spend'}", () => {
+  assert.deepEqual(checkBudgetExhaustion({ tokens: { total: 10 }, cost: 0.62 }, { spendBudget: 0.5 }), {
+    kind: "spend",
+    limit: 0.5,
+    actual: 0.62,
+  });
+});
+
+test("checkBudgetExhaustion: both exceeded → tokens wins (checked first)", () => {
+  assert.equal(
+    checkBudgetExhaustion({ tokens: { total: 2000 }, cost: 1.0 }, { tokenBudget: 1000, spendBudget: 0.5 })?.kind,
+    "tokens",
+  );
+});
+
+test("checkBudgetExhaustion: under limit → undefined", () => {
+  assert.equal(
+    checkBudgetExhaustion({ tokens: { total: 500 }, cost: 0.1 }, { tokenBudget: 1000, spendBudget: 0.5 }),
+    undefined,
+  );
+});
+
+test("checkBudgetExhaustion: no budget set → undefined", () => {
+  assert.equal(checkBudgetExhaustion({ tokens: { total: 9999 }, cost: 99 }, {}), undefined);
+});
+
+test("checkBudgetExhaustion: exactly at limit is allowed (strict >)", () => {
+  assert.equal(
+    checkBudgetExhaustion({ tokens: { total: 1000 }, cost: 0.5 }, { tokenBudget: 1000, spendBudget: 0.5 }),
+    undefined,
+  );
+});
+
+test("checkBudgetExhaustion: only one budget set — checks just that one", () => {
+  assert.equal(
+    checkBudgetExhaustion({ tokens: { total: 9999 }, cost: 0.1 }, { spendBudget: 0.5 }),
+    undefined,
+    "tokenBudget unset → huge tokens ignored",
+  );
+  assert.equal(checkBudgetExhaustion({ tokens: { total: 10 }, cost: 2 }, { spendBudget: 0.5 })?.kind, "spend");
 });

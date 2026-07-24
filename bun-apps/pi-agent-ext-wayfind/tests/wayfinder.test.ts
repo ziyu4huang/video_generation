@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readMap } from "../src/map.js";
+import { readMap, writeMap } from "../src/map.js";
+import type { StatusReport } from "../src/wayfinder.js";
 import {
   addTicket,
   chartMap,
   claimNextTicket,
+  closeEffortReflection,
   renderStatus,
   resolveTicket,
   slugify,
@@ -108,11 +110,67 @@ describe("renderStatus", () => {
     expect(out).toContain("the orders spec");
   });
 
-  it("reports a clear frontier when no open tickets remain", () => {
+  it("reports a clear frontier when no open tickets remain (no nudge — nothing closed yet)", () => {
     const cwd = makeCwd();
     chartMap(cwd, "orders", "dest");
     const r = statusReport(cwd, "orders");
     if (!r) throw new Error("expected status report");
     expect(renderStatus(r)).toContain("the way is found");
+    expect(renderStatus(r)).not.toContain("/wayfind done");
+  });
+
+  it("nudges /wayfind done when the frontier is clear AND tickets were closed", () => {
+    const r: StatusReport = {
+      effort: "e",
+      destination: "d",
+      open: 0,
+      closed: 1,
+      claimed: 0,
+      frontier: [],
+      fog: 0,
+    };
+    expect(renderStatus(r)).toContain("the way is found");
+    expect(renderStatus(r)).toContain("/wayfind done");
+  });
+});
+
+describe("closeEffortReflection (/wayfind done)", () => {
+  it("refuses when open tickets remain on the frontier", () => {
+    const cwd = makeCwd();
+    chartMap(cwd, "done-demo", "dest");
+    addTicket(cwd, "done-demo", "Open decision", "which?", "grilling", []);
+    const r = closeEffortReflection(cwd, "done-demo");
+    expect("refused" in r).toBe(true);
+    if ("refused" in r) expect(r.refused).toContain("open ticket");
+  });
+
+  it("refuses when the effort has no map", () => {
+    const cwd = makeCwd();
+    const r = closeEffortReflection(cwd, "nonexistent");
+    expect("refused" in r).toBe(true);
+  });
+
+  it("harvests fog into a next-goal note when the frontier is clear", () => {
+    const cwd = makeCwd();
+    chartMap(cwd, "done-demo", "ship the closing ceremony");
+    const map = readMap(cwd, "done-demo");
+    if (!map) throw new Error("expected a map");
+    map.fog = [
+      "<!-- placeholder comment the standard map template leaves in the section →",
+      "Fix the deploy-verify CI gate",
+      "Surface SDD status in workflow agent()",
+    ];
+    writeMap(cwd, map);
+    // fixed timestamp → deterministic filename (local components, TZ-stable)
+    const r = closeEffortReflection(cwd, "done-demo", new Date(2026, 6, 23, 3, 30, 0));
+    expect("refused" in r).toBe(false);
+    if ("refused" in r) throw new Error("expected a reflection, got a refusal");
+    expect(r.path).toBe("output/next-goal-20260723_033000.md");
+    expect(r.deferredPrizes).toEqual(["Fix the deploy-verify CI gate", "Surface SDD status in workflow agent()"]);
+    expect(r.nextGoal).toBe("Fix the deploy-verify CI gate");
+    const note = readFileSync(join(cwd, r.path), "utf-8");
+    expect(note).toContain("ship the closing ceremony"); // destination framing
+    expect(note).toContain("1. Fix the deploy-verify CI gate"); // prize pre-filled
+    expect(note).toContain("**Fix the deploy-verify CI gate**"); // next goal bolded
   });
 });

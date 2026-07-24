@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { MemoryConfig, MemoryOverflowStrategy, ReviewTransport, SessionSearchVariant, ThinkingLevel } from "./types.js";
+import type { MemoryConfig, MemoryOverflowStrategy, ReviewTransport, SessionSearchVariant, ThinkingLevel, DbBackend } from "./types.js";
 import {
   DEFAULT_MEMORY_CHAR_LIMIT,
   DEFAULT_USER_CHAR_LIMIT,
@@ -16,6 +16,7 @@ import {
   DEFAULT_FAILURE_INJECTION_MAX_ENTRIES,
 } from "./constants.js";
 import { AGENT_ROOT, normalizeConfiguredMemoryDir, normalizeProjectsMemoryDir } from "./paths.js";
+import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
 
 const MEMORY_OVERFLOW_STRATEGIES: readonly MemoryOverflowStrategy[] = ["auto-consolidate", "reject", "fifo-evict", "vault-offload"];
 const SESSION_SEARCH_VARIANTS: readonly SessionSearchVariant[] = ["legacy", "anchors"];
@@ -36,6 +37,12 @@ function isSessionSearchVariant(value: unknown): value is SessionSearchVariant {
 
 function isThinkingLevel(value: unknown): value is ThinkingLevel {
   return typeof value === "string" && THINKING_LEVELS.includes(value as ThinkingLevel);
+}
+
+const DB_BACKENDS: readonly DbBackend[] = ["sqlite", "surrealdb"];
+
+function isDbBackend(value: unknown): value is DbBackend {
+  return typeof value === "string" && DB_BACKENDS.includes(value as DbBackend);
 }
 
 const DEFAULT_CONFIG: MemoryConfig = {
@@ -63,12 +70,30 @@ const DEFAULT_CONFIG: MemoryConfig = {
   nudgeToolCalls: DEFAULT_NUDGE_TOOL_CALLS,
   projectsMemoryDir: DEFAULT_PROJECTS_MEMORY_DIR,
   sessionSearch: { variant: "legacy" },
+  dbBackend: "sqlite",
 };
 
 export const DEFAULT_CONFIG_PATH = path.join(
   AGENT_ROOT,
   "hermes-memory-config.json",
 );
+
+/**
+ * Populate the per-user default SurrealDB `namespace` and `database` when the
+ * config file didn't set them, so the resolved config carries both for the
+ * backend, the TUI label, and #772's live backend switching alike (single
+ * source of truth). The per-user discriminator lives at the NAMESPACE level
+ * (`user_<user>`); the database name is the clean constant `memory`. An
+ * explicit `surreal.namespace` / `surreal.database` always wins. Deriving
+ * here (not in the backend) means even a sqlite→surrealdb live switch
+ * inherits the per-user namespace without re-deriving at bundle-build time.
+ */
+function resolveSurrealDbDefault(config: MemoryConfig): MemoryConfig {
+  if (!config.surreal) config.surreal = {};
+  if (!config.surreal.namespace) config.surreal.namespace = derivePerUserNamespace();
+  if (!config.surreal.database) config.surreal.database = DEFAULT_SURREAL_DATABASE;
+  return config;
+}
 
 export function loadConfig(configPath = DEFAULT_CONFIG_PATH): MemoryConfig {
   try {
@@ -138,6 +163,15 @@ export function loadConfig(configPath = DEFAULT_CONFIG_PATH): MemoryConfig {
       ) {
         config.sessionSearch = { variant: parsed.sessionSearch.variant };
       }
+      if (isDbBackend(parsed.dbBackend)) config.dbBackend = parsed.dbBackend;
+      if (typeof parsed.surreal === "object" && parsed.surreal !== null) {
+        const s = parsed.surreal as Record<string, unknown>;
+        const surreal: Record<string, string> = {};
+        for (const key of ["endpoint", "namespace", "database", "username", "password"] as const) {
+          if (typeof s[key] === "string") surreal[key] = s[key] as string;
+        }
+        config.surreal = surreal;
+      }
       if (typeof parsed.llmModelOverride === "string") {
         const trimmed = parsed.llmModelOverride.trim();
         if (trimmed.length > 0) config.llmModelOverride = trimmed;
@@ -148,10 +182,10 @@ export function loadConfig(configPath = DEFAULT_CONFIG_PATH): MemoryConfig {
       } else if (hasLegacyAutoConsolidate) {
         config.memoryOverflowStrategy = config.autoConsolidate ? "auto-consolidate" : "reject";
       }
-      return config;
+      return resolveSurrealDbDefault(config);
     }
   } catch {
     // Fall back to defaults on parse error or access issues
   }
-  return { ...DEFAULT_CONFIG };
+  return resolveSurrealDbDefault({ ...DEFAULT_CONFIG });
 }

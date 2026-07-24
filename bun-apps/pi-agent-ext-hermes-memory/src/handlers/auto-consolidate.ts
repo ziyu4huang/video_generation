@@ -30,17 +30,23 @@ function labelForTarget(target: MemoryTarget, toolTarget: ToolMemoryTarget): str
 }
 
 function describeConsolidationFailure(
-  result: { code: number; stderr?: string; killed?: boolean },
+  result: { code: number; stdout?: string; stderr?: string; killed?: boolean },
   timeoutMs: number,
 ): string {
   const stderr = result.stderr?.trim();
+  const stdout = result.stdout?.trim();
   const terminated = result.killed || result.code === 143;
 
   if (terminated) {
     return `Consolidation subprocess was terminated (likely timeout or cancellation). Timeout: ${timeoutMs}ms. Consider increasing consolidationTimeoutMs if this is a manual run.`;
   }
 
-  return `Consolidation process exited with code ${result.code}: ${stderr?.slice(0, 200) || "unknown error"}`;
+  // Surface stderr first (the usual error channel), then fall back to stdout —
+  // a child that fails to even start (e.g. a broken launcher shim printing
+  // "Module not found") may emit its real error on stdout with empty stderr,
+  // which must not collapse to an opaque "unknown error".
+  const detail = (stderr || stdout)?.slice(0, 200) || "unknown error";
+  return `Consolidation process exited with code ${result.code}: ${detail}`;
 }
 
 export async function triggerConsolidation(

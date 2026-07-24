@@ -117,6 +117,13 @@ function isCliJsPath(value: string | undefined): value is string {
   return value.replace(/\\/g, "/").toLowerCase().endsWith("/cli.js");
 }
 
+/** A pi CLI entry — cli.js (compiled/installed) or cli.ts (source checkout). */
+function isPiCliEntryPath(value: string | undefined): value is string {
+  if (!value) return false;
+  const normalized = value.replace(/\\/g, "/").toLowerCase();
+  return normalized.endsWith("/cli.js") || normalized.endsWith("/cli.ts");
+}
+
 function resolvedInstalledPiCliPath(): string | undefined {
   try {
     const packageEntry = import.meta.resolve("@earendil-works/pi-coding-agent");
@@ -147,6 +154,24 @@ export function resolveChildPiInvocation(
   options: ResolveChildPiInvocationOptions = {},
 ): ChildPiInvocation {
   const platform = options.platform ?? process.platform;
+
+  // Prefer the pi CLI the parent process is actually running, on every
+  // platform. This mirrors how the parent was launched (bun <cli>) and is
+  // robust to a stale/broken PATH `pi` launcher shim — the child runs the
+  // SAME entry the parent used. Only engages when argv[1] genuinely is the pi
+  // CLI entry (cli.js or cli.ts), so test runners (whose argv[1] is the
+  // runner) keep the PATH `pi` / installed-cli fallbacks below.
+  if (options.piCliPath === undefined) {
+    const argv = options.argv ?? process.argv;
+    const runningCli = argv[1];
+    if (isPiCliEntryPath(runningCli) && existsSync(runningCli)) {
+      return {
+        command: options.execPath ?? process.execPath,
+        args: [runningCli, ...args],
+      };
+    }
+  }
+
   if (platform !== "win32") {
     return { command: "pi", args };
   }

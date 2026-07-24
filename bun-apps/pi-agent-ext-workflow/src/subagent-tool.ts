@@ -13,7 +13,7 @@
 import { defineTool, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { type TSchema, Type } from "typebox";
-import type { AgentUsage } from "./agent.js";
+import type { AgentUsage, BudgetExhaustion } from "./agent.js";
 import type { AgentHistoryEntry } from "./agent-history.js";
 import {
   type AgentDefinition,
@@ -22,8 +22,11 @@ import {
   loadAgentRegistry,
   resolveAgentType,
 } from "./agent-registry.js";
+import { computeScopeCheck, type GitScopeOps, realGitOps, type SubagentScopeCheck } from "./git-scope.js";
+import { isSddReportActionable, parseSddReport, type SddReport } from "./sdd-report.js";
 import { type SpawnSubagentOptions, type SpawnSubagentResult, spawnSubagent } from "./spawn-subagent.js";
 import type { SubagentInFlightRegistry } from "./subagent-in-flight.js";
+import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
 import { createWorktree, removeWorktree, type Worktree } from "./worktree.js";
 
 export interface SubagentToolDetails {
@@ -37,9 +40,29 @@ export interface SubagentToolDetails {
   taskPreview: string;
   /** Wall-clock of the run, ms. */
   elapsedMs: number;
-  status: "done" | "failed" | "timedout";
+  status: "done" | "failed" | "timedout" | "budget";
   /** Real token/cost usage from the child session, when reported. */
   usage?: AgentUsage;
+  /**
+   * Set when the run was aborted for exceeding `tokenBudget`/`spendBudget`
+   * (status "budget"). Carries which budget, the limit, and the actual usage
+   * at abort — distinct from a timeout (wall-clock) or a generic failure.
+   */
+  budget?: BudgetExhaustion;
+  /**
+   * Parsed SDD report block (ticket 04), when the subagent's output carries the
+   * `**Status:**` marker. Absent for plain (non-SDD) dispatches, schema results,
+   * and failures. `report.status` is reliable; the rest are best-effort hints.
+   */
+  report?: SddReport;
+  /**
+   * Opt-in commit-scope check (`commitScope` param). Present when the caller set
+   * `commitScope` AND the run operated on the real tree (not worktree-isolated).
+   * `outOfScope` lists the committed paths that fell outside the declared scope —
+   * the recurring `git add -A` sweep signal. Absent otherwise (no scope /
+   * worktree-isolated / not a repo). Detection only; never auto-reverts.
+   */
+  scopeCheck?: SubagentScopeCheck;
 }
 
 export const subagentToolSchema = Type.Object({
@@ -88,15 +111,39 @@ export const subagentToolSchema = Type.Object({
       description: "Abort the subagent if it runs longer than this many milliseconds. Omit for no timeout.",
     }),
   ),
+  tokenBudget: Type.Optional(
+    Type.Number({
+      description:
+        "Abort the subagent mid-run once its cumulative token usage exceeds this many tokens. Bounds a runaway (looping) subagent that timeoutMs (wall-clock) alone cannot catch. Checked per-turn, so an in-flight turn may overshoot by up to one turn. Non-recoverable (not retried).",
+    }),
+  ),
+  spendBudget: Type.Optional(
+    Type.Number({
+      description:
+        "Abort the subagent mid-run once its cumulative cost ($) exceeds this. Pairs with tokenBudget or stands alone. Same per-turn check granularity.",
+    }),
+  ),
   retryOnTransient: Type.Optional(
     Type.Boolean({
-      description: "Retry once on a transient failure (timeout/network/rate-limit). Default true.",
+      description: "Retry once on a transient failure (timeout/network/rate-limit/schema noncompliance). Default true.",
+    }),
+  ),
+  commitScope: Type.Optional(
+    Type.Array(Type.String(), {
+      description:
+        "Optional allowlist of paths the subagent may commit (files or dirs, prefix-matched). When set, the tool records the repo HEAD before dispatch and, after the run, flags any committed path (git diff base..HEAD) that falls OUTSIDE this scope as a ⚠ scope violation in the result. Detection only (non-destructive — never auto-reverts); best-effort (skips silently if not a git repo). Use [] to flag ANY commit (e.g. a read-only subagent). Ignored for worktree-isolated runs (their commits are discarded anyway).",
     }),
   ),
   schema: Type.Optional(
     Type.Unknown({
       description:
         "JSON Schema for the subagent's final answer (e.g. {type:'object', properties:{...}}). When set, the child must return via a structured_output call matching this shape instead of prose; the tool result is the JSON-serialized object.",
+    }),
+  ),
+  schemaRepairAttempts: Type.Optional(
+    Type.Number({
+      description:
+        "Max in-session repair re-prompts when the child returns prose instead of calling structured_output (default 2). Bump for models that unreliably emit structured output (e.g. zai/glm). A schema failure is also retried once via retryOnTransient (intermittent on some models).",
     }),
   ),
 });
@@ -117,6 +164,14 @@ export interface SubagentToolOptions {
   removeWorktree?: typeof removeWorktree;
   /** Live registry of in-flight runs; when set, the tool registers/updates/deregisters so /subagents can show running subagents. */
   inFlight?: SubagentInFlightRegistry;
+  /**
+   * Durable run persistence (ticket 08). When set, each completed run is written
+   * once to ~/.pi/subagents/runs/<id>.json (best-effort) for post-session
+   * replay/inspection by `/subagents`. Never affects the run's result.
+   */
+  persistence?: SubagentRunPersistence;
+  /** Injectable git-scope ops for tests (defaults to realGitOps). */
+  gitOps?: GitScopeOps;
 }
 
 /** Minimal pre-flight check: a JSON-Schema-shaped object needs at least a `type` field. */
@@ -166,13 +221,34 @@ export function formatSubagentProgress(history: AgentHistoryEntry[], elapsedMs: 
   return `↳ ${activity}\n  ↳ ${elapsedS}s elapsed · ${toolCalls} tool call${toolCalls === 1 ? "" : "s"}`;
 }
 
+/**
+ * Short inline preview of a tool call's arguments or a tool result's text,
+ * for the expanded live-output trace. `compactAgentHistory` already captures
+ * both into `AgentHistoryEntry.text` (args as a compact JSON string, results as
+ * their text) — this surfaces a one-line slice so the trace reads as a real
+ * transcript (what was called + what came back), not just call markers.
+ * Returns "" for an empty payload or a bare `{}` (no useful args), so those
+ * lines stay as clean `→ name` / `← name ✓` markers.
+ */
+function previewPayload(text: string | undefined, max = 100): string {
+  if (!text) return "";
+  const one = text.replace(/\s+/g, " ").trim();
+  if (!one || one === "{}") return "";
+  return ` ${truncateToWidth(one, max)}`;
+}
+
 /** Render one history entry as a single readable trace line (live-output buffer). */
 function formatHistoryLine(e: AgentHistoryEntry): string {
   switch (e.kind) {
     case "toolCall":
-      return `→ ${e.toolName ?? "tool"}`;
+      // `text` holds the JSON-stringified arguments (compactAgentHistory).
+      // Surface a short preview so the expanded trace shows WHAT the subagent
+      // called, not just the tool name — the core debug-visibility gap.
+      return `→ ${e.toolName ?? "tool"}${previewPayload(e.text)}`;
     case "toolResult":
-      return `← ${e.toolName ?? "tool"} ✓`;
+      // `text` holds the tool's result text. Surface a short preview of it too,
+      // so the expanded trace reads as a real transcript, not just call markers.
+      return `← ${e.toolName ?? "tool"} ✓${previewPayload(e.text)}`;
     case "error":
       return `⚠ ${e.text.slice(0, 200)}`;
     case "text":
@@ -238,9 +314,31 @@ export function renderSubagentResult(
       ? theme.fg("success", "✓ done")
       : d.status === "timedout"
         ? theme.fg("warning", "⏱ timedout")
-        : theme.fg("error", "✗ failed");
+        : d.status === "budget"
+          ? theme.fg("warning", "⛔ budget")
+          : theme.fg("error", "✗ failed");
   const usageStr = d.usage && d.usage.total > 0 ? ` · $${d.usage.cost.toFixed(3)} · ${d.usage.total} tok` : "";
-  const meta = theme.fg("muted", `${d.model ?? "default"} · ${(d.elapsedMs / 1000).toFixed(1)}s${usageStr}`);
+  // SDD self-report tag (ticket 04): separate axis from process status. A run
+  // can be process-done yet self-report BLOCKED — tint the actionable ones so
+  // they never read as routine success.
+  const sddTag = d.report
+    ? isSddReportActionable(d.report.status)
+      ? theme.fg("warning", ` · SDD:${d.report.status}`)
+      : theme.fg("success", ` · SDD:${d.report.status}`)
+    : "";
+  // commit-scope tag: a separate axis from process status and SDD self-report.
+  // Out-of-scope committed paths warrant a warning tint — the recurring
+  // `git add -A` sweep signal the controller must act on before merging.
+  const scopeTag =
+    d.scopeCheck && d.scopeCheck.outOfScope.length > 0
+      ? theme.fg("warning", ` · ⚠ ${d.scopeCheck.outOfScope.length} out-of-scope`)
+      : "";
+  const budgetTag = d.budget ? theme.fg("warning", ` · ${d.budget.kind}:${d.budget.actual}/${d.budget.limit}`) : "";
+  const meta =
+    theme.fg("muted", `${d.model ?? "default"} · ${(d.elapsedMs / 1000).toFixed(1)}s${usageStr}`) +
+    sddTag +
+    scopeTag +
+    budgetTag;
   if (!options.expanded) {
     const firstLine =
       text
@@ -254,12 +352,18 @@ export function renderSubagentResult(
 
 /** Derive a human status from the spawn result. */
 export function deriveSubagentStatus(r: SpawnSubagentResult): SubagentToolDetails["status"] {
+  if (r.budget) return "budget";
   if (r.exitCode === 0) return "done";
   return r.timedOut ? "timedout" : "failed";
 }
 
 /** Format the subagent result into the text the parent agent reads. */
 export function formatSubagentResult(result: SpawnSubagentResult): string {
+  if (result.budget) {
+    const unit =
+      result.budget.kind === "tokens" ? `${result.budget.actual} tokens` : `$${result.budget.actual.toFixed(4)}`;
+    return `Subagent aborted: ${result.budget.kind} budget exhausted (${unit} > limit ${result.budget.limit}).`;
+  }
   if (result.exitCode === 0) return result.output;
   const fate = result.timedOut ? "timed out" : "failed";
   const head = `Subagent ${fate} (exit ${result.exitCode}).`;
@@ -273,6 +377,7 @@ export function createSubagentTool(
 ): ToolDefinition<typeof subagentToolSchema, SubagentToolDetails> {
   const defaultCwd = options.cwd ?? process.cwd();
   const spawn = options.spawn ?? spawnSubagent;
+  const gitOps = options.gitOps ?? realGitOps;
   return defineTool({
     name: "subagent",
     label: "Subagent",
@@ -283,6 +388,14 @@ export function createSubagentTool(
     ].join(" "),
     promptSnippet:
       "Dispatch an isolated-context subagent for one focused task (implementer / reviewer / researcher). Pass a self-contained `task`; pick `model`/`tier` per role (omit to use the current model); restrict with `tools`/`excludeTools`.",
+    // Sequential: serialize any turn whose tool-call batch contains a
+    // subagent dispatch. Enforces the "parallel fan-out goes through the
+    // `workflow` tool's parallel()" contract at the engine level — pi's rule
+    // is "any sequential tool call in a turn ⇒ the whole batch runs serially"
+    // (pi-agent-core agent-loop). The `workflow` tool's parallel()/agent()
+    // dispatch via a SEPARATE createAgentSession() path, so this does NOT
+    // throttle workflow fan-out. (ticket 10)
+    executionMode: "sequential",
     parameters: subagentToolSchema,
     async execute(toolCallId, params, signal, onUpdate, _ctx) {
       const t0 = Date.now();
@@ -291,6 +404,9 @@ export function createSubagentTool(
       // call so the displayed tool-call count never visibly regresses. See
       // formatSubagentProgress's `minToolCalls` param.
       let maxToolCallsSeen = 0;
+      // Latest compact history snapshot, retained so the durable record (ticket
+      // 08) can persist the transcript. Updated in the onHistory callback.
+      let lastHistory: AgentHistoryEntry[] | undefined;
       const runCwd = params.cwd ?? defaultCwd;
       const makeWorktree = options.createWorktree ?? createWorktree;
       const teardownWorktree = options.removeWorktree ?? removeWorktree;
@@ -340,6 +456,20 @@ export function createSubagentTool(
         if (worktree.isolated) spawnCwd = worktree.cwd;
       }
 
+      // Opt-in commit-scope guardrail (commitScope param): record the repo HEAD
+      // before dispatch so the post-run check can diff base..HEAD for out-of-scope
+      // committed paths. Only the real-tree case is checked — a worktree-isolated
+      // run is discarded after teardown, so it can never pollute the parent tree.
+      const scope = params.commitScope;
+      let baseCommit: string | undefined;
+      if (scope !== undefined && spawnCwd === runCwd) {
+        try {
+          baseCommit = await gitOps.headCommit(runCwd);
+        } catch {
+          baseCommit = undefined;
+        }
+      }
+
       const requestedModel = params.model ?? agentDef?.model;
       const tier = params.tier ?? agentDef?.tier;
       const mainModel = options.getMainModel?.();
@@ -375,14 +505,18 @@ export function createSubagentTool(
           extensionTools: options.getExtensionTools?.(),
           externalSignal: signal,
           timeoutMs: params.timeoutMs,
+          tokenBudget: params.tokenBudget,
+          spendBudget: params.spendBudget,
           retryOnTransient: params.retryOnTransient,
           schema: params.schema as TSchema | undefined,
+          schemaRepairAttempts: params.schemaRepairAttempts,
           onModelResolved: (id) => {
             resolvedModel = id;
           },
           onHistory:
-            onUpdate || options.inFlight
+            onUpdate || options.inFlight || options.persistence
               ? (history: AgentHistoryEntry[]) => {
+                  lastHistory = history;
                   // Progress streaming is diagnostic only — a throwing onUpdate
                   // (e.g. a TUI re-render failure) must never fail the subagent's
                   // actual task result.
@@ -402,19 +536,68 @@ export function createSubagentTool(
                 }
               : undefined,
         });
-        return {
-          content: [{ type: "text" as const, text: formatSubagentResult(result) }],
-          details: {
-            exitCode: result.exitCode,
-            timedOut: result.timedOut,
-            agent: params.agent,
-            model: resolvedModel ?? displayModelBeforeResolve,
-            taskPreview: taskPreview(params.task),
-            elapsedMs: Date.now() - t0,
-            status: deriveSubagentStatus(result),
-            usage: result.usage,
-          },
+        const elapsedMs = Date.now() - t0;
+        // Opt-in commit-scope check (commitScope param): detection only. A
+        // throwing op is swallowed — the scope guard never fails the run.
+        let scopeCheck: SubagentScopeCheck | undefined;
+        if (scope !== undefined && spawnCwd === runCwd && baseCommit !== undefined) {
+          try {
+            scopeCheck = await computeScopeCheck(gitOps, runCwd, baseCommit, scope);
+          } catch {
+            scopeCheck = undefined;
+          }
+        }
+        let output = formatSubagentResult(result);
+        if (scopeCheck && scopeCheck.outOfScope.length > 0) {
+          // Surface the violation to the parent agent in the result text (not
+          // just the details badge) so the controller cannot miss it — the
+          // recurring `git add -A` sweep lands stray files into squash-merges.
+          const paths = scopeCheck.outOfScope.map((p) => `  - ${p}`).join("\n");
+          output += `\n\n--- ⚠ commit-scope violation (${scopeCheck.outOfScope.length}) ---\nThe subagent committed path(s) OUTSIDE the declared commitScope:\n${paths}\nInspect before merging — this is the recurring \`git add -A\` sweep signal.`;
+        }
+        const model = resolvedModel ?? displayModelBeforeResolve;
+        const details: SubagentToolDetails = {
+          exitCode: result.exitCode,
+          timedOut: result.timedOut,
+          agent: params.agent,
+          model,
+          taskPreview: taskPreview(params.task),
+          elapsedMs,
+          status: deriveSubagentStatus(result),
+          usage: result.usage,
+          budget: result.budget,
+          // SDD report (ticket 04): parse the implementer's `**Status:**` block when
+          // present (non-SDD / schema / failure outputs have no marker → undefined).
+          report: parseSddReport(result.output),
+          scopeCheck,
         };
+        // Durable record for post-session replay (ticket 08). Write-once at
+        // completion; best-effort — save() swallows errors so this can never
+        // fail the run. Covers done/failed/timedout (spawnSubagent returns a
+        // result, never throws, on child failure); the pre-flight failEarly
+        // paths above do not persist (they are not real runs).
+        options.persistence?.save({
+          id: generateSubagentRunId(),
+          toolCallId,
+          agent: params.agent,
+          task: params.task,
+          model,
+          tier,
+          cwd: runCwd,
+          status: details.status,
+          exitCode: details.exitCode,
+          timedOut: details.timedOut,
+          stderr: result.stderr || undefined,
+          startedAt: new Date(t0).toISOString(),
+          elapsedMs,
+          usage: details.usage,
+          budget: details.budget,
+          output,
+          history: lastHistory,
+          report: details.report,
+          scopeCheck: details.scopeCheck,
+        });
+        return { content: [{ type: "text" as const, text: output }], details };
       } finally {
         options.inFlight?.end(toolCallId);
         if (worktree) await teardownWorktree(worktree);

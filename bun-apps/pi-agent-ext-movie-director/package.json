@@ -33,7 +33,7 @@
     "ajv": "latest",
     "ajv-formats": "latest",
     "msedge-tts": "^2.0.7",
-    "typebox": "latest",
+    "typebox": "^1.3.7",
     "yaml": "latest"
   },
   "peerDependencies": {

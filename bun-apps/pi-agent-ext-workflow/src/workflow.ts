@@ -6,6 +6,7 @@ import type { TSchema } from "typebox";
 import type { AgentUsage } from "./agent.js";
 import { WorkflowAgent, type WorkflowAgentOptions } from "./agent.js";
 import type { AgentHistoryEntry } from "./agent-history.js";
+import type { SddReport } from "./sdd-report.js";
 import {
   type AgentDefinition,
   type AgentRegistry,
@@ -117,6 +118,7 @@ export interface WorkflowRunOptions extends WorkflowAgentOptions {
     tokens?: number;
     worktree?: string;
     model?: string;
+    sddReport?: SddReport;
     error?: string;
     errorCode?: WorkflowErrorCode;
     recoverable?: boolean;
@@ -181,6 +183,15 @@ export interface AgentOptions<TSchemaDef extends TSchema | undefined = TSchema |
   timeoutMs?: number | null;
   /** Retry attempts after a recoverable failure for this specific agent. */
   retries?: number;
+  /**
+   * HARD mid-run token cap for THIS agent only. WorkflowAgent.run aborts the
+   * session mid-run (per-turn check) once cumulative tokens exceed it; the run
+   * surfaces status "budget". Distinct from the run-wide soft `tokenBudget`
+   * (checked between agents) and phase sub-budgets — this fires DURING the run.
+   */
+  tokenBudget?: number;
+  /** HARD mid-run spend ($) cap for THIS agent only. Pairs with tokenBudget. */
+  spendBudget?: number;
 }
 
 /** Options for a human checkpoint() — a deterministic, journaled, replayable gate. */
@@ -473,6 +484,7 @@ export async function runWorkflow<T = unknown>(
       // estimate when the provider reports no usage (total === 0). Usage is reset
       // per retry attempt so a failed attempt does not double-count the next one.
       let usage: AgentUsage | undefined;
+      let sddReport: SddReport | undefined;
       const recordTokens = (result: unknown): number => {
         const tokens = usage && usage.total > 0 ? usage.total : estimateTokens(result) + estimateTokens(prompt);
         if (usage) {
@@ -490,6 +502,7 @@ export async function runWorkflow<T = unknown>(
       try {
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           usage = undefined;
+          sddReport = undefined;
           try {
             throwIfAborted();
 
@@ -508,6 +521,8 @@ export async function runWorkflow<T = unknown>(
                   tier: agentOptions.tier,
                   toolNames: agentDef?.tools,
                   disallowedToolNames: agentDef?.disallowedTools,
+                  tokenBudget: agentOptions.tokenBudget,
+                  spendBudget: agentOptions.spendBudget,
                   cwd: runCwd,
                   onModelResolved: (id: string) => {
                     displayModel = id;
@@ -521,6 +536,9 @@ export async function runWorkflow<T = unknown>(
                   },
                   onHistory: (history: AgentHistoryEntry[]) => {
                     options.onAgentHistory?.({ callIndex, label, phase: assignedPhase, history });
+                  },
+                  onSddReport: (report: SddReport | undefined) => {
+                    sddReport = report;
                   },
                 } as any),
               timeout,
@@ -546,6 +564,7 @@ export async function runWorkflow<T = unknown>(
               tokens,
               worktree: runCwd,
               model: displayModel,
+              sddReport,
             });
             return result;
           } catch (error) {
@@ -1224,7 +1243,7 @@ function hashCheckpoint(promptText: string, options: CheckpointOptions): string 
   return createHash("sha256").update(identity).digest("hex");
 }
 
-function hashAgentCall(
+export function hashAgentCall(
   prompt: string,
   model: string | undefined,
   phase: string | undefined,
@@ -1245,6 +1264,10 @@ function hashAgentCall(
     // cached result from the non-isolated run MUST NOT be replayed when isolation
     // is toggled, so it is part of the identity (RCA regression guard).
     isolation: options.isolation ?? null,
+    // Budget is part of an agent's identity — a different cap is a different run
+    // (changing it MUST invalidate the cached result on resume).
+    tokenBudget: options.tokenBudget ?? null,
+    spendBudget: options.spendBudget ?? null,
   });
   return createHash("sha256").update(identity).digest("hex");
 }

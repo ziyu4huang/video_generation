@@ -148,6 +148,11 @@ describe("bootstrap payload assembly", () => {
     // the documented call signature the agent is told to use
     expect(payload).toContain("task");
     expect(payload).toMatch(/tools|excludeTools|cwd|model/);
+    // commitScope: the SDD commit-hygiene guardrail (catches the git add -A sweep)
+    expect(payload).toContain("commitScope");
+    // tokenBudget/spendBudget: per-agent spend cap (soft guidance — bounds runaway dispatches)
+    expect(payload).toContain("tokenBudget");
+    expect(payload).toContain("spendBudget");
   });
 
   it("carries the Path & routing overrides (boundary convergence, ADR-0004-safe)", () => {
@@ -163,5 +168,10 @@ describe("bootstrap payload assembly", () => {
     expect(payload).toContain("can I write a plan right now");
     expect(payload).toContain("brainstorming");
     expect(payload).toContain("to-spec");
+    // rule 3: SDD workspace override (.superpowers/sdd/ → .planning/<effort>/sdd/)
+    expect(payload).toContain("SDD workspace override");
+    expect(payload).toContain(".superpowers/sdd/");
+    expect(payload).toContain(".planning/<effort>/sdd/progress.md");
+    expect(payload).toContain("sdd-workspace");
   });
 });

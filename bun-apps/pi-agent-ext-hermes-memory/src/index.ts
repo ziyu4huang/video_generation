@@ -26,8 +26,11 @@ import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MemoryStore } from "./store/memory-store.js";
 import { SkillStore } from "./store/skill-store.js";
-import { DatabaseManager } from "./store/db.js";
-import { indexSession, upsertSessionFileMetadata } from "./store/session-indexer.js";
+import { createBackendBundle } from "./store/backend-factory.js";
+import { asSwappable } from "./store/swappable.js";
+import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
+import type { MemoryRepository, SessionRepository, BackendBundle } from "./store/repository.js";
+import type { DbBackend } from "./types.js";
 import { scheduleSessionBackfill, waitForSessionBackfill, SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-backfill.js";
 import { scheduleLiveSessionIndex, waitForLiveSessionIndex, SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-live-index.js";
 import { parseSessionFile } from "./store/session-parser.js";
@@ -48,6 +51,7 @@ import { registerSwitchProjectCommand } from "./handlers/switch-project.js";
 import { registerIndexSessionsCommand } from "./handlers/index-sessions.js";
 import { registerLearnMemoryCommand } from "./handlers/learn-memory.js";
 import { registerSyncMarkdownMemoriesCommand, syncMarkdownMemoriesToSqlite } from "./handlers/sync-markdown-memories.js";
+import { registerSwitchBackendCommand } from "./handlers/switch-backend.js";
 import { registerPreviewContextCommand } from "./handlers/preview-context.js";
 import { loadConfig } from "./config.js";
 import { detectProject, detectProjectSkills } from "./project.js";
@@ -80,7 +84,7 @@ export function registerProjectSkillDiscoveryHandler(
   });
 }
 
-export default function (pi: ExtensionAPI) {
+export default async function (pi: ExtensionAPI) {
   const config = loadConfig();
 
   const agentRoot = AGENT_ROOT;
@@ -96,6 +100,21 @@ export default function (pi: ExtensionAPI) {
     ? defaultGlobalDir
     : configuredMemoryDir;
 
+  // Human-readable label for the active memory/search backend, surfaced once
+  // per session via a session_start TUI notify (see the handler below).
+  // dbBackend comes from hermes-memory-config.json. loadConfig resolves the
+  // per-user surreal namespace (user_<user>) + database (memory) when unset,
+  // so a shared local SurrealDB server isolates each OS-user's data in its own
+  // namespace. Switching backends IS runtime-hot since #772:
+  // /memory-switch-backend.
+  const surrealCfg = config.surreal;
+  const labelFor = (db: DbBackend): string =>
+    db === "surrealdb"
+      ? `surrealdb · ns=${surrealCfg?.namespace ?? derivePerUserNamespace()} db=${surrealCfg?.database ?? DEFAULT_SURREAL_DATABASE} @ ${surrealCfg?.endpoint ?? "http://127.0.0.1:8000"}`
+      : `sqlite · ${path.join(globalDir, "sessions.db")}`;
+  let currentDbBackend: DbBackend = config.dbBackend ?? "sqlite";
+  let backendLabel = labelFor(currentDbBackend);
+
   const shouldMigrateExtensionRoot = !configuredMemoryDir || pointsToLegacyMemoryDir;
   let extensionRootMigrated = false;
 
@@ -110,7 +129,13 @@ export default function (pi: ExtensionAPI) {
     legacyPiGlobalSkillsDir: path.join(agentRoot, "skills"),
     migrationSentinelPath: path.join(globalDir, ".skills-migrated-to-extension-storage"),
   });
-  const dbManager = new DatabaseManager(globalDir);
+  let currentBundle: BackendBundle = await createBackendBundle(config, globalDir);
+  // Swappable proxies: every tool/handler captured `memoryRepo`/`sessionRepo`
+  // at registration time. The proxy always delegates to the CURRENT bundle, so
+  // a live /memory-switch-backend swap is transparent downstream (zero
+  // signature changes) and in-flight background indexing follows the swap.
+  const memoryRepo: MemoryRepository = asSwappable<MemoryRepository>(() => currentBundle.memoryRepo);
+  const sessionRepo: SessionRepository = asSwappable<SessionRepository>(() => currentBundle.sessionRepo);
   const sessionsDir = path.join(agentRoot, "sessions");
 
   const refreshSkillProjectContext = (cwd?: string) => {
@@ -127,10 +152,65 @@ export default function (pi: ExtensionAPI) {
   // remain in place while entries are copied/merged into projects-memory/.
   migrateLegacyProjectMemoryDirs(agentRoot, config.projectsMemoryDir);
   try {
-    syncMarkdownMemoriesToSqlite(dbManager, globalDir, config.projectsMemoryDir, agentRoot);
+    await syncMarkdownMemoriesToSqlite(memoryRepo, globalDir, config.projectsMemoryDir, agentRoot);
   } catch {
     // Best-effort only: failed SQLite backfill should not block extension startup.
   }
+
+  // ── Live backend switching (sqlite <-> surrealdb) ──
+  // /memory-switch-backend swaps the active store in-process. The swappable
+  // proxies above make the swap transparent to every captured repo ref.
+  // Memory re-syncs from the .md source of truth; session history needs a
+  // manual /memory-index-sessions. The choice is persisted so the next session
+  // keeps it. Switching is NOT free: the new backend starts with only the
+  // re-synced memories (session index is backend-local).
+  const configPath = path.join(agentRoot, "hermes-memory-config.json");
+  const persistDbBackend = (target: DbBackend): void => {
+    try {
+      const fs = require("node:fs");
+      let existing: Record<string, unknown> = {};
+      if (fs.existsSync(configPath)) {
+        try { existing = JSON.parse(fs.readFileSync(configPath, "utf-8")); } catch { existing = {}; }
+      }
+      existing.dbBackend = target;
+      fs.writeFileSync(configPath, JSON.stringify(existing, null, 2) + "\n");
+    } catch {
+      // best effort — the live switch already took effect for this session
+    }
+  };
+  const switchTo = async (target: DbBackend): Promise<{ ok: boolean; message: string }> => {
+    if (target === currentDbBackend) return { ok: true, message: `already on ${target}` };
+    let nextBundle: BackendBundle;
+    try {
+      nextBundle = await createBackendBundle({ ...config, dbBackend: target }, globalDir);
+    } catch (err) {
+      return { ok: false, message: `failed to initialize ${target}: ${err instanceof Error ? err.message : String(err)}` };
+    }
+    // Quiesce in-flight background indexing (it captured the PROXY, which still
+    // points at the old bundle until we swap) so nothing writes to a backend
+    // we're about to close.
+    try {
+      await Promise.all([
+        waitForSessionBackfill(SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS),
+        waitForLiveSessionIndex(SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS),
+      ]);
+    } catch {
+      // best effort
+    }
+    const oldBundle = currentBundle;
+    currentBundle = nextBundle; // proxies now delegate to the new repos
+    currentDbBackend = target;
+    backendLabel = labelFor(target);
+    try {
+      await syncMarkdownMemoriesToSqlite(currentBundle.memoryRepo, globalDir, config.projectsMemoryDir, agentRoot);
+    } catch {
+      // best effort; next session_start re-syncs
+    }
+    try { await oldBundle.backend.close(); } catch { /* best effort */ }
+    try { persistDbBackend(target); } catch { /* best effort */ }
+    return { ok: true, message: `switched to ${target}` };
+  };
+  registerSwitchBackendCommand(pi, { getCurrent: () => currentDbBackend, switchTo, labelFor });
 
   // Detect project from cwd using shared helper
   // Project-scoped store: ~/.pi/agent/<projectsMemoryDir>/<project_name>/
@@ -141,6 +221,13 @@ export default function (pi: ExtensionAPI) {
 
   // ── 1. Load memory from disk on session start ──
   pi.on("session_start", async (_event, ctx) => {
+    // Surface the active memory/search backend once per session start so the
+    // user can see at a glance whether hermes-memory is on sqlite or surrealdb
+    // (and where). Transient info notify; no-op if the host provides no ui.
+    {
+      const ui = (ctx as { ui?: { notify?: (message: string, level?: string) => void } }).ui;
+      ui?.notify?.(`🧠 hermes-memory backend: ${backendLabel}`, "info");
+    }
     if (shouldMigrateExtensionRoot && !extensionRootMigrated) {
       try {
         await migrateExtensionRoot(legacyGlobalDir, globalDir);
@@ -156,7 +243,7 @@ export default function (pi: ExtensionAPI) {
     await store.loadFromDisk();
     if (projectStore) await projectStore.loadFromDisk();
 
-    scheduleSessionBackfill(dbManager, sessionsDir, {
+    scheduleSessionBackfill(sessionRepo, sessionsDir, {
       notify: (message, level) => {
         const ui = (ctx as { ui?: { notify?: (message: string, level?: string) => void } }).ui;
         if (ui?.notify) {
@@ -184,15 +271,15 @@ export default function (pi: ExtensionAPI) {
   });
 
   // ── 3. Register the memory tool (with project store + SQLite sync) ──
-  registerMemoryTool(pi, store, projectStore, dbManager, projectName);
-  registerGrillDecisionTool(pi, store, dbManager);
+  registerMemoryTool(pi, store, projectStore, memoryRepo, projectName);
+  registerGrillDecisionTool(pi, store, memoryRepo);
 
   // ── 4. Register the skill tool ──
   registerSkillTool(pi, skillStore);
 
   // ── 5. Setup background learning loop (with tool-call-aware nudge) ──
   setupBackgroundReview(pi, store, projectStore, config, {
-    dbManager,
+    memoryRepo,
     projectName: projectName || null,
   });
 
@@ -212,10 +299,10 @@ export default function (pi: ExtensionAPI) {
   registerConsolidateCommand(pi, store, config.consolidationTimeoutMs, projectStore, projectName, config);
 
   // ── 8. Setup correction detection ──
-  setupCorrectionDetector(pi, store, projectStore, config, dbManager, projectName);
+  setupCorrectionDetector(pi, store, projectStore, config, memoryRepo, projectName);
 
   // ── 8b. Setup lesson-worthy error capture (auto-trigger on tool failures) ──
-  setupErrorDetector(pi, store, projectStore, config, dbManager, projectName);
+  setupErrorDetector(pi, store, projectStore, config, memoryRepo, projectName);
 
   // ── 9. Register commands ──
   registerInsightsCommand(pi, store, projectStore, projectName);
@@ -223,20 +310,20 @@ export default function (pi: ExtensionAPI) {
   registerInterviewCommand(pi, store);
   registerSwitchProjectCommand(pi, config);
   registerLearnMemoryCommand(pi);
-  registerSyncMarkdownMemoriesCommand(pi, dbManager, globalDir, config.projectsMemoryDir, agentRoot);
+  registerSyncMarkdownMemoriesCommand(pi, memoryRepo, globalDir, config.projectsMemoryDir, agentRoot);
   registerPreviewContextCommand(pi, store, projectStore, projectName, config);
 
   // ── 10. Live session indexing ──
   pi.on("message_end", async (_event, ctx) => {
-    scheduleLiveSessionIndex(dbManager, ctx.sessionManager, {
+    scheduleLiveSessionIndex(sessionRepo, ctx.sessionManager, {
       onError: (err) => console.warn(`⚠️ Live session indexing failed: ${err instanceof Error ? err.message : String(err)}`),
     });
   });
 
   // ── 11. SQLite session search + extended memory ──
-  registerSessionSearchTool(pi, dbManager, config.sessionSearch ?? { variant: "legacy" });
-  registerMemorySearchTool(pi, dbManager);
-  registerIndexSessionsCommand(pi, globalDir);
+  registerSessionSearchTool(pi, sessionRepo, config.sessionSearch ?? { variant: "legacy" });
+  registerMemorySearchTool(pi, memoryRepo);
+  registerIndexSessionsCommand(pi, globalDir, config);
 
   // (11b removed — convergence moved to the knowledge-card hub; ADR-0001.
   //  Hermes is now a pure TIER-0 foundation: store / search / flush only.)
@@ -258,14 +345,14 @@ export default function (pi: ExtensionAPI) {
       if (sessionFile && require("node:fs").existsSync(sessionFile)) {
         const sessionData = parseSessionFile(sessionFile);
         if (sessionData) {
-          dbManager.withCorruptionRecovery(() => {
-            indexSession(dbManager, sessionData);
-            // Keep session_files metadata in sync with the final on-disk state.
-            // Pi appends the closing session entry on shutdown after the last
-            // message_end, so without this upsert the stored size/mtime would be
-            // stale and the next startup would re-parse this file unnecessarily.
-            upsertSessionFileMetadata(dbManager, sessionFile, sessionData.id);
-          });
+          // The repository methods already wrap recovery + transient retry, so
+          // there is no need to wrap them in backend.withCorruptionRecovery here.
+          await sessionRepo.indexSession(sessionData);
+          // Keep session_files metadata in sync with the final on-disk state.
+          // Pi appends the closing session entry on shutdown after the last
+          // message_end, so without this upsert the stored size/mtime would be
+          // stale and the next startup would re-parse this file unnecessarily.
+          await sessionRepo.upsertSessionFileMeta(sessionFile, sessionData.id);
         }
       }
     } catch {
@@ -279,7 +366,7 @@ export default function (pi: ExtensionAPI) {
       } catch {
         // Best effort only — shutdown should not be held up by indexing errors.
       }
-      try { dbManager.close(); } catch { /* best effort — never block shutdown */ }
+      try { await currentBundle.backend.close(); } catch { /* best effort — never block shutdown */ }
     }
   });
 }
