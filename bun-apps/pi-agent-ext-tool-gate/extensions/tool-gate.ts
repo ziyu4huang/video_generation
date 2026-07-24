@@ -83,8 +83,8 @@ export const GATES: ToolGate[] = [
       "做成圖", "轉成圖",
     ],
     requires: {
-      nouns: ["image", "picture", "photo", "圖"],
-      verbs: ["generate", "create", "make", "draw", "render", "produce", "want", "need", "生成", "做", "畫", "繪"],
+      nouns: ["image", "picture", "photo", "圖片", "圖像", "照片", "相片"],
+      verbs: ["generate", "create", "make", "draw", "render", "produce", "生成", "做", "畫", "繪"],
     },
     description: "Flux2 image generation — text-to-image, i2i, faceswap, outpaint, upscale, restore",
   },
@@ -100,10 +100,10 @@ export const GATES: ToolGate[] = [
   },
   {
     names: ["ltx", "ltx_help"],
-    keywords: ["ltx", "t2v", "i2v", "vbvr", "relay", "影片特效"],
+    keywords: ["ltx", "t2v", "i2v", "vbvr", "video relay", "vbvr relay", "影片特效"],
     requires: {
       nouns: ["video", "影片", "視頻", "視訊", "動畫", "電影"],
-      verbs: ["generate", "create", "make", "animate", "produce", "render", "want", "need", "生成", "做", "製作", "剪"],
+      verbs: ["generate", "create", "make", "animate", "produce", "render", "生成", "做", "製作", "剪"],
     },
     description: "LTX video generation — text/image-to-video, upscale, vbvr, relay",
   },
@@ -114,7 +114,7 @@ export const GATES: ToolGate[] = [
       "read this image", "分析圖片", "分析圖像", "識別", "讀圖", "看圖",
     ],
     requires: {
-      nouns: ["pdf", "document", "文件", "scan", "image", "picture", "photo", "圖"],
+      nouns: ["pdf", "document", "文件", "scan", "image", "picture", "photo", "圖片", "圖像", "照片", "相片"],
       verbs: ["read", "convert", "parse", "extract", "ocr", "describe", "caption", "讀", "轉", "解析", "分析"],
     },
     description: "Document/image understanding — file→markdown, VLM describe, OCR, caption",
@@ -193,16 +193,17 @@ export const GATES: ToolGate[] = [
   },
   {
     // Bare "deploy"/"verify" are NOT keywords — they false-fire everywhere
-    // ("deploy to vercel", "verify the fix"), violating the S2 bare-word rule
-    // the cost/image/video gates follow. Gate behind noun∧verb `requires`
-    // (bundle/pi-agent/extension noun ∧ build/deploy/verify/test verb) so only
-    // pi-agent-bundling intent fires. The prior "verify the test results"
-    // false-fire is now fixed (removed from PRECISION_RISKS).
+    // ("deploy to vercel", "verify the fix"), violating the S2 bare-word rule.
+    // Gate behind noun∧verb `requires` (bundle/pi-agent/extension noun ∧
+    // build/deploy/verify/bundle verb) so only pi-agent-bundling intent fires.
+    // "test" was DROPPED from verbs (audit I-5): it fired on every test turn in
+    // a repo whose primary activity IS running tests — deploy intent is still
+    // caught by build/deploy/verify/bundle + the run-test/build-bundle keywords.
     names: ["pi_deploy", "pi_verify"],
     keywords: ["build bundle", "bundle pi-agent", "pi-agent bundle", "run-test"],
     requires: {
       nouns: ["bundle", "pi-agent", "pi agent", "extension"],
-      verbs: ["build", "deploy", "verify", "test", "bundle", "部署", "建置", "驗證", "打包"],
+      verbs: ["build", "deploy", "verify", "bundle", "部署", "建置", "驗證", "打包"],
     },
     description: "Build/verify/deploy the pi-agent bundle + extension bundles (wraps deploy.ts + run-test.sh)",
   },

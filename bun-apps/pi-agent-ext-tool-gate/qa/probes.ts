@@ -49,10 +49,10 @@ export const MUST_FIRE: Probe[] = [
 	// flux2 (requires: noun∧verb OR keyword)
 	{ gate: "flux2", prompt: "generate an image of a cat", note: "noun image ∧ verb generate" },
 	{ gate: "flux2", prompt: "draw me a picture of the scene", note: "noun picture ∧ verb draw" },
-	{ gate: "flux2", prompt: "I want an image of a cat", note: "noun image ∧ verb want (I5: intent verbs)" },
 	{ gate: "flux2", prompt: "use flux to render a poster", note: "keyword flux" },
 	{ gate: "flux2", prompt: "幫我把這張照片去背", note: "keyword 去背" },
 	{ gate: "flux2", prompt: "txt2img a snowy landscape", note: "keyword txt2img" },
+	{ gate: "flux2", prompt: "做一張照片當封面", note: 'noun 照片 ∧ verb 做 (I-3 recall gain)' },
 	// krea2 (keyword — now incl. English sketch/real-time after the fix)
 	{ gate: "krea2", prompt: "use krea2 for a quick draft", note: "keyword krea2" },
 	{ gate: "krea2", prompt: "快速生成一張草圖", note: "keyword 快速生成 / 草圖" },
@@ -60,9 +60,9 @@ export const MUST_FIRE: Probe[] = [
 	// ltx (requires OR keyword)
 	{ gate: "ltx", prompt: "generate a video of the scene", note: "noun video ∧ verb generate" },
 	{ gate: "ltx", prompt: "make a short video clip", note: "noun video ∧ verb make" },
-	{ gate: "ltx", prompt: "I need a video for this scene", note: "noun video ∧ verb need (I5: intent verbs)" },
 	{ gate: "ltx", prompt: "use ltx for t2v", note: "keyword ltx / t2v" },
 	{ gate: "ltx", prompt: "加入影片特效", note: "keyword 影片特效" },
+	{ gate: "ltx", prompt: "run the video relay pipeline", note: 'keyword "video relay" (relay narrowed from bare)' },
 	// file2md (requires OR keyword)
 	{ gate: "file2md", prompt: "ocr this scanned pdf and extract the text", note: "keyword ocr (+ noun pdf ∧ verb extract)" },
 	{ gate: "file2md", prompt: "read this image and describe it", note: 'keyword "read this image"' },
@@ -117,6 +117,7 @@ export const MUST_NOT_FIRE: Probe[] = [
 	{ gate: "zai_web_search_web_search_prime", prompt: "search the web for this", note: "generic web search → core web_search, not redundant zai-mcp" },
 	{ gate: "zai_web_search_web_search_prime", prompt: "zai is a company in Shanghai", note: 'bare "zai" is not a keyword' },
 	{ gate: "pi_deploy", prompt: "build the docker image", note: "no deploy/verify/bundle-pi-agent keyword (docker ≠ pi-agent deploy)" },
+	{ gate: "pi_deploy", prompt: "run the tests for this extension", note: "verb 'test' removed — testing an extension ≠ deploying pi-agent (audit I-5)" },
 	{ gate: "arxiv_search", prompt: "paper cut on my hand", note: "noun paper but no retrieval verb" },
 ];
 
@@ -161,25 +162,27 @@ export const ESCAPE_INTENT: EscapeIntentProbe[] = [
 export const ESCAPE_INTENT_BLIND: EscapeIntentProbe[] = [];
 
 // ── PRECISION_RISKS — benign false-fires that remain (never gate) ────────────
-//   inspect "inspect element" is FIXED (removed). These 5 are the low-harm
-//   over-matches the verdict (ticket 05) chose to leave non-gating.
+//   inspect "inspect element" is FIXED (removed). audit I-1/I-2/I-4 (2026-07-25)
+//   graduated want/need, bare 圖, and bare relay out of this registry (they no
+//   longer fire). These are the low-harm over-matches the verdict (ticket 05)
+//   chose to leave non-gating.
 
 export const PRECISION_RISKS: PrecisionRisk[] = [
 	// — requires over-matches: dev/infra contexts that pair a media noun with a
-	//   generation/intent verb (I5 added want/need to raise recall on "I want
-	//   an image" / "I need a video"; the cost is these benign over-matches) —
+	//   generation verb. (want/need were DROPPED from verbs in audit I-1 — "I
+	//   want an image" / "I need a video" no longer auto-fire; the loss is
+	//   weak-intent recall, recovered via generate/create/make + enable_tool.
+	//   bare CJK 圖 was replaced by 圖片/圖像 in I-2; bare relay was narrowed to
+	//   "video relay"/"vbvr relay" in I-4 — "做一個圖表" and "relay the message"
+	//   no longer false-fire.) Remaining over-matches use "make": —
 	{ gate: "flux2", prompt: "make the docker image smaller", why: 'noun "image" ∧ verb "make" (requires over-matches dev/infra)', severity: "med" },
 	{ gate: "ltx", prompt: "make the video buffer larger", why: 'noun "video" ∧ verb "make" (dev/infra context)', severity: "med" },
-	{ gate: "flux2", prompt: "I want to resize the image", why: 'noun "image" ∧ verb "want" (I5: intent verb over-matches an edit intent)', severity: "med" },
-	{ gate: "ltx", prompt: "I need to compress the video", why: 'noun "video" ∧ verb "need" (I5: intent verb over-matches a transcode intent)', severity: "med" },
-	{ gate: "flux2", prompt: "做一個圖表來比較數據", why: 'CJK noun "圖" (substring of 圖表) ∧ verb "做" — charts/maps false-fire', severity: "low" },
 	{ gate: "inspect_context", prompt: "check the context of this error", why: 'noun "context" ∧ verb "check" (debugging, not introspection)', severity: "low" },
 	// — bare/ambiguous keywords that fire on unrelated contexts —
 	{ gate: "workflow", prompt: "the gitlab pipeline failed", why: 'keyword "pipeline" fires on CI/CD context', severity: "med" },
 	{ gate: "workflow", prompt: "review this multi-step todo list", why: 'keyword "multi-step" fires on a plain todo', severity: "med" },
 	{ gate: "movie", prompt: "the movie director won an oscar", why: 'keyword "movie director" fires on a person', severity: "med" },
 	{ gate: "krea2", prompt: "sketch out the plan first", why: 'keyword "sketch" fires on planning/architecture context', severity: "med" },
-	{ gate: "ltx", prompt: "relay the message to the team", why: 'keyword "relay" fires on communication context', severity: "med" },
 	{ gate: "arxiv_search", prompt: "read the white paper first", why: 'noun "paper" ∧ verb "read" (doc-reading, not arxiv retrieval)', severity: "low" },
 ];
 
