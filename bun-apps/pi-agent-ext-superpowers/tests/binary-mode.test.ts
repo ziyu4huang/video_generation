@@ -48,9 +48,7 @@ function captureResourcesDiscover(fromUrl: string): () => Promise<{ skillPaths: 
 describe("resolveSkillsDir in compiled-binary mode", () => {
   it("resolves to the embedded-assets extraction dir when the env var is set", () => {
     process.env[ENV_KEY] = extractDir;
-    expect(resolveSkillsDir(BUNFS_URL)).toBe(
-      join(extractDir, "pi-agent-ext-superpowers", "skills"),
-    );
+    expect(resolveSkillsDir(BUNFS_URL)).toBe(join(extractDir, "pi-agent-ext-superpowers", "skills"));
   });
 
   it("still resolves source-mode URLs relative to the module (env var ignored)", () => {
@@ -70,8 +68,6 @@ describe("resources_discover in compiled-binary mode", () => {
   it("advertises the extraction dir when it exists", async () => {
     process.env[ENV_KEY] = extractDir;
     const discover = captureResourcesDiscover(BUNFS_URL);
-    expect((await discover()).skillPaths).toEqual([
-      join(extractDir, "pi-agent-ext-superpowers", "skills"),
-    ]);
+    expect((await discover()).skillPaths).toEqual([join(extractDir, "pi-agent-ext-superpowers", "skills")]);
   });
 });
