@@ -228,9 +228,7 @@ export function formatHooksReport(
   return lines.join("\n");
 }
 
-// ─── Tool factory (body added in Task 3) ────────────────────────────────────
-// Declared here so Task 1 compiles; execute() is filled in Task 3.
-// (Placeholder return kept minimal — Task 3 replaces it.)
+// ─── Tool factory ────────────────────────────────────────────────────────────
 
 export function makeInspectHooksTool() {
   return defineTool({
