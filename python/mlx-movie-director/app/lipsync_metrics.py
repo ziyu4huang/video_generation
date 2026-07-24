@@ -219,9 +219,10 @@ def _lagged_pearson(a: np.ndarray, b: np.ndarray, max_lag: int) -> tuple[float, 
     return best_r, best_lag
 
 
-# Verdict threshold: |r| >= 0.3 is a conventional "weak-to-moderate but real"
-# correlation floor in behavioral/signal-correlation literature; below that,
-# mouth motion is indistinguishable from audio-independent talking motion.
+# Verdict threshold: r >= 0.3 (positive direction — see measure_lipsync_precision)
+# is a conventional "weak-to-moderate but real" correlation floor in
+# behavioral/signal-correlation literature; below that, mouth motion is
+# indistinguishable from audio-independent talking motion.
 ADEQUATE_R_THRESHOLD = 0.3
 
 # A near-flat mouth_ratio series (near-zero variance — the mouth barely moves
@@ -277,8 +278,13 @@ def measure_lipsync_precision(mp4_path: str) -> dict:
 
     mouth_ratio_std = float(np.nanstd(ratios))
     flat_mouth = mouth_ratio_std < MIN_MOUTH_STD_THRESHOLD
+    # Real speech-driven mouth motion opens *with* loudness — a strong NEGATIVE
+    # correlation (mouth opens when quiet, closes when loud) is not a phase/lag
+    # artifact at these short offsets (±_MAX_LAG_FRAMES ≈ ±170ms); it means the
+    # motion is doing something other than tracking speech. Require the
+    # positive-direction correlation explicitly, not just |r|.
     verdict = (
-        "adequate" if (abs(r) >= ADEQUATE_R_THRESHOLD and not flat_mouth) else "inadequate"
+        "adequate" if (r >= ADEQUATE_R_THRESHOLD and not flat_mouth) else "inadequate"
     )
 
     result = {
@@ -293,12 +299,18 @@ def measure_lipsync_precision(mp4_path: str) -> dict:
         "mouth_ratio_std": round(mouth_ratio_std, 4),
         "audio_rms_mean": round(float(np.mean(audio_env)), 6),
     }
-    if flat_mouth and abs(r) >= ADEQUATE_R_THRESHOLD:
+    if flat_mouth and r >= ADEQUATE_R_THRESHOLD:
         result["caveat"] = (
             f"pearson_r cleared {ADEQUATE_R_THRESHOLD} but mouth_ratio_std "
             f"({mouth_ratio_std:.4f}) is below {MIN_MOUTH_STD_THRESHOLD} — the mouth "
             "barely moves at all, so this correlation is almost certainly spurious "
             "noise-alignment rather than real lip-sync. Treated as inadequate."
+        )
+    elif r <= -ADEQUATE_R_THRESHOLD:
+        result["caveat"] = (
+            f"pearson_r ({r:.4f}) is strongly negative — the mouth is anti-correlated "
+            "with audio loudness (opens when quiet, closes when loud), which is not "
+            "genuine lip-sync even though |r| clears threshold. Treated as inadequate."
         )
     if lag_search_hit_boundary:
         result["caveat"] = (
