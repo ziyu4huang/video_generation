@@ -131,9 +131,13 @@ export async function collectExtensionToolCosts(
  * that are not registered anywhere in pi-agent (neither manifest.extensions
  * nor staticExtensions) but are still worth costing.
  */
-const EXTRA_ENTRIES: { source: string; path: string }[] = [
-	{ source: "movie-director-cost", path: "bun-apps/pi-agent-ext-movie-director/extensions/movie-director-cost.ts" },
-];
+// NOTE (audit 2026-07-25): the movie-director-cost prototype entry was
+// REMOVED. That tool is a typed-prototype experiment that is NEVER loaded at
+// runtime (absent from the manifest, static-extensions, and movie-director.ts
+// imports). Measuring it offline while it never loads is what let a phantom
+// `cost` gate inflate savings by ~536 tok/req. If movie-director wires the
+// prototype to load, re-add the entry here AND a gate in tool-gate.
+const EXTRA_ENTRIES: { source: string; path: string }[] = [];
 
 /**
  * Discover extension entry files by DERIVING them from pi-agent's

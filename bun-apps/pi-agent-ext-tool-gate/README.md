@@ -1,16 +1,16 @@
 # Dynamic Tool Gate
 
-> Keeps core tools always active while gating heavy domain-specific tools behind prompt keyword matching — saving ~8,500 tokens per request (~52%; zai-mcp adds ~1.1k when registered).
+> Keeps core tools always active while gating heavy domain-specific tools behind prompt keyword matching — saving ~8,050 tokens per request (~48%; zai-mcp adds ~1.1k when registered).
 
 ## The Problem
 
-Every registered tool adds to the API request's tools schema. With a full extension ecosystem loaded, a single pi session can carry **~52 tools → ~16,500 tokens per request** — a fixed overhead charged on every turn, even when 95% of those tools are never used.
+Every registered tool adds to the API request's tools schema. With a full extension ecosystem loaded, a single pi session can carry **~55 tools → ~16,600 tokens per request** — a fixed overhead charged on every turn, even when 95% of those tools are never used.
 
 This extension solves that by keeping lightweight core tools always active and hiding heavy domain-specific tools (video generation, image generation, movie orchestration, etc.) behind keyword gates. When the user's prompt mentions a relevant keyword, the matching gate fires instantly and the tool becomes available for the rest of the session.
 
 ```
-Baseline:  ~52 tools → ~16,500 tok/req   (measured via `bun run qa`)
-Gated:    ~24 tools →  ~7,900 tok/req   (saves ~8,500 tok/turn, ~52%; zai-mcp env-gated)
+Baseline:  ~55 tools → ~16,600 tok/req   (measured via `bun run qa`)
+Gated:    ON at start ~8,600 tok/req   (saves ~8,050 tok/turn, ~48%; zai-mcp env-gated)
 ```
 
 > Figures are measured by `bun run qa` (power-tool `schema-cost`). Only
@@ -164,7 +164,7 @@ On session start, a transient above-editor widget (keyed `"tool-gate"`) shows th
 
 ```
 🔧 Tool gate: 24/52 active
-saves ~8500 tok/req
+saves ~8050 tok/req
 ```
 
 The banner uses `setWidget` (not `notify`) so it never clobbers or is clobbered by other extensions' startup messages. It auto-dismisses after 8 seconds.
@@ -230,7 +230,7 @@ bun test --cwd bun-apps/pi-agent-ext-tool-gate
 
 ### Savings (`qa/savings.ts`)
 
-Validates the "~8,500 tok/req saved" claim by measuring the actual token cost difference between the ungated baseline and the gated configuration. Uses the same schema-cost measurement as the runtime telemetry (`(desc+params)/4` heuristic) to ensure offline and runtime numbers agree by construction.
+Validates the "~8,050 tok/req saved" claim by measuring the actual token cost difference between the ungated baseline and the gated configuration. Uses the same schema-cost measurement as the runtime telemetry (`(desc+params)/4` heuristic) to ensure offline and runtime numbers agree by construction.
 
 ```bash
 bun run qa:savings     # standalone, shows per-gate breakdown

@@ -1,7 +1,7 @@
 /**
  * Savings measurement — QA harness (wayfinder ticket 00).
  *
- * Question: does tool-gate's "~8,500 tok/req saved" claim hold?
+ * Question: does tool-gate's "~8,050 tok/req saved" claim hold?
  *
  * Method (fully offline — no agent boot): reuse the schema-cost CLI's
  * capturing-mock collection (`buildSchemaCostReport`) to get every registered
@@ -26,8 +26,8 @@ import {
 import type { SchemaCostReport } from "../../pi-agent-cli/src/commands/schema-cost.ts";
 import { CORE_TOOLS, GATES } from "../extensions/tool-gate.ts";
 
-/** The savings figure tool-gate's README/banner claims (~8,500 tok/req; zai-mcp env-gated — see caveats()). */
-export const CLAIMED_SAVED_TOK = 8500;
+/** The savings figure tool-gate's README/banner claims (~8,050 tok/req; zai-mcp env-gated — see caveats()). */
+export const CLAIMED_SAVED_TOK = 8050;
 
 export interface GateSavings {
 	/** First name of the gate — its identity for display. */

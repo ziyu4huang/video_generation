@@ -6,7 +6,7 @@
  * zai-mcp, pi_deploy) behind prompt keyword matching.
  *
  * Baseline:  ~52 tools → ~16,500 tok/req   (measured via `bun run qa`)
- * Gated:    ~24 tools →  ~7,900 tok/req   (saves ~8,500 tok/turn, ~52%; zai-mcp env-gated)
+ * Gated:    ON at start ~8,600 tok/req   (saves ~8,050 tok/turn, ~48%; zai-mcp env-gated)
  *
  * Tools reactivate instantly when the prompt mentions relevant keywords, and
  * once activated stay active for the rest of the session (they never re-gate
@@ -173,22 +173,13 @@ export const GATES: ToolGate[] = [
     ],
     description: "Movie orchestrator — idea→script→scene→assets→edit→compose pipeline",
   },
-  {
-    // Movie-production cost lifecycle (movie-director-cost ext). Bare "cost"
-    // must NOT be a keyword — it false-fires everywhere ("token cost", "cost
-    // of living", "what's the cost"). Gate behind noun∧verb `requires`
-    // (cost/budget/成本/預算 ∧ estimate/calculate/...) so only cost-ESTIMATION
-    // intent fires. Benign false-fires ("estimate the token cost") load the
-    // tool unused — non-gating per the QA verdict; documented in
-    // PRECISION_RISKS. Recovered ~538 tok/req (wayfinder ticket 04).
-    names: ["cost"],
-    keywords: ["cost estimate", "cost lifecycle", "budget estimate", "production cost", "成本估算", "預算估計", "報價單", "cost reserve", "cost reconcile", "cost snapshot"],
-    requires: {
-      nouns: ["cost", "budget", "報價", "成本", "預算", "quote"],
-      verbs: ["estimate", "reserve", "reconcile", "calculate", "breakdown", "snapshot", "估算", "計算", "評估", "估"],
-    },
-    description: "Movie-production cost lifecycle — estimate/reserve/reconcile/snapshot budget governance",
-  },
+  // NOTE (audit 2026-07-25): the `cost` gate was REMOVED. It gated the
+  // `movie-director-cost.ts` typed PROTOTYPE, which is measured offline
+  // (schema-cost EXTRA_ENTRIES) but NEVER loaded at runtime (absent from the
+  // manifest, static-extensions, and movie-director.ts imports). Gating a
+  // phantom inflated savings by ~536 tok/req. The real cost functionality
+  // lives in `movie`'s cost subcommands (covered by the `movie` gate). Do
+  // NOT re-add this gate unless movie-director-cost.ts is wired to load.
   {
     // zai-mcp MCP proxy tools — redundant with core web_search/fetch_content
     // but have large schemas (~1.1k tok combined). Gate behind intent so they

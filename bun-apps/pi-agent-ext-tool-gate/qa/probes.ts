@@ -93,10 +93,6 @@ export const MUST_FIRE: Probe[] = [
 	{ gate: "arxiv_search", prompt: "find papers on diffusion policies", note: "noun papers ∧ verb find" },
 	{ gate: "arxiv_search", prompt: "fetch the arxiv paper 2401.12345", note: "keyword arxiv" },
 	{ gate: "arxiv_search", prompt: "搜尋論文 robotics", note: "keyword 論文 / 搜尋論文" },
-	// cost (requires noun∧verb — bare 'cost' is NOT a keyword)
-	{ gate: "cost", prompt: "estimate the cost of this production", note: "noun cost ∧ verb estimate" },
-	{ gate: "cost", prompt: "calculate the budget breakdown", note: "noun budget ∧ verb calculate/breakdown" },
-	{ gate: "cost", prompt: "這部片的成本估算", note: "keyword 成本估算" },
 ];
 
 // ── MUST_NOT_FIRE (lookalikes the gate CORRECTLY rejects) ────────────────────
@@ -122,8 +118,6 @@ export const MUST_NOT_FIRE: Probe[] = [
 	{ gate: "zai_web_search_web_search_prime", prompt: "zai is a company in Shanghai", note: 'bare "zai" is not a keyword' },
 	{ gate: "pi_deploy", prompt: "build the docker image", note: "no deploy/verify/bundle-pi-agent keyword (docker ≠ pi-agent deploy)" },
 	{ gate: "arxiv_search", prompt: "paper cut on my hand", note: "noun paper but no retrieval verb" },
-	{ gate: "cost", prompt: "what's the cost of this", note: "noun cost but no estimate-verb — bare cost not a keyword" },
-	{ gate: "cost", prompt: "token cost is too high", note: "noun cost, no verb (dev/infra context)" },
 ];
 
 // ── ESCAPE_NAME — every gate reachable by enable_tool({ name }) ──────────────
@@ -140,7 +134,6 @@ export const ESCAPE_NAME: { gate: string; name: string }[] = [
 	{ gate: "zai_web_search_web_search_prime", name: "zai_web_search_web_search_prime" },
 	{ gate: "pi_deploy", name: "pi_deploy" },
 	{ gate: "arxiv_search", name: "arxiv_search" },
-	{ gate: "cost", name: "cost" },
 ];
 
 // ── ESCAPE_INTENT — intents that DO surface the gate (asserted match) ───────
@@ -157,7 +150,6 @@ export const ESCAPE_INTENT: EscapeIntentProbe[] = [
 	{ gate: "zai_web_search_web_search_prime", intent: "use z.ai reader", prompt: "(no keyword)", note: 'keyword "z.ai" (was blind pre-fix)' },
 	{ gate: "pi_deploy", intent: "build and deploy the bundle", prompt: "(no keyword)", note: 'keyword deploy / build bundle' },
 	{ gate: "arxiv_search", intent: "find papers on a topic", prompt: "(no keyword)", note: "noun papers ∧ verb find" },
-	{ gate: "cost", intent: "estimate the production cost", prompt: "(no keyword)", note: "noun cost ∧ verb estimate" },
 ];
 
 // ── ESCAPE_INTENT_BLIND — empty after the fix (all gates reachable by intent) ─
@@ -189,7 +181,6 @@ export const PRECISION_RISKS: PrecisionRisk[] = [
 	{ gate: "krea2", prompt: "sketch out the plan first", why: 'keyword "sketch" fires on planning/architecture context', severity: "med" },
 	{ gate: "ltx", prompt: "relay the message to the team", why: 'keyword "relay" fires on communication context', severity: "med" },
 	{ gate: "arxiv_search", prompt: "read the white paper first", why: 'noun "paper" ∧ verb "read" (doc-reading, not arxiv retrieval)', severity: "low" },
-	{ gate: "cost", prompt: "estimate the token cost", why: 'noun "cost" ∧ verb "estimate" (dev/infra, not movie-production)', severity: "low" },
 ];
 
 // ── OVERLAPS — empty after the fix (storyboard removed from ltx; movie owns it) ─
