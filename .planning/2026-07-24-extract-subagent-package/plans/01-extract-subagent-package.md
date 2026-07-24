@@ -473,9 +473,11 @@ For each staying file below, change the listed `from "./<moved>.js"` to `from "@
 | `src/subagents-command.ts` | `subagent-in-flight` (subagent-viewer stays local) |
 | `extensions/workflow.ts` | `subagent-in-flight` (`SubagentInFlightRegistry`), `subagent-run-persistence` (`createSubagentRunPersistence`), `subagent-tool` (`createSubagentTool`), `subagent-runs-tool` (`createSubagentRunsTool`) — **symbol-preserving**: workflow.ts still creates + registers the tools here (now from the new package); Task 4 strips the creation and switches to singletons. Import these four from the root `@repo/pi-agent-ext-subagent` (NOT src subpath yet — workflow still makes its own instance until Task 4). |
 
-Mechanism (per file, per module): edit the `from "./<module>.js"` → `from "@repo/pi-agent-ext-subagent"` (for `extensions/workflow.ts` the four subagent modules are `from "../src/<module>.js"` → `from "@repo/pi-agent-ext-subagent"`). Verify nothing was missed:
+**Also rewrite the 15 STAYING tests** under `tests/` that import a moved module via `from "../src/<moved>.js"` → `from "@repo/pi-agent-ext-subagent"`. These tests STAY in workflow (do NOT delete); their `../src/workflow.js` / `../src/index.js` / `../src/<staying>.js` imports stay as-is. The 15: `reference-pack.test.ts` (agent-registry), `workflow-manager-lifecycle-fixes.test.ts` (errors), `workflow-manager.test.ts` (agent, errors), `subagent-viewer.test.ts` (subagent-tool), `workflow-ui.test.ts` (errors), `schema-resolution.test.ts` (agent, errors, structured-output), `workflow-manager-abort.test.ts` (agent, errors), `usage-limit-integration.test.ts` (agent, errors), `regression-rca.test.ts` (errors), `host-fn-helpers.test.ts` (errors), `subagents-command.test.ts` (subagent-in-flight), `call-global.test.ts` (errors), `workflow-runtime.test.ts` (agent, errors), and the two **mixed** tests `agent.test.ts` (agent, errors, model-tier-config, sdd-report — also imports `../src/workflow.js`) + `agent-registry.test.ts` (agent-registry — also imports `../src/workflow.js`). Mixed tests keep their workflow imports; only moved-module imports change.
+
+Mechanism: edit the relative import → `from "@repo/pi-agent-ext-subagent"` (`from "./<module>.js"` in `src/`, `from "../src/<module>.js"` in `extensions/` and `tests/`). Symbols unchanged. Verify nothing was missed (catches both `./` and `../src/` across src/, extensions/, tests/):
 ```bash
-grep -rn 'from "\./\(spawn-subagent\|agent\|agent-history\|agent-registry\|errors\|model-tier-config\|sdd-report\|structured-output\|git-scope\|worktree\|home\|subagent-tool\|subagent-runs-tool\|subagent-run-persistence\|subagent-in-flight\)\.js"' bun-apps/pi-agent-ext-workflow/src/ bun-apps/pi-agent-ext-workflow/extensions/
+grep -rnE 'from "(\./|\.\./src/)(spawn-subagent|agent|agent-history|agent-registry|errors|model-tier-config|sdd-report|structured-output|git-scope|worktree|home|subagent-tool|subagent-runs-tool|subagent-run-persistence|subagent-in-flight)\.js"' bun-apps/pi-agent-ext-workflow/{src,extensions,tests}/
 ```
 Expected after rewrites: **zero matches** (all moved-module imports now point at `@repo/pi-agent-ext-subagent`). The only remaining `./config.js` / `./home.js` references must be `./config.js` (staying) — confirm `./home.js` is gone (home fully moved).
 
@@ -484,9 +486,11 @@ Expected after rewrites: **zero matches** (all moved-module imports now point at
 ```bash
 cd bun-apps/pi-agent-ext-workflow
 git rm src/spawn-subagent.ts src/agent.ts src/agent-history.ts src/agent-registry.ts src/errors.ts src/model-tier-config.ts src/sdd-report.ts src/structured-output.ts src/git-scope.ts src/worktree.ts src/home.ts src/subagent-tool.ts src/subagent-runs-tool.ts src/subagent-run-persistence.ts src/subagent-in-flight.ts
-git rm tests/agent.test.ts tests/agent-history.test.ts tests/agent-registry.test.ts tests/errors.test.ts tests/git-scope.test.ts tests/model-tier-config.test.ts tests/sdd-report.test.ts tests/spawn-subagent.test.ts tests/structured-output.test.ts tests/subagent-in-flight.test.ts tests/subagent-run-persistence.test.ts tests/subagent-runs-tool.test.ts tests/subagent-tool.test.ts tests/worktree.test.ts tests/regression-subagent-contract.test.ts
+git rm tests/agent-history.test.ts tests/errors.test.ts tests/git-scope.test.ts tests/model-tier-config.test.ts tests/sdd-report.test.ts tests/spawn-subagent.test.ts tests/structured-output.test.ts tests/subagent-in-flight.test.ts tests/subagent-run-persistence.test.ts tests/subagent-runs-tool.test.ts tests/subagent-tool.test.ts tests/worktree.test.ts tests/regression-subagent-contract.test.ts
 ```
 If a copied helper in `tests/helpers/` is now used only by deleted tests, `git rm` it too. Leave workflow's `src/config.ts` (it still holds the WORKFLOW_*/MAX_AGENT_* constants).
+
+> **Do NOT delete `tests/agent.test.ts` or `tests/agent-registry.test.ts`** — they are mixed tests (also import `../src/workflow.js`); they STAY in workflow with their moved-module imports rewritten in Step 3.
 
 - [ ] **Step 5: Build + test workflow**
 
