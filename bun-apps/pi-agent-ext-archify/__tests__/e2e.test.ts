@@ -130,3 +130,29 @@ describeMaybe("archify e2e — Layer 3: cross diagram-type matrix", () => {
     }, 30_000);
   }
 });
+
+describeMaybe("archify e2e — negative cases across the defineTool wrapper", () => {
+  test("delta with non-architecture type returns isError, no throw", async () => {
+    const cwd = withTempCwd();
+    const tool = registeredTool("archify_delta");
+    const res = (await tool.execute("e2e-id", { basePath: FIXTURE, headPath: FIXTURE, type: "sequence" }, new AbortController().signal, undefined, ctxFor(cwd))) as { isError?: boolean; content: { text: string }[] };
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text.toLowerCase()).toContain("architecture");
+  }, 30_000);
+
+  test("render with malformed IR surfaces an honest error (no uncaught throw)", async () => {
+    const cwd = withTempCwd();
+    const tool = registeredTool("archify_render");
+    const res = (await tool.execute("e2e-id", { ir: { diagram_type: "architecture", components: "not-an-array" }, type: "architecture" }, new AbortController().signal, undefined, ctxFor(cwd))) as { isError?: boolean; content: { text: string }[] };
+    expect(res.isError).toBe(true);
+  }, 30_000);
+
+  test("an already-aborted signal never reports a successful render", async () => {
+    const cwd = withTempCwd();
+    const tool = registeredTool("archify_render");
+    const ac = new AbortController();
+    ac.abort();
+    const res = (await tool.execute("e2e-id", { ir: JSON.parse(readFileSync(FIXTURE, "utf8")), type: "architecture" }, ac.signal, undefined, ctxFor(cwd))) as { isError?: boolean; content: { text: string }[] };
+    expect(res.isError).toBe(true);
+  }, 30_000);
+});
