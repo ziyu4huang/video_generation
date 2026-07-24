@@ -226,6 +226,48 @@ bun test --cwd bun-apps/pi-agent-ext-tool-gate
 #   __tests__/tool-gate-banner.test.ts     — startup banner + telemetry
 ```
 
+## QA
+
+### Savings (`qa/savings.ts`)
+
+Validates the "~8,500 tok/req saved" claim by measuring the actual token cost difference between the ungated baseline and the gated configuration. Uses the same schema-cost measurement as the runtime telemetry (`(desc+params)/4` heuristic) to ensure offline and runtime numbers agree by construction.
+
+```bash
+bun run qa:savings     # standalone, shows per-gate breakdown
+bun run qa              # savings included in full QA report
+```
+
+Reports total tokens saved, percentage saved, and a per-gate breakdown of which gates contribute how much. Flags any tools loaded at runtime but missing from the manifest (`gateMissing`).
+
+### Miss-rate (`qa/miss-rate.ts`)
+
+Measures keyword recall in practice by parsing `TOOL_GATE_LOG_PATH` telemetry (turn / miss_candidate / activate events). Computes two lenses:
+
+- **escape-rate** (headline friction): `enable_tool` calls vs gated-domain sessions
+- **confirmed-miss** (gate-causation): a `miss_candidate` turn followed by an `activate` whose matched gate was dormant at that turn
+
+Confirmed-misses are classified as **common** (intent matched gate's design — bare keyword or noun∧verb co-occurrence) or **review** (intent unclear, requires human judgment).
+
+```bash
+bun run qa:miss <log-file>     # analyze telemetry log
+bun run qa:miss --json <log-file>   # machine-readable output
+```
+
+### Coverage (`qa/coverage.ts`)
+
+A third QA axis — **structural completeness** — alongside savings (amount) and miss-rate (recall). It answers: *which registered tools are heavy (≥ threshold tok/req) but NOT tracked by any gate — i.e. candidates the author forgot to gate?*
+
+A forgotten gate is safe (fail-open keeps the tool always-active) but silently degrades savings. This check closes the loop: schema-cost measures → coverage finds the ungated heavy → author adds a gate → savings confirms the recovery.
+
+```bash
+bun run qa:coverage                       # standalone, advisory (never fails)
+bun run qa:coverage --coverage-threshold 200   # tighten the threshold for a run
+bun run qa                                # coverage reported, non-gating by default
+bun run qa --strict                       # ungated heavy tools → FAIL
+```
+
+Default threshold **300 tok/req** (`--coverage-threshold` overrides). Builtins are excluded (they cannot be gated). The verdict is **non-gating by default**; under `--strict`, any ungated heavy tool fails the gate.
+
 ## Installation
 
 Registered as a dynamic extension in `bun-apps/pi-agent/run-dir/manifest.json`. No manual setup needed — the extension auto-loads on session start.
