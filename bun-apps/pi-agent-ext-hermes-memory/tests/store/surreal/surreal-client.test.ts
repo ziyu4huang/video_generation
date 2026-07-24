@@ -65,4 +65,32 @@ describe("SurrealClient", () => {
     await expect(client.query("SELECT 1;")).rejects.toThrow("fetch failed");
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("fails fast (bounded) when a request hangs — no infinite stall, timeout not retried", async () => {
+    // A hung surrealdb round-trip must not stall the caller forever. Without a
+    // per-request timeout the fetch below never resolves and the test hangs.
+    // With the guard, AbortSignal.timeout fires -> a clear timeout error within
+    // a bounded window, and the timeout is NOT retried (a stuck server would
+    // just multiply the bound).
+    // The mock must HONOR the abort signal (a real fetch observes it and
+    // rejects on timeout). A bare `new Promise(()=>{})` ignores the signal
+    // and would hang even with the guard — so wire the abort -> reject.
+    const fetchMock = mock((_url: string | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (!signal) return; // never resolves (no signal = truly hung)
+        if (signal.aborted) reject(signal.reason ?? new Error("aborted"));
+        else signal.addEventListener("abort", () => reject(signal.reason ?? new Error("aborted")), { once: true });
+      }));
+    const client = new SurrealClient({
+      endpoint: "http://127.0.0.1:8000", namespace: "user_alice", database: "memory",
+      username: "root", password: "root", fetch: fetchMock as unknown as typeof fetch,
+      backoffMs: 1, maxAttempts: 3, requestTimeoutMs: 25,
+    });
+    const t0 = Date.now();
+    await expect(client.query("SELECT 1;")).rejects.toThrow(/timeout/i);
+    const elapsed = Date.now() - t0;
+    expect(elapsed).toBeLessThan(500); // bounded, not infinite
+    expect(fetchMock).toHaveBeenCalledTimes(1); // timeout is fail-fast, not retried
+  });
 });
