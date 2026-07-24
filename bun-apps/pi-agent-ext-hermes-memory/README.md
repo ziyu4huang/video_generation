@@ -30,7 +30,7 @@ pi install npm:pi-hermes-memory
 # Index your past sessions (one-time)
 /memory-index-sessions
 
-# Backfill older Markdown memories into SQLite search (optional)
+# Backfill older Markdown memories into the search store (optional)
 /memory-sync-markdown
 
 # Learn how to use it
@@ -370,7 +370,7 @@ This means skills build up naturally over time without you having to ask.
 | `/memory-interview` | Answer a few questions to pre-fill your user profile |
 | `/memory-switch-project` | List all project memories and their entry counts |
 | `/memory-index-sessions` | Import past Pi sessions into the search database |
-| `/memory-sync-markdown` | Backfill Markdown memories into the SQLite search store |
+| `/memory-sync-markdown` | Backfill Markdown memories into the active search store |
 | `/memory-preview-context` | Preview the memory policy or legacy memory blocks appended to the system prompt |
 | `/learn-memory-tool` | Skill that teaches users how to use the memory system |
 
