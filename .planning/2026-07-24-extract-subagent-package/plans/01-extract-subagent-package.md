@@ -242,7 +242,7 @@ grep -rhn 'from "\./config\.js"' bun-apps/pi-agent-ext-subagent/src/
 ```
 Expected: exactly two lines — `agent-registry.ts` importing `{ AGENTS_DIR }` and `model-tier-config.ts` importing `{ MODEL_TIERS_FILE }`. If anything else appears, add that symbol to the new `config.ts`.
 
-- [ ] **Step 4: Add the singleton accessors**
+- [ ] **Step 4: Add the singleton accessors (then their contract test in Step 6)**
 
 Append to `bun-apps/pi-agent-ext-subagent/src/subagent-in-flight.ts` (after the `SubagentInFlightRegistry` class):
 
@@ -345,7 +345,31 @@ export { AGENTS_DIR, MODEL_TIERS_FILE } from "./config.js";
 export { homeDir } from "./home.js";
 ```
 
-- [ ] **Step 6: Copy the moved tests + any helpers they need**
+- [ ] **Step 6: Add a singleton-contract test (the only new behavior)**
+
+Create `bun-apps/pi-agent-ext-subagent/tests/singleton.test.ts`:
+```ts
+import { describe, expect, it } from "bun:test";
+import { getSubagentInFlightRegistry, SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
+import { createSubagentRunPersistence, getSubagentRunPersistence } from "../src/subagent-run-persistence.js";
+
+describe("subagent singletons", () => {
+  it("getSubagentInFlightRegistry returns one shared instance", () => {
+    expect(getSubagentInFlightRegistry()).toBe(getSubagentInFlightRegistry());
+    expect(getSubagentInFlightRegistry()).toBeInstanceOf(SubagentInFlightRegistry);
+  });
+  it("getSubagentRunPersistence returns one shared instance", () => {
+    expect(getSubagentRunPersistence()).toBe(getSubagentRunPersistence());
+  });
+  it("factories still construct independent instances (test injection)", () => {
+    expect(new SubagentInFlightRegistry()).not.toBe(getSubagentInFlightRegistry());
+    expect(createSubagentRunPersistence()).not.toBe(getSubagentRunPersistence());
+  });
+});
+```
+> The cross-extension identity (same instance reaches the workflow-side `/subagents` viewer) is verified by the Task 6 manual smoke — it cannot be asserted within one package.
+
+- [ ] **Step 7: Copy the moved tests + any helpers they need**
 
 ```bash
 cd bun-apps/pi-agent-ext-workflow/tests
@@ -359,7 +383,7 @@ For each helper path the grep prints, copy it: `cp -r helpers/<name> ../../pi-ag
 
 > Moved tests import via `../src/...` (relative) — valid in the new package unchanged. Do NOT copy `subagent-viewer.test.ts`, `subagents-command.test.ts`, `extension-subagent-registration.test.ts`, `regression-ext-workflow-protection.test.ts` — those stay in workflow (Task 4/6 adapts the two registration/protection tests).
 
-- [ ] **Step 7: Check + build + test the new package**
+- [ ] **Step 8: Check + build + test the new package**
 
 Run:
 ```bash
@@ -369,7 +393,7 @@ Run:
 ```
 Expected: biome clean; tsc emits `dist/` with zero errors; all moved tests pass (same assertions as in workflow — behavior is identical). If a moved test references a symbol that didn't get exported, add it to `src/index.ts` or import directly from `../src/...` in that test (matching how it read before).
 
-- [ ] **Step 8: Confirm workflow still green (untouched)**
+- [ ] **Step 9: Confirm workflow still green (untouched)**
 
 Run:
 ```bash
@@ -377,7 +401,7 @@ Run:
 ```
 Expected: green (workflow still has its originals).
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add bun-apps/pi-agent-ext-subagent/
@@ -447,8 +471,9 @@ For each staying file below, change the listed `from "./<moved>.js"` to `from "@
 | `src/workflow-paths.ts` | `home` (config stays local) |
 | `src/subagent-viewer.ts` | `agent`, `agent-history`, `subagent-in-flight`, `subagent-tool` (display stays local) |
 | `src/subagents-command.ts` | `subagent-in-flight` (subagent-viewer stays local) |
+| `extensions/workflow.ts` | `subagent-in-flight` (`SubagentInFlightRegistry`), `subagent-run-persistence` (`createSubagentRunPersistence`), `subagent-tool` (`createSubagentTool`), `subagent-runs-tool` (`createSubagentRunsTool`) — **symbol-preserving**: workflow.ts still creates + registers the tools here (now from the new package); Task 4 strips the creation and switches to singletons. Import these four from the root `@repo/pi-agent-ext-subagent` (NOT src subpath yet — workflow still makes its own instance until Task 4). |
 
-Mechanism (per file, per module): edit the `from "./<module>.js"` → `from "@repo/pi-agent-ext-subagent"`. Verify nothing was missed:
+Mechanism (per file, per module): edit the `from "./<module>.js"` → `from "@repo/pi-agent-ext-subagent"` (for `extensions/workflow.ts` the four subagent modules are `from "../src/<module>.js"` → `from "@repo/pi-agent-ext-subagent"`). Verify nothing was missed:
 ```bash
 grep -rn 'from "\./\(spawn-subagent\|agent\|agent-history\|agent-registry\|errors\|model-tier-config\|sdd-report\|structured-output\|git-scope\|worktree\|home\|subagent-tool\|subagent-runs-tool\|subagent-run-persistence\|subagent-in-flight\)\.js"' bun-apps/pi-agent-ext-workflow/src/ bun-apps/pi-agent-ext-workflow/extensions/
 ```
@@ -583,9 +608,9 @@ In `STATIC_EXTENSION_FACTORIES`, insert immediately BEFORE the workflow entry:
 
 - [ ] **Step 3: Strip subagent tool registration from `workflow.ts`**
 
-In `bun-apps/pi-agent-ext-workflow/extensions/workflow.ts`:
-- Remove imports: `createSubagentTool` (from `../src/subagent-tool.js`), `createSubagentRunsTool` (from `../src/subagent-runs-tool.js`).
-- Replace `import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";` and `import { createSubagentRunPersistence } from "../src/subagent-run-persistence.js";` with the singleton import via **src subpath** (module identity):
+In `bun-apps/pi-agent-ext-workflow/extensions/workflow.ts` (Task 3 rewired the four subagent-module imports to the root `@repo/pi-agent-ext-subagent`; now finalize):
+- Remove imports: `createSubagentTool` and `createSubagentRunsTool` entirely (no longer created here — the subagent extension owns them).
+- Replace the `SubagentInFlightRegistry` + `createSubagentRunPersistence` imports with the singleton import via **src subpath** (module identity — the subagent extension loads via `../src/`, so workflow must match):
   ```ts
   import { getSubagentInFlightRegistry, getSubagentRunPersistence } from "@repo/pi-agent-ext-subagent/src/index.js";
   ```
