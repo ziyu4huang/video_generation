@@ -16,6 +16,12 @@ describe("archify_delta", () => {
     const html = await Bun.file(out).text();
     expect(html.length).toBeGreaterThan(10_000);
     expect(out).toMatch(/\.html$/);
+    // compare always writes a sidecar receipt beside the HTML; the tool must
+    // report it (A4) rather than leaving an unexplained second file.
+    const receipt = res.details!.receipt as string | undefined;
+    expect(receipt).toBeTruthy();
+    expect(receipt).toMatch(/\.receipt\.json$/);
+    expect(await Bun.file(receipt!).exists()).toBe(true);
   });
   it("rejects non-architecture types (archify compare is architecture-only)", async () => {
     const res = await archifyDelta({ basePath: base, headPath: head, type: "workflow" }, { cwd: "/tmp" });
