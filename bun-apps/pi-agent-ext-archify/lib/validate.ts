@@ -18,12 +18,17 @@ export async function archifyValidate(params: { ir?: unknown; irPath?: string; t
   const type = params.type ?? (params.ir as { diagram_type?: string } | undefined)?.diagram_type;
   if (!type) return err("diagram type could not be determined; pass `type` or set ir.diagram_type.");
   const run = (irPath: string) => runArchify(["validate", type, irPath, "--json"], ctx.cwd);
-  const { stdout, status } = params.irPath
+  const { stdout, stderr, status } = params.irPath
     ? run(params.irPath)
     : withTempIr(params.ir ?? {}, run);
-  if (status !== 0) return err(`archify validate failed (exit ${status}).\n${stdout}`);
+  if (status !== 0) return err(`archify validate failed (exit ${status}).\n${stderr || stdout}`);
+  let report: { ok?: boolean; error?: string; diagnostics?: unknown[] };
+  try {
+    report = JSON.parse(stdout) as { ok?: boolean; error?: string; diagnostics?: unknown[] };
+  } catch {
+    return err(`archify validate produced non-JSON output (exit 0).\n${stdout}`);
+  }
   // archify validate --json emits { ok, error?, diagnostics?: [...] } — NOT `errors`.
-  const report = JSON.parse(stdout) as { ok?: boolean; error?: string; diagnostics?: unknown[] };
   const ok = report.ok === true;
   return {
     content: [{ type: "text" as const, text: ok ? `IR is valid (${type}).` : `IR has ${report.diagnostics?.length ?? 1} issue(s):\n${report.error ?? stdout}` }],
