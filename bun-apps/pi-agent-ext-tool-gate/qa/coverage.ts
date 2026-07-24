@@ -16,7 +16,7 @@
  *
  * Run: `bun run qa:coverage`  (wired in package.json)
  */
-import type { SchemaCostReport } from "../../pi-agent-cli/src/commands/schema-cost.ts";
+import { buildSchemaCostReport, resolveRepoRoot, type SchemaCostReport } from "../../pi-agent-cli/src/commands/schema-cost.ts";
 import { TRACKED_TOOLS } from "../extensions/tool-gate.ts";
 
 /** Heavy tools at or above this per-request token cost are coverage candidates. */
@@ -106,3 +106,35 @@ export function assertSane(r: CoverageReport): string[] {
 	if (r.heavyTools < r.gatedHeavy) problems.push("gatedHeavy > heavyTools — impossible");
 	return problems;
 }
+
+// --- async collection + runnable entry -------------------------------------
+
+/**
+ * Measure coverage against the real repo, offline (capturing-mock collection —
+ * no agent boot; same path `qa/savings.ts` uses). Pass an explicit `root`, or
+ * omit to auto-resolve (walk up to `bun-apps/`).
+ */
+export async function measureCoverage(
+	root?: string,
+	threshold?: number,
+): Promise<CoverageReport> {
+	const resolved = root ?? resolveRepoRoot();
+	const th = threshold ?? DEFAULT_COVERAGE_THRESHOLD;
+	const report = await buildSchemaCostReport(resolved);
+	return analyzeCoverage(report, th, resolved);
+}
+
+async function main() {
+	const r = await measureCoverage();
+	console.log(formatCoverage(r).join("\n"));
+	const problems = assertSane(r);
+	if (problems.length) {
+		console.error("\n❌ STRUCTURAL FAIL:");
+		for (const p of problems) console.error("  - " + p);
+		process.exit(1);
+	}
+	console.log(`\n${r.pass ? "✅" : "❌"} coverage ${r.pass ? "complete" : `gap: ${r.ungated.length} ungated`} (non-gating by default)`);
+}
+
+// Bun: run only when invoked directly (`bun run qa:coverage`).
+if (import.meta.main) void main();

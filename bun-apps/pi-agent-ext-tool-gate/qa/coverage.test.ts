@@ -119,3 +119,17 @@ describe("assertSane", () => {
 		expect(assertSane(r)).toEqual([]);
 	});
 });
+
+describe("measureCoverage (integration — real repo)", () => {
+	it("collects the real repo and is structurally sane", async () => {
+		const { measureCoverage } = await import("./coverage.ts");
+		const r = await measureCoverage();
+		// Structural sanity (NOT a brittle count): the repo has tools and the
+		// collector didn't fall over. The exact ungated count is intentionally
+		// NOT asserted — a non-zero ungated is a real finding, not a test failure.
+		expect(r.totalTools).toBeGreaterThan(0);
+		expect(assertSane(r)).toEqual([]);
+		// The repo gates at least one heavy tool (e.g. flux2 / ltx / movie-*).
+		expect(r.gatedHeavy).toBeGreaterThanOrEqual(1);
+	}, 15000); // 15s timeout for integration test (offline collection may be slow)
+});
