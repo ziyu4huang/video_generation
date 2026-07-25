@@ -22,8 +22,8 @@ import {
   WorkflowManager,
 } from "../src/index.js";
 import { getSubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent/src/index.ts";
-import { createSubagentsCommand } from "../src/subagents-command.js";
 import { installSubagentProgressWidget } from "../src/subagent-progress-widget.js";
+import { createSubagentsCommand } from "../src/subagents-command.js";
 
 export default function extension(pi: ExtensionAPI) {
   // Single manager/storage shared by the workflow tool and the /workflows command,
