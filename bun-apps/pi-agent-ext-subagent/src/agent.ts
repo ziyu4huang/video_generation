@@ -187,7 +187,7 @@ export function resolveAgentModelSpec(
     // back to mainModel SILENTLY — often the most expensive model, so a typo
     // quietly escalated cost. Surface it so the degradation is visible.
     console.warn(
-      `[workflow] unknown tier "${options.tier}"${config ? "" : " (no model-tiers config found)"} — falling back to the session default${mainModel ? ` (${mainModel})` : ""}. Configured tiers: ${config ? sortedTierNames(config).join(", ") || "(none)" : "(none)"}. Manage them via /workflows-models.`,
+      `[workflow] unknown tier "${options.tier}"${config ? "" : " (no model-tiers config found)"} — falling back to the session default${mainModel ? ` (${mainModel})` : ""}. Configured tiers: ${config ? sortedTierNames(config).join(", ") || "(none)" : "(none)"}. Manage them via /workflows-models (or /models-preset to apply a full config).`,
     );
     return mainModel;
   }
