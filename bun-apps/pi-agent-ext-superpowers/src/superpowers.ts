@@ -15,13 +15,17 @@
  * bootstrap SKILL.md (cached). Deterministic — no LLM, no network.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const EXTREMELY_IMPORTANT_MARKER = "<EXTREMELY_IMPORTANT>";
 const BOOTSTRAP_MARKER = "superpowers:using-superpowers bootstrap for pi";
+
+/** Env var holding a comma-list of skill dir-names to UNREGISTER (Phase-3).
+ *  See {@link parseSkillExclude} / {@link resolveAdvertisedSkillPaths}. */
+export const SKILL_EXCLUDE_ENV = "PI_SUPERPOWERS_SKILL_EXCLUDE";
 
 export { BOOTSTRAP_MARKER };
 
@@ -64,6 +68,74 @@ export function resolveBootstrapSkillPath(fromUrl: string = import.meta.url): st
 }
 
 /**
+ * Parse the `PI_SUPERPOWERS_SKILL_EXCLUDE` comma-list into a set of skill
+ * dir-names to UNREGISTER. Whitespace is trimmed and empty tokens dropped, so
+ * `" a ,, b "` → `Set { "a", "b" }`. Empty/unset → empty set (no-op).
+ *
+ * Phase-3 skill-unload audit: listing a skill here drops it from the
+ * `resources_discover` advertisement so pi never registers it, WITHOUT editing
+ * the pinned `SKILL.md` (ADR-0004 — unregister ≠ edit). Pure + injectable so
+ * the unit test can drive it without touching `process.env` ordering.
+ */
+export function parseSkillExclude(env: Record<string, string | undefined> = process.env): Set<string> {
+  const raw = env[SKILL_EXCLUDE_ENV];
+  if (!raw) return new Set();
+  return new Set(
+    raw
+      .split(",")
+      .map((token) => token.trim())
+      .filter((token) => token.length > 0),
+  );
+}
+
+/** Immediate skill-dir names actually present under `skillsDir` (the keys the
+ *  exclude list is matched against). Sorted for stable output. Never throws. */
+function listSkillDirNames(skillsDir: string): string[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(skillsDir);
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((name) => {
+      try {
+        return statSync(join(skillsDir, name)).isDirectory();
+      } catch {
+        return false;
+      }
+    })
+    .sort();
+}
+
+/**
+ * Resolve the `resources_discover` advertisement for a skills dir, honoring
+ * the exclude knob.
+ *
+ * - Exclude EMPTY  → `[skillsDir]` (pi recurses into every `<name>/` itself;
+ *   this is the historical behavior and preserves the silent dedup vs the
+ *   run-dir `--skill <skillsDir>` splice — both resolve to the same real dir).
+ * - Exclude NON-empty → the INDIVIDUAL skill-dir paths for every present skill
+ *   NOT in the exclude set. Each `<name>/` is a pi skill root (a dir whose
+ *   direct child `SKILL.md` makes pi treat it as a skill root and stop
+ *   recursing), so pi registers exactly that skill from each path and the
+ *   excluded skill is never registered.
+ *
+ * NB: for the exclude to actually take effect at runtime, this extension must
+ * be the SOLE skill source. The run-dir resolver splices `--skill <skillsDir>`
+ * into argv (which loads every skill before this handler runs, silently deduped
+ * to the same real files), so a real `pi -p` thin run must ALSO pass `-ns`
+ * (`--no-skills`) to suppress that splice — then skills load only via this
+ * handler and the knob is authoritative. See `scripts/probe-runner.ts` `--ab-skill`.
+ */
+export function resolveAdvertisedSkillPaths(skillsDir: string, exclude: Set<string> = parseSkillExclude()): string[] {
+  if (exclude.size === 0) return [skillsDir];
+  return listSkillDirNames(skillsDir)
+    .filter((name) => !exclude.has(name))
+    .map((name) => join(skillsDir, name));
+}
+
+/**
  * Register the Superpowers Pi extension. The default export of `src/index.ts`
  * (and the thin `extensions/index.ts` wrapper) calls this.
  */
@@ -74,9 +146,17 @@ export function superpowersExtension(pi: ExtensionAPI, fromUrl: string = import.
   // Never advertise a non-existent dir (e.g. a classic --compile binary with no
   // embedded-assets extraction): pi reports each missing skill path as a
   // "[Skill conflicts] skill path does not exist" startup warning.
-  pi.on("resources_discover", async () => ({
-    skillPaths: existsSync(skillsDir) ? [skillsDir] : [],
-  }));
+  //
+  // PI_SUPERPOWERS_SKILL_EXCLUDE (Phase-3): when set to a comma-list of skill
+  // dir-names, those skills are UNREGISTERED (omitted from the advertisement)
+  // without touching their pinned SKILL.md (ADR-0004). The handler then returns
+  // individual skill-dir paths so pi registers exactly the non-excluded skills.
+  // Computed per-call (not captured at registration) so a subprocess can flip
+  // the env between a fat run and a thin run in the same process image.
+  pi.on("resources_discover", async () => {
+    if (!existsSync(skillsDir)) return { skillPaths: [] };
+    return { skillPaths: resolveAdvertisedSkillPaths(skillsDir) };
+  });
 
   pi.on("session_start", async () => {
     injectBootstrap = true;

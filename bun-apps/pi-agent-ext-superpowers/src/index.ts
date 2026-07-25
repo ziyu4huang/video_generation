@@ -22,7 +22,10 @@ export {
   _resetBootstrapCacheForTests,
   BOOTSTRAP_MARKER,
   getBootstrapContent,
+  parseSkillExclude,
+  resolveAdvertisedSkillPaths,
   resolveBootstrapSkillPath,
   resolveSkillsDir,
+  SKILL_EXCLUDE_ENV,
   superpowersExtension,
 } from "./superpowers.js";
