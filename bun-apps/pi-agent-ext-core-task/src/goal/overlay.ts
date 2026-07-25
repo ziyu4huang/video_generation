@@ -14,7 +14,7 @@
  */
 
 import type { ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
-import type { ActiveGoal } from "./format.js";
+import type { ActiveGoal, GoalListItem } from "./format.js";
 import { formatGoalCompletionLine, formatGoalOverlayLine } from "./format.js";
 
 const COMPLETION_FLASH_MS = 8_000;
@@ -27,13 +27,20 @@ const COMPLETION_FLASH_MS = 8_000;
  */
 export interface GoalOverlayLike {
 	setUICtx(ctx: ExtensionUIContext): void;
-	update(goal: ActiveGoal | undefined): void;
+	/**
+	 * Push the latest goal state. `list` + `headAdvances` (Loop 2 / Task 7) drive
+	 * the dim `☰ position/total` queue suffix; both optional + persisted on the
+	 * overlay so the frequent single-arg tick callers still refresh correctly.
+	 */
+	update(goal: ActiveGoal | undefined, list?: GoalListItem[], headAdvances?: number): void;
 	showCompletion(objective: string): void;
 	dispose(): void;
 }
 
 export class GoalOverlay implements GoalOverlayLike {
 	private current: ActiveGoal | undefined;
+	private list: GoalListItem[] = [];
+	private headAdvances = 0;
 	private flashObjective: string | undefined;
 	private flashTimer: ReturnType<typeof setTimeout> | undefined;
 	private refresh: (() => void) | undefined;
@@ -46,9 +53,15 @@ export class GoalOverlay implements GoalOverlayLike {
 		this.refresh = fn;
 	}
 
-	/** Push the latest goal state. A new active goal supersedes any completion flash. */
-	update(goal: ActiveGoal | undefined): void {
+	/**
+	 * Push the latest goal state. A new active goal supersedes any completion
+	 * flash. `list` / `headAdvances` (when provided) refresh the queue suffix
+	 * state; they persist across single-arg tick callers.
+	 */
+	update(goal: ActiveGoal | undefined, list?: GoalListItem[], headAdvances?: number): void {
 		this.current = goal;
+		if (list !== undefined) this.list = list;
+		if (headAdvances !== undefined) this.headAdvances = headAdvances;
 		if (goal) this.clearFlash();
 		this.refresh?.();
 	}
@@ -77,7 +90,20 @@ export class GoalOverlay implements GoalOverlayLike {
 			return [formatGoalCompletionLine(this.flashObjective, theme, width)];
 		}
 		if (this.current) {
-			return [formatGoalOverlayLine(this.current, theme, width)];
+			// Loop 2 / Task 7: derive the queue suffix from the persisted list state.
+			// total = head + tail; position is 1-based from headAdvances. Only
+			// surfaced when total >= 2 (formatGoalOverlayLine enforces byte-identity
+			// for bare /goal / 1-item lists regardless).
+			const total = 1 + this.list.length;
+			const queue =
+				total >= 2
+					? {
+							position: this.headAdvances + 1,
+							total,
+							parked: this.list.filter((i) => i.parked).length,
+					  }
+					: undefined;
+			return [formatGoalOverlayLine(this.current, theme, width, queue)];
 		}
 		return [];
 	}

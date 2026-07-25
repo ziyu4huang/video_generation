@@ -137,16 +137,42 @@ export function goalStatusColor(status: GoalStatus): ThemeColor {
 }
 
 /**
+ * Queue suffix state for the overlay line (Loop 2 / Task 7).
+ *
+ * `position` is 1-based within the head+tail queue (head is always position 1
+ * of a bare goal; `headAdvances` from state.ts bumps it as items promote).
+ * `total` is `1 + list.length`. Only rendered when `total >= 2` — a bare /goal
+ * or a 1-item list is byte-identical to the pre-Loop-2 line (queueSegment="").
+ * `parked` counts tail items parked via `/list next`; shown as `· ⚠N parked`.
+ */
+export interface GoalOverlayQueue {
+	position: number;
+	total: number;
+	parked?: number;
+}
+
+/**
  * One-line, theme-colored goal indicator for the above-editor widget:
- *   🎯 goal active · 1m23s · iter 3  <dim objective…>
+ *   🎯 goal active · 1m23s · iter 3  <dim objective…>  · ☰ 2/5 · ⚠1 parked
  *
  * The status WORD (goal active / goal paused / goal budget reached) is the
  * colored signal — colored by status (active=accent, paused/budget=warning,
  * complete=success) so paused/budget-reached goals stand out without reading.
  * The metric (elapsed time OR token budget) and iteration count are dim, so
  * "what state" never blurs into "how long / how many tokens".
+ *
+ * The trailing queue suffix (`· ☰ position/total`, optionally `· ⚠N parked`)
+ * is dim and only appears when the queue has >= 2 items (head + >= 1 tail). On
+ * narrow terminals it is dropped before truncating the objective so the head
+ * (the signal) always survives. With no queue (or total < 2) the line is
+ * byte-identical to the pre-Loop-2 output — zero regression for bare /goal.
  */
-export function formatGoalOverlayLine(goal: ActiveGoal, theme: Theme, width: number): string {
+export function formatGoalOverlayLine(
+	goal: ActiveGoal,
+	theme: Theme,
+	width: number,
+	queue?: GoalOverlayQueue,
+): string {
 	const color = goalStatusColor(goal.status);
 	const icon = goal.status === "complete" ? "✓" : "🎯";
 	const statusWord = formatStatus(goal) ?? goal.status;
@@ -161,13 +187,29 @@ export function formatGoalOverlayLine(goal: ActiveGoal, theme: Theme, width: num
 	];
 	const head = headParts.join(sep);
 
+	// Queue suffix (Loop 2 / Task 7): dim "☰ position/total" (+ "⚠N parked").
+	// Only when total >= 2 — a bare /goal or 1-item list is byte-identical to before
+	// (queueSegment === "" → showQueue === false → unchanged objective width).
+	const queueSegment =
+		queue && queue.total >= 2
+			? `${sep}${theme.fg("dim", `☰ ${queue.position}/${queue.total}`)}${
+					queue.parked && queue.parked > 0 ? `${sep}${theme.fg("warning", `⚠${queue.parked} parked`)}` : ""
+			  }`
+			: "";
+	const queueWidth = visibleWidth(queueSegment);
+
 	// Objective fills the remaining width in dim. On narrow terminals, drop it
 	// entirely before truncating the status head (the head is the signal).
 	const gutter = 2;
 	const remaining = width - visibleWidth(head) - gutter;
 	if (remaining <= 6) return truncateToWidth(head, width, theme.fg("dim", "…"));
-	const objective = truncateToWidth(goal.text, remaining, theme.fg("dim", "…"));
-	return `${head}${" ".repeat(gutter)}${theme.fg("dim", objective)}`;
+	// Show the queue only if it still leaves > 6 chars of objective; otherwise
+	// drop it and let the objective truncate within the full remaining width.
+	const showQueue = queueSegment.length > 0 && remaining - queueWidth > 6;
+	const objectiveWidth = showQueue ? remaining - queueWidth : remaining;
+	const objective = truncateToWidth(goal.text, objectiveWidth, theme.fg("dim", "…"));
+	const line = `${head}${" ".repeat(gutter)}${theme.fg("dim", objective)}`;
+	return showQueue ? `${line}${queueSegment}` : line;
 }
 
 /**

@@ -1087,7 +1087,7 @@ async function sendPrompt(pi: ExtensionAPI, ctx: StatusContext, prompt: string) 
 
 function updateStatus(ctx: StatusContext, _goal: ActiveGoal | undefined) {
 	goalState.latestCtx = ctx;
-	goalOverlay?.update(goalState.activeGoal);
+	goalOverlay?.update(goalState.activeGoal, goalState.list, goalState.headAdvances);
 	syncStatusRefreshTimer();
 	syncHeartbeatTimer();
 }
