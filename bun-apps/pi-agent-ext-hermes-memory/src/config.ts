@@ -20,7 +20,8 @@ import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surrea
 
 const MEMORY_OVERFLOW_STRATEGIES: readonly MemoryOverflowStrategy[] = ["auto-consolidate", "reject", "fifo-evict", "vault-offload"];
 const SESSION_SEARCH_VARIANTS: readonly SessionSearchVariant[] = ["legacy", "anchors"];
-const REVIEW_TRANSPORTS: readonly ReviewTransport[] = ["direct", "subprocess"];
+// "subprocess" removed in the spawnSubagent migration — the fallback is now spawnSubagent, not a pi -p subprocess.
+const REVIEW_TRANSPORTS: readonly ReviewTransport[] = ["direct"];
 const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
 
 function isReviewTransport(value: unknown): value is ReviewTransport {
