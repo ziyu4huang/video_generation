@@ -77,32 +77,32 @@ export * from "../src/obsidian-lib.ts";
 
 // Import everything the tool registrations need
 import {
-	CacheEntry,
-	ErrCode,
+	type CacheEntry,
+	type ErrCode,
 	GARDEN_SYSTEM_PROMPT,
-	GraphMode,
-	GraphResult,
+	type GraphMode,
+	type GraphResult,
 	INDEX_CACHE_VERSION,
 	INDEX_POLL_MS_DEFAULT,
-	IntegrityIssue,
+	type IntegrityIssue,
 	LINK_DELETE,
 	LINK_KEEP,
-	MatchMode,
-	NoteField,
-	NoteMeta,
-	NoteValidation,
+	type MatchMode,
+	type NoteField,
+	type NoteMeta,
+	type NoteValidation,
 	OBSIDIAN_JSON,
-	ObsidianConfig,
-	ParsedFrontmatter,
-	ResolvedModel,
-	ResolvedVault,
-	SearchMatch,
-	SubagentOptions,
-	VaultConfigFile,
-	VaultEntry,
+	type ObsidianConfig,
+	type ParsedFrontmatter,
+	type ResolvedModel,
+	type ResolvedVault,
+	type SearchMatch,
+	type SubagentOptions,
+	type VaultConfigFile,
+	type VaultEntry,
 	VaultError,
-	VaultIndex,
-	VaultSource,
+	type VaultIndex,
+	type VaultSource,
 	WEAK_MODEL_PATTERNS,
 	WRITE_BLOCKLIST,
 	ZETTEL_MAX_BYTES,
@@ -166,6 +166,7 @@ import {
 	listVaultCandidates,
 	loadCachedIndex,
 	makeSubagentProgressLogger,
+	maybeTriggerReindex,
 	moveNote,
 	mtimeConflict,
 	noteMtime,
@@ -1527,9 +1528,13 @@ ${output.slice(-2000)}`,
 			const reportedNotes = Array.isArray(result?.notes) ? result.notes.map(String) : [];
 			let validation: { notes: NoteValidation[]; valid: number; invalid: number } | undefined;
 			let validationText = "";
+			// Resolved vault captured for the opt-in re-index hook below. Stays
+			// undefined when no notes were written or vault resolution failed.
+			let distillVault: ResolvedVault | undefined;
 			if (reportedNotes.length > 0) {
 				try {
 					const v = await getVault(ctx.cwd);
+					distillVault = v;
 					validation = await validateZettelNotes(v.path, reportedNotes);
 				} catch {
 					validation = undefined;
@@ -1566,6 +1571,13 @@ ${output.slice(-2000)}`,
 				} else if (validation && validation.valid > 0) {
 					validationText = `\n\n✓ Validation: all ${validation.valid} created note(s) pass the Zettelkasten schema check.`;
 				}
+			}
+			// Phase 2 / Task 18: opt-in semantic re-index of vault-mind after a
+			// successful distill run. Fire-and-forget (never awaited) and guarded by
+			// VAULT_MIND_AUTO_REINDEX — when off this is a pure no-op (zero HTTP),
+			// so distill behavior is unchanged. Failures only warn; never throw.
+			if (distillVault && reportedNotes.length > 0) {
+				void maybeTriggerReindex(distillVault.name, distillVault.path);
 			}
 			return {
 				content: [
@@ -2032,7 +2044,9 @@ ${output.slice(-2000)}`,
 					details: { code: "BAD_REQUEST" as const },
 				};
 			}
-			return _capture._tools["obsidian_" + params.action].execute(
+			// `action` was just validated above (validation.ok), so the captured
+			// sub-tool for this action is guaranteed to exist — assert non-null.
+			return _capture._tools["obsidian_" + params.action]!.execute(
 				_id, params.args ?? {}, signal, _u, ctx,
 			);
 		},
