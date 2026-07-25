@@ -6,7 +6,7 @@
  * zai-mcp, pi_deploy) behind prompt keyword matching.
  *
  * Baseline:  ~52 tools → ~16,500 tok/req   (measured via `bun run qa`)
- * Gated:    ~24 tools →  ~7,900 tok/req   (saves ~8,500 tok/turn, ~52%; zai-mcp env-gated)
+ * Gated:    ON at start ~8,600 tok/req   (saves ~8,050 tok/turn, ~48%; zai-mcp env-gated)
  *
  * Tools reactivate instantly when the prompt mentions relevant keywords, and
  * once activated stay active for the rest of the session (they never re-gate
@@ -83,8 +83,8 @@ export const GATES: ToolGate[] = [
       "做成圖", "轉成圖",
     ],
     requires: {
-      nouns: ["image", "picture", "photo", "圖"],
-      verbs: ["generate", "create", "make", "draw", "render", "produce", "want", "need", "生成", "做", "畫", "繪"],
+      nouns: ["image", "picture", "photo", "圖片", "圖像", "照片", "相片"],
+      verbs: ["generate", "create", "make", "draw", "render", "produce", "生成", "做", "畫", "繪"],
     },
     description: "Flux2 image generation — text-to-image, i2i, faceswap, outpaint, upscale, restore",
   },
@@ -100,10 +100,10 @@ export const GATES: ToolGate[] = [
   },
   {
     names: ["ltx", "ltx_help"],
-    keywords: ["ltx", "t2v", "i2v", "vbvr", "relay", "影片特效"],
+    keywords: ["ltx", "t2v", "i2v", "vbvr", "video relay", "vbvr relay", "影片特效"],
     requires: {
       nouns: ["video", "影片", "視頻", "視訊", "動畫", "電影"],
-      verbs: ["generate", "create", "make", "animate", "produce", "render", "want", "need", "生成", "做", "製作", "剪"],
+      verbs: ["generate", "create", "make", "animate", "produce", "render", "生成", "做", "製作", "剪"],
     },
     description: "LTX video generation — text/image-to-video, upscale, vbvr, relay",
   },
@@ -114,7 +114,7 @@ export const GATES: ToolGate[] = [
       "read this image", "分析圖片", "分析圖像", "識別", "讀圖", "看圖",
     ],
     requires: {
-      nouns: ["pdf", "document", "文件", "scan", "image", "picture", "photo", "圖"],
+      nouns: ["pdf", "document", "文件", "scan", "image", "picture", "photo", "圖片", "圖像", "照片", "相片"],
       verbs: ["read", "convert", "parse", "extract", "ocr", "describe", "caption", "讀", "轉", "解析", "分析"],
     },
     description: "Document/image understanding — file→markdown, VLM describe, OCR, caption",
@@ -173,22 +173,13 @@ export const GATES: ToolGate[] = [
     ],
     description: "Movie orchestrator — idea→script→scene→assets→edit→compose pipeline",
   },
-  {
-    // Movie-production cost lifecycle (movie-director-cost ext). Bare "cost"
-    // must NOT be a keyword — it false-fires everywhere ("token cost", "cost
-    // of living", "what's the cost"). Gate behind noun∧verb `requires`
-    // (cost/budget/成本/預算 ∧ estimate/calculate/...) so only cost-ESTIMATION
-    // intent fires. Benign false-fires ("estimate the token cost") load the
-    // tool unused — non-gating per the QA verdict; documented in
-    // PRECISION_RISKS. Recovered ~538 tok/req (wayfinder ticket 04).
-    names: ["cost"],
-    keywords: ["cost estimate", "cost lifecycle", "budget estimate", "production cost", "成本估算", "預算估計", "報價單", "cost reserve", "cost reconcile", "cost snapshot"],
-    requires: {
-      nouns: ["cost", "budget", "報價", "成本", "預算", "quote"],
-      verbs: ["estimate", "reserve", "reconcile", "calculate", "breakdown", "snapshot", "估算", "計算", "評估", "估"],
-    },
-    description: "Movie-production cost lifecycle — estimate/reserve/reconcile/snapshot budget governance",
-  },
+  // NOTE (audit 2026-07-25): the `cost` gate was REMOVED. It gated the
+  // `movie-director-cost.ts` typed PROTOTYPE, which is measured offline
+  // (schema-cost EXTRA_ENTRIES) but NEVER loaded at runtime (absent from the
+  // manifest, static-extensions, and movie-director.ts imports). Gating a
+  // phantom inflated savings by ~536 tok/req. The real cost functionality
+  // lives in `movie`'s cost subcommands (covered by the `movie` gate). Do
+  // NOT re-add this gate unless movie-director-cost.ts is wired to load.
   {
     // zai-mcp MCP proxy tools — redundant with core web_search/fetch_content
     // but have large schemas (~1.1k tok combined). Gate behind intent so they
@@ -202,16 +193,17 @@ export const GATES: ToolGate[] = [
   },
   {
     // Bare "deploy"/"verify" are NOT keywords — they false-fire everywhere
-    // ("deploy to vercel", "verify the fix"), violating the S2 bare-word rule
-    // the cost/image/video gates follow. Gate behind noun∧verb `requires`
-    // (bundle/pi-agent/extension noun ∧ build/deploy/verify/test verb) so only
-    // pi-agent-bundling intent fires. The prior "verify the test results"
-    // false-fire is now fixed (removed from PRECISION_RISKS).
+    // ("deploy to vercel", "verify the fix"), violating the S2 bare-word rule.
+    // Gate behind noun∧verb `requires` (bundle/pi-agent/extension noun ∧
+    // build/deploy/verify/bundle verb) so only pi-agent-bundling intent fires.
+    // "test" was DROPPED from verbs (audit I-5): it fired on every test turn in
+    // a repo whose primary activity IS running tests — deploy intent is still
+    // caught by build/deploy/verify/bundle + the run-test/build-bundle keywords.
     names: ["pi_deploy", "pi_verify"],
     keywords: ["build bundle", "bundle pi-agent", "pi-agent bundle", "run-test"],
     requires: {
       nouns: ["bundle", "pi-agent", "pi agent", "extension"],
-      verbs: ["build", "deploy", "verify", "test", "bundle", "部署", "建置", "驗證", "打包"],
+      verbs: ["build", "deploy", "verify", "bundle", "部署", "建置", "驗證", "打包"],
     },
     description: "Build/verify/deploy the pi-agent bundle + extension bundles (wraps deploy.ts + run-test.sh)",
   },
@@ -221,7 +213,7 @@ export const GATES: ToolGate[] = [
  *  extension explicitly tracks. Unknown tools (not in this set) are always
  *  active (fail-open). Precomputed at module load so callers that need the
  *  active list without re-firing gates can filter directly. */
-const TRACKED_TOOLS = new Set([...CORE_TOOLS, ...GATES.flatMap((g) => g.names)]);
+export const TRACKED_TOOLS = new Set([...CORE_TOOLS, ...GATES.flatMap((g) => g.names)]);
 
 /** Pure: filter `allToolNames` to those that should be active given `sticky`.
  *  Tools not in TRACKED_TOOLS are always active (fail-open); tracked tools

@@ -5,7 +5,7 @@
  * is hermetic — no real extension loading). The live repo-wide run is covered by
  * the CLI smoke (`bun run src/cli.ts tools-metrics --schema-cost`).
  */
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, afterEach } from "bun:test";
 import {
 	estimateToolCost,
 	createCapturingApi,
@@ -17,8 +17,9 @@ import {
 	formatSchemaCostJson,
 } from "../commands/schema-cost.ts";
 import { Type } from "typebox";
-import { existsSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 
 // A realistic-ish TypeBox schema (nested object + enum + descriptions).
 const sampleDef = {
@@ -215,8 +216,12 @@ describe("discoverExtensionEntries (manifest-derived)", () => {
 		for (const s of ["core-task", "hermes-memory", "superpowers", "wayfind", "web-access", "obsidian", "btw", "file2md", "workflow", "knowledge-card"]) {
 			expect(sources.has(s)).toBe(true);
 		}
-		// curated extra kept
-		expect(sources.has("movie-director-cost")).toBe(true);
+		// movie-director-cost is NOT captured: it's a non-runtime PROTOTYPE
+		// (absent from manifest + static-extensions + movie-director.ts imports).
+		// Capturing it via EXTRA_ENTRIES inflated savings by ~536 tok (audit
+		// P0①, 2026-07-25). Do NOT re-add until movie-director-cost.ts is wired
+		// to load at runtime.
+		expect(sources.has("movie-director-cost")).toBe(false);
 	});
 
 	test("every derived path exists on disk and is absolute", () => {
@@ -224,5 +229,29 @@ describe("discoverExtensionEntries (manifest-derived)", () => {
 			expect(isAbsolute(e.path)).toBe(true);
 			expect(existsSync(e.path)).toBe(true);
 		}
+	});
+});
+
+describe("discoverExtensionEntries (manifest-error handling, audit I-7)", () => {
+	const tmpRoots: string[] = [];
+	const cleanup = () => { for (const d of tmpRoots) rmSync(d, { recursive: true, force: true }); tmpRoots.length = 0; };
+	afterEach(cleanup);
+
+	test("ENOENT (manifest absent, e.g. outside the repo) → extras only, no throw", () => {
+		const dir = mkdtempSync(join(tmpdir(), "sc-enonent-"));
+		tmpRoots.push(dir);
+		// no bun-apps/pi-agent/run-dir/manifest.json → ENOENT swallowed → extras only
+		expect(discoverExtensionEntries(dir)).toEqual([]);
+	});
+
+	test("malformed manifest (exists but bad JSON) → throws, not a silent false-green", () => {
+		const dir = mkdtempSync(join(tmpdir(), "sc-badman-"));
+		tmpRoots.push(dir);
+		const manifestDir = resolve(dir, "bun-apps/pi-agent/run-dir");
+		mkdirSync(manifestDir, { recursive: true });
+		writeFileSync(join(manifestDir, "manifest.json"), "{not valid json");
+		// A malformed manifest must NOT be swallowed into extras-only (that would
+		// undercount loaded tools → false-green). It throws loudly (audit I-7).
+		expect(() => discoverExtensionEntries(dir)).toThrow(/unreadable/i);
 	});
 });

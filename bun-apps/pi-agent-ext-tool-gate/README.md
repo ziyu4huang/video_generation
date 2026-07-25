@@ -1,16 +1,16 @@
 # Dynamic Tool Gate
 
-> Keeps core tools always active while gating heavy domain-specific tools behind prompt keyword matching — saving ~8,500 tokens per request (~52%; zai-mcp adds ~1.1k when registered).
+> Keeps core tools always active while gating heavy domain-specific tools behind prompt keyword matching — saving ~8,050 tokens per request (~48%; zai-mcp adds ~1.1k when registered).
 
 ## The Problem
 
-Every registered tool adds to the API request's tools schema. With a full extension ecosystem loaded, a single pi session can carry **~52 tools → ~16,500 tokens per request** — a fixed overhead charged on every turn, even when 95% of those tools are never used.
+Every registered tool adds to the API request's tools schema. With a full extension ecosystem loaded, a single pi session can carry **~55 tools → ~16,600 tokens per request** — a fixed overhead charged on every turn, even when 95% of those tools are never used.
 
 This extension solves that by keeping lightweight core tools always active and hiding heavy domain-specific tools (video generation, image generation, movie orchestration, etc.) behind keyword gates. When the user's prompt mentions a relevant keyword, the matching gate fires instantly and the tool becomes available for the rest of the session.
 
 ```
-Baseline:  ~52 tools → ~16,500 tok/req   (measured via `bun run qa`)
-Gated:    ~24 tools →  ~7,900 tok/req   (saves ~8,500 tok/turn, ~52%; zai-mcp env-gated)
+Baseline:  ~55 tools → ~16,600 tok/req   (measured via `bun run qa`)
+Gated:    ON at start ~8,600 tok/req   (saves ~8,050 tok/turn gross, ~48%; **net ~7,810** after the ~243 tok `enable_tool` escape-hatch overhead — audit I-6; zai-mcp env-gated)
 ```
 
 > Figures are measured by `bun run qa` (power-tool `schema-cost`). Only
@@ -164,7 +164,7 @@ On session start, a transient above-editor widget (keyed `"tool-gate"`) shows th
 
 ```
 🔧 Tool gate: 24/52 active
-saves ~8500 tok/req
+saves ~8050 tok/req
 ```
 
 The banner uses `setWidget` (not `notify`) so it never clobbers or is clobbered by other extensions' startup messages. It auto-dismisses after 8 seconds.
@@ -225,6 +225,48 @@ bun test --cwd bun-apps/pi-agent-ext-tool-gate
 #   extensions/tool-gate.test.ts          — core logic (filterActive, updateSticky, gateFires)
 #   __tests__/tool-gate-banner.test.ts     — startup banner + telemetry
 ```
+
+## QA
+
+### Savings (`qa/savings.ts`)
+
+Validates the "~8,050 tok/req saved" claim by measuring the actual token cost difference between the ungated baseline and the gated configuration. Uses the same schema-cost measurement as the runtime telemetry (`(desc+params)/4` heuristic) to ensure offline and runtime numbers agree by construction.
+
+```bash
+bun run qa:savings     # standalone, shows per-gate breakdown
+bun run qa              # savings included in full QA report
+```
+
+Reports total tokens saved, percentage saved, and a per-gate breakdown of which gates contribute how much. Flags any tools loaded at runtime but missing from the manifest (`gateMissing`). Since 2026-07-25 (audit I-6) it also reports **net** savings (gross minus the measured `enable_tool` overhead) plus the ~55 tok `promptSnippet`+`promptGuidelines` residual, so the always-on price of the escape hatch is visible and drift-detectable (future guideline bloat shows up as a falling net).
+
+### Miss-rate (`qa/miss-rate.ts`)
+
+Measures keyword recall in practice by parsing `TOOL_GATE_LOG_PATH` telemetry (turn / miss_candidate / activate events). Computes two lenses:
+
+- **escape-rate** (headline friction): `enable_tool` calls vs gated-domain sessions
+- **confirmed-miss** (gate-causation): a `miss_candidate` turn followed by an `activate` whose matched gate was dormant at that turn
+
+Confirmed-misses are classified as **common** (intent matched gate's design — bare keyword or noun∧verb co-occurrence) or **review** (intent unclear, requires human judgment).
+
+```bash
+bun run qa:miss <log-file>     # analyze telemetry log
+bun run qa:miss --json <log-file>   # machine-readable output
+```
+
+### Coverage (`qa/coverage.ts`)
+
+A third QA axis — **structural completeness** — alongside savings (amount) and miss-rate (recall). It answers: *which registered tools are heavy (≥ threshold tok/req) but NOT tracked by any gate — i.e. candidates the author forgot to gate?*
+
+A forgotten gate is safe (fail-open keeps the tool always-active) but silently degrades savings. This check closes the loop: schema-cost measures → coverage finds the ungated heavy → author adds a gate → savings confirms the recovery.
+
+```bash
+bun run qa:coverage                       # standalone, advisory (never fails)
+bun run qa:coverage --coverage-threshold 200   # tighten the threshold for a run
+bun run qa                                # coverage reported, non-gating by default
+bun run qa --strict                       # ungated heavy tools → FAIL
+```
+
+Default threshold **300 tok/req** (`--coverage-threshold` overrides). Builtins are excluded (they cannot be gated). The verdict is **non-gating by default**; under `--strict`, any ungated heavy tool fails the gate.
 
 ## Installation
 

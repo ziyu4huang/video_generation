@@ -131,9 +131,13 @@ export async function collectExtensionToolCosts(
  * that are not registered anywhere in pi-agent (neither manifest.extensions
  * nor staticExtensions) but are still worth costing.
  */
-const EXTRA_ENTRIES: { source: string; path: string }[] = [
-	{ source: "movie-director-cost", path: "bun-apps/pi-agent-ext-movie-director/extensions/movie-director-cost.ts" },
-];
+// NOTE (audit 2026-07-25): the movie-director-cost prototype entry was
+// REMOVED. That tool is a typed-prototype experiment that is NEVER loaded at
+// runtime (absent from the manifest, static-extensions, and movie-director.ts
+// imports). Measuring it offline while it never loads is what let a phantom
+// `cost` gate inflate savings by ~536 tok/req. If movie-director wires the
+// prototype to load, re-add the entry here AND a gate in tool-gate.
+const EXTRA_ENTRIES: { source: string; path: string }[] = [];
 
 /**
  * Discover extension entry files by DERIVING them from pi-agent's
@@ -153,8 +157,21 @@ export function discoverExtensionEntries(cwd: string): { source: string; path: s
 		manifest = JSON.parse(
 			readFileSync(resolve(cwd, "bun-apps/pi-agent/run-dir/manifest.json"), "utf8"),
 		);
-	} catch {
-		// outside the repo — measure extras only
+	} catch (e) {
+		if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+			// manifest absent (e.g. a compiled CLI running outside the repo) —
+			// measure extras only. Legitimate: there is simply nothing to derive.
+		} else {
+			// The manifest EXISTS but is unreadable/malformed. Swallowing this
+			// would silently fall back to extras-only and produce a FALSE-GREEN
+			// report (undercounting loaded tools — could mask a phantom or
+			// understate cost). Surface it loudly instead (audit I-7, 2026-07-25).
+			throw new Error(
+				`schema-cost: bun-apps/pi-agent/run-dir/manifest.json is unreadable — ` +
+				`${(e as Error).message}. Fix the manifest; a silent extras-only ` +
+				`fallback would produce a misleading (false-green) report.`,
+			);
+		}
 	}
 	const entries: { source: string; path: string }[] = [];
 	for (const e of manifest.extensions ?? []) {

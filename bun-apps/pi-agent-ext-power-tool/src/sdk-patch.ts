@@ -15,18 +15,63 @@
  */
 
 import { createRequire } from "node:module";
+import { collectHooks, type HooksSnapshot } from "./tools/inspect-hooks.js";
 
 let patched = false;
 const sdkRequire = createRequire(import.meta.url);
 
-// Runtime: ensureGetSystemPromptOptions() polyfills getSystemPromptOptions()
-// onto the tool execution context (ExtensionContext) — the SDK only declares
-// it on ExtensionCommandContext. This module augmentation mirrors that runtime
-// polyfill at the TYPE level, so power-tool tools can call it on ExtensionContext
-// without per-call casts. (Keep in sync with the runtime patch below.)
+// Runtime: ensureGetSystemPromptOptions() polyfills getSystemPromptOptions() AND
+// getHooks() onto the tool execution context (ExtensionContext) — the SDK only
+// declares them on ExtensionCommandContext / not at all. This module augmentation
+// mirrors the runtime polyfill at the TYPE level. (Keep in sync with the runtime
+// patch below.)
 declare module "@earendil-works/pi-coding-agent" {
   interface ExtensionContext {
     getSystemPromptOptions(): import("@earendil-works/pi-coding-agent").BuildSystemPromptOptions;
+    getHooks(): HooksSnapshot;
+  }
+}
+
+/** The slice of the runner instance the polyfills read. */
+export interface PolyfillRunner {
+  assertActive(): void;
+  getSystemPromptOptionsFn(): import("@earendil-works/pi-coding-agent").BuildSystemPromptOptions;
+  getSystemPromptFn(): string;
+  /** runner.extensions — the aggregate all hook handlers are stored on. */
+  extensions?: unknown[];
+}
+
+/**
+ * Install all context polyfills onto a ctx object. PURE w.r.t. ctx (mutates it).
+ * Exported so it is unit-testable without resolving the real Runner prototype.
+ * Each polyfill is independently guarded: a getHooks failure (caught) does NOT
+ * affect getSystemPromptOptions, and vice-versa.
+ */
+export function applyContextPolyfills(
+  ctx: Record<string, unknown>,
+  runner: PolyfillRunner,
+): void {
+  if (typeof ctx.getSystemPromptOptions !== "function") {
+    ctx.getSystemPromptOptions = () => {
+      runner.assertActive();
+      return runner.getSystemPromptOptionsFn();
+    };
+  }
+  if (typeof ctx.getSystemPrompt !== "function") {
+    ctx.getSystemPrompt = () => {
+      runner.assertActive();
+      return runner.getSystemPromptFn();
+    };
+  }
+  if (typeof ctx.getHooks !== "function") {
+    ctx.getHooks = (): HooksSnapshot => {
+      try {
+        runner.assertActive();
+        return collectHooks(runner.extensions);
+      } catch {
+        return { extensions: [], available: false };
+      }
+    };
   }
 }
 
@@ -75,24 +120,7 @@ export function ensureGetSystemPromptOptions(): boolean {
 
     proto.createContext = function (this: unknown, ...args: unknown[]) {
       const ctx = origCreateContext.apply(this, args);
-      const runnerThis = this as {
-        assertActive(): void;
-        getSystemPromptOptionsFn(): Record<string, unknown>;
-        getSystemPromptFn(): string;
-      };
-
-      if (typeof ctx.getSystemPromptOptions !== "function") {
-        ctx.getSystemPromptOptions = () => {
-          runnerThis.assertActive();
-          return runnerThis.getSystemPromptOptionsFn();
-        };
-      }
-      if (typeof ctx.getSystemPrompt !== "function") {
-        ctx.getSystemPrompt = () => {
-          runnerThis.assertActive();
-          return runnerThis.getSystemPromptFn();
-        };
-      }
+      applyContextPolyfills(ctx as Record<string, unknown>, this as PolyfillRunner);
       return ctx;
     };
 

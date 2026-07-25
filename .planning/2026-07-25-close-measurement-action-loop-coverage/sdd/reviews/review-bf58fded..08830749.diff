@@ -1,0 +1,134 @@
+# Review package: bf58fded..08830749
+
+## Commits
+08830749 feat(tool-gate): add measureCoverage wrapper + qa:coverage script + integration test
+
+## Files changed
+ bun-apps/pi-agent-ext-tool-gate/package.json       |  1 +
+ .../pi-agent-ext-tool-gate/qa/coverage.test.ts     | 14 +++++++++
+ bun-apps/pi-agent-ext-tool-gate/qa/coverage.ts     | 34 +++++++++++++++++++++-
+ 3 files changed, 48 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-tool-gate/package.json b/bun-apps/pi-agent-ext-tool-gate/package.json
+index 2ea750b7..5189cbd1 100644
+--- a/bun-apps/pi-agent-ext-tool-gate/package.json
++++ b/bun-apps/pi-agent-ext-tool-gate/package.json
+@@ -10,17 +10,18 @@
+     "extensions",
+     "README.md"
+   ],
+   "pi": {
+     "extensions": ["./extensions"]
+   },
+   "scripts": {
+     "test": "bun test",
+     "qa:savings": "bun run qa/savings.ts",
+     "qa:miss": "bun run qa/miss-rate.ts",
++    "qa:coverage": "bun run qa/coverage.ts",
+     "qa": "bun run qa/run.ts"
+   },
+   "peerDependencies": {
+     "@earendil-works/pi-coding-agent": "0.82.0",
+     "typebox": "*"
+   }
+ }
+diff --git a/bun-apps/pi-agent-ext-tool-gate/qa/coverage.test.ts b/bun-apps/pi-agent-ext-tool-gate/qa/coverage.test.ts
+index fc4c324b..03718f52 100644
+--- a/bun-apps/pi-agent-ext-tool-gate/qa/coverage.test.ts
++++ b/bun-apps/pi-agent-ext-tool-gate/qa/coverage.test.ts
+@@ -112,10 +112,24 @@ describe("assertSane", () => {
+ 	it("flags an empty report (no tools captured)", () => {
+ 		const r = analyzeCoverage(report([]), TH, ROOT);
+ 		expect(assertSane(r).some((p) => p.includes("no tools"))).toBe(true);
+ 	});
+ 
+ 	it("is clean for a normal report", () => {
+ 		const r = analyzeCoverage(report([tool("flux2", 500, "md")]), TH, ROOT);
+ 		expect(assertSane(r)).toEqual([]);
+ 	});
+ });
++
++describe("measureCoverage (integration — real repo)", () => {
++	it("collects the real repo and is structurally sane", async () => {
++		const { measureCoverage } = await import("./coverage.ts");
++		const r = await measureCoverage();
++		// Structural sanity (NOT a brittle count): the repo has tools and the
++		// collector didn't fall over. The exact ungated count is intentionally
++		// NOT asserted — a non-zero ungated is a real finding, not a test failure.
++		expect(r.totalTools).toBeGreaterThan(0);
++		expect(assertSane(r)).toEqual([]);
++		// The repo gates at least one heavy tool (e.g. flux2 / ltx / movie-*).
++		expect(r.gatedHeavy).toBeGreaterThanOrEqual(1);
++	}, 15000); // 15s timeout for integration test (offline collection may be slow)
++});
+diff --git a/bun-apps/pi-agent-ext-tool-gate/qa/coverage.ts b/bun-apps/pi-agent-ext-tool-gate/qa/coverage.ts
+index 8caeec2e..2f6dc42a 100644
+--- a/bun-apps/pi-agent-ext-tool-gate/qa/coverage.ts
++++ b/bun-apps/pi-agent-ext-tool-gate/qa/coverage.ts
+@@ -9,21 +9,21 @@
+  * never added to a gate, tool-gate's fail-open design keeps it always-active
+  * (safe — no breakage) but the savings silently degrade. This QA surfaces that
+  * gap so the loop closes: schema-cost measures → coverage finds the ungated
+  * heavy → author adds a gate → savings confirms the recovery.
+  *
+  * Pure core (analyzeCoverage) is separated from the one buildSchemaCostReport
+  * call so it is unit-testable against a fixture without booting collection.
+  *
+  * Run: `bun run qa:coverage`  (wired in package.json)
+  */
+-import type { SchemaCostReport } from "../../pi-agent-cli/src/commands/schema-cost.ts";
++import { buildSchemaCostReport, resolveRepoRoot, type SchemaCostReport } from "../../pi-agent-cli/src/commands/schema-cost.ts";
+ import { TRACKED_TOOLS } from "../extensions/tool-gate.ts";
+ 
+ /** Heavy tools at or above this per-request token cost are coverage candidates. */
+ export const DEFAULT_COVERAGE_THRESHOLD = 300;
+ 
+ /** A heavy tool that no gate tracks. */
+ export interface UngatedTool {
+ 	name: string;
+ 	tokens: number;
+ 	source: string;
+@@ -99,10 +99,42 @@ export function formatCoverage(r: CoverageReport): string[] {
+ }
+ 
+ /** Hard structural assertions (always-gating if violated). */
+ export function assertSane(r: CoverageReport): string[] {
+ 	const problems: string[] = [];
+ 	if (r.threshold <= 0) problems.push("threshold <= 0 — nonsensical");
+ 	if (r.totalTools === 0) problems.push("no tools captured — schema-cost collection returned nothing");
+ 	if (r.heavyTools < r.gatedHeavy) problems.push("gatedHeavy > heavyTools — impossible");
+ 	return problems;
+ }
++
++// --- async collection + runnable entry -------------------------------------
++
++/**
++ * Measure coverage against the real repo, offline (capturing-mock collection —
++ * no agent boot; same path `qa/savings.ts` uses). Pass an explicit `root`, or
++ * omit to auto-resolve (walk up to `bun-apps/`).
++ */
++export async function measureCoverage(
++	root?: string,
++	threshold?: number,
++): Promise<CoverageReport> {
++	const resolved = root ?? resolveRepoRoot();
++	const th = threshold ?? DEFAULT_COVERAGE_THRESHOLD;
++	const report = await buildSchemaCostReport(resolved);
++	return analyzeCoverage(report, th, resolved);
++}
++
++async function main() {
++	const r = await measureCoverage();
++	console.log(formatCoverage(r).join("\n"));
++	const problems = assertSane(r);
++	if (problems.length) {
++		console.error("\n❌ STRUCTURAL FAIL:");
++		for (const p of problems) console.error("  - " + p);
++		process.exit(1);
++	}
++	console.log(`\n${r.pass ? "✅" : "❌"} coverage ${r.pass ? "complete" : `gap: ${r.ungated.length} ungated`} (non-gating by default)`);
++}
++
++// Bun: run only when invoked directly (`bun run qa:coverage`).
++if (import.meta.main) void main();

@@ -1,0 +1,633 @@
+# Review package: 351959a1..HEAD
+
+## Commits
+2e8ef8b7 docs(tool-gate): document the coverage QA axis
+6b0bec5f feat(tool-gate): wire coverage into qa/run.ts (report + --coverage-threshold + --strict gate)
+08830749 feat(tool-gate): add measureCoverage wrapper + qa:coverage script + integration test
+bf58fded feat(tool-gate): add coverage pure core (analyzeCoverage) + export TRACKED_TOOLS
+
+## Files changed
+ bun-apps/pi-agent-ext-tool-gate/README.md          |  42 +++++++
+ .../pi-agent-ext-tool-gate/extensions/tool-gate.ts |   2 +-
+ bun-apps/pi-agent-ext-tool-gate/package.json       |   1 +
+ .../pi-agent-ext-tool-gate/qa/coverage.test.ts     | 135 ++++++++++++++++++++
+ bun-apps/pi-agent-ext-tool-gate/qa/coverage.ts     | 140 +++++++++++++++++++++
+ bun-apps/pi-agent-ext-tool-gate/qa/run.ts          |  40 +++++-
+ 6 files changed, 355 insertions(+), 5 deletions(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-tool-gate/README.md b/bun-apps/pi-agent-ext-tool-gate/README.md
+index acef3632..60a29744 100644
+--- a/bun-apps/pi-agent-ext-tool-gate/README.md
++++ b/bun-apps/pi-agent-ext-tool-gate/README.md
+@@ -219,13 +219,55 @@ get_search_content                 — retrieve stored search results
+ 
+ ```bash
+ # Run all tests
+ bun test --cwd bun-apps/pi-agent-ext-tool-gate
+ 
+ # Key test files:
+ #   extensions/tool-gate.test.ts          — core logic (filterActive, updateSticky, gateFires)
+ #   __tests__/tool-gate-banner.test.ts     — startup banner + telemetry
+ ```
+ 
++## QA
++
++### Savings (`qa/savings.ts`)
++
++Validates the "~8,500 tok/req saved" claim by measuring the actual token cost difference between the ungated baseline and the gated configuration. Uses the same schema-cost measurement as the runtime telemetry (`(desc+params)/4` heuristic) to ensure offline and runtime numbers agree by construction.
++
++```bash
++bun run qa:savings     # standalone, shows per-gate breakdown
++bun run qa              # savings included in full QA report
++```
++
++Reports total tokens saved, percentage saved, and a per-gate breakdown of which gates contribute how much. Flags any tools loaded at runtime but missing from the manifest (`gateMissing`).
++
++### Miss-rate (`qa/miss-rate.ts`)
++
++Measures keyword recall in practice by parsing `TOOL_GATE_LOG_PATH` telemetry (turn / miss_candidate / activate events). Computes two lenses:
++
++- **escape-rate** (headline friction): `enable_tool` calls vs gated-domain sessions
++- **confirmed-miss** (gate-causation): a `miss_candidate` turn followed by an `activate` whose matched gate was dormant at that turn
++
++Confirmed-misses are classified as **common** (intent matched gate's design — bare keyword or noun∧verb co-occurrence) or **review** (intent unclear, requires human judgment).
++
++```bash
++bun run qa:miss <log-file>     # analyze telemetry log
++bun run qa:miss --json <log-file>   # machine-readable output
++```
++
++### Coverage (`qa/coverage.ts`)
++
++A third QA axis — **structural completeness** — alongside savings (amount) and miss-rate (recall). It answers: *which registered tools are heavy (≥ threshold tok/req) but NOT tracked by any gate — i.e. candidates the author forgot to gate?*
++
++A forgotten gate is safe (fail-open keeps the tool always-active) but silently degrades savings. This check closes the loop: schema-cost measures → coverage finds the ungated heavy → author adds a gate → savings confirms the recovery.
++
++```bash
++bun run qa:coverage                       # standalone, advisory (never fails)
++bun run qa:coverage --coverage-threshold 200   # tighten the threshold for a run
++bun run qa                                # coverage reported, non-gating by default
++bun run qa --strict                       # ungated heavy tools → FAIL
++```
++
++Default threshold **300 tok/req** (`--coverage-threshold` overrides). Builtins are excluded (they cannot be gated). The verdict is **non-gating by default**; under `--strict`, any ungated heavy tool fails the gate.
++
+ ## Installation
+ 
+ Registered as a dynamic extension in `bun-apps/pi-agent/run-dir/manifest.json`. No manual setup needed — the extension auto-loads on session start.
+diff --git a/bun-apps/pi-agent-ext-tool-gate/extensions/tool-gate.ts b/bun-apps/pi-agent-ext-tool-gate/extensions/tool-gate.ts
+index ae830c1b..a2595b83 100644
+--- a/bun-apps/pi-agent-ext-tool-gate/extensions/tool-gate.ts
++++ b/bun-apps/pi-agent-ext-tool-gate/extensions/tool-gate.ts
+@@ -214,21 +214,21 @@ export const GATES: ToolGate[] = [
+       verbs: ["build", "deploy", "verify", "test", "bundle", "部署", "建置", "驗證", "打包"],
+     },
+     description: "Build/verify/deploy the pi-agent bundle + extension bundles (wraps deploy.ts + run-test.sh)",
+   },
+ ];
+ 
+ /** Union of CORE_TOOLS and every gate's tool names — the set of tools this
+  *  extension explicitly tracks. Unknown tools (not in this set) are always
+  *  active (fail-open). Precomputed at module load so callers that need the
+  *  active list without re-firing gates can filter directly. */
+-const TRACKED_TOOLS = new Set([...CORE_TOOLS, ...GATES.flatMap((g) => g.names)]);
++export const TRACKED_TOOLS = new Set([...CORE_TOOLS, ...GATES.flatMap((g) => g.names)]);
+ 
+ /** Pure: filter `allToolNames` to those that should be active given `sticky`.
+  *  Tools not in TRACKED_TOOLS are always active (fail-open); tracked tools
+  *  are active only when present in `sticky`. Does NOT mutate sticky or
+  *  evaluate gate keywords — gate firing is a separate concern. */
+ export function filterActive(allToolNames: string[], sticky: Set<string>): string[] {
+   return allToolNames.filter((name) => !TRACKED_TOOLS.has(name) || sticky.has(name));
+ }
+ 
+ // ── Startup banner (obsidian-style above-editor widget) ──────────
+diff --git a/bun-apps/pi-agent-ext-tool-gate/package.json b/bun-apps/pi-agent-ext-tool-gate/package.json
+index 2ea750b7..5189cbd1 100644
+--- a/bun-apps/pi-agent-ext-tool-gate/package.json
++++ b/bun-apps/pi-agent-ext-tool-gate/package.json
+@@ -10,17 +10,18 @@
+     "extensions",
+     "README.md"
+   ],
+   "pi": {
+     "extensions": ["./extensions"]
+   },
+   "scripts": {
+     "test": "bun test",
+     "qa:savings": "bun run qa/savings.ts",
+     "qa:miss": "bun run qa/miss-rate.ts",
++    "qa:coverage": "bun run qa/coverage.ts",
+     "qa": "bun run qa/run.ts"
+   },
+   "peerDependencies": {
+     "@earendil-works/pi-coding-agent": "0.82.0",
+     "typebox": "*"
+   }
+ }
+diff --git a/bun-apps/pi-agent-ext-tool-gate/qa/coverage.test.ts b/bun-apps/pi-agent-ext-tool-gate/qa/coverage.test.ts
+new file mode 100644
+index 00000000..03718f52
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-tool-gate/qa/coverage.test.ts
+@@ -0,0 +1,135 @@
++/**
++ * Tests for the coverage analyzer (close the measurement→action loop).
++ *
++ * The pure core (analyzeCoverage) is exercised against a hand-crafted
++ * SchemaCostReport fixture — no agent boot, no repo discovery. One structural
++ * integration test (measureCoverage) runs the real collector at the end.
++ */
++import { describe, expect, it } from "bun:test";
++import {
++	analyzeCoverage,
++	formatCoverage,
++	assertSane,
++	DEFAULT_COVERAGE_THRESHOLD,
++} from "./coverage.ts";
++import type { SchemaCostReport, ToolCost } from "../../pi-agent-cli/src/commands/schema-cost.ts";
++
++/** Minimal ToolCost fixture — only the fields analyzeCoverage reads matter. */
++const tool = (name: string, approxTokens: number, source: string): ToolCost =>
++	({ name, descLen: 0, paramsLen: 0, approxTokens, source }) as ToolCost;
++
++/** Build a SchemaCostReport shell from a tool list (totals derived). */
++function report(tools: ToolCost[]): SchemaCostReport {
++	return {
++		tools,
++		totalTokens: tools.reduce((s, t) => s + t.approxTokens, 0),
++		builtinCount: tools.filter((t) => t.source === "(builtin)").length,
++		extensionCount: tools.filter((t) => t.source !== "(builtin)").length,
++		errors: [],
++	} as SchemaCostReport;
++}
++
++const ROOT = "/fake/repo";
++const TH = DEFAULT_COVERAGE_THRESHOLD; // 300
++
++describe("analyzeCoverage", () => {
++	it("reports a heavy tool NOT in TRACKED_TOOLS as ungated", () => {
++		const r = analyzeCoverage(report([tool("synthetic_heavy", 500, "some-ext")]), TH, ROOT);
++		expect(r.ungated.map((u) => u.name)).toEqual(["synthetic_heavy"]);
++		expect(r.heavyTools).toBe(1);
++		expect(r.gatedHeavy).toBe(0);
++		expect(r.pass).toBe(false);
++	});
++
++	it("counts a heavy TRACKED tool as gatedHeavy (not ungated)", () => {
++		// "flux2" is a real gate name → present in TRACKED_TOOLS
++		const r = analyzeCoverage(report([tool("flux2", 500, "movie-director")]), TH, ROOT);
++		expect(r.gatedHeavy).toBe(1);
++		expect(r.ungated).toEqual([]);
++		expect(r.pass).toBe(true);
++	});
++
++	it("never reports a builtin, even if heavy", () => {
++		const r = analyzeCoverage(report([tool("bash", 9999, "(builtin)")]), TH, ROOT);
++		expect(r.ungated).toEqual([]);
++		expect(r.heavyTools).toBe(0); // builtins excluded from the heavy count
++		expect(r.gatedHeavy).toBe(0);
++		expect(r.pass).toBe(true);
++	});
++
++	it("ignores sub-threshold tools", () => {
++		const r = analyzeCoverage(report([tool("synthetic_small", 100, "some-ext")]), TH, ROOT);
++		expect(r.ungated).toEqual([]);
++		expect(r.heavyTools).toBe(0);
++		expect(r.pass).toBe(true);
++	});
++
++	it("sorts ungated desc by tokens", () => {
++		const r = analyzeCoverage(
++			report([tool("a", 400, "x"), tool("b", 900, "x"), tool("c", 600, "x")]),
++			TH,
++			ROOT,
++		);
++		expect(r.ungated.map((u) => u.name)).toEqual(["b", "c", "a"]);
++	});
++
++	it("respects a threshold override lower than default", () => {
++		// 250 < default 300 but >= 200 → caught only under the override
++		const r = analyzeCoverage(report([tool("synthetic_mid", 250, "x")]), 200, ROOT);
++		expect(r.ungated.map((u) => u.name)).toEqual(["synthetic_mid"]);
++		expect(r.threshold).toBe(200);
++	});
++
++	it("passes root through to the report", () => {
++		const r = analyzeCoverage(report([]), TH, ROOT);
++		expect(r.root).toBe(ROOT);
++		expect(r.totalTools).toBe(0);
++	});
++});
++
++describe("formatCoverage", () => {
++	it("renders a healthy (✅) report when nothing is ungated", () => {
++		const r = analyzeCoverage(report([tool("flux2", 500, "md")]), TH, ROOT);
++		const out = formatCoverage(r).join("\n");
++		expect(out).toContain("✅");
++		expect(out).not.toContain("NOT gated");
++	});
++
++	it("renders a gap (❌) + the ungated tool list when something is missing", () => {
++		const r = analyzeCoverage(report([tool("synthetic_heavy", 500, "x")]), TH, ROOT);
++		const out = formatCoverage(r).join("\n");
++		expect(out).toContain("❌");
++		expect(out).toContain("synthetic_heavy");
++	});
++});
++
++describe("assertSane", () => {
++	it("flags a non-positive threshold", () => {
++		const r = analyzeCoverage(report([tool("flux2", 500, "md")]), -1, ROOT);
++		expect(assertSane(r).some((p) => p.includes("threshold"))).toBe(true);
++	});
++
++	it("flags an empty report (no tools captured)", () => {
++		const r = analyzeCoverage(report([]), TH, ROOT);
++		expect(assertSane(r).some((p) => p.includes("no tools"))).toBe(true);
++	});
++
++	it("is clean for a normal report", () => {
++		const r = analyzeCoverage(report([tool("flux2", 500, "md")]), TH, ROOT);
++		expect(assertSane(r)).toEqual([]);
++	});
++});
++
++describe("measureCoverage (integration — real repo)", () => {
++	it("collects the real repo and is structurally sane", async () => {
++		const { measureCoverage } = await import("./coverage.ts");
++		const r = await measureCoverage();
++		// Structural sanity (NOT a brittle count): the repo has tools and the
++		// collector didn't fall over. The exact ungated count is intentionally
++		// NOT asserted — a non-zero ungated is a real finding, not a test failure.
++		expect(r.totalTools).toBeGreaterThan(0);
++		expect(assertSane(r)).toEqual([]);
++		// The repo gates at least one heavy tool (e.g. flux2 / ltx / movie-*).
++		expect(r.gatedHeavy).toBeGreaterThanOrEqual(1);
++	}, 15000); // 15s timeout for integration test (offline collection may be slow)
++});
+diff --git a/bun-apps/pi-agent-ext-tool-gate/qa/coverage.ts b/bun-apps/pi-agent-ext-tool-gate/qa/coverage.ts
+new file mode 100644
+index 00000000..2f6dc42a
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-tool-gate/qa/coverage.ts
+@@ -0,0 +1,140 @@
++/**
++ * Coverage measurement — QA harness (close the measurement→action loop).
++ *
++ * Question: which registered tools are heavy (≥ threshold tok/req) but NOT
++ * tracked by any tool-gate gate — i.e. candidates the author forgot to gate?
++ *
++ * power-tool's schema-cost measures every tool's per-request token cost;
++ * tool-gate's GATES array is hand-maintained. If a heavy extension lands but is
++ * never added to a gate, tool-gate's fail-open design keeps it always-active
++ * (safe — no breakage) but the savings silently degrade. This QA surfaces that
++ * gap so the loop closes: schema-cost measures → coverage finds the ungated
++ * heavy → author adds a gate → savings confirms the recovery.
++ *
++ * Pure core (analyzeCoverage) is separated from the one buildSchemaCostReport
++ * call so it is unit-testable against a fixture without booting collection.
++ *
++ * Run: `bun run qa:coverage`  (wired in package.json)
++ */
++import { buildSchemaCostReport, resolveRepoRoot, type SchemaCostReport } from "../../pi-agent-cli/src/commands/schema-cost.ts";
++import { TRACKED_TOOLS } from "../extensions/tool-gate.ts";
++
++/** Heavy tools at or above this per-request token cost are coverage candidates. */
++export const DEFAULT_COVERAGE_THRESHOLD = 300;
++
++/** A heavy tool that no gate tracks. */
++export interface UngatedTool {
++	name: string;
++	tokens: number;
++	source: string;
++}
++
++/** The coverage verdict. `pass === (ungated.length === 0)`. */
++export interface CoverageReport {
++	/** Repo root the measurement ran against. */
++	root: string;
++	/** Token threshold used for this run. */
++	threshold: number;
++	/** Total tools captured (builtins + extensions). */
++	totalTools: number;
++	/** Non-builtin tools at/above threshold. */
++	heavyTools: number;
++	/** Heavy tools NOT in TRACKED_TOOLS — the findings (sorted desc by tokens). */
++	ungated: UngatedTool[];
++	/** Heavy tools that ARE tracked — healthy. */
++	gatedHeavy: number;
++	/** True iff ungated is empty. */
++	pass: boolean;
++}
++
++/**
++ * Pure: classify a captured report into the coverage verdict. No I/O.
++ * Builtins (source === "(builtin)") are never heavy and never reported.
++ */
++export function analyzeCoverage(
++	report: SchemaCostReport,
++	threshold: number,
++	root: string,
++): CoverageReport {
++	const ungated: UngatedTool[] = [];
++	let heavyTools = 0;
++	let gatedHeavy = 0;
++	for (const t of report.tools) {
++		if (t.source === "(builtin)") continue; // builtins can't be gated
++		if (t.approxTokens < threshold) continue; // below threshold = not heavy
++		heavyTools++;
++		if (TRACKED_TOOLS.has(t.name)) {
++			gatedHeavy++;
++			continue;
++		}
++		ungated.push({ name: t.name, tokens: t.approxTokens, source: t.source });
++	}
++	ungated.sort((a, b) => b.tokens - a.tokens);
++	return {
++		root,
++		threshold,
++		totalTools: report.tools.length,
++		heavyTools,
++		ungated,
++		gatedHeavy,
++		pass: ungated.length === 0,
++	};
++}
++
++/** Human-readable report. */
++export function formatCoverage(r: CoverageReport): string[] {
++	const lines: string[] = [
++		`threshold:   ${r.threshold} tok/req`,
++		`tools:       ${r.totalTools} total · ${r.heavyTools} heavy (excl. builtins) · ${r.gatedHeavy} gated-heavy ✅`,
++		`ungated:     ${r.ungated.length} heavy tool(s) not tracked by any gate`,
++	];
++	if (r.ungated.length) {
++		lines.push("", "heavy tools NOT gated (candidates the author forgot):");
++		for (const u of r.ungated) lines.push(`  ${u.tokens.toString().padStart(5)} tok  ${u.name}  [${u.source}]`);
++		lines.push("", "❌ coverage gap — add a GATE entry (extensions/tool-gate.ts) or confirm intentional always-on");
++	} else {
++		lines.push("", "✅ every heavy tool is tracked by a gate (or is a builtin)");
++	}
++	return lines;
++}
++
++/** Hard structural assertions (always-gating if violated). */
++export function assertSane(r: CoverageReport): string[] {
++	const problems: string[] = [];
++	if (r.threshold <= 0) problems.push("threshold <= 0 — nonsensical");
++	if (r.totalTools === 0) problems.push("no tools captured — schema-cost collection returned nothing");
++	if (r.heavyTools < r.gatedHeavy) problems.push("gatedHeavy > heavyTools — impossible");
++	return problems;
++}
++
++// --- async collection + runnable entry -------------------------------------
++
++/**
++ * Measure coverage against the real repo, offline (capturing-mock collection —
++ * no agent boot; same path `qa/savings.ts` uses). Pass an explicit `root`, or
++ * omit to auto-resolve (walk up to `bun-apps/`).
++ */
++export async function measureCoverage(
++	root?: string,
++	threshold?: number,
++): Promise<CoverageReport> {
++	const resolved = root ?? resolveRepoRoot();
++	const th = threshold ?? DEFAULT_COVERAGE_THRESHOLD;
++	const report = await buildSchemaCostReport(resolved);
++	return analyzeCoverage(report, th, resolved);
++}
++
++async function main() {
++	const r = await measureCoverage();
++	console.log(formatCoverage(r).join("\n"));
++	const problems = assertSane(r);
++	if (problems.length) {
++		console.error("\n❌ STRUCTURAL FAIL:");
++		for (const p of problems) console.error("  - " + p);
++		process.exit(1);
++	}
++	console.log(`\n${r.pass ? "✅" : "❌"} coverage ${r.pass ? "complete" : `gap: ${r.ungated.length} ungated`} (non-gating by default)`);
++}
++
++// Bun: run only when invoked directly (`bun run qa:coverage`).
++if (import.meta.main) void main();
+diff --git a/bun-apps/pi-agent-ext-tool-gate/qa/run.ts b/bun-apps/pi-agent-ext-tool-gate/qa/run.ts
+index 68e17fce..3c1e0c47 100644
+--- a/bun-apps/pi-agent-ext-tool-gate/qa/run.ts
++++ b/bun-apps/pi-agent-ext-tool-gate/qa/run.ts
+@@ -12,20 +12,26 @@
+  * Verdict thresholds (ticket 05 — grilling 2026-07-23):
+  *   - savings floor: saved ≥ 15% AND ≥ 2,000 tok → gates the default.
+  *   - default pass  = savings-floor-met ∧ L1 intended-behavior holds ∧ sane.
+  *   - --strict pass = default ∧ ZERO task-breaking gates (blind/misroute).
+  *   - false-fires NEVER gate — they're benign (load an unneeded tool; minor
+  *     token cost, no task break). They're reported, not counted.
+  */
+ import { writeFileSync, mkdirSync } from "node:fs";
+ import { resolve } from "node:path";
+ import { measureSavings, formatSavings, assertSane, caveats, type SavingsReport } from "./savings.ts";
++import {
++	measureCoverage,
++	formatCoverage,
++	assertSane as assertCoverageSane,
++	type CoverageReport,
++} from "./coverage.ts";
+ import { evaluateCorpus, tally, type CorpusResult } from "./evaluate.ts";
+ import {
+ 	evaluateReachability,
+ 	summarizeReachability,
+ 	formatReachability,
+ 	runLive,
+ 	type ReachabilityResult,
+ 	type ReachabilitySummary,
+ 	type LiveResult,
+ 	type LiveOpts,
+@@ -34,79 +40,90 @@ import {
+ /** Verdict thresholds (wayfinder ticket 05 — grilling 2026-07-23). */
+ export const SAVINGS_FLOOR = { pct: 15, tok: 2000 } as const;
+ 
+ export interface QaOptions {
+ 	root?: string;
+ 	strict?: boolean;
+ 	l2?: boolean;
+ 	model?: string;
+ 	out?: string;
+ 	json?: boolean;
++	coverageThreshold?: number;
+ }
+ 
+ export interface L2Block {
+ 	enabled: boolean;
+ 	reachability: ReachabilitySummary | null;
+ 	rows: ReachabilityResult[];
+ 	live: LiveResult;
+ }
+ 
+ export interface QaResult {
+ 	timestamp: string;
+ 	root: string;
+ 	mode: { strict: boolean; l2: boolean; model?: string };
+ 	savings: SavingsReport;
++	coverage: CoverageReport;
+ 	corpus: CorpusResult;
+ 	l2: L2Block;
+ 	savingsProblems: string[];
++	coverageProblems: string[];
+ 	savingsFloorMet: boolean;
+ 	pass: boolean;
+ 	reason: string;
+ }
+ 
+ export async function runQa(opts: QaOptions = {}): Promise<QaResult> {
+ 	const savings = await measureSavings(opts.root);
++	const coverage = await measureCoverage(opts.root, opts.coverageThreshold);
+ 	const corpus = evaluateCorpus();
+ 
+ 	let l2: L2Block;
+ 	if (opts.l2) {
+ 		const rows = evaluateReachability();
+ 		const live = await runLive(undefined, { model: opts.model } as LiveOpts);
+ 		l2 = { enabled: true, reachability: summarizeReachability(rows), rows, live };
+ 	} else {
+ 		l2 = { enabled: false, reachability: null, rows: [], live: { ran: false, reason: "skipped (pass --l2)" } };
+ 	}
+ 
+ 	const savingsProblems = assertSane(savings);
++	const coverageProblems = assertCoverageSane(coverage);
+ 	const savingsFloorMet = savings.savedPct >= SAVINGS_FLOOR.pct && savings.savedTok >= SAVINGS_FLOOR.tok;
+-	const sane = savingsProblems.length === 0;
++	const sane = savingsProblems.length === 0 && coverageProblems.length === 0;
+ 	const intendedOk = corpus.intendedPass && sane;
+ 	const strictOk = corpus.taskBreakingGates.length === 0; // false-fires excluded
+-	const pass = (opts.strict ? intendedOk && strictOk : intendedOk) && savingsFloorMet;
++	const strictCoverageOk = coverage.ungated.length === 0; // coverage gate (--strict only)
++	const pass =
++		(opts.strict ? intendedOk && strictOk && strictCoverageOk : intendedOk) && savingsFloorMet;
+ 	const reason = !savingsFloorMet
+ 		? `savings below floor (need ≥${SAVINGS_FLOOR.pct}% AND ≥${SAVINGS_FLOOR.tok.toLocaleString()} tok; got ${savings.savedPct}%/${savings.savedTok.toLocaleString()})`
+ 		: !corpus.intendedPass
+ 			? `L1 intended-behavior bar failed (see must-fire/must-not-fire/escape cases)`
+ 			: !sane
+-				? `savings structurally broken: ${savingsProblems.join("; ")}`
++				? `savings/coverage structurally broken: ${[...savingsProblems, ...coverageProblems].join("; ")}`
+ 				: opts.strict && !strictOk
+ 					? `--strict: ${corpus.taskBreakingGates.length} task-breaking gate(s) open (${corpus.taskBreakingGates.join(", ")}) — false-fires excluded`
+-					: "savings floor met + L1 intended-behavior holds; task-breaking gates reported (use --strict to gate on them)";
++					: opts.strict && !strictCoverageOk
++						? `--strict: ${coverage.ungated.length} ungated heavy tool(s) (${coverage.ungated.map((u) => u.name).join(", ")}) — add a gate or confirm always-on`
++						: "savings floor met + L1 intended-behavior holds; task-breaking gates + coverage reported (use --strict to gate on them)";
+ 
+ 	return {
+ 		timestamp: new Date().toISOString(),
+ 		root: savings.root,
+ 		mode: { strict: !!opts.strict, l2: !!opts.l2, model: opts.model },
+ 		savings,
++		coverage,
+ 		corpus,
+ 		l2,
+ 		savingsProblems,
++		coverageProblems,
+ 		savingsFloorMet,
+ 		pass,
+ 		reason,
+ 	};
+ }
+ 
+ // ── reporting ───────────────────────────────────────────────────────────────
+ 
+ function verdictGlyph(pass: boolean, strict: boolean) {
+ 	return pass ? "✅ PASS" : `❌ FAIL${strict ? " (--strict)" : ""}`;
+@@ -120,20 +137,24 @@ export function formatReport(r: QaResult): string {
+ 		``,
+ 		`- **verdict:** ${verdictGlyph(r.pass, r.mode.strict)} — ${r.reason}`,
+ 		`- timestamp: ${r.timestamp}`,
+ 		`- repo: \`${r.root}\``,
+ 		`- mode: ${r.mode.strict ? "strict" : "default"}${r.mode.l2 ? " +l2" : ""}${r.mode.model ? ` --model ${r.mode.model}` : ""}`,
+ 		``,
+ 		`## Savings`,
+ 		...formatSavings(s),
+ 		`- savings floor (≥${SAVINGS_FLOOR.pct}% AND ≥${SAVINGS_FLOOR.tok.toLocaleString()} tok): ${r.savingsFloorMet ? "✅ met" : "❌ NOT met"}`,
+ 		``,
++		`## Coverage`,
++		...formatCoverage(r.coverage),
++		`- coverage verdict: ${r.coverage.pass ? "✅ complete" : `❌ ${r.coverage.ungated.length} ungated`} — ${r.mode.strict ? "GATING (--strict)" : "non-gating by default"}`,
++		``,
+ 		`## Layer-1 capability (deterministic)`,
+ 		`- must-fire:     ${tally(c.mustFire)}`,
+ 		`- must-not-fire: ${tally(c.mustNotFire)}`,
+ 		`- escape-name:   ${tally(c.escapeName)}  (of ${c.escapeName.length} gates)`,
+ 		`- escape-intent: ${tally(c.escapeIntent)}`,
+ 		`- coverage gaps: ${c.coverageGaps.length ? c.coverageGaps.join(", ") : "none"}`,
+ 		``,
+ 		`### Task-breaking gates (${c.taskBreakingGates.length}) — ${r.mode.strict ? "GATING (--strict)" : "recoverable via enable_tool({name}); non-gating by default"}`,
+ 		...(c.taskBreakingGates.length
+ 			? c.taskBreakingGates.map((g) => `- \`${g}\` — intent-mode can't reach; name-mode only`)
+@@ -182,20 +203,29 @@ export function formatJson(r: QaResult): string {
+ 			savings: {
+ 				offTotal: r.savings.offTotal,
+ 				gatedTotal: r.savings.gatedTotal,
+ 				savedTok: r.savings.savedTok,
+ 				savedPct: r.savings.savedPct,
+ 				claimed: r.savings.claimed,
+ 				deviation: r.savings.deviation,
+ 				floorMet: r.savingsFloorMet,
+ 				caveats: caveats(r.savings),
+ 			},
++			coverage: {
++				threshold: r.coverage.threshold,
++				totalTools: r.coverage.totalTools,
++				heavyTools: r.coverage.heavyTools,
++				gatedHeavy: r.coverage.gatedHeavy,
++				ungated: r.coverage.ungated,
++				pass: r.coverage.pass,
++				structuralProblems: r.coverageProblems,
++			},
+ 			l1: {
+ 				mustFire: tally(r.corpus.mustFire),
+ 				mustNotFire: tally(r.corpus.mustNotFire),
+ 				escapeName: tally(r.corpus.escapeName),
+ 				escapeIntent: tally(r.corpus.escapeIntent),
+ 				intendedPass: r.corpus.intendedPass,
+ 				taskBreakingGates: r.corpus.taskBreakingGates,
+ 				benignFalseFires: r.corpus.precisionRisks.filter((x) => x.fires).length,
+ 			},
+ 			l2: r.l2.enabled
+@@ -215,34 +245,36 @@ export function formatJson(r: QaResult): string {
+ function parseArgs(argv: string[]): QaOptions {
+ 	const opts: QaOptions = {};
+ 	for (let i = 0; i < argv.length; i++) {
+ 		const a = argv[i];
+ 		if (a === "--strict") opts.strict = true;
+ 		else if (a === "--l2") opts.l2 = true;
+ 		else if (a === "--model") opts.model = argv[++i];
+ 		else if (a === "--json") opts.json = true;
+ 		else if (a === "--out") opts.out = argv[++i];
+ 		else if (a === "--root") opts.root = argv[++i];
++		else if (a === "--coverage-threshold") opts.coverageThreshold = Number(argv[++i]);
+ 	}
+ 	return opts;
+ }
+ 
+ async function main() {
+ 	const opts = parseArgs(process.argv.slice(2));
+ 	const r = await runQa(opts);
+ 	const c = r.corpus;
+ 	const s = r.savings;
+ 
+ 	const summary = [
+ 		verdictGlyph(r.pass, r.mode.strict) + ` — ${r.reason}`,
+ 		`savings:   ${s.savedTok.toLocaleString()} tok/req (${s.savedPct}%) — OFF ${s.offTotal.toLocaleString()} → ON ${s.gatedTotal.toLocaleString()}  [floor ${r.savingsFloorMet ? "✅" : "❌"} · vs ~${s.claimed.toLocaleString()}: ${s.deviation >= 0 ? "+" : ""}${s.deviation.toLocaleString()}]`,
+ 		`L1:        must-fire ${tally(c.mustFire)} · must-not-fire ${tally(c.mustNotFire)} · escape-name ${tally(c.escapeName)} · escape-intent ${tally(c.escapeIntent)}`,
++		`coverage:  ${r.coverage.ungated.length} ungated heavy tool(s) · ${r.coverage.gatedHeavy} gated-heavy  [${r.coverage.pass ? "✅" : "❌"}${r.mode.strict ? " --strict gates" : " non-gating"}]`,
+ 		`capability: ${c.taskBreakingGates.length} task-breaking gate(s)${c.taskBreakingGates.length ? ` [${c.taskBreakingGates.join(", ")}]` : ""} · ${c.precisionRisks.filter((x) => x.fires).length} benign false-fire(s) [never gate]${r.mode.strict ? "  ← strict gates on task-breaking" : ""}`,
+ 	];
+ 	if (r.l2.enabled && r.l2.reachability) {
+ 		const rs = r.l2.reachability;
+ 		summary.push(`L2 reach:   ${rs.reachable}/${rs.total} reachable, ${rs.gaps} gap(s)${rs.misroutes ? `, ${rs.misroutes} misroute(s)` : ""}  [${r.l2.live.ran ? "live ran" : "live: " + r.l2.live.reason}]`);
+ 	}
+ 
+ 	if (opts.json) {
+ 		process.stdout.write(formatJson(r) + "\n");
+ 	} else {

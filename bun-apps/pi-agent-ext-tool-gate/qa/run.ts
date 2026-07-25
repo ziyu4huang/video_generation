@@ -19,6 +19,12 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { measureSavings, formatSavings, assertSane, caveats, type SavingsReport } from "./savings.ts";
+import {
+	measureCoverage,
+	formatCoverage,
+	assertSane as assertCoverageSane,
+	type CoverageReport,
+} from "./coverage.ts";
 import { evaluateCorpus, tally, type CorpusResult } from "./evaluate.ts";
 import {
 	evaluateReachability,
@@ -41,6 +47,7 @@ export interface QaOptions {
 	model?: string;
 	out?: string;
 	json?: boolean;
+	coverageThreshold?: number;
 }
 
 export interface L2Block {
@@ -55,9 +62,11 @@ export interface QaResult {
 	root: string;
 	mode: { strict: boolean; l2: boolean; model?: string };
 	savings: SavingsReport;
+	coverage: CoverageReport;
 	corpus: CorpusResult;
 	l2: L2Block;
 	savingsProblems: string[];
+	coverageProblems: string[];
 	savingsFloorMet: boolean;
 	pass: boolean;
 	reason: string;
@@ -65,6 +74,7 @@ export interface QaResult {
 
 export async function runQa(opts: QaOptions = {}): Promise<QaResult> {
 	const savings = await measureSavings(opts.root);
+	const coverage = await measureCoverage(opts.root, opts.coverageThreshold);
 	const corpus = evaluateCorpus();
 
 	let l2: L2Block;
@@ -77,29 +87,36 @@ export async function runQa(opts: QaOptions = {}): Promise<QaResult> {
 	}
 
 	const savingsProblems = assertSane(savings);
+	const coverageProblems = assertCoverageSane(coverage);
 	const savingsFloorMet = savings.savedPct >= SAVINGS_FLOOR.pct && savings.savedTok >= SAVINGS_FLOOR.tok;
-	const sane = savingsProblems.length === 0;
+	const sane = savingsProblems.length === 0 && coverageProblems.length === 0;
 	const intendedOk = corpus.intendedPass && sane;
 	const strictOk = corpus.taskBreakingGates.length === 0; // false-fires excluded
-	const pass = (opts.strict ? intendedOk && strictOk : intendedOk) && savingsFloorMet;
+	const strictCoverageOk = coverage.ungated.length === 0; // coverage gate (--strict only)
+	const pass =
+		(opts.strict ? intendedOk && strictOk && strictCoverageOk : intendedOk) && savingsFloorMet;
 	const reason = !savingsFloorMet
 		? `savings below floor (need ≥${SAVINGS_FLOOR.pct}% AND ≥${SAVINGS_FLOOR.tok.toLocaleString()} tok; got ${savings.savedPct}%/${savings.savedTok.toLocaleString()})`
 		: !corpus.intendedPass
 			? `L1 intended-behavior bar failed (see must-fire/must-not-fire/escape cases)`
 			: !sane
-				? `savings structurally broken: ${savingsProblems.join("; ")}`
+				? `savings/coverage structurally broken: ${[...savingsProblems, ...coverageProblems].join("; ")}`
 				: opts.strict && !strictOk
 					? `--strict: ${corpus.taskBreakingGates.length} task-breaking gate(s) open (${corpus.taskBreakingGates.join(", ")}) — false-fires excluded`
-					: "savings floor met + L1 intended-behavior holds; task-breaking gates reported (use --strict to gate on them)";
+					: opts.strict && !strictCoverageOk
+						? `--strict: ${coverage.ungated.length} ungated heavy tool(s) (${coverage.ungated.map((u) => u.name).join(", ")}) — add a gate or confirm always-on`
+						: "savings floor met + L1 intended-behavior holds; task-breaking gates + coverage reported (use --strict to gate on them)";
 
 	return {
 		timestamp: new Date().toISOString(),
 		root: savings.root,
 		mode: { strict: !!opts.strict, l2: !!opts.l2, model: opts.model },
 		savings,
+		coverage,
 		corpus,
 		l2,
 		savingsProblems,
+		coverageProblems,
 		savingsFloorMet,
 		pass,
 		reason,
@@ -126,6 +143,10 @@ export function formatReport(r: QaResult): string {
 		`## Savings`,
 		...formatSavings(s),
 		`- savings floor (≥${SAVINGS_FLOOR.pct}% AND ≥${SAVINGS_FLOOR.tok.toLocaleString()} tok): ${r.savingsFloorMet ? "✅ met" : "❌ NOT met"}`,
+		``,
+		`## Coverage`,
+		...formatCoverage(r.coverage),
+		`- coverage verdict: ${r.coverage.pass ? "✅ complete" : `❌ ${r.coverage.ungated.length} ungated`} — ${r.mode.strict ? "GATING (--strict)" : "non-gating by default"}`,
 		``,
 		`## Layer-1 capability (deterministic)`,
 		`- must-fire:     ${tally(c.mustFire)}`,
@@ -184,10 +205,23 @@ export function formatJson(r: QaResult): string {
 				gatedTotal: r.savings.gatedTotal,
 				savedTok: r.savings.savedTok,
 				savedPct: r.savings.savedPct,
+			enableToolOverhead: r.savings.enableToolOverhead,
+			netSavedTok: r.savings.netSavedTok,
+			netSavedPct: r.savings.netSavedPct,
 				claimed: r.savings.claimed,
 				deviation: r.savings.deviation,
 				floorMet: r.savingsFloorMet,
 				caveats: caveats(r.savings),
+			},
+			coverage: {
+				threshold: r.coverage.threshold,
+				totalTools: r.coverage.totalTools,
+				heavyTools: r.coverage.heavyTools,
+				gatedHeavy: r.coverage.gatedHeavy,
+				ungated: r.coverage.ungated,
+				pass: r.coverage.pass,
+				collectionErrors: r.coverage.errors,
+				structuralProblems: r.coverageProblems,
 			},
 			l1: {
 				mustFire: tally(r.corpus.mustFire),
@@ -222,6 +256,10 @@ function parseArgs(argv: string[]): QaOptions {
 		else if (a === "--json") opts.json = true;
 		else if (a === "--out") opts.out = argv[++i];
 		else if (a === "--root") opts.root = argv[++i];
+		else if (a === "--coverage-threshold") {
+			const n = Number(argv[++i]);
+			opts.coverageThreshold = Number.isFinite(n) && n > 0 ? n : undefined;
+		}
 	}
 	return opts;
 }
@@ -234,8 +272,9 @@ async function main() {
 
 	const summary = [
 		verdictGlyph(r.pass, r.mode.strict) + ` — ${r.reason}`,
-		`savings:   ${s.savedTok.toLocaleString()} tok/req (${s.savedPct}%) — OFF ${s.offTotal.toLocaleString()} → ON ${s.gatedTotal.toLocaleString()}  [floor ${r.savingsFloorMet ? "✅" : "❌"} · vs ~${s.claimed.toLocaleString()}: ${s.deviation >= 0 ? "+" : ""}${s.deviation.toLocaleString()}]`,
+		`savings:   ${s.savedTok.toLocaleString()} tok/req (${s.savedPct}%) — OFF ${s.offTotal.toLocaleString()} → ON ${s.gatedTotal.toLocaleString()}  [floor ${r.savingsFloorMet ? "✅" : "❌"} · vs ~${s.claimed.toLocaleString()}: ${s.deviation >= 0 ? "+" : ""}${s.deviation.toLocaleString()}]  · net ${s.netSavedTok.toLocaleString()} (${s.netSavedPct}%) [saved − enable_tool ${s.enableToolOverhead}]`,
 		`L1:        must-fire ${tally(c.mustFire)} · must-not-fire ${tally(c.mustNotFire)} · escape-name ${tally(c.escapeName)} · escape-intent ${tally(c.escapeIntent)}`,
+		`coverage:  ${r.coverage.ungated.length} ungated heavy tool(s) · ${r.coverage.gatedHeavy} gated-heavy  [${r.coverage.pass ? "✅" : "❌"}${r.mode.strict ? " --strict gates" : " non-gating"}]`,
 		`capability: ${c.taskBreakingGates.length} task-breaking gate(s)${c.taskBreakingGates.length ? ` [${c.taskBreakingGates.join(", ")}]` : ""} · ${c.precisionRisks.filter((x) => x.fires).length} benign false-fire(s) [never gate]${r.mode.strict ? "  ← strict gates on task-breaking" : ""}`,
 	];
 	if (r.l2.enabled && r.l2.reachability) {

@@ -8,7 +8,8 @@
  * - Negative patterns: suppress even if a positive pattern matched
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { spawnSubagent } from "@repo/pi-agent-ext-subagent/src/index.ts";
 import { MemoryStore } from "../store/memory-store.js";
 import { readGrillActive } from "../grill-seam.js";
 import { formatFailureMemoryContent } from "../store/memory-format.js";
@@ -23,7 +24,6 @@ import {
 } from "../constants.js";
 import type { MemoryConfig } from "../types.js";
 import { getMessageText } from "../types.js";
-import { execChildPrompt } from "./pi-child-process.js";
 
 /**
  * Extract the directive part from a correction message.
@@ -127,6 +127,8 @@ export function setupCorrectionDetector(
   config: MemoryConfig,
   memoryRepo: MemoryRepository | null = null,
   projectName?: string | null,
+  memoryToolDef?: ToolDefinition,
+  spawn: typeof spawnSubagent = spawnSubagent,
 ): void {
   if (!config.correctionDetection) return;
 
@@ -217,13 +219,21 @@ export function setupCorrectionDetector(
         recentParts.join("\n\n"),
       );
 
-      const result = await execChildPrompt(pi, prompt.join("\n"), config, {
-        signal: ctx.signal,
+      if (!memoryToolDef) return;
+      // llmThinkingOverride has no spawnSubagent equivalent — inert under the migration.
+      const modelOverride = config.llmModelOverride?.trim();
+      const result = await spawn({
+        task: prompt.join("\n"),
+        ...(modelOverride ? { model: modelOverride } : { tier: "small" }),
+        instructions: "Use ONLY the memory tool to save the correction as instructed. Do not read or modify files.",
+        tools: ["memory"],
+        extensionTools: [memoryToolDef],
         timeoutMs: 30000,
+        externalSignal: ctx.signal,
+        retryOnTransient: true,
       });
-
-      if (result.code === 0 && result.stdout) {
-        const output = result.stdout.trim();
+      if (result.exitCode === 0 && result.output) {
+        const output = result.output.trim();
         if (output && !output.toLowerCase().includes("nothing to save")) {
           ctx.ui.notify("🔧 Correction detected — memory updated", "info");
         }

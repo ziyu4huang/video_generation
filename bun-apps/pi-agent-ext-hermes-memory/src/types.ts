@@ -10,7 +10,8 @@ export type SessionSearchVariant = "legacy" | "anchors";
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
-export type ReviewTransport = "direct" | "subprocess";
+// "subprocess" removed in the spawnSubagent migration — the fallback is now spawnSubagent, not a pi -p subprocess.
+export type ReviewTransport = "direct";
 
 export type DbBackend = "sqlite" | "surrealdb";
 
