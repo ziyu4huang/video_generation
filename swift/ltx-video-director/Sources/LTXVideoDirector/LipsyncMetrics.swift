@@ -108,4 +108,56 @@ public enum LipsyncMetrics {
         cov /= Double(av.count)
         return cov / (stdA * stdB)
     }
+
+    /// r >= 0.3 (positive direction) is a conventional "weak-to-moderate but
+    /// real" correlation floor — same value/rationale as the Python version's
+    /// ADEQUATE_R_THRESHOLD. See Task 4 (validation against real clips) for
+    /// whether this (and minMouthStdThreshold below) need retuning under
+    /// Vision's landmark scale — ADEQUATE_R_THRESHOLD is a correlation
+    /// coefficient and should be scale-invariant; minMouthStdThreshold is a
+    /// raw ratio magnitude and is the one actually sensitive to
+    /// landmark-scale differences from mediapipe.
+    public static let adequateRThreshold = 0.3
+
+    /// Same rationale as the Python version's MIN_MOUTH_STD_THRESHOLD: a
+    /// near-flat mouth_ratio series can still clear adequateRThreshold by
+    /// chance (Pearson r on a near-constant signal is noise-dominated).
+    public static let minMouthStdThreshold = 0.01
+
+    public struct VerdictResult {
+        public let verdict: String
+        public let caveat: String?
+    }
+
+    /// Direct port of measure_lipsync_precision's verdict/caveat decision
+    /// tree. `lag0R` is accepted (not currently read) to keep the call site
+    /// symmetric with the Python version's signature/data available at the
+    /// call site — Swift's classify step does not use it to decide the
+    /// verdict, only the lag-boundary caveat text references lag0R being
+    /// "the more trustworthy statistic," same as Python.
+    public static func classifyVerdict(r: Double, lag: Int, maxLag: Int, lag0R: Double, mouthRatioStd: Double) -> VerdictResult {
+        let flatMouth = mouthRatioStd < minMouthStdThreshold
+        let verdict = (r >= adequateRThreshold && !flatMouth) ? "adequate" : "inadequate"
+        var caveat: String? = nil
+        if flatMouth && r >= adequateRThreshold {
+            caveat = "pearson_r cleared \(adequateRThreshold) but mouth_ratio_std "
+                + "(\(String(format: "%.4f", mouthRatioStd))) is below \(minMouthStdThreshold) — the mouth "
+                + "barely moves at all, so this correlation is almost certainly spurious "
+                + "noise-alignment rather than real lip-sync. Treated as inadequate."
+        } else if r <= -adequateRThreshold {
+            caveat = "pearson_r (\(String(format: "%.4f", r))) is strongly negative — the mouth is anti-correlated "
+                + "with audio loudness (opens when quiet, closes when loud), which is not "
+                + "genuine lip-sync even though |r| clears threshold. Treated as inadequate."
+        }
+        // A plain `if` (not `else if`) — mirrors the Python version, where
+        // the lag-boundary caveat OVERWRITES any caveat set above if both
+        // conditions are true.
+        if abs(lag) == maxLag {
+            caveat = "best_lag_frames hit the search boundary (±\(maxLag)); on short "
+                + "clips this can reflect fewer valid sample pairs at extreme lags rather "
+                + "than genuine lip-sync offset — treat lag0_pearson_r as the more "
+                + "trustworthy statistic in this case."
+        }
+        return VerdictResult(verdict: verdict, caveat: caveat)
+    }
 }

@@ -99,4 +99,37 @@ final class LipsyncMetricsTests: XCTestCase {
         let b = [1.0, 2.0, 3.0, 4.0, 5.0]
         XCTAssertNil(LipsyncMetrics.pearson(a, b))
     }
+
+    func testClassifyVerdictAdequate() {
+        let v = LipsyncMetrics.classifyVerdict(r: 0.55, lag: 0, maxLag: 4, lag0R: 0.5, mouthRatioStd: 0.03)
+        XCTAssertEqual(v.verdict, "adequate")
+        XCTAssertNil(v.caveat)
+    }
+
+    func testClassifyVerdictBelowThresholdIsInadequate() {
+        let v = LipsyncMetrics.classifyVerdict(r: 0.2, lag: 0, maxLag: 4, lag0R: 0.2, mouthRatioStd: 0.03)
+        XCTAssertEqual(v.verdict, "inadequate")
+        XCTAssertNil(v.caveat)
+    }
+
+    func testClassifyVerdictFlatMouthSpuriousRTreatedInadequateWithCaveat() {
+        let v = LipsyncMetrics.classifyVerdict(r: 0.4, lag: 0, maxLag: 4, lag0R: 0.4, mouthRatioStd: 0.004)
+        XCTAssertEqual(v.verdict, "inadequate")
+        XCTAssertNotNil(v.caveat)
+        XCTAssertTrue(v.caveat!.contains("barely moves"))
+    }
+
+    func testClassifyVerdictStronglyNegativeRIsInadequateWithCaveat() {
+        let v = LipsyncMetrics.classifyVerdict(r: -0.45, lag: 0, maxLag: 4, lag0R: -0.4, mouthRatioStd: 0.03)
+        XCTAssertEqual(v.verdict, "inadequate")
+        XCTAssertNotNil(v.caveat)
+        XCTAssertTrue(v.caveat!.contains("anti-correlated"))
+    }
+
+    func testClassifyVerdictLagBoundaryCaveatOverridesOthers() {
+        let v = LipsyncMetrics.classifyVerdict(r: 0.5, lag: 4, maxLag: 4, lag0R: 0.1, mouthRatioStd: 0.03)
+        XCTAssertEqual(v.verdict, "adequate")
+        XCTAssertNotNil(v.caveat)
+        XCTAssertTrue(v.caveat!.contains("search boundary"))
+    }
 }
