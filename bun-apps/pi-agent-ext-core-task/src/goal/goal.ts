@@ -41,7 +41,7 @@ import {
 	isRetryableGoalInterruption,
 	type AssistantMessageLike,
 } from "./overflow.js";
-import { backoffMs, shouldPauseAfterBackoff } from "./backoff.js";
+import { backoffMs, shouldPauseAfterBackoff, shouldHeartbeatRefire, accountTurnForNudges, shouldWedgeAlert, HEARTBEAT_INTERVAL_MS, HEARTBEAT_MAX_NUDGES, WEDGE_ALERT_DEFAULT_MINUTES } from "./backoff.js";
 import {
 	detectLoopStuck,
 	loopInterventionDirective,
@@ -98,6 +98,10 @@ const MAX_CANCELLED_CONTINUATION_PROMPTS = 20;
 // `goalState.latestCtx` are typed `unknown` there to keep state.ts free of
 // @earendil-works/* imports; they are narrowed with localized casts below.
 let goalOverlay: GoalOverlayLike | undefined;
+// Captured from goal()'s `pi` arg so the heartbeat interval (started later, in a
+// setInterval closure) can call sendContinuationPrompt. Mirrors how goalOverlay
+// is captured at registration. Reassigned on every goal() call.
+let piRef: ExtensionAPI | undefined;
 const STATUS_REFRESH_INTERVAL_MS = 1_000;
 
 // ─── Coordination seam (Plan A: goal ⇄ plan coordinator mutual-exclusion) ──
@@ -202,6 +206,7 @@ const goalCompleteTool = defineTool({
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new GoalOverlay()) {
+	piRef = pi;
 	goalState.extensionApi = pi;
 	goalOverlay = overlay;
 	pi.registerTool(goalCompleteTool);
@@ -258,6 +263,7 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
 		stopStatusRefreshTimer();
+		stopHeartbeatTimer();
 		goalOverlay?.dispose();
 	});
 
@@ -292,6 +298,9 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 			if (event.text && consumeCancelledContinuationPrompt(event.text)) return { action: "handled" as const };
 			return;
 		}
+		// Task 10: user input is a liveness signal — reset the stall clock so the
+		// heartbeat does not fire a nudge while the user is actively typing.
+		goalState.lastActivityAt = Date.now();
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
 	});
@@ -316,6 +325,9 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 	pi.on("tool_execution_end", (event: { toolName: string; result?: unknown; isError?: boolean }) => {
 		// Skip the (cheap-but-wasteful) fingerprint work when no goal is active.
 		if (!goalState.activeGoal) return;
+		// Task 10: a tool call is the strongest liveness signal — stamp it so the
+		// heartbeat watchdog does not mistake an active turn for a stall.
+		goalState.lastActivityAt = Date.now();
 		// Per-turn flag (Task 9 fix): agent_end consumes + clears this so
 		// toollessStreak counts *consecutive* toolless turns rather than being
 		// unconditionally bumped every turn (which made it off-by-one and
@@ -340,6 +352,9 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 
 	pi.on("agent_end", async (event: { messages?: unknown[] }, ctx: StatusContext) => {
 		if (!goalState.activeGoal || goalState.activeGoal.status !== "active") return;
+		// Task 10: a completed turn is a liveness signal — stamp it BEFORE any
+		// early return so the heartbeat stall clock resets on every real turn.
+		goalState.lastActivityAt = Date.now();
 
 		const goalId = goalState.activeGoal.id;
 		const hadPendingContinuation = goalState.continuationPending?.goalId === goalId;
@@ -393,11 +408,27 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 		// toolless turns (the fix for the off-by-one that previously tripped the
 		// stuck threshold on the first legitimate narration turn after a tool).
 		const assistantText = finalAssistant?.content?.map((c) => c.text ?? "").join(" ") ?? "";
-		if (goalState.toolRanThisTurn) {
+		const toolRanThisTurn = goalState.toolRanThisTurn;
+		if (toolRanThisTurn) {
 			goalState.toollessStreak = 0;
 			goalState.toolRanThisTurn = false;
 		} else {
 			goalState.toollessStreak += 1;
+		}
+		// Phase-2 hardening (Task 10): nudge cap. 3 consecutive no-tool turns means
+		// the agent is narrating without making inspectable progress; pause rather
+		// than spin the model. Derived from the same per-turn flag the stuck
+		// classifier consumes (Task 9) so a tool-bearing turn resets both signals.
+		// Checked BEFORE the stuck classifier so a pure narration stall stops here.
+		goalState.nudgeCount = accountTurnForNudges(toolRanThisTurn ? 1 : 0, goalState.nudgeCount);
+		if (goalState.nudgeCount >= HEARTBEAT_MAX_NUDGES) {
+			pauseGoalAfterAgentEnd(
+				ctx,
+				currentGoal,
+				finalAssistant,
+				"3 consecutive no-tool turns (nudge cap). Run /goal resume to continue.",
+			);
+			return;
 		}
 		const print = textFingerprint(assistantText);
 		goalState.recentPrints = pushCapped(goalState.recentPrints, print, REPETITION.printWindow);
@@ -654,6 +685,63 @@ function syncStatusRefreshTimer() {
 	}
 }
 
+function stopHeartbeatTimer() {
+	if (!goalState.heartbeatTimer) return;
+	clearInterval(goalState.heartbeatTimer);
+	goalState.heartbeatTimer = undefined;
+}
+
+/**
+ * Start a HEARTBEAT_INTERVAL_MS self-watchdog only while a goal is active.
+ * Each tick evaluates two pure predicates (./backoff.js):
+ *   - shouldHeartbeatRefire: the session is idle, no continuation is pending,
+ *     and msSinceActivity >= HEARTBEAT_STALL_MS (120s) -> re-fire the
+ *     continuation (recovery for a compaction-eaten turn or a dropped message).
+ *   - shouldWedgeAlert: the session is BUSY and has been silent >= 30m -> a
+ *     single long-running command may be wedging the session; notify (throttled
+ *     to once per threshold via lastWedgeAlertAt).
+ * Never keeps the process alive (.unref). The re-fire is idempotent: sendContinuationPrompt's
+ * continuationPending guard prevents duplicate continuations within one tick window.
+ */
+function syncHeartbeatTimer() {
+	const shouldRun = goalState.activeGoal?.status === "active";
+	if (shouldRun && !goalState.heartbeatTimer) {
+		goalState.heartbeatTimer = setInterval(() => {
+			const ctx = goalState.latestCtx as StatusContext | undefined;
+			if (!ctx) return;
+			if (
+				shouldHeartbeatRefire({
+					supervising: true,
+					sessionIdle: !!ctx.isIdle?.(),
+					timerPending: !!goalState.continuationPending,
+					msSinceActivity: Date.now() - goalState.lastActivityAt,
+				})
+			) {
+				void sendContinuationPrompt(piRef!, ctx, goalState.activeGoal!);
+			}
+			if (
+				shouldWedgeAlert({
+					supervising: true,
+					sessionBusy: !ctx.isIdle?.(),
+					silentMs: Date.now() - goalState.lastActivityAt,
+					msSinceLastAlert: Date.now() - goalState.lastWedgeAlertAt,
+					thresholdMs: WEDGE_ALERT_DEFAULT_MINUTES * 60_000,
+				})
+			) {
+				goalState.lastWedgeAlertAt = Date.now();
+				ctx.ui.notify(
+					`Goal wedge: no activity for ${WEDGE_ALERT_DEFAULT_MINUTES}m. A long command may be holding the session.`,
+					"warning",
+				);
+			}
+		}, HEARTBEAT_INTERVAL_MS);
+		// Never keep the process alive just for the heartbeat (tests, -p batch).
+		goalState.heartbeatTimer?.unref?.();
+	} else if (!shouldRun && goalState.heartbeatTimer) {
+		stopHeartbeatTimer();
+	}
+}
+
 // ─── Argument completions & parsing ─────────────────────────────────────────
 // Moved to ./commands.ts (pure module, zero @earendil-works/* imports).
 // Re-exported above for the legacy ../goal.js public import path.
@@ -706,6 +794,7 @@ function updateStatus(ctx: StatusContext, _goal: ActiveGoal) {
 	goalState.latestCtx = ctx;
 	goalOverlay?.update(goalState.activeGoal);
 	syncStatusRefreshTimer();
+	syncHeartbeatTimer();
 }
 
 // ─── Context helpers ──────────────────────────────────────────────────────────
@@ -739,6 +828,7 @@ function resetHardeningCounters() {
 	goalState.recentToolResults = [];
 	goalState.toollessStreak = 0;
 	goalState.toolRanThisTurn = false;
+	goalState.nudgeCount = 0;
 }
 
 /** Best-effort stringification of a tool result for fingerprinting. Never throws. */
@@ -880,6 +970,7 @@ function clearActiveGoal(ctx: StatusContext) {
 	clearPersistedGoal(goalState.extensionApi as ExtensionAPI, ctx.cwd);
 	goalOverlay?.update(undefined);
 	stopStatusRefreshTimer();
+	stopHeartbeatTimer();
 }
 
 // Transient "✓ goal complete" flash (~8s) shown after goal_complete, then the

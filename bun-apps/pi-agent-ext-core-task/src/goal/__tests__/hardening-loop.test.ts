@@ -19,6 +19,7 @@ import type { GoalOverlayLike } from "../overlay.js";
 import goal, { type StatusContext } from "../goal.js";
 import { goalState, __resetGoalState } from "../state.js";
 import { textFingerprint } from "../repetition.js";
+import { HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALL_MS } from "../backoff.js";
 
 // ─── Mock pi/ctx/overlay (mirrors goal.test.ts) ──────────────────────────────
 
@@ -144,7 +145,6 @@ async function shutdown(mock: ReturnType<typeof createMockPi>, ctx: StatusContex
 	}
 	__resetGoalState();
 }
-
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe("agent_end hardening: anti-repetition + backoff cap", () => {
@@ -218,6 +218,141 @@ describe("agent_end hardening: anti-repetition + backoff cap", () => {
 			expect(goalState.toollessStreak).toBe(1);
 			expect(goalState.consecutiveStuck).toBe(0);
 			expect(mock.sentUserMessages.at(-1)?.text ?? "").not.toContain("STUCK");
+		} finally {
+			await shutdown(mock, ctx);
+		}
+	});
+});
+
+// ─── Task 10: heartbeat self-watchdog + wedge alert + nudge cap ───────────────
+// The decision math is unit-covered in backoff.test.ts; these assert the WIRING
+// into goal.ts: the HEARTBEAT_INTERVAL_MS interval re-fires the continuation
+// when the session stalls past HEARTBEAT_STALL_MS, and 3 consecutive no-tool
+// turns pause the goal via the nudge cap.
+
+describe("heartbeat self-watchdog + nudge cap (Task 10)", () => {
+	test("heartbeat re-fires the continuation when the session stalls past HEARTBEAT_STALL_MS", async () => {
+		// Mirror goal.test.ts's status-refresh fake-timer harness: stub
+		// setInterval/clearInterval/Date.now so we can capture the tick callback and
+		// advance the clock deterministically past the 120s stall threshold.
+		const intervals: Array<{ fn: () => void; ms: number }> = [];
+		const realSetInterval = globalThis.setInterval;
+		const realClearInterval = globalThis.clearInterval;
+		const realDateNow = Date.now;
+		const startedAt = 1_700_000_000_000;
+		let now = startedAt;
+		Date.now = (() => now) as never;
+		globalThis.setInterval = ((fn: () => void, ms: number) => {
+			intervals.push({ fn, ms });
+			return intervals.length as never;
+		}) as never;
+		globalThis.clearInterval = (() => undefined) as never;
+
+		let mock: ReturnType<typeof createMockPi> | undefined;
+		let ctx: StatusContext | undefined;
+		try {
+			// bootstrap() calls __resetGoalState() -> lastActivityAt = now (frozen at
+			// startedAt), then registers handlers, fires session_start, and starts a
+			// goal. startGoal sends the goal prompt (msg #1) via sendUserMessage; it
+			// does NOT set continuationPending, so timerPending is false.
+			const boot = await bootstrap();
+			mock = boot.mock;
+			ctx = boot.ctx;
+			expect(mock.sentUserMessages.length).toBe(1);
+
+			// updateStatus started two intervals (1s status + 15s heartbeat).
+			const heartbeat = intervals.find((i) => i.ms === HEARTBEAT_INTERVAL_MS);
+			expect(heartbeat).toBeDefined();
+
+			// Advance past the stall threshold with the session idle and no pending
+			// continuation -> shouldHeartbeatRefire is true -> sendContinuationPrompt
+			// re-fires (msg #2 carries the continuation marker).
+			now = startedAt + HEARTBEAT_STALL_MS + 1_000;
+			heartbeat!.fn();
+
+			expect(mock.sentUserMessages.length).toBe(2);
+			expect(mock.sentUserMessages.at(-1)?.text ?? "").toMatch(/pi-goal-continuation/);
+		} finally {
+			if (mock && ctx) await shutdown(mock, ctx);
+			globalThis.setInterval = realSetInterval;
+			globalThis.clearInterval = realClearInterval;
+			Date.now = realDateNow;
+		}
+	});
+
+	test("heartbeat does NOT re-fire while a continuation is already pending", async () => {
+		const intervals: Array<{ fn: () => void; ms: number }> = [];
+		const realSetInterval = globalThis.setInterval;
+		const realClearInterval = globalThis.clearInterval;
+		const realDateNow = Date.now;
+		const startedAt = 1_700_000_000_000;
+		let now = startedAt;
+		Date.now = (() => now) as never;
+		globalThis.setInterval = ((fn: () => void, ms: number) => {
+			intervals.push({ fn, ms });
+			return intervals.length as never;
+		}) as never;
+		globalThis.clearInterval = (() => undefined) as never;
+
+		let mock: ReturnType<typeof createMockPi> | undefined;
+		let ctx: StatusContext | undefined;
+		try {
+			const boot = await bootstrap();
+			mock = boot.mock;
+			ctx = boot.ctx;
+
+			// A normal turn enqueues a continuation (sets continuationPending), so
+			// timerPending becomes true and the heartbeat must NOT double-send.
+			await fireAgentEnd(mock, ctx, "I will now take a concrete first step toward the objective.");
+			const before = mock.sentUserMessages.length;
+
+			const heartbeat = intervals.find((i) => i.ms === HEARTBEAT_INTERVAL_MS)!;
+		now = startedAt + HEARTBEAT_STALL_MS + 1_000;
+			heartbeat.fn();
+
+			expect(mock.sentUserMessages.length).toBe(before); // no extra continuation
+		} finally {
+			if (mock && ctx) await shutdown(mock, ctx);
+			globalThis.setInterval = realSetInterval;
+			globalThis.clearInterval = realClearInterval;
+			Date.now = realDateNow;
+		}
+	});
+
+	test("3 consecutive no-tool turns pause the goal via the nudge cap", async () => {
+		const { mock, ctx, notifications } = await bootstrap();
+		try {
+			// Three turns with NO tool call. Each narration is distinct (and well
+		// under the degenerate-length threshold) so the repetition classifier does
+		// not trip; the pause comes from the nudge cap, not the stuck path.
+			await fireAgentEnd(mock, ctx, "I am thinking about the first step of the approach carefully.");
+			expect(goalState.nudgeCount).toBe(1);
+			await fireAgentEnd(mock, ctx, "Now I am weighing the second option and its trade-offs in detail.");
+			expect(goalState.nudgeCount).toBe(2);
+			await fireAgentEnd(mock, ctx, "Finally I am considering a third angle before doing anything concrete.");
+
+			expect(goalState.nudgeCount).toBe(3);
+			expect(goalState.activeGoal?.status).toBe("paused");
+			expect(notifications.some((n) => /nudge cap/.test(n.message))).toBe(true);
+		} finally {
+			await shutdown(mock, ctx);
+		}
+	});
+
+	test("a tool-bearing turn resets the nudge count", async () => {
+		const { mock, ctx } = await bootstrap();
+		try {
+			// Two narration-only turns, then a tool-bearing turn must zero the count.
+			await fireAgentEnd(mock, ctx, "Pondering the design before I touch any files here.");
+			expect(goalState.nudgeCount).toBe(1);
+			await fireAgentEnd(mock, ctx, "Still reasoning through edge cases for this approach.");
+			expect(goalState.nudgeCount).toBe(2);
+
+			await fireToolEnd(mock, "bash", { stdout: "unique tool output resets the streak" });
+			await fireAgentEnd(mock, ctx, "I ran a probe and confirmed the next concrete step to take.");
+
+			expect(goalState.nudgeCount).toBe(0);
+			expect(goalState.activeGoal?.status).toBe("active");
 		} finally {
 			await shutdown(mock, ctx);
 		}

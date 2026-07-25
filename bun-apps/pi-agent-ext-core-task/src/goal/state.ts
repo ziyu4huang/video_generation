@@ -152,6 +152,18 @@ export interface GoalRuntimeState {
 	recentToolResults: ToolResultPrint[];
 	toollessStreak: number;
 	toolRanThisTurn: boolean;
+	// Phase-2 hardening (Task 10): heartbeat self-watchdog + wedge alert.
+	// heartbeatTimer ticks every HEARTBEAT_INTERVAL_MS while a goal is active;
+	// lastActivityAt is stamped on tool_execution_end / agent_end / input so the
+	// watchdog can detect a stalled session (compaction-eaten turn, dropped
+	// message) and re-fire the continuation; lastWedgeAlertAt throttles the
+	// "no activity for 30m" wedge notify to once per threshold; nudgeCount tracks
+	// consecutive no-tool turns (>= HEARTBEAT_MAX_NUDGES -> pause). All primitives /
+	// timer refs so state.ts stays pi-import-free (Task 5 constraint).
+	heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+	lastActivityAt: number;
+	lastWedgeAlertAt: number;
+	nudgeCount: number;
 }
 
 export const goalState: GoalRuntimeState = {
@@ -170,6 +182,10 @@ export const goalState: GoalRuntimeState = {
 	recentToolResults: [],
 	toollessStreak: 0,
 	toolRanThisTurn: false,
+	heartbeatTimer: undefined,
+	lastActivityAt: Date.now(),
+	lastWedgeAlertAt: 0,
+	nudgeCount: 0,
 };
 
 /** Test seam: reset all runtime state to initial values (mirrors todo/state/store.ts __resetState). */
@@ -189,4 +205,8 @@ export function __resetGoalState(): void {
 	goalState.recentToolResults = [];
 	goalState.toollessStreak = 0;
 	goalState.toolRanThisTurn = false;
+	goalState.heartbeatTimer = undefined;
+	goalState.lastActivityAt = Date.now();
+	goalState.lastWedgeAlertAt = 0;
+	goalState.nudgeCount = 0;
 }

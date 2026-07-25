@@ -179,8 +179,10 @@ async function startGoalForTest(overrides: Record<string, unknown> = {}) {
 
 describe("status refresh timer", () => {
 	test("active goal overlay ticks its elapsed-time metric on a 1s interval and stops on pause", async () => {
-		let tick: (() => void) | undefined;
-		let intervalMs = 0;
+		// Task 10 added a second interval (the 15s heartbeat watchdog) alongside
+		// this 1s status ticker, so capture ALL registered intervals and select the
+		// 1s one explicitly rather than assuming a single setInterval call.
+		const intervals: Array<{ fn: () => void; ms: number }> = [];
 		let timerHandle = 0;
 		let clearCalls = 0;
 		const realSetInterval = globalThis.setInterval;
@@ -189,8 +191,7 @@ describe("status refresh timer", () => {
 		const startedAt = 1_700_000_000_000;
 		Date.now = (() => startedAt) as never;
 		globalThis.setInterval = ((fn: () => void, ms: number) => {
-			tick = fn;
-			intervalMs = ms;
+			intervals.push({ fn, ms });
 			timerHandle += 1;
 			return timerHandle as never;
 		}) as never;
@@ -216,7 +217,8 @@ describe("status refresh timer", () => {
 			await mock.events.get("session_start")![0]!({}, ctx);
 			await mock.commands.get("goal")!.handler("finish", ctx);
 
-			expect(intervalMs).toBe(1_000);
+			expect(intervals.some((i) => i.ms === 1_000)).toBe(true);
+			const tick = intervals.find((i) => i.ms === 1_000)!.fn;
 			expect(currentGoal?.status).toBe("active");
 			expect(currentGoal?.timeUsedSeconds).toBe(0);
 
