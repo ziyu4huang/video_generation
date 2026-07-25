@@ -1,0 +1,29 @@
+## Destination
+
+Adopt obra/superpowers's two SDD reworks into this fork's `subagent-driven-development` skill — (1) the **plan-scoped workspace** (`.superpowers/sdd/<plan-slug>/`, structural per-plan identity; ledger names its plan; dies at plan end) and (2) the **resume-based fix-loop redesign** (convergent 5-round review loop: 3 resume + 2 fresh capable dispatches, scoped re-reviews, unified who-fixes policy, lifecycle-reorganized SKILL.md + rationalization table) — by **re-pinning ADR-0004 to upstream's current SDD files** (SKILL.md +85 lines, + new `re-review-prompt.md`) and reconciling the pi-port glue (`sdd-workspace`, bootstrap routing rule 1) to the new plan-scoped interface.
+
+## Notes
+
+- **Domain:** pi port of obra/superpowers (`bun-apps/pi-agent-ext-superpowers/`). Upstream source: `../superpowers/` (obra/superpowers, current at chart time).
+- **Skills every session should consult:** `grilling` + `domain-modeling` (for the HITL tickets); `subagent-driven-development` (the skill under rework).
+- **ADR-0004 = positive pin:** re-pinning to newer upstream is the SANCTIONED update path, not a violation. The fork's current pin is to an older upstream; upstream has since shipped these reworks.
+- **Fact freshness:** this branch was **13 behind origin/main** at chart time. Research reflects the working tree, which may differ from origin/main by 13 commits. Rebase (ticket 01) before re-pin execution.
+- **Slug correction:** the invocation's auto-slug `2026-07-26-duplicte-remeval-…` was garbled and described the discarded "dedup" framing. Refined destination → clean slug `2026-07-26-adopt-upstream-sdd-reworks`. Object if you'd prefer the original.
+- **Standing preference:** pi `subagent` has NO resume-in-place (ticket 04) — every fix-loop round is a fresh dispatch carrying brief + report file + findings.
+
+## Decisions so far
+
+- [02 diff: pinned SDD files vs upstream](tickets/02-diff-pinned-sdd-vs-upstream.md) — SKILL.md +85, impl-prompt +3, reviewer-prompt −3, `re-review-prompt.md` NEW; scripts all differ (fork-customized pi-port glue, not pinned).
+- [04 pi subagent resume capability](tickets/04-pi-subagent-resume-capability.md) — no resume-in-place exposed; upstream's rounds 1-3 use the fresh-dispatch fallback (brief + report file + findings).
+
+## Not yet specified
+
+- **Existing-state migration:** the fork already has `.planning/<effort>/sdd/` workspaces (effort-scoped, from W2c). Adopting plan-scoping raises whether existing ledgers migrate or it's forward-only — depends on ticket 03's answer.
+- **Fix-loop validation without upstream's eval harness:** upstream validated convergence with a RED/GREEN eval rig; the fork has none. How much validation is enough before re-pin? Graduates into a ticket once 05/07 shape up.
+
+## Out of scope
+
+- The **skills-compression sweep** (upstream's other recent thread — dropping recap sections). User chose SDD reworks as the destination, not dedup. Separate effort if wanted.
+- Re-pinning the **other 13 skills** — only the SDD skill is in scope.
+- Upstream's **Windows hooks / portability** changes.
+- Porting upstream's **eval harness**.
