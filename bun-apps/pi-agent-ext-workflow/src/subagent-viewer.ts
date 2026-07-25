@@ -13,7 +13,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import type { AgentUsage } from "@repo/pi-agent-ext-subagent";
 import { summarizeLatestAction, formatHistoryLine } from "@repo/pi-agent-ext-subagent";
-import { type ActivityRow, renderActivityRow, shortModel } from "./display.js";
+import { type ActivityRow, renderActivityRow, shortModel, fmtCost } from "./display.js";
 import type { AgentHistoryEntry, InFlightSubagent } from "@repo/pi-agent-ext-subagent";
 import type { SubagentToolDetails } from "@repo/pi-agent-ext-subagent";
 
@@ -103,7 +103,6 @@ export class SubagentViewer {
     history: AgentHistoryEntry[];
     model: string;
     agent?: string;
-    taskPreview: string;
     startedAt: number;
   };
   private followedFinal?: SubagentRun; // set by Task 4 on completion
@@ -246,7 +245,7 @@ export class SubagentViewer {
     const r = this.outputRun;
     if (!r) return [""];
     const lines: string[] = [""];
-    const usageStr = r.usage && r.usage.total > 0 ? ` • $${r.usage.cost.toFixed(3)} • ${r.usage.total} tok` : "";
+    const usageStr = r.usage && r.usage.total > 0 ? ` • $${fmtCost(r.usage.cost)} • ${r.usage.total} tok` : "";
     lines.push(
       truncateToWidth(
         `  ${th.fg("accent", `#${r.index}`)} ${th.fg("muted", r.agent ?? "general-purpose")} ▸ ${r.model} • ${r.status} • ${(r.elapsedMs / 1000).toFixed(1)}s${usageStr}`,
@@ -279,7 +278,6 @@ export class SubagentViewer {
         history: r.history ?? [],
         model: r.resolvedModel ?? r.model,
         agent: r.agent,
-        taskPreview: r.taskPreview,
         startedAt: r.startedAt,
       };
       this.finalizingTicks = 0;
@@ -298,7 +296,7 @@ export class SubagentViewer {
         elapsedMs = f.elapsedMs;
         agent = f.agent;
         const u = f.usage;
-        usageStr = u && u.total > 0 ? ` · $${u.cost.toFixed(u.cost >= 0.01 ? 2 : 4)} · ${u.total} tok` : "";
+        usageStr = u && u.total > 0 ? ` · $${fmtCost(u.cost)} · ${u.total} tok` : "";
       } else {
         status = this.followEnded ? "ended" : "finalizing";
         model = this.followedSnapshot?.model ?? "default";
