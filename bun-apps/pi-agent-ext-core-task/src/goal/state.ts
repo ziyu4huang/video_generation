@@ -24,6 +24,7 @@
 
 import { randomUUID } from "crypto";
 import type { ActiveGoal, GoalStatus } from "./format.js";
+import type { ToolResultPrint } from "./repetition.js";
 export type { ActiveGoal, GoalStatus };
 
 // ─── Goal-specific types ──────────────────────────────────────────────────────
@@ -135,6 +136,16 @@ export interface GoalRuntimeState {
 	statusRefreshTimer: ReturnType<typeof setInterval> | undefined;
 	latestCtx: unknown; // StatusContext
 	cancelledContinuationMarkers: Set<string>;
+	// Phase-2 hardening (Task 9): anti-repetition rolling windows + backoff cap.
+	// recentPrints/recentTexts/recentToolResults are the classifier inputs;
+	// consecutiveStuck/stuckStartedAt drive the intervention rotation + caps;
+	// toollessStreak counts consecutive tool-less turns (narration-only loops).
+	consecutiveStuck: number;
+	stuckStartedAt: number | undefined;
+	recentPrints: string[];
+	recentTexts: string[];
+	recentToolResults: ToolResultPrint[];
+	toollessStreak: number;
 }
 
 export const goalState: GoalRuntimeState = {
@@ -146,6 +157,12 @@ export const goalState: GoalRuntimeState = {
 	statusRefreshTimer: undefined,
 	latestCtx: undefined,
 	cancelledContinuationMarkers: new Set<string>(),
+	consecutiveStuck: 0,
+	stuckStartedAt: undefined,
+	recentPrints: [],
+	recentTexts: [],
+	recentToolResults: [],
+	toollessStreak: 0,
 };
 
 /** Test seam: reset all runtime state to initial values (mirrors todo/state/store.ts __resetState). */
@@ -158,4 +175,10 @@ export function __resetGoalState(): void {
 	goalState.statusRefreshTimer = undefined;
 	goalState.latestCtx = undefined;
 	goalState.cancelledContinuationMarkers.clear();
+	goalState.consecutiveStuck = 0;
+	goalState.stuckStartedAt = undefined;
+	goalState.recentPrints = [];
+	goalState.recentTexts = [];
+	goalState.recentToolResults = [];
+	goalState.toollessStreak = 0;
 }

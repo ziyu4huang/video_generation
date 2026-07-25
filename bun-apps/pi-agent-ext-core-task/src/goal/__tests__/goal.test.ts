@@ -258,6 +258,7 @@ describe("registration", () => {
 			"session_shutdown",
 			"session_start",
 			"tool_call",
+			"tool_execution_end",
 		];
 		const registered = [...mock.events.keys()].sort();
 		expect(registered).toEqual(expectedHooks.sort());

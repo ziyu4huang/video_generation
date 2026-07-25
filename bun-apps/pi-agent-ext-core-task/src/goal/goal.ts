@@ -41,6 +41,14 @@ import {
 	isRetryableGoalInterruption,
 	type AssistantMessageLike,
 } from "./overflow.js";
+import { backoffMs, shouldPauseAfterBackoff } from "./backoff.js";
+import {
+	detectLoopStuck,
+	loopInterventionDirective,
+	textFingerprint,
+	pushCapped,
+	REPETITION,
+} from "./repetition.js";
 import {
 	completeGoalArguments,
 	parseCommand,
@@ -300,6 +308,21 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 		};
 	});
 
+	// Phase-2 hardening (Task 9): a tool ran this turn → reset the narration-only
+	// streak and fingerprint the tool's output into the rolling window. The
+	// classifier (detectLoopStuck, in agent_end) reads both. Fingerprints the
+	// serialized result so repeated identical outputs (e.g. an error the agent
+	// keeps re-triggering, or a no-op read) surface as "no new information".
+	pi.on("tool_execution_end", (event: { toolName: string; result?: unknown; isError?: boolean }) => {
+		goalState.toollessStreak = 0;
+		const hash = textFingerprint(safeStringify(event.result));
+		goalState.recentToolResults = pushCapped(
+			goalState.recentToolResults,
+			{ tool: event.toolName, hash, isError: Boolean(event.isError) },
+			REPETITION.toolWindow,
+		);
+	});
+
 	pi.on("before_agent_start", (event: { systemPrompt?: string; prompt?: string }) => {
 		if (event.prompt) markContinuationDelivered(event.prompt);
 		if (!goalState.activeGoal || goalState.activeGoal.status !== "active") return;
@@ -357,6 +380,56 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 		const currentGoal = goalState.activeGoal;
 		if (!currentGoal || currentGoal.id !== goalId || currentGoal.status !== "active") return;
 		if (hasPendingMessages(ctx)) return;
+
+		// Phase-2 hardening (Task 9): classify this iteration before continuing.
+		// toollessStreak is reset to 0 by tool_execution_end when a tool ran this
+		// turn; otherwise each agent_end bumps it (narration-only loop detection).
+		const assistantText = finalAssistant?.content?.map((c) => c.text ?? "").join(" ") ?? "";
+		goalState.toollessStreak += 1;
+		const print = textFingerprint(assistantText);
+		goalState.recentPrints = pushCapped(goalState.recentPrints, print, REPETITION.printWindow);
+		goalState.recentTexts = pushCapped(goalState.recentTexts, assistantText.slice(0, 1000), REPETITION.textWindow);
+		const reason = detectLoopStuck({
+			assistantText,
+			recentPrints: goalState.recentPrints,
+			previousText: goalState.recentTexts[goalState.recentTexts.length - 2],
+			recentToolResults: goalState.recentToolResults,
+			toollessStreak: goalState.toollessStreak,
+		});
+
+		if (reason) {
+			goalState.consecutiveStuck += 1;
+			if (goalState.stuckStartedAt === undefined) goalState.stuckStartedAt = Date.now();
+			if (goalState.consecutiveStuck >= REPETITION.maxInterventions) {
+				// 5-stuck stop: the rotating interventions are not breaking the loop.
+				pauseGoalAfterAgentEnd(
+					ctx,
+					currentGoal,
+					finalAssistant,
+					`Goal paused: stuck for ${goalState.consecutiveStuck} iterations (${reason}). Run /goal resume to continue.`,
+				);
+				return;
+			}
+			if (shouldPauseAfterBackoff(Date.now() - goalState.stuckStartedAt, goalState.toollessStreak)) {
+				// 5-min backoff cap or 3-idle-iteration cap reached.
+				pauseGoalAfterAgentEnd(
+					ctx,
+					currentGoal,
+					finalAssistant,
+					`Goal paused: backoff cap reached (${reason}). Run /goal resume to continue.`,
+				);
+				return;
+			}
+			// Swap the normal continuation for the rotating intervention directive.
+			await sendPrompt(pi, ctx, loopInterventionDirective(goalState.consecutiveStuck, reason, goalState.recentTexts));
+			return;
+		}
+
+		// Not stuck — reset the streak, apply a brief backoff, then continue normally.
+		goalState.consecutiveStuck = 0;
+		goalState.stuckStartedAt = undefined;
+		const wait = backoffMs(0);
+		if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 		await sendContinuationPrompt(pi, ctx, currentGoal);
 	});
 }
@@ -390,6 +463,7 @@ async function startGoal(
 	cancelContinuationPending();
 	clearGoalRecovery();
 	clearStaleGoalToolCallBlock();
+	resetHardeningCounters();
 	goalState.activeGoal = createGoal(objective, tokenBudget, currentTokenTotal(ctx));
 	persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 	updateStatus(ctx, goalState.activeGoal);
@@ -503,7 +577,8 @@ function showGoal(ctx: StatusContext) {
 function pauseGoalAfterAgentEnd(
 	ctx: StatusContext,
 	goal: ActiveGoal,
-	assistant: AssistantMessageLike,
+	assistant: AssistantMessageLike | undefined,
+	reasonOverride?: string,
 ) {
 	cancelContinuationPending();
 	blockStaleGoalToolCalls();
@@ -512,8 +587,17 @@ function pauseGoalAfterAgentEnd(
 	persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 	updateStatus(ctx, goalState.activeGoal);
 
-	const reason = assistant.stopReason === "aborted" ? "interruption" : "agent error";
-	const details = assistant.errorMessage ? ` (${truncateNotification(assistant.errorMessage)})` : "";
+	// When a caller supplies a reason override (e.g. the stuck-repetition /
+	// backoff-cap paths in agent_end), it IS the full notify message — the
+	// default "paused after interruption/agent error" wording is semantically
+	// wrong for those stops. `assistant` is unused on that path. Existing 3-arg
+	// callers keep the legacy message (and pass a narrowed non-undefined assistant).
+	if (reasonOverride) {
+		ctx.ui.notify(reasonOverride, "warning");
+		return;
+	}
+	const reason = assistant?.stopReason === "aborted" ? "interruption" : "agent error";
+	const details = assistant?.errorMessage ? ` (${truncateNotification(assistant.errorMessage)})` : "";
 	ctx.ui.notify(`Goal paused after ${reason}${details}. Run /goal resume to continue.`, "warning");
 }
 
@@ -631,6 +715,27 @@ function blockStaleGoalToolCalls() {
 
 function clearStaleGoalToolCallBlock() {
 	goalState.staleGoalToolCallsBlocked = false;
+}
+
+/** Reset the Phase-2 anti-repetition / backoff rolling counters (Task 9). */
+function resetHardeningCounters() {
+	goalState.consecutiveStuck = 0;
+	goalState.stuckStartedAt = undefined;
+	goalState.recentPrints = [];
+	goalState.recentTexts = [];
+	goalState.recentToolResults = [];
+	goalState.toollessStreak = 0;
+}
+
+/** Best-effort stringification of a tool result for fingerprinting. Never throws. */
+function safeStringify(value: unknown): string {
+	if (value === null || value === undefined) return "";
+	if (typeof value === "string") return value;
+	try {
+		return JSON.stringify(value);
+	} catch {
+		return String(value);
+	}
 }
 
 function clearGoalRecovery() {
