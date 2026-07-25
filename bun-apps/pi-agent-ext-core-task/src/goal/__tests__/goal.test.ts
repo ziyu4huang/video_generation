@@ -406,7 +406,7 @@ describe("buildGoalSystemPrompt", () => {
 			tokensUsed: 250,
 			timeUsedSeconds: 0,
 			baselineTokens: 0,
-		});
+		}, "");
 
 		expect(prompt).toMatch(/fix &lt;all&gt; &amp; verify/);
 		expect(prompt).toMatch(/Respect the goal token budget \(250\/1k used\)/);
@@ -1282,7 +1282,7 @@ describe("planProgressLineFromPeer + buildGoalSystemPrompt (fusion)", () => {
 				tokensUsed: 0,
 				timeUsedSeconds: 0,
 				baselineTokens: 0,
-			});
+			}, planProgressLineFromPeer());
 			// The displaced roadmap is surfaced so a goal-driven agent keeps plan visibility.
 			expect(prompt).toMatch(/Active plan progress: 0\/1 phases/);
 			expect(prompt).toMatch(/roadmap, not a stopping point/);

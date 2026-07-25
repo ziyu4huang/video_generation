@@ -27,8 +27,6 @@ import { getPlanSummary, isPlanIncomplete } from "../plan/coordinator.js";
 import { GoalOverlay, type GoalOverlayLike } from "./overlay.js";
 import {
 	formatBudget,
-	formatDuration,
-	formatTokenCount,
 	type ActiveGoal,
 	type GoalStatus,
 } from "./format.js";
@@ -46,6 +44,15 @@ import {
 	validateObjective,
 	type CommandResult,
 } from "./commands.js";
+import {
+	buildContinuePrompt,
+	buildGoalPrompt,
+	buildGoalSystemPrompt,
+	buildObjectiveUpdatedPrompt,
+	buildResumePrompt,
+	goalSummary,
+	CONTINUATION_MARKER_PREFIX,
+} from "./prompts.js";
 
 // Re-export formatters + types for tests and downstream consumers.
 export { formatStatus, formatGoalMetric, formatDuration, formatTokenCount, type ActiveGoal } from "./format.js";
@@ -54,6 +61,9 @@ export { findFinalAssistantMessage, isContradictoryCompletionSummary, isRetryabl
 // Re-export /goal command-parsing helpers so the public import path via goal.js
 // is preserved (goal.test.ts imports these from ../goal.js).
 export { parseCommand, parseTokenBudget, validateObjective, completeGoalArguments } from "./commands.js";
+// Re-export the goal-mode system-prompt builder so the public import path via
+// goal.js is preserved (goal.test.ts imports buildGoalSystemPrompt from ../goal.js).
+export { buildGoalSystemPrompt } from "./prompts.js";
 
 // ─── Goal-specific types ──────────────────────────────────────────────────────
 
@@ -93,7 +103,6 @@ export interface StatusContext {
 
 const GOAL_STATE_ENTRY_TYPE = "goal-state";
 const MAX_CANCELLED_CONTINUATION_PROMPTS = 20;
-const CONTINUATION_MARKER_PREFIX = "pi-goal-continuation:";
 const STATE_FILE = join(
 	process.env.PI_CODING_AGENT_DIR ?? join(process.env.HOME ?? ".", ".pi", "agent"),
 	"pi-goal-state.json",
@@ -327,7 +336,7 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 		if (!activeGoal || activeGoal.status !== "active") return;
 
 		return {
-			systemPrompt: `${event.systemPrompt ?? ""}\n\n${buildGoalSystemPrompt(activeGoal)}`,
+			systemPrompt: `${event.systemPrompt ?? ""}\n\n${buildGoalSystemPrompt(activeGoal, planProgressLineFromPeer())}`,
 		};
 	});
 
@@ -641,7 +650,7 @@ async function sendContinuationPrompt(pi: ExtensionAPI, ctx: StatusContext, goal
 	if (hasPendingMessages(ctx)) return false;
 
 	const marker = continuationMarker(goal);
-	const prompt = buildContinuePrompt(goal, marker);
+	const prompt = buildContinuePrompt(goal, marker, planProgressLineFromPeer());
 	continuationPending = { goalId: goal.id, iteration: goal.iteration, marker, prompt };
 	const sent = await sendPrompt(pi, ctx, prompt);
 	if (!sent && continuationPending?.marker === marker) continuationPending = undefined;
@@ -670,61 +679,6 @@ function updateStatus(ctx: StatusContext, _goal: ActiveGoal) {
 	latestCtx = ctx;
 	goalOverlay?.update(activeGoal);
 	syncStatusRefreshTimer();
-}
-
-function goalSummary(goal: ActiveGoal) {
-	return [
-		`Goal: ${goal.text}`,
-		`Status: ${goal.status}`,
-		`Iteration: ${goal.iteration}`,
-		`Elapsed: ${formatDuration(goal.timeUsedSeconds)}`,
-		`Tokens: ${goal.tokenBudget === undefined ? formatTokenCount(goal.tokensUsed) : formatBudget(goal)}`,
-		`Commands: ${goalCommandHint(goal.status)}`,
-	].join("\n");
-}
-
-function goalCommandHint(status: GoalStatus) {
-	if (status === "active") return "/goal edit <objective>, /goal pause, /goal clear";
-	if (status === "paused") return "/goal edit <objective>, /goal resume, /goal clear";
-	return "/goal edit <objective>, /goal clear";
-}
-
-// ─── Prompt templates ─────────────────────────────────────────────────────────
-
-function buildGoalPrompt(goal: ActiveGoal) {
-	const budgetLine = goal.tokenBudget === undefined ? "" : `\nToken budget: ${formatTokenCount(goal.tokenBudget)}.`;
-	return `Goal mode is active. Complete this goal fully:\n\n${goalObjectiveBlock(goal)}${budgetLine}\n\n${goalPersistenceRules("this goal")}`;
-}
-
-function buildObjectiveUpdatedPrompt(goal: ActiveGoal) {
-	const budgetLine = goal.tokenBudget === undefined ? "" : `\nToken budget: ${formatBudget(goal)} used.`;
-	return `The active /goal objective was updated. Continue working toward this goal:\n\n${goalObjectiveBlock(goal)}${budgetLine}\n\n${goalPersistenceRules("the updated goal")}`;
-}
-
-function buildResumePrompt(goal: ActiveGoal) {
-	const budgetLine = goal.tokenBudget === undefined ? "" : `\nToken budget: ${formatBudget(goal)} used.`;
-	return `The user explicitly resumed the paused /goal. Continue working toward this goal:\n\n${goalObjectiveBlock(goal)}${budgetLine}\n\n${goalPersistenceRules("this goal")}`;
-}
-
-export function buildGoalSystemPrompt(goal: ActiveGoal) {
-	const budgetLine = goal.tokenBudget === undefined ? "" : `\n- Respect the goal token budget (${formatBudget(goal)} used).`;
-	const planLine = planProgressLineFromPeer();
-	const planBullet = planLine ? `\n- Active plan progress: ${planLine}. Treat the plan as your roadmap, not a stopping point.` : "";
-	return `Active /goal:\n${goalObjectiveBlock(goal)}\n\nGoal-mode rules:\n- Keep going until the active goal is completely resolved end-to-end.\n- Treat the current worktree, command output, tests, and external state as authoritative.\n- Do not redefine the goal into a smaller task; audit every requirement before completion.\n- Do not stop at analysis, a plan, TODO list, partial fixes, or suggested next steps.\n- ${THREE_LAYER_GUIDANCE}\n- Autonomously perform implementation and verification with the available tools when they are needed to complete the goal.\n- Persevere through recoverable tool failures by trying reasonable alternatives instead of yielding early.\n- If the goal is not complete at the end of a turn, expect an automatic continuation and keep working from where you left off.\n- Only call the goal_complete tool after the goal is fully complete and verified.${planBullet}${budgetLine}`;
-}
-
-function buildContinuePrompt(goal: ActiveGoal, marker: string) {
-	const planLine = planProgressLineFromPeer();
-	const planNote = planLine ? `\nActive plan progress: ${planLine}. Continue the next open phase, then mark it complete in task_plan.md.` : "";
-	return `Continue the active /goal until it is complete:\n\n${goalObjectiveBlock(goal)}\n\nThis is automatic continuation #${goal.iteration}. Current files, command output, tests, and external state are authoritative; re-check them as needed. ${goalPersistenceRules("this goal")}${planNote}\n\n${continuationMarkerComment(marker)}`;
-}
-
-function goalObjectiveBlock(goal: ActiveGoal) {
-	return `<goal_objective>\n${escapeXmlText(goal.text)}\n</goal_objective>`;
-}
-
-function goalPersistenceRules(goalLabel: string) {
-	return `Keep going until ${goalLabel} is completely resolved end-to-end. Do not redefine ${goalLabel} into a smaller task. Do not stop at analysis, a plan, TODO list, partial fixes, or suggested next steps. Autonomously perform implementation and verification with the available tools when they are needed. Treat the current worktree, command output, tests, and external state as authoritative. If a tool call fails, try reasonable alternatives instead of yielding early. Before calling goal_complete, audit ${goalLabel} requirement by requirement against the verified current state. Only call the goal_complete tool after ${goalLabel} is fully complete and verified.`;
 }
 
 // ─── Context helpers ──────────────────────────────────────────────────────────
@@ -792,15 +746,6 @@ export function planProgressLineFromPeer(): string {
 	return getPlanSummary(cwd);
 }
 
-// Three-layer fusion guidance: teaches the agent that the plan coordinator (the
-// roadmap) and the `todo` tool (in-session steps) are tools to FINISH the goal,
-// not stopping points. Goal drives; the other two structure the drive.
-const THREE_LAYER_GUIDANCE =
-	"You have three cooperating layers: this /goal (drives to completion), " +
-	"the plan coordinator (the cross-session phase roadmap in task_plan.md), and " +
-	"the `todo` tool (in-session step tracking). Use the plan as your roadmap " +
-	"and todo to track steps — neither is a stopping point; they are tools to finish this goal.";
-
 // ─── Continuation tracking ────────────────────────────────────────────────────
 
 function clearContinuationTracking() {
@@ -834,10 +779,6 @@ function continuationMarker(goal: ActiveGoal) {
 	return `${goal.id}:${goal.iteration}:${randomUUID()}`;
 }
 
-function continuationMarkerComment(marker: string) {
-	return `<!-- ${CONTINUATION_MARKER_PREFIX}${marker} -->`;
-}
-
 function escapeRegExpText(value: string) {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -851,10 +792,6 @@ function extractContinuationMarker(prompt: string) {
 }
 
 // ─── XML/text helpers ─────────────────────────────────────────────────────────
-
-function escapeXmlText(value: string) {
-	return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
 
 function formatError(error: unknown) {
 	return truncateNotification(error instanceof Error ? error.message : String(error));
