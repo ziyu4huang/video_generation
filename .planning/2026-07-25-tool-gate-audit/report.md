@@ -104,6 +104,7 @@ All P0 + P1 fixes executed on branch `chore/bump-pi-deps-0.82.0`. Status legend:
 | **I-5** bare `relay` | `003dfb38` | Narrowed to `video relay`/`vbvr relay` phrases. "relay the message" no longer fires the video gate. |
 | **I-7** malformed manifest swallowed | `8e7b02ce` | `discoverExtensionEntries` catch now branches: ENOENT (manifest absent, legit outside-repo) → extras-only; any other read/parse error (malformed JSON, EACCES) → **throws loudly**. No more silent false-green. |
 | **I-8** gateMissing one-directional | `8e7b02ce` | 🔶 Documented as one-directional by design (declared-not-captured). The reverse (captured + declared but not runtime-loaded = the C-1 phantom) is invisible to an offline check; **closed at the source** instead: empty EXTRA_ENTRIES + manifest-derived capture + the `movie-director-cost===false` test lock. Full captured↔runtime cross-check needs live session data (L2). Current `gateMissing` = 2 zai-mcp tools (env-gated, expected → correctly a lower-bound caveat). |
+| **I-6** gross-not-net self-promo | `954df0e3` | ✅ SavingsReport now carries `enableToolOverhead` (measured enable_tool schema tokens, 243) + `netSavedTok`/`netSavedPct` (savedTok − overhead = ~7,811). Pure `computeNet()` extracted + unit-tested. formatSavings shows gross/overhead/net; caveats discloses the ~55 tok promptSnippet+promptGuidelines residual. qa verdict line + JSON surface net; README discloses net. Headline stays gross (8,050) but net is now drift-detectable. |
 
 **Bonus fix (P0① regression):** `schema-cost.test.ts` still asserted `sources.has("movie-director-cost")===true` after EXTRA_ENTRIES was cleared → test was red in pi-agent-cli (undetected because only tool-gate's suite was run). Fixed to `===false`, locking the phantom out (`8e7b02ce`).
 
@@ -111,7 +112,6 @@ All P0 + P1 fixes executed on branch `chore/bump-pi-deps-0.82.0`. Status legend:
 
 | Finding | Why deferred |
 |---|---|
-| **I-6** gross-not-net self-promo (~55 tok invisible to harness) | Needs `measureToolTokens` to see promptSnippet+promptGuidelines, OR a real TOOL_GATE_DISABLE=1 A/B. Honest README already states the figure is gross. Design choice, not a bug. |
 | **I-9** 300 tok threshold uncalibrated + no aggregate-per-extension view | Calibration needs traffic data; aggregate view is a coverage.ts enhancement. P2. |
 | miss-rate **full redesign** (wire into verdict + scrap tautological lens + independent intent signal) | Requires a new "task needed a gated tool" signal — the L2 live-A/B arm. Design change, not a small fix. P0② made the *current* tool honest in the meantime. |
 | inspect_hooks phase-2 (firing counts) | Touches dispatch/handler-wrapping — riskier; separate effort. |
@@ -119,10 +119,10 @@ All P0 + P1 fixes executed on branch `chore/bump-pi-deps-0.82.0`. Status legend:
 
 ### Verification evidence (post-fix)
 
-- **tool-gate suite:** 217 pass / 0 fail (was 220; −3 = 4 graduated PRECISION_RISKS − 1 added MUST_NOT_FIRE + net-0 MUST_FIRE).
+- **tool-gate suite:** 222 pass / 0 fail (217 from keyword/loop fixes + 5 new `savings.test.ts` cases for I-6).
 - **pi-agent-cli schema-cost:** 17 pass / 0 fail (was 14 pass / 1 fail — the P0① regression).
 - **qa default + `--strict`:** ✅ PASS both.
-- **savings:** 8,054 tok/req (48.4%) — OFF 16,635 → ON 8,581; deviation **+4** vs ~8,050 claim (honest / essentially zero).
+- **savings:** 8,054 tok/req gross (48.4%) — OFF 16,635 → ON 8,581; **net 7,811 (47%)** after the 243 tok enable_tool overhead; deviation **+4** vs ~8,050 gross claim. Net makes the escape-hatch price visible + drift-detectable (I-6).
 - **coverage:** 0 ungated heavy · 21 gated-heavy.
 - **capability:** 0 task-breaking gates · **8 benign false-fires** (was 12; 4 graduated: want/need ×2, bare 圖, bare relay).
 - **boot-smoke full-suite timeout:** confirmed pre-existing CPU-contention flake (~750 ms isolated, with/without the change) — not a regression.
@@ -130,10 +130,11 @@ All P0 + P1 fixes executed on branch `chore/bump-pi-deps-0.82.0`. Status legend:
 ### Commit chain (audit fixes on this branch)
 
 ```
+954df0e3  feat(savings): net self-promotion accounting — visible enable_tool overhead (audit I-6)
 8e7b02ce  fix(schema-cost,savings): close captured!=loaded loop seams (audit I-7/I-8)
 003dfb38  fix(tool-gate): tighten gate keyword precision (audit I-1..I-5)
 000d0112  docs(tool-gate): demote miss-rate to diagnostic/experimental
  d07059fc fix(tool-gate): remove phantom `cost` gate; honest ~8,050 tok/req claim
 ```
 
-**Net:** the measurement→action loop is closed for every Critical + Important finding that is fixable offline. The audit's headline — "savings inflated, miss-rate unsound" — is resolved: the number is now honest, and the unsound metric no longer masquerades as a verdict. Remaining work (I-6/I-9 net-accounting + calibration, miss-rate redesign, inspect_hooks phase-2) is scoped and deferred with rationale, not lost.
+**Net:** the measurement→action loop is closed for every Critical + Important finding that is fixable offline. The audit's headline — "savings inflated, miss-rate unsound" — is resolved: the number is now honest, and the unsound metric no longer masquerades as a verdict. Remaining work (I-9 calibration, miss-rate redesign, inspect_hooks phase-2) is scoped and deferred with rationale, not lost.
