@@ -29,15 +29,23 @@ final class LipsyncMetricsTests: XCTestCase {
     }
 
     func testLaggedPearsonFindsShiftedCorrelation() {
-        // b is a shifted onto a by 2 positions — best match at lag=2.
-        // Quadratic (non-linear) values, not a plain arithmetic ramp: any
-        // two equal-length windows of a *linear* ramp are perfectly
-        // correlated regardless of alignment, which would make the "best"
-        // lag undefined/tied. Squaring breaks that degeneracy so lag=2 is
-        // the unique maximum.
-        let a = [1.0, 4.0, 9.0, 16.0, 25.0, 36.0, 49.0, 64.0, 81.0, 100.0]
-        let b = [0.0, 0.0, 1.0, 4.0, 9.0, 16.0, 25.0, 36.0, 49.0, 64.0]
-        let (r, lag) = LipsyncMetrics.laggedPearson(a, b, maxLag: 4)
+        // `leading` is the "cause" series; `delayed` is `leading` shifted
+        // 2 positions later in time (delayed[i] == leading[i - 2], zero
+        // before that) — the same shape as production's `audio_env`
+        // (cause) vs. `ratios` (response). Quadratic (non-linear) values,
+        // not a plain arithmetic ramp: any two equal-length windows of a
+        // *linear* ramp are perfectly correlated regardless of alignment,
+        // which would make the "best" lag undefined/tied. Squaring breaks
+        // that degeneracy so lag=2 is the unique maximum.
+        //
+        // Called as laggedPearson(delayed, leading) — response first, cause
+        // second — mirroring production's `_lagged_pearson(ratios,
+        // audio_env, ...)` call. Positive lag then means "the first argument
+        // lags the second by this many samples", so the response being 2
+        // samples behind the cause reports lag == 2.
+        let leading = [1.0, 4.0, 9.0, 16.0, 25.0, 36.0, 49.0, 64.0, 81.0, 100.0]
+        let delayed = [0.0, 0.0, 1.0, 4.0, 9.0, 16.0, 25.0, 36.0, 49.0, 64.0]
+        let (r, lag) = LipsyncMetrics.laggedPearson(delayed, leading, maxLag: 4)
         XCTAssertEqual(lag, 2)
         XCTAssertGreaterThan(r, 0.99)
     }

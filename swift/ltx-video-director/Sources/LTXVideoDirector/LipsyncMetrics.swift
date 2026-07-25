@@ -41,9 +41,12 @@ public enum LipsyncMetrics {
     }
 
     /// Best |Pearson r| between `a` and `b` over lags in [-maxLag, maxLag].
-    /// For `lag >= 0`, `a[i]` is paired with `b[i + lag]` — a positive lag
-    /// tests whether `b`, delayed by `lag` samples relative to `a`, best
-    /// explains `a`'s trajectory. NaNs are dropped pairwise per-lag; a lag
+    /// Positive lag means `b` is shifted forward relative to `a` (`b` lags
+    /// `a`) — matches the pairing convention of Python's `_lagged_pearson`
+    /// in python/mlx-movie-director/app/lipsync_metrics.py, which this
+    /// function ports. For `lag >= 0`, `a[lag...]` is paired against
+    /// `b[0..<(n - lag)]`; for `lag < 0`, `a[0..<(n + lag)]` is paired
+    /// against `b[(-lag)...]`. NaNs are dropped pairwise per-lag; a lag
     /// with fewer than 4 valid pairs is skipped. Returns (0.0, 0) if fewer
     /// than 8 total samples.
     ///
@@ -75,12 +78,12 @@ public enum LipsyncMetrics {
             let bSeg: [Double]
             if lag >= 0 {
                 guard lag < n else { continue }
-                aSeg = Array(a[0..<(n - lag)])
-                bSeg = Array(b[lag...])
+                aSeg = Array(a[lag...])
+                bSeg = Array(b[0..<(n - lag)])
             } else {
                 guard -lag < n else { continue }
-                aSeg = Array(a[(-lag)...])
-                bSeg = Array(b[0..<(n + lag)])
+                aSeg = Array(a[0..<(n + lag)])
+                bSeg = Array(b[(-lag)...])
             }
             guard let r = pearson(aSeg, bSeg), abs(r) > abs(bestR) else { continue }
             bestR = r
