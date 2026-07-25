@@ -243,17 +243,23 @@ Pi does not ship a standard task-list tool. If an installed todo/task tool is av
 }
 
 function piBoundaryOverrides(): string {
-  return `## Path & routing overrides (this repo)
+  return `## Pipeline routing (this repo)
 
-Superpowers and Wayfind are two parallel, non-connecting pipelines that share the \`.planning/<effort>/\` layout. Four runtime rules keep them from colliding; apply them in addition to the skill bodies (which keep their upstream text verbatim).
+Superpowers and Wayfind are two parallel pipelines sharing the \`.planning/<effort>/\` layout. Two rules:
 
-**1. Artifact-home override.** When a Superpowers skill tells you to save a spec under \`docs/superpowers/specs/\` or a plan under \`docs/superpowers/plans/\`, write it under the unified layout instead: \`docs/superpowers/specs/...\` → \`.planning/<effort>/spec.md\`; \`docs/superpowers/plans/...\` → \`.planning/<effort>/plan.md\`. This converges the homes at runtime without forking the upstream skill text.
+**1. One canonical home.** Every artifact lives under \`.planning/<effort>/\` — specs → \`.planning/<effort>/spec.md\`, plans → \`.planning/<effort>/plan.md\`, the SDD workspace → \`.planning/<effort>/sdd/\` (briefs/, reports/, reviews/, and the recovery ledger at \`.planning/<effort>/sdd/progress.md\`), and brainstorm mockups → \`.planning/<effort>/brainstorm/\`. The pinned skills' upstream paths (\`docs/superpowers/\`, \`.superpowers/\`) are overridden at runtime by \`PI_PLANNING_EFFORT\` (\`sdd-workspace\` + the brainstorm \`start-server.sh\` honor it). Never write to the upstream paths when an effort is active.
 
-**2. Entry-path routing.** The discriminator for which pipeline to enter is *can I write a plan right now from what's already settled?* — **yes** (spec/requirements in hand, route clear) → Superpowers (\`brainstorming\` → \`writing-plans\`, any size; huge handled via sub-project decomposition); **no** (decisions still open, route foggy) → Wayfind (\`wayfinder\` if the effort is huge/multi-session, else \`grilling\`). When a Wayfind decide-phase (\`grilling\`/\`wayfinder\`) has already settled the decisions, \`brainstorming\` defers to \`to-spec\` (synthesize what's settled — do not re-explore).
+**2. Pick the pipeline by stage — check what's on disk first.**
 
-**3. SDD workspace override.** The subagent-driven-development skill and its sdd-workspace script reference .superpowers/sdd/ (task briefs, implementer reports, review packages, and the compaction-recovery progress ledger). On pi, redirect ALL of that under the effort layout instead: .superpowers/sdd/... → .planning/<effort>/sdd/... — briefs under .planning/<effort>/sdd/briefs/, implementer reports under reports/, review packages under reviews/, and the progress ledger at .planning/<effort>/sdd/progress.md. Derive <effort> from the plan you are executing (.planning/<effort>/plans/<plan>.md). mkdir -p the subdirs on first use; append one line per task to progress.md on review-clean (Task N: complete (commits <base7>..<head7>, review clean)) and read it at SDD start to skip completed tasks. The sdd-workspace script is now pi-aware: export PI_PLANNING_EFFORT=<effort> first (task-brief/review-package inherit it via the env), then call sdd-workspace <effort> — it resolves to .planning/<effort>/sdd/ and only falls back to .superpowers/sdd/ when no effort is set. Or write the effort layout directly; either way no .superpowers/sdd/ is created when an effort is active. This converges the SDD runtime workspace beside the effort's map/tickets/plan without forking the upstream skill text.
+| Stage      | Trigger (check disk)                          | Pipeline                                |
+|------------|-----------------------------------------------|-----------------------------------------|
+| DECIDE     | no spec yet, decisions open / route foggy     | Wayfind — grilling (or wayfinder)       |
+| SYNTHESIZE | a grill just settled; spec needed             | Wayfind — to-spec (synthesize only)     |
+| DESIGN     | requirement clear, zero open decisions        | Superpowers — brainstorming             |
+| PLAN       | spec exists, no plan                          | Superpowers — writing-plans             |
+| EXECUTE    | plan exists                                   | Superpowers — executing-plans / SDD     |
 
-**4. Visual-companion (brainstorm) convergence.** The brainstorming visual-companion server writes mockup HTML under .superpowers/brainstorm/. On pi, export PI_PLANNING_EFFORT=<effort> before starting it (scripts/start-server.sh honors the env) so mockups land under .planning/<effort>/brainstorm/ instead; with no effort, the server keeps the upstream --project-dir/.superpowers/brainstorm/ behavior. Mockup scratch stays transient (gitignored).`;
+Four of five stages are a filesystem check. Only DECIDE-vs-DESIGN needs judgment ("are decisions open?"). When in doubt, DECIDE first — it's cheap insurance against building on a foggy route.`;
 }
 
 function messageContainsBootstrap(message: unknown): boolean {

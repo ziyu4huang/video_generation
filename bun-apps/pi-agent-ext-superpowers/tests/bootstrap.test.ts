@@ -163,27 +163,48 @@ describe("bootstrap payload assembly", () => {
     expect(payload).toContain("parallel()");
   });
 
-  it("carries the Path & routing overrides (boundary convergence, ADR-0004-safe)", () => {
+  it("carries the Pipeline routing (2-rule boundary convergence, ADR-0004-safe)", () => {
     _resetBootstrapCacheForTests();
     const payload = getBootstrapContent() ?? "";
-    // the override section exists
-    expect(payload).toContain("## Path & routing overrides (this repo)");
-    // rule 1: artifact-home override converges upstream paths to .planning/<effort>/
-    expect(payload).toContain("docs/superpowers/specs/");
+    // new header (renamed from "Path & routing overrides")
+    expect(payload).toContain("## Pipeline routing (this repo)");
+    expect(payload).not.toContain("## Path & routing overrides");
+    // rule 1: one canonical home — the convergence specifics stay actionable
+    expect(payload).toContain("One canonical home");
     expect(payload).toContain(".planning/<effort>/spec.md");
     expect(payload).toContain(".planning/<effort>/plan.md");
-    // rule 2: entry-path routing discriminator + brainstorming→to-spec deferral
-    expect(payload).toContain("can I write a plan right now");
-    expect(payload).toContain("brainstorming");
-    expect(payload).toContain("to-spec");
-    // rule 3: SDD workspace override (.superpowers/sdd/ → .planning/<effort>/sdd/)
-    expect(payload).toContain("SDD workspace override");
-    expect(payload).toContain(".superpowers/sdd/");
+    expect(payload).toContain(".planning/<effort>/sdd/");
     expect(payload).toContain(".planning/<effort>/sdd/progress.md");
-    expect(payload).toContain("sdd-workspace");
-    // rule 4: brainstorm visual-companion convergence under .planning/<effort>/brainstorm/
-    expect(payload).toContain("brainstorm");
     expect(payload).toContain(".planning/<effort>/brainstorm/");
     expect(payload).toContain("PI_PLANNING_EFFORT");
+    expect(payload).toContain("sdd-workspace");
+    // rule 2: stage table discriminator keyed on disk state
+    expect(payload).toContain("check what's on disk");
+    expect(payload).toContain("DECIDE");
+    expect(payload).toContain("SYNTHESIZE");
+    expect(payload).toContain("DESIGN");
+    expect(payload).toContain("PLAN");
+    expect(payload).toContain("EXECUTE");
+    // the SYNTHESIZE/DESIGN partition: to-spec vs brainstorming no longer compete
+    expect(payload).toContain("to-spec");
+    expect(payload).toContain("brainstorming");
+    // retired old structure must be gone
+    expect(payload).not.toContain("Four runtime rules");
+    expect(payload).not.toContain("can I write a plan right now");
+    expect(payload).not.toContain("Artifact-home override");
+    expect(payload).not.toContain("Entry-path routing");
+    expect(payload).not.toContain("Visual-companion convergence");
+    // note: "SDD workspace" the bare topic word legitimately remains in rule 1;
+    // only the retired header phrase "SDD workspace override" must be gone
+    expect(payload).not.toContain("SDD workspace override");
+  });
+
+  it("routing section is meaningfully shorter than the old 3039 chars", () => {
+    _resetBootstrapCacheForTests();
+    const payload = getBootstrapContent() ?? "";
+    const i = payload.indexOf("## Pipeline routing");
+    const section = i >= 0 ? payload.slice(i) : "";
+    expect(section.length).toBeLessThan(2000);
+    expect(section.length).toBeGreaterThan(800); // sanity: not accidentally empty
   });
 });
