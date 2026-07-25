@@ -10,7 +10,7 @@ This extension solves that by keeping lightweight core tools always active and h
 
 ```
 Baseline:  ~55 tools → ~16,600 tok/req   (measured via `bun run qa`)
-Gated:    ON at start ~8,600 tok/req   (saves ~8,050 tok/turn, ~48%; zai-mcp env-gated)
+Gated:    ON at start ~8,600 tok/req   (saves ~8,050 tok/turn gross, ~48%; **net ~7,810** after the ~243 tok `enable_tool` escape-hatch overhead — audit I-6; zai-mcp env-gated)
 ```
 
 > Figures are measured by `bun run qa` (power-tool `schema-cost`). Only
@@ -237,7 +237,7 @@ bun run qa:savings     # standalone, shows per-gate breakdown
 bun run qa              # savings included in full QA report
 ```
 
-Reports total tokens saved, percentage saved, and a per-gate breakdown of which gates contribute how much. Flags any tools loaded at runtime but missing from the manifest (`gateMissing`).
+Reports total tokens saved, percentage saved, and a per-gate breakdown of which gates contribute how much. Flags any tools loaded at runtime but missing from the manifest (`gateMissing`). Since 2026-07-25 (audit I-6) it also reports **net** savings (gross minus the measured `enable_tool` overhead) plus the ~55 tok `promptSnippet`+`promptGuidelines` residual, so the always-on price of the escape hatch is visible and drift-detectable (future guideline bloat shows up as a falling net).
 
 ### Miss-rate (`qa/miss-rate.ts`)
 

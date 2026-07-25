@@ -205,6 +205,9 @@ export function formatJson(r: QaResult): string {
 				gatedTotal: r.savings.gatedTotal,
 				savedTok: r.savings.savedTok,
 				savedPct: r.savings.savedPct,
+			enableToolOverhead: r.savings.enableToolOverhead,
+			netSavedTok: r.savings.netSavedTok,
+			netSavedPct: r.savings.netSavedPct,
 				claimed: r.savings.claimed,
 				deviation: r.savings.deviation,
 				floorMet: r.savingsFloorMet,
@@ -269,7 +272,7 @@ async function main() {
 
 	const summary = [
 		verdictGlyph(r.pass, r.mode.strict) + ` — ${r.reason}`,
-		`savings:   ${s.savedTok.toLocaleString()} tok/req (${s.savedPct}%) — OFF ${s.offTotal.toLocaleString()} → ON ${s.gatedTotal.toLocaleString()}  [floor ${r.savingsFloorMet ? "✅" : "❌"} · vs ~${s.claimed.toLocaleString()}: ${s.deviation >= 0 ? "+" : ""}${s.deviation.toLocaleString()}]`,
+		`savings:   ${s.savedTok.toLocaleString()} tok/req (${s.savedPct}%) — OFF ${s.offTotal.toLocaleString()} → ON ${s.gatedTotal.toLocaleString()}  [floor ${r.savingsFloorMet ? "✅" : "❌"} · vs ~${s.claimed.toLocaleString()}: ${s.deviation >= 0 ? "+" : ""}${s.deviation.toLocaleString()}]  · net ${s.netSavedTok.toLocaleString()} (${s.netSavedPct}%) [saved − enable_tool ${s.enableToolOverhead}]`,
 		`L1:        must-fire ${tally(c.mustFire)} · must-not-fire ${tally(c.mustNotFire)} · escape-name ${tally(c.escapeName)} · escape-intent ${tally(c.escapeIntent)}`,
 		`coverage:  ${r.coverage.ungated.length} ungated heavy tool(s) · ${r.coverage.gatedHeavy} gated-heavy  [${r.coverage.pass ? "✅" : "❌"}${r.mode.strict ? " --strict gates" : " non-gating"}]`,
 		`capability: ${c.taskBreakingGates.length} task-breaking gate(s)${c.taskBreakingGates.length ? ` [${c.taskBreakingGates.join(", ")}]` : ""} · ${c.precisionRisks.filter((x) => x.fires).length} benign false-fire(s) [never gate]${r.mode.strict ? "  ← strict gates on task-breaking" : ""}`,
