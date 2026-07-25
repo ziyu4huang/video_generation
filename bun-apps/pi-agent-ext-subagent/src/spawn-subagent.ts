@@ -21,6 +21,7 @@ import type { TSchema } from "typebox";
 import { type AgentUsage, type BudgetExhaustion, WorkflowAgent } from "./agent.js";
 import type { AgentHistoryEntry } from "./agent-history.js";
 import { isWorkflowError, WorkflowErrorCode } from "./errors.js";
+import { loadModelTierConfig, resolveModelRole } from "./model-role-config.js";
 
 export interface SpawnSubagentPrime {
   query: string;
@@ -37,6 +38,12 @@ export interface SpawnSubagentOptions {
   model?: string;
   /** Model tier name (e.g. "small"/"medium"/"big"), resolved from model-tiers config. */
   tier?: string;
+  /**
+   * Model capability for the child (e.g. "vision"), resolved from the
+   * capabilities map in model-tiers config. Precedence: model > capability >
+   * tier > mainModel. An unconfigured capability warns and falls back.
+   */
+  capability?: string;
   schema?: TSchema;
   /**
    * Max in-session repair re-prompts when the child returns prose instead of
@@ -159,7 +166,21 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
   // Default-to-current-LLM: when the caller neither picks a model nor a tier, fall
   // back to the live session model (not a stale medium tier). Explicit model or
   // tier always wins; resolveAgentModelSpec in agent.ts handles the rest.
-  const effectiveModel = opts.model ?? (opts.tier ? undefined : opts.mainModel);
+  // Resolve a capability (e.g. "vision") to a model-spec. Precedence:
+  // explicit model > capability > tier > mainModel. An unconfigured capability
+  // warns and falls through to tier/mainModel (mirrors agent.ts unknown-tier).
+  let capabilitySpec: string | undefined;
+  if (opts.capability) {
+    const cfg = loadModelTierConfig();
+    capabilitySpec = resolveModelRole({ capability: opts.capability }, cfg);
+    if (!capabilitySpec) {
+      const known = cfg?.capabilities ? Object.keys(cfg.capabilities).join(", ") || "(none)" : "(none)";
+      console.error(
+        `[subagent] unknown capability "${opts.capability}" — falling back. Configured capabilities: ${known}. Manage them via /workflows-models.`,
+      );
+    }
+  }
+  const effectiveModel = opts.model ?? capabilitySpec ?? (opts.tier ? undefined : opts.mainModel);
 
   const tryOnce = async (): Promise<{ result: SpawnSubagentResult; transient: boolean }> => {
     const ac = new AbortController();
