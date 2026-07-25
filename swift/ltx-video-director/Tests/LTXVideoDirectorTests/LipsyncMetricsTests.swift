@@ -132,4 +132,30 @@ final class LipsyncMetricsTests: XCTestCase {
         XCTAssertNotNil(v.caveat)
         XCTAssertTrue(v.caveat!.contains("search boundary"))
     }
+
+    func testClassifyVerdictLagBoundaryCaveatActuallyOverwritesFlatMouthCaveat() {
+        // Unlike testClassifyVerdictLagBoundaryCaveatOverridesOthers above,
+        // these inputs *do* trigger the flat-mouth-spurious caveat branch
+        // first (mouthRatioStd well below minMouthStdThreshold, with r high
+        // enough to have cleared adequateRThreshold) — so this actually
+        // proves the lag-boundary `if` (not `else if`) overwrites a caveat
+        // that was genuinely set, not just the only one that could fire.
+        let v = LipsyncMetrics.classifyVerdict(r: 0.5, lag: 4, maxLag: 4, lag0R: 0.1, mouthRatioStd: 0.005)
+        // flatMouth is true, so verdict is "inadequate" regardless of which
+        // caveat text wins — only the caveat string is under test here.
+        XCTAssertEqual(v.verdict, "inadequate")
+        XCTAssertNotNil(v.caveat)
+        XCTAssertTrue(v.caveat!.contains("search boundary"))
+        XCTAssertFalse(v.caveat!.contains("barely moves"))
+    }
+
+    func testClassifyVerdictAtExactThresholdIsAdequate() {
+        // r == adequateRThreshold exactly: the comparison in classifyVerdict
+        // is `r >= adequateRThreshold`, so the boundary value itself must
+        // count as adequate (not the first value past it).
+        let v = LipsyncMetrics.classifyVerdict(
+            r: LipsyncMetrics.adequateRThreshold, lag: 0, maxLag: 4, lag0R: 0.3, mouthRatioStd: 0.03)
+        XCTAssertEqual(v.verdict, "adequate")
+        XCTAssertNil(v.caveat)
+    }
 }
