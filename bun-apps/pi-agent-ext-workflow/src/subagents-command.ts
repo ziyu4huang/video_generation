@@ -70,6 +70,7 @@ export function createSubagentsCommand(opts: { subagentInFlight: SubagentInFligh
           {
             runs,
             getRunning: () => subagentInFlight.list(),
+            getRuns: () => reconstructSubagentRuns(branch),
             onClose: () => {
               if (timer) clearInterval(timer);
               done();

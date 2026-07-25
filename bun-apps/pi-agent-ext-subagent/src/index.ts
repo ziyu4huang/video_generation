@@ -79,7 +79,7 @@ export type { SubagentRunsToolOptions } from "./subagent-runs-tool.js";
 export { createSubagentRunsTool } from "./subagent-runs-tool.js";
 // subagent-tool
 export type { SubagentToolDetails, SubagentToolOptions } from "./subagent-tool.js";
-export { createSubagentTool } from "./subagent-tool.js";
+export { createSubagentTool, formatHistoryLine } from "./subagent-tool.js";
 // worktree
 export type { Worktree } from "./worktree.js";
 export { createWorktree, removeWorktree } from "./worktree.js";

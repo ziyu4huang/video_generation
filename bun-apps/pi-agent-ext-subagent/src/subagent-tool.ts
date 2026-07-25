@@ -238,7 +238,7 @@ function previewPayload(text: string | undefined, max = 100): string {
 }
 
 /** Render one history entry as a single readable trace line (live-output buffer). */
-function formatHistoryLine(e: AgentHistoryEntry): string {
+export function formatHistoryLine(e: AgentHistoryEntry): string {
   switch (e.kind) {
     case "toolCall":
       // `text` holds the JSON-stringified arguments (compactAgentHistory).

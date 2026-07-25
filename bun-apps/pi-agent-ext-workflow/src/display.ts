@@ -263,6 +263,11 @@ export function fmtTokensShort(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
+/** Shared cost formatting for agent/subagent rows: 2 decimals when ≥$0.01, else 4. */
+export function fmtCost(cost: number): string {
+  return cost >= 0.01 ? cost.toFixed(2) : cost.toFixed(4);
+}
+
 export interface ActivityRow {
   /** Covers the union of statuses across workflow agents, subagent runs, and in-flight subagents. */
   status: WorkflowAgentStatus | "failed" | "timedout" | "budget";
@@ -322,7 +327,7 @@ export function renderActivityRow(row: ActivityRow, theme: ThemeLike, maxDetailW
   const meta = [
     row.model ? shortModel(row.model) : undefined,
     row.tokens ? `${fmtTokensShort(row.tokens)} tok` : undefined,
-    typeof row.cost === "number" && row.cost > 0 ? `$${row.cost.toFixed(row.cost >= 0.01 ? 2 : 4)}` : undefined,
+    typeof row.cost === "number" && row.cost > 0 ? `$${fmtCost(row.cost)}` : undefined,
     typeof row.elapsedMs === "number" ? fmtElapsed(row.elapsedMs) : undefined,
     typeof row.toolCalls === "number" ? `${row.toolCalls} call${row.toolCalls === 1 ? "" : "s"}` : undefined,
   ]
