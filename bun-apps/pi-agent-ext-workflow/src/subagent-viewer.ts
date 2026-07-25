@@ -137,7 +137,7 @@ export class SubagentViewer {
         const row: ActivityRow = {
           status: "running",
           actor: r.agent ?? "general-purpose",
-          model: r.model,
+          model: r.resolvedModel ?? r.model,
           elapsedMs: Date.now() - r.startedAt,
           toolCalls,
           latestAction: summarizeLatestAction(r.history) ?? truncateToWidth(r.taskPreview, 40),
