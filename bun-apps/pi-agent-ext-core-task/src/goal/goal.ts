@@ -19,7 +19,7 @@
  */
 
 import { randomUUID } from "crypto";
-import { defineTool, type ExtensionAPI, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import { defineTool, type ExtensionAPI, type ExtensionContext, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { getPlanSummary, isPlanIncomplete } from "../plan/coordinator.js";
 import { GoalOverlay, type GoalOverlayLike } from "./overlay.js";
@@ -31,6 +31,7 @@ import {
 	incrementGoal,
 	normalizeGoalForBudget,
 	transitionGoal,
+	type GoalAuditOptions,
 	type GoalCompleteDetails,
 } from "./state.js";
 import { clearPersistedGoal, loadGoalFromSession, persistGoal } from "./persistence.js";
@@ -42,6 +43,7 @@ import {
 	type AssistantMessageLike,
 } from "./overflow.js";
 import { backoffMs, shouldPauseAfterBackoff, shouldHeartbeatRefire, accountTurnForNudges, shouldWedgeAlert, HEARTBEAT_INTERVAL_MS, HEARTBEAT_MAX_NUDGES, WEDGE_ALERT_DEFAULT_MINUTES } from "./backoff.js";
+import type { GoalAuditorResult } from "./shield.js";
 import {
 	detectLoopStuck,
 	loopInterventionDirective,
@@ -103,6 +105,52 @@ let goalOverlay: GoalOverlayLike | undefined;
 let piRef: ExtensionAPI | undefined;
 const STATUS_REFRESH_INTERVAL_MS = 1_000;
 
+// ─── T04 opt-in auditor: test seam + module singleton ────────────────────────
+// `auditRunner` is a module-level singleton so tests can inject a fake via the
+// exported `__setAuditRunnerForTest` seam — the ONLY way to avoid invoking a
+// real model. The default lazy-imports `runGoalCompletionAuditor` from
+// ./auditor.js, which transitively imports createAgentSession from
+// pi-coding-agent; the dynamic `import()` only resolves when an audit actually
+// runs (inside the `if (completedGoal.auditEnabled)` guard in goal_complete),
+// so default (non-audited) sessions pay ZERO import cost.
+
+type AuditRunnerArgs = {
+	ctx: ExtensionContext;
+	goal: ActiveGoal;
+	completionSummary: string;
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Model is a broad union from pi-ai; the seam only forwards it to runGoalCompletionAuditor.
+	model?: any;
+};
+type AuditRunner = (args: AuditRunnerArgs) => Promise<GoalAuditorResult>;
+
+let auditRunner: AuditRunner = async (args) => {
+	const { runGoalCompletionAuditor } = await import("./auditor.js");
+	return runGoalCompletionAuditor(args);
+};
+
+/** Test seam: override the audit runner. Pass `undefined` to restore the default. */
+export function __setAuditRunnerForTest(fn: AuditRunner | undefined): void {
+	auditRunner =
+		fn ??
+		(async (args) => {
+			const { runGoalCompletionAuditor } = await import("./auditor.js");
+			return runGoalCompletionAuditor(args);
+		});
+}
+
+/**
+ * Parse a `"provider/id"` override string into a Model ref (best-effort; used
+ * for the `--model` flag). The session's modelRegistry resolves provider/id via
+ * the parent runtime; createAgentSession accepts a bare `{provider,id}` object.
+ * A bare id (no slash) is returned as-is so a fully-qualified model string works too.
+ */
+/* eslint-disable-next-line @typescript-eslint/no-explicit-any -- Model is a broad union; a structural {provider,id} is the documented override shape. */
+function parseModelRef(ref: string): any {
+	const slash = ref.indexOf("/");
+	if (slash < 1) return ref;
+	return { provider: ref.slice(0, slash), id: ref.slice(slash + 1) };
+}
+
 // ─── Coordination seam (Plan A: goal ⇄ plan coordinator mutual-exclusion) ──
 
 /**
@@ -134,7 +182,7 @@ const goalCompleteTool = defineTool({
 	}),
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	async execute(_toolCallId: string, params: any, _signal: AbortSignal, _onUpdate: (msg: any) => void, ctx: any) {
-		const completedGoal = goalState.activeGoal;
+		let completedGoal = goalState.activeGoal;
 		const goal = completedGoal?.text ?? "unknown goal";
 		const summary = (params.summary as string).trim();
 
@@ -182,6 +230,73 @@ const goalCompleteTool = defineTool({
 				content: [{ type: "text", text: rejection }],
 				details: { goal, summary } satisfies GoalCompleteDetails,
 			};
+		}
+
+		// T04 opt-in auditor: gate completion on an isolated read-only audit.
+		// The entire block is guarded by `auditEnabled`, so a non-audited goal's
+		// goal_complete is byte-for-byte the pre-T04 path (the auditor module is
+		// not even imported). D3 routing: approve/impossible → fall through to the
+		// normal complete transition; disapprove → bounded re-loop (stay active,
+		// return the finding, terminate:false so the agent self-corrects in-turn);
+		// 3 consecutive disapprovals → pause + escalate; infra error → never
+		// complete (let the agent/user retry).
+		if (completedGoal.auditEnabled) {
+			const { AUDIT_MAX_RETRIES, AUDIT_HISTORY_CAP } = await import("./auditor.js");
+			ctx.ui.notify("Auditing completion…", "info");
+			const auditResult = await auditRunner({
+				ctx,
+				goal: completedGoal,
+				completionSummary: summary,
+				model: completedGoal.auditorModel ? parseModelRef(completedGoal.auditorModel) : undefined,
+			});
+			// Cap the audit history on the goal (mutate a clone, reassign activeGoal,
+			// persist) so the verdict trail survives compaction + is visible on the goal.
+			completedGoal = {
+				...completedGoal,
+				auditHistory: pushCapped(completedGoal.auditHistory ?? [], auditResult, AUDIT_HISTORY_CAP),
+			};
+			goalState.activeGoal = completedGoal;
+			persistGoal(goalState.extensionApi as ExtensionAPI, completedGoal);
+
+			// Infrastructure error (error && !disapproved) → never complete; let the
+			// agent/user retry. A disapprove WITH an error field is still a verdict.
+			if (auditResult.error && !auditResult.disapproved) {
+				ctx.ui.notify(`Goal audit failed (infrastructure): ${auditResult.error}`, "warning");
+				return {
+					content: [{ type: "text", text: `Audit could not produce a verdict: ${auditResult.error}. Re-verify and call goal_complete again.` }],
+					details: { goal, summary } satisfies GoalCompleteDetails,
+				};
+			}
+			// Impossible → the objective can never be satisfied; complete with a note
+			// (fall through to the normal complete transition below).
+			if (auditResult.impossible) {
+				ctx.ui.notify(`Goal marked impossible by audit: ${auditResult.impossibleReason ?? "unspecified"}`, "info");
+			}
+			// Disapproved → bounded re-loop (D3): stay active, return the finding,
+			// terminate defaults to false so the agent continues in-turn and self-corrects.
+			if (auditResult.disapproved) {
+				const attempts = (completedGoal.auditAttempts ?? 0) + 1;
+				completedGoal = { ...completedGoal, auditAttempts: attempts };
+				goalState.activeGoal = completedGoal;
+				persistGoal(goalState.extensionApi as ExtensionAPI, completedGoal);
+				if (attempts >= AUDIT_MAX_RETRIES) {
+					// Escalate: pause the goal so the user decides.
+					goalState.activeGoal = transitionGoal(completedGoal, "paused");
+					persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
+					updateStatus(ctx, goalState.activeGoal);
+					ctx.ui.notify(`Goal audit disapproved ${attempts}× — paused for review. Address the audit findings or /goal resume.`, "warning");
+					return {
+						content: [{ type: "text", text: `Audit disapproved ${attempts}× and paused the goal. Findings: ${auditResult.output.slice(0, 500)}` }],
+						details: { goal, summary } satisfies GoalCompleteDetails,
+					};
+				}
+				ctx.ui.notify(`Goal audit disapproved (attempt ${attempts}/${AUDIT_MAX_RETRIES}). Address the findings and re-verify.`, "warning");
+				return {
+					content: [{ type: "text", text: `Audit DISAPPROVED. Findings:\n${auditResult.output.slice(0, 1000)}\n\nAddress these and call goal_complete again only when genuinely complete.` }],
+					details: { goal, summary } satisfies GoalCompleteDetails, // terminate defaults to false → agent continues in-turn
+				};
+			}
+			// Approved (and shield passed) → fall through to the normal complete transition.
 		}
 
 		if (completedGoal) {
@@ -236,8 +351,14 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 				case "edit":
 					await editGoal(result.objective ?? "", result.tokenBudget, pi, ctx);
 					return;
+				case "audit":
+					toggleGoalAudit(ctx);
+					return;
 				case "start":
-					await startGoal(result.objective ?? "", result.tokenBudget, pi, ctx);
+					await startGoal(result.objective ?? "", result.tokenBudget, pi, ctx, {
+						auditEnabled: result.audit,
+						auditorModel: result.auditorModel,
+					});
 					return;
 			}
 		},
@@ -484,6 +605,7 @@ async function startGoal(
 	tokenBudget: number | undefined,
 	pi: ExtensionAPI,
 	ctx: StatusContext,
+	audit?: GoalAuditOptions,
 ) {
 	const validationError = validateObjective(objective);
 	if (validationError) {
@@ -507,11 +629,28 @@ async function startGoal(
 	clearGoalRecovery();
 	clearStaleGoalToolCallBlock();
 	resetHardeningCounters();
-	goalState.activeGoal = createGoal(objective, tokenBudget, currentTokenTotal(ctx));
+	goalState.activeGoal = createGoal(objective, tokenBudget, currentTokenTotal(ctx), audit);
 	persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 	updateStatus(ctx, goalState.activeGoal);
 	ctx.ui.notify(existingGoal ? `Goal replaced: ${objective}` : `Goal started: ${objective}`, "info");
 	await sendGoalPrompt(pi, ctx, goalState.activeGoal);
+}
+
+/**
+ * `/goal audit` toggle: flip auditEnabled on the active goal. Lets a user opt a
+ * goal into (or out of) the completion auditor after it has started. No-op
+ * notify when there is no active goal.
+ */
+function toggleGoalAudit(ctx: StatusContext) {
+	if (!goalState.activeGoal) {
+		ctx.ui.notify("No active goal.", "info");
+		return;
+	}
+	const next = !goalState.activeGoal.auditEnabled;
+	goalState.activeGoal = { ...goalState.activeGoal, auditEnabled: next, updatedAt: Date.now() };
+	persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
+	updateStatus(ctx, goalState.activeGoal);
+	ctx.ui.notify(`Completion audit ${next ? "enabled" : "disabled"} for goal: ${goalState.activeGoal.text}`, "info");
 }
 
 function pauseGoal(ctx: StatusContext) {
