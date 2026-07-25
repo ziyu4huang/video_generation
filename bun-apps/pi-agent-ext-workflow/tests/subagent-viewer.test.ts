@@ -231,3 +231,74 @@ test("reconstructSubagentRuns carries toolCallId through from the branch message
   const runs = reconstructSubagentRuns(branch as never);
   assert.equal(runs[0].toolCallId, "call-xyz");
 });
+
+// ── unified selectable list + live-follow (LIVE) ──
+
+function runningEntry(id: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    agent: "implementer",
+    model: "x/flash",
+    taskPreview: "doing " + id,
+    startedAt: Date.now() - 1500,
+    history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"a.ts"}' }],
+    ...overrides,
+  };
+}
+
+test("list cursor spans Running + Completed rows (unified); ▶ marks the selected row", () => {
+  const running = [runningEntry("r1")];
+  const runs = reconstructSubagentRuns([
+    toolResultEntry("subagent", "old report", { exitCode: 0, timedOut: false, status: "done", agent: "reviewer", model: "y/pro", taskPreview: "old", elapsedMs: 1000 }),
+  ] as never);
+  const viewer = new SubagentViewer({ runs, getRunning: () => running as never, onClose: () => {} }, T);
+  // selected=0 → first Running row
+  let out = viewer.render(80).join("\n");
+  assert.ok(out.includes("▶"), "cursor on the first (running) row");
+  // down → first Completed row
+  viewer.handleInput("\x1b[B"); // down
+  viewer.invalidate();
+  out = viewer.render(80).join("\n");
+  assert.ok(out.includes("#1"), "completed row present");
+});
+
+test("enter on a Running row enters follow and streams the live trace", () => {
+  const running = [runningEntry("r1")];
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+  viewer.handleInput("\r"); // enter on the running row
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("●"), "follow header shows the running glyph");
+  assert.ok(out.includes("running"), "follow header shows 'running'");
+  assert.ok(out.includes("flash"), "follow header shows the (shortened) model");
+  assert.ok(out.includes("→ read"), "follow body streams the live trace");
+});
+
+test("follow esc returns to the list", () => {
+  const running = [runningEntry("r1")];
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+  viewer.handleInput("\r");   // enter follow
+  viewer.handleInput("\x1b"); // esc
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("Subagent runs") || out.includes("Running"), "back to list view");
+});
+
+test("follow shows the resolved model (short) once resolvedModel is set", () => {
+  const running = [runningEntry("r1", { model: "tier:medium", resolvedModel: "google/gemma-4-12b-qat" })];
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+  viewer.handleInput("\r");
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("gemma-4-12b-qat"), "follow header shows the resolved model, shortened");
+});
+
+test("follow falls back to 'ended' when the run leaves the registry (LIVE-only behavior, pre-Task-4)", () => {
+  let running: unknown[] = [runningEntry("r1")];
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+  viewer.handleInput("\r");          // enter follow (LIVE)
+  viewer.render(80);
+  running = [];                      // run completed / left the registry
+  viewer.invalidate();
+  // exceed the finalize grace so it lands on 'ended'
+  for (let i = 0; i < 7; i++) { viewer.invalidate(); viewer.render(80); }
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("ended"), "lands on the neutral ended banner");
+});
