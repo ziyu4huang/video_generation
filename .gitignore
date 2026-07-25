@@ -72,6 +72,12 @@ vault/
 # pi-subagents runtime artifacts
 .pi-subagents/
 
+# Legacy superpowers scratch (.superpowers/sdd/ + .superpowers/brainstorm/).
+# Routed under .planning/<effort>/{sdd,brainstorm}/ when PI_PLANNING_EFFORT is
+# set (effort-aware scripts); this ignore is defense-in-depth for the
+# upstream-faithful path (no effort) so it never pollutes git status.
+.superpowers/
+
 # Planning artifacts under .planning/<effort>/ are durable, shared, and persist
 # across sessions — they ARE committed. This includes:
 #   - wayfinder decision maps + tickets (top-level <effort>/*.md, plans/)

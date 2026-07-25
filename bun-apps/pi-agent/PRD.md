@@ -22,7 +22,13 @@ A thin wrapper around the official `@earendil-works/pi-coding-agent` TUI. It cal
 ## Key Dependencies
 
 - `@earendil-works/pi-coding-agent` (official pi runtime)
-- All `pi-agent-ext-*` workspace members (loaded via run-dir manifest)
+- All 21 `pi-agent-ext-*` workspace members — registered across two layers:
+  12 static (`src/static-extensions.ts`) + 9 dynamic (`run-dir/manifest.json`)
+
+> 📐 **Full extension dependency tree** (inter-package workspace DAG, per-package
+> deps/peers, registration layer, observed debt) →
+> [`docs/extension-dependency-tree.PRD.md`](docs/extension-dependency-tree.PRD.md).
+> Consult it before any big change to the extension set.
 
 ## Deploy
 
@@ -129,5 +135,6 @@ pure symlink folder, so near-free to recreate. If the folder is unwanted cosmeti
 
 - [`PRD-e2e-testing.md`](./PRD-e2e-testing.md) — the e2e judgment test layer spec
 - [`docs/pi-cross-machine-setup.md`](docs/pi-cross-machine-setup.md) — fresh-machine setup
+- [`docs/extension-dependency-tree.PRD.md`](docs/extension-dependency-tree.PRD.md) — the extension dependency graph (what depends on what; baseline for big changes)
 - [`docs/extension-registry.PRD.md`](docs/extension-registry.PRD.md) — how extensions physically load (manifest, peerDeps, jiti/Bun resolution)
 - [`docs/slash-commands-tools-skills.md`](docs/slash-commands-tools-skills.md) — how slash commands, tools, skills, and extensions relate at runtime

@@ -49,7 +49,7 @@ Pi core does not ship a standard task-list tool. If a todo/task extension is ins
 
 ## SDD workspace & progress ledger
 
-The subagent-driven-development skill and its `sdd-workspace` script reference `.superpowers/sdd/` (task briefs, implementer reports, review packages, and the compaction-recovery progress ledger). On pi this is redirected to the effort layout: `.superpowers/sdd/...` → `.planning/<effort>/sdd/...` — briefs under `briefs/`, reports under `reports/`, review packages under `reviews/`, and the progress ledger at `progress.md`. Derive `<effort>` from the plan you are executing (`.planning/<effort>/plans/<plan>.md`). This override is injected every session via the bootstrap (see `piBoundaryOverrides` rule 3 in `src/superpowers.ts`); it converges the SDD runtime workspace beside the effort's map/tickets/plan without editing the byte-identical skill bodies. **Task brief + review package — inline, not via the scripts.** The byte-identical `task-brief` and `review-package` scripts default their output to `.superpowers/sdd/` and live in the extension's skill dir (a path that only resolves when this monorepo is the working repo). On pi, do NOT call them — run the extraction inline to the effort layout (same "don't call the script, do it directly" philosophy as the workspace override):
+The subagent-driven-development skill and its helper scripts (`sdd-workspace`, `task-brief`, `review-package`) are effort-aware on pi: set `PI_PLANNING_EFFORT=<effort>` and they resolve under `.planning/<effort>/sdd/` (briefs under `briefs/`, reports under `reports/`, review packages under `reviews/`, progress ledger at `progress.md`). Derive `<effort>` from the plan you are executing (`.planning/<effort>/plans/<plan>.md`). This converges the SDD workspace beside the effort's map/tickets/plan; with no effort the scripts fall back to the upstream `.superpowers/sdd/` (gitignored). You may call the scripts after exporting the effort, or run the extraction inline — both land under `.planning/<effort>/sdd/`. The inline forms keep the controller's context lean (the shell writes the file; only the path is handed to the subagent, which `read`s it):
 
 - **task brief** — extract Task N's section (fence-aware) to `.planning/<effort>/sdd/briefs/task-<N>-brief.md`:
 
@@ -65,4 +65,4 @@ awk -v n=N '/^```/{f=!f} !f&&/^#+[ \t]+Task[ \t]+[0-9]+/{t=($0~("^#+[ \t]+Task[ 
 
 Both keep the controller's context lean — the shell writes the file, only the path is handed to the subagent (the child `read`s it). The awk is the byte-identical script's logic inlined (validated BSD-awk-compatible on macOS).
 
-Do NOT call the byte-identical `sdd-workspace` script (it returns `.superpowers/sdd`); use the effort layout directly.
+Either path is fine: `PI_PLANNING_EFFORT=<effort> sdd-workspace` prints `.planning/<effort>/sdd/` (and `task-brief`/`review-package` inherit the env), or use the inline forms above. The awk is BSD-awk-compatible on macOS.
