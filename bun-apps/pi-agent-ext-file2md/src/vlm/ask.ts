@@ -10,7 +10,7 @@
 import { extname } from "node:path";
 import { readFileSync } from "node:fs";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { createSharedSession, resolveLLM, type ResolvedLLM } from "../sessions.ts";
+import { createSharedSession, resolveVisionLLM, type ResolvedLLM } from "../sessions.ts";
 
 export interface AskImageResult {
   reply: string;
@@ -47,7 +47,7 @@ function readImage(abs: string, mimeType: string) {
  * @param imagePath     absolute path to the image
  * @param question      free-form question / instruction for the model
  * @param opts.systemPrompt  optional system prompt (e.g. "answer in one line")
- * @param opts.llm      explicit LLM target; defaults to resolveLLM({}) (lm-studio Gemma)
+ * @param opts.llm      explicit LLM target; defaults to resolveVisionLLM() (capabilities.vision or lm-studio Gemma)
  * @param opts.agentDir  resolve models.json from THIS directory instead of the
  *                        global ~/.pi/agent (see createSharedSession's doc)
  * @param opts.modelRuntime  explicit, file-independent ModelRuntime (see
@@ -58,7 +58,7 @@ export async function askImage(
   question: string,
   opts: { mimeType?: string; systemPrompt?: string; llm?: ResolvedLLM; agentDir?: string; modelRuntime?: ModelRuntime } = {},
 ): Promise<AskImageResult> {
-  const llm = opts.llm ?? resolveLLM({});
+  const llm = opts.llm ?? resolveVisionLLM();
   const mimeType = opts.mimeType ?? guessImageMimeType(imagePath);
   const { session } = await createSharedSession(llm, {
     appendSystemPrompt: opts.systemPrompt ? [opts.systemPrompt] : undefined,

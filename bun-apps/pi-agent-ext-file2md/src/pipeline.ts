@@ -30,7 +30,7 @@ import {
   type Manifest,
   type PageStatus,
 } from "./vlm/manifest.ts";
-import { resolveLLM, type ResolvedLLM } from "./sessions.ts";
+import { resolveVisionLLM, type ResolvedLLM } from "./sessions.ts";
 
 export const DEFAULT_VLM_MODEL = "lm-studio/google/gemma-4-12b-qat";
 
@@ -215,7 +215,7 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
     );
   }
 
-  const llm: ResolvedLLM = resolveLLM({
+  const llm: ResolvedLLM = resolveVisionLLM({
     model: opts.model,
     provider: opts.provider,
     thinking: opts.thinking,

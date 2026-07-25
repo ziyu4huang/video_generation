@@ -9,7 +9,7 @@
  */
 import { readFileSync } from "node:fs";
 import { ALL_PROFILES, type DocProfile } from "./classify.ts";
-import { createSharedSession, resolveLLM, type ResolvedLLM } from "../sessions.ts";
+import { createSharedSession, resolveVisionLLM, type ResolvedLLM } from "../sessions.ts";
 
 const CLASSIFY_SYSTEM = `你是一個文件類型分類器。你會收到一張文件的第一頁圖片。
 請只判斷這份文件屬於下列哪一種 profile，並「只」輸出該 profile 的英文代碼（小寫），不要任何其他文字：
@@ -52,7 +52,7 @@ export async function classifyProfileViaVlm(
   mimeType: string,
   llmOverride?: ResolvedLLM,
 ): Promise<{ profile: DocProfile; reply: string }> {
-  const llm = llmOverride ?? resolveLLM({});
+  const llm = llmOverride ?? resolveVisionLLM();
   const { session } = await createSharedSession(llm, {});
 
   const image = readImage(imagePath, mimeType);
