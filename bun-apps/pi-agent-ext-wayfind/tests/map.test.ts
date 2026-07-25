@@ -17,6 +17,42 @@ describe("parseMapBody", () => {
   });
 });
 
+describe("parseMapBody: lenient section keys (suffix tolerance)", () => {
+  it("keys a section by the text before a ( / em-dash / colon suffix", () => {
+    const md = [
+      "## Resolution (closed 2026-07-25 — BUILD)", "", "decided to build", "",
+      "## Section — with a desc", "", "section body", "",
+      "## Notes: a colon note", "", "notes body", "",
+    ].join("\n");
+    const s = parseMapBody(md);
+    expect(s.Resolution).toBe("decided to build");
+    expect(s.Section).toBe("section body");
+    expect(s.Notes).toBe("notes body");
+  });
+
+  it("preserves the full key for plain (unsuffixed) headers — back-compat", () => {
+    const md = [
+      "## What to build", "", "wb", "",
+      "## Decisions so far", "", "d", "",
+      "## Not yet specified", "", "n",
+    ].join("\n");
+    const s = parseMapBody(md);
+    expect(s["What to build"]).toBe("wb");
+    expect(s["Decisions so far"]).toBe("d");
+    expect(s["Not yet specified"]).toBe("n");
+  });
+
+  it("treats a parenthetical-suffixed Resolution as closed (the ceremony footgun)", () => {
+    const content = [
+      "## Question", "", "What to do?", "",
+      "## Resolution (closed 2026-07-25 — BUILD)", "", "Decided: build it.",
+    ].join("\n");
+    const t = parseTicketFile(content, "01", "do-thing");
+    expect(t.status).toBe("closed");
+    expect(t.resolution).toBe("Decided: build it.");
+  });
+});
+
 describe("parseDecisionLine", () => {
   it("parses - [title](link) — gist", () => {
     const d = parseDecisionLine("- [Pick storage](tickets/01-pick-storage.md) — Postgres over SQLite");
