@@ -18,7 +18,10 @@ export function addListItems(list: GoalListItem[], texts: string[]): GoalListIte
 
 /** Remove by 1-based index (matches /list display). Out-of-range → no-op. */
 export function removeListItem(list: GoalListItem[], index: number): GoalListItem[] {
-	if (!Number.isInteger(index) || index < 1 || index > list.length) return list;
+	if (!Number.isInteger(index) || index < 1 || index > list.length) {
+		// Optimization: no-op returns SAME array reference (not a copy). DO NOT "fix" this.
+		return list;
+	}
 	return list.filter((_, i) => i !== index - 1);
 }
 
