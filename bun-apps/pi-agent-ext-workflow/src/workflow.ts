@@ -1,26 +1,29 @@
 import { createHash } from "node:crypto";
 import vm from "node:vm";
-import type { Node } from "acorn";
-import { parse } from "acorn";
-import type { TSchema } from "typebox";
-import type { AgentUsage } from "@repo/pi-agent-ext-subagent";
-import { WorkflowAgent, type WorkflowAgentOptions } from "@repo/pi-agent-ext-subagent";
-import type { AgentHistoryEntry } from "@repo/pi-agent-ext-subagent";
-import type { SddReport } from "@repo/pi-agent-ext-subagent";
+import type { AgentHistoryEntry, AgentUsage, SddReport } from "@repo/pi-agent-ext-subagent";
 import {
   type AgentDefinition,
   type AgentRegistry,
   agentDefinitionKey,
+  createWorktree,
   loadAgentRegistry,
+  removeWorktree,
   resolveAgentType,
+  WorkflowAgent,
+  type WorkflowAgentOptions,
+  WorkflowError,
+  WorkflowErrorCode,
+  type Worktree,
+  wrapError,
 } from "@repo/pi-agent-ext-subagent";
+import type { Node } from "acorn";
+import { parse } from "acorn";
+import type { TSchema } from "typebox";
 import { buildCallGlobal } from "./call-global.js";
 import { DEFAULT_AGENT_TIMEOUT_MS, MAX_AGENT_RETRIES, MAX_AGENTS_PER_RUN, MAX_CONCURRENCY } from "./config.js";
-import { WorkflowError, WorkflowErrorCode, wrapError } from "@repo/pi-agent-ext-subagent";
 import type { HostFnAskOptions, HostFnRegistry } from "./host-fn-registry.js";
 import { createWorkflowLogger } from "./logger.js";
 import { parseModelRoutingFromMeta, resolveModelForPhase } from "./model-routing.js";
-import { createWorktree, removeWorktree, type Worktree } from "@repo/pi-agent-ext-subagent";
 
 export interface WorkflowMetaPhase {
   title: string;

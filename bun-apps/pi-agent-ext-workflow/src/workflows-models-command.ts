@@ -21,9 +21,9 @@ import {
   Text,
   type TUI,
 } from "@earendil-works/pi-tui";
-import { listAvailableModelSpecs } from "@repo/pi-agent-ext-subagent";
 import {
   buildDefaultTierConfig,
+  listAvailableModelSpecs,
   loadModelTierConfig,
   saveModelTierConfig,
   sortedTierNames,

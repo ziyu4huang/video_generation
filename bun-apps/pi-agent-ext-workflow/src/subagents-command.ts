@@ -78,9 +78,12 @@ export function createSubagentsCommand(opts: { subagentInFlight: SubagentInFligh
           },
           theme as never,
         );
-        // Live-elapsed: re-render every second while a subagent runs, so the
-        // "Running" section's elapsed/tool-call counts stay fresh.
+        // Live-elapsed: re-render every second ONLY when the current view has
+        // live content (a `follow` trace, or a `list` with running entries).
+        // Re-rendering a static completed-runs list every second caused the
+        // replacement-UI flicker on "show all subagents".
         timer = setInterval(() => {
+          if (!viewer.hasLiveContent()) return;
           viewer.invalidate();
           tui.requestRender();
         }, LIVE_RENDER_INTERVAL_MS);

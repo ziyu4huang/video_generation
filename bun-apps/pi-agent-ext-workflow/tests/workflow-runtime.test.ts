@@ -315,7 +315,11 @@ test("hashAgentCall invalidates on tokenBudget/spendBudget change (resume correc
   assert.notEqual(hTok1, h0, "tokenBudget present vs absent → different hash");
   assert.notEqual(hTok1, hTok2, "different tokenBudget → different hash");
   assert.notEqual(hSpend, h0, "spendBudget present vs absent → different hash");
-  assert.equal(hashAgentCall("p", undefined, undefined, { tokenBudget: 1000 }, null), hTok1, "stable for identical input");
+  assert.equal(
+    hashAgentCall("p", undefined, undefined, { tokenBudget: 1000 }, null),
+    hTok1,
+    "stable for identical input",
+  );
 });
 
 test("runWorkflow plumbs opts.tier through to the agent with correct precedence", async () => {
