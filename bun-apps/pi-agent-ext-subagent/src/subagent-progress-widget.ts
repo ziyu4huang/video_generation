@@ -7,10 +7,9 @@
  */
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import type { InFlightSubagent } from "@repo/pi-agent-ext-subagent";
-import { summarizeLatestAction } from "@repo/pi-agent-ext-subagent";
-import type { SubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent/src/index.js";
-import { type ActivityRow, renderActivityRow } from "./display.js";
+import { type ActivityRow, renderActivityRow } from "./agent-row-display.js";
+import type { InFlightSubagent, SubagentInFlightRegistry } from "./index.js";
+import { summarizeLatestAction } from "./index.js";
 
 export interface SubagentProgressWidgetOpts {
   getRunning: () => InFlightSubagent[];

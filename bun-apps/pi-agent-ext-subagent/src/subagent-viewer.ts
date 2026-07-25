@@ -11,9 +11,9 @@
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
-import type { AgentHistoryEntry, AgentUsage, InFlightSubagent, SubagentToolDetails } from "@repo/pi-agent-ext-subagent";
-import { formatHistoryLine, summarizeLatestAction } from "@repo/pi-agent-ext-subagent";
-import { type ActivityRow, fmtCost, renderActivityRow, shortModel } from "./display.js";
+import { type ActivityRow, fmtCost, renderActivityRow, shortModel } from "./agent-row-display.js";
+import type { AgentHistoryEntry, AgentUsage, InFlightSubagent, SubagentToolDetails } from "./index.js";
+import { formatHistoryLine, summarizeLatestAction } from "./index.js";
 
 /** Tail-f window: how many recent trace lines the follow view shows. */
 const FOLLOW_TRACE_LINES = 40;

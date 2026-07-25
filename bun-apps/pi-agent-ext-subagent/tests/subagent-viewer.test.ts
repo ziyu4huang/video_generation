@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import type { SubagentToolDetails } from "@repo/pi-agent-ext-subagent";
+import type { SubagentToolDetails } from "../src/index.js";
 import { reconstructSubagentRuns, type SubagentRun, SubagentViewer } from "../src/subagent-viewer.js";
 
 // Identity theme so render() returns plain text we can assert on.

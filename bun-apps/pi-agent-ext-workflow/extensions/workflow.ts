@@ -1,5 +1,4 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { getSubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent/src/index.ts";
 import { applyHostFnRegistration, HostFnRegistry } from "../src/host-fn-registry.js";
 import {
   buildWorkflowGuidelinesForTurn,
@@ -22,8 +21,6 @@ import {
   shouldInjectFullWorkflowGuidelines,
   WorkflowManager,
 } from "../src/index.js";
-import { installSubagentProgressWidget } from "../src/subagent-progress-widget.js";
-import { createSubagentsCommand } from "../src/subagents-command.js";
 
 export default function extension(pi: ExtensionAPI) {
   // Single manager/storage shared by the workflow tool and the /workflows command,
@@ -74,22 +71,8 @@ export default function extension(pi: ExtensionAPI) {
   // pi-agent-ext-subagent — reads the same set via its OWN holder; the two no
   // longer share a closure.)
   const extensionToolsHolder: { current: ToolDefinition[] | undefined } = { current: undefined };
-  // Shared singleton from pi-agent-ext-subagent (process-wide). Imported via the
-  // SRC subpath so the SAME module instance is shared with the subagent extension
-  // (which loads via ../src/ too): the /subagents viewer reads `subagentInFlight`,
-  // which the `subagent` tool writes to in the OTHER extension. (Persistence is
-  // owned entirely by the subagent extension; workflow no longer touches it.)
-  // The literal `.ts` (not `.js`) is required: the package `exports` map exposes
-  // "./src/*" → "./src/*" verbatim, and only the `.ts` source exists under that
-  // subpath — a `.js` specifier would not resolve through Bun's runtime resolver.
-  const subagentInFlight = getSubagentInFlightRegistry();
   const workflowControlTool = createWorkflowControlTool({ manager });
   pi.registerTool(workflowControlTool);
-
-  // /subagents — list running + past subagent runs and view their output.
-  // Implemented in src/subagents-command.ts (extracted so the registry → viewer →
-  // live-timer wiring is unit-testable without a live TUI context).
-  pi.registerCommand("subagents", createSubagentsCommand({ subagentInFlight }));
 
   // Layer-3 conditional guideline injection. The workflow tool's authoring
   // guidelines are NO LONGER a static promptGuidelines tax on every turn; they
@@ -189,10 +172,6 @@ export default function extension(pi: ExtensionAPI) {
     // Pass a live settings loader so /workflows-progress (compact|detailed) takes
     // effect without a restart.
     installTaskPanel(pi, manager, ctx.ui, { storage, cwd, loadSettings: () => loadWorkflowSettings({ cwd }) });
-    // Always-on below-editor panel: one live line per running subagent (mirrors
-    // the /subagents Running row), invisible when idle. Reads the shared
-    // subagentInFlight singleton the `subagent` tool writes to.
-    installSubagentProgressWidget(ctx.ui, { registry: subagentInFlight });
     if (!editorInstalled) {
       installWorkflowEditor(pi, ctx.ui, effort, {
         settingsStore: {
