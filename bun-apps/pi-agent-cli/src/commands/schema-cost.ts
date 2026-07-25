@@ -157,8 +157,21 @@ export function discoverExtensionEntries(cwd: string): { source: string; path: s
 		manifest = JSON.parse(
 			readFileSync(resolve(cwd, "bun-apps/pi-agent/run-dir/manifest.json"), "utf8"),
 		);
-	} catch {
-		// outside the repo — measure extras only
+	} catch (e) {
+		if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+			// manifest absent (e.g. a compiled CLI running outside the repo) —
+			// measure extras only. Legitimate: there is simply nothing to derive.
+		} else {
+			// The manifest EXISTS but is unreadable/malformed. Swallowing this
+			// would silently fall back to extras-only and produce a FALSE-GREEN
+			// report (undercounting loaded tools — could mask a phantom or
+			// understate cost). Surface it loudly instead (audit I-7, 2026-07-25).
+			throw new Error(
+				`schema-cost: bun-apps/pi-agent/run-dir/manifest.json is unreadable — ` +
+				`${(e as Error).message}. Fix the manifest; a silent extras-only ` +
+				`fallback would produce a misleading (false-green) report.`,
+			);
+		}
 	}
 	const entries: { source: string; path: string }[] = [];
 	for (const e of manifest.extensions ?? []) {
