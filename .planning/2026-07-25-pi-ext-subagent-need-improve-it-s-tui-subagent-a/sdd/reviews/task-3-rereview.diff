@@ -1,0 +1,199 @@
+# Review package: 5dc3d32..HEAD
+
+## Commits
+37913e44 fix(subagent): assert via Text.render() not private field; biome-format in-flight tests
+ecd6fecf feat(subagent): wire resolved model into the live call line
+
+## Files changed
+ .../pi-agent-ext-subagent/src/subagent-tool.ts     |  9 ++++-
+ .../tests/subagent-in-flight.test.ts               |  8 +++-
+ .../tests/subagent-tool.test.ts                    | 45 ++++++++++++++++++++--
+ 3 files changed, 55 insertions(+), 7 deletions(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-subagent/src/subagent-tool.ts b/bun-apps/pi-agent-ext-subagent/src/subagent-tool.ts
+index 9f8efa51..0600c7c9 100644
+--- a/bun-apps/pi-agent-ext-subagent/src/subagent-tool.ts
++++ b/bun-apps/pi-agent-ext-subagent/src/subagent-tool.ts
+@@ -512,20 +512,21 @@ export function createSubagentTool(
+           extensionTools: options.getExtensionTools?.(),
+           externalSignal: signal,
+           timeoutMs: params.timeoutMs,
+           tokenBudget: params.tokenBudget,
+           spendBudget: params.spendBudget,
+           retryOnTransient: params.retryOnTransient,
+           schema: params.schema as TSchema | undefined,
+           schemaRepairAttempts: params.schemaRepairAttempts,
+           onModelResolved: (id) => {
+             resolvedModel = id;
++            options.inFlight?.updateModel(toolCallId, id);
+           },
+           onHistory:
+             onUpdate || options.inFlight || options.persistence
+               ? (history: AgentHistoryEntry[]) => {
+                   lastHistory = history;
+                   // Progress streaming is diagnostic only — a throwing onUpdate
+                   // (e.g. a TUI re-render failure) must never fail the subagent's
+                   // actual task result.
+                   try {
+                     const toolCallsNow = history.filter((h) => h.kind === "toolCall").length;
+@@ -605,20 +606,26 @@ export function createSubagentTool(
+           scopeCheck: details.scopeCheck,
+         });
+         return { content: [{ type: "text" as const, text: output }], details };
+       } finally {
+         options.inFlight?.end(toolCallId);
+         if (worktree) await teardownWorktree(worktree);
+       }
+     },
+     renderCall(args, theme, context) {
+       const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+-      text.setText(renderSubagentCall(args, theme));
++      // The concrete model is only known mid-run (onModelResolved). Read the
++      // latest from the registry (keyed by toolCallId) so the call line updates
++      // live, and bind invalidate so updateModel can force a redraw even before
++      // the next partial/history tick.
++      const resolvedModel = options.inFlight?.get(context.toolCallId)?.resolvedModel;
++      options.inFlight?.bindInvalidate(context.toolCallId, context.invalidate);
++      text.setText(renderSubagentCall({ ...args, resolvedModel }, theme));
+       return text;
+     },
+     renderResult(result, options, theme, _context) {
+       const text = (_context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+       text.setText(renderSubagentResult(result, options, theme));
+       return text;
+     },
+   });
+ }
+diff --git a/bun-apps/pi-agent-ext-subagent/tests/subagent-in-flight.test.ts b/bun-apps/pi-agent-ext-subagent/tests/subagent-in-flight.test.ts
+index fd2be08d..b2221807 100644
+--- a/bun-apps/pi-agent-ext-subagent/tests/subagent-in-flight.test.ts
++++ b/bun-apps/pi-agent-ext-subagent/tests/subagent-in-flight.test.ts
+@@ -36,27 +36,31 @@ test("get returns the live entry by id", () => {
+   const reg = new SubagentInFlightRegistry();
+   assert.equal(reg.get("missing"), undefined);
+   reg.start({ id: "a", model: "x", taskPreview: "t", startedAt: 0 });
+   assert.equal(reg.get("a")?.model, "x");
+ });
+ 
+ test("updateModel records resolvedModel and triggers the bound invalidate", () => {
+   const reg = new SubagentInFlightRegistry();
+   let invalidated = 0;
+   reg.start({ id: "a", model: "tier:medium", taskPreview: "t", startedAt: 0 });
+-  reg.bindInvalidate("a", () => { invalidated++; });
++  reg.bindInvalidate("a", () => {
++    invalidated++;
++  });
+   reg.updateModel("a", "google/gemma-4-12b-qat");
+   assert.equal(reg.get("a")?.resolvedModel, "google/gemma-4-12b-qat");
+   assert.equal(invalidated, 1);
+ });
+ 
+ test("updateModel on an unknown or ended id is a no-op", () => {
+   const reg = new SubagentInFlightRegistry();
+   let invalidated = 0;
+   reg.updateModel("ghost", "x/y"); // unknown id — no throw, no invalidate
+   reg.start({ id: "a", model: "tier:medium", taskPreview: "t", startedAt: 0 });
+-  reg.bindInvalidate("a", () => { invalidated++; });
++  reg.bindInvalidate("a", () => {
++    invalidated++;
++  });
+   reg.end("a");
+   reg.updateModel("a", "x/y"); // ended — no-op
+   assert.equal(reg.get("a"), undefined);
+   assert.equal(invalidated, 0);
+ });
+diff --git a/bun-apps/pi-agent-ext-subagent/tests/subagent-tool.test.ts b/bun-apps/pi-agent-ext-subagent/tests/subagent-tool.test.ts
+index 80cd9612..c5a6fd86 100644
+--- a/bun-apps/pi-agent-ext-subagent/tests/subagent-tool.test.ts
++++ b/bun-apps/pi-agent-ext-subagent/tests/subagent-tool.test.ts
+@@ -1,12 +1,13 @@
+ import { test } from "bun:test";
+ import assert from "node:assert/strict";
++import { Text } from "@earendil-works/pi-tui";
+ import type { AgentHistoryEntry } from "../src/agent-history.js";
+ import type { GitScopeOps } from "../src/git-scope.js";
+ import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
+ import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
+ import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
+ import type { SubagentToolDetails } from "../src/subagent-tool.js";
+ import {
+   createSubagentTool,
+   deriveSubagentStatus,
+   formatSubagentLive,
+@@ -563,24 +564,21 @@ test("renderSubagentCall appends resolved model as a separate segment when tier
+   assert.match(out, /tier:medium ▸ google\/gemma-4-12b-qat ▸/);
+ });
+ 
+ test("renderSubagentCall omits resolved model before resolution (undefined)", () => {
+   const out = renderSubagentCall({ agent: "auditor", tier: "medium", task: "x" }, T);
+   assert.match(out, /tier:medium/);
+   assert.doesNotMatch(out, /google/);
+ });
+ 
+ test("renderSubagentCall omits resolved model when it equals the explicit model slot (no dup)", () => {
+-  const out = renderSubagentCall(
+-    { agent: "scout", model: "x/flash", task: "x", resolvedModel: "x/flash" },
+-    T,
+-  );
++  const out = renderSubagentCall({ agent: "scout", model: "x/flash", task: "x", resolvedModel: "x/flash" }, T);
+   assert.equal((out.match(/x\/flash/g) || []).length, 1);
+ });
+ 
+ test("renderSubagentResult collapsed is short; expanded contains the full report", () => {
+   const details: SubagentToolDetails = {
+     exitCode: 0,
+     timedOut: false,
+     agent: "implementer",
+     model: "x/flash",
+     taskPreview: "p",
+@@ -1055,10 +1053,49 @@ test("execute persists budget on the durable run record (status 'budget')", asyn
+ });
+ 
+ // ── schemaRepairAttempts (structured-output repair) ──
+ 
+ test("execute forwards schemaRepairAttempts to spawn", async () => {
+   const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+   const tool = createSubagentTool({ spawn: f.spawn });
+   await tool.execute("id", { task: "t", schemaRepairAttempts: 4 }, NO_SIGNAL, undefined, NO_CTX);
+   assert.equal(f.calls[0]?.schemaRepairAttempts, 4);
+ });
++
++// ── live resolved-model wiring (Task 3: call line shows provider/model mid-run) ──
++
++test("execute threads onModelResolved into registry.updateModel (live resolved model)", async () => {
++  const reg = new SubagentInFlightRegistry();
++  const updates: Array<[string, string]> = [];
++  const orig = reg.updateModel.bind(reg);
++  reg.updateModel = (id, model) => {
++    updates.push([id, model]);
++    orig(id, model);
++  };
++  const { spawn } = fakeSpawn(async (opts) => {
++    opts.onModelResolved?.("google/gemma-4-12b-qat");
++    return { exitCode: 0, output: "ok", stderr: "", timedOut: false, history: [] };
++  });
++  const tool = createSubagentTool({ spawn, inFlight: reg });
++  await tool.execute("tc1", { task: "audit", tier: "medium" }, NO_SIGNAL, undefined, NO_CTX);
++  assert.deepEqual(updates, [["tc1", "google/gemma-4-12b-qat"]]);
++});
++
++test("renderCall reads resolvedModel from the registry and binds invalidate", () => {
++  const reg = new SubagentInFlightRegistry();
++  const tool = createSubagentTool({ inFlight: reg });
++  reg.start({ id: "tc9", model: "tier:medium", taskPreview: "x", startedAt: 0 });
++  reg.updateModel("tc9", "google/gemma-4-12b-qat");
++  let invalidated = 0;
++  const text = new Text("", 0, 0);
++  tool.renderCall?.({ agent: "auditor", tier: "medium", task: "x" }, T, {
++    toolCallId: "tc9",
++    lastComponent: text,
++    invalidate: () => {
++      invalidated++;
++    },
++  } as never);
++  assert.match(text.render(200).join("\n"), /tier:medium ▸ google\/gemma-4-12b-qat ▸/);
++  // invalidate was bound — a later updateModel re-renders the call line
++  reg.updateModel("tc9", "anthropic/claude-opus");
++  assert.equal(invalidated, 1);
++});
