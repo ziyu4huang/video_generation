@@ -40,6 +40,40 @@ export interface ActiveGoal {
 	auditAttempts?: number;
 }
 
+/**
+ * Options that enable + configure the opt-in completion auditor on a goal.
+ * Optional 4th param to createGoal: absent → no audit (current pre-T04
+ * behavior). The auditor reads auditEnabled/auditorModel/verificationContract
+ * off the resulting ActiveGoal. auditHistory/auditAttempts are deliberately
+ * NOT part of this options object — they accumulate during auditing and are
+ * only ever seeded undefined at creation.
+ *
+ * Relocated from state.ts (Loop 2, Task 1): GoalListItem needs it, and
+ * format.ts cannot import state.ts without a cycle. It is a pure data shape
+ * (no pi types), so its canonical home is the pi-import-free format.ts.
+ */
+export interface GoalAuditOptions {
+	auditEnabled?: boolean;
+	auditorModel?: string;
+	verificationContract?: string;
+}
+
+/**
+ * A goal-to-be — a tail item in the /list queue. Not a goal yet: it has no
+ * status, no usage, no startedAt. It becomes an ActiveGoal via
+ * `createGoal(item.text, item.tokenBudget, baseline, item.audit)` when it is
+ * promoted to the head. `parked` marks an item parked from a paused activeGoal
+ * via `/list next` (preserved across promotion so the cockpit can tell a
+ * re-queued item from a fresh one).
+ */
+export interface GoalListItem {
+	id: string;
+	text: string;
+	tokenBudget?: number;
+	audit?: GoalAuditOptions;
+	parked?: boolean;
+}
+
 // ─── Status word + progress metric (overlay rendering) ───────────────────────
 
 /**

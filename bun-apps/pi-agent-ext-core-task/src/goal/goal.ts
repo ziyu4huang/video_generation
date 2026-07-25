@@ -23,7 +23,7 @@ import { defineTool, type ExtensionAPI, type ExtensionContext, type ExtensionUIC
 import { Type } from "typebox";
 import { getPlanSummary, isPlanIncomplete } from "../plan/coordinator.js";
 import { GoalOverlay, type GoalOverlayLike } from "./overlay.js";
-import { formatBudget, type ActiveGoal } from "./format.js";
+import { formatBudget, type ActiveGoal, type GoalAuditOptions } from "./format.js";
 import {
 	createGoal,
 	editedGoalStatus,
@@ -31,7 +31,6 @@ import {
 	incrementGoal,
 	normalizeGoalForBudget,
 	transitionGoal,
-	type GoalAuditOptions,
 	type GoalCompleteDetails,
 } from "./state.js";
 import { clearPersistedGoal, loadGoalFromSession, persistGoal } from "./persistence.js";
