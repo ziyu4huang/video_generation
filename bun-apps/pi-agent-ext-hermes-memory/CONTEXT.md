@@ -103,3 +103,16 @@ into each recommendation via `memory_search`, WRITE each resolved decision via
 the `grill_decision` tool (whose runtime lives in this package's
 `src/tools/grill-decision-tool.ts`). Formerly its own package
 (`pi-agent-ext-grill-memory`); merged in because the runtime was already here.
+
+## Learning loop: subagent-output capture
+
+The background-review learning loop now also reviews `subagent` tool outputs.
+A subagent's output returns to the parent session as a `tool_result` content
+block, which the shared `getMessageText` deliberately skips (text-only, 500-char
+cap — it is also consumed by `session-flush` and `correction-detector`, where
+injecting tool-result noise would be harmful). A dedicated collector,
+`collectSubagentOutputs` (`src/handlers/message-parts.ts`), matches each
+`tool_result` to its producing `subagent` tool_use and feeds the text into the
+review prompt at a relaxed per-output cap (4000), always-on — no config knob.
+The existing distill logic decides what is notable, exactly as for user/assistant
+text. `getMessageText` / `collectMessageParts` are intentionally left unchanged.

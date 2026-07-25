@@ -400,6 +400,31 @@ describe("setupBackgroundReview", () => {
     assert.ok(task.includes("Message number 9"), "default should include latest messages");
   });
 
+  it("includes captured subagent outputs in the review prompt", async () => {
+    const pi = createMockPi();
+    setupWithSpawn(pi);
+
+    fireMessageEnd("user");
+    fireMessageEnd("user");
+    fireMessageEnd("user");
+
+    // A real-ish branch: threshold filler + a subagent dispatch and its tool_result.
+    const branch = [
+      ...makeBranch(6),
+      { type: "message", message: { role: "assistant", content: [{ type: "toolCall", id: "sa1", name: "subagent", arguments: {} }] } },
+      { type: "message", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "sa1", content: "The subagent surfaced a reusable pattern" }] } },
+    ];
+
+    for (let i = 0; i < 10; i++) {
+      fireTurnEnd(branch);
+    }
+    await settle();
+
+    const task = reviewTask();
+    assert.ok(task.includes("The subagent surfaced a reusable pattern"), "review prompt must include the subagent output");
+    assert.ok(task.includes("[SUBAGENT]"), "subagent output is labelled with its prefix");
+  });
+
   it("limits background review to recent messages when configured", async () => {
     const config = { ...defaultConfig, reviewRecentMessages: 3 };
     const pi = createMockPi();

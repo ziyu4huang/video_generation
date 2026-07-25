@@ -17,7 +17,7 @@ import { COMBINED_REVIEW_PROMPT } from "../constants.js";
 import { MemoryStore } from "../store/memory-store.js";
 import type { MemoryRepository } from "../store/repository.js";
 import type { MemoryConfig } from "../types.js";
-import { applyRecentMessageLimit, collectMessageParts } from "./message-parts.js";
+import { applyRecentMessageLimit, collectMessageParts, collectSubagentOutputs } from "./message-parts.js";
 import { runDirectBackgroundReview, type DirectReviewResult } from "./review-memory-ops.js";
 
 export interface BackgroundReviewOptions {
@@ -161,20 +161,24 @@ export function setupBackgroundReview(
     toolCallsSinceReview = 0;
     reviewInProgress = true;
 
-    let allParts: string[] = [];
+    let parts: string[];
     try {
       const entries = ctx.sessionManager.getBranch();
-      allParts = collectMessageParts(entries);
+      const convoParts = collectMessageParts(entries);
+      if (convoParts.length < 4) {
+        reviewInProgress = false;
+        return;
+      }
+      // Subagent outputs are appended after the recent-message window: they are
+      // high-signal findings that should always be reviewed, without displacing
+      // recent conversation and without broadening getMessageText (shared by
+      // session-flush / correction-detector). Captured via the dedicated path.
+      const subagentParts = collectSubagentOutputs(entries);
+      parts = [...applyRecentMessageLimit(convoParts, config.reviewRecentMessages), ...subagentParts];
     } catch {
       reviewInProgress = false;
       return;
     }
-    if (allParts.length < 4) {
-      reviewInProgress = false;
-      return;
-    }
-
-    const parts = applyRecentMessageLimit(allParts, config.reviewRecentMessages);
     const promptInput: ReviewPromptInput = {
       parts,
       currentMemory: store.getMemoryEntries().join("\n§\n"),
