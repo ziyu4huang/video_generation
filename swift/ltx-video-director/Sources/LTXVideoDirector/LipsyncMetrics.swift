@@ -255,6 +255,24 @@ public enum LipsyncMetrics {
     /// face is detected). Reuses VideoProbe's existing consecutive-frame
     /// extraction (the same utility VideoGate's motion check uses) rather
     /// than writing a new AVAssetReader frame walk.
+    ///
+    /// Scope: this decodes and holds EVERY frame of the clip in memory at
+    /// once (via `VideoProbe.consecutiveFrames`) and runs a Vision face
+    /// request per frame — fine for this repo's actual use case (short
+    /// 2-5s talking-head dialogue shots, per the design doc), but would be
+    /// a real memory/perf concern on long clips. Not a general-purpose
+    /// long-video tool — don't reach for this on a 10-minute video without
+    /// budgeting for the cost.
+    ///
+    /// Assumes `VideoProbe.consecutiveFrames` returns frames without gaps
+    /// — it silently drops (does not pad) any frame it fails to decode, so
+    /// a dropped mid-clip frame would shift every later position by one,
+    /// desyncing the array-position-as-time-proxy this series is built on
+    /// (the audio envelope gets resampled onto these same positions). In
+    /// practice this is low-risk: the ±`maxLagFrames` lag search absorbs
+    /// small timing skews like this, and dropped frames should be rare on
+    /// clean mp4s — but it's not a guarantee of perfect frame-to-index
+    /// correspondence.
     static func extractMouthOpenSeries(url: URL) throws -> MouthSeries {
         let info = try VideoProbe.info(url: url)
         guard info.fps > 0, info.duration > 0 else {
@@ -341,6 +359,15 @@ public enum LipsyncMetrics {
     /// End-to-end: extract both series, correlate, verdict. Mirrors
     /// measure_lipsync_precision()'s structure exactly (same early-exit
     /// order: no_face check before no_audio check).
+    ///
+    /// Divergence from Python: `measure_lipsync_precision` never raises —
+    /// it always returns a verdict dict, even for a totally undecodable
+    /// file. This port intentionally DOES throw for a genuinely unreadable
+    /// file (via `VideoProbe.info`'s `VideoProbeError.noVideoTrack` etc.),
+    /// matching how other commands in this package already handle this
+    /// (e.g. `VideoGate.evaluate` also throws) — the CLI command layer
+    /// lets ArgumentParser report the thrown error with a nonzero exit
+    /// rather than this function synthesizing an error verdict itself.
     public static func measure(url: URL) throws -> LipsyncResult {
         let mouth = try extractMouthOpenSeries(url: url)
         guard mouth.nDetected >= 4 else {

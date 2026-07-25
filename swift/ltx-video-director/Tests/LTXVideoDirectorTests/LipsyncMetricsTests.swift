@@ -158,4 +158,66 @@ final class LipsyncMetricsTests: XCTestCase {
         XCTAssertEqual(v.verdict, "adequate")
         XCTAssertNil(v.caveat)
     }
+
+    func testLipsyncResultCodableRoundTripUsesDocumentedSnakeCaseWireKeys() throws {
+        // This is the actual contract bun-apps/pi-agent-ext-movie-director/
+        // src/runpy_lipsync.ts will parse (Task 6) — lock down the
+        // snake_case JSON keys, not Swift's camelCase property names.
+        let result = LipsyncMetrics.LipsyncResult(
+            verdict: "adequate",
+            pearsonR: 0.55,
+            mouthRatioStd: 0.03,
+            caveat: nil,
+            note: nil,
+            bestLagFrames: 1,
+            lag0PearsonR: 0.5,
+            fps: 24.0,
+            nFrames: 60,
+            nDetected: 58,
+            mouthRatioMean: 0.12,
+            audioRmsMean: 0.001234
+        )
+        let data = try JSONEncoder().encode(result)
+        let json = String(data: data, encoding: .utf8)!
+
+        XCTAssertTrue(json.contains("\"pearson_r\""))
+        XCTAssertFalse(json.contains("\"pearsonR\""))
+        XCTAssertTrue(json.contains("\"mouth_ratio_std\""))
+        XCTAssertTrue(json.contains("\"best_lag_frames\""))
+        XCTAssertTrue(json.contains("\"lag0_pearson_r\""))
+        XCTAssertTrue(json.contains("\"n_frames\""))
+        XCTAssertTrue(json.contains("\"n_detected\""))
+        XCTAssertTrue(json.contains("\"mouth_ratio_mean\""))
+        XCTAssertTrue(json.contains("\"audio_rms_mean\""))
+
+        let decoded = try JSONDecoder().decode(LipsyncMetrics.LipsyncResult.self, from: data)
+        XCTAssertEqual(decoded.verdict, "adequate")
+        XCTAssertEqual(decoded.pearsonR, 0.55)
+        XCTAssertEqual(decoded.bestLagFrames, 1)
+        XCTAssertEqual(decoded.nDetected, 58)
+        XCTAssertEqual(decoded.audioRmsMean, 0.001234)
+    }
+
+    func testExtractAudioEnvelopeOnNonexistentFileReturnsZerosWithoutCrashing() {
+        // Exercises extractAudioEnvelope's "no usable audio" early return
+        // without a real video fixture: AVURLAsset on a nonexistent path
+        // synchronously reports zero tracks (rather than throwing/crashing),
+        // so decodeMonoPCM's guard fails and this takes the same
+        // fewer-than-1024-samples early-return path a silent/missing-track
+        // clip would.
+        let url = URL(fileURLWithPath: NSTemporaryDirectory() + "lipsync-nonexistent-\(UUID().uuidString).mp4")
+        let result = LipsyncMetrics.extractAudioEnvelope(url: url, nSamples: 5)
+        XCTAssertEqual(result, [0.0, 0.0, 0.0, 0.0, 0.0])
+    }
+
+    func testMeasureOnNonexistentFileThrowsRatherThanCrashing() {
+        // Confirms measure(url:)'s documented throws-vs-Python divergence:
+        // a genuinely unreadable file surfaces as a thrown VideoProbeError,
+        // not a synthesized verdict. No real video fixture needed — a
+        // nonexistent path is itself an unreadable file.
+        let url = URL(fileURLWithPath: NSTemporaryDirectory() + "lipsync-nonexistent-\(UUID().uuidString).mp4")
+        XCTAssertThrowsError(try LipsyncMetrics.measure(url: url)) { error in
+            XCTAssertTrue(error is VideoProbeError)
+        }
+    }
 }
