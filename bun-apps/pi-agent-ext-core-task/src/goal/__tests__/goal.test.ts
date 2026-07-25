@@ -1031,7 +1031,7 @@ describe("frozen session entry data", () => {
 	// The pi runtime may freeze/canonicalize custom entry data. The goal loader
 	// must return a mutable copy; otherwise updateGoalUsage(activeGoal) throws
 	// "Attempted to assign to readonly property" on the live reference.
-	test("loadGoalFromSession returns a mutable copy (no readonly crash on /goal status)", async () => {
+	test("loadGoalStateFromSession returns a mutable copy (no readonly crash on /goal status)", async () => {
 		const frozenGoal = Object.freeze({
 			id: "frozen-1",
 			text: "persisted goal",

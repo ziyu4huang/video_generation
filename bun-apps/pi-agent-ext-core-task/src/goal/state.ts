@@ -23,25 +23,12 @@
  */
 
 import { randomUUID } from "crypto";
-import type { ActiveGoal, GoalStatus } from "./format.js";
+import type { ActiveGoal, GoalAuditOptions, GoalStatus, GoalListItem } from "./format.js";
 import type { ToolResultPrint } from "./repetition.js";
 export type { ActiveGoal, GoalStatus };
+export type { GoalAuditOptions, GoalListItem };
 
 // ─── Goal-specific types ──────────────────────────────────────────────────────
-
-/**
- * Options that enable + configure the opt-in completion auditor on a goal.
- * Optional 4th param to createGoal: absent → no audit (current pre-T04
- * behavior). The auditor reads auditEnabled/auditorModel/verificationContract
- * off the resulting ActiveGoal. auditHistory/auditAttempts are deliberately
- * NOT part of this options object — they accumulate during auditing and are
- * only ever seeded undefined at creation.
- */
-export interface GoalAuditOptions {
-	auditEnabled?: boolean;
-	auditorModel?: string;
-	verificationContract?: string;
-}
 
 export interface GoalCompleteDetails {
 	goal: string;
@@ -64,6 +51,7 @@ export interface GoalRecovery {
 
 export interface GoalStateEntryData {
 	goal?: ActiveGoal | null;
+	list?: GoalListItem[]; // Loop 2 (D2): the queue tail, persisted per session.
 }
 
 // ─── Pure status-machine functions ────────────────────────────────────────────
@@ -186,6 +174,12 @@ export interface GoalRuntimeState {
 	lastActivityAt: number;
 	lastWedgeAlertAt: number;
 	nudgeCount: number;
+	// Loop 2 (D2): the /list goal queue. `list` is the tail of pending items
+	// (goal-to-bes with no status/usage); `headAdvances` counts how many heads
+	// have been promoted so far — it drives the widget position so a re-promoted
+	// list shows "advancing" rather than "reset". Both reset on __resetGoalState.
+	list: GoalListItem[];
+	headAdvances: number;
 }
 
 export const goalState: GoalRuntimeState = {
@@ -208,6 +202,8 @@ export const goalState: GoalRuntimeState = {
 	lastActivityAt: Date.now(),
 	lastWedgeAlertAt: 0,
 	nudgeCount: 0,
+	list: [],
+	headAdvances: 0,
 };
 
 /** Test seam: reset all runtime state to initial values (mirrors todo/state/store.ts __resetState). */
@@ -231,4 +227,6 @@ export function __resetGoalState(): void {
 	goalState.lastActivityAt = Date.now();
 	goalState.lastWedgeAlertAt = 0;
 	goalState.nudgeCount = 0;
+	goalState.list = [];
+	goalState.headAdvances = 0;
 }

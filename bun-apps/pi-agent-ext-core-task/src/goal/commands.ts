@@ -23,6 +23,13 @@ export interface CommandResult {
 	auditorModel?: string;
 }
 
+export type ListCommandResult =
+	| { kind: "show" }
+	| { kind: "add"; texts: string[] }
+	| { kind: "next" }
+	| { kind: "remove"; index: number }
+	| { kind: "clear" };
+
 export interface GoalArgumentCompletion {
 	value: string;
 	label: string;
@@ -168,4 +175,26 @@ export function validateObjective(objective: string): string | undefined {
 		return `Goal objective is too long (${trimmed.length}/${MAX_OBJECTIVE_LENGTH} characters). Put long instructions in a file and reference it from /goal instead.`;
 	}
 	return undefined;
+}
+
+/** Parse a `/list …` command. Returns null if input is not a list command. */
+export function parseListCommand(input: string): ListCommandResult | null {
+	const trimmed = input.trim();
+	if (!trimmed.startsWith("list")) return null;
+	const rest = trimmed.slice(4).trim(); // after "list"
+	if (rest === "") return { kind: "show" };
+	const sub = rest.split(/\s+/)[0]?.toLowerCase();
+	const argText = rest.slice(sub!.length).trim();
+	if (sub === "add") {
+		const texts = tokenize(argText);
+		return { kind: "add", texts };
+	}
+	if (sub === "next") return { kind: "next" };
+	if (sub === "clear") return { kind: "clear" };
+	if (sub === "remove") {
+		const index = Number.parseInt(argText, 10);
+		return { kind: "remove", index: Number.isFinite(index) ? index : -1 };
+	}
+	// Unknown /list subcommand → treat as show (forgiving).
+	return { kind: "show" };
 }

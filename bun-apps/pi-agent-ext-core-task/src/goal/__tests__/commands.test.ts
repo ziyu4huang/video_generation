@@ -15,6 +15,7 @@ import {
 	parseCommand,
 	validateObjective,
 	completeGoalArguments,
+	parseListCommand,
 } from "../commands.js";
 
 // ─── parseTokenBudget ────────────────────────────────────────────────────────
@@ -165,5 +166,39 @@ describe("completeGoalArguments", () => {
 
 	test("returns null when objective text is present", () => {
 		expect(completeGoalArguments("ship objective")).toBeNull();
+	});
+});
+
+// ─── parseListCommand ─────────────────────────────────────────────────────────
+
+describe("parseListCommand", () => {
+	test("bare /list → show", () => {
+		expect(parseListCommand("list")).toEqual({ kind: "show" });
+		expect(parseListCommand("list ")).toEqual({ kind: "show" });
+	});
+	test("/list add with one objective", () => {
+		expect(parseListCommand('list add "ship feature X"')).toEqual({ kind: "add", texts: ["ship feature X"] });
+	});
+	test("/list add with multiple objectives", () => {
+		expect(parseListCommand('list add "a" "b" "c"')).toEqual({ kind: "add", texts: ["a", "b", "c"] });
+	});
+	test("/list next", () => {
+		expect(parseListCommand("list next")).toEqual({ kind: "next" });
+	});
+	test("/list remove <n>", () => {
+		expect(parseListCommand("list remove 2")).toEqual({ kind: "remove", index: 2 });
+	});
+	test("/list remove non-numeric → -1", () => {
+		expect(parseListCommand("list remove abc")).toEqual({ kind: "remove", index: -1 });
+	});
+	test("/list clear", () => {
+		expect(parseListCommand("list clear")).toEqual({ kind: "clear" });
+	});
+	test("non-list input → null (not a list command)", () => {
+		expect(parseListCommand('goal "something"')).toBeNull();
+		expect(parseListCommand("audit")).toBeNull();
+	});
+	test("unknown /list subcommand → show (forgiving)", () => {
+		expect(parseListCommand("list frobnicate")).toEqual({ kind: "show" });
 	});
 });

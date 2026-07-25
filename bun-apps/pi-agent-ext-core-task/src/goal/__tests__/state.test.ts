@@ -16,6 +16,7 @@ import {
 	__resetGoalState,
 	type ActiveGoal,
 } from "../state.js";
+import type { GoalListItem } from "../format.js";
 
 test("createGoal seeds an active goal with the right shape", () => {
 	const g = createGoal("do thing", 1000, 42);
@@ -127,6 +128,11 @@ test("__resetGoalState clears every runtime-state field back to its initial valu
 	goalState.lastActivityAt = 0;
 	goalState.lastWedgeAlertAt = 99_999;
 	goalState.nudgeCount = 9;
+	// Loop 2 queue fields (Task 1): mutated so this watchdog proves __resetGoalState
+	// resets them too — a silent no-op here would let a stale queue + inflated
+	// position leak across a fresh goal cockpit (the bug class behind Loop 2).
+	goalState.list = [{ id: "leaked", text: "x" }];
+	goalState.headAdvances = 7;
 
 	__resetGoalState();
 
@@ -155,6 +161,8 @@ test("__resetGoalState clears every runtime-state field back to its initial valu
 	expect(goalState.lastActivityAt).toBeGreaterThanOrEqual(resetAt);
 	expect(goalState.lastWedgeAlertAt).toBe(0);
 	expect(goalState.nudgeCount).toBe(0);
+	expect(goalState.list).toEqual([]);
+	expect(goalState.headAdvances).toBe(0);
 
 	// Release the real timers we allocated (reset orphaned them on purpose).
 	clearInterval(fakeStatusTimer);
@@ -183,5 +191,28 @@ describe("createGoal audit options", () => {
 		expect(g.auditEnabled).toBe(true);
 		expect(g.auditorModel).toBe("anthropic/claude-sonnet-4");
 		expect(g.verificationContract).toBe("tests green\nno regressions");
+	});
+});
+
+// ─── Loop 2: GoalRuntimeState list fields (Task 1) ────────────────────────────
+// goalState gains a `list` (the queue tail) + `headAdvances` (heads activated
+// so far, drives the widget position). Both must reset on __resetGoalState so
+// cross-session list state cannot leak into a fresh goal cockpit.
+describe("GoalRuntimeState list fields", () => {
+	test("list + headAdvances reset to initial by __resetGoalState", () => {
+		goalState.list = [{ id: "x", text: "do thing" }];
+		goalState.headAdvances = 7;
+		__resetGoalState();
+		expect(goalState.list).toEqual([]);
+		expect(goalState.headAdvances).toBe(0);
+	});
+});
+
+describe("GoalListItem shape", () => {
+	test("a minimal item has id + text; optional fields default undefined", () => {
+		const item: GoalListItem = { id: "a", text: "ship feature X" };
+		expect(item.tokenBudget).toBeUndefined();
+		expect(item.audit).toBeUndefined();
+		expect(item.parked).toBeUndefined();
 	});
 });

@@ -23,7 +23,7 @@ import { defineTool, type ExtensionAPI, type ExtensionContext, type ExtensionUIC
 import { Type } from "typebox";
 import { getPlanSummary, isPlanIncomplete } from "../plan/coordinator.js";
 import { GoalOverlay, type GoalOverlayLike } from "./overlay.js";
-import { formatBudget, type ActiveGoal } from "./format.js";
+import { formatBudget, type ActiveGoal, type GoalAuditOptions } from "./format.js";
 import {
 	createGoal,
 	editedGoalStatus,
@@ -31,10 +31,9 @@ import {
 	incrementGoal,
 	normalizeGoalForBudget,
 	transitionGoal,
-	type GoalAuditOptions,
 	type GoalCompleteDetails,
 } from "./state.js";
-import { clearPersistedGoal, loadGoalFromSession, persistGoal } from "./persistence.js";
+import { clearPersistedGoal, loadGoalStateFromSession, persistGoal } from "./persistence.js";
 import {
 	findFinalAssistantMessage,
 	isContradictoryCompletionSummary,
@@ -54,9 +53,17 @@ import {
 import {
 	completeGoalArguments,
 	parseCommand,
+	parseListCommand,
 	parseTokenBudget,
 	validateObjective,
 } from "./commands.js";
+import {
+	addListItems,
+	removeListItem,
+	promoteNext,
+	goalToListItem,
+	clearList,
+} from "./list.js";
 import {
 	buildContinuePrompt,
 	buildGoalPrompt,
@@ -305,6 +312,28 @@ const goalCompleteTool = defineTool({
 			persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 		}
 
+		// Loop 2 (Task 6): auto-advance the /list queue on a clean complete. We
+		// reach here ONLY on a clean complete (approved / no-audit /
+		// impossible-note); freeze cases (audit 3× disapprove → paused; infra
+		// error) returned early above, so the queue stays put on freeze. If a tail
+		// item exists, promote it to the active goal (its item.audit, if any,
+		// wires the auditor for ITS goal_complete — D5) and continue in-turn on
+		// the new goal. If the tail is empty, complete as today.
+		const { item, rest } = promoteNext(goalState.list);
+		if (item) {
+			goalState.list = rest;
+			goalState.activeGoal = createGoal(item.text, item.tokenBudget, currentTokenTotal(ctx), item.audit);
+			goalState.headAdvances += 1;
+			persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
+			updateStatus(ctx, goalState.activeGoal);
+			ctx.ui.notify(`Goal complete. Advanced to: ${item.text}`, "success");
+			return {
+				content: [{ type: "text", text: `Goal complete: ${summary}. Advanced to next goal: ${item.text}` }],
+				details: { goal, summary } satisfies GoalCompleteDetails,
+				terminate: false, // continue in-turn on the new goal (mirrors the disapprove path's terminate:false)
+			};
+		}
+
 		clearActiveGoal(ctx);
 		showCompletionStatus(ctx, goal);
 		ctx.ui.notify(`Goal complete: ${goal}`, "info");
@@ -354,12 +383,149 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 				case "audit":
 					toggleGoalAudit(ctx);
 					return;
-				case "start":
+				case "start": {
+					// A bare `/goal "x"` is a fresh single-goal intent — the queue must
+					// NOT persist across it. Reset BEFORE startGoal (NOT inside it: /list
+					// add calls startGoal DIRECTLY from the /list handler with a pre-set
+					// tail, which a reset inside startGoal would wipe).
+					goalState.list = [];
+					goalState.headAdvances = 0;
 					await startGoal(result.objective ?? "", result.tokenBudget, pi, ctx, {
 						auditEnabled: result.audit,
 						auditorModel: result.auditorModel,
 					});
 					return;
+				}
+			}
+		},
+	});
+
+	pi.registerCommand("list", {
+		description: "Manage the goal queue: /list [add \"obj\"… | next | remove <n> | clear]",
+		handler: async (args: string, ctx: StatusContext) => {
+			// parseListCommand expects the full "list …" token (its contract, see
+			// commands.test.ts); the slash-command dispatcher passes only the
+			// remainder after `/list `, so reconstruct it here. A bare `/list`
+			// (empty args) becomes `list ` → { kind: "show" }.
+			const cmd = parseListCommand(`list ${args}`);
+			if (!cmd) return;
+
+			const api = goalState.extensionApi as ExtensionAPI;
+			const active = goalState.activeGoal;
+
+			switch (cmd.kind) {
+				case "show": {
+					// Render head (index 1 = active) + indexed tail. ctx.ui has no print()
+					// method, so notify carries the multi-line block (matches the
+					// notify-based harness in goal.test.ts).
+					const lines: string[] = active
+						? [`1. ${active.text}  (active)`]
+						: ["(no active goal)"];
+					for (const [i, item] of goalState.list.entries())
+						lines.push(`${i + 2}. ${item.text}${item.parked ? "  ⚠parked" : ""}`);
+					ctx.ui.notify(lines.join("\n"), "info");
+					return;
+				}
+
+				case "add": {
+					if (cmd.texts.length === 0) {
+						ctx.ui.notify("Nothing to add.", "info");
+						return;
+					}
+					if (!active || active.status === "complete") {
+						// No active goal (or the head is already complete): the first item
+						// becomes the head (started), the rest fill the tail. APPEND to the
+						// existing tail — a reachable state has a complete head + a non-empty
+						// pending tail (pre-Task-6), and rebuilding from [] would silently
+						// discard those items. Set the tail BEFORE startGoal so its
+						// persistGoal snapshots head + tail together.
+						goalState.list = addListItems(goalState.list, cmd.texts.slice(1));
+						// Fresh queue head → position resets (headAdvances only ever
+						// increments in production; without this it would inflate across
+						// drained queues, mis-stating the widget position).
+						goalState.headAdvances = 0;
+						await startGoal(cmd.texts[0], undefined, pi, ctx);
+					} else {
+						goalState.list = addListItems(goalState.list, cmd.texts);
+						persistGoal(api, active);
+						updateStatus(ctx, active);
+						ctx.ui.notify(
+							`Added ${cmd.texts.length} goal(s) to the queue (${goalState.list.length} queued).`,
+							"info",
+						);
+					}
+					return;
+				}
+
+				case "next": {
+					if (!active) {
+						ctx.ui.notify("No active goal to advance from.", "info");
+						return;
+					}
+					if (active.status === "complete") {
+						ctx.ui.notify("Active goal already complete.", "info");
+						return;
+					}
+					// Nothing to advance to when the tail is empty. This check MUST run
+					// before parking the head: promoteNext([...tail, parkedHead]) always
+					// yields the parked head as `item`, so a bare `if (!item)` guard
+					// would be dead code and re-promote the head onto itself.
+					if (goalState.list.length === 0) {
+						ctx.ui.notify("Queue empty — nothing to advance to.", "info");
+						return;
+					}
+					// Park the current head at the tail, then promote the next tail
+					// item. Do NOT call startGoal here — it would trigger the
+					// "Replace goal?" confirm; createGoal starts the head cleanly.
+					// The empty-tail guard above guarantees the spread is non-empty, so
+					// promoteNext always yields a defined item — the old `if (!item)`
+					// was unreachable dead code and is removed.
+					const { item, rest } = promoteNext([...goalState.list, goalToListItem(active)]);
+					goalState.list = rest;
+					// promoteNext returns an undefined item ONLY for empty input; the
+					// empty-tail guard above proves it is defined here.
+					const promoted = item!;
+					goalState.activeGoal = createGoal(
+						promoted.text,
+						promoted.tokenBudget,
+						currentTokenTotal(ctx),
+						promoted.audit,
+					);
+					goalState.headAdvances += 1;
+					persistGoal(api, goalState.activeGoal);
+					updateStatus(ctx, goalState.activeGoal);
+					ctx.ui.notify(`Advanced to: ${promoted.text}`, "info");
+					await sendGoalPrompt(pi, ctx, goalState.activeGoal);
+					return;
+				}
+
+				case "remove": {
+					// /list show numbers head=1, tail=2,3,…; removeListItem is 1-based
+					// on the tail. Translate the user-facing DISPLAY index → tail index;
+					// display index 1 is the active head (not removable here).
+					const tailIndex = cmd.index - 1;
+					if (cmd.index < 1) { ctx.ui.notify("Usage: /list remove <n>", "warning"); return; }   // M1: bare/invalid
+					if (tailIndex < 1) { ctx.ui.notify("Index 1 is the active head; use /list next or /goal clear.", "warning"); return; }
+					const before = goalState.list.length;
+					goalState.list = removeListItem(goalState.list, tailIndex);
+					if (goalState.list.length === before) { ctx.ui.notify(`No item at index ${cmd.index}.`, "warning"); return; }
+					// persistGoal requires an ActiveGoal; with no active head there is
+					// nothing to snapshot the tail alongside — a no-op persist is
+					// correct there.
+					if (active) persistGoal(api, active);
+					updateStatus(ctx, goalState.activeGoal);
+					ctx.ui.notify(`Removed item ${cmd.index}.`, "info");
+					return;
+				}
+
+				case "clear": {
+					goalState.list = clearList();
+					goalState.headAdvances = 0;
+					if (active) persistGoal(api, active);
+					updateStatus(ctx, goalState.activeGoal);
+					ctx.ui.notify("Queue cleared (active goal untouched).", "info");
+					return;
+				}
 			}
 		},
 	});
@@ -372,7 +538,9 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 		clearContinuationTracking();
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
-		goalState.activeGoal = loadGoalFromSession(ctx.sessionManager);
+		const restored = loadGoalStateFromSession(ctx.sessionManager);
+		goalState.activeGoal = restored.goal;
+		goalState.list = restored.list ?? [];
 		if (goalState.activeGoal) updateStatus(ctx, goalState.activeGoal);
 		else goalOverlay?.update(undefined);
 	});
@@ -401,8 +569,9 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 			return;
 		}
 
-		const restoredGoal = loadGoalFromSession(ctx.sessionManager);
-		if (restoredGoal?.id === goalState.activeGoal.id) goalState.activeGoal = restoredGoal;
+		const restoredState = loadGoalStateFromSession(ctx.sessionManager);
+		if (restoredState.goal?.id === goalState.activeGoal.id) goalState.activeGoal = restoredState.goal;
+		goalState.list = restoredState.list ?? goalState.list;
 		updateGoalUsage(goalState.activeGoal, ctx);
 		persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 		updateStatus(ctx, goalState.activeGoal);
@@ -699,6 +868,11 @@ function clearGoal(ctx: StatusContext) {
 		cancelContinuationPending();
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
+		// /goal clear is a queue-lifecycle boundary: drop the in-memory queue +
+		// position so a later bare /goal "x" shows no phantom ☰ …/2 suffix and
+		// the widget position doesn't inflate across sessions.
+		goalState.list = [];
+		goalState.headAdvances = 0;
 		clearPersistedGoal(goalState.extensionApi as ExtensionAPI);
 		goalOverlay?.update(undefined);
 		return;
@@ -928,9 +1102,9 @@ async function sendPrompt(pi: ExtensionAPI, ctx: StatusContext, prompt: string) 
 // thin delegates so command handlers / lifecycle hooks / agent_end read cleanly
 // while updateStatus keeps its (_ctx, goal) call sites unchanged.
 
-function updateStatus(ctx: StatusContext, _goal: ActiveGoal) {
+function updateStatus(ctx: StatusContext, _goal: ActiveGoal | undefined) {
 	goalState.latestCtx = ctx;
-	goalOverlay?.update(goalState.activeGoal);
+	goalOverlay?.update(goalState.activeGoal, goalState.list, goalState.headAdvances);
 	syncStatusRefreshTimer();
 	syncHeartbeatTimer();
 }
@@ -1096,7 +1270,7 @@ function currentTokenTotal(ctx: StatusContext): number {
 }
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
-// persistGoal / clearPersistedGoal / loadGoalFromSession live in ./persistence.ts
+// persistGoal / clearPersistedGoal / loadGoalStateFromSession live in ./persistence.ts
 // (deps injected: api / sessionManager passed as params; no module-state reads;
 // session-store-only since Task 11 retired the legacy state file) — imported above.
 
@@ -1105,6 +1279,12 @@ function clearActiveGoal(_ctx: StatusContext) {
 	clearGoalRecovery();
 	clearStaleGoalToolCallBlock();
 	goalState.activeGoal = undefined;
+	// The in-memory queue tail + headAdvances are queue-lifecycle state — reset
+	// here (and at every other lifecycle boundary) so they cannot leak across a
+	// fresh /goal. clearActiveGoal runs on /goal clear (with an active head), on
+	// a drained goal_complete, and on session teardown paths.
+	goalState.list = [];
+	goalState.headAdvances = 0;
 	clearPersistedGoal(goalState.extensionApi as ExtensionAPI);
 	goalOverlay?.update(undefined);
 	stopStatusRefreshTimer();
@@ -1124,5 +1304,5 @@ function showCompletionStatus(_ctx: StatusContext, objective: string) {
 // Clone / isGoal / normalizeGoalForBudget / incrementGoal / transitionGoal /
 // editedGoalStatus / createGoal + the goal-owned types live in ./state.ts
 // (pure module, zero @earendil-works/* imports) — re-imported above.
-// persistGoal / clearPersistedGoal / loadGoalFromSession live in ./persistence.ts
+// persistGoal / clearPersistedGoal / loadGoalStateFromSession live in ./persistence.ts
 // (session-store-only) — re-imported above.
