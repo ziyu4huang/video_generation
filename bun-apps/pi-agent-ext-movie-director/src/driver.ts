@@ -78,6 +78,23 @@ async function readCompletedStages(
 	}
 }
 
+/** Read one completed stage's checkpointed artifacts (for resume — see below). */
+async function readStageArtifacts(
+	projectId: string,
+	pipeline: string,
+	stage: string,
+	deps: DriverDeps,
+): Promise<Record<string, unknown>> {
+	const res = await deps.dispatchFn("read-checkpoint", { projectId, pipeline, stage });
+	if (!res.ok) return {};
+	try {
+		const parsed = JSON.parse(res.text) as { checkpoint?: { artifacts?: Record<string, unknown> } | null };
+		return parsed.checkpoint?.artifacts ?? {};
+	} catch {
+		return {};
+	}
+}
+
 /**
  * Run the pipeline deterministically. Fresh when `topic` is set; resume when
  * only `projectId` is set. Walks stages in manifest order, producing each,
@@ -112,6 +129,20 @@ export async function runPipeline(opts: DriverOptions, deps: DriverDeps): Promis
 	// supplied artifacts. Pre-supplied artifacts are merged in here.
 	const inputArtifacts: Record<string, unknown> = { ...(opts.preSuppliedArtifacts ?? {}) };
 
+	// On resume, stages before startIndex completed in a PRIOR process — this
+	// process's inputArtifacts starts empty, so their artifact content (not just
+	// their names, already known via `completed`) must be reloaded from disk or
+	// every producer downstream of the resume point silently runs with missing
+	// inputs (caught for real: the `assets` producer hard-fails with "missing
+	// scene_plan input" on a resumed run whose scene_plan completed earlier).
+	if (!isFresh) {
+		for (const stage of order) {
+			if (!completed.has(stage)) continue;
+			const artifacts = await readStageArtifacts(projectId, pipeline, stage, deps);
+			for (const [k, v] of Object.entries(artifacts)) inputArtifacts[k] = v;
+		}
+	}
+
 	for (let i = startIndex; i < order.length; i++) {
 		const stage = order[i]!;
 		const meta = getStage(pipeline, stage);
@@ -124,13 +155,20 @@ export async function runPipeline(opts: DriverOptions, deps: DriverDeps): Promis
 			artifacts = { [suppliedKey]: opts.preSuppliedArtifacts![suppliedKey] };
 		} else {
 			// Bounded retry: produce may throw (transient MLX/provider/schema failure).
+			// Heartbeat to stderr: run-pipeline otherwise emits nothing until the whole
+			// run finishes, which is indistinguishable from a hang when a waypoint's
+			// bounded pi sub-session takes minutes on a real model + web search.
 			let lastErr: unknown;
 			for (let attempt = 1; attempt <= maxRetries; attempt++) {
+				console.error(`[driver] stage=${stage} attempt=${attempt}/${maxRetries} start ${new Date().toISOString()}`);
 				try {
 					artifacts = await deps.produce(stage, { ...inputArtifacts, topic: opts.topic });
+					console.error(`[driver] stage=${stage} attempt=${attempt}/${maxRetries} ok ${new Date().toISOString()}`);
 					break;
 				} catch (err) {
 					lastErr = err;
+					const msg = err instanceof Error ? err.message : String(err);
+					console.error(`[driver] stage=${stage} attempt=${attempt}/${maxRetries} failed ${new Date().toISOString()}: ${msg}`);
 				}
 			}
 			if (artifacts === undefined) {

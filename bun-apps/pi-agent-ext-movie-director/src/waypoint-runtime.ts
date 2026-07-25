@@ -40,6 +40,59 @@ function readSchemaObject(artifact: string): Record<string, unknown> | undefined
 	schemaObjectCache.set(artifact, obj);
 	return obj;
 }
+/** A minimal JSON-schema property shape, as read from the bundled artifact schemas. */
+interface FieldSchema {
+	type?: string;
+	enum?: unknown[];
+	const?: unknown;
+	minItems?: number;
+	properties?: Record<string, FieldSchema>;
+	required?: string[];
+	items?: FieldSchema;
+}
+
+/**
+ * Describe one field for the prompt spec: `name`, `name*` if required within its
+ * parent object, `name=one of a|b|c` for an enum, `name=array of {sub, fields}`
+ * for an array of objects (recursing into the item's OWN required sub-fields, up
+ * to `depth` levels), `name=array of <primitive>` for an array of scalars, or
+ * `name (object: sub, fields)` for a plain nested object. Bare name/type otherwise.
+ *
+ * Recursion (not just one level) matters: research_brief's `landscape.existing_content`
+ * is object → array → item, three levels deep. A real run showed the model
+ * omitting `existing_content[].{source,angle,what_it_covers}` identically across
+ * every retry, because only "existing_content" (the array's own name) was ever
+ * visible in the spec — the item's required sub-fields were never surfaced.
+ * `depth` caps runaway prompt length on deeply/self-nested schemas elsewhere.
+ */
+function describeField(name: string, field: FieldSchema | undefined, required: boolean, depth = 2): string {
+	const mark = required ? "*" : "";
+	if (!field) return `${name}${mark}`;
+	if (field.const !== undefined) return `${name}${mark}=must be exactly ${JSON.stringify(field.const)}`;
+	if (Array.isArray(field.enum)) return `${name}${mark}=one of ${(field.enum as string[]).slice(0, 6).join("|")}`;
+	if (field.type === "object" && field.properties && depth > 0) {
+		const objRequired = new Set(field.required ?? []);
+		const fields = Object.entries(field.properties)
+			.slice(0, 12)
+			.map(([fk, fv]) => describeField(fk, fv, objRequired.has(fk), depth - 1));
+		return `${name}${mark} (object: ${fields.join(", ")})`;
+	}
+	if (field.type === "array") {
+		const min = field.minItems !== undefined ? `, minItems ${field.minItems}` : "";
+		const itemType = field.items?.type ?? "any";
+		const itemProps = field.items?.properties;
+		if (itemType === "object" && itemProps && depth > 0) {
+			const itemRequired = new Set(field.items?.required ?? []);
+			const fields = Object.entries(itemProps)
+				.slice(0, 12)
+				.map(([fk, fv]) => describeField(fk, fv, itemRequired.has(fk), depth - 1));
+			return `${name}${mark}=array${min} of {${fields.join(", ")}}`;
+		}
+		return `${name}${mark}=array${min} of ${itemType}`;
+	}
+	return `${name}${mark}`;
+}
+
 /** Concise required-structure spec for an artifact, read from its bundled JSON schema. */
 function readSchemaSpec(artifact: string): string | undefined {
 	if (schemaSpecCache.has(artifact)) return schemaSpecCache.get(artifact);
@@ -51,33 +104,19 @@ function readSchemaSpec(artifact: string): string | undefined {
 	try {
 		const schema = JSON.parse(readFileSync(path, "utf8")) as {
 			required?: string[];
-			properties?: Record<string, {
-				type?: string;
-				enum?: unknown[];
-				minItems?: number;
-				properties?: Record<string, unknown>;
-				items?: { properties?: Record<string, unknown>; required?: string[] };
-			}>;
+			properties?: Record<string, FieldSchema>;
 		};
 		const req = schema.required ?? [];
 		const props = schema.properties ?? {};
+		// Top-level required fields are never asterisk-marked (every entry here already
+		// IS required, by construction of `req`) — only their nested sub-fields are.
 		const parts = req.map((k) => {
 			const p = props[k];
 			if (!p) return k;
+			if (p.const !== undefined) return `${k} (must be exactly ${JSON.stringify(p.const)})`;
 			if (Array.isArray(p.enum)) return `${k} (one of: ${(p.enum as string[]).slice(0, 6).join("|")})`;
-			// Walk ONE level into a nested object: list its declared sub-fields so the
-			// model knows the EXACT allowed keys (prevents inventing e.g. approval.approved_by).
-			if (p.type === "object" && p.properties) {
-				return `${k} (object: ${Object.keys(p.properties).slice(0, 12).join(", ")})`;
-			}
-			if (p.type === "array") {
-				const min = p.minItems !== undefined ? `, minItems ${p.minItems}` : "";
-				const itemProps = p.items?.properties;
-				if (itemProps) {
-					return `${k} (array${min} of {${Object.keys(itemProps).slice(0, 12).join(", ")}})`;
-				}
-				return `${k} (array${min})`;
-			}
+			if (p.type === "object" && p.properties) return describeField(k, p, false);
+			if (p.type === "array") return describeField(k, p, false);
 			return `${k} (${p.type ?? "any"})`;
 		});
 		const spec = parts.join(", ");
