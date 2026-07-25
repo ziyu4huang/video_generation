@@ -16,7 +16,9 @@ type: grilling
 claimed: controller (2026-07-25)
 blocked by: 04-grill-memory-prime-for-spawned-subagents  <!-- 04 closed (not "priming ruled out" — manual works + owned by ③); 05 is the independent WRITE side, worked on its own -->
 
-## Resolution (closed 2026-07-25 — grilling Q1=A: BUILD)
+## Resolution
+
+_Closed 2026-07-25 — grilling Q1=A: BUILD._
 
 **Decision: BUILD. Extend the memory learning loop to also review subagent tool_results — scoped to the `subagent` tool, NOT all tool results.** Unlike 03/04 (covered by existing mechanisms), 05 has a REAL gap.
 

@@ -76,7 +76,11 @@ export function parseMapBody(md: string): Record<string, string> {
     const m = line.match(/^##\s+(.*)$/);
     if (m) {
       flush();
-      current = m[1].trim();
+      // Lenient key: take the text before a ( / em-dash / en-dash / colon suffix
+      // so `## Resolution (closed …)` / `## Section — desc` / `## Notes: x`
+      // key as "Resolution" / "Section" / "Notes" (hand-authored suffixed
+      // headers otherwise silently break section/closure detection).
+      current = m[1].split(/[(\u2014\u2013:]/)[0].trim();
     } else {
       buf.push(line);
     }

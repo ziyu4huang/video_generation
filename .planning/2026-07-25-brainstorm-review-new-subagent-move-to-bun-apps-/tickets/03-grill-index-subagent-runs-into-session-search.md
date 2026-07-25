@@ -15,7 +15,9 @@ Decide:
 type: grilling
 claimed: controller (2026-07-25)
 
-## Resolution (closed 2026-07-25 — grilling Q1=A: not worth building now)
+## Resolution
+
+_Closed 2026-07-25 — grilling Q1=A: not worth building now._
 
 **Decision: CLOSE. The high-value case is already covered by parent session-search; the remaining gap is YAGNI.**
 
