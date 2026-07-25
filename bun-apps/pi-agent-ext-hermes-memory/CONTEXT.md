@@ -2,6 +2,10 @@
 
 The ubiquitous language of pi-agent-ext-hermes-memory — persistent memory, session search, and secret scanning for Pi. The agent that normally forgets everything at session close instead keeps facts, failures, corrections, and procedures across sessions, searchable on demand.
 
+## Architecture
+
+Consolidation, background-review fallback, correction-detector, and session-flush now dispatch via `spawnSubagent` (`@repo/pi-agent-ext-subagent`, small tier) instead of a bespoke `pi -p` subprocess. The child receives the `memory` tool via `extensionTools` bridging. `pi-child-process.ts` is deleted; `direct` (`completeSimple`) remains background-review's default transport.
+
 ## Language
 
 ### The five stores
