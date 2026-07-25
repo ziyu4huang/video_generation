@@ -110,6 +110,46 @@ describe("validateObjective", () => {
 	});
 });
 
+// ─── parseCommand audit flags ───────────────────────────────────────────────
+
+describe("parseCommand audit flags", () => {
+	test("--audit flag sets audit=true and carries the objective", () => {
+		const r = parseCommand('--audit "ship feature X"');
+		expect(typeof r).toBe("object");
+		if (typeof r === "object") {
+			expect(r).toEqual({
+				kind: "start",
+				objective: "ship feature X",
+				audit: true,
+			});
+		}
+	});
+
+	test("--audit --model provider/id carries the auditor model", () => {
+		const r = parseCommand('--audit --model anthropic/claude-sonnet-4 "ship feature X"');
+		if (typeof r === "object") expect(r.auditorModel).toBe("anthropic/claude-sonnet-4");
+	});
+
+	test("--model provider/id works without --audit", () => {
+		const r = parseCommand('--model anthropic/claude-sonnet-4 "ship feature X"');
+		if (typeof r === "object") expect(r.auditorModel).toBe("anthropic/claude-sonnet-4");
+	});
+
+	test("no --audit flag → audit is undefined (default off)", () => {
+		const r = parseCommand('"ship feature X"');
+		if (typeof r === "object") expect(r.audit).toBeUndefined();
+	});
+
+	test("'audit' subcommand → recognized as a toggle (not an objective)", () => {
+		const r = parseCommand("audit");
+		expect(r).toEqual({ kind: "audit" });
+	});
+
+	test("'audit' with extra args → usage error", () => {
+		expect(typeof parseCommand("audit now")).toBe("string");
+	});
+});
+
 // ─── completeGoalArguments ───────────────────────────────────────────────────
 
 describe("completeGoalArguments", () => {
