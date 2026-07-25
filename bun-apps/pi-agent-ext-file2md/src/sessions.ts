@@ -7,6 +7,7 @@
  *    lm-studio configured per the project CLAUDE.md
  */
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import { loadModelTierConfig, resolveModelRole } from "@repo/pi-agent-ext-subagent/src/model-role-config.ts";
 
 export type { ThinkingLevel };
 
@@ -60,6 +61,22 @@ export function resolveLLM(opts: {
   }
 
   return { provider, modelId: model, thinkingLevel };
+}
+
+/**
+ * Resolve the vision LLM from the unified model-tiers config (capabilities.vision),
+ * falling back to PI_MODEL/PI_PROVIDER env (deprecated) when the capability is not
+ * configured. Explicit opts (model/provider/thinking) always win. Uses resolveLLM
+ * as the spec-string parser, so "provider/modelId[:thinking]" shorthand still works.
+ */
+export function resolveVisionLLM(opts: { model?: string; provider?: string; thinking?: string } = {}): ResolvedLLM {
+  if (opts.model) return resolveLLM(opts);
+  const spec = resolveModelRole({ capability: "vision" }, loadModelTierConfig());
+  if (spec) return resolveLLM({ ...opts, model: spec });
+  console.error(
+    "[file2md] capabilities.vision not set in model-tiers config — falling back to PI_MODEL/PI_PROVIDER env (deprecated). Set capabilities.vision via /workflows-models.",
+  );
+  return resolveLLM(opts);
 }
 
 
