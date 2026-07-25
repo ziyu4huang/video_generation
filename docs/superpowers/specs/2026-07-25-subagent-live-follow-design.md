@@ -161,10 +161,11 @@ selectable list with a divider:
 ### ② `SubagentRun` + `reconstructSubagentRuns` — add `toolCallId` (`src/subagent-viewer.ts`)
 
 - `SubagentRun` gains `toolCallId?: string`.
-- `reconstructSubagentRuns`: extend `BranchMessage` with `id?: string` and read the toolResult
-  message's `id` into the run. (Verify against pi's live branch-message shape during
-  implementation; the field is the tool-call id `InFlightSubagent.id` is set to.) Optional field
-  → fully backward-compatible.
+- `reconstructSubagentRuns`: extend `BranchMessage` with `toolCallId?: string` and read the
+  toolResult message's `toolCallId` into the run. **Verified** against pi 0.82.0's branch shape
+  (`entry.message.toolCallId` on toolResult messages — see `dist/core/export-html/template.js:1466`
+  and `export-html/index.js:141`); it is the same id `InFlightSubagent.id` is set to. Optional
+  field → fully backward-compatible, and **no change to `SubagentToolDetails`** is needed.
 
 ### ③ `formatHistoryLine` — export (`pi-agent-ext-subagent/src/subagent-tool.ts`)
 
@@ -237,7 +238,7 @@ Extend `pi-agent-ext-workflow/tests/subagent-viewer.test.ts` (existing) and
 - **follow finalizing window**: `getRunning` empty, `getRuns` returns `[]` → within grace shows
   `finalizing…`; past grace shows `ended`; **no throw**.
 - **follow `esc`** → `view === "list"`.
-- **`reconstructSubagentRuns`** reads `msg.id` → `SubagentRun.toolCallId`.
+- **`reconstructSubagentRuns`** reads `msg.toolCallId` → `SubagentRun.toolCallId`.
 - **regression**: existing list / output / `esc` tests still pass; update selection-index
   assertions for the unified cursor.
 - **command wiring**: `createSubagentsCommand` passes a `getRuns` that reflects branch changes
