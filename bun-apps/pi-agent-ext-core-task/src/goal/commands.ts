@@ -14,9 +14,13 @@
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface CommandResult {
-	kind: "show" | "start" | "pause" | "resume" | "clear" | "edit";
+	kind: "show" | "start" | "pause" | "resume" | "clear" | "edit" | "audit";
 	objective?: string;
 	tokenBudget?: number;
+	/** Opt-in: run the completion auditor against this goal. */
+	audit?: boolean;
+	/** Opt-in: auditor model as opaque `"provider/id"` (resolved by goal.ts). */
+	auditorModel?: string;
 }
 
 export interface GoalArgumentCompletion {
@@ -74,28 +78,52 @@ export function parseCommand(args: string): CommandResult | string {
 	if (first === "resume") return rest.length === 0 ? { kind: "resume" } : "Usage: /goal resume";
 	if (first === "clear" || first === "stop") return rest.length === 0 ? { kind: "clear" } : "Usage: /goal clear";
 	if (first === "status") return rest.length === 0 ? { kind: "show" } : "Usage: /goal status";
+	if (first === "audit") return rest.length === 0 ? { kind: "audit" } : "Usage: /goal audit";
 	if (first === "edit") return parseObjective("edit", rest);
 	return parseObjective("start", tokens);
 }
 
 function parseObjective(kind: "start" | "edit", tokens: string[]): CommandResult | string {
 	let tokenBudget: number | undefined;
-	const objectiveTokens = [...tokens];
+	let audit: boolean | undefined;
+	let auditorModel: string | undefined;
+	const remaining = [...tokens];
 
-	if (objectiveTokens[0] === "--tokens") {
-		const rawBudget = objectiveTokens[1];
-		if (!rawBudget) return "Usage: /goal --tokens 100k <goal_to_complete>";
-		const parsedBudget = parseTokenBudget(rawBudget);
-		if (parsedBudget === undefined) return `Invalid token budget: ${rawBudget}`;
-		tokenBudget = parsedBudget;
-		objectiveTokens.splice(0, 2);
+	// Parse leading flags in any order before the objective text. Unknown
+	// `--foo` tokens fall through and become part of the objective (preserving
+	// the original "first non-flag token starts the objective" behavior).
+	while (remaining.length > 0 && remaining[0].startsWith("--")) {
+		const flag = remaining[0];
+		if (flag === "--audit") {
+			audit = true;
+			remaining.splice(0, 1);
+			continue;
+		}
+		if (flag === "--model") {
+			const rawModel = remaining[1];
+			if (!rawModel) return "Usage: /goal --model provider/id <goal_to_complete>";
+			// Opaque `"provider/id"` — no validation/parsing here (Task 5 resolves it).
+			auditorModel = rawModel;
+			remaining.splice(0, 2);
+			continue;
+		}
+		if (flag === "--tokens") {
+			const rawBudget = remaining[1];
+			if (!rawBudget) return "Usage: /goal --tokens 100k <goal_to_complete>";
+			const parsedBudget = parseTokenBudget(rawBudget);
+			if (parsedBudget === undefined) return `Invalid token budget: ${rawBudget}`;
+			tokenBudget = parsedBudget;
+			remaining.splice(0, 2);
+			continue;
+		}
+		break;
 	}
 
-	if (objectiveTokens.length === 0) {
+	if (remaining.length === 0) {
 		return kind === "edit" ? "Usage: /goal edit <goal_to_complete>" : "Usage: /goal <goal_to_complete>";
 	}
 
-	return { kind, objective: objectiveTokens.join(" "), tokenBudget };
+	return { kind, objective: remaining.join(" "), tokenBudget, audit, auditorModel };
 }
 
 export function tokenize(input: string): string[] {
