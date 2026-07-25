@@ -13,6 +13,7 @@
 
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { GoalAuditorResult } from "./shield.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -29,6 +30,14 @@ export interface ActiveGoal {
 	tokensUsed: number;
 	timeUsedSeconds: number;
 	baselineTokens: number;
+	// T04 opt-in auditor (all optional → absent = current behavior, no audit).
+	// GoalAuditorResult is imported type-only from ./shield.js, which itself has
+	// zero imports — so format.ts stays pi-import-free (Phase-1 invariant).
+	auditEnabled?: boolean;
+	auditorModel?: string;
+	verificationContract?: string;
+	auditHistory?: GoalAuditorResult[];
+	auditAttempts?: number;
 }
 
 // ─── Status word + progress metric (overlay rendering) ───────────────────────
