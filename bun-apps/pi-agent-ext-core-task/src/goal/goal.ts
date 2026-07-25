@@ -25,11 +25,20 @@ import { defineTool, type ExtensionAPI, type ExtensionUIContext } from "@earendi
 import { Type } from "typebox";
 import { getPlanSummary, isPlanIncomplete } from "../plan/coordinator.js";
 import { GoalOverlay, type GoalOverlayLike } from "./overlay.js";
+import { formatBudget, type ActiveGoal } from "./format.js";
 import {
-	formatBudget,
-	type ActiveGoal,
-	type GoalStatus,
-} from "./format.js";
+	cloneGoal,
+	createGoal,
+	editedGoalStatus,
+	incrementGoal,
+	isGoal,
+	normalizeGoalForBudget,
+	transitionGoal,
+	type ContinuationPending,
+	type GoalCompleteDetails,
+	type GoalRecovery,
+	type GoalStateEntryData,
+} from "./state.js";
 import {
 	findFinalAssistantMessage,
 	isContradictoryCompletionSummary,
@@ -65,30 +74,7 @@ export { parseCommand, parseTokenBudget, validateObjective, completeGoalArgument
 // goal.js is preserved (goal.test.ts imports buildGoalSystemPrompt from ../goal.js).
 export { buildGoalSystemPrompt } from "./prompts.js";
 
-// ─── Goal-specific types ──────────────────────────────────────────────────────
-
-interface GoalCompleteDetails {
-	goal: string;
-	summary: string;
-}
-
-interface ContinuationPending {
-	goalId: string;
-	iteration: number;
-	marker: string;
-	prompt: string;
-}
-
-type GoalRecoveryKind = "provider_retry" | "compaction_retry";
-
-interface GoalRecovery {
-	goalId: string;
-	kind: GoalRecoveryKind;
-}
-
-interface GoalStateEntryData {
-	goal?: ActiveGoal | null;
-}
+// ─── Status context (UI-facing; stays in goal.ts) ─────────────────────────────
 
 export interface StatusContext {
 	cwd: string;
@@ -531,45 +517,6 @@ function showGoal(ctx: StatusContext) {
 	ctx.ui.notify(goalSummary(activeGoal), "info");
 }
 
-function createGoal(text: string, tokenBudget: number | undefined, baselineTokens: number): ActiveGoal {
-	const now = Date.now();
-	return {
-		id: randomUUID(),
-		text,
-		status: "active",
-		startedAt: now,
-		updatedAt: now,
-		iteration: 0,
-		tokenBudget,
-		tokensUsed: 0,
-		timeUsedSeconds: 0,
-		baselineTokens,
-	};
-}
-
-function transitionGoal(goal: ActiveGoal, status: GoalStatus): ActiveGoal {
-	return normalizeGoalForBudget({ ...goal, status, updatedAt: Date.now() });
-}
-
-function editedGoalStatus(status: GoalStatus): GoalStatus {
-	return status === "paused" ? "paused" : "active";
-}
-
-function normalizeGoalForBudget(goal: ActiveGoal): ActiveGoal {
-	if (
-		goal.status === "active" &&
-		goal.tokenBudget !== undefined &&
-		goal.tokensUsed >= goal.tokenBudget
-	) {
-		return { ...goal, status: "budget_limited" };
-	}
-	return goal;
-}
-
-function incrementGoal(goal: ActiveGoal): ActiveGoal {
-	return { ...goal, iteration: goal.iteration + 1, updatedAt: Date.now() };
-}
-
 function pauseGoalAfterAgentEnd(
 	ctx: StatusContext,
 	goal: ActiveGoal,
@@ -891,31 +838,6 @@ function clearLegacyPersistedGoal(cwd: string) {
 	writeFileSync(STATE_FILE, `${JSON.stringify(goals, null, 2)}\n`);
 }
 
-// ─── Validation ───────────────────────────────────────────────────────────────
-
-// Clone a goal so callers never mutate the session store's (possibly frozen)
-// canonical reference. structuredClone keeps the plain-JSON shape of ActiveGoal.
-function cloneGoal(goal: ActiveGoal): ActiveGoal {
-	try {
-		return structuredClone(goal);
-	} catch {
-		// Fallback for environments without structuredClone — ActiveGoal is plain data.
-		return JSON.parse(JSON.stringify(goal)) as ActiveGoal;
-	}
-}
-
-function isGoal(value: unknown): value is ActiveGoal {
-	if (!value || typeof value !== "object") return false;
-	const goal = value as Partial<ActiveGoal>;
-	return (
-		typeof goal.id === "string" &&
-		typeof goal.text === "string" &&
-		["active", "paused", "budget_limited", "complete"].includes(String(goal.status)) &&
-		typeof goal.startedAt === "number" &&
-		typeof goal.updatedAt === "number" &&
-		typeof goal.iteration === "number" &&
-		typeof goal.tokensUsed === "number" &&
-		typeof goal.timeUsedSeconds === "number" &&
-		typeof goal.baselineTokens === "number"
-	);
-}
+// Clone / isGoal / normalizeGoalForBudget / incrementGoal / transitionGoal /
+// editedGoalStatus / createGoal + the goal-owned types live in ./state.ts
+// (pure module, zero @earendil-works/* imports) — re-imported above.
