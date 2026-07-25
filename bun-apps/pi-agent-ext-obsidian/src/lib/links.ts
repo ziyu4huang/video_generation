@@ -189,34 +189,45 @@ export async function moveNote(
 	await renameOverwrite(fromAbs, toAbs);
 	invalidateCache(fromAbs);
 	invalidateCache(toAbs);
-	for (const src of sources) {
-		const srcAbs = join(real, src);
-		try {
-			const entry = await readCached(srcAbs);
-			if (!entry) continue;
-			let changed = false;
-			const updated = rewriteLinksProtected(entry.content, (raw) => {
-				const after = rewriteLinkToken(
-					raw,
-					[fromPath, fromTitle],
-					fromTitle,
-					newPath,
-					idx,
-				);
-				if (after !== raw) {
-					changed = true;
-					return after;
+	// Rewrite every inbound backlink concurrently. Each source is isolated in
+	// its own try/catch so a single failing read/write can't abort the rest —
+	// throwers land in failedSources, successes in linksRewritten, both in the
+	// original backlinkPaths iteration order (Promise.all preserves array order).
+	const rewriteResults = await Promise.all(
+		[...sources].map(async (src) => {
+			const srcAbs = join(real, src);
+			try {
+				const entry = await readCached(srcAbs);
+				if (!entry) return { src, ok: true as const, rewritten: false };
+				let changed = false;
+				const updated = rewriteLinksProtected(entry.content, (raw) => {
+					const after = rewriteLinkToken(
+						raw,
+						[fromPath, fromTitle],
+						fromTitle,
+						newPath,
+						idx,
+					);
+					if (after !== raw) {
+						changed = true;
+						return after;
+					}
+					return LINK_KEEP;
+				});
+				if (changed) {
+					await atomicWriteFile(srcAbs, updated);
+					invalidateCache(srcAbs);
+					return { src, ok: true as const, rewritten: true };
 				}
-				return LINK_KEEP;
-			});
-			if (changed) {
-				await atomicWriteFile(srcAbs, updated);
-				invalidateCache(srcAbs);
-				linksRewritten.push(src);
+				return { src, ok: true as const, rewritten: false };
+			} catch (e) {
+				return { src, ok: false as const };
 			}
-		} catch (e) {
-			failedSources.push(src);
-		}
+		}),
+	);
+	for (const r of rewriteResults) {
+		if (!r.ok) failedSources.push(r.src);
+		else if (r.rewritten) linksRewritten.push(r.src);
 	}
 	dropIndex(real);
 	return {
@@ -249,29 +260,35 @@ export async function deleteNote(
 		// inside OldDraft.md). Resolve by basename, matching how links are actually keyed.
 		const target = notePath.split("/").pop()!.replace(/\.md$/i, "");
 		const sources = backlinkPaths(idx, target);
-		for (const src of sources) {
-			const srcAbs = join(real, src);
-			const entry = await readCached(srcAbs);
-			if (!entry) continue;
-			const tLower = target.toLowerCase();
-			let changed = false;
-			const updated = rewriteLinksProtected(entry.content, (raw) => {
-				const tgt = raw
-					.replace(/\|.*/, "")
-					.replace(/#.*/, "")
-					.replace(/\.md$/i, "")
-					.trim()
-					.toLowerCase();
-				if (
-					tgt === tLower ||
-					tgt.split("/").pop() === tLower.split("/").pop()
-				) {
-					changed = true;
-					return LINK_DELETE;
-				}
-				return LINK_KEEP;
-			});
-			if (changed) {
+		const tLower = target.toLowerCase();
+		// Strip inbound links from every source concurrently. deleteNote exposes
+		// no failedSources field, so a thrown read/write still rejects the whole
+		// op (matching the prior sequential `for` semantics) — only the loop
+		// construct changed. linksCleaned stays in backlinkPaths iteration order
+		// because Promise.all preserves the input array order.
+		const cleaned = await Promise.all(
+			[...sources].map(async (src) => {
+				const srcAbs = join(real, src);
+				const entry = await readCached(srcAbs);
+				if (!entry) return null;
+				let changed = false;
+				const updated = rewriteLinksProtected(entry.content, (raw) => {
+					const tgt = raw
+						.replace(/\|.*/, "")
+						.replace(/#.*/, "")
+						.replace(/\.md$/i, "")
+						.trim()
+						.toLowerCase();
+					if (
+						tgt === tLower ||
+						tgt.split("/").pop() === tLower.split("/").pop()
+					) {
+						changed = true;
+						return LINK_DELETE;
+					}
+					return LINK_KEEP;
+				});
+				if (!changed) return null;
 				const tidied = updated
 					.split("\n")
 					.filter((l, i, arr) => {
@@ -286,9 +303,10 @@ export async function deleteNote(
 					.join("\n");
 				await atomicWriteFile(srcAbs, tidied);
 				invalidateCache(srcAbs);
-				linksCleaned.push(src);
-			}
-		}
+				return src;
+			}),
+		);
+		for (const src of cleaned) if (src) linksCleaned.push(src);
 	}
 	await rm(abs, { force: true });
 	invalidateCache(abs);
