@@ -1,0 +1,900 @@
+# Review package: 908ba7a3..HEAD
+
+## Commits
+84cb6dde docs(power-tool): document inspect_hooks tool + phase-2 follow-up
+665a9375 feat(power-tool): register inspect_hooks tool in the factory
+2a66a145 style(power-tool): remove stale placeholder comment over makeInspectHooksTool
+9f69afaa feat(power-tool): wire inspect_hooks execute (live snapshot + self_test + JSON)
+768477a1 feat(power-tool): add getHooks() to sdk-patch createContext polyfill (reads runner.extensions[].handlers)
+e32911a5 feat(power-tool): add inspect_hooks pure analysis logic (collectHooks/analyzeHooks/formatHooksReport)
+
+## Files changed
+ bun-apps/pi-agent-ext-power-tool/PRD.md            |  14 +
+ bun-apps/pi-agent-ext-power-tool/README.md         |  44 +++-
+ .../src/__tests__/index.test.ts                    |   3 +-
+ .../src/__tests__/sdk-patch.test.ts                |  47 ++++
+ .../src/__tests__/stealth-trim.test.ts             |   2 +-
+ bun-apps/pi-agent-ext-power-tool/src/index.ts      |   2 +
+ bun-apps/pi-agent-ext-power-tool/src/sdk-patch.ts  |  74 ++++--
+ .../src/tools/__tests__/inspect-hooks.test.ts      | 159 ++++++++++++
+ .../src/tools/inspect-hooks.ts                     | 285 +++++++++++++++++++++
+ 9 files changed, 602 insertions(+), 28 deletions(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-power-tool/PRD.md b/bun-apps/pi-agent-ext-power-tool/PRD.md
+index a8e329d2..39b91327 100644
+--- a/bun-apps/pi-agent-ext-power-tool/PRD.md
++++ b/bun-apps/pi-agent-ext-power-tool/PRD.md
+@@ -20,24 +20,38 @@ step of the core-task pi-ext consolidation); `/btw` →
+ (#351/#354). The `schema-cost` export and CLI subcommand remain here. This
+ PRD's diagnostics focus is now the literal truth, not just the original intent.
+ 
+ ## Tools
+ 
+ | Tool | Description |
+ |------|-------------|
+ | `inspect_agent` | Snapshot full agent state to YAML |
+ | `inspect_context` | Token-cost breakdown by system-prompt component |
+ | `inspect_extensions` | Lint loaded extensions/tools/skills for health issues |
++| `inspect_hooks` | List registered lifecycle hooks per extension and detect unknown event names |
+ | `inspect_pathology` | Detect failure patterns this session (retry loops, error storms, saturation) — F v1 |
+ 
+ ## Key Dependencies
+ 
+ - `pi-agent` (loaded via run-dir manifest)
+ - Self-contained — no external services
+ 
++## inspect-*
++
++### inspect_hooks
++
++Hook observability for extension development — the last blind spot of the
++inspect surface. Phase 1 (this work): registration listing + `unknown-event-name`
++typo detection, reading the aggregated `runner.extensions[].handlers` via a
++`getHooks()` polyfill on `sdk-patch.ts`'s `createContext` wrapper.
++
++Phase 2 (follow-up plan, same effort): firing counts — wrap each handler with a
++counter at the same patch point, add the `never-fired` (registered-but-dead)
++finding. The patch point is shared, so the scaffolding lands once in phase 1.
++
+ ## Use
+ 
+ ```bash
+ # Auto-loaded via pi-agent's run-dir manifest
+ # Or standalone:
+ pi -e bun-apps/pi-agent-ext-power-tool
+ ```
+diff --git a/bun-apps/pi-agent-ext-power-tool/README.md b/bun-apps/pi-agent-ext-power-tool/README.md
+index 673b1b42..e65375ca 100644
+--- a/bun-apps/pi-agent-ext-power-tool/README.md
++++ b/bun-apps/pi-agent-ext-power-tool/README.md
+@@ -1,22 +1,22 @@
+ # pi-agent-ext-power-tool
+ 
+ A **pi extension** for agent self-diagnostics — `inspect_agent`,
+-`inspect_context`, `inspect_extensions`, `inspect_pathology`. The `src/index.ts`
+-factory registers only these four tools (plus the `schema-cost` export and a
++`inspect_context`, `inspect_extensions`, `inspect_hooks`, `inspect_pathology`. The `src/index.ts`
++factory registers only these five tools (plus the `schema-cost` export and a
+ CLI subcommand).
+ 
+ ## Feature surface
+ 
+ | Feature | Tool(s) / surface | Notes |
+ |---------|-------------------|-------|
+-| Diagnostics | `inspect_agent`, `inspect_context`, `inspect_extensions` | Static state diagnostics — documented ↓ |
++| Diagnostics | `inspect_agent`, `inspect_context`, `inspect_extensions`, `inspect_hooks` | Static state diagnostics — documented ↓ |
+ | Failure pathology | `inspect_pathology` | Dynamic — detects retry loops / error storms / context saturation this session (F v1) |
+ | Schema-cost accounting | `./schema-cost` export | Static tool-token estimator (also a publishable package, `pi-schema-cost`) |
+ | CLI subcommand | `./extensions/cli-subcommand.ts` | Wired into `pi-agent-cli` |
+ 
+ > **Extracted (2026-07, monolith split A1–A3):** `todo`+`/todos`+`/goal`+`goal_complete`
+ > → `pi-agent-ext-core-task` (#504); `ask_user_question` → `pi-agent-ext-ask-user`
+ > (#502, merged into `pi-agent-ext-core-task` 2026-07-18 — no shared code,
+ > relocated as the first step of the core-task pi-ext consolidation);
+ > `/btw` → `pi-agent-ext-btw` (#499). Knowledge tools left earlier for
+ > `pi-knowledge-card` (#351/#354).
+@@ -202,20 +202,58 @@ bun bun-apps/pi-agent/src/cli.ts --model google/gemma-4-26b-a4b-qat \
+ # call inspect_extensions return_json=true
+ 
+ # Tighten thresholds to surface borderline cases:
+ # call inspect_extensions tool_token_threshold=800 context_file_char_threshold=10000
+ ```
+ 
+ **What it found in this repo (real run):** pi-obsidian's 16 tools have no Available-tools snippets or `promptGuidelines`; `skill_manage` is over the schema threshold (1244 tok); pi-obsidian is the heaviest extension tax (~35%, 3237 tok/req) out of ~9,197 tok/req total across all non-builtin tools.
+ 
+ ---
+ 
++### `inspect_hooks`
++
++Lists every loaded extension's registered `pi.on(...)` lifecycle hooks (which events each extension listens on, handler counts) and flags any handler registered against an unknown event name (likely a typo / dead handler). Fact-finder companion to `inspect_extensions`.
++
++**Parameters:**
++
++| Parameter | Type | Default | Description |
++|-----------|------|---------|-------------|
++| `by_event` | boolean? | `false` | Group hooks by event instead of by extension |
++| `return_json` | boolean? | `false` | Return machine-readable JSON instead of a text report |
++| `self_test` | boolean? | `false` | Run built-in self-test and report results |
++
++**Output:**
++
++- **By extension (default):** For each loaded extension, shows the events it listens on and handler counts per event
++- **By event (`by_event=true`):** Groups all hooks by event name, showing which extensions subscribe to each
++- **Unknown event detection:** Medium-severity finding for any handler registered against an event not in the known event set
++
++**Usage:**
++
++```bash
++# Default: show hooks grouped by extension
++call inspect_hooks
++
++# Group by event to see which extensions listen to each event
++call inspect_hooks by_event=true
++
++# Machine-readable JSON
++call inspect_hooks return_json=true
++
++# Run self-test
++call inspect_hooks self_test=true
++```
++
++**Design notes:** Reads the aggregated `runner.extensions[].handlers` via a `getHooks()` polyfill on `sdk-patch.ts`'s `createContext` wrapper. Phase 2 (future): add firing counts and `never-fired` detection.
++
++---
++
+ ### `inspect_pathology`
+ 
+ Diagnoses **how the agent is failing this session** — the dynamic complement to
+ the three static `inspect_*` tools above. While they answer "what is loaded?" /
+ "where do tokens go?", `inspect_pathology` answers "why am I stuck / repeating /
+ erroring?" by analyzing recent tool-call history accumulated this session.
+ 
+ A factory-registered hook observes every `tool_execution_start` / `tool_execution_end`
+ into a bounded ring buffer (reset each `session_start`). At call time the tool
+ runs three **deterministic, signal-driven** detectors (the highest-impact, most-
+diff --git a/bun-apps/pi-agent-ext-power-tool/src/__tests__/index.test.ts b/bun-apps/pi-agent-ext-power-tool/src/__tests__/index.test.ts
+index 2547751b..4705c8aa 100644
+--- a/bun-apps/pi-agent-ext-power-tool/src/__tests__/index.test.ts
++++ b/bun-apps/pi-agent-ext-power-tool/src/__tests__/index.test.ts
+@@ -186,28 +186,29 @@ describe("tool registration", () => {
+     // ask_user_question -> pi-agent-ext-ask-user (A2, merged into
+     // pi-agent-ext-core-task 2026-07-18); goal+todo -> pi-agent-ext-core-task
+     // (A3); knowledge_query + graph_health -> knowledge-graph hub.
+     // power-tool is now self-contained diagnostics: inspect_* only, plus
+     // inspect_pathology (F v1) for failure-pattern detection, plus
+     // inspect_tui for above-editor widget debugging.
+     expect(Object.keys(captured).sort()).toEqual([
+       "inspect_agent",
+       "inspect_context",
+       "inspect_extensions",
++      "inspect_hooks",
+       "inspect_pathology",
+       "inspect_tui",
+     ]);
+   });
+ 
+   test("each registered tool has label, description, and execute fn", () => {
+     const { captured } = loadExtension([]);
+-    expect(Object.keys(captured).length).toBe(5);
++    expect(Object.keys(captured).length).toBe(6);
+     for (const name of Object.keys(captured)) {
+       expect(typeof captured[name].label).toBe("string");
+       expect(captured[name].label.length).toBeGreaterThan(0);
+       expect(typeof captured[name].description).toBe("string");
+       expect(typeof captured[name].execute).toBe("function");
+     }
+   });
+ });
+ 
+ describe("inspect_context", () => {
+diff --git a/bun-apps/pi-agent-ext-power-tool/src/__tests__/sdk-patch.test.ts b/bun-apps/pi-agent-ext-power-tool/src/__tests__/sdk-patch.test.ts
+new file mode 100644
+index 00000000..6ee713a7
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-power-tool/src/__tests__/sdk-patch.test.ts
+@@ -0,0 +1,47 @@
++import { test, expect, describe } from "bun:test";
++import { applyContextPolyfills, type PolyfillRunner } from "../sdk-patch.js";
++
++const fakeRunner = (extensions: unknown[]): PolyfillRunner => ({
++  assertActive() {},
++  getSystemPromptOptionsFn: () => ({}) as never,
++  getSystemPromptFn: () => "",
++  extensions,
++});
++
++describe("applyContextPolyfills", () => {
++  test("installs getHooks that reads runner.extensions via collectHooks", () => {
++    const ctx: Record<string, unknown> = {};
++    const runner = fakeRunner([
++      { path: "ext.ts", handlers: new Map([["turn_end", [() => {}, () => {}]]]) },
++    ]);
++    applyContextPolyfills(ctx, runner);
++    expect(typeof ctx.getHooks).toBe("function");
++    const snap = (ctx.getHooks as () => unknown)();
++    expect(snap).toEqual({
++      extensions: [{ path: "ext.ts", hooks: [{ event: "turn_end", count: 2 }] }],
++      available: true,
++    });
++  });
++
++  test("getHooks returns available:false if it throws (independent of getSystemPromptOptions)", () => {
++    const ctx: Record<string, unknown> = {};
++    const runner: PolyfillRunner = {
++      assertActive() { throw new Error("stale"); },
++      getSystemPromptOptionsFn: () => ({}) as never,
++      getSystemPromptFn: () => "",
++      extensions: [],
++    };
++    applyContextPolyfills(ctx, runner);
++    const snap = (ctx.getHooks as () => { available: boolean })();
++    expect(snap.available).toBe(false);
++    // getSystemPromptOptions is still installed (independent degradation)
++    expect(typeof ctx.getSystemPromptOptions).toBe("function");
++  });
++
++  test("installs getSystemPromptOptions + getSystemPrompt (unchanged behavior)", () => {
++    const ctx: Record<string, unknown> = {};
++    applyContextPolyfills(ctx, fakeRunner([]));
++    expect(typeof ctx.getSystemPromptOptions).toBe("function");
++    expect(typeof ctx.getSystemPrompt).toBe("function");
++  });
++});
+diff --git a/bun-apps/pi-agent-ext-power-tool/src/__tests__/stealth-trim.test.ts b/bun-apps/pi-agent-ext-power-tool/src/__tests__/stealth-trim.test.ts
+index aba02ef8..8c699fa3 100644
+--- a/bun-apps/pi-agent-ext-power-tool/src/__tests__/stealth-trim.test.ts
++++ b/bun-apps/pi-agent-ext-power-tool/src/__tests__/stealth-trim.test.ts
+@@ -30,20 +30,20 @@ function captureInspectTools(): Record<string, Record<string, unknown>> {
+ 		setActiveTools() {},
+ 		events: { emit() {} },
+ 		ui: {},
+ 	};
+ 	extension(mockPi as never);
+ 	return tools;
+ }
+ 
+ test("power-tool inspect_* tools are stealth-trimmed: no promptSnippet/guidelines", () => {
+ 	const tools = captureInspectTools();
+-	const expected = ["inspect_agent", "inspect_context", "inspect_extensions", "inspect_pathology", "inspect_tui"];
++	const expected = ["inspect_agent", "inspect_context", "inspect_extensions", "inspect_hooks", "inspect_pathology", "inspect_tui"];
+ 	expect(Object.keys(tools).sort()).toEqual(expected.sort());
+ 
+ 	for (const [name, tool] of Object.entries(tools)) {
+ 		expect(typeof tool.description).toBe("string");
+ 		expect(String(tool.description).length).toBeGreaterThan(0);
+ 		expect(tool.promptSnippet, `${name}.promptSnippet`).toBeUndefined();
+ 		expect(tool.promptGuidelines, `${name}.promptGuidelines`).toBeUndefined();
+ 	}
+ });
+diff --git a/bun-apps/pi-agent-ext-power-tool/src/index.ts b/bun-apps/pi-agent-ext-power-tool/src/index.ts
+index d8b6a7be..27d1a744 100644
+--- a/bun-apps/pi-agent-ext-power-tool/src/index.ts
++++ b/bun-apps/pi-agent-ext-power-tool/src/index.ts
+@@ -30,20 +30,21 @@ import {
+   type ExtensionAPI,
+   type ToolInfo,
+   defineTool,
+   formatSkillsForPrompt,
+ } from "@earendil-works/pi-coding-agent";
+ import { Type } from "typebox";
+ import * as yaml from "js-yaml";
+ import { existsSync, mkdirSync, writeFileSync } from "fs";
+ import { join, resolve, sep } from "path";
+ import { ensureGetSystemPromptOptions } from "./sdk-patch.js";
++import { makeInspectHooksTool } from "./tools/inspect-hooks.js";
+ import { DEFAULT_CHARS_PER_TOKEN } from "./schema-cost";
+ import {
+   makeInspectPathologyTool,
+   recordCallStart,
+   recordCallEnd,
+   recordTurnEnd,
+   resetAccumulator,
+   getCalls,
+   surfacePathologyWarning,
+   resetWarning,
+@@ -1210,20 +1211,21 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
+   // on the tool execution context (ExtensionContext). This is a memory-only
+   // monkey-patch — no filesystem writes. Safe to call multiple times.
+   ensureGetSystemPromptOptions();
+ 
+   // getAllTools() is on ExtensionAPI (pi), not ExtensionContext (ctx).
+   // Pass it as a closure into the tool so execute() can call it.
+   const getAllTools = () => pi.getAllTools();
+   pi.registerTool(makeInspectContextTool(getAllTools));
+   pi.registerTool(makeInspectAgentTool(getAllTools));
+   pi.registerTool(makeInspectExtensionsTool(getAllTools));
++  pi.registerTool(makeInspectHooksTool());
+   pi.registerTool(makeInspectPathologyTool());
+   pi.registerTool(makeInspectTuiTool());
+ 
+   // Feed the pathology accumulator: observe every tool call's args + outcome so
+   // inspect_pathology can detect retry loops / error storms this session.
+   // After each call, surface a non-invasive status warning if a HIGH-severity
+   // loop / consecutive-error is active (Phase 1.1). session_start resets
+   // per-session state (diagnostics are self-contained).
+   pi.on("tool_execution_start", recordCallStart);
+   pi.on("tool_execution_end", (event, ctx) => {
+diff --git a/bun-apps/pi-agent-ext-power-tool/src/sdk-patch.ts b/bun-apps/pi-agent-ext-power-tool/src/sdk-patch.ts
+index 0e218545..3fb253ea 100644
+--- a/bun-apps/pi-agent-ext-power-tool/src/sdk-patch.ts
++++ b/bun-apps/pi-agent-ext-power-tool/src/sdk-patch.ts
+@@ -8,32 +8,77 @@
+  * tool execute() contexts always have getSystemPromptOptions().
+  *
+  * It's a MEMORY-ONLY patch — no filesystem writes. Runs once per process, even
+  * if imported multiple times.
+  *
+  * If the patch fails (SDK structure changed), the caller falls back gracefully
+  * — tools simply omit the sub-breakdown and show "system prompt: ~X tok total".
+  */
+ 
+ import { createRequire } from "node:module";
++import { collectHooks, type HooksSnapshot } from "./tools/inspect-hooks.js";
+ 
+ let patched = false;
+ const sdkRequire = createRequire(import.meta.url);
+ 
+-// Runtime: ensureGetSystemPromptOptions() polyfills getSystemPromptOptions()
+-// onto the tool execution context (ExtensionContext) — the SDK only declares
+-// it on ExtensionCommandContext. This module augmentation mirrors that runtime
+-// polyfill at the TYPE level, so power-tool tools can call it on ExtensionContext
+-// without per-call casts. (Keep in sync with the runtime patch below.)
++// Runtime: ensureGetSystemPromptOptions() polyfills getSystemPromptOptions() AND
++// getHooks() onto the tool execution context (ExtensionContext) — the SDK only
++// declares them on ExtensionCommandContext / not at all. This module augmentation
++// mirrors the runtime polyfill at the TYPE level. (Keep in sync with the runtime
++// patch below.)
+ declare module "@earendil-works/pi-coding-agent" {
+   interface ExtensionContext {
+     getSystemPromptOptions(): import("@earendil-works/pi-coding-agent").BuildSystemPromptOptions;
++    getHooks(): HooksSnapshot;
++  }
++}
++
++/** The slice of the runner instance the polyfills read. */
++export interface PolyfillRunner {
++  assertActive(): void;
++  getSystemPromptOptionsFn(): import("@earendil-works/pi-coding-agent").BuildSystemPromptOptions;
++  getSystemPromptFn(): string;
++  /** runner.extensions — the aggregate all hook handlers are stored on. */
++  extensions?: unknown[];
++}
++
++/**
++ * Install all context polyfills onto a ctx object. PURE w.r.t. ctx (mutates it).
++ * Exported so it is unit-testable without resolving the real Runner prototype.
++ * Each polyfill is independently guarded: a getHooks failure (caught) does NOT
++ * affect getSystemPromptOptions, and vice-versa.
++ */
++export function applyContextPolyfills(
++  ctx: Record<string, unknown>,
++  runner: PolyfillRunner,
++): void {
++  if (typeof ctx.getSystemPromptOptions !== "function") {
++    ctx.getSystemPromptOptions = () => {
++      runner.assertActive();
++      return runner.getSystemPromptOptionsFn();
++    };
++  }
++  if (typeof ctx.getSystemPrompt !== "function") {
++    ctx.getSystemPrompt = () => {
++      runner.assertActive();
++      return runner.getSystemPromptFn();
++    };
++  }
++  if (typeof ctx.getHooks !== "function") {
++    ctx.getHooks = (): HooksSnapshot => {
++      try {
++        runner.assertActive();
++        return collectHooks(runner.extensions);
++      } catch {
++        return { extensions: [], available: false };
++      }
++    };
+   }
+ }
+ 
+ export function ensureGetSystemPromptOptions(): boolean {
+   if (patched) return true;
+ 
+   try {
+     // The SDK's exports map (0.80.3) only exposes "." and "./rpc-entry", so a
+     // bare deep-subpath require(".../dist/core/extensions/runner.js") fails with
+     // "Cannot find module". Resolve the SDK package.json (always resolvable) and
+@@ -68,38 +113,21 @@ export function ensureGetSystemPromptOptions(): boolean {
+       string,
+       unknown
+     >;
+     const origCreateContext = proto.createContext as (this: unknown, ...args: unknown[]) => Record<string, unknown>;
+     if (typeof origCreateContext !== "function") {
+       return false;
+     }
+ 
+     proto.createContext = function (this: unknown, ...args: unknown[]) {
+       const ctx = origCreateContext.apply(this, args);
+-      const runnerThis = this as {
+-        assertActive(): void;
+-        getSystemPromptOptionsFn(): Record<string, unknown>;
+-        getSystemPromptFn(): string;
+-      };
+-
+-      if (typeof ctx.getSystemPromptOptions !== "function") {
+-        ctx.getSystemPromptOptions = () => {
+-          runnerThis.assertActive();
+-          return runnerThis.getSystemPromptOptionsFn();
+-        };
+-      }
+-      if (typeof ctx.getSystemPrompt !== "function") {
+-        ctx.getSystemPrompt = () => {
+-          runnerThis.assertActive();
+-          return runnerThis.getSystemPromptFn();
+-        };
+-      }
++      applyContextPolyfills(ctx as Record<string, unknown>, this as PolyfillRunner);
+       return ctx;
+     };
+ 
+     patched = true;
+     return true;
+   } catch (e) {
+     console.warn(
+       "[sdk-patch] Could not apply getSystemPromptOptions polyfill:",
+       (e as Error).message,
+     );
+diff --git a/bun-apps/pi-agent-ext-power-tool/src/tools/__tests__/inspect-hooks.test.ts b/bun-apps/pi-agent-ext-power-tool/src/tools/__tests__/inspect-hooks.test.ts
+new file mode 100644
+index 00000000..42026ebd
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-power-tool/src/tools/__tests__/inspect-hooks.test.ts
+@@ -0,0 +1,159 @@
++import { test, expect, describe } from "bun:test";
++import {
++  KNOWN_EVENTS,
++  collectHooks,
++  analyzeHooks,
++  formatHooksReport,
++  type HooksSnapshot,
++} from "../inspect-hooks.js";
++
++const snap = (extensions: HooksSnapshot["extensions"], available = true): HooksSnapshot =>
++  ({ extensions, available });
++
++describe("collectHooks", () => {
++  test("maps runner.extensions[] (Map<event,handler[]>) into ExtensionHooks[]", () => {
++    const raw = [
++      {
++        path: "bun-apps/pi-agent-ext-foo/ext.ts",
++        handlers: new Map([["turn_end", [() => {}, () => {}]], ["before_agent_start", [() => {}]]]),
++      },
++    ];
++    expect(collectHooks(raw)).toEqual(
++      snap([
++        {
++          path: "bun-apps/pi-agent-ext-foo/ext.ts",
++          hooks: [
++            { event: "turn_end", count: 2 },
++            { event: "before_agent_start", count: 1 },
++          ],
++        },
++      ]),
++    );
++  });
++
++  test("returns available:false when input is not an array (SDK shape changed)", () => {
++    expect(collectHooks(undefined)).toEqual(snap([], false));
++    expect(collectHooks({})).toEqual(snap([], false));
++  });
++
++  test("tolerates a missing handlers map / missing path", () => {
++    const raw = [{ path: "p" }, { handlers: new Map([["turn_end", [() => {}]]]) }];
++    const out = collectHooks(raw);
++    expect(out.available).toBe(true);
++    expect(out.extensions[0]).toEqual({ path: "p", hooks: [] });
++    expect(out.extensions[1]).toEqual({ path: "(unknown)", hooks: [{ event: "turn_end", count: 1 }] });
++  });
++});
++
++describe("analyzeHooks", () => {
++  test("flags handler on an UNKNOWN event as medium unknown-event-name", () => {
++    const findings = analyzeHooks(snap([
++      { path: "ext.ts", hooks: [{ event: "before_agent_starts", count: 1 }] }, // stray 's'
++    ]));
++    const f = findings.find((f) => f.check === "unknown-event-name")!;
++    expect(f).toBeDefined();
++    expect(f.severity).toBe("medium");
++    expect(f.detail).toMatchObject({ event: "before_agent_starts", count: 1 });
++  });
++
++  test("does NOT flag a real event", () => {
++    const findings = analyzeHooks(snap([
++      { path: "ext.ts", hooks: [{ event: "turn_end", count: 1 }] },
++    ]));
++    expect(findings.some((f) => f.check === "unknown-event-name")).toBe(false);
++  });
++
++  test("emits per-extension inventory (info) + stats (info)", () => {
++    const findings = analyzeHooks(snap([
++      { path: "a.ts", hooks: [{ event: "turn_end", count: 2 }, { event: "context", count: 1 }] },
++      { path: "b.ts", hooks: [{ event: "turn_end", count: 1 }] },
++    ]));
++    expect(findings.filter((f) => f.check === "extension-hook-inventory")).toHaveLength(2);
++    const stats = findings.find((f) => f.check === "hook-stats")!;
++    expect(stats.detail).toMatchObject({ extensions: 2, handlers: 4, unknown: 0 });
++  });
++
++  test("available:false → only a hooks-unavailable info finding", () => {
++    const findings = analyzeHooks(snap([], false));
++    expect(findings.map((f) => f.check)).toEqual(["hooks-unavailable"]);
++  });
++});
++
++describe("formatHooksReport", () => {
++  const snapshot = snap([
++    { path: "bun-apps/ext-a/a.ts", hooks: [{ event: "turn_end", count: 2 }, { event: "nope", count: 1 }] },
++  ]);
++  test("text report includes the unknown-event message + inventory line", () => {
++    const out = formatHooksReport(snapshot, analyzeHooks(snapshot), false);
++    expect(out).toContain("Inspect Hooks");
++    expect(out).toContain('unknown event "nope"');
++    expect(out).toContain("ext-a/a.ts");
++  });
++  test("byEvent=true groups the inventory by event", () => {
++    const out = formatHooksReport(snapshot, analyzeHooks(snapshot), true);
++    expect(out).toContain("turn_end");
++  });
++});
++
++describe("KNOWN_EVENTS", () => {
++  test("includes the high-frequency events (sanity vs SDK drift)", () => {
++    for (const e of ["session_start", "before_agent_start", "turn_end", "tool_execution_start", "context", "tool_call", "input"]) {
++      expect(KNOWN_EVENTS.has(e)).toBe(true);
++    }
++  });
++});
++
++import { makeInspectHooksTool } from "../inspect-hooks.js";
++
++describe("inspect_hooks (tool end-to-end, fake ctx)", () => {
++  const fakeCtx = (snapshot: HooksSnapshot) =>
++    ({ getHooks: () => snapshot } as unknown as Parameters<
++      ReturnType<typeof makeInspectHooksTool>["execute"]
++    >[4]);
++
++  test("text report surfaces unknown-event finding", async () => {
++    const tool = makeInspectHooksTool();
++    const res = await tool.execute(
++      "id",
++      {},
++      undefined,
++      undefined,
++      fakeCtx(snap([{ path: "ext.ts", hooks: [{ event: "turn_starts", count: 1 }] }])),
++    );
++    const text = (res.content[0] as { text: string }).text;
++    expect(text).toContain('unknown event "turn_starts"');
++  });
++
++  test("return_json=true returns {findings, summary, snapshot}", async () => {
++    const tool = makeInspectHooksTool();
++    const res = await tool.execute(
++      "id",
++      { return_json: true },
++      undefined,
++      undefined,
++      fakeCtx(snap([{ path: "ext.ts", hooks: [{ event: "turn_end", count: 2 }] }])),
++    );
++    const parsed = JSON.parse((res.content[0] as { text: string }).text);
++    expect(parsed.summary).toEqual({ total: 0, high: 0, medium: 0, low: 0 });
++    expect(parsed.snapshot.extensions[0]).toEqual({
++      path: "ext.ts",
++      hooks: [{ event: "turn_end", count: 2 }],
++    });
++    expect(Array.isArray(parsed.findings)).toBe(true);
++  });
++
++  test("self_test=true returns deterministic mock (no live ctx)", async () => {
++    const tool = makeInspectHooksTool();
++    const res = await tool.execute("id", { self_test: true }, undefined, undefined, {} as never);
++    const text = (res.content[0] as { text: string }).text;
++    expect(text).toContain("self_test");
++    expect(text).toContain("Inspect Hooks");
++  });
++
++  test("hooks-unavailable (available:false) degrades gracefully", async () => {
++    const tool = makeInspectHooksTool();
++    const res = await tool.execute("id", {}, undefined, undefined, fakeCtx(snap([], false)));
++    const text = (res.content[0] as { text: string }).text;
++    expect(text).toContain("Hooks unavailable");
++  });
++});
+diff --git a/bun-apps/pi-agent-ext-power-tool/src/tools/inspect-hooks.ts b/bun-apps/pi-agent-ext-power-tool/src/tools/inspect-hooks.ts
+new file mode 100644
+index 00000000..6c3f5cee
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-power-tool/src/tools/inspect-hooks.ts
+@@ -0,0 +1,285 @@
++/**
++ * inspect_hooks — hook observability for extension development.
++ *
++ * Lists every loaded extension's registered lifecycle hooks (pi.on handlers):
++ * which events each extension listens on, handler counts, and any handler
++ * registered against an UNKNOWN event name (almost certainly a typo / dead
++ * handler — it can never match the dispatch loop's real eventType).
++ *
++ * This module is SELF-CONTAINED (imports only from the SDK) to avoid a
++ * module-init cycle with ../index.js. The Finding/Severity types are
++ * duplicated here but structurally identical to index's, so JSON output stays
++ * consistent across inspect_* tools.
++ */
++import { defineTool, type ExtensionContext } from "@earendil-works/pi-coding-agent";
++import { Type } from "typebox";
++
++// ─── Shared with inspect_extensions (structurally identical) ────────────────
++
++export type Severity = "high" | "medium" | "low" | "info";
++
++export interface Finding {
++  severity: Severity;
++  /** machine id, e.g. "unknown-event-name" */
++  check: string;
++  /** one human-readable line */
++  message: string;
++  /** structured payload (for JSON mode / assertions) */
++  detail?: Record<string, unknown>;
++}
++
++export function summarizeFindings(findings: Finding[]): {
++  total: number;
++  high: number;
++  medium: number;
++  low: number;
++} {
++  const counts = { high: 0, medium: 0, low: 0 };
++  for (const f of findings) {
++    if (f.severity === "info") continue;
++    counts[f.severity as "high" | "medium" | "low"] += 1;
++  }
++  return { total: counts.high + counts.medium + counts.low, ...counts };
++}
++
++/** Compact a source path: prefer the bun-apps/... tail, else last 2 segments. */
++function shortPath(p: string): string {
++  const i = p.indexOf("bun-apps/");
++  if (i >= 0) return p.slice(i);
++  return p.split("/").slice(-2).join("/");
++}
++
++// ─── Known events (pi 0.82.0) ───────────────────────────────────────────────
++// The on() overload string literals. A handler registered on an event NOT in
++// this set can never fire → likely a typo. Keep in sync with the SDK's
++// ExtensionEvent.type union if the SDK adds events.
++
++export const KNOWN_EVENTS: ReadonlySet<string> = new Set([
++  "project_trust", "resources_discover",
++  "session_start", "session_info_changed", "session_before_switch",
++  "session_before_fork", "session_before_compact", "session_compact",
++  "session_shutdown", "session_before_tree", "session_tree",
++  "context", "before_provider_request", "before_provider_headers",
++  "after_provider_response", "before_agent_start", "agent_start",
++  "agent_end", "agent_settled", "turn_start", "turn_end",
++  "message_start", "message_update", "message_end",
++  "tool_execution_start", "tool_execution_update", "tool_execution_end",
++  "model_select", "thinking_level_select", "tool_call", "tool_result",
++  "user_bash", "input",
++]);
++
++// ─── Snapshot types (also the analyzeHooks input) ───────────────────────────
++
++export interface HookRegistration {
++  event: string;
++  /** handler-array length for this event */
++  count: number;
++}
++export interface ExtensionHooks {
++  path: string;
++  hooks: HookRegistration[];
++}
++export interface HooksSnapshot {
++  extensions: ExtensionHooks[];
++  /** false when the polyfill couldn't reach runner.extensions */
++  available: boolean;
++}
++
++/**
++ * PURE: map the raw runner.extensions[] (each `{ path, handlers: Map<event,Fn[]> }`)
++ * into a typed HooksSnapshot. Tolerates shape drift → available:false.
++ */
++export function collectHooks(rawExtensions: unknown): HooksSnapshot {
++  if (!Array.isArray(rawExtensions)) return { extensions: [], available: false };
++  const extensions: ExtensionHooks[] = rawExtensions.map((ext: any) => {
++    const handlers: Map<string, unknown[]> | undefined = ext?.handlers;
++    const path: string = ext?.path ?? ext?.resolvedPath ?? "(unknown)";
++    const hooks: HookRegistration[] =
++      handlers && typeof handlers.entries === "function"
++        ? [...(handlers as Map<string, unknown[]>).entries()].map(([event, hs]) => ({
++            event: String(event),
++            count: Array.isArray(hs) ? hs.length : 0,
++          }))
++        : [];
++    return { path, hooks };
++  });
++  return { extensions, available: true };
++}
++
++/**
++ * PURE: analyze a HooksSnapshot. No SDK, no fs. Order: unknown-event-name
++ * (medium), then per-extension inventory (info), then stats (info). If
++ * available:false, only a single hooks-unavailable info finding is returned.
++ */
++export function analyzeHooks(snapshot: HooksSnapshot): Finding[] {
++  const findings: Finding[] = [];
++  if (!snapshot.available) {
++    findings.push({
++      severity: "info",
++      check: "hooks-unavailable",
++      message:
++        "Hooks unavailable — SDK context shape changed (getHooks polyfill couldn't reach runner.extensions)",
++    });
++    return findings;
++  }
++
++  // 🟡 unknown-event-name — handler on an event NOT in KNOWN_EVENTS → dead (typo)
++  for (const ext of snapshot.extensions) {
++    for (const h of ext.hooks) {
++      if (!KNOWN_EVENTS.has(h.event)) {
++        findings.push({
++          severity: "medium",
++          check: "unknown-event-name",
++          message: `${shortPath(ext.path)} registers handler on unknown event "${h.event}" — likely a typo / dead handler`,
++          detail: { path: ext.path, event: h.event, count: h.count },
++        });
++      }
++    }
++  }
++
++  // ℹ️ per-extension inventory
++  let totalHandlers = 0;
++  let totalUnknown = 0;
++  for (const ext of snapshot.extensions) {
++    const handlers = ext.hooks.reduce((s, h) => s + h.count, 0);
++    const unknown = ext.hooks.filter((h) => !KNOWN_EVENTS.has(h.event)).length;
++    totalHandlers += handlers;
++    totalUnknown += unknown;
++    findings.push({
++      severity: "info",
++      check: "extension-hook-inventory",
++      message: `${shortPath(ext.path)}: ${ext.hooks.length} event(s), ${handlers} handler(s)`,
++      detail: { path: ext.path, events: ext.hooks.length, handlers, unknown },
++    });
++  }
++
++  findings.push({
++    severity: "info",
++    check: "hook-stats",
++    message: `${snapshot.extensions.length} extension(s), ${totalHandlers} handler(s); ${totalUnknown} unknown-event finding(s)`,
++    detail: { extensions: snapshot.extensions.length, handlers: totalHandlers, unknown: totalUnknown },
++  });
++
++  return findings;
++}
++
++/** Render a HooksSnapshot + its findings as a severity-ranked text report. PURE. */
++export function formatHooksReport(
++  snapshot: HooksSnapshot,
++  findings: Finding[],
++  byEvent: boolean,
++): string {
++  const lines: string[] = [];
++  lines.push("╔══════════════════════════════════════╗");
++  lines.push("║          Inspect Hooks               ║");
++  lines.push("╚══════════════════════════════════════╝");
++  lines.push("");
++
++  if (!snapshot.available) {
++    for (const f of findings) lines.push(`  • ${f.message}`);
++    lines.push("");
++    return lines.join("\n");
++  }
++
++  const summary = summarizeFindings(findings);
++  lines.push(
++    `▶ ${summary.total} issue(s): 🔴 ${summary.high} high · 🟡 ${summary.medium} medium · 🟢 ${summary.low} low`,
++  );
++  lines.push("");
++
++  // Medium: unknown-event-name
++  const unknown = findings.filter((f) => f.check === "unknown-event-name");
++  if (unknown.length > 0) {
++    lines.push(`▶ 🟡 Medium — unknown event name (${unknown.length}):`);
++    for (const f of unknown) lines.push(`  • ${f.message}`);
++    lines.push("");
++  } else if (summary.total === 0) {
++    lines.push("✓ No unknown-event findings — hook registrations look healthy.");
++    lines.push("");
++  }
++
++  // Inventory
++  if (byEvent) {
++    const byEvt = new Map<string, { exts: string[]; handlers: number }>();
++    for (const ext of snapshot.extensions) {
++      for (const h of ext.hooks) {
++        const e = byEvt.get(h.event) ?? { exts: [], handlers: 0 };
++        e.exts.push(shortPath(ext.path));
++        e.handlers += h.count;
++        byEvt.set(h.event, e);
++      }
++    }
++    lines.push("▶ Hooks by event:");
++    for (const [event, e] of [...byEvt].sort((a, b) => b[1].handlers - a[1].handlers)) {
++      const flag = KNOWN_EVENTS.has(event) ? "" : "  ⚠ unknown";
++      lines.push(`  ${event.padEnd(28)} ${e.exts.length} ext(s)  ${e.handlers} handler(s)${flag}`);
++    }
++  } else {
++    lines.push("▶ Hooks by extension:");
++    for (const ext of snapshot.extensions) {
++      const handlers = ext.hooks.reduce((s, h) => s + h.count, 0);
++      lines.push(`  ${shortPath(ext.path).padEnd(42)} ${String(ext.hooks.length).padStart(3)} event(s)  ${String(handlers).padStart(3)} handler(s)`);
++    }
++  }
++  lines.push("");
++
++  const stats = findings.find((f) => f.check === "hook-stats");
++  if (stats) lines.push(`▶ ${stats.message}`);
++  return lines.join("\n");
++}
++
++// ─── Tool factory ────────────────────────────────────────────────────────────
++
++export function makeInspectHooksTool() {
++  return defineTool({
++    name: "inspect_hooks",
++    label: "Inspect Hooks",
++    description:
++      "List every loaded extension's registered lifecycle hooks (pi.on handlers) — which events each extension listens on, handler counts, and any handler registered against an unknown event name (likely a typo / dead handler). Fact-finder companion to inspect_extensions.",
++    parameters: Type.Object({
++      by_event: Type.Optional(Type.Boolean({ description: "Group inventory by event instead of by extension (who listens on X?)" })),
++      return_json: Type.Optional(Type.Boolean({ description: "Return machine-readable JSON instead of a text report" })),
++      self_test: Type.Optional(Type.Boolean({ description: "When true, run against deterministic test data instead of live ctx" })),
++    }),
++
++    async execute(_id, params, _signal, _onUpdate, ctx) {
++      // self_test: deterministic mock, no live session.
++      if (params.self_test) {
++        const mock: HooksSnapshot = {
++          extensions: [
++            { path: "bun-apps/example/ext.ts", hooks: [{ event: "turn_end", count: 1 }, { event: "turn_starts", count: 1 }] },
++          ],
++          available: true,
++        };
++        const findings = analyzeHooks(mock);
++        return {
++          content: [{ type: "text" as const, text: "self_test: true\n\n" + formatHooksReport(mock, findings, Boolean(params.by_event)) }],
++          details: null,
++        };
++      }
++
++      const snapshot = (ctx as ExtensionContext).getHooks();
++      const findings = analyzeHooks(snapshot);
++
++      if (params.return_json) {
++        return {
++          content: [
++            {
++              type: "text" as const,
++              text: JSON.stringify(
++                { findings, summary: summarizeFindings(findings), snapshot },
++                null,
++                2,
++              ),
++            },
++          ],
++          details: null,
++        };
++      }
++      return {
++        content: [{ type: "text" as const, text: formatHooksReport(snapshot, findings, Boolean(params.by_event)) }],
++        details: null,
++      };
++    },
++  });
++}

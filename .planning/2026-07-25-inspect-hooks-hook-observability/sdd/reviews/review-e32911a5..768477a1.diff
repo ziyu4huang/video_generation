@@ -1,0 +1,191 @@
+# Review package: e32911a5..768477a1
+
+## Commits
+768477a1 feat(power-tool): add getHooks() to sdk-patch createContext polyfill (reads runner.extensions[].handlers)
+
+## Files changed
+ .../src/__tests__/sdk-patch.test.ts                | 47 ++++++++++++++
+ bun-apps/pi-agent-ext-power-tool/src/sdk-patch.ts  | 74 +++++++++++++++-------
+ 2 files changed, 98 insertions(+), 23 deletions(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-power-tool/src/__tests__/sdk-patch.test.ts b/bun-apps/pi-agent-ext-power-tool/src/__tests__/sdk-patch.test.ts
+new file mode 100644
+index 00000000..6ee713a7
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-power-tool/src/__tests__/sdk-patch.test.ts
+@@ -0,0 +1,47 @@
++import { test, expect, describe } from "bun:test";
++import { applyContextPolyfills, type PolyfillRunner } from "../sdk-patch.js";
++
++const fakeRunner = (extensions: unknown[]): PolyfillRunner => ({
++  assertActive() {},
++  getSystemPromptOptionsFn: () => ({}) as never,
++  getSystemPromptFn: () => "",
++  extensions,
++});
++
++describe("applyContextPolyfills", () => {
++  test("installs getHooks that reads runner.extensions via collectHooks", () => {
++    const ctx: Record<string, unknown> = {};
++    const runner = fakeRunner([
++      { path: "ext.ts", handlers: new Map([["turn_end", [() => {}, () => {}]]]) },
++    ]);
++    applyContextPolyfills(ctx, runner);
++    expect(typeof ctx.getHooks).toBe("function");
++    const snap = (ctx.getHooks as () => unknown)();
++    expect(snap).toEqual({
++      extensions: [{ path: "ext.ts", hooks: [{ event: "turn_end", count: 2 }] }],
++      available: true,
++    });
++  });
++
++  test("getHooks returns available:false if it throws (independent of getSystemPromptOptions)", () => {
++    const ctx: Record<string, unknown> = {};
++    const runner: PolyfillRunner = {
++      assertActive() { throw new Error("stale"); },
++      getSystemPromptOptionsFn: () => ({}) as never,
++      getSystemPromptFn: () => "",
++      extensions: [],
++    };
++    applyContextPolyfills(ctx, runner);
++    const snap = (ctx.getHooks as () => { available: boolean })();
++    expect(snap.available).toBe(false);
++    // getSystemPromptOptions is still installed (independent degradation)
++    expect(typeof ctx.getSystemPromptOptions).toBe("function");
++  });
++
++  test("installs getSystemPromptOptions + getSystemPrompt (unchanged behavior)", () => {
++    const ctx: Record<string, unknown> = {};
++    applyContextPolyfills(ctx, fakeRunner([]));
++    expect(typeof ctx.getSystemPromptOptions).toBe("function");
++    expect(typeof ctx.getSystemPrompt).toBe("function");
++  });
++});
+diff --git a/bun-apps/pi-agent-ext-power-tool/src/sdk-patch.ts b/bun-apps/pi-agent-ext-power-tool/src/sdk-patch.ts
+index 0e218545..3fb253ea 100644
+--- a/bun-apps/pi-agent-ext-power-tool/src/sdk-patch.ts
++++ b/bun-apps/pi-agent-ext-power-tool/src/sdk-patch.ts
+@@ -8,32 +8,77 @@
+  * tool execute() contexts always have getSystemPromptOptions().
+  *
+  * It's a MEMORY-ONLY patch — no filesystem writes. Runs once per process, even
+  * if imported multiple times.
+  *
+  * If the patch fails (SDK structure changed), the caller falls back gracefully
+  * — tools simply omit the sub-breakdown and show "system prompt: ~X tok total".
+  */
+ 
+ import { createRequire } from "node:module";
++import { collectHooks, type HooksSnapshot } from "./tools/inspect-hooks.js";
+ 
+ let patched = false;
+ const sdkRequire = createRequire(import.meta.url);
+ 
+-// Runtime: ensureGetSystemPromptOptions() polyfills getSystemPromptOptions()
+-// onto the tool execution context (ExtensionContext) — the SDK only declares
+-// it on ExtensionCommandContext. This module augmentation mirrors that runtime
+-// polyfill at the TYPE level, so power-tool tools can call it on ExtensionContext
+-// without per-call casts. (Keep in sync with the runtime patch below.)
++// Runtime: ensureGetSystemPromptOptions() polyfills getSystemPromptOptions() AND
++// getHooks() onto the tool execution context (ExtensionContext) — the SDK only
++// declares them on ExtensionCommandContext / not at all. This module augmentation
++// mirrors the runtime polyfill at the TYPE level. (Keep in sync with the runtime
++// patch below.)
+ declare module "@earendil-works/pi-coding-agent" {
+   interface ExtensionContext {
+     getSystemPromptOptions(): import("@earendil-works/pi-coding-agent").BuildSystemPromptOptions;
++    getHooks(): HooksSnapshot;
++  }
++}
++
++/** The slice of the runner instance the polyfills read. */
++export interface PolyfillRunner {
++  assertActive(): void;
++  getSystemPromptOptionsFn(): import("@earendil-works/pi-coding-agent").BuildSystemPromptOptions;
++  getSystemPromptFn(): string;
++  /** runner.extensions — the aggregate all hook handlers are stored on. */
++  extensions?: unknown[];
++}
++
++/**
++ * Install all context polyfills onto a ctx object. PURE w.r.t. ctx (mutates it).
++ * Exported so it is unit-testable without resolving the real Runner prototype.
++ * Each polyfill is independently guarded: a getHooks failure (caught) does NOT
++ * affect getSystemPromptOptions, and vice-versa.
++ */
++export function applyContextPolyfills(
++  ctx: Record<string, unknown>,
++  runner: PolyfillRunner,
++): void {
++  if (typeof ctx.getSystemPromptOptions !== "function") {
++    ctx.getSystemPromptOptions = () => {
++      runner.assertActive();
++      return runner.getSystemPromptOptionsFn();
++    };
++  }
++  if (typeof ctx.getSystemPrompt !== "function") {
++    ctx.getSystemPrompt = () => {
++      runner.assertActive();
++      return runner.getSystemPromptFn();
++    };
++  }
++  if (typeof ctx.getHooks !== "function") {
++    ctx.getHooks = (): HooksSnapshot => {
++      try {
++        runner.assertActive();
++        return collectHooks(runner.extensions);
++      } catch {
++        return { extensions: [], available: false };
++      }
++    };
+   }
+ }
+ 
+ export function ensureGetSystemPromptOptions(): boolean {
+   if (patched) return true;
+ 
+   try {
+     // The SDK's exports map (0.80.3) only exposes "." and "./rpc-entry", so a
+     // bare deep-subpath require(".../dist/core/extensions/runner.js") fails with
+     // "Cannot find module". Resolve the SDK package.json (always resolvable) and
+@@ -68,38 +113,21 @@ export function ensureGetSystemPromptOptions(): boolean {
+       string,
+       unknown
+     >;
+     const origCreateContext = proto.createContext as (this: unknown, ...args: unknown[]) => Record<string, unknown>;
+     if (typeof origCreateContext !== "function") {
+       return false;
+     }
+ 
+     proto.createContext = function (this: unknown, ...args: unknown[]) {
+       const ctx = origCreateContext.apply(this, args);
+-      const runnerThis = this as {
+-        assertActive(): void;
+-        getSystemPromptOptionsFn(): Record<string, unknown>;
+-        getSystemPromptFn(): string;
+-      };
+-
+-      if (typeof ctx.getSystemPromptOptions !== "function") {
+-        ctx.getSystemPromptOptions = () => {
+-          runnerThis.assertActive();
+-          return runnerThis.getSystemPromptOptionsFn();
+-        };
+-      }
+-      if (typeof ctx.getSystemPrompt !== "function") {
+-        ctx.getSystemPrompt = () => {
+-          runnerThis.assertActive();
+-          return runnerThis.getSystemPromptFn();
+-        };
+-      }
++      applyContextPolyfills(ctx as Record<string, unknown>, this as PolyfillRunner);
+       return ctx;
+     };
+ 
+     patched = true;
+     return true;
+   } catch (e) {
+     console.warn(
+       "[sdk-patch] Could not apply getSystemPromptOptions polyfill:",
+       (e as Error).message,
+     );

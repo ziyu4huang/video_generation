@@ -1,0 +1,280 @@
+# Review package: 351959a1..bf58fded
+
+## Commits
+bf58fded feat(tool-gate): add coverage pure core (analyzeCoverage) + export TRACKED_TOOLS
+
+## Files changed
+ .../pi-agent-ext-tool-gate/extensions/tool-gate.ts |   2 +-
+ .../pi-agent-ext-tool-gate/qa/coverage.test.ts     | 121 +++++++++++++++++++++
+ bun-apps/pi-agent-ext-tool-gate/qa/coverage.ts     | 108 ++++++++++++++++++
+ 3 files changed, 230 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-tool-gate/extensions/tool-gate.ts b/bun-apps/pi-agent-ext-tool-gate/extensions/tool-gate.ts
+index ae830c1b..a2595b83 100644
+--- a/bun-apps/pi-agent-ext-tool-gate/extensions/tool-gate.ts
++++ b/bun-apps/pi-agent-ext-tool-gate/extensions/tool-gate.ts
+@@ -214,21 +214,21 @@ export const GATES: ToolGate[] = [
+       verbs: ["build", "deploy", "verify", "test", "bundle", "部署", "建置", "驗證", "打包"],
+     },
+     description: "Build/verify/deploy the pi-agent bundle + extension bundles (wraps deploy.ts + run-test.sh)",
+   },
+ ];
+ 
+ /** Union of CORE_TOOLS and every gate's tool names — the set of tools this
+  *  extension explicitly tracks. Unknown tools (not in this set) are always
+  *  active (fail-open). Precomputed at module load so callers that need the
+  *  active list without re-firing gates can filter directly. */
+-const TRACKED_TOOLS = new Set([...CORE_TOOLS, ...GATES.flatMap((g) => g.names)]);
++export const TRACKED_TOOLS = new Set([...CORE_TOOLS, ...GATES.flatMap((g) => g.names)]);
+ 
+ /** Pure: filter `allToolNames` to those that should be active given `sticky`.
+  *  Tools not in TRACKED_TOOLS are always active (fail-open); tracked tools
+  *  are active only when present in `sticky`. Does NOT mutate sticky or
+  *  evaluate gate keywords — gate firing is a separate concern. */
+ export function filterActive(allToolNames: string[], sticky: Set<string>): string[] {
+   return allToolNames.filter((name) => !TRACKED_TOOLS.has(name) || sticky.has(name));
+ }
+ 
+ // ── Startup banner (obsidian-style above-editor widget) ──────────
+diff --git a/bun-apps/pi-agent-ext-tool-gate/qa/coverage.test.ts b/bun-apps/pi-agent-ext-tool-gate/qa/coverage.test.ts
+new file mode 100644
+index 00000000..fc4c324b
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-tool-gate/qa/coverage.test.ts
+@@ -0,0 +1,121 @@
++/**
++ * Tests for the coverage analyzer (close the measurement→action loop).
++ *
++ * The pure core (analyzeCoverage) is exercised against a hand-crafted
++ * SchemaCostReport fixture — no agent boot, no repo discovery. One structural
++ * integration test (measureCoverage) runs the real collector at the end.
++ */
++import { describe, expect, it } from "bun:test";
++import {
++	analyzeCoverage,
++	formatCoverage,
++	assertSane,
++	DEFAULT_COVERAGE_THRESHOLD,
++} from "./coverage.ts";
++import type { SchemaCostReport, ToolCost } from "../../pi-agent-cli/src/commands/schema-cost.ts";
++
++/** Minimal ToolCost fixture — only the fields analyzeCoverage reads matter. */
++const tool = (name: string, approxTokens: number, source: string): ToolCost =>
++	({ name, descLen: 0, paramsLen: 0, approxTokens, source }) as ToolCost;
++
++/** Build a SchemaCostReport shell from a tool list (totals derived). */
++function report(tools: ToolCost[]): SchemaCostReport {
++	return {
++		tools,
++		totalTokens: tools.reduce((s, t) => s + t.approxTokens, 0),
++		builtinCount: tools.filter((t) => t.source === "(builtin)").length,
++		extensionCount: tools.filter((t) => t.source !== "(builtin)").length,
++		errors: [],
++	} as SchemaCostReport;
++}
++
++const ROOT = "/fake/repo";
++const TH = DEFAULT_COVERAGE_THRESHOLD; // 300
++
++describe("analyzeCoverage", () => {
++	it("reports a heavy tool NOT in TRACKED_TOOLS as ungated", () => {
++		const r = analyzeCoverage(report([tool("synthetic_heavy", 500, "some-ext")]), TH, ROOT);
++		expect(r.ungated.map((u) => u.name)).toEqual(["synthetic_heavy"]);
++		expect(r.heavyTools).toBe(1);
++		expect(r.gatedHeavy).toBe(0);
++		expect(r.pass).toBe(false);
++	});
++
++	it("counts a heavy TRACKED tool as gatedHeavy (not ungated)", () => {
++		// "flux2" is a real gate name → present in TRACKED_TOOLS
++		const r = analyzeCoverage(report([tool("flux2", 500, "movie-director")]), TH, ROOT);
++		expect(r.gatedHeavy).toBe(1);
++		expect(r.ungated).toEqual([]);
++		expect(r.pass).toBe(true);
++	});
++
++	it("never reports a builtin, even if heavy", () => {
++		const r = analyzeCoverage(report([tool("bash", 9999, "(builtin)")]), TH, ROOT);
++		expect(r.ungated).toEqual([]);
++		expect(r.heavyTools).toBe(0); // builtins excluded from the heavy count
++		expect(r.gatedHeavy).toBe(0);
++		expect(r.pass).toBe(true);
++	});
++
++	it("ignores sub-threshold tools", () => {
++		const r = analyzeCoverage(report([tool("synthetic_small", 100, "some-ext")]), TH, ROOT);
++		expect(r.ungated).toEqual([]);
++		expect(r.heavyTools).toBe(0);
++		expect(r.pass).toBe(true);
++	});
++
++	it("sorts ungated desc by tokens", () => {
++		const r = analyzeCoverage(
++			report([tool("a", 400, "x"), tool("b", 900, "x"), tool("c", 600, "x")]),
++			TH,
++			ROOT,
++		);
++		expect(r.ungated.map((u) => u.name)).toEqual(["b", "c", "a"]);
++	});
++
++	it("respects a threshold override lower than default", () => {
++		// 250 < default 300 but >= 200 → caught only under the override
++		const r = analyzeCoverage(report([tool("synthetic_mid", 250, "x")]), 200, ROOT);
++		expect(r.ungated.map((u) => u.name)).toEqual(["synthetic_mid"]);
++		expect(r.threshold).toBe(200);
++	});
++
++	it("passes root through to the report", () => {
++		const r = analyzeCoverage(report([]), TH, ROOT);
++		expect(r.root).toBe(ROOT);
++		expect(r.totalTools).toBe(0);
++	});
++});
++
++describe("formatCoverage", () => {
++	it("renders a healthy (✅) report when nothing is ungated", () => {
++		const r = analyzeCoverage(report([tool("flux2", 500, "md")]), TH, ROOT);
++		const out = formatCoverage(r).join("\n");
++		expect(out).toContain("✅");
++		expect(out).not.toContain("NOT gated");
++	});
++
++	it("renders a gap (❌) + the ungated tool list when something is missing", () => {
++		const r = analyzeCoverage(report([tool("synthetic_heavy", 500, "x")]), TH, ROOT);
++		const out = formatCoverage(r).join("\n");
++		expect(out).toContain("❌");
++		expect(out).toContain("synthetic_heavy");
++	});
++});
++
++describe("assertSane", () => {
++	it("flags a non-positive threshold", () => {
++		const r = analyzeCoverage(report([tool("flux2", 500, "md")]), -1, ROOT);
++		expect(assertSane(r).some((p) => p.includes("threshold"))).toBe(true);
++	});
++
++	it("flags an empty report (no tools captured)", () => {
++		const r = analyzeCoverage(report([]), TH, ROOT);
++		expect(assertSane(r).some((p) => p.includes("no tools"))).toBe(true);
++	});
++
++	it("is clean for a normal report", () => {
++		const r = analyzeCoverage(report([tool("flux2", 500, "md")]), TH, ROOT);
++		expect(assertSane(r)).toEqual([]);
++	});
++});
+diff --git a/bun-apps/pi-agent-ext-tool-gate/qa/coverage.ts b/bun-apps/pi-agent-ext-tool-gate/qa/coverage.ts
+new file mode 100644
+index 00000000..8caeec2e
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-tool-gate/qa/coverage.ts
+@@ -0,0 +1,108 @@
++/**
++ * Coverage measurement — QA harness (close the measurement→action loop).
++ *
++ * Question: which registered tools are heavy (≥ threshold tok/req) but NOT
++ * tracked by any tool-gate gate — i.e. candidates the author forgot to gate?
++ *
++ * power-tool's schema-cost measures every tool's per-request token cost;
++ * tool-gate's GATES array is hand-maintained. If a heavy extension lands but is
++ * never added to a gate, tool-gate's fail-open design keeps it always-active
++ * (safe — no breakage) but the savings silently degrade. This QA surfaces that
++ * gap so the loop closes: schema-cost measures → coverage finds the ungated
++ * heavy → author adds a gate → savings confirms the recovery.
++ *
++ * Pure core (analyzeCoverage) is separated from the one buildSchemaCostReport
++ * call so it is unit-testable against a fixture without booting collection.
++ *
++ * Run: `bun run qa:coverage`  (wired in package.json)
++ */
++import type { SchemaCostReport } from "../../pi-agent-cli/src/commands/schema-cost.ts";
++import { TRACKED_TOOLS } from "../extensions/tool-gate.ts";
++
++/** Heavy tools at or above this per-request token cost are coverage candidates. */
++export const DEFAULT_COVERAGE_THRESHOLD = 300;
++
++/** A heavy tool that no gate tracks. */
++export interface UngatedTool {
++	name: string;
++	tokens: number;
++	source: string;
++}
++
++/** The coverage verdict. `pass === (ungated.length === 0)`. */
++export interface CoverageReport {
++	/** Repo root the measurement ran against. */
++	root: string;
++	/** Token threshold used for this run. */
++	threshold: number;
++	/** Total tools captured (builtins + extensions). */
++	totalTools: number;
++	/** Non-builtin tools at/above threshold. */
++	heavyTools: number;
++	/** Heavy tools NOT in TRACKED_TOOLS — the findings (sorted desc by tokens). */
++	ungated: UngatedTool[];
++	/** Heavy tools that ARE tracked — healthy. */
++	gatedHeavy: number;
++	/** True iff ungated is empty. */
++	pass: boolean;
++}
++
++/**
++ * Pure: classify a captured report into the coverage verdict. No I/O.
++ * Builtins (source === "(builtin)") are never heavy and never reported.
++ */
++export function analyzeCoverage(
++	report: SchemaCostReport,
++	threshold: number,
++	root: string,
++): CoverageReport {
++	const ungated: UngatedTool[] = [];
++	let heavyTools = 0;
++	let gatedHeavy = 0;
++	for (const t of report.tools) {
++		if (t.source === "(builtin)") continue; // builtins can't be gated
++		if (t.approxTokens < threshold) continue; // below threshold = not heavy
++		heavyTools++;
++		if (TRACKED_TOOLS.has(t.name)) {
++			gatedHeavy++;
++			continue;
++		}
++		ungated.push({ name: t.name, tokens: t.approxTokens, source: t.source });
++	}
++	ungated.sort((a, b) => b.tokens - a.tokens);
++	return {
++		root,
++		threshold,
++		totalTools: report.tools.length,
++		heavyTools,
++		ungated,
++		gatedHeavy,
++		pass: ungated.length === 0,
++	};
++}
++
++/** Human-readable report. */
++export function formatCoverage(r: CoverageReport): string[] {
++	const lines: string[] = [
++		`threshold:   ${r.threshold} tok/req`,
++		`tools:       ${r.totalTools} total · ${r.heavyTools} heavy (excl. builtins) · ${r.gatedHeavy} gated-heavy ✅`,
++		`ungated:     ${r.ungated.length} heavy tool(s) not tracked by any gate`,
++	];
++	if (r.ungated.length) {
++		lines.push("", "heavy tools NOT gated (candidates the author forgot):");
++		for (const u of r.ungated) lines.push(`  ${u.tokens.toString().padStart(5)} tok  ${u.name}  [${u.source}]`);
++		lines.push("", "❌ coverage gap — add a GATE entry (extensions/tool-gate.ts) or confirm intentional always-on");
++	} else {
++		lines.push("", "✅ every heavy tool is tracked by a gate (or is a builtin)");
++	}
++	return lines;
++}
++
++/** Hard structural assertions (always-gating if violated). */
++export function assertSane(r: CoverageReport): string[] {
++	const problems: string[] = [];
++	if (r.threshold <= 0) problems.push("threshold <= 0 — nonsensical");
++	if (r.totalTools === 0) problems.push("no tools captured — schema-cost collection returned nothing");
++	if (r.heavyTools < r.gatedHeavy) problems.push("gatedHeavy > heavyTools — impossible");
++	return problems;
++}
