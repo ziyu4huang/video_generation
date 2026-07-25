@@ -48,6 +48,8 @@ import {
   ApprovalRequiredError,
 } from "./cost.ts";
 import { recordDecision, getDecisionLog } from "./decision-log.ts";
+import { runPyLipsync, type RunPyLipsyncInput, type RunPyLipsyncOutput } from "./runpy_lipsync.ts";
+import { buildLipsyncLesson } from "./lipsync-lesson.ts";
 import { selectProvider, NoConfiguredProviderError } from "./selector.ts";
 import { selectAndGenerate } from "./bridge.ts";
 import { probedMenuSummary } from "./providers.ts";
@@ -62,7 +64,7 @@ import { makeRealWaypointDeps } from "./waypoint-runtime.ts";
 import { defaultProbeDuration } from "./assets-runtime.ts";
 import { runCompletionWaypoint, runAgentWaypoint, pickProducer, WaypointExhaustedError, type WaypointDeps } from "./waypoints.ts";
 
-/** The canonical 19 orchestration commands (also the CLI's command surface). */
+/** The canonical 23 orchestration commands (also the CLI's command surface). */
 export const COMMANDS = [
   "preflight",
   "pipeline-list",
@@ -74,6 +76,7 @@ export const COMMANDS = [
   "read-checkpoint",
   "validate-artifact",
   "generate",
+  "evaluate-lipsync",
   "compose",
   "compose-remotion",
   "compose-motion",
@@ -198,6 +201,18 @@ export const COMMAND_REFERENCE = [
   "                        `script` artifact auto-computes metadata.script_pacing (words-per-second per section + overall,",
   "                        advisory warn/fail against natural-speech bounds) — check it BEFORE locking total_duration_seconds",
   "                        and generating TTS, not after.",
+  "  • evaluate-lipsync — {videoPath, seed?, promptSummary?, identityRef?, voice?} → runs",
+  "                        `python -m app.lipsync_metrics` on an already-produced talking-head video and returns",
+  "                        {metrics:{verdict, pearson_r, mouth_ratio_std, caveat?, note?}, lesson:{target, category,",
+  "                        content, reason?}}. Decoupled from how the video was made (native-i2v + `run.py video",
+  "                        lipdub` today — neither is wired into `generate` as a provider). Call this right after",
+  "                        producing a lipdub video, passing the seed/prompt/identity/voice actually used; when the",
+  "                        result has a `lesson`, call hermes-memory's `memory` tool immediately with",
+  "                        target=lesson.target, category=lesson.category, content=lesson.content,",
+  "                        reason=lesson.reason (when present) so the finding survives this session. Before",
+  "                        producing a NEW lipdub video, call hermes-memory's `memory_search` tool first",
+  "                        (category:'tool-quirk', query built from the character identity/voice) to check for",
+  "                        known-bad seed/prompt combinations before picking new ones.",
   "  • compose          — {editDecisions, workDir?, output?, resolution?, fps?, captions?, narrativeDurationSeconds?,",
   "                        overridePreCompose?} → trims each cut to its [in,out] window and concatenates them into a real",
   "                        .mp4 (ffmpeg straight-cut foundation; transitions/overlays are the templated-composer tier).",
@@ -342,6 +357,8 @@ export interface DispatchDeps {
 	waypointDeps?: WaypointDeps;
 	/** run-pipeline: inject the ffprobe duration prober in tests (default: real ffprobe). */
 	probeDuration?: (path: string) => Promise<number>;
+	/** evaluate-lipsync: inject the lipsync_metrics runner in tests (default: real runPyLipsync). */
+	runPyLipsyncImpl?: (input: RunPyLipsyncInput) => Promise<RunPyLipsyncOutput>;
 }
 
 /** Build the waypoint validateFn that delegates to dispatch("validate-artifact").
@@ -573,6 +590,40 @@ export async function dispatch(command: Command, opts: Record<string, unknown>, 
           ok: true,
           text: jsonOut({ provider: usedEntry.provider, invoke: usedEntry.invoke, costEntryId: costEntryId ?? null, result }),
         };
+      }
+      case "evaluate-lipsync": {
+        const missing = missingFields(opts, ["videoPath"]);
+        if (missing.length > 0) return { ok: false, error: `evaluate-lipsync requires non-empty ${missing.join(", ")}` };
+        const videoPath = String(opts.videoPath);
+        const seedNum = opts.seed !== undefined ? Number(opts.seed) : undefined;
+        const seed = seedNum !== undefined && Number.isFinite(seedNum) ? seedNum : undefined;
+        const promptSummary = opts.promptSummary ? String(opts.promptSummary) : undefined;
+        const identityRef = opts.identityRef ? String(opts.identityRef) : undefined;
+        const voice = opts.voice ? String(opts.voice) : undefined;
+
+        const runLipsync = deps?.runPyLipsyncImpl ?? runPyLipsync;
+        const evaluated = await runLipsync({ videoPath });
+        if (!evaluated.ok || !evaluated.metrics) {
+          const baseError = evaluated.error ?? "evaluate-lipsync: lipsync_metrics failed";
+          const errorWithTail = evaluated.stderrTail ? `${baseError}\n${evaluated.stderrTail}`.trim() : baseError;
+          return { ok: false, error: errorWithTail };
+        }
+
+        const lesson = buildLipsyncLesson({
+          verdict: evaluated.metrics.verdict,
+          pearsonR: evaluated.metrics.pearson_r ?? null,
+          mouthRatioStd: evaluated.metrics.mouth_ratio_std ?? null,
+          seed,
+          promptSummary,
+          identityRef,
+          voice,
+          // Prefer `note` (the richer field, populated on no_face/no_audio/setup-error
+          // verdicts) over `caveat` (populated on the adequate/inadequate flat-mouth/
+          // anti-phase cases) as the lesson's `reason`.
+          caveat: evaluated.metrics.note ?? evaluated.metrics.caveat,
+        });
+
+        return { ok: true, text: jsonOut({ metrics: evaluated.metrics, lesson }) };
       }
       case "compose": {
         const edit = opts.editDecisions as EditDecisions | undefined;
