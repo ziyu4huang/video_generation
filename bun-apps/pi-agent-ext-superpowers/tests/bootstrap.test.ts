@@ -181,5 +181,9 @@ describe("bootstrap payload assembly", () => {
     expect(payload).toContain(".superpowers/sdd/");
     expect(payload).toContain(".planning/<effort>/sdd/progress.md");
     expect(payload).toContain("sdd-workspace");
+    // rule 4: brainstorm visual-companion convergence under .planning/<effort>/brainstorm/
+    expect(payload).toContain("brainstorm");
+    expect(payload).toContain(".planning/<effort>/brainstorm/");
+    expect(payload).toContain("PI_PLANNING_EFFORT");
   });
 });
