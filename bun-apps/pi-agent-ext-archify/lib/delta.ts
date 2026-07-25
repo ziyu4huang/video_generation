@@ -27,7 +27,15 @@ export async function archifyDelta(params: { basePath: string; headPath: string;
   const outPath = resolveOutputPath({ cwd: ctx.cwd, outputPath: params.outputPath, diagramType: "architecture-delta" });
   const { status, stderr, stdout } = await runArchify(["compare", "architecture", base, head, outPath], ctx.cwd, signal);
   if (status !== 0) {
-    return { content: [{ type: "text" as const, text: `Error: archify compare failed (exit ${status}). Ensure both IRs are valid architecture diagrams.\n${stderr || stdout}` }], details: { error: "compare failed", status }, isError: true };
+    const binMissing = stdout === "";
+    const detail = binMissing
+      ? stderr
+      : `archify compare failed (exit ${status}). ${stderr || stdout}`;
+    return {
+      content: [{ type: "text" as const, text: `Error: ${detail}` }],
+      details: { error: binMissing ? "vendored bin missing" : "compare failed", status },
+      isError: true,
+    };
   }
   // compare writes a provenance receipt beside the HTML; surface it explicitly.
   const receiptPath = receiptPathFor(outPath);

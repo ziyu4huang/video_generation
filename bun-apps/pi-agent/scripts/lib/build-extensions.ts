@@ -294,10 +294,16 @@ export function stageVendoredAssets(
 	exts: { name: string; pkgDir: string }[],
 	targetDir: string,
 ): void {
+	let firstOwner: string | null = null;
 	for (const spec of exts) {
 		const vendoredSrc = join(spec.pkgDir, "vendored");
 		if (!existsSync(vendoredSrc)) continue;
 		const dest = join(targetDir, "vendored");
+		if (firstOwner !== null) {
+			console.warn(`    ⚠ vendored/ collision: ${spec.name} overwrites ${firstOwner}'s tree at ${dest}`);
+		} else {
+			firstOwner = spec.name;
+		}
 		cpSync(vendoredSrc, dest, { recursive: true, force: true });
 		console.log(`    ✓ vendored/ (from ${spec.name}) → ${dest}`);
 	}
@@ -380,6 +386,8 @@ export async function buildExtensions(targetDir: string): Promise<{ count: numbe
 		throw new Error(`${errors.length}/${exts.length} extension(s) failed to build:\n  ${errors.join("\n  ")}`);
 	}
 
+	// Runs after the errors.length throw above: a partial build (some ext failed)
+	// aborts before staging, so a half-built target never ships a vendored/ tree.
 	stageVendoredAssets(exts, targetDir);
 
 	console.log(`✓ ${exts.length}/${exts.length} extension(s) built → ${targetDir}`);
