@@ -6,8 +6,10 @@ import { reconstructSubagentRuns, SubagentViewer } from "../src/subagent-viewer.
 // Identity theme so render() returns plain text we can assert on.
 const T = { fg: (_c: string, s: string) => s, bg: (_c: string, s: string) => s, bold: (s: string) => s } as never;
 
-function toolResultEntry(toolName: string, text: string, details?: Partial<SubagentToolDetails>) {
-  return { type: "message", message: { role: "toolResult", toolName, content: [{ type: "text", text }], details } };
+function toolResultEntry(toolName: string, text: string, details?: Partial<SubagentToolDetails>, toolCallId?: string) {
+  const message: Record<string, unknown> = { role: "toolResult", toolName, content: [{ type: "text", text }], details };
+  if (toolCallId) message.toolCallId = toolCallId;
+  return { type: "message", message };
 }
 
 test("reconstructSubagentRuns collects only subagent toolResults, in order, with 1-based index", () => {
@@ -220,4 +222,12 @@ test("viewer Running section falls back to the model field when resolvedModel is
   const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
   const out = viewer.render(80).join("\n");
   assert.ok(out.includes("tier:medium"), "pre-resolution row still shows the requested tier (unchanged behavior)");
+});
+
+test("reconstructSubagentRuns carries toolCallId through from the branch message", () => {
+  const branch = [
+    toolResultEntry("subagent", "report A", { exitCode: 0, timedOut: false, status: "done" }, "call-xyz"),
+  ];
+  const runs = reconstructSubagentRuns(branch as never);
+  assert.equal(runs[0].toolCallId, "call-xyz");
 });

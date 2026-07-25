@@ -15,6 +15,8 @@ import type { SubagentToolDetails } from "@repo/pi-agent-ext-subagent";
 export interface SubagentRun {
   /** 1-based ordinal among subagent runs on this branch. */
   index: number;
+  /** The tool-call id (matches InFlightSubagent.id); used by live-follow to match a completed run. */
+  toolCallId?: string;
   agent?: string;
   model: string;
   taskPreview: string;
@@ -29,6 +31,7 @@ export interface SubagentRun {
 interface BranchMessage {
   role?: string;
   toolName?: string;
+  toolCallId?: string;
   content?: Array<{ type: string; text?: string }>;
   details?: Partial<SubagentToolDetails>;
 }
@@ -50,6 +53,7 @@ export function reconstructSubagentRuns(branch: Iterable<BranchEntry>): Subagent
     const status: SubagentRun["status"] = d?.status ?? (d && d.exitCode === 0 ? "done" : "failed");
     runs.push({
       index: i,
+      toolCallId: msg.toolCallId,
       agent: d?.agent,
       model: d?.model ?? "default",
       taskPreview: d?.taskPreview ?? "",
