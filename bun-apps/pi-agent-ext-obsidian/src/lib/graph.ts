@@ -178,9 +178,7 @@ export async function queryNotes(
 	let candidates = [...idx.notes.values()];
 	const folder = opts.folder?.replace(/^[/\\]+/, "");
 	if (folder)
-		candidates = candidates.filter(
-			(m) => m.path.startsWith(folder + "/") || m.path.startsWith(folder),
-		);
+		candidates = candidates.filter((m) => m.path.startsWith(folder + "/"));
 	if (opts.tags && opts.tags.length) {
 		const want = opts.tags.map((t) => t.replace(/^#/, "").toLowerCase());
 		candidates = candidates.filter((m) =>
