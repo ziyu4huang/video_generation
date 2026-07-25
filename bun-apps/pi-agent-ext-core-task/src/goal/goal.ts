@@ -18,8 +18,6 @@
  *   any → cleared (via /goal clear)
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { dirname, join } from "path";
 import { randomUUID } from "crypto";
 import { defineTool, type ExtensionAPI, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -27,17 +25,15 @@ import { getPlanSummary, isPlanIncomplete } from "../plan/coordinator.js";
 import { GoalOverlay, type GoalOverlayLike } from "./overlay.js";
 import { formatBudget, type ActiveGoal } from "./format.js";
 import {
-	cloneGoal,
 	createGoal,
 	editedGoalStatus,
 	goalState,
 	incrementGoal,
-	isGoal,
 	normalizeGoalForBudget,
 	transitionGoal,
 	type GoalCompleteDetails,
-	type GoalStateEntryData,
 } from "./state.js";
+import { clearPersistedGoal, loadGoalFromSession, persistGoal } from "./persistence.js";
 import {
 	findFinalAssistantMessage,
 	isContradictoryCompletionSummary,
@@ -86,12 +82,7 @@ export interface StatusContext {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const GOAL_STATE_ENTRY_TYPE = "goal-state";
 const MAX_CANCELLED_CONTINUATION_PROMPTS = 20;
-const STATE_FILE = join(
-	process.env.PI_CODING_AGENT_DIR ?? join(process.env.HOME ?? ".", ".pi", "agent"),
-	"pi-goal-state.json",
-);
 
 // ─── Module state ─────────────────────────────────────────────────────────────
 // Session-scoped runtime state lives in the `goalState` container (./state.js)
@@ -152,7 +143,7 @@ const goalCompleteTool = defineTool({
 				: undefined;
 		if (rejectionReason) {
 			updateGoalUsage(completedGoal, ctx);
-			persistGoal(completedGoal);
+			persistGoal(goalState.extensionApi as ExtensionAPI, completedGoal);
 			updateStatus(ctx, completedGoal);
 			const rejection = `Goal completion rejected: ${rejectionReason}.`;
 			ctx.ui.notify(rejection, "warning");
@@ -170,7 +161,7 @@ const goalCompleteTool = defineTool({
 		const planningReason = planningGateBlocking(ctx.cwd);
 		if (planningReason) {
 			updateGoalUsage(completedGoal, ctx);
-			persistGoal(completedGoal);
+			persistGoal(goalState.extensionApi as ExtensionAPI, completedGoal);
 			updateStatus(ctx, completedGoal);
 			const rejection =
 				`Goal completion rejected: ${planningReason}. ` +
@@ -185,7 +176,7 @@ const goalCompleteTool = defineTool({
 		if (completedGoal) {
 			goalState.activeGoal = transitionGoal(completedGoal, "complete");
 			updateGoalUsage(goalState.activeGoal, ctx);
-			persistGoal(goalState.activeGoal);
+			persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 		}
 
 		clearActiveGoal(ctx);
@@ -248,13 +239,13 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 		clearContinuationTracking();
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
-		goalState.activeGoal = loadGoalFromSession(ctx);
+		goalState.activeGoal = loadGoalFromSession(ctx.sessionManager);
 		if (goalState.activeGoal) updateStatus(ctx, goalState.activeGoal);
 		else goalOverlay?.update(undefined);
 	});
 
 	pi.on("session_shutdown", (_event: unknown, _ctx: StatusContext) => {
-		if (goalState.activeGoal) persistGoal(goalState.activeGoal);
+		if (goalState.activeGoal) persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 		clearContinuationTracking();
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
@@ -266,7 +257,7 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 		if (!goalState.activeGoal || goalState.activeGoal.status !== "active") return;
 		updateGoalUsage(goalState.activeGoal, ctx);
 		cancelContinuationPending();
-		persistGoal(goalState.activeGoal);
+		persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 		updateStatus(ctx, goalState.activeGoal);
 	});
 
@@ -276,10 +267,10 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 			return;
 		}
 
-		const restoredGoal = loadGoalFromSession(ctx);
+		const restoredGoal = loadGoalFromSession(ctx.sessionManager);
 		if (restoredGoal?.id === goalState.activeGoal.id) goalState.activeGoal = restoredGoal;
 		updateGoalUsage(goalState.activeGoal, ctx);
-		persistGoal(goalState.activeGoal);
+		persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 		updateStatus(ctx, goalState.activeGoal);
 
 		const wasPiRetry = isPiOwnedCompactionRetry(event, goalState.activeGoal.id);
@@ -335,7 +326,7 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 					kind: isGoalContextOverflow(finalAssistant) ? "compaction_retry" : "provider_retry",
 				};
 				cancelContinuationPending();
-				persistGoal(goalState.activeGoal);
+				persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 				updateStatus(ctx, goalState.activeGoal);
 				return;
 			}
@@ -349,13 +340,13 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 		if (goalState.activeGoal.tokenBudget !== undefined && goalState.activeGoal.tokensUsed >= goalState.activeGoal.tokenBudget) {
 			cancelContinuationPending();
 			goalState.activeGoal = transitionGoal(goalState.activeGoal, "budget_limited");
-			persistGoal(goalState.activeGoal);
+			persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 			updateStatus(ctx, goalState.activeGoal);
 			ctx.ui.notify(`Goal token budget reached: ${formatBudget(goalState.activeGoal)}`, "warning");
 			return;
 		}
 
-		persistGoal(goalState.activeGoal);
+		persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 		updateStatus(ctx, goalState.activeGoal);
 
 		if (hadPendingContinuation) {
@@ -400,7 +391,7 @@ async function startGoal(
 	clearGoalRecovery();
 	clearStaleGoalToolCallBlock();
 	goalState.activeGoal = createGoal(objective, tokenBudget, currentTokenTotal(ctx));
-	persistGoal(goalState.activeGoal);
+	persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 	updateStatus(ctx, goalState.activeGoal);
 	ctx.ui.notify(existingGoal ? `Goal replaced: ${objective}` : `Goal started: ${objective}`, "info");
 	await sendGoalPrompt(pi, ctx, goalState.activeGoal);
@@ -419,7 +410,7 @@ function pauseGoal(ctx: StatusContext) {
 	blockStaleGoalToolCalls();
 	abortCurrentTurn(ctx);
 	goalState.activeGoal = transitionGoal(goalState.activeGoal, "paused");
-	persistGoal(goalState.activeGoal);
+	persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 	updateStatus(ctx, goalState.activeGoal);
 	ctx.ui.notify(`Goal paused: ${goalState.activeGoal.text}`, "info");
 }
@@ -436,7 +427,7 @@ async function resumeGoal(pi: ExtensionAPI, ctx: StatusContext) {
 	clearGoalRecovery();
 	clearStaleGoalToolCallBlock();
 	goalState.activeGoal = transitionGoal(goalState.activeGoal, "active");
-	persistGoal(goalState.activeGoal);
+	persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 	updateStatus(ctx, goalState.activeGoal);
 	if (goalState.activeGoal.status !== "active") {
 		ctx.ui.notify(`Goal token budget is still reached: ${formatBudget(goalState.activeGoal)}`, "warning");
@@ -452,7 +443,7 @@ function clearGoal(ctx: StatusContext) {
 		cancelContinuationPending();
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
-		clearPersistedGoal(ctx.cwd);
+		clearPersistedGoal(goalState.extensionApi as ExtensionAPI, ctx.cwd);
 		goalOverlay?.update(undefined);
 		return;
 	}
@@ -488,7 +479,7 @@ async function editGoal(
 		tokenBudget: tokenBudget ?? goalState.activeGoal.tokenBudget,
 		updatedAt: Date.now(),
 	});
-	persistGoal(goalState.activeGoal);
+	persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 	updateStatus(ctx, goalState.activeGoal);
 	ctx.ui.notify(`Goal updated: ${objective}`, "info");
 	if (goalState.activeGoal.status === "active") {
@@ -504,7 +495,7 @@ function showGoal(ctx: StatusContext) {
 		return;
 	}
 	updateGoalUsage(goalState.activeGoal, ctx);
-	persistGoal(goalState.activeGoal);
+	persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 	updateStatus(ctx, goalState.activeGoal);
 	ctx.ui.notify(goalSummary(goalState.activeGoal), "info");
 }
@@ -518,7 +509,7 @@ function pauseGoalAfterAgentEnd(
 	blockStaleGoalToolCalls();
 	abortCurrentTurn(ctx);
 	goalState.activeGoal = transitionGoal(goal, "paused");
-	persistGoal(goalState.activeGoal);
+	persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 	updateStatus(ctx, goalState.activeGoal);
 
 	const reason = assistant.stopReason === "aborted" ? "interruption" : "agent error";
@@ -758,42 +749,16 @@ function currentTokenTotal(ctx: StatusContext): number {
 }
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
-
-// Deep-clone before handing to the session store. The runtime may freeze or
-// canonicalize entry data; without a clone, our live `goalState.activeGoal` reference
-// could be frozen too, after which any updateGoalUsage(goalState.activeGoal) throws
-// "Attempted to assign to readonly property". The wrapper object is fresh,
-// but the nested `goal` must also be a copy we don't share with the store.
-function persistGoal(goal: ActiveGoal) {
-	(goalState.extensionApi as ExtensionAPI)?.appendEntry(GOAL_STATE_ENTRY_TYPE, { goal: cloneGoal(goal) });
-}
-
-function clearPersistedGoal(cwd: string) {
-	(goalState.extensionApi as ExtensionAPI)?.appendEntry(GOAL_STATE_ENTRY_TYPE, { goal: null });
-	clearLegacyPersistedGoal(cwd);
-}
-
-function loadGoalFromSession(ctx: StatusContext): ActiveGoal | undefined {
-	const sessionManager = ctx.sessionManager as
-		| {
-				getBranch?: () => Array<{ type?: string; customType?: string; data?: unknown }>;
-				getEntries?: () => Array<{ type?: string; customType?: string; data?: unknown }>;
-			}
-		| undefined;
-	const entries = sessionManager?.getBranch?.() ?? sessionManager?.getEntries?.() ?? [];
-	const entry = entries
-		.filter((entry) => entry.type === "custom" && entry.customType === GOAL_STATE_ENTRY_TYPE)
-		.pop();
-	const data = entry?.data as GoalStateEntryData | undefined;
-	return isGoal(data?.goal) && data.goal.status !== "complete" ? cloneGoal(data.goal) : undefined;
-}
+// persistGoal / clearPersistedGoal / loadGoalFromSession + the legacy
+// pi-goal-state.json live in ./persistence.ts (deps injected: api /
+// sessionManager passed as params; no module-state reads) — imported above.
 
 function clearActiveGoal(ctx: StatusContext) {
 	cancelContinuationPending();
 	clearGoalRecovery();
 	clearStaleGoalToolCallBlock();
 	goalState.activeGoal = undefined;
-	clearPersistedGoal(ctx.cwd);
+	clearPersistedGoal(goalState.extensionApi as ExtensionAPI, ctx.cwd);
 	goalOverlay?.update(undefined);
 	stopStatusRefreshTimer();
 }
@@ -808,28 +773,8 @@ function showCompletionStatus(_ctx: StatusContext, objective: string) {
 	goalOverlay?.showCompletion(objective);
 }
 
-// ─── Legacy state file ────────────────────────────────────────────────────────
-
-function readState(): Record<string, unknown> {
-	if (!existsSync(STATE_FILE)) return {};
-	try {
-		const parsed = JSON.parse(readFileSync(STATE_FILE, "utf8")) as unknown;
-		return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-			? (parsed as Record<string, unknown>)
-			: {};
-	} catch {
-		return {};
-	}
-}
-
-function clearLegacyPersistedGoal(cwd: string) {
-	if (!existsSync(STATE_FILE)) return;
-	const goals = readState();
-	delete goals[cwd];
-	mkdirSync(dirname(STATE_FILE), { recursive: true });
-	writeFileSync(STATE_FILE, `${JSON.stringify(goals, null, 2)}\n`);
-}
-
 // Clone / isGoal / normalizeGoalForBudget / incrementGoal / transitionGoal /
 // editedGoalStatus / createGoal + the goal-owned types live in ./state.ts
 // (pure module, zero @earendil-works/* imports) — re-imported above.
+// persistGoal / clearPersistedGoal / loadGoalFromSession + the legacy
+// pi-goal-state.json live in ./persistence.ts — re-imported above.
