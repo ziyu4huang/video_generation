@@ -28,4 +28,12 @@ baselined: 2026-07-26
 #   pi-convention leak check passed (no .planning/, goal_complete, ADR-, task_plan.md,
 #   or pi-agent strings in the new SKILL.md — pure upstream).
 #   NOTE: the re-pinned SKILL.md references upstream's .superpowers/sdd/<plan-slug>/
-#   paths; pi-port glue overrides those at runtime (ticket 06, not yet done).
+#   paths; pi-port glue overrides those at runtime (ticket 06, done in commit 9671d84c).
+#   2026-07-26 (2) — bulk re-pin the OTHER 12 SKILL.md to upstream v6.2.0 (commit
+#   3dcbd5c4) to adopt the v6.2.0 skills compression sweep (recap/redundancy trim):
+#   -222 lines total (TDD -51, finishing-a-branch -40, git-worktrees -35,
+#   dispatching-parallel -18, verify -19, systematic-debugging -13, writing-skills
+#   -10, brainstorming/receiving/requesting -8 each, executing-plans/writing-plans
+#   -6 each). using-superpowers unchanged (already at v6.2.0). TDD's load-bearing
+#   test-first core (RED/GREEN, write-failing-test) verified preserved. pi-convention
+#   leak check clean. Suite 122/0.
