@@ -561,7 +561,7 @@ function clearGoal(ctx: StatusContext) {
 		cancelContinuationPending();
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
-		clearPersistedGoal(goalState.extensionApi as ExtensionAPI, ctx.cwd);
+		clearPersistedGoal(goalState.extensionApi as ExtensionAPI);
 		goalOverlay?.update(undefined);
 		return;
 	}
@@ -958,16 +958,16 @@ function currentTokenTotal(ctx: StatusContext): number {
 }
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
-// persistGoal / clearPersistedGoal / loadGoalFromSession + the legacy
-// pi-goal-state.json live in ./persistence.ts (deps injected: api /
-// sessionManager passed as params; no module-state reads) — imported above.
+// persistGoal / clearPersistedGoal / loadGoalFromSession live in ./persistence.ts
+// (deps injected: api / sessionManager passed as params; no module-state reads;
+// session-store-only since Task 11 retired the legacy state file) — imported above.
 
 function clearActiveGoal(ctx: StatusContext) {
 	cancelContinuationPending();
 	clearGoalRecovery();
 	clearStaleGoalToolCallBlock();
 	goalState.activeGoal = undefined;
-	clearPersistedGoal(goalState.extensionApi as ExtensionAPI, ctx.cwd);
+	clearPersistedGoal(goalState.extensionApi as ExtensionAPI);
 	goalOverlay?.update(undefined);
 	stopStatusRefreshTimer();
 	stopHeartbeatTimer();
@@ -986,5 +986,5 @@ function showCompletionStatus(_ctx: StatusContext, objective: string) {
 // Clone / isGoal / normalizeGoalForBudget / incrementGoal / transitionGoal /
 // editedGoalStatus / createGoal + the goal-owned types live in ./state.ts
 // (pure module, zero @earendil-works/* imports) — re-imported above.
-// persistGoal / clearPersistedGoal / loadGoalFromSession + the legacy
-// pi-goal-state.json live in ./persistence.ts — re-imported above.
+// persistGoal / clearPersistedGoal / loadGoalFromSession live in ./persistence.ts
+// (session-store-only) — re-imported above.

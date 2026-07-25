@@ -1,24 +1,20 @@
 /**
- * Goal persistence — session-store writes (appendEntry) + the legacy
- * pi-goal-state.json fallback.
+ * Goal persistence — session-store only (appendEntry).
  *
  * Extracted from goal.ts (Phase 1, Task 6) so the persistence concern is
  * unit-testable in isolation from the UI/coordination seam that remains in
  * goal.ts. Deps are INJECTED: `api` / `sessionManager` arrive as params — this
- * module reads NO module state and NO `ctx`, only its arguments plus the legacy
- * file on disk. That keeps it testable without a pi runtime (a fake api +
+ * module reads NO module state, NO `ctx`, and NO files on disk; only its
+ * arguments. That keeps it testable without a pi runtime (a fake api +
  * fake sessionManager suffice).
  *
  * The status-machine helpers it needs (`cloneGoal`, `isGoal`) + the `ActiveGoal`
- * type come from ./state.js (Task 4). The legacy JSON is intentionally NOT
- * removed here — it is retired in Task 11; this task only MOVES it, verbatim.
+ * type come from ./state.js (Task 4).
  *
- * Zero behavior change vs the previous in-goal.ts implementations: only the
- * `api` / `sessionManager` sources change (module-state read → param).
+ * Legacy file-based state I/O was retired in Task 11; the session store is now
+ * the single source of truth for goal persistence + recovery.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { dirname, join } from "path";
 import { cloneGoal, isGoal, type ActiveGoal, type GoalStateEntryData } from "./state.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -32,21 +28,6 @@ export const GOAL_STATE_ENTRY_TYPE = "goal-state";
  */
 export interface GoalPersistenceApi {
 	appendEntry: (customType: string, data: unknown) => void;
-}
-
-/**
- * Resolve the legacy state-file path LAZILY (at call time, not import time) so
- * tests can redirect it via PI_CODING_AGENT_DIR AFTER this module is imported
- * (the previous goal.ts module-level `const STATE_FILE` was import-time and
- * thus untestable). In production PI_CODING_AGENT_DIR is set before the process
- * starts and never changes, so call-time vs import-time is observably
- * identical — zero behavior change.
- */
-function stateFile(): string {
-	return join(
-		process.env.PI_CODING_AGENT_DIR ?? join(process.env.HOME ?? ".", ".pi", "agent"),
-		"pi-goal-state.json",
-	);
 }
 
 // ─── Session-store persistence ────────────────────────────────────────────────
@@ -64,13 +45,11 @@ export function persistGoal(api: GoalPersistenceApi | undefined, goal: ActiveGoa
 }
 
 /**
- * Null out the session-store entry (so a reload does not resurrect the goal)
- * AND drop the cwd key from the legacy JSON. Both are best-effort: a missing
- * api / missing legacy file are no-ops.
+ * Null out the session-store entry (so a reload does not resurrect the goal).
+ * Best-effort: a missing api is a no-op.
  */
-export function clearPersistedGoal(api: GoalPersistenceApi | undefined, cwd: string): void {
+export function clearPersistedGoal(api: GoalPersistenceApi | undefined): void {
 	api?.appendEntry(GOAL_STATE_ENTRY_TYPE, { goal: null });
-	clearLegacyPersistedGoal(cwd);
 }
 
 // ─── Goal recovery from the session store ────────────────────────────────────
@@ -94,30 +73,4 @@ export function loadGoalFromSession(sessionManager: unknown): ActiveGoal | undef
 		.pop();
 	const data = entry?.data as GoalStateEntryData | undefined;
 	return isGoal(data?.goal) && data.goal.status !== "complete" ? cloneGoal(data.goal) : undefined;
-}
-
-// ─── Legacy state file ────────────────────────────────────────────────────────
-// Pre-session-store persistence: a JSON map keyed by cwd. Retained for
-// continuity across restarts from older sessions; retired in Task 11.
-
-function readState(): Record<string, unknown> {
-	const file = stateFile();
-	if (!existsSync(file)) return {};
-	try {
-		const parsed = JSON.parse(readFileSync(file, "utf8")) as unknown;
-		return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-			? (parsed as Record<string, unknown>)
-			: {};
-	} catch {
-		return {};
-	}
-}
-
-export function clearLegacyPersistedGoal(cwd: string): void {
-	const file = stateFile();
-	if (!existsSync(file)) return;
-	const goals = readState();
-	delete goals[cwd];
-	mkdirSync(dirname(file), { recursive: true });
-	writeFileSync(file, `${JSON.stringify(goals, null, 2)}\n`);
 }
