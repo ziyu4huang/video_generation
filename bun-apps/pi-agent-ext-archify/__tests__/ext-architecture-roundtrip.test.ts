@@ -5,6 +5,10 @@ import { join } from "node:path";
 import { archifyRender } from "../lib/render.ts";
 import { inspectArtifact } from "../lib/inspect-artifact.ts";
 
+// E2E-gated: the manifest testGate runs `bun test --isolate` without this env var,
+// so this suite SKIPs in default CI and only fires when a human runs E2E locally.
+// The Task-1 ext-architecture-ir.test.ts guard (validate + closed-set edges) is the
+// unconditional rot-protector; this suite is the deeper real-render check.
 const E2E = process.env.PI_AGENT_E2E === "1";
 const describeMaybe = E2E ? describe : describe.skip;
 
@@ -18,16 +22,14 @@ afterAll(() => {
   }
 });
 
-const COMPONENT_LABELS = [
-  "Core Task", "Hermes Memory", "Superpowers", "Wayfind", "Web Access", "Obsidian",
-  "BTW", "File2MD", "Subagent", "Workflow", "Knowledge Card", "Power Tool",
-  "Tool Gate", "Flux2", "Krea2", "LTX", "Research Tool", "ZAI MCP",
-  "Movie Director", "Deploy", "Archify",
-];
-const LANE_LABELS = [
-  "Static — native import · in --exe binary",
-  "Dynamic — jiti -e · source/bundle only",
-];
+// Derive expected labels from the IR itself so this test cannot drift from the IR.
+// If a label changes in the IR, the expected set tracks it automatically.
+const _ir = JSON.parse(readFileSync(IR_PATH, "utf8")) as {
+  components: { label: string }[];
+  boundaries: { label: string }[];
+};
+const COMPONENT_LABELS = _ir.components.map((c) => c.label);
+const LANE_LABELS = _ir.boundaries.map((b) => b.label);
 
 describeMaybe("pi-agent extension architecture — render round-trip", () => {
   test("every component label and both lane labels render as <text>", async () => {
