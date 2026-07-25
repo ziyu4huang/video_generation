@@ -1,22 +1,38 @@
 #!/usr/bin/env bash
-# Resolve and ensure the working-tree directory SDD uses for its short-lived
-# artifacts: task briefs, implementer reports, review packages, and the
+# Resolve and ensure the directory SDD uses for its short-lived artifacts: task
+# briefs, implementer reports, review packages, and the compaction-recovery
 # progress ledger. Print the directory's absolute path.
-#
-# The workspace lives in the working tree (not under .git/) because Claude Code
-# treats .git/ as a protected path and denies agent writes there — which blocks
-# an implementer subagent from writing its report file. A self-ignoring
-# .gitignore keeps the workspace out of `git status` and out of accidental
-# commits without modifying any tracked file.
 #
 # Single source of truth for the workspace location, so task-brief and
 # review-package cannot drift to different directories.
 #
-# Usage: sdd-workspace
+# Effort-aware (pi port): when an effort slug is provided (arg $1 or
+# $PI_PLANNING_EFFORT), the workspace lives under the unified planning layout
+# $root/.planning/<effort>/sdd/ — converging every SDD artifact under the same
+# effort root as the spec/plan/tickets/map (no separate .superpowers/ tree).
+# briefs/reports/reviews there are COMMITTED per the repo .gitignore; only
+# progress.md is transient (ignored by name at the repo level).
+#
+# With NO effort, falls back to the upstream $root/.superpowers/sdd/ (with its
+# self-ignoring .gitignore) so the script stays backward-compatible for non-pi
+# / upstream-faithful use.
+#
+# Usage: sdd-workspace [effort]
+#        PI_PLANNING_EFFORT=<effort> sdd-workspace
 set -euo pipefail
 
 root=$(git rev-parse --show-toplevel)
-dir="$root/.superpowers/sdd"
-mkdir -p "$dir"
-printf '*\n' > "$dir/.gitignore"
+effort="${1:-${PI_PLANNING_EFFORT:-}}"
+
+if [ -n "$effort" ]; then
+  dir="$root/.planning/$effort/sdd"
+  mkdir -p "$dir"
+  # No blanket self-ignore under .planning/: the sdd audit trail is committed;
+  # only progress.md is transient and is ignored by name at the repo level.
+else
+  dir="$root/.superpowers/sdd"
+  mkdir -p "$dir"
+  printf '*\n' > "$dir/.gitignore"
+fi
+
 cd "$dir" && pwd
