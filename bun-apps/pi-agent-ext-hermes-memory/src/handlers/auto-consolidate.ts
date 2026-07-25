@@ -95,9 +95,13 @@ export async function triggerConsolidation(
   ].join("\n");
 
   try {
+    // llmThinkingOverride has no spawnSubagent equivalent — inert under the migration.
+    const modelOverride = llmConfig.llmModelOverride?.trim();
     const result = await spawn({
       task: prompt,
-      tier: "small",
+      // Honor llmModelOverride when set (keeps resolveConsolidatorModelLabel
+      // honest); otherwise fall back to the small tier.
+      ...(modelOverride ? { model: modelOverride } : { tier: "small" }),
       instructions:
         "You are a memory consolidator. Use ONLY the memory tool to merge/dedup entries as instructed. Do not read or modify any files.",
       tools: ["memory"],

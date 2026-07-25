@@ -220,9 +220,11 @@ export function setupCorrectionDetector(
       );
 
       if (!memoryToolDef) return;
+      // llmThinkingOverride has no spawnSubagent equivalent — inert under the migration.
+      const modelOverride = config.llmModelOverride?.trim();
       const result = await spawn({
         task: prompt.join("\n"),
-        tier: "small",
+        ...(modelOverride ? { model: modelOverride } : { tier: "small" }),
         instructions: "Use ONLY the memory tool to save the correction as instructed. Do not read or modify files.",
         tools: ["memory"],
         extensionTools: [memoryToolDef],

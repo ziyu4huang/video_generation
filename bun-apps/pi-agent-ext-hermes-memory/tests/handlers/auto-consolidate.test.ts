@@ -65,6 +65,39 @@ const mockStore = {
 // ─── Tests ───
 
 describe("triggerConsolidation", () => {
+  it("honors llmModelOverride by passing model (and no tier) to spawn", async () => {
+    const { spawn, calls } = createFakeSpawn();
+    await triggerConsolidation(
+      mockStore,
+      "memory",
+      memoryToolDef,
+      undefined,
+      60000,
+      "memory",
+      { llmModelOverride: "anthropic/claude-opus-4" },
+      spawn,
+    );
+
+    assert.strictEqual(calls.length, 1, "should call spawn once");
+    const opts = calls[0]!;
+    assert.strictEqual(opts.model, "anthropic/claude-opus-4", "should thread the override as model");
+    assert.strictEqual(opts.tier, undefined, "should NOT set tier when an override is present");
+    // Everything else stays byte-identical to the unset path.
+    assert.deepStrictEqual(opts.tools, ["memory"]);
+    assert.deepStrictEqual(opts.extensionTools, [memoryToolDef]);
+    assert.strictEqual(opts.retryOnTransient, true);
+  });
+
+  it("falls back to tier:'small' (and no model) when llmModelOverride is unset", async () => {
+    const { spawn, calls } = createFakeSpawn();
+    await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
+
+    assert.strictEqual(calls.length, 1);
+    const opts = calls[0]!;
+    assert.strictEqual(opts.tier, "small", "should run on the small tier");
+    assert.strictEqual(opts.model, undefined, "should NOT set model when no override is present");
+  });
+
   it("dispatches consolidation via spawnSubagent with the memory tool bridged in", async () => {
     const { spawn, calls } = createFakeSpawn();
     await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);

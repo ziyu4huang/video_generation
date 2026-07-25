@@ -239,6 +239,7 @@ describe("setupSessionFlush", () => {
     assert.equal(fake.calls.length, 1);
     const opts = fake.calls[0]!;
     assert.strictEqual(opts.tier, "small", "should run on the small tier");
+    assert.strictEqual(opts.model, undefined, "should NOT set model when no override is present");
     assert.deepStrictEqual(opts.tools, ["memory"], "should allowlist only the memory tool");
     assert.deepStrictEqual(opts.extensionTools, [memoryToolDef], "should bridge the parent memory tool def");
     assert.strictEqual(opts.retryOnTransient, false, "shutdown/flush path should not retry");
@@ -251,6 +252,27 @@ describe("setupSessionFlush", () => {
     assert.ok(task.includes("[ASSISTANT]"), "task should contain [ASSISTANT] prefix");
     assert.ok(task.includes("msg 0"), "task should contain conversation text");
     assert.match(opts.instructions ?? "", /save memories before context is lost/i);
+  });
+
+  it("honors llmModelOverride by passing model (and no tier) to spawn", async () => {
+    const config = defaultConfig({ llmModelOverride: "anthropic/claude-opus-4" });
+    setupSessionFlush(mockPi.pi, mockStore, null, config, memoryToolDef, fake.spawn);
+
+    await emitUserTurns(mockPi.handlers, 8);
+
+    const branch = mockBranch(4);
+    const ctx = { sessionManager: { getBranch: () => branch } };
+    await emit(mockPi.handlers, "session_before_compact", { signal: undefined }, ctx);
+
+    assert.equal(fake.calls.length, 1);
+    const opts = fake.calls[0]!;
+    assert.strictEqual(opts.model, "anthropic/claude-opus-4", "should thread the override as model");
+    assert.strictEqual(opts.tier, undefined, "should NOT set tier when an override is present");
+    // Everything else stays byte-identical to the unset path.
+    assert.deepStrictEqual(opts.tools, ["memory"]);
+    assert.deepStrictEqual(opts.extensionTools, [memoryToolDef]);
+    assert.strictEqual(opts.retryOnTransient, false);
+    assert.strictEqual(opts.timeoutMs, 30000);
   });
 
   it("shutdown flush uses the short 10s timeout", async () => {

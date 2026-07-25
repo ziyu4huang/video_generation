@@ -237,12 +237,7 @@ describe("setupBackgroundReview", () => {
     assert.ok(task.includes("existing memory entry"), "task should include current memory context");
   });
 
-  it("dispatches the fallback reviewer via spawn with memory-tool bridging (no CLI flags)", async () => {
-    // Replaces the old "passes child LLM override args" test: spawnSubagent
-    // resolves the model from `tier`, so the review no longer threads
-    // --model/--thinking CLI flags. llmModelOverride is now a no-op for this
-    // path (the consolidation reviewer is the only spawn that would honour it,
-    // and even there it is informational only).
+  it("honors llmModelOverride by passing model (and no tier) to spawn", async () => {
     const pi = createMockPi();
     setupWithSpawn(pi, {
       ...defaultConfig,
@@ -261,7 +256,33 @@ describe("setupBackgroundReview", () => {
 
     assert.strictEqual(spawnCalls.length, 1);
     const opts = spawnCalls[0]!;
+    // llmModelOverride threads through as `model`; tier is omitted so the
+    // runner uses the explicit model instead of a tier resolution.
+    assert.strictEqual(opts.model, "openrouter/deepseek/deepseek-v4-flash");
+    assert.strictEqual(opts.tier, undefined, "should NOT set tier when an override is present");
+    assert.deepStrictEqual(opts.tools, ["memory"]);
+    assert.deepStrictEqual(opts.extensionTools, [memoryToolDef]);
+    assert.strictEqual(opts.retryOnTransient, true);
+    // llmThinkingOverride has no spawnSubagent equivalent — it stays inert.
+  });
+
+  it("falls back to tier:'small' (and no model) when llmModelOverride is unset", async () => {
+    const pi = createMockPi();
+    setupWithSpawn(pi);
+
+    fireMessageEnd("user");
+    fireMessageEnd("user");
+    fireMessageEnd("user");
+
+    for (let i = 0; i < 10; i++) {
+      fireTurnEnd();
+    }
+    await settle();
+
+    assert.strictEqual(spawnCalls.length, 1);
+    const opts = spawnCalls[0]!;
     assert.strictEqual(opts.tier, "small");
+    assert.strictEqual(opts.model, undefined, "should NOT set model when no override is present");
     assert.deepStrictEqual(opts.tools, ["memory"]);
     assert.deepStrictEqual(opts.extensionTools, [memoryToolDef]);
     assert.strictEqual(opts.retryOnTransient, true);

@@ -90,9 +90,11 @@ async function runSubprocessReview(
   // directly to the parent store — same effect as the old -e subprocess. The
   // review prompt carries COMBINED_REVIEW_PROMPT (incl. the "Nothing to save."
   // convention that shouldNotifySubprocess reads) plus the conversation context.
+  // llmThinkingOverride has no spawnSubagent equivalent — inert under the migration.
+  const modelOverride = config.llmModelOverride?.trim();
   const result = await spawn({
     task: prompt,
-    tier: "small",
+    ...(modelOverride ? { model: modelOverride } : { tier: "small" }),
     instructions:
       "You are a memory reviewer. Use ONLY the memory tool to save notable facts as instructed. Do not read or modify files.",
     tools: ["memory"],

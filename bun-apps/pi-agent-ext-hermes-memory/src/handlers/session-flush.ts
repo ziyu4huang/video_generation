@@ -47,9 +47,11 @@ export function setupSessionFlush(
 
     try {
       if (!memoryToolDef) return;
+      // llmThinkingOverride has no spawnSubagent equivalent — inert under the migration.
+      const modelOverride = config.llmModelOverride?.trim();
       await spawn({
         task: flushMessage,
-        tier: "small",
+        ...(modelOverride ? { model: modelOverride } : { tier: "small" }),
         instructions: "Use ONLY the memory tool to save memories before context is lost. Do not read or modify files.",
         tools: ["memory"],
         extensionTools: [memoryToolDef],

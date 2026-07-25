@@ -368,12 +368,46 @@ describe("setupCorrectionDetector handler", () => {
     assert.strictEqual(spawnCalls.length, 1);
     const opts = spawnCalls[0]!;
     assert.strictEqual(opts.tier, "small", "should run on the small tier");
+    assert.strictEqual(opts.model, undefined, "should NOT set model when no override is present");
     assert.deepStrictEqual(opts.tools, ["memory"], "should allowlist only the memory tool");
     assert.deepStrictEqual(opts.extensionTools, [memoryToolDef], "should bridge the parent memory tool def");
     assert.strictEqual(opts.timeoutMs, 30000);
     assert.strictEqual(opts.retryOnTransient, true, "correction save should request a transient retry");
     assert.ok(opts.task?.includes("don't do that"), "task should include the correction conversation");
     assert.match(opts.instructions ?? "", /save the correction/i);
+  });
+
+  it("honors llmModelOverride by passing model (and no tier) to spawn", async () => {
+    const pi = createMockPi();
+    setupCorrectionDetector(
+      pi,
+      mockStore,
+      null,
+      { ...config, llmModelOverride: "anthropic/claude-opus-4" },
+      null,
+      undefined,
+      memoryToolDef,
+      makeSpawn(),
+    );
+
+    const branch = [
+      { type: "message", message: { role: "user", content: [{ type: "text", text: "don't do that" }] } },
+      { type: "message", message: { role: "assistant", content: [{ type: "text", text: "ok" }] } },
+    ];
+
+    fireMessageEnd("user", "don't do that");
+    fireTurnEnd(branch);
+    await settle();
+
+    assert.strictEqual(spawnCalls.length, 1);
+    const opts = spawnCalls[0]!;
+    assert.strictEqual(opts.model, "anthropic/claude-opus-4", "should thread the override as model");
+    assert.strictEqual(opts.tier, undefined, "should NOT set tier when an override is present");
+    // Everything else stays byte-identical to the unset path.
+    assert.deepStrictEqual(opts.tools, ["memory"]);
+    assert.deepStrictEqual(opts.extensionTools, [memoryToolDef]);
+    assert.strictEqual(opts.timeoutMs, 30000);
+    assert.strictEqual(opts.retryOnTransient, true);
   });
 
   it("does NOT trigger on normal messages", async () => {
