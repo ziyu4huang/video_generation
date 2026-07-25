@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { getSubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent/src/index.ts";
 import { applyHostFnRegistration, HostFnRegistry } from "../src/host-fn-registry.js";
 import {
   buildWorkflowGuidelinesForTurn,
@@ -21,7 +22,6 @@ import {
   shouldInjectFullWorkflowGuidelines,
   WorkflowManager,
 } from "../src/index.js";
-import { getSubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent/src/index.ts";
 import { installSubagentProgressWidget } from "../src/subagent-progress-widget.js";
 import { createSubagentsCommand } from "../src/subagents-command.js";
 
@@ -137,7 +137,9 @@ export default function extension(pi: ExtensionAPI) {
     // The `subagent` + `subagent_runs` tools are activated by pi-agent-ext-subagent's
     // own before_agent_start + session_start hooks (same pattern as below); workflow
     // no longer touches their activation.
-    const missing = [workflowTool.name, workflowHelpTool.name, workflowControlTool.name].filter((nm) => !active.includes(nm));
+    const missing = [workflowTool.name, workflowHelpTool.name, workflowControlTool.name].filter(
+      (nm) => !active.includes(nm),
+    );
     if (missing.length) {
       pi.setActiveTools([...active, ...missing]);
     }

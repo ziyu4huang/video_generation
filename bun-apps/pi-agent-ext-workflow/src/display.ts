@@ -1,6 +1,5 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import type { AgentHistoryEntry } from "@repo/pi-agent-ext-subagent";
-import type { WorkflowErrorCode } from "@repo/pi-agent-ext-subagent";
+import type { AgentHistoryEntry, WorkflowErrorCode } from "@repo/pi-agent-ext-subagent";
 import type { WorkflowMeta } from "./workflow.js";
 
 export type WorkflowAgentStatus = "queued" | "running" | "done" | "error" | "skipped";
