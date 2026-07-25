@@ -52,29 +52,50 @@ interface FieldSchema {
 }
 
 /**
+ * Order an object's properties for display: ALL required fields first (in their
+ * original schema order), then optional fields capped at `optionalCap`. Required
+ * fields are never dropped — a real run showed a naive `.slice(0, 12)` over raw
+ * declaration order silently truncating proposal_packet's concept_options item
+ * (15 properties) right before its required `why_this_works`, purely because of
+ * where that field happened to sit in the schema, with no signal to the model
+ * that it was ever asked for.
+ */
+function orderedEntries(properties: Record<string, FieldSchema>, required: Set<string>, optionalCap = 12): [string, FieldSchema][] {
+	const entries = Object.entries(properties);
+	const requiredEntries = entries.filter(([k]) => required.has(k));
+	const optionalEntries = entries.filter(([k]) => !required.has(k)).slice(0, optionalCap);
+	return [...requiredEntries, ...optionalEntries];
+}
+
+/**
  * Describe one field for the prompt spec: `name`, `name*` if required within its
  * parent object, `name=one of a|b|c` for an enum, `name=array of {sub, fields}`
  * for an array of objects (recursing into the item's OWN required sub-fields, up
  * to `depth` levels), `name=array of <primitive>` for an array of scalars, or
- * `name (object: sub, fields)` for a plain nested object. Bare name/type otherwise.
+ * `name (object: sub, fields)` for a plain nested object. `name (type)` for a
+ * bare scalar (so the model knows e.g. a budget field must be a number, not text).
  *
  * Recursion (not just one level) matters: research_brief's `landscape.existing_content`
  * is object → array → item, three levels deep. A real run showed the model
  * omitting `existing_content[].{source,angle,what_it_covers}` identically across
  * every retry, because only "existing_content" (the array's own name) was ever
  * visible in the spec — the item's required sub-fields were never surfaced.
- * `depth` caps runaway prompt length on deeply/self-nested schemas elsewhere.
+ * A separate real run needed FOUR levels (proposal_packet's production_plan ->
+ * stages -> tools -> {tool_name,role,available}) — one deeper than the default
+ * budget reached, so `tools` surfaced as a bare "array of object" and the model
+ * omitted its required sub-fields on every attempt. `depth` still caps runaway
+ * prompt length on deeply/self-nested schemas elsewhere; bundled schemas measured
+ * up to 6 levels, but only required chains need full depth, so the cap is set
+ * generously (6) rather than tuned to one observed case.
  */
-function describeField(name: string, field: FieldSchema | undefined, required: boolean, depth = 2): string {
+function describeField(name: string, field: FieldSchema | undefined, required: boolean, depth = 6): string {
 	const mark = required ? "*" : "";
 	if (!field) return `${name}${mark}`;
 	if (field.const !== undefined) return `${name}${mark}=must be exactly ${JSON.stringify(field.const)}`;
 	if (Array.isArray(field.enum)) return `${name}${mark}=one of ${(field.enum as string[]).slice(0, 6).join("|")}`;
 	if (field.type === "object" && field.properties && depth > 0) {
 		const objRequired = new Set(field.required ?? []);
-		const fields = Object.entries(field.properties)
-			.slice(0, 12)
-			.map(([fk, fv]) => describeField(fk, fv, objRequired.has(fk), depth - 1));
+		const fields = orderedEntries(field.properties, objRequired).map(([fk, fv]) => describeField(fk, fv, objRequired.has(fk), depth - 1));
 		return `${name}${mark} (object: ${fields.join(", ")})`;
 	}
 	if (field.type === "array") {
@@ -83,13 +104,12 @@ function describeField(name: string, field: FieldSchema | undefined, required: b
 		const itemProps = field.items?.properties;
 		if (itemType === "object" && itemProps && depth > 0) {
 			const itemRequired = new Set(field.items?.required ?? []);
-			const fields = Object.entries(itemProps)
-				.slice(0, 12)
-				.map(([fk, fv]) => describeField(fk, fv, itemRequired.has(fk), depth - 1));
+			const fields = orderedEntries(itemProps, itemRequired).map(([fk, fv]) => describeField(fk, fv, itemRequired.has(fk), depth - 1));
 			return `${name}${mark}=array${min} of {${fields.join(", ")}}`;
 		}
 		return `${name}${mark}=array${min} of ${itemType}`;
 	}
+	if (field.type && field.type !== "object" && field.type !== "array") return `${name}${mark} (${field.type})`;
 	return `${name}${mark}`;
 }
 
