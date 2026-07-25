@@ -202,7 +202,7 @@ export const COMMAND_REFERENCE = [
   "                        advisory warn/fail against natural-speech bounds) — check it BEFORE locking total_duration_seconds",
   "                        and generating TTS, not after.",
   "  • evaluate-lipsync — {videoPath, seed?, promptSummary?, identityRef?, voice?} → runs",
-  "                        `python -m app.lipsync_metrics` on an already-produced talking-head video and returns",
+  "                        the Swift `ltx-video lipsync-metrics` binary (no Python) on an already-produced talking-head video and returns",
   "                        {metrics:{verdict, pearson_r, mouth_ratio_std, caveat?, note?}, lesson:{target, category,",
   "                        content, reason?}}. Decoupled from how the video was made (native-i2v + `run.py video",
   "                        lipdub` today — neither is wired into `generate` as a provider). Call this right after",
