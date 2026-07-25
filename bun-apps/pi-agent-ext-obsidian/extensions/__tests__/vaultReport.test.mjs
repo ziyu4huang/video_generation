@@ -25,7 +25,8 @@ describe("summarizeVault (D2)", () => {
 		// Alpha->Beta, Beta->Alpha, Delta->Nonexistent
 		expect(r.stats.edgeCount).toBe(3);
 		expect(r.stats.tagCount).toBe(3); // alpha, beta, shared
-		expect(r.stats.orphans).toBe(1); // Gamma
+		expect(r.stats.orphans).toBe(r.orphans.length); // count must match the orphan list (B2.2: no-inbound)
+		expect(r.orphans.length).toBe(2); // c.md + d.md: neither has any inbound links
 		expect(r.stats.deadLinks).toBe(1); // Delta->Nonexistent
 	});
 
@@ -39,6 +40,7 @@ describe("summarizeVault (D2)", () => {
 	it("detects orphan Gamma", async () => {
 		const r = summarizeVault(await getIndex(vault));
 		expect(r.orphans.map((o) => o.path)).toContain("c.md");
+		expect(r.orphans.map((o) => o.path)).toContain("d.md"); // Delta has no inbound links -> orphan too (B2.2)
 		expect(r.orphans.map((o) => o.path)).not.toContain("a.md");
 		// GraphResult carries the title in `text`; summarizeVault must surface it as
 		// the report's `title` (was undefined before the r.title -> r.text fix).

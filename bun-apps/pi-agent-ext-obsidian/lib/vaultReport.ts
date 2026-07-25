@@ -80,7 +80,7 @@ export function summarizeVault(idx: VaultIndex, topTags = 10): VaultReport {
 		noteCount: g.nodes.length,
 		edgeCount: g.edges.length,
 		tagCount: idx.byTag.size,
-		orphans: g.stats.orphans,
+		orphans: orphans.length, // = graphOrphans list (B2.2: no-inbound), NOT toGraphJSON's fully-isolated count
 		deadLinks: deadLinks.length,
 		folders: folderCounts,
 	};
@@ -107,7 +107,7 @@ export function renderReportMD(report: VaultReport): string {
 	lines.push(`- 連結數：**${s.edgeCount}**`);
 	lines.push(`- 標籤數：**${s.tagCount}**`);
 	lines.push(`- 資料夾數：**${s.folders.length}**`);
-	lines.push(`- 孤立筆記（無入/出連結）：**${s.orphans}**`);
+	lines.push(`- 孤立筆記（無入連結）：**${s.orphans}**`);
 	lines.push(`- 失效連結：**${s.deadLinks}**`);
 	lines.push("");
 
