@@ -29,6 +29,20 @@ export type { ActiveGoal, GoalStatus };
 
 // ─── Goal-specific types ──────────────────────────────────────────────────────
 
+/**
+ * Options that enable + configure the opt-in completion auditor on a goal.
+ * Optional 4th param to createGoal: absent → no audit (current pre-T04
+ * behavior). The auditor reads auditEnabled/auditorModel/verificationContract
+ * off the resulting ActiveGoal. auditHistory/auditAttempts are deliberately
+ * NOT part of this options object — they accumulate during auditing and are
+ * only ever seeded undefined at creation.
+ */
+export interface GoalAuditOptions {
+	auditEnabled?: boolean;
+	auditorModel?: string;
+	verificationContract?: string;
+}
+
 export interface GoalCompleteDetails {
 	goal: string;
 	summary: string;
@@ -54,7 +68,12 @@ export interface GoalStateEntryData {
 
 // ─── Pure status-machine functions ────────────────────────────────────────────
 
-export function createGoal(text: string, tokenBudget: number | undefined, baselineTokens: number): ActiveGoal {
+export function createGoal(
+	text: string,
+	tokenBudget: number | undefined,
+	baselineTokens: number,
+	audit?: GoalAuditOptions,
+): ActiveGoal {
 	const now = Date.now();
 	return {
 		id: randomUUID(),
@@ -67,6 +86,9 @@ export function createGoal(text: string, tokenBudget: number | undefined, baseli
 		tokensUsed: 0,
 		timeUsedSeconds: 0,
 		baselineTokens,
+		auditEnabled: audit?.auditEnabled,
+		auditorModel: audit?.auditorModel,
+		verificationContract: audit?.verificationContract,
 	};
 }
 

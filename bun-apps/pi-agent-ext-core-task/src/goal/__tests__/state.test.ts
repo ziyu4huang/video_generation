@@ -4,7 +4,7 @@
  * status-machine functions; it must have ZERO @earendil-works/* imports
  * (only "crypto" + local ../format.js). These tests pin the pure behavior.
  */
-import { test, expect } from "bun:test";
+import { test, describe, expect } from "bun:test";
 import {
 	createGoal,
 	transitionGoal,
@@ -159,4 +159,29 @@ test("__resetGoalState clears every runtime-state field back to its initial valu
 	// Release the real timers we allocated (reset orphaned them on purpose).
 	clearInterval(fakeStatusTimer);
 	clearInterval(fakeHeartbeatTimer);
+});
+
+// ─── T04 opt-in auditor: createGoal pass-through (Task 2) ─────────────────────
+// Absent audit options = current behavior: every audit field undefined, so a
+// non-audited goal is indistinguishable from a pre-T04 goal. Present options
+// land verbatim onto the goal (the auditor reads them later). auditHistory /
+// auditAttempts are never seeded at creation — they accumulate during auditing.
+describe("createGoal audit options", () => {
+	test("defaults: audit disabled, no contract, undefined history/attempts", () => {
+		const g = createGoal("ship feature X", undefined, 100);
+		expect(g.auditEnabled).toBeUndefined();
+		expect(g.verificationContract).toBeUndefined();
+		expect(g.auditAttempts).toBeUndefined();
+		expect(g.auditHistory).toBeUndefined();
+	});
+	test("audit options are passed through onto the goal", () => {
+		const g = createGoal("ship feature X", undefined, 100, {
+			auditEnabled: true,
+			auditorModel: "anthropic/claude-sonnet-4",
+			verificationContract: "tests green\nno regressions",
+		});
+		expect(g.auditEnabled).toBe(true);
+		expect(g.auditorModel).toBe("anthropic/claude-sonnet-4");
+		expect(g.verificationContract).toBe("tests green\nno regressions");
+	});
 });
