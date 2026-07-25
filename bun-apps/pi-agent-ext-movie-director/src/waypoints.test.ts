@@ -126,6 +126,30 @@ describe("clean-to-schema wiring (produceAndValidate)", () => {
 	});
 });
 
+describe("markdown-fenced JSON output (produceAndValidate)", () => {
+	test("output wrapped in a ```json fence is still parsed and validated (deepseek-v4-flash behavior)", async () => {
+		const fenced = "```json\n" + JSON.stringify({ data_points: [1, 2, 3] }, null, 2) + "\n```";
+		const { completionFn, calls } = makeCompletion([fenced]);
+		const artifact = await runCompletionWaypoint("proposal", { topic: "x" }, { completionFn, validateFn: VALIDATE_OK }, 1);
+		expect(artifact).toEqual({ data_points: [1, 2, 3] });
+		expect(calls).toHaveLength(1); // no retry burned on the fence alone
+	});
+
+	test("output wrapped in a bare ``` fence (no language tag) is also parsed", async () => {
+		const fenced = "```\n" + JSON.stringify({ data_points: [1, 2, 3] }) + "\n```";
+		const { completionFn } = makeCompletion([fenced]);
+		const artifact = await runCompletionWaypoint("proposal", { topic: "x" }, { completionFn, validateFn: VALIDATE_OK }, 1);
+		expect(artifact).toEqual({ data_points: [1, 2, 3] });
+	});
+
+	test("exhausted-retries error includes the last attempt's feedback, not just the bare count", async () => {
+		const { completionFn } = makeCompletion(["not json at all", "still not json"]);
+		await expect(
+			runCompletionWaypoint("proposal", { topic: "x" }, { completionFn, validateFn: VALIDATE_OK }, 2),
+		).rejects.toThrow(/exhausted 2 retries\. Last attempt: Previous output was not valid JSON/);
+	});
+});
+
 describe("pickProducer", () => {
 	test("maps each stage to its producer type", () => {
 		expect(pickProducer("research")).toBe("agent");

@@ -23,11 +23,14 @@ function makeFakeWorld() {
 			return { ok: true, text: JSON.stringify({ recorded: true, stage: opts.stage }) };
 		}
 		if (command === "read-checkpoint") {
-			const completed = [...checkpoints.entries()]
-				.filter(([k]) => k.startsWith(`${opts.projectId}:`))
-				.filter(([, v]) => v.status === "completed")
-				.map(([k]) => k.split(":")[1]!);
-			return { ok: true, text: JSON.stringify({ checkpoint: null, completedStages: completed }) };
+			const forProject = [...checkpoints.entries()].filter(([k]) => k.startsWith(`${opts.projectId}:`));
+			const completed = forProject.filter(([, v]) => v.status === "completed").map(([k]) => k.split(":")[1]!);
+			let checkpoint: Record<string, unknown> | null = null;
+			if (opts.stage) {
+				const cp = checkpoints.get(`${opts.projectId}:${opts.stage}`);
+				checkpoint = cp ? { stage: cp.stage, status: cp.status, artifacts: cp.artifacts ?? {} } : null;
+			}
+			return { ok: true, text: JSON.stringify({ checkpoint, completedStages: completed }) };
 		}
 		if (command === "validate-artifact") {
 			return { ok: true, text: JSON.stringify({ valid: true }) };
@@ -134,6 +137,41 @@ describe("runPipeline — resume", () => {
 		const writes = world.calls.filter((c) => c.command === "write-checkpoint" && c.opts.status === "completed");
 		const secondRunStages = writes.map((w) => w.opts.stage).filter((s) => ["scene_plan", "assets", "edit", "compose", "publish"].includes(s as string));
 		expect(secondRunStages).toEqual(["scene_plan", "assets", "edit", "compose", "publish"]);
+	});
+});
+
+describe("runPipeline — resume reloads prior artifacts", () => {
+	test("resume merges completed stages' checkpointed artifacts into producer inputs", async () => {
+		const world = makeFakeWorld();
+		const { produce: produce1 } = makeProduce(STAGES);
+		// first run pauses at script (requireHumanApproval) — research/proposal complete
+		// in THIS process, so their artifacts flow via the in-memory inputArtifacts map.
+		await runPipeline(
+			{ projectId: "demo", topic: "x", pipeline: "animated-explainer", requireHumanApproval: ["script"] },
+			{ dispatchFn: world.dispatchFn, produce: produce1 },
+		);
+		world.checkpoints.get("demo:script")!.status = "completed";
+
+		// Second run is a FRESH runPipeline() call — simulating a new process with no
+		// carried-over in-memory state (only the on-disk checkpoints survive). Regression:
+		// the driver only reloaded completed stages' NAMES on resume, never their artifact
+		// CONTENT, so producers downstream of the resume point silently ran with empty
+		// inputs — caught for real when the `assets` stage's producer hard-fails with
+		// "missing scene_plan input" on a resumed run.
+		const seenInputs: Record<string, unknown>[] = [];
+		const produce2: DriverDeps["produce"] = async (stage, inputs) => {
+			seenInputs.push({ stage, ...inputs });
+			return { [`${stage}_artifact`]: { stage, ok: true } };
+		};
+		const res = await runPipeline({ projectId: "demo", pipeline: "animated-explainer" }, { dispatchFn: world.dispatchFn, produce: produce2 });
+		expect((res as Extract<DriverResult, { status: "completed" }>).status).toBe("completed");
+
+		// scene_plan is the first stage produced in THIS process — it must still see
+		// research/proposal/script artifacts even though this process never produced them.
+		const sceneInputs = seenInputs.find((c) => c.stage === "scene_plan")!;
+		expect(sceneInputs.research_artifact).toBeTruthy();
+		expect(sceneInputs.proposal_artifact).toBeTruthy();
+		expect(sceneInputs.script_artifact).toBeTruthy();
 	});
 });
 

@@ -179,8 +179,10 @@ async function startGoalForTest(overrides: Record<string, unknown> = {}) {
 
 describe("status refresh timer", () => {
 	test("active goal overlay ticks its elapsed-time metric on a 1s interval and stops on pause", async () => {
-		let tick: (() => void) | undefined;
-		let intervalMs = 0;
+		// Task 10 added a second interval (the 15s heartbeat watchdog) alongside
+		// this 1s status ticker, so capture ALL registered intervals and select the
+		// 1s one explicitly rather than assuming a single setInterval call.
+		const intervals: Array<{ fn: () => void; ms: number }> = [];
 		let timerHandle = 0;
 		let clearCalls = 0;
 		const realSetInterval = globalThis.setInterval;
@@ -189,8 +191,7 @@ describe("status refresh timer", () => {
 		const startedAt = 1_700_000_000_000;
 		Date.now = (() => startedAt) as never;
 		globalThis.setInterval = ((fn: () => void, ms: number) => {
-			tick = fn;
-			intervalMs = ms;
+			intervals.push({ fn, ms });
 			timerHandle += 1;
 			return timerHandle as never;
 		}) as never;
@@ -216,7 +217,8 @@ describe("status refresh timer", () => {
 			await mock.events.get("session_start")![0]!({}, ctx);
 			await mock.commands.get("goal")!.handler("finish", ctx);
 
-			expect(intervalMs).toBe(1_000);
+			expect(intervals.some((i) => i.ms === 1_000)).toBe(true);
+			const tick = intervals.find((i) => i.ms === 1_000)!.fn;
 			expect(currentGoal?.status).toBe("active");
 			expect(currentGoal?.timeUsedSeconds).toBe(0);
 
@@ -258,6 +260,7 @@ describe("registration", () => {
 			"session_shutdown",
 			"session_start",
 			"tool_call",
+			"tool_execution_end",
 		];
 		const registered = [...mock.events.keys()].sort();
 		expect(registered).toEqual(expectedHooks.sort());
@@ -406,7 +409,7 @@ describe("buildGoalSystemPrompt", () => {
 			tokensUsed: 250,
 			timeUsedSeconds: 0,
 			baselineTokens: 0,
-		});
+		}, "");
 
 		expect(prompt).toMatch(/fix &lt;all&gt; &amp; verify/);
 		expect(prompt).toMatch(/Respect the goal token budget \(250\/1k used\)/);
@@ -1028,7 +1031,7 @@ describe("frozen session entry data", () => {
 	// The pi runtime may freeze/canonicalize custom entry data. The goal loader
 	// must return a mutable copy; otherwise updateGoalUsage(activeGoal) throws
 	// "Attempted to assign to readonly property" on the live reference.
-	test("loadGoalFromSession returns a mutable copy (no readonly crash on /goal status)", async () => {
+	test("loadGoalStateFromSession returns a mutable copy (no readonly crash on /goal status)", async () => {
 		const frozenGoal = Object.freeze({
 			id: "frozen-1",
 			text: "persisted goal",
@@ -1282,7 +1285,7 @@ describe("planProgressLineFromPeer + buildGoalSystemPrompt (fusion)", () => {
 				tokensUsed: 0,
 				timeUsedSeconds: 0,
 				baselineTokens: 0,
-			});
+			}, planProgressLineFromPeer());
 			// The displaced roadmap is surfaced so a goal-driven agent keeps plan visibility.
 			expect(prompt).toMatch(/Active plan progress: 0\/1 phases/);
 			expect(prompt).toMatch(/roadmap, not a stopping point/);

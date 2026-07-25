@@ -32,7 +32,11 @@ export function vaultAvailable(): boolean {
 	}
 }
 
-export const SKIP_REASON = `vaults_root/pi-agent-vault submodule not initialized — run \`${VAULT_SYNC_CMD}\``;
+export const SKIP_REASON = [
+	"vaults_root/pi-agent-vault submodule not initialized.",
+	`  Fix: \`${VAULT_SYNC_CMD}\``,
+	"  Submodule-free contract guard: `bun run regen:contract` (runs against fixtures/frozen-vault/).",
+].join("\n");
 
 /**
  * Detect submodule POINTER drift and return a one-line, copy-pasteable fix.

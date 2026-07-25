@@ -23,6 +23,19 @@ export {
   parseAgentDefinition,
   resolveAgentType,
 } from "./agent-registry.js";
+// agent-row-display (shared TUI row rendering — consumed by the /subagents viewer,
+// the below-editor progress widget, and re-imported by pi-agent-ext-workflow)
+export type { ActivityRow, ActivityStatus, ThemeLike } from "./agent-row-display.js";
+export {
+  activityGlyph,
+  fmtCost,
+  fmtTokensShort,
+  NO_THEME,
+  preview,
+  renderActivityRow,
+  shorten,
+  shortModel,
+} from "./agent-row-display.js";
 // config (split) + home
 export { AGENTS_DIR, MODEL_TIERS_FILE } from "./config.js";
 // errors
@@ -79,7 +92,7 @@ export type { SubagentRunsToolOptions } from "./subagent-runs-tool.js";
 export { createSubagentRunsTool } from "./subagent-runs-tool.js";
 // subagent-tool
 export type { SubagentToolDetails, SubagentToolOptions } from "./subagent-tool.js";
-export { createSubagentTool } from "./subagent-tool.js";
+export { createSubagentTool, formatHistoryLine } from "./subagent-tool.js";
 // worktree
 export type { Worktree } from "./worktree.js";
 export { createWorktree, removeWorktree } from "./worktree.js";

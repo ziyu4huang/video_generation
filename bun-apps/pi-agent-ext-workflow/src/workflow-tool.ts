@@ -1,9 +1,14 @@
 import { existsSync } from "node:fs";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import {
+  listAgentTypes,
+  listAvailableModelSpecs,
+  loadAgentRegistry,
+  WorkflowError,
+  WorkflowErrorCode,
+} from "@repo/pi-agent-ext-subagent";
 import { Type } from "typebox";
-import { listAvailableModelSpecs } from "@repo/pi-agent-ext-subagent";
-import { listAgentTypes, loadAgentRegistry } from "@repo/pi-agent-ext-subagent";
 import {
   createToolUpdateWorkflowDisplay,
   createWorkflowSnapshot,
@@ -11,7 +16,6 @@ import {
   renderWorkflowText,
   type WorkflowSnapshot,
 } from "./display.js";
-import { WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-subagent";
 import { resolvePackRunContext } from "./pack-run-context.js";
 import { parseWorkflowScript, type WorkflowRunResult } from "./workflow.js";
 import { WorkflowManager } from "./workflow-manager.js";

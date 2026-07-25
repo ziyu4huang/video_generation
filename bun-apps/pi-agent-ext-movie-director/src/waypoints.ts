@@ -26,6 +26,19 @@ const SCHEMA_FOR: Record<string, string> = {
 /** Toolset granted to the research agent (the only tool-bearing waypoint). */
 export const RESEARCH_TOOLSET = ["web_search", "fetch_content"];
 
+/**
+ * Some models wrap "RAW JSON only" output in a markdown code fence despite the
+ * system prompt saying not to (observed with deepseek-v4-flash on the research
+ * waypoint — every attempt failed JSON.parse and burned a retry on this alone).
+ * Strip a single leading/trailing ``` or ```json fence before parsing; leaves
+ * genuinely fence-free output untouched.
+ */
+function stripMarkdownFence(raw: string): string {
+	const trimmed = raw.trim();
+	const match = trimmed.match(/^```(?:json)?\s*\n([\s\S]*?)\n```$/);
+	return match ? match[1]! : trimmed;
+}
+
 export interface WaypointDeps {
 	/** Required by runCompletionWaypoint; unused by runAgentWaypoint. */
 	completionFn?: (system: string, user: string, model?: string) => Promise<string>;
@@ -91,13 +104,18 @@ async function produceAndValidate(
 	const spec = deps.schemaSpec?.(name);
 	const schemaObj = deps.schemaFor?.(name);
 	for (let attempt = 1; attempt <= maxRetries; attempt++) {
+		// Heartbeat to stderr: a bounded pi sub-session (real model + web search for
+		// research) can run for minutes with zero output otherwise — this is the only
+		// signal that distinguishes "still working" from "hung" while it's in flight.
+		console.error(`[waypoint] stage=${stage} inner-attempt=${attempt}/${maxRetries} start ${new Date().toISOString()}`);
 		const { system, user } = buildPrompt(stage, inputs, { feedback, schemaSpec: spec });
 		const raw = await produceFn(system, user);
 		let parsed: unknown;
 		try {
-			parsed = JSON.parse(raw);
+			parsed = JSON.parse(stripMarkdownFence(raw));
 		} catch {
 			feedback = "Previous output was not valid JSON. Return ONLY a JSON object.";
+			console.error(`[waypoint] stage=${stage} inner-attempt=${attempt}/${maxRetries} result=parse-failed ${new Date().toISOString()}`);
 			continue;
 		}
 		// Safety net: deterministically shape the parsed output to the schema
@@ -106,9 +124,16 @@ async function produceAndValidate(
 		// retry. No-op when schemaFor is absent (the parsed object is untouched).
 		if (schemaObj) parsed = cleanToSchema(schemaObj, parsed);
 		const res = await validate(name, parsed);
-		if (res.valid) return parsed as Record<string, unknown>;
-		feedback = `Previous attempt failed validation: ${res.errors ?? "invalid"}. Fix these errors and return valid JSON.`;	}
-	throw new WaypointExhaustedError(`${stage} waypoint exhausted ${maxRetries} retries`);
+		if (res.valid) {
+			console.error(`[waypoint] stage=${stage} inner-attempt=${attempt}/${maxRetries} result=valid ${new Date().toISOString()}`);
+			return parsed as Record<string, unknown>;
+		}
+		feedback = `Previous attempt failed validation: ${res.errors ?? "invalid"}. Fix these errors and return valid JSON.`;
+		console.error(`[waypoint] stage=${stage} inner-attempt=${attempt}/${maxRetries} result=validation-failed ${new Date().toISOString()}: ${res.errors ?? "invalid"}`);
+	}
+	throw new WaypointExhaustedError(
+		`${stage} waypoint exhausted ${maxRetries} retries` + (feedback ? `. Last attempt: ${feedback}` : ""),
+	);
 }
 
 /** Single in-process completion → one schema-valid artifact (proposal/script/scene_plan/edit). */
@@ -128,7 +153,10 @@ export async function runAgentWaypoint(
 	stage: string,
 	inputs: Record<string, unknown>,
 	deps: WaypointDeps,
-	maxRetries = 2,
+	// research_brief is the deepest-nested artifact schema of any waypoint (3 levels:
+	// object → array → item), and real runs showed repeated near-misses (one field short)
+	// right at the 2nd of 2 attempts — bumped to match runCompletionWaypoint's default.
+	maxRetries = 3,
 ): Promise<Record<string, unknown>> {
 	if (!deps.agentFn) throw new Error("runAgentWaypoint requires deps.agentFn");
 	const agentFn = deps.agentFn;

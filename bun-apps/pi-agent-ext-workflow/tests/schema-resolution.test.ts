@@ -1,15 +1,15 @@
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
-import { Type } from "typebox";
+import type { StructuredOutputCapture } from "@repo/pi-agent-ext-subagent";
 import {
   extractValidated,
   lastAssistantError,
   resolveStructuredOutput,
   type StructuredSession,
   throwIfProviderLimit,
+  WorkflowErrorCode,
 } from "@repo/pi-agent-ext-subagent";
-import { WorkflowErrorCode } from "@repo/pi-agent-ext-subagent";
-import type { StructuredOutputCapture } from "@repo/pi-agent-ext-subagent";
+import { Type } from "typebox";
 
 const Schema = Type.Object({ word: Type.String() });
 

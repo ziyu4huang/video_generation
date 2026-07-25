@@ -13,17 +13,6 @@ what remains by design or for later. Date-stamped; verified state noted.
   filter too — the candidate set is intersected with the folder by prefix, no
   `listNotes` readdir (a second `listNotes` bottleneck found in self-review;
   see `docs/VALIDATION-C5C6.md`). *(2026-07)*
-- **`moveNote` / `deleteNote` rewrite inbound links with sequential `await`s per
-  source.** The sources are independent — they could be `Promise.all`'d for the
-  read + write passes. Not hot for typical vaults. *(deferred)*
-
-## Platform
-
-- **`renameOverwrite` is not atomic-overwrite on Windows.** `fs.rename` only
-  special-cases `EXDEV`; on win32 renaming onto an existing target throws
-  `EPERM`/`EEXIST`, so in-place edits (append / frontmatter update /
-  move-with-overwrite) fail on Windows. Fix would be unlink-then-rename or a
-  `cp({force:true})` fallback on those codes. Not hit on macOS/Linux. *(open)*
 
 ## Configuration / operational
 
@@ -66,6 +55,11 @@ what remains by design or for later. Date-stamped; verified state noted.
 
 These were listed as TODOs previously and are now done (kept so the README stays
 short; detail in `ENHANCEMENT-PRD.md`):
+- `renameOverwrite` handles win32 `EPERM`/`EEXIST` via unlink+retry (and `EXDEV`
+  via copy+delete); covered by `extensions/__tests__/renameOverwrite.test.ts`
+  (Phase 2.1, 2026-07).
+- `moveNote` / `deleteNote` parallelize inbound-link rewrites with `Promise.all`
+  (Phase 2.2, 2026-07).
 - `findBacklinks` reuses `VaultIndex.reverseAdjacency` (C1).
 - `graphNeighbors` memoizes undirected adjacency on `VaultIndex.rev` (C2).
 - `runSubagent` refactored off the `new Promise(async …)` antipattern (B5).

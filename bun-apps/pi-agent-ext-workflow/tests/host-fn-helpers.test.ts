@@ -1,7 +1,7 @@
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
-import { Type } from "typebox";
 import { WorkflowErrorCode } from "@repo/pi-agent-ext-subagent";
+import { Type } from "typebox";
 import { canonicalJSON, hashHostCall, runHostFnWithTimeout } from "../src/host-fn-helpers.js";
 import type { HostFnCtx } from "../src/host-fn-registry.js";
 

@@ -48,7 +48,7 @@ import {
   ApprovalRequiredError,
 } from "./cost.ts";
 import { recordDecision, getDecisionLog } from "./decision-log.ts";
-import { runPyLipsync, type RunPyLipsyncInput, type RunPyLipsyncOutput } from "./runpy_lipsync.ts";
+import { runPyLipsync, type RunPyLipsyncInput, type RunPyLipsyncOutput } from "./lipsync_metrics.ts";
 import { buildLipsyncLesson } from "./lipsync-lesson.ts";
 import { selectProvider, NoConfiguredProviderError } from "./selector.ts";
 import { selectAndGenerate } from "./bridge.ts";
@@ -202,7 +202,7 @@ export const COMMAND_REFERENCE = [
   "                        advisory warn/fail against natural-speech bounds) — check it BEFORE locking total_duration_seconds",
   "                        and generating TTS, not after.",
   "  • evaluate-lipsync — {videoPath, seed?, promptSummary?, identityRef?, voice?} → runs",
-  "                        `python -m app.lipsync_metrics` on an already-produced talking-head video and returns",
+  "                        the Swift `ltx-video lipsync-metrics` binary (no Python) on an already-produced talking-head video and returns",
   "                        {metrics:{verdict, pearson_r, mouth_ratio_std, caveat?, note?}, lesson:{target, category,",
   "                        content, reason?}}. Decoupled from how the video was made (native-i2v + `run.py video",
   "                        lipdub` today — neither is wired into `generate` as a provider). Call this right after",
@@ -604,7 +604,7 @@ export async function dispatch(command: Command, opts: Record<string, unknown>, 
         const runLipsync = deps?.runPyLipsyncImpl ?? runPyLipsync;
         const evaluated = await runLipsync({ videoPath });
         if (!evaluated.ok || !evaluated.metrics) {
-          const baseError = evaluated.error ?? "evaluate-lipsync: lipsync_metrics failed";
+          const baseError = evaluated.error ?? "evaluate-lipsync: lipsync-metrics failed";
           const errorWithTail = evaluated.stderrTail ? `${baseError}\n${evaluated.stderrTail}`.trim() : baseError;
           return { ok: false, error: errorWithTail };
         }

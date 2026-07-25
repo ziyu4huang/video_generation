@@ -43,6 +43,7 @@ describe("subagent extension — tool registration", () => {
     // captures lifecycle handlers so we can fire session_start / before_agent_start
     // and assert the extension force-activates its tools (Task 4 review fix).
     const registered: ToolDefinition[] = [];
+    const registeredCommands: string[] = [];
     const setActiveToolsCalls: string[][] = [];
     let active: string[] = ["always_on_tool"];
     const handlers: Record<string, ((...args: unknown[]) => void) | undefined> = {};
@@ -50,6 +51,9 @@ describe("subagent extension — tool registration", () => {
       registerTool: (t: ToolDefinition) => {
         registered.push(t);
       },
+      registerCommand: ((name: string) => {
+        registeredCommands.push(name);
+      }) as never,
       getActiveTools: () => active,
       setActiveTools: (tools: string[]) => {
         setActiveToolsCalls.push([...tools]);
@@ -88,6 +92,12 @@ describe("subagent extension — tool registration", () => {
     assert.ok(
       active.includes("subagent_runs"),
       `expected 'subagent_runs' in active set; got: ${JSON.stringify(active)}`,
+    );
+
+    // The /subagents command registration moved here with the viewer (self-contained).
+    assert.ok(
+      registeredCommands.includes("subagents"),
+      `expected '/subagents' command registered; got: ${JSON.stringify(registeredCommands)}`,
     );
   });
 });

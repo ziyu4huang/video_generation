@@ -1,6 +1,10 @@
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { WorkflowError, WorkflowErrorCode } from "../src/errors.js";
+import { saveModelTierConfig } from "../src/model-role-config.js";
 import { spawnSubagent } from "../src/spawn-subagent.js";
 
 /** Minimal injectable runner (Pick<WorkflowAgent, "run">) that records calls. */
@@ -57,6 +61,34 @@ describe("spawnSubagent", () => {
     await spawnSubagent({ task: "t", tier: "small", mainModel: "deepseek/deepseek-v4-flash", agent: runner });
     assert.equal(runner.calls[0]?.opts.model, undefined, "tier path: model stays undefined for resolveAgentModelSpec");
     assert.equal(runner.calls[0]?.opts.tier, "small");
+  });
+
+  it("capability resolves to the configured model-spec", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "spawn-cap-"));
+    const homeBackup = process.env.HOME;
+    process.env.HOME = dir;
+    saveModelTierConfig({ tiers: { small: "openai/x" }, capabilities: { vision: "lmstudio/qwen-vl" } });
+    try {
+      const runner = mkRunner(async () => "ok");
+      await spawnSubagent({ task: "describe the image", capability: "vision", agent: runner });
+      assert.equal(runner.calls[0]?.opts.model, "lmstudio/qwen-vl");
+    } finally {
+      process.env.HOME = homeBackup;
+    }
+  });
+
+  it("explicit model wins over capability", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "spawn-cap-"));
+    const homeBackup = process.env.HOME;
+    process.env.HOME = dir;
+    saveModelTierConfig({ tiers: { small: "openai/x" }, capabilities: { vision: "lmstudio/qwen-vl" } });
+    try {
+      const runner = mkRunner(async () => "ok");
+      await spawnSubagent({ task: "t", model: "openai/explicit", capability: "vision", agent: runner });
+      assert.equal(runner.calls[0]?.opts.model, "openai/explicit");
+    } finally {
+      process.env.HOME = homeBackup;
+    }
   });
 
   it("explicit model wins over mainModel", async () => {

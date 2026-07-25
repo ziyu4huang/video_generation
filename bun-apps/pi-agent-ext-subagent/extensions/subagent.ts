@@ -5,13 +5,15 @@ import {
   getSubagentInFlightRegistry,
   getSubagentRunPersistence,
 } from "../src/index.js";
+import { installSubagentProgressWidget } from "../src/subagent-progress-widget.js";
+import { createSubagentsCommand } from "../src/subagents-command.js";
 
 /**
  * pi-agent-ext-subagent — owns the `subagent` + `subagent_runs` tools and the
  * shared in-flight registry / run-persistence singletons. Extracted from
  * pi-agent-ext-workflow so the subagent capability loads independently of the
- * workflow DSL. The `/subagents` viewer + command stay in workflow and read the
- * same singletons (imported via the src subpath for module identity).
+ * workflow DSL. The `/subagents` viewer + command + below-editor progress widget
+ * live here too (self-contained), reading the local in-flight singleton directly.
  *
  * session_start captures parent-session tools + the main model from the SAME
  * sources workflow used (pi.getAllToolDefinitions / ctx.model), independently
@@ -49,6 +51,10 @@ export default function extension(pi: ExtensionAPI) {
   const subagentRunsTool = createSubagentRunsTool({ persistence });
   pi.registerTool(subagentRunsTool);
 
+  // /subagents — list running + past subagent runs and view their output.
+  // Self-contained: reads the local in-flight registry this extension owns.
+  pi.registerCommand("subagents", createSubagentsCommand({ subagentInFlight: inFlight }));
+
   // Force-activate on EVERY lifecycle hook that precedes a system-prompt rebuild.
   // Mirrors pi-agent-ext-workflow's activateWorkflowTools: session_start alone is
   // not enough — getSystemPromptOptions().selectedTools can lag setActiveTools(),
@@ -74,6 +80,10 @@ export default function extension(pi: ExtensionAPI) {
 
   pi.on("session_start", (_event: unknown, ctx: ExtensionContext) => {
     activateSubagentTools();
+    // Always-on below-editor panel: one live line per running subagent (mirrors
+    // the /subagents Running row), invisible when idle. Reads the local in-flight
+    // singleton the `subagent` tool writes to.
+    installSubagentProgressWidget(ctx.ui, { registry: inFlight });
     const extTools = (pi as unknown as { getAllToolDefinitions?: () => ToolDefinition[] }).getAllToolDefinitions?.();
     if (extTools?.length) {
       extensionToolsHolder.current = extTools;

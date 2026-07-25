@@ -10,6 +10,7 @@ import type { SubagentToolDetails } from "../src/subagent-tool.js";
 import {
   createSubagentTool,
   deriveSubagentStatus,
+  formatHistoryLine,
   formatSubagentLive,
   formatSubagentProgress,
   formatSubagentResult,
@@ -75,6 +76,19 @@ test("execute maps params to spawn and returns the child output verbatim", async
   assert.equal((res.content[0] as { text: string }).text, "Status: DONE\n- 1/1 passing");
   assert.equal(res.details.exitCode, 0);
   assert.equal(res.details.timedOut, false);
+});
+
+// ── capability param threads through to spawn ──
+test("execute threads capability through to spawn", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  await tool.execute("id", { task: "describe image", capability: "vision" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.capability, "vision");
+});
+
+test("renderSubagentCall shows capability:<name> slot", () => {
+  const out = renderSubagentCall({ capability: "vision", task: "x" }, T);
+  assert.match(String(out), /capability:vision/);
 });
 
 // ── failure / timeout formatting ──
@@ -1132,4 +1146,22 @@ test("renderCall drops the resolved-model segment after the run ends (end() tear
   const rendered = after.render(200).join("\n");
   assert.match(rendered, /tier:medium/);
   assert.doesNotMatch(rendered, /google\/gemma-4-12b-qat/);
+});
+
+// ── formatHistoryLine (exported for the /subagents live-follow view) ──
+test("formatHistoryLine renders a toolCall as '→ name <args>'", () => {
+  const out = formatHistoryLine({ role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"a.ts"}' });
+  assert.match(out, /^→ read /);
+  assert.ok(out.includes("a.ts"), "surfaces a short args preview");
+});
+
+test("formatHistoryLine renders a toolResult as '← name ✓ <preview>'", () => {
+  const out = formatHistoryLine({ role: "tool", kind: "toolResult", toolName: "read", text: "file contents here" });
+  assert.match(out, /^← read ✓/);
+  assert.ok(out.includes("file contents"), "surfaces a short result preview");
+});
+
+test("formatHistoryLine renders an error as '⚠ …'", () => {
+  const out = formatHistoryLine({ role: "assistant", kind: "error", text: "boom", isError: true });
+  assert.match(out, /^⚠ boom/);
 });
