@@ -5,7 +5,7 @@
  * in-flight registry live on each render; refresh cadence is driven by the
  * wiring's timer (tui.requestRender), not here.
  */
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { InFlightSubagent } from "@repo/pi-agent-ext-subagent";
 import { summarizeLatestAction } from "@repo/pi-agent-ext-subagent";
@@ -43,4 +43,67 @@ export class SubagentProgressWidget {
     // No width/theme cache: render() reads live state each call. Present for the
     // TUI component contract; a no-op matches display.ts's widget factory.
   }
+}
+
+import type { SubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent/src/index.js";
+
+export interface InstallSubagentProgressWidgetOpts {
+  registry: SubagentInFlightRegistry;
+  placement?: "belowEditor" | "aboveEditor";
+  /** Refresh cadence for the elapsed counter, ms (default 1000). */
+  intervalMs?: number;
+  /** Injectable for tests (default: global setInterval). */
+  setInterval?: typeof setInterval;
+  /** Injectable for tests (default: global clearInterval). */
+  clearInterval?: typeof clearInterval;
+}
+
+const PROGRESS_INTERVAL_MS = 1000;
+
+/**
+ * Mount the always-on subagent-progress widget below the editor. The factory is
+ * registered ONCE; its render reads the registry live and returns [] when idle
+ * (invisible, zero footprint). A timer calls tui.requestRender() so the elapsed
+ * counter ticks between events. We deliberately do NOT re-call setWidget per
+ * tick — re-registration reorders the widget to the end of the list
+ * (status-widget.ts note); requestRender avoids that.
+ *
+ * Safe no-op when `ui` has no setWidget (headless/RPC mode).
+ */
+export function installSubagentProgressWidget(
+  ui: Pick<ExtensionContext["ui"], "setWidget"> | undefined,
+  opts: InstallSubagentProgressWidgetOpts,
+): { dispose: () => void } {
+  if (!ui || typeof ui.setWidget !== "function") return { dispose: () => {} };
+  const placement = opts.placement ?? "belowEditor";
+  const intervalMs = opts.intervalMs ?? PROGRESS_INTERVAL_MS;
+  const si = opts.setInterval ?? setInterval;
+  const ci = opts.clearInterval ?? clearInterval;
+  const widget = new SubagentProgressWidget({ getRunning: () => opts.registry.list() });
+
+  let timerId: ReturnType<typeof setInterval> | undefined;
+  let started = false;
+  // Factory signature mirrors createWidgetWorkflowDisplay (display.ts):
+  // (tui, theme) => { render: () => string[]; invalidate: () => void }.
+  const factory = (tui: unknown, theme: Theme) => {
+    // Start the refresh timer exactly once — the app may invoke the factory more
+    // than once (e.g. on theme change); guard against a duplicate interval.
+    if (!started) {
+      started = true;
+      timerId = si(() => (tui as { requestRender: () => void }).requestRender(), intervalMs);
+    }
+    return {
+      render: () => widget.render(theme),
+      invalidate: () => widget.invalidate(),
+    };
+  };
+
+  ui.setWidget("subagents", factory, { placement });
+
+  return {
+    dispose: () => {
+      if (timerId !== undefined) ci(timerId);
+      timerId = undefined;
+    },
+  };
 }
