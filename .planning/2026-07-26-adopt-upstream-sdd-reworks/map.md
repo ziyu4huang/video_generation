@@ -17,6 +17,7 @@ Adopt obra/superpowers's two SDD reworks into this fork's `subagent-driven-devel
 - [02 diff: pinned SDD files vs upstream](tickets/02-diff-pinned-sdd-vs-upstream.md) — SKILL.md +85, impl-prompt +3, reviewer-prompt −3, `re-review-prompt.md` NEW; scripts all differ (fork-customized pi-port glue, not pinned).
 - [04 pi subagent resume capability](tickets/04-pi-subagent-resume-capability.md) — no resume-in-place exposed; upstream's rounds 1-3 use the fresh-dispatch fallback (brief + report file + findings).
 - [03 effort×plan reconciliation](tickets/03-effort-times-plan-reconciliation.md) — **Nest**: `.planning/<effort>/sdd/<plan-slug>/` (effort ⊃ plan); `sdd-workspace` takes PLAN_FILE + PI_PLANNING_EFFORT. Existing-state migration is forward-only (graduated from fog).
+- [05 re-pin ADR-0004 SDD files](tickets/05-repin-adr0004-sdd-files.md) — **DONE** (`09dbb7c4`): SDD re-pinned to upstream v6.2.0 (`3dcbd5c4`); SKILL.md 418→503, `re-review-prompt.md` added, fixture rebaselined, suite **122/0**. **Unblocks 06.**
 
 ## Not yet specified
 
