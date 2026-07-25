@@ -53,43 +53,49 @@ bundle. (False-positive of the grep audit; documented in dep-tree PRD §6.)
 Direction approved: **keep the two packages** (ADR-0005 parallel coexistence is
 correct). Cleanup + documentation only.
 
-### W2a — devDependency consistency
-- `pi-agent-ext-wayfind/package.json`: add `"@types/bun": "^1.3.14"` to
-  `devDependencies` (mirrors `superpowers`). No behavior change (Bun ships
-  global types); purely consistency so the dev/runtime split reads identically
-  across the two methodology packages.
+### W2a — devDependency consistency (already satisfied, no change)
+- `pi-agent-ext-wayfind/package.json` **already** declares `"@types/bun": "^1.3.14"`
+  in `devDependencies` (verified in HEAD) — mirroring `superpowers`. The initial
+  audit flagged it as missing; re-check corrected that. No edit needed; both
+  methodology packages now read identically on the dev/runtime split.
 
-### W2b — confirm `.planning/` unification (no code change)
-Canonical planning artifacts are **already unified** under
-`.planning/<effort>/`:
-- **superpowers** specs/plans/sdd → redirected by `piBoundaryOverrides()`
-  rules 1 + 3 in `src/superpowers.ts` (injected at runtime; does not fork
-  upstream skill text).
-- **wayfind** spec/tickets/map → native (skills already write `.planning/`).
+### W2b — patch SDD path script (`.superpowers/sdd/` → `.planning/<effort>/sdd/`)
+`skills/subagent-driven-development/scripts/sdd-workspace` is the single source
+of truth for the SDD dir; `task-brief` + `review-package` delegate to it.
+Scripts are NOT ADR-0004-protected (only `SKILL.md` is), so patch directly:
+- Resolve effort from `$1` arg, else `$PI_PLANNING_EFFORT` env.
+- `dir="$root/.planning/$EFFORT/sdd"` when effort known; **fallback**
+  `$root/.superpowers/sdd` when neither is set (upstream-compatible).
+- Drop the blanket `*\n` self-gitignore it writes — `.planning/<effort>/sdd/`
+  briefs/reports/reviews are COMMITTED (repo `.gitignore` §"Planning
+  artifacts"); only `progress.md` stays transient (already ignored by name).
+- `task-brief` / `review-package`: NO change — they call `sdd-workspace`, which
+  picks up the env. (They remain backward-compatible.)
 
-### W2c — visual-companion mockup scratch (documented exception + gitignore)
-- `start-server.sh` hardcodes `SESSION_DIR="${PROJECT_DIR}/.superpowers/brainstorm/"`
-  with no override flag. It is **transient browser-mockup HTML**, not a planning
-  artifact — categorically different from spec/plan/ticket/map/sdd.
-- **Decision (approved):** treat as a documented exception. Do NOT patch the
-  upstream script (ADR-0004). Instead:
-  - add `.superpowers/` to repo `.gitignore` (currently absent → mockups leak
-    into `git status`).
-  - document the exception in the boundary section (W2d).
+### W2c — patch brainstorm server script (`.superpowers/brainstorm/` → `.planning/<effort>/brainstorm/`)
+`skills/brainstorming/scripts/start-server.sh` hardcodes
+`SESSION_DIR="${PROJECT_DIR}/.superpowers/brainstorm/${SESSION_ID}"` (+ port/token
+files). Patch: when `$PI_PLANNING_EFFORT` is set, root under
+`$root/.planning/$PI_PLANNING_EFFORT/brainstorm/$SESSION_ID` instead; else keep
+current behavior. Brainstorm mockups stay transient scratch (gitignored).
 
-### W2d — boundary section in dep-tree PRD
-Append a new section to
-`bun-apps/pi-agent/docs/extension-dependency-tree.PRD.md`:
-- parallel coexistence (decide-phase = wayfind; plan/execute = superpowers);
-  no code edge between them; no skill/command name conflicts.
-- the entry-path routing discriminator ("can I write a plan right now?").
-- spec-output ownership (`to-spec` vs `brainstorming` — both converge on
-  `.planning/<effort>/spec.md` via the bootstrap; they are separate entry
-  paths, not a shared artifact).
-- the dev/runtime dependency split table (peerDeps = runtime host contract;
-  devDeps = tooling + peer-for-typecheck; zero third-party runtime deps).
-- the `.planning/` unification map (what lives where) + the `.superpowers/`
-  exception.
+### W2d — align bootstrap overrides (`src/superpowers.ts` `piBoundaryOverrides()`)
+- Rule 3: update wording — `sdd-workspace` is now pi-aware (reads
+  `PI_PLANNING_EFFORT`); the agent exports the effort, then may call the script
+  or inline. **Preserve test-asserted tokens**: `SDD workspace override`,
+  `.superpowers/sdd/`, `.planning/<effort>/sdd/progress.md`, `sdd-workspace`.
+- Add rule 4: brainstorm convergence — set `PI_PLANNING_EFFORT` before starting
+  the visual companion so mockups land under `.planning/<effort>/brainstorm/`.
+- TDD gate: extend `tests/bootstrap.test.ts` to assert rule 4 BEFORE implementing
+  (failing test → implement → green); keep all existing rule-1/2/3 assertions.
+
+### W2e — `.gitignore` defense-in-depth
+Add `.superpowers/` to repo `.gitignore` (catches any path that still slips).
+
+### W2f — boundary section in dep-tree PRD
+Append to `bun-apps/pi-agent/docs/extension-dependency-tree.PRD.md`: parallel
+coexistence; entry-path routing; spec-output ownership; dev/runtime split;
+`.planning/` unification map (now including sdd + brainstorm — **no exception**).
 
 ## Verification
 
@@ -116,6 +122,9 @@ tests green; `extension-contract.test.ts` green; `run-test.sh high` green.
 
 ## Rollback
 
-All changes are `package.json` edits + one `.gitignore` line + one doc section.
-`git revert` the effort commit restores prior state. No data migration, no
-runtime state.
+Changes span: 6 `package.json` edits (W1 ×5 + W2a), 2 shell-script patches
+(W2b, W2c), one bootstrap-prompt rewrite + test (W2d), one `.gitignore` line
+(W2e), and one doc section (W2f). All are source edits — `git revert` the
+effort commit(s) restores prior state. No data migration, no runtime state,
+and the script patches are backward-compatible (fallback to `.superpowers/`
+when no effort is provided).
