@@ -80,7 +80,8 @@ _Avoid_: restartable, durable (it is journal-replay resume, not mere restart)
 
 **`evaluate-lipsync`**:
 Scores an already-produced talking-head video's mouth-motion-vs-audio
-correlation (`python -m app.lipsync_metrics`) and returns a `lesson`
+correlation (Swift `ltx-video lipsync-metrics`, resolved/built via
+`ensureBinary()` — no Python) and returns a `lesson`
 (`{target, category, content, reason?}`) shaped for hermes-memory's `memory`
 tool. Decoupled from how the video was produced — call it after any
 `native-i2v` + `run.py video lipdub` pair.

@@ -33,7 +33,7 @@ export * from "./shotLanguage.ts";
 export { invokeLtx } from "./invoke.ts";
 export type { LtxDetails, GateEntry } from "./result.ts";
 export { PathSafetyError } from "./paths.ts";
-export { resolveRepoRoot, defaultBinaryPath } from "./binary.ts";
+export { resolveRepoRoot, defaultBinaryPath, ensureBinary } from "./binary.ts";
 export {
   runPyVideo,
   resolveRunPyPaths,

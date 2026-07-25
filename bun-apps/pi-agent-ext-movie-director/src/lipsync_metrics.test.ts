@@ -1,13 +1,13 @@
 import { describe, expect, it } from "bun:test";
-import { buildLipsyncArgs, runPyLipsync } from "./runpy_lipsync.ts";
+import { buildLipsyncArgs, runPyLipsync } from "./lipsync_metrics.ts";
 
 describe("buildLipsyncArgs", () => {
-  it("builds the exact module-invocation argv", () => {
-    expect(buildLipsyncArgs("/fake/shot.mp4")).toEqual(["-m", "app.lipsync_metrics", "/fake/shot.mp4"]);
+  it("builds the exact ltx-video lipsync-metrics argv", () => {
+    expect(buildLipsyncArgs("/fake/shot.mp4")).toEqual(["lipsync-metrics", "/fake/shot.mp4", "--json"]);
   });
 });
 
-describe("runPyLipsync — spawn injection (no venv)", () => {
+describe("runPyLipsync — spawn injection (no built binary needed)", () => {
   it("ok=true with parsed metrics on exit 0 + valid JSON stdout", async () => {
     let capturedArgs: string[] = [];
     const result = await runPyLipsync({
@@ -25,7 +25,7 @@ describe("runPyLipsync — spawn injection (no venv)", () => {
         };
       },
     });
-    expect(capturedArgs).toEqual(["-m", "app.lipsync_metrics", "/fake/shot.mp4"]);
+    expect(capturedArgs).toEqual(["lipsync-metrics", "/fake/shot.mp4", "--json"]);
     expect(result.ok).toBe(true);
     expect(result.metrics?.verdict).toBe("adequate");
     expect(result.metrics?.pearson_r).toBe(0.55);
@@ -75,12 +75,12 @@ describe("runPyLipsync — spawn injection (no venv)", () => {
   it("ok=false on non-zero exit code", async () => {
     const result = await runPyLipsync({
       videoPath: "/fake/shot.mp4",
-      _spawnImpl: async () => ({ stdout: "", stderr: "Traceback...", exitCode: 1 }),
+      _spawnImpl: async () => ({ stdout: "", stderr: "Fatal error...", exitCode: 1 }),
     });
     expect(result.ok).toBe(false);
     expect(result.metrics).toBeNull();
     expect(result.error).toContain("exited 1");
-    expect(result.stderrTail).toContain("Traceback");
+    expect(result.stderrTail).toContain("Fatal error");
   });
 
   it("ok=false on malformed JSON stdout", async () => {
@@ -97,7 +97,7 @@ describe("runPyLipsync — spawn injection (no venv)", () => {
     const result = await runPyLipsync({
       videoPath: "/fake/shot.mp4",
       _spawnImpl: async () => {
-        throw new Error("ENOENT: python not found");
+        throw new Error("ENOENT: ltx-video not found");
       },
     });
     expect(result.ok).toBe(false);
