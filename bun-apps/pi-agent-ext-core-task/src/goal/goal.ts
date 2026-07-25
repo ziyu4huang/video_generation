@@ -2,8 +2,10 @@
  * goal tool + /goal command — ported from @narumitw/pi-goal v0.11.0.
  *
  * Adaptations for power-tool embedding:
- *   - Inlined isContextOverflow (was @earendil-works/pi-ai) — no external dep needed.
- *   - Inlined local PiAssistantMessage + Usage types.
+ *   - Overflow / interruption classification (isContextOverflow, the local
+ *     AssistantMessageLike + Usage types, etc.) live in ./overflow.ts — a
+ *     pure module with ZERO @earendil-works/* imports. Inlined originally from
+ *     @earendil-works/pi-ai; no external dep needed.
  *   - Import from "fs" / "path" / "crypto" (no "node:" prefix — Bun convention).
  *   - Removed import process from "node:process" (process is global in Bun).
  *
@@ -30,36 +32,20 @@ import {
 	type ActiveGoal,
 	type GoalStatus,
 } from "./format.js";
+import {
+	findFinalAssistantMessage,
+	isContradictoryCompletionSummary,
+	isGoalContextOverflow,
+	isRetryableGoalInterruption,
+	type AssistantMessageLike,
+} from "./overflow.js";
 
 // Re-export formatters + types for tests and downstream consumers.
 export { formatStatus, formatGoalMetric, formatDuration, formatTokenCount, type ActiveGoal } from "./format.js";
-
-// ─── Local types (replaces @earendil-works/pi-ai types) ───────────────────────
-
-interface Usage {
-	input: number;
-	output: number;
-	cacheRead: number;
-	cacheWrite: number;
-	totalTokens: number;
-	cost: {
-		input: number;
-		output: number;
-		cacheRead: number;
-		cacheWrite: number;
-		total: number;
-	};
-}
-
-interface AssistantMessageContent {
-	type: string;
-	text?: string;
-	[_: string]: unknown;
-}
+// Re-export overflow helpers so the public import path via goal.js is preserved.
+export { findFinalAssistantMessage, isContradictoryCompletionSummary, isRetryableGoalInterruption } from "./overflow.js";
 
 // ─── Goal-specific types ──────────────────────────────────────────────────────
-
-type AgentStopReason = "stop" | "length" | "toolUse" | "error" | "aborted";
 
 interface GoalCompleteDetails {
 	goal: string;
@@ -78,18 +64,6 @@ type GoalRecoveryKind = "provider_retry" | "compaction_retry";
 interface GoalRecovery {
 	goalId: string;
 	kind: GoalRecoveryKind;
-}
-
-interface AssistantMessageLike {
-	role: "assistant";
-	stopReason?: AgentStopReason;
-	errorMessage?: string;
-	content?: AssistantMessageContent[];
-	api?: string;
-	provider?: string;
-	model?: string;
-	usage?: Usage;
-	timestamp?: number;
 }
 
 interface GoalStateEntryData {
@@ -123,15 +97,6 @@ const GOAL_STATE_ENTRY_TYPE = "goal-state";
 const MAX_OBJECTIVE_LENGTH = 4_000;
 const MAX_CANCELLED_CONTINUATION_PROMPTS = 20;
 const CONTINUATION_MARKER_PREFIX = "pi-goal-continuation:";
-const CONTRADICTORY_COMPLETION_PATTERNS = [
-	/(?<!could\s)\bnot\s+(?:yet\s+)?(?:complete|completed|done|finished)\b/i,
-	/\bstill\s+(?:incomplete|failing|failing\s+tests?|fails?)\b/i,
-	/\btests?\s+(?:still\s+)?fail(?:ing)?\b/i,
-] as const;
-const NON_RETRYABLE_GOAL_ERROR_RE =
-	/usage[_\s-]*limit|chatgpt usage limit|multi-auth rotation failed|credentials tried|unauthori[sz]ed|invalid api key/i;
-const RETRYABLE_GOAL_ERROR_RE =
-	/websocket closed|sse response headers timed out|headers timed out|context[_\s-]*length[_\s-]*exceeded|input exceeds the context window|provider returned error/i;
 const GOAL_ARGUMENT_COMPLETIONS: readonly GoalArgumentCompletion[] = [
 	{ value: "pause", label: "pause", description: "Pause the active goal" },
 	{ value: "resume", label: "resume", description: "Resume a paused or budget-limited goal" },
@@ -149,64 +114,6 @@ const STATE_FILE = join(
 	process.env.PI_CODING_AGENT_DIR ?? join(process.env.HOME ?? ".", ".pi", "agent"),
 	"pi-goal-state.json",
 );
-
-// ─── Inlined isContextOverflow (from @earendil-works/pi-ai v0.80.2) ────────────
-// Inlined to avoid a Bun-isolated-linker dependency on @earendil-works/pi-ai.
-// See: https://github.com/earendil-works/pi-ai/src/utils/overflow.ts
-
-const OVERFLOW_PATTERNS = [
-	/prompt is too long/i,
-	/request_too_large/i,
-	/input is too long for requested model/i,
-	/exceeds the context window/i,
-	/exceeds (?:the )?(?:model'?s )?maximum context length(?: of [\d,]+ tokens?|\s*\([\d,]+\))/i,
-	/input token count.*exceeds the maximum/i,
-	/maximum prompt length is \d+/i,
-	/reduce the length of the messages/i,
-	/maximum context length is \d+ tokens/i,
-	/exceeds (?:the )?maximum allowed input length of [\d,]+ tokens?/i,
-	/input \(\d+ tokens\) is longer than the model'?s context length \(\d+ tokens\)/i,
-	/exceeds the limit of \d+/i,
-	/exceeds the available context size/i,
-	/greater than the context length/i,
-	/context window exceeds limit/i,
-	/exceeded model token limit/i,
-	/too large for model with \d+ maximum context length/i,
-	/model_context_window_exceeded/i,
-	/prompt too long; exceeded (?:max )?context length/i,
-	/context[_ ]length[_ ]exceeded/i,
-	/too many tokens/i,
-	/token limit exceeded/i,
-	/^4(?:00|13)\s*(?:status code)?\s*\(no body\)/i,
-];
-
-const NON_OVERFLOW_PATTERNS = [
-	/^(Throttling error|Service unavailable):/i,
-	/rate limit/i,
-	/too many requests/i,
-];
-
-function isContextOverflow(message: { stopReason?: string; errorMessage?: string; usage?: Usage }, contextWindow?: number): boolean {
-	if (message.stopReason === "error" && message.errorMessage) {
-		const isNonOverflow = NON_OVERFLOW_PATTERNS.some((p) => p.test(message.errorMessage!));
-		if (!isNonOverflow && OVERFLOW_PATTERNS.some((p) => p.test(message.errorMessage!))) {
-			return true;
-		}
-	}
-	if (contextWindow && message.stopReason === "stop" && message.usage) {
-		const inputTokens = message.usage.input + message.usage.cacheRead;
-		if (inputTokens > contextWindow) {
-			return true;
-		}
-	}
-	if (contextWindow && message.stopReason === "length" && message.usage && message.usage.output === 0) {
-		const inputTokens = message.usage.input + message.usage.cacheRead;
-		if (inputTokens >= contextWindow * 0.99) {
-			return true;
-		}
-	}
-	return false;
-}
 
 // ─── Module state ─────────────────────────────────────────────────────────────
 
@@ -970,10 +877,6 @@ function isPiOwnedCompactionRetry(event: unknown, goalId: string) {
 	);
 }
 
-export function isContradictoryCompletionSummary(summary: string) {
-	return CONTRADICTORY_COMPLETION_PATTERNS.some((pattern) => pattern.test(summary));
-}
-
 /**
  * Direct internal call to the in-package plan coordinator (ticket 03:
  * self-consume = internal-call, NOT globalThis). Returns an actionable reason
@@ -1007,17 +910,6 @@ const THREE_LAYER_GUIDANCE =
 	"the plan coordinator (the cross-session phase roadmap in task_plan.md), and " +
 	"the `todo` tool (in-session step tracking). Use the plan as your roadmap " +
 	"and todo to track steps — neither is a stopping point; they are tools to finish this goal.";
-
-export function isRetryableGoalInterruption(assistant: AssistantMessageLike) {
-	if (assistant.stopReason !== "error") return false;
-	if (!assistant.errorMessage) return false;
-	if (NON_RETRYABLE_GOAL_ERROR_RE.test(assistant.errorMessage)) return false;
-	return isGoalContextOverflow(assistant) || RETRYABLE_GOAL_ERROR_RE.test(assistant.errorMessage);
-}
-
-function isGoalContextOverflow(assistant: AssistantMessageLike) {
-	return isContextOverflow(assistant);
-}
 
 // ─── Continuation tracking ────────────────────────────────────────────────────
 
@@ -1066,53 +958,6 @@ const CONTINUATION_MARKER_PATTERN = new RegExp(
 
 function extractContinuationMarker(prompt: string) {
 	return CONTINUATION_MARKER_PATTERN.exec(prompt)?.[1];
-}
-
-export function findFinalAssistantMessage(messages: unknown[]): AssistantMessageLike | undefined {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const message = messages[i];
-		if (!message || typeof message !== "object") continue;
-		const candidate = message as Record<string, unknown>;
-		if (candidate.role !== "assistant") continue;
-		const assistant: AssistantMessageLike = {
-			role: "assistant",
-			stopReason: isAgentStopReason(candidate.stopReason) ? candidate.stopReason : undefined,
-			errorMessage: typeof candidate.errorMessage === "string" ? candidate.errorMessage : undefined,
-		};
-		if (Array.isArray(candidate.content)) assistant.content = candidate.content as AssistantMessageContent[];
-		if (typeof candidate.api === "string") assistant.api = candidate.api;
-		if (typeof candidate.provider === "string") assistant.provider = candidate.provider;
-		if (typeof candidate.model === "string") assistant.model = candidate.model;
-		if (typeof candidate.timestamp === "number") assistant.timestamp = candidate.timestamp;
-		const usage = normalizeUsage(candidate.usage);
-		if (usage) assistant.usage = usage;
-		return assistant;
-	}
-	return undefined;
-}
-
-function isAgentStopReason(value: unknown): value is AgentStopReason {
-	return ["stop", "length", "toolUse", "error", "aborted"].includes(String(value));
-}
-
-function normalizeUsage(value: unknown): Usage | undefined {
-	if (!value || typeof value !== "object") return undefined;
-	const usage = value as Partial<Usage>;
-	if (typeof usage.input !== "number" || typeof usage.output !== "number") return undefined;
-	return {
-		input: usage.input,
-		output: usage.output,
-		cacheRead: usage.cacheRead ?? 0,
-		cacheWrite: usage.cacheWrite ?? 0,
-		totalTokens: usage.totalTokens ?? usage.input + usage.output + (usage.cacheRead ?? 0),
-		cost: {
-			input: usage.cost?.input ?? 0,
-			output: usage.cost?.output ?? 0,
-			cacheRead: usage.cost?.cacheRead ?? 0,
-			cacheWrite: usage.cost?.cacheWrite ?? 0,
-			total: usage.cost?.total ?? 0,
-		},
-	};
 }
 
 // ─── XML/text helpers ─────────────────────────────────────────────────────────
