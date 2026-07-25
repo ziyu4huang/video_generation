@@ -93,12 +93,70 @@ test("cloneGoal returns a deep copy that is not reference-equal", () => {
 	expect(g.tokensUsed).toBe(0);
 });
 
-test("__resetGoalState clears runtime state", () => {
-	goalState.activeGoal = createGoal("x", undefined, 0);
+test("__resetGoalState clears every runtime-state field back to its initial value", () => {
+	// This reset is the liveness seam for the whole hardening feature: a missing
+	// reset means cross-goal state leaks (the bug class behind the Task 9
+	// false-positive). Mutate EVERY field off-baseline, then assert each one
+	// returned to the value declared on the goalState singleton. A field whose
+	// reset silently no-ops is caught here.
+	const resetAt = Date.now();
+
+	// Real interval handles so the timer field types match without a cast; kept
+	// in locals so we can clearInterval them afterwards (__resetGoalState sets the
+	// field to undefined and does NOT clear the underlying timer).
+	const fakeStatusTimer = setInterval(() => {}, 1_000_000);
+	const fakeHeartbeatTimer = setInterval(() => {}, 1_000_000);
+
+	goalState.activeGoal = createGoal("mutated", 9, 7);
+	goalState.extensionApi = { fake: "extensionApi" };
+	goalState.continuationPending = { goalId: "g", iteration: 9, marker: "m", prompt: "p" };
+	goalState.goalRecovery = { goalId: "g", kind: "provider_retry" };
 	goalState.staleGoalToolCallsBlocked = true;
-	goalState.cancelledContinuationMarkers.add("m");
+	goalState.statusRefreshTimer = fakeStatusTimer;
+	goalState.latestCtx = { fake: "latestCtx" };
+	goalState.cancelledContinuationMarkers.add("leaked-1");
+	goalState.cancelledContinuationMarkers.add("leaked-2");
+	goalState.consecutiveStuck = 9;
+	goalState.stuckStartedAt = 12_345;
+	goalState.recentPrints = ["print-1", "print-2"];
+	goalState.recentTexts = ["text-1", "text-2"];
+	goalState.recentToolResults = [{ tool: "bash", hash: "abc", isError: false }];
+	goalState.toollessStreak = 9;
+	goalState.toolRanThisTurn = true;
+	goalState.heartbeatTimer = fakeHeartbeatTimer;
+	goalState.lastActivityAt = 0;
+	goalState.lastWedgeAlertAt = 99_999;
+	goalState.nudgeCount = 9;
+
 	__resetGoalState();
+
+	// Assert every field equals its declared initial value.
 	expect(goalState.activeGoal).toBeUndefined();
+	expect(goalState.extensionApi).toBeUndefined();
+	expect(goalState.continuationPending).toBeUndefined();
+	expect(goalState.goalRecovery).toBeUndefined();
 	expect(goalState.staleGoalToolCallsBlocked).toBe(false);
+	expect(goalState.statusRefreshTimer).toBeUndefined();
+	expect(goalState.latestCtx).toBeUndefined();
+	// cancelledContinuationMarkers: reset calls .clear() on the singleton (same
+	// instance, not reassigned), so it must still be a Set, now empty.
+	expect(goalState.cancelledContinuationMarkers).toBeInstanceOf(Set);
 	expect(goalState.cancelledContinuationMarkers.size).toBe(0);
+	expect(goalState.consecutiveStuck).toBe(0);
+	expect(goalState.stuckStartedAt).toBeUndefined();
+	expect(goalState.recentPrints).toEqual([]);
+	expect(goalState.recentTexts).toEqual([]);
+	expect(goalState.recentToolResults).toEqual([]);
+	expect(goalState.toollessStreak).toBe(0);
+	expect(goalState.toolRanThisTurn).toBe(false);
+	expect(goalState.heartbeatTimer).toBeUndefined();
+	// lastActivityAt is re-stamped to Date.now() on reset (was mutated to 0) —
+	// assert it moved forward to a recent epoch ms, proving the assignment fired.
+	expect(goalState.lastActivityAt).toBeGreaterThanOrEqual(resetAt);
+	expect(goalState.lastWedgeAlertAt).toBe(0);
+	expect(goalState.nudgeCount).toBe(0);
+
+	// Release the real timers we allocated (reset orphaned them on purpose).
+	clearInterval(fakeStatusTimer);
+	clearInterval(fakeHeartbeatTimer);
 });

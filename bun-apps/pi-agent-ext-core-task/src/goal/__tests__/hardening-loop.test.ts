@@ -197,7 +197,7 @@ describe("agent_end hardening: anti-repetition + backoff cap", () => {
 		}
 	});
 
-	test("healthy tool → narration → tool pattern does NOT trigger STUCK (consecutive toolless count fix)", async () => {
+	test("tool turn → narration-only turn does NOT false-trigger STUCK (consecutive toolless count fix)", async () => {
 		const { mock, ctx } = await bootstrap();
 		try {
 			// Turn 1: a tool runs, then the assistant narrates (unique, non-repeating).

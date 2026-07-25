@@ -11,6 +11,9 @@ test("detectLoopStuck: near-duplicate previous response", () => {
 	// thresholds/logic are unchanged (byte-identical to brief).
 	const a = "I will now refactor the goal module by extracting the overflow helpers into a separate file for testability and clarity.";
 	const b = "I will now refactor the goal module by extracting the overflow helpers into a separate file for testability and readability.";
+	// Pin the fixture's intent: a + b must clear the 0.8 similarityThreshold so a
+	// future threshold-lowering regression can't silently pass this end-to-end check.
+	expect(trigramSimilarity(a, b)).toBeGreaterThanOrEqual(0.8);
 	expect(detectLoopStuck({ assistantText: b, recentPrints: ["x", "y"], previousText: a, recentToolResults: [], toollessStreak: 0 })).toMatch(/similar/);
 });
 test("detectLoopStuck: undefined when progressing normally", () => {

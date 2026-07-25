@@ -14,7 +14,16 @@ import {
 	isGoalContextOverflow,
 	isRetryableGoalInterruption,
 	findFinalAssistantMessage,
+	type Usage,
 } from "../overflow.js";
+
+/** Build a full Usage fixture from the few fields isContextOverflow actually reads. */
+function usageFixture(input: number, cacheRead: number): Usage {
+	return {
+		input, output: 0, cacheRead, cacheWrite: 0, totalTokens: input + cacheRead,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+	};
+}
 
 // ─── isContextOverflow ───────────────────────────────────────────────────────
 
@@ -50,7 +59,7 @@ describe("isContextOverflow", () => {
 	test("flags stop with input tokens over contextWindow", () => {
 		expect(
 			isContextOverflow(
-				{ stopReason: "stop", usage: { input: 9_000, cacheRead: 1_500, output: 0 } as never },
+				{ stopReason: "stop", usage: usageFixture(9_000, 1_500) },
 				10_000,
 			),
 		).toBe(true);
@@ -59,7 +68,7 @@ describe("isContextOverflow", () => {
 	test("flags length stop at ~99% of context window with zero output", () => {
 		expect(
 			isContextOverflow(
-				{ stopReason: "length", usage: { input: 9_900, cacheRead: 0, output: 0 } as never },
+				{ stopReason: "length", usage: usageFixture(9_900, 0) },
 				10_000,
 			),
 		).toBe(true);

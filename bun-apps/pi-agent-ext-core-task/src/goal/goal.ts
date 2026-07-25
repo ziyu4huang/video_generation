@@ -54,7 +54,6 @@ import {
 	parseCommand,
 	parseTokenBudget,
 	validateObjective,
-	type CommandResult,
 } from "./commands.js";
 import {
 	buildContinuePrompt,
@@ -962,7 +961,7 @@ function currentTokenTotal(ctx: StatusContext): number {
 // (deps injected: api / sessionManager passed as params; no module-state reads;
 // session-store-only since Task 11 retired the legacy state file) — imported above.
 
-function clearActiveGoal(ctx: StatusContext) {
+function clearActiveGoal(_ctx: StatusContext) {
 	cancelContinuationPending();
 	clearGoalRecovery();
 	clearStaleGoalToolCallBlock();
