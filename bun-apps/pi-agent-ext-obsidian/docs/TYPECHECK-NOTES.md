@@ -29,26 +29,26 @@ other siblings would reject those.
   w.r.t. another package's health. These perf tests still run under `bun test`.
 
 The runtime test safety net is unchanged: `bun test extensions/__tests__/`
-(384 pass / 1 fail — the submodule-gated snapshot skip).
+(395 pass / 1 fail — the submodule-gated snapshot skip).
 
 ## Known type gaps (suppressed, not silent)
 
-### 1. `lib/vaultReport.ts` — orphan `title` field (LATENT BUG, deferred)
+### 1. `lib/vaultReport.ts` — orphan `title` field ✅ RESOLVED
 
 ```ts
-// @ts-expect-error — latent bug (pre-existing, NOT introduced by this task):
-// GraphResult exposes the note title via `text`, not `title`; so `r.title` is
-// always `undefined` at runtime. Left as-is in Phase 0 to avoid any behavior
-// change; tracked here for a dedicated fix.
-const orphans = graphOrphans(idx).map((r) => ({ path: r.path, title: r.title }));
+// GraphResult carries the note title in `text` (title or path fallback);
+// map it onto the report's `title` field.
+const orphans = graphOrphans(idx).map((r) => ({ path: r.path, title: r.text }));
 ```
 
 `GraphResult.text` is documented as "title or the offending link line".
 `graphOrphans()` populates `text` with `m.title || m.path`, never a `title` key.
-So `r.title` is `undefined` today and orphan titles are dropped from the vault
-report. Fixing it (`r.title` → `r.text`) would change report output, which
-violates Phase 0's "no behavior change" rule, so it is suppressed + documented
-here for a dedicated behavior-fix task.
+The original code read `r.title`, which was always `undefined` at runtime, so
+orphan titles were dropped from the vault report (rendered as the literal
+"undefined"). This was suppressed with `@ts-expect-error` during Phase 0 to keep
+that phase behavior-neutral; the dedicated behavior-fix maps `r.title → r.text`,
+removes the suppression, and is guarded by a regression assertion in
+`extensions/__tests__/vaultReport.test.mjs`.
 
 ### 2. `extensions/obsidian.ts` — `_capturedTools` runtime-metadata field
 
@@ -66,5 +66,5 @@ the `ToolDefinition` type. Kept as-is; do not "fix".
 | sibling-package errors via `__tests__/perf` (`perf-harness`) | 4 | excluded from compilation |
 | partial mock vs `ExtensionAPI` (`semanticSearch.test.ts`) | 1 | `as unknown as ExtensionAPI` cast |
 | possibly-undefined dispatch (`obsidian.ts:2035`) | 1 | `!` (invariant already enforced by prior validation) |
-| latent `GraphResult.title` bug (`vaultReport.ts:70`) | 1 | `@ts-expect-error` + this note |
+| latent `GraphResult.title` bug (`vaultReport.ts:70`) | 1 | ✅ RESOLVED — `r.title→r.text`, `@ts-expect-error` removed, regression test added |
 | **total** | **44 actionable** (+1 header line) | **clean (exit 0)** |
