@@ -15,7 +15,9 @@
 //  the validation approach against the Python version's verdicts.
 //
 
+import AVFoundation
 import Foundation
+import Vision
 
 public enum LipsyncMetrics {
     /// Resample `source` onto `count` points via linear interpolation over
@@ -159,5 +161,232 @@ public enum LipsyncMetrics {
                 + "trustworthy statistic in this case."
         }
         return VerdictResult(verdict: verdict, caveat: caveat)
+    }
+
+    public struct LipsyncResult: Codable {
+        public let verdict: String
+        public let pearsonR: Double?
+        public let mouthRatioStd: Double?
+        public let caveat: String?
+        public let note: String?
+        public let bestLagFrames: Int?
+        public let lag0PearsonR: Double?
+        public let fps: Double?
+        public let nFrames: Int?
+        public let nDetected: Int?
+        public let mouthRatioMean: Double?
+        public let audioRmsMean: Double?
+
+        enum CodingKeys: String, CodingKey {
+            case verdict
+            case pearsonR = "pearson_r"
+            case mouthRatioStd = "mouth_ratio_std"
+            case caveat, note
+            case bestLagFrames = "best_lag_frames"
+            case lag0PearsonR = "lag0_pearson_r"
+            case fps
+            case nFrames = "n_frames"
+            case nDetected = "n_detected"
+            case mouthRatioMean = "mouth_ratio_mean"
+            case audioRmsMean = "audio_rms_mean"
+        }
+    }
+
+    struct MouthSeries {
+        let ratios: [Double]  // NaN for frames with no detected face
+        let fps: Double
+        let nFrames: Int
+        let nDetected: Int
+    }
+
+    /// Lag search window in video frames — same value as the Python
+    /// version's _MAX_LAG_FRAMES.
+    public static let maxLagFrames = 4
+
+    static func mean(_ values: [Double]) -> Double {
+        guard !values.isEmpty else { return 0.0 }
+        return values.reduce(0, +) / Double(values.count)
+    }
+
+    static func standardDeviation(_ values: [Double]) -> Double {
+        guard !values.isEmpty else { return 0.0 }
+        let m = mean(values)
+        let variance = values.reduce(0) { $0 + ($1 - m) * ($1 - m) } / Double(values.count)
+        return sqrt(variance)
+    }
+
+    private static func centroid(_ points: [CGPoint]) -> CGPoint {
+        guard !points.isEmpty else { return .zero }
+        let sum = points.reduce(CGPoint.zero) { CGPoint(x: $0.x + $1.x, y: $0.y + $1.y) }
+        return CGPoint(x: sum.x / Double(points.count), y: sum.y / Double(points.count))
+    }
+
+    /// Inner-lip vertical extent / interocular distance, in image-pixel
+    /// space, for one face observation. `boundingBox` is Vision's
+    /// full-image-normalized, bottom-left-origin face rect;
+    /// `landmarks.*.normalizedPoints` are normalized WITHIN that box —
+    /// converting both to a shared pixel space cancels out face-scale/zoom,
+    /// same intent as the Python version's mediapipe-normalized-space ratio.
+    static func mouthOpenRatio(landmarks: VNFaceLandmarks2D, boundingBox: CGRect, imageWidth: Int, imageHeight: Int) -> Double? {
+        guard let innerLips = landmarks.innerLips, innerLips.pointCount > 0,
+              let leftEye = landmarks.leftEye, leftEye.pointCount > 0,
+              let rightEye = landmarks.rightEye, rightEye.pointCount > 0
+        else { return nil }
+
+        func toPixel(_ p: CGPoint) -> CGPoint {
+            CGPoint(
+                x: (boundingBox.origin.x + p.x * boundingBox.width) * Double(imageWidth),
+                y: (boundingBox.origin.y + p.y * boundingBox.height) * Double(imageHeight)
+            )
+        }
+
+        let lipYs = innerLips.normalizedPoints.map { toPixel($0).y }
+        guard let maxY = lipYs.max(), let minY = lipYs.min() else { return nil }
+        let mouthGap = maxY - minY
+
+        let leftCenter = centroid(leftEye.normalizedPoints.map(toPixel))
+        let rightCenter = centroid(rightEye.normalizedPoints.map(toPixel))
+        let interocular = hypot(leftCenter.x - rightCenter.x, leftCenter.y - rightCenter.y)
+        guard interocular > 1e-6 else { return nil }
+        return mouthGap / interocular
+    }
+
+    /// Per-frame mouth-open ratio for every frame of the video (NaN where no
+    /// face is detected). Reuses VideoProbe's existing consecutive-frame
+    /// extraction (the same utility VideoGate's motion check uses) rather
+    /// than writing a new AVAssetReader frame walk.
+    static func extractMouthOpenSeries(url: URL) throws -> MouthSeries {
+        let info = try VideoProbe.info(url: url)
+        guard info.fps > 0, info.duration > 0 else {
+            return MouthSeries(ratios: [], fps: info.fps, nFrames: 0, nDetected: 0)
+        }
+        let frameCount = max(1, Int((info.duration * info.fps).rounded()))
+        let frames = try VideoProbe.consecutiveFrames(url: url, startTime: 0, count: frameCount, fps: info.fps)
+
+        var ratios: [Double] = []
+        ratios.reserveCapacity(frames.count)
+        var nDetected = 0
+        for image in frames {
+            var ratio = Double.nan
+            let request = VNDetectFaceLandmarksRequest()
+            let handler = VNImageRequestHandler(cgImage: image, options: [:])
+            if (try? handler.perform([request])) != nil,
+               let face = request.results?.first,
+               let landmarks = face.landmarks,
+               let r = mouthOpenRatio(landmarks: landmarks, boundingBox: face.boundingBox, imageWidth: image.width, imageHeight: image.height) {
+                ratio = r
+                nDetected += 1
+            }
+            ratios.append(ratio)
+        }
+        return MouthSeries(ratios: ratios, fps: info.fps, nFrames: frames.count, nDetected: nDetected)
+    }
+
+    /// Decode the first audio track to mono Float32 PCM. Deliberately
+    /// separate from AudioProbe.swift's own private decode loop (same
+    /// AVAssetReader settings, small duplication) rather than refactoring
+    /// AudioProbe to expose raw samples — that file serves a different
+    /// consumer (VideoGate) and isn't part of this change's scope.
+    private static func decodeMonoPCM(url: URL) -> [Float] {
+        let asset = AVURLAsset(url: url)
+        guard let track = asset.tracks(withMediaType: .audio).first,
+              let reader = try? AVAssetReader(asset: asset)
+        else { return [] }
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVLinearPCMBitDepthKey: 32,
+            AVLinearPCMIsFloatKey: true,
+            AVLinearPCMIsNonInterleaved: false,
+            AVNumberOfChannelsKey: 1,
+        ]
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: settings)
+        reader.add(output)
+        reader.startReading()
+        var samples: [Float] = []
+        while let buffer = output.copyNextSampleBuffer() {
+            guard let blockBuffer = CMSampleBufferGetDataBuffer(buffer) else { continue }
+            let length = CMBlockBufferGetDataLength(blockBuffer)
+            var data = [UInt8](repeating: 0, count: length)
+            CMBlockBufferCopyDataBytes(blockBuffer, atOffset: 0, dataLength: length, destination: &data)
+            data.withUnsafeBytes { raw in
+                let floats = raw.bindMemory(to: Float32.self)
+                samples.append(contentsOf: floats)
+            }
+        }
+        return samples
+    }
+
+    /// Audio RMS envelope resampled onto `nSamples` points spanning the
+    /// clip — mirrors the Python version's extract_audio_envelope.
+    static func extractAudioEnvelope(url: URL, nSamples: Int) -> [Double] {
+        guard nSamples > 0 else { return [] }
+        let samples = decodeMonoPCM(url: url)
+        guard samples.count >= 1024 else { return Array(repeating: 0.0, count: nSamples) }
+
+        let windowSize = 1024
+        var rmsFrames: [Double] = []
+        var i = 0
+        while i < samples.count {
+            let end = min(i + windowSize, samples.count)
+            let chunk = samples[i..<end]
+            var sumSq: Float = 0
+            for v in chunk { sumSq += v * v }
+            rmsFrames.append(Double(sqrt(sumSq / Float(chunk.count))))
+            i = end
+        }
+        guard rmsFrames.count >= 2 else { return Array(repeating: 0.0, count: nSamples) }
+        return linearResample(rmsFrames, to: nSamples)
+    }
+
+    /// End-to-end: extract both series, correlate, verdict. Mirrors
+    /// measure_lipsync_precision()'s structure exactly (same early-exit
+    /// order: no_face check before no_audio check).
+    public static func measure(url: URL) throws -> LipsyncResult {
+        let mouth = try extractMouthOpenSeries(url: url)
+        guard mouth.nDetected >= 4 else {
+            return LipsyncResult(
+                verdict: "no_face", pearsonR: nil, mouthRatioStd: nil, caveat: nil,
+                note: "insufficient face detections", bestLagFrames: nil, lag0PearsonR: nil,
+                fps: mouth.fps, nFrames: mouth.nFrames, nDetected: mouth.nDetected,
+                mouthRatioMean: nil, audioRmsMean: nil)
+        }
+
+        let audioEnv = extractAudioEnvelope(url: url, nSamples: mouth.ratios.count)
+        let audioStd = standardDeviation(audioEnv.filter { !$0.isNaN })
+        guard audioStd >= 1e-9 else {
+            return LipsyncResult(
+                verdict: "no_audio", pearsonR: nil, mouthRatioStd: nil, caveat: nil,
+                note: "audio envelope has ~zero variance (silent/missing track)",
+                bestLagFrames: nil, lag0PearsonR: nil,
+                fps: mouth.fps, nFrames: mouth.nFrames, nDetected: mouth.nDetected,
+                mouthRatioMean: nil, audioRmsMean: nil)
+        }
+
+        let (r, lag) = laggedPearson(mouth.ratios, audioEnv, maxLag: maxLagFrames)
+        let lag0R = pearson(mouth.ratios, audioEnv) ?? 0.0
+        let validRatios = mouth.ratios.filter { !$0.isNaN }
+        let mouthRatioStd = standardDeviation(validRatios)
+        let mouthRatioMean = mean(validRatios)
+        let audioRmsMean = mean(audioEnv)
+
+        let classification = classifyVerdict(r: r, lag: lag, maxLag: maxLagFrames, lag0R: lag0R, mouthRatioStd: mouthRatioStd)
+
+        func round4(_ v: Double) -> Double { (v * 10000).rounded() / 10000 }
+        func round6(_ v: Double) -> Double { (v * 1_000_000).rounded() / 1_000_000 }
+
+        return LipsyncResult(
+            verdict: classification.verdict,
+            pearsonR: round4(r),
+            mouthRatioStd: round4(mouthRatioStd),
+            caveat: classification.caveat,
+            note: nil,
+            bestLagFrames: lag,
+            lag0PearsonR: round4(lag0R),
+            fps: mouth.fps,
+            nFrames: mouth.nFrames,
+            nDetected: mouth.nDetected,
+            mouthRatioMean: round4(mouthRatioMean),
+            audioRmsMean: round6(audioRmsMean)
+        )
     }
 }
