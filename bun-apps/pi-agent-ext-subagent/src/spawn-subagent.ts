@@ -176,7 +176,7 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
     if (!capabilitySpec) {
       const known = cfg?.capabilities ? Object.keys(cfg.capabilities).join(", ") || "(none)" : "(none)";
       console.error(
-        `[subagent] unknown capability "${opts.capability}" — falling back. Configured capabilities: ${known}. Manage them via /workflows-models.`,
+        `[subagent] unknown capability "${opts.capability}" — falling back. Configured capabilities: ${known}. Add a capabilities map to ~/.pi/workflows/model-tiers.json.`,
       );
     }
   }

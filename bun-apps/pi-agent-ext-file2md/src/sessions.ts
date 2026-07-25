@@ -74,7 +74,7 @@ export function resolveVisionLLM(opts: { model?: string; provider?: string; thin
   const spec = resolveModelRole({ capability: "vision" }, loadModelTierConfig());
   if (spec) return resolveLLM({ ...opts, model: spec });
   console.error(
-    "[file2md] capabilities.vision not set in model-tiers config — falling back to PI_MODEL/PI_PROVIDER env (deprecated). Set capabilities.vision via /workflows-models.",
+    "[file2md] capabilities.vision not set in model-tiers config — falling back to PI_MODEL/PI_PROVIDER env (deprecated). Set capabilities.vision in ~/.pi/workflows/model-tiers.json.",
   );
   return resolveLLM(opts);
 }
