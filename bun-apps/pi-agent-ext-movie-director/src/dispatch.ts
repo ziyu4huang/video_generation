@@ -604,7 +604,7 @@ export async function dispatch(command: Command, opts: Record<string, unknown>, 
         const runLipsync = deps?.runPyLipsyncImpl ?? runPyLipsync;
         const evaluated = await runLipsync({ videoPath });
         if (!evaluated.ok || !evaluated.metrics) {
-          const baseError = evaluated.error ?? "evaluate-lipsync: lipsync_metrics failed";
+          const baseError = evaluated.error ?? "evaluate-lipsync: lipsync-metrics failed";
           const errorWithTail = evaluated.stderrTail ? `${baseError}\n${evaluated.stderrTail}`.trim() : baseError;
           return { ok: false, error: errorWithTail };
         }
