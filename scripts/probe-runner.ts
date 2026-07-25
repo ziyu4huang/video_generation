@@ -79,8 +79,14 @@ interface DispatchOptions {
 async function dispatchSubagent(
   bridgedTool: ToolDefinition,
   opts: DispatchOptions,
-): Promise<SpawnSubagentResult> {
-  return spawnSubagent({
+): Promise<SpawnSubagentResult & { toolCalls: string[] }> {
+  // Capture the child's tool-call transcript so the structural check can match
+  // on actual tool invocations (e.g. "the child called `subagent`"), not just on
+  // whether the literal word appeared in its prose summary — a child that
+  // dispatches via tool-call but reports "I delegated to a worker…" would
+  // otherwise false-fail a /\bsubagent\b/i prose regex.
+  let toolCalls: string[] = [];
+  const result = await spawnSubagent({
     task: opts.task,
     tools: PROBE_TOOLS,
     excludeTools: PROBE_EXCLUDE_TOOLS,
@@ -88,7 +94,13 @@ async function dispatchSubagent(
     extensionTools: [bridgedTool],
     timeoutMs: PER_DISPATCH_TIMEOUT_MS,
     retryOnTransient: true,
+    onHistory: (history: Array<{ kind: string; toolName?: string }>) => {
+      toolCalls = history
+        .filter((h) => h.kind === "toolCall")
+        .map((h) => h.toolName ?? "tool");
+    },
   });
+  return { ...result, toolCalls };
 }
 
 /** Run one probe end-to-end: dispatch → structural → judge. Never throws (records failures). */
@@ -104,12 +116,15 @@ async function runProbe(bridgedTool: ToolDefinition, p: Probe): Promise<ProbeRes
     };
   }
 
-  // 1. Dispatch the probe as an isolated subagent; capture its output.
+  // 1. Dispatch the probe as an isolated subagent; capture its output + tool calls.
   const probeRes = await dispatchSubagent(bridgedTool, { task: p.prompt });
   const out = probeRes.output || (probeRes.exitCode !== 0 ? `[dispatch failed exit=${probeRes.exitCode}] ${probeRes.stderr}` : "");
 
-  // 2. Structural checks (local, deterministic).
-  const structuralPassed = runStructural(p.structural, out);
+  // 2. Structural checks (local, deterministic) — match against the prose
+  //    output AND the tool-call trace, so a regex like /\bsubagent\b/ fires on
+  //    an actual `subagent` tool invocation even if the prose never names it.
+  const callTrace = probeRes.toolCalls.length ? `\n[tools called: ${probeRes.toolCalls.join(", ")}]` : "";
+  const structuralPassed = runStructural(p.structural, out + callTrace);
 
   // 3. Judge: a second subagent scores the output vs the rubric (0–3 each).
   const judgeRes = await dispatchSubagent(bridgedTool, { task: buildJudgePrompt(p.rubric, out), schema: judgeSchema });
