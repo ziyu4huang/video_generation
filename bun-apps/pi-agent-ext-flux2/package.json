@@ -24,7 +24,6 @@
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.82.0",
-    "@earendil-works/pi-agent-core": "0.82.0",
     "@repo/pi-agent-ext-file2md": "workspace:*"
   },
   "peerDependencies": {

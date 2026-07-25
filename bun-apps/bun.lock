@@ -152,7 +152,6 @@
       "name": "@repo/pi-agent-ext-flux2",
       "version": "0.1.0",
       "dependencies": {
-        "@earendil-works/pi-agent-core": "0.82.0",
         "@earendil-works/pi-ai": "0.82.0",
         "@repo/pi-agent-ext-file2md": "workspace:*",
       },
@@ -202,10 +201,6 @@
     "pi-agent-ext-krea2": {
       "name": "@repo/pi-agent-ext-krea2",
       "version": "0.1.0",
-      "dependencies": {
-        "@earendil-works/pi-agent-core": "0.82.0",
-        "@earendil-works/pi-ai": "0.82.0",
-      },
       "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^6.0.3",
@@ -218,10 +213,6 @@
     "pi-agent-ext-ltx": {
       "name": "@repo/pi-agent-ext-ltx",
       "version": "0.1.0",
-      "dependencies": {
-        "@earendil-works/pi-coding-agent": "0.82.0",
-        "typebox": "^1.3.7",
-      },
       "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^6.0.3",
@@ -235,8 +226,6 @@
       "name": "@repo/pi-agent-ext-movie-director",
       "version": "0.1.0",
       "dependencies": {
-        "@earendil-works/pi-ai": "0.82.0",
-        "@earendil-works/pi-coding-agent": "0.82.0",
         "@repo/pi-agent-ext-flux2": "workspace:*",
         "@repo/pi-agent-ext-krea2": "workspace:*",
         "@repo/pi-agent-ext-ltx": "workspace:*",
@@ -244,7 +233,6 @@
         "ajv": "latest",
         "ajv-formats": "latest",
         "msedge-tts": "^2.0.7",
-        "typebox": "^1.3.7",
         "yaml": "latest",
       },
       "devDependencies": {
@@ -272,7 +260,6 @@
       "version": "0.1.0",
       "dependencies": {
         "@earendil-works/pi-coding-agent": "0.82.0",
-        "@earendil-works/pi-tui": "0.82.0",
         "@playwright/cli": "^0.1.17",
         "js-yaml": "latest",
         "typebox": "^1.3.7",
