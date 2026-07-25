@@ -41,7 +41,7 @@
       "name": "pi-agent-ext-archify",
       "entry": "pi-agent-ext-archify/extensions/archify.ts",
       "bundleMode": "thin",
-      "testGate": "cd bun-apps/pi-agent-ext-archify && bun test",
+      "testGate": "cd bun-apps/pi-agent-ext-archify && bun test --isolate",
       "version": "0.1.0"
     }
   ],

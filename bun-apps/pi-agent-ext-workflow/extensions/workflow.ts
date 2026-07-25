@@ -22,6 +22,7 @@ import {
   WorkflowManager,
 } from "../src/index.js";
 import { getSubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent/src/index.ts";
+import { installSubagentProgressWidget } from "../src/subagent-progress-widget.js";
 import { createSubagentsCommand } from "../src/subagents-command.js";
 
 export default function extension(pi: ExtensionAPI) {
@@ -186,6 +187,10 @@ export default function extension(pi: ExtensionAPI) {
     // Pass a live settings loader so /workflows-progress (compact|detailed) takes
     // effect without a restart.
     installTaskPanel(pi, manager, ctx.ui, { storage, cwd, loadSettings: () => loadWorkflowSettings({ cwd }) });
+    // Always-on below-editor panel: one live line per running subagent (mirrors
+    // the /subagents Running row), invisible when idle. Reads the shared
+    // subagentInFlight singleton the `subagent` tool writes to.
+    installSubagentProgressWidget(ctx.ui, { registry: subagentInFlight });
     if (!editorInstalled) {
       installWorkflowEditor(pi, ctx.ui, effort, {
         settingsStore: {

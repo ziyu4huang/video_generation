@@ -15,10 +15,15 @@ export interface InFlightSubagent {
   id: string;
   agent?: string;
   model: string;
+  /** Concrete provider/id once the child resolves its model (onModelResolved).
+   * Undefined until resolution — the call line shows tier/model-request until then. */
+  resolvedModel?: string;
   taskPreview: string;
   startedAt: number;
   /** Latest compact history snapshot (for the live-output trace). */
   history?: AgentHistoryEntry[];
+  /** Bound by renderCall so updateModel can force a call-line re-render mid-run. */
+  invalidate?: () => void;
 }
 
 /**
@@ -37,6 +42,25 @@ export class SubagentInFlightRegistry {
   update(id: string, history: AgentHistoryEntry[]): void {
     const r = this.runs.get(id);
     if (r) r.history = history;
+  }
+
+  get(id: string): InFlightSubagent | undefined {
+    return this.runs.get(id);
+  }
+
+  /** Bind the harness invalidate for this run (called from the tool's renderCall). */
+  bindInvalidate(id: string, invalidate: () => void): void {
+    const r = this.runs.get(id);
+    if (r) r.invalidate = invalidate;
+  }
+
+  /** Record the concrete resolved model and force a call-line re-render when an
+   * invalidate was bound. No-op after end() (run gone) — mirrors update(). */
+  updateModel(id: string, model: string): void {
+    const r = this.runs.get(id);
+    if (!r) return;
+    r.resolvedModel = model;
+    r.invalidate?.();
   }
 
   end(id: string): void {

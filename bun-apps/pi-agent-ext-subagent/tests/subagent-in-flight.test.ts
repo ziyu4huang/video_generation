@@ -31,3 +31,36 @@ test("registry update streams history into the live entry; updates after end are
   reg.update("a", [{ role: "assistant", kind: "toolCall", toolName: "zzz", text: "{}" }]);
   assert.equal(reg.list().length, 0);
 });
+
+test("get returns the live entry by id", () => {
+  const reg = new SubagentInFlightRegistry();
+  assert.equal(reg.get("missing"), undefined);
+  reg.start({ id: "a", model: "x", taskPreview: "t", startedAt: 0 });
+  assert.equal(reg.get("a")?.model, "x");
+});
+
+test("updateModel records resolvedModel and triggers the bound invalidate", () => {
+  const reg = new SubagentInFlightRegistry();
+  let invalidated = 0;
+  reg.start({ id: "a", model: "tier:medium", taskPreview: "t", startedAt: 0 });
+  reg.bindInvalidate("a", () => {
+    invalidated++;
+  });
+  reg.updateModel("a", "google/gemma-4-12b-qat");
+  assert.equal(reg.get("a")?.resolvedModel, "google/gemma-4-12b-qat");
+  assert.equal(invalidated, 1);
+});
+
+test("updateModel on an unknown or ended id is a no-op", () => {
+  const reg = new SubagentInFlightRegistry();
+  let invalidated = 0;
+  reg.updateModel("ghost", "x/y"); // unknown id — no throw, no invalidate
+  reg.start({ id: "a", model: "tier:medium", taskPreview: "t", startedAt: 0 });
+  reg.bindInvalidate("a", () => {
+    invalidated++;
+  });
+  reg.end("a");
+  reg.updateModel("a", "x/y"); // ended — no-op
+  assert.equal(reg.get("a"), undefined);
+  assert.equal(invalidated, 0);
+});

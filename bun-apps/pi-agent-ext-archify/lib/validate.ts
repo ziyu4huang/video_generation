@@ -25,7 +25,10 @@ export async function archifyValidate(params: { ir?: unknown; irPath?: string; t
   const { stdout, stderr, status } = params.irPath
     ? await run(params.irPath)
     : await withTempIr(params.ir ?? {}, run);
-  if (status !== 0) return err(`archify validate failed (exit ${status}).\n${stderr || stdout}`);
+  if (status !== 0) {
+    const binMissing = stdout === "";
+    return err(binMissing ? stderr : `archify validate failed (exit ${status}).\n${stderr || stdout}`);
+  }
   let report: { ok?: boolean; error?: string; diagnostics?: unknown[]; composition?: { profile?: string; summary?: { errors?: number; warnings?: number } } };
   try {
     report = JSON.parse(stdout) as { ok?: boolean; error?: string; diagnostics?: unknown[]; composition?: { profile?: string; summary?: { errors?: number; warnings?: number } } };

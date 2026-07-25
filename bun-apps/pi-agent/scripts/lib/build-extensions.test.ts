@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { extractBareSpecifiers } from "./build-extensions.ts";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { extractBareSpecifiers, stageVendoredAssets } from "./build-extensions.ts";
 
 // extractBareSpecifiers scans minified bundle output for ESM import / re-export
 // bare specifiers (the things that must be abs-resolved or marked external).
@@ -54,5 +57,33 @@ describe("extractBareSpecifiers", () => {
 		const specs = extractBareSpecifiers(code);
 		expect(specs).toContain("real-pkg");
 		expect(specs).toContain("other-pkg");
+	});
+});
+
+describe("stageVendoredAssets", () => {
+	test("copies a package's vendored/ tree into targetDir/vendored/", () => {
+		const pkgDir = mkdtempSync(join(tmpdir(), "pkg-"));
+		const targetDir = mkdtempSync(join(tmpdir(), "tgt-"));
+		mkdirSync(join(pkgDir, "vendored", "bin"), { recursive: true });
+		writeFileSync(join(pkgDir, "vendored", "bin", "archify.mjs"), "// stub");
+		try {
+			stageVendoredAssets([{ name: "pi-agent-ext-archify", pkgDir }], targetDir);
+			expect(existsSync(join(targetDir, "vendored", "bin", "archify.mjs"))).toBe(true);
+		} finally {
+			rmSync(pkgDir, { recursive: true, force: true });
+			rmSync(targetDir, { recursive: true, force: true });
+		}
+	});
+
+	test("is a no-op when the package has no vendored/ tree", () => {
+		const pkgDir = mkdtempSync(join(tmpdir(), "pkg-novendor-"));
+		const targetDir = mkdtempSync(join(tmpdir(), "tgt-novendor-"));
+		try {
+			stageVendoredAssets([{ name: "no-vendored", pkgDir }], targetDir);
+			expect(existsSync(join(targetDir, "vendored"))).toBe(false);
+		} finally {
+			rmSync(pkgDir, { recursive: true, force: true });
+			rmSync(targetDir, { recursive: true, force: true });
+		}
 	});
 });
