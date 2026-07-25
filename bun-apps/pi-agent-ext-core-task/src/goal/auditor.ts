@@ -21,7 +21,6 @@
  * is NOT an `as any` and is the only way to read the field at the type level.
  */
 
-import type { Model } from "@earendil-works/pi-ai";
 import {
 	createAgentSession,
 	createExtensionRuntime,
@@ -34,6 +33,14 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { ActiveGoal } from "./format.js";
 import { checkRegressionShield, parseAuditorVerdict, type GoalAuditorResult } from "./shield.js";
+
+/**
+ * Opaque model type. The auditor only reads `.id` (for labels) and forwards
+ * the value to {@link createAgentSession}. Derived from the real consumer so
+ * it stays structurally compatible WITHOUT a `@earendil-works/pi-ai` dependency
+ * — same rationale overflow.ts uses to inline pi-ai types locally.
+ */
+type AuditorModel = NonNullable<Parameters<typeof createAgentSession>[0]>["model"];
 
 export const AUDITOR_STALL_MS = 10 * 60_000; // 10-min inactivity → abort → error
 export const AUDIT_MAX_RETRIES = 3;           // consecutive disapprovals before escalate-to-user
@@ -48,7 +55,7 @@ export type AuditorProgressCallback = (progress: AuditProgress) => void;
 /** A session factory (the real createAgentSession by default; faked in tests). */
 export type SessionFactory = (opts: {
 	cwd: string;
-	model: Model<any>;
+	model: AuditorModel;
 	modelRuntime: ModelRuntime;
 	resourceLoader: ResourceLoader;
 	sessionManager: SessionManager;
@@ -61,7 +68,7 @@ export interface AuditRunnerArgs {
 	goal: ActiveGoal;
 	completionSummary?: string | null;
 	/** Override the auditor model; defaults to the session model. */
-	model?: Model<any>;
+	model?: AuditorModel;
 	/** Test seam: inject a fake session factory. */
 	sessionFactory?: SessionFactory;
 	signal?: AbortSignal;
@@ -131,7 +138,7 @@ function buildGoalAuditorPrompt(goal: ActiveGoal, completionSummary: string | nu
 	].join("\n");
 }
 
-function modelLabel(model: Model<any> | undefined): string {
+function modelLabel(model: AuditorModel | undefined): string {
 	if (!model) return "(unset)";
 	if (typeof model === "string") return model;
 	if (model && typeof model === "object" && "id" in model) return (model as { id: string }).id;
@@ -140,7 +147,7 @@ function modelLabel(model: Model<any> | undefined): string {
 
 export async function runGoalCompletionAuditor(args: AuditRunnerArgs): Promise<GoalAuditorResult> {
 	const { ctx } = args;
-	const model = args.model ?? (ctx as { model?: Model<any> }).model;
+	const model = args.model ?? (ctx as { model?: AuditorModel }).model;
 	if (!model) {
 		return { approved: false, disapproved: false, output: "", model: "(unset)", error: "no model (session model also unset)" };
 	}
