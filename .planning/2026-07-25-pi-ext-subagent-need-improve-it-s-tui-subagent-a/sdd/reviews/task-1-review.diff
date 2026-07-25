@@ -1,0 +1,128 @@
+# Review package: 43bd2a5..HEAD
+
+## Commits
+61cad472 feat(subagent): registry holds resolvedModel + drives call-line invalidate
+
+## Files changed
+ .../src/subagent-in-flight.ts                      | 24 ++++++++++++++++++
+ .../tests/subagent-in-flight.test.ts               | 29 ++++++++++++++++++++++
+ 2 files changed, 53 insertions(+)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-subagent/src/subagent-in-flight.ts b/bun-apps/pi-agent-ext-subagent/src/subagent-in-flight.ts
+index 0770ee12..7e16c6bb 100644
+--- a/bun-apps/pi-agent-ext-subagent/src/subagent-in-flight.ts
++++ b/bun-apps/pi-agent-ext-subagent/src/subagent-in-flight.ts
+@@ -8,44 +8,68 @@
+  * "Running" section with live elapsed while a child is mid-flight — closing
+  * the gap that running subagents were invisible until they finished.
+  */
+ import type { AgentHistoryEntry } from "./agent-history.js";
+ 
+ export interface InFlightSubagent {
+   /** The toolCallId (unique per dispatch). */
+   id: string;
+   agent?: string;
+   model: string;
++  /** Concrete provider/id once the child resolves its model (onModelResolved).
++   * Undefined until resolution — the call line shows tier/model-request until then. */
++  resolvedModel?: string;
+   taskPreview: string;
+   startedAt: number;
+   /** Latest compact history snapshot (for the live-output trace). */
+   history?: AgentHistoryEntry[];
++  /** Bound by renderCall so updateModel can force a call-line re-render mid-run. */
++  invalidate?: () => void;
+ }
+ 
+ /**
+  * Process-local registry of running subagents. Process-local by design: a
+  * subagent runs in-process (spawnSubagent → WorkflowAgent.run), so all live
+  * runs are in this process. Completed runs persist in the session branch and
+  * are reconstructed separately by the viewer.
+  */
+ export class SubagentInFlightRegistry {
+   private runs = new Map<string, InFlightSubagent>();
+ 
+   start(run: InFlightSubagent): void {
+     this.runs.set(run.id, run);
+   }
+ 
+   update(id: string, history: AgentHistoryEntry[]): void {
+     const r = this.runs.get(id);
+     if (r) r.history = history;
+   }
+ 
++  get(id: string): InFlightSubagent | undefined {
++    return this.runs.get(id);
++  }
++
++  /** Bind the harness invalidate for this run (called from the tool's renderCall). */
++  bindInvalidate(id: string, invalidate: () => void): void {
++    const r = this.runs.get(id);
++    if (r) r.invalidate = invalidate;
++  }
++
++  /** Record the concrete resolved model and force a call-line re-render when an
++   * invalidate was bound. No-op after end() (run gone) — mirrors update(). */
++  updateModel(id: string, model: string): void {
++    const r = this.runs.get(id);
++    if (!r) return;
++    r.resolvedModel = model;
++    r.invalidate?.();
++  }
++
+   end(id: string): void {
+     this.runs.delete(id);
+   }
+ 
+   list(): InFlightSubagent[] {
+     return [...this.runs.values()];
+   }
+ }
+ 
+ let _registrySingleton: SubagentInFlightRegistry | undefined;
+diff --git a/bun-apps/pi-agent-ext-subagent/tests/subagent-in-flight.test.ts b/bun-apps/pi-agent-ext-subagent/tests/subagent-in-flight.test.ts
+index df81898a..fd2be08d 100644
+--- a/bun-apps/pi-agent-ext-subagent/tests/subagent-in-flight.test.ts
++++ b/bun-apps/pi-agent-ext-subagent/tests/subagent-in-flight.test.ts
+@@ -24,10 +24,39 @@ test("registry update streams history into the live entry; updates after end are
+   reg.update("a", [
+     { role: "assistant", kind: "toolCall", toolName: "grep", text: "{}" },
+     { role: "assistant", kind: "toolCall", toolName: "ls", text: "{}" },
+   ]);
+   assert.equal(reg.list()[0].history?.length, 2);
+   reg.end("a");
+   // updates after end are no-ops (run gone)
+   reg.update("a", [{ role: "assistant", kind: "toolCall", toolName: "zzz", text: "{}" }]);
+   assert.equal(reg.list().length, 0);
+ });
++
++test("get returns the live entry by id", () => {
++  const reg = new SubagentInFlightRegistry();
++  assert.equal(reg.get("missing"), undefined);
++  reg.start({ id: "a", model: "x", taskPreview: "t", startedAt: 0 });
++  assert.equal(reg.get("a")?.model, "x");
++});
++
++test("updateModel records resolvedModel and triggers the bound invalidate", () => {
++  const reg = new SubagentInFlightRegistry();
++  let invalidated = 0;
++  reg.start({ id: "a", model: "tier:medium", taskPreview: "t", startedAt: 0 });
++  reg.bindInvalidate("a", () => { invalidated++; });
++  reg.updateModel("a", "google/gemma-4-12b-qat");
++  assert.equal(reg.get("a")?.resolvedModel, "google/gemma-4-12b-qat");
++  assert.equal(invalidated, 1);
++});
++
++test("updateModel on an unknown or ended id is a no-op", () => {
++  const reg = new SubagentInFlightRegistry();
++  let invalidated = 0;
++  reg.updateModel("ghost", "x/y"); // unknown id — no throw, no invalidate
++  reg.start({ id: "a", model: "tier:medium", taskPreview: "t", startedAt: 0 });
++  reg.bindInvalidate("a", () => { invalidated++; });
++  reg.end("a");
++  reg.updateModel("a", "x/y"); // ended — no-op
++  assert.equal(reg.get("a"), undefined);
++  assert.equal(invalidated, 0);
++});
