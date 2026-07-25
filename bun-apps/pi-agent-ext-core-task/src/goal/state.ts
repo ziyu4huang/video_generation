@@ -1,11 +1,17 @@
 /**
- * Goal-owned types + pure status-machine functions.
+ * Goal-owned types + pure status-machine functions + the runtime-state
+ * container.
  *
  * Extracted from goal.ts (Phase 1, Task 4) so the state-machine — `createGoal`,
  * `transitionGoal`, `normalizeGoalForBudget`, `incrementGoal`, `cloneGoal`,
  * `isGoal` — is unit-testable in isolation from the UI/coordination seam that
- * remains in goal.ts. This module is pure: it has ZERO @earendil-works/*
- * imports (only the Bun-runtime "crypto" and the local ./format.js sibling).
+ * remains in goal.ts. The status-machine functions are pure. The
+ * `GoalRuntimeState` container (Phase 1, Task 5) centralizes goal.ts's
+ * session-scoped mutable `let`s behind one object so they can be reset from
+ * tests via `__resetGoalState()`. This module STILL has ZERO
+ * @earendil-works/* imports (only the Bun-runtime "crypto" and the local
+ * ./format.js sibling); that is why `extensionApi` / `latestCtx` are typed
+ * `unknown` and narrowed at read sites in goal.ts.
  *
  * Status machine:
  *   active ← → paused
@@ -111,4 +117,45 @@ export function isGoal(value: unknown): value is ActiveGoal {
 		typeof goal.timeUsedSeconds === "number" &&
 		typeof goal.baselineTokens === "number"
 	);
+}
+
+// ─── Runtime-state container + test seam (Phase 1, Task 5) ────────────────────
+// Centralizes goal.ts's session-scoped mutable `let`s behind one object so the
+// pure status-machine above stays pure while the coordination/UI seam in goal.ts
+// reads/writes a single named container. `__resetGoalState()` mirrors
+// todo/state/store.ts __resetState and lets tests start from a known baseline.
+
+/** Runtime, session-scoped goal state. One instance per process (module singleton). */
+export interface GoalRuntimeState {
+	activeGoal: import("./format.js").ActiveGoal | undefined;
+	extensionApi: unknown; // ExtensionAPI — typed loosely to keep state.ts pi-import-free
+	continuationPending: ContinuationPending | undefined;
+	goalRecovery: GoalRecovery | undefined;
+	staleGoalToolCallsBlocked: boolean;
+	statusRefreshTimer: ReturnType<typeof setInterval> | undefined;
+	latestCtx: unknown; // StatusContext
+	cancelledContinuationMarkers: Set<string>;
+}
+
+export const goalState: GoalRuntimeState = {
+	activeGoal: undefined,
+	extensionApi: undefined,
+	continuationPending: undefined,
+	goalRecovery: undefined,
+	staleGoalToolCallsBlocked: false,
+	statusRefreshTimer: undefined,
+	latestCtx: undefined,
+	cancelledContinuationMarkers: new Set<string>(),
+};
+
+/** Test seam: reset all runtime state to initial values (mirrors todo/state/store.ts __resetState). */
+export function __resetGoalState(): void {
+	goalState.activeGoal = undefined;
+	goalState.extensionApi = undefined;
+	goalState.continuationPending = undefined;
+	goalState.goalRecovery = undefined;
+	goalState.staleGoalToolCallsBlocked = false;
+	goalState.statusRefreshTimer = undefined;
+	goalState.latestCtx = undefined;
+	goalState.cancelledContinuationMarkers.clear();
 }

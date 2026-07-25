@@ -12,6 +12,8 @@ import {
 	incrementGoal,
 	cloneGoal,
 	isGoal,
+	goalState,
+	__resetGoalState,
 	type ActiveGoal,
 } from "../state.js";
 
@@ -89,4 +91,14 @@ test("cloneGoal returns a deep copy that is not reference-equal", () => {
 	expect(copy).not.toBe(g);
 	copy.tokensUsed = 99;
 	expect(g.tokensUsed).toBe(0);
+});
+
+test("__resetGoalState clears runtime state", () => {
+	goalState.activeGoal = createGoal("x", undefined, 0);
+	goalState.staleGoalToolCallsBlocked = true;
+	goalState.cancelledContinuationMarkers.add("m");
+	__resetGoalState();
+	expect(goalState.activeGoal).toBeUndefined();
+	expect(goalState.staleGoalToolCallsBlocked).toBe(false);
+	expect(goalState.cancelledContinuationMarkers.size).toBe(0);
 });
