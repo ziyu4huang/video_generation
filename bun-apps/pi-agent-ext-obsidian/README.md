@@ -194,6 +194,7 @@ bun-apps/pi-obsidian/
 | `OB_PARENT_MODEL` / `OB_SUBAGENT_MODEL` | — | Model-id inheritance floor for distill/garden subagents (B2). `OB_SUBAGENT_MODEL` is a trusted floor; a known-weak `OB_PARENT_MODEL` is refused. |
 | `OB_SUBAGENT_TIMEOUT_MS` | `300000` | Per-call timeout for distill/garden subagents. |
 | `VAULT_MIND_BASE_URL` | `http://127.0.0.1:8000` | Base URL of the vault-mind service for `obsidian_semantic_search`. A path prefix is honoured (e.g. `http://host:9999/vm/` → `…/vm/api/search`). Unset + no service → the tool returns a structured `isError` so the agent falls back to `obsidian_search`. |
+| `VAULT_MIND_AUTO_REINDEX` | unset (off) | Set to `1` (or any truthy string other than `0`/`false`) to auto-fire a `POST /api/index {force_reindex:true}` after `obsidian_distill` writes notes, so new Zettelkasten cards are picked up without a manual re-index. **Default OFF** — when unset/`0`/`false` no HTTP is issued and distill behaves exactly as before. Fire-and-forget: failures only `console.warn`, never alter the distill tool result. |
 
 ### C6 `.cache/` note
 
@@ -266,6 +267,10 @@ only). Because it is optional infrastructure:
   back to lexical search. No crash, no hard dependency.
 - It is opt-in per environment; it adds no runtime dependencies to pi-obsidian
   (uses the platform `fetch`).
+- After `obsidian_distill` writes notes, set `VAULT_MIND_AUTO_REINDEX=1` to
+  have pi-obsidian fire a `force_reindex` at vault-mind automatically — closing
+  the manual re-index gap so freshly-distilled cards are searchable by meaning
+  without a separate step. Off by default (zero HTTP when unset).
 
 ### When to use it
 

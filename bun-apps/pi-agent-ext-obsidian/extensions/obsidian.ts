@@ -166,6 +166,7 @@ import {
 	listVaultCandidates,
 	loadCachedIndex,
 	makeSubagentProgressLogger,
+	maybeTriggerReindex,
 	moveNote,
 	mtimeConflict,
 	noteMtime,
@@ -1527,9 +1528,13 @@ ${output.slice(-2000)}`,
 			const reportedNotes = Array.isArray(result?.notes) ? result.notes.map(String) : [];
 			let validation: { notes: NoteValidation[]; valid: number; invalid: number } | undefined;
 			let validationText = "";
+			// Resolved vault captured for the opt-in re-index hook below. Stays
+			// undefined when no notes were written or vault resolution failed.
+			let distillVault: ResolvedVault | undefined;
 			if (reportedNotes.length > 0) {
 				try {
 					const v = await getVault(ctx.cwd);
+					distillVault = v;
 					validation = await validateZettelNotes(v.path, reportedNotes);
 				} catch {
 					validation = undefined;
@@ -1566,6 +1571,13 @@ ${output.slice(-2000)}`,
 				} else if (validation && validation.valid > 0) {
 					validationText = `\n\n✓ Validation: all ${validation.valid} created note(s) pass the Zettelkasten schema check.`;
 				}
+			}
+			// Phase 2 / Task 18: opt-in semantic re-index of vault-mind after a
+			// successful distill run. Fire-and-forget (never awaited) and guarded by
+			// VAULT_MIND_AUTO_REINDEX — when off this is a pure no-op (zero HTTP),
+			// so distill behavior is unchanged. Failures only warn; never throw.
+			if (distillVault && reportedNotes.length > 0) {
+				void maybeTriggerReindex(distillVault.name, distillVault.path);
 			}
 			return {
 				content: [
