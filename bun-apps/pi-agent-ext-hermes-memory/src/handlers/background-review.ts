@@ -4,16 +4,20 @@
  * See PLAN.md → "Hermes Source File Reference Map" for source lines.
  *
  * Default transport: in-process complete() side-channel (preserves parent LLM cache).
- * Fallback: pi.exec("pi", ["-p", ...]) subprocess when direct path is unavailable.
+ * Fallback: a one-shot `spawnSubagent` reviewer bridged with the parent memory
+ * tool via `extensionTools` (same end effect as the old `pi -p` subprocess that
+ * loaded this extension with `-e`, without the OS-process boundary). The child's
+ * memory writes land in the parent store because the bridged tool def's execute
+ * closure already binds this parent `MemoryStore`.
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { spawnSubagent } from "@repo/pi-agent-ext-subagent/src/index.ts";
 import { COMBINED_REVIEW_PROMPT } from "../constants.js";
 import { MemoryStore } from "../store/memory-store.js";
 import type { MemoryRepository } from "../store/repository.js";
 import type { MemoryConfig } from "../types.js";
 import { applyRecentMessageLimit, collectMessageParts } from "./message-parts.js";
-import { execChildPrompt } from "./pi-child-process.js";
 import { runDirectBackgroundReview, type DirectReviewResult } from "./review-memory-ops.js";
 
 export interface BackgroundReviewOptions {
@@ -24,7 +28,10 @@ export interface BackgroundReviewOptions {
 
 export interface BackgroundReviewDeps {
   runDirectReview?: typeof runDirectBackgroundReview;
-  execChildPrompt?: typeof execChildPrompt;
+  /** Parent memory tool def bridged into the fallback spawn reviewer. */
+  memoryToolDef?: ToolDefinition;
+  /** Injectable spawn seam — production omits it (→ real spawnSubagent). */
+  spawn?: typeof spawnSubagent;
 }
 
 export interface ReviewPromptInput {
@@ -32,34 +39,6 @@ export interface ReviewPromptInput {
   currentMemory: string;
   currentUser: string;
   currentProject: string | null;
-}
-
-export function buildSubprocessReviewPrompt(input: ReviewPromptInput): string {
-  const reviewPrompt = [
-    COMBINED_REVIEW_PROMPT,
-    "",
-    "--- Current Memory ---",
-    input.currentMemory || "(empty)",
-    "",
-    "--- Current User Profile ---",
-    input.currentUser || "(empty)",
-  ];
-
-  if (input.currentProject !== null) {
-    reviewPrompt.push(
-      "",
-      "--- Current Project Memory ---",
-      input.currentProject || "(empty)",
-    );
-  }
-
-  reviewPrompt.push(
-    "",
-    "--- Conversation to Review ---",
-    input.parts.join("\n\n"),
-  );
-
-  return reviewPrompt.join("\n");
 }
 
 export function buildDirectReviewUserPrompt(input: ReviewPromptInput): string {
@@ -102,15 +81,26 @@ function usesDirectTransport(config: MemoryConfig): boolean {
 }
 
 async function runSubprocessReview(
-  pi: ExtensionAPI,
   prompt: string,
+  memoryToolDef: ToolDefinition,
   config: MemoryConfig,
-  execChild: typeof execChildPrompt,
+  spawn: typeof spawnSubagent,
 ): Promise<{ code: number; stdout?: string }> {
-  return execChild(pi, prompt, config, {
-    signal: undefined,
+  // The child saves via the bridged memory tool (extensionTools), so it writes
+  // directly to the parent store — same effect as the old -e subprocess. The
+  // review prompt carries COMBINED_REVIEW_PROMPT (incl. the "Nothing to save."
+  // convention that shouldNotifySubprocess reads) plus the conversation context.
+  const result = await spawn({
+    task: prompt,
+    tier: "small",
+    instructions:
+      "You are a memory reviewer. Use ONLY the memory tool to save notable facts as instructed. Do not read or modify files.",
+    tools: ["memory"],
+    extensionTools: [memoryToolDef],
     timeoutMs: 120000,
+    retryOnTransient: true,
   });
+  return { code: result.exitCode, stdout: result.output };
 }
 
 export function setupBackgroundReview(
@@ -123,7 +113,8 @@ export function setupBackgroundReview(
   const memoryRepo = options.memoryRepo ?? null;
   const projectName = options.projectName ?? null;
   const runDirectReview = options.deps?.runDirectReview ?? runDirectBackgroundReview;
-  const execChild = options.deps?.execChildPrompt ?? execChildPrompt;
+  const memoryToolDef = options.deps?.memoryToolDef;
+  const spawn = options.deps?.spawn ?? spawnSubagent;
 
   let turnsSinceReview = 0;
   let toolCallsSinceReview = 0;
@@ -189,8 +180,12 @@ export function setupBackgroundReview(
       currentProject: projectStore ? projectStore.getMemoryEntries().join("\n§\n") : null,
     };
 
-    const subprocessPrompt = buildSubprocessReviewPrompt(promptInput);
     const directPrompt = buildDirectReviewUserPrompt(promptInput);
+    // The spawn task carries COMBINED_REVIEW_PROMPT (the reviewer guidance incl.
+    // the "Nothing to save." convention) plus the same context sections the
+    // direct path reviews. buildSubprocessReviewPrompt was removed: the task is
+    // the review prompt assembled directly from the shared context builder.
+    const reviewTask = [COMBINED_REVIEW_PROMPT, "", directPrompt].join("\n");
 
     const finishReview = () => {
       reviewInProgress = false;
@@ -223,7 +218,11 @@ export function setupBackgroundReview(
         }
       }
 
-      const subprocessResult = await runSubprocessReview(pi, subprocessPrompt, config, execChild);
+      // Fallback: spawn a one-shot reviewer subagent bridged with the parent
+      // memory tool. Production always threads memoryToolDef (captured from
+      // registerMemoryTool in src/index.ts); the guard is defensive only.
+      if (!memoryToolDef) return;
+      const subprocessResult = await runSubprocessReview(reviewTask, memoryToolDef, config, spawn);
       if (subprocessResult.code === 0) {
         notifyIfSaved(shouldNotifySubprocess(subprocessResult.stdout));
       }

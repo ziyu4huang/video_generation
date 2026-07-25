@@ -4,18 +4,20 @@
  * See PLAN.md → "Hermes Source File Reference Map" for source lines.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { spawnSubagent } from "@repo/pi-agent-ext-subagent/src/index.ts";
 import { MemoryStore } from "../store/memory-store.js";
 import { FLUSH_PROMPT } from "../constants.js";
 import type { MemoryConfig } from "../types.js";
 import { collectMessageParts } from "./message-parts.js";
-import { execChildPrompt } from "./pi-child-process.js";
 
 export function setupSessionFlush(
   pi: ExtensionAPI,
   store: MemoryStore,
   projectStore: MemoryStore | null,
   config: MemoryConfig,
+  memoryToolDef?: ToolDefinition,
+  spawn: typeof spawnSubagent = spawnSubagent,
 ): void {
   let userTurnCount = 0;
 
@@ -23,7 +25,8 @@ export function setupSessionFlush(
     if (event.message.role === "user") userTurnCount++;
   });
 
-  /** Shared flush logic — builds conversation snapshot and spawns pi -p */
+  /** Shared flush logic — builds conversation snapshot and spawns a one-shot
+   *  reviewer subagent bridged with the parent memory tool. */
   async function flush(ctx: any, signal?: AbortSignal, timeoutMs = 30000): Promise<void> {
     if (userTurnCount < config.flushMinTurns) return;
 
@@ -43,9 +46,20 @@ export function setupSessionFlush(
     ].join("\n");
 
     try {
-      await execChildPrompt(pi, flushMessage, config, {
-        signal,
+      if (!memoryToolDef) return;
+      await spawn({
+        task: flushMessage,
+        tier: "small",
+        instructions: "Use ONLY the memory tool to save memories before context is lost. Do not read or modify files.",
+        tools: ["memory"],
+        extensionTools: [memoryToolDef],
         timeoutMs,
+        // Forward the host signal (compact path) so a cancellation propagates;
+        // shutdown path passes undefined. Brief omitted this, but it is the
+        // spawn equivalent of the old child-process `signal` option and keeps
+        // behavior parity with the correction-detector / consolidation spawns.
+        externalSignal: signal,
+        retryOnTransient: false, // shutdown path — do not retry
       });
     } catch {
       // Best-effort flush — never block shutdown

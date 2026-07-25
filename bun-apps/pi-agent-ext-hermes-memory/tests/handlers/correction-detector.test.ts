@@ -1,6 +1,10 @@
 /**
  * Unit tests for correction detection — isCorrection() pattern matching
- * and handler behavior (rate limiting, pi.exec trigger).
+ * and handler behavior (rate limiting, spawn trigger).
+ *
+ * The correction-save dispatches through the shared `spawnSubagent` runner.
+ * `memoryToolDef` + an injectable `spawn` are the seams threaded into
+ * setupCorrectionDetector; tests pass a fake spawn that records call opts.
  */
 
 import { describe, it, beforeEach, afterEach } from "node:test";
@@ -8,11 +12,12 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { SpawnSubagentOptions, SpawnSubagentResult } from "@repo/pi-agent-ext-subagent/src/index.ts";
 import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
 import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
 import type { MemoryRepository } from "../../src/store/repository.js";
 import { isCorrection, setupCorrectionDetector } from "../../src/handlers/correction-detector.js";
-import { resolveChildPiInvocation } from "../../src/handlers/pi-child-process.js";
 
 // ─── Pattern matching tests ───
 
@@ -222,35 +227,46 @@ describe("isCorrection", () => {
 
 describe("setupCorrectionDetector handler", () => {
   let handlers: Record<string, Function[]>;
-  let execCalls: any[];
+  let spawnCalls: SpawnSubagentOptions[];
   let notifyCalls: any[];
   let tmpDir: string;
   let backend: SqliteBackend;
   let memoryRepo: SqliteMemoryRepository;
 
-  function createMockPi(execReturn?: { code: number; stdout: string; stderr: string }) {
-    const ret = execReturn ?? { code: 0, stdout: "Saved correction", stderr: "" };
+  /** Minimal memory-tool def threaded verbatim through `extensionTools`. */
+  const memoryToolDef: ToolDefinition = {
+    name: "memory",
+    label: "Memory",
+    description: "test memory tool",
+    parameters: {} as never,
+    execute: async () => ({ content: [{ type: "text", text: "{}" }], details: {} }),
+  } as ToolDefinition;
+
+  function createMockPi() {
     return {
       on: (event: string, handler: Function) => {
         handlers[event] = handlers[event] || [];
         handlers[event].push(handler);
-      },
-      exec: async (...args: any[]) => {
-        execCalls.push(args);
-        return ret;
       },
       registerTool: () => {},
       registerCommand: () => {},
     } as any;
   }
 
-  function logicalChildArgs(call: any[]): string[] {
-    const [cmd, args] = call;
-    const logicalArgs = cmd === "pi" ? args : args.slice(1);
-    const expected = resolveChildPiInvocation(logicalArgs);
-    assert.strictEqual(cmd, expected.command);
-    assert.deepStrictEqual(args, expected.args);
-    return logicalArgs;
+  /** Fake spawn that records opts and returns a synthesized result. */
+  function makeSpawn(overrides: Partial<SpawnSubagentResult> & { throwErr?: string } = {}) {
+    const result: SpawnSubagentResult = {
+      output: overrides.output ?? "Saved correction",
+      exitCode: overrides.exitCode ?? 0,
+      stderr: overrides.stderr ?? "",
+      timedOut: overrides.timedOut ?? false,
+    };
+    const spawn = async (opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> => {
+      spawnCalls.push(opts);
+      if (overrides.throwErr) throw new Error(overrides.throwErr);
+      return result;
+    };
+    return spawn as typeof import("@repo/pi-agent-ext-subagent/src/index.ts").spawnSubagent;
   }
 
   const mockStore = {
@@ -308,7 +324,7 @@ describe("setupCorrectionDetector handler", () => {
 
   beforeEach(() => {
     handlers = {};
-    execCalls = [];
+    spawnCalls = [];
     notifyCalls = [];
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "correction-detector-test-"));
     backend = new SqliteBackend(tmpDir);
@@ -320,9 +336,9 @@ describe("setupCorrectionDetector handler", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("triggers pi.exec when correction detected", async () => {
+  it("triggers spawn when correction detected", async () => {
     const pi = createMockPi();
-    setupCorrectionDetector(pi, mockStore, null, config);
+    setupCorrectionDetector(pi, mockStore, null, config, null, undefined, memoryToolDef, makeSpawn());
 
     const branch = [
       { type: "message", message: { role: "user", content: [{ type: "text", text: "don't do that" }] } },
@@ -333,15 +349,12 @@ describe("setupCorrectionDetector handler", () => {
     fireTurnEnd(branch);
     await settle();
 
-    assert.ok(execCalls.length >= 1, "pi.exec should be called on correction");
+    assert.ok(spawnCalls.length >= 1, "spawn should be called on correction");
   });
 
-  it("passes child LLM override args and defaults thinking to off when only a model override is set", async () => {
+  it("dispatches the correction save via spawn with the memory tool bridged in", async () => {
     const pi = createMockPi();
-    setupCorrectionDetector(pi, mockStore, null, {
-      ...config,
-      llmModelOverride: "openrouter/deepseek/deepseek-v4-flash",
-    });
+    setupCorrectionDetector(pi, mockStore, null, config, null, undefined, memoryToolDef, makeSpawn());
 
     const branch = [
       { type: "message", message: { role: "user", content: [{ type: "text", text: "don't do that" }] } },
@@ -352,34 +365,38 @@ describe("setupCorrectionDetector handler", () => {
     fireTurnEnd(branch);
     await settle();
 
-    const cmdArgs = logicalChildArgs(execCalls[0]);
-    assert.deepStrictEqual(
-      cmdArgs.slice(0, 6),
-      ["-p", "--no-session", "--model", "openrouter/deepseek/deepseek-v4-flash", "--thinking", "off"],
-    );
+    assert.strictEqual(spawnCalls.length, 1);
+    const opts = spawnCalls[0]!;
+    assert.strictEqual(opts.tier, "small", "should run on the small tier");
+    assert.deepStrictEqual(opts.tools, ["memory"], "should allowlist only the memory tool");
+    assert.deepStrictEqual(opts.extensionTools, [memoryToolDef], "should bridge the parent memory tool def");
+    assert.strictEqual(opts.timeoutMs, 30000);
+    assert.strictEqual(opts.retryOnTransient, true, "correction save should request a transient retry");
+    assert.ok(opts.task?.includes("don't do that"), "task should include the correction conversation");
+    assert.match(opts.instructions ?? "", /save the correction/i);
   });
 
   it("does NOT trigger on normal messages", async () => {
     const pi = createMockPi();
-    setupCorrectionDetector(pi, mockStore, null, config);
+    setupCorrectionDetector(pi, mockStore, null, config, null, undefined, memoryToolDef, makeSpawn());
 
     fireMessageEnd("user", "looks good");
     fireTurnEnd([]);
     await settle();
 
-    assert.strictEqual(execCalls.length, 0, "pi.exec should NOT be called for normal messages");
+    assert.strictEqual(spawnCalls.length, 0, "spawn should NOT be called for normal messages");
   });
 
   it("rate limits: does not trigger on consecutive corrections within 3 turns", async () => {
     const pi = createMockPi();
-    setupCorrectionDetector(pi, mockStore, null, config);
+    setupCorrectionDetector(pi, mockStore, null, config, null, undefined, memoryToolDef, makeSpawn());
 
     // First correction
     fireMessageEnd("user", "don't do that");
     fireTurnEnd([]);
     await settle();
 
-    const firstCallCount = execCalls.length;
+    const firstCallCount = spawnCalls.length;
     assert.ok(firstCallCount >= 1, "first correction should trigger");
 
     // Second correction within 3 turns — should be rate-limited
@@ -387,18 +404,18 @@ describe("setupCorrectionDetector handler", () => {
     fireTurnEnd([]);
     await settle();
 
-    assert.strictEqual(execCalls.length, firstCallCount, "second correction should be rate-limited");
+    assert.strictEqual(spawnCalls.length, firstCallCount, "second correction should be rate-limited");
   });
 
   it("defers (does not drop) a correction that arrives inside the rate-limit window", async () => {
     const pi = createMockPi();
-    setupCorrectionDetector(pi, mockStore, null, config);
+    setupCorrectionDetector(pi, mockStore, null, config, null, undefined, memoryToolDef, makeSpawn());
 
     // First correction fires and resets the rate-limit window.
     fireMessageEnd("user", "don't do that");
     fireTurnEnd([]);
     await settle();
-    const firstCount = execCalls.length;
+    const firstCount = spawnCalls.length;
     assert.ok(firstCount >= 1, "first correction should trigger");
 
     // Second correction is detected but arrives inside the 3-turn window.
@@ -407,12 +424,12 @@ describe("setupCorrectionDetector handler", () => {
     fireTurnEnd([]); // window turn 2
     fireTurnEnd([]); // window turn 3
     await settle();
-    assert.strictEqual(execCalls.length, firstCount, "still rate-limited inside the window");
+    assert.strictEqual(spawnCalls.length, firstCount, "still rate-limited inside the window");
 
     // Once the window opens, the deferred correction fires instead of being lost.
     fireTurnEnd([]);
     await settle();
-    assert.ok(execCalls.length > firstCount, "deferred correction fires after the window opens");
+    assert.ok(spawnCalls.length > firstCount, "deferred correction fires after the window opens");
   });
 
   it("syncs direct correction saves into SQLite", async () => {
@@ -422,7 +439,7 @@ describe("setupCorrectionDetector handler", () => {
       addFailure: async () => ({ success: true, target: 'failure', entry_count: 1, message: 'Failure memory saved: correction' }),
     } as any;
 
-    setupCorrectionDetector(pi, correctionStore, null, config, memoryRepo);
+    setupCorrectionDetector(pi, correctionStore, null, config, memoryRepo, undefined, memoryToolDef, makeSpawn());
 
     const branch = [
       { type: "message", message: { role: "user", content: [{ type: "text", text: "no, use pnpm instead" }] } },
@@ -449,7 +466,7 @@ describe("setupCorrectionDetector handler", () => {
       getMemoryEntries: () => [],
     } as any;
 
-    setupCorrectionDetector(pi, correctionStore, projectStore, config, memoryRepo, 'project-a');
+    setupCorrectionDetector(pi, correctionStore, projectStore, config, memoryRepo, 'project-a', memoryToolDef, makeSpawn());
 
     const branch = [
       { type: "message", message: { role: "user", content: [{ type: "text", text: "no, use pnpm in this repo" }] } },
@@ -482,7 +499,7 @@ describe("setupCorrectionDetector handler", () => {
       syncMemoryEntry: async () => { throw new Error('sqlite unavailable'); },
     } as unknown as MemoryRepository;
 
-    setupCorrectionDetector(pi, correctionStore, null, config, failingMemoryRepo);
+    setupCorrectionDetector(pi, correctionStore, null, config, failingMemoryRepo, undefined, memoryToolDef, makeSpawn());
 
     const branch = [
       { type: "message", message: { role: "user", content: [{ type: "text", text: "no, use yarn instead" }] } },
@@ -493,7 +510,7 @@ describe("setupCorrectionDetector handler", () => {
     fireTurnEnd(branch);
     await settle();
 
-    assert.ok(execCalls.length >= 1, 'correction review should still run');
+    assert.ok(spawnCalls.length >= 1, 'correction review should still run');
     assert.strictEqual(addFailureCalls, 1, 'Markdown correction save should still happen');
   });
 

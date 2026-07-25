@@ -292,10 +292,11 @@ export default async function (pi: ExtensionAPI) {
   setupBackgroundReview(pi, store, projectStore, config, {
     memoryRepo,
     projectName: projectName || null,
+    deps: { memoryToolDef },
   });
 
   // ── 6. Setup session-end flush ──
-  setupSessionFlush(pi, store, projectStore, config);
+  setupSessionFlush(pi, store, projectStore, config, memoryToolDef);
 
   // ── 7. Setup auto-consolidation (inject consolidator into stores) ──
   store.setConsolidator(async (target, signal) => {
@@ -310,7 +311,7 @@ export default async function (pi: ExtensionAPI) {
   registerConsolidateCommand(pi, store, memoryToolDef, config.consolidationTimeoutMs, projectStore, projectName, config);
 
   // ── 8. Setup correction detection ──
-  setupCorrectionDetector(pi, store, projectStore, config, memoryRepo, projectName);
+  setupCorrectionDetector(pi, store, projectStore, config, memoryRepo, projectName, memoryToolDef);
 
   // ── 8b. Setup lesson-worthy error capture (auto-trigger on tool failures) ──
   setupErrorDetector(pi, store, projectStore, config, memoryRepo, projectName);
