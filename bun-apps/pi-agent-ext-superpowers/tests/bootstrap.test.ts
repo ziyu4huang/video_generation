@@ -152,6 +152,8 @@ describe("bootstrap payload assembly", () => {
     expect(payload).toMatch(/tier|tools|excludeTools|cwd|model/);
     // prefer tier over raw model id (portable, user-tunable via /workflows-models)
     expect(payload).toContain("tier");
+    // capability: model-capability axis (e.g. 'vision') from the merged model-role resolver (#827)
+    expect(payload).toContain("capability?");
     // commitScope: the SDD commit-hygiene guardrail (catches the git add -A sweep)
     expect(payload).toContain("commitScope");
     // tokenBudget/spendBudget: per-agent spend cap (soft guidance — bounds runaway dispatches)
