@@ -1,13 +1,12 @@
 /**
- * runpy_lipsync.ts — the `python -m app.lipsync_metrics` adapter (mouth-motion
+ * lipsync_metrics.ts — the `ltx-video lipsync-metrics` adapter (mouth-motion
  * vs. audio-loudness correlation for a talking-head video).
  *
- * `lipsync_metrics.py` is a MODULE, not a run.py subcommand (its own
- * `__main__` block: `python -m app.lipsync_metrics <mp4_path>`, printing
- * `json.dumps(result, indent=2)` to stdout) — so this spawns the venv python
- * directly with `-m`, from `python/mlx-movie-director` as cwd (required for
- * the `app.` import to resolve), rather than going through run.py like
- * runpy_tts.ts / runpy_image.ts do.
+ * Pure Swift (Vision + AVFoundation), no Python — see
+ * swift/ltx-video-director/Sources/LTXVideoDirector/LipsyncMetrics.swift and
+ * docs/superpowers/specs/2026-07-25-swift-lipsync-metrics-design.md. This
+ * module replaces the prior `python -m app.lipsync_metrics` adapter
+ * (formerly runpy_lipsync.ts) — same interface, different binary.
  *
  * Unlike runpy_tts's best-effort posture (which protects an already-succeeded
  * generation), evaluation IS the point here — callers get a real {ok, error}
@@ -18,8 +17,7 @@
  * "details" worth summarizing — `metrics` IS the whole payload, and `error`
  * already carries the exit code inline for the (rare) transport-failure case.
  */
-import { join } from "node:path";
-import { resolveRepoRoot, resolveRunPyPaths } from "@repo/pi-agent-ext-ltx";
+import { ensureBinary } from "@repo/pi-agent-ext-ltx";
 
 export interface LipsyncMetrics {
   verdict: string;
@@ -35,9 +33,9 @@ export interface RunPyLipsyncInput {
   signal?: AbortSignal;
   /**
    * Test seam: inject a canned spawn result so unit tests can drive
-   * runPyLipsync without the MLX venv. The real path resolves the venv
-   * python and spawns `python -m app.lipsync_metrics <videoPath>` from
-   * python/mlx-movie-director.
+   * runPyLipsync without a built ltx-video binary. The real path resolves
+   * (building if needed) the ltx-video Swift binary and spawns
+   * `ltx-video lipsync-metrics <videoPath> --json`.
    */
   _spawnImpl?: (args: string[]) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
 }
@@ -49,21 +47,18 @@ export interface RunPyLipsyncOutput {
   stderrTail: string;
 }
 
-/** Build the argv for `python -m app.lipsync_metrics <videoPath>`. */
+/** Build the argv for `ltx-video lipsync-metrics <videoPath> --json`. */
 export function buildLipsyncArgs(videoPath: string): string[] {
-  return ["-m", "app.lipsync_metrics", videoPath];
+  return ["lipsync-metrics", videoPath, "--json"];
 }
 
 async function defaultSpawn(
   args: string[],
   signal?: AbortSignal,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const repoRoot = resolveRepoRoot();
-  const { python } = resolveRunPyPaths(repoRoot);
-  const cwd = join(repoRoot, "python", "mlx-movie-director");
+  const bin = await ensureBinary();
   const proc = Bun.spawn({
-    cmd: [python, ...args],
-    cwd,
+    cmd: [bin, ...args],
     stdout: "pipe",
     stderr: "pipe",
     signal,
@@ -76,7 +71,7 @@ async function defaultSpawn(
   return { stdout, stderr, exitCode };
 }
 
-/** Run `python -m app.lipsync_metrics <videoPath>` and parse its JSON stdout. */
+/** Run `ltx-video lipsync-metrics <videoPath> --json` and parse its JSON stdout. */
 export async function runPyLipsync(input: RunPyLipsyncInput): Promise<RunPyLipsyncOutput> {
   const args = buildLipsyncArgs(input.videoPath);
   const spawnFn = input._spawnImpl ?? ((a: string[]) => defaultSpawn(a, input.signal));
@@ -86,12 +81,12 @@ export async function runPyLipsync(input: RunPyLipsyncInput): Promise<RunPyLipsy
     res = await spawnFn(args);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, metrics: null, error: `lipsync_metrics spawn failed: ${msg}`, stderrTail: "" };
+    return { ok: false, metrics: null, error: `lipsync-metrics spawn failed: ${msg}`, stderrTail: "" };
   }
 
   const stderrTail = res.stderr.slice(-2000);
   if (res.exitCode !== 0) {
-    return { ok: false, metrics: null, error: `lipsync_metrics exited ${res.exitCode}`, stderrTail };
+    return { ok: false, metrics: null, error: `lipsync-metrics exited ${res.exitCode}`, stderrTail };
   }
 
   try {
@@ -99,6 +94,6 @@ export async function runPyLipsync(input: RunPyLipsyncInput): Promise<RunPyLipsy
     return { ok: true, metrics, error: null, stderrTail };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, metrics: null, error: `lipsync_metrics produced non-JSON stdout: ${msg}`, stderrTail };
+    return { ok: false, metrics: null, error: `lipsync-metrics produced non-JSON stdout: ${msg}`, stderrTail };
   }
 }

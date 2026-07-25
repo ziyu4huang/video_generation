@@ -48,7 +48,7 @@ import {
   ApprovalRequiredError,
 } from "./cost.ts";
 import { recordDecision, getDecisionLog } from "./decision-log.ts";
-import { runPyLipsync, type RunPyLipsyncInput, type RunPyLipsyncOutput } from "./runpy_lipsync.ts";
+import { runPyLipsync, type RunPyLipsyncInput, type RunPyLipsyncOutput } from "./lipsync_metrics.ts";
 import { buildLipsyncLesson } from "./lipsync-lesson.ts";
 import { selectProvider, NoConfiguredProviderError } from "./selector.ts";
 import { selectAndGenerate } from "./bridge.ts";
