@@ -13,6 +13,7 @@
  * prove ESM validity and dep resolution.
  */
 import {
+	cpSync,
 	existsSync,
 	mkdirSync,
 	readFileSync,
@@ -284,6 +285,25 @@ async function buildOne(
 // ── Public API ───────────────────────────────────────────────────────────────
 
 /**
+ * Copy each extension's `vendored/` tree (if present) into `<targetDir>/vendored/`
+ * so the bundled thin file can resolve it at runtime via run.ts's walk-up probe.
+ * Today only archify ships a vendored/ tree; if a second extension later adds
+ * one, extend to a per-extension subdir + name-aware probe (see design §A2).
+ */
+export function stageVendoredAssets(
+	exts: { name: string; pkgDir: string }[],
+	targetDir: string,
+): void {
+	for (const spec of exts) {
+		const vendoredSrc = join(spec.pkgDir, "vendored");
+		if (!existsSync(vendoredSrc)) continue;
+		const dest = join(targetDir, "vendored");
+		cpSync(vendoredSrc, dest, { recursive: true, force: true });
+		console.log(`    ✓ vendored/ (from ${spec.name}) → ${dest}`);
+	}
+}
+
+/**
  * Build thin bundles for every extension in run-dir/manifest.json.
  *
  * @param targetDir — Output directory for the bundled .js and .hash files.
@@ -322,6 +342,9 @@ export async function buildExtensions(targetDir: string): Promise<{ count: numbe
 	const expectedFiles = new Set(
 		exts.flatMap((spec) => [`${spec.name}.thin.js`, `${spec.name}.thin.hash`]),
 	);
+	if (exts.some((spec) => existsSync(join(spec.pkgDir, "vendored")))) {
+		expectedFiles.add("vendored");
+	}
 	if (existsSync(targetDir)) {
 		for (const f of readdirSync(targetDir)) {
 			if (!expectedFiles.has(f)) {
@@ -356,6 +379,8 @@ export async function buildExtensions(targetDir: string): Promise<{ count: numbe
 	if (errors.length) {
 		throw new Error(`${errors.length}/${exts.length} extension(s) failed to build:\n  ${errors.join("\n  ")}`);
 	}
+
+	stageVendoredAssets(exts, targetDir);
 
 	console.log(`✓ ${exts.length}/${exts.length} extension(s) built → ${targetDir}`);
 	return { count: built + skipped };
