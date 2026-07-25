@@ -432,6 +432,63 @@ describe("evaluate-lipsync", () => {
 		expect(parsed.lesson.reason).toBe("No face detected in any sampled frame.");
 	});
 
+	test("a non-numeric seed does not leak NaN into the persisted lesson", async () => {
+		const res = await dispatch(
+			"evaluate-lipsync",
+			{ videoPath: "/fake/shot.mp4", seed: "not-a-number", identityRef: "kai_source.png", voice: "am_michael" },
+			{
+				runPyLipsyncImpl: async () => ({
+					ok: true,
+					metrics: { verdict: "adequate", pearson_r: 0.5, mouth_ratio_std: 0.04 },
+					error: null,
+					stderrTail: "",
+				}),
+			} as DispatchDeps,
+		);
+		expect(res.ok).toBe(true);
+		if (!res.ok) return;
+		const parsed = JSON.parse(res.text);
+		expect(parsed.lesson.content).not.toContain("NaN");
+	});
+
+	test("a numeric-string seed is coerced and included in the lesson", async () => {
+		const res = await dispatch(
+			"evaluate-lipsync",
+			{ videoPath: "/fake/shot.mp4", seed: "501", identityRef: "kai_source.png", voice: "am_michael" },
+			{
+				runPyLipsyncImpl: async () => ({
+					ok: true,
+					metrics: { verdict: "adequate", pearson_r: 0.5, mouth_ratio_std: 0.04 },
+					error: null,
+					stderrTail: "",
+				}),
+			} as DispatchDeps,
+		);
+		expect(res.ok).toBe(true);
+		if (!res.ok) return;
+		const parsed = JSON.parse(res.text);
+		expect(parsed.lesson.content).toContain("seed=501");
+	});
+
+	test("failure error includes stderrTail when present", async () => {
+		const res = await dispatch(
+			"evaluate-lipsync",
+			{ videoPath: "/fake/shot.mp4" },
+			{
+				runPyLipsyncImpl: async () => ({
+					ok: false,
+					metrics: null,
+					error: "lipsync_metrics exited 1",
+					stderrTail: "Traceback (most recent call last): boom",
+				}),
+			} as DispatchDeps,
+		);
+		expect(res.ok).toBe(false);
+		if (res.ok) return;
+		expect(res.error).toContain("exited 1");
+		expect(res.error).toContain("Traceback");
+	});
+
 	test("propagates a runPyLipsync failure as {ok:false}", async () => {
 		const res = await dispatch(
 			"evaluate-lipsync",

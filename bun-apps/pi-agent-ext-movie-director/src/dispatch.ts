@@ -595,7 +595,8 @@ export async function dispatch(command: Command, opts: Record<string, unknown>, 
         const missing = missingFields(opts, ["videoPath"]);
         if (missing.length > 0) return { ok: false, error: `evaluate-lipsync requires non-empty ${missing.join(", ")}` };
         const videoPath = String(opts.videoPath);
-        const seed = opts.seed !== undefined ? Number(opts.seed) : undefined;
+        const seedNum = opts.seed !== undefined ? Number(opts.seed) : undefined;
+        const seed = seedNum !== undefined && Number.isFinite(seedNum) ? seedNum : undefined;
         const promptSummary = opts.promptSummary ? String(opts.promptSummary) : undefined;
         const identityRef = opts.identityRef ? String(opts.identityRef) : undefined;
         const voice = opts.voice ? String(opts.voice) : undefined;
@@ -603,7 +604,9 @@ export async function dispatch(command: Command, opts: Record<string, unknown>, 
         const runLipsync = deps?.runPyLipsyncImpl ?? runPyLipsync;
         const evaluated = await runLipsync({ videoPath });
         if (!evaluated.ok || !evaluated.metrics) {
-          return { ok: false, error: evaluated.error ?? "evaluate-lipsync: lipsync_metrics failed" };
+          const baseError = evaluated.error ?? "evaluate-lipsync: lipsync_metrics failed";
+          const errorWithTail = evaluated.stderrTail ? `${baseError}\n${evaluated.stderrTail}`.trim() : baseError;
+          return { ok: false, error: errorWithTail };
         }
 
         const lesson = buildLipsyncLesson({
@@ -614,6 +617,9 @@ export async function dispatch(command: Command, opts: Record<string, unknown>, 
           promptSummary,
           identityRef,
           voice,
+          // Prefer `note` (the richer field, populated on no_face/no_audio/setup-error
+          // verdicts) over `caveat` (populated on the adequate/inadequate flat-mouth/
+          // anti-phase cases) as the lesson's `reason`.
           caveat: evaluated.metrics.note ?? evaluated.metrics.caveat,
         });
 
