@@ -56,7 +56,18 @@ export async function archifyRender(params: { ir?: unknown; irPath?: string; out
   try {
     receipt = JSON.parse(stdout) as DeliverReceipt;
   } catch {
-    return { content: [{ type: "text" as const, text: `Error: archify deliver produced non-JSON output (exit ${status}). Validate the IR first with archify_validate.\n${stderr || stdout}` }], details: { error: "deliver non-json", status }, isError: true };
+    // Empty stdout means archify never produced output — the bin is missing or
+    // failed to load (pre-flight sets stderr to a "vendored bin not found"
+    // message). Do NOT blame IR validity in that case; lead with stderr.
+    const binMissing = stdout === "";
+    const detail = binMissing
+      ? stderr
+      : `archify deliver produced non-JSON output (exit ${status}). ${stderr || stdout}`;
+    return {
+      content: [{ type: "text" as const, text: `Error: ${detail}` }],
+      details: { error: binMissing ? "vendored bin missing" : "deliver non-json", status },
+      isError: true,
+    };
   }
 
   if (receipt.ok !== true || status !== 0) {
