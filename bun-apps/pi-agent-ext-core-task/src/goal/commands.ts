@@ -186,7 +186,7 @@ export function parseListCommand(input: string): ListCommandResult | null {
 	const sub = rest.split(/\s+/)[0]?.toLowerCase();
 	const argText = rest.slice(sub!.length).trim();
 	if (sub === "add") {
-		const texts = tokenize(argText).filter((t) => t.length > 0);
+		const texts = tokenize(argText);
 		return { kind: "add", texts };
 	}
 	if (sub === "next") return { kind: "next" };

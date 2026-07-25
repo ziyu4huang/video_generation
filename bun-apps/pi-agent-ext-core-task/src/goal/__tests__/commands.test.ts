@@ -188,11 +188,17 @@ describe("parseListCommand", () => {
 	test("/list remove <n>", () => {
 		expect(parseListCommand("list remove 2")).toEqual({ kind: "remove", index: 2 });
 	});
+	test("/list remove non-numeric → -1", () => {
+		expect(parseListCommand("list remove abc")).toEqual({ kind: "remove", index: -1 });
+	});
 	test("/list clear", () => {
 		expect(parseListCommand("list clear")).toEqual({ kind: "clear" });
 	});
 	test("non-list input → null (not a list command)", () => {
 		expect(parseListCommand('goal "something"')).toBeNull();
 		expect(parseListCommand("audit")).toBeNull();
+	});
+	test("unknown /list subcommand → show (forgiving)", () => {
+		expect(parseListCommand("list frobnicate")).toEqual({ kind: "show" });
 	});
 });
