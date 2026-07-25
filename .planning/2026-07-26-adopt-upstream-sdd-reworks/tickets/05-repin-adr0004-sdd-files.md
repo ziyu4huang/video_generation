@@ -4,7 +4,7 @@ Execute the ADR-0004 re-pin: copy upstream's current SDD files into the fork's p
 
 **type:** task (AFK)
 **claimed:** _(open)_
-**blocked by:** 01 (rebase first — re-pin on current ground)
+**blocked by:** —  *(UNBLOCKED 2026-07-26: origin/main's 13 commits touch zero SDD files; the rebase is not needed for this re-pin. The subagent-ext conflict is a separate workstream — see ticket 01.)*
 
 ## Acceptance
 

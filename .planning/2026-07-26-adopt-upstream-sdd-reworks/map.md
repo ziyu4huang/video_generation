@@ -10,15 +10,16 @@ Adopt obra/superpowers's two SDD reworks into this fork's `subagent-driven-devel
 - **Fact freshness:** this branch was **13 behind origin/main** at chart time. Research reflects the working tree, which may differ from origin/main by 13 commits. Rebase (ticket 01) before re-pin execution.
 - **Slug correction:** the invocation's auto-slug `2026-07-26-duplicte-remeval-…` was garbled and described the discarded "dedup" framing. Refined destination → clean slug `2026-07-26-adopt-upstream-sdd-reworks`. Object if you'd prefer the original.
 - **Standing preference:** pi `subagent` has NO resume-in-place (ticket 04) — every fix-loop round is a fresh dispatch carrying brief + report file + findings.
+- **Integration isolation (2026-07-26):** this branch diverged from `origin/main` (24 mine / 13 theirs), but origin/main's 13 commits touch ZERO SDD-rework files. The SDD re-pin is isolated and needs NO rebase. The one real conflict (`pi-agent-ext-subagent/` — my schema-slim vs their model-role refactor) belongs to the prompt-weight workstream, not here.
 
 ## Decisions so far
 
 - [02 diff: pinned SDD files vs upstream](tickets/02-diff-pinned-sdd-vs-upstream.md) — SKILL.md +85, impl-prompt +3, reviewer-prompt −3, `re-review-prompt.md` NEW; scripts all differ (fork-customized pi-port glue, not pinned).
 - [04 pi subagent resume capability](tickets/04-pi-subagent-resume-capability.md) — no resume-in-place exposed; upstream's rounds 1-3 use the fresh-dispatch fallback (brief + report file + findings).
+- [03 effort×plan reconciliation](tickets/03-effort-times-plan-reconciliation.md) — **Nest**: `.planning/<effort>/sdd/<plan-slug>/` (effort ⊃ plan); `sdd-workspace` takes PLAN_FILE + PI_PLANNING_EFFORT. Existing-state migration is forward-only (graduated from fog).
 
 ## Not yet specified
 
-- **Existing-state migration:** the fork already has `.planning/<effort>/sdd/` workspaces (effort-scoped, from W2c). Adopting plan-scoping raises whether existing ledgers migrate or it's forward-only — depends on ticket 03's answer.
 - **Fix-loop validation without upstream's eval harness:** upstream validated convergence with a RED/GREEN eval rig; the fork has none. How much validation is enough before re-pin? Graduates into a ticket once 05/07 shape up.
 
 ## Out of scope
@@ -27,3 +28,4 @@ Adopt obra/superpowers's two SDD reworks into this fork's `subagent-driven-devel
 - Re-pinning the **other 13 skills** — only the SDD skill is in scope.
 - Upstream's **Windows hooks / portability** changes.
 - Porting upstream's **eval harness**.
+- **`pi-agent-ext-subagent/` integration** (my Phase-1 schema-slim `c25b9243` ⚔️ origin/main's model-role unification `b97e8975`/`4fe905e1`/`2c04d284`). Belongs to the simplify-ext-prompt-weight workstream's merge, not this map. Surfaced by ticket 01's re-scope.
