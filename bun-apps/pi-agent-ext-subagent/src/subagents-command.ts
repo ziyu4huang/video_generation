@@ -9,12 +9,8 @@
  * explicit and testable.
  */
 
-// Type imported via the SRC subpath (not root) so it matches the module instance
-// extensions/workflow.ts imports the VALUE from — otherwise TS sees the dist
-// `.d.ts` and src `.ts` as two distinct class declarations (private `runs`
-// field) and rejects passing the singleton to this function. Type-only, so it
-// is erased at runtime and never hits Bun's exports-map `.js` resolution gap.
-import type { SubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent/src/index.js";
+// Type-only import of the registry this extension owns (local — same package).
+import type { SubagentInFlightRegistry } from "./index.js";
 import { reconstructSubagentRuns, SubagentViewer } from "./subagent-viewer.js";
 
 /** Minimal slice of the pi host command context this command depends on. */
@@ -78,9 +74,12 @@ export function createSubagentsCommand(opts: { subagentInFlight: SubagentInFligh
           },
           theme as never,
         );
-        // Live-elapsed: re-render every second while a subagent runs, so the
-        // "Running" section's elapsed/tool-call counts stay fresh.
+        // Live-elapsed: re-render every second ONLY when the current view has
+        // live content (a `follow` trace, or a `list` with running entries).
+        // Re-rendering a static completed-runs list every second caused the
+        // replacement-UI flicker on "show all subagents".
         timer = setInterval(() => {
+          if (!viewer.hasLiveContent()) return;
           viewer.invalidate();
           tui.requestRender();
         }, LIVE_RENDER_INTERVAL_MS);

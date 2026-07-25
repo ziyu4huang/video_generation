@@ -11,11 +11,9 @@
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
-import type { AgentUsage } from "@repo/pi-agent-ext-subagent";
-import { summarizeLatestAction, formatHistoryLine } from "@repo/pi-agent-ext-subagent";
-import { type ActivityRow, renderActivityRow, shortModel, fmtCost } from "./display.js";
-import type { AgentHistoryEntry, InFlightSubagent } from "@repo/pi-agent-ext-subagent";
-import type { SubagentToolDetails } from "@repo/pi-agent-ext-subagent";
+import { type ActivityRow, fmtCost, renderActivityRow, shortModel } from "./agent-row-display.js";
+import type { AgentHistoryEntry, AgentUsage, InFlightSubagent, SubagentToolDetails } from "./index.js";
+import { formatHistoryLine, summarizeLatestAction } from "./index.js";
 
 /** Tail-f window: how many recent trace lines the follow view shows. */
 const FOLLOW_TRACE_LINES = 40;
@@ -342,6 +340,18 @@ export class SubagentViewer {
     }
     this.finalizingTicks += 1;
     if (this.finalizingTicks > FOLLOW_FINALIZE_GRACE_TICKS) this.followEnded = true;
+  }
+
+  /**
+   * True when the current view shows live (changing) data worth a periodic
+   * re-render for. Used by the `/subagents` timer to avoid re-rendering a
+   * static completed-runs list or a static `output` view every second — the
+   * cause of the replacement-UI flicker on the "show all subagents" list.
+   */
+  hasLiveContent(): boolean {
+    if (this.view === "follow") return true;
+    if (this.view === "list") return (this.getRunning?.() ?? []).length > 0;
+    return false; // "output" view is static
   }
 
   invalidate(): void {

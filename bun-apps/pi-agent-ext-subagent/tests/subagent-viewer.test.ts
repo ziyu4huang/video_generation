@@ -1,7 +1,7 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import type { SubagentToolDetails } from "@repo/pi-agent-ext-subagent";
-import { reconstructSubagentRuns, SubagentViewer, type SubagentRun } from "../src/subagent-viewer.js";
+import type { SubagentToolDetails } from "../src/index.js";
+import { reconstructSubagentRuns, type SubagentRun, SubagentViewer } from "../src/subagent-viewer.js";
 
 // Identity theme so render() returns plain text we can assert on.
 const T = { fg: (_c: string, s: string) => s, bg: (_c: string, s: string) => s, bold: (s: string) => s } as never;
@@ -249,7 +249,15 @@ function runningEntry(id: string, overrides: Record<string, unknown> = {}) {
 test("list cursor spans Running + Completed rows (unified); ▶ marks the selected row", () => {
   const running = [runningEntry("r1")];
   const runs = reconstructSubagentRuns([
-    toolResultEntry("subagent", "old report", { exitCode: 0, timedOut: false, status: "done", agent: "reviewer", model: "y/pro", taskPreview: "old", elapsedMs: 1000 }),
+    toolResultEntry("subagent", "old report", {
+      exitCode: 0,
+      timedOut: false,
+      status: "done",
+      agent: "reviewer",
+      model: "y/pro",
+      taskPreview: "old",
+      elapsedMs: 1000,
+    }),
   ] as never);
   const viewer = new SubagentViewer({ runs, getRunning: () => running as never, onClose: () => {} }, T);
   // selected=0 → first Running row
@@ -276,7 +284,7 @@ test("enter on a Running row enters follow and streams the live trace", () => {
 test("follow esc returns to the list", () => {
   const running = [runningEntry("r1")];
   const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
-  viewer.handleInput("\r");   // enter follow
+  viewer.handleInput("\r"); // enter follow
   viewer.handleInput("\x1b"); // esc
   const out = viewer.render(80).join("\n");
   assert.ok(out.includes("Subagent runs") || out.includes("Running"), "back to list view");
@@ -293,12 +301,15 @@ test("follow shows the resolved model (short) once resolvedModel is set", () => 
 test("follow falls back to 'ended' when the run leaves the registry (LIVE-only behavior, pre-Task-4)", () => {
   let running: unknown[] = [runningEntry("r1")];
   const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
-  viewer.handleInput("\r");          // enter follow (LIVE)
+  viewer.handleInput("\r"); // enter follow (LIVE)
   viewer.render(80);
-  running = [];                      // run completed / left the registry
+  running = []; // run completed / left the registry
   viewer.invalidate();
   // exceed the finalize grace so it lands on 'ended'
-  for (let i = 0; i < 7; i++) { viewer.invalidate(); viewer.render(80); }
+  for (let i = 0; i < 7; i++) {
+    viewer.invalidate();
+    viewer.render(80);
+  }
   const out = viewer.render(80).join("\n");
   assert.ok(out.includes("ended"), "lands on the neutral ended banner");
 });

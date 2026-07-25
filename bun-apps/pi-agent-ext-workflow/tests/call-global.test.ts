@@ -1,7 +1,7 @@
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
-import { buildCallGlobal, type CallDeps } from "../src/call-global.js";
 import { WorkflowErrorCode } from "@repo/pi-agent-ext-subagent";
+import { buildCallGlobal, type CallDeps } from "../src/call-global.js";
 import { HostFnRegistry } from "../src/host-fn-registry.js";
 import type { JournalEntry } from "../src/workflow.js";
 

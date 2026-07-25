@@ -78,6 +78,19 @@ test("execute maps params to spawn and returns the child output verbatim", async
   assert.equal(res.details.timedOut, false);
 });
 
+// ── capability param threads through to spawn ──
+test("execute threads capability through to spawn", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  await tool.execute("id", { task: "describe image", capability: "vision" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.capability, "vision");
+});
+
+test("renderSubagentCall shows capability:<name> slot", () => {
+  const out = renderSubagentCall({ capability: "vision", task: "x" }, T);
+  assert.match(String(out), /capability:vision/);
+});
+
 // ── failure / timeout formatting ──
 test("execute on non-zero exit returns 'failed' + stderr text and keeps details", async () => {
   const f = fakeSpawn(() => ({ output: "", exitCode: 1, stderr: "hard fail", timedOut: false }));

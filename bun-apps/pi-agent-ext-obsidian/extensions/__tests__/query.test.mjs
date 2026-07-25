@@ -32,6 +32,23 @@ describe("queryNotes — tags (B4.1/B4.2)", () => {
 		const r = await queryNotes(vault, { folder: "sub" });
 		expect(r.map((x) => x.path)).toEqual(["sub/c1.md"]);
 	});
+
+	it("folder restriction is prefix-exact (no sibling-folder / prefixed-root over-match)", async () => {
+		// Self-contained fixture: folder "sub" must match only sub/c1.md, NOT the
+		// sibling folder sub2/ nor the root note "submarine.md" (both start with "sub").
+		const v = await makeFixture({
+			"sub/c1.md": "# C1\n",
+			"sub2/d.md": "# D\n",
+			"submarine.md": "# Sub\n",
+		});
+		try {
+			const r = await queryNotes(v, { folder: "sub" });
+			expect(r.map((x) => x.path)).toEqual(["sub/c1.md"]);
+		} finally {
+			dropIndex(v);
+			await rmFixture(v);
+		}
+	});
 	it("createdAfter", async () => {
 		const r = await queryNotes(vault, { createdAfter: "2026-04-01" });
 		expect(r.map((x) => x.path).sort()).toEqual(["a2.md", "sub/c1.md"]);

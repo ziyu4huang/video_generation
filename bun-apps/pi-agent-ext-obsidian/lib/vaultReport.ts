@@ -66,12 +66,9 @@ export function summarizeVault(idx: VaultIndex, topTags = 10): VaultReport {
 	}
 	for (const t of folderMap.values()) t.notes.sort((a, b) => a.path.localeCompare(b.path));
 
-	// orphans / dead links / title style
-	// @ts-expect-error — latent bug (pre-existing, NOT introduced by this task):
-	// GraphResult exposes the note title via `text`, not `title`; so `r.title` is
-	// always `undefined` at runtime. Left as-is in Phase 0 to avoid any behavior
-	// change; tracked in docs/TYPECHECK-NOTES.md for a dedicated fix.
-	const orphans = graphOrphans(idx).map((r) => ({ path: r.path, title: r.title }));
+	// orphans / dead links / title style. GraphResult carries the note title in
+	// `text` (title or path fallback); map it onto the report's `title` field.
+	const orphans = graphOrphans(idx).map((r) => ({ path: r.path, title: r.text }));
 	const deadLinks = graphDeadLinks(idx).map((r) => ({ source: r.path, target: r.text }));
 	const titleOutliers = detectTitleStyleOutliers(idx);
 
@@ -83,7 +80,7 @@ export function summarizeVault(idx: VaultIndex, topTags = 10): VaultReport {
 		noteCount: g.nodes.length,
 		edgeCount: g.edges.length,
 		tagCount: idx.byTag.size,
-		orphans: g.stats.orphans,
+		orphans: orphans.length, // = graphOrphans list (B2.2: no-inbound), NOT toGraphJSON's fully-isolated count
 		deadLinks: deadLinks.length,
 		folders: folderCounts,
 	};
@@ -110,7 +107,7 @@ export function renderReportMD(report: VaultReport): string {
 	lines.push(`- 連結數：**${s.edgeCount}**`);
 	lines.push(`- 標籤數：**${s.tagCount}**`);
 	lines.push(`- 資料夾數：**${s.folders.length}**`);
-	lines.push(`- 孤立筆記（無入/出連結）：**${s.orphans}**`);
+	lines.push(`- 孤立筆記（無入連結）：**${s.orphans}**`);
 	lines.push(`- 失效連結：**${s.deadLinks}**`);
 	lines.push("");
 

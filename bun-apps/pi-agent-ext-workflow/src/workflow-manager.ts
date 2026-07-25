@@ -4,12 +4,12 @@
 
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { WorkflowAgent } from "@repo/pi-agent-ext-subagent";
-import { preview, type WorkflowSnapshot } from "./display.js";
 import { WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-subagent";
+import { preview, type WorkflowSnapshot } from "./display.js";
 import type { HostFnRegistry } from "./host-fn-registry.js";
 import { mirrorIntermediate } from "./pack-run-context.js";
 import {
@@ -32,9 +32,23 @@ function inputHash(args: unknown): string {
     .slice(0, 12);
 }
 
-/** Filesystem-safe compact ISO timestamp for output subdir naming (decision 11). */
+/** Filesystem-safe compact ISO timestamp for output subdir naming (decision 11).
+ *  Ms-precision: same-ms collisions are disambiguated at the call site (-2, -3, …). */
 function compactTimestamp(d = new Date()): string {
   return d.toISOString().replace(/[:.]/g, "-");
+}
+
+/** Resolve a non-colliding run output dir: `<ts>`, or `<ts>-2`, `<ts>-3`, … if the
+ *  base name is already taken (decision 11: never overwrite a prior run's output).
+ *  Synchronous callers only — there must be no `await` between this and `mkdirSync`
+ *  so two runs cannot interleave in the exists/mkdir window. */
+export function uniqueOutputDir(outputsDir: string, ts: string): string {
+  let runOut = join(outputsDir, ts);
+  let variant = 2;
+  while (existsSync(runOut)) {
+    runOut = join(outputsDir, `${ts}-${variant++}`);
+  }
+  return runOut;
 }
 
 export interface ManagedRun {
@@ -530,7 +544,11 @@ export class WorkflowManager extends EventEmitter {
       if (exec.outputsDir) {
         try {
           const ts = compactTimestamp();
-          const runOut = join(exec.outputsDir, ts);
+          // Decision 11 guarantees no overwrite. compactTimestamp() is ms-precision,
+          // so near-instant repeat runs (or a coarse runner clock) can collide;
+          // uniqueOutputDir disambiguates with a sequential -2/-3… suffix. This
+          // block is synchronous (no awaits) so two runs cannot interleave here.
+          const runOut = uniqueOutputDir(exec.outputsDir, ts);
           mkdirSync(runOut, { recursive: true });
           writeFileSync(join(runOut, "result.json"), JSON.stringify(result.result ?? null, null, 2));
           writeFileSync(
