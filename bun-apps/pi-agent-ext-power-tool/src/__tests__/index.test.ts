@@ -193,6 +193,7 @@ describe("tool registration", () => {
       "inspect_agent",
       "inspect_context",
       "inspect_extensions",
+      "inspect_hooks",
       "inspect_pathology",
       "inspect_tui",
     ]);
@@ -200,7 +201,7 @@ describe("tool registration", () => {
 
   test("each registered tool has label, description, and execute fn", () => {
     const { captured } = loadExtension([]);
-    expect(Object.keys(captured).length).toBe(5);
+    expect(Object.keys(captured).length).toBe(6);
     for (const name of Object.keys(captured)) {
       expect(typeof captured[name].label).toBe("string");
       expect(captured[name].label.length).toBeGreaterThan(0);

@@ -37,7 +37,7 @@ function captureInspectTools(): Record<string, Record<string, unknown>> {
 
 test("power-tool inspect_* tools are stealth-trimmed: no promptSnippet/guidelines", () => {
 	const tools = captureInspectTools();
-	const expected = ["inspect_agent", "inspect_context", "inspect_extensions", "inspect_pathology", "inspect_tui"];
+	const expected = ["inspect_agent", "inspect_context", "inspect_extensions", "inspect_hooks", "inspect_pathology", "inspect_tui"];
 	expect(Object.keys(tools).sort()).toEqual(expected.sort());
 
 	for (const [name, tool] of Object.entries(tools)) {

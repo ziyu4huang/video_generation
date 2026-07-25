@@ -1,7 +1,7 @@
 /**
  * Savings measurement — QA harness (wayfinder ticket 00).
  *
- * Question: does tool-gate's "~8,500 tok/req saved" claim hold?
+ * Question: does tool-gate's "~8,050 tok/req saved" claim hold?
  *
  * Method (fully offline — no agent boot): reuse the schema-cost CLI's
  * capturing-mock collection (`buildSchemaCostReport`) to get every registered
@@ -26,8 +26,8 @@ import {
 import type { SchemaCostReport } from "../../pi-agent-cli/src/commands/schema-cost.ts";
 import { CORE_TOOLS, GATES } from "../extensions/tool-gate.ts";
 
-/** The savings figure tool-gate's README/banner claims (~8,500 tok/req; zai-mcp env-gated — see caveats()). */
-export const CLAIMED_SAVED_TOK = 8500;
+/** The savings figure tool-gate's README/banner claims (~8,050 tok/req; zai-mcp env-gated — see caveats()). */
+export const CLAIMED_SAVED_TOK = 8050;
 
 export interface GateSavings {
 	/** First name of the gate — its identity for display. */
@@ -48,6 +48,15 @@ export interface SavingsReport {
 	savedTok: number;
 	/** savedTok / offTotal * 100. */
 	savedPct: number;
+	/** Measured schema tokens of enable_tool — the always-on price tool-gate
+	 *  pays for its escape hatch (enable_tool exists ONLY because tool-gate
+	 *  registers it). 0 if enable_tool isn't in the captured set. */
+	enableToolOverhead: number;
+	/** savedTok − enableToolOverhead. The honest net: what tool-gate actually
+	 *  gains after paying its own escape-hatch overhead. savedTok is GROSS. */
+	netSavedTok: number;
+	/** netSavedTok / offTotal * 100. */
+	netSavedPct: number;
 	/** README claim, for deviation reporting. */
 	claimed: number;
 	/** savedTok - claimed. */
@@ -58,10 +67,31 @@ export interface SavingsReport {
 	/** Gate-tool names found in the captured set. */
 	gatedToolCount: number;
 	perGate: GateSavings[];
-	/** Gate-tool names NOT loaded (absent from the captured set). */
+	/** Gate-tool names declared in GATES but absent from the captured set
+	 *  (declared-not-loaded). ONE-DIRECTIONAL by design: it does NOT catch the
+	 *  reverse — a tool that is BOTH captured by schema-cost AND declared in
+	 *  GATES but NOT loaded at runtime (a phantom, like the former `cost` gate)
+	 *  is invisible here, because it IS in the captured set. The captured==runtime
+	 *  invariant is enforced at the source (EXTRA_ENTRIES must be runtime-loaded;
+	 *  the manifest is the load truth) + locked by the movie-director-cost test.
+	 *  A full captured<->runtime cross-check needs live session data (L2, deferred). */
 	gateMissing: string[];
 	/** Collection errors from the schema-cost pass. */
 	errors: SchemaCostReport["errors"];
+}
+
+/** Net savings: gross savedTok minus the always-on overhead tool-gate itself
+ *  introduces (enable_tool). Pure — extracted so the net semantics are unit-
+ *  testable without booting the schema-cost collection. enable_tool's
+ *  promptSnippet+promptGuidelines (~55 tok system-prompt text) are invisible to
+ *  measureToolTokens — an unmeasured residual surfaced by caveats(). (audit I-6) */
+export function computeNet(
+	savedTok: number,
+	enableToolOverhead: number,
+	offTotal: number,
+): { netSavedTok: number; netSavedPct: number } {
+	const netSavedTok = savedTok - enableToolOverhead; // NOT clamped — a negative net is an honest red flag
+	return { netSavedTok, netSavedPct: offTotal ? Number(((netSavedTok / offTotal) * 100).toFixed(1)) : 0 };
 }
 
 /**
@@ -82,6 +112,11 @@ export async function measureSavings(root?: string): Promise<SavingsReport> {
 	const savedTok = perGate.reduce((s, g) => s + g.tokens, 0);
 	const offTotal = report.totalTokens;
 	const allGateNames = GATES.flatMap((g) => g.names);
+	// enable_tool is the always-on price tool-gate pays for its escape hatch —
+	// it exists only because tool-gate registers it, so gross savedTok over-
+	// states the true gain by its footprint. Net it out (audit I-6).
+	const enableToolOverhead = byName.get("enable_tool") ?? 0;
+	const { netSavedTok, netSavedPct } = computeNet(savedTok, enableToolOverhead, offTotal);
 
 	return {
 		root: resolved,
@@ -89,6 +124,9 @@ export async function measureSavings(root?: string): Promise<SavingsReport> {
 		gatedTotal: offTotal - savedTok,
 		savedTok,
 		savedPct: offTotal ? Number(((savedTok / offTotal) * 100).toFixed(1)) : 0,
+		enableToolOverhead,
+		netSavedTok,
+		netSavedPct,
 		claimed: CLAIMED_SAVED_TOK,
 		deviation: savedTok - CLAIMED_SAVED_TOK,
 		toolCount: report.tools.length,
@@ -117,6 +155,7 @@ export function caveats(r: SavingsReport): string[] {
 	const c: string[] = [];
 	if (r.gateMissing.length) c.push(`gate tools NOT loaded (${r.gateMissing.length}): ${r.gateMissing.join(", ")}`);
 	if (r.errors.length) for (const e of r.errors) c.push(`collection error — ${e.source}: ${e.error}`);
+	if (r.enableToolOverhead > 0) c.push(`enable_tool overhead (${r.enableToolOverhead} tok) is schema-only — its promptSnippet+promptGuidelines (~55 tok system-prompt text) are invisible to measureToolTokens; true net is ~55 lower (audit I-6)`);
 	return c;
 }
 
@@ -128,7 +167,9 @@ export function formatSavings(r: SavingsReport): string[] {
 		`tools captured: ${r.toolCount}  (CORE_TOOLS present: ${r.coreCount}/${CORE_TOOLS.size}, gated present: ${r.gatedToolCount})`,
 		`OFF baseline:   ${r.offTotal.toLocaleString()} tok/req  (all tools active)`,
 		`ON at start:    ${r.gatedTotal.toLocaleString()} tok/req  (tool-gate ON, nothing fired)`,
-		`SAVED:          ${r.savedTok.toLocaleString()} tok/req  (${r.savedPct}%)`,
+		`SAVED:          ${r.savedTok.toLocaleString()} tok/req  (${r.savedPct}%)  [gross — gated tools' raw tokens]`,
+		`enable_tool:    ${r.enableToolOverhead.toLocaleString()} tok/req  (always-on price of gating — drift-detect this)`,
+		`NET:            ${r.netSavedTok.toLocaleString()} tok/req  (${r.netSavedPct}%)  [saved − enable_tool]`,
 		`vs README claim ~${r.claimed.toLocaleString()}: ${sign(r.deviation)}${r.deviation.toLocaleString()} tok`,
 		"",
 		"per gate (loaded only):",

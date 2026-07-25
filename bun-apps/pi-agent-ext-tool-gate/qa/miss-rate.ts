@@ -8,16 +8,28 @@
  * ts-gap heuristic (no session-ID exists in the telemetry), and compute the
  * two-lens metric settled in ticket 01:
  *   - escape-rate (headline friction): enable_tool calls vs gated-domain sessions
- *   - confirmed-miss (gate-causation — the verdict driver, ticket 04): a
- *     miss_candidate turn followed (same session) by an activate whose
- *     matchedGate was dormant at that turn.
+ *   - confirmed-miss (gate-causation): a miss_candidate turn followed (same
+ *     session) by an activate whose matchedGate was dormant at that turn.
+ *
+ * ⚠ STATUS (audit 2026-07-25) — DIAGNOSTIC / EXPERIMENTAL, NOT a verdict:
+ * this module is NOT wired into qa/run.ts (the verdict gates on savings-floor
+ * ∧ L1-intended ∧ coverage only). Three known unsoundnesses mean the numbers
+ * below must NOT be read as a quality verdict:
+ *   1. TAUTOLOGY — the "common" lens uses promptMatchesGateIntent (substring)
+ *      which ≠ the real gateFires (word-boundary); a "common" miss measures
+ *      matcher divergence, not a real keyword gap, and is forced toward 0.
+ *   2. SURVIVORSHIP BIAS — the worst failure (model never calls enable_tool,
+ *      gives up silently) emits no activate → invisible + out of the denominator.
+ *   3. NEAR-VACUOUS correlation — a confirmed-miss can blame an unrelated turn.
+ * Promoting to a real verdict needs an independent "task needed a gated tool"
+ * signal (e.g. the L2 live-A/B arm). Until then: exploratory only.
  *
  * Common-intent classification (ticket 04): a confirmed-miss is labelled
  * "common" if its promptHead matches the activated gate's intent — a bare
  * keyword OR the requires noun∧verb co-occurrence (so "generate a video" counts
- * for ltx even without a bare keyword). That is the high-signal case: the intent
- * was expressed in a form the gate was DESIGNED to catch, yet it still missed →
- * a real keyword/co-occurrence gap. Else "review": neither matched → the keyword
+ * for ltx even without a bare keyword). ⚠ Per STATUS caveat #1, this "common"
+ * label is NOT a reliable gap signal (the matcher is tautological). Else
+ * "review": neither matched → the keyword
  * may sit beyond the 80-char promptHead truncation, or the model inferred the
  * intent without a recognizable phrasing → flagged for human judgment, NOT
  * forced into the verdict (ticket 05 is HITL).
@@ -233,9 +245,9 @@ export function formatMissRate(r: MissRateReport): string[] {
 		`escape-rate (headline friction):`,
 		`  ${r.escapeSessions}/${r.gatedDomainSessions} gated-domain sessions forced the escape hatch (${r.escapeSessionPct}%) — ${r.totalEscapes} total enable_tool calls.`,
 		``,
-		`confirmed-miss (gate-causation — the verdict lens, ticket 04):`,
+		`confirmed-miss (gate-causation — DIAGNOSTIC, not in the qa verdict):`,
 		`  ${r.confirmedMisses.length} confirmed  (common: ${r.commonMisses}, review: ${r.reviewMisses})`,
-		`  GO bar (04): zero confirmed-misses on COMMON intents → ${r.commonMisses === 0 ? "✅ GO (so far)" : `❌ NO-GO — ${r.commonMisses} common gap(s)`}`,
+		`  diagnostic signal (NOT a verdict — see module STATUS; "common" is tautological): zero COMMON → ${r.commonMisses === 0 ? "✅ none (so far)" : `❌ ${r.commonMisses} common (tautological — investigate before acting)`}`,
 	];
 	if (r.perGate.length) {
 		lines.push(``, `per gate:`);
