@@ -285,15 +285,19 @@ describe("loadConfig", () => {
   it("accepts valid reviewTransport values and ignores invalid ones", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
 
-    for (const transport of ["direct", "subprocess"] as const) {
+    // "subprocess" was removed in the spawnSubagent migration — the fallback is now spawnSubagent, not a pi -p subprocess.
+    for (const transport of ["direct"] as const) {
       fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({ reviewTransport: transport }));
       const config = loadConfig(TEST_CONFIG_PATH);
       assert.strictEqual(config.reviewTransport, transport);
     }
 
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({ reviewTransport: "branch" }));
-    const invalid = loadConfig(TEST_CONFIG_PATH);
-    assert.strictEqual(invalid.reviewTransport, "direct");
+    // Invalid values fall back to "direct"
+    for (const invalid of ["subprocess", "branch"] as const) {
+      fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({ reviewTransport: invalid }));
+      const config = loadConfig(TEST_CONFIG_PATH);
+      assert.strictEqual(config.reviewTransport, "direct");
+    }
   });
 
   it("accepts valid llmThinkingOverride values and ignores invalid ones", () => {
@@ -430,7 +434,7 @@ describe("config dbBackend", () => {
 
 describe("shouldRunStartupSync (consolidation child skips the .md→db re-index)", () => {
   // Root cause (wayfinder surrealdb-path repro): every consolidation child is
-  // a full extension session, so it re-ran the startup syncMarkdownMemoriesToSqlite
+  // a full extension session, so it re-ran the startup syncMarkdownMemories
   // — ~540 sequential HTTP round-trips on surrealdb (~6.6s × 4 targets) that sqlite
   // does in 15ms. The child only reads .md + writes the result, so the re-index
   // is pure waste. Guard it behind PI_HERMES_CONSOLIDATING (set by runConsolidator).

@@ -50,7 +50,7 @@ import { registerInterviewCommand } from "./handlers/interview.js";
 import { registerSwitchProjectCommand } from "./handlers/switch-project.js";
 import { registerIndexSessionsCommand } from "./handlers/index-sessions.js";
 import { registerLearnMemoryCommand } from "./handlers/learn-memory.js";
-import { registerSyncMarkdownMemoriesCommand, syncMarkdownMemoriesToSqlite } from "./handlers/sync-markdown-memories.js";
+import { registerSyncMarkdownMemoriesCommand, syncMarkdownMemories } from "./handlers/sync-markdown-memories.js";
 import { registerSwitchBackendCommand } from "./handlers/switch-backend.js";
 import { registerPreviewContextCommand } from "./handlers/preview-context.js";
 import { loadConfig, shouldRunStartupSync } from "./config.js";
@@ -158,9 +158,9 @@ export default async function (pi: ExtensionAPI) {
   // freeze fix (wayfinder ticket 07). runConsolidator sets PI_HERMES_CONSOLIDATING=1.
   if (shouldRunStartupSync()) {
     try {
-      await syncMarkdownMemoriesToSqlite(memoryRepo, globalDir, config.projectsMemoryDir, agentRoot);
+      await syncMarkdownMemories(memoryRepo, globalDir, config.projectsMemoryDir, agentRoot);
     } catch {
-      // Best-effort only: failed SQLite backfill should not block extension startup.
+      // Best-effort only: failed markdown backfill should not block extension startup.
     }
   }
 
@@ -209,7 +209,7 @@ export default async function (pi: ExtensionAPI) {
     currentDbBackend = target;
     backendLabel = labelFor(target);
     try {
-      await syncMarkdownMemoriesToSqlite(currentBundle.memoryRepo, globalDir, config.projectsMemoryDir, agentRoot);
+      await syncMarkdownMemories(currentBundle.memoryRepo, globalDir, config.projectsMemoryDir, agentRoot);
     } catch {
       // best effort; next session_start re-syncs
     }
@@ -278,7 +278,11 @@ export default async function (pi: ExtensionAPI) {
   });
 
   // ── 3. Register the memory tool (with project store + SQLite sync) ──
-  registerMemoryTool(pi, store, projectStore, memoryRepo, projectName);
+  // Capture the returned ToolDefinition so consolidation can bridge it into
+  // the in-process child subagent via spawnSubagent's `extensionTools`: the
+  // def's execute closure already binds this parent `store`, so the child's
+  // memory writes land in the parent store (same effect as the old -e subprocess).
+  const memoryToolDef = registerMemoryTool(pi, store, projectStore, memoryRepo, projectName);
   registerGrillDecisionTool(pi, store, memoryRepo);
 
   // ── 4. Register the skill tool ──
@@ -288,25 +292,26 @@ export default async function (pi: ExtensionAPI) {
   setupBackgroundReview(pi, store, projectStore, config, {
     memoryRepo,
     projectName: projectName || null,
+    deps: { memoryToolDef },
   });
 
   // ── 6. Setup session-end flush ──
-  setupSessionFlush(pi, store, projectStore, config);
+  setupSessionFlush(pi, store, projectStore, config, memoryToolDef);
 
   // ── 7. Setup auto-consolidation (inject consolidator into stores) ──
   store.setConsolidator(async (target, signal) => {
-    return triggerConsolidation(pi, store, target, signal, config.consolidationTimeoutMs, target, config);
+    return triggerConsolidation(store, target, memoryToolDef, signal, config.consolidationTimeoutMs, target, config);
   });
   if (projectStore) {
     projectStore.setConsolidator(async (target, signal) => {
       const toolTarget = target === "memory" ? "project" : target;
-      return triggerConsolidation(pi, projectStore, target, signal, config.consolidationTimeoutMs, toolTarget, config);
+      return triggerConsolidation(projectStore, target, memoryToolDef, signal, config.consolidationTimeoutMs, toolTarget, config);
     });
   }
-  registerConsolidateCommand(pi, store, config.consolidationTimeoutMs, projectStore, projectName, config);
+  registerConsolidateCommand(pi, store, memoryToolDef, config.consolidationTimeoutMs, projectStore, projectName, config);
 
   // ── 8. Setup correction detection ──
-  setupCorrectionDetector(pi, store, projectStore, config, memoryRepo, projectName);
+  setupCorrectionDetector(pi, store, projectStore, config, memoryRepo, projectName, memoryToolDef);
 
   // ── 8b. Setup lesson-worthy error capture (auto-trigger on tool failures) ──
   setupErrorDetector(pi, store, projectStore, config, memoryRepo, projectName);
@@ -317,7 +322,7 @@ export default async function (pi: ExtensionAPI) {
   registerInterviewCommand(pi, store);
   registerSwitchProjectCommand(pi, config);
   registerLearnMemoryCommand(pi);
-  registerSyncMarkdownMemoriesCommand(pi, memoryRepo, globalDir, config.projectsMemoryDir, agentRoot);
+  registerSyncMarkdownMemoriesCommand(pi, memoryRepo, globalDir, config.projectsMemoryDir, agentRoot, () => backendLabel);
   registerPreviewContextCommand(pi, store, projectStore, projectName, config);
 
   // ── 10. Live session indexing ──

@@ -6,11 +6,11 @@
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
-import type { AgentUsage } from "./agent.js";
-import { summarizeLatestAction } from "./agent-history.js";
+import type { AgentUsage } from "@repo/pi-agent-ext-subagent";
+import { summarizeLatestAction } from "@repo/pi-agent-ext-subagent";
 import { type ActivityRow, renderActivityRow } from "./display.js";
-import type { InFlightSubagent } from "./subagent-in-flight.js";
-import type { SubagentToolDetails } from "./subagent-tool.js";
+import type { InFlightSubagent } from "@repo/pi-agent-ext-subagent";
+import type { SubagentToolDetails } from "@repo/pi-agent-ext-subagent";
 
 export interface SubagentRun {
   /** 1-based ordinal among subagent runs on this branch. */

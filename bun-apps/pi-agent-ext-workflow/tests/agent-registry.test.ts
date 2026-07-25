@@ -13,7 +13,7 @@ import {
   loadAgentRegistry,
   parseAgentDefinition,
   resolveAgentType,
-} from "../src/agent-registry.js";
+} from "@repo/pi-agent-ext-subagent";
 import { runWorkflow } from "../src/workflow.js";
 
 // ── parseAgentDefinition ───────────────────────────────────────────────────

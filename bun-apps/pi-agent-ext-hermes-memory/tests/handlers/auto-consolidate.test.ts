@@ -1,45 +1,58 @@
 /**
  * Unit tests for auto-consolidation — triggerConsolidation and /memory-consolidate command.
+ *
+ * Consolidation dispatches through the shared `spawnSubagent` runner. The
+ * `spawn` arg on `triggerConsolidation` / `registerConsolidateCommand` is the
+ * injection seam: production omits it (→ real spawnSubagent), tests pass a fake
+ * that records the call opts and returns a synthesized `SpawnSubagentResult`.
  */
 
-import { describe, it, beforeEach, before, after } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
-import { registerConsolidateCommand, triggerConsolidation } from "../../src/handlers/auto-consolidate.js";
-import { resolveChildPiInvocation } from "../../src/handlers/pi-child-process.js";
-import { ENTRY_DELIMITER } from "../../src/constants.js";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { SpawnSubagentOptions, SpawnSubagentResult } from "@repo/pi-agent-ext-subagent/src/index.ts";
+import { registerConsolidateCommand, resolveConsolidatorModelLabel, triggerConsolidation } from "../../src/handlers/auto-consolidate.js";
 
 // ─── Mock infrastructure ───
 
-let execCalls: any[];
+/** A minimal memory-tool definition — only identity matters: it is the value
+ *  threaded through `extensionTools` so we can assert reference equality. */
+const memoryToolDef: ToolDefinition = {
+  name: "memory",
+  label: "Memory",
+  description: "test memory tool",
+  // typebox-free stand-in: triggerConsolidation never executes it (the fake
+  // spawn short-circuits the run), only forwards it verbatim.
+  parameters: {} as never,
+  execute: async () => ({ content: [{ type: "text", text: "{}" }], details: {} }),
+} as ToolDefinition;
 
-function logicalChildArgs(call: any[]): string[] {
-  const [cmd, args] = call;
-  const logicalArgs = cmd === "pi" ? args : args.slice(1);
-  const expected = resolveChildPiInvocation(logicalArgs);
-  assert.strictEqual(cmd, expected.command);
-  assert.deepStrictEqual(args, expected.args);
-  return logicalArgs;
+interface FakeSpawnOverrides extends Partial<SpawnSubagentResult> {
+  /** Simulate a slow subagent run so the heartbeat window opens. */
+  delayMs?: number;
+  /** Throw from spawn instead of returning (models a runner crash). */
+  throwErr?: string;
 }
 
-function childPrompt(call: any[]): string {
-  const args = logicalChildArgs(call);
-  return args[args.length - 1];
-}
-
-function createMockPi(execReturn?: { code: number; stdout: string; stderr: string }) {
-  const ret = execReturn ?? { code: 0, stdout: "Consolidated", stderr: "" };
-  return {
-    on: () => {},
-    exec: async (...args: any[]) => {
-      execCalls.push(args);
-      return ret;
-    },
-    registerTool: () => {},
-    registerCommand: () => {},
-  } as any;
+function createFakeSpawn(overrides: FakeSpawnOverrides = {}) {
+  const calls: SpawnSubagentOptions[] = [];
+  const result: SpawnSubagentResult = {
+    output: overrides.output ?? "Consolidated",
+    exitCode: overrides.exitCode ?? 0,
+    stderr: overrides.stderr ?? "",
+    timedOut: overrides.timedOut ?? false,
+    ...(overrides.usage ? { usage: overrides.usage } : {}),
+  };
+  const spawn = async (opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> => {
+    calls.push(opts);
+    if (overrides.delayMs) await new Promise((r) => setTimeout(r, overrides.delayMs));
+    if (overrides.throwErr) throw new Error(overrides.throwErr);
+    return result;
+  };
+  return { spawn: spawn as typeof import("@repo/pi-agent-ext-subagent/src/index.ts").spawnSubagent, calls, result };
 }
 
 const mockStore = {
@@ -47,79 +60,121 @@ const mockStore = {
   getUserEntries: () => ["user fact 1"],
   getAllFailureEntries: () => ["failure lesson 1", "failure lesson 2"],
   loadFromDisk: async () => {},
-} as any;
-
-async function settle(ms = 10) {
-  await new Promise((r) => setTimeout(r, ms));
-}
+} as never;
 
 // ─── Tests ───
 
 describe("triggerConsolidation", () => {
-  beforeEach(() => {
-    execCalls = [];
+  it("honors llmModelOverride by passing model (and no tier) to spawn", async () => {
+    const { spawn, calls } = createFakeSpawn();
+    await triggerConsolidation(
+      mockStore,
+      "memory",
+      memoryToolDef,
+      undefined,
+      60000,
+      "memory",
+      { llmModelOverride: "anthropic/claude-opus-4" },
+      spawn,
+    );
+
+    assert.strictEqual(calls.length, 1, "should call spawn once");
+    const opts = calls[0]!;
+    assert.strictEqual(opts.model, "anthropic/claude-opus-4", "should thread the override as model");
+    assert.strictEqual(opts.tier, undefined, "should NOT set tier when an override is present");
+    // Everything else stays byte-identical to the unset path.
+    assert.deepStrictEqual(opts.tools, ["memory"]);
+    assert.deepStrictEqual(opts.extensionTools, [memoryToolDef]);
+    assert.strictEqual(opts.retryOnTransient, true);
   });
 
-  it("builds prompt with current entries and calls pi.exec", async () => {
-    const pi = createMockPi();
-    await triggerConsolidation(pi, mockStore, "memory");
+  it("falls back to tier:'small' (and no model) when llmModelOverride is unset", async () => {
+    const { spawn, calls } = createFakeSpawn();
+    await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
 
-    assert.strictEqual(execCalls.length, 1, "should call pi.exec once");
-    const args = logicalChildArgs(execCalls[0]);
-    assert.ok(args[0] === "-p", "should use -p flag");
-    assert.ok(args.includes("--no-session"), "should include --no-session");
-
-    const prompt = args[args.length - 1];
-    assert.ok(prompt.includes("old entry 1"), "prompt should include current memory entries");
-    assert.ok(prompt.includes("memory"), "prompt should reference target");
+    assert.strictEqual(calls.length, 1);
+    const opts = calls[0]!;
+    assert.strictEqual(opts.tier, "small", "should run on the small tier");
+    assert.strictEqual(opts.model, undefined, "should NOT set model when no override is present");
   });
 
-  it("returns { consolidated: true } on success (exit code 0)", async () => {
-    const pi = createMockPi({ code: 0, stdout: "Done", stderr: "" });
-    const result = await triggerConsolidation(pi, mockStore, "memory");
+  it("dispatches consolidation via spawnSubagent with the memory tool bridged in", async () => {
+    const { spawn, calls } = createFakeSpawn();
+    await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
+
+    assert.strictEqual(calls.length, 1, "should call spawn once");
+    const opts = calls[0]!;
+    assert.strictEqual(opts.tier, "small", "should run on the small tier");
+    assert.deepStrictEqual(opts.tools, ["memory"], "should allowlist only the memory tool");
+    assert.deepStrictEqual(opts.extensionTools, [memoryToolDef], "should bridge the parent memory tool def");
+    assert.strictEqual(opts.timeoutMs, 60000);
+    assert.strictEqual(opts.retryOnTransient, true, "should request a single transient retry");
+    assert.ok(opts.task?.includes("old entry 1"), "task should include current memory entries");
+    assert.ok(opts.task?.includes("Target: 'memory'"), "task should tell the child which target to use");
+    assert.match(opts.instructions ?? "", /memory consolidator/i, "instructions should frame the consolidator role");
+  });
+
+  it("threads the host signal and timeoutMs into spawn", async () => {
+    const { spawn, calls } = createFakeSpawn();
+    const ac = new AbortController();
+    await triggerConsolidation(mockStore, "memory", memoryToolDef, ac.signal, 12345, "memory", {}, spawn);
+
+    assert.strictEqual(calls[0]!.timeoutMs, 12345);
+    assert.strictEqual(calls[0]!.externalSignal, ac.signal);
+  });
+
+  it("returns { consolidated: true } on spawn exitCode 0", async () => {
+    const { spawn } = createFakeSpawn({ exitCode: 0, output: "Done" });
+    const result = await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
 
     assert.strictEqual(result.consolidated, true);
     assert.strictEqual(result.error, undefined);
   });
 
-  it("returns { consolidated: false } on failure (non-zero exit code)", async () => {
-    const pi = createMockPi({ code: 1, stdout: "", stderr: "some error" });
-    const result = await triggerConsolidation(pi, mockStore, "memory");
+  it("reloads the store from disk after a successful consolidation", async () => {
+    let reloaded = false;
+    const store = {
+      ...mockStore,
+      loadFromDisk: async () => {
+        reloaded = true;
+      },
+    } as never;
+    const { spawn } = createFakeSpawn({ exitCode: 0 });
 
-    assert.strictEqual(result.consolidated, false);
-    assert.ok(result.error, "should have error message");
-    assert.ok(result.error!.includes("exit"), "error should mention exit code");
+    await triggerConsolidation(store, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
+
+    assert.ok(reloaded, "store should reload from disk after success");
   });
 
-  it("surfaces stdout (not just stderr) when the child exits non-zero with empty stderr", async () => {
-    // Models the dead-launcher case: the child prints its real error to stdout,
-    // stderr is empty — must not collapse to "unknown error".
-    const pi = createMockPi({ code: 1, stdout: "error: Module not found '/x/cli.ts'", stderr: "" });
-    const result = await triggerConsolidation(pi, mockStore, "memory");
+  it("returns { consolidated: false } on a non-zero spawn exitCode", async () => {
+    const { spawn } = createFakeSpawn({ exitCode: 1, stderr: "some error" });
+    const result = await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
 
     assert.strictEqual(result.consolidated, false);
-    assert.ok(result.error!.includes("Module not found"), "should surface the stdout error");
-    assert.ok(!result.error!.includes("unknown error"), "should not mask behind 'unknown error'");
+    assert.ok(result.error, "should have an error message");
+    assert.ok(result.error!.includes("exited with code 1"), "error should mention the exit code");
   });
 
-  it("surfaces timeout-style child termination clearly", async () => {
-    const pi = createMockPi({ code: 143, stdout: "", stderr: "", killed: true } as any);
-    const result = await triggerConsolidation(pi, mockStore, "memory", undefined, 60000);
+  it("surfaces the runner stderr detail on failure", async () => {
+    const { spawn } = createFakeSpawn({ exitCode: 2, stderr: "model not found" });
+    const result = await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
+
+    assert.strictEqual(result.consolidated, false);
+    assert.ok(result.error!.includes("model not found"), "should surface stderr verbatim");
+  });
+
+  it("surfaces timeout when spawn reports timedOut", async () => {
+    const { spawn } = createFakeSpawn({ exitCode: 124, stderr: "timed out", timedOut: true });
+    const result = await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
 
     assert.strictEqual(result.consolidated, false);
     assert.match(result.error!, /terminated/i);
     assert.match(result.error!, /60000ms/);
   });
 
-  it("returns { consolidated: false } when pi.exec throws", async () => {
-    const crashPi = {
-      on: () => {},
-      exec: async () => { throw new Error("network failure"); },
-      registerTool: () => {},
-      registerCommand: () => {},
-    } as any;
-
-    const result = await triggerConsolidation(crashPi, mockStore, "memory");
+  it("returns { consolidated: false } when spawn throws", async () => {
+    const { spawn } = createFakeSpawn({ throwErr: "network failure" });
+    const result = await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
 
     assert.strictEqual(result.consolidated, false);
     assert.ok(result.error!.includes("Consolidation failed"), "should mention failure");
@@ -127,236 +182,171 @@ describe("triggerConsolidation", () => {
   });
 
   it("includes user profile entries when target is 'user'", async () => {
-    const pi = createMockPi();
-    await triggerConsolidation(pi, mockStore, "user");
+    const { spawn, calls } = createFakeSpawn();
+    await triggerConsolidation(mockStore, "user", memoryToolDef, undefined, 60000, "user", {}, spawn);
 
-    const prompt = childPrompt(execCalls[0]);
-    assert.ok(prompt.includes("user fact 1"), "prompt should include user entries");
-    assert.ok(prompt.includes("User Profile"), "prompt should reference user profile");
+    assert.ok(calls[0]!.task.includes("user fact 1"), "task should include user entries");
+    assert.ok(calls[0]!.task.includes("User Profile"), "task should reference user profile");
   });
 
   it("includes failure entries when target is 'failure'", async () => {
-    const pi = createMockPi();
-    await triggerConsolidation(pi, mockStore, "failure");
+    const { spawn, calls } = createFakeSpawn();
+    await triggerConsolidation(mockStore, "failure", memoryToolDef, undefined, 60000, "failure", {}, spawn);
 
-    const prompt = childPrompt(execCalls[0]);
-    assert.ok(prompt.includes("failure lesson 1"), "prompt should include failure entries");
-    assert.ok(prompt.includes("Failure Memory"), "prompt should reference failure memory");
-    assert.ok(prompt.includes("Target: 'failure'"), "prompt should tell the child agent to use target='failure'");
+    assert.ok(calls[0]!.task.includes("failure lesson 1"), "task should include failure entries");
+    assert.ok(calls[0]!.task.includes("Failure Memory"), "task should reference failure memory");
+    assert.ok(calls[0]!.task.includes("Target: 'failure'"), "task should tell the child to use target='failure'");
   });
 
   it("can consolidate project memory using the project tool target", async () => {
-    const pi = createMockPi();
-    await triggerConsolidation(pi, mockStore, "memory", undefined, 60000, "project");
+    const { spawn, calls } = createFakeSpawn();
+    await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "project", {}, spawn);
 
-    const prompt = childPrompt(execCalls[0]);
-    assert.ok(prompt.includes("old entry 1"), "prompt should include project memory entries");
-    assert.ok(prompt.includes("Project Memory"), "prompt should label project memory");
-    assert.ok(prompt.includes("Target: 'project'"), "prompt should tell the child agent to use target='project'");
-  });
-
-  it("retries once without overrides when the override subprocess fails for model resolution reasons", async () => {
-    const pi = {
-      on: () => {},
-      exec: async (...args: any[]) => {
-        execCalls.push(args);
-        if (execCalls.length === 1) {
-          return { code: 1, stdout: "", stderr: "model not found" };
-        }
-        return { code: 0, stdout: "Consolidated", stderr: "" };
-      },
-      registerTool: () => {},
-      registerCommand: () => {},
-    } as any;
-
-    const result = await triggerConsolidation(
-      pi,
-      mockStore,
-      "memory",
-      undefined,
-      60000,
-      "memory",
-      { llmModelOverride: "openrouter/deepseek/deepseek-v4-flash" },
-    );
-
-    assert.strictEqual(result.consolidated, true);
-    assert.strictEqual(execCalls.length, 2, "should retry once without overrides");
-    assert.deepStrictEqual(logicalChildArgs(execCalls[0]).slice(0, 6), [
-      "-p",
-      "--no-session",
-      "--model",
-      "openrouter/deepseek/deepseek-v4-flash",
-      "--thinking",
-      "off",
-    ]);
-    const retryArgs = logicalChildArgs(execCalls[1]);
-    assert.deepStrictEqual(retryArgs.slice(0, 2), ["-p", "--no-session"]);
-    assert.ok(!retryArgs.includes("--model"), "fallback retry should drop model override");
-    assert.ok(!retryArgs.includes("--thinking"), "fallback retry should drop thinking override");
-    assert.strictEqual(typeof retryArgs[retryArgs.length - 1], "string", "fallback retry should keep prompt as final arg");
-  });
-
-  it("does not retry generic consolidation failures that are unrelated to override resolution", async () => {
-    const pi = {
-      on: () => {},
-      exec: async (...args: any[]) => {
-        execCalls.push(args);
-        return { code: 1, stdout: "", stderr: "memory tool returned no changes" };
-      },
-      registerTool: () => {},
-      registerCommand: () => {},
-    } as any;
-
-    const result = await triggerConsolidation(
-      pi,
-      mockStore,
-      "memory",
-      undefined,
-      60000,
-      "memory",
-      { llmModelOverride: "openrouter/deepseek/deepseek-v4-flash" },
-    );
-
-    assert.strictEqual(result.consolidated, false);
-    assert.strictEqual(execCalls.length, 1, "should not retry generic consolidation failures");
+    assert.ok(calls[0]!.task.includes("old entry 1"), "task should include project memory entries");
+    assert.ok(calls[0]!.task.includes("Project Memory"), "task should label project memory");
+    assert.ok(calls[0]!.task.includes("Target: 'project'"), "task should tell the child to use target='project'");
   });
 
   it("handles empty entries gracefully", async () => {
+    const { spawn, calls } = createFakeSpawn();
     const emptyStore = {
       getMemoryEntries: () => [],
       getUserEntries: () => [],
+      getAllFailureEntries: () => [],
       loadFromDisk: async () => {},
-    } as any;
+    } as never;
 
-    const pi = createMockPi();
-    await triggerConsolidation(pi, emptyStore, "memory");
+    await triggerConsolidation(emptyStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
 
-    const prompt = childPrompt(execCalls[0]);
-    assert.ok(prompt.includes("(empty)"), "prompt should show (empty) for empty entries");
+    assert.ok(calls[0]!.task.includes("(empty)"), "task should show (empty) for empty entries");
   });
 });
 
 describe("registerConsolidateCommand", () => {
-  beforeEach(() => {
-    execCalls = [];
-  });
-
   it("includes project memory when a project store is available", async () => {
-    let handler: any;
+    let handler: ((args: unknown, ctx: unknown) => Promise<void>) | undefined;
     const notifications: string[] = [];
     let projectReloaded = false;
-
-    const pi = {
-      on: () => {},
-      exec: async (...args: any[]) => {
-        execCalls.push(args);
-        return { code: 0, stdout: "Done", stderr: "" };
-      },
-      registerTool: () => {},
-      registerCommand: (_name: string, command: any) => {
-        handler = command.handler;
-      },
-    } as any;
 
     const projectStore = {
       getMemoryEntries: () => ["project fact"],
       getUserEntries: () => [],
-      loadFromDisk: async () => { projectReloaded = true; },
-    } as any;
+      getAllFailureEntries: () => [],
+      loadFromDisk: async () => {
+        projectReloaded = true;
+      },
+    } as never;
 
-    registerConsolidateCommand(pi, mockStore, 60000, projectStore, "demo-project");
-    await handler({}, {
+    const { spawn, calls } = createFakeSpawn({ exitCode: 0 });
+
+    const pi = {
+      on: () => {},
+      registerTool: () => {},
+      registerCommand: (_name: string, command: { handler: typeof handler }) => {
+        handler = command.handler;
+      },
+    } as never;
+
+    registerConsolidateCommand(pi, mockStore, memoryToolDef, 60000, projectStore, "demo-project", {}, 15000, spawn);
+    await handler!({}, {
       signal: undefined,
-      ui: { notify: (message: string) => { notifications.push(message); } },
+      ui: { notify: (message: string) => notifications.push(message) },
     });
 
-    assert.strictEqual(execCalls.length, 4, "should consolidate memory, user, failure, and project stores");
-    const failurePrompt = childPrompt(execCalls[2]);
-    assert.ok(failurePrompt.includes("Failure Memory"), "failure prompt should be labeled");
-    assert.ok(failurePrompt.includes("failure lesson 1"), "failure prompt should include failure entries");
-    assert.ok(failurePrompt.includes("Target: 'failure'"), "failure prompt should use target='failure'");
-    const projectPrompt = childPrompt(execCalls[3]);
-    assert.ok(projectPrompt.includes("Project Memory"), "project prompt should be labeled");
-    assert.ok(projectPrompt.includes("project fact"), "project prompt should include project entries");
-    assert.ok(projectPrompt.includes("Target: 'project'"), "project prompt should use target='project'");
+    assert.strictEqual(calls.length, 4, "should consolidate memory, user, failure, and project stores");
+    const failureTask = calls[2]!.task;
+    assert.ok(failureTask.includes("Failure Memory"), "failure task should be labeled");
+    assert.ok(failureTask.includes("failure lesson 1"), "failure task should include failure entries");
+    assert.ok(failureTask.includes("Target: 'failure'"), "failure task should use target='failure'");
+    const projectTask = calls[3]!.task;
+    assert.ok(projectTask.includes("Project Memory"), "project task should be labeled");
+    assert.ok(projectTask.includes("project fact"), "project task should include project entries");
+    assert.ok(projectTask.includes("Target: 'project'"), "project task should use target='project'");
     assert.ok(projectReloaded, "project store should reload after consolidation");
-    assert.ok(notifications.some((message) => message.includes("Starting memory consolidation")), "should show an initial progress notification");
-    assert.ok(notifications.some((message) => message.includes("⏳ Consolidating memory")), "should show per-target progress");
+    assert.ok(notifications.some((m) => m.includes("Starting memory consolidation")), "should show an initial progress notification");
+    assert.ok(notifications.some((m) => m.includes("⏳ Consolidating memory")), "should show per-target progress");
     const finalNotification = notifications[notifications.length - 1] ?? "";
     assert.ok(finalNotification.includes("failure: ✅ consolidated"), "final notification should include failure result");
     assert.ok(finalNotification.includes("project:demo-project: ✅ consolidated"), "final notification should include project result");
   });
 
   it("uses a longer timeout floor for the manual consolidate command", async () => {
-    let handler: any;
+    let handler: ((args: unknown, ctx: unknown) => Promise<void>) | undefined;
+    const calls: SpawnSubagentOptions[] = [];
+    const { spawn } = createFakeSpawn({ exitCode: 0 });
 
     const pi = {
       on: () => {},
-      exec: async (...args: any[]) => {
-        execCalls.push(args);
-        return { code: 0, stdout: "Done", stderr: "" };
-      },
       registerTool: () => {},
-      registerCommand: (_name: string, command: any) => {
+      registerCommand: (_name: string, command: { handler: typeof handler }) => {
         handler = command.handler;
       },
-    } as any;
+    } as never;
 
-    registerConsolidateCommand(pi, mockStore, 60000);
-    await handler({}, {
-      signal: undefined,
-      ui: { notify: () => {} },
-    });
+    registerConsolidateCommand(pi, mockStore, memoryToolDef, 60000, null, undefined, {}, 15000, spawn);
+    await handler!({}, { signal: undefined, ui: { notify: () => {} } });
 
-    for (const call of execCalls) {
-      assert.strictEqual(call[2]?.timeout, 180000);
+    for (const call of calls) {
+      assert.strictEqual(call.timeoutMs, 180000, "manual consolidate should floor the timeout at 180s");
     }
   });
 
   it("emits an elapsed-time heartbeat while a consolidation target is in flight", async () => {
-    let handler: any;
+    let handler: ((args: unknown, ctx: unknown) => Promise<void>) | undefined;
     const notifications: string[] = [];
+    const { spawn } = createFakeSpawn({ exitCode: 0, delayMs: 60 }); // slow run → heartbeat window
+
     const pi = {
       on: () => {},
-      exec: async (...args: any[]) => {
-        execCalls.push(args);
-        await new Promise((r) => setTimeout(r, 60)); // slow consolidation → heartbeat window
-        return { code: 0, stdout: "Done", stderr: "" };
-      },
       registerTool: () => {},
-      registerCommand: (_name: string, command: any) => { handler = command.handler; },
-    } as any;
+      registerCommand: (_name: string, command: { handler: typeof handler }) => {
+        handler = command.handler;
+      },
+    } as never;
 
-    registerConsolidateCommand(pi, mockStore, 60000, null, undefined, {}, 15); // heartbeatMs=15
-    await handler({}, {
+    registerConsolidateCommand(pi, mockStore, memoryToolDef, 60000, null, undefined, {}, 15, spawn); // heartbeatMs=15
+    await handler!({}, {
       signal: undefined,
-      ui: { notify: (m: string) => { notifications.push(m); } },
+      ui: { notify: (m: string) => notifications.push(m) },
     });
 
     const beats = notifications.filter((m) => /elapsed/.test(m));
     assert.ok(beats.length >= 1, `expected ≥1 elapsed heartbeat; got ${beats.length} among ${notifications.length} notifies`);
     assert.match(beats[beats.length - 1]!, /\d+s elapsed/);
+
+    // Progress format: target ratio (processed/total) + entry-count magnitude,
+    // not just elapsed time. Per-note streaming is infeasible (single opaque
+    // subagent run per target), so the feasible signal is which target we're on
+    // plus how many notes it holds. mockStore → memory(2), user(1), failure(2).
+    assert.ok(beats.some((m) => /\(\d+\/\d+\)/.test(m)), "heartbeat should include target progress ratio");
+    assert.ok(beats.some((m) => /notes?\b/.test(m)), "heartbeat should include entry count");
+    assert.ok(
+      beats.some((m) => /\(1\/3\) · 2 notes/.test(m)),
+      "first-target heartbeat should read '(1/3) · 2 notes'",
+    );
+    const expectedModelLabel = resolveConsolidatorModelLabel({});
+    assert.ok(
+      beats.some((m) => m.includes(expectedModelLabel)),
+      `heartbeat should include resolved model label '${expectedModelLabel}'`,
+    );
   });
 
   it("does not throw if the command ctx becomes stale before the final summary notify", async () => {
-    let handler: any;
+    let handler: ((args: unknown, ctx: unknown) => Promise<void>) | undefined;
+    const { spawn } = createFakeSpawn({ exitCode: 0 });
 
     const pi = {
       on: () => {},
-      exec: async (...args: any[]) => {
-        execCalls.push(args);
-        return { code: 0, stdout: "Done", stderr: "" };
-      },
       registerTool: () => {},
-      registerCommand: (_name: string, command: any) => {
+      registerCommand: (_name: string, command: { handler: typeof handler }) => {
         handler = command.handler;
       },
-    } as any;
+    } as never;
 
-    registerConsolidateCommand(pi, mockStore, 60000);
+    registerConsolidateCommand(pi, mockStore, memoryToolDef, 60000, null, undefined, {}, 15000, spawn);
 
     await assert.doesNotReject(async () => {
-      await handler({}, {
+      await handler!({}, {
         signal: undefined,
         ui: {
           notify: () => {
@@ -365,6 +355,48 @@ describe("registerConsolidateCommand", () => {
         },
       });
     });
+  });
+});
+
+describe("resolveConsolidatorModelLabel", () => {
+  const savedModel = process.env.PI_MODEL;
+  const savedProvider = process.env.PI_PROVIDER;
+
+  after(() => {
+    if (savedModel === undefined) delete process.env.PI_MODEL;
+    else process.env.PI_MODEL = savedModel;
+    if (savedProvider === undefined) delete process.env.PI_PROVIDER;
+    else process.env.PI_PROVIDER = savedProvider;
+  });
+
+  it("returns the llmModelOverride verbatim when set (priority over env)", () => {
+    assert.strictEqual(
+      resolveConsolidatorModelLabel({ llmModelOverride: "anthropic/claude-opus-4" }),
+      "anthropic/claude-opus-4",
+    );
+    // surrounding whitespace is trimmed
+    assert.strictEqual(
+      resolveConsolidatorModelLabel({ llmModelOverride: "  glm-5.2  " }),
+      "glm-5.2",
+    );
+  });
+
+  it("falls back to PI_PROVIDER/PI_MODEL env when no override is set", () => {
+    process.env.PI_MODEL = "glm-5.2";
+    process.env.PI_PROVIDER = "zai";
+    assert.strictEqual(resolveConsolidatorModelLabel({}), "zai/glm-5.2");
+  });
+
+  it("falls back to PI_MODEL alone when PI_PROVIDER is absent", () => {
+    delete process.env.PI_PROVIDER;
+    process.env.PI_MODEL = "glm-5.2";
+    assert.strictEqual(resolveConsolidatorModelLabel({}), "glm-5.2");
+  });
+
+  it("returns 'default' when neither override nor PI_MODEL is set", () => {
+    delete process.env.PI_MODEL;
+    delete process.env.PI_PROVIDER;
+    assert.strictEqual(resolveConsolidatorModelLabel({}), "default");
   });
 });
 

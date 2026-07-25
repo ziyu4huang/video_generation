@@ -47,7 +47,7 @@ function taskPreview(task: string, n = 60): string {
 }
 
 function fmtTokens(usage: SubagentRunRecord["usage"]): string {
-  return usage && usage.total ? String(usage.total) : "—";
+  return usage?.total ? String(usage.total) : "—";
 }
 
 function renderRunsList(records: SubagentRunRecord[]): string {
@@ -98,7 +98,9 @@ export function createSubagentRunsTool(
           if (params.status) records = records.filter((r) => r.status === params.status);
           if (params.cwd) records = records.filter((r) => r.cwd === params.cwd);
           const limit =
-            typeof params.limit === "number" && Number.isFinite(params.limit) ? Math.max(0, Math.floor(params.limit)) : 10;
+            typeof params.limit === "number" && Number.isFinite(params.limit)
+              ? Math.max(0, Math.floor(params.limit))
+              : 10;
           return textResult(renderRunsList(records.slice(0, limit)));
         }
         case "get": {

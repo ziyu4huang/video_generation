@@ -9,7 +9,7 @@ import { SqliteMemoryRepository } from '../../src/store/sqlite/sqlite-memory-rep
 import { registerMemoryTool } from '../../src/tools/memory-tool.js';
 import {
   registerSyncMarkdownMemoriesCommand,
-  syncMarkdownMemoriesToSqlite,
+  syncMarkdownMemories,
 } from '../../src/handlers/sync-markdown-memories.js';
 import { ENTRY_DELIMITER } from '../../src/constants.js';
 
@@ -126,7 +126,7 @@ describe('memory sqlite sync + markdown backfill', () => {
     assert.strictEqual(failureRows.length, 1);
 
     assert.ok(
-      notifications.some((n) => n.message.includes('SQLite sync complete')),
+      notifications.some((n) => n.message.includes('memory store sync complete')),
       'command should report completion',
     );
   });
@@ -170,7 +170,7 @@ describe('memory sqlite sync + markdown backfill', () => {
       'utf-8',
     );
 
-    const counters = await syncMarkdownMemoriesToSqlite(memoryRepo, globalDir, undefined, agentRoot);
+    const counters = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
 
     assert.strictEqual(counters.projectCount, 1);
     assert.strictEqual(counters.imported, 1);
@@ -198,7 +198,7 @@ describe('memory sqlite sync + markdown backfill', () => {
         'utf-8',
       );
 
-      const counters = await syncMarkdownMemoriesToSqlite(customMemoryRepo, customGlobalDir, undefined, agentRoot);
+      const counters = await syncMarkdownMemories(customMemoryRepo, customGlobalDir, undefined, agentRoot);
 
       assert.strictEqual(counters.projectCount, 1);
       const results = await customMemoryRepo.searchMemories('custom root project entry', {
@@ -210,5 +210,41 @@ describe('memory sqlite sync + markdown backfill', () => {
     } finally {
       await customBackend.close();
     }
+  });
+
+  it('command output is backend-neutral and surfaces the active backend label', async () => {
+    fs.writeFileSync(
+      path.join(globalDir, 'MEMORY.md'),
+      'neutrality probe <!-- created=2026-05-08, last=2026-05-09 -->',
+      'utf-8',
+    );
+
+    let handler: any;
+    const mockPi = {
+      registerCommand: (_name: string, opts: any) => {
+        handler = opts.handler;
+      },
+    } as unknown as ExtensionAPI;
+
+    const notifications: Array<{ message: string; severity: string }> = [];
+    const ctx = {
+      ui: {
+        notify: (message: string, severity: string) => {
+          notifications.push({ message, severity });
+        },
+      },
+    } as any;
+
+    registerSyncMarkdownMemoriesCommand(
+      mockPi, memoryRepo, globalDir, undefined, agentRoot,
+      () => 'TestBackend · ns=x',
+    );
+    await handler({}, ctx);
+
+    const all = notifications.map((n) => n.message).join('\n');
+    assert.ok(all.includes('TestBackend · ns=x'), 'must surface the active backend label');
+    assert.ok(!all.toLowerCase().includes('sqlite'), 'must not hardcode "sqlite" (any case)');
+    assert.ok(!all.toLowerCase().includes('surrealdb'), 'must not hardcode "surrealdb" (any case)');
+    assert.ok(all.includes('memory store sync complete'), 'must use the backend-neutral noun');
   });
 });

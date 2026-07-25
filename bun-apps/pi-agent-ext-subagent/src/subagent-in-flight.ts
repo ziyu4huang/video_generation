@@ -47,3 +47,15 @@ export class SubagentInFlightRegistry {
     return [...this.runs.values()];
   }
 }
+
+let _registrySingleton: SubagentInFlightRegistry | undefined;
+/**
+ * Process-wide singleton so the `subagent` tool (subagent extension) and the
+ * `/subagents` viewer/command (workflow extension) share ONE registry across
+ * extensions. Importers MUST use the src subpath (`@repo/pi-agent-ext-subagent/src/...`)
+ * so both extensions resolve the same module instance.
+ */
+export function getSubagentInFlightRegistry(): SubagentInFlightRegistry {
+  // biome-ignore lint/suspicious/noAssignInExpressions: lazy-init singleton idiom
+  return (_registrySingleton ??= new SubagentInFlightRegistry());
+}

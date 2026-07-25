@@ -12,6 +12,7 @@ import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
 import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
 import type { MemoryRepository } from "../../src/store/repository.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 describe("registerMemoryTool", () => {
   let tmpDir: string;
@@ -22,6 +23,29 @@ describe("registerMemoryTool", () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "memory-tool-test-"));
     backend = new SqliteBackend(tmpDir);
     memoryRepo = new SqliteMemoryRepository(backend);
+  });
+
+  it("registerMemoryTool returns the memory ToolDefinition for bridging", () => {
+    const registeredTools: any[] = [];
+
+    const mockPi = {
+      registerTool: (def: any) => {
+        registeredTools.push(def);
+      },
+    } as unknown as ExtensionAPI;
+
+    const mockStore = {
+      add: () => ({ success: true, target: "memory", entries: ["test"], usage: "10% — 10/100 chars", entry_count: 1 }),
+      replace: () => ({ success: true, target: "memory", entries: [], usage: "0% — 0/100 chars", entry_count: 0 }),
+      remove: () => ({ success: true, target: "memory", entries: [], usage: "0% — 0/100 chars", entry_count: 0 }),
+    } as unknown as MemoryStore;
+
+    const def = registerMemoryTool(mockPi, mockStore, null);
+    assert.ok(def, "registerMemoryTool must return the ToolDefinition");
+    assert.equal(def.name, "memory");
+    assert.equal(typeof def.execute, "function");
+    // sanity: it is the same shape the host received
+    assert.equal(registeredTools[0]?.name, "memory");
   });
 
   afterEach(async () => {
@@ -299,7 +323,7 @@ describe("registerMemoryTool", () => {
 
     const parsed = JSON.parse(result.content[0].text);
     assert.strictEqual(parsed.success, true);
-    assert.match(parsed.message, /SQLite search sync failed/);
+    assert.match(parsed.message, /search store sync failed/);
     assert.match(parsed.warning, /sqlite unavailable/);
   });
 
@@ -346,7 +370,7 @@ describe("registerMemoryTool", () => {
     const parsed = JSON.parse(result.content[0].text);
 
     assert.strictEqual(parsed.success, true);
-    assert.match(parsed.message, /SQLite search sync failed/);
+    assert.match(parsed.message, /search store sync failed/);
     assert.match(parsed.warning, /disk I\/O error/);
   });
 
@@ -497,5 +521,19 @@ describe("registerMemoryTool", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('memory-tool user-facing strings contain no hardcoded backend token', () => {
+    const src = fs.readFileSync(
+      path.join(import.meta.dir, '..', '..', 'src', 'tools', 'memory-tool.ts'),
+      'utf-8',
+    );
+    // Matches sqlite/surrealdb only INSIDE string literals (quoted), ignoring
+    // identifiers (e.g. syncAddToSqlite) and comments.
+    const backendInLiteral = /['"`][^'"`\n]*(sqlite|surrealdb)[^'"`\n]*['"`]/i;
+    assert.ok(
+      !backendInLiteral.test(src),
+      'memory-tool.ts must not hardcode a backend name inside any string literal',
+    );
   });
 });

@@ -68,6 +68,7 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@repo/pi-agent-ext-subagent": "workspace:*",
     "acorn": "^8.16.0"
   },
   "peerDependencies": {

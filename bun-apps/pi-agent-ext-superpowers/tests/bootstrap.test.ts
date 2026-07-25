@@ -138,21 +138,29 @@ describe("bootstrap payload assembly", () => {
     expect(payload).toContain(BOOTSTRAP_MARKER);
     expect(payload).toContain("You have superpowers.");
     expect(payload).toContain("## Pi tool mapping");
-    expect(payload).toContain("pi-agent-ext-workflow");
+    // the subagent tool is owned by pi-agent-ext-subagent (extracted from workflow)
+    expect(payload).toContain("pi-agent-ext-subagent");
+    expect(payload).not.toContain("pi-agent-ext-workflow");
   });
 
-  it("Pi tool mapping names the workflow 'subagent' tool + its documented params", () => {
+  it("Pi tool mapping names the subagent ext's 'subagent' tool + its documented params", () => {
     _resetBootstrapCacheForTests();
     const payload = getBootstrapContent() ?? "";
     expect(payload).toContain("subagent");
     // the documented call signature the agent is told to use
     expect(payload).toContain("task");
-    expect(payload).toMatch(/tools|excludeTools|cwd|model/);
+    expect(payload).toMatch(/tier|tools|excludeTools|cwd|model/);
+    // prefer tier over raw model id (portable, user-tunable via /workflows-models)
+    expect(payload).toContain("tier");
     // commitScope: the SDD commit-hygiene guardrail (catches the git add -A sweep)
     expect(payload).toContain("commitScope");
     // tokenBudget/spendBudget: per-agent spend cap (soft guidance — bounds runaway dispatches)
     expect(payload).toContain("tokenBudget");
     expect(payload).toContain("spendBudget");
+    // deferral: the terse bootstrap points at the canonical full doc
+    expect(payload).toContain("references/pi-tools.md");
+    // concurrent fan-out goes through the workflow tool's parallel(), not ad-hoc multi-dispatch
+    expect(payload).toContain("parallel()");
   });
 
   it("carries the Path & routing overrides (boundary convergence, ADR-0004-safe)", () => {

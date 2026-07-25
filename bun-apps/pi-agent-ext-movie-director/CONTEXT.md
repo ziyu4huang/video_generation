@@ -76,6 +76,27 @@ _Avoid_: billing, accounting
 A `/command` run persists a journal after every `agent()` and `call('movie.*')` step; a killed run (`kill -9`, kernel panic, power loss) is auto-recovered on next start (`recoverStaleRuns` reconciles `"running"` → `"paused"`, never `"failed"`) and resumable by replaying the journal prefix.
 _Avoid_: restartable, durable (it is journal-replay resume, not mere restart)
 
+### Learning loop
+
+**`evaluate-lipsync`**:
+Scores an already-produced talking-head video's mouth-motion-vs-audio
+correlation (`python -m app.lipsync_metrics`) and returns a `lesson`
+(`{target, category, content, reason?}`) shaped for hermes-memory's `memory`
+tool. Decoupled from how the video was produced — call it after any
+`native-i2v` + `run.py video lipdub` pair.
+_Avoid_: generate hook (lipdub is not a `generate` provider today — see
+`evaluate-lipsync`'s own `movie_help` entry for why)
+
+**Lesson**:
+The output of `evaluate-lipsync` — `target: "memory"|"failure"`,
+`category: "insight"|"tool-quirk"`, `content`, `reason?`. When present, call
+hermes-memory's `memory` tool immediately with these fields so the finding
+survives the session. Before producing a NEW lipdub video, call
+hermes-memory's `memory_search` tool first (`category: "tool-quirk"`) to
+check for known-bad combinations.
+_Avoid_: silent skip (a `lesson` field left unrecorded defeats the entire
+point of this loop — see `evaluate-lipsync`'s `movie_help` entry)
+
 ### Integration
 
 **`movie.*` host-fns**:

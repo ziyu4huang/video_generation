@@ -8,7 +8,7 @@
  * See PLAN.md → "Hermes Source File Reference Map" for source lines.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { MemoryStore } from "../store/memory-store.js";
@@ -188,7 +188,7 @@ async function syncAddToSqlite(
     });
     return null;
   } catch (err) {
-    return `Saved to Markdown, but SQLite search sync failed: ${err instanceof Error ? err.message : String(err)}`;
+    return `Saved to Markdown, but search store sync failed: ${err instanceof Error ? err.message : String(err)}`;
   }
 }
 
@@ -211,12 +211,12 @@ async function syncReplaceToSqlite(
     });
 
     if (syncResult.matched === 0) {
-      return "Saved to Markdown, but no matching SQLite memory row was updated. Run /memory-sync-markdown if search results look stale.";
+      return "Saved to Markdown, but no matching search store row was updated. Run /memory-sync-markdown if search results look stale.";
     }
 
     return null;
   } catch (err) {
-    return `Saved to Markdown, but SQLite search sync failed: ${err instanceof Error ? err.message : String(err)}`;
+    return `Saved to Markdown, but search store sync failed: ${err instanceof Error ? err.message : String(err)}`;
   }
 }
 
@@ -237,12 +237,12 @@ async function syncRemoveFromSqlite(
     });
 
     if (syncResult.matched === 0) {
-      return "Saved to Markdown, but no matching SQLite memory row was removed. Run /memory-sync-markdown if search results look stale.";
+      return "Saved to Markdown, but no matching search store row was removed. Run /memory-sync-markdown if search results look stale.";
     }
 
     return null;
   } catch (err) {
-    return `Saved to Markdown, but SQLite search sync failed: ${err instanceof Error ? err.message : String(err)}`;
+    return `Saved to Markdown, but search store sync failed: ${err instanceof Error ? err.message : String(err)}`;
   }
 }
 
@@ -280,8 +280,8 @@ export function registerMemoryTool(
   projectStore: MemoryStore | null,
   memoryRepo: MemoryRepository | null = null,
   projectName?: string | null,
-): void {
-  pi.registerTool({
+): ToolDefinition {
+  const definition: ToolDefinition = {
     name: "memory",
     label: "Memory",
     description: MEMORY_TOOL_DESCRIPTION,
@@ -503,5 +503,7 @@ export function registerMemoryTool(
         details: result,
       };
     },
-  });
+  };
+  pi.registerTool(definition);
+  return definition;
 }

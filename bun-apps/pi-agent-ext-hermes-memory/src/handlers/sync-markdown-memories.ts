@@ -1,6 +1,10 @@
 /**
  * Markdown memory sync command — /memory-sync-markdown imports existing
- * Markdown-backed memories into the SQLite search store.
+ * Markdown-backed memories into the active search store (SQLite by default,
+ * SurrealDB when configured). The write path is backend-neutral: it goes
+ * through MemoryRepository.syncMemoryEntry, so the same command works for
+ * every backend. The active backend's label is surfaced in the completion
+ * message via the getLabel dependency.
  */
 
 import fs from 'node:fs';
@@ -84,7 +88,7 @@ function scanProjectDirs(agentRoot: string, globalDir: string, projectsMemoryDir
     .filter(({ memoryFile }) => fs.existsSync(memoryFile));
 }
 
-export async function syncMarkdownMemoriesToSqlite(
+export async function syncMarkdownMemories(
   memoryRepo: MemoryRepository,
   globalDir: string,
   projectsMemoryDir?: string,
@@ -129,22 +133,24 @@ export function registerSyncMarkdownMemoriesCommand(
   pi: ExtensionAPI,
   memoryRepo: MemoryRepository,
   globalDir: string,
-  projectsMemoryDir?: string,
+  projectsMemoryDir: string | undefined,
   agentRoot = AGENT_ROOT,
+  getLabel: () => string = () => "memory store",
 ): void {
   pi.registerCommand('memory-sync-markdown', {
-    description: 'Backfill Markdown memories into the SQLite search store',
+    description: 'Backfill Markdown memories into the active search store',
     handler: async (_args, ctx: ExtensionCommandContext) => {
-      ctx.ui.notify('🔄 Scanning Markdown memory files for SQLite backfill...', 'info');
+      ctx.ui.notify('🔄 Scanning Markdown memory files for backfill into the active store…', 'info');
 
       try {
-        const counters = await syncMarkdownMemoriesToSqlite(memoryRepo, globalDir, projectsMemoryDir, agentRoot);
+        const counters = await syncMarkdownMemories(memoryRepo, globalDir, projectsMemoryDir, agentRoot);
+        const label = getLabel();
 
-        let output = `\n✅ Markdown → SQLite sync complete!\n\n`;
+        let output = `\n✅ Markdown → memory store sync complete! (backend: ${label})\n\n`;
         output += `📊 Results:\n`;
         output += `├─ Files scanned: ${counters.filesScanned}\n`;
         output += `├─ Entries scanned: ${counters.entriesScanned}\n`;
-        output += `├─ Imported into SQLite: ${counters.imported}\n`;
+        output += `├─ Imported: ${counters.imported}\n`;
         output += `└─ Skipped as duplicates: ${counters.skipped}\n`;
 
         if (counters.projectCount > 0) {
@@ -161,7 +167,7 @@ export function registerSyncMarkdownMemoriesCommand(
           }
         }
 
-        output += `\n💡 Re-running this command is safe — existing SQLite rows are de-duplicated.`;
+        output += `\n💡 Re-running this command is safe — existing rows are de-duplicated.`;
         ctx.ui.notify(output, 'info');
       } catch (err) {
         ctx.ui.notify(`❌ Markdown sync failed: ${err instanceof Error ? err.message : String(err)}`, 'error');

@@ -4,13 +4,13 @@ Skills speak in actions ("dispatch a subagent", "create a todo", "read a file").
 
 | Action skills request | Pi equivalent |
 | --- | --- |
-| Dispatch a subagent (`Subagent (general-purpose):` template) | Use the `subagent` tool provided by `pi-agent-ext-workflow` — `subagent({ task, model, tools, excludeTools, cwd, commitScope, tokenBudget, spendBudget })` |
+| Dispatch a subagent (`Subagent (general-purpose):` template) | Use the `subagent` tool provided by `pi-agent-ext-subagent` — `subagent({ task, model?, tier?, tools?, excludeTools?, cwd?, commitScope?, tokenBudget?, spendBudget?, timeoutMs?, schema?, agentType? })` |
 | Dispatch many subagents in parallel (`dispatching-parallel-agents`) | Use the `workflow` tool's `parallel()` — see "Parallel fan-out" below (the `subagent` tool is single-dispatch + sequential) |
 | Task tracking ("create a todo", "mark complete") | Use an installed todo/task tool if available, otherwise track tasks in the plan or `TODO.md` |
 
 ## Subagents
 
-Pi core does not ship a standard subagent tool. This repo's `pi-agent-ext-workflow` provides a `subagent` tool — a single-agent, isolated-context dispatch (`subagent({ task, model, tools, excludeTools, cwd, commitScope, tokenBudget, spendBudget, schema, agentType, timeoutMs, retryOnTransient })`) backed by `spawnSubagent()`. It covers SDD's implementer/reviewer dispatch.
+Pi core does not ship a standard subagent tool. This repo's `pi-agent-ext-subagent` provides a `subagent` tool — a single-agent, isolated-context dispatch (`subagent({ task, model?, tier?, tools?, excludeTools?, cwd?, commitScope?, tokenBudget?, spendBudget?, timeoutMs?, schema?, schemaRepairAttempts?, agentType?, retryOnTransient? })`) backed by `spawnSubagent()`. It covers SDD's implementer/reviewer dispatch. (This is the LLM tool path. superpowers consumes it that way — it does NOT import `spawnSubagent` in code; see the "Public API" note below for the programmatic path other peer extensions use.)
 
 **Single-dispatch + sequential.** The tool declares `executionMode: "sequential"`: if the model emits multiple tool calls in one turn (or a `subagent` call alongside others), pi serializes the whole batch (its rule: any sequential tool call in a turn ⇒ the batch runs serially). This ENFORCES that concurrent fan-out goes through the `workflow` tool (below) — a controller that wants concurrency must use `parallel()`, not ad-hoc multi-dispatch. (Safe for fan-out: the `workflow` tool's `parallel()`/`agent()` dispatch via a SEPARATE `createAgentSession()` path, so the `subagent` tool's sequential declaration does NOT throttle workflow runs.)
 
@@ -22,7 +22,13 @@ Pi core does not ship a standard subagent tool. This repo's `pi-agent-ext-workfl
 
 **Budget (SDD).** When dispatching an SDD implementer or reviewer that is expensive or open-ended (exploratory research, a large multi-file refactor, an agent with a generous `timeoutMs`), consider passing `tokenBudget` (and/or `spendBudget`) to bound runaway spend — the run aborts mid-run with status `budget` (`details.budget: {kind,limit,actual}`) if exceeded, distinct from `timedout`. This is **soft guidance, not mandatory** (unlike `commitScope`, there is no known recurring SDD token-runaway failure): a well-scoped implementer on a known codebase rarely needs it. Pairs naturally with `timeoutMs` (wall-clock) — budget catches a *looping* agent that wall-clock alone cannot.
 
-**Public API (peer-extension code).** Dispatching a subagent programmatically from another extension's CODE imports `spawnSubagent` (+ `SpawnSubagentOptions`/`Result`/`AgentUsage`) from `@repo/pi-agent-ext-workflow`, NOT the LLM tool path.
+**Model selection — prefer `tier` over raw `model`.** The tool's schema explicitly recommends `tier` over a concrete `model` id: `tier` resolves to the user's model-tiers config (`~/.pi/workflows/model-tiers.json`, editable via `/workflows-models`) and is portable across users/machines, whereas a raw `model` id (e.g. `openai/gpt-4.1-mini`) is user-specific and breaks if that provider isn't configured. Override priority when more than one is set: `model` > `tier` > the session's current model (omit both to inherit the session model). SDD role→tier convention: implementer = `medium`, focused research/exploration = `small`, synthesis / final-review = `big`. Pass `tier` where the byte-identical implementer-prompt's `model:` field asks for a model.
+
+**Structured output (`schema`).** Pass a JSON Schema as `schema` and the child must return via a `structured_output` call matching it; the tool result is the JSON-serialized object (not prose). Use it when the controller will branch on fields — e.g. an SDD task reviewer returning structured `{severity, file, finding}` findings, or a research dispatch returning a fixed shape. `schemaRepairAttempts` (default 2) controls in-session repair re-prompts when the child emits prose instead; bump it for models that unreliably emit structured output.
+
+**Named agent profiles (`agentType`).** `agentType` names a definition file (`.pi/agents/<name>.md` or `~/.pi/agents/<name>.md`) that binds tools/model/prompt and optionally requests worktree isolation. An explicit `model`/`tier`/`tools`/`excludeTools` on the call overrides the binding's values. Use it to dispatch a reusable role (a read-only explorer, a hardened reviewer) without restating its config every time.
+
+**Public API (peer-extension code).** Dispatching a subagent programmatically from another extension's CODE imports `spawnSubagent` (+ `SpawnSubagentOptions`/`Result`/`AgentUsage`) from `@repo/pi-agent-ext-subagent`, NOT the LLM tool path. (superpowers itself does NOT use this path — it drives subagents via the `subagent` tool call; this note is for peer extensions like `knowledge-card`/`wayfind` that need programmatic dispatch. Only the two singletons demand the `@repo/pi-agent-ext-subagent/src/*` subpath — see that package's README + ADR-0001.)
 
 If no `subagent` tool is available, do not fabricate `Task` calls; execute sequentially in the current session or explain that the subagent capability is not installed.
 

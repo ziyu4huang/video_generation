@@ -21,13 +21,13 @@ import {
   Text,
   type TUI,
 } from "@earendil-works/pi-tui";
-import { listAvailableModelSpecs } from "./agent.js";
+import { listAvailableModelSpecs } from "@repo/pi-agent-ext-subagent";
 import {
   buildDefaultTierConfig,
   loadModelTierConfig,
   saveModelTierConfig,
   sortedTierNames,
-} from "./model-tier-config.js";
+} from "@repo/pi-agent-ext-subagent";
 
 /**
  * Register the `/workflows-models` command with Pi.

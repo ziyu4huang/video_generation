@@ -27,44 +27,44 @@ const fixturesDir = join(root, "..", "tests", "__fixtures__", "upstream-skills")
 // Every dir under skills/ is currently an upstream port; if a pi-owned skill is
 // ever added here, EXCLUDE it from this list (and the test) so it isn't pinned.
 const PORTED_SKILLS = [
-	"brainstorming",
-	"dispatching-parallel-agents",
-	"executing-plans",
-	"finishing-a-development-branch",
-	"receiving-code-review",
-	"requesting-code-review",
-	"subagent-driven-development",
-	"systematic-debugging",
-	"test-driven-development",
-	"using-git-worktrees",
-	"using-superpowers",
-	"verification-before-completion",
-	"writing-plans",
-	"writing-skills",
+  "brainstorming",
+  "dispatching-parallel-agents",
+  "executing-plans",
+  "finishing-a-development-branch",
+  "receiving-code-review",
+  "requesting-code-review",
+  "subagent-driven-development",
+  "systematic-debugging",
+  "test-driven-development",
+  "using-git-worktrees",
+  "using-superpowers",
+  "verification-before-completion",
+  "writing-plans",
+  "writing-skills",
 ];
 
 mkdirSync(fixturesDir, { recursive: true });
 
 let copied = 0;
 for (const name of PORTED_SKILLS) {
-	const src = join(skillsDir, name, "SKILL.md");
-	if (!existsSync(src)) {
-		console.error(`✗ missing skill source: ${src}`);
-		process.exit(1);
-	}
-	copyFileSync(src, join(fixturesDir, `${name}.md`));
-	copied++;
+  const src = join(skillsDir, name, "SKILL.md");
+  if (!existsSync(src)) {
+    console.error(`✗ missing skill source: ${src}`);
+    process.exit(1);
+  }
+  copyFileSync(src, join(fixturesDir, `${name}.md`));
+  copied++;
 }
 console.log(`✓ re-baselined ${copied} skill fixture(s) → ${fixturesDir}`);
 
 const refPath = join(fixturesDir, "UPSTREAM.ref");
 if (!existsSync(refPath)) {
-	console.error(
-		`✗ UPSTREAM.ref missing. Create it at ${refPath} declaring the upstream source ` +
-			"(see ADR-0004). The pin test requires it to be present and non-empty.",
-	);
-	process.exit(1);
+  console.error(
+    `✗ UPSTREAM.ref missing. Create it at ${refPath} declaring the upstream source ` +
+      "(see ADR-0004). The pin test requires it to be present and non-empty.",
+  );
+  process.exit(1);
 }
 console.log(
-	`✓ preserved UPSTREAM.ref — if this was an upstream re-sync, EDIT it to record the new upstream-ref: ${refPath}`,
+  `✓ preserved UPSTREAM.ref — if this was an upstream re-sync, EDIT it to record the new upstream-ref: ${refPath}`,
 );

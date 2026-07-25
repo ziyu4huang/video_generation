@@ -8,7 +8,7 @@
  */
 
 import { Check } from "typebox/value";
-import { isWorkflowError, WorkflowError, WorkflowErrorCode } from "./errors.js";
+import { isWorkflowError, WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-subagent";
 import type { HostFnCtx, HostFnEntry } from "./host-fn-registry.js";
 
 /**

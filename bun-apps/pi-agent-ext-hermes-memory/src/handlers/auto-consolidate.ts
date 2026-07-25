@@ -2,19 +2,45 @@
  * Auto-consolidation — when memory hits capacity, trigger automatic
  * consolidation instead of returning an error.
  *
- * Uses pi.exec() to spawn a one-shot consolidation process.
- * The child process modifies files on disk, so the parent MUST reload
- * from disk after consolidation completes.
+ * Consolidation runs in-process via the shared `spawnSubagent` runner
+ * (sub-project ①). The child subagent is handed the parent's `memory` tool
+ * through `extensionTools` bridging — the `ToolDefinition` captured from
+ * `registerMemoryTool`; its `execute` closure binds the parent `MemoryStore`,
+ * so the child's writes land in the parent store directly. That is the same
+ * end effect as the old `pi -p` subprocess (`-e <own-extension>`) without the
+ * OS-process boundary. The store is still reloaded from disk after
+ * consolidation completes as a belt-and-suspenders mirror.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { spawnSubagent } from "@repo/pi-agent-ext-subagent/src/index.ts";
+import type { SpawnSubagentResult } from "@repo/pi-agent-ext-subagent/src/index.ts";
 import { MemoryStore } from "../store/memory-store.js";
 import { CONSOLIDATION_PROMPT, ENTRY_DELIMITER } from "../constants.js";
 import type { ConsolidationResult, MemoryConfig } from "../types.js";
-import { execChildPrompt } from "./pi-child-process.js";
 
 type MemoryTarget = "memory" | "user" | "failure";
 type ToolMemoryTarget = MemoryTarget | "project";
+type ChildLlmConfig = Pick<MemoryConfig, "llmModelOverride" | "llmThinkingOverride">;
+
+/**
+ * Resolve the model-id the consolidator will actually use, for display in
+ * progress notifications. With spawnSubagent the child resolves its model from
+ * the `tier` config (or inherits the live session model when none is set); this
+ * label is informational only and best-effort mirrors that resolution:
+ *   1. llmModelOverride wins (it would be threaded through as `model`).
+ *   2. Otherwise the child inherits the parent env and pi uses PI_MODEL
+ *      (qualified by PI_PROVIDER) when no tier/model is given.
+ *   3. "default" when neither is present.
+ */
+export function resolveConsolidatorModelLabel(config: ChildLlmConfig): string {
+  const override = config.llmModelOverride?.trim();
+  if (override) return override;
+  const model = process.env.PI_MODEL;
+  const provider = process.env.PI_PROVIDER;
+  if (model) return provider ? `${provider}/${model}` : model;
+  return "default";
+}
 
 function entriesForTarget(store: MemoryStore, target: MemoryTarget): string[] {
   if (target === "user") return store.getUserEntries();
@@ -29,34 +55,32 @@ function labelForTarget(target: MemoryTarget, toolTarget: ToolMemoryTarget): str
   return "Memory";
 }
 
-function describeConsolidationFailure(
-  result: { code: number; stdout?: string; stderr?: string; killed?: boolean },
-  timeoutMs: number,
-): string {
+function describeConsolidationFailure(result: SpawnSubagentResult, timeoutMs: number): string {
   const stderr = result.stderr?.trim();
-  const stdout = result.stdout?.trim();
-  const terminated = result.killed || result.code === 143;
+  const terminated = result.timedOut;
 
   if (terminated) {
     return `Consolidation subprocess was terminated (likely timeout or cancellation). Timeout: ${timeoutMs}ms. Consider increasing consolidationTimeoutMs if this is a manual run.`;
   }
 
-  // Surface stderr first (the usual error channel), then fall back to stdout —
-  // a child that fails to even start (e.g. a broken launcher shim printing
-  // "Module not found") may emit its real error on stdout with empty stderr,
-  // which must not collapse to an opaque "unknown error".
-  const detail = (stderr || stdout)?.slice(0, 200) || "unknown error";
-  return `Consolidation process exited with code ${result.code}: ${detail}`;
+  // spawnSubagent reports a failure via `stderr` + `exitCode` (a transient
+  // abort/timeout also sets `timedOut`, handled above). On a non-zero exit with
+  // empty stderr the runner gave us nothing to surface — fall back to a generic
+  // descriptor that still names the exit code instead of an opaque "unknown
+  // error", so a bare non-zero run is at least diagnosable.
+  const detail = stderr?.slice(0, 200) || `runner exited (code ${result.exitCode})`;
+  return `Consolidation process exited with code ${result.exitCode}: ${detail}`;
 }
 
 export async function triggerConsolidation(
-  pi: ExtensionAPI,
   store: MemoryStore,
   target: MemoryTarget,
+  memoryToolDef: ToolDefinition,
   signal?: AbortSignal,
   timeoutMs: number = 60000,
   toolTarget: ToolMemoryTarget = target,
   llmConfig: Pick<MemoryConfig, "llmModelOverride" | "llmThinkingOverride"> = {},
+  spawn: typeof spawnSubagent = spawnSubagent,
 ): Promise<ConsolidationResult> {
   const entries = entriesForTarget(store, target);
   const currentContent = entries.join(ENTRY_DELIMITER);
@@ -71,24 +95,28 @@ export async function triggerConsolidation(
   ].join("\n");
 
   try {
-    const result = await execChildPrompt(pi, prompt, llmConfig, {
-      signal,
+    // llmThinkingOverride has no spawnSubagent equivalent — inert under the migration.
+    const modelOverride = llmConfig.llmModelOverride?.trim();
+    const result = await spawn({
+      task: prompt,
+      // Honor llmModelOverride when set (keeps resolveConsolidatorModelLabel
+      // honest); otherwise fall back to the small tier.
+      ...(modelOverride ? { model: modelOverride } : { tier: "small" }),
+      instructions:
+        "You are a memory consolidator. Use ONLY the memory tool to merge/dedup entries as instructed. Do not read or modify any files.",
+      tools: ["memory"],
+      extensionTools: [memoryToolDef],
       timeoutMs,
-      retryWithoutOverrides: true,
-    }) as { code: number; stdout?: string; stderr?: string; killed?: boolean };
-
-    if (result.code === 0) {
+      externalSignal: signal,
+      retryOnTransient: true,
+    });
+    if (result.exitCode === 0) {
+      store.loadFromDisk(); // mirror today's post-child reload
       return { consolidated: true };
     }
-    return {
-      consolidated: false,
-      error: describeConsolidationFailure(result, timeoutMs),
-    };
+    return { consolidated: false, error: describeConsolidationFailure(result, timeoutMs) };
   } catch (err) {
-    return {
-      consolidated: false,
-      error: `Consolidation failed: ${String(err).slice(0, 200)}`,
-    };
+    return { consolidated: false, error: `Consolidation failed: ${String(err).slice(0, 200)}` };
   }
 }
 
@@ -98,11 +126,13 @@ export async function triggerConsolidation(
 export function registerConsolidateCommand(
   pi: ExtensionAPI,
   store: MemoryStore,
+  memoryToolDef: ToolDefinition,
   timeoutMs: number = 60000,
   projectStore: MemoryStore | null = null,
   projectName?: string | null,
   llmConfig: Pick<MemoryConfig, "llmModelOverride" | "llmThinkingOverride"> = {},
   heartbeatMs: number = 15000,
+  spawn: typeof spawnSubagent = spawnSubagent,
 ): void {
   pi.registerCommand("memory-consolidate", {
     description: "Manually trigger memory consolidation to free up space",
@@ -129,9 +159,10 @@ export function registerConsolidateCommand(
         });
       }
 
+      const modelLabel = resolveConsolidatorModelLabel(llmConfig);
       try {
         ctx.ui.notify(
-          `🔄 Starting memory consolidation for ${targets.length} target${targets.length === 1 ? "" : "s"}...`,
+          `🔄 Starting memory consolidation for ${targets.length} target${targets.length === 1 ? "" : "s"} · model ${modelLabel}...`,
           "info",
         );
       } catch {
@@ -139,7 +170,8 @@ export function registerConsolidateCommand(
         // with the consolidation work rather than failing before it starts.
       }
 
-      for (const item of targets) {
+      for (let idx = 0; idx < targets.length; idx++) {
+        const item = targets[idx];
         const entries = entriesForTarget(item.store, item.target);
 
         if (entries.length === 0) {
@@ -147,9 +179,16 @@ export function registerConsolidateCommand(
           continue;
         }
 
+        // Per-note streaming is infeasible here: each target consolidates via a
+        // single opaque subagent run that only returns on completion. Surface
+        // the best feasible signal instead — which target we're on out of the
+        // total, plus the magnitude (entry count) of the current work.
+        const noteCount = `${entries.length} note${entries.length === 1 ? "" : "s"}`;
+        const progressLabel = `${item.label} (${idx + 1}/${targets.length}) · ${noteCount} · ${modelLabel}`;
+
         try {
           ctx.ui.notify(
-            `⏳ Consolidating ${item.label}...`,
+            `⏳ Consolidating ${progressLabel}...`,
             "info",
           );
         } catch {
@@ -159,7 +198,7 @@ export function registerConsolidateCommand(
         const t0 = Date.now();
         const beat = setInterval(() => {
           try {
-            ctx.ui.notify(`⏳ Consolidating ${item.label}… ${Math.round((Date.now() - t0) / 1000)}s elapsed`, "info");
+            ctx.ui.notify(`⏳ Consolidating ${progressLabel}… ${Math.round((Date.now() - t0) / 1000)}s elapsed`, "info");
           } catch {
             // Stale ctx (session reload mid-consolidation) — best-effort only.
           }
@@ -167,13 +206,14 @@ export function registerConsolidateCommand(
         let result: ConsolidationResult;
         try {
           result = await triggerConsolidation(
-            pi,
             item.store,
             item.target,
+            memoryToolDef,
             ctx.signal,
             manualTimeoutMs,
             item.toolTarget,
             llmConfig,
+            spawn,
           );
         } finally {
           clearInterval(beat);
