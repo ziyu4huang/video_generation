@@ -27,7 +27,9 @@ type: grilling
 blocked by: 01-research-audit-child-execution-vs-spawnsubagent
 claimed: controller (2026-07-25)
 
-## Resolution (closed 2026-07-25 — grilling: Q1=A, Q2=A, Q3=A, Q4=A)
+## Resolution
+
+_Closed 2026-07-25 — grilling: Q1=A, Q2=A, Q3=A, Q4=A._
 
 **Decision: UNIFORM migration — every `execChildPrompt` (subprocess) caller → `spawnSubagent`; `direct` survives ONLY as background-review's default; `pi-child-process.ts` fully deleted.**
 

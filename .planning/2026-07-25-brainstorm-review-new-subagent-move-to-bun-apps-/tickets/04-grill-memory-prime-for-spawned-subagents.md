@@ -15,7 +15,9 @@ Resolve the contract question first (is breaking isolation ever wanted?), then t
 type: grilling
 claimed: controller (2026-07-25)
 
-## Resolution (closed 2026-07-25 — grilling Q1=A: not worth a second prime source)
+## Resolution
+
+_Closed 2026-07-25 — grilling Q1=A: not worth a second prime source._
 
 **Decision: CLOSE. Manual priming already works; the auto-prime mechanism is owned by sub-project ③ (obsidian); hermes-memory should plug INTO it as a source when ③ lands, not build a parallel one now.**
 

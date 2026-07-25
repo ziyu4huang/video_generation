@@ -21,7 +21,9 @@ Specifically map and document:
 
 type: research
 
-## Resolution (closed 2026-07-25 — research pass)
+## Resolution
+
+_Closed 2026-07-25 — research pass._
 
 **Verdict: partial duplication; the migration trade-off is per-site, not uniform.**
 
