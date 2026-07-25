@@ -53,9 +53,17 @@ import {
 import {
 	completeGoalArguments,
 	parseCommand,
+	parseListCommand,
 	parseTokenBudget,
 	validateObjective,
 } from "./commands.js";
+import {
+	addListItems,
+	removeListItem,
+	promoteNext,
+	goalToListItem,
+	clearList,
+} from "./list.js";
 import {
 	buildContinuePrompt,
 	buildGoalPrompt,
@@ -359,6 +367,123 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 						auditorModel: result.auditorModel,
 					});
 					return;
+			}
+		},
+	});
+
+	pi.registerCommand("list", {
+		description: "Manage the goal queue: /list [add \"obj\"… | next | remove <n> | clear]",
+		handler: async (args: string, ctx: StatusContext) => {
+			// parseListCommand expects the full "list …" token (its contract, see
+			// commands.test.ts); the slash-command dispatcher passes only the
+			// remainder after `/list `, so reconstruct it here. A bare `/list`
+			// (empty args) becomes `list ` → { kind: "show" }.
+			const cmd = parseListCommand(`list ${args}`);
+			if (!cmd) return;
+
+			const api = goalState.extensionApi as ExtensionAPI;
+			const active = goalState.activeGoal;
+
+			switch (cmd.kind) {
+				case "show": {
+					// Render head (index 1 = active) + indexed tail. ctx.ui has no print()
+					// method, so notify carries the multi-line block (matches the
+					// notify-based harness in goal.test.ts).
+					const lines: string[] = active
+						? [`1. ${active.text}  (active)`]
+						: ["(no active goal)"];
+					for (const [i, item] of goalState.list.entries())
+						lines.push(`${i + 2}. ${item.text}${item.parked ? "  ⚠parked" : ""}`);
+					ctx.ui.notify(lines.join("\n"), "info");
+					return;
+				}
+
+				case "add": {
+					if (cmd.texts.length === 0) {
+						ctx.ui.notify("Nothing to add.", "info");
+						return;
+					}
+					if (!active || active.status === "complete") {
+						// No active goal: the first item becomes the head (started), the
+						// rest fill the tail. Set the tail BEFORE startGoal so its
+						// persistGoal snapshots head + tail together.
+						goalState.list = addListItems([], cmd.texts.slice(1));
+						await startGoal(cmd.texts[0], undefined, pi, ctx);
+					} else {
+						goalState.list = addListItems(goalState.list, cmd.texts);
+						persistGoal(api, active);
+						updateStatus(ctx, active);
+						ctx.ui.notify(
+							`Added ${cmd.texts.length} goal(s) to the queue (${goalState.list.length} queued).`,
+							"info",
+						);
+					}
+					return;
+				}
+
+				case "next": {
+					if (!active) {
+						ctx.ui.notify("No active goal to advance from.", "info");
+						return;
+					}
+					if (active.status === "complete") {
+						ctx.ui.notify("Active goal already complete.", "info");
+						return;
+					}
+					// Nothing to advance to when the tail is empty. This check MUST run
+					// before parking the head: promoteNext([...tail, parkedHead]) always
+					// yields the parked head as `item`, so a bare `if (!item)` guard
+					// would be dead code and re-promote the head onto itself.
+					if (goalState.list.length === 0) {
+						ctx.ui.notify("Queue empty — nothing to advance to.", "info");
+						return;
+					}
+					// Park the current head at the tail, then promote the next tail
+					// item. Do NOT call startGoal here — it would trigger the
+					// "Replace goal?" confirm; createGoal starts the head cleanly.
+					const { item, rest } = promoteNext([...goalState.list, goalToListItem(active)]);
+					if (!item) {
+						ctx.ui.notify("Queue empty — nothing to advance to.", "info");
+						return;
+					}
+					goalState.list = rest;
+					goalState.activeGoal = createGoal(
+						item.text,
+						item.tokenBudget,
+						currentTokenTotal(ctx),
+						item.audit,
+					);
+					goalState.headAdvances += 1;
+					persistGoal(api, goalState.activeGoal);
+					updateStatus(ctx, goalState.activeGoal);
+					ctx.ui.notify(`Advanced to: ${item.text}`, "info");
+					await sendGoalPrompt(pi, ctx, goalState.activeGoal);
+					return;
+				}
+
+				case "remove": {
+					const before = goalState.list.length;
+					goalState.list = removeListItem(goalState.list, cmd.index);
+					if (goalState.list.length === before) {
+						ctx.ui.notify(`No item at index ${cmd.index}.`, "warning");
+						return;
+					}
+					// persistGoal requires an ActiveGoal; with no active head there is
+					// nothing to snapshot the tail alongside — a no-op persist is
+					// correct there.
+					if (active) persistGoal(api, active);
+					updateStatus(ctx, goalState.activeGoal);
+					ctx.ui.notify(`Removed item ${cmd.index}.`, "info");
+					return;
+				}
+
+				case "clear": {
+					goalState.list = clearList();
+					if (active) persistGoal(api, active);
+					updateStatus(ctx, goalState.activeGoal);
+					ctx.ui.notify("Queue cleared (active goal untouched).", "info");
+					return;
+				}
 			}
 		},
 	});
@@ -930,7 +1055,7 @@ async function sendPrompt(pi: ExtensionAPI, ctx: StatusContext, prompt: string) 
 // thin delegates so command handlers / lifecycle hooks / agent_end read cleanly
 // while updateStatus keeps its (_ctx, goal) call sites unchanged.
 
-function updateStatus(ctx: StatusContext, _goal: ActiveGoal) {
+function updateStatus(ctx: StatusContext, _goal: ActiveGoal | undefined) {
 	goalState.latestCtx = ctx;
 	goalOverlay?.update(goalState.activeGoal);
 	syncStatusRefreshTimer();
