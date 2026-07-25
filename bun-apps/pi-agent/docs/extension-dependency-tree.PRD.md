@@ -250,3 +250,56 @@ actioned** — see the simplification spec for the plan.
   declared deps?), then update §5 registration counts (12/9/21).
 - **Cutting a dependency** → check §4's `ext-deps`/`peers` columns; if it is
   a host peer, every consumer shares one instance — cutting it affects all.
+
+## 9. wayfind ↔ superpowers boundary
+
+The two methodology packages are **parallel, non-connecting pipelines**
+(ADR-0005), not a chain. They share the `.planning/<effort>/` layout but no
+flow — and no code edge (neither imports the other; no skill/command name
+conflicts). See `pi-agent-ext-superpowers/docs/adr/0005-parallel-coexistence-boundary.md`
+for the full decision record.
+
+| | **wayfind** (decide-phase) | **superpowers** (plan/execute-phase) |
+|---|---|---|
+| Pipeline | `grilling`/`wayfinder → to-spec → to-tickets → /wayfind seed → core-task coordinator` | `brainstorming → writing-plans → executing` |
+| Driver | command-driven (`/grill`, `/wayfind`) + `globalThis.__piWayfindActive` seam | skill-driven, **zero commands, zero globals** |
+| Runtime deps | `{core-task}` (workspace) | `{}` |
+| peerDeps | `pi-coding-agent` | `pi-coding-agent` |
+| devDeps | biome, pi-coding-agent, @types/bun, tsx, typescript | biome, pi-coding-agent, @types/bun, tsx, typescript |
+
+**Entry-path routing.** The discriminator for which pipeline to enter is
+*can I write a plan right now from what's already settled?* Yes → Superpowers;
+no → Wayfind (`wayfinder` if huge/multi-session, else `grilling`). Expressed
+at the injection layer (`using-superpowers` bootstrap `piBoundaryOverrides()`),
+never by patching verbatim skill bodies (ADR-0004).
+
+**Spec-output ownership (the one overlap).** Both `to-spec` (wayfind) and
+`brainstorming` (superpowers) produce a spec. They are **separate entry paths**,
+not a shared artifact: when a Wayfind decide-phase has settled the decisions,
+`brainstorming` defers to `to-spec`. Both converge on `.planning/<effort>/spec.md`.
+
+**Dev vs runtime dependency split (already correct in both packages).**
+`peerDependencies` = the runtime host contract (host provides one shared
+`pi-coding-agent`); `devDependencies` = build/lint tooling **plus** the peer
+re-declared for local typecheck. Neither package carries any third-party
+**runtime** dependency — they are pure-skill packages.
+
+**`.planning/` unification map (no `.superpowers/` exception).** Every artifact
+home converges under `.planning/<effort>/`:
+
+| Artifact | Home |
+|---|---|
+| spec | `.planning/<effort>/spec.md` |
+| plan | `.planning/<effort>/plan.md` |
+| tickets / map | `.planning/<effort>/tickets/`, `map.md` |
+| SDD briefs/reports/reviews | `.planning/<effort>/sdd/{briefs,reports,reviews}/` (committed) |
+| SDD progress ledger | `.planning/<effort>/sdd/progress.md` (transient) |
+| brainstorm mockups | `.planning/<effort>/brainstorm/` (transient) |
+
+The convergence is driven by `PI_PLANNING_EFFORT=<effort>`: export it before
+running the SDD helper scripts (`sdd-workspace`, `task-brief`, `review-package`)
+or the brainstorm server (`start-server.sh`) and they resolve under
+`.planning/<effort>/`. With no effort they fall back to the upstream
+`.superpowers/` paths (backward-compatible; gitignored). The bootstrap rules 1,
+3, 4 in `src/superpowers.ts` instruct the agent accordingly; rule 2 is the
+entry-path routing discriminator.
