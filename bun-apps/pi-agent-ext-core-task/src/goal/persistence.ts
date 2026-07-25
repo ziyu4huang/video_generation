@@ -15,7 +15,14 @@
  * the single source of truth for goal persistence + recovery.
  */
 
-import { cloneGoal, isGoal, type ActiveGoal, type GoalListItem, type GoalStateEntryData } from "./state.js";
+import {
+	cloneGoal,
+	goalState,
+	isGoal,
+	type ActiveGoal,
+	type GoalListItem,
+	type GoalStateEntryData,
+} from "./state.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -33,31 +40,38 @@ export interface GoalPersistenceApi {
 // ─── Session-store persistence ────────────────────────────────────────────────
 
 /**
- * Deep-clone before handing to the session store. The runtime may freeze or
- * canonicalize entry data; without a clone, our live `goalState.activeGoal`
- * reference could be frozen too, after which any `updateGoalUsage(activeGoal)`
- * throws "Attempted to assign to readonly property". The wrapper object is
- * fresh, but the nested `goal` must also be a copy we don't share with the
- * store.
+ * Persist the active goal (head) AND the current /list tail (`goalState.list`)
+ * in one session-store entry. Delegates to `persistGoalState` so every persist
+ * site — including the ~19 existing `persistGoal(api, goal)` call sites in
+ * goal.ts — carries the tail, and a compaction/restart recovers both atomically.
+ *
+ * NOTE: this deliberately reads `goalState.list` (module state) — a relaxation
+ * of the Phase-1 "no module state" note at the top of this file. `goalState` is
+ * a pi-free plain singleton (state.ts imports zero @earendil-works/* modules),
+ * so testability-without-a-pi-runtime is preserved: a test sets
+ * `goalState.list` directly, then calls `persistGoal(api, goal)`. The injected
+ * `api` remains the only seam that touches the runtime.
  */
 export function persistGoal(api: GoalPersistenceApi | undefined, goal: ActiveGoal): void {
-	api?.appendEntry(GOAL_STATE_ENTRY_TYPE, { goal: cloneGoal(goal) });
+	persistGoalState(api, goal, goalState.list);
 }
 
 /**
- * Null out the session-store entry (so a reload does not resurrect the goal).
- * Best-effort: a missing api is a no-op.
+ * Null out the session-store entry (so a reload does not resurrect the goal)
+ * AND clear the /list tail — writes `{ goal: null, list: [] }`. Best-effort:
+ * a missing api is a no-op.
  */
 export function clearPersistedGoal(api: GoalPersistenceApi | undefined): void {
-	api?.appendEntry(GOAL_STATE_ENTRY_TYPE, { goal: null });
+	persistGoalState(api, null, []);
 }
 
 // ─── Session-store persistence — head + tail (Loop 2, Task 3 / D2) ────────────
 //
-// `persistGoalState` carries the active goal (head) AND the /list queue tail in
-// ONE session-store entry, so a reload restores both atomically. The legacy
-// `persistGoal`/`clearPersistedGoal` (head-only) remain for callers Task 5 has
-// not migrated yet — these new functions COEXIST, they do not replace them.
+// `persistGoalState` is the single writer since Task 5a: it carries the active
+// goal (head) AND the /list queue tail in ONE session-store entry, so a reload
+// restores both atomically. `persistGoal` / `clearPersistedGoal` (above) are
+// thin delegating wrappers over it — kept so the ~19 existing `persistGoal(api,
+// goal)` call sites in goal.ts carry the tail without per-site edits.
 
 /**
  * Persist the active goal (head) + the /list queue tail in one session-store
@@ -79,27 +93,11 @@ export function persistGoalState(
 }
 
 // ─── Goal recovery from the session store ────────────────────────────────────
-
-/**
- * Rehydrate the most recent non-complete goal from the session store, if any.
- * Reads `getBranch()` (preferred) else `getEntries()`. Returns a CLONE so
- * callers may mutate usage fields without aliasing the (possibly frozen) stored
- * reference. `complete` goals and non-goal payloads yield undefined.
- */
-export function loadGoalFromSession(sessionManager: unknown): ActiveGoal | undefined {
-	const sm = sessionManager as
-		| {
-				getBranch?: () => Array<{ type?: string; customType?: string; data?: unknown }>;
-				getEntries?: () => Array<{ type?: string; customType?: string; data?: unknown }>;
-		  }
-		| undefined;
-	const entries = sm?.getBranch?.() ?? sm?.getEntries?.() ?? [];
-	const entry = entries
-		.filter((entry) => entry.type === "custom" && entry.customType === GOAL_STATE_ENTRY_TYPE)
-		.pop();
-	const data = entry?.data as GoalStateEntryData | undefined;
-	return isGoal(data?.goal) && data.goal.status !== "complete" ? cloneGoal(data.goal) : undefined;
-}
+//
+// `loadGoalStateFromSession` is the sole recovery loader since Task 5a
+// (the legacy head-only loader was deleted — its two callers in goal.ts were
+// migrated to `loadGoalStateFromSession`, which restores both the head AND the
+// tail in one read).
 
 /**
  * Rehydrate the most recent non-complete goal (head) AND its /list queue tail

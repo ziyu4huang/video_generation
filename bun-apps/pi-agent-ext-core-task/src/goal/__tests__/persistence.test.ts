@@ -10,10 +10,10 @@
 import { test, expect, describe } from "bun:test";
 import type { ActiveGoal, GoalListItem } from "../format.js";
 
-const { persistGoal, clearPersistedGoal, loadGoalFromSession, persistGoalState, loadGoalStateFromSession, GOAL_STATE_ENTRY_TYPE } = await import(
+const { persistGoal, clearPersistedGoal, persistGoalState, loadGoalStateFromSession, GOAL_STATE_ENTRY_TYPE } = await import(
 	"../persistence.js"
 );
-const { createGoal } = await import("../state.js");
+const { createGoal, goalState, __resetGoalState } = await import("../state.js");
 
 type ApiCalls = Array<[customType: string, data: unknown]>;
 
@@ -49,6 +49,7 @@ describe("persistence constants", () => {
 
 describe("persistGoal", () => {
 	test("appends a goal-state entry via the injected api", () => {
+		__resetGoalState();
 		const { api, calls } = fakeApi();
 		const goal = createGoal("x", undefined, 0);
 		persistGoal(api, goal);
@@ -58,12 +59,51 @@ describe("persistGoal", () => {
 	});
 
 	test("clones the goal so the store never holds the live reference", () => {
+		__resetGoalState();
 		const { api, calls } = fakeApi();
 		const goal = createGoal("x", undefined, 0);
 		persistGoal(api, goal);
 		const stored = (calls[0]![1] as { goal: { id: string } }).goal;
 		expect(stored).not.toBe(goal); // different reference (cloned)
 		expect(stored.id).toBe(goal.id); // same data
+	});
+
+	test("snapshots goalState.list alongside the goal (Task 5a delegation)", () => {
+		__resetGoalState();
+		goalState.list = [{ id: "t1", text: "queued" }];
+		const logged: any[] = [];
+		const api = { appendEntry: (t: string, d: unknown) => logged.push({ customType: t, data: d }) };
+		persistGoal(api as any, {
+			id: "g1",
+			text: "head",
+			status: "active",
+			startedAt: 0,
+			updatedAt: 0,
+			iteration: 0,
+			tokensUsed: 0,
+			timeUsedSeconds: 0,
+			baselineTokens: 0,
+		} as any);
+		expect(logged[0].data.goal.text).toBe("head");
+		expect(logged[0].data.list).toEqual([{ id: "t1", text: "queued" }]);
+	});
+
+	test("with empty goalState.list writes list: []", () => {
+		__resetGoalState();
+		const logged: any[] = [];
+		const api = { appendEntry: (_t: string, d: unknown) => logged.push({ data: d }) };
+		persistGoal(api as any, {
+			id: "g1",
+			text: "head",
+			status: "active",
+			startedAt: 0,
+			updatedAt: 0,
+			iteration: 0,
+			tokensUsed: 0,
+			timeUsedSeconds: 0,
+			baselineTokens: 0,
+		} as any);
+		expect(logged[0].data.list).toEqual([]);
 	});
 
 	test("is a no-op when api is undefined", () => {
@@ -82,81 +122,22 @@ describe("clearPersistedGoal", () => {
 		expect((calls[0]![1] as { goal: unknown }).goal).toBeNull();
 	});
 
+	test("writes goal:null + list:[] (Task 5a — clears the tail too)", () => {
+		const logged: any[] = [];
+		const api = { appendEntry: (_t: string, d: unknown) => logged.push({ data: d }) };
+		clearPersistedGoal(api as any);
+		expect(logged[0].data.goal).toBeNull();
+		expect(logged[0].data.list).toEqual([]);
+	});
+
 	test("is a no-op when api is undefined", () => {
 		expect(() => clearPersistedGoal(undefined)).not.toThrow();
 	});
 });
 
-// ─── loadGoalFromSession ──────────────────────────────────────────────────────
-
-describe("loadGoalFromSession", () => {
-	test("returns the active goal from getBranch entries", () => {
-		const goal = activeGoal("branch-1");
-		const sm = { getBranch: () => [{ type: "custom", customType: GOAL_STATE_ENTRY_TYPE, data: { goal } }] };
-		const loaded = loadGoalFromSession(sm);
-		expect(loaded?.id).toBe("branch-1");
-		expect(loaded?.status).toBe("active");
-	});
-
-	test("falls back to getEntries when getBranch is absent", () => {
-		const goal = activeGoal("entries-1");
-		const sm = { getEntries: () => [{ type: "custom", customType: GOAL_STATE_ENTRY_TYPE, data: { goal } }] };
-		const loaded = loadGoalFromSession(sm);
-		expect(loaded?.id).toBe("entries-1");
-	});
-
-	test("uses the LAST goal-state entry (most recent wins)", () => {
-		const sm = {
-			getBranch: () => [
-				{ type: "custom", customType: GOAL_STATE_ENTRY_TYPE, data: { goal: activeGoal("old") } },
-				{ type: "custom", customType: GOAL_STATE_ENTRY_TYPE, data: { goal: activeGoal("new") } },
-			],
-		};
-		expect(loadGoalFromSession(sm)?.id).toBe("new");
-	});
-
-	test("returns undefined for a complete goal", () => {
-		const goal = { ...activeGoal("done"), status: "complete" as const };
-		const sm = { getBranch: () => [{ type: "custom", customType: GOAL_STATE_ENTRY_TYPE, data: { goal } }] };
-		expect(loadGoalFromSession(sm)).toBeUndefined();
-	});
-
-	test("returns undefined when there is no goal-state entry", () => {
-		const sm = { getBranch: () => [{ type: "custom", customType: "other-type", data: { goal: activeGoal() } }] };
-		expect(loadGoalFromSession(sm)).toBeUndefined();
-	});
-
-	test("returns undefined when entry data is not a goal", () => {
-		const sm = {
-			getBranch: () => [{ type: "custom", customType: GOAL_STATE_ENTRY_TYPE, data: { goal: { id: 1 } } }],
-		};
-		expect(loadGoalFromSession(sm)).toBeUndefined();
-	});
-
-	test("returns undefined when sessionManager is undefined / has no readers", () => {
-		expect(loadGoalFromSession(undefined)).toBeUndefined();
-		expect(loadGoalFromSession({})).toBeUndefined();
-	});
-
-	test("returns a CLONE — not the session store's (possibly frozen) reference", () => {
-		// The pi runtime may freeze/canonicalize entry data; callers mutate the
-		// returned goal (updateGoalUsage). The loader must hand back a copy.
-		const frozenGoal = Object.freeze(activeGoal("frozen"));
-		const sm = {
-			getBranch: () => [
-				{ type: "custom", customType: GOAL_STATE_ENTRY_TYPE, data: Object.freeze({ goal: frozenGoal }) },
-			],
-		};
-		const loaded = loadGoalFromSession(sm);
-		expect(loaded?.id).toBe("frozen");
-		expect(loaded).not.toBe(frozenGoal); // a clone, not the same ref
-		// And the clone is mutable:
-		expect(() => {
-			(loaded as { tokensUsed: number }).tokensUsed = 42;
-		}).not.toThrow();
-		expect(loaded?.tokensUsed).toBe(42);
-	});
-});
+// (The legacy head-only loader was removed in Task 5a — superseded by
+// loadGoalStateFromSession, whose tests below already cover head + tail
+// recovery, most-recent-wins, complete-goal exclusion, and CLONE behavior.)
 
 // ─── persistGoalState (Loop 2, Task 3: head + tail in one entry) ───────────────
 

@@ -33,7 +33,7 @@ import {
 	transitionGoal,
 	type GoalCompleteDetails,
 } from "./state.js";
-import { clearPersistedGoal, loadGoalFromSession, persistGoal } from "./persistence.js";
+import { clearPersistedGoal, loadGoalStateFromSession, persistGoal } from "./persistence.js";
 import {
 	findFinalAssistantMessage,
 	isContradictoryCompletionSummary,
@@ -371,7 +371,9 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 		clearContinuationTracking();
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
-		goalState.activeGoal = loadGoalFromSession(ctx.sessionManager);
+		const restored = loadGoalStateFromSession(ctx.sessionManager);
+		goalState.activeGoal = restored.goal;
+		goalState.list = restored.list ?? [];
 		if (goalState.activeGoal) updateStatus(ctx, goalState.activeGoal);
 		else goalOverlay?.update(undefined);
 	});
@@ -400,8 +402,9 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 			return;
 		}
 
-		const restoredGoal = loadGoalFromSession(ctx.sessionManager);
-		if (restoredGoal?.id === goalState.activeGoal.id) goalState.activeGoal = restoredGoal;
+		const restoredState = loadGoalStateFromSession(ctx.sessionManager);
+		if (restoredState.goal?.id === goalState.activeGoal.id) goalState.activeGoal = restoredState.goal;
+		goalState.list = restoredState.list ?? goalState.list;
 		updateGoalUsage(goalState.activeGoal, ctx);
 		persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 		updateStatus(ctx, goalState.activeGoal);
@@ -1095,7 +1098,7 @@ function currentTokenTotal(ctx: StatusContext): number {
 }
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
-// persistGoal / clearPersistedGoal / loadGoalFromSession live in ./persistence.ts
+// persistGoal / clearPersistedGoal / loadGoalStateFromSession live in ./persistence.ts
 // (deps injected: api / sessionManager passed as params; no module-state reads;
 // session-store-only since Task 11 retired the legacy state file) — imported above.
 
@@ -1123,5 +1126,5 @@ function showCompletionStatus(_ctx: StatusContext, objective: string) {
 // Clone / isGoal / normalizeGoalForBudget / incrementGoal / transitionGoal /
 // editedGoalStatus / createGoal + the goal-owned types live in ./state.ts
 // (pure module, zero @earendil-works/* imports) — re-imported above.
-// persistGoal / clearPersistedGoal / loadGoalFromSession live in ./persistence.ts
+// persistGoal / clearPersistedGoal / loadGoalStateFromSession live in ./persistence.ts
 // (session-store-only) — re-imported above.
