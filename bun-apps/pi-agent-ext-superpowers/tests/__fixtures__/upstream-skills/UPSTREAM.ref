@@ -17,5 +17,15 @@
 #   3. Edit this file: set upstream-ref to the NEW commit SHA / version + date.
 #   4. Review the fixture diff in the PR — confirm no repo-convention strings
 #      (.planning/, goal_complete, ADR-, task_plan.md) sneaked back in.
-upstream-ref: obra/superpowers @ post-#684 restored state (commit 4fc140be)
-baselined: 2026-07-20
+upstream-ref: obra/superpowers @ v6.2.0 (commit 3dcbd5c4, 2026-07-23)
+baselined: 2026-07-26
+#
+# Re-sync log:
+#   2026-07-26 — subagent-driven-development/SKILL.md re-pinned to upstream v6.2.0
+#   (commit 3dcbd5c4) to adopt the SDD plan-scoped workspace + resume-based fix-loop
+#   redesign (obra/superpowers release v6.2.0). The other 13 SKILL.md unchanged.
+#   Re-sync scope: ticket 05 of .planning/2026-07-26-adopt-upstream-sdd-reworks/.
+#   pi-convention leak check passed (no .planning/, goal_complete, ADR-, task_plan.md,
+#   or pi-agent strings in the new SKILL.md — pure upstream).
+#   NOTE: the re-pinned SKILL.md references upstream's .superpowers/sdd/<plan-slug>/
+#   paths; pi-port glue overrides those at runtime (ticket 06, not yet done).
