@@ -247,7 +247,7 @@ function piBoundaryOverrides(): string {
 
 Superpowers and Wayfind are two parallel pipelines sharing the \`.planning/<effort>/\` layout. Two rules:
 
-**1. One canonical home.** Every artifact lives under \`.planning/<effort>/\` — specs → \`.planning/<effort>/spec.md\`, plans → \`.planning/<effort>/plan.md\`, the SDD workspace → \`.planning/<effort>/sdd/\` (briefs/, reports/, reviews/, and the recovery ledger at \`.planning/<effort>/sdd/progress.md\`), and brainstorm mockups → \`.planning/<effort>/brainstorm/\`. The pinned skills' upstream paths (\`docs/superpowers/\`, \`.superpowers/\`) are overridden at runtime by \`PI_PLANNING_EFFORT\` (\`sdd-workspace\` + the brainstorm \`start-server.sh\` honor it). Never write to the upstream paths when an effort is active.
+**1. One canonical home.** Every artifact lives under \`.planning/<effort>/\` — specs → \`.planning/<effort>/spec.md\`, plans → \`.planning/<effort>/plan.md\`, the SDD workspace → \`.planning/<effort>/sdd/<plan-basename>/\` (one dir per plan: briefs/, reports/, reviews/, and the recovery ledger at \`.planning/<effort>/sdd/<plan-basename>/progress.md\`), and brainstorm mockups → \`.planning/<effort>/brainstorm/\`. The pinned skill's \`scripts/sdd-workspace PLAN_FILE\` resolves the plan's dir (deriving \`<plan-basename>\` from the plan filename) and honors \`PI_PLANNING_EFFORT\`; the brainstorm \`start-server.sh\` honors it too. The pinned skills' upstream paths (\`docs/superpowers/\`, \`.superpowers/sdd/\`) are overridden at runtime by \`PI_PLANNING_EFFORT\`. Never write to the upstream paths when an effort is active.
 
 **2. Pick the pipeline by stage — check what's on disk first.**
 

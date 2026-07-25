@@ -173,11 +173,11 @@ describe("bootstrap payload assembly", () => {
     expect(payload).toContain("One canonical home");
     expect(payload).toContain(".planning/<effort>/spec.md");
     expect(payload).toContain(".planning/<effort>/plan.md");
-    expect(payload).toContain(".planning/<effort>/sdd/");
-    expect(payload).toContain(".planning/<effort>/sdd/progress.md");
+    expect(payload).toContain(".planning/<effort>/sdd/<plan-basename>/");
+    expect(payload).toContain(".planning/<effort>/sdd/<plan-basename>/progress.md");
     expect(payload).toContain(".planning/<effort>/brainstorm/");
     expect(payload).toContain("PI_PLANNING_EFFORT");
-    expect(payload).toContain("sdd-workspace");
+    expect(payload).toContain("sdd-workspace PLAN_FILE");
     // rule 2: stage table discriminator keyed on disk state
     expect(payload).toContain("check what's on disk");
     expect(payload).toContain("DECIDE");

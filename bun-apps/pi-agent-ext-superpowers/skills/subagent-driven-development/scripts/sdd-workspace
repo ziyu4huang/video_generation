@@ -1,38 +1,52 @@
 #!/usr/bin/env bash
-# Resolve and ensure the directory SDD uses for its short-lived artifacts: task
-# briefs, implementer reports, review packages, and the compaction-recovery
-# progress ledger. Print the directory's absolute path.
+# Resolve and ensure the working-tree directory SDD uses for one plan's
+# short-lived artifacts: task briefs, implementer reports, review packages, and
+# the progress ledger. Print the plan directory's absolute path.
+#
+# One directory per plan (<base>/<plan-basename>/) so a follow-up plan in the
+# same working tree can never read or overwrite another plan's artifacts. A
+# stale ledger misread as current progress makes controllers skip whole task
+# sequences — plan-scoping removes that failure structurally.
 #
 # Single source of truth for the workspace location, so task-brief and
 # review-package cannot drift to different directories.
 #
-# Effort-aware (pi port): when an effort slug is provided (arg $1 or
-# $PI_PLANNING_EFFORT), the workspace lives under the unified planning layout
-# $root/.planning/<effort>/sdd/ — converging every SDD artifact under the same
-# effort root as the spec/plan/tickets/map (no separate .superpowers/ tree).
-# briefs/reports/reviews there are COMMITTED per the repo .gitignore; only
-# progress.md is transient (ignored by name at the repo level).
+# Effort-aware (pi port): when PI_PLANNING_EFFORT is set, the base is
+# $root/.planning/$effort/sdd — converging every SDD artifact under the same
+# effort root as the spec/plan/tickets/map (no separate .superpowers/ tree),
+# and the audit trail there is COMMITTED (only progress.md is transient,
+# ignored by name at the repo level). With NO effort, falls back to upstream's
+# $root/.superpowers/sdd (with its self-ignoring .gitignore) so the script
+# stays backward-compatible for non-pi / upstream-faithful use.
 #
-# With NO effort, falls back to the upstream $root/.superpowers/sdd/ (with its
-# self-ignoring .gitignore) so the script stays backward-compatible for non-pi
-# / upstream-faithful use.
-#
-# Usage: sdd-workspace [effort]
-#        PI_PLANNING_EFFORT=<effort> sdd-workspace
+# Usage: sdd-workspace PLAN_FILE
+#        PI_PLANNING_EFFORT=<effort> sdd-workspace PLAN_FILE
 set -euo pipefail
 
+if [ $# -ne 1 ]; then
+  echo "usage: sdd-workspace PLAN_FILE" >&2
+  exit 2
+fi
+
+plan=$1
+[ -f "$plan" ] || { echo "no such plan file: $plan" >&2; exit 2; }
+
+slug=$(basename "$plan" .md)
+[ -n "$slug" ] && [ "$slug" != "." ] && [ "$slug" != ".." ] \
+  || { echo "cannot derive a workspace name from: $plan" >&2; exit 2; }
+
 root=$(git rev-parse --show-toplevel)
-effort="${1:-${PI_PLANNING_EFFORT:-}}"
+effort="${PI_PLANNING_EFFORT:-}"
 
 if [ -n "$effort" ]; then
-  dir="$root/.planning/$effort/sdd"
-  mkdir -p "$dir"
+  base="$root/.planning/$effort/sdd"
+  mkdir -p "$base/$slug"
   # No blanket self-ignore under .planning/: the sdd audit trail is committed;
   # only progress.md is transient and is ignored by name at the repo level.
 else
-  dir="$root/.superpowers/sdd"
-  mkdir -p "$dir"
-  printf '*\n' > "$dir/.gitignore"
+  base="$root/.superpowers/sdd"
+  mkdir -p "$base/$slug"
+  printf '*\n' > "$base/.gitignore"
 fi
 
-cd "$dir" && pwd
+cd "$base/$slug" && pwd
