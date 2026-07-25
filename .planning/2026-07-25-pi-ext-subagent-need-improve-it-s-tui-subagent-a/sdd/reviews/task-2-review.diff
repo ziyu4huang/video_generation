@@ -1,0 +1,98 @@
+# Review package: 61cad47..HEAD
+
+## Commits
+5dc3d32f feat(subagent): renderSubagentCall shows resolved model as a segment
+
+## Files changed
+ .../pi-agent-ext-subagent/src/subagent-tool.ts     |  9 ++++++++-
+ .../tests/subagent-tool.test.ts                    | 22 ++++++++++++++++++++++
+ 2 files changed, 30 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-subagent/src/subagent-tool.ts b/bun-apps/pi-agent-ext-subagent/src/subagent-tool.ts
+index 4f4b15e8..9f8efa51 100644
+--- a/bun-apps/pi-agent-ext-subagent/src/subagent-tool.ts
++++ b/bun-apps/pi-agent-ext-subagent/src/subagent-tool.ts
+@@ -273,27 +273,34 @@ export function formatSubagentLive(
+   minToolCalls = 0,
+   maxTraceLines = 100,
+ ): string {
+   const header = formatSubagentProgress(history, elapsedMs, minToolCalls);
+   const trace = history.slice(-maxTraceLines).map(formatHistoryLine);
+   return trace.length ? `${header}\n${trace.join("\n")}` : header;
+ }
+ 
+ /** Theme the call line shown WHILE the subagent runs (pi's spinner conveys activity). */
+ export function renderSubagentCall(
+-  args: { agent?: string; model?: string; tier?: string; task: string },
++  args: { agent?: string; model?: string; tier?: string; task: string; resolvedModel?: string },
+   theme: Theme,
+ ): string {
+   const parts: string[] = [theme.bold(theme.fg("toolTitle", "subagent"))];
+   if (args.agent) parts.push(theme.fg("accent", args.agent));
++  // Requested-model slot: explicit model, else tier, else "default".
+   const slot = args.model ?? (args.tier ? `tier:${args.tier}` : "default");
+   parts.push(theme.fg("muted", slot));
++  // Concrete model resolved mid-run (onModelResolved). Separate segment so the
++  // requested tier/model stays visible. Skipped when it matches the slot (e.g.
++  // an explicit model that resolved to itself) to avoid duplication.
++  if (args.resolvedModel && args.resolvedModel !== slot) {
++    parts.push(theme.fg("muted", args.resolvedModel));
++  }
+   parts.push(theme.fg("dim", `"${taskPreview(args.task, 60)}"`));
+   return parts.join(" ▸ ");
+ }
+ 
+ /** Theme the result: collapsed = badge+meta+headline; expanded = full report. */
+ export function renderSubagentResult(
+   result: { content: Array<{ type: string; text?: string }>; details?: SubagentToolDetails },
+   options: { expanded?: boolean; isPartial?: boolean },
+   theme: Theme,
+ ): string {
+diff --git a/bun-apps/pi-agent-ext-subagent/tests/subagent-tool.test.ts b/bun-apps/pi-agent-ext-subagent/tests/subagent-tool.test.ts
+index 2f66bfd6..80cd9612 100644
+--- a/bun-apps/pi-agent-ext-subagent/tests/subagent-tool.test.ts
++++ b/bun-apps/pi-agent-ext-subagent/tests/subagent-tool.test.ts
+@@ -548,20 +548,42 @@ test("renderSubagentCall shows subagent ▸ agent ▸ model ▸ task (omits agen
+   assert.ok(!noRole.includes("▸ implementer"));
+   assert.ok(noRole.includes("default")); // model defaults to "default" when undefined
+ });
+ 
+ test("renderSubagentCall shows 'tier:small' in the model slot when model is omitted", () => {
+   const out = renderSubagentCall({ agent: "scout", tier: "small", task: "x" }, T);
+   assert.match(out, /tier:small/);
+   assert.doesNotMatch(out, /default/);
+ });
+ 
++test("renderSubagentCall appends resolved model as a separate segment when tier is shown", () => {
++  const out = renderSubagentCall(
++    { agent: "auditor", tier: "medium", task: "x", resolvedModel: "google/gemma-4-12b-qat" },
++    T,
++  );
++  assert.match(out, /tier:medium ▸ google\/gemma-4-12b-qat ▸/);
++});
++
++test("renderSubagentCall omits resolved model before resolution (undefined)", () => {
++  const out = renderSubagentCall({ agent: "auditor", tier: "medium", task: "x" }, T);
++  assert.match(out, /tier:medium/);
++  assert.doesNotMatch(out, /google/);
++});
++
++test("renderSubagentCall omits resolved model when it equals the explicit model slot (no dup)", () => {
++  const out = renderSubagentCall(
++    { agent: "scout", model: "x/flash", task: "x", resolvedModel: "x/flash" },
++    T,
++  );
++  assert.equal((out.match(/x\/flash/g) || []).length, 1);
++});
++
+ test("renderSubagentResult collapsed is short; expanded contains the full report", () => {
+   const details: SubagentToolDetails = {
+     exitCode: 0,
+     timedOut: false,
+     agent: "implementer",
+     model: "x/flash",
+     taskPreview: "p",
+     elapsedMs: 12350,
+     status: "done",
+   };
