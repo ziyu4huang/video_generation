@@ -285,15 +285,19 @@ describe("loadConfig", () => {
   it("accepts valid reviewTransport values and ignores invalid ones", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
 
-    for (const transport of ["direct", "subprocess"] as const) {
+    // "subprocess" was removed in the spawnSubagent migration — the fallback is now spawnSubagent, not a pi -p subprocess.
+    for (const transport of ["direct"] as const) {
       fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({ reviewTransport: transport }));
       const config = loadConfig(TEST_CONFIG_PATH);
       assert.strictEqual(config.reviewTransport, transport);
     }
 
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({ reviewTransport: "branch" }));
-    const invalid = loadConfig(TEST_CONFIG_PATH);
-    assert.strictEqual(invalid.reviewTransport, "direct");
+    // Invalid values fall back to "direct"
+    for (const invalid of ["subprocess", "branch"] as const) {
+      fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({ reviewTransport: invalid }));
+      const config = loadConfig(TEST_CONFIG_PATH);
+      assert.strictEqual(config.reviewTransport, "direct");
+    }
   });
 
   it("accepts valid llmThinkingOverride values and ignores invalid ones", () => {
