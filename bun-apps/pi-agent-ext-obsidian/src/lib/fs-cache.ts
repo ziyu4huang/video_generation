@@ -37,6 +37,7 @@ export async function atomicWriteFile(
 type FsDouble = {
 	rename?: (from: string, to: string) => Promise<void>;
 	unlink?: (p: string) => Promise<void>;
+	rm?: (p: string, opts?: { force?: boolean }) => Promise<void>;
 	cp?: (src: string, dst: string, opts?: { force?: boolean }) => Promise<void>;
 };
 
@@ -56,9 +57,12 @@ export const renameOverwrite = async (
 	} catch (e: any) {
 		const code = e?.code;
 		if (code === "EXDEV") {
-			// cross-device: copy then delete source (unchanged behavior)
+			// cross-device: copy then delete source (unchanged behavior). Use
+			// rm({force}) — NOT unlink — so a vanished source between cp and
+			// cleanup is absorbed idempotently (atomicWriteFile, moveNote).
 			await cp(from, to, { force: true });
-			await unlink(from);
+			const rmFn = fs.rm ?? rm;
+			await rmFn(from, { force: true });
 			return;
 		}
 		if (code === "EPERM" || code === "EEXIST") {

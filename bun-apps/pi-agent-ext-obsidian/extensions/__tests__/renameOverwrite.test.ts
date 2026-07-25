@@ -33,10 +33,12 @@ test("renameOverwrite: EEXIST → unlink+retry succeeds", async () => {
 
 test("renameOverwrite: EXDEV → copy+delete path (unchanged)", async () => {
 	const cp = mock(() => Promise.resolve());
+	const rm = mock(() => Promise.resolve());
 	const unlink = mock(() => Promise.resolve());
 	const rename = mock(() => Promise.reject(fakeErr("EXDEV")));
-	await renameOverwrite("/v/a.tmp", "/v/a.md", { rename, cp, unlink });
+	await renameOverwrite("/v/a.tmp", "/v/a.md", { rename, cp, unlink, rm });
 	expect(cp).toHaveBeenCalled();
+	expect(rm).toHaveBeenCalledWith("/v/a.tmp", { force: true }); // source cleaned idempotently
 });
 
 test("renameOverwrite: unrelated error rethrows", async () => {
