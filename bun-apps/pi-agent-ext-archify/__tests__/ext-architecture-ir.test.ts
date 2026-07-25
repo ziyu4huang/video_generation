@@ -51,8 +51,9 @@ describe("pi-agent extension architecture IR", () => {
     expect(dynamicLane.sort()).toEqual(DYNAMIC.slice().sort());
   });
 
-  test("connection set matches the grep-verified import edges", () => {
+  test("connection set exactly matches the grep-verified import edges", () => {
     const got = new Set(ir.connections.map((c) => `${c.from}->${c.to}`));
+    expect(ir.connections).toHaveLength(EXPECTED_EDGES.length);
     for (const [from, to] of EXPECTED_EDGES) {
       expect(got.has(`${from}->${to}`)).toBe(true);
     }
