@@ -8,6 +8,9 @@
 # Options:
 #   --project-dir <path>  Store session files under <path>/.superpowers/brainstorm/
 #                         instead of /tmp. Files persist after server stops.
+#   PI_PLANNING_EFFORT    Env: roots session files under
+#                         <repo>/.planning/<effort>/brainstorm/ (unified pi
+#                         layout) instead of --project-dir/.superpowers/.
 #   --host <bind-host>    Host/interface to bind (default: 127.0.0.1).
 #                         Use 0.0.0.0 in remote/containerized environments.
 #   --url-host <host>     Hostname shown in returned URL JSON.
@@ -113,12 +116,25 @@ umask 077
 # Generate unique session directory
 SESSION_ID="$$-$(date +%s)"
 
-if [[ -n "$PROJECT_DIR" ]]; then
-  SESSION_DIR="${PROJECT_DIR}/.superpowers/brainstorm/${SESSION_ID}"
-  # Persist the bound port and key per project so a restart reuses them and an
+# Resolve the brainstorm base directory.
+# Effort-aware (pi port): PI_PLANNING_EFFORT roots mockups under the unified
+# .planning/<effort>/brainstorm/ layout (beside the effort's spec/plan/sdd).
+# Otherwise --project-dir persists under <project>/.superpowers/brainstorm/
+# (upstream behavior); with neither, files go to /tmp (ephemeral).
+if [[ -n "${PI_PLANNING_EFFORT:-}" ]]; then
+  BRAINSTORM_ROOT="$(git rev-parse --show-toplevel)/.planning/${PI_PLANNING_EFFORT}/brainstorm"
+elif [[ -n "$PROJECT_DIR" ]]; then
+  BRAINSTORM_ROOT="${PROJECT_DIR}/.superpowers/brainstorm"
+else
+  BRAINSTORM_ROOT=""
+fi
+
+if [[ -n "$BRAINSTORM_ROOT" ]]; then
+  SESSION_DIR="${BRAINSTORM_ROOT}/${SESSION_ID}"
+  # Persist the bound port and key per base so a restart reuses them and an
   # already-open browser tab reconnects to the same URL with a valid cookie.
-  export BRAINSTORM_PORT_FILE="${PROJECT_DIR}/.superpowers/brainstorm/.last-port"
-  export BRAINSTORM_TOKEN_FILE="${PROJECT_DIR}/.superpowers/brainstorm/.last-token"
+  export BRAINSTORM_PORT_FILE="${BRAINSTORM_ROOT}/.last-port"
+  export BRAINSTORM_TOKEN_FILE="${BRAINSTORM_ROOT}/.last-token"
 else
   SESSION_DIR="/tmp/brainstorm-${SESSION_ID}"
 fi
