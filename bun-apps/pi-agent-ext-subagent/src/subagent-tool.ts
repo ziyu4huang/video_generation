@@ -68,82 +68,78 @@ export interface SubagentToolDetails {
 export const subagentToolSchema = Type.Object({
   agent: Type.Optional(
     Type.String({
-      description:
-        "Informational role/label for the subagent (e.g. 'implementer', 'reviewer', 'researcher'). Forwarded as an instructions prefix; does not change tool selection.",
+      description: "Role label (e.g. 'reviewer'); forwarded as an instructions prefix, doesn't change tool selection.",
     }),
   ),
   agentType: Type.Optional(
     Type.String({
       description:
-        "Named agent definition (.pi/agents/<name>.md or ~/.pi/agents/<name>.md) binding tools/model/prompt/worktree-isolation for this call. Explicit `model`/`tools`/`excludeTools` on this call override the binding's values.",
+        "Named agent def (.pi/agents/<name>.md) binding tools/model/prompt/worktree-isolation. Explicit model/tools/excludeTools here override the binding.",
     }),
   ),
   task: Type.String({
     description:
-      "The full, self-contained prompt for the subagent. The child has NO access to this session's history — include everything it needs (goal, context, constraints, and the report format to return).",
+      "Full self-contained prompt — the child has NO access to this session's history (include goal, context, constraints, return format).",
   }),
   model: Type.Optional(
     Type.String({
       description:
-        "Optional model override as `provider/model-id`. Prefer omitting this (the child then uses the session's CURRENT model) or setting `tier` instead — an unauthed model here will warn and fall back to the current model. Do NOT copy a model id from an example; only pass a model you know is configured.",
+        "Model override `provider/model-id`. Prefer omitting (uses the session's current model) or set `tier`; an unauthed id warns and falls back — only pass a model you know is configured.",
     }),
   ),
   tier: Type.Optional(
     Type.String({
       description:
-        "Model tier for the child: 'small', 'medium', or 'big' (resolved from the user's model-tiers config via /workflows-models). Omit to inherit the session's current model. An explicit `model` takes priority over this.",
+        "Model tier: 'small'|'medium'|'big'. Omit to inherit the session model; explicit `model` takes priority.",
     }),
   ),
-  cwd: Type.Optional(
-    Type.String({ description: "Working directory for the child. Defaults to the parent session cwd." }),
-  ),
+  cwd: Type.Optional(Type.String({ description: "Child working directory (defaults to parent session cwd)." })),
   tools: Type.Optional(
     Type.Array(Type.String(), {
       description:
-        "Tool allowlist for the child (e.g. ['read','grep','find','ls'] for a read-only explorer). Omit to inherit the default coding toolset.",
+        "Tool allowlist, e.g. ['read','grep','find','ls'] for read-only. Omit for the default coding toolset.",
     }),
   ),
   excludeTools: Type.Optional(
-    Type.Array(Type.String(), { description: "Tool names to deny after the allowlist (e.g. ['edit','write'])." }),
+    Type.Array(Type.String(), { description: "Tools to deny after the allowlist, e.g. ['edit','write']." }),
   ),
   timeoutMs: Type.Optional(
     Type.Number({
-      description: "Abort the subagent if it runs longer than this many milliseconds. Omit for no timeout.",
+      description: "Abort after this many ms (wall-clock). Omit for no timeout.",
     }),
   ),
   tokenBudget: Type.Optional(
     Type.Number({
       description:
-        "Abort the subagent mid-run once its cumulative token usage exceeds this many tokens. Bounds a runaway (looping) subagent that timeoutMs (wall-clock) alone cannot catch. Checked per-turn, so an in-flight turn may overshoot by up to one turn. Non-recoverable (not retried).",
+        "Abort once cumulative token usage exceeds this (bounds a looping child timeoutMs can't catch; per-turn check, may overshoot one turn; non-recoverable).",
     }),
   ),
   spendBudget: Type.Optional(
     Type.Number({
-      description:
-        "Abort the subagent mid-run once its cumulative cost ($) exceeds this. Pairs with tokenBudget or stands alone. Same per-turn check granularity.",
+      description: "Abort once cumulative cost ($) exceeds this (pairs with tokenBudget; same per-turn check).",
     }),
   ),
   retryOnTransient: Type.Optional(
     Type.Boolean({
-      description: "Retry once on a transient failure (timeout/network/rate-limit/schema noncompliance). Default true.",
+      description: "Retry once on transient failure (timeout/network/rate-limit/schema). Default true.",
     }),
   ),
   commitScope: Type.Optional(
     Type.Array(Type.String(), {
       description:
-        "Optional allowlist of paths the subagent may commit (files or dirs, prefix-matched). When set, the tool records the repo HEAD before dispatch and, after the run, flags any committed path (git diff base..HEAD) that falls OUTSIDE this scope as a ⚠ scope violation in the result. Detection only (non-destructive — never auto-reverts); best-effort (skips silently if not a git repo). Use [] to flag ANY commit (e.g. a read-only subagent). Ignored for worktree-isolated runs (their commits are discarded anyway).",
+        "Commit-path allowlist (prefix-matched). After the run, flags any committed path outside this scope as a ⚠ violation (detection only, never auto-reverts; best-effort). Use [] to flag any commit. Ignored for worktree-isolated runs.",
     }),
   ),
   schema: Type.Optional(
     Type.Unknown({
       description:
-        "JSON Schema for the subagent's final answer (e.g. {type:'object', properties:{...}}). When set, the child must return via a structured_output call matching this shape instead of prose; the tool result is the JSON-serialized object.",
+        "JSON Schema for the child's final answer; when set, the child returns via structured_output and the result is the JSON-serialized object.",
     }),
   ),
   schemaRepairAttempts: Type.Optional(
     Type.Number({
       description:
-        "Max in-session repair re-prompts when the child returns prose instead of calling structured_output (default 2). Bump for models that unreliably emit structured output (e.g. zai/glm). A schema failure is also retried once via retryOnTransient (intermittent on some models).",
+        "Max repair re-prompts when the child returns prose instead of structured_output (default 2). Bump for models that emit structured output unreliably.",
     }),
   ),
 });
