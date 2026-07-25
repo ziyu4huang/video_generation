@@ -7,7 +7,7 @@ import {
 	readBatched,
 	listNotes,
 } from "./fs-cache";
-import { extractWikiLinks } from "../obsidian-lib.ts";
+import { extractWikiLinks } from "./links";
 
 // ---- Vault index (B1) ------------------------------------------------------
 // Session-scoped derived index over the vault: title/tags/links adjacency,

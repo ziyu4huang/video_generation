@@ -91,25 +91,12 @@ export * from "./lib/search";
 import { backlinkPaths } from "./lib/graph";
 export * from "./lib/graph";
 
+import { extractWikiLinks } from "./lib/links";
+export * from "./lib/links";
+
 // Structured error helpers (errMsg, ErrCode, VaultError, fsErrCode,
 // classifyFsError, toolError, toolErrorFromCaught) live in ./lib/errors and are
 // re-exported via the barrel at the top of this file.
-
-/** Match [[Target]] wiki-links on a line. Returns the inner target strings.
- *  Handles display aliases `[[Target|Display]]` and path targets `[[A/B/C]]`. */
-export function extractWikiLinks(line: string): string[] {
-	const re = /\[\[([^\]]+)\]\]/g;
-	const out: string[] = [];
-	let mm: RegExpExecArray | null;
-	while ((mm = re.exec(line))) {
-		let target = mm[1]!;
-		const pipe = target.indexOf("|");
-		if (pipe !== -1) target = target.slice(0, pipe); // drop alias
-		target = target.replace(/#.*$/, "").trim(); // drop heading ref
-		if (target) out.push(target);
-	}
-	return out;
-}
 
 /** Resolve a tool-name allowlist from an env var (comma-separated), falling
  *  back to `defaults` when unset/empty. Used by distill/garden so a custom

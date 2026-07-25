@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { type VaultIndex, getIndex, resolveLink } from "./index";
 import { listNotes, readBatched } from "./fs-cache";
 import { parseFrontmatter } from "./frontmatter";
-import { extractWikiLinks } from "../obsidian-lib.ts";
+import { extractWikiLinks } from "./links";
 
 /** Resolve a wiki-link target to a note path (exported for tests/B3). */
 export function resolveWikiLink(
