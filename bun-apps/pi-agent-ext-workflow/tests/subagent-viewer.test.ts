@@ -1,7 +1,7 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
 import type { SubagentToolDetails } from "@repo/pi-agent-ext-subagent";
-import { reconstructSubagentRuns, SubagentViewer } from "../src/subagent-viewer.js";
+import { reconstructSubagentRuns, SubagentViewer, type SubagentRun } from "../src/subagent-viewer.js";
 
 // Identity theme so render() returns plain text we can assert on.
 const T = { fg: (_c: string, s: string) => s, bg: (_c: string, s: string) => s, bold: (s: string) => s } as never;
@@ -301,4 +301,84 @@ test("follow falls back to 'ended' when the run leaves the registry (LIVE-only b
   for (let i = 0; i < 7; i++) { viewer.invalidate(); viewer.render(80); }
   const out = viewer.render(80).join("\n");
   assert.ok(out.includes("ended"), "lands on the neutral ended banner");
+});
+
+// ── follow COMPLETED resolution (freeze with final status/usage) ──
+
+function completedRun(toolCallId: string, overrides: Record<string, unknown> = {}): SubagentRun {
+  return {
+    index: 1,
+    toolCallId,
+    agent: "implementer",
+    model: "x/flash",
+    taskPreview: "did " + toolCallId,
+    status: "done",
+    elapsedMs: 4200,
+    usage: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0, total: 150, cost: 0.0123 },
+    output: "final report body",
+    ...overrides,
+  } as SubagentRun;
+}
+
+test("follow freezes with final status + usage when the run completes (matched by toolCallId)", () => {
+  let running: unknown[] = [runningEntry("r1")];
+  let completed: SubagentRun[] = [];
+  const viewer = new SubagentViewer(
+    { runs: [], getRunning: () => running as never, getRuns: () => completed, onClose: () => {} },
+    T,
+  );
+  viewer.handleInput("\r"); // enter follow (LIVE)
+  viewer.render(80);
+  // run completes: leaves the registry, lands in the branch
+  running = [];
+  completed = [completedRun("r1")];
+  viewer.invalidate();
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("✓"), "frozen header shows the done glyph");
+  assert.ok(out.includes("done"), "frozen header shows 'done'");
+  assert.ok(out.includes("4.2s"), "elapsed frozen at the completed run's elapsedMs");
+  assert.ok(out.includes("$0.01") || out.includes("$0.0123"), "frozen header shows cost");
+  assert.ok(out.includes("150 tok"), "frozen header shows tokens");
+  assert.ok(out.includes("→ read"), "trace frozen at the last live snapshot");
+});
+
+test("follow shows finalizing… within the grace window when the run is gone but not yet in the branch", () => {
+  let running: unknown[] = [runningEntry("r1")];
+  const completed: SubagentRun[] = [];
+  const viewer = new SubagentViewer(
+    { runs: [], getRunning: () => running as never, getRuns: () => completed, onClose: () => {} },
+    T,
+  );
+  viewer.handleInput("\r");
+  viewer.render(80);
+  running = []; // gone, but getRuns still returns []
+  viewer.invalidate();
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("finalizing"), "within grace → finalizing hint (no throw)");
+});
+
+test("follow never throws if getRuns throws (best-effort fallback)", () => {
+  let running: unknown[] = [runningEntry("r1")];
+  const viewer = new SubagentViewer(
+    {
+      runs: [],
+      getRunning: () => running as never,
+      getRuns: () => {
+        throw new Error("boom");
+      },
+      onClose: () => {},
+    },
+    T,
+  );
+  viewer.handleInput("\r"); // enter follow (LIVE)
+  viewer.render(80);
+  running = []; // run gone → resolveCompletion will call the throwing getRuns
+  let out = "";
+  assert.doesNotThrow(() => {
+    for (let i = 0; i < 8; i++) {
+      viewer.invalidate();
+      out = viewer.render(80).join("\n");
+    }
+  });
+  assert.ok(out.includes("ended") || out.includes("finalizing"), "lands on a safe banner, no crash");
 });

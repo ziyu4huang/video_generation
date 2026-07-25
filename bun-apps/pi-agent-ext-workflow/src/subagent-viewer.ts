@@ -1,8 +1,13 @@
 /**
- * `/subagents` history viewer. Reconstructs past `subagent` tool runs from the
- * session branch (exactly like the upstream `todo` extension's `/todos`) and
- * renders a stateful list↔output component. No live streaming — runs are the
- * COMPLETED tool results stored in the session (branching-safe by construction).
+ * `/subagents` viewer — three stateful view-modes:
+ *  - `list`: a unified selectable list of Running (live, from the in-flight
+ *    registry) + Completed (reconstructed from the session branch) runs.
+ *  - `output`: a selected completed run's full output.
+ *  - `follow`: attaches to one running subagent and live-streams its tool-call
+ *    trace; on completion it freezes with the final status/usage.
+ * `list`/`output` are reconstructed from the session branch (branching-safe);
+ * `follow` reads the in-flight registry live and re-scans the branch once to
+ * resolve the followed run's completion.
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
@@ -320,12 +325,23 @@ export class SubagentViewer {
   }
 
   /**
-   * Resolve a followed run's completion once it leaves the registry.
-   * Task 3 stub: counts finalize ticks → `followEnded`. Task 4 upgrades this to
-   * a real branch re-scan via `getRuns`.
+   * Resolve a followed run's completion once it leaves the registry: re-scan the
+   * branch (live `getRuns`) and match by `toolCallId`. Within the grace window
+   * the view shows `finalizing…`; past grace it falls back to a neutral `ended`
+   * banner. Best-effort: a throwing `getRuns` is swallowed so the view never
+   * crashes. Idempotent once `followedFinal`/`followEnded` is set.
    */
   private resolveCompletion(): void {
     if (this.followedFinal || this.followEnded) return;
+    try {
+      const final = this.getRuns?.().find((x) => x.toolCallId === this.followedId);
+      if (final) {
+        this.followedFinal = final;
+        return;
+      }
+    } catch {
+      // best-effort — fall through to the finalize/ended path
+    }
     this.finalizingTicks += 1;
     if (this.finalizingTicks > FOLLOW_FINALIZE_GRACE_TICKS) this.followEnded = true;
   }
