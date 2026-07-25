@@ -24,7 +24,7 @@
  * Wiki-link syntax ([[Target]]) works natively because notes are plain markdown.
  */
 
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import {
 	join,
@@ -35,7 +35,6 @@ import {
 	isAbsolute,
 	dirname,
 } from "node:path";
-import { promisify } from "node:util";
 import {
 	readFile,
 	writeFile,
@@ -48,7 +47,7 @@ import {
 	realpath,
 	stat,
 } from "node:fs/promises";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -66,7 +65,8 @@ import {
 } from "./lib/errors";
 export * from "./lib/errors";
 
-export const execFileP = promisify(execFile);
+import { execFileP } from "./lib/utils";
+export * from "./lib/utils";
 
 export const OBSIDIAN_JSON = join(
 	homedir(),
@@ -75,43 +75,6 @@ export const OBSIDIAN_JSON = join(
 	"obsidian",
 	"obsidian.json",
 );
-
-export function _findMonorepoRoot(from: string | undefined): string {
-	if (!from) return "(repo root)";
-	let dir = from;
-	while (dir !== dirname(dir)) {
-		try {
-			const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-			if (pkg.workspaces) return dir;
-		} catch {
-			/* no package.json or unreadable — keep walking up */
-		}
-		dir = dirname(dir);
-	}
-	return "(repo root)";
-}
-
-export function _missingDeps(deps: string[], from: string | undefined): string[] {
-	if (!from) return [];
-	// Compiled-binary mode: `from` is a $bunfs/~BUN virtual path — deps are
-	// inlined into the binary at build time, and walking the REAL filesystem up
-	// from a virtual path can never find node_modules (always false-alarms).
-	if (from.includes("$bunfs") || from.includes("~BUN") || from.includes("%7EBUN")) return [];
-	return deps.filter((dep) => {
-		const pkgName = dep.startsWith("@")
-			? dep.split("/").slice(0, 2).join("/")
-			: dep.split("/")[0] ?? dep;
-		let dir = from;
-		while (true) {
-			if (existsSync(join(dir, "node_modules", pkgName, "package.json")))
-				return false;
-			const parent = dirname(dir);
-			if (parent === dir) break;
-			dir = parent;
-		}
-		return true;
-	});
-}
 
 export interface VaultEntry {
 	path: string;
