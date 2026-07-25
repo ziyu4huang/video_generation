@@ -128,6 +128,11 @@ test("__resetGoalState clears every runtime-state field back to its initial valu
 	goalState.lastActivityAt = 0;
 	goalState.lastWedgeAlertAt = 99_999;
 	goalState.nudgeCount = 9;
+	// Loop 2 queue fields (Task 1): mutated so this watchdog proves __resetGoalState
+	// resets them too — a silent no-op here would let a stale queue + inflated
+	// position leak across a fresh goal cockpit (the bug class behind Loop 2).
+	goalState.list = [{ id: "leaked", text: "x" }];
+	goalState.headAdvances = 7;
 
 	__resetGoalState();
 
@@ -156,6 +161,8 @@ test("__resetGoalState clears every runtime-state field back to its initial valu
 	expect(goalState.lastActivityAt).toBeGreaterThanOrEqual(resetAt);
 	expect(goalState.lastWedgeAlertAt).toBe(0);
 	expect(goalState.nudgeCount).toBe(0);
+	expect(goalState.list).toEqual([]);
+	expect(goalState.headAdvances).toBe(0);
 
 	// Release the real timers we allocated (reset orphaned them on purpose).
 	clearInterval(fakeStatusTimer);

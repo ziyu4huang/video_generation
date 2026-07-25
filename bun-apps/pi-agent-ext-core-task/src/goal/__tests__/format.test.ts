@@ -53,12 +53,20 @@ describe("formatGoalOverlayLine queue suffix", () => {
 	test("parked = 0 → no ⚠ segment", () => {
 		expect(formatGoalOverlayLine(goal, theme, 100, { position: 2, total: 5, parked: 0 })).not.toContain("⚠");
 	});
-	test("narrow terminal → drops the ☰ segment before truncating the head", () => {
-		// width small enough that objective+queue won't both fit; queue dropped, head survives
-		const line = formatGoalOverlayLine(goal, theme, 30, { position: 2, total: 5 });
+	test("middle-width terminal → drops the ☰ segment via the showQueue guard (objective survives)", () => {
+		// Land in the showQueue=false MIDDLE domain: the objective fits but the
+		// queue segment does not, so showQueue evaluates false and the ☰ segment
+		// is dropped — while the head + objective survive. This exercises the
+		// showQueue guard, NOT the remaining<=6 early-return (width=30 hit that
+		// domain, where showQueue is never evaluated). Empirically the middle
+		// band is w in [38,44]; 42 sits at its center (4-unit margin from both
+		// the <=36 early-return floor and the >=46 queue-show ceiling).
+		const line = formatGoalOverlayLine(goal, theme, 42, { position: 2, total: 5 });
+		// ☰ dropped by the showQueue guard.
 		expect(line).not.toContain("☰");
-		// head (status word) must still be present
+		// head (status word) AND objective survived → NOT the early-return path.
 		expect(line).toContain("goal active");
+		expect(line).toContain(goal.text.slice(0, 10));
 	});
 	test("wide terminal → queue appears AFTER the objective", () => {
 		const line = formatGoalOverlayLine(goal, theme, 100, { position: 3, total: 7 });

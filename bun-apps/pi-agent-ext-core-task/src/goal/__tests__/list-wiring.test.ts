@@ -257,3 +257,76 @@ describe("/list wiring", () => {
 		expect(notifications.some((n) => /nothing to add/i.test(n.message))).toBe(true);
 	});
 });
+
+// ─── goal_complete driver (mirrors list-advance.test.ts) ─────────────────────
+// The /goal command registers the goal_complete tool; mock.tools[0] captures it.
+// Used by the drained-queue reset test below to drive a clean complete.
+
+interface GoalTool {
+	execute: (...args: unknown[]) => Promise<{ content?: Array<{ type: string; text: string }>; terminate?: boolean }>;
+}
+
+async function callGoalComplete(summary: string) {
+	const tool = mock.tools[0] as GoalTool | undefined;
+	if (!tool) throw new Error("goal_complete tool not registered");
+	return tool.execute("call", { summary }, new AbortController().signal, () => undefined, ctx);
+}
+
+// ─── queue-lifecycle resets (Loop 2 final-fix: list + headAdvances) ─────────
+// The in-memory `goalState.list` + `goalState.headAdvances` are queue-lifecycle
+// state. They must reset at every lifecycle boundary so (1) a bare /goal after
+// a /goal clear shows no phantom ☰ …/2 suffix (zero-regression invariant), and
+// (2) the widget position doesn't inflate across drained queues. These drive
+// BOTH the /goal + /list command handlers (captured in `commands`).
+describe("queue-lifecycle resets (list + headAdvances)", () => {
+	test("/goal clear then bare /goal \"c\" → no phantom queue (list=[] , headAdvances=0)", async () => {
+		// Seed a queue + bump headAdvances so a missing reset would leak a
+		// phantom ☰ …/2 widget suffix on the later bare /goal.
+		await mock.commands.get("list")!.handler('add "a" "b" "c"', ctx);
+		await mock.commands.get("list")!.handler("next", ctx);
+		expect(goalState.activeGoal?.text).toBe("b"); // head promoted
+		expect(goalState.headAdvances).toBe(1);
+		expect(goalState.list.length).toBe(2);
+
+		// /goal clear → clearGoal (active-head branch) → clearActiveGoal resets.
+		await mock.commands.get("goal")!.handler("clear", ctx);
+		expect(goalState.activeGoal).toBeUndefined();
+		expect(goalState.list).toEqual([]);
+		expect(goalState.headAdvances).toBe(0);
+
+		// bare /goal "fresh" → case "start" resets again (fresh single-goal intent).
+		await mock.commands.get("goal")!.handler('"fresh goal"', ctx);
+		expect(goalState.activeGoal?.text).toBe("fresh goal");
+		// Zero-regression invariant: a bare /goal is a fresh single goal —
+		// no phantom ☰ suffix, position not inflated.
+		expect(goalState.list).toEqual([]);
+		expect(goalState.headAdvances).toBe(0);
+	});
+
+	test("drained queue then /list add → headAdvances resets (position not inflated)", async () => {
+		// Build a queue: head=A, tail=[B]. /list add's no-active-goal branch sets
+		// headAdvances=0 (fresh queue head).
+		await mock.commands.get("list")!.handler('add "A" "B"', ctx);
+		expect(goalState.activeGoal?.text).toBe("A");
+		expect(goalState.list.map((i) => i.text)).toEqual(["B"]);
+		expect(goalState.headAdvances).toBe(0);
+
+		// Complete A → auto-advance to B (headAdvances bumps to 1).
+		await callGoalComplete("A done.");
+		expect(goalState.activeGoal?.text).toBe("B");
+		expect(goalState.headAdvances).toBe(1);
+
+		// Complete B with an empty tail → drains the queue (clearActiveGoal).
+		await callGoalComplete("B done.");
+		expect(goalState.activeGoal).toBeUndefined();
+		// headAdvances only ever increments in production; without the lifecycle
+		// reset it would stay inflated at 1 across drained queues.
+		expect(goalState.headAdvances).toBe(0);
+
+		// /list add starts a fresh queue → position must reset to 0, not inherit
+		// the stale value (the widget would otherwise mis-state its position).
+		await mock.commands.get("list")!.handler('add "x"', ctx);
+		expect(goalState.activeGoal?.text).toBe("x");
+		expect(goalState.headAdvances).toBe(0);
+	});
+});

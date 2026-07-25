@@ -383,12 +383,19 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 				case "audit":
 					toggleGoalAudit(ctx);
 					return;
-				case "start":
+				case "start": {
+					// A bare `/goal "x"` is a fresh single-goal intent — the queue must
+					// NOT persist across it. Reset BEFORE startGoal (NOT inside it: /list
+					// add calls startGoal DIRECTLY from the /list handler with a pre-set
+					// tail, which a reset inside startGoal would wipe).
+					goalState.list = [];
+					goalState.headAdvances = 0;
 					await startGoal(result.objective ?? "", result.tokenBudget, pi, ctx, {
 						auditEnabled: result.audit,
 						auditorModel: result.auditorModel,
 					});
 					return;
+				}
 			}
 		},
 	});
@@ -433,6 +440,10 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 						// discard those items. Set the tail BEFORE startGoal so its
 						// persistGoal snapshots head + tail together.
 						goalState.list = addListItems(goalState.list, cmd.texts.slice(1));
+						// Fresh queue head → position resets (headAdvances only ever
+						// increments in production; without this it would inflate across
+						// drained queues, mis-stating the widget position).
+						goalState.headAdvances = 0;
 						await startGoal(cmd.texts[0], undefined, pi, ctx);
 					} else {
 						goalState.list = addListItems(goalState.list, cmd.texts);
@@ -509,6 +520,7 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 
 				case "clear": {
 					goalState.list = clearList();
+					goalState.headAdvances = 0;
 					if (active) persistGoal(api, active);
 					updateStatus(ctx, goalState.activeGoal);
 					ctx.ui.notify("Queue cleared (active goal untouched).", "info");
@@ -856,6 +868,11 @@ function clearGoal(ctx: StatusContext) {
 		cancelContinuationPending();
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
+		// /goal clear is a queue-lifecycle boundary: drop the in-memory queue +
+		// position so a later bare /goal "x" shows no phantom ☰ …/2 suffix and
+		// the widget position doesn't inflate across sessions.
+		goalState.list = [];
+		goalState.headAdvances = 0;
 		clearPersistedGoal(goalState.extensionApi as ExtensionAPI);
 		goalOverlay?.update(undefined);
 		return;
@@ -1262,6 +1279,12 @@ function clearActiveGoal(_ctx: StatusContext) {
 	clearGoalRecovery();
 	clearStaleGoalToolCallBlock();
 	goalState.activeGoal = undefined;
+	// The in-memory queue tail + headAdvances are queue-lifecycle state — reset
+	// here (and at every other lifecycle boundary) so they cannot leak across a
+	// fresh /goal. clearActiveGoal runs on /goal clear (with an active head), on
+	// a drained goal_complete, and on session teardown paths.
+	goalState.list = [];
+	goalState.headAdvances = 0;
 	clearPersistedGoal(goalState.extensionApi as ExtensionAPI);
 	goalOverlay?.update(undefined);
 	stopStatusRefreshTimer();
