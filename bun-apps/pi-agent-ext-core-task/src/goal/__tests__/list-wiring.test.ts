@@ -18,7 +18,7 @@ import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { GoalOverlayLike } from "../overlay.js";
 import goal, { type StatusContext } from "../goal.js";
-import { goalState, __resetGoalState } from "../state.js";
+import { goalState, __resetGoalState, createGoal } from "../state.js";
 
 // ─── Mock pi/ctx/overlay (mirrors goal.test.ts + hardening-loop.test.ts) ──────
 // Copied verbatim from goal.test.ts (createMockPi / createMockCtx) so the `/list`
@@ -190,10 +190,13 @@ describe("/list wiring", () => {
 
 	test("/list remove <n> + /list clear", async () => {
 		await mock.commands.get("list")!.handler('add "a" "b" "c"', ctx);
-		// head=a, tail=[b,c]
+		// head=a, tail=[b,c] → /list show renders `1. a`, `2. b`, `3. c`.
 
-		// removeListItem is 1-based on the TAIL (matches /list display tail slot).
-		await mock.commands.get("list")!.handler("remove 1", ctx);
+		// /list show numbers head=1, tail=2,3,… so "remove 2" deletes the item
+		// SHOWN at display index 2 ("b"), leaving tail=["c"]. removeListItem is
+		// 1-based on the tail; the handler translates display index → tail index
+		// (tailIndex = display - 1), so display 2 → tail slot 1.
+		await mock.commands.get("list")!.handler("remove 2", ctx);
 		expect(goalState.list.map((i) => i.text)).toEqual(["c"]);
 		expect(goalState.activeGoal?.text).toBe("a"); // head untouched
 
@@ -207,6 +210,25 @@ describe("/list wiring", () => {
 		expect(goalState.list).toEqual([]);
 		expect(goalState.activeGoal?.text).toBe("a");
 		expect(notifications.some((n) => /queue cleared/i.test(n.message))).toBe(true);
+	});
+
+	test("/list add with a complete head → appends to the tail (existing tail preserved)", async () => {
+		// Reachable pre-Task-6: the head is complete but a pending tail still
+		// exists. /list add must APPEND to the existing tail, not rebuild it from
+		// [] (which would silently discard pending items). texts[0] becomes the new
+		// head via startGoal; texts.slice(1) fills the tail — so "old" survives
+		// AND "new" is appended.
+		goalState.activeGoal = { ...createGoal("done", undefined, 0), status: "complete" };
+		goalState.list = [{ id: "old-id", text: "old" }];
+
+		await mock.commands.get("list")!.handler('add "fresh head" "new"', ctx);
+
+		// Existing tail "old" is PRESERVED; "new" (from slice(1)) is appended.
+		expect(goalState.list.map((i) => i.text)).toEqual(["old", "new"]);
+		// The complete head was replaced by the fresh head (startGoal skips the
+		// replace-confirm because the prior head was complete).
+		expect(goalState.activeGoal?.text).toBe("fresh head");
+		expect(goalState.activeGoal?.status).toBe("active");
 	});
 
 	test("/list (show) → renders head + indexed tail via ctx.ui.notify", async () => {

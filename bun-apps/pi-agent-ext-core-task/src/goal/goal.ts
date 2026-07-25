@@ -404,10 +404,13 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 						return;
 					}
 					if (!active || active.status === "complete") {
-						// No active goal: the first item becomes the head (started), the
-						// rest fill the tail. Set the tail BEFORE startGoal so its
+						// No active goal (or the head is already complete): the first item
+						// becomes the head (started), the rest fill the tail. APPEND to the
+						// existing tail — a reachable state has a complete head + a non-empty
+						// pending tail (pre-Task-6), and rebuilding from [] would silently
+						// discard those items. Set the tail BEFORE startGoal so its
 						// persistGoal snapshots head + tail together.
-						goalState.list = addListItems([], cmd.texts.slice(1));
+						goalState.list = addListItems(goalState.list, cmd.texts.slice(1));
 						await startGoal(cmd.texts[0], undefined, pi, ctx);
 					} else {
 						goalState.list = addListItems(goalState.list, cmd.texts);
@@ -441,33 +444,38 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 					// Park the current head at the tail, then promote the next tail
 					// item. Do NOT call startGoal here — it would trigger the
 					// "Replace goal?" confirm; createGoal starts the head cleanly.
+					// The empty-tail guard above guarantees the spread is non-empty, so
+					// promoteNext always yields a defined item — the old `if (!item)`
+					// was unreachable dead code and is removed.
 					const { item, rest } = promoteNext([...goalState.list, goalToListItem(active)]);
-					if (!item) {
-						ctx.ui.notify("Queue empty — nothing to advance to.", "info");
-						return;
-					}
 					goalState.list = rest;
+					// promoteNext returns an undefined item ONLY for empty input; the
+					// empty-tail guard above proves it is defined here.
+					const promoted = item!;
 					goalState.activeGoal = createGoal(
-						item.text,
-						item.tokenBudget,
+						promoted.text,
+						promoted.tokenBudget,
 						currentTokenTotal(ctx),
-						item.audit,
+						promoted.audit,
 					);
 					goalState.headAdvances += 1;
 					persistGoal(api, goalState.activeGoal);
 					updateStatus(ctx, goalState.activeGoal);
-					ctx.ui.notify(`Advanced to: ${item.text}`, "info");
+					ctx.ui.notify(`Advanced to: ${promoted.text}`, "info");
 					await sendGoalPrompt(pi, ctx, goalState.activeGoal);
 					return;
 				}
 
 				case "remove": {
+					// /list show numbers head=1, tail=2,3,…; removeListItem is 1-based
+					// on the tail. Translate the user-facing DISPLAY index → tail index;
+					// display index 1 is the active head (not removable here).
+					const tailIndex = cmd.index - 1;
+					if (cmd.index < 1) { ctx.ui.notify("Usage: /list remove <n>", "warning"); return; }   // M1: bare/invalid
+					if (tailIndex < 1) { ctx.ui.notify("Index 1 is the active head; use /list next or /goal clear.", "warning"); return; }
 					const before = goalState.list.length;
-					goalState.list = removeListItem(goalState.list, cmd.index);
-					if (goalState.list.length === before) {
-						ctx.ui.notify(`No item at index ${cmd.index}.`, "warning");
-						return;
-					}
+					goalState.list = removeListItem(goalState.list, tailIndex);
+					if (goalState.list.length === before) { ctx.ui.notify(`No item at index ${cmd.index}.`, "warning"); return; }
 					// persistGoal requires an ActiveGoal; with no active head there is
 					// nothing to snapshot the tail alongside — a no-op persist is
 					// correct there.
