@@ -312,6 +312,28 @@ const goalCompleteTool = defineTool({
 			persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 		}
 
+		// Loop 2 (Task 6): auto-advance the /list queue on a clean complete. We
+		// reach here ONLY on a clean complete (approved / no-audit /
+		// impossible-note); freeze cases (audit 3× disapprove → paused; infra
+		// error) returned early above, so the queue stays put on freeze. If a tail
+		// item exists, promote it to the active goal (its item.audit, if any,
+		// wires the auditor for ITS goal_complete — D5) and continue in-turn on
+		// the new goal. If the tail is empty, complete as today.
+		const { item, rest } = promoteNext(goalState.list);
+		if (item) {
+			goalState.list = rest;
+			goalState.activeGoal = createGoal(item.text, item.tokenBudget, currentTokenTotal(ctx), item.audit);
+			goalState.headAdvances += 1;
+			persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
+			updateStatus(ctx, goalState.activeGoal);
+			ctx.ui.notify(`Goal complete. Advanced to: ${item.text}`, "success");
+			return {
+				content: [{ type: "text", text: `Goal complete: ${summary}. Advanced to next goal: ${item.text}` }],
+				details: { goal, summary } satisfies GoalCompleteDetails,
+				terminate: false, // continue in-turn on the new goal (mirrors the disapprove path's terminate:false)
+			};
+		}
+
 		clearActiveGoal(ctx);
 		showCompletionStatus(ctx, goal);
 		ctx.ui.notify(`Goal complete: ${goal}`, "info");
