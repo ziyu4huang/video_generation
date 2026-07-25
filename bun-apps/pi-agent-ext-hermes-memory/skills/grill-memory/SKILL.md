@@ -1,11 +1,11 @@
 ---
 name: grill-memory
-description: Use when conducting a grill-me or grill-me-with-docs session — informs each recommendation from the user's past behavioral memory and captures resolved decisions durably via the grill_decision tool. Companion to the grilling skill; co-fires whenever a grill is active.
+description: Use when running a grill-me session — inform each recommendation from memory and capture resolved decisions via grill_decision.
 ---
 
 # grill-memory: make grills learn from the user's experience
 
-Companion to `grilling`. Two protocols, run for every decision in the grill.
+Companion to `grilling`. Two protocols per decision.
 
 ## READ — inform each recommendation from memory
 
