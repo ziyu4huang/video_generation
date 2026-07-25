@@ -19,7 +19,7 @@ import {
 	assertWritablePath,
 	assertWithinVault,
 } from "./path-safety";
-import { dropIndex } from "../obsidian-lib.ts";
+import { dropIndex } from "./index";
 
 // ---- Frontmatter parser (C1) ----------------------------------------------
 
