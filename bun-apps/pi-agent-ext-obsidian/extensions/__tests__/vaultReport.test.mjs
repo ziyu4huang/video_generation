@@ -40,6 +40,9 @@ describe("summarizeVault (D2)", () => {
 		const r = summarizeVault(await getIndex(vault));
 		expect(r.orphans.map((o) => o.path)).toContain("c.md");
 		expect(r.orphans.map((o) => o.path)).not.toContain("a.md");
+		// GraphResult carries the title in `text`; summarizeVault must surface it as
+		// the report's `title` (was undefined before the r.title -> r.text fix).
+		expect(r.orphans.find((o) => o.path === "c.md")?.title).toBe("gamma");
 	});
 
 	it("detects dead link Delta -> Nonexistent", async () => {
@@ -64,5 +67,8 @@ describe("renderReportMD (D2)", () => {
 		const md = renderReportMD(summarizeVault(await getIndex(vault)));
 		expect(md).toContain("`c.md`");
 		expect(md).toContain("`d.md`");
+		// Orphan line renders its title (not the literal "undefined").
+		expect(md).toContain("`c.md` — gamma");
+		expect(md).not.toContain("undefined");
 	});
 });

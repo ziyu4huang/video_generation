@@ -261,11 +261,13 @@ export async function deleteNote(
 		const target = notePath.split("/").pop()!.replace(/\.md$/i, "");
 		const sources = backlinkPaths(idx, target);
 		const tLower = target.toLowerCase();
-		// Strip inbound links from every source concurrently. deleteNote exposes
-		// no failedSources field, so a thrown read/write still rejects the whole
-		// op (matching the prior sequential `for` semantics) — only the loop
-		// construct changed. linksCleaned stays in backlinkPaths iteration order
-		// because Promise.all preserves the input array order.
+		// Strip inbound links from every source concurrently. On the happy path the
+		// result matches the prior sequential `for`; on the exceptional path a thrown
+		// read/write still rejects the whole op, but there is NO rollback — concurrent
+		// writes that already started may have landed (deleteNote exposes no
+		// failedSources field, so a partial mutation surfaces only as the rejection).
+		// linksCleaned stays in backlinkPaths iteration order (Promise.all preserves
+		// input order).
 		const cleaned = await Promise.all(
 			[...sources].map(async (src) => {
 				const srcAbs = join(real, src);

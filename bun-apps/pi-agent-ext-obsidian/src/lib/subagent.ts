@@ -573,7 +573,7 @@ export async function runSubagent(
 // Fired after `obsidian_distill` writes notes so the vault-mind ChromaDB index
 // can be refreshed without a manual re-index step. Strictly opt-in via
 // VAULT_MIND_AUTO_REINDEX (default OFF — closed principle preserved): when the
-// env is unset/empty/"0"/"false" this issues ZERO HTTP and is a pure no-op.
+// env is unset/empty/"0"/"false"/"off"/"no" this issues ZERO HTTP and is a pure no-op.
 // Fire-and-forget by design: an internal try/catch guarantees it NEVER throws
 // into the distill caller or alters its tool result shape.
 
@@ -587,7 +587,7 @@ export async function maybeTriggerReindex(
 	opts: { fetch?: typeof fetch; base?: string } = {},
 ): Promise<void> {
 	const enabled = String(process.env.VAULT_MIND_AUTO_REINDEX ?? "").trim();
-	if (!enabled || ["0", "false", ""].includes(enabled.toLowerCase())) return;
+	if (!enabled || ["0", "false", "off", "no", ""].includes(enabled.toLowerCase())) return;
 	const base = (opts.base ?? process.env.VAULT_MIND_BASE_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
 	const f = opts.fetch ?? globalThis.fetch;
 	try {

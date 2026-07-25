@@ -66,12 +66,9 @@ export function summarizeVault(idx: VaultIndex, topTags = 10): VaultReport {
 	}
 	for (const t of folderMap.values()) t.notes.sort((a, b) => a.path.localeCompare(b.path));
 
-	// orphans / dead links / title style
-	// @ts-expect-error — latent bug (pre-existing, NOT introduced by this task):
-	// GraphResult exposes the note title via `text`, not `title`; so `r.title` is
-	// always `undefined` at runtime. Left as-is in Phase 0 to avoid any behavior
-	// change; tracked in docs/TYPECHECK-NOTES.md for a dedicated fix.
-	const orphans = graphOrphans(idx).map((r) => ({ path: r.path, title: r.title }));
+	// orphans / dead links / title style. GraphResult carries the note title in
+	// `text` (title or path fallback); map it onto the report's `title` field.
+	const orphans = graphOrphans(idx).map((r) => ({ path: r.path, title: r.text }));
 	const deadLinks = graphDeadLinks(idx).map((r) => ({ source: r.path, target: r.text }));
 	const titleOutliers = detectTitleStyleOutliers(idx);
 

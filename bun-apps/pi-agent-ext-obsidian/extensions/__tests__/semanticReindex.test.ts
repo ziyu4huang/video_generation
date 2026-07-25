@@ -24,6 +24,18 @@ test("disabled by default: no HTTP issued", async () => {
 	expect(fetchMock).not.toHaveBeenCalled();
 });
 
+test("disabled by denylist values (0/false/off/no, case-insensitive): no HTTP issued", async () => {
+	const fetchMock = mock((_url: string, _init: RequestInit) => Promise.resolve(new Response("{}")));
+	for (const v of ["0", "false", "off", "no", "OFF", "No"]) {
+		process.env.VAULT_MIND_AUTO_REINDEX = v;
+		await maybeTriggerReindex("pi-agent-vault", "/v", {
+			fetch: fetchMock as unknown as typeof fetch,
+			base: BASE,
+		});
+	}
+	expect(fetchMock).not.toHaveBeenCalled();
+});
+
 test("enabled + base set: POSTs /api/index with force_reindex:true", async () => {
 	process.env.VAULT_MIND_AUTO_REINDEX = "1";
 	const fetchMock = mock((_url: string, _init: RequestInit) =>
