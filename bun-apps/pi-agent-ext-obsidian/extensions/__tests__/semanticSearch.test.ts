@@ -19,6 +19,7 @@
  * than crashing the turn.
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const mod = await import("../obsidian.ts");
 
@@ -35,7 +36,9 @@ function makeFakePi() {
 	return { pi, tools };
 }
 const { pi, tools } = makeFakePi();
-mod.default(pi);
+// `pi` is an intentionally-partial mock (only the methods this tool touches);
+// cast through `unknown` to satisfy the full ExtensionAPI contract.
+mod.default(pi as unknown as ExtensionAPI);
 
 const TOOL = "obsidian_semantic_search";
 
