@@ -314,7 +314,13 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 	// serialized result so repeated identical outputs (e.g. an error the agent
 	// keeps re-triggering, or a no-op read) surface as "no new information".
 	pi.on("tool_execution_end", (event: { toolName: string; result?: unknown; isError?: boolean }) => {
-		goalState.toollessStreak = 0;
+		// Skip the (cheap-but-wasteful) fingerprint work when no goal is active.
+		if (!goalState.activeGoal) return;
+		// Per-turn flag (Task 9 fix): agent_end consumes + clears this so
+		// toollessStreak counts *consecutive* toolless turns rather than being
+		// unconditionally bumped every turn (which made it off-by-one and
+		// tripped the stuck threshold on the first legitimate narration turn).
+		goalState.toolRanThisTurn = true;
 		const hash = textFingerprint(safeStringify(event.result));
 		goalState.recentToolResults = pushCapped(
 			goalState.recentToolResults,
@@ -382,10 +388,17 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 		if (hasPendingMessages(ctx)) return;
 
 		// Phase-2 hardening (Task 9): classify this iteration before continuing.
-		// toollessStreak is reset to 0 by tool_execution_end when a tool ran this
-		// turn; otherwise each agent_end bumps it (narration-only loop detection).
+		// toolRanThisTurn was set by tool_execution_end if a tool ran this turn;
+		// consume + clear it here so toollessStreak truly counts *consecutive*
+		// toolless turns (the fix for the off-by-one that previously tripped the
+		// stuck threshold on the first legitimate narration turn after a tool).
 		const assistantText = finalAssistant?.content?.map((c) => c.text ?? "").join(" ") ?? "";
-		goalState.toollessStreak += 1;
+		if (goalState.toolRanThisTurn) {
+			goalState.toollessStreak = 0;
+			goalState.toolRanThisTurn = false;
+		} else {
+			goalState.toollessStreak += 1;
+		}
 		const print = textFingerprint(assistantText);
 		goalState.recentPrints = pushCapped(goalState.recentPrints, print, REPETITION.printWindow);
 		goalState.recentTexts = pushCapped(goalState.recentTexts, assistantText.slice(0, 1000), REPETITION.textWindow);
@@ -725,6 +738,7 @@ function resetHardeningCounters() {
 	goalState.recentTexts = [];
 	goalState.recentToolResults = [];
 	goalState.toollessStreak = 0;
+	goalState.toolRanThisTurn = false;
 }
 
 /** Best-effort stringification of a tool result for fingerprinting. Never throws. */

@@ -140,12 +140,18 @@ export interface GoalRuntimeState {
 	// recentPrints/recentTexts/recentToolResults are the classifier inputs;
 	// consecutiveStuck/stuckStartedAt drive the intervention rotation + caps;
 	// toollessStreak counts consecutive tool-less turns (narration-only loops).
+	// toolRanThisTurn is a per-turn flag set by tool_execution_end and consumed
+	// (and cleared) by agent_end so toollessStreak only increments on a turn
+	// that genuinely had no tool call. Without it the streak is off-by-one:
+	// every turn ends at streak >= 1, so the FIRST narration turn after a tool
+	// turn already trips the 2-iteration stuck threshold.
 	consecutiveStuck: number;
 	stuckStartedAt: number | undefined;
 	recentPrints: string[];
 	recentTexts: string[];
 	recentToolResults: ToolResultPrint[];
 	toollessStreak: number;
+	toolRanThisTurn: boolean;
 }
 
 export const goalState: GoalRuntimeState = {
@@ -163,6 +169,7 @@ export const goalState: GoalRuntimeState = {
 	recentTexts: [],
 	recentToolResults: [],
 	toollessStreak: 0,
+	toolRanThisTurn: false,
 };
 
 /** Test seam: reset all runtime state to initial values (mirrors todo/state/store.ts __resetState). */
@@ -181,4 +188,5 @@ export function __resetGoalState(): void {
 	goalState.recentTexts = [];
 	goalState.recentToolResults = [];
 	goalState.toollessStreak = 0;
+	goalState.toolRanThisTurn = false;
 }

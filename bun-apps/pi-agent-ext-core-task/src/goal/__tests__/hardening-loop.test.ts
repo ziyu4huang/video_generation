@@ -196,4 +196,30 @@ describe("agent_end hardening: anti-repetition + backoff cap", () => {
 			await shutdown(mock, ctx);
 		}
 	});
+
+	test("healthy tool → narration → tool pattern does NOT trigger STUCK (consecutive toolless count fix)", async () => {
+		const { mock, ctx } = await bootstrap();
+		try {
+			// Turn 1: a tool runs, then the assistant narrates (unique, non-repeating).
+			await fireToolEnd(mock, "bash", { stdout: "ran the test suite: 12 passing" });
+			await fireAgentEnd(mock, ctx, "I ran the tests and they all pass. Next I will update the docs.");
+			// A tool ran this turn → toollessStreak must be 0 (not 1), no STUCK.
+			expect(goalState.toollessStreak).toBe(0);
+			expect(goalState.consecutiveStuck).toBe(0);
+			expect(mock.sentUserMessages.at(-1)?.text ?? "").not.toContain("STUCK");
+
+			// Turn 2: narration only (no tool). One lone narration turn must NOT trip
+			// the 2-iteration threshold: toollessStreak becomes 1, detectLoopStuck
+			// returns undefined, so consecutiveStuck stays 0 and no STUCK is injected.
+			// This is exactly the off-by-one the reviewer flagged: before the per-turn
+			// flag, toollessStreak was 2 here (1 from turn 1 + 1 from turn 2), firing a
+			// premature STUCK intervention on a perfectly normal thinking turn.
+			await fireAgentEnd(mock, ctx, "Let me think through the documentation structure before writing anything.");
+			expect(goalState.toollessStreak).toBe(1);
+			expect(goalState.consecutiveStuck).toBe(0);
+			expect(mock.sentUserMessages.at(-1)?.text ?? "").not.toContain("STUCK");
+		} finally {
+			await shutdown(mock, ctx);
+		}
+	});
 });
