@@ -18,6 +18,7 @@ Adopt obra/superpowers's two SDD reworks into this fork's `subagent-driven-devel
 - [04 pi subagent resume capability](tickets/04-pi-subagent-resume-capability.md) — no resume-in-place exposed; upstream's rounds 1-3 use the fresh-dispatch fallback (brief + report file + findings).
 - [03 effort×plan reconciliation](tickets/03-effort-times-plan-reconciliation.md) — **Nest**: `.planning/<effort>/sdd/<plan-slug>/` (effort ⊃ plan); `sdd-workspace` takes PLAN_FILE + PI_PLANNING_EFFORT. Existing-state migration is forward-only (graduated from fog).
 - [05 re-pin ADR-0004 SDD files](tickets/05-repin-adr0004-sdd-files.md) — **DONE** (`09dbb7c4`): SDD re-pinned to upstream v6.2.0 (`3dcbd5c4`); SKILL.md 418→503, `re-review-prompt.md` added, fixture rebaselined, suite **122/0**. **Unblocks 06.**
+- [06 reconcile pi-port glue](tickets/06-reconcile-pi-port-glue.md) — **DONE** (`9671d84c`): 3 scripts aligned to upstream's `PLAN_FILE` interface + effort×plan resolution; routing rule 1 + `bootstrap.test.ts` updated; `start-server.sh` unchanged. Suite **122/0**. **Unblocks 07.**
 
 ## Not yet specified
 
