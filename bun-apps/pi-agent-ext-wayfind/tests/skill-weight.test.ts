@@ -71,7 +71,10 @@ function readDescription(skillPath: string): string {
   for (const line of match[1].split(/\r?\n/)) {
     const idx = line.indexOf(":");
     if (idx > 0 && line.slice(0, idx).trim() === "description") {
-      return line.slice(idx + 1).trim().replace(/^["']|["']$/g, "");
+      return line
+        .slice(idx + 1)
+        .trim()
+        .replace(/^["']|["']$/g, "");
     }
   }
   throw new Error(`no description field in ${skillPath}`);
@@ -93,7 +96,10 @@ describe("Phase-2 skill description weight gate", () => {
         const alternatives = t.triggerLabel.match(/"[^"]+"/g)?.map((s) => s.replace(/"/g, "").toLowerCase()) ?? [
           t.triggerNoun.toLowerCase(),
         ];
-        expect(alternatives.some((a) => lower.includes(a)), `none of ${alternatives} found in description`).toBe(true);
+        expect(
+          alternatives.some((a) => lower.includes(a)),
+          `none of ${alternatives} found in description`,
+        ).toBe(true);
       });
     });
   }
