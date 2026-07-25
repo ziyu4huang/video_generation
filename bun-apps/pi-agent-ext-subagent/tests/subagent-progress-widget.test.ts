@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import type { InFlightSubagent } from "@repo/pi-agent-ext-subagent";
+import type { InFlightSubagent } from "../src/index.js";
 import { SubagentProgressWidget } from "../src/subagent-progress-widget.js";
 
 // Identity theme so render() returns plain text we can assert on (mirrors subagent-viewer.test.ts).
