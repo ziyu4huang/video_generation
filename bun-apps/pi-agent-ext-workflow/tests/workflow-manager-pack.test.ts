@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
 import { resolvePackRunContext } from "../src/pack-run-context.js";
 import { createRunPersistence } from "../src/run-persistence.js";
 import { runWorkflow } from "../src/workflow.js";
-import { WorkflowManager } from "../src/workflow-manager.js";
+import { uniqueOutputDir, WorkflowManager } from "../src/workflow-manager.js";
 
 /** A mock agent that returns a canned string without any provider call. */
 const mockAgent = {
@@ -125,6 +125,19 @@ test("a repeat run appends a NEW <ts> subdir (no overwrite, decision 11) (T6)", 
     await mgr.runSync(script, { topic: "cats" }, { stateRoot, packId: "demo-r", outputsDir });
   }
   expect(readdirSync(outputsDir).length).toBe(2);
+});
+
+test("uniqueOutputDir disambiguates same-ms collisions (-2, -3, …) without overwriting (decision 11)", () => {
+  const dir = mkdtempSync(join(os.tmpdir(), "uniq-out-"));
+  const base = "2026-07-25T07-00-05-519Z";
+  // Fresh: base name available -> no suffix.
+  expect(uniqueOutputDir(dir, base)).toBe(join(dir, base));
+  // Seed a collision: base taken -> -2.
+  mkdirSync(join(dir, base));
+  expect(uniqueOutputDir(dir, base)).toBe(`${join(dir, base)}-2`);
+  // Seed -2 as well -> -3 (loop keeps advancing; never overwrites).
+  mkdirSync(`${join(dir, base)}-2`);
+  expect(uniqueOutputDir(dir, base)).toBe(`${join(dir, base)}-3`);
 });
 
 test("workflow-tool passes pack context into ExecOptions when a pack is named (T7 wiring)", () => {
