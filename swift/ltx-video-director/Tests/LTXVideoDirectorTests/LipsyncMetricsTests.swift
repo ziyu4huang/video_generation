@@ -20,9 +20,26 @@ final class LipsyncMetricsTests: XCTestCase {
         XCTAssertEqual(result, [0.0, 0.0, 0.0, 0.0])
     }
 
+    func testLinearResampleDownsamples() {
+        // The common case at Task 3's real call site: extractAudioEnvelope
+        // resamples a much larger RMS-window series down onto a smaller
+        // per-video-frame count.
+        let result = LipsyncMetrics.linearResample([0.0, 2.0, 4.0, 6.0, 8.0, 10.0], to: 3)
+        XCTAssertEqual(result.count, 3)
+        XCTAssertEqual(result.first!, 0.0, accuracy: 1e-9)
+        XCTAssertEqual(result.last!, 10.0, accuracy: 1e-9)
+        XCTAssertEqual(result[1], 5.0, accuracy: 1e-9)
+    }
+
     func testLaggedPearsonPerfectPositiveCorrelationAtLagZero() {
-        let a = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
-        let b = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+        // Quadratic (non-linear), not a plain arithmetic ramp: any two
+        // equal-length windows of a *linear* ramp are perfectly correlated
+        // regardless of alignment, which would tie every lag at r == 1.0 and
+        // make the "best" lag ambiguous (Python's ascending -maxLag...maxLag
+        // search picks the first-seen, most-negative tied lag — not 0).
+        // Squaring breaks that degeneracy so lag == 0 is the unique maximum.
+        let a = [1.0, 4.0, 9.0, 16.0, 25.0, 36.0, 49.0, 64.0]
+        let b = [1.0, 4.0, 9.0, 16.0, 25.0, 36.0, 49.0, 64.0]
         let (r, lag) = LipsyncMetrics.laggedPearson(a, b, maxLag: 2)
         XCTAssertEqual(r, 1.0, accuracy: 1e-6)
         XCTAssertEqual(lag, 0)
@@ -57,10 +74,29 @@ final class LipsyncMetricsTests: XCTestCase {
     }
 
     func testLaggedPearsonSkipsNaNPairs() {
-        let a = [1.0, 2.0, Double.nan, 4.0, 5.0, 6.0, 7.0, 8.0]
-        let b = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+        // Quadratic (non-linear), not a plain arithmetic ramp: with a linear
+        // ramp, dropping one NaN pair still leaves perfectly-linear
+        // sub-windows at every lag, which can round to an exact r == 1.0 tie
+        // between lag 0 and neighboring lags — masking whether NaN-dropping
+        // itself works. Squaring makes lag 0's r uniquely highest.
+        let a = [1.0, 4.0, Double.nan, 16.0, 25.0, 36.0, 49.0, 64.0]
+        let b = [1.0, 4.0, 9.0, 16.0, 25.0, 36.0, 49.0, 64.0]
         let (r, lag) = LipsyncMetrics.laggedPearson(a, b, maxLag: 1)
         XCTAssertGreaterThan(r, 0.9)
         XCTAssertEqual(lag, 0)
+    }
+
+    func testPearsonReturnsNilForZeroVarianceSeries() {
+        let a = [3.0, 3.0, 3.0, 3.0, 3.0]
+        let b = [1.0, 2.0, 3.0, 4.0, 5.0]
+        XCTAssertNil(LipsyncMetrics.pearson(a, b))
+    }
+
+    func testPearsonReturnsNilWithFewerThanFourValidPairs() {
+        // 5 samples, but 2 are NaN in `a` — only 3 valid pairs remain, below
+        // pearson's minimum of 4.
+        let a = [1.0, Double.nan, 3.0, Double.nan, 5.0]
+        let b = [1.0, 2.0, 3.0, 4.0, 5.0]
+        XCTAssertNil(LipsyncMetrics.pearson(a, b))
     }
 }

@@ -50,30 +50,21 @@ public enum LipsyncMetrics {
     /// with fewer than 4 valid pairs is skipped. Returns (0.0, 0) if fewer
     /// than 8 total samples.
     ///
-    /// The search order starts at lag 0 and expands outward
-    /// (0, 1, -1, 2, -2, ...), and a candidate must *strictly* improve on
-    /// the best |r| seen so far to replace it. This matters because two
-    /// equal-length windows of a perfectly linear signal are perfectly
-    /// correlated (r == 1.0, exactly, regardless of where the windows are
-    /// taken from) — real mouth-ratio/audio-RMS series are never that
-    /// clean, but degenerate ties are still possible on quiet/near-static
-    /// stretches, and biasing ties toward the smallest |lag| picks the
-    /// simplest explanation instead of an arbitrary later candidate.
+    /// The search order is ascending, `-maxLag...maxLag`, matching Python's
+    /// `_lagged_pearson` exactly — a candidate must *strictly* improve on
+    /// the best |r| seen so far to replace it, so on a tie the first-seen
+    /// (most-negative) lag wins. This is a deliberate behavioral match, not
+    /// just a numeric one: on ties, this biases toward the most-negative
+    /// lag rather than the smallest |lag|, and callers relying on
+    /// Swift-vs-Python lag agreement depend on that exact order.
     public static func laggedPearson(_ a: [Double], _ b: [Double], maxLag: Int) -> (r: Double, lag: Int) {
         let n = min(a.count, b.count)
         guard n >= 8 else { return (0.0, 0) }
         let a = Array(a.prefix(n))
         let b = Array(b.prefix(n))
-        var lagOrder: [Int] = [0]
-        if maxLag > 0 {
-            for d in 1...maxLag {
-                lagOrder.append(d)
-                lagOrder.append(-d)
-            }
-        }
         var bestR = 0.0
         var bestLag = 0
-        for lag in lagOrder {
+        for lag in -maxLag...maxLag {
             let aSeg: [Double]
             let bSeg: [Double]
             if lag >= 0 {
