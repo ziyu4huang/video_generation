@@ -90,7 +90,10 @@ jobs:
           - { package: pi-agent-ext-core-task, test-cmd: "bun test" }
           - { package: pi-agent-ext-research-tool, test-cmd: "bun test" }
           - { package: pi-agent-ext-zai-mcp, test-cmd: "bun test" }
-          - { package: pi-agent-ext-archify, test-cmd: "bun test" }
+          # --isolate: render-bin-missing / delta-bin-missing use mock.module on
+          # ../lib/run.ts; without per-file process isolation the stub leaks into
+          # run.test.ts (same pattern as pi-agent-ext-knowledge-card e2e below).
+          - { package: pi-agent-ext-archify, test-cmd: "bun test --isolate" }
           - { package: perf-harness, test-cmd: "bun test" }
           # wayfind's own `test` script chains check(biome) → build(tsc) →
           # test:unit(bun test); `bun run test` (not plain `bun test`) so that
