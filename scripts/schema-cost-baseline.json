@@ -1,16 +1,43 @@
 {
-  "tools": 30,
-  "totalTokens": 10579,
+  "tools": 55,
+  "totalTokens": 17014,
   "builtinCount": 4,
-  "extensionCount": 26,
+  "extensionCount": 51,
   "errors": [],
   "toolsRanked": [
     {
-      "name": "zk_ask",
-      "approxTokens": 744,
-      "descLen": 330,
-      "paramsLen": 2647,
+      "name": "subagent",
+      "approxTokens": 1004,
+      "descLen": 256,
+      "paramsLen": 3760,
+      "source": "subagent",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "zk_ingest",
+      "approxTokens": 934,
+      "descLen": 713,
+      "paramsLen": 3022,
       "source": "knowledge-card",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "zk_ask",
+      "approxTokens": 765,
+      "descLen": 330,
+      "paramsLen": 2731,
+      "source": "knowledge-card",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "workflow",
+      "approxTokens": 683,
+      "descLen": 390,
+      "paramsLen": 2343,
+      "source": "workflow",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -37,7 +64,7 @@
       "approxTokens": 604,
       "descLen": 889,
       "paramsLen": 1525,
-      "source": "ask-user",
+      "source": "core-task",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -47,6 +74,15 @@
       "descLen": 858,
       "paramsLen": 1514,
       "source": "web-access",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "skill_manage",
+      "approxTokens": 578,
+      "descLen": 514,
+      "paramsLen": 1797,
+      "source": "hermes-memory",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -73,16 +109,16 @@
       "approxTokens": 536,
       "descLen": 315,
       "paramsLen": 1830,
-      "source": "movie-director",
+      "source": "movie-director-cost",
       "hasExecute": true,
       "schemaValid": true
     },
     {
-      "name": "zk_ingest",
-      "approxTokens": 499,
-      "descLen": 549,
+      "name": "collect_videos",
+      "approxTokens": 460,
+      "descLen": 394,
       "paramsLen": 1447,
-      "source": "knowledge-card",
+      "source": "research-tool",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -97,27 +133,18 @@
     },
     {
       "name": "file2md",
-      "approxTokens": 447,
+      "approxTokens": 446,
       "descLen": 266,
-      "paramsLen": 1522,
+      "paramsLen": 1518,
       "source": "file2md",
       "hasExecute": true,
       "schemaValid": true
     },
     {
-      "name": "distill",
-      "approxTokens": 422,
-      "descLen": 450,
-      "paramsLen": 1236,
-      "source": "distill",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
       "name": "zk_card",
-      "approxTokens": 390,
+      "approxTokens": 408,
       "descLen": 269,
-      "paramsLen": 1292,
+      "paramsLen": 1363,
       "source": "knowledge-card",
       "hasExecute": true,
       "schemaValid": true
@@ -132,20 +159,20 @@
       "schemaValid": true
     },
     {
-      "name": "ltx_help",
-      "approxTokens": 316,
-      "descLen": 191,
-      "paramsLen": 1072,
-      "source": "ltx",
+      "name": "memory",
+      "approxTokens": 340,
+      "descLen": 469,
+      "paramsLen": 892,
+      "source": "hermes-memory",
       "hasExecute": true,
       "schemaValid": true
     },
     {
-      "name": "flux2_help",
-      "approxTokens": 307,
-      "descLen": 177,
-      "paramsLen": 1052,
-      "source": "flux2",
+      "name": "arxiv_fetch2md",
+      "approxTokens": 311,
+      "descLen": 346,
+      "paramsLen": 898,
+      "source": "research-tool",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -159,11 +186,20 @@
       "schemaValid": true
     },
     {
-      "name": "movie_help",
-      "approxTokens": 284,
-      "descLen": 110,
-      "paramsLen": 1025,
-      "source": "movie-director",
+      "name": "memory_search",
+      "approxTokens": 301,
+      "descLen": 549,
+      "paramsLen": 654,
+      "source": "hermes-memory",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "grill_decision",
+      "approxTokens": 300,
+      "descLen": 621,
+      "paramsLen": 578,
+      "source": "hermes-memory",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -173,6 +209,24 @@
       "descLen": 326,
       "paramsLen": 776,
       "source": "(builtin)",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "arxiv_search",
+      "approxTokens": 257,
+      "descLen": 329,
+      "paramsLen": 698,
+      "source": "research-tool",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "subagent_runs",
+      "approxTokens": 249,
+      "descLen": 319,
+      "paramsLen": 676,
+      "source": "subagent",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -195,6 +249,15 @@
       "schemaValid": true
     },
     {
+      "name": "enable_tool",
+      "approxTokens": 243,
+      "descLen": 595,
+      "paramsLen": 376,
+      "source": "tool-gate",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "knowledge_query",
       "approxTokens": 243,
       "descLen": 313,
@@ -204,11 +267,128 @@
       "schemaValid": true
     },
     {
+      "name": "archify_render",
+      "approxTokens": 213,
+      "descLen": 314,
+      "paramsLen": 537,
+      "source": "archify",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "session_search",
+      "approxTokens": 211,
+      "descLen": 418,
+      "paramsLen": 424,
+      "source": "hermes-memory",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "workflow_control",
+      "approxTokens": 196,
+      "descLen": 186,
+      "paramsLen": 599,
+      "source": "workflow",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "pi_deploy",
+      "approxTokens": 172,
+      "descLen": 195,
+      "paramsLen": 492,
+      "source": "deploy",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "workflow_help",
+      "approxTokens": 168,
+      "descLen": 362,
+      "paramsLen": 310,
+      "source": "workflow",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "inspect_tui",
+      "approxTokens": 164,
+      "descLen": 292,
+      "paramsLen": 363,
+      "source": "power-tool",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "archify_validate",
+      "approxTokens": 160,
+      "descLen": 211,
+      "paramsLen": 429,
+      "source": "archify",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "obsidian",
+      "approxTokens": 156,
+      "descLen": 326,
+      "paramsLen": 298,
+      "source": "obsidian",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "read",
       "approxTokens": 152,
       "descLen": 303,
       "paramsLen": 304,
       "source": "(builtin)",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "import_memory_to_vault",
+      "approxTokens": 151,
+      "descLen": 187,
+      "paramsLen": 415,
+      "source": "research-tool",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "pi_verify",
+      "approxTokens": 149,
+      "descLen": 198,
+      "paramsLen": 399,
+      "source": "deploy",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "ltx_help",
+      "approxTokens": 147,
+      "descLen": 191,
+      "paramsLen": 396,
+      "source": "ltx",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "flux2_help",
+      "approxTokens": 144,
+      "descLen": 177,
+      "paramsLen": 399,
+      "source": "flux2",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "archify_delta",
+      "approxTokens": 142,
+      "descLen": 223,
+      "paramsLen": 345,
+      "source": "archify",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -240,6 +420,15 @@
       "schemaValid": true
     },
     {
+      "name": "organize_vault_notes",
+      "approxTokens": 112,
+      "descLen": 217,
+      "paramsLen": 232,
+      "source": "research-tool",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "inspect_context",
       "approxTokens": 108,
       "descLen": 269,
@@ -258,6 +447,15 @@
       "schemaValid": true
     },
     {
+      "name": "arxiv_paper",
+      "approxTokens": 93,
+      "descLen": 210,
+      "paramsLen": 160,
+      "source": "research-tool",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "write",
       "approxTokens": 88,
       "descLen": 127,
@@ -267,11 +465,38 @@
       "schemaValid": true
     },
     {
+      "name": "movie_help",
+      "approxTokens": 83,
+      "descLen": 110,
+      "paramsLen": 220,
+      "source": "movie-director",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "krea2_help",
       "approxTokens": 82,
       "descLen": 129,
       "paramsLen": 198,
       "source": "krea2",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "obsidian_help",
+      "approxTokens": 52,
+      "descLen": 175,
+      "paramsLen": 33,
+      "source": "obsidian",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "skill_manage_help",
+      "approxTokens": 52,
+      "descLen": 174,
+      "paramsLen": 33,
+      "source": "hermes-memory",
       "hasExecute": true,
       "schemaValid": true
     }
