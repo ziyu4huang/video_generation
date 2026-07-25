@@ -12,15 +12,15 @@
 import { listAvailableModelSpecs } from "./agent.js";
 import type { ModelTierConfig } from "./model-role-config.js";
 
-export {
-	getModelTierConfigPath,
-	loadModelTierConfig,
-	resolveModelRole,
-	resolveTierModel,
-	saveModelTierConfig,
-	sortedTierNames,
-} from "./model-role-config.js";
 export type { ModelTierConfig } from "./model-role-config.js";
+export {
+  getModelTierConfigPath,
+  loadModelTierConfig,
+  resolveModelRole,
+  resolveTierModel,
+  saveModelTierConfig,
+  sortedTierNames,
+} from "./model-role-config.js";
 
 /**
  * Build a default tier config where every tier points at a single model —
@@ -29,12 +29,12 @@ export type { ModelTierConfig } from "./model-role-config.js";
  * already chatting with) and can refine tiers later via `/workflows-models`.
  */
 export async function buildDefaultTierConfig(currentModelSpec?: string): Promise<ModelTierConfig> {
-	const model = currentModelSpec ?? (await listAvailableModelSpecs())[0] ?? "";
-	return {
-		tiers: {
-			small: model,
-			medium: model,
-			big: model,
-		},
-	};
+  const model = currentModelSpec ?? (await listAvailableModelSpecs())[0] ?? "";
+  return {
+    tiers: {
+      small: model,
+      medium: model,
+      big: model,
+    },
+  };
 }

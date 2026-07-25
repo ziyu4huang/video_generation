@@ -94,6 +94,12 @@ export const subagentToolSchema = Type.Object({
         "Model tier for the child: 'small', 'medium', or 'big' (resolved from the user's model-tiers config via /workflows-models). Omit to inherit the session's current model. An explicit `model` takes priority over this.",
     }),
   ),
+  capability: Type.Optional(
+    Type.String({
+      description:
+        "Model capability for the child (e.g. 'vision'), resolved from the capabilities map in the model-tiers config. Omit to inherit the session's current model. Precedence: model > capability > tier.",
+    }),
+  ),
   cwd: Type.Optional(
     Type.String({ description: "Working directory for the child. Defaults to the parent session cwd." }),
   ),
@@ -280,13 +286,14 @@ export function formatSubagentLive(
 
 /** Theme the call line shown WHILE the subagent runs (pi's spinner conveys activity). */
 export function renderSubagentCall(
-  args: { agent?: string; model?: string; tier?: string; task: string; resolvedModel?: string },
+  args: { agent?: string; model?: string; capability?: string; tier?: string; task: string; resolvedModel?: string },
   theme: Theme,
 ): string {
   const parts: string[] = [theme.bold(theme.fg("toolTitle", "subagent"))];
   if (args.agent) parts.push(theme.fg("accent", args.agent));
-  // Requested-model slot: explicit model, else tier, else "default".
-  const slot = args.model ?? (args.tier ? `tier:${args.tier}` : "default");
+  // Requested-model slot: explicit model, else capability, else tier, else "default".
+  const slot =
+    args.model ?? (args.capability ? `capability:${args.capability}` : args.tier ? `tier:${args.tier}` : "default");
   parts.push(theme.fg("muted", slot));
   // Concrete model resolved mid-run (onModelResolved). Separate segment so the
   // requested tier/model stays visible. Skipped when it matches the slot (e.g.
@@ -479,10 +486,12 @@ export function createSubagentTool(
 
       const requestedModel = params.model ?? agentDef?.model;
       const tier = params.tier ?? agentDef?.tier;
+      const capability = params.capability;
       const mainModel = options.getMainModel?.();
       // Shown WHILE the subagent runs, before the resolved model is known: the
-      // requested model, else the tier, else the live session model, else "default".
-      const displayModelBeforeResolve = requestedModel ?? (tier ? `tier:${tier}` : mainModel) ?? "default";
+      // requested model, else the capability, else the tier, else the live session model, else "default".
+      const displayModelBeforeResolve =
+        requestedModel ?? (capability ? `capability:${capability}` : tier ? `tier:${tier}` : mainModel) ?? "default";
       // The concrete provider/id the child actually ran on, captured from
       // WorkflowAgent once resolved. Falls back to the requested display string.
       let resolvedModel: string | undefined;
@@ -506,6 +515,7 @@ export function createSubagentTool(
           excludeTools: params.excludeTools ?? agentDef?.disallowedTools,
           model: requestedModel,
           tier,
+          capability,
           mainModel,
           cwd: spawnCwd,
           instructions,
