@@ -2,9 +2,11 @@ import {
 	readFile,
 	writeFile,
 	readdir,
-	cp,
 	rm,
 	stat,
+	rename as fsRename,
+	unlink as fsUnlink,
+	cp as fsCp,
 } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
@@ -32,16 +34,40 @@ export async function atomicWriteFile(
 	}
 }
 
-/** rename with fallback to copy+delete if cross-device (rare, same vault fs). */
-export const renameOverwrite = async (from: string, to: string) => {
-	const { rename } = await import("node:fs/promises");
+type FsDouble = {
+	rename?: (from: string, to: string) => Promise<void>;
+	unlink?: (p: string) => Promise<void>;
+	cp?: (src: string, dst: string, opts?: { force?: boolean }) => Promise<void>;
+};
+
+/** rename with fallbacks: EXDEV → copy+delete; win32 EPERM/EEXIST → unlink+retry.
+ *  The optional `fs` double is a testability seam (defaults to real node fs) —
+ *  production callers pass no options and get unchanged behavior. */
+export const renameOverwrite = async (
+	from: string,
+	to: string,
+	fs: FsDouble = {},
+): Promise<void> => {
+	const rename = fs.rename ?? fsRename;
+	const unlink = fs.unlink ?? fsUnlink;
+	const cp = fs.cp ?? fsCp;
 	try {
 		await rename(from, to);
 	} catch (e: any) {
-		if (e && e.code === "EXDEV") {
+		const code = e?.code;
+		if (code === "EXDEV") {
+			// cross-device: copy then delete source (unchanged behavior)
 			await cp(from, to, { force: true });
-			await rm(from, { force: true });
-		} else throw e;
+			await unlink(from);
+			return;
+		}
+		if (code === "EPERM" || code === "EEXIST") {
+			// win32: rename onto an existing target throws; remove it and retry once.
+			await unlink(to);
+			await rename(from, to);
+			return;
+		}
+		throw e;
 	}
 };
 
