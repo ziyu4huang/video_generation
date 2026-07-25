@@ -187,3 +187,37 @@ test("viewer Running section falls back to the task preview before any history e
   const out = viewer.render(80).join("\n");
   assert.ok(out.includes("doing X"), "falls back to the static task preview before any tool call happened");
 });
+
+test("viewer Running section shows the resolved model (short) once resolvedModel is set", () => {
+  const running = [
+    {
+      id: "r1",
+      agent: "implementer",
+      model: "tier:medium",
+      resolvedModel: "google/gemma-4-12b-qat",
+      taskPreview: "doing X",
+      startedAt: Date.now() - 1500,
+      history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }],
+    },
+  ];
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("gemma-4-12b-qat"), "running row shows the resolved model, shortened");
+  assert.ok(!out.includes("tier:medium"), "running row no longer shows the stale requested tier once resolved");
+});
+
+test("viewer Running section falls back to the model field when resolvedModel is absent", () => {
+  const running = [
+    {
+      id: "r1",
+      agent: "implementer",
+      model: "tier:medium",
+      taskPreview: "doing X",
+      startedAt: Date.now() - 1500,
+      history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }],
+    },
+  ];
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("tier:medium"), "pre-resolution row still shows the requested tier (unchanged behavior)");
+});
