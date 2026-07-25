@@ -27,6 +27,17 @@ const BOOTSTRAP_MARKER = "superpowers:using-superpowers bootstrap for pi";
  *  See {@link parseSkillExclude} / {@link resolveAdvertisedSkillPaths}. */
 export const SKILL_EXCLUDE_ENV = "PI_SUPERPOWERS_SKILL_EXCLUDE";
 
+/** Skills UNREGISTERED by default (Phase-3 clean-pass — the model resists
+ *  confidence-escalation even without this skill, so dropping it costs ~zero
+ *  behavior for ~139 tok/req saved). Override via the env list, or disable
+ *  entirely via {@link DEFAULTS_DISABLE_ENV}. */
+export const DEFAULT_SKILL_EXCLUDE = ["verification-before-completion"] as const;
+
+/** Set to `0`/`false`/`no`/`off` to suppress {@link DEFAULT_SKILL_EXCLUDE} —
+ *  e.g. for a probe fat-run that must load every skill, or to restore the
+ *  historical "load all skills" behavior. */
+export const DEFAULTS_DISABLE_ENV = "PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS";
+
 export { BOOTSTRAP_MARKER };
 
 /**
@@ -68,24 +79,26 @@ export function resolveBootstrapSkillPath(fromUrl: string = import.meta.url): st
 }
 
 /**
- * Parse the `PI_SUPERPOWERS_SKILL_EXCLUDE` comma-list into a set of skill
- * dir-names to UNREGISTER. Whitespace is trimmed and empty tokens dropped, so
- * `" a ,, b "` → `Set { "a", "b" }`. Empty/unset → empty set (no-op).
+ * Resolve the exclude set = {@link DEFAULT_SKILL_EXCLUDE} (Phase-3 clean-pass,
+ * unless suppressed) ∪ the `PI_SUPERPOWERS_SKILL_EXCLUDE` comma-list. Whitespace
+ * is trimmed and empty tokens dropped, so `" a ,, b "` adds `a`,`b` on top of
+ * the defaults. Set `PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS=0` to suppress the
+ * defaults entirely (e.g. a probe fat-run that must load every skill).
  *
- * Phase-3 skill-unload audit: listing a skill here drops it from the
+ * Phase-3 skill-unload audit: any listed skill is dropped from the
  * `resources_discover` advertisement so pi never registers it, WITHOUT editing
  * the pinned `SKILL.md` (ADR-0004 — unregister ≠ edit). Pure + injectable so
  * the unit test can drive it without touching `process.env` ordering.
  */
 export function parseSkillExclude(env: Record<string, string | undefined> = process.env): Set<string> {
-  const raw = env[SKILL_EXCLUDE_ENV];
-  if (!raw) return new Set();
-  return new Set(
-    raw
-      .split(",")
-      .map((token) => token.trim())
-      .filter((token) => token.length > 0),
-  );
+  // DEFAULT_SKILL_EXCLUDE applies unless explicitly suppressed (Phase-3 default-off).
+  const defaultsOff = /^(0|false|no|off)$/i.test(env[DEFAULTS_DISABLE_ENV] ?? "");
+  const defaults = defaultsOff ? [] : DEFAULT_SKILL_EXCLUDE;
+  const fromEnv = (env[SKILL_EXCLUDE_ENV] ?? "")
+    .split(",")
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+  return new Set([...defaults, ...fromEnv]);
 }
 
 /** Immediate skill-dir names actually present under `skillsDir` (the keys the
@@ -147,12 +160,14 @@ export function superpowersExtension(pi: ExtensionAPI, fromUrl: string = import.
   // embedded-assets extraction): pi reports each missing skill path as a
   // "[Skill conflicts] skill path does not exist" startup warning.
   //
-  // PI_SUPERPOWERS_SKILL_EXCLUDE (Phase-3): when set to a comma-list of skill
-  // dir-names, those skills are UNREGISTERED (omitted from the advertisement)
-  // without touching their pinned SKILL.md (ADR-0004). The handler then returns
-  // individual skill-dir paths so pi registers exactly the non-excluded skills.
-  // Computed per-call (not captured at registration) so a subprocess can flip
-  // the env between a fat run and a thin run in the same process image.
+  // PI_SUPERPOWERS_SKILL_EXCLUDE (Phase-3): a comma-list of skill dir-names to
+  // UNREGISTER (omitted from the advertisement) without touching their pinned
+  // SKILL.md (ADR-0004). The exclude set also includes DEFAULT_SKILL_EXCLUDE
+  // (verification-before-completion — Phase-3 clean-pass) unless
+  // PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS=0 suppresses it. The handler then
+  // returns individual skill-dir paths so pi registers exactly the non-excluded
+  // skills. Computed per-call (not captured at registration) so a subprocess can
+  // flip the env between a fat run and a thin run in the same process image.
   pi.on("resources_discover", async () => {
     if (!existsSync(skillsDir)) return { skillPaths: [] };
     return { skillPaths: resolveAdvertisedSkillPaths(skillsDir) };

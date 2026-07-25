@@ -49,6 +49,9 @@ describe("superpowers extension wiring", () => {
 
   it("resources_discover returns the real package skills/ dir", async () => {
     _resetBootstrapCacheForTests();
+    // Suppress the Phase-3 default exclude so this wiring test asserts pure dir
+    // resolution (the whole skills/ dir), decoupled from the exclude policy.
+    process.env.PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS = "0";
     const pi = createMockPi();
     superpowersExtension(pi);
     const result = await pi.fire("resources_discover", { type: "resources_discover" });
