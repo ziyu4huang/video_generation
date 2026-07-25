@@ -5,15 +5,15 @@
  * classifyProfileViaVlm → per-page explainPage → manifest + MOC index note.
  *
  * Mock surface kept to the TWO boundary modules no other test file imports for
- * real: `native/pdf2png.ts` (rasterizePdf) and `sessions.ts` (createSharedSession
- * — the model I/O). Everything else — the REAL classify-vlm.ts (parses the
- * streamed reply into a profile), the REAL agents.ts explainPage (normalizes the
- * streamed markdown), manifest.ts, classify.ts, retry.ts and the filesystem —
- * runs unmodified. So this file exercises the orchestrator + the real
- * per-call logic, with only the network/model boundary stubbed.
+ * real: `native/pdf2png.ts` (rasterizePdf) and `vlm/vision-inference.ts`
+ * (runVisionInference — the model I/O). Everything else — the REAL
+ * classify-vlm.ts (parses the reply into a profile), the REAL agents.ts
+ * explainPage (normalizes the markdown), manifest.ts, classify.ts, retry.ts
+ * and the filesystem — runs unmodified. So this file exercises the orchestrator
+ * + the real per-call logic, with only the network/model boundary stubbed.
  *
- * The fake createSharedSession dispatches on the prompt text: the classifier
- * prompt yields a profile token, any other prompt yields a page-markdown blob.
+ * The fake runVisionInference dispatches on the task text: the classifier
+ * task yields a profile token, any other task yields a page-markdown blob.
  * The fake rasterizePdf writes real PNG bytes so the real readImageContent can
  * read them. No LM Studio / no GPU.
  *
@@ -32,7 +32,7 @@ let classifyReplies: string[] = []; // S4: per-call queue for multi-page voting
 let pageMarkdown = "---\ntitle: T\npage: 1\nkind: paper\n---\n\n![[page-001.png]]\n\nPAGE BODY with realistic content to clear the quality gate";
 let rasterizePageCount = 1;
 const rasterizeCalls: { input: string; pagesDir: string; dpi: number }[] = [];
-const sessionCalls: { llm: any; opts: any }[] = [];
+const inferenceCalls: { task: string; images: any[]; llm: any; systemPrompt?: string }[] = [];
 
 const ROOT = import.meta.dirname + "/..";
 const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -56,36 +56,17 @@ mock.module(`${ROOT}/src/native/pdf2png.ts`, () => ({
   },
 }));
 
-mock.module(`${ROOT}/src/session-factory.ts`, () => ({
-  createSharedSession: async (llm: any, opts: any) => {
-    sessionCalls.push({ llm, opts });
-    return {
-      session: {
-        subscribe: (cb: (e: any) => void) => {
-          // Defer the reply: the caller subscribes, then prompts. We can't know
-          // the role yet, so remember the cb; prompt() dispatches on its text.
-          pendingSubscriber = cb;
-          return () => {
-            pendingSubscriber = null;
-          };
-        },
-        prompt: async (text: string, _opts: any) => {
-          const isClassify = text.includes("分類") || text.includes("profile 代碼");
-          const payload = isClassify ? (classifyReplies.length ? classifyReplies.shift()! : classifyReply) : pageMarkdown;
-          pendingSubscriber?.({
-            type: "message_update",
-            assistantMessageEvent: { type: "text_delta", delta: payload },
-          });
-        },
-        dispose: () => {},
-      },
-    };
+mock.module(`${ROOT}/src/vlm/vision-inference.ts`, () => ({
+  runVisionInference: async (opts: { task: string }) => {
+    inferenceCalls.push(opts);
+    const isClassify = opts.task.includes("分類") || opts.task.includes("profile 代碼");
+    const payload = isClassify
+      ? classifyReplies.length
+        ? classifyReplies.shift()!
+        : classifyReply
+      : pageMarkdown;
+    return { output: payload, ok: true };
   },
-  resolveLLM: (o: any = {}) => ({
-    provider: o?.provider ?? "lm-studio",
-    modelId: o?.model ?? "mock/model",
-    thinkingLevel: o?.thinking ?? "off",
-  }),
 }));
 
 // Keep retries fast + bounded for the page-quality-gate retry test below.
@@ -96,8 +77,6 @@ process.env.PI_VLM_RETRY_WAIT_MS = "0";
 
 // Import AFTER the mocks are registered.
 const { runVlmDescribePipeline } = await import("../src/pipeline.ts");
-
-let pendingSubscriber: ((event: any) => void) | null = null;
 
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x35];
@@ -113,20 +92,20 @@ async function setup(name: string, bytes: number[]) {
 beforeEach(() => {
   rasterizePageCount = 1;
   rasterizeCalls.length = 0;
-  sessionCalls.length = 0;
+  inferenceCalls.length = 0;
   classifyReply = "paper";
   classifyReplies = [];
   pageMarkdown = "---\ntitle: T\npage: 1\nkind: paper\n---\n\n![[page-001.png]]\n\nPAGE BODY with realistic content to clear the quality gate";
-  pendingSubscriber = null;
 });
 afterEach(async () => {
   await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })));
 });
 // NOTE on mock leakage: Bun's DEFAULT test mode shares one realm across multiple
-// test files in a worker, so mock.module() here would clobber the real sessions.ts
-// imported by sessions.test.ts. Run the suite with `bun test --isolate` (set in
-// this package's test script) so each file gets a fresh realm. mock.module() is
-// realm-scoped under --isolate, eliminating the cross-file leak.
+// test files in a worker, so mock.module() here would clobber the real
+// vision-inference.ts imported by other suites. Run the suite with
+// `bun test --isolate` (set in this package's test script) so each file gets a
+// fresh realm. mock.module() is realm-scoped under --isolate, eliminating the
+// cross-file leak.
 
 async function readJsonFile(p: string) {
   return JSON.parse(await readFile(p, "utf8"));
@@ -153,8 +132,8 @@ describe("runVlmDescribePipeline — image happy path", () => {
     const { inputAbs, outRoot } = await setup("report.png", PNG_MAGIC);
     await runVlmDescribePipeline({ inputs: [inputAbs], outRoot });
 
-    // At least one model session was created (classifier + extraction).
-    expect(sessionCalls.length).toBeGreaterThanOrEqual(1);
+    // At least one model inference ran (classifier + extraction).
+    expect(inferenceCalls.length).toBeGreaterThanOrEqual(1);
 
     // manifest.json reflects the detected profile + done status.
     const manifest = await readJsonFile(join(outRoot, "report", "manifest.json"));
@@ -206,8 +185,8 @@ describe("runVlmDescribePipeline — forcedType", () => {
     const { inputAbs, outRoot } = await setup("img.png", PNG_MAGIC);
     await runVlmDescribePipeline({ inputs: [inputAbs], outRoot, forcedType: "diagram" });
 
-    // Only ONE session call (extraction) — the classifier is skipped.
-    expect(sessionCalls).toHaveLength(1);
+    // Only ONE inference call (extraction) — the classifier is skipped.
+    expect(inferenceCalls).toHaveLength(1);
 
     const manifest = await readJsonFile(join(outRoot, "img", "manifest.json"));
     expect(manifest.profile).toBe("diagram");
@@ -250,12 +229,12 @@ describe("runVlmDescribePipeline — resume", () => {
     const { inputAbs, outRoot } = await setup("doc.png", PNG_MAGIC);
 
     await runVlmDescribePipeline({ inputs: [inputAbs], outRoot });
-    const sessionsAfterFirst = sessionCalls.length;
+    const inferencesAfterFirst = inferenceCalls.length;
 
     // Second run on the same outRoot: page is already done + md exists.
     await runVlmDescribePipeline({ inputs: [inputAbs], outRoot });
-    // No NEW model sessions on the second run (classifier reused, page skipped).
-    expect(sessionCalls.length).toBe(sessionsAfterFirst);
+    // No NEW model inferences on the second run (classifier reused, page skipped).
+    expect(inferenceCalls.length).toBe(inferencesAfterFirst);
 
     expect(existsSync(join(outRoot, "doc", "pages", "page-001.md"))).toBe(true);
   });
@@ -325,15 +304,15 @@ describe("runVlmDescribePipeline — parallel pages (T2)", () => {
       forcedType: "paper",
       concurrency: 2,
     });
-    const sessionsAfterFirst = sessionCalls.length;
+    const inferencesAfterFirst = inferenceCalls.length;
     await runVlmDescribePipeline({
       inputs: [inputAbs],
       outRoot,
       forcedType: "paper",
       concurrency: 2,
     });
-    // No new model sessions on re-run (classifier reused, pages done).
-    expect(sessionCalls.length).toBe(sessionsAfterFirst);
+    // No new model inferences on re-run (classifier reused, pages done).
+    expect(inferenceCalls.length).toBe(inferencesAfterFirst);
   });
 });
 

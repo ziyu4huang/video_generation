@@ -10,7 +10,8 @@
 import { extname } from "node:path";
 import { readFileSync } from "node:fs";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { createSharedSession, resolveVisionLLM, type ResolvedLLM } from "../sessions.ts";
+import { resolveVisionLLM, type ResolvedLLM } from "../sessions.ts";
+import { runVisionInference } from "./vision-inference.js";
 
 export interface AskImageResult {
   reply: string;
@@ -49,9 +50,9 @@ function readImage(abs: string, mimeType: string) {
  * @param opts.systemPrompt  optional system prompt (e.g. "answer in one line")
  * @param opts.llm      explicit LLM target; defaults to resolveVisionLLM() (capabilities.vision or lm-studio Gemma)
  * @param opts.agentDir  resolve models.json from THIS directory instead of the
- *                        global ~/.pi/agent (see createSharedSession's doc)
- * @param opts.modelRuntime  explicit, file-independent ModelRuntime (see
- *                        createSharedSession's doc) — takes precedence over agentDir
+ *                        global ~/.pi/agent (forwarded to runVisionInference)
+ * @param opts.modelRuntime  explicit, file-independent ModelRuntime (forwarded
+ *                        to runVisionInference) — takes precedence over agentDir
  */
 export async function askImage(
   imagePath: string,
@@ -60,27 +61,16 @@ export async function askImage(
 ): Promise<AskImageResult> {
   const llm = opts.llm ?? resolveVisionLLM();
   const mimeType = opts.mimeType ?? guessImageMimeType(imagePath);
-  const { session } = await createSharedSession(llm, {
-    appendSystemPrompt: opts.systemPrompt ? [opts.systemPrompt] : undefined,
-    agentDir: opts.agentDir,
-    modelRuntime: opts.modelRuntime,
-  });
-
   const image = readImage(imagePath, mimeType);
-  let reply = "";
-  const unsub = session.subscribe((event: any) => {
-    if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
-      reply += event.assistantMessageEvent.delta;
-    }
+
+  const { output, ok, error } = await runVisionInference({
+    task: question,
+    images: [image],
+    llm,
+    ...(opts.systemPrompt ? { systemPrompt: opts.systemPrompt } : {}),
+    ...(opts.agentDir ? { agentDir: opts.agentDir } : {}),
+    ...(opts.modelRuntime ? { modelRuntime: opts.modelRuntime } : {}),
   });
 
-  try {
-    await session.prompt(question, { images: [image] } as any);
-    return { reply: reply.trim(), ok: true };
-  } catch (e: any) {
-    return { reply: "", ok: false, error: e?.message ?? String(e) };
-  } finally {
-    unsub();
-    session.dispose();
-  }
+  return ok ? { reply: output, ok: true } : { reply: "", ok: false, error };
 }
