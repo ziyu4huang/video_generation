@@ -34,7 +34,7 @@ import {
 	type GoalCompleteDetails,
 } from "./state.js";
 import { clearPersistedGoal, loadGoalStateFromSession, persistGoal } from "./persistence.js";
-import { runLoopTick, isLoopActive } from "../loop/loop.js";
+import { runLoopTick, isLoopActive, refireLoopContinuation } from "../loop/loop.js";
 import {
 	findFinalAssistantMessage,
 	isContradictoryCompletionSummary,
@@ -534,6 +534,10 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 	pi.on("session_start", (_event: unknown, ctx: StatusContext) => {
 		// Reset the overlay for the fresh session: rebind the UI ctx and drop any
 		// stale completion flash left over from the previous session.
+		// Capture latestCtx unconditionally: the generalized heartbeat (Task 8)
+		// supervises a goal XOR a loop and reads latestCtx for its tick callback,
+		// so it must be set even when no goal is restored (loop-only session).
+		goalState.latestCtx = ctx;
 		goalOverlay?.setUICtx(ctx.ui);
 		stopStatusRefreshTimer();
 		clearContinuationTracking();
@@ -771,6 +775,16 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 		if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 		await sendContinuationPrompt(pi, ctx, currentGoal);
 	});
+
+	// Heartbeat supervision seam (Task 8). syncHeartbeatTimer's `shouldRun` now
+	// includes isLoopActive(), so the heartbeat supervises a goal XOR a loop. But
+	// syncHeartbeatTimer is only invoked from updateStatus (goal-driven) — a
+	// loop-only session never hits updateStatus, so the heartbeat would never
+	// start/stop for a loop. Publish a re-evaluate hook on globalThis (mirroring
+	// the __piGoalActive pattern) so the loop's start/stop transitions can arm/
+	// disarm the heartbeat WITHOUT a goal↔loop import cycle. Defensive `?.()` —
+	// degraded (no heartbeat) if goal() was never registered.
+	(globalThis as Record<string, unknown>).__piKickHeartbeat = syncHeartbeatTimer;
 }
 
 // ─── Goal management ──────────────────────────────────────────────────────────
@@ -1026,7 +1040,7 @@ function stopHeartbeatTimer() {
  * continuationPending guard prevents duplicate continuations within one tick window.
  */
 function syncHeartbeatTimer() {
-	const shouldRun = goalState.activeGoal?.status === "active";
+	const shouldRun = goalState.activeGoal?.status === "active" || isLoopActive();
 	if (shouldRun && !goalState.heartbeatTimer) {
 		goalState.heartbeatTimer = setInterval(() => {
 			const ctx = goalState.latestCtx as StatusContext | undefined;
@@ -1039,7 +1053,11 @@ function syncHeartbeatTimer() {
 					msSinceActivity: Date.now() - goalState.lastActivityAt,
 				})
 			) {
-				void sendContinuationPrompt(piRef!, ctx, goalState.activeGoal!);
+				if (isLoopActive()) {
+					void refireLoopContinuation(piRef!, ctx as StatusContext);
+				} else if (goalState.activeGoal?.status === "active") {
+					void sendContinuationPrompt(piRef!, ctx, goalState.activeGoal);
+				}
 			}
 			if (
 				shouldWedgeAlert({

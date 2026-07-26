@@ -145,6 +145,10 @@ function finishLoop(ctx: LoopTickCtx, reason: LoopStopReason, notifyMsg: string)
 	clearPersistedLoop(loopState.extensionApi as ExtensionAPI);
 	loopState.activeLoop = undefined;
 	loopState.continuationPending = undefined;
+	// Re-evaluate the heartbeat: with no loop (and typically no goal) active,
+	// syncHeartbeatTimer's shouldRun flips false and the interval is torn down.
+	// No-op if goal() was never registered (seam undefined).
+	((globalThis as Record<string, unknown>).__piKickHeartbeat as (() => void) | undefined)?.();
 	ctx.ui.notify(notifyMsg, reason === "error" || reason === "measure-error" ? "error" : "info");
 }
 
@@ -156,6 +160,13 @@ async function sendLoopContinuation(pi: ExtensionAPI, ctx: LoopTickCtx): Promise
 	const prompt = buildLoopContinuationPrompt(loopState.activeLoop, marker);
 	loopState.continuationPending = { loopId: loopState.activeLoop.id, iteration: loopState.activeLoop.iteration, marker, prompt };
 	await sendLoopPrompt(pi, ctx, prompt);
+}
+
+/** Heartbeat re-fire entry — called by goal.ts's generalized heartbeat when a loop is active + idle + stalled. */
+export async function refireLoopContinuation(pi: ExtensionAPI, ctx: LoopTickCtx): Promise<void> {
+	if (!isLoopActive()) return;
+	if (loopState.continuationPending) return;
+	await sendLoopContinuation(pi, ctx);
 }
 
 async function sendLoopPrompt(pi: ExtensionAPI, ctx: LoopTickCtx, prompt: string): Promise<void> {
@@ -193,6 +204,10 @@ export function registerLoop(pi: ExtensionAPI, overlay: LoopOverlayLike): void {
 			loopState.extensionApi = pi;
 			persistLoop(pi, loopState.activeLoop);
 			overlay.update(loopState.activeLoop);
+			// Arm the heartbeat supervision for the loop (goal XOR loop): now that
+			// loopState.activeLoop is set, syncHeartbeatTimer's shouldRun is true and
+			// the interval starts. No-op if goal() was never registered (seam undefined).
+			((globalThis as Record<string, unknown>).__piKickHeartbeat as (() => void) | undefined)?.();
 			await sendLoopPrompt(pi, ctx, `Loop started: ${parsed.target} (${parsed.mode}). Begin now.`);
 		},
 	});

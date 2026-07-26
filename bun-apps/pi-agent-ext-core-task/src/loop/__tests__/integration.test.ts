@@ -17,7 +17,8 @@ import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import goal, { type StatusContext } from "../../goal/goal.js";
 import type { GoalOverlayLike } from "../../goal/overlay.js";
-import { __resetGoalState } from "../../goal/state.js";
+import { __resetGoalState, goalState } from "../../goal/state.js";
+import { HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALL_MS } from "../../goal/backoff.js";
 import { registerLoop } from "../loop.js";
 import type { LoopOverlayLike } from "../overlay.js";
 import { __resetLoopState, loopState, createLoop } from "../loop-state.js";
@@ -146,12 +147,14 @@ describe("loop 3 integration", () => {
 		__resetGoalState();
 		__resetLoopState();
 		(globalThis as Record<string, unknown>).__piGoalActive = undefined;
+		(globalThis as Record<string, unknown>).__piKickHeartbeat = undefined;
 	});
 
 	afterEach(() => {
 		__resetGoalState();
 		__resetLoopState();
 		(globalThis as Record<string, unknown>).__piGoalActive = undefined;
+		(globalThis as Record<string, unknown>).__piKickHeartbeat = undefined;
 	});
 
 	test("agent_end dispatches to runLoopTick when a loop is active (not goal continuation)", async () => {
@@ -214,5 +217,75 @@ describe("loop 3 integration", () => {
 		// … and NO loop was created.
 		expect(loopState.activeLoop).toBeUndefined();
 		expect(mock.sentUserMessages.length).toBe(0);
+	});
+
+	test("heartbeat re-fires the LOOP continuation when a loop is active and the session stalls", async () => {
+		// Mirror hardening-loop.test.ts's fake-timer harness: stub
+		// setInterval/clearInterval/Date.now so we can capture the heartbeat tick
+		// callback and advance the clock deterministically past HEARTBEAT_STALL_MS.
+		const intervals: Array<{ fn: () => void; ms: number }> = [];
+		const realSetInterval = globalThis.setInterval;
+		const realClearInterval = globalThis.clearInterval;
+		const realDateNow = Date.now;
+		const startedAt = 1_700_000_000_000;
+		let now = startedAt;
+		Date.now = (() => now) as never;
+		globalThis.setInterval = ((fn: () => void, ms: number) => {
+			intervals.push({ fn, ms });
+			return intervals.length as never;
+		}) as never;
+		globalThis.clearInterval = (() => undefined) as never;
+
+		try {
+			// beforeEach's __resetGoalState stamped lastActivityAt with the REAL
+			// Date.now(); re-pin it to the frozen clock base so msSinceActivity is
+			// well-defined once we advance `now`.
+			goalState.lastActivityAt = startedAt;
+
+			const mock = createMockPi();
+			const goalOverlay = createMockGoalOverlay();
+			const loopOverlay = createMockLoopOverlay();
+			// Register goal FIRST so its factory publishes the __piKickHeartbeat seam
+			// (syncHeartbeatTimer) that registerLoop's /loop start handler calls to
+			// arm heartbeat supervision for the loop.
+			goal(mock.pi, goalOverlay.impl);
+			registerLoop(mock.pi, loopOverlay.impl);
+			const { ctx } = createMockCtx({});
+
+			// session_start publishes latestCtx (the heartbeat callback reads it).
+			const sessionStart = mock.events.get("session_start")?.[0];
+			await (sessionStart as ((e: unknown, c: unknown) => void) | undefined)?.({}, ctx);
+
+			// /loop start sets loopState.activeLoop and — via the __piKickHeartbeat
+			// seam — calls syncHeartbeatTimer, whose widened shouldRun
+			// (`goal active || isLoopActive()`) now starts the 15s heartbeat for a
+			// loop-only session. It also sends the "Loop started" prompt (msg #1).
+			const loopCmd = mock.commands.get("loop");
+			expect(loopCmd).toBeDefined();
+			await (loopCmd!.handler as (args: string, ctx: unknown) => Promise<void>)('start "improve test names"', ctx);
+			expect(loopState.activeLoop).toBeDefined();
+			expect(mock.sentUserMessages.length).toBe(1);
+
+			// The generalized heartbeat (15s interval) is now running.
+			const heartbeat = intervals.find((i) => i.ms === HEARTBEAT_INTERVAL_MS);
+			expect(heartbeat).toBeDefined();
+
+			// Advance past the stall threshold with the session idle (ctx.isIdle()
+			// defaults true) and nothing pending -> shouldHeartbeatRefire is true ->
+			// dispatch routes to refireLoopContinuation (loop active) ->
+			// sendLoopContinuation -> sendUserMessage carries the loop marker.
+			now = startedAt + HEARTBEAT_STALL_MS + 1_000;
+			const sentBefore = mock.sentUserMessages.length;
+			heartbeat!.fn();
+
+			expect(mock.sentUserMessages.length).toBeGreaterThan(sentBefore);
+			expect(mock.sentUserMessages.at(-1)?.text ?? "").toMatch(/pi-loop-continuation/);
+			// The loop's continuation is now tracked in loopState (not goalState).
+			expect(loopState.continuationPending).toBeDefined();
+		} finally {
+			globalThis.setInterval = realSetInterval;
+			globalThis.clearInterval = realClearInterval;
+			Date.now = realDateNow;
+		}
 	});
 });
