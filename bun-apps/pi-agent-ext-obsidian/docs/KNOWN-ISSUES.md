@@ -102,8 +102,17 @@ notes: *(2026-07)*
 - **Partial `zk_ingest` re-ingest produces asymmetric (directed) `相關：[[...]]`
   edges.** Links are recomputed only for the re-ingested cards; untouched existing
   cards keep their prior outgoing links, so a newly-related card can reach an
-  existing one but not vice-versa until that card is itself re-ingested. Inherent
-  to incremental upsert; a full re-ingest of all sources rebuilds symmetrically.
+  existing one but not vice-versa until that card is itself re-ingested. The edge
+  ranking is content-based (shared-tag overlap) and cheap, but re-rendering an
+  existing card's body needs its full `KnowledgeRecord`, which is discarded at
+  write time (`existing` holds only `{abs, tags, sourceId}`) — so "cheap inbound
+  recompute" isn't available without re-parsing the rendered `.md` (lossy) or
+  in-place text-replacing the `相關` block (fragile). `zk_ask`'s 2-hop graph
+  traversal bridges single missing reverse-edges, so retrieval degrades
+  gracefully. Workaround: a full re-ingest of all sources rebuilds symmetrically.
+  Future flag, if ever wanted: `--recompute-edges-only` should re-ingest from
+  source files (skip the content-hash unchanged-check so all cards become
+  `planned`), not re-parse rendered cards.
 
 ## Resolved (history)
 

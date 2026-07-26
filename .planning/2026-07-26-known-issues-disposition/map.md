@@ -65,6 +65,21 @@ dispositions are reflected back into KNOWN-ISSUES.md as either Resolved or Accep
   file → self-healing, mirroring `loadCachedIndex`'s mtime philosophy (01).
   Proof: corrupt-file test fails with `SyntaxError` when fix removed. Merged
   as PR #860 (commit c6e0b6b3).
+- **04 = accept-as-wontfix** (grilled 2026-07-26): partial `zk_ingest` re-ingest
+  produces asymmetric `相關：[[...]]` edges (re-ingested B links to existing A,
+  but A's outgoing edges aren't recomputed). Empirical repro confirmed the
+  asymmetry. The ticket draft's crux — "is edge derivation content-based
+  (cheap) or pair-based?" — answered **content-based (shared-tag overlap),
+  ranking is cheap**. But the real blocker is that re-rendering an existing
+  card needs its full `KnowledgeRecord`, which is discarded at write time
+  (`existing` in memory holds only `{abs, tags, sourceId}`). So the hoped-for
+  "cheap inbound recompute" does not exist; non-accept options are either
+  fragile (in-place `相關` text-replace risks corrupting cards + leaves
+  entities/IDF stale) or equivalent to the existing full-re-ingest workaround.
+  `zk_ask`'s 2-hop graph traversal bridges single missing reverse-edges, so
+  retrieval degrades gracefully. KNOWN-ISSUES entry enriched with the root
+  cause + a note that a future `--recompute-edges-only` flag should re-ingest
+  from source files (not re-parse rendered `.md`). No code change; doc-only.
 
 ## Not yet specified
 
