@@ -29,6 +29,27 @@ import {
 import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, MemoryCategory, MemoryOverflowStrategy } from "../types.js";
 import { AGENT_ROOT } from "../paths.js";
 
+/** Parse a non-negative int from an env var, falling back to `fallback`. */
+function envInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
+}
+
+/**
+ * proper-lockfile throws a code `ELOCKED` error (message "Lock file is already
+ * being held") when lock acquisition fails after its retry budget — the exact
+ * condition the op-level retry in `withFileLock` re-attempts.
+ */
+function isLockAcquisitionError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { code?: unknown; message?: unknown };
+  if (e.code === "ELOCKED") return true;
+  const msg = typeof e.message === "string" ? e.message : "";
+  return /lock file is already|already being held/i.test(msg);
+}
+
 export class MemoryStore {
   private memoryEntries: string[] = [];
   private userEntries: string[] = [];
@@ -119,18 +140,41 @@ export class MemoryStore {
     // Ensure the memory dir exists before creating the `<mdPath>.lock` sibling
     // (loadFromDisk mkdir's too, but it runs INSIDE fn — after we'd try to lock).
     await fs.mkdir(path.dirname(lockPath), { recursive: true });
-    const release = await lockfile.lock(lockPath, {
-      stale: 10_000,
-      realpath: false, // the .md may not exist yet on first write — don't realpath it
-      retries: { retries: 200, minTimeout: 50, maxTimeout: 250 },
-    });
-    this._heldFileLocks.add(lockPath);
-    try {
-      return await fn();
-    } finally {
-      this._heldFileLocks.delete(lockPath);
-      await release().catch(() => {});
+
+    const acquireRetries = this.config.lockAcquireRetries ?? envInt("PI_MEMORY_LOCK_ACQUIRE_RETRIES", 200);
+    const opRetries = this.config.lockOpRetries ?? envInt("PI_MEMORY_LOCK_OP_RETRIES", 3);
+    const opBackoffMs = this.config.lockOpBackoffMs ?? envInt("PI_MEMORY_LOCK_OP_BACKOFF_MS", 2000);
+
+    // Op-level retry on cross-process contention: ELOCKED is thrown ONLY at lock
+    // acquisition — before `fn` runs — so re-running lock+fn on retry CANNOT
+    // double-write (the load→mutate→save critical section never started). Bounded
+    // retries absorb a transient long holder (e.g. a consolidation holding the
+    // global failures.md across concurrent sessions) that exceeds the acquire
+    // budget, so a contended write is no longer silently lost; a pathologically
+    // stuck holder still surfaces after the cap. Tune via MemoryConfig or the
+    // PI_MEMORY_LOCK_OP_* env vars. See memory-store.test.ts "retries on ELOCKED".
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= opRetries; attempt++) {
+      try {
+        const release = await lockfile.lock(lockPath, {
+          stale: 10_000,
+          realpath: false, // the .md may not exist yet on first write — don't realpath it
+          retries: { retries: acquireRetries, minTimeout: 50, maxTimeout: 250 },
+        });
+        this._heldFileLocks.add(lockPath);
+        try {
+          return await fn();
+        } finally {
+          this._heldFileLocks.delete(lockPath);
+          await release().catch(() => {});
+        }
+      } catch (err) {
+        lastErr = err;
+        if (attempt === opRetries || !isLockAcquisitionError(err)) throw err;
+        await new Promise((r) => setTimeout(r, opBackoffMs));
+      }
     }
+    throw lastErr;
   }
 
   /**
