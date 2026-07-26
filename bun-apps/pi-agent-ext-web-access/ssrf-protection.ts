@@ -118,7 +118,7 @@ function assertPublicAddress(address: string, hostname: string, allowRanges: Par
 function isBlockedIPv4(address: string): boolean {
 	const parts = address.split(".").map(part => Number(part));
 	if (parts.length !== 4 || parts.some(part => !Number.isInteger(part) || part < 0 || part > 255)) return true;
-	const [a, b] = parts;
+	const [a, b] = parts as [number, number, number, number];
 	return a === 0 ||
 		a === 10 ||
 		a === 127 ||
@@ -134,15 +134,15 @@ function isBlockedIPv6(address: string): boolean {
 	const groups = parseIPv6(address);
 	if (!groups) return true;
 
-	const first = groups[0];
+	const first = groups[0] ?? 0;
 	if (groups.every(group => group === 0)) return true;
 	if (groups.slice(0, 7).every(group => group === 0) && groups[7] === 1) return true;
 	if ((first & 0xfe00) === 0xfc00) return true;
 	if ((first & 0xffc0) === 0xfe80) return true;
 
-	const isMappedIPv4 = groups.slice(0, 5).every(group => group === 0) && groups[5] === 0xffff;
+	const isMappedIPv4 = groups.slice(0, 5).every(group => group === 0) && (groups[5] ?? 0) === 0xffff;
 	if (isMappedIPv4) {
-		const ipv4 = [groups[6] >> 8, groups[6] & 0xff, groups[7] >> 8, groups[7] & 0xff].join(".");
+		const ipv4 = [(groups[6] ?? 0) >> 8, (groups[6] ?? 0) & 0xff, (groups[7] ?? 0) >> 8, (groups[7] ?? 0) & 0xff].join(".");
 		return isBlockedIPv4(ipv4);
 	}
 
@@ -155,7 +155,7 @@ function parseIPv6(address: string): number[] | null {
 		const ipv4 = address.slice(lastColon + 1);
 		if (net.isIP(ipv4) !== 4) return null;
 		const octets = ipv4.split(".").map(part => Number(part));
-		address = `${address.slice(0, lastColon)}:${((octets[0] << 8) | octets[1]).toString(16)}:${((octets[2] << 8) | octets[3]).toString(16)}`;
+		address = `${address.slice(0, lastColon)}:${(((octets[0] ?? 0) << 8) | (octets[1] ?? 0)).toString(16)}:${(((octets[2] ?? 0) << 8) | (octets[3] ?? 0)).toString(16)}`;
 	}
 
 	const pieces = address.split("::");
@@ -237,8 +237,8 @@ function ipv4ToBytes(address: string): Uint8Array | null {
 function ipv6GroupsToBytes(groups: number[]): Uint8Array {
 	const bytes = new Uint8Array(16);
 	for (let i = 0; i < 8; i++) {
-		bytes[i * 2] = groups[i] >> 8;
-		bytes[i * 2 + 1] = groups[i] & 0xff;
+		bytes[i * 2] = (groups[i] ?? 0) >> 8;
+		bytes[i * 2 + 1] = (groups[i] ?? 0) & 0xff;
 	}
 	return bytes;
 }
@@ -274,7 +274,7 @@ function bytesMatchPrefix(addr: Uint8Array, network: Uint8Array, prefix: number)
 	}
 	if (remBits > 0 && fullBytes < addr.length) {
 		const mask = (0xff << (8 - remBits)) & 0xff;
-		if ((addr[fullBytes] & mask) !== (network[fullBytes] & mask)) return false;
+		if (((addr[fullBytes] ?? 0) & mask) !== ((network[fullBytes] ?? 0) & mask)) return false;
 	}
 	return true;
 }
