@@ -42,10 +42,10 @@ The research/grilling fog is cleared. Remaining work is **execution** (task tick
 - [05 — obsidian → shared wrapper](tickets/05-obsidian-route-through-shared-wrapper.md) — blocked by 04.
 - [06 — tool-gate → shared wrapper](tickets/06-tool-gate-route-through-shared-wrapper.md) — **RECLASSIFIED OUT OF SCOPE** (post-03 evidence): l2.ts is a raw prompt-mode A/B harness needing env-override arming + raw stdout/stderr grep — both invariants the structured-subagent wrapper breaks (no env passthrough; NDJSON-only output). Mirrors btw. §3 retry would skew A/B; l2.ts is explicitly experimental/uncalibrated.
 - [07 — spawnSubagent `modelRuntime` opt](tickets/07-spawnsubagent-modelruntime-opt.md) — **unblocked** (independent of 04; small, broadly-useful).
-- [08 — core-task → spawnSubagent](tickets/08-core-task-consolidate-onto-spawnsubagent.md) — blocked by 07.
+- [08 — core-task → spawnSubagent](tickets/08-core-task-consolidate-onto-spawnsubagent.md) — **RECLASSIFIED OUT OF SCOPE** (post-03 evidence): the auditor is a *supervised session* (event-stream subscription for must-call-read-tool + regression_shield; 10-min inactivity stall watchdog ≠ total timeout; custom no-extension infra; own disapproval-retry). spawnSubagent is one-shot, doesn't expose the session/event stream. Auth-sharing goal already met via direct `createAgentSession({ modelRuntime })` (~L165). Mirrors btw/06.
 - [09 — skills alignment audit](tickets/09-skills-alignment-audit.md) — low priority, independent.
 
-Next takeable: **04** (shared wrapper) + **07** (modelRuntime opt) — both unblocked. 05/06 fan out from 04; 08 follows 07. The destination is reached when 04–08 land (09 is standing hygiene).
+Next takeable: **09** (skills alignment — standing hygiene, low priority). **Build phase实质 complete**: 04 (wrapper) + 05 (obsidian → wrapper) + 07 (modelRuntime opt) landed; 06 (tool-gate) + 08 (core-task) reclassified out-of-scope (same pattern as btw). **Scope定调**: the unified runner serves **fire-and-forget subagents** (obsidian, knowledge-card, file2md, workflow, memory-to-vault); supervised/specialized sessions (btw, tool-gate A/B, core-task auditor) are correctly excluded — each needs semantics the one-shot runner can't provide without destroying load-bearing invariants. Destination reached for the fire-and-forget scope.
 
 ## Out of scope
 
