@@ -65,7 +65,9 @@ export function parseSddReport(output: string | undefined): SddReport | undefine
   const statusMatch = output.match(STATUS_RE);
   if (!statusMatch) return undefined;
 
-  const status = statusMatch[1].toUpperCase() as SddReportStatus;
+  const statusStr = statusMatch[1];
+  if (!statusStr) return undefined;
+  const status = statusStr.toUpperCase() as SddReportStatus;
 
   const reportFile = output.match(REPORT_FILE_RE)?.[1];
 
@@ -77,7 +79,7 @@ export function parseSddReport(output: string | undefined): SddReport | undefine
   const ordered: string[] = [];
   for (const m of shaIter) {
     const sha = m[1];
-    if (!seen.has(sha)) {
+    if (sha && !seen.has(sha)) {
       seen.add(sha);
       ordered.push(sha);
     }
