@@ -135,10 +135,10 @@ export function parseGitHubUrl(url: string): GitHubUrlInfo | null {
 		});
 	if (segments.length < 2) return null;
 
-	const owner = segments[0];
+	const owner = segments[0] ?? "";
 	const repo = (segments[1] ?? "").replace(/\.git$/, "");
 
-	if (NON_CODE_SEGMENTS.has(segments[2]?.toLowerCase())) return null;
+	if (NON_CODE_SEGMENTS.has(segments[2]?.toLowerCase() ?? "")) return null;
 
 	if (segments.length === 2) {
 		return { owner, repo, refIsFullSha: false, type: "root" };
@@ -148,7 +148,7 @@ export function parseGitHubUrl(url: string): GitHubUrlInfo | null {
 	if (action !== "blob" && action !== "tree") return null;
 	if (segments.length < 4) return null;
 
-	const ref = segments[3];
+	const ref = segments[3] ?? "";
 	const refIsFullSha = /^[0-9a-f]{40}$/.test(ref);
 	const pathParts = segments.slice(4);
 	const path = pathParts.length > 0 ? pathParts.join("/") : "";
@@ -174,7 +174,7 @@ function cloneDir(config: GitHubCloneConfig, owner: string, repo: string, ref?: 
 
 function execClone(args: string[], localPath: string, timeoutMs: number, signal?: AbortSignal): Promise<string | null> {
 	return new Promise((resolve) => {
-		const child = execFile(args[0], args.slice(1), { timeout: timeoutMs }, (err) => {
+		const child = execFile(args[0] ?? "git", args.slice(1), { timeout: timeoutMs }, (err: Error | null) => {
 			if (err) {
 				try {
 					rmSync(localPath, { recursive: true, force: true });
