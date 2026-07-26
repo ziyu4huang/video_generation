@@ -32,14 +32,23 @@ contract is locked.
 
 - [01 — Audit: every subagent-triggering surface](tickets/01-audit-subagent-trigger-surfaces.md) — **4 divergences found** (obsidian + tool-gate subprocess; btw + core-task direct `createAgentSession`) across 2 models; 5 unified consumers; skill drivers cataloged (superpowers SDD biggest). archify/deploy/wayfind/movie-binary spawns ruled out (not subagent dispatch).
 - [02 — Define the "strong unified dispatch" contract](tickets/02-define-strong-unified-dispatch-contract.md) — **contract locked**: unified = 4 guarantees (runner-path via `spawnSubagent` OR a shared subprocess-wrapper; config-only models; retry/timeout default-on; telemetry registered + visible). Mechanism secondary to guarantees. `btw`/`core-task` → in-process; `obsidian`/`tool-gate` → shared subprocess-wrapper.
+- [03 — Per-divergence rationale + consolidation strategy](tickets/03-per-divergence-rationale-and-consolidation-strategy.md) — **strategy decided** (research revised 02's assumption): ① obsidian + ② tool-gate → **shared subprocess-wrapper** (04; isolation load-bearing); ③ btw → **reclassified out of scope** (persistent tangent thread ≠ one-shot subagent); ④ core-task → **extend spawnSubagent** with `modelRuntime` opt (07) + consolidate (08; reuses parent runtime). Graduated build tickets 04–09.
 
-## Not yet specified
+## Build phase (graduated from 03)
 
-- **Consolidation execution per divergence** — graduates from 03. Includes the **shared subprocess-wrapper** build ticket (the §1 vehicle for obsidian + tool-gate: config-aware + retry/timeout + phantom telemetry entry) + the `btw`/`core-task` → in-process `spawnSubagent` build tickets.
-- **btw / core-task lower-level needs** — they call `createAgentSession` directly. What control does bypassing the runner buy them (streaming? history? custom hooks?)? Determines whether the move to `spawnSubagent` is drop-in or needs a runner-extension. Lives in 03.
-- **Skills alignment** — superpowers SDD + knowledge-card + obsidian + wayfind skills instruct the model to dispatch subagents. The contract (02) is now the bar to check them against — could ticket independently once 03 graduates the build work.
+The research/grilling fog is cleared. Remaining work is **execution** (task tickets):
+
+- [04 — shared subprocess-wrapper](tickets/04-shared-subprocess-wrapper.md) — **unblocked keystone** (the ① ② vehicle).
+- [05 — obsidian → shared wrapper](tickets/05-obsidian-route-through-shared-wrapper.md) — blocked by 04.
+- [06 — tool-gate → shared wrapper](tickets/06-tool-gate-route-through-shared-wrapper.md) — blocked by 04.
+- [07 — spawnSubagent `modelRuntime` opt](tickets/07-spawnsubagent-modelruntime-opt.md) — **unblocked** (independent of 04; small, broadly-useful).
+- [08 — core-task → spawnSubagent](tickets/08-core-task-consolidate-onto-spawnsubagent.md) — blocked by 07.
+- [09 — skills alignment audit](tickets/09-skills-alignment-audit.md) — low priority, independent.
+
+Next takeable: **04** (shared wrapper) + **07** (modelRuntime opt) — both unblocked. 05/06 fan out from 04; 08 follows 07. The destination is reached when 04–08 land (09 is standing hygiene).
 
 ## Out of scope
 
 - **Binary-invocation spawns** — ffmpeg / mlx / archify's vendored renderer / deploy command-runner. These spawn binaries, not subagents. (archify `lib/run.ts` confirmed: runs its own diagram-renderer CLI, not pi.)
+- **btw tangent thread** — `btw/session.ts` is a persisted, model-switchable side conversation, not a one-shot subagent. Reclassified out of scope by 03 (forcing it through spawnSubagent would destroy its persistence; the runner is one-shot by design). Its own robustness is a separate concern.
 - **The interactive picker** — separate effort, just shipped (PR #848–#870).

@@ -1,40 +1,47 @@
 ---
 type: research
-status: open
-blocked by: 01, 02
+status: closed (2026-07-26) — strategy decided per divergence
 ---
 
 # 03 — Per-divergence rationale + consolidation strategy
 
-## Question
+## Resolution — strategy per divergence
 
-For each of the 4 divergent runners (01 ①–④): WHY does it diverge, and what is
-the consolidation strategy (consolidate to the unified path / retain with
-rationale / hybrid)?
+| # | divergence | why it diverges | strategy |
+|---|-----------|-----------------|----------|
+| ① obsidian `lib/subagent.ts` | child_process subprocess | self-contained distill/garden session (curated tools + model override) — isolation load-bearing | → **shared subprocess-wrapper** (04): config-aware + retry/timeout + phantom telemetry |
+| ② tool-gate `qa/l2.ts` | spawn("bun",[cli.ts]) subprocess | objective A/B isolation testing (`pi-agent -p`) — isolation load-bearing | → **shared subprocess-wrapper** (04) |
+| ③ btw `btw/session.ts` | createAgentSession direct | **persistent tangent thread** (side conversation + thread persistence + model switching) — a different primitive, not a one-shot subagent | → **reclassify out of scope** (tangent-thread ≠ subagent dispatch) |
+| ④ core-task `goal/auditor.ts` | createAgentSession direct | **reuses parent's authenticated modelRuntime** (`auditor.ts:165`, extension-registered providers auth) — spawnSubagent re-resolves | → **extend spawnSubagent** with `modelRuntime` opt (07) + consolidate (08) |
 
-## What resolving it looks like
+### Why ③ btw is out of scope
 
-Per divergence, determine:
+btw is a **tangent thread** — a persisted, model-switchable side conversation
+(`btw/session.ts`: "fully contextless tangent thread", "separate side
+conversation. Continue this thread", + thread persistence). It is not a one-shot
+subagent task. Forcing it through spawnSubagent would destroy its persistence;
+extending the runner with persistent-session mode would over-engineer it for one
+edge use-case. It is a different primitive. (Its own robustness — model-config,
+retry — is a separate concern, not "unify subagent dispatch.")
 
-- **WHY divergent** — obsidian ① + tool-gate ② chose child-process subprocess
-  (isolation? separate cwd? historical?); btw ③ + core-task ④ call
-  `createAgentSession` directly (lower-level control? streaming? custom hooks?).
-  Code-read + grill the author's intent.
-- **CAN it move to the unified path** — given 02's contract ruling (does
-  "unified" require in-process?). Subprocess→in-process may be infeasible if
-  isolation is load-bearing → hybrid (subprocess wrapper that registers
-  telemetry + resolves models via config).
-- **Strategy per divergence** — consolidate / retain-with-rationale / hybrid.
+### Why ④ core-task extends the runner (not reclassified)
 
-This graduates per-divergence **build tickets** (the actual consolidation work)
-once the strategy + contract are locked.
+The auditor reuses the parent's `modelRuntime` for in-context goal auditing using
+the SAME authenticated runtime. This is a **broadly-useful capability** (auth/
+context sharing), not an edge use-case — a `modelRuntime` opt on spawnSubagent is
+small + general. The auditor IS a dispatched subagent (it runs a full audit
+prompt in a child session); it just needs to share the parent's runtime. So:
+extend the runner + consolidate.
+
+## Graduated build tickets
+
+- [04 — shared subprocess-wrapper](tickets/04-shared-subprocess-wrapper.md) (keystone; ① ② vehicle)
+- [05 — obsidian → shared wrapper](tickets/05-obsidian-route-through-shared-wrapper.md) (blocked by 04)
+- [06 — tool-gate → shared wrapper](tickets/06-tool-gate-route-through-shared-wrapper.md) (blocked by 04)
+- [07 — spawnSubagent `modelRuntime` opt](tickets/07-spawnsubagent-modelruntime-opt.md)
+- [08 — core-task → spawnSubagent](tickets/08-core-task-consolidate-onto-spawnsubagent.md) (blocked by 07)
+- [09 — skills alignment audit](tickets/09-skills-alignment-audit.md) (low priority)
 
 ## blocked by
 
-- 01 (the divergence list + gaps) — closed
-- 02 (the contract + the in-process-vs-subprocess ruling)
-
-## Fog this clears
-
-- btw / core-task lower-level needs (what control bypassing the runner buys them).
-- The subprocess-isolation question for obsidian / tool-gate.
+01 (closed), 02 (closed) — both resolved.
