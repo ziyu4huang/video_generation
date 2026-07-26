@@ -48,7 +48,11 @@ export const MODEL_PRESETS: ModelPreset[] = [
     label: "DeepSeek (official) + LM Studio vision",
     summary: "tiers: deepseek-v4-flash / deepseek-v4-pro  ·  vision: lm-studio gemma-4-12b",
     config: {
-      tiers: { small: "deepseek/deepseek-v4-flash", medium: "deepseek/deepseek-v4-pro", big: "deepseek/deepseek-v4-pro" },
+      tiers: {
+        small: "deepseek/deepseek-v4-flash",
+        medium: "deepseek/deepseek-v4-pro",
+        big: "deepseek/deepseek-v4-pro",
+      },
       capabilities: { vision: "lm-studio/google/gemma-4-12b-qat" },
     },
   },
