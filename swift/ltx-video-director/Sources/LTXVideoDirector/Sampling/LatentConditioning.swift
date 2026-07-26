@@ -148,3 +148,60 @@ public struct VideoConditionByReferenceLatent {
         return LatentState(latent: newLatent, cleanLatent: newClean, denoiseMask: newMask, positions: newPositions, attentionMask: state.attentionMask)
     }
 }
+
+/// Native port of `ltx_core_mlx.conditioning.types.reference_audio_cond
+/// .AudioConditionByReferenceLatent` — the audio-side sibling of
+/// `VideoConditionByReferenceLatent` above. APPENDS a reference clip's
+/// audio latent tokens to the end of the audio sequence as always-preserved
+/// (denoiseMask=0, when strength=1.0) context, same append-not-replace
+/// shape, but for 1-axis audio positions `(B, T, 1)` instead of 3-axis
+/// video positions.
+///
+/// When `negativePositions` is true (the only mode `NativeUpscaleStage
+/// .generateLipdub` uses), the reference's own positions are shifted into
+/// negative time — `positions - (max(positions) + 0.04)` — before being
+/// appended, mirroring `ltx_pipelines_mlx.lipdub
+/// .patchify_lipdub_audio_reference_latent`: the model reads the reference
+/// audio as off-screen context strictly before the generated audio
+/// sequence's own time-0 origin, not overlapping it.
+///
+/// Scope: same restriction `VideoConditionByReferenceLatent` documents for
+/// itself — only `strength == 1.0` (fully preserved reference, no partial
+/// attention mask) is exercised by any current call site.
+public struct AudioConditionByReferenceLatent {
+    public let referenceLatent: MLXArray      // (B, Tr, C)
+    public let referencePositions: MLXArray   // (B, Tr, 1), already shifted if negativePositions
+    public let strength: Float                // 1.0 = fully preserved (mask=0)
+    public let negativePositions: Bool
+
+    public init(referenceLatent: MLXArray, referencePositions: MLXArray, strength: Float = 1.0, negativePositions: Bool = true) {
+        self.referenceLatent = referenceLatent
+        self.strength = strength
+        self.negativePositions = negativePositions
+        if negativePositions {
+            let maxPos = referencePositions.max().item(Float.self)
+            self.referencePositions = referencePositions - (maxPos + 0.04)
+        } else {
+            self.referencePositions = referencePositions
+        }
+    }
+
+    public func apply(to state: LatentState) -> LatentState {
+        let numRef = referenceLatent.dim(1)
+        let maskValue = 1.0 - strength
+
+        let newLatent = MLX.concatenated([state.latent, referenceLatent], axis: 1)
+        let newClean = MLX.concatenated([state.cleanLatent, referenceLatent], axis: 1)
+
+        let b = state.denoiseMask.dim(0)
+        let refMask = MLXArray(Array(repeating: maskValue, count: b * numRef)).reshaped([b, numRef, 1])
+        let newMask = MLX.concatenated([state.denoiseMask, refMask], axis: 1)
+
+        var newPositions = state.positions
+        if let statePositions = state.positions {
+            newPositions = MLX.concatenated([statePositions, referencePositions], axis: 1)
+        }
+
+        return LatentState(latent: newLatent, cleanLatent: newClean, denoiseMask: newMask, positions: newPositions, attentionMask: state.attentionMask)
+    }
+}
