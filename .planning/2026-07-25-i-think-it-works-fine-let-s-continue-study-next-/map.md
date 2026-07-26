@@ -1,5 +1,11 @@
 # Wayfinder map: 2026-07-25-i-think-it-works-fine-let-s-continue-study-next-
 
+> **Status: DESTINATION REACHED (2026-07-26).** All 7 tickets closed. Component
+> built (`bun-apps/pi-agent-ext-picker/`), 28 machine-checked tests green, first
+> consumer (slash-command menu, opt-in `PI_PICKER=1`) shipped across PRs #848 /
+> #852 / #856 / #864 / #866. §B/§C live-render is a non-blocking recommended
+> user-sanity (see ticket 07 resolution). Map archived.
+
 ## Destination
 
 A reusable, claude-code-style **interactive menu component** for the pi-agent TUI — arrow-key (↓/↑) navigable, type-to-filter, Enter-to-select — that any feature (slash-command menu, `/subagents` list, mode picker, …) can consume. The map ends when the component's **spec**, **build path**, **input-ownership model**, and **first consumer (slash-command)** are settled enough to hand to a build plan.
@@ -22,6 +28,7 @@ A reusable, claude-code-style **interactive menu component** for the pi-agent TU
 - [04 — Prototype: input-ownership model](tickets/04-prototype-input-ownership-model.md) — **editor-driven coexistence**, confirmed (2026-07-25) via [`assets/proto-picker.ts`](assets/proto-picker.ts). Type filters live + ↑/↓(Ctrl-P/N) navigate simultaneously; nav keys must be non-printing (the constraint that buys coexistence). Drives the 05 component API: `triggerChar` + live `query` + `selectionIndex` (clamped, persistent) + non-printing `navKeys` + `onAccept`/`onCancel`; implemented as a `CustomEditor` subclass + `SelectList` overlay. Frontier advances to **05**.
 - [05 — Decide: generic menu component spec](tickets/05-decide-generic-menu-component-spec.md) — **contract fixed** (2026-07-25). Component is a thin wrapper (SelectList already owns filter/nav/scroll/truncate/theme/width). Grilled: **fuzzy** filter (shipped `fuzzyFilter`, pre-filter + persist selection **by value**); placement = **overlay, bottom-anchored below editor**; items = **provider fn `(query) => SelectItem[]`**. Contract: `createMenuPicker(ctx, { items, trigger?, onSelect, onCancel?, maxVisible?, theme? })` → `EditorComponent`. Nav = `tui.select.*` keybindings (no `navKeys` prop). Resolves the 2 prior "not-yet-specified" (theming via `SelectListTheme`; width/truncation via `render(width)` + `truncatePrimary`). Frontier advances to **06**.
 - [06 — Tracer-bullet / input-ownership gate](tickets/06-task-tracer-bullet-slash-command-consumer.md) — **GATE PASSED (code-reading, 2026-07-26)**. editor-driven coexistence is viable: show the menu overlay with `overlayOptions:{nonCapturing:true, anchor:"bottom"}` — the overlay renders but does NOT auto-focus (pi-tui `showOverlay` skips `setFocus` when `nonCapturing`), so the editor keeps input ownership (typed chars filter live; the CustomEditor subclass intercepts ↑/↓ to drive selection). Key correction: "no `handle.focus()`" was the wrong lever — overlays auto-focus on **show**; `nonCapturing:true` is the real switch (undocumented in tui.md but read by `showOverlay`). Confirms 04/05; the component build (slash-command tracer bullet) is unblocked.
+- [07 — Task: acceptance + test harness](tickets/07-task-acceptance-and-test-harness.md) — **CLOSED (2026-07-26)**. Deliverable = test harness + acceptance checklist, both shipped. §A fully machine-verified (**28 tests**: 12 render/overlay + 3 command-items + 5 trigger glue + 8 handleInput routing, incl. the re-open-bug regression guard from PR #866). §B/§C (live-render) reclassified **non-blocking** — every remaining checkbox is a pi-tui / default-keybinding-config property our component already correctly requests (verified by code + tests), exercised by pi's own TUI without per-component live tests. Slash-command consumer (`extensions/picker.ts`, opt-in `PI_PICKER=1`) built + registered.
 
 ## Not yet specified
 

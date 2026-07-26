@@ -36,7 +36,7 @@ interface EditorHandle {
   onCancel: ReturnType<typeof mock>;
 }
 
-function makeEditor(opts: { items?: SelectItem[]; onSelect?: (i: SelectItem, q: string) => void; onCancel?: (q: string) => void } = {}): EditorHandle {
+function makeEditor(opts: { items?: SelectItem[]; onSelect?: (i: SelectItem, q: string) => void; onCancel?: (q: string) => void; autoSubmit?: boolean } = {}): EditorHandle {
   const items = opts.items ?? ITEMS;
   const onSelect = mock(opts.onSelect ?? (() => {}));
   const onCancel = mock(opts.onCancel ?? (() => {}));
@@ -48,7 +48,7 @@ function makeEditor(opts: { items?: SelectItem[]; onSelect?: (i: SelectItem, q: 
   };
   const theme = { selectList: {} } as unknown as EditorTheme;
   const kb = { matches: (data: string, id: string) => DATA_ID[data] === id } as unknown as KeybindingsManager;
-  const factory = createMenuPicker({ ui: { setEditorComponent } }, { items: () => items, onSelect, onCancel });
+  const factory = createMenuPicker({ ui: { setEditorComponent } }, { items: () => items, onSelect, onCancel, autoSubmit: opts.autoSubmit });
   const editor = factory(tui as unknown as TUI, theme, kb);
   return { editor, tui, setEditorComponent, onSelect, onCancel };
 }
@@ -111,4 +111,24 @@ test("after close, further nav/confirm is inert (closed guard)", () => {
   editor.handleInput("\r"); // accept → closes
   editor.handleInput("\r"); // second Enter → closed, ignored
   assert.equal(onSelect.mock.calls.length, 1, "only the first accept fired");
+});
+
+test("autoSubmit: accept calls the framework-wired onSubmit with the item value", () => {
+  // setCustomEditorComponent wires `newEditor.onSubmit = defaultEditor.onSubmit`
+  // (the interactive-mode slash-dispatch fn). We simulate that wiring here.
+  const submitMock = mock(() => {});
+  const { editor, onSelect } = makeEditor({ autoSubmit: true });
+  editor.onSubmit = submitMock;
+  editor.handleInput("\r");
+  assert.equal(onSelect.mock.calls.length, 1, "onSelect still fires (side-effects)");
+  assert.equal(submitMock.mock.calls.length, 1, "onSubmit called (auto-run)");
+  assert.equal(submitMock.mock.calls[0][0], "/alpha", "submits the item value");
+});
+
+test("without autoSubmit, accept does not call onSubmit (fill-prompt model)", () => {
+  const submitMock = mock(() => {});
+  const { editor } = makeEditor(); // autoSubmit unset
+  editor.onSubmit = submitMock;
+  editor.handleInput("\r");
+  assert.equal(submitMock.mock.calls.length, 0, "no auto-run without autoSubmit");
 });
