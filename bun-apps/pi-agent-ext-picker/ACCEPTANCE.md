@@ -1,10 +1,13 @@
 # Acceptance checklist — interactive menu component
 
-> **Status (2026-07-26): TICKET 07 CLOSED.** §A fully machine-verified (28 tests,
+> **Status (2026-07-26): TICKET 07 CLOSED.** §A fully machine-verified (30 tests,
 > green). §B/§C (live-render) are a **non-blocking recommended user-sanity** —
 > every remaining checkbox is a pi-tui / default-keybinding-config property our
 > component already correctly requests (verified by code + tests). See ticket 07
 > resolution. A live ✗ would surface an upstream/config issue, not a component bug.
+>
+> **Update:** auto-run-on-select is now implemented (`autoSubmit` opt — select → runs
+> the command directly via the editor's framework-wired `onSubmit`, one-Enter parity).
 
 The interactive TUI layer resists unit-testing; acceptance is split into
 **machine-checked** (render-snapshot, in `tests/`) and **manual** (keybinding
@@ -74,7 +77,7 @@ claude-code's picker does:
 - [ ] keep typing → list filters live (fuzzy)
 - [ ] `↓` / `↑` (or `Ctrl-N` / `Ctrl-P`) → selection moves, clamped at ends
 - [ ] selection persists **by value** across query changes (05 contract)
-- [ ] `Enter` → `onSelect(item)` fires, picker closes
+- [ ] `Enter` → `onSelect(item)` fires, picker closes, + (autoSubmit) runs the command
 - [ ] `Esc` → `onCancel()` fires, picker closes, editor buffer retained
 - [ ] empty-state: a query matching nothing shows "No matching commands" + `Enter` is a no-op
 
@@ -91,20 +94,21 @@ PI_PICKER=1 bun bun-apps/pi-agent/src/cli.ts
 #   /            → picker overlay opens (bottom-center), all commands listed
 #   he           → live fuzzy filter → /help
 #   ↓/↑          → selection moves
-#   Enter        → onSelect fills the prompt with /help, picker closes
-#   <Enter>      → runs /help (second Enter: no public submit API — see note)
+#   Enter        → runs /help directly (autoSubmit — one Enter, no second press)
 #   Esc          → cancel, picker closes, prompt empty
 ```
 
 - [ ] type `/` in an empty prompt → slash-command list appears
-- [ ] selecting a command fills the prompt (runs on the next Enter — there is no
-      public `submit` API; ticket 06's "Enter runs the command" is fill + Enter)
+- [ ] selecting a command RUNS it directly (autoSubmit — one Enter, via the
+      editor's framework-wired `onSubmit` = the slash-dispatch fn)
 - [ ] inert without `PI_PICKER=1` (normal `/command` + `/path` usage unaffected)
 
 ## Known follow-ups (post-acceptance)
 
-- auto-run on select: no public `ctx.ui.submit()` API — the consumer fills the
-  prompt (`setEditorText`) + the user presses Enter. Revisit if a submit API lands.
+- ~~auto-run on select~~ **DONE** — `autoSubmit` opt: select → calls the editor's
+  framework-wired `onSubmit` (the interactive-mode slash-dispatch fn, set by
+  `setCustomEditorComponent`) → runs the command directly. One-Enter parity.
+  (No public `ctx.ui.submit()` API needed — `onSubmit` IS the dispatch path.)
 - the `/`-trigger is opt-in (`PI_PICKER=1`) + empty-prompt-guarded to avoid
   hijacking `/path` typing; a wrapper-editor model (workflow-style, always-on)
   could host a non-disruptive inline dropdown later.

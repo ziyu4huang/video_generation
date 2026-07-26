@@ -3,9 +3,9 @@
  *
  * Opt-in tracer: with `PI_PICKER=1`, typing `/` in an EMPTY prompt opens the
  * menu picker (createMenuPicker) listing every slash-command (pi.getCommands),
- * fuzzy-filtered. ↓/↑ navigate; Enter fills the prompt with the command; Esc
- * cancels. Inert unless the env var is set, so it never disrupts normal
- * `/command` usage or `/path` typing.
+ * fuzzy-filtered. ↓/↑ navigate; Enter RUNS the command directly (autoSubmit —
+ * one-Enter parity, no second Enter); Esc cancels. Inert unless the env var is
+ * set, so it never disrupts normal `/command` usage or `/path` typing.
  *
  * This is the runtime proof of the editor-driven model (tickets 04/05/06):
  * the MenuPickerEditor owns input + drives a nonCapturing SelectList overlay.
@@ -34,11 +34,11 @@ export default function (pi: ExtensionAPI): void {
       ctx.ui.setEditorComponent(
         createMenuPicker(ctx, {
           items: () => toCommandItems(pi.getCommands()),
-          // fill the prompt with the chosen command; the user presses Enter to run
-          // (no public submit API — see ticket 06 / ACCEPTANCE §C note).
-          onSelect: (item) => {
+          // one-Enter: select → run the command directly via the editor's
+          // framework-wired onSubmit (the interactive-mode slash-dispatch fn).
+          autoSubmit: true,
+          onSelect: () => {
             pickerActive = false; // re-arm so `/` can re-open after a selection
-            ctx.ui.setEditorText(item.value);
           },
           onCancel: () => {
             pickerActive = false; // re-arm so `/` can re-open after Esc
