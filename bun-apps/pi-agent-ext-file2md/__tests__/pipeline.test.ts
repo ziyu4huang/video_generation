@@ -69,6 +69,18 @@ mock.module(`${ROOT}/src/vlm/vision-inference.ts`, () => ({
   },
 }));
 
+// resolveVisionLLM/resolveLLM are de-hardcoded (ticket 01: throw when unconfigured).
+// This is a pipeline-orchestration test, not a model-resolution test — stub the
+// resolver to a stable target (realm-safe: this realm already mocks vision-inference).
+mock.module(`${ROOT}/src/sessions.ts`, () => ({
+  resolveVisionLLM: () => ({ provider: "lm-studio", modelId: "google/gemma-4-12b-qat", thinkingLevel: "off" }),
+  resolveLLM: (opts: { provider?: string; model?: string; thinking?: string } = {}) => ({
+    provider: opts.provider ?? "lm-studio",
+    modelId: opts.model ?? "google/gemma-4-12b-qat",
+    thinkingLevel: opts.thinking ?? "off",
+  }),
+}));
+
 // Keep retries fast + bounded for the page-quality-gate retry test below.
 // (pipeline.ts reads these lazily at call time, so they apply whenever the
 // pipeline runs — not just at module load.)

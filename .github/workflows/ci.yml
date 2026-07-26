@@ -101,7 +101,11 @@ jobs:
           - { package: pi-agent-ext-wayfind, test-cmd: "bun run test" }
           - { package: pi-agent-ext-superpowers, test-cmd: "bun run test" }
           - { package: pi-agent-ext-web-access, test-cmd: "bun test" }
-          - { package: pi-agent-ext-file2md, test-cmd: "bun test" }
+          # --isolate: classify-vlm/ask-io/vlm-ask-tool/pipeline mock.module()
+          # sessions.ts + vision-inference.ts; without per-file process isolation
+          # the stub leaks into sessions.test.ts / resolve-vision-llm.test.ts
+          # (same pattern as pi-agent-ext-archify above).
+          - { package: pi-agent-ext-file2md, test-cmd: "bun test --isolate" }
           # gui-movie-director: lint is pure static analysis (CI-safe); the
           # check-runtime suite probes run.py via the venv and skips under CI.
           - { package: gui-movie-director, test-cmd: "bun run test" }

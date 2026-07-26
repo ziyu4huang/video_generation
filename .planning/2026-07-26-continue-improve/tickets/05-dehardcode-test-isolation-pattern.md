@@ -1,5 +1,6 @@
 ---
 type: grilling
+status: closed
 blocked by:
   - 01-missing-config-contract
 ---
@@ -29,3 +30,23 @@ Likely a **mix**: (a) for mocked pipeline tests, (c) for the e2e subprocess. The
 ## Acceptance
 
 A decided isolation pattern per affected test + the de-hardcode re-landed (resolveLLM/resolveVisionLLM honoring contract 01, no `DEFAULT_MODEL`), all three packages green on clean CI.
+
+## Resolution (2026-07-26)
+
+**De-hardcode re-landed per contract 01; all 3 packages green on clean CI** (file2md 173, pi-agent-cli 361, pi-agent 310; all run with clean HOME + no PI_MODEL).
+
+### Code — no hardcoded model ids remain in the file2md cluster
+- `sessions.ts` `resolveLLM`: removed `DEFAULT_MODEL`; **throws** `No model configured` (actionable `/models-preset` pointer) when no opt + no env. `PI_MODEL` env stays the permanent deprecated escape (warns).
+- `sessions.ts` `resolveVisionLLM`: fall-through cleaned — no config → `resolveLLM` (env-or-throw).
+- `pipeline.ts`: removed `DEFAULT_VLM_MODEL`.
+- `extensions/file2md.ts` + `pi-agent-cli/commands/file2md.ts`: removed `?? DEFAULT_VLM_MODEL` (+ CLI help text). Callers pass `params.model ?? PI_MODEL` (undefined → resolver handles config/env/throw).
+
+### Isolation patterns (the ticket's core question)
+- **(a) `mock.module(sessions → {resolveVisionLLM, resolveLLM})`** for the mocked-vision-inference I/O tests (`classify-vlm`, `ask-io`, `vlm-ask-tool`) + `pipeline.test.ts` — stable fake target, realm-safe.
+- **(c) `PI_MODEL` env** for `misc.e2e` subprocess (`runCli([...], {env:{PI_MODEL}})`) — model resolution precedes the input-existence check, so the subprocess needs a model to reach the "Input not found" assertion.
+- **`--isolate`** added to file2md's runner (package.json `test` script + CI matrix, mirroring `pi-agent-ext-archify`): the new sessions mock would otherwise leak into `sessions.test.ts` / `resolve-vision-llm.test.ts` (which need the REAL resolver) — `mock.module` is realm-scoped only under per-file isolation. (bunfig `isolate` key is NOT supported; the CLI flag / matrix `test-cmd` is the mechanism.)
+- **`sessions.test.ts`**: "defaults" test → asserts the throw; thinking tests → provide `PI_MODEL` (a model is now required).
+- **`resolve-vision-llm.test.ts`**: added the contract tests (throws when unconfigured; `PI_MODEL` env escape works).
+
+### The "pi-agent test" (3rd package from #833)
+Non-issue: pi-agent tests are unaffected (310 pass, typecheck clean). The #833 breakage was the transitive `resolveVisionLLM` throw, now handled by file2md-internal isolation. No pi-agent change needed.
