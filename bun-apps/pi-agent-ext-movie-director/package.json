@@ -24,10 +24,6 @@
     "md": "bun src/cli.ts"
   },
   "dependencies": {
-    "@repo/pi-agent-ext-flux2": "workspace:*",
-    "@repo/pi-agent-ext-krea2": "workspace:*",
-    "@repo/pi-agent-ext-ltx": "workspace:*",
-    "@repo/pi-agent-ext-workflow": "workspace:*",
     "ajv": "latest",
     "ajv-formats": "latest",
     "msedge-tts": "^2.0.7",
@@ -35,6 +31,10 @@
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "0.82.0",
+    "@repo/pi-agent-ext-flux2": "workspace:*",
+    "@repo/pi-agent-ext-krea2": "workspace:*",
+    "@repo/pi-agent-ext-ltx": "workspace:*",
+    "@repo/pi-agent-ext-workflow": "workspace:*",
     "typebox": "*"
   },
   "devDependencies": {
