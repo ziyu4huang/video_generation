@@ -1,9 +1,28 @@
 ---
 type: task
-status: open
+status: in progress (slice 1 done; §4 telemetry = slice 2)
 ---
 
 # 04 — shared subprocess-wrapper
+
+## Slice 1 — DONE
+
+`spawnSubagentSubprocess(opts)` implemented in
+`pi-agent-ext-subagent/src/spawn-subagent-subprocess.ts` (+ exported from the
+package index). Core runner + §2 + §3, fully TDD'd with an injectable `spawnFn`
+(class-based mock child):
+
+- **§2** model resolved from config (`loadModelTierConfig` + `resolveModelRole`; precedence model > capability > tier > mainModel) → child `--model`. No hardcodes.
+- **§3** retry-once-on-transient (`isTransientError`) + `timeoutMs` (default 5 min; SIGTERM → 5s grace → SIGKILL) + `externalSignal` cancel.
+- Generalized pure helpers exported for 05/06 to reuse: `getPiInvocation`, `buildSubagentArgs`, `isTransientError`.
+- Return shape mirrors `SpawnSubagentResult` (drop-in alternative to `spawnSubagent`).
+- **16 tests green** (pure helpers + runner success/retry/timeout/signal/system-prompt/onEvent/spawn-error); tsc clean; full suite 290/0.
+
+## Slice 2 — pending (§4 phantom telemetry)
+
+Register a host-side **phantom entry** in the in-flight registry +
+run-persistence on spawn, mark done on child exit → visible to `/subagents`.
+Mirrors the registration the subagent TOOL layer does around `spawnSubagent`.
 
 ## Question
 
