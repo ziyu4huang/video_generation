@@ -37,6 +37,7 @@
 //    - No VAE tiling — same constraint NativeI2VStage documents.
 //
 
+import AVFoundation
 import Foundation
 import MLX
 
@@ -954,7 +955,17 @@ public struct NativeUpscaleStage {
         let halfW = outW / 2, halfH = outH / 2
 
         let fps = referenceInfo.fps
-        let rawFrameCount = referenceInfo.frameCount
+        // NOT referenceInfo.frameCount — VideoProbe.info's frameCount is
+        // derived from the CONTAINER's overall duration
+        // (asset.duration.seconds), which is driven by whichever track
+        // (video or audio) runs longer, not specifically the video track.
+        // A reference clip whose independently-generated audio track (e.g.
+        // TTS speech muxed onto a still/short video) outruns its video
+        // track would silently overcount frames here, and
+        // loadReferenceVideoFrames would then duplicate the last real video
+        // frame into the "extra" slots. videoTrackFrameCount below reads
+        // the video TRACK's own timeRange duration instead.
+        let rawFrameCount = try videoTrackFrameCount(url: referenceVideoURL, fps: fps)
         let numFrames = max(1, ((rawFrameCount - 1) / 8) * 8 + 1)
         print("[1/8] Reference video: \(rawFrameCount) frames at \(fps) fps -> \(numFrames) frames (8k+1 snap)")
 
@@ -1156,6 +1167,23 @@ public struct NativeUpscaleStage {
         try WAVWriter.write(channels: outChannels, sampleRate: 48000, to: audioOutURL)
 
         return LipdubResult(frameDirectory: frameDir, frameCount: frameCount, outputSize: (outW, outH), audioURL: audioOutURL, fps: fps)
+    }
+
+    /// The video TRACK's own frame count, derived from its `timeRange
+    /// .duration` — deliberately NOT `VideoProbe.info(url:).frameCount`
+    /// (that field is derived from the CONTAINER's overall
+    /// `asset.duration.seconds`, which reflects whichever track, video or
+    /// audio, runs longer). Kept local to this file rather than changed on
+    /// `VideoProbe` itself, since `VideoProbe`'s existing `frameCount`
+    /// semantics are relied on by other callers (e.g. `VideoGate`/scene
+    /// detection) that this fix must not affect.
+    private func videoTrackFrameCount(url: URL, fps: Double) throws -> Int {
+        let asset = AVURLAsset(url: url)
+        guard let videoTrack = asset.tracks(withMediaType: .video).first else {
+            throw StageError.referenceVideoNotFound(url)
+        }
+        let videoDuration = videoTrack.timeRange.duration.seconds
+        return max(1, Int((videoDuration * fps).rounded()))
     }
 
     /// Extracts exactly `numFrames` frames from `url` (spaced by `1/fps`,

@@ -580,8 +580,18 @@ final class NativeUpscaleStageRealCheckpointTests: XCTestCase {
             referenceVideoURL: referenceVideoURL, outputDir: outputDir, prompt: "a person speaking to the camera",
             loraURL: loraURL, width: 64, height: 64, seed: 42)
 
-        XCTAssertGreaterThan(result.frameCount, 0)
+        // Fixture is exactly 9 encoded video frames @ 24fps (0.375s video
+        // track) — asserts the corrected videoTrackFrameCount derivation
+        // (not the longer 0.5s audio track's duration) drives the frame
+        // count, catching any regression back to the container-duration bug.
+        XCTAssertEqual(result.frameCount, 9)
+        XCTAssertEqual(result.outputSize.width, 64)
+        XCTAssertEqual(result.outputSize.height, 64)
+        XCTAssertEqual(result.fps, 24.0, accuracy: 0.1)
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.audioURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.frameDirectory.appendingPathComponent("frame_0000.png").path))
+
+        let frameFiles = (try? FileManager.default.contentsOfDirectory(atPath: result.frameDirectory.path)) ?? []
+        XCTAssertEqual(frameFiles.count, result.frameCount)
     }
 }
