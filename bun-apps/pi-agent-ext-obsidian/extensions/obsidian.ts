@@ -121,7 +121,6 @@ import {
 	buildAdjacency,
 	buildIndex,
 	buildMatcher,
-	buildSubagentArgs,
 	classifyFsError,
 	computeFieldLabels,
 	contentTrigrams,
@@ -144,7 +143,6 @@ import {
 	fuzzyMatch,
 	getAdjacency,
 	getIndex,
-	getPiInvocation,
 	graphDeadLinks,
 	graphNeighbors,
 	graphOrphans,
@@ -158,7 +156,6 @@ import {
 	invalidateCache,
 	isDirEmpty,
 	isSubsequence,
-	isTransientError,
 	isWeakModel,
 	launcherForUri,
 	levenshtein,
@@ -1396,8 +1393,8 @@ export default function (pi: ExtensionAPI) {
 
 	// ---- Tool: obsidian_distill (Zettelkasten subagent) --------------------
 	// Tool allowlists for the spawned subagents. Defined once as arrays (not
-	// inline CSV strings) so they are auditable and don't drift; joined to CSV
-	// at the call site (runSubagentWithRetry takes a CSV string).
+	// inline CSV strings) so they are auditable and don't drift; passed as
+	// string[] to runObsidianSubagent (the shared subprocess wrapper).
 	// Phase 5 / WS-B6: distill/garden tool lists are env-overridable so a custom
 	// workflow can grant extra tools (or restrict them) without code changes.
 	// Each env var is a comma-separated tool-name list; empty/unset → defaults.
