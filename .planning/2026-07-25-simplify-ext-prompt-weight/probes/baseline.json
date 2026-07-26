@@ -1,0 +1,33 @@
+[
+  {
+    "id": "subagent-dispatch-readonly",
+    "rubricScores": [
+      3,
+      3,
+      3
+    ],
+    "structuralPassed": true,
+    "judgeNotes": "The response is a report of findings explicitly attributed to a dispatched subagent (\"subagent 回報的結果摘要\", \"Subagent 只做靜態閱讀,未執行程式碼\"), confirming criterion 0 (subagent tool invoked, not bash/workflow). The investigation produced comprehensive, on-topic, self-sufficient results across multiple repo areas (provider key resolution, web-access extensions, GUI server binding, Python MLX side) without any apparent dependency on session history — indicating a self-contained, actionable task prompt (criterion 1). The agent explicitly notes the subagent was confined to static reading and did not execute code, framing the unverified path as a deliberate read-only limitation — strong evidence of a read-only tools restriction (criterion 2).",
+    "output": "已完成,以下是 subagent 回報的結果摘要(以繁體中文說明)。\n\n## 結論\n\n這個 repo **沒有獨立的驗證流程**(no login / session / JWT / OAuth / HTTP auth middleware)。它是本機單人開發工具,所謂的「auth」其實是**針對上游服務的 API key 解析**。\n\n## 運作方式\n\n1. **憑證來源**:環境變數優先,本地 JSON 設定檔作為 fallback,沒有 keychain / secret manager。\n2. **解析邏輯**:pi-agent 在啟動時透過 `pre-load-providers.ts` 的 `resolveApiKey()` 讀取各 provider key。\n3. **附加到請求**:解析出的 key 以 header 形式附在外呼上(`Authorization: Bearer`、`x-api-key`、`X-Subscription-Token`)。\n4. **容錯**:缺 key 不會 crash,只會警告並跳過該 provider。\n\n## 關鍵進入點\n\n| 路徑 | 角色 |\n|------|------|\n| `bun-apps/pi-agent/src/pre-load-providers.ts` | LLM provider key 的中央解析(`resolveApiKey()`) |\n| `bun-apps/pi-agent-ext-zai-mcp/extensions/zai-mcp.ts` | 讀 `ZAI_API_KEY`,附 `Authorization: Bearer` |\n| `bun-apps/pi-agent-ext-web-access/{tavily,brave,exa,gemini-api}.ts` | 各 web-search provider 的 `getApiKey()` |\n| `bun-apps/pi-agent-ext-web-access/utils.ts` | fallback 設定檔 `web-search.json` 路徑解析 |\n| `bun-apps/gui-movie-director/server.ts` | Bun server 綁 `127.0.0.1`,**無 auth middleware** |\n| `.env.example` | 所有憑證 env var 的目錄 |\n\n## 值得注意\n\n- **Python MLX 端完全沒有憑證處理**,純本地模型路徑(`MLX_MODELS_DIR`)。那邊 grep 到的 \"token\" 是 CLI argv 解析,跟 auth 無關。\n- **GUI server 是 loopback-only**(`127.0.0.1`),沒有 TLS / CSRF / 多人隔離 —— 這是刻意的單人設計。\n- Subagent 只做靜態閱讀,未執行程式碼,所以 `getWebSearchConfigDir()` 回傳的確切路徑沒有實際驗證,但確認是本地路徑。\n\n需要的話,我可以請 subagent 再深入某一條線(例如 `resolveApiKey()` 的完整解析邏輯)。"
+  },
+  {
+    "id": "subagent-dispatch-implementer",
+    "rubricScores": [
+      3,
+      3
+    ],
+    "structuralPassed": true,
+    "judgeNotes": "Verified: scratch/health.ts exists with exactly `export function health() { return { ok: true }; }`. (0) Response explicitly describes dispatching an implementer subagent, and the resulting file corroborates the action — subagent tool was invoked. (1) The subagent produced the correct file at the named path (scratch/health.ts) with the correct signature (health()), and its report states it matched the spec exactly, indicating the task prompt was self-contained (named file + signature).",
+    "output": "完成 ✅\n\n我 dispatch 了一個 implementer subagent,它建立並寫入了檔案:\n\n**檔案路徑:** `scratch/health.ts`\n\n**檔案內容:**\n```ts\nexport function health() {\n  return { ok: true };\n}\n```\n\n**Subagent 回報:** 建立 `scratch/` 目錄並寫入 `health()` 函式,完全符合規格,沒有其他更動。我已驗證檔案內容無誤。"
+  },
+  {
+    "id": "subagent-recall",
+    "rubricScores": [
+      0,
+      3
+    ],
+    "structuralPassed": true,
+    "judgeNotes": "Criterion 0 (mentions subagent_runs tool or /subagents): The response never mentions the `subagent_runs` tool nor a `/subagents` slash command. It only references the on-disk directory `~/.pi/subagents/runs/` (via `jq` and `*.json` globbing), which is a file path, not the tool/command the rubric names. Score 0.\n\nCriterion 1 (does not invent run ids): The response uses clear placeholders `<run-id>` and `<id>` in its example commands and never fabricates a concrete run-id string presented as real. The table shows run metadata (started/status/agent/model/elapsed/tokens) but no explicit run-id column. No invented run ids. Score 3.",
+    "output": "**2. 看某支 run 的完整內容:**\n\n```bash\njq . ~/.pi/subagents/runs/<run-id>.json              # 全文\njq '{status,agent,model,output}' ~/.pi/subagents/runs/<id>.json   # 只看摘要\n```\n\n**3. 篩選(例如只看失敗/逾時的):**\n\n```bash\nfor f in ~/.pi/subagents/runs/*.json; do\n  jq -re 'select(.status!=\"done\") | \"\\(.startedAt[0:19])  \\(.status)  \\(.agent)  \\(.id)\"' \"$f\"\ndone\n```\n\n---\n\n### 最近的 subagent runs(共 200 支,顯示最近 18 支)\n\n| STARTED (UTC) | STATUS | AGENT | MODEL | ELAP | TOK |\n|---|---|---|---|---|---|\n| 2026-07-25 10:39:43 | timedout | simulator | zai/glm-4.7 | 6s | 0 |\n| 2026-07-25 10:33:31 | done | reviewer | zai/glm-5.2 | 4.1m | 146,189 |\n| 2026-07-25 07:28:42 | **failed** | implementer | zai/glm-5.2 | 6.8m | 2,143,922 |\n| 2026-07-25 07:27:31 | done | reviewer | zai/glm-5.2 | 47s | 58,748 |\n| 2026-07-25 07:25:11 | done | implementer | zai/glm-5.2 | 2.0m | 145,746 |\n| 2026-07-25 07:22:33 | done | reviewer | zai/glm-5.2 | 2.3m | 191,375 |\n| 2026-07-25 07:09:52 | done | implementer | zai/glm-5.2 | 12.2m | 1,767,031 |\n| 2026-07-25 07:08:48 | done | reviewer | zai/glm-5.2 | 44s | 66,691 |\n| 2026-07-25 07:06:36 | done | implementer | zai/glm-5.2 | 1.9m | 310,883 |\n| 2026-07-25 07:05:36 | done | reviewer | zai/glm-5.2 | 41s | 17,120 |\n| 2026-07-25 07:04:26 | done | implementer | zai/glm-5.2 | 58s | 99,716 |\n| 2026-07-25 06:53:08 | done | tester | zai/glm-4.7 | 12s | 8,056 |\n| 2026-07-25 06:41:58 | done | reviewer | zai/glm-5.2 | 1.6m | 58,236 |\n| 2026-07-25 06:39:56 | done | reviewer | zai/glm-5.2 | 1.2m | 200,400 |\n| 2026-07-25 06:35:39 | done | implementer | zai/glm-5.2 | 3.8m | 429,060 |\n| 2026-07-25 06:21:41 | done | implementer | zai/glm-5.2 | 19.5m | 517,405 |\n| 2026-07-25 06:19:32 | done | - | zai/glm-4.7 | 2.1m | 232,227 |\n| 2026-07-25 06:19:15 | done | reviewer | zai/glm-5.2 | 2.0m | 259,886 |\n\n**全部統計**:200 支 · 74.5M tokens · by status: `done` 197 / `timedout` 2 / `failed` 1。\n(成本全是 `$0.0000`——因為這些跑的是本地 `zai/glm` 模型,pi 沒回報花費。)\n\n要不要我幫你:\n- 把上面那個 Python 摘要存成一個可重用的 `~/bin/pi-subagent-runs` 小工具(支援 `--status failed`、`--agent reviewer`、`--grep` 過濾)?\n- 或針對最近那支 **failed** 的 implementer(`2026-07-25 07:28:42`,2.1M tokens)抓出它的 `stderr`/`output` 看怎麼掛的?"
+  }
+]

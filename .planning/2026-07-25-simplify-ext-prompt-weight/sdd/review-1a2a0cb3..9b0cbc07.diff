@@ -1,0 +1,805 @@
+# Review package: 1a2a0cb3..HEAD
+
+## Commits
+9b0cbc07 feat(probes): behavioral probe harness + phase-1 baseline (fat subagent)
+
+## Files changed
+ .../probes/baseline.json                           |  33 +++
+ .../probes/phase1-subagent.ts                      |  48 +++++
+ .../probes/runner-lib.test.ts                      | 171 ++++++++++++++++
+ .../probes/runner-lib.ts                           | 123 ++++++++++++
+ .../probes/types.ts                                |  44 ++++
+ .../sdd/task-1-report.md                           | 107 ++++++++++
+ scripts/probe-runner.ts                            | 221 +++++++++++++++++++++
+ 7 files changed, 747 insertions(+)
+
+## Diff
+diff --git a/.planning/2026-07-25-simplify-ext-prompt-weight/probes/baseline.json b/.planning/2026-07-25-simplify-ext-prompt-weight/probes/baseline.json
+new file mode 100644
+index 00000000..59f06859
+--- /dev/null
++++ b/.planning/2026-07-25-simplify-ext-prompt-weight/probes/baseline.json
+@@ -0,0 +1,33 @@
++[
++  {
++    "id": "subagent-dispatch-readonly",
++    "rubricScores": [
++      3,
++      3,
++      3
++    ],
++    "structuralPassed": true,
++    "judgeNotes": "The response is a report of findings explicitly attributed to a dispatched subagent (\"subagent 回報的結果摘要\", \"Subagent 只做靜態閱讀,未執行程式碼\"), confirming criterion 0 (subagent tool invoked, not bash/workflow). The investigation produced comprehensive, on-topic, self-sufficient results across multiple repo areas (provider key resolution, web-access extensions, GUI server binding, Python MLX side) without any apparent dependency on session history — indicating a self-contained, actionable task prompt (criterion 1). The agent explicitly notes the subagent was confined to static reading and did not execute code, framing the unverified path as a deliberate read-only limitation — strong evidence of a read-only tools restriction (criterion 2).",
++    "output": "已完成,以下是 subagent 回報的結果摘要(以繁體中文說明)。\n\n## 結論\n\n這個 repo **沒有獨立的驗證流程**(no login / session / JWT / OAuth / HTTP auth middleware)。它是本機單人開發工具,所謂的「auth」其實是**針對上游服務的 API key 解析**。\n\n## 運作方式\n\n1. **憑證來源**:環境變數優先,本地 JSON 設定檔作為 fallback,沒有 keychain / secret manager。\n2. **解析邏輯**:pi-agent 在啟動時透過 `pre-load-providers.ts` 的 `resolveApiKey()` 讀取各 provider key。\n3. **附加到請求**:解析出的 key 以 header 形式附在外呼上(`Authorization: Bearer`、`x-api-key`、`X-Subscription-Token`)。\n4. **容錯**:缺 key 不會 crash,只會警告並跳過該 provider。\n\n## 關鍵進入點\n\n| 路徑 | 角色 |\n|------|------|\n| `bun-apps/pi-agent/src/pre-load-providers.ts` | LLM provider key 的中央解析(`resolveApiKey()`) |\n| `bun-apps/pi-agent-ext-zai-mcp/extensions/zai-mcp.ts` | 讀 `ZAI_API_KEY`,附 `Authorization: Bearer` |\n| `bun-apps/pi-agent-ext-web-access/{tavily,brave,exa,gemini-api}.ts` | 各 web-search provider 的 `getApiKey()` |\n| `bun-apps/pi-agent-ext-web-access/utils.ts` | fallback 設定檔 `web-search.json` 路徑解析 |\n| `bun-apps/gui-movie-director/server.ts` | Bun server 綁 `127.0.0.1`,**無 auth middleware** |\n| `.env.example` | 所有憑證 env var 的目錄 |\n\n## 值得注意\n\n- **Python MLX 端完全沒有憑證處理**,純本地模型路徑(`MLX_MODELS_DIR`)。那邊 grep 到的 \"token\" 是 CLI argv 解析,跟 auth 無關。\n- **GUI server 是 loopback-only**(`127.0.0.1`),沒有 TLS / CSRF / 多人隔離 —— 這是刻意的單人設計。\n- Subagent 只做靜態閱讀,未執行程式碼,所以 `getWebSearchConfigDir()` 回傳的確切路徑沒有實際驗證,但確認是本地路徑。\n\n需要的話,我可以請 subagent 再深入某一條線(例如 `resolveApiKey()` 的完整解析邏輯)。"
++  },
++  {
++    "id": "subagent-dispatch-implementer",
++    "rubricScores": [
++      3,
++      3
++    ],
++    "structuralPassed": true,
++    "judgeNotes": "Verified: scratch/health.ts exists with exactly `export function health() { return { ok: true }; }`. (0) Response explicitly describes dispatching an implementer subagent, and the resulting file corroborates the action — subagent tool was invoked. (1) The subagent produced the correct file at the named path (scratch/health.ts) with the correct signature (health()), and its report states it matched the spec exactly, indicating the task prompt was self-contained (named file + signature).",
++    "output": "完成 ✅\n\n我 dispatch 了一個 implementer subagent,它建立並寫入了檔案:\n\n**檔案路徑:** `scratch/health.ts`\n\n**檔案內容:**\n```ts\nexport function health() {\n  return { ok: true };\n}\n```\n\n**Subagent 回報:** 建立 `scratch/` 目錄並寫入 `health()` 函式,完全符合規格,沒有其他更動。我已驗證檔案內容無誤。"
++  },
++  {
++    "id": "subagent-recall",
++    "rubricScores": [
++      0,
++      3
++    ],
++    "structuralPassed": true,
++    "judgeNotes": "Criterion 0 (mentions subagent_runs tool or /subagents): The response never mentions the `subagent_runs` tool nor a `/subagents` slash command. It only references the on-disk directory `~/.pi/subagents/runs/` (via `jq` and `*.json` globbing), which is a file path, not the tool/command the rubric names. Score 0.\n\nCriterion 1 (does not invent run ids): The response uses clear placeholders `<run-id>` and `<id>` in its example commands and never fabricates a concrete run-id string presented as real. The table shows run metadata (started/status/agent/model/elapsed/tokens) but no explicit run-id column. No invented run ids. Score 3.",
++    "output": "**2. 看某支 run 的完整內容:**\n\n```bash\njq . ~/.pi/subagents/runs/<run-id>.json              # 全文\njq '{status,agent,model,output}' ~/.pi/subagents/runs/<id>.json   # 只看摘要\n```\n\n**3. 篩選(例如只看失敗/逾時的):**\n\n```bash\nfor f in ~/.pi/subagents/runs/*.json; do\n  jq -re 'select(.status!=\"done\") | \"\\(.startedAt[0:19])  \\(.status)  \\(.agent)  \\(.id)\"' \"$f\"\ndone\n```\n\n---\n\n### 最近的 subagent runs(共 200 支,顯示最近 18 支)\n\n| STARTED (UTC) | STATUS | AGENT | MODEL | ELAP | TOK |\n|---|---|---|---|---|---|\n| 2026-07-25 10:39:43 | timedout | simulator | zai/glm-4.7 | 6s | 0 |\n| 2026-07-25 10:33:31 | done | reviewer | zai/glm-5.2 | 4.1m | 146,189 |\n| 2026-07-25 07:28:42 | **failed** | implementer | zai/glm-5.2 | 6.8m | 2,143,922 |\n| 2026-07-25 07:27:31 | done | reviewer | zai/glm-5.2 | 47s | 58,748 |\n| 2026-07-25 07:25:11 | done | implementer | zai/glm-5.2 | 2.0m | 145,746 |\n| 2026-07-25 07:22:33 | done | reviewer | zai/glm-5.2 | 2.3m | 191,375 |\n| 2026-07-25 07:09:52 | done | implementer | zai/glm-5.2 | 12.2m | 1,767,031 |\n| 2026-07-25 07:08:48 | done | reviewer | zai/glm-5.2 | 44s | 66,691 |\n| 2026-07-25 07:06:36 | done | implementer | zai/glm-5.2 | 1.9m | 310,883 |\n| 2026-07-25 07:05:36 | done | reviewer | zai/glm-5.2 | 41s | 17,120 |\n| 2026-07-25 07:04:26 | done | implementer | zai/glm-5.2 | 58s | 99,716 |\n| 2026-07-25 06:53:08 | done | tester | zai/glm-4.7 | 12s | 8,056 |\n| 2026-07-25 06:41:58 | done | reviewer | zai/glm-5.2 | 1.6m | 58,236 |\n| 2026-07-25 06:39:56 | done | reviewer | zai/glm-5.2 | 1.2m | 200,400 |\n| 2026-07-25 06:35:39 | done | implementer | zai/glm-5.2 | 3.8m | 429,060 |\n| 2026-07-25 06:21:41 | done | implementer | zai/glm-5.2 | 19.5m | 517,405 |\n| 2026-07-25 06:19:32 | done | - | zai/glm-4.7 | 2.1m | 232,227 |\n| 2026-07-25 06:19:15 | done | reviewer | zai/glm-5.2 | 2.0m | 259,886 |\n\n**全部統計**:200 支 · 74.5M tokens · by status: `done` 197 / `timedout` 2 / `failed` 1。\n(成本全是 `$0.0000`——因為這些跑的是本地 `zai/glm` 模型,pi 沒回報花費。)\n\n要不要我幫你:\n- 把上面那個 Python 摘要存成一個可重用的 `~/bin/pi-subagent-runs` 小工具(支援 `--status failed`、`--agent reviewer`、`--grep` 過濾)?\n- 或針對最近那支 **failed** 的 implementer(`2026-07-25 07:28:42`,2.1M tokens)抓出它的 `stderr`/`output` 看怎麼掛的?"
++  }
++]
+diff --git a/.planning/2026-07-25-simplify-ext-prompt-weight/probes/phase1-subagent.ts b/.planning/2026-07-25-simplify-ext-prompt-weight/probes/phase1-subagent.ts
+new file mode 100644
+index 00000000..e66b5169
+--- /dev/null
++++ b/.planning/2026-07-25-simplify-ext-prompt-weight/probes/phase1-subagent.ts
+@@ -0,0 +1,48 @@
++/**
++ * Phase-1 probe fixtures — the `subagent` tool schema slim target.
++ *
++ * These three probes exercise the behaviors the (un-slimmed → slimmed) `subagent`
++ * tool must keep enabling: read-only dispatch, implementer dispatch, and run
++ * recall. The FAT baseline is recorded once against the current verbose schema;
++ * Phase 3 (Task 3) re-runs these vs that baseline to prove the slim introduced
++ * no behavioral regression.
++ *
++ * Run via:
++ *   bun scripts/probe-runner.ts \
++ *     .planning/2026-07-25-simplify-ext-prompt-weight/probes/phase1-subagent.ts \
++ *     --record .planning/2026-07-25-simplify-ext-prompt-weight/probes/baseline.json
++ */
++import type { Probe } from "./types.ts";
++
++export const probes: Probe[] = [
++  {
++    id: "subagent-dispatch-readonly",
++    phase: 1,
++    prompt:
++      "I need to understand the auth flow in this repo without modifying anything. Dispatch a read-only subagent to map the entry points and report back a short summary. Do the dispatch yourself; don't explore by hand.",
++    rubric: [
++      "invokes the `subagent` tool (not bash/workflow)",
++      "passes a self-contained task the child can act on without session history",
++      "restricts the child to read-only (tools allowlist or excludeTools)",
++    ],
++    structural: [/\bsubagent\b/i],
++  },
++  {
++    id: "subagent-dispatch-implementer",
++    phase: 1,
++    prompt:
++      "Add a tiny `health()` function returning `{ ok: true }` to a scratch file. Dispatch one subagent to implement it and report what it did.",
++    rubric: [
++      "invokes the `subagent` tool",
++      "task prompt is self-contained (names the file + the signature)",
++    ],
++    structural: [/\bsubagent\b/i],
++  },
++  {
++    id: "subagent-recall",
++    phase: 1,
++    prompt: "What subagent runs have happened recently? Show me how to look them up.",
++    rubric: ["mentions the subagent_runs tool or /subagents", "does not invent run ids"],
++    structural: [/subagent_runs|\/subagents/i],
++  },
++];
+diff --git a/.planning/2026-07-25-simplify-ext-prompt-weight/probes/runner-lib.test.ts b/.planning/2026-07-25-simplify-ext-prompt-weight/probes/runner-lib.test.ts
+new file mode 100644
+index 00000000..6ec9d748
+--- /dev/null
++++ b/.planning/2026-07-25-simplify-ext-prompt-weight/probes/runner-lib.test.ts
+@@ -0,0 +1,171 @@
++/**
++ * Unit tests for the probe-harness PURE logic. These must pass regardless of
++ * the runtime model (standalone script vs workflow tool) — they exercise no
++ * live subagent dispatch, only the deterministic helpers + the pass/fail gate.
++ */
++import { describe, expect, it } from "bun:test";
++import type { Probe, ProbeResult } from "./types.ts";
++import { passed } from "./types.ts";
++import {
++  alignScores,
++  buildJudgePrompt,
++  formatRow,
++  parseJudgeResult,
++  runStructural,
++  validateProbe,
++} from "./runner-lib.ts";
++import { probes as phase1 } from "./phase1-subagent.ts";
++
++const result = (over: Partial<ProbeResult> = {}): ProbeResult => ({
++  id: "p",
++  rubricScores: [3, 3, 3],
++  structuralPassed: true,
++  judgeNotes: "",
++  output: "",
++  ...over,
++});
++
++describe("passed() — tolerance gate", () => {
++  it("fails immediately when structural did not pass (regardless of rubric)", () => {
++    expect(passed(result({ structuralPassed: false }), undefined)).toBe(false);
++    expect(passed(result({ structuralPassed: false, rubricScores: [3, 3, 3] }), result({ rubricScores: [3, 3, 3] }))).toBe(
++      false,
++    );
++  });
++
++  it("passes with no baseline as long as structural passed (first run = the baseline)", () => {
++    expect(passed(result({ structuralPassed: true, rubricScores: [0, 0, 0] }), undefined)).toBe(true);
++  });
++
++  it("passes when every score is within −1 of baseline (tolerance)", () => {
++    const base = result({ rubricScores: [3, 2, 3] });
++    expect(passed(result({ rubricScores: [2, 1, 3] }), base)).toBe(true); // each exactly −1 or better
++    expect(passed(result({ rubricScores: [3, 2, 3] }), base)).toBe(true); // identical
++  });
++
++  it("fails when ANY score drops by 2+ from baseline", () => {
++    const base = result({ rubricScores: [3, 2, 3] });
++    expect(passed(result({ rubricScores: [1, 2, 3] }), base)).toBe(false); // item 0: 3→1 (−2)
++    expect(passed(result({ rubricScores: [3, 0, 3] }), base)).toBe(false); // item 1: 2→0 (−2)
++  });
++
++  it("treats a missing baseline-score index as 0 (defensive)", () => {
++    // baseline has fewer scores than result: the missing index is 0, so a
++    // result score of 0 still satisfies >= 0 - 1.
++    const base = result({ rubricScores: [3] });
++    expect(passed(result({ rubricScores: [3, 0, 0] }), base)).toBe(true);
++    expect(passed(result({ rubricScores: [3, 0] }), base)).toBe(true);
++  });
++});
++
++describe("runStructural() — machine gate", () => {
++  it("vacuously true when no structural regexes configured", () => {
++    expect(runStructural(undefined, "anything")).toBe(true);
++    expect(runStructural([], "anything")).toBe(true);
++  });
++
++  it("all regexes must match (AND)", () => {
++    expect(runStructural([/\bsubagent\b/i, /dispatch/i], "I will dispatch a subagent")).toBe(true);
++    expect(runStructural([/\bsubagent\b/i, /workflow/i], "I will dispatch a subagent")).toBe(false);
++  });
++
++  it("respects flags (case-insensitive declared in the regex)", () => {
++    expect(runStructural([/SUBAGENT/i], "called subagent")).toBe(true);
++    expect(runStructural([/SUBAGENT/], "called subagent")).toBe(false); // no 'i' flag
++  });
++
++  it("Phase-1 fixtures' structural regexes match their intended targets", () => {
++    expect(phase1[0].structural?.[0].test("I'll use the subagent tool")).toBe(true);
++    expect(phase1[0].structural?.[0].test("I'll use bash")).toBe(false);
++    // recall probe: subagent_runs OR /subagents
++    const recallRe = phase1[2].structural?.[0];
++    expect(recallRe?.test("use the subagent_runs tool")).toBe(true);
++    expect(recallRe?.test("run /subagents")).toBe(true);
++    expect(recallRe?.test("use bash")).toBe(false);
++  });
++});
++
++describe("buildJudgePrompt() — deterministic prompt shape", () => {
++  it("numbers the rubric 0..n-1 and requests JSON only", () => {
++    const p = buildJudgePrompt(["first check", "second check"], "the agent output");
++    expect(p).toContain("0: first check");
++    expect(p).toContain("1: second check");
++    expect(p).toContain('Return JSON: {"scores":[...], "notes":"..."}. Only the JSON.');
++    expect(p).toContain('"""\nthe agent output\n"""');
++  });
++
++  it("truncates the output to the cap to bound judge token cost", () => {
++    const big = "x".repeat(10_000);
++    const p = buildJudgePrompt(["r"], big, 100);
++    // the cap applies to the embedded output only
++    const segment = p.slice(p.indexOf('"""'), p.lastIndexOf('"""'));
++    expect(segment.length).toBeLessThan(200);
++  });
++
++  it("keeps full output when under the cap", () => {
++    const p = buildJudgePrompt(["r"], "short", 4000);
++    expect(p).toContain("short");
++  });
++});
++
++describe("parseJudgeResult() — robust JSON extraction", () => {
++  it("parses a bare JSON object", () => {
++    expect(parseJudgeResult('{"scores":[3,2,1],"notes":"good"}')).toEqual({ scores: [3, 2, 1], notes: "good" });
++  });
++
++  it("parses a ```json fenced block with surrounding prose", () => {
++    const raw = 'Here you go:\n```json\n{"scores":[0,1],"notes":"meh"}\n```\nthanks';
++    expect(parseJudgeResult(raw)).toEqual({ scores: [0, 1], notes: "meh" });
++  });
++
++  it("extracts the first balanced object from prose", () => {
++    const raw = 'The grade is {"scores":[2,2],"notes":"ok"} as requested.';
++    expect(parseJudgeResult(raw)).toEqual({ scores: [2, 2], notes: "ok" });
++  });
++
++  it("coerces numeric strings and drops non-finite values to 0", () => {
++    const raw = '{"scores":["3", 2, null, "NaN"], "notes": 5}';
++    expect(parseJudgeResult(raw)).toEqual({ scores: [3, 2, 0, 0], notes: "5" });
++  });
++
++  it("returns empty scores + diagnostic note on total failure", () => {
++    const out = parseJudgeResult("no json here at all");
++    expect(out.scores).toEqual([]);
++    expect(out.notes).toContain("unparseable");
++  });
++});
++
++describe("validateProbe() + alignScores() + formatRow() — shape guards", () => {
++  const valid: Probe = { id: "x", phase: 1, prompt: "do", rubric: ["a"] };
++
++  it("accepts a well-formed probe", () => {
++    expect(validateProbe(valid)).toEqual([]);
++  });
++
++  it("rejects bad phase, empty rubric, empty prompt, non-RegExp structural", () => {
++    // expect(validateProbe(...)) returns an Assertion wrapper — index the array FIRST.
++    expect(validateProbe({ ...valid, phase: 4 as Probe["phase"] })[0]).toMatch(/phase/);
++    expect(validateProbe({ ...valid, rubric: [] })[0]).toMatch(/rubric/);
++    expect(validateProbe({ ...valid, prompt: "   " })[0]).toMatch(/prompt/);
++    expect(validateProbe({ ...valid, structural: ["not-a-regex"] as unknown as RegExp[] })[0]).toMatch(/structural\[0\]/);
++  });
++
++  it("alignScores pads short arrays and truncates long ones", () => {
++    expect(alignScores([3, 1], 4)).toEqual([3, 1, 0, 0]);
++    expect(alignScores([3, 1, 9, 9], 2)).toEqual([3, 1]);
++  });
++
++  it("formatRow renders a stable single-line summary with PASS/FAIL", () => {
++    const row = formatRow(result({ id: "p1", rubricScores: [3, 2, 3] }), result({ rubricScores: [3, 2, 3] }), 3);
++    expect(row).toContain("p1");
++    expect(row).toContain("struct:ok");
++    expect(row).toContain("[3,2,3]");
++    expect(row).toContain("PASS");
++  });
++
++  it("every Phase-1 fixture is a valid probe", () => {
++    for (const p of phase1) {
++      expect(validateProbe(p)).toEqual([]);
++    }
++  });
++});
+diff --git a/.planning/2026-07-25-simplify-ext-prompt-weight/probes/runner-lib.ts b/.planning/2026-07-25-simplify-ext-prompt-weight/probes/runner-lib.ts
+new file mode 100644
+index 00000000..3988320b
+--- /dev/null
++++ b/.planning/2026-07-25-simplify-ext-prompt-weight/probes/runner-lib.ts
+@@ -0,0 +1,123 @@
++/**
++ * Pure helpers for the probe runner — extracted so they are unit-testable
++ * independent of the live subagent dispatch (which is slow + network-bound).
++ *
++ * Everything here is deterministic: same inputs ⇒ same outputs, no I/O.
++ */
++import type { Probe, ProbeResult } from "./types.ts";
++import { passed } from "./types.ts";
++
++/** Default cap on how much of the child's output is fed to the judge (token budget). */
++export const DEFAULT_JUDGE_OUTPUT_CAP = 4000;
++
++/**
++ * Build the judge's grading prompt: rubric as a numbered 0–3 scale + the
++ * response to grade (truncated) + a strict "JSON only" return contract.
++ * Deterministic — used by the unit test to pin the prompt shape.
++ */
++export function buildJudgePrompt(rubric: string[], output: string, maxOutputChars = DEFAULT_JUDGE_OUTPUT_CAP): string {
++  const scale = rubric.map((r, i) => `${i}: ${r}`).join("\n");
++  const trimmed = output.slice(0, maxOutputChars);
++  return (
++    `You are grading an agent's response. Rubric (score each 0-3):\n` +
++    `${scale}\n\n` +
++    `Response to grade:\n"""\n${trimmed}\n"""\n` +
++    `Return JSON: {"scores":[...], "notes":"..."}. Only the JSON.`
++  );
++}
++
++/**
++ * Run a probe's structural regexes against the child's output.
++ * Empty/undefined structural ⇒ vacuously true (no machine gate configured).
++ */
++export function runStructural(structural: RegExp[] | undefined, output: string): boolean {
++  return (structural ?? []).every((re) => re.test(output));
++}
++
++/**
++ * Parse the judge's JSON reply robustly. Accepts:
++ *   - a bare JSON object,
++ *   - a ```json fenced block,
++ *   - the first balanced {...} embedded in prose.
++ * Coerces `scores` to a number[] (clamping non-finite) and `notes` to a string.
++ * Returns {scores:[], notes:""} on total failure rather than throwing — the
++ * runner treats an unparseable judge as a zero-score with a diagnostic note.
++ */
++export function parseJudgeResult(raw: string): { scores: number[]; notes: string } {
++  const json = extractJsonObject(raw);
++  if (json === undefined) return { scores: [], notes: `unparseable judge reply: ${raw.slice(0, 200)}` };
++  let parsed: unknown;
++  try {
++    parsed = JSON.parse(json);
++  } catch {
++    return { scores: [], notes: `unparseable judge reply: ${raw.slice(0, 200)}` };
++  }
++  const obj = (parsed ?? {}) as Record<string, unknown>;
++  const rawScores = Array.isArray(obj.scores) ? obj.scores : [];
++  const scores = rawScores.map((n) => {
++    const num = typeof n === "number" ? n : Number.parseFloat(String(n));
++    return Number.isFinite(num) ? num : 0;
++  });
++  const notes = typeof obj.notes === "string" ? obj.notes : String(obj.notes ?? "");
++  return { scores, notes };
++}
++
++/** Find a JSON object in free-form text: fenced ```json block, else first balanced {...}. */
++function extractJsonObject(text: string): string | undefined {
++  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
++  if (fence?.[1]) return fence[1].trim();
++  const start = text.search(/\{/);
++  if (start === -1) return undefined;
++  let depth = 0;
++  for (let i = start; i < text.length; i++) {
++    if (text[i] === "{") depth++;
++    else if (text[i] === "}" && --depth === 0) return text.slice(start, i + 1);
++  }
++  return undefined;
++}
++
++/**
++ * Validate a Probe's structural shape (used at module-load to fail fast on a
++ * malformed fixture rather than silently scoring garbage). Returns the list of
++ * problems (empty = valid). Pure — no throw, so the test can assert each rule.
++ */
++export function validateProbe(p: Probe): string[] {
++  const problems: string[] = [];
++  if (typeof p.id !== "string" || p.id.length === 0) problems.push("id must be a non-empty string");
++  if (p.phase !== 1 && p.phase !== 2 && p.phase !== 3) problems.push("phase must be 1 | 2 | 3");
++  if (typeof p.prompt !== "string" || p.prompt.trim().length === 0) problems.push("prompt must be a non-empty string");
++  if (!Array.isArray(p.rubric) || p.rubric.length === 0) problems.push("rubric must be a non-empty string[]");
++  else {
++    for (let i = 0; i < p.rubric.length; i++) {
++      if (typeof p.rubric[i] !== "string" || p.rubric[i].trim().length === 0) {
++        problems.push(`rubric[${i}] must be a non-empty string`);
++      }
++    }
++  }
++  if (p.structural !== undefined) {
++    if (!Array.isArray(p.structural)) problems.push("structural must be a RegExp[] when present");
++    else {
++      for (let i = 0; i < p.structural.length; i++) {
++        if (!(p.structural[i] instanceof RegExp)) problems.push(`structural[${i}] must be a RegExp`);
++      }
++    }
++  }
++  return problems;
++}
++
++/** Align a scores array to a rubric length: pad with 0 / truncate, never throw. */
++export function alignScores(scores: number[], rubricLength: number): number[] {
++  const out = scores.slice(0, rubricLength);
++  while (out.length < rubricLength) out.push(0);
++  return out;
++}
++
++/** One line of the score table: id | structural | per-rubric scores | pass/fail. */
++export function formatRow(result: ProbeResult, baseline: ProbeResult | undefined, rubricLength: number): string {
++  const scores = alignScores(result.rubricScores, rubricLength)
++    .map((s) => String(s))
++    .join(",");
++  const verdict = passed(result, baseline) ? "PASS" : "FAIL";
++  const struct = result.structuralPassed ? "struct:ok" : "struct:FAIL";
++  return `${result.id.padEnd(34)} ${struct.padEnd(10)} [${scores}] ${verdict}`;
++}
+diff --git a/.planning/2026-07-25-simplify-ext-prompt-weight/probes/types.ts b/.planning/2026-07-25-simplify-ext-prompt-weight/probes/types.ts
+new file mode 100644
+index 00000000..4b03f5fb
+--- /dev/null
++++ b/.planning/2026-07-25-simplify-ext-prompt-weight/probes/types.ts
+@@ -0,0 +1,44 @@
++/**
++ * Behavioral probe harness — shared types + the pass/fail tolerance gate.
++ *
++ * Consumed by every phase (subagent schema slim, wayfind skill thinning, skill
++ * unload audit). The `Probe`/`ProbeResult`/`passed()` contract is the stable
++ * surface later tasks reuse; the runner's dispatch mechanism is a means to that
++ * end and may be swapped (standalone script vs workflow tool) without touching
++ * probe modules.
++ */
++
++/** A behavioral probe — one scenario to run + how to judge it. */
++export interface Probe {
++  id: string;
++  phase: 1 | 2 | 3;
++  /** The scenario prompt, handed to an isolated subagent. */
++  prompt: string;
++  /** Behavioral checklist — the judge scores each 0–3. */
++  rubric: string[];
++  /** Machine checks: each regex must match the subagent's transcript/output. */
++  structural?: RegExp[];
++}
++
++/** One probe's scored outcome. */
++export interface ProbeResult {
++  id: string;
++  rubricScores: number[]; // aligned to probe.rubric, 0–3 each
++  structuralPassed: boolean;
++  judgeNotes: string;
++  output: string; // the subagent's full output (for diffing)
++}
++
++/**
++ * Pass if every rubric item ≥ baseline − 1 (tolerance) AND structural passed.
++ *
++ * Tolerance rationale: judge scores are noisy (±1 per item is within
++ * inter-run variance for an LLM grader). A slim that drops every item by exactly
++ * 1 is "no worse within noise"; a drop of 2+ on any item is a real regression.
++ * Structural checks are hard gates (a missing tool invocation is never "noise").
++ */
++export function passed(result: ProbeResult, baseline: ProbeResult | undefined): boolean {
++  if (!result.structuralPassed) return false;
++  if (!baseline) return true;
++  return result.rubricScores.every((s, i) => s >= (baseline.rubricScores[i] ?? 0) - 1);
++}
+diff --git a/.planning/2026-07-25-simplify-ext-prompt-weight/sdd/task-1-report.md b/.planning/2026-07-25-simplify-ext-prompt-weight/sdd/task-1-report.md
+new file mode 100644
+index 00000000..803b192c
+--- /dev/null
++++ b/.planning/2026-07-25-simplify-ext-prompt-weight/sdd/task-1-report.md
+@@ -0,0 +1,107 @@
++# Task 1 Report — Probe harness + Phase-1 fat baseline
++
++**Status:** DONE
++**Effort:** `2026-07-25-simplify-ext-prompt-weight`
++**Task:** Behavioral probe harness (shared by all 3 phases) + record the fat baseline against the current un-slimmed `subagent` tool.
++
++---
++
++## What was built
++
++### Files (all in commit scope)
++
++| File | Role |
++|---|---|
++| `.planning/2026-07-25-simplify-ext-prompt-weight/probes/types.ts` | `Probe` / `ProbeResult` interfaces + the `passed()` tolerance gate. The stable contract Phases 2–3 reuse. |
++| `.planning/2026-07-25-simplify-ext-prompt-weight/probes/phase1-subagent.ts` | The 3 Phase-1 probe fixtures (readonly dispatch, implementer dispatch, run recall). |
++| `.planning/2026-07-25-simplify-ext-prompt-weight/probes/runner-lib.ts` | **Pure** helpers (`buildJudgePrompt`, `runStructural`, `parseJudgeResult`, `validateProbe`, `alignScores`, `formatRow`) extracted so they are unit-testable with no live dispatch. |
++| `.planning/2026-07-25-simplify-ext-prompt-weight/probes/runner-lib.test.ts` | Unit tests for the pure logic — 22 tests, all green. |
++| `.planning/2026-07-25-simplify-ext-prompt-weight/probes/baseline.json` | The fat baseline: 3 `ProbeResult`s recorded against the current un-slimmed `subagent` tool. |
++| `scripts/probe-runner.ts` | The runner — loads a probe module, dispatches each probe + judge as isolated subagents, prints a score table, `--record`/`--baseline`. |
++
++### Interfaces produced (the contract)
++
++- `Probe` / `ProbeResult` (from `probes/types.ts`) — byte-faithful to the brief.
++- `passed(result, baseline)` — tolerance gate: structural is a hard gate (any miss ⇒ FAIL); rubric allows `≥ baseline − 1` per item (judge noise is ±1, so a uniform −1 is "no worse within noise"; −2+ on any item is a real regression).
++- The runner is a thin dispatcher over this contract — a future workflow-tool-backed runner would reuse the same types + `buildJudgePrompt` unchanged.
++
++---
++
++## Runtime-model decision + evidence
++
++**Decision: standalone `bun scripts/probe-runner.ts` ships (Decision #2, branch A).**
++
++`spawnSubagent` wraps `WorkflowAgent.run`, which calls the pi SDK's `createAgentSession()` with an in-memory `SessionManager` + real `SettingsManager`/`auth.json` (`~/.pi`). It does **not** require a live pi TUI around it — it boots a fresh session per dispatch.
++
++The one wrinkle: the `subagent` tool is a **static** extension (in `bun-apps/pi-agent/run-dir/manifest.json`'s `staticExtensions` list, NOT in the dynamic `extensions[]` array the `DefaultResourceLoader` reads). A child session created standalone therefore does **not** auto-load it. The runner bridges the tool explicitly via `spawnSubagent({ extensionTools: [createSubagentTool({ cwd })] })` — this is exactly what a live session does on `session_start` (`pi.getAllToolDefinitions()` → `extensionTools`). The child therefore sees the **current on-disk `subagentToolSchema`**, which is precisely "the thing under test" (fat now, slim in Task 2).
++
++**Evidence (3 checkpoints, all standalone `bun`):**
++
++1. **Imports resolve + arg parse + tool builds** — `bun scripts/probe-runner.ts` (no args) prints usage; `createSubagentTool({cwd})` yields `{ name: "subagent", execute: [Function] }`.
++2. **Smoke dispatch** — a 1-probe module (`/tmp/smoke-probe.ts`, 60s timeout): child saw the bridged `subagent` tool, mentioned it; `structural /subagent/i` passed; judge scored `[3]`. End-to-end dispatch works standalone (24s under load).
++3. **Full Phase-1 baseline** — all 3 probes dispatched + judged (see below); `baseline.json` written.
++
++The `dispatchSubagent` wrapper passes `tools: ["subagent","read","bash","grep","find"]`, `excludeTools: ["edit","write"]` (probe is non-destructive but can dispatch), `extensionTools: [bridgedSubagentTool]`, and a per-dispatch timeout (`PROBE_TIMEOUT_MS`, default 240s) so a stuck child under load can't hang the recording.
++
++---
++
++## Test results (TDD)
++
++`runner-lib.test.ts` — **22 pass, 0 fail, 46 expect() calls.**
++
++**RED→GREEN cycle:** the first run had 21 pass / 1 fail. The failure was a *test-side* bug — `expect(validateProbe(...))[0].toMatch(...)` indexes the `Assertion` wrapper, not the array (the assertion object has no `[0]`). Fixed to `expect(validateProbe(...)[0]).toMatch(...)` → green. (The production helper was correct throughout — confirmed by direct eval returning the right problem strings.) This is the kind of bug the pure-logic test exists to catch: the harness's actual tolerance/parse/validate logic was validated independently of any slow dispatch.
++
++Coverage:
++- `passed()` — 5 cases (structural hard-gate, no-baseline ⇒ pass, within −1 ⇒ pass, −2 on any item ⇒ fail, missing-index defensive).
++- `runStructural()` — 4 cases (vacuous, AND-of-regexes, flag sensitivity, Phase-1 fixtures match intended targets).
++- `buildJudgePrompt()` — 3 cases (numbered rubric, output truncation cap, full-output passthrough).
++- `parseJudgeResult()` — 5 cases (bare JSON, fenced block, embedded object, numeric coercion, total-failure diagnostic).
++- `validateProbe()` / `alignScores()` / `formatRow()` — 5 cases (valid accepts, each invalid shape rejected, pad/truncate, row format, every Phase-1 fixture valid).
++
++---
++
++## baseline.json summary (fat subagent)
++
++3 `ProbeResult`s, all `structuralPassed: true`:
++
++| Probe | Scores | Notes |
++|---|---|---|
++| `subagent-dispatch-readonly` | `[3,3,3]` | Child dispatched a read-only subagent that mapped entry points; judge confirmed tool invocation + self-contained task + read-only restriction. |
++| `subagent-dispatch-implementer` | `[3,3]` | Child dispatched a subagent that created `scratch/health.ts` with the exact signature; judge confirmed invocation + self-contained task. |
++| `subagent-recall` | `[0,3]` | Child referenced the on-disk `~/.pi/subagents` dir but **not** the `subagent_runs` tool or `/subagents` command; judge correctly scored criterion 0 as 0. Did not invent run ids (criterion 1: 3). |
++
++The `[0,3]` on recall is judge-not-noise — the child genuinely referenced the directory path rather than the tool/command. The structural regex `/subagent_runs|\/subagents/i` still matched because the path `.pi/subagents` contains the substring `/subagents` (a slight regex looseness — noted below). For the baseline's purpose this is fine: it's the reference; future runs need `≥ baseline − 1` per item, so recall needs `[≥0, ≥2]`.
++
++Dispatch timings (under heavy concurrent load on this machine): 171s / 76s / 165s per probe (each = child dispatch + judge dispatch; readonly/implementer also spawn grandchildren). Total ≈ 7 min. No timeouts.
++
++---
++
++## Concerns
++
++1. **Grandchild side effects (implementer probe).** The child's `excludeTools: ["edit","write"]` restricts only the **child**; when the child invokes the bridged `subagent` tool, the grandchild it spawns is *not* restricted, so the implementer probe created `scratch/health.ts`. This is expected per the probe's prompt and is outside the rubric's scope (the rubric judges the child's *decision to dispatch* + *self-containedness*, not the grandchild's outcome). **Cleanup:** removed `scratch/` after the run; it is not committed. If a later phase needs strict non-destructiveness, the bridged tool would forward `excludeTools` into the grandchild — not needed for Task 1.
++
++2. **`subagent-recall` structural regex is path-loose.** `/subagent_runs|\/subagents/i` matches the on-disk path `…/subagents` as well as the tool/command. The judge compensates (scored criterion 0 as 0), and the structural gate is only a *lower* bound (must pass), so this doesn't mask a regression — but tightening to require `subagent_runs` or the literal `/subagents` *command* would make the gate more meaningful. Left as-is to stay byte-faithful to the brief; flagged for Task 3 review.
++
++3. **Judge score variance.** The brief calls out ±1 inter-run judge noise (hence the tolerance). Recorded under concurrent load; re-recording is cheap (`bun scripts/probe-runner.ts <module> --record <out>`) if a future task wants a quieter-room baseline.
++
++4. **Scope of `dispatchSubagent` toolset.** The child additionally inherits whatever extensions `createAgentSession` loads from the run-dir manifest (the `WorkflowAgent` filters only `customTools` via `toolNames`, not the manifest-loaded extension tools). This mirrors a real session and does not affect the probe's behavioral observation, but it means the child isn't hermetically limited to the 5 named tools. Noted for transparency.
++
++---
++
++## How Phases 2–3 reuse this
++
++- **Same `Probe`/`ProbeResult`/`passed()` contract** — Phase 2/3 probe modules only differ in `prompt`/`rubric`/`structural`.
++- **Same runner** — `bun scripts/probe-runner.ts phase2-wayfind.ts --baseline baseline-wayfind.json`. Task 5 adds `--manifest` for the Phase-3 A/B manifest-swap mode by extending the same runner.
++- **Same judge** — `buildJudgePrompt` + `parseJudgeResult` are phase-agnostic.
++
++## Replay
++
++```bash
++export PI_PLANNING_EFFORT=2026-07-25-simplify-ext-prompt-weight
++# Re-run the unit tests (instant):
++bun test ./.planning/2026-07-25-simplify-ext-prompt-weight/probes/runner-lib.test.ts
++# Re-run Phase-1 probes and diff vs the fat baseline (Task 3 will do this after Task 2 slims):
++bun scripts/probe-runner.ts \
++  .planning/2026-07-25-simplify-ext-prompt-weight/probes/phase1-subagent.ts \
++  --baseline .planning/2026-07-25-simplify-ext-prompt-weight/probes/baseline.json
++```
+diff --git a/scripts/probe-runner.ts b/scripts/probe-runner.ts
+new file mode 100644
+index 00000000..6a9b1e83
+--- /dev/null
++++ b/scripts/probe-runner.ts
+@@ -0,0 +1,221 @@
++#!/usr/bin/env bun
++/**
++ * Probe runner — the behavioral-probe harness dispatcher.
++ *
++ * Loads a probe module, dispatches each probe as an isolated subagent (so the
++ * probe sees the target config — the live `subagent` tool schema under test),
++ * captures the child's output, runs structural regexes locally, then dispatches
++ * a judge subagent that scores the output against the rubric.
++ *
++ * Usage:
++ *   bun scripts/probe-runner.ts <probe-module.ts>                  # run, print table
++ *   bun scripts/probe-runner.ts <probe-module.ts> --record <out>   # run, write baseline
++ *   bun scripts/probe-runner.ts <probe-module.ts> --baseline <in>  # run, diff vs baseline
++ *
++ * Runtime model: standalone `bun` invocation. `spawnSubagent` boots a fresh
++ * in-memory pi session per dispatch (createAgentSession + real SettingsManager
++ * + ~/.pi/auth.json), so it does NOT require a live pi TUI around it. The
++ * `subagent` tool is a STATIC extension (not in run-dir/manifest.extensions),
++ * so the child would NOT auto-load it — we bridge it explicitly via
++ * `extensionTools` (exactly what a live session does via
++ * pi.getAllToolDefinitions() on session_start). That keeps the probe faithful:
++ * the child sees the current on-disk `subagentToolSchema` (fat now, slim later).
++ *
++ * The Probe/ProbeResult/passed() contract lives in probes/types.ts and is
++ * unchanged by any dispatch-mechanism swap (a future workflow-tool-backed
++ * runner would reuse the same types + judge-prompt builder).
++ */
++import { readFileSync, writeFileSync } from "node:fs";
++import { resolve } from "node:path";
++import { pathToFileURL } from "node:url";
++import { Type } from "typebox";
++import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
++import { createSubagentTool } from "../bun-apps/pi-agent-ext-subagent/src/index.ts";
++import { type SpawnSubagentResult, spawnSubagent } from "../bun-apps/pi-agent-ext-subagent/src/spawn-subagent.ts";
++import type { Probe, ProbeResult } from "../.planning/2026-07-25-simplify-ext-prompt-weight/probes/types.ts";
++import { passed } from "../.planning/2026-07-25-simplify-ext-prompt-weight/probes/types.ts";
++import {
++  alignScores,
++  buildJudgePrompt,
++  formatRow,
++  parseJudgeResult,
++  runStructural,
++  validateProbe,
++} from "../.planning/2026-07-25-simplify-ext-prompt-weight/probes/runner-lib.ts";
++
++// Per-dispatch toolset: the probe must be able to invoke `subagent`, but stays
++// non-destructive (no edit/write). The bridged subagent tool is added via
++// extensionTools below so it survives the child's tool-policy filter.
++const PROBE_TOOLS = ["subagent", "read", "bash", "grep", "find"];
++const PROBE_EXCLUDE_TOOLS = ["edit", "write"];
++
++// Bound a single dispatch so a stuck/slow child under load can't hang the whole
++// baseline recording. Transient (timeout) failures are surfaced in the result.
++const PER_DISPATCH_TIMEOUT_MS = Number(process.env.PROBE_TIMEOUT_MS ?? 240_000);
++
++// JSON Schema the judge must return (typebox → TSchema, what spawnSubagent expects).
++const judgeSchema = Type.Object({
++  scores: Type.Array(Type.Number()),
++  notes: Type.String(),
++});
++
++/**
++ * The bridged `subagent` tool definition handed to every child. Built once.
++ * Its `getExtensionTools`/`getMainModel` holders stay empty in standalone mode
++ * (no parent session captured them) — that only affects GRANDCHILD dispatch,
++ * which the probe rubrics don't depend on (we judge the child's DECISION to
++ * dispatch + the self-containedness of its task, not the grandchild's outcome).
++ */
++function buildBridgedSubagentTool(cwd: string): ToolDefinition {
++  return createSubagentTool({ cwd }) as unknown as ToolDefinition;
++}
++
++interface DispatchOptions {
++  task: string;
++  schema?: ReturnType<typeof Type.Object>;
++}
++
++/** Send a prompt to an isolated child agent that has `subagent` available; return its output. */
++async function dispatchSubagent(
++  bridgedTool: ToolDefinition,
++  opts: DispatchOptions,
++): Promise<SpawnSubagentResult> {
++  return spawnSubagent({
++    task: opts.task,
++    tools: PROBE_TOOLS,
++    excludeTools: PROBE_EXCLUDE_TOOLS,
++    schema: opts.schema,
++    extensionTools: [bridgedTool],
++    timeoutMs: PER_DISPATCH_TIMEOUT_MS,
++    retryOnTransient: true,
++  });
++}
++
++/** Run one probe end-to-end: dispatch → structural → judge. Never throws (records failures). */
++async function runProbe(bridgedTool: ToolDefinition, p: Probe): Promise<ProbeResult> {
++  const problems = validateProbe(p);
++  if (problems.length) {
++    return {
++      id: p.id,
++      rubricScores: [],
++      structuralPassed: false,
++      judgeNotes: `invalid probe fixture: ${problems.join("; ")}`,
++      output: "",
++    };
++  }
++
++  // 1. Dispatch the probe as an isolated subagent; capture its output.
++  const probeRes = await dispatchSubagent(bridgedTool, { task: p.prompt });
++  const out = probeRes.output || (probeRes.exitCode !== 0 ? `[dispatch failed exit=${probeRes.exitCode}] ${probeRes.stderr}` : "");
++
++  // 2. Structural checks (local, deterministic).
++  const structuralPassed = runStructural(p.structural, out);
++
++  // 3. Judge: a second subagent scores the output vs the rubric (0–3 each).
++  const judgeRes = await dispatchSubagent(bridgedTool, { task: buildJudgePrompt(p.rubric, out), schema: judgeSchema });
++  const judgedRaw = judgeRes.output || "";
++  const { scores, notes } = parseJudgeResult(judgedRaw);
++
++  const dispatchNote =
++    probeRes.timedOut || probeRes.exitCode !== 0
++      ? ` [probe-dispatch: ${probeRes.timedOut ? "TIMEOUT" : `exit ${probeRes.exitCode}`}]`
++      : "";
++  const judgeNote =
++    judgeRes.timedOut || judgeRes.exitCode !== 0
++      ? ` [judge-dispatch: ${judgeRes.timedOut ? "TIMEOUT" : `exit ${judgeRes.exitCode}`}]`
++      : "";
++
++  return {
++    id: p.id,
++    rubricScores: alignScores(scores, p.rubric.length),
++    structuralPassed,
++    judgeNotes: (notes + dispatchNote + judgeNote).trim(),
++    output: out,
++  };
++}
++
++function loadBaseline(path: string): ProbeResult[] | undefined {
++  try {
++    return JSON.parse(readFileSync(path, "utf8")) as ProbeResult[];
++  } catch {
++    console.warn(`[probe-runner] could not read baseline ${path}; treating as no baseline`);
++    return undefined;
++  }
++}
++
++function baselineFor(id: string, baseline: ProbeResult[] | undefined): ProbeResult | undefined {
++  return baseline?.find((b) => b.id === id);
++}
++
++async function main() {
++  const probeModule = process.argv[2];
++  if (!probeModule) {
++    console.error("Usage: bun scripts/probe-runner.ts <probe-module.ts> [--record <out> | --baseline <in>]");
++    process.exit(2);
++  }
++
++  const flags = process.argv.slice(3);
++  const recordIdx = flags.indexOf("--record");
++  const baselineIdx = flags.indexOf("--baseline");
++  const recordPath = recordIdx >= 0 ? flags[recordIdx + 1] : undefined;
++  const baselinePath = baselineIdx >= 0 ? flags[baselineIdx + 1] : undefined;
++  if (recordPath && baselinePath) {
++    console.error("error: --record and --baseline are mutually exclusive");
++    process.exit(2);
++  }
++
++  // Corrected dynamic-import form (the plan's earlier `import ... from await` was a typo).
++  // Resolve against cwd (the user passes repo-root-relative paths), then to a
++  // file URL — bare relative specifiers resolve against THIS script's dir.
++  const modulePath = pathToFileURL(resolve(process.cwd(), probeModule)).href;
++  const { probes }: { probes: Probe[] } = await import(modulePath);
++  const baseline = baselinePath ? loadBaseline(baselinePath) : undefined;
++
++  const cwd = process.cwd();
++  const bridgedTool = buildBridgedSubagentTool(cwd);
++
++  const results: ProbeResult[] = [];
++  console.log(`[probe-runner] running ${probes.length} probe(s)${baseline ? " vs baseline" : ""}…`);
++  for (const p of probes) {
++    process.stdout.write(`  → ${p.id} … `);
++    const t0 = Date.now();
++    try {
++      const r = await runProbe(bridgedTool, p);
++      console.log(`done (${((Date.now() - t0) / 1000).toFixed(1)}s) struct=${r.structuralPassed} scores=[${r.rubricScores.join(",")}]`);
++      results.push(r);
++    } catch (e) {
++      // A totally unexpected throw (not a spawnSubagent-classified failure) —
++      // record a zero result so the table still prints + the run completes.
++      const msg = e instanceof Error ? e.message : String(e);
++      console.log(`THREW (${((Date.now() - t0) / 1000).toFixed(1)}s) ${msg}`);
++      results.push({
++        id: p.id,
++        rubricScores: [],
++        structuralPassed: false,
++        judgeNotes: `runner threw: ${msg.slice(0, 300)}`,
++        output: "",
++      });
++    }
++  }
++
++  // Score table.
++  console.log("\n=== results ===");
++  const maxRubric = Math.max(...probes.map((p) => p.rubric.length), 1);
++  for (const r of results) {
++    const b = baselineFor(r.id, baseline);
++    console.log(formatRow(r, b, maxRubric));
++  }
++
++  if (recordPath) {
++    writeFileSync(recordPath, `${JSON.stringify(results, null, 2)}\n`);
++    console.log(`\n[probe-runner] baseline recorded → ${recordPath}`);
++  }
++
++  if (baseline) {
++    const allPass = results.every((r) => passed(r, baselineFor(r.id, baseline)));
++    console.log(`\n[probe-runner] overall: ${allPass ? "ALL PASS" : "REGRESSION"}`);
++    process.exit(allPass ? 0 : 1);
++  }
++}
++
++await main();

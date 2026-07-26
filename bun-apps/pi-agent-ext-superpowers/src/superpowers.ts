@@ -15,13 +15,28 @@
  * bootstrap SKILL.md (cached). Deterministic — no LLM, no network.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const EXTREMELY_IMPORTANT_MARKER = "<EXTREMELY_IMPORTANT>";
 const BOOTSTRAP_MARKER = "superpowers:using-superpowers bootstrap for pi";
+
+/** Env var holding a comma-list of skill dir-names to UNREGISTER (Phase-3).
+ *  See {@link parseSkillExclude} / {@link resolveAdvertisedSkillPaths}. */
+export const SKILL_EXCLUDE_ENV = "PI_SUPERPOWERS_SKILL_EXCLUDE";
+
+/** Skills UNREGISTERED by default (Phase-3 clean-pass — the model resists
+ *  confidence-escalation even without this skill, so dropping it costs ~zero
+ *  behavior for ~139 tok/req saved). Override via the env list, or disable
+ *  entirely via {@link DEFAULTS_DISABLE_ENV}. */
+export const DEFAULT_SKILL_EXCLUDE = ["verification-before-completion"] as const;
+
+/** Set to `0`/`false`/`no`/`off` to suppress {@link DEFAULT_SKILL_EXCLUDE} —
+ *  e.g. for a probe fat-run that must load every skill, or to restore the
+ *  historical "load all skills" behavior. */
+export const DEFAULTS_DISABLE_ENV = "PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS";
 
 export { BOOTSTRAP_MARKER };
 
@@ -64,6 +79,76 @@ export function resolveBootstrapSkillPath(fromUrl: string = import.meta.url): st
 }
 
 /**
+ * Resolve the exclude set = {@link DEFAULT_SKILL_EXCLUDE} (Phase-3 clean-pass,
+ * unless suppressed) ∪ the `PI_SUPERPOWERS_SKILL_EXCLUDE` comma-list. Whitespace
+ * is trimmed and empty tokens dropped, so `" a ,, b "` adds `a`,`b` on top of
+ * the defaults. Set `PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS=0` to suppress the
+ * defaults entirely (e.g. a probe fat-run that must load every skill).
+ *
+ * Phase-3 skill-unload audit: any listed skill is dropped from the
+ * `resources_discover` advertisement so pi never registers it, WITHOUT editing
+ * the pinned `SKILL.md` (ADR-0004 — unregister ≠ edit). Pure + injectable so
+ * the unit test can drive it without touching `process.env` ordering.
+ */
+export function parseSkillExclude(env: Record<string, string | undefined> = process.env): Set<string> {
+  // DEFAULT_SKILL_EXCLUDE applies unless explicitly suppressed (Phase-3 default-off).
+  const defaultsOff = /^(0|false|no|off)$/i.test(env[DEFAULTS_DISABLE_ENV] ?? "");
+  const defaults = defaultsOff ? [] : DEFAULT_SKILL_EXCLUDE;
+  const fromEnv = (env[SKILL_EXCLUDE_ENV] ?? "")
+    .split(",")
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+  return new Set([...defaults, ...fromEnv]);
+}
+
+/** Immediate skill-dir names actually present under `skillsDir` (the keys the
+ *  exclude list is matched against). Sorted for stable output. Never throws. */
+function listSkillDirNames(skillsDir: string): string[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(skillsDir);
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((name) => {
+      try {
+        return statSync(join(skillsDir, name)).isDirectory();
+      } catch {
+        return false;
+      }
+    })
+    .sort();
+}
+
+/**
+ * Resolve the `resources_discover` advertisement for a skills dir, honoring
+ * the exclude knob.
+ *
+ * - Exclude EMPTY  → `[skillsDir]` (pi recurses into every `<name>/` itself;
+ *   this is the historical behavior and preserves the silent dedup vs the
+ *   run-dir `--skill <skillsDir>` splice — both resolve to the same real dir).
+ * - Exclude NON-empty → the INDIVIDUAL skill-dir paths for every present skill
+ *   NOT in the exclude set. Each `<name>/` is a pi skill root (a dir whose
+ *   direct child `SKILL.md` makes pi treat it as a skill root and stop
+ *   recursing), so pi registers exactly that skill from each path and the
+ *   excluded skill is never registered.
+ *
+ * NB: for the exclude to actually take effect at runtime, this extension must
+ * be the SOLE skill source. The run-dir resolver splices `--skill <skillsDir>`
+ * into argv (which loads every skill before this handler runs, silently deduped
+ * to the same real files), so a real `pi -p` thin run must ALSO pass `-ns`
+ * (`--no-skills`) to suppress that splice — then skills load only via this
+ * handler and the knob is authoritative. See `scripts/probe-runner.ts` `--ab-skill`.
+ */
+export function resolveAdvertisedSkillPaths(skillsDir: string, exclude: Set<string> = parseSkillExclude()): string[] {
+  if (exclude.size === 0) return [skillsDir];
+  return listSkillDirNames(skillsDir)
+    .filter((name) => !exclude.has(name))
+    .map((name) => join(skillsDir, name));
+}
+
+/**
  * Register the Superpowers Pi extension. The default export of `src/index.ts`
  * (and the thin `extensions/index.ts` wrapper) calls this.
  */
@@ -74,9 +159,19 @@ export function superpowersExtension(pi: ExtensionAPI, fromUrl: string = import.
   // Never advertise a non-existent dir (e.g. a classic --compile binary with no
   // embedded-assets extraction): pi reports each missing skill path as a
   // "[Skill conflicts] skill path does not exist" startup warning.
-  pi.on("resources_discover", async () => ({
-    skillPaths: existsSync(skillsDir) ? [skillsDir] : [],
-  }));
+  //
+  // PI_SUPERPOWERS_SKILL_EXCLUDE (Phase-3): a comma-list of skill dir-names to
+  // UNREGISTER (omitted from the advertisement) without touching their pinned
+  // SKILL.md (ADR-0004). The exclude set also includes DEFAULT_SKILL_EXCLUDE
+  // (verification-before-completion — Phase-3 clean-pass) unless
+  // PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS=0 suppresses it. The handler then
+  // returns individual skill-dir paths so pi registers exactly the non-excluded
+  // skills. Computed per-call (not captured at registration) so a subprocess can
+  // flip the env between a fat run and a thin run in the same process image.
+  pi.on("resources_discover", async () => {
+    if (!existsSync(skillsDir)) return { skillPaths: [] };
+    return { skillPaths: resolveAdvertisedSkillPaths(skillsDir) };
+  });
 
   pi.on("session_start", async () => {
     injectBootstrap = true;
@@ -157,21 +252,29 @@ Pi has native skills but does not expose Claude Code's \`Skill\` tool. When a Su
 
 Pi's built-in coding tools are lowercase: \`read\`, \`write\`, \`edit\`, \`bash\`, plus optional \`grep\`, \`find\`, and \`ls\`. Use those for the corresponding actions: read a file, create or edit files, run shell commands, search file contents, find files by name, and list directories.
 
-Pi does not ship a standard subagent tool in core. This repo's pi-agent-ext-subagent provides a 'subagent' tool - an isolated-context child dispatch (subagent({ task, model?, tier?, tools?, excludeTools?, cwd?, commitScope?, tokenBudget?, spendBudget?, timeoutMs?, schema?, agentType? }); the child has no access to this session's history, so pass a self-contained 'task'). Superpowers subagent workflows (subagent-driven-development) use it. Directives every dispatch: (1) prefer tier ('small'|'medium'|'big', resolved from ~/.pi/workflows/model-tiers.json via /workflows-models) over a raw model id - it is portable and user-tunable; SDD roles: implementer=medium, research=small, synthesis/big. (2) For an SDD implementer/fix dispatch, pass commitScope with the task's declared file scope (e.g. ["src/auth/","tests/auth/"]) so the tool flags any out-of-scope committed path - the recurring 'git add -A' sweep that stages .planning/<effort>/sdd/ scratch into a commit, which then lands on main at squash-merge - as a warning (detection only; you decide the revert). Use [] for a read-only subagent that should commit nothing. (3) The tool auto-parses the SDD implementer's '**Status:** DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED' block into details.report, and auto-persists each completed run to ~/.pi/subagents/runs/. (4) For CONCURRENT fan-out (dispatching-parallel-agents), use the 'workflow' tool's parallel() - NOT multiple subagent calls in one turn (the subagent tool is executionMode: sequential, so a batch of them serializes). For the full param surface + rationale (schema, agentType, retryOnTransient, tokenBudget/spendBudget guidance), read references/pi-tools.md. If no 'subagent' tool is available, do the work in this session or explain the missing capability instead of inventing Task calls.
+Pi does not ship a standard subagent tool in core. This repo's pi-agent-ext-subagent provides a 'subagent' tool - an isolated-context child dispatch (subagent({ task, model?, capability?, tier?, tools?, excludeTools?, cwd?, commitScope?, tokenBudget?, spendBudget?, timeoutMs?, schema?, agentType? }); the child has no access to this session's history, so pass a self-contained 'task'). Superpowers subagent workflows (subagent-driven-development) use it. Directives every dispatch: (1) prefer tier ('small'|'medium'|'big', resolved from ~/.pi/workflows/model-tiers.json via /workflows-models) over a raw model id - it is portable and user-tunable; SDD roles: implementer=medium, research=small, synthesis/big. (2) For an SDD implementer/fix dispatch, pass commitScope with the task's declared file scope (e.g. ["src/auth/","tests/auth/"]) so the tool flags any out-of-scope committed path - the recurring 'git add -A' sweep that stages .planning/<effort>/sdd/ scratch into a commit, which then lands on main at squash-merge - as a warning (detection only; you decide the revert). Use [] for a read-only subagent that should commit nothing. (3) The tool auto-parses the SDD implementer's '**Status:** DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED' block into details.report, and auto-persists each completed run to ~/.pi/subagents/runs/. (4) For CONCURRENT fan-out (dispatching-parallel-agents), use the 'workflow' tool's parallel() - NOT multiple subagent calls in one turn (the subagent tool is executionMode: sequential, so a batch of them serializes). For the full param surface + rationale (schema, agentType, retryOnTransient, tokenBudget/spendBudget guidance), read references/pi-tools.md. If no 'subagent' tool is available, do the work in this session or explain the missing capability instead of inventing Task calls.
 
 Pi does not ship a standard task-list tool. If an installed todo/task tool is available, use it. Otherwise track work in plan files or a repo-local \`TODO.md\` when task tracking is needed. Treat older \`TodoWrite\` references as this task-tracking action.`;
 }
 
 function piBoundaryOverrides(): string {
-  return `## Path & routing overrides (this repo)
+  return `## Pipeline routing (this repo)
 
-Superpowers and Wayfind are two parallel, non-connecting pipelines that share the \`.planning/<effort>/\` layout. Three runtime rules keep them from colliding; apply them in addition to the skill bodies (which keep their upstream text verbatim).
+Superpowers and Wayfind are two parallel pipelines sharing the \`.planning/<effort>/\` layout. Two rules:
 
-**1. Artifact-home override.** When a Superpowers skill tells you to save a spec under \`docs/superpowers/specs/\` or a plan under \`docs/superpowers/plans/\`, write it under the unified layout instead: \`docs/superpowers/specs/...\` → \`.planning/<effort>/spec.md\`; \`docs/superpowers/plans/...\` → \`.planning/<effort>/plan.md\`. This converges the homes at runtime without forking the upstream skill text.
+**1. One canonical home.** Every artifact lives under \`.planning/<effort>/\` — specs → \`.planning/<effort>/spec.md\`, plans → \`.planning/<effort>/plan.md\`, the SDD workspace → \`.planning/<effort>/sdd/<plan-basename>/\` (one dir per plan: briefs/, reports/, reviews/, and the recovery ledger at \`.planning/<effort>/sdd/<plan-basename>/progress.md\`), and brainstorm mockups → \`.planning/<effort>/brainstorm/\`. The pinned skill's \`scripts/sdd-workspace PLAN_FILE\` resolves the plan's dir (deriving \`<plan-basename>\` from the plan filename) and honors \`PI_PLANNING_EFFORT\`; the brainstorm \`start-server.sh\` honors it too. The pinned skills' upstream paths (\`docs/superpowers/\`, \`.superpowers/sdd/\`) are overridden at runtime by \`PI_PLANNING_EFFORT\`. Never write to the upstream paths when an effort is active.
 
-**2. Entry-path routing.** The discriminator for which pipeline to enter is *can I write a plan right now from what's already settled?* — **yes** (spec/requirements in hand, route clear) → Superpowers (\`brainstorming\` → \`writing-plans\`, any size; huge handled via sub-project decomposition); **no** (decisions still open, route foggy) → Wayfind (\`wayfinder\` if the effort is huge/multi-session, else \`grilling\`). When a Wayfind decide-phase (\`grilling\`/\`wayfinder\`) has already settled the decisions, \`brainstorming\` defers to \`to-spec\` (synthesize what's settled — do not re-explore).
+**2. Pick the pipeline by stage — check what's on disk first.**
 
-**3. SDD workspace override.** The subagent-driven-development skill and its sdd-workspace script reference .superpowers/sdd/ (task briefs, implementer reports, review packages, and the compaction-recovery progress ledger). On pi, redirect ALL of that under the effort layout instead: .superpowers/sdd/... → .planning/<effort>/sdd/... — briefs under .planning/<effort>/sdd/briefs/, implementer reports under reports/, review packages under reviews/, and the progress ledger at .planning/<effort>/sdd/progress.md. Derive <effort> from the plan you are executing (.planning/<effort>/plans/<plan>.md). mkdir -p the subdirs on first use; append one line per task to progress.md on review-clean (Task N: complete (commits <base7>..<head7>, review clean)) and read it at SDD start to skip completed tasks. Do NOT call the byte-identical sdd-workspace script (it returns .superpowers/sdd); use the effort layout directly. This converges the SDD runtime workspace beside the effort's map/tickets/plan without forking the upstream skill text.`;
+| Stage      | Trigger (check disk)                          | Pipeline                                |
+|------------|-----------------------------------------------|-----------------------------------------|
+| DECIDE     | no spec yet, decisions open / route foggy     | Wayfind — grilling (or wayfinder)       |
+| SYNTHESIZE | a grill just settled; spec needed             | Wayfind — to-spec (synthesize only)     |
+| DESIGN     | requirement clear, zero open decisions        | Superpowers — brainstorming             |
+| PLAN       | spec exists, no plan                          | Superpowers — writing-plans             |
+| EXECUTE    | plan exists                                   | Superpowers — executing-plans / SDD     |
+
+Four of five stages are a filesystem check. Only DECIDE-vs-DESIGN needs judgment ("are decisions open?"). When in doubt, DECIDE first — it's cheap insurance against building on a foggy route.`;
 }
 
 function messageContainsBootstrap(message: unknown): boolean {

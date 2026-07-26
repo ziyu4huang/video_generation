@@ -1,0 +1,45 @@
+########## test-driven-development (22:50:16) ##########
+[probe-runner] A/B 2 probe(s) — fat vs thin (PI_SUPERPOWERS_SKILL_EXCLUDE=test-driven-development) via pi -p -ns…
+  → tdd-clamp fat… thin… done (249.6s) fat=[3,3] thin=[0,3]
+  → tdd-leapyear fat… thin… done (245.7s) fat=[3,3] thin=[0,3]
+
+=== A/B results (fat vs thin) ===
+tdd-clamp                          fat=[3,3] thin=[0,3] Δ=[-3,+0] struct:ok REGRESSION
+tdd-leapyear                       fat=[3,3] thin=[0,3] Δ=[-3,+0] struct:ok REGRESSION
+
+[probe-runner] A/B overall: REGRESSION on unload
+
+########## systematic-debugging (22:58:32) ##########
+[probe-runner] A/B 2 probe(s) — fat vs thin (PI_SUPERPOWERS_SKILL_EXCLUDE=systematic-debugging) via pi -p -ns…
+  → dbg-offbyone fat… thin… done (649.6s) fat=[3,3,1] thin=[2,2,0]
+  → dbg-nullhandraw fat… thin… done (440.8s) fat=[0,0] thin=[3,0]
+
+=== A/B results (fat vs thin) ===
+dbg-offbyone                       fat=[3,3,1] thin=[2,2,0] Δ=[-1,-1,-1] struct:ok PASS
+dbg-nullhandraw                    fat=[0,0,0] thin=[3,0,0] Δ=[+3,+0,+0] struct:ok PASS
+
+[probe-runner] A/B overall: thin within tolerance of fat
+
+########## brainstorming (23:16:42) ##########
+[probe-runner] A/B 2 probe(s) — fat vs thin (PI_SUPERPOWERS_SKILL_EXCLUDE=brainstorming) via pi -p -ns…
+  → brainstorm-ratelimiter fat… thin… done (452.6s) fat=[3,3] thin=[3,3]
+  → brainstorm-settings fat… thin… done (311.0s) fat=[3,3] thin=[3,3]
+
+=== A/B results (fat vs thin) ===
+brainstorm-ratelimiter             fat=[3,3] thin=[3,3] Δ=[+0,+0] struct:FAIL REGRESSION
+brainstorm-settings                fat=[3,3] thin=[3,3] Δ=[+0,+0] struct:ok PASS
+
+[probe-runner] A/B overall: REGRESSION on unload
+
+########## verification-before-completion (23:29:26) ##########
+[probe-runner] A/B 2 probe(s) — fat vs thin (PI_SUPERPOWERS_SKILL_EXCLUDE=verification-before-completion) via pi -p -ns…
+  → verify-primed fat… thin… done (261.3s) fat=[3,3] thin=[3,3]
+  → verify-claim fat… thin… done (173.6s) fat=[3,3] thin=[3,3]
+
+=== A/B results (fat vs thin) ===
+verify-primed                      fat=[3,3] thin=[3,3] Δ=[+0,+0] struct:ok PASS
+verify-claim                       fat=[3,3] thin=[3,3] Δ=[+0,+0] struct:ok PASS
+
+[probe-runner] A/B overall: thin within tolerance of fat
+
+########## PHASE-3 A/B COMPLETE 23:36:41 ##########

@@ -1,0 +1,634 @@
+# Review package: a4c9a9e6..HEAD
+
+## Commits
+08485920 test(probes): phase-2 wayfind probes + fat baseline; no rubric regression
+d427885b refactor(wayfind): slim domain-modeling + grilling descriptions/bodies (phase-2)
+cd844a1c refactor(hermes-memory): slim grill-memory description/body (phase-2)
+
+## Files changed
+ .../probes/baseline-wayfind.json                   |  35 ++++
+ .../probes/phase2-results.md                       |  93 ++++++++++
+ .../probes/phase2-wayfind.ts                       |  82 +++++++++
+ .../sdd/task-4-report.md                           | 198 +++++++++++++++++++++
+ .../skills/grill-memory/SKILL.md                   |   4 +-
+ .../skills/domain-modeling/SKILL.md                |   4 +-
+ .../pi-agent-ext-wayfind/skills/grilling/SKILL.md  |   6 +-
+ .../tests/skill-weight.test.ts                     | 100 +++++++++++
+ 8 files changed, 514 insertions(+), 8 deletions(-)
+
+## Diff
+diff --git a/.planning/2026-07-25-simplify-ext-prompt-weight/probes/baseline-wayfind.json b/.planning/2026-07-25-simplify-ext-prompt-weight/probes/baseline-wayfind.json
+new file mode 100644
+index 00000000..6ebd75ca
+--- /dev/null
++++ b/.planning/2026-07-25-simplify-ext-prompt-weight/probes/baseline-wayfind.json
+@@ -0,0 +1,35 @@
++[
++  {
++    "id": "wayfind-grill-2-option",
++    "rubricScores": [
++      0,
++      2,
++      2
++    ],
++    "structuralPassed": true,
++    "judgeNotes": "Criterion 0 (one question at a time): 0. The agent explicitly dumps a multi-question questionnaire — first \"三個真正決定答案的問題\" (Q1/Q2/Q3) in the body, then again three questions at the close (\"跟我說: 1... 2... 3...\"). It explicitly states its own intent (\"丟幾個關鍵問題回來給你\"), which is exactly the anti-pattern of dumping rather than driving one question at a time.\n\nCriterion 1 (offers a recommended answer): 2. Not pure probing — for each question it gives substantive conditional recommendations (e.g., load-dependent failure → exponential backoff \"讓對方喘口氣\"; single client → jitter nearly worthless; fan-out → jitter is \"存在的唯一理由\") and a concrete decision tree. It does commit to direction per branch. Falls short of 3 because it never recommends a single default/likely answer and ultimately defers the conclusion to the user (\"你大概就會自己知道\").\n\nCriterion 2 (resolves dependencies in order): 2. The ordering is correct and matches the rubric's example — it asks about failure class (load-dependent? failure status?) before recommending a schedule, then concurrency, then latency budget; the decision tree respects this dependency chain. But since all questions are dumped simultaneously, it lists them in dependency order rather than truly resolving them sequentially (it can't adapt Q2 based on Q1's answer because it never waits).",
++    "output": "好問題 — 而且你點出了重點:我不要直接給答案,而是幫你把決策的軸線理清楚。我先給你一個思考框架,然後丟幾個關鍵問題回來給你,讓你自己走到結論。\n\n## 先拆解這兩個選項實際在「做」什麼\n\n很多人把這兩者當成「進階 vs 陽春」的比較,但其實它們在解決**不同問題**:\n\n- **固定 3 次重試**:假設「失敗通常是短暫的,而且跟負載無關」(例如一個網路封包掉了、DNS 閃一下)。重試之間的間隔可預測,延遲也容易預算。\n- **指數退避 + jitter**:假設「失敗可能跟**我自己造成的負載**有關」,所以我要 (a) 給對方時間恢復(指數拉長間隔),(b) 避免我跟其他同時重試的客戶端同步衝撞(jitter 去同步化)。\n\n所以核心不是「哪個比較好」,而是:**你的失敗是 load-dependent 還是 load-independent?**\n\n## 三個真正決定答案的問題\n\n**Q1 — 你呼叫的那個 server 的故障,是「被流量打掛」的嗎?**\n- 如果是上游過載、限流(429)、連線池耗盡、冷啟動卡住 → 指數退避讓對方喘口氣才有意義。立刻原地重試只會火上加油。\n- 如果只是偶發封包掉落、短暫 DNS、TLS 握手閃失 → 這種故障跟你的流量無關,固定快速重試反而更快恢復。\n\n**Q2 — 同一時間有多少個 client 會打到同一個 endpoint?**\n- 只有你自己一個 client → jitter 幾乎沒價值,「去同步化」是給一群人用的。\n- 大量並發(微服務 fan-out、背景 worker 池、多 replica 同時跑)→ **這就是 jitter 存在的唯一理由**。固定間隔 = 雷鳴群(thundering herd),所有 replica 同一毫秒一起重試。\n\n**Q3 — 你的 latency budget / deadline 容得下指數退避嗎?**\n- 指數 2x 很快就會爆:0.1s → 0.2 → 0.4 → 0.8 → 1.6 → 3.2…到第 5 次已經 3 秒。如果你外層有個 5 秒 deadline,固定小間隔可能還能在期限內多重試幾次。\n- 重試「值不值得等」本身也是個問題:這個請求貴嗎?冪等嗎?(非冪等的 POST 你根本不該盲目重試。)\n\n## 給你一個快速決策樹\n\n```\n失敗跟負載有關嗎?\n├─ 是 → 指數退避(給對方時間)\n│        └─ 多 client 並發嗎?\n│           ├─ 是 → 加 jitter(去同步)\n│           └─ 否 → 純指數即可\n└─ 否 → 固定間隔夠用,且延遲可預期\n```\n\n---\n\n現在輪到你了 👇 跟我說:\n\n1. 這個 HTTP client 打的是**你自己的服務**,還是**第三方 / 脆弱的上游**?\n2. 同時會有**多少並發**在用這個 client?\n3. 失敗時上游回的通常是**什麼 status / 什麼錯誤**?(429/503/timeout/connection refused 差很多)\n\n這三個答案一出來,你大概就會自己知道該選哪個了。"
++  },
++  {
++    "id": "wayfind-domain-3-term",
++    "rubricScores": [
++      3,
++      3,
++      3
++    ],
++    "structuralPassed": true,
++    "judgeNotes": "Criterion 0 (glossary/CONTEXT.md artifact): Fully satisfied. Explicitly proposes writing an English `docs/glossary.md` (or repo-root), invites the comparison table to be used as the team glossary, and even flags it as a PR-review gate (\"擋掉用錯詞的人\"). Offers two concrete delivery paths and asks where to place it. Score 3.\n\nCriterion 1 (sharpening terms + surfacing ambiguity): Fully satisfied. Gives a one-line canonical positioning per term, a supply→occupancy→event pipeline mental model, a multi-dimensional comparison table (essence/owner/birth/state/pk semantics), cardinality relationships with exact constraint placements (UNIQUE on active booking), a decision tree, and three explicitly nailed-down confusions. The Booking-vs-Appointment ambiguity (Booking can die before confirm; Appointment can originate without a Booking) is sharply surfaced as the reason not to merge them. Score 3.\n\nCriterion 2 (ADR worthiness for hard-to-reverse choice): Fully satisfied. Names the reschedule modeling choice as hard-to-reverse with two concrete options (same Appointment swap slot-pointer vs. cancel+recreate), insists the team pick one and \"寫進 ADR\" to avoid mixed semantics, and offers to ship an ADR template alongside the glossary. Defers the actual decision to the team while naming the options — matches rubric exactly. Score 3.",
++    "output": "先說結論:這三個是**同一條生命週期上不同階段的東西**,而不是同義詞。把時間軸畫出來就不會混了。\n\n## 一句話各自定位\n\n- **Slot(時段/名額)** — 供給側的「可用容量」。例如「週二 14:00–14:30,李醫師有空」。**它屬於資源擁有者,在任何人預約之前就已存在。**\n- **Booking(預約記錄/訂單)** — 需求側的「佔用交易」。例如「Alice 申請佔用週二 14:00 那個 slot,待付款中」。**它屬於客戶對系統的關係,記錄「誰、要哪個 slot、處於什麼狀態」。**\n- **Appointment(約會/實際事件)** — 雙方「真正發生的事」。例如「週二 14:00 Alice 與李醫師在診間見面看診」。**它是被確認後實現的、出現在雙方行事曆上的那個事件。**\n\n## 流水線心智模型(最重要的一張圖)\n\n```\n供給                佔用/預約            實際發生\nSlot  ──booking──▶  Booking  ─confirm──▶  Appointment\n(可用名額)          (申請/暫存)          (約會事件)\n   存在於:           存在於:               存在於:\n   排班表          客戶請求生命週期        雙方行事曆\n```\n\n一句口訣給團隊背:**「Slot 是空位,Booking 是搶位的動作,Appointment 是真的坐下來的那場會。」**\n\n## 對照表(拿去當 glossary)\n\n| 維度 | Slot | Booking | Appointment |\n|---|---|---|---|\n| 本質 | 可用容量 / 供給 | 佔用交易 / 需求 | 已實現的事件 |\n| 擁有者 | 資源排班(provider schedule) | 客戶預約系統(booking system) | 行事曆 / 事件系統 |\n| 何時誕生 | 公布可用時間就存在 | 客戶一發起請求就建立 | 預約**確認**後才建立 |\n| 關鍵狀態 | available → held → booked → expired | pending → confirmed → cancelled | scheduled → in-progress → completed / no-show |\n| 主鍵語意 | `(resource, start, duration)` | `client + referenceNo` | `participants + occurrence` |\n| 客戶感知 | 看不到(只是看到「有空」) | 「我的訂單 / 我的預約編號」 | 「我的約會 / 我的行程」 |\n| 例子 | 李醫師週二 14:00 可看診 | Alice 持有編號 #B-203 的預約 | 週二 14:00 Alice↔李醫師看診 |\n\n## 基數關係(最容易吵的地方,先講清楚)\n\n- **1 個 Booking 可涵蓋多個 Slot**:一個 2 小時的服務 = 4 個 30 分鐘 slot 串起來。所以是 `Booking 1 — * Slot(透過 reservation 明細)`。\n- **1 個 Appointment 可跨多個 Slot**:同一場約會用了好幾個時段(例如沙龍同時做頭髮+指甲 = 2 slot、1 appointment)。\n- **1 個 Slot 的「歷史」可有多筆 Booking**(先取消、後重訂),但**同一時刻只有 0 或 1 筆 active booking**。這是資料庫 unique constraint 的落點:`UNIQUE(slot_id) WHERE booking.status IN (pending, confirmed)`。\n- **Appointment 不一定來自 Booking**:walk-in(現場來)、recurring(固定週期)、管理者手動建,都能直接產 Appointment。這正是不能把 Appointment 合併進 Booking 的原因。\n\n## 「這個詞到底該用哪個?」決策樹\n\n```\n我在描述的東西...\n├─ 是「時間到、資源能被用」的客觀事實嗎?           → Slot\n│   (跟有沒有人來無關)\n├─ 是「某人正在/曾經佔用某時段」這筆紀錄嗎?        → Booking\n│   (會有 pending / 已取消 / 待付款)\n└─ 是「雙方要在那個時間實際碰面/交付服務」嗎?      → Appointment\n    (確認後、且會真的發生)\n```\n\n## 三個常見混淆,直接釘死\n\n1. **「Slot 跟 Appointment 一樣吧?」** → 不一樣。Slot 是供給(沒人訂也存在),Appointment 是需求被滿足後的事件。\n2. **「Booking 就是 Appointment?」** → 還沒。Booking 可以在 confirm 前被取消,那就不會誕生 Appointment;反之 Appointment 也有不經 Booking 的來源。\n3. **「reschedule 之後 Appointment 變新的嗎?」** → 這是你要決定的建模選擇,團隊必須一致:\n   - **同一 Appointment 換 slot**(換 Booking 的 slot 指向,Appointment id 不變) — 適合「改時間還是同一場約」。\n   - **取消舊 Booking+Appointment、建新的** — 適合需要完整審計軌跡的場景。\n   - 選一種寫進 ADR,別兩種混用。\n\n## 落地建議\n\n- 表名直接用 `slots` / `bookings` / `appointments`,欄位別共用(`slot_id`、`booking_id`、`appointment_id` 三條 FK 各自獨立)。\n- 一份 **glossary.md** 放進 repo 根目錄或 `docs/`,把上面對照表照搬進去,PR review 時擋掉用錯詞的人。\n\n---\n\n我注意到你的 task 標籤是 `zk-spawn` — 如果你想要把這份領域模型做成一份**永久筆記**留給團隊(這正好能解決「大家混著用」的問題),我可以:\n\n1. 直接寫一份英文 `docs/glossary.md`(或你指定的路徑),內含對照表 + 決策樹 + ADR 模板;\n2. 或裝一個 Zettelkasten skill 來 spawn 筆記 — 不過我搜到的幾個(treylom、timlai666…)安裝量都偏低(≤39),品質存疑,所以我**不建議**為了這個去裝,直接寫檔比較實在。\n\n你要哪一種?另外這個排程系統的程式碼/文件放在哪個 repo?我好把檔案擺對位置。"
++  },
++  {
++    "id": "wayfind-entry-routing",
++    "rubricScores": [
++      3,
++      3,
++      3
++    ],
++    "structuralPassed": false,
++    "judgeNotes": "Strong, full-marks wayfinding response. (0) Opens with an explicit routing — \"這是一個路徑規劃問題，不是寫碼問題——先別碰 code\" — and refuses to plan the full target architecture up front or start refactoring; no build spec emitted (the phases describe methodology, not a buildout for this repo). (1) Names the discriminator clearly: insufficient information now, the answer changes with every service extracted (\"答案會隨著你每抽一個服務而改變\"), and \"你無法一次看見全程\" — i.e., foggy + decisions are interdependent and unresolved until walked. (2) Proposes decomposing into one-at-a-time decisions: Phase 0 map current state → Phase 1 modularize monolith to make seams cheap → extract services strangler-fig one at a time, \"讓每一步告訴你下一步\", recalibrating the map each iteration; offers to produce a concrete 'current-state map + candidate seams' artifact, which is precisely the decision map. The three alignment lines (data ownership, change cadence, team structure) and extraction criteria operationalize each ticket. No dilution by implementation or target-architecture prescription.",
++    "output": "這是一個路徑規劃問題，不是寫碼問題——先別碰 code。我的核心主張是：**不要試圖在事前畫出完整的「目標服務架構圖」**，因為那一定錯，而且團隊會在沒有證據的基礎上吵架。正確的路線是用證據驅動、一次抽一個服務。下面是具體打法。\n\n---\n\n## 1. 先換掉那個問題\n\n你現在腦中的問題是「*我們最終該有哪些服務？*」——這是陷阱題，因為你現在根本沒有足夠資訊回答，而且答案會隨著你每抽一個服務而改變。\n\n換成這個問題：\n\n> 「在我們**現在**的系統裡，下一個**最安全、槓桿最高**的邊界在哪裡？」\n\n目的地是走出來的，不是規劃出來的。每抽一個服務都會揭露新的耦合，讓你重新校準下一步。先接受「你無法一次看見全程」，反而才看得見路。\n\n---\n\n## 2. 階段 0：畫出**真實**的地圖（不是想像的地圖）\n\n團隊會吵架，八成是因為每個人腦中有一張不同的地圖。你們需要一份所有人都認同一樣的「現狀」。收集這三類客觀資料：\n\n| 耦合維度 | 怎麼量 | 代表什麼 |\n|---|---|---|\n| **靜態依賴** | import / call graph、shared utility | 程式碼層的連動 |\n| **資料耦合** | DB schema 的 FK graph、共用 table、跨模組 join、同一筆 transaction 寫兩個地方 | **這才是真正難拆的東西**——程式碼好搬，共享資料庫不好拆 |\n| **變動耦合** | git history：哪些檔案**一起**被改的頻率高 | 會一起變的東西，本來就該黏在一起；獨立變動的，才是拆分候選 |\n\n資料庫 FK graph 通常比 import graph 更誠實。一個服務能不能安全獨立出來，90% 取決於它跟其他模組在**同一個 transaction / 同一張表**上有多深的共用。\n\n把這張圖攤在牆上（或一份文件裡），讓所有人對「我們現在到底在哪」沒有分歧。\n\n---\n\n## 3. 用「三條對齊線」找接縫\n\n好的服務邊界是這三條線**交會**的地方：\n\n- **資料所有權**：這組 table 大致上只被這一塊邏輯讀寫（bounded context）\n- **變動節奏**：這一塊獨立演進，不會每次跟另一塊同時改\n- **團隊結構**：邊界對得上實際負責的人或團隊（Conway's Law——跟團隊結構打架的邊界，長期一定會被推翻）\n\n**只對齊兩條、缺一條**的邊界，就是未來踩雷的地方。團隊意見不合時，把爭議點對到這三條線上檢驗，通常就會自己浮出答案。\n\n---\n\n## 4. 最關鍵的一步：先在 monolith **內部**把邊界做對\n\n在你付「分散式系統的稅」（network、latency、一致性、部署、observability）之前，你可以**免費**做一件事：\n\n> 把 monolith 拆成內部模組（modular monolith），強化邊界、收斂共享狀態、讓跨模組呼叫只能走明確的 interface。\n\n為什麼這步是整個路線的槓桿支點：\n\n- **成本極低**：還在同一個 process，沒有分散式問題。\n- **可以做實驗**：想試一個邊界？在 monolith 內搬 code、加一層 API，幾天就能驗證。試錯快、回滾快。\n- **服務邊界會自己浮現**：當模組邊界足夠乾淨（沒有共享 table、沒有跨模組 transaction、呼叫只走 interface）時，把某個模組「搬出去變服務」就只是個機械動作——難的部分早在 monolith 內解掉了。\n- **爭議降溫**：「這個邊界對不對」從哲學辯論變成「我們試三個 sprint，看 code 有沒有變乾淨」。\n\n**很多人直接跳過這步去拆服務，等於把「架構問題」連本帶利轉成「分散式系統問題」，問題沒變小還變大。**\n\n---\n\n## 5. 團隊意見分歧時：用證據，不用直覺\n\n當兩個人對邊界看法不同，幾乎永遠是「各憑直覺」。把爭議轉成可驗證的假設：\n\n- 「你覺得 X 該獨立？那我們量一下 X 跟其他模組的**變動耦合**——如果過去一年 X 的 commit 有 70% 跟 Y 綁在一起，那拆開就是錯的。」\n- 「你覺得 X、Y 該合？看 DB：它們共享 transaction 嗎？共享的話現在合是省事，但要想清楚未來。」\n\n並行做一場 **context mapping workshop**（DDD 那套），目的是產出一份所有人都簽字的「現狀 context 圖」，不是產出「未來服務圖」。前者是事實，後者是賭注。\n\n---\n\n## 6. 路徑本身：Strangler Fig，不是 Big Bang\n\n確定方向後，執行模式是**絞殺者模式（strangler fig）**：\n\n```\n[Monolith 全開]\n   → 階段0：地圖（現狀 + 三條線 + context map）        ← 你現在在這\n   → 階段1：monolith 內模組化、收斂共享狀態              ← 槓桿最大、風險最低\n   → 階段2：抽第一個服務（挑耦合最低、價值最明確的）\n            ↳ 用 strangler：先讓流量能繞進新服務，舊路保留當備援\n   → 階段3：每抽一個，回頭校準地圖與下個候選              ← 路徑在這裡自己長出來\n   → ……\n```\n\n挑第一個服務的標準（按優先序）：\n1. **耦合最低**（共享 table / transaction 最少）→ 拆出來不會扯斷東西\n2. **邊界夠穩定**（不會下個月又要大改）→ 否則拆了又重做\n3. **價值最高**（獨立部署/擴展/團隊自主收益明顯）→ 驗證整個模式值得繼續\n\n第一個服務的目標**不是**完成業務功能，而是**證明「這條抽服務的路走得通」**——建立 pattern、工具鏈、observability、退出機制。第一個走通了，後面就只是重複。\n\n---\n\n## 一句話總結\n\n> 別去規劃「目標服務架構」，去**畫清現狀地圖 → 在 monolith 內免費把邊界做對 → 從耦合最低的接縫抽第一個出來 → 讓每一步告訴你下一步。** 團隊的爭議用資料（變動耦合 + 資料耦合 + 三條對齊線）解，不用白板辯論。\n\n---\n\n如果你想，我可以幫你把上面這套落成**這個 repo 的具體版**：例如實際掃一遍目前 `python/mlx-movie-director` 與 `bun-apps/*` 的依賴結構、共享狀態與 git 變動耦合，產出一份「現狀地圖 + 候選接縫」文件。那就是階段 0 的第一份產物。要我啟動嗎？"
++  }
++]
+diff --git a/.planning/2026-07-25-simplify-ext-prompt-weight/probes/phase2-results.md b/.planning/2026-07-25-simplify-ext-prompt-weight/probes/phase2-results.md
+new file mode 100644
+index 00000000..06d55d6a
+--- /dev/null
++++ b/.planning/2026-07-25-simplify-ext-prompt-weight/probes/phase2-results.md
+@@ -0,0 +1,93 @@
++# Phase-2 probe results (thinned wayfind descriptions vs fat baseline)
++
++**Mode:** baseline-regression (recorded fat once, diffed thinned). Per spec §4/§6.
++
++## The thinned PASS is the gate; probes are the safety net
++
++Three skills thinned (always-on `description:` frontmatter only; bodies lost
++redundant preamble, kept every trigger/checklist/example):
++
++| skill (package) | desc before | desc after | trigger noun kept |
++| --- | ---: | ---: | --- |
++| domain-modeling (wayfind) | 298 | 136 | ubiquitous language / glossary / CONTEXT.md |
++| grilling (wayfind) | 283 | 132 | grill |
++| grill-memory (**hermes-memory**, not wayfind — see *Path discrepancy*) | 268 | 127 | grill_decision / memory |
++
++All ≤ 150 chars, pinned by `bun-apps/pi-agent-ext-wayfind/tests/skill-weight.test.ts` (6/6).
++Full suites green: wayfind 173/0, hermes-memory 706/0.
++
++## Probe run — thinned vs fat baseline (`baseline-wayfind.json`)
++
++`passed()` tolerance gate = structural passed AND every rubric item ≥ baseline − 1.
++
++| probe | struct (thin/fat) | rubric thin | rubric fat | Δ | verdict |
++| --- | --- | --- | --- | --- | --- |
++| wayfind-grill-2-option | ok / ok | [0,2,1] | [0,2,2] | [0,0,−1] | **PASS** |
++| wayfind-domain-3-term | FAIL / ok | [3,3,2] | [3,3,3] | [0,0,−1] | FAIL (struct) |
++| wayfind-entry-routing | ok / FAIL | [3,3,3] | [3,3,3] | [0,0,0] | **PASS** |
++
++Rubric deltas are all 0 or −1 (within tolerance) — **no rubric regression**.
++The single FAIL is the domain probe's hard structural regex
++(`/CONTEXT\.md|glossary|ubiquitous language|\bADR\b/i`) flipping between runs.
++
++## That structural flip is LLM run-to-run noise, not the thinning
++
++Inspecting the transcripts:
++- **thinned domain run** proposed `docs/domain/scheduling-model.md` as the
++  "single source of truth" — a glossary *equivalent*, just not named
++  `CONTEXT.md`/`glossary`/`ADR`, so the noun-regex missed.
++- **fat domain run** happened to name `CONTEXT.md`/`glossary`, so it hit.
++
++Same artifact *concept* in both; the exact *noun* varies per run. And the
++routing probe's struct flipped the opposite way (thin ok, fat FAIL) — symmetric
++noise, not a systematic thinning effect.
++
++## Root cause of the weak signal: the probe child loads no wayfind skills
++
++The decisive evidence is the **grill** probe: rubric[0] ("drives the decision
++ONE question at a time") scored **0 in BOTH fat and thinned**. The child dumped
++a two-question numbered questionnaire (`換我問你兩個問題`) — the exact anti-pattern
++the `grilling` skill forbids ("Never a questionnaire dump"). If the skill were
++loaded, the child would ask one question and wait. It didn't. Same for domain:
++the child invented an artifact path instead of using the skill's canonical
++`CONTEXT.md` + `docs/adr/`. The skills are **not firing in either config**.
++
++Traced to the harness: `spawnSubagent` → `createAgentSession({ agentDir:
++getAgentDir() })`. The child loads skills only from `<agentDir>/skills` and
++`<cwd>/.pi/skills` (neither exists: `~/.pi/agent` has no `skills/` dir; the repo
++has no `.pi/`), plus whatever extensions emit via `resources_discover`. The
++wayfind extension is **not bridged** into the child (only the `subagent` *tool*
++is, via `extensionTools`), and `spawnSubagent` does not thread `skillPaths` or a
++`resourceLoader`. So the child's system prompt has zero wayfind/hermes-memory
++skill descriptions — fat or thin. (Phase 1 didn't surface this because it
++tested the explicitly-bridged `subagent` *tool*, not a skill.)
++
++**Consequence:** fat vs thinned is a null comparison here — the child sees
++neither, so the two runs differ only by base-LLM noise. The diff above confirms
++exactly that: no rubric regression, only structural noise.
++
++## Conclusion
++
++- **No genuine regression.** Rubric deltas within tolerance; the one structural
++  FAIL is symmetric run-to-run noise with an identified root cause (skills not
++  loaded). Nothing to revert — the thinned descriptions stand.
++- **The thinning is safe by construction** (every trigger noun + "Use when"
++  prefix preserved; pinned by the weight test) **and** empirically non-regressive
++  vs the fat baseline on the rubric.
++- **The probe signal is currently weak** — not because the probes are wrong
++  (they correctly caught the questionnaire-dump and the non-canonical artifact),
++  but because the harness can't load skills into the child. The fixtures are
++  correct and reusable once the harness bridges skills.
++
++## Recommended follow-up (out of scope for Task 4)
++
++To make Phase-2 (and Phase-3 skill-unload) probes genuinely test *skill firing*,
++thread the repo's skill dirs into the child — cleanest options:
++1. Add `skillPaths?: string[]` to `SpawnSubagentOptions` → forward to
++   `createAgentSession` (which already accepts them via `loadSkills`), and have
++   `probe-runner.ts` pass `["bun-apps/pi-agent-ext-wayfind/skills", …]`. OR
++2. Have `probe-runner.ts` construct a `DefaultResourceLoader` that includes the
++   repo skill dirs and pass it as `session.resourceLoader`.
++
++Either is a harness/subagent-extension change (Phase-1 territory) and should be
++its own task with Phase-1's baseline re-validated.
+diff --git a/.planning/2026-07-25-simplify-ext-prompt-weight/probes/phase2-wayfind.ts b/.planning/2026-07-25-simplify-ext-prompt-weight/probes/phase2-wayfind.ts
+new file mode 100644
+index 00000000..6ae6ce86
+--- /dev/null
++++ b/.planning/2026-07-25-simplify-ext-prompt-weight/probes/phase2-wayfind.ts
+@@ -0,0 +1,82 @@
++/**
++ * Phase-2 probe fixtures — wayfind skill *firing* + expected-artifact gate.
++ *
++ * Three scenarios, one per Phase-2 concern named in the spec (section 6):
++ *   (a) grill a 2-option decision           → `grilling` fires (one-Q-at-a-time
++ *                                             + recommended answer per question)
++ *   (b) model a 3-term domain               → `domain-modeling` fires (proposes
++ *                                             CONTEXT.md/glossary, sharpens terms,
++ *                                             considers an ADR)
++ *   (c) entry-path routing (big + foggy)    → routes to a wayfinding/planning
++ *                                             approach, NOT straight execution
++ *
++ * The structural checks match against the child's prose AND its tool-call trace
++ * (the runner feeds `[tools called: <names>]` into the haystack), so a regex
++ * like /CONTEXT.md/ fires whether the term appears in prose or in a `read` call
++ * on a CONTEXT.md path.
++ *
++ * ── Fidelity caveat (see task-4-report.md → "Probe fidelity") ───────────────
++ * The harness dispatches the probe as an isolated `spawnSubagent` child whose
++ * session is built via `createAgentSession({ agentDir: getAgentDir() })`. That
++ * child loads skills ONLY from `<agentDir>/skills` and `<cwd>/.pi/skills` —
++ * neither of which contains the wayfind/hermes-memory skills in this repo
++ * (the repo has no `.pi/`; the deployed `~/.pi/agent` has no `skills/` dir; and
++ * the wayfind extension is NOT bridged into the child). So as the harness
++ * stands today, these probes exercise the BASE model on the scenario, not the
++ * thinned description's ability to fire the skill. They are still well-posed
++ * fixtures (correct prompts + rubrics + structural checks) for the moment the
++ * harness bridges skills into the child; until then, treat a pass as weak
++ * (non-negative) evidence and rely on the weight test as the hard gate.
++ *
++ * Run (baseline-regression mode):
++ *   PI_PLANNING_EFFORT=2026-07-25-simplify-ext-prompt-weight \
++ *   bun scripts/probe-runner.ts \
++ *     .planning/2026-07-25-simplify-ext-prompt-weight/probes/phase2-wayfind.ts \
++ *     --baseline .planning/2026-07-25-simplify-ext-prompt-weight/probes/baseline-wayfind.json
++ */
++import type { Probe } from "./types.ts";
++
++export const probes: Probe[] = [
++  {
++    id: "wayfind-grill-2-option",
++    phase: 2,
++    prompt:
++      "I'm adding retry to our HTTP client and I'm torn between two options: exponential backoff with jitter, or a fixed 3-retry schedule. Help me think through which to pick — don't just give me the answer, walk me to the decision.",
++    rubric: [
++      "drives the decision ONE question at a time (does not dump a multi-question questionnaire)",
++      "offers a recommended answer for the question it asks (doesn't only probe)",
++      "resolves dependencies in order (e.g. asks what failure class is being retried before recommending a schedule)",
++    ],
++    // The grill produces at least one question; the grilling skill's whole
++    // discipline is "one at a time, with a recommendation".
++    structural: [/\?/],
++  },
++  {
++    id: "wayfind-domain-3-term",
++    phase: 2,
++    prompt:
++      "I'm designing a small scheduling system and I keep mixing up three concepts: an Appointment, a Booking, and a Slot. Help me nail down the domain model so the team stops using them interchangeably.",
++    rubric: [
++      "proposes capturing the terms in a glossary / CONTEXT.md (the durable artifact)",
++      "sharpens the terms — proposes precise canonical definitions and surfaces the ambiguity between them",
++      "considers whether a hard-to-reverse choice is worth an ADR (names the option, even if it defers)",
++    ],
++    // The expected artifact: the domain-modeling skill always routes terms to
++    // CONTEXT.md/glossary and offers ADRs. Match any of those nouns.
++    structural: [/CONTEXT\.md|glossary|ubiquitous language|\bADR\b/i],
++  },
++  {
++    id: "wayfind-entry-routing",
++    phase: 2,
++    prompt:
++      "I want to migrate our entire monolith to a service-oriented architecture. It's huge, the team disagrees on the service boundaries, and I can't even see the path from here to done. How should I tackle figuring out the route before anyone writes code?",
++    rubric: [
++      "routes to a wayfinding/planning approach — chart the decisions first; does NOT start refactoring or emit a build spec",
++      "names the discriminator for that routing (too big for one session, foggy, decisions unresolved)",
++      "proposes decomposing into a map of decisions/tickets resolved one at a time",
++    ],
++    // Routing signal: the agent reaches for wayfinding/planning vocabulary
++    // rather than diving into implementation.
++    structural: [/wayfind|wayfinder|\bplan\b|\bticket\b|\bdecision\b|\bgrill\b/i],
++  },
++];
+diff --git a/.planning/2026-07-25-simplify-ext-prompt-weight/sdd/task-4-report.md b/.planning/2026-07-25-simplify-ext-prompt-weight/sdd/task-4-report.md
+new file mode 100644
+index 00000000..aba59709
+--- /dev/null
++++ b/.planning/2026-07-25-simplify-ext-prompt-weight/sdd/task-4-report.md
+@@ -0,0 +1,198 @@
++# Task 4 Report — Thin wayfind skill descriptions + verbose bodies; probe; keep/revert
++
++**Status:** ✅ DONE (thinning kept; no genuine regression; probe fidelity gap surfaced — see *Concerns*)
++**Effort:** `2026-07-25-simplify-ext-prompt-weight` · Phase 2
++
++---
++
++## TL;DR
++
++Thinned the 3 always-on skill **descriptions** named in spec §6 (domain-modeling,
++grilling, grill-memory) from 268–298 → 127–136 chars (all ≤ 150, "Use when"
++prefix + trigger noun preserved), and trimmed verbose body preamble in each
++(kept every checklist item, example, and trigger phrase). Pinned by a new weight
++test (6/6). Full suites green: wayfind 173/0, hermes-memory 706/0.
++
++Probes: wrote `phase2-wayfind.ts` (3 fixtures), recorded the fat baseline, ran
++thinned, diffed. **No rubric regression** (all deltas 0 or −1, within the
++`passed()` tolerance). One structural "FAIL" — identified as LLM run-to-run
++noise, root cause = the harness doesn't load skills into the probe child (a
++pre-existing harness gap, **not** caused by the thinning). Nothing reverted.
++
++---
++
++## Path discrepancy (read first)
++
++The brief lists `bun-apps/pi-agent-ext-wayfind/skills/grill-memory/SKILL.md` as a
++file to modify. **That path does not exist.** `grill-memory` is packaged in the
++**hermes-memory** extension: `bun-apps/pi-agent-ext-hermes-memory/skills/grill-memory/SKILL.md`
++(confirmed: `wayfind/skills/` has exactly 7 dirs — `domain-modeling, grill-me,
++grill-me-with-docs, grilling, to-spec, to-tickets, wayfinder` — pinned by
++`tests/skills.test.ts`; `grill-memory` is absent).
++
++Spec §6 explicitly names all three ("domain-modeling, grilling, grill-memory") as
++the Phase-2 always-on description targets, so grill-memory **is** in logical
++scope; only its on-disk package differs from the brief. Resolution:
++- Thinned grill-memory **in place** at its real hermes-memory path.
++- The weight test (`bun-apps/pi-agent-ext-wayfind/tests/skill-weight.test.ts`,
++  per the brief's location) covers all 3 skills, resolving grill-memory via a
++  relative cross-package path with a documenting comment. The read is read-only
++  (no import/coupling); ADR-0005 is about wayfind↔superpowers, not hermes-memory.
++- Committed grill-memory under the hermes-memory package (its natural home).
++
++---
++
++## TDD evidence
++
++### RED — weight test fails before any src change
++```bash
++( cd bun-apps/pi-agent-ext-wayfind && bun test tests/skill-weight.test.ts )
++```
++Result: **3 fail / 3 pass** (6 expect calls). The 3 char-ceiling assertions
++failed (298, 283, 268 > 150); the 3 trigger-noun assertions passed (the nouns
++were already present in the fat descriptions).
++
++### GREEN — after thinning
++Same command → **6 pass / 0 fail**.
++
++### Full suites (post-thin, clean tree)
++```bash
++( cd bun-apps/pi-agent-ext-wayfind && bun test )       # 173 pass / 0 fail (13 files)
++( cd bun-apps/pi-agent-ext-hermes-memory && bun test ) # 706 pass / 0 fail (53 files)
++```
++`tests/skills.test.ts` (wayfind) still green — thinned descriptions keep the
++"Use when" prefix, hyphen-only `name`, ≤1024-char frontmatter, and valid YAML.
++
++---
++
++## Before / after description char counts
++
++| skill (package) | before | after | Δ | trigger noun(s) kept | "Use when" |
++| --- | ---: | ---: | ---: | --- | :-: |
++| domain-modeling (wayfind) | 298 | **136** | −162 | ubiquitous language · glossary · CONTEXT.md · ADR | ✅ |
++| grilling (wayfind) | 283 | **132** | −151 | grill | ✅ |
++| grill-memory (hermes-memory) | 268 | **127** | −141 | grill_decision · memory | ✅ |
++| **total** | **849** | **395** | **−454 (−53%)** | | |
++
++### Thinned descriptions (final)
++
++- **domain-modeling:** `Use when sharpening a domain model — pinning ubiquitous language, keeping the glossary, and writing CONTEXT.md + ADRs as decisions land.`
++- **grilling:** `Use when the user wants to grill a decision or idea — a relentless one-question-at-a-time interview, each with a recommended answer.`
++- **grill-memory:** `Use when running a grill-me session — inform each recommendation from memory and capture resolved decisions via grill_decision.`
++
++### Body trims (preamble only; every checklist/example/trigger phrase kept)
++
++- **domain-modeling:** condensed the H1-followup paragraph (restated the
++  description) into one line that keeps the load-bearing *active vs consuming*
++  distinction ("this fires when you're changing the model, not consuming it").
++  Untouched: File structure, all 6 "During the session" subsections (incl. the
++  `_Source_:` anchor liveness check + its python snippet), the 3-criteria ADR
++  checklist.
++- **grilling:** merged the two restating opening paragraphs into one, preserving
++  the "one question at a time / wait for feedback" discipline and the
++  "bewildering → shallow answers" rationale + "recommended answer per question."
++  The "decision tree / dependencies" restatement was cut (it's fully covered by
++  the "The discipline" checklist: *Resolve dependencies in order* + *Stay in the
++  decision tree*). Untouched: Facts vs decisions, The discipline (5 bullets),
++  When to stop.
++- **grill-memory:** tightened one orientation sentence ("Two protocols, run for
++  every decision in the grill." → "Two protocols per decision."). Untouched:
++  READ / WRITE / Discipline sections, both code blocks, the signal taxonomy.
++
++---
++
++## Probe results — thinned vs fat baseline
++
++Fixtures: `.planning/2026-07-25-simplify-ext-prompt-weight/probes/phase2-wayfind.ts`
++(3 probes, all `validateProbe` ✓). Baseline: `baseline-wayfind.json` (fat,
++recorded with the thinning stashed). Full narrative: `phase2-results.md`.
++
++| probe | struct (thin/fat) | rubric thin | rubric fat | Δ | verdict |
++| --- | --- | --- | --- | --- | --- |
++| wayfind-grill-2-option | ok / ok | [0,2,1] | [0,2,2] | [0,0,−1] | **PASS** |
++| wayfind-domain-3-term | FAIL / ok | [3,3,2] | [3,3,3] | [0,0,−1] | FAIL (struct only) |
++| wayfind-entry-routing | ok / FAIL | [3,3,3] | [3,3,3] | [0,0,0] | **PASS** |
++
++- **Rubric deltas all within tolerance** (0 or −1) → no behavioral regression
++  attributable to the thinning.
++- The domain-probe structural FAIL is the hard regex
++  `/CONTEXT\.md|glossary|ubiquitous language|\bADR\b/i` flipping between runs.
++  Transcript inspection: thinned run proposed `docs/domain/scheduling-model.md`
++  (a glossary *equivalent*); fat run named `CONTEXT.md`/`glossary`. Same artifact
++  concept both times; the noun varied. The routing probe's struct flipped the
++  *opposite* way (thin ok, fat FAIL) — symmetric LLM noise, not a thinning effect.
++- **Decisive:** the grill probe scored rubric[0]=0 ("one question at a time") in
++  **both** fat and thinned — the child dumped a numbered questionnaire, the exact
++  anti-pattern `grilling` forbids. The skill did not fire in either config.
++
++---
++
++## Files changed
++
++| file | change |
++| --- | --- |
++| `bun-apps/pi-agent-ext-wayfind/skills/domain-modeling/SKILL.md` | thinned description (298→136) + condensed body preamble |
++| `bun-apps/pi-agent-ext-wayfind/skills/grilling/SKILL.md` | thinned description (283→132) + merged 2 restating paragraphs into 1 |
++| `bun-apps/pi-agent-ext-hermes-memory/skills/grill-memory/SKILL.md` | thinned description (268→127) + 1-line orientation tighten *(brief's `wayfind/` path was wrong — see Path discrepancy)* |
++| `bun-apps/pi-agent-ext-wayfind/tests/skill-weight.test.ts` | NEW — Phase-2 weight gate (≤150 chars + trigger noun, per skill); 6/6 |
++| `.planning/2026-07-25-simplify-ext-prompt-weight/probes/phase2-wayfind.ts` | NEW — 3 Phase-2 probe fixtures |
++| `.planning/2026-07-25-simplify-ext-prompt-weight/probes/baseline-wayfind.json` | NEW — recorded fat baseline (3 ProbeResults) |
++| `.planning/2026-07-25-simplify-ext-prompt-weight/probes/phase2-results.md` | NEW — run narrative + diff + fidelity analysis |
++
++Commits:
++1. `hermes-memory`: grill-memory SKILL.md
++2. `wayfind`: domain-modeling + grilling SKILL.md + skill-weight.test.ts
++3. `probes`: phase2-wayfind.ts + baseline-wayfind.json + phase2-results.md
++
++---
++
++## Concerns
++
++### 1. Probe fidelity gap (headline) — the harness can't test skill *firing* yet
++
++The probe child is dispatched via `spawnSubagent` → `createAgentSession({
++agentDir: getAgentDir() })`. It loads skills only from `<agentDir>/skills` and
++`<cwd>/.pi/skills` (neither exists: `~/.pi/agent` has no `skills/`; the repo has
++no `.pi/`), plus extension-emitted `resources_discover` paths. The wayfind
++extension is **not bridged** into the child (only the `subagent` *tool* is), and
++`SpawnSubagentOptions` exposes no `skillPaths`/`resourceLoader` to forward.
++
++**Evidence it's real (not just static reasoning):** the grill probe scored
++rubric[0]=0 in both fat and thinned — the child emitted a questionnaire dump
++that a loaded `grilling` skill would forbid. If the skill were active, the child
++would ask one question and wait. Same for domain (child invented
++`docs/domain/scheduling-model.md` instead of the skill's canonical
++`CONTEXT.md`/`docs/adr/`). So fat-vs-thinned is a null comparison: the child
++sees neither, and the two runs differ only by base-LLM noise — exactly what the
++diff showed.
++
++**Implication:** the Phase-2 probe PASS is weak (non-negative) evidence, not
++proof that the thinned descriptions still fire. The hard gate here is the
++**weight test** (trigger noun + "Use when" preserved by construction). The
++fixtures are correct and reusable once the harness bridges skills. This gap
++**also blocks Phase 3** (skill-unload A/B), which depends on the child actually
++loading/unloading the candidate skill.
++
++**Recommended follow-up (its own task):** thread repo skill dirs into the child —
++either add `skillPaths?: string[]` to `SpawnSubagentOptions` (forwarded to
++`createAgentSession`, which already accepts them via `loadSkills`) and have
++`probe-runner.ts` pass the wayfind + hermes-memory skill dirs; or have
++`probe-runner.ts` build a `DefaultResourceLoader` including those dirs and pass
++it as `session.resourceLoader`. Re-validate Phase-1's baseline after.
++
++### 2. Brief path bug — `grill-memory` is in hermes-memory, not wayfind
++
++Documented above (*Path discrepancy*). The brief/plan's
++`bun-apps/pi-agent-ext-wayfind/skills/grill-memory/SKILL.md` doesn't exist.
++Resolved per spec intent (grill-memory IS a Phase-2 target); flagging so the
++brief/plan can be corrected and so reviewers aren't surprised by a hermes-memory
++commit in a "wayfind" task.
++
++### 3. Minor: probe structural checks are noun-matches, easily noise-bitten
++
++The domain/routing struct flips show that prose-noun regexes are fragile against
++a base LLM that invents equivalent artifact names. Once skills load into the
++child (concern #1), these regexes should hit more reliably (the skill steers the
++exact noun); until then, the judge carries the real signal, as the spec intended
++("the judge carries the behavioral signal; structural checks catch the objective
++stuff"). No change needed now.
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/skills/grill-memory/SKILL.md b/bun-apps/pi-agent-ext-hermes-memory/skills/grill-memory/SKILL.md
+index bb01c4b7..8ed887f3 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/skills/grill-memory/SKILL.md
++++ b/bun-apps/pi-agent-ext-hermes-memory/skills/grill-memory/SKILL.md
+@@ -1,18 +1,18 @@
+ ---
+ name: grill-memory
+-description: Use when conducting a grill-me or grill-me-with-docs session — informs each recommendation from the user's past behavioral memory and captures resolved decisions durably via the grill_decision tool. Companion to the grilling skill; co-fires whenever a grill is active.
++description: Use when running a grill-me session — inform each recommendation from memory and capture resolved decisions via grill_decision.
+ ---
+ 
+ # grill-memory: make grills learn from the user's experience
+ 
+-Companion to `grilling`. Two protocols, run for every decision in the grill.
++Companion to `grilling`. Two protocols per decision.
+ 
+ ## READ — inform each recommendation from memory
+ 
+ Before formulating your recommended answer for a decision, call `memory_search`
+ scoped to that decision and its trade-off:
+ 
+ ```
+ memory_search({
+   query: <the sub-decision + its trade-off keywords>,
+   target: "user",
+diff --git a/bun-apps/pi-agent-ext-wayfind/skills/domain-modeling/SKILL.md b/bun-apps/pi-agent-ext-wayfind/skills/domain-modeling/SKILL.md
+index acb2dd1b..877df30e 100644
+--- a/bun-apps/pi-agent-ext-wayfind/skills/domain-modeling/SKILL.md
++++ b/bun-apps/pi-agent-ext-wayfind/skills/domain-modeling/SKILL.md
+@@ -1,18 +1,18 @@
+ ---
+ name: domain-modeling
+-description: Use when building or sharpening a project's domain model — pinning down ubiquitous language, recording an architectural decision, or maintaining the glossary another skill drives. Actively challenges terms, invents edge-case scenarios, and writes CONTEXT.md + ADRs the moment decisions crystallise.
++description: Use when sharpening a domain model — pinning ubiquitous language, keeping the glossary, and writing CONTEXT.md + ADRs as decisions land.
+ ---
+ 
+ # Domain Modeling
+ 
+-Actively build and sharpen the project's domain model as you design. This is the *active* discipline — challenging terms, inventing edge-case scenarios, and writing the glossary and decisions down the moment they crystallise. (Merely *reading* `CONTEXT.md` for vocabulary is not this skill — that's a one-line habit any skill can do. This skill is for when you're changing the model, not just consuming it.)
++Build and sharpen the domain model as you design — the *active* discipline of **changing** it: challenging terms, inventing edge-case scenarios, writing decisions down the moment they crystallise. Merely *reading* `CONTEXT.md` for vocabulary is not this skill (any skill can do that); this fires when you're changing the model, not consuming it.
+ 
+ ## File structure
+ 
+ Most repos have a single context:
+ 
+ ```
+ /
+ ├── CONTEXT.md
+ ├── docs/
+ │   └── adr/
+diff --git a/bun-apps/pi-agent-ext-wayfind/skills/grilling/SKILL.md b/bun-apps/pi-agent-ext-wayfind/skills/grilling/SKILL.md
+index bbf0b821..b56651a6 100644
+--- a/bun-apps/pi-agent-ext-wayfind/skills/grilling/SKILL.md
++++ b/bun-apps/pi-agent-ext-wayfind/skills/grilling/SKILL.md
+@@ -1,20 +1,18 @@
+ ---
+ name: grilling
+-description: Use when the user wants to stress-test a plan, decision, or idea through a relentless one-question-at-a-time interview — or uses any "grill" trigger phrase. Walks the decision tree, resolving dependencies between decisions one-by-one, offering a recommended answer for each question.
++description: Use when the user wants to grill a decision or idea — a relentless one-question-at-a-time interview, each with a recommended answer.
+ ---
+ 
+ # Grilling
+ 
+-Interview the user relentlessly about every aspect of the plan, decision, or idea until you reach a shared understanding. Walk down each branch of the decision tree, resolving dependencies between decisions one-by-one. For each question, provide your recommended answer.
+-
+-Ask the questions **one at a time**, waiting for feedback on each question before continuing. Asking multiple questions at once is bewildering — it forces the user to hold several open threads and produces shallow answers instead of resolved decisions.
++Interview the user relentlessly about the plan, decision, or idea until you reach shared understanding — **one question at a time**, waiting for feedback before continuing. Asking multiple at once is bewildering: it forces the user to hold several open threads and produces shallow answers instead of resolved decisions. For each question, provide your recommended answer.
+ 
+ ## Facts vs decisions
+ 
+ If a *fact* can be found by exploring the environment (filesystem, tools, code, docs), **look it up rather than asking**. Read the file, grep the codebase, check the config — do not make the user transcribe what the repo already states. But the environment reflects the *current branch*, which may lag the line of development — before treating gathered facts as ground truth for a decision, confirm the branch is current (`/wayfind` checks this; otherwise `git rev-list --count HEAD..origin/<default>`); if behind, say so and prefer rebasing.
+ 
+ The *decisions*, though, are the user's — put each one to them and wait for their answer. Even when you have a strong recommendation, the call is theirs; offer the recommendation, then stop.
+ 
+ ## The discipline
+ 
+ - **One question at a time.** Never a questionnaire dump.
+diff --git a/bun-apps/pi-agent-ext-wayfind/tests/skill-weight.test.ts b/bun-apps/pi-agent-ext-wayfind/tests/skill-weight.test.ts
+new file mode 100644
+index 00000000..0f05aae6
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-wayfind/tests/skill-weight.test.ts
+@@ -0,0 +1,100 @@
++import { describe, expect, it } from "bun:test";
++import { readFileSync } from "node:fs";
++import { join } from "node:path";
++
++/**
++ * Phase-2 weight gate for the always-on skill DESCRIPTIONS this effort targets.
++ *
++ * The `description:` frontmatter line is the only part of a skill that is
++ * always-on (loaded into every request's system prompt so the model knows when
++ * to `read` the full body). A thinned description that drops its trigger noun
++ * would stop the skill from FIRING on the right cue — so this test pins two
++ * invariants together for each target skill:
++ *
++ *   1. ≤ 150 chars   — the slim target (was 268–298 chars; ~217–224 tok each).
++ *   2. trigger noun  — the cue the on-demand loader matches on is still present.
++ *
++ * Deterministic: pure file read + string check. Runs in `bun test`.
++ *
++ * NOTE on `grill-memory`'s path: the task brief lists
++ * `bun-apps/pi-agent-ext-wayfind/skills/grill-memory/SKILL.md`, but that file
++ * does NOT exist — `grill-memory` is packaged in the **hermes-memory**
++ * extension (`bun-apps/pi-agent-ext-hermes-memory/skills/grill-memory/`), not
++ * wayfind. The spec (section 6) names all three — domain-modeling, grilling,
++ * grill-memory — as the Phase-2 always-on description targets, so grill-memory
++ * IS in logical scope; only its on-disk location differs from the brief. This
++ * test resolves the real path. See task-4-report.md → "Path discrepancy".
++ */
++
++const WAYFIND_SKILLS = join(import.meta.dir, "..", "skills");
++// grill-memory physically lives in the hermes-memory package (one sibling over).
++const HERMES_SKILLS = join(import.meta.dir, "..", "..", "pi-agent-ext-hermes-memory", "skills");
++
++interface Target {
++  name: string;
++  /** Absolute path to the skill's SKILL.md. */
++  path: string;
++  /** Trigger noun that MUST survive the slim (lowercased substring match). */
++  triggerNoun: string;
++  /** Human-readable trigger-noun label for the assertion message. */
++  triggerLabel: string;
++}
++
++const TARGETS: Target[] = [
++  {
++    name: "domain-modeling",
++    path: join(WAYFIND_SKILLS, "domain-modeling", "SKILL.md"),
++    triggerNoun: "ubiquitous language", // "glossary" also present; either is the cue
++    triggerLabel: '"ubiquitous language" (or "glossary")',
++  },
++  {
++    name: "grilling",
++    path: join(WAYFIND_SKILLS, "grilling", "SKILL.md"),
++    triggerNoun: "grill",
++    triggerLabel: '"grill"',
++  },
++  {
++    name: "grill-memory",
++    path: join(HERMES_SKILLS, "grill-memory", "SKILL.md"),
++    triggerNoun: "grill_decision", // "memory" also present; either is the cue
++    triggerLabel: '"grill_decision" (or "memory")',
++  },
++];
++
++const MAX_DESCRIPTION_CHARS = 150;
++
++/** Extract the `description:` value from frontmatter (mirrors skills.test.ts' parser). */
++function readDescription(skillPath: string): string {
++  const content = readFileSync(skillPath, "utf8");
++  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
++  if (!match) throw new Error(`no frontmatter in ${skillPath}`);
++  for (const line of match[1].split(/\r?\n/)) {
++    const idx = line.indexOf(":");
++    if (idx > 0 && line.slice(0, idx).trim() === "description") {
++      return line.slice(idx + 1).trim().replace(/^["']|["']$/g, "");
++    }
++  }
++  throw new Error(`no description field in ${skillPath}`);
++}
++
++describe("Phase-2 skill description weight gate", () => {
++  for (const t of TARGETS) {
++    describe(`skill: ${t.name}`, () => {
++      const description = readDescription(t.path);
++
++      it(`description is ≤ ${MAX_DESCRIPTION_CHARS} chars (was 268–298)`, () => {
++        expect(description.length, `desc is ${description.length} chars`).toBeLessThanOrEqual(MAX_DESCRIPTION_CHARS);
++      });
++
++      it(`description still contains its trigger noun ${t.triggerLabel}`, () => {
++        // domain-modeling + grill-memory each have two acceptable trigger nouns;
++        // pass if EITHER is present (mirrors the brief's "or" phrasing).
++        const lower = description.toLowerCase();
++        const alternatives = t.triggerLabel.match(/"[^"]+"/g)?.map((s) => s.replace(/"/g, "").toLowerCase()) ?? [
++          t.triggerNoun.toLowerCase(),
++        ];
++        expect(alternatives.some((a) => lower.includes(a)), `none of ${alternatives} found in description`).toBe(true);
++      });
++    });
++  }
++});

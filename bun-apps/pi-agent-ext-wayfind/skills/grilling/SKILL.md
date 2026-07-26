@@ -1,13 +1,11 @@
 ---
 name: grilling
-description: Use when the user wants to stress-test a plan, decision, or idea through a relentless one-question-at-a-time interview — or uses any "grill" trigger phrase. Walks the decision tree, resolving dependencies between decisions one-by-one, offering a recommended answer for each question.
+description: Use when the user wants to grill a decision or idea — a relentless one-question-at-a-time interview, each with a recommended answer.
 ---
 
 # Grilling
 
-Interview the user relentlessly about every aspect of the plan, decision, or idea until you reach a shared understanding. Walk down each branch of the decision tree, resolving dependencies between decisions one-by-one. For each question, provide your recommended answer.
-
-Ask the questions **one at a time**, waiting for feedback on each question before continuing. Asking multiple questions at once is bewildering — it forces the user to hold several open threads and produces shallow answers instead of resolved decisions.
+Interview the user relentlessly about the plan, decision, or idea until you reach shared understanding — **one question at a time**, waiting for feedback before continuing. Asking multiple at once is bewildering: it forces the user to hold several open threads and produces shallow answers instead of resolved decisions. For each question, provide your recommended answer.
 
 ## Facts vs decisions
 

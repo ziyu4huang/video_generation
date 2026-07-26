@@ -1,11 +1,11 @@
 ---
 name: domain-modeling
-description: Use when building or sharpening a project's domain model — pinning down ubiquitous language, recording an architectural decision, or maintaining the glossary another skill drives. Actively challenges terms, invents edge-case scenarios, and writes CONTEXT.md + ADRs the moment decisions crystallise.
+description: Use when sharpening a domain model — pinning ubiquitous language, keeping the glossary, and writing CONTEXT.md + ADRs as decisions land.
 ---
 
 # Domain Modeling
 
-Actively build and sharpen the project's domain model as you design. This is the *active* discipline — challenging terms, inventing edge-case scenarios, and writing the glossary and decisions down the moment they crystallise. (Merely *reading* `CONTEXT.md` for vocabulary is not this skill — that's a one-line habit any skill can do. This skill is for when you're changing the model, not just consuming it.)
+Build and sharpen the domain model as you design — the *active* discipline of **changing** it: challenging terms, inventing edge-case scenarios, writing decisions down the moment they crystallise. Merely *reading* `CONTEXT.md` for vocabulary is not this skill (any skill can do that); this fires when you're changing the model, not consuming it.
 
 ## File structure
 
