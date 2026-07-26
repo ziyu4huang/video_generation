@@ -456,6 +456,72 @@ test("renderNavigator shows agent detail view", () => {
   assert.match(text, /j\/k scroll/); // detail view footer
 });
 
+/** A run with one RUNNING agent carrying model + startedAt (exercises the
+ * full-model + live-elapsed wiring in the agent-list and detail views). */
+function liveRunManager(): Pick<WorkflowManager, "listRuns" | "getRun"> {
+  const snapshot: WorkflowSnapshot = {
+    name: "live",
+    phases: ["work"],
+    currentPhase: "work",
+    logs: [],
+    agents: [
+      {
+        id: 1,
+        label: "worker",
+        phase: "work",
+        prompt: "do the work",
+        status: "running",
+        tokens: 200,
+        model: "zai/glm-5.2",
+        startedAt: Date.now() - 65_000, // 65s ago → fmtDuration "1m05s", fmtElapsed "65.0s"
+      },
+    ],
+    agentCount: 1,
+    runningCount: 1,
+    doneCount: 0,
+    errorCount: 0,
+    tokenUsage: { input: 100, output: 50, total: 150, cost: 0 },
+  };
+  return {
+    listRuns: () => [
+      {
+        runId: "run-live",
+        workflowName: "live",
+        status: "running",
+        phases: ["work"],
+        agents: snapshot.agents,
+        logs: [],
+        tokenUsage: snapshot.tokenUsage,
+      } as unknown as PersistedRunState,
+    ],
+    getRun: (id: string) =>
+      id === "run-live" ? ({ runId: "run-live", status: "running", snapshot } as unknown as ManagedRun) : undefined,
+  };
+}
+
+test("renderNavigator shows full model + elapsed in agent-list for a running agent", () => {
+  const model = new NavigatorModel(liveRunManager());
+  const state = new NavigatorState();
+  state.drill(model); // → phases
+  state.drill(model); // → agents
+  const lines = renderNavigator(state, model, 80);
+  const text = lines.join("\n");
+  assert.ok(text.includes("zai/glm-5.2"), `agent-list should show full provider/id, got: ${text}`);
+  assert.match(text, /65\.0s/); // elapsed (decimal, via renderActivityRow → fmtElapsed)
+});
+
+test("renderNavigator shows full Model + Elapsed line in detail for a running agent", () => {
+  const model = new NavigatorModel(liveRunManager());
+  const state = new NavigatorState();
+  state.drill(model); // → phases
+  state.drill(model); // → agents
+  state.drill(model); // → detail
+  const lines = renderNavigator(state, model, 80);
+  const text = lines.join("\n");
+  assert.ok(text.includes("zai/glm-5.2"), `detail should show full provider/id, got: ${text}`);
+  assert.match(text, /Elapsed: 1m05s/); // fmtDuration of 65s
+});
+
 test("renderNavigator shows agent error diagnostics in detail view", () => {
   const model = new NavigatorModel(errorDetailManager());
   const state = new NavigatorState();

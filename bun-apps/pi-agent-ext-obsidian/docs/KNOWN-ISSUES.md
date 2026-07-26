@@ -71,30 +71,58 @@ notes: *(2026-07)*
   `getIndex` rebuild. `moveNote` / `deleteNote` still `dropIndex` deliberately
   (the path key itself changes / the entry is removed).
 - **`saveIndex` persists only on a cold `getIndex` build**, not after incremental
-  `refreshIndex`. The on-disk cache can lag the in-memory index across a session;
-  `loadCachedIndex`'s mtime validation makes this a minor perf gap, never
-  correctness.
+  `refreshIndex` / `reindexFile`. **Accepted by design (2026-07 audit).** The
+  on-disk cache can lag the in-memory index across a session, but
+  `loadCachedIndex` mtime-validates *every* note on load and re-reads only the
+  changed files — so a stale cache is self-healing and never affects correctness.
+  Measured cost (3000-note vault, `bench-index-persistence.mjs`): a fully fresh
+  cache loads in ~47ms; a session that incrementally edited ~1% of notes but
+  never persisted still cold-starts in ~49ms (the stale files are re-read on
+  load). Even a worst-case 100%-stale bulk session is ~155ms ≈ the ~135ms full
+  `buildIndex` it would cost with no cache at all — persistence would not help
+  there either, since every persisted entry is invalidated. Persisting after
+  every write would add a 2.6MB disk write per write path and require throttling,
+  for a sub-5ms saving that falls below measurement noise. Not worth the
+  complexity.
 - **`byTitle` basename collision is last-indexed-wins.** Two notes sharing a
-  basename (`A/Foo.md`, `B/Foo.md`) alias to one `byTitle["foo"]` slot; reindexing
-  one can steal the key, and deleting it then leaves the survivor unresolvable by
-  basename. Inherent ambiguity of basename/title linking.
+  basename (`A/Foo.md`, `B/Foo.md`) alias to one `byTitle["foo"]` slot —
+  last-indexed-wins. Deleting the winner then leaves the survivor
+  **unresolvable by bare basename** (`[[Foo]]` returns undefined) until a full
+  rebuild; path-qualified links (`[[A/Foo]]`) are always correct, so use those
+  when basenames collide. The `unindexNote` guard already prevents the worse
+  variant (a reindexed loser clobbering the winner). Rare in practice
+  (~0.2% of basenames in the knowledge vault, all boilerplate files like
+  `README`/`Index`/`progress` — never Zettelkasten notes, whose titles are
+  unique by `zk_card`'s 4-layer dup check). Accepted as wontfix; fixing would
+  require `Map<string, Set<string>>` + a `resolveLink: string[]` contract
+  change rippling through 6 consumers — disproportionate to the severity.
 - **`zk-ingest` CLI refuses `--source generic`** (`KNOWN_SOURCES` omits it) while
   the `zk_ingest` tool and `host-fns` support it. Explicit error, not a silent
   mis-parse — a surface gap only.
 - **Partial `zk_ingest` re-ingest produces asymmetric (directed) `相關：[[...]]`
   edges.** Links are recomputed only for the re-ingested cards; untouched existing
   cards keep their prior outgoing links, so a newly-related card can reach an
-  existing one but not vice-versa until that card is itself re-ingested. Inherent
-  to incremental upsert; a full re-ingest of all sources rebuilds symmetrically.
-- **`distill/state.ts:readState` does a raw `JSON.parse` with no try/catch.** A
-  corrupt `.distill-state.json` would throw inside `runConverge` after cards are
-  already written. Not a valid-input trigger, but wrapping it would make converge
-  robust to state-file corruption.
+  existing one but not vice-versa until that card is itself re-ingested. The edge
+  ranking is content-based (shared-tag overlap) and cheap, but re-rendering an
+  existing card's body needs its full `KnowledgeRecord`, which is discarded at
+  write time (`existing` holds only `{abs, tags, sourceId}`) — so "cheap inbound
+  recompute" isn't available without re-parsing the rendered `.md` (lossy) or
+  in-place text-replacing the `相關` block (fragile). `zk_ask`'s 2-hop graph
+  traversal bridges single missing reverse-edges, so retrieval degrades
+  gracefully. Workaround: a full re-ingest of all sources rebuilds symmetrically.
+  Future flag, if ever wanted: `--recompute-edges-only` should re-ingest from
+  source files (skip the content-hash unchanged-check so all cards become
+  `planned`), not re-parse rendered cards.
 
 ## Resolved (history)
 
 These were listed as TODOs previously and are now done (kept so the README stays
 short; detail in `ENHANCEMENT-PRD.md`):
+- **`distill/state.ts:readState` now wraps `JSON.parse` in try/catch** — a
+  corrupt `.distill-state.json` resets to the empty default (same as a missing
+  file) instead of throwing inside `runConverge` after cards are written. The
+  subsequent `writeState` overwrites the corrupt file (self-healing). Covered by
+  `__tests__/distill/state.test.ts` (ticket 05, PR #860, 2026-07).
 - `renameOverwrite` handles win32 `EPERM`/`EEXIST` via unlink+retry (and `EXDEV`
   via copy+delete); covered by `extensions/__tests__/renameOverwrite.test.ts`
   (Phase 2.1, 2026-07).

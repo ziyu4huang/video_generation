@@ -12,9 +12,11 @@
  *     keybindings manager (user-configurable, ticket 05) and CONSUMES them so
  *     the Editor base doesn't also move the text cursor.
  *
- * This layer is NOT unit-testable (needs a live TUI); its render + state logic
- * live in `menu-render.ts` (tested) and its interaction is verified manually
- * (ACCEPTANCE.md §B). Keep this file thin — push logic into menu-render.ts.
+ * The handleInput routing + accept/cancel/close logic ARE unit-tested
+ * (`tests/menu-picker.test.ts` drives handleInput against a mock tui/kb); the
+ * render + state logic live in `menu-render.ts` (tested). What remains manual
+ * (ACCEPTANCE §B) is the live-rendering appearance + real keybinding bytes.
+ * Keep this file thin — push logic into menu-render.ts.
  */
 import { CustomEditor, type KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import type { EditorTheme, OverlayAnchor, SelectItem, TUI } from "@earendil-works/pi-tui";
@@ -35,6 +37,13 @@ export interface MenuPickerOptions {
   onSelect: (item: SelectItem, query: string) => void;
   /** Cancel — fired on `tui.select.cancel` / Esc. Buffer is retained by caller. */
   onCancel?: (query: string) => void;
+  /** Auto-run the selected item: on accept, call the editor's framework-wired
+   * `onSubmit` with the item value — which IS the interactive-mode slash-
+   * dispatch fn (wired by `setCustomEditorComponent`: `newEditor.onSubmit =
+   * this.defaultEditor.onSubmit`). One-Enter parity (claude-code): select →
+   * runs immediately, no second Enter. When true, `onSelect` is for side-effects
+   * only (do NOT also fill the prompt). Requires interactive mode. */
+  autoSubmit?: boolean;
   /** Visible rows in the scroll viewport. Default 8. */
   maxVisible?: number;
   /** Overlay anchor. Default "bottom-center" (claude-code drop-below-input). */
@@ -113,6 +122,8 @@ export class MenuPickerEditor extends CustomEditor {
     if (!item) return; // empty-state: Enter is a no-op (ACCEPTANCE §B)
     this.close();
     this.pickerOpts.onSelect(item, this.overlay.query);
+    // auto-run: onSubmit is the slash-dispatch fn wired by setCustomEditorComponent.
+    if (this.pickerOpts.autoSubmit) this.onSubmit?.(item.value);
   }
 
   private cancel(): void {

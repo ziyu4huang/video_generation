@@ -75,7 +75,7 @@ export function renderActivityRow(row: ActivityRow, theme: ThemeLike, maxDetailW
   const badge = row.badge ? `${theme.fg("accent", row.badge)} ` : "";
   const head = `${badge}${theme.fg(color, icon)} ${theme.fg("muted", row.actor)}`;
   const meta = [
-    row.model ? shortModel(row.model) : undefined,
+    row.model ?? undefined,
     row.tokens ? `${fmtTokensShort(row.tokens)} tok` : undefined,
     typeof row.cost === "number" && row.cost > 0 ? `$${fmtCost(row.cost)}` : undefined,
     typeof row.elapsedMs === "number" ? fmtElapsed(row.elapsedMs) : undefined,

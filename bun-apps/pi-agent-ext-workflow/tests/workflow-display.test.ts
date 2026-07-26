@@ -609,6 +609,12 @@ describe("renderActivityRow", () => {
     assert.match(line, /1 call\b/);
   });
 
+  it("shows the full provider/id model (does not strip the prefix)", async () => {
+    const { renderActivityRow } = await loadDisplay();
+    const line = renderActivityRow({ status: "running", actor: "worker", model: "zai/glm-5.2" }, theme);
+    assert.ok(line.includes("zai/glm-5.2"), `should keep the provider prefix, got: ${line}`);
+  });
+
   it("pluralizes tool-call count", async () => {
     const { renderActivityRow } = await loadDisplay();
     const line = renderActivityRow({ status: "running", actor: "worker", toolCalls: 3 }, theme);

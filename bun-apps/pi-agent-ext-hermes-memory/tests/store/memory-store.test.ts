@@ -1139,5 +1139,32 @@ describe("MemoryStore", { concurrency: 1 }, () => {
         `consolidator child must inherit PI_HERMES_CONSOLIDATING=1; got ${envDuringConsolidation}`);
       assert.equal(process.env.PI_HERMES_CONSOLIDATING, prev, "env restored after consolidation");
     });
+
+    it("fires onProgress with the consolidator model label when consolidation runs", async () => {
+      const store = new MemoryStore(makeConfig({
+        memoryCharLimit: 200,
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      const progress: string[] = [];
+      // Stub consolidator + a model label (as index.ts injects in production).
+      store.setConsolidator(async () => ({ consolidated: false }), "gemma-4-12b");
+      await store.loadFromDisk();
+
+      await store.add("memory", `${TEST_MARKER} progress 1`);
+      await store.add("memory", `${TEST_MARKER} progress 2`);
+      // third overflows -> auto-consolidate -> runConsolidator fires onProgress
+      await store.add("memory", `${TEST_MARKER} progress 3`, { onProgress: (m) => progress.push(m) });
+
+      assert.ok(progress.length > 0, "onProgress should fire when consolidation runs");
+      assert.ok(
+        progress.some((m) => m.includes("gemma-4-12b")),
+        `progress message should include the consolidator model label; got: ${JSON.stringify(progress)}`,
+      );
+      assert.ok(
+        progress.some((m) => /consolidat/i.test(m)),
+        `progress message should describe consolidation; got: ${JSON.stringify(progress)}`,
+      );
+    });
   });
 });
