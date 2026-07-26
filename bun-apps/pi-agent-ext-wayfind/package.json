@@ -55,9 +55,7 @@
     ]
   },
   "license": "MIT",
-  "dependencies": {
-    "@repo/pi-agent-ext-core-task": "workspace:*"
-  },
+  "dependencies": {},
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "0.82.0"
   },
