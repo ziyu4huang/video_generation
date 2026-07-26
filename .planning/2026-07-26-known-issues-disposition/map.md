@@ -29,14 +29,21 @@ dispositions are reflected back into KNOWN-ISSUES.md as either Resolved or Accep
 
 ## Decisions so far
 
+- **01 = accept-by-design** (grilled 2026-07-26): the `saveIndex` persist gap
+  is a non-issue once measured. `loadCachedIndex` mtime-validates every note and
+  re-reads only changed files — it does NOT re-scan (the ticket draft's
+  assumption was wrong). Bench (3000 notes): typical 1%-stale cold start = 49ms
+  vs 47ms fresh = **~2ms cost**, below noise; even 100%-stale = 155ms ≈ full
+  build (persistence wouldn't help there either). Fixing needs throttling + a
+  coherence test for <5ms — not worth it. KNOWN-ISSUES wording corrected to say
+  "re-read changed files" not "re-scan" + bench numbers recorded. No code
+  change; doc-only.
 - **03 = fix** (grilled 2026-07-26): `zk-ingest` CLI gains `generic` in
   `KNOWN_SOURCES` + a dispatch branch mirroring `auto-memory`
   (one-record-per-file via `adaptGenericMarkdown`) + help text ×2 + a CLI test.
   Fact-finding found the gap is **two sites** (set + dispatch), not the
   single-line the map draft assumed — `generic` would otherwise fall through to
-  `parseKnowledgeJsonl`. Spec locked in
-  [tickets/03](tickets/03-zkingest-cli-generic-source.md); executing as its own
-  PR.
+  `parseKnowledgeJsonl`. Merged as PR #858 (commit 52cd5fdb).
 
 ## Not yet specified
 
