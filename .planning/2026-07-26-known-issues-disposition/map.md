@@ -50,8 +50,8 @@ dispositions are reflected back into KNOWN-ISSUES.md as either Resolved or Accep
   returned). Recovery = **reset to empty default** (same as a missing file);
   converge completes and the subsequent `writeState` overwrites the corrupt
   file → self-healing, mirroring `loadCachedIndex`'s mtime philosophy (01).
-  Proof: corrupt-file test fails with `SyntaxError` when fix removed. Executing
-  as its own PR.
+  Proof: corrupt-file test fails with `SyntaxError` when fix removed. Merged
+  as PR #860 (commit c6e0b6b3).
 
 ## Not yet specified
 
