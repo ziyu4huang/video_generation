@@ -44,6 +44,14 @@ dispositions are reflected back into KNOWN-ISSUES.md as either Resolved or Accep
   Fact-finding found the gap is **two sites** (set + dispatch), not the
   single-line the map draft assumed — `generic` would otherwise fall through to
   `parseKnowledgeJsonl`. Merged as PR #858 (commit 52cd5fdb).
+- **05 = fix** (grilled 2026-07-26): `distill/state.ts:readState` wrapped its
+  bare `JSON.parse` in try/catch — a corrupt `.distill-state.json` used to throw
+  *after* `runConverge` had already written cards (partial converge + no result
+  returned). Recovery = **reset to empty default** (same as a missing file);
+  converge completes and the subsequent `writeState` overwrites the corrupt
+  file → self-healing, mirroring `loadCachedIndex`'s mtime philosophy (01).
+  Proof: corrupt-file test fails with `SyntaxError` when fix removed. Merged
+  as PR #860 (commit c6e0b6b3).
 
 ## Not yet specified
 
