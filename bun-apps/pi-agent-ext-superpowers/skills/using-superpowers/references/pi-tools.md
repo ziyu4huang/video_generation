@@ -30,6 +30,8 @@ Pi core does not ship a standard subagent tool. This repo's `pi-agent-ext-subage
 
 **Public API (peer-extension code).** Dispatching a subagent programmatically from another extension's CODE imports `spawnSubagent` (+ `SpawnSubagentOptions`/`Result`/`AgentUsage`) from `@repo/pi-agent-ext-subagent`, NOT the LLM tool path. (superpowers itself does NOT use this path — it drives subagents via the `subagent` tool call; this note is for peer extensions like `knowledge-card`/`wayfind` that need programmatic dispatch. Only the two singletons demand the `@repo/pi-agent-ext-subagent/src/*` subpath — see that package's README + ADR-0001.)
 
+**Process isolation (subprocess runner).** When a caller needs a CLEAN pi process (separate cwd, crash isolation, no shared in-process state) — not just an isolated *context* — use `spawnSubagentSubprocess`: the subprocess analog of `spawnSubagent`, same return shape + same contract guarantees (config-only model, retry/timeout, opt-in telemetry). Import from `@repo/pi-agent-ext-subagent/src/spawn-subagent-subprocess.ts` (the `.ts` subpath — a root `@repo/...` import pulls the full agent graph + adds ~8s to CLI boot; see ADR-0001). obsidian's Zettelkasten distill/garden route through it. Default to the in-process `spawnSubagent`; reach for the subprocess wrapper only when process-level isolation is load-bearing.
+
 If no `subagent` tool is available, do not fabricate `Task` calls; execute sequentially in the current session or explain that the subagent capability is not installed.
 
 ## Parallel fan-out (many subagents)
