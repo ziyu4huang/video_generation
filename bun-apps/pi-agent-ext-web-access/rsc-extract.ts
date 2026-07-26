@@ -88,7 +88,7 @@ export function extractRSCContent(html: string): RSCExtractResult | null {
       // Check if it's a reference like "$L30"
       const refMatch = node.match(/^\$L([0-9a-f]+)$/i);
       if (refMatch) {
-        const refId = refMatch[1];
+        const refId = refMatch[1] ?? "";
         if (visitedRefs.has(refId)) return ""; // Prevent cycles
         visitedRefs.add(refId);
         const refNode = getParsedChunk(refId);
@@ -192,11 +192,11 @@ export function extractRSCContent(html: string): RSCExtractResult | null {
       // Handle string refs
       if (typeof node === "string") {
         const refMatch = node.match(/^\$L([0-9a-f]+)$/i);
-        if (refMatch && !visitedRefs.has(refMatch[1])) {
-          visitedRefs.add(refMatch[1]);
-          const refNode = getParsedChunk(refMatch[1]);
+        if (refMatch && !visitedRefs.has(refMatch[1] ?? "")) {
+          visitedRefs.add(refMatch[1] ?? "");
+          const refNode = getParsedChunk(refMatch[1] ?? "");
           if (refNode) walkTable(refNode, isHeader);
-          visitedRefs.delete(refMatch[1]);
+          visitedRefs.delete(refMatch[1] ?? "");
         }
         return;
       }
@@ -240,11 +240,11 @@ export function extractRSCContent(html: string): RSCExtractResult | null {
       // Handle string refs
       if (typeof node === "string") {
         const refMatch = node.match(/^\$L([0-9a-f]+)$/i);
-        if (refMatch && !visitedRefs.has(refMatch[1])) {
-          visitedRefs.add(refMatch[1]);
-          const refNode = getParsedChunk(refMatch[1]);
+        if (refMatch && !visitedRefs.has(refMatch[1] ?? "")) {
+          visitedRefs.add(refMatch[1] ?? "");
+          const refNode = getParsedChunk(refMatch[1] ?? "");
           if (refNode) walkCells(refNode, cells);
-          visitedRefs.delete(refMatch[1]);
+          visitedRefs.delete(refMatch[1] ?? "");
         }
         return;
       }
@@ -279,7 +279,7 @@ export function extractRSCContent(html: string): RSCExtractResult | null {
     const colCount = Math.max(...rows.map(r => r.length));
     let md = "";
     for (let i = 0; i < rows.length; i++) {
-      const row = rows[i].concat(Array(colCount - rows[i].length).fill(""));
+      const row = rows[i]!.concat(Array(colCount - rows[i]!.length).fill(""));
       md += "| " + row.join(" | ") + " |\n";
       if (i === headerRowCount - 1 || (headerRowCount === 0 && i === 0)) {
         md += "| " + Array(colCount).fill("---").join(" | ") + " |\n";

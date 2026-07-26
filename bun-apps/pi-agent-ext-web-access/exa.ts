@@ -269,6 +269,7 @@ function buildAnswerFromMcpResults(results: McpParsedResult[]): string {
 	const parts: string[] = [];
 	for (let i = 0; i < results.length; i++) {
 		const result = results[i];
+		if (!result) continue;
 		const snippet = result.content.replace(/\s+/g, " ").trim().slice(0, 500);
 		if (!snippet) continue;
 		const sourceTitle = result.title || `Source ${i + 1}`;

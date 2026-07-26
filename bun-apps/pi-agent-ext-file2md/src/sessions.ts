@@ -7,7 +7,7 @@
  *    lm-studio configured per the project CLAUDE.md
  */
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { loadModelTierConfig, resolveModelRole } from "@repo/pi-agent-ext-subagent/src/model-role-config.ts";
+import { loadModelTierConfig, resolveModelRole } from "@repo/pi-agent-ext-subagent";
 
 export type { ThinkingLevel };
 
@@ -17,7 +17,7 @@ export type { ThinkingLevel };
 export { createSharedSession } from "./session-factory.js";
 
 const THINKING_LEVELS: readonly string[] = [
-  "off", "minimal", "low", "medium", "high", "xhigh",
+  "off", "minimal", "low", "medium", "high", "xhigh", "max",
 ];
 
 export interface ResolvedLLM {

@@ -86,7 +86,7 @@ export function isYouTubeURL(url: string): { isYouTube: boolean; videoId: string
 
 	const match = url.match(YOUTUBE_REGEX);
 	if (!match) return { isYouTube: false, videoId: null };
-	return { isYouTube: true, videoId: match[1] };
+	return { isYouTube: true, videoId: match[1] ?? null };
 }
 
 export function isYouTubeEnabled(): boolean {
