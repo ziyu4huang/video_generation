@@ -24,6 +24,9 @@
  */
 import type { ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import goal, { isGoalActive } from "../src/goal/goal.js";
+import { registerLoop, restoreLoopFromSession } from "../src/loop/loop.js";
+import { LoopOverlay } from "../src/loop/overlay.js";
+import { loopState } from "../src/loop/loop-state.js";
 import { GoalOverlay } from "../src/goal/overlay.js";
 import { registerTodoTool, registerTodosCommand } from "../src/todo/todo";
 import { TodoOverlay } from "../src/todo/overlay";
@@ -69,6 +72,13 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 	goalOverlay.setRefresh(() => statusWidget.update());
 	todoOverlay.setRefresh(() => statusWidget.update());
 	statusWidget.addSection({ id: "goal", order: 0, render: (t, w) => goalOverlay.render(t, w) });
+
+	const loopOverlay = new LoopOverlay();
+	registerLoop(pi, loopOverlay);
+	loopOverlay.setRefresh(() => statusWidget.update());
+	// Loop is mutually exclusive with goal, so it shares order 0 — only one is ever non-empty.
+	statusWidget.addSection({ id: "loop", order: 0, render: (t, w) => loopOverlay.render(t, w) });
+
 	statusWidget.addSection({ id: "todo", order: 1, render: (t, w) => todoOverlay.render(t, w), inspect: () => todoOverlay.inspect() });
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -79,6 +89,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 		replaceState(EMPTY_STATE);
 		latestCwd = ctx.cwd;
 		refreshPlan(ctx.cwd); // parse + cache the active effort's plan (for the plan coordinator; NOT for todo seeding)
+		restoreLoopFromSession((ctx as { sessionManager?: unknown }).sessionManager, loopOverlay);
 		if (ctx.hasUI) {
 			statusWidget.setUICtx(ctx.ui);
 			todoOverlay.resetCompletedDisplayState();
@@ -103,6 +114,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 
 	pi.on("session_shutdown", async () => {
 		goalOverlay.dispose();
+		loopOverlay.dispose();
 		todoOverlay.dispose();
 		statusWidget.dispose();
 	});
