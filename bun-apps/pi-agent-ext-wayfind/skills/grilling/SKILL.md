@@ -19,7 +19,7 @@ The *decisions*, though, are the user's — put each one to them and wait for th
 - **Recommended answer for every question.** Don't just probe — propose. The user confirms, rejects, or refines; they rarely have to originate from a blank page.
 - **Resolve dependencies in order.** If decision B depends on A, settle A first. Don't ask about storage before you've agreed what's being stored.
 - **Stay in the decision tree.** Each answer opens new branches and closes others. Follow the ones that matter; note (don't chase) the ones that don't.
-- **Reach for the environment for facts — but confirm it's current.** A question whose answer lives in the codebase is a research task, not a grill question. The codebase you grep reflects the current branch; if it lags the line of development, say so before trusting what you find.
+- **Reach for the environment for facts.** A question whose answer lives in the codebase is a research task, not a grill question — see **Facts vs decisions** above for the branch-currency check before trusting what you find.
 
 Do not act on anything until the user confirms you have reached a shared understanding. Grilling produces alignment; acting on it is a separate step the user must approve.
 
