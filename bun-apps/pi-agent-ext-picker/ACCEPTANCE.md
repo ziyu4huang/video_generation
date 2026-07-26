@@ -15,12 +15,34 @@ Pins the deterministic render core `renderMenuLines`:
 - [x] `selectedIndex` clamps to the filtered list
 - [x] render respects `width` (no line exceeds it)
 
+## Launch (pre-run checklist)
+
+Open a **new Terminal.app window** — the manual tests need a live interactive
+TUI and cannot run inside an existing pi session.
+
+> ⚠️ **Run-dir gotcha.** The global `pi` shim (`~/.pi/agent/bin/pi`) points at
+> the `video_generation__memory` worktree, whose `run-dir/manifest.json` does
+> **not** register the picker. pi resolves `run-dir/` relative to the pi-agent
+> *package* (cwd-independent, via `import.meta.url`), so you MUST launch THIS
+> worktree's pi-agent directly — `PI_PICKER=1 pi` alone will not load it.
+
+```bash
+cd /Users/huangziyu/proj/video_generation__subagent
+PI_PICKER=1 bun bun-apps/pi-agent/src/cli.ts   # §B + §C (picker opt-in)
+bun            bun-apps/pi-agent/src/cli.ts      # §C inert (NO PI_PICKER)
+```
+
+Confirm the picker actually loaded before testing:
+```bash
+bun bun-apps/pi-agent/src/cli.ts ext doctor | grep picker
+# expect:  OK   pi-agent-ext-picker   thin · ...
+```
+
 ## B. Manual — keybinding matrix (run against the live TUI)
 
-**Status (2026-07-26): the `MenuPickerEditor` component is BUILT (slice 2) — tsc-clean,
-logic-tested, module loads. These items become testable once a CONSUMER wires it
-(slash-command menu, slice 3 / ticket 06's tracer bullet).** Each must behave as
-claude-code's picker does:
+**Status: component + consumer both BUILT (slices 2 + 3, merged). These items
+are the live-TUI acceptance gate — run them via the Launch procedure above.**
+Each must behave as claude-code's picker does:
 
 - [ ] type `/` → picker opens (bottom-anchored overlay visible)
 - [ ] **input ownership**: typed chars reach the EDITOR (live filter), NOT eaten
@@ -39,7 +61,8 @@ registered in `pi-agent/run-dir/manifest.json`. Opt-in via `PI_PICKER=1`.**
 Manual test procedure:
 
 ```bash
-PI_PICKER=1 pi          # start pi with the picker opt-in
+# from a fresh Terminal.app, in this worktree (see "Launch" above):
+PI_PICKER=1 bun bun-apps/pi-agent/src/cli.ts
 # in the prompt:
 #   /            → picker overlay opens (bottom-center), all commands listed
 #   he           → live fuzzy filter → /help
