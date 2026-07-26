@@ -213,7 +213,7 @@ function mapSearchResults(results: V1WebSearchResult[] | undefined): SearchRespo
 		mapped.push({
 			title: item.title || `Source ${i + 1}`,
 			url: item.url,
-			snippet: excerpts.length > 0 ? excerpts[0].replace(/\s+/g, " ").trim().slice(0, 200) : "",
+			snippet: excerpts.length > 0 ? (excerpts[0] ?? "").replace(/\s+/g, " ").trim().slice(0, 200) : "",
 		});
 	}
 	return mapped;

@@ -279,7 +279,7 @@ export function extractRSCContent(html: string): RSCExtractResult | null {
     const colCount = Math.max(...rows.map(r => r.length));
     let md = "";
     for (let i = 0; i < rows.length; i++) {
-      const row = rows[i].concat(Array(colCount - rows[i].length).fill(""));
+      const row = rows[i]!.concat(Array(colCount - rows[i]!.length).fill(""));
       md += "| " + row.join(" | ") + " |\n";
       if (i === headerRowCount - 1 || (headerRowCount === 0 && i === 0)) {
         md += "| " + Array(colCount).fill("---").join(" | ") + " |\n";

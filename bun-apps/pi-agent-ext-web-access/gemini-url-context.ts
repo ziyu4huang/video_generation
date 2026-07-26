@@ -50,7 +50,7 @@ export async function extractWithUrlContext(
 
 		const metadata = data.candidates?.[0]?.url_context_metadata;
 		if (metadata?.url_metadata?.length) {
-			const status = metadata.url_metadata[0].url_retrieval_status;
+			const status = metadata.url_metadata[0]?.url_retrieval_status;
 			if (status === "URL_RETRIEVAL_STATUS_UNSAFE" || status === "URL_RETRIEVAL_STATUS_ERROR") {
 				return null;
 			}

@@ -241,9 +241,9 @@ async function importSqlite(): Promise<typeof import("node:sqlite") | null> {
 
 function supportsReadBigInts(): boolean {
 	const [major, minor] = process.versions.node.split(".").map(Number);
-	if (major > 24) return true;
-	if (major < 24) return false;
-	return minor >= 4;
+	if ((major ?? 0) > 24) return true;
+	if ((major ?? 0) < 24) return false;
+	return (minor ?? 0) >= 4;
 }
 
 async function readMetaVersion(dbPath: string): Promise<number> {
