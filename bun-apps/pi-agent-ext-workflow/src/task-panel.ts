@@ -344,6 +344,7 @@ function renderRunBody(
         status: a.status,
         actor: shorten(a.label, 40),
         model: a.model,
+        elapsedMs: a.status === "running" && typeof a.startedAt === "number" ? Date.now() - a.startedAt : undefined,
         tokens: a.tokens,
         badge: `[${a.id}]`,
         latestAction: a.status === "running" ? summarizeLatestAction(a.history) : undefined,

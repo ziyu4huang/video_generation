@@ -19,9 +19,9 @@ import { parseKey, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-
 import type { AgentHistoryEntry } from "@repo/pi-agent-ext-subagent";
 import { summarizeLatestAction } from "@repo/pi-agent-ext-subagent";
 import {
-  type ActivityRow,
+  fmtDuration,
   renderActivityRow,
-  shortModel,
+  type ActivityRow,
   type WorkflowAgentSnapshot,
   type WorkflowSnapshot,
 } from "./display.js";
@@ -82,6 +82,7 @@ interface AgentRow {
   phase?: string;
   tokens?: number;
   model?: string;
+  startedAt?: number;
   history?: AgentHistoryEntry[];
 }
 
@@ -170,6 +171,7 @@ export class NavigatorModel {
         phase: a.phase,
         tokens: a.tokens,
         model: a.model,
+        startedAt: a.startedAt,
         history: a.history,
       }));
   }
@@ -422,6 +424,7 @@ export function renderNavigator(
         status: a.status as ActivityRow["status"],
         actor: a.label,
         model: a.model,
+        elapsedMs: a.status === "running" && typeof a.startedAt === "number" ? Date.now() - a.startedAt : undefined,
         tokens: a.tokens,
         latestAction: a.status === "running" ? summarizeLatestAction(a.history) : undefined,
       };
@@ -433,7 +436,9 @@ export function renderNavigator(
     if (a) {
       const body: string[] = [];
       body.push(dim("Status: ") + (a.status ?? ""));
-      if (a.model) body.push(dim("Model: ") + (shortModel(a.model) ?? ""));
+      if (a.model) body.push(dim("Model: ") + a.model);
+      if (a.status === "running" && typeof a.startedAt === "number")
+        body.push(dim("Elapsed: ") + fmtDuration(Date.now() - a.startedAt));
       if (a.error) body.push(dim("Error: ") + a.error);
       if (a.errorCode) body.push(`${dim("Error code: ")}${a.errorCode}${a.recoverable ? " (recoverable)" : ""}`);
       body.push("", dim("Prompt:"));
@@ -601,8 +606,12 @@ export function openWorkflowNavigator(
       ];
       const onEvent = () => rerender();
       for (const ev of events) manager.on(ev, onEvent);
+      // Live-tick the elapsed counter for running agents while the navigator is open.
+      const liveTimer = setInterval(() => rerender(), 1000);
+      (liveTimer as { unref?: () => void }).unref?.();
       const cleanup = () => {
         for (const ev of events) manager.off(ev, onEvent);
+        clearInterval(liveTimer);
       };
 
       const act = (data: string) => {

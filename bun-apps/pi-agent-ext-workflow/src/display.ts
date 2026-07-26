@@ -180,7 +180,7 @@ export function createToolUpdateWorkflowDisplay(
 }
 
 /** Compact human duration: 12s / 1m23s / 1h05m. */
-function fmtDuration(ms: number): string {
+export function fmtDuration(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
