@@ -136,7 +136,7 @@ export function parseGitHubUrl(url: string): GitHubUrlInfo | null {
 	if (segments.length < 2) return null;
 
 	const owner = segments[0];
-	const repo = segments[1].replace(/\.git$/, "");
+	const repo = (segments[1] ?? "").replace(/\.git$/, "");
 
 	if (NON_CODE_SEGMENTS.has(segments[2]?.toLowerCase())) return null;
 

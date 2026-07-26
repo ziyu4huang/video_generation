@@ -98,10 +98,10 @@ export async function extractPDFToMarkdown(
   for (let i = 0; i < pages.length; i++) {
     if (i > 0) {
       lines.push("");
-      lines.push(`<!-- Page ${pages[i].pageNum} -->`);
+      lines.push(`<!-- Page ${pages[i]?.pageNum} -->`);
       lines.push("");
     }
-    lines.push(pages[i].text);
+    lines.push(pages[i]?.text ?? "");
   }
 
   if (truncated) {

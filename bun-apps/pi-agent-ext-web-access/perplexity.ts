@@ -79,12 +79,12 @@ function checkRateLimit(): void {
 	const now = Date.now();
 	const windowStart = now - RATE_LIMIT.windowMs;
 
-	while (requestTimestamps.length > 0 && requestTimestamps[0] < windowStart) {
+	while (requestTimestamps.length > 0 && (requestTimestamps[0] ?? 0) < windowStart) {
 		requestTimestamps.shift();
 	}
 
 	if (requestTimestamps.length >= RATE_LIMIT.maxRequests) {
-		const waitMs = requestTimestamps[0] + RATE_LIMIT.windowMs - now;
+		const waitMs = (requestTimestamps[0] ?? 0) + RATE_LIMIT.windowMs - now;
 		throw new Error(`Rate limited. Try again in ${Math.ceil(waitMs / 1000)}s`);
 	}
 
