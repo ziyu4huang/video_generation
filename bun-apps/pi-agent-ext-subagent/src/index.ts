@@ -58,6 +58,12 @@ export {
   saveModelTierConfig,
   sortedTierNames,
 } from "./model-tier-config.js";
+// resolveModelRole re-exported directly from the leaf (model-role-config.ts)
+// so lightweight consumers can import it via the package root WITHOUT pulling
+// in agent.js — importing it through model-tier-config.ts would drag in the
+// WorkflowAgent machinery (listAvailableModelSpecs). Same leaf the tier-config
+// re-exports; no new graph edge.
+export { resolveModelRole } from "./model-role-config.js";
 // sdd-report
 export type { SddReport, SddReportStatus } from "./sdd-report.js";
 export { isSddReportActionable, parseSddReport, SDD_REPORT_STATUSES } from "./sdd-report.js";
