@@ -1,34 +1,50 @@
 ---
 type: grilling
 blocked by: []
-status: open
+status: closed
+resolved: 2026-07-26 (accepted-by-design; doc PR pending)
 ---
 
 # 01 — saveIndex persist-after-incremental-refresh policy
 
-## Question
+## Decision
 
-After #841 / #850, writes (`appendUnderHeading`, `obsidian_create`,
-`obsidian_append`, `updateFrontmatter`) reindex **incrementally** via
-`reindexFile`, and external edits reconcile via `refreshIndex`. But `saveIndex`
-(persist the index to the on-disk `.cache`) only fires on a **cold `getIndex`
-build** — neither `refreshIndex` nor `reindexFile` persists. So the on-disk cache
-lags the in-memory index across a session; the next cold start re-scans.
+**accept-as-wontfix (accepted-by-design).** (Grilled 2026-07-26; user accepted
+the recommendation after seeing the measured cost.)
 
-The KNOWN-ISSUES note calls this a **perf gap, never correctness**
-(`loadCachedIndex` mtime-validates per note on load, so a stale cache is
-self-healing).
+## Findings (fact-finding + bench, branch behind:0)
 
-**Decision: fix / mitigate / accept-as-wontfix?**
+The ticket draft assumed this was a "perf gap — next cold start re-scans." That
+assumption was **wrong**, and the bench disproved it:
 
-- If **fix**: spec the persist hook — where (end of `refreshIndex`?
-  `reindexFile`?), throttling (avoid a disk write per write), and a coherence
-  test (persisted cache survives a simulated restart and reflects an incremental
-  edit). One PR.
-- If **accept**: one-line rationale for KNOWN-ISSUES → Accepted.
+`loadCachedIndex` mtime-validates *every* note on load and re-reads only the
+changed files. It does NOT re-scan (read all content). So an incrementally-edited
+but unpersisted index cold-starts via the cheap load path, not the full build.
 
-## Read first (to inform the decision)
+Measured (`scripts/bench-index-persistence.mjs`, 3000-note vault):
 
-- `src/lib/index.ts`: `saveIndex`, `refreshIndex`, `reindexFile`, `getIndex`
-  (the cold-build persist site), `loadCachedIndex` (mtime validation).
-- `scripts/bench-index-persistence.mjs` — is there a measured cost baseline?
+| cold-start path | time | when |
+|---|---|---|
+| `buildIndex` (no cache) | 135ms | baseline / first run |
+| `loadCachedIndex` (fresh cache) | 47ms | persisted, nothing changed |
+| `loadCachedIndex` (1% stale) | **49ms** | ← this ticket's real scenario |
+| `loadCachedIndex` (100% stale) | 155ms | worst case ≈ full build |
+
+- **Typical cost of not persisting = ~2ms** (1% stale vs fresh) — measurement noise.
+- **Correctness = zero impact** (mtime self-heal, already documented).
+- **Worst case (100% stale bulk)** = 155ms ≈ 135ms full build — persistence
+  wouldn't help here anyway (every persisted entry invalidated → full re-read).
+
+## Why not fix
+
+Fixing = persist in `refreshIndex`/`reindexFile`. That requires:
+- throttling (else every write path does a 2.6MB disk write), and
+- a coherence test (persisted cache survives a simulated restart).
+
+For a sub-5ms saving that's below noise. Net: complexity > benefit. Not worth it.
+
+## Action taken
+
+Corrected the KNOWN-ISSUES entry's wording (it said "re-scan" — should say
+"re-read only changed files via mtime-validated load") and recorded the bench
+numbers so the rationale is auditable. No code change.

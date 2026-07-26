@@ -11,7 +11,7 @@
  *
  * Flags:
  *   <jsonl-files...>       one or more .knowledge.jsonl files (records per line)
- *   --source <family>      workflow-jsonl | hermes | auto-memory (default workflow-jsonl)
+ *   --source <family>      workflow-jsonl | hermes | auto-memory | generic (default workflow-jsonl)
  *   --source-label <text>  provenance string (default '<source>:<first file basename>')
  *   --folder <name>        convergence folder (default Zettelkasten/knowledge-graph)
  *   --vault <path>         absolute vault path
@@ -26,6 +26,7 @@ import type { ParsedArgs } from "../args.ts";
 import {
 	ingestRecords,
 	parseKnowledgeJsonl,
+	adaptGenericMarkdown,
 	adaptAutoMemoryMarkdown,
 	adaptHermesMarkdown,
 	formatSummary,
@@ -33,7 +34,7 @@ import {
 	type SourceFamily,
 } from "@repo/pi-agent-ext-knowledge-card/src/ingest.ts";
 
-const KNOWN_SOURCES = new Set<SourceFamily>(["workflow-jsonl", "hermes", "auto-memory"]);
+const KNOWN_SOURCES = new Set<SourceFamily>(["workflow-jsonl", "hermes", "auto-memory", "generic"]);
 
 function resolveVaultPath(parsed: ParsedArgs, cwd: string): string {
 	const explicit = parsed.vault ?? process.env.OB_VAULT_PATH;
@@ -60,7 +61,7 @@ Inputs:
   (the 12-key schema produced by the self-improve extractKnowledge step).
 
 Options:
-  --source <family>        workflow-jsonl | hermes | auto-memory (default workflow-jsonl)
+  --source <family>        workflow-jsonl | hermes | auto-memory | generic (default workflow-jsonl)
   --source-label <text>    provenance string (default '<source>:<first file basename>')
   --folder <name>          convergence folder (default Zettelkasten/knowledge-graph)
   --vault <path>           absolute vault path (sets OB_VAULT_PATH)
@@ -113,6 +114,17 @@ Examples:
 				const rec = adaptAutoMemoryMarkdown(content);
 				if (!rec) {
 					parseErrors.push({ line: 0, reason: `${f}: not a memory file (no name/description)` });
+					continue;
+				}
+				records.push(rec);
+			} else if (source === "generic") {
+				// generic inputs are arbitrary .md files (one record each), not jsonl.
+				// Mirrors auto-memory's one-per-file shape; the generic adapter makes
+				// best-effort cards from any markdown (frontmatter/H1/tags/callouts),
+				// yielding a card for any file with title-able or body content.
+				const rec = adaptGenericMarkdown(content, abs);
+				if (!rec) {
+					parseErrors.push({ line: 0, reason: `${f}: empty / no markdown content` });
 					continue;
 				}
 				records.push(rec);
