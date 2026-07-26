@@ -11,7 +11,7 @@
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
-import { type ActivityRow, fmtCost, renderActivityRow, shortModel } from "./agent-row-display.js";
+import { type ActivityRow, fmtCost, renderActivityRow } from "./agent-row-display.js";
 import type { AgentHistoryEntry, AgentUsage, InFlightSubagent, SubagentToolDetails } from "./index.js";
 import { formatHistoryLine, summarizeLatestAction } from "./index.js";
 
@@ -304,7 +304,7 @@ export class SubagentViewer {
     }
 
     const agentLabel = agent ?? "general-purpose";
-    const head = `${followGlyph(status, th)} ${th.fg("accent", agentLabel)} ▸ ${th.fg("muted", shortModel(model) ?? model)} • ${th.fg("muted", status)} • ${(elapsedMs / 1000).toFixed(1)}s${usageStr}`;
+    const head = `${followGlyph(status, th)} ${th.fg("accent", agentLabel)} ▸ ${th.fg("muted", model)} • ${th.fg("muted", status)} • ${(elapsedMs / 1000).toFixed(1)}s${usageStr}`;
     lines.push(truncateToWidth(`  ${head}`, width));
     lines.push(truncateToWidth(th.fg("borderMuted", "─".repeat(Math.max(0, width))), width));
 
