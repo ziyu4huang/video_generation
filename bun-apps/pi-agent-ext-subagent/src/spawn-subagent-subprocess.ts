@@ -1,0 +1,293 @@
+/**
+ * `spawnSubagentSubprocess()` — the subprocess analog of `spawnSubagent()`.
+ *
+ * Some callers need PROCESS ISOLATION for their subagent (a clean pi process,
+ * separate cwd, crash isolation): obsidian's Zettelkasten distill/garden
+ * (wayfind ticket 04) + tool-gate's L2 A/B testing. `spawnSubagent` runs
+ * in-process (WorkflowAgent → createAgentSession) which cannot provide that
+ * isolation. This wrapper spawns `pi -p --mode json` as a CHILD PROCESS —
+ * preserving isolation — WHILE providing the same contract guarantees:
+ *   §2 model resolved from config (no hardcodes),
+ *   §3 retry-on-transient + timeoutMs,
+ *   (§4 phantom telemetry — slice 2; tracked in ticket 04).
+ *
+ * The return shape MIRRORS `SpawnSubagentResult` so a caller can swap
+ * `spawnSubagent` ↔ `spawnSubagentSubprocess` with minimal change.
+ *
+ * Extraction target: obsidian's `src/lib/subagent.ts` (getPiInvocation /
+ * buildSubagentArgs / runSubagent / runSubagentWithRetry / isTransientError),
+ * generalized: model from config (not OB_ env), injectable `spawn` for tests,
+ * caller-specified extensions/tools/system-prompt.
+ */
+
+import { spawn as realSpawn } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join, sep } from "node:path";
+import { writeFile, mkdtemp, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { loadModelTierConfig, resolveModelRole } from "./model-role-config.js";
+import type { SpawnSubagentResult } from "./spawn-subagent.js";
+
+// ---- Injectable child-process surface (tests pass a mock) ----------------
+
+export interface ChildProcessLike {
+	stdout?: { on(event: "data", listener: (chunk: Uint8Array | string) => void): unknown };
+	stderr?: { on(event: "data", listener: (chunk: Uint8Array | string) => void): unknown };
+	on(event: "close", listener: (code: number | null) => void): unknown;
+	on(event: "error", listener: (err: Error) => void): unknown;
+	killed: boolean;
+	kill(signal?: string): unknown;
+}
+
+export type SpawnFn = (
+	command: string,
+	args: string[],
+	options: { cwd?: string; shell?: boolean; stdio?: unknown },
+) => ChildProcessLike;
+
+// ---- Pure helpers (unit-tested without spawning) -------------------------
+
+/**
+ * Resolve the `pi` launcher + args for a child process. Handles the bun virtual
+ * fs (`/$bunfs/root/`), node/bun exec, and falls back to `pi` on PATH.
+ * Generalized from pi-obsidian's `getPiInvocation`.
+ */
+export function getPiInvocation(extra: string[]): { command: string; args: string[] } {
+	const currentScript = process.argv[1];
+	const isBunVirtual = currentScript?.startsWith("/$bunfs/root/");
+	if (currentScript && !isBunVirtual && existsSync(currentScript)) {
+		return { command: process.execPath, args: [currentScript, ...extra] };
+	}
+	const execName = (process.execPath.split(sep).pop() ?? "").toLowerCase();
+	if (!/^(node|bun)(\.exe)?$/.test(execName)) {
+		return { command: process.execPath, args: extra };
+	}
+	return { command: "pi", args: extra };
+}
+
+/** Options for the child pi argv. All optional — caller controls everything. */
+export interface SubprocessArgsOptions {
+	/** Extension roots to load in the child via `-e` (repeatable). */
+	extensions?: string[];
+	/** Tool allowlist → `--tools <csv>`. */
+	tools?: string[];
+	/** Tool denylist → `--exclude-tools <csv>`. */
+	excludeTools?: string[];
+	/** Resolved model spec (`provider/id[:thinking]`) → `--model`. */
+	model?: string;
+}
+
+/**
+ * Build the pi-compatible argv for a subprocess subagent. Pure — unit-tested
+ * without spawning. The caller appends the task (positional) as the last arg.
+ * Generalized from pi-obsidian's `buildSubagentArgs` (no obsidian-specific bits).
+ */
+export function buildSubagentArgs(promptPath: string | undefined, opts: SubprocessArgsOptions = {}): string[] {
+	const args = ["--mode", "json", "-p", "--no-session", "--approve"];
+	for (const ext of opts.extensions ?? []) {
+		args.push("-e", ext);
+	}
+	if (opts.tools && opts.tools.length > 0) {
+		args.push("--tools", opts.tools.join(","));
+	}
+	if (promptPath) {
+		args.push("--append-system-prompt", promptPath);
+	}
+	if (opts.model) {
+		args.push("--model", opts.model);
+	}
+	if (opts.excludeTools && opts.excludeTools.length > 0) {
+		args.push("--exclude-tools", opts.excludeTools.join(","));
+	}
+	return args;
+}
+
+/** Heuristic: does this stderr/exit indicate a transient (retryable) failure? */
+export function isTransientError(stderr: string, exitCode: number): boolean {
+	if (exitCode === 0) return false;
+	if (!stderr) return false;
+	const s = stderr.toLowerCase();
+	const signals = [
+		"etimedout",
+		"econnreset",
+		"econnrefused",
+		"enotfound",
+		"socket hang up",
+		"timeout",
+		"rate limit",
+		"429",
+		"503",
+		"502",
+		"network",
+		"fetch failed",
+		"eai_again",
+	];
+	return signals.some((sig) => s.includes(sig));
+}
+
+// ---- Options + runner -----------------------------------------------------
+
+export interface SpawnSubagentSubprocessOptions {
+	/** The task / prompt (positional, last arg). */
+	task: string;
+	/** System prompt → written to a temp file, passed via --append-system-prompt. */
+	systemPrompt?: string;
+	/** Extension roots to load in the child (`-e`). */
+	extensions?: string[];
+	/** Tool allowlist / denylist. */
+	tools?: string[];
+	excludeTools?: string[];
+	/** Model spec — precedence: model > capability > tier > mainModel (§2). */
+	model?: string;
+	tier?: string;
+	capability?: string;
+	/** Fallback when none of model/tier/capability set. */
+	mainModel?: string;
+	cwd?: string;
+	/** §3: default 5 min. 0 = no timeout gate. */
+	timeoutMs?: number;
+	/** §3: retry once on a transient failure. Default true. */
+	retryOnTransient?: boolean;
+	/** Host signal that cancels the child (SIGTERM → 5s grace → SIGKILL). */
+	externalSignal?: AbortSignal;
+	/** Live NDJSON-event observer (progress logging). */
+	onEvent?: (event: any) => void;
+	/** Injectable spawn (tests). Default: node:child_process spawn. */
+	spawnFn?: SpawnFn;
+}
+
+/** Default timeout: 5 minutes (matches pi-obsidian's OB_SUBAGENT_TIMEOUT_MS). */
+const DEFAULT_TIMEOUT_MS = 5 * 60_000;
+/** Grace period before SIGKILL after SIGTERM. */
+const KILL_GRACE_MS = 5000;
+
+export async function spawnSubagentSubprocess(
+	opts: SpawnSubagentSubprocessOptions,
+): Promise<SpawnSubagentResult> {
+	const spawnFn: SpawnFn =
+		opts.spawnFn ?? ((cmd, args, o) => realSpawn(cmd, args, o as never) as unknown as ChildProcessLike);
+	const retry = opts.retryOnTransient !== false;
+	const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+	// §2: resolve the model from config (no hardcodes). Precedence mirrors
+	// spawnSubagent: model > capability > tier > mainModel.
+	const cfg = loadModelTierConfig();
+	const tierSpec = opts.tier ? resolveModelRole({ tier: opts.tier }, cfg) : undefined;
+	const capabilitySpec = opts.capability ? resolveModelRole({ capability: opts.capability }, cfg) : undefined;
+	if (opts.capability && !capabilitySpec) {
+		const known = cfg?.capabilities ? Object.keys(cfg.capabilities).join(", ") || "(none)" : "(none)";
+		console.error(
+			`[subagent] unknown capability "${opts.capability}" — falling back. Configured capabilities: ${known}.`,
+		);
+	}
+	const effectiveModel = opts.model ?? capabilitySpec ?? tierSpec ?? opts.mainModel;
+
+	const runOnce = async (): Promise<SpawnSubagentResult> => {
+		let tmpDir: string | null = null;
+		let timer: NodeJS.Timeout | undefined;
+		let timedOut = false;
+		try {
+			let promptPath: string | undefined;
+			if (opts.systemPrompt) {
+				tmpDir = await mkdtemp(join(tmpdir(), "pi-subagent-"));
+				promptPath = join(tmpDir, "system.md");
+				await writeFile(promptPath, opts.systemPrompt, { mode: 0o600 });
+			}
+			const args = [
+				...buildSubagentArgs(promptPath, {
+					extensions: opts.extensions,
+					tools: opts.tools,
+					excludeTools: opts.excludeTools,
+					model: effectiveModel,
+				}),
+				opts.task,
+			];
+			const inv = getPiInvocation(args);
+			const proc = spawnFn(inv.command, inv.args, {
+				cwd: opts.cwd,
+				shell: false,
+				stdio: ["ignore", "pipe", "pipe"],
+			});
+
+			const completion = new Promise<{ exitCode: number; stderr: string; text: string }>(
+				(resolveDone, rejectDone) => {
+					let buf = "";
+					let stderr = "";
+					let lastText = "";
+					const handle = (line: string) => {
+						if (!line.trim()) return;
+						let ev: any;
+						try {
+							ev = JSON.parse(line);
+						} catch {
+							return;
+						}
+						opts.onEvent?.(ev);
+						if (ev.type === "message_end" && ev.message?.role === "assistant") {
+							for (const part of ev.message.content ?? []) {
+								if (part.type === "text" && part.text) lastText = part.text;
+							}
+						}
+					};
+					proc.stdout?.on("data", (d) => {
+						buf += d.toString();
+						const lines = buf.split("\n");
+						buf = lines.pop() ?? "";
+						for (const l of lines) handle(l);
+					});
+					proc.stderr?.on("data", (d) => {
+						stderr += d.toString();
+					});
+					proc.on("close", (c) => {
+						if (buf.trim()) handle(buf);
+						resolveDone({ exitCode: c ?? 0, stderr, text: lastText });
+					});
+					proc.on("error", (e) => rejectDone(e));
+				},
+			);
+
+			// externalSignal: SIGTERM → grace → SIGKILL.
+			const killChild = () => {
+				proc.kill("SIGTERM");
+				setTimeout(() => {
+					if (!proc.killed) proc.kill("SIGKILL");
+				}, KILL_GRACE_MS);
+			};
+			if (opts.externalSignal) {
+				if (opts.externalSignal.aborted) killChild();
+				else opts.externalSignal.addEventListener("abort", killChild, { once: true });
+			}
+			// timeoutMs gate (§3): SIGTERM → grace → SIGKILL.
+			if (timeoutMs > 0) {
+				timer = setTimeout(() => {
+					timedOut = true;
+					killChild();
+				}, timeoutMs);
+			}
+
+			let outcome: { exitCode: number; stderr: string; text: string };
+			try {
+				outcome = await completion;
+			} catch (e) {
+				// spawn error (e.g. ENOENT — `pi` not on PATH). Surface as exit 1.
+				const msg = e instanceof Error ? e.message : String(e);
+				return { output: "", exitCode: 1, stderr: msg, timedOut };
+			}
+			return { output: outcome.text, exitCode: outcome.exitCode, stderr: outcome.stderr, timedOut };
+		} finally {
+			if (timer) clearTimeout(timer);
+			if (tmpDir) await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+		}
+	};
+
+	const first = await runOnce();
+	// No retry on success, caller-cancel, timeout, or when retry is off.
+	if (first.exitCode === 0 || !retry || first.timedOut) return first;
+	if (opts.externalSignal?.aborted) return first;
+	// Single retry on a transient failure with no useful output (mirrors
+	// pi-obsidian's runSubagentWithRetry).
+	if (!first.output && isTransientError(first.stderr, first.exitCode)) {
+		return runOnce();
+	}
+	return first;
+}

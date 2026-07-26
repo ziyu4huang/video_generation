@@ -64,6 +64,21 @@ export { isSddReportActionable, parseSddReport, SDD_REPORT_STATUSES } from "./sd
 // spawn-subagent
 export type { SpawnSubagentOptions, SpawnSubagentPrime, SpawnSubagentResult } from "./spawn-subagent.js";
 export { spawnSubagent } from "./spawn-subagent.js";
+// spawn-subagent-subprocess (the isolated-process analog; wayfind ticket 04).
+// Consumers that need a clean child pi process (obsidian distill/garden,
+// tool-gate L2 A/B) use this instead of the in-process spawnSubagent.
+export type {
+	SpawnSubagentSubprocessOptions,
+	ChildProcessLike,
+	SpawnFn,
+	SubprocessArgsOptions,
+} from "./spawn-subagent-subprocess.js";
+export {
+	spawnSubagentSubprocess,
+	getPiInvocation,
+	buildSubagentArgs,
+	isTransientError,
+} from "./spawn-subagent-subprocess.js";
 // structured-output
 export type { StructuredOutputCapture, StructuredOutputToolOptions } from "./structured-output.js";
 export { createStructuredOutputTool } from "./structured-output.js";
