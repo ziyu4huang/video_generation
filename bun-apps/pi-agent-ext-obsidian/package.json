@@ -29,6 +29,9 @@
     "extensions": ["./extensions"],
     "skills": ["./skills"]
   },
+  "dependencies": {
+    "@repo/pi-agent-ext-subagent": "workspace:*"
+  },
   "peerDependencies": {
     "@earendil-works/pi-ai": "0.82.0",
     "@earendil-works/pi-agent-core": "0.82.0",

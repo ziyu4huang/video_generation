@@ -197,9 +197,7 @@ import {
 	rewriteLinksProtected,
 	runDirConfigPath,
 	runDirPath,
-	runSubagent,
-	runSubagentWithRetry,
-	runSubagentWithRetryImpl,
+	runObsidianSubagent,
 	safeNotePath,
 	saveIndex,
 	scheduleVaultBanner,
@@ -1476,21 +1474,19 @@ export default function (pi: ExtensionAPI) {
 			].filter(Boolean);
 			const task = taskParts.join("\n");
 
-			const tools = OBSIDIAN_DISTILL_TOOLS.join(",");
 			// Live progress: surface note creation to stderr so long distill runs
 			// are observable (the subagent is otherwise silent until it exits).
 			const prog = makeSubagentProgressLogger("distill");
 			const t0 = Date.now();
 			const { output, exitCode, stderr, timedOut, result } =
-				await runSubagentWithRetry(
+				await runObsidianSubagent({
 					cwd,
-					ZETTEL_SYSTEM_PROMPT,
+					systemPrompt: ZETTEL_SYSTEM_PROMPT,
 					task,
-					tools,
+					tools: OBSIDIAN_DISTILL_TOOLS,
 					signal,
-					"pi-distill-",
-					{ onEvent: prog.onEvent },
-				);
+					onEvent: prog.onEvent,
+				});
 			const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
 			const { created, failed } = prog.stats();
 			console.error(
@@ -1669,21 +1665,17 @@ ${output.slice(-2000)}`,
 			// ── llm engine: subagent-based full-vault audit ──
 			const task = `請對${scope}執行健康度${mode === "fix" ? "檢查並修復（fix 模式）" : "審計（audit 模式，僅回報不改動）"}。`;
 			// fix mode needs write tools; audit is read-only.
-			const tools = (
-				mode === "fix" ? GARDEN_FIX_TOOLS : GARDEN_AUDIT_TOOLS
-			).join(",");
 			const prog = makeSubagentProgressLogger("garden");
 			const t0 = Date.now();
 			const { output, exitCode, stderr, timedOut, result } =
-				await runSubagentWithRetry(
+				await runObsidianSubagent({
 					cwd,
-					GARDEN_SYSTEM_PROMPT,
+					systemPrompt: GARDEN_SYSTEM_PROMPT,
 					task,
-					tools,
+					tools: mode === "fix" ? GARDEN_FIX_TOOLS : GARDEN_AUDIT_TOOLS,
 					signal,
-					"pi-garden-",
-					{ onEvent: prog.onEvent },
-				);
+					onEvent: prog.onEvent,
+				});
 			const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
 			const { created, failed, toolCalls } = prog.stats();
 			console.error(

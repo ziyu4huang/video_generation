@@ -4,6 +4,11 @@ import { join, resolve, sep } from "node:path";
 import { writeFile, mkdtemp, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import {
+	getSubagentInFlightRegistry,
+	getSubagentRunPersistence,
+	spawnSubagentSubprocess,
+} from "@repo/pi-agent-ext-subagent";
 
 /** Resolve a tool-name allowlist from an env var (comma-separated), falling
  *  back to `defaults` when unset/empty. Used by distill/garden so a custom
@@ -331,6 +336,46 @@ export function parseStructuredResult(text: string): any {
 		}
 	}
 	return null;
+}
+
+export interface RunObsidianSubagentOptions {
+	cwd: string;
+	systemPrompt: string;
+	task: string;
+	tools: string[];
+	signal?: AbortSignal;
+	onEvent?: (event: any) => void;
+}
+
+/**
+ * Run a distill/garden subagent through the shared subprocess wrapper
+ * (`spawnSubagentSubprocess` from `@repo/pi-agent-ext-subagent`). Resolves the
+ * model via obsidian's policy (`resolveSubagentModel`: OB_ env floor + refuse
+ * weak parent), then delegates to the wrapper — which provides the contract
+ * guarantees: §1 isolated child process, §2 model → `--model`, §3 retry/timeout,
+ * §4 phantom telemetry (in-flight + run-persistence → `/subagents`). Parses the
+ * child's trailing `pi_obsidian_result` JSON (`parseStructuredResult`) — the
+ * wrapper returns raw assistant text; obsidian-specific parsing stays here.
+ */
+export async function runObsidianSubagent(
+	opts: RunObsidianSubagentOptions,
+): Promise<{ output: string; exitCode: number; stderr: string; timedOut: boolean; result: any }> {
+	const resolved = resolveSubagentModel({});
+	const res = await spawnSubagentSubprocess({
+		cwd: opts.cwd,
+		systemPrompt: opts.systemPrompt,
+		task: opts.task,
+		tools: opts.tools,
+		model: resolved.model,
+		externalSignal: opts.signal,
+		onEvent: opts.onEvent,
+		timeoutMs: Number(process.env.OB_SUBAGENT_TIMEOUT_MS ?? 5 * 60_000),
+		// §4: register a phantom entry visible to /subagents (best-effort —
+		// cross-extension singleton sharing determines viewer visibility).
+		inFlight: getSubagentInFlightRegistry(),
+		persistence: getSubagentRunPersistence(),
+	});
+	return { ...res, result: parseStructuredResult(res.output) };
 }
 
 export function runSubagentWithRetry(
