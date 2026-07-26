@@ -2,13 +2,14 @@
 //  NativeIngredientsCommand.swift
 //  LTXVideoDirectorCLI
 //
-//  `ltx-video native-ingredients` — single-reference-image IC-LoRA
+//  `ltx-video native-ingredients` — one-or-more-reference-image IC-LoRA
 //  conditioning, fully native (no run.py). See NativeUpscaleStage
 //  .generateIngredients's header — the sibling "easy tier" application to
-//  `native-restyle` identified in PLAN.md's IC-LoRA scoping research: the
+//  `native-restyle` identified in PLAN.md's IC-LoRA scoping research: each
 //  reference is a single still image tiled across the generation's frame
 //  count (not a real input video clip), so there's no --input frame
-//  directory — just a reference image, a target resolution, and a duration.
+//  directory — just one or more reference images, a target resolution, and
+//  a duration.
 //
 
 import ArgumentParser
@@ -18,11 +19,12 @@ import LTXVideoDirector
 struct NativeIngredients: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "native-ingredients",
-        abstract: "Generate a video from a single reference image 100% natively (no run.py) via a user-supplied Ingredients IC-LoRA adapter."
+        abstract: "Generate a video from one or more reference images 100% natively (no run.py) via a user-supplied Ingredients IC-LoRA adapter."
     )
 
-    @Option(name: .shortAndLong, help: "Reference image (e.g. a character/product/scene reference sheet).")
-    var input: String
+    @Option(name: .customLong("input"), parsing: .upToNextOption,
+            help: "Reference image(s) (e.g. a character/product/scene reference sheet). Repeatable — pass multiple --input flags (or multiple paths after one --input) to condition on more than one reference simultaneously. Experimental multi-reference compositing: see docs/openmontage-capability-matrix.md and docs/superpowers/specs/2026-07-26-multi-reference-ingredients-design.md.")
+    var input: [String] = []
 
     @Option(name: .shortAndLong, help: "Output directory (frames/ subdirectory holds the generated PNG sequence, audio.wav holds generated audio).")
     var output: String = "native_ingredients_output"
@@ -61,7 +63,7 @@ struct NativeIngredients: ParsableCommand {
 
         print("→ native ingredients (no run.py): reference=\(input) [lora=\(lora)]")
         let result = try stage.generateIngredients(
-            referenceImageURL: URL(fileURLWithPath: input),
+            referenceImageURLs: input.map { URL(fileURLWithPath: $0) },
             outputDir: URL(fileURLWithPath: output),
             prompt: prompt, loraURL: URL(fileURLWithPath: lora),
             width: width, height: height, seconds: seconds,
