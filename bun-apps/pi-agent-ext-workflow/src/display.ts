@@ -39,6 +39,8 @@ export interface WorkflowAgentSnapshot {
   tokens?: number;
   /** The model this agent ran on (provider/id), when known. */
   model?: string;
+  /** Wall-clock ms timestamp when the agent started (for live elapsed). */
+  startedAt?: number;
 }
 
 export interface WorkflowSnapshot {
@@ -177,6 +179,30 @@ export function createToolUpdateWorkflowDisplay(
   };
 }
 
+/** Compact human duration: 12s / 1m23s / 1h05m. */
+function fmtDuration(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m${String(s % 60).padStart(2, "0")}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h${String(m % 60).padStart(2, "0")}m`;
+}
+
+/** Trailing per-agent bracket: [model · elapsed|tokens]. Running shows live
+ * elapsed (needs startedAt); done shows the token count. Model is the full
+ * provider/id spec when known. */
+function agentBracket(agent: WorkflowAgentSnapshot, theme: ThemeLike): string {
+  const meta =
+    agent.status === "running" && typeof agent.startedAt === "number"
+      ? fmtDuration(Date.now() - agent.startedAt)
+      : agent.tokens
+        ? `${agent.tokens.toLocaleString()} tok`
+        : "";
+  const parts = [agent.model, meta].filter(Boolean);
+  return parts.length ? theme.fg("dim", ` [${parts.join(" · ")}]`) : "";
+}
+
 export function renderWorkflowLines(
   snapshot: WorkflowSnapshot,
   options: WorkflowDisplayOptions = {},
@@ -224,8 +250,9 @@ export function renderWorkflowLines(
     for (const agent of visibleAgents) {
       const order = `[${agent.id}]`;
       const result = showResultPreviews && agent.resultPreview ? ` — ${agent.resultPreview}` : "";
-      const agentTokens = agent.tokens ? theme.fg("dim", ` [${agent.tokens.toLocaleString()} tok]`) : "";
-      lines.push(`    ${order} ${statusIcon(agent.status)} ${shorten(agent.label, 48)}${agentTokens}${result}`);
+      lines.push(
+        `    ${order} ${statusIcon(agent.status)} ${shorten(agent.label, 48)}${agentBracket(agent, theme)}${result}`,
+      );
     }
     if (agents.length > visibleAgents.length)
       lines.push(theme.fg("dim", `    … ${agents.length - visibleAgents.length} earlier agents`));
@@ -236,8 +263,9 @@ export function renderWorkflowLines(
     lines.push(theme.fg("accent", "  Unphased"));
     for (const agent of unphased.slice(-maxAgents)) {
       const result = showResultPreviews && agent.resultPreview ? ` — ${agent.resultPreview}` : "";
-      const agentTokens = agent.tokens ? theme.fg("dim", ` [${agent.tokens.toLocaleString()} tok]`) : "";
-      lines.push(`    [${agent.id}] ${statusIcon(agent.status)} ${shorten(agent.label, 48)}${agentTokens}${result}`);
+      lines.push(
+        `    [${agent.id}] ${statusIcon(agent.status)} ${shorten(agent.label, 48)}${agentBracket(agent, theme)}${result}`,
+      );
     }
   }
 

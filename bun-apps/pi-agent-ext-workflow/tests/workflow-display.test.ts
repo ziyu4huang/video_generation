@@ -30,7 +30,7 @@ function agent(
   label: string,
   status: "queued" | "running" | "done" | "error" | "skipped",
   phase?: string,
-  opts?: { resultPreview?: string; tokens?: number; model?: string; prompt?: string },
+  opts?: { resultPreview?: string; tokens?: number; model?: string; prompt?: string; startedAt?: number },
 ) {
   return {
     id,
@@ -41,6 +41,7 @@ function agent(
     ...(opts?.resultPreview ? { resultPreview: opts.resultPreview } : {}),
     ...(opts?.tokens ? { tokens: opts.tokens } : {}),
     ...(opts?.model ? { model: opts.model } : {}),
+    ...(opts?.startedAt ? { startedAt: opts.startedAt } : {}),
   };
 }
 
@@ -170,6 +171,26 @@ describe("renderWorkflowText", () => {
     // toLocaleString() output depends on locale (UK/US uses commas, PL uses NBSP)
     // Check with a regex matching any thousands separator between 12 and 345
     assert.ok(/12[ ,.\u00a0]345/.test(text), "should show formatted token count");
+  });
+
+  it("shows the model id alongside tokens when known", async () => {
+    const { createWorkflowSnapshot, renderWorkflowLines } = await loadDisplay();
+    const snap = createWorkflowSnapshot(fakeMeta());
+    snap.agents = [agent(1, "audit", "done", "Research", { model: "zai/glm-5.2", tokens: 100 })] as never[];
+    const text = renderWorkflowLines(snap).join("\n");
+    assert.ok(text.includes("zai/glm-5.2"), `should show full model spec, got: ${text}`);
+    assert.ok(/\[zai\/glm-5\.2 · 100\b/.test(text), `should show model + tokens in bracket, got: ${text}`);
+  });
+
+  it("shows live elapsed (not tokens) for a running agent", async () => {
+    const { createWorkflowSnapshot, renderWorkflowLines } = await loadDisplay();
+    const snap = createWorkflowSnapshot(fakeMeta());
+    snap.agents = [
+      agent(1, "audit", "running", "Research", { model: "zai/glm-5.2", startedAt: Date.now() - 83_000 }),
+    ] as never[];
+    const text = renderWorkflowLines(snap).join("\n");
+    assert.ok(text.includes("1m23s"), `should show elapsed for running agent, got: ${text}`);
+    assert.ok(!/tok/.test(text), "running agent should not show tokens");
   });
 
   it("truncates long agent labels", async () => {

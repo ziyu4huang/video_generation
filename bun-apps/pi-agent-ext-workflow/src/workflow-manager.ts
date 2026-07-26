@@ -499,6 +499,7 @@ export class WorkflowManager extends EventEmitter {
             prompt: event.prompt,
             status: "running",
             model: event.model,
+            startedAt: Date.now(),
           });
           this.emit("agentStart", { runId: managed.runId, ...event });
           progress();
