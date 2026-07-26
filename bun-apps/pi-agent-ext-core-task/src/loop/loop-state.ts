@@ -135,6 +135,7 @@ export interface LoopRuntimeState {
 	extensionApi: unknown; // ExtensionAPI — typed loosely to stay pi-import-free
 	continuationPending: ContinuationPending | undefined;
 	loopRecovery: LoopRecovery | undefined;
+	baselineTokens: number; // token baseline for the tokens= bound (T8-final Finding A)
 	// Anti-repetition windows (reused REPETITION constants via repetition.js)
 	consecutiveStuck: number;
 	stuckStartedAt: number | undefined;
@@ -153,6 +154,7 @@ export interface LoopRuntimeState {
 
 export const loopState: LoopRuntimeState = {
 	activeLoop: undefined, extensionApi: undefined, continuationPending: undefined, loopRecovery: undefined,
+	baselineTokens: 0,
 	consecutiveStuck: 0, stuckStartedAt: undefined, recentPrints: [], recentTexts: [], recentToolResults: [],
 	toollessStreak: 0, toolRanThisTurn: false, lastActivityAt: Date.now(), lastWedgeAlertAt: 0, nudgeCount: 0,
 	consecutiveMeasureNull: 0,
@@ -160,7 +162,7 @@ export const loopState: LoopRuntimeState = {
 
 export function __resetLoopState(): void {
 	loopState.activeLoop = undefined; loopState.extensionApi = undefined; loopState.continuationPending = undefined;
-	loopState.loopRecovery = undefined; loopState.consecutiveStuck = 0; loopState.stuckStartedAt = undefined;
+	loopState.loopRecovery = undefined; loopState.baselineTokens = 0; loopState.consecutiveStuck = 0; loopState.stuckStartedAt = undefined;
 	loopState.recentPrints = []; loopState.recentTexts = []; loopState.recentToolResults = [];
 	loopState.toollessStreak = 0; loopState.toolRanThisTurn = false; loopState.lastActivityAt = Date.now();
 	loopState.lastWedgeAlertAt = 0; loopState.nudgeCount = 0; loopState.consecutiveMeasureNull = 0;

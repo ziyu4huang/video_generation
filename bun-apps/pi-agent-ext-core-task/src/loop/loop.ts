@@ -85,6 +85,35 @@ interface LoopTickCtx {
 	// the SAME helper goal.ts uses (currentTokenTotal) — see T7 wiring note.
 }
 
+/** Sum assistant usage across the session branch — mirrors goal.ts's currentTokenTotal (T8-final Finding A). */
+function currentTokenTotal(ctx: LoopTickCtx): number {
+	const sessionManager = ctx.sessionManager as
+		| { getBranch?: () => Array<{ type?: string; message?: { role?: string; usage?: unknown } }> }
+		| undefined;
+	const branch = sessionManager?.getBranch?.() ?? [];
+	let total = 0;
+	for (const entry of branch) {
+		if (entry.type !== "message" || entry.message?.role !== "assistant") continue;
+		const usage = entry.message.usage as { input?: number; output?: number } | undefined;
+		total += usage?.input ?? 0;
+		total += usage?.output ?? 0;
+	}
+	return total;
+}
+
+/** Zero anti-repetition + measure-failure counters at lifecycle boundaries — mirrors goal.ts's resetHardeningCounters, plus consecutiveMeasureNull (T8-final Finding B). */
+function resetLoopHardeningCounters(): void {
+	loopState.consecutiveStuck = 0;
+	loopState.stuckStartedAt = undefined;
+	loopState.recentPrints = [];
+	loopState.recentTexts = [];
+	loopState.recentToolResults = [];
+	loopState.toollessStreak = 0;
+	loopState.toolRanThisTurn = false;
+	loopState.nudgeCount = 0;
+	loopState.consecutiveMeasureNull = 0;
+}
+
 /**
  * The loop tick — called from goal.ts's agent_end when loopState.active.
  * event shape matches goal.ts's agent_end event: { messages?: unknown[] }.
@@ -95,8 +124,13 @@ export async function runLoopTick(pi: ExtensionAPI, ctx: LoopTickCtx, event: { m
 	const loopId = loopState.activeLoop.id;
 	const finalAssistant = findFinalAssistantMessage(event.messages ?? []);
 
-	// iteration + usage (tokens: reuse goal's accounting; fallback 0 if unavailable)
-	loopState.activeLoop = { ...loopState.activeLoop, iteration: loopState.activeLoop.iteration + 1 };
+	// iteration + usage (tokens= bound): reuse goal.ts's currentTokenTotal so the
+	// widget's tokensUsed reflects real session usage instead of a frozen 0.
+	loopState.activeLoop = {
+		...loopState.activeLoop,
+		iteration: loopState.activeLoop.iteration + 1,
+		tokensUsed: Math.max(0, currentTokenTotal(ctx) - loopState.baselineTokens),
+	};
 
 	// Transient error classification (mirrors goal.ts agent_end)
 	if (finalAssistant?.stopReason === "aborted" || finalAssistant?.stopReason === "error") {
@@ -169,6 +203,9 @@ function finishLoop(ctx: LoopTickCtx, reason: LoopStopReason, notifyMsg: string)
 	clearPersistedLoop(loopState.extensionApi as ExtensionAPI);
 	loopState.activeLoop = undefined;
 	loopState.continuationPending = undefined;
+	// Reset anti-repetition/measure counters so a later /loop start (same session)
+	// does not inherit this loop's dirty state (T8-final Finding B).
+	resetLoopHardeningCounters();
 	// Re-evaluate the heartbeat: with no loop (and typically no goal) active,
 	// syncHeartbeatTimer's shouldRun flips false and the interval is torn down.
 	// No-op if goal() was never registered (seam undefined).
@@ -183,7 +220,13 @@ async function sendLoopContinuation(pi: ExtensionAPI, ctx: LoopTickCtx): Promise
 	const marker = continuationMarker(loopState.activeLoop);
 	const prompt = buildLoopContinuationPrompt(loopState.activeLoop, marker);
 	loopState.continuationPending = { loopId: loopState.activeLoop.id, iteration: loopState.activeLoop.iteration, marker, prompt };
-	await sendLoopPrompt(pi, ctx, prompt);
+	const delivered = await sendLoopPrompt(pi, ctx, prompt);
+	if (!delivered) {
+		// Spec §8: a continuation send failure must stop the loop (never silently
+		// hang — continuationPending is set above, which would block both the next
+		// sendLoopContinuation and the heartbeat's refireLoopContinuation).
+		finishLoop(ctx, "error", "Loop stopped: continuation delivery failed.");
+	}
 }
 
 /** Heartbeat re-fire entry — called by goal.ts's generalized heartbeat when a loop is active + idle + stalled. */
@@ -193,11 +236,17 @@ export async function refireLoopContinuation(pi: ExtensionAPI, ctx: LoopTickCtx)
 	await sendLoopContinuation(pi, ctx);
 }
 
-async function sendLoopPrompt(pi: ExtensionAPI, ctx: LoopTickCtx, prompt: string): Promise<void> {
+/** Send a prompt; returns true on success, false if the send threw (T8-final Finding C). */
+async function sendLoopPrompt(pi: ExtensionAPI, ctx: LoopTickCtx, prompt: string): Promise<boolean> {
 	try {
 		const sent = ctx.isIdle?.() ? (pi.sendUserMessage(prompt) as void | Promise<void>) : (pi.sendUserMessage(prompt, { deliverAs: "followUp" }) as void | Promise<void>);
 		await sent;
-	} catch { /* best-effort; a failed send surfaces as no continuation -> heartbeat or next turn */ }
+		return true;
+	} catch {
+		// Best-effort: callers that treat a failed send as fatal (sendLoopContinuation)
+		// check the boolean; other callers ignore it.
+		return false;
+	}
 }
 
 // ─── /loop command + registration ────────────────────────────────────────────
@@ -224,8 +273,10 @@ export function registerLoop(pi: ExtensionAPI, overlay: LoopOverlayLike): void {
 			if (typeof goalActive === "function" && goalActive() === true) {
 				ctx.ui.notify("A goal is active. Run /goal clear or complete it before starting a loop.", "warning"); return;
 			}
+			resetLoopHardeningCounters();
 			loopState.activeLoop = createLoop({ target: parsed.target, mode: parsed.mode, measureCmd: parsed.measureCmd, direction: parsed.direction, maxIterations: parsed.maxIterations, timeLimitMs: parsed.timeLimitMs, tokenBudget: parsed.tokenBudget, plateauWindow: parsed.plateauWindow });
 			loopState.extensionApi = pi;
+			loopState.baselineTokens = currentTokenTotal(ctx);
 			persistLoop(pi, loopState.activeLoop);
 			overlay.update(loopState.activeLoop);
 			// Arm the heartbeat supervision for the loop (goal XOR loop): now that

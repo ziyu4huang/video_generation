@@ -377,4 +377,78 @@ describe("loop 3 integration", () => {
 			.filter((m) => /pi-loop-continuation/.test(m.text));
 		expect(continuations.length).toBeGreaterThanOrEqual(2);
 	});
+
+	test("tokens= bound stops the loop when session usage exceeds the budget (Finding A)", async () => {
+		// Regression for T8-final Finding A: LoopState.tokensUsed was initialized 0
+		// and never incremented, so the tokens= bound never fired and the widget
+		// showed a frozen 0/<budget>. The fix wires currentTokenTotal (mirror of
+		// goal.ts) into runLoopTick + captures a baseline at /loop start.
+		const mock = createMockPi();
+		const goalOverlay = createMockGoalOverlay();
+		goal(mock.pi, goalOverlay.impl);
+		// Fake sessionManager: a single assistant entry whose usage (150) exceeds
+		// the loop's tokenBudget (100). baseline is pinned to 0 so tokensUsed = 150.
+		const { ctx, notifications } = createMockCtx({
+			sessionManager: {
+				getBranch: () => [
+					{ type: "message", message: { role: "assistant", usage: { input: 150, output: 0 } } },
+				],
+				getEntries: () => [],
+			},
+		});
+
+		loopState.activeLoop = createLoop({ target: "t", mode: "metricless", tokenBudget: 100 });
+		loopState.baselineTokens = 0;
+
+		const agentEndHandlers = mock.events.get("agent_end");
+		expect(agentEndHandlers?.length).toBe(1);
+		await (agentEndHandlers![0] as (event: { messages?: unknown[] }, ctx: unknown) => Promise<void>)(
+			{
+				messages: [
+					{ role: "assistant", content: [{ type: "text", text: "HYPOTHESIS: refactor the hot path" }], stopReason: "stop" },
+				],
+			},
+			ctx,
+		);
+
+		// The loop stopped on the tokens bound (activeLoop cleared by finishLoop) ...
+		expect(loopState.activeLoop).toBeUndefined();
+		// ... and the stop notification names the tokens reason.
+		expect(notifications.some((n) => /tokens/i.test(n.message))).toBe(true);
+	});
+
+	test("anti-repetition counters reset across /loop stop then /loop start (Finding B)", async () => {
+		// Regression for T8-final Finding B: consecutiveStuck / recentTexts /
+		// consecutiveMeasureNull were never reset on /loop start or finishLoop, so
+		// a second loop in the same session inherited the first loop's dirty state
+		// (e.g. an early measure-null stacked onto a leftover count -> mis-stop).
+		// The fix calls resetLoopHardeningCounters at both lifecycle boundaries.
+		const mock = createMockPi();
+		const loopOverlay = createMockLoopOverlay();
+		registerLoop(mock.pi, loopOverlay.impl);
+		const { ctx } = createMockCtx({});
+		const loopCmd = mock.commands.get("loop");
+		expect(loopCmd).toBeDefined();
+
+		// Start loop A, then dirty its hardening state as if it ran stuck + failed measures.
+		await (loopCmd!.handler as (args: string, ctx: unknown) => Promise<void>)('start "loop A"', ctx);
+		expect(loopState.activeLoop?.target).toBe("loop A");
+		loopState.consecutiveStuck = 2;
+		loopState.recentTexts = ["dirty-fingerprint"];
+		loopState.consecutiveMeasureNull = 2;
+
+		// /loop stop -> finishLoop -> resetLoopHardeningCounters clears the dirt.
+		await (loopCmd!.handler as (args: string, ctx: unknown) => Promise<void>)("stop", ctx);
+		expect(loopState.consecutiveStuck).toBe(0);
+		expect(loopState.recentTexts).toEqual([]);
+		expect(loopState.consecutiveMeasureNull).toBe(0);
+
+		// Start loop B — resetLoopHardeningCounters runs again (idempotent); loop B
+		// starts from a clean slate, not loop A's leftovers.
+		await (loopCmd!.handler as (args: string, ctx: unknown) => Promise<void>)('start "loop B"', ctx);
+		expect(loopState.activeLoop?.target).toBe("loop B");
+		expect(loopState.consecutiveStuck).toBe(0);
+		expect(loopState.recentTexts).toEqual([]);
+		expect(loopState.consecutiveMeasureNull).toBe(0);
+	});
 });
