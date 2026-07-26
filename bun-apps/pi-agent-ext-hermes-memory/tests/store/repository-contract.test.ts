@@ -159,6 +159,33 @@ export function runSessionRepositoryContract(
       }
     });
 
+    it("indexSession indexes EVERY message in a multi-message session", async () => {
+      const { repo, close } = await make();
+      try {
+        const marker = "multimsg-final-marker-9f3a";
+        const result = await repo.indexSession({
+          id: "contract-session-multimsg",
+          project: "contract-project",
+          cwd: "/tmp/contract-project",
+          startedAt: "2026-07-22T00:00:00Z",
+          messages: Array.from({ length: 5 }, (_, i) => ({
+            id: `multimsg-${i}`,
+            role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+            content: i === 4 ? `final message with ${marker}` : `filler message ${i}`,
+            timestamp: `2026-07-22T00:00:0${i}Z`,
+          })),
+        });
+        // Exact count — guards against "only the last message persisted" or
+        // param-indexing bugs that a `>= 1` assertion would miss.
+        expect(result.messagesIndexed).toBe(5);
+        // The final message must be searchable (proves all indices upserted).
+        const hits = await repo.searchSessions(marker);
+        expect(hits.some((h) => h.sessionId === "contract-session-multimsg")).toBe(true);
+      } finally {
+        await close();
+      }
+    });
+
     it("indexChangedSessions + getSessionStats smoke (shape only)", async () => {
       const { repo, close } = await make();
       try {
