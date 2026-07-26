@@ -404,6 +404,39 @@ describe("loadConfig", () => {
     assert.strictEqual(config.correctionNegativePatterns, undefined);
     assert.strictEqual(config.correctionDirectiveWords, undefined);
   });
+
+  it("carries errorCapture throttle fields through from the config file", () => {
+    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
+    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
+      errorCaptureRateLimit: 2,
+      errorCaptureRateWindowMs: 30_000,
+      errorCaptureDedupCacheSize: 10,
+    }));
+    const config = loadConfig(TEST_CONFIG_PATH);
+    assert.strictEqual(config.errorCaptureRateLimit, 2);
+    assert.strictEqual(config.errorCaptureRateWindowMs, 30_000);
+    assert.strictEqual(config.errorCaptureDedupCacheSize, 10);
+  });
+
+  it("leaves errorCapture throttle fields undefined when unset (env/default applies at use-site)", () => {
+    const config = loadConfig(TEST_CONFIG_PATH);
+    assert.strictEqual(config.errorCaptureRateLimit, undefined);
+    assert.strictEqual(config.errorCaptureRateWindowMs, undefined);
+    assert.strictEqual(config.errorCaptureDedupCacheSize, undefined);
+  });
+
+  it("ignores invalid errorCapture throttle values (negative / non-number)", () => {
+    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
+    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
+      errorCaptureRateLimit: -1,
+      errorCaptureRateWindowMs: "fast",
+      errorCaptureDedupCacheSize: true,
+    }));
+    const config = loadConfig(TEST_CONFIG_PATH);
+    assert.strictEqual(config.errorCaptureRateLimit, undefined);
+    assert.strictEqual(config.errorCaptureRateWindowMs, undefined);
+    assert.strictEqual(config.errorCaptureDedupCacheSize, undefined);
+  });
 });
 
 describe("config dbBackend", () => {

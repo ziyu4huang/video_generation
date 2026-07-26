@@ -31,6 +31,9 @@ export const DEFAULT_FLUSH_RECENT_MESSAGES = 0;
 export const DEFAULT_CONSOLIDATION_TIMEOUT_MS = 60000;
 export const DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS = 7;
 export const DEFAULT_FAILURE_INJECTION_MAX_ENTRIES = 5;
+export const DEFAULT_ERROR_CAPTURE_RATE_LIMIT = 5;
+export const DEFAULT_ERROR_CAPTURE_RATE_WINDOW_MS = 600_000;
+export const DEFAULT_ERROR_CAPTURE_DEDUP_CACHE_SIZE = 64;
 
 // ─── Staleness audit ───
 // Entries whose "last edited" date is older than this are flagged as stale

@@ -174,6 +174,9 @@ export function loadConfig(configPath = DEFAULT_CONFIG_PATH): MemoryConfig {
       }
       if (typeof parsed.correctionDetection === "boolean") config.correctionDetection = parsed.correctionDetection;
       if (typeof parsed.errorCapture === "boolean") config.errorCapture = parsed.errorCapture;
+      if (isNonNegativeNumber(parsed.errorCaptureRateLimit)) config.errorCaptureRateLimit = parsed.errorCaptureRateLimit;
+      if (isNonNegativeNumber(parsed.errorCaptureRateWindowMs)) config.errorCaptureRateWindowMs = parsed.errorCaptureRateWindowMs;
+      if (isNonNegativeNumber(parsed.errorCaptureDedupCacheSize)) config.errorCaptureDedupCacheSize = parsed.errorCaptureDedupCacheSize;
       if (isStringArray(parsed.correctionStrongPatterns)) config.correctionStrongPatterns = parsed.correctionStrongPatterns;
       if (isStringArray(parsed.correctionWeakPatterns)) config.correctionWeakPatterns = parsed.correctionWeakPatterns;
       if (isStringArray(parsed.correctionNegativePatterns)) config.correctionNegativePatterns = parsed.correctionNegativePatterns;
