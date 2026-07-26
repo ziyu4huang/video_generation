@@ -1,9 +1,23 @@
 ---
 type: task
-status: in progress (slice 1 done; §4 telemetry = slice 2)
+status: closed (2026-07-26) — slice 2 done; all 4 contract guarantees met
 ---
 
 # 04 — shared subprocess-wrapper
+
+## Slice 2 — DONE
+
+**§4 phantom telemetry** implemented: the wrapper accepts opt-in `inFlight?` +
+`persistence?` (defaults to no registration — the slice-1 behavior; consumers
+05/06 pass the singletons to satisfy §4). On spawn → `inFlight.start({ id, model,
+taskPreview, startedAt })`; on completion → `persistence.save(record)` with
+status (done/failed/timedout), exitCode, elapsedMs, output; `inFlight.end(id)`
+in `finally`. The model is the parent-resolved `effectiveModel` (no updateModel —
+the subprocess resolves upfront). +5 tests (start/end wrap, save done/failed,
+start-before-end order, opt-in no-registration). 295 total; check EXIT=0; tsc clean.
+
+The wrapper now provides all four contract guarantees (§2 config, §3 retry/timeout,
+§4 telemetry) — ticket 04 complete. Unblocks 05 (obsidian) + 06 (tool-gate).
 
 ## Slice 1 — DONE
 

@@ -8,6 +8,8 @@ import {
   type SpawnFn,
   spawnSubagentSubprocess,
 } from "../src/spawn-subagent-subprocess.js";
+import type { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
+import type { SubagentRunPersistence } from "../src/subagent-run-persistence.js";
 
 // ---- Mock child process (lets tests drive stdout/stderr/close/kill) ------
 
@@ -274,4 +276,115 @@ test("runner: spawn-error path surfaces as exit 1 without throwing", async () =>
   });
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toBe("spawn ENOENT");
+});
+
+// ---- §4 phantom telemetry (slice 2) --------------------------------------
+
+function mockInFlight() {
+  const calls: { method: string; arg: unknown }[] = [];
+  return {
+    calls,
+    start: (run: unknown) => calls.push({ method: "start", arg: run }),
+    end: (id: string) => calls.push({ method: "end", arg: id }),
+    update: () => {},
+    get: () => undefined,
+    bindInvalidate: () => {},
+    updateModel: () => {},
+    list: () => [],
+  };
+}
+
+function mockPersistence() {
+  const saved: unknown[] = [];
+  return {
+    saved,
+    save: (r: unknown) => saved.push(r),
+    list: () => [],
+    load: () => null,
+    delete: () => false,
+    getRunsDir: () => "/tmp",
+  };
+}
+
+test("telemetry: inFlight start/end wrap the run", async () => {
+  const inflight = mockInFlight();
+  await spawnSubagentSubprocess({
+    task: "do it",
+    inFlight: inflight as unknown as SubagentInFlightRegistry,
+    spawnFn: mockSpawn((c) => {
+      c.doClose(0);
+    }),
+  });
+  expect(inflight.calls.map((c) => c.method)).toEqual(["start", "end"]);
+  expect((inflight.calls[0].arg as { model: string }).model).toBe("default");
+});
+
+test("telemetry: persistence.save records a done run", async () => {
+  const persist = mockPersistence();
+  await spawnSubagentSubprocess({
+    task: "do it",
+    persistence: persist as unknown as SubagentRunPersistence,
+    spawnFn: mockSpawn((c) => {
+      c.sendStdout(assistantEnd("ok"));
+      c.doClose(0);
+    }),
+  });
+  expect(persist.saved.length).toBe(1);
+  const rec = persist.saved[0] as {
+    status: string;
+    exitCode: number;
+    output: string;
+    elapsedMs: number;
+  };
+  expect(rec.status).toBe("done");
+  expect(rec.exitCode).toBe(0);
+  expect(rec.output).toBe("ok");
+  expect(rec.elapsedMs).toBeGreaterThanOrEqual(0);
+});
+
+test("telemetry: failed run -> status 'failed' + stderr recorded", async () => {
+  const persist = mockPersistence();
+  await spawnSubagentSubprocess({
+    task: "x",
+    persistence: persist as unknown as SubagentRunPersistence,
+    spawnFn: mockSpawn((c) => {
+      c.sendStderr("boom");
+      c.doClose(1);
+    }),
+  });
+  const rec = persist.saved[0] as { status: string; stderr?: string };
+  expect(rec.status).toBe("failed");
+  expect(rec.stderr).toBe("boom");
+});
+
+test("telemetry: start fires before the run, end after (wrapping order)", async () => {
+  const order: string[] = [];
+  const inflight = {
+    start: () => order.push("start"),
+    end: () => order.push("end"),
+    update: () => {},
+    get: () => undefined,
+    bindInvalidate: () => {},
+    updateModel: () => {},
+    list: () => [],
+  };
+  await spawnSubagentSubprocess({
+    task: "x",
+    inFlight: inflight as unknown as SubagentInFlightRegistry,
+    spawnFn: mockSpawn((c) => {
+      order.push("run");
+      c.doClose(0);
+    }),
+  });
+  expect(order).toEqual(["start", "run", "end"]);
+});
+
+test("telemetry: no registration when inFlight/persistence unset (opt-in default)", async () => {
+  const result = await spawnSubagentSubprocess({
+    task: "x",
+    spawnFn: mockSpawn((c) => {
+      c.doClose(0);
+    }),
+  });
+  expect(result.exitCode).toBe(0);
 });
