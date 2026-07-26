@@ -21,8 +21,9 @@ struct NativeIngredients: ParsableCommand {
         abstract: "Generate a video from a single reference image 100% natively (no run.py) via a user-supplied Ingredients IC-LoRA adapter."
     )
 
-    @Option(name: .shortAndLong, help: "Reference image (e.g. a character/product/scene reference sheet).")
-    var input: String
+    @Option(name: .customLong("input"), parsing: .upToNextOption,
+            help: "Reference image(s) (e.g. a character/product/scene reference sheet). Repeatable — pass multiple --input flags (or multiple paths after one --input) to condition on more than one reference simultaneously. Experimental multi-reference compositing: see docs/openmontage-capability-matrix.md and docs/superpowers/specs/2026-07-26-multi-reference-ingredients-design.md.")
+    var input: [String] = []
 
     @Option(name: .shortAndLong, help: "Output directory (frames/ subdirectory holds the generated PNG sequence, audio.wav holds generated audio).")
     var output: String = "native_ingredients_output"
@@ -61,7 +62,7 @@ struct NativeIngredients: ParsableCommand {
 
         print("→ native ingredients (no run.py): reference=\(input) [lora=\(lora)]")
         let result = try stage.generateIngredients(
-            referenceImageURLs: [URL(fileURLWithPath: input)],
+            referenceImageURLs: input.map { URL(fileURLWithPath: $0) },
             outputDir: URL(fileURLWithPath: output),
             prompt: prompt, loraURL: URL(fileURLWithPath: lora),
             width: width, height: height, seconds: seconds,
