@@ -72,9 +72,17 @@ rounds → **structural restructure** (not a content cut). Executed inline
 
 ## Out of scope (follow-up candidates)
 
-- **Extend Phase-2 to SDD (503) / TDD (320) / systematic-debugging (283)** — same
-  structural-restructure shape, if the writing-skills pilot's ROI holds in
-  practice. Each is a separate fork (own ADR supersession line).
-- **Content-cut variant** — only if a skill is genuinely padded (none found so far).
-- **Push** — both repos have unpushed commits (this session: hand-off fix +
-  closure map + ADR-0002 reversal in video_generation; SOP in study-news; now this).
+- **Extend Phase-2 to SDD (503) / TDD (320) / systematic-debugging (283)** —
+  **RESEARCHED 2026-07-26; lever does NOT transfer.** These are process/workflow
+  skills whose bulk IS the core methodology (SDD's Task Loop ~197 lines; TDD's
+  Red-Green-Refactor ~150 lines; debug's Four Phases ~169 lines) — NOT separable
+  heavy reference like writing-skills' SDO/checklist. All three have ALREADY
+  delegated their separable content (SDD: 3 prompt templates + `scripts/`; TDD:
+  `testing-anti-patterns.md`; debug: 7 files incl. `root-cause-tracing.md` /
+  `condition-based-waiting.md` / `defense-in-depth.md`). They are already
+  optimally split. Forcing the shape = methodology degradation, or ~11% low-ROI
+  (worked-example relocation only). **P2 structural-restructure lever is
+  EXHAUSTED — writing-skills was the unique clean win.** Do not re-attempt without
+  a genuinely new lever (e.g. a new heavy-reference section growing inline).
+- **Content-cut variant** — only if a skill is genuinely padded (none found so
+  far; all candidates audited as dense/interwoven).
