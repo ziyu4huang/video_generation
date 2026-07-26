@@ -68,12 +68,12 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@repo/pi-agent-ext-subagent": "workspace:*",
     "acorn": "^8.16.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "0.82.0",
     "@earendil-works/pi-tui": "0.82.0",
+    "@repo/pi-agent-ext-subagent": "workspace:*",
     "typebox": "*"
   },
   "devDependencies": {
