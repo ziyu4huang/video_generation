@@ -225,7 +225,8 @@ export function renderWorkflowLines(
       const order = `[${agent.id}]`;
       const result = showResultPreviews && agent.resultPreview ? ` — ${agent.resultPreview}` : "";
       const agentTokens = agent.tokens ? theme.fg("dim", ` [${agent.tokens.toLocaleString()} tok]`) : "";
-      lines.push(`    ${order} ${statusIcon(agent.status)} ${shorten(agent.label, 48)}${agentTokens}${result}`);
+      const agentModel = agent.model ? theme.fg("dim", ` [${shortModel(agent.model)}]`) : "";
+      lines.push(`    ${order} ${statusIcon(agent.status)} ${shorten(agent.label, 48)}${agentTokens}${agentModel}${result}`);
     }
     if (agents.length > visibleAgents.length)
       lines.push(theme.fg("dim", `    … ${agents.length - visibleAgents.length} earlier agents`));
@@ -237,7 +238,8 @@ export function renderWorkflowLines(
     for (const agent of unphased.slice(-maxAgents)) {
       const result = showResultPreviews && agent.resultPreview ? ` — ${agent.resultPreview}` : "";
       const agentTokens = agent.tokens ? theme.fg("dim", ` [${agent.tokens.toLocaleString()} tok]`) : "";
-      lines.push(`    [${agent.id}] ${statusIcon(agent.status)} ${shorten(agent.label, 48)}${agentTokens}${result}`);
+      const agentModel = agent.model ? theme.fg("dim", ` [${shortModel(agent.model)}]`) : "";
+      lines.push(`    [${agent.id}] ${statusIcon(agent.status)} ${shorten(agent.label, 48)}${agentTokens}${agentModel}${result}`);
     }
   }
 
