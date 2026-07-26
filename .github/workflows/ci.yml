@@ -99,6 +99,7 @@ jobs:
           # test:unit(bun test); `bun run test` (not plain `bun test`) so that
           # full chain runs, matching gui-movie-director's convention below.
           - { package: pi-agent-ext-wayfind, test-cmd: "bun run test" }
+          - { package: pi-agent-ext-superpowers, test-cmd: "bun run test" }
           - { package: pi-agent-ext-web-access, test-cmd: "bun test" }
           - { package: pi-agent-ext-file2md, test-cmd: "bun test" }
           # gui-movie-director: lint is pure static analysis (CI-safe); the
