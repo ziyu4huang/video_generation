@@ -34,6 +34,7 @@ import {
 	type GoalCompleteDetails,
 } from "./state.js";
 import { clearPersistedGoal, loadGoalStateFromSession, persistGoal } from "./persistence.js";
+import { runLoopTick, isLoopActive } from "../loop/loop.js";
 import {
 	findFinalAssistantMessage,
 	isContradictoryCompletionSummary,
@@ -640,6 +641,11 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 	});
 
 	pi.on("agent_end", async (event: { messages?: unknown[] }, ctx: StatusContext) => {
+		// Loop 3 dispatch: a live loop drives the continuation, not a goal.
+		if (isLoopActive()) {
+			await runLoopTick(pi, ctx as StatusContext, event);
+			return;
+		}
 		if (!goalState.activeGoal || goalState.activeGoal.status !== "active") return;
 		// Task 10: a completed turn is a liveness signal — stamp it BEFORE any
 		// early return so the heartbeat stall clock resets on every real turn.
@@ -776,6 +782,10 @@ async function startGoal(
 	ctx: StatusContext,
 	audit?: GoalAuditOptions,
 ) {
+	if (isLoopActive()) {
+		ctx.ui.notify("A loop is active. Run /loop stop before starting a goal.", "warning");
+		return;
+	}
 	const validationError = validateObjective(objective);
 	if (validationError) {
 		ctx.ui.notify(validationError, "warning");
