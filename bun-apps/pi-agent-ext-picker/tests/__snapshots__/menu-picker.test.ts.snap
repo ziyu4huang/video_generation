@@ -1,0 +1,23 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`no query → all items rendered, first selected (snapshot) 1`] = `
+[
+  "→ /help                           show keybindings & help",
+  "  /subagents                      open the subagent viewer\x1B[0m",
+  "  /clear                          clear the conversation h\x1B[0m",
+  "  /model                          switch the active model",
+  "  /preset                         apply a prompt preset",
+]
+`;
+
+exports[`fuzzy query narrows + ranks (snapshot) 1`] = `
+[
+  "→ /subagents                      open the subagent viewer\x1B[0m",
+]
+`;
+
+exports[`no matches → empty-state line (snapshot) 1`] = `
+[
+  "  No matching commands",
+]
+`;

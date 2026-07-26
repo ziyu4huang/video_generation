@@ -262,6 +262,18 @@
         "typebox": "*",
       },
     },
+    "pi-agent-ext-picker": {
+      "name": "@repo/pi-agent-ext-picker",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@earendil-works/pi-tui": "0.82.0",
+        "@types/bun": "^1.3.14",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "0.82.0",
+        "@earendil-works/pi-tui": "0.82.0",
+      },
+    },
     "pi-agent-ext-power-tool": {
       "name": "@repo/pi-agent-ext-power-tool",
       "version": "0.1.0",
@@ -735,6 +747,8 @@
     "@repo/pi-agent-ext-movie-director": ["@repo/pi-agent-ext-movie-director@workspace:pi-agent-ext-movie-director"],
 
     "@repo/pi-agent-ext-obsidian": ["@repo/pi-agent-ext-obsidian@workspace:pi-agent-ext-obsidian"],
+
+    "@repo/pi-agent-ext-picker": ["@repo/pi-agent-ext-picker@workspace:pi-agent-ext-picker"],
 
     "@repo/pi-agent-ext-power-tool": ["@repo/pi-agent-ext-power-tool@workspace:pi-agent-ext-power-tool"],
 

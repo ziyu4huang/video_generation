@@ -1,7 +1,7 @@
 ---
 type: task
 blocked by: 05, 06
-status: open
+status: in-progress (slice 1 done)
 ---
 
 # 07 — Task: acceptance + test harness for the interactive component
@@ -13,3 +13,16 @@ How do we verify an interactive TUI component that resists unit-testing? Stand u
 ## What resolving it looks like
 
 A test harness + acceptance checklist committed; the component's done-ness becomes machine-checkable, not eyeball-only.
+
+## Progress (2026-07-26)
+
+**Slice 1 — render-snapshot harness: DONE.** New package `bun-apps/pi-agent-ext-picker/`:
+- `src/menu-picker.ts` — `renderMenuLines({items, query, selectedIndex, width, maxVisible, theme})` (deterministic render core: `fuzzyFilter` pre-filters, `SelectList` owns layout/scroll/truncate; selection clamped). `PLAIN_THEME` for stable snapshots.
+- `tests/menu-picker.test.ts` — 5 pass / 3 snapshots (all-items, fuzzy-narrow, empty-state, clamp, width-respect).
+- `ACCEPTANCE.md` — section A (machine-checked ✓) + B (manual keybinding matrix, pending the full component) + C (slash-command integration).
+
+Proves the core of 07 — an interactive TUI component that "resists unit-testing" IS testable via its extracted deterministic render core. Snapshots look right (`→ /help` selected, column layout, `No matching commands` empty-state).
+
+**Next slices** (each unblocks more of ACCEPTANCE.md B/C):
+- slice 2: full `createMenuPicker` — `CustomEditor` subclass owning input + driving a `nonCapturing` SelectList overlay (the 06 gate mechanism).
+- slice 3: slash-command consumer (tracer bullet → ACCEPTANCE C).
