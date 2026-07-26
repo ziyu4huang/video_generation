@@ -2,13 +2,14 @@
 //  NativeIngredientsCommand.swift
 //  LTXVideoDirectorCLI
 //
-//  `ltx-video native-ingredients` — single-reference-image IC-LoRA
+//  `ltx-video native-ingredients` — one-or-more-reference-image IC-LoRA
 //  conditioning, fully native (no run.py). See NativeUpscaleStage
 //  .generateIngredients's header — the sibling "easy tier" application to
-//  `native-restyle` identified in PLAN.md's IC-LoRA scoping research: the
+//  `native-restyle` identified in PLAN.md's IC-LoRA scoping research: each
 //  reference is a single still image tiled across the generation's frame
 //  count (not a real input video clip), so there's no --input frame
-//  directory — just a reference image, a target resolution, and a duration.
+//  directory — just one or more reference images, a target resolution, and
+//  a duration.
 //
 
 import ArgumentParser
@@ -18,7 +19,7 @@ import LTXVideoDirector
 struct NativeIngredients: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "native-ingredients",
-        abstract: "Generate a video from a single reference image 100% natively (no run.py) via a user-supplied Ingredients IC-LoRA adapter."
+        abstract: "Generate a video from one or more reference images 100% natively (no run.py) via a user-supplied Ingredients IC-LoRA adapter."
     )
 
     @Option(name: .customLong("input"), parsing: .upToNextOption,
