@@ -1,6 +1,6 @@
 # @repo/pi-agent-ext-subagent
 
-Isolated single-subagent dispatch for [Pi](https://github.com/earendil-works/pi-coding-agent): the `subagent` and `subagent_runs` tools, the `WorkflowAgent` runner that drives a fresh in-memory Pi session per dispatch, the `spawnSubagent` programmatic API, and the process-wide singletons that let the `/subagents` viewer (in `pi-agent-ext-workflow`) observe in-flight and completed runs. Extracted from `pi-agent-ext-workflow` as a lower-dependency library so peer extensions (`knowledge-card`, `wayfind`, `superpowers`, …) can `spawnSubagent` without dragging in the whole workflow DSL, and so the subagent tools load independently of the workflow engine.
+Isolated single-subagent dispatch for [Pi](https://github.com/earendil-works/pi-coding-agent): the `subagent` and `subagent_runs` tools, the `WorkflowAgent` runner that drives a fresh in-memory Pi session per dispatch, the `spawnSubagent` programmatic API, and the process-wide singletons that let the `/subagents` viewer (now in this package, since PR #821) observe in-flight and completed runs. Extracted from `pi-agent-ext-workflow` as a lower-dependency library so peer extensions (`knowledge-card`, `wayfind`, `superpowers`, …) can `spawnSubagent` without dragging in the whole workflow DSL, and so the subagent tools load independently of the workflow engine.
 
 ## Public API surface
 
@@ -55,7 +55,7 @@ import {
 | `createWorktree` / `removeWorktree` | Git-worktree isolation helpers | An agent definition requests worktree isolation. |
 | `WorkflowError` / `WorkflowErrorCode` | Typed error envelope | Classifying a dispatch failure. |
 
-## Module-identity rule for peer extensions (CRITICAL)
+## Module-identity rule for peer extensions (forward-compat)
 
 `getSubagentInFlightRegistry()` and `getSubagentRunPersistence()` are **module-local lazy singletons**. For two extensions to share ONE registry instance — so the `subagent` tool's writes are visible to the `/subagents` viewer — they MUST resolve the singleton from the **same module instance**.
 
@@ -67,6 +67,6 @@ import {
   This package's own extension does the equivalent relative import (`../src/index.js`), which resolves to the same `src/index.ts` module. Both land on the identical module instance → one singleton.
 - ❌ **DO NOT** import the singletons via the dist root (`@repo/pi-agent-ext-subagent`) and expect the live instance. The package root resolves to `dist/index.js`; a `dist/` module and a `src/` module are NOT guaranteed to be the same JS module identity, so the two callers would each get their own lazily-initialized singleton and the viewer would see an empty registry.
 
-The values/types in the table above (`spawnSubagent`, `WorkflowAgent`, errors, the tool factories, …) are safe to import from the package **root** — only the two singletons demand the `src/` subpath. (The workflow extension's `/subagents` viewer and command both import via `@repo/pi-agent-ext-subagent/src/index.*` for exactly this reason.)
+The values/types in the table above (`spawnSubagent`, `WorkflowAgent`, errors, the tool factories, …) are safe to import from the package **root** — only the two singletons demand the `src/` subpath. (Since PR #821 the viewer + command live in this package, so they import the singletons via the in-package relative path. The `src/` subpath rule above is retained as forward-compat advice for any future peer extension that wants to observe runs directly — none do today.)
 
 See `docs/adr/0001-why-extracted.md` for the full rationale and `CONTEXT.md` for the ubiquitous language.
