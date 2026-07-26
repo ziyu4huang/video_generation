@@ -17,8 +17,10 @@ Pins the deterministic render core `renderMenuLines`:
 
 ## B. Manual — keybinding matrix (run against the live TUI)
 
-Exercised once the full `createMenuPicker` (CustomEditor + nonCapturing overlay)
-is wired. Each must behave as claude-code's picker does:
+**Status (2026-07-26): the `MenuPickerEditor` component is BUILT (slice 2) — tsc-clean,
+logic-tested, module loads. These items become testable once a CONSUMER wires it
+(slash-command menu, slice 3 / ticket 06's tracer bullet).** Each must behave as
+claude-code's picker does:
 
 - [ ] type `/` → picker opens (bottom-anchored overlay visible)
 - [ ] **input ownership**: typed chars reach the EDITOR (live filter), NOT eaten
@@ -38,6 +40,8 @@ is wired. Each must behave as claude-code's picker does:
 
 ## Known follow-ups (post-acceptance)
 
-- full `createMenuPicker` CustomEditor + nonCapturing SelectList overlay (slice 2)
-- themed `SelectListTheme` (slice 1 uses PLAIN_THEME for deterministic snapshots)
-- the `\x1B[0m` SGR-reset SelectList appends per line is cosmetic in PLAIN output
+- slash-command consumer (slice 3 / ticket 06) — wires the component end-to-end,
+  unblocks the §B manual matrix + §C integration.
+- themed `SelectListTheme` (slice 1/2 use PLAIN_THEME for deterministic snapshots;
+  the live editor already derives `theme.selectList` for the overlay).
+- the `\x1B[0m` SGR-reset SelectList appends per line is cosmetic in PLAIN output.
