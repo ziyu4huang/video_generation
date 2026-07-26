@@ -31,13 +31,13 @@ contract is locked.
 ## Decisions so far
 
 - [01 — Audit: every subagent-triggering surface](tickets/01-audit-subagent-trigger-surfaces.md) — **4 divergences found** (obsidian + tool-gate subprocess; btw + core-task direct `createAgentSession`) across 2 models; 5 unified consumers; skill drivers cataloged (superpowers SDD biggest). archify/deploy/wayfind/movie-binary spawns ruled out (not subagent dispatch).
+- [02 — Define the "strong unified dispatch" contract](tickets/02-define-strong-unified-dispatch-contract.md) — **contract locked**: unified = 4 guarantees (runner-path via `spawnSubagent` OR a shared subprocess-wrapper; config-only models; retry/timeout default-on; telemetry registered + visible). Mechanism secondary to guarantees. `btw`/`core-task` → in-process; `obsidian`/`tool-gate` → shared subprocess-wrapper.
 
 ## Not yet specified
 
-- **Consolidation execution per divergence** — graduates from 03 (one build ticket per divergence once the strategy + contract are set).
-- **The subprocess-vs-in-process hard question** — obsidian + tool-gate run pi as a CHILD PROCESS (isolation?). Can they move to in-process `spawnSubagent`, or is isolation load-bearing (→ needs a subprocess wrapper that still registers telemetry)? Lives in 02 (contract: does "unified" require in-process?) + 03 (per-divergence feasibility).
-- **btw / core-task lower-level needs** — they call `createAgentSession` directly, bypassing the runner. What control do they need that the runner lacks (streaming? history? custom hooks?)? Lives in 03.
-- **Skills alignment** — superpowers SDD + knowledge-card + obsidian + wayfind skills instruct the model to dispatch subagents. Do they steer to the unified surface, or to a divergent one? Graduates from 01 (partly independent — could ticket once the contract lands).
+- **Consolidation execution per divergence** — graduates from 03. Includes the **shared subprocess-wrapper** build ticket (the §1 vehicle for obsidian + tool-gate: config-aware + retry/timeout + phantom telemetry entry) + the `btw`/`core-task` → in-process `spawnSubagent` build tickets.
+- **btw / core-task lower-level needs** — they call `createAgentSession` directly. What control does bypassing the runner buy them (streaming? history? custom hooks?)? Determines whether the move to `spawnSubagent` is drop-in or needs a runner-extension. Lives in 03.
+- **Skills alignment** — superpowers SDD + knowledge-card + obsidian + wayfind skills instruct the model to dispatch subagents. The contract (02) is now the bar to check them against — could ticket independently once 03 graduates the build work.
 
 ## Out of scope
 
