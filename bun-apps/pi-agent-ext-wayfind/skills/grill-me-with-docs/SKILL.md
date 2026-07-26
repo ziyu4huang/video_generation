@@ -1,6 +1,6 @@
 ---
 name: grill-me-with-docs
-description: Use when stress-testing a plan or design AND wanting the interview to leave a paper trail — resolves terms into a CONTEXT.md glossary and hard-to-reverse decisions as ADRs as the grill runs, then optionally seeds a task_plan.md for the plan coordinator. The flagship /grill docs command; invocation-only.
+description: Use when stress-testing a plan or design AND wanting the interview to leave a paper trail — resolves terms into a CONTEXT.md glossary and hard-to-reverse decisions as ADRs as the grill runs, then optionally seeds a task_plan.md preview (human-readable phase-spine summary, not tracked). The flagship /grill docs command; invocation-only.
 disable-model-invocation: true
 ---
 
@@ -15,7 +15,7 @@ This is `grill-me` (the interview) **plus** `domain-modeling` (the paper trail),
 1. **Enters grilling mode** — load the `grilling` skill: one question at a time, a recommended answer for every question, facts looked up in the environment, decisions put to the user. Never act until shared understanding is confirmed.
 2. **Drives domain-modeling inline** — load the `domain-modeling` skill: as each term resolves, write it to `CONTEXT.md` *right there* (not batched at the end). Offer an ADR **only** when a decision is hard-to-reverse + surprising-without-context + the result of a real trade-off. Most sessions sharpen the glossary and write few or no ADRs — that's the intended shape.
 3. **Coordinates with the plan coordinator** — while this session is active, the plan coordinator yields its plan injection/auto-continue (the two won't double-drive). The status bar shows the grill is driving.
-4. **Hands off** — when shared understanding is reached, end with `/grill done`. Optionally `/grill done --seed-plan` to synthesize the resolved decisions + glossary into a `task_plan.md` seed, which you then drive by executing the plan.
+4. **Hands off** — when shared understanding is reached, end with `/grill done`. Optionally `/grill done --seed-plan` to synthesize the resolved decisions + glossary into a `task_plan.md` **preview** (human-readable; not tracked — execution runs via writing-plans→plans/*.md→SDD).
 
 ## Where it fits
 
@@ -40,4 +40,4 @@ skipping to-spec, that flows straight into executing the plan.
 - Terms get written to `CONTEXT.md` the moment they resolve, in the project's own words.
 - It reaches into the codebase to answer its own factual questions where it can.
 - ADRs stay rare — you're not asked to rubber-stamp reversible choices.
-- At the end, the resolved decisions can seed a `task_plan.md` cleanly.
+- At the end, the resolved decisions can seed a `task_plan.md` preview cleanly (human-readable; not tracked).

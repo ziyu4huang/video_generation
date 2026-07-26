@@ -92,7 +92,7 @@ export function syncChainState(cwd: string, effort: string): ChainSyncResult {
   return { closed, skipped };
 }
 
-// ─── forward bridge: tickets/decisions → task_plan.md (ADR-0001 companion) ─────
+// ─── forward seed: tickets/decisions → task_plan.md preview (ADR-0001 companion) ─────
 
 /** Topo-sort tickets so each blocker precedes its dependents (DFS post-order).
  *  Missing blockers are tolerated; ascending id is the secondary key for
@@ -114,12 +114,16 @@ function topoSortTickets(tickets: Ticket[]): Ticket[] {
   return result;
 }
 
-/** Flatten a wayfind ticket set into a writing-plans-format plan body — the
- *  forward half of the chain (ticket 08). Lossless: every ticket becomes a Task,
+/** Flatten a wayfind ticket set into a writing-plans-format plan body — a human-readable
+ *  decision→phase-spine PREVIEW (ticket 08). Lossless: every ticket becomes a Task,
  *  in dependency order, carrying its `What to build` + acceptance criteria as
- *  `- [ ]` steps. Task headers embed the ticket stem (`[id-slug]`) so the plan
- *  coordinator's `parsePlan` + wayfind's `syncChainState` can close the
- *  originating ticket when the Task's steps complete (ADR-0001 round-trip). */
+ *  `- [ ]` steps. Task headers embed the ticket stem (`[id-slug]`) so a human can trace
+ *  preview ↔ originating ticket.
+ *
+ *  NOTE: this preview is NOT tracked or executed. The plan coordinator parses
+ *  `.planning/<effort>/plans/*.md` (writing-plans output), NOT task_plan.md — so
+ *  the seed→execute→sync round-trip only closes tickets when execution runs
+ *  through writing-plans→plans/*.md→SDD, never by executing this preview. */
 export function flattenTicketsToPlan(tickets: Ticket[], glossary: GlossaryTerm[]): string {
   const ordered = topoSortTickets(tickets);
   const lines: string[] = [

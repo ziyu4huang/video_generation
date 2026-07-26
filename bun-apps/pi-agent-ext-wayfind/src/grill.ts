@@ -8,7 +8,7 @@
  *      user) and, for the `-with-docs` variant, the domain-modeling capture rules
  *      (write CONTEXT.md terms inline; offer ADRs sparingly).
  *  - buildPlanSeed: synthesize the resolved decisions + glossary into a
- *      task_plan.md seed — the grill→plan handoff.
+ *      task_plan.md preview — the grill→plan handoff (human-readable; not tracked).
  */
 
 export interface ResolvedDecision {
@@ -130,8 +130,10 @@ export function buildGrillPriming(topic: string | undefined, withDocs: boolean):
  * Synthesize the grill output into a writing-plans-format seed — the grill→plan
  * handoff (ticket 08: migrated from the legacy task_plan phase-spine shape).
  * Output carries an inline `**Goal:**`, an optional glossary block, and one or
- * more `### Task N` sections with `- [ ]` steps — exactly what the plan
- * coordinator's `parsePlan` (pi-agent-ext-core-task) consumes.
+ * more `### Task N` sections with `- [ ]` steps — a human-readable preview.
+ *
+ * NOTE: NOT consumed by the plan coordinator — it parses
+ * `.planning/<effort>/plans/*.md` (writing-plans output), not task_plan.md.
  *
  * Two regimes:
  *  - decisions known (programmatic / future)  → a single Task with one step per decision.

@@ -85,7 +85,7 @@ Work the **frontier** — any ticket whose blockers are all done — one ticket 
 
 ### Seed the plan
 
-Flatten the frontier into a `task_plan.md` with **`/wayfind seed <effort>`** — one phase per ticket (topo-sorted by `blocking`), `[NN-slug]` phase headers, acceptance criteria carried through. This is the bridge from wayfind's decision artifacts into the plan coordinator's execution substrate. Then execute the plan to activate the hooks; when a phase completes, `/wayfind sync` (or any `/wayfind*` touchpoint) closes the originating ticket.
+Flatten the frontier into a `task_plan.md` **preview** with **`/wayfind seed <effort>`** — one phase per ticket (topo-sorted by `blocking`), `[NN-slug]` phase headers, acceptance criteria carried through. This is a **human-readable** decision→phase spine — NOT tracked or executed. To execute, take each ② ticket through **writing-plans** → `.planning/<effort>/plans/*.md` → **subagent-driven-development**; the plan coordinator tracks `plans/*.md`, and `/wayfind sync` closes the originating ticket as those plans' phases complete (the round-trip runs through `plans/*.md`, not the preview).
 
 ### Set the session objective
 

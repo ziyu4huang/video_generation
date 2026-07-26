@@ -19,7 +19,7 @@ A **Pi-native** port of [Matt Pocock's decision-chain skill suite](https://githu
 
 ## The flagship: `/grill docs`
 
-A relentless, one-question-at-a-time interview that **leaves a paper trail**. As terms resolve they're written to `CONTEXT.md`; hard-to-reverse decisions land as ADRs. When you reach shared understanding, `/grill done --seed-plan` synthesizes the resolved decisions + glossary into a `task_plan.md` — then execute the plan.
+A relentless, one-question-at-a-time interview that **leaves a paper trail**. As terms resolve they're written to `CONTEXT.md`; hard-to-reverse decisions land as ADRs. When you reach shared understanding, `/grill done --seed-plan` synthesizes the resolved decisions + glossary into a `task_plan.md` **preview** (human-readable; not tracked — execute via writing-plans→plans/*.md→SDD).
 
 ```
 grill docs → wayfind spec → wayfind tickets → (execute the plan) → implement → code-review
@@ -29,7 +29,7 @@ grill docs → wayfind spec → wayfind tickets → (execute the plan) → imple
 
 ```
 wayfind ──► grill docs ──► wayfind tickets ──► the plan coordinator
-(decompose)   (interview + CONTEXT/ADR)  (synthesize)   (task_plan.md substrate)
+(decompose)   (interview + CONTEXT/ADR)  (synthesize)   (plans/*.md substrate; task_plan.md is a human preview)
 ```
 
 - **grilling** is the engine: one question at a time, a recommended answer for each, facts from the environment, decisions to the user.
@@ -42,13 +42,13 @@ wayfind ──► grill docs ──► wayfind tickets ──► the plan coordi
 |---|---|
 | `/grill me [topic]` | kick off a plain grilling interview (no artifacts) |
 | `/grill docs [topic]` | **flagship** — grilling + writes `CONTEXT.md` glossary + ADRs inline; publishes the coordination seam |
-| `/grill done [--seed-plan]` | end the grill; `--seed-plan` reads `CONTEXT.md` + writes a `task_plan.md` seed (handoff to the plan coordinator) |
+| `/grill done [--seed-plan]` | end the grill; `--seed-plan` reads `CONTEXT.md` + writes a `task_plan.md` preview (human-readable; not tracked — execute via writing-plans→plans/*.md) |
 | `/grill domain` | kick off the glossary + ADR discipline directly |
 | `/wayfind [destination]` | chart a new map under `.planning/<effort>/`; (no args) work the next frontier ticket |
 | `/wayfind status [effort]` | show the frontier + open/closed/claimed/fog counts |
 | `/wayfind spec [effort]` | synthesize the conversation + codebase into a spec (PRD) at `.planning/<effort>/spec.md` |
 | `/wayfind tickets [effort]` | break a spec/plan into tracer-bullet tickets (unified spine format) under `.planning/<effort>/tickets/` |
-| `/wayfind seed [effort]` | route-aware: flatten tickets (topo-sorted, `[ticket-id]` phase headers) or CONTEXT.md decisions into a `task_plan.md`; refuses to overwrite |
+| `/wayfind seed [effort]` | route-aware: flatten tickets (topo-sorted, `[ticket-id]` phase headers) or CONTEXT.md decisions into a `task_plan.md` preview (human-readable; not tracked — execute via writing-plans→plans/*.md); refuses to overwrite |
 | `/wayfind sync [effort]` | close wayfind tickets whose plan coordinator phase reported completed (the loop's feedback half) |
 
 ## Coordination with the plan coordinator

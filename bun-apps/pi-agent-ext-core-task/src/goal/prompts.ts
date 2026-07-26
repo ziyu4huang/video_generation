@@ -46,7 +46,7 @@ export const CONTINUATION_MARKER_PREFIX = "pi-goal-continuation:";
 // not stopping points. Goal drives; the other two structure the drive.
 export const THREE_LAYER_GUIDANCE =
 	"You have three cooperating layers: this /goal (drives to completion), " +
-	"the plan coordinator (the cross-session phase roadmap in task_plan.md), and " +
+	"the plan coordinator (the cross-session phase roadmap in .planning/<effort>/plans/*.md), and " +
 	"the `todo` tool (in-session step tracking). Use the plan as your roadmap " +
 	"and todo to track steps — neither is a stopping point; they are tools to finish this goal.";
 
@@ -111,7 +111,7 @@ export function buildGoalSystemPrompt(goal: ActiveGoal, planProgressLine: string
  * so this module stays free of module-state reads.
  */
 export function buildContinuePrompt(goal: ActiveGoal, marker: string, planProgressLine: string) {
-	const planNote = planProgressLine ? `\nActive plan progress: ${planProgressLine}. Continue the next open phase, then mark it complete in task_plan.md.` : "";
+	const planNote = planProgressLine ? `\nActive plan progress: ${planProgressLine}. Continue the next open phase, then mark its steps complete in the plan file (.planning/<effort>/plans/*.md).` : "";
 	return `Continue the active /goal until it is complete:\n\n${goalObjectiveBlock(goal)}\n\nThis is automatic continuation #${goal.iteration}. Current files, command output, tests, and external state are authoritative; re-check them as needed. ${goalPersistenceRules("this goal")}${planNote}\n\n${continuationMarkerComment(marker)}`;
 }
 
