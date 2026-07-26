@@ -51,9 +51,9 @@ _Avoid_: importing the singletons from the dist root and expecting the live inst
 The `.pi/agents/*.md` definition store — name/description/tools/model/prompt/worktree-isolation per named agent type. Resolved via `agentType` on the `subagent` tool and `agent()`; explicit call-site `model`/`tools`/`excludeTools` override the binding. Bundled agents in a workflow pack register per-run with project > pack > user precedence.
 _Avoid_: conflating with the in-flight registry (the agent registry is definitions; the in-flight registry is running instances).
 
-**Model tier** (`loadModelTierConfig` / `resolveTierModel`):
-The named-tier → model-spec mapping (`~/.pi/models.json`, editable via `/models`). A dispatch's `tier` resolves through this; `tier` + `model` interaction: explicit `model` wins > `tier`-resolved model > session `mainModel` default.
-_Avoid_: hardcoding model ids in agent definitions (use tiers so `/models` stays the single source).
+**Model tier / model role** (`loadModelTierConfig` / `resolveTierModel` / `resolveModelRole`):
+The two model-resolution dimensions, driven by ONE config file: `~/.pi/workflows/model-tiers.json` (`{ tiers, capabilities }`, editable via `/workflows-models`). `tiers` maps a named tier (small/medium/big) → model-spec; `capabilities` maps a capability key (e.g. `vision`) → model-spec. The two dimensions are INDEPENDENT by design — switching text-LLM tiers (e.g. the default provider ↔ a token-exhaustion fallback) must never touch vision, which is always a separate (often local) model since most text-LLM providers cannot do vision. Resolution precedence on a dispatch: explicit `model` > `capability`-resolved > `tier`-resolved > session `mainModel` default.
+_Avoid_: **hardcoding model ids ANYWHERE in code** — model ids differ per working environment (the local vision model, the default text-LLM provider, the fallback provider are all machine-specific). Resolve every model from config (`tiers` / `capabilities`); config files (`~/.pi/workflows/model-tiers.json`, `~/.pi/agent/models.json`) are the ONLY place env-specific model ids may live. This applies to agent definitions too — reference `tier`/`capability`, never a literal id. (Audit 2026-07-26: subagent src is clean — no hardcoded model-id values.)
 
 **Worktree isolation** (`createWorktree` / `removeWorktree`):
 Git-worktree-based isolation for a subagent that should not touch the parent's working tree. An agent definition opts in; the runner creates a linked worktree for the run and removes it after.

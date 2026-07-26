@@ -9,7 +9,8 @@
  */
 import { readFileSync } from "node:fs";
 import { ALL_PROFILES, type DocProfile } from "./classify.ts";
-import { createSharedSession, resolveVisionLLM, type ResolvedLLM } from "../sessions.ts";
+import { resolveVisionLLM, type ResolvedLLM } from "../sessions.ts";
+import { runVisionInference } from "./vision-inference.js";
 
 const CLASSIFY_SYSTEM = `你是一個文件類型分類器。你會收到一張文件的第一頁圖片。
 請只判斷這份文件屬於下列哪一種 profile，並「只」輸出該 profile 的英文代碼（小寫），不要任何其他文字：
@@ -53,31 +54,18 @@ export async function classifyProfileViaVlm(
   llmOverride?: ResolvedLLM,
 ): Promise<{ profile: DocProfile; reply: string }> {
   const llm = llmOverride ?? resolveVisionLLM();
-  const { session } = await createSharedSession(llm, {});
-
   const image = readImage(imagePath, mimeType);
-  let reply = "";
 
-  const unsub = session.subscribe((event: any) => {
-    if (
-      event.type === "message_update" &&
-      event.assistantMessageEvent?.type === "text_delta"
-    ) {
-      reply += event.assistantMessageEvent.delta;
-    }
+  const { output, ok, error } = await runVisionInference({
+    task: "請分類這份文件的第一頁，只輸出一個 profile 代碼。",
+    images: [image],
+    llm,
   });
 
-  try {
-    await session.prompt(
-      "請分類這份文件的第一頁，只輸出一個 profile 代碼。",
-      { images: [image] } as any,
-    );
-  } finally {
-    unsub();
-    session.dispose();
-  }
-
-  return { profile: parseProfileReply(reply), reply: reply.trim() };
+  // The classifier does NOT swallow model errors — propagate so the caller
+  // (pipeline / voter) can decide whether to skip the page or fail the doc.
+  if (!ok) throw new Error(error ?? "vision inference failed");
+  return { profile: parseProfileReply(output), reply: output };
 }
 
 /**

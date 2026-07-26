@@ -29,7 +29,8 @@
 import { readFileSync } from "node:fs";
 import type { DocProfile } from "./classify.ts";
 import { imageMimeType } from "./classify.ts";
-import { createSharedSession, type ResolvedLLM } from "../sessions.ts";
+import type { ResolvedLLM } from "../sessions.ts";
+import { runVisionInference } from "./vision-inference.js";
 
 /** Output processing mode: how literally to transcribe vs summarize (T3). */
 export type ExplainMode = "summary" | "verbatim" | "hybrid";
@@ -253,10 +254,6 @@ export async function explainPage(
     mode?: ExplainMode;
   },
 ): Promise<ExplainResult> {
-  const { session } = await createSharedSession(llm, {
-    appendSystemPrompt: [systemPromptFor(profile, { lang: page.lang, mode: page.mode })],
-  });
-
   const image = readImageContent(page.imageAbs, page.mimeType);
   const userMsg = pageUserMessage({
     docSlug: page.docSlug,
@@ -266,29 +263,20 @@ export async function explainPage(
     priorContext: page.priorContext,
   });
 
-  let markdown = "";
-  const unsub = session.subscribe((event: any) => {
-    if (
-      event.type === "message_update" &&
-      event.assistantMessageEvent?.type === "text_delta"
-    ) {
-      markdown += event.assistantMessageEvent.delta;
-    }
+  const { output, ok, error } = await runVisionInference({
+    task: userMsg,
+    images: [image],
+    llm,
+    systemPrompt: systemPromptFor(profile, { lang: page.lang, mode: page.mode }),
   });
 
-  try {
-    await session.prompt(userMsg, { images: [image] } as any);
-    return {
-      markdown: normalizeFrontmatter(normalizeEmbeds(markdown.trim()), {
-        page: page.pageNo,
-        kind: profile,
-      }),
-      ok: true,
-    };
-  } catch (e: any) {
-    return { markdown: "", ok: false, error: e?.message ?? String(e) };
-  } finally {
-    unsub();
-    session.dispose();
-  }
+  return ok
+    ? {
+        markdown: normalizeFrontmatter(normalizeEmbeds(output), {
+          page: page.pageNo,
+          kind: profile,
+        }),
+        ok: true,
+      }
+    : { markdown: "", ok: false, error };
 }

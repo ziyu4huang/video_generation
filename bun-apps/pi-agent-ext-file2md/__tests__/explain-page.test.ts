@@ -1,11 +1,11 @@
 /**
  * explainPage I/O — the per-page VLM extraction call in src/vlm/agents.ts.
  *
- * explainPage drives a one-turn session, accumulates streamed text deltas, and
- * runs normalizeEmbeds + normalizeFrontmatter on the result before returning.
- * The pure normalizers are pinned in agents.test.ts; here we verify the I/O
- * wiring (subscribe/prompt/dispose) AND that the streamed markdown actually
- * flows through the normalizers end-to-end. ../src/sessions.ts is mocked.
+ * explainPage drives a single runVisionInference call + runs normalizeEmbeds +
+ * normalizeFrontmatter on the result before returning. The pure normalizers
+ * are pinned in agents.test.ts; here we verify the I/O wiring (task/images/
+ * systemPrompt forwarded) AND that the returned markdown actually flows through
+ * the normalizers end-to-end. ../src/vlm/vision-inference.ts is mocked.
  *
  *   bun test __tests__/explain-page.test.ts
  */
@@ -15,40 +15,20 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 // --- control knobs ----------------------------------------------------------
-let subscriber: ((event: any) => void) | null = null;
-let nextDeltas: string[] = [];
-let nextError: Error | null = null;
-const sessionOpts: { llm: any; opts: any }[] = [];
-const promptCalls: { text: string; imageCount: number; mimeType: string }[] = [];
+let nextOutput = "";
+let nextError: string | undefined;
+const inferenceCalls: {
+  task: string;
+  images: any[];
+  llm: any;
+  systemPrompt?: string;
+}[] = [];
 
-mock.module(import.meta.dirname + "/../src/session-factory.ts", () => ({
-  createSharedSession: async (llm: any, opts: any) => {
-    sessionOpts.push({ llm, opts });
-    return {
-      session: {
-        subscribe: (cb: (e: any) => void) => {
-          subscriber = cb;
-          return () => {
-            subscriber = null;
-          };
-        },
-        prompt: async (text: string, opts: any) => {
-          promptCalls.push({
-            text,
-            imageCount: opts?.images?.length ?? 0,
-            mimeType: opts?.images?.[0]?.mimeType ?? "",
-          });
-          for (const d of nextDeltas) {
-            subscriber?.({
-              type: "message_update",
-              assistantMessageEvent: { type: "text_delta", delta: d },
-            });
-          }
-          if (nextError) throw nextError;
-        },
-        dispose: () => {},
-      },
-    };
+mock.module(import.meta.dirname + "/../src/vlm/vision-inference.ts", () => ({
+  runVisionInference: async (opts: any) => {
+    inferenceCalls.push(opts);
+    if (nextError !== undefined) return { output: "", ok: false, error: nextError };
+    return { output: nextOutput, ok: true };
   },
 }));
 
@@ -78,21 +58,17 @@ const page = () => ({
   pageCount: 5,
 });
 
-function reset(overrides: { deltas?: string[]; error?: Error | null } = {}) {
-  nextDeltas = overrides.deltas ?? [];
-  nextError = overrides.error ?? null;
-  sessionOpts.length = 0;
-  promptCalls.length = 0;
-  subscriber = null;
+function reset(overrides: { output?: string; error?: string | null } = {}) {
+  nextOutput = overrides.output ?? "";
+  nextError = overrides.error ?? undefined;
+  inferenceCalls.length = 0;
 }
 
-describe("explainPage — I/O (mocked session)", () => {
-  test("happy path: streamed deltas → normalized markdown, ok:true", async () => {
+describe("explainPage — I/O (mocked vision-inference)", () => {
+  test("happy path: output → normalized markdown, ok:true", async () => {
     // The VLM emits a WRONG page/kind; our override must win.
     reset({
-      deltas: [
-        "---\ntitle: T\npage: 99\nkind: fake\n---\n\n![[page-001.png]]\n\nbody text",
-      ],
+      output: "---\ntitle: T\npage: 99\nkind: fake\n---\n\n![[page-001.png]]\n\nbody text",
     });
     const r = await explainPage(LLM, "paper", page());
     expect(r.ok).toBe(true);
@@ -104,9 +80,7 @@ describe("explainPage — I/O (mocked session)", () => {
 
   test("repair: stray angle brackets in the embed are stripped end-to-end", async () => {
     reset({
-      deltas: [
-        "---\ntitle: T\npage: 1\nkind: paper\n---\n\n![[<page-001.png>]]\n\nbody",
-      ],
+      output: "---\ntitle: T\npage: 1\nkind: paper\n---\n\n![[<page-001.png>]]\n\nbody",
     });
     const r = await explainPage(LLM, "paper", page());
     expect(r.ok).toBe(true);
@@ -114,11 +88,9 @@ describe("explainPage — I/O (mocked session)", () => {
     expect(r.markdown.includes("<page-001.png>")).toBe(false);
   });
 
-  test("repair: UNCLOSED frontmatter from the stream gets closed + overridden", async () => {
+  test("repair: UNCLOSED frontmatter from the output gets closed + overridden", async () => {
     reset({
-      deltas: [
-        "---\ntitle: T\npage: 99\nkind: fake\n\n![[page-001.png]]\n\nbody",
-      ],
+      output: "---\ntitle: T\npage: 99\nkind: fake\n\n![[page-001.png]]\n\nbody",
     });
     const r = await explainPage(LLM, "paper", page());
     expect(r.ok).toBe(true);
@@ -131,20 +103,19 @@ describe("explainPage — I/O (mocked session)", () => {
     expect(r.markdown.includes("kind: paper")).toBe(true);
   });
 
-  test("profile selects the system prompt via appendSystemPrompt", async () => {
-    reset({ deltas: ["x"] });
+  test("profile selects the system prompt (forwarded as systemPrompt string)", async () => {
+    reset({ output: "x" });
     await explainPage(LLM, "slides", page());
-    const sys = sessionOpts[0]!.opts.appendSystemPrompt;
-    expect(Array.isArray(sys)).toBe(true);
-    expect(sys).toHaveLength(1);
+    const sys = inferenceCalls[0]!.systemPrompt;
+    expect(typeof sys).toBe("string");
     // slides-specific marker
-    expect(sys[0].includes("kind 欄位固定為 slides")).toBe(true);
+    expect(sys!.includes("kind 欄位固定為 slides")).toBe(true);
   });
 
-  test("prompt receives the page user message (slug + embed line + page no)", async () => {
-    reset({ deltas: ["x"] });
+  test("task receives the page user message (slug + embed line + page no)", async () => {
+    reset({ output: "x" });
     await explainPage(LLM, "image", page());
-    const text = promptCalls[0]!.text;
+    const text = inferenceCalls[0]!.task;
     expect(text.includes("my-doc")).toBe(true);
     expect(text.includes("第 1 頁")).toBe(true);
     expect(text.includes("共 5 頁")).toBe(true);
@@ -152,23 +123,23 @@ describe("explainPage — I/O (mocked session)", () => {
   });
 
   test("attaches exactly one image with the given mime type", async () => {
-    reset({ deltas: ["x"] });
+    reset({ output: "x" });
     await explainPage(LLM, "image", page());
-    expect(promptCalls[0]!.imageCount).toBe(1);
-    expect(promptCalls[0]!.mimeType).toBe("image/png");
+    expect(inferenceCalls[0]!.images).toHaveLength(1);
+    expect(inferenceCalls[0]!.images[0]!.mimeType).toBe("image/png");
   });
 
-  test("prompt error is swallowed into ok:false + empty markdown (no throw)", async () => {
-    reset({ error: new Error("model 500") });
+  test("inference error is swallowed into ok:false + empty markdown (no throw)", async () => {
+    reset({ error: "model 500" });
     const r = await explainPage(LLM, "paper", page());
     expect(r.ok).toBe(false);
     expect(r.markdown).toBe("");
     expect(r.error).toBe("model 500");
   });
 
-  test("llm is forwarded verbatim to createSharedSession", async () => {
-    reset({ deltas: ["x"] });
+  test("llm is forwarded verbatim to runVisionInference", async () => {
+    reset({ output: "x" });
     await explainPage(LLM, "paper", page());
-    expect(sessionOpts[0]!.llm).toBe(LLM);
+    expect(inferenceCalls[0]!.llm).toBe(LLM);
   });
 });
