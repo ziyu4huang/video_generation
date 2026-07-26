@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readState, writeState } from "../../src/distill/state.ts";
@@ -61,5 +61,23 @@ describe("distill state", () => {
 		writeState(dir, state);
 		const read = readState(dir);
 		expect(read.history.length).toBe(50);
+	});
+
+	test("readState resets to default on corrupt state file (no throw)", () => {
+		// Ticket 05: a corrupt .distill-state.json must not crash converge —
+		// cards are already written by the time readState runs, so a throw
+		// leaves a partial converge + no result returned. Reset to the empty
+		// default (same as a missing file) so converge completes and the
+		// subsequent writeState overwrites the corrupt file (self-healing).
+		const corruptDir = mkdtempSync(join(tmpdir(), "distill-state-corrupt-"));
+		try {
+			writeFileSync(join(corruptDir, ".distill-state.json"), "{ this is not valid json }}}");
+			const state = readState(corruptDir);
+			expect(state.threshold).toBe(50);
+			expect(state.history).toEqual([]);
+			expect(state.lastRun).toBeNull();
+		} finally {
+			rmSync(corruptDir, { recursive: true, force: true });
+		}
 	});
 });
