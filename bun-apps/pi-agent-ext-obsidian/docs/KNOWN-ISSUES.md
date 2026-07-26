@@ -51,6 +51,46 @@ what remains by design or for later. Date-stamped; verified state noted.
   `skipIf(!vaultAvailable())`-gated. Regenerate either via `bun run
   --cwd bun-apps/pi-obsidian regen:contract` / `regen:baseline`. *(2026-07)*
 
+## Indexing & coherence (audited 2026-07)
+
+A deep read-audit of search/trigram, index reconcile, cache coherence, and the
+`zk_ingest` cross-package boundary. Three clear bugs found and fixed — #839
+(recency first-key `created:`), #841 (write paths missing reindex → stale-index
+false negatives), #843 (`zk_ingest` in-batch duplicate-id → `-2` card). The
+soundness-critical paths were **verified clean**: the trigram pre-filter is a
+sound over-approximation (never drops a real hit), `expectedMtime` detects lost
+updates, `.cache` is self-healing under multi-process access (pid-suffix temp +
+atomic rename + per-note mtime re-validation on load), and `zk_ingest` skips
+malformed lines per-line rather than crashing the whole run. Remaining non-bug
+notes: *(2026-07)*
+
+- **`updateFrontmatter` now uses incremental `reindexFile`.** It was the lone
+  `dropIndex` caller among write paths; it now matches `appendUnderHeading` /
+  `obsidian_create` / `obsidian_append`, so a held `VaultIndex` reflects a
+  just-patched tag/title immediately instead of waiting for the next cold
+  `getIndex` rebuild. `moveNote` / `deleteNote` still `dropIndex` deliberately
+  (the path key itself changes / the entry is removed).
+- **`saveIndex` persists only on a cold `getIndex` build**, not after incremental
+  `refreshIndex`. The on-disk cache can lag the in-memory index across a session;
+  `loadCachedIndex`'s mtime validation makes this a minor perf gap, never
+  correctness.
+- **`byTitle` basename collision is last-indexed-wins.** Two notes sharing a
+  basename (`A/Foo.md`, `B/Foo.md`) alias to one `byTitle["foo"]` slot; reindexing
+  one can steal the key, and deleting it then leaves the survivor unresolvable by
+  basename. Inherent ambiguity of basename/title linking.
+- **`zk-ingest` CLI refuses `--source generic`** (`KNOWN_SOURCES` omits it) while
+  the `zk_ingest` tool and `host-fns` support it. Explicit error, not a silent
+  mis-parse — a surface gap only.
+- **Partial `zk_ingest` re-ingest produces asymmetric (directed) `相關：[[...]]`
+  edges.** Links are recomputed only for the re-ingested cards; untouched existing
+  cards keep their prior outgoing links, so a newly-related card can reach an
+  existing one but not vice-versa until that card is itself re-ingested. Inherent
+  to incremental upsert; a full re-ingest of all sources rebuilds symmetrically.
+- **`distill/state.ts:readState` does a raw `JSON.parse` with no try/catch.** A
+  corrupt `.distill-state.json` would throw inside `runConverge` after cards are
+  already written. Not a valid-input trigger, but wrapping it would make converge
+  robust to state-file corruption.
+
 ## Resolved (history)
 
 These were listed as TODOs previously and are now done (kept so the README stays

@@ -17,8 +17,14 @@ const REPO_ROOT = join(PACKAGES, ".."); // repo root
 const VAULT = join(REPO_ROOT, "vaults_root", "pi-agent-vault");
 const FIXTURES = join(HERE, "fixtures");
 const mod = await import(join(EXT_DIR, "obsidian.ts"));
-const { searchVault, buildMatcher, fuzzyMatch, findBacklinks, findTagNotes } =
-	mod;
+const {
+	searchVault,
+	buildMatcher,
+	fuzzyMatch,
+	findBacklinks,
+	findTagNotes,
+	noteRecencyDays,
+} = mod;
 
 // Gate the body on the reference vault submodule. On a fresh clone it is not
 // initialized → searchVault returns nothing and the context assertions below
@@ -447,6 +453,21 @@ for (const [q, opts] of [
 		rec.every((r) => r.score === undefined),
 		"recency sort does not enrich score",
 	);
+}
+
+// --- regression: noteRecencyDays must parse `created:` when it is the FIRST
+//     frontmatter key (no preceding newline). The regex previously required
+//     `\ncreated:` and returned 0 for the common `---\ncreated: ...` shape,
+//     diverging from index.ts parseNoteMeta and mis-ranking recency sort. ---
+{
+	const firstKey = "---\ncreated: 2026-07-26\n---\n# Note\nbody";
+	const secondKey = "---\ntitle: X\ncreated: 2026-07-26\n---\n# Note\nbody";
+	const d1 = noteRecencyDays(firstKey);
+	const d2 = noteRecencyDays(secondKey);
+	ok(d1 > 0, "noteRecencyDays parses created: as the FIRST frontmatter key");
+	// a later-key note parses fine in both old and new code; the first-key note
+	// is the regression — assert it equals the later-key result (both > 0).
+	eq(d1, d2, "noteRecencyDays is position-independent (first vs later key)");
 }
 
 // --- (P2.4) groupByFile: caps matches per file ---

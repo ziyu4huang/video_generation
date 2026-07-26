@@ -16,7 +16,7 @@
  * obsidian tools reach it in BOTH manifest-installed and `-e` dev mode.
  */
 
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { CreateAgentSessionOptions, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { type AgentUsage, type BudgetExhaustion, WorkflowAgent } from "./agent.js";
 import type { AgentHistoryEntry } from "./agent-history.js";
@@ -44,6 +44,15 @@ export interface SpawnSubagentOptions {
    * tier > mainModel. An unconfigured capability warns and falls back.
    */
   capability?: string;
+  /**
+   * Override any createAgentSession option (modelRuntime, authStorage,
+   * resourceLoader, …) — threaded to the WorkflowAgent constructor's `session`
+   * override, which is spread into createAgentSession. Lets a caller (e.g.
+   * file2md) inject a custom local ModelRuntime for a vision model.
+   */
+  session?: Partial<CreateAgentSessionOptions>;
+  /** Image attachments for a vision-capable subagent (see AgentRunOptions.images). */
+  images?: unknown[];
   schema?: TSchema;
   /**
    * Max in-session repair re-prompts when the child returns prose instead of
@@ -161,7 +170,13 @@ function mergeUsage(a: AgentUsage | undefined, b: AgentUsage | undefined): Agent
 
 export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> {
   const runner =
-    opts.agent ?? new WorkflowAgent({ cwd: opts.cwd, extensionTools: opts.extensionTools, mainModel: opts.mainModel });
+    opts.agent ??
+    new WorkflowAgent({
+      cwd: opts.cwd,
+      extensionTools: opts.extensionTools,
+      mainModel: opts.mainModel,
+      session: opts.session,
+    });
   const retry = opts.retryOnTransient !== false;
   // Default-to-current-LLM: when the caller neither picks a model nor a tier, fall
   // back to the live session model (not a stale medium tier). Explicit model or
@@ -198,6 +213,7 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
         instructions: opts.instructions,
         model: effectiveModel,
         tier: opts.tier,
+        images: opts.images,
         toolNames: opts.tools,
         disallowedToolNames: opts.excludeTools,
         cwd: opts.cwd,

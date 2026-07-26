@@ -187,7 +187,7 @@ export function resolveAgentModelSpec(
     // back to mainModel SILENTLY — often the most expensive model, so a typo
     // quietly escalated cost. Surface it so the degradation is visible.
     console.warn(
-      `[workflow] unknown tier "${options.tier}"${config ? "" : " (no model-tiers config found)"} — falling back to the session default${mainModel ? ` (${mainModel})` : ""}. Configured tiers: ${config ? sortedTierNames(config).join(", ") || "(none)" : "(none)"}. Manage them via /workflows-models.`,
+      `[workflow] unknown tier "${options.tier}"${config ? "" : " (no model-tiers config found)"} — falling back to the session default${mainModel ? ` (${mainModel})` : ""}. Configured tiers: ${config ? sortedTierNames(config).join(", ") || "(none)" : "(none)"}. Manage them via /workflows-models (or /models-preset to apply a full config).`,
     );
     return mainModel;
   }
@@ -297,6 +297,12 @@ export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefi
   schema?: TSchemaDef;
   tools?: ToolDefinition[];
   instructions?: string;
+  /**
+   * Image attachments for a vision-capable subagent (e.g. a VLM page-extraction
+   * call). Threaded to session.prompt's `{images}`; each item is an image object
+   * shaped per the host SDK (e.g. {type:"image",data,mimeType}). Omit for text-only.
+   */
+  images?: unknown[];
   signal?: AbortSignal;
   /**
    * Abort the session mid-run once cumulative token usage (`tokens.total`)
@@ -532,7 +538,10 @@ export class WorkflowAgent {
         });
       }
 
-      await session.prompt(this.buildPrompt(prompt, options as AgentRunOptions<any>, Boolean(options.schema)));
+      await session.prompt(
+        this.buildPrompt(prompt, options as AgentRunOptions<any>, Boolean(options.schema)),
+        options.images ? ({ images: options.images } as any) : undefined,
+      );
       // Budget exhaustion aborts the session directly (not via the caller's
       // signal), so detect it via the flag BEFORE the signal-abort check and
       // surface it as a non-recoverable TOKEN_BUDGET_EXHAUSTED — retrying would

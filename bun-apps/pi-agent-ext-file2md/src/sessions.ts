@@ -28,16 +28,24 @@ export interface ResolvedLLM {
 
 /**
  * Resolve LLM target from options. Accepts "provider/modelId" shorthand in model.
- * Defaults to lm-studio/google/gemma-4-12b-qat for VLM work.
+ * Throws when no model is supplied (no opt, no PI_MODEL env, no config) — the
+ * caller is expected to provide one via config (capabilities.vision) or env.
  */
 export function resolveLLM(opts: {
   provider?: string;
   model?: string;
   thinking?: string;
 }): ResolvedLLM {
-  const DEFAULT_MODEL = "lm-studio/google/gemma-4-12b-qat";
-
-  let model = opts.model ?? process.env.PI_MODEL ?? DEFAULT_MODEL;
+  const fromEnv = process.env.PI_MODEL;
+  let model = opts.model ?? fromEnv;
+  if (!model) {
+    throw new Error(
+      "[file2md] No model configured. Set model config via `/models-preset` (or `/workflows-models`), or export PI_MODEL as a temporary escape hatch.",
+    );
+  }
+  if (fromEnv && !opts.model) {
+    console.error("[file2md] Using PI_MODEL env (deprecated) — set capabilities.vision via /models-preset.");
+  }
   let provider = opts.provider ?? process.env.PI_PROVIDER ?? "lm-studio";
   let thinkingLevel: ThinkingLevel = (process.env.PI_THINKING ?? "off") as ThinkingLevel;
 
@@ -68,14 +76,14 @@ export function resolveLLM(opts: {
  * falling back to PI_MODEL/PI_PROVIDER env (deprecated) when the capability is not
  * configured. Explicit opts (model/provider/thinking) always win. Uses resolveLLM
  * as the spec-string parser, so "provider/modelId[:thinking]" shorthand still works.
+ * Throws (via resolveLLM) when neither config nor env is set (ticket 01 contract).
  */
 export function resolveVisionLLM(opts: { model?: string; provider?: string; thinking?: string } = {}): ResolvedLLM {
   if (opts.model) return resolveLLM(opts);
   const spec = resolveModelRole({ capability: "vision" }, loadModelTierConfig());
   if (spec) return resolveLLM({ ...opts, model: spec });
-  console.error(
-    "[file2md] capabilities.vision not set in model-tiers config — falling back to PI_MODEL/PI_PROVIDER env (deprecated). Set capabilities.vision in ~/.pi/workflows/model-tiers.json.",
-  );
+  // No capabilities.vision configured — resolveLLM falls through to the PI_MODEL
+  // env escape hatch (deprecated, warns) or throws an actionable error (ticket 01).
   return resolveLLM(opts);
 }
 

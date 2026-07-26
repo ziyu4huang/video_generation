@@ -19,7 +19,7 @@ import {
 	assertWritablePath,
 	assertWithinVault,
 } from "./path-safety";
-import { dropIndex } from "./index";
+import { reindexFile } from "./index";
 
 // ---- Frontmatter parser (C1) ----------------------------------------------
 
@@ -156,7 +156,8 @@ export async function updateFrontmatter(
 	const next = bodyStart === 0 ? newFm + "\n\n" + content : newFm + "\n" + body;
 	await atomicWriteFile(abs, next);
 	invalidateCache(abs);
-	dropIndex(real);
+	// Incremental reindex (matches appendUnderHeading / obsidian_create / _append).
+	await reindexFile(vaultPath, note);
 	return {
 		note: note.replace(/\.md$/i, "") + ".md",
 		updated,
@@ -234,6 +235,7 @@ export async function appendUnderHeading(
 		const next = existing + sep + `## ${heading}` + ensureLeadingNewline(block);
 		await atomicWriteFile(abs, next);
 		invalidateCache(abs);
+		await reindexFile(vaultPath, note);
 		return { created, insertedAt: "end" };
 	}
 
@@ -260,5 +262,6 @@ export async function appendUnderHeading(
 	);
 	await atomicWriteFile(abs, lines.join("\n"));
 	invalidateCache(abs);
+	await reindexFile(vaultPath, note);
 	return { created, insertedAt: "heading" };
 }

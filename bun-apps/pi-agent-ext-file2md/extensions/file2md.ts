@@ -166,7 +166,7 @@ export default function (pi: ExtensionAPI): void {
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const { resolve, isAbsolute, basename } = await import("node:path");
-      const { runVlmDescribePipeline, DEFAULT_VLM_MODEL } = await import("../src/pipeline.ts");
+      const { runVlmDescribePipeline } = await import("../src/pipeline.ts");
       const rawOut = params.out ?? "./vlm-out";
       const outRootAbs = isAbsolute(rawOut) ? rawOut : resolve(process.cwd(), rawOut);
       const slug = basename(params.input).replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9._-]+/g, "-").toLowerCase();
@@ -177,7 +177,7 @@ export default function (pi: ExtensionAPI): void {
         outRoot: outRootAbs,
         // Honor PI_MODEL like the CLI (file2md.ts) so a global VLM override
         // applies to the tool too, not just the CLI.
-        model: params.model ?? process.env.PI_MODEL ?? DEFAULT_VLM_MODEL,
+        model: params.model ?? process.env.PI_MODEL,
         provider: params.provider,
         thinking: params.thinking,
         forcedType: params.type as any,

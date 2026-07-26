@@ -2,7 +2,7 @@
  * vision_ask tool wrapper — the tool registered by extensions/file2md.ts.
  *
  * The tool is a thin wrapper over askImage() (whose I/O is covered by
- * ask-io.test.ts). Here we mock session-factory.ts and exercise the actual
+ * ask-io.test.ts). Here we mock vision-inference.ts and exercise the actual
  * registered tool: param handling, result formatting, error path, relative
  * path resolution.
  *
@@ -13,41 +13,37 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-// --- mocked session (the model I/O boundary) --------------------------------
-let subscriber: ((event: any) => void) | null = null;
-let nextDeltas: string[] = ["ok"];
-let nextError: Error | null = null;
-const sessionOpts: { llm: any; opts: any }[] = [];
-const promptCalls: { text: string; imageCount: number }[] = [];
+// --- mocked vision-inference (the model I/O boundary) -----------------------
+let nextOutput = "ok";
+let nextError: string | null = null;
+const inferenceCalls: {
+  task: string;
+  images: any[];
+  llm: any;
+  systemPrompt?: string;
+}[] = [];
 
-mock.module(import.meta.dirname + "/../src/session-factory.ts", () => ({
-  createSharedSession: async (llm: any, opts: any) => {
-    sessionOpts.push({ llm, opts });
-    return {
-      session: {
-        subscribe: (cb: (e: any) => void) => {
-          subscriber = cb;
-          return () => {
-            subscriber = null;
-          };
-        },
-        prompt: async (text: string, opts: any) => {
-          promptCalls.push({ text, imageCount: opts?.images?.length ?? 0 });
-          for (const d of nextDeltas) {
-            subscriber?.({
-              type: "message_update",
-              assistantMessageEvent: { type: "text_delta", delta: d },
-            });
-          }
-          if (nextError) throw nextError;
-        },
-        dispose: () => {},
-      },
-    };
+mock.module(import.meta.dirname + "/../src/vlm/vision-inference.ts", () => ({
+  runVisionInference: async (opts: any) => {
+    inferenceCalls.push(opts);
+    if (nextError !== null) return { output: "", ok: false, error: nextError };
+    return { output: nextOutput, ok: true };
   },
 }));
 
-// Load the extension and capture the tools it registers via a fake pi.
+// resolveVisionLLM/resolveLLM are de-hardcoded (ticket 01: throw when unconfigured).
+// This exercises the ask tool's vision-inference wiring, not model resolution —
+// stub the resolver to a stable lm-studio target (realm-safe: this realm already
+// mocks vision-inference).
+mock.module(import.meta.dirname + "/../src/sessions.ts", () => ({
+  resolveVisionLLM: () => ({ provider: "lm-studio", modelId: "google/gemma-4-12b-qat", thinkingLevel: "off" }),
+  resolveLLM: (opts: { provider?: string; model?: string; thinking?: string } = {}) => ({
+    provider: opts.provider ?? "lm-studio",
+    modelId: opts.model ?? "google/gemma-4-12b-qat",
+    thinkingLevel: opts.thinking ?? "off",
+  }),
+}));
+
 const tools: Record<string, any> = {};
 const fakePi = {
   on: () => {},
@@ -69,12 +65,10 @@ afterAll(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-function reset(o: { deltas?: string[]; error?: Error | null } = {}) {
-  nextDeltas = o.deltas ?? ["ok"];
+function reset(o: { output?: string; error?: string | null } = {}) {
+  nextOutput = o.output ?? "ok";
   nextError = o.error ?? null;
-  sessionOpts.length = 0;
-  promptCalls.length = 0;
-  subscriber = null;
+  inferenceCalls.length = 0;
 }
 
 describe("vision_ask tool", () => {
@@ -84,8 +78,8 @@ describe("vision_ask tool", () => {
     expect(tools.vision_ask.label).toBe("Vision Image Q&A");
   });
 
-  test("happy path: returns the streamed reply as inline text", async () => {
-    reset({ deltas: ["a red ", "car"] });
+  test("happy path: returns the inference output as inline text", async () => {
+    reset({ output: "a red car" });
     const res = await tools.vision_ask.execute(
       "t1",
       { image: pngAbs, question: "what is this?" },
@@ -109,8 +103,8 @@ describe("vision_ask tool", () => {
       undefined,
       undefined,
     );
-    expect(promptCalls[0]!.text).toBe("count the people");
-    expect(promptCalls[0]!.imageCount).toBe(1);
+    expect(inferenceCalls[0]!.task).toBe("count the people");
+    expect(inferenceCalls[0]!.images).toHaveLength(1);
   });
 
   test("resolves a relative image path against cwd", async () => {
@@ -133,7 +127,7 @@ describe("vision_ask tool", () => {
     }
   });
 
-  test("forwards systemPrompt to the session", async () => {
+  test("forwards systemPrompt to runVisionInference", async () => {
     reset();
     await tools.vision_ask.execute(
       "t4",
@@ -142,10 +136,10 @@ describe("vision_ask tool", () => {
       undefined,
       undefined,
     );
-    expect(sessionOpts[0]!.opts.appendSystemPrompt).toEqual(["answer in one line"]);
+    expect(inferenceCalls[0]!.systemPrompt).toBe("answer in one line");
   });
 
-  test("default model resolves via resolveLLM (lm-studio, thinking off)", async () => {
+  test("default model resolves via resolveVisionLLM (lm-studio, thinking off)", async () => {
     reset();
     await tools.vision_ask.execute(
       "t5",
@@ -154,12 +148,12 @@ describe("vision_ask tool", () => {
       undefined,
       undefined,
     );
-    expect(sessionOpts[0]!.llm.provider).toBe("lm-studio");
-    expect(sessionOpts[0]!.llm.thinkingLevel).toBe("off");
+    expect(inferenceCalls[0]!.llm.provider).toBe("lm-studio");
+    expect(inferenceCalls[0]!.llm.thinkingLevel).toBe("off");
   });
 
-  test("error path: session failure → isError:true with the message", async () => {
-    reset({ error: new Error("boom") });
+  test("error path: inference failure → isError:true with the message", async () => {
+    reset({ error: "boom" });
     const res = await tools.vision_ask.execute(
       "t6",
       { image: pngAbs, question: "q" },

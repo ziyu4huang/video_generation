@@ -41,6 +41,8 @@ export interface MemoryConfig {
   userCharLimit: number;
   /** Max chars for project-level MEMORY.md. Default: 5000 */
   projectCharLimit: number;
+  /** Max chars for failures.md (shared global failure store). Default: 40000 */
+  failureCharLimit?: number;
   /** Turns between background auto-reviews. Default: 10 */
   nudgeInterval: number;
   /** Recent conversation messages included in background review. 0 = all. Default: 0 */
@@ -98,6 +100,12 @@ export interface MemoryConfig {
   dbBackend?: DbBackend;
   /** Optional SurrealDB connection configuration (only used when dbBackend is surrealdb) */
   surreal?: Partial<SurrealConnection>;
+  /** proper-lockfile acquire retry budget per lock attempt. Default: 200 (~50s poll). */
+  lockAcquireRetries?: number;
+  /** Op-level retries when cross-process lock acquisition throws ELOCKED. Default: 3 */
+  lockOpRetries?: number;
+  /** Backoff (ms) between op-level lock retries. Default: 2000 */
+  lockOpBackoffMs?: number;
 }
 
 export type MemoryCategory =

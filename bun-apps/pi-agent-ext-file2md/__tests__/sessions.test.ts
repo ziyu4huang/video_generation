@@ -29,14 +29,9 @@ afterEach(() => {
   }
 });
 
-describe("resolveLLM — defaults", () => {
-  test("no opts, no env → lm-studio + default gemma model, thinking off", () => {
-    const r = resolveLLM({});
-    expect(r.provider).toBe("lm-studio");
-    // DEFAULT_MODEL "lm-studio/google/gemma-4-12b-qat" splits on the FIRST
-    // slash, so modelId keeps the "google/" prefix.
-    expect(r.modelId).toBe("google/gemma-4-12b-qat");
-    expect(r.thinkingLevel).toBe("off");
+describe("resolveLLM — no-config contract (ticket 01)", () => {
+  test("no opts, no env → throws (no hardcoded default; /models-preset pointer)", () => {
+    expect(() => resolveLLM({})).toThrow(/No model configured/);
   });
 });
 
@@ -59,6 +54,7 @@ describe("resolveLLM — env fallbacks", () => {
   });
 
   test("PI_THINKING sets the thinking level", () => {
+    process.env.PI_MODEL = "x/y"; // a model is required (ticket 01: no default)
     process.env.PI_THINKING = "high";
     const r = resolveLLM({});
     expect(r.thinkingLevel).toBe("high");
@@ -125,12 +121,14 @@ describe("resolveLLM — opts.thinking wins", () => {
   });
 
   test("explicit opts.thinking beats PI_THINKING env", () => {
+    process.env.PI_MODEL = "x/y"; // a model is required (ticket 01: no default)
     process.env.PI_THINKING = "high";
     const r = resolveLLM({ thinking: "medium" });
     expect(r.thinkingLevel).toBe("medium");
   });
 
   test("unknown opts.thinking value is ignored (no crash)", () => {
+    process.env.PI_MODEL = "x/y"; // a model is required (ticket 01: no default)
     const r = resolveLLM({ thinking: "bogus" as unknown as string });
     expect(r.thinkingLevel).toBe("off");
   });

@@ -16,6 +16,11 @@ import {
 	dropIndex,
 	refreshIndex,
 	reindexFile,
+	appendUnderHeading,
+	updateFrontmatter,
+	searchVault,
+	buildMatcher,
+	trigramCandidates,
 } from "../obsidian.ts";
 import { writeFile, unlink, utimes, mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -148,6 +153,68 @@ describe("Phase 4 — throttle gate", () => {
 			const forced = await refreshIndex(idx, { force: true });
 			expect(forced.changed).toBe(1);
 			expect(idx.notes.get("alpha.md")?.title).toBe("sneaky");
+		} finally {
+			process.env.OB_INDEX_POLL_MS = "0";
+		}
+	});
+});
+
+describe("write paths invalidate the index — trigram search sees just-written content", () => {
+	it("appendUnderHeading reindexes so a just-appended token is findable within the throttle window", async () => {
+		// With the default poll window, refreshIndex(force:false) right after a write
+		// is a no-op. Without reindexFile in the write path, idx.trigrams stays stale
+		// and trigramCandidates short-circuits to an empty set for a token new to the
+		// vault → substring search returns 0 results even though content is on disk.
+		process.env.OB_INDEX_POLL_MS = "60000";
+		try {
+			// Build + cache the index (sets refreshAt).
+			const idx = await getIndex(vault);
+
+			const TOKEN = "zzzqxjuniquetoken";
+			await appendUnderHeading(vault, "alpha.md", "Notes", `${TOKEN} appears now`);
+
+			// Mirror the obsidian_search tool's substring path exactly: a throttled
+			// refreshIndex(force:false) is a no-op right after the write, so idx.trigrams
+			// reflects pre-write state unless the write path called reindexFile. The tool
+			// then narrows candidates via trigramCandidates and feeds them to searchVault
+			// as `paths` — an empty candidate set yields zero results (false negative).
+			await refreshIndex(idx, { force: false });
+			const cand = trigramCandidates(idx, TOKEN);
+			const paths = cand ? [...cand] : undefined;
+			const m = buildMatcher(TOKEN, "substring", false);
+			const rec = await searchVault(vault, {
+				match: m.match,
+				fields: null,
+				folder: "",
+				sort: "file",
+				max: 100,
+				paths,
+			});
+			expect(rec.some((r) => r.file === "alpha.md")).toBe(true);
+		} finally {
+			process.env.OB_INDEX_POLL_MS = "0";
+		}
+	});
+
+	it("updateFrontmatter reindexes so a just-added tag is findable within the throttle window", async () => {
+		// updateFrontmatter used to dropIndex (full rebuild on next read), leaving a
+		// caller's held idx detached/stale. It now reindexes the one note in place,
+		// matching appendUnderHeading / obsidian_create / _append — so byTag reflects
+		// the new frontmatter tag immediately, even under a throttled (no-op) refresh.
+		process.env.OB_INDEX_POLL_MS = "60000";
+		try {
+			const idx = await getIndex(vault);
+			// alpha.md starts with inline tag #red only (no frontmatter tags key).
+			expect([...(idx.byTag.get("red") ?? [])]).toContain("alpha.md");
+			expect(idx.byTag.get("newfrontmatter")).toBeUndefined();
+
+			await updateFrontmatter(vault, "alpha.md", {
+				tags: ["red", "newfrontmatter"],
+			});
+
+			// A throttled refresh does NOT reconcile disk → the write path must have.
+			await refreshIndex(idx, { force: false });
+			expect([...(idx.byTag.get("newfrontmatter") ?? [])]).toContain("alpha.md");
 		} finally {
 			process.env.OB_INDEX_POLL_MS = "0";
 		}
