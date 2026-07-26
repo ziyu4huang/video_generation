@@ -71,9 +71,19 @@ notes: *(2026-07)*
   `getIndex` rebuild. `moveNote` / `deleteNote` still `dropIndex` deliberately
   (the path key itself changes / the entry is removed).
 - **`saveIndex` persists only on a cold `getIndex` build**, not after incremental
-  `refreshIndex`. The on-disk cache can lag the in-memory index across a session;
-  `loadCachedIndex`'s mtime validation makes this a minor perf gap, never
-  correctness.
+  `refreshIndex` / `reindexFile`. **Accepted by design (2026-07 audit).** The
+  on-disk cache can lag the in-memory index across a session, but
+  `loadCachedIndex` mtime-validates *every* note on load and re-reads only the
+  changed files — so a stale cache is self-healing and never affects correctness.
+  Measured cost (3000-note vault, `bench-index-persistence.mjs`): a fully fresh
+  cache loads in ~47ms; a session that incrementally edited ~1% of notes but
+  never persisted still cold-starts in ~49ms (the stale files are re-read on
+  load). Even a worst-case 100%-stale bulk session is ~155ms ≈ the ~135ms full
+  `buildIndex` it would cost with no cache at all — persistence would not help
+  there either, since every persisted entry is invalidated. Persisting after
+  every write would add a 2.6MB disk write per write path and require throttling,
+  for a sub-5ms saving that falls below measurement noise. Not worth the
+  complexity.
 - **`byTitle` basename collision is last-indexed-wins.** Two notes sharing a
   basename (`A/Foo.md`, `B/Foo.md`) alias to one `byTitle["foo"]` slot; reindexing
   one can steal the key, and deleting it then leaves the survivor unresolvable by
