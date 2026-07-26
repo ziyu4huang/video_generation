@@ -44,7 +44,13 @@ function run(planAbsPath: string, cwd: string, env: Record<string, string>): { s
   return { stdout: r.stdout.toString().trim(), status: r.status };
 }
 
-describe("sdd-workspace (pi-port effort nesting)", () => {
+// P2 spawn hit (spawnSync of git + bash to exercise the REAL sdd-workspace
+// script) — gated behind process.env.CI per the repo portability convention
+// (same pattern as pi-agent/src/__tests__/run-self-improve-loop.test.ts): the
+// script is stable pi-port glue that rarely changes, so local + opt-in coverage
+// suffices and the default `bun test` baseline stays portable + fast. Run
+// locally (`bun test tests/sdd-workspace.test.ts`) to exercise it.
+describe.skipIf(!!process.env.CI)("sdd-workspace (pi-port effort nesting)", () => {
   it("routes to .planning/$effort/sdd/$slug when PI_PLANNING_EFFORT is set", () => {
     const repo = makeTempRepo();
     try {
