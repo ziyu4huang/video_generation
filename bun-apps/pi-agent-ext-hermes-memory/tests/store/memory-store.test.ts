@@ -23,6 +23,7 @@ import {
   USER_FILE,
 } from "../../src/constants.js";
 import type { MemoryConfig } from "../../src/types.js";
+import * as lockfile from "proper-lockfile";
 
 // ─── Helpers (module-level) ───
 
@@ -1021,6 +1022,57 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const raw = await readRaw(memoryPath);
       assert.ok(raw.includes("cross-instance A"), "A's entry must persist (no lost update)");
       assert.ok(raw.includes("cross-instance B"), "B's entry must persist (no lost update)");
+    });
+
+    it("retries the whole operation when cross-process lock acquisition throws ELOCKED (no lost write)", async () => {
+      // A second session ("blocker") holds the MEMORY.md lock with a long stale so
+      // the store's acquisition ELOCKEDs, then releases it after a short delay.
+      // The store (lockAcquireRetries:0 → instant ELOCKED; lockOpRetries high) must
+      // re-attempt the whole lock+critical-section and land the entry once free.
+      // Without the op-level retry the FIRST ELOCKED would reject the add and the
+      // write would be lost — exactly the cross-session contention regression.
+      const blockerPath = path.join(MEMORY_DIR, MEMORY_FILE);
+      const releaseBlocker = await lockfile.lock(blockerPath, { stale: 60_000, realpath: false });
+      const releaseTimer = setTimeout(() => void releaseBlocker().catch(() => {}), 300);
+      try {
+        const store = new MemoryStore(makeConfig({
+          lockAcquireRetries: 0, // fail-fast on the held lock → ELOCKED immediately
+          lockOpRetries: 12,
+          lockOpBackoffMs: 40,
+        }));
+        await store.loadFromDisk();
+        const res = await store.add("memory", `${TEST_MARKER} op-retry-wins`);
+        assert.ok(res.success, `expected success after op-retry, got: ${res.error}`);
+
+        await store.loadFromDisk();
+        const raw = await readRaw(blockerPath);
+        assert.ok(raw.includes("op-retry-wins"), "entry must land after op-retry (no lost write)");
+      } finally {
+        clearTimeout(releaseTimer);
+        await releaseBlocker().catch(() => {});
+      }
+    });
+
+    it("surfaces the lock error (not a silent loss) after op-retries are exhausted", async () => {
+      // Blocker holds the lock for the whole test → every acquire ELOCKEDs → after
+      // lockOpRetries the add rejects. The write is NOT silently lost; the caller
+      // sees a clear lock error to retry.
+      const blockerPath = path.join(MEMORY_DIR, MEMORY_FILE);
+      const releaseBlocker = await lockfile.lock(blockerPath, { stale: 60_000, realpath: false });
+      try {
+        const store = new MemoryStore(makeConfig({
+          lockAcquireRetries: 0,
+          lockOpRetries: 2,
+          lockOpBackoffMs: 20,
+        }));
+        await store.loadFromDisk();
+        await assert.rejects(
+          () => store.add("memory", `${TEST_MARKER} op-retry-exhausted`),
+          /lock file is already|already being held|ELOCKED/i,
+        );
+      } finally {
+        await releaseBlocker().catch(() => {});
+      }
     });
 
     it("runConsolidator sets PI_MEMORY_FILE_LOCK=bypass for the child, then restores it", async () => {

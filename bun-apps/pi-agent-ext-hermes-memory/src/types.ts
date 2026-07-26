@@ -98,6 +98,12 @@ export interface MemoryConfig {
   dbBackend?: DbBackend;
   /** Optional SurrealDB connection configuration (only used when dbBackend is surrealdb) */
   surreal?: Partial<SurrealConnection>;
+  /** proper-lockfile acquire retry budget per lock attempt. Default: 200 (~50s poll). */
+  lockAcquireRetries?: number;
+  /** Op-level retries when cross-process lock acquisition throws ELOCKED. Default: 3 */
+  lockOpRetries?: number;
+  /** Backoff (ms) between op-level lock retries. Default: 2000 */
+  lockOpBackoffMs?: number;
 }
 
 export type MemoryCategory =

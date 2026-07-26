@@ -403,6 +403,7 @@ export default function (pi: ExtensionAPI) {
 			await mkdir(join(abs, ".."), { recursive: true });
 			await atomicWriteFile(abs, params.content);
 			invalidateCache(abs);
+			await reindexFile(v.path, params.note);
 			return {
 				content: [
 					{
@@ -482,6 +483,7 @@ export default function (pi: ExtensionAPI) {
 				(params.content.endsWith("\n") ? "" : "\n");
 			await atomicWriteFile(abs, next);
 			invalidateCache(abs);
+			await reindexFile(v.path, params.note);
 			return {
 				content: [
 					{

@@ -212,8 +212,11 @@ export interface SearchMatch {
 
 /** Parse frontmatter `created:` (YYYY-MM-DD) → epoch days; 0 if absent/invalid. */
 export function noteRecencyDays(content: string): number {
+	// `^created:` (not `\ncreated:`) so a note whose `created:` is the FIRST
+	// frontmatter key — directly after the `---\n` fence, with no preceding
+	// newline — still matches. Mirrors index.ts parseNoteMeta; keep in sync.
 	const m = content.match(
-		/^---\n[\s\S]*?\ncreated:\s*["']?(\d{4}-\d{2}-\d{2})/m,
+		/^---\n[\s\S]*?^created:\s*["']?(\d{4}-\d{2}-\d{2})/m,
 	);
 	if (!m) return 0;
 	const t = Date.parse(m[1]!);

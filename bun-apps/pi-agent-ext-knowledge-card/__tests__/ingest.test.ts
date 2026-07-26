@@ -787,3 +787,27 @@ describe("ingestRecords — additive feature frontmatter (P1)", () => {
 		expect(card).toContain("callout_types: [warning, tip]");
 	});
 });
+
+describe("in-batch canonical-id dedup", () => {
+	test("two records with the same id in one fresh batch upsert onto one card (no -2 duplicate)", async () => {
+		// Without in-batch dedup, the slug-collision loop only consults DISK via
+		// readCardMeta. The second same-id record finds no on-disk card yet (both
+		// are in the same fresh batch) → disambiguates to `<slug>-2`, emitting TWO
+		// cards with the same source_id — violating "dedup by canonical record id".
+		const opts = { vaultPath: vault, source: "workflow-jsonl", sourceLabel: "t" };
+		await ingestRecords(
+			[
+				rec({ id: "test:dup", title: "First occurrence", detail: "first body content" }),
+				rec({ id: "test:dup", title: "Second occurrence", detail: "second body content" }),
+			],
+			opts,
+		);
+		const dir = join(vault, FOLDER);
+		const slugFiles = readdirSync(dir).filter((f) => /^test-dup(-\d+)?\.md$/.test(f));
+		expect(slugFiles).toEqual(["test-dup.md"]); // exactly one card for the canonical id
+		expect(existsSync(join(dir, "test-dup-2.md"))).toBe(false);
+		// last record wins (upsert-in-place semantics, matching on-disk re-ingest)
+		const body = readFileSync(join(dir, "test-dup.md"), "utf8");
+		expect(body).toContain("second body content");
+	});
+});
