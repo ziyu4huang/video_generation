@@ -39,7 +39,10 @@ describe("misc — `--` end-of-options separator", () => {
 		// NOT an unknown flag to skip. With no such file, file2md fails
 		// fast on input resolution — proving the leading-dash token reached the
 		// command as a file, and dispatch did not silently swallow it as a flag.
-		const r = runCli(["file2md", "--", "-tricky.pdf"]);
+		// PI_MODEL is required (ticket 01: file2md throws when no model is configured);
+		// model resolution precedes input resolution, so without it the failure reason
+		// would be "No model configured" instead of the expected "Input not found".
+		const r = runCli(["file2md", "--", "-tricky.pdf"], { env: { PI_MODEL: "test/x" } });
 		expect(r.exitCode).toBe(1);
 		expect(r.stderr).toContain("Input not found");
 		expect(r.stderr).not.toMatch(NO_STACK);

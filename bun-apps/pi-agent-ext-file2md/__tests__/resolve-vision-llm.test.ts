@@ -33,3 +33,34 @@ test("resolveVisionLLM: explicit model wins over capability", () => {
 		process.env.HOME = homeBackup;
 	}
 });
+
+test("resolveVisionLLM throws when unconfigured (ticket 01)", () => {
+	const dir = mkdtempSync(join(tmpdir(), "f2m-throw-"));
+	const homeBackup = process.env.HOME;
+	const modelBackup = process.env.PI_MODEL;
+	process.env.HOME = dir;
+	delete process.env.PI_MODEL;
+	try {
+		expect(() => resolveVisionLLM()).toThrow(/No model configured/);
+	} finally {
+		process.env.HOME = homeBackup;
+		if (modelBackup !== undefined) process.env.PI_MODEL = modelBackup;
+	}
+});
+
+test("resolveVisionLLM: PI_MODEL env is the deprecated escape hatch", () => {
+	const dir = mkdtempSync(join(tmpdir(), "f2m-env-"));
+	const homeBackup = process.env.HOME;
+	const modelBackup = process.env.PI_MODEL;
+	process.env.HOME = dir;
+	process.env.PI_MODEL = "zai/glm-5.2";
+	try {
+		const llm = resolveVisionLLM();
+		expect(llm.provider).toBe("zai");
+		expect(llm.modelId).toBe("glm-5.2");
+	} finally {
+		process.env.HOME = homeBackup;
+		if (modelBackup === undefined) delete process.env.PI_MODEL;
+		else process.env.PI_MODEL = modelBackup;
+	}
+});

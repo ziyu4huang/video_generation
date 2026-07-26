@@ -34,6 +34,18 @@ mock.module(import.meta.dirname + "/../src/vlm/vision-inference.ts", () => ({
   },
 }));
 
+// resolveVisionLLM/resolveLLM are de-hardcoded (ticket 01: throw when unconfigured).
+// I/O test for the vision-inference seam — stub the resolver to a stable target
+// (realm-safe: this realm already mocks vision-inference).
+mock.module(import.meta.dirname + "/../src/sessions.ts", () => ({
+  resolveVisionLLM: () => ({ provider: "lm-studio", modelId: "google/gemma-4-12b-qat", thinkingLevel: "off" }),
+  resolveLLM: (opts: { provider?: string; model?: string; thinking?: string } = {}) => ({
+    provider: opts.provider ?? "lm-studio",
+    modelId: opts.model ?? "google/gemma-4-12b-qat",
+    thinkingLevel: opts.thinking ?? "off",
+  }),
+}));
+
 const { askImage } = await import("../src/vlm/ask.ts");
 const { resolveVisionLLM } = await import("../src/sessions.ts");
 

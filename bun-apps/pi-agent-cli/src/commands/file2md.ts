@@ -8,7 +8,7 @@
 import { resolve, isAbsolute } from "node:path";
 import type { ParsedArgs } from "../args.ts";
 import { applyVaultEnv } from "../sessions/passthrough.ts";
-import { runVlmDescribePipeline, DEFAULT_VLM_MODEL } from "@repo/pi-agent-ext-file2md";
+import { runVlmDescribePipeline } from "@repo/pi-agent-ext-file2md";
 import type { DocProfile } from "@repo/pi-agent-ext-file2md";
 
 export const file2mdCommand = {
@@ -35,7 +35,7 @@ Options:
   --type <profile>     force a profile, skip the VLM classifier
                        (paper|slides|poster|diagram|image)
   --pages <spec>       only process these pages, e.g. "1,3-5" (1-indexed)
-  --model <pattern>    provider/id[:thinking]  (default ${DEFAULT_VLM_MODEL})
+  --model <pattern>    provider/id[:thinking]  (default: model-tiers config, else PI_MODEL env)
   --provider <name>    provider name
   --thinking <level>   off|minimal|low|medium|high|xhigh
   --mode json          NDJSON event stream
@@ -46,7 +46,7 @@ Examples:
   bun-pi-agent-cli file2md paper.pdf
   bun-pi-agent-cli file2md paper.pdf --dpi 200 --pages 1-4
   bun-pi-agent-cli file2md scan.jpg --type image
-  bun-pi-agent-cli file2md *.pdf --out ./notes --model ${DEFAULT_VLM_MODEL}`,
+  bun-pi-agent-cli file2md *.pdf --out ./notes`,
 
 	async run(parsed: ParsedArgs): Promise<void> {
 		const cwd = process.cwd();
@@ -63,7 +63,7 @@ Examples:
 		await runVlmDescribePipeline({
 			inputs: inputs.map((p) => (isAbsolute(p) ? p : resolve(cwd, p))),
 			outRoot,
-			model: parsed.model ?? process.env.PI_MODEL ?? DEFAULT_VLM_MODEL,
+			model: parsed.model ?? process.env.PI_MODEL,
 			provider: parsed.provider ?? (parsed.model ? undefined : "lm-studio"),
 			thinking: parsed.thinking,
 			forcedType: parsed.type as DocProfile | undefined,
