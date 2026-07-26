@@ -62,3 +62,9 @@ The note said test with "no `handle.focus()`". That was **insufficient**: an ove
 ### Next
 
 Gate cleared → 01–06 all decided. The actual tracer-bullet build (slash-command menu consuming the component) is now unblocked; the component = a `CustomEditor` subclass owning input + driving a `nonCapturing` SelectList overlay (the 05 contract). Hand to a build plan / 07 test harness.
+
+## Resolution (2026-07-26) — TRACER BULLET BUILT (slice 3)
+
+The slash-command consumer is implemented in `pi-agent-ext-picker/extensions/picker.ts`: opt-in via `PI_PICKER=1`, an `onTerminalInput` hook opens `createMenuPicker` when `/` is typed in an empty prompt; items = `pi.getCommands()`; ↓/↑ navigate, Enter fills the prompt with `/name`, Esc cancels. Re-entry-guarded + inert without the env var (no disruption). Registered in `pi-agent/run-dir/manifest.json`.
+
+Limitation surfaced: there is no public `ctx.ui.submit()` API, so select *fills* the prompt rather than auto-running the command (claude-code runs on select). Fill + manual Enter is the tracer behavior; auto-run is a follow-up. Interactive §B/§C verification is manual (`PI_PICKER=1 pi`).

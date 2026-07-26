@@ -34,14 +34,33 @@ claude-code's picker does:
 
 ## C. Integration — first consumer (slash-command menu)
 
-- [ ] type `/` in the real prompt → slash-command list appears (data from the
-      existing `CombinedAutocompleteProvider`)
-- [ ] selecting a command runs it (the tracer bullet, ticket 06's original scope)
+**Status (2026-07-26): consumer BUILT (slice 3 / ticket 06) — `extensions/picker.ts`,
+registered in `pi-agent/run-dir/manifest.json`. Opt-in via `PI_PICKER=1`.**
+Manual test procedure:
+
+```bash
+PI_PICKER=1 pi          # start pi with the picker opt-in
+# in the prompt:
+#   /            → picker overlay opens (bottom-center), all commands listed
+#   he           → live fuzzy filter → /help
+#   ↓/↑          → selection moves
+#   Enter        → onSelect fills the prompt with /help, picker closes
+#   <Enter>      → runs /help (second Enter: no public submit API — see note)
+#   Esc          → cancel, picker closes, prompt empty
+```
+
+- [ ] type `/` in an empty prompt → slash-command list appears
+- [ ] selecting a command fills the prompt (runs on the next Enter — there is no
+      public `submit` API; ticket 06's "Enter runs the command" is fill + Enter)
+- [ ] inert without `PI_PICKER=1` (normal `/command` + `/path` usage unaffected)
 
 ## Known follow-ups (post-acceptance)
 
-- slash-command consumer (slice 3 / ticket 06) — wires the component end-to-end,
-  unblocks the §B manual matrix + §C integration.
+- auto-run on select: no public `ctx.ui.submit()` API — the consumer fills the
+  prompt (`setEditorText`) + the user presses Enter. Revisit if a submit API lands.
+- the `/`-trigger is opt-in (`PI_PICKER=1`) + empty-prompt-guarded to avoid
+  hijacking `/path` typing; a wrapper-editor model (workflow-style, always-on)
+  could host a non-disruptive inline dropdown later.
 - themed `SelectListTheme` (slice 1/2 use PLAIN_THEME for deterministic snapshots;
   the live editor already derives `theme.selectList` for the overlay).
 - the `\x1B[0m` SGR-reset SelectList appends per line is cosmetic in PLAIN output.
