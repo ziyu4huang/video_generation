@@ -16,9 +16,11 @@ import Foundation
 
 public enum VideoAudioReaderError: Error, CustomStringConvertible {
     case noAudioTrack(URL)
+    case readFailed(URL)
     public var description: String {
         switch self {
         case .noAudioTrack(let url): return "VideoAudioReader: no audio track in \(url.path)"
+        case .readFailed(let url): return "VideoAudioReader: failed to read audio track in \(url.path)"
         }
     }
 }
@@ -44,7 +46,9 @@ public enum VideoAudioReader {
         ]
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: settings)
         reader.add(output)
-        reader.startReading()
+        guard reader.startReading() else {
+            throw VideoAudioReaderError.readFailed(url)
+        }
 
         var interleaved: [Float] = []
         while let buffer = output.copyNextSampleBuffer() {
@@ -56,6 +60,10 @@ public enum VideoAudioReader {
                 let floats = raw.bindMemory(to: Float32.self)
                 interleaved.append(contentsOf: floats)
             }
+        }
+
+        guard reader.status == .completed else {
+            throw VideoAudioReaderError.readFailed(url)
         }
 
         let frameCount = interleaved.count / numChannels
