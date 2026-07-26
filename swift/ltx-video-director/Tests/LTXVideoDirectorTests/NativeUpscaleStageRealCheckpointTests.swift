@@ -455,4 +455,133 @@ final class NativeUpscaleStageRealCheckpointTests: XCTestCase {
             }
         }
     }
+
+    func testGenerateLipdubMissingReferenceVideoThrowsNamedError() throws {
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_lipdub_out_\(UUID().uuidString)")
+        let missingVideoURL = FileManager.default.temporaryDirectory.appendingPathComponent("does_not_exist_\(UUID().uuidString).mp4")
+        let missingLoraURL = FileManager.default.temporaryDirectory.appendingPathComponent("does_not_exist_\(UUID().uuidString).safetensors")
+        defer { try? FileManager.default.removeItem(at: outputDir) }
+
+        XCTAssertThrowsError(try NativeUpscaleStage().generateLipdub(
+            referenceVideoURL: missingVideoURL, outputDir: outputDir, prompt: "a test prompt",
+            loraURL: missingLoraURL, width: 64, height: 64)
+        ) { error in
+            guard let stageError = error as? NativeUpscaleStage.StageError else {
+                XCTFail("expected StageError, got \(error)"); return
+            }
+            if case .referenceVideoNotFound(let url) = stageError {
+                XCTAssertEqual(url, missingVideoURL)
+            } else {
+                XCTFail("expected .referenceVideoNotFound, got \(stageError)")
+            }
+        }
+    }
+
+    func testGenerateLipdubMissingLoraThrowsNamedError() throws {
+        let frameDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_lipdub_ref_frames_\(UUID().uuidString)")
+        let referenceVideoURL = FileManager.default.temporaryDirectory.appendingPathComponent("native_lipdub_ref_\(UUID().uuidString).mp4")
+        let wavURL = FileManager.default.temporaryDirectory.appendingPathComponent("native_lipdub_ref_\(UUID().uuidString).wav")
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_lipdub_out_\(UUID().uuidString)")
+        let missingLoraURL = FileManager.default.temporaryDirectory.appendingPathComponent("does_not_exist_\(UUID().uuidString).safetensors")
+        defer {
+            try? FileManager.default.removeItem(at: frameDir)
+            try? FileManager.default.removeItem(at: referenceVideoURL)
+            try? FileManager.default.removeItem(at: wavURL)
+            try? FileManager.default.removeItem(at: outputDir)
+        }
+        try WAVWriter.write(channels: [[0.1, 0.2, 0.1], [0.1, 0.2, 0.1]], sampleRate: 16000, to: wavURL)
+        let pixels = MLXRandom.uniform(low: -1.0, high: 1.0, [1, 3, 9, 64, 64], key: MLXRandom.key(11)).asType(.float32)
+        MLX.eval(pixels)
+        _ = try PNGFrameWriter.writeFrames(pixels, to: frameDir)
+        try MP4Writer.write(frameDirectory: frameDir, audioURL: wavURL, fps: 24.0, to: referenceVideoURL)
+
+        XCTAssertThrowsError(try NativeUpscaleStage().generateLipdub(
+            referenceVideoURL: referenceVideoURL, outputDir: outputDir, prompt: "a test prompt",
+            loraURL: missingLoraURL, width: 64, height: 64)
+        ) { error in
+            guard let stageError = error as? NativeUpscaleStage.StageError else {
+                XCTFail("expected StageError, got \(error)"); return
+            }
+            if case .lipdubLoraNotFound(let url) = stageError {
+                XCTAssertEqual(url, missingLoraURL)
+            } else {
+                XCTFail("expected .lipdubLoraNotFound, got \(stageError)")
+            }
+        }
+    }
+
+    func testGenerateLipdubReferenceVideoNoAudioThrowsNamedError() throws {
+        let frameDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_lipdub_silent_frames_\(UUID().uuidString)")
+        let referenceVideoURL = FileManager.default.temporaryDirectory.appendingPathComponent("native_lipdub_silent_\(UUID().uuidString).mp4")
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_lipdub_out_\(UUID().uuidString)")
+        let loraURL = FileManager.default.temporaryDirectory.appendingPathComponent("does_not_exist_\(UUID().uuidString).safetensors")
+        defer {
+            try? FileManager.default.removeItem(at: frameDir)
+            try? FileManager.default.removeItem(at: referenceVideoURL)
+            try? FileManager.default.removeItem(at: outputDir)
+        }
+        let pixels = MLXRandom.uniform(low: -1.0, high: 1.0, [1, 3, 9, 64, 64], key: MLXRandom.key(13)).asType(.float32)
+        MLX.eval(pixels)
+        _ = try PNGFrameWriter.writeFrames(pixels, to: frameDir)
+        try MP4Writer.write(frameDirectory: frameDir, audioURL: nil, fps: 24.0, to: referenceVideoURL)
+
+        XCTAssertThrowsError(try NativeUpscaleStage().generateLipdub(
+            referenceVideoURL: referenceVideoURL, outputDir: outputDir, prompt: "a test prompt",
+            loraURL: loraURL, width: 64, height: 64)
+        ) { error in
+            guard let stageError = error as? NativeUpscaleStage.StageError else {
+                XCTFail("expected StageError, got \(error)"); return
+            }
+            if case .referenceVideoNoAudioTrack(let url) = stageError {
+                XCTAssertEqual(url, referenceVideoURL)
+            } else {
+                XCTFail("expected .referenceVideoNoAudioTrack, got \(stageError)")
+            }
+        }
+    }
+
+    func testGenerateLipdubProducesRealOutput() throws {
+        let vaeEncoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/vae_encoder.safetensors")
+        let vaeDecoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/vae_decoder.safetensors")
+        let upsamplerURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/spatial_upscaler_x2_v1_1.safetensors")
+        let transformerURL = RepoPaths.mlxModelsRoot.appendingPathComponent("transformer/ltx-2.3-distilled-q8/transformer-distilled-1.1.safetensors")
+        let audioURL = RepoPaths.mlxModelsRoot.appendingPathComponent("audio/ltx-2.3-audio/audio_vae.safetensors")
+        let vocoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("audio/ltx-2.3-audio/vocoder.safetensors")
+        let loraURL = RepoPaths.mlxModelsRoot.appendingPathComponent("lora/ltx-2-3-lipdub/ltx-2.3-22b-ic-lora-lipdub-0.9.safetensors")
+        for url in [vaeEncoderURL, vaeDecoderURL, upsamplerURL, transformerURL, audioURL, vocoderURL, loraURL] {
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                throw XCTSkip("checkpoint not found at \(url.path) — skipping integration smoke test")
+            }
+        }
+
+        let frameDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_lipdub_smoke_frames_\(UUID().uuidString)")
+        let referenceVideoURL = FileManager.default.temporaryDirectory.appendingPathComponent("native_lipdub_smoke_ref_\(UUID().uuidString).mp4")
+        let wavURL = FileManager.default.temporaryDirectory.appendingPathComponent("native_lipdub_smoke_ref_\(UUID().uuidString).wav")
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_lipdub_smoke_out_\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: frameDir)
+            try? FileManager.default.removeItem(at: referenceVideoURL)
+            try? FileManager.default.removeItem(at: wavURL)
+            try? FileManager.default.removeItem(at: outputDir)
+        }
+
+        let sampleRate = 16000
+        let sineCount = sampleRate / 2
+        var sine = [Float](repeating: 0, count: sineCount)
+        for i in 0..<sineCount { sine[i] = 0.2 * sin(2.0 * Float.pi * 220.0 * Float(i) / Float(sampleRate)) }
+        try WAVWriter.write(channels: [sine, sine], sampleRate: sampleRate, to: wavURL)
+
+        let pixels = MLXRandom.uniform(low: -1.0, high: 1.0, [1, 3, 9, 64, 64], key: MLXRandom.key(23)).asType(.float32)
+        MLX.eval(pixels)
+        _ = try PNGFrameWriter.writeFrames(pixels, to: frameDir)
+        try MP4Writer.write(frameDirectory: frameDir, audioURL: wavURL, fps: 24.0, to: referenceVideoURL)
+
+        let result = try NativeUpscaleStage().generateLipdub(
+            referenceVideoURL: referenceVideoURL, outputDir: outputDir, prompt: "a person speaking to the camera",
+            loraURL: loraURL, width: 64, height: 64, seed: 42)
+
+        XCTAssertGreaterThan(result.frameCount, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.audioURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.frameDirectory.appendingPathComponent("frame_0000.png").path))
+    }
 }

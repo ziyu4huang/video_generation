@@ -57,6 +57,9 @@ public struct NativeUpscaleStage {
         case ingredientsLoraNotFound(URL)
         case noReferenceImages
         case invalidDimensions(String)
+        case referenceVideoNotFound(URL)
+        case referenceVideoNoAudioTrack(URL)
+        case lipdubLoraNotFound(URL)
 
         public var description: String {
             switch self {
@@ -75,6 +78,9 @@ public struct NativeUpscaleStage {
             case .ingredientsLoraNotFound(let url): return "NativeUpscaleStage: ingredients IC-LoRA not found at \(url.path) — download Lightricks/LTX-2.3-22b-IC-LoRA-Ingredients from HuggingFace (ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors) and pass its path via --lora; no bundled default, unlike hd mode's restoration pair"
             case .noReferenceImages: return "NativeUpscaleStage: generateIngredients requires at least one reference image"
             case .invalidDimensions(let msg): return "NativeUpscaleStage: \(msg)"
+            case .referenceVideoNotFound(let url): return "NativeUpscaleStage: lipdub reference video not found at \(url.path)"
+            case .referenceVideoNoAudioTrack(let url): return "NativeUpscaleStage: lipdub reference video has no audio stream (LipDub needs the target speech from the reference) at \(url.path)"
+            case .lipdubLoraNotFound(let url): return "NativeUpscaleStage: LipDub IC-LoRA not found at \(url.path) — download Lightricks/LTX-2.3-22b-IC-LoRA-LipDub from HuggingFace (HF-gated) and pass its path via --lora"
             }
         }
     }
@@ -139,6 +145,17 @@ public struct NativeUpscaleStage {
         public let frameCount: Int
         public let outputSize: (width: Int, height: Int)
         public let audioURL: URL
+    }
+
+    /// `generateLipdub`'s own result type — same shape as `IngredientsResult`
+    /// plus `fps` (derived from the reference video, not caller-supplied, so
+    /// callers muxing an mp4 afterward need it back).
+    public struct LipdubResult {
+        public let frameDirectory: URL
+        public let frameCount: Int
+        public let outputSize: (width: Int, height: Int)
+        public let audioURL: URL
+        public let fps: Double
     }
 
     public init() {}
@@ -887,6 +904,279 @@ public struct NativeUpscaleStage {
         return IngredientsResult(
             frameDirectory: frameDir, frameCount: frameCount,
             outputSize: (outW, outH), audioURL: audioURL)
+    }
+
+    /// `native-lipdub`: reference-video lip-dubbing via the LipDub IC-LoRA —
+    /// port of Python's `video lipdub` (`app/commands/video-lipdub.py` +
+    /// `ltx_pipelines_mlx.lipdub.LipDubPipeline`). The reference video
+    /// supplies BOTH the visual structure (IC-LoRA video-reference
+    /// conditioning, reapplied at both stages, LoRA fused through both) and
+    /// the target speech (its own audio track, reference-conditioned via
+    /// `AudioConditionByReferenceLatent`, frozen after stage 1).
+    /// See docs/superpowers/specs/2026-07-26-swift-lipdub-port-design.md for
+    /// the full architecture discovery — this is NOT a composition of
+    /// `generateHD`+`refine()` (neither of those reapplies LoRA/reference
+    /// conditioning at their second stage the way LipDub genuinely needs).
+    ///
+    /// Frame count is derived from the reference video itself (snapped down
+    /// to the nearest 8k+1), not user-specified. Width/height are snapped to
+    /// the nearest multiple of 64 (not just 32, unlike `ResolutionResolver
+    /// .optimize`) so that `width/2`/`height/2` stay valid 32-multiple VAE
+    /// resolutions for stage 1.
+    public func generateLipdub(
+        referenceVideoURL: URL, outputDir: URL, prompt: String,
+        loraURL: URL, width: Int = 640, height: Int = 960,
+        referenceStrength: Float = 1.0, loraStrength: Float = 1.0,
+        textMaxLength: Int = 128, seed: UInt64 = 42
+    ) throws -> LipdubResult {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: referenceVideoURL.path) else {
+            throw StageError.referenceVideoNotFound(referenceVideoURL)
+        }
+        // Audio-track check BEFORE the LoRA check — matches Python's
+        // run_lipdub() order (app/commands/video-lipdub.py): the reference
+        // video's own audio is the more fundamental precondition (LipDub's
+        // whole premise), so it's validated first regardless of whether a
+        // LoRA path was even supplied correctly.
+        let referenceInfo = try VideoProbe.info(url: referenceVideoURL)
+        guard referenceInfo.hasAudioTrack else {
+            throw StageError.referenceVideoNoAudioTrack(referenceVideoURL)
+        }
+        guard fm.fileExists(atPath: loraURL.path) else {
+            throw StageError.lipdubLoraNotFound(loraURL)
+        }
+        guard width > 0, height > 0 else {
+            throw StageError.invalidDimensions("width/height must be positive, got \(width)x\(height)")
+        }
+
+        func snapTo64(_ v: Int) -> Int { max(64, Int((Double(v) / 64.0).rounded()) * 64) }
+        let outW = snapTo64(width), outH = snapTo64(height)
+        let halfW = outW / 2, halfH = outH / 2
+
+        let fps = referenceInfo.fps
+        let rawFrameCount = referenceInfo.frameCount
+        let numFrames = max(1, ((rawFrameCount - 1) / 8) * 8 + 1)
+        print("[1/8] Reference video: \(rawFrameCount) frames at \(fps) fps -> \(numFrames) frames (8k+1 snap)")
+
+        print("[2/8] VideoAudioReader: extracting reference video's own audio track...")
+        let refWav = try VideoAudioReader.read(url: referenceVideoURL)
+        var refChannels = refWav.channels
+        if refChannels.count == 1 { refChannels = [refChannels[0], refChannels[0]] }
+        refChannels = Array(refChannels.prefix(2))
+        let refResampled = refChannels.map { LinearResampler.resample($0, fromRate: refWav.sampleRate, toRate: 16000) }
+        let refMinLen = refResampled.map(\.count).min() ?? 0
+        let refWaveform = MLX.stacked(refResampled.map { MLXArray($0.prefix(refMinLen)) }, axis: 0)  // (2, T)
+
+        let audioEncoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("audio/ltx-2.3-audio/audio_vae.safetensors")
+        guard fm.fileExists(atPath: audioEncoderURL.path) else {
+            throw StageError.audioEncoderCheckpointNotFound(audioEncoderURL)
+        }
+        let audioEncoder = try AudioVAEEncoderLoader.loadReal(checkpointURL: audioEncoderURL)
+        let refMel = AudioProcessor().waveformToMel(refWaveform).expandedDimensions(axis: 0)  // (1, 2, T', 64)
+        let refAudioLatent = audioEncoder(refMel)  // (1, 8, T, 16)
+        MLX.eval(refAudioLatent)
+        let (refAudioTokens, refAudioTokenCount) = AudioPatchifier.patchify(refAudioLatent)
+        let refAudioPositionsRaw = Positions.computeAudioPositions(numTokens: refAudioTokenCount)
+        let audioRefCond = AudioConditionByReferenceLatent(
+            referenceLatent: refAudioTokens, referencePositions: refAudioPositionsRaw,
+            strength: 1.0, negativePositions: true)
+
+        print("[3/8] VideoEncoder: loading (reused across both stages)...")
+        let vaeEncoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/vae_encoder.safetensors")
+        guard fm.fileExists(atPath: vaeEncoderURL.path) else {
+            throw StageError.videoEncoderCheckpointNotFound(vaeEncoderURL)
+        }
+        let encRaw = try MLX.loadArrays(url: vaeEncoderURL)
+        var encWeights: [String: MLXArray] = [:]
+        for (key, value) in encRaw {
+            let stripped = key.hasPrefix("vae_encoder.") ? String(key.dropFirst("vae_encoder.".count)) : key
+            encWeights[stripped] = value.asType(.float32)
+        }
+        let videoEncoder = VideoEncoder(weights: encWeights)
+
+        print("[4/8] LoRA + transformer: loading LipDub IC-LoRA (fused for both stages)...")
+        let loraSources: [(weights: LoRAWeights, strength: Float)] = [
+            (weights: try LoRAWeights.load(url: loraURL), strength: loraStrength),
+        ]
+
+        let textStage = NativeTextEncodeStage(maxLength: textMaxLength)
+        let textResult = try textStage.encode(prompt)
+
+        let transformerURL = RepoPaths.mlxModelsRoot.appendingPathComponent("transformer/ltx-2.3-distilled-q8/transformer-distilled-1.1.safetensors")
+        guard fm.fileExists(atPath: transformerURL.path) else {
+            throw StageError.transformerCheckpointNotFound(transformerURL)
+        }
+        let rawTransformer = try MLX.loadArrays(url: transformerURL)
+        var strippedTransformer: [String: MLXArray] = [:]
+        for (key, value) in rawTransformer {
+            guard key.hasPrefix("transformer.") else { continue }
+            strippedTransformer[String(key.dropFirst("transformer.".count))] = value
+        }
+        let numLayers = 48
+        let cfg = distilledConfig(numLayers: numLayers)
+        let model = TransformerCheckpointLoader.makeModel(
+            TransformerCheckpointLoader.topLevelWeights(raw: strippedTransformer, loraSources: loraSources),
+            config: cfg, transformerBlocks: [])
+        let blockProvider: (Int) -> BasicAVTransformerBlock = { idx in
+            TransformerCheckpointLoader.makeBlock(
+                TransformerCheckpointLoader.blockWeights(raw: strippedTransformer, blockIndex: idx, loraSources: loraSources),
+                config: cfg)
+        }
+
+        // ===== Stage 1 (half-res) =====
+        print("[5/8] Stage 1: half-res (\(halfW)x\(halfH)) IC-LoRA reference-conditioned denoise...")
+        let stage1Pixels = try loadReferenceVideoFrames(url: referenceVideoURL, numFrames: numFrames, width: halfW, height: halfH)
+        let stage1RefLatentRaw = videoEncoder(stage1Pixels)
+        MLX.eval(stage1RefLatentRaw)
+        let (stage1RefTokens, stage1Dims) = VideoLatentPatchifier.patchify(stage1RefLatentRaw)
+        let stage1Positions = Positions.computeVideoPositions(numFrames: stage1Dims.f, height: stage1Dims.h, width: stage1Dims.w, frameRate: Float(fps))
+        let stage1GenTokenCount = stage1Dims.f * stage1Dims.h * stage1Dims.w
+
+        let stage1Noise = MLXRandom.normal([1, stage1GenTokenCount, 128], key: MLXRandom.key(seed))
+        let stage1BaseVideoState = LatentState(
+            latent: stage1Noise, cleanLatent: MLXArray.zeros([1, stage1GenTokenCount, 128]),
+            denoiseMask: MLXArray.ones([1, stage1GenTokenCount, 1]), positions: stage1Positions)
+        let stage1VideoState = VideoConditionByReferenceLatent(
+            referenceLatent: stage1RefTokens, referencePositions: stage1Positions,
+            downscaleFactor: 1, strength: referenceStrength
+        ).apply(to: stage1BaseVideoState)
+
+        let stage1AudioNoise = MLXRandom.normal([1, refAudioTokenCount, 128], key: MLXRandom.key(seed &+ 1))
+        let stage1BaseAudioState = LatentState(
+            latent: stage1AudioNoise, cleanLatent: MLXArray.zeros([1, refAudioTokenCount, 128]),
+            denoiseMask: MLXArray.ones([1, refAudioTokenCount, 1]),
+            positions: Positions.computeAudioPositions(numTokens: refAudioTokenCount))
+        let stage1AudioState = audioRefCond.apply(to: stage1BaseAudioState)
+
+        let stage1Result = DenoiseLoop.runStreaming(
+            model: model, numLayers: numLayers, blockProvider: blockProvider,
+            videoState: stage1VideoState, audioState: stage1AudioState,
+            videoTextEmbeds: textResult.videoEmbeds, audioTextEmbeds: textResult.audioEmbeds,
+            sigmas: SigmaSchedule.distilledSigmas)
+        MLX.eval(stage1Result.videoLatent, stage1Result.audioLatent)
+
+        let stage1GenVideoTokens = stage1Result.videoLatent[0..., 0..<stage1GenTokenCount, 0...]
+        let stage1AudioOutputTokens = stage1Result.audioLatent[0..., 0..<refAudioTokenCount, 0...]
+
+        // ===== Upscale =====
+        print("[6/8] LatentUpsampler: 2x spatial upscale...")
+        let upsamplerURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/spatial_upscaler_x2_v1_1.safetensors")
+        guard fm.fileExists(atPath: upsamplerURL.path) else {
+            throw StageError.upsamplerCheckpointNotFound(upsamplerURL)
+        }
+        let upRaw = try MLX.loadArrays(url: upsamplerURL)
+        let upPrefix = "spatial_upscaler_x2_v1_1."
+        var upWeights: [String: MLXArray] = [:]
+        for (key, value) in upRaw {
+            let stripped = key.hasPrefix(upPrefix) ? String(key.dropFirst(upPrefix.count)) : key
+            upWeights[stripped] = value.asType(.float32)
+        }
+        let upsampler = LatentUpsampler(weights: upWeights)
+
+        let stage1VideoLatent = VideoLatentPatchifier.unpatchify(stage1GenVideoTokens, dims: stage1Dims)
+        let meanC = videoEncoder.meanOfMeans.reshaped([1, -1, 1, 1, 1])
+        let stdC = videoEncoder.stdOfMeans.reshaped([1, -1, 1, 1, 1])
+        let denormLatent = stage1VideoLatent * stdC + meanC
+        let upscaledDenorm = upsampler(denormLatent)
+        let upscaledLatent = (upscaledDenorm - meanC) / stdC
+        MLX.eval(upscaledLatent)
+
+        // ===== Stage 2 (full-res) =====
+        print("[7/8] Stage 2: full-res (\(outW)x\(outH)) IC-LoRA reference-conditioned refine, audio frozen...")
+        let stage2Pixels = try loadReferenceVideoFrames(url: referenceVideoURL, numFrames: numFrames, width: outW, height: outH)
+        let stage2RefLatentRaw = videoEncoder(stage2Pixels)
+        MLX.eval(stage2RefLatentRaw)
+        let (stage2RefTokens, stage2Dims) = VideoLatentPatchifier.patchify(stage2RefLatentRaw)
+        let stage2Positions = Positions.computeVideoPositions(numFrames: stage2Dims.f, height: stage2Dims.h, width: stage2Dims.w, frameRate: Float(fps))
+        let stage2GenTokenCount = stage2Dims.f * stage2Dims.h * stage2Dims.w
+
+        let (stage2VideoTokensUp, upDims) = VideoLatentPatchifier.patchify(upscaledLatent)
+        guard upDims.f == stage2Dims.f, upDims.h == stage2Dims.h, upDims.w == stage2Dims.w else {
+            throw StageError.invalidDimensions("upscaled latent dims \(upDims) do not match stage-2 reference dims \(stage2Dims) — width/height must be a multiple of 64")
+        }
+
+        let sigmas2 = SigmaSchedule.stage2Sigmas
+        let startSigma2 = sigmas2[0]
+        let stage2VideoNoise = MLXRandom.normal(stage2VideoTokensUp.shape, key: MLXRandom.key(seed &+ 2))
+        let stage2NoisyVideoTokens = (1 - startSigma2) * stage2VideoTokensUp + startSigma2 * stage2VideoNoise
+        let stage2BaseVideoState = LatentState(
+            latent: stage2NoisyVideoTokens, cleanLatent: stage2NoisyVideoTokens,
+            denoiseMask: MLXArray.ones([1, stage2GenTokenCount, 1]), positions: stage2Positions)
+        let stage2VideoState = VideoConditionByReferenceLatent(
+            referenceLatent: stage2RefTokens, referencePositions: stage2Positions,
+            downscaleFactor: 1, strength: referenceStrength
+        ).apply(to: stage2BaseVideoState)
+
+        // Audio frozen through stage 2: sigma=0 (no-op Euler steps) starting
+        // from stage 1's own audio output — matches Python's frozen=True.
+        let stage2BaseAudioState = LatentState(
+            latent: stage1AudioOutputTokens, cleanLatent: stage1AudioOutputTokens,
+            denoiseMask: MLXArray.zeros([1, refAudioTokenCount, 1]),
+            positions: Positions.computeAudioPositions(numTokens: refAudioTokenCount))
+        let stage2AudioState = audioRefCond.apply(to: stage2BaseAudioState)
+
+        let stage2Result = DenoiseLoop.runStreaming(
+            model: model, numLayers: numLayers, blockProvider: blockProvider,
+            videoState: stage2VideoState, audioState: stage2AudioState,
+            videoTextEmbeds: textResult.videoEmbeds, audioTextEmbeds: textResult.audioEmbeds,
+            sigmas: sigmas2)
+        MLX.eval(stage2Result.videoLatent)
+
+        let stage2GenVideoTokens = stage2Result.videoLatent[0..., 0..<stage2GenTokenCount, 0...]
+        let finalVideoLatent = VideoLatentPatchifier.unpatchify(stage2GenVideoTokens, dims: stage2Dims)
+
+        print("[8/8] Decoding: video from stage 2, audio from stage 1 (frozen, not re-denoised)...")
+        let videoDecoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/vae_decoder.safetensors")
+        guard fm.fileExists(atPath: videoDecoderURL.path) else {
+            throw StageError.videoDecoderCheckpointNotFound(videoDecoderURL)
+        }
+        let videoDecoder = try VideoDecoderLoader.loadReal(checkpointURL: videoDecoderURL)
+        let pixels = videoDecoder(finalVideoLatent.asType(.float32))
+        MLX.eval(pixels)
+
+        let frameDir = outputDir.appendingPathComponent("frames")
+        let frameCount = try PNGFrameWriter.writeFrames(pixels, to: frameDir)
+
+        let audioLatentB8T16 = AudioPatchifier.unpatchify(stage1AudioOutputTokens)
+        let audioDecoder = try AudioVAEDecoderLoader.loadReal(checkpointURL: audioEncoderURL)
+        let decodedMel = audioDecoder(audioLatentB8T16.asType(.float32))
+        MLX.eval(decodedMel)
+
+        let vocoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("audio/ltx-2.3-audio/vocoder.safetensors")
+        let vocoder = try VocoderWithBWELoader.loadReal(checkpointURL: vocoderURL)
+        let outWaveform = vocoder(decodedMel)
+        MLX.eval(outWaveform)
+
+        let numOutChannels = outWaveform.dim(1)
+        var outChannels: [[Float]] = []
+        for c in 0..<numOutChannels {
+            outChannels.append(outWaveform[0, c, 0...].asArray(Float.self))
+        }
+        let audioOutURL = outputDir.appendingPathComponent("audio.wav")
+        try WAVWriter.write(channels: outChannels, sampleRate: 48000, to: audioOutURL)
+
+        return LipdubResult(frameDirectory: frameDir, frameCount: frameCount, outputSize: (outW, outH), audioURL: audioOutURL, fps: fps)
+    }
+
+    /// Extracts exactly `numFrames` frames from `url` (spaced by `1/fps`,
+    /// the video's own frame rate), resized to `(width, height)` — the
+    /// reference-video counterpart to `generateRestyle`'s PNG-directory
+    /// loading loop, sourcing frames directly from an mp4 instead.
+    private func loadReferenceVideoFrames(url: URL, numFrames: Int, width: Int, height: Int) throws -> MLXArray {
+        let info = try VideoProbe.info(url: url)
+        var frameArrays: [MLXArray] = []
+        frameArrays.reserveCapacity(numFrames)
+        for i in 0..<numFrames {
+            let t = info.fps > 0 ? Double(i) / info.fps : 0
+            let clampedT = min(t, max(0, info.duration - 0.001))
+            let cgImage = try VideoProbe.frame(url: url, at: clampedT)
+            let resized = (cgImage.width != width || cgImage.height != height)
+                ? FrameLoad.resizeAspectFillCenterCrop(cgImage, targetWidth: width, targetHeight: height)
+                : cgImage
+            frameArrays.append(FrameLoad.toArray(resized))  // (1, 3, H, W) [0, 1]
+        }
+        let stacked = MLX.stacked(frameArrays.map { $0[0] }, axis: 1)  // (3, F, H, W)
+        return (stacked.asType(.float32) * 2.0 - 1.0).expandedDimensions(axis: 0)  // (1, 3, F, H, W) [-1, 1]
     }
 
     // Mirrors NativeI2VStage.distilledConfig — kept as its own private copy
