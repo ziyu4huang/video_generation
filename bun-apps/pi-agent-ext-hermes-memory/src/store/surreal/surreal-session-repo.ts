@@ -33,6 +33,10 @@ function emptyBulk(): BulkIndexResult {
   return { sessionsProcessed: 0, sessionsIndexed: 0, sessionsSkipped: 0, messagesIndexed: 0, errors: [] };
 }
 
+/** Max message UPSERTs concatenated into a single /sql body. Bounds request
+ * size while collapsing the old N+1 HTTP round-trips down to ceil(N/this). */
+const MESSAGE_BATCH_SIZE = 200;
+
 export class SurrealSessionRepository implements SessionRepository {
   constructor(private readonly backend: SurrealBackend) {}
   private get c() { return this.backend.client; }
@@ -57,20 +61,30 @@ export class SurrealSessionRepository implements SessionRepository {
       { sid: sessionRaw.id, project, cwd, startedAt, endedAt, n: messages.length },
     );
 
-    // PERF(todo): N+1 HTTP — each message issues its own `this.c.query()`
-    // (one POST /sql round-trip per message). A 50-message session is ~50
-    // round-trips, multiplied across every session during a backfill.
-    // Intended fix: concatenate all message UPSERTs into a SINGLE /sql body
-    // (SurrealClient.query already handles multi-statement batches and, as
-    // of the all-statements status check, surfaces any per-statement error).
-    // The per-message params would move into one combined `params` object
-    // with indexed keys ($m0_id, $m0_role, ...). Left as-is for now to keep
-    // the indexed-key shape stable; batch before optimizing further.
-    for (const msg of messages) {
-      await this.c.query(
-        `UPSERT type::record("messages", $mid) SET sessionId = $sid, project = $project, cwd = $cwd, role = $role, content = $content, timestamp = $ts, toolCalls = $tc;`,
-        { mid: msg.id, sid: sessionRaw.id, project, cwd, role: msg.role, content: msg.content, ts: msg.timestamp, tc: msg.toolCalls ? JSON.stringify(msg.toolCalls) : null },
-      );
+    // Batch message UPSERTs into chunked multi-statement /sql bodies.
+    // Previously N+1 HTTP round-trips (one query() per message); a
+    // 1229-message shutdown index took ~13.5s. SurrealClient.query validates
+    // every statement in a batch and throws on any per-statement error, so we
+    // concatenate up to MESSAGE_BATCH_SIZE UPSERTs per body with indexed
+    // params ($m0_mid, $m1_mid, ...), collapsing N round-trips to ceil(N/SIZE).
+    const batches = Math.ceil(messages.length / MESSAGE_BATCH_SIZE);
+    for (let b = 0; b < batches; b++) {
+      const slice = messages.slice(b * MESSAGE_BATCH_SIZE, (b + 1) * MESSAGE_BATCH_SIZE);
+      const stmts: string[] = [];
+      const params: Record<string, unknown> = { sid: sessionRaw.id, project, cwd };
+      for (let i = 0; i < slice.length; i++) {
+        const m = slice[i];
+        const p = `m${b * MESSAGE_BATCH_SIZE + i}`;
+        params[`${p}_mid`] = m.id;
+        params[`${p}_role`] = m.role;
+        params[`${p}_content`] = m.content;
+        params[`${p}_ts`] = m.timestamp;
+        params[`${p}_tc`] = m.toolCalls ? JSON.stringify(m.toolCalls) : null;
+        stmts.push(
+          `UPSERT type::record("messages", $${p}_mid) SET sessionId = $sid, project = $project, cwd = $cwd, role = $${p}_role, content = $${p}_content, timestamp = $${p}_ts, toolCalls = $${p}_tc;`,
+        );
+      }
+      await this.c.query(stmts.join("\n"), params);
     }
 
     const afterRows = await this.c.query<Array<{ count: number }>>(
