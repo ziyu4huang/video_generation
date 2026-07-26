@@ -288,4 +288,93 @@ describe("loop 3 integration", () => {
 			Date.now = realDateNow;
 		}
 	});
+
+	test("loop continues across multiple iterations (does not stall at iteration 1)", async () => {
+		// Regression for the Task-8 bug: loopState.continuationPending was SET by
+		// sendLoopContinuation but NEVER cleared on delivery, so the SECOND agent_end
+		// hit sendLoopContinuation's own guard and sent nothing → the loop stalled
+		// after ~2 iterations. The fix mirrors goal.ts's before_agent_start →
+		// markContinuationDelivered, clearing continuationPending when the delivered
+		// prompt carries the loop continuation marker.
+		const mock = createMockPi();
+		const goalOverlay = createMockGoalOverlay();
+		const loopOverlay = createMockLoopOverlay();
+		// Register goal (captures the agent_end dispatch to runLoopTick) AND
+		// registerLoop (registers the before_agent_start clearing hook that IS the
+		// fix under test). Both register before_agent_start; they coexist because
+		// the loop marker (`pi-loop-continuation:`) does not match goal's extractor
+		// (`pi-goal-continuation:`).
+		goal(mock.pi, goalOverlay.impl);
+		registerLoop(mock.pi, loopOverlay.impl);
+		const { ctx } = createMockCtx({});
+
+		// Activate a metricless loop directly (no /loop start) so the code path
+		// under test is the agent_end dispatch + continuation, not the start handler.
+		loopState.activeLoop = createLoop({ target: "improve naming", mode: "metricless" });
+
+		const agentEndHandlers = mock.events.get("agent_end");
+		expect(agentEndHandlers?.length).toBe(1);
+		const fireAgentEnd = async (hypothesis: string) => {
+			// Simulate a tool running during the turn so runLoopTick's anti-repetition
+			// path (toollessStreak → STUCK intervention) does not divert the SECOND
+			// continuation into an intervention directive. The bug under test is the
+			// continuation-clearing stall, not the stuck-classifier; isolating it keeps
+			// BOTH agent_end turns on the normal continuation path (marker-bearing).
+			loopState.toolRanThisTurn = true;
+			await (agentEndHandlers![0] as (event: { messages?: unknown[] }, ctx: unknown) => Promise<void>)(
+				{
+					messages: [
+						{
+							role: "assistant",
+							content: [{ type: "text", text: `HYPOTHESIS: ${hypothesis}` }],
+							stopReason: "stop",
+						},
+					],
+				},
+				ctx,
+			);
+		};
+
+		// Fire ALL before_agent_start handlers (goal's + loop's), mirroring how pi
+		// dispatches to every registered handler for an event.
+		const fireBeforeAgentStart = (prompt: string) => {
+			for (const handler of mock.events.get("before_agent_start") ?? []) {
+				(handler as (event: { prompt?: string }) => void)({ prompt });
+			}
+		};
+
+		// ── Iteration 0 → 1: agent_end fires, runLoopTick sends continuation #1. ──
+		const sentBefore = mock.sentUserMessages.length;
+		await fireAgentEnd("attempt one");
+		expect(loopState.activeLoop).toBeDefined();
+		expect(loopState.activeLoop?.iteration).toBe(1);
+		expect(mock.sentUserMessages.length).toBeGreaterThan(sentBefore);
+		const continuation1 = mock.sentUserMessages.at(-1)!;
+		expect(continuation1.text).toMatch(/pi-loop-continuation/);
+		expect(loopState.continuationPending).toBeDefined();
+
+		// ── Deliver continuation #1: before_agent_start clears continuationPending. ──
+		// This is the clearing step the fix adds. WITHOUT the fix this is a no-op
+		// (no loop before_agent_start hook exists; goal's hook won't match the loop
+		// marker) → continuationPending stays set → the next agent_end stalls.
+		fireBeforeAgentStart(continuation1.text);
+		expect(loopState.continuationPending).toBeUndefined();
+
+		// ── Iteration 1 → 2: agent_end fires again. ────────────────────────────────
+		// WITHOUT the fix: sendLoopContinuation hits its own guard
+		// (continuationPending still set) → sends NOTHING → stall. WITH the fix:
+		// continuation #2 is sent and the loop keeps looping.
+		const sentBetween = mock.sentUserMessages.length;
+		await fireAgentEnd("attempt two");
+		expect(loopState.activeLoop?.iteration).toBe(2);
+		expect(mock.sentUserMessages.length).toBeGreaterThan(sentBetween);
+		expect(mock.sentUserMessages.at(-1)?.text).toMatch(/pi-loop-continuation/);
+
+		// ≥2 continuation prompts were sent across the two iterations — the loop
+		// did NOT stall at iteration 1.
+		const continuations = mock.sentUserMessages
+			.slice(sentBefore)
+			.filter((m) => /pi-loop-continuation/.test(m.text));
+		expect(continuations.length).toBeGreaterThanOrEqual(2);
+	});
 });

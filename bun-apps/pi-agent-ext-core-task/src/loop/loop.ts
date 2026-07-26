@@ -48,6 +48,30 @@ function continuationMarker(loop: LoopState): string {
 	return `${loop.id}:${loop.iteration}:${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// ─── Continuation-delivery tracking (mirrors goal.ts) ─────────────────────────
+// goal.ts clears goalState.continuationPending when the continuation prompt is
+// DELIVERED (before_agent_start → markContinuationDelivered). loop.ts had NO
+// equivalent, so continuationPending was never cleared between iterations and
+// sendLoopContinuation's own guard (`continuationPending?.loopId === ...id`)
+// suppressed every continuation after the first → the loop stalled after ~2
+// iterations. These helpers + the before_agent_start hook in registerLoop close
+// that gap without a goal↔loop import cycle (the marker regex is tiny and
+// replicated inline rather than imported from goal.ts).
+const LOOP_CONTINUATION_MARKER_PREFIX = "pi-loop-continuation:";
+const LOOP_CONTINUATION_MARKER_PATTERN = new RegExp(
+	`<!--\\s*${LOOP_CONTINUATION_MARKER_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^\\s>]+)\\s*-->`,
+);
+
+function extractLoopContinuationMarker(prompt: string): string | undefined {
+	return LOOP_CONTINUATION_MARKER_PATTERN.exec(prompt)?.[1];
+}
+
+/** Clear loopState.continuationPending when its continuation prompt is delivered. */
+function markLoopContinuationDelivered(prompt: string): void {
+	const marker = extractLoopContinuationMarker(prompt);
+	if (marker && loopState.continuationPending?.marker === marker) loopState.continuationPending = undefined;
+}
+
 // Mirrors goal.ts's StatusContext (structural subset) so the agent_end call site
 // runLoopTick(pi, ctx, event) type-checks when handed goal.ts's StatusContext.
 interface LoopTickCtx {
@@ -210,6 +234,19 @@ export function registerLoop(pi: ExtensionAPI, overlay: LoopOverlayLike): void {
 			((globalThis as Record<string, unknown>).__piKickHeartbeat as (() => void) | undefined)?.();
 			await sendLoopPrompt(pi, ctx, `Loop started: ${parsed.target} (${parsed.mode}). Begin now.`);
 		},
+	});
+
+	// Mirror goal.ts's before_agent_start → markContinuationDelivered: when the
+	// delivered prompt carries THIS loop's continuation marker, clear
+	// loopState.continuationPending so the next agent_end can send a fresh
+	// continuation. Without this, continuationPending is set by sendLoopContinuation
+	// and never cleared on delivery, so sendLoopContinuation's own guard suppresses
+	// every continuation after the first and the loop stalls after ~2 iterations.
+	// (Registered here — not in goal.ts — to avoid a goal↔loop import cycle; the
+	// loop uses a distinct `pi-loop-continuation:` marker that goal's extractor does
+	// not match, so the two hooks coexist without interference.)
+	pi.on("before_agent_start", (event: { systemPrompt?: string; prompt?: string }) => {
+		if (event.prompt) markLoopContinuationDelivered(event.prompt);
 	});
 }
 
