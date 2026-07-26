@@ -42,7 +42,7 @@ import { registerMemorySearchTool } from "./tools/memory-search-tool.js";
 import { setupBackgroundReview } from "./handlers/background-review.js";
 import { setupSessionFlush } from "./handlers/session-flush.js";
 import { registerInsightsCommand } from "./handlers/insights.js";
-import { triggerConsolidation, registerConsolidateCommand } from "./handlers/auto-consolidate.js";
+import { triggerConsolidation, registerConsolidateCommand, resolveConsolidatorModelLabel } from "./handlers/auto-consolidate.js";
 import { setupCorrectionDetector } from "./handlers/correction-detector.js";
 import { setupErrorDetector } from "./handlers/error-detector.js";
 import { registerSkillsCommand } from "./handlers/skills-command.js";
@@ -301,12 +301,12 @@ export default async function (pi: ExtensionAPI) {
   // ── 7. Setup auto-consolidation (inject consolidator into stores) ──
   store.setConsolidator(async (target, signal) => {
     return triggerConsolidation(store, target, memoryToolDef, signal, config.consolidationTimeoutMs, target, config);
-  });
+  }, resolveConsolidatorModelLabel(config));
   if (projectStore) {
     projectStore.setConsolidator(async (target, signal) => {
       const toolTarget = target === "memory" ? "project" : target;
       return triggerConsolidation(projectStore, target, memoryToolDef, signal, config.consolidationTimeoutMs, toolTarget, config);
-    });
+    }, resolveConsolidatorModelLabel(config));
   }
   registerConsolidateCommand(pi, store, memoryToolDef, config.consolidationTimeoutMs, projectStore, projectName, config);
 

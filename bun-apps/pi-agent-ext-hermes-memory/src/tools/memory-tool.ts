@@ -319,6 +319,13 @@ export function registerMemoryTool(
     }),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       const { action, target: rawTarget, content, old_text, query, category, failure_reason } = params;
+      // Surface consolidation progress (e.g. the consolidator's model-id) to the
+      // TUI as a partial result. Consolidation runs a local LLM and can hold the
+      // file lock for up to ~60s; without this the memory tool call is a silent
+      // spinner with no indication a model is running.
+      const onProgress = onUpdate
+        ? (message: string) => onUpdate({ content: [{ type: "text" as const, text: message }], details: {} })
+        : undefined;
 
       // Route 'project' to projectStore using the normal MEMORY.md target.
       const target = rawTarget === "project" ? "memory" : rawTarget as "memory" | "user" | "failure";
@@ -358,12 +365,13 @@ export function registerMemoryTool(
             result = await store_.addFailure(content, {
               category: memoryCategory,
               failureReason: failure_reason,
+              onProgress,
             });
             if (result.success) {
               syncWarning = await syncAddToSqlite(rawTarget, content, memoryCategory, failure_reason, memoryRepo, projectName);
             }
           } else {
-            result = await store_.add(target, content);
+            result = await store_.add(target, content, { onProgress });
             if (result.success) {
               await syncEvictionsFromSqlite(rawTarget, result.evicted_entries, memoryRepo, projectName);
               syncWarning = await syncAddToSqlite(rawTarget, content, undefined, undefined, memoryRepo, projectName);
