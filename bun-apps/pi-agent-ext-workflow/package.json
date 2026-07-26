@@ -30,7 +30,7 @@
     "check": "biome check .",
     "format": "biome format --write .",
     "lint": "biome lint .",
-    "build": "bunx tsc",
+    "build": "bun tsc",
     "dev": "tsx src/index.ts",
     "prepublishOnly": "bun run build"
   },
