@@ -41,6 +41,35 @@ Both scripts share the same defaults and flags; they auto-download the latest
 
 ---
 
+## Persistent launchd Service (macOS)
+
+For a server that survives reboots, install a LaunchAgent (`~/Library/LaunchAgents/com.surrealdb.surreal.plist`, `RunAtLoad` + `KeepAlive`) pointing at the Homebrew-installed `surreal` binary, e.g.:
+
+```xml
+<key>ProgramArguments</key>
+<array>
+    <string>/opt/homebrew/bin/surreal</string>
+    <string>start</string>
+    <string>--user</string><string>root</string>
+    <string>--pass</string><string>root</string>
+    <string>--bind</string><string>127.0.0.1:8000</string>
+    <string>rocksdb:/opt/homebrew/var/surreal.db</string>
+</array>
+<key>RunAtLoad</key><true/>
+<key>KeepAlive</key><true/>
+```
+
+**Do not use `brew services start/stop surreal` to manage this.** The `surrealdb/homebrew-tap` formula ships its own `service do` block that runs SurrealDB against a `file://` storage engine — incompatible with the `rocksdb:` engine above. `brew services start` regenerates the plist from the formula's defaults and would point the server at a different, effectively empty database.
+
+Manage the LaunchAgent directly with `scripts/surreal-service.sh` (thin `launchctl` wrapper):
+
+```bash
+./scripts/surreal-service.sh start|stop|restart|status
+./scripts/surreal-service.sh log [lines]
+```
+
+---
+
 ## Manual Binary Download
 
 Both scripts auto-download to `dist/tools/surreal[.exe]` on first run.

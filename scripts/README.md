@@ -89,6 +89,15 @@ SurrealDB server launcher with auto-download. See [run_surreal.README.md](run_su
 ./scripts/run_surreal.sh --persist    # persistent storage
 ```
 
+### surreal-service.sh
+
+launchctl wrapper for a persistent SurrealDB LaunchAgent (macOS). Use this instead of `brew services start/stop surreal` — see [run_surreal.README.md](run_surreal.README.md#persistent-launchd-service-macos) for why.
+
+```bash
+./scripts/surreal-service.sh start|stop|restart|status
+./scripts/surreal-service.sh log [lines]   # tail the server log
+```
+
 ### opencode-smoke-test.sh
 
 E2E smoke tests for opencode config — env vars, provider round-trips, MCP servers, agent loading.
