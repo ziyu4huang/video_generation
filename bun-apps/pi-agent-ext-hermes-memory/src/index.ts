@@ -26,7 +26,7 @@ import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MemoryStore } from "./store/memory-store.js";
 import { SkillStore } from "./store/skill-store.js";
-import { createBackendBundle } from "./store/backend-factory.js";
+import { createBackendBundle, createBackendBundleWithFallback } from "./store/backend-factory.js";
 import { asSwappable } from "./store/swappable.js";
 import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
 import type { MemoryRepository, SessionRepository, BackendBundle } from "./store/repository.js";
@@ -129,7 +129,19 @@ export default async function (pi: ExtensionAPI) {
     legacyPiGlobalSkillsDir: path.join(agentRoot, "skills"),
     migrationSentinelPath: path.join(globalDir, ".skills-migrated-to-extension-storage"),
   });
-  let currentBundle: BackendBundle = await createBackendBundle(config, globalDir);
+  // Resilient startup: if the configured backend (e.g. surrealdb) cannot
+  // initialize — the local SurrealDB server is down/unreachable — fall back
+  // to sqlite so a missing external service never blocks agent startup.
+  // `backendFellBack` drives the session_start warning below.
+  let backendFellBack = false;
+  const initialBackend = await createBackendBundleWithFallback(config, globalDir);
+  let currentBundle: BackendBundle = initialBackend.bundle;
+  if (initialBackend.fellBackTo) {
+    currentDbBackend = initialBackend.fellBackTo;
+    backendLabel = labelFor(initialBackend.fellBackTo);
+    backendFellBack = true;
+    console.warn(`[hermes-memory] configured backend "${config.dbBackend}" failed to initialize — fell back to sqlite for this session. Start the server and /memory-switch-backend ${config.dbBackend} to restore.`);
+  }
   // Swappable proxies: every tool/handler captured `memoryRepo`/`sessionRepo`
   // at registration time. The proxy always delegates to the CURRENT bundle, so
   // a live /memory-switch-backend swap is transparent downstream (zero
@@ -234,6 +246,9 @@ export default async function (pi: ExtensionAPI) {
     {
       const ui = (ctx as { ui?: { notify?: (message: string, level?: string) => void } }).ui;
       ui?.notify?.(`🧠 hermes-memory backend: ${backendLabel}`, "info");
+      if (backendFellBack) {
+        ui?.notify?.(`⚠️ SurrealDB was unreachable — hermes-memory fell back to sqlite for this session. Start SurrealDB then /memory-switch-backend surrealdb to restore.`, "warn");
+      }
     }
     if (shouldMigrateExtensionRoot && !extensionRootMigrated) {
       try {

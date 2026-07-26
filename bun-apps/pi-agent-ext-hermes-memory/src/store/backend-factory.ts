@@ -37,3 +37,34 @@ export async function createBackendBundle(
     }
   }
 }
+
+export interface BackendBundleWithFallback {
+  bundle: BackendBundle;
+  /** `null` when the configured backend initialized cleanly; `"sqlite"` when
+   *  it failed and we fell back to sqlite so agent startup is not blocked. */
+  fellBackTo: "sqlite" | null;
+}
+
+/**
+ * Build the backend bundle like {@link createBackendBundle}, but if the
+ * configured backend fails to initialize (e.g. the local SurrealDB server is
+ * down/unreachable), fall back to sqlite so a missing external service never
+ * blocks agent startup. Returns which backend is actually active via
+ * `fellBackTo` so the caller can surface the fallback to the user.
+ *
+ * sqlite is the floor: if sqlite itself fails there is nothing to fall back
+ * to, and the error rethrows (the caller decides whether that is fatal).
+ */
+export async function createBackendBundleWithFallback(
+  config: MemoryConfig,
+  memoryDir: string,
+): Promise<BackendBundleWithFallback> {
+  try {
+    const bundle = await createBackendBundle(config, memoryDir);
+    return { bundle, fellBackTo: null };
+  } catch (err) {
+    if ((config.dbBackend ?? "sqlite") === "sqlite") throw err; // sqlite IS the floor
+    const bundle = await createBackendBundle({ ...config, dbBackend: "sqlite" }, memoryDir);
+    return { bundle, fellBackTo: "sqlite" };
+  }
+}
