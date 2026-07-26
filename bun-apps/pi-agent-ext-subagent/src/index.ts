@@ -68,16 +68,16 @@ export { spawnSubagent } from "./spawn-subagent.js";
 // Consumers that need a clean child pi process (obsidian distill/garden,
 // tool-gate L2 A/B) use this instead of the in-process spawnSubagent.
 export type {
-	SpawnSubagentSubprocessOptions,
-	ChildProcessLike,
-	SpawnFn,
-	SubprocessArgsOptions,
+  ChildProcessLike,
+  SpawnFn,
+  SpawnSubagentSubprocessOptions,
+  SubprocessArgsOptions,
 } from "./spawn-subagent-subprocess.js";
 export {
-	spawnSubagentSubprocess,
-	getPiInvocation,
-	buildSubagentArgs,
-	isTransientError,
+  buildSubagentArgs,
+  getPiInvocation,
+  isTransientError,
+  spawnSubagentSubprocess,
 } from "./spawn-subagent-subprocess.js";
 // structured-output
 export type { StructuredOutputCapture, StructuredOutputToolOptions } from "./structured-output.js";
