@@ -85,9 +85,17 @@ notes: *(2026-07)*
   for a sub-5ms saving that falls below measurement noise. Not worth the
   complexity.
 - **`byTitle` basename collision is last-indexed-wins.** Two notes sharing a
-  basename (`A/Foo.md`, `B/Foo.md`) alias to one `byTitle["foo"]` slot; reindexing
-  one can steal the key, and deleting it then leaves the survivor unresolvable by
-  basename. Inherent ambiguity of basename/title linking.
+  basename (`A/Foo.md`, `B/Foo.md`) alias to one `byTitle["foo"]` slot —
+  last-indexed-wins. Deleting the winner then leaves the survivor
+  **unresolvable by bare basename** (`[[Foo]]` returns undefined) until a full
+  rebuild; path-qualified links (`[[A/Foo]]`) are always correct, so use those
+  when basenames collide. The `unindexNote` guard already prevents the worse
+  variant (a reindexed loser clobbering the winner). Rare in practice
+  (~0.2% of basenames in the knowledge vault, all boilerplate files like
+  `README`/`Index`/`progress` — never Zettelkasten notes, whose titles are
+  unique by `zk_card`'s 4-layer dup check). Accepted as wontfix; fixing would
+  require `Map<string, Set<string>>` + a `resolveLink: string[]` contract
+  change rippling through 6 consumers — disproportionate to the severity.
 - **`zk-ingest` CLI refuses `--source generic`** (`KNOWN_SOURCES` omits it) while
   the `zk_ingest` tool and `host-fns` support it. Explicit error, not a silent
   mis-parse — a surface gap only.
