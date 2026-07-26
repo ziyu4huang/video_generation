@@ -106,7 +106,12 @@ async function produceAssets(
 	const scenePlan = inputs.scene_plan as { scenes: unknown[] } | undefined;
 	const script = inputs.script as Record<string, unknown> | undefined;
 	if (!scenePlan) throw new Error("assets: missing scene_plan input");
-	const plan = planAssetGeneration(scenePlan as never, script as never, { maxCallSeconds });
+	const musicPrompt = inputs.music_prompt as string | undefined;
+	const musicDuration = inputs.music_duration as number | undefined;
+	const plan = planAssetGeneration(scenePlan as never, script as never, {
+		maxCallSeconds,
+		...(musicPrompt ? { music: { prompt: musicPrompt, duration: musicDuration } } : {}),
+	});
 	const probe = deps.probeDuration ?? (async () => 0);
 
 	const assets: Array<Record<string, unknown>> = [];
@@ -133,6 +138,27 @@ async function produceAssets(
 			scene_id: plan.tts.sceneId ?? "",
 			generation_summary: "generated via tts",
 			...(narrativeDurationSeconds > 0 ? { duration_seconds: Math.round(narrativeDurationSeconds * 1000) / 1000 } : {}),
+		});
+	}
+
+	if (plan.music) {
+		const res = await deps.dispatchFn("generate", {
+			capability: "music_generation",
+			command: "music",
+			options: { prompt: plan.music.prompt, ...(plan.music.duration != null ? { duration: plan.music.duration } : {}) },
+			projectId: deps.projectId,
+			pipeline: deps.pipeline,
+		});
+		if (!res.ok) throw new Error(`assets generate music failed: ${res.error}`);
+		const parsedResult = JSON.parse(res.text) as { provider?: string };
+		const musicPath = firstArtifactPath(parsedResult);
+		assets.push({
+			id: "music",
+			type: "music",
+			path: musicPath ?? "",
+			source_tool: parsedResult.provider ?? "musicgen",
+			scene_id: plan.music.sceneId ?? "",
+			generation_summary: "generated via music",
 		});
 	}
 

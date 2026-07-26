@@ -69,6 +69,9 @@ describe("wireProduce — assets execution (single native-relay call for the who
 			if (capability === "tts") {
 				return { ok: true, text: JSON.stringify({ provider: "tts", result: { artifacts: [{ path: "/tmp/narration.wav" }] } }) };
 			}
+			if (capability === "music_generation") {
+				return { ok: true, text: JSON.stringify({ provider: "musicgen", result: { artifacts: [{ path: "/tmp/music.wav" }] } }) };
+			}
 			// native-relay: one artifact per segment (role segment_1, segment_2, ...) + the final mp4 as the primary artifact.
 			const segmentArtifacts = segDurations.map((_, i) => ({ path: `/tmp/relay/seg0${i + 1}/segment.mp4`, role: `segment_${i + 1}` }));
 			return {
@@ -149,6 +152,35 @@ describe("wireProduce — assets execution (single native-relay call for the who
 		});
 		const manifest = out.asset_manifest as Record<string, unknown>;
 		expect((manifest.metadata as Record<string, unknown>).narrative_duration_seconds).toBe(22.4);
+	});
+
+	test("dispatches a music_generation call when music_prompt is supplied, and records it in asset_manifest", async () => {
+		const { deps, genCalls } = assetsDeps({ segmentDurations: [8] });
+		const out = await wireProduce(deps)("assets", {
+			scene_plan: { scenes: [{ id: "s1", type: "generated", description: "a cube", start_seconds: 0, end_seconds: 8 }] },
+			script: { sections: [{ id: "s1", text: "hi" }] },
+			music_prompt: "gentle solo piano, melancholic",
+			music_duration: 20,
+		});
+		const musicCalls = genCalls.filter((c) => c.capability === "music_generation");
+		expect(musicCalls).toHaveLength(1);
+		expect(musicCalls[0]!.command).toBe("music");
+		expect(musicCalls[0]!.options).toEqual({ prompt: "gentle solo piano, melancholic", duration: 20 });
+		const manifest = out.asset_manifest as Record<string, unknown>;
+		const assets = manifest.assets as Array<Record<string, unknown>>;
+		const musicAsset = assets.find((a) => a.type === "music");
+		expect(musicAsset?.path).toBe("/tmp/music.wav");
+		expect(musicAsset?.source_tool).toBe("musicgen");
+		expect(validateArtifact("asset_manifest", manifest).ok).toBe(true);
+	});
+
+	test("no music_prompt in inputs dispatches no music_generation call", async () => {
+		const { deps, genCalls } = assetsDeps({ segmentDurations: [8] });
+		await wireProduce(deps)("assets", {
+			scene_plan: { scenes: [{ id: "s1", type: "generated", description: "a cube", start_seconds: 0, end_seconds: 8 }] },
+			script: { sections: [{ id: "s1", text: "hi" }] },
+		});
+		expect(genCalls.filter((c) => c.capability === "music_generation")).toHaveLength(0);
 	});
 
 	test("a scene_plan with no video scenes dispatches no native-relay call", async () => {

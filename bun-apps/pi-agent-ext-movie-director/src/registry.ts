@@ -45,6 +45,7 @@ export interface ProviderEntry {
     | "bun:lmstudio-story"
     | "mlx:runpy-tts"
     | "bun:tts-native"
+    | "mlx:runpy-music"
     | "bun:twosubject-native"
     | "bun:profile-native"
     | "bun:character-native"
@@ -342,6 +343,13 @@ export const REGISTRY: ProviderEntry[] = [
   // volumedetect mean -22dB, healthy, not near-silent).
   { name: "edge_tts", capability: "tts", provider: "edge-tts", backend: "cloud_http", invoke: "bun:tts-native", configured: true, notes: "Bun-native TTS adapter (src/tts_native.ts, via the `msedge-tts` npm package) — Microsoft neural TTS, same engine `video relay --relay-tts-engine edge-tts` already uses. Natural-sounding voice, near-zero generation cost (~1s per narration), but needs NETWORK EGRESS (not available under --offline). Statically ranked below say_tts, but selectAndGenerate tries it FIRST at runtime by default (see comment above) — falls back to say only on an actual network failure." },
   { name: "say_tts", capability: "tts", provider: "say", backend: "macos_native", invoke: "macos:say", configured: true, notes: "macOS `say` (AVSpeechSynthesizer-backed) — zero-cost, zero-key, fully offline narration; robotic voice quality vs edge_tts. Statically ranked as the default (the correct offline/no-network fallback), but selectAndGenerate opportunistically tries edge-tts first at runtime and only actually invokes say if that fails — see edge_tts's notes." },
+
+  // Music — local MLX MusicGen (mlx-audiocraft), the score-track source that
+  // compose-motion's amix pass mixes under the narration. run.py subprocess
+  // (app/commands/music.py) — no native Swift/Bun port; MusicGen is genuine
+  // GPU/MLX compute, same category as the run.py video/image adapters above.
+  // Fully local-silicon, no API key, no network egress at generation time.
+  { name: "musicgen_music", capability: "music_generation", provider: "musicgen", backend: "native_swift", invoke: "mlx:runpy-music", configured: true, notes: "run.py music adapter (src/runpy_music.ts) — Meta's MusicGen via the mlx-audiocraft MLX port (Apple Silicon, no CUDA). Requires a one-time `uv pip install mlx-audiocraft soundfile --python python/venv/bin/python`; run.py music itself gives a clear ERROR if the package is missing. Local MLX, never a cloud GAI API." },
 
   // Audio/video post — ffmpeg shells (iteration 3).
   { name: "audio_mixer", capability: "audio_processing", provider: "ffmpeg", backend: "ffmpeg", invoke: "ffmpeg", configured: true },

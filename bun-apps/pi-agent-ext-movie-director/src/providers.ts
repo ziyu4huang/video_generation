@@ -314,6 +314,13 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
       // network call actually succeeds is a RUNTIME concern (no network probe
       // here, mirrors the caption/story adapters not probing LM Studio either).
       return entry.configured && runPyRuntimePresent();
+    case "mlx:runpy-music":
+      // callable iff run.py + the MLX venv resolve — same presence signal as
+      // mlx:runpy-tts (music is a run.py top-level command). Whether
+      // mlx-audiocraft is actually installed is a RUNTIME concern (music.py
+      // gives a clear ERROR if missing); the static probe stays honest about
+      // the run.py/venv runtime, not the optional MusicGen dependency.
+      return entry.configured && runPyRuntimePresent();
     case "mlx:caption":
       // caption runs entirely through caption_native.ts → LM Studio's VLM (zero
       // run.py since the 2026-07-19 port). Callable iff the local LM Studio

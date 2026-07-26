@@ -689,10 +689,13 @@ describe("selectAndGenerate — selector + bridge integration (mocked)", () => {
     expect(result).toBe(canned);
   });
 
-  it("propagates NoConfiguredProviderError for an unwired capability", async () => {
-    // music_generation has no registered provider at all (not even a GAP entry)
-    // — unlike tts, which now always resolves via the local macOS `say` fallback.
-    expect(() => selectProvider("music_generation")).toThrow();
+  it.skipIf(!!process.env.CI || !VENV_PRESENT)("selects the local MusicGen provider for music_generation", () => {
+    // 2026-07-26: recovered from an orphaned branch — music_generation now has
+    // a registered provider (musicgen_music, run.py music via mlx-audiocraft).
+    // Machine-coupled like the mlx:runpy-* probes above (same VENV_PRESENT guard).
+    const entry = selectProvider("music_generation");
+    expect(entry.provider).toBe("musicgen");
+    expect(entry.invoke).toBe("mlx:runpy-music");
   });
 });
 

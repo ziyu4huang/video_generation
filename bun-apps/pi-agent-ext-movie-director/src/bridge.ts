@@ -47,6 +47,7 @@ import {
   type RunPyStoryOptions,
 } from "./runpy_story.ts";
 import { runPyTts, type RunPyTtsDetails, type RunPyTtsOptions } from "./runpy_tts.ts";
+import { runPyMusic, type RunPyMusicDetails, type RunPyMusicOptions } from "./runpy_music.ts";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync } from "node:fs";
 
@@ -884,6 +885,46 @@ async function realRunPyTts(req: GenerateRequest, env?: Record<string, string | 
 }
 
 /**
+ * adaptRunPyMusic — normalize a run.py music (local MLX MusicGen) result. The
+ * single artifact is the produced score track (kind:"audio"); ok = run.py
+ * exited 0 AND the requested file landed with real content (mirrors
+ * adaptRunPyTts's "0-exit but nothing written is NOT success" stance).
+ * MusicGen is fully local/on-device — same honest $0 marginal-cost stance the
+ * other local-silicon providers use.
+ */
+export function adaptRunPyMusic(
+  req: GenerateRequest,
+  details: RunPyMusicDetails,
+  summary: string,
+  stderrTailStr: string,
+  env?: Record<string, string | undefined>,
+): ToolResult {
+  const artifacts: Artifact[] = [];
+  if (details.output) {
+    artifacts.push({ path: details.output, kind: "audio", role: "primary", bytes: details.sizeBytes ?? undefined });
+  }
+  return {
+    success: details.ok,
+    provider: "musicgen",
+    command: details.command,
+    artifacts,
+    error: details.ok ? null : `${summary}\n${stderrTailStr}`.trim(),
+    cost_usd: details.ok ? costFor(req.capability, null, env) : 0,
+    duration_seconds: details.duration ?? null,
+    seed: null,
+    model: details.model ?? "musicgen",
+  };
+}
+
+async function realRunPyMusic(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
+  const opts = (req.options ?? {}) as unknown as RunPyMusicOptions & { output?: string };
+  const outputDir = req.outputDir ?? process.cwd();
+  const output = opts.output ?? join(outputDir, "music.wav");
+  const out = await runPyMusic({ options: opts, output });
+  return adaptRunPyMusic(req, out.details, out.summary, out.stderrTail, env);
+}
+
+/**
  * realTtsNative — edge-tts via tts_native.ts's `msedge-tts`-backed Bun client,
  * NOT a run.py subprocess (2026-07-13 migration). Same ToolResult contract
  * shape as adaptRunPyTts (single kind:"audio" artifact); reuses that adapter
@@ -1103,6 +1144,7 @@ export function realAdapters(env?: Record<string, string | undefined>): Partial<
     "bun:lmstudio-story": (req) => realStoryNative(req, env),
     "mlx:runpy-tts": (req) => realRunPyTts(req, env),
     "bun:tts-native": (req) => realTtsNative(req, env),
+    "mlx:runpy-music": (req) => realRunPyMusic(req, env),
     "bun:twosubject-native": (req) => realTwosubjectNative(req, env),
     "bun:profile-native": (req) => realProfileNative(req, env),
     "bun:character-native": (req) => realCharacterNative(req, env),

@@ -99,14 +99,12 @@ describe("selectProvider", () => {
     }
   });
 
-  it("throws NoConfiguredProviderError for a genuinely unwired capability", () => {
-    expect(() => selectProvider("music_generation", { env: NO_ENV })).toThrow(NoConfiguredProviderError);
-    try {
-      selectProvider("music_generation", { env: NO_ENV });
-    } catch (err) {
-      expect(err).toBeInstanceOf(NoConfiguredProviderError);
-      expect((err as NoConfiguredProviderError).capability).toBe("music_generation");
-    }
+  it("resolves music_generation to the local MusicGen provider", () => {
+    // 2026-07-26: recovered from an orphaned branch — music_generation now has
+    // a registered provider (musicgen_music, run.py music via mlx-audiocraft).
+    const e = selectProvider("music_generation", { env: NO_ENV });
+    expect(e.provider).toBe("musicgen");
+    expect(e.invoke).toBe("mlx:runpy-music");
   });
 
   it("a cloud provider becomes callable when its key is in env (probe upgrade)", () => {
