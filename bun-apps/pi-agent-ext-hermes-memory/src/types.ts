@@ -41,6 +41,8 @@ export interface MemoryConfig {
   userCharLimit: number;
   /** Max chars for project-level MEMORY.md. Default: 5000 */
   projectCharLimit: number;
+  /** Max chars for failures.md (shared global failure store). Default: 40000 */
+  failureCharLimit?: number;
   /** Turns between background auto-reviews. Default: 10 */
   nudgeInterval: number;
   /** Recent conversation messages included in background review. 0 = all. Default: 0 */

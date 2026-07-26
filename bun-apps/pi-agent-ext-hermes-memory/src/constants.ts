@@ -17,6 +17,12 @@ export const DEFAULT_USER_CHAR_LIMIT = 10000;
 // ─── Learning loop defaults ───
 export const DEFAULT_PROJECT_CHAR_LIMIT = 10000;
 
+/** Max chars for failures.md (the shared global failure store). Higher than
+ * memory/user because failures are high-volume (captured across all sessions)
+ * and chronically near-capacity — a too-small limit makes every write trigger
+ * a 60s LLM consolidation under the file lock. */
+export const DEFAULT_FAILURE_CHAR_LIMIT = 40000;
+
 export const DEFAULT_NUDGE_INTERVAL = 10;
 export const DEFAULT_FLUSH_MIN_TURNS = 6;
 export const DEFAULT_NUDGE_TOOL_CALLS = 15;
