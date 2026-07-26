@@ -57,6 +57,8 @@ export class MemoryStore {
   private failureEntries: string[] = [];
   private snapshot: MemorySnapshot = { memory: "", user: "" };
   private consolidator: ((target: "memory" | "user" | "failure", signal?: AbortSignal) => Promise<ConsolidationResult>) | null = null;
+  /** Human-readable label of the consolidator's model (for progress reporting). */
+  private consolidatorModelLabel?: string;
 
   constructor(private config: MemoryConfig) {}
 
@@ -64,8 +66,9 @@ export class MemoryStore {
    * Inject a consolidation function (avoids circular imports).
    * Called from index.ts after both store and pi are available.
    */
-  setConsolidator(fn: (target: "memory" | "user" | "failure", signal?: AbortSignal) => Promise<ConsolidationResult>): void {
+  setConsolidator(fn: (target: "memory" | "user" | "failure", signal?: AbortSignal) => Promise<ConsolidationResult>, modelLabel?: string): void {
     this.consolidator = fn;
+    this.consolidatorModelLabel = modelLabel;
   }
 
   // ─── Write serialization ───
@@ -193,8 +196,14 @@ export class MemoryStore {
   private async runConsolidator(
     target: "memory" | "user" | "failure",
     signal?: AbortSignal,
+    onProgress?: (message: string) => void,
   ): Promise<ConsolidationResult> {
     if (!this.consolidator) return { consolidated: false, error: "no consolidator configured" };
+    // Surface progress to the tool layer (-> onUpdate partial result in the TUI):
+    // consolidation runs a local LLM and can hold the file lock for up to ~60s, so
+    // without this the memory tool call is a silent spinner with no model-id.
+    const label = this.consolidatorModelLabel ?? "default model";
+    onProgress?.(`Consolidating ${target} store with ${label}… (local LLM merge/dedup; up to 60s)`);
     const prevLock = process.env.PI_MEMORY_FILE_LOCK;
     const prevCons = process.env.PI_HERMES_CONSOLIDATING;
     // PI_MEMORY_FILE_LOCK=bypass: child skips the cross-process lock (parent holds it).
@@ -281,16 +290,17 @@ export class MemoryStore {
   async add(
     target: "memory" | "user" | "failure",
     content: string,
-    options?: { category?: MemoryCategory; signal?: AbortSignal },
+    options?: { category?: MemoryCategory; signal?: AbortSignal; onProgress?: (message: string) => void },
   ): Promise<MemoryResult> {
     const signal = options?.signal;
+    const onProgress = options?.onProgress;
     if (options?.category) {
       // Tag the entry with its category label (decoupled from the storage home,
       // per the memory model: any home may carry category labels for retrieval).
       const tagged = `[${options.category}] ${content.trim()}`;
-      return this._add(target, tagged, signal);
+      return this._add(target, tagged, signal, undefined, undefined, onProgress);
     }
-    return this._add(target, content, signal);
+    return this._add(target, content, signal, undefined, undefined, onProgress);
   }
 
   async addFailure(content: string, options: {
@@ -299,9 +309,10 @@ export class MemoryStore {
     toolState?: string;
     correctedTo?: string;
     project?: string;
+    onProgress?: (message: string) => void;
   }): Promise<MemoryResult> {
     const failureText = this.buildFailureMemoryText(content, options);
-    return this._add("failure", failureText, undefined, 1, "Failure memory saved: " + options.category);
+    return this._add("failure", failureText, undefined, 1, "Failure memory saved: " + options.category, options.onProgress);
   }
 
   /**
@@ -392,10 +403,11 @@ export class MemoryStore {
     signal?: AbortSignal,
     _retriesLeft = 1,
     addedMessage = "Entry added.",
+    onProgress?: (message: string) => void,
   ): Promise<MemoryResult> {
     // Serialize so reload-read → mutate-array → saveToDisk stays atomic.
     // runExclusive = in-process; withFileLock = cross-process (see withFileLock).
-    return this.runExclusive(() => this.withFileLock(target, () => this._addInner(target, content, signal, _retriesLeft, addedMessage)));
+    return this.runExclusive(() => this.withFileLock(target, () => this._addInner(target, content, signal, _retriesLeft, addedMessage, onProgress)));
   }
 
   private async _addInner(
@@ -404,6 +416,7 @@ export class MemoryStore {
     signal?: AbortSignal,
     _retriesLeft = 1,
     addedMessage = "Entry added.",
+    onProgress?: (message: string) => void,
   ): Promise<MemoryResult> {
     content = content.trim();
     if (!content) return { success: false, error: "Content cannot be empty." };
@@ -446,7 +459,7 @@ export class MemoryStore {
         // Primary: info-preserving LLM consolidation (one retry).
         if (this.consolidator && _retriesLeft > 0) {
           try {
-            const result = await this.runConsolidator(target, signal);
+            const result = await this.runConsolidator(target, signal, onProgress);
             if (result.consolidated) {
               // CRITICAL: reload from disk — child process modified files, our arrays are stale
               await this.loadFromDisk();
