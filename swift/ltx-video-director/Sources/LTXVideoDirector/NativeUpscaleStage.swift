@@ -55,6 +55,7 @@ public struct NativeUpscaleStage {
         case restyleLoraNotFound(URL)
         case referenceImageNotFound(URL)
         case ingredientsLoraNotFound(URL)
+        case noReferenceImages
         case invalidDimensions(String)
 
         public var description: String {
@@ -72,6 +73,7 @@ public struct NativeUpscaleStage {
             case .restyleLoraNotFound(let url): return "NativeUpscaleStage: restyle IC-LoRA not found at \(url.path) — pass --lora pointing at a V2V-style IC-LoRA checkpoint (e.g. a Lightricks LTX-2.3 style-transfer adapter); no bundled default, unlike hd mode's restoration pair"
             case .referenceImageNotFound(let url): return "NativeUpscaleStage: ingredients reference image not found at \(url.path)"
             case .ingredientsLoraNotFound(let url): return "NativeUpscaleStage: ingredients IC-LoRA not found at \(url.path) — download Lightricks/LTX-2.3-22b-IC-LoRA-Ingredients from HuggingFace (ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors) and pass its path via --lora; no bundled default, unlike hd mode's restoration pair"
+            case .noReferenceImages: return "NativeUpscaleStage: generateIngredients requires at least one reference image"
             case .invalidDimensions(let msg): return "NativeUpscaleStage: \(msg)"
             }
         }
@@ -651,11 +653,11 @@ public struct NativeUpscaleStage {
             inputSize: (width, height), outputSize: (width, height))
     }
 
-    /// `native-ingredients`: single-reference-image IC-LoRA conditioning —
-    /// the sibling "easy tier" item to `generateRestyle` from PLAN.md's
+    /// `native-ingredients`: one-or-more-reference-image IC-LoRA conditioning
+    /// — the sibling "easy tier" item to `generateRestyle` from PLAN.md's
     /// IC-LoRA scoping research. Same reference-conditioning core
-    /// (VAE-encode a reference -> fuse IC-LoRA -> `VideoConditionByReferenceLatent`
-    /// -> denoise -> decode) but the "reference clip" is a SINGLE still
+    /// (VAE-encode reference(s) -> fuse IC-LoRA -> `VideoConditionByReferenceLatent`
+    /// -> denoise -> decode) but each "reference clip" is a SINGLE still
     /// image tiled across the full generation frame count, not a real
     /// multi-frame input clip. Confirmed against the reference ComfyUI
     /// graph's actual node links (docs/reference/comfyui_workflows/
@@ -663,8 +665,17 @@ public struct NativeUpscaleStage {
     /// node names: `LoadImage` -> `CreateVideo` -> `GetVideoComponents` ->
     /// `ResizeImageMaskNode` -> `RepeatImageBatch`, where `RepeatImageBatch`'s
     /// `amount` and `EmptyLTXVLatentVideo`'s frame count are driven by the
-    /// SAME `PrimitiveInt` node — i.e. the reference image is tiled to
+    /// SAME `PrimitiveInt` node — i.e. each reference image is tiled to
     /// exactly the target generation length, not some fixed short window.
+    /// `referenceImageURLs` accepts one or more images: each is
+    /// independently tiled/VAE-encoded/patchified to the same (f, h, w)
+    /// dims (they all share the same output resolution and frame count),
+    /// and the resulting per-image token/position blocks are concatenated
+    /// into one combined reference sequence before the single
+    /// `VideoConditionByReferenceLatent` call, which APPENDS that combined
+    /// sequence to the generation's own tokens (self-attention, not
+    /// position-collision) — see docs/superpowers/specs/
+    /// 2026-07-26-multi-reference-ingredients-design.md for the full design.
     ///
     /// Two deliberate deviations from a literal 1:1 port, both reusing
     /// existing primitives over adding new preprocessing:
@@ -691,14 +702,23 @@ public struct NativeUpscaleStage {
     /// UNVERIFIED against a real checkpoint as of introduction, same caveat
     /// `generateRestyle` carries.
     public func generateIngredients(
-        referenceImageURL: URL, outputDir: URL, prompt: String,
+        referenceImageURLs: [URL], outputDir: URL, prompt: String,
         loraURL: URL, width: Int, height: Int, seconds: Double = 5.0,
         fps: Double = 24.0, textMaxLength: Int = 128, seed: UInt64 = 42,
         loraStrength: Float = 1.0
     ) throws -> IngredientsResult {
         let fm = FileManager.default
-        guard fm.fileExists(atPath: referenceImageURL.path) else {
-            throw StageError.referenceImageNotFound(referenceImageURL)
+        guard !referenceImageURLs.isEmpty else {
+            throw StageError.noReferenceImages
+        }
+        // Deliberately a separate pass from the decode/encode loop below —
+        // validates every reference path up front so a bad URL anywhere in
+        // the list fails fast, before any expensive VAE-encode work starts
+        // on the images that DO exist.
+        for referenceImageURL in referenceImageURLs {
+            guard fm.fileExists(atPath: referenceImageURL.path) else {
+                throw StageError.referenceImageNotFound(referenceImageURL)
+            }
         }
         guard fm.fileExists(atPath: loraURL.path) else {
             throw StageError.ingredientsLoraNotFound(loraURL)
@@ -717,19 +737,8 @@ public struct NativeUpscaleStage {
         let fCeil = 8 * kCeil + 1
         let frames = abs(Double(fFloor) - raw) <= abs(Double(fCeil) - raw) ? fFloor : fCeil
 
-        print("[1/6] Loading reference image, tiling to \(frames) frames at \(outW)x\(outH)...")
-        guard var cgImage = FrameLoad.loadCGImage(from: referenceImageURL) else {
-            throw StageError.referenceImageNotFound(referenceImageURL)
-        }
-        if cgImage.width != outW || cgImage.height != outH {
-            cgImage = FrameLoad.resizeAspectFillCenterCrop(cgImage, targetWidth: outW, targetHeight: outH)
-        }
-        let framePixels01 = FrameLoad.toArray(cgImage)  // (1, 3, H, W) [0, 1]
-        let singleFrame = (framePixels01.asType(.float32) * 2.0 - 1.0)[0]  // (3, H, W)
-        let stacked = MLX.stacked(Array(repeating: singleFrame, count: frames), axis: 1)  // (3, F, H, W)
-        let pixelsBCFHW = stacked.expandedDimensions(axis: 0)  // (1, 3, F, H, W)
-
-        print("[2/6] VideoEncoder: encoding tiled reference image to latent (IC-LoRA conditioning)...")
+        print("[1/6] Loading \(referenceImageURLs.count) reference image(s), tiling to \(frames) frames at \(outW)x\(outH)...")
+        print("[2/6] VideoEncoder: encoding tiled reference image(s) to latent (IC-LoRA conditioning)...")
         let vaeEncoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/vae_encoder.safetensors")
         guard fm.fileExists(atPath: vaeEncoderURL.path) else {
             throw StageError.videoEncoderCheckpointNotFound(vaeEncoderURL)
@@ -740,11 +749,44 @@ public struct NativeUpscaleStage {
             let stripped = key.hasPrefix("vae_encoder.") ? String(key.dropFirst("vae_encoder.".count)) : key
             encWeights[stripped] = value.asType(.float32)
         }
+        // Loaded once, reused for every reference image below — avoids
+        // re-reading the same checkpoint off disk N times.
         let videoEncoder = VideoEncoder(weights: encWeights)
-        let referenceLatentRaw = videoEncoder(pixelsBCFHW)  // (1, 128, Fr, Hr, Wr), normalized
-        MLX.eval(referenceLatentRaw)
-        let (referenceTokens, dims) = VideoLatentPatchifier.patchify(referenceLatentRaw)
+
+        // Each reference image is independently tiled to `frames` copies and
+        // VAE-encoded/patchified; all N share identical (f, h, w) dims since
+        // every image is resized to the same outW x outH and tiled to the
+        // same frame count. The resulting per-image token blocks are
+        // concatenated into one combined reference-token sequence that
+        // VideoConditionByReferenceLatent APPENDS to the generation's own
+        // tokens (self-attention, not position-collision — see this
+        // function's header / docs/superpowers/specs/
+        // 2026-07-26-multi-reference-ingredients-design.md).
+        var referenceTokenChunks: [MLXArray] = []
+        var dims: (f: Int, h: Int, w: Int) = (0, 0, 0)
+        for referenceImageURL in referenceImageURLs {
+            guard var cgImage = FrameLoad.loadCGImage(from: referenceImageURL) else {
+                throw StageError.referenceImageNotFound(referenceImageURL)
+            }
+            if cgImage.width != outW || cgImage.height != outH {
+                cgImage = FrameLoad.resizeAspectFillCenterCrop(cgImage, targetWidth: outW, targetHeight: outH)
+            }
+            let framePixels01 = FrameLoad.toArray(cgImage)  // (1, 3, H, W) [0, 1]
+            let singleFrame = (framePixels01.asType(.float32) * 2.0 - 1.0)[0]  // (3, H, W)
+            let stacked = MLX.stacked(Array(repeating: singleFrame, count: frames), axis: 1)  // (3, F, H, W)
+            let pixelsBCFHW = stacked.expandedDimensions(axis: 0)  // (1, 3, F, H, W)
+
+            let referenceLatentRaw = videoEncoder(pixelsBCFHW)  // (1, 128, Fr, Hr, Wr), normalized
+            MLX.eval(referenceLatentRaw)
+            let (tokens, imageDims) = VideoLatentPatchifier.patchify(referenceLatentRaw)
+            dims = imageDims
+            referenceTokenChunks.append(tokens)
+        }
+        let referenceTokens = MLX.concatenated(referenceTokenChunks, axis: 1)
         let positions = Positions.computeVideoPositions(numFrames: dims.f, height: dims.h, width: dims.w, frameRate: Float(fps))
+        // Every reference's positions are value-identical to `positions`
+        // (same formula, same dims) — repeat rather than recompute per image.
+        let referencePositions = MLX.concatenated(Array(repeating: positions, count: referenceTokenChunks.count), axis: 1)
         let genTokenCount = dims.f * dims.h * dims.w
 
         print("[3/6] LoRA: loading + fusing Ingredients IC-LoRA into distilled transformer...")
@@ -758,7 +800,7 @@ public struct NativeUpscaleStage {
             latent: noise, cleanLatent: MLXArray.zeros([1, genTokenCount, 128]),
             denoiseMask: MLXArray.ones([1, genTokenCount, 1]), positions: positions)
         let videoState = VideoConditionByReferenceLatent(
-            referenceLatent: referenceTokens, referencePositions: positions,
+            referenceLatent: referenceTokens, referencePositions: referencePositions,
             downscaleFactor: 1, strength: 1.0
         ).apply(to: baseVideoState)
 
