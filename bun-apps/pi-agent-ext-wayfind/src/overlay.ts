@@ -1,6 +1,7 @@
 /**
  * overlay.ts — wayfind's status-line section for the shared CoreTaskStatusWidget
- * (owned by pi-agent-ext-core-task, see getSharedStatusWidget()).
+ * (owned by pi-agent-ext-core-task, reached via its `globalThis.__piCoreTaskStatusWidget`
+ * singleton — no package import; see docs/adr/0004).
  *
  * Replaces the previous direct ctx.ui.setStatus(PKG_NAME, text) calls scattered
  * across commands.ts — a single state-holder that renders one line into the
