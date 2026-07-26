@@ -133,14 +133,17 @@ describe("pi-movie-director extension", () => {
   });
 
   test("generate surfaces a no-configured-provider error as a structured failure (no spawn)", async () => {
-    // music_generation has NO registered provider at all (not even a GAP entry)
-    // → the selector throws NoConfiguredProviderError, which dispatch converts
-    // to {ok:false, error}. No subprocess is ever spawned. (tts no longer works
-    // for this: the local macOS `say` fallback makes it always resolve.)
+    // Every REGISTRY capability now has at least one always-configured provider
+    // (music_generation gained musicgen_music on 2026-07-26 — a caller-supplied
+    // capability outside the closed Capability union is the only way left to
+    // reach getByCapability() returning zero entries. That's also the more
+    // realistic case here: a hallucinating agent typing a bogus capability
+    // name. The selector throws NoConfiguredProviderError, which dispatch
+    // converts to {ok:false, error}. No subprocess is ever spawned.
     const tool = captureTool("movie");
     const res = await tool.execute(
       "id",
-      { command: "generate", options: { capability: "music_generation", command: "synthesize" } },
+      { command: "generate", options: { capability: "quantum_teleportation", command: "synthesize" } },
       undefined, undefined, undefined,
     );
     expect(res.details.ok).toBe(false);

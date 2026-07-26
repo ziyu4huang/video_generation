@@ -34,9 +34,16 @@ export interface TtsCall {
 	sceneId?: string;
 }
 
+export interface MusicCall {
+	prompt: string;
+	duration?: number;
+	sceneId?: string;
+}
+
 export interface AssetPlan {
 	relayLinks: RelayLink[];
 	tts?: TtsCall;
+	music?: MusicCall;
 }
 
 interface SceneLike {
@@ -63,7 +70,7 @@ interface ScriptLike {
 export function planAssetGeneration(
 	scenePlan: { scenes: SceneLike[] },
 	script: ScriptLike | undefined,
-	opts: { maxCallSeconds: number },
+	opts: { maxCallSeconds: number; music?: { prompt: string; duration?: number } },
 ): AssetPlan {
 	const relayLinks: RelayLink[] = [];
 
@@ -96,5 +103,16 @@ export function planAssetGeneration(
 		}
 	}
 
-	return { relayLinks, tts };
+	// Music — the score track, driven through the cost-tracked generate path
+	// (local MLX MusicGen). OPTIONAL: emitted only when the caller supplies a
+	// music prompt (opts.music). compose-motion's amix pass mixes the result
+	// under the narration. Deriving the prompt from scene mood automatically is
+	// out of scope here; until that lands the driver/agent passes an explicit
+	// prompt. Tagged with the first scene's id, mirroring tts above.
+	let music: MusicCall | undefined;
+	if (opts.music && opts.music.prompt.trim()) {
+		music = { prompt: opts.music.prompt, duration: opts.music.duration, sceneId: scenePlan.scenes[0]?.id };
+	}
+
+	return { relayLinks, tts, music };
 }
