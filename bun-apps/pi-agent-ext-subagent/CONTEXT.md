@@ -22,7 +22,7 @@ _Avoid_: mini-workflow, single-agent script (it is a standalone tool call, not a
 
 **`subagent_runs` (tool)**:
 The LLM-facing inspection tool — lists completed `subagent`-tool runs (newest-first, filterable by status, with a get-by-id subcommand) backed by the run-persistence store. Owned by this package's extension.
-_Avoid_: conflating with the `/subagents` interactive viewer (that is a TUI command living in `pi-agent-ext-workflow`, reading the same persistence singleton).
+_Avoid_: conflating with the `/subagents` interactive viewer (a TUI slash-command living in this package's `src/subagent-viewer.ts`, reading the same persistence singleton).
 
 ### Runner
 
@@ -41,8 +41,10 @@ Durable, inspection-only records of COMPLETED `subagent`-tool runs, for post-ses
 **Deliberately separate from workflow `RunPersistence`**: that layer is workflow-RESUME machinery (journal = replay source-of-truth, cross-process lease, pause/resume). A subagent run is a one-shot dispatch with NO resume semantics; its record exists purely for inspection. Mixing the two would muddy the journal's canonical-resume invariant.
 _Avoid_: persisting subagent runs through the workflow journal (use this separate store); treating the record as mutable (it is write-once).
 
-**Singleton-sharing contract** (the cross-extension invariant):
-`getSubagentInFlightRegistry()` and `getSubagentRunPersistence()` are **module-local lazy singletons**. For the `subagent` tool (this package) and the `/subagents` viewer/command (`pi-agent-ext-workflow`) to share ONE instance, both MUST resolve the singleton from the SAME module. This package's extension imports it via `../src/index.js`; peer extensions MUST import via the **`src/` subpath** (`@repo/pi-agent-ext-subagent/src/index.ts`) — NOT the dist root — so both land on the identical `src/index.ts` module instance. Importing via the dist root (`@repo/pi-agent-ext-subagent`) would resolve to `dist/index.js`, a different module identity, and each caller would get its own lazily-initialized singleton → the viewer sees an empty registry.
+**Singleton-sharing contract** (module identity):
+`getSubagentInFlightRegistry()` and `getSubagentRunPersistence()` are **module-local lazy singletons**. The `subagent` tool and the `/subagents` viewer/command are now BOTH in this package (the viewer relocated here in PR #821 / [ADR-0002](docs/adr/0002-relocate-viewer-command-to-subagent.md)), so they share ONE instance via the in-package relative import — **no peer-extension sharing is currently needed** (no external package imports these singletons today).
+
+The **`src/` subpath rule is retained as forward-compat advice**: if a future peer extension ever needs to observe runs directly, it MUST import via `@repo/pi-agent-ext-subagent/src/index.ts` (NOT the dist root) to land on the identical module instance. Importing via the dist root would yield a separate lazily-initialized singleton → the observer sees an empty registry.
 _Avoid_: importing the singletons from the dist root and expecting the live instance (use the `src/` subpath); copying the registry/persistence into a peer extension (share the singleton instead).
 
 ### Supporting concepts
@@ -61,6 +63,6 @@ _Avoid_: "container" (it is a git worktree, not an OS container).
 
 ## Ownership boundary (why this package exists)
 
-This package owns: the `subagent` + `subagent_runs` TOOLS, the `WorkflowAgent` runner, `spawnSubagent`, the singletons, agent-registry, model-tier, worktree, errors, history helpers, and the SDD-report parser.
+This package owns: the `subagent` + `subagent_runs` TOOLS, the `WorkflowAgent` runner, `spawnSubagent`, the singletons, agent-registry, model-tier, worktree, errors, history helpers, the SDD-report parser, **and (since PR #821 / [ADR-0002](docs/adr/0002-relocate-viewer-command-to-subagent.md)) the `/subagents` interactive TUI viewer + slash command + the progress widget**, plus the shared agent-row render helpers (`src/agent-row-display.ts`).
 
-It does NOT own: the `/subagents` interactive TUI viewer, the `/subagents` slash command, the `workflow`/`workflow_control`/`workflow_help` tools, or the workflow orchestration engine. Those stayed in `pi-agent-ext-workflow` because the viewer imports `display.ts` which imports `workflow.ts` — moving them here would create a `display.ts ⟹ workflow.ts` cycle back into this package. See `docs/adr/0001-why-extracted.md`.
+It does NOT own: the `workflow`/`workflow_control`/`workflow_help` tools or the workflow orchestration engine (those live in `pi-agent-ext-workflow`). The viewer/command originally stayed in workflow ([ADR-0001](docs/adr/0001-why-extracted.md)) due to a `display.ts ⟹ workflow.ts` cycle; #821 broke that cycle by extracting the generic render helpers into this package's `agent-row-display.ts`, so the viewer now imports only local code.

@@ -1,5 +1,15 @@
 # 0001 — Why the subagent subsystem was extracted into its own package
 
+> ⚠️ **PARTIALLY SUPERSEDED by [ADR-0002](./0002-relocate-viewer-command-to-subagent.md)
+> (2026-07-25, PR #821).** The section *"Why `subagent-viewer` and
+> `subagents-command` stayed in workflow"* below is **historical only** — the
+> viewer, command, and progress-widget were subsequently MOVED into this package
+> by extracting the generic render helpers into a subagent-local
+> `agent-row-display.ts` (breaking the `display.ts ⟹ workflow.ts` cycle that
+> originally blocked the move). The singletons also became intra-package (no
+> peer-extension callers remain); the `src/` subpath rule is retained as
+> forward-compat. Everything else here (extraction rationale, Design B) stands.
+
 **Status:** accepted (2026-07-24; part of the `feat/extract-subagent-package` work)
 
 The subagent subsystem — the `subagent` + `subagent_runs` tools, the `WorkflowAgent` runner, the `spawnSubagent` programmatic API, the in-flight registry, run-persistence, agent-registry, model-tier, worktree, and the SDD-report parser — was extracted out of `pi-agent-ext-workflow` into a new, lower-dependency package `pi-agent-ext-subagent`, which ships its own extension that registers the two tools. This ADR records why we extracted, why the `/subagents` viewer and command stayed behind, why the new package gets its own extension (Design B), and the singleton module-identity decision that holds the two extensions together.
