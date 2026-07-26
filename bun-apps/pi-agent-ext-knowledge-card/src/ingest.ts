@@ -1464,23 +1464,35 @@ export async function ingestRecords(
 		abs: string;
 		basename: string;
 	}[] = [];
+	const plannedById = new Map<string, string>(); // canonical id → basename (in-batch upsert)
 	const usedBasenames = new Set(existing.keys());
 	for (const rec of pendingRecords) {
 		let base = slugify(rec.id);
-		// Disambiguate slug collisions where the existing file is a DIFFERENT id.
-		let candidate = base;
-		let n = 2;
-		while (usedBasenames.has(candidate)) {
-			const prevAbs = join(folderAbs, `${candidate}.md`);
-			const prev = readCardMeta(prevAbs);
-			if (prev && prev.source_id === rec.id) {
-				base = candidate; // same record → upsert in place
-				break;
+		// In-batch dedup: a canonical id already planned in THIS batch upserts onto
+		// its basename (mirrors the on-disk same-id path below) instead of
+		// disambiguating to `<slug>-2` and emitting a duplicate card. Without this,
+		// two records sharing an id in a single fresh batch (card not yet on disk)
+		// produce `<slug>.md` + `<slug>-2.md` — violating "dedup by canonical id".
+		const alreadyPlanned = plannedById.get(rec.id);
+		if (alreadyPlanned) {
+			base = alreadyPlanned; // upsert onto the already-planned basename (last wins)
+		} else {
+			// Disambiguate slug collisions where the existing file is a DIFFERENT id.
+			let candidate = base;
+			let n = 2;
+			while (usedBasenames.has(candidate)) {
+				const prevAbs = join(folderAbs, `${candidate}.md`);
+				const prev = readCardMeta(prevAbs);
+				if (prev && prev.source_id === rec.id) {
+					base = candidate; // same record → upsert in place
+					break;
+				}
+				candidate = `${base}-${n++}`;
 			}
-			candidate = `${base}-${n++}`;
+			base = candidate;
+			plannedById.set(rec.id, base);
+			usedBasenames.add(base);
 		}
-		base = candidate;
-		usedBasenames.add(base);
 		const rel = `${folder}/${base}.md`;
 		planned.push({ rec, rel, abs: join(opts.vaultPath, rel), basename: base });
 	}
