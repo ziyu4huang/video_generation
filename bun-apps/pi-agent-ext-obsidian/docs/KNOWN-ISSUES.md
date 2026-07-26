@@ -64,11 +64,12 @@ atomic rename + per-note mtime re-validation on load), and `zk_ingest` skips
 malformed lines per-line rather than crashing the whole run. Remaining non-bug
 notes: *(2026-07)*
 
-- **`updateFrontmatter` is the lone `dropIndex` caller among write paths.** After
-  #841, `appendUnderHeading` / `obsidian_create` / `obsidian_append` use the
-  incremental `reindexFile`; `updateFrontmatter` still drops the whole index
-  (full rebuild on next read). Correct, but heavier than necessary at scale — a
-  candidate to migrate to `reindexFile` for consistency.
+- **`updateFrontmatter` now uses incremental `reindexFile`.** It was the lone
+  `dropIndex` caller among write paths; it now matches `appendUnderHeading` /
+  `obsidian_create` / `obsidian_append`, so a held `VaultIndex` reflects a
+  just-patched tag/title immediately instead of waiting for the next cold
+  `getIndex` rebuild. `moveNote` / `deleteNote` still `dropIndex` deliberately
+  (the path key itself changes / the entry is removed).
 - **`saveIndex` persists only on a cold `getIndex` build**, not after incremental
   `refreshIndex`. The on-disk cache can lag the in-memory index across a session;
   `loadCachedIndex`'s mtime validation makes this a minor perf gap, never
