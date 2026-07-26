@@ -62,9 +62,9 @@ export function createModelsPresetCommand(deps: PresetCommandDeps = {}) {
     ctx.ui.notify(`Applied "${preset.label}" → ${configPath}${existing ? " (prior → .bak)" : ""}`, "info");
   }
 
-  return async (args: string[], ctx: ExtensionCommandContext): Promise<void> => {
-    // Direct apply: /models-preset <id>
-    const directId = args[0];
+  return async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
+    // Direct apply: /models-preset <id>  (Pi passes the raw arg string.)
+    const directId = args.trim();
     if (directId) {
       const preset = findPreset(directId);
       if (!preset) {

@@ -66,7 +66,7 @@ describe("/models-preset", () => {
     existingConfig = { tiers: { small: "old/x" } };
 
     const { ctx, calls } = fakeCtx({ confirm: true });
-    await makeHandler()(["glm-lmstudio"], ctx);
+    await makeHandler()("glm-lmstudio", ctx);
 
     expect(savedConfig).toEqual({
       tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.2", big: "zai/glm-5.2" },
@@ -80,7 +80,7 @@ describe("/models-preset", () => {
 
   test("unknown preset id notifies an error + lists available", async () => {
     const { ctx, calls } = fakeCtx();
-    await makeHandler()(["bogus"], ctx);
+    await makeHandler()("bogus", ctx);
     expect(savedConfig).toBeNull();
     expect(calls.notify[0]?.level).toBe("error");
     expect(calls.notify[0]?.msg).toContain("bogus");
@@ -90,7 +90,7 @@ describe("/models-preset", () => {
   test("no existing config → no confirm, no backup, just save", async () => {
     existingConfig = null;
     const { ctx, calls } = fakeCtx();
-    await makeHandler()(["deepseek-lmstudio"], ctx);
+    await makeHandler()("deepseek-lmstudio", ctx);
     expect(savedConfig).toEqual({
       tiers: {
         small: "deepseek/deepseek-flash-v4",
@@ -107,7 +107,7 @@ describe("/models-preset", () => {
     writeFileSync(configPath, JSON.stringify({ tiers: { small: "old/x" } }));
     existingConfig = { tiers: { small: "old/x" } };
     const { ctx } = fakeCtx({ confirm: false });
-    await makeHandler()(["glm-lmstudio"], ctx);
+    await makeHandler()("glm-lmstudio", ctx);
     expect(savedConfig).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { createModelsPresetCommand } from "../extensions/models-preset.js";
+import { registerModelsPresetCommand } from "../extensions/models-preset.js";
 import {
   createSubagentRunsTool,
   createSubagentTool,
@@ -59,7 +59,7 @@ export default function extension(pi: ExtensionAPI) {
   // /models-preset — apply a named model-config preset (tiers + vision) to
   // ~/.pi/workflows/model-tiers.json. The one-stop setup/switch command; pairs
   // with /workflows-models (fine-edit). Preset templates live in src/presets.ts.
-  pi.registerCommand("models-preset", createModelsPresetCommand());
+  registerModelsPresetCommand(pi);
 
   // Force-activate on EVERY lifecycle hook that precedes a system-prompt rebuild.
   // Mirrors pi-agent-ext-workflow's activateWorkflowTools: session_start alone is
