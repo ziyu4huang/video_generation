@@ -2,7 +2,7 @@
 type: grilling
 blocked by: []
 status: closed
-resolved: 2026-07-26 (fix; PR pending)
+resolved: 2026-07-26 (fix; PR #860, commit c6e0b6b3)
 ---
 
 # 05 — distill readState raw JSON.parse robustness
