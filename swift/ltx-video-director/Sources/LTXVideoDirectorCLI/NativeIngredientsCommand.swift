@@ -61,7 +61,7 @@ struct NativeIngredients: ParsableCommand {
 
         print("→ native ingredients (no run.py): reference=\(input) [lora=\(lora)]")
         let result = try stage.generateIngredients(
-            referenceImageURL: URL(fileURLWithPath: input),
+            referenceImageURLs: [URL(fileURLWithPath: input)],
             outputDir: URL(fileURLWithPath: output),
             prompt: prompt, loraURL: URL(fileURLWithPath: lora),
             width: width, height: height, seconds: seconds,
