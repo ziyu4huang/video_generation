@@ -54,3 +54,29 @@ _None — the conservative audit's route is clear and complete._
   no meaningful dead code found in research ticket 02). Surface-area reduction
   here is negligible; not worth a decision ticket.
 - **docs/ cleanup** — only 3 ADRs / 223 lines, already lean (research ticket 03).
+
+## Post-close probe (2026-07-26): the bootstrap lever
+
+Probed the `using-superpowers` bootstrap (the one deferred prize that is
+genuinely per-request). **Finding: it too is mostly load-bearing.** The
+injected payload is ~1.3k tok/session — **not** the inventory's "192 lines"
+(that counted the whole dir; only the 62-line `SKILL.md` + two helper fns are
+injected, the `references/` are on-demand):
+
+- `SKILL.md` body (~640 tok) — anti-rationalization enforcement
+  (EXTREMELY-IMPORTANT + Red Flags table); trimming defeats its purpose.
+- `piToolMapping()` (~370 tok) — the **one lever**: inlines subagent
+  operational gotchas (commitScope to catch the `.planning/sdd`-scratch-in-commit
+  bug; tier portability; concurrency = `workflow` not subagent-batch) largely
+  duplicated by the on-demand `references/pi-tools.md`. Compressing could save
+  ~250 tok/session BUT moves bug-prevention to on-demand → re-introduction risk.
+- `piBoundaryOverrides()` (~240 tok) — Superpowers-vs-Wayfind pipeline routing;
+  load-bearing repo convention.
+
+➡️ Under the conservative posture the safe net win on the bootstrap is also
+marginal (~250 tok with real re-introduction risk); the "192 lines" framing was
+inflated by the dir-vs-injection confusion. All three audit faces — content
+(pilot net 0), skill-set (no retirements), per-request bootstrap — converge: the
+extension is lean; remaining trims are load-bearing or risky. To get real cuts
+you must **escalate posture** (aggressive Phase-2 rewrite) — a deliberate
+risk/reward choice, not part of this conservative audit.

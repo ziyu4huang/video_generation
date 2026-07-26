@@ -38,7 +38,8 @@ Grilled three decisions; all settled.
    writing-skills' weight is almost entirely **on-demand** (SKILL.md 679 +
    `anthropic-best-practices.md` 1150 + support files); its **per-request** cost
    is just the 1-line description. The real per-request lever is the
-   `using-superpowers` bootstrap (192 lines, injected every session) + whole-skill
+   `using-superpowers` bootstrap (~1.3k tok injected every session: 62-line
+   SKILL.md + piToolMapping/piBoundaryOverrides helpers) + whole-skill
    retirement (ticket 05). So this pilot optimizes **surface area /
    maintainability**, not baseline per-request weight.
 2. **Aggressiveness** — **Medium, behavior-preserving.** Target the
@@ -82,7 +83,7 @@ Handoff's fixture drop was never triggered — ticket 06 resolved as **moot**.
 redundancy removal has effectively **nothing** left to give across the skills.
 The real ROI levers are (a) **whole-skill retirement** (ticket 05 — resolves to
 *nothing* under the strict bar), (b) the **always-injected `using-superpowers`
-bootstrap** (192 lines/session — the one per-request weight lever in skills),
+bootstrap** (~1.3k tok/session — the one per-request weight lever in skills),
 or (c) **aggressive guidance rewrite** (a scope escalation beyond
 "behavior-preserving"). Under the conservative posture the extension is already
 lean; the audit's deliverable is that finding, not a line count.

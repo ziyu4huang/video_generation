@@ -32,6 +32,13 @@ retirement and compression decisions (tickets 04, 05) rest on facts, not guesses
 | verification-before-completion | 120 | 1% |
 | executing-plans | 64 | 1% |
 
+> **Per-request caveat (verified post-close):** "lines" = **whole skill dir**
+> (surface-area proxy), NOT per-request cost. Normal skills cost only their
+> 1-line description per request; their files are on-demand. The exception is
+> `using-superpowers`, whose **bootstrap** injects its 62-line `SKILL.md` + two
+> helper fns (~1.3k tok/session) — **not** the whole 192-line dir (the
+> `references/` are on-demand). See the map's post-close probe note.
+
 `writing-skills` is the dominant target — it alone is ~30% of all skill weight.
 
 **Cross-references** — all 15 skills are referenced by *something* (no orphan by
