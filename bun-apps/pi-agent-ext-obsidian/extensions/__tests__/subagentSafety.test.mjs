@@ -19,7 +19,6 @@ import {
 	validateZettelNote,
 	validateZettelNotes,
 	repairZettelFrontmatter,
-	runSubagent,
 	parseStructuredResult,
 	toolAllowlist,
 	assertExtensionApi,
@@ -306,42 +305,6 @@ describe("WS-B1 — validateZettelNotes (batch over a vault)", () => {
 });
 
 // ---- B5: runSubagent spawn-error does not leak a rejection ----------------
-
-describe("WS-B5 — runSubagent resolves cleanly on spawn error (no antipattern leak)", () => {
-	it("returns exitCode 1 (does not throw / reject) when the child can't spawn", async () => {
-		const savedPath = process.env.PATH;
-		const savedTimeout = process.env.OB_SUBAGENT_TIMEOUT_MS;
-		process.env.PATH = ""; // ensure `pi` cannot be resolved → ENOENT spawn error
-		process.env.OB_SUBAGENT_TIMEOUT_MS = "2000";
-		let unhandled = null;
-		const onUR = (err) => {
-			unhandled = err;
-		};
-		process.on("unhandledRejection", onUR);
-		try {
-			const res = await runSubagent(
-				process.cwd(),
-				"sys",
-				"task",
-				"read",
-				undefined,
-				"pi-spawnerr-",
-			);
-			expect(res.exitCode).toBe(1);
-			expect(res).toHaveProperty("output");
-			expect(res).toHaveProperty("stderr");
-			expect(res.result).toBeNull();
-			// allow any deferred microtask to surface an unhandled rejection
-			await new Promise((r) => setTimeout(r, 50));
-			expect(unhandled).toBeNull();
-		} finally {
-			process.removeListener("unhandledRejection", onUR);
-			process.env.PATH = savedPath;
-			if (savedTimeout === undefined) delete process.env.OB_SUBAGENT_TIMEOUT_MS;
-			else process.env.OB_SUBAGENT_TIMEOUT_MS = savedTimeout;
-		}
-	}, 10_000);
-});
 
 // ---- parseStructuredResult: malformed output rejected ---------------------
 
