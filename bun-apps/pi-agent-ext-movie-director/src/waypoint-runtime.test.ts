@@ -54,14 +54,14 @@ test("readSchemaSpec decorates a nested object's own array-typed sub-fields (lan
 	// Deeper regression: existing_content is object → array → item (3 levels). The model
 	// repeatedly omitted source/angle/what_it_covers identically across every retry because
 	// the item's own required sub-fields were never surfaced — only the array's name was.
-	expect(spec).toContain("existing_content*=array, minItems 3 of {title*, url, source*, angle*, what_it_covers*");
+	expect(spec).toContain("existing_content*=array, minItems 3 of {title* (string), source* (string), angle* (string), what_it_covers* (string), url (string)");
 });
 
 test("readSchemaSpec recurses through object -> array -> item (audience_insights.misconceptions.myth)", () => {
 	// Same 3-level shape as existing_content but via the object branch first:
 	// research_brief -> audience_insights (object) -> misconceptions (array) -> {myth*, reality*, source}.
 	const spec = makeRealWaypointDeps({}).schemaSpec!("research_brief")!;
-	expect(spec).toContain("misconceptions*=array of {myth*, reality*, source}");
+	expect(spec).toContain("misconceptions*=array of {myth* (string), reality* (string), source (string)}");
 });
 
 test("readSchemaSpec surfaces a top-level const constraint (version must be exactly \"1.0\")", () => {
@@ -71,4 +71,37 @@ test("readSchemaSpec surfaces a top-level const constraint (version must be exac
 	// with zero hint that a specific literal value was required.
 	const spec = makeRealWaypointDeps({}).schemaSpec!("research_brief")!;
 	expect(spec).toContain('version (must be exactly "1.0")');
+});
+
+test("readSchemaSpec never drops a required sub-field to the object-property/array-item cap", () => {
+	// Regression: a real comedy-genre run showed deepseek-v4-flash omitting
+	// concept_options[].why_this_works on every attempt. Root cause: the item has
+	// 15 properties (id, title, hook, narrative_structure, visual_approach,
+	// suggested_playbook, target_audience, target_platform, target_duration_seconds,
+	// key_points, core_message, cta, tone, grounded_in, why_this_works) and the spec
+	// generator silently truncated to the first 12 in schema-declaration order —
+	// dropping why_this_works (required) purely because of where it happened to sit
+	// in the property list, with no signal to the model that it was ever asked for.
+	const spec = makeRealWaypointDeps({}).schemaSpec!("proposal_packet")!;
+	expect(spec).toContain("why_this_works*");
+});
+
+test("readSchemaSpec recurses far enough for object -> array -> array -> item (production_plan.stages.tools)", () => {
+	// Regression: same real run showed the model omitting tools[].{tool_name,role,
+	// available} (all required) on every attempt. Root cause: this is FOUR levels
+	// deep (production_plan -> stages -> tools -> item) but describeField's default
+	// depth budget (2) only reaches THREE levels — the "tools" array's own item
+	// fields were never surfaced, only "tools=array of object".
+	const spec = makeRealWaypointDeps({}).schemaSpec!("proposal_packet")!;
+	expect(spec).toContain("tools*=array of {tool_name* (string), role* (string), available* (boolean)");
+});
+
+test("readSchemaSpec hints a scalar's type for a nested (non-top-level) optional field", () => {
+	// Regression: same real run sent a non-numeric approved_budget_usd and failed
+	// `/approval/approved_budget_usd: must be number`. Root cause: readSchemaSpec's
+	// OWN top-level fallback appends "(type)" for required top-level scalars, but
+	// describeField (used for every NESTED field, required or not) had no equivalent
+	// branch — nested scalars surfaced as a bare name with zero type signal.
+	const spec = makeRealWaypointDeps({}).schemaSpec!("proposal_packet")!;
+	expect(spec).toContain("approved_budget_usd (number)");
 });
