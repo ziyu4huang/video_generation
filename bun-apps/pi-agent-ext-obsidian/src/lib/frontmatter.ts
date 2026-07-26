@@ -19,7 +19,7 @@ import {
 	assertWritablePath,
 	assertWithinVault,
 } from "./path-safety";
-import { dropIndex } from "./index";
+import { dropIndex, reindexFile } from "./index";
 
 // ---- Frontmatter parser (C1) ----------------------------------------------
 
@@ -234,6 +234,7 @@ export async function appendUnderHeading(
 		const next = existing + sep + `## ${heading}` + ensureLeadingNewline(block);
 		await atomicWriteFile(abs, next);
 		invalidateCache(abs);
+		await reindexFile(vaultPath, note);
 		return { created, insertedAt: "end" };
 	}
 
@@ -260,5 +261,6 @@ export async function appendUnderHeading(
 	);
 	await atomicWriteFile(abs, lines.join("\n"));
 	invalidateCache(abs);
+	await reindexFile(vaultPath, note);
 	return { created, insertedAt: "heading" };
 }
