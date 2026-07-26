@@ -32,7 +32,7 @@ contract is locked.
 
 - [01 — Audit: every subagent-triggering surface](tickets/01-audit-subagent-trigger-surfaces.md) — **4 divergences found** (obsidian + tool-gate subprocess; btw + core-task direct `createAgentSession`) across 2 models; 5 unified consumers; skill drivers cataloged (superpowers SDD biggest). archify/deploy/wayfind/movie-binary spawns ruled out (not subagent dispatch).
 - [02 — Define the "strong unified dispatch" contract](tickets/02-define-strong-unified-dispatch-contract.md) — **contract locked**: unified = 4 guarantees (runner-path via `spawnSubagent` OR a shared subprocess-wrapper; config-only models; retry/timeout default-on; telemetry registered + visible). Mechanism secondary to guarantees. `btw`/`core-task` → in-process; `obsidian`/`tool-gate` → shared subprocess-wrapper.
-- [03 — Per-divergence rationale + consolidation strategy](tickets/03-per-divergence-rationale-and-consolidation-strategy.md) — **strategy decided** (research revised 02's assumption): ① obsidian + ② tool-gate → **shared subprocess-wrapper** (04; isolation load-bearing); ③ btw → **reclassified out of scope** (persistent tangent thread ≠ one-shot subagent); ④ core-task → **extend spawnSubagent** with `modelRuntime` opt (07) + consolidate (08; reuses parent runtime). Graduated build tickets 04–09.
+- [03 — Per-divergence rationale + consolidation strategy](tickets/03-per-divergence-rationale-and-consolidation-strategy.md) — **strategy decided** (research revised 02's assumption): ① obsidian + ② tool-gate → **shared subprocess-wrapper** (04; isolation load-bearing); ③ btw → **reclassified out of scope** (persistent tangent thread ≠ one-shot subagent); ④ core-task → **extend spawnSubagent** with `modelRuntime` opt (07) + consolidate (08; reuses parent runtime). Graduated build tickets 04–09. _(Post-03: ② tool-gate later reclassified out of scope by 06 — its raw A/B semantics are incompatible with the structured wrapper; see 06.)_
 
 ## Build phase (graduated from 03)
 
@@ -40,7 +40,7 @@ The research/grilling fog is cleared. Remaining work is **execution** (task tick
 
 - [04 — shared subprocess-wrapper](tickets/04-shared-subprocess-wrapper.md) — **unblocked keystone** (the ① ② vehicle).
 - [05 — obsidian → shared wrapper](tickets/05-obsidian-route-through-shared-wrapper.md) — blocked by 04.
-- [06 — tool-gate → shared wrapper](tickets/06-tool-gate-route-through-shared-wrapper.md) — blocked by 04.
+- [06 — tool-gate → shared wrapper](tickets/06-tool-gate-route-through-shared-wrapper.md) — **RECLASSIFIED OUT OF SCOPE** (post-03 evidence): l2.ts is a raw prompt-mode A/B harness needing env-override arming + raw stdout/stderr grep — both invariants the structured-subagent wrapper breaks (no env passthrough; NDJSON-only output). Mirrors btw. §3 retry would skew A/B; l2.ts is explicitly experimental/uncalibrated.
 - [07 — spawnSubagent `modelRuntime` opt](tickets/07-spawnsubagent-modelruntime-opt.md) — **unblocked** (independent of 04; small, broadly-useful).
 - [08 — core-task → spawnSubagent](tickets/08-core-task-consolidate-onto-spawnsubagent.md) — blocked by 07.
 - [09 — skills alignment audit](tickets/09-skills-alignment-audit.md) — low priority, independent.
