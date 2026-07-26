@@ -367,33 +367,60 @@ export default async function (pi: ExtensionAPI) {
   // DB-writing session_shutdown handler after this block — it would run after
   // close() and silently no-op.
   pi.on("session_shutdown", async (_event, ctx) => {
+    // [SHUTDOWN-TIMING-DEBUG] TEMP instrumentation — remove after diagnosing.
+    const perf = require("node:perf_hooks").performance;
+    const t0 = perf.now();
+    const _dbg = (label: string, since: number) => process.stderr.write(
+      `[SHUTDOWN-TIMING-DEBUG] hermes.session_shutdown: ${label} took ${Math.round(perf.now() - since)}ms (total ${Math.round(perf.now() - t0)}ms)\n`
+    );
+    // DRAIN in-flight background writers (live-index + backfill) BEFORE
+    // indexSession. indexSession and these background tasks share SQLite's
+    // single write lock; running them concurrently made indexSession block
+    // under busy_timeout(5s) × transient-retry(3) (~13s) and its contended
+    // commit failed to persist. Draining first lets indexSession run
+    // uncontended (~tens of ms) and commit cleanly.
+    try {
+      const tDrain = perf.now();
+      await Promise.all([
+        waitForSessionBackfill(SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS),
+        waitForLiveSessionIndex(SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS),
+      ]);
+      _dbg("drain(backfill+liveIndex)", tDrain);
+    } catch {
+      process.stderr.write(`[SHUTDOWN-TIMING-DEBUG] hermes.session_shutdown: drain threw at ${Math.round(perf.now() - t0)}ms\n`);
+    }
+
     try {
       const sessionFile = ctx.sessionManager.getSessionFile();
       if (sessionFile && require("node:fs").existsSync(sessionFile)) {
+        const tParse = perf.now();
         const sessionData = parseSessionFile(sessionFile);
+        _dbg("parseSessionFile", tParse);
         if (sessionData) {
           // The repository methods already wrap recovery + transient retry, so
           // there is no need to wrap them in backend.withCorruptionRecovery here.
+          const tIdx = perf.now();
           await sessionRepo.indexSession(sessionData);
+          _dbg("indexSession", tIdx);
           // Keep session_files metadata in sync with the final on-disk state.
           // Pi appends the closing session entry on shutdown after the last
           // message_end, so without this upsert the stored size/mtime would be
           // stale and the next startup would re-parse this file unnecessarily.
+          const tMeta = perf.now();
           await sessionRepo.upsertSessionFileMeta(sessionFile, sessionData.id);
+          _dbg("upsertSessionFileMeta", tMeta);
         }
       }
     } catch {
       // Silent fail — don't block shutdown
+      process.stderr.write(`[SHUTDOWN-TIMING-DEBUG] hermes.session_shutdown: try-block threw at ${Math.round(perf.now() - t0)}ms\n`);
     } finally {
       try {
-        await Promise.all([
-          waitForSessionBackfill(SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS),
-          waitForLiveSessionIndex(SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS),
-        ]);
-      } catch {
-        // Best effort only — shutdown should not be held up by indexing errors.
-      }
-      try { await currentBundle.backend.close(); } catch { /* best effort — never block shutdown */ }
+        const tClose = perf.now();
+        await currentBundle.backend.close();
+        _dbg("backend.close()", tClose);
+      } catch { /* best effort — never block shutdown */ }
+      process.stderr.write(`[SHUTDOWN-TIMING-DEBUG] hermes.session_shutdown: DONE total ${Math.round(perf.now() - t0)}ms\n`);
     }
   });
 }
