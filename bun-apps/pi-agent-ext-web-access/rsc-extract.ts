@@ -88,7 +88,7 @@ export function extractRSCContent(html: string): RSCExtractResult | null {
       // Check if it's a reference like "$L30"
       const refMatch = node.match(/^\$L([0-9a-f]+)$/i);
       if (refMatch) {
-        const refId = refMatch[1];
+        const refId = refMatch[1] ?? "";
         if (visitedRefs.has(refId)) return ""; // Prevent cycles
         visitedRefs.add(refId);
         const refNode = getParsedChunk(refId);
@@ -192,11 +192,11 @@ export function extractRSCContent(html: string): RSCExtractResult | null {
       // Handle string refs
       if (typeof node === "string") {
         const refMatch = node.match(/^\$L([0-9a-f]+)$/i);
-        if (refMatch && !visitedRefs.has(refMatch[1])) {
-          visitedRefs.add(refMatch[1]);
-          const refNode = getParsedChunk(refMatch[1]);
+        if (refMatch && !visitedRefs.has(refMatch[1] ?? "")) {
+          visitedRefs.add(refMatch[1] ?? "");
+          const refNode = getParsedChunk(refMatch[1] ?? "");
           if (refNode) walkTable(refNode, isHeader);
-          visitedRefs.delete(refMatch[1]);
+          visitedRefs.delete(refMatch[1] ?? "");
         }
         return;
       }
@@ -240,11 +240,11 @@ export function extractRSCContent(html: string): RSCExtractResult | null {
       // Handle string refs
       if (typeof node === "string") {
         const refMatch = node.match(/^\$L([0-9a-f]+)$/i);
-        if (refMatch && !visitedRefs.has(refMatch[1])) {
-          visitedRefs.add(refMatch[1]);
-          const refNode = getParsedChunk(refMatch[1]);
+        if (refMatch && !visitedRefs.has(refMatch[1] ?? "")) {
+          visitedRefs.add(refMatch[1] ?? "");
+          const refNode = getParsedChunk(refMatch[1] ?? "");
           if (refNode) walkCells(refNode, cells);
-          visitedRefs.delete(refMatch[1]);
+          visitedRefs.delete(refMatch[1] ?? "");
         }
         return;
       }
