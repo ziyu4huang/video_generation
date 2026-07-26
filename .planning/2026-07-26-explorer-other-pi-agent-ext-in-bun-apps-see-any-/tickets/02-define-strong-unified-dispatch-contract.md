@@ -1,35 +1,51 @@
 ---
 type: grilling
-status: open
+status: closed (2026-07-26) — contract locked
 ---
 
 # 02 — Define the "strong unified dispatch" contract
 
-## Question
+## Resolution — the contract
 
-What exactly must a subagent dispatch do/have to count as "unified + strong"?
-This is the bar every divergent runner (01's ①–④) is measured against +
-consolidated toward.
+A subagent dispatch is **unified + strong** iff it provides all four guarantees.
+The mechanism (in-process vs subprocess) is secondary to the guarantees —
+process isolation is accommodated, not outlawed.
 
-## What resolving it looks like
+**§1 Runner-path — guarantees-based, mechanism secondary.** In-process dispatch
+MUST go through `spawnSubagent` / `WorkflowAgent`. Subprocess dispatch (a child
+pi process) is permitted ONLY via a **shared wrapper** that provides §2–§4.
+`btw` + `core-task` (direct `createAgentSession`) move to in-process
+`spawnSubagent`. `obsidian` + `tool-gate` (subprocess) go through the shared
+subprocess-wrapper (their isolation is load-bearing).
 
-A grilling session (one question at a time) that pins:
+**§2 Model-resolution — config-only, no hardcodes.** Resolve via
+`tiers` / `capabilities` config; no hardcoded model ids in any code. Subprocess
+dispatch delegates to pi's own config-reading (the spawned pi reads
+`~/.pi/workflows/model-tiers.json`) — auto-satisfied, no injection needed.
 
-- **Runner-path**: must the dispatch call `spawnSubagent` / `WorkflowAgent` (the
-  in-process runner)? Or does a subprocess wrapper that still registers
-  telemetry + resolves models via config count as "unified"? — the hard question
-  for obsidian ① + tool-gate ②, which run pi as a child process (possibly for
-  isolation).
-- **Model-resolution**: must resolve via `tiers` / `capabilities` config (no
-  hardcoded ids) — the no-hardcode principle.
-- **Error/retry/timeout**: must inherit `retryOnTransient` + `timeoutMs`
-  defaults (or explicitly opt out with rationale).
-- **Telemetry**: must register in the in-flight registry + run-persistence
-  (visible to `/subagents`).
+**§3 Error/retry/timeout — required for all (default-on).** Every dispatch
+inherits `retryOnTransient` (default true) + a default `timeoutMs`. For
+subprocess dispatch, the shared wrapper imposes retry + timeout around the
+child process. Opt-out requires explicit, documented rationale.
 
-The output is a one-paragraph contract + the **in-process-vs-subprocess ruling**
-that 03's per-divergence strategy depends on.
+**§4 Telemetry — required for all (visible).** Every dispatch registers in the
+in-flight registry + run-persistence (visible to `/subagents`). For subprocess
+dispatch, the shared wrapper registers a host-side **phantom entry**
+(start → done) tracking the child — granular inner activity is best-effort, but
+the run is observable.
 
-## blocked by
+### The in-process-vs-subprocess ruling (keystone)
 
-(none — runs in parallel with 01, which is already closed)
+"Unified" = same **guarantees**, not same mechanism. Subprocess isolation is
+legitimate (tool-gate L2 QA needs a clean process; obsidian distill/garden
+benefits from crash isolation) — it is accommodated via the shared subprocess-
+wrapper (which injects config-awareness + imposes retry/timeout + registers a
+phantom telemetry entry). `btw` + `core-task` have no such isolation need →
+they consolidate to plain in-process `spawnSubagent`.
+
+## What this unblocks
+
+03 (per-divergence strategy) — the contract is the bar; 03 now decides each
+divergence's path to meeting it, and graduates the per-divergence **build
+tickets** — incl. the **shared subprocess-wrapper** as its own build ticket
+(the §1 vehicle for obsidian + tool-gate).
