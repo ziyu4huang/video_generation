@@ -653,11 +653,11 @@ public struct NativeUpscaleStage {
             inputSize: (width, height), outputSize: (width, height))
     }
 
-    /// `native-ingredients`: single-reference-image IC-LoRA conditioning —
-    /// the sibling "easy tier" item to `generateRestyle` from PLAN.md's
+    /// `native-ingredients`: one-or-more-reference-image IC-LoRA conditioning
+    /// — the sibling "easy tier" item to `generateRestyle` from PLAN.md's
     /// IC-LoRA scoping research. Same reference-conditioning core
-    /// (VAE-encode a reference -> fuse IC-LoRA -> `VideoConditionByReferenceLatent`
-    /// -> denoise -> decode) but the "reference clip" is a SINGLE still
+    /// (VAE-encode reference(s) -> fuse IC-LoRA -> `VideoConditionByReferenceLatent`
+    /// -> denoise -> decode) but each "reference clip" is a SINGLE still
     /// image tiled across the full generation frame count, not a real
     /// multi-frame input clip. Confirmed against the reference ComfyUI
     /// graph's actual node links (docs/reference/comfyui_workflows/
@@ -665,8 +665,17 @@ public struct NativeUpscaleStage {
     /// node names: `LoadImage` -> `CreateVideo` -> `GetVideoComponents` ->
     /// `ResizeImageMaskNode` -> `RepeatImageBatch`, where `RepeatImageBatch`'s
     /// `amount` and `EmptyLTXVLatentVideo`'s frame count are driven by the
-    /// SAME `PrimitiveInt` node — i.e. the reference image is tiled to
+    /// SAME `PrimitiveInt` node — i.e. each reference image is tiled to
     /// exactly the target generation length, not some fixed short window.
+    /// `referenceImageURLs` accepts one or more images: each is
+    /// independently tiled/VAE-encoded/patchified to the same (f, h, w)
+    /// dims (they all share the same output resolution and frame count),
+    /// and the resulting per-image token/position blocks are concatenated
+    /// into one combined reference sequence before the single
+    /// `VideoConditionByReferenceLatent` call, which APPENDS that combined
+    /// sequence to the generation's own tokens (self-attention, not
+    /// position-collision) — see docs/superpowers/specs/
+    /// 2026-07-26-multi-reference-ingredients-design.md for the full design.
     ///
     /// Two deliberate deviations from a literal 1:1 port, both reusing
     /// existing primitives over adding new preprocessing:
@@ -702,6 +711,10 @@ public struct NativeUpscaleStage {
         guard !referenceImageURLs.isEmpty else {
             throw StageError.noReferenceImages
         }
+        // Deliberately a separate pass from the decode/encode loop below —
+        // validates every reference path up front so a bad URL anywhere in
+        // the list fails fast, before any expensive VAE-encode work starts
+        // on the images that DO exist.
         for referenceImageURL in referenceImageURLs {
             guard fm.fileExists(atPath: referenceImageURL.path) else {
                 throw StageError.referenceImageNotFound(referenceImageURL)
@@ -769,15 +782,11 @@ public struct NativeUpscaleStage {
             dims = imageDims
             referenceTokenChunks.append(tokens)
         }
-        let referenceTokens = referenceTokenChunks.count == 1
-            ? referenceTokenChunks[0]
-            : MLX.concatenated(referenceTokenChunks, axis: 1)
+        let referenceTokens = MLX.concatenated(referenceTokenChunks, axis: 1)
         let positions = Positions.computeVideoPositions(numFrames: dims.f, height: dims.h, width: dims.w, frameRate: Float(fps))
         // Every reference's positions are value-identical to `positions`
         // (same formula, same dims) — repeat rather than recompute per image.
-        let referencePositions = referenceTokenChunks.count == 1
-            ? positions
-            : MLX.concatenated(Array(repeating: positions, count: referenceTokenChunks.count), axis: 1)
+        let referencePositions = MLX.concatenated(Array(repeating: positions, count: referenceTokenChunks.count), axis: 1)
         let genTokenCount = dims.f * dims.h * dims.w
 
         print("[3/6] LoRA: loading + fusing Ingredients IC-LoRA into distilled transformer...")
