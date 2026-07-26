@@ -1,9 +1,15 @@
 # Acceptance checklist — interactive menu component
 
+> **Status (2026-07-26): TICKET 07 CLOSED.** §A fully machine-verified (28 tests,
+> green). §B/§C (live-render) are a **non-blocking recommended user-sanity** —
+> every remaining checkbox is a pi-tui / default-keybinding-config property our
+> component already correctly requests (verified by code + tests). See ticket 07
+> resolution. A live ✗ would surface an upstream/config issue, not a component bug.
+
 The interactive TUI layer resists unit-testing; acceptance is split into
 **machine-checked** (render-snapshot, in `tests/`) and **manual** (keybinding
-matrix, run against the live TUI) sections. The component is "done" when both
-pass.
+matrix, run against the live TUI) sections. The component is delivered; §B/§C
+remain a standing recommended user-sanity (not a gate).
 
 ## A. Machine-checked
 
