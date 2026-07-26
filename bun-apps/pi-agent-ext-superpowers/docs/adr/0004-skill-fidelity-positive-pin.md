@@ -1,6 +1,16 @@
 # Skill fidelity is guarded by a positive content pin, not a denylist
 
-The 14 upstream-ported superpowers `SKILL.md` must stay byte-identical to upstream
+> **Partial supersession (2026-07-26).** `writing-skills` was removed from the pin
+> set (`PORTED_SKILLS`) and is no longer byte-tracked to upstream. It was forked
+> via a structural restructure — a lean core `SKILL.md` + `references/` for heavy
+> detail (`skill-discovery-optimization.md`, `skill-testing.md`) — to cut on-demand
+> load while preserving all methodology (content relocated, not cut). The remaining
+> 13 skills stay pinned. Rationale: a Phase-2 on-demand/execution-context
+> optimization; the skill's own File Organization pattern (heavy reference →
+> separate file) authorized the move. This is the only sanctioned divergence —
+> all other edits to pinned `SKILL.md` still trip the guard.
+
+The 13 upstream-ported superpowers `SKILL.md` must stay byte-identical to upstream
 EXCEPT sanctioned pi-port glue (`using-superpowers/references/*.md`, #639). After
 #664/#676/#678 silently injected repo conventions into the skills (passing the
 structure-only `tests/skills.test.ts`), we guard the invariant with a **positive

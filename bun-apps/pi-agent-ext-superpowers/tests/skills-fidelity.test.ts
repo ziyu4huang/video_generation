@@ -5,8 +5,9 @@ import { join } from "node:path";
 /**
  * Skill fidelity guard (ADR-0004).
  *
- * The 14 upstream-ported superpowers SKILL.md must be byte-identical to their
- * committed baseline fixtures. A convention injection (#664/#676/#678 — repo
+ * The 13 upstream-ported superpowers SKILL.md must be byte-identical to their
+ * committed baseline fixtures (writing-skills was forked out 2026-07-26 via a
+ * structural restructure — see the ADR-0004 supersession note). A convention injection (#664/#676/#678 — repo
  * conventions written into upstream skill bodies) slipped through the
  * structure-only skills.test.ts; it now fails HERE, in CI, loudly.
  *
@@ -39,7 +40,8 @@ const PORTED_SKILLS = [
   "using-superpowers",
   "verification-before-completion",
   "writing-plans",
-  "writing-skills",
+  // "writing-skills" removed 2026-07-26: forked (structural restructure into
+  // lean core + references/). No longer upstream-tracked — see ADR-0004 supersession.
 ] as const;
 
 describe("skill fidelity (ADR-0004) — upstream-ported SKILL.md byte-equal baseline", () => {
