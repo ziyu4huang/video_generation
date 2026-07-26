@@ -93,9 +93,9 @@ describe("/models-preset", () => {
     await makeHandler()("deepseek-lmstudio", ctx);
     expect(savedConfig).toEqual({
       tiers: {
-        small: "deepseek/deepseek-flash-v4",
-        medium: "deepseek/deepseek-pro",
-        big: "deepseek/deepseek-pro",
+        small: "deepseek/deepseek-v4-flash",
+        medium: "deepseek/deepseek-v4-pro",
+        big: "deepseek/deepseek-v4-pro",
       },
       capabilities: { vision: "lm-studio/google/gemma-4-12b-qat" },
     });

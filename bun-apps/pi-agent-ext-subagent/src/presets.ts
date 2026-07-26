@@ -28,9 +28,10 @@ export interface ModelPreset {
 }
 
 /**
- * Built-in presets. `deepseek-lmstudio` model ids are a best-guess template —
- * the deepseek provider may not be configured in ~/.pi/agent/models.json yet;
- * correct the ids via `/workflows-models` after adding the provider.
+ * Built-in presets. Model ids are verified against the models-store catalog
+ * (`validateConfigSpecs` in models-registry-reader.ts gates apply-time). A
+ * preset's provider still needs its API key configured separately — runtime
+ * auth is out of scope for preset validation.
  */
 export const MODEL_PRESETS: ModelPreset[] = [
   {
@@ -45,9 +46,9 @@ export const MODEL_PRESETS: ModelPreset[] = [
   {
     id: "deepseek-lmstudio",
     label: "DeepSeek (official) + LM Studio vision",
-    summary: "tiers: deepseek-flash-v4 / deepseek-pro  ·  vision: lm-studio gemma-4-12b",
+    summary: "tiers: deepseek-v4-flash / deepseek-v4-pro  ·  vision: lm-studio gemma-4-12b",
     config: {
-      tiers: { small: "deepseek/deepseek-flash-v4", medium: "deepseek/deepseek-pro", big: "deepseek/deepseek-pro" },
+      tiers: { small: "deepseek/deepseek-v4-flash", medium: "deepseek/deepseek-v4-pro", big: "deepseek/deepseek-v4-pro" },
       capabilities: { vision: "lm-studio/google/gemma-4-12b-qat" },
     },
   },
