@@ -29,7 +29,14 @@ dispositions are reflected back into KNOWN-ISSUES.md as either Resolved or Accep
 
 ## Decisions so far
 
-*(none yet — all 5 tickets open)*
+- **03 = fix** (grilled 2026-07-26): `zk-ingest` CLI gains `generic` in
+  `KNOWN_SOURCES` + a dispatch branch mirroring `auto-memory`
+  (one-record-per-file via `adaptGenericMarkdown`) + help text ×2 + a CLI test.
+  Fact-finding found the gap is **two sites** (set + dispatch), not the
+  single-line the map draft assumed — `generic` would otherwise fall through to
+  `parseKnowledgeJsonl`. Spec locked in
+  [tickets/03](tickets/03-zkingest-cli-generic-source.md); executing as its own
+  PR.
 
 ## Not yet specified
 
