@@ -51,6 +51,16 @@ export interface SpawnSubagentOptions {
    * file2md) inject a custom local ModelRuntime for a vision model.
    */
   session?: Partial<CreateAgentSessionOptions>;
+  /**
+   * The parent session's authenticated ModelRuntime — when set, the child
+   * reuses it (auth/context sharing) instead of building its own from agentDir
+   * (createAgentSession's `modelRuntime ?? ModelRuntime.create(...)` skips the
+   * disk read). Shortcut for `session: { modelRuntime }`; the top-level opt
+   * wins on conflict (it is the more-specific, explicit choice). The runtime
+   * was itself config-resolved by the parent, so this is NOT a hardcode.
+   * Used by core-task's auditor to share the parent's auth (ticket 07/08).
+   */
+  modelRuntime?: CreateAgentSessionOptions["modelRuntime"];
   /** Image attachments for a vision-capable subagent (see AgentRunOptions.images). */
   images?: unknown[];
   schema?: TSchema;
@@ -168,6 +178,18 @@ function mergeUsage(a: AgentUsage | undefined, b: AgentUsage | undefined): Agent
   };
 }
 
+/** Merge a caller-provided `modelRuntime` into the session override. The runtime
+ *  wins over any `session.modelRuntime` (explicit top-level opt is more
+ *  specific). Pure + exported so the merge contract is unit-testable without
+ *  constructing a real WorkflowAgent (mock.module would leak under bun's
+ *  shared-realm default). */
+export function resolveSessionOverride(
+  session: Partial<CreateAgentSessionOptions> | undefined,
+  modelRuntime: CreateAgentSessionOptions["modelRuntime"] | undefined,
+): Partial<CreateAgentSessionOptions> | undefined {
+  return modelRuntime ? { ...session, modelRuntime } : session;
+}
+
 export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> {
   const runner =
     opts.agent ??
@@ -175,7 +197,7 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
       cwd: opts.cwd,
       extensionTools: opts.extensionTools,
       mainModel: opts.mainModel,
-      session: opts.session,
+      session: resolveSessionOverride(opts.session, opts.modelRuntime),
     });
   const retry = opts.retryOnTransient !== false;
   // Default-to-current-LLM: when the caller neither picks a model nor a tier, fall

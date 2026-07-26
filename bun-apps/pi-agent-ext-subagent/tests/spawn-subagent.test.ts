@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WorkflowError, WorkflowErrorCode } from "../src/errors.js";
 import { saveModelTierConfig } from "../src/model-role-config.js";
-import { spawnSubagent } from "../src/spawn-subagent.js";
+import { resolveSessionOverride, spawnSubagent } from "../src/spawn-subagent.js";
 
 /** Minimal injectable runner (Pick<WorkflowAgent, "run">) that records calls. */
 function mkRunner(impl: (p: { prompt: string; opts: Record<string, unknown> }) => Promise<unknown>) {
@@ -401,5 +401,22 @@ describe("spawnSubagent schema repair", () => {
     const out = await spawnSubagent({ task: "t", retryOnTransient: false, agent: runner });
     assert.equal(out.exitCode, 1);
     assert.equal(runner.calls.length, 1, "retryOnTransient:false → no retry");
+  });
+});
+
+describe("resolveSessionOverride (modelRuntime merge — ticket 07)", () => {
+  const rt = { __fake: true } as any;
+  it("no modelRuntime → session unchanged (passthrough)", () => {
+    assert.equal(resolveSessionOverride(undefined, undefined), undefined);
+    const s = { cwd: "/x" } as any;
+    assert.equal(resolveSessionOverride(s, undefined), s);
+  });
+  it("modelRuntime set → merged into session", () => {
+    assert.deepEqual(resolveSessionOverride(undefined, rt), { modelRuntime: rt });
+    assert.deepEqual(resolveSessionOverride({ cwd: "/x" } as any, rt), { cwd: "/x", modelRuntime: rt });
+  });
+  it("top-level modelRuntime wins over session.modelRuntime", () => {
+    const other = { __other: true } as any;
+    assert.equal(resolveSessionOverride({ modelRuntime: other } as any, rt)?.modelRuntime, rt);
   });
 });
