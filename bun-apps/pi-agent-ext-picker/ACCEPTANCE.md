@@ -5,15 +5,29 @@ The interactive TUI layer resists unit-testing; acceptance is split into
 matrix, run against the live TUI) sections. The component is "done" when both
 pass.
 
-## A. Machine-checked (render-snapshot — `tests/menu-picker.test.ts`)
+## A. Machine-checked
 
-Pins the deterministic render core `renderMenuLines`:
+### Render core — `tests/menu-render.test.ts` (pins `renderMenuLines`)
 
 - [x] no query → all items, first selected, column layout
 - [x] fuzzy query narrows + ranks by match quality
 - [x] no matches → empty-state line, no item labels leak
 - [x] `selectedIndex` clamps to the filtered list
 - [x] render respects `width` (no line exceeds it)
+
+### Interactive glue — `tests/picker-trigger.test.ts` + `tests/menu-picker.test.ts`
+
+Drives the real trigger handler + `MenuPickerEditor.handleInput` against mock
+ctx/tui/keybindings (the bytes a terminal sends for ↓/↑/Enter/Esc, mapped to the
+`tui.select.*` ids the real KeybindingsManager uses):
+
+- [x] trigger: `/` in an empty prompt opens the picker + consumes the char
+- [x] trigger: no-op on a non-empty prompt, a non-`/` char, or without `PI_PICKER=1`
+- [x] trigger: re-arms after close — `/` re-opens following Esc (pickerActive resets)
+- [x] ↓ / ↑ move the selection; clamp at the top/bottom
+- [x] Enter selects the highlighted item; empty-state (no items) Enter is a no-op
+- [x] Esc fires onCancel (no selection); accept/cancel hide the overlay + restore the default editor
+- [x] after close, further input is inert (closed guard)
 
 ## Launch (pre-run checklist)
 
@@ -40,9 +54,13 @@ bun bun-apps/pi-agent/src/cli.ts ext doctor | grep picker
 
 ## B. Manual — keybinding matrix (run against the live TUI)
 
-**Status: component + consumer both BUILT (slices 2 + 3, merged). These items
-are the live-TUI acceptance gate — run them via the Launch procedure above.**
-Each must behave as claude-code's picker does:
+**Status: component + consumer both BUILT (slices 2 + 3, merged). The routing
+logic is now machine-checked (§A “Interactive glue”); what §B confirms is the
+LIVE rendering only a real TUI can show — the overlay visually appears
+bottom-center, typed chars reach the editor as a live fuzzy filter (the
+`nonCapturing` focus actually holds), and the real terminal keybinding bytes
+route correctly. Run via the Launch procedure above.** Each must behave as
+claude-code's picker does:
 
 - [ ] type `/` → picker opens (bottom-anchored overlay visible)
 - [ ] **input ownership**: typed chars reach the EDITOR (live filter), NOT eaten

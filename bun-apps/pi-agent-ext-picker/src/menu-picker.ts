@@ -12,9 +12,11 @@
  *     keybindings manager (user-configurable, ticket 05) and CONSUMES them so
  *     the Editor base doesn't also move the text cursor.
  *
- * This layer is NOT unit-testable (needs a live TUI); its render + state logic
- * live in `menu-render.ts` (tested) and its interaction is verified manually
- * (ACCEPTANCE.md §B). Keep this file thin — push logic into menu-render.ts.
+ * The handleInput routing + accept/cancel/close logic ARE unit-tested
+ * (`tests/menu-picker.test.ts` drives handleInput against a mock tui/kb); the
+ * render + state logic live in `menu-render.ts` (tested). What remains manual
+ * (ACCEPTANCE §B) is the live-rendering appearance + real keybinding bytes.
+ * Keep this file thin — push logic into menu-render.ts.
  */
 import { CustomEditor, type KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import type { EditorTheme, OverlayAnchor, SelectItem, TUI } from "@earendil-works/pi-tui";

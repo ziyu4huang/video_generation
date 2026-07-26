@@ -37,10 +37,11 @@ export default function (pi: ExtensionAPI): void {
           // fill the prompt with the chosen command; the user presses Enter to run
           // (no public submit API — see ticket 06 / ACCEPTANCE §C note).
           onSelect: (item) => {
+            pickerActive = false; // re-arm so `/` can re-open after a selection
             ctx.ui.setEditorText(item.value);
           },
           onCancel: () => {
-            /* prompt restored empty by the picker's close() */
+            pickerActive = false; // re-arm so `/` can re-open after Esc
           },
         }),
       );
