@@ -27,6 +27,8 @@ import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { loadModelTierConfig, resolveModelRole } from "./model-role-config.js";
 import type { SpawnSubagentResult } from "./spawn-subagent.js";
+import type { SubagentInFlightRegistry } from "./subagent-in-flight.js";
+import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
 
 // ---- Injectable child-process surface (tests pass a mock) ----------------
 
@@ -125,6 +127,12 @@ export function isTransientError(stderr: string, exitCode: number): boolean {
   return signals.some((sig) => s.includes(sig));
 }
 
+/** Truncate a task prompt for display (in-flight taskPreview). */
+function taskPreview(task: string): string {
+  const s = task.trim().replace(/\s+/g, " ");
+  return s.length > 80 ? `${s.slice(0, 79)}…` : s;
+}
+
 // ---- Options + runner -----------------------------------------------------
 
 export interface SpawnSubagentSubprocessOptions {
@@ -154,6 +162,12 @@ export interface SpawnSubagentSubprocessOptions {
   onEvent?: (event: any) => void;
   /** Injectable spawn (tests). Default: node:child_process spawn. */
   spawnFn?: SpawnFn;
+  /** §4: in-flight registry — register a phantom entry visible to /subagents. Opt-in. */
+  inFlight?: SubagentInFlightRegistry;
+  /** §4: persist the completed run (visible in /subagents completed list). Opt-in. */
+  persistence?: SubagentRunPersistence;
+  /** Run id (inFlight + persistence); default: generated. */
+  runId?: string;
 }
 
 /** Default timeout: 5 minutes (matches pi-obsidian's OB_SUBAGENT_TIMEOUT_MS). */
@@ -276,14 +290,52 @@ export async function spawnSubagentSubprocess(opts: SpawnSubagentSubprocessOptio
     }
   };
 
-  const first = await runOnce();
-  // No retry on success, caller-cancel, timeout, or when retry is off.
-  if (first.exitCode === 0 || !retry || first.timedOut) return first;
-  if (opts.externalSignal?.aborted) return first;
-  // Single retry on a transient failure with no useful output (mirrors
-  // pi-obsidian's runSubagentWithRetry).
-  if (!first.output && isTransientError(first.stderr, first.exitCode)) {
-    return runOnce();
+  // §4: register a host-side phantom entry (visible to /subagents). Opt-in —
+  // when inFlight/persistence are unset, no telemetry is registered (slice-1
+  // default). Consumers (05/06) pass the singletons to satisfy contract §4.
+  const runId = opts.runId ?? generateSubagentRunId();
+  const t0 = Date.now();
+  const displayModel = effectiveModel ?? "default";
+  opts.inFlight?.start({
+    id: runId,
+    model: displayModel,
+    taskPreview: taskPreview(opts.task),
+    startedAt: t0,
+  });
+
+  try {
+    const first = await runOnce();
+    let result: SpawnSubagentResult = first;
+    // No retry on success, caller-cancel, timeout, or when retry is off.
+    // Single retry on a transient failure with no useful output (mirrors
+    // pi-obsidian's runSubagentWithRetry).
+    if (
+      first.exitCode !== 0 &&
+      retry &&
+      !first.timedOut &&
+      !opts.externalSignal?.aborted &&
+      !first.output &&
+      isTransientError(first.stderr, first.exitCode)
+    ) {
+      result = await runOnce();
+    }
+    // §4: persist the completed run (best-effort — never throws).
+    opts.persistence?.save({
+      id: runId,
+      toolCallId: runId,
+      task: opts.task,
+      model: displayModel,
+      cwd: opts.cwd ?? process.cwd(),
+      status: result.timedOut ? "timedout" : result.exitCode === 0 ? "done" : "failed",
+      exitCode: result.exitCode,
+      timedOut: result.timedOut,
+      stderr: result.stderr || undefined,
+      startedAt: new Date(t0).toISOString(),
+      elapsedMs: Date.now() - t0,
+      output: result.output,
+    });
+    return result;
+  } finally {
+    opts.inFlight?.end(runId);
   }
-  return first;
 }
