@@ -409,8 +409,8 @@ describe("MemoryStore", { concurrency: 1 }, () => {
   });
 
   describe("addFailure()", () => {
-    it("applies failure-target char limits", async () => {
-      const store = new MemoryStore(makeConfig({ memoryCharLimit: 40 }));
+    it("applies failure-target char limits (configurable via failureCharLimit)", async () => {
+      const store = new MemoryStore(makeConfig({ failureCharLimit: 80 }));
       await store.loadFromDisk();
 
       const result = await store.addFailure(`${TEST_MARKER} ${"x".repeat(120)}`, {
@@ -420,6 +420,23 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.ok(!result.success);
       assert.ok(result.error);
       assert.ok(result.error!.includes("exceed the limit"));
+    });
+
+    it("default failure limit is generous (40000) — a large write lands without overflow", async () => {
+      // Regression: the old limit was memoryCharLimit*2 = 20000, so failures.md
+      // (chronically ~20k from cross-session error capture) overflowed on nearly
+      // every write -> triggered a 60s LLM consolidation under the file lock ->
+      // cross-session ELOCKED. The higher default (40000) gives headroom so a
+      // normal-large write lands without overflow.
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+
+      // 25000 chars: over the OLD 20000 limit, under the NEW 40000 default.
+      const result = await store.addFailure(`${TEST_MARKER} ${"x".repeat(25000)}`, {
+        category: "failure",
+      });
+
+      assert.ok(result.success, `expected success under the 40000 default, got: ${result.error}`);
     });
 
     it("deduplicates exact failure memories", async () => {

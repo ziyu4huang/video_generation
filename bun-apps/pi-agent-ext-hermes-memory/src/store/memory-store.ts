@@ -21,6 +21,7 @@ import {
   ENTRY_DELIMITER,
   DEFAULT_MEMORY_CHAR_LIMIT,
   DEFAULT_USER_CHAR_LIMIT,
+  DEFAULT_FAILURE_CHAR_LIMIT,
   DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS,
   DEFAULT_FAILURE_INJECTION_MAX_ENTRIES,
   MEMORY_FILE,
@@ -237,7 +238,7 @@ export class MemoryStore {
   }
 
   private charLimit(target: "memory" | "user" | "failure"): number {
-    if (target === "failure") return this.config.memoryCharLimit * 2; // Failures get more space
+    if (target === "failure") return this.config.failureCharLimit ?? DEFAULT_FAILURE_CHAR_LIMIT; // Failures get generous space (high-volume, shared global)
     return target === "user" ? this.config.userCharLimit : this.config.memoryCharLimit;
   }
 
