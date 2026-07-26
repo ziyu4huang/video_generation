@@ -25,9 +25,14 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MemoryStore } from "../store/memory-store.js";
 import { formatFailureMemoryContent } from "../store/memory-format.js";
 import type { MemoryRepository } from "../store/repository.js";
+import { CaptureThrottle } from "./capture-throttle.js";
+import { envInt } from "../utils/env.js";
 import {
   LESSON_WORTHY_PATTERNS,
   ERROR_NOISE_PATTERNS,
+  DEFAULT_ERROR_CAPTURE_RATE_LIMIT,
+  DEFAULT_ERROR_CAPTURE_RATE_WINDOW_MS,
+  DEFAULT_ERROR_CAPTURE_DEDUP_CACHE_SIZE,
 } from "../constants.js";
 import type { MemoryConfig } from "../types.js";
 
@@ -127,6 +132,11 @@ export function setupErrorDetector(
 ): void {
   if (config.errorCapture === false) return;
 
+  const rateLimit = config.errorCaptureRateLimit ?? envInt("PI_MEMORY_ERROR_CAPTURE_RATE_LIMIT", DEFAULT_ERROR_CAPTURE_RATE_LIMIT);
+  const rateWindowMs = config.errorCaptureRateWindowMs ?? envInt("PI_MEMORY_ERROR_CAPTURE_RATE_WINDOW_MS", DEFAULT_ERROR_CAPTURE_RATE_WINDOW_MS);
+  const dedupCacheSize = config.errorCaptureDedupCacheSize ?? envInt("PI_MEMORY_ERROR_CAPTURE_DEDUP_CACHE_SIZE", DEFAULT_ERROR_CAPTURE_DEDUP_CACHE_SIZE);
+  const throttle = new CaptureThrottle({ rateLimit, rateWindowMs, dedupCacheSize });
+
   pi.on("tool_result", async (event, ctx) => {
     // Only failed tool results are candidates.
     if (!event.isError) return;
@@ -134,14 +144,15 @@ export function setupErrorDetector(
     const text = extractResultText(event.content);
     if (!isLessonWorthy(text)) return;
 
-    // DEDUP GUARD — skip if an existing failure entry already carries this
-    // error (same error twice → one entry). The key normalises paths/counts,
-    // so a re-occurrence matches regardless of which tool produced it.
     const dedupKey = errorDedupKey(text);
+    if (!throttle.allow(dedupKey)) return; // ① this-session dup OR ③ rate-capped
+
+    // DEDUP GUARD — skip if an existing failure entry already carries this
+    // error (cross-session; same error twice across sessions → one entry).
     try {
       const existing = store.getFailureEntries(30);
       if (existing.some((e) => errorDedupKey(e) === dedupKey)) {
-        return; // already captured — dedup (criterion 2)
+        return; // ② cross-session dup — does NOT consume a rate slot (no recordCapture)
       }
     } catch {
       // best-effort dedup; never block the capture on a read failure
@@ -176,6 +187,7 @@ export function setupErrorDetector(
       }
 
       if (addResult.success) {
+        throttle.recordCapture(dedupKey); // ④ count only on a real write
         const ui = (ctx as { ui?: { notify?: (message: string, level?: string) => void } }).ui;
         ui?.notify?.("🧠 Lesson-worthy error captured to memory", "info");
       }

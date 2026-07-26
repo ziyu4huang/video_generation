@@ -13,7 +13,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { MemoryStore } from "../../src/store/memory-store.js";
-import { isLessonWorthy, errorSignature, errorDedupKey } from "../../src/handlers/error-detector.js";
+import { isLessonWorthy, errorSignature, errorDedupKey, setupErrorDetector } from "../../src/handlers/error-detector.js";
+import type { MemoryConfig } from "../../src/types.js";
 
 let tmpDir: string;
 
@@ -107,5 +108,77 @@ describe("setupErrorDetector — dedup against the store (criterion 2)", () => {
       !existing.some((e) => errorDedupKey(e) === newKey),
       "a genuinely different error must not be deduped away",
     );
+  });
+});
+
+function createMockPi(handlers: Record<string, Function[]>) {
+  return {
+    on: (event: string, handler: Function) => { (handlers[event] ||= []).push(handler); },
+    registerTool: () => {},
+    registerCommand: () => {},
+  } as any;
+}
+
+function makeToolResultEvent(toolName: string, text: string, isError = true) {
+  return { toolName, isError, content: [{ type: "text", text }] };
+}
+
+const LESSON_WORTHY_ENOENT = "Error: ENOENT: no such file or directory, open '/x/y'";
+const LESSON_WORTHY_EADDR = "Error: listen EADDRINUSE: address already in use";
+
+describe("setupErrorDetector — per-session throttle (#854)", () => {
+  let tmpDir: string;
+  beforeEach(() => { tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "errcap-throttle-")); });
+  afterEach(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
+
+  /** Wire a fresh detector + store; return a fire() helper and a row counter. */
+  function wire(configOverrides: Partial<MemoryConfig> = {}, seededStore?: MemoryStore) {
+    const handlers: Record<string, Function[]> = {};
+    const pi = createMockPi(handlers);
+    const store = seededStore ?? new MemoryStore({ memoryDir: tmpDir });
+    const config = { errorCapture: true, ...configOverrides } as MemoryConfig;
+    setupErrorDetector(pi, store, null, config, null, undefined);
+    const fire = async (text: string, isError = true) => {
+      for (const fn of handlers["tool_result"] ?? []) {
+        await fn(makeToolResultEvent("bash", text, isError), { ui: { notify() {} } });
+      }
+    };
+    return { fire, store };
+  }
+
+  it("rate-caps repeated DISTINCT errors at errorCaptureRateLimit", async () => {
+    const { fire, store } = wire({ errorCaptureRateLimit: 2, errorCaptureRateWindowMs: 600_000, errorCaptureDedupCacheSize: 64 });
+    await fire(LESSON_WORTHY_ENOENT);
+    await fire(LESSON_WORTHY_EADDR);
+    await fire("ModuleNotFoundError: No module named 'pkg-three'");
+    assert.equal(store.getFailureEntries(100).length, 2, "third distinct error is rate-capped");
+  });
+
+  it("the same error twice → one row (dedup)", async () => {
+    const { fire, store } = wire({ errorCaptureRateLimit: 5 });
+    await fire(LESSON_WORTHY_ENOENT);
+    await fire(LESSON_WORTHY_ENOENT);
+    assert.equal(store.getFailureEntries(100).length, 1);
+  });
+
+  it("cross-session store-dup does NOT consume a rate slot", async () => {
+    // Pre-seed the store so the store-check (②) catches the ENOENT occurrence.
+    const seeded = new MemoryStore({ memoryDir: tmpDir });
+    await seeded.addFailure(`[bash error] ${LESSON_WORTHY_ENOENT}`, { category: "failure" });
+    const { fire, store } = wire({ errorCaptureRateLimit: 1 }, seeded);
+
+    // Fire the already-stored error 3× — all caught by ②, no write, no recordCapture.
+    await fire(LESSON_WORTHY_ENOENT);
+    await fire(LESSON_WORTHY_ENOENT);
+    await fire(LESSON_WORTHY_ENOENT);
+    // A genuinely NOVEL error must STILL be captured (rate slot not eaten by the dups).
+    await fire(LESSON_WORTHY_EADDR);
+    assert.equal(store.getFailureEntries(100).length, 2, "novel error still captured despite prior store-dup attempts");
+  });
+
+  it("non-error tool result is ignored", async () => {
+    const { fire, store } = wire({ errorCaptureRateLimit: 5 });
+    await fire(LESSON_WORTHY_ENOENT, false); // isError=false
+    assert.equal(store.getFailureEntries(100).length, 0);
   });
 });

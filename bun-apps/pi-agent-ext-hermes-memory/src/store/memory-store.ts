@@ -29,14 +29,7 @@ import {
 } from "../constants.js";
 import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, MemoryCategory, MemoryOverflowStrategy } from "../types.js";
 import { AGENT_ROOT } from "../paths.js";
-
-/** Parse a non-negative int from an env var, falling back to `fallback`. */
-function envInt(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw === undefined || raw === "") return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
-}
+import { envInt } from "../utils/env.js";
 
 /**
  * proper-lockfile throws a code `ELOCKED` error (message "Lock file is already

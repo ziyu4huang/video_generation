@@ -78,6 +78,12 @@ export interface MemoryConfig {
   /** Auto-capture lesson-worthy tool errors (stack traces, definitive
    *  failures) to the failure store without an agent memory call. Default: true */
   errorCapture?: boolean;
+  /** Per-session errorCapture rate limit (0 = unlimited). #854 */
+  errorCaptureRateLimit?: number;
+  /** errorCapture sliding-window length in ms. #854 */
+  errorCaptureRateWindowMs?: number;
+  /** errorCapture this-session dedup LRU capacity (0 = no fast-path). #854 */
+  errorCaptureDedupCacheSize?: number;
   /** Override strong correction regex sources. Missing = defaults; [] = none. */
   correctionStrongPatterns?: string[];
   /** Override weak correction regex sources. Missing = defaults; [] = none. */
