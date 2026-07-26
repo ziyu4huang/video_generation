@@ -38,6 +38,19 @@ dispositions are reflected back into KNOWN-ISSUES.md as either Resolved or Accep
   coherence test for <5ms — not worth it. KNOWN-ISSUES wording corrected to say
   "re-read changed files" not "re-scan" + bench numbers recorded. No code
   change; doc-only.
+- **02 = accept-as-wontfix** (grilled 2026-07-26): `byTitle` basename collision
+  is inherent to `Map<string,string>` (one path per key). Empirical repro
+  confirmed the orphan-survivor scenario (delete winner → survivor's bare
+  basename link dangles until rebuild), BUT frequency is ~0.2% of basenames in
+  the knowledge vault, all boilerplate (`README`/`Index`/`progress`) — never
+  Zettelkasten notes (zk_card's 4-layer dup check enforces unique titles). The
+  `unindexNote` guard already prevents the worse variant (loser clobbering
+  winner). Path-qualified links (`[[A/Foo]]`) are always a correct workaround.
+  Non-accept options disproportionate: `Map<string,Set>` + `resolveLink:string[]`
+  ripples through 6 consumers and breaks the contract; dropping basename keys
+  regresses the tested basename-fallback feature. KNOWN-ISSUES entry corrected
+  (the draft's "reindexing steals the key" was imprecise — the guard blocks
+  loser→winner) + frequency + workaround recorded. No code change; doc-only.
 - **03 = fix** (grilled 2026-07-26): `zk-ingest` CLI gains `generic` in
   `KNOWN_SOURCES` + a dispatch branch mirroring `auto-memory`
   (one-record-per-file via `adaptGenericMarkdown`) + help text ×2 + a CLI test.
