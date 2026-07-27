@@ -41,6 +41,19 @@ export class SurrealSessionRepository implements SessionRepository {
   constructor(private readonly backend: SurrealBackend) {}
   private get c() { return this.backend.client; }
 
+  /** Fetch ALL session_files meta in ONE round-trip and return a path →
+   *  {size, mtimeMs} map for in-TS diffing. Replaces the per-file
+   *  `SELECT ... WHERE path = $path` N+1 that, on the real 3515-file sessions
+   *  dir, made needsBackfill alone cost ~11s/1107 round-trips at session_start. */
+  private async fetchSessionFileMeta(): Promise<Map<string, { size: number; mtimeMs: number }>> {
+    const rows = await this.c.query<Array<{ path: string; size: number; mtimeMs: number }>>(
+      `SELECT path, size, mtimeMs FROM session_files;`,
+    );
+    const map = new Map<string, { size: number; mtimeMs: number }>();
+    for (const r of rows) map.set(r.path, { size: r.size, mtimeMs: r.mtimeMs });
+    return map;
+  }
+
   private async indexOne(sessionRaw: SessionInput): Promise<IndexResult> {
     const messages = sessionRaw.messages ?? [];
     const cwd = sessionRaw.cwd ?? "/unknown";
@@ -138,14 +151,15 @@ export class SurrealSessionRepository implements SessionRepository {
 
     type Changed = { path: string; size: number; mtimeMs: number };
     const changed: Changed[] = [];
+    // BATCHED: fetch all session_files meta in one round-trip and diff in TS.
+    // Previously a per-file HTTP round-trip per session file (N+1).
+    const metaByPath = await this.fetchSessionFileMeta();
     for (const file of files) {
       try {
         const stat = fs.statSync(file);
         const meta = { path: file, size: stat.size, mtimeMs: Math.trunc(stat.mtimeMs) };
-        const stored = await this.c.query<Array<{ size: number; mtimeMs: number }>>(
-          `SELECT size, mtimeMs FROM session_files WHERE path = $path LIMIT 1;`, { path: file },
-        );
-        if (stored.length > 0 && stored[0].size === meta.size && stored[0].mtimeMs === meta.mtimeMs) {
+        const stored = metaByPath.get(file);
+        if (stored && stored.size === meta.size && stored.mtimeMs === meta.mtimeMs) {
           result.sessionsSkipped++;
           continue;
         }
@@ -179,11 +193,16 @@ export class SurrealSessionRepository implements SessionRepository {
     const files = getSessionFiles(sessionsDir);
     const indexed = await this.c.query<Array<{ count: number }>>(`SELECT count() AS count FROM sessions GROUP ALL;`);
     if (files.length > (indexed[0]?.count ?? 0)) return true;
+    // BATCHED: fetch all session_files meta in one round-trip and diff in TS.
+    // Previously a per-file HTTP round-trip per session file (N+1) — on the
+    // real 3515-file sessions dir this alone was ~11s/1107 round-trips, paid on
+    // every session_start just to decide whether backfill was needed.
+    const metaByPath = await this.fetchSessionFileMeta();
     for (const file of files) {
       try {
         const stat = fs.statSync(file);
-        const stored = await this.c.query<Array<{ size: number; mtimeMs: number }>>(`SELECT size, mtimeMs FROM session_files WHERE path = $path LIMIT 1;`, { path: file });
-        if (!(stored.length > 0 && stored[0].size === stat.size && stored[0].mtimeMs === Math.trunc(stat.mtimeMs))) return true;
+        const stored = metaByPath.get(file);
+        if (!(stored && stored.size === stat.size && stored.mtimeMs === Math.trunc(stat.mtimeMs))) return true;
       } catch { return true; }
     }
     // Backfill timestamp stored on a dedicated seq:<key> record. v3.2.3:
