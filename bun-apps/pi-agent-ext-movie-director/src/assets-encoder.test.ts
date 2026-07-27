@@ -70,6 +70,22 @@ describe("planAssetGeneration — relay links", () => {
 		const plan = planAssetGeneration({ scenes: [scene({ type: "text_card" }), scene({ type: "diagram" })] } as any, script as any, { maxCallSeconds: 8 });
 		expect(plan.relayLinks).toEqual([]);
 	});
+
+	test("passes shot_language.camera_movement through to only the FIRST relay link of a split scene", () => {
+		const plan = planAssetGeneration(
+			{ scenes: [scene({ end_seconds: 16, shot_language: { camera_movement: "dolly_in" } })] } as any,
+			script as any,
+			{ maxCallSeconds: 8 },
+		);
+		expect(plan.relayLinks.length).toBe(2); // 16s / 8s ceiling = 2 links, same scene
+		expect(plan.relayLinks[0]!.cameraMovement).toBe("dolly_in");
+		expect(plan.relayLinks[1]!.cameraMovement).toBeUndefined();
+	});
+
+	test("omits cameraMovement when shot_language.camera_movement is absent", () => {
+		const plan = planAssetGeneration({ scenes: [scene({ end_seconds: 6 })] } as any, script as any, { maxCallSeconds: 8 });
+		expect(plan.relayLinks[0]!.cameraMovement).toBeUndefined();
+	});
 });
 
 describe("planAssetGeneration — narration", () => {

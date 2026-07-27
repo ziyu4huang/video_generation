@@ -108,6 +108,14 @@ struct NativeRelay: ParsableCommand {
             help: "Per-panel conditioning strength (0.0-1.0, default 1.0 for all panels if omitted). Must match --grid-frame-indices count when given.")
     var gridStrengths: [Double] = []
 
+    @Option(name: .customLong("camera-movements"), parsing: .upToNextOption,
+            help: "Per-segment shot_language.camera_movement value, one per --prompts entry (e.g. 'dolly_in', 'tilt_up'). Only dolly_in/tilt_up are supported in v1 — other values, 'none', or omitted entries generate exactly as they do today. Requires --camera-lora when any entry names a supported movement.")
+    var cameraMovements: [String] = []
+
+    @Option(name: .customLong("camera-lora"),
+            help: "Path to the Cameraman v2 IC-LoRA checkpoint. Defaults to the bundled import at mlx-models/lora/camera-control-cameraman-v2/ when a supported --camera-movements entry is present and this is omitted.")
+    var cameraLora: String?
+
     private func parseLoRASpecs(_ specs: [String]) throws -> [(path: URL, strength: Float)] {
         try specs.map { spec in
             let parts = spec.split(separator: ":", maxSplits: 1)
@@ -152,6 +160,9 @@ struct NativeRelay: ParsableCommand {
 
         if !secondsPerSegment.isEmpty { request.secondsPerSegment = secondsPerSegment }
         if !segmentContinuity.isEmpty { request.segmentContinuity = segmentContinuity }
+        if !cameraMovements.isEmpty { request.cameraMovements = cameraMovements }
+        request.cameraLoraPath = cameraLora.map { URL(fileURLWithPath: $0) }
+            ?? RepoPaths.mlxModelsRoot.appendingPathComponent("lora/camera-control-cameraman-v2/LTX2.3-22B_IC-LoRA-Cameraman_v2_14000.safetensors")
         return request
     }
 

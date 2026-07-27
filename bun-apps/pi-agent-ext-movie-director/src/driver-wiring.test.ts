@@ -123,6 +123,21 @@ describe("wireProduce — assets execution (single native-relay call for the who
 		expect((relayCall.options as Record<string, unknown>).segmentContinuity).toEqual([true, false]);
 	});
 
+	test("forwards cameraMovements to the native-relay dispatch options, defaulting missing entries to 'none'", async () => {
+		const { deps, genCalls } = assetsDeps();
+		await wireProduce(deps)("assets", {
+			scene_plan: {
+				scenes: [
+					{ id: "s1", type: "generated", description: "a cube", start_seconds: 0, end_seconds: 8, shot_language: { camera_movement: "dolly_in" } },
+					{ id: "s2", type: "generated", description: "a sphere", start_seconds: 8, end_seconds: 16 },
+				],
+			},
+			script: { sections: [{ id: "s1", text: "hi" }] },
+		});
+		const relayCall = genCalls.find((c) => c.command === "native-relay")!;
+		expect((relayCall.options as Record<string, unknown>).cameraMovements).toEqual(["dolly_in", "none"]);
+	});
+
 	test("returns a SCHEMA-VALID asset_manifest with scene_boundaries derived from real probed segment durations", async () => {
 		const { deps } = assetsDeps({ segmentDurations: [7.5, 8.2] });
 		const out = await wireProduce(deps)("assets", {
