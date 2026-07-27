@@ -28,10 +28,19 @@ export interface RelayLink {
 	/** false = fresh T2I for this link (hard cut); true = continue from the previous link's last frame. */
 	continuity: boolean;
 	/** shot_language.camera_movement passthrough from scene_plan, e.g. "dolly_in".
-	 *  Undefined when the scene has no shot_language.camera_movement set. Only
-	 *  "dolly_in"/"tilt_up" get real IC-LoRA conditioning in v1 (see native-relay's
-	 *  --camera-movements) — every other value still reaches generation as plain
-	 *  prompt text via applyShotLanguage elsewhere, unaffected by this field. */
+	 *  Only ever set on a scene's FIRST relay link (chainIndex === 0); every later
+	 *  link of a split scene gets undefined. This is deliberate: on the Swift side
+	 *  each link independently synthesizes its own full movement arc from its own
+	 *  start frame, so tagging every link of a split scene would replay the same
+	 *  arc per link (a visible doubled/restarted move) instead of one continuous
+	 *  move across the scene — spreading one arc across a multi-link scene is out
+	 *  of scope for v1. Undefined when the scene has no shot_language.camera_movement
+	 *  set, or on non-first links per the above. Only "dolly_in"/"tilt_up" get real
+	 *  IC-LoRA conditioning in v1 (see native-relay's --camera-movements); an
+	 *  unsupported or absent value here gets NO shot_language enrichment on this
+	 *  path — applyShotLanguage/withShotLanguage (pi-agent-ext-ltx) is gated on a
+	 *  top-level input.shotLanguage field that driver-wiring.ts's produceAssets
+	 *  never sets, so generation simply falls back to scene.description as-is. */
 	cameraMovement?: string;
 }
 
@@ -97,7 +106,7 @@ export function planAssetGeneration(
 				// the same scene are the SAME shot split across the per-link
 				// ceiling, so they always continue.
 				continuity: i === 0 ? scene.continuity !== "cut" : true,
-				cameraMovement: scene.shot_language?.camera_movement,
+				cameraMovement: i === 0 ? scene.shot_language?.camera_movement : undefined,
 			});
 		}
 	}
