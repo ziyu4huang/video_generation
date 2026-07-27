@@ -1,0 +1,145 @@
+/**
+ * Lightweight perf tracking for hermes-memory.
+ *
+ * WHY: the extension had NO persistent perf signal. Several severe N+1
+ * regressions (message UPSERTs #894, shutdown indexSession #903, backfill
+ * session_files meta #906) were found only by manual measurement. This module
+ * makes them auto-visible: each instrumented lifecycle operation is timed and
+ * its HTTP round-trip count attributed (via AsyncLocalStorage) to the active
+ * op; when an op crosses a threshold it is persisted to perf.jsonl and a
+ * notifier fires (wired to the TUI by index.ts). Breach-only by default so
+ * normal operation is zero-noise / zero-steady-state I/O; PI_HERMES_PERF=1
+ * traces every op for deep profiling.
+ *
+ * DESIGN NOTES
+ *  - `bumpRoundTrips` is a free module export: SurrealClient.query calls it
+ *    once per round-trip. It is a no-op when no `timed()` is in scope, so
+ *    instrumenting the client has zero cost for ad-hoc / test queries.
+ *  - Nesting: `timed` uses AsyncLocalStorage.run, so a nested `timed` shadows
+ *    its parent's counter (the parent undercounts for the nested span). The
+ *    instrumented ops are deliberately top-level lifecycle calls that do not
+ *    nest, so this is a non-issue in practice.
+ *  - The recorder never throws into the instrumented path (append + notify are
+ *    best-effort): perf tracking must not change functional behavior.
+ */
+import { AsyncLocalStorage } from "node:async_hooks";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+
+export interface PerfRecord {
+  ts: string;
+  op: string;
+  backend: string;
+  ms: number;
+  roundTrips: number;
+  breach: boolean;
+  reason?: "ms" | "roundTrips";
+}
+
+interface PerfCtx {
+  roundTrips: number;
+}
+
+/** Wrap an async operation for perf timing + round-trip attribution. Handlers
+ *  accept this as an optional injectable (default pass-through) so the
+ *  production recorder from index.ts can instrument them without coupling. */
+export type TimedFn = <T>(op: string, fn: () => Promise<T>) => Promise<T>;
+
+export interface PerfRecorderOptions {
+  /** Per-op wall-clock threshold (ms). Default 2000. */
+  thresholdMs?: number;
+  /** Per-op HTTP round-trip threshold. Default 50 — the primary N+1 signal. */
+  thresholdRoundTrips?: number;
+  /** JSONL append path. `null` disables file persistence. Default
+   *  ~/.pi/agent/pi-hermes-memory/perf.jsonl. */
+  logPath?: string | null;
+  /** Trace EVERY op (not just breaches). Default: process.env.PI_HERMES_PERF === "1". */
+  fullTrace?: boolean;
+  /** Active-backend label stamped on each record. */
+  getBackend?: () => string;
+}
+
+const als = new AsyncLocalStorage<PerfCtx>();
+
+const DEFAULT_LOG_PATH = path.join(
+  os.homedir(), ".pi", "agent", "pi-hermes-memory", "perf.jsonl",
+);
+
+/**
+ * Increment the active operation's HTTP round-trip counter. Safe to call from
+ * anywhere; a no-op when no `timed()` operation is in scope (ad-hoc / test
+ * queries). Called once per SurrealClient.query.
+ */
+export function bumpRoundTrips(n = 1): void {
+  const ctx = als.getStore();
+  if (ctx) ctx.roundTrips += n;
+}
+
+export interface PerfRecorder {
+  /** Wrap an async operation: time it, attribute round-trips, and on threshold
+   *  breach (or when fullTrace is on) persist + notify. Returns fn's result. */
+  timed: <T>(op: string, fn: () => Promise<T>) => Promise<T>;
+  /** Override the breach notifier (default: console.warn). index.ts wires this
+   *  to the TUI once a session provides a ui handle. */
+  setNotifier: (fn: (record: PerfRecord) => void) => void;
+}
+
+export function createPerfRecorder(opts: PerfRecorderOptions = {}): PerfRecorder {
+  const thresholdMs = opts.thresholdMs ?? 2000;
+  const thresholdRt = opts.thresholdRoundTrips ?? 50;
+  const logPath = opts.logPath === undefined ? DEFAULT_LOG_PATH : opts.logPath;
+  const fullTrace = opts.fullTrace ?? process.env.PI_HERMES_PERF === "1";
+  const getBackend = opts.getBackend ?? (() => "unknown");
+
+  let notifier: (record: PerfRecord) => void = (r) => {
+    const why = r.reason === "roundTrips"
+      ? `${r.roundTrips} HTTP round-trips`
+      : `${r.ms}ms`;
+    console.warn(`[hermes-memory] slow ${r.op}: ${why} (backend=${r.backend}). See perf.jsonl.`);
+  };
+
+  function appendLog(record: PerfRecord): void {
+    if (!logPath) return;
+    try {
+      fs.mkdirSync(path.dirname(logPath), { recursive: true });
+      fs.appendFileSync(logPath, JSON.stringify(record) + "\n", "utf-8");
+    } catch {
+      // perf tracking must never throw into the instrumented path
+    }
+  }
+
+  async function timed<T>(op: string, fn: () => Promise<T>): Promise<T> {
+    const ctx: PerfCtx = { roundTrips:0 };
+    const start = Date.now();
+    try {
+      return await als.run(ctx, fn);
+    } finally {
+      const ms = Date.now() - start;
+      const roundTrips = ctx.roundTrips;
+      const msBreach = ms > thresholdMs;
+      const rtBreach = roundTrips > thresholdRt;
+      const breach = msBreach || rtBreach;
+      if (breach || fullTrace) {
+        const record: PerfRecord = {
+          ts: new Date().toISOString(),
+          op,
+          backend: getBackend(),
+          ms,
+          roundTrips,
+          breach,
+          reason: msBreach ? "ms" : rtBreach ? "roundTrips" : undefined,
+        };
+        appendLog(record);
+        if (breach) {
+          try { notifier(record); } catch { /* never throw */ }
+        }
+      }
+    }
+  }
+
+  return {
+    timed,
+    setNotifier: (fn) => { notifier = fn; },
+  };
+}
