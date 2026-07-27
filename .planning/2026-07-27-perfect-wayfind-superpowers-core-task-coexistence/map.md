@@ -18,12 +18,13 @@ A state where `pi-agent-ext-wayfind`, `pi-agent-ext-superpowers`, and the adjace
 <!-- charting resolves nothing; filled as tickets close -->
 
 - [Ship the unpushed wayfind ADR-0004 reversal](tickets/01-ship-unpushed-wayfind-adr-0004.md) — PR #895 merged (`6af421b5`); wayfind drops its core-task build dep, reads the status widget via `globalThis`. The seam 02 builds on is now the landed state.
-- [Formalize the status-widget cross-extension contract](tickets/02-formalize-status-widget-contract.md) — repo-level source-analysis guard (`bun-apps/tests/seam-contract.test.ts`, run via `test:seam` in `regression gates`) turns the 3-site key + shape drift loud. Template for ticket 03’s full `__pi*` sweep; **resolves fog #1** (no shared module — a guard, not a package).
+- [Formalize the status-widget cross-extension contract](tickets/02-formalize-status-widget-contract.md) — repo-level source-analysis guard (`bun-apps/tests/seam-contract.test.ts`, run via `test:seam` in `regression gates`) turns the 3-site key + shape drift loud. Template for ticket 03's full `__pi*` sweep; **resolves fog #1** (no shared module — a guard, not a package).
+- [Generalize the `__pi*` seam-key formalization](tickets/03-generalize-pi-global-seam-contract.md) — upgraded the guard to family-wide **no-orphans + no-dead-keys** invariants over all 8 `__pi*` keys (subsumes ticket 02's per-site key check for the rename vector); status widget keeps its method-set SHAPE, function keys key-guarded only. Contract home = the `SEAM_KEYS` array in the guard. **Resolves fog #2** (superpowers stays out — the contract is enforced by CI, not extension code).
 
 ## Not yet specified
 
 - ~~**Shared contract module vs inline tests.**~~ **RESOLVED by ticket 02** — neither: a repo-level source-analysis guard (`bun-apps/tests/seam-contract.test.ts`), no shared module, no inline-per-package tests. See Decisions so far.
-- **Scope of superpowers' coexistence awareness.** superpowers is currently zero-globals, purely instructional. If the seam formalization (03) makes the `__pi*` surface a published contract, there's an open question of whether superpowers should gain *any* awareness of it (today it has none). Depends on 03.
+- ~~**Scope of superpowers' coexistence awareness.**~~ **RESOLVED by ticket 03** — superpowers stays zero-globals/instructional. The `__pi*` surface is now a published contract, but only as a *test-time spec* (`SEAM_KEYS` in the guard), enforced by CI — not a runtime/importable module. Giving superpowers code-level awareness of it would have no runtime effect, so it stays out. See Decisions so far.
 
 ## Out of scope
 
