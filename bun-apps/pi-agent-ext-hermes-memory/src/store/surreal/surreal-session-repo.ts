@@ -49,27 +49,39 @@ export class SurrealSessionRepository implements SessionRepository {
     const startedAt = sessionRaw.startedAt ?? messages[0]?.timestamp ?? new Date().toISOString();
     const endedAt = sessionRaw.endedAt ?? null;
 
-    // How many messages exist for this session already.
-    const beforeRows = await this.c.query<Array<{ count: number }>>(
-      `SELECT count() AS count FROM messages WHERE sessionId = $sid GROUP ALL;`, { sid: sessionRaw.id },
+    // Incremental: fetch the message ids already indexed for this session and
+    // UPSERT only the MISSING ones. A caught-up re-index (delta=0) skips the
+    // batched UPSERT loop entirely — previously it re-UPSERTed EVERY message on
+    // every indexSession (shutdown + every message_end live-index), ~400ms of
+    // pure waste on a 1348-msg session despite writing nothing new.
+    // `record::id(id)` returns the plain message id (the string passed to
+    // `type::record("messages", $mid)` at insert time), directly comparable to
+    // `m.id` with no record-id escaping to reverse.
+    const existing = await this.c.query<Array<{ mid: string }>>(
+      `SELECT record::id(id) AS mid FROM messages WHERE sessionId = $sid;`, { sid: sessionRaw.id },
     );
-    const before = beforeRows[0]?.count ?? 0;
+    const existingIds = new Set(existing.map((r) => String(r.mid)));
+    const before = existing.length;
+    const delta = messages.filter((m) => !existingIds.has(m.id));
 
-    // Upsert the session row by its string record id (dedups on re-index).
+    // Upsert the session row by its string record id (keeps messageCount /
+    // endedAt fresh even when no messages are new).
     await this.c.query(
       `UPSERT type::record("sessions", $sid) SET sid = $sid, project = $project, cwd = $cwd, startedAt = $startedAt, endedAt = $endedAt, messageCount = $n;`,
       { sid: sessionRaw.id, project, cwd, startedAt, endedAt, n: messages.length },
     );
 
-    // Batch message UPSERTs into chunked multi-statement /sql bodies.
-    // Previously N+1 HTTP round-trips (one query() per message); a
-    // 1229-message shutdown index took ~13.5s. SurrealClient.query validates
-    // every statement in a batch and throws on any per-statement error, so we
-    // concatenate up to MESSAGE_BATCH_SIZE UPSERTs per body with indexed
-    // params ($m0_mid, $m1_mid, ...), collapsing N round-trips to ceil(N/SIZE).
-    const batches = Math.ceil(messages.length / MESSAGE_BATCH_SIZE);
+    // Batch ONLY the new messages into chunked multi-statement /sql bodies.
+    // #894 collapsed the original N+1 HTTP round-trips (one per message) to
+    // ceil(N/SIZE) by concatenating UPSERTs; this change further collapses the
+    // input from N (all messages) to |delta| (only new), so a caught-up re-index
+    // makes ZERO message round-trips and a small delta makes one. SurrealClient
+    // .query validates every statement in a batch and throws on any per-
+    // statement error, so we concatenate up to MESSAGE_BATCH_SIZE UPSERTs per
+    // body with indexed params ($m0_mid, $m1_mid, ...).
+    const batches = Math.ceil(delta.length / MESSAGE_BATCH_SIZE);
     for (let b = 0; b < batches; b++) {
-      const slice = messages.slice(b * MESSAGE_BATCH_SIZE, (b + 1) * MESSAGE_BATCH_SIZE);
+      const slice = delta.slice(b * MESSAGE_BATCH_SIZE, (b + 1) * MESSAGE_BATCH_SIZE);
       const stmts: string[] = [];
       const params: Record<string, unknown> = { sid: sessionRaw.id, project, cwd };
       for (let i = 0; i < slice.length; i++) {
@@ -87,11 +99,7 @@ export class SurrealSessionRepository implements SessionRepository {
       await this.c.query(stmts.join("\n"), params);
     }
 
-    const afterRows = await this.c.query<Array<{ count: number }>>(
-      `SELECT count() AS count FROM messages WHERE sessionId = $sid GROUP ALL;`, { sid: sessionRaw.id },
-    );
-    const after = afterRows[0]?.count ?? 0;
-    const messagesIndexed = after - before;
+    const messagesIndexed = delta.length;
     return { sessionId: sessionRaw.id, messagesIndexed, skipped: before > 0 && messagesIndexed === 0 };
   }
 
