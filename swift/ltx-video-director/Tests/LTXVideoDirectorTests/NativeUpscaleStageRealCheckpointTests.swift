@@ -382,6 +382,26 @@ final class NativeUpscaleStageRealCheckpointTests: XCTestCase {
         }
     }
 
+    func testGenerateCameraControlEmptyReferenceFramesThrowsNamedError() throws {
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_camera_control_out_\(UUID().uuidString)")
+        let loraURL = FileManager.default.temporaryDirectory.appendingPathComponent("does_not_exist_\(UUID().uuidString).safetensors")
+        defer { try? FileManager.default.removeItem(at: outputDir) }
+
+        XCTAssertThrowsError(try NativeUpscaleStage().generateCameraControl(
+            referenceFrames: [], outputDir: outputDir, prompt: "a test prompt",
+            loraURL: loraURL)
+        ) { error in
+            guard let stageError = error as? NativeUpscaleStage.StageError else {
+                XCTFail("expected StageError, got \(error)"); return
+            }
+            if case .invalidDimensions = stageError {
+                // expected
+            } else {
+                XCTFail("expected .invalidDimensions, got \(stageError)")
+            }
+        }
+    }
+
     func testGenerateIngredientsMissingLoraThrowsNamedError() throws {
         let referenceImageDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_ingredients_ref_\(UUID().uuidString)")
         let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_ingredients_out_\(UUID().uuidString)")

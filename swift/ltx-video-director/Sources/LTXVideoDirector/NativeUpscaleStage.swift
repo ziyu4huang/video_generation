@@ -815,7 +815,9 @@ public struct NativeUpscaleStage {
         let audioURL = outputDir.appendingPathComponent("audio.wav")
         try WAVWriter.write(channels: channels, sampleRate: 48000, to: audioURL)
 
-        return CameraControlResult(frameDirectory: frameDir, frameCount: frameCount, audioURL: audioURL)
+        return CameraControlResult(
+            frameDirectory: frameDir, frameCount: frameCount,
+            outputSize: (width, height), audioURL: audioURL)
     }
 
     /// `generateCameraControl`'s own result type — includes `audioURL`
@@ -824,6 +826,7 @@ public struct NativeUpscaleStage {
     public struct CameraControlResult {
         public let frameDirectory: URL
         public let frameCount: Int
+        public let outputSize: (width: Int, height: Int)
         public let audioURL: URL
     }
 
