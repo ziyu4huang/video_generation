@@ -246,6 +246,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
       gridRows: { flag: "--grid-rows", type: "int", description: "Grid guide row count. Default 2." },
       gridFrameIndices: { flag: "--grid-frame-indices", type: "number[]", description: "Latent frame index for each grid panel, row-major (top-left, top-right, ..., bottom-right). Must have exactly gridColumns * gridRows entries." },
       gridStrengths: { flag: "--grid-strengths", type: "number[]", description: "Per-panel conditioning strength (0.0-1.0, default 1.0 for all panels if omitted). Must match gridFrameIndices count when given." },
+      cameraMovements: { flag: "--camera-movements", type: "string[]", description: "Per-segment shot_language.camera_movement value, one per prompts entry (e.g. 'dolly_in', 'tilt_up'). Only dolly_in/tilt_up are supported in v1 — other values, 'none', or omitted entries generate exactly as they do today. Requires cameraLora when any entry names a supported movement." },
+      cameraLora: { flag: "--camera-lora", type: "string", isPath: true, description: "Path to the Cameraman v2 IC-LoRA checkpoint. Defaults to the bundled import under mlx-models/lora/camera-control-cameraman-v2/ when a supported cameraMovements entry is present and this is omitted." },
     },
   },
 

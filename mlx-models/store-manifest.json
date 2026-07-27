@@ -1,7 +1,7 @@
 {
   "version": 1,
   "store_relative_to_repo_root": "../video_generation__models",
-  "count": 111,
+  "count": 112,
   "files": {
     "audio/ltx-2.3-audio/audio_vae.safetensors": {
       "md5": "f4dd0367b95f98fdd8b2f7e5c45018e8",
@@ -446,6 +446,10 @@
     "vae/flux-kontext-ae/model.safetensors": {
       "md5": "55021fc9d44772075424c44f88585ad6",
       "size": 167666894
+    },
+    "lora/camera-control-cameraman-v2/LTX2.3-22B_IC-LoRA-Cameraman_v2_14000.safetensors": {
+      "md5": "78ad7db2c00a84b471bce5f9d115587c",
+      "size": 654443424
     }
   }
 }

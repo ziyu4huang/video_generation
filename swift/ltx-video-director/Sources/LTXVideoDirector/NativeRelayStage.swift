@@ -37,6 +37,9 @@ public struct NativeRelayStage {
         case invalidSegmentGridPanel(segment: Int, panel: Int, panelCount: Int)
         case secondsPerSegmentCountMismatch(count: Int, segments: Int)
         case segmentContinuityCountMismatch(count: Int, segments: Int)
+        case cameraMovementsCountMismatch(count: Int, segments: Int)
+        case cameraLoraRequiredForSupportedMovement(movement: String)
+        case cameraControlStartImageUnreadable(URL)
 
         public var description: String {
             switch self {
@@ -55,6 +58,12 @@ public struct NativeRelayStage {
                 return "NativeRelayStage: secondsPerSegment has \(count) entries, expected \(segments) (one per segment/prompt)"
             case .segmentContinuityCountMismatch(let count, let segments):
                 return "NativeRelayStage: segmentContinuity has \(count) entries, expected \(segments) (one per segment/prompt)"
+            case .cameraMovementsCountMismatch(let count, let segments):
+                return "NativeRelayStage: cameraMovements has \(count) entries, expected \(segments) (one per segment/prompt)"
+            case .cameraLoraRequiredForSupportedMovement(let movement):
+                return "NativeRelayStage: segment requests camera_movement '\(movement)' (v1-supported) but cameraLoraPath is nil — pass --camera-lora"
+            case .cameraControlStartImageUnreadable(let url):
+                return "NativeRelayStage: could not load start image for camera-control synthesis at \(url.path)"
             }
         }
     }
@@ -133,6 +142,21 @@ public struct NativeRelayStage {
         /// left empty) default to 1.0 for every segment.
         public var segmentGridStrengths: [Float]?
 
+        /// Per-segment shot_language.camera_movement value (raw string from
+        /// scene_plan, e.g. "dolly_in"), one entry per `prompts.count` when
+        /// given. Values outside SyntheticCameraReference's v1-supported set
+        /// (currently "dolly_in", "tilt_up"), "none"/empty, hard-cut
+        /// storyboard segments, and segments with no known start image are
+        /// ALL no-ops — that segment generates exactly as it does today
+        /// (a warning is printed, not an error, for the last two cases).
+        /// Omitted (nil) -> no segment gets camera-control conditioning
+        /// (unchanged default).
+        public var cameraMovements: [String]?
+        /// Cameraman v2 IC-LoRA checkpoint path — REQUIRED when any entry in
+        /// `cameraMovements` names a v1-supported movement (fails fast if
+        /// nil in that case); ignored otherwise.
+        public var cameraLoraPath: URL?
+
         public init(
             prompts: [String], firstImagePath: URL? = nil, seconds: Double = 2.0, fps: Double = 24.0,
             width: Int = 640, height: Int = 960, seed: UInt64 = 42,
@@ -205,6 +229,16 @@ public struct NativeRelayStage {
                 throw StageError.segmentContinuityCountMismatch(count: segmentContinuity.count, segments: request.prompts.count)
             }
         }
+        if let cameraMovements = request.cameraMovements {
+            guard cameraMovements.count == request.prompts.count else {
+                throw StageError.cameraMovementsCountMismatch(count: cameraMovements.count, segments: request.prompts.count)
+            }
+            for movement in cameraMovements where SyntheticCameraReference.isSupported(movement) {
+                guard request.cameraLoraPath != nil else {
+                    throw StageError.cameraLoraRequiredForSupportedMovement(movement: movement)
+                }
+            }
+        }
 
         try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
 
@@ -274,7 +308,44 @@ public struct NativeRelayStage {
                 }
             }
 
-            let result = try stage.generate(segRequest, outputDir: segDir)
+            var isHardCutStoryboardSegment = false
+            if request.segmentGridPanels != nil, index < (request.segmentGridPanels?.count ?? 0) {
+                isHardCutStoryboardSegment = true
+            }
+
+            let requestedMovement = request.cameraMovements?[index]
+            let cameraMovement = requestedMovement.flatMap { CameraMovementType(rawValue: $0) }
+            let result: NativeI2VStage.Result
+            if let cameraMovement, !isHardCutStoryboardSegment, request.gridFrameIndices.isEmpty, let startImagePath = segRequest.inputImagePath {
+                print("[relay] segment \(segNum): camera-control-LoRA (\(cameraMovement.rawValue)) — synthesizing reference clip")
+                guard let cameraLoraPath = request.cameraLoraPath else {
+                    // Already validated up front in generate() — unreachable in practice, kept as a defensive guard.
+                    throw StageError.cameraLoraRequiredForSupportedMovement(movement: cameraMovement.rawValue)
+                }
+                guard let startImage = FrameLoad.loadCGImage(from: startImagePath) else {
+                    throw StageError.cameraControlStartImageUnreadable(startImagePath)
+                }
+                let (snappedWidth, snappedHeight) = ResolutionResolver.optimize(width: request.width, height: request.height)
+                let referenceFrames = SyntheticCameraReference.synthesize(
+                    startImage: startImage, movement: cameraMovement,
+                    frameCount: segRequest.frames, targetWidth: snappedWidth, targetHeight: snappedHeight)
+                let ccResult = try NativeUpscaleStage().generateCameraControl(
+                    referenceFrames: referenceFrames, outputDir: segDir, prompt: prompt,
+                    loraURL: cameraLoraPath, fps: request.fps, textMaxLength: request.textMaxLength,
+                    seed: request.seed &+ UInt64(index))
+                result = NativeI2VStage.Result(
+                    sourceImageURL: startImagePath, frameDirectory: ccResult.frameDirectory,
+                    frameCount: ccResult.frameCount, audioURL: ccResult.audioURL)
+            } else {
+                if let requestedMovement, !requestedMovement.isEmpty, requestedMovement != "none", cameraMovement == nil {
+                    print("[relay] segment \(segNum): camera_movement '\(requestedMovement)' not in the v1-supported set (dolly_in, tilt_up) — generating with plain prompt text instead")
+                } else if let cameraMovement, isHardCutStoryboardSegment || segRequest.inputImagePath == nil {
+                    print("[relay] segment \(segNum): camera_movement '\(cameraMovement.rawValue)' requested but no start image available (hard-cut/fresh-T2I segment) — generating with plain prompt text instead")
+                } else if let cameraMovement, !request.gridFrameIndices.isEmpty {
+                    print("[relay] segment \(segNum): camera_movement '\(cameraMovement.rawValue)' requested but a whole-grid guide (--grid-image) is also set for this relay — grid guide takes precedence, generating with plain prompt text instead")
+                }
+                result = try stage.generate(segRequest, outputDir: segDir)
+            }
             segmentResults.append(result)
             segmentDurations.append(Double(result.frameCount) / request.fps)
 
