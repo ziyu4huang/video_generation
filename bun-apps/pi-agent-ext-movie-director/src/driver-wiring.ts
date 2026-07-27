@@ -173,6 +173,7 @@ async function produceAssets(
 				prompts: plan.relayLinks.map((l) => l.prompt),
 				secondsPerSegment: plan.relayLinks.map((l) => l.seconds),
 				segmentContinuity: plan.relayLinks.map((l) => l.continuity),
+				cameraMovements: plan.relayLinks.map((l) => l.cameraMovement ?? "none"),
 				fps,
 				...(narrationPath ? { relayAudio: narrationPath } : {}),
 			},

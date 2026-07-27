@@ -27,6 +27,12 @@ export interface RelayLink {
 	seconds: number;
 	/** false = fresh T2I for this link (hard cut); true = continue from the previous link's last frame. */
 	continuity: boolean;
+	/** shot_language.camera_movement passthrough from scene_plan, e.g. "dolly_in".
+	 *  Undefined when the scene has no shot_language.camera_movement set. Only
+	 *  "dolly_in"/"tilt_up" get real IC-LoRA conditioning in v1 (see native-relay's
+	 *  --camera-movements) — every other value still reaches generation as plain
+	 *  prompt text via applyShotLanguage elsewhere, unaffected by this field. */
+	cameraMovement?: string;
 }
 
 export interface TtsCall {
@@ -54,6 +60,7 @@ interface SceneLike {
 	end_seconds: number;
 	/** Chaining behavior into this scene's FIRST link. Default "continue" when absent. */
 	continuity?: "continue" | "cut";
+	shot_language?: { camera_movement?: string };
 }
 
 interface ScriptLike {
@@ -90,6 +97,7 @@ export function planAssetGeneration(
 				// the same scene are the SAME shot split across the per-link
 				// ceiling, so they always continue.
 				continuity: i === 0 ? scene.continuity !== "cut" : true,
+				cameraMovement: scene.shot_language?.camera_movement,
 			});
 		}
 	}
