@@ -124,4 +124,45 @@ final class NativeRelayStageTests: XCTestCase {
             }
         }
     }
+
+    func testCameraMovementsCountMismatchThrows() {
+        let stage = NativeRelayStage()
+        var request = NativeRelayStage.Request(prompts: ["a red ball", "a blue ball"])
+        request.cameraMovements = ["dolly_in"] // 1 entry, need 2
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_relay_camera_movements_mismatch_\(UUID().uuidString)")
+        XCTAssertThrowsError(try stage.generate(request, outputDir: outputDir)) { error in
+            guard let stageError = error as? NativeRelayStage.StageError else {
+                XCTFail("expected StageError, got \(error)")
+                return
+            }
+            if case .cameraMovementsCountMismatch(let count, let segments) = stageError {
+                XCTAssertEqual(count, 1)
+                XCTAssertEqual(segments, 2)
+            } else {
+                XCTFail("expected .cameraMovementsCountMismatch, got \(stageError)")
+            }
+        }
+    }
+
+    /// A v1-supported movement with no cameraLoraPath must fail fast, before
+    /// any model loading — surfaced up front (unlike the per-segment
+    /// fallback-with-warning behavior for unsupported movements or missing
+    /// start images, which only apply mid-loop).
+    func testSupportedCameraMovementWithoutLoraPathThrows() {
+        let stage = NativeRelayStage()
+        var request = NativeRelayStage.Request(prompts: ["a red ball"])
+        request.cameraMovements = ["dolly_in"]
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_relay_camera_lora_missing_\(UUID().uuidString)")
+        XCTAssertThrowsError(try stage.generate(request, outputDir: outputDir)) { error in
+            guard let stageError = error as? NativeRelayStage.StageError else {
+                XCTFail("expected StageError, got \(error)")
+                return
+            }
+            if case .cameraLoraRequiredForSupportedMovement(let movement) = stageError {
+                XCTAssertEqual(movement, "dolly_in")
+            } else {
+                XCTFail("expected .cameraLoraRequiredForSupportedMovement, got \(stageError)")
+            }
+        }
+    }
 }
