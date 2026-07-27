@@ -200,32 +200,40 @@ export class SqliteSessionRepository implements SessionRepository {
       endedAt: sessionRaw.endedAt ?? null,
     };
 
-    const existingSession = db.prepare("SELECT id FROM sessions WHERE id = ?").get(session.id) as
-      | { id: string }
-      | undefined;
-    const before = db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").get(session.id) as {
-      count: number;
-    };
+    // INCREMENTAL index: diff incoming message ids against what's already
+    // indexed. The hot path (shutdown re-index + every message_end live-index
+    // re-run) is a session that is ALREADY fully indexed. The old code re-ran an
+    // INSERT-OR-IGNORE statement for EVERY message — every row conflicted (no
+    // data changed), but the transaction still COMMITTED and held SQLite's single
+    // write lock for O(messages). That lock hold was the precondition for the
+    // ~13s shutdown freeze (busy_timeout × transient-retry under contention).
+    // This SELECT is a read — no write lock is acquired in WAL mode — so a fully
+    // caught-up re-index now touches the write lock zero times.
+    const existingIds = new Set(
+      (db.prepare("SELECT id FROM messages WHERE session_id = ?").all(session.id) as Array<{ id: string }>).map((r) => r.id),
+    );
+    const newMessages = messages.filter((m) => !existingIds.has(m.id));
+    const sessionExists =
+      existingIds.size > 0 ||
+      Boolean(db.prepare("SELECT id FROM sessions WHERE id = ?").get(session.id) as { id: string } | undefined);
 
-    const write = () => this.writeSessionToDb(db, session);
+    // Fully caught up: NO write transaction, NO write-lock acquisition. A
+    // concurrent background writer has nothing to contend with.
+    if (newMessages.length === 0 && sessionExists) {
+      return { sessionId: session.id, messagesIndexed: 0, skipped: true };
+    }
 
+    // Write only the delta (session upsert + new messages + count sync) in one
+    // transaction. writeSessionToDb's updateSession recomputes message_count
+    // from the table, so passing only the delta keeps the count correct.
+    const write = () => this.writeSessionToDb(db, { ...session, messages: newMessages });
     if (db.transaction) {
-      const tx = db.transaction(write);
-      tx();
+      db.transaction(write)();
     } else {
       write();
     }
 
-    const after = db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").get(session.id) as {
-      count: number;
-    };
-    const messagesIndexed = after.count - before.count;
-
-    return {
-      sessionId: session.id,
-      messagesIndexed,
-      skipped: Boolean(existingSession) && messagesIndexed === 0,
-    };
+    return { sessionId: session.id, messagesIndexed: newMessages.length, skipped: false };
   }
 
   async indexSession(session: {
