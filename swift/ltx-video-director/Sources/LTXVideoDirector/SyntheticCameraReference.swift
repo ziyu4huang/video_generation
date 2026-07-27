@@ -45,8 +45,9 @@ public enum SyntheticCameraReference {
         startImage: CGImage, movement: CameraMovementType,
         frameCount: Int, targetWidth: Int, targetHeight: Int
     ) -> [CGImage] {
+        precondition(frameCount >= 1, "SyntheticCameraReference.synthesize: frameCount must be >= 1, got \(frameCount)")
         let base = FrameLoad.resizeAspectFillCenterCrop(startImage, targetWidth: targetWidth, targetHeight: targetHeight)
-        guard frameCount > 1 else { return [base] }
+        guard frameCount > 1 else { return [renderFrame(base, movement: movement, t: 0, targetWidth: targetWidth, targetHeight: targetHeight)] }
         return (0..<frameCount).map { i in
             let t = Double(i) / Double(frameCount - 1)
             return renderFrame(base, movement: movement, t: t, targetWidth: targetWidth, targetHeight: targetHeight)
