@@ -28,12 +28,19 @@ public enum SyntheticCameraReference {
     }
 
     /// Synthesize `frameCount` frames depicting `movement` applied to
-    /// `startImage`, each exactly `targetWidth` x `targetHeight`. Frame 0 is
-    /// the unmodified start image (aspect-fill-center-cropped to target
-    /// size); the last frame is the movement's maximum extent. `frameCount`
-    /// must equal the segment's own LTX frame count (8k+1) — the IC-LoRA
-    /// reference-conditioning path this feeds derives the generation's
-    /// output length directly from the reference clip's own frame count.
+    /// `startImage`, each exactly `targetWidth` x `targetHeight`. The
+    /// starting frame (t=0) is the movement's own starting position within
+    /// its trajectory — exactly the unmodified aspect-fill-center-cropped
+    /// source for `dolly_in` (scale 1.0 at t=0), but NOT pixel-identical to
+    /// the raw source for `tilt_up` (scale is fixed at 1.2 for every frame,
+    /// including t=0 — this fixed "headroom" scale is what lets the crop
+    /// window pan vertically without ever exposing empty space beyond the
+    /// original image's edges; it is the standard technique for a pure
+    /// pan/tilt reference with no zoom). The last frame is the movement's
+    /// maximum extent. `frameCount` must equal the segment's own LTX frame
+    /// count (8k+1) — the IC-LoRA reference-conditioning path this feeds
+    /// derives the generation's output length directly from the reference
+    /// clip's own frame count.
     public static func synthesize(
         startImage: CGImage, movement: CameraMovementType,
         frameCount: Int, targetWidth: Int, targetHeight: Int
