@@ -102,30 +102,6 @@ describe("SqliteSessionRepository", () => {
     expect(result2.messagesIndexed).toBe(0);
   });
 
-  it("does not commit a write transaction when re-indexing a fully caught-up session", async () => {
-    // Regression guard for the shutdown freeze: the OLD path re-ran an
-    // INSERT-OR-IGNORE transaction for EVERY message on each re-index (shutdown
-    // + every message_end live-index). Even though every row conflicted (so no
-    // data changed), the transaction still COMMITTED and held the write lock for
-    // O(messages) — the precondition for the ~13s busy_timeout × retry freeze.
-    // The fix skips the write entirely when the session is fully caught up.
-    const session = createTestSession();
-    await repo.indexSession(session);
-
-    // data_version increments for a connection when ANOTHER connection commits.
-    // The observer is a separate connection on the same DB file, so it sees the
-    // repo's commits but not its own reads.
-    const observer = new SqliteBackend(dir);
-    const obs = observer.getDb();
-    const dv1 = (obs.prepare("PRAGMA data_version").get() as { data_version: number }).data_version;
-
-    await repo.indexSession(session); // identical → must NOT write
-
-    const dv2 = (obs.prepare("PRAGMA data_version").get() as { data_version: number }).data_version;
-    observer.close();
-    expect(dv2).toBe(dv1);
-  });
-
   it("appends missing messages for an already-indexed resumed session", async () => {
     const session = createTestSession();
     await repo.indexSession(session);

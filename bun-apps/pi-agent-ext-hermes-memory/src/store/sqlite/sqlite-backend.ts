@@ -52,19 +52,7 @@ class DatabaseCorruptionError extends Error {
 
 export const SQLITE_WAL_AUTOCHECKPOINT_PAGES = 1000;
 
-/**
- * Per-connection SQLite busy_timeout (ms). Bounded on purpose: bun:sqlite is a
- * SYNCHRONOUS driver, so on write-lock contention this pragma blocks the event
- * loop for its full duration. Combined with the transient-retry attempt count
- * below, the worst-case synchronous block is `SQLITE_BUSY_TIMEOUT_MS ×
- * TRANSIENT_DB_RETRY_MAX_ATTEMPTS`. Keep that product well under the ~13s
- * shutdown regression — 2000 × 2 = 4s ceiling, and only ever reached under
- * genuine cross-process writer contention (in-process writers are already
- * drained/serialized at call sites).
- */
-export const SQLITE_BUSY_TIMEOUT_MS = 2000;
-
-export const TRANSIENT_DB_RETRY_MAX_ATTEMPTS = 2;
+export const TRANSIENT_DB_RETRY_MAX_ATTEMPTS = 3;
 export const TRANSIENT_DB_RETRY_BACKOFF_MS = 50;
 
 /**
@@ -311,11 +299,9 @@ export class SqliteBackend implements Backend {
     // short-lived child `pi -p` processes that reload this extension, and the
     // /memory-index-sessions command). Under WAL only one writer is allowed at
     // a time; without a busy timeout the second writer receives SQLITE_BUSY
-    // immediately instead of waiting. The value is bounded (see
-    // SQLITE_BUSY_TIMEOUT_MS) because bun:sqlite blocks synchronously — a large
-    // timeout multiplied by the transient-retry attempt count is exactly the
-    // ~13s shutdown freeze, so both must stay small.
-    db.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`);
+    // immediately instead of waiting. 5s is well above any normal write and
+    // cheap because it only elapses on actual contention.
+    db.exec('PRAGMA busy_timeout = 5000');
   }
 
   private initializeSchema(db: DatabaseLike): void {
