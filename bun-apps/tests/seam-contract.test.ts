@@ -1,53 +1,112 @@
 /**
- * Cross-extension seam-contract guard (wayfind ADR-0004).
+ * Cross-extension seam-contract guard (wayfind ADR-0004; generalized ticket 03).
  *
- * The status-widget seam is a process-singleton on `globalThis` (jiti-safe), but
- * its contract surface — the key string + the consumer-facing method shape — is
- * duplicated across the publisher (core-task) and its consumers (wayfind,
- * power-tool) with NO compile-time link. Each side's own tests mock its own
- * literal, so a rename/reshape in core-task compiles clean, stays green, and
- * breaks consumers ONLY in production. This guard turns that silent drift loud.
+ * The `__pi*` family is a set of process-singleton keys on `globalThis` (jiti-
+ * safe) that wire the coexistence between extensions: the status composite
+ * widget, yield-coordination flags, and the plan coordinator's published reads.
+ * Each key's string is duplicated across its publisher + consumer(s) with NO
+ * compile-time link, and each side's own tests mock its own literal — so a
+ * rename in the publisher compiles clean, stays green, and breaks consumers
+ * ONLY in production. This guard turns that silent drift loud.
  *
- * Invariants (the seam contract):
- *  1. KEY AGREEMENT — the global key appears, identically, in the publisher's
- *     source and every consumer's production source.
- *  2. SHAPE — every method a consumer declares on its structural view of the
- *     widget is a public method of the publisher's widget class.
+ * Invariants:
+ *  1. NO ORPHANS — every `__pi*` token referenced in production source (as a
+ *     quoted string literal OR a property access) is a registered SEAM_KEY.
+ *     A rename creates a new token → orphan → loud fail. Adding a new `__pi*`
+ *     key without registering it here fails too — that registration IS the
+ *     contract being maintained.
+ *  2. NO DEAD KEYS — every registered SEAM_KEY is actually referenced in
+ *     production source (the spec stays honest; a removed key must be dropped
+ *     from SEAM_KEYS).
+ *  3. STATUS-WIDGET SHAPE — for the one OBJECT-valued key, every method a
+ *     consumer declares on its structural view is a public method of the
+ *     publisher's widget class. (Function-valued keys need no shape guard:
+ *     TS signatures are erased at runtime, and every consumer already
+ *     defensively checks `typeof === 'function'` → graceful fallback, never a
+ *     silent break. The dominant drift vector for them is the key rename,
+ *     caught by invariant 1.)
  *
  * Static source analysis only — NO runtime import of any package (respects
- * ADR-0004's decoupling + the jiti constraint that made the seam globalThis-
- * based in the first place). Reads source as text + brace-counts blocks.
- *
- * GENERALIZATION HOOK (future ticket): the `SEAM` object pins the ONE landed
- * seam today. To cover the full `__pi*` coordination surface, promote `SEAM`
- * to `SEAMS: SeamSpec[]` and iterate both invariants per entry — the publisher/
- * consumer/shape extractors are already seam-agnostic.
+ * ADR-0004's decoupling + the jiti constraint). Reads source as text; skips
+ * comment lines + `__tests__`/`fixtures` so prose mentions like `__piPlan*`
+ * (which match neither a quoted literal nor a `.property` access) are excluded.
  *
  * Run: bun run test:seam   (from bun-apps/)
  */
 import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), ".."); // bun-apps/
+const EXTS = readdirSync(ROOT)
+	.filter((d) => d.startsWith("pi-agent-ext-") && existsSync(join(ROOT, d, "package.json")));
 
-/** A single cross-extension seam on `globalThis`. */
-interface SeamSpec {
-	/** The global key string (the silent-drift vector). */
-	key: string;
-	publisher: { pkg: string; file: string; className: string };
-	consumers: { pkg: string; file: string; methods: () => Set<string> }[];
+/**
+ * The canonical `__pi*` seam-key contract. A key lives here iff it is a
+ * process-global coordination/data surface. Value-shape noted per key; only the
+ * object-valued status widget also carries a SHAPE invariant (see spec below).
+ */
+const SEAM_KEYS = [
+	"__piCoreTaskStatusWidget", // status composite (core-task → wayfind, power-tool) — OBJECT; shape-guarded
+	"__piGoalActive", //   () => boolean          (core-task goal → loop)        intra-core-task
+	"__piKickHeartbeat", // () => void             (core-task goal → loop)        intra-core-task
+	"__piPlanIncomplete", //  (cwd) => boolean     (core-task → wayfind)
+	"__piPlanPhases", //     (cwd) => PlanPhaseInfo[] (core-task → wayfind)
+	"__piPlanSummary", //    (cwd) => string       (core-task → wayfind)
+	"__piWayfindActive", //  () => boolean         (wayfind → core-task coordinator)
+	"__piWayfindGrill", //   (sessionId) => boolean (wayfind → hermes-memory)
+] as const;
+const SEAM_KEY_SET = new Set<string>(SEAM_KEYS);
+
+// ─── source scan ────────────────────────────────────────────────────────────
+
+/** Reference forms that count as REAL usage (vs prose):
+ *  - a quoted string literal (the constant definition), or
+ *  - a `.property` access (read / assign on globalThis).
+ *  Prose like `__piPlan*` matches neither → correctly excluded. */
+const RE_QUOTED = /"__pi[A-Z][A-Za-z0-9]*"/g;
+const RE_ACCESS = /\.__pi[A-Z][A-Za-z0-9]*/g;
+
+/** Walk every extension's production `src/` and collect each `__pi*` token →
+ *  the set of packages that reference it. Skips comments + test/fixture dirs. */
+function scanSeamReferences(): Map<string, Set<string>> {
+	const refs = new Map<string, Set<string>>();
+	const note = (tok: string, pkg: string) => {
+		if (!refs.has(tok)) refs.set(tok, new Set());
+		refs.get(tok)!.add(pkg);
+	};
+	const walk = (dir: string, pkg: string) => {
+		let entries: ReturnType<typeof readdirSync>;
+		try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+		for (const ent of entries) {
+			if (ent.name === "node_modules" || ent.name === "__tests__" || ent.name === "fixtures") continue;
+			const p = join(dir, ent.name);
+			if (ent.isDirectory()) { walk(p, pkg); continue; }
+			if (!/\.ts$/.test(ent.name) || /\.test\./.test(ent.name)) continue;
+			for (const raw of readFileSync(p, "utf8").split("\n")) {
+				const t = raw.trim();
+				// Skip comment lines (JSDoc '*', '//', '/*') — the historical
+				// false positives were prose mentions inside doc comments.
+				if (t.startsWith("*") || t.startsWith("//") || t.startsWith("/*")) continue;
+				for (const m of raw.matchAll(RE_QUOTED)) note((m[0] as string).slice(1, -1), pkg); // strip quotes
+				for (const m of raw.matchAll(RE_ACCESS)) note((m[0] as string).slice(1), pkg); // strip leading '.'
+			}
+		}
+	};
+	for (const pkg of EXTS) walk(join(ROOT, pkg, "src"), pkg);
+	return refs;
 }
 
-/** Read a package production source file (utf8). */
+// ─── shape extraction (status widget only — the one OBJECT-valued key) ───────
+
 function readPkgFile(pkg: string, rel: string): string {
 	return readFileSync(join(ROOT, pkg, rel), "utf8");
 }
 
 /** Lines of a brace-delimited block, starting at the first line containing
- *  `open`, counting `{`/`}` until depth returns to 0. Returns the block text. */
+ *  `open`, counting `{`/`}` until depth returns to 0. */
 function braceBlock(src: string, open: string): string {
 	const lines = src.split("\n");
 	const start = lines.findIndex((l) => l.includes(open));
@@ -63,8 +122,6 @@ function braceBlock(src: string, open: string): string {
 	return out.join("\n");
 }
 
-/** Public method names declared on a class body (tab-indented `name(` / `name<`),
- *  excluding access-modifier fields. Source-aware, not runtime. */
 function extractClassMethods(src: string, className: string): Set<string> {
 	const block = braceBlock(src, `class ${className}`);
 	const methods = new Set<string>();
@@ -75,7 +132,6 @@ function extractClassMethods(src: string, className: string): Set<string> {
 	return methods;
 }
 
-/** Method names declared in a TS `interface Foo { ... }` block (2-space members). */
 function extractInterfaceMethods(src: string, ifaceName: string): Set<string> {
 	const block = braceBlock(src, `interface ${ifaceName}`);
 	const methods = new Set<string>();
@@ -86,9 +142,6 @@ function extractInterfaceMethods(src: string, ifaceName: string): Set<string> {
 	return methods;
 }
 
-/** Method names declared in an inline structural type following `anchor`
- *  (e.g. `g.__piCoreTaskStatusWidget as { inspect?: (...) => ... }`).
- *  Matches optional method-properties `name?: (`. */
 function extractInlineTypeMethods(src: string, anchor: string): Set<string> {
 	const block = braceBlock(src, anchor);
 	const methods = new Set<string>();
@@ -99,63 +152,45 @@ function extractInlineTypeMethods(src: string, anchor: string): Set<string> {
 	return methods;
 }
 
-const WAYFIND_SRC = "src/index.ts";
-const POWER_TOOL_SRC = "src/index.ts";
-
-const SEAM: SeamSpec = {
+// The status widget is the one object-valued seam → it alone carries a SHAPE
+// invariant (consumer-declared methods ⊆ publisher class public methods).
+const STATUS_WIDGET = {
 	key: "__piCoreTaskStatusWidget",
 	publisher: { pkg: "pi-agent-ext-core-task", file: "src/shared/status-widget.ts", className: "CoreTaskStatusWidget" },
 	consumers: [
-		{
-			pkg: "pi-agent-ext-wayfind",
-			file: WAYFIND_SRC,
-			methods: () => extractInterfaceMethods(readPkgFile("pi-agent-ext-wayfind", WAYFIND_SRC), "SharedStatusWidget"),
-		},
-		{
-			pkg: "pi-agent-ext-power-tool",
-			file: POWER_TOOL_SRC,
-			methods: () => extractInlineTypeMethods(readPkgFile("pi-agent-ext-power-tool", POWER_TOOL_SRC), "__piCoreTaskStatusWidget as {"),
-		},
+		{ pkg: "pi-agent-ext-wayfind", methods: () => extractInterfaceMethods(readPkgFile("pi-agent-ext-wayfind", "src/index.ts"), "SharedStatusWidget") },
+		{ pkg: "pi-agent-ext-power-tool", methods: () => extractInlineTypeMethods(readPkgFile("pi-agent-ext-power-tool", "src/index.ts"), "__piCoreTaskStatusWidget as {") },
 	],
 };
 
-describe("cross-extension status-widget seam contract (wayfind ADR-0004)", () => {
-	it("extraction is grounded — publisher class + consumer shapes were found, not empty", () => {
-		// Guards against a vacuous pass if a refactor shifts indentation/syntax
-		// and the extractors silently return empty sets.
-		const pubMethods = extractClassMethods(readPkgFile(SEAM.publisher.pkg, SEAM.publisher.file), SEAM.publisher.className);
-		assert.ok(
-			pubMethods.size >= 3,
-			`expected ≥3 public methods on ${SEAM.publisher.className}, got ${[...pubMethods].join(", ") || "(none — extraction miss?"}`,
-		);
-		for (const c of SEAM.consumers) {
+describe("cross-extension __pi* seam contract (ADR-0004; generalized ticket 03)", () => {
+	const refs = scanSeamReferences();
+
+	it("NO ORPHANS — every __pi* token referenced in production source is a registered SEAM_KEY", () => {
+		const orphans = [...refs.keys()].filter((tok) => !SEAM_KEY_SET.has(tok)).sort();
+		const detail = orphans.map((tok) => `  "${tok}" referenced in: ${[...(refs.get(tok) ?? [])].sort().join(", ")}`).join("\n");
+		assert.deepEqual(orphans, [], orphans.length
+			? `ORPHAN __pi* KEYS — a token is referenced in production source but not registered in SEAM_KEYS.\nEither rename it away from the __pi* convention, or register it in SEAM_KEYS (that act IS maintaining the contract):\n${detail}`
+			: "");
+	});
+
+	it("NO DEAD KEYS — every registered SEAM_KEY is actually referenced in production source", () => {
+		const dead = SEAM_KEYS.filter((k) => !refs.has(k));
+		assert.deepEqual(dead, [], dead.length
+			? `DEAD SEAM_KEYS — registered but unreferenced in production source (remove from SEAM_KEYS, or wire the key):\n${dead.map((k) => `  "${k}"`).join("\n")}`
+			: "");
+	});
+
+	it("STATUS-WIDGET SHAPE — every method a consumer declares on the widget is a public method of the publisher's class", () => {
+		const pubMethods = extractClassMethods(readPkgFile(STATUS_WIDGET.publisher.pkg, STATUS_WIDGET.publisher.file), STATUS_WIDGET.publisher.className);
+		// Grounding: guard against a vacuous pass if a refactor shifts indentation/syntax.
+		assert.ok(pubMethods.size >= 3, `expected ≥3 public methods on ${STATUS_WIDGET.publisher.className}, got ${[...pubMethods].join(", ") || "(none — extraction miss?)"}`);
+		const drift: string[] = [];
+		for (const c of STATUS_WIDGET.consumers) {
 			const ms = c.methods();
 			assert.ok(ms.size >= 1, `expected ≥1 declared method in ${c.pkg}'s seam view, got none (extraction miss?)`);
-		}
-	});
-
-	it("KEY AGREEMENT — the seam key appears, identically, in publisher + every consumer's production source", () => {
-		const sites: [string, string, string][] = [
-			["publisher (core-task)", SEAM.publisher.pkg, SEAM.publisher.file],
-			["consumer (wayfind)", "pi-agent-ext-wayfind", WAYFIND_SRC],
-			["consumer (power-tool)", "pi-agent-ext-power-tool", POWER_TOOL_SRC],
-		];
-		const missing: string[] = [];
-		for (const [label, pkg, file] of sites) {
-			const src = readPkgFile(pkg, file);
-			if (!src.includes(SEAM.key)) missing.push(`  ${label}: ${pkg}/${file} does not reference "${SEAM.key}"`);
-		}
-		assert.deepEqual(missing, [], missing.length ? `SEAM KEY DRIFT — a site renamed/diverged from "${SEAM.key}":\n${missing.join("\n")}` : "");
-	});
-
-	it("SHAPE — every method a consumer declares on the widget is a public method of the publisher's class", () => {
-		const pubMethods = extractClassMethods(readPkgFile(SEAM.publisher.pkg, SEAM.publisher.file), SEAM.publisher.className);
-		const drift: string[] = [];
-		for (const c of SEAM.consumers) {
-			for (const m of c.methods()) {
-				if (!pubMethods.has(m)) {
-					drift.push(`  ${c.pkg} declares "${m}" on the seam, but ${SEAM.publisher.className} no longer defines it (renamed? removed?)`);
-				}
+			for (const m of ms) {
+				if (!pubMethods.has(m)) drift.push(`  ${c.pkg} declares "${m}" on the seam, but ${STATUS_WIDGET.publisher.className} no longer defines it (renamed? removed?)`);
 			}
 		}
 		assert.deepEqual(drift, [], drift.length ? `SEAM SHAPE DRIFT — a publisher method rename/removal broke a consumer:\n${drift.join("\n")}` : "");
