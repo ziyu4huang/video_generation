@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { SqliteBackend, SQLITE_WAL_AUTOCHECKPOINT_PAGES, RawDatabase as Database } from '../../src/store/sqlite/sqlite-backend.js';
+import { SqliteBackend, SQLITE_WAL_AUTOCHECKPOINT_PAGES, TRANSIENT_DB_RETRY_MAX_ATTEMPTS, runWithTransientRetry, RawDatabase as Database } from '../../src/store/sqlite/sqlite-backend.js';
 import type { DatabaseLike } from '../../src/store/sqlite/sqlite-backend.js';
 
 /**
@@ -477,6 +477,20 @@ describe('SqliteBackend', () => {
     });
   });
 
+  describe('busy_timeout (write-lock contention bound)', () => {
+    // Regression guard for the ~13s shutdown freeze: bun:sqlite is SYNCHRONOUS,
+    // so PRAGMA busy_timeout blocks the event loop for its full duration on
+    // contention. Combined with runWithTransientRetry's attempt count, the
+    // worst-case synchronous block is busy_timeout × maxAttempts. Both must
+    // stay bounded so a contended write can never freeze the interactive TUI
+    // for many seconds.
+    it('caps busy_timeout so a contended write cannot block the event loop for seconds', () => {
+      const db = dbManager.getDb();
+      const value = pragmaSimple(db, 'busy_timeout') as number;
+      assert.ok(value <= 2000, `busy_timeout ${value}ms is too long for a synchronous driver (would freeze the TUI up to ${value * TRANSIENT_DB_RETRY_MAX_ATTEMPTS}ms under contention)`);
+    });
+  });
+
   describe('foreign keys', () => {
     it('should enforce foreign key constraints', () => {
       const db = dbManager.getDb();
@@ -490,6 +504,24 @@ describe('SqliteBackend', () => {
           VALUES (?, ?, ?, ?, ?)
         `).run('bad-msg', 'nonexistent-session', 'user', 'test', '2026-05-03T00:00:00Z');
       }, /FOREIGN KEY/);
+    });
+  });
+
+  describe('runWithTransientRetry (contention retry bound)', () => {
+    it('retries transient SQLITE_BUSY only a bounded number of times', async () => {
+      let attempts = 0;
+      const op = () => {
+        attempts++;
+        const err = new Error('database is locked') as Error & { code?: string };
+        err.code = 'SQLITE_BUSY';
+        throw err;
+      };
+      await assert.rejects(runWithTransientRetry(op, { sleep: () => Promise.resolve() }));
+      assert.strictEqual(attempts, TRANSIENT_DB_RETRY_MAX_ATTEMPTS);
+      // The safety property: attempt count × busy_timeout must stay well under
+      // the ~13s regression. With busy_timeout ≤ 2000ms this caps the worst-case
+      // synchronous block at ≤ 2000 × maxAttempts ms.
+      assert.ok(TRANSIENT_DB_RETRY_MAX_ATTEMPTS <= 2, `maxAttempts ${TRANSIENT_DB_RETRY_MAX_ATTEMPTS} × busy_timeout would re-introduce the multi-second freeze`);
     });
   });
 
