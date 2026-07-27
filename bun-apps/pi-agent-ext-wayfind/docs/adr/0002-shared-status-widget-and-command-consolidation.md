@@ -1,7 +1,9 @@
 # ADR-0002: Shared status widget + command consolidation across wayfind and planning-with-files
 
 Date: 2026-07-17
-Status: accepted
+Status: partially superseded — Decision 1 (shared status-widget `workspace:*`
+dependency) reversed by [ADR-0004](./0004-decouple-status-widget-via-global.md);
+Decision 2 (command consolidation: `/grill`, `/wayfind`) still accepted.
 
 > **Historical note (2026-07-18):** `pi-agent-ext-planning-with-files` was
 > removed in PR #620. The shared-widget design this ADR established still holds

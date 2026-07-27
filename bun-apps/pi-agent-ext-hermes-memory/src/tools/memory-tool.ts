@@ -136,7 +136,35 @@ function formatMemoryToolText(result: MemoryResult): string {
     return lines.join("\n").trim();
   }
 
-  return JSON.stringify(result);
+  // One-line summary for the common cases (success without rotation, and
+  // failure). Previously this fell through to raw JSON.stringify, dumping
+  // {"success":true,"target":...,"usage":...} into the TUI — unreadable.
+  return formatMemoryResultLine(result);
+}
+
+function formatMemoryResultLine(result: MemoryResult): string {
+  const target = result.target ? `${result.target} memory` : null;
+  if (!result.success) {
+    const detail = result.error ?? result.message ?? "Operation failed";
+    return target ? `✗ ${target}: ${detail}` : `✗ ${detail}`;
+  }
+  const head = result.message ?? "Done";
+  const targetSuffix = target ? ` → ${target}` : "";
+  const meta: string[] = [];
+  if (typeof result.entry_count === "number") {
+    meta.push(`${result.entry_count} ${result.entry_count === 1 ? "entry" : "entries"}`);
+  }
+  if (result.usage) meta.push(result.usage);
+  if (result.warning) meta.push(`⚠ ${result.warning}`);
+  const metaStr = meta.length > 0 ? ` · ${meta.join(" · ")}` : "";
+  return `✓ ${head}${targetSuffix}${metaStr}`;
+}
+
+/** Build a tool response carrying a human-readable `text` for the TUI and the
+ * structured `details` for programmatic/test consumers. Use for error paths. */
+function memoryErrorResponse(error: string): { content: Array<{ type: "text"; text: string }>; details: MemoryResult } {
+  const result: MemoryResult = { success: false, error };
+  return { content: [{ type: "text", text: formatMemoryResultLine(result) }], details: result };
 }
 
 function sqliteProjectFor(rawTarget: "memory" | "user" | "project" | "failure", projectName?: string | null): string | null | undefined {
@@ -332,10 +360,7 @@ export function registerMemoryTool(
       const activeStore = rawTarget === "project" ? projectStore : store;
 
       if (rawTarget === "project" && !projectStore) {
-        return {
-          content: [{ type: "text", text: JSON.stringify({ success: false, error: "Project memory is not available (no project detected)." }) }],
-          details: {},
-        };
+        return memoryErrorResponse("Project memory is not available (no project detected).");
       }
 
       // After the guard above, activeStore is guaranteed non-null when rawTarget === 'project'
@@ -346,18 +371,7 @@ export function registerMemoryTool(
       switch (action) {
         case "add":
           if (!content) {
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    success: false,
-                    error: "Content is required for 'add' action.",
-                  }),
-                },
-              ],
-              details: {},
-            };
+            return memoryErrorResponse("Content is required for 'add' action.");
           }
           // Handle failure target with category
           if (rawTarget === "failure") {
@@ -381,32 +395,10 @@ export function registerMemoryTool(
 
         case "replace":
           if (!old_text) {
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    success: false,
-                    error: "old_text is required for 'replace' action.",
-                  }),
-                },
-              ],
-              details: {},
-            };
+            return memoryErrorResponse("old_text is required for 'replace' action.");
           }
           if (!content) {
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    success: false,
-                    error: "content is required for 'replace' action.",
-                  }),
-                },
-              ],
-              details: {},
-            };
+            return memoryErrorResponse("content is required for 'replace' action.");
           }
           result = await store_.replace(target, old_text, content);
           if (result.success) {
@@ -416,18 +408,7 @@ export function registerMemoryTool(
 
         case "remove":
           if (!old_text) {
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    success: false,
-                    error: "old_text is required for 'remove' action.",
-                  }),
-                },
-              ],
-              details: {},
-            };
+            return memoryErrorResponse("old_text is required for 'remove' action.");
           }
           result = await store_.remove(target, old_text);
           if (result.success) {
@@ -437,10 +418,7 @@ export function registerMemoryTool(
 
         case "transfer":
           if (rawTarget === "project") {
-            return {
-              content: [{ type: "text", text: JSON.stringify({ success: false, error: "Transfer is not supported for project target. Use 'memory', 'user', or 'failure'." }) }],
-              details: {},
-            };
+            return memoryErrorResponse("Transfer is not supported for project target. Use 'memory', 'user', or 'failure'.");
           }
           result = await store_.transferEntries(target, query);
           if (result.success && result.transferred_entries && result.transferred_entries.length > 0) {

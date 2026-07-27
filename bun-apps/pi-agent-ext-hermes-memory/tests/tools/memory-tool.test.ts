@@ -81,7 +81,7 @@ describe("registerMemoryTool", () => {
     assert.ok(tool.parameters, "parameters schema should be defined");
   });
 
-  it("execute add returns JSON with usage field", async () => {
+  it("execute add returns usage in structured details", async () => {
     let capturedResult: any;
 
     const mockPi = {
@@ -105,12 +105,49 @@ describe("registerMemoryTool", () => {
     const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry one" }, undefined as any, undefined as any, undefined as any);
 
     assert.strictEqual(result.content[0].type, "text", "content should be text type");
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = result.details;
     assert.strictEqual(parsed.success, true, "result should be success");
     assert.ok(parsed.usage.includes("chars"), "usage should contain 'chars'");
     assert.ok(parsed.usage.includes("5000"), "usage should show total limit");
     assert.strictEqual(parsed.entry_count, 1, "entry_count should be 1");
-    assert.strictEqual(result.details.success, true, "details should mirror result");
+  });
+
+  it("execute add renders a human-readable one-line summary (not raw JSON)", async () => {
+    let capturedResult: any;
+    const mockPi = { registerTool: (def: any) => { capturedResult = def; } } as unknown as ExtensionAPI;
+    const mockStore = {
+      add: () => ({
+        success: true, target: "memory", entries: ["Entry one"],
+        usage: "5% — 110/5000 chars", entry_count: 1, message: "Entry added.",
+      }),
+    } as unknown as MemoryStore;
+
+    registerMemoryTool(mockPi, mockStore, null, memoryRepo);
+    const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry one" }, undefined as any, undefined as any, undefined as any);
+
+    const text = result.content[0].text;
+    assert.throws(() => JSON.parse(text), "text must no longer be raw JSON");
+    assert.match(text, /^✓ Entry added/);
+    assert.match(text, /1 entry/);
+    assert.match(text, /5% — 110\/5000 chars/);
+  });
+
+  it("execute add failure renders a human-readable error line (not raw JSON)", async () => {
+    let capturedResult: any;
+    const mockPi = { registerTool: (def: any) => { capturedResult = def; } } as unknown as ExtensionAPI;
+    const mockStore = {
+      add: () => ({ success: false, error: "Memory at 5000/5000 chars. Adding would exceed the limit." }),
+    } as unknown as MemoryStore;
+
+    registerMemoryTool(mockPi, mockStore, null);
+    const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "x" }, undefined as any, undefined as any, undefined as any);
+
+    const text = result.content[0].text;
+    assert.throws(() => JSON.parse(text), "failure text must no longer be raw JSON");
+    assert.match(text, /^✗/);
+    assert.ok(text.includes("exceed the limit"), "error detail surfaces in text");
+    assert.strictEqual(result.details.success, false);
+    assert.match(result.details.error ?? "", /exceed the limit/);
   });
 
   it("execute add with FIFO evictions returns normal text with full rotated entries", async () => {
@@ -285,7 +322,7 @@ describe("registerMemoryTool", () => {
     registerMemoryTool(mockPi, {} as MemoryStore, mockProjectStore, memoryRepo, 'project-a');
     const result = await capturedResult.execute("tc-1", { action: "add", target: "project", content: "Project entry" }, undefined as any, undefined as any, undefined as any);
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = result.details;
     assert.strictEqual(parsed.target, 'project');
     assert.strictEqual(result.details.target, 'project');
     assert.deepStrictEqual(addTargets, ['memory']);
@@ -321,7 +358,7 @@ describe("registerMemoryTool", () => {
     registerMemoryTool(mockPi, mockStore, null, failingMemoryRepo);
     const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry one" }, undefined as any, undefined as any, undefined as any);
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = result.details;
     assert.strictEqual(parsed.success, true);
     assert.match(parsed.message, /search store sync failed/);
     assert.match(parsed.warning, /sqlite unavailable/);
@@ -341,7 +378,7 @@ describe("registerMemoryTool", () => {
 
     registerMemoryTool(mockPi, mockStore, null, memoryRepo);
     const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry one" }, undefined as any, undefined as any, undefined as any);
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = result.details;
 
     assert.strictEqual(parsed.success, true);
     assert.strictEqual(parsed.warning, undefined, "no sync-warning when repo succeeds");
@@ -367,7 +404,7 @@ describe("registerMemoryTool", () => {
 
     registerMemoryTool(mockPi, mockStore, null, persistentFlaky);
     const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry two" }, undefined as any, undefined as any, undefined as any);
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = result.details;
 
     assert.strictEqual(parsed.success, true);
     assert.match(parsed.message, /search store sync failed/);
@@ -398,7 +435,7 @@ describe("registerMemoryTool", () => {
       undefined as any,
     );
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = result.details;
     assert.strictEqual(parsed.success, false);
 
     const rows = await memoryRepo.getMemories({ target: "memory", project: null });
@@ -419,7 +456,7 @@ describe("registerMemoryTool", () => {
     registerMemoryTool(mockPi, mockStore, null);
     const result = await capturedResult.execute("tc-1", { action: "add", target: "memory" }, undefined as any, undefined as any, undefined as any);
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = result.details;
     assert.strictEqual(parsed.success, false, "should fail without content");
     assert.ok(parsed.error.includes("required"), "error should mention required content");
   });
@@ -438,7 +475,7 @@ describe("registerMemoryTool", () => {
     registerMemoryTool(mockPi, mockStore, null);
     const result = await capturedResult.execute("tc-1", { action: "replace", target: "memory", content: "new" }, undefined as any, undefined as any, undefined as any);
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = result.details;
     assert.strictEqual(parsed.success, false, "should fail without old_text");
     assert.ok(parsed.error.includes("old_text"), "error should mention old_text");
   });
@@ -457,7 +494,7 @@ describe("registerMemoryTool", () => {
     registerMemoryTool(mockPi, mockStore, null);
     const result = await capturedResult.execute("tc-1", { action: "remove", target: "memory" }, undefined as any, undefined as any, undefined as any);
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = result.details;
     assert.strictEqual(parsed.success, false, "should fail without old_text");
     assert.ok(parsed.error.includes("old_text"), "error should mention old_text");
   });

@@ -68,13 +68,13 @@ describe("registerSkillTool", () => {
     registerSkillTool(mockPi, store);
 
     let result = await captured.execute("tc-1", { action: "create", description: "desc", content: "body" }, undefined, undefined, undefined);
-    assert.strictEqual(JSON.parse(result.content[0].text).success, false);
+    assert.strictEqual(result.details.success, false);
 
     result = await captured.execute("tc-1", { action: "create", name: "test", content: "body" }, undefined, undefined, undefined);
-    assert.strictEqual(JSON.parse(result.content[0].text).success, false);
+    assert.strictEqual(result.details.success, false);
 
     result = await captured.execute("tc-1", { action: "create", name: "test", description: "desc" }, undefined, undefined, undefined);
-    const missingBody = JSON.parse(result.content[0].text);
+    const missingBody = result.details;
     assert.strictEqual(missingBody.success, false);
     assert.match(missingBody.error, /Either content or structured fields are required/i);
 
@@ -84,7 +84,7 @@ describe("registerSkillTool", () => {
       description: "desc",
       content: "body",
     }, undefined, undefined, undefined);
-    const missingScope = JSON.parse(result.content[0].text);
+    const missingScope = result.details;
     assert.strictEqual(missingScope.success, false);
     assert.match(missingScope.error, /scope is required/i);
 
@@ -108,7 +108,7 @@ describe("registerSkillTool", () => {
       content: "## Procedure\n1. Do it",
     }, undefined, undefined, undefined);
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = result.details;
     assert.strictEqual(parsed.success, true);
     assert.strictEqual(parsed.skillId, "global:test-skill");
     assert.strictEqual(parsed.scope, "global");
@@ -143,7 +143,7 @@ describe("registerSkillTool", () => {
       ],
     }, undefined, undefined, undefined);
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = result.details;
     assert.strictEqual(parsed.success, true);
 
     const created = await store.loadSkill(parsed.skillId);
@@ -173,7 +173,7 @@ describe("registerSkillTool", () => {
       content: "## Procedure\n1. Run pnpm build",
     }, undefined, undefined, undefined);
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = result.details;
     assert.strictEqual(parsed.success, true);
     assert.strictEqual(parsed.skillId, "project:demo-project:release-app");
     assert.strictEqual(parsed.scope, "project");
@@ -193,7 +193,7 @@ describe("registerSkillTool", () => {
     registerSkillTool(mockPi, store);
 
     const result = await captured.execute("tc-1", { action: "view" }, undefined, undefined, undefined);
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = result.details;
     assert.strictEqual(parsed.success, true);
     assert.strictEqual(parsed.skills.length, 2);
 
@@ -211,7 +211,7 @@ describe("registerSkillTool", () => {
     registerSkillTool(mockPi, store);
 
     const result = await captured.execute("tc-1", { action: "view", skill_id: created.skillId }, undefined, undefined, undefined);
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = result.details;
     assert.strictEqual(parsed.success, true);
     assert.strictEqual(parsed.name, "my-skill");
     assert.ok(parsed.body.includes("## Body content here"));
@@ -229,7 +229,7 @@ describe("registerSkillTool", () => {
     registerSkillTool(mockPi, store);
 
     const result = await captured.execute("tc-1", { action: "view", skill_id: "global:missing" }, undefined, undefined, undefined);
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = result.details;
     assert.strictEqual(parsed.success, false);
     assert.ok(parsed.error.includes("not found"));
 
@@ -246,13 +246,13 @@ describe("registerSkillTool", () => {
     registerSkillTool(mockPi, store);
 
     let result = await captured.execute("tc-1", { action: "patch", section: "Procedure", content: "new" }, undefined, undefined, undefined);
-    assert.strictEqual(JSON.parse(result.content[0].text).success, false);
+    assert.strictEqual(result.details.success, false);
 
     result = await captured.execute("tc-1", { action: "patch", skill_id: "global:test", content: "new" }, undefined, undefined, undefined);
-    assert.strictEqual(JSON.parse(result.content[0].text).success, false);
+    assert.strictEqual(result.details.success, false);
 
     result = await captured.execute("tc-1", { action: "patch", skill_id: "global:test", section: "Procedure" }, undefined, undefined, undefined);
-    assert.strictEqual(JSON.parse(result.content[0].text).success, false);
+    assert.strictEqual(result.details.success, false);
 
     await cleanup();
   });
@@ -267,7 +267,7 @@ describe("registerSkillTool", () => {
     registerSkillTool(mockPi, store);
 
     const result = await captured.execute("tc-1", { action: "update", description: "new desc" }, undefined, undefined, undefined);
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = result.details;
     assert.strictEqual(parsed.success, false);
     assert.ok(parsed.error.includes("skill_id"));
 
@@ -291,7 +291,7 @@ describe("registerSkillTool", () => {
       content: "## New body",
     }, undefined, undefined, undefined);
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = result.details;
     assert.strictEqual(parsed.success, true);
 
     const updated = await store.loadSkill(created.skillId!);
@@ -320,7 +320,7 @@ describe("registerSkillTool", () => {
       verification_steps: ["Confirm the new sequence works."],
     }, undefined, undefined, undefined);
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = result.details;
     assert.strictEqual(parsed.success, true);
 
     const updated = await store.loadSkill(created.skillId!);
@@ -348,7 +348,7 @@ describe("registerSkillTool", () => {
       content: "## Legacy body",
     }, undefined, undefined, undefined);
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = result.details;
     assert.strictEqual(parsed.success, true);
 
     const updated = await store.loadSkill(created.skillId!);
@@ -368,7 +368,7 @@ describe("registerSkillTool", () => {
     registerSkillTool(mockPi, store);
 
     const result = await captured.execute("tc-1", { action: "delete" }, undefined, undefined, undefined);
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = result.details;
     assert.strictEqual(parsed.success, false);
     assert.ok(parsed.error.includes("skill_id"));
 
@@ -385,7 +385,7 @@ describe("registerSkillTool", () => {
     registerSkillTool(mockPi, store);
 
     const result = await captured.execute("tc-1", { action: "explode" }, undefined, undefined, undefined);
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = result.details;
     assert.strictEqual(parsed.success, false);
     assert.ok(parsed.error.includes("Unknown action"));
 
