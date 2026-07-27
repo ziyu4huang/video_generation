@@ -450,6 +450,18 @@ jobs:
         working-directory: bun-apps
         run: bun run test:deps
 
+      # Cross-extension seam-contract guard (wayfind ADR-0004). The
+      # status-widget seam (__piCoreTaskStatusWidget) is duplicated across
+      # core-task (publisher) + wayfind/power-tool (consumers) with no
+      # compile-time link — each side's tests mock its own literal, so a
+      # rename/reshape in core-task stays green and breaks consumers only in
+      # production. This static source-analysis guard turns that silent drift
+      # loud (key agreement + consumer-declared methods ⊆ publisher class).
+      # No runtime import of any package — respects ADR-0004's decoupling.
+      - name: Cross-extension seam-contract guard (status widget, blocks)
+        working-directory: bun-apps
+        run: bun run test:seam
+
       # Test-portability prevention check — now BLOCKING (--strict). Scans the
       # test surface for the four "works on my machine" signal patterns and
       # exits non-zero on any UNGATED P1/P2 hit (existsSync of a machine-coupled

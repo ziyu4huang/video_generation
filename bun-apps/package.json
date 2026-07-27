@@ -8,6 +8,7 @@
     "@types/bun": "latest"
   },
   "scripts": {
-    "test:deps": "bun test tests/dep-guard.test.ts"
+    "test:deps": "bun test tests/dep-guard.test.ts",
+    "test:seam": "bun test tests/seam-contract.test.ts"
   }
 }
