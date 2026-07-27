@@ -462,6 +462,18 @@ jobs:
         working-directory: bun-apps
         run: bun run test:seam
 
+      # Cross-extension routing-contract guard (ticket 05). superpowers'
+      # using-superpowers bootstrap names wayfind's skills (grilling/wayfind/
+      # to-spec) in its pipeline-routing table. If wayfind renames/removes one,
+      # the bootstrap silently teaches stale routing (no recovery net — the
+      # agent misroutes). superpowers' own bootstrap.test.ts pins the
+      # superpowers-side; this static guard closes the wayfind-side gap: every
+      # routing-referenced wayfind skill must exist in wayfind/skills/ AND still
+      # appear in the bootstrap source. No runtime import.
+      - name: Cross-extension routing-contract guard (bootstrap ↔ wayfind, blocks)
+        working-directory: bun-apps
+        run: bun run test:routing
+
       # Test-portability prevention check — now BLOCKING (--strict). Scans the
       # test surface for the four "works on my machine" signal patterns and
       # exits non-zero on any UNGATED P1/P2 hit (existsSync of a machine-coupled
