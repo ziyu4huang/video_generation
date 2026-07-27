@@ -1,5 +1,6 @@
 import XCTest
 import MLX
+import CoreGraphics
 @testable import LTXVideoDirector
 
 /// Integration smoke test for NativeUpscaleStage: VideoEncoder -> denormalize
@@ -350,6 +351,33 @@ final class NativeUpscaleStageRealCheckpointTests: XCTestCase {
                 XCTAssertEqual(url, missingLoraURL)
             } else {
                 XCTFail("expected .restyleLoraNotFound, got \(stageError)")
+            }
+        }
+    }
+
+    func testGenerateCameraControlMissingLoraThrowsNamedError() throws {
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_camera_control_out_\(UUID().uuidString)")
+        let missingLoraURL = FileManager.default.temporaryDirectory.appendingPathComponent("does_not_exist_\(UUID().uuidString).safetensors")
+        defer { try? FileManager.default.removeItem(at: outputDir) }
+
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)
+        let ctx = CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 64 * 4, space: colorSpace, bitmapInfo: bitmapInfo)!
+        ctx.setFillColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1.0)
+        ctx.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+        let referenceFrames = [CGImage](repeating: ctx.makeImage()!, count: 9)
+
+        XCTAssertThrowsError(try NativeUpscaleStage().generateCameraControl(
+            referenceFrames: referenceFrames, outputDir: outputDir, prompt: "a test prompt",
+            loraURL: missingLoraURL)
+        ) { error in
+            guard let stageError = error as? NativeUpscaleStage.StageError else {
+                XCTFail("expected StageError, got \(error)"); return
+            }
+            if case .cameraLoraNotFound(let url) = stageError {
+                XCTAssertEqual(url, missingLoraURL)
+            } else {
+                XCTFail("expected .cameraLoraNotFound, got \(stageError)")
             }
         }
     }

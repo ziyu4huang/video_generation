@@ -61,6 +61,7 @@ public struct NativeUpscaleStage {
         case referenceVideoNotFound(URL)
         case referenceVideoNoAudioTrack(URL)
         case lipdubLoraNotFound(URL)
+        case cameraLoraNotFound(URL)
 
         public var description: String {
             switch self {
@@ -82,6 +83,7 @@ public struct NativeUpscaleStage {
             case .referenceVideoNotFound(let url): return "NativeUpscaleStage: lipdub reference video not found at \(url.path)"
             case .referenceVideoNoAudioTrack(let url): return "NativeUpscaleStage: lipdub reference video has no audio stream (LipDub needs the target speech from the reference) at \(url.path)"
             case .lipdubLoraNotFound(let url): return "NativeUpscaleStage: LipDub IC-LoRA not found at \(url.path) — download Lightricks/LTX-2.3-22b-IC-LoRA-LipDub from HuggingFace (HF-gated) and pass its path via --lora"
+            case .cameraLoraNotFound(let url): return "NativeUpscaleStage: camera-control IC-LoRA not found at \(url.path) — import Cameraman v2 into mlx-models/lora/camera-control-cameraman-v2/ (see docs/superpowers/specs/2026-07-27-camera-control-lora-relay-design.md)"
             }
         }
     }
@@ -669,6 +671,160 @@ public struct NativeUpscaleStage {
         return Result(
             frameDirectory: frameDir, frameCount: frameCount,
             inputSize: (width, height), outputSize: (width, height))
+    }
+
+    /// `native-relay`'s per-segment camera-control-LoRA path (v1: dolly_in/
+    /// tilt_up only — see SyntheticCameraReference.swift for how the
+    /// reference frames are built). Mirrors `generateRestyle`'s IC-LoRA
+    /// reference-conditioning recipe for VIDEO (VAE-encode reference frames
+    /// -> fuse IC-LoRA -> denoise with VideoConditionByReferenceLatent) but,
+    /// unlike `generateRestyle`, GENERATES fresh audio via the joint
+    /// transformer (denoiseMask=1, real decode through
+    /// AudioVAEDecoder+VocoderWithBWE — the same pattern
+    /// NativeI2VStage.generate uses) instead of preserving an existing audio
+    /// track — a fresh relay segment has no prior audio to keep.
+    ///
+    /// `referenceFrames.count` becomes the generation's own output frame
+    /// count (same "output length derives from the reference clip" behavior
+    /// `generateRestyle` has) — callers MUST pass exactly the segment's own
+    /// LTX frame count (8k+1), e.g. `NativeI2VStage.Request.frames`.
+    public func generateCameraControl(
+        referenceFrames: [CGImage], outputDir: URL, prompt: String,
+        loraURL: URL, fps: Double = 24.0, textMaxLength: Int = 128, seed: UInt64 = 42,
+        loraStrength: Float = 1.0
+    ) throws -> CameraControlResult {
+        let fm = FileManager.default
+        guard !referenceFrames.isEmpty else {
+            throw StageError.invalidDimensions("generateCameraControl: referenceFrames must not be empty")
+        }
+        guard fm.fileExists(atPath: loraURL.path) else {
+            throw StageError.cameraLoraNotFound(loraURL)
+        }
+        try fm.createDirectory(at: outputDir, withIntermediateDirectories: true)
+
+        print("[camera-control] encoding \(referenceFrames.count) synthetic reference frames...")
+        let width = referenceFrames[0].width, height = referenceFrames[0].height
+        let frameArrays = referenceFrames.map { FrameLoad.toArray($0) }  // each (1, 3, H, W) [0, 1]
+        let stacked = MLX.stacked(frameArrays.map { $0[0] }, axis: 1)  // (3, F, H, W)
+        let pixelsBCFHW = (stacked.asType(.float32) * 2.0 - 1.0).expandedDimensions(axis: 0)
+
+        let vaeEncoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/vae_encoder.safetensors")
+        guard fm.fileExists(atPath: vaeEncoderURL.path) else {
+            throw StageError.videoEncoderCheckpointNotFound(vaeEncoderURL)
+        }
+        let encRaw = try MLX.loadArrays(url: vaeEncoderURL)
+        var encWeights: [String: MLXArray] = [:]
+        for (key, value) in encRaw {
+            let stripped = key.hasPrefix("vae_encoder.") ? String(key.dropFirst("vae_encoder.".count)) : key
+            encWeights[stripped] = value.asType(.float32)
+        }
+        let videoEncoder = VideoEncoder(weights: encWeights)
+        let referenceLatentRaw = videoEncoder(pixelsBCFHW)
+        MLX.eval(referenceLatentRaw)
+        let (referenceTokens, dims) = VideoLatentPatchifier.patchify(referenceLatentRaw)
+        let videoPositions = Positions.computeVideoPositions(numFrames: dims.f, height: dims.h, width: dims.w, frameRate: Float(fps))
+        let genTokenCount = dims.f * dims.h * dims.w
+
+        print("[camera-control] LoRA: loading + fusing Cameraman IC-LoRA into distilled transformer...")
+        let loraSources: [(weights: LoRAWeights, strength: Float)] = [
+            (weights: try LoRAWeights.load(url: loraURL), strength: loraStrength),
+        ]
+
+        let noise = MLXRandom.normal([1, genTokenCount, 128], key: MLXRandom.key(seed))
+        let baseVideoState = LatentState(
+            latent: noise, cleanLatent: MLXArray.zeros([1, genTokenCount, 128]),
+            denoiseMask: MLXArray.ones([1, genTokenCount, 1]), positions: videoPositions)
+        let videoState = VideoConditionByReferenceLatent(
+            referenceLatent: referenceTokens, referencePositions: videoPositions,
+            downscaleFactor: 1, strength: 1.0
+        ).apply(to: baseVideoState)
+
+        // Fresh audio generation (denoiseMask=1) — the key difference from
+        // generateRestyle's preserve-existing-audio behavior. numAudioTokens
+        // is derived from referenceFrames.count (the PIXEL frame count),
+        // NOT dims.f (the VAE-compressed LATENT frame count) — same
+        // convention NativeI2VStage.generate uses with request.frames.
+        let numAudioTokens = Positions.computeAudioTokenCount(numVideoFrames: referenceFrames.count, frameRate: Float(fps))
+        let audioNoise = MLXRandom.normal([1, numAudioTokens, 128], key: MLXRandom.key(seed &+ 1))
+        let audioPositions = Positions.computeAudioPositions(numTokens: numAudioTokens)
+        let audioState = LatentState(latent: audioNoise, cleanLatent: audioNoise, denoiseMask: MLXArray.ones([1, numAudioTokens, 1]), positions: audioPositions)
+
+        let textStage = NativeTextEncodeStage(maxLength: textMaxLength)
+        let textResult = try textStage.encode(prompt)
+
+        let transformerURL = RepoPaths.mlxModelsRoot.appendingPathComponent("transformer/ltx-2.3-distilled-q8/transformer-distilled-1.1.safetensors")
+        guard fm.fileExists(atPath: transformerURL.path) else {
+            throw StageError.transformerCheckpointNotFound(transformerURL)
+        }
+        let rawTransformer = try MLX.loadArrays(url: transformerURL)
+        var strippedTransformer: [String: MLXArray] = [:]
+        for (key, value) in rawTransformer {
+            guard key.hasPrefix("transformer.") else { continue }
+            strippedTransformer[String(key.dropFirst("transformer.".count))] = value
+        }
+
+        let numLayers = 48
+        let cfg = distilledConfig(numLayers: numLayers)
+        let model = TransformerCheckpointLoader.makeModel(
+            TransformerCheckpointLoader.topLevelWeights(raw: strippedTransformer, loraSources: loraSources),
+            config: cfg, transformerBlocks: [])
+
+        let denoiseResult = DenoiseLoop.runStreaming(
+            model: model, numLayers: numLayers,
+            blockProvider: { idx in
+                TransformerCheckpointLoader.makeBlock(
+                    TransformerCheckpointLoader.blockWeights(raw: strippedTransformer, blockIndex: idx, loraSources: loraSources),
+                    config: cfg)
+            },
+            videoState: videoState, audioState: audioState,
+            videoTextEmbeds: textResult.videoEmbeds, audioTextEmbeds: textResult.audioEmbeds,
+            sigmas: SigmaSchedule.distilledSigmas)
+        MLX.eval(denoiseResult.videoLatent, denoiseResult.audioLatent)
+
+        let genTokens = denoiseResult.videoLatent[0..., 0..<genTokenCount, 0...]
+        let generatedLatent = VideoLatentPatchifier.unpatchify(genTokens, dims: dims)
+
+        print("[camera-control] decoding generated latent to \(width)x\(height) frames...")
+        let videoDecoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/vae_decoder.safetensors")
+        guard fm.fileExists(atPath: videoDecoderURL.path) else {
+            throw StageError.videoDecoderCheckpointNotFound(videoDecoderURL)
+        }
+        let videoDecoder = try VideoDecoderLoader.loadReal(checkpointURL: videoDecoderURL)
+        let pixels = videoDecoder(generatedLatent.asType(.float32))
+        MLX.eval(pixels)
+        let frameDir = outputDir.appendingPathComponent("frames")
+        let frameCount = try PNGFrameWriter.writeFrames(pixels, to: frameDir)
+
+        let audioLatentB8T16 = AudioPatchifier.unpatchify(denoiseResult.audioLatent)
+        let audioDecoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("audio/ltx-2.3-audio/audio_vae.safetensors")
+        guard fm.fileExists(atPath: audioDecoderURL.path) else {
+            throw StageError.audioEncoderCheckpointNotFound(audioDecoderURL)
+        }
+        let audioDecoder = try AudioVAEDecoderLoader.loadReal(checkpointURL: audioDecoderURL)
+        let mel = audioDecoder(audioLatentB8T16.asType(.float32))
+        MLX.eval(mel)
+        let vocoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("audio/ltx-2.3-audio/vocoder.safetensors")
+        let vocoder = try VocoderWithBWELoader.loadReal(checkpointURL: vocoderURL)
+        let waveform = vocoder(mel)
+        MLX.eval(waveform)
+        let numChannels = waveform.dim(1)
+        var channels: [[Float]] = []
+        for c in 0..<numChannels {
+            channels.append(waveform[0, c, 0...].asArray(Float.self))
+        }
+        let audioURL = outputDir.appendingPathComponent("audio.wav")
+        try WAVWriter.write(channels: channels, sampleRate: 48000, to: audioURL)
+
+        return CameraControlResult(frameDirectory: frameDir, frameCount: frameCount, audioURL: audioURL)
+    }
+
+    /// `generateCameraControl`'s own result type — includes `audioURL`
+    /// (generated fresh), unlike the shared `Result` type `generateHD`/
+    /// `generateRestyle` use (which never produce new audio).
+    public struct CameraControlResult {
+        public let frameDirectory: URL
+        public let frameCount: Int
+        public let audioURL: URL
     }
 
     /// `native-ingredients`: one-or-more-reference-image IC-LoRA conditioning
