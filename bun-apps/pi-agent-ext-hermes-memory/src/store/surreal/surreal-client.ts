@@ -15,6 +15,8 @@
  * layer — a server has no file-corruption semantics.
  */
 
+import { bumpRoundTrips } from "../../perf.js";
+
 export interface SurrealClientOptions {
   endpoint: string;       // e.g. http://127.0.0.1:8000
   namespace: string;      // e.g. user_<user>
@@ -57,6 +59,7 @@ export class SurrealClient {
    * early failing statement does NOT halt later ones.
    */
   async query<T = unknown[]>(sql: string, params: Record<string, unknown> = {}): Promise<T> {
+    bumpRoundTrips(); // attribute one HTTP round-trip to the active perf op (no-op outside any timed())
     const body = this.buildBody(sql, params);
     const statements = await this.send<StatementResult[]>(body);
     if (statements.length === 0) return [] as unknown as T;
