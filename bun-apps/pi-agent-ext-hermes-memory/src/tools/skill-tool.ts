@@ -26,6 +26,45 @@ function formatBulletList(items: string[], fallback: string): string {
   return items.map((item) => `- ${item}`).join("\n");
 }
 
+type SkillResultLike = {
+  success?: boolean;
+  error?: string;
+  message?: string;
+  skillId?: string;
+  scope?: string;
+  suggestedAction?: string;
+};
+
+/** Human-readable one-line summary for skill_manage results (success + failure).
+ * Replaces the raw JSON.stringify dump that showed in the TUI. */
+function formatSkillResultLine(result: SkillResultLike): string {
+  if (!result.success) {
+    const detail = result.error ?? "Operation failed";
+    const hint = result.suggestedAction ? ` (try '${result.suggestedAction}')` : "";
+    return `✗ ${detail}${hint}`;
+  }
+  const head = result.message ?? "Done";
+  const id = result.skillId ? ` [${result.scope ?? "skill"}:${result.skillId}]` : "";
+  return `✓ ${head}${id}`;
+}
+
+/** Build a skill tool response carrying a human-readable `text` for the TUI and
+ * the structured `details` for programmatic/test consumers. Use for errors. */
+function skillErrorResponse(error: string): { content: Array<{ type: "text"; text: string }>; details: { success: false; error: string } } {
+  const result = { success: false as const, error };
+  return { content: [{ type: "text", text: formatSkillResultLine(result) }], details: result };
+}
+
+/** Render a loaded skill document readably (name + description + body) for the
+ * `view` action, instead of a raw JSON dump. */
+function formatSkillDoc(doc: { displayName?: string; name?: string; description?: string; body?: string }): string {
+  const name = doc.displayName ?? doc.name ?? "skill";
+  const description = doc.description;
+  const body = doc.body ?? "";
+  const lines = [name, ...(description ? [description] : []), ...(body ? ["", body] : [])];
+  return lines.join("\n").trim();
+}
+
 function buildStructuredSkillBody(
   whenToUse: string,
   procedureSteps: string[],
@@ -152,29 +191,17 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
       switch (action) {
         case "create":
           if (!name) {
-            return {
-              content: [{ type: "text", text: JSON.stringify({ success: false, error: "name is required for 'create' action." }) }],
-              details: {},
-            };
+            return skillErrorResponse("name is required for 'create' action.");
           }
           if (!description) {
-            return {
-              content: [{ type: "text", text: JSON.stringify({ success: false, error: "description is required for 'create' action." }) }],
-              details: {},
-            };
+            return skillErrorResponse("description is required for 'create' action.");
           }
           const createBodyResult = buildBodyOrError();
           if (!createBodyResult.body) {
-            return {
-              content: [{ type: "text", text: JSON.stringify({ success: false, error: createBodyResult.error }) }],
-              details: {},
-            };
+            return skillErrorResponse(createBodyResult.error ?? "Invalid skill body.");
           }
           if (!scope) {
-            return {
-              content: [{ type: "text", text: JSON.stringify({ success: false, error: "scope is required for 'create' action. Use 'global' or 'project'." }) }],
-              details: {},
-            };
+            return skillErrorResponse("scope is required for 'create' action. Use 'global' or 'project'.");
           }
           result = await store.create(name, description, createBodyResult.body, scope);
           break;
@@ -182,39 +209,33 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
         case "view":
           if (!skill_id) {
             const index = await store.loadIndex();
+            const ids = index.map((s) => s.displayName ?? s.skillId);
+            const text = ids.length > 0
+              ? `Skills (${ids.length}):\n${formatOrderedList(ids)}`
+              : "No skills found.";
             return {
-              content: [{ type: "text", text: JSON.stringify({ success: true, skills: index }) }],
-              details: { skills: index },
+              content: [{ type: "text", text }],
+              details: { success: true, skills: index },
             };
           }
           const doc = await store.loadSkill(skill_id);
           if (!doc) {
-            return {
-              content: [{ type: "text", text: JSON.stringify({ success: false, error: `Skill '${skill_id}' not found.` }) }],
-              details: {},
-            };
+            return skillErrorResponse(`Skill '${skill_id}' not found.`);
           }
-          result = { success: true, ...doc };
-          break;
+          return {
+            content: [{ type: "text", text: formatSkillDoc(doc) }],
+            details: { success: true, ...doc },
+          };
 
         case "patch":
           if (!skill_id) {
-            return {
-              content: [{ type: "text", text: JSON.stringify({ success: false, error: "skill_id is required for 'patch' action." }) }],
-              details: {},
-            };
+            return skillErrorResponse("skill_id is required for 'patch' action.");
           }
           if (!section) {
-            return {
-              content: [{ type: "text", text: JSON.stringify({ success: false, error: "section is required for 'patch' action." }) }],
-              details: {},
-            };
+            return skillErrorResponse("section is required for 'patch' action.");
           }
           if (!content) {
-            return {
-              content: [{ type: "text", text: JSON.stringify({ success: false, error: "content is required for 'patch' action." }) }],
-              details: {},
-            };
+            return skillErrorResponse("content is required for 'patch' action.");
           }
           result = await store.patch(skill_id, section, content);
           break;
@@ -223,25 +244,16 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
         case "edit": {
           const updateActionLabel = action === "edit" ? "edit" : "update";
           if (!skill_id) {
-            return {
-              content: [{ type: "text", text: JSON.stringify({ success: false, error: `skill_id is required for '${updateActionLabel}' action.` }) }],
-              details: {},
-            };
+            return skillErrorResponse(`skill_id is required for '${updateActionLabel}' action.`);
           }
           const updateBodyResult = buildBodyOrError();
           const nextDescription = description?.trim() || "";
           const nextBody = updateBodyResult.body ?? content?.trim() ?? "";
           if (!nextDescription && !nextBody) {
-            return {
-              content: [{ type: "text", text: JSON.stringify({ success: false, error: `Provide description, content, or structured fields for '${updateActionLabel}'.` }) }],
-              details: {},
-            };
+            return skillErrorResponse(`Provide description, content, or structured fields for '${updateActionLabel}'.`);
           }
           if (hasStructuredBody && !updateBodyResult.body) {
-            return {
-              content: [{ type: "text", text: JSON.stringify({ success: false, error: updateBodyResult.error }) }],
-              details: {},
-            };
+            return skillErrorResponse(updateBodyResult.error ?? "Invalid skill body.");
           }
           result = await store.edit(skill_id, nextDescription, nextBody);
           break;
@@ -249,10 +261,7 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
 
         case "delete":
           if (!skill_id) {
-            return {
-              content: [{ type: "text", text: JSON.stringify({ success: false, error: "skill_id is required for 'delete' action." }) }],
-              details: {},
-            };
+            return skillErrorResponse("skill_id is required for 'delete' action.");
           }
           result = await store.delete(skill_id);
           break;
@@ -265,7 +274,7 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
       }
 
       return {
-        content: [{ type: "text", text: JSON.stringify(result) }],
+        content: [{ type: "text", text: formatSkillResultLine(result as SkillResultLike) }],
         details: result,
       };
     },
