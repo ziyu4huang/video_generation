@@ -131,6 +131,63 @@ describe('memory sqlite sync + markdown backfill', () => {
     );
   });
 
+  it('re-sync skips unchanged entries — zero syncMemoryEntry calls', async () => {
+    const entries = [
+      'skip-probe one <!-- created=2026-05-08, last=2026-05-08 -->',
+      'skip-probe two <!-- created=2026-05-08, last=2026-05-09 -->',
+      'skip-probe three <!-- created=2026-05-08, last=2026-05-09 -->',
+    ];
+    fs.writeFileSync(path.join(globalDir, 'MEMORY.md'), entries.join(ENTRY_DELIMITER), 'utf-8');
+
+    const first = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+    assert.strictEqual(first.imported, 3, 'precondition: first sync imports all 3');
+
+    // Spy: count syncMemoryEntry calls on the re-run. The per-entry N+1 lives in
+    // these calls — skipping unchanged entries in-TS must drive them to zero.
+    const calls: string[] = [];
+    const origSync = memoryRepo.syncMemoryEntry.bind(memoryRepo);
+    memoryRepo.syncMemoryEntry = async (input) => {
+      calls.push(input.content);
+      return origSync(input);
+    };
+
+    const second = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+    assert.strictEqual(calls.length, 0, 'unchanged entries must be skipped without a syncMemoryEntry call');
+    assert.strictEqual(second.imported, 0);
+    assert.strictEqual(second.skipped, 3);
+  });
+
+  it('re-sync calls syncMemoryEntry only for changed entries', async () => {
+    fs.writeFileSync(
+      path.join(globalDir, 'MEMORY.md'),
+      'delta-stable <!-- created=2026-05-08, last=2026-05-08 -->' +
+        ENTRY_DELIMITER +
+        'delta-changed <!-- created=2026-05-08, last=2026-05-08 -->',
+      'utf-8',
+    );
+    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+
+    // Bump lastReferenced on ONE entry → its merge is no longer a no-op.
+    fs.writeFileSync(
+      path.join(globalDir, 'MEMORY.md'),
+      'delta-stable <!-- created=2026-05-08, last=2026-05-08 -->' +
+        ENTRY_DELIMITER +
+        'delta-changed <!-- created=2026-05-08, last=2026-05-10 -->',
+      'utf-8',
+    );
+
+    const calls: string[] = [];
+    const origSync = memoryRepo.syncMemoryEntry.bind(memoryRepo);
+    memoryRepo.syncMemoryEntry = async (input) => {
+      calls.push(input.content);
+      return origSync(input);
+    };
+
+    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+    assert.strictEqual(calls.length, 1, 'only the changed entry triggers syncMemoryEntry');
+    assert.strictEqual(calls[0], 'delta-changed');
+  });
+
   it('backfills legacy project memory directories from the old ~/.pi/agent/<project> layout', async () => {
     const legacyProjectDir = path.join(agentRoot, 'legacy-project');
     fs.mkdirSync(legacyProjectDir, { recursive: true });

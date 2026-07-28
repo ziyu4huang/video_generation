@@ -10,7 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { MemoryRepository } from '../store/repository.js';
+import type { MemoryRepository, MemoryEntry } from '../store/repository.js';
 import { parseMarkdownMemoryEntry } from '../store/memory-format.js';
 import { ENTRY_DELIMITER, MEMORY_FILE, USER_FILE } from '../constants.js';
 import { AGENT_ROOT } from '../paths.js';
@@ -30,17 +30,71 @@ function readEntries(filePath: string): string[] {
   return raw.split(ENTRY_DELIMITER).map((entry) => entry.trim()).filter(Boolean);
 }
 
+type ParsedEntry = ReturnType<typeof parseMarkdownMemoryEntry>;
+
+/** Dedup key mirroring syncMemoryEntry's SELECT scope (target/project/category)
+ *  + exact content match. */
+function existingKey(target: string, project: string | null, category: string | null, content: string): string {
+  return `${target}|${project ?? ''}|${category ?? ''}|${content.trim()}`;
+}
+
+/** True iff syncMemoryEntry's merge (created=min, lastReferenced=max,
+ *  optionals = existing ?? new) would reproduce `existing` unchanged — i.e. the
+ *  round-trip is a no-op safe to skip. Conservative: any unparseable date or
+ *  thrown comparison returns false (fall through to syncMemoryEntry). */
+function mergeIsNoOp(existing: MemoryEntry, incoming: ParsedEntry): boolean {
+  try {
+    const exC = Date.parse(existing.created);
+    const inC = Date.parse(incoming.created ?? existing.created);
+    const exL = Date.parse(existing.lastReferenced);
+    const inL = Date.parse(incoming.lastReferenced ?? existing.lastReferenced);
+    if ([exC, inC, exL, inL].some((n) => !Number.isFinite(n))) return false;
+    const n = (v: string | null | undefined) => (v ?? null);
+    return exC <= inC
+      && exL >= inL
+      && (existing.category !== null || n(incoming.category) === null)
+      && (existing.failureReason !== null || n(incoming.failureReason) === null)
+      && (existing.toolState !== null || n(incoming.toolState) === null)
+      && (existing.correctedTo !== null || n(incoming.correctedTo) === null);
+  } catch {
+    return false;
+  }
+}
+
+/** Fetch every stored memory in ONE round-trip and index by dedup key. On
+ *  failure returns an empty index — callers then fall through to
+ *  syncMemoryEntry for every entry (correct, just not optimal). */
+async function buildExistingIndex(memoryRepo: MemoryRepository): Promise<Map<string, MemoryEntry>> {
+  try {
+    const all = await memoryRepo.getMemories();
+    const map = new Map<string, MemoryEntry>();
+    for (const e of all) map.set(existingKey(e.target, e.project, e.category, e.content), e);
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
 async function importEntries(
   memoryRepo: MemoryRepository,
   counters: BackfillCounters,
   entries: string[],
   target: 'memory' | 'user' | 'failure',
   project: string | null = null,
+  existingByContent: Map<string, MemoryEntry> = new Map(),
 ): Promise<void> {
   for (const rawEntry of entries) {
     counters.entriesScanned++;
     try {
       const parsed = parseMarkdownMemoryEntry(rawEntry, target, project);
+      // Skip entries whose stored merge is already a no-op — avoids the
+      // per-entry syncMemoryEntry round-trip (SELECT + merge/insert) that made
+      // a full re-sync an N+1 (~655 round-trips / ~7s on the real store).
+      const existing = existingByContent.get(existingKey(parsed.target, parsed.project ?? null, parsed.category ?? null, parsed.content));
+      if (existing && mergeIsNoOp(existing, parsed)) {
+        counters.skipped++;
+        continue;
+      }
       const result = await memoryRepo.syncMemoryEntry(parsed);
       if (result.action === 'inserted') counters.imported++;
       else counters.skipped++;
@@ -106,6 +160,12 @@ export async function syncMarkdownMemories(
   const globalUserFile = path.join(globalDir, USER_FILE);
   const globalFailureFile = path.join(globalDir, 'failures.md');
 
+  // Fetch every stored memory ONCE (1 round-trip) and skip entries whose merge
+  // is a no-op. Previously importEntries issued a syncMemoryEntry (SELECT +
+  // merge/insert) PER entry — an N+1 costing ~655 round-trips / ~7s on the real
+  // 219-entry store at every startup.
+  const existingByContent = await buildExistingIndex(memoryRepo);
+
   const importFile = async (
     filePath: string,
     target: 'memory' | 'user' | 'failure',
@@ -114,7 +174,7 @@ export async function syncMarkdownMemories(
     if (!fs.existsSync(filePath)) return;
     counters.filesScanned++;
     const entries = readEntries(filePath);
-    await importEntries(memoryRepo, counters, entries, target, project);
+    await importEntries(memoryRepo, counters, entries, target, project, existingByContent);
   };
 
   await importFile(globalMemoryFile, 'memory');
