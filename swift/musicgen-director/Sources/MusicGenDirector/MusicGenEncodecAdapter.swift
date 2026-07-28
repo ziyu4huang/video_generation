@@ -122,7 +122,16 @@ public struct MusicGenEncodecAdapter {
         let raw = try loadArrays(url: weightsPath)
         let numQuantizers = Self.computeNumQuantizers(config: config)
         let remapped = Self.remapEncodecCheckpoint(raw: raw, config: config, numQuantizers: numQuantizers)
-        try model.update(parameters: ModuleParameters.unflattened(remapped), verify: .noUnusedKeys)
+        // .allModelKeysSet / .shapeMismatch (not just .noUnusedKeys) matter
+        // specifically because layerKinds()/remapEncodecCheckpoint() re-derive
+        // this library's layer topology from config alone (Encodec's own
+        // module tree is `internal`, unreachable for introspection — see file
+        // header). If a future mlx-audio-swift version shifts that topology,
+        // a wrong-but-plausible key mapping would otherwise fail silently:
+        // update(parameters:) only warns on EXTRA unmatched keys by default,
+        // leaving any un-matched real parameter at its random init value.
+        try model.update(parameters: ModuleParameters.unflattened(remapped),
+                          verify: [.noUnusedKeys, .allModelKeysSet, .shapeMismatch])
 
         self.codec = model
         self.frameRate = config.samplingRate / config.upsamplingRatios.reduce(1, *)
