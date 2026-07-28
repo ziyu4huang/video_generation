@@ -267,9 +267,14 @@ export default async function (pi: ExtensionAPI) {
     // Wire perf breach alerts to the TUI for this session.
     perf.setNotifier((r) => {
       const why = r.reason === "roundTrips" ? `${r.roundTrips} HTTP round-trips` : `${r.ms}ms`;
-      (ctx as { ui?: { notify?: (message: string, level?: string) => void } }).ui?.notify?.(
-        `⚠️ hermes perf: ${r.op} took ${why} (backend=${r.backend})`, "warn",
-      );
+      const ui = (ctx as { ui?: { notify?: (message: string, level?: string) => void } }).ui;
+      // Consolidation is an expected, always-logged event — surface at info, not
+      // an alarming ⚠️ breach warn.
+      if (r.kind === "consolidation") {
+        ui?.notify?.(`hermes perf: ${r.op} ran ${why} (backend=${r.backend})`, "info");
+      } else {
+        ui?.notify?.(`⚠️ hermes perf: ${r.op} took ${why} (backend=${r.backend})`, "warn");
+      }
     });
 
     refreshSkillProjectContext(ctx.cwd);
@@ -337,9 +342,12 @@ export default async function (pi: ExtensionAPI) {
       return triggerConsolidation(projectStore, target, memoryToolDef, signal, config.consolidationTimeoutMs, toolTarget, config);
     }, resolveConsolidatorModelLabel(config));
   }
-  // Inject the perf recorder into both stores — lock-hold breach timing (T2).
+  // Inject the perf recorder into both stores — lock-hold breach timing (T2) +
+  // consolidation always-logged event (T3).
   store.setPerfTimed(perf.timed);
   projectStore?.setPerfTimed(perf.timed);
+  store.setPerfAlways(perf.timedAlways);
+  projectStore?.setPerfAlways(perf.timedAlways);
   registerConsolidateCommand(pi, store, memoryToolDef, config.consolidationTimeoutMs, projectStore, projectName, config);
 
   // ── 8. Setup correction detection ──

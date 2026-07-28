@@ -57,6 +57,15 @@ interface PerfCtx {
  *  production recorder from index.ts can instrument them without coupling. */
 export type TimedFn = <T>(op: string, fn: () => Promise<T>, opts?: { thresholdMs?: number; kind?: PerfRecord["kind"] }) => Promise<T>;
 
+/** Always-persist counterpart of TimedFn: times + notifies on EVERY call (not
+ *  threshold-gated). `kind` stamps the discriminator; `timedOutFrom` derives the
+ *  timedOut flag from fn's result (only on success). */
+export type TimedAlwaysFn = <T>(
+  op: string,
+  fn: () => Promise<T>,
+  opts?: { kind?: PerfRecord["kind"]; timedOutFrom?: (result: T) => boolean },
+) => Promise<T>;
+
 export interface PerfRecorderOptions {
   /** Per-op wall-clock threshold (ms). Default 2000. */
   thresholdMs?: number;
@@ -96,11 +105,7 @@ export interface PerfRecorder {
    *  high-signal events under active study (e.g. consolidation). `kind` stamps
    *  the path discriminator; `timedOutFrom` (called with fn's result only on
    *  success) derives the timedOut flag. */
-  timedAlways: <T>(
-    op: string,
-    fn: () => Promise<T>,
-    opts?: { kind?: PerfRecord["kind"]; timedOutFrom?: (result: T) => boolean },
-  ) => Promise<T>;
+  timedAlways: TimedAlwaysFn;
   /** Override the breach notifier (default: console.warn). index.ts wires this
    *  to the TUI once a session provides a ui handle. */
   setNotifier: (fn: (record: PerfRecord) => void) => void;
@@ -118,7 +123,10 @@ export function createPerfRecorder(opts: PerfRecorderOptions = {}): PerfRecorder
       ? `${r.roundTrips} HTTP round-trips`
       : `${r.ms}ms`;
     const label = r.breach ? "slow" : "event";
-    console.warn(`[hermes-memory] ${label} ${r.op}: ${why} (backend=${r.backend}). See perf.jsonl.`);
+    const line = `[hermes-memory] ${label} ${r.op}: ${why} (backend=${r.backend}). See perf.jsonl.`;
+    // Consolidation is an expected, always-logged event — info, not an alarming warn.
+    if (r.kind === "consolidation") console.info(line);
+    else console.warn(line);
   };
 
   function appendLog(record: PerfRecord): void {

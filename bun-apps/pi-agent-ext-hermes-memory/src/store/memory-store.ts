@@ -30,7 +30,7 @@ import {
 import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, MemoryCategory, MemoryOverflowStrategy } from "../types.js";
 import { AGENT_ROOT } from "../paths.js";
 import { envInt } from "../utils/env.js";
-import type { TimedFn } from "../perf.js";
+import type { TimedFn, TimedAlwaysFn } from "../perf.js";
 
 /**
  * proper-lockfile throws a code `ELOCKED` error (message "Lock file is already
@@ -73,6 +73,13 @@ export class MemoryStore {
   private perfTimed: TimedFn = (_op, fn) => fn();
   setPerfTimed(timed: TimedFn): void {
     this.perfTimed = timed;
+  }
+
+  /** Inject the perf recorder's timedAlways() for the consolidation event
+   *  (always-logged — the deliberate breach-only exception). Default pass-through. */
+  private perfAlways: TimedAlwaysFn = (_op, fn) => fn();
+  setPerfAlways(fn: TimedAlwaysFn): void {
+    this.perfAlways = fn;
   }
 
   // ─── Write serialization ───
@@ -220,7 +227,14 @@ export class MemoryStore {
     process.env.PI_MEMORY_FILE_LOCK = "bypass";
     process.env.PI_HERMES_CONSOLIDATING = "1";
     try {
-      return await this.consolidator(target, signal);
+      // Always-log every consolidation (rare, under study): target, duration, and
+      // whether the child timed out. The child is a separate process, so only the
+      // parent's wall-clock ms is meaningful (round-trips ~0, expected).
+      return await this.perfAlways(
+        `consolidation.${target}`,
+        () => this.consolidator!(target, signal),
+        { kind: "consolidation", timedOutFrom: (r) => !!r.terminated },
+      );
     } finally {
       if (prevLock === undefined) delete process.env.PI_MEMORY_FILE_LOCK;
       else process.env.PI_MEMORY_FILE_LOCK = prevLock;
