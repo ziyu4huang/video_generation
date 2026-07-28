@@ -1,0 +1,15 @@
+{
+  "name": "musicgen-small",
+  "type": "musicgen",
+  "arch": "musicgen-small",
+  "source": "https://huggingface.co/facebook/musicgen-small",
+  "components": [
+    "text_encoder",
+    "decoder",
+    "audio_encoder"
+  ],
+  "cli": {
+    "binary": "musicgen",
+    "action": "generate"
+  }
+}

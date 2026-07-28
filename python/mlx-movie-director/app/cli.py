@@ -17,7 +17,8 @@ import traceback
 
 COMMAND_NAMES = [
     "image", "refine", "animate", "upscale", "caption", "replay",
-    "video", "story", "tts", "music", "import-lora", "import-checkpoint", "import-vae", "import-workflow", "check-model",
+    "video", "story", "tts", "music", "import-lora", "import-checkpoint", "import-vae", "import-workflow",
+    "import-musicgen", "check-model",
     "schema-defaults", "schema",
 ]
 
