@@ -30,6 +30,7 @@ import {
 import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, MemoryCategory, MemoryOverflowStrategy } from "../types.js";
 import { AGENT_ROOT } from "../paths.js";
 import { envInt } from "../utils/env.js";
+import type { TimedFn, TimedAlwaysFn } from "../perf.js";
 
 /**
  * proper-lockfile throws a code `ELOCKED` error (message "Lock file is already
@@ -62,6 +63,23 @@ export class MemoryStore {
   setConsolidator(fn: (target: "memory" | "user" | "failure", signal?: AbortSignal) => Promise<ConsolidationResult>, modelLabel?: string): void {
     this.consolidator = fn;
     this.consolidatorModelLabel = modelLabel;
+  }
+
+  /** Inject the perf recorder's timed() — parallel to setConsolidator. Defaults
+   *  to a pass-through so the store is usable with no recorder; the lock-hold
+   *  span in withFileLock is wrapped at a lock-specific threshold (breach-only).
+   *  Nesting note: the wrap re-enters AsyncLocalStorage, but the lock path is
+   *  file I/O (round-trips irrelevant) and `ms` is measured per-call — no impact. */
+  private perfTimed: TimedFn = (_op, fn) => fn();
+  setPerfTimed(timed: TimedFn): void {
+    this.perfTimed = timed;
+  }
+
+  /** Inject the perf recorder's timedAlways() for the consolidation event
+   *  (always-logged — the deliberate breach-only exception). Default pass-through. */
+  private perfAlways: TimedAlwaysFn = (_op, fn) => fn();
+  setPerfAlways(fn: TimedAlwaysFn): void {
+    this.perfAlways = fn;
   }
 
   // ─── Write serialization ───
@@ -141,6 +159,9 @@ export class MemoryStore {
     const acquireRetries = this.config.lockAcquireRetries ?? envInt("PI_MEMORY_LOCK_ACQUIRE_RETRIES", 200);
     const opRetries = this.config.lockOpRetries ?? envInt("PI_MEMORY_LOCK_OP_RETRIES", 3);
     const opBackoffMs = this.config.lockOpBackoffMs ?? envInt("PI_MEMORY_LOCK_OP_BACKOFF_MS", 2000);
+    // Lock-hold perf threshold (ms): normal holds are <10ms file I/O, consolidation
+    // up to ~60s. ~5s cleanly separates them; breach-only → fast writes log nothing.
+    const lockThresholdMs = envInt("PI_HERMES_PERF_LOCK_MS", 5000);
 
     // Op-level retry on cross-process contention: ELOCKED is thrown ONLY at lock
     // acquisition — before `fn` runs — so re-running lock+fn on retry CANNOT
@@ -160,7 +181,7 @@ export class MemoryStore {
         });
         this._heldFileLocks.add(lockPath);
         try {
-          return await fn();
+          return await this.perfTimed(`fileLock.hold.${target}`, fn, { thresholdMs: lockThresholdMs, kind: "fileLock" });
         } finally {
           this._heldFileLocks.delete(lockPath);
           await release().catch(() => {});
@@ -206,7 +227,17 @@ export class MemoryStore {
     process.env.PI_MEMORY_FILE_LOCK = "bypass";
     process.env.PI_HERMES_CONSOLIDATING = "1";
     try {
-      return await this.consolidator(target, signal);
+      // Always-log every consolidation (rare, under study): target, duration, and
+      // whether the child timed out. The child is a separate process, so only the
+      // parent's wall-clock ms is meaningful (round-trips ~0, expected).
+      // NOTE: only Auto-consolidation (this runConsolidator path) is logged; the
+      // manual /memory-consolidate command calls triggerConsolidation directly and
+      // bypasses this — a known blind spot when reading perf.jsonl frequency.
+      return await this.perfAlways(
+        `consolidation.${target}`,
+        () => this.consolidator!(target, signal),
+        { kind: "consolidation", timedOutFrom: (r) => !!r.terminated },
+      );
     } finally {
       if (prevLock === undefined) delete process.env.PI_MEMORY_FILE_LOCK;
       else process.env.PI_MEMORY_FILE_LOCK = prevLock;

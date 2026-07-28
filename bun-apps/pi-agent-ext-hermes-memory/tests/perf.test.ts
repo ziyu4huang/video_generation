@@ -103,4 +103,66 @@ describe("PerfRecorder", () => {
   it("bumpRoundTrips outside any timed() is a safe no-op", async () => {
     expect(() => bumpRoundTrips(10)).not.toThrow();
   });
+
+  // ─── timedAlways: always-persist path (T1) ───
+
+  it("timedAlways() is transparent and persists a record on EVERY call, even under threshold", async () => {
+    const log = tmpLog();
+    // thresholds impossibly high → a breach is impossible; timedAlways must persist anyway
+    const perf = createPerfRecorder({ logPath: log, thresholdMs: 999_999, thresholdRoundTrips: 999_999, getBackend: () => "test" });
+    const out = await perf.timedAlways("event", async () => 7);
+    expect(out).toBe(7); // transparency
+    const recs = readLog(log);
+    expect(recs.length).toBe(1);
+    expect(recs[0].op).toBe("event");
+    expect(recs[0].backend).toBe("test");
+    expect(recs[0].breach).toBe(false); // an event, not a breach
+    expect(recs[0].kind).toBeUndefined(); // not passed
+    expect(recs[0].timedOut).toBeUndefined();
+  });
+
+  it("timedAlways() fires the notifier on every call (not only on breach)", async () => {
+    const events: PerfRecord[] = [];
+    const perf = createPerfRecorder({ logPath: null, thresholdMs: 999_999, thresholdRoundTrips: 999_999 });
+    perf.setNotifier((r) => events.push(r));
+    await perf.timedAlways("e1", async () => {});
+    await perf.timedAlways("e2", async () => {});
+    expect(events.length).toBe(2);
+    expect(events.map((r) => r.op)).toEqual(["e1", "e2"]);
+  });
+
+  it("timedAlways() stamps kind and derives timedOut from the result via timedOutFrom", async () => {
+    const log = tmpLog();
+    const perf = createPerfRecorder({ logPath: log, getBackend: () => "test" });
+    const out = await perf.timedAlways(
+      "consolidation.failure",
+      async () => ({ consolidated: true, timedOut: true }),
+      { kind: "consolidation", timedOutFrom: (r: { timedOut: boolean }) => r.timedOut },
+    );
+    expect(out).toEqual({ consolidated: true, timedOut: true }); // transparency
+    const recs = readLog(log);
+    expect(recs.length).toBe(1);
+    expect(recs[0].kind).toBe("consolidation");
+    expect(recs[0].timedOut).toBe(true);
+  });
+
+  it("timedAlways() preserves the never-throws invariant (null logPath still notifies)", async () => {
+    const events: PerfRecord[] = [];
+    const perf = createPerfRecorder({ logPath: null });
+    perf.setNotifier((r) => events.push(r));
+    await perf.timedAlways("x", async () => {}); // no throw even with no file
+    expect(events.length).toBe(1);
+  });
+
+  it("timedAlways() persists (without timedOut) when fn throws, and re-throws", async () => {
+    const log = tmpLog();
+    const perf = createPerfRecorder({ logPath: log, getBackend: () => "test" });
+    await expect(
+      perf.timedAlways("consolidation.failure", async () => { throw new Error("boom"); }, { kind: "consolidation", timedOutFrom: () => true }),
+    ).rejects.toThrow("boom");
+    const recs = readLog(log);
+    expect(recs.length).toBe(1);
+    expect(recs[0].kind).toBe("consolidation");
+    expect(recs[0].timedOut).toBeUndefined(); // no result to derive from
+  });
 });

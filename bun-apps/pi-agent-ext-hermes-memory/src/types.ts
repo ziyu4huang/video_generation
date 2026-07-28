@@ -151,6 +151,9 @@ export interface ConsolidationResult {
   consolidated: boolean;
   /** Error message if consolidation failed */
   error?: string;
+  /** Whether the consolidator child was terminated (the 60s cap / cancellation).
+   *  Surfaced so perf tracking can stamp `timedOut` on the consolidation record. */
+  terminated?: boolean;
 }
 
 export type SkillScope = "global" | "project";
