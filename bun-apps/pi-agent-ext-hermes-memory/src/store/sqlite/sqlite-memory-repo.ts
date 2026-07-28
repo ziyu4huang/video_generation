@@ -37,6 +37,10 @@ import type { MemoryCategory } from "../../types.js";
 import { buildFallbackFts5Query, isFts5QueryError, normalizeFts5Query } from "./fts-query.js";
 import { normalizeMemoryLookupText } from "../memory-lookup.js";
 import { today, normalizeNullable, normalizeCategory } from "../memory-format.js";
+import { rankMemoryEntries } from "../graph-ranker.js";
+
+/** Max graph neighbors fetched to augment a lexical search (before ranking). */
+const GRAPH_NEIGHBOR_CAP = 20;
 
 
 // ---------------------------------------------------------------------------
@@ -472,17 +476,94 @@ export class SqliteMemoryRepository implements MemoryRepository {
       };
 
       const exactResults = runSearch(normalizedQuery);
-      if (exactResults.length > 0) {
-        return exactResults;
+      let lexicalResults = exactResults;
+      if (lexicalResults.length === 0) {
+        const fallbackQuery = buildFallbackFts5Query(query);
+        if (fallbackQuery && fallbackQuery !== normalizedQuery) {
+          lexicalResults = runSearch(fallbackQuery);
+        }
+      }
+      if (lexicalResults.length === 0) {
+        return []; // no lexical seeds → no graph recall
       }
 
-      const fallbackQuery = buildFallbackFts5Query(query);
-      if (!fallbackQuery || fallbackQuery === normalizedQuery) {
-        return exactResults;
+      const neighbors = this.fetchGraphNeighbors(lexicalResults, { project, target, category });
+      if (neighbors.length === 0) {
+        return lexicalResults.slice(0, limit);
       }
 
-      return runSearch(fallbackQuery);
+      return rankMemoryEntries({
+        candidates: [...lexicalResults, ...neighbors],
+        lexicalMatchIds: new Set(lexicalResults.map((m) => m.id)),
+        limit,
+      });
     }));
+  }
+
+  /**
+   * Fetch graph neighbors: memories sharing any implicit tag (project/category/
+   * target) with the seed set, excluding the seeds, within the same search
+   * scope, capped. Augments lexical search results for the shared ranker.
+   * SQLite mirrors the SurrealDB RELATE graph via column equality — no schema
+   * change.
+   */
+  private fetchGraphNeighbors(
+    seeds: MemoryEntry[],
+    scope: { project?: string | null; target?: MemoryTarget; category?: MemoryCategory },
+  ): MemoryEntry[] {
+    const seedIds = seeds.map((m) => m.id);
+    const projects = [...new Set(seeds.map((m) => m.project).filter((v): v is string => v != null))];
+    const categories = [...new Set(seeds.map((m) => m.category).filter((v): v is MemoryCategory => v != null))];
+    const targets = [...new Set(seeds.map((m) => m.target).filter((v): v is MemoryTarget => v != null))];
+
+    if (projects.length === 0 && categories.length === 0 && targets.length === 0) {
+      return [];
+    }
+
+    const conditions: string[] = [`m.id NOT IN (${seedIds.map(() => "?").join(", ")})`];
+    const params: unknown[] = [...seedIds];
+
+    const orClauses: string[] = [];
+    if (projects.length > 0) {
+      orClauses.push(`m.project IN (${projects.map(() => "?").join(", ")})`);
+      params.push(...projects);
+    }
+    if (categories.length > 0) {
+      orClauses.push(`m.category IN (${categories.map(() => "?").join(", ")})`);
+      params.push(...categories);
+    }
+    if (targets.length > 0) {
+      orClauses.push(`m.target IN (${targets.map(() => "?").join(", ")})`);
+      params.push(...targets);
+    }
+    conditions.push(`(${orClauses.join(" OR ")})`);
+
+    if (scope.project !== undefined) {
+      if (scope.project === null) {
+        conditions.push("m.project IS NULL");
+      } else {
+        conditions.push("m.project = ?");
+        params.push(scope.project);
+      }
+    }
+    if (scope.target) {
+      conditions.push("m.target = ?");
+      params.push(scope.target);
+    }
+    if (scope.category) {
+      conditions.push("m.category = ?");
+      params.push(scope.category);
+    }
+
+    const sql = `
+      SELECT ${MEMORY_SELECT_COLUMNS}
+      FROM memories m
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY m.last_referenced DESC
+      LIMIT ?
+    `;
+    const rows = this.db.prepare(sql).all(...params, GRAPH_NEIGHBOR_CAP) as MemoryRow[];
+    return rows.map(mapRow);
   }
 
   async getMemories(options: MemoryListOptions = {}): Promise<MemoryEntry[]> {
