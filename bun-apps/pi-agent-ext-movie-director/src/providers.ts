@@ -234,6 +234,22 @@ export function _setFlux2BinaryForTest(v: boolean | undefined): void {
   flux2BinaryCached = v;
 }
 
+/** True if the built musicgen-director binary is on disk (never throws). */
+let musicgenBinaryCached: boolean | undefined;
+function musicgenBinaryPresent(): boolean {
+  if (musicgenBinaryCached != null) return musicgenBinaryCached;
+  try {
+    musicgenBinaryCached = existsSync(join(resolveRepoRoot(), "swift", "musicgen-director", ".build", "release", "musicgen"));
+  } catch {
+    musicgenBinaryCached = false;
+  }
+  return musicgenBinaryCached;
+}
+/** Force the musicgen-binary probe result (tests inject a deterministic value). */
+export function _setMusicgenBinaryForTest(v: boolean | undefined): void {
+  musicgenBinaryCached = v;
+}
+
 /**
  * Runtime availability for a provider. Authoritative: a provider is callable iff
  * this returns true. The static `configured` is the declarative baseline (which
@@ -292,6 +308,13 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
     case "swift:flux2":
       // callable iff the built flux2-image-director binary is on disk (mirrors krea2).
       return entry.configured && flux2BinaryPresent();
+    case "bun:musicgen-native":
+      // callable iff the built musicgen-director binary is on disk (mirrors
+      // krea2/flux2 — auto-built by ensureBinary() on first real call, but
+      // absent on a fresh checkout until then; the default selector should
+      // honestly fall back to mlx:runpy-music rather than eat a multi-minute
+      // build inside what looks like a routine generation call).
+      return entry.configured && musicgenBinaryPresent();
     case "mlx:runpy":
       // callable iff the MLX venv python AND run.py resolve (env-overridable via
       // MLX_VENV_PYTHON / RUN_PY). The canonical local PYTHON runtime — present
@@ -331,7 +354,7 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
     default:
       // bun:builtin (subtitle_gen): pure-Bun, in-repo, availability == the
       // registry's configured flag. (All native_swift directors now have explicit
-      // binary/venv probes above — ltx/krea2/flux2 check the built swift binary.)
+      // binary/venv probes above — ltx/krea2/flux2/musicgen check the built swift binary.)
       return entry.configured;
   }
 }

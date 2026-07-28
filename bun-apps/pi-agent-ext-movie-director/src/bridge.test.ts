@@ -18,7 +18,7 @@ import {
 } from "./bridge.ts";
 import { selectProvider, rankedProviders } from "./selector.ts";
 import { REGISTRY, type ProviderEntry } from "./registry.ts";
-import { probeConfigured, _setLmStudioReachableForTest } from "./providers.ts";
+import { probeConfigured, _setLmStudioReachableForTest, _setMusicgenBinaryForTest } from "./providers.ts";
 import { defaultBinaryPath, resolveRepoRoot } from "@repo/pi-agent-ext-ltx";
 import { existsSync } from "node:fs";
 import type { Krea2Details } from "@repo/pi-agent-ext-krea2";
@@ -689,13 +689,25 @@ describe("selectAndGenerate — selector + bridge integration (mocked)", () => {
     expect(result).toBe(canned);
   });
 
-  it.skipIf(!!process.env.CI || !VENV_PRESENT)("selects the local MusicGen provider for music_generation", () => {
+  it("selects the local MusicGen provider for music_generation", () => {
     // 2026-07-26: recovered from an orphaned branch — music_generation now has
-    // a registered provider (musicgen_music, run.py music via mlx-audiocraft).
-    // Machine-coupled like the mlx:runpy-* probes above (same VENV_PRESENT guard).
-    const entry = selectProvider("music_generation");
-    expect(entry.provider).toBe("musicgen");
-    expect(entry.invoke).toBe("mlx:runpy-music");
+    // a registered provider (musicgen_music).
+    // 2026-07-28: invoke moved off mlx:runpy-music (venv-gated) onto
+    // bun:musicgen-native (the compiled swift/musicgen-director binary).
+    // probeConfigured has an explicit binary-presence check for this invoke
+    // (mirrors swift:ltx/krea2/flux2, added after a code-review found the
+    // fallthrough-to-default case would make this test machine-coupled to
+    // whether musicgen-director happened to be built locally) — pinned via
+    // the deterministic test hook so this runs everywhere, same as the
+    // mlx:caption/LM-Studio test above.
+    try {
+      _setMusicgenBinaryForTest(true);
+      const entry = selectProvider("music_generation");
+      expect(entry.provider).toBe("musicgen");
+      expect(entry.invoke).toBe("bun:musicgen-native");
+    } finally {
+      _setMusicgenBinaryForTest(undefined);
+    }
   });
 });
 
