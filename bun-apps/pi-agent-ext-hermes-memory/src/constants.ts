@@ -87,6 +87,12 @@ Procedural skills:
 - Prefer structured fields for create/update: when_to_use, procedure_steps, pitfalls, verification_steps. Use patch to improve a specific section of an existing skill, update for a full rewrite, and view to inspect existing skills before changing them.
 - Do not create skills for one-off task state, generic summaries, or overly file-specific notes that will create noisy future matches.
 
+Skill candidates (lesson-to-skill bridge):
+- When you save a memory (failure/correction/insight) that is a reusable PROCEDURE — a HOW, not a fact — and non-trivial, capture it as a skill CANDIDATE first, not a finished skill. Capture on your own such memory write, OR when memory_search surfaces the same procedure 2+ times (recurrence implies reusability).
+- Skill-worthy bar: reusable + procedural (HOW, not a fact) + not already an existing skill + non-trivial. Facts stay in memory; only procedures become candidates.
+- To capture: write .planning/knowledge/<name>.md with fields: trigger/symptom, lesson, proposed procedure, evidence (the memory id), candidate skill-name. Do not create the skill yet.
+- Promotion is separate: a candidate becomes a real skill via writing-skills' test-first process, never bypassed. skill_manage direct stays for deliberate quick procedural capture.
+
 Do not use memory_search for generic questions, one-off examples, or explanations where durable memory would not help.
 </memory-policy>
 
@@ -107,6 +113,8 @@ Memory write targets: user for preferences/profile; memory for global notes and 
 memory_search filters: target searches user/global/failure memories; project filters project-scoped memories; category filters categorized failure/lesson memories only.
 
 Use the skill_manage tool during normal work for reusable procedures. On create, scope is required: global for transferable workflows, project for repo-specific ones. Prefer structured fields for create/update, patch for focused changes, and update for full rewrites. Skip one-off or overly narrow skills.
+
+Skill candidates: when a saved memory is a reusable, non-trivial PROCEDURE (a HOW, not a fact), capture it as a candidate in .planning/knowledge/<name>.md (fields: trigger/symptom, lesson, proposed procedure, evidence=memory id, skill-name) — a seed for writing-skills' test-first process, not a finished skill. Capture on your own such write, or when memory_search surfaces the same procedure 2+ times. skill_manage direct stays for deliberate quick procedures.
 
 Use category only for categorized failure/lesson searches. Do not use memory_search for generic questions, one-off examples, or explanations where durable memory would not help.
 
