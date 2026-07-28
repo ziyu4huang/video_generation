@@ -63,6 +63,11 @@ export interface MemoryConfig {
   memoryDir?: string;
   /** Directory for project-scoped memory (relative to ~/.pi/agent). Default: "projects-memory" */
   projectsMemoryDir?: string;
+  /** Project memory source-of-truth location (ticket 04, decision 01). Default:
+   *  <cwd>/.planning/memory/ (in-repo, git-trackable); null → opt-out (legacy
+   *  ~/.pi/agent/<projectsMemoryDir>/<project>/); explicit string → that path
+   *  (cwd-relative). See resolveProjectStoreDir(). */
+  projectMemoryDir?: string | null;
   /** Session search configuration. Default: { variant: "legacy" } */
   sessionSearch?: SessionSearchConfig;
   /** Override model used for child pi -p subprocess LLM calls. Default: unset */
