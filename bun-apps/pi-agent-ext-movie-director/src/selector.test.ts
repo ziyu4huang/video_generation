@@ -101,10 +101,12 @@ describe("selectProvider", () => {
 
   it("resolves music_generation to the local MusicGen provider", () => {
     // 2026-07-26: recovered from an orphaned branch — music_generation now has
-    // a registered provider (musicgen_music, run.py music via mlx-audiocraft).
+    // a registered provider (musicgen_music).
+    // 2026-07-28: invoke moved off mlx:runpy-music onto bun:musicgen-native
+    // (native Swift/MLX MusicGen — swift/musicgen-director, via music_native.ts).
     const e = selectProvider("music_generation", { env: NO_ENV });
     expect(e.provider).toBe("musicgen");
-    expect(e.invoke).toBe("mlx:runpy-music");
+    expect(e.invoke).toBe("bun:musicgen-native");
   });
 
   it("a cloud provider becomes callable when its key is in env (probe upgrade)", () => {

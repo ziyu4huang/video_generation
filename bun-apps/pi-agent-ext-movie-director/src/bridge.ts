@@ -940,6 +940,22 @@ async function realTtsNative(req: GenerateRequest, env?: Record<string, string |
 }
 
 /**
+ * realMusicNative — musicgen-director's compiled Swift binary (music_native.ts,
+ * via ensureBinary()), NOT a run.py subprocess (this port — see
+ * music_native.ts's header). Reuses adaptRunPyMusic as-is since
+ * RunPyMusicOptions/Details are structurally identical between the old
+ * runpy_music.ts and the new music_native.ts.
+ */
+async function realMusicNative(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
+  const opts = (req.options ?? {}) as unknown as RunPyMusicOptions & { output?: string };
+  const outputDir = req.outputDir ?? process.cwd();
+  const output = opts.output ?? join(outputDir, "music.wav");
+  const { runMusicNative } = await import("./music_native.ts");
+  const out = await runMusicNative({ options: opts, output });
+  return adaptRunPyMusic(req, out.details, out.summary, out.stderrTail, env);
+}
+
+/**
  * realTwosubjectNative — the VLM-driven single-prompt two-subject loop via
  * twosubject_native.ts, NOT a run.py subprocess (2026-07-13 migration — see
  * that module's header). The single artifact is the winning composite image
@@ -1145,6 +1161,7 @@ export function realAdapters(env?: Record<string, string | undefined>): Partial<
     "mlx:runpy-tts": (req) => realRunPyTts(req, env),
     "bun:tts-native": (req) => realTtsNative(req, env),
     "mlx:runpy-music": (req) => realRunPyMusic(req, env),
+    "bun:musicgen-native": (req) => realMusicNative(req, env),
     "bun:twosubject-native": (req) => realTwosubjectNative(req, env),
     "bun:profile-native": (req) => realProfileNative(req, env),
     "bun:character-native": (req) => realCharacterNative(req, env),

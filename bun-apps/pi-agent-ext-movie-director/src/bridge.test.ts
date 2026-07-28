@@ -689,13 +689,17 @@ describe("selectAndGenerate — selector + bridge integration (mocked)", () => {
     expect(result).toBe(canned);
   });
 
-  it.skipIf(!!process.env.CI || !VENV_PRESENT)("selects the local MusicGen provider for music_generation", () => {
+  it("selects the local MusicGen provider for music_generation", () => {
     // 2026-07-26: recovered from an orphaned branch — music_generation now has
-    // a registered provider (musicgen_music, run.py music via mlx-audiocraft).
-    // Machine-coupled like the mlx:runpy-* probes above (same VENV_PRESENT guard).
+    // a registered provider (musicgen_music).
+    // 2026-07-28: invoke moved off mlx:runpy-music (venv-gated, hence the old
+    // VENV_PRESENT skip here) onto bun:musicgen-native (the compiled
+    // swift/musicgen-director binary — probeConfigured falls to the default
+    // case, i.e. always callable per registry.configured, same as
+    // bun:tts-native). No longer machine-coupled, so this now runs everywhere.
     const entry = selectProvider("music_generation");
     expect(entry.provider).toBe("musicgen");
-    expect(entry.invoke).toBe("mlx:runpy-music");
+    expect(entry.invoke).toBe("bun:musicgen-native");
   });
 });
 
