@@ -22,10 +22,10 @@ Build the **learning→skill export bridge**: a prompt-injected template (always
 
 ## Status
 
-✅ **All 5 tickets closed · all fog graduated · destination reached.** The learning→skill export bridge is fully designed end-to-end (capture moment + source → candidate artifact → template + injection → dedup gate → promotion path). Ready for `/wayfind done` (harvest) and the **implementation phase** (post-map, plan-don't-do done):
-1. Edit `MEMORY_POLICY_PROMPT`'s "Procedural skills" subsection (full + `_COMPACT`) per ticket 03.
-2. Add the "candidate seed" step to writing-skills' RED phase per ticket 05.
-3. Create `.planning/knowledge/` (the candidate staging dir; ensure the wayfinder harvest guard knows it).
+✅ **All 5 tickets closed · all fog graduated · destination reached.** The learning→skill export bridge is fully designed end-to-end (capture moment + source → candidate artifact → template + injection → dedup gate → promotion path). Implementation progress:
+1. ✅ `MEMORY_POLICY_PROMPT` skill-candidate guidance (full + `_COMPACT`) — implemented + regression-tested (ticket 03).
+2. ⏳ writing-skills "candidate seed" RED step — **DEFERRED** (requires its own pressure-scenario TDD pass per writing-skills' Iron Law; the injected template already guides promotion via writing-skills, so the bridge is functional without it).
+3. ✅ `.planning/knowledge/` staging dir + README — created (ticket 02; verified the wayfinder never enumerates it as an effort).
 
 The former **"Feedback / calibration loop" fog graduated**: ticket 05's rejection→memory lifecycle IS the calibration signal — a rejected lesson persists as a memory with its not-skill status, surfaced by future `memory_search` recurrence, calibrating the agent's skill-worthy judgment over time. No separate mechanism needed; calibration is an emergent property of the lifecycle.
 
