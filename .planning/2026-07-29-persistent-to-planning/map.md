@@ -14,7 +14,9 @@ Make hermes **`project`-target memory** persist as the markdown source-of-truth 
 
 ## Decisions so far
 
-<!-- empty — frontier = {01, 02, 03} -->
+- [Project-memory-dir resolution mechanism](tickets/01-project-memory-dir-resolution.md) — **config knob `projectMemoryDir`**, default `<cwd>/.planning/memory/`; `null`/empty falls back to the global store (explicit opt-out). cwd-relative anchoring. Write-path (ticket 04): per-target resolution gains `if target=project && projectMemoryDir set → <projectMemoryDir>/MEMORY.md else global`.
+
+<!-- frontier = {02, 03} -->
 
 ## Not yet specified
 
