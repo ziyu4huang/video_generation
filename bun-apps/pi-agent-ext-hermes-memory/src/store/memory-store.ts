@@ -230,6 +230,9 @@ export class MemoryStore {
       // Always-log every consolidation (rare, under study): target, duration, and
       // whether the child timed out. The child is a separate process, so only the
       // parent's wall-clock ms is meaningful (round-trips ~0, expected).
+      // NOTE: only Auto-consolidation (this runConsolidator path) is logged; the
+      // manual /memory-consolidate command calls triggerConsolidation directly and
+      // bypasses this — a known blind spot when reading perf.jsonl frequency.
       return await this.perfAlways(
         `consolidation.${target}`,
         () => this.consolidator!(target, signal),
