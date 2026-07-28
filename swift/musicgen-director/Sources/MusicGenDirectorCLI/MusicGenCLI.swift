@@ -18,6 +18,6 @@ struct MusicGenCLI: ParsableCommand {
         commandName: "musicgen",
         abstract: "Text-to-music via MusicGen-small (pure Swift MLX).",
         version: "0.1.0",
-        subcommands: []
+        subcommands: [VerifyT5.self]
     )
 }
