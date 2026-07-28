@@ -22,6 +22,10 @@ import type {
 import type { MemoryCategory } from "../../types.js";
 import { today, normalizeNullable, normalizeCategory } from "../memory-format.js";
 import { normalizeMemoryLookupText } from "../memory-lookup.js";
+import { rankMemoryEntries } from "../graph-ranker.js";
+
+/** Max graph neighbors fetched to augment a lexical search (before ranking). */
+const GRAPH_NEIGHBOR_CAP = 20;
 
 /** Keep the earliest of two YYYY-MM-DD strings. Mirrors sqlite helper. */
 function minDate(a: string, b: string): string {
@@ -90,7 +94,7 @@ export class SurrealMemoryRepository implements MemoryRepository {
     const lastReferenced = input.lastReferenced ?? created;
     const sql = `
       LET $next = (UPDATE seq:memory SET value += 1 RETURN VALUE value)[0];
-      CREATE memories SET
+      CREATE type::record("memories", $next) SET
         seq = $next,
         project = $project,
         target = $target,
@@ -114,7 +118,14 @@ export class SurrealMemoryRepository implements MemoryRepository {
       created,
       lastReferenced,
     });
-    return mapRow(rows[0]);
+    const entry = mapRow(rows[0]);
+    await this.syncGraphEdges(
+      Number(entry.id),
+      input.project ?? null,
+      input.category ?? null,
+      input.target ?? "memory",
+    );
+    return entry;
   }
 
   async syncMemoryEntry(input: MemorySyncInput): Promise<MemorySyncResult> {
@@ -155,6 +166,7 @@ export class SurrealMemoryRepository implements MemoryRepository {
         },
       );
       const row = (await this.c.query<Row[]>(`SELECT ${FIELDS} FROM memories WHERE seq = $seq;`, { seq }))[0];
+      await this.syncGraphEdges(seq, row.project ?? null, (row.category ?? null) as MemoryCategory | null, (row.target ?? "memory") as MemoryTarget);
       return { action: "existing", entry: mapRow(row) };
     }
     const entry = await this.addMemory({
@@ -195,7 +207,10 @@ export class SurrealMemoryRepository implements MemoryRepository {
       // Re-fetch by seq so returned entries reflect the NEW content (sqlite
       // does getMemoryById(row.id) per row post-update).
       const refreshed = (await this.c.query<Row[]>(`SELECT ${FIELDS} FROM memories WHERE seq = $seq;`, { seq }))[0];
-      if (refreshed) entries.push(mapRow(refreshed));
+      if (refreshed) {
+        entries.push(mapRow(refreshed));
+        await this.syncGraphEdges(seq, refreshed.project ?? null, (refreshed.category ?? null) as MemoryCategory | null, (refreshed.target ?? "memory") as MemoryTarget);
+      }
     }
     return { matched: rows.length, updated: rows.length, entries };
   }
@@ -230,18 +245,92 @@ export class SurrealMemoryRepository implements MemoryRepository {
     const scope = buildScope(target, project, category);
     const tail = `ORDER BY lastReferenced DESC LIMIT ${Number(limit)};`;
     const where = scope.where ? `${scope.where.replace("WHERE ", "")} AND` : "";
+
+    // Lexical match: FTS @@ with a string::contains fallback.
+    let lexicalRows: Row[] = [];
     try {
-      const rows = await this.c.query<Row[]>(
+      lexicalRows = await this.c.query<Row[]>(
         `SELECT ${FIELDS} FROM memories WHERE ${where} content @@ $q ${tail}`,
         { ...scope.params, q: query },
       );
-      if (rows.length > 0) return rows.map(mapRow);
     } catch { /* fall through to contains fallback */ }
+    if (lexicalRows.length === 0) {
+      lexicalRows = await this.c.query<Row[]>(
+        `SELECT ${FIELDS} FROM memories WHERE ${where} string::contains(content, $q) ${tail}`,
+        { ...scope.params, q: query },
+      );
+    }
+    if (lexicalRows.length === 0) return [];
+    const lexicalResults = lexicalRows.map(mapRow);
+
+    // Graph augmentation: neighbors sharing an implicit tag with the seeds,
+    // ranked together by the shared backend-neutral ranker.
+    const neighbors = await this.fetchGraphNeighbors(lexicalResults, { project, target, category });
+    if (neighbors.length === 0) return lexicalResults.slice(0, limit);
+
+    return rankMemoryEntries({
+      candidates: [...lexicalResults, ...neighbors],
+      lexicalMatchIds: new Set(lexicalResults.map((m) => m.id)),
+      limit,
+    });
+  }
+
+  /**
+   * Fetch graph neighbors via SurrealDB RELATE traversal: memories pointing
+   * (via `tagged` edges) at any tag node shared with the seed set, excluding
+   * the seeds, within the same search scope, capped. Mirrors the SQLite
+   * column-equality neighbor fetch through the shared ranker for cross-backend
+   * equivalence.
+   */
+  private async fetchGraphNeighbors(
+    seeds: MemoryEntry[],
+    scope: { project?: string | null; target?: MemoryTarget; category?: MemoryCategory },
+  ): Promise<MemoryEntry[]> {
+    const seedSeqs = seeds.map((m) => m.id);
+    const keys = new Set<string>();
+    for (const m of seeds) {
+      if (m.project) keys.add(`project:${m.project}`);
+      if (m.category) keys.add(`category:${m.category}`);
+      if (m.target) keys.add(`target:${m.target}`);
+    }
+    if (keys.size === 0) return [];
+
+    const s = buildScope(scope.target, scope.project, scope.category);
+    const where = s.where ? `${s.where.replace("WHERE ", "")} AND` : "";
     const rows = await this.c.query<Row[]>(
-      `SELECT ${FIELDS} FROM memories WHERE ${where} string::contains(content, $q) ${tail}`,
-      { ...scope.params, q: query },
+      `SELECT ${FIELDS} FROM memories
+       WHERE ${where} seq NOT IN $seedSeqs
+         AND id IN (SELECT VALUE in FROM tagged WHERE out IN (SELECT VALUE id FROM tag WHERE key IN $keys))
+       ORDER BY lastReferenced DESC LIMIT $cap;`,
+      { ...s.params, seedSeqs, keys: [...keys], cap: GRAPH_NEIGHBOR_CAP },
     );
     return rows.map(mapRow);
+  }
+
+  /**
+   * Idempotently sync this memory's `tagged` graph edges for its implicit tags
+   * (project/category/target). Clears existing outgoing edges first, then
+   * ensures each tag node exists and re-creates the edge.
+   */
+  private async syncGraphEdges(
+    seq: number,
+    project: string | null,
+    category: MemoryCategory | null,
+    target: MemoryTarget,
+  ): Promise<void> {
+    await this.c.query(`DELETE FROM tagged WHERE in = type::record("memories", $seq);`, { seq });
+    const tags: Array<{ key: string; kind: string; value: string }> = [];
+    if (project != null) tags.push({ key: `project:${project}`, kind: "project", value: project });
+    if (category != null) tags.push({ key: `category:${category}`, kind: "category", value: category });
+    if (target != null) tags.push({ key: `target:${target}`, kind: "target", value: target });
+    if (tags.length === 0) return;
+    for (const t of tags) {
+      await this.c.query(`UPSERT type::record("tag", $key) SET key = $key, kind = $kind, value = $value;`, t);
+      await this.c.query(
+        `LET $mem = type::record("memories", $seq); LET $tag = type::record("tag", $key); RELATE $mem->tagged->$tag;`,
+        { seq, key: t.key },
+      );
+    }
   }
 
   async getMemories(options: MemoryListOptions = {}): Promise<MemoryEntry[]> {
@@ -290,7 +379,9 @@ export class SurrealMemoryRepository implements MemoryRepository {
   }
 
   async removeMemory(id: number): Promise<boolean> {
-    await this.c.query(`DELETE FROM memories WHERE seq = $seq;`, { seq: Number(id) });
+    const seq = Number(id);
+    await this.c.query(`DELETE FROM memories WHERE seq = $seq;`, { seq });
+    await this.c.query(`DELETE FROM tagged WHERE in = type::record("memories", $seq);`, { seq });
     return true;
   }
 
