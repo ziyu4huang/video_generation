@@ -79,7 +79,19 @@ score = 1.0 * lexicalMatch(0|1) + 0.5 * graphProximity + 0.25 * recencyNorm
 - **Tag nodes** keyed `type::record("tag", key)` with a queryable `key` field (= `kind:value`); neighbor lookups use `WHERE key IN $keys`.
 - **Edge idempotency**: `syncGraphEdges` does `DELETE FROM tagged WHERE in = ...` then rebuilds (delete-then-UPSERT/RELATE).
 
-## Deferred (YAGNI — not needed for the contract test; revisit if/when)
-- **Backfill** of tag edges for pre-existing SurrealDB data (default-off backend; fresh test namespaces per run).
-- **Bulk-remove edge cleanup** (`removeSyncedMemories`/`removeExactSyncedMemories`) — orphan edges are harmless to traversal (filtered out); only single `removeMemory` cleans its edges today.
+## Follow-up: deferred items resolved (2026-07-28)
+
+### Backfill of tag edges — IMPLEMENTED
+`SurrealMemoryRepository.backfillGraphEdges()` rebuilds edges for every memory row that has none (`id NOT IN (SELECT VALUE in FROM tagged)`), then is wired into `createBackendBundle`'s `surrealdb` case so it auto-heals on startup (best-effort, never throws → cannot trip the sqlite fallback). Idempotent: once every row has edges the "no-edge" set is empty and it is a single cheap SELECT.
+
+- **Batched, not per-row.** The first backfill of a large pre-existing corpus (the real namespace had **963 orphan rows**) is emitted as chunked SurrealQL scripts (UPSERT tag node + RELATE per implicit tag, ~100 rows/request) instead of one HTTP round-trip per edge — the per-row form timed out the `extension-contract` test at 15 s; the batched form completes in ~1 s.
+- **Record-id literals in RELATE.** `type::record(...)` cannot appear inline in a RELATE source/target (parse error), so the tag target uses a backtick record-id literal (`tag:\`project:p1\``) and the memory source uses `memories:<seq>`. Verified live.
+
+### Bulk-remove edge cleanup — UNNECESSARY (SurrealDB native cascade)
+Verified by TDD: the bulk-remove regression tests passed *before any cleanup code was written*. A direct probe confirmed **SurrealDB cascades `tagged` edge deletion when the source memory record is deleted — even though `tagged` is a plain SCHEMALESS table, not `TYPE RELATION`.** So `removeSyncedMemories` / `removeExactSyncedMemories` (which delete memory rows) automatically clean their edges. No production code added; the two regression tests (`surreal-memory-graph.test.ts`) are kept to guard the cascade behavior against future schema/version changes.
+
+### Test-isolation observation (pre-existing, not fixed here)
+`tests/extension-contract.test.ts` redirects `AGENT_ROOT` to a tmpdir intending a throwaway SQLite DB, but `loadConfig` is **not** routed through `__setAgentRootForTest`, so the factory still reads the real `hermes-memory-config.json` (`dbBackend: surrealdb`) and connects to the live namespace. This was latent (surrealdb `init()` was fast) until the per-row backfill exposed it. The batched backfill makes it fast again; a proper isolation fix for `loadConfig` is left as a separate cleanup.
+
+## Still deferred (YAGNI)
 - **Scoring weight calibration** (`1.0/0.5/0.25`, recency decay, seed top-N ≈10, pool cap ≈20) — tune after real-data use.

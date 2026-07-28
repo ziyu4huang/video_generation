@@ -29,9 +29,15 @@ export async function createBackendBundle(
     case "surrealdb": {
       const backend = new SurrealBackend(config.surreal ?? {});
       await backend.init();
+      const memoryRepo = new SurrealMemoryRepository(backend);
+      // Auto-heal `tagged` graph edges for rows written before graph-augmented
+      // search shipped. Best-effort (never throws) so it cannot trip the sqlite
+      // fallback in createBackendBundleWithFallback. A no-op once every row
+      // has edges.
+      await memoryRepo.backfillGraphEdges();
       return {
         backend,
-        memoryRepo: new SurrealMemoryRepository(backend),
+        memoryRepo,
         sessionRepo: new SurrealSessionRepository(backend),
       };
     }

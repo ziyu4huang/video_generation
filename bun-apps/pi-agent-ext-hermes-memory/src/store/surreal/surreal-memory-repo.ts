@@ -37,6 +37,21 @@ function maxDate(a: string, b: string): string {
   return a >= b ? a : b;
 }
 
+/** Escape a string into a SurrealDB double-quoted string literal. */
+function sqlStr(s: string): string {
+  return '"' + s.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+}
+
+/**
+ * A SurrealDB backtick record-id literal for a `tag` row keyed by `key`. Real
+ * tag values (project/category/target enums + project names) never contain
+ * backticks; strip defensively so a pathological value can never break out of
+ * the record-id literal.
+ */
+function tagRecordLiteral(key: string): string {
+  return "`" + key.replace(/`/g, "") + "`";
+}
+
 type Row = Partial<{
   seq: number; project: string | null; target: string; category: string | null;
   content: string; failureReason: string | null; toolState: string | null;
@@ -330,6 +345,56 @@ export class SurrealMemoryRepository implements MemoryRepository {
         `LET $mem = type::record("memories", $seq); LET $tag = type::record("tag", $key); RELATE $mem->tagged->$tag;`,
         { seq, key: t.key },
       );
+    }
+  }
+
+  /**
+   * Backfill `tagged` graph edges for pre-existing memory rows that have none
+   * (e.g. rows written before graph-augmented search shipped). Selects memories
+   * with no outgoing edge and rebuilds their edges in batched SurrealQL scripts
+   * (UPSERT tag node + RELATE per implicit tag), chunked to keep each HTTP
+   * request bounded. Safe to call on every startup: once all rows have edges
+   * the "no-edge" set is empty and this is a single cheap SELECT. Best-effort —
+   * never throws so it cannot trip the backend-factory fallback to sqlite.
+   *
+   * Batched (not a per-row HTTP round-trip) because a large pre-existing corpus
+   * (hundreds–thousands of rows) would otherwise make startup take tens of
+   * seconds one edge at a time.
+   */
+  async backfillGraphEdges(): Promise<number> {
+    try {
+      const orphans = await this.c.query<Row[]>(
+        `SELECT seq, project, target, category FROM memories
+         WHERE id NOT IN (SELECT VALUE in FROM tagged);`,
+      );
+      if (orphans.length === 0) return 0;
+      // Orphan rows have no existing edges, so no prior-edge DELETE is needed.
+      // Chunk so each request stays bounded for very large corpora.
+      const CHUNK = 100;
+      for (let i = 0; i < orphans.length; i += CHUNK) {
+        const stmts: string[] = [];
+        for (const r of orphans.slice(i, i + CHUNK)) {
+          const seq = Number(r.seq);
+          const tags: Array<{ key: string; kind: string; value: string }> = [];
+          if (r.project != null) tags.push({ key: `project:${r.project}`, kind: "project", value: r.project });
+          if (r.category != null) tags.push({ key: `category:${r.category}`, kind: "category", value: r.category });
+          if (r.target != null) tags.push({ key: `target:${r.target}`, kind: "target", value: r.target });
+          for (const t of tags) {
+            stmts.push(
+              `UPSERT type::record("tag", ${sqlStr(t.key)}) SET key = ${sqlStr(t.key)}, kind = ${sqlStr(t.kind)}, value = ${sqlStr(t.value)};`,
+            );
+            // type::record() cannot appear inline in a RELATE source/target
+            // (parse error), so the tag id uses a record-id literal here.
+            stmts.push(`RELATE memories:${seq}->tagged->tag:${tagRecordLiteral(t.key)};`);
+          }
+        }
+        if (stmts.length > 0) await this.c.query(stmts.join("\n"));
+      }
+      return orphans.length;
+    } catch {
+      // Best-effort migration: a transient query failure must not abort startup
+      // or trigger the sqlite fallback. Missing edges only weaken graph recall.
+      return 0;
     }
   }
 
