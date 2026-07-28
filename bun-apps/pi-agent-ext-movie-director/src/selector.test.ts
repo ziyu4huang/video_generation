@@ -4,7 +4,7 @@ import {
   rankedProviders,
   NoConfiguredProviderError,
 } from "./selector.ts";
-import { _setFfmpegAvailableForTest, _setRemotionProbeForTest, _setMotionFiltersForTest, _setWhisperRuntimeForTest, _setVisionRuntimeForTest, _setRunPyRuntimeForTest, _setKrea2BinaryForTest, _setFlux2BinaryForTest, _setLmStudioReachableForTest, probeConfigured } from "./providers.ts";
+import { _setFfmpegAvailableForTest, _setRemotionProbeForTest, _setMotionFiltersForTest, _setWhisperRuntimeForTest, _setVisionRuntimeForTest, _setRunPyRuntimeForTest, _setKrea2BinaryForTest, _setFlux2BinaryForTest, _setMusicgenBinaryForTest, _setLmStudioReachableForTest, probeConfigured } from "./providers.ts";
 import { REGISTRY, type Capability } from "./registry.ts";
 
 // Selector availability is runtime-probed (ffmpeg on PATH, cloud keys in env).
@@ -25,6 +25,11 @@ beforeAll(() => {
   // real binary, so without a pin a fresh CI host would reroute to runpy-image.
   _setKrea2BinaryForTest(true);
   _setFlux2BinaryForTest(true);
+  // Same reasoning for the musicgen-director binary — probeConfigured checks
+  // it explicitly for bun:musicgen-native (added after a code-review found
+  // the fallthrough-to-default case made music_generation tests machine-
+  // coupled to whether the binary happened to be built locally).
+  _setMusicgenBinaryForTest(true);
   // run.py runtime present so mlx:runpy / mlx:runpy-image are callable regardless
   // of whether this host has recreated python/venv (keeps the command-routing +
   // capability-coverage tests host-independent).
@@ -41,6 +46,7 @@ afterAll(() => {
   _setVisionRuntimeForTest("clip", undefined);
   _setKrea2BinaryForTest(undefined);
   _setFlux2BinaryForTest(undefined);
+  _setMusicgenBinaryForTest(undefined);
   _setLmStudioReachableForTest(undefined);
   _setRunPyRuntimeForTest(undefined);
 });
