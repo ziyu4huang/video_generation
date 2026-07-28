@@ -123,8 +123,26 @@ describe("analyzePathology — retry loop", () => {
     ];
     for (let i = 0; i < 30; i++) calls.push(call("read", { path: `f${i}` }));
     calls.push(call("bash", { command: "X" }));
-    // default window 30: the first two X's are >30 calls back from the end → only
-    // the trailing single X is in-window → count 1 → no loop.
+    // The X's are neither all in-window (the first two are >30 calls back) nor
+    // consecutive (separated by 30 reads), so no back-to-back run forms → no
+    // loop. Under consecutive-run semantics the isolated trailing X can't start
+    // a run regardless of the window.
+    expect(analyzePathology(input(calls)).filter((x) => x.check === "retry-loop")).toHaveLength(0);
+  });
+
+  test("3 identical but SPREAD OUT (interleaved) is NOT a loop — benign repetition", () => {
+    resetTs();
+    // The agent runs `git status` 3× interleaved with other work — not a retry
+    // loop (no back-to-back identical calls). A count-in-window detector
+    // false-positives here (the exact bug behind the permanent "⚠ retry loop:
+    // bash ×3" status bar); the consecutive-run detector must not flag it.
+    const calls: ToolCallRecord[] = [
+      call("bash", { command: "git status" }),
+      call("read", { path: "a" }),
+      call("bash", { command: "git status" }),
+      call("edit", { path: "b" }),
+      call("bash", { command: "git status" }),
+    ];
     expect(analyzePathology(input(calls)).filter((x) => x.check === "retry-loop")).toHaveLength(0);
   });
 });
