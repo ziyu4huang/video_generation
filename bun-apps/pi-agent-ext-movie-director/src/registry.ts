@@ -361,8 +361,11 @@ export const REGISTRY: ProviderEntry[] = [
   // backend was already "native_swift" here (set ahead of this migration, per
   // the port's design spec) — this change is what makes that label true rather
   // than aspirational. The old `mlx:runpy-music` invoke stays wired (see
-  // runpy_music.ts / bridge.ts's realRunPyMusic) as the dev-time comparison
-  // reference for compare_musicgen_e2e.py — not deleted, just no longer default.
+  // runpy_music.ts / bridge.ts's realRunPyMusic) for direct/manual use of the
+  // Python reference — not deleted, just no longer default. (The Layer-4
+  // spectral sanity comparison, python/mlx-movie-director/app/tests/
+  // compare_musicgen_e2e.py, shells `run.py music` directly as a subprocess,
+  // not through this TS invoke path — the two are independent, not coupled.)
   { name: "musicgen_music", capability: "music_generation", provider: "musicgen", backend: "native_swift", invoke: "bun:musicgen-native", configured: true, notes: "swift/musicgen-director — native Swift/MLX MusicGen-small (src/music_native.ts, via ensureBinary()). Verified numerically against the Python mlx-audiocraft reference at every layer (cos>=0.99 throughout); no Python venv dependency. Local MLX, never a cloud GAI API." },
 
   // Audio/video post — ffmpeg shells (iteration 3).

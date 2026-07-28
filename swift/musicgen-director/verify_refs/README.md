@@ -17,6 +17,8 @@ From the **repo root**:
 
 ```bash
 python/venv/bin/python python/mlx-movie-director/app/tests/gen_musicgen_t5_ref.py
+python/venv/bin/python python/mlx-movie-director/app/tests/gen_musicgen_encodec_ref.py
+python/venv/bin/python python/mlx-movie-director/app/tests/gen_musicgen_decoder_step_ref.py
 ```
 
 ## Expected files
@@ -24,3 +26,5 @@ python/venv/bin/python python/mlx-movie-director/app/tests/gen_musicgen_t5_ref.p
 | File | Generator | Used by |
 |---|---|---|
 | `musicgen_t5_ref.safetensors` | `gen_musicgen_t5_ref.py` | `verify-t5` |
+| `musicgen_encodec_ref.safetensors` | `gen_musicgen_encodec_ref.py` | `verify-encodec` |
+| `musicgen_decoder_step_ref.safetensors` | `gen_musicgen_decoder_step_ref.py` | `verify-decoder-step` |
