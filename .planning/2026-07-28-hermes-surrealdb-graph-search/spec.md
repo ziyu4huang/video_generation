@@ -1,7 +1,13 @@
 # hermes-memory SurrealDB Graph-Augmented Search
 
 ## Status
-Design — brainstormed 2026-07-28 via wayfinder chart-the-map + grilling + brainstorming. Pending implementation (TDD).
+Implemented 2026-07-28 via TDD. Branch `feat/hermes-surrealdb-graph-search`:
+- `df9f2720` spec
+- `3c3d749e` shared ranker + unit tests
+- `7cf59a9b` SQLite wiring (part 1)
+- `22ae3ea7` SurrealDB RELATE wiring (part 2)
+
+758/758 tests green; tsc clean. Both backends pass the shared graph-recall contract case (real SQLite + real SurrealDB, gated by `isSurrealUp`).
 
 ## Destination
 Leverage SurrealDB's native graph power (`RELATE` edges) so hermes-memory's
@@ -67,6 +73,13 @@ score = 1.0 * lexicalMatch(0|1) + 0.5 * graphProximity + 0.25 * recencyNorm
 - **Low.** SQLite: zero schema change. SurrealDB: only adds the graph layer. Shared ranker guarantees equivalence. Main work = SurrealDB graph layer + ranker + tests.
 - **Tunable risk:** scoring weights need real-data calibration, but they are centralized and equivalence-neutral.
 
-## Open items (calibrate after first e2e run)
-- Scoring weights `1.0 / 0.5 / 0.25` and recency decay form `1/(1+age/30)`.
-- Seed top-N (≈10) and pool cap (≈20).
+## Implementation notes (resolved during TDD)
+- **SurrealDB record id**: deterministic `memories:⟨seq⟩` via `CREATE type::record("memories", $next)` (chosen over random-id+lookup for simplest RELATE).
+- **SurrealDB v3 quirks discovered**: the record-id constructor is `type::record` (NOT `type::thing`, which is v1); `RELATE` does NOT accept a `type::record(...)` call in source/target position (parse error on `::`) — bind via `LET $mem = type::record(...)` first, then `RELATE $mem->tagged->$tag`.
+- **Tag nodes** keyed `type::record("tag", key)` with a queryable `key` field (= `kind:value`); neighbor lookups use `WHERE key IN $keys`.
+- **Edge idempotency**: `syncGraphEdges` does `DELETE FROM tagged WHERE in = ...` then rebuilds (delete-then-UPSERT/RELATE).
+
+## Deferred (YAGNI — not needed for the contract test; revisit if/when)
+- **Backfill** of tag edges for pre-existing SurrealDB data (default-off backend; fresh test namespaces per run).
+- **Bulk-remove edge cleanup** (`removeSyncedMemories`/`removeExactSyncedMemories`) — orphan edges are harmless to traversal (filtered out); only single `removeMemory` cleans its edges today.
+- **Scoring weight calibration** (`1.0/0.5/0.25`, recency decay, seed top-N ≈10, pool cap ≈20) — tune after real-data use.
