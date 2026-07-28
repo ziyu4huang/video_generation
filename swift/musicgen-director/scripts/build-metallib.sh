@@ -32,8 +32,8 @@
 # under .build/checkouts, which swift build populates). Idempotent: skips when
 # mlx.metallib is newer than every kernel source. Rebuilds when kernels change.
 #
-# This is invoked automatically by bun-apps/pi-agent-ext-musicgen/src/binary.ts after a
-# fresh swift build, so the agent tool gets a working binary without manual steps.
+# This is invoked automatically by bun-apps/pi-agent-ext-movie-director/src/musicgen_binary.ts
+# after a fresh swift build, so the agent tool gets a working binary without manual steps.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
