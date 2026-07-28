@@ -15,7 +15,7 @@
  * bridge.ts's realMusicNative.
  */
 import { existsSync, statSync } from "node:fs";
-import { ensureBinary } from "./musicgen_binary.ts";
+import { ensureBinary, resolveRepoRoot } from "./musicgen_binary.ts";
 import type { RunPyMusicOptions, RunPyMusicDetails, RunPyMusicOutput } from "./runpy_music.ts";
 
 export interface MusicNativeInput {
@@ -40,7 +40,15 @@ export function buildMusicNativeArgs(opts: RunPyMusicOptions, output: string): s
   return args;
 }
 
-/** Real spawn: resolve/build the musicgen Swift binary, spawn `musicgen generate ...`. */
+/**
+ * Real spawn: resolve/build the musicgen Swift binary, spawn `musicgen
+ * generate ...` with cwd=repoRoot. The binary's --model-dir default is a
+ * path RELATIVE to its cwd (mlx-models/musicgen/musicgen-small) — without
+ * pinning cwd to the repo root, that default resolves against wherever this
+ * Bun process happens to be running from and fails to find the checkpoint
+ * (mirrors runpy_music.ts's defaultSpawn / pi-agent-ext-ltx's invoke.ts, both
+ * of which also spawn with cwd: repoRoot for the same reason).
+ */
 async function defaultSpawn(
   args: string[],
   signal?: AbortSignal,
@@ -48,6 +56,7 @@ async function defaultSpawn(
   const bin = await ensureBinary();
   const proc = Bun.spawn({
     cmd: [bin, ...args],
+    cwd: resolveRepoRoot(),
     stdout: "pipe",
     stderr: "pipe",
     signal,
