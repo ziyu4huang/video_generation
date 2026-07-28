@@ -1,4 +1,5 @@
 import type { SessionRepository } from '../store/repository.js';
+import type { TimedFn } from '../perf.js';
 import type { SessionManagerSnapshot } from '../store/session-parser.js';
 import { parseSessionManagerSnapshot } from '../store/session-parser.js';
 
@@ -22,6 +23,8 @@ export interface ScheduleLiveSessionIndexOptions {
   setTimeoutFn?: SetTimeoutFn;
   delayMs?: number;
   onError?: (error: unknown) => void;
+  /** Perf wrapper (default pass-through). index.ts injects the real recorder. */
+  timed?: TimedFn;
 }
 
 /**
@@ -47,15 +50,18 @@ export function scheduleLiveSessionIndex(
 
   const setTimeoutFn = options.setTimeoutFn ?? setTimeout;
   const delayMs = options.delayMs ?? SESSION_LIVE_INDEX_DELAY_MS;
+  const timed: TimedFn = options.timed ?? ((_op, fn) => fn());
 
   state.inProgress = true;
   state.promise = new Promise<void>((resolve) => {
     setTimeoutFn(async () => {
       try {
-        const session = parseSessionManagerSnapshot(sessionManager);
-        if (session) {
-          await sessionRepo.indexSession(session);
-        }
+        await timed("live-index.indexSession", async () => {
+          const session = parseSessionManagerSnapshot(sessionManager);
+          if (session) {
+            await sessionRepo.indexSession(session);
+          }
+        });
       } catch (err) {
         try { options.onError?.(err); } catch { /* best effort */ }
       } finally {

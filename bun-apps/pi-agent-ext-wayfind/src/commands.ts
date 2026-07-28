@@ -62,7 +62,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
   async function handleGrillMe(args: string, ctx: ExtensionCommandContext): Promise<void> {
     const topic = args.trim();
     startGrill(ctx, topic, false);
-    overlay.setLine(`grill me active${topic ? `: ${topic}` : ""}`);
+    overlay.setLine("grilling", `grilling${topic ? `: ${topic}` : ""}`);
     ctx.ui.notify(
       `[${PKG_NAME}] grill-me started${topic ? ` (${topic})` : ""}. The plan coordinator yields while the grill is active.`,
       "info",
@@ -72,7 +72,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
   async function handleGrillDocs(args: string, ctx: ExtensionCommandContext): Promise<void> {
     const topic = args.trim();
     startGrill(ctx, topic, true);
-    overlay.setLine(`grill docs active${topic ? `: ${topic}` : ""}`);
+    overlay.setLine("grilling-docs", `grilling (docs)${topic ? `: ${topic}` : ""}`);
     ctx.ui.notify(
       [
         `[${PKG_NAME}] grill-me-with-docs started${topic ? ` (${topic})` : ""}.`,
@@ -94,7 +94,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
     state.activeGrillBySession.delete(sessionId);
     state.grillWithDocsBySession.delete(sessionId);
     publishWayfindActive(state);
-    overlay.setLine("grill ended");
+    overlay.setLine("done", "grill ended");
 
     const seed = args.includes("--seed-plan") || args.includes("seed-plan");
     if (!seed) {
@@ -138,7 +138,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       ].join("\n"),
       { deliverAs: "steer" },
     );
-    overlay.setLine("domain-modeling active");
+    overlay.setLine("domain-modeling", "domain modeling");
   }
 
   async function handleChainSync(args: string, ctx: ExtensionCommandContext): Promise<void> {
@@ -177,7 +177,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
     } catch {
       // tidy is best-effort; ignore if bash / the script is unavailable.
     }
-    overlay.setLine(`done: ${effort}`);
+    overlay.setLine("done", `done: ${effort}`);
     ctx.ui.notify(
       `[${PKG_NAME}] done: wrote ${r.path} (${r.deferredPrizes.length} deferred prize(s)). Next goal: ${r.nextGoal}`,
       "info",
@@ -200,7 +200,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       ctx.ui.notify(`[${PKG_NAME}] seed: ${outcome.refused} already exists — delete it first to re-seed.`, "warning");
       return;
     }
-    overlay.setLine(`seed: ${effort} (${outcome.source})`);
+    overlay.setLine("seed", `seed: ${effort} (${outcome.source})`);
     ctx.ui.notify(
       `[${PKG_NAME}] Seeded ${outcome.path} (${outcome.phaseCount} phase(s), source: ${outcome.source}).`,
       "info",
@@ -225,7 +225,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       ].join("\n"),
       { deliverAs: "steer" },
     );
-    overlay.setLine(`spec${effort ? `: ${effort}` : ""}`);
+    overlay.setLine("to-spec", `spec${effort ? `: ${effort}` : ""}`);
   }
 
   async function handleToTickets(args: string, _ctx: ExtensionCommandContext): Promise<void> {
@@ -242,7 +242,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       ].join("\n"),
       { deliverAs: "steer" },
     );
-    overlay.setLine(`tickets${effort ? `: ${effort}` : ""}`);
+    overlay.setLine("to-tickets", `tickets${effort ? `: ${effort}` : ""}`);
   }
 
   async function handleWayfinderStatus(args: string, ctx: ExtensionCommandContext): Promise<void> {
@@ -286,7 +286,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       }
       state.activeEffortBySession.set(sessionId, effort);
       publishWayfindActive(state);
-      overlay.setLine(`wayfinder: ${effort} — ticket ${claimed.id} ${claimed.title}`);
+      overlay.setLine("working-ticket", `${effort} — ticket ${claimed.id} ${claimed.title}`);
       pi.sendUserMessage(
         [
           `Working wayfinder ticket ${claimed.id} "${claimed.title}" on effort ${effort}.`,
@@ -304,7 +304,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
     chartMap(ctx.cwd, effort, destination);
     state.activeEffortBySession.set(sessionId, effort);
     publishWayfindActive(state);
-    overlay.setLine(`wayfinder: charting ${effort}`);
+    overlay.setLine("charting", `charting ${effort}`);
     ctx.ui.notify(`[${PKG_NAME}] Map created at .planning/${effort}/map.md`, "info");
     pi.sendUserMessage(
       [

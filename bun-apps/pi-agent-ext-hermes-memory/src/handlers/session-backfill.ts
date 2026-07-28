@@ -1,4 +1,5 @@
 import type { SessionRepository, BulkIndexResult } from '../store/repository.js';
+import type { TimedFn } from '../perf.js';
 
 export const SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS = 5000;
 export const SESSION_BACKFILL_MAX_FILES = 50;
@@ -23,6 +24,8 @@ export interface ScheduleSessionBackfillOptions {
   state?: SessionBackfillState;
   setTimeoutFn?: SetTimeoutFn;
   maxFilesToIndex?: number;
+  /** Perf wrapper (default pass-through). index.ts injects the real recorder. */
+  timed?: TimedFn;
 }
 
 function formatBackfillResult(result: BulkIndexResult): string {
@@ -56,6 +59,7 @@ export function scheduleSessionBackfill(
   const state = options.state ?? sessionBackfillState;
   const setTimeoutFn = options.setTimeoutFn ?? setTimeout;
   const maxFilesToIndex = options.maxFilesToIndex ?? SESSION_BACKFILL_MAX_FILES;
+  const timed: TimedFn = options.timed ?? ((_op, fn) => fn());
 
   if (state.inProgress) {
     return false;
@@ -71,11 +75,11 @@ export function scheduleSessionBackfill(
         // Re-check inside the deferred task: the eager entry may have raced
         // with another startup, but by the time this fires the DB state is
         // authoritative.
-        const shouldRun = await sessionRepo.needsBackfill(sessionsDir);
+        const shouldRun = await timed("backfill.needsBackfill", () => sessionRepo.needsBackfill(sessionsDir));
         if (!shouldRun) {
           return;
         }
-        const result = await sessionRepo.indexChangedSessions(sessionsDir, { maxFilesToIndex });
+        const result = await timed("backfill.indexChangedSessions", () => sessionRepo.indexChangedSessions(sessionsDir, { maxFilesToIndex }));
         if (!result.reachedLimit) await sessionRepo.touchBackfillTimestamp();
         notifyBestEffort(options.notify, formatBackfillResult(result), result.errors.length > 0 || result.reachedLimit ? 'warning' : 'info');
       } catch (err) {

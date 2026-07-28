@@ -38,6 +38,7 @@ import { registerMemoryTool } from "./tools/memory-tool.js";
 import { registerGrillDecisionTool } from "./tools/grill-decision-tool.js";
 import { registerSkillTool } from "./tools/skill-tool.js";
 import { registerSessionSearchTool } from "./tools/session-search-tool.js";
+import { createPerfRecorder } from "./perf.js";
 import { registerMemorySearchTool } from "./tools/memory-search-tool.js";
 import { setupBackgroundReview } from "./handlers/background-review.js";
 import { setupSessionFlush } from "./handlers/session-flush.js";
@@ -114,6 +115,10 @@ export default async function (pi: ExtensionAPI) {
       : `sqlite · ${path.join(globalDir, "sessions.db")}`;
   let currentDbBackend: DbBackend = config.dbBackend ?? "sqlite";
   let backendLabel = labelFor(currentDbBackend);
+  // Lightweight perf tracker: breach-only (per-op ms / HTTP-round-trip thresholds)
+  // → appends to perf.jsonl + fires a UI notify. PI_HERMES_PERF=1 traces every
+  // op. Handlers receive `perf.timed` so the lifecycle ops below are instrumented.
+  const perf = createPerfRecorder({ getBackend: () => currentDbBackend });
 
   const shouldMigrateExtensionRoot = !configuredMemoryDir || pointsToLegacyMemoryDir;
   let extensionRootMigrated = false;
@@ -170,7 +175,7 @@ export default async function (pi: ExtensionAPI) {
   // freeze fix (wayfinder ticket 07). runConsolidator sets PI_HERMES_CONSOLIDATING=1.
   if (shouldRunStartupSync()) {
     try {
-      await syncMarkdownMemories(memoryRepo, globalDir, config.projectsMemoryDir, agentRoot);
+      await perf.timed("startup.syncMarkdownMemories", () => syncMarkdownMemories(memoryRepo, globalDir, config.projectsMemoryDir, agentRoot));
     } catch {
       // Best-effort only: failed markdown backfill should not block extension startup.
     }
@@ -259,6 +264,19 @@ export default async function (pi: ExtensionAPI) {
       extensionRootMigrated = true;
     }
 
+    // Wire perf breach alerts to the TUI for this session.
+    perf.setNotifier((r) => {
+      const why = r.reason === "roundTrips" ? `${r.roundTrips} HTTP round-trips` : `${r.ms}ms`;
+      const ui = (ctx as { ui?: { notify?: (message: string, level?: string) => void } }).ui;
+      // Consolidation is an expected, always-logged event — surface at info, not
+      // an alarming ⚠️ breach warn.
+      if (r.kind === "consolidation") {
+        ui?.notify?.(`hermes perf: ${r.op} ran ${why} (backend=${r.backend})`, "info");
+      } else {
+        ui?.notify?.(`⚠️ hermes perf: ${r.op} took ${why} (backend=${r.backend})`, "warn");
+      }
+    });
+
     refreshSkillProjectContext(ctx.cwd);
     await skillStore.migrateLegacySkills();
     await skillStore.ensureDiscoveredRoots();
@@ -266,6 +284,7 @@ export default async function (pi: ExtensionAPI) {
     if (projectStore) await projectStore.loadFromDisk();
 
     scheduleSessionBackfill(sessionRepo, sessionsDir, {
+      timed: perf.timed,
       notify: (message, level) => {
         const ui = (ctx as { ui?: { notify?: (message: string, level?: string) => void } }).ui;
         if (ui?.notify) {
@@ -323,6 +342,12 @@ export default async function (pi: ExtensionAPI) {
       return triggerConsolidation(projectStore, target, memoryToolDef, signal, config.consolidationTimeoutMs, toolTarget, config);
     }, resolveConsolidatorModelLabel(config));
   }
+  // Inject the perf recorder into both stores — lock-hold breach timing (T2) +
+  // consolidation always-logged event (T3).
+  store.setPerfTimed(perf.timed);
+  projectStore?.setPerfTimed(perf.timed);
+  store.setPerfAlways(perf.timedAlways);
+  projectStore?.setPerfAlways(perf.timedAlways);
   registerConsolidateCommand(pi, store, memoryToolDef, config.consolidationTimeoutMs, projectStore, projectName, config);
 
   // ── 8. Setup correction detection ──
@@ -343,6 +368,7 @@ export default async function (pi: ExtensionAPI) {
   // ── 10. Live session indexing ──
   pi.on("message_end", async (_event, ctx) => {
     scheduleLiveSessionIndex(sessionRepo, ctx.sessionManager, {
+      timed: perf.timed,
       onError: (err) => console.warn(`⚠️ Live session indexing failed: ${err instanceof Error ? err.message : String(err)}`),
     });
   });
@@ -388,7 +414,7 @@ export default async function (pi: ExtensionAPI) {
         if (sessionData) {
           // The repository methods already wrap recovery + transient retry, so
           // there is no need to wrap them in backend.withCorruptionRecovery here.
-          await sessionRepo.indexSession(sessionData);
+          await perf.timed("shutdown.indexSession", () => sessionRepo.indexSession(sessionData));
           // Keep session_files metadata in sync with the final on-disk state.
           // Pi appends the closing session entry on shutdown after the last
           // message_end, so without this upsert the stored size/mtime would be

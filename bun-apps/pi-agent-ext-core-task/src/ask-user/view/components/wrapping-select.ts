@@ -7,7 +7,7 @@ import { visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { renderInlineInputRow } from "./inline-input.js";
 
 export type WrappingSelectItem =
-	| { kind: "option"; label: string; description?: string }
+	| { kind: "option"; label: string; description?: string; recommended?: boolean }
 	| { kind: "other"; label: string; description?: string }
 	| { kind: "next"; label: string; description?: string };
 
@@ -163,9 +163,11 @@ export class WrappingSelect implements Component {
 		}
 
 		const isConfirmed = index === this.confirmedIndex;
-		const label = isConfirmed
+		const star = item.kind === "option" && item.recommended ? "⭐ " : "";
+		const baseLabel = isConfirmed
 			? `${this.confirmedLabelOverride ?? item.label}${WrappingSelect.CONFIRMED_MARK}`
 			: item.label;
+		const label = `${star}${baseLabel}`;
 		const applySelectedStyle = isActive || isConfirmed;
 
 		return [

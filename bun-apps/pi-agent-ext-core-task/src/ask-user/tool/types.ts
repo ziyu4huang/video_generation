@@ -50,6 +50,12 @@ export const OptionSchema = Type.Object({
 				"Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons.",
 		}),
 	),
+	recommended: Type.Optional(
+		Type.Boolean({
+			description:
+				'Set true on the option you recommend (at most one per question). The UI renders a ⭐ prefix on its title — a stable, consistent marker. Prefer this over adding "(Recommended)" text to the label.',
+		}),
+	),
 });
 
 export const QuestionSchema = Type.Object({
@@ -111,7 +117,8 @@ export type QuestionnaireError =
 	| "too_many_questions"
 	| "duplicate_question"
 	| "duplicate_option_label"
-	| "reserved_label";
+	| "reserved_label"
+	| "too_many_recommended";
 
 export interface QuestionnaireResult {
 	answers: QuestionAnswer[];

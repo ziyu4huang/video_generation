@@ -114,7 +114,7 @@ export async function triggerConsolidation(
       store.loadFromDisk(); // mirror today's post-child reload
       return { consolidated: true };
     }
-    return { consolidated: false, error: describeConsolidationFailure(result, timeoutMs) };
+    return { consolidated: false, error: describeConsolidationFailure(result, timeoutMs), terminated: result.timedOut };
   } catch (err) {
     return { consolidated: false, error: `Consolidation failed: ${String(err).slice(0, 200)}` };
   }

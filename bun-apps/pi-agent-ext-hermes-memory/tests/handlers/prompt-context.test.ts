@@ -65,6 +65,29 @@ describe("buildPromptContext", () => {
     assert.doesNotMatch(result, /SKILLS/);
   });
 
+  it("includes skill-candidate capture guidance (learning→skill bridge) in both policy styles", async () => {
+    // full policy
+    const full = await buildPromptContext(
+      { memoryMode: "policy-only", memoryPolicyStyle: "full" },
+      store,
+      projectStore,
+      "demo",
+    );
+    assert.match(full, /Skill candidates/);
+    assert.match(full, /\.planning\/knowledge\//);
+    assert.match(full, /HOW, not a fact/);
+
+    // compact policy
+    const compact = await buildPromptContext(
+      { memoryMode: "policy-only", memoryPolicyStyle: "compact" },
+      store,
+      projectStore,
+      "demo",
+    );
+    assert.match(compact, /\.planning\/knowledge\//);
+    assert.match(compact, /candidate/);
+  });
+
   it("returns custom policy text when policy style is custom", async () => {
     const customText = "<memory-policy>Use local custom policy.</memory-policy>";
     const result = await buildPromptContext(
