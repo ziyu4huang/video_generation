@@ -116,6 +116,24 @@ def _download_and_split(args: argparse.Namespace, name: str, target_dir: Path) -
         out_config.write_text(json.dumps(top_config[sub], indent=2) + "\n")
         print(f"  [{sub}] wrote {out_config.name}")
 
+    # tokenizer.json (T5 SentencePiece Unigram tokenizer for text
+    # conditioning, consumed by KontextT5Tokenizer on the Swift side). The
+    # merged checkpoint has no per-submodel subdirectories (see the
+    # src_weights comment above) — tokenizer.json lives at the snapshot
+    # ROOT, not under a "text_encoder/" subpath (confirmed by listing the
+    # real snapshot directory).
+    tok_src = snap_dir / "tokenizer.json"
+    if tok_src.exists():
+        out_tokenizer = target_dir / "tokenizer.json"
+        shutil.copy(tok_src, out_tokenizer)
+        # tokenizer.json is ~2.3MB — over this repo's 2MB tracked-file
+        # limit, so it needs the same store-externalize-and-symlink
+        # treatment as the safetensors above, not a plain checked-in copy.
+        _externalize_weights(str(out_tokenizer))
+        print(f"  copied + externalized tokenizer.json")
+    else:
+        print(f"  WARNING: tokenizer.json not found at {tok_src} — check the real HF layout", file=sys.stderr)
+
     description = (
         f"MusicGen text-to-music checkpoint ({args.model}), split into "
         "text_encoder (t5-base) / decoder (24-layer causal+cross-attn LM) / "
@@ -194,11 +212,19 @@ def _external_store_dir() -> str:
 
 
 def _externalize_weights(weights_path: str) -> None:
+    """Move `weights_path` into the shared external model store (content-
+    addressed by md5) and replace it with a relative symlink, so large
+    binary assets never land in git history directly (this repo's
+    pre-commit hook rejects tracked files over 2MB). Extension-agnostic --
+    keeps whatever suffix `weights_path` already has (`.safetensors` for
+    model weights, `.json` for large tokenizer files like tokenizer.json,
+    which at ~2.3MB also trips that same limit)."""
     store_dir = _external_store_dir()
     os.makedirs(store_dir, exist_ok=True)
 
     md5 = _md5_file(weights_path)
-    store_path = os.path.join(store_dir, f"{md5}.safetensors")
+    ext = os.path.splitext(weights_path)[1] or ".safetensors"
+    store_path = os.path.join(store_dir, f"{md5}{ext}")
     file_size = os.path.getsize(weights_path)
 
     if os.path.exists(store_path):

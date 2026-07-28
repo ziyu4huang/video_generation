@@ -1,7 +1,7 @@
 {
   "version": 1,
   "store_relative_to_repo_root": "../video_generation__models",
-  "count": 115,
+  "count": 116,
   "files": {
     "audio/ltx-2.3-audio/audio_vae.safetensors": {
       "md5": "f4dd0367b95f98fdd8b2f7e5c45018e8",
@@ -462,6 +462,10 @@
     "musicgen/musicgen-small/audio_encoder.safetensors": {
       "md5": "6381c85cfc1bd2ac93800e11b331100e",
       "size": 235972325
+    },
+    "musicgen/musicgen-small/tokenizer.json": {
+      "md5": "dae9aa57be525c0ebe4c3a7d510af0bf",
+      "size": 2422095
     }
   }
 }
