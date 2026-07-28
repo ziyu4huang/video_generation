@@ -474,6 +474,18 @@ jobs:
         working-directory: bun-apps
         run: bun run test:routing
 
+      # Config-field parity guard (ticket 03 — self-reflection frontier).
+      # pi-agent-ext-hermes-memory's loadConfig is a selective per-field copy; a
+      # field added to MemoryConfig (types.ts) but omitted in loadConfig is
+      # SILENTLY DROPPED — a config-file value is ignored, masked by the
+      # consumer's `config.X ?? envOrDefault()` fallback. This static guard turns
+      # that silent drop loud (every top-level field read as parsed.<field>, or
+      # explicitly allowlisted). Registry structure — add another config-bearing
+      # package as a one-line entry. No runtime import.
+      - name: Config-field parity guard (hermes loadConfig, blocks)
+        working-directory: bun-apps
+        run: bun run test:config-parity
+
       # Test-portability prevention check — now BLOCKING (--strict). Scans the
       # test surface for the four "works on my machine" signal patterns and
       # exits non-zero on any UNGATED P1/P2 hit (existsSync of a machine-coupled
