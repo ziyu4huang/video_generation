@@ -15,12 +15,13 @@ Make hermes **`project`-target memory** persist as the markdown source-of-truth 
 ## Decisions so far
 
 - [Project-memory-dir resolution mechanism](tickets/01-project-memory-dir-resolution.md) — **config knob `projectMemoryDir`**, default `<cwd>/.planning/memory/`; `null`/empty falls back to the global store (explicit opt-out). cwd-relative anchoring. Write-path (ticket 04): per-target resolution gains `if target=project && projectMemoryDir set → <projectMemoryDir>/MEMORY.md else global`.
+- [Search/index merge + project-filter semantics](tickets/02-search-merge-and-project-filter.md) — **single DB, tag project-local on index**; the existing `memory_search(project=X)` merges project-local + global-project-tagged (DB is source-agnostic). sync-markdown-memories scans `.planning/memory/` as a second source. No schema change.
 
-<!-- frontier = {02, 03} -->
+<!-- frontier = {03, 04} — 04 unblocked (blockers 01,02 closed) -->
 
 ## Not yet specified
 
-- **project-filter semantics under the split**: once project memory lives in `.planning/memory/` (implicitly project-scoped, no per-entry tag needed), how the existing `memory_search` `project` filter interacts — do global-store entries still project-tagged surface alongside the project-local ones? Sharpens as ticket 02 resolves; may graduate a sub-ticket for edge cases (e.g. the same project worked from two checkouts).
+<!-- "project-filter semantics under the split" graduated — resolved by ticket 02 (single DB, tag on index; global-project-tagged surface alongside project-local). -->
 
 ## Out of scope
 
