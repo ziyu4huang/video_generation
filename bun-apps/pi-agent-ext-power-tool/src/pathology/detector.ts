@@ -77,24 +77,40 @@ export function argsSig(args: unknown): string {
 
 // ─── detectors ───────────────────────────────────────────────────────────────
 
-/** 🔴 retry loop — identical (tool+args) repeated within the rolling window. */
+/** 🔴 retry loop — identical (tool+args) repeated CONSECUTIVELY (a back-to-back run).
+ *  A count-in-window detector false-positives on benign repetition — e.g. `git
+ *  status` run 3× interleaved with other work looks like a loop under a plain
+ *  window count, producing a permanent "⚠ retry loop: bash ×3" status bar in
+ *  any busy session. A tight CONSECUTIVE run is the actual pathology signal:
+ *  the agent re-running the identical command back-to-back without updating its
+ *  strategy. Spread-out repetition is benign. */
 function detectRetryLoop(calls: ToolCallRecord[], opts: ResolvedOpts): Finding[] {
   const window = calls.slice(-opts.loopWindowSize);
-  const counts = new Map<string, { tool: string; sig: string; count: number }>();
+  // Track the longest back-to-back run of identical (tool+args) signatures.
+  const maxRun = new Map<string, number>();
+  const meta = new Map<string, { tool: string; sig: string }>();
+  let curKey: string | null = null;
+  let curRun = 0;
   for (const c of window) {
     const key = c.toolName + "\0" + c.argsSig;
-    const entry = counts.get(key);
-    if (entry) entry.count += 1;
-    else counts.set(key, { tool: c.toolName, sig: c.argsSig, count: 1 });
+    if (key === curKey) {
+      curRun += 1;
+    } else {
+      curKey = key;
+      curRun = 1;
+      meta.set(key, { tool: c.toolName, sig: c.argsSig });
+    }
+    maxRun.set(key, Math.max(maxRun.get(key) ?? 0, curRun));
   }
   const findings: Finding[] = [];
-  for (const { tool, sig, count } of counts.values()) {
-    if (count >= opts.loopRepeatThreshold) {
+  for (const [key, run] of maxRun) {
+    if (run >= opts.loopRepeatThreshold) {
+      const { tool, sig } = meta.get(key)!;
       findings.push({
         severity: "high",
         check: "retry-loop",
-        message: `Tool "${tool}" called ${count}× with identical args within ${window.length} recent calls — likely a retry loop`,
-        detail: { tool, argsPreview: sig.slice(0, 80), count, window: window.length },
+        message: `Tool "${tool}" called ${run}× consecutively with identical args — likely a retry loop`,
+        detail: { tool, argsPreview: sig.slice(0, 80), count: run, window: window.length },
       });
     }
   }
