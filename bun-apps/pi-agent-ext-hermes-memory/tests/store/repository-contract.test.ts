@@ -97,6 +97,40 @@ export function runMemoryRepositoryContract(
         await close();
       }
     });
+
+    it("graph-recall: a non-lexical neighbor sharing project with a match is recalled", async () => {
+      const { repo, close } = await make();
+      try {
+        const nonce = "zxqwbu-graph-anchor";
+        // A matches the nonce lexically; project + target tag it.
+        const a = await repo.addMemory({
+          content: `anchor note about ${nonce}`,
+          target: "memory",
+          project: "graph-proj-1",
+        });
+        // B shares project (graph edge) but has NO lexical overlap with the nonce.
+        const b = await repo.addMemory({
+          content: "entirely different wording unrelated content",
+          target: "memory",
+          project: "graph-proj-1",
+        });
+        // C shares neither project nor target with A — must NOT be recalled.
+        const c = await repo.addMemory({
+          content: "also different content here as well",
+          target: "failure",
+          project: "graph-proj-2",
+        });
+
+        const hits = await repo.searchMemories(nonce);
+
+        // A matches lexically; B is recalled via shared-project graph; C is not.
+        expect(hits.some((h) => h.id === a.id)).toBe(true);
+        expect(hits.some((h) => h.id === b.id)).toBe(true);
+        expect(hits.some((h) => h.id === c.id)).toBe(false);
+      } finally {
+        await close();
+      }
+    });
   });
 }
 
