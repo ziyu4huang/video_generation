@@ -71,8 +71,10 @@ export class MultiSelectView implements StatefulView<MultiSelectViewProps> {
 		const checkbox = row.checked ? "[✔]" : "[ ]";
 		const pointer = row.active ? "❯ " : "  ";
 		const prefix = `${pointer}${checkbox} `;
-		const label = this.question.options[index]?.label ?? "";
-		const line = `${prefix}${label}`;
+		const opt = this.question.options[index];
+		const label = opt?.label ?? "";
+		const star = opt?.recommended ? "⭐ " : "";
+		const line = `${prefix}${star}${label}`;
 		const styled = row.active || row.checked ? this.theme.fg("accent", this.theme.bold(line)) : line;
 		return [styled];
 	}

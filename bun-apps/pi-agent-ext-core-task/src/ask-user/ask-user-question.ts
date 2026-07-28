@@ -53,6 +53,7 @@ export function buildItemsForQuestion(question: QuestionData): WrappingSelectIte
 		kind: "option",
 		label: o.label,
 		description: o.description,
+		recommended: o.recommended,
 	}));
 	for (const kind of sentinelsToAppend(question)) {
 		items.push({ kind, label: displayLabel(kind) });
@@ -80,7 +81,7 @@ export function registerAskUserQuestionTool(pi: ExtensionAPI): void {
 Usage notes:
 - Users will always be able to type a custom answer ("Type something." row is appended automatically to every question) or press Esc to abandon the questionnaire. Do NOT author "Other" / "Type something." labels yourself — duplicates are rejected at runtime.
 - Use multiSelect: true to allow multiple answers to be selected for a question.
-- If you recommend a specific option, make that the first option in the list and add "(Recommended)" at the end of the label.
+- If you recommend a specific option, set 'recommended: true' on it (at most one per question); the UI renders a ⭐ prefix on its title — a stable, consistent marker. Prefer placing it first in the list for prominence, but do NOT add "(Recommended)" text to the label.
 
 Preview feature:
 Use the optional \`preview\` field on options when presenting concrete artifacts that users need to visually compare.`,

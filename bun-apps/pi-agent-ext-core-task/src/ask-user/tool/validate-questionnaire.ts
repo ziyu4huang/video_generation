@@ -51,6 +51,15 @@ export function validateQuestionnaire(params: QuestionParams): ValidationResult 
 			};
 		}
 
+		const recommendedCount = opts.filter((o) => o.recommended === true).length;
+		if (recommendedCount > 1) {
+			return {
+				ok: false,
+				message: `Error: question ${qi + 1} has ${recommendedCount} recommended options (at most one allowed).`,
+				error: "too_many_recommended",
+			};
+		}
+
 		for (let oi = 0; oi < opts.length; oi++) {
 			const opt = opts[oi];
 			if (!opt.label || opt.label.trim().length === 0) {
