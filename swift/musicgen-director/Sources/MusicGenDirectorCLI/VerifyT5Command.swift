@@ -52,7 +52,7 @@ extension MusicGenCLI {
             let encoder = MusicGenT5Encoder.build(weights: t5Weights, precision: .float32)
 
             let inputIds = refTensors["input_ids"]!.asType(.int32)
-            let attentionMask = refTensors["attention_mask"]?.asType(.int32)
+            let attentionMask = refTensors["attention_mask"]!.asType(.int32)
             let refEmbeds = refTensors["prompt_embeds"]!.asType(.float32)
             MLX.eval(inputIds, refEmbeds)
 

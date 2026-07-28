@@ -143,8 +143,7 @@ struct MGT5DenseReluDense {
     let wo: MLXNN.Linear
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        let hidden = MLX.maximum(wi(x), MLXArray(Float(0)))   // plain relu
-        return wo(hidden)
+        wo(MLXNN.relu(wi(x)))
     }
 }
 
@@ -177,18 +176,19 @@ public final class MusicGenT5Encoder {
         self.finalLayerNorm = finalLayerNorm
     }
 
-    /// `inputIds`: (1, L) int32. `attentionMask`: optional (1, L) with 1 at
-    /// real-token positions and 0 at padded positions (HF tokenizer
-    /// convention) — converted internally to the additive mask real T5
-    /// applies before softmax. Pass nil only when the caller knows there is
-    /// no padding in `inputIds`. Returns `hidden_states`: (1, L, 768).
-    public func callAsFunction(_ inputIds: MLXArray, attentionMask: MLXArray? = nil) -> MLXArray {
-        var additiveMask: MLXArray?
-        if let attentionMask {
-            let mask01 = attentionMask.asType(.float32)
-            additiveMask = (MLXArray(Float(1)) - mask01) * MLXArray(Float(-1e9))
-            additiveMask = additiveMask!.reshaped([1, 1, 1, -1])
-        }
+    /// `inputIds`: (1, L) int32. `attentionMask`: (1, L) with 1 at real-token
+    /// positions and 0 at padded positions (HF tokenizer convention) —
+    /// converted internally to the additive mask real T5 applies before
+    /// softmax. Required (not defaulted) because omitting it silently
+    /// produces materially wrong output on any padded prompt — confirmed
+    /// empirically (cos=0.33 unmasked vs 1.00000 masked, see file header).
+    /// Callers with genuinely no padding should pass an all-ones mask
+    /// (`MLXArray.ones(like: inputIds)`), making that an explicit choice
+    /// rather than an accidental default.
+    public func callAsFunction(_ inputIds: MLXArray, attentionMask: MLXArray) -> MLXArray {
+        let mask01 = attentionMask.asType(.float32)
+        let additiveMask = ((MLXArray(Float(1)) - mask01) * MLXArray(Float(-1e9)))
+            .reshaped([1, 1, 1, -1])
         var hidden = shared(inputIds)
         for block in blocks {
             hidden = block(hidden, additiveMask: additiveMask)
