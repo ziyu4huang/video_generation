@@ -21,6 +21,11 @@
  *    nest, so this is a non-issue in practice.
  *  - The recorder never throws into the instrumented path (append + notify are
  *    best-effort): perf tracking must not change functional behavior.
+ *  - `timedAlways` is the ONE intentional exception to breach-only: it persists
+ *    + notifies on every call (not threshold-gated), reserved for rare,
+ *    high-signal events under active study (e.g. consolidation). The optional
+ *    `kind` / `timedOut` record fields discriminate + annotate without touching
+ *    legacy lifecycle records.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs";
@@ -35,6 +40,12 @@ export interface PerfRecord {
   roundTrips: number;
   breach: boolean;
   reason?: "ms" | "roundTrips";
+  /** Path discriminator for log slicing. lifecycle = the #908 ops; fileLock /
+   *  consolidation = the lock-path instrumentation. Omitted on legacy records. */
+  kind?: "lifecycle" | "fileLock" | "consolidation";
+  /** For consolidation records: whether the child sub-agent was terminated
+   *  (the 60s cap). Derived post-call via timedAlways's timedOutFrom. */
+  timedOut?: boolean;
 }
 
 interface PerfCtx {
@@ -80,6 +91,16 @@ export interface PerfRecorder {
   /** Wrap an async operation: time it, attribute round-trips, and on threshold
    *  breach (or when fullTrace is on) persist + notify. Returns fn's result. */
   timed: <T>(op: string, fn: () => Promise<T>) => Promise<T>;
+  /** Always-persist variant: times + notifies on EVERY call, not threshold-gated.
+   *  The ONE intentional exception to breach-only — reserved for rare,
+   *  high-signal events under active study (e.g. consolidation). `kind` stamps
+   *  the path discriminator; `timedOutFrom` (called with fn's result only on
+   *  success) derives the timedOut flag. */
+  timedAlways: <T>(
+    op: string,
+    fn: () => Promise<T>,
+    opts?: { kind?: PerfRecord["kind"]; timedOutFrom?: (result: T) => boolean },
+  ) => Promise<T>;
   /** Override the breach notifier (default: console.warn). index.ts wires this
    *  to the TUI once a session provides a ui handle. */
   setNotifier: (fn: (record: PerfRecord) => void) => void;
@@ -96,7 +117,8 @@ export function createPerfRecorder(opts: PerfRecorderOptions = {}): PerfRecorder
     const why = r.reason === "roundTrips"
       ? `${r.roundTrips} HTTP round-trips`
       : `${r.ms}ms`;
-    console.warn(`[hermes-memory] slow ${r.op}: ${why} (backend=${r.backend}). See perf.jsonl.`);
+    const label = r.breach ? "slow" : "event";
+    console.warn(`[hermes-memory] ${label} ${r.op}: ${why} (backend=${r.backend}). See perf.jsonl.`);
   };
 
   function appendLog(record: PerfRecord): void {
@@ -138,8 +160,46 @@ export function createPerfRecorder(opts: PerfRecorderOptions = {}): PerfRecorder
     }
   }
 
+  /** Always-persist counterpart to `timed`: same timing + notifier, but records
+   *  on every call (breach: false) regardless of thresholds. See interface. */
+  async function timedAlways<T>(
+    op: string,
+    fn: () => Promise<T>,
+    opts?: { kind?: PerfRecord["kind"]; timedOutFrom?: (result: T) => boolean },
+  ): Promise<T> {
+    const ctx: PerfCtx = { roundTrips: 0 };
+    const start = Date.now();
+    let result: T | undefined;
+    let succeeded = false;
+    try {
+      result = await als.run(ctx, fn);
+      succeeded = true;
+      return result;
+    } finally {
+      const ms = Date.now() - start;
+      let timedOut: boolean | undefined;
+      // Derive timedOut only when fn succeeded — no result to read on throw.
+      if (succeeded && opts?.timedOutFrom) {
+        try { timedOut = !!opts.timedOutFrom(result as T); } catch { /* never throw */ }
+      }
+      const record: PerfRecord = {
+        ts: new Date().toISOString(),
+        op,
+        backend: getBackend(),
+        ms,
+        roundTrips: ctx.roundTrips,
+        breach: false,
+        kind: opts?.kind,
+        timedOut,
+      };
+      appendLog(record);
+      try { notifier(record); } catch { /* never throw into the instrumented path */ }
+    }
+  }
+
   return {
     timed,
+    timedAlways,
     setNotifier: (fn) => { notifier = fn; },
   };
 }
