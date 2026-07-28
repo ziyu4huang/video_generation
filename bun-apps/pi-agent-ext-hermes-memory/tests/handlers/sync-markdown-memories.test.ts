@@ -304,4 +304,28 @@ describe('memory sqlite sync + markdown backfill', () => {
     assert.ok(!all.toLowerCase().includes('surrealdb'), 'must not hardcode "surrealdb" (any case)');
     assert.ok(all.includes('memory store sync complete'), 'must use the backend-neutral noun');
   });
+
+  it('backfills the in-repo project memory file (.planning/memory/) tagged with the project name (ticket 04)', async () => {
+    // The project store's MEMORY.md at <cwd>/.planning/memory/ (or an explicit
+    // projectMemoryDir) — the second source from decision 02. Passed via the
+    // inRepoProjectFile param; merged into the single DB tagged with the project.
+    const inRepoDir = path.join(tmpDir, 'repo', '.planning', 'memory');
+    fs.mkdirSync(inRepoDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(inRepoDir, 'MEMORY.md'),
+      'in-repo project convention <!-- created=2026-05-08, last=2026-05-09 -->',
+      'utf-8',
+    );
+
+    await syncMarkdownMemories(
+      memoryRepo, globalDir, undefined, agentRoot,
+      path.join(inRepoDir, 'MEMORY.md'),
+      'demo-repo',
+    );
+
+    // Searchable under the project name (single DB, tag-on-index — decision 02).
+    const projectRows = await memoryRepo.getMemories({ project: 'demo-repo', target: 'memory' });
+    assert.strictEqual(projectRows.length, 1);
+    assert.strictEqual(projectRows[0].content, 'in-repo project convention');
+  });
 });
