@@ -1,7 +1,7 @@
 ---
 type: task
 blocking: 02, 03
-status: open
+status: closed
 ---
 
 # 04 — Controlled characterization sample
@@ -54,3 +54,7 @@ whether #853 / #854 need action.
       subprocess), and runs under the package's normal `bun test`.
 - [ ] The test docstring documents the honest scope (hold + timeout frequency;
       explicitly NOT real cross-process `ELOCKED` counts).
+
+## Resolution (closed 2026-07-28)
+
+Implemented in `tests/store/characterization-sample.test.ts` (commit ae469d4c). Tiny `failureCharLimit` + mock consolidator sleep + low lock threshold → real `_add` overflow → asserts BOTH `consolidation.failure` + `fileLock.hold.failure` in perf.jsonl, plus a terminating variant (`timedOut:true`). Honest-scope docstring (hold + timeout; not real ELOCKED counts). 2 TDD cases. Review: SPEC ✅ + QUALITY approved.

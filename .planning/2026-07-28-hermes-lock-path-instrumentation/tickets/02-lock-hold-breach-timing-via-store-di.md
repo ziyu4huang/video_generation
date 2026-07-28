@@ -1,7 +1,7 @@
 ---
 type: task
 blocking: 01
-status: open
+status: closed
 ---
 
 # 02 — Lock-hold breach timing via store DI
@@ -57,3 +57,7 @@ never-throws invariant is preserved (a timing / append / notify failure inside
       round-trip counter is shadowed by a nested `timed`, but round-trips are
       irrelevant on this file-I/O path and `ms` is measured independently per
       call — no correctness impact).
+
+## Resolution (closed 2026-07-28)
+
+Implemented in `src/perf.ts` (timed opts `{thresholdMs, kind}`), `src/store/memory-store.ts` (`setPerfTimed` DI + withFileLock held-span wrap as `fileLock.hold.<target>`, env `PI_HERMES_PERF_LOCK_MS` default 5000), `src/index.ts` (wired into both stores). Commit ccc33bc0. Breach-only: fast writes log nothing. 5 TDD cases in `tests/store/lock-hold-perf.test.ts`. Review: SPEC ✅ + QUALITY approved.

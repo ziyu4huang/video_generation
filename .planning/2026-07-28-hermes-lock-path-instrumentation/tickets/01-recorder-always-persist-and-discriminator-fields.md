@@ -1,6 +1,6 @@
 ---
 type: task
-status: open
+status: closed
 ---
 
 # 01 — Recorder: always-persist path + optional discriminator fields
@@ -47,3 +47,7 @@ optional fields.
       regression); new cases cover `timedAlways` + the optional fields.
 - [ ] The never-throws invariant is preserved on the always-persist path
       (append / notify failure is swallowed, never reaches the caller).
+
+## Resolution (closed 2026-07-28)
+
+Implemented in `src/perf.ts` (commit e957c97f). `PerfRecorder.timedAlways(op, fn, opts?)` persists + notifies on every call (breach:false); `opts.kind` stamps the discriminator, `opts.timedOutFrom(result)` derives timedOut (only on success). `PerfRecord` gained optional `kind`/`timedOut`. Default notifier labels breach `slow` vs event. 5 TDD cases in `tests/perf.test.ts`. Independent review: SPEC ✅ + QUALITY approved.

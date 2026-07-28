@@ -1,7 +1,7 @@
 ---
 type: task
 blocking: 01, 02
-status: open
+status: closed
 ---
 
 # 03 — Consolidation always-logged event
@@ -49,3 +49,7 @@ single retry, and the vault-offload floor all behave exactly as today.
       vault-offload floor); existing consolidation tests pass.
 - [ ] The notifier level for the consolidation event is decided + documented
       (expected / info, not warn); no second notifier channel added.
+
+## Resolution (closed 2026-07-28)
+
+Implemented in `src/store/memory-store.ts` (runConsolidator wraps the consolidator call with `timedAlways` as `consolidation.<target>`, `timedOut` from `ConsolidationResult.terminated`), `src/types.ts` (+`terminated?`), `src/handlers/auto-consolidate.ts` (sets `terminated: result.timedOut`), `src/perf.ts` + `src/index.ts` (notifier info/warn split). Commit 921c4e83. 2 TDD cases in `tests/store/consolidation-perf.test.ts`. Review: SPEC ✅ + QUALITY approved.
