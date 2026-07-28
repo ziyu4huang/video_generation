@@ -2,6 +2,8 @@
   "name": "musicgen-small",
   "type": "musicgen",
   "arch": "musicgen-small",
+  "format": "mlx-fp32",
+  "description": "MusicGen text-to-music checkpoint (facebook/musicgen-small), split into text_encoder (t5-base) / decoder (24-layer causal+cross-attn LM) / audio_encoder (EnCodec 32kHz) for the swift/musicgen-director port.",
   "source": "https://huggingface.co/facebook/musicgen-small",
   "components": [
     "text_encoder",
@@ -11,5 +13,8 @@
   "cli": {
     "binary": "musicgen",
     "action": "generate"
-  }
+  },
+  "compatible_with": [],
+  "size_bytes": 2364427754,
+  "created_at": "2026-07-28T13:34:42Z"
 }

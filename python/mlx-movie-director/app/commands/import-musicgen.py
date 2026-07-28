@@ -25,6 +25,7 @@ import os
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app import config as cfg
@@ -51,15 +52,31 @@ def add_args(parser: argparse.ArgumentParser) -> None:
 
 
 def run(args: argparse.Namespace) -> None:
-    from huggingface_hub import snapshot_download
-    import mlx.core as mx
-
     name = args.name or args.model.split("/")[-1]
     target_dir = Path(cfg.MODELS_DIR) / "musicgen" / name
     if target_dir.exists():
         print(f"ERROR: target already exists: {target_dir}", file=sys.stderr)
         sys.exit(1)
     target_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        _download_and_split(args, name, target_dir)
+    except BaseException:
+        # Best-effort cleanup so a failed run doesn't permanently trip the
+        # "target already exists" guard above on retry. Any sub-model that
+        # already got externalized before the failure stays in the shared
+        # store (harmless — content-addressed by md5) and its symlink here
+        # is removed along with the rest of target_dir.
+        shutil.rmtree(target_dir, ignore_errors=True)
+        raise
+
+    print(f"\n[import-musicgen] done -> {target_dir}")
+    print("Validate: python/venv/bin/python python/mlx-movie-director/app/tests/gen_musicgen_t5_ref.py")
+
+
+def _download_and_split(args: argparse.Namespace, name: str, target_dir: Path) -> None:
+    from huggingface_hub import snapshot_download
+    import mlx.core as mx
 
     print(f"[import-musicgen] downloading {args.model}...")
     snap_dir = Path(snapshot_download(repo_id=args.model))
@@ -99,24 +116,64 @@ def run(args: argparse.Namespace) -> None:
         out_config.write_text(json.dumps(top_config[sub], indent=2) + "\n")
         print(f"  [{sub}] wrote {out_config.name}")
 
+    description = (
+        f"MusicGen text-to-music checkpoint ({args.model}), split into "
+        "text_encoder (t5-base) / decoder (24-layer causal+cross-attn LM) / "
+        "audio_encoder (EnCodec 32kHz) for the swift/musicgen-director port."
+    )
     manifest = {
         "name": name,
         "type": "musicgen",
         "arch": "musicgen-small",
+        "format": "mlx-fp32",
+        "description": description,
         "source": f"https://huggingface.co/{args.model}",
         "components": ["text_encoder", "decoder", "audio_encoder"],
         "cli": {"binary": "musicgen", "action": "generate"},
+        "compatible_with": [],
+        "size_bytes": _dir_size(str(target_dir)),
+        "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     (target_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
-    print(f"\n[import-musicgen] done -> {target_dir}")
-    print("Validate: python/venv/bin/python python/mlx-movie-director/app/tests/gen_musicgen_t5_ref.py")
+    readme = (
+        f"# {name} — MusicGen Text-to-Music Checkpoint\n\n"
+        f"{description}\n\n"
+        f"Source: [{args.model}](https://huggingface.co/{args.model})\n\n"
+        "## Usage\n\n"
+        "```bash\n"
+        "swift run --package-path swift/musicgen-director musicgen generate \\\n"
+        "  --prompt 'warm acoustic guitar, gentle, 90bpm'\n"
+        "```\n\n"
+        "## Notes\n\n"
+        "- Format: fp32 MLX safetensors, split from the upstream merged checkpoint\n"
+        "- `text_encoder.safetensors` / `decoder.safetensors` / `audio_encoder.safetensors`,\n"
+        "  each with a matching `<component>_config.json` copied from the upstream config\n"
+        "- `decoder.safetensors` also carries `enc_to_dec_proj.{weight,bias}`\n"
+        "  (T5-hidden -> decoder-cross-attn projection)\n"
+        "- Imported via `run.py import-musicgen`\n"
+    )
+    (target_dir / "README.md").write_text(readme)
 
 
 # ---------------------------------------------------------------------------
 # External model store (duplicated from import-checkpoint.py's convention —
 # see that file's matching section for the authoritative comments)
 # ---------------------------------------------------------------------------
+
+def _dir_size(path: str) -> int:
+    """Total size of all files under `path`, following symlinks to their real
+    target (externalized weights are symlinks into the shared store, so the
+    manifest's size_bytes must record the real model size, not the stub)."""
+    total = 0
+    for dirpath, _, filenames in os.walk(path):
+        for fn in filenames:
+            fp = os.path.join(dirpath, fn)
+            real = os.path.realpath(fp)
+            if os.path.isfile(real):
+                total += os.path.getsize(real)
+    return total
+
 
 def _md5_file(path: str, chunk: int = 1 << 20) -> str:
     h = hashlib.md5()
