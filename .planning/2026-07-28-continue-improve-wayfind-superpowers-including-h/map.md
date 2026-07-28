@@ -15,6 +15,7 @@ Build the **learning→skill export bridge**: a prompt-injected template (always
 ## Decisions so far
 
 - [Candidate artifact: location + format](tickets/02-candidate-artifact-location-and-format.md) — **`.planning/knowledge/` (project-scoped)** candidate staging. Three refinements: (a) default project-scoped — candidates promote to the relevant ext's `skills/` dir (symmetric, PR-reviewable); global/personal candidates are an explicit escape (→ `~/.pi/agent/`). (b) Guard: wayfinder harvest must NEVER treat `.planning/knowledge/` as an effort dir. (c) Not redundant with the L2 knowledge graph — different layers (untested candidate drafts vs converged curated knowledge); skill-worthy graph-cards can seed candidates. (Resolved during charting by user decision.)
+- [Capture moment + source layer](tickets/01-capture-moment-and-source-layer.md) — **main-session, agent-judged**: on-save (the agent's own `memory` write meeting the skill-worthy criteria) OR on-recurrence (`memory_search` surfaces the same lesson ≥2×). Source = **L1-raw** (candidate `evidence` = the L1 memory id); L2 converged graph-cards stay an auxiliary seed path, not a live trigger. Background-review saves picked up via recurrence-search (acceptable lag; no review-child coupling in v1). Unblocks ticket 03.
 
 ## Not yet specified
 
