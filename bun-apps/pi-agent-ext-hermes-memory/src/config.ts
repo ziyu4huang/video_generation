@@ -131,10 +131,18 @@ function applyConsolidatingChildGuard(config: MemoryConfig): MemoryConfig {
   return config;
 }
 
-export function loadConfig(configPath = DEFAULT_CONFIG_PATH): MemoryConfig {
+export function loadConfig(configPath?: string): MemoryConfig {
+  // Resolve the default path LAZILY from the live AGENT_ROOT binding so the
+  // test seam __setAgentRootForTest (paths.ts) is honored. A module-load-time
+  // default param would freeze the real root and silently read the production
+  // config under tests — the regression this fixes (extension-contract
+  // connected to the live SurrealDB namespace instead of an isolated tmpdir).
+  // NOTE: DEFAULT_CONFIG_PATH (above) is frozen at load and kept only as the
+  // production reference path; loadConfig must not depend on it for the default.
+  const resolvedPath = configPath ?? path.join(AGENT_ROOT, "hermes-memory-config.json");
   try {
-    if (fs.existsSync(configPath)) {
-      const raw = fs.readFileSync(configPath, "utf-8");
+    if (fs.existsSync(resolvedPath)) {
+      const raw = fs.readFileSync(resolvedPath, "utf-8");
       const parsed = JSON.parse(raw);
       // Merge: override defaults with user config
       const config: MemoryConfig = { ...DEFAULT_CONFIG };

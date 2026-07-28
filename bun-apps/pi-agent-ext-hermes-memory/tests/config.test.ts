@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { loadConfig, shouldRunStartupSync } from "../src/config.js";
-import { AGENT_ROOT } from "../src/paths.js";
+import { AGENT_ROOT, __setAgentRootForTest } from "../src/paths.js";
 import { derivePerUserNamespace } from "../src/store/surreal/per-user-db.js";
 
 const TEST_CONFIG_PATH = path.join(os.tmpdir(), `hermes-memory-config-test-${process.pid}.json`);
@@ -523,5 +523,32 @@ describe("config surreal per-user namespace", () => {
     assert.strictEqual(cfg.surreal?.database, "my_db");
     assert.notStrictEqual(cfg.surreal?.namespace, derivePerUserNamespace());
     fs.rmSync(p, { force: true });
+  });
+});
+
+describe("loadConfig agent-root isolation", () => {
+  it("loadConfig() with no path reads the test-overridden agent root, not the real ~/.pi/agent", () => {
+    // Regression: DEFAULT_CONFIG_PATH was computed at module load from the
+    // real AGENT_ROOT and frozen as the loadConfig() default param, so it
+    // ignored __setAgentRootForTest and read the real hermes-memory-config.json
+    // (e.g. dbBackend: surrealdb) — breaking test isolation.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "hermes-cfg-root-"));
+    const sentinel = 4242;
+    fs.writeFileSync(
+      path.join(tmp, "hermes-memory-config.json"),
+      JSON.stringify({ memoryCharLimit: sentinel }),
+    );
+    __setAgentRootForTest(tmp);
+    try {
+      const config = loadConfig(); // no explicit path → must use the live agent root
+      assert.strictEqual(
+        config.memoryCharLimit,
+        sentinel,
+        "loadConfig() must read the overridden agent root's config, not the frozen module-load path",
+      );
+    } finally {
+      __setAgentRootForTest(null);
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });

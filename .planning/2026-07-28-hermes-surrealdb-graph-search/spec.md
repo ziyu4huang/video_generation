@@ -90,8 +90,8 @@ score = 1.0 * lexicalMatch(0|1) + 0.5 * graphProximity + 0.25 * recencyNorm
 ### Bulk-remove edge cleanup — UNNECESSARY (SurrealDB native cascade)
 Verified by TDD: the bulk-remove regression tests passed *before any cleanup code was written*. A direct probe confirmed **SurrealDB cascades `tagged` edge deletion when the source memory record is deleted — even though `tagged` is a plain SCHEMALESS table, not `TYPE RELATION`.** So `removeSyncedMemories` / `removeExactSyncedMemories` (which delete memory rows) automatically clean their edges. No production code added; the two regression tests (`surreal-memory-graph.test.ts`) are kept to guard the cascade behavior against future schema/version changes.
 
-### Test-isolation observation (pre-existing, not fixed here)
-`tests/extension-contract.test.ts` redirects `AGENT_ROOT` to a tmpdir intending a throwaway SQLite DB, but `loadConfig` is **not** routed through `__setAgentRootForTest`, so the factory still reads the real `hermes-memory-config.json` (`dbBackend: surrealdb`) and connects to the live namespace. This was latent (surrealdb `init()` was fast) until the per-row backfill exposed it. The batched backfill makes it fast again; a proper isolation fix for `loadConfig` is left as a separate cleanup.
+### Test-isolation gap — FIXED
+Root cause: `loadConfig`'s default config path was frozen at module load (`DEFAULT_CONFIG_PATH = path.join(AGENT_ROOT, ...)`) and used as the default param, so it ignored `__setAgentRootForTest` and read the real `hermes-memory-config.json` (`dbBackend: surrealdb`) under tests — connecting to the live SurrealDB namespace. This was latent (surrealdb `init()` was fast) until the per-row backfill exposed it. **Fix:** `loadConfig` now resolves its default path lazily from the live `AGENT_ROOT` binding (honoring `__setAgentRootForTest`). Regression test in `tests/config.test.ts`; `extension-contract` now runs isolated against a tmpdir SQLite DB (244 ms, no live SurrealDB).
 
 ## Still deferred (YAGNI)
 - **Scoring weight calibration** (`1.0/0.5/0.25`, recency decay, seed top-N ≈10, pool cap ≈20) — tune after real-data use.
