@@ -337,6 +337,9 @@ export default async function (pi: ExtensionAPI) {
       return triggerConsolidation(projectStore, target, memoryToolDef, signal, config.consolidationTimeoutMs, toolTarget, config);
     }, resolveConsolidatorModelLabel(config));
   }
+  // Inject the perf recorder into both stores — lock-hold breach timing (T2).
+  store.setPerfTimed(perf.timed);
+  projectStore?.setPerfTimed(perf.timed);
   registerConsolidateCommand(pi, store, memoryToolDef, config.consolidationTimeoutMs, projectStore, projectName, config);
 
   // ── 8. Setup correction detection ──

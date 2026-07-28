@@ -55,7 +55,7 @@ interface PerfCtx {
 /** Wrap an async operation for perf timing + round-trip attribution. Handlers
  *  accept this as an optional injectable (default pass-through) so the
  *  production recorder from index.ts can instrument them without coupling. */
-export type TimedFn = <T>(op: string, fn: () => Promise<T>) => Promise<T>;
+export type TimedFn = <T>(op: string, fn: () => Promise<T>, opts?: { thresholdMs?: number; kind?: PerfRecord["kind"] }) => Promise<T>;
 
 export interface PerfRecorderOptions {
   /** Per-op wall-clock threshold (ms). Default 2000. */
@@ -90,7 +90,7 @@ export function bumpRoundTrips(n = 1): void {
 export interface PerfRecorder {
   /** Wrap an async operation: time it, attribute round-trips, and on threshold
    *  breach (or when fullTrace is on) persist + notify. Returns fn's result. */
-  timed: <T>(op: string, fn: () => Promise<T>) => Promise<T>;
+  timed: <T>(op: string, fn: () => Promise<T>, opts?: { thresholdMs?: number; kind?: PerfRecord["kind"] }) => Promise<T>;
   /** Always-persist variant: times + notifies on EVERY call, not threshold-gated.
    *  The ONE intentional exception to breach-only — reserved for rare,
    *  high-signal events under active study (e.g. consolidation). `kind` stamps
@@ -131,7 +131,7 @@ export function createPerfRecorder(opts: PerfRecorderOptions = {}): PerfRecorder
     }
   }
 
-  async function timed<T>(op: string, fn: () => Promise<T>): Promise<T> {
+  async function timed<T>(op: string, fn: () => Promise<T>, opts?: { thresholdMs?: number; kind?: PerfRecord["kind"] }): Promise<T> {
     const ctx: PerfCtx = { roundTrips:0 };
     const start = Date.now();
     try {
@@ -139,7 +139,8 @@ export function createPerfRecorder(opts: PerfRecorderOptions = {}): PerfRecorder
     } finally {
       const ms = Date.now() - start;
       const roundTrips = ctx.roundTrips;
-      const msBreach = ms > thresholdMs;
+      const effThresholdMs = opts?.thresholdMs ?? thresholdMs;
+      const msBreach = ms > effThresholdMs;
       const rtBreach = roundTrips > thresholdRt;
       const breach = msBreach || rtBreach;
       if (breach || fullTrace) {
@@ -151,6 +152,7 @@ export function createPerfRecorder(opts: PerfRecorderOptions = {}): PerfRecorder
           roundTrips,
           breach,
           reason: msBreach ? "ms" : rtBreach ? "roundTrips" : undefined,
+          kind: opts?.kind,
         };
         appendLog(record);
         if (breach) {

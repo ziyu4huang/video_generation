@@ -30,6 +30,7 @@ import {
 import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, MemoryCategory, MemoryOverflowStrategy } from "../types.js";
 import { AGENT_ROOT } from "../paths.js";
 import { envInt } from "../utils/env.js";
+import type { TimedFn } from "../perf.js";
 
 /**
  * proper-lockfile throws a code `ELOCKED` error (message "Lock file is already
@@ -62,6 +63,16 @@ export class MemoryStore {
   setConsolidator(fn: (target: "memory" | "user" | "failure", signal?: AbortSignal) => Promise<ConsolidationResult>, modelLabel?: string): void {
     this.consolidator = fn;
     this.consolidatorModelLabel = modelLabel;
+  }
+
+  /** Inject the perf recorder's timed() — parallel to setConsolidator. Defaults
+   *  to a pass-through so the store is usable with no recorder; the lock-hold
+   *  span in withFileLock is wrapped at a lock-specific threshold (breach-only).
+   *  Nesting note: the wrap re-enters AsyncLocalStorage, but the lock path is
+   *  file I/O (round-trips irrelevant) and `ms` is measured per-call — no impact. */
+  private perfTimed: TimedFn = (_op, fn) => fn();
+  setPerfTimed(timed: TimedFn): void {
+    this.perfTimed = timed;
   }
 
   // ─── Write serialization ───
@@ -141,6 +152,9 @@ export class MemoryStore {
     const acquireRetries = this.config.lockAcquireRetries ?? envInt("PI_MEMORY_LOCK_ACQUIRE_RETRIES", 200);
     const opRetries = this.config.lockOpRetries ?? envInt("PI_MEMORY_LOCK_OP_RETRIES", 3);
     const opBackoffMs = this.config.lockOpBackoffMs ?? envInt("PI_MEMORY_LOCK_OP_BACKOFF_MS", 2000);
+    // Lock-hold perf threshold (ms): normal holds are <10ms file I/O, consolidation
+    // up to ~60s. ~5s cleanly separates them; breach-only → fast writes log nothing.
+    const lockThresholdMs = envInt("PI_HERMES_PERF_LOCK_MS", 5000);
 
     // Op-level retry on cross-process contention: ELOCKED is thrown ONLY at lock
     // acquisition — before `fn` runs — so re-running lock+fn on retry CANNOT
@@ -160,7 +174,7 @@ export class MemoryStore {
         });
         this._heldFileLocks.add(lockPath);
         try {
-          return await fn();
+          return await this.perfTimed(`fileLock.hold.${target}`, fn, { thresholdMs: lockThresholdMs, kind: "fileLock" });
         } finally {
           this._heldFileLocks.delete(lockPath);
           await release().catch(() => {});
