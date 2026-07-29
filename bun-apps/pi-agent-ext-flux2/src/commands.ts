@@ -189,6 +189,32 @@ export const COMMANDS: Record<string, CommandSpec> = {
     },
   },
 
+  kontext: {
+    name: "kontext",
+    writesImage: true,
+    acceptsGlobals: true,
+    when: "In-context generation via FLUX.1-Kontext-dev — identity-anchored single hero image + prompt (e.g. \"same person, different outfit/pose/setting\").",
+    fields: {
+      input: { flag: "--input", type: "string", isPath: true, description: "Hero / identity-anchor image path." },
+      prompt: { flag: "--prompt", type: "string", description: "In-context instruction prompt." },
+      transformer: { flag: "--transformer", type: "string", isPathComponent: true, description: "Transformer directory under models/transformer/. Default kontext-dev." },
+      clipEncoder: { flag: "--clip-encoder", type: "string", isPathComponent: true, description: "CLIP text-encoder directory under models/text_encoder/. Default kontext-dev-clip." },
+      t5Encoder: { flag: "--t5-encoder", type: "string", isPathComponent: true, description: "T5 text-encoder directory under models/text_encoder/. Default kontext-dev-t5." },
+      vae: { flag: "--vae", type: "string", isPathComponent: true, description: "VAE directory under models/vae/. Default flux-kontext-ae." },
+      clipTokenizerDir: { flag: "--clip-tokenizer-dir", type: "string", isPathComponent: true, description: "CLIP tokenizer directory under models/tokenizer/. Default kontext-dev-clip-tok." },
+      t5TokenizerDir: { flag: "--t5-tokenizer-dir", type: "string", isPathComponent: true, description: "T5 tokenizer directory under models/tokenizer/. Default kontext-dev-t5-tok." },
+      seed: { flag: "--seed", type: "int", description: "Random seed (uint64). Default 42." },
+      width: { flag: "--width", type: "int", description: "Output image width (px). Default 1024." },
+      height: { flag: "--height", type: "int", description: "Output image height (px). Default 1024." },
+      steps: { flag: "--steps", type: "int", description: "Number of denoising steps. Default 20." },
+      guidance: { flag: "--guidance", type: "number", description: "CFG-distilled guidance embedding value. Default 2.5." },
+      output: { flag: "--output", type: "string", isPath: true, description: "Output PNG path. Empty/omit = auto timestamped name in the output dir." },
+      outputDir: { flag: "--output-dir", type: "string", isPath: true, description: "Output directory (default: $MLX_OUTPUT_DIR or ../video_generation__output)." },
+      name: { flag: "--name", type: "string", description: "Custom base name (default: output_YYYYMMDD_HHMMSS)." },
+      noArtifacts: { flag: "--no-artifacts", type: "boolean", description: "Skip writing .run.json + .manifest.json sidecars (not recommended — the tool parses the manifest)." },
+    },
+  },
+
   style: {
     name: "style",
     writesImage: true,
