@@ -58,13 +58,15 @@ the config-parity guard (#928) is a guard for **this** axis.
 ## Candidate tickets
 
 - [01 — Test-hermeticity guard](tickets/01-test-hermeticity-guard.md) — **ADOPT
-  (proposed).** Static source-analysis guard (precedent: config-parity #928 +
-  test-portability audit) that flags test files reading **machine-coupled
-  config/env** (`~/.pi/workflows/model-tiers.json`, `~/.pi/subagents/`,
-  `os.homedir()`-derived paths, bare `loadModelTierConfig()`/`loadConfig()` in
-  tests) WITHOUT an injection seam or env guard. Hard CI fail under `--strict`.
-  Direct strike on the failure class that sank the watchdog tests + the hermes/
-  archify cluster above. **HITL grilling target (the #1).**
+  (resolved 2026-07-30).** Extend `scripts/test-portability-audit.sh` with a new
+  **P5** class (CALL-based: `loadModelTierConfig(`/`getModelTierConfigPath(`/
+  `loadConfig(`/`os.homedir(`), reusing `GUARD_RE` + added hermeticity signals
+  (`loadConfig:` param seam, `mockCfg`/`cfgPath`, `mkdtempSync`/`tmpdir(`/
+  `process.env.HOME`). **Strict from start** (fix the ~1-2 real UNGATED hits —
+  `workflow-pack-id.test.ts` + verify `model-role-config.test.ts` — in the same
+  PR; config-parity #928 precedent). Direct strike on the failure class that
+  sank the watchdog tests + the hermes/archify cluster. Hands off to a build
+  session.
 - [02 — `extensionTools` child-seam verification](tickets/02-extensiontools-seam.md) —
   **CLOSED by research (not a bug).** `pi-subagents-lite` 1.5.1 fixed
   `createAgentSession({tools})` silently dropping extension tools. Our `agent.ts`
@@ -102,6 +104,9 @@ the config-parity guard (#928) is a guard for **this** axis.
 
 ## Decisions so far
 
+- [01 test-hermeticity guard] — **ADOPT.** Extend the test-portability audit
+  (new P5 class, call-based, strict from start). Spec in `tickets/01-...md`.
+  Hands off to a build session.
 - [02 extensionTools seam] — **CLOSED by research (not a bug).** We already pass
   extension tools explicitly via `extensionTools?` (agent.ts:213); the 1.5.1
   allowlist-expansion fix is a different solution to the same gap.
@@ -109,10 +114,9 @@ the config-parity guard (#928) is a guard for **this** axis.
 
 ## Not yet specified
 
-- [01] hermeticity guard — mechanism (extend test-portability audit vs new guard),
-  scope (subagent-only vs repo-wide), enforcement (strict vs warn-only): **open,
-  HITL grilling target.**
-- [04], [05], [06] — pending the [01] decision + available session budget.
+- [01] resolved (ADOPT, build-session execution details remain: exact P5 regex
+  tokens, final guard-signal list, the `model-role-config.test.ts` triage).
+- [04], [05], [06] — pending available session budget (not yet grilled).
 
 ## Skills every session should consult
 
