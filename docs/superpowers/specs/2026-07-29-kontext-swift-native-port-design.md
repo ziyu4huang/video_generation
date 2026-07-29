@@ -126,17 +126,28 @@ a dev-only numeric-parity tool, not the production path this spec adds).
 
 ## 4. TS integration (replaces the Python bridge for `kontext`)
 
-- `bun-apps/pi-agent-ext-movie-director/src/kontext_native.ts` — spawns the
-  compiled `flux2` binary's `kontext` subcommand via `ensureBinary()`, `cwd:
-  resolveRepoRoot()` set from the first commit (not retrofitted).
-- `bridge.ts` — new `realKontextNative` function + `"bun:kontext-native"`
-  entry in `realAdapters`.
-- `registry.ts` — `runpy_image`'s `commands[]` drops `"kontext"`; a new
-  registry entry (`kontext_native`, `capability: "image"` command-routed same
-  as the other native image adapters) with `invoke: "bun:kontext-native"`,
-  `probeConfigured` gated on a new `kontextBinaryPresent()` (mirrors
-  `musicgenBinaryPresent()` in `providers.ts`, including the `_set*ForTest`
-  hook for test hermeticity).
+**Correction (2026-07-29, during plan-writing research):** the paragraph
+below is the ACTUAL design — the MusicGen-shaped plumbing originally
+proposed here (a dedicated `kontext_native.ts` + `ensureBinary()` +
+`bun:kontext-native` invoke key) was wrong. Unlike MusicGen, Kontext lives
+in the SAME Swift package/binary as Flux2 Klein
+(`swift/flux2-image-director`, compiled to the one `flux2` executable), and
+`pi-agent-ext-flux2` already has a generic `flux2 <subcommand>` dispatcher
+(`commands.ts`'s declarative `COMMANDS` map + `invoke.ts`'s generic spawn) —
+`t2i`/`edit`/`style`/etc. all reach the binary through it with zero
+per-command spawn code. Adding Kontext support is a **pure data addition**:
+
+- `pi-agent-ext-flux2/src/commands.ts` — add a `kontext` entry to the
+  `COMMANDS` map (own fields: `input`/`prompt`/`transformer`/`clipEncoder`/
+  `t5Encoder`/`vae`/`clipTokenizerDir`/`t5TokenizerDir`/`seed`/`width`/
+  `height`/`steps`/`guidance`/`output`/`outputDir`/`name`/`noArtifacts`).
+  No new invoke key, no new binary-resolution file — `runFlux2`/`invoke.ts`
+  already handle any registered subcommand generically.
+- `pi-agent-ext-movie-director/src/registry.ts` — `runpy_image`'s
+  `commands[]` drops `"kontext"`; `flux2_image`'s `commands[]` (which
+  already uses the existing `invoke: "swift:flux2"` / `probeConfigured`
+  binary-presence gate every other Flux2 command relies on) gains
+  `"kontext"`. No new registry entry.
 
 ## 5. Verification plan
 
