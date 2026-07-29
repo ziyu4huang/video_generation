@@ -16,10 +16,45 @@ export interface RepoBaseline {
   changedPaths: string[];
 }
 
-function git(cwd: string, args: string[]): string | undefined {
+/**
+ * Injectable git operations for repo-diff. Mirrors the `GitScopeOps` seam in
+ * git-scope.ts: tests inject a mock so they never spawn a host `git` binary
+ * (hermetic → passes the test-portability audit), while production callers use
+ * `realRepoGitOps`. Only the git subprocess calls are injected; `readFile` for
+ * untracked content stays a direct `fs.readFileSync` (no portability concern).
+ */
+export interface RepoGitOps {
+  /** `git rev-parse --show-toplevel`; undefined when not a repo / git fails. */
+  toplevel(cwd: string): string | undefined;
+  /** `git status --porcelain=v1 -z --untracked-files=all`; undefined on failure. */
+  statusPorcelainAll(cwd: string): string | undefined;
+  /** `git diff HEAD -- <paths>`; undefined on failure. */
+  diffHead(cwd: string, paths: string[]): string | undefined;
+  /** `git ls-files`; undefined on failure. */
+  lsFiles(cwd: string): string | undefined;
+}
+
+/** Runs `git -C <cwd> <args>` and returns stdout on success, else undefined. */
+function gitRaw(cwd: string, args: string[]): string | undefined {
   const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 });
   return r.status === 0 ? r.stdout : undefined;
 }
+
+/** Production git ops via spawnSync (synchronous, mirrors the original helper). */
+export const realRepoGitOps: RepoGitOps = {
+  toplevel(cwd: string): string | undefined {
+    return gitRaw(cwd, ["rev-parse", "--show-toplevel"]);
+  },
+  statusPorcelainAll(cwd: string): string | undefined {
+    return gitRaw(cwd, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+  },
+  diffHead(cwd: string, paths: string[]): string | undefined {
+    return gitRaw(cwd, ["diff", "HEAD", "--", ...paths]);
+  },
+  lsFiles(cwd: string): string | undefined {
+    return gitRaw(cwd, ["ls-files"]);
+  },
+};
 
 function norm(p: string): string {
   return p.replaceAll(path.sep, "/").replace(/^\.\//, "");
@@ -73,10 +108,10 @@ function hashEntry(root: string, rel: string, budget: { entries: number; bytes: 
   return { path: rel, state: "file", size: stat.size, hash };
 }
 
-export function computeBaseline(cwd: string): RepoBaseline | undefined {
-  const root = git(cwd, ["rev-parse", "--show-toplevel"])?.trim();
+export function computeBaseline(cwd: string, gitOps: RepoGitOps = realRepoGitOps): RepoBaseline | undefined {
+  const root = gitOps.toplevel(cwd)?.trim();
   if (!root) return undefined;
-  const status = git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+  const status = gitOps.statusPorcelainAll(root);
   if (status === undefined) return undefined;
   const entries = parsePorcelainZ(status)
     .map((e) => ({ status: e.status, paths: e.paths.filter((p) => !ignored(p)) }))
@@ -97,13 +132,13 @@ export function changedTsJsPaths(_before: RepoBaseline, after: RepoBaseline): st
 }
 
 /** A textual changeset for L2: `git diff HEAD` for tracked + raw content for untracked. */
-export function diffTextForReview(cwd: string, paths: string[]): string {
-  const root = git(cwd, ["rev-parse", "--show-toplevel"])?.trim() ?? cwd;
+export function diffTextForReview(cwd: string, paths: string[], gitOps: RepoGitOps = realRepoGitOps): string {
+  const root = gitOps.toplevel(cwd)?.trim() ?? cwd;
   const parts: string[] = [];
-  const diff = git(root, ["diff", "HEAD", "--", ...paths]);
+  const diff = gitOps.diffHead(root, paths);
   if (diff) parts.push(diff);
   // Untracked (not yet in HEAD): include their content under a header.
-  const tracked = new Set((git(root, ["ls-files"]) ?? "").split("\n").filter(Boolean));
+  const tracked = new Set((gitOps.lsFiles(root) ?? "").split("\n").filter(Boolean));
   for (const p of paths) {
     if (tracked.has(p)) continue;
     try {

@@ -1,7 +1,18 @@
 import * as assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import type { ModelTierConfig } from "../src/model-role-config.js";
 import type { SpawnSubagentResult } from "../src/spawn-subagent.js";
 import { runModelReview } from "../src/watchdog/model-review.js";
+
+/**
+ * Hermetic model-tiers config injected via the `loadConfig` seam so the test
+ * does NOT depend on ~/.pi/workflows/model-tiers.json existing (CI has none).
+ * reviewSpec resolves to the capability entry; tiers.big is the fallback.
+ */
+const mockCfg: ModelTierConfig = {
+  tiers: { big: "zai/glm-5.2" },
+  capabilities: { review: "zai/glm-5.2:high" },
+};
 
 function okFinding(): SpawnSubagentResult {
   // schema-shaped JSON the review subagent would return (spawnSubagent stringifies it)
@@ -23,6 +34,7 @@ describe("model-review", () => {
       cwd: process.cwd(),
       diffText: "diff",
       taskLabel: "t",
+      loadConfig: () => mockCfg,
       // @ts-expect-error inject a mock runner
       agent: { run: async () => JSON.parse(okFinding().output) },
     });
@@ -36,6 +48,7 @@ describe("model-review", () => {
       cwd: process.cwd(),
       diffText: "diff",
       taskLabel: "t",
+      loadConfig: () => mockCfg,
       // @ts-expect-error mock runner that throws
       agent: {
         run: async () => {

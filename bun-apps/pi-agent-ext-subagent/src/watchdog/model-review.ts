@@ -1,5 +1,5 @@
 import { Type } from "typebox";
-import { loadModelTierConfig, resolveModelRole } from "../model-role-config.js";
+import { loadModelTierConfig, type ModelTierConfig, resolveModelRole } from "../model-role-config.js";
 import { type SpawnSubagentOptions, spawnSubagent } from "../spawn-subagent.js";
 import type { WatchdogFinding, WatchdogL2Result } from "./types.js";
 
@@ -40,8 +40,10 @@ export async function runModelReview(input: {
   taskLabel: string;
   signal?: AbortSignal;
   agent?: NonNullable<SpawnSubagentOptions["agent"]>;
+  /** Test seam: defaults to loadModelTierConfig (reads ~/.pi/workflows/model-tiers.json). */
+  loadConfig?: () => ModelTierConfig | null;
 }): Promise<WatchdogL2Result> {
-  const cfg = loadModelTierConfig();
+  const cfg = (input.loadConfig ?? loadModelTierConfig)();
   const reviewSpec = resolveModelRole({ capability: "review" }, cfg) ?? resolveModelRole({ tier: "big" }, cfg);
   if (!reviewSpec) return { ran: false, findings: [], note: "review-skipped: no review/big model configured" };
   try {

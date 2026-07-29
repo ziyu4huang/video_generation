@@ -1,15 +1,20 @@
 import * as assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { loadModelTierConfig, normalizeWatchdogParam, resolveModelRole, runWatchdog } from "../src/index.js";
+import { normalizeWatchdogParam, resolveModelRole, runWatchdog } from "../src/index.js";
 
 describe("watchdog public API + review capability", () => {
   it("re-exports runWatchdog + normalizeWatchdogParam", () => {
     assert.equal(typeof runWatchdog, "function");
     assert.equal(typeof normalizeWatchdogParam, "function");
   });
-  it("model-tiers.json has a review capability (or falls back to big)", () => {
-    const cfg = loadModelTierConfig();
-    const review = resolveModelRole({ capability: "review" }, cfg) ?? resolveModelRole({ tier: "big" }, cfg);
-    assert.ok(review, "expected capabilities.review OR tiers.big in ~/.pi/workflows/model-tiers.json");
+
+  // Hermetic: a PURE unit test of resolveModelRole against an inline config —
+  // no read of ~/.pi/workflows/model-tiers.json (absent in CI).
+  it("resolveModelRole resolves review (capability) with fallback to big (tier)", () => {
+    const cfg = { tiers: { big: "zai/glm-5.2" }, capabilities: { review: "zai/glm-5.2:high" } };
+    assert.equal(resolveModelRole({ capability: "review" }, cfg), "zai/glm-5.2:high");
+    const cfgNoReview = { tiers: { big: "zai/glm-5.2" }, capabilities: {} };
+    assert.equal(resolveModelRole({ capability: "review" }, cfgNoReview), undefined);
+    assert.equal(resolveModelRole({ tier: "big" }, cfgNoReview), "zai/glm-5.2");
   });
 });
