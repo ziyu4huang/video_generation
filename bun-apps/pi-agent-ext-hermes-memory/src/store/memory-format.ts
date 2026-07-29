@@ -48,18 +48,24 @@ export function parseMetadataComment(raw: string): {
   lastReferenced: string;
   provenance?: Provenance;
   sources?: MemorySource[];
+  mwSuccess?: number;
+  mwFail?: number;
 } {
   let rest = raw;
   let provenance: Provenance | undefined;
   let sources: MemorySource[] | undefined;
+  let mwSuccess: number | undefined;
+  let mwFail: number | undefined;
 
   // Stage 1: optional trailing <!-- meta:{...} --> (always last).
   const metaMatch = rest.match(/<!--\s*meta:(\{.*\})\s*-->\s*$/);
   if (metaMatch && metaMatch.index !== undefined) {
     try {
-      const parsed = JSON.parse(metaMatch[1]) as { provenance?: Provenance; sources?: MemorySource[] };
+      const parsed = JSON.parse(metaMatch[1]) as { provenance?: Provenance; sources?: MemorySource[]; mwSuccess?: number; mwFail?: number };
       provenance = parsed.provenance;
       sources = Array.isArray(parsed.sources) ? parsed.sources : undefined;
+      mwSuccess = typeof parsed.mwSuccess === "number" ? parsed.mwSuccess : undefined;
+      mwFail = typeof parsed.mwFail === "number" ? parsed.mwFail : undefined;
     } catch {
       // malformed meta — ignore, keep created/last below
     }
@@ -75,6 +81,8 @@ export function parseMetadataComment(raw: string): {
       lastReferenced: match[3].trim(),
       ...(provenance ? { provenance } : {}),
       ...(sources ? { sources } : {}),
+      ...(typeof mwSuccess === "number" ? { mwSuccess } : {}),
+      ...(typeof mwFail === "number" ? { mwFail } : {}),
     };
   }
 
@@ -85,6 +93,8 @@ export function parseMetadataComment(raw: string): {
     lastReferenced: fallback,
     ...(provenance ? { provenance } : {}),
     ...(sources ? { sources } : {}),
+    ...(typeof mwSuccess === "number" ? { mwSuccess } : {}),
+    ...(typeof mwFail === "number" ? { mwFail } : {}),
   };
 }
 
@@ -94,12 +104,16 @@ export function serializeMetadataComment(input: {
   lastReferenced: string;
   provenance?: Provenance | null;
   sources?: MemorySource[] | null;
+  mwSuccess?: number | null;
+  mwFail?: number | null;
 }): string {
   let out = `${input.text} <!-- created=${input.created}, last=${input.lastReferenced} -->`;
-  const meta: { provenance?: Provenance; sources?: MemorySource[] } = {};
+  const meta: { provenance?: Provenance; sources?: MemorySource[]; mwSuccess?: number; mwFail?: number } = {};
   if (input.provenance) meta.provenance = input.provenance;
   if (input.sources && input.sources.length > 0) meta.sources = input.sources;
-  if (meta.provenance || meta.sources) {
+  if (input.mwSuccess && input.mwSuccess > 0) meta.mwSuccess = input.mwSuccess;
+  if (input.mwFail && input.mwFail > 0) meta.mwFail = input.mwFail;
+  if (meta.provenance || meta.sources || meta.mwSuccess || meta.mwFail) {
     out += ` <!-- meta:${JSON.stringify(meta)} -->`;
   }
   return out;
@@ -136,6 +150,8 @@ export interface ParsedMarkdownMemoryEntry {
   lastReferenced?: string | null;
   provenance?: Provenance | null;
   sources?: MemorySource[] | null;
+  mwSuccess?: number | null;
+  mwFail?: number | null;
 }
 
 export function parseMarkdownMemoryEntry(
@@ -143,7 +159,7 @@ export function parseMarkdownMemoryEntry(
   target: MemoryTarget,
   project: string | null = null,
 ): ParsedMarkdownMemoryEntry {
-  const { text, created, lastReferenced, provenance, sources } = parseMetadataComment(rawEntry);
+  const { text, created, lastReferenced, provenance, sources, mwSuccess, mwFail } = parseMetadataComment(rawEntry);
   const parsedProject = normalizeNullable(project);
 
   if (target !== "failure") {
@@ -155,6 +171,8 @@ export function parseMarkdownMemoryEntry(
       lastReferenced,
       ...(provenance ? { provenance } : {}),
       ...(sources ? { sources } : {}),
+      ...(typeof mwSuccess === "number" ? { mwSuccess } : {}),
+      ...(typeof mwFail === "number" ? { mwFail } : {}),
     };
   }
 
@@ -195,5 +213,7 @@ export function parseMarkdownMemoryEntry(
     lastReferenced,
     ...(provenance ? { provenance } : {}),
     ...(sources ? { sources } : {}),
+    ...(typeof mwSuccess === "number" ? { mwSuccess } : {}),
+    ...(typeof mwFail === "number" ? { mwFail } : {}),
   };
 }

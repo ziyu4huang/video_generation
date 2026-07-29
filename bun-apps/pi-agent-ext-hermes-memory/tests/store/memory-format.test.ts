@@ -74,3 +74,22 @@ describe("serializeMetadataComment", () => {
     assert.deepStrictEqual(decoded, original);
   });
 });
+
+describe("serializeMetadataComment — worth counters", () => {
+  it("omits counters when zero (no meta bloat for new entries)", () => {
+    const out = serializeMetadataComment({ text: "x", created: "2026-05-09", lastReferenced: "2026-05-10", mwSuccess: 0, mwFail: 0 });
+    assert.strictEqual(out, "x <!-- created=2026-05-09, last=2026-05-10 -->");
+  });
+  it("emits non-zero counters in the meta comment", () => {
+    const out = serializeMetadataComment({ text: "x", created: "2026-05-09", lastReferenced: "2026-05-10", mwSuccess: 5, mwFail: 1 });
+    assert.ok(out.includes('"mwSuccess":5'));
+    assert.ok(out.includes('"mwFail":1'));
+  });
+  it("round-trips non-zero counters through parseMetadataComment", () => {
+    const encoded = serializeMetadataComment({ text: "fact", created: "2026-05-09", lastReferenced: "2026-05-10", mwSuccess: 7, mwFail: 2 });
+    const decoded = parseMetadataComment(encoded);
+    assert.strictEqual(decoded.mwSuccess, 7);
+    assert.strictEqual(decoded.mwFail, 2);
+    assert.strictEqual(decoded.text, "fact");
+  });
+});

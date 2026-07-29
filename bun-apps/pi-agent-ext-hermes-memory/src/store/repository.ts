@@ -18,6 +18,8 @@ export interface MemoryEntry {
   correctedTo: string | null;
   created: string;
   lastReferenced: string;
+  mwSuccess?: number;
+  mwFail?: number;
 }
 
 export interface MemorySyncInput {
@@ -30,6 +32,8 @@ export interface MemorySyncInput {
   correctedTo?: string | null;
   created?: string | null;
   lastReferenced?: string | null;
+  mwSuccess?: number | null;
+  mwFail?: number | null;
 }
 
 export interface MemorySyncResult { action: "inserted" | "existing"; entry: MemoryEntry; }
@@ -62,6 +66,7 @@ export interface MemoryRepository {
   getMemoryStats(): Promise<MemoryStats>;
   removeMemory(id: number): Promise<boolean>;
   touchMemory(id: number): Promise<void>;
+  bumpMemoryWorth(id: number, successDelta?: number, failDelta?: number): Promise<void>;
 }
 
 export interface SessionRecord { id: string; project: string; cwd: string; startedAt: string; endedAt: string | null; messageCount: number; }
