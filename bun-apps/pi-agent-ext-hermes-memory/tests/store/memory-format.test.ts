@@ -1,0 +1,44 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { parseMetadataComment, parseMarkdownMemoryEntry } from "../../src/store/memory-format.js";
+
+describe("parseMetadataComment — optional meta segment", () => {
+  it("parses created/last only (legacy)", () => {
+    const r = parseMetadataComment("use pnpm not npm <!-- created=2026-05-09, last=2026-05-10 -->");
+    assert.strictEqual(r.text, "use pnpm not npm");
+    assert.strictEqual(r.created, "2026-05-09");
+    assert.strictEqual(r.lastReferenced, "2026-05-10");
+    assert.strictEqual(r.provenance, undefined);
+    assert.strictEqual(r.sources, undefined);
+  });
+
+  it("parses a trailing meta comment with provenance + sources", () => {
+    const raw = 'use pnpm <!-- created=2026-05-09, last=2026-05-10 --> <!-- meta:{"provenance":"verified","sources":[{"kind":"quote","locator":"s12","capture":"use pnpm"}]} -->';
+    const r = parseMetadataComment(raw);
+    assert.strictEqual(r.text, "use pnpm");
+    assert.strictEqual(r.provenance, "verified");
+    assert.deepStrictEqual(r.sources, [{ kind: "quote", locator: "s12", capture: "use pnpm" }]);
+  });
+
+  it("falls back to today for entries with no comment at all", () => {
+    const r = parseMetadataComment("bare entry text");
+    assert.strictEqual(r.text, "bare entry text");
+    assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(r.created));
+  });
+
+  it("ignores a malformed meta comment (keeps created/last)", () => {
+    const raw = 'x <!-- created=2026-05-09, last=2026-05-10 --> <!-- meta:{not json} -->';
+    const r = parseMetadataComment(raw);
+    assert.strictEqual(r.text, "x");
+    assert.strictEqual(r.provenance, undefined);
+  });
+});
+
+describe("parseMarkdownMemoryEntry — threads meta", () => {
+  it("carries provenance through the memory-target parse", () => {
+    const raw = 'use pnpm <!-- created=2026-05-09, last=2026-05-10 --> <!-- meta:{"provenance":"unverified"} -->';
+    const e = parseMarkdownMemoryEntry(raw, "memory", null);
+    assert.strictEqual(e.content, "use pnpm");
+    assert.strictEqual(e.provenance, "unverified");
+  });
+});

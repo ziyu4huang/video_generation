@@ -12,7 +12,7 @@
  * file and were moved out to keep the seam clean (DRY: single source of truth).
  */
 
-import type { MemoryCategory } from "../types.js";
+import type { MemoryCategory, Provenance, MemorySource } from "../types.js";
 import type { MemoryTarget } from "./repository.js";
 
 // ---------------------------------------------------------------------------
@@ -42,21 +42,49 @@ export function normalizeCategory(value?: MemoryCategory | null): MemoryCategory
   return value ?? null;
 }
 
-export function parseMetadataComment(raw: string): { text: string; created: string; lastReferenced: string } {
-  const match = raw.match(/^(.*?)\s*<!--\s*created=([^,]+),\s*last=([^>]+)\s*-->\s*$/);
+export function parseMetadataComment(raw: string): {
+  text: string;
+  created: string;
+  lastReferenced: string;
+  provenance?: Provenance;
+  sources?: MemorySource[];
+} {
+  let rest = raw;
+  let provenance: Provenance | undefined;
+  let sources: MemorySource[] | undefined;
+
+  // Stage 1: optional trailing <!-- meta:{...} --> (always last).
+  const metaMatch = rest.match(/<!--\s*meta:(\{.*\})\s*-->\s*$/);
+  if (metaMatch && metaMatch.index !== undefined) {
+    try {
+      const parsed = JSON.parse(metaMatch[1]) as { provenance?: Provenance; sources?: MemorySource[] };
+      provenance = parsed.provenance;
+      sources = Array.isArray(parsed.sources) ? parsed.sources : undefined;
+    } catch {
+      // malformed meta — ignore, keep created/last below
+    }
+    rest = rest.slice(0, metaMatch.index).trimEnd();
+  }
+
+  // Stage 2: unchanged created/last regex on the remainder.
+  const match = rest.match(/^(.*?)\s*<!--\s*created=([^,]+),\s*last=([^>]+)\s*-->\s*$/);
   if (match) {
     return {
       text: match[1].trim(),
       created: match[2].trim(),
       lastReferenced: match[3].trim(),
+      ...(provenance ? { provenance } : {}),
+      ...(sources ? { sources } : {}),
     };
   }
 
   const fallback = today();
   return {
-    text: raw.trim(),
+    text: rest.trim(),
     created: fallback,
     lastReferenced: fallback,
+    ...(provenance ? { provenance } : {}),
+    ...(sources ? { sources } : {}),
   };
 }
 
@@ -89,6 +117,8 @@ export interface ParsedMarkdownMemoryEntry {
   correctedTo?: string | null;
   created?: string | null;
   lastReferenced?: string | null;
+  provenance?: Provenance | null;
+  sources?: MemorySource[] | null;
 }
 
 export function parseMarkdownMemoryEntry(
@@ -96,7 +126,7 @@ export function parseMarkdownMemoryEntry(
   target: MemoryTarget,
   project: string | null = null,
 ): ParsedMarkdownMemoryEntry {
-  const { text, created, lastReferenced } = parseMetadataComment(rawEntry);
+  const { text, created, lastReferenced, provenance, sources } = parseMetadataComment(rawEntry);
   const parsedProject = normalizeNullable(project);
 
   if (target !== "failure") {
@@ -106,6 +136,8 @@ export function parseMarkdownMemoryEntry(
       project: parsedProject,
       created,
       lastReferenced,
+      ...(provenance ? { provenance } : {}),
+      ...(sources ? { sources } : {}),
     };
   }
 
@@ -144,5 +176,7 @@ export function parseMarkdownMemoryEntry(
     correctedTo,
     created,
     lastReferenced,
+    ...(provenance ? { provenance } : {}),
+    ...(sources ? { sources } : {}),
   };
 }

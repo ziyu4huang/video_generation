@@ -114,6 +114,16 @@ export interface MemoryConfig {
   lockOpBackoffMs?: number;
 }
 
+/** Trust/auditability marker for a memory entry. Markdown-resident only. */
+export type Provenance = "verified" | "unverified" | "none";
+
+/** A grounding source attached to a memory entry (quote, doc ref, etc.). */
+export interface MemorySource {
+  kind: string;     // e.g. "quote", "doc", "url"
+  locator: string;  // stable ref into the source (session id, url, line)
+  capture: string;  // the verbatim text/anchor
+}
+
 export type MemoryCategory =
   | "failure"
   | "correction"
