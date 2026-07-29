@@ -71,6 +71,9 @@ describe("MemoryStore lock-hold perf (T2)", { concurrency: 1 }, () => {
   });
   beforeEach(async () => {
     try { await fs.promises.rm(path.join(MEMORY_DIR, "MEMORY.md"), { force: true }); } catch { /* ignore */ }
+    // Defensive: clear a residual proper-lockfile lock dir a prior test may have
+    // left, so a stale lock can't ELOCKED this test's acquisition + cascade.
+    try { await fs.promises.rm(path.join(MEMORY_DIR, "MEMORY.md.lock"), { recursive: true, force: true }); } catch { /* ignore */ }
   });
   afterEach(() => {
     delete process.env.PI_HERMES_PERF_LOCK_MS;

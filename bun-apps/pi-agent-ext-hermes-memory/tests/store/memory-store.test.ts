@@ -114,6 +114,13 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     await removeFile(memoryPath);
     await removeFile(userPath);
     await removeFile(failurePath);
+    // Defensive: also clear residual proper-lockfile lock dirs (`<path>.lock`)
+    // a crashed/interrupted test may have left. cleanSlate only removed the
+    // .md; a stale lock would ELOCKED the next test's cross-process acquisition
+    // and cascade (the add errors out before the lock-hold wrap fires). Best-effort.
+    for (const p of [memoryPath, userPath, failurePath]) {
+      try { await fs.rm(`${p}.lock`, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
   }
 
   beforeEach(async () => {
