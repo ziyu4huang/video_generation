@@ -1,94 +1,86 @@
 # writing-skills candidate-seed step (Task B)
 
-**Status:** approved → implementation (RED→GREEN→REFACTOR)
+**Status:** shipped (README strengthening). No writing-skills edit — RED-proven redundant.
 **Date:** 2026-07-29
-**Provenance:** wayfinder effort `.planning/2026-07-28-continue-improve-wayfind-superpowers-including-h/` ticket 05 (closed). This spec is the implementation-level concretization of that grilled decision.
-**Scope:** single file — `skills/writing-skills/SKILL.md`.
+**Provenance:** wayfinder effort `.planning/2026-07-28-continue-improve-wayfind-superpowers-including-h/` ticket 05 (closed).
+**Scope:** one file — `.planning/knowledge/README.md` (lifecycle section made actionable).
 
 ## Problem
 
 The learning→skill bridge's capture half (PR #921, in `MEMORY_POLICY_PROMPT`) tells the
-agent to write skill candidates to `.planning/knowledge/<name>.md` when a saved memory
-looks skill-worthy. Fields: `trigger/symptom`, `lesson`, `proposed procedure`,
-`evidence` (source memory id), `candidate skill-name`.
+agent to write skill candidates to `.planning/knowledge/<name>.md`. The promotion half was
+the open thread (Task B): nothing wired candidates into `writing-skills`' authoring process.
 
-The promotion half is missing: `writing-skills` has no step that checks the staging area,
-so a candidate can sit there indefinitely with nothing wired to consume it. The bridge is
-half-built — capture works, promotion doesn't.
+## Original design (pre-RED)
 
-## Design (concretizes ticket 05)
+Add a ~20-line "candidate seed" subsection to `writing-skills`' RED phase: check
+`.planning/knowledge/` for a matching candidate; use its `trigger/symptom` as the RED pressure
+scenario; on promotion carry `evidence` as provenance + delete the candidate; on rejection
+delete + persist a not-skill verdict memory. (Concretizes ticket 05.)
 
-Add a **candidate-seed step** to `writing-skills`' RED phase — a precondition the authoring
-agent checks before writing the pressure scenario. The candidate **feeds** the failing test
-(its `trigger/symptom` becomes the pressure scenario); it never **skips** test-first.
+## RED findings → pivot
 
-### Placement
+The writing-skills Iron Law was applied to the would-be edit. Two isolated-context subagent
+probes (current writing-skills injected, NO candidate-seed step, nothing in the task hinting
+at `.planning/knowledge/`):
 
-New subsection immediately before `### RED: Write Failing Test (Baseline)`, titled
-`### Candidate Seed (RED precondition)`. It is a precondition for authoring the scenario,
-so it precedes RED rather than folding into it (keeps the RED phase's own content unchanged).
+1. **Discovery probe (RED phase):** the agent **autonomously found + used** the fixture
+   candidate — via `.planning/knowledge/README.md` (PR #921 documents the bridge) + filename
+   match (`candidate skill-name` == the skill being authored) + exploration. **Discovery is
+   not a gap.**
+2. **Lifecycle probe (through completion):** with only the (then-conceptual) README on disk,
+   the agent **correctly executed the full promotion lifecycle** — carried the `evidence`
+   memory id as a provenance line AND planned to delete the candidate ("promotion consumes it;
+   the directory must never grow"). **The lifecycle was already executable from the README.**
 
-### Step content (target wording — finalized during GREEN)
+Per writing-skills' micro-test rule ("if the no-guidance control doesn't exhibit the failure,
+stop — don't author the guidance"), **both the discovery guidance and a writing-skills
+cross-reference are redundant.** Authoring them would violate the Iron Law.
 
-> Before writing the pressure scenario, check `.planning/knowledge/` for a candidate whose
-> `candidate skill-name` matches the skill you are about to author (or whose `trigger/symptom`
-> is the gap you are addressing).
->
-> - **If a candidate exists:** use its `trigger/symptom` as the RED pressure scenario — it is
->   the real-world gap the skill must address. The candidate FEEDS the failing test; it does
->   not skip it. On GREEN, carry the candidate's `evidence` (the source memory id) into the
->   SKILL.md as a one-line provenance note. On completion, delete the candidate file
->   (promoted).
-> - **If RED shows the candidate is not skill-worthy / already covered:** delete the candidate
->   AND record the not-skill verdict as a memory (referencing the source memory id) so
->   re-capture is guarded.
-> - **If no candidate exists:** proceed with normal RED (author the pressure scenario yourself).
+## The one real improvement: make the README lifecycle actionable
 
-### Decisions resolved
+The conceptual README lifecycle ("content is authored... carrying evidence... deleted") was
+under-specified as an executable procedure. Strengthened it to explicit, ordered steps:
 
-- **Matching predicate:** primary = `candidate skill-name` ≈ intended skill name (the
-  candidate declares what skill it wants to become); secondary = `trigger/symptom` relevance.
-  The agent authors the skill either way (writing-skills was invoked); the candidate only
-  seeds RED.
-- **Rejection→memory mechanism:** write a short memory (target: memory or failure; category:
-  insight/correction) recording the not-skill verdict + referencing the source memory id.
-  Chosen over mutating the original memory because the memory tools have no clean
-  "annotate existing" path and a dedicated verdict is queryable + guards re-capture.
-- **Lifecycle:** consumed (deleted) on EITHER outcome — promoted (content → SKILL.md +
-  provenance) or rejected (deleted; verdict → memory). Matches ticket 05 + `knowledge/README.md`.
-  Staging stays transient, not a growing store.
+- **On promotion:** (1) carry `evidence` into the SKILL.md as a one-line provenance note;
+  (2) delete the candidate file.
+- **On rejection:** (1) delete the candidate file; (2) record the not-skill verdict as a memory
+  (referencing the source memory id) so re-capture is guarded.
 
-### Non-goals (YAGNI)
+This is the entire shipped change. RED verified it suffices (the agent executed promotion
+correctly from it alone).
 
-- No new command or surface (rejected in ticket 05: a `/promote-skill` command duplicates
-  writing-skills' entry point).
-- No wayfinder/plan trigger (rejected: heavy for a single skill, couples promotion to planning).
-- No capture-time dedup gate (deferred to promotion; ticket 04).
+## Decisions resolved (final)
 
-## Iron Law compliance (the edit is itself TDD)
+- **No writing-skills edit.** RED proved the candidate-seed subsection + any cross-reference
+  are redundant (agents discover candidates via the README + execute the lifecycle from it).
+  Iron Law: don't author guidance the control doesn't need.
+- **README is the promotion contract.** The staging-area README (read by agents that encounter
+  candidates) carries the actionable lifecycle. No second copy in writing-skills.
+- **Lifecycle: consumed (deleted) on either outcome** — promoted (content → SKILL.md +
+  provenance) or rejected (deleted; verdict → memory). Staging stays transient.
+- **Matching predicate:** `candidate skill-name` ≈ intended skill name (primary); trigger/symptom
+  relevance (secondary). Effective without an explicit rule (filename match + README).
 
-Editing an existing skill triggers writing-skills' own Iron Law: RED → GREEN → REFACTOR with
-pressure scenarios. The cycle:
+## Non-goals (unchanged)
 
-- **RED** — dispatch a subagent with the **current** writing-skills (no candidate-seed step) +
-  a seeded fixture candidate in `.planning/knowledge/` + a task to author that skill. Baseline:
-  does it check/use the candidate? **Expected: no** — nothing tells it to look. Gap proven.
-- **GREEN** — add the candidate-seed step. Re-run the same scenario. Verify the agent now
-  finds the candidate, uses its `trigger/symptom` as RED, carries provenance, and consumes
-  the candidate on outcome.
-- **REFACTOR** — probe loopholes: authoring the skill without testing the candidate;
-  promoting but not deleting the candidate; skipping the provenance line; rejecting without
-  persisting the not-skill verdict. Add explicit counters; re-test until bulletproof.
+- No new command/surface; no wayfinder/plan trigger; no capture-time dedup gate.
 
 ## Why not a separate plan doc
 
-Single-file, ~20-line edit with its own TDD method. A formal writing-plans doc + subagent-
-driven-development is overkill; the design above + the Iron Law cycle is the implementation.
+Single-file doc edit, evidence-driven via the Iron Law (RED probes). No writing-plans doc needed.
 
-## Success criteria
+## Success criteria (met)
 
-- A subagent given writing-skills (post-edit) + a present candidate uses the candidate as the
-  RED seed, carries provenance, and consumes the candidate — without skipping the failing test.
-- Without a candidate, behavior is unchanged (normal RED).
-- The edit survives REFACTOR loophole probes.
-- No regression: writing-skills' existing structure/wording intact.
+- A subagent given a present candidate uses it as the RED seed, carries provenance, and consumes
+  it — **verified** (lifecycle probe), without any writing-skills change.
+- Without a candidate, behavior is unchanged (normal RED) — N/A (no writing-skills edit).
+- No regression: writing-skills untouched; README lifecycle section strengthened in place.
+
+## Untested
+
+- The **rejection** lifecycle path (delete + verdict-memory) was not probed directly; it is
+  documented actionably and mirrors the RED-verified promotion path. Low risk.
+- Micro-test rep count was 2 probes (discovery + lifecycle), not the 5+ the micro-test rule
+  suggests; stakes are low (a lingering candidate or omitted provenance is minor) and both
+  probes passed cleanly.

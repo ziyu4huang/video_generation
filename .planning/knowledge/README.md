@@ -22,17 +22,27 @@ sessions/projects) + **procedural** (a HOW, not a fact) + **not already an
 existing skill** + **non-trivial**. Facts stay in memory; only procedures
 become candidates.
 
-## Lifecycle
+## Lifecycle (actionable — execute when a candidate seeds a skill)
 
-Candidates here are **transient** — this is staging, not a curated store.
+Candidates here are **transient** — this is staging, not a curated store. When a
+candidate seeds a skill you are authoring via writing-skills, finish the lifecycle
+on completion:
 
-- **Promoted**: the candidate's content is authored into a real `SKILL.md`
-  (carrying its `evidence` memory id as provenance), and the candidate file is
-  deleted from here.
-- **Rejected** (writing-skills' RED shows it is not skill-worthy / already
-  covered): the candidate file is deleted, but the lesson + its evaluated
-  not-skill status stays as a **memory** (that persistence is the bridge's
-  calibration signal).
+**On promotion** (the skill is authored and its tests pass):
+1. Carry the candidate's `evidence` (source memory id) into the new `SKILL.md`
+   as a one-line provenance note (e.g. `> Provenance: mem:<id>`).
+2. Delete the candidate file from this directory — the content now lives in the
+   skill.
+
+**On rejection** (writing-skills' RED shows the candidate is not skill-worthy, or
+an equivalent skill already exists):
+1. Delete the candidate file from this directory.
+2. Record the verdict as a **memory** (target: `memory` or `failure`; category:
+   `insight` or `correction`) — e.g. "evaluated not-skill-worthy: <reason>" —
+   referencing the source memory id. This guards re-capture and is the bridge's
+   calibration signal.
+
+Either way the candidate is **consumed** (removed); this directory never grows.
 
 Dedup is deferred to promotion — no capture-time gate. The important dedup
 (candidate ≈ existing skill) is caught by writing-skills' RED phase; a
