@@ -56,6 +56,7 @@ type Row = Partial<{
   seq: number; project: string | null; target: string; category: string | null;
   content: string; failureReason: string | null; toolState: string | null;
   correctedTo: string | null; created: string; lastReferenced: string;
+  mwSuccess?: number; mwFail?: number;
 }>;
 
 function mapRow(r: Row): MemoryEntry {
@@ -70,10 +71,12 @@ function mapRow(r: Row): MemoryEntry {
     correctedTo: r.correctedTo ?? null,
     created: r.created ?? today(),
     lastReferenced: r.lastReferenced ?? r.created ?? today(),
+    mwSuccess: r.mwSuccess ?? 0,
+    mwFail: r.mwFail ?? 0,
   };
 }
 
-const FIELDS = "seq, project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced";
+const FIELDS = "seq, project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, mwSuccess, mwFail";
 
 /** Build SurrealQL WHERE fragments + a params object for scope conditions. */
 function buildScope(
@@ -119,7 +122,9 @@ export class SurrealMemoryRepository implements MemoryRepository {
         toolState = $toolState,
         correctedTo = $correctedTo,
         created = $created,
-        lastReferenced = $lastReferenced
+        lastReferenced = $lastReferenced,
+        mwSuccess = 0,
+        mwFail = 0
       RETURN ${FIELDS};
     `;
     const rows = await this.c.query<Row[]>(sql, {
@@ -184,9 +189,44 @@ export class SurrealMemoryRepository implements MemoryRepository {
       await this.syncGraphEdges(seq, row.project ?? null, (row.category ?? null) as MemoryCategory | null, (row.target ?? "memory") as MemoryTarget);
       return { action: "existing", entry: mapRow(row) };
     }
-    const entry = await this.addMemory({
-      content, target: input.target, project, category, failureReason, toolState, correctedTo, created, lastReferenced,
+    // Insert directly with worth values from input (mirrors sqlite sync semantics)
+    const sql = `
+      LET $next = (UPDATE seq:memory SET value += 1 RETURN VALUE value)[0];
+      CREATE type::record("memories", $next) SET
+        seq = $next,
+        project = $project,
+        target = $target,
+        category = $category,
+        content = $content,
+        failureReason = $failureReason,
+        toolState = $toolState,
+        correctedTo = $correctedTo,
+        created = $created,
+        lastReferenced = $lastReferenced,
+        mwSuccess = $mwSuccess,
+        mwFail = $mwFail
+      RETURN ${FIELDS};
+    `;
+    const rows = await this.c.query<Row[]>(sql, {
+      project,
+      target: input.target ?? "memory",
+      category,
+      content,
+      failureReason,
+      toolState,
+      correctedTo,
+      created,
+      lastReferenced,
+      mwSuccess: input.mwSuccess ?? 0,
+      mwFail: input.mwFail ?? 0,
     });
+    const entry = mapRow(rows[0]);
+    await this.syncGraphEdges(
+      Number(entry.id),
+      project,
+      category,
+      input.target ?? "memory",
+    );
     return { action: "inserted", entry };
   }
 
@@ -452,5 +492,12 @@ export class SurrealMemoryRepository implements MemoryRepository {
 
   async touchMemory(id: number): Promise<void> {
     await this.c.query(`UPDATE memories SET lastReferenced = $t WHERE seq = $seq;`, { seq: Number(id), t: today() });
+  }
+
+  async bumpMemoryWorth(id: number, successDelta = 0, failDelta = 0): Promise<void> {
+    await this.c.query(
+      `UPDATE memories SET mwSuccess = (mwSuccess ?? 0) + $s, mwFail = (mwFail ?? 0) + $f WHERE seq = $seq;`,
+      { seq: Number(id), s: successDelta, f: failDelta },
+    );
   }
 }
