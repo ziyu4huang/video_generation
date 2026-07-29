@@ -506,7 +506,7 @@ export class MemoryStore {
               await this.loadFromDisk();
               // Retry the add exactly once (retriesLeft = 0 means no more consolidation).
               // Recurse on _addInner (not _add) to avoid re-acquiring the write lock.
-              return this._addInner(target, content, signal, _retriesLeft - 1, addedMessage);
+              return this._addInner(target, content, signal, _retriesLeft - 1, addedMessage, onProgress, meta);
             }
           } catch {
             // Consolidation failed — fall through to the vault-offload floor.

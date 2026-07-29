@@ -76,4 +76,60 @@ describe("MemoryStore metadata channel (unified encode/decode)", () => {
     const raw = await fs.promises.readFile(path.join(MEMORY_DIR, "failures.md"), "utf-8");
     assert.ok(raw.includes('"provenance":"unverified"'));
   });
+
+  it("auto-consolidate retry preserves provenance + sources metadata", async () => {
+    // Create a store with tiny limit so one add overflows
+    const config: MemoryConfig = {
+      memoryMode: "legacy-inject",
+      memoryCharLimit: 200, // Small limit to force overflow, but large enough for encoded entry
+      userCharLimit: DEFAULT_USER_CHAR_LIMIT,
+      projectCharLimit: 5000,
+      nudgeInterval: 10,
+      reviewEnabled: false,
+      flushOnCompact: false,
+      flushOnShutdown: false,
+      flushMinTurns: 6,
+      autoConsolidate: true,
+      correctionDetection: false,
+      failureInjectionEnabled: true,
+      failureInjectionMaxAgeDays: 7,
+      failureInjectionMaxEntries: 5,
+      nudgeToolCalls: 15,
+      memoryDir: MEMORY_DIR,
+    };
+    const store = new MemoryStore(config);
+
+    // Inject a stub consolidator that frees space by removing all entries
+    store.setConsolidator(async (target, _signal) => {
+      const entries = target === "memory" ? store.getMemoryEntries() : store.getUserEntries();
+      for (const entry of [...entries]) {
+        await store.remove(target, entry);
+      }
+      return { consolidated: true };
+    });
+
+    await store.loadFromDisk();
+
+    // Fill memory near limit (each entry gets ~44 chars of metadata)
+    await store.add("memory", "existing entry that takes a lot of space to push us over the limit");
+
+    // This add overflows, triggers consolidation, then retries with meta
+    const result = await store.add("memory", "new verified fact", {
+      provenance: "verified",
+      sources: [{ kind: "quote", locator: "s42", capture: "new verified fact" }],
+    });
+
+    assert.ok(result.success, "add should succeed after consolidation");
+
+    // Verify meta comment survived the consolidate-retry path
+    const raw = await fs.promises.readFile(path.join(MEMORY_DIR, "MEMORY.md"), "utf-8");
+    assert.ok(raw.includes('<!-- meta:{"provenance":"verified","sources":'), "meta comment should be present");
+
+    // Verify it decodes back correctly
+    const entries = store.entriesWithMeta("memory");
+    const newEntry = entries.find((e: { text: string }) => e.text === "new verified fact");
+    assert.ok(newEntry, "new entry should exist");
+    assert.strictEqual((newEntry as { provenance?: string }).provenance, "verified");
+    assert.ok((newEntry as { sources?: unknown[] }).sources, "sources should be present");
+  });
 });
