@@ -97,3 +97,17 @@ Sourced from [06 retrieval](tickets/06-verdict-retrieval.md), [07 belief/superse
 ## 7. Provenance of this spec
 
 Synthesized from the wayfinder map's resolved tickets: ranking [01], research [02–05], verdicts [06 retrieval / 07 belief / 08 extraction]. Reconciled with the now-current `pi-agent-ext-hermes-memory` (`config.ts` post-rebase) and the in-tree parallel effort `2026-07-29-persistent-to-planning`. Closing [09](tickets/09-assemble-improvement-spec.md) closes the map.
+
+## 8. Reconciliation after the planning-phase codebase read
+
+_The spec above was written from research into Remnic + hermes's docs. The writing-plans codebase read (exact seams in `bun-apps/pi-agent-ext-hermes-memory/src`) surfaced four corrections the implementation plans must honor — they refine the mechanism, not the verdicts:_
+
+- **No YAML frontmatter (§2, item #2 Provenance & §3).** Hermes's per-entry metadata is an inline HTML comment `<!-- created=…, last=… -->`, parsed by **two parallel functions** (`memory-store.ts:decodeEntry` + `memory-format.ts:parseMetadataComment`). "Frontmatter" in the verdicts means this comment channel. Plan 1 unifies the two paths and extends the comment with an optional `<!-- meta:{json} -->` segment; `MemoryEntry` (DB row) stays unchanged (provenance is `.md`-resident, not query-time-read).
+
+- **Dual backend (§2 items #1 worth, #3 supersession).** `dbBackend: "sqlite" | "surrealdb"`. Every **read-side DB column** (worth counters; status/lineage) must be added to **both** `sqlite-memory-repo` and `surreal-memory-repo`, and pass the shared `repository-contract.test.ts`. This **doubles** the DB work for Plans 2 & 3 vs. the verdict sketches (which assumed SQLite only). Provenance (Plan 1) avoids this by staying `.md`-only.
+
+- **`.md` entries have no id (§2 item #3).** `id` is SQLite-autoincrement only; `.md` (source of truth) carries only content + two dates. Plan 3's `supersedes`/`supersededBy`/`parentIds` (ids) must resolve a `.md`↔DB id decision (e.g. DB-only lineage with content-key matching at re-sync, or a synthesized `.md` id) — a real design point, not just "add frontmatter."
+
+- **Consolidation is LLM-prompt-driven, not code (§2 item #3).** `auto-consolidate.ts` merges via a `spawnSubagent` + `CONSOLIDATION_PROMPT`; there is no programmatic merge. "Preserve lineage" can only be done by (a) editing the prompt + feeding lineage to the consolidator subagent, and/or (b) propagating lineage in the `memory` tool's write path. Additionally `graph-ranker.ts` ALREADY EXISTS and is shared by both backends (the single point for Plan 2's worth multiplier), and trim (`fifoEvict`/`vaultOffload`) does not re-encode, so it can break lineage chains — Plan 3 must handle both.
+
+**Tier 1 is therefore 3 plans** (per writing-plans scope-check), not one: Plan 1 = metadata channel + provenance (foundational, self-contained, dual-backend-free); Plan 2 = memory-worth scoring; Plan 3 = supersession (largest — resolves the id problem + consolidation approach). See `docs/superpowers/plans/2026-07-29-hermes-memory-metadata-channel-provenance.md`.
