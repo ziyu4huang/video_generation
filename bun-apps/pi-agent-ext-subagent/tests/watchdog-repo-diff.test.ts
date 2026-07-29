@@ -25,15 +25,19 @@ describe("repo-diff", () => {
   });
 
   it("edit-gate: identical signatures when nothing changes", () => {
-    const a = computeBaseline(dir)!;
-    const b = computeBaseline(dir)!;
+    const a = computeBaseline(dir);
+    const b = computeBaseline(dir);
+    assert.ok(a, "baseline must exist");
+    assert.ok(b, "baseline must exist");
     assert.equal(a.key, b.key);
   });
 
   it("signature changes + changedTsJsPaths lists a new TS file", () => {
-    const before = computeBaseline(dir)!;
+    const before = computeBaseline(dir);
+    assert.ok(before, "baseline must exist");
     fs.writeFileSync(path.join(dir, "impl.ts"), "export const x = 1;\n");
-    const after = computeBaseline(dir)!;
+    const after = computeBaseline(dir);
+    assert.ok(after, "baseline must exist");
     assert.notEqual(before.key, after.key);
     assert.ok(changedTsJsPaths(before, after).includes("impl.ts"));
   });
