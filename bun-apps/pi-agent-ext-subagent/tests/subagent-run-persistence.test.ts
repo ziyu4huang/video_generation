@@ -122,3 +122,31 @@ test("getRunsDir resolves under the injected home", () => {
   const p = createSubagentRunPersistence({ home: "/tmp/fake-home-xyz" });
   assert.equal(p.getRunsDir(), join("/tmp/fake-home-xyz", ".pi/subagents/runs"));
 });
+
+test("round-trips a record carrying a watchdog result", () => {
+  const home = tmpHome();
+  const p = createSubagentRunPersistence({ home });
+  const rec = makeRecord({
+    history: [
+      { role: "assistant" as const, kind: "toolCall" as const, toolName: "read", text: '{"path":"x"}' },
+      { role: "tool" as const, kind: "toolResult" as const, toolName: "read", text: "ok" },
+    ],
+    usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, total: 15, cost: 0.001 },
+    watchdog: {
+      ran: true,
+      editGated: false,
+      elapsedMs: 3,
+      summary: "watchdog: 1 blocker(s), 0 concern(s)",
+      l1: {
+        ran: true,
+        findings: [{ severity: "blocker", source: "lsp", path: "a.ts", line: 1, message: "x" }],
+      },
+      l2: { ran: false, findings: [] },
+    },
+  });
+  p.save(rec);
+  const got = p.list().find((r) => r.watchdog);
+  assert.ok(got?.watchdog);
+  assert.equal(got.watchdog.l1.findings.length, 1);
+  rmSync(home, { recursive: true, force: true });
+});
