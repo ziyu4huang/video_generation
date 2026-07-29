@@ -30,7 +30,9 @@ These come from reading `../mflux/src/mflux/models/flux/variants/kontext/flux_ko
 
 ---
 
-## Task 1: Weight import (`import-kontext.py`)
+## Task 1: Weight import (`import-kontext.py`) — DONE (commit `30551e3f`)
+
+**Post-execution correction (2026-07-29):** the script text below was written before implementation and named the tokenizer output dirs `tokenizer/kontext-dev-clip` / `tokenizer/kontext-dev-t5`. The real implementer hit a `check-model.py` constraint this plan didn't anticipate — the manifest `'name'` field must be unique **globally across every category**, not just within `tokenizer/`, so reusing the `text_encoder/` basenames (`kontext-dev-clip`, `kontext-dev-t5`) collided. The actual, committed output directories are `mlx-models/tokenizer/kontext-dev-clip-tok/` and `mlx-models/tokenizer/kontext-dev-t5-tok/` (`-tok` suffix). All downstream tasks (3 and 4, Swift CLI + TS field defaults) have been updated below to reference the `-tok` names — treat those as authoritative, not the `Step 1` script listing's `clip_tok_dir`/`t5_tok_dir` variable values. `check-model.py` also gained a `WEIGHT_FILENAMES` entry for `vocab.json` (CLIP's legacy tokenizer has no fast `tokenizer.json`) as part of this task's commit.
 
 **Files:**
 - Create: `python/mlx-movie-director/app/commands/import-kontext.py`
@@ -616,10 +618,10 @@ extension Flux2CLI {
         var vae: String = "flux-kontext-ae"
 
         @Option(help: "CLIP tokenizer directory under models/tokenizer/.")
-        var clipTokenizerDir: String = "kontext-dev-clip"
+        var clipTokenizerDir: String = "kontext-dev-clip-tok"
 
         @Option(help: "T5 tokenizer directory under models/tokenizer/.")
-        var t5TokenizerDir: String = "kontext-dev-t5"
+        var t5TokenizerDir: String = "kontext-dev-t5-tok"
 
         @Option(help: "Random seed.")
         var seed: UInt64 = 42
@@ -810,8 +812,8 @@ In `bun-apps/pi-agent-ext-flux2/src/commands.ts`, add a new entry to the `COMMAN
       clipEncoder: { flag: "--clip-encoder", type: "string", isPathComponent: true, description: "CLIP text-encoder directory under models/text_encoder/. Default kontext-dev-clip." },
       t5Encoder: { flag: "--t5-encoder", type: "string", isPathComponent: true, description: "T5 text-encoder directory under models/text_encoder/. Default kontext-dev-t5." },
       vae: { flag: "--vae", type: "string", isPathComponent: true, description: "VAE directory under models/vae/. Default flux-kontext-ae." },
-      clipTokenizerDir: { flag: "--clip-tokenizer-dir", type: "string", isPathComponent: true, description: "CLIP tokenizer directory under models/tokenizer/. Default kontext-dev-clip." },
-      t5TokenizerDir: { flag: "--t5-tokenizer-dir", type: "string", isPathComponent: true, description: "T5 tokenizer directory under models/tokenizer/. Default kontext-dev-t5." },
+      clipTokenizerDir: { flag: "--clip-tokenizer-dir", type: "string", isPathComponent: true, description: "CLIP tokenizer directory under models/tokenizer/. Default kontext-dev-clip-tok." },
+      t5TokenizerDir: { flag: "--t5-tokenizer-dir", type: "string", isPathComponent: true, description: "T5 tokenizer directory under models/tokenizer/. Default kontext-dev-t5-tok." },
       seed: { flag: "--seed", type: "int", description: "Random seed (uint64). Default 42." },
       width: { flag: "--width", type: "int", description: "Output image width (px). Default 1024." },
       height: { flag: "--height", type: "int", description: "Output image height (px). Default 1024." },
