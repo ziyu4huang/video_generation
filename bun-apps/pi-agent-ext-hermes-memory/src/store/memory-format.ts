@@ -88,6 +88,23 @@ export function parseMetadataComment(raw: string): {
   };
 }
 
+export function serializeMetadataComment(input: {
+  text: string;
+  created: string;
+  lastReferenced: string;
+  provenance?: Provenance | null;
+  sources?: MemorySource[] | null;
+}): string {
+  let out = `${input.text} <!-- created=${input.created}, last=${input.lastReferenced} -->`;
+  const meta: { provenance?: Provenance; sources?: MemorySource[] } = {};
+  if (input.provenance) meta.provenance = input.provenance;
+  if (input.sources && input.sources.length > 0) meta.sources = input.sources;
+  if (meta.provenance || meta.sources) {
+    out += ` <!-- meta:${JSON.stringify(meta)} -->`;
+  }
+  return out;
+}
+
 export function formatFailureMemoryContent(
   content: string,
   options: {

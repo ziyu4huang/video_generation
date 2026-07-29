@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseMetadataComment, parseMarkdownMemoryEntry } from "../../src/store/memory-format.js";
+import { parseMetadataComment, serializeMetadataComment, parseMarkdownMemoryEntry } from "../../src/store/memory-format.js";
 
 describe("parseMetadataComment — optional meta segment", () => {
   it("parses created/last only (legacy)", () => {
@@ -40,5 +40,37 @@ describe("parseMarkdownMemoryEntry — threads meta", () => {
     const e = parseMarkdownMemoryEntry(raw, "memory", null);
     assert.strictEqual(e.content, "use pnpm");
     assert.strictEqual(e.provenance, "unverified");
+  });
+});
+
+describe("serializeMetadataComment", () => {
+  it("omits the meta comment when no provenance/sources", () => {
+    const out = serializeMetadataComment({ text: "hi", created: "2026-05-09", lastReferenced: "2026-05-10" });
+    assert.strictEqual(out, "hi <!-- created=2026-05-09, last=2026-05-10 -->");
+  });
+
+  it("emits the meta comment with provenance + sources", () => {
+    const out = serializeMetadataComment({
+      text: "hi",
+      created: "2026-05-09",
+      lastReferenced: "2026-05-10",
+      provenance: "verified",
+      sources: [{ kind: "quote", locator: "s1", capture: "hi" }],
+    });
+    assert.ok(out.includes("<!-- created=2026-05-09, last=2026-05-10 -->"));
+    assert.ok(out.includes('<!-- meta:{"provenance":"verified","sources":'));
+  });
+
+  it("round-trips through parseMetadataComment", () => {
+    const original = {
+      text: "use bun not npm",
+      created: "2026-05-09",
+      lastReferenced: "2026-05-10",
+      provenance: "unverified" as const,
+      sources: [{ kind: "quote", locator: "s3", capture: "use bun" }],
+    };
+    const encoded = serializeMetadataComment(original);
+    const decoded = parseMetadataComment(encoded);
+    assert.deepStrictEqual(decoded, original);
   });
 });
