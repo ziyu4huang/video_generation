@@ -5,8 +5,8 @@
  * (flux2, ltx, krea2, file2md, inspect, workflow, movie, arxiv, cost,
  * zai-mcp, pi_deploy) behind prompt keyword matching.
  *
- * Baseline:  ~52 tools → ~16,500 tok/req   (measured via `bun run qa`)
- * Gated:    ON at start ~8,600 tok/req   (saves ~8,050 tok/turn, ~48%; zai-mcp env-gated)
+ * Baseline:  ~55 tools → ~16,650 tok/req   (measured via `bun run qa`)
+ * Gated:    ON at start ~8,700 tok/req   (saves ~7,940 tok/turn, ~47.7%; net ~7,700; zai-mcp env-gated)
  *
  * Tools reactivate instantly when the prompt mentions relevant keywords, and
  * once activated stay active for the rest of the session (they never re-gate
