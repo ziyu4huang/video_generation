@@ -15,6 +15,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import * as lockfile from "proper-lockfile";
+import { parseMetadataComment, serializeMetadataComment } from "./memory-format.js";
 import { scanContent } from "./content-scanner.js";
 import { normalizeMemoryLookupText } from "./memory-lookup.js";
 import {
@@ -27,7 +28,7 @@ import {
   MEMORY_FILE,
   USER_FILE,
 } from "../constants.js";
-import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, MemoryCategory, MemoryOverflowStrategy } from "../types.js";
+import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, MemoryCategory, MemoryOverflowStrategy, Provenance, MemorySource } from "../types.js";
 import { AGENT_ROOT } from "../paths.js";
 import { envInt } from "../utils/env.js";
 import type { TimedFn, TimedAlwaysFn } from "../perf.js";
@@ -843,22 +844,33 @@ export class MemoryStore {
    * Encode metadata (created, lastReferenced) as an HTML comment appended to entry text.
    * The comment is invisible in markdown and transparent to the § delimiter.
    */
-  private encodeEntry(text: string, created: string, lastReferenced: string): string {
-    return `${text} <!-- created=${created}, last=${lastReferenced} -->`;
+  private encodeEntry(
+    text: string,
+    created: string,
+    lastReferenced: string,
+    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null },
+  ): string {
+    return serializeMetadataComment({
+      text,
+      created,
+      lastReferenced,
+      provenance: meta?.provenance,
+      sources: meta?.sources,
+    });
   }
 
   /**
    * Decode entry text, extracting metadata if present.
    * Falls back to today's date for legacy entries without metadata.
    */
-  private decodeEntry(raw: string): { text: string; created: string; lastReferenced: string } {
-    const match = raw.match(/^(.*?)\s*<!--\s*created=([^,]+),\s*last=([^>]+)\s*-->\s*$/);
-    if (match) {
-      return { text: match[1].trim(), created: match[2].trim(), lastReferenced: match[3].trim() };
-    }
-    // Legacy entry without metadata — use today as default
-    const today = new Date().toISOString().split("T")[0];
-    return { text: raw.trim(), created: today, lastReferenced: today };
+  private decodeEntry(raw: string): {
+    text: string;
+    created: string;
+    lastReferenced: string;
+    provenance?: Provenance;
+    sources?: MemorySource[];
+  } {
+    return parseMetadataComment(raw);
   }
 
   /** Strip metadata comment from entry text for display. */
