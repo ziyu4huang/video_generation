@@ -1,0 +1,16 @@
+{
+  "name": "kontext-dev-t5",
+  "type": "text_encoder",
+  "arch": "flux1-kontext-dev",
+  "format": "mlx-bf16",
+  "description": "FLUX.1-Kontext-dev T5 text encoder (t5-v1_1-xxl-derived, 4096-dim).",
+  "source": "https://huggingface.co/black-forest-labs/FLUX.1-Kontext-dev",
+  "cli": {
+    "binary": "flux2",
+    "action": "kontext",
+    "flag": "--t5-encoder"
+  },
+  "compatible_with": [],
+  "size_bytes": 9524649348,
+  "created_at": "2026-07-29T13:05:57Z"
+}
