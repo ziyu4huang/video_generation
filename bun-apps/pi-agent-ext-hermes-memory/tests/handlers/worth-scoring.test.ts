@@ -16,6 +16,7 @@ import assert from "node:assert/strict";
 import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
 import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
 import { RecallSet, setupWorthScoring } from "../../src/handlers/worth-scoring.js";
+import { registerMemorySearchTool } from "../../src/tools/memory-search-tool.js";
 
 describe("worth-scoring handler", () => {
   let tmpDir: string; let backend: SqliteBackend; let repo: SqliteMemoryRepository;
@@ -73,5 +74,39 @@ describe("worth-scoring handler", () => {
     assert.strictEqual(recallSet.drain().length, 0); // drained, not grown
     const got = await repo.getMemories({ target: "memory" });
     assert.strictEqual(got[0].mwSuccess ?? 0, 0);
+  });
+});
+
+describe("worth-scoring end-to-end (search → correction turn → bump)", () => {
+  let tmpDir: string; let backend: SqliteBackend; let repo: SqliteMemoryRepository;
+  let handlers: Record<string, Array<(e: any, ctx?: any) => Promise<void> | void>>;
+  let tools: Record<string, any>; let recallSet: RecallSet;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "worth-e2e-"));
+    backend = new SqliteBackend(tmpDir);
+    repo = new SqliteMemoryRepository(backend);
+    handlers = {}; tools = {}; recallSet = new RecallSet();
+    const pi: any = {
+      on: (ev: string, h: any) => { (handlers[ev] ??= []).push(h); },
+      registerTool: (def: any) => { tools[def.name] = def; },
+      registerCommand() {},
+    };
+    setupWorthScoring(pi, repo, recallSet, { worthScoring: true } as any);
+    registerMemorySearchTool(pi, repo, recallSet);
+  });
+  afterEach(() => { backend.close(); fs.rmSync(tmpDir, { recursive: true, force: true }); });
+  const fire = async (ev: string, e: any, ctx?: any) => { for (const h of handlers[ev] ?? []) await h(e, ctx); };
+
+  it("a search that recalls a memory, followed by a correction turn, bumps mw_fail", async () => {
+    const m = await repo.addMemory({ content: "always commit on the main branch", target: "memory" });
+    // recall it via the wired memory_search tool (populates recallSet)
+    await tools.memory_search.execute("tc", { query: "commit branch", target: "memory" });
+    // correction turn — message_end flags hadCorrection, turn_end drains + bumps
+    await fire("message_end", { message: { role: "user", content: [{ type: "text", text: "no, use feature branches instead" }] } });
+    await fire("turn_end", {}, {});
+    const got = (await repo.getMemories({ target: "memory" })).find((x) => x.id === m.id)!;
+    assert.strictEqual(got.mwFail, 1);
+    assert.strictEqual(got.mwSuccess, 0);
   });
 });
