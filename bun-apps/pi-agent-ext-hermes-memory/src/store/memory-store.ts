@@ -315,17 +315,26 @@ export class MemoryStore {
   async add(
     target: "memory" | "user" | "failure",
     content: string,
-    options?: { category?: MemoryCategory; signal?: AbortSignal; onProgress?: (message: string) => void },
+    options?: {
+      category?: MemoryCategory;
+      signal?: AbortSignal;
+      onProgress?: (message: string) => void;
+      provenance?: Provenance;
+      sources?: MemorySource[];
+    },
   ): Promise<MemoryResult> {
     const signal = options?.signal;
     const onProgress = options?.onProgress;
+    const meta = options?.provenance || options?.sources
+      ? { provenance: options?.provenance, sources: options?.sources }
+      : undefined;
     if (options?.category) {
       // Tag the entry with its category label (decoupled from the storage home,
       // per the memory model: any home may carry category labels for retrieval).
       const tagged = `[${options.category}] ${content.trim()}`;
-      return this._add(target, tagged, signal, undefined, undefined, onProgress);
+      return this._add(target, tagged, signal, undefined, undefined, onProgress, meta);
     }
-    return this._add(target, content, signal, undefined, undefined, onProgress);
+    return this._add(target, content, signal, undefined, undefined, onProgress, meta);
   }
 
   async addFailure(content: string, options: {
@@ -335,9 +344,14 @@ export class MemoryStore {
     correctedTo?: string;
     project?: string;
     onProgress?: (message: string) => void;
+    provenance?: Provenance;
+    sources?: MemorySource[];
   }): Promise<MemoryResult> {
     const failureText = this.buildFailureMemoryText(content, options);
-    return this._add("failure", failureText, undefined, 1, "Failure memory saved: " + options.category, options.onProgress);
+    const meta = options.provenance || options.sources
+      ? { provenance: options.provenance, sources: options.sources }
+      : undefined;
+    return this._add("failure", failureText, undefined, 1, "Failure memory saved: " + options.category, options.onProgress, meta);
   }
 
   /**
@@ -429,10 +443,11 @@ export class MemoryStore {
     _retriesLeft = 1,
     addedMessage = "Entry added.",
     onProgress?: (message: string) => void,
+    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null },
   ): Promise<MemoryResult> {
     // Serialize so reload-read → mutate-array → saveToDisk stays atomic.
     // runExclusive = in-process; withFileLock = cross-process (see withFileLock).
-    return this.runExclusive(() => this.withFileLock(target, () => this._addInner(target, content, signal, _retriesLeft, addedMessage, onProgress)));
+    return this.runExclusive(() => this.withFileLock(target, () => this._addInner(target, content, signal, _retriesLeft, addedMessage, onProgress, meta)));
   }
 
   private async _addInner(
@@ -442,6 +457,7 @@ export class MemoryStore {
     _retriesLeft = 1,
     addedMessage = "Entry added.",
     onProgress?: (message: string) => void,
+    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null },
   ): Promise<MemoryResult> {
     content = content.trim();
     if (!content) return { success: false, error: "Content cannot be empty." };
@@ -466,7 +482,7 @@ export class MemoryStore {
 
     // Encode metadata: both dates = today
     const today = new Date().toISOString().split("T")[0];
-    const encoded = this.encodeEntry(content, today, today);
+    const encoded = this.encodeEntry(content, today, today, meta);
 
     const newTotal = [...entries, encoded].join(ENTRY_DELIMITER).length;
     if (newTotal > limit) {
@@ -834,7 +850,7 @@ export class MemoryStore {
    * `lastReferenced` here is "last edited" (add/replace), the durable signal.
    * (SQLite's `last_referenced` separately tracks "last surfaced by search".)
    */
-  entriesWithMeta(target: "memory" | "user" | "failure"): { text: string; created: string; lastReferenced: string }[] {
+  entriesWithMeta(target: "memory" | "user" | "failure"): { text: string; created: string; lastReferenced: string; provenance?: Provenance; sources?: MemorySource[] }[] {
     return this.entriesFor(target).map((e) => this.decodeEntry(e));
   }
 
