@@ -544,3 +544,44 @@ test("filter: renders a status line with the query and match count", () => {
   assert.match(out, /filter/i);
   assert.ok(out.includes("au"), "status line shows the query");
 });
+
+// ── cap 20 most-recent + show-all (cap suspended when filtering) ──
+
+const CAP = 20;
+
+test("cap: empty filter limits completed to the 20 most-recent; footer shows the count", () => {
+  const runs = completedRuns(25);
+  const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes(`showing ${CAP} of 25`), "footer reports the cap");
+  assert.ok(out.includes("task 24"), "most-recent run (#25 → 'task 24') visible");
+  assert.ok(!out.includes("task 0"), "oldest run beyond the cap is hidden");
+});
+
+test("cap: 'a' reveals all completed runs", () => {
+  const runs = completedRuns(25);
+  const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
+  viewer.handleInput("a");
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("task 0"), "oldest run visible after show-all");
+  assert.ok(!out.includes("showing"), "no cap footer when showing all");
+});
+
+test("cap: a non-empty filter suspends the cap — all matches shown", () => {
+  // 25 runs all matching "task"
+  const runs = completedRuns(25);
+  const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
+  viewer.handleInput("t"); viewer.handleInput("a"); viewer.handleInput("s"); viewer.handleInput("k");
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("task 0"), "oldest match visible (cap suspended by filter)");
+  assert.ok(!out.includes("showing"), "no cap footer while filtering");
+});
+
+test("cap: cursor clamps to the visible (capped) set", () => {
+  const runs = completedRuns(25);
+  const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
+  // spam down past the end of the capped list
+  for (let i = 0; i < 40; i++) viewer.handleInput("\x1b[B");
+  viewer.invalidate();
+  assert.doesNotThrow(() => viewer.render(80)); // selected never exceeds entries
+});

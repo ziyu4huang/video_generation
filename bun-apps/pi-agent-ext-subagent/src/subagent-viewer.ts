@@ -20,6 +20,8 @@ import { formatAbsoluteTime, formatRelativeTime } from "./time-format.js";
 const FOLLOW_TRACE_LINES = 40;
 /** Ticks the follow view waits for a completed run to appear in the branch before the `ended` fallback. */
 const FOLLOW_FINALIZE_GRACE_TICKS = 5;
+/** Completed-run cap shown by default (most-recent). Suspended by filter or show-all. */
+const COMPLETED_CAP = 20;
 
 export interface SubagentRun {
   /** 1-based ordinal among subagent runs on this branch. */
@@ -94,6 +96,7 @@ export class SubagentViewer {
   private getRuns?: () => SubagentRun[];
   private view: "list" | "output" | "follow" = "list";
   private filter = "";
+  private showAll = false;
   private selected = 0; // unified cursor over entries() (running first, then completed)
   private outputRun?: SubagentRun; // the completed run open in `output` (decoupled from the list cursor)
   private onClose: () => void;
@@ -128,10 +131,11 @@ export class SubagentViewer {
     const matches = (agent: string | undefined, preview: string): boolean =>
       !q || (agent ?? "").toLowerCase().includes(q) || preview.toLowerCase().includes(q);
     const running = (this.getRunning?.() ?? []).filter((r) => matches(r.agent, r.taskPreview));
-    const completed = this.runs.filter((r) => matches(r.agent, r.taskPreview));
+    const allCompleted = this.runs.filter((r) => matches(r.agent, r.taskPreview));
+    const capped = !q && !this.showAll ? allCompleted.slice(-COMPLETED_CAP) : allCompleted;
     return [
       ...running.map((ref) => ({ kind: "running" as const, ref })),
-      ...completed.map((ref) => ({ kind: "completed" as const, ref })),
+      ...capped.map((ref) => ({ kind: "completed" as const, ref })),
     ];
   }
 
@@ -152,6 +156,7 @@ export class SubagentViewer {
     this.followEnded = false;
     this.finalizingTicks = 0;
     this.filter = ""; // returning to the list from follow is unfiltered
+    this.showAll = false; // re-entering the list starts capped
   }
 
   handleInput(data: string): void {
@@ -159,6 +164,7 @@ export class SubagentViewer {
       if (this.view === "list") {
         if (this.filter) {
           this.filter = ""; // first esc clears the filter, stays in list
+          this.showAll = false; // re-entering the list starts capped
           this.selected = 0;
           this.invalidate();
         } else {
@@ -175,6 +181,12 @@ export class SubagentViewer {
     // filter input
     if ((data === "\x7f" || data === "\x08") && this.filter) {
       this.filter = this.filter.slice(0, -1);
+      this.selected = 0;
+      this.invalidate();
+      return;
+    }
+    if (data === "a" && !this.filter && this.runs.length > COMPLETED_CAP) {
+      this.showAll = !this.showAll;
       this.selected = 0;
       this.invalidate();
       return;
@@ -271,6 +283,11 @@ export class SubagentViewer {
         const head = renderActivityRow(row, th, 50);
         lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`}`, width));
       }
+    }
+    const totalCompleted = this.runs.length;
+    const showing = completed.length;
+    if (!this.filter && !this.showAll && totalCompleted > COMPLETED_CAP) {
+      lines.push(truncateToWidth(`  ${th.fg("dim", `showing ${showing} of ${totalCompleted} • press 'a' to show all`)}`, width));
     }
     lines.push("");
     if (this.filter) {
