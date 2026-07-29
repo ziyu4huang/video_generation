@@ -122,9 +122,18 @@ def main() -> None:
         swift_arr = analyze(swift_out, "swift")
         python_arr = analyze(python_out, "python")
 
-        flat_s, flat_p = swift_arr.flatten(), python_arr.flatten()
-        cos = float(np.dot(flat_s, flat_p) / (np.linalg.norm(flat_s) * np.linalg.norm(flat_p) + 1e-12))
-        print(f"\n[compare_kontext_e2e] pixel cosine similarity (diagnostic, not gated): {cos:.4f}")
+        if swift_arr.shape != python_arr.shape:
+            # Diagnostic-only (see module docstring) — the pass/fail gate is
+            # each analyze() call above, already satisfied independently. A
+            # shape mismatch shouldn't happen given both invocations pass the
+            # same --width/--height, but skip the dot product rather than let
+            # np.dot raise an unguarded ValueError on mismatched 1-D lengths.
+            print(f"\n[compare_kontext_e2e] shape mismatch swift={swift_arr.shape} "
+                  f"python={python_arr.shape} — skipping cosine similarity diagnostic")
+        else:
+            flat_s, flat_p = swift_arr.flatten(), python_arr.flatten()
+            cos = float(np.dot(flat_s, flat_p) / (np.linalg.norm(flat_s) * np.linalg.norm(flat_p) + 1e-12))
+            print(f"\n[compare_kontext_e2e] pixel cosine similarity (diagnostic, not gated): {cos:.4f}")
 
     print("\n✅ both outputs are real, non-degenerate images")
 
