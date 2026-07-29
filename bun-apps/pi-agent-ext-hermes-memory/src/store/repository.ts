@@ -20,6 +20,10 @@ export interface MemoryEntry {
   lastReferenced: string;
   mwSuccess?: number;
   mwFail?: number;
+  status?: "active" | "superseded";
+  supersedes?: number | null;
+  supersededBy?: number | null;
+  parentIds?: number[];
 }
 
 export interface MemorySyncInput {
@@ -40,7 +44,7 @@ export interface MemorySyncResult { action: "inserted" | "existing"; entry: Memo
 export interface MemoryUpdateResult { matched: number; updated: number; entries: MemoryEntry[]; }
 export interface MemoryRemoveResult { matched: number; removed: number; }
 export interface MemoryRemoveOptions { target: MemoryTarget; project?: string | null; }
-export interface MemorySearchOptions { project?: string | null; target?: MemoryTarget; category?: import("../types.js").MemoryCategory; limit?: number; }
+export interface MemorySearchOptions { project?: string | null; target?: MemoryTarget; category?: import("../types.js").MemoryCategory; limit?: number; includeSuperseded?: boolean; }
 export interface MemoryListOptions { project?: string | null; target?: MemoryTarget; category?: import("../types.js").MemoryCategory; }
 export interface MemoryStats { total: number; byProject: { project: string | null; count: number }[]; byTarget: { target: string; count: number }[]; }
 
@@ -67,6 +71,7 @@ export interface MemoryRepository {
   removeMemory(id: number): Promise<boolean>;
   touchMemory(id: number): Promise<void>;
   bumpMemoryWorth(id: number, successDelta?: number, failDelta?: number): Promise<void>;
+  supersedeMemory(priorId: number, newId: number): Promise<void>;
 }
 
 export interface SessionRecord { id: string; project: string; cwd: string; startedAt: string; endedAt: string | null; messageCount: number; }
