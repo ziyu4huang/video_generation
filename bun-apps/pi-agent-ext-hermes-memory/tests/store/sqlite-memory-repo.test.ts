@@ -481,4 +481,56 @@ describe("SqliteMemoryRepository", () => {
     expect(lowIdx).toBeGreaterThanOrEqual(0);
     expect(highIdx).toBeLessThan(lowIdx); // high-worth ranks above low-worth
   });
+
+  // ---------------------------------------------------------------------------
+  // Supersession (Task 3): lineage columns on read + status filter + supersedeMemory.
+  // ---------------------------------------------------------------------------
+
+  describe("supersession (Task 3)", () => {
+    it("addMemory surfaces status='active' + null lineage (defaults via mapRow)", async () => {
+      const entry = await repo.addMemory({ content: "lineage-defaults", target: "memory" });
+      // addMemory return carries the DB-seeded defaults (mirrors mwSuccess/mwFail).
+      expect(entry.status).toBe("active");
+      expect(entry.supersedes).toBeNull();
+      expect(entry.supersededBy).toBeNull();
+      expect(entry.parentIds).toEqual([]);
+      // Read back through mapRow to confirm DB defaults round-trip identically.
+      const list = await repo.getMemories({ target: "memory" });
+      const back = list.find((m) => m.id === entry.id)!;
+      expect(back.status).toBe("active");
+      expect(back.supersedes).toBeNull();
+      expect(back.supersededBy).toBeNull();
+      expect(back.parentIds).toEqual([]);
+    });
+
+    it("supersedeMemory flips prior lineage + sets new lineage", async () => {
+      const prior = await repo.addMemory({ content: "deploy strategy alpha variant", target: "memory" });
+      const next = await repo.addMemory({ content: "deploy strategy beta variant", target: "memory" });
+      await repo.supersedeMemory(prior.id, next.id);
+
+      const all = await repo.getMemories();
+      const priorRow = all.find((m) => m.id === prior.id)!;
+      const nextRow = all.find((m) => m.id === next.id)!;
+      expect(priorRow.status).toBe("superseded");
+      expect(priorRow.supersededBy).toBe(next.id);
+      expect(nextRow.supersedes).toBe(prior.id);
+      expect(nextRow.parentIds).toEqual([prior.id]);
+    });
+
+    it("searchMemories hides superseded prior by default, surfaces with includeSuperseded", async () => {
+      const prior = await repo.addMemory({ content: "deploy strategy alpha variant", target: "memory" });
+      const next = await repo.addMemory({ content: "deploy strategy beta variant", target: "memory" });
+      await repo.supersedeMemory(prior.id, next.id);
+
+      // Default: status='active' filter hides the superseded prior.
+      const hidden = await repo.searchMemories("deploy strategy");
+      expect(hidden.some((m) => m.id === prior.id)).toBe(false);
+      expect(hidden.some((m) => m.id === next.id)).toBe(true);
+
+      // Opt-in: includeSuperseded surfaces the prior again.
+      const shown = await repo.searchMemories("deploy strategy", { includeSuperseded: true });
+      expect(shown.some((m) => m.id === prior.id)).toBe(true);
+      expect(shown.some((m) => m.id === next.id)).toBe(true);
+    });
+  });
 });
