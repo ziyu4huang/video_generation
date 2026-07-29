@@ -11,14 +11,17 @@
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
-import { type ActivityRow, fmtCost, renderActivityRow } from "./agent-row-display.js";
+import { type ActivityRow, fmtCost, renderActivityRow, shortModel } from "./agent-row-display.js";
 import type { AgentHistoryEntry, AgentUsage, InFlightSubagent, SubagentToolDetails } from "./index.js";
 import { formatHistoryLine, summarizeLatestAction } from "./index.js";
+import { formatAbsoluteTime, formatRelativeTime } from "./time-format.js";
 
 /** Tail-f window: how many recent trace lines the follow view shows. */
 const FOLLOW_TRACE_LINES = 40;
 /** Ticks the follow view waits for a completed run to appear in the branch before the `ended` fallback. */
 const FOLLOW_FINALIZE_GRACE_TICKS = 5;
+/** Completed-run cap shown by default (most-recent). Suspended by filter or show-all. */
+const COMPLETED_CAP = 20;
 
 export interface SubagentRun {
   /** 1-based ordinal among subagent runs on this branch. */
@@ -30,6 +33,8 @@ export interface SubagentRun {
   taskPreview: string;
   status: "done" | "failed" | "timedout" | "budget";
   elapsedMs: number;
+  /** Wall-clock dispatch start, epoch ms (for timestamp display); absent on legacy branch entries. */
+  startedAt?: number;
   /** Real token/cost usage, when reported. */
   usage?: AgentUsage;
   /** The full text the parent agent read (content[0].text). */
@@ -67,6 +72,7 @@ export function reconstructSubagentRuns(branch: Iterable<BranchEntry>): Subagent
       taskPreview: d?.taskPreview ?? "",
       status,
       elapsedMs: d?.elapsedMs ?? 0,
+      startedAt: d?.startedAt,
       usage: d?.usage,
       output: msg.content?.find((c) => c.type === "text")?.text ?? "",
     });
@@ -89,6 +95,8 @@ export class SubagentViewer {
   private getRunning?: () => InFlightSubagent[];
   private getRuns?: () => SubagentRun[];
   private view: "list" | "output" | "follow" = "list";
+  private filter = "";
+  private showAll = false;
   private selected = 0; // unified cursor over entries() (running first, then completed)
   private outputRun?: SubagentRun; // the completed run open in `output` (decoupled from the list cursor)
   private onClose: () => void;
@@ -115,12 +123,19 @@ export class SubagentViewer {
     this.theme = theme;
   }
 
-  /** Flat selectable list: running entries first, then completed, with a divider rendered between. */
+  /** Flat selectable list: running entries first, then completed, with a divider rendered between.
+   *  When `filter` is non-empty, both sections are narrowed to entries whose `agent`
+   *  OR `taskPreview` contains the query (case-insensitive substring). */
   private entries(): Array<{ kind: "running"; ref: InFlightSubagent } | { kind: "completed"; ref: SubagentRun }> {
-    const running = this.getRunning?.() ?? [];
+    const q = this.filter.trim().toLowerCase();
+    const matches = (agent: string | undefined, preview: string): boolean =>
+      !q || (agent ?? "").toLowerCase().includes(q) || preview.toLowerCase().includes(q);
+    const running = (this.getRunning?.() ?? []).filter((r) => matches(r.agent, r.taskPreview));
+    const allCompleted = this.runs.filter((r) => matches(r.agent, r.taskPreview));
+    const capped = !q && !this.showAll ? allCompleted.slice(-COMPLETED_CAP) : allCompleted;
     return [
       ...running.map((ref) => ({ kind: "running" as const, ref })),
-      ...this.runs.map((ref) => ({ kind: "completed" as const, ref })),
+      ...capped.map((ref) => ({ kind: "completed" as const, ref })),
     ];
   }
 
@@ -140,21 +155,49 @@ export class SubagentViewer {
     this.followedFinal = undefined;
     this.followEnded = false;
     this.finalizingTicks = 0;
+    this.filter = ""; // returning to the list from follow is unfiltered
+    this.showAll = false; // re-entering the list starts capped
   }
 
   handleInput(data: string): void {
     if (matchesKey(data, Key.escape)) {
       if (this.view === "list") {
-        this.onClose();
+        if (this.filter) {
+          this.filter = ""; // first esc clears the filter, stays in list
+          this.showAll = false; // re-entering the list starts capped
+          this.selected = 0;
+          this.invalidate();
+        } else {
+          this.onClose();
+        }
       } else {
-        // output or follow → back to list
         this.view = "list";
         this.clearFollow();
         this.invalidate();
       }
       return;
     }
-    if (this.view !== "list") return; // follow/output: no nav keys in v1
+    if (this.view !== "list") return; // follow/output: no nav/filter keys in v1
+    // filter input
+    if ((data === "\x7f" || data === "\x08") && this.filter) {
+      this.filter = this.filter.slice(0, -1);
+      this.selected = 0;
+      this.invalidate();
+      return;
+    }
+    if (data === "a" && !this.filter && this.runs.length > COMPLETED_CAP) {
+      this.showAll = !this.showAll;
+      this.selected = 0;
+      this.invalidate();
+      return;
+    }
+    if (data.length === 1 && data >= " " && data <= "~") {
+      this.filter += data;
+      this.selected = 0;
+      this.invalidate();
+      return;
+    }
+    // nav (operates on the filtered entries)
     const entries = this.entries();
     if (this.selected > entries.length - 1) this.selected = Math.max(0, entries.length - 1);
     if (matchesKey(data, Key.up) && this.selected > 0) {
@@ -227,14 +270,39 @@ export class SubagentViewer {
           status: r.status,
           actor: r.agent ?? "general-purpose",
           badge: `#${r.index}`,
-          detail: r.taskPreview,
+          model: shortModel(r.model),
+          elapsedMs: r.elapsedMs,
+          cost: r.usage?.cost,
+          // latestAction is absent for completed → detail (taskPreview) shows as the tail
+          detail: r.taskPreview
+            ? `${r.startedAt ? `${formatRelativeTime(r.startedAt)} — ` : ""}${r.taskPreview}`
+            : r.startedAt
+              ? formatRelativeTime(r.startedAt)
+              : undefined,
         };
         const head = renderActivityRow(row, th, 50);
         lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`}`, width));
       }
     }
+    const totalCompleted = this.runs.length;
+    const showing = completed.length;
+    if (!this.filter && !this.showAll && totalCompleted > COMPLETED_CAP) {
+      lines.push(
+        truncateToWidth(`  ${th.fg("dim", `showing ${showing} of ${totalCompleted} • press 'a' to show all`)}`, width),
+      );
+    }
     lines.push("");
-    lines.push(truncateToWidth(`  ${th.fg("dim", "↑↓ select • enter view/follow • esc close")}`, width));
+    if (this.filter) {
+      const n = entries.length;
+      lines.push(
+        truncateToWidth(
+          `  ${th.fg("accent", `filter:`)} "${this.filter}" — ${n} match${n === 1 ? "" : "es"} • esc clear`,
+          width,
+        ),
+      );
+    } else {
+      lines.push(truncateToWidth(`  ${th.fg("dim", "↑↓ select • enter view/follow • esc close")}`, width));
+    }
     lines.push("");
     return lines;
   }
@@ -244,9 +312,10 @@ export class SubagentViewer {
     if (!r) return [""];
     const lines: string[] = [""];
     const usageStr = r.usage && r.usage.total > 0 ? ` • $${fmtCost(r.usage.cost)} • ${r.usage.total} tok` : "";
+    const absTime = r.startedAt ? ` • ${formatAbsoluteTime(r.startedAt)}` : "";
     lines.push(
       truncateToWidth(
-        `  ${th.fg("accent", `#${r.index}`)} ${th.fg("muted", r.agent ?? "general-purpose")} ▸ ${r.model} • ${r.status} • ${(r.elapsedMs / 1000).toFixed(1)}s${usageStr}`,
+        `  ${th.fg("accent", `#${r.index}`)} ${th.fg("muted", r.agent ?? "general-purpose")} ▸ ${r.model} • ${r.status} • ${(r.elapsedMs / 1000).toFixed(1)}s${absTime}${usageStr}`,
         width,
       ),
     );
