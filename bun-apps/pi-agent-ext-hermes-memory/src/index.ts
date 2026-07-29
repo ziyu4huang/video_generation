@@ -55,7 +55,8 @@ import { registerSyncMarkdownMemoriesCommand, syncMarkdownMemories } from "./han
 import { registerSwitchBackendCommand } from "./handlers/switch-backend.js";
 import { registerPreviewContextCommand } from "./handlers/preview-context.js";
 import { loadConfig, shouldRunStartupSync } from "./config.js";
-import { detectProject, detectProjectSkills } from "./project.js";
+import { detectProject, detectProjectSkills, resolveProjectStoreDir } from "./project.js";
+import { MEMORY_FILE } from "./constants.js";
 import { buildPromptContext } from "./prompt-context.js";
 import { migrateLegacyProjectMemoryDirs } from "./project-memory-migration.js";
 import { migrateExtensionRoot } from "./extension-root-migration.js";
@@ -126,6 +127,17 @@ export default async function (pi: ExtensionAPI) {
   const store = new MemoryStore({ ...config, memoryDir: globalDir });
   const project = detectProject(config.projectsMemoryDir);
   const projectName = project.name ?? "";
+  // Project-scoped store location (ticket 04, decision 01): default in-repo
+  // <cwd>/.planning/memory/ (git-trackable); null → opt-out (legacy global);
+  // explicit string → that path. resolveProjectStoreDir is the pure resolver.
+  const projectStoreDir = resolveProjectStoreDir(config.projectMemoryDir, project, process.cwd());
+  // In-repo/explicit project memory file to backfill into the search index
+  // (ticket 02 merge). Skipped when projectMemoryDir===null (opt-out): that
+  // case resolves to the legacy global location scanProjectDirs already covers.
+  const inRepoProjectFile = config.projectMemoryDir !== null && projectStoreDir
+    ? path.join(projectStoreDir, MEMORY_FILE)
+    : null;
+  const inRepoProjectName = project.name;
   const skillStore = new SkillStore({
     globalSkillsDir: path.join(globalDir, "skills"),
     projectSkillsDir: project.memoryDir ? path.join(project.memoryDir, "skills") : null,
@@ -175,7 +187,7 @@ export default async function (pi: ExtensionAPI) {
   // freeze fix (wayfinder ticket 07). runConsolidator sets PI_HERMES_CONSOLIDATING=1.
   if (shouldRunStartupSync()) {
     try {
-      await perf.timed("startup.syncMarkdownMemories", () => syncMarkdownMemories(memoryRepo, globalDir, config.projectsMemoryDir, agentRoot));
+      await perf.timed("startup.syncMarkdownMemories", () => syncMarkdownMemories(memoryRepo, globalDir, config.projectsMemoryDir, agentRoot, inRepoProjectFile, inRepoProjectName));
     } catch {
       // Best-effort only: failed markdown backfill should not block extension startup.
     }
@@ -226,7 +238,7 @@ export default async function (pi: ExtensionAPI) {
     currentDbBackend = target;
     backendLabel = labelFor(target);
     try {
-      await syncMarkdownMemories(currentBundle.memoryRepo, globalDir, config.projectsMemoryDir, agentRoot);
+      await syncMarkdownMemories(currentBundle.memoryRepo, globalDir, config.projectsMemoryDir, agentRoot, inRepoProjectFile, inRepoProjectName);
     } catch {
       // best effort; next session_start re-syncs
     }
@@ -236,12 +248,11 @@ export default async function (pi: ExtensionAPI) {
   };
   registerSwitchBackendCommand(pi, { getCurrent: () => currentDbBackend, switchTo, labelFor });
 
-  // Detect project from cwd using shared helper
-  // Project-scoped store: ~/.pi/agent/<projectsMemoryDir>/<project_name>/
-  const projectConfig = project.memoryDir
-    ? { ...config, memoryCharLimit: config.projectCharLimit, memoryDir: project.memoryDir }
+  // Project-scoped store (ticket 04): projectStoreDir resolved above (~line 130).
+  const projectConfig = projectStoreDir
+    ? { ...config, memoryCharLimit: config.projectCharLimit, memoryDir: projectStoreDir }
     : { ...config, memoryDir: undefined };
-  const projectStore = project.memoryDir ? new MemoryStore(projectConfig) : null;
+  const projectStore = projectStoreDir ? new MemoryStore(projectConfig) : null;
 
   // ── 1. Load memory from disk on session start ──
   pi.on("session_start", async (_event, ctx) => {
@@ -362,7 +373,7 @@ export default async function (pi: ExtensionAPI) {
   registerInterviewCommand(pi, store);
   registerSwitchProjectCommand(pi, config);
   registerLearnMemoryCommand(pi);
-  registerSyncMarkdownMemoriesCommand(pi, memoryRepo, globalDir, config.projectsMemoryDir, agentRoot, () => backendLabel);
+  registerSyncMarkdownMemoriesCommand(pi, memoryRepo, globalDir, config.projectsMemoryDir, agentRoot, () => backendLabel, inRepoProjectFile, inRepoProjectName);
   registerPreviewContextCommand(pi, store, projectStore, projectName, config);
 
   // ── 10. Live session indexing ──

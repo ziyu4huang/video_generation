@@ -147,6 +147,8 @@ export async function syncMarkdownMemories(
   globalDir: string,
   projectsMemoryDir?: string,
   agentRoot = AGENT_ROOT,
+  inRepoProjectFile?: string | null,
+  inRepoProjectName?: string | null,
 ): Promise<BackfillCounters & { projectCount: number }> {
   const counters: BackfillCounters = {
     filesScanned: 0,
@@ -186,6 +188,15 @@ export async function syncMarkdownMemories(
     await importFile(project.memoryFile, 'memory', project.name);
   }
 
+  // In-repo project memory (ticket 04, decision 01/02): the project store's
+  // MEMORY.md at <cwd>/.planning/memory/ (or an explicit projectMemoryDir),
+  // tagged with the project name. Merges into the single DB alongside the
+  // global + legacy project entries. Dedup absorbs any overlap with a legacy
+  // scanProjectDirs hit.
+  if (inRepoProjectFile) {
+    await importFile(inRepoProjectFile, 'memory', inRepoProjectName ?? null);
+  }
+
   return { ...counters, projectCount: projects.length };
 }
 
@@ -196,6 +207,8 @@ export function registerSyncMarkdownMemoriesCommand(
   projectsMemoryDir: string | undefined,
   agentRoot = AGENT_ROOT,
   getLabel: () => string = () => "memory store",
+  inRepoProjectFile?: string | null,
+  inRepoProjectName?: string | null,
 ): void {
   pi.registerCommand('memory-sync-markdown', {
     description: 'Backfill Markdown memories into the active search store',
@@ -203,7 +216,7 @@ export function registerSyncMarkdownMemoriesCommand(
       ctx.ui.notify('🔄 Scanning Markdown memory files for backfill into the active store…', 'info');
 
       try {
-        const counters = await syncMarkdownMemories(memoryRepo, globalDir, projectsMemoryDir, agentRoot);
+        const counters = await syncMarkdownMemories(memoryRepo, globalDir, projectsMemoryDir, agentRoot, inRepoProjectFile, inRepoProjectName);
         const label = getLabel();
 
         let output = `\n✅ Markdown → memory store sync complete! (backend: ${label})\n\n`;
