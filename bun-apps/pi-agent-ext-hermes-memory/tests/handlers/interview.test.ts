@@ -2,7 +2,7 @@
  * Unit tests for /memory-interview command.
  */
 
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, beforeEach } from "bun:test";
 import assert from "node:assert/strict";
 import { registerInterviewCommand } from "../../src/handlers/interview.js";
 

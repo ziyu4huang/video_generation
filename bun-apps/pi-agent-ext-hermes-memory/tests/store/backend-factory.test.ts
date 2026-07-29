@@ -9,7 +9,7 @@
  * initialize, fall back to sqlite (local file, no server) so a missing
  * external service never blocks the agent from starting.
  */
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "bun:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";

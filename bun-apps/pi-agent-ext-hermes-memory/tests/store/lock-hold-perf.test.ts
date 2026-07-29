@@ -14,7 +14,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as assert from "node:assert/strict";
-import { describe, it, before, after, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeAll, afterAll, beforeEach, afterEach } from "bun:test";
 
 import { MemoryStore } from "../../src/store/memory-store.js";
 import {
@@ -63,10 +63,10 @@ function readLog(p: string): PerfRecord[] {
 }
 
 describe("MemoryStore lock-hold perf (T2)", { concurrency: 1 }, () => {
-  before(async () => {
+  beforeAll(async () => {
     MEMORY_DIR = await fs.promises.mkdtemp(path.join(os.tmpdir(), "pi-lock-hold-test-"));
   });
-  after(async () => {
+  afterAll(async () => {
     try { await fs.promises.rm(MEMORY_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
   });
   beforeEach(async () => {
