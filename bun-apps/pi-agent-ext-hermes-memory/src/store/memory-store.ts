@@ -737,6 +737,8 @@ export class MemoryStore {
     const encoded = this.encodeEntry(newContent, decoded.created, today, {
       provenance: decoded.provenance,
       sources: decoded.sources,
+      mwSuccess: decoded.mwSuccess,
+      mwFail: decoded.mwFail,
     });
 
     const testEntries = [...entries];
@@ -853,7 +855,7 @@ export class MemoryStore {
    * `lastReferenced` here is "last edited" (add/replace), the durable signal.
    * (SQLite's `last_referenced` separately tracks "last surfaced by search".)
    */
-  entriesWithMeta(target: "memory" | "user" | "failure"): { text: string; created: string; lastReferenced: string; provenance?: Provenance; sources?: MemorySource[] }[] {
+  entriesWithMeta(target: "memory" | "user" | "failure"): { text: string; created: string; lastReferenced: string; provenance?: Provenance; sources?: MemorySource[]; mwSuccess?: number; mwFail?: number; }[] {
     return this.entriesFor(target).map((e) => this.decodeEntry(e));
   }
 
@@ -867,7 +869,7 @@ export class MemoryStore {
     text: string,
     created: string,
     lastReferenced: string,
-    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null },
+    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null; mwSuccess?: number | null; mwFail?: number | null },
   ): string {
     return serializeMetadataComment({
       text,
@@ -875,6 +877,8 @@ export class MemoryStore {
       lastReferenced,
       provenance: meta?.provenance,
       sources: meta?.sources,
+      mwSuccess: meta?.mwSuccess,
+      mwFail: meta?.mwFail,
     });
   }
 
@@ -888,6 +892,8 @@ export class MemoryStore {
     lastReferenced: string;
     provenance?: Provenance;
     sources?: MemorySource[];
+    mwSuccess?: number;
+    mwFail?: number;
   } {
     return parseMetadataComment(raw);
   }

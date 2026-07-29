@@ -145,4 +145,22 @@ describe("MemoryStore metadata channel (unified encode/decode)", () => {
     assert.ok(raw.includes("updated fact"));
     assert.ok(raw.includes('"provenance":"verified"'), "provenance must survive replace");
   });
+
+  it("replace() preserves non-zero worth counters on the rewritten entry", async () => {
+    // Craft a MEMORY.md directly with non-zero worth (no trigger yet to set it via add()).
+    const memoryFile = path.join(MEMORY_DIR, "MEMORY.md");
+    await fs.promises.mkdir(MEMORY_DIR, { recursive: true });
+    await fs.promises.writeFile(
+      memoryFile,
+      'original fact <!-- created=2026-05-09, last=2026-05-10 --> <!-- meta:{"mwSuccess":4,"mwFail":1} -->',
+      "utf-8",
+    );
+    const store = makeStore();
+    await store.loadFromDisk();
+    const res = await store.replace("memory", "original fact", "updated fact");
+    assert.strictEqual(res.success, true);
+    const raw = await fs.promises.readFile(memoryFile, "utf-8");
+    assert.ok(raw.includes("updated fact"));
+    assert.ok(raw.includes('"mwSuccess":4'), "worth counters must survive replace");
+  });
 });
