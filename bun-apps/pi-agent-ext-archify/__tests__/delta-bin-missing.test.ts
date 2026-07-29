@@ -1,23 +1,16 @@
-import { describe, it, expect, mock } from "bun:test";
+import { describe, it, expect } from "bun:test";
+import { archifyDelta } from "../lib/delta.ts";
 
-mock.module("../lib/run.ts", () => ({
-  VENDORED_BIN: "/nonexistent/archify.mjs",
-  resolveVendoredBin: () => "/nonexistent/archify.mjs",
-  runArchify: async () => ({
-    stdout: "",
-    stderr:
-      "archify vendored bin not found at /nonexistent/archify.mjs; deploy may have omitted vendored/ (set PI_ARCHIFY_BIN to override).",
-    status: 1,
-  }),
-}));
-
-const { archifyDelta } = await import("../lib/delta.ts");
-
+// Uses DI (ctx.bin) — NOT mock.module — to force the "vendored bin not found"
+// pre-flight. See render-bin-missing.test.ts: Bun's mock.module is
+// process-global, so a run.ts stub leaks into sibling test files and breaks the
+// whole single-process `bun test` run. A nonexistent bin via DeltaCtx triggers
+// runArchify's REAL pre-flight guard, leak-free.
 describe("archifyDelta — missing vendored bin", () => {
   it("surfaces 'vendored bin not found' and does NOT say 'Ensure both IRs'", async () => {
     const out = await archifyDelta(
       { basePath: "/tmp/base.json", headPath: "/tmp/head.json" },
-      { cwd: "/tmp" },
+      { cwd: "/tmp", bin: "/nonexistent/archify.mjs" },
     );
     const text = (out.content?.[0] as { text?: string } | undefined)?.text ?? "";
     expect(out.isError).toBe(true);
