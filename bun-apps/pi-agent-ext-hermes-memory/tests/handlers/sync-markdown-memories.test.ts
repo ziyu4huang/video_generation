@@ -328,4 +328,46 @@ describe('memory sqlite sync + markdown backfill', () => {
     assert.strictEqual(projectRows.length, 1);
     assert.strictEqual(projectRows[0].content, 'in-repo project convention');
   });
+
+  it('search merges legacy global + in-repo project entries for the same project (ticket 05 merge pin)', async () => {
+    // Decision 02 (single DB, tag-on-index) + decision 03 (leave): a project's
+    // memory can be split across the legacy global store
+    // (~/.pi/agent/projects-memory/<project>/) and the in-repo store
+    // (.planning/memory/). Both must surface in one search — the end-to-end
+    // property of the project-memory split. Regression pin: guards against a
+    // future change that drops either source from the index.
+    const projectName = 'split-project';
+
+    // Legacy global project entry (scanned via scanProjectDirs).
+    const legacyDir = path.join(agentRoot, 'projects-memory', projectName);
+    fs.mkdirSync(legacyDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(legacyDir, 'MEMORY.md'),
+      'legacy global project entry <!-- created=2026-05-08, last=2026-05-09 -->',
+      'utf-8',
+    );
+
+    // In-repo project entry (scanned via the inRepoProjectFile param).
+    const inRepoDir = path.join(tmpDir, 'repo', '.planning', 'memory');
+    fs.mkdirSync(inRepoDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(inRepoDir, 'MEMORY.md'),
+      'in-repo project entry <!-- created=2026-05-08, last=2026-05-09 -->',
+      'utf-8',
+    );
+
+    await syncMarkdownMemories(
+      memoryRepo, globalDir, undefined, agentRoot,
+      path.join(inRepoDir, 'MEMORY.md'),
+      projectName,
+    );
+
+    // Both sources merged under the same project tag — the split works end-to-end.
+    const rows = await memoryRepo.getMemories({ project: projectName, target: 'memory' });
+    assert.strictEqual(rows.length, 2);
+    assert.deepStrictEqual(
+      rows.map((r) => r.content).sort(),
+      ['in-repo project entry', 'legacy global project entry'],
+    );
+  });
 });
