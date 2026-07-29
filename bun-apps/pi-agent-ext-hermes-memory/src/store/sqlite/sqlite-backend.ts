@@ -514,8 +514,8 @@ export class SqliteBackend implements Backend {
 
   private copyMemories(source: DatabaseLike, target: DatabaseLike): number {
     const insert = target.prepare(`
-      INSERT OR IGNORE INTO memories (id, project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR IGNORE INTO memories (id, project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, status, supersedes, superseded_by, parent_ids)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     let copied = 0;
 
@@ -532,6 +532,10 @@ export class SqliteBackend implements Backend {
       'last_referenced',
       'mw_success',
       'mw_fail',
+      'status',
+      'supersedes',
+      'superseded_by',
+      'parent_ids',
     ])) {
       const id = this.integerOr(row.id, NaN);
       if (!Number.isFinite(id) || typeof row.content !== 'string') continue;
@@ -542,6 +546,13 @@ export class SqliteBackend implements Backend {
       const lastReferenced = typeof row.last_referenced === 'string' ? row.last_referenced : created;
       const mwSuccess = this.integerOr(row.mw_success, 0);
       const mwFail = this.integerOr(row.mw_fail, 0);
+      // status defaults to 'active' when absent/invalid (legacy rows backfill);
+      // parent_ids is a JSON string carried through verbatim — the caller owns
+      // its shape, so we never parse/re-serialize it here.
+      const status = typeof row.status === 'string' ? row.status : 'active';
+      const supersedes = this.nullableInteger(row.supersedes);
+      const supersededBy = this.nullableInteger(row.superseded_by);
+      const parentIds = this.nullableString(row.parent_ids);
 
       insert.run(
         id,
@@ -556,6 +567,10 @@ export class SqliteBackend implements Backend {
         lastReferenced,
         mwSuccess,
         mwFail,
+        status,
+        supersedes,
+        supersededBy,
+        parentIds,
       );
       copied++;
     }
@@ -583,6 +598,12 @@ export class SqliteBackend implements Backend {
 
   private nullableString(value: unknown): string | null {
     return typeof value === 'string' ? value : null;
+  }
+
+  private nullableInteger(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
+    if (typeof value === 'bigint') return Number(value);
+    return null;
   }
 
   private integerOr(value: unknown, fallback: number): number {
@@ -702,6 +723,18 @@ export class SqliteBackend implements Backend {
     if (!names.has('mw_fail')) {
       db.exec('ALTER TABLE memories ADD COLUMN mw_fail INTEGER NOT NULL DEFAULT 0');
     }
+    if (!names.has('status')) {
+      db.exec("ALTER TABLE memories ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
+    }
+    if (!names.has('supersedes')) {
+      db.exec('ALTER TABLE memories ADD COLUMN supersedes INTEGER');
+    }
+    if (!names.has('superseded_by')) {
+      db.exec('ALTER TABLE memories ADD COLUMN superseded_by INTEGER');
+    }
+    if (!names.has('parent_ids')) {
+      db.exec('ALTER TABLE memories ADD COLUMN parent_ids TEXT');
+    }
   }
 
   private ensureSessionsColumns(db: DatabaseLike): void {
@@ -764,13 +797,17 @@ export class SqliteBackend implements Backend {
             created DATE NOT NULL,
             last_referenced DATE NOT NULL,
             mw_success INTEGER NOT NULL DEFAULT 0,
-            mw_fail INTEGER NOT NULL DEFAULT 0
+            mw_fail INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'active',
+            supersedes INTEGER,
+            superseded_by INTEGER,
+            parent_ids TEXT
           );
         `);
 
         db.exec(`
-          INSERT INTO memories_new (id, project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail)
-          SELECT id, project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail
+          INSERT INTO memories_new (id, project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, status, supersedes, superseded_by, parent_ids)
+          SELECT id, project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, status, supersedes, superseded_by, parent_ids
           FROM memories;
         `);
 
@@ -800,13 +837,17 @@ export class SqliteBackend implements Backend {
           created DATE NOT NULL,
           last_referenced DATE NOT NULL,
           mw_success INTEGER NOT NULL DEFAULT 0,
-          mw_fail INTEGER NOT NULL DEFAULT 0
+          mw_fail INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'active',
+          supersedes INTEGER,
+          superseded_by INTEGER,
+          parent_ids TEXT
         );
       `);
 
       db.exec(`
-          INSERT INTO memories_new (id, project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail)
-          SELECT id, project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail
+          INSERT INTO memories_new (id, project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, status, supersedes, superseded_by, parent_ids)
+          SELECT id, project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, status, supersedes, superseded_by, parent_ids
           FROM memories;
         `);
 
