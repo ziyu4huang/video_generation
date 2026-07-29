@@ -11,7 +11,7 @@ interface SearchResult {
   output?: string;
 }
 
-export function registerMemorySearchTool(pi: ExtensionAPI, memoryRepo: MemoryRepository): void {
+export function registerMemorySearchTool(pi: ExtensionAPI, memoryRepo: MemoryRepository, recallSet?: { record(id: number): void }): void {
   pi.registerTool({
     name: 'memory_search',
     label: 'Memory Search',
@@ -56,6 +56,10 @@ Returns matching memory entries with project context and dates.`,
       // store directly, not searchMemories), so this won't artificially keep entries
       // fresh. Best-effort: a touch failure must never break search.
       for (const entry of results) {
+        // Record each recalled id into the shared recall-set (Task 2 producer).
+        // Best-effort: a record failure must never break search (Set.add won't
+        // throw in practice, but keep it consistent with the touch's try/catch).
+        try { recallSet?.record(entry.id); } catch { /* best-effort */ }
         try { await memoryRepo.touchMemory(entry.id); } catch { /* best-effort */ }
       }
 

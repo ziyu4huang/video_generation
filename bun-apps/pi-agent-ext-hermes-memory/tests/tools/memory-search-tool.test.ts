@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import { SqliteBackend } from '../../src/store/sqlite/sqlite-backend.js';
 import { SqliteMemoryRepository } from '../../src/store/sqlite/sqlite-memory-repo.js';
 import { registerMemorySearchTool } from '../../src/tools/memory-search-tool.js';
+import { RecallSet } from '../../src/handlers/worth-scoring.js';
 
 let ROOT_DIR = '';
 let backend: SqliteBackend | null = null;
@@ -66,5 +67,22 @@ describe('registerMemorySearchTool', () => {
     const todayStr = new Date().toISOString().split('T')[0];
     assert.strictEqual(row.last_referenced, todayStr, 'search bumped last_referenced to today');
     assert.strictEqual(row.created, old, 'created is preserved (not mutated by touch)');
+  });
+
+  it('records recalled ids into the recall-set (memory_search → worth producer wiring)', async () => {
+    const memoryRepo = makeRepo();
+    await memoryRepo.addMemory({ content: "user's name is Naruto", target: 'user' });
+    const recallSet = new RecallSet();
+
+    let captured: any;
+    const mockPi = { registerTool: (def: any) => { captured = def; } } as any;
+    registerMemorySearchTool(mockPi, memoryRepo, recallSet);
+
+    await captured.execute('tc-recall', { query: 'name identity Naruto', target: 'user' });
+
+    // The recalled entry's id must be recorded into the shared recall-set so
+    // setupWorthScoring can later bump its mw_success/mw_fail at turn_end.
+    const drained = recallSet.drain();
+    assert.ok(drained.length > 0, 'at least the recalled entry was recorded');
   });
 });
