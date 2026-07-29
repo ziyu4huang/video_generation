@@ -499,7 +499,15 @@ export class SqliteMemoryRepository implements MemoryRepository {
 
       const neighbors = this.fetchGraphNeighbors(lexicalResults, { project, target, category });
       if (neighbors.length === 0) {
-        return lexicalResults.slice(0, limit);
+        // Close the no-neighbor fast path: route single-match / no-shared-
+        // neighbor searches through the shared ranker so the worth multiplier
+        // applies (instead of raw last_referenced DESC). Neighbors stay empty
+        // here — the ranker simply re-orders the lexical set by recency + worth.
+        return rankMemoryEntries({
+          candidates: lexicalResults,
+          lexicalMatchIds: new Set(lexicalResults.map((m) => m.id)),
+          limit,
+        });
       }
 
       return rankMemoryEntries({

@@ -459,4 +459,26 @@ describe("SqliteMemoryRepository", () => {
     const found = list.find((m) => m.id === ins.entry.id)!;
     expect(found.mwSuccess).toBe(3);
   });
+
+  it("no-neighbor search applies the worth multiplier (fast-path closed)", async () => {
+    // Two query-matching entries in DIFFERENT projects (no shared graph
+    // neighbor) → the no-neighbor fast path. NOTE: `low` is inserted FIRST so
+    // it has the lower rowid; because last_referenced is day-granular (both
+    // land on today), the raw `last_referenced DESC` fast path ties and
+    // resolves rowid-asc → [low, high]. Closing the fast path routes through
+    // rankMemoryEntries, whose worth multiplier must flip the order →
+    // [high, low]. (The brief's literal insertion order happened to coincide
+    // with the worth order on the tie, so it could not distinguish the two
+    // paths — hence the swap.)
+    const low = await repo.addMemory({ content: "deploy via bun y", target: "memory", project: "p-low" });
+    const high = await repo.addMemory({ content: "deploy via bun x", target: "memory", project: "p-high" });
+    await repo.bumpMemoryWorth(high.id, 8, 0); // boost high (success-heavy)
+    await repo.bumpMemoryWorth(low.id, 0, 8); // sink low (fail-heavy)
+    const hits = await repo.searchMemories("deploy bun", { limit: 10 });
+    const highIdx = hits.findIndex((h) => h.id === high.id);
+    const lowIdx = hits.findIndex((h) => h.id === low.id);
+    expect(highIdx).toBeGreaterThanOrEqual(0);
+    expect(lowIdx).toBeGreaterThanOrEqual(0);
+    expect(highIdx).toBeLessThan(lowIdx); // high-worth ranks above low-worth
+  });
 });
