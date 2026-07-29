@@ -78,6 +78,8 @@ export interface MemoryConfig {
   /** Auto-capture lesson-worthy tool errors (stack traces, definitive
    *  failures) to the failure store without an agent memory call. Default: true */
   errorCapture?: boolean;
+  /** Increment memory-worth counters on session outcome (correction→fail, else→success). Default: true */
+  worthScoring?: boolean;
   /** Per-session errorCapture rate limit (0 = unlimited). #854 */
   errorCaptureRateLimit?: number;
   /** errorCapture sliding-window length in ms. #854 */
