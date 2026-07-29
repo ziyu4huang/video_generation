@@ -30,6 +30,8 @@ export interface SubagentRun {
   taskPreview: string;
   status: "done" | "failed" | "timedout" | "budget";
   elapsedMs: number;
+  /** Wall-clock dispatch start, epoch ms (for timestamp display); absent on legacy branch entries. */
+  startedAt?: number;
   /** Real token/cost usage, when reported. */
   usage?: AgentUsage;
   /** The full text the parent agent read (content[0].text). */
@@ -67,6 +69,7 @@ export function reconstructSubagentRuns(branch: Iterable<BranchEntry>): Subagent
       taskPreview: d?.taskPreview ?? "",
       status,
       elapsedMs: d?.elapsedMs ?? 0,
+      startedAt: d?.startedAt,
       usage: d?.usage,
       output: msg.content?.find((c) => c.type === "text")?.text ?? "",
     });

@@ -43,6 +43,8 @@ export interface SubagentToolDetails {
   taskPreview: string;
   /** Wall-clock of the run, ms. */
   elapsedMs: number;
+  /** Wall-clock dispatch start, epoch ms — for /subagents timestamp display. */
+  startedAt?: number;
   status: "done" | "failed" | "timedout" | "budget";
   /** Real token/cost usage from the child session, when reported. */
   usage?: AgentUsage;
@@ -458,6 +460,7 @@ export function createSubagentTool(
           model: params.model ?? "default",
           taskPreview: taskPreview(params.task),
           elapsedMs: Date.now() - t0,
+          startedAt: t0,
           status: "failed",
         },
       });
@@ -638,6 +641,7 @@ export function createSubagentTool(
           model,
           taskPreview: taskPreview(params.task),
           elapsedMs,
+          startedAt: t0,
           status: deriveSubagentStatus(result),
           usage: result.usage,
           budget: result.budget,

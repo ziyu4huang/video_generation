@@ -393,3 +393,28 @@ test("follow never throws if getRuns throws (best-effort fallback)", () => {
   });
   assert.ok(out.includes("ended") || out.includes("finalizing"), "lands on a safe banner, no crash");
 });
+
+test("reconstructSubagentRuns carries startedAt through from details", () => {
+  const branch = [
+    toolResultEntry("subagent", "report A", {
+      exitCode: 0,
+      timedOut: false,
+      agent: "implementer",
+      model: "x/flash",
+      taskPreview: "task A",
+      elapsedMs: 1000,
+      status: "done",
+      startedAt: 1_700_000_000_000,
+    } as Partial<SubagentToolDetails>),
+  ];
+  const runs = reconstructSubagentRuns(branch as never);
+  assert.equal(runs[0].startedAt, 1_700_000_000_000);
+});
+
+test("reconstructSubagentRuns leaves startedAt undefined when details omit it (legacy)", () => {
+  const branch = [
+    toolResultEntry("subagent", "legacy", { exitCode: 0, timedOut: false } as Partial<SubagentToolDetails>),
+  ];
+  const runs = reconstructSubagentRuns(branch as never);
+  assert.equal(runs[0].startedAt, undefined);
+});
