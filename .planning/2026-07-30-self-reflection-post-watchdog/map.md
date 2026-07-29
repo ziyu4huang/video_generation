@@ -57,16 +57,16 @@ the config-parity guard (#928) is a guard for **this** axis.
 
 ## Candidate tickets
 
-- [01 — Test-hermeticity guard](tickets/01-test-hermeticity-guard.md) — **ADOPT
-  (resolved 2026-07-30).** Extend `scripts/test-portability-audit.sh` with a new
-  **P5** class (CALL-based: `loadModelTierConfig(`/`getModelTierConfigPath(`/
-  `loadConfig(`/`os.homedir(`), reusing `GUARD_RE` + added hermeticity signals
-  (`loadConfig:` param seam, `mockCfg`/`cfgPath`, `mkdtempSync`/`tmpdir(`/
-  `process.env.HOME`). **Strict from start** (fix the ~1-2 real UNGATED hits —
-  `workflow-pack-id.test.ts` + verify `model-role-config.test.ts` — in the same
-  PR; config-parity #928 precedent). Direct strike on the failure class that
-  sank the watchdog tests + the hermes/archify cluster. Hands off to a build
-  session.
+- [01 — Test-hermeticity guard](tickets/01-test-hermeticity-guard.md) — **ADOPT,
+  BUILT + MERGED (resolved 2026-07-30, #946 `fa0f7c98`).** Extended
+  `scripts/test-portability-audit.sh` with a **P5** class. **Refined from the
+  spec**: the build triage found `loadConfig(`/`os.homedir(` too noisy on current
+  main (name collision with workflow's local `loadConfig` helper + benign
+  path-construction in hermes tests) — P5 was NARROWED to the exact failure class
+  (`loadModelTierConfig(`/`getModelTierConfigPath(` only), CALL-based, with a
+  P5-specific hermeticity guard regex (tmpdir/mkdtemp/cfgPath seam) that does NOT
+  touch the shared P1-P4 `GUARD_RE`. **Strict from start; shipped clean**: 11
+  GUARDED / 0 UNGATED; canary-proven (a bare loader call blocks under `--strict`).
 - [02 — `extensionTools` child-seam verification](tickets/02-extensiontools-seam.md) —
   **CLOSED by research (not a bug).** `pi-subagents-lite` 1.5.1 fixed
   `createAgentSession({tools})` silently dropping extension tools. Our `agent.ts`
@@ -80,43 +80,58 @@ the config-parity guard (#928) is a guard for **this** axis.
   explicit context-file handling (children inherit the SDK default). No evidence
   of a stale-context failure in our memory or recent commits. Park unless a
   symptom appears.
-- [04 — Planner read-only](tickets/04-planner-readonly.md) — **EVAL.**
-  `pi-subagents` 0.37.1 marked its bundled planner read-only (no repo write tools)
-  so planning-only runs cannot modify project files. Our wayfind planning runs
-  inside the interactive session (not a detached planning agent), so the threat
-  model differs — but a `commitScope:[]`-equivalent default for pure-research
-  dispatches is worth evaluating. Medium signal.
+- [04 — Planner read-only](tickets/04-planner-readonly.md) — **DEMOTE
+  (resolved 2026-07-30).** The superpowers dispatch directive already covers the
+  read-only mode advisory (`commitScope:[]` for read-only subagents; `tools`
+  param accepts `['read','grep','find','ls']`). `commitScope` is detection-only
+  (flags, never blocks) — the real read-only protection is the tool set, which
+  is already available. **No observed symptom** of a research dispatch modifying
+  files (the recurring `git add -A` sweep pain is implementer-side). Low marginal
+  value over the existing advisory. Park unless a symptom appears.
 - [05 — Watchdog `gateOn` (advisory → optional hard-gate)](tickets/05-watchdog-gateon.md) —
-  **EVAL.** The watchdog shipped ADVISORY (07-29 brainstorm deliberately chose
-  soft-gate). `pi-subagents` 0.36.0 `agentContract:{version:1}` + `gateOn` chain
-  controls make review findings *actionable* (block on high-severity). Natural
-  evolution: an opt-in `watchdog:{l2:true, gate:"blocker"}` that fails the run
-  on `severity:blocker` L2 findings. Bigger design question; revisit after
-  dogfooding the advisory watchdog produces signal on whether a hard gate is
-  wanted. Medium signal.
+  **DEMOTE (resolved 2026-07-30; premature).** Grilling surfaced a prerequisite
+  gap: the advisory watchdog is **not reachable from in-session dispatches** —
+  the agent-facing `subagent` tool schema omits `watchdog` (defaults off), even
+  though the runtime schema (`subagent-tool.ts:115`) + the #941 enablement
+  directive include it. The code is correct (no harness-side override; recent
+  build), so this is most likely a **stale-session / schema-cache** issue, not a
+  code gap — a fresh session should expose it. Either way there is **zero
+  dogfooding signal**, so designing a hard-gate (`gateOn`) now is putting the
+  cart before the horse. **Revisit after**: (a) confirm the advisory watchdog is
+  reachable in a fresh session, (b) accumulate dogfooding signal on whether an
+  advisory gate is even wanted before making it block. (See tool-quirk memory:
+  `watchdog` param gap.)
 - [06 — Handoff manifests for parallel runs](tickets/06-handoff-manifests.md) —
-  **EVAL / likely out-of-scope.** `pi-subagents` 0.36.0 versioned aggregate
-  handoff manifests for worktree-isolated parallel runs (per-child status +
-  output refs + patch metadata). Our parallel path is the `workflow` tool's
-  `parallel()` (in-process, not worktree-isolated). The `run record` persistence
-  already covers per-child status. Likely out-of-scope unless we add worktree
-  isolation. Low signal.
+  **CLOSE / out-of-scope (resolved 2026-07-30).** Our parallel path is the
+  `workflow` tool's `parallel()` (in-process, not worktree-isolated); the run
+  record persistence already covers per-child status. `pi-subagents` 0.36.0's
+  versioned aggregate manifests solve a **worktree-isolation** problem our
+  architecture does not have — different model, not our gap. Revisit only if we
+  adopt worktree-isolated parallel runs.
 
 ## Decisions so far
 
-- [01 test-hermeticity guard] — **ADOPT.** Extend the test-portability audit
-  (new P5 class, call-based, strict from start). Spec in `tickets/01-...md`.
-  Hands off to a build session.
+- [01 test-hermeticity guard] — **ADOPT → BUILT + MERGED** (#946 `fa0f7c98`).
+  P5 class shipped; spec refined (loadConfig/os.homedir excluded as too noisy).
 - [02 extensionTools seam] — **CLOSED by research (not a bug).** We already pass
   extension tools explicitly via `extensionTools?` (agent.ts:213); the 1.5.1
   allowlist-expansion fix is a different solution to the same gap.
 - [03 context-files] — **DEMOTE.** No symptom; park.
+- [04 planner read-only] — **DEMOTE.** Advisory (directive + tools param)
+  already covers read-only; no symptom of research-dispatch file modification.
+- [05 watchdog gateOn] — **DEMOTE (premature).** Advisory watchdog not yet
+  reachable in-session (stale-schema, not a code gap) → zero dogfooding signal.
+  Revisit after reachability confirmed + signal accumulated.
+- [06 handoff manifests] — **CLOSE / out-of-scope.** In-process parallel +
+  run-record coverage; manifests solve a worktree-isolation problem we lack.
+
+**All six candidate tickets resolved — frontier empty.** No adoption this round
+(04/05/06 all DEMOTE/CLOSE; 01 was the round's single adoption, already built).
 
 ## Not yet specified
 
-- [01] resolved (ADOPT, build-session execution details remain: exact P5 regex
-  tokens, final guard-signal list, the `model-role-config.test.ts` triage).
-- [04], [05], [06] — pending available session budget (not yet grilled).
+None. Every candidate ticket is closed (adopt-spec or out-of-scope). The
+frontier is empty; this map is complete.
 
 ## Skills every session should consult
 
@@ -132,4 +147,7 @@ build session). One HITL adoption ticket per session (research tickets exempt).
 ## Fact freshness
 
 Charted on `planning/2026-07-30-self-reflection-post-watchdog` @ `origin/main`
-(`0a4a93ec`, 2026-07-30).
+(`0a4a93ec`, 2026-07-30). 04/05/06 grilled + resolved 2026-07-30 (post-#946
+merge, `fa0f7c98`). Watchdog-reachability fact (ticket 05) verified against
+`subagent-tool.ts:115` + `extensions/subagent.ts:50` (no harness-side override;
+recent dist build) — points to stale-session schema cache, not a code gap.
