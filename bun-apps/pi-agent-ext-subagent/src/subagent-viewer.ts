@@ -93,6 +93,7 @@ export class SubagentViewer {
   private getRunning?: () => InFlightSubagent[];
   private getRuns?: () => SubagentRun[];
   private view: "list" | "output" | "follow" = "list";
+  private filter = "";
   private selected = 0; // unified cursor over entries() (running first, then completed)
   private outputRun?: SubagentRun; // the completed run open in `output` (decoupled from the list cursor)
   private onClose: () => void;
@@ -119,12 +120,18 @@ export class SubagentViewer {
     this.theme = theme;
   }
 
-  /** Flat selectable list: running entries first, then completed, with a divider rendered between. */
+  /** Flat selectable list: running entries first, then completed, with a divider rendered between.
+   *  When `filter` is non-empty, both sections are narrowed to entries whose `agent`
+   *  OR `taskPreview` contains the query (case-insensitive substring). */
   private entries(): Array<{ kind: "running"; ref: InFlightSubagent } | { kind: "completed"; ref: SubagentRun }> {
-    const running = this.getRunning?.() ?? [];
+    const q = this.filter.trim().toLowerCase();
+    const matches = (agent: string | undefined, preview: string): boolean =>
+      !q || (agent ?? "").toLowerCase().includes(q) || preview.toLowerCase().includes(q);
+    const running = (this.getRunning?.() ?? []).filter((r) => matches(r.agent, r.taskPreview));
+    const completed = this.runs.filter((r) => matches(r.agent, r.taskPreview));
     return [
       ...running.map((ref) => ({ kind: "running" as const, ref })),
-      ...this.runs.map((ref) => ({ kind: "completed" as const, ref })),
+      ...completed.map((ref) => ({ kind: "completed" as const, ref })),
     ];
   }
 
@@ -144,21 +151,41 @@ export class SubagentViewer {
     this.followedFinal = undefined;
     this.followEnded = false;
     this.finalizingTicks = 0;
+    this.filter = ""; // returning to the list from follow is unfiltered
   }
 
   handleInput(data: string): void {
     if (matchesKey(data, Key.escape)) {
       if (this.view === "list") {
-        this.onClose();
+        if (this.filter) {
+          this.filter = ""; // first esc clears the filter, stays in list
+          this.selected = 0;
+          this.invalidate();
+        } else {
+          this.onClose();
+        }
       } else {
-        // output or follow → back to list
         this.view = "list";
         this.clearFollow();
         this.invalidate();
       }
       return;
     }
-    if (this.view !== "list") return; // follow/output: no nav keys in v1
+    if (this.view !== "list") return; // follow/output: no nav/filter keys in v1
+    // filter input
+    if ((data === "\x7f" || data === "\x08") && this.filter) {
+      this.filter = this.filter.slice(0, -1);
+      this.selected = 0;
+      this.invalidate();
+      return;
+    }
+    if (data.length === 1 && data >= " " && data <= "~") {
+      this.filter += data;
+      this.selected = 0;
+      this.invalidate();
+      return;
+    }
+    // nav (operates on the filtered entries)
     const entries = this.entries();
     if (this.selected > entries.length - 1) this.selected = Math.max(0, entries.length - 1);
     if (matchesKey(data, Key.up) && this.selected > 0) {
@@ -246,7 +273,12 @@ export class SubagentViewer {
       }
     }
     lines.push("");
-    lines.push(truncateToWidth(`  ${th.fg("dim", "↑↓ select • enter view/follow • esc close")}`, width));
+    if (this.filter) {
+      const n = entries.length;
+      lines.push(truncateToWidth(`  ${th.fg("accent", `filter:`)} "${this.filter}" — ${n} match${n === 1 ? "" : "es"} • esc clear`, width));
+    } else {
+      lines.push(truncateToWidth(`  ${th.fg("dim", "↑↓ select • enter view/follow • esc close")}`, width));
+    }
     lines.push("");
     return lines;
   }

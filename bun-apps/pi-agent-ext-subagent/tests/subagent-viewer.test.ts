@@ -471,3 +471,76 @@ test("viewer completed row degrades gracefully when startedAt/model/cost are abs
   assert.ok(!out.includes("undefined"), "no undefined leaks");
   assert.ok(out.includes("default"), "falls back to the default model label");
 });
+
+// ── inline fzf-style filter (taskPreview + agent) ──
+
+function completedRuns(n: number, agent = "implementer", preview = "task") {
+  return reconstructSubagentRuns(
+    Array.from({ length: n }, (_, i) =>
+      toolResultEntry("subagent", `report ${i}`, {
+        exitCode: 0,
+        timedOut: false,
+        agent,
+        model: "x/flash",
+        taskPreview: `${preview} ${i}`,
+        elapsedMs: 1000,
+        status: "done",
+      } as Partial<SubagentToolDetails>),
+    ) as never,
+  );
+}
+
+test("filter: typing narrows the list to matches; non-matches hidden", () => {
+  const runs = [
+    ...completedRuns(1, "implementer", "auth"),
+    ...completedRuns(1, "reviewer", "search"),
+  ];
+  const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
+  viewer.handleInput("a"); viewer.handleInput("u"); viewer.handleInput("t"); viewer.handleInput("h");
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("auth 0"), "auth run matches");
+  assert.ok(!out.includes("search"), "non-match hidden");
+});
+
+test("filter: matches the agent label too (case-insensitive)", () => {
+  const runs = [
+    ...completedRuns(1, "implementer", "auth"),
+    ...completedRuns(1, "Reviewer", "search"),
+  ];
+  const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
+  viewer.handleInput("r"); viewer.handleInput("e"); viewer.handleInput("v");
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("search"), "matched via agent label Reviewer");
+  assert.ok(!out.includes("auth 0"), "non-match hidden");
+});
+
+test("filter: backspace widens the list", () => {
+  const runs = [...completedRuns(1, "implementer", "auth"), ...completedRuns(1, "reviewer", "search")];
+  const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
+  viewer.handleInput("a"); viewer.handleInput("u");
+  viewer.handleInput("\x7f"); // backspace
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("search"), "back to full list after backspace");
+});
+
+test("filter: esc clears the filter (first esc) then closes (second esc)", () => {
+  let closed = false;
+  const runs = [...completedRuns(1, "implementer", "auth")];
+  const viewer = new SubagentViewer({ runs, onClose: () => { closed = true; } }, T);
+  viewer.handleInput("a");
+  viewer.handleInput("\x1b"); // first esc → clear filter, NOT close
+  assert.equal(closed, false);
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("auth 0"), "filter cleared, run visible again");
+  viewer.handleInput("\x1b"); // second esc (filter empty) → close
+  assert.equal(closed, true);
+});
+
+test("filter: renders a status line with the query and match count", () => {
+  const runs = [...completedRuns(1, "implementer", "auth")];
+  const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
+  viewer.handleInput("a"); viewer.handleInput("u");
+  const out = viewer.render(80).join("\n");
+  assert.match(out, /filter/i);
+  assert.ok(out.includes("au"), "status line shows the query");
+});
