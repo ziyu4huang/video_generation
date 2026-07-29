@@ -1,7 +1,7 @@
 /**
  * Unit tests for memory tool registration and execute function.
  */
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "bun:test";
 import * as assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";

@@ -7,7 +7,7 @@
  *      is suppressed.
  *   2. DEDUP — a repeated error does not spawn N duplicate rows.
  */
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "bun:test";
 import * as assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";

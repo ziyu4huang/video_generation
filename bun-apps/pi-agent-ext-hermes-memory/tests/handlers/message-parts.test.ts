@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "bun:test";
 import assert from "node:assert";
 import { collectMessageParts, collectSubagentOutputs } from "../../src/handlers/message-parts.js";
 
