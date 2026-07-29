@@ -22,6 +22,7 @@ import type { AgentHistoryEntry } from "./agent-history.js";
 import type { SubagentScopeCheck } from "./git-scope.js";
 import { homeDir } from "./home.js";
 import type { SddReport } from "./sdd-report.js";
+import type { WatchdogResult } from "./watchdog/types.js";
 
 export const SUBAGENT_HOME_RELATIVE_DIR = ".pi/subagents";
 export const SUBAGENT_RUNS_SUBDIR = "runs";
@@ -68,6 +69,8 @@ export interface SubagentRunRecord {
   scopeCheck?: SubagentScopeCheck;
   /** Set when the run was aborted for exceeding tokenBudget/spendBudget. */
   budget?: BudgetExhaustion;
+  /** Two-layer watchdog review (ticket 02), when `watchdog` was requested on the dispatch. */
+  watchdog?: WatchdogResult;
 }
 
 export type SubagentFsLayer = {

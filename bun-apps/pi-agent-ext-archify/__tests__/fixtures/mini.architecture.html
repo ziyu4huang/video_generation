@@ -5730,7 +5730,7 @@
               toast('Downloaded Share Card');
             })
           : format === 'svg'
-          ? Promise.resolve(serializeSvg(1, { autoTheme: true })).then(function (d) {
+          ? Promise.resolve(serializeSvg(1)).then(function (d) {
               var blob = new Blob([d.svgString], { type: 'image/svg+xml;charset=utf-8' });
               recordExportReceipt('svg', blob, d.canonicalStateClean);
               download(blob, base + '.svg');

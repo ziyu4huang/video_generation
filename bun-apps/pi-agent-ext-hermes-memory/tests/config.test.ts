@@ -1,4 +1,4 @@
-import { describe, it, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "bun:test";
 import assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -9,7 +9,22 @@ import { derivePerUserNamespace } from "../src/store/surreal/per-user-db.js";
 
 const TEST_CONFIG_PATH = path.join(os.tmpdir(), `hermes-memory-config-test-${process.pid}.json`);
 
+// loadConfig reads PI_HERMES_CONSOLIDATING (=1 forces vault-offload for the
+// consolidation child). The characterization tests below assume it is UNSET,
+// but the agent harness exports it when running tests inside a live session,
+// silently flipping defaults to vault-offload and breaking them. Snapshot +
+// delete it before each test so this file is hermetic to that external env.
+const CONSOLIDATING_ENV = "PI_HERMES_CONSOLIDATING";
+let savedConsolidatingEnv: string | undefined;
+
+beforeEach(() => {
+  savedConsolidatingEnv = process.env[CONSOLIDATING_ENV];
+  delete process.env[CONSOLIDATING_ENV];
+});
+
 afterEach(() => {
+  if (savedConsolidatingEnv === undefined) delete process.env[CONSOLIDATING_ENV];
+  else process.env[CONSOLIDATING_ENV] = savedConsolidatingEnv;
   fs.rmSync(TEST_CONFIG_PATH, { force: true });
 });
 
@@ -70,6 +85,10 @@ describe("loadConfig", () => {
       projectsMemoryDir: "my-memory",
       llmModelOverride: " openrouter/deepseek/deepseek-v4-flash ",
       llmThinkingOverride: "minimal",
+      failureCharLimit: 50000,
+      lockAcquireRetries: 50,
+      lockOpRetries: 7,
+      lockOpBackoffMs: 1500,
     }));
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.memoryMode, "legacy-inject");
@@ -85,6 +104,13 @@ describe("loadConfig", () => {
     assert.strictEqual(config.projectsMemoryDir, "my-memory");
     assert.strictEqual(config.llmModelOverride, "openrouter/deepseek/deepseek-v4-flash");
     assert.strictEqual(config.llmThinkingOverride, "minimal");
+    // Previously silently-dropped fields (ticket 03 / config-parity guard):
+    // a config-file value must now actually propagate, not fall through to the
+    // consumer's `config.X ?? envOrDefault()` fallback.
+    assert.strictEqual(config.failureCharLimit, 50000);
+    assert.strictEqual(config.lockAcquireRetries, 50);
+    assert.strictEqual(config.lockOpRetries, 7);
+    assert.strictEqual(config.lockOpBackoffMs, 1500);
     // Unset values use defaults
     assert.strictEqual(config.userCharLimit, 10000);
     assert.strictEqual(config.reviewEnabled, true);

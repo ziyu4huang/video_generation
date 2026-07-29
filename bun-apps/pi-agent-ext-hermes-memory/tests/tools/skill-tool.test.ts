@@ -2,7 +2,7 @@
  * Unit tests for skill tool registration and execute function.
  */
 
-import { describe, it } from "node:test";
+import { describe, it } from "bun:test";
 import * as assert from "node:assert/strict";
 import { registerSkillTool, SKILL_MANAGE_TOOL_NAME } from "../../src/tools/skill-tool.js";
 import { SkillStore } from "../../src/store/skill-store.js";

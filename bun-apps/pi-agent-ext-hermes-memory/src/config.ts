@@ -195,6 +195,7 @@ export function loadConfig(configPath?: string): MemoryConfig {
       if (typeof parsed.failureInjectionMaxEntries === "number") config.failureInjectionMaxEntries = parsed.failureInjectionMaxEntries;
       if (typeof parsed.nudgeToolCalls === "number") config.nudgeToolCalls = parsed.nudgeToolCalls;
       if (typeof parsed.projectCharLimit === "number") config.projectCharLimit = parsed.projectCharLimit;
+      if (typeof parsed.failureCharLimit === "number") config.failureCharLimit = parsed.failureCharLimit;
       if (typeof parsed.memoryDir === "string") {
         const normalizedMemoryDir = normalizeConfiguredMemoryDir(parsed.memoryDir);
         if (normalizedMemoryDir) config.memoryDir = normalizedMemoryDir;
@@ -202,6 +203,14 @@ export function loadConfig(configPath?: string): MemoryConfig {
       if (typeof parsed.projectsMemoryDir === "string") {
         const normalizedProjectsMemoryDir = normalizeProjectsMemoryDir(parsed.projectsMemoryDir);
         if (normalizedProjectsMemoryDir) config.projectsMemoryDir = normalizedProjectsMemoryDir;
+      }
+      // ticket 04 (decision 01): project memory source-of-truth location.
+      // null → opt-out (legacy global); string → that path (resolved cwd-relative
+      // later by resolveProjectStoreDir); absent → default <cwd>/.planning/memory/.
+      if (parsed.projectMemoryDir === null) config.projectMemoryDir = null;
+      else if (typeof parsed.projectMemoryDir === "string") {
+        const trimmed = parsed.projectMemoryDir.trim();
+        if (trimmed) config.projectMemoryDir = trimmed;
       }
       if (
         typeof parsed.sessionSearch === "object" &&
@@ -211,6 +220,9 @@ export function loadConfig(configPath?: string): MemoryConfig {
         config.sessionSearch = { variant: parsed.sessionSearch.variant };
       }
       if (isDbBackend(parsed.dbBackend)) config.dbBackend = parsed.dbBackend;
+      if (typeof parsed.lockAcquireRetries === "number") config.lockAcquireRetries = parsed.lockAcquireRetries;
+      if (typeof parsed.lockOpRetries === "number") config.lockOpRetries = parsed.lockOpRetries;
+      if (typeof parsed.lockOpBackoffMs === "number") config.lockOpBackoffMs = parsed.lockOpBackoffMs;
       if (typeof parsed.surreal === "object" && parsed.surreal !== null) {
         const s = parsed.surreal as Record<string, unknown>;
         const surreal: Record<string, string> = {};

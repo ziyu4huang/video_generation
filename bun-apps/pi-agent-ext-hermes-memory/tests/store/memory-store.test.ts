@@ -11,7 +11,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as assert from "node:assert/strict";
-import { describe, it, before, after, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeAll, afterAll, beforeEach, afterEach } from "bun:test";
 
 
 import { MemoryStore } from "../../src/store/memory-store.js";
@@ -90,14 +90,14 @@ describe("MemoryStore", { concurrency: 1 }, () => {
   let userPath = "";
   let failurePath = "";
 
-  before(async () => {
+  beforeAll(async () => {
     MEMORY_DIR = await fs.mkdtemp(path.join(os.tmpdir(), "pi-memory-test-"));
     memoryPath = path.join(MEMORY_DIR, MEMORY_FILE);
     userPath = path.join(MEMORY_DIR, USER_FILE);
     failurePath = path.join(MEMORY_DIR, "failures.md");
   });
 
-  after(async () => {
+  afterAll(async () => {
     // Clean up temp directory
     try {
       await fs.rm(MEMORY_DIR, { recursive: true, force: true });
@@ -114,6 +114,13 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     await removeFile(memoryPath);
     await removeFile(userPath);
     await removeFile(failurePath);
+    // Defensive: also clear residual proper-lockfile lock dirs (`<path>.lock`)
+    // a crashed/interrupted test may have left. cleanSlate only removed the
+    // .md; a stale lock would ELOCKED the next test's cross-process acquisition
+    // and cascade (the add errors out before the lock-hold wrap fires). Best-effort.
+    for (const p of [memoryPath, userPath, failurePath]) {
+      try { await fs.rm(`${p}.lock`, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
   }
 
   beforeEach(async () => {

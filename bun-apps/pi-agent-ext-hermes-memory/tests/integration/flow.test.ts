@@ -11,7 +11,7 @@
  *
  * This file tests cross-module contracts that don't touch the real host.
  */
-import { describe, it, before, after } from "node:test";
+import { describe, it, beforeAll, afterAll } from "bun:test";
 import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -25,12 +25,12 @@ import { ENTRY_DELIMITER, MEMORY_FILE, USER_FILE, DEFAULT_MEMORY_CHAR_LIMIT, DEF
 
 let tmpAgentRoot = "";
 
-before(() => {
+beforeAll(() => {
 	tmpAgentRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-flow-test-"));
 	__setAgentRootForTest(tmpAgentRoot);
 });
 
-after(() => {
+afterAll(() => {
 	__setAgentRootForTest(null);
 	fs.rmSync(tmpAgentRoot, { recursive: true, force: true });
 });

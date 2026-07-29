@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
 import { registerPreviewContextCommand } from "../../src/handlers/preview-context.js";
 import { MEMORY_POLICY_PROMPT, MEMORY_POLICY_PROMPT_COMPACT } from "../../src/constants.js";
