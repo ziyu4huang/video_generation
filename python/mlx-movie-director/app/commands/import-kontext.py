@@ -74,25 +74,31 @@ def run(args: argparse.Namespace) -> None:
             print(f"ERROR: target already exists: {d}", file=sys.stderr)
             sys.exit(1)
 
-    made = []
+    # `made` is populated by each helper the moment its dst.mkdir() runs — NOT
+    # only after the helper fully returns — so a failure partway through one
+    # component (e.g. an MD5 mismatch on a later shard, or a missing
+    # merges.txt after vocab.json was already copied) still gets that
+    # partial directory cleaned up below, leaving a cleanly retryable state
+    # (matching import-musicgen.py's single-target-dir retry behavior).
+    made: list[Path] = []
     try:
         snap_dir = _resolve_snapshot(args.model)
 
-        made.append(_copy_component(
-            src=snap_dir / "transformer", dst=transformer_dir,
+        _copy_component(
+            src=snap_dir / "transformer", dst=transformer_dir, made=made,
             category="transformer",
             description="FLUX.1-Kontext-dev transformer (19 joint + 38 single blocks, "
                         "unquantized bf16) for the swift/flux2-image-director kontext port.",
             cli={"binary": "flux2", "action": "kontext", "flag": "--transformer"},
-        ))
-        made.append(_copy_component(
-            src=snap_dir / "text_encoder", dst=clip_dir,
+        )
+        _copy_component(
+            src=snap_dir / "text_encoder", dst=clip_dir, made=made,
             category="text_encoder",
             description="FLUX.1-Kontext-dev CLIP text encoder (pooled projection, 768-dim).",
             cli={"binary": "flux2", "action": "kontext", "flag": "--clip-encoder"},
-        ))
-        made.append(_copy_component(
-            src=snap_dir / "text_encoder_2", dst=t5_dir,
+        )
+        _copy_component(
+            src=snap_dir / "text_encoder_2", dst=t5_dir, made=made,
             category="text_encoder",
             description="FLUX.1-Kontext-dev T5 text encoder (t5-v1_1-xxl-derived, 4096-dim).",
             cli={"binary": "flux2", "action": "kontext", "flag": "--t5-encoder"},
@@ -101,9 +107,9 @@ def run(args: argparse.Namespace) -> None:
             # Add a hidden_size alias (copy, not rename) so check-model passes
             # without touching check-model.py's shared schema.
             config_aliases={"hidden_size": "d_model"},
-        ))
-        made.append(_copy_tokenizer_clip(snap_dir / "tokenizer", clip_tok_dir))
-        made.append(_copy_tokenizer_t5(snap_dir / "tokenizer_2", t5_tok_dir))
+        )
+        _copy_tokenizer_clip(snap_dir / "tokenizer", clip_tok_dir, made=made)
+        _copy_tokenizer_t5(snap_dir / "tokenizer_2", t5_tok_dir, made=made)
     except BaseException:
         for d in made:
             shutil.rmtree(d, ignore_errors=True)
@@ -134,12 +140,14 @@ def _resolve_snapshot(model: str) -> Path:
         raise
 
 
-def _copy_component(*, src: Path, dst: Path, category: str, description: str,
-                    cli: dict, config_aliases: dict | None = None) -> Path:
+def _copy_component(*, src: Path, dst: Path, made: list[Path], category: str,
+                    description: str, cli: dict,
+                    config_aliases: dict | None = None) -> Path:
     if not src.exists():
         print(f"ERROR: expected source dir not found: {src}", file=sys.stderr)
         sys.exit(1)
     dst.mkdir(parents=True, exist_ok=True)
+    made.append(dst)  # track for cleanup BEFORE any copying starts
 
     shard_count = 0
     for f in sorted(src.glob("*.safetensors")):
@@ -185,11 +193,12 @@ def _copy_component(*, src: Path, dst: Path, category: str, description: str,
     return dst
 
 
-def _copy_tokenizer_clip(src: Path, dst: Path) -> Path:
+def _copy_tokenizer_clip(src: Path, dst: Path, *, made: list[Path]) -> Path:
     if not src.exists():
         print(f"ERROR: expected CLIP tokenizer dir not found: {src}", file=sys.stderr)
         sys.exit(1)
     dst.mkdir(parents=True, exist_ok=True)
+    made.append(dst)  # track for cleanup BEFORE any copying starts
     for fname in ("vocab.json", "merges.txt"):
         f = src / fname
         if not f.exists():
@@ -209,11 +218,12 @@ def _copy_tokenizer_clip(src: Path, dst: Path) -> Path:
     return dst
 
 
-def _copy_tokenizer_t5(src: Path, dst: Path) -> Path:
+def _copy_tokenizer_t5(src: Path, dst: Path, *, made: list[Path]) -> Path:
     if not src.exists():
         print(f"ERROR: expected T5 tokenizer dir not found: {src}", file=sys.stderr)
         sys.exit(1)
     dst.mkdir(parents=True, exist_ok=True)
+    made.append(dst)  # track for cleanup BEFORE any copying starts
     f = src / "tokenizer.json"
     if not f.exists():
         print(f"ERROR: expected tokenizer.json not found at {f}", file=sys.stderr)
