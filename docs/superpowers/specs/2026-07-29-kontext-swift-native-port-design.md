@@ -40,10 +40,17 @@ step. This spec scopes that remaining work.
   already-verified `KontextTransformer`/`KontextCLIPEncoder`/
   `KontextT5Encoder` and the existing `mlx-models/vae/flux-kontext-ae`
   weights.
-- `KontextCommand.swift` — a new `flux2 kontext` CLI subcommand exposing it,
-  parameter-compatible with Python's `run_kontext` (single hero image +
-  prompt, optional `--scenes N --prompt-subject` certify mode, LoRA,
-  guidance/steps/scheduler/quantize/seed/width/height).
+- `KontextCommand.swift` — a new `flux2 kontext` CLI subcommand exposing it.
+  **Narrowed during plan-writing (2026-07-29):** the delivered option surface
+  is single hero image + prompt + guidance/steps/seed/width/height/output only
+  — the `--scenes N --prompt-subject` certify mode, `--scheduler`, and
+  `--quantize` flags described below were dropped when the plan was written
+  (linear scheduler and unquantized bf16 weights are the only combination this
+  v1 supports; a certify-mode multi-scene loop was never load-bearing for the
+  standalone-command use case this port targets). LoRA was separately called
+  out as out-of-scope already (see below). Both the plan
+  (`docs/superpowers/plans/2026-07-29-kontext-swift-native-port.md`) and the
+  shipped `KontextCommand.swift` reflect this narrower surface.
 - `import-kontext.py` — converts the already-locally-cached HF snapshot
   (`~/.cache/huggingface/hub/models--black-forest-labs--FLUX.1-Kontext-dev`)
   into this repo's externalized-weight convention:
@@ -114,15 +121,18 @@ implementation based on whether `VerifyKontextCLIPCommand`/
 ## 3. CLI (new file:
 `swift/flux2-image-director/Sources/Flux2DirectorCLI/KontextCommand.swift`)
 
-`flux2 kontext --input <hero> --prompt <text> [--scenes N
---prompt-subject <text>] [--guidance F] [--scheduler linear]
-[--quantize 8|4] [--seed U] [--lora-path ... --lora-scale ...]
-[--width 1024] [--height 1024] [--steps N] [--output ...]` — same option
-surface as Python's `add_kontext_args`/`run_kontext`, using
-`Flux2ModelRegistry`-style path resolution against the new
-`mlx-models/transformer/kontext-dev/` location instead of a hardcoded HF
-cache path (the `Verify*Command`s' hardcoded snapshot path stays as-is; it's
-a dev-only numeric-parity tool, not the production path this spec adds).
+**Delivered surface (see Scope correction above):** `flux2 kontext --input
+<hero> --prompt <text> [--guidance F] [--seed U] [--width 1024]
+[--height 1024] [--steps N] [--output ...] [--transformer ...]
+[--clip-encoder ...] [--t5-encoder ...] [--vae ...]
+[--clip-tokenizer-dir ...] [--t5-tokenizer-dir ...] [--output-dir ...]
+[--name ...] [--no-artifacts]` — the `--scenes`/`--prompt-subject`/
+`--scheduler`/`--quantize`/`--lora-*` flags originally sketched here were
+dropped during plan-writing; not part of v1. Path resolution uses
+`ModelPaths.transformerRoot`/`textEncoderRoot`/`tokenizerRoot`/`vaeRoot`
+against the new `mlx-models/` locations instead of a hardcoded HF cache path
+(the `Verify*Command`s' hardcoded snapshot path stays as-is; it's a dev-only
+numeric-parity tool, not the production path this spec adds).
 
 ## 4. TS integration (replaces the Python bridge for `kontext`)
 
