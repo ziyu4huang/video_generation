@@ -22,8 +22,14 @@ export interface RunWatchdogInput {
 function summarize(l1: WatchdogResult["l1"], l2: WatchdogResult["l2"]): string {
   const blockers = [...l1.findings, ...l2.findings].filter((f) => f.severity === "blocker").length;
   const concerns = [...l1.findings, ...l2.findings].filter((f) => f.severity === "concern").length;
-  if (blockers === 0 && concerns === 0) return "watchdog: clean";
-  return `watchdog: ${blockers} blocker(s), ${concerns} concern(s)`;
+  const degraded: string[] = [];
+  if (!l1.ran && l1.note) degraded.push("L1");
+  if (!l2.ran && l2.note) degraded.push("L2");
+  if (blockers === 0 && concerns === 0 && degraded.length === 0) return "watchdog: clean";
+  const parts: string[] = [];
+  if (blockers || concerns) parts.push(`${blockers} blocker(s), ${concerns} concern(s)`);
+  if (degraded.length) parts.push(`${degraded.join("+")} degraded`);
+  return `watchdog: ${parts.join("; ")}`;
 }
 
 export async function runWatchdog(input: RunWatchdogInput): Promise<WatchdogResult> {

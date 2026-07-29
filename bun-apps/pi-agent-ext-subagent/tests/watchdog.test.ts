@@ -35,4 +35,19 @@ describe("runWatchdog orchestrator", () => {
     assert.equal(r.l2.ran, false);
     assert.match(r.summary, /1 .*finding|blocker/i);
   });
+
+  it("surfaces degradation (not 'clean') when a layer didn't run with a note", async () => {
+    const r = await runWatchdog({
+      cwd: process.cwd(),
+      before: { root: "/r", key: "K1", changedPaths: [] },
+      opts: { l1: true, l2: false },
+      taskLabel: "t",
+      computeAfter: () => ({ root: "/r", key: "K2", changedPaths: ["a.ts"] }),
+      lsp: async () => ({ ran: false, findings: [], note: "unavailable" }),
+    });
+    assert.equal(r.l1.ran, false);
+    assert.equal(r.l1.findings.length, 0);
+    assert.match(r.summary, /degraded/);
+    assert.doesNotMatch(r.summary, /clean/);
+  });
 });

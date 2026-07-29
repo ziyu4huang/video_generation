@@ -48,7 +48,7 @@ export async function runModelReview(input: {
     const res = await spawnSubagent({
       task: buildPrompt(input.diffText, input.taskLabel),
       cwd: input.cwd,
-      capability: "review",
+      model: reviewSpec,
       schema: ReviewSchema,
       tools: ["read", "grep", "find", "ls"],
       externalSignal: input.signal,
