@@ -1,28 +1,20 @@
-import { describe, it, expect, mock } from "bun:test";
+import { describe, it, expect } from "bun:test";
+import { archifyRender } from "../lib/render.ts";
 
-// Stub run.ts so runArchify returns the exact pre-flight "bin missing" shape
-// (stdout empty, stderr carrying the vendored-bin-not-found message). This
-// tests render.ts's catch-block formatting in isolation; the real pre-flight
-// is covered by vendored-bin-resolution.test.ts.
-mock.module("../lib/run.ts", () => ({
-  VENDORED_BIN: "/nonexistent/archify.mjs",
-  resolveVendoredBin: () => "/nonexistent/archify.mjs",
-  withTempIr: async (_ir: unknown, fn: (irPath: string) => unknown) => fn("/tmp/ir.json"),
-  runArchify: async () => ({
-    stdout: "",
-    stderr:
-      "archify vendored bin not found at /nonexistent/archify.mjs; deploy may have omitted vendored/ (set PI_ARCHIFY_BIN to override).",
-    status: 1,
-  }),
-}));
-
-const { archifyRender } = await import("../lib/render.ts");
-
+// Uses DI (ctx.bin) — NOT mock.module — to force the "vendored bin not found"
+// pre-flight. Bun's mock.module is process-global: a stubbed run.ts leaks into
+// every sibling test file that imports the real module (vendored-bin-resolution,
+// archify_validate, the golden render, archify_delta, …), breaking the whole
+// suite in a single-process `bun test` run. Passing a nonexistent bin through
+// RenderCtx triggers runArchify's REAL pre-flight guard with zero cross-file
+// contamination. See pi-agent-cli/tests/workflow-command.test.ts and
+// pi-agent-ext-subagent/.../models-preset-command.test.ts for the same
+// "DI over mock.module" convention.
 describe("archifyRender — missing vendored bin", () => {
   it("surfaces 'vendored bin not found' and does NOT say 'Validate the IR'", async () => {
     const out = await archifyRender(
       { ir: { diagram_type: "architecture" } },
-      { cwd: "/tmp" },
+      { cwd: "/tmp", bin: "/nonexistent/archify.mjs" },
     );
     const text = (out.content?.[0] as { text?: string } | undefined)?.text ?? "";
     expect(out.isError).toBe(true);
