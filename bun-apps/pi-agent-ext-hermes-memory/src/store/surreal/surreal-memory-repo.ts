@@ -57,6 +57,8 @@ type Row = Partial<{
   content: string; failureReason: string | null; toolState: string | null;
   correctedTo: string | null; created: string; lastReferenced: string;
   mwSuccess?: number; mwFail?: number;
+  status?: string; supersedes?: number | null; supersededBy?: number | null;
+  parentIds?: unknown;
 }>;
 
 function mapRow(r: Row): MemoryEntry {
@@ -73,17 +75,32 @@ function mapRow(r: Row): MemoryEntry {
     lastReferenced: r.lastReferenced ?? r.created ?? today(),
     mwSuccess: r.mwSuccess ?? 0,
     mwFail: r.mwFail ?? 0,
+    status: ((r.status as "active" | "superseded") ?? "active"),
+    supersedes: r.supersedes ?? null,
+    supersededBy: r.supersededBy ?? null,
+    parentIds: Array.isArray(r.parentIds) ? (r.parentIds as unknown[]).map(Number) : [],
   };
 }
 
-const FIELDS = "seq, project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, mwSuccess, mwFail";
+const FIELDS = "seq, project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, mwSuccess, mwFail, status, supersedes, supersededBy, parentIds";
 
 /** Build SurrealQL WHERE fragments + a params object for scope conditions. */
 function buildScope(
   target?: MemoryTarget, project?: string | null, category?: MemoryCategory | null,
+  includeSuperseded = true,
 ): { where: string; params: Record<string, unknown> } {
   const conds: string[] = [];
   const params: Record<string, unknown> = {};
+  // Supersession UX: hide superseded entries unless the caller opts in. The
+  // default `true` (no filter) preserves the mutation paths' current behavior
+  // (sync/replace/remove must see every row regardless of status); ONLY the
+  // read/recall paths (searchMemories, fetchGraphNeighbors) pass `false`.
+  // SCHEMALESS-robust: `status != 'superseded'` (NOT `status = 'active'`) so
+  // pre-feature rows that lack the field (absent) are treated as active,
+  // mirroring mapRow's `r.status ?? "active"` coalescing. SQLite's table has
+  // a DEFAULT 'active' so it can use the strict `= 'active'` equality; the
+  // SCHEMALESS store cannot.
+  if (!includeSuperseded) { conds.push("status != 'superseded'"); }
   if (target) { conds.push("target = $target"); params.target = target; }
   if (project !== undefined) {
     // v3.2.3 matches stored NULL via `IS NULL` (NOT `IS NONE`).
@@ -124,7 +141,11 @@ export class SurrealMemoryRepository implements MemoryRepository {
         created = $created,
         lastReferenced = $lastReferenced,
         mwSuccess = 0,
-        mwFail = 0
+        mwFail = 0,
+        status = 'active',
+        supersedes = NONE,
+        supersededBy = NONE,
+        parentIds = []
       RETURN ${FIELDS};
     `;
     const rows = await this.c.query<Row[]>(sql, {
@@ -204,7 +225,11 @@ export class SurrealMemoryRepository implements MemoryRepository {
         created = $created,
         lastReferenced = $lastReferenced,
         mwSuccess = $mwSuccess,
-        mwFail = $mwFail
+        mwFail = $mwFail,
+        status = 'active',
+        supersedes = NONE,
+        supersededBy = NONE,
+        parentIds = []
       RETURN ${FIELDS};
     `;
     const rows = await this.c.query<Row[]>(sql, {
@@ -296,8 +321,8 @@ export class SurrealMemoryRepository implements MemoryRepository {
 
   async searchMemories(query: string, options: MemorySearchOptions = {}): Promise<MemoryEntry[]> {
     if (query.trim().length === 0) return [];
-    const { project, target, category, limit = 10 } = options;
-    const scope = buildScope(target, project, category);
+    const { project, target, category, limit = 10, includeSuperseded = false } = options;
+    const scope = buildScope(target, project, category, includeSuperseded);
     const tail = `ORDER BY lastReferenced DESC LIMIT ${Number(limit)};`;
     const where = scope.where ? `${scope.where.replace("WHERE ", "")} AND` : "";
 
@@ -320,7 +345,7 @@ export class SurrealMemoryRepository implements MemoryRepository {
 
     // Graph augmentation: neighbors sharing an implicit tag with the seeds,
     // ranked together by the shared backend-neutral ranker.
-    const neighbors = await this.fetchGraphNeighbors(lexicalResults, { project, target, category });
+    const neighbors = await this.fetchGraphNeighbors(lexicalResults, { project, target, category, includeSuperseded });
     if (neighbors.length === 0) {
       // Close the no-neighbor fast path: route single-match / no-shared-
       // neighbor searches through the shared ranker so the worth multiplier
@@ -349,7 +374,7 @@ export class SurrealMemoryRepository implements MemoryRepository {
    */
   private async fetchGraphNeighbors(
     seeds: MemoryEntry[],
-    scope: { project?: string | null; target?: MemoryTarget; category?: MemoryCategory },
+    scope: { project?: string | null; target?: MemoryTarget; category?: MemoryCategory; includeSuperseded?: boolean },
   ): Promise<MemoryEntry[]> {
     const seedSeqs = seeds.map((m) => m.id);
     const keys = new Set<string>();
@@ -360,7 +385,8 @@ export class SurrealMemoryRepository implements MemoryRepository {
     }
     if (keys.size === 0) return [];
 
-    const s = buildScope(scope.target, scope.project, scope.category);
+    // Mirror runSearch: superseded neighbors are hidden unless opted in.
+    const s = buildScope(scope.target, scope.project, scope.category, scope.includeSuperseded ?? false);
     const where = s.where ? `${s.where.replace("WHERE ", "")} AND` : "";
     const rows = await this.c.query<Row[]>(
       `SELECT ${FIELDS} FROM memories
@@ -509,5 +535,18 @@ export class SurrealMemoryRepository implements MemoryRepository {
       `UPDATE memories SET mwSuccess = (mwSuccess ?? 0) + $s, mwFail = (mwFail ?? 0) + $f WHERE seq = $seq;`,
       { seq: Number(id), s: successDelta, f: failDelta },
     );
+  }
+
+  /**
+   * Mark `priorId` as superseded by `newId`, and record the reverse lineage on
+   * `newId`. Two UPDATEs (NOT delete+insert) so the prior row's `seq` stays
+   * stable for any external lineage references — mirroring `bumpMemoryWorth`.
+   * SurrealDB `memories` is SCHEMALESS, so the lineage fields are free columns;
+   * `parentIds` is stored as a native array. Id stable across the supersession.
+   */
+  async supersedeMemory(priorId: number, newId: number): Promise<void> {
+    const p = Number(priorId), n = Number(newId);
+    await this.c.query(`UPDATE memories SET status = 'superseded', supersededBy = $n WHERE seq = $p;`, { p, n });
+    await this.c.query(`UPDATE memories SET supersedes = $p, parentIds = [$p] WHERE seq = $n;`, { p, n });
   }
 }
