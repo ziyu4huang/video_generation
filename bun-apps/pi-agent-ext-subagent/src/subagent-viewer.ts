@@ -287,12 +287,19 @@ export class SubagentViewer {
     const totalCompleted = this.runs.length;
     const showing = completed.length;
     if (!this.filter && !this.showAll && totalCompleted > COMPLETED_CAP) {
-      lines.push(truncateToWidth(`  ${th.fg("dim", `showing ${showing} of ${totalCompleted} • press 'a' to show all`)}`, width));
+      lines.push(
+        truncateToWidth(`  ${th.fg("dim", `showing ${showing} of ${totalCompleted} • press 'a' to show all`)}`, width),
+      );
     }
     lines.push("");
     if (this.filter) {
       const n = entries.length;
-      lines.push(truncateToWidth(`  ${th.fg("accent", `filter:`)} "${this.filter}" — ${n} match${n === 1 ? "" : "es"} • esc clear`, width));
+      lines.push(
+        truncateToWidth(
+          `  ${th.fg("accent", `filter:`)} "${this.filter}" — ${n} match${n === 1 ? "" : "es"} • esc clear`,
+          width,
+        ),
+      );
     } else {
       lines.push(truncateToWidth(`  ${th.fg("dim", "↑↓ select • enter view/follow • esc close")}`, width));
     }

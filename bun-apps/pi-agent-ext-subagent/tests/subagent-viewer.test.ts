@@ -464,7 +464,11 @@ test("viewer output header shows absolute HH:MM start time", () => {
 
 test("viewer completed row degrades gracefully when startedAt/model/cost are absent", () => {
   const runs = reconstructSubagentRuns([
-    toolResultEntry("subagent", "report A", { exitCode: 0, timedOut: false, status: "done" } as Partial<SubagentToolDetails>),
+    toolResultEntry("subagent", "report A", {
+      exitCode: 0,
+      timedOut: false,
+      status: "done",
+    } as Partial<SubagentToolDetails>),
   ] as never);
   const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
   const out = viewer.render(80).join("\n");
@@ -491,24 +495,23 @@ function completedRuns(n: number, agent = "implementer", preview = "task") {
 }
 
 test("filter: typing narrows the list to matches; non-matches hidden", () => {
-  const runs = [
-    ...completedRuns(1, "implementer", "auth"),
-    ...completedRuns(1, "reviewer", "search"),
-  ];
+  const runs = [...completedRuns(1, "implementer", "auth"), ...completedRuns(1, "reviewer", "search")];
   const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
-  viewer.handleInput("a"); viewer.handleInput("u"); viewer.handleInput("t"); viewer.handleInput("h");
+  viewer.handleInput("a");
+  viewer.handleInput("u");
+  viewer.handleInput("t");
+  viewer.handleInput("h");
   const out = viewer.render(80).join("\n");
   assert.ok(out.includes("auth 0"), "auth run matches");
   assert.ok(!out.includes("search"), "non-match hidden");
 });
 
 test("filter: matches the agent label too (case-insensitive)", () => {
-  const runs = [
-    ...completedRuns(1, "implementer", "auth"),
-    ...completedRuns(1, "Reviewer", "search"),
-  ];
+  const runs = [...completedRuns(1, "implementer", "auth"), ...completedRuns(1, "Reviewer", "search")];
   const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
-  viewer.handleInput("r"); viewer.handleInput("e"); viewer.handleInput("v");
+  viewer.handleInput("r");
+  viewer.handleInput("e");
+  viewer.handleInput("v");
   const out = viewer.render(80).join("\n");
   assert.ok(out.includes("search"), "matched via agent label Reviewer");
   assert.ok(!out.includes("auth 0"), "non-match hidden");
@@ -517,7 +520,8 @@ test("filter: matches the agent label too (case-insensitive)", () => {
 test("filter: backspace widens the list", () => {
   const runs = [...completedRuns(1, "implementer", "auth"), ...completedRuns(1, "reviewer", "search")];
   const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
-  viewer.handleInput("a"); viewer.handleInput("u");
+  viewer.handleInput("a");
+  viewer.handleInput("u");
   viewer.handleInput("\x7f"); // backspace
   const out = viewer.render(80).join("\n");
   assert.ok(out.includes("search"), "back to full list after backspace");
@@ -526,7 +530,15 @@ test("filter: backspace widens the list", () => {
 test("filter: esc clears the filter (first esc) then closes (second esc)", () => {
   let closed = false;
   const runs = [...completedRuns(1, "implementer", "auth")];
-  const viewer = new SubagentViewer({ runs, onClose: () => { closed = true; } }, T);
+  const viewer = new SubagentViewer(
+    {
+      runs,
+      onClose: () => {
+        closed = true;
+      },
+    },
+    T,
+  );
   viewer.handleInput("a");
   viewer.handleInput("\x1b"); // first esc → clear filter, NOT close
   assert.equal(closed, false);
@@ -539,7 +551,8 @@ test("filter: esc clears the filter (first esc) then closes (second esc)", () =>
 test("filter: renders a status line with the query and match count", () => {
   const runs = [...completedRuns(1, "implementer", "auth")];
   const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
-  viewer.handleInput("a"); viewer.handleInput("u");
+  viewer.handleInput("a");
+  viewer.handleInput("u");
   const out = viewer.render(80).join("\n");
   assert.match(out, /filter/i);
   assert.ok(out.includes("au"), "status line shows the query");
@@ -571,7 +584,10 @@ test("cap: a non-empty filter suspends the cap — all matches shown", () => {
   // 25 runs all matching "task"
   const runs = completedRuns(25);
   const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
-  viewer.handleInput("t"); viewer.handleInput("a"); viewer.handleInput("s"); viewer.handleInput("k");
+  viewer.handleInput("t");
+  viewer.handleInput("a");
+  viewer.handleInput("s");
+  viewer.handleInput("k");
   const out = viewer.render(80).join("\n");
   assert.ok(out.includes("task 0"), "oldest match visible (cap suspended by filter)");
   assert.ok(!out.includes("showing"), "no cap footer while filtering");
