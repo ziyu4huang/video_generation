@@ -1,0 +1,16 @@
+{
+  "name": "kontext-dev",
+  "type": "transformer",
+  "arch": "flux1-kontext-dev",
+  "format": "mlx-bf16",
+  "description": "FLUX.1-Kontext-dev transformer (19 joint + 38 single blocks, unquantized bf16) for the swift/flux2-image-director kontext port.",
+  "source": "https://huggingface.co/black-forest-labs/FLUX.1-Kontext-dev",
+  "cli": {
+    "binary": "flux2",
+    "action": "kontext",
+    "flag": "--transformer"
+  },
+  "compatible_with": [],
+  "size_bytes": 23802954492,
+  "created_at": "2026-07-29T13:05:35Z"
+}

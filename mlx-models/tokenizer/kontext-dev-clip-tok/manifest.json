@@ -1,0 +1,11 @@
+{
+  "name": "kontext-dev-clip-tok",
+  "type": "tokenizer",
+  "arch": "clip-vit-l",
+  "format": "hf-tokenizer",
+  "description": "FLUX.1-Kontext-dev CLIP tokenizer (vocab.json + merges.txt).",
+  "source": "https://huggingface.co/black-forest-labs/FLUX.1-Kontext-dev",
+  "compatible_with": [],
+  "size_bytes": 1584581,
+  "created_at": "2026-07-29T13:05:57Z"
+}
