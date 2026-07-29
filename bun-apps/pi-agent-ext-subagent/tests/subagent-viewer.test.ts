@@ -418,3 +418,56 @@ test("reconstructSubagentRuns leaves startedAt undefined when details omit it (l
   const runs = reconstructSubagentRuns(branch as never);
   assert.equal(runs[0].startedAt, undefined);
 });
+
+test("viewer list completed row shows relative time + model + elapsed + cost", () => {
+  const startedAt = Date.now() - 5 * 60_000; // 5m ago
+  const runs = reconstructSubagentRuns([
+    toolResultEntry("subagent", "report A", {
+      exitCode: 0,
+      timedOut: false,
+      agent: "implementer",
+      model: "x/flash",
+      taskPreview: "task A",
+      elapsedMs: 2100,
+      status: "done",
+      startedAt,
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, cost: 0.03 },
+    } as Partial<SubagentToolDetails>),
+  ] as never);
+  const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("5m ago"), "row shows relative start time");
+  assert.ok(out.includes("flash"), "row shows short model");
+  assert.ok(out.includes("2.1s"), "row shows elapsed");
+  assert.ok(out.includes("$0.03"), "row shows cost");
+});
+
+test("viewer output header shows absolute HH:MM start time", () => {
+  const startedAt = new Date(2024, 0, 1, 14, 32).getTime();
+  const runs = reconstructSubagentRuns([
+    toolResultEntry("subagent", "report A", {
+      exitCode: 0,
+      timedOut: false,
+      agent: "implementer",
+      model: "x/flash",
+      taskPreview: "task A",
+      elapsedMs: 1000,
+      status: "done",
+      startedAt,
+    } as Partial<SubagentToolDetails>),
+  ] as never);
+  const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
+  viewer.handleInput("\r"); // enter → output view
+  const out = viewer.render(80).join("\n");
+  assert.match(out, /\b14:32\b/, "output header shows absolute start time");
+});
+
+test("viewer completed row degrades gracefully when startedAt/model/cost are absent", () => {
+  const runs = reconstructSubagentRuns([
+    toolResultEntry("subagent", "report A", { exitCode: 0, timedOut: false, status: "done" } as Partial<SubagentToolDetails>),
+  ] as never);
+  const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
+  const out = viewer.render(80).join("\n");
+  assert.ok(!out.includes("undefined"), "no undefined leaks");
+  assert.ok(out.includes("default"), "falls back to the default model label");
+});

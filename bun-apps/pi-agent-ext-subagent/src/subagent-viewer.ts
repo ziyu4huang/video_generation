@@ -11,9 +11,10 @@
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
-import { type ActivityRow, fmtCost, renderActivityRow } from "./agent-row-display.js";
+import { type ActivityRow, fmtCost, renderActivityRow, shortModel } from "./agent-row-display.js";
 import type { AgentHistoryEntry, AgentUsage, InFlightSubagent, SubagentToolDetails } from "./index.js";
 import { formatHistoryLine, summarizeLatestAction } from "./index.js";
+import { formatAbsoluteTime, formatRelativeTime } from "./time-format.js";
 
 /** Tail-f window: how many recent trace lines the follow view shows. */
 const FOLLOW_TRACE_LINES = 40;
@@ -230,7 +231,15 @@ export class SubagentViewer {
           status: r.status,
           actor: r.agent ?? "general-purpose",
           badge: `#${r.index}`,
-          detail: r.taskPreview,
+          model: shortModel(r.model),
+          elapsedMs: r.elapsedMs,
+          cost: r.usage?.cost,
+          // latestAction is absent for completed → detail (taskPreview) shows as the tail
+          detail: r.taskPreview
+            ? `${r.startedAt ? `${formatRelativeTime(r.startedAt)} — ` : ""}${r.taskPreview}`
+            : r.startedAt
+              ? formatRelativeTime(r.startedAt)
+              : undefined,
         };
         const head = renderActivityRow(row, th, 50);
         lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`}`, width));
@@ -247,9 +256,10 @@ export class SubagentViewer {
     if (!r) return [""];
     const lines: string[] = [""];
     const usageStr = r.usage && r.usage.total > 0 ? ` • $${fmtCost(r.usage.cost)} • ${r.usage.total} tok` : "";
+    const absTime = r.startedAt ? ` • ${formatAbsoluteTime(r.startedAt)}` : "";
     lines.push(
       truncateToWidth(
-        `  ${th.fg("accent", `#${r.index}`)} ${th.fg("muted", r.agent ?? "general-purpose")} ▸ ${r.model} • ${r.status} • ${(r.elapsedMs / 1000).toFixed(1)}s${usageStr}`,
+        `  ${th.fg("accent", `#${r.index}`)} ${th.fg("muted", r.agent ?? "general-purpose")} ▸ ${r.model} • ${r.status} • ${(r.elapsedMs / 1000).toFixed(1)}s${absTime}${usageStr}`,
         width,
       ),
     );
