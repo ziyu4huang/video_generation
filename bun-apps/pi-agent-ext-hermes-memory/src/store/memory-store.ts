@@ -734,7 +734,10 @@ export class MemoryStore {
     // Preserve original created date, update last_referenced to today
     const decoded = this.decodeEntry(matches[0]);
     const today = new Date().toISOString().split("T")[0];
-    const encoded = this.encodeEntry(newContent, decoded.created, today);
+    const encoded = this.encodeEntry(newContent, decoded.created, today, {
+      provenance: decoded.provenance,
+      sources: decoded.sources,
+    });
 
     const testEntries = [...entries];
     testEntries[idx] = encoded;

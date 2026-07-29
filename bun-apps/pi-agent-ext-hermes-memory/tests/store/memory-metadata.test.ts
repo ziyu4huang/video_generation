@@ -132,4 +132,17 @@ describe("MemoryStore metadata channel (unified encode/decode)", () => {
     assert.strictEqual((newEntry as { provenance?: string }).provenance, "verified");
     assert.ok((newEntry as { sources?: unknown[] }).sources, "sources should be present");
   });
+
+  it("replace() preserves provenance on the rewritten entry", async () => {
+    const store = makeStore();
+    await store.add("memory", "original fact", {
+      provenance: "verified",
+      sources: [{ kind: "quote", locator: "s1", capture: "original fact" }],
+    });
+    const res = await store.replace("memory", "original fact", "updated fact");
+    assert.strictEqual(res.success, true);
+    const raw = await fs.promises.readFile(path.join(MEMORY_DIR, "MEMORY.md"), "utf-8");
+    assert.ok(raw.includes("updated fact"));
+    assert.ok(raw.includes('"provenance":"verified"'), "provenance must survive replace");
+  });
 });
