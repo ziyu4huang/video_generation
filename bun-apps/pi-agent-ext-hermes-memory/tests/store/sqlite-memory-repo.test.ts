@@ -437,4 +437,26 @@ describe("SqliteMemoryRepository", () => {
       expect(stats.byProject.length).toBeGreaterThan(0);
     });
   });
+
+  it("addMemory seeds mwSuccess/mwFail = 0; bumpMemoryWorth increments them", async () => {
+    const entry = await repo.addMemory({ content: "worth-test", target: "memory" });
+    expect(entry.mwSuccess).toBe(0);
+    expect(entry.mwFail).toBe(0);
+    await repo.bumpMemoryWorth(entry.id, 3, 1);
+    const list = await repo.getMemories({ target: "memory" });
+    const found = list.find((m) => m.id === entry.id)!;
+    expect(found.mwSuccess).toBe(3);
+    expect(found.mwFail).toBe(1);
+  });
+
+  it("syncMemoryEntry seeds worth from input on insert; merge preserves DB worth", async () => {
+    const ins = await repo.syncMemoryEntry({ content: "seeded", target: "memory", mwSuccess: 2, mwFail: 0 });
+    expect(ins.entry.mwSuccess).toBe(2);
+    await repo.bumpMemoryWorth(ins.entry.id, 1, 0); // DB now 3
+    // re-sync (merge path) must NOT overwrite the bumped DB counter
+    await repo.syncMemoryEntry({ content: "seeded", target: "memory", mwSuccess: 2, mwFail: 0 });
+    const list = await repo.getMemories({ target: "memory" });
+    const found = list.find((m) => m.id === ins.entry.id)!;
+    expect(found.mwSuccess).toBe(3);
+  });
 });

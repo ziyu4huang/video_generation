@@ -57,7 +57,9 @@ const MEMORY_SELECT_COLUMNS = `
   tool_state,
   corrected_to,
   created,
-  last_referenced
+  last_referenced,
+  mw_success,
+  mw_fail
 `;
 
 type MemoryRow = {
@@ -71,6 +73,8 @@ type MemoryRow = {
   corrected_to: string | null;
   created: string;
   last_referenced: string;
+  mw_success: number;
+  mw_fail: number;
 };
 
 function mapRow(row: MemoryRow): MemoryEntry {
@@ -85,6 +89,8 @@ function mapRow(row: MemoryRow): MemoryEntry {
     correctedTo: row.corrected_to,
     created: row.created,
     lastReferenced: row.last_referenced,
+    mwSuccess: row.mw_success,
+    mwFail: row.mw_fail,
   };
 }
 
@@ -194,9 +200,9 @@ export class SqliteMemoryRepository implements MemoryRepository {
       const lastReferenced = input.lastReferenced ?? created;
 
       const result = this.db.prepare(`
-        INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced);
+        INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, 0, 0);
 
       return {
         id: Number(result.lastInsertRowid),
@@ -209,6 +215,8 @@ export class SqliteMemoryRepository implements MemoryRepository {
         correctedTo,
         created,
         lastReferenced,
+        mwSuccess: 0,
+        mwFail: 0,
       };
     }));
   }
@@ -253,11 +261,13 @@ export class SqliteMemoryRepository implements MemoryRepository {
             correctedTo,
             created,
             lastReferenced,
+            mwSuccess: input.mwSuccess ?? 0,
+            mwFail: input.mwFail ?? 0,
           };
           const result = this.db.prepare(`
-            INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(project, input.target, category, content, failureReason, toolState, correctedTo, created, lastReferenced);
+            INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(project, input.target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, input.mwSuccess ?? 0, input.mwFail ?? 0);
           entry.id = Number(result.lastInsertRowid);
           return { action: "inserted" as const, entry };
         }
@@ -667,6 +677,12 @@ export class SqliteMemoryRepository implements MemoryRepository {
   async touchMemory(id: number): Promise<void> {
     return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
       this.db.prepare("UPDATE memories SET last_referenced = ? WHERE id = ?").run(today(), id);
+    }));
+  }
+
+  async bumpMemoryWorth(id: number, successDelta = 0, failDelta = 0): Promise<void> {
+    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
+      this.db.prepare("UPDATE memories SET mw_success = mw_success + ?, mw_fail = mw_fail + ? WHERE id = ?").run(successDelta, failDelta, id);
     }));
   }
 }
