@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import { loadModelTierConfig, resolveModelRole } from "../model-role-config.js";
-import { spawnSubagent } from "../spawn-subagent.js";
+import { type SpawnSubagentOptions, spawnSubagent } from "../spawn-subagent.js";
 import type { WatchdogFinding, WatchdogL2Result } from "./types.js";
 
 const ReviewSchema = Type.Object(
@@ -39,7 +39,7 @@ export async function runModelReview(input: {
   diffText: string;
   taskLabel: string;
   signal?: AbortSignal;
-  agent?: Parameters<typeof spawnSubagent>[0] extends infer O ? Pick<NonNullable<O["agent"]>, "run"> : never;
+  agent?: NonNullable<SpawnSubagentOptions["agent"]>;
 }): Promise<WatchdogL2Result> {
   const cfg = loadModelTierConfig();
   const reviewSpec = resolveModelRole({ capability: "review" }, cfg) ?? resolveModelRole({ tier: "big" }, cfg);
@@ -51,7 +51,7 @@ export async function runModelReview(input: {
       capability: "review",
       schema: ReviewSchema,
       tools: ["read", "grep", "find", "ls"],
-      signal: input.signal,
+      externalSignal: input.signal,
       retryOnTransient: false,
       // NO watchdog param — recursion-safe (spawnSubagent has no such field anyway).
       ...(input.agent ? { agent: input.agent } : {}),
