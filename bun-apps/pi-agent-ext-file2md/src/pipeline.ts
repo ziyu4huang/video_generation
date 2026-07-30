@@ -332,14 +332,27 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
     );
   }
 
-  const llm: ResolvedLLM = resolveVisionLLM({
-    model: opts.model,
-    provider: opts.provider,
-    thinking: opts.thinking,
-  });
-  const label = `${llm.provider}/${llm.modelId}`;
+  // T5-fix — resolve the vision LLM eagerly for vlm/hybrid (byte-for-byte:
+  // same call, same site, same throw timing). `extract: "text"` is VLM-free
+  // and MUST NOT resolve here: resolveVisionLLM throws "[file2md] No model
+  // configured…" when no vision capability / PI_MODEL is set — exactly the
+  // users text mode exists for. `llm` stays undefined for text mode; the text
+  // branch `continue`s before any vlm call site, so `llm!` there is always
+  // defined in practice (the text path never reaches them).
+  let llm: ResolvedLLM | undefined;
+  let label = "";
+  if (extract !== "text") {
+    llm = resolveVisionLLM({
+      model: opts.model,
+      provider: opts.provider,
+      thinking: opts.thinking,
+    });
+    label = `${llm.provider}/${llm.modelId}`;
+  }
   console.error(`file2md`);
-  console.error(`  model: ${label}  thinking: ${llm.thinkingLevel}`);
+  if (extract !== "text") {
+    console.error(`  model: ${label}  thinking: ${llm!.thinkingLevel}`);
+  }
   console.error(`  out:   ${displayPath(outRoot)}`);
   console.error(`  dpi:   ${dpi}`);
   if (pages) console.error(`  pages: ${pages}`);
@@ -374,6 +387,13 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
       }
       // image / unknown with extract=text → fall through to the vlm path
       // (extract only applies to PDFs).
+    }
+
+    // T5-fix — `hybrid` is reserved for Task 6 (text + VLM for figures). Until
+    // then it must NOT silently fall through to the vlm path — fail loudly so
+    // a stale caller can't get a quiet no-op. (Task 6 removes this guard.)
+    if (extract === "hybrid") {
+      throw new Error("file2md: extract 'hybrid' is not implemented yet (Task 6)");
     }
 
     const doc = await prepareDoc(inputAbs, outRoot, dpi);
@@ -419,7 +439,7 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
       try {
         const { profile: p, replies } = await classifyProfileFromPages(
           samplePngs.map((p) => ({ path: p, mimeType: "image/png" })),
-          llm,
+          llm!,
         );
         profile = p;
         manifest.profile = profile;
@@ -470,7 +490,7 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
       try {
         res = await withRetry(
           async () => {
-            const r = await explainPage(llm, profile, {
+            const r = await explainPage(llm!, profile, {
               imageAbs: pngAbs,
               mimeType: mt,
               pngLinkName,

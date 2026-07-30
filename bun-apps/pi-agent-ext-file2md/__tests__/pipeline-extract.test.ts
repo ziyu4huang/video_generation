@@ -12,8 +12,9 @@
  *   - `vlm/ask.ts`         → `askImage` sentinel (must NEVER fire for `text`)
  *   - `vlm/vision-inference.ts` → `runVisionInference` sentinel (the actual
  *                           VLM boundary pipeline.ts uses; must NEVER fire)
- *   - `sessions.ts`        → `resolveVisionLLM` stub (the eager call at the top
- *                           of the run would otherwise throw w/o model config)
+ *   - `sessions.ts`        → `resolveVisionLLM`/`resolveLLM` THROW when invoked
+ *                           (mirror the real no-model contract, ticket 01);
+ *                           text mode must NEVER reach them (Important fix)
  *
  * The fake input is a minimal `%PDF-1.5` magic-bytes file: `classifyKind`
  * sniffs the first bytes → kind "pdf", but since the text branch skips
@@ -57,20 +58,25 @@ mock.module(`${ROOT}/src/vlm/vision-inference.ts`, () => ({
   runVisionInference: visionMock,
 }));
 
-// The eager `resolveVisionLLM(...)` at the top of runVlmDescribePipeline would
-// throw without model config (ticket 01). Stub it — this is an extraction-flow
-// test, not a model-resolution test.
+// T5-fix regression guard: mirror the REAL resolveVisionLLM/resolveLLM
+// no-model contract — THROW when invoked (ticket 01). Every test in this
+// file runs `extract: "text"`, which must NEVER reach the VLM resolver
+// (Important fix). If that fix regresses (the eager `resolveVisionLLM(...)`
+// returns at the top of runVlmDescribePipeline), the throw propagates and
+// these tests fail loudly — far stronger than a stub that silently returns a
+// fake model (which would mask the regression). Named mocks so the dedicated
+// regression test below can also assert `.not.toHaveBeenCalled()` explicitly.
+const NO_MODEL_ERR =
+  "[file2md] No model configured. Set model config via `/models-preset` (or `/workflows-models`), or export PI_MODEL as a temporary escape hatch.";
+const resolveVisionLLMMock = mock(() => {
+  throw new Error(NO_MODEL_ERR);
+});
+const resolveLLMMock = mock(() => {
+  throw new Error(NO_MODEL_ERR);
+});
 mock.module(`${ROOT}/src/sessions.ts`, () => ({
-  resolveVisionLLM: () => ({
-    provider: "lm-studio",
-    modelId: "google/gemma-4-12b-qat",
-    thinkingLevel: "off",
-  }),
-  resolveLLM: () => ({
-    provider: "lm-studio",
-    modelId: "google/gemma-4-12b-qat",
-    thinkingLevel: "off",
-  }),
+  resolveVisionLLM: resolveVisionLLMMock,
+  resolveLLM: resolveLLMMock,
 }));
 
 // Import AFTER mocks are registered (same pattern as pipeline.test.ts).
@@ -167,5 +173,47 @@ describe("runVlmDescribePipeline — extract=text", () => {
     // the doc-level profile.
     const md = readFileSync(join(out, dir, "pages", "page-001.md"), "utf8");
     expect(md).toContain("kind: text");
+  });
+
+  it("does NOT throw / does NOT resolve a VLM when no model is configured (Important fix)", async () => {
+    // Reproduce the exact user text mode exists for: no model opt, no provider,
+    // no PI_MODEL/PI_PROVIDER env. The REAL resolveVisionLLM throws
+    // "[file2md] No model configured…" in this state (ticket 01), so text mode
+    // MUST NOT reach it. The sessions mock above mirrors that throw — if the
+    // Important fix regresses (eager resolve returns at the top of the run),
+    // this test fails on both the propagated throw and the call-count check.
+    const savedModel = process.env.PI_MODEL;
+    const savedProvider = process.env.PI_PROVIDER;
+    delete process.env.PI_MODEL;
+    delete process.env.PI_PROVIDER;
+
+    // Capture stderr to prove the `model:` log line is suppressed too.
+    const lines: string[] = [];
+    const origErr = console.error;
+    console.error = (...a: unknown[]) => void lines.push(a.join(" "));
+
+    const { out, inputAbs } = setup();
+    try {
+      await runVlmDescribePipeline({
+        inputs: [inputAbs],
+        outRoot: out,
+        extract: "text",
+        // deliberately NO model / provider / thinking opts
+      });
+    } finally {
+      process.env.PI_MODEL = savedModel;
+      process.env.PI_PROVIDER = savedProvider;
+      console.error = origErr;
+    }
+
+    // The VLM resolver was never reached (the throwing mock would have fired).
+    expect(resolveVisionLLMMock).not.toHaveBeenCalled();
+    expect(resolveLLMMock).not.toHaveBeenCalled();
+    // No `model:` log line in text mode (guarded alongside the resolve).
+    expect(lines.some((l) => l.includes("model:"))).toBe(false);
+    // And the run completed end-to-end: per-page md carries the extracted body.
+    const dir = slugDir(out);
+    const md = readFileSync(join(out, dir, "pages", "page-001.md"), "utf8");
+    expect(md).toContain(CANNED_TEXT);
   });
 });
