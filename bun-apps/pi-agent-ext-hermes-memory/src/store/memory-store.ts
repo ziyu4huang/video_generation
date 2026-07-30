@@ -30,7 +30,8 @@ import {
 } from "../constants.js";
 import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, MemoryCategory, MemoryOverflowStrategy, Provenance, MemorySource } from "../types.js";
 import { AGENT_ROOT } from "../paths.js";
-import { envInt } from "../utils/env.js";
+import { envFloat, envInt } from "../utils/env.js";
+import { DEFAULT_NEAR_DUP_THRESHOLD, findNearDuplicate } from "./near-dup.js";
 import type { TimedFn, TimedAlwaysFn } from "../perf.js";
 
 /**
@@ -480,6 +481,21 @@ export class MemoryStore {
       return this.successResponse(target, "Entry already exists (no duplicate added).");
     }
 
+    // Near-duplicate WARNING (wayfinder 2026-07-30 ticket 02): the exact check
+    // above only catches identical content. Containment-based near-dup detection
+    // flags re-captured lessons (same gotcha, different wording — mupdf ×3,
+    // SurrealDB ×2-3 in the failure store) so the agent consolidates via
+    // `memory replace` instead of accumulating. Warning only — the entry is
+    // still added. Disable: PI_MEMORY_NEAR_DUP_THRESHOLD=0. Tune: default 0.6.
+    let nearDupNote = "";
+    const nearDupThreshold = envFloat("PI_MEMORY_NEAR_DUP_THRESHOLD", DEFAULT_NEAR_DUP_THRESHOLD);
+    if (nearDupThreshold > 0) {
+      const hit = findNearDuplicate(content, strippedEntries, nearDupThreshold);
+      if (hit) {
+        nearDupNote = ` ⚠ near-duplicate of an existing entry (${(hit.similarity * 100) | 0}% overlap): "${hit.preview}…". Consider \`memory replace\` to consolidate instead of accumulating near-dups.`;
+      }
+    }
+
     // Encode metadata: both dates = today
     const today = new Date().toISOString().split("T")[0];
     const encoded = this.encodeEntry(content, today, today, meta);
@@ -524,7 +540,7 @@ export class MemoryStore {
     this.setEntries(target, entries);
     await this.saveToDisk(target);
 
-    return this.successResponse(target, addedMessage);
+    return this.successResponse(target, addedMessage + nearDupNote);
   }
 
   /**
