@@ -196,7 +196,7 @@ describe("selectProvider command routing", () => {
   });
 
   it("routes image_generation:<run.py-only command> → runpy-image (the force multiplier)", () => {
-    // runpy_image declares purify/multicouple/storyboard/cutout/styletransfer —
+    // runpy_image declares purify/multicouple/storyboard/cutout —
     // commands the Swift directors don't claim. Command routing sends them
     // to the run.py adapter with no provider hint, unlocking local
     // capabilities the agent otherwise can't reach.
@@ -207,10 +207,11 @@ describe("selectProvider command routing", () => {
     // (a style-forked native/python split, not a full move), "inpaint"
     // moved OFF (2026-07-13, session 5) onto flux2_image, "faceswap"
     // moved OFF (2026-07-13, session 4) onto flux2_image, "character"
-    // moved OFF (2026-07-13, session 6) onto character_native, and "kontext"
-    // moved OFF (2026-07-29, Task 5) onto flux2_image — see the dedicated
-    // tests. "multicouple" stays here permanently (genuine MLX/GPU
-    // latent-couple compute, unportable).
+    // moved OFF (2026-07-13, session 6) onto character_native, "kontext"
+    // moved OFF (2026-07-29) onto flux2_image, and "styletransfer" moved
+    // OFF (2026-07-30) onto flux2_image — see the dedicated tests.
+    // "multicouple" stays here permanently (genuine MLX/GPU latent-couple
+    // compute, unportable).
     for (const cmd of ["multicouple"]) {
       const e = selectProvider("image_generation", { command: cmd, env: NO_ENV });
       expect(e.provider).toBe("runpy-image");
@@ -312,6 +313,22 @@ describe("selectProvider command routing", () => {
     // calls Python's _run_kontext_generation in-process, a deliberately separate
     // follow-up, not this command-routed `kontext` entry).
     const e = selectProvider("image_generation", { command: "kontext", env: NO_ENV });
+    expect(e.provider).toBe("flux2");
+    expect(e.invoke).toBe("swift:flux2");
+  });
+
+  it("routes image_generation:styletransfer → flux2 (Swift-native, StyleTransferCommand.swift)", () => {
+    // 2026-07-30: image-styletransfer.py's core mechanism (Flux2 Klein
+    // SDEdit img2img: content image as init canvas + denoise strength)
+    // already existed natively as Flux2EditPipeline.generate's
+    // initImagePath/denoiseStrength params (already wired by InpaintCommand's
+    // --denoise-strength and SceneCommand's --bg/--bg-strength) — this port
+    // is a new CLI file (StyleTransferCommand.swift) wiring that existing
+    // capability, zero new pipeline code. Moved off runpy_image onto
+    // flux2_image. --playbook style-source support stays deferred (no
+    // playbook YAML parser exists anywhere in Swift/TS yet — see
+    // docs/superpowers/specs/2026-07-30-styletransfer-swift-native-port-design.md).
+    const e = selectProvider("image_generation", { command: "styletransfer", env: NO_ENV });
     expect(e.provider).toBe("flux2");
     expect(e.invoke).toBe("swift:flux2");
   });
