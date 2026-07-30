@@ -41,3 +41,17 @@ _Avoid_: vision API, OCR engine (it is a local vision-LLM subagent, not a servic
 **Shared VLM subagent**:
 file2md's VLM subagent is reused by flux2 and ltx (scenePipeline VLM verification, etc.) — one shared local-vision client across packages, not a per-package one.
 _Avoid_: VLM client, vision tool (it is the shared subagent downstream packages call)
+
+### Text extraction strategies
+
+**Text-layer extraction**:
+Direct text extraction from PDF's embedded text layer using mupdf — the `--extract text` path. Fast, pure-text, but loses figures and visual content.
+_Avoid_: OCR, text dump (it is native PDF text-layer extraction, not image-to-text OCR)
+
+**Text-as-prior**:
+Feeding extracted text into the VLM as a prior context so it describes figures and renders equations without re-describing the already-captured body text — used by the `--extract hybrid` path on figure-bearing pages.
+_Avoid_: VLM-only, full describe (it is text-prior-augmented figure description, not a fresh page description)
+
+**Figure-bearing page**:
+A page identified via a text-density heuristic (low character count per area) as likely containing figures/diagrams — the route to VLM in `--extract hybrid` mode.
+_Avoid_: pdfimages, image list (it is a heuristic detection applied during hybrid extraction, not a separate image-extraction step)

@@ -41,5 +41,8 @@
     "javascript-obfuscator": "^5.4.3",
     "tsx": "latest",
     "typescript": "latest"
+  },
+  "dependencies": {
+    "mupdf": "^1.28.0"
   }
 }
