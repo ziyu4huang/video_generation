@@ -555,4 +555,113 @@ describe("setupCorrectionDetector handler", () => {
 
     assert.strictEqual(Object.keys(handlers).length, 0, "no handlers should be registered when disabled");
   });
+
+  // ─── Auto-supersede (Plan 5a — judge-gated, opt-in via autoSupersede) ───
+  //
+  // The 9th param `runJudge` is the testability seam: tests inject a FAKE
+  // judge (no LLM/model-registry needed). The directive extracted from
+  // "no, delete that file" is "delete that file" (tokens: delete, that,
+  // file). The seeded prior "keep that file, never delete" is a genuine
+  // contradiction (keep vs delete) AND contains all three directive tokens,
+  // so the STRICT FTS5 AND query in searchMemories surfaces it directly —
+  // verified empirically. (The naive pairing of "no, use pnpm instead" with
+  // a "use yarn" prior does NOT work: once the failure-memory row is synced,
+  // its content contains the full directive, the AND query matches it, and
+  // the OR-fallback never runs — so a prior sharing only one token is never
+  // surfaced. See task-2-report.md.)
+
+  /** Inline correction store with a mocked addFailure (success path). */
+  function makeCorrectionStore() {
+    return {
+      ...mockStore,
+      addFailure: async () => ({ success: true, target: "failure", entry_count: 1, message: "Failure memory saved: correction" }),
+    } as any;
+  }
+
+  it("auto-supersede (opt-in): judge contradicts → prior flipped to superseded", async () => {
+    const pi = createMockPi();
+    // Seed an active prior the correction contradicts. Its content carries
+    // every directive token so searchMemories(directive) surfaces it even
+    // alongside the freshly-synced failure memory.
+    const prior = await memoryRepo.addMemory({ content: "keep that file, never delete", target: "memory" });
+    // Fake judge that says the prior is the contradicted candidate.
+    const fakeJudge = async () => ({ contradictedId: prior.id });
+    setupCorrectionDetector(
+      pi, makeCorrectionStore(), null, { ...config, autoSupersede: true } as any,
+      memoryRepo, undefined, memoryToolDef, makeSpawn(), fakeJudge as any,
+    );
+
+    const branch = [
+      { type: "message", message: { role: "user", content: [{ type: "text", text: "no, delete that file" }] } },
+      { type: "message", message: { role: "assistant", content: [{ type: "text", text: "ok" }] } },
+    ];
+
+    fireMessageEnd("user", "no, delete that file");
+    fireTurnEnd(branch);
+    await settle();
+
+    const got = await memoryRepo.getMemories({ target: "memory" });
+    const p = got.find((m) => m.id === prior.id)!;
+    assert.ok(p, "prior should still exist");
+    assert.strictEqual(p.status, "superseded", "prior should be flipped to superseded");
+    assert.ok(p.supersededBy && p.supersededBy > 0, "supersededBy should point at the correction entry id");
+  });
+
+  it("auto-supersede: judge returns null → no supersede", async () => {
+    const pi = createMockPi();
+    const prior = await memoryRepo.addMemory({ content: "keep that file, never delete", target: "memory" });
+    const fakeJudge = async () => ({ contradictedId: null });
+    setupCorrectionDetector(
+      pi, makeCorrectionStore(), null, { ...config, autoSupersede: true } as any,
+      memoryRepo, undefined, memoryToolDef, makeSpawn(), fakeJudge as any,
+    );
+
+    const branch = [
+      { type: "message", message: { role: "user", content: [{ type: "text", text: "no, delete that file" }] } },
+      { type: "message", message: { role: "assistant", content: [{ type: "text", text: "ok" }] } },
+    ];
+
+    fireMessageEnd("user", "no, delete that file");
+    fireTurnEnd(branch);
+    await settle();
+
+    const p = (await memoryRepo.getMemories({ target: "memory" })).find((m) => m.id === prior.id)!;
+    assert.notStrictEqual(p.status, "superseded", "prior should be untouched when judge finds no contradiction");
+  });
+
+  it("autoSupersede off (default): no judge call, no supersede", async () => {
+    const pi = createMockPi();
+    let judgeCalled = false;
+    const fakeJudge = async () => { judgeCalled = true; return { contradictedId: null }; };
+    const prior = await memoryRepo.addMemory({ content: "keep that file, never delete", target: "memory" });
+    setupCorrectionDetector(
+      pi, makeCorrectionStore(), null, { ...config /* autoSupersede unset → false */ } as any,
+      memoryRepo, undefined, memoryToolDef, makeSpawn(), fakeJudge as any,
+    );
+
+    fireMessageEnd("user", "no, delete that file");
+    fireTurnEnd([]);
+    await settle();
+
+    assert.strictEqual(judgeCalled, false, "judge must not run when autoSupersede is off");
+    const p = (await memoryRepo.getMemories({ target: "memory" })).find((m) => m.id === prior.id)!;
+    assert.notStrictEqual(p.status, "superseded");
+  });
+
+  it("auto-supersede: judge throws → no supersede (best-effort)", async () => {
+    const pi = createMockPi();
+    const prior = await memoryRepo.addMemory({ content: "keep that file, never delete", target: "memory" });
+    const fakeJudge = async () => { throw new Error("boom"); };
+    setupCorrectionDetector(
+      pi, makeCorrectionStore(), null, { ...config, autoSupersede: true } as any,
+      memoryRepo, undefined, memoryToolDef, makeSpawn(), fakeJudge as any,
+    );
+
+    fireMessageEnd("user", "no, delete that file");
+    fireTurnEnd([]);
+    await settle();
+
+    const p = (await memoryRepo.getMemories({ target: "memory" })).find((m) => m.id === prior.id)!;
+    assert.notStrictEqual(p.status, "superseded", "judge throw must not crash the session or supersede");
+  });
 });

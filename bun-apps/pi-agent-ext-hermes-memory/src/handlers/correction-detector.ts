@@ -24,6 +24,7 @@ import {
 } from "../constants.js";
 import type { MemoryConfig } from "../types.js";
 import { getMessageText } from "../types.js";
+import { runContradictionJudge } from "./contradiction-judge.js";
 
 /**
  * Extract the directive part from a correction message.
@@ -129,6 +130,7 @@ export function setupCorrectionDetector(
   projectName?: string | null,
   memoryToolDef?: ToolDefinition,
   spawn: typeof spawnSubagent = spawnSubagent,
+  runJudge: typeof runContradictionJudge = runContradictionJudge,
 ): void {
   if (!config.correctionDetection) return;
 
@@ -255,7 +257,7 @@ export function setupCorrectionDetector(
 
           if (addResult.success && memoryRepo) {
             try {
-              await memoryRepo.syncMemoryEntry({
+              const correctionSync = await memoryRepo.syncMemoryEntry({
                 content: formatFailureMemoryContent(directive, {
                   category: "correction",
                   failureReason,
@@ -266,6 +268,43 @@ export function setupCorrectionDetector(
                 category: "correction",
                 failureReason,
               });
+              const correctionEntryId = correctionSync.entry.id;
+
+              // Auto-supersede (Plan 5a — judge-gated, opt-in). Fetch a
+              // decoupled candidate pool via searchMemories(directive) (NOT the
+              // recall-set — full entries, active-filtered), ask the judge for
+              // the single contradicted candidate, and flip it onto the
+              // correction entry's lineage. Fully best-effort: any throw (judge
+              // unavailable, parse-fail, repo error) is swallowed so the
+              // session never crashes. The candidates guard prevents
+              // superseding an id the judge hallucinated outside the pool.
+              if (config.autoSupersede === true) {
+                try {
+                  const candidates = await memoryRepo.searchMemories(directive, {
+                    project: scopedProjectName ?? undefined,
+                    limit: 6,
+                  });
+                  if (candidates.length > 0) {
+                    const verdict = await runJudge(
+                      ctx as unknown as Parameters<typeof runContradictionJudge>[0],
+                      { correctionText: directive, candidates, config, signal: ctx.signal, timeoutMs: 30000 },
+                    );
+                    if (verdict.contradictedId != null && candidates.some((c) => c.id === verdict.contradictedId)) {
+                      await memoryRepo.supersedeMemory(verdict.contradictedId, correctionEntryId);
+                      try {
+                        ctx.ui?.notify?.(
+                          `Auto-superseded memory #${verdict.contradictedId} (corrected by #${correctionEntryId}).`,
+                          "info",
+                        );
+                      } catch {
+                        // best-effort — notify must not block supersession
+                      }
+                    }
+                  }
+                } catch {
+                  // best-effort — auto-supersede must never block the session
+                }
+              }
             } catch {
               // Best-effort — searchable sync should not block correction capture
             }
