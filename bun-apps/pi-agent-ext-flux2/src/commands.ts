@@ -355,6 +355,22 @@ export const COMMANDS: Record<string, CommandSpec> = {
     },
   },
 
+  styletransfer: {
+    name: "styletransfer",
+    writesImage: true,
+    acceptsGlobals: true,
+    when: "Restyle a content image to a target visual language via Flux2 Klein SDEdit img2img (preset/prompt-driven, structure preserved).",
+    fields: {
+      input: { flag: "--input", type: "string", isPath: true, description: "Content image path (structure preserved)." },
+      stylePreset: { flag: "--style-preset", type: "string", description: "Named style preset: clean-professional | watercolor | oil-painting | anime | cinematic | 3d-render | line-art | low-poly." },
+      prompt: { flag: "--prompt", type: "string", description: "Free-form style description (amplifies or overrides the preset)." },
+      strength: { flag: "--strength", type: "number", description: "Style strength = img2img denoise (0-1]. Default 0.55." },
+      lora: { flag: "--lora", type: "string[]", isPathComponent: true, description: "LoRA name(s) under models/lora/ (stackable)." },
+      loraScale: { flag: "--lora-scale", type: "number[]", description: "Per-LoRA scale, one per --lora." },
+      ...GEN_FIELDS,
+    },
+  },
+
   upscale: {
     name: "upscale",
     writesImage: true,
