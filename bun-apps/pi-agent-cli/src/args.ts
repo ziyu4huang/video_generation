@@ -81,6 +81,8 @@ export interface ParsedArgs {
 	type?: string;
 	/** file2md: only process these pages (1-indexed, e.g. "1,3-5") */
 	pages?: string;
+	/** file2md: extraction strategy vlm|text|hybrid (default vlm). */
+	extract?: string;
 	/** pdf-to-vault pipeline: stage 1 (vlm) model — the ONLY stage-specific
 	 *  model. Stage 2 (distill) reuses the global --model passthrough. */
 	vlmModel?: string;

@@ -36,6 +36,7 @@ export type NumericField =
 export type ValueField =
 	| "provider" | "model" | "thinking" | "apiKey" | "systemPrompt"
 	| "vault" | "vaultDir" | "folder" | "out" | "type" | "pages" | "file"
+	| "extract"
 	| "vlmModel" | "source" | "sourceLabel"
 	| "tags" | "excludeFromKb" | "excludeIds" | "workflowArgs" | "blend"
 	| "proxy" | "outputPath" | "hermesDir" | "vaultRoot" | "order"
@@ -121,6 +122,7 @@ const VLM_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	{ flag: "--out", field: "out" }, // shared: file2md, pdf-to-vault
 	{ flag: "--type", field: "type" }, // shared
 	{ flag: "--pages", field: "pages" }, // shared
+	{ flag: "--extract", field: "extract" }, // file2md (vlm|text|hybrid)
 ];
 
 // ── pdf-to-vault — stage-1 model ────────────────────────────────────────────

@@ -9,7 +9,7 @@ import { resolve, isAbsolute } from "node:path";
 import type { ParsedArgs } from "../args.ts";
 import { applyVaultEnv } from "../sessions/passthrough.ts";
 import { runVlmDescribePipeline } from "@repo/pi-agent-ext-file2md";
-import type { DocProfile } from "@repo/pi-agent-ext-file2md";
+import type { DocProfile, ExtractStrategy } from "@repo/pi-agent-ext-file2md";
 
 export const file2mdCommand = {
 	name: "file2md",
@@ -34,6 +34,10 @@ Options:
   --dpi <n>            rasterization DPI for PDFs (default 150)
   --type <profile>     force a profile, skip the VLM classifier
                        (paper|slides|poster|diagram|image)
+  --extract <mode>     extraction strategy (default vlm = rasterize→VLM):
+                       vlm    current path (every page → VLM)
+                       text   mupdf text-layer only (fast, no VLM, figures lost)
+                       hybrid mupdf text + VLM for figure-bearing pages
   --pages <spec>       only process these pages, e.g. "1,3-5" (1-indexed)
   --model <pattern>    provider/id[:thinking]  (default: model-tiers config, else PI_MODEL env)
   --provider <name>    provider name
@@ -67,6 +71,7 @@ Examples:
 			provider: parsed.provider ?? (parsed.model ? undefined : "lm-studio"),
 			thinking: parsed.thinking,
 			forcedType: parsed.type as DocProfile | undefined,
+			extract: parsed.extract as ExtractStrategy | undefined,
 			pages: parsed.pages,
 			dpi: parsed.dpi ?? 150,
 			emit: jsonMode
