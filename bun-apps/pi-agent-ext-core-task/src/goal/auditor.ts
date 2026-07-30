@@ -87,7 +87,9 @@ function makeAuditorResourceLoader(): ResourceLoader {
 			"Inspect the repository and decide whether the claimed goal completion is genuinely satisfied.",
 			"Never modify files. Never approve unless the actual user objective is complete.",
 		].join("\n"),
+		getSystemPromptSource: () => undefined,
 		getAppendSystemPrompt: () => [],
+		getAppendSystemPromptSources: () => [],
 		extendResources: () => {},
 		reload: async () => {},
 	};
