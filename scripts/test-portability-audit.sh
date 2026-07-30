@@ -56,9 +56,27 @@
 set -uo pipefail
 
 STRICT=0
-[ "${1:-}" = "--strict" ] && STRICT=1
+SCAN_ROOT=""
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Parse args:
+#   --strict        block (exit 1) on any UNGATED P1/P2/P5 hit
+#   --root <dir>    override the scan root (tests point this at a synthetic
+#                   bun-apps/ tree); default = the repo root (script's ../).
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--strict) STRICT=1 ;;
+		--root)   SCAN_ROOT="${2:-}"; shift ;;
+		--root=*) SCAN_ROOT="${1#--root=}" ;;
+		*) ;;  # ignore unknown (forward-compat)
+	esac
+	shift
+done
+
+if [ -n "$SCAN_ROOT" ]; then
+	ROOT="$(cd "$SCAN_ROOT" && pwd)"
+else
+	ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+fi
 cd "$ROOT"
 
 # Test surface: *.test.ts / *.test.mjs under bun-apps/, excluding node_modules
@@ -72,7 +90,12 @@ TOTAL_FILES="$(
 )"
 
 # guard_signals regex — if a file matches ANY of these it is GUARDED.
-GUARD_RE='process\.env\.CI|\.skipIf\(|MLX_E2E|PI_AGENT_E2E|PI_RUN_L2|PI_AGENT_E2E_IMAGE|PI_AGENT_E2E_DEPLOY|PI_SKIP_L2|CONFIG_PRESENT|testWithoutEnv|__setVaultResolverForTest|process\.execPath'
+# PORTABILITY-GUARDED = sanctioned self-attestation: a `// PORTABILITY-GUARDED:`
+# comment in the file asserts the spawn/path access is CI-safe AND states why
+# (e.g. spawning bash to run a committed repo script). Used by tests that MUST
+# run in CI but legitimately touch a host binary the skipIf/opt-in signals
+# can't express (the audit's own regression test is the canonical case).
+GUARD_RE='process\.env\.CI|\.skipIf\(|MLX_E2E|PI_AGENT_E2E|PI_RUN_L2|PI_AGENT_E2E_IMAGE|PI_AGENT_E2E_DEPLOY|PI_SKIP_L2|CONFIG_PRESENT|testWithoutEnv|__setVaultResolverForTest|process\.execPath|PORTABILITY-GUARDED'
 
 # Pattern regexes.
 P1_RE='existsSync\s*\([^)]*(python/venv|swift/|run\.py|mlx-models|video_generation__models)'

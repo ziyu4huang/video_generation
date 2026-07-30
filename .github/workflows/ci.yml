@@ -495,6 +495,15 @@ jobs:
         working-directory: bun-apps
         run: bun run test:config-parity
 
+      # Regression test for the test-portability audit itself (ticket 01 —
+      # self-reflection). The audit is a CI gate but had no tests of its own;
+      # this pins its --root flag + P-class classification (GUARDED vs UNGATED,
+      # block-under-strict) via synthetic fixtures, so a refactor can't silently
+      # disable a detection class.
+      - name: Test-portability audit regression test
+        working-directory: bun-apps
+        run: bun run test:portability-audit
+
       # Test-portability prevention check — now BLOCKING (--strict). Scans the
       # test surface for the four "works on my machine" signal patterns and
       # exits non-zero on any UNGATED P1/P2 hit (existsSync of a machine-coupled
