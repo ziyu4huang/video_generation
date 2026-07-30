@@ -747,9 +747,11 @@ export class SqliteMemoryRepository implements MemoryRepository {
    * the other mutators.
    */
   async supersedeMemory(priorId: number, newId: number): Promise<void> {
-    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
-      this.db.prepare("UPDATE memories SET status = 'superseded', superseded_by = ? WHERE id = ?").run(newId, priorId);
-      this.db.prepare("UPDATE memories SET supersedes = ?, parent_ids = ? WHERE id = ?").run(priorId, JSON.stringify([priorId]), newId);
-    }));
+    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() =>
+      runExclusive(this.db, () => {
+        this.db.prepare("UPDATE memories SET status = 'superseded', superseded_by = ? WHERE id = ?").run(newId, priorId);
+        this.db.prepare("UPDATE memories SET supersedes = ?, parent_ids = ? WHERE id = ?").run(priorId, JSON.stringify([priorId]), newId);
+      }),
+    ));
   }
 }

@@ -534,3 +534,52 @@ describe("SqliteMemoryRepository", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 2: Transactional supersedeMemory. The two UPDATEs (prior → superseded,
+// new → supersedes+parentIds) must run inside a single BEGIN IMMEDIATE … COMMIT
+// transaction so a crash between them cannot leave the prior half-superseded
+// with no lineage link. The spy asserts runExclusive emits both markers.
+// ---------------------------------------------------------------------------
+
+describe("SqliteMemoryRepository.supersedeMemory atomicity", () => {
+  let dir: string;
+  let backend: SqliteBackend;
+  let repo: SqliteMemoryRepository;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "supersede-tx-"));
+    backend = new SqliteBackend(dir);
+    await backend.init();
+    repo = new SqliteMemoryRepository(backend);
+  });
+  afterEach(() => {
+    backend.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("runs both UPDATEs inside a single BEGIN IMMEDIATE … COMMIT transaction", async () => {
+    const prior = await repo.addMemory({ content: "prior atomic content", target: "memory" });
+    const next = await repo.addMemory({ content: "next atomic content", target: "memory" });
+
+    // Spy on db.exec to capture the transaction markers emitted by runExclusive.
+    const db = backend.getDb();
+    const execSqls: string[] = [];
+    const origExec = db.exec.bind(db);
+    db.exec = (sql: string) => {
+      execSqls.push(sql);
+      return origExec(sql);
+    };
+
+    try {
+      await repo.supersedeMemory(prior.id, next.id);
+    } finally {
+      db.exec = origExec;
+    }
+
+    expect(execSqls.some((s) => s.toUpperCase().includes("BEGIN IMMEDIATE")))
+      .toBe(true);
+    expect(execSqls.some((s) => s.toUpperCase() === "COMMIT"))
+      .toBe(true);
+  });
+});
