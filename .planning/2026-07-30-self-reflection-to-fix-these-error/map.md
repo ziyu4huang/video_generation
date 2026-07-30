@@ -17,12 +17,14 @@ Make the two highest-recurrence failure-memory clusters — **(1) test-hermetici
 - [00 Why the top clusters recur despite existing guards](tickets/00-why-the-top-clusters-recur-despite-guards.md) — **research DONE**: hermeticity recurs because the portability audit misses config-mutating env vars (P3 = `*_API_KEY`/`*_TOKEN` only; the `PI_HERMES_CONSOLIDATING`/#938 class is undetected), excludes `loadConfig(`/`os.homedir(` from P5, and is CI-only (no local pre-push gate). Store-noise recurs because there's no write-time near-dup gate and `dedup.sh` only hard-deletes *exact* dups (near-dups are report-only → accumulate; worst cluster mupdf ×5). Concrete candidate fix shapes recorded in the ticket for 01/02.
 - [01 Structural fix for test-hermeticity recurrence](tickets/01-structural-fix-for-test-hermeticity-recurrence.md) — **task DONE**: detection was at its limit (loadConfig = false positives; env-var = #938 false-positive-prone), so the fix closed the *local-enforcement* gap (00 #3) + gave the untested audit regression coverage: `--root` flag, 5-case regression test, `PORTABILITY-GUARDED` marker, `test:portability` scripts, shared `.githooks/pre-push` (auto-active), CI step. Known-bad fixture caught locally by the hook (done criterion met). Env-var-mutating class stays convention-only (deferred).
 
+- [02 Structural fix for failure-store noise](tickets/02-structural-fix-for-failure-store-noise.md) — **task DONE**: write-time near-dup WARNING gate in `MemoryStore._addInner` (extends the existing exact-dup check with containment-based detection; warns + points to `memory replace`, doesn't block). New `src/store/near-dup.ts` (pure) + `envFloat` + 11 tests (8 unit, 3 integration). Validated against the live store: 5 real near-dup pairs caught, 0 false positives. Configurable via `PI_MEMORY_NEAR_DUP_THRESHOLD`. **All tickets closed — map COMPLETE (00 research + 01 + 02).**
+
 ## Not yet specified
 
-<!-- fog graduated into 01/02 by ticket 00; remaining fog is the exact fix SHAPE each task ticket will pick (resolved when the task is worked, informed by 00's candidate shapes) -->
-- Hermeticity (01): P6 class for config-mutating env vars vs local pre-push enforcement vs both — 00 recommends both.
-- Store-noise (02): write-time near-dup gate (if hermes hook feasible) vs automated compaction vs check-before-write convention — 00 recommends the gate if feasible.
-- If either fix surfaces a larger design (e.g. the hermes write-seam can't host a near-dup hook), the task ticket splits at resolution.
+<!-- fog graduated into 01/02 by ticket 00; both task tickets resolved. Map complete. -->
+- ~~Hermeticity fix shape~~ → graduated + resolved (ticket 01: local enforcement + audit regression coverage).
+- ~~Store-noise fix shape~~ → graduated + resolved (ticket 02: write-time near-dup warning gate).
+- **Deferred (from 01/02 resolutions):** (a) escalate the near-dup gate from WARN to BLOCK if warnings get ignored; (b) a shared `clearHarnessEnvVars()` test helper to reduce friction for the env-var-mutating hermeticity class (#938); (c) carry the near-dup warning through the overflow paths (vaultOffload/fifoEvict).
 
 ## Out of scope
 
