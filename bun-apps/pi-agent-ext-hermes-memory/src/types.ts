@@ -80,6 +80,9 @@ export interface MemoryConfig {
   errorCapture?: boolean;
   /** Increment memory-worth counters on session outcome (correction→fail, else→success). Default: true */
   worthScoring?: boolean;
+  /** Auto-supersede a recalled memory when a correction contradicts it (judge-gated).
+   *  Default: false (opt-in — supersession hides the prior from search). */
+  autoSupersede?: boolean;
   /** Per-session errorCapture rate limit (0 = unlimited). #854 */
   errorCaptureRateLimit?: number;
   /** errorCapture sliding-window length in ms. #854 */
