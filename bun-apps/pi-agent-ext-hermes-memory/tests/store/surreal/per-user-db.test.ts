@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "bun:test";
 import assert from "node:assert";
 import { sanitizeUsername, currentUsername, derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "../../../src/store/surreal/per-user-db.ts";
 

@@ -56,3 +56,32 @@ export function detectProjectSkills(projectsMemoryDir = "projects-memory", cwd?:
     skillsDir: project.memoryDir ? path.join(project.memoryDir, "skills") : null,
   };
 }
+
+/**
+ * Resolve the project-scoped memory store directory (ticket 04, decision 01).
+ *
+ * The project memory's markdown source-of-truth location. detectProject gives
+ * the legacy global location (~/.pi/agent/<projectsMemoryDir>/<project>/); this
+ * resolver applies the `projectMemoryDir` config knob on top of it:
+ *
+ * - default (undefined): <cwd>/.planning/memory/ — in-repo, git-trackable,
+ *   per-project (each repo's own .planning/). Only when a project is detected,
+ *   so running from ~ doesn't create ~/.planning/.
+ * - explicit null: opt-out → the legacy global location (detected.memoryDir).
+ *   Current behavior preserved for projects that want memory to follow the
+ *   user, not the repo.
+ * - explicit string: that path, resolved cwd-relative if relative.
+ *
+ * PURE: deterministic given the inputs — unit-tested independently of index.ts.
+ */
+export function resolveProjectStoreDir(
+  projectMemoryDir: string | null | undefined,
+  detected: ProjectInfo,
+  cwd: string,
+): string | null {
+  if (projectMemoryDir === null) return detected.memoryDir;
+  if (typeof projectMemoryDir === "string" && projectMemoryDir.trim()) {
+    return path.resolve(cwd, projectMemoryDir.trim());
+  }
+  return detected.name ? path.join(cwd, ".planning", "memory") : null;
+}

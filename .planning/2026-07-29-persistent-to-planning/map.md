@@ -1,5 +1,7 @@
 # Wayfinder map: 2026-07-29-persistent-to-planning
 
+> **Status: COMPLETE ✅** — all 5 tickets closed, destination reached. Project memory now persists as the markdown SoT in `<cwd>/.planning/memory/`, coexisting with the global store; the DB indexes both; `memory_search` merges.
+
 ## Destination
 
 Make hermes **`project`-target memory** persist as the markdown source-of-truth in the repo's **`.planning/memory/`** — git-trackable, PR-reviewable, per-repo — coexisting with the global `~/.pi/agent` store (`user`, global `memory` notes, and `failure` stay global). The DB indexes both stores; `memory_search` merges project-local + global results. This relocates the project memory's source-of-truth from the global store into the repo.
@@ -17,8 +19,10 @@ Make hermes **`project`-target memory** persist as the markdown source-of-truth 
 - [Project-memory-dir resolution mechanism](tickets/01-project-memory-dir-resolution.md) — **config knob `projectMemoryDir`**, default `<cwd>/.planning/memory/`; `null`/empty falls back to the global store (explicit opt-out). cwd-relative anchoring. Write-path (ticket 04): per-target resolution gains `if target=project && projectMemoryDir set → <projectMemoryDir>/MEMORY.md else global`.
 - [Search/index merge + project-filter semantics](tickets/02-search-merge-and-project-filter.md) — **single DB, tag project-local on index**; the existing `memory_search(project=X)` merges project-local + global-project-tagged (DB is source-agnostic). sync-markdown-memories scans `.planning/memory/` as a second source. No schema change.
 - [Migration of existing project-tagged entries](tickets/03-migration-of-existing-entries.md) — **leave (no migration)**; existing entries stay global, surface via the search merge. Zero data-movement risk. Ticket 05 → no-op + regression test.
+- [Core mechanism: routing + indexing + search merge](tickets/04-core-mechanism-routing-index-merge.md) — **shipped**. Routing already existed (`projectStore`); added `resolveProjectStoreDir()` pure resolver (default `<cwd>/.planning/memory/`, null→legacy, string→path) + `projectMemoryDir` config + sync-markdown-memories in-repo second-source scan. tsc clean, 785/0.
+- [Migration implementation + end-to-end coverage](tickets/05-migration-and-end-to-end-coverage.md) — **no-op migration (decision 03 = leave) + merge-pin regression test**. Legacy global + in-repo project entries both surface in one search; the split works end-to-end.
 
-<!-- frontier = {04} — 05 still blocked by 04 -->
+<!-- frontier = (none) — MAP COMPLETE: all 5 tickets closed -->
 
 ## Not yet specified
 

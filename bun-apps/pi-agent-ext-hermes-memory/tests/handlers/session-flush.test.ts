@@ -7,7 +7,7 @@
  * tests pass a fake that records call opts and returns a synthesized result.
  */
 
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, beforeEach } from "bun:test";
 import assert from "node:assert/strict";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "@repo/pi-agent-ext-subagent/src/index.ts";

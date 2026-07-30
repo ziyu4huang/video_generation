@@ -1,7 +1,7 @@
 {
   "version": 1,
   "store_relative_to_repo_root": "../video_generation__models",
-  "count": 116,
+  "count": 123,
   "files": {
     "audio/ltx-2.3-audio/audio_vae.safetensors": {
       "md5": "f4dd0367b95f98fdd8b2f7e5c45018e8",
@@ -466,6 +466,34 @@
     "musicgen/musicgen-small/tokenizer.json": {
       "md5": "dae9aa57be525c0ebe4c3a7d510af0bf",
       "size": 2422095
+    },
+    "transformer/kontext-dev/diffusion_pytorch_model-00001-of-00003.safetensors": {
+      "md5": "9c20b48120e06dfca89cb3c8a10be72a",
+      "size": 9983040304
+    },
+    "transformer/kontext-dev/diffusion_pytorch_model-00002-of-00003.safetensors": {
+      "md5": "26ddcbae946dc4324a349af086504194",
+      "size": 9949328904
+    },
+    "transformer/kontext-dev/diffusion_pytorch_model-00003-of-00003.safetensors": {
+      "md5": "2eaf793150a2c10fb5e1dc8493353466",
+      "size": 3870584832
+    },
+    "text_encoder/kontext-dev-clip/model.safetensors": {
+      "md5": "6460700be2e13c8ed9a7291c3b2dcdbb",
+      "size": 246144352
+    },
+    "text_encoder/kontext-dev-t5/model-00001-of-00002.safetensors": {
+      "md5": "fc64e106336dfddd8b1784c631f9b4a4",
+      "size": 4994582224
+    },
+    "text_encoder/kontext-dev-t5/model-00002-of-00002.safetensors": {
+      "md5": "bf8a63a0bc9a1a3d87d196402994e3e9",
+      "size": 4530066360
+    },
+    "tokenizer/kontext-dev-t5-tok/tokenizer.json": {
+      "md5": "44e86651553dc226a2826fd97868d0a6",
+      "size": 2424235
     }
   }
 }

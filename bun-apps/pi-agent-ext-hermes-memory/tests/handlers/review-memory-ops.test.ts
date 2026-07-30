@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "bun:test";
 import assert from "node:assert";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";

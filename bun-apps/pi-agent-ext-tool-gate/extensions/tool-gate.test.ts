@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { updateSticky, CORE_TOOLS, GATES, computeBannerSaved, matchIntent, matchesKeyword, gateFires, measureToolTokens, filterActive } from "./tool-gate.ts";
 import type { ToolGate } from "./tool-gate.ts";
 import { emitToolGateLog, isMissCandidate } from "./tool-gate.ts";
@@ -134,6 +134,14 @@ describe("matchIntent (S1)", () => {
 });
 
 describe("telemetry helpers (S1)", () => {
+  // Hermeticity (matches hermes config.test.ts PR #938): the live agent harness
+  // exports TOOL_GATE_LOG_PATH, which makes emitToolGateLog write to a FILE
+  // instead of stderr — breaking the stderr-capture assertions below and
+  // polluting the real telemetry file as a side-effect. Snapshot/delete/restore
+  // per test so emitToolGateLog's stderr path is deterministic.
+  let savedLogPath: string | undefined;
+  beforeEach(() => { savedLogPath = process.env.TOOL_GATE_LOG_PATH; delete process.env.TOOL_GATE_LOG_PATH; });
+  afterEach(() => { if (savedLogPath === undefined) delete process.env.TOOL_GATE_LOG_PATH; else process.env.TOOL_GATE_LOG_PATH = savedLogPath; });
   test("isMissCandidate: non-empty prompt + no fire + dormant ≥1 → true", () => {
     expect(isMissCandidate("hello", [], ["ltx"])).toBe(true);
   });

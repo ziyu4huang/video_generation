@@ -5,7 +5,7 @@ import { runArchify, withTempIr } from "./run.ts";
 import { resolveOutputPath } from "./output-path.ts";
 import { loadIrMeta } from "./load-ir.ts";
 
-export interface RenderCtx { cwd: string }
+export interface RenderCtx { cwd: string; bin?: string }
 
 interface DeliverReceipt {
   ok?: boolean;
@@ -47,7 +47,7 @@ export async function archifyRender(params: { ir?: unknown; irPath?: string; out
   // deliver: render → check → atomic commit → JSON receipt. Never --open
   // (headless; snapshot lacks open-artifact.mjs). No --quality/--repo-root
   // (parity with the prior surface; add when needed).
-  const deliver = (irPath: string) => runArchify(["deliver", type, irPath, outPath, "--json"], ctx.cwd, signal);
+  const deliver = (irPath: string) => runArchify(["deliver", type, irPath, outPath, "--json"], ctx.cwd, signal, ctx.bin);
   const { stdout, stderr, status } = irPathGiven
     ? await deliver(irPathGiven)
     : await withTempIr(params.ir ?? {}, deliver);

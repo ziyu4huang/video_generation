@@ -27,6 +27,9 @@ import { isSddReportActionable, parseSddReport, type SddReport } from "./sdd-rep
 import { type SpawnSubagentOptions, type SpawnSubagentResult, spawnSubagent } from "./spawn-subagent.js";
 import type { SubagentInFlightRegistry } from "./subagent-in-flight.js";
 import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
+import { computeBaseline, type RepoBaseline } from "./watchdog/repo-diff.js";
+import { normalizeWatchdogParam, type WatchdogResult } from "./watchdog/types.js";
+import { runWatchdog } from "./watchdog/watchdog.js";
 import { createWorktree, removeWorktree, type Worktree } from "./worktree.js";
 
 export interface SubagentToolDetails {
@@ -40,6 +43,8 @@ export interface SubagentToolDetails {
   taskPreview: string;
   /** Wall-clock of the run, ms. */
   elapsedMs: number;
+  /** Wall-clock dispatch start, epoch ms — for /subagents timestamp display. */
+  startedAt?: number;
   status: "done" | "failed" | "timedout" | "budget";
   /** Real token/cost usage from the child session, when reported. */
   usage?: AgentUsage;
@@ -63,7 +68,29 @@ export interface SubagentToolDetails {
    * worktree-isolated / not a repo). Detection only; never auto-reverts.
    */
   scopeCheck?: SubagentScopeCheck;
+  /**
+   * Opt-in two-layer watchdog review (`watchdog` param, ticket 02). Present only
+   * when the caller set `watchdog` AND a repo baseline could be captured pre-spawn
+   * AND runWatchdog returned (edit-gated results are included — they still carry a
+   * summary). Absent when watchdog is off. A throw inside the watchdog path never
+   * fails the run; in that case `details.watchdog` stays undefined and the result
+   * text carries a `watchdog-error:` line instead. Soft gate: never auto-fails.
+   */
+  watchdog?: WatchdogResult;
 }
+
+/**
+ * Default wall-clock timeout (ms) applied when a dispatch omits `timeoutMs`.
+ * Generous safety net (15 min): legit in-process runs rarely exceed ~10 min
+ * (research 1-3, implementer 3-10, reviewer 2-5), so this almost never fires on
+ * real work — it exists to unblock the parent turn when a child deadlocks / hangs
+ * on a network call / loops without burning tokens (tokenBudget can't catch that).
+ * In-process children are synchronous to the parent turn, so a stuck child blocks
+ * the whole interactive session until the timeout fires. Override per-dispatch
+ * via `timeoutMs`. (cf. pi-subagents 0.37.1's 30-min default — theirs is
+ * detached/async so a long run doesn't block the user; ours is not, hence shorter.)
+ */
+export const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 
 export const subagentToolSchema = Type.Object({
   agent: Type.Optional(
@@ -100,6 +127,20 @@ export const subagentToolSchema = Type.Object({
     }),
   ),
   cwd: Type.Optional(Type.String({ description: "Child working directory (defaults to parent session cwd)." })),
+  watchdog: Type.Optional(
+    Type.Union(
+      [
+        Type.Boolean({
+          description: "Enable watchdog review (L1 LSP on, L2 off). true = {l1:true,l2:false}.",
+        }),
+        Type.Object({
+          l1: Type.Optional(Type.Boolean({ description: "L1 LSP diagnostics. Default true when watchdog enabled." })),
+          l2: Type.Optional(Type.Boolean({ description: "L2 model review (opt-in). Default false." })),
+        }),
+      ],
+      { description: "Opt-in two-layer review of the implementer's final diff. Off by default." },
+    ),
+  ),
   tools: Type.Optional(
     Type.Array(Type.String(), {
       description:
@@ -111,7 +152,7 @@ export const subagentToolSchema = Type.Object({
   ),
   timeoutMs: Type.Optional(
     Type.Number({
-      description: "Abort after this many ms (wall-clock). Omit for no timeout.",
+      description: "Abort after this many ms (wall-clock). Omit for a 15-minute default (DEFAULT_TIMEOUT_MS).",
     }),
   ),
   tokenBudget: Type.Optional(
@@ -432,6 +473,7 @@ export function createSubagentTool(
           model: params.model ?? "default",
           taskPreview: taskPreview(params.task),
           elapsedMs: Date.now() - t0,
+          startedAt: t0,
           status: "failed",
         },
       });
@@ -480,6 +522,20 @@ export function createSubagentTool(
         }
       }
 
+      // Opt-in two-layer watchdog (watchdog param): snapshot the repo state NOW so the
+      // post-spawn compute can tell whether the child edited anything. Captured on
+      // spawnCwd (the real tree or the worktree the child ran in). A throw / non-repo
+      // → undefined, which gates the post-spawn run entirely (no review, no summary).
+      const watchdogOpts = normalizeWatchdogParam(params.watchdog);
+      let watchdogBaseline: RepoBaseline | undefined;
+      if (watchdogOpts) {
+        try {
+          watchdogBaseline = computeBaseline(spawnCwd);
+        } catch {
+          watchdogBaseline = undefined;
+        }
+      }
+
       const requestedModel = params.model ?? agentDef?.model;
       const tier = params.tier ?? agentDef?.tier;
       const capability = params.capability;
@@ -517,7 +573,7 @@ export function createSubagentTool(
           instructions,
           extensionTools: options.getExtensionTools?.(),
           externalSignal: signal,
-          timeoutMs: params.timeoutMs,
+          timeoutMs: params.timeoutMs ?? DEFAULT_TIMEOUT_MS,
           tokenBudget: params.tokenBudget,
           spendBudget: params.spendBudget,
           retryOnTransient: params.retryOnTransient,
@@ -569,6 +625,27 @@ export function createSubagentTool(
           const paths = scopeCheck.outOfScope.map((p) => `  - ${p}`).join("\n");
           output += `\n\n--- ⚠ commit-scope violation (${scopeCheck.outOfScope.length}) ---\nThe subagent committed path(s) OUTSIDE the declared commitScope:\n${paths}\nInspect before merging — this is the recurring \`git add -A\` sweep signal.`;
         }
+        // Opt-in two-layer watchdog: run the review against the captured baseline.
+        // Soft gate — appends a summary line only when runWatchdog actually ran OR
+        // was edit-gated (no diff). A throw anywhere in the watchdog path is caught
+        // here so it can NEVER fail the run; in that case a `watchdog-error:` line
+        // is appended instead and watchdogResult stays undefined.
+        let watchdogResult: WatchdogResult | undefined;
+        if (watchdogOpts && watchdogBaseline) {
+          try {
+            watchdogResult = await runWatchdog({
+              cwd: spawnCwd,
+              before: watchdogBaseline,
+              opts: watchdogOpts,
+              taskLabel: taskPreview(params.task),
+            });
+            if (watchdogResult.ran || watchdogResult.editGated) {
+              output += `\n\n--- 🔍 ${watchdogResult.summary} (soft gate — review findings; not a failure) ---`;
+            }
+          } catch (e) {
+            output += `\n\n--- 🔍 watchdog-error: ${(e as Error).message} ---`;
+          }
+        }
         const model = resolvedModel ?? displayModelBeforeResolve;
         const details: SubagentToolDetails = {
           exitCode: result.exitCode,
@@ -577,6 +654,7 @@ export function createSubagentTool(
           model,
           taskPreview: taskPreview(params.task),
           elapsedMs,
+          startedAt: t0,
           status: deriveSubagentStatus(result),
           usage: result.usage,
           budget: result.budget,
@@ -584,6 +662,7 @@ export function createSubagentTool(
           // present (non-SDD / schema / failure outputs have no marker → undefined).
           report: parseSddReport(result.output),
           scopeCheck,
+          watchdog: watchdogResult,
         };
         // Durable record for post-session replay (ticket 08). Write-once at
         // completion; best-effort — save() swallows errors so this can never
@@ -610,6 +689,7 @@ export function createSubagentTool(
           history: lastHistory,
           report: details.report,
           scopeCheck: details.scopeCheck,
+          watchdog: watchdogResult,
         });
         return { content: [{ type: "text" as const, text: output }], details };
       } finally {

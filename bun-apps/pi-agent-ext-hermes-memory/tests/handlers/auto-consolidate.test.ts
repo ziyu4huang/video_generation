@@ -7,7 +7,7 @@
  * that records the call opts and returns a synthesized `SpawnSubagentResult`.
  */
 
-import { describe, it, before, after } from "node:test";
+import { describe, it, beforeAll, afterAll } from "bun:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -362,7 +362,7 @@ describe("resolveConsolidatorModelLabel", () => {
   const savedModel = process.env.PI_MODEL;
   const savedProvider = process.env.PI_PROVIDER;
 
-  after(() => {
+  afterAll(() => {
     if (savedModel === undefined) delete process.env.PI_MODEL;
     else process.env.PI_MODEL = savedModel;
     if (savedProvider === undefined) delete process.env.PI_PROVIDER;
@@ -403,11 +403,11 @@ describe("resolveConsolidatorModelLabel", () => {
 describe("MemoryStore auto-consolidation integration", () => {
   let MEMORY_DIR = "";
 
-  before(async () => {
+  beforeAll(async () => {
     MEMORY_DIR = await fs.mkdtemp(path.join(os.tmpdir(), "pi-consolidation-test-"));
   });
 
-  after(async () => {
+  afterAll(async () => {
     try { await fs.rm(MEMORY_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
   });
 

@@ -208,6 +208,14 @@ export function loadConfig(configPath?: string): MemoryConfig {
         const normalizedProjectsMemoryDir = normalizeProjectsMemoryDir(parsed.projectsMemoryDir);
         if (normalizedProjectsMemoryDir) config.projectsMemoryDir = normalizedProjectsMemoryDir;
       }
+      // ticket 04 (decision 01): project memory source-of-truth location.
+      // null → opt-out (legacy global); string → that path (resolved cwd-relative
+      // later by resolveProjectStoreDir); absent → default <cwd>/.planning/memory/.
+      if (parsed.projectMemoryDir === null) config.projectMemoryDir = null;
+      else if (typeof parsed.projectMemoryDir === "string") {
+        const trimmed = parsed.projectMemoryDir.trim();
+        if (trimmed) config.projectMemoryDir = trimmed;
+      }
       if (
         typeof parsed.sessionSearch === "object" &&
         parsed.sessionSearch !== null &&

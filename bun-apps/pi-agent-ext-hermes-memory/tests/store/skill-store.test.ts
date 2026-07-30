@@ -6,7 +6,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as assert from "node:assert/strict";
-import { describe, it, before, after, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeAll, afterAll, beforeEach, afterEach } from "bun:test";
 import { SkillStore } from "../../src/store/skill-store.js";
 
 let ROOT_DIR = "";
@@ -44,7 +44,7 @@ async function readFile(filePath: string): Promise<string> {
 }
 
 describe("SkillStore", { concurrency: 1 }, () => {
-  before(async () => {
+  beforeAll(async () => {
     ROOT_DIR = await fs.mkdtemp(path.join(os.tmpdir(), "pi-skill-test-"));
     GLOBAL_SKILLS_DIR = path.join(ROOT_DIR, "global-skills");
     PROJECT_SKILLS_DIR = path.join(ROOT_DIR, "project-skills");
@@ -53,7 +53,7 @@ describe("SkillStore", { concurrency: 1 }, () => {
     MIGRATION_SENTINEL = path.join(ROOT_DIR, ".skill-migration");
   });
 
-  after(async () => {
+  afterAll(async () => {
     try {
       await fs.rm(ROOT_DIR, { recursive: true, force: true });
     } catch {

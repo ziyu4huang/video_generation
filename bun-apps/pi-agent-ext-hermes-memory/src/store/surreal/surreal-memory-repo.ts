@@ -391,7 +391,7 @@ export class SurrealMemoryRepository implements MemoryRepository {
     const rows = await this.c.query<Row[]>(
       `SELECT ${FIELDS} FROM memories
        WHERE ${where} seq NOT IN $seedSeqs
-         AND id IN (SELECT VALUE in FROM tagged WHERE out IN (SELECT VALUE id FROM tag WHERE key IN $keys))
+         AND array::intersect(->tagged->tag.key, $keys) != []
        ORDER BY lastReferenced DESC LIMIT $cap;`,
       { ...s.params, seedSeqs, keys: [...keys], cap: GRAPH_NEIGHBOR_CAP },
     );

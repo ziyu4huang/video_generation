@@ -196,7 +196,7 @@ describe("selectProvider command routing", () => {
   });
 
   it("routes image_generation:<run.py-only command> → runpy-image (the force multiplier)", () => {
-    // runpy_image declares purify/multicouple/workflow/storyboard/kontext —
+    // runpy_image declares purify/multicouple/storyboard/cutout/styletransfer —
     // commands the Swift directors don't claim. Command routing sends them
     // to the run.py adapter with no provider hint, unlocking local
     // capabilities the agent otherwise can't reach.
@@ -206,9 +206,10 @@ describe("selectProvider command routing", () => {
     // "controlnet" moved OFF (2026-07-13, session 3) onto controlnet_hybrid
     // (a style-forked native/python split, not a full move), "inpaint"
     // moved OFF (2026-07-13, session 5) onto flux2_image, "faceswap"
-    // moved OFF (2026-07-13, session 4) onto flux2_image, and "character"
-    // moved OFF (2026-07-13, session 6) onto character_native — see the
-    // dedicated tests. "multicouple" stays here permanently (genuine MLX/GPU
+    // moved OFF (2026-07-13, session 4) onto flux2_image, "character"
+    // moved OFF (2026-07-13, session 6) onto character_native, and "kontext"
+    // moved OFF (2026-07-29, Task 5) onto flux2_image — see the dedicated
+    // tests. "multicouple" stays here permanently (genuine MLX/GPU
     // latent-couple compute, unportable).
     for (const cmd of ["multicouple"]) {
       const e = selectProvider("image_generation", { command: cmd, env: NO_ENV });
@@ -298,6 +299,19 @@ describe("selectProvider command routing", () => {
     // calling runFlux2. --self-test's source-synthesis/VLM-scoring/HTML-review
     // scaffolding is deliberately NOT ported (test/QA-only, not the swap itself).
     const e = selectProvider("image_generation", { command: "faceswap", env: NO_ENV });
+    expect(e.provider).toBe("flux2");
+    expect(e.invoke).toBe("swift:flux2");
+  });
+
+  it("routes image_generation:kontext → flux2 (Swift-native, KontextPipeline.swift)", () => {
+    // 2026-07-29 (Task 5 of the kontext-swift-native-port plan): the 2026-07-14
+    // kontext epic already numerically verified KontextTransformer/CLIP/T5/VAE
+    // in isolation; this port adds the missing denoise loop (KontextPipeline.swift)
+    // + CLI (KontextCommand.swift). Moved off runpy_image onto flux2_image —
+    // `storyboard --kontext-lock` stays on runpy_image (image-storyboard.py still
+    // calls Python's _run_kontext_generation in-process, a deliberately separate
+    // follow-up, not this command-routed `kontext` entry).
+    const e = selectProvider("image_generation", { command: "kontext", env: NO_ENV });
     expect(e.provider).toBe("flux2");
     expect(e.invoke).toBe("swift:flux2");
   });

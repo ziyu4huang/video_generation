@@ -6,7 +6,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "bun:test";
 import * as assert from "node:assert/strict";
 import { MemoryStore } from "../../src/store/memory-store.js";
 

@@ -114,6 +114,17 @@ export { createSubagentRunsTool } from "./subagent-runs-tool.js";
 // subagent-tool
 export type { SubagentToolDetails, SubagentToolOptions } from "./subagent-tool.js";
 export { createSubagentTool, formatHistoryLine } from "./subagent-tool.js";
+export type {
+  WatchdogFinding,
+  WatchdogL1Result,
+  WatchdogL2Result,
+  WatchdogOptions,
+  WatchdogResult,
+} from "./watchdog/types.js";
+export { normalizeWatchdogParam } from "./watchdog/types.js";
+export type { RunWatchdogInput } from "./watchdog/watchdog.js";
+// watchdog (ticket 02 — two-layer edit-gated reviewer)
+export { runWatchdog } from "./watchdog/watchdog.js";
 // worktree
 export type { Worktree } from "./worktree.js";
 export { createWorktree, removeWorktree } from "./worktree.js";

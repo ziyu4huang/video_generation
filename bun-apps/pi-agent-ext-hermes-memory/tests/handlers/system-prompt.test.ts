@@ -8,7 +8,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { describe, it, before, after } from "node:test";
+import { describe, it, beforeAll, afterAll } from "bun:test";
 import assert from "node:assert/strict";
 import { MemoryStore } from "../../src/store/memory-store.js";
 import { ENTRY_DELIMITER } from "../../src/constants.js";
@@ -57,12 +57,12 @@ const SEPARATOR = "═".repeat(46);
 // ─── Tests ───
 
 describe("system prompt injection", () => {
-  before(async () => {
+  beforeAll(async () => {
     TEST_MEMORY_DIR = await fs.mkdtemp(path.join(os.tmpdir(), "pi-sp-test-"));
     await fs.mkdir(TEST_MEMORY_DIR, { recursive: true });
   });
 
-  after(async () => {
+  afterAll(async () => {
     try {
       await fs.rm(TEST_MEMORY_DIR, { recursive: true, force: true });
     } catch { /* ignore */ }

@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { runArchify } from "./run.ts";
 import { resolveOutputPath } from "./output-path.ts";
 
-export interface DeltaCtx { cwd: string }
+export interface DeltaCtx { cwd: string; bin?: string }
 
 /** archify `compare` always writes a sidecar `<output>.receipt.json` beside the HTML. */
 function receiptPathFor(htmlPath: string): string {
@@ -25,7 +25,7 @@ export async function archifyDelta(params: { basePath: string; headPath: string;
   const base = isAbsolute(params.basePath) ? params.basePath : join(ctx.cwd, params.basePath);
   const head = isAbsolute(params.headPath) ? params.headPath : join(ctx.cwd, params.headPath);
   const outPath = resolveOutputPath({ cwd: ctx.cwd, outputPath: params.outputPath, diagramType: "architecture-delta" });
-  const { status, stderr, stdout } = await runArchify(["compare", "architecture", base, head, outPath], ctx.cwd, signal);
+  const { status, stderr, stdout } = await runArchify(["compare", "architecture", base, head, outPath], ctx.cwd, signal, ctx.bin);
   if (status !== 0) {
     const binMissing = stdout === "";
     const detail = binMissing

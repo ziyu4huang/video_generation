@@ -156,8 +156,9 @@ MIN_SIZE_BYTES = {
 WEIGHT_FILENAMES = [
     "model.safetensors",
     "diffusion_pytorch_model.safetensors",
-    "tokenizer.json",          # tokenizer category
+    "tokenizer.json",          # tokenizer category (fast/unigram tokenizers)
     "tokenizer_config.json",   # tokenizer category
+    "vocab.json",              # tokenizer category (legacy CLIP BPE: vocab.json + merges.txt, no fast tokenizer.json)
 ]
 
 # Categories where config.json is NOT strictly required
