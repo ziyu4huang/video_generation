@@ -7,6 +7,7 @@
 import { copyFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve, relative, isAbsolute, basename } from "node:path";
 import { rasterizePdf } from "./native/pdf2png.ts";
+import { extractPdfText } from "./native/pdftext.ts";
 import {
   classifyKind,
   imageMimeType,
@@ -14,6 +15,7 @@ import {
   type DocKind,
   type DocProfile,
 } from "./vlm/classify.ts";
+import { parseExtractStrategy, type ExtractStrategy } from "./vlm/extract-strategy.ts";
 import { classifyProfileFromPages } from "./vlm/classify-vlm.ts";
 import { explainPage, type ExplainMode } from "./vlm/agents.ts";
 import { withRetry, retryableError } from "./vlm/retry.ts";
@@ -57,6 +59,12 @@ export interface VlmDescribePipelineOpts {
   lang?: string;
   /** Processing mode (T3, default hybrid). */
   mode?: ExplainMode;
+  /** Extraction strategy: `vlm` (default — rasterize + VLM) | `text` (mupdf text
+   *  layer, no rasterize, no VLM; PDFs only) | `hybrid` (text + VLM for figures;
+   *  not yet implemented — currently falls through to `vlm`).
+   *
+   *  Applies to PDFs only; images always use the vlm path. */
+  extract?: ExtractStrategy;
   /** Optional NDJSON emitter (json mode). */
   emit?: (obj: unknown) => void;
 }
@@ -180,6 +188,112 @@ function writeIndexNote(
 }
 
 /**
+ * T5 — `extract: "text"` branch for a single born-digital PDF.
+ *
+ * Extracts the embedded text layer via `extractPdfText` (mupdf) and writes
+ * per-page Obsidian markdown directly — NO rasterization, NO VLM call, NO
+ * profile classifier. The doc-level profile defaults to `forcedType ?? "paper"`
+ * (text extraction is cheap; we don't need a VLM to pick a prompt). The MOC
+ * index note is still written so the vault stays consistent with the vlm path.
+ *
+ * Page selection (`opts.pages`) mirrors the vlm path's `parsePageSpec`
+ * semantics: unselected pages are left `pending` in the manifest (and get no
+ * md), selected pages are marked `done`. Resume parity: a page already `done`
+ * with its md on disk is skipped on re-runs.
+ */
+async function runTextExtractBranch(opts: {
+  inputAbs: string;
+  inputName: string;
+  outRoot: string;
+  forcedType?: DocProfile;
+  pages?: string;
+  emit?: (obj: unknown) => void;
+  displayPath: (abs: string) => string;
+}): Promise<void> {
+  const { inputAbs, inputName, outRoot, forcedType, pages, emit, displayPath } = opts;
+
+  // One mupdf open gives us both the total page count and every page's text.
+  // (Born-digital text extraction is cheap relative to rasterization, so we
+  // don't bother with a separate count-only probe.)
+  const extracted = extractPdfText(inputAbs);
+  const pageCount = extracted.pageCount;
+
+  const slug = slugify(inputName);
+  const layout = layoutFor(outRoot, slug, pageCount);
+  ensureLayout(layout);
+  console.error(`  kind: pdf  pages: ${pageCount}  slug: ${slug}  (extract: text, no VLM)`);
+
+  // Resolve the page filter (1-indexed) AFTER we know the real page count.
+  const only = pages ? parsePageSpec(pages, pageCount) : null;
+  if (pages && only && only.size === 0) {
+    throw new Error(
+      `--pages "${pages}" matched no pages (document has ${pageCount} page(s)). Use 1-indexed ranges like "1,3-5".`,
+    );
+  }
+
+  // Reuse an existing manifest when it matches (resume parity with the vlm
+  // path); otherwise create a fresh one.
+  const existing = loadManifest(layout);
+  let manifest: Manifest;
+  if (existing && existing.pageCount === pageCount) {
+    manifest = existing;
+  } else {
+    manifest = createManifest({
+      input: inputAbs,
+      inputName,
+      kind: "pdf",
+      profile: forcedType ?? "paper",
+      slug,
+      pageCount,
+      layout,
+    });
+  }
+
+  // Text extraction never rasterizes → no PNG exists for any page. Keep the
+  // manifest honest by nulling the png field (createManifest had set a path).
+  for (const mp of manifest.pages) mp.png = null;
+
+  // Skip the VLM classifier entirely; text mode is profile-agnostic.
+  const profile: DocProfile = forcedType ?? "paper";
+  manifest.profile = profile;
+  writeManifest(layout, manifest);
+
+  for (const page of extracted.pages) {
+    const pageNo = page.pageNo;
+    if (only && !only.has(pageNo)) continue;
+
+    const mp = manifest.pages[pageNo - 1]!;
+    // Resume: a page already done with its md on disk is left as-is.
+    if (mp.status === "done" && existsSync(layout.mdAbs(pageNo))) {
+      continue;
+    }
+
+    const body = page.text ?? "";
+    const md = [
+      "---",
+      `title: ${inputName}`,
+      `page: ${pageNo}`,
+      "kind: text",
+      "---",
+      "",
+      body,
+    ].join("\n");
+    writeFileSync(layout.mdAbs(pageNo), md + "\n", "utf8");
+
+    mp.status = "done" as PageStatus;
+    delete mp.error;
+    writeManifest(layout, manifest);
+
+    console.error(`  [${pageNo}/${pageCount}] text extracted (${body.length} chars)`);
+    emit?.({ type: "page", slug, page: pageNo, status: "done", chars: body.length });
+  }
+
+  writeIndexNote(layout, manifest, profile, process.cwd());
+  console.error(`  ✓ ${slug}: manifest + index written → ${displayPath(layout.dir)}\n`);
+  emit?.({ type: "doc_done", slug, profile, pages: pageCount });
+}
+
+/**
  * Run the full file2md pipeline for one or more input documents.
  *
  * This is the shared implementation used by both the CLI command wrapper and
@@ -194,6 +308,11 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
     relpath = false,
   } = opts;
 
+  // T5 — extraction strategy. `vlm` (default) runs the existing rasterize +
+  // VLM path byte-for-byte; `text` short-circuits PDFs through mupdf's text
+  // layer (no rasterize, no VLM). `hybrid` is reserved (T6) and currently
+  // falls through to `vlm`.
+  const extract = parseExtractStrategy(opts.extract);
   const concurrency = opts.concurrency ?? Number(process.env.PI_VLM_CONCURRENCY ?? 1);
 
   if (inputs.length === 0) {
@@ -225,12 +344,37 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
   console.error(`  dpi:   ${dpi}`);
   if (pages) console.error(`  pages: ${pages}`);
   if (forcedType) console.error(`  type:  ${forcedType} (forced, skip classifier)`);
+  if (extract !== "vlm") console.error(`  extract: ${extract}`);
   if (concurrency > 1) console.error(`  concurrency: ${concurrency} (cross-page context off)`);
   console.error();
 
   for (const input of inputs) {
     const inputAbs = isAbsolute(input) ? input : resolve(cwd, input);
     console.error(`▶ ${displayPath(inputAbs)}`);
+
+    // T5 — `extract: "text"` fast path for born-digital PDFs: pull the text
+    // layer via mupdf and write per-page md directly, with NO rasterization
+    // and NO VLM call. Branch BEFORE prepareDoc so rasterizePdf is never
+    // invoked (prepareDoc classifies AND rasterizes in one step; we only need
+    // the cheap classifyKind sniff here). Images and every other strategy
+    // (vlm/hybrid) fall through to the existing path unchanged.
+    if (extract === "text") {
+      const peek = classifyKind(inputAbs);
+      if (peek.kind === "pdf") {
+        await runTextExtractBranch({
+          inputAbs,
+          inputName: basename(inputAbs),
+          outRoot,
+          forcedType,
+          pages,
+          emit,
+          displayPath,
+        });
+        continue;
+      }
+      // image / unknown with extract=text → fall through to the vlm path
+      // (extract only applies to PDFs).
+    }
 
     const doc = await prepareDoc(inputAbs, outRoot, dpi);
     console.error(`  kind: ${doc.kind}  pages: ${doc.pageCount}  slug: ${doc.slug}`);
