@@ -18,6 +18,8 @@ import {
 import { parseExtractStrategy, type ExtractStrategy } from "./vlm/extract-strategy.ts";
 import { classifyProfileFromPages } from "./vlm/classify-vlm.ts";
 import { explainPage, type ExplainMode } from "./vlm/agents.ts";
+import { detectFigurePages } from "./vlm/figure-detect.ts";
+import { describeFigureWithPrior } from "./vlm/figure-annotate.ts";
 import { withRetry, retryableError } from "./vlm/retry.ts";
 import { validatePageMarkdown } from "./vlm/validate.ts";
 import { PageContext, formatContext } from "./vlm/page-context.ts";
@@ -60,8 +62,9 @@ export interface VlmDescribePipelineOpts {
   /** Processing mode (T3, default hybrid). */
   mode?: ExplainMode;
   /** Extraction strategy: `vlm` (default — rasterize + VLM) | `text` (mupdf text
-   *  layer, no rasterize, no VLM; PDFs only) | `hybrid` (text + VLM for figures;
-   *  not yet implemented — currently falls through to `vlm`).
+   *  layer, no rasterize, no VLM; PDFs only) | `hybrid` (mupdf text body on
+   *  every page + a text-as-prior VLM call on figure-bearing pages only;
+   *  PDFs only).
    *
    *  Applies to PDFs only; images always use the vlm path. */
   extract?: ExtractStrategy;
@@ -294,6 +297,162 @@ async function runTextExtractBranch(opts: {
 }
 
 /**
+ * T6 — `extract: "hybrid"` branch for a single born-digital PDF.
+ *
+ * Best of both worlds: mupdf extracts the body text for EVERY page (cheap,
+ * faithful for born-digital prose), and a text-as-prior VLM call
+ * (`describeFigureWithPrior`) annotates ONLY figure-bearing pages — those a
+ * text-density heuristic flags (pdfimages returns nothing for vector figures,
+ * so density is the cheapest reliable signal). The VLM never restates the
+ * body; it describes figures + renders equations, using the extracted text as
+ * PRIOR ground truth.
+ *
+ * Like the text branch: no profile classifier (profile = forcedType ??
+ * "paper"), the MOC index note is still written, and resume parity holds (a
+ * page already `done` with its md on disk is skipped). Unlike the text branch,
+ * figure pages ARE rasterized (on demand, one page at a time) so the VLM has a
+ * PNG to look at, and the manifest records their png path; text-only pages get
+ * no PNG (png nulled) since they were never rasterized.
+ */
+async function runHybridExtractBranch(opts: {
+  inputAbs: string;
+  inputName: string;
+  outRoot: string;
+  forcedType?: DocProfile;
+  pages?: string;
+  dpi: number;
+  llm: ResolvedLLM;
+  emit?: (obj: unknown) => void;
+  displayPath: (abs: string) => string;
+}): Promise<void> {
+  const { inputAbs, inputName, outRoot, forcedType, pages, dpi, llm, emit, displayPath } = opts;
+
+  // One mupdf open gives us page count + every page's text. We extract ALL
+  // pages (no `only` filter here) so detectFigurePages has a stable median
+  // baseline; the page-selection filter is applied in the write loop. Figures
+  // (vector or raster) are NOT in the text layer — that is the VLM's job below.
+  const extracted = extractPdfText(inputAbs);
+  const pageCount = extracted.pageCount;
+
+  const slug = slugify(inputName);
+  const layout = layoutFor(outRoot, slug, pageCount);
+  ensureLayout(layout);
+  console.error(`  kind: pdf  pages: ${pageCount}  slug: ${slug}  (extract: hybrid, text + VLM for figures)`);
+
+  const only = pages ? parsePageSpec(pages, pageCount) : null;
+  if (pages && only && only.size === 0) {
+    throw new Error(
+      `--pages "${pages}" matched no pages (document has ${pageCount} page(s)). Use 1-indexed ranges like "1,3-5".`,
+    );
+  }
+
+  // Reuse an existing manifest when it matches (resume parity); else fresh.
+  const existing = loadManifest(layout);
+  let manifest: Manifest;
+  if (existing && existing.pageCount === pageCount) {
+    manifest = existing;
+  } else {
+    manifest = createManifest({
+      input: inputAbs,
+      inputName,
+      kind: "pdf",
+      profile: forcedType ?? "paper",
+      slug,
+      pageCount,
+      layout,
+    });
+  }
+
+  // Figure pages are rasterized on demand; text-only pages get no PNG. Start
+  // every page honest (null) and fill in the png path as we rasterize figures.
+  for (const mp of manifest.pages) mp.png = null;
+
+  // Skip the VLM classifier — text-as-prior mode is profile-agnostic (like the
+  // text branch). The doc-level profile just labels the MOC note.
+  const profile: DocProfile = forcedType ?? "paper";
+  manifest.profile = profile;
+  writeManifest(layout, manifest);
+
+  // Figure-bearing pages via text-density heuristic, computed over ALL pages
+  // (stable median baseline, independent of the --pages selection).
+  const figurePages = detectFigurePages(extracted.pages);
+
+  for (const page of extracted.pages) {
+    const pageNo = page.pageNo;
+    if (only && !only.has(pageNo)) continue;
+
+    const mp = manifest.pages[pageNo - 1]!;
+    // Resume: a page already done with its md on disk is left as-is.
+    if (mp.status === "done" && existsSync(layout.mdAbs(pageNo))) {
+      continue;
+    }
+
+    const priorText = page.text ?? "";
+    let body = priorText;
+    let kind: "text" | "hybrid" = "text";
+
+    if (figurePages.has(pageNo)) {
+      kind = "hybrid";
+      // Rasterize JUST this figure page into its canonical pages/ slot. Both
+      // real backends name it page-NNN.png (NNN = global page index, padded to
+      // max(3, pageCount width)), matching layout.pngAbs(pageNo).
+      await rasterizePdf(inputAbs, layout.pagesDir, {
+        fromPage: pageNo,
+        toPage: pageNo,
+        dpi,
+      });
+      const pngAbs = layout.pngAbs(pageNo);
+      mp.png = layout.pngRel(pageNo);
+
+      console.error(`  [${pageNo}/${pageCount}] figure page → VLM (text-as-prior)…`);
+      const t0 = Date.now();
+      const r = await describeFigureWithPrior(llm, {
+        imageAbs: pngAbs,
+        priorText,
+        pageNo,
+        mimeType: "image/png",
+      });
+      const dt = ((Date.now() - t0) / 1000).toFixed(1);
+      if (r.ok && r.markdown) {
+        body += `\n\n### Figures & equations (via VLM)\n${r.markdown}`;
+        console.error(
+          `  [${pageNo}/${pageCount}] figure annotated (${dt}s, +${r.markdown.length} chars)`,
+        );
+      } else {
+        // VLM failure is non-fatal — the text body is still written so the
+        // page isn't lost. The page is marked done (text succeeded); the
+        // figure annotation is simply absent from the md.
+        console.error(
+          `  [${pageNo}/${pageCount}] figure VLM failed: ${r.error ?? "unknown"} (text body still written)`,
+        );
+      }
+    }
+
+    const md = [
+      "---",
+      `title: ${inputName}`,
+      `page: ${pageNo}`,
+      `kind: ${kind}`,
+      "---",
+      "",
+      body,
+    ].join("\n");
+    writeFileSync(layout.mdAbs(pageNo), md + "\n", "utf8");
+
+    mp.status = "done" as PageStatus;
+    delete mp.error;
+    writeManifest(layout, manifest);
+
+    console.error(`  [${pageNo}/${pageCount}] hybrid extracted (${body.length} chars)`);
+    emit?.({ type: "page", slug, page: pageNo, status: "done", chars: body.length });
+  }
+
+  writeIndexNote(layout, manifest, profile, process.cwd());
+  console.error(`  ✓ ${slug}: manifest + index written → ${displayPath(layout.dir)}\n`);
+  emit?.({ type: "doc_done", slug, profile, pages: pageCount });
+}
+
+/**
  * Run the full file2md pipeline for one or more input documents.
  *
  * This is the shared implementation used by both the CLI command wrapper and
@@ -310,8 +469,8 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
 
   // T5 — extraction strategy. `vlm` (default) runs the existing rasterize +
   // VLM path byte-for-byte; `text` short-circuits PDFs through mupdf's text
-  // layer (no rasterize, no VLM). `hybrid` is reserved (T6) and currently
-  // falls through to `vlm`.
+  // layer (no rasterize, no VLM); `hybrid` runs mupdf text for the body on
+  // every page plus a text-as-prior VLM call on figure-bearing pages only.
   const extract = parseExtractStrategy(opts.extract);
   const concurrency = opts.concurrency ?? Number(process.env.PI_VLM_CONCURRENCY ?? 1);
 
@@ -389,11 +548,30 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
       // (extract only applies to PDFs).
     }
 
-    // T5-fix — `hybrid` is reserved for Task 6 (text + VLM for figures). Until
-    // then it must NOT silently fall through to the vlm path — fail loudly so
-    // a stale caller can't get a quiet no-op. (Task 6 removes this guard.)
+    // T6 — `extract: "hybrid"` path for born-digital PDFs: mupdf text for the
+    // body on every page + a text-as-prior VLM call (`describeFigureWithPrior`)
+    // on figure-bearing pages only (detected via text density). Branch BEFORE
+    // prepareDoc (same rationale as the text branch: we rasterize figure pages
+    // on demand ourselves, so we never want prepareDoc's full-doc rasterize).
+    // Images and every other strategy (vlm) fall through unchanged.
     if (extract === "hybrid") {
-      throw new Error("file2md: extract 'hybrid' is not implemented yet (Task 6)");
+      const peek = classifyKind(inputAbs);
+      if (peek.kind === "pdf") {
+        await runHybridExtractBranch({
+          inputAbs,
+          inputName: basename(inputAbs),
+          outRoot,
+          forcedType,
+          pages,
+          dpi,
+          llm: llm!,
+          emit,
+          displayPath,
+        });
+        continue;
+      }
+      // image / unknown with extract=hybrid → fall through to the vlm path
+      // (hybrid only applies to PDFs).
     }
 
     const doc = await prepareDoc(inputAbs, outRoot, dpi);
