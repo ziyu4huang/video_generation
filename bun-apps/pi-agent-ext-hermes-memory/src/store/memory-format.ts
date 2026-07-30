@@ -12,7 +12,7 @@
  * file and were moved out to keep the seam clean (DRY: single source of truth).
  */
 
-import type { MemoryCategory } from "../types.js";
+import type { MemoryCategory, Provenance, MemorySource } from "../types.js";
 import type { MemoryTarget } from "./repository.js";
 
 // ---------------------------------------------------------------------------
@@ -42,22 +42,81 @@ export function normalizeCategory(value?: MemoryCategory | null): MemoryCategory
   return value ?? null;
 }
 
-export function parseMetadataComment(raw: string): { text: string; created: string; lastReferenced: string } {
-  const match = raw.match(/^(.*?)\s*<!--\s*created=([^,]+),\s*last=([^>]+)\s*-->\s*$/);
+export function parseMetadataComment(raw: string): {
+  text: string;
+  created: string;
+  lastReferenced: string;
+  provenance?: Provenance;
+  sources?: MemorySource[];
+  mwSuccess?: number;
+  mwFail?: number;
+} {
+  let rest = raw;
+  let provenance: Provenance | undefined;
+  let sources: MemorySource[] | undefined;
+  let mwSuccess: number | undefined;
+  let mwFail: number | undefined;
+
+  // Stage 1: optional trailing <!-- meta:{...} --> (always last).
+  const metaMatch = rest.match(/<!--\s*meta:(\{.*\})\s*-->\s*$/);
+  if (metaMatch && metaMatch.index !== undefined) {
+    try {
+      const parsed = JSON.parse(metaMatch[1]) as { provenance?: Provenance; sources?: MemorySource[]; mwSuccess?: number; mwFail?: number };
+      provenance = parsed.provenance;
+      sources = Array.isArray(parsed.sources) ? parsed.sources : undefined;
+      mwSuccess = typeof parsed.mwSuccess === "number" ? parsed.mwSuccess : undefined;
+      mwFail = typeof parsed.mwFail === "number" ? parsed.mwFail : undefined;
+    } catch {
+      // malformed meta — ignore, keep created/last below
+    }
+    rest = rest.slice(0, metaMatch.index).trimEnd();
+  }
+
+  // Stage 2: unchanged created/last regex on the remainder.
+  const match = rest.match(/^(.*?)\s*<!--\s*created=([^,]+),\s*last=([^>]+)\s*-->\s*$/);
   if (match) {
     return {
       text: match[1].trim(),
       created: match[2].trim(),
       lastReferenced: match[3].trim(),
+      ...(provenance ? { provenance } : {}),
+      ...(sources ? { sources } : {}),
+      ...(typeof mwSuccess === "number" ? { mwSuccess } : {}),
+      ...(typeof mwFail === "number" ? { mwFail } : {}),
     };
   }
 
   const fallback = today();
   return {
-    text: raw.trim(),
+    text: rest.trim(),
     created: fallback,
     lastReferenced: fallback,
+    ...(provenance ? { provenance } : {}),
+    ...(sources ? { sources } : {}),
+    ...(typeof mwSuccess === "number" ? { mwSuccess } : {}),
+    ...(typeof mwFail === "number" ? { mwFail } : {}),
   };
+}
+
+export function serializeMetadataComment(input: {
+  text: string;
+  created: string;
+  lastReferenced: string;
+  provenance?: Provenance | null;
+  sources?: MemorySource[] | null;
+  mwSuccess?: number | null;
+  mwFail?: number | null;
+}): string {
+  let out = `${input.text} <!-- created=${input.created}, last=${input.lastReferenced} -->`;
+  const meta: { provenance?: Provenance; sources?: MemorySource[]; mwSuccess?: number; mwFail?: number } = {};
+  if (input.provenance) meta.provenance = input.provenance;
+  if (input.sources && input.sources.length > 0) meta.sources = input.sources;
+  if (input.mwSuccess && input.mwSuccess > 0) meta.mwSuccess = input.mwSuccess;
+  if (input.mwFail && input.mwFail > 0) meta.mwFail = input.mwFail;
+  if (meta.provenance || meta.sources || meta.mwSuccess || meta.mwFail) {
+    out += ` <!-- meta:${JSON.stringify(meta)} -->`;
+  }
+  return out;
 }
 
 export function formatFailureMemoryContent(
@@ -89,6 +148,10 @@ export interface ParsedMarkdownMemoryEntry {
   correctedTo?: string | null;
   created?: string | null;
   lastReferenced?: string | null;
+  provenance?: Provenance | null;
+  sources?: MemorySource[] | null;
+  mwSuccess?: number | null;
+  mwFail?: number | null;
 }
 
 export function parseMarkdownMemoryEntry(
@@ -96,7 +159,7 @@ export function parseMarkdownMemoryEntry(
   target: MemoryTarget,
   project: string | null = null,
 ): ParsedMarkdownMemoryEntry {
-  const { text, created, lastReferenced } = parseMetadataComment(rawEntry);
+  const { text, created, lastReferenced, provenance, sources, mwSuccess, mwFail } = parseMetadataComment(rawEntry);
   const parsedProject = normalizeNullable(project);
 
   if (target !== "failure") {
@@ -106,6 +169,10 @@ export function parseMarkdownMemoryEntry(
       project: parsedProject,
       created,
       lastReferenced,
+      ...(provenance ? { provenance } : {}),
+      ...(sources ? { sources } : {}),
+      ...(typeof mwSuccess === "number" ? { mwSuccess } : {}),
+      ...(typeof mwFail === "number" ? { mwFail } : {}),
     };
   }
 
@@ -144,5 +211,9 @@ export function parseMarkdownMemoryEntry(
     correctedTo,
     created,
     lastReferenced,
+    ...(provenance ? { provenance } : {}),
+    ...(sources ? { sources } : {}),
+    ...(typeof mwSuccess === "number" ? { mwSuccess } : {}),
+    ...(typeof mwFail === "number" ? { mwFail } : {}),
   };
 }

@@ -43,7 +43,7 @@ interface ContentBlock {
 }
 
 /** Extract all readable text from a tool_result event's content blocks. */
-function extractResultText(content: unknown): string {
+export function extractResultText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   const parts: string[] = [];

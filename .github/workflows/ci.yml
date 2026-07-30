@@ -90,6 +90,15 @@ jobs:
           - { package: pi-agent-ext-core-task, test-cmd: "bun test" }
           - { package: pi-agent-ext-research-tool, test-cmd: "bun test" }
           - { package: pi-agent-ext-zai-mcp, test-cmd: "bun test" }
+          # pi-agent-ext-tool-gate: unit tests + the encoded QA verdict gate
+          # (`bun run qa` — savings floor ≥15%+2k ∧ L1 intended-behavior; exits
+          # non-zero on regression, per the prior QA effort's encoded thresholds
+          # in qa/run.ts). Was missing from the matrix entirely — its 8 test
+          # files never ran in CI. The telemetry-emit test is hermetic to
+          # TOOL_GATE_LOG_PATH (beforeEach snapshot/delete/restore, matching the
+          # hermes config.test.ts PR #938 pattern) so the harness exporting that
+          # var in live sessions doesn't flake it.
+          - { package: pi-agent-ext-tool-gate, test-cmd: "bun test && bun run qa" }
           # --isolate: render-bin-missing / delta-bin-missing use mock.module on
           # ../lib/run.ts; without per-file process isolation the stub leaks into
           # run.test.ts (same pattern as pi-agent-ext-knowledge-card e2e below).
@@ -485,6 +494,15 @@ jobs:
       - name: Config-field parity guard (hermes loadConfig, blocks)
         working-directory: bun-apps
         run: bun run test:config-parity
+
+      # Regression test for the test-portability audit itself (ticket 01 —
+      # self-reflection). The audit is a CI gate but had no tests of its own;
+      # this pins its --root flag + P-class classification (GUARDED vs UNGATED,
+      # block-under-strict) via synthetic fixtures, so a refactor can't silently
+      # disable a detection class.
+      - name: Test-portability audit regression test
+        working-directory: bun-apps
+        run: bun run test:portability-audit
 
       # Test-portability prevention check — now BLOCKING (--strict). Scans the
       # test surface for the four "works on my machine" signal patterns and

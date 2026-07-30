@@ -40,12 +40,14 @@ import { registerSkillTool } from "./tools/skill-tool.js";
 import { registerSessionSearchTool } from "./tools/session-search-tool.js";
 import { createPerfRecorder } from "./perf.js";
 import { registerMemorySearchTool } from "./tools/memory-search-tool.js";
+import { registerMemorySupersedeTool } from "./tools/memory-supersede-tool.js";
 import { setupBackgroundReview } from "./handlers/background-review.js";
 import { setupSessionFlush } from "./handlers/session-flush.js";
 import { registerInsightsCommand } from "./handlers/insights.js";
 import { triggerConsolidation, registerConsolidateCommand, resolveConsolidatorModelLabel } from "./handlers/auto-consolidate.js";
 import { setupCorrectionDetector } from "./handlers/correction-detector.js";
 import { setupErrorDetector } from "./handlers/error-detector.js";
+import { RecallSet, setupWorthScoring } from "./handlers/worth-scoring.js";
 import { registerSkillsCommand } from "./handlers/skills-command.js";
 import { registerInterviewCommand } from "./handlers/interview.js";
 import { registerSwitchProjectCommand } from "./handlers/switch-project.js";
@@ -362,10 +364,18 @@ export default async function (pi: ExtensionAPI) {
   registerConsolidateCommand(pi, store, memoryToolDef, config.consolidationTimeoutMs, projectStore, projectName, config);
 
   // ── 8. Setup correction detection ──
+  // The shared recall-set is instantiated ONCE, before both
+  // setupCorrectionDetector and registerMemorySearchTool, so the same instance
+  // flows to the producer (memory_search records recalled ids) and the consumer
+  // (setupWorthScoring drains + bumps mw_success/mw_fail at turn_end).
+  const recallSet = new RecallSet();
   setupCorrectionDetector(pi, store, projectStore, config, memoryRepo, projectName, memoryToolDef);
 
   // ── 8b. Setup lesson-worthy error capture (auto-trigger on tool failures) ──
   setupErrorDetector(pi, store, projectStore, config, memoryRepo, projectName);
+
+  // ── 8c. Setup worth-scoring (drains recall-set at turn_end, bumps mw_success/mw_fail) ──
+  setupWorthScoring(pi, memoryRepo, recallSet, config);
 
   // ── 9. Register commands ──
   registerInsightsCommand(pi, store, projectStore, projectName);
@@ -386,7 +396,8 @@ export default async function (pi: ExtensionAPI) {
 
   // ── 11. SQLite session search + extended memory ──
   registerSessionSearchTool(pi, sessionRepo, config.sessionSearch ?? { variant: "legacy" });
-  registerMemorySearchTool(pi, memoryRepo);
+  registerMemorySearchTool(pi, memoryRepo, recallSet);
+  registerMemorySupersedeTool(pi, memoryRepo, store, projectName);
   registerIndexSessionsCommand(pi, globalDir, config);
 
   // (11b removed — convergence moved to the knowledge-card hub; ADR-0001.

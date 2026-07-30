@@ -5,6 +5,7 @@ import {
   type ChildProcessLike,
   getPiInvocation,
   isTransientError,
+  resolvePiInvocation,
   type SpawnFn,
   spawnSubagentSubprocess,
 } from "../src/spawn-subagent-subprocess.js";
@@ -125,6 +126,30 @@ test("getPiInvocation appends the extra args + returns a command", () => {
   expect(typeof inv.command === "string" && inv.command.length > 0).toBe(true);
   expect(inv.args.includes("--mode")).toBe(true);
   expect(inv.args.includes("do-task")).toBe(true);
+});
+
+// ---- resolvePiInvocation (self-resolve contract; no PATH fallback) --------
+
+test("resolvePiInvocation: real currentScript → execPath + [script, ...extra] (dev / dist bundle)", () => {
+  const exec = "/usr/local/bin/bun";
+  // process.execPath is a real file on disk → case 1 (dev `bun cli.ts` / dist `bun pi-agent.js`).
+  const inv = resolvePiInvocation(process.execPath, exec, ["--mode", "json", "do-task"]);
+  expect(inv.command).toBe(exec);
+  expect(inv.args[0]).toBe(process.execPath);
+  expect(inv.args.includes("do-task")).toBe(true);
+});
+
+test("resolvePiInvocation: compiled binary (bunfs virtual + non-node exec) → execPath + extra", () => {
+  const exec = "/opt/pi/bin/pi-agent"; // `bun build --compile` binary — name is not node/bun.
+  const inv = resolvePiInvocation("/$bunfs/root/main.js", exec, ["--mode", "json"]);
+  expect(inv.command).toBe(exec);
+  expect(inv.args).toEqual(["--mode", "json"]); // virtual entry not prepended — the binary is its own entry.
+});
+
+test("resolvePiInvocation: virtual/missing entry + node|bun runtime → throws (refuses PATH fallback)", () => {
+  const exec = "/usr/local/bin/bun";
+  expect(() => resolvePiInvocation("/$bunfs/root/main.js", exec, [])).toThrow(/cannot self-resolve/);
+  expect(() => resolvePiInvocation("/nonexistent/cli.ts", exec, [])).toThrow(/cannot self-resolve/);
 });
 
 // ---- runner (mock spawnFn) -----------------------------------------------

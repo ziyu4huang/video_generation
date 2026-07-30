@@ -37,7 +37,15 @@ bash scripts/test-portability-audit.sh --strict   # exit 1 on any UNGATED P1/P2 
 The script scans `bun-apps/**/*.{test.ts,test.mjs}` (excluding `node_modules`
 and `dist`) for four patterns and classifies each hit by whether the file uses a
 guard signal (`process.env.CI` / `.skipIf(` / an env-var opt-in /
-`testWithoutEnv` / `__setVaultResolverForTest`).
+`testWithoutEnv` / `__setVaultResolverForTest` / `process.execPath` /
+`PORTABILITY-GUARDED`).
+
+> **`PORTABILITY-GUARDED`** — sanctioned self-attestation: a
+> `// PORTABILITY-GUARDED: <reason>` comment asserts the spawn / path access is
+> CI-safe (e.g. spawning `bash` to run a committed repo script, present on every
+> runner). Use only when a test MUST run in CI but legitimately touches a host
+> binary the skipIf / opt-in signals can't express (the audit's own regression
+> test is the canonical case).
 
 - **P1 / P2 block under `--strict`** — `existsSync` of a machine-coupled path
   and `Bun.spawn`/`spawnSync`/`execSync` are reliably machine-coupled; an

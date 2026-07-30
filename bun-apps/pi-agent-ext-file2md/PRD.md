@@ -53,7 +53,7 @@ tool** (see roadmap T1).
 ### Tools (agent-callable)
 | Tool | Description |
 |------|-------------|
-| `file2md` | PDF/image → structured Obsidian markdown via local LM Studio VLM (full pipeline, writes to disk) |
+| `file2md` | PDF/image → structured Obsidian markdown via local LM Studio VLM (full pipeline, writes to disk). Supports `--extract vlm|text|hybrid` strategy (default: `vlm`); `text` uses mupdf text-layer extraction (no VLM, figures lost), `hybrid` uses mupdf text + VLM on figure-bearing pages only. |
 | `vision_ask` | Ask one question about one image; returns the answer inline (no disk pipeline). Lightweight single-image Q&A wrapping the `askImage` primitive. |
 
 ### Library API (consumed by other packages)
@@ -67,6 +67,7 @@ Consumers today: `pi-agent-cli` (`file2md` + `pdf-to-vault` commands),
 ## Key Dependencies
 
 - LM Studio (serving a vision model at `http://localhost:1234/v1`)
+- `mupdf` (npm, Artifex — AGPL-3.0 licensed. Accepted for this internal tool; distribution gate applies if file2md is ever redistributed externally)
 - `pi-agent-ext-obsidian` (vault output)
 - `pi-agent-cli` (hosts file2md command)
 

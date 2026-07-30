@@ -28,9 +28,9 @@
     "unpdf": "^1.6.2"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "0.82.0",
-    "@earendil-works/pi-coding-agent": "0.82.0",
-    "@earendil-works/pi-tui": "0.82.0",
+    "@earendil-works/pi-ai": "0.83.0",
+    "@earendil-works/pi-coding-agent": "0.83.0",
+    "@earendil-works/pi-tui": "0.83.0",
     "typebox": "*"
   },
   "devDependencies": {

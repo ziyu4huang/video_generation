@@ -134,6 +134,15 @@ export default function (pi: ExtensionAPI): void {
           description: "Force document profile: paper | slides | poster | diagram | image",
         }),
       ),
+      extract: Type.Optional(
+        Type.Union(
+          [Type.Literal("vlm"), Type.Literal("text"), Type.Literal("hybrid")],
+          {
+            description:
+              "Extraction strategy: vlm (default, rasterize→VLM) | text (mupdf text-layer, no VLM, figures lost) | hybrid (mupdf text + VLM for figure-bearing pages).",
+          },
+        ),
+      ),
       pages: Type.Optional(
         Type.String({
           description:
@@ -181,6 +190,7 @@ export default function (pi: ExtensionAPI): void {
         provider: params.provider,
         thinking: params.thinking,
         forcedType: params.type as any,
+        extract: params.extract,
         pages: params.pages,
         dpi: params.dpi,
         relpath,

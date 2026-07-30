@@ -191,6 +191,113 @@ describe('SqliteBackend', () => {
       migratedManager.close();
     });
 
+    it('should add mw_success/mw_fail columns to a legacy memories table lacking them', () => {
+      // Forge a legacy memories table that is the current canonical shape EXCEPT
+      // it lacks mw_success/mw_fail AND still carries the legacy target CHECK
+      // (memory/user only). Reopening via SqliteBackend must therefore exercise
+      // BOTH migration paths: ensureMemoriesColumns (ADD COLUMN with DEFAULT 0)
+      // AND migrateLegacyMemoriesTargetConstraint (rebuild via memories_new —
+      // both the DDL and the INSERT...SELECT must carry the new columns, or the
+      // rebuild silently drops them).
+      const dbPath = path.join(tmpDir, 'sessions.db');
+      const legacyDb = new Database(dbPath);
+
+      legacyDb.exec(`
+        CREATE TABLE memories (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          project TEXT,
+          target TEXT NOT NULL CHECK (target IN ('memory', 'user')),
+          category TEXT,
+          content TEXT NOT NULL,
+          failure_reason TEXT,
+          tool_state TEXT,
+          corrected_to TEXT,
+          created DATE NOT NULL,
+          last_referenced DATE NOT NULL
+        );
+      `);
+      legacyDb.prepare(`
+        INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(null, 'memory', null, 'legacy memory entry', null, null, null, '2026-05-09', '2026-05-09');
+      legacyDb.close();
+
+      const migratedManager = new SqliteBackend(tmpDir);
+      const migratedDb = migratedManager.getDb();
+      const columns = migratedDb.prepare('PRAGMA table_info(memories)').all() as { name: string }[];
+      const names = columns.map((c) => c.name);
+
+      assert.ok(names.includes('mw_success'), 'mw_success column should be migrated onto legacy memories table');
+      assert.ok(names.includes('mw_fail'), 'mw_fail column should be migrated onto legacy memories table');
+
+      // ADD COLUMN ... DEFAULT 0 (and the rebuild INSERT...SELECT) must backfill
+      // the pre-existing row with 0, not NULL.
+      const row = migratedDb.prepare('SELECT mw_success, mw_fail FROM memories').get() as { mw_success: number; mw_fail: number };
+      assert.strictEqual(row.mw_success, 0);
+      assert.strictEqual(row.mw_fail, 0);
+
+      migratedManager.close();
+    });
+
+    it('should add status/supersedes/superseded_by/parent_ids columns to a legacy memories table lacking them', () => {
+      // Forge a legacy memories table that is the current canonical shape EXCEPT
+      // it lacks the supersession columns (status/supersedes/superseded_by/
+      // parent_ids) AND still carries the legacy target CHECK (memory/user only).
+      // Reopening via SqliteBackend must therefore exercise BOTH migration paths:
+      // ensureMemoriesColumns (4 ADD COLUMNs) AND migrateLegacyMemoriesTargetConstraint
+      // (rebuild via memories_new — BOTH copies of the DDL and the INSERT...SELECT
+      // must carry the new columns, or the rebuild silently drops them).
+      const dbPath = path.join(tmpDir, 'sessions.db');
+      const legacyDb = new Database(dbPath);
+
+      legacyDb.exec(`
+        CREATE TABLE memories (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          project TEXT,
+          target TEXT NOT NULL CHECK (target IN ('memory', 'user')),
+          category TEXT,
+          content TEXT NOT NULL,
+          failure_reason TEXT,
+          tool_state TEXT,
+          corrected_to TEXT,
+          created DATE NOT NULL,
+          last_referenced DATE NOT NULL,
+          mw_success INTEGER NOT NULL DEFAULT 0,
+          mw_fail INTEGER NOT NULL DEFAULT 0
+        );
+      `);
+      legacyDb.prepare(`
+        INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(null, 'memory', null, 'legacy memory entry', null, null, null, '2026-05-09', '2026-05-09', 0, 0);
+      legacyDb.close();
+
+      const migratedManager = new SqliteBackend(tmpDir);
+      const migratedDb = migratedManager.getDb();
+      const columns = migratedDb.prepare('PRAGMA table_info(memories)').all() as { name: string }[];
+      const names = columns.map((c) => c.name);
+
+      assert.ok(names.includes('status'), 'status column should be migrated onto legacy memories table');
+      assert.ok(names.includes('supersedes'), 'supersedes column should be migrated onto legacy memories table');
+      assert.ok(names.includes('superseded_by'), 'superseded_by column should be migrated onto legacy memories table');
+      assert.ok(names.includes('parent_ids'), 'parent_ids column should be migrated onto legacy memories table');
+
+      // ADD COLUMN ... DEFAULT 'active' (status) / NULL (the rest) and the rebuild
+      // INSERT...SELECT must backfill the pre-existing row with those defaults.
+      const row = migratedDb.prepare('SELECT status, supersedes, superseded_by, parent_ids FROM memories').get() as {
+        status: string;
+        supersedes: number | null;
+        superseded_by: number | null;
+        parent_ids: string | null;
+      };
+      assert.strictEqual(row.status, 'active');
+      assert.strictEqual(row.supersedes, null);
+      assert.strictEqual(row.superseded_by, null);
+      assert.strictEqual(row.parent_ids, null);
+
+      migratedManager.close();
+    });
+
     it('should migrate legacy sessions table without project column', () => {
       const dbPath = path.join(tmpDir, 'sessions.db');
       const legacyDb = new Database(dbPath);

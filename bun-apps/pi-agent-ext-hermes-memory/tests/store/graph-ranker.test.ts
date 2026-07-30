@@ -15,6 +15,8 @@ function mk(partial: Partial<MemoryEntry> & Pick<MemoryEntry, "id">): MemoryEntr
     correctedTo: null,
     created: partial.created ?? "2026-01-01T00:00:00.000Z",
     lastReferenced: partial.lastReferenced ?? "2026-01-01T00:00:00.000Z",
+    mwSuccess: partial.mwSuccess,
+    mwFail: partial.mwFail,
   };
 }
 
@@ -85,5 +87,21 @@ describe("rankMemoryEntries", () => {
 
     expect(ranked).toHaveLength(2);
     expect(ranked.map((m) => m.id)).toEqual([1, 2]); // a (lexical), b (shares 1); c dropped
+  });
+
+  it("worth multiplier ranks a high-success entry above a low-success one at equal lexical/graph/recency", () => {
+    const low = mk({ id: 1, mwSuccess: 0, mwFail: 8 });   // p_success ≈ 0.1 → mult ≈ 0.2 (sinks)
+    const high = mk({ id: 2, mwSuccess: 8, mwFail: 0 });  // p_success ≈ 0.9 → mult ≈ 1.8 (boosts)
+    const out = rankMemoryEntries({ candidates: [low, high], lexicalMatchIds: new Set([1, 2]), limit: 2 });
+    expect(out[0].id).toBe(2);  // high-worth first
+    expect(out[1].id).toBe(1);
+  });
+
+  it("uninstrumented (0/0) entries get multiplier 1.0 — no ranking bias", () => {
+    const a = mk({ id: 1 });  // mwSuccess/mwFail undefined → ?? 0 → mult 1.0
+    const b = mk({ id: 2 });
+    const out = rankMemoryEntries({ candidates: [a, b], lexicalMatchIds: new Set([1, 2]), limit: 2 });
+    // tie → deterministic id-ascending tiebreak
+    expect(out.map((e) => e.id)).toEqual([1, 2]);
   });
 });

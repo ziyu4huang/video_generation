@@ -1,0 +1,22 @@
+#!/bin/bash
+# pre-push hook: run the test-portability audit (--strict) so non-hermetic /
+# machine-coupled tests (P1/P2/P5) are caught LOCALLY before CI — closes the
+# "audit was CI-only, slow feedback → conventions ignored" gap.
+# Bypass with: git push --no-verify
+# (wayfinder 2026-07-30-self-reflection-to-fix-these-error ticket 01)
+
+# Drain the proposed-refs list git sends on stdin (we audit the whole tree, not
+# per-ref — the audit is a cheap grep, ~1-2s on 554 files).
+cat >/dev/null
+
+echo "→ test-portability audit (--strict)…"
+bash scripts/test-portability-audit.sh --strict
+code=$?
+if [ $code -ne 0 ]; then
+	echo "✗ pre-push blocked: UNGATED machine-coupled tests (P1/P2/P5)." >&2
+	echo "  Wrap the test in *.skipIf(process.env.CI) or gate it behind an env" >&2
+	echo "  opt-in (MLX_E2E / PI_AGENT_E2E / PI_RUN_L2). See" >&2
+	echo "  .github/TEST-PORTABILITY.md.  Bypass: git push --no-verify" >&2
+	exit 1
+fi
+exit 0

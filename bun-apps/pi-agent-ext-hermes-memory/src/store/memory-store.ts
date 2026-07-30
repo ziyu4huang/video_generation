@@ -15,6 +15,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import * as lockfile from "proper-lockfile";
+import { parseMetadataComment, serializeMetadataComment } from "./memory-format.js";
 import { scanContent } from "./content-scanner.js";
 import { normalizeMemoryLookupText } from "./memory-lookup.js";
 import {
@@ -27,9 +28,10 @@ import {
   MEMORY_FILE,
   USER_FILE,
 } from "../constants.js";
-import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, MemoryCategory, MemoryOverflowStrategy } from "../types.js";
+import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, MemoryCategory, MemoryOverflowStrategy, Provenance, MemorySource } from "../types.js";
 import { AGENT_ROOT } from "../paths.js";
-import { envInt } from "../utils/env.js";
+import { envFloat, envInt } from "../utils/env.js";
+import { DEFAULT_NEAR_DUP_THRESHOLD, findNearDuplicate } from "./near-dup.js";
 import type { TimedFn, TimedAlwaysFn } from "../perf.js";
 
 /**
@@ -314,17 +316,26 @@ export class MemoryStore {
   async add(
     target: "memory" | "user" | "failure",
     content: string,
-    options?: { category?: MemoryCategory; signal?: AbortSignal; onProgress?: (message: string) => void },
+    options?: {
+      category?: MemoryCategory;
+      signal?: AbortSignal;
+      onProgress?: (message: string) => void;
+      provenance?: Provenance;
+      sources?: MemorySource[];
+    },
   ): Promise<MemoryResult> {
     const signal = options?.signal;
     const onProgress = options?.onProgress;
+    const meta = options?.provenance || options?.sources
+      ? { provenance: options?.provenance, sources: options?.sources }
+      : undefined;
     if (options?.category) {
       // Tag the entry with its category label (decoupled from the storage home,
       // per the memory model: any home may carry category labels for retrieval).
       const tagged = `[${options.category}] ${content.trim()}`;
-      return this._add(target, tagged, signal, undefined, undefined, onProgress);
+      return this._add(target, tagged, signal, undefined, undefined, onProgress, meta);
     }
-    return this._add(target, content, signal, undefined, undefined, onProgress);
+    return this._add(target, content, signal, undefined, undefined, onProgress, meta);
   }
 
   async addFailure(content: string, options: {
@@ -334,9 +345,14 @@ export class MemoryStore {
     correctedTo?: string;
     project?: string;
     onProgress?: (message: string) => void;
+    provenance?: Provenance;
+    sources?: MemorySource[];
   }): Promise<MemoryResult> {
     const failureText = this.buildFailureMemoryText(content, options);
-    return this._add("failure", failureText, undefined, 1, "Failure memory saved: " + options.category, options.onProgress);
+    const meta = options.provenance || options.sources
+      ? { provenance: options.provenance, sources: options.sources }
+      : undefined;
+    return this._add("failure", failureText, undefined, 1, "Failure memory saved: " + options.category, options.onProgress, meta);
   }
 
   /**
@@ -428,10 +444,11 @@ export class MemoryStore {
     _retriesLeft = 1,
     addedMessage = "Entry added.",
     onProgress?: (message: string) => void,
+    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null },
   ): Promise<MemoryResult> {
     // Serialize so reload-read → mutate-array → saveToDisk stays atomic.
     // runExclusive = in-process; withFileLock = cross-process (see withFileLock).
-    return this.runExclusive(() => this.withFileLock(target, () => this._addInner(target, content, signal, _retriesLeft, addedMessage, onProgress)));
+    return this.runExclusive(() => this.withFileLock(target, () => this._addInner(target, content, signal, _retriesLeft, addedMessage, onProgress, meta)));
   }
 
   private async _addInner(
@@ -441,6 +458,7 @@ export class MemoryStore {
     _retriesLeft = 1,
     addedMessage = "Entry added.",
     onProgress?: (message: string) => void,
+    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null },
   ): Promise<MemoryResult> {
     content = content.trim();
     if (!content) return { success: false, error: "Content cannot be empty." };
@@ -463,9 +481,24 @@ export class MemoryStore {
       return this.successResponse(target, "Entry already exists (no duplicate added).");
     }
 
+    // Near-duplicate WARNING (wayfinder 2026-07-30 ticket 02): the exact check
+    // above only catches identical content. Containment-based near-dup detection
+    // flags re-captured lessons (same gotcha, different wording — mupdf ×3,
+    // SurrealDB ×2-3 in the failure store) so the agent consolidates via
+    // `memory replace` instead of accumulating. Warning only — the entry is
+    // still added. Disable: PI_MEMORY_NEAR_DUP_THRESHOLD=0. Tune: default 0.6.
+    let nearDupNote = "";
+    const nearDupThreshold = envFloat("PI_MEMORY_NEAR_DUP_THRESHOLD", DEFAULT_NEAR_DUP_THRESHOLD);
+    if (nearDupThreshold > 0) {
+      const hit = findNearDuplicate(content, strippedEntries, nearDupThreshold);
+      if (hit) {
+        nearDupNote = ` ⚠ near-duplicate of an existing entry (${(hit.similarity * 100) | 0}% overlap): "${hit.preview}…". Consider \`memory replace\` to consolidate instead of accumulating near-dups.`;
+      }
+    }
+
     // Encode metadata: both dates = today
     const today = new Date().toISOString().split("T")[0];
-    const encoded = this.encodeEntry(content, today, today);
+    const encoded = this.encodeEntry(content, today, today, meta);
 
     const newTotal = [...entries, encoded].join(ENTRY_DELIMITER).length;
     if (newTotal > limit) {
@@ -489,7 +522,7 @@ export class MemoryStore {
               await this.loadFromDisk();
               // Retry the add exactly once (retriesLeft = 0 means no more consolidation).
               // Recurse on _addInner (not _add) to avoid re-acquiring the write lock.
-              return this._addInner(target, content, signal, _retriesLeft - 1, addedMessage);
+              return this._addInner(target, content, signal, _retriesLeft - 1, addedMessage, onProgress, meta);
             }
           } catch {
             // Consolidation failed — fall through to the vault-offload floor.
@@ -507,7 +540,7 @@ export class MemoryStore {
     this.setEntries(target, entries);
     await this.saveToDisk(target);
 
-    return this.successResponse(target, addedMessage);
+    return this.successResponse(target, addedMessage + nearDupNote);
   }
 
   /**
@@ -717,7 +750,12 @@ export class MemoryStore {
     // Preserve original created date, update last_referenced to today
     const decoded = this.decodeEntry(matches[0]);
     const today = new Date().toISOString().split("T")[0];
-    const encoded = this.encodeEntry(newContent, decoded.created, today);
+    const encoded = this.encodeEntry(newContent, decoded.created, today, {
+      provenance: decoded.provenance,
+      sources: decoded.sources,
+      mwSuccess: decoded.mwSuccess,
+      mwFail: decoded.mwFail,
+    });
 
     const testEntries = [...entries];
     testEntries[idx] = encoded;
@@ -833,7 +871,7 @@ export class MemoryStore {
    * `lastReferenced` here is "last edited" (add/replace), the durable signal.
    * (SQLite's `last_referenced` separately tracks "last surfaced by search".)
    */
-  entriesWithMeta(target: "memory" | "user" | "failure"): { text: string; created: string; lastReferenced: string }[] {
+  entriesWithMeta(target: "memory" | "user" | "failure"): { text: string; created: string; lastReferenced: string; provenance?: Provenance; sources?: MemorySource[]; mwSuccess?: number; mwFail?: number; }[] {
     return this.entriesFor(target).map((e) => this.decodeEntry(e));
   }
 
@@ -843,22 +881,37 @@ export class MemoryStore {
    * Encode metadata (created, lastReferenced) as an HTML comment appended to entry text.
    * The comment is invisible in markdown and transparent to the § delimiter.
    */
-  private encodeEntry(text: string, created: string, lastReferenced: string): string {
-    return `${text} <!-- created=${created}, last=${lastReferenced} -->`;
+  private encodeEntry(
+    text: string,
+    created: string,
+    lastReferenced: string,
+    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null; mwSuccess?: number | null; mwFail?: number | null },
+  ): string {
+    return serializeMetadataComment({
+      text,
+      created,
+      lastReferenced,
+      provenance: meta?.provenance,
+      sources: meta?.sources,
+      mwSuccess: meta?.mwSuccess,
+      mwFail: meta?.mwFail,
+    });
   }
 
   /**
    * Decode entry text, extracting metadata if present.
    * Falls back to today's date for legacy entries without metadata.
    */
-  private decodeEntry(raw: string): { text: string; created: string; lastReferenced: string } {
-    const match = raw.match(/^(.*?)\s*<!--\s*created=([^,]+),\s*last=([^>]+)\s*-->\s*$/);
-    if (match) {
-      return { text: match[1].trim(), created: match[2].trim(), lastReferenced: match[3].trim() };
-    }
-    // Legacy entry without metadata — use today as default
-    const today = new Date().toISOString().split("T")[0];
-    return { text: raw.trim(), created: today, lastReferenced: today };
+  private decodeEntry(raw: string): {
+    text: string;
+    created: string;
+    lastReferenced: string;
+    provenance?: Provenance;
+    sources?: MemorySource[];
+    mwSuccess?: number;
+    mwFail?: number;
+  } {
+    return parseMetadataComment(raw);
   }
 
   /** Strip metadata comment from entry text for display. */

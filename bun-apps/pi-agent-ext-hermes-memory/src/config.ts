@@ -64,6 +64,8 @@ const DEFAULT_CONFIG: MemoryConfig = {
   autoConsolidate: true,
   correctionDetection: true,
   errorCapture: true,
+  worthScoring: true,
+  autoSupersede: false,
   failureInjectionEnabled: true,
   failureInjectionMaxAgeDays: DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS,
   failureInjectionMaxEntries: DEFAULT_FAILURE_INJECTION_MAX_ENTRIES,
@@ -182,6 +184,8 @@ export function loadConfig(configPath?: string): MemoryConfig {
       }
       if (typeof parsed.correctionDetection === "boolean") config.correctionDetection = parsed.correctionDetection;
       if (typeof parsed.errorCapture === "boolean") config.errorCapture = parsed.errorCapture;
+      if (typeof parsed.worthScoring === "boolean") config.worthScoring = parsed.worthScoring;
+      if (typeof parsed.autoSupersede === "boolean") config.autoSupersede = parsed.autoSupersede;
       if (isNonNegativeNumber(parsed.errorCaptureRateLimit)) config.errorCaptureRateLimit = parsed.errorCaptureRateLimit;
       if (isNonNegativeNumber(parsed.errorCaptureRateWindowMs)) config.errorCaptureRateWindowMs = parsed.errorCaptureRateWindowMs;
       if (isNonNegativeNumber(parsed.errorCaptureDedupCacheSize)) config.errorCaptureDedupCacheSize = parsed.errorCaptureDedupCacheSize;
