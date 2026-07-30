@@ -50,21 +50,48 @@ export type SpawnFn = (
 // ---- Pure helpers (unit-tested without spawning) -------------------------
 
 /**
- * Resolve the `pi` launcher + args for a child process. Handles the bun virtual
- * fs (`/$bunfs/root/`), node/bun exec, and falls back to `pi` on PATH.
+ * Resolve the `pi` launcher + args for a child process — the pure, unit-tested
+ * core. ALWAYS self-resolves from the parent's own runtime + entry; it NEVER
+ * spawns a bare `"pi"` from PATH (that was a silent ENOENT failure mode — a
+ * `pi` shim can point at the wrong worktree/version, so relying on it is a
+ * hidden correctness hazard). Branches:
+ *   1. `currentScript` is a real file on disk (dev `bun src/cli.ts`, dist
+ *      `bun pi-agent.js`) → `execPath` + `[currentScript, ...extra]`.
+ *   2. the runtime is a non-node/bun executable (e.g. a `bun build --compile`
+ *      binary, whose argv[1] is the `/$bunfs/root/` virtual fs) → `execPath`
+ *      + `extra` (the compiled binary is its own entry).
+ *   3. otherwise → THROW. Self-resolution is impossible and we refuse to fall
+ *      back to a PATH lookup, surfacing the problem loudly instead of silently.
+ *
  * Generalized from pi-obsidian's `getPiInvocation`.
  */
-export function getPiInvocation(extra: string[]): { command: string; args: string[] } {
-  const currentScript = process.argv[1];
+export function resolvePiInvocation(
+  currentScript: string | undefined,
+  execPath: string,
+  extra: string[],
+): { command: string; args: string[] } {
   const isBunVirtual = currentScript?.startsWith("/$bunfs/root/");
   if (currentScript && !isBunVirtual && existsSync(currentScript)) {
-    return { command: process.execPath, args: [currentScript, ...extra] };
+    return { command: execPath, args: [currentScript, ...extra] };
   }
-  const execName = (process.execPath.split(sep).pop() ?? "").toLowerCase();
+  const execName = (execPath.split(sep).pop() ?? "").toLowerCase();
   if (!/^(node|bun)(\.exe)?$/.test(execName)) {
-    return { command: process.execPath, args: extra };
+    return { command: execPath, args: extra };
   }
-  return { command: "pi", args: extra };
+  throw new Error(
+    `cannot self-resolve a pi entry for the subprocess subagent — refusing to fall back to a bare "pi" on PATH. ` +
+      `currentScript=${currentScript ?? "(none)"} (bunVirtual=${isBunVirtual ?? false}), ` +
+      `execPath=${execPath} (runtime=${execName}). ` +
+      `Run via \`bun <cli.ts|bundle.js>\` or a \`bun build --compile\` binary so the child can reuse the parent's entry.`,
+  );
+}
+
+/**
+ * Bind `resolvePiInvocation` to the live process. Thin wrapper so the pure
+ * resolver stays unit-testable without touching `process.*`.
+ */
+export function getPiInvocation(extra: string[]): { command: string; args: string[] } {
+  return resolvePiInvocation(process.argv[1], process.execPath, extra);
 }
 
 /** Options for the child pi argv. All optional — caller controls everything. */
