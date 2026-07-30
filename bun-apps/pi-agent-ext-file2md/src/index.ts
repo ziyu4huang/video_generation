@@ -7,5 +7,7 @@ export * from "./vlm/retry.ts";
 export * from "./vlm/validate.ts";
 export * from "./vlm/page-context.ts";
 export * from "./native/pdf2png.ts";
+export { extractPdfText } from "./native/pdftext.ts";
+export type { ExtractPdfTextResult, ExtractedPageText, ExtractPdfTextOpts } from "./native/pdftext.ts";
 export * from "./sessions.ts";
 export * from "./pipeline.ts";
