@@ -75,6 +75,51 @@ describe("worth-scoring handler", () => {
     const got = await repo.getMemories({ target: "memory" });
     assert.strictEqual(got[0].mwSuccess ?? 0, 0);
   });
+
+  it("lesson-worthy tool error on a recalled memory: bumps mw_fail", async () => {
+    const m = await repo.addMemory({ content: "use pnpm to add deps", target: "memory" });
+    recallSet.record(m.id);
+    // a tool_result that failed with a lesson-worthy error text
+    await fire("tool_result", {
+      isError: true,
+      content: [{ type: "text", text: "Error: ENOENT: no such file or directory, open '/missing.cfg'" }],
+      toolName: "read",
+    });
+    await fire("turn_end", {}, {});
+    const got = await repo.getMemories({ target: "memory" });
+    assert.strictEqual(got[0].mwFail, 1);
+    assert.strictEqual(got[0].mwSuccess, 0);
+  });
+
+  it("non-error tool_result: counts as success (not fail)", async () => {
+    const m = await repo.addMemory({ content: "use bun test", target: "memory" });
+    recallSet.record(m.id);
+    await fire("tool_result", {
+      isError: false,
+      content: [{ type: "text", text: "ran fine" }],
+      toolName: "bash",
+    });
+    await fire("turn_end", {}, {});
+    const got = await repo.getMemories({ target: "memory" });
+    assert.strictEqual(got[0].mwSuccess, 1);
+    assert.strictEqual(got[0].mwFail, 0);
+  });
+
+  it("error that is NOT lesson-worthy (noise-suppressed): does not bump mw_fail", async () => {
+    const m = await repo.addMemory({ content: "run the linter", target: "memory" });
+    recallSet.record(m.id);
+    // isError:true BUT the text matches an ERROR_NOISE_PATTERN (`operation aborted`),
+    // so isLessonWorthy() returns false → hadError stays false → clean turn → mw_success.
+    await fire("tool_result", {
+      isError: true,
+      content: [{ type: "text", text: "operation aborted by the user" }],
+      toolName: "bash",
+    });
+    await fire("turn_end", {}, {});
+    const got = await repo.getMemories({ target: "memory" });
+    assert.strictEqual(got[0].mwFail ?? 0, 0);
+    assert.strictEqual(got[0].mwSuccess, 1); // clean turn otherwise → success
+  });
 });
 
 describe("worth-scoring end-to-end (search → correction turn → bump)", () => {
