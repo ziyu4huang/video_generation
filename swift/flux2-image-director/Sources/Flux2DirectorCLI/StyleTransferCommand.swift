@@ -12,6 +12,16 @@
 //  resolution. Called with imagePaths: [] (no identity references — the
 //  content image IS the canvas, not a reference).
 //
+//  Not a duplicate of `flux2 kv-style-transfer` (KVStyleTransferCommand.swift
+//  + Flux2StyleTransferPipeline.swift, in this same package): that command
+//  ports the training-free K/V-injection mechanism and needs a style
+//  *reference photo* plus block-range/injection-strength tuning. This
+//  command takes a named preset or free-text style description — no
+//  reference image required — trading K/V-injection's tighter style
+//  fidelity for a lighter-weight, prompt-only workflow. Pick kv-style-transfer
+//  when a reference photo defines the target look; pick this when a preset
+//  or text description does.
+//
 //  --playbook style-source support (OM playbook YAML → image_prompt_prefix/
 //  consistency_anchors/aesthetic) is deliberately OUT of v1 — no playbook
 //  YAML parser exists anywhere in Swift/TS yet (see
@@ -115,7 +125,7 @@ extension Flux2CLI {
             print("  style     : \(stylePrompt.prefix(100))\(stylePrompt.count > 100 ? "…" : "")")
             print("  strength  : \(strength), steps: \(steps), size: \(width)×\(height), seed: \(seed)")
 
-            let (loraAdapters, loraNames, _) = try Flux2LoRALoaderCLI.loadMerged(
+            let (loraAdapters, loraNames, loraScales) = try Flux2LoRALoaderCLI.loadMerged(
                 names: lora, scales: loraScale, logPrefix: "  lora      : ")
             if !loraNames.isEmpty {
                 print("               merged \(loraAdapters.adapters.count) adapters from \(loraNames.count) LoRA(s)")
@@ -159,17 +169,19 @@ extension Flux2CLI {
 
             if !noArtifacts {
                 try writeArtifacts(paths: paths, stylePrompt: stylePrompt, elapsed: elapsed,
-                                    loraNames: loraNames)
+                                    loraNames: loraNames, loraScales: loraScales)
             }
         }
 
         private func writeArtifacts(paths: OutputPaths, stylePrompt: String, elapsed: Double,
-                                     loraNames: [String]) throws {
+                                     loraNames: [String], loraScales: [Float]) throws {
             let startTime = Manifest.nowISO()
             let runConfig = RunConfig(
                 transformer: transformer, prompt: stylePrompt,
                 width: width, height: height, steps: steps, seed: seed, cfgScale: cfgScale,
-                loraPaths: loraNames.isEmpty ? nil : loraNames, loraScale: 1.0,
+                loraPaths: loraNames.isEmpty ? nil : loraNames,
+                loraScale: loraScales.first ?? 1.0,
+                loraScales: loraScales.isEmpty ? nil : loraScales,
                 textEncoder: encoder, tokenizer: tokenizerDir, vae: vae,
                 quantBits: 8, quantGroupSize: 64, command: "styletransfer", pipeline: "flux2"
             )
