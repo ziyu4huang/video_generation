@@ -74,7 +74,7 @@ function normalizedModelOverride(config: ReviewLlmConfig): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-function effectiveThinkingOverride(config: ReviewLlmConfig): ThinkingLevel | undefined {
+export function effectiveThinkingOverride(config: ReviewLlmConfig): ThinkingLevel | undefined {
   return config.llmThinkingOverride ?? (normalizedModelOverride(config) ? "off" : undefined);
 }
 
@@ -115,7 +115,7 @@ export function resolveReviewModel(
   return ctxModel;
 }
 
-function extractJsonPayload(text: string): unknown {
+export function extractJsonPayload(text: string): unknown {
   const trimmed = text.trim();
   if (!trimmed) return null;
 
@@ -379,7 +379,7 @@ export async function applyReviewOperations(
   return { appliedCount, skippedCount };
 }
 
-function responseText(content: unknown): string {
+export function responseText(content: unknown): string {
   if (!Array.isArray(content)) return "";
   return content
     .filter((block): block is { type: "text"; text: string } => (

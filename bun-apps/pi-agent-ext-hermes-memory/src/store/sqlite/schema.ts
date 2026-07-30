@@ -79,7 +79,13 @@ export const SCHEMA_SQL = `
     tool_state TEXT,
     corrected_to TEXT,
     created DATE NOT NULL,
-    last_referenced DATE NOT NULL
+    last_referenced DATE NOT NULL,
+    mw_success INTEGER NOT NULL DEFAULT 0,
+    mw_fail INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'active',
+    supersedes INTEGER,
+    superseded_by INTEGER,
+    parent_ids TEXT
   );
 
   -- FTS5 index for memory search

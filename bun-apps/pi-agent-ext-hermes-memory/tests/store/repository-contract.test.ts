@@ -131,6 +131,134 @@ export function runMemoryRepositoryContract(
         await close();
       }
     });
+
+    it("worth: bumped entry outranks an equal-lexical peer via the ranker (shared-neighbor path)", async () => {
+      const { repo, close } = await make();
+      try {
+        const nonce = "zxqwbu-worth-anchor";
+        const high = await repo.addMemory({ content: `high-worth note ${nonce}`, target: "memory", project: "worth-proj" });
+        const low = await repo.addMemory({ content: `low-worth note ${nonce}`, target: "memory", project: "worth-proj" });
+        const neighbor = await repo.addMemory({ content: "shared project neighbor unrelated wording", target: "memory", project: "worth-proj" });
+        await repo.bumpMemoryWorth(high.id, 8, 0);  // boost high
+        await repo.bumpMemoryWorth(low.id, 0, 8);   // sink low
+        const hits = await repo.searchMemories(nonce);
+        const highIdx = hits.findIndex((h) => h.id === high.id);
+        const lowIdx = hits.findIndex((h) => h.id === low.id);
+        expect(highIdx).toBeGreaterThanOrEqual(0);
+        expect(lowIdx).toBeGreaterThanOrEqual(0);
+        expect(highIdx).toBeLessThan(lowIdx);  // high-worth ranks above low-worth
+      } finally { await close(); }
+    });
+
+    it("worth: addMemory seeds 0; bumpMemoryWorth increments; fields surface on getMemories", async () => {
+      const { repo, close } = await make();
+      try {
+        const e = await repo.addMemory({ content: "worth-roundtrip", target: "memory" });
+        expect(e.mwSuccess).toBe(0);
+        expect(e.mwFail).toBe(0);
+        await repo.bumpMemoryWorth(e.id, 2, 1);
+        const got = await repo.getMemories({ target: "memory" });
+        const found = got.find((m) => m.id === e.id)!;
+        expect(found.mwSuccess).toBe(2);
+        expect(found.mwFail).toBe(1);
+      } finally { await close(); }
+    });
+
+    it("supersession: searchMemories excludes superseded entries by default", async () => {
+      const { repo, close } = await make();
+      try {
+        const priorNonce = "zxqwbu-prior-superseded";
+        const newNonce = "zxqwbu-new-superseding";
+        const a = await repo.addMemory({
+          content: `prior memory with ${priorNonce} term`,
+          target: "memory",
+        });
+        const b = await repo.addMemory({
+          content: `new memory with ${newNonce} term`,
+          target: "memory",
+        });
+
+        await repo.supersedeMemory(a.id, b.id);
+
+        // Default search excludes superseded entries
+        const defaultHits = await repo.searchMemories(priorNonce);
+        expect(defaultHits.some((h) => h.id === a.id)).toBe(false);
+
+        // With includeSuperseded: true, superseded entries appear
+        const includedHits = await repo.searchMemories(priorNonce, { includeSuperseded: true });
+        expect(includedHits.some((h) => h.id === a.id)).toBe(true);
+      } finally {
+        await close();
+      }
+    });
+
+    it("supersession: supersedeMemory round-trip sets status and lineage fields", async () => {
+      const { repo, close } = await make();
+      try {
+        const a = await repo.addMemory({
+          content: "prior memory to be superseded",
+          target: "memory",
+        });
+        const b = await repo.addMemory({
+          content: "new superseding memory",
+          target: "memory",
+        });
+
+        await repo.supersedeMemory(a.id, b.id);
+
+        const all = await repo.getMemories({ target: "memory" });
+        const aAfter = all.find((m) => m.id === a.id)!;
+        const bAfter = all.find((m) => m.id === b.id)!;
+
+        // Prior entry is marked superseded with backward link
+        expect(aAfter.status).toBe("superseded");
+        expect(aAfter.supersededBy).toBe(b.id);
+
+        // New entry has forward link and parent reference
+        expect(bAfter.supersedes).toBe(a.id);
+        expect(bAfter.parentIds).toEqual([a.id]);
+      } finally {
+        await close();
+      }
+    });
+
+    it("supersession: re-sync stability preserves status and lineage (merge path)", async () => {
+      const { repo, close } = await make();
+      try {
+        const content = "memory that will be superseded then re-synced";
+        const a = await repo.addMemory({
+          content,
+          target: "memory",
+          project: "re-sync-proj",
+        });
+        const b = await repo.addMemory({
+          content: "new superseding memory",
+          target: "memory",
+          project: "re-sync-proj",
+        });
+
+        await repo.supersedeMemory(a.id, b.id);
+
+        // Re-sync the same content (merge path — should NOT reset status/lineage)
+        const syncResult = await repo.syncMemoryEntry({
+          content,
+          target: "memory",
+          project: "re-sync-proj",
+        });
+
+        // The sync should find the existing entry (not insert new)
+        expect(syncResult.action).toBe("existing");
+        expect(syncResult.entry.id).toBe(a.id);
+
+        // Verify status and lineage are preserved
+        const all = await repo.getMemories({ target: "memory" });
+        const aAfter = all.find((m) => m.id === a.id)!;
+        expect(aAfter.status).toBe("superseded");
+        expect(aAfter.supersededBy).toBe(b.id);
+      } finally {
+        await close();
+      }
+    });
   });
 }
 

@@ -57,7 +57,13 @@ const MEMORY_SELECT_COLUMNS = `
   tool_state,
   corrected_to,
   created,
-  last_referenced
+  last_referenced,
+  mw_success,
+  mw_fail,
+  status,
+  supersedes,
+  superseded_by,
+  parent_ids
 `;
 
 type MemoryRow = {
@@ -71,7 +77,28 @@ type MemoryRow = {
   corrected_to: string | null;
   created: string;
   last_referenced: string;
+  mw_success: number;
+  mw_fail: number;
+  status: string | null;
+  supersedes: number | null;
+  superseded_by: number | null;
+  parent_ids: string | null;
 };
+
+/**
+ * Decode the `parent_ids` JSON column defensively. The column is owned by the
+ * supersession lineage (set by `supersedeMemory`); legacy/NULL rows decode to
+ * `[]`. Malformed JSON or non-array payloads also fall back to `[]` so a
+ * corrupted cell can never break a read.
+ */
+function parseParentIds(raw: string | null): number[] {
+  try {
+    const parsed = JSON.parse(raw ?? "[]");
+    return Array.isArray(parsed) ? parsed.map(Number) : [];
+  } catch {
+    return [];
+  }
+}
 
 function mapRow(row: MemoryRow): MemoryEntry {
   return {
@@ -85,6 +112,12 @@ function mapRow(row: MemoryRow): MemoryEntry {
     correctedTo: row.corrected_to,
     created: row.created,
     lastReferenced: row.last_referenced,
+    mwSuccess: row.mw_success,
+    mwFail: row.mw_fail,
+    status: (row.status || "active") as "active" | "superseded",
+    supersedes: row.supersedes,
+    supersededBy: row.superseded_by,
+    parentIds: parseParentIds(row.parent_ids),
   };
 }
 
@@ -194,9 +227,9 @@ export class SqliteMemoryRepository implements MemoryRepository {
       const lastReferenced = input.lastReferenced ?? created;
 
       const result = this.db.prepare(`
-        INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced);
+        INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, 0, 0);
 
       return {
         id: Number(result.lastInsertRowid),
@@ -209,6 +242,12 @@ export class SqliteMemoryRepository implements MemoryRepository {
         correctedTo,
         created,
         lastReferenced,
+        mwSuccess: 0,
+        mwFail: 0,
+        status: "active",
+        supersedes: null,
+        supersededBy: null,
+        parentIds: [],
       };
     }));
   }
@@ -253,11 +292,17 @@ export class SqliteMemoryRepository implements MemoryRepository {
             correctedTo,
             created,
             lastReferenced,
+            mwSuccess: input.mwSuccess ?? 0,
+            mwFail: input.mwFail ?? 0,
+            status: "active",
+            supersedes: null,
+            supersededBy: null,
+            parentIds: [],
           };
           const result = this.db.prepare(`
-            INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(project, input.target, category, content, failureReason, toolState, correctedTo, created, lastReferenced);
+            INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(project, input.target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, input.mwSuccess ?? 0, input.mwFail ?? 0);
           entry.id = Number(result.lastInsertRowid);
           return { action: "inserted" as const, entry };
         }
@@ -420,7 +465,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
         return [];
       }
 
-      const { project, target, category, limit = 10 } = options;
+      const { project, target, category, limit = 10, includeSuperseded = false } = options;
 
       // FTS5 match via subquery with escaped query
       const normalizedQuery = normalizeFts5Query(query);
@@ -434,6 +479,11 @@ export class SqliteMemoryRepository implements MemoryRepository {
 
         conditions.push("m.id IN (SELECT rowid FROM memory_fts WHERE memory_fts MATCH ?)");
         params.push(matchQuery);
+
+        // Supersession UX: hide superseded entries unless the caller opts in.
+        if (!includeSuperseded) {
+          conditions.push("m.status = 'active'");
+        }
 
         if (project !== undefined) {
           if (project === null) {
@@ -487,9 +537,17 @@ export class SqliteMemoryRepository implements MemoryRepository {
         return []; // no lexical seeds → no graph recall
       }
 
-      const neighbors = this.fetchGraphNeighbors(lexicalResults, { project, target, category });
+      const neighbors = this.fetchGraphNeighbors(lexicalResults, { project, target, category, includeSuperseded });
       if (neighbors.length === 0) {
-        return lexicalResults.slice(0, limit);
+        // Close the no-neighbor fast path: route single-match / no-shared-
+        // neighbor searches through the shared ranker so the worth multiplier
+        // applies (instead of raw last_referenced DESC). Neighbors stay empty
+        // here — the ranker simply re-orders the lexical set by recency + worth.
+        return rankMemoryEntries({
+          candidates: lexicalResults,
+          lexicalMatchIds: new Set(lexicalResults.map((m) => m.id)),
+          limit,
+        });
       }
 
       return rankMemoryEntries({
@@ -509,7 +567,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
    */
   private fetchGraphNeighbors(
     seeds: MemoryEntry[],
-    scope: { project?: string | null; target?: MemoryTarget; category?: MemoryCategory },
+    scope: { project?: string | null; target?: MemoryTarget; category?: MemoryCategory; includeSuperseded?: boolean },
   ): MemoryEntry[] {
     const seedIds = seeds.map((m) => m.id);
     const projects = [...new Set(seeds.map((m) => m.project).filter((v): v is string => v != null))];
@@ -553,6 +611,11 @@ export class SqliteMemoryRepository implements MemoryRepository {
     if (scope.category) {
       conditions.push("m.category = ?");
       params.push(scope.category);
+    }
+
+    // Mirror runSearch: superseded neighbors are hidden unless opted in.
+    if (!scope.includeSuperseded) {
+      conditions.push("m.status = 'active'");
     }
 
     const sql = `
@@ -667,6 +730,26 @@ export class SqliteMemoryRepository implements MemoryRepository {
   async touchMemory(id: number): Promise<void> {
     return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
       this.db.prepare("UPDATE memories SET last_referenced = ? WHERE id = ?").run(today(), id);
+    }));
+  }
+
+  async bumpMemoryWorth(id: number, successDelta = 0, failDelta = 0): Promise<void> {
+    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
+      this.db.prepare("UPDATE memories SET mw_success = mw_success + ?, mw_fail = mw_fail + ? WHERE id = ?").run(successDelta, failDelta, id);
+    }));
+  }
+
+  /**
+   * Mark `priorId` as superseded by `newId`, and record the reverse lineage on
+   * `newId`. Two UPDATEs (NOT delete+insert) so the prior row's id stays
+   * stable for any external lineage references. `parent_ids` is stored as a
+   * JSON array on the new row. Wrapped in the same recovery+retry envelope as
+   * the other mutators.
+   */
+  async supersedeMemory(priorId: number, newId: number): Promise<void> {
+    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
+      this.db.prepare("UPDATE memories SET status = 'superseded', superseded_by = ? WHERE id = ?").run(newId, priorId);
+      this.db.prepare("UPDATE memories SET supersedes = ?, parent_ids = ? WHERE id = ?").run(priorId, JSON.stringify([priorId]), newId);
     }));
   }
 }

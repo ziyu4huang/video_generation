@@ -53,6 +53,13 @@ function sharedTagCount(entry: MemoryEntry, seedTags: Set<string>): number {
   return n;
 }
 
+/** Worth multiplier from Laplace-smoothed success probability. 0/0 → 1.0. */
+function worthMultiplier(entry: MemoryEntry): number {
+  const s = entry.mwSuccess ?? 0;
+  const f = entry.mwFail ?? 0;
+  return ((s + 1) / (s + f + 2)) / 0.5; // Laplace-smoothed; 0/0 → (1/2)/0.5 = 1.0
+}
+
 export function rankMemoryEntries({
   candidates,
   lexicalMatchIds,
@@ -67,7 +74,7 @@ export function rankMemoryEntries({
     const graphProximity = sharedTagCount(entry, seedTags) / 3;
     const ageDays = (nowMs - Date.parse(entry.lastReferenced)) / 86_400_000;
     const recencyNorm = 1 / (1 + ageDays / 30);
-    const score = W_LEX * lexical + W_GRAPH * graphProximity + W_RECENCY * recencyNorm;
+    const score = (W_LEX * lexical + W_GRAPH * graphProximity + W_RECENCY * recencyNorm) * worthMultiplier(entry);
     return { entry, score };
   });
 

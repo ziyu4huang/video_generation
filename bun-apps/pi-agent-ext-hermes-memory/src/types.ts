@@ -83,6 +83,11 @@ export interface MemoryConfig {
   /** Auto-capture lesson-worthy tool errors (stack traces, definitive
    *  failures) to the failure store without an agent memory call. Default: true */
   errorCapture?: boolean;
+  /** Increment memory-worth counters on session outcome (correction→fail, else→success). Default: true */
+  worthScoring?: boolean;
+  /** Auto-supersede a recalled memory when a correction contradicts it (judge-gated).
+   *  Default: false (opt-in — supersession hides the prior from search). */
+  autoSupersede?: boolean;
   /** Per-session errorCapture rate limit (0 = unlimited). #854 */
   errorCaptureRateLimit?: number;
   /** errorCapture sliding-window length in ms. #854 */
@@ -117,6 +122,16 @@ export interface MemoryConfig {
   lockOpRetries?: number;
   /** Backoff (ms) between op-level lock retries. Default: 2000 */
   lockOpBackoffMs?: number;
+}
+
+/** Trust/auditability marker for a memory entry. Markdown-resident only. */
+export type Provenance = "verified" | "unverified" | "none";
+
+/** A grounding source attached to a memory entry (quote, doc ref, etc.). */
+export interface MemorySource {
+  kind: string;     // e.g. "quote", "doc", "url"
+  locator: string;  // stable ref into the source (session id, url, line)
+  capture: string;  // the verbatim text/anchor
 }
 
 export type MemoryCategory =
