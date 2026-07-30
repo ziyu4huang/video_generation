@@ -33,6 +33,7 @@ import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { MemoryRepository, MemoryTarget } from "../store/repository.js";
 import type { MemoryStore } from "../store/memory-store.js";
+import type { MemorySource } from "../types.js";
 
 interface SupersedeProbe {
   replacementPresent: boolean;
@@ -79,18 +80,28 @@ export function registerMemorySupersedeTool(
             "Project scope for the replacement. Omit for a global memory (recommended unless the prior was project-scoped).",
         }),
       ),
+      sources: Type.Optional(
+        Type.Array(
+          Type.Object({
+            kind: Type.String({ description: "Source kind, e.g. \"quote\", \"doc\", \"url\"." }),
+            locator: Type.String({ description: "Stable ref into the source (session id, url, line)." }),
+            capture: Type.String({ description: "The verbatim text/anchor grounding the replacement." }),
+          }),
+          { description: "Optional grounding sources attached to the replacement (.md-resident only)." },
+        ),
+      ),
     }),
     async execute(
       _toolCallId: string,
-      args: { prior_id: number; replacement: string; target: MemoryTarget; project?: string },
+      args: { prior_id: number; replacement: string; target: MemoryTarget; project?: string; sources?: MemorySource[] },
     ) {
-      const { prior_id, replacement, target, project } = args;
+      const { prior_id, replacement, target, project, sources } = args;
 
       // The .md layer has no project concept at the store.add level (project
       // scoping lives in separate projectStores upstream); the replacement
       // always lands in the global MEMORY/USER/FAILURE.md here. The search
       // store gets the explicit project below.
-      const addRes = await store.add(target, replacement, {});
+      const addRes = await store.add(target, replacement, sources && sources.length > 0 ? { sources } : {});
       if (!addRes.success) {
         const details: SupersedeDetails = { ok: false, linked: false, priorId: prior_id };
         return {

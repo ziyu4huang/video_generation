@@ -235,4 +235,65 @@ describe("registerMemorySupersedeTool", () => {
     assert.ok(result.details.linked, "lineage still flipped");
     assert.strictEqual(result.details.probe, undefined, "probe degrades to undefined on throw");
   });
+
+  it("threads optional sources[] into store.add (grounding the replacement)", async () => {
+    const prior = await memoryRepo.addMemory({
+      content: "stale grounding note alpha",
+      target: "memory",
+      project: null,
+    });
+
+    // Spy store: capture the options object handed to add().
+    let capturedOptions: { sources?: unknown } | undefined;
+    const spyStore = {
+      add: (_target: string, _content: string, options?: { sources?: unknown }) => {
+        capturedOptions = options;
+        return { success: true, target: "memory", entries: ["replacement"], usage: "1%", entry_count: 1, message: "Entry added." };
+      },
+    } as unknown as MemoryStore;
+
+    const { pi, def } = captureTool();
+    registerMemorySupersedeTool(pi, memoryRepo, spyStore);
+
+    const sources = [
+      { kind: "quote", locator: "session-42#m7", capture: "no, the value is 3 not 2" },
+      { kind: "doc", locator: "README.md#L120", capture: "VALUE = 3" },
+    ];
+
+    const result = await def().execute(
+      "tc-src",
+      { prior_id: prior.id, replacement: "the value is 3 grounding note alpha", target: "memory", sources },
+      undefined as any, undefined as any, undefined as any,
+    );
+
+    assert.ok(result.details.ok);
+    assert.ok(result.details.linked, "lineage still flipped");
+    assert.ok(capturedOptions, "store.add was called");
+    assert.deepStrictEqual(capturedOptions!.sources, sources, "sources[] passed through to store.add verbatim");
+  });
+
+  it("omitting sources still works (store.add called without sources)", async () => {
+    const prior = await memoryRepo.addMemory({ content: "no sources prior content", target: "memory", project: null });
+    let capturedOptions: { sources?: unknown } | undefined;
+    const spyStore = {
+      add: (_t: string, _c: string, options?: { sources?: unknown }) => {
+        capturedOptions = options;
+        return { success: true, target: "memory", entries: ["r"], usage: "1%", entry_count: 1, message: "ok" };
+      },
+    } as unknown as MemoryStore;
+
+    const { pi, def } = captureTool();
+    registerMemorySupersedeTool(pi, memoryRepo, spyStore);
+
+    const result = await def().execute(
+      "tc-nosrc",
+      { prior_id: prior.id, replacement: "no sources replacement content", target: "memory" },
+      undefined as any, undefined as any, undefined as any,
+    );
+
+    assert.ok(result.details.ok);
+    assert.ok(result.details.linked);
+    assert.ok((capturedOptions === undefined) || (capturedOptions && capturedOptions.sources === undefined),
+      "no sources param → store.add gets no sources");
+  });
 });
