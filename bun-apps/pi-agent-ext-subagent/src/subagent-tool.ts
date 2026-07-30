@@ -79,6 +79,19 @@ export interface SubagentToolDetails {
   watchdog?: WatchdogResult;
 }
 
+/**
+ * Default wall-clock timeout (ms) applied when a dispatch omits `timeoutMs`.
+ * Generous safety net (15 min): legit in-process runs rarely exceed ~10 min
+ * (research 1-3, implementer 3-10, reviewer 2-5), so this almost never fires on
+ * real work — it exists to unblock the parent turn when a child deadlocks / hangs
+ * on a network call / loops without burning tokens (tokenBudget can't catch that).
+ * In-process children are synchronous to the parent turn, so a stuck child blocks
+ * the whole interactive session until the timeout fires. Override per-dispatch
+ * via `timeoutMs`. (cf. pi-subagents 0.37.1's 30-min default — theirs is
+ * detached/async so a long run doesn't block the user; ours is not, hence shorter.)
+ */
+export const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
+
 export const subagentToolSchema = Type.Object({
   agent: Type.Optional(
     Type.String({
@@ -139,7 +152,7 @@ export const subagentToolSchema = Type.Object({
   ),
   timeoutMs: Type.Optional(
     Type.Number({
-      description: "Abort after this many ms (wall-clock). Omit for no timeout.",
+      description: "Abort after this many ms (wall-clock). Omit for a 15-minute default (DEFAULT_TIMEOUT_MS).",
     }),
   ),
   tokenBudget: Type.Optional(
@@ -560,7 +573,7 @@ export function createSubagentTool(
           instructions,
           extensionTools: options.getExtensionTools?.(),
           externalSignal: signal,
-          timeoutMs: params.timeoutMs,
+          timeoutMs: params.timeoutMs ?? DEFAULT_TIMEOUT_MS,
           tokenBudget: params.tokenBudget,
           spendBudget: params.spendBudget,
           retryOnTransient: params.retryOnTransient,

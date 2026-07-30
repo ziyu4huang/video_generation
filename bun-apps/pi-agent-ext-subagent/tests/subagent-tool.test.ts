@@ -9,6 +9,7 @@ import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-
 import type { SubagentToolDetails } from "../src/subagent-tool.js";
 import {
   createSubagentTool,
+  DEFAULT_TIMEOUT_MS,
   deriveSubagentStatus,
   formatHistoryLine,
   formatSubagentLive,
@@ -76,6 +77,21 @@ test("execute maps params to spawn and returns the child output verbatim", async
   assert.equal((res.content[0] as { text: string }).text, "Status: DONE\n- 1/1 passing");
   assert.equal(res.details.exitCode, 0);
   assert.equal(res.details.timedOut, false);
+});
+
+// ── default wall-clock timeout (DEFAULT_TIMEOUT_MS) ──
+test("execute applies DEFAULT_TIMEOUT_MS when timeoutMs omitted", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.timeoutMs, DEFAULT_TIMEOUT_MS);
+});
+
+test("execute honors explicit timeoutMs over the default", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  await tool.execute("id", { task: "t", timeoutMs: 5000 }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.timeoutMs, 5000);
 });
 
 // ── capability param threads through to spawn ──

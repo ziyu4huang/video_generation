@@ -17,7 +17,7 @@ _Avoid_: re-implementing a child runner in a peer extension (call `spawnSubagent
 ### LLM-facing tools (this package owns them)
 
 **`subagent` (tool)**:
-The LLM-facing tool for one ad-hoc isolated child run — the model calls it directly, no orchestration. Same runner as `agent()` and `spawnSubagent()`. Reports real usage, accepts `timeoutMs`/`retryOnTransient`/`agentType`/`schema`/`model`/`tier`. Declares `executionMode: "sequential"` so pi serializes any turn containing a `subagent` call. Owned by this package's extension (`extensions/subagent.ts`).
+The LLM-facing tool for one ad-hoc isolated child run — the model calls it directly, no orchestration. Same runner as `agent()` and `spawnSubagent()`. Reports real usage, accepts `timeoutMs` (defaults to 15 min via `DEFAULT_TIMEOUT_MS` if omitted — a backstop against a stuck child blocking the parent turn)/`retryOnTransient`/`agentType`/`schema`/`model`/`tier`. Declares `executionMode: "sequential"` so pi serializes any turn containing a `subagent` call. Owned by this package's extension (`extensions/subagent.ts`).
 _Avoid_: mini-workflow, single-agent script (it is a standalone tool call, not a `workflow` run of one agent).
 
 **`subagent_runs` (tool)**:
