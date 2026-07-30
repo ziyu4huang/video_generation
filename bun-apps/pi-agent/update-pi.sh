@@ -38,6 +38,8 @@
 #   ./bun-apps/pi-agent/update-pi.sh --lockstep # OFFLINE lockstep invariant gate (CI-friendly)
 #   ./bun-apps/pi-agent/update-pi.sh --rebuild  # also rebuild pi-agent dist bundle
 #   ./bun-apps/pi-agent/update-pi.sh -h|--help  # print this header
+#   The upgrade path also runs `bun run typecheck` (mirrors CI: test · pi-agent),
+#   exiting non-zero if the new pi core broke a shared type — fix before pushing.
 #
 # Run from anywhere — the script resolves the repo root from its own location.
 ########################################
@@ -151,6 +153,40 @@ do_rebuild() {
   (cd "$REPO_ROOT/bun-apps/pi-agent" && bun scripts/deploy.ts)
 }
 
+# Cross-package TypeScript preflight. Runs `bun run typecheck` (tsc --noEmit)
+# from bun-apps/pi-agent — the SAME check CI's `test · pi-agent` job runs — so a
+# breaking type change from the new pi core version surfaces LOCALLY before push,
+# not 5 minutes into CI. A lockstep bump can change shared interfaces (0.83.0
+# added ResourceLoader#getSystemPromptSource / getAppendSystemPromptSources, for
+# one); this catches the extension fallout early.
+#
+# Fatal to the script EXIT, not to the upgrade: pins + bun.lock are already
+# correctly bumped and committable as-is, but the source must adapt before
+# pushing, so we print the errors and exit non-zero rather than report green.
+TYPECHECK_FAILED=0
+do_typecheck() {
+  echo
+  echo "$(green '▶') typecheck (cross-package — mirrors CI: test · pi-agent)"
+  local log n
+  log="$(mktemp)"
+  if (cd "$REPO_ROOT/bun-apps/pi-agent" && bun run typecheck) >"$log" 2>&1; then
+    echo "$(green '✓') typecheck clean — no cross-package type errors."
+  else
+    TYPECHECK_FAILED=1
+    n="$(grep -cE 'error TS[0-9]+' "$log" || true)"
+    if [[ "$n" -gt 0 ]]; then
+      echo "$(red '✗') typecheck FAILED — the new pi core version changed a shared type ($n TS error(s))."
+      echo "$(dim '    adapt these call sites before committing:')"
+      grep -E 'error TS[0-9]+' "$log" | sed 's/^/      /' | head -40
+      [[ "$n" -gt 40 ]] && echo "$(dim "      …($((n - 40)) more — see \`bun run typecheck\`)")"
+    else
+      echo "$(red '✗') typecheck FAILED (non-TS error — e.g. tsc not resolvable). Last lines:"
+      sed 's/^/      /' "$log" | tail -20
+    fi
+  fi
+  rm -f "$log"
+}
+
 cd "$REPO_ROOT"
 command -v bun >/dev/null || die "bun not found on PATH."
 [[ -f bun-apps/bun.lock ]] || die "bun-apps/bun.lock not found — run from a full checkout."
@@ -162,7 +198,7 @@ for a in "$@"; do
     --check)    CHECK=1 ;;
     --lockstep) LOCKSTEP_ONLY=1 ;;
     --rebuild)  REBUILD=1 ;;
-    -h|--help)  sed -n '2,46p' "$0"; exit 0 ;;
+    -h|--help)  sed -n '2,48p' "$0"; exit 0 ;;
     *) die "unknown flag: $a (try --help)" ;;
   esac
 done
@@ -306,12 +342,20 @@ if rewritten=$(git -C "$REPO_ROOT" diff --name-only -- bun-apps/ 2>/dev/null | g
 fi
 
 # ── optional rebuild ─────────────────────────────────────────────────────────
-if [[ "$REBUILD" -eq 1 ]]; then
+do_typecheck
+
+if [[ "$REBUILD" -eq 1 ]] && [[ "$TYPECHECK_FAILED" -eq 0 ]]; then
   do_rebuild
 fi
 
 # ── next steps ───────────────────────────────────────────────────────────────
 echo
+if [[ "$TYPECHECK_FAILED" -eq 1 ]]; then
+  echo "$(yellow 'done — with typecheck errors.') The version bump is applied (pins + bun.lock are"
+  echo "committable), but fix the TS errors above before pushing — CI's test · pi-agent gates it."
+  [[ "$REBUILD" -eq 1 ]] && echo "$(dim '  (rebuild skipped: source did not typecheck)')"
+  exit 1
+fi
 echo "$(green 'done.') Next:"
 echo "  - restart any running pi session so it loads the new version"
 echo "  - review the lockfile change:  git diff bun-apps/bun.lock"
