@@ -259,6 +259,38 @@ export function runMemoryRepositoryContract(
         await close();
       }
     });
+
+    it("graph-neighbor leak: a superseded same-project neighbor is hidden from graph recall (and revealed via includeSuperseded)", async () => {
+      const { repo, close } = await make();
+      try {
+        const nonce = "zxqwbu-graphleak-anchor";
+        // A: lexical match for the nonce, project-scoped.
+        await repo.addMemory({ content: `${nonce} lexical match wording`, target: "memory", project: "graphleak-proj" });
+        // B: shares the project `graphleak-proj` (graph edge via column matching, NOT an FTS content token) but shares NO FTS token
+        //    with the nonce `{zxqwbu, graphleak, anchor}` — reachable ONLY via graph expansion (fetchGraphNeighbors), never via FTS.
+        const neighbor = await repo.addMemory({ content: "totally different wording neighbor unrelated zztoberecalled", target: "memory", project: "graphleak-proj" });
+        // C: the replacement that supersedes B; also shares NO nonce FTS token.
+        const replacement = await repo.addMemory({ content: "replacement wording neighbor unrelated zztoberecalled fixed", target: "memory", project: "graphleak-proj" });
+
+        // Baseline: B IS recalled as a graph neighbor before supersession.
+        const before = await repo.searchMemories(nonce, { project: "graphleak-proj" });
+        expect(before.some((m) => m.id === neighbor.id)).toBe(true);
+
+        await repo.supersedeMemory(neighbor.id, replacement.id);
+
+        // After supersession: B is hidden from default graph recall (status filter).
+        const after = await repo.searchMemories(nonce, { project: "graphleak-proj" });
+        expect(after.some((m) => m.id === neighbor.id)).toBe(false);
+        // A is still recalled (lexical, active).
+        expect(after.some((m) => m.content.includes(nonce))).toBe(true);
+
+        // Opt-in: B reappears via includeSuperseded (proves the hide is the status filter, not absence).
+        const included = await repo.searchMemories(nonce, { project: "graphleak-proj", includeSuperseded: true });
+        expect(included.some((m) => m.id === neighbor.id)).toBe(true);
+      } finally {
+        await close();
+      }
+    });
   });
 }
 

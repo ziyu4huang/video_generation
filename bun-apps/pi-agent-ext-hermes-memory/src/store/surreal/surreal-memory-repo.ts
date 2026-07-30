@@ -546,7 +546,12 @@ export class SurrealMemoryRepository implements MemoryRepository {
    */
   async supersedeMemory(priorId: number, newId: number): Promise<void> {
     const p = Number(priorId), n = Number(newId);
-    await this.c.query(`UPDATE memories SET status = 'superseded', supersededBy = $n WHERE seq = $p;`, { p, n });
-    await this.c.query(`UPDATE memories SET supersedes = $p, parentIds = [$p] WHERE seq = $n;`, { p, n });
+    await this.c.query(
+      `BEGIN TRANSACTION;
+       UPDATE memories SET status = 'superseded', supersededBy = $n WHERE seq = $p;
+       UPDATE memories SET supersedes = $p, parentIds = [$p] WHERE seq = $n;
+       COMMIT TRANSACTION;`,
+      { p, n },
+    );
   }
 }
