@@ -278,12 +278,15 @@ export function setupCorrectionDetector(
               // unavailable, parse-fail, repo error) is swallowed so the
               // session never crashes. The candidates guard prevents
               // superseding an id the judge hallucinated outside the pool.
+              // Self is filtered out of the candidate pool BEFORE judging to
+              // prevent self-supersede (correction entry id embedding in its own
+              // content makes it match FTS5).
               if (config.autoSupersede === true) {
                 try {
-                  const candidates = await memoryRepo.searchMemories(directive, {
+                  const candidates = (await memoryRepo.searchMemories(directive, {
                     project: scopedProjectName ?? undefined,
                     limit: 6,
-                  });
+                  })).filter((c) => c.id !== correctionEntryId);
                   if (candidates.length > 0) {
                     const verdict = await runJudge(
                       ctx as unknown as Parameters<typeof runContradictionJudge>[0],

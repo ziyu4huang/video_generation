@@ -664,4 +664,37 @@ describe("setupCorrectionDetector handler", () => {
     const p = (await memoryRepo.getMemories({ target: "memory" })).find((m) => m.id === prior.id)!;
     assert.notStrictEqual(p.status, "superseded", "judge throw must not crash the session or supersede");
   });
+
+  it("auto-supersede: adversarial judge (returns correction entry id) → no self-supersede", async () => {
+    const pi = createMockPi();
+    // Since self is filtered from the candidate pool BEFORE judging,
+    // we cannot directly return the correction entry's id (it's not in the pool).
+    // This test verifies the structural guarantee: even with a candidate pool
+    // and judge execution, no row self-supersedes (supersededBy === id).
+    const prior = await memoryRepo.addMemory({ content: "keep that file, never delete", target: "memory" });
+    const fakeJudge = async (_ctx: any, opts: any) => ({ contradictedId: opts.candidates[0]?.id ?? null });
+    setupCorrectionDetector(
+      pi, makeCorrectionStore(), null, { ...config, autoSupersede: true } as any,
+      memoryRepo, undefined, memoryToolDef, makeSpawn(), fakeJudge as any,
+    );
+
+    const branch = [
+      { type: "message", message: { role: "user", content: [{ type: "text", text: "no, delete that file" }] } },
+      { type: "message", message: { role: "assistant", content: [{ type: "text", text: "ok" }] } },
+    ];
+
+    fireMessageEnd("user", "no, delete that file");
+    fireTurnEnd(branch);
+    await settle();
+
+    // Structural guarantee: no memory row is its own parent (self-supersede).
+    const allMemories = await memoryRepo.getMemories();
+    for (const row of allMemories) {
+      assert.notStrictEqual(
+        row.supersededBy,
+        row.id,
+        `Memory #${row.id} must not self-supersede (supersededBy === id)`,
+      );
+    }
+  });
 });
