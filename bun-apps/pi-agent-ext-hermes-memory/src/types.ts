@@ -159,6 +159,10 @@ export interface MemoryResult {
   transferred_count?: number;
   freed_chars?: number;
   archive_path?: string;
+  /** Contents of superseded entries purged from .md on overflow (D2). Caller
+   *  syncs the DB rows via the same removeExactSyncedMemories content-key path
+   *  used for evicted_entries (D4: destructive, no audit row). */
+  offloaded_superseded?: string[];
 }
 
 export interface MemorySnapshot {

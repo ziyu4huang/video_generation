@@ -67,6 +67,20 @@ export class MemoryStore {
     this.consolidatorModelLabel = modelLabel;
   }
 
+  /**
+   * Injected provider returning the CONTENTS of superseded entries for a target
+   * (sourced from the DB status column via getMemories({status:"superseded"})).
+   * Mirrors setConsolidator's injection pattern — keeps MemoryStore free of a
+   * direct MemoryRepository reference (D2: offload-superseded-first needs DB
+   * knowledge the .md-ground-truth store must not hold directly). Wired from
+   * index.ts once the repo is available; absent in unit/test contexts.
+   */
+  private supersededContentProvider: ((target: "memory" | "user" | "failure") => Promise<string[]>) | null = null;
+
+  setSupersededContentProvider(fn: (target: "memory" | "user" | "failure") => Promise<string[]>): void {
+    this.supersededContentProvider = fn;
+  }
+
   /** Inject the perf recorder's timed() — parallel to setConsolidator. Defaults
    *  to a pass-through so the store is usable with no recorder; the lock-hold
    *  span in withFileLock is wrapped at a lock-specific threshold (breach-only).
@@ -502,36 +516,54 @@ export class MemoryStore {
 
     const newTotal = [...entries, encoded].join(ENTRY_DELIMITER).length;
     if (newTotal > limit) {
+      // D2: offload superseded entries first. They are semantic discard and must
+      // never be resurrected into a consolidation merge. Provider is injected
+      // (setSupersededContentProvider); absent in unit/test contexts.
+      let offloadedSuperseded: string[] = [];
+      if (this.supersededContentProvider) {
+        try {
+          const supersededContents = await this.supersededContentProvider(target);
+          offloadedSuperseded = await this.purgeSupersededFromMarkdown(target, supersededContents);
+        } catch {
+          offloadedSuperseded = [];  // provider failure is non-fatal
+        }
+      }
+      if (offloadedSuperseded.length > 0) {
+        const afterPurge = this.entriesFor(target);
+        const reTotal = [...afterPurge, encoded].join(ENTRY_DELIMITER).length;
+        if (reTotal <= limit) {
+          afterPurge.push(encoded);
+          this.setEntries(target, afterPurge);
+          await this.saveToDisk(target);
+          return {
+            ...this.successResponse(target, `Memory updated. Offloaded ${offloadedSuperseded.length} superseded ${offloadedSuperseded.length === 1 ? "entry" : "entries"} to stay within the limit.`),
+            offloaded_superseded: offloadedSuperseded,
+          };
+        }
+        // Still over after purge → only active remains. Fall through to consolidation.
+      }
+
       const strategy = this.memoryOverflowStrategy();
-
-      if (strategy === "fifo-evict") {
-        return this.fifoEvictAndAdd(target, entries, encoded, content.length, limit, nearDupNote);
-      }
-
-      if (strategy === "vault-offload") {
-        return this.vaultOffloadAndAdd(target, entries, encoded, content.length, limit, nearDupNote);
-      }
-
-      if (strategy === "auto-consolidate") {
-        // Primary: info-preserving LLM consolidation (one retry).
+      // D3: superseded already purged, so remaining overflow is all-active. The
+      // fifo-evict/vault-offload branches used to shift() active entries here,
+      // breaking lineage chains. Collapse every non-reject strategy onto the
+      // consolidation path (runConsolidator + the existing vault-offload floor),
+      // so active entries are never silently shifted. Only "reject" hard-rejects.
+      if (strategy !== "reject") {
         if (this.consolidator && _retriesLeft > 0) {
           try {
             const result = await this.runConsolidator(target, signal, onProgress);
             if (result.consolidated) {
-              // CRITICAL: reload from disk — child process modified files, our arrays are stale
               await this.loadFromDisk();
-              // Retry the add exactly once (retriesLeft = 0 means no more consolidation).
-              // Recurse on _addInner (not _add) to avoid re-acquiring the write lock.
               return this._addInner(target, content, signal, _retriesLeft - 1, addedMessage, onProgress, meta);
             }
-          } catch {
-            // Consolidation failed — fall through to the vault-offload floor.
-          }
+          } catch { /* fall through to floor */ }
         }
-        // FLOOR: vault-offload guarantees the write never hard-rejects on overflow.
-        // Only a single entry larger than the whole budget is unrecoverable —
-        // vaultOffloadAndAdd returns memoryFullError for that case itself.
-        return this.vaultOffloadAndAdd(target, entries, encoded, content.length, limit, nearDupNote);
+        // FLOOR: vault-offload as last resort (preserves the never-hard-reject
+        // guarantee for non-reject strategies). Active lineage may break here ONLY
+        // in the rare consolidation-failure case — accepted as destructive capacity
+        // compaction (consistent with D0).
+        return this.vaultOffloadAndAdd(target, this.entriesFor(target), encoded, content.length, limit, nearDupNote);
       }
       return this.memoryFullError(target, content.length);
     }
@@ -541,6 +573,37 @@ export class MemoryStore {
     await this.saveToDisk(target);
 
     return this.successResponse(target, addedMessage + nearDupNote);
+  }
+
+  /**
+   * Remove entries whose stripped content matches one of `supersededContents`.
+   * Content-key match (D2): .md has no id, so we match on stripped content — the
+   * same key removeExactSyncedMemories uses on the DB side. Returns the purged
+   * (stripped) contents so the caller can sync the DB rows. Persists via
+   * setEntries/saveToDisk (mirrors fifoEvictAndAdd's persistence steps).
+   */
+  private async purgeSupersededFromMarkdown(
+    target: "memory" | "user" | "failure",
+    supersededContents: string[],
+  ): Promise<string[]> {
+    if (supersededContents.length === 0) return [];
+    const want = new Set(supersededContents);
+    const entries = this.entriesFor(target);
+    const purged: string[] = [];
+    const remaining: string[] = [];
+    for (const entry of entries) {
+      const stripped = this.stripMetadata(entry);
+      if (want.has(stripped)) {
+        purged.push(stripped);
+      } else {
+        remaining.push(entry);
+      }
+    }
+    if (purged.length > 0) {
+      this.setEntries(target, remaining);
+      await this.saveToDisk(target);
+    }
+    return purged;
   }
 
   /**
