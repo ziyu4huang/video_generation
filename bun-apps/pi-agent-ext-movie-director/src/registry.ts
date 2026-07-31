@@ -252,13 +252,14 @@ export const REGISTRY: ProviderEntry[] = [
   // it plainly — "PIPELINE ... composes the certified primitives — zero new
   // MLX generation code": Phase 1 is `image profile` multi-view generation
   // (already Swift-native, profile_native.ts above), Phase 2 is Step-1
-  // `cutout` (SAM3 segment per view, already Swift-native, flux2's `segment`
-  // command), Phase 3 is a pure IdentitySpec.json builder (no model calls at
-  // all). So character moved off run.py onto a direct Bun implementation
-  // (character_native.ts) orchestrating profile_native.ts + flux2 `segment`
-  // + a pure spec builder. Declared AFTER runpy_image is irrelevant here
-  // since `character` was removed from runpy_image's commands[] above — no
-  // overlap, no selector tiebreak needed.
+  // `cutout` (SAM3 segment + alpha compositing per view, already
+  // Swift-native, flux2's `cutout` command as of 2026-08-01 — originally
+  // `segment`, mask-only), Phase 3 is a pure IdentitySpec.json builder (no
+  // model calls at all). So character moved off run.py onto a direct Bun
+  // implementation (character_native.ts) orchestrating profile_native.ts +
+  // flux2 `cutout` + a pure spec builder. Declared AFTER runpy_image is
+  // irrelevant here since `character` was removed from runpy_image's
+  // commands[] above — no overlap, no selector tiebreak needed.
   {
     name: "character_native",
     capability: "image_generation",
