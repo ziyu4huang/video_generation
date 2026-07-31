@@ -55,6 +55,15 @@ guard signal (`process.env.CI` / `.skipIf(` / an env-var opt-in /
   This catalog is the human-reviewed disposition for them; the script surfaces
   them for review but never blocks.
 
+> **Config-mutating env vars (#938 class).** The harness injects
+> `PI_HERMES_CONSOLIDATING` / `TOOL_GATE_LOG_PATH` into a live session, flipping
+> `loadConfig` defaults — so a test that asserts on config defaults passes in
+> CI's clean env but flakes locally. Not block-detectable (P3-class false
+> positives). Proven fix: `beforeEach` snapshot+delete+restore. Repo-level tests
+> use `bun-apps/tests/helpers/hermetic-env.ts` (`clearHarnessEnvVars` /
+> `restoreHarnessEnvVars`); package tests inline the same pattern (their
+> `rootDir: src` forbids the cross-package import).
+
 ## Audit result (2026-07-09, post-#381 + this cycle)
 
 Scanned **260** test files. Every finding has a disposition — none ambiguous.
