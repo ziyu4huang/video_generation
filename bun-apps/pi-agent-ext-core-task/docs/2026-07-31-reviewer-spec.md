@@ -272,3 +272,36 @@ export function loadReviewerEntries(sessionManager: unknown): ReviewerLedgerReco
 - Routing architectural findings to the **wayfind** DECIDE stage / plan
   coordinator (the "C strategy" adaptation).
 - A cross-session review-history browser (`/goal reviews`).
+
+### 10.1 Post-implementation follow-ups (from the SDD final review, 2026-07-31)
+
+The baseline shipped merge-ready (9 commits, 577/0, tsc clean per-package +
+cross-package). These are non-blocking items the final review surfaced:
+
+- **(high) Data-loss edge on throwing `ctx.ui.confirm`** — `goal.ts` catch
+  block calls `clearActiveGoal(ctx)` without `preserveList`, so if `confirm`
+  throws AFTER bug/refactor items were already enqueued, those `/list` items
+  are erased. Fix: hoist `reviewerEnqueued` outside the `try` so the catch can
+  pass `preserveList: reviewerEnqueued > 0`; add a `confirmThrows-after-enqueue`
+  test. (Narrow: `ctx.ui.confirm` throwing is an artificial scenario.)
+- **(medium) `/glla postaudit` strings are currently dead code** —
+  `reviewer.ts` suppression-reason strings reference `/glla postaudit` (a GLA
+  command that does not exist in core-task). Today the wiring calls
+  `runReviewer(...)` as a statement and discards `outcome.suppressedReason`,
+  so they are invisible. **Any change that surfaces `suppressedReason` to a
+  notify/status MUST first rewrite these 5 strings** to core-task's actual
+  toggle (`/goal review on|off`) — refire-window/day-cap reasons have no
+  core-task user action to point at yet.
+- **(low) Coverage** — no test completes an `origin: "list"` goal through the
+  wiring (the `kind: "list"` label path); the Task 7 `cutAtClauseBoundary`
+  no-space-fallback + Task 2 `extractFindings` dangling-connector assertions
+  are weak (brief-verbatim).
+- **(low / tuning) `duplicate-suppressed` returns `fired: true`** and writes a
+  `reviewer_fired` ledger entry (verbatim GLA), which arms the 5-min refire
+  window — a clean scan completing then a real goal completing within 5 min
+  is silently refire-suppressed. Narrow (5-min window); evaluate whether
+  `duplicate-suppressed` should return `fired: false` (deviates from verbatim).
+- **(process) Per-task implementers reported "typecheck clean" after running
+  only `bun test`** (bun's transpiler skips tsc); two type errors slipped to
+  the verify gate. Going forward, every implementer must show `bunx tsc
+  --noEmit` real exit, not just `bun test`.
