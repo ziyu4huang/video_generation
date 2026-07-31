@@ -196,7 +196,7 @@ describe("selectProvider command routing", () => {
   });
 
   it("routes image_generation:<run.py-only command> → runpy-image (the force multiplier)", () => {
-    // runpy_image declares purify/multicouple/storyboard/cutout —
+    // runpy_image declares purify/multicouple/storyboard —
     // commands the Swift directors don't claim. Command routing sends them
     // to the run.py adapter with no provider hint, unlocking local
     // capabilities the agent otherwise can't reach.
@@ -208,8 +208,9 @@ describe("selectProvider command routing", () => {
     // moved OFF (2026-07-13, session 5) onto flux2_image, "faceswap"
     // moved OFF (2026-07-13, session 4) onto flux2_image, "character"
     // moved OFF (2026-07-13, session 6) onto character_native, "kontext"
-    // moved OFF (2026-07-29) onto flux2_image, and "styletransfer" moved
-    // OFF (2026-07-30) onto flux2_image — see the dedicated tests.
+    // moved OFF (2026-07-29) onto flux2_image, "styletransfer" moved OFF
+    // (2026-07-30) onto flux2_image, and "cutout" moved OFF (2026-07-31)
+    // onto flux2_image — see the dedicated tests.
     // "multicouple" stays here permanently (genuine MLX/GPU latent-couple
     // compute, unportable).
     for (const cmd of ["multicouple"]) {
@@ -329,6 +330,24 @@ describe("selectProvider command routing", () => {
     // playbook YAML parser exists anywhere in Swift/TS yet — see
     // docs/superpowers/specs/2026-07-30-styletransfer-swift-native-port-design.md).
     const e = selectProvider("image_generation", { command: "styletransfer", env: NO_ENV });
+    expect(e.provider).toBe("flux2");
+    expect(e.invoke).toBe("swift:flux2");
+  });
+
+  it("routes image_generation:cutout → flux2 (Swift-native, CutoutCommand.swift)", () => {
+    // 2026-07-31: image-cutout.py's SAM3 segmentation step already had a
+    // working Python-subprocess bridge (sam3_segment_bridge.py) that Swift
+    // calls today via `flux2 segment` — SAM3 itself stays out of the native
+    // port (SegmentCommand.swift's own header comment: a full port would be
+    // "a multi-day effort comparable to the entire Flux2 port"). This port
+    // adds the missing piece: Swift-native alpha compositing (new
+    // ImageSave.savePNGRGBA + CutoutCommand.swift, common-image-director/
+    // flux2-image-director), reusing the bridge unchanged. Moved off
+    // runpy_image onto flux2_image. --feather/--fill-holes configurability
+    // stays deferred (the bridge has a fixed feather radius and never fills
+    // holes) — see
+    // docs/superpowers/specs/2026-07-31-cutout-swift-native-port-design.md.
+    const e = selectProvider("image_generation", { command: "cutout", env: NO_ENV });
     expect(e.provider).toBe("flux2");
     expect(e.invoke).toBe("swift:flux2");
   });
