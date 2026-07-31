@@ -2,7 +2,7 @@
  * Smoke test for the extension entry: it registers exactly the two tools with
  * the right names + that `prNumber` is required. (The tools' behavior is
  * covered by pr-logic/recipe/gh tests; execute() isn't called here — no real
- * gh/Bun.spawn is triggered.)
+ * gh/git subprocess is triggered.)
  */
 import { test, expect, describe } from "bun:test";
 import entry from "../extensions/devops.js";
