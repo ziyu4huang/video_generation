@@ -14,13 +14,15 @@
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface CommandResult {
-	kind: "show" | "start" | "pause" | "resume" | "clear" | "edit" | "audit";
+	kind: "show" | "start" | "pause" | "resume" | "clear" | "edit" | "audit" | "review";
 	objective?: string;
 	tokenBudget?: number;
 	/** Opt-in: run the completion auditor against this goal. */
 	audit?: boolean;
 	/** Opt-in: auditor model as opaque `"provider/id"` (resolved by goal.ts). */
 	auditorModel?: string;
+	/** For kind: "review" — enable/disable the Reviewer for this session. */
+	enabled?: boolean;
 }
 
 export type ListCommandResult =
@@ -47,6 +49,7 @@ export const GOAL_ARGUMENT_COMPLETIONS: readonly GoalArgumentCompletion[] = [
 	{ value: "edit", label: "edit", description: "Edit the current goal objective" },
 	{ value: "status", label: "status", description: "Show the current goal" },
 	{ value: "--tokens ", label: "--tokens", description: "Set a token budget before the goal" },
+	{ value: "review ", label: "review", description: "Toggle the post-completion Reviewer (on|off)" },
 ];
 
 export const EDIT_TOKEN_COMPLETION: GoalArgumentCompletion = {
@@ -86,6 +89,12 @@ export function parseCommand(args: string): CommandResult | string {
 	if (first === "clear" || first === "stop") return rest.length === 0 ? { kind: "clear" } : "Usage: /goal clear";
 	if (first === "status") return rest.length === 0 ? { kind: "show" } : "Usage: /goal status";
 	if (first === "audit") return rest.length === 0 ? { kind: "audit" } : "Usage: /goal audit";
+	if (first === "review") {
+		const arg = rest[0]?.toLowerCase();
+		if (arg === "on") return { kind: "review", enabled: true };
+		if (arg === "off") return { kind: "review", enabled: false };
+		return "Usage: /goal review on|off";
+	}
 	if (first === "edit") return parseObjective("edit", rest);
 	return parseObjective("start", tokens);
 }

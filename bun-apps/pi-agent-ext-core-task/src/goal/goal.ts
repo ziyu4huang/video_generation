@@ -496,6 +496,10 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 				case "audit":
 					toggleGoalAudit(ctx);
 					return;
+				case "review":
+					goalState.reviewerEnabled = result.enabled;
+					ctx.ui.notify(`Reviewer ${result.enabled ? "enabled" : "disabled"} for this session.`, "info");
+					return;
 				case "start": {
 					// A bare `/goal "x"` is a fresh single-goal intent — the queue must
 					// NOT persist across it. Reset BEFORE startGoal (NOT inside it: /list

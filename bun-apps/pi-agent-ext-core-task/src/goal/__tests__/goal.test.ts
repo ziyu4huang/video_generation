@@ -278,7 +278,7 @@ describe("registration", () => {
 describe("completeGoalArguments", () => {
 	test("suggests /goal subcommands and token options", () => {
 		const all = completeGoalArguments("")!;
-		expect(all.map((i) => i.label)).toEqual(["pause", "resume", "clear", "edit", "status", "--tokens"]);
+		expect(all.map((i) => i.label)).toEqual(["pause", "resume", "clear", "edit", "status", "--tokens", "review"]);
 		expect(all.map((i) => i.description)).toEqual([
 			"Pause the active goal",
 			"Resume a paused or budget-limited goal",
@@ -286,6 +286,7 @@ describe("completeGoalArguments", () => {
 			"Edit the current goal objective",
 			"Show the current goal",
 			"Set a token budget before the goal",
+			"Toggle the post-completion Reviewer (on|off)",
 		]);
 
 		expect(completeGoalArguments("pa")?.map((i) => i.value)).toEqual(["pause"]);
