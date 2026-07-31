@@ -491,6 +491,7 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 						promoted.tokenBudget,
 						currentTokenTotal(ctx),
 						promoted.audit,
+						"list",
 					);
 					goalState.headAdvances += 1;
 					persistGoal(api, goalState.activeGoal);
