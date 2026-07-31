@@ -216,3 +216,23 @@ describe("GoalListItem shape", () => {
 		expect(item.parked).toBeUndefined();
 	});
 });
+
+// ─── Reviewer wiring: state fields (Task 3) ─────────────────────────────────────
+describe("reviewer wiring — state", () => {
+	test("createGoal defaults origin to 'bare'", () => {
+		__resetGoalState();
+		const g = createGoal("x", undefined, 0);
+		expect(g.origin).toBe("bare");
+	});
+	test("createGoal accepts origin: 'list'", () => {
+		const g = createGoal("y", undefined, 0, undefined, "list");
+		expect(g.origin).toBe("list");
+	});
+	test("goalState.reviewerEnabled defaults true and resets on __resetGoalState", () => {
+		__resetGoalState();
+		expect(goalState.reviewerEnabled).toBe(true);
+		goalState.reviewerEnabled = false;
+		__resetGoalState();
+		expect(goalState.reviewerEnabled).toBe(true);
+	});
+});

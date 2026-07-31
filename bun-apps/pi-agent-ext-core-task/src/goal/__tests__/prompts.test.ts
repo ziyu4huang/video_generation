@@ -170,4 +170,21 @@ describe("goalSummary", () => {
 		expect(s).toMatch(/Tokens:/);
 		expect(s).toMatch(/Commands:/);
 	});
+
+	test("includes the last review cascade step when present", () => {
+		const s = goalSummary(goal, {
+			cascadeStep: "convert-findings-to-list",
+			enqueued: 2,
+			proposed: 1,
+		});
+		expect(s).toContain("review:");
+		expect(s).toContain("convert-findings-to-list");
+		expect(s).toContain("2 enqueued");
+		expect(s).toContain("1 proposed");
+	});
+
+	test("excludes review line when lastReview is absent", () => {
+		const s = goalSummary(goal);
+		expect(s).not.toContain("review:");
+	});
 });
