@@ -39,6 +39,7 @@ import goal, {
 	type StatusContext,
 } from "../goal.js";
 import { __resetCoordinator, refreshPlan } from "../../plan/coordinator.js";
+import { goalState } from "../state.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -162,6 +163,11 @@ async function startGoalForTest(overrides: Record<string, unknown> = {}) {
 	const mock = createMockPi();
 	const overlay = createMockOverlay();
 	goal(mock.pi, overlay.impl);
+	// These tests pre-date the Reviewer (Task 5) and encode the pre-Reviewer
+	// "clean complete -> terminate:true" contract. The Reviewer is a default-ON
+	// cross-cutting layer; disable it here so these tests stay scoped to their
+	// own feature (audit / planning / auto-advance / completion text).
+	goalState.reviewerEnabled = false;
 	const { ctx, notifications, statuses } = createMockCtx(overrides);
 
 	const sessionStartHandlers = mock.events.get("session_start");

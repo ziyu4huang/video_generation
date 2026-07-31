@@ -115,6 +115,9 @@ interface Boot {
  */
 async function bootstrap(commandArgs: string, runner?: () => Promise<GoalAuditorResult>): Promise<Boot> {
 	__resetGoalState();
+	// Isolate the auto-advance feature (Task 6) from the default-ON Reviewer
+	// (Task 5): these tests assert the pre-Reviewer completion contract.
+	goalState.reviewerEnabled = false;
 	if (runner) __setAuditRunnerForTest(runner);
 	const mock = createMockPi();
 	const overlay = createMockOverlay();

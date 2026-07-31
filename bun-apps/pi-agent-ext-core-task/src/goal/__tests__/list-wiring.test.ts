@@ -112,6 +112,9 @@ let notifications!: Array<{ message: string; level?: string }>;
 
 beforeEach(() => {
 	__resetGoalState();
+	// Isolate the /list-wiring feature (Loop 2) from the default-ON Reviewer
+	// (Task 5): these tests assert the pre-Reviewer completion contract.
+	goalState.reviewerEnabled = false;
 	mock = createMockPi();
 	goal(mock.pi, createMockOverlay().impl);
 	({ ctx, notifications } = createMockCtx());
