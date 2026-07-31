@@ -323,7 +323,7 @@ const goalCompleteTool = defineTool({
 		const { item, rest } = promoteNext(goalState.list);
 		if (item) {
 			goalState.list = rest;
-			goalState.activeGoal = createGoal(item.text, item.tokenBudget, currentTokenTotal(ctx), item.audit);
+			goalState.activeGoal = createGoal(item.text, item.tokenBudget, currentTokenTotal(ctx), item.audit, "list");
 			goalState.headAdvances += 1;
 			persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 			updateStatus(ctx, goalState.activeGoal);
