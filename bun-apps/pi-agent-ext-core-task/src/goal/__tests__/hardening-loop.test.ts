@@ -20,6 +20,7 @@ import goal, { type StatusContext } from "../goal.js";
 import { goalState, __resetGoalState } from "../state.js";
 import { textFingerprint } from "../repetition.js";
 import { HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALL_MS } from "../backoff.js";
+import { LENGTH_CONTINUE_TEXT, resetLengthContinue } from "../length-continue.js";
 
 // ─── Mock pi/ctx/overlay (mirrors goal.test.ts) ──────────────────────────────
 
@@ -107,6 +108,16 @@ async function fireAgentEnd(mock: ReturnType<typeof createMockPi>, ctx: StatusCo
 					{ role: "assistant", stopReason: "stop", content: [{ type: "text", text: assistantText }] },
 				],
 			},
+			ctx,
+		);
+	}
+}
+
+/** Fire an agent_end carrying a final assistant truncated at the output cap. */
+async function fireAgentEndLength(mock: ReturnType<typeof createMockPi>, ctx: StatusContext, text = "x") {
+	for (const h of mock.events.get("agent_end") ?? []) {
+		await h(
+			{ messages: [{ role: "assistant", stopReason: "length", content: [{ type: "text", text }] }] },
 			ctx,
 		);
 	}
@@ -353,6 +364,102 @@ describe("heartbeat self-watchdog + nudge cap (Task 10)", () => {
 
 			expect(goalState.nudgeCount).toBe(0);
 			expect(goalState.activeGoal?.status).toBe("active");
+		} finally {
+			await shutdown(mock, ctx);
+		}
+	});
+});
+
+describe("agent_end length-continue wiring", () => {
+	test("a truncated turn re-triggers with LENGTH_CONTINUE_TEXT and skips bookkeeping", async () => {
+		const { mock, ctx, notifications } = await bootstrap();
+		try {
+			// bootstrap() seeds the goal prompt (msg #1 via startGoal); drop it so the
+			// toEqual below asserts ONLY the length-continue send (mirrors test 6).
+			mock.sentUserMessages.length = 0;
+			const before = goalState.activeGoal?.iteration ?? 0;
+			await fireAgentEndLength(mock, ctx);
+			// fired the continue message exactly once, with followUp delivery
+			expect(mock.sentUserMessages).toEqual([{ text: LENGTH_CONTINUE_TEXT, options: { deliverAs: "followUp" } }]);
+			// fire-path notify present (consecutive/MAX)
+			expect(notifications.some((n) => /auto-continuing \(1\/3\)/.test(n.message))).toBe(true);
+			// ledger entry recorded
+			expect(mock.entries.some((e) => e.customType === "length_continue_sent" && (e.data as { consecutive: number }).consecutive === 1)).toBe(true);
+			// bookkeeping skipped: incrementGoal did NOT run (iteration unchanged)
+			expect(goalState.activeGoal?.iteration).toBe(before);
+		} finally {
+			await shutdown(mock, ctx);
+		}
+	});
+
+	test("works with NO active goal (plain session truncates too)", async () => {
+		__resetGoalState();
+		resetLengthContinue();
+		const mock = createMockPi();
+		goal(mock.pi, createMockOverlay().impl);
+		const { ctx } = createMockCtx();
+		await (mock.events.get("session_start")?.[0] as ((e: unknown, c: unknown) => void) | undefined)?.({}, ctx);
+		try {
+			expect(goalState.activeGoal).toBeUndefined();
+			await fireAgentEndLength(mock, ctx);
+			expect(mock.sentUserMessages).toEqual([{ text: LENGTH_CONTINUE_TEXT, options: { deliverAs: "followUp" } }]);
+		} finally {
+			for (const h of mock.events.get("session_shutdown") ?? []) await (h as (e: unknown, c: unknown) => void)({}, ctx);
+			__resetGoalState();
+		}
+	});
+
+	test("a non-length turn does NOT send the continue message", async () => {
+		const { mock, ctx } = await bootstrap();
+		try {
+			await fireAgentEnd(mock, ctx, "normal turn text"); // stopReason "stop"
+			expect(mock.sentUserMessages.some((m) => m.text === LENGTH_CONTINUE_TEXT)).toBe(false);
+		} finally {
+			await shutdown(mock, ctx);
+		}
+	});
+
+	test("pending messages suppress the send (a queued message triggers a turn anyway)", async () => {
+		__resetGoalState();
+		resetLengthContinue();
+		const mock = createMockPi();
+		goal(mock.pi, createMockOverlay().impl);
+		const { ctx } = createMockCtx({ hasPendingMessages: () => true });
+		await (mock.events.get("session_start")?.[0] as ((e: unknown, c: unknown) => void) | undefined)?.({}, ctx);
+		try {
+			await fireAgentEndLength(mock, ctx);
+			expect(mock.sentUserMessages).toEqual([]);
+		} finally {
+			for (const h of mock.events.get("session_shutdown") ?? []) await (h as (e: unknown, c: unknown) => void)({}, ctx);
+			__resetGoalState();
+		}
+	});
+
+	test("after MAX+1 consecutive truncations it gives up once and stops firing", async () => {
+		const { mock, ctx, notifications } = await bootstrap();
+		try {
+			await fireAgentEndLength(mock, ctx); // 1 fire
+			await fireAgentEndLength(mock, ctx); // 2 fire
+			await fireAgentEndLength(mock, ctx); // 3 fire
+			mock.sentUserMessages.length = 0;
+			await fireAgentEndLength(mock, ctx); // 4 > MAX → giveUp, no fire
+			expect(mock.sentUserMessages).toEqual([]);
+			expect(notifications.some((n) => /stepping aside from auto-continue/.test(n.message))).toBe(true);
+			await fireAgentEndLength(mock, ctx); // 5 — still suppressed, no second give-up
+			expect(notifications.filter((n) => /stepping aside from auto-continue/.test(n.message)).length).toBe(1);
+		} finally {
+			await shutdown(mock, ctx);
+		}
+	});
+
+	test("session_start resets the singleton streak (a later truncate fires again)", async () => {
+		const { mock, ctx } = await bootstrap();
+		try {
+			await fireAgentEndLength(mock, ctx); // streak 1
+			await (mock.events.get("session_start")?.[0] as ((e: unknown, c: unknown) => void) | undefined)?.({}, ctx);
+			mock.sentUserMessages.length = 0;
+			await fireAgentEndLength(mock, ctx); // streak reset → fires again
+			expect(mock.sentUserMessages).toEqual([{ text: LENGTH_CONTINUE_TEXT, options: { deliverAs: "followUp" } }]);
 		} finally {
 			await shutdown(mock, ctx);
 		}

@@ -74,6 +74,7 @@ import {
 	goalSummary,
 	CONTINUATION_MARKER_PREFIX,
 } from "./prompts.js";
+import { LENGTH_CONTINUE_MAX, LENGTH_CONTINUE_TEXT, tickLengthContinue, resetLengthContinue } from "./length-continue.js";
 
 // Re-export formatters + types for tests and downstream consumers.
 export { formatStatus, formatGoalMetric, formatDuration, formatTokenCount, type ActiveGoal } from "./format.js";
@@ -543,6 +544,7 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 		clearContinuationTracking();
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
+		resetLengthContinue(); // length-continue: fresh session, fresh truncation streak
 		const restored = loadGoalStateFromSession(ctx.sessionManager);
 		goalState.activeGoal = restored.goal;
 		goalState.list = restored.list ?? [];
@@ -645,19 +647,39 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 	});
 
 	pi.on("agent_end", async (event: { messages?: unknown[] }, ctx: StatusContext) => {
+		// length-continue (folded-in, GLA faithful baseline): a truncated turn is
+		// NOT a completed turn — re-trigger with split-smaller guidance and skip
+		// ALL turn bookkeeping (no liveness stamp, no incrementGoal, no usage, no
+		// nudge/repetition, no continuation). Placed before the loop dispatch and
+		// the no-goal bail so it also covers /loop and plain (no-goal) sessions.
+		const finalAssistant = findFinalAssistantMessage(event.messages ?? []);
+		const lc = tickLengthContinue(finalAssistant?.stopReason === "length");
+		if (lc.giveUpNow) {
+			ctx.ui.notify(
+				`Response hit the output-token cap ${LENGTH_CONTINUE_MAX}× in a row — stepping aside from auto-continue. Ask the model to split the work into smaller pieces.`,
+				"warning",
+			);
+		}
+		if (finalAssistant?.stopReason === "length") {
+			if (lc.fire && !hasPendingMessages(ctx)) sendLengthContinue(pi, ctx, lc.consecutive);
+			return;
+		}
+
 		// Loop 3 dispatch: a live loop drives the continuation, not a goal.
 		if (isLoopActive()) {
 			await runLoopTick(pi, ctx as StatusContext, event);
 			return;
 		}
 		if (!goalState.activeGoal || goalState.activeGoal.status !== "active") return;
+		// (the prior `const finalAssistant = findFinalAssistantMessage(...)` line
+		//  here is REMOVED — the hoisted binding above is reused by the aborted/
+		//  error check below.)
 		// Task 10: a completed turn is a liveness signal — stamp it BEFORE any
 		// early return so the heartbeat stall clock resets on every real turn.
 		goalState.lastActivityAt = Date.now();
 
 		const goalId = goalState.activeGoal.id;
 		const hadPendingContinuation = goalState.continuationPending?.goalId === goalId;
-		const finalAssistant = findFinalAssistantMessage(event.messages ?? []);
 
 		if (!hadPendingContinuation) goalState.activeGoal = incrementGoal(goalState.activeGoal);
 		updateGoalUsage(goalState.activeGoal, ctx);
@@ -1098,6 +1120,22 @@ async function sendObjectiveUpdatedPrompt(pi: ExtensionAPI, ctx: StatusContext, 
 
 async function sendResumePrompt(pi: ExtensionAPI, ctx: StatusContext, goal: ActiveGoal) {
 	return sendPrompt(pi, ctx, buildResumePrompt(goal));
+}
+
+/**
+ * length-continue (GLA faithful baseline): re-trigger the agent after a
+ * truncated response. The text is constant (LENGTH_CONTINUE_TEXT); `consecutive`
+ * drives the fire-path notify + the ledger. Wrapped in try/catch so a stale API
+ * handle never crashes the agent_end handler (GLA's goStaleTerminal intent).
+ */
+function sendLengthContinue(pi: ExtensionAPI, ctx: StatusContext, consecutive: number): void {
+	try {
+		pi.sendUserMessage(LENGTH_CONTINUE_TEXT, { deliverAs: "followUp" });
+		pi.appendEntry?.("length_continue_sent", { consecutive });
+		ctx.ui.notify(`Response hit the output-token cap — auto-continuing (${consecutive}/${LENGTH_CONTINUE_MAX})`, "warning");
+	} catch (err) {
+		pi.appendEntry?.("length_continue_send_failed", { consecutive, error: err instanceof Error ? err.message : String(err) });
+	}
 }
 
 async function sendContinuationPrompt(pi: ExtensionAPI, ctx: StatusContext, goal: ActiveGoal) {
