@@ -505,11 +505,11 @@ export class MemoryStore {
       const strategy = this.memoryOverflowStrategy();
 
       if (strategy === "fifo-evict") {
-        return this.fifoEvictAndAdd(target, entries, encoded, content.length, limit);
+        return this.fifoEvictAndAdd(target, entries, encoded, content.length, limit, nearDupNote);
       }
 
       if (strategy === "vault-offload") {
-        return this.vaultOffloadAndAdd(target, entries, encoded, content.length, limit);
+        return this.vaultOffloadAndAdd(target, entries, encoded, content.length, limit, nearDupNote);
       }
 
       if (strategy === "auto-consolidate") {
@@ -531,7 +531,7 @@ export class MemoryStore {
         // FLOOR: vault-offload guarantees the write never hard-rejects on overflow.
         // Only a single entry larger than the whole budget is unrecoverable —
         // vaultOffloadAndAdd returns memoryFullError for that case itself.
-        return this.vaultOffloadAndAdd(target, entries, encoded, content.length, limit);
+        return this.vaultOffloadAndAdd(target, entries, encoded, content.length, limit, nearDupNote);
       }
       return this.memoryFullError(target, content.length);
     }
@@ -554,6 +554,7 @@ export class MemoryStore {
     encoded: string,
     contentLength: number,
     limit: number,
+    nearDupNote: string,
   ): Promise<MemoryResult> {
     if (encoded.length > limit) {
       return this.memoryFullError(target, contentLength);
@@ -578,7 +579,7 @@ export class MemoryStore {
     return {
       ...this.successResponse(
         target,
-        `Memory updated. Offloaded ${evictedDecoded.length} older ${evictedDecoded.length === 1 ? "entry" : "entries"} to vault archive to stay within the limit.`,
+        `Memory updated. Offloaded ${evictedDecoded.length} older ${evictedDecoded.length === 1 ? "entry" : "entries"} to vault archive to stay within the limit.${nearDupNote}`,
       ),
       evicted_entries: strippedEvicted,
       evicted_count: evictedDecoded.length,
@@ -681,6 +682,7 @@ export class MemoryStore {
     encoded: string,
     contentLength: number,
     limit: number,
+    nearDupNote: string,
   ): Promise<MemoryResult> {
     if (encoded.length > limit) {
       return this.memoryFullError(target, contentLength);
@@ -701,7 +703,7 @@ export class MemoryStore {
     return {
       ...this.successResponse(
         target,
-        `Memory updated. Rotated ${evictedEntries.length} older ${evictedEntries.length === 1 ? "entry" : "entries"} to stay within the limit.`,
+        `Memory updated. Rotated ${evictedEntries.length} older ${evictedEntries.length === 1 ? "entry" : "entries"} to stay within the limit.${nearDupNote}`,
       ),
       evicted_entries: evictedEntries,
       evicted_count: evictedEntries.length,
