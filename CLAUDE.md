@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Communication
 
-- **Conversation language**: 繁體中文 (zh_TW) — use zh_TW for discussion, explanations, and Q&A
+- **Reply language**: force-controlled by `responseLanguage` in `~/.pi/agent/settings.json` (zh-TW) — injected into every session's system prompt; change it live via `/response-language [tag]` (e.g. `/response-language en`). See `~/.pi/agent/AGENTS.md`.
 - **Written output**: English — all docs, code comments, commit messages, and file content in English
 
 ## Active stack

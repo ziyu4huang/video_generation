@@ -21,7 +21,8 @@ export type PatchName =
 	| "ensure-extension-deps"
 	| "ext-context-get-system-prompt-options"
 	| "ext-api-get-all-tool-definitions"
-	| "footer-extension-status-notify";
+	| "footer-extension-status-notify"
+	| "force-response-language";
 
 export interface AppliedPatch {
   name: PatchName;
@@ -79,6 +80,15 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   // so ExtensionRuntime gets getAllToolDefinitions(): ToolDefinition[] for passing
   // full tool definitions (with execute) to WorkflowAgent child sessions.
   { name: "ext-api-get-all-tool-definitions", env: "BUN_PI_EXT_API_GET_ALL_TOOL_DEFS", defaultValue: true },
+  // force-response-language: wraps AgentSession.prototype._rebuildSystemPrompt to
+  // PREPEND a forced reply-language block (from responseLanguage in
+  // ~/.pi/agent/settings.json) to every session's system prompt — main,
+  // subagent subprocess, workflow agent, obsidian/zk child. Replaces the
+  // drift-able AGENTS.md/CLAUDE.md prose with a top-of-prompt, non-negotiable
+  // block that survives role labels + the model's English default. Must run
+  // after ensure-extension-deps (imports @earendil-works/pi-coding-agent).
+  // Disable with BUN_PI_FORCE_RESPONSE_LANGUAGE=0.
+  { name: "force-response-language", env: "BUN_PI_FORCE_RESPONSE_LANGUAGE", defaultValue: true },
   // footer-extension-status-notify: patches InteractiveMode.prototype.init so
   // FooterDataProvider.setExtensionStatus / clearExtensionStatuses notify
   // subscribers + trigger ui.requestRender().
@@ -172,6 +182,9 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
         break;
       case "ext-api-get-all-tool-definitions":
         await import("./ext-api-get-all-tool-definitions.ts");
+        break;
+      case "force-response-language":
+        await import("./force-response-language.ts");
         break;
       case "footer-extension-status-notify":
         await import("./footer-extension-status-notify.ts");
