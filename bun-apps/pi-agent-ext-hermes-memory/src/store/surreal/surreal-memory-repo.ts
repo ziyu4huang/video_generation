@@ -476,9 +476,15 @@ export class SurrealMemoryRepository implements MemoryRepository {
 
   async getMemories(options: MemoryListOptions = {}): Promise<MemoryEntry[]> {
     const scope = buildScope(options.target, options.project, options.category);
+    const params = { ...scope.params };
+    let where = scope.where;
+    if (options.status) {
+      params.status = options.status;
+      where = where ? `${where} AND status = $status` : "WHERE status = $status";
+    }
     const rows = await this.c.query<Row[]>(
-      `SELECT ${FIELDS} FROM memories ${scope.where} ORDER BY lastReferenced DESC;`,
-      scope.params,
+      `SELECT ${FIELDS} FROM memories ${where} ORDER BY lastReferenced DESC;`,
+      params,
     );
     return rows.map(mapRow);
   }

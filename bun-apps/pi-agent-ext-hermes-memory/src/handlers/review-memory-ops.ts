@@ -335,6 +335,10 @@ export async function applyReviewOperations(
           result = await activeStore.add(memoryTarget, op.content);
           if (result.success) {
             await syncEvictions(rawTarget, result.evicted_entries, memoryRepo, projectName);
+            // D2+D4: superseded entries purged from `.md` by the offload-first
+            // overflow path must also have their DB rows deleted (destructive,
+            // no audit) — same content-key path as evicted_entries.
+            await syncEvictions(rawTarget, result.offloaded_superseded, memoryRepo, projectName);
             await syncAdd(rawTarget, op.content, undefined, undefined, memoryRepo, projectName);
             appliedCount++;
           } else {
