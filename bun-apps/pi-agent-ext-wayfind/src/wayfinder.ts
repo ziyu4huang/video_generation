@@ -276,6 +276,6 @@ ${prizes}
 
 **${args.nextGoal}**
 
-_(Confirm or replace — the first deferred prize above; pick a concrete, non-gated, non-conflicting next goal.)_
+_(Present this fork via the **ask_user_question tool** — recommended option (⭐) above; alternatives = the other deferred prizes + a fresh effort. Never a prose menu.)_
 `;
 }
