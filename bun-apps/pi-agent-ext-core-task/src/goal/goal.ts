@@ -497,7 +497,7 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 					toggleGoalAudit(ctx);
 					return;
 				case "review":
-					goalState.reviewerEnabled = result.enabled;
+					goalState.reviewerEnabled = result.enabled === true;
 					ctx.ui.notify(`Reviewer ${result.enabled ? "enabled" : "disabled"} for this session.`, "info");
 					return;
 				case "start": {

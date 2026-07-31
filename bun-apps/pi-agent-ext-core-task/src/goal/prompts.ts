@@ -125,7 +125,7 @@ export function goalCommandHint(status: GoalStatus) {
 
 export function goalSummary(
 	goal: ActiveGoal,
-	lastReview?: { cascadeStep: string; enqueued?: number; proposed?: number; reportPath?: string },
+	lastReview?: { cascadeStep?: string; enqueued?: number; proposed?: number; reportPath?: string },
 ) {
 	const lines = [
 		`Goal: ${goal.text}`,
@@ -136,7 +136,7 @@ export function goalSummary(
 		`Commands: ${goalCommandHint(goal.status)}`,
 	];
 
-	if (lastReview) {
+	if (lastReview && lastReview.cascadeStep) {
 		const reviewParts = [` · review: ${lastReview.cascadeStep}`];
 		if (lastReview.enqueued !== undefined) {
 			reviewParts.push(` (${lastReview.enqueued} enqueued`);
