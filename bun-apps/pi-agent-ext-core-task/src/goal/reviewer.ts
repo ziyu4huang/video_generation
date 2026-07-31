@@ -8,10 +8,11 @@
 // leverage principle), architectural findings → /goal proposal (Confirm),
 // clean completions → audit /goal proposal, strategic-only → notify+idle.
 //
-// This module currently ships the first half of the port: config, types,
-// finding classification, and text helpers. The lifecycle (extractFindings,
-// runReviewer, report types, ReviewerDeps/ReviewerOutcome,
-// reviewerMenuOptions) is appended in a follow-up task.
+// This module ships the full reviewer lifecycle: config, types, finding
+// classification, text helpers, extractFindings, the runReviewer cascade,
+// report types, and ReviewerDeps/ReviewerOutcome. (vs GLA: the report
+// directory is .pi/core-task/reviews and reviewerMenuOptions is dropped —
+// the baseline has no settings menu.)
 //
 // Deterministic by design (REVIEWER-DESIGN-2026-07-24: "makes NO new tool
 // calls — purely analytical"). All side effects are injected so tests
@@ -45,7 +46,13 @@ export const DEFAULT_REVIEWER_CONFIG: ReviewerConfig = {
 	mode: "on",
 	fireOn: ["goal-complete", "list-complete"],
 	doNotFireOn: ["goal-aborted", "goal-paused"],
-	cascade: ["convert-findings-to-list", "queue-leftovers", "notify-and-idle"],
+	// core-task: "fire-audit-on-clean" is in the default cascade. GLA's
+	// reference DEFAULT omits it, but GLA's own runReviewer contract —
+	// "default mode proposes a /goal (Confirm)" — and the spec tests require
+	// the audit to fire on a clean completion; without it the clean-completion
+	// branch (gated on config.cascade.includes("fire-audit-on-clean")) is
+	// unreachable in default config. See task-2-report.md §Self-review A.
+	cascade: ["convert-findings-to-list", "queue-leftovers", "fire-audit-on-clean", "notify-and-idle"],
 	auditCadence: "every-clean-completion",
 	auditScope: "regression-scan",
 	leverageMode: "fix-without-confirm",
@@ -181,4 +188,271 @@ export function normalizeObjective(s: string): string {
 		.replace(/\b\d{14}-[a-z0-9]{6}\b/g, "<id>")
 		.replace(/\s+/g, " ")
 		.trim();
+}
+
+/** Scan source texts line-by-line for finding-shaped content. Code
+ * spans are stripped first (v0.26.4) — findings live in prose. Hard-wrapped
+ * lines are joined (v0.28.24) — findings are sentence-shaped, not
+ * visual-line-shaped. `completedObjective` (v0.28.24) dedupes findings that
+ * merely restate the just-completed goal (exact-match dedupe at v0.28.16 was
+ * too narrow — duplicates arrive as prefixes/paraphrases). */
+export function extractFindings(sources: Array<{ name: string; text: string }>, max: number, completedObjective?: string): Finding[] {
+	const out: Finding[] = [];
+	const seen = new Set<string>();
+	const completedNorm = completedObjective ? normalizeObjective(completedObjective) : "";
+	for (const { name, text } of sources) {
+		for (const line of unwrapHardWrappedLines(stripCodeSpans(text)).split("\n")) {
+			const cls = classifyFindingText(line);
+			if (!cls) continue;
+			const clean = cutAtClauseBoundary(line.trim().replace(/^[-*>\s\[\]x]+/, ""), 200);
+			if (clean.length < 8 || seen.has(clean)) continue;
+			if (DANGLING_END.test(clean) || /[,;:\u2014-]$/.test(clean)) continue; // v0.28.24: wrap/parse fragment
+			if (completedNorm) {
+				const nf = normalizeObjective(clean);
+				if (nf.length >= 24 && (completedNorm.startsWith(nf) || nf.startsWith(completedNorm))) continue; // v0.28.24: restates the completed goal
+			}
+			seen.add(clean);
+			out.push({ text: clean, source: name, class: cls });
+			if (out.length >= max) return out;
+		}
+	}
+	return out;
+}
+
+/** Runaway prevention (contract item 6/9): a reviewer fire in the last
+ * `windowMs` suppresses re-firing — reviewer-created work completing
+ * immediately must not recursively fire the reviewer. */
+export function reviewerFiredRecently(entries: Array<{ type: string; at?: string }>, windowMs: number, nowMs: number): boolean {
+	return entries.some((e) => e.type === "reviewer_fired" && e.at !== undefined && nowMs - Date.parse(e.at) < windowMs);
+}
+
+/** Per-day cap (contract item 10). */
+export function reviewsToday(entries: Array<{ type: string; at?: string }>, nowMs: number): number {
+	const day = new Date(nowMs).toISOString().slice(0, 10);
+	return entries.filter((e) => e.type === "reviewer_fired" && e.at?.startsWith(day)).length;
+}
+
+export interface ReviewReport {
+	goalId: string;
+	kind: "goal" | "list";
+	objective: string;
+	findings: Finding[];
+	cascadeStep: string;
+	mode: ReviewerMode;
+	at: string;
+}
+
+export function formatReviewReport(r: ReviewReport): string {
+	const byClass = (c: FindingClass) => r.findings.filter((f) => f.class === c);
+	const section = (title: string, items: Finding[]) =>
+		items.length === 0 ? "" : `\n## ${title}\n\n${items.map((f) => `- ${f.text} _(${f.source})_`).join("\n")}\n`;
+	return [
+		`# Review — ${r.goalId}`,
+		"",
+		`**Kind**: ${r.kind} · **At**: ${r.at} · **Mode**: ${r.mode}`,
+		"",
+		"## Summary",
+		"",
+		`Completed: ${r.objective.slice(0, 300)}`,
+		"",
+		`**Cascade step**: ${r.cascadeStep}`,
+		"",
+		`## Findings (${r.findings.length})`,
+		section("Bug-class (enqueued to /list, no Confirm)", byClass("bug")),
+		section("Refactor-class (enqueued to /list, no Confirm)", byClass("refactor")),
+		section("Architectural-class (proposed as /goal, Confirm required)", byClass("architectural")),
+		section("Strategic-class (notify only)", byClass("strategic")),
+		r.findings.length === 0 ? "\n(none — completion looks clean)\n" : "",
+	].join("\n");
+}
+
+export function writeReviewReport(cwd: string, report: ReviewReport): string {
+	// core-task adaptation (spec D7): reports live under
+	// `.pi/core-task/reviews/` (GLA uses `.pi-gla/reviews/`). The filename
+	// shape (`${goalId}-${ts}.md`, ts with [:.] → -) is unchanged.
+	const dir = path.join(cwd, ".pi", "core-task", "reviews");
+	fs.mkdirSync(dir, { recursive: true });
+	const ts = report.at.replace(/[:.]/g, "-");
+	const file = path.join(dir, `${report.goalId}-${ts}.md`);
+	fs.writeFileSync(file, formatReviewReport(report));
+	return file;
+}
+
+/** Injectable side effects — goal.ts binds these to the live session. */
+export interface ReviewerDeps {
+	cwd: string;
+	nowMs: number;
+	/** /review <id> manual invocation — bypasses fireOn/doNotFireOn gates,
+	 * the refire window, and the day cap (the user asked explicitly). */
+	manual?: boolean;
+	ledgerEntries: Array<{ type: string; at?: string; value?: any }>;
+	/** Source texts for finding extraction (archive md, audit reports). */
+	sources: Array<{ name: string; text: string }>;
+	enqueueListItems: (objectives: string[]) => void;
+	/** Deliver a /goal proposal message to the session. Returns true when the
+	 * message was actually sent; false when the send failed (the v0.28.8 E4
+	 * contract — a failed send must NOT count as `proposed`, else the user is
+	 * told about phantom proposals that never arrived). */
+	proposeGoal: (objective: string, reason: string) => boolean;
+	notify: (message: string, level: "info" | "warning") => void;
+	ledger: (type: string, value: Record<string, unknown>) => void;
+}
+
+export interface ReviewerOutcome {
+	fired: boolean;
+	suppressedReason?: string;
+	report?: ReviewReport;
+	reportPath?: string;
+	enqueued: number;
+	proposed: number;
+	/** v0.27.5: the cascade step that actually fired (notify-and-idle | convert-findings-to-list | queue-leftovers | fire-audit-on-clean | propose-goal | aggressive-relaunch | duplicate-suppressed) — surfaces in /goal status and tests. v0.28.16: "duplicate-suppressed" = the clean completion WAS a regression scan, so the follow-up scan was deduped. */
+	cascadeStep?: string;
+}
+
+export const REVIEWER_REFIRE_WINDOW_MS = 5 * 60_000;
+
+/** The reviewer lifecycle (contract item 1). */
+export function runReviewer(
+	config: ReviewerConfig,
+	source: { kind: "goal" | "list"; goalId: string; objective: string; terminal: string },
+	deps: ReviewerDeps,
+): ReviewerOutcome {
+	const none = (suppressedReason: string): ReviewerOutcome => ({ fired: false, suppressedReason, enqueued: 0, proposed: 0 });
+	if (!config.enabled && !deps.manual) return none("the postaudit is disabled (/glla postaudit → Enabled)");
+	// v0.27.5: "off" mode is the user-friendly way to silence the postaudit
+	// — equivalent to enabled=false but exposed via the postaudit menu.
+	if (config.mode === "off" && !deps.manual) return none("postaudit mode is off (/glla postaudit → Mode)");
+	const event = source.kind === "goal" ? `${source.terminal}` : "list-complete";
+	if (!deps.manual) {
+		if (config.doNotFireOn.includes(event)) return none(`this event type (${event}) is excluded in /glla postaudit → fire-on`);
+		if (source.kind === "goal" && source.terminal !== "goal-complete") return none(`the goal ended as ${source.terminal}, not a completion — no follow-up fires`);
+		if (!config.fireOn.includes(source.kind === "goal" ? "goal-complete" : "list-complete")) return none("this event type is excluded in /glla postaudit → fire-on");
+		// v0.26.2: in auto mode the queue emptying is the cascade's natural
+		// rhythm, not a runaway — the refire window must not strangle it.
+		// (The per-day cap below still bounds everything.)
+		const refireWindowApplies = !(config.mode === "auto" && source.kind === "list");
+		if (refireWindowApplies && reviewerFiredRecently(deps.ledgerEntries, REVIEWER_REFIRE_WINDOW_MS, deps.nowMs)) {
+			deps.ledger("reviewer_suppressed", { reason: "refire-window", goalId: source.goalId });
+			return none("a postaudit ran within the last 5 minutes (runaway prevention)");
+		}
+		const today = reviewsToday(deps.ledgerEntries, deps.nowMs);
+		if (today >= config.maxReviewsPerDay) {
+			deps.ledger("reviewer_suppressed", { reason: "day-cap", count: today, cap: config.maxReviewsPerDay, goalId: source.goalId });
+			return none(`daily postaudit cap reached (${today}/${config.maxReviewsPerDay}) — /glla postaudit → Max reviews`);
+		}
+	}
+
+	const findings = extractFindings(deps.sources, config.maxFindingsPerReview, source.objective);
+	const bugs = findings.filter((f) => f.class === "bug" || f.class === "refactor");
+	const architectural = findings.filter((f) => f.class === "architectural");
+	const strategic = findings.filter((f) => f.class === "strategic");
+
+	let enqueued = 0;
+	let proposed = 0;
+	let cascadeStep = "notify-and-idle";
+	const auto = config.mode === "auto" || config.mode === "aggressive";
+	const aggressive = config.mode === "aggressive";
+
+	// Cascade: findings → list items (leverage: fix-without-confirm).
+	const convertStep = source.kind === "goal" ? "convert-findings-to-list" : "queue-leftovers";
+	if (bugs.length > 0 && config.cascade.includes(convertStep)) {
+		deps.enqueueListItems(bugs.map((f) => f.text));
+		enqueued = bugs.length;
+		cascadeStep = convertStep;
+	}
+	// Architectural findings: default mode → /goal proposal WITH Confirm;
+	// auto mode → /list items (the auto-loop rolls straight into them).
+	// aggressive mode → enqueue AND relaunch as the next active goal
+	// (skips both Confirm and the queue — the unattended rig never stops).
+	if (architectural.length > 0) {
+		if (aggressive) {
+			deps.enqueueListItems(architectural.map((f) => f.text));
+			// v0.27.5 aggressive: also propose the FIRST architectural finding
+			// as a relaunch so the queue gets burned through even when the
+			// unattended rig can't Confirm.
+			if (
+				deps.proposeGoal(
+					architectural[0]!.text,
+					`aggressive postaudit: relaunching as /goal without Confirm (${architectural.length} architectural findings total)`,
+				)
+			) {
+				proposed += 1;
+			}
+			enqueued += architectural.length;
+			cascadeStep = "aggressive-relaunch";
+		} else if (auto) {
+			deps.enqueueListItems(architectural.map((f) => f.text));
+			enqueued += architectural.length;
+			cascadeStep = convertStep;
+		} else {
+			if (
+				deps.proposeGoal(
+					architectural.map((f) => f.text).join("; "),
+					`reviewer found ${architectural.length} architectural-class finding(s) — needs your Confirm`,
+				)
+			) {
+				proposed += architectural.length;
+			}
+			cascadeStep = "propose-goal";
+		}
+	}
+	// Clean completion → audit: default mode proposes a /goal (Confirm);
+	// auto mode enqueues the audit as a /list item (no Confirm — the
+	// cascade keeps rolling until the findings run dry).
+	// aggressive mode → relaunch the audit goal directly (no Confirm).
+	if (findings.length === 0 && config.cascade.includes("fire-audit-on-clean")) {
+		const auditObjective = `Post-completion regression scan after ${source.goalId} (${config.auditScope})`;
+		// v0.28.16: duplicate-scan dedupe — the reviewer fires ON completion,
+		// so source.objective IS the most recent completion. If the goal that
+		// just completed was itself this same scan (normalized: goal-ids
+		// stripped), the proposal would be a scan-of-a-scan — the cascade loop
+		// that fired twice on 2026-07-28. Suppress the proposal/enqueue (the
+		// report is still written; the ledger records the reason).
+		if (normalizeObjective(source.objective) === normalizeObjective(auditObjective)) {
+			deps.ledger("reviewer_suppressed", { reason: "duplicate-scan", goalId: source.goalId, objective: auditObjective });
+			cascadeStep = "duplicate-suppressed";
+		} else if (aggressive) {
+			if (deps.proposeGoal(auditObjective, "aggressive postaudit: clean completion — relaunching the regression scan as /goal")) {
+				proposed++;
+			}
+			cascadeStep = "aggressive-relaunch";
+		} else if (auto) {
+			deps.enqueueListItems([auditObjective]);
+			enqueued++;
+			cascadeStep = "fire-audit-on-clean";
+		} else {
+			if (deps.proposeGoal(auditObjective, "reviewer: completion looks clean — firing the audit step")) {
+				proposed++;
+			}
+			cascadeStep = "fire-audit-on-clean";
+		}
+	}
+
+	const report: ReviewReport = {
+		goalId: source.goalId,
+		kind: source.kind,
+		objective: source.objective,
+		findings,
+		cascadeStep,
+		mode: config.mode,
+		at: new Date(deps.nowMs).toISOString(),
+	};
+	const reportPath = writeReviewReport(deps.cwd, report);
+	deps.ledger("reviewer_fired", {
+		goalId: source.goalId,
+		kind: source.kind,
+		findings: findings.length,
+		enqueued,
+		proposed,
+		cascadeStep,
+		report: path.relative(deps.cwd, reportPath),
+	});
+	deps.notify(
+		`Reviewer: ${findings.length} finding(s) — ${enqueued} enqueued to /list, ${proposed} proposed as /goal (${cascadeStep}). Report: ${path.relative(deps.cwd, reportPath)}`,
+		"info",
+	);
+	if (strategic.length > 0) {
+		deps.notify(`Reviewer: ${strategic.length} strategic finding(s) need YOUR call — see the report's Strategic section.`, "warning");
+	}
+	return { fired: true, report, reportPath, enqueued, proposed, cascadeStep };
 }
