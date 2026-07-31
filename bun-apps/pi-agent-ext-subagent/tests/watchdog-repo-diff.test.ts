@@ -18,12 +18,25 @@ import { changedTsJsPaths, computeBaseline, diffTextForReview, type RepoGitOps }
  * `XY <path>` NUL-separated — 2-char status code, a space, then the path
  * (path = token.slice(3)). Untracked = `??`, worktree-modified = ` M`.
  */
-function mockGitOps(opts: { status: string; diff?: string; lsFiles?: string; root?: string }): RepoGitOps {
+function mockGitOps(opts: {
+  status: string;
+  diff?: string;
+  /** Path-aware diff: when set, diffHead returns only the hunks for requested paths. */
+  diffByPath?: Record<string, string>;
+  lsFiles?: string;
+  root?: string;
+}): RepoGitOps {
   const root = opts.root ?? "/fake/repo-root";
   return {
     toplevel: () => root,
     statusPorcelainAll: () => opts.status,
-    diffHead: (_cwd, _paths) => opts.diff,
+    diffHead: (_cwd, paths) =>
+      opts.diffByPath
+        ? paths
+            .map((p) => opts.diffByPath[p] ?? "")
+            .filter(Boolean)
+            .join("\n")
+        : opts.diff,
     lsFiles: () => opts.lsFiles ?? "",
   };
 }
@@ -58,7 +71,45 @@ describe("repo-diff (hermetic — mock RepoGitOps)", () => {
       diff: "diff --git a/impl.ts b/impl.ts\n+export const x = 1;\n",
       lsFiles: "",
     });
-    const txt = diffTextForReview("/cwd", ["impl.ts"], gitOps);
-    assert.match(txt, /export const x = 1/);
+    const result = diffTextForReview("/cwd", ["impl.ts"], gitOps);
+    assert.match(result.text, /export const x = 1/);
+    assert.equal(result.truncated, false);
+    assert.deepEqual(result.droppedNoiseFiles, []);
+  });
+
+  it("diffTextForReview drops lockfile noise, keeps code, flags truncated", () => {
+    // Conservative noise filter (ticket 04): lockfiles/generated are dropped from
+    // the path set before diffing; real code is kept; truncation is flagged when
+    // anything is dropped. diffByPath makes the mock path-aware so the filter is
+    // observable (a path-ignoring mock could not prove exclusion).
+    const gitOps = mockGitOps({
+      status: " M impl.ts\0 M package-lock.json\0",
+      lsFiles: "impl.ts\npackage-lock.json\n",
+      diffByPath: {
+        "impl.ts": "diff --git a/impl.ts b/impl.ts\n+export const x = 1;\n",
+        "package-lock.json": "diff --git a/package-lock.json b/package-lock.json\n+LOCKNOISE\n",
+      },
+    });
+    const result = diffTextForReview("/cwd", ["impl.ts", "package-lock.json"], gitOps);
+    assert.equal(result.truncated, true);
+    assert.deepEqual(result.droppedNoiseFiles, ["package-lock.json"]);
+    assert.match(result.text, /export const x = 1/);
+    assert.doesNotMatch(result.text, /LOCKNOISE/);
+  });
+
+  it("diffTextForReview applies per-file budget, flags truncated files", () => {
+    // Ticket 04 per-file budget: each file gets a fair share (budget/N, floored);
+    // files exceeding their share are head-capped and listed in truncatedFiles.
+    // Tiny maxBytes (4th arg) makes this observable without a 200KB fixture.
+    const big = (label: string) => `diff --git a/${label} b/${label}\n+${"x".repeat(2000)}\n`;
+    const gitOps = mockGitOps({
+      status: " M a.ts\0 M b.ts\0",
+      lsFiles: "a.ts\nb.ts\n",
+      diffByPath: { "a.ts": big("a.ts"), "b.ts": big("b.ts") },
+    });
+    const result = diffTextForReview("/cwd", ["a.ts", "b.ts"], gitOps, 2000);
+    assert.equal(result.truncated, true);
+    assert.deepEqual(result.truncatedFiles.sort(), ["a.ts", "b.ts"]);
+    assert.ok(result.text.length <= 2000, `text within budget: ${result.text.length}`);
   });
 });

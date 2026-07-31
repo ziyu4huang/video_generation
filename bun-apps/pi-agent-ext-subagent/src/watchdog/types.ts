@@ -21,6 +21,8 @@ export interface WatchdogL2Result {
   ran: boolean;
   findings: WatchdogFinding[];
   note?: string;
+  /** L2 reviewed a partial diff (noise-filtered and/or budget-truncated). */
+  truncated?: boolean;
 }
 
 export interface WatchdogResult {

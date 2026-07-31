@@ -17,6 +17,10 @@ export interface RunWatchdogInput {
   computeAfter?: () => RepoBaseline | undefined;
   /** Test seam: defaults to runLspDiagnostics. */
   lsp?: typeof runLspDiagnostics;
+  /** Test seam: defaults to diffTextForReview (hermetic L2-path testing). */
+  diffForReview?: typeof diffTextForReview;
+  /** Test seam: defaults to runModelReview (hermetic L2-path testing). */
+  modelReview?: typeof runModelReview;
 }
 
 function summarize(l1: WatchdogResult["l1"], l2: WatchdogResult["l2"]): string {
@@ -25,10 +29,12 @@ function summarize(l1: WatchdogResult["l1"], l2: WatchdogResult["l2"]): string {
   const degraded: string[] = [];
   if (!l1.ran && l1.note) degraded.push("L1");
   if (!l2.ran && l2.note) degraded.push("L2");
-  if (blockers === 0 && concerns === 0 && degraded.length === 0) return "watchdog: clean";
+  const truncated = l2.truncated === true;
+  if (blockers === 0 && concerns === 0 && degraded.length === 0 && !truncated) return "watchdog: clean";
   const parts: string[] = [];
   if (blockers || concerns) parts.push(`${blockers} blocker(s), ${concerns} concern(s)`);
   if (degraded.length) parts.push(`${degraded.join("+")} degraded`);
+  if (truncated) parts.push("L2 reviewed a truncated diff");
   return `watchdog: ${parts.join("; ")}`;
 }
 
@@ -68,8 +74,14 @@ export async function runWatchdog(input: RunWatchdogInput): Promise<WatchdogResu
   if (input.opts.l2) {
     reviewDepth++;
     try {
-      const diffText = diffTextForReview(input.cwd, tsJs.length ? tsJs : after.changedPaths);
-      l2 = await runModelReview({ cwd: input.cwd, diffText, taskLabel: input.taskLabel, signal: input.signal });
+      const dr = (input.diffForReview ?? diffTextForReview)(input.cwd, after.changedPaths);
+      const reviewed = await (input.modelReview ?? runModelReview)({
+        cwd: input.cwd,
+        diffText: dr.text,
+        taskLabel: input.taskLabel,
+        signal: input.signal,
+      });
+      l2 = { ...reviewed, ...(dr.truncated ? { truncated: true } : {}) };
     } catch (e) {
       l2 = { ran: false, findings: [], note: `watchdog-error: ${(e as Error).message}` };
     } finally {

@@ -50,4 +50,37 @@ describe("runWatchdog orchestrator", () => {
     assert.match(r.summary, /degraded/);
     assert.doesNotMatch(r.summary, /clean/);
   });
+
+  it("L2 reviews ALL changed paths on a mixed change, not just TS/JS (ticket 05)", async () => {
+    // tsJs would be ["src/a.ts"] only; ticket 05 makes L2 see every changed path.
+    let captured: string[] | null = null;
+    const r = await runWatchdog({
+      cwd: "/r",
+      before: { root: "/r", key: "K1", changedPaths: [] },
+      opts: { l1: false, l2: true },
+      taskLabel: "t",
+      computeAfter: () => ({ root: "/r", key: "K2", changedPaths: ["src/a.ts", "pipeline/b.py"] }),
+      diffForReview: (_cwd, paths) => {
+        captured = paths;
+        return { text: "", truncated: false, droppedNoiseFiles: [], truncatedFiles: [] };
+      },
+      modelReview: async () => ({ ran: true, findings: [] }),
+    });
+    assert.deepEqual(captured, ["src/a.ts", "pipeline/b.py"]); // both, not just TS/JS
+    assert.equal(r.l2.ran, true);
+  });
+
+  it("summary surfaces L2 truncation + l2.truncated flag (ticket 04)", async () => {
+    const r = await runWatchdog({
+      cwd: "/r",
+      before: { root: "/r", key: "K1", changedPaths: [] },
+      opts: { l1: false, l2: true },
+      taskLabel: "t",
+      computeAfter: () => ({ root: "/r", key: "K2", changedPaths: ["a.ts"] }),
+      diffForReview: () => ({ text: "...", truncated: true, droppedNoiseFiles: ["x.lock"], truncatedFiles: [] }),
+      modelReview: async () => ({ ran: true, findings: [] }),
+    });
+    assert.equal(r.l2.truncated, true);
+    assert.match(r.summary, /truncat/i);
+  });
 });

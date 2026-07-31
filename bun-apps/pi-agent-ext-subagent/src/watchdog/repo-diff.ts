@@ -131,22 +131,104 @@ export function changedTsJsPaths(_before: RepoBaseline, after: RepoBaseline): st
   return after.changedPaths.filter((p) => TS_JS_EXT.has(path.extname(p).toLowerCase()));
 }
 
-/** A textual changeset for L2: `git diff HEAD` for tracked + raw content for untracked. */
-export function diffTextForReview(cwd: string, paths: string[], gitOps: RepoGitOps = realRepoGitOps): string {
+/** Result of curating a changeset for L2 review (ticket 04: curation + truncation flag). */
+export interface DiffForReview {
+  /** Curated diff text for the model (noise dropped; per-file budget in a later cycle). */
+  text: string;
+  /** True if ANY content was dropped (noise filter or budget truncation). */
+  truncated: boolean;
+  /** Paths dropped by the conservative noise filter (lockfiles/generated). */
+  droppedNoiseFiles: string[];
+  /** Paths truncated by the per-file budget (populated when budget curation lands). */
+  truncatedFiles: string[];
+}
+
+/**
+ * Conservative noise filter (ticket 04): drop pure-noise paths so L2's budget goes
+ * to real code. Drops lockfiles + generated artifacts; **KEEPS vendored source**
+ * (this repo edits vendor files via `vendor_patches.py` — those are real changes).
+ */
+const NOISE_LOCKFILES = new Set([
+  "package-lock.json",
+  "bun.lock",
+  "bun.lockb",
+  "yarn.lock",
+  "npm-shrinkwrap.json",
+  "pnpm-lock.yaml",
+]);
+function isNoisePath(relPath: string): boolean {
+  const lower = norm(relPath).toLowerCase();
+  const base = lower.split("/").pop() ?? lower;
+  if (NOISE_LOCKFILES.has(base)) return true;
+  if (base.endsWith(".lock")) return true;
+  if (lower.startsWith("dist/") || lower.includes("/dist/")) return true;
+  if (lower.startsWith("build/") || lower.includes("/build/")) return true;
+  if (lower.endsWith(".min.js") || lower.endsWith(".min.mjs") || lower.endsWith(".min.css")) return true;
+  if (lower.endsWith(".map")) return true;
+  return false;
+}
+
+const PER_FILE_FLOOR = 512;
+
+/** Split a combined `git diff` into per-file sections on the `diff --git ` boundary. */
+function splitDiffSections(diff: string): string[] {
+  return diff
+    .split(/(?=^diff --git )/m)
+    .map((s) => s.replace(/^\n+/, ""))
+    .filter(Boolean);
+}
+
+/** Best-effort path extraction from a section header (for truncatedFiles reporting). */
+function sectionPath(section: string): string {
+  const tracked = section.match(/^diff --git a\/(\S+)/);
+  if (tracked?.[1]) return tracked[1];
+  const untracked = section.match(/^--- new file: (.+?) ---/);
+  if (untracked?.[1]) return untracked[1];
+  return (section.split("\n")[0] ?? section).slice(0, 60);
+}
+
+/** A textual changeset for L2: `git diff HEAD` for tracked + raw content for untracked, with conservative curation + per-file budget. */
+export function diffTextForReview(
+  cwd: string,
+  paths: string[],
+  gitOps: RepoGitOps = realRepoGitOps,
+  maxBytes = 200_000,
+): DiffForReview {
   const root = gitOps.toplevel(cwd)?.trim() ?? cwd;
-  const parts: string[] = [];
-  const diff = gitOps.diffHead(root, paths);
-  if (diff) parts.push(diff);
-  // Untracked (not yet in HEAD): include their content under a header.
+  const droppedNoiseFiles = paths.filter((p) => isNoisePath(p));
+  const reviewPaths = paths.filter((p) => !isNoisePath(p));
+
+  // Build per-file sections: tracked via one `git diff HEAD`, untracked via raw read.
+  const trackedSections = splitDiffSections(gitOps.diffHead(root, reviewPaths) ?? "");
   const tracked = new Set((gitOps.lsFiles(root) ?? "").split("\n").filter(Boolean));
-  for (const p of paths) {
+  const untrackedSections: string[] = [];
+  for (const p of reviewPaths) {
     if (tracked.has(p)) continue;
     try {
       const body = fs.readFileSync(path.join(root, p), "utf-8");
-      parts.push(`--- new file: ${p} ---\n${body}`);
+      untrackedSections.push(`--- new file: ${p} ---\n${body}`);
     } catch {
       /* gone */
     }
   }
-  return parts.join("\n").slice(0, 200_000);
+  const sections = [...trackedSections, ...untrackedSections];
+
+  // Per-file budget: fair share (maxBytes/N, floored) so no single file monopolizes.
+  const perFileCap = sections.length ? Math.max(PER_FILE_FLOOR, Math.floor(maxBytes / sections.length)) : maxBytes;
+  const truncatedFiles: string[] = [];
+  const capped = sections.map((sec) => {
+    if (sec.length > perFileCap) {
+      truncatedFiles.push(sectionPath(sec));
+      return sec.slice(0, perFileCap);
+    }
+    return sec;
+  });
+  const joined = capped.join("\n");
+  const text = joined.slice(0, maxBytes); // final safety cap (floor can inflate total)
+  return {
+    text,
+    truncated: droppedNoiseFiles.length > 0 || truncatedFiles.length > 0 || text.length < joined.length,
+    droppedNoiseFiles,
+    truncatedFiles,
+  };
 }
