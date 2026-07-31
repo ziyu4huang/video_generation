@@ -72,6 +72,7 @@ describe("PATCH_TABLE", () => {
         "ext-context-get-system-prompt-options",
         "extract-embedded-assets",
         "footer-extension-status-notify",
+        "force-response-language",
         "load-run-dir-resources",
         "pre-load-providers",
         "set-package-dir",
