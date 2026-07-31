@@ -24,6 +24,7 @@ import type { GoalOverlayLike } from "../overlay.js";
 import goal, { __setAuditRunnerForTest, type StatusContext } from "../goal.js";
 import { goalState, __resetGoalState } from "../state.js";
 import type { GoalAuditorResult } from "../shield.js";
+import { isQuotaRetryPending, cancelQuotaRetry } from "../quota-retry.js";
 
 // ─── Mock pi/ctx/overlay (mirrors goal.test.ts) ──────────────────────────────
 
@@ -162,6 +163,7 @@ const APPROVED: GoalAuditorResult = { approved: true, disapproved: false, output
 const DISAPPROVED: GoalAuditorResult = { approved: false, disapproved: true, output: "Work is incomplete: tests still failing.", model: "fake" };
 const IMPOSSIBLE: GoalAuditorResult = { approved: false, disapproved: false, impossible: true, impossibleReason: "contradictory objective", output: "<impossible>contradictory objective</impossible>", model: "fake" };
 const INFRA_ERROR: GoalAuditorResult = { approved: false, disapproved: false, output: "", model: "fake", error: "no output (auth)" };
+const QUOTA_ERROR = { approved: false, disapproved: false, output: "", model: "fake", error: "429 Too Many Requests \u2014 Retry-After: 60" } as const;
 
 // ─── goal_complete audit wiring (D3 bounded re-loop) ─────────────────────────
 
@@ -317,5 +319,78 @@ describe("startGoal audit plumbing + /goal audit toggle", () => {
 		expect(notifications.some((n) => /no active goal/i.test(n.message))).toBe(true);
 
 		await shutdown(mock, ctx);
+	});
+});
+
+describe("goal_complete quota-retry wiring", () => {
+	test("quota auditor error \u2192 pause + schedule + terminate:true (no re-loop)", async () => {
+		const { mock, ctx } = await bootstrap("--audit finish the task", async () => ({ ...QUOTA_ERROR }));
+		try {
+			const result = await callGoalComplete(mock, ctx, "Done.");
+			expect(goalState.activeGoal?.status).toBe("paused"); // NOT active (no re-loop)
+			expect(result.terminate).toBe(true); // load-bearing: stops the in-turn retry
+			expect(isQuotaRetryPending()).toBe(true); // a one-shot resume is scheduled
+			expect(result.content?.[0]?.text ?? "").toMatch(/quota|rate limit|paused|auto-retry/i);
+		} finally {
+			cancelQuotaRetry();
+			await shutdown(mock, ctx);
+		}
+	});
+
+	test("non-quota infra error \u2192 existing 're-verify' path (NOT paused, no scheduled retry)", async () => {
+		const { mock, ctx } = await bootstrap("--audit finish the task", async () => ({ ...INFRA_ERROR }));
+		try {
+			cancelQuotaRetry();
+			const result = await callGoalComplete(mock, ctx, "Done.");
+			expect(goalState.activeGoal?.status).toBe("active"); // unchanged
+			expect(result.terminate).toBeUndefined();
+			expect(isQuotaRetryPending()).toBe(false);
+		} finally {
+			cancelQuotaRetry();
+			await shutdown(mock, ctx);
+		}
+	});
+
+	test("disapproved + quota error \u2192 disapproval path owns it (NOT quota-paused)", async () => {
+		const both = { approved: false, disapproved: true, output: "incomplete", model: "fake", error: "429 rate limited" } as const;
+		const { mock, ctx } = await bootstrap("--audit finish the task", async () => ({ ...both }));
+		try {
+			const result = await callGoalComplete(mock, ctx, "Done.");
+			expect(goalState.activeGoal?.status).toBe("active"); // disapproval re-loop, not quota pause
+			expect(goalState.activeGoal?.auditAttempts).toBe(1);
+			expect(isQuotaRetryPending()).toBe(false);
+			expect(result.terminate).toBeUndefined();
+		} finally {
+			cancelQuotaRetry();
+			await shutdown(mock, ctx);
+		}
+	});
+
+	test("/goal resume cancels the scheduled quota retry", async () => {
+		const { mock, ctx } = await bootstrap("--audit finish the task", async () => ({ ...QUOTA_ERROR }));
+		try {
+			await callGoalComplete(mock, ctx, "Done.");
+			expect(isQuotaRetryPending()).toBe(true);
+			const goalCmd = mock.commands.get("goal");
+			await goalCmd?.handler("resume", ctx);
+			expect(isQuotaRetryPending()).toBe(false);
+			expect(goalState.activeGoal?.status).toBe("active");
+		} finally {
+			cancelQuotaRetry();
+			await shutdown(mock, ctx);
+		}
+	});
+
+	test("session_start cancels a pending quota retry", async () => {
+		const { mock, ctx } = await bootstrap("--audit finish the task", async () => ({ ...QUOTA_ERROR }));
+		try {
+			await callGoalComplete(mock, ctx, "Done.");
+			expect(isQuotaRetryPending()).toBe(true);
+			await (mock.events.get("session_start")?.[0] as ((e: unknown, c: unknown) => void) | undefined)?.({}, ctx);
+			expect(isQuotaRetryPending()).toBe(false);
+		} finally {
+			cancelQuotaRetry();
+			await shutdown(mock, ctx);
+		}
 	});
 });

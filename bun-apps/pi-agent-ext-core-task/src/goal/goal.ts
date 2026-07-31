@@ -45,6 +45,7 @@ import {
 } from "./overflow.js";
 import { backoffMs, shouldPauseAfterBackoff, shouldHeartbeatRefire, accountTurnForNudges, shouldWedgeAlert, HEARTBEAT_INTERVAL_MS, HEARTBEAT_MAX_NUDGES, WEDGE_ALERT_DEFAULT_MINUTES } from "./backoff.js";
 import type { GoalAuditorResult } from "./shield.js";
+import { isQuotaError, parseQuotaError, scheduleQuotaRetry, cancelQuotaRetry } from "./quota-retry.js";
 import {
 	detectLoopStuck,
 	loopInterventionDirective,
@@ -271,6 +272,22 @@ const goalCompleteTool = defineTool({
 			// Infrastructure error (error && !disapproved) → never complete; let the
 			// agent/user retry. A disapprove WITH an error field is still a verdict.
 			if (auditResult.error && !auditResult.disapproved) {
+				// quota-retry (GLA faithful baseline): a 429/quota auditor error must NOT
+				// loop — the default "re-verify" return re-fires goal_complete → auditor →
+				// 429 → burn tokens. Pause + schedule a one-shot resume at Retry-After.
+				if (isQuotaError(auditResult.error)) {
+					const quota = parseQuotaError(auditResult.error);
+					cancelContinuationPending();
+					goalState.activeGoal = transitionGoal(completedGoal, "paused");
+					persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
+					updateStatus(ctx, goalState.activeGoal);
+					scheduleQuotaRetry(ctx, quota.retryAfterSec, auditResult.error, () => resumeGoal(piRef!, ctx));
+					return {
+						content: [{ type: "text", text: `Goal audit hit a quota/rate limit — paused, auto-retry in ${Math.max(1, Math.round(quota.retryAfterSec / 60))}m (${quota.fromUpstream ? "upstream hint" : "default"}). /goal resume retries now.` }],
+						details: { goal, summary } satisfies GoalCompleteDetails,
+						terminate: true, // stop the agent; the scheduled resume re-triggers
+					};
+				}
 				ctx.ui.notify(`Goal audit failed (infrastructure): ${auditResult.error}`, "warning");
 				return {
 					content: [{ type: "text", text: `Audit could not produce a verdict: ${auditResult.error}. Re-verify and call goal_complete again.` }],
@@ -661,6 +678,7 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 		clearContinuationTracking();
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
+		cancelQuotaRetry(); // quota-retry: fresh session, no stale scheduled resume
 		resetLengthContinue(); // length-continue: fresh session, fresh truncation streak
 		const restored = loadGoalStateFromSession(ctx.sessionManager);
 		goalState.activeGoal = restored.goal;
@@ -1004,6 +1022,7 @@ function pauseGoal(ctx: StatusContext) {
 }
 
 async function resumeGoal(pi: ExtensionAPI, ctx: StatusContext) {
+	cancelQuotaRetry(); // quota-retry: a manual resume cancels the scheduled auto-resume
 	if (!goalState.activeGoal) {
 		ctx.ui.notify("No active goal.", "info");
 		return;
