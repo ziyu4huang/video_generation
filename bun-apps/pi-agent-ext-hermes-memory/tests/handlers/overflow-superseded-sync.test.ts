@@ -281,3 +281,101 @@ describe("resurrect-stale guard: superseded never consolidated into recall", () 
     );
   });
 });
+
+// ─── Task 2 fix round 1: orphan-DB-row regression on the FLOOR path ───────────
+//
+// Locks the D4 destructive guarantee on the NON-happy overflow path: when the
+// provider purges a superseded entry from `.md` but the store is STILL over
+// limit (so it falls through to the vault-offload FLOOR, NOT the purge
+// early-return), the purged-superseded set must still reach the caller's
+// syncEvictions — else the `.md` row is gone but the DB row lingers as an orphan.
+//
+// Pre-fix: vaultOffloadAndAdd returned {evicted_entries,...} with NO
+// offloaded_superseded, so applyReviewOperations' syncEvictions(...,offloaded_superseded)
+// was a no-op → the superseded DB row survived → RED. Post-fix (A): the floor
+// attaches offloaded_superseded → the row is deleted → GREEN. The same field-
+// threading also covers the REJECT path (B's reject branch) and the recursion
+// accumulator (B) covers the consolidation-success path; this test pins the
+// floor because it is the simplest deterministic driver (no consolidator).
+describe("overflow floor: superseded DB row is not orphaned after vault-offload", () => {
+  let tmpDir: string;
+  let backend: SqliteBackend;
+  let repo: SqliteMemoryRepository;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "floor-orphan-"));
+    backend = new SqliteBackend(tmpDir);
+    repo = new SqliteMemoryRepository(backend);
+    // Same calibration window as the resurrect-stale guard (GUARD_LIMIT=217):
+    // 3 seeds fit (213 ≤ 217); the 4th add overflows (296 > 217); AFTER purging
+    // the superseded entry [A1,A2]+N is still 222 > 217 → falls through to the
+    // FLOOR. No consolidator is installed, so the floor (vaultOffloadAndAdd) is
+    // reached directly — the exact path 1 from the finding.
+    store = new MemoryStore({
+      memoryCharLimit: GUARD_LIMIT,
+      userCharLimit: GUARD_LIMIT,
+      projectCharLimit: GUARD_LIMIT,
+      memoryDir: tmpDir,
+      memoryOverflowStrategy: "auto-consolidate",
+    } as unknown as ConstructorParameters<typeof MemoryStore>[0]);
+    // NOTE: deliberately NO installMergingConsolidator — we want the floor, not
+    // the consolidation-success recursion (covered by the guard test above).
+  });
+
+  afterEach(async () => {
+    await backend.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("deletes the superseded DB row even when the floor (not early-return) handles overflow", async () => {
+    // Seed `.md` (store.add) AND the DB mirror (repo.addMemory) with two active
+    // keepers + one prior, then supersede the prior in the DB.
+    await store.add("memory", GUARD_ACTIVE_ONE);
+    await store.add("memory", GUARD_ACTIVE_TWO);
+    await store.add("memory", GUARD_SUPERSEDED);
+
+    const a1 = await repo.addMemory({ target: "memory", project: PROJECT, content: GUARD_ACTIVE_ONE, category: "insight", failureReason: null, toolState: null, correctedTo: null });
+    const a2 = await repo.addMemory({ target: "memory", project: PROJECT, content: GUARD_ACTIVE_TWO, category: "insight", failureReason: null, toolState: null, correctedTo: null });
+    const sup = await repo.addMemory({ target: "memory", project: PROJECT, content: GUARD_SUPERSEDED, category: "insight", failureReason: null, toolState: null, correctedTo: null });
+    await repo.supersedeMemory(sup.id, a1.id);
+    assert.ok((await repo.getMemories({ project: PROJECT, status: "active" })).some((m) => m.id === a2.id));
+
+    // Provider wired exactly as src/index.ts does (Task 3).
+    store.setSupersededContentProvider(async (t) => {
+      const list = await repo.getMemories({ target: t, project: PROJECT, status: "superseded" });
+      return list.map((m) => m.content);
+    });
+
+    // Drive the overflow add. After-purge is still over limit → the FLOOR runs.
+    const result = await applyReviewOperations(
+      store,
+      null,
+      [{ target: "memory", action: "add", content: GUARD_NEW }],
+      repo,
+      PROJECT,
+    );
+    assert.ok(result.appliedCount >= 1, "the overflow add should be applied via the floor, not skipped");
+    // (The floor-vs-early-return distinction is guaranteed by calibration:
+    // after purging the superseded entry, [A1,A2]+N is still 222 > 217, so the
+    // purge early-return cannot fire — the floor must run.)
+
+    // CORE (RED-when-unfixed): the superseded nonce's DB row must be DELETED,
+    // not orphaned. Pre-fix the floor returned no offloaded_superseded, so
+    // syncEvictions never ran for it and the row survived (getMemories with no
+    // status filter returns superseded rows) → this assertion would FAIL.
+    // Post-fix (A) the floor attaches offloaded_superseded → row deleted → PASS.
+    const remaining = await repo.getMemories({ project: PROJECT });
+    assert.ok(
+      !remaining.some((m) => m.content.includes(GUARD_NONCE)),
+      "superseded DB row must be deleted after the floor (no orphan), not merely hidden by status filter",
+    );
+
+    // The superseded entry is also gone from `.md` (the provider purge ran).
+    const mdEntries = store.getMemoryEntries();
+    assert.ok(
+      !mdEntries.some((e) => e.includes(GUARD_NONCE)),
+      "superseded entry must be purged from .md",
+    );
+  });
+});

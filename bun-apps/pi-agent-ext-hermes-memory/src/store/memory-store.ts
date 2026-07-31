@@ -473,6 +473,13 @@ export class MemoryStore {
     addedMessage = "Entry added.",
     onProgress?: (message: string) => void,
     meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null },
+    // Accumulator (D4 fix): superseded contents already purged from `.md` in a
+    // PARENT frame of the consolidation-success recursion. Threaded down so a
+    // child frame's floor/reject can surface the full set, and merged back up so
+    // a child that skips overflow (consolidation freed enough) still carries the
+    // parent's purge. Stateless (parameter, not instance state). Default `[]` at
+    // the `add` entry point (the `_add` call site passes no 8th arg).
+    _accruedOffloaded: string[] = [],
   ): Promise<MemoryResult> {
     content = content.trim();
     if (!content) return { success: false, error: "Content cannot be empty." };
@@ -519,13 +526,20 @@ export class MemoryStore {
       // D2: offload superseded entries first. They are semantic discard and must
       // never be resurrected into a consolidation merge. Provider is injected
       // (setSupersededContentProvider); absent in unit/test contexts.
-      let offloadedSuperseded: string[] = [];
+      // Seed with the parent frame's accrued purge set (D4 fix) so EVERY fall-
+      // through path below (floor/reject/recursion) can surface the full set to
+      // the caller's syncEvictions — preventing orphan DB rows.
+      let offloadedSuperseded: string[] = [..._accruedOffloaded];
       if (this.supersededContentProvider) {
         try {
           const supersededContents = await this.supersededContentProvider(target);
-          offloadedSuperseded = await this.purgeSupersededFromMarkdown(target, supersededContents);
+          const purgedThisFrame = await this.purgeSupersededFromMarkdown(target, supersededContents);
+          offloadedSuperseded = [...offloadedSuperseded, ...purgedThisFrame];
         } catch {
-          offloadedSuperseded = [];  // provider failure is non-fatal
+          // Non-fatal: provider/DB unreachable. Supersession is unknowable, so
+          // falling through to consolidation may merge superseded content
+          // (resurrection during a DB outage) — accepted as the lesser evil vs
+          // hard-failing the write. The accrued purge set is preserved.
         }
       }
       if (offloadedSuperseded.length > 0) {
@@ -555,17 +569,34 @@ export class MemoryStore {
             const result = await this.runConsolidator(target, signal, onProgress);
             if (result.consolidated) {
               await this.loadFromDisk();
-              return this._addInner(target, content, signal, _retriesLeft - 1, addedMessage, onProgress, meta);
+              // RECURSION (path 3, D4 fix): thread the full accrued+this-frame
+              // purge set down. A child that re-enters overflow seeds it and its
+              // floor/reject carries the full set; a child that fits after
+              // consolidation (skips overflow) returns no offloaded_superseded,
+              // so we re-attach this frame's set below to avoid losing the
+              // parent's purge to orphan DB rows.
+              const childResult = await this._addInner(target, content, signal, _retriesLeft - 1, addedMessage, onProgress, meta, offloadedSuperseded);
+              if (offloadedSuperseded.length && !childResult.offloaded_superseded) {
+                childResult.offloaded_superseded = offloadedSuperseded;
+              }
+              return childResult;
             }
           } catch { /* fall through to floor */ }
         }
-        // FLOOR: vault-offload as last resort (preserves the never-hard-reject
-        // guarantee for non-reject strategies). Active lineage may break here ONLY
-        // in the rare consolidation-failure case — accepted as destructive capacity
-        // compaction (consistent with D0).
-        return this.vaultOffloadAndAdd(target, this.entriesFor(target), encoded, content.length, limit, nearDupNote);
+        // FLOOR (path 1, D4 fix): vault-offload as last resort (preserves the
+        // never-hard-reject guarantee for non-reject strategies). Active lineage
+        // may break here ONLY in the rare consolidation-failure case — accepted
+        // as destructive capacity compaction (consistent with D0). Attach the
+        // purged-superseded set so the caller syncs those DB rows too.
+        const r = await this.vaultOffloadAndAdd(target, this.entriesFor(target), encoded, content.length, limit, nearDupNote);
+        if (offloadedSuperseded.length) r.offloaded_superseded = offloadedSuperseded;
+        return r;
       }
-      return this.memoryFullError(target, content.length);
+      // REJECT (path 2, D4 fix): attach the purged-superseded set so the caller's
+      // syncEvictions still deletes the orphan DB rows even on hard-reject.
+      const err = this.memoryFullError(target, content.length);
+      if (offloadedSuperseded.length) err.offloaded_superseded = offloadedSuperseded;
+      return err;
     }
 
     entries.push(encoded);
@@ -739,6 +770,13 @@ export class MemoryStore {
     return jsonlPath;
   }
 
+  /**
+   * @deprecated Retained for direct unit-test use only. Do NOT re-route
+   * `_addInner` overflow here — it `shift()`s active entries and would
+   * reintroduce the D3 lineage-break hazard. The `_addInner` consolidation path
+   * (runConsolidator + vaultOffloadAndAdd floor) supersedes it for all production
+   * overflow; only `vaultOffloadAndAdd` (preservationist) is used as the floor.
+   */
   private async fifoEvictAndAdd(
     target: "memory" | "user" | "failure",
     entries: string[],
