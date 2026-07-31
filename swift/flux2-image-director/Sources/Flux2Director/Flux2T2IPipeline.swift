@@ -201,15 +201,26 @@ public struct Flux2EditPipeline {
         // 4b. SDEdit init canvas (background-as-canvas). Encode the init image
         // into the same BN-normalized denoise space as the noise, then flow-mix:
         //   x_{t0} = (1 - sigma[startStep]) * init + sigma[startStep] * noise
-        // and denoise only the last `stepsToRun` steps (mirrors z-image's
-        // cleanLatent/denoiseStrength: pipeline.py:595-604). strength 0.3=light
-        // refine, 0.5=restyle keeping layout, 0.7=loose redraw. No init image
-        // (or strength >= 1.0) falls back to the v1 pure-noise path.
+        // and denoise only the last `stepsToRun` steps. Mirrors mflux's REAL
+        // Flux2 Klein img2img convention (mflux/models/common/config/config.py
+        // Config.init_time_step: `max(1, int(num_inference_steps * image_strength))`
+        // where `image_strength = 1.0 - denoise_strength`, the exact formula
+        // python/mlx-movie-director/app/flux2_t2i_pipeline.py's img2img path
+        // delegates to) — NOT z-image's own separate pipeline.py:595-604
+        // `round()`-based formula, which is for a different model/pipeline and
+        // was mistakenly used as this function's original reference, causing a
+        // real strength-scale mismatch vs the Python CLI at the same nominal
+        // --strength (confirmed via compare_styletransfer_e2e.py: steps=4,
+        // strength=0.55 ran 2/4 steps here vs mflux's 3/4 steps, a full extra
+        // step's worth of missing denoise in a 4-step schedule). strength
+        // 0.3=light refine, 0.5=restyle keeping layout, 0.7=loose redraw. No
+        // init image (or strength >= 1.0) falls back to the v1 pure-noise path.
         var startStep = 0
         var current: MLXArray
         if let bgPath = initImagePath, denoiseStrength < 1.0 {
-            let stepsToRun = max(1, Int((Float(steps) * denoiseStrength).rounded(.toNearestOrEven)))
-            startStep = max(0, steps - stepsToRun)
+            let imageStrength = 1.0 - denoiseStrength
+            startStep = max(1, Int(Float(steps) * imageStrength))
+            let stepsToRun = steps - startStep
             let sigmaMix = scheduler.sigmas[startStep]
             let initPacked = Flux2LatentCreator.encodeInitLatent(
                 imagePath: bgPath, vaeEncoder: vaeEncoder, bn: bn,

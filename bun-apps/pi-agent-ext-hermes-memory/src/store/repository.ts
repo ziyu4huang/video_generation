@@ -45,7 +45,7 @@ export interface MemoryUpdateResult { matched: number; updated: number; entries:
 export interface MemoryRemoveResult { matched: number; removed: number; }
 export interface MemoryRemoveOptions { target: MemoryTarget; project?: string | null; }
 export interface MemorySearchOptions { project?: string | null; target?: MemoryTarget; category?: import("../types.js").MemoryCategory; limit?: number; includeSuperseded?: boolean; }
-export interface MemoryListOptions { project?: string | null; target?: MemoryTarget; category?: import("../types.js").MemoryCategory; }
+export interface MemoryListOptions { project?: string | null; target?: MemoryTarget; category?: import("../types.js").MemoryCategory; /** When set, filter by the supersession status column. Omit = return all. */ status?: "active" | "superseded"; }
 export interface MemoryStats { total: number; byProject: { project: string | null; count: number }[]; byTarget: { target: string; count: number }[]; }
 
 export interface MemoryRepository {

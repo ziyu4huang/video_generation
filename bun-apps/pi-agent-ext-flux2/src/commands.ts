@@ -355,6 +355,22 @@ export const COMMANDS: Record<string, CommandSpec> = {
     },
   },
 
+  styletransfer: {
+    name: "styletransfer",
+    writesImage: true,
+    acceptsGlobals: true,
+    when: "Restyle a content image to a target visual language via Flux2 Klein SDEdit img2img (preset/prompt-driven, structure preserved).",
+    fields: {
+      input: { flag: "--input", type: "string", isPath: true, description: "Content image path (structure preserved)." },
+      stylePreset: { flag: "--style-preset", type: "string", description: "Named style preset: clean-professional | watercolor | oil-painting | anime | cinematic | 3d-render | line-art | low-poly." },
+      prompt: { flag: "--prompt", type: "string", description: "Free-form style description (amplifies or overrides the preset)." },
+      strength: { flag: "--strength", type: "number", description: "Style strength = img2img denoise (0-1]. Default 0.55." },
+      lora: { flag: "--lora", type: "string[]", isPathComponent: true, description: "LoRA name(s) under models/lora/ (stackable)." },
+      loraScale: { flag: "--lora-scale", type: "number[]", description: "Per-LoRA scale, one per --lora." },
+      ...GEN_FIELDS,
+    },
+  },
+
   upscale: {
     name: "upscale",
     writesImage: true,
@@ -391,6 +407,21 @@ export const COMMANDS: Record<string, CommandSpec> = {
       prompt: { flag: "--prompt", type: "string", description: 'Text prompt describing the object to segment (e.g. "woman\'s face").' },
       threshold: { flag: "--threshold", type: "number", description: "Detection score threshold (0-1). Default 0.3." },
       output: { flag: "--output", type: "string", isPath: true, description: "Output mask PNG path (white = object, feathered edges)." },
+    },
+  },
+
+  cutout: {
+    name: "cutout",
+    writesImage: true,
+    when: "Transparent-background cutout: SAM3 text segmentation → alpha-composited RGBA PNG. No regeneration — subject pixels preserved verbatim.",
+    fields: {
+      input: { flag: "--input", type: "string", isPath: true, description: "Source image path." },
+      subject: { flag: "--subject", type: "string", description: "SAM3 text prompt for the subject to cut out (e.g. 'woman', 'coffee cup'). Falls back to --prompt if omitted." },
+      prompt: { flag: "--prompt", type: "string", description: "Fallback subject text if --subject is omitted." },
+      samThreshold: { flag: "--sam-threshold", type: "number", description: "SAM3 detection score threshold (0-1). Default 0.3." },
+      trim: { flag: "--trim", type: "boolean", description: "Crop the result to the alpha bounding box + 5% margin." },
+      saveMask: { flag: "--save-mask", type: "boolean", description: "Also save the SAM3 mask + a green-tint overlay alongside the cutout, for inspection." },
+      output: { flag: "--output", type: "string", isPath: true, description: "Output RGBA PNG path." },
     },
   },
 
