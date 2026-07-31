@@ -2,9 +2,10 @@
  * Markdown memory sync command — /memory-sync-markdown imports existing
  * Markdown-backed memories into the active search store (SQLite by default,
  * SurrealDB when configured). The write path is backend-neutral: it goes
- * through MemoryRepository.syncMemoryEntry, so the same command works for
- * every backend. The active backend's label is surfaced in the completion
- * message via the getLabel dependency.
+ * through MemoryRepository.syncMemoryEntriesBatch (one batched round-trip /
+ * transaction for the whole dirty set), so the same command works for every
+ * backend. The active backend's label is surfaced in the completion message
+ * via the getLabel dependency.
  */
 
 import fs from 'node:fs';
@@ -83,26 +84,58 @@ async function importEntries(
   project: string | null = null,
   existingByContent: Map<string, MemoryEntry> = new Map(),
 ): Promise<void> {
+  // Collect the dirty (non-no-op) entries and sync them in ONE batched call
+  // (syncMemoryEntriesBatch) instead of one syncMemoryEntry per entry. The
+  // Surreal backend collapses N per-entry HTTP round-trips into ≤2; SQLite
+  // wraps the loop in one transaction. A batch failure falls back to per-entry
+  // sync so a single bad entry still imports the rest and records a warning.
+  const dirty: ParsedEntry[] = [];
   for (const rawEntry of entries) {
     counters.entriesScanned++;
     try {
       const parsed = parseMarkdownMemoryEntry(rawEntry, target, project);
-      // Skip entries whose stored merge is already a no-op — avoids the
-      // per-entry syncMemoryEntry round-trip (SELECT + merge/insert) that made
-      // a full re-sync an N+1 (~655 round-trips / ~7s on the real store).
+      // Skip entries whose stored merge is already a no-op — avoids a
+      // syncMemoryEntriesBatch round-trip that would change nothing.
       const existing = existingByContent.get(existingKey(parsed.target, parsed.project ?? null, parsed.category ?? null, parsed.content));
       if (existing && mergeIsNoOp(existing, parsed)) {
         counters.skipped++;
         continue;
       }
-      const result = await memoryRepo.syncMemoryEntry(parsed);
-      if (result.action === 'inserted') counters.imported++;
-      else counters.skipped++;
+      dirty.push(parsed);
     } catch (err) {
       counters.warnings.push(
         `${path.basename(project ?? 'global')}/${target}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+  }
+
+  if (dirty.length === 0) return;
+
+  try {
+    const results = await memoryRepo.syncMemoryEntriesBatch(dirty);
+    for (const result of results) {
+      if (result.action === 'inserted') counters.imported++;
+      else counters.skipped++;
+    }
+  } catch (batchErr) {
+    // Resilience: a batched transaction that fails (e.g. one malformed entry)
+    // must not lose the whole file. Fall back to per-entry sync so the good
+    // entries still import and the bad one records a precise warning.
+    for (const parsed of dirty) {
+      try {
+        const result = await memoryRepo.syncMemoryEntry(parsed);
+        if (result.action === 'inserted') counters.imported++;
+        else counters.skipped++;
+      } catch (err) {
+        counters.warnings.push(
+          `${path.basename(project ?? 'global')}/${target}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    // Surface the original batch failure once so it isn't silently swallowed.
+    counters.warnings.push(
+      `${path.basename(project ?? 'global')}/${target}: batch sync failed, fell back to per-entry — ${batchErr instanceof Error ? batchErr.message : String(batchErr)}`,
+    );
   }
 }
 

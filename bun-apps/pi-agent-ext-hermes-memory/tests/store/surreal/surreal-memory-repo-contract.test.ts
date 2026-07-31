@@ -21,6 +21,7 @@ if (up) {
     await backend.init();
     return {
       repo: new SurrealMemoryRepository(backend),
+      backendKind: "surreal" as const,
       close: async () => {
         try { await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch {}
         await backend.close();

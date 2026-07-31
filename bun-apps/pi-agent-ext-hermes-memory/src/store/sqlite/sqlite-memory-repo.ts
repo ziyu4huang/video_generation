@@ -252,88 +252,106 @@ export class SqliteMemoryRepository implements MemoryRepository {
     }));
   }
 
+  // Single delegates to the batch with one input — ONE sync implementation
+  // (the per-entry logic lives in `syncOneInTx`), so single + batch can never
+  // diverge. The batch wraps the loop in a SINGLE `runExclusive` transaction
+  // (BEGIN IMMEDIATE … COMMIT): N entries sync with one transaction, not N.
   async syncMemoryEntry(input: MemorySyncInput): Promise<MemorySyncResult> {
-    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
-      const content = input.content.trim();
-      const project = normalizeNullable(input.project);
-      const category = normalizeCategory(input.category);
-      const failureReason = normalizeNullable(input.failureReason);
-      const toolState = normalizeNullable(input.toolState);
-      const correctedTo = normalizeNullable(input.correctedTo);
-      const created = input.created?.trim() || today();
-      const lastReferenced = input.lastReferenced?.trim() || created;
+    const [result] = await this.syncMemoryEntriesBatch([input]);
+    return result;
+  }
 
-      const params: unknown[] = [];
-      const conditions = buildScopeConditions(params, input.target, project, category);
-      conditions.push("content = ?");
-      params.push(content);
+  async syncMemoryEntriesBatch(inputs: MemorySyncInput[]): Promise<MemorySyncResult[]> {
+    if (inputs.length === 0) return [];
+    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() =>
+      // ONE BEGIN IMMEDIATE transaction wraps the whole loop. The read-then-
+      // write dedup per entry stays serialized inside it, so a concurrent
+      // connection cannot pass the same SELECT and also INSERT. Behavior is
+      // identical to N sequential `syncMemoryEntry` calls; only the transaction
+      // count collapses from N to 1.
+      runExclusive(this.db, () => inputs.map((input) => this.syncOneInTx(input))),
+    ));
+  }
 
-      // Dedup identity is project + target + category + content. The read-then-
-      // write is wrapped in BEGIN IMMEDIATE so a concurrent connection cannot
-      // pass the same SELECT and also INSERT (see runExclusive).
-      return runExclusive(this.db, () => {
-        const existing = this.db.prepare(`
-          SELECT ${MEMORY_SELECT_COLUMNS}
-          FROM memories
-          WHERE ${conditions.join(" AND ")}
-          ORDER BY id ASC
-          LIMIT 1
-        `).get(...params) as MemoryRow | undefined;
+  /** Per-entry sync, ASSUMING the caller already holds a BEGIN IMMEDIATE
+   *  transaction (single + batch share this). Dedup identity is project +
+   *  target + category + content; the merge keeps earliest created, latest
+   *  lastReferenced, and preserves existing non-null optionals. */
+  private syncOneInTx(input: MemorySyncInput): MemorySyncResult {
+    const content = input.content.trim();
+    const project = normalizeNullable(input.project);
+    const category = normalizeCategory(input.category);
+    const failureReason = normalizeNullable(input.failureReason);
+    const toolState = normalizeNullable(input.toolState);
+    const correctedTo = normalizeNullable(input.correctedTo);
+    const created = input.created?.trim() || today();
+    const lastReferenced = input.lastReferenced?.trim() || created;
 
-        if (!existing) {
-          const entry: MemoryEntry = {
-            id: 0, // overwritten below
-            project,
-            target: input.target,
-            category,
-            content,
-            failureReason,
-            toolState,
-            correctedTo,
-            created,
-            lastReferenced,
-            mwSuccess: input.mwSuccess ?? 0,
-            mwFail: input.mwFail ?? 0,
-            status: "active",
-            supersedes: null,
-            supersededBy: null,
-            parentIds: [],
-          };
-          const result = this.db.prepare(`
-            INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(project, input.target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, input.mwSuccess ?? 0, input.mwFail ?? 0);
-          entry.id = Number(result.lastInsertRowid);
-          return { action: "inserted" as const, entry };
-        }
+    const params: unknown[] = [];
+    const conditions = buildScopeConditions(params, input.target, project, category);
+    conditions.push("content = ?");
+    params.push(content);
 
-        const updatedCreated = minDate(existing.created, created);
-        const updatedLastReferenced = maxDate(existing.last_referenced, lastReferenced);
-        const updatedCategory = (existing.category as MemoryCategory | null) ?? category;
-        const updatedFailureReason = existing.failure_reason ?? failureReason;
-        const updatedToolState = existing.tool_state ?? toolState;
-        const updatedCorrectedTo = existing.corrected_to ?? correctedTo;
+    const existing = this.db.prepare(`
+      SELECT ${MEMORY_SELECT_COLUMNS}
+      FROM memories
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY id ASC
+      LIMIT 1
+    `).get(...params) as MemoryRow | undefined;
 
-        this.db.prepare(`
-          UPDATE memories
-          SET category = ?, failure_reason = ?, tool_state = ?, corrected_to = ?, created = ?, last_referenced = ?
-          WHERE id = ?
-        `).run(
-          updatedCategory,
-          updatedFailureReason,
-          updatedToolState,
-          updatedCorrectedTo,
-          updatedCreated,
-          updatedLastReferenced,
-          existing.id,
-        );
+    if (!existing) {
+      const entry: MemoryEntry = {
+        id: 0, // overwritten below
+        project,
+        target: input.target,
+        category,
+        content,
+        failureReason,
+        toolState,
+        correctedTo,
+        created,
+        lastReferenced,
+        mwSuccess: input.mwSuccess ?? 0,
+        mwFail: input.mwFail ?? 0,
+        status: "active",
+        supersedes: null,
+        supersededBy: null,
+        parentIds: [],
+      };
+      const result = this.db.prepare(`
+        INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(project, input.target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, input.mwSuccess ?? 0, input.mwFail ?? 0);
+      entry.id = Number(result.lastInsertRowid);
+      return { action: "inserted" as const, entry };
+    }
 
-        return {
-          action: "existing" as const,
-          entry: this.getMemoryById(existing.id)!,
-        };
-      });
-    }));
+    const updatedCreated = minDate(existing.created, created);
+    const updatedLastReferenced = maxDate(existing.last_referenced, lastReferenced);
+    const updatedCategory = (existing.category as MemoryCategory | null) ?? category;
+    const updatedFailureReason = existing.failure_reason ?? failureReason;
+    const updatedToolState = existing.tool_state ?? toolState;
+    const updatedCorrectedTo = existing.corrected_to ?? correctedTo;
+
+    this.db.prepare(`
+      UPDATE memories
+      SET category = ?, failure_reason = ?, tool_state = ?, corrected_to = ?, created = ?, last_referenced = ?
+      WHERE id = ?
+    `).run(
+      updatedCategory,
+      updatedFailureReason,
+      updatedToolState,
+      updatedCorrectedTo,
+      updatedCreated,
+      updatedLastReferenced,
+      existing.id,
+    );
+
+    return {
+      action: "existing" as const,
+      entry: this.getMemoryById(existing.id)!,
+    };
   }
 
   async replaceSyncedMemories(

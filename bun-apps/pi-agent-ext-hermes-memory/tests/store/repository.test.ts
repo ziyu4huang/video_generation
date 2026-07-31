@@ -9,6 +9,7 @@ describe("repository seam (types)", () => {
     const repo: MemoryRepository = {
       async addMemory() { return {} as MemoryEntry; },
       async syncMemoryEntry(_input: MemorySyncInput) { return { action: "inserted", entry: {} as MemoryEntry }; },
+      async syncMemoryEntriesBatch(inputs: MemorySyncInput[]) { return inputs.map(() => ({ action: "inserted" as const, entry: {} as MemoryEntry })); },
       async replaceSyncedMemories() { return { matched: 0, updated: 0, entries: [] }; },
       async removeSyncedMemories() { return { matched: 0, removed: 0 }; },
       async removeExactSyncedMemories() { return { matched: 0, removed: 0 }; },

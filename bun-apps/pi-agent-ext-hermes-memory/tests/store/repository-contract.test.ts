@@ -17,7 +17,7 @@
  *     because a morphological variant of the indexed word is recalled.
  */
 import { describe, it, expect } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import type {
@@ -26,6 +26,7 @@ import type {
 } from "../../src/store/repository.js";
 import { syncMarkdownMemories } from "../../src/handlers/sync-markdown-memories.js";
 import { ENTRY_DELIMITER } from "../../src/constants.js";
+import { createPerfRecorder, type PerfRecord } from "../../src/perf.js";
 
 // ---------------------------------------------------------------------------
 // MemoryRepository contract
@@ -33,7 +34,7 @@ import { ENTRY_DELIMITER } from "../../src/constants.js";
 
 export function runMemoryRepositoryContract(
   name: string,
-  make: () => Promise<{ repo: MemoryRepository; close: () => Promise<void> }>,
+  make: () => Promise<{ repo: MemoryRepository; close: () => Promise<void>; backendKind?: "sqlite" | "surreal" }>,
 ): void {
   describe(`${name} MemoryRepository contract`, () => {
     it("add → get → search → remove lifecycle", async () => {
@@ -333,6 +334,73 @@ export function runMemoryRepositoryContract(
         await close();
       }
     });
+
+    // ── syncMemoryEntriesBatch: N entries sync in ≤2 round-trips (Surreal) /
+    //    one transaction (SQLite). Behavior parity on both backends +
+    //    idempotency, and a Surreal-only round-trip proof. ──
+    it("syncMemoryEntriesBatch: 50 entries persist, classify, and are idempotent; Surreal ≤2 round-trips", async () => {
+      const { repo, close, backendKind } = await make();
+      try {
+        const N = 50;
+        const inputs = Array.from({ length: N }, (_, i) => ({
+          content: `batch-entry-${i}-nonce-zxqwbu`,
+          target: "memory" as const,
+          // Vary project/category so every entry exercises graph-edge UPSERTs
+          // (the multi-round-trip cost the batch must collapse).
+          project: i % 2 === 0 ? "batch-proj-even" : "batch-proj-odd",
+          category: (i % 3 === 0 ? "insight" : i % 3 === 1 ? "convention" : null) as
+            | "insight" | "convention" | null,
+          created: "2026-05-01",
+          lastReferenced: "2026-05-02",
+        }));
+
+        // Wrap the FIRST batch in a perf recorder so the Surreal backend's
+        // HTTP round-trips (bumpRoundTrips via AsyncLocalStorage) are attributed
+        // to a named op we can read back. SQLite never bumps round-trips.
+        const log = join(mkdtempSync(join(tmpdir(), "hm-batch-perf-")), "perf.jsonl");
+        const perf = createPerfRecorder({ logPath: log, fullTrace: true, getBackend: () => backendKind ?? "unknown" });
+        const results = await perf.timed("test.batch", () => repo.syncMemoryEntriesBatch(inputs));
+
+        // Behavior — order preserved, all 50 inserted on a clean store.
+        expect(results.length).toBe(N);
+        expect(results.every((r) => r.action === "inserted")).toBe(true);
+        const ids = new Set(results.map((r) => r.entry.id));
+        expect(ids.size).toBe(N); // 50 distinct rows
+
+        // All 50 persisted + graph edges wired (project tag makes them
+        // graph-recallable from any one of them).
+        const persisted = await repo.getMemories({ target: "memory", project: "batch-proj-even" });
+        expect(persisted.length).toBe(N / 2);
+        const neighborProbe = await repo.searchMemories("batch-entry-0-nonce-zxqwbu", { project: "batch-proj-even" });
+        // Entry 2 shares the project tag with entry 0 → recalled as a neighbor.
+        expect(neighborProbe.some((m) => m.content === "batch-entry-2-nonce-zxqwbu")).toBe(true);
+
+        // Idempotency: a second identical batch is all "existing", no dupes.
+        const again = await repo.syncMemoryEntriesBatch(inputs);
+        expect(again.length).toBe(N);
+        expect(again.every((r) => r.action === "existing")).toBe(true);
+        expect(again.every((r, i) => r.entry.id === results[i].entry.id)).toBe(true); // same ids
+        const totalAfter = (await repo.getMemories({ target: "memory" })).filter(
+          (m) => m.content.includes("batch-entry-") && m.content.includes("nonce-zxqwbu"),
+        ).length;
+        expect(totalAfter).toBe(N); // still exactly 50, no duplicates
+
+        // Surreal-only round-trip proof: the whole 50-entry batch cost ≤2 HTTP
+        // round-trips (1 pre-fetch SELECT + 1 batched transaction). SQLite has
+        // no HTTP round-trip metric, so the assertion is skipped there.
+        if (backendKind === "surreal") {
+          const recs = readFileSync(log, "utf-8").trim().split("\n").filter(Boolean)
+            .map((l) => JSON.parse(l) as PerfRecord);
+          const batchRec = recs.find((r) => r.op === "test.batch");
+          expect(batchRec).toBeDefined();
+          expect(batchRec!.roundTrips).toBeLessThanOrEqual(2);
+          // sanity: it actually did real work (not zero — the batch sent ≥1 tx)
+          expect(batchRec!.roundTrips).toBeGreaterThanOrEqual(1);
+        }
+      } finally {
+        await close();
+      }
+    });
   });
 }
 
@@ -550,6 +618,7 @@ runMemoryRepositoryContract("SQLite", async () => {
   await backend.init();
   return {
     repo: new SqliteMemoryRepository(backend),
+    backendKind: "sqlite" as const,
     close: async () => {
       await backend.close();
       rmSync(dir, { recursive: true, force: true });
