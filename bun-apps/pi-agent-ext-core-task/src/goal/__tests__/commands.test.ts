@@ -171,6 +171,19 @@ describe("completeGoalArguments", () => {
 
 // ─── parseListCommand ─────────────────────────────────────────────────────────
 
+describe("/goal review parsing", () => {
+	test("review on -> { kind: review, enabled: true }", () => {
+		expect(parseCommand("review on")).toEqual({ kind: "review", enabled: true });
+	});
+	test("review off -> { kind: review, enabled: false }", () => {
+		expect(parseCommand("review off")).toEqual({ kind: "review", enabled: false });
+	});
+	test("review with no/bad arg -> usage error string", () => {
+		expect(typeof parseCommand("review")).toBe("string");
+		expect(typeof parseCommand("review maybe")).toBe("string");
+	});
+});
+
 describe("parseListCommand", () => {
 	test("bare /list → show", () => {
 		expect(parseListCommand("list")).toEqual({ kind: "show" });

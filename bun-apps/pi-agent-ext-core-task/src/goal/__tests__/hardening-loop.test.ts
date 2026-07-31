@@ -14,12 +14,16 @@
  *   2. After the 5th stuck iteration the goal is PAUSED (maxInterventions stop).
  */
 import { test, expect, describe } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { GoalOverlayLike } from "../overlay.js";
 import goal, { type StatusContext } from "../goal.js";
 import { goalState, __resetGoalState } from "../state.js";
 import { textFingerprint } from "../repetition.js";
 import { HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALL_MS } from "../backoff.js";
+import { LENGTH_CONTINUE_TEXT, resetLengthContinue } from "../length-continue.js";
 
 // ─── Mock pi/ctx/overlay (mirrors goal.test.ts) ──────────────────────────────
 
@@ -107,6 +111,16 @@ async function fireAgentEnd(mock: ReturnType<typeof createMockPi>, ctx: StatusCo
 					{ role: "assistant", stopReason: "stop", content: [{ type: "text", text: assistantText }] },
 				],
 			},
+			ctx,
+		);
+	}
+}
+
+/** Fire an agent_end carrying a final assistant truncated at the output cap. */
+async function fireAgentEndLength(mock: ReturnType<typeof createMockPi>, ctx: StatusContext, text = "x") {
+	for (const h of mock.events.get("agent_end") ?? []) {
+		await h(
+			{ messages: [{ role: "assistant", stopReason: "length", content: [{ type: "text", text }] }] },
 			ctx,
 		);
 	}
@@ -355,6 +369,290 @@ describe("heartbeat self-watchdog + nudge cap (Task 10)", () => {
 			expect(goalState.activeGoal?.status).toBe("active");
 		} finally {
 			await shutdown(mock, ctx);
+		}
+	});
+});
+
+
+describe("agent_end length-continue wiring", () => {
+	test("a truncated turn re-triggers with LENGTH_CONTINUE_TEXT and skips bookkeeping", async () => {
+		const { mock, ctx, notifications } = await bootstrap();
+		try {
+			// bootstrap() seeds the goal prompt (msg #1 via startGoal); drop it so the
+			// toEqual below asserts ONLY the length-continue send (mirrors test 6).
+			mock.sentUserMessages.length = 0;
+			const before = goalState.activeGoal?.iteration ?? 0;
+			await fireAgentEndLength(mock, ctx);
+			// fired the continue message exactly once, with followUp delivery
+			expect(mock.sentUserMessages).toEqual([{ text: LENGTH_CONTINUE_TEXT, options: { deliverAs: "followUp" } }]);
+			// fire-path notify present (consecutive/MAX)
+			expect(notifications.some((n) => /auto-continuing \(1\/3\)/.test(n.message))).toBe(true);
+			// ledger entry recorded
+			expect(mock.entries.some((e) => e.customType === "length_continue_sent" && (e.data as { consecutive: number }).consecutive === 1)).toBe(true);
+			// bookkeeping skipped: incrementGoal did NOT run (iteration unchanged)
+			expect(goalState.activeGoal?.iteration).toBe(before);
+		} finally {
+			await shutdown(mock, ctx);
+		}
+	});
+
+	test("works with NO active goal (plain session truncates too)", async () => {
+		__resetGoalState();
+		resetLengthContinue();
+		const mock = createMockPi();
+		goal(mock.pi, createMockOverlay().impl);
+		const { ctx } = createMockCtx();
+		await (mock.events.get("session_start")?.[0] as ((e: unknown, c: unknown) => void) | undefined)?.({}, ctx);
+		try {
+			expect(goalState.activeGoal).toBeUndefined();
+			await fireAgentEndLength(mock, ctx);
+			expect(mock.sentUserMessages).toEqual([{ text: LENGTH_CONTINUE_TEXT, options: { deliverAs: "followUp" } }]);
+		} finally {
+			for (const h of mock.events.get("session_shutdown") ?? []) await (h as (e: unknown, c: unknown) => void)({}, ctx);
+			__resetGoalState();
+		}
+	});
+
+	test("a non-length turn does NOT send the continue message", async () => {
+		const { mock, ctx } = await bootstrap();
+		try {
+			await fireAgentEnd(mock, ctx, "normal turn text"); // stopReason "stop"
+			expect(mock.sentUserMessages.some((m) => m.text === LENGTH_CONTINUE_TEXT)).toBe(false);
+		} finally {
+			await shutdown(mock, ctx);
+		}
+	});
+
+	test("pending messages suppress the send (a queued message triggers a turn anyway)", async () => {
+		__resetGoalState();
+		resetLengthContinue();
+		const mock = createMockPi();
+		goal(mock.pi, createMockOverlay().impl);
+		const { ctx } = createMockCtx({ hasPendingMessages: () => true });
+		await (mock.events.get("session_start")?.[0] as ((e: unknown, c: unknown) => void) | undefined)?.({}, ctx);
+		try {
+			await fireAgentEndLength(mock, ctx);
+			expect(mock.sentUserMessages).toEqual([]);
+		} finally {
+			for (const h of mock.events.get("session_shutdown") ?? []) await (h as (e: unknown, c: unknown) => void)({}, ctx);
+			__resetGoalState();
+		}
+	});
+
+	test("after MAX+1 consecutive truncations it gives up once and stops firing", async () => {
+		const { mock, ctx, notifications } = await bootstrap();
+		try {
+			await fireAgentEndLength(mock, ctx); // 1 fire
+			await fireAgentEndLength(mock, ctx); // 2 fire
+			await fireAgentEndLength(mock, ctx); // 3 fire
+			mock.sentUserMessages.length = 0;
+			await fireAgentEndLength(mock, ctx); // 4 > MAX → giveUp, no fire
+			expect(mock.sentUserMessages).toEqual([]);
+			expect(notifications.some((n) => /stepping aside from auto-continue/.test(n.message))).toBe(true);
+			await fireAgentEndLength(mock, ctx); // 5 — still suppressed, no second give-up
+			expect(notifications.filter((n) => /stepping aside from auto-continue/.test(n.message)).length).toBe(1);
+		} finally {
+			await shutdown(mock, ctx);
+		}
+	});
+
+	test("session_start resets the singleton streak (a later truncate fires again)", async () => {
+		const { mock, ctx } = await bootstrap();
+		try {
+			await fireAgentEndLength(mock, ctx); // streak 1
+			await (mock.events.get("session_start")?.[0] as ((e: unknown, c: unknown) => void) | undefined)?.({}, ctx);
+			mock.sentUserMessages.length = 0;
+			await fireAgentEndLength(mock, ctx); // streak reset → fires again
+			expect(mock.sentUserMessages).toEqual([{ text: LENGTH_CONTINUE_TEXT, options: { deliverAs: "followUp" } }]);
+		} finally {
+			await shutdown(mock, ctx);
+		}
+	});
+});
+
+// ─── Task 5: Reviewer wiring on clean complete ───────────────────────────────
+// Asserts the WIRING of runReviewer into goal_complete's clean-complete terminal
+// path (the pure cascade is unit-covered in reviewer.test.ts). The harness
+// reuses createMockPi/createMockOverlay but links ctx.sessionManager to the
+// store the mock pi's appendEntry writes to, so appendReviewerEntry (api write)
+// is visible to loadReviewerEntries (sessionManager read) — the refire-window +
+// day-cap gates depend on that round-trip. The default createMockPi.appendEntry
+// omits the `type:"custom"` discriminator the loaders filter on, so it is
+// overridden here to push typed entries. ctx.ui.confirm is faked to record every
+// call (title+message) and return a controllable boolean — that is the Confirm
+// loop's only seam. cwd is a per-test tmpdir so writeReviewReport never touches
+// the repo.
+
+interface ReviewerSession {
+	mock: ReturnType<typeof createMockPi>;
+	ctx: StatusContext;
+	confirms: Array<{ title: string; message: string }>;
+	notifies: Array<{ message: string; level?: string }>;
+	cleanup: () => void;
+}
+
+async function setupReviewerSession(opts: { confirmReturns?: boolean; confirmThrows?: boolean } = {}): Promise<ReviewerSession> {
+	__resetGoalState();
+	const mock = createMockPi();
+	const overlay = createMockOverlay();
+	// Shared store: appendEntry writes {type:"custom",customType,data} (the shape
+	// loadReviewerEntries/loadGoalStateFromSession filter for), sessionManager
+	// reads it back. This closes the api↔sessionManager round-trip the default
+	// createMockPi leaves broken (its appendEntry omits `type`).
+	const store: Array<{ type: string; customType?: string; data: unknown }> = [];
+	(mock.pi as unknown as { appendEntry: (ct: string, d: unknown) => void }).appendEntry = (customType, data) => {
+		store.push({ type: "custom", customType, data });
+	};
+	goal(mock.pi, overlay.impl);
+
+	const confirms: Array<{ title: string; message: string }> = [];
+	const notifies: Array<{ message: string; level?: string }> = [];
+	const cwd = mkdtempSync(join(tmpdir(), "reviewer-wire-"));
+	const ctx = {
+		cwd,
+		ui: {
+			notify: (message: string, level?: string) => { notifies.push({ message, level }); },
+			confirm: opts.confirmThrows
+				? async (_title: string, _message: string) => { throw new Error("confirm exploded"); }
+				: async (title: string, message: string) => {
+					confirms.push({ title, message });
+					return opts.confirmReturns ?? true;
+				},
+		},
+		isIdle: () => true,
+		hasPendingMessages: () => false,
+		abort: () => undefined,
+		sessionManager: { getBranch: () => store, getEntries: () => store },
+	} as unknown as StatusContext;
+
+	const sessionStart = mock.events.get("session_start")?.[0];
+	await (sessionStart as ((e: unknown, c: unknown) => void) | undefined)?.({}, ctx);
+
+	return { mock, ctx, confirms, notifies, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
+}
+
+/** Drive a goal_complete call. Ensures an active goal first (a clean/declined
+ * complete clears the active goal, so the refire-window test's 2nd call must
+ * re-start a bare one or the tool rejects with "no active goal"). */
+async function driveComplete(s: ReviewerSession, summary: string) {
+	if (!goalState.activeGoal) {
+		const goalCmd = s.mock.commands.get("goal");
+		await goalCmd?.handler("test objective for reviewer wiring", s.ctx);
+	}
+	const tool = s.mock.tools[0] as {
+		execute: (...args: unknown[]) => Promise<{ content: Array<{ type: string; text: string }>; terminate?: boolean }>;
+	};
+	return tool.execute("reviewer-call", { summary }, new AbortController().signal, () => undefined, s.ctx);
+}
+
+/** Pause the active goal via /goal pause — a pause END never reaches the
+ * clean-complete terminal path, so the Reviewer must not fire. */
+async function driveToPause(s: ReviewerSession) {
+	if (!goalState.activeGoal) {
+		const goalCmd = s.mock.commands.get("goal");
+		await goalCmd?.handler("test objective for reviewer wiring", s.ctx);
+	}
+	const goalCmd = s.mock.commands.get("goal");
+	await goalCmd?.handler("pause", s.ctx);
+}
+
+describe("reviewer wiring on clean complete (Task 5)", () => {
+	test("bug-shaped summary enqueues a /list item, no Confirm", async () => {
+		const s = await setupReviewerSession({ confirmReturns: true });
+		try {
+			await driveComplete(s, "Done. - TODO: still leaks on big inputs");
+			const texts = goalState.list.map((i) => i.text);
+			expect(texts.some((t) => t.includes("TODO: still leaks on big inputs"))).toBe(true);
+			expect(s.confirms).toHaveLength(0); // bug -> convert-findings-to-list, no Confirm
+		} finally {
+			s.cleanup();
+			__resetGoalState();
+		}
+	});
+
+	test("architectural summary records a proposal; accept -> createGoal + terminate:false", async () => {
+		const s = await setupReviewerSession({ confirmReturns: true });
+		try {
+			const res = await driveComplete(s, "Done. - we should rewrite the auth layer");
+			expect(s.confirms.length).toBeGreaterThanOrEqual(1);
+			expect(goalState.activeGoal?.text).toContain("rewrite the auth layer");
+			expect(res.terminate).toBe(false);
+		} finally {
+			s.cleanup();
+			__resetGoalState();
+		}
+	});
+
+	test("architectural summary declined -> terminate:true, goal cleared", async () => {
+		const s = await setupReviewerSession({ confirmReturns: false });
+		try {
+			const res = await driveComplete(s, "Done. - we should rewrite the auth layer");
+			expect(res.terminate).toBe(true);
+			expect(goalState.activeGoal).toBeUndefined();
+		} finally {
+			s.cleanup();
+			__resetGoalState();
+		}
+	});
+
+	test("clean summary -> regression-scan proposal Confirm", async () => {
+		const s = await setupReviewerSession({ confirmReturns: true });
+		try {
+			await driveComplete(s, "Everything is done and verified. Nothing left.");
+			expect(goalState.activeGoal?.text).toContain("regression scan");
+		} finally {
+			s.cleanup();
+			__resetGoalState();
+		}
+	});
+
+	test("paused goal never fires the reviewer", async () => {
+		const s = await setupReviewerSession({ confirmReturns: true });
+		try {
+			await driveToPause(s);
+			expect(goalState.activeGoal?.status).toBe("paused");
+			expect(s.confirms).toHaveLength(0);
+		} finally {
+			s.cleanup();
+			__resetGoalState();
+		}
+	});
+
+	test("refire window: a second clean complete within 5 min is suppressed", async () => {
+		const s = await setupReviewerSession({ confirmReturns: true });
+		try {
+			await driveComplete(s, "Done. - TODO: a"); // fires + records reviewer_fired
+			const firstConfirms = s.confirms.length;
+			await driveComplete(s, "Done. - TODO: b"); // would normally re-fire
+			expect(s.confirms.length).toBe(firstConfirms); // suppressed
+		} finally {
+			s.cleanup();
+			__resetGoalState();
+		}
+	});
+
+	test("bare /goal with clean summary + decline -> byte-identical completion (regression)", async () => {
+		const s = await setupReviewerSession({ confirmReturns: false });
+		try {
+			const res = await driveComplete(s, "All done, verified, nothing left.");
+			expect(res.terminate).toBe(true);
+			// The user-facing completion text is unchanged from the pre-Reviewer path.
+			expect(res.content[0]!.text).toContain("Goal complete");
+		} finally {
+			s.cleanup();
+			__resetGoalState();
+		}
+	});
+
+	test("a throwing dep does not block completion (try/catch)", async () => {
+		const s = await setupReviewerSession({ confirmThrows: true });
+		try {
+			const res = await driveComplete(s, "Done. - we should rewrite everything");
+			expect(res.terminate).toBe(true); // still completes
+			expect(s.notifies.some((n) => /Reviewer skipped/i.test(n.message))).toBe(true);
+		} finally {
+			s.cleanup();
+			__resetGoalState();
 		}
 	});
 });

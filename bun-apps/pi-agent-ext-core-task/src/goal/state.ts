@@ -61,11 +61,13 @@ export function createGoal(
 	tokenBudget: number | undefined,
 	baselineTokens: number,
 	audit?: GoalAuditOptions,
+	origin: "list" | "bare" = "bare",
 ): ActiveGoal {
 	const now = Date.now();
 	return {
 		id: randomUUID(),
 		text,
+		origin,
 		status: "active",
 		startedAt: now,
 		updatedAt: now,
@@ -180,6 +182,9 @@ export interface GoalRuntimeState {
 	// list shows "advancing" rather than "reset". Both reset on __resetGoalState.
 	list: GoalListItem[];
 	headAdvances: number;
+	// Reviewer wiring (Task 3): global enable toggle for the Reviewer. Driven by
+	// `/goal review on|off` (Task 6). Default true (Reviewer active by default).
+	reviewerEnabled: boolean;
 }
 
 export const goalState: GoalRuntimeState = {
@@ -204,6 +209,7 @@ export const goalState: GoalRuntimeState = {
 	nudgeCount: 0,
 	list: [],
 	headAdvances: 0,
+	reviewerEnabled: true,
 };
 
 /** Test seam: reset all runtime state to initial values (mirrors todo/state/store.ts __resetState). */
@@ -229,4 +235,5 @@ export function __resetGoalState(): void {
 	goalState.nudgeCount = 0;
 	goalState.list = [];
 	goalState.headAdvances = 0;
+	goalState.reviewerEnabled = true;
 }

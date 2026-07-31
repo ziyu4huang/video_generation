@@ -230,3 +230,21 @@ Translate GLA's tracker tests directly:
   beyond the top-of-goal.ts-agent_end coverage (e.g., loop-metric accounting for
   a truncated iteration).
 - quota-retry as the next GLA gap (the other high-value small clean port).
+
+### 12.1 Post-implementation follow-up (from the SDD final review, 2026-07-31)
+
+The baseline shipped merge-ready (2 commits, 547/0, tsc clean per-package +
+cross-package). One non-blocking item the final review surfaced:
+
+- **(optional hardening, NOT merge-blocking) Heartbeat race on the giveUp terminal path**
+  — the early `return` in `goal.ts`'s `agent_end` skips the `lastActivityAt`
+  liveness stamp for every truncated turn. On the *giveUp* terminal case (4th+
+  truncation, when no continue message is sent), a heartbeat tick landing in an
+  idle window could fire one spurious `sendContinuationPrompt`. It is
+  **self-limiting** (the spurious prompt sets `continuationPending`, which
+  suppresses further refires until a normal turn resets it) and requires a
+  toolless truncation chain spanning >120s (tool-bearing truncated turns still
+  stamp via `tool_execution_end`), bounded by `LENGTH_CONTINUE_MAX=3`. Optional
+  fix: stamp `goalState.lastActivityAt = Date.now()` on the giveUp branch (or
+  inside `sendLengthContinue`) to fully close the race. Consistent with the
+  faithful GLA baseline (GLA's own handler structure has the same shape).

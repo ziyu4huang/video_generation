@@ -33,7 +33,8 @@ import {
 	transitionGoal,
 	type GoalCompleteDetails,
 } from "./state.js";
-import { clearPersistedGoal, loadGoalStateFromSession, persistGoal } from "./persistence.js";
+import { appendReviewerEntry, clearPersistedGoal, loadGoalStateFromSession, loadReviewerEntries, persistGoal, persistGoalState } from "./persistence.js";
+import { runReviewer, resolveReviewerConfig } from "./reviewer.js";
 import { runLoopTick, isLoopActive, refireLoopContinuation } from "../loop/loop.js";
 import {
 	findFinalAssistantMessage,
@@ -75,6 +76,7 @@ import {
 	goalSummary,
 	CONTINUATION_MARKER_PREFIX,
 } from "./prompts.js";
+import { LENGTH_CONTINUE_MAX, LENGTH_CONTINUE_TEXT, tickLengthContinue, resetLengthContinue } from "./length-continue.js";
 
 // Re-export formatters + types for tests and downstream consumers.
 export { formatStatus, formatGoalMetric, formatDuration, formatTokenCount, type ActiveGoal } from "./format.js";
@@ -340,7 +342,7 @@ const goalCompleteTool = defineTool({
 		const { item, rest } = promoteNext(goalState.list);
 		if (item) {
 			goalState.list = rest;
-			goalState.activeGoal = createGoal(item.text, item.tokenBudget, currentTokenTotal(ctx), item.audit);
+			goalState.activeGoal = createGoal(item.text, item.tokenBudget, currentTokenTotal(ctx), item.audit, "list");
 			goalState.headAdvances += 1;
 			persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 			updateStatus(ctx, goalState.activeGoal);
@@ -352,7 +354,118 @@ const goalCompleteTool = defineTool({
 			};
 		}
 
-		clearActiveGoal(ctx);
+		// ─── Reviewer (Task 5): post-completion cascade at clean complete ────────
+		// Fires ONLY on this clean-complete terminal path (the pause / abort /
+		// infra-error paths all early-returned above). runReviewer is PURE + SYNC:
+		// every side effect is injected. `proposeGoal` only RECORDS onto a local
+		// array (returning true); the actual `await ctx.ui.confirm(...)` Confirm
+		// loop runs AFTER runReviewer returns, here in the async execute handler.
+		// First accepted proposal wins → createGoal + terminate:false so the agent
+		// continues in-turn on the follow-up. Nothing accepted → fall through to
+		// the normal clearActiveGoal + terminate:true path (preserving any
+		// bug/refactor /list items the reviewer enqueued as the new queue tail).
+		// A Reviewer failure MUST NEVER block completion — the whole block is
+		// try/catch'd and degrades to the plain complete on any error.
+		try {
+			const recordedProposals: Array<{ objective: string; reason: string }> = [];
+			let reviewerEnqueued = 0;
+			const reviewerNowMs = Date.now();
+			const reviewerConfig = resolveReviewerConfig({ enabled: goalState.reviewerEnabled });
+			const reviewerSource = {
+				kind: (completedGoal.origin === "list" ? "list" : "goal") as "goal" | "list",
+				goalId: completedGoal.id,
+				objective: completedGoal.text,
+				terminal: "goal-complete",
+			};
+			// Finding sources (no new capture): the completion summary is the highest-
+			// signal source; disapproved audit entries are the second. completedGoal.
+			//text is passed as source.objective for restatement dedup.
+			const reviewerSources = [
+				{ name: "completion-summary", text: summary },
+				{
+					name: "audit-disapproved",
+					text: (completedGoal.auditHistory ?? [])
+						.filter((r) => r.disapproved)
+						.map((r) => r.output)
+						.join("\n\n"),
+				},
+			];
+			// Read the ledger fresh each fire so the refire-window + day-cap gates see
+			// entries recorded by earlier fires in this same session.
+			const reviewerLedgerEntries = loadReviewerEntries(ctx.sessionManager);
+			// goalState.activeGoal is the just-completed goal (transitionGoal to
+			// "complete" ran above) — capture it for the enqueue dep's persist so TS
+			// can narrow away undefined without a non-null assertion at each call.
+			const reviewerActiveGoal = goalState.activeGoal;
+			runReviewer(reviewerConfig, reviewerSource, {
+				cwd: ctx.cwd,
+				nowMs: reviewerNowMs,
+				ledgerEntries: reviewerLedgerEntries,
+				sources: reviewerSources,
+				enqueueListItems: (objs: string[]) => {
+					goalState.list = addListItems(goalState.list, objs);
+					reviewerEnqueued += objs.length;
+					persistGoal(goalState.extensionApi as ExtensionAPI, reviewerActiveGoal!);
+				},
+				proposeGoal: (objective: string, reason: string) => {
+					// SYNC + record-only: the Confirm loop runs after runReviewer returns.
+					recordedProposals.push({ objective, reason });
+					return true;
+				},
+				notify: (m: string, lvl: "info" | "warning") => ctx.ui.notify(m, lvl),
+				ledger: (type: string, value: Record<string, unknown>) => {
+					// Fresh record literal each call (Task 4 finding #5:
+					// appendReviewerEntry does NOT clone — never alias a mutable object).
+					appendReviewerEntry(goalState.extensionApi as ExtensionAPI, {
+						type: type as "reviewer_fired" | "reviewer_suppressed",
+						at: new Date(reviewerNowMs).toISOString(),
+						goalId: completedGoal.id,
+						...value,
+					});
+				},
+			});
+
+			// Confirm loop — async, AFTER runReviewer returns. First accepted wins.
+			let acceptedObjective: string | undefined;
+			for (const p of recordedProposals) {
+				const ok = await ctx.ui.confirm(
+					"Reviewer proposal",
+					`${p.reason}\n\nProposed follow-up goal:\n${p.objective}`,
+				);
+				if (ok) {
+					acceptedObjective = p.objective;
+					break;
+				}
+			}
+			if (acceptedObjective) {
+				goalState.activeGoal = createGoal(
+					acceptedObjective,
+					undefined,
+					currentTokenTotal(ctx),
+					undefined,
+				); // origin defaults "bare" — a Reviewer-proposed goal is not a list item
+				persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
+				updateStatus(ctx, goalState.activeGoal);
+				ctx.ui.notify(`Goal complete. Reviewer follow-up now active: ${acceptedObjective}`, "info");
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Goal complete: ${summary}. Reviewer proposed a follow-up goal, now active: ${acceptedObjective}`,
+						},
+					],
+					details: { goal, summary } satisfies GoalCompleteDetails,
+					terminate: false, // continue in-turn on the follow-up goal
+				};
+			}
+			// Nothing accepted (or no proposals) → fall through. Preserve any
+			// reviewer-enqueued /list items: they are the legitimate new queue tail.
+			clearActiveGoal(ctx, { preserveList: reviewerEnqueued > 0 });
+		} catch (reviewerError) {
+			ctx.ui.notify(`Reviewer skipped (non-fatal): ${String(reviewerError)}`, "warning");
+			clearActiveGoal(ctx);
+		}
+
 		showCompletionStatus(ctx, goal);
 		ctx.ui.notify(`Goal complete: ${goal}`, "info");
 
@@ -400,6 +513,10 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 					return;
 				case "audit":
 					toggleGoalAudit(ctx);
+					return;
+				case "review":
+					goalState.reviewerEnabled = result.enabled === true;
+					ctx.ui.notify(`Reviewer ${result.enabled ? "enabled" : "disabled"} for this session.`, "info");
 					return;
 				case "start": {
 					// A bare `/goal "x"` is a fresh single-goal intent — the queue must
@@ -508,6 +625,7 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 						promoted.tokenBudget,
 						currentTokenTotal(ctx),
 						promoted.audit,
+						"list",
 					);
 					goalState.headAdvances += 1;
 					persistGoal(api, goalState.activeGoal);
@@ -561,6 +679,7 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
 		cancelQuotaRetry(); // quota-retry: fresh session, no stale scheduled resume
+		resetLengthContinue(); // length-continue: fresh session, fresh truncation streak
 		const restored = loadGoalStateFromSession(ctx.sessionManager);
 		goalState.activeGoal = restored.goal;
 		goalState.list = restored.list ?? [];
@@ -663,19 +782,39 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 	});
 
 	pi.on("agent_end", async (event: { messages?: unknown[] }, ctx: StatusContext) => {
+		// length-continue (folded-in, GLA faithful baseline): a truncated turn is
+		// NOT a completed turn — re-trigger with split-smaller guidance and skip
+		// ALL turn bookkeeping (no liveness stamp, no incrementGoal, no usage, no
+		// nudge/repetition, no continuation). Placed before the loop dispatch and
+		// the no-goal bail so it also covers /loop and plain (no-goal) sessions.
+		const finalAssistant = findFinalAssistantMessage(event.messages ?? []);
+		const lc = tickLengthContinue(finalAssistant?.stopReason === "length");
+		if (lc.giveUpNow) {
+			ctx.ui.notify(
+				`Response hit the output-token cap ${LENGTH_CONTINUE_MAX}× in a row — stepping aside from auto-continue. Ask the model to split the work into smaller pieces.`,
+				"warning",
+			);
+		}
+		if (finalAssistant?.stopReason === "length") {
+			if (lc.fire && !hasPendingMessages(ctx)) sendLengthContinue(pi, ctx, lc.consecutive);
+			return;
+		}
+
 		// Loop 3 dispatch: a live loop drives the continuation, not a goal.
 		if (isLoopActive()) {
 			await runLoopTick(pi, ctx as StatusContext, event);
 			return;
 		}
 		if (!goalState.activeGoal || goalState.activeGoal.status !== "active") return;
+		// (the prior `const finalAssistant = findFinalAssistantMessage(...)` line
+		//  here is REMOVED — the hoisted binding above is reused by the aborted/
+		//  error check below.)
 		// Task 10: a completed turn is a liveness signal — stamp it BEFORE any
 		// early return so the heartbeat stall clock resets on every real turn.
 		goalState.lastActivityAt = Date.now();
 
 		const goalId = goalState.activeGoal.id;
 		const hadPendingContinuation = goalState.continuationPending?.goalId === goalId;
-		const finalAssistant = findFinalAssistantMessage(event.messages ?? []);
 
 		if (!hadPendingContinuation) goalState.activeGoal = incrementGoal(goalState.activeGoal);
 		updateGoalUsage(goalState.activeGoal, ctx);
@@ -970,7 +1109,20 @@ function showGoal(ctx: StatusContext) {
 	updateGoalUsage(goalState.activeGoal, ctx);
 	persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 	updateStatus(ctx, goalState.activeGoal);
-	ctx.ui.notify(goalSummary(goalState.activeGoal), "info");
+
+	// Read the last reviewer entry (if any) to surface what the Reviewer last did.
+	const reviewerEntries = loadReviewerEntries(ctx.sessionManager);
+	const lastEntry = reviewerEntries.length > 0 ? reviewerEntries[reviewerEntries.length - 1] : undefined;
+	const lastReview =
+		lastEntry && lastEntry.type === "reviewer_fired"
+			? {
+					cascadeStep: lastEntry.cascadeStep,
+					enqueued: lastEntry.enqueued,
+					proposed: lastEntry.proposed,
+			  }
+			: undefined;
+
+	ctx.ui.notify(goalSummary(goalState.activeGoal, lastReview), "info");
 }
 
 function pauseGoalAfterAgentEnd(
@@ -1117,6 +1269,22 @@ async function sendObjectiveUpdatedPrompt(pi: ExtensionAPI, ctx: StatusContext, 
 
 async function sendResumePrompt(pi: ExtensionAPI, ctx: StatusContext, goal: ActiveGoal) {
 	return sendPrompt(pi, ctx, buildResumePrompt(goal));
+}
+
+/**
+ * length-continue (GLA faithful baseline): re-trigger the agent after a
+ * truncated response. The text is constant (LENGTH_CONTINUE_TEXT); `consecutive`
+ * drives the fire-path notify + the ledger. Wrapped in try/catch so a stale API
+ * handle never crashes the agent_end handler (GLA's goStaleTerminal intent).
+ */
+function sendLengthContinue(pi: ExtensionAPI, ctx: StatusContext, consecutive: number): void {
+	try {
+		pi.sendUserMessage(LENGTH_CONTINUE_TEXT, { deliverAs: "followUp" });
+		pi.appendEntry?.("length_continue_sent", { consecutive });
+		ctx.ui.notify(`Response hit the output-token cap — auto-continuing (${consecutive}/${LENGTH_CONTINUE_MAX})`, "warning");
+	} catch (err) {
+		pi.appendEntry?.("length_continue_send_failed", { consecutive, error: err instanceof Error ? err.message : String(err) });
+	}
 }
 
 async function sendContinuationPrompt(pi: ExtensionAPI, ctx: StatusContext, goal: ActiveGoal) {
@@ -1321,18 +1489,25 @@ function currentTokenTotal(ctx: StatusContext): number {
 // (deps injected: api / sessionManager passed as params; no module-state reads;
 // session-store-only since Task 11 retired the legacy state file) — imported above.
 
-function clearActiveGoal(_ctx: StatusContext) {
+function clearActiveGoal(_ctx: StatusContext, opts: { preserveList?: boolean } = {}) {
 	cancelContinuationPending();
 	clearGoalRecovery();
 	clearStaleGoalToolCallBlock();
 	goalState.activeGoal = undefined;
-	// The in-memory queue tail + headAdvances are queue-lifecycle state — reset
-	// here (and at every other lifecycle boundary) so they cannot leak across a
-	// fresh /goal. clearActiveGoal runs on /goal clear (with an active head), on
-	// a drained goal_complete, and on session teardown paths.
-	goalState.list = [];
-	goalState.headAdvances = 0;
-	clearPersistedGoal(goalState.extensionApi as ExtensionAPI);
+	if (opts.preserveList && goalState.list.length > 0) {
+		// Keep the reviewer-enqueued follow-ups as the new queue tail (Task 5):
+		// persist {goal:null, list} so a reload restores the tail without a
+		// phantom head, and leave headAdvances so the widget position stays sane.
+		persistGoalState(goalState.extensionApi as ExtensionAPI, null, goalState.list);
+	} else {
+		// The in-memory queue tail + headAdvances are queue-lifecycle state — reset
+		// here (and at every other lifecycle boundary) so they cannot leak across a
+		// fresh /goal. clearActiveGoal runs on /goal clear (with an active head), on
+		// a drained goal_complete, and on session teardown paths.
+		goalState.list = [];
+		goalState.headAdvances = 0;
+		clearPersistedGoal(goalState.extensionApi as ExtensionAPI);
+	}
 	goalOverlay?.update(undefined);
 	stopStatusRefreshTimer();
 	stopHeartbeatTimer();
