@@ -125,6 +125,64 @@ localDescribe("SurrealMemoryRepository graph edges", up, () => {
         await cleanup();
       }
     });
+
+    it("rebuilds only orphans in a mixed corpus and is idempotent", async () => {
+      // Mixed corpus: some memories WITH `->tagged->tag` edges, some WITHOUT.
+      // This is the real correctness check for the `count(->tagged) = 0`
+      // orphan query — it must select exactly the edge-less rows and skip
+      // the rest. (The 10s timeout only reproduces on large corpora and is
+      // NOT testable here; perf is the controller's validated 10001ms -> 17ms
+      // probe, cited in the task report.)
+      await freshRepo();
+      try {
+        const withEdgesA = (await repo.syncMemoryEntry({ content: "alpha story", project: "p1", target: "memory" })).entry;
+        const withEdgesB = (await repo.syncMemoryEntry({ content: "beta story", project: "p1", target: "memory" })).entry;
+        const orphanC = (await repo.syncMemoryEntry({ content: "gamma story", project: "p2", target: "memory" })).entry;
+        const orphanD = (await repo.syncMemoryEntry({ content: "delta story", project: "p2", target: "memory" })).entry;
+
+        // Sanity: every freshly-synced row has edges.
+        expect(await taggedEdgeCount(withEdgesA.id)).toBeGreaterThan(0);
+        expect(await taggedEdgeCount(withEdgesB.id)).toBeGreaterThan(0);
+        expect(await taggedEdgeCount(orphanC.id)).toBeGreaterThan(0);
+        expect(await taggedEdgeCount(orphanD.id)).toBeGreaterThan(0);
+
+        // Selectively strip edges from C and D only — simulate two pre-feature
+        // rows sitting alongside two already-synced rows.
+        await backend.client.query(
+          `DELETE FROM tagged WHERE in = type::record("memories", $c) OR in = type::record("memories", $d);`,
+          { c: orphanC.id, d: orphanD.id },
+        );
+        // Mixed state confirmed: A/B keep edges, C/D are now orphans.
+        const edgesABefore = await taggedEdgeCount(withEdgesA.id);
+        const edgesBBefore = await taggedEdgeCount(withEdgesB.id);
+        expect(edgesABefore).toBeGreaterThan(0);
+        expect(edgesBBefore).toBeGreaterThan(0);
+        expect(await taggedEdgeCount(orphanC.id)).toBe(0);
+        expect(await taggedEdgeCount(orphanD.id)).toBe(0);
+
+        // (a) backfill returns exactly the orphan count (C and D).
+        const count = await repo.backfillGraphEdges();
+        expect(count).toBe(2);
+
+        // (b) previously-orphan memories now have edges; non-orphans unchanged.
+        expect(await taggedEdgeCount(orphanC.id)).toBeGreaterThan(0);
+        expect(await taggedEdgeCount(orphanD.id)).toBeGreaterThan(0);
+        expect(await taggedEdgeCount(withEdgesA.id)).toBe(edgesABefore);
+        expect(await taggedEdgeCount(withEdgesB.id)).toBe(edgesBBefore);
+
+        // (c) idempotent: second call finds no new orphans and adds no edges.
+        const edgesCTotal = await taggedEdgeCount(orphanC.id);
+        const edgesDTotal = await taggedEdgeCount(orphanD.id);
+        const totalBefore = await totalTaggedEdges();
+        const secondCount = await repo.backfillGraphEdges();
+        expect(secondCount).toBe(0);
+        expect(await taggedEdgeCount(orphanC.id)).toBe(edgesCTotal); // no duplicates
+        expect(await taggedEdgeCount(orphanD.id)).toBe(edgesDTotal);
+        expect(await totalTaggedEdges()).toBe(totalBefore);
+      } finally {
+        await cleanup();
+      }
+    });
   });
 
   describe("createBackendBundle backfill wiring", () => {

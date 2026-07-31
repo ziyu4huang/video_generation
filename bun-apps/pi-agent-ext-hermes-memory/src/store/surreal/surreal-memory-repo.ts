@@ -694,9 +694,16 @@ export class SurrealMemoryRepository implements MemoryRepository {
    */
   async backfillGraphEdges(): Promise<number> {
     try {
+      // Orphan check via the graph walk `count(->tagged) = 0` rather than
+      // `id NOT IN (SELECT VALUE in FROM tagged)`. The NOT-IN subquery builds
+      // the full `tagged.in` set every boot and times out at Surreal's 10s
+      // request ceiling on large corpora (controller probe: 10001ms timeout on
+      // 1227 memories x 30144 edges). The graph walk is semantically
+      // equivalent (a memory has a tagged edge iff it has an outgoing
+      // `->tagged`) and runs in ~17ms on the same data.
       const orphans = await this.c.query<Row[]>(
         `SELECT seq, project, target, category FROM memories
-         WHERE id NOT IN (SELECT VALUE in FROM tagged);`,
+         WHERE count(->tagged) = 0;`,
       );
       if (orphans.length === 0) return 0;
       // Orphan rows have no existing edges, so no prior-edge DELETE is needed.
