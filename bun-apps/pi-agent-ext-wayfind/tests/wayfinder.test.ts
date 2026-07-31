@@ -172,5 +172,8 @@ describe("closeEffortReflection (/wayfind done)", () => {
     expect(note).toContain("ship the closing ceremony"); // destination framing
     expect(note).toContain("1. Fix the deploy-verify CI gate"); // prize pre-filled
     expect(note).toContain("**Fix the deploy-verify CI gate**"); // next goal bolded
+    // the next-goal fork MUST instruct the agent to present it via ask_user_question
+    // (never a prose menu) — mirrors grilling's one-question-at-a-time discipline.
+    expect(note).toContain("ask_user_question");
   });
 });

@@ -410,6 +410,21 @@ export const COMMANDS: Record<string, CommandSpec> = {
     },
   },
 
+  cutout: {
+    name: "cutout",
+    writesImage: true,
+    when: "Transparent-background cutout: SAM3 text segmentation → alpha-composited RGBA PNG. No regeneration — subject pixels preserved verbatim.",
+    fields: {
+      input: { flag: "--input", type: "string", isPath: true, description: "Source image path." },
+      subject: { flag: "--subject", type: "string", description: "SAM3 text prompt for the subject to cut out (e.g. 'woman', 'coffee cup'). Falls back to --prompt if omitted." },
+      prompt: { flag: "--prompt", type: "string", description: "Fallback subject text if --subject is omitted." },
+      samThreshold: { flag: "--sam-threshold", type: "number", description: "SAM3 detection score threshold (0-1). Default 0.3." },
+      trim: { flag: "--trim", type: "boolean", description: "Crop the result to the alpha bounding box + 5% margin." },
+      saveMask: { flag: "--save-mask", type: "boolean", description: "Also save the SAM3 mask + a green-tint overlay alongside the cutout, for inspection." },
+      output: { flag: "--output", type: "string", isPath: true, description: "Output RGBA PNG path." },
+    },
+  },
+
   story: {
     name: "story",
     writesImage: true,

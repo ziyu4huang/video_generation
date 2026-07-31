@@ -18,6 +18,10 @@ Wayfinder is **planning** by default: each ticket resolves a decision, and the m
 
 Every map and ticket is a file, so it has a **name** — its title. In everything the human reads — narration, the map's Decisions-so-far — refer to it by that name, never by a bare number or slug. A wall of `#42, #43, #44` is illegible; names read at a glance. The number doesn't vanish — a name wraps its file link — but it rides *inside* the name, never stands in for it.
 
+## Decision forks → ask_user_question
+
+At every decision fork — naming the destination, choosing or confirming a ticket, and **especially the next-goal pick after the closing ceremony** — present the choice via the **`ask_user_question` tool** with a recommended (⭐) option, never a prose menu. The ceremony's harvested `nextGoal` is the recommended option; the other deferred prizes plus a fresh effort are the alternatives. This mirrors grilling's one-question-at-a-time discipline: a prose menu forces the human to parse unparsed options, while the tool gives clean, selectable choices with a visible recommendation.
+
 ## Fact freshness
 
 The working tree reflects the *current branch*, which may lag the line of development (`origin/<default>`). A map built on facts gathered from a stale tree rests on a false premise — wasted work that only surfaces at commit time. The `/wayfind` command checks this at start and warns when the branch is behind; heed it: warn the human and prefer rebasing before charting. If you reach this skill without the command, run `git rev-list --count HEAD..origin/<default>` yourself — if the count is non-zero, flag it before gathering facts.
