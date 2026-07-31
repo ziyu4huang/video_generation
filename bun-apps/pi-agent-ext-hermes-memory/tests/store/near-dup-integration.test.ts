@@ -83,3 +83,43 @@ describe("MemoryStore near-dup warning (ticket 02)", () => {
 		expect(r2.message).not.toMatch(/near-duplicate/i); // disabled → no warning
 	});
 });
+
+/**
+ * Prize 2 (wayfinder 2026-07-30-self-reflection ticket 02 deferred): the
+ * near-dup WARNING is computed in `_addInner` but DROPPED when the add
+ * overflows (fifo-evict / vault-offload early-return without nearDupNote).
+ * These cases pin that the warning survives the overflow path.
+ */
+describe("MemoryStore near-dup warning on overflow paths (prize 2)", () => {
+	beforeAll(() => {
+		MEMORY_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "near-dup-overflow-"));
+	});
+	afterAll(() => {
+		fs.rmSync(MEMORY_DIR, { recursive: true, force: true });
+	});
+	beforeEach(() => {
+		for (const f of fs.readdirSync(MEMORY_DIR)) fs.rmSync(path.join(MEMORY_DIR, f), { force: true });
+		delete process.env[NEAR_DUP_ENV];
+	});
+
+	const FIRST =
+		"mupdf npm API: Document.openDocument(path) then page.toStructuredText().asText() for text extraction; there is no page.toText. mupdf-js@2.0.1 is a deprecated stub; use mupdf@1.28.0.";
+	const NEAR_DUP_TEXT =
+		"mupdf API uses Document.openDocument (not Document.open); page text via page.toStructuredText().asText(), no page.toText. mupdf-js@2.0.1 is deprecated, use mupdf@1.28.0 native binding.";
+
+	test("vault-offload overflow still surfaces the near-dup warning", async () => {
+		const store = new MemoryStore({ ...makeConfig(), failureCharLimit: 300, memoryOverflowStrategy: "vault-offload" });
+		await store.add("failure", FIRST);
+		const r2 = await store.add("failure", NEAR_DUP_TEXT); // join > 300 → overflow
+		expect(r2.success).toBe(true);
+		expect(r2.message).toMatch(/near-duplicate/i); // ← prize 2: must not be dropped
+	});
+
+	test("fifo-evict overflow still surfaces the near-dup warning", async () => {
+		const store = new MemoryStore({ ...makeConfig(), failureCharLimit: 300, memoryOverflowStrategy: "fifo-evict" });
+		await store.add("failure", FIRST);
+		const r2 = await store.add("failure", NEAR_DUP_TEXT);
+		expect(r2.success).toBe(true);
+		expect(r2.message).toMatch(/near-duplicate/i);
+	});
+});
