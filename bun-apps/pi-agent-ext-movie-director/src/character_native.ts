@@ -93,11 +93,11 @@ export interface SegmentResult {
 }
 export type SegmentFn = (params: SegmentParams) => Promise<SegmentResult>;
 
-/** Build the mask output path for one view image (mirrors Python's `{stem}_cutout.png` naming, but named `_mask.png` since v1 only produces the intermediate mask — see module doc). */
-export function maskPathFor(imagePath: string): string {
+/** Build the cutout output path for one view image (mirrors Python's `{stem}_cutout.png` naming — see module doc). */
+export function cutoutPathFor(imagePath: string): string {
   const dir = dirname(imagePath);
   const stem = basename(imagePath, extname(imagePath));
-  return join(dir, `${stem}_mask.png`);
+  return join(dir, `${stem}_cutout.png`);
 }
 
 /** Default segment call: native flux2 `segment` command (SAM3.1 bridge). */
@@ -108,11 +108,11 @@ export const defaultSegment: SegmentFn = async (p) => {
       image: p.image,
       prompt: p.prompt,
       threshold: p.threshold,
-      output: maskPathFor(p.image),
+      output: cutoutPathFor(p.image),
     },
     outputDir: p.outputDir,
   });
-  const maskPath = maskPathFor(p.image);
+  const maskPath = cutoutPathFor(p.image);
   if (!out.details.ok) {
     return { maskPath: null, count: 0, bestScore: null };
   }

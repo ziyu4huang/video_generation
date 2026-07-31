@@ -5,7 +5,7 @@ import { join } from "node:path";
 import {
   DEFAULT_CUTOUT_SUBJECT,
   DEFAULT_SAM_THRESHOLD,
-  maskPathFor,
+  cutoutPathFor,
   buildIdentitySpec,
   runCharacterNative,
   writeIdentitySpec,
@@ -13,13 +13,13 @@ import {
 } from "./character_native.ts";
 import type { ProfileResult } from "./profile_native.ts";
 
-describe("maskPathFor — mask output naming", () => {
-  it("appends _mask before the extension", () => {
-    expect(maskPathFor("/out/front.png")).toBe("/out/front_mask.png");
+describe("cutoutPathFor — cutout output naming", () => {
+  it("appends _cutout before the extension", () => {
+    expect(cutoutPathFor("/out/front.png")).toBe("/out/front_cutout.png");
   });
 
-  it("handles nested dirs; mask is always .png regardless of source extension (segment always writes PNG)", () => {
-    expect(maskPathFor("/a/b/c/right.jpg")).toBe("/a/b/c/right_mask.png");
+  it("handles nested dirs; output is always .png regardless of source extension (cutout always writes PNG)", () => {
+    expect(cutoutPathFor("/a/b/c/right.jpg")).toBe("/a/b/c/right_cutout.png");
   });
 });
 
