@@ -2,7 +2,8 @@
  * Tests for runMergeRecipe — the polling orchestration. Uses a scripted fake
  * GhClient + a fake clock/sleeper (sleep advances the clock) so the loop is
  * deterministic with no real gh/git/network. The decision math is covered by
- * pr-logic.test.ts; these pin the I/O sequencing + outcomes.
+ * pr-logic.test.ts; these pin the I/O sequencing + outcomes, plus the live
+ * onProgress streaming + abort-signal handling.
  */
 import { test, expect, describe } from "bun:test";
 import { runMergeRecipe, type GhClient } from "../src/recipe.js";
@@ -120,5 +121,58 @@ describe("runMergeRecipe", () => {
 		const r = await runMergeRecipe(opts);
 		expect(r.merged).toBe(false);
 		expect(r.timedOut).toBe(true);
+	});
+});
+
+describe("runMergeRecipe — live progress + abort", () => {
+	test("calls onProgress once per poll with elapsed, poll#, state, checks, action", async () => {
+		const { client } = fakeGh([
+			{ state: "OPEN", mergeState: "BLOCKED", checks: pending },
+			{ state: "OPEN", mergeState: "BLOCKED", checks: pending },
+			{ state: "MERGED", mergeState: "CLEAN", checks: pass5, mergeSha: "abc" },
+		]);
+		const fc = fakeClock();
+		const updates: Array<Record<string, unknown>> = [];
+		const r = await runMergeRecipe({ ...baseOpts(client, fc), onProgress: (u) => updates.push(u as unknown as Record<string, unknown>) });
+		expect(r.merged).toBe(true);
+		expect(updates).toHaveLength(3); // one per poll
+		expect(updates[0].pollNumber).toBe(1);
+		expect(updates[2].pollNumber).toBe(3);
+		expect(updates[0].action).toBe("wait");
+		expect(updates[2].action).toBe("done");
+		expect(updates[0].checks).toEqual(pending);
+		expect(typeof updates[0].elapsedMs).toBe("number");
+		expect((updates[2].elapsedMs as number) > (updates[0].elapsedMs as number)).toBe(true);
+		expect(updates[0].behind).toBe(false);
+	});
+
+	test("outcome includes elapsedMs (for the final Took footer)", async () => {
+		const { client } = fakeGh([{ state: "MERGED", mergeState: "CLEAN", checks: pass5, mergeSha: "x" }]);
+		const r = await runMergeRecipe(baseOpts(client, fakeClock()));
+		expect(r.merged).toBe(true);
+		expect(typeof r.elapsedMs).toBe("number");
+		expect(r.elapsedMs).toBeGreaterThanOrEqual(0);
+	});
+
+	test("returns aborted when the signal is already aborted before the first poll", async () => {
+		const ac = new AbortController();
+		ac.abort();
+		const { client } = fakeGh([{ state: "MERGED", mergeState: "CLEAN", checks: pass5, mergeSha: "x" }]);
+		const r = await runMergeRecipe({ ...baseOpts(client, fakeClock()), signal: ac.signal });
+		expect(r.merged).toBe(false);
+		expect(r.aborted).toBe(true);
+	});
+
+	test("stops and returns aborted when the signal aborts between polls", async () => {
+		const ac = new AbortController();
+		const { client } = fakeGh([
+			{ state: "OPEN", mergeState: "BLOCKED", checks: pending },
+			{ state: "MERGED", mergeState: "CLEAN", checks: pass5, mergeSha: "x" },
+		]);
+		let sleeps = 0;
+		const sleeper = { async sleep() { if (++sleeps >= 1) ac.abort(); } };
+		const r = await runMergeRecipe({ ...baseOpts(client, fakeClock()), sleeper, signal: ac.signal });
+		expect(r.merged).toBe(false);
+		expect(r.aborted).toBe(true);
 	});
 });
