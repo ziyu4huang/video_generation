@@ -38,6 +38,8 @@ export interface ActiveGoal {
 	verificationContract?: string;
 	auditHistory?: GoalAuditorResult[];
 	auditAttempts?: number;
+	/** Origin: "list" = promoted from a /list item, "bare" = a plain /goal. Drives the Reviewer `kind`. */
+	origin?: "list" | "bare";
 }
 
 /**

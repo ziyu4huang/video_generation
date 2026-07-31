@@ -27,6 +27,7 @@ import {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 export const GOAL_STATE_ENTRY_TYPE = "goal-state";
+export const REVIEWER_ENTRY_TYPE = "goal-reviewer";
 
 /**
  * Minimal slice of ExtensionAPI that persistence needs. Kept local (rather than
@@ -127,4 +128,51 @@ export function loadGoalStateFromSession(sessionManager: unknown): {
 	const goal =
 		isGoal(data?.goal) && data.goal.status !== "complete" ? cloneGoal(data.goal) : undefined;
 	return { goal, list: data?.list?.map((item) => ({ ...item })) };
+}
+
+// ─── Reviewer ledger persistence (Task 4) ─────────────────────────────────────
+
+/**
+ * Shape of a reviewer ledger entry written to the session store. Records
+ * reviewer fires (cascade enqueues) and suppressions (e.g., refire-window).
+ */
+export interface ReviewerLedgerRecord {
+	type: "reviewer_fired" | "reviewer_suppressed";
+	at: string;
+	goalId: string;
+	/** For reviewer_fired: which cascade step enqueued tasks */
+	cascadeStep?: string;
+	/** For reviewer_fired: count of enqueued tasks */
+	enqueued?: number;
+	/** For reviewer_fired: count of proposed tasks */
+	proposed?: number;
+	/** For reviewer_suppressed: why the reviewer did not fire */
+	reason?: string;
+}
+
+/**
+ * Append a reviewer ledger entry to the session store. Best-effort: a missing
+ * api is a no-op.
+ */
+export function appendReviewerEntry(
+	api: GoalPersistenceApi | undefined,
+	record: ReviewerLedgerRecord,
+): void {
+	api?.appendEntry(REVIEWER_ENTRY_TYPE, record);
+}
+
+/**
+ * Load all reviewer ledger entries from the session store. Returns an array of
+ * records (chronological, oldest first), filtering by entry type. Returns an
+ * empty array when sessionManager is undefined or has no readers.
+ */
+export function loadReviewerEntries(sessionManager: unknown): ReviewerLedgerRecord[] {
+	const sm = sessionManager as {
+		getBranch?: () => Array<{ type: string; customType?: string; data: unknown }>;
+		getEntries?: () => Array<{ type: string; customType?: string; data: unknown }>;
+	} | undefined;
+	const entries = sm?.getBranch?.() ?? sm?.getEntries?.() ?? [];
+	return entries
+		.filter((e) => e.type === "custom" && e.customType === REVIEWER_ENTRY_TYPE)
+		.map((e) => e.data as ReviewerLedgerRecord);
 }

@@ -10,9 +10,16 @@
 import { test, expect, describe } from "bun:test";
 import type { ActiveGoal, GoalListItem } from "../format.js";
 
-const { persistGoal, clearPersistedGoal, persistGoalState, loadGoalStateFromSession, GOAL_STATE_ENTRY_TYPE } = await import(
-	"../persistence.js"
-);
+const {
+	persistGoal,
+	clearPersistedGoal,
+	persistGoalState,
+	loadGoalStateFromSession,
+	GOAL_STATE_ENTRY_TYPE,
+	REVIEWER_ENTRY_TYPE,
+	appendReviewerEntry,
+	loadReviewerEntries,
+} = await import("../persistence.js");
 const { createGoal, goalState, __resetGoalState } = await import("../state.js");
 
 type ApiCalls = Array<[customType: string, data: unknown]>;
@@ -282,5 +289,43 @@ describe("loadGoalStateFromSession", () => {
 		expect(() => {
 			(r.goal as { tokensUsed: number }).tokensUsed = 42;
 		}).not.toThrow();
+	});
+});
+
+// ─── Reviewer ledger persistence (Task 4) ─────────────────────────────────────
+
+describe("reviewer ledger persistence", () => {
+	test("appendReviewerEntry -> loadReviewerEntries round-trips by entry type", () => {
+		const store: Array<{ type: string; customType?: string; data: unknown }> = [];
+		const fakeApi = {
+			appendEntry: (customType: string, data: unknown) => {
+				store.push({ type: "custom", customType, data });
+			},
+		};
+		const fakeSm = { getEntries: () => store };
+
+		appendReviewerEntry(fakeApi as never, {
+			type: "reviewer_fired",
+			at: "2026-07-31T12:00:00.000Z",
+			goalId: "g1",
+			cascadeStep: "convert-findings-to-list",
+			enqueued: 2,
+			proposed: 0,
+		});
+		appendReviewerEntry(fakeApi as never, {
+			type: "reviewer_suppressed",
+			at: "2026-07-31T12:01:00.000Z",
+			goalId: "g2",
+			reason: "refire-window",
+		});
+
+		const entries = loadReviewerEntries(fakeSm as never);
+		expect(entries).toHaveLength(2);
+		expect(entries[0]!.type).toBe("reviewer_fired");
+		expect(entries[1]!.reason).toBe("refire-window");
+	});
+
+	test("REVIEWER_ENTRY_TYPE is 'goal-reviewer'", () => {
+		expect(REVIEWER_ENTRY_TYPE).toBe("goal-reviewer");
 	});
 });
