@@ -655,6 +655,11 @@ export class SqliteMemoryRepository implements MemoryRepository {
         params.push(category);
       }
 
+      if (options.status) {
+        conditions.push("status = ?");
+        params.push(options.status);
+      }
+
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
       const rows = this.db.prepare(`

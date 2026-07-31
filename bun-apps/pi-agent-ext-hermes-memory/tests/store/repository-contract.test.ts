@@ -291,6 +291,48 @@ export function runMemoryRepositoryContract(
         await close();
       }
     });
+
+    it("getMemories filters by status when the status option is set", async () => {
+      const { repo, close } = await make();
+      try {
+      // Seed two active memories in the same project/target.
+      const a = await repo.addMemory({
+        target: "memory",
+        project: "status-filter-proj",
+        content: "status filter active one zqxklt",
+        category: "insight",
+        failureReason: null,
+        toolState: null,
+        correctedTo: null,
+      });
+      const b = await repo.addMemory({
+        target: "memory",
+        project: "status-filter-proj",
+        content: "status filter active two zqxklt",
+        category: "insight",
+        failureReason: null,
+        toolState: null,
+        correctedTo: null,
+      });
+      // Supersede b with a (b becomes superseded).
+      await repo.supersedeMemory(b.id, a.id);
+
+      const active = await repo.getMemories({ project: "status-filter-proj", status: "active" });
+      const superseded = await repo.getMemories({ project: "status-filter-proj", status: "superseded" });
+      const all = await repo.getMemories({ project: "status-filter-proj" });
+
+      // active filter returns only the non-superseded entry.
+      expect(active.some((m) => m.id === a.id)).toBe(true);
+      expect(active.some((m) => m.id === b.id)).toBe(false);
+      // superseded filter returns only the superseded entry.
+      expect(superseded.some((m) => m.id === b.id)).toBe(true);
+      expect(superseded.some((m) => m.id === a.id)).toBe(false);
+      // no status filter returns both (back-compat: existing callers unaffected).
+      expect(all.length).toBeGreaterThanOrEqual(2);
+      } finally {
+        await close();
+      }
+    });
   });
 }
 
