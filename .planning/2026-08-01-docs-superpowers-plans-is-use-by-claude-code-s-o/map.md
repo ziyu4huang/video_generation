@@ -7,8 +7,9 @@ Make the pi-agent and claude-code planning worlds share ONE canonical root (`.pl
 ## Notes
 
 - **Two skill sources (the crux):**
-  - pi-agent fork `bun-apps/pi-agent-ext-superpowers/skills/` — editable, already repointed to `.planning/<effort>/` (commit `db6f58bb`).
-  - claude-code official plugin `~/.claude-custom/plugins/cache/claude-plugins-official/superpowers/5.1.0/` — auto-managed cache (`.git`, `package.json`, `.in_use`), **uneditable** (plugin update overwrites); its writing-plans/brainstorming still hardcode `docs/superpowers/{plans,specs}/`.
+  - pi-agent fork `bun-apps/pi-agent-ext-superpowers/skills/` — the 14 upstream-ported SKILL.md are pinned byte-equal to fixtures by ADR-0004 (`tests/skills-fidelity.test.ts`); prose must stay upstream-faithful. An earlier attempt to repoint writing-plans/brainstorming prose to `.planning/<effort>/` (commit `db6f58bb`) was REVERTED — it broke the fidelity guard. Routing is runtime-only (system-prompt 'Pipeline routing' + `PI_PLANNING_EFFORT`).
+  - claude-code official plugin `~/.claude-custom/plugins/cache/claude-plugins-official/superpowers/5.1.0/` — auto-managed cache (`.git`, `package.json`, `.in_use`), **uneditable** (plugin update overwrites); its writing-plans/brainstorming hardcode `docs/superpowers/{plans,specs}/`.
+  - The symlink bridge below makes BOTH sources' flat `docs/superpowers/` writes land in `.planning/`, so upstream-faithful prose and correct routing coexist.
 - Skills consulted: wayfinder (chart-the-map), grilling, domain-modeling.
 - Standing preference: this repo is Apple-Silicon-only → symlinks are safe (no Windows concern).
 
