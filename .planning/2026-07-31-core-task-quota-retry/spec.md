@@ -148,4 +148,12 @@ Translate GLA's tests:
 - Wire `isSubagentQuotaResult` into `tool_execution_end` (detect an `Agent`-tool quota failure → surface/notify).
 - `pauseResumeAt` goal field + `/goal status` "auto-resume in Nm" display.
 - `quotaRetryMinutes` configurability (with the settings-menu port).
-- A 5-consecutive-quota-errors brake (GLA's `scheduleQuotaRetry` `label` generalization) if quota loops become a pattern.
+- A 5-consecutive-quota-errors brake (GLA's `scheduleQuotaRetry` `label`
+  generalization) if quota loops become a pattern.
+
+### 12.1 Post-implementation follow-up (from the SDD final review, 2026-07-31)
+
+The baseline shipped merge-ready (2 commits, 550/0, tsc clean per-package +
+cross-package). One non-blocking item:
+
+- **(optional hardening, NOT merge-blocking) `session_shutdown` does not call `cancelQuotaRetry()`** — the scheduled timer is `unref()`d (won't keep the process alive), the `fire` callback is try/catch-wrapped, and `resumeGoal`'s own status guard blocks a double-resume, so it is NOT a correctness defect. The only uncovered window: a shutdown where the process keeps running and no new `session_start` follows — the timer could fire `resumeGoal` on a stale `ctx` (caught harmlessly). Optional symmetry fix: add `cancelQuotaRetry()` to `session_shutdown` alongside the existing `clearContinuationTracking()`/`clearGoalRecovery()` cleanup. Surfaced by the SDD final review.
