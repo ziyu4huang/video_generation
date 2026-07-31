@@ -6,7 +6,9 @@
  *
  * Tools:
  *   - await_pr_merge: poll checks → enable --auto → on BEHIND rebase+force-push
- *     → wait for MERGED. Returns merged/failed/timed-out + check tally.
+ *     → wait for MERGED. Returns merged/failed/timed-out + check tally. Streams
+ *     live per-poll progress to the TUI (elapsed + checks + action) and is
+ *     abortable via its AbortSignal.
  *   - pr_status: one-shot PR snapshot (state + mergeState + checks).
  *
  * Install: registered in bun-apps/pi-agent/run-dir/manifest.json (extensions[]).
@@ -15,6 +17,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { createGhClient, type SpawnFn } from "../src/gh.js";
 import { runMergeRecipe } from "../src/recipe.js";
+import { formatProgress } from "../src/progress.js";
 
 const realSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -55,7 +58,7 @@ export default function (pi: ExtensionAPI): void {
 			),
 			branch: Type.Optional(Type.String({ description: "Feature branch to rebase+force-push on BEHIND. Defaults to the current checked-out branch." })),
 		}),
-		async execute(_id, params) {
+		async execute(_id, params, signal, onUpdate) {
 			const cwd = process.cwd();
 			const spawn = liveSpawn(cwd);
 			const gh = createGhClient(spawn);
@@ -75,15 +78,22 @@ export default function (pi: ExtensionAPI): void {
 				gh,
 				sleeper: { sleep: realSleep },
 				clock: { now: () => Date.now() },
+				signal,
+				onProgress: onUpdate
+					? (u) => onUpdate({ content: [{ type: "text" as const, text: formatProgress(u) }] })
+					: undefined,
 			});
 			const checks = outcome.checks
 				? `${outcome.checks.pass} pass / ${outcome.checks.fail} fail / ${outcome.checks.pending} pending`
 				: "unknown";
+			const took = ` Took ${Math.round(outcome.elapsedMs / 1000)}s.`;
 			const text = outcome.merged
-				? `✅ PR #${params.prNumber} MERGED${outcome.mergeSha ? ` (${outcome.mergeSha.slice(0, 7)})` : ""}.${outcome.behind ? " Rebased + force-pushed during the wait to clear BEHIND." : ""}`
-				: outcome.timedOut
-					? `⏰ PR #${params.prNumber} not merged after timeout (last state: ${outcome.finalState}; checks: ${checks}). Retry, or inspect with pr_status.`
-					: `❌ PR #${params.prNumber} not merged: ${outcome.error ?? "unknown"} (checks: ${checks}).`;
+				? `✅ PR #${params.prNumber} MERGED${outcome.mergeSha ? ` (${outcome.mergeSha.slice(0, 7)})` : ""}.${outcome.behind ? " Rebased + force-pushed during the wait to clear BEHIND." : ""}${took}`
+				: outcome.aborted
+					? `⏹️ PR #${params.prNumber} await aborted after ${Math.round(outcome.elapsedMs / 1000)}s (last state: ${outcome.finalState}; checks: ${checks}).`
+					: outcome.timedOut
+						? `⏰ PR #${params.prNumber} not merged after timeout (last state: ${outcome.finalState}; checks: ${checks}). Retry, or inspect with pr_status.`
+						: `❌ PR #${params.prNumber} not merged: ${outcome.error ?? "unknown"} (checks: ${checks}).${took}`;
 			return { details: outcome, content: [{ type: "text" as const, text }] };
 		},
 	});
