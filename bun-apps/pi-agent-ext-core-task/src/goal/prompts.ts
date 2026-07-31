@@ -123,13 +123,30 @@ export function goalCommandHint(status: GoalStatus) {
 	return "/goal edit <objective>, /goal clear";
 }
 
-export function goalSummary(goal: ActiveGoal) {
-	return [
+export function goalSummary(
+	goal: ActiveGoal,
+	lastReview?: { cascadeStep: string; enqueued?: number; proposed?: number; reportPath?: string },
+) {
+	const lines = [
 		`Goal: ${goal.text}`,
 		`Status: ${goal.status}`,
 		`Iteration: ${goal.iteration}`,
 		`Elapsed: ${formatDuration(goal.timeUsedSeconds)}`,
 		`Tokens: ${goal.tokenBudget === undefined ? formatTokenCount(goal.tokensUsed) : formatBudget(goal)}`,
 		`Commands: ${goalCommandHint(goal.status)}`,
-	].join("\n");
+	];
+
+	if (lastReview) {
+		const reviewParts = [` · review: ${lastReview.cascadeStep}`];
+		if (lastReview.enqueued !== undefined) {
+			reviewParts.push(` (${lastReview.enqueued} enqueued`);
+			if (lastReview.proposed !== undefined) {
+				reviewParts.push(`, ${lastReview.proposed} proposed`);
+			}
+			reviewParts.push(")");
+		}
+		lines[lines.length - 1] += reviewParts.join("");
+	}
+
+	return lines.join("\n");
 }

@@ -1068,7 +1068,20 @@ function showGoal(ctx: StatusContext) {
 	updateGoalUsage(goalState.activeGoal, ctx);
 	persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
 	updateStatus(ctx, goalState.activeGoal);
-	ctx.ui.notify(goalSummary(goalState.activeGoal), "info");
+
+	// Read the last reviewer entry (if any) to surface what the Reviewer last did.
+	const reviewerEntries = loadReviewerEntries(ctx.sessionManager);
+	const lastEntry = reviewerEntries.length > 0 ? reviewerEntries[reviewerEntries.length - 1] : undefined;
+	const lastReview =
+		lastEntry && lastEntry.type === "reviewer_fired"
+			? {
+					cascadeStep: lastEntry.cascadeStep,
+					enqueued: lastEntry.enqueued,
+					proposed: lastEntry.proposed,
+			  }
+			: undefined;
+
+	ctx.ui.notify(goalSummary(goalState.activeGoal, lastReview), "info");
 }
 
 function pauseGoalAfterAgentEnd(
