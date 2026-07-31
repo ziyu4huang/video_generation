@@ -41,6 +41,54 @@ const ACTIVE_CONTENT = "active keeper syncprobe yyy";
 const PRIOR_CONTENT = "superseded doomed syncprobe yyy";
 const NEW_CONTENT = "new overflow syncprobe zzz";
 
+// ─── Resurrect-stale guard (Task 4) ─────────────────────────────────────────
+// Unique nonce carried ONLY by the superseded entry. The guard asserts this
+// nonce is never resurrected into recall after an overflow + consolidation
+// cycle — i.e. offload-superseded-first purges it BEFORE the consolidator sees
+// its content.
+const GUARD_NONCE = "resurrectguard qqxnv";
+const GUARD_ACTIVE_ONE = "active keeper alpha axa";
+const GUARD_ACTIVE_TWO = "active keeper bravo bxb";
+const GUARD_SUPERSEDED = `stale ${GUARD_NONCE}`;
+const GUARD_NEW = "new overflow nu nxn payload segment";
+// Calibration (computed via the real encodeEntry + ENTRY_DELIMITER "\n§\n"):
+//   3 seed entries total 213 chars; the 4th add totals 296 (>limit → overflow);
+//   after purging the superseded entry, [A1,A2]+N totals 222 (>limit → the
+//   consolidator MUST run, not the purge early-return); the 2→1 merge of the
+//   active keepers saves one metadata block so the retry fits (177 ≤ limit).
+//   217 is chosen inside the valid window [213,222) so that even the Mutation-A
+//   merge of all THREE entries (active+active+superseded, 206 on retry) still
+//   fits — proving that WITHOUT the purge, the superseded nonce IS resurrected
+//   into the consolidated `.md` entry (the RED we mutation-verify). It also
+//   guarantees the three seeds fit (213 ≤ 217) so seeding itself never trips
+//   consolidation before the test's driving add.
+const GUARD_LIMIT = 217;
+
+// Minimal in-process consolidator stub: merges ALL current `.md` entries for
+// the target into ONE content-preserving entry (joined with " | "). Unlike the
+// real LLM consolidator (which summarizes), this stub preserves verbatim text —
+// so if a superseded entry survived into `.md`, its nonce is resurrected into
+// the merge. This is exactly the D0/D2 hazard the guard locks. Uses internal
+// helpers (setEntries/saveToDisk/encodeEntry) the same way the production
+// consolidator rewrites the file on disk; saveToDisk does not re-acquire the
+// file lock (it only writes), so it is safe to call from inside the held lock.
+type StoreInternals = {
+  setEntries: (t: "memory" | "user" | "failure", e: string[]) => void;
+  saveToDisk: (t: "memory" | "user" | "failure") => Promise<void>;
+  encodeEntry: (text: string, created: string, last: string) => string;
+};
+function installMergingConsolidator(store: MemoryStore): void {
+  store.setConsolidator(async (target) => {
+    const internal = store as unknown as StoreInternals;
+    const entries = target === "memory" ? store.getMemoryEntries() : [];
+    const merged = entries.join(" | ");
+    const today = new Date().toISOString().split("T")[0];
+    internal.setEntries("memory", merged ? [internal.encodeEntry(merged, today, today)] : []);
+    await internal.saveToDisk("memory");
+    return { consolidated: true };
+  }, "merge-stub");
+}
+
 describe("overflow add → offload superseded → sync DB (D2 + D4 destructive)", () => {
   let tmpDir: string;
   let backend: SqliteBackend;
@@ -136,6 +184,100 @@ describe("overflow add → offload superseded → sync DB (D2 + D4 destructive)"
     assert.ok(
       !mdEntries.some((e) => e.includes(PRIOR_CONTENT)),
       "superseded entry should be purged from .md",
+    );
+  });
+});
+
+// ─── Task 4: resurrect-stale guard ────────────────────────────────────────────
+//
+// Locks the D0/D2 promise: a superseded entry is NEVER recalled by
+// consolidation. Drives a REAL consolidation-capable overflow (two active
+// keepers + one superseded; limit tuned so purge-first does NOT free enough —
+// the consolidator must run). The two core absence assertions are on the
+// superseded nonce (GUARD_NONCE): (a) absent from the `.md` the consolidator
+// read/merged, and (b) absent from DB recall. A third assertion — the active
+// keeper survives — isolates the status filter (catches Mutation B: getMemories
+// ignoring status would purge the active keeper too).
+describe("resurrect-stale guard: superseded never consolidated into recall", () => {
+  let tmpDir: string;
+  let backend: SqliteBackend;
+  let repo: SqliteMemoryRepository;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "resurrect-guard-"));
+    backend = new SqliteBackend(tmpDir);
+    repo = new SqliteMemoryRepository(backend);
+    store = new MemoryStore({
+      memoryCharLimit: GUARD_LIMIT,
+      userCharLimit: GUARD_LIMIT,
+      projectCharLimit: GUARD_LIMIT,
+      memoryDir: tmpDir,
+      // Non-reject strategy so the consolidator runs on all-active overflow.
+      memoryOverflowStrategy: "auto-consolidate",
+    } as unknown as ConstructorParameters<typeof MemoryStore>[0]);
+    installMergingConsolidator(store);
+  });
+
+  afterEach(async () => {
+    await backend.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("a superseded entry is purged before consolidation and never recalled", async () => {
+    // Seed `.md` (store.add) AND the DB mirror (repo.addMemory) with two active
+    // keepers + one prior, then supersede the prior in the DB. The `.md` has no
+    // status column, so all three remain in `.md`; only the DB knows the prior
+    // is superseded.
+    await store.add("memory", GUARD_ACTIVE_ONE);
+    await store.add("memory", GUARD_ACTIVE_TWO);
+    await store.add("memory", GUARD_SUPERSEDED);
+
+    const a1 = await repo.addMemory({ target: "memory", project: PROJECT, content: GUARD_ACTIVE_ONE, category: "insight", failureReason: null, toolState: null, correctedTo: null });
+    const a2 = await repo.addMemory({ target: "memory", project: PROJECT, content: GUARD_ACTIVE_TWO, category: "insight", failureReason: null, toolState: null, correctedTo: null });
+    const sup = await repo.addMemory({ target: "memory", project: PROJECT, content: GUARD_SUPERSEDED, category: "insight", failureReason: null, toolState: null, correctedTo: null });
+    await repo.supersedeMemory(sup.id, a1.id);
+    // Sanity: a2 stays active too.
+    assert.ok((await repo.getMemories({ project: PROJECT, status: "active" })).some((m) => m.id === a2.id));
+
+    // Wire the provider exactly as src/index.ts does (Task 3).
+    store.setSupersededContentProvider(async (t) => {
+      const list = await repo.getMemories({ target: t, project: PROJECT, status: "superseded" });
+      return list.map((m) => m.content);
+    });
+
+    // Drive the overflow add through the operation path that syncs evictions.
+    // The new add tips an already-full store over the limit; purge-first removes
+    // the superseded entry, but the two active keepers + new add still exceed
+    // the limit, so the consolidator runs on the (superseded-free) remainder.
+    const result = await applyReviewOperations(
+      store,
+      null,
+      [{ target: "memory", action: "add", content: GUARD_NEW }],
+      repo,
+      PROJECT,
+    );
+    assert.ok(result.appliedCount >= 1, "the overflow add should be applied, not skipped");
+
+    const mdEntries = store.getMemoryEntries();
+    // (a) CORE: the superseded nonce is ABSENT from the `.md` the consolidator
+    //     read/merged — proves purge-first ran BEFORE consolidation saw it.
+    assert.ok(
+      !mdEntries.some((e) => e.includes(GUARD_NONCE)),
+      "superseded nonce must be purged from .md before consolidation (no resurrection)",
+    );
+    // (b) CORE: the superseded nonce is ABSENT from DB recall.
+    const recalled = await repo.searchMemories(GUARD_NONCE, { project: PROJECT });
+    assert.ok(
+      !recalled.some((m) => m.content.includes(GUARD_NONCE)),
+      "superseded nonce must not be recalled via searchMemories",
+    );
+    // (c) ISOLATION: the active keeper survives — locks the status filter so a
+    //     broken getMemories (returns active+superseded) cannot silently purge
+    //     the active keeper along with the superseded one.
+    assert.ok(
+      mdEntries.some((e) => e.includes(GUARD_ACTIVE_ONE)),
+      "active keeper must survive the purge (status filter isolates superseded)",
     );
   });
 });
