@@ -56,6 +56,12 @@ export interface MemoryRepository {
     created?: string; lastReferenced?: string;
   }): Promise<MemoryEntry>;
   syncMemoryEntry(input: MemorySyncInput): Promise<MemorySyncResult>;
+  /** Sync N entries in ONE batched round-trip (Surreal: a single transaction;
+   *  SQLite: a single BEGIN IMMEDIATE transaction). Returns one result per
+   *  input, preserving order, so callers can classify inserted vs existing.
+   *  Behavior is identical to N sequential `syncMemoryEntry` calls; only the
+   *  transport is collapsed. Keeps `syncMemoryEntry` for non-batch callers. */
+  syncMemoryEntriesBatch(inputs: MemorySyncInput[]): Promise<MemorySyncResult[]>;
   replaceSyncedMemories(oldText: string, updates: {
     content: string; target: MemoryTarget; project?: string | null;
     category?: import("../types.js").MemoryCategory | null;

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import type { MemorySyncInput } from '../../src/store/repository.js';
 import { SqliteBackend } from '../../src/store/sqlite/sqlite-backend.js';
 import { SqliteMemoryRepository } from '../../src/store/sqlite/sqlite-memory-repo.js';
 import { registerMemoryTool } from '../../src/tools/memory-tool.js';
@@ -131,7 +132,7 @@ describe('memory sqlite sync + markdown backfill', () => {
     );
   });
 
-  it('re-sync skips unchanged entries — zero syncMemoryEntry calls', async () => {
+  it('re-sync skips unchanged entries — zero syncMemoryEntriesBatch calls', async () => {
     const entries = [
       'skip-probe one <!-- created=2026-05-08, last=2026-05-08 -->',
       'skip-probe two <!-- created=2026-05-08, last=2026-05-09 -->',
@@ -142,22 +143,23 @@ describe('memory sqlite sync + markdown backfill', () => {
     const first = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
     assert.strictEqual(first.imported, 3, 'precondition: first sync imports all 3');
 
-    // Spy: count syncMemoryEntry calls on the re-run. The per-entry N+1 lives in
-    // these calls — skipping unchanged entries in-TS must drive them to zero.
-    const calls: string[] = [];
-    const origSync = memoryRepo.syncMemoryEntry.bind(memoryRepo);
-    memoryRepo.syncMemoryEntry = async (input) => {
-      calls.push(input.content);
-      return origSync(input);
+    // Spy: count syncMemoryEntriesBatch calls on the re-run. The per-entry N+1
+    // now lives in this single batched call — skipping unchanged entries in-TS
+    // must drive it to zero (empty dirty list → no batch call).
+    const calls: MemorySyncInput[][] = [];
+    const origBatch = memoryRepo.syncMemoryEntriesBatch.bind(memoryRepo);
+    memoryRepo.syncMemoryEntriesBatch = async (inputs) => {
+      calls.push(inputs);
+      return origBatch(inputs);
     };
 
     const second = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
-    assert.strictEqual(calls.length, 0, 'unchanged entries must be skipped without a syncMemoryEntry call');
+    assert.strictEqual(calls.length, 0, 'unchanged entries must be skipped without a syncMemoryEntriesBatch call');
     assert.strictEqual(second.imported, 0);
     assert.strictEqual(second.skipped, 3);
   });
 
-  it('re-sync calls syncMemoryEntry only for changed entries', async () => {
+  it('re-sync calls syncMemoryEntriesBatch once with only the changed entries', async () => {
     fs.writeFileSync(
       path.join(globalDir, 'MEMORY.md'),
       'delta-stable <!-- created=2026-05-08, last=2026-05-08 -->' +
@@ -176,16 +178,17 @@ describe('memory sqlite sync + markdown backfill', () => {
       'utf-8',
     );
 
-    const calls: string[] = [];
-    const origSync = memoryRepo.syncMemoryEntry.bind(memoryRepo);
-    memoryRepo.syncMemoryEntry = async (input) => {
-      calls.push(input.content);
-      return origSync(input);
+    const calls: MemorySyncInput[][] = [];
+    const origBatch = memoryRepo.syncMemoryEntriesBatch.bind(memoryRepo);
+    memoryRepo.syncMemoryEntriesBatch = async (inputs) => {
+      calls.push(inputs);
+      return origBatch(inputs);
     };
 
     await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
-    assert.strictEqual(calls.length, 1, 'only the changed entry triggers syncMemoryEntry');
-    assert.strictEqual(calls[0], 'delta-changed');
+    assert.strictEqual(calls.length, 1, 'all dirty entries must sync in a single batched call');
+    assert.strictEqual(calls[0].length, 1, 'only the changed entry is in the batch');
+    assert.strictEqual(calls[0][0].content, 'delta-changed');
   });
 
   it('backfills legacy project memory directories from the old ~/.pi/agent/<project> layout', async () => {
