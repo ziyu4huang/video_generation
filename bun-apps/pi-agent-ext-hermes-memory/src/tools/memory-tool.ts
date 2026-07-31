@@ -388,6 +388,10 @@ export function registerMemoryTool(
             result = await store_.add(target, content, { onProgress });
             if (result.success) {
               await syncEvictionsFromSqlite(rawTarget, result.evicted_entries, memoryRepo, projectName);
+              // D2+D4: superseded entries purged from `.md` by the offload-first
+              // overflow path must also have their DB rows deleted (destructive,
+              // no audit) — same content-key path as evicted_entries.
+              await syncEvictionsFromSqlite(rawTarget, result.offloaded_superseded, memoryRepo, projectName);
               syncWarning = await syncAddToSqlite(rawTarget, content, undefined, undefined, memoryRepo, projectName);
             }
           }

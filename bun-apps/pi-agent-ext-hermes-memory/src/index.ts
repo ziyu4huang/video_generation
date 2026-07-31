@@ -355,6 +355,25 @@ export default async function (pi: ExtensionAPI) {
       return triggerConsolidation(projectStore, target, memoryToolDef, signal, config.consolidationTimeoutMs, toolTarget, config);
     }, resolveConsolidatorModelLabel(config));
   }
+
+  // ── 7b. Inject the superseded-content provider (D2 offload-superseded-first) ──
+  // Mirrors setConsolidator's injection pattern — keeps MemoryStore free of a
+  // direct MemoryRepository reference. On overflow the store purges superseded
+  // `.md` entries by content-key; the caller (review-memory-ops / memory-tool)
+  // then syncs the DB rows via removeExactSyncedMemories (D4 destructive).
+  // Project scoping matches sqliteProjectFor: global store → project IS NULL,
+  // projectStore → project = projectName. Content-key matching is safe even
+  // cross-scope, but scoping avoids needless rows.
+  store.setSupersededContentProvider(async (target) => {
+    const list = await memoryRepo.getMemories({ target, project: null, status: "superseded" });
+    return list.map((m) => m.content);
+  });
+  if (projectStore) {
+    projectStore.setSupersededContentProvider(async (target) => {
+      const list = await memoryRepo.getMemories({ target, project: projectName, status: "superseded" });
+      return list.map((m) => m.content);
+    });
+  }
   // Inject the perf recorder into both stores — lock-hold breach timing (T2) +
   // consolidation always-logged event (T3).
   store.setPerfTimed(perf.timed);

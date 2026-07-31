@@ -6,6 +6,12 @@
       "bundleMode": "thin",
       "version": "0.1.0"
     },
+    {
+      "name": "pi-agent-ext-devops",
+      "entry": "pi-agent-ext-devops/extensions/devops.ts",
+      "bundleMode": "thin",
+      "version": "0.1.0"
+    },
     "pi-agent-ext-flux2/extensions/flux2.ts",
     "pi-agent-ext-krea2/extensions/krea2.ts",
     "pi-agent-ext-ltx/extensions/ltx.ts",

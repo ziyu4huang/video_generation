@@ -179,7 +179,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
     }
     overlay.setLine("done", `done: ${effort}`);
     ctx.ui.notify(
-      `[${PKG_NAME}] done: wrote ${r.path} (${r.deferredPrizes.length} deferred prize(s)). Next goal: ${r.nextGoal}`,
+      `[${PKG_NAME}] done: wrote ${r.path} (${r.deferredPrizes.length} deferred prize(s)). Next goal: ${r.nextGoal} → present the choice via the ask_user_question tool (recommended ⭐).`,
       "info",
     );
   }

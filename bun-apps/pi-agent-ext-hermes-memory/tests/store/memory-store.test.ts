@@ -204,7 +204,15 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.ok(result.error!.includes("exceed the limit"));
     });
 
-    it("evicts oldest entries in file order when memoryOverflowStrategy is fifo-evict", async () => {
+    // D3 behavioral change (Task 2): under the OLD code, fifo-evict dispatch
+    // directly to fifoEvictAndAdd, which shift()'d the oldest ACTIVE entry
+    // without ever calling the consolidator. Post-D3, fifo-evict collapses onto
+    // the consolidation path: the consolidator IS invoked, and because this stub
+    // returns consolidated:true without freeing space, the retried add falls to
+    // the vault-offload floor (evicting the oldest to the archive). The end
+    // result is the same (oldest entry `first` is removed), but the mechanism —
+    // and the message/archive_path — differ. See task-2-report.md.
+    it("fifo-evict consolidates before evicting (D3: never shift()s active directly)", async () => {
       let consolidatorCalled = false;
       const store = new MemoryStore(makeConfig({
         memoryCharLimit: 150,
@@ -227,11 +235,14 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const result = await store.add("memory", next);
 
       assert.ok(result.success, result.error);
-      assert.equal(consolidatorCalled, false);
-      assert.equal(result.message, "Memory updated. Rotated 1 older entry to stay within the limit.");
+      // D3: consolidator IS now invoked (was false under the old fifo-shift dispatch).
+      assert.equal(consolidatorCalled, true);
+      // The stub frees nothing, so the retried add hits the vault-offload floor.
+      assert.equal(result.message, "Memory updated. Offloaded 1 older entry to vault archive to stay within the limit.");
       assert.deepEqual(result.evicted_entries, [first]);
       assert.equal(result.evicted_count, 1);
       assert.equal(result.entry_count, 2);
+      assert.ok(result.archive_path, "floor should write a vault archive");
 
       const raw = await readRaw(memoryPath);
       assert.ok(!raw.includes(first));
@@ -324,6 +335,67 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       assert.ok(!result.success);
       assert.ok(result.error!.includes("exceed the limit"));
+    });
+
+    // D2: superseded entries are offloaded (purged from .md) BEFORE any
+    // destructive strategy runs. The provider is injected (test fakes it;
+    // production wires repo.getMemories({status:"superseded"}) in Task 3).
+    // NOTE: memoryCharLimit calibrated to 180 — the plan's literal 60 is
+    // impossible because each encoded entry carries a ~45-char metadata
+    // comment ("<!-- created=..., last=... -->"), so a 33-char content encodes
+    // to ~78 chars and would overflow on the FIRST add. At 180: 2 entries fit,
+    // a 3rd overflows, and after purging the superseded one the new entry fits.
+    it("overflow offloads superseded entries first (injected provider) before any destructive strategy", async () => {
+      const store = new MemoryStore(makeConfig({ memoryCharLimit: 180 }));
+
+      // Seed two active entries; pretend the DB reports the SECOND as superseded.
+      assert.ok((await store.add("memory", "keep me active overflowprobe aaa")).success);
+      assert.ok((await store.add("memory", "superseded one overflowprobe bbb")).success);
+      // Provider returns the CONTENT of the entry that is superseded in the DB.
+      store.setSupersededContentProvider(async () => ["superseded one overflowprobe bbb"]);
+
+      // This add overflows; expect the superseded entry purged and the new one added.
+      const result = await store.add("memory", "new entry overflowprobe ccc");
+
+      assert.ok(result.success, result.error);
+      assert.deepEqual(result.offloaded_superseded, ["superseded one overflowprobe bbb"]);
+
+      // The superseded entry must no longer be in the .md entries.
+      const entries = store.getMemoryEntries();
+      assert.ok(!entries.some((e) => e.includes("superseded one overflowprobe bbb")));
+      // The active entry and the new entry remain.
+      assert.ok(entries.some((e) => e.includes("keep me active overflowprobe aaa")));
+      assert.ok(entries.some((e) => e.includes("new entry overflowprobe ccc")));
+    });
+
+    // D3: when no superseded entries remain, ALL non-reject strategies route to
+    // consolidation — fifo-evict/vault-offload no longer shift() an active entry.
+    it("all-active overflow routes to consolidation, not fifo/vault shift", async () => {
+      // Use fifo-evict strategy to PROVE even fifo now consolidates instead of shift()ing active.
+      const store = new MemoryStore(makeConfig({ memoryCharLimit: 180, memoryOverflowStrategy: "fifo-evict" }));
+      assert.ok((await store.add("memory", "active one activeonlyprobe aaa")).success);
+      assert.ok((await store.add("memory", "active two activeonlyprobe bbb")).success);
+      // No superseded to offload.
+      store.setSupersededContentProvider(async () => []);
+      let consolidateCalls = 0;
+      store.setConsolidator(async () => {
+        consolidateCalls++;
+        // Simulate consolidation freeing space: clear the store so the retried
+        // _addInner fits. (Real consolidation rewrites the .md; the stub fakes
+        // that by emptying entries. Note the real flow re-loadFromDisk()s after
+        // consolidation, but the assertions below only require the consolidator
+        // to have been invoked + the add to ultimately succeed via the floor.)
+        (store as unknown as { setEntries: (t: "memory" | "user" | "failure", e: string[]) => void }).setEntries("memory", []);
+        return { consolidated: true };
+      }, "stub");
+
+      // Overflow with no superseded available → must consolidate, not fifo-shift active.
+      const result = await store.add("memory", "overflow activeonlyprobe ccc");
+
+      // D3: consolidator was invoked (under the old fifo-evict branch it would
+      // have shift()'d an active entry without ever calling the consolidator).
+      assert.ok(consolidateCalls > 0, `consolidator should have been called; got ${consolidateCalls}`);
+      assert.ok(result.success, result.error);
     });
 
     it("returns error for empty content", async () => {
