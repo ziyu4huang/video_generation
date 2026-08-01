@@ -716,3 +716,72 @@ test("filter narrows batch children: matching children keep a (recounted) header
   assert.equal(headers.length, 1, "one header — batchY dropped entirely, no orphan");
   assert.match(headers[0], /2 running/, "header count reflects matching children only");
 });
+
+// ── batch header k/N counts + completed-status children (Task 2: 4a) ──
+
+test("batch header shows k running / N done as children complete", () => {
+  const running = [
+    runningEntry("bX:0", { batchId: "bX", status: "completed" }),
+    runningEntry("bX:1", { batchId: "bX" }), // still running
+  ];
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+  const out = viewer.render(80).join("\n");
+  assert.match(out, /1 running/, "running count is the non-completed child");
+  assert.match(out, /1 done/, "done count is the completed child");
+});
+
+test("a completed batch child renders (greyed) and is still selectable → follow shows frozen trace", () => {
+  const running = [
+    runningEntry("bX:0", {
+      batchId: "bX",
+      status: "completed",
+      history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }],
+    }),
+    runningEntry("bX:1", { batchId: "bX" }),
+  ];
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+  const out = viewer.render(80).join("\n");
+  // The completed child still renders under the header, greyed with a ✓
+  // checkmark (Task 2's signature completed-row render; the ✓ only appears
+  // for completed-status children). With history present the row shows the
+  // latest action (▸ read), not the taskPreview — so we assert the ✓ marker.
+  assert.ok(out.includes("✓"), "completed child renders greyed (✓) under the header");
+  // cursor on header (entry 0); down → first child (bX:0, the completed one); enter → follow
+  viewer.handleInput("\x1b[B");
+  viewer.handleInput("\r");
+  const followed = viewer.render(80).join("\n");
+  assert.ok(followed.includes("→ read"), "completed child is selectable → follow shows its frozen trace");
+});
+
+test("counts update as more children complete (2 running → 1 running 1 done → 0 running 2 done)", () => {
+  // step 0: both running — header shows only the running count.
+  {
+    const running = [runningEntry("bX:0", { batchId: "bX" }), runningEntry("bX:1", { batchId: "bX" })];
+    const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+    const out = viewer.render(80).join("\n");
+    assert.match(out, /2 running/, "step 0: header shows the running count");
+    assert.doesNotMatch(out, /done/, "step 0: no done count yet");
+  }
+  // step 1: one child completed — header splits into running / done.
+  {
+    const running = [
+      runningEntry("bX:0", { batchId: "bX", status: "completed" }),
+      runningEntry("bX:1", { batchId: "bX" }),
+    ];
+    const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+    const out = viewer.render(80).join("\n");
+    assert.match(out, /1 running \/ 1 done/, "step 1: header shows 1 running / 1 done");
+  }
+  // step 2: both completed — header still renders (0 running / 2 done); the
+  // whole-batch eviction is the tool's job (endBatch), not the viewer's, so
+  // the header persists while completed children remain in getRunning().
+  {
+    const running = [
+      runningEntry("bX:0", { batchId: "bX", status: "completed" }),
+      runningEntry("bX:1", { batchId: "bX", status: "completed" }),
+    ];
+    const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+    const out = viewer.render(80).join("\n");
+    assert.match(out, /0 running \/ 2 done/, "step 2: header persists with 0 running / 2 done");
+  }
+});
