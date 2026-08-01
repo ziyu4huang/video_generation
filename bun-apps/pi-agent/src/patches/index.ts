@@ -80,14 +80,16 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   // so ExtensionRuntime gets getAllToolDefinitions(): ToolDefinition[] for passing
   // full tool definitions (with execute) to WorkflowAgent child sessions.
   { name: "ext-api-get-all-tool-definitions", env: "BUN_PI_EXT_API_GET_ALL_TOOL_DEFS", defaultValue: true },
-  // force-response-language: wraps AgentSession.prototype._rebuildSystemPrompt to
-  // PREPEND a forced reply-language block (from responseLanguage in
-  // ~/.pi/agent/settings.json) to every session's system prompt — main,
-  // subagent subprocess, workflow agent, obsidian/zk child. Replaces the
-  // drift-able AGENTS.md/CLAUDE.md prose with a top-of-prompt, non-negotiable
-  // block that survives role labels + the model's English default. Must run
-  // after ensure-extension-deps (imports @earendil-works/pi-coding-agent).
-  // Disable with BUN_PI_FORCE_RESPONSE_LANGUAGE=0.
+  // force-response-language: wraps AgentSession.prototype._installAgentNextTurnRefresh
+  // to PREPEND a forced reply-language block (from responseLanguage in
+  // ~/.pi/agent/settings.json) to every TURN's system prompt (per-turn, not
+  // cached) — main, subagent subprocess, workflow agent, obsidian/zk child all
+  // construct an AgentSession, so it reaches all of them by construction.
+  // Per-turn re-reads settings.json, so /response-language flips live with NO
+  // reload. Replaces the drift-able AGENTS.md/CLAUDE.md prose with a
+  // top-of-prompt, non-negotiable block that survives role labels + the model's
+  // English default. Must run after ensure-extension-deps (imports
+  // @earendil-works/pi-coding-agent). Disable with BUN_PI_FORCE_RESPONSE_LANGUAGE=0.
   { name: "force-response-language", env: "BUN_PI_FORCE_RESPONSE_LANGUAGE", defaultValue: true },
   // footer-extension-status-notify: patches InteractiveMode.prototype.init so
   // FooterDataProvider.setExtensionStatus / clearExtensionStatuses notify

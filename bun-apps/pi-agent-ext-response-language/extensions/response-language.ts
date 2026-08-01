@@ -4,10 +4,11 @@
  *
  * The forced injection itself is applied by the `force-response-language`
  * patch in `bun-apps/pi-agent/src/patches/` (it prepends a forced block to every
- * session's system prompt, reading `responseLanguage` fresh on each rebuild).
- * This command is the user-facing lever: it writes the key to
- * `~/.pi/agent/settings.json` and triggers `ctx.reload()` so the very next
- * reply already uses the new language — no restart, no hand-editing.
+ * turn's system prompt, reading `responseLanguage` fresh each turn). This
+ * command is the user-facing lever: it just writes the key to
+ * `~/.pi/agent/settings.json` — the patch re-reads it on the next turn, so the
+ * very next reply already uses the new language. No reload, no restart, no
+ * hand-editing.
  *
  * Usage:
  *   /response-language            → show the current responseLanguage
@@ -47,13 +48,13 @@ export default function (pi: ExtensionAPI): void {
 				return;
 			}
 
-			// outcome.kind === "set"
+			// outcome.kind === "set" — just write the key; the force-response-language
+			// patch re-reads settings.json on the next turn, so no reload is needed.
 			writeResponseLanguage(outcome.tag);
 			ctx.ui.notify(
-				`Response language → ${outcome.tag}. Rebuilding the prompt — the next reply will use it.`,
+				`Response language → ${outcome.tag}. The next reply will use it.`,
 				"info",
 			);
-			await ctx.reload();
 		},
 	});
 }
