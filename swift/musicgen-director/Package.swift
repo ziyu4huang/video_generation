@@ -26,6 +26,7 @@ let package = Package(
     ],
     products: [
         .executable(name: "musicgen", targets: ["MusicGenDirectorCLI"]),
+        .executable(name: "kokoro-tts", targets: ["KokoroTTSCLI"]),
         .library(name: "MusicGenDirector", targets: ["MusicGenDirector"]),
     ],
     dependencies: [
@@ -62,6 +63,15 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/MusicGenDirectorCLI"
+        ),
+        .executableTarget(
+            name: "KokoroTTSCLI",
+            dependencies: [
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXAudioTTS", package: "mlx-audio-swift"),
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            path: "Sources/KokoroTTSCLI"
         ),
         .testTarget(
             name: "MusicGenDirectorTests",
