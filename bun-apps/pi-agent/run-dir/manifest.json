@@ -75,6 +75,7 @@
   ],
   "staticExtensions": [
     "pi-agent-ext-core-task",
+    "pi-agent-ext-prompt-history",
     "pi-agent-ext-hermes-memory",
     "pi-agent-ext-superpowers",
     "pi-agent-ext-wayfind",
