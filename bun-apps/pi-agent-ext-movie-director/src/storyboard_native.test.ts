@@ -264,6 +264,26 @@ describe("runStoryboardNative — the core orchestration (mocked scenes + genera
     expect(result.frames).toHaveLength(3);
     expect(result.frames[0]?.sceneId).toBe("beat-1");
   });
+
+  it("derives outDir/contactSheet from a generated frame's directory when outputDir is omitted", async () => {
+    const result = await runStoryboardNative({
+      scenesOverride: [{ id: "s1", subject: "x", scene: "y" }],
+      _t2iImpl: async () => ({ path: "/generated/elsewhere/s1.png" }),
+      _spawnImpl: noContactSheet(),
+    });
+    expect(result.outDir).toBe("/generated/elsewhere");
+    expect(result.contactSheet).toBe("/generated/elsewhere/contact_sheet.png");
+  });
+
+  it("falls back to '.' when outputDir is omitted and every shot fails (nothing to derive a dir from)", async () => {
+    const result = await runStoryboardNative({
+      scenesOverride: [{ id: "s1", subject: "x", scene: "y" }],
+      _t2iImpl: async () => ({ path: null }),
+      _spawnImpl: noContactSheet(),
+    });
+    expect(result.outDir).toBe(".");
+    expect(result.contactSheet).toBeNull();
+  });
 });
 
 describe("writeStoryboardJson", () => {

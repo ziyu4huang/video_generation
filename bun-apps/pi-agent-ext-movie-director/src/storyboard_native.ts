@@ -39,7 +39,7 @@
  * established, a deliberate deviation from the Python's fail-fast behavior.
  */
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { runFlux2 } from "@repo/pi-agent-ext-flux2";
 import { runKrea2 } from "@repo/pi-agent-ext-krea2";
 import { decomposeStory } from "./storyboard_decompose.ts";
@@ -391,8 +391,12 @@ export async function runStoryboardNative(opts: StoryboardOptions): Promise<Stor
     });
   }
 
-  const outDir = opts.outputDir ?? ".";
   const successfulImages = frames.map((f) => f.image).filter((p): p is string => p != null);
+  // When outputDir isn't given, generation impls fall back to their own default
+  // output dir (not cwd) — derive the same dir from a real generated frame
+  // (mirrors character_native.ts's outDir fallback) so contact_sheet.png lands
+  // next to the frames it tiles, instead of at an unrelated "." (cwd).
+  const outDir = opts.outputDir ?? (successfulImages[0] ? dirname(successfulImages[0]) : ".");
   let contactSheet: string | null = null;
   if (successfulImages.length > 0) {
     const contactSheetPath = join(outDir, "contact_sheet.png");
