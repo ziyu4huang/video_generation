@@ -377,4 +377,5 @@ test("onUpdate emits a single-line 'k/N running · latest' as children progress"
   assert.match(first, /subagents/, "single-line batch summary");
   assert.match(first, /\/2/, "shows /N total");
   assert.match(first, /latest/, "includes the latest action");
+  assert.match(updates[1], /1\/2/, "running stays 1 as sibling #0 completes (not 2)");
 });
