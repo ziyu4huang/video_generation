@@ -29,3 +29,7 @@ export const MAX_CONCURRENCY = 16;
  * more; the caller can raise it up to MAX_CONCURRENCY per call.
  */
 export const DEFAULT_BATCH_CONCURRENCY = 4;
+
+/** Hard ceiling on the number of tasks in one `subagents` batch. Mirrors
+ *  pi-agent-ext-workflow's MAX_AGENTS_PER_RUN (kept local for package independence). */
+export const MAX_BATCH_TASKS = 1000;

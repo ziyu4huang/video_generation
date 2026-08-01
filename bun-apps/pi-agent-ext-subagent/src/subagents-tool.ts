@@ -9,7 +9,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import type { AgentUsage, BudgetExhaustion } from "./agent.js";
 import { checkBudgetExhaustion } from "./agent.js";
-import { DEFAULT_BATCH_CONCURRENCY, MAX_CONCURRENCY } from "./config.js";
+import { DEFAULT_BATCH_CONCURRENCY, MAX_BATCH_TASKS, MAX_CONCURRENCY } from "./config.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent.js";
 import { spawnSubagent } from "./spawn-subagent.js";
 import type { SubagentInFlightRegistry } from "./subagent-in-flight.js";
@@ -37,15 +37,20 @@ export interface BatchTask {
 /** A positional result slot (input order). `null` = the child failed. */
 export type BatchResultSlot =
   | { output: string; status: "done" | "timedout"; id?: string; index: number; usage?: AgentUsage }
-  | { status: "budget"; exhaustion: BudgetExhaustion; id?: string; index: number }
+  | {
+      status: "budget";
+      exhaustion: BudgetExhaustion;
+      /** Did this cap fire on the child's OWN per-child budget, or the batch-wide soft gate? */
+      source: "batch" | "child";
+      id?: string;
+      index: number;
+    }
   | null;
 
 export interface SubagentsToolDetails {
   results: BatchResultSlot[];
   /** Present when the batch-wide soft gate tripped. */
   budgetExhaustion?: BudgetExhaustion;
-  /** Aggregate usage across children that reported usage. */
-  usage?: AgentUsage;
   dispatched: number;
   skipped: number;
   elapsedMs: number;
@@ -169,6 +174,17 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
           details: { results: [], dispatched: 0, skipped: 0, elapsedMs: 0 } as SubagentsToolDetails,
         };
       }
+      if (tasks.length > MAX_BATCH_TASKS) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `tasks array too large: ${tasks.length} > ${MAX_BATCH_TASKS}. Split into smaller batches.`,
+            },
+          ],
+          details: { results: [], dispatched: 0, skipped: 0, elapsedMs: 0 } as SubagentsToolDetails,
+        };
+      }
       const concurrency = clampConcurrency(params.concurrency);
       const mainModel = options.getMainModel?.();
       const extensionTools = options.getExtensionTools?.();
@@ -193,7 +209,7 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
       await runWithConcurrency(tasks, concurrency, async (task, index) => {
         // Soft gate: once tripped, no NEW children start; in-flight ones finish.
         if (gateTripped) {
-          slots[index] = { status: "budget", exhaustion: budgetExhaustion!, id: task.id, index };
+          slots[index] = { status: "budget", exhaustion: budgetExhaustion!, source: "batch", id: task.id, index };
           return;
         }
         const childOpts = mergeReadOnlyExclusion(task, { defaultCwd, mainModel, extensionTools });
@@ -229,7 +245,7 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
         if (status === "failed") {
           slots[index] = null;
         } else if (result.budget) {
-          slots[index] = { status: "budget", exhaustion: result.budget, id: task.id, index };
+          slots[index] = { status: "budget", exhaustion: result.budget, source: "child", id: task.id, index };
         } else {
           slots[index] = {
             output: result.output,
@@ -273,13 +289,6 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
         }
       });
 
-      // Backfill any slot no worker reached (safety net for slots left undefined).
-      for (let i = 0; i < slots.length; i++) {
-        if (slots[i] === undefined) {
-          slots[i] = { status: "budget", exhaustion: budgetExhaustion!, id: tasks[i].id, index: i };
-        }
-      }
-
       const skipped = slots.filter((s) => s != null && (s as { status: string }).status === "budget").length;
       const details: SubagentsToolDetails = {
         results: slots as BatchResultSlot[],
@@ -305,8 +314,10 @@ export function renderBatchResult(details: SubagentsToolDetails): string {
     .map((slot, i) => {
       if (slot === null)
         return `### [${i}] failed\n_(null — child failed; re-run via the singular \`subagent\` tool to see the error)_`;
-      if (slot.status === "budget")
-        return `### [${i}]${slot.id ? ` (${slot.id})` : ""} skipped — batch budget: ${slot.exhaustion.kind} ${slot.exhaustion.actual} > ${slot.exhaustion.limit}`;
+      if (slot.status === "budget") {
+        const label = slot.source === "child" ? "child budget" : "batch budget";
+        return `### [${i}]${slot.id ? ` (${slot.id})` : ""} skipped — ${label}: ${slot.exhaustion.kind} ${slot.exhaustion.actual} > ${slot.exhaustion.limit}`;
+      }
       return `### [${i}]${slot.id ? ` (${slot.id})` : ""} ${slot.status}\n${slot.output || "_(empty output)_"}`;
     })
     .join("\n\n");
