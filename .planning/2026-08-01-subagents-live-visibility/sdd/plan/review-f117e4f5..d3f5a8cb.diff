@@ -1,0 +1,477 @@
+# Review package: f117e4f5..HEAD
+
+## Commits
+d3f5a8cb feat(subagents): collapsible batch header in /subagents (enter toggles)
+80380fca feat(subagents): group batch children under a header in /subagents Running section
+b9d61db9 feat(subagents): forward per-child live callbacks + set batchId on in-flight entries
+
+## Files changed
+ .../src/subagent-in-flight.ts                      |  4 +
+ .../pi-agent-ext-subagent/src/subagent-viewer.ts   | 87 +++++++++++++++----
+ .../pi-agent-ext-subagent/src/subagents-tool.ts    | 11 ++-
+ .../tests/subagent-in-flight.test.ts               |  9 ++
+ .../tests/subagent-viewer.test.ts                  | 98 ++++++++++++++++++++++
+ .../tests/subagents-tool.test.ts                   | 37 ++++++++
+ 6 files changed, 231 insertions(+), 15 deletions(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-subagent/src/subagent-in-flight.ts b/bun-apps/pi-agent-ext-subagent/src/subagent-in-flight.ts
+index 7e16c6bb..47dab0da 100644
+--- a/bun-apps/pi-agent-ext-subagent/src/subagent-in-flight.ts
++++ b/bun-apps/pi-agent-ext-subagent/src/subagent-in-flight.ts
+@@ -11,20 +11,24 @@
+ import type { AgentHistoryEntry } from "./agent-history.js";
+ 
+ export interface InFlightSubagent {
+   /** The toolCallId (unique per dispatch). */
+   id: string;
+   agent?: string;
+   model: string;
+   /** Concrete provider/id once the child resolves its model (onModelResolved).
+    * Undefined until resolution — the call line shows tier/model-request until then. */
+   resolvedModel?: string;
++  /** The batch tool's own toolCallId, set on every child of a `subagents` batch so
++   *  the /subagents viewer can group them under one header. Undefined for singular
++   *  `subagent` dispatches (flat, ungrouped) and workflow agents. */
++  batchId?: string;
+   taskPreview: string;
+   startedAt: number;
+   /** Latest compact history snapshot (for the live-output trace). */
+   history?: AgentHistoryEntry[];
+   /** Bound by renderCall so updateModel can force a call-line re-render mid-run. */
+   invalidate?: () => void;
+ }
+ 
+ /**
+  * Process-local registry of running subagents. Process-local by design: a
+diff --git a/bun-apps/pi-agent-ext-subagent/src/subagent-viewer.ts b/bun-apps/pi-agent-ext-subagent/src/subagent-viewer.ts
+index f21b1367..032607e1 100644
+--- a/bun-apps/pi-agent-ext-subagent/src/subagent-viewer.ts
++++ b/bun-apps/pi-agent-ext-subagent/src/subagent-viewer.ts
+@@ -91,20 +91,24 @@ interface ViewerOpts {
+ 
+ /** Stateful list↔output↔follow viewer. `view` flips on enter/esc; no second UI mount. */
+ export class SubagentViewer {
+   private runs: SubagentRun[];
+   private getRunning?: () => InFlightSubagent[];
+   private getRuns?: () => SubagentRun[];
+   private view: "list" | "output" | "follow" = "list";
+   private filter = "";
+   private showAll = false;
+   private selected = 0; // unified cursor over entries() (running first, then completed)
++  /** Collapsed batch headers (by batchId). A collapsed batch's children are
++   *  excluded from `entries()` entirely — hidden AND non-selectable. Per-batch
++   *  so collapsing one batch never affects another. */
++  private collapsedBatches = new Set<string>();
+   private outputRun?: SubagentRun; // the completed run open in `output` (decoupled from the list cursor)
+   private onClose: () => void;
+   private cachedWidth?: number;
+   private cachedLines?: string[];
+   private theme: Theme;
+   // follow state
+   private followedId?: string;
+   private followedSnapshot?: {
+     history: AgentHistoryEntry[];
+     model: string;
+@@ -116,34 +120,65 @@ export class SubagentViewer {
+   private finalizingTicks = 0;
+ 
+   constructor(opts: ViewerOpts, theme: Theme) {
+     this.runs = opts.runs;
+     this.getRunning = opts.getRunning;
+     this.getRuns = opts.getRuns;
+     this.onClose = opts.onClose;
+     this.theme = theme;
+   }
+ 
+-  /** Flat selectable list: running entries first, then completed, with a divider rendered between.
+-   *  When `filter` is non-empty, both sections are narrowed to entries whose `agent`
+-   *  OR `taskPreview` contains the query (case-insensitive substring). */
+-  private entries(): Array<{ kind: "running"; ref: InFlightSubagent } | { kind: "completed"; ref: SubagentRun }> {
++  /** Selectable list. Running entries come first (grouped: one `batchHeader`
++   *  entry per batch at its first child, then the child entries unless the
++   *  batch is collapsed), then completed. Ungrouped runs (no `batchId`) emit
++   *  flat. Grouping is order-independent: a header is emitted on first sight of
++   *  each batchId and ALL of that batch's children follow it, regardless of
++   *  insertion order — so a batch is never split across an ungrouped run.
++   *
++   *  When `filter` is non-empty, both sections narrow to entries whose `agent`
++   *  OR `taskPreview` matches (case-insensitive substring). A batch with no
++   *  matching children is dropped entirely (no header). */
++  private entries(): Array<
++    | { kind: "running"; ref: InFlightSubagent }
++    | { kind: "batchHeader"; batchId: string; count: number }
++    | { kind: "completed"; ref: SubagentRun }
++  > {
+     const q = this.filter.trim().toLowerCase();
+     const matches = (agent: string | undefined, preview: string): boolean =>
+       !q || (agent ?? "").toLowerCase().includes(q) || preview.toLowerCase().includes(q);
+-    const running = (this.getRunning?.() ?? []).filter((r) => matches(r.agent, r.taskPreview));
++    const allRunning = (this.getRunning?.() ?? []).filter((r) => matches(r.agent, r.taskPreview));
++
++    const runningEntries: Array<
++      { kind: "running"; ref: InFlightSubagent } | { kind: "batchHeader"; batchId: string; count: number }
++    > = [];
++    const seenBatches = new Set<string>();
++    for (const r of allRunning) {
++      const bid = r.batchId;
++      if (bid) {
++        // Collect ALL of this batch's children under one header, anchored at the
++        // batch's first sight — so grouping is correct regardless of insertion
++        // order (a batch is never split across an interleaved ungrouped run).
++        if (seenBatches.has(bid)) continue;
++        seenBatches.add(bid);
++        const children = allRunning.filter((x) => x.batchId === bid);
++        runningEntries.push({ kind: "batchHeader", batchId: bid, count: children.length });
++        if (!this.collapsedBatches.has(bid)) {
++          for (const c of children) runningEntries.push({ kind: "running", ref: c });
++        }
++      } else {
++        runningEntries.push({ kind: "running", ref: r });
++      }
++    }
++
+     const allCompleted = this.runs.filter((r) => matches(r.agent, r.taskPreview));
+     const capped = !q && !this.showAll ? allCompleted.slice(-COMPLETED_CAP) : allCompleted;
+-    return [
+-      ...running.map((ref) => ({ kind: "running" as const, ref })),
+-      ...capped.map((ref) => ({ kind: "completed" as const, ref })),
+-    ];
++    return [...runningEntries, ...capped.map((ref) => ({ kind: "completed" as const, ref }))];
+   }
+ 
+   private enterFollow(id: string): void {
+     this.followedId = id;
+     this.followedSnapshot = undefined;
+     this.followedFinal = undefined;
+     this.followEnded = false;
+     this.finalizingTicks = 0;
+     this.view = "follow";
+     this.invalidate();
+@@ -202,20 +237,30 @@ export class SubagentViewer {
+     if (this.selected > entries.length - 1) this.selected = Math.max(0, entries.length - 1);
+     if (matchesKey(data, Key.up) && this.selected > 0) {
+       this.selected -= 1;
+       this.invalidate();
+     } else if (matchesKey(data, Key.down) && this.selected < entries.length - 1) {
+       this.selected += 1;
+       this.invalidate();
+     } else if (matchesKey(data, Key.enter) && entries.length > 0) {
+       const e = entries[this.selected];
+       if (!e) return;
++      if (e.kind === "batchHeader") {
++        if (this.collapsedBatches.has(e.batchId)) this.collapsedBatches.delete(e.batchId);
++        else this.collapsedBatches.add(e.batchId);
++        // The header's index is stable across the toggle (it precedes its
++        // children), so the cursor stays on it. Clamp guards the unlikely
++        // case where the cursor sat beyond the now-shorter list.
++        this.selected = Math.min(this.selected, entries.length - 1);
++        this.invalidate();
++        return;
++      }
+       if (e.kind === "running") {
+         this.enterFollow(e.ref.id);
+       } else {
+         this.outputRun = e.ref;
+         this.view = "output";
+         this.invalidate();
+       }
+     }
+   }
+ 
+@@ -227,38 +272,52 @@ export class SubagentViewer {
+     else this.cachedLines = this.renderOutput(width, th);
+     this.cachedWidth = width;
+     return this.cachedLines;
+   }
+ 
+   private renderList(width: number, th: Theme): string[] {
+     const lines: string[] = [""];
+     const entries = this.entries();
+     if (this.selected > entries.length - 1) this.selected = Math.max(0, entries.length - 1);
+ 
+-    const running = entries.filter((e) => e.kind === "running") as Array<{ kind: "running"; ref: InFlightSubagent }>;
+-    if (running.length > 0) {
++    const runningEntries = entries.filter((e) => e.kind === "running" || e.kind === "batchHeader");
++    if (runningEntries.length > 0) {
+       const runningTitle = th.fg("accent", th.bold(" Running "));
+       lines.push(truncateToWidth(runningTitle + th.fg("borderMuted", "─".repeat(Math.max(0, width - 9))), width));
+-      for (const e of running) {
+-        const r = e.ref;
++      for (const e of runningEntries) {
+         const cur = entries.indexOf(e) === this.selected;
++        if (e.kind === "batchHeader") {
++          const collapsed = this.collapsedBatches.has(e.batchId);
++          const glyph = collapsed ? "▶" : "▼";
++          const header = `${th.fg("accent", th.bold(`${glyph} subagents batch`))} ${th.fg("dim", `· ${e.count} running`)}`;
++          lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", `▶ ${header}`) : `  ${header}`}`, width));
++          continue;
++        }
++        const r = e.ref;
++        const indented = Boolean(r.batchId);
+         const toolCalls = r.history?.filter((h) => h.kind === "toolCall").length ?? 0;
+         const row: ActivityRow = {
+           status: "running",
+           actor: r.agent ?? "general-purpose",
+           model: r.resolvedModel ?? r.model,
+           elapsedMs: Date.now() - r.startedAt,
+           toolCalls,
+           latestAction: summarizeLatestAction(r.history) ?? truncateToWidth(r.taskPreview, 40),
+         };
+         const head = renderActivityRow(row, th);
+-        lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`}`, width));
++        // Indented child (under a batch header) or flat ungrouped row — prefixes
++        // kept byte-identical to pre-Task-3 so existing visuals are unchanged.
++        if (indented) {
++          lines.push(truncateToWidth(`    ${cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`}`, width));
++        } else {
++          lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`}`, width));
++        }
+       }
+       lines.push("");
+     }
+ 
+     const title = th.fg("accent", th.bold(" Subagent runs "));
+     lines.push(truncateToWidth(title + th.fg("borderMuted", "─".repeat(Math.max(0, width - 15))), width));
+     lines.push("");
+     const completed = entries.filter((e) => e.kind === "completed") as Array<{ kind: "completed"; ref: SubagentRun }>;
+     if (completed.length === 0) {
+       lines.push(truncateToWidth(`  ${th.fg("dim", "No subagent runs on this branch.")}`, width));
+diff --git a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
+index ee05aed0..360d2216 100644
+--- a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
++++ b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
+@@ -218,24 +218,33 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
+         // required-string `model` field when nothing was requested).
+         const childModel = task.model ?? task.tier ?? task.capability ?? mainModel ?? "default";
+         // Register in-flight so `/subagents` shows this child while it runs.
+         const childRunId = `${toolCallId}:${index}`;
+         const childT0 = Date.now();
+         options.inFlight?.start({
+           id: childRunId,
+           model: childModel,
+           taskPreview: taskPreview(task.task),
+           startedAt: childT0,
++          batchId: toolCallId,
+         });
++        // Forward live callbacks so /subagents shows each child's resolved model and
++        // activity trace (deficit 1). Added here — not in mergeReadOnlyExclusion — because
++        // the callbacks close over the registry + childRunId, which that pure helper lacks.
++        const childSpawnOpts: SpawnSubagentOptions = {
++          ...childOpts,
++          onModelResolved: (id) => options.inFlight?.updateModel(childRunId, id),
++          onHistory: (history) => options.inFlight?.update(childRunId, history),
++        };
+         let result: SpawnSubagentResult;
+         try {
+-          result = await spawn(childOpts);
++          result = await spawn(childSpawnOpts);
+         } finally {
+           // Always deregister — even on throw — so the registry never leaks a run.
+           options.inFlight?.end(childRunId);
+         }
+         dispatched++;
+         // Accumulate usage for the batch-wide budget check (guard for undefined usage).
+         if (result.usage) {
+           acc.tokens.total += result.usage.total;
+           acc.cost += result.usage.cost;
+         }
+diff --git a/bun-apps/pi-agent-ext-subagent/tests/subagent-in-flight.test.ts b/bun-apps/pi-agent-ext-subagent/tests/subagent-in-flight.test.ts
+index b2221807..f5470087 100644
+--- a/bun-apps/pi-agent-ext-subagent/tests/subagent-in-flight.test.ts
++++ b/bun-apps/pi-agent-ext-subagent/tests/subagent-in-flight.test.ts
+@@ -57,10 +57,19 @@ test("updateModel on an unknown or ended id is a no-op", () => {
+   reg.updateModel("ghost", "x/y"); // unknown id — no throw, no invalidate
+   reg.start({ id: "a", model: "tier:medium", taskPreview: "t", startedAt: 0 });
+   reg.bindInvalidate("a", () => {
+     invalidated++;
+   });
+   reg.end("a");
+   reg.updateModel("a", "x/y"); // ended — no-op
+   assert.equal(reg.get("a"), undefined);
+   assert.equal(invalidated, 0);
+ });
++
++test("start carries batchId through for batch-tool children; undefined for singular-tool runs", () => {
++  const reg = new SubagentInFlightRegistry();
++  reg.start({ id: "c0", model: "x", taskPreview: "t", startedAt: 0, batchId: "batch-1" });
++  assert.equal(reg.get("c0")?.batchId, "batch-1");
++  // singular-tool children omit it → undefined (backward compatible)
++  reg.start({ id: "solo", model: "y", taskPreview: "u", startedAt: 0 });
++  assert.equal(reg.get("solo")?.batchId, undefined);
++});
+diff --git a/bun-apps/pi-agent-ext-subagent/tests/subagent-viewer.test.ts b/bun-apps/pi-agent-ext-subagent/tests/subagent-viewer.test.ts
+index d1fc8443..eff246b7 100644
+--- a/bun-apps/pi-agent-ext-subagent/tests/subagent-viewer.test.ts
++++ b/bun-apps/pi-agent-ext-subagent/tests/subagent-viewer.test.ts
+@@ -594,10 +594,108 @@ test("cap: a non-empty filter suspends the cap — all matches shown", () => {
+ });
+ 
+ test("cap: cursor clamps to the visible (capped) set", () => {
+   const runs = completedRuns(25);
+   const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
+   // spam down past the end of the capped list
+   for (let i = 0; i < 40; i++) viewer.handleInput("\x1b[B");
+   viewer.invalidate();
+   assert.doesNotThrow(() => viewer.render(80)); // selected never exceeds entries
+ });
++
++// ── batch grouping in the Running section (Task 2) ──
++
++test("viewer groups batch children under one header in the Running section", () => {
++  const running = [
++    runningEntry("batchX:0", { batchId: "batchX", history: [] }),
++    runningEntry("batchX:1", { batchId: "batchX", history: [] }),
++  ];
++  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
++  const out = viewer.render(80).join("\n");
++  // exactly one batch header for the group
++  const headers = out.split("\n").filter((l) => /subagents batch/.test(l));
++  assert.equal(headers.length, 1, "one header for the whole batch");
++  assert.match(out, /2 running/, "header shows the running count");
++  assert.ok(out.includes("doing batchX:0") && out.includes("doing batchX:1"), "both children present");
++});
++
++test("ungrouped running entries (no batchId) render flat — no batch header", () => {
++  const running = [runningEntry("solo1", { history: [] }), runningEntry("solo2", { history: [] })];
++  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
++  const out = viewer.render(80).join("\n");
++  assert.ok(!out.includes("subagents batch"), "no header for ungrouped runs");
++  assert.ok(out.includes("doing solo1") && out.includes("doing solo2"));
++});
++
++test("mixed: ungrouped runs flat, batch children grouped under one header", () => {
++  const running = [
++    runningEntry("solo", { history: [] }),
++    runningEntry("batchX:0", { batchId: "batchX", history: [] }),
++    runningEntry("batchX:1", { batchId: "batchX", history: [] }),
++  ];
++  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
++  const out = viewer.render(80).join("\n");
++  assert.ok(out.includes("doing solo"), "ungrouped run stays flat");
++  assert.match(out, /subagents batch.*2 running/, "batch grouped under one header");
++});
++
++test("a batch child is still selectable + followable (cursor unaffected by the header)", () => {
++  const running = [
++    runningEntry("batchX:0", { batchId: "batchX" }),
++    runningEntry("batchX:1", { batchId: "batchX" }),
++  ];
++  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
++  // entries() is: [header(batchX), batchX:0, batchX:1]. Cursor starts at 0 (the header).
++  viewer.handleInput("\x1b[B"); // down → first child (batchX:0)
++  viewer.handleInput("\r"); // enter → follow
++  const out = viewer.render(80).join("\n");
++  assert.ok(out.includes("→ read"), "follow streams the selected child's live trace");
++});
++
++// ── collapsible batch header (Task 3) ──
++
++test("batch header is selectable; enter collapses its children, enter again expands", () => {
++  const running = [
++    runningEntry("batchX:0", { batchId: "batchX", history: [] }),
++    runningEntry("batchX:1", { batchId: "batchX", history: [] }),
++  ];
++  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
++  let out = viewer.render(80).join("\n");
++  assert.ok(out.includes("doing batchX:0"), "expanded by default — children visible");
++  assert.match(out, /▼/, "expanded glyph");
++  // cursor starts on the header (first entry); enter collapses
++  viewer.handleInput("\r");
++  out = viewer.render(80).join("\n");
++  assert.ok(!out.includes("doing batchX:0") && !out.includes("doing batchX:1"), "collapsed — children hidden");
++  assert.match(out, /▶/, "collapsed glyph");
++  assert.match(out, /2 running/, "count still shown when collapsed");
++  viewer.handleInput("\r"); // expand again
++  out = viewer.render(80).join("\n");
++  assert.ok(out.includes("doing batchX:0"), "expanded again");
++});
++
++test("collapsed batch children are skipped by the cursor (down jumps header→next)", () => {
++  const running = [
++    runningEntry("batchX:0", { batchId: "batchX" }),
++    runningEntry("batchX:1", { batchId: "batchX" }),
++    runningEntry("solo"), // ungrouped, after the batch
++  ];
++  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
++  // entries: [header(batchX), solo] once collapsed (children excluded)
++  viewer.handleInput("\r"); // collapse the header (cursor on header)
++  viewer.handleInput("\x1b[B"); // down → solo
++  viewer.handleInput("\r"); // enter on solo (running) → follow
++  const out = viewer.render(80).join("\n");
++  assert.ok(out.includes("→ read"), "landed on solo's follow, not a hidden child");
++});
++
++test("collapsing one batch does not collapse another", () => {
++  const running = [
++    runningEntry("bA:0", { batchId: "bA", history: [] }),
++    runningEntry("bB:0", { batchId: "bB", history: [] }),
++  ];
++  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
++  viewer.handleInput("\r"); // collapse bA (header is entry 0)
++  const out = viewer.render(80).join("\n");
++  assert.ok(!out.includes("doing bA:0"), "bA collapsed");
++  assert.ok(out.includes("doing bB:0"), "bB still expanded");
++});
+diff --git a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
+index e9f6a837..dd3fef4c 100644
+--- a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++++ b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
+@@ -261,20 +261,57 @@ test("renderBatchResult renders ok/failed/skipped sections", () => {
+     dispatched: 1,
+     skipped: 1,
+     elapsedMs: 1500,
+     budgetExhaustion: { kind: "tokens", limit: 50000, actual: 70000 },
+   });
+   assert.match(text, /1 ok · 1 failed · 1 skipped/);
+   assert.match(text, /\(a\) done/);
+   assert.match(text, /skipped — batch budget: tokens 70000 > 50000/);
+ });
+ 
++test("batch children get batchId + forwarded onModelResolved/onHistory update the registry", async () => {
++  const inFlight = new SubagentInFlightRegistry();
++  const captured: { id: string; batchId?: string; resolved?: string; historyLen: number }[] = [];
++  const spawn = async (opts: {
++    task: string;
++    onModelResolved?: (id: string) => void;
++    onHistory?: (h: { kind: string }[]) => void;
++  }): Promise<SpawnSubagentResult> => {
++    opts.onModelResolved?.("google/gemma-4-12b-qat");
++    opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }]);
++    const idx = Number(opts.task.match(/^#(\d+)/)?.[1] ?? 0);
++    const entry = inFlight.get(`batch-call:${idx}`);
++    captured.push({
++      id: `batch-call:${idx}`,
++      batchId: entry?.batchId,
++      resolved: entry?.resolvedModel,
++      historyLen: entry?.history?.length ?? 0,
++    });
++    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
++  };
++  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
++  await tool.execute(
++    "batch-call",
++    { tasks: [{ task: "#0" }, { task: "#1" }], concurrency: 1 },
++    NO_SIGNAL,
++    undefined,
++    NO_CTX,
++  );
++  assert.equal(captured.length, 2, "both children ran");
++  for (const c of captured) {
++    assert.equal(c.batchId, "batch-call", "child registered with the batch toolCallId as batchId");
++    assert.equal(c.resolved, "google/gemma-4-12b-qat", "onModelResolved forwarded → resolvedModel set");
++    assert.equal(c.historyLen, 1, "onHistory forwarded → history stored");
++  }
++  assert.equal(inFlight.list().length, 0, "registry empty after the batch completes");
++});
++
+ test("a child hitting its own per-child budget renders as 'child budget' (source: child)", async () => {
+   const spawn = async (): Promise<SpawnSubagentResult> => ({
+     output: "out",
+     exitCode: 0,
+     stderr: "",
+     timedOut: false,
+     budget: { kind: "tokens", limit: 100, actual: 200 },
+   });
+   const tool = createSubagentsTool({ cwd: "/repo", spawn });
+   const res = await tool.execute("call-child-budget", { tasks: [{ task: "#0" }] }, NO_SIGNAL, undefined, NO_CTX);
