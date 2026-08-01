@@ -320,3 +320,30 @@ test("a child hitting its own per-child budget renders as 'child budget' (source
   assert.equal((slot as { source: string }).source, "child");
   assert.match(res.content[0].text, /child budget: tokens 200 > 100/);
 });
+
+test("batch keeps a completed child (status=completed) mid-run; evicts the whole batch on return", async () => {
+  const inFlight = new SubagentInFlightRegistry();
+  const seen: { id: string; status?: string; present: boolean }[] = [];
+  const spawn = async (opts: { task: string }): Promise<SpawnSubagentResult> => {
+    const idx = Number(opts.task.match(/^#(\d+)/)?.[1] ?? 0);
+    // child #0 finishes first (concurrency 1 → strict order): by the time #1 runs,
+    // #0 must still be present in the registry, marked completed (NOT evicted).
+    if (idx === 1) {
+      const c0 = inFlight.get("batch-call:0");
+      seen.push({ id: "batch-call:0", status: c0?.status, present: !!c0 });
+    }
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  };
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
+  await tool.execute(
+    "batch-call",
+    { tasks: [{ task: "#0" }, { task: "#1" }], concurrency: 1 },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.equal(seen.length, 1, "child #1 observed #0");
+  assert.equal(seen[0].present, true, "#0 still in registry when #1 runs (kept, not evicted)");
+  assert.equal(seen[0].status, "completed", "#0 marked completed (not running, not gone)");
+  assert.equal(inFlight.list().length, 0, "registry empty after the batch returns (whole-batch eviction)");
+});
