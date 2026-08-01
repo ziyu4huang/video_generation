@@ -27,6 +27,7 @@ final class KokoroGenerationTests: XCTestCase {
         )
         let samples: [Float] = waveform.asArray(Float.self)
         XCTAssertGreaterThan(samples.count, 0, "Mandarin generation produced zero samples — check the ByT5 G2P path loaded")
+        XCTAssertGreaterThan(model.sampleRate, 0)
         let maxAbs = samples.map { abs($0) }.max() ?? 0
         XCTAssertGreaterThan(maxAbs, 0.001, "Mandarin generation looks silent (max abs sample \(maxAbs))")
     }
