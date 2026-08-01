@@ -105,6 +105,22 @@ describe("buildArgvFromManifest", () => {
 		expect(warns.some((w) => w.includes("skill path not found"))).toBe(true);
 	});
 
+	test("malformed entry (object missing 'entry') is skipped + warned, not a crash (I-1)", () => {
+		// A declared object without `entry` previously made path.join throw an
+		// opaque "paths[1] must be a string" TypeError at boot. Now: skip + warn,
+		// and well-formed siblings still resolve.
+		const warns: string[] = [];
+		const argv = buildArgvFromManifest(
+			{ extensions: [{ name: "phantom" }, "real/x.ts"] },
+			"/base",
+			[],
+			() => true,
+			(m) => warns.push(m),
+		);
+		expect(argv).toEqual(["-e", join("/base", "real/x.ts")]);
+		expect(warns.some((w) => w.includes("missing 'entry'") && w.includes("phantom"))).toBe(true);
+	});
+
 	test("undefined base → workspace ext + skills skipped, npm ext still included, warned once for base", () => {
 		const warns: string[] = [];
 		const argv = buildArgvFromManifest(
