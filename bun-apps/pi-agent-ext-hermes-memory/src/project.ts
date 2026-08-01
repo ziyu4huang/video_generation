@@ -26,7 +26,7 @@ export interface ProjectSkillInfo extends ProjectInfo {
  * The project name is the directory's basename.
  * Project-scoped memory is stored at ~/.pi/agent/<projectsMemoryDir>/<projectName>/.
  */
-export function detectProject(projectsMemoryDir = "projects-memory", cwd?: string): ProjectInfo {
+export function detectProject(projectsMemoryDir = "projects-memory", cwd?: string, projectNameOverride?: string): ProjectInfo {
   const dir = cwd ?? process.cwd();
   const homeDir = os.homedir();
 
@@ -38,10 +38,16 @@ export function detectProject(projectsMemoryDir = "projects-memory", cwd?: strin
     return { name: null, memoryDir: null };
   }
 
-  const name = path.basename(resolved);
-  if (!name || name === "." || name === "..") {
+  const basename = path.basename(resolved);
+  if (!basename || basename === "." || basename === "..") {
     return { name: null, memoryDir: null };
   }
+
+  // ticket 09 — cross-worktree tag coherence: a repo-local `projectName`
+  // override wins over the cwd basename so all worktrees of one repo share one
+  // project tag (8 worktrees → 8 basenames would otherwise fragment the DB).
+  const override = projectNameOverride?.trim();
+  const name = override || basename;
 
   return {
     name,
