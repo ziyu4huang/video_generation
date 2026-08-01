@@ -72,20 +72,27 @@ const GUARD_LIMIT = 217;
 // helpers (setEntries/saveToDisk/encodeEntry) the same way the production
 // consolidator rewrites the file on disk; saveToDisk does not re-acquire the
 // file lock (it only writes), so it is safe to call from inside the held lock.
-type StoreInternals = {
-  setEntries: (t: "memory" | "user" | "failure", e: string[]) => void;
-  saveToDisk: (t: "memory" | "user" | "failure") => Promise<void>;
-  encodeEntry: (text: string, created: string, last: string) => string;
-};
+// (2-phase note: this helper now returns a MergePlan that MERGES every seeded
+// entry into one content-preserving row; the store applies it in step 3. The
+// drop-everything-else semantics are identical to the old direct-mutate stub.)
 function installMergingConsolidator(store: MemoryStore): void {
-  store.setConsolidator(async (target) => {
-    const internal = store as unknown as StoreInternals;
-    const entries = target === "memory" ? store.getMemoryEntries() : [];
-    const merged = entries.join(" | ");
-    const today = new Date().toISOString().split("T")[0];
-    internal.setEntries("memory", merged ? [internal.encodeEntry(merged, today, today)] : []);
-    await internal.saveToDisk("memory");
-    return { consolidated: true };
+  store.setConsolidator(async (snapshot) => {
+    // Merge every entry into ONE content-preserving row (joined with " | ").
+    // Unlike the real LLM consolidator (which summarizes), this stub preserves
+    // verbatim text — so if a superseded entry survived into the snapshot, its
+    // nonce is resurrected into the merge. That is exactly the D0/D2 hazard the
+    // guard locks (the snapshot is taken AFTER the superseded purge, so it is
+    // absent and cannot be resurrected).
+    const keys = snapshot.entries.map((e) => e.key);
+    const merged = snapshot.entries.map((e) => e.content).join(" | ");
+    return {
+      plan: {
+        snapshotBaseHash: snapshot.snapshotBaseHash,
+        ops: keys.length
+          ? [{ op: "merge" as const, fromKeys: keys, content: merged }]
+          : [],
+      },
+    };
   }, "merge-stub");
 }
 

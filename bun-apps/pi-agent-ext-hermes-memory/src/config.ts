@@ -120,12 +120,14 @@ export function shouldRunStartupSync(): boolean {
 
 /**
  * A consolidation CHILD process inherits `PI_HERMES_CONSOLIDATING=1` (set by
- * `MemoryStore.runConsolidator` alongside `PI_MEMORY_FILE_LOCK=bypass`). Such
- * a child must NEVER spawn its own consolidator — that recursion is the
- * consolidation freeze: nested children chain/overlap/race on the
- * bypass-unlocked `.md` (wayfinder ticket 05, diagnosed in 01). Force the
- * vault-offload floor so the child still WRITES (never hard-rejects on
- * overflow) but does not recurse into another consolidation.
+ * `MemoryStore.runConsolidator`). Such a child must NEVER spawn its own
+ * consolidator — that recursion is the consolidation freeze: nested children
+ * chain/overlap/race on the `.md` (wayfinder ticket 05, diagnosed in 01). Force
+ * the vault-offload floor so the child still WRITES (never hard-rejects on
+ * overflow) but does not recurse into another consolidation. (The 2-phase
+ * refactor dropped the old `PI_MEMORY_FILE_LOCK=bypass`: the plan-only child
+ * has `tools: []` and never writes, so there is no held lock to bypass and no
+ * `.md` to race on.)
  */
 function applyConsolidatingChildGuard(config: MemoryConfig): MemoryConfig {
   if (isConsolidatingChild()) {

@@ -18,6 +18,8 @@ import * as lockfile from "proper-lockfile";
 import { parseMetadataComment, serializeMetadataComment } from "./memory-format.js";
 import { scanContent } from "./content-scanner.js";
 import { normalizeMemoryLookupText } from "./memory-lookup.js";
+import { buildSnapshot, applyMergePlan } from "./merge-plan.js";
+import type { ConsolidationSnapshot, MergePlan } from "./merge-plan.js";
 import {
   ENTRY_DELIMITER,
   DEFAULT_MEMORY_CHAR_LIMIT,
@@ -47,12 +49,30 @@ function isLockAcquisitionError(err: unknown): boolean {
   return /lock file is already|already being held/i.test(msg);
 }
 
+/** Internal outcome of {@link MemoryStore.consolidateTwoPhase}: the public
+ *  {@link ConsolidationResult} plus the plan's applied/skipped op counts (for the
+ *  perf `extra` payload). */
+type TwoPhaseResult = ConsolidationResult & {
+  /** Ops that took effect in the locked reconcile (step 3). */
+  applied?: number;
+  /** Ops deferred (a referenced key vanished concurrently). */
+  skipped?: number;
+};
+
 export class MemoryStore {
   private memoryEntries: string[] = [];
   private userEntries: string[] = [];
   private failureEntries: string[] = [];
   private snapshot: MemorySnapshot = { memory: "", user: "" };
-  private consolidator: ((target: "memory" | "user" | "failure", signal?: AbortSignal) => Promise<ConsolidationResult>) | null = null;
+  /** The injected consolidator. Under the 2-phase design this does NOT write:
+   *  it takes a {@link ConsolidationSnapshot} and returns a {@link MergePlan}
+   *  (or `{ error, terminated? }`). The store applies the plan in a brief locked
+   *  reconcile (see {@link consolidateTwoPhase}). Lock-free by contract — the
+   *  LLM (step 2) runs with the cross-process file lock RELEASED, so concurrent
+   *  sibling-session writers are no longer blocked for up to ~60s. */
+  private consolidator:
+    | ((snapshot: ConsolidationSnapshot, signal?: AbortSignal) => Promise<{ plan: MergePlan } | { error: string; terminated?: boolean }>)
+    | null = null;
   /** Human-readable label of the consolidator's model (for progress reporting). */
   private consolidatorModelLabel?: string;
 
@@ -61,8 +81,16 @@ export class MemoryStore {
   /**
    * Inject a consolidation function (avoids circular imports).
    * Called from index.ts after both store and pi are available.
+   *
+   * Contract (2-phase): `fn` is lock-free and side-effect-free — it receives a
+   * {@link ConsolidationSnapshot} and resolves to a {@link MergePlan} (or an
+   * `{ error, terminated? }`). The store itself drives the brief locked
+   * reconcile-write (step 3) in {@link consolidateTwoPhase}.
    */
-  setConsolidator(fn: (target: "memory" | "user" | "failure", signal?: AbortSignal) => Promise<ConsolidationResult>, modelLabel?: string): void {
+  setConsolidator(
+    fn: (snapshot: ConsolidationSnapshot, signal?: AbortSignal) => Promise<{ plan: MergePlan } | { error: string; terminated?: boolean }>,
+    modelLabel?: string,
+  ): void {
     this.consolidator = fn;
     this.consolidatorModelLabel = modelLabel;
   }
@@ -111,20 +139,17 @@ export class MemoryStore {
   //
   // RE-ENTRANT via AsyncLocalStorage: when a locked op calls back into another
   // mutating method on the SAME async chain, the inner call bypasses the queue
-  // instead of deadlocking. This matters for the consolidator: _addInner holds
-  // the lock and awaits this.consolidator(...); if that consolidator operates
-  // on the same store instance (the unit-test mock does store.remove(); a
-  // same-process consolidator would too), the re-entrant call must not wait on
-  // the lock it already holds. (In production triggerConsolidation runs in a
-  // child process on a different store instance, so this is belt-and-suspenders
-  // — but it makes the lock correct for any same-instance consolidator.)
+  // instead of deadlocking. (2-phase consolidation runs the LLM OUTSIDE the
+  // held lock — see _add's loop + consolidateTwoPhase — so the consolidator no
+  // longer re-enters this chain. The re-entrancy is retained as belt-and-
+  // suspenders for any same-instance nested mutator.)
   private _writeChain: Promise<unknown> = Promise.resolve();
   private _writeOwner: AsyncLocalStorage<boolean> = new AsyncLocalStorage<boolean>();
 
   /** Cross-process lock paths currently held by THIS process. Re-entrancy guard:
-   *  runExclusive serializes within the process; the only re-entry is a
-   *  same-instance consolidator (production ones run in a child process —
-   *  see runConsolidator), which must not re-acquire its own file lock. */
+   *  runExclusive serializes within the process; a nested same-instance mutator
+   *  must not re-acquire its own file lock. (The 2-phase consolidator runs
+   *  lock-free, so step 2 never holds one of these.) */
   private _heldFileLocks: Set<string> = new Set();
 
   private runExclusive<T>(fn: () => Promise<T>): Promise<T> {
@@ -158,9 +183,11 @@ export class MemoryStore {
   // Layering: runExclusive (in-process) is OUTER, withFileLock (cross-process)
   // is INNER. This keeps the cross-process lock scope tight to the disk touch.
   //
-  // BYPASS via PI_MEMORY_FILE_LOCK=bypass: the consolidator CHILD process
-  // inherits this env and skips the lock — see runConsolidator for why that's
-  // safe (the parent still holds the lock, making the child the sole writer).
+  // BYPASS via PI_MEMORY_FILE_LOCK=bypass: a retained defensive escape hatch
+  // (unit-tested directly). The 2-phase consolidator no longer sets it — step 2
+  // is lock-free and step 3 acquires the lock normally — so in production this
+  // branch is not taken; it remains for ad-hoc/test bypass of the cross-process
+  // lock.
   private async withFileLock<T>(
     target: "memory" | "user" | "failure",
     fn: () => Promise<T>,
@@ -212,16 +239,74 @@ export class MemoryStore {
   }
 
   /**
-   * Run the consolidator with the file-lock bypass env set, so the spawned
-   * child process (pi.exec — a SEPARATE OS process with its own MemoryStore)
-   * does not contend on the cross-process lock the parent holds here. Without
-   * this the child's _addInner would ELOCKED on the parent's held lock →
-   * consolidation always fails (or deadlocks if retries block).
+   * 3-phase consolidation, lock-free in the long step.
    *
-   * Safety: runExclusive guarantees only one mutating op runs in this process,
-   * so the env toggle can't leak to a concurrent op. The parent keeps the
-   * cross-process lock for the whole await, making the child the sole writer
-   * in flight (no lost update, no deadlock).
+   *   1. **Snapshot** (no lock): build a {@link ConsolidationSnapshot} from the
+   *      in-memory entries (already loaded by the caller — the sentinel-returning
+   *      `_addInner` purged superseded entries before signalling up).
+   *   2. **Plan** (lock-FREE): the injected consolidator turns the snapshot into a
+   *      {@link MergePlan}. This is the local-LLM call that used to hold the
+   *      cross-process lock for up to ~60s; it now runs with the lock RELEASED so
+   *      concurrent sibling-session writers are no longer starved.
+   *   3. **Reconcile** (brief, under lock): re-read disk, `applyMergePlan(live,
+   *      plan)`, write. Concurrent appends survive the rewrite (live entries not
+   *      removed by any applied op are kept in order).
+   *
+   * Never throws into the caller for a plan failure: those map to
+   * `{ consolidated: false, error }` and the retried `_addInner` falls through to
+   * the never-fail vault-offload floor. A thrown step-3 (disk/IO) propagates so
+   * `_add`'s try/catch can fall through to the floor.
+   */
+  private async consolidateTwoPhase(
+    target: "memory" | "user" | "failure",
+    signal?: AbortSignal,
+    onProgress?: (message: string) => void,
+  ): Promise<TwoPhaseResult> {
+    if (!this.consolidator) return { consolidated: false, error: "no consolidator configured" };
+    // Surface progress to the tool layer (-> onUpdate partial result in the TUI):
+    // consolidation runs a local LLM; the lock-free step means it no longer holds
+    // the file lock, but without this it'd still be a silent spinner.
+    const label = this.consolidatorModelLabel ?? "default model";
+    onProgress?.(`Consolidating ${target} store with ${label}… (local LLM plan; lock-free)`);
+
+    // Step 1: snapshot from the in-memory entries (already loaded + superseded-
+    // purged by the caller). buildSnapshot parses each encoded entry + computes
+    // the order-insensitive snapshotBaseHash the plan anchors against.
+    const snapshot = buildSnapshot(target, this.entriesFor(target), this.charLimit(target));
+
+    // Step 2: lock-FREE plan. The consolidator produces a MergePlan (no writes).
+    const res = await this.consolidator(snapshot, signal);
+    if ("error" in res) {
+      return { consolidated: false, error: res.error, terminated: res.terminated };
+    }
+
+    // Step 3: brief locked reconcile-write. Re-read disk so concurrent appends
+    // survive (applyMergePlan keeps live entries not removed by any applied op,
+    // in original order); only entries still referenced by the plan are dropped.
+    let applied = 0;
+    let skipped = 0;
+    await this.runExclusive(() => this.withFileLock(target, async () => {
+      await this.loadFromDisk();
+      const live = this.entriesFor(target);
+      const r = applyMergePlan(live, res.plan);
+      this.setEntries(target, r.entries);
+      await this.saveToDisk(target);
+      applied = r.applied.length;
+      skipped = r.skipped.length;
+    }));
+    return { consolidated: applied > 0, applied, skipped };
+  }
+
+  /**
+   * Wrap {@link consolidateTwoPhase} with the `PI_HERMES_CONSOLIDATING=1` env
+   * (the spawned sub-agent inherits it; loadConfig forces autoConsolidate:false
+   * so a plan-only child never spawns its own consolidator) and the always-logged
+   * perf record (target, duration, terminated flag, applied/skipped counts).
+   *
+   * The old `PI_MEMORY_FILE_LOCK=bypass` toggle is GONE: step 2 is lock-free and
+   * step 3 acquires the lock normally, so there is no held lock to bypass.
+   * `runExclusive` guarantees only one mutating op runs in this process, so the
+   * env toggle can't leak to a concurrent op.
    */
   private async runConsolidator(
     target: "memory" | "user" | "failure",
@@ -229,34 +314,28 @@ export class MemoryStore {
     onProgress?: (message: string) => void,
   ): Promise<ConsolidationResult> {
     if (!this.consolidator) return { consolidated: false, error: "no consolidator configured" };
-    // Surface progress to the tool layer (-> onUpdate partial result in the TUI):
-    // consolidation runs a local LLM and can hold the file lock for up to ~60s, so
-    // without this the memory tool call is a silent spinner with no model-id.
-    const label = this.consolidatorModelLabel ?? "default model";
-    onProgress?.(`Consolidating ${target} store with ${label}… (local LLM merge/dedup; up to 60s)`);
-    const prevLock = process.env.PI_MEMORY_FILE_LOCK;
     const prevCons = process.env.PI_HERMES_CONSOLIDATING;
-    // PI_MEMORY_FILE_LOCK=bypass: child skips the cross-process lock (parent holds it).
-    // PI_HERMES_CONSOLIDATING=1: child must NOT spawn its own consolidator — prevents
-    //   the nested-consolidation freeze (chain/overlap/race; wayfinder 01/05). The child
-    //   inherits this env; loadConfig forces autoConsolidate:false → vault-offload floor.
-    process.env.PI_MEMORY_FILE_LOCK = "bypass";
+    // PI_HERMES_CONSOLIDATING=1: the spawned sub-agent must NOT spawn its own
+    //   consolidator — prevents the nested-consolidation freeze (chain/overlap/
+    //   race; wayfinder 01/05). The child inherits this env; loadConfig forces
+    //   autoConsolidate:false → it can only plan (tools: []), never write/consolidate.
     process.env.PI_HERMES_CONSOLIDATING = "1";
     try {
-      // Always-log every consolidation (rare, under study): target, duration, and
-      // whether the child timed out. The child is a separate process, so only the
-      // parent's wall-clock ms is meaningful (round-trips ~0, expected).
+      // Always-log every consolidation (rare, under study): target, duration,
+      // whether the child timed out, and the plan's applied/skipped op counts.
       // NOTE: only Auto-consolidation (this runConsolidator path) is logged; the
       // manual /memory-consolidate command calls triggerConsolidation directly and
       // bypasses this — a known blind spot when reading perf.jsonl frequency.
       return await this.perfAlways(
         `consolidation.${target}`,
-        () => this.consolidator!(target, signal),
-        { kind: "consolidation", timedOutFrom: (r) => !!r.terminated },
+        () => this.consolidateTwoPhase(target, signal, onProgress),
+        {
+          kind: "consolidation",
+          timedOutFrom: (r) => !!r.terminated,
+          extraFrom: (r) => ({ applied: r.applied ?? 0, skipped: r.skipped ?? 0 }),
+        },
       );
     } finally {
-      if (prevLock === undefined) delete process.env.PI_MEMORY_FILE_LOCK;
-      else process.env.PI_MEMORY_FILE_LOCK = prevLock;
       if (prevCons === undefined) delete process.env.PI_HERMES_CONSOLIDATING;
       else process.env.PI_HERMES_CONSOLIDATING = prevCons;
     }
@@ -460,9 +539,50 @@ export class MemoryStore {
     onProgress?: (message: string) => void,
     meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null },
   ): Promise<MemoryResult> {
-    // Serialize so reload-read → mutate-array → saveToDisk stays atomic.
-    // runExclusive = in-process; withFileLock = cross-process (see withFileLock).
-    return this.runExclusive(() => this.withFileLock(target, () => this._addInner(target, content, signal, _retriesLeft, addedMessage, onProgress, meta)));
+    // 2-PHASE RESTRUCTURE: consolidation runs OUTSIDE the held cross-process
+    // file lock. `_addInner`'s overflow branch no longer consolidates in-lock;
+    // it returns a sentinel ({ success: false, needsConsolidation: true }) so
+    // this loop can run the LLM plan (step 2) lock-free, then re-enter the brief
+    // locked write. `_retriesLeft` bounds consolidation attempts exactly as the
+    // old in-lock recursion did (one attempt from the default budget of 1).
+    let retriesLeft = _retriesLeft;
+    // Accrued superseded purge set threaded across the out-of-lock consolidation
+    // (mirrors the old in-lock recursion's `_accruedOffloaded` accumulator):
+    // a child frame that fits after consolidation surfaces none of its own, so
+    // the final result re-attaches this set to prevent orphan DB rows (D4).
+    let accruedOffloaded: string[] = [];
+    let result = await this.runExclusive(() =>
+      this.withFileLock(target, () =>
+        this._addInner(target, content, signal, retriesLeft, addedMessage, onProgress, meta, []),
+      ),
+    );
+    while (result.needsConsolidation && retriesLeft > 0) {
+      // _addInner already persisted the superseded purge before signalling up;
+      // carry its offloaded set forward (merge with anything accrued earlier).
+      accruedOffloaded = result.offloaded_superseded?.length
+        ? [...accruedOffloaded, ...result.offloaded_superseded]
+        : accruedOffloaded;
+      retriesLeft -= 1;
+      // Best-effort: a thrown or failed 2-phase is swallowed here — the next
+      // locked _addInner re-reads disk and, still over limit with the retry
+      // budget spent, falls through to the never-fail vault-offload floor.
+      try {
+        await this.runConsolidator(target, signal, onProgress);
+      } catch {
+        /* fall through to the floor on re-entry */
+      }
+      result = await this.runExclusive(() =>
+        this.withFileLock(target, () =>
+          this._addInner(target, content, signal, retriesLeft, addedMessage, onProgress, meta, accruedOffloaded),
+        ),
+      );
+    }
+    // Re-attach the accrued purge set to a final result that surfaced none of
+    // its own (the consolidation-success path that now fits after the rewrite).
+    if (accruedOffloaded.length && !result.offloaded_superseded) {
+      result.offloaded_superseded = accruedOffloaded;
+    }
+    return result;
   }
 
   private async _addInner(
@@ -561,33 +681,30 @@ export class MemoryStore {
       // D3: superseded already purged, so remaining overflow is all-active. The
       // fifo-evict/vault-offload branches used to shift() active entries here,
       // breaking lineage chains. Collapse every non-reject strategy onto the
-      // consolidation path (runConsolidator + the existing vault-offload floor),
-      // so active entries are never silently shifted. Only "reject" hard-rejects.
+      // consolidation path (2-phase runConsolidator + the existing vault-offload
+      // floor), so active entries are never silently shifted. Only "reject"
+      // hard-rejects.
       if (strategy !== "reject") {
+        // 2-PHASE (D-restructure): do NOT consolidate while holding the file
+        // lock. Return a sentinel so `_add` can run the LLM plan (step 2) with
+        // the lock RELEASED, then re-enter this locked write. The superseded
+        // purge already persisted above; carry its offloaded set on the sentinel
+        // so `_add` threads it down to the retried write (D4 orphan-row guard).
+        // Only signal when a consolidator is wired AND the retry budget allows;
+        // otherwise fall straight through to the never-fail floor below.
         if (this.consolidator && _retriesLeft > 0) {
-          try {
-            const result = await this.runConsolidator(target, signal, onProgress);
-            if (result.consolidated) {
-              await this.loadFromDisk();
-              // RECURSION (path 3, D4 fix): thread the full accrued+this-frame
-              // purge set down. A child that re-enters overflow seeds it and its
-              // floor/reject carries the full set; a child that fits after
-              // consolidation (skips overflow) returns no offloaded_superseded,
-              // so we re-attach this frame's set below to avoid losing the
-              // parent's purge to orphan DB rows.
-              const childResult = await this._addInner(target, content, signal, _retriesLeft - 1, addedMessage, onProgress, meta, offloadedSuperseded);
-              if (offloadedSuperseded.length && !childResult.offloaded_superseded) {
-                childResult.offloaded_superseded = offloadedSuperseded;
-              }
-              return childResult;
-            }
-          } catch { /* fall through to floor */ }
+          const sentinel: MemoryResult = { success: false, needsConsolidation: true };
+          if (offloadedSuperseded.length) sentinel.offloaded_superseded = offloadedSuperseded;
+          return sentinel;
         }
         // FLOOR (path 1, D4 fix): vault-offload as last resort (preserves the
-        // never-hard-reject guarantee for non-reject strategies). Active lineage
-        // may break here ONLY in the rare consolidation-failure case — accepted
-        // as destructive capacity compaction (consistent with D0). Attach the
-        // purged-superseded set so the caller syncs those DB rows too.
+        // never-hard-reject guarantee for non-reject strategies). Reached when no
+        // consolidator is wired, when the retry budget is spent (consolidation
+        // already ran once out-of-lock and did not free enough), or when
+        // consolidation threw. Active lineage may break here ONLY in the rare
+        // consolidation-failure case — accepted as destructive capacity
+        // compaction (consistent with D0). Attach the purged-superseded set so
+        // the caller syncs those DB rows too.
         const r = await this.vaultOffloadAndAdd(target, this.entriesFor(target), encoded, content.length, limit, nearDupNote);
         if (offloadedSuperseded.length) r.offloaded_superseded = offloadedSuperseded;
         return r;

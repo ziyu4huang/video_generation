@@ -99,13 +99,15 @@ describe("MemoryStore metadata channel (unified encode/decode)", () => {
     };
     const store = new MemoryStore(config);
 
-    // Inject a stub consolidator that frees space by removing all entries
-    store.setConsolidator(async (target, _signal) => {
-      const entries = target === "memory" ? store.getMemoryEntries() : store.getUserEntries();
-      for (const entry of [...entries]) {
-        await store.remove(target, entry);
-      }
-      return { consolidated: true };
+    // Inject a stub consolidator that frees space by dropping every entry
+    // (2-phase: returns a MergePlan; the store applies it in step 3).
+    store.setConsolidator(async (snapshot) => {
+      return {
+        plan: {
+          snapshotBaseHash: snapshot.snapshotBaseHash,
+          ops: snapshot.entries.map((e) => ({ op: "drop" as const, key: e.key })),
+        },
+      };
     });
 
     await store.loadFromDisk();

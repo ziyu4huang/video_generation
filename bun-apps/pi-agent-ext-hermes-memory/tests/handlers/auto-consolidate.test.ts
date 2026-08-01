@@ -453,16 +453,17 @@ describe("MemoryStore auto-consolidation integration", () => {
       memoryDir: MEMORY_DIR,
     });
 
-    // Mock consolidator that actually frees space by removing all entries
-    store.setConsolidator(async (target, signal) => {
+    // Mock consolidator that actually frees space (2-phase: returns a drop-all
+    // MergePlan; the store applies it in step 3).
+    store.setConsolidator(async (snapshot) => {
       consolidatorCalled = true;
-      consolidatorTarget = target;
-      // Remove all entries to simulate consolidation freeing space
-      const entries = target === "memory" ? store.getMemoryEntries() : store.getUserEntries();
-      for (const entry of [...entries]) {
-        await store.remove(target, entry);
-      }
-      return { consolidated: true };
+      consolidatorTarget = snapshot.target;
+      return {
+        plan: {
+          snapshotBaseHash: snapshot.snapshotBaseHash,
+          ops: snapshot.entries.map((e) => ({ op: "drop" as const, key: e.key })),
+        },
+      };
     });
 
     await store.loadFromDisk();
@@ -498,9 +499,9 @@ describe("MemoryStore auto-consolidation integration", () => {
       memoryDir: MEMORY_DIR,
     });
 
-    store.setConsolidator(async () => {
+    store.setConsolidator(async (snapshot) => {
       consolidatorCalled = true;
-      return { consolidated: true };
+      return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
     });
 
     await store.loadFromDisk();

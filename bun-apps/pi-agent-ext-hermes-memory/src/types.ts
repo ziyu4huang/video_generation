@@ -175,6 +175,12 @@ export interface MemoryResult {
    *  syncs the DB rows via the same removeExactSyncedMemories content-key path
    *  used for evicted_entries (D4: destructive, no audit row). */
   offloaded_superseded?: string[];
+  /** INTERNAL sentinel (2-phase consolidation): set by `_addInner`'s overflow
+   *  branch to signal `_add` that consolidation must run OUTSIDE the held
+   *  cross-process file lock (step 2 is lock-free). Never returned to the tool
+   *  layer — `_add` always consumes it. Carries the accrued superseded purge
+   *  set on `offloaded_superseded` so the retried write threads it down. */
+  needsConsolidation?: boolean;
 }
 
 export interface MemorySnapshot {
