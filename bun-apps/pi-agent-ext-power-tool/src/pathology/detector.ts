@@ -63,16 +63,38 @@ function canonicalize(v: unknown): unknown {
 }
 
 /**
+ * FNV-1a 32-bit hash (pure, dependency-free). Used only to disambiguate
+ * truncated arg signatures so distinct long args never collide — NOT
+ * cryptographic; collision resistance over a session-sized call set is plenty.
+ */
+function fnv1a32(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+
+/**
  * Build a stable, order-independent, length-bounded signature for a tool call's
  * arguments. Two calls with the same args (any key order) produce the same sig;
  * undefined and null are distinct sentinels. Used both by the accumulator and by
  * the retry-loop detector to match "identical" calls.
+ *
+ * Truncation is collision-resistant: when the canonical JSON exceeds MAX_SIG,
+ * a short readable head is kept for display but a hash + length of the FULL
+ * content disambiguates it. Head-only truncation would collapse any commands
+ * sharing a >MAX_SIG prefix (a shell-function preamble, a long path — a common
+ * benign pattern) to one signature and false-trip the consecutive-run detector
+ * (the recurring "⚠ retry loop: bash ×3" status bar).
  */
 export function argsSig(args: unknown): string {
   if (args === undefined) return "∅";
   if (args === null) return "null";
   const json = JSON.stringify(canonicalize(args));
-  return json.length > MAX_SIG ? json.slice(0, MAX_SIG - 3) + "…" : json;
+  if (json.length <= MAX_SIG) return json;
+  return json.slice(0, MAX_SIG - 18) + `…[${json.length}:#${fnv1a32(json)}]`;
 }
 
 // ─── detectors ───────────────────────────────────────────────────────────────

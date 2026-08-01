@@ -145,6 +145,30 @@ describe("analyzePathology — retry loop", () => {
     ];
     expect(analyzePathology(input(calls)).filter((x) => x.check === "retry-loop")).toHaveLength(0);
   });
+
+  test("3 distinct long-prefix commands (argsSig truncation collision) is NOT a loop", () => {
+    resetTs();
+    // Each command shares a >MAX_SIG preamble (a shell-function def + long path
+    // — a common benign pattern, e.g. defining probe() then running several
+    // distinct queries) and differs only in the trailing query. argsSig MUST
+    // keep them distinct: head-only truncation would collapse all three to one
+    // signature and false-trip the consecutive-run detector (the recurring
+    // "⚠ retry loop: bash ×3" status bar). Regression for the truncation bug.
+    const PREAMBLE =
+      "cd /long/repo/path && probe() { curl -s -X POST http://127.0.0.1:8000/sql " +
+      "-H 'surreal-ns: ns' -H 'surreal-db: db' -H 'Accept: application/json' " +
+      "-H 'auth: basic' -H 'extra: padding' -H 'more: padding' --data \"$1\"; echo s; ";
+    const calls: ToolCallRecord[] = [
+      call("bash", { command: PREAMBLE + "echo A; SELECT count() FROM memories;" }),
+      call("bash", { command: PREAMBLE + "echo B; SELECT count() FROM tagged;" }),
+      call("bash", { command: PREAMBLE + "echo C; SELECT count() FROM memories WHERE x;" }),
+    ];
+    // The three commands are genuinely distinct → their sigs must differ.
+    expect(calls[0]!.argsSig).not.toBe(calls[1]!.argsSig);
+    expect(calls[0]!.argsSig).not.toBe(calls[2]!.argsSig);
+    // … therefore no false retry-loop finding.
+    expect(analyzePathology(input(calls)).filter((x) => x.check === "retry-loop")).toHaveLength(0);
+  });
 });
 
 // ─── analyzePathology — tool error storm ─────────────────────────────────────
