@@ -53,6 +53,7 @@
  *     same time to avoid the static+dynamic double-registration noted above.
  */
 import coreTaskExtension from "../../pi-agent-ext-core-task/extensions/core-task.ts";
+import promptHistoryExtension from "../../pi-agent-ext-prompt-history/extensions/prompt-history.ts";
 import hermesMemoryExtension from "../../pi-agent-ext-hermes-memory/extensions/hermes-memory.ts";
 import superpowersExtension from "../../pi-agent-ext-superpowers/extensions/superpowers.ts";
 import wayfindExtension from "../../pi-agent-ext-wayfind/extensions/wayfind.ts";
@@ -68,6 +69,7 @@ import powerToolExtension from "../../pi-agent-ext-power-tool/extensions/power-t
 export const STATIC_EXTENSION_FACTORIES = [
 	// Group A — original "general productivity" set
 	{ name: "pi-agent-ext-core-task", factory: coreTaskExtension },
+	{ name: "pi-agent-ext-prompt-history", factory: promptHistoryExtension },
 	{ name: "pi-agent-ext-hermes-memory", factory: hermesMemoryExtension },
 	{ name: "pi-agent-ext-superpowers", factory: superpowersExtension },
 	{ name: "pi-agent-ext-wayfind", factory: wayfindExtension },

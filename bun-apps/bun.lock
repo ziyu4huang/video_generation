@@ -47,6 +47,7 @@
         "@earendil-works/pi-coding-agent": "0.83.0",
         "@repo/pi-agent-ext-core-task": "workspace:*",
         "@repo/pi-agent-ext-hermes-memory": "workspace:*",
+        "@repo/pi-agent-ext-prompt-history": "workspace:*",
         "@repo/pi-agent-ext-superpowers": "workspace:*",
         "@repo/pi-agent-ext-wayfind": "workspace:*",
         "@repo/pi-agent-ext-web-access": "workspace:*",
@@ -306,6 +307,17 @@
       "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^6.0.3",
+      },
+    },
+    "pi-agent-ext-prompt-history": {
+      "name": "@repo/pi-agent-ext-prompt-history",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^6.0.3",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "0.83.0",
       },
     },
     "pi-agent-ext-research-tool": {
@@ -770,6 +782,8 @@
     "@repo/pi-agent-ext-picker": ["@repo/pi-agent-ext-picker@workspace:pi-agent-ext-picker"],
 
     "@repo/pi-agent-ext-power-tool": ["@repo/pi-agent-ext-power-tool@workspace:pi-agent-ext-power-tool"],
+
+    "@repo/pi-agent-ext-prompt-history": ["@repo/pi-agent-ext-prompt-history@workspace:pi-agent-ext-prompt-history"],
 
     "@repo/pi-agent-ext-research-tool": ["@repo/pi-agent-ext-research-tool@workspace:pi-agent-ext-research-tool"],
 
@@ -1640,6 +1654,8 @@
     "@repo/pi-agent-ext-obsidian/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "@repo/pi-agent-ext-power-tool/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "@repo/pi-agent-ext-prompt-history/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "@repo/pi-agent-ext-research-tool/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
