@@ -10,6 +10,9 @@
 
 import { createHash } from "node:crypto";
 
+import { ENTRY_DELIMITER } from "../constants.js";
+import { parseMetadataComment, serializeMetadataComment, today } from "./memory-format.js";
+
 /** 16-hex-char sha256 digest of an encoded entry. */
 export type EntryHash = string;
 
@@ -127,4 +130,124 @@ export function mergePlanValidate(plan: unknown): asserts plan is MergePlan {
       throw new Error(`mergePlanValidate: ops[${i}] has invalid or missing op`);
     }
   }
+}
+
+// ─── Snapshot builder + reconcile applier ─────────────────────────────────
+//
+// These pure functions turn a flat list of encoded memory entries into a
+// {@link ConsolidationSnapshot} and then rewrite live entries according to a
+// {@link MergePlan}. They are intentionally free of any store/IO coupling so
+// they can be unit-tested in isolation and reused by whichever caller drives
+// a consolidation pass.
+//
+// Entry (de)coding is delegated to the existing free helpers in
+// `memory-format.ts` (`parseMetadataComment` / `serializeMetadataComment`),
+// which are already the single source of truth that the store class methods
+// delegate to — so no codec is duplicated here.
+
+/**
+ * Parse an encoded entry into a {@link SnapshotEntry}.
+ *
+ * `content`/`created`/`last` are decoded from the trailing
+ * `<!-- created=…, last=… -->` metadata comment (via `parseMetadataComment`,
+ * which also tolerates the optional `<!-- meta:{…} -->` provenance block), and
+ * `key` is the content hash of the *raw* encoded string.
+ */
+export function parseEntry(encoded: string): SnapshotEntry {
+  const { text, created, lastReferenced } = parseMetadataComment(encoded);
+  return { key: hashEntry(encoded), content: text, created, last: lastReferenced };
+}
+
+/**
+ * Build a {@link ConsolidationSnapshot} from raw encoded entries.
+ *
+ * Each entry is parsed (so callers can inspect content/dates), `totalChars` is
+ * the joined-with-delimiter length (mirroring how the store measures budget),
+ * and `snapshotBaseHash` is the order-insensitive identity of this entry set —
+ * the value a {@link MergePlan} is anchored against.
+ */
+export function buildSnapshot(
+  target: ConsolidationSnapshot["target"],
+  encodedEntries: string[],
+  charLimit: number,
+): ConsolidationSnapshot {
+  return {
+    target,
+    entries: encodedEntries.map(parseEntry),
+    totalChars: encodedEntries.join(ENTRY_DELIMITER).length,
+    charLimit,
+    snapshotBaseHash: snapshotBaseHash(encodedEntries),
+  };
+}
+
+/** Outcome of applying a {@link MergePlan} to a live entry list. */
+export type ApplyResult = {
+  /** Resulting encoded entries (kept live entries in order, then merged results). */
+  entries: string[];
+  /** Ops that took effect. */
+  applied: MergePlanOp[];
+  /** Ops deferred because a referenced key was no longer present. */
+  skipped: MergePlanOp[];
+  /** `true` iff `snapshotBaseHash(live)` equals `plan.snapshotBaseHash`. */
+  baseHashMatched: boolean;
+};
+
+/**
+ * Apply `plan` to a live list of encoded entries.
+ *
+ * Semantics:
+ * - **drop** — applied iff its `key` is still present in `liveEncoded`;
+ *   otherwise deferred (the entry may have vanished concurrently).
+ * - **merge** — applied iff *every* `fromKey` is present; otherwise the *whole*
+ *   merge is deferred (all-or-nothing, so a half-applied merge can never lose
+ *   content).
+ * - Live entries not removed by any applied op are **kept in original order**
+ *   (concurrent appends survive the rewrite).
+ * - Applied merges append one freshly-encoded entry each at the end, stamped
+ *   `created=last=today`.
+ * - `baseHashMatched` reports whether the live set still matches the snapshot
+ *   the plan was built from — callers can use it to pick a fast path.
+ *
+ * Presence is evaluated against the *original* live set for every op, so the
+ * ordering of ops within the plan does not change which ops are applicable.
+ */
+export function applyMergePlan(liveEncoded: string[], plan: MergePlan): ApplyResult {
+  const liveKeySet = new Set(liveEncoded.map(hashEntry));
+  const applied: MergePlanOp[] = [];
+  const skipped: MergePlanOp[] = [];
+  const removedKeys = new Set<EntryHash>();
+  const mergedEncodes: string[] = [];
+  const now = today();
+
+  for (const op of plan.ops) {
+    if (op.op === "drop") {
+      if (liveKeySet.has(op.key)) {
+        applied.push(op);
+        removedKeys.add(op.key);
+      } else {
+        skipped.push(op);
+      }
+    } else {
+      // merge — all-or-nothing: every fromKey must still be live.
+      if (op.fromKeys.every((k) => liveKeySet.has(k))) {
+        applied.push(op);
+        for (const k of op.fromKeys) removedKeys.add(k);
+        mergedEncodes.push(serializeMetadataComment({ text: op.content, created: now, lastReferenced: now }));
+      } else {
+        skipped.push(op);
+      }
+    }
+  }
+
+  const entries = [
+    ...liveEncoded.filter((encoded) => !removedKeys.has(hashEntry(encoded))),
+    ...mergedEncodes,
+  ];
+
+  return {
+    entries,
+    applied,
+    skipped,
+    baseHashMatched: snapshotBaseHash(liveEncoded) === plan.snapshotBaseHash,
+  };
 }
