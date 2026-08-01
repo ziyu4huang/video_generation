@@ -1077,7 +1077,8 @@ async function realProfileNative(req: GenerateRequest, env?: Record<string, stri
  * realCharacterNative — the character-sheet build via character_native.ts,
  * NOT a run.py subprocess (2026-07-13 migration, session 6 — see that
  * module's header). Orchestrates Phase 1 (profile, delegated straight to
- * runProfileNative) + Phase 2 (per-view flux2 `segment` mask) + Phase 3
+ * runProfileNative) + Phase 2 (per-view flux2 `cutout` alpha-composited
+ * PNG, moved off `segment` mask-only 2026-08-01) + Phase 3
  * (IdentitySpec.json, written to `<outputDir>/IdentitySpec.json` when an
  * output dir is resolvable). Each generated view's image becomes one
  * kind:"image" artifact (role:"primary"); the written IdentitySpec.json (if
@@ -1130,7 +1131,7 @@ async function realCharacterNative(req: GenerateRequest, env?: Record<string, st
       cost_usd: costFor(req.capability, null, env),
       duration_seconds: (Date.now() - started) / 1000,
       seed: result.identitySpec.lock.seed,
-      model: "flux2-klein:angle+segment",
+      model: "flux2-klein:angle+cutout",
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -1143,7 +1144,7 @@ async function realCharacterNative(req: GenerateRequest, env?: Record<string, st
       cost_usd: 0,
       duration_seconds: (Date.now() - started) / 1000,
       seed: null,
-      model: "flux2-klein:angle+segment",
+      model: "flux2-klein:angle+cutout",
     };
   }
 }

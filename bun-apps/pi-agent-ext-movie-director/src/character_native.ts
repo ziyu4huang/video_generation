@@ -5,51 +5,38 @@
  * image-character.py's own header/comments say it plainly: this command is
  * "PURE ORCHESTRATION" composing two already-certified primitives —
  *   1. `image profile` multi-view (front/side/back) generation, and
- *   2. Step-1 `cutout` (SAM3 segment → feather → alpha PNG) per view,
+ *   2. Step-1 `cutout` (SAM3 segment → feather → alpha-composited PNG) per
+ *      view,
  * then writes a persistent `IdentitySpec.json` (schema `character-lock.v1`)
  * so a later `image storyboard --character <hero>` can reuse the same
  * identity. Zero new MLX/generation code — this module mirrors that shape in
  * Bun: it calls `runProfileNative` (already ported, profile_native.ts) for
- * Phase 1, then flux2's native `segment` command (Swift-native SAM3.1 bridge,
- * `swift/flux2-image-director/Sources/Flux2DirectorCLI/SegmentCommand.swift`)
- * per view for Phase 2, then assembles + writes the IdentitySpec.json.
+ * Phase 1, then flux2's native `cutout` command (Swift-native SAM3.1 bridge +
+ * MLX alpha compositing, `swift/flux2-image-director/Sources/
+ * Flux2DirectorCLI/CutoutCommand.swift`) per view for Phase 2, then
+ * assembles + writes the IdentitySpec.json.
  *
- * PHASE 2 SCOPE NOTE (a real, documented delta from the Python — read this
- * before trusting `views[].cutout`):
- *
- *   Python's `_cutout_view` produces a TRANSPARENT RGBA PNG: SAM3 segments →
- *   `feather_mask` → `alpha_cutout(source, alpha)` composites the feathered
- *   mask as source's alpha CHANNEL (PIL-backed pixel compositing). Swift's
- *   native `segment` command (flux2 CommandSpec `segment`, backed by
- *   `sam3_segment_bridge.py`) does the SAME SAM3.1 segmentation + feathering,
- *   but stops one step short: it writes a standalone MASK PNG (white=object,
- *   feathered edges, grayscale/L-mode) — it does NOT composite that mask onto
- *   the source image's alpha channel. That compositing step needs a real
- *   image-codec/pixel-buffer library (PIL in Python); this Bun package has
- *   none (the same gap profile_native.ts's module doc notes for the deferred
- *   HTML-viewer/strip-PNG features, and twosubject_native.ts's module doc
- *   notes for its dropped bg_edge_split tiebreak). So v1 produces the
- *   intermediate MASK PNG, not the final RGBA cutout PNG.
- *
- *   To keep `IdentitySpec.json` truthful rather than silently mislabeling a
- *   mask as a "transparent cutout", each `views[]` entry's `cutout` field is
- *   `null` when no true alpha-composited cutout exists (always, in v1) and
- *   the produced mask path instead rides under an EXTENSION field, `mask`
- *   (extra fields don't break the character-lock.v1 schema — the Python's own
- *   `views` field is itself already documented as "extension"). A future v2
- *   could either (a) add a tiny native Swift "apply-mask-as-alpha" command, or
- *   (b) shell out to the same Python `alpha_cutout`/`_fill_holes` primitives
- *   image-character.py already calls, mirroring how `segment` itself bridges
- *   through Python for SAM3.1. Neither is implemented here — v1 prioritizes a
- *   solid, tested Phase 1 + Phase 3 (IdentitySpec) path, same as
- *   profile_native.ts's own stated v1 priority.
+ * PHASE 2 HISTORY: until 2026-08-01, this module called flux2's `segment`
+ * command instead, which only produces an intermediate grayscale MASK PNG
+ * (no alpha compositing — this package had no image-codec/pixel-buffer
+ * library to do the PIL-equivalent compositing Python's `alpha_cutout` does).
+ * `views[].cutout` was therefore hardcoded `null` forever, with the mask
+ * riding under an undocumented extension field, `views[].mask`. The
+ * 2026-07-31 `cutout` Swift-native port
+ * (docs/superpowers/specs/2026-07-31-cutout-swift-native-port-design.md)
+ * closed that gap by shipping `flux2 cutout` (SAM3 bridge unchanged, new
+ * `ImageSave.savePNGRGBA` MLX-tensor compositing); this module was updated
+ * (docs/superpowers/specs/2026-08-01-character-native-cutout-wiring-design.md)
+ * to call it instead. `views[].mask` is gone — `views[].cutout` now carries
+ * the real alpha-composited path, or `null` when SAM3 found no detection for
+ * that view (or the bridge itself failed).
  *
  * Other DEFERRED items (documented, not silently dropped):
  *   - `_fill_holes` (interior-hole filling before feathering) — Python always
  *     applies this for character sheets ("A character turnaround silhouette
- *     MUST be solid"); the native `segment` command has no such option and,
- *     per the note above, does no compositing at all yet, so hole-filling is
- *     moot until compositing exists.
+ *     MUST be solid"); the SAM3 bridge `cutout` calls through has a fixed
+ *     feather-only behavior with no hole-filling option (unchanged by the
+ *     2026-07-31 port).
  *   - `--self-test` (hero synthesis via ZImagePipeline T2I) — needs the MLX
  *     Python pipeline; out of scope for a Bun-only port. Callers wanting a
  *     self-test must supply their own hero image via `input`.
@@ -60,7 +47,6 @@
  */
 import { runFlux2 } from "@repo/pi-agent-ext-flux2";
 import { basename, dirname, extname, join } from "node:path";
-import { readFile } from "node:fs/promises";
 import {
   runProfileNative,
   type ProfileView,
@@ -76,59 +62,52 @@ const _SCHEMA = "character-lock.v1";
 export const DEFAULT_CUTOUT_SUBJECT = "person";
 export const DEFAULT_SAM_THRESHOLD = 0.3;
 
-// ── Phase 2: per-view segmentation (the "cutout" step) ─────────────────────
+// ── Phase 2: per-view cutout (SAM3 segmentation + alpha compositing) ───────
 
-export interface SegmentParams {
+export interface CutoutParams {
   image: string;
   prompt: string;
   threshold: number;
   outputDir?: string;
 }
-export interface SegmentResult {
-  /** Mask PNG path (null if the flux2 invocation itself failed to run). */
-  maskPath: string | null;
-  /** Detection count read from the sidecar `<mask>.json` (0 = no detection, mirrors Python's `len(result.scores) == 0` check). */
-  count: number;
-  bestScore: number | null;
+export interface CutoutResult {
+  /**
+   * True alpha-composited cutout PNG path. `null` covers both "no SAM3
+   * detection for this view" and an actual bridge/subprocess failure —
+   * `flux2 cutout` exits non-zero for both and leaves no metadata sidecar
+   * to distinguish them (unlike `flux2 segment`'s always-0-exit + sidecar
+   * JSON), so v1 doesn't try to distinguish either; the view is simply
+   * skipped either way, mirroring the prior segment-based behavior of
+   * silently continuing without a cutout for that view.
+   */
+  cutoutPath: string | null;
 }
-export type SegmentFn = (params: SegmentParams) => Promise<SegmentResult>;
+export type CutoutFn = (params: CutoutParams) => Promise<CutoutResult>;
 
-/** Build the mask output path for one view image (mirrors Python's `{stem}_cutout.png` naming, but named `_mask.png` since v1 only produces the intermediate mask — see module doc). */
-export function maskPathFor(imagePath: string): string {
+/** Build the cutout output path for one view image (mirrors Python's `{stem}_cutout.png` naming — see module doc). */
+export function cutoutPathFor(imagePath: string): string {
   const dir = dirname(imagePath);
   const stem = basename(imagePath, extname(imagePath));
-  return join(dir, `${stem}_mask.png`);
+  return join(dir, `${stem}_cutout.png`);
 }
 
-/** Default segment call: native flux2 `segment` command (SAM3.1 bridge). */
-export const defaultSegment: SegmentFn = async (p) => {
+/** Default cutout call: native flux2 `cutout` command (SAM3.1 bridge + MLX alpha compositing). No `--trim` (character-sheet views must stay at the profile phase's fixed canvas size) and no `--save-mask` (nothing consumes the debug mask/overlay PNGs it would produce). */
+export const defaultCutout: CutoutFn = async (p) => {
+  const outputPath = cutoutPathFor(p.image);
   const out = await runFlux2({
-    command: "segment",
+    command: "cutout",
     options: {
-      image: p.image,
-      prompt: p.prompt,
-      threshold: p.threshold,
-      output: maskPathFor(p.image),
+      input: p.image,
+      subject: p.prompt,
+      samThreshold: p.threshold,
+      output: outputPath,
     },
     outputDir: p.outputDir,
   });
-  const maskPath = maskPathFor(p.image);
   if (!out.details.ok) {
-    return { maskPath: null, count: 0, bestScore: null };
+    return { cutoutPath: null };
   }
-  // Read the sidecar JSON the SAM3 bridge writes (`<mask>.json`, {count,
-  // best_score,...}) to detect "no detections" the same way Python's
-  // `len(result.scores) == 0` check does. Missing/unparsable sidecar is
-  // treated as "no detection" (fail closed, mirrors returning None,None).
-  try {
-    const raw = await readFile(`${maskPath}.json`, "utf8");
-    const meta = JSON.parse(raw) as { count?: number; best_score?: number };
-    const count = meta.count ?? 0;
-    if (count === 0) return { maskPath: null, count: 0, bestScore: null };
-    return { maskPath, count, bestScore: meta.best_score ?? null };
-  } catch {
-    return { maskPath: null, count: 0, bestScore: null };
-  }
+  return { cutoutPath: outputPath };
 };
 
 // ── Phase 3: IdentitySpec.json builder (pure — mirrors build_identity_spec) ─
@@ -147,10 +126,8 @@ export interface CharacterLock {
 export interface ViewMeta {
   view: ProfileView;
   image: string | null;
-  /** Transparent alpha-composited cutout. Always null in v1 — see module doc. */
+  /** True alpha-composited cutout PNG path (null = no SAM3 detection for this view, or a bridge failure). */
   cutout: string | null;
-  /** EXTENSION field (not in the Python schema): the intermediate SAM3 mask PNG, when produced. */
-  mask?: string | null;
 }
 
 export interface IdentitySpec {
@@ -223,8 +200,8 @@ export interface CharacterOptions {
   outputDir?: string;
   /** Test seam: inject a canned profile-phase runner so unit tests don't need flux2's `angle`. */
   _runProfile?: typeof runProfileNative;
-  /** Test seam: inject a canned segment call so unit tests don't need flux2's `segment`. */
-  _segmentImpl?: SegmentFn;
+  /** Test seam: inject a canned cutout call so unit tests don't need flux2's `cutout`. */
+  _cutoutImpl?: CutoutFn;
 }
 
 export interface CharacterResult {
@@ -236,7 +213,7 @@ export interface CharacterResult {
 
 /**
  * Run the character-sheet build: Phase 1 (multi-view profile via
- * `runProfileNative`) → Phase 2 (per-view SAM3 segment mask) → Phase 3
+ * `runProfileNative`) → Phase 2 (per-view SAM3 cutout) → Phase 3
  * (IdentitySpec.json). Mirrors `run_character`'s control flow. Throws if
  * `input` is missing (mirrors Python's `sys.exit(1)` — no partial-success
  * mode for a missing hero) or if Phase 1 fails (runProfileNative already
@@ -254,7 +231,7 @@ export async function runCharacterNative(opts: CharacterOptions): Promise<Charac
   }
 
   const runProfile = opts._runProfile ?? runProfileNative;
-  const segmentFn = opts._segmentImpl ?? defaultSegment;
+  const cutoutFn = opts._cutoutImpl ?? defaultCutout;
 
   // Phase 1: multi-view profile generation (delegates to the certified,
   // already-ported profile_native.ts — same as Python delegating to
@@ -275,8 +252,8 @@ export async function runCharacterNative(opts: CharacterOptions): Promise<Charac
   const viewOutputs: ProfileViewResult[] = profileResult.views;
   const outDir = opts.outputDir ?? (viewOutputs[0]?.path ? dirname(viewOutputs[0].path) : "");
 
-  // Phase 2: per-view SAM3 mask (the intermediate step for the deferred
-  // full alpha-cutout — see module doc).
+  // Phase 2: per-view cutout (SAM3 segmentation + MLX alpha compositing,
+  // via flux2's native `cutout` command).
   const subject = opts.cutoutSubject ?? DEFAULT_CUTOUT_SUBJECT;
   const threshold = opts.samThreshold ?? DEFAULT_SAM_THRESHOLD;
 
@@ -285,9 +262,9 @@ export async function runCharacterNative(opts: CharacterOptions): Promise<Charac
   for (const vo of viewOutputs) {
     const entry: ViewMeta = { view: vo.view, image: vo.path, cutout: null };
     if (vo.path) {
-      const seg = await segmentFn({ image: vo.path, prompt: subject, threshold, outputDir: opts.outputDir });
-      if (seg.maskPath) {
-        entry.mask = seg.maskPath;
+      const result = await cutoutFn({ image: vo.path, prompt: subject, threshold, outputDir: opts.outputDir });
+      if (result.cutoutPath) {
+        entry.cutout = result.cutoutPath;
         cutoutCount += 1;
       }
     }
