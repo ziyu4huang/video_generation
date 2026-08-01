@@ -1,35 +1,104 @@
-Multi-worktree + `gh pr merge --squash --delete-branch` leaves stale LOCAL branches. This machine uses git worktrees: `video_generation` (main worktree) checks out `main`; feature work lives in `__subagent`, `__memory`, `__archify`, etc. When you `gh pr merge --squash --delete-branch`, gh deletes the REMOTE branch and tries to check out the base (`main`) locally — but `main` is already checked out in the main worktree, so the local checkout fails and the LOCAL feature branch is NOT deleted → stale branches accumulate in the feature worktree.
-
-Two compounding facts:
-- `git branch --merged` does NOT detect squash-merged branches (the squash commit differs from the branch tip), so safe-delete `-d` refuses; you need `-D` (force) after confirming merge.
-- Long-lived PRs fall behind `main` (mergeStateStatus BEHIND) because `required_status_checks.strict=true`; rebase before merge when main is active.
-
-Cleanup after merging in a feature worktree (main elsewhere):
-  git switch --detach origin/main && git branch -D <merged-branch>
-Safe-merge check (handles squash too): `git cherry origin/main <branch>` — 0 lines starting with `+` means every commit's diff is already in main (safe to force-delete); any `+` = unmerged work, leave it. <!-- created=2026-07-30, last=2026-07-30 -->
+---
+id: 37653b77-3e4d-40b0-bc9b-cca5d414122c
+created: 2026-07-31
+last: 2026-07-31
+---
+Wayfinder effort structure (.planning/<effort>/): map.md (destination, decisions, notes, frontier) + tickets/ subdirectory. Ticket types: research, grilling. Research tickets = AFK, chart-time execution. Grilling = live Q&A session. When research complete and frontier empties to grilling ticket, work that ticket → graduate to multiple do/defer/skip decision tickets. One decision per session. Gitignore policy: .planning/<effort>/ artifacts ARE committed (durable, shared). Only per-task transient scratch ignored (task_plan.md, progress.md, findings.md).
 §
-Git workflow patterns (video_generation repo): Use sweep-merged-branches.sh for cleanup across worktrees. PR process: branch from latest origin/main → commit → push → auto-merge. Branch protection requires all CI checks to pass (include administrators). Multi-worktree setup means main cannot be checked out in feature worktrees, so gh pr merge --delete-branch cannot cleanup local branches — sweep script handles this by detecting merged branches via ancestor/upstream-gone/patch-equiv. <!-- created=2026-07-31, last=2026-07-31 -->
+---
+id: 14a927f4-93ad-4931-a077-95c7ca2f2d0f
+created: 2026-07-31
+last: 2026-08-01
+---
+.planning/ directory structure (.planning/<effort>/): map.md (destination, decisions, notes, frontier) + tickets/ subdirectory. Ticket types: research (AFK execution), grilling (live Q&A). When research complete, graduate to do/defer/skip decision tickets (one per session). Gitignore policy: .planning/<effort>/ artifacts ARE committed (durable, shared) — repo has 377+ tracked .planning files. Only per-task transient scratch files are ignored (task_plan.md, progress.md, findings.md).
 §
-Extension package registration convention (pi-agent): Registration entry is EXACTLY at extensions/<X>.ts (filename = folder suffix, no pi- prefix). One registered extension per folder. If lib main is src/index.ts or root index.ts, add 1-line re-export shim at extensions/<X>.ts as registration entry — don't move the lib. Dynamic extensions → manifest.json (extensions[]), static → static-extensions.ts. Never list same extension in both. <!-- created=2026-07-31, last=2026-07-31 -->
+---
+id: 719668ec-2e4e-40c6-bce9-7432909d38ba
+created: 2026-07-31
+last: 2026-07-31
+---
+Git PR 工作流：開分支 → commit → push → 開 PR → 啟用 auto-merge (squash) → 等 CI 綠 → 若 mergeState=BEHIND 則 rebase + force-push → CI 重跑綠後自動合併 → 用 sweep-merged-branches.sh 清理本地分支。分支保護要求 up-to-date，管理員也無法繞過 in-flight checks。
 §
-Wayfinder effort structure (.planning/<effort>/): map.md (destination, decisions, notes, frontier) + tickets/ subdirectory. Ticket types: research, grilling. Research tickets = AFK, chart-time execution. Grilling = live Q&A session. When research complete and frontier empties to grilling ticket, work that ticket → graduate to multiple do/defer/skip decision tickets. One decision per session. Gitignore policy: .planning/<effort>/ artifacts ARE committed (durable, shared). Only per-task transient scratch ignored (task_plan.md, progress.md, findings.md). <!-- created=2026-07-31, last=2026-07-31 -->
+---
+id: d32379f8-230e-47fd-8b41-95e4fde2a222
+created: 2026-07-31
+last: 2026-08-01
+---
+pi-agent-ext-subagent watchdog: L1 = tsserver (TS/JS only via changedTsJsPaths), L2 = model-based review. Bugs fixed (2026-07-31): (1) L2 input-set — mixed TS/JS+Python changes → L2 only saw TS/JS; fixed to use all changedPaths. (2) L2 diff truncation at 200K chars without flag; fixed with smart per-file budget + truncation flag. (3) Zero-layer sentinel degraded state buried; fixed with dual sentinel escalation. Planned: L1 multi-provider registry (pyright first), biome CLI-lint lane (catches unused vars/imports tsserver misses, aligns with CI gate).
 §
-Tool quirks — web search limitations (2026-07-31): In this environment, only Zai and Exa have keys. Zai wrapper broken (search_query cannot be empty when using array queries), Exa rate-limited (429). Brave/Tavily/OpenAI require API keys. Workaround: single queries only, but Zai still fails. Alternative: use pi-agent-cli research subcommand if compiled binary available, but it wasn't present. For research-heavy tasks requiring live web_search, ensure proper keys are configured or accept framework-level knowledge citations without URL verification. <!-- created=2026-07-31, last=2026-07-31 -->
+---
+id: 5c57c1b7-1c75-4fa9-baf6-e486347cbff5
+created: 2026-07-31
+last: 2026-07-31
+---
+pi-agent-ext-subagent watchdog L1 planned architecture change (ticket 02, DO decided): generalize L1 from single hardcoded `typescript-language-server` into a multi-provider `L1Provider` registry. First addition: pyright for Python. Second lane planned (ticket 03, DO): biome as CLI-lint lane (`biome lint --reporter=json`) separate from the LSP registry — biome is a linter not a language server, CLI output is clean. Severity by-domain: correctness/suspicious/security → blocker; style/complexity → concern. Rationale: biome `recommended` rules catch unused vars/imports that tsserver misses (repo tsconfig has `strict` but NOT `noUnusedLocals`). biome is already CI gate per-ext — L1 addition is 'earlier to dirty tree' parallel to tsserver-vs-CI-tsc symmetry.
 §
-.planning/ 目錄規則：規劃檔案（map.md、tickets/*.md）是 durable、shared 的，**應該 commit 進 git**。只有暫時性的 scratch 檔案（task_plan.md、progress.md、findings.md）按檔名忽略。目前 repo 已有 377+ 個 tracked 的 .planning 檔案。 <!-- created=2026-07-31, last=2026-07-31 -->
+---
+id: 6d9af113-ee22-4411-8236-10b257885101
+created: 2026-07-30
+last: 2026-08-01
+---
+file2md PDF extraction AB test (2026-07-30): MinerU (Python/torch) wins on quality (LaTeX + figures, ~3.5-7s/page) but violates no-Python constraint. Bun-native (mupdf, pdftotext) = pdftotext-class: faithful prose, degraded equations (linearized), figures lost. VLM-only hallucinates (e.g., missed trailing V). HYBRID = mupdf text-as-prior + VLM on figure pages only — suppresses hallucinations, fast for prose pages. Implemented --extract vlm|text|hybrid (vlm default), PR #951.
 §
-Git PR 工作流：開分支 → commit → push → 開 PR → 啟用 auto-merge (squash) → 等 CI 綠 → 若 mergeState=BEHIND 則 rebase + force-push → CI 重跑綠後自動合併 → 用 sweep-merged-branches.sh 清理本地分支。分支保護要求 up-to-date，管理員也無法繞過 in-flight checks。 <!-- created=2026-07-31, last=2026-07-31 -->
+---
+id: 9db26806-c620-4d66-a3b2-829b1e12c22e
+created: 2026-07-30
+last: 2026-07-30
+---
+[file2md] AB test outcome for PDF direct-text extraction (2026-07-30): MinerU (Python, torch) achieves best quality with LaTeX equations and figure extraction, but violates no-Python constraint. Bun-native extractors (mupdf, pdftotext) are pdftotext-class: faithful prose, degraded equations (linearized, non-LaTeX), figures completely lost. VLM-only has hallucinations (e.g., missed trailing V in softmax(QK^T/√d_k)V). Hybrid (mupdf + text-as-prior VLM on figure pages only) is the sweet spot for Bun-only constraints: fast text extraction, VLM reserved for figure description with prior suppressing hallucinations. Decision: implemented --extract vlm|text|hybrid with vlm as default, merged via PR #951.
 §
-pi-agent-ext-subagent watchdog architecture (code-level, verified 2026-07-31): L1 = `runLspDiagnostics` (tsserver over TS/JS only, via `changedTsJsPaths`). L2 = `runModelReview` (model-based, fed `diffTextForReview`). Three known bugs surfaced in watch-dot effort: (1) L2 input-set bug — `tsJs.length ? tsJs : after.changedPaths` in watchdog.ts:~65 means mixed TS/JS+Python changes → L2 only sees TS/JS diff, Python invisible; pure Python → L2 sees all (accidental fallback). Ticket 05 resolved: DO (use all changedPaths). (2) L2 diff truncation — `diffTextForReview` flat-slices at 200K chars (`parts.join("\n").slice(0, 200_000)`), no truncation flag → L2 silently reviews partial diff. Ticket 04 resolved: DO (smart curation per-file budget + truncation flag escalated to top-level summary). (3) Zero-layer sentinel — watchdog `ran:true` with both `l1.ran` and `l2.ran` false → summary says 'degraded' but buried in `details.watchdog` sub-object. Ticket 06 (sibling effort) resolved: DO (dual sentinel + escalate to top-level). <!-- created=2026-07-31, last=2026-07-31 -->
+---
+id: 610e10c5-42de-4973-85b0-cb4e6fed9745
+created: 2026-07-31
+last: 2026-08-01
+---
+Superpowers planning-path ADR-0004: NEVER edit upstream-ported SKILL.md prose. Fidelity guard (`skills-fidelity.test.ts`) pins 14 ported skills byte-equal to fixtures. Routing achieved via (a) system-prompt to `.planning/<effort>/plan.md`, (b) `PI_PLANNING_EFFORT` + `scripts/sdd-workspace` for SDD, (c) symlink bridge `docs/superpowers/{plans,specs}/` → `.planning/{plans,specs}/`. Re-baseline fixtures ONLY for genuine upstream re-ports via `scripts/rebaseline-upstream-skills.ts`, NEVER for repo conventions.
 §
-pi-agent-ext-subagent watchdog L1 planned architecture change (ticket 02, DO decided): generalize L1 from single hardcoded `typescript-language-server` into a multi-provider `L1Provider` registry. First addition: pyright for Python. Second lane planned (ticket 03, DO): biome as CLI-lint lane (`biome lint --reporter=json`) separate from the LSP registry — biome is a linter not a language server, CLI output is clean. Severity by-domain: correctness/suspicious/security → blocker; style/complexity → concern. Rationale: biome `recommended` rules catch unused vars/imports that tsserver misses (repo tsconfig has `strict` but NOT `noUnusedLocals`). biome is already CI gate per-ext — L1 addition is 'earlier to dirty tree' parallel to tsserver-vs-CI-tsc symmetry. <!-- created=2026-07-31, last=2026-07-31 -->
+---
+id: ee245365-bdb0-4896-9981-60727baa42f0
+created: 2026-07-31
+last: 2026-08-01
+---
+hermes-memory model (PR #961): consolidation is DESTRUCTIVE (LLM merge = fresh entry, no lineage, .md + DB hard-deleted). Overflow priority: offload superseded FIRST (setSupersededContentProvider → purge content-key from .md → sync DB). TRIM never touches active. .md schema-free; DB↔.md bridge via content-key.
 §
-file2md PDF extraction AB test (2026-07-30, effort .planning/2026-07-30-file2md-for-pdf-file-it-should-be-able-to-direct) on Attention(1706.03762, eq/table/figure-heavy) + LoRA(2106.09685, prose). Arms: MinerU (Python/torch), VLM (gemma-4-12b-qat), pdftotext, mupdf@1.28.0 (Bun-native), pdfjs-dist@6.2.108 (Bun-native). RESULT: Bun-native extraction ≈ pdftotext quality — prose faithful, equations degraded to linear text (no LaTeX), figures completely lost. mupdf StructuredText only reports `text` block type (no image/figure block detection → no cheap page-level routing). pdfimages -list returns EMPTY for vector-artifact figures (academic line/box/arrow diagrams) → pdfimages is NOT a reliable figure-page detector for academic PDFs. FINAL RECOMMENDATION (under no-Python constraint): HYBRID with text-as-prior — mupdf extracts faithful text for ALL pages (prose passes through directly), figure/equation pages get VLM-called WITH mupdf text as prior context. text-as-prior VLM suppresses hallucination: Figure 1/2 descriptions became architecturally faithful, equations got correct LaTeX WITH the trailing V that VLM-only dropped. VLM cost drops to only figure pages (not every page). If Python were allowed, MinerU `pipeline -m txt` direct-only wins decisively (correct LaTeX, embedded figures, zero hallucination, ~3.5-7s/page) — but Python tax is rejected by user. <!-- created=2026-07-30, last=2026-07-30 -->
+---
+id: 2019684d-5f47-4491-b9ea-4997399b887c
+created: 2026-07-31
+last: 2026-08-01
+---
+pi-agent startup perf (2026-07-31): PR #973 rewrote backfillGraphEdges orphan-check from `NOT IN (SELECT VALUE in FROM tagged)` to `count(->tagged)=0` (10s timeout→17ms), dropping startup 10.6s→0.91s. PR #971 batched syncMarkdownMemories (317→3 round-trips) was orthogonal to startup. LESSON: async CPU profilers mis-attribute wait-time; always step-time actual ops + measure end-to-end.
 §
-[file2md] AB test outcome for PDF direct-text extraction (2026-07-30): MinerU (Python, torch) achieves best quality with LaTeX equations and figure extraction, but violates no-Python constraint. Bun-native extractors (mupdf, pdftotext) are pdftotext-class: faithful prose, degraded equations (linearized, non-LaTeX), figures completely lost. VLM-only has hallucinations (e.g., missed trailing V in softmax(QK^T/√d_k)V). Hybrid (mupdf + text-as-prior VLM on figure pages only) is the sweet spot for Bun-only constraints: fast text extraction, VLM reserved for figure description with prior suppressing hallucinations. Decision: implemented --extract vlm|text|hybrid with vlm as default, merged via PR #951. <!-- created=2026-07-30, last=2026-07-30 -->
+---
+id: 398824d5-f3bd-4c39-b027-08feb0866059
+created: 2026-08-01
+last: 2026-08-01
+---
+Git workflow (video_generation repo): Multi-worktree setup means `gh pr merge --squash --delete-branch` leaves LOCAL branches (main checked out elsewhere, local checkout fails). Cleanup: `git switch --detach origin/main && git branch -D <merged-branch>`. Use `sweep-merged-branches.sh` for automated cleanup. PR process: branch from origin/main → commit → push → auto-merge (squash) → if mergeState=BEHIND, rebase + force-push → CI passes → auto-merge → cleanup. Branch protection requires CI pass including administrators. `git cherry origin/main <branch>` checks if safe to force-delete (0 lines starting with `+` = merged).
 §
-Superpowers planning-path — NEVER edit upstream-ported SKILL.md prose (ADR-0004). The fidelity guard `bun-apps/pi-agent-ext-superpowers/tests/skills-fidelity.test.ts` pins all 14 ported skills byte-equal to fixtures in `tests/__fixtures__/upstream-skills/*.md` — ANY drift (incl. repo-convention injection like rewriting save paths) fails CI. Earlier attempt (commit db6f58bb) rewrote writing-plans/brainstorming save paths to `.planning/<effort>/` — REVERTED (broke the guard). CORRECT routing is runtime-only + filesystem: (a) system-prompt 'Pipeline routing' directs the agent to nested `.planning/<effort>/plan.md`; (b) `PI_PLANNING_EFFORT` + `scripts/sdd-workspace` reroute SDD; (c) the symlink bridge `docs/superpowers/{plans,specs}/` → `.planning/{plans,specs}/` (committed 2026-08-01, PR #976) means even the upstream-faithful FLAT prose (`docs/superpowers/plans/...` in writing-plans/brainstorming) lands in the canonical `.planning/` root — byte-equal prose AND correct routing coexist. claude-code's official plugin v5.1.0 (`~/.claude-custom/plugins/cache/claude-plugins-official/superpowers/5.1.0/`, auto-managed .git/package.json/.in_use) is uneditable, also writes `docs/superpowers/` → same bridge covers it. Re-baseline fixtures ONLY for genuine upstream re-ports via `scripts/rebaseline-upstream-skills.ts` (writes UPSTREAM.ref), NEVER for repo conventions. <!-- created=2026-07-31, last=2026-08-01 -->
+---
+id: 76bf293e-128e-4ad5-a50a-c8ed7eff93cd
+created: 2026-08-02 --> <!-- created=2026-08-01
+last: 2026-08-01
+---
+[correction] superpowers spec location hard-code bug (discovered 2026-08-02): I suggested writing to `docs/superpowers/specs/` but user corrected me — all superpowers pi-extension docs should redirect to `.planning/`, not `docs/superpowers/`. The actual convention is defined by superpowers ADR-0005 + wayfind ADR-0005: unified `.planning/<effort>/` tree where wayfinder writes `map.md` + `tickets/` and superpowers writes `spec.md`/`plan.md`/`sdd`/`brainstorm/`. Root cause: the local brainstorming and writing-plans skills still hard-code `docs/superpowers/specs|plans/` as default (stale upstream default), but the injection layer (`piBoundaryOverrides` in superpowers.ts) correctly redirects to `.planning/<effort>/` only when `PI_PLANNING_EFFORT` is active. Our earlier brainstorm had no active effort, so the redirect didn't fire. Fix: ensure PI_PLANNING_EFFORT is set before using superpowers skills, or the skills themselves need upstream patches.
 §
-hermes-memory capacity/lineage model (5b, merged PR #961, squash 11ba11ae): consolidation is DESTRUCTIVE (D0 — LLM merge yields fresh-active entry, no inherited lineage; consumed .md + DB rows hard-deleted, no audit). On ANY overflow the store offloads superseded FIRST (D2): injected setSupersededContentProvider → DB getMemories({status:"superseded"}) → content-key purge from .md → caller syncs DB via syncEvictions/offloaded_superseded. TRIM never touches active (D3). Capacity loop: write→full?→offload superseded→still full→consolidate(destructive). .md stays schema-free; DB↔.md bridge is content-key (removeExactSyncedMemories). <!-- created=2026-07-31, last=2026-07-31 -->
+---
+id: 6b0c4e9a-5078-45cd-9e52-26dc8ae80194
+created: 2026-08-02 --> <!-- created=2026-08-01
+last: 2026-08-01
+---
+[insight] tool-gate savings claim drift (discovered 2026-08-02): savings figures are duplicated/inconsistent across README.md (~7,900 and ~8,050), code header (~7,940), and CONTEXT.md. The `savings.ts` already exports `CLAIMED_SAVED_TOK = 8050` and computes `deviation: savedTok - claimed`, but NO test asserts deviation is within tolerance — that's the missing drift guard. Design: add DRIFT_BAND constant, update prose to point to `bun run qa:savings` for live numbers, add deviation-band test to CI.
 §
-pi-agent startup perf — the TWO real fixes (2026-07-31): (1) PR #971 batched syncMarkdownMemories Surreal round-trips (317→3, 6.3s→100ms) — real but ORTHOGONAL to startup. (2) PR #973 rewrote backfillGraphEdges orphan-check `NOT IN (SELECT VALUE in FROM tagged)` → `count(->tagged)=0` (10s timeout→17ms) — THIS dropped startup 10.6s→0.91s. The 10s was a Surreal query timing out at the request ceiling every boot (tagged.in unindexed; SurrealDB does NOT optimize NOT IN subqueries). LESSON: async CPU profilers mis-attribute wait-time to suspended async frames; always step-time the actual ops + measure end-to-end before claiming a perf fix. <!-- created=2026-07-31, last=2026-07-31 -->
+---
+id: f3b0e175-b5e6-4c80-bcec-95f3ddc64ff1
+created: 2026-08-01
+last: 2026-08-01
+---
+and the hardening SHIPPED 2026-08-02 (ADR-0006, commits 478b8f8a..de3466a): piBoundaryOverrides() is now UNCONDITIONAL — no-effort specs route to the flat `.planning/specs/<YYYY-MM-DD>-<topic>-design.md` and plans to `.planning/plans/`, effort-set → `.planning/<effort>/`. Key discovery during that effort: `docs/superpowers/{specs,plans}` are git-tracked SYMLINKS → `.planning/{specs,plans}` (flat layout, active home for standalone brainstorm specs through 2026-08-01), so the original "leak" was already partly mitigated at the filesystem level. TWO coexisting layouts: flat `.planning/{specs,plans}/` (standalone brainstorm/writing-plans output) and per-effort `.planning/<effort>/` (multi-ticket wayfind efforts). A repo lint `bun-apps/pi-agent-ext-superpowers/tests/artifact-leak.test.ts` guards against literal leakage under `docs/superpowers/`/`.superpowers/` (skips the legit symlinks).
+§
+---
+id: 1994f3af-5b66-40b1-8e76-a758f2261290
+created: 2026-08-01
+last: 2026-08-01
+---
+pi-agent-ext-superpowers code facts for testing boundary changes: (1) `piBoundaryOverrides()` is NOT exported, but `getBootstrapContent()` IS exported and `bootstrap.test.ts` already asserts on its content — that's the test home for boundary-text assertions. (2) There's an existing test locking the routing/redirect section of `getBootstrapContent()` to < 2000 chars — any boundary text edit must stay concise. (3) Ext tests run via `bun run test` (CI matrix at `ci.yml:111`). (4) Repo-lint pattern: self-contained `bun test` files run in the existing matrix; repo-root `scripts/check-*.sh` for shell lints. (5) ADR-0006 (2026-08-02): supersedes ADR-0005's 'when an effort is active' clause — the no-upstream-path rule is now UNCONDITIONAL.
