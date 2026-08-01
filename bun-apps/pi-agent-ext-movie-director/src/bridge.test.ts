@@ -5,6 +5,7 @@ import {
   adaptLtx,
   adaptRunPy,
   adaptCaption,
+  adaptKokoroTts,
   generate,
   selectAndGenerate,
   tariffFor,
@@ -782,5 +783,59 @@ describe("selectAndGenerate — tts quality-first fallback (edge-tts before say)
     expect(entry.provider).toBe("say");
     expect(result).toBe(sayOk);
     expect(edgeCalled).toBe(false);
+  });
+});
+
+describe("adaptKokoroTts — local Kokoro-82M adapter contract (Details → ToolResult)", () => {
+  it("maps a successful generation to one audio artifact with provider:'kokoro'", () => {
+    const details = {
+      ok: true,
+      command: "tts" as const,
+      exitCode: 0,
+      aborted: false,
+      output: "/out/tts_kokoro.wav",
+      sizeBytes: 48000,
+      voice: "af_heart",
+      stdout: "[kokoro-tts generate] done -> /out/tts_kokoro.wav (48000 bytes)",
+    };
+    const r = adaptKokoroTts(
+      { capability: "tts", command: "tts", options: { text: "Hello.", voice: "af_heart" } },
+      details,
+      "kokoro ✓ af_heart (Swift native, local) → /out/tts_kokoro.wav",
+      "",
+    );
+    expect(r.success).toBe(true);
+    expect(r.provider).toBe("kokoro");
+    expect(r.command).toBe("tts");
+    expect(r.seed).toBeNull();
+    expect(r.model).toBe("af_heart");
+    expect(r.cost_usd).toBe(0); // fully local — honest $0 marginal cost
+    expect(r.artifacts).toEqual([
+      { path: "/out/tts_kokoro.wav", kind: "audio", role: "primary", bytes: 48000 },
+    ]);
+  });
+
+  it("flags failure + no artifact when the binary wrote no audio file", () => {
+    const details = {
+      ok: false,
+      command: "tts" as const,
+      exitCode: 1,
+      aborted: false,
+      output: null,
+      sizeBytes: null,
+      voice: null,
+      stdout: "",
+    };
+    const r = adaptKokoroTts(
+      { capability: "tts", command: "tts", options: { text: "x", voice: "zf_xiaobei" } },
+      details,
+      "kokoro tts FAILED (exit 1)",
+      "ERROR: could not resolve repo",
+    );
+    expect(r.success).toBe(false);
+    expect(r.artifacts).toEqual([]);
+    expect(r.error).toContain("FAILED");
+    expect(r.model).toBe("kokoro-82m"); // local fallback label when voice is unknown
+    expect(r.cost_usd).toBe(0); // no cost on failure
   });
 });
