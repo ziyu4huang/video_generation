@@ -66,6 +66,21 @@ describe("parseChecks", () => {
 	test("empty checks → all zero", () => {
 		expect(parseChecks([])).toEqual({ pass: 0, fail: 0, pending: 0 });
 	});
+
+	test("a running state with a STALE non-null completedAt → pending, not pass (re-run race)", () => {
+		// gh can carry a prior run's completedAt while a new run is WAITING/IN_PROGRESS;
+		// classifying by completedAt would wrongly count it pass, starving the wait branch
+		// and producing a false "all green / BLOCKED" result.
+		expect(parseChecks([
+			{ name: "a", state: "SUCCESS", completedAt: "2026-01-01T00:00:00Z" },
+			{ name: "rerun", state: "WAITING", completedAt: "2026-01-01T00:00:00Z" },
+		])).toEqual({ pass: 1, fail: 0, pending: 1 });
+	});
+
+	test("an unknown state defaults to pending (never claim success)", () => {
+		expect(parseChecks([{ name: "x", state: "WAT", completedAt: "z" }]))
+			.toEqual({ pass: 0, fail: 0, pending: 1 });
+	});
 });
 
 describe("createGhClient (glue)", () => {
