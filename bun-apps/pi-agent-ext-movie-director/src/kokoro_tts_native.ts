@@ -69,6 +69,28 @@ async function defaultSpawn(
 
 /** Run `kokoro-tts generate` and normalize into the RunPyTtsDetails/Output shape. */
 export async function runKokoroTtsNative(input: KokoroTtsInput): Promise<RunPyTtsOutput> {
+  // KokoroTtsOptions.voice is typed as a required string, but callers following
+  // the generic {text, voice?, rate?, output?} tts contract (where voice really
+  // is optional for say/edge-tts) can still omit it at runtime — without this
+  // guard, `undefined` would be pushed into argv, Bun.spawn would stringify it
+  // to the literal "undefined", and the failure would surface as a confusing
+  // error deep inside Kokoro's voice lookup instead of a clean message here.
+  if (!input.options.voice || input.options.voice.trim() === "") {
+    const details: RunPyTtsDetails = {
+      ok: false,
+      command: "tts",
+      exitCode: 1,
+      aborted: false,
+      output: null,
+      sizeBytes: null,
+      voice: null,
+      stdout: "",
+    };
+    const msg =
+      "kokoro tts: voice is required (e.g. af_heart, am_michael, zf_xiaobei, zm_yunjian) — no default across English/Mandarin namespaces";
+    return { details, summary: msg, stderrTail: "" };
+  }
+
   const args = buildKokoroTtsArgs(input.options, input.output);
   const spawnFn = input._spawnImpl ?? ((a: string[]) => defaultSpawn(a, input.signal));
 

@@ -112,4 +112,20 @@ describe("runKokoroTtsNative — spawn injection (no built binary needed)", () =
     expect(result.summary).toContain("spawn failed");
     expect(result.summary).toContain("ENOENT");
   });
+
+  it("ok=false + does NOT spawn when voice is empty (validated before the binary is invoked)", async () => {
+    const out = join(dir, "no-voice.wav");
+    let spawnCalls = 0;
+    const result = await runKokoroTtsNative({
+      options: { text: "x", voice: "" },
+      output: out,
+      _spawnImpl: async () => {
+        spawnCalls++;
+        return { stdout: "", stderr: "", exitCode: 0 };
+      },
+    });
+    expect(result.details.ok).toBe(false);
+    expect(result.summary).toContain("voice is required");
+    expect(spawnCalls).toBe(0);
+  });
 });

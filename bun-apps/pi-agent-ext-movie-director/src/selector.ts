@@ -142,9 +142,17 @@ export function selectProvider(capability: Capability, opts: SelectorOptions = {
   return [...pool].sort((a, b) => BACKEND_RANK[a.backend] - BACKEND_RANK[b.backend])[0]!;
 }
 
-/** All callable providers for a capability, ranked best-first (for menu/UI). */
+/**
+ * All callable providers for a capability, ranked best-first (for menu/UI).
+ * Mirrors selectProvider's bare-fallback tier: `optIn: true` entries (e.g.
+ * kokoro_tts) are excluded from the ranking — they must never appear as the
+ * apparent default/preferred choice in a menu listing — unless they are the
+ * ONLY configured candidates left, in which case they're kept so the
+ * capability still lists *something*.
+ */
 export function rankedProviders(capability: Capability, env: Record<string, string | undefined> = process.env): ProviderEntry[] {
-  return REGISTRY.filter((p) => p.capability === capability && probeConfigured(p, env)).sort(
-    (a, b) => BACKEND_RANK[a.backend] - BACKEND_RANK[b.backend],
-  );
+  const configured = REGISTRY.filter((p) => p.capability === capability && probeConfigured(p, env));
+  const nonOptIn = configured.filter((p) => !p.optIn);
+  const pool = nonOptIn.length > 0 ? nonOptIn : configured;
+  return [...pool].sort((a, b) => BACKEND_RANK[a.backend] - BACKEND_RANK[b.backend]);
 }
