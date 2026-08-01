@@ -2,6 +2,8 @@
 
 Also owns `ask_user_question` (merged from `pi-agent-ext-ask-user` on 2026-07-18 — see the "ask_user_question" section below). It shares no code or state with goal/todo; it was relocated here as the first step of a broader "core-task pi-ext" consolidation, not because of a runtime coupling.
 
+Also owns `/response-language` (relocated from its own `pi-agent-ext-response-language` package — see the "response-language" section below). It shares no code or state with goal/todo; relocated for core-task pi-ext consolidation, not because of a runtime coupling. It pairs with the `force-response-language` patch in `pi-agent` (the per-turn injection half), coupling only through the `responseLanguage` key in `~/.pi/agent/settings.json`.
+
 The ubiquitous language of pi-agent-ext-core-task — the `/goal` objective driver (with `goal_complete`) and the `todo` step tracker (with `/todos`), kept together because they share a composite status widget and six lifecycle hooks. Extracted from power-tool. Publishes the `__piGoalActive` coordination seam that the plan coordinator and wayfind read.
 
 ## Language
@@ -57,3 +59,15 @@ _Avoid_: custom input, free-text box (it is the auto-appended free-text fallback
 **Reconciler** (`before_agent_start`):
 Rewrites a pending `ask_user_question` tool call into the canonical question shape before the agent turn starts — so a malformed or model-shaped call still renders correctly.
 _Avoid_: validator, normalizer (it is a pending-call canonicalization on `before_agent_start`)
+
+## Language — response-language
+
+The `/response-language` command (relocated from its own package): live control of the agent's reply language. Self-contained — no shared widget, hooks, or state with goal/todo/ask-user.
+
+**`/response-language`**:
+The command that shows or sets `responseLanguage` in `~/.pi/agent/settings.json`. No arg shows the current value; a BCP-47 tag sets it; invalid input is rejected. Setting it just writes the key — no prompt reload — because the paired patch re-reads settings on the next turn, so the next reply already uses the new language.
+_Avoid_: locale switch, i18n toggle (it is a settings-key setter that drives the forced-injection patch, not a translation layer)
+
+**Forced-injection pair** (`force-response-language` patch in `pi-agent`):
+The other half of the feature — lives in `pi-agent/src/patches/` because it wraps `AgentSession.prototype._installAgentNextTurnRefresh` to prepend a forced `<response_language>` block to every turn's system prompt, reading `settings.json` fresh each turn. The command writes the key; the patch re-reads it on the next turn (no reload needed). That cross-package coupling through `settings.json` is the whole integration.
+_Avoid_: language enforcer, prompt builder (it is a per-turn system-prompt patch paired with this command, owned by pi-agent)
