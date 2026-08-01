@@ -14,3 +14,18 @@ export const MODEL_TIERS_FILE = ".pi/workflows/model-tiers.json";
  * collision. Each `*.md` file is an agent definition (frontmatter + body prompt).
  */
 export const AGENTS_DIR = ".pi/agents";
+
+/**
+ * Hard ceiling on parallel children in a `subagents` batch. Mirrors
+ * pi-agent-ext-workflow's MAX_CONCURRENCY (kept local so this package stays
+ * independent of the workflow engine). Unbounded fan-out cascades into
+ * provider rate limits (cf. ~50 RPM at Anthropic Tier 1).
+ */
+export const MAX_CONCURRENCY = 16;
+
+/**
+ * Default parallelism for a `subagents` batch when the caller omits
+ * `concurrency`. Moderate — read-only research/review fan-out rarely needs
+ * more; the caller can raise it up to MAX_CONCURRENCY per call.
+ */
+export const DEFAULT_BATCH_CONCURRENCY = 4;
