@@ -32,6 +32,12 @@ A test (bun test for the TS hook; the repo convention) that:
       "done" claim.
 - [ ] On green, this ticket + 06 close the map; the destination is reached.
 
+## Sub-map
+
+Decomposed into its own wayfinder map at
+`../../2026-08-01-ticket08/map.md` (scope decision + the real-git build). Closes when that
+map's build ticket is green + the manual smoke passes.
+
 ## Resolution
 
-_(open)_
+_(open — decomposed; see Sub-map)_
