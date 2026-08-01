@@ -18,6 +18,11 @@ upstream, so that prose was never corrected) — leaking an artifact outside the
 The bootstrap injection is unconditional (`session_start`/`session_compact`),
 so the gap is the text's conditional language, not delivery.
 
+Note (2026-08-02 amendment): `docs/superpowers/{specs,plans}` are git-tracked
+symlinks to `.planning/{specs,plans}`, so the flat layout was already the
+de-facto home for standalone specs; this ADR makes the boundary text say so
+explicitly rather than pushing them to per-effort dirs.
+
 ## Decision
 
 The no-upstream-path rule is **unconditional**: superpowers never writes any
@@ -25,8 +30,11 @@ artifact (spec, plan, SDD workspace, brainstorm mockup) to `docs/superpowers/`
 or `.superpowers/`, with or without an active effort.
 
 - `PI_PLANNING_EFFORT` set → resolve under `.planning/<effort>/` (unchanged).
-- `PI_PLANNING_EFFORT` unset (ad-hoc) → the model derives a dated effort dir
-  `.planning/<YYYY-MM-DD>-<slug>/` (`<slug>` = short kebab of the topic).
+- `PI_PLANNING_EFFORT` unset (ad-hoc) → specs land at
+  `.planning/specs/<YYYY-MM-DD>-<topic>-design.md` and plans at
+  `.planning/plans/<YYYY-MM-DD>-<topic>.md` — the flat layout
+  `docs/superpowers/{specs,plans}` symlink to. (Per-effort `.planning/<effort>/`
+  is for multi-ticket wayfind efforts, set via `PI_PLANNING_EFFORT`.)
 
 Guarded by (a) a unit test asserting the boundary text's rule is unconditional,
 and (b) a repo lint failing on any file beyond the baseline under the upstream
