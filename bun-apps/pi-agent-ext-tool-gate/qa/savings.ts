@@ -36,8 +36,12 @@ export const CLAIMED_SAVED_TOK = 8050;
  *  schemas change — the dominant swing is zai-mcp (~1.1k tok, env-gated on
  *  ZAI_API_KEY ≈ 14% of the claim), so a tighter band would flake whenever zai
  *  loads. 20% still fails loudly if measured savings collapse (claim over-
- *  states) or balloon (claim badly under-states). Guarded by the deviation-band
- *  test in savings.test.ts — the lock that makes CLAIMED_SAVED_TOK trustworthy. */
+ *  states) or balloon (claim badly under-states). Upper-edge headroom is thin
+ *  by design: with zai-mcp loaded (~+1.1k) measured gross ≈ 9,208 vs the upper
+ *  edge 9,660 (~5% headroom) — a high-side "OUTSIDE ✗" correctly signals the
+ *  README under-states and needs refresh, NOT a regression. Guarded by the
+ *  deviation-band test in savings.test.ts — the lock that makes CLAIMED_SAVED_TOK
+ *  trustworthy. */
 export const DRIFT_BAND = 0.2; // fraction of CLAIMED_SAVED_TOK
 
 /** Is the measured gross saving within DRIFT_BAND of the claimed figure?
@@ -46,6 +50,30 @@ export const DRIFT_BAND = 0.2; // fraction of CLAIMED_SAVED_TOK
 export function withinDriftBand(savedTok: number): boolean {
 	return Math.abs(savedTok - CLAIMED_SAVED_TOK) <= DRIFT_BAND * CLAIMED_SAVED_TOK;
 }
+
+/** enable_tool's measured schema-token cost — the always-on overhead tool-gate
+ *  pays for its escape hatch. A constant so the net claim DERIVES from the gross
+ *  claim (single source, not an independent figure); an overhead-band guard in
+ *  savings.test.ts catches its drift (audit I-6 root cause). Refresh via qa:savings. */
+export const ENABLE_TOOL_OVERHEAD_TOK = 243;
+
+/** Net savings claim = gross claim − enable_tool overhead. Derived, never
+ *  independent. Prose cites ~7,800 (round-to-100); the live measured net is
+ *  reported by `bun run qa:savings`. */
+export const CLAIMED_NET_TOK = CLAIMED_SAVED_TOK - ENABLE_TOOL_OVERHEAD_TOK; // 7,807
+
+/** Savings-adjacent figures sanctioned to appear as `~N,NNN` literals in prose
+ *  (README/CONTEXT/tool-gate.ts header/PRD). The prose-drift test
+ *  (savings-prose-lock.test.ts) fails CI if any OTHER comma-grouped thousands
+ *  figure appears — closing the prose↔constant gap that let three different
+ *  gross numbers (~7,900 / ~7,940 / ~8,050) silently coexist. baseline/gated
+ *  are measured approximations refreshed via qa:savings. */
+export const SANCTIONED_PROSE_TOK: ReadonlySet<number> = new Set([
+	CLAIMED_SAVED_TOK, // ~8,050 gross
+	Math.round(CLAIMED_NET_TOK / 100) * 100, // ~7,800 net (claim rounded)
+	18_000, // ~18,000 OFF baseline (measured 18,044)
+	10_000, // ~10,000 ON gated (measured 9,936)
+]);
 
 export interface GateSavings {
 	/** First name of the gate — its identity for display. */
@@ -187,7 +215,7 @@ export function formatSavings(r: SavingsReport): string[] {
 		`ON at start:    ${r.gatedTotal.toLocaleString()} tok/req  (tool-gate ON, nothing fired)`,
 		`SAVED:          ${r.savedTok.toLocaleString()} tok/req  (${r.savedPct}%)  [gross — gated tools' raw tokens]`,
 		`enable_tool:    ${r.enableToolOverhead.toLocaleString()} tok/req  (always-on price of gating — drift-detect this)`,
-		`NET:            ${r.netSavedTok.toLocaleString()} tok/req  (${r.netSavedPct}%)  [saved − enable_tool]`,
+		`NET:            ${r.netSavedTok.toLocaleString()} tok/req  (${r.netSavedPct}%)  [saved − enable_tool; vs claim ~${CLAIMED_NET_TOK.toLocaleString()}: ${sign(r.netSavedTok - CLAIMED_NET_TOK)}${(r.netSavedTok - CLAIMED_NET_TOK).toLocaleString()}]`,
 		`vs README claim ~${r.claimed.toLocaleString()}: ${sign(r.deviation)}${r.deviation.toLocaleString()} tok  (±${Math.round(DRIFT_BAND * 100)}% band = ±${Math.round(DRIFT_BAND * r.claimed).toLocaleString()}; ${withinDriftBand(r.savedTok) ? "within ✓" : "OUTSIDE ✗"})`,
 		"",
 		"per gate (loaded only):",

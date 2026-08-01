@@ -6,7 +6,7 @@
  * zai-mcp, pi_deploy) behind prompt keyword matching.
  *
  * Baseline:  ~55 tools → ~18,000 tok/req   (measured via `bun run qa`)
- * Gated:    ON at start ~10,000 tok/req   (saves ~8,050 tok/turn, ~45%; net ~7,900; zai-mcp env-gated)
+ * Gated:    ON at start ~10,000 tok/req   (saves ~8,050 tok/turn, ~45%; net ~7,800; zai-mcp env-gated)
  *
  * Tools reactivate instantly when the prompt mentions relevant keywords, and
  * once activated stay active for the rest of the session (they never re-gate

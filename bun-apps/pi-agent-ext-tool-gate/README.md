@@ -10,7 +10,7 @@ This extension solves that by keeping lightweight core tools always active and h
 
 ```
 Baseline:  ~55 tools → ~18,000 tok/req   (measured via `bun run qa`)
-Gated:    ON at start ~10,000 tok/req   (saves ~8,050 tok/turn gross, ~45%; **net ~7,900** after the ~243 tok `enable_tool` escape-hatch overhead — audit I-6; zai-mcp env-gated)
+Gated:    ON at start ~10,000 tok/req   (saves ~8,050 tok/turn gross, ~45%; **net ~7,800** after the ~243 tok `enable_tool` escape-hatch overhead — audit I-6; zai-mcp env-gated)
 ```
 
 > Figures are measured by `bun run qa` (power-tool `schema-cost`). Only
