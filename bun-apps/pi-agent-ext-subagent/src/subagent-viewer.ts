@@ -139,7 +139,7 @@ export class SubagentViewer {
    *  matching children is dropped entirely (no header). */
   private entries(): Array<
     | { kind: "running"; ref: InFlightSubagent }
-    | { kind: "batchHeader"; batchId: string; count: number }
+    | { kind: "batchHeader"; batchId: string; running: number; done: number }
     | { kind: "completed"; ref: SubagentRun }
   > {
     const q = this.filter.trim().toLowerCase();
@@ -148,7 +148,8 @@ export class SubagentViewer {
     const allRunning = (this.getRunning?.() ?? []).filter((r) => matches(r.agent, r.taskPreview));
 
     const runningEntries: Array<
-      { kind: "running"; ref: InFlightSubagent } | { kind: "batchHeader"; batchId: string; count: number }
+      | { kind: "running"; ref: InFlightSubagent }
+      | { kind: "batchHeader"; batchId: string; running: number; done: number }
     > = [];
     const seenBatches = new Set<string>();
     for (const r of allRunning) {
@@ -160,7 +161,8 @@ export class SubagentViewer {
         if (seenBatches.has(bid)) continue;
         seenBatches.add(bid);
         const children = allRunning.filter((x) => x.batchId === bid);
-        runningEntries.push({ kind: "batchHeader", batchId: bid, count: children.length });
+        const done = children.filter((x) => x.status === "completed").length;
+        runningEntries.push({ kind: "batchHeader", batchId: bid, running: children.length - done, done });
         if (!this.collapsedBatches.has(bid)) {
           for (const c of children) runningEntries.push({ kind: "running", ref: c });
         }
@@ -286,12 +288,14 @@ export class SubagentViewer {
         if (e.kind === "batchHeader") {
           const collapsed = this.collapsedBatches.has(e.batchId);
           const glyph = collapsed ? "▶" : "▼";
-          const header = `${th.fg("accent", th.bold(`${glyph} subagents batch`))} ${th.fg("dim", `· ${e.count} running`)}`;
+          const counts = e.done > 0 ? `${e.running} running / ${e.done} done` : `${e.running} running`;
+          const header = `${th.fg("accent", th.bold(`${glyph} subagents batch`))} ${th.fg("dim", `· ${counts}`)}`;
           lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", `▶ ${header}`) : `  ${header}`}`, width));
           continue;
         }
         const r = e.ref;
         const indented = Boolean(r.batchId);
+        const completed = r.status === "completed";
         const toolCalls = r.history?.filter((h) => h.kind === "toolCall").length ?? 0;
         const row: ActivityRow = {
           status: "running",
@@ -304,8 +308,12 @@ export class SubagentViewer {
         const head = renderActivityRow(row, th);
         // Indented child (under a batch header) or flat ungrouped row — prefixes
         // kept byte-identical to pre-Task-3 so existing visuals are unchanged.
+        // A completed-status batch child renders greyed with a ✓ checkmark but
+        // stays selectable (follow shows its frozen trace); the ungrouped
+        // branch is untouched (singular subagent runs never carry "completed").
         if (indented) {
-          lines.push(truncateToWidth(`    ${cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`}`, width));
+          const body = cur ? th.bg("selectedBg", `▶ ${head}`) : completed ? th.fg("dim", `✓ ${head}`) : `  ${head}`;
+          lines.push(truncateToWidth(`    ${body}`, width));
         } else {
           lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`}`, width));
         }
