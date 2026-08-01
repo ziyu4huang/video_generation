@@ -347,3 +347,34 @@ test("batch keeps a completed child (status=completed) mid-run; evicts the whole
   assert.equal(seen[0].status, "completed", "#0 marked completed (not running, not gone)");
   assert.equal(inFlight.list().length, 0, "registry empty after the batch returns (whole-batch eviction)");
 });
+
+test("onUpdate emits a single-line 'k/N running · latest' as children progress", async () => {
+  const inFlight = new SubagentInFlightRegistry();
+  const updates: string[] = [];
+  const onUpdate = (u: { content: Array<{ type: string; text: string }> }) => {
+    updates.push(u.content.map((c) => c.text).join(""));
+  };
+  const spawn = async (opts: {
+    task: string;
+    onHistory?: (h: { kind: string; toolName?: string; text?: string }[]) => void;
+  }): Promise<SpawnSubagentResult> => {
+    opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "r" }]);
+    const idx = Number(opts.task.match(/^#(\d+)/)?.[1] ?? 0);
+    // mark each child completed to mirror the real finally-block
+    inFlight.markCompleted(`batch-call:${idx}`);
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  };
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
+  await tool.execute(
+    "batch-call",
+    { tasks: [{ task: "#0" }, { task: "#1" }], concurrency: 1 },
+    NO_SIGNAL,
+    onUpdate as never,
+    NO_CTX,
+  );
+  assert.ok(updates.length >= 2, "at least one update per child history tick");
+  const first = updates[0];
+  assert.match(first, /subagents/, "single-line batch summary");
+  assert.match(first, /\/2/, "shows /N total");
+  assert.match(first, /latest/, "includes the latest action");
+});
