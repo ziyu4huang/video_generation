@@ -117,7 +117,7 @@ final class FaceDetectorTests: XCTestCase {
         var dir = FileManager.default.currentDirectoryPath
         for _ in 0..<8 {
             let candidate = (dir as NSString).appendingPathComponent(
-                "scripts/output_sam3_test/output_20260609_192145_womans_face_extracted.png")
+                "scripts/fixtures/faces/real_face_portrait.png")
             if FileManager.default.fileExists(atPath: candidate) {
                 return URL(fileURLWithPath: candidate)
             }
@@ -129,9 +129,9 @@ final class FaceDetectorTests: XCTestCase {
     func testDetectFacesFindsRealFaceInFixtureImage() throws {
         let url = fixtureURL
         try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path),
-                           "fixture image not found — expected scripts/output_sam3_test/output_20260609_192145_womans_face_extracted.png")
+                           "fixture image not found — expected scripts/fixtures/faces/real_face_portrait.png")
 
-        let faces = try FaceDetector.detectFaces(at: url, width: 640, height: 960)
+        let faces = try FaceDetector.detectFaces(at: url, width: 832, height: 1024)
 
         XCTAssertGreaterThanOrEqual(faces.count, 1, "expected at least one face detected in the fixture image")
         for face in faces {
@@ -139,8 +139,8 @@ final class FaceDetectorTests: XCTestCase {
             XCTAssertGreaterThan(face.y2, face.y1)
             XCTAssertGreaterThanOrEqual(face.x1, 0)
             XCTAssertGreaterThanOrEqual(face.y1, 0)
-            XCTAssertLessThanOrEqual(face.x2, 640)
-            XCTAssertLessThanOrEqual(face.y2, 960)
+            XCTAssertLessThanOrEqual(face.x2, 832)
+            XCTAssertLessThanOrEqual(face.y2, 1024)
         }
     }
 }
@@ -290,14 +290,14 @@ final class FaceDetailPipelineTests: XCTestCase {
     /// ZImageDirectorTests.testLoadMoodyProMixWeights.
     func testDetailFacesRegeneratesFaceRegionAndLeavesRestNearUnchanged() throws {
         let fixture = URL(fileURLWithPath: Self.repoRootRelative(
-            "scripts/output_sam3_test/output_20260609_192145_womans_face_extracted.png"))
+            "scripts/fixtures/faces/real_face_portrait.png"))
         try XCTSkipUnless(FileManager.default.fileExists(atPath: fixture.path), "fixture image not found")
 
         let transformerDir = ModelPaths.transformerRoot.appendingPathComponent(Flux2ModelRegistry.defaultTransformer)
         try XCTSkipUnless(FileManager.default.fileExists(atPath: transformerDir.path),
                            "flux2 klein-9b transformer weights not found at \(transformerDir.path) — skipping real E2E test")
 
-        let faces = try FaceDetector.detectFaces(at: fixture, width: 640, height: 960)
+        let faces = try FaceDetector.detectFaces(at: fixture, width: 832, height: 1024)
         try XCTSkipIf(faces.isEmpty, "no face detected in fixture — cannot exercise the regenerate/composite path")
 
         print("  loading flux2 models for real E2E face-detail test...")
@@ -320,7 +320,7 @@ final class FaceDetailPipelineTests: XCTestCase {
             vaeEncoder: Flux2VAEEncoder(weights: vaeWeights),
             vaeDecoder: Flux2VAEDecoder(weights: vaeWeights), bn: bn)
 
-        let image = try Flux2ImageLoad.loadArray(from: fixture, targetSize: (640, 960))
+        let image = try Flux2ImageLoad.loadArray(from: fixture, targetSize: (832, 1024))
         let result = try FaceDetailPipeline.detailFaces(
             image: image, faces: faces, prompt: "a woman's face, natural skin detail, photorealistic",
             pipeline: pipeline, seed: 42, steps: 9, denoiseStrength: 0.15, padding: 1.8, feather: 20)
@@ -332,7 +332,7 @@ final class FaceDetailPipelineTests: XCTestCase {
         // the (expanded) face region than in a corner patch far from any
         // face — proves detailFaces localized the edit rather than
         // regenerating/blending the whole frame.
-        let expanded = FaceDetector.expandBBox(faces[0], padding: 1.8, imgW: 640, imgH: 960)
+        let expanded = FaceDetector.expandBBox(faces[0], padding: 1.8, imgW: 832, imgH: 1024)
         let diff = MLX.abs(result - image)
         MLX.eval(diff)
         let insideDiff = MLX.mean(diff[0..., 0..., expanded.y1..<expanded.y2, expanded.x1..<expanded.x2]).item(Float.self)
@@ -691,11 +691,11 @@ Expected: builds cleanly.
 Run (real smoke test — this DOES load models and generate, expect it to take a minute or two):
 ```bash
 ( cd swift/flux2-image-director && .build/release/flux2 face-detail \
-    --input ../../scripts/output_sam3_test/output_20260609_192145_womans_face_extracted.png \
+    --input ../../scripts/fixtures/faces/real_face_portrait.png \
     --prompt "a woman's face, natural skin detail, photorealistic" \
     --output /tmp/face-detail-smoke-test.png )
 ```
-Expected: prints `Found 1 face(s)` (or more), then `✅ face-detail ... .png`, and `/tmp/face-detail-smoke-test.png` exists with the same 640×960 dimensions as the input. Also run `flux2 face-detail --help` and confirm every flag listed above (`--input --prompt --padding --feather --denoise-strength --steps --min-confidence --seed --transformer --vae --encoder --tokenizer-dir --output --output-dir --name --no-artifacts --strict-gate --models-root`) is present — Task 4 needs this exact flag list to match `commands.ts`.
+Expected: prints `Found 1 face(s)` (or more), then `✅ face-detail ... .png`, and `/tmp/face-detail-smoke-test.png` exists with the same 832×1024 dimensions as the input. Also run `flux2 face-detail --help` and confirm every flag listed above (`--input --prompt --padding --feather --denoise-strength --steps --min-confidence --seed --transformer --vae --encoder --tokenizer-dir --output --output-dir --name --no-artifacts --strict-gate --models-root`) is present — Task 4 needs this exact flag list to match `commands.ts`.
 
 - [ ] **Step 5: Commit**
 

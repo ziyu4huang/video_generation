@@ -173,11 +173,16 @@ on the base-gen output the same way it already spawns `flux2 upscale`.
 ### 4. Testing
 
 - `FaceDetector`: a real Vision detection test against
-  `scripts/output_sam3_test/output_20260609_192145_womans_face_extracted.png`
-  (already git-tracked in this repo, from earlier SAM3 cutout testing —
-  confirmed to contain a clear frontal face) — assert at least one box
-  returned, with plausible bounds (inside image dimensions, non-degenerate
-  w/h).
+  `scripts/fixtures/faces/real_face_portrait.png` (832×1024, git-tracked —
+  a photorealistic AI-generated portrait reused from an earlier face-restore
+  self-test, `video_generation__output/output_20260709_121649_facerestore.png`;
+  corrected during planning after discovering the originally-cited SAM3
+  fixture, `scripts/output_sam3_test/output_20260609_192145_womans_face_extracted.png`,
+  is an anime/illustrated character — `VNDetectFaceRectanglesRequest` is
+  trained on real human faces and correctly returns zero detections on it,
+  confirmed via a standalone script bypassing all FaceDetector code) —
+  assert at least one box returned, with plausible bounds (inside image
+  dimensions, non-degenerate w/h).
 - `FaceDetailCommand`: real end-to-end run — real model load, real
   detection, real regeneration, real composite — asserting the output PNG
   exists, has the same dimensions as the input, and differs from the input
