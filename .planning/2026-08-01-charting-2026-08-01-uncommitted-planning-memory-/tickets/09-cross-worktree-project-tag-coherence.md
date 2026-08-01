@@ -2,7 +2,9 @@
 
 ---
 type: grilling
-status: open
+status: closed
+claimed: wayfinder-session
+shipped: 2026-08-01 (commit 78280040)
 ---
 
 ## Question
@@ -35,12 +37,46 @@ Pre-existing (detectProject behavior); amplified by this effort's auto-commit (t
 
 ## Acceptance
 
-- [ ] In/out-of-scope for THIS effort decided (if out, close + leave one line in the map's
+- [x] In/out-of-scope for THIS effort decided (if out, close + leave one line in the map's
       Out-of-scope section).
-- [ ] If in-scope: stabilization mechanism chosen (git identity / repo config / other) +
+- [x] If in-scope: stabilization mechanism chosen (git identity / repo config / other) +
       how it composes with the existing `project` filter in `memory_search`.
-- [ ] Notes the migration concern: entries already indexed under old basename tags.
+- [x] Notes the migration concern: entries already indexed under old basename tags.
 
 ## Resolution
 
-_(open)_
+**Decision (grilled 2026-08-01): IN-SCOPE — stabilize via a repo-local `projectName`
+override.** The same repo's 8 worktrees get 8 different project tags (`path.basename(cwd)`),
+so a committed MEMORY.md entry indexed in one worktree isn't findable by project tag from
+another — and auto-commit (06) made cross-worktree sharing routine, amplifying the divergence.
+Chosen over git-identity (adds a fragile git lookup at detect-time, depends on common-dir /
+remote) and out-of-scope (cosmetic-only would leave the durability story half-baked for a
+worktree-heavy repo).
+
+**Mechanism (shipped, commit `78280040`, TDD):**
+- `projectName?: string` added to `MemoryConfig` (`types.ts`).
+- The repo-local overlay (`config.ts` `applyRepoLocalProjectMemoryOverlay`) now allows
+  `projectName` alongside `autoCommitProjectMemory`/`projectMemoryDir` — **one committed edit**
+  to `.agents/memory/config.json` and ALL worktrees of a repo share the tag. Keeps the overlay
+  NARROW (still ignores dbBackend/surreal/llm).
+- `detectProject` (`project.ts`) gains a backward-compatible optional `projectNameOverride`
+  param — wins over `path.basename(cwd)` when set; `memoryDir` follows the override name.
+  Stays PURE (no git lookup — the override is a param).
+- `index.ts:131` passes `config.projectName` — the SINGLE tag source (sync-markdown-memories
+  inherits it via `inRepoProjectName`). Default undefined → cwd basename (zero behavior change
+  for repos that don't set it). Composes with the existing `memory_search project=` filter
+  unchanged (just a stable value).
+
+**Verified (TDD, independently):** red (watched both new tests fail for the right reasons) →
+green: `tsc --noEmit` exit 0; full suite **950 pass / 0 fail** (947 + 3 new: overlay reads
+projectName, detectProject honors the override, detectProject falls back to basename).
+Backward-compatible (optional param; all existing callers unchanged).
+
+**Migration concern (acceptance #3):** entries already indexed under old basename tags become
+orphans when a repo adopts `projectName` — new writes re-tag under the stable name; old
+basename-tagged rows linger until consolidation/prune (cosmetic, not data loss). No migration
+script shipped; consolidation absorbs it. (This repo is NOT opted into projectName — capability
+shipped only.)
+
+**With 09 closed, ALL parent-effort tickets (01–09) are closed → the parent effort is
+COMPLETE.**
