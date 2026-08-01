@@ -128,7 +128,29 @@ export function mergeReadOnlyExclusion(
   return opts;
 }
 
-export function createSubagentsTool(_options: SubagentsToolOptions = {}): ToolDefinition {
+/** Run `fn` over `items` with at most `limit` in flight; results in input order. */
+export async function runWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workerCount = Math.min(limit, items.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await fn(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDefinition {
+  const spawn = options.spawn ?? spawnSubagent;
+  const defaultCwd = options.cwd ?? process.cwd();
+
   return defineTool({
     name: "subagents",
     label: "Subagents",
@@ -138,8 +160,69 @@ export function createSubagentsTool(_options: SubagentsToolOptions = {}): ToolDe
       "Fan out read-only research/review subagents in parallel. Each child has edit/write/bash excluded. Returns one result per task in input order (null for a failed child).",
     executionMode: "sequential",
     parameters: subagentsToolSchema,
-    async execute() {
-      throw new Error("subagents execute not implemented until Task 3");
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const t0 = Date.now();
+      const tasks = params.tasks as BatchTask[];
+      if (!Array.isArray(tasks) || tasks.length === 0) {
+        return {
+          content: [{ type: "text" as const, text: "tasks must be a non-empty array." }],
+          details: { results: [], dispatched: 0, skipped: 0, elapsedMs: 0 } as SubagentsToolDetails,
+        };
+      }
+      const concurrency = clampConcurrency(params.concurrency);
+      const mainModel = options.getMainModel?.();
+      const extensionTools = options.getExtensionTools?.();
+
+      const slots: BatchResultSlot[] = new Array(tasks.length).fill(null);
+      let dispatched = 0;
+
+      await runWithConcurrency(tasks, concurrency, async (task, index) => {
+        const childOpts = mergeReadOnlyExclusion(task, { defaultCwd, mainModel, extensionTools });
+        const result = await spawn(childOpts);
+        dispatched++;
+        const status = deriveSubagentStatus(result);
+        if (status === "failed") {
+          slots[index] = null;
+        } else if (result.budget) {
+          slots[index] = { status: "budget", exhaustion: result.budget, id: task.id, index };
+        } else {
+          slots[index] = {
+            output: result.output,
+            status: status === "timedout" ? "timedout" : "done",
+            id: task.id,
+            index,
+            usage: result.usage,
+          };
+        }
+      });
+
+      const details: SubagentsToolDetails = {
+        results: slots,
+        dispatched,
+        skipped: 0,
+        elapsedMs: Date.now() - t0,
+      };
+      return { content: [{ type: "text" as const, text: renderBatchResult(details) }], details };
     },
   });
+}
+
+/** Render the batch result as a readable summary for the model. */
+export function renderBatchResult(details: SubagentsToolDetails): string {
+  const done = details.results.filter((s) => s && (s as { status: string }).status !== "budget").length;
+  const failed = details.results.filter((s) => s === null).length;
+  const skipped = details.skipped;
+  const header = `## subagents batch (${done} ok · ${failed} failed · ${skipped} skipped) — ${(
+    details.elapsedMs / 1000
+  ).toFixed(1)}s`;
+  const body = details.results
+    .map((slot, i) => {
+      if (slot === null)
+        return `### [${i}] failed\n_(null — child failed; re-run via the singular \`subagent\` tool to see the error)_`;
+      if (slot.status === "budget")
+        return `### [${i}]${slot.id ? ` (${slot.id})` : ""} skipped — batch budget: ${slot.exhaustion.kind} ${slot.exhaustion.actual} > ${slot.exhaustion.limit}`;
+      return `### [${i}]${slot.id ? ` (${slot.id})` : ""} ${slot.status}\n${slot.output || "_(empty output)_"}`;
+    })
+    .join("\n\n");
+  return `${header}\n\n${body}`;
 }
