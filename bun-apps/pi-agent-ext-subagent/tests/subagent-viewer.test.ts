@@ -639,10 +639,7 @@ test("mixed: ungrouped runs flat, batch children grouped under one header", () =
 });
 
 test("a batch child is still selectable + followable (cursor unaffected by the header)", () => {
-  const running = [
-    runningEntry("batchX:0", { batchId: "batchX" }),
-    runningEntry("batchX:1", { batchId: "batchX" }),
-  ];
+  const running = [runningEntry("batchX:0", { batchId: "batchX" }), runningEntry("batchX:1", { batchId: "batchX" })];
   const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
   // entries() is: [header(batchX), batchX:0, batchX:1]. Cursor starts at 0 (the header).
   viewer.handleInput("\x1b[B"); // down → first child (batchX:0)

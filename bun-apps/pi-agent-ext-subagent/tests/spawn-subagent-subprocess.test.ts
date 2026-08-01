@@ -46,7 +46,7 @@ class MockChild {
   }
   // test drivers
   sendStdout(line: string): void {
-    this.out.emit("data", line + "\n");
+    this.out.emit("data", `${line}\n`);
   }
   sendStderr(s: string): void {
     this.err.emit("data", s);
