@@ -33,7 +33,7 @@ import type {
   MemoryStats,
   MemoryTarget,
 } from "../repository.js";
-import type { MemoryCategory } from "../../types.js";
+import type { MemoryCategory, FailureState } from "../../types.js";
 import { buildFallbackFts5Query, isFts5QueryError, normalizeFts5Query } from "./fts-query.js";
 import { normalizeMemoryLookupText } from "../memory-lookup.js";
 import { today, normalizeNullable, normalizeCategory } from "../memory-format.js";
@@ -64,7 +64,9 @@ const MEMORY_SELECT_COLUMNS = `
   supersedes,
   superseded_by,
   parent_ids,
-  md_id
+  md_id,
+  state,
+  severity
 `;
 
 type MemoryRow = {
@@ -85,6 +87,8 @@ type MemoryRow = {
   superseded_by: number | null;
   parent_ids: string | null;
   md_id: string | null;
+  state: string;
+  severity: number | null;
 };
 
 /**
@@ -121,6 +125,8 @@ function mapRow(row: MemoryRow): MemoryEntry {
     supersededBy: row.superseded_by,
     parentIds: parseParentIds(row.parent_ids),
     mdId: row.md_id,
+    state: (row.state as FailureState) ?? "active",
+    severity: row.severity ?? null,
   };
 }
 
@@ -218,6 +224,8 @@ export class SqliteMemoryRepository implements MemoryRepository {
     created?: string;
     lastReferenced?: string;
     mdId?: string | null;
+    state?: FailureState;
+    severity?: number | null;
   }): Promise<MemoryEntry> {
     return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
       const content = input.content;
@@ -233,9 +241,9 @@ export class SqliteMemoryRepository implements MemoryRepository {
       const mdId = input.mdId ?? null;
 
       const result = this.db.prepare(`
-        INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, md_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, 0, 0, mdId);
+        INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, md_id, state, severity)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, 0, 0, mdId, input.state ?? "active", input.severity ?? null);
 
       return {
         id: Number(result.lastInsertRowid),
@@ -255,6 +263,8 @@ export class SqliteMemoryRepository implements MemoryRepository {
         supersededBy: null,
         parentIds: [],
         mdId,
+        state: input.state ?? "active",
+        severity: input.severity ?? null,
       };
     }));
   }
@@ -330,11 +340,13 @@ export class SqliteMemoryRepository implements MemoryRepository {
         supersededBy: null,
         parentIds: [],
         mdId,
+        state: input.state ?? "active",
+        severity: input.severity ?? null,
       };
       const result = this.db.prepare(`
-        INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, md_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(project, input.target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, input.mwSuccess ?? 0, input.mwFail ?? 0, mdId);
+        INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, md_id, state, severity)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(project, input.target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, input.mwSuccess ?? 0, input.mwFail ?? 0, mdId, input.state ?? "active", input.severity ?? null);
       entry.id = Number(result.lastInsertRowid);
       return { action: "inserted" as const, entry };
     }
@@ -354,7 +366,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
     if (birthMdId !== null) {
       this.db.prepare(`
         UPDATE memories
-        SET category = ?, failure_reason = ?, tool_state = ?, corrected_to = ?, created = ?, last_referenced = ?, md_id = ?
+        SET category = ?, failure_reason = ?, tool_state = ?, corrected_to = ?, created = ?, last_referenced = ?, md_id = ?, state = ?, severity = ?
         WHERE id = ?
       `).run(
         updatedCategory,
@@ -364,12 +376,14 @@ export class SqliteMemoryRepository implements MemoryRepository {
         updatedCreated,
         updatedLastReferenced,
         birthMdId,
+        input.state ?? "active",
+        input.severity ?? null,
         existing.id,
       );
     } else {
       this.db.prepare(`
         UPDATE memories
-        SET category = ?, failure_reason = ?, tool_state = ?, corrected_to = ?, created = ?, last_referenced = ?
+        SET category = ?, failure_reason = ?, tool_state = ?, corrected_to = ?, created = ?, last_referenced = ?, state = ?, severity = ?
         WHERE id = ?
       `).run(
         updatedCategory,
@@ -378,6 +392,8 @@ export class SqliteMemoryRepository implements MemoryRepository {
         updatedCorrectedTo,
         updatedCreated,
         updatedLastReferenced,
+        input.state ?? "active",
+        input.severity ?? null,
         existing.id,
       );
     }
@@ -808,8 +824,8 @@ export class SqliteMemoryRepository implements MemoryRepository {
       cutoff.setDate(cutoff.getDate() - maxAgeDays);
       const cutoffStr = cutoff.toISOString().split("T")[0];
 
-      const conditions: string[] = ["target = ?", "created >= ?"];
-      const params: unknown[] = ["failure", cutoffStr];
+      const conditions: string[] = ["target = ?", "created >= ?", "state = ?"];
+      const params: unknown[] = ["failure", cutoffStr, "active"];
 
       if (project !== undefined) {
         if (project === null) {

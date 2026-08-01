@@ -483,6 +483,26 @@ describe("SqliteMemoryRepository", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // getRecentFailures — failure state filter (Task 3 of hermes-failure-lifecycle).
+  // Injection must surface only `active` failures; resolved/acquired retire.
+  // ---------------------------------------------------------------------------
+
+  describe("getRecentFailures — failure state filter (Task 3)", () => {
+    it("excludes resolved/acquired; keeps active; round-trips state", async () => {
+      await repo.addMemory({ content: "[failure] active one", target: "failure", category: "failure", state: "active" });
+      await repo.addMemory({ content: "[failure] fixed one", target: "failure", category: "failure", state: "resolved" });
+      await repo.addMemory({ content: "[tool-quirk] known quirk", target: "failure", category: "tool-quirk", state: "acquired" });
+      const recent = await repo.getRecentFailures(7);
+      const contents = recent.map((m) => m.content);
+      expect(contents.some((c) => c === "[failure] active one")).toBe(true);
+      expect(contents.some((c) => c === "[failure] fixed one")).toBe(false);
+      expect(contents.some((c) => c === "[tool-quirk] known quirk")).toBe(false);
+      const active = recent.find((m) => m.content === "[failure] active one");
+      expect(active?.state).toBe("active");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Supersession (Task 3): lineage columns on read + status filter + supersedeMemory.
   // ---------------------------------------------------------------------------
 
