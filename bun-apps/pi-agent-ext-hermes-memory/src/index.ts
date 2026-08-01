@@ -45,7 +45,7 @@ import { setupBackgroundReview } from "./handlers/background-review.js";
 import { setupSessionFlush } from "./handlers/session-flush.js";
 import { setupCommitProjectMemory } from "./handlers/commit-project-memory.js";
 import { registerInsightsCommand } from "./handlers/insights.js";
-import { triggerConsolidation, registerConsolidateCommand, resolveConsolidatorModelLabel } from "./handlers/auto-consolidate.js";
+import { triggerConsolidation, registerConsolidateCommand, resolveConsolidatorModelLabel, produceMergePlan } from "./handlers/auto-consolidate.js";
 import { setupCorrectionDetector } from "./handlers/correction-detector.js";
 import { setupErrorDetector } from "./handlers/error-detector.js";
 import { RecallSet, setupWorthScoring } from "./handlers/worth-scoring.js";
@@ -367,14 +367,23 @@ export default async function (pi: ExtensionAPI) {
   }
 
   // ── 7. Setup auto-consolidation (inject consolidator into stores) ──
-  store.setConsolidator(async (target, signal) => {
-    return triggerConsolidation(store, target, memoryToolDef, signal, config.consolidationTimeoutMs, target, config);
-  }, resolveConsolidatorModelLabel(config));
+  // 2-phase: the injected fn only PLANS (lock-free, no writes). The store's
+  // consolidateTwoPhase takes the returned MergePlan and applies it in a brief
+  // locked reconcile-write. triggerConsolidation stays wired only for the
+  // manual /memory-consolidate command (registerConsolidateCommand below).
+  store.setConsolidator(async (snapshot, signal) =>
+    produceMergePlan(snapshot, {
+      timeoutMs: config.consolidationTimeoutMs,
+      signal,
+      modelOverride: config.llmModelOverride,
+    }), resolveConsolidatorModelLabel(config));
   if (projectStore) {
-    projectStore.setConsolidator(async (target, signal) => {
-      const toolTarget = target === "memory" ? "project" : target;
-      return triggerConsolidation(projectStore, target, memoryToolDef, signal, config.consolidationTimeoutMs, toolTarget, config);
-    }, resolveConsolidatorModelLabel(config));
+    projectStore.setConsolidator(async (snapshot, signal) =>
+      produceMergePlan(snapshot, {
+        timeoutMs: config.consolidationTimeoutMs,
+        signal,
+        modelOverride: config.llmModelOverride,
+      }), resolveConsolidatorModelLabel(config));
   }
 
   // ── 7b. Inject the superseded-content provider (D2 offload-superseded-first) ──

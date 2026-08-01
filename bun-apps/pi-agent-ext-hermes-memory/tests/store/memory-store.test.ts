@@ -191,9 +191,9 @@ describe("MemoryStore", { concurrency: 1 }, () => {
         memoryOverflowStrategy: "reject",
         autoConsolidate: true,
       }));
-      store.setConsolidator(async () => {
+      store.setConsolidator(async (snapshot) => {
         consolidatorCalled = true;
-        return { consolidated: true };
+        return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
       });
       await store.loadFromDisk();
 
@@ -219,9 +219,9 @@ describe("MemoryStore", { concurrency: 1 }, () => {
         memoryOverflowStrategy: "fifo-evict",
         autoConsolidate: true,
       }));
-      store.setConsolidator(async () => {
+      store.setConsolidator(async (snapshot) => {
         consolidatorCalled = true;
-        return { consolidated: true };
+        return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
       });
       await store.loadFromDisk();
 
@@ -275,7 +275,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
         memoryOverflowStrategy: "auto-consolidate",
         autoConsolidate: true,
       }));
-      store.setConsolidator(async () => ({ consolidated: false }));
+      store.setConsolidator(async (snapshot) => ({ plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }));
       await store.loadFromDisk();
 
       const first = `${TEST_MARKER} floor first oldest`;
@@ -328,7 +328,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
         memoryOverflowStrategy: "auto-consolidate",
         autoConsolidate: true,
       }));
-      store.setConsolidator(async () => ({ consolidated: false }));
+      store.setConsolidator(async (snapshot) => ({ plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }));
       await store.loadFromDisk();
 
       const result = await store.add("memory", `${TEST_MARKER} ${"x".repeat(60)}`);
@@ -378,15 +378,18 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       // No superseded to offload.
       store.setSupersededContentProvider(async () => []);
       let consolidateCalls = 0;
-      store.setConsolidator(async () => {
+      store.setConsolidator(async (snapshot) => {
         consolidateCalls++;
-        // Simulate consolidation freeing space: clear the store so the retried
-        // _addInner fits. (Real consolidation rewrites the .md; the stub fakes
-        // that by emptying entries. Note the real flow re-loadFromDisk()s after
-        // consolidation, but the assertions below only require the consolidator
-        // to have been invoked + the add to ultimately succeed via the floor.)
-        (store as unknown as { setEntries: (t: "memory" | "user" | "failure", e: string[]) => void }).setEntries("memory", []);
-        return { consolidated: true };
+        // Simulate consolidation freeing space: drop every seeded entry so the
+        // retried (locked) write fits. A real summarizing merge would rewrite
+        // the .md; this stub fakes that by returning a drop-all plan. Step 3
+        // applies it (lock held briefly), then _add re-enters the locked write.
+        return {
+          plan: {
+            snapshotBaseHash: snapshot.snapshotBaseHash,
+            ops: snapshot.entries.map((e) => ({ op: "drop" as const, key: e.key })),
+          },
+        };
       }, "stub");
 
       // Overflow with no superseded available → must consolidate, not fifo-shift active.
@@ -396,6 +399,54 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       // have shift()'d an active entry without ever calling the consolidator).
       assert.ok(consolidateCalls > 0, `consolidator should have been called; got ${consolidateCalls}`);
       assert.ok(result.success, result.error);
+    });
+
+    // ── 2-phase consolidation: the LLM (step 2) runs with the cross-process
+    //    file lock RELEASED. This is the defining invariant of the refactor —
+    //    today consolidation runs IN-LOCK (up to ~60s), causing ELOCKED
+    //    contention across sibling sessions. The injected consolidator now
+    //    PRODUCES A PLAN (no writes); the store applies it in a brief locked
+    //    reconcile (step 3). This test asserts the lock is FREE while the
+    //    consolidator runs, and the store stays consistent afterward.
+    it("2-phase consolidation: the file lock is FREE during the LLM (step 2) and the store stays consistent", async () => {
+      const store = new MemoryStore(makeConfig({
+        memoryCharLimit: 200,
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      // Assume the worst; the consolidator must prove the lock is free.
+      let lockHeldDuringStep2 = true;
+      // Plan that drops every seeded entry → consolidates to empty so the
+      // retried (locked) write fits. drop-all mirrors a real summarizing merge.
+      store.setConsolidator(async (snapshot) => {
+        // _heldFileLocks tracks cross-process locks held by THIS process; it
+        // must be empty during the lock-free plan step.
+        lockHeldDuringStep2 = (store as unknown as { _heldFileLocks: Set<string> })._heldFileLocks.size > 0;
+        return {
+          plan: {
+            snapshotBaseHash: snapshot.snapshotBaseHash,
+            ops: snapshot.entries.map((e) => ({ op: "drop" as const, key: e.key })),
+          },
+        };
+      }, "lockfree-stub");
+      await store.loadFromDisk();
+
+      const first = `${TEST_MARKER} 2phase first seeded`;
+      const second = `${TEST_MARKER} 2phase second seeded`;
+      assert.ok((await store.add("memory", first)).success);
+      assert.ok((await store.add("memory", second)).success);
+
+      // Third add overflows → 2-phase consolidation (step 2 lock-free) → the
+      // retried locked write fits.
+      const result = await store.add("memory", `${TEST_MARKER} 2phase third incoming`);
+
+      assert.equal(lockHeldDuringStep2, false,
+        "the cross-process file lock must NOT be held during the LLM plan (step 2)");
+      assert.ok(result.success, `retried add should fit after consolidation; got: ${result.error}`);
+      const entries = store.getMemoryEntries();
+      assert.ok(!entries.some((e) => e.includes("2phase first seeded")), "dropped by the merge plan");
+      assert.ok(!entries.some((e) => e.includes("2phase second seeded")), "dropped by the merge plan");
+      assert.ok(entries.some((e) => e.includes("2phase third incoming")), "the retried add lands");
     });
 
     it("returns error for empty content", async () => {
@@ -1171,28 +1222,30 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       }
     });
 
-    it("runConsolidator sets PI_MEMORY_FILE_LOCK=bypass for the child, then restores it", async () => {
+    it("runConsolidator leaves PI_MEMORY_FILE_LOCK UNSET (2-phase drops the bypass toggle), then the store still saves via the floor", async () => {
       const store = new MemoryStore(makeConfig({
         memoryCharLimit: 200,
         memoryOverflowStrategy: "auto-consolidate",
         autoConsolidate: true,
       }));
       let envDuringConsolidation: string | undefined = "<not called>";
-      store.setConsolidator(async () => {
+      store.setConsolidator(async (snapshot) => {
+        // 2-phase no longer sets PI_MEMORY_FILE_LOCK=bypass: step 2 is lock-free
+        // and step 3 acquires the lock normally, so there is no held lock to bypass.
         envDuringConsolidation = process.env.PI_MEMORY_FILE_LOCK;
-        return { consolidated: false }; // frees nothing → floor to vault-offload
+        return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
       });
       await store.loadFromDisk();
       const prev = process.env.PI_MEMORY_FILE_LOCK;
 
       await store.add("memory", `${TEST_MARKER} consolidate env 1`);
       await store.add("memory", `${TEST_MARKER} consolidate env 2`);
-      // third overflows → auto-consolidate → runConsolidator wraps the child spawn
+      // third overflows → auto-consolidate → runConsolidator wraps the plan step
       const result = await store.add("memory", `${TEST_MARKER} consolidate env 3`);
 
-      assert.equal(envDuringConsolidation, "bypass",
-        `consolidator child must inherit bypass env; got ${envDuringConsolidation}`);
-      assert.equal(process.env.PI_MEMORY_FILE_LOCK, prev, "env restored after consolidation");
+      assert.equal(envDuringConsolidation, prev,
+        `PI_MEMORY_FILE_LOCK must NOT be set to bypass during consolidation; got ${envDuringConsolidation}`);
+      assert.equal(process.env.PI_MEMORY_FILE_LOCK, prev, "env unchanged after consolidation");
       assert.ok(result.success, `floor should still save (never-reject): ${result.error}`);
     });
 
@@ -1203,9 +1256,9 @@ describe("MemoryStore", { concurrency: 1 }, () => {
         autoConsolidate: true,
       }));
       let envDuringConsolidation: string | undefined = "<not called>";
-      store.setConsolidator(async () => {
+      store.setConsolidator(async (snapshot) => {
         envDuringConsolidation = process.env.PI_HERMES_CONSOLIDATING;
-        return { consolidated: false };
+        return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
       });
       await store.loadFromDisk();
       const prev = process.env.PI_HERMES_CONSOLIDATING;
@@ -1227,7 +1280,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       }));
       const progress: string[] = [];
       // Stub consolidator + a model label (as index.ts injects in production).
-      store.setConsolidator(async () => ({ consolidated: false }), "gemma-4-12b");
+      store.setConsolidator(async (snapshot) => ({ plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }), "gemma-4-12b");
       await store.loadFromDisk();
 
       await store.add("memory", `${TEST_MARKER} progress 1`);

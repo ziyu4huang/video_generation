@@ -46,6 +46,9 @@ export interface PerfRecord {
   /** For consolidation records: whether the child sub-agent was terminated
    *  (the 60s cap). Derived post-call via timedAlways's timedOutFrom. */
   timedOut?: boolean;
+  /** Optional caller-derived payload (e.g. consolidation applied/skipped op
+   *  counts). Populated via timedAlways's extraFrom; never threshold-gated. */
+  extra?: Record<string, unknown>;
 }
 
 interface PerfCtx {
@@ -59,11 +62,17 @@ export type TimedFn = <T>(op: string, fn: () => Promise<T>, opts?: { thresholdMs
 
 /** Always-persist counterpart of TimedFn: times + notifies on EVERY call (not
  *  threshold-gated). `kind` stamps the discriminator; `timedOutFrom` derives the
- *  timedOut flag from fn's result (only on success). */
+ *  timedOut flag from fn's result (only on success); `extraFrom` derives an
+ *  optional caller payload (e.g. consolidation applied/skipped counts) stamped
+ *  onto the record under `extra`. */
 export type TimedAlwaysFn = <T>(
   op: string,
   fn: () => Promise<T>,
-  opts?: { kind?: PerfRecord["kind"]; timedOutFrom?: (result: T) => boolean },
+  opts?: {
+    kind?: PerfRecord["kind"];
+    timedOutFrom?: (result: T) => boolean;
+    extraFrom?: (result: T) => Record<string, unknown>;
+  },
 ) => Promise<T>;
 
 export interface PerfRecorderOptions {
@@ -175,7 +184,11 @@ export function createPerfRecorder(opts: PerfRecorderOptions = {}): PerfRecorder
   async function timedAlways<T>(
     op: string,
     fn: () => Promise<T>,
-    opts?: { kind?: PerfRecord["kind"]; timedOutFrom?: (result: T) => boolean },
+    opts?: {
+      kind?: PerfRecord["kind"];
+      timedOutFrom?: (result: T) => boolean;
+      extraFrom?: (result: T) => Record<string, unknown>;
+    },
   ): Promise<T> {
     const ctx: PerfCtx = { roundTrips: 0 };
     const start = Date.now();
@@ -188,9 +201,15 @@ export function createPerfRecorder(opts: PerfRecorderOptions = {}): PerfRecorder
     } finally {
       const ms = Date.now() - start;
       let timedOut: boolean | undefined;
-      // Derive timedOut only when fn succeeded — no result to read on throw.
-      if (succeeded && opts?.timedOutFrom) {
-        try { timedOut = !!opts.timedOutFrom(result as T); } catch { /* never throw */ }
+      let extra: Record<string, unknown> | undefined;
+      // Derive timedOut / extra only when fn succeeded — no result to read on throw.
+      if (succeeded) {
+        if (opts?.timedOutFrom) {
+          try { timedOut = !!opts.timedOutFrom(result as T); } catch { /* never throw */ }
+        }
+        if (opts?.extraFrom) {
+          try { extra = opts.extraFrom(result as T); } catch { /* never throw */ }
+        }
       }
       const record: PerfRecord = {
         ts: new Date().toISOString(),
@@ -201,6 +220,7 @@ export function createPerfRecorder(opts: PerfRecorderOptions = {}): PerfRecorder
         breach: false,
         kind: opts?.kind,
         timedOut,
+        extra,
       };
       appendLog(record);
       try { notifier(record); } catch { /* never throw into the instrumented path */ }
