@@ -185,6 +185,97 @@ localDescribe("SurrealMemoryRepository graph edges", up, () => {
     });
   });
 
+  describe("normalizeLegacyMemoryIds", () => {
+    it("migrates random-id rows to memories:<seq>, preserving fields, and is idempotent", async () => {
+      await freshRepo();
+      try {
+        // Legacy shape: CREATE without an explicit id → Surreal auto-generates a
+        // random id; seq is stored as a field. Reproduces pre-type::record() rows.
+        await backend.client.query(
+          `CREATE memories SET seq = 55, project = "demo", target = "memory",
+            category = NONE, content = "legacy body", failureReason = NONE,
+            toolState = NONE, correctedTo = NONE, created = "2026-01-01",
+            lastReferenced = "2026-01-02", mwSuccess = 0, mwFail = 0,
+            status = "active", supersedes = NONE, supersededBy = NONE, parentIds = [];`,
+        );
+
+        const migrated = await repo.normalizeLegacyMemoryIds();
+        expect(migrated).toBe(1);
+
+        // The row now lives at memories:55 (seq-based); fields preserved.
+        const rows = await backend.client.query<Array<{ id: string; seq: number; content: string; project: string | null }>>(
+          `SELECT id, seq, content, project FROM memories WHERE seq = 55;`,
+        );
+        expect(rows.length).toBe(1);
+        expect(rows[0]!.id).toBe("memories:55");
+        expect(rows[0]!.content).toBe("legacy body");
+        expect(rows[0]!.project).toBe("demo");
+
+        // Idempotent: a second run migrates nothing.
+        expect(await repo.normalizeLegacyMemoryIds()).toBe(0);
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it("wipes tagged edges when it migrates, so the following backfill rebuilds them cleanly", async () => {
+      await freshRepo();
+      try {
+        await backend.client.query(
+          `CREATE memories SET seq = 77, target = "failure", category = "insight",
+            content = "x", created = "2026-01-01", lastReferenced = "2026-01-01",
+            status = "active", parentIds = [];`,
+        );
+        // Two DUPLICATE phantom edges on the phantom node memories:77 — the
+        // exact bloat shape backfill produced every boot for legacy rows.
+        await backend.client.query(`RELATE memories:77->tagged->tag:\`target:failure\`;`);
+        await backend.client.query(`RELATE memories:77->tagged->tag:\`target:failure\`;`);
+
+        const migrated = await repo.normalizeLegacyMemoryIds();
+        expect(migrated).toBe(1);
+
+        // Migration wiped tagged (the caller's backfillGraphEdges rebuilds).
+        expect(await totalTaggedEdges()).toBe(0);
+
+        // Now backfill rebuilds exactly one correct edge set on the real memories:77.
+        const built = await repo.backfillGraphEdges();
+        expect(built).toBe(1);
+        // Healed: the row now has traversable edges (count(->tagged) > 0) — i.e. it
+        // is no longer an orphan by the backfill orphan-query's own definition.
+        const after = await backend.client.query<Array<{ c: number }>>(
+          `SELECT count(->tagged) AS c FROM memories:77 GROUP ALL;`,
+        );
+        expect(after[0]?.c ?? 0).toBeGreaterThan(0);
+        // Minimal — exactly the two implicit tags (target:failure + category:insight),
+        // no duplicate bloat (the original symptom was ~45 dupes/row).
+        expect(await taggedEdgeCount(77)).toBe(2);
+        // Converged: a second backfill finds no orphans (the rebuilt edges persist).
+        expect(await repo.backfillGraphEdges()).toBe(0);
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it("is a no-op (returns 0, does not wipe tagged) when all rows are already seq-based", async () => {
+      await freshRepo();
+      try {
+        // A correctly-shaped row + a legit edge that must survive.
+        await backend.client.query(
+          `CREATE type::record("memories", 99) SET seq = 99, target = "memory",
+            content = "ok", created = "2026-01-01", lastReferenced = "2026-01-01",
+            status = "active", parentIds = [];`,
+        );
+        await backend.client.query(`RELATE memories:99->tagged->tag:\`target:memory\`;`);
+
+        const migrated = await repo.normalizeLegacyMemoryIds();
+        expect(migrated).toBe(0);
+        expect(await totalTaggedEdges()).toBe(1); // legit edge NOT wiped when nothing migrated
+      } finally {
+        await cleanup();
+      }
+    });
+  });
+
   describe("createBackendBundle backfill wiring", () => {
     it("backfills edges for pre-existing rows on surrealdb init", async () => {
       // Seed phase: raw-insert two pre-feature rows sharing a project, with NO
