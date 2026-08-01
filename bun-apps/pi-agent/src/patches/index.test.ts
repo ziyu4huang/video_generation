@@ -67,6 +67,7 @@ describe("PATCH_TABLE", () => {
     expect(PATCH_TABLE.map((p) => p.name).sort()).toEqual(
       [
         "default-model-env",
+        "editor-history-restore",
         "ensure-extension-deps",
         "ext-api-get-all-tool-definitions",
         "ext-context-get-system-prompt-options",

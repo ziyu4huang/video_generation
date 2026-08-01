@@ -22,7 +22,8 @@ export type PatchName =
 	| "ext-context-get-system-prompt-options"
 	| "ext-api-get-all-tool-definitions"
 	| "footer-extension-status-notify"
-	| "force-response-language";
+	| "force-response-language"
+	| "editor-history-restore";
 
 export interface AppliedPatch {
   name: PatchName;
@@ -108,6 +109,12 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   // API, and this patch keeps it correct for any future extension or SDK build
   // that lacks the requestRender call. Disable with BUN_PI_FOOTER_EXT_STATUS_NOTIFY=0.
   { name: "footer-extension-status-notify", env: "BUN_PI_FOOTER_EXT_STATUS_NOTIFY", defaultValue: true },
+  // editor-history-restore: wraps InteractiveMode.prototype.init to hydrate
+  // this.editor.history from the per-cwd prompt-history.jsonl (written by the
+  // pi-agent-ext-prompt-history extension) so Up/Down recalls prior sessions.
+  // Must run after ensure-extension-deps (imports @earendil-works/pi-coding-agent
+  // + the sibling prompt-history store). Disable with BUN_PI_EDITOR_HISTORY_RESTORE=0.
+  { name: "editor-history-restore", env: "BUN_PI_EDITOR_HISTORY_RESTORE", defaultValue: true },
 ];
 
 /**
@@ -190,6 +197,9 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
         break;
       case "footer-extension-status-notify":
         await import("./footer-extension-status-notify.ts");
+        break;
+      case "editor-history-restore":
+        await import("./editor-history-restore.ts");
         break;
       default: {
         // Exhaustiveness guard — a PATCH_TABLE entry with no matching case.
