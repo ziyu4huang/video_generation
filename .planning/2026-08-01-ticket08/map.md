@@ -53,6 +53,14 @@ On green + a manual smoke, the parent effort's destination is reached.
   merge only.** 08 proves the `git merge` lands the unioned MEMORY.md; parent ticket 07 (proven
   idempotent upsert) owns the re-sync. No second worktree / no syncMarkdownMemories in 08's
   test. Ticket 02 (the build) is now unblocked.
+- [Build the real-git integration suite](tickets/02-build-real-git-integration-suite.md) —
+  ✅ **built & independently verified** (commit `5b923407`, rebased branch): a tmpdir+git
+  harness driving `realGitOps` covers all 5 properties against real git — commit-lands,
+  **no-sweep** (pathspec excludes a pre-staged file), branch-switch, §-union merge driver
+  (real two-branch merge), abort-skip (MERGE_HEAD + index.lock defer). `tsc` clean, **947 pass
+  / 0 fail** (941 + 6). Non-vacuous (the no-sweep test was TDD-proofed by regressing the
+  pathspec). **This map is complete** — both tickets closed; the destination is reached. The
+  manual smoke remains the human's final acceptance.
 
 ## Not yet specified
 

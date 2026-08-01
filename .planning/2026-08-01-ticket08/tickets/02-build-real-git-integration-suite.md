@@ -2,7 +2,9 @@
 
 ---
 type: task
-status: open
+status: closed
+claimed: wayfinder-session
+built: 2026-08-01 (commit 5b923407, rebased branch)
 blocked by: 01 (Cross-worktree / re-sync scope)
 ---
 
@@ -38,15 +40,47 @@ Per the scope decision (01): build property 4's cross-worktree reach accordingly
 
 ## Acceptance
 
-- [ ] All five scenarios (per 01's scope) **pass** against real `git` in a tmpdir — evidence
+- [x] All five scenarios (per 01's scope) **pass** against real `git` in a tmpdir — evidence
       captured (test output) per verification-before-completion before any "done" claim.
-- [ ] The harness reuses the established tmpdir pattern; no new deps.
-- [ ] `tsc --noEmit` clean; the full existing suite (941 tests) still green — zero regressions.
-- [ ] A documented **manual smoke** (opt-in a tmp repo, eyeball a real commit + a real merge)
-      as the human-eye final check.
-- [ ] On green: this ticket + 01 close the map; the parent ticket 08 + the parent effort's
+- [x] The harness reuses the established tmpdir pattern; no new deps.
+- [x] `tsc --noEmit` clean; the full existing suite (941 tests) still green — zero regressions.
+- [x] A documented **manual smoke** (opt-in a tmp repo, eyeball a real commit + a real merge)
+      as the human-eye final check. *(documented; the run is the human's final acceptance)*
+- [x] On green: this ticket + 01 close the map; the parent ticket 08 + the parent effort's
       destination are reached.
 
 ## Resolution
 
-_(open)_
+**Built & independently verified (2026-08-01).** Built via an isolated TDD implementer (tier
+medium, watchdog L2 soft-gate → verified independently). Commit `5b923407` on the branch
+rebased onto origin/main, scoped to `tests/` only (src/ untouched).
+
+**Files:** `tests/integration/autocommit-real-git.test.ts` (270 lines, 6 `it`s) +
+`tests/helpers/real-git.ts` (167-line tmpdir+git harness: `mkdtemp` → `git init` → local
+identity → `.agents/memory/{MEMORY.md,config.json}` → explicit-path initial commit →
+feature-branch checkout). Reuses the established `config.test.ts`/`flow.test.ts` tmpdir
+pattern; no new deps (node:fs + node:child_process only).
+
+**The five scenarios** (scope 01=A: git-level only for #4):
+1. **commit-lands** — append → `message_end` → debounce → NEW commit, fixed message
+   `docs(memory): auto-update project memory`, contains only MEMORY.md.
+2. **no-sweep (safety guarantee)** — pre-stage `scratch.txt` → trigger → autocommit touches
+   **only** MEMORY.md; `scratch.txt` stays staged-but-uncommitted. **Non-vacuous:** the
+   implementer regressed the hook's pathspec `git commit` (dropped `-- <relPath>`) and watched
+   this test fail for exactly the right reason (`scratch.txt` swept in), then reverted.
+3. **branch-switch** — commit on `feature/durable`, NOT on `main` (`git branch --contains`);
+   checkout `main` hides the edit.
+4. **§-union merge driver (git-level)** — two branches each append a distinct entry → real
+   `git merge` → both appends + both common-base entries survive; common base appears exactly
+   once (dedup'd); no conflict markers. (No second worktree / no syncMarkdownMemories — parent
+   07 owns the re-sync.)
+5. **abort-skip** — real `.git/MERGE_HEAD` → skip (no commit); real `.git/index.lock` → defer
+   (no commit, no throw, one re-arm).
+
+**Verified independently:** `tsc --noEmit` exit 0; `bun test` → **947 pass / 0 fail** (941
+existing + 6 new, zero regressions); commit scope clean (2 test files, src/ diff empty);
+assertions spot-checked real (no-sweep + merge-driver + branch-switch all assert on actual
+git state).
+
+**This map is complete** — both tickets closed; the destination (real-git proof of all 5
+durability properties) is reached. The manual smoke remains the human's final acceptance.
