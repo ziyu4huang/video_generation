@@ -92,25 +92,24 @@ export function missingDeps(deps: string[], from: string | undefined): string[] 
 const KNOWLEDGE_CHANNEL = "pi:knowledge";
 
 export interface File2mdKnowledgeEmission {
-	source: "generic";
-	sourceLabel: string;
-	dir: string;
+  source: "generic";
+  sourceLabel: string;
+  dir: string;
 }
 
 /** Build the bus payload for a conversion's output directory. Pure. */
 export function buildFile2mdEmission(slug: string, dirAbs: string): File2mdKnowledgeEmission {
-	return { source: "generic", sourceLabel: `file2md:${slug}`, dir: dirAbs };
+  return { source: "generic", sourceLabel: `file2md:${slug}`, dir: dirAbs };
 }
 
 /** Fire-and-forget emit on pi:knowledge. Best-effort: a missing/throwing bus
  *  MUST never break the conversion. */
 export function emitFile2mdKnowledge(pi: ExtensionAPI, payload: File2mdKnowledgeEmission): void {
-	try {
-		(pi as { events?: { emit?: (c: string, d: unknown) => void } })
-			.events?.emit?.(KNOWLEDGE_CHANNEL, payload);
-	} catch {
-		// swallow — never break the conversion over a knowledge emission
-	}
+  try {
+    (pi as { events?: { emit?: (c: string, d: unknown) => void } }).events?.emit?.(KNOWLEDGE_CHANNEL, payload);
+  } catch {
+    // swallow — never break the conversion over a knowledge emission
+  }
 }
 
 // ---------------------------------------------------------------------------
