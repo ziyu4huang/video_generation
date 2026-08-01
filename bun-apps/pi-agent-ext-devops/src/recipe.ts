@@ -8,7 +8,7 @@
  * so the loop is fully testable with scripted fakes (no real gh/git/network).
  * The real `GhClient` (wrapping the `gh` CLI via Bun.spawn) lives in src/gh.ts.
  */
-import { decideRecipeAction, type PrState, type MergeState, type CheckTally } from "./pr-logic.js";
+import { decideRecipeAction, type PrState, type MergeState, type CheckTally, type RecipeAction } from "./pr-logic.js";
 
 /** Injectable gh/git operations. Real impl: src/gh.ts. Tests inject fakes. */
 export interface GhClient {
@@ -19,6 +19,18 @@ export interface GhClient {
 
 export interface Sleeper {
 	sleep(ms: number): Promise<void>;
+}
+
+/** One poll's snapshot, handed to `onProgress` for live TUI updates. */
+export interface ProgressUpdate {
+	prNumber: number;
+	pollNumber: number;
+	elapsedMs: number;
+	state: PrState;
+	mergeState: MergeState;
+	checks: CheckTally;
+	action: RecipeAction["kind"];
+	behind: boolean;
 }
 
 export interface RecipeOptions {
@@ -33,6 +45,10 @@ export interface RecipeOptions {
 	gh: GhClient;
 	sleeper: Sleeper;
 	clock: { now(): number };
+	/** Optional abort signal — the loop stops + returns aborted when fired. */
+	signal?: AbortSignal;
+	/** Optional live-progress callback — invoked once per poll with the observed state. */
+	onProgress?: (update: ProgressUpdate) => void;
 }
 
 export interface RecipeOutcome {
@@ -42,16 +58,29 @@ export interface RecipeOutcome {
 	checks?: CheckTally;
 	behind: boolean;
 	timedOut: boolean;
+	aborted?: boolean;
+	elapsedMs: number;
 	error?: string;
 }
 
 export async function runMergeRecipe(opts: RecipeOptions): Promise<RecipeOutcome> {
+	const t0 = opts.clock.now();
+	const result = await runRecipeLoop(opts);
+	return { ...result, elapsedMs: opts.clock.now() - t0 };
+}
+
+/** Inner poll loop — returns everything except elapsedMs (stamped once by the wrapper). */
+async function runRecipeLoop(opts: RecipeOptions): Promise<Omit<RecipeOutcome, "elapsedMs">> {
 	const start = opts.clock.now();
 	let lastState: PrState = "OPEN";
 	let lastChecks: CheckTally | undefined;
 	let behind = false;
+	let pollNumber = 0;
 
 	while (true) {
+		if (opts.signal?.aborted) {
+			return { merged: false, finalState: lastState, checks: lastChecks, behind, timedOut: false, aborted: true };
+		}
 		if (opts.clock.now() - start >= opts.timeoutMs) {
 			return { merged: false, finalState: lastState, checks: lastChecks, behind, timedOut: true };
 		}
@@ -60,6 +89,17 @@ export async function runMergeRecipe(opts: RecipeOptions): Promise<RecipeOutcome
 		lastState = status.state;
 		lastChecks = status.checks;
 		const action = decideRecipeAction(status.state, status.mergeState, status.checks);
+		pollNumber += 1;
+		opts.onProgress?.({
+			prNumber: opts.prNumber,
+			pollNumber,
+			elapsedMs: opts.clock.now() - start,
+			state: status.state,
+			mergeState: status.mergeState,
+			checks: status.checks,
+			action: action.kind,
+			behind,
+		});
 
 		switch (action.kind) {
 			case "done":
