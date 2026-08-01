@@ -75,6 +75,16 @@ export interface ProviderEntry {
    * t2i/i2i/etc.); setting it there would needlessly constrain free-form commands.
    */
   commands?: string[];
+  /**
+   * When true, this entry is excluded from selectProvider's backend-rank
+   * bare-fallback (the final tier when neither an explicit `provider` hint
+   * nor a `commands[]` match applies) — only reachable via an explicit
+   * `provider` hint or a `commands[]` match. Lets a genuinely-better native
+   * provider ship without silently becoming every existing bare caller's new
+   * default (see selector.ts's header comment and kokoro_tts's notes for the
+   * concrete case this was added for).
+   */
+  optIn?: boolean;
 }
 
 /**

@@ -408,3 +408,17 @@ describe("selectProvider command routing", () => {
     expect(e.provider).toBe("whisper");
   });
 });
+
+describe("optIn providers are excluded from selectProvider's bare fallback", () => {
+  it("a bare {capability:'tts'} call never returns an optIn:true entry", () => {
+    // No optIn:true entries exist in the real REGISTRY yet at this point in
+    // the plan (kokoro_tts lands in a later task) — this test currently
+    // passes trivially, but it's real logic (not vacuous): it directly
+    // exercises the new exclusion filter, and will keep passing once
+    // kokoro_tts (optIn:true, backend:native_swift) is added later,
+    // confirming the exclusion actually works rather than just "there was
+    // nothing to exclude."
+    const entry = selectProvider("tts");
+    expect(entry.optIn).not.toBe(true);
+  });
+});

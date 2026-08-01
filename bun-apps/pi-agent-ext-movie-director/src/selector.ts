@@ -26,7 +26,12 @@
  *      block below.
  *   3. Backend-rank tiebreak — `BACKEND_RANK` order (native_swift → ffmpeg →
  *      macos_native → cloud_http), registry declaration order breaking ties.
- *      The fallback when neither of the above applies.
+ *      The fallback when neither of the above applies. Entries with
+ *      `optIn: true` are excluded from this tier entirely (unless they are
+ *      the ONLY configured candidates left) — added 2026-08-01 so a
+ *      genuinely-better native provider (e.g. kokoro_tts) can ship without
+ *      silently becoming every existing bare caller's new default; it only
+ *      changes behavior for callers that explicitly ask for it via tier 1/2.
  *
  * A FOURTH override layer exists OUTSIDE this module entirely, at
  * runtime, after this function has already returned: `bridge.ts`'s
@@ -127,9 +132,14 @@ export function selectProvider(capability: Capability, opts: SelectorOptions = {
 
   // Stable sort by backend rank (registry order breaks ties implicitly —
   // Array.prototype.sort is stable in Bun/Node ≥12). configured is non-empty
-  // (we threw above), but noUncheckedIndexedAccess makes [0] possibly-undefined;
-  // the fallback is unreachable and exists only to satisfy the type.
-  return [...configured].sort((a, b) => BACKEND_RANK[a.backend] - BACKEND_RANK[b.backend])[0]!;
+  // (we threw above). optIn entries are excluded from this bare fallback
+  // (tier 3) unless they're the only configured candidates left — an
+  // opt-in-only capability must still be selectable by *something* when
+  // it's the sole configured option, even though that case doesn't exist
+  // for `tts` today (say/edge-tts are always configured).
+  const nonOptIn = configured.filter((p) => !p.optIn);
+  const pool = nonOptIn.length > 0 ? nonOptIn : configured;
+  return [...pool].sort((a, b) => BACKEND_RANK[a.backend] - BACKEND_RANK[b.backend])[0]!;
 }
 
 /** All callable providers for a capability, ranked best-first (for menu/UI). */
