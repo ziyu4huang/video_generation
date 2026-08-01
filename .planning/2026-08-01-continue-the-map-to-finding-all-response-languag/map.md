@@ -38,7 +38,9 @@ Chart-time-surfaced issues — each graduates into a research ticket next sessio
 
 1. **BTW stale-cache leak** — btw seeds its prompt from the main session's *cached*
    `ctx.getSystemPrompt()` (`pi-agent-ext-btw/src/btw/session.ts:86`); a stale main
-   cache leaks a stale language block into BTW.
+   cache leaks a stale language block into BTW. **[MITIGATED by #979]** — per-turn
+   injection means BTW (which builds its own `AgentSession`) gets the block via its
+   own turns regardless of the main-session seed; this candidate is largely resolved.
 2. **Duplicate/competing forced blocks** — when BTW inherits a block via the seed
    *and* the constructor wrap re-injects, two `<response_language>` blocks coexist
    (possibly conflicting languages). Verify which wins + whether they accumulate.
