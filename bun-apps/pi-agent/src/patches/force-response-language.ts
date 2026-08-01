@@ -1,6 +1,6 @@
 /**
  * force-response-language — prepend a FORCED reply-language block to every
- * AgentSession's system prompt, sourced from `responseLanguage` in
+ * AgentSession's system prompt PER TURN, sourced from `responseLanguage` in
  * `~/.pi/agent/settings.json`.
  *
  * WHY THIS IS NEEDED
@@ -14,15 +14,19 @@
  * subagents / workflow agents reply in English despite the rule.
  *
  * This patch elevates the rule to a FORCED, top-of-prompt block: it wraps
- * `AgentSession.prototype._rebuildSystemPrompt` to PREPEND pi-owned canonical
- * instruction text (mapped from the BCP-47 tag) ahead of the assembled prompt.
+ * `AgentSession.prototype._installAgentNextTurnRefresh` (called in every
+ * AgentSession constructor) to RE-WRAP `this.agent.prepareNextTurnWithContext`
+ * — the per-turn context builder — so EVERY turn's `context.systemPrompt`
+ * starts with the forced block (re-reading settings.json fresh each turn).
  * Because every session type (main, subagent subprocess, workflow agent,
- * obsidian/zk child) constructs an `AgentSession` and rebuilds its prompt
- * through `_rebuildSystemPrompt`, the block reaches all of them by construction.
+ * obsidian/zk child) constructs an `AgentSession`, the per-turn injection
+ * reaches all of them by construction.
  *
- * Reading `settings.json` fresh on each rebuild is what lets the
- * `/response-language` slash command flip the language live (it writes the
- * file then triggers a rebuild via `ctx.reload()`); no restart, no hand-edit.
+ * Reading `settings.json` fresh on each turn is what lets the
+ * `/response-language` slash command flip the language live (it just writes the
+ * file — the next turn picks up the new block; no reload, no restart, no
+ * hand-edit). Per-turn (not cached) also avoids stale/duplicate blocks when the
+ * language changes mid-session.
  *
  * GATING
  * ------
@@ -33,8 +37,10 @@
  * TESTABILITY
  * -----------
  * `mapLanguageTag` + `resolveForcedBlock` are pure (settings/tag in, block text
- * or undefined out); the import-time prototype wrap is a thin side effect and is
- * intentionally not asserted here (mirrors subagent-model-floor / resolvePatchPlan).
+ * or undefined out); `wrapInstallAgentNextTurnRefresh` is pure-ish (prototype +
+ * block resolver in, applied-now boolean out) and unit-testable on a stub. The
+ * import-time prototype wrap is a thin side effect and is intentionally not
+ * asserted here (mirrors subagent-model-floor / resolvePatchPlan).
  */
 import { AgentSession, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync } from "node:fs";
@@ -103,43 +109,78 @@ function currentForcedBlock(): string | undefined {
 	return resolveForcedBlock(readUserSettings());
 }
 
-// ── Module-scoped tracking: wrap each prototype at most once ──────────────
+// ── Module-scoped tracking ───────────────────────────────────────────────
 const wrappedPrototypes = new WeakSet<object>();
+/** Tag stamped on our per-agent wrapper: if the original `_installAgentNextTurnRefresh`
+ *  re-assigns the per-turn fn, we re-wrap the (untagged) original instead of
+ *  chaining wrappers / double-prepending the block. */
+const WRAP_TAG = Symbol("forceResponseLanguage");
 
 /**
- * Wrap a prototype's `_rebuildSystemPrompt` so every rebuilt system prompt
- * starts with the forced block returned by `getBlock()` (when non-undefined).
- * Pure-ish: takes the prototype + a block resolver, returns whether the wrap
- * was applied now (false if already wrapped, or the target method is missing).
- * Idempotent per-prototype (tracked via WeakSet) so it is unit-testable on a
- * stub independently of the real `AgentSession.prototype` side effect.
+ * Wrap a prototype's `_installAgentNextTurnRefresh` so every turn's system
+ * prompt starts with the forced block. Per-turn (not cached): the original
+ * `_installAgentNextTurnRefresh` assigns `this.agent.prepareNextTurnWithContext`
+ * (the per-turn context builder, agent-session.js:262); we run it, then re-wrap
+ * that per-turn function to prepend the block returned by `getBlock()` (re-
+ * reading settings.json fresh each turn — so /response-language flips live with
+ * no reload). Idempotent per-prototype (WeakSet) and per-agent (function tag).
+ *
+ * Pure-ish: takes the prototype + a block resolver; returns whether the
+ * prototype wrap was applied now (false if already wrapped, or the target
+ * method is missing). Unit-testable on a stub independently of the real
+ * AgentSession side effect.
  */
-export function wrapRebuildSystemPrompt(
+export function wrapInstallAgentNextTurnRefresh(
 	proto: object,
 	getBlock: () => string | undefined,
 ): boolean {
 	if (wrappedPrototypes.has(proto)) return false;
 	const p = proto as Record<string, unknown>;
-	const original = p._rebuildSystemPrompt;
+	const original = p._installAgentNextTurnRefresh;
 	if (typeof original !== "function") return false;
 
-	p._rebuildSystemPrompt = function (this: unknown, ...args: unknown[]): string {
-		const base = (original as (...a: unknown[]) => string).apply(this, args);
-		const block = getBlock();
-		return block ? `${block}\n\n${base}` : base;
+	p._installAgentNextTurnRefresh = function (this: unknown, ...args: unknown[]): void {
+		(original as (...a: unknown[]) => void).apply(this, args);
+		// The original just (re-)assigned this.agent.prepareNextTurnWithContext — wrap it
+		// unless it's already our wrapper (tagged), so a re-install re-wraps the original
+		// rather than chaining / double-prepending.
+		const self = this as { agent?: object | undefined };
+		const agent = self.agent;
+		if (!agent) return;
+		const agentRec = agent as { prepareNextTurnWithContext?: (...a: unknown[]) => unknown };
+		const current = agentRec.prepareNextTurnWithContext;
+		if (typeof current !== "function") return;
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		if ((current as any)[WRAP_TAG] === true) return;
+		const origPrep = current;
+
+		const wrapped = async function (...prepArgs: unknown[]): Promise<unknown> {
+			const snapshot = (await origPrep.apply(agent, prepArgs)) as
+				| { context?: { systemPrompt?: string } | undefined }
+				| undefined;
+			const block = getBlock();
+			const ctx = snapshot?.context;
+			if (block && ctx && typeof ctx.systemPrompt === "string") {
+				snapshot!.context = { ...ctx, systemPrompt: `${block}\n\n${ctx.systemPrompt}` };
+			}
+			return snapshot;
+		};
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		(wrapped as any)[WRAP_TAG] = true;
+		agentRec.prepareNextTurnWithContext = wrapped;
 	};
 	wrappedPrototypes.add(proto);
 	return true;
 }
 
 /**
- * Apply the wrap to the real `AgentSession.prototype`, resolving the block from
- * `~/.pi/agent/settings.json` on each rebuild. Returns true if applied now.
- * Idempotent. Every session type constructs an `AgentSession`, so the wrap
- * reaches main / subagent-subprocess / workflow / obsidian-child by construction.
+ * Apply the wrap to the real `AgentSession.prototype`. `_installAgentNextTurnRefresh`
+ * runs in every AgentSession constructor (agent-session.js:156), so the per-turn
+ * injection reaches main / subagent-subprocess / workflow / obsidian-child by
+ * construction. Returns true if applied now. Idempotent.
  */
 export function applyForceResponseLanguagePatch(): boolean {
-	return wrapRebuildSystemPrompt(AgentSession.prototype, currentForcedBlock);
+	return wrapInstallAgentNextTurnRefresh(AgentSession.prototype, currentForcedBlock);
 }
 
 // Import-time side effect: wrap the prototype. Runs inside applyPatches() (the

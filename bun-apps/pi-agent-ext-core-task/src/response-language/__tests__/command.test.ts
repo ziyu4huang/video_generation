@@ -3,7 +3,7 @@
  * (parseLanguageArg / decideCommand).
  */
 import { describe, expect, test } from "bun:test";
-import { decideCommand, parseLanguageArg } from "../src/command.ts";
+import { decideCommand, parseLanguageArg } from "../command.js";
 
 describe("parseLanguageArg", () => {
 	test("tag present → trimmed", () => {

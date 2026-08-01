@@ -308,11 +308,11 @@ describe('memory sqlite sync + markdown backfill', () => {
     assert.ok(all.includes('memory store sync complete'), 'must use the backend-neutral noun');
   });
 
-  it('backfills the in-repo project memory file (.planning/memory/) tagged with the project name (ticket 04)', async () => {
-    // The project store's MEMORY.md at <cwd>/.planning/memory/ (or an explicit
+  it('backfills the in-repo project memory file (.agents/memory/) tagged with the project name (ticket 04)', async () => {
+    // The project store's MEMORY.md at <cwd>/.agents/memory/ (or an explicit
     // projectMemoryDir) — the second source from decision 02. Passed via the
     // inRepoProjectFile param; merged into the single DB tagged with the project.
-    const inRepoDir = path.join(tmpDir, 'repo', '.planning', 'memory');
+    const inRepoDir = path.join(tmpDir, 'repo', '.agents', 'memory');
     fs.mkdirSync(inRepoDir, { recursive: true });
     fs.writeFileSync(
       path.join(inRepoDir, 'MEMORY.md'),
@@ -336,7 +336,7 @@ describe('memory sqlite sync + markdown backfill', () => {
     // Decision 02 (single DB, tag-on-index) + decision 03 (leave): a project's
     // memory can be split across the legacy global store
     // (~/.pi/agent/projects-memory/<project>/) and the in-repo store
-    // (.planning/memory/). Both must surface in one search — the end-to-end
+    // (.agents/memory/). Both must surface in one search — the end-to-end
     // property of the project-memory split. Regression pin: guards against a
     // future change that drops either source from the index.
     const projectName = 'split-project';
@@ -351,7 +351,7 @@ describe('memory sqlite sync + markdown backfill', () => {
     );
 
     // In-repo project entry (scanned via the inRepoProjectFile param).
-    const inRepoDir = path.join(tmpDir, 'repo', '.planning', 'memory');
+    const inRepoDir = path.join(tmpDir, 'repo', '.agents', 'memory');
     fs.mkdirSync(inRepoDir, { recursive: true });
     fs.writeFileSync(
       path.join(inRepoDir, 'MEMORY.md'),

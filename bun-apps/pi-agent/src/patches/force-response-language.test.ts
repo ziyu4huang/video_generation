@@ -1,13 +1,14 @@
 /**
  * force-response-language — unit tests for the pure decision functions
- * (mapLanguageTag + resolveForcedBlock).
+ * (mapLanguageTag + resolveForcedBlock) and the per-turn injection mechanism
+ * (wrapInstallAgentNextTurnRefresh).
  *
- * The import-time prototype wrap (AgentSession.prototype._rebuildSystemPrompt)
+ * The import-time prototype wrap (AgentSession.prototype._installAgentNextTurnRefresh)
  * is intentionally NOT asserted here; it is a thin side effect. Mirrors the
  * subagent-model-floor / resolvePatchPlan split.
  */
 import { describe, expect, test } from "bun:test";
-import { mapLanguageTag, resolveForcedBlock, wrapRebuildSystemPrompt } from "./force-response-language.ts";
+import { mapLanguageTag, resolveForcedBlock, wrapInstallAgentNextTurnRefresh } from "./force-response-language.ts";
 
 const S = (entries: Record<string, unknown>) => entries;
 
@@ -102,53 +103,89 @@ describe("resolveForcedBlock — purity", () => {
 	});
 });
 
-describe("wrapRebuildSystemPrompt — the injection mechanism", () => {
-	test("prepends the block ahead of the original rebuilt prompt", () => {
-		const proto = { _rebuildSystemPrompt: function () { return "BASE-PROMPT"; } };
-		expect(wrapRebuildSystemPrompt(proto, () => "BLOCK")).toBe(true);
-		expect((proto as { _rebuildSystemPrompt: () => string })._rebuildSystemPrompt()).toBe("BLOCK\n\nBASE-PROMPT");
-	});
+/** Stub prototype whose _installAgentNextTurnRefresh assigns agent.prepareNextTurnWithContext = prep. */
+function makeRefreshProto(prep: (...args: unknown[]) => unknown): object {
+	return {
+		_installAgentNextTurnRefresh(this: { agent: { prepareNextTurnWithContext?: unknown } }) {
+			this.agent.prepareNextTurnWithContext = prep;
+		},
+	};
+}
 
-	test("no block (undefined) → original prompt passes through unchanged", () => {
-		const proto = { _rebuildSystemPrompt: function () { return "BASE-PROMPT"; } };
-		wrapRebuildSystemPrompt(proto, () => undefined);
-		expect((proto as { _rebuildSystemPrompt: () => string })._rebuildSystemPrompt()).toBe("BASE-PROMPT");
-	});
+/** A session instance: { agent: {} } on the proto chain. */
+function makeSession(proto: object): { agent: Record<string, unknown>; _installAgentNextTurnRefresh: () => void } {
+	const instance = Object.create(proto) as { agent: Record<string, unknown>; _installAgentNextTurnRefresh: () => void };
+	instance.agent = {};
+	return instance;
+}
 
-	test("forwards the call (this + args) to the original", () => {
-		let receivedThis: unknown = null;
-		let receivedArgs: unknown[] = [];
-		const proto = {
-			_rebuildSystemPrompt: function (this: unknown, ...args: unknown[]) {
-				receivedThis = this;
-				receivedArgs = args;
-				return "BASE";
-			},
+describe("wrapInstallAgentNextTurnRefresh — the per-turn injection mechanism", () => {
+	test("prepends the block to context.systemPrompt each turn", async () => {
+		const proto = makeRefreshProto(async () => ({ context: { systemPrompt: "BASE-PROMPT", tools: [] } }));
+		expect(wrapInstallAgentNextTurnRefresh(proto, () => "BLOCK")).toBe(true);
+		const session = makeSession(proto);
+		session._installAgentNextTurnRefresh();
+		const snap = (await (session.agent.prepareNextTurnWithContext as (...a: unknown[]) => Promise<unknown>)({})) as {
+			context: { systemPrompt: string };
 		};
-		wrapRebuildSystemPrompt(proto, () => "B");
-		const instance = Object.create(proto);
-		(instance as { _rebuildSystemPrompt: (...a: unknown[]) => string })._rebuildSystemPrompt("x", 1);
-		expect(receivedThis).toBe(instance);
-		expect(receivedArgs).toEqual(["x", 1]);
+		expect(snap.context.systemPrompt).toBe("BLOCK\n\nBASE-PROMPT");
 	});
 
-	test("idempotent — a second wrap on the same proto returns false and keeps the first", () => {
-		const proto = { _rebuildSystemPrompt: function () { return "BASE"; } };
-		expect(wrapRebuildSystemPrompt(proto, () => "FIRST")).toBe(true);
-		expect(wrapRebuildSystemPrompt(proto, () => "SECOND")).toBe(false);
-		expect((proto as { _rebuildSystemPrompt: () => string })._rebuildSystemPrompt()).toBe("FIRST\n\nBASE");
+	test("no block (undefined) → context.systemPrompt passes through unchanged", async () => {
+		const proto = makeRefreshProto(async () => ({ context: { systemPrompt: "BASE", tools: [] } }));
+		wrapInstallAgentNextTurnRefresh(proto, () => undefined);
+		const session = makeSession(proto);
+		session._installAgentNextTurnRefresh();
+		const snap = (await (session.agent.prepareNextTurnWithContext as (...a: unknown[]) => Promise<unknown>)({})) as {
+			context: { systemPrompt: string };
+		};
+		expect(snap.context.systemPrompt).toBe("BASE");
 	});
 
-	test("missing original method → returns false (upstream changed shape)", () => {
-		expect(wrapRebuildSystemPrompt({}, () => "BLOCK")).toBe(false);
+	test("forwards turn + signal to the original prepareNextTurnWithContext", async () => {
+		let receivedTurn: unknown;
+		let receivedSignal: unknown;
+		const proto = makeRefreshProto(async (turn, signal) => {
+			receivedTurn = turn;
+			receivedSignal = signal;
+			return { context: { systemPrompt: "BASE" } };
+		});
+		wrapInstallAgentNextTurnRefresh(proto, () => "B");
+		const session = makeSession(proto);
+		session._installAgentNextTurnRefresh();
+		const turn = { x: 1 };
+		const signal = Symbol("s");
+		await (session.agent.prepareNextTurnWithContext as (...a: unknown[]) => Promise<unknown>)(turn, signal);
+		expect(receivedTurn).toBe(turn);
+		expect(receivedSignal).toBe(signal);
 	});
 
-	test("each prototype is wrapped independently", () => {
-		const a = { _rebuildSystemPrompt: function () { return "A"; } };
-		const b = { _rebuildSystemPrompt: function () { return "B"; } };
-		wrapRebuildSystemPrompt(a, () => "X");
-		wrapRebuildSystemPrompt(b, () => "Y");
-		expect((a as { _rebuildSystemPrompt: () => string })._rebuildSystemPrompt()).toBe("X\n\nA");
-		expect((b as { _rebuildSystemPrompt: () => string })._rebuildSystemPrompt()).toBe("Y\n\nB");
+	test("idempotent per-agent — re-running _installAgentNextTurnRefresh doesn't double-wrap", async () => {
+		const proto = makeRefreshProto(async () => ({ context: { systemPrompt: "BASE" } }));
+		wrapInstallAgentNextTurnRefresh(proto, () => "B");
+		const session = makeSession(proto);
+		session._installAgentNextTurnRefresh();
+		session._installAgentNextTurnRefresh(); // agent already wrapped
+		const snap = (await (session.agent.prepareNextTurnWithContext as (...a: unknown[]) => Promise<unknown>)({})) as {
+			context: { systemPrompt: string };
+		};
+		expect(snap.context.systemPrompt).toBe("B\n\nBASE");
+	});
+
+	test("idempotent per-proto — a second wrap on the same proto returns false", () => {
+		const proto = makeRefreshProto(async () => ({ context: { systemPrompt: "BASE" } }));
+		expect(wrapInstallAgentNextTurnRefresh(proto, () => "FIRST")).toBe(true);
+		expect(wrapInstallAgentNextTurnRefresh(proto, () => "SECOND")).toBe(false);
+	});
+
+	test("missing _installAgentNextTurnRefresh → returns false (upstream changed shape)", () => {
+		expect(wrapInstallAgentNextTurnRefresh({}, () => "BLOCK")).toBe(false);
+	});
+
+	test("missing this.agent → original runs, no throw, no post-wrap", () => {
+		const proto = { _installAgentNextTurnRefresh() {} };
+		wrapInstallAgentNextTurnRefresh(proto, () => "B");
+		const session = Object.create(proto) as { agent?: unknown; _installAgentNextTurnRefresh: () => void };
+		expect(() => session._installAgentNextTurnRefresh()).not.toThrow();
 	});
 });

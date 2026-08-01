@@ -42,10 +42,10 @@ describe("resolveProjectStoreDir (ticket 04 — project memory location)", () =>
   };
   const cwd = "/tmp/demo-repo";
 
-  it("default (undefined) + project detected → <cwd>/.planning/memory/ (in-repo)", () => {
+  it("default (undefined) + project detected → <cwd>/.agents/memory/ (in-repo)", () => {
     assert.strictEqual(
       resolveProjectStoreDir(undefined, detected, cwd),
-      path.join(cwd, ".planning", "memory"),
+      path.join(cwd, ".agents", "memory"),
     );
   });
 

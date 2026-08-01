@@ -1,7 +1,7 @@
 /**
  * command.ts — pure decision logic for the /response-language command.
  *
- * The entry handler (extensions/response-language.ts) is a thin wrapper that
+ * The registrar (response-language.ts) is a thin wrapper that
  * turns a CommandOutcome into side effects (notify / write / reload). Keeping
  * the decision pure makes the command unit-testable without a real
  * ExtensionCommandContext.

@@ -35,6 +35,7 @@ import { EMPTY_STATE } from "../src/todo/state/state";
 import { TOOL_NAME } from "../src/todo/tool/types";
 import { getSharedStatusWidget } from "../src/shared/status-widget.js";
 import registerAskUser from "../src/ask-user";
+import { registerResponseLanguage } from "../src/response-language/response-language.js";
 import { getPlanPhases, getPlanSummary, isPlanIncomplete, refreshPlan, shouldRefreshAfterTool } from "../src/plan/coordinator.js";
 
 const extension: ExtensionFactory = (pi: ExtensionAPI) => {
@@ -56,6 +57,9 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 
 	// ── Ask-user tool (self-contained modal dialog) ──────────────────────
 	registerAskUser(pi);
+
+	// ── /response-language command (relocated from pi-agent-ext-response-language) ─
+	registerResponseLanguage(pi);
 
 	// ── Todo tool + /todos command ────────────────────────────────────────
 	registerTodoTool(pi);

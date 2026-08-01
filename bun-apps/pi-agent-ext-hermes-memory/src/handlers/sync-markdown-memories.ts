@@ -222,7 +222,7 @@ export async function syncMarkdownMemories(
   }
 
   // In-repo project memory (ticket 04, decision 01/02): the project store's
-  // MEMORY.md at <cwd>/.planning/memory/ (or an explicit projectMemoryDir),
+  // MEMORY.md at <cwd>/.agents/memory/ (or an explicit projectMemoryDir),
   // tagged with the project name. Merges into the single DB alongside the
   // global + legacy project entries. Dedup absorbs any overlap with a legacy
   // scanProjectDirs hit.

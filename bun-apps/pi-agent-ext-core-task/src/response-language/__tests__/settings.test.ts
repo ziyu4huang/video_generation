@@ -5,7 +5,7 @@
  * asserted here.
  */
 import { describe, expect, test } from "bun:test";
-import { getResponseLanguage, isValidTag, withResponseLanguage } from "../src/settings.ts";
+import { getResponseLanguage, isValidTag, withResponseLanguage } from "../settings.js";
 
 const S = (entries: Record<string, unknown>) => entries;
 
