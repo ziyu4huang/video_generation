@@ -46,17 +46,18 @@ chosen by A/B test. `ctx.reload()` is replaced only if the winner is robust.
 
 <!-- index — one line per closed ticket -->
 
-_(none yet — charting complete, frontier open)_
+- [01 per-turn injection seams + patchability](tickets/01-per-turn-injection-seams-patchability.md) — winner seam = `_installAgentNextTurnRefresh` (prototype method, constructor-called); cleanly patchable; override/compaction safe.
+- [02 cheap-trigger handles on ctx](tickets/02-cheap-trigger-handles-on-ctx.md) — NO cheap prompt-rebuild reachable from `ctx`; `reload()` is the only trigger → Candidate B not viable.
+- [03 session-type matrix + core-task/tui](tickets/03-session-type-matrix-core-task-tui.md) — core-task/TUI runs inside the main session (not a separate type); fresh-construction types auto-correct; only the live main session needed the mechanism.
+- [04 implement + A/B pick mechanism](tickets/04-implement-and-ab-pick-mechanism.md) — DONE. Candidate A (per-turn injection) wins; `_rebuildSystemPrompt` wrap replaced; command drops `ctx.reload()`. Merged in #979.
+- [05 verify all session types + docs](tickets/05-verify-all-session-types-and-docs.md) — DONE. 92+26 tests green, typecheck clean; reach by construction; override/compaction preserved; docs updated. Merged in #979.
+
+**Map complete — destination reached.** The lighter alternative shipped in #979; `/response-language` is now instant (no reload). Deferred prize: the *issue-audit* effort, which now has one fewer candidate (BTW leak mitigated).
 
 ## Not yet specified
 
-- **`_systemPromptOverride` (custom-prompt) precedence + compaction interaction:**
-  if the mechanism moves to a per-turn seam, the block must still respect
-  `_systemPromptOverride` precedence and survive compaction (which reassigns
-  `state.systemPrompt` at `agent-session.js:900,905`). Graduates out of ticket 01.
-- **Whether the chosen per-turn seam is also reached by non-interactive sessions**
-  (workflow agent, obsidian child) — if not, those types may need a different
-  (or no) mechanism. Graduates out of tickets 01 + 03.
+<!-- both graduated + resolved via tickets 01/03/05: override precedence preserved,
+     compaction survived, non-interactive reach confirmed (by construction). -->
 
 ## Out of scope
 
