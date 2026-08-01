@@ -160,7 +160,7 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
       "Fan out read-only research/review subagents in parallel. Each child has edit/write/bash excluded. Returns one result per task in input order (null for a failed child).",
     executionMode: "sequential",
     parameters: subagentsToolSchema,
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+    async execute(toolCallId, params, _signal, _onUpdate, _ctx) {
       const t0 = Date.now();
       const tasks = params.tasks as BatchTask[];
       if (!Array.isArray(tasks) || tasks.length === 0) {
@@ -197,7 +197,26 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
           return;
         }
         const childOpts = mergeReadOnlyExclusion(task, { defaultCwd, mainModel, extensionTools });
-        const result = await spawn(childOpts);
+        // Effective model string for BOTH the in-flight entry and the durable record
+        // (keeps the two consistent; the `?? "default"` also satisfies the record's
+        // required-string `model` field when nothing was requested).
+        const childModel = task.model ?? task.tier ?? task.capability ?? mainModel ?? "default";
+        // Register in-flight so `/subagents` shows this child while it runs.
+        const childRunId = `${toolCallId}:${index}`;
+        const childT0 = Date.now();
+        options.inFlight?.start({
+          id: childRunId,
+          model: childModel,
+          taskPreview: taskPreview(task.task),
+          startedAt: childT0,
+        });
+        let result: SpawnSubagentResult;
+        try {
+          result = await spawn(childOpts);
+        } finally {
+          // Always deregister — even on throw — so the registry never leaks a run.
+          options.inFlight?.end(childRunId);
+        }
         dispatched++;
         // Accumulate usage for the batch-wide budget check (guard for undefined usage).
         if (result.usage) {
@@ -219,6 +238,30 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
             index,
             usage: result.usage,
           };
+        }
+        // Durable record for completed runs only. Failed children (status "failed")
+        // and gate-skipped children (early-returned above, never reached spawn) are
+        // NOT real completed runs, so they are not persisted — matching the singular
+        // tool. Budget-aborted children (status "budget") ARE persisted with their
+        // `budget` field set, also matching the singular tool.
+        if (status !== "failed") {
+          options.persistence?.save({
+            id: generateSubagentRunId(),
+            toolCallId,
+            task: task.task,
+            model: childModel,
+            tier: task.tier,
+            cwd: childOpts.cwd ?? defaultCwd,
+            status,
+            exitCode: result.exitCode,
+            timedOut: result.timedOut,
+            stderr: result.stderr || undefined,
+            startedAt: new Date(childT0).toISOString(),
+            elapsedMs: Date.now() - childT0,
+            usage: result.usage,
+            budget: result.budget,
+            output: result.output,
+          });
         }
         // Check the batch budget BETWEEN dispatches (never aborts the child that just finished).
         if (hasBatchBudget && !gateTripped) {
