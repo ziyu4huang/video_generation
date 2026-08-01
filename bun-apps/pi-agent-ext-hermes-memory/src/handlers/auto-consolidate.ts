@@ -15,7 +15,10 @@
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { spawnSubagent } from "@repo/pi-agent-ext-subagent/src/index.ts";
 import type { SpawnSubagentResult } from "@repo/pi-agent-ext-subagent/src/index.ts";
+import type { TSchema } from "typebox";
 import { MemoryStore } from "../store/memory-store.js";
+import { mergePlanSchema, mergePlanValidate } from "../store/merge-plan.js";
+import type { ConsolidationSnapshot, MergePlan } from "../store/merge-plan.js";
 import { CONSOLIDATION_PROMPT, ENTRY_DELIMITER } from "../constants.js";
 import type { ConsolidationResult, MemoryConfig } from "../types.js";
 
@@ -126,6 +129,101 @@ export async function triggerConsolidation(
     return { consolidated: false, error: describeConsolidationFailure(result, timeoutMs), terminated: result.timedOut };
   } catch (err) {
     return { consolidated: false, error: `Consolidation failed: ${String(err).slice(0, 200)}` };
+  }
+}
+
+// ─── Lock-free LLM runner (step 2: produce a plan, no writes) ───────────────
+//
+// `produceMergePlan` is the read+plan half of the two-step consolidation
+// migration. Unlike {@link triggerConsolidation} it acquires NO lock and does
+// NO file I/O: it hands the subagent a snapshot of the target store plus a
+// `structured_output` schema ({@link mergePlanSchema}) and `tools: []` (READ+PLAN
+// ONLY — the child gets NO memory tool, so it physically cannot write). The
+// caller (step 4) takes the returned {@link MergePlan}, re-checks it against the
+// live set under the cross-process lock, and applies it via `applyMergePlan`.
+
+/**
+ * Render the consolidator prompt for a snapshot.
+ *
+ * Layout: a preamble (role + op semantics + KEY/keep/prefer-merge rules, and the
+ * snapshot identity the plan must anchor against), a one-line target+budget
+ * header, then each entry as `KEY=<key> | created=<created> last=<last>\n<content>`
+ * so the model can reference entries by key.
+ */
+function buildMergePlanPrompt(snapshot: ConsolidationSnapshot): string {
+  const preamble = [
+    "You are a memory consolidator. Produce a JSON merge plan that rewrites this memory back under its char budget.",
+    "- Use a \"drop\" op to remove an entry, or a \"merge\" op to combine several entries into one new entry.",
+    "- Reference entries ONLY by their KEY.",
+    "- Entries you do NOT reference in any op are kept as-is.",
+    "- When entries overlap, prefer \"merge\" over \"drop\".",
+    `- The plan's \"snapshotBaseHash\" MUST be exactly: ${snapshot.snapshotBaseHash}`,
+  ].join("\n");
+  const header = `Target store: ${snapshot.target}. Current ${snapshot.totalChars} chars / limit ${snapshot.charLimit}.`;
+  const entries = snapshot.entries
+    .map((e) => `KEY=${e.key} | created=${e.created} last=${e.last}\n${e.content}`)
+    .join("\n\n");
+  return [preamble, "", header, "", entries].join("\n");
+}
+
+/**
+ * Spawn a read+plan-only subagent that returns a validated {@link MergePlan} for
+ * `snapshot`. Lock-free and side-effect-free: no file I/O, no memory tool handed
+ * to the child (`tools: []`).
+ *
+ * On a structured-output success the payload is run through
+ * {@link mergePlanValidate} and returned as `{ plan }`. On a non-zero exit, an
+ * empty output, a timeout, or a thrown/rejected spawn it returns `{ error,
+ * terminated }` — `terminated` mirrors `result.timedOut` so the caller can tell a
+ * cancellation/timeout apart from a plain failure. `retryOnTransient` is off: a
+ * timed-out plan is best-effort (the caller falls through to the existing
+ * consolidation floor) and must never re-hold resources for a second attempt.
+ */
+export async function produceMergePlan(
+  snapshot: ConsolidationSnapshot,
+  opts: {
+    timeoutMs: number;
+    signal?: AbortSignal;
+    modelOverride?: string;
+    /** Injectable for tests; defaults to the real {@link spawnSubagent}. */
+    spawn?: typeof spawnSubagent;
+  },
+): Promise<{ plan: MergePlan } | { error: string; terminated?: boolean }> {
+  const spawn = opts.spawn ?? spawnSubagent;
+  const task = buildMergePlanPrompt(snapshot);
+  try {
+    const modelOverride = opts.modelOverride?.trim();
+    const result = await spawn({
+      task,
+      instructions:
+        "You are a memory consolidator. Return ONLY the JSON merge plan via the structured_output tool. You have no memory or file tools; do not attempt any writes.",
+      // Mirror triggerConsolidation: honor an explicit model override, else
+      // fall back to the small tier.
+      ...(modelOverride ? { model: modelOverride } : { tier: "small" }),
+      // READ+PLAN ONLY — the child is handed NO memory tool, so it cannot write.
+      tools: [],
+      schema: mergePlanSchema as unknown as TSchema,
+      retryOnTransient: false,
+      timeoutMs: opts.timeoutMs,
+      externalSignal: opts.signal,
+    });
+
+    if (result.exitCode !== 0) {
+      const detail = result.stderr?.trim().slice(0, 200) || `runner exited (code ${result.exitCode})`;
+      return { error: detail, terminated: result.timedOut };
+    }
+    if (!result.output) {
+      return { error: "no structured output", terminated: result.timedOut };
+    }
+
+    // spawnSubagent JSON-stringifies the validated structured_output object into
+    // `result.output` (see spawn-subagent.ts); recover the object, then re-run
+    // our own semantic validation before handing it to the caller.
+    const parsed: unknown = JSON.parse(result.output);
+    mergePlanValidate(parsed);
+    return { plan: parsed };
+  } catch (err) {
+    return { error: `produceMergePlan failed: ${String(err).slice(0, 200)}` };
   }
 }
 
