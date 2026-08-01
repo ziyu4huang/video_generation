@@ -250,6 +250,22 @@ export function _setMusicgenBinaryForTest(v: boolean | undefined): void {
   musicgenBinaryCached = v;
 }
 
+/** True if the built kokoro-tts binary is on disk (never throws). */
+let kokoroBinaryCached: boolean | undefined;
+function kokoroBinaryPresent(): boolean {
+  if (kokoroBinaryCached != null) return kokoroBinaryCached;
+  try {
+    kokoroBinaryCached = existsSync(join(resolveRepoRoot(), "swift", "musicgen-director", ".build", "release", "kokoro-tts"));
+  } catch {
+    kokoroBinaryCached = false;
+  }
+  return kokoroBinaryCached;
+}
+/** Force the kokoro-tts-binary probe result (tests inject a deterministic value). */
+export function _setKokoroBinaryForTest(v: boolean | undefined): void {
+  kokoroBinaryCached = v;
+}
+
 /**
  * Runtime availability for a provider. Authoritative: a provider is callable iff
  * this returns true. The static `configured` is the declarative baseline (which
@@ -315,6 +331,16 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
       // honestly fall back to mlx:runpy-music rather than eat a multi-minute
       // build inside what looks like a routine generation call).
       return entry.configured && musicgenBinaryPresent();
+    case "bun:kokoro-tts":
+      // callable iff the built kokoro-tts binary is on disk (mirrors
+      // musicgen — auto-built by ensureBinary() on first real call, but
+      // absent on a fresh checkout until then). Note: since kokoro_tts is
+      // optIn:true, this probe result never affects selectProvider's bare
+      // "tts" fallback (optIn entries are excluded from that regardless of
+      // probe result) — it only matters for explicit provider:"kokoro"
+      // hints and rankedProviders' menu listing, both of which should
+      // honestly reflect whether the binary actually exists yet.
+      return entry.configured && kokoroBinaryPresent();
     case "mlx:runpy":
       // callable iff the MLX venv python AND run.py resolve (env-overridable via
       // MLX_VENV_PYTHON / RUN_PY). The canonical local PYTHON runtime — present

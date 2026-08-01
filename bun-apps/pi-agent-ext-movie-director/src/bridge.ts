@@ -47,6 +47,7 @@ import {
   type RunPyStoryOptions,
 } from "./runpy_story.ts";
 import { runPyTts, type RunPyTtsDetails, type RunPyTtsOptions } from "./runpy_tts.ts";
+import type { KokoroTtsOptions } from "./kokoro_tts_native.ts";
 import { runPyMusic, type RunPyMusicDetails, type RunPyMusicOptions } from "./runpy_music.ts";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -956,6 +957,53 @@ async function realMusicNative(req: GenerateRequest, env?: Record<string, string
 }
 
 /**
+ * adaptKokoroTts — normalize a kokoro-tts (local Swift/MLX Kokoro-82M) result.
+ * A SEPARATE function from adaptRunPyTts (NOT reused) — adaptRunPyTts
+ * hardcodes provider:"edge-tts", which would be wrong here. Same artifact/
+ * cost/duration conventions as adaptRunPyMusic (fully local, honest $0
+ * marginal cost).
+ */
+export function adaptKokoroTts(
+  req: GenerateRequest,
+  details: RunPyTtsDetails,
+  summary: string,
+  stderrTailStr: string,
+  env?: Record<string, string | undefined>,
+): ToolResult {
+  const artifacts: Artifact[] = [];
+  if (details.output) {
+    artifacts.push({ path: details.output, kind: "audio", role: "primary", bytes: details.sizeBytes ?? undefined });
+  }
+  return {
+    success: details.ok,
+    provider: "kokoro",
+    command: details.command,
+    artifacts,
+    error: details.ok ? null : `${summary}\n${stderrTailStr}`.trim(),
+    cost_usd: details.ok ? costFor(req.capability, null, env) : 0,
+    duration_seconds: null,
+    seed: null,
+    model: details.voice ?? "kokoro-82m",
+  };
+}
+
+/**
+ * realKokoroTtsNative — kokoro-tts's compiled Swift binary
+ * (kokoro_tts_native.ts, via ensureBinary()), local Kokoro-82M TTS. `voice`
+ * is REQUIRED (no default, unlike edge-tts) — the caller (or the agent tool
+ * wrapper) must always pass one; there is no single sensible default across
+ * English/Mandarin voice namespaces.
+ */
+async function realKokoroTtsNative(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
+  const opts = (req.options ?? {}) as unknown as KokoroTtsOptions & { output?: string };
+  const outputDir = req.outputDir ?? process.cwd();
+  const output = opts.output ?? join(outputDir, "tts_kokoro.wav");
+  const { runKokoroTtsNative } = await import("./kokoro_tts_native.ts");
+  const out = await runKokoroTtsNative({ options: opts, output });
+  return adaptKokoroTts(req, out.details, out.summary, out.stderrTail, env);
+}
+
+/**
  * realTwosubjectNative — the VLM-driven single-prompt two-subject loop via
  * twosubject_native.ts, NOT a run.py subprocess (2026-07-13 migration — see
  * that module's header). The single artifact is the winning composite image
@@ -1231,6 +1279,7 @@ export function realAdapters(env?: Record<string, string | undefined>): Partial<
     "bun:tts-native": (req) => realTtsNative(req, env),
     "mlx:runpy-music": (req) => realRunPyMusic(req, env),
     "bun:musicgen-native": (req) => realMusicNative(req, env),
+    "bun:kokoro-tts": (req) => realKokoroTtsNative(req, env),
     "bun:twosubject-native": (req) => realTwosubjectNative(req, env),
     "bun:profile-native": (req) => realProfileNative(req, env),
     "bun:character-native": (req) => realCharacterNative(req, env),
