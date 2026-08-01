@@ -64,9 +64,13 @@ export function detectProjectSkills(projectsMemoryDir = "projects-memory", cwd?:
  * the legacy global location (~/.pi/agent/<projectsMemoryDir>/<project>/); this
  * resolver applies the `projectMemoryDir` config knob on top of it:
  *
- * - default (undefined): <cwd>/.planning/memory/ — in-repo, git-trackable,
- *   per-project (each repo's own .planning/). Only when a project is detected,
- *   so running from ~ doesn't create ~/.planning/.
+ * - default (undefined): <cwd>/.agents/memory/ — in-repo, git-trackable,
+ *   per-project (each repo's own .agents/memory/). Chosen over .planning/memory so
+ *   auto-managed runtime memory doesn't conflate with hand-authored .planning/
+ *   wayfinder artifacts; mirrors the global ~/.agents/ convention. A .claude/memory
+ *   symlink → ../.agents/memory is the recommended discoverability marker for
+ *   claude-code (which reads CLAUDE.md/.claude, not this dir automatically). Only
+ *   created when a project is detected, so running from ~ doesn't create ~/.agents/.
  * - explicit null: opt-out → the legacy global location (detected.memoryDir).
  *   Current behavior preserved for projects that want memory to follow the
  *   user, not the repo.
@@ -83,5 +87,5 @@ export function resolveProjectStoreDir(
   if (typeof projectMemoryDir === "string" && projectMemoryDir.trim()) {
     return path.resolve(cwd, projectMemoryDir.trim());
   }
-  return detected.name ? path.join(cwd, ".planning", "memory") : null;
+  return detected.name ? path.join(cwd, ".agents", "memory") : null;
 }

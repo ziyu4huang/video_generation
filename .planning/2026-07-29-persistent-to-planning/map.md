@@ -1,6 +1,8 @@
 # Wayfinder map: 2026-07-29-persistent-to-planning
 
 > **Status: COMPLETE ✅** — all 5 tickets closed, destination reached. Project memory now persists as the markdown SoT in `<cwd>/.planning/memory/`, coexisting with the global store; the DB indexes both; `memory_search` merges.
+>
+> **📍 Location relocated 2026-08-01 (PR TBD)** — the SoT moved `<cwd>/.planning/memory/` → `<cwd>/.agents/memory/` (semantic split from hand-authored `.planning/`; `.claude/memory` symlink for claude-code discoverability). The split mechanism from this map — config knob `projectMemoryDir`, single-DB tag-on-index merge — is **unchanged**; only the default path moved. Recorded here as a course-correction, not a reversal of the mechanism.
 
 ## Destination
 

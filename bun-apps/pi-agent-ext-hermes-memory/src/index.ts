@@ -130,7 +130,7 @@ export default async function (pi: ExtensionAPI) {
   const project = detectProject(config.projectsMemoryDir);
   const projectName = project.name ?? "";
   // Project-scoped store location (ticket 04, decision 01): default in-repo
-  // <cwd>/.planning/memory/ (git-trackable); null → opt-out (legacy global);
+  // <cwd>/.agents/memory/ (git-trackable); null → opt-out (legacy global);
   // explicit string → that path. resolveProjectStoreDir is the pure resolver.
   const projectStoreDir = resolveProjectStoreDir(config.projectMemoryDir, project, process.cwd());
   // In-repo/explicit project memory file to backfill into the search index
