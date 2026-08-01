@@ -3,6 +3,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sceneFromDict, deterministicFixture, loadScenes, shotRoute } from "./storyboard_native.ts";
+import { buildContactSheet } from "./storyboard_native.ts";
+import type { SpawnImpl } from "./spawn.ts";
 
 describe("sceneFromDict — raw JSON → SceneSpec", () => {
   it("maps snake_case fields (the wire format both --scenes files and gemma output use)", () => {
@@ -118,5 +120,48 @@ describe("shotRoute — per-shot generation routing", () => {
 
   it("routes a shot with no characterId to 'independent'", () => {
     expect(shotRoute({ sceneId: "a", prompt: "p", characterId: null, heroMoment: false }, recurring, false, true)).toBe("independent");
+  });
+});
+
+describe("buildContactSheet — ffmpeg tile assembly", () => {
+  it("throws when given zero images", async () => {
+    await expect(buildContactSheet([], "/out/sheet.png")).rejects.toThrow(/no frames/);
+  });
+
+  it("invokes ffmpeg with one scale+pad filter per image, concat, and a tile filter sized to the grid", async () => {
+    const calls: { cmd: string; argv: string[] }[] = [];
+    const spawnImpl: SpawnImpl = async (cmd, argv) => {
+      calls.push({ cmd, argv });
+      return { code: 0, stdout: "", stderr: "" };
+    };
+
+    await buildContactSheet(["/a.png", "/b.png", "/c.png", "/d.png"], "/out/sheet.png", 3, spawnImpl);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.cmd).toBe("ffmpeg");
+    const argv = calls[0]!.argv;
+    expect(argv).toContain("-i");
+    expect(argv.filter((a) => a === "-i")).toHaveLength(5); // 4 real inputs + 1 pad source (2x2 grid, 4 images)
+    const filterIdx = argv.indexOf("-filter_complex");
+    expect(filterIdx).toBeGreaterThan(-1);
+    const filter = argv[filterIdx + 1]!;
+    expect(filter).toContain("concat=n=4");
+    expect(filter).toContain("tile=3x2");
+    expect(argv).toContain("/out/sheet.png");
+  });
+
+  it("needs no pad source when the image count exactly fills the grid", async () => {
+    const calls: { argv: string[] }[] = [];
+    const spawnImpl: SpawnImpl = async (_cmd, argv) => {
+      calls.push({ argv });
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    await buildContactSheet(["/a.png", "/b.png", "/c.png"], "/out/sheet.png", 3, spawnImpl);
+    expect(calls[0]!.argv.filter((a) => a === "-i")).toHaveLength(3);
+  });
+
+  it("throws with ffmpeg's stderr tail when the process exits non-zero", async () => {
+    const spawnImpl: SpawnImpl = async () => ({ code: 1, stdout: "", stderr: "unknown filter" });
+    await expect(buildContactSheet(["/a.png"], "/out/sheet.png", 3, spawnImpl)).rejects.toThrow(/unknown filter/);
   });
 });

@@ -166,3 +166,138 @@ export function shotRoute(shot: Shot, recurringIds: Set<string>, kontextLock: bo
   }
   return "independent";
 }
+
+// ── Generation impls (independent / locked / kontext) ──────────────────
+
+export interface T2iParams {
+  prompt: string;
+  seed: number;
+  width: number;
+  height: number;
+  steps: number;
+  outputDir?: string;
+}
+export interface T2iResult {
+  path: string | null;
+}
+export type T2iFn = (params: T2iParams) => Promise<T2iResult>;
+
+/** Default independent-shot generation: native krea2 Z-Image t2i (mirrors the Python's default `zimage` pipeline). */
+export const defaultT2i: T2iFn = async (p) => {
+  const out = await runKrea2({
+    command: "t2i",
+    options: { prompt: p.prompt, seed: p.seed, width: p.width, height: p.height, steps: p.steps },
+    outputDir: p.outputDir,
+  });
+  return { path: out.details.ok ? out.details.output : null };
+};
+
+export interface EditParams {
+  prompt: string;
+  images: string[];
+  seed: number;
+  width: number;
+  height: number;
+  steps: number;
+  outputDir?: string;
+}
+export interface EditResult {
+  path: string | null;
+}
+export type EditFn = (params: EditParams) => Promise<EditResult>;
+
+/** Default soft-lock generation: native flux2 `edit` (multi-ref conditioning, hero as the sole reference). No denoise-strength knob — see module doc. */
+export const defaultEdit: EditFn = async (p) => {
+  const out = await runFlux2({
+    command: "edit",
+    options: { prompt: p.prompt, images: p.images, seed: p.seed, width: p.width, height: p.height, steps: p.steps },
+    outputDir: p.outputDir,
+  });
+  return { path: out.details.ok ? out.details.output : null };
+};
+
+export interface KontextParams {
+  input: string;
+  prompt: string;
+  seed: number;
+  width: number;
+  height: number;
+  outputDir?: string;
+}
+export interface KontextResult {
+  path: string | null;
+}
+export type KontextFn = (params: KontextParams) => Promise<KontextResult>;
+
+/** Default kontext-lock generation: native flux2 `kontext` (true in-context identity lock). One call per shot — no batched single-model-load, see module doc. */
+export const defaultKontext: KontextFn = async (p) => {
+  const out = await runFlux2({
+    command: "kontext",
+    options: { input: p.input, prompt: p.prompt, seed: p.seed, width: p.width, height: p.height },
+    outputDir: p.outputDir,
+  });
+  return { path: out.details.ok ? out.details.output : null };
+};
+
+// ── Contact sheet ────────────────────────────────────────────────────────
+
+const CONTACT_SHEET_CELL_W = 480;
+const CONTACT_SHEET_CELL_H = 720; // matches the non-kontext default aspect (640x960)
+
+/**
+ * Tile frame PNGs into a contact-sheet grid via ffmpeg (mirrors
+ * `_build_contact_sheet`'s PIL tiling, without adding an image-codec
+ * dependency to this package). Each source is letterboxed into a fixed
+ * CONTACT_SHEET_CELL_W x CONTACT_SHEET_CELL_H cell (ffmpeg's `concat`+`tile`
+ * require identical frame dimensions, unlike PIL's variable-height row
+ * packing) — a documented simplification, not a silent behavior change.
+ * Trailing empty grid cells (when imagePaths.length isn't a multiple of
+ * cols) are left to ffmpeg's `tile` filter, which fills any leftover cells
+ * with black once it runs out of concat-ed frames — close to, but not
+ * exactly, Python's (16,16,16) background canvas; a reserved dark-gray
+ * color input is still added to argv in that case to document intent.
+ */
+export async function buildContactSheet(
+  imagePaths: string[],
+  outPath: string,
+  cols = 3,
+  spawnImpl: SpawnImpl = runSpawn,
+): Promise<void> {
+  if (imagePaths.length === 0) {
+    throw new Error("buildContactSheet: no frames to build a contact sheet");
+  }
+  const rows = Math.ceil(imagePaths.length / cols);
+  const totalCells = cols * rows;
+  const padCount = totalCells - imagePaths.length;
+
+  const argv: string[] = ["-y"];
+  for (const p of imagePaths) argv.push("-i", p);
+  // A single reserved dark-gray color source, added whenever the grid isn't
+  // exactly filled. Not fanned out into per-cell filter chains: ffmpeg's
+  // filter_complex graph forbids feeding the same input label into more than
+  // one chain without an explicit `split`, and `tile` already auto-fills any
+  // leftover cells with black once it runs out of concat-ed frames — so one
+  // reserved input is enough to document the intent without a `split` fan-out.
+  if (padCount > 0) {
+    argv.push("-f", "lavfi", "-i", `color=c=0x101010:s=${CONTACT_SHEET_CELL_W}x${CONTACT_SHEET_CELL_H}:d=1`);
+  }
+
+  const filter: string[] = [];
+  const labels: string[] = [];
+  imagePaths.forEach((_, i) => {
+    filter.push(
+      `[${i}:v]scale=${CONTACT_SHEET_CELL_W}:${CONTACT_SHEET_CELL_H}:force_original_aspect_ratio=decrease,` +
+        `pad=${CONTACT_SHEET_CELL_W}:${CONTACT_SHEET_CELL_H}:(ow-iw)/2:(oh-ih)/2:color=0x101010[s${i}]`,
+    );
+    labels.push(`[s${i}]`);
+  });
+  filter.push(`${labels.join("")}concat=n=${imagePaths.length}:v=1:a=0[c]`);
+  filter.push(`[c]tile=${cols}x${rows}[out]`);
+  argv.push("-filter_complex", filter.join(";"));
+  argv.push("-map", "[out]", "-frames:v", "1", outPath);
+
+  const r = await spawnImpl("ffmpeg", argv);
+  if (r.code !== 0) {
+    throw new Error(`buildContactSheet: ffmpeg exited ${r.code}: ${r.stderr.slice(-500)}`);
+  }
+}
