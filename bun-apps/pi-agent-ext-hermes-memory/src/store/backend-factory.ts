@@ -30,6 +30,10 @@ export async function createBackendBundle(
       const backend = new SurrealBackend(config.surreal ?? {});
       await backend.init();
       const memoryRepo = new SurrealMemoryRepository(backend);
+      // One-time, idempotent: heal legacy random-id rows → memories:<seq> so the
+      // graph-edge code (which keys by seq) attaches edges to the real record.
+      // When it migrates ≥1 row it also wipes `tagged` (the next call rebuilds it).
+      await memoryRepo.normalizeLegacyMemoryIds();
       // Auto-heal `tagged` graph edges for rows written before graph-augmented
       // search shipped. Best-effort (never throws) so it cannot trip the sqlite
       // fallback in createBackendBundleWithFallback. A no-op once every row
