@@ -49,7 +49,7 @@ back to the pinned skill's literal `docs/superpowers/specs/` default.
 - [ADR for unconditional redirect?](tickets/03-adr-for-unconditional-redirect.md)
   — yes: ADR-0006 supersedes ADR-0005's effort-gated clause (leaves 0005's
   disjoint-subpath layout intact with a pointer), recording the unconditional
-  rule + the auto-dated no-effort default + the dual guard.
+  rule + the auto-dated no-effort default + the dual guard. (ADR-0006: docs/adr/0006-unconditional-artifact-home.md)
 
 ## Not yet specified
 
