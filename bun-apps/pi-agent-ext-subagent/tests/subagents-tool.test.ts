@@ -1,6 +1,7 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
 import { DEFAULT_BATCH_CONCURRENCY, MAX_CONCURRENCY } from "../src/config.js";
+import { createSubagentsTool as fromIndex } from "../src/index.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
 import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
 import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
@@ -9,6 +10,7 @@ import {
   createSubagentsTool,
   mergeReadOnlyExclusion,
   READ_ONLY_EXCLUDED,
+  renderBatchResult,
 } from "../src/subagents-tool.js";
 
 test("createSubagentsTool has name 'subagents' + executionMode 'sequential'", () => {
@@ -230,4 +232,26 @@ test("a failed child is not persisted; a gate-skipped child is not persisted", a
   // only the one done child persists (failed + skipped do not)
   assert.equal(persistence.saved.length, 1);
   assert.equal(persistence.saved[0].status, "done");
+});
+
+test("createSubagentsTool is re-exported from the package index", () => {
+  assert.equal(fromIndex, createSubagentsTool);
+  assert.equal(fromIndex().name, "subagents");
+});
+
+test("renderBatchResult renders ok/failed/skipped sections", () => {
+  const text = renderBatchResult({
+    results: [
+      { output: "hello", status: "done", index: 0, id: "a" },
+      null,
+      { status: "budget", exhaustion: { kind: "tokens", limit: 50000, actual: 70000 }, index: 2 },
+    ],
+    dispatched: 1,
+    skipped: 1,
+    elapsedMs: 1500,
+    budgetExhaustion: { kind: "tokens", limit: 50000, actual: 70000 },
+  });
+  assert.match(text, /1 ok · 1 failed · 1 skipped/);
+  assert.match(text, /\(a\) done/);
+  assert.match(text, /skipped — batch budget: tokens 70000 > 50000/);
 });
