@@ -108,7 +108,16 @@ export async function triggerConsolidation(
       extensionTools: [memoryToolDef],
       timeoutMs,
       externalSignal: signal,
-      retryOnTransient: true,
+      // Consolidation runs WHILE the parent holds the cross-process fileLock on
+      // the target (so the in-process child, which bypasses the lock, is the
+      // sole writer). The in-process spawnSubagent classifies a timeout (signal
+      // abort) as `transient` and would RETRY it — re-running the consolidator
+      // for another full timeout while STILL holding the lock, starving every
+      // concurrent sibling-agent writer for ~2× the timeout (perf.jsonl: 120s
+      // = 60s + 60s, with 144s / 998s outliers). A timed-out merge is
+      // best-effort (falls through to the vault-offload floor), so retrying
+      // only re-holds the lock and re-fails. Opt OUT of transient retry.
+      retryOnTransient: false,
     });
     if (result.exitCode === 0) {
       store.loadFromDisk(); // mirror today's post-child reload

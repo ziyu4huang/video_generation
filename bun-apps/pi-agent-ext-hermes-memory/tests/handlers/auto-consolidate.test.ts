@@ -85,7 +85,7 @@ describe("triggerConsolidation", () => {
     // Everything else stays byte-identical to the unset path.
     assert.deepStrictEqual(opts.tools, ["memory"]);
     assert.deepStrictEqual(opts.extensionTools, [memoryToolDef]);
-    assert.strictEqual(opts.retryOnTransient, true);
+    assert.strictEqual(opts.retryOnTransient, false);
   });
 
   it("falls back to tier:'small' (and no model) when llmModelOverride is unset", async () => {
@@ -108,10 +108,33 @@ describe("triggerConsolidation", () => {
     assert.deepStrictEqual(opts.tools, ["memory"], "should allowlist only the memory tool");
     assert.deepStrictEqual(opts.extensionTools, [memoryToolDef], "should bridge the parent memory tool def");
     assert.strictEqual(opts.timeoutMs, 60000);
-    assert.strictEqual(opts.retryOnTransient, true, "should request a single transient retry");
+    assert.strictEqual(opts.retryOnTransient, false, "consolidation holds the cross-process fileLock — must NOT retry on transient/timeout");
     assert.ok(opts.task?.includes("old entry 1"), "task should include current memory entries");
     assert.ok(opts.task?.includes("Target: 'memory'"), "task should tell the child which target to use");
     assert.match(opts.instructions ?? "", /memory consolidator/i, "instructions should frame the consolidator role");
+  });
+
+  it("passes retryOnTransient:false — consolidation holds the cross-process fileLock, so a timed-out run must NOT be retried", async () => {
+    // Regression guard for the 120s lock-contention bug (perf.jsonl):
+    // auto-consolidation runs WHILE the parent holds the cross-process
+    // `withFileLock` on the target (so its in-process child, which bypasses
+    // the lock, is the sole writer). The in-process spawnSubagent classifies a
+    // timeout (signal abort) as `transient` and RETRIES it — re-running the
+    // consolidator for another full timeout while STILL holding the lock. A
+    // timed-out merge is best-effort (it falls through to the vault-offload
+    // floor), so retrying only re-holds the lock and re-fails, starving every
+    // concurrent sibling-agent writer for ~2× the timeout (observed 120s =
+    // 60s + 60s, with 144s / 998s outliers). Consolidation must opt OUT of
+    // transient retry (mirrors the shutdown/flush path's retryOnTransient:false).
+    const { spawn, calls } = createFakeSpawn();
+    await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
+
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(
+      calls[0]!.retryOnTransient,
+      false,
+      "consolidation must not retry on transient/timeout: it holds the cross-process fileLock for the full run",
+    );
   });
 
   it("threads the host signal and timeoutMs into spawn", async () => {

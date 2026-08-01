@@ -680,6 +680,72 @@ export class SurrealMemoryRepository implements MemoryRepository {
   }
 
   /**
+   * One-time migration: heal legacy memory rows whose Surreal record id is an
+   * auto-generated random string (`memories:<random>`) rather than seq-based
+   * (`memories:<seq>`). Such rows were created before the create path switched
+   * to `CREATE type::record("memories", $next)`. Every graph-edge operation
+   * (syncGraphEdges / backfillGraphEdges / removeMemory) keys the source by
+   * `memories:<seq>`, so legacy rows' edges land on a PHANTOM node and the row
+   * is a permanent graph orphan — backfill re-creates phantom edges every boot
+   * (never converging) and the `tagged` table bloats with duplicates.
+   *
+   * For each mismatched row: UPSERT a seq-based clone with all fields copied,
+   * then delete the random-id original. When ≥1 row is migrated, ALSO wipe
+   * `tagged` so the caller's immediately-following `backfillGraphEdges()`
+   * rebuilds a minimal correct edge set (the wipe is gated on actual migration
+   * so it never runs on an already-clean DB and never destroys legit edges).
+   *
+   * Idempotent: once every row is seq-based the mismatch SELECT returns 0 →
+   * no-op. Best-effort: any error is swallowed (returns 0) so it cannot trip
+   * the sqlite fallback in createBackendBundleWithFallback. Chunked (CHUNK=100)
+   * to bound each HTTP request. Concurrency note: sibling agents racing the
+   * first migration could create some duplicate edges (non-fatal; one-time).
+   */
+  async normalizeLegacyMemoryIds(): Promise<number> {
+    try {
+      const legacy = await this.c.query<Array<Row & { id: string }>>(
+        `SELECT id, seq, project, target, category, content, failureReason,
+                toolState, correctedTo, created, lastReferenced, mwSuccess,
+                mwFail, status, supersedes, supersededBy, parentIds
+         FROM memories WHERE record::id(id) != seq;`,
+      );
+      if (legacy.length === 0) return 0;
+
+      const CHUNK = 100;
+      const str = (v: unknown): string => (v == null ? "NONE" : sqlStr(String(v)));
+      const num = (v: unknown): string => (v == null ? "NONE" : String(Number(v)));
+      for (let i = 0; i < legacy.length; i += CHUNK) {
+        const stmts: string[] = [];
+        for (const r of legacy.slice(i, i + CHUNK)) {
+          const seq = Number(r.seq);
+          // Inline the old random id part (Surreal auto-ids are [a-z0-9]; safe literal).
+          const oldIdPart = String(r.id.split(":")[1]);
+          stmts.push(
+            `UPSERT type::record("memories", ${seq}) SET ` +
+              `seq = ${seq}, project = ${str(r.project)}, target = ${str(r.target)}, ` +
+              `category = ${str(r.category)}, content = ${str(r.content)}, ` +
+              `failureReason = ${str(r.failureReason)}, toolState = ${str(r.toolState)}, ` +
+              `correctedTo = ${str(r.correctedTo)}, created = ${str(r.created)}, ` +
+              `lastReferenced = ${str(r.lastReferenced)}, mwSuccess = ${num(r.mwSuccess)}, ` +
+              `mwFail = ${num(r.mwFail)}, status = ${str(r.status)}, ` +
+              `supersedes = ${num(r.supersedes)}, supersededBy = ${num(r.supersededBy)}, ` +
+              `parentIds = ${JSON.stringify(r.parentIds ?? [])};`,
+          );
+          stmts.push(`DELETE memories:${oldIdPart};`);
+        }
+        await this.c.query(stmts.join("\n"));
+      }
+      // Wipe bloated/phantom edges ONLY because we migrated ≥1 row; the caller's
+      // backfillGraphEdges() rebuilds a clean minimal set for every row.
+      await this.c.query(`DELETE FROM tagged;`);
+      return legacy.length;
+    } catch {
+      // Best-effort: never abort startup or trigger the sqlite fallback.
+      return 0;
+    }
+  }
+
+  /**
    * Backfill `tagged` graph edges for pre-existing memory rows that have none
    * (e.g. rows written before graph-augmented search shipped). Selects memories
    * with no outgoing edge and rebuilds their edges in batched SurrealQL scripts
