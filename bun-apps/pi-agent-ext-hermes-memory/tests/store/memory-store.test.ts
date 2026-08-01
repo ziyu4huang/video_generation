@@ -22,7 +22,8 @@ import {
   MEMORY_FILE,
   USER_FILE,
 } from "../../src/constants.js";
-import type { MemoryConfig } from "../../src/types.js";
+import { serializeMetadataFrontmatter } from "../../src/store/memory-format.js";
+import type { FailureState, MemoryConfig } from "../../src/types.js";
 import * as lockfile from "proper-lockfile";
 
 // ─── Helpers (module-level) ───
@@ -117,6 +118,21 @@ function dateDaysAgo(days: number): string {
 function failureEntry(text: string, createdDaysAgo = 0): string {
   const date = dateDaysAgo(createdDaysAgo);
   return `${text} <!-- created=${date}, last=${date} -->`;
+}
+
+/** Build a frontmatter-shape failure entry (ticket 05 stable-id format) carrying
+ *  an optional failure-lifecycle `state`. Used by the failure-lifecycle tests to
+ *  seed resolved/acquired/active entries directly on disk so the injection
+ *  filter can be exercised. */
+function frontmatterFailureEntry(text: string, opts: { state?: FailureState; createdDaysAgo?: number } = {}): string {
+  const date = dateDaysAgo(opts.createdDaysAgo ?? 0);
+  return serializeMetadataFrontmatter({
+    id: globalThis.crypto.randomUUID(),
+    text,
+    created: date,
+    last: date,
+    ...(opts.state ? { state: opts.state } : {}),
+  });
 }
 
 // ─── Tests ───
@@ -1469,6 +1485,109 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.ok(!contents.some((c) => c.includes("AAAA")), "concurrently-removed first stays gone");
       assert.ok(contents.some((c) => c.includes("keep")), "second preserved");
       assert.ok(contents.some((c) => c.includes("incoming probe")), "incoming landed");
+    });
+  });
+
+  // ─── Failure lifecycle: state/severity (Task 5) ───
+
+  describe("failure lifecycle injection filter", () => {
+    it("formatForSystemPrompt injects ONLY active failures (excludes resolved/acquired)", async () => {
+      await writeRaw(failurePath, [
+        frontmatterFailureEntry(`${TEST_MARKER} live failure`, { state: "active" }),
+        frontmatterFailureEntry(`${TEST_MARKER} fixed failure`, { state: "resolved" }),
+        frontmatterFailureEntry(`${TEST_MARKER} known quirk`, { state: "acquired" }),
+      ].join(ENTRY_DELIMITER));
+
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+
+      const result = store.formatForSystemPrompt();
+      assert.ok(result.includes(`${TEST_MARKER} live failure`), "active failure must be injected");
+      assert.ok(!result.includes(`${TEST_MARKER} fixed failure`), "resolved failure must NOT be injected");
+      assert.ok(!result.includes(`${TEST_MARKER} known quirk`), "acquired failure must NOT be injected");
+    });
+
+    it("getActiveFailureEntries surfaces active only; getFailureEntries stays age-only (dedup sees resolved/acquired)", async () => {
+      await writeRaw(failurePath, [
+        frontmatterFailureEntry(`${TEST_MARKER} active`, { state: "active" }),
+        frontmatterFailureEntry(`${TEST_MARKER} resolved`, { state: "resolved" }),
+        frontmatterFailureEntry(`${TEST_MARKER} acquired`, { state: "acquired" }),
+      ].join(ENTRY_DELIMITER));
+
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+
+      // Injection path (state-aware): only the active entry.
+      const active = store.getActiveFailureEntries(7);
+      assert.deepEqual(active, [`${TEST_MARKER} active`]);
+
+      // Capture-dedup path (age-only): error-detector still SEES resolved/acquired
+      // so it does not re-capture a known failure. (Regression guard for the
+      // CRITICAL call-site-split constraint.)
+      const all = store.getFailureEntries(7);
+      assert.ok(all.includes(`${TEST_MARKER} active`));
+      assert.ok(all.includes(`${TEST_MARKER} resolved`));
+      assert.ok(all.includes(`${TEST_MARKER} acquired`));
+    });
+
+    it("a stateless (comment-shape) failure still injects — missing state reads as active", async () => {
+      // Legacy comment entries carry no state; the safe default is `active`
+      // (never silently hide a failure).
+      await writeRaw(failurePath, failureEntry(`${TEST_MARKER} legacy failure`));
+
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+
+      const result = store.formatForSystemPrompt();
+      assert.ok(result.includes(`${TEST_MARKER} legacy failure`));
+    });
+  });
+
+  describe("failure lifecycle add default", () => {
+    it("addFailure defaults state by category: tool-quirk → acquired", async () => {
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+
+      await store.addFailure(`${TEST_MARKER} quirk`, { category: "tool-quirk" });
+
+      // Decoded state (entriesWithMeta now carries state) …
+      const meta = store.entriesWithMeta("failure");
+      const hit = meta.find((m) => m.text.includes(`${TEST_MARKER} quirk`));
+      assert.ok(hit, "tool-quirk entry should be present");
+      assert.equal(hit!.state, "acquired");
+
+      // … and it is actually persisted in the on-disk frontmatter.
+      const raw = await readRaw(failurePath);
+      assert.ok(/state: acquired/.test(raw), `frontmatter should carry state: acquired; got: ${raw}`);
+    });
+
+    it("addFailure defaults state by category: failure → active", async () => {
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+
+      await store.addFailure(`${TEST_MARKER} boom`, { category: "failure" });
+
+      const meta = store.entriesWithMeta("failure");
+      const hit = meta.find((m) => m.text.includes(`${TEST_MARKER} boom`));
+      assert.ok(hit);
+      assert.equal(hit!.state, "active");
+
+      const raw = await readRaw(failurePath);
+      assert.ok(/state: active/.test(raw), `frontmatter should carry state: active; got: ${raw}`);
+    });
+
+    it("non-failure targets carry no state field (omitted for memory/user)", async () => {
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+
+      await store.add("memory", `${TEST_MARKER} plain note`);
+
+      const meta = store.entriesWithMeta("memory");
+      const hit = meta.find((m) => m.text.includes(`${TEST_MARKER} plain note`));
+      assert.ok(hit);
+      assert.equal(hit!.state, undefined);
+      const raw = await readRaw(memoryPath);
+      assert.ok(!/state:/.test(raw), "memory frontmatter must NOT carry a state field");
     });
   });
 });

@@ -12,13 +12,13 @@ import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-age
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { MemoryStore } from "../store/memory-store.js";
-import { formatFailureMemoryContent } from "../store/memory-format.js";
+import { formatFailureMemoryContent, normalizeFailureState } from "../store/memory-format.js";
 import type { MemoryRepository } from "../store/repository.js";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as pathJoin } from "node:path";
 import { MEMORY_TOOL_DESCRIPTION, DEFAULT_STALENESS_THRESHOLD_DAYS } from "../constants.js";
-import type { MemoryCategory, MemoryResult } from "../types.js";
+import type { FailureState, MemoryCategory, MemoryResult } from "../types.js";
 
 function appendSyncWarning(result: MemoryResult, warning: string): MemoryResult {
   const warnings = [...(((result as any).warnings ?? []) as string[]), warning];
@@ -188,6 +188,8 @@ async function syncAddToSqlite(
   memoryRepo: MemoryRepository | null,
   projectName?: string | null,
   mdId?: string | null,
+  state?: FailureState,
+  severity?: number | null,
 ): Promise<string | null> {
   if (!memoryRepo) return null;
 
@@ -207,6 +209,8 @@ async function syncAddToSqlite(
         category: failureCategory,
         failureReason,
         ...(mdId ? { mdId } : {}),
+        ...(state ? { state } : {}),
+        ...(typeof severity === "number" ? { severity } : {}),
       });
       return null;
     }
@@ -230,6 +234,8 @@ async function syncReplaceToSqlite(
   memoryRepo: MemoryRepository | null,
   projectName?: string | null,
   mdId?: string | null,
+  state?: FailureState,
+  severity?: number | null,
 ): Promise<string | null> {
   if (!memoryRepo) return null;
 
@@ -241,6 +247,8 @@ async function syncReplaceToSqlite(
       target: sqliteTarget,
       project: sqliteProject,
       ...(mdId ? { mdId } : {}),
+      ...(state ? { state } : {}),
+      ...(typeof severity === "number" ? { severity } : {}),
     });
 
     if (syncResult.matched === 0) {
@@ -344,6 +352,16 @@ export function registerMemoryTool(
       failure_reason: Type.Optional(
         Type.String({ description: "Why it failed (for failure category)" })
       ),
+      state: Type.Optional(
+        StringEnum(["active", "resolved", "acquired"] as const, {
+          description: "Lifecycle state for failure entries (active|resolved|acquired). Default: active.",
+        })
+      ),
+      severity: Type.Optional(
+        Type.Number({
+          description: "Advisory severity (1–3) for failure entries. Dropped when outside 1–3.",
+        })
+      ),
       older_than: Type.Optional(
         Type.Number({
           description: `Audit only: flag entries whose last-edited date is older than this many days (default ${DEFAULT_STALENESS_THRESHOLD_DAYS}).`,
@@ -351,7 +369,12 @@ export function registerMemoryTool(
       ),
     }),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const { action, target: rawTarget, content, old_text, query, category, failure_reason } = params;
+      const { action, target: rawTarget, content, old_text, query, category, failure_reason, state: rawState, severity: rawSeverity } = params;
+      // Task 7: validate failure lifecycle state/severity at the tool boundary.
+      // `state` is normalized via normalizeFailureState (invalid → active);
+      // `severity` outside 1–3 is dropped (undefined → downstream default).
+      const state = typeof rawState === "string" ? normalizeFailureState(rawState) : undefined;
+      const severity = typeof rawSeverity === "number" && rawSeverity >= 1 && rawSeverity <= 3 ? rawSeverity : undefined;
       // Surface consolidation progress (e.g. the consolidator's model-id) to the
       // TUI as a partial result. Consolidation runs a local LLM and can hold the
       // file lock for up to ~60s; without this the memory tool call is a silent
@@ -384,10 +407,12 @@ export function registerMemoryTool(
             result = await store_.addFailure(content, {
               category: memoryCategory,
               failureReason: failure_reason,
+              ...(state ? { state } : {}),
+              ...(typeof severity === "number" ? { severity } : {}),
               onProgress,
             });
             if (result.success) {
-              syncWarning = await syncAddToSqlite(rawTarget, content, memoryCategory, failure_reason, memoryRepo, projectName, result.added_md_id);
+              syncWarning = await syncAddToSqlite(rawTarget, content, memoryCategory, failure_reason, memoryRepo, projectName, result.added_md_id, state, severity);
             }
           } else {
             result = await store_.add(target, content, { onProgress });
@@ -413,7 +438,7 @@ export function registerMemoryTool(
           }
           result = await store_.replace(target, old_text, content);
           if (result.success) {
-            syncWarning = await syncReplaceToSqlite(rawTarget, old_text, content, memoryRepo, projectName, result.added_md_id);
+            syncWarning = await syncReplaceToSqlite(rawTarget, old_text, content, memoryRepo, projectName, result.added_md_id, state, severity);
           }
           break;
 

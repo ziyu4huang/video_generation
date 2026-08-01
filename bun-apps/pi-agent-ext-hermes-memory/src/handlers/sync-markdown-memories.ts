@@ -12,7 +12,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { MemoryRepository, MemoryEntry } from '../store/repository.js';
-import { parseMarkdownMemoryEntry } from '../store/memory-format.js';
+import type { FailureState } from '../types.js';
+import {
+  parseMarkdownMemoryEntry,
+  parseMetadataFrontmatter,
+  serializeMetadataFrontmatter,
+  detectEntryShape,
+  defaultStateForCategory,
+} from '../store/memory-format.js';
 import { ENTRY_DELIMITER, MEMORY_FILE, USER_FILE } from '../constants.js';
 import { AGENT_ROOT } from '../paths.js';
 
@@ -22,6 +29,18 @@ export interface BackfillCounters {
   imported: number;
   skipped: number;
   warnings: string[];
+  /** Failure-lifecycle state backfill (Task 8): audit what the category-inferred
+   *  backfill changed, so a mis-mapping can't silently hide a live failure. */
+  failureState: {
+    /** Stateless failure/correction/insight/preference entries backfilled to active. */
+    active: number;
+    /** Stateless tool-quirk/convention entries backfilled to acquired — these STOP injecting. */
+    acquired: number;
+    /** Failure entries that already had an explicit state (left untouched — idempotent). */
+    unchanged: number;
+    /** Previews of entries that became `acquired` (were injecting as missing→active, now won't). */
+    stoppedInjecting: string[];
+  };
 }
 
 function readEntries(filePath: string): string[] {
@@ -139,6 +158,124 @@ async function importEntries(
   }
 }
 
+/**
+ * Idempotent failure-state backfill (Task 6 of hermes-failure-lifecycle). For
+ * each FRONTMATTER failure entry whose decoded `state` is absent (a legacy
+ * stateless entry written before the lifecycle feature), infer the initial
+ * state from category (`defaultStateForCategory`) and persist it to BOTH the
+ * `.md` frontmatter (source of truth) AND the matching DB row. Entries that
+ * already carry a `state` are left untouched — this is what makes re-running a
+ * no-op. Mirrors the stable-id backfill's parse → conditional-write → DB-mirror
+ * discipline (that one mints `id` via `MemoryStore.backfillStableIds`; this
+ * one mints `state` on the startup mirror).
+ *
+ * Invariants:
+ * - **Idempotent**: only writes when `state` is absent; the file is not
+ *   rewritten when no entry needs a state, so re-running changes nothing.
+ * - **Never overwrites an explicit `state`** (even if it differs from the
+ *   category default).
+ * - **Body preserved verbatim**: re-`serializeMetadataFrontmatter` carries the
+ *   original body text unchanged (the `[category]` prefix + ` — ` segments
+ *   survive byte-identical).
+ * - **Failure-target only** (runs over failures.md; memory/user entries have
+ *   no state). Comment-shape entries have no frontmatter to carry state — they
+ *   are upgraded by `backfillStableIds` first, then this backfill fills their
+ *   state on a later run.
+ * - **Best-effort**: per-entry DB-mirror failures are swallowed (recorded as a
+ *   warning); the `.md` upgrade still lands and a later sync completes the mirror.
+ */
+async function backfillFailureState(
+  memoryRepo: MemoryRepository,
+  filePath: string,
+  counters: BackfillCounters,
+): Promise<void> {
+  if (!fs.existsSync(filePath)) return;
+  const entries = readEntries(filePath);
+  if (entries.length === 0) return;
+
+  let changed = false;
+  const mirrors: Array<{ parsed: ParsedEntry; state: FailureState }> = [];
+  const rebuilt: string[] = [];
+
+  for (const raw of entries) {
+    // Only frontmatter entries can carry `state`; comment-shape entries are
+    // upgraded to frontmatter by the stable-id backfill first.
+    if (detectEntryShape(raw) !== 'frontmatter') {
+      rebuilt.push(raw);
+      continue;
+    }
+    const parsed = parseMarkdownMemoryEntry(raw, 'failure', null);
+    if (parsed.state !== undefined) {
+      // Idempotent / never-overwrite: an explicit state is left untouched.
+      counters.failureState.unchanged++;
+      rebuilt.push(raw);
+      continue;
+    }
+    const state = defaultStateForCategory(parsed.category ?? null);
+    // Rewrite the frontmatter to include `state`, preserving the body verbatim.
+    // parseMetadataFrontmatter surfaces every existing field (id/created/last/
+    // severity/provenance/sources/memworth) so re-serialize is a faithful
+    // round-trip with only `state` added.
+    const fm = parseMetadataFrontmatter(raw);
+    rebuilt.push(
+      serializeMetadataFrontmatter({
+        id: fm.id,
+        text: fm.text,
+        created: fm.created,
+        last: fm.lastReferenced,
+        state,
+        severity: fm.severity ?? null,
+        provenance: fm.provenance ?? null,
+        sources: fm.sources ?? null,
+        mwSuccess: fm.mwSuccess ?? null,
+        mwFail: fm.mwFail ?? null,
+      }),
+    );
+    mirrors.push({ parsed, state });
+    // Dry-run audit (Task 8): count resulting states; flag entries that stop
+    // injecting (stateless tool-quirk/convention → acquired: they injected as
+    // missing→active before, and won't after this backfill).
+    if (state === 'acquired') {
+      counters.failureState.acquired++;
+      counters.failureState.stoppedInjecting.push(parsed.content.slice(0, 60));
+    } else {
+      counters.failureState.active++;
+    }
+    changed = true;
+  }
+
+  if (changed) {
+    fs.writeFileSync(filePath, rebuilt.join(ENTRY_DELIMITER), 'utf-8');
+  }
+
+  // Mirror `state` onto the matching DB row by content key, exactly like the
+  // stable-id backfill mirrors a freshly-minted id (`setMdIdByContent`). A
+  // re-sync is the cheapest backend-neutral stamp: the per-entry sync finds
+  // the row by content and stamps `state` on its UPDATE branch (and INSERTs
+  // with the right state when the row does not yet exist).
+  for (const { parsed, state } of mirrors) {
+    try {
+      await memoryRepo.syncMemoryEntry({
+        content: parsed.content,
+        target: parsed.target,
+        project: parsed.project ?? null,
+        category: parsed.category ?? null,
+        failureReason: parsed.failureReason ?? null,
+        toolState: parsed.toolState ?? null,
+        correctedTo: parsed.correctedTo ?? null,
+        created: parsed.created ?? null,
+        lastReferenced: parsed.lastReferenced ?? null,
+        mdId: parsed.mdId ?? null,
+        state,
+      });
+    } catch (err) {
+      counters.warnings.push(
+        `failures.md: state mirror failed for "${parsed.content.slice(0, 40)}" — ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+}
+
 function scanProjectDirs(agentRoot: string, globalDir: string, projectsMemoryDir = "projects-memory"): Array<{ name: string; memoryFile: string }> {
   const projectsRoot = path.join(agentRoot, projectsMemoryDir);
   const projects = new Map<string, string>();
@@ -189,6 +326,7 @@ export async function syncMarkdownMemories(
     imported: 0,
     skipped: 0,
     warnings: [],
+    failureState: { active: 0, acquired: 0, unchanged: 0, stoppedInjecting: [] },
   };
 
   const globalMemoryFile = path.join(globalDir, MEMORY_FILE);
@@ -215,6 +353,12 @@ export async function syncMarkdownMemories(
   await importFile(globalMemoryFile, 'memory');
   await importFile(globalUserFile, 'user');
   await importFile(globalFailureFile, 'failure');
+
+  // Task 6: idempotent failure-state backfill. Runs AFTER the failure import so
+  // the DB rows exist; it rewrites stateless `.md` frontmatter entries to carry
+  // the category-inferred `state` (source of truth) and mirrors it onto the row.
+  // Re-running is a no-op (entries that already have a state are skipped).
+  await backfillFailureState(memoryRepo, globalFailureFile, counters);
 
   const projects = scanProjectDirs(agentRoot, globalDir, projectsMemoryDir);
   for (const project of projects) {
@@ -258,6 +402,23 @@ export function registerSyncMarkdownMemoriesCommand(
         output += `├─ Entries scanned: ${counters.entriesScanned}\n`;
         output += `├─ Imported: ${counters.imported}\n`;
         output += `└─ Skipped as duplicates: ${counters.skipped}\n`;
+
+        const fstate = counters.failureState;
+        if (fstate.active + fstate.acquired + fstate.unchanged > 0) {
+          output += `\n🏷️ Failure lifecycle state backfill:\n`;
+          output += `├─ Backfilled to active (still injected): ${fstate.active}\n`;
+          output += `├─ Backfilled to acquired (stop injecting): ${fstate.acquired}\n`;
+          output += `└─ Already had explicit state (untouched): ${fstate.unchanged}\n`;
+          if (fstate.stoppedInjecting.length > 0) {
+            output += `\n⚠️ Stopped injecting (now acquired):\n`;
+            for (const item of fstate.stoppedInjecting.slice(0, 10)) {
+              output += `├─ ${item}\n`;
+            }
+            if (fstate.stoppedInjecting.length > 10) {
+              output += `└─ ... and ${fstate.stoppedInjecting.length - 10} more\n`;
+            }
+          }
+        }
 
         if (counters.projectCount > 0) {
           output += `\n📁 Project memories scanned: ${counters.projectCount}\n`;

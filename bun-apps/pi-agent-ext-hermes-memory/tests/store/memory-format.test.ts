@@ -1,6 +1,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseMetadataComment, serializeMetadataComment, parseMarkdownMemoryEntry } from "../../src/store/memory-format.js";
+import {
+  parseMetadataComment,
+  serializeMetadataComment,
+  parseMarkdownMemoryEntry,
+  serializeMetadataFrontmatter,
+  parseMetadataFrontmatter,
+  normalizeFailureState,
+  defaultStateForCategory,
+} from "../../src/store/memory-format.js";
 
 describe("parseMetadataComment — optional meta segment", () => {
   it("parses created/last only (legacy)", () => {
@@ -72,6 +80,45 @@ describe("serializeMetadataComment", () => {
     const encoded = serializeMetadataComment(original);
     const decoded = parseMetadataComment(encoded);
     assert.deepStrictEqual(decoded, original);
+  });
+});
+
+describe("serialize/parse frontmatter — failure state + severity (Task 1)", () => {
+  it("serialize/parse round-trips state + severity in frontmatter", () => {
+    const raw = serializeMetadataFrontmatter({
+      id: "uuid-1",
+      text: "[failure] boom",
+      created: "2026-08-02",
+      last: "2026-08-02",
+      state: "resolved",
+      severity: 2,
+    });
+    assert.ok(raw.includes("state: resolved"));
+    assert.ok(raw.includes("severity: 2"));
+    const fm = parseMetadataFrontmatter(raw);
+    assert.strictEqual(fm.state, "resolved");
+    assert.strictEqual(fm.severity, 2);
+  });
+
+  it("state omitted when not supplied (memory/user entries)", () => {
+    const raw = serializeMetadataFrontmatter({ id: "u", text: "note", created: "2026-08-02", last: "2026-08-02" });
+    assert.ok(!raw.includes("state:"));
+    assert.strictEqual(parseMetadataFrontmatter(raw).state, undefined);
+  });
+
+  it("normalizeFailureState coerces invalid → active", () => {
+    assert.strictEqual(normalizeFailureState("resolved"), "resolved");
+    assert.strictEqual(normalizeFailureState("bogus"), "active");
+    assert.strictEqual(normalizeFailureState(undefined), "active");
+    assert.strictEqual(normalizeFailureState(null), "active");
+  });
+
+  it("defaultStateForCategory maps tool-quirk/convention → acquired, else active", () => {
+    assert.strictEqual(defaultStateForCategory("tool-quirk"), "acquired");
+    assert.strictEqual(defaultStateForCategory("convention"), "acquired");
+    assert.strictEqual(defaultStateForCategory("failure"), "active");
+    assert.strictEqual(defaultStateForCategory("correction"), "active");
+    assert.strictEqual(defaultStateForCategory(null), "active");
   });
 });
 

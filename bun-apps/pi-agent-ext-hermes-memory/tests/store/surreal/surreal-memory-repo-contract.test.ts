@@ -157,4 +157,78 @@ if (up) {
       await backend.close();
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Failure lifecycle state/severity (Task 4 of hermes-failure-lifecycle).
+  // Surreal parity with the SQLite repo: addMemory writes state explicitly
+  // (SCHEMALESS has no column default), the active-only injection filter holds,
+  // and replace carries/inherits state through the UPDATE.
+  // ---------------------------------------------------------------------------
+  describe("SurrealMemoryRepository failure state/severity (Task 4) (gated on SurrealDB)", () => {
+    let backend: SurrealBackend;
+    let repo: SurrealMemoryRepository;
+    let ns: string;
+
+    it("getRecentFailures excludes resolved/acquired; keeps active; round-trips state", async () => {
+      ns = uniqueNs();
+      backend = new SurrealBackend({ namespace: ns, database: ns });
+      await backend.init();
+      repo = new SurrealMemoryRepository(backend);
+
+      await repo.addMemory({ content: "[failure] active one", target: "failure", category: "failure", state: "active" });
+      await repo.addMemory({ content: "[failure] fixed one", target: "failure", category: "failure", state: "resolved" });
+      await repo.addMemory({ content: "[tool-quirk] known quirk", target: "failure", category: "tool-quirk", state: "acquired" });
+      const recent = await repo.getRecentFailures(7);
+      const contents = recent.map((m) => m.content);
+      expect(contents.some((c) => c === "[failure] active one")).toBe(true);
+      expect(contents.some((c) => c === "[failure] fixed one")).toBe(false);
+      expect(contents.some((c) => c === "[tool-quirk] known quirk")).toBe(false);
+      const active = recent.find((m) => m.content === "[failure] active one");
+      expect(active?.state).toBe("active");
+
+      await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`);
+      await backend.close();
+    });
+
+    it("replace writes explicit state onto the row; getRecentFailures reflects it", async () => {
+      ns = uniqueNs();
+      backend = new SurrealBackend({ namespace: ns, database: ns });
+      await backend.init();
+      repo = new SurrealMemoryRepository(backend);
+
+      await repo.addMemory({ content: "[failure] live bug", target: "failure", category: "failure", state: "active" });
+      expect((await repo.getRecentFailures(7)).map((m) => m.content)).toContain("[failure] live bug");
+      await repo.replaceSyncedMemories("[failure] live bug", {
+        content: "[failure] live bug — fixed",
+        target: "failure",
+        category: "failure",
+        state: "resolved",
+      });
+      const recent = (await repo.getRecentFailures(7)).map((m) => m.content);
+      expect(recent).not.toContain("[failure] live bug — fixed");
+      const all = await repo.getMemories({ target: "failure" });
+      expect(all.find((m) => m.content === "[failure] live bug — fixed")?.state).toBe("resolved");
+
+      await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`);
+      await backend.close();
+    });
+
+    it("replace with no explicit state inherits the row's prior state", async () => {
+      ns = uniqueNs();
+      backend = new SurrealBackend({ namespace: ns, database: ns });
+      await backend.init();
+      repo = new SurrealMemoryRepository(backend);
+
+      await repo.addMemory({ content: "[failure] quirk A", target: "failure", category: "failure", state: "resolved" });
+      await repo.replaceSyncedMemories("[failure] quirk A", {
+        content: "[failure] quirk A — edited",
+        target: "failure",
+      });
+      const all = await repo.getMemories({ target: "failure" });
+      expect(all.find((m) => m.content === "[failure] quirk A — edited")?.state).toBe("resolved");
+
+      await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`);
+      await backend.close();
+    });
+  });
 }

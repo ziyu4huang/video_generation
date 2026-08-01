@@ -86,7 +86,9 @@ export const SCHEMA_SQL = `
     supersedes INTEGER,
     superseded_by INTEGER,
     parent_ids TEXT,
-    md_id TEXT
+    md_id TEXT,
+    state TEXT NOT NULL DEFAULT 'active',
+    severity INTEGER
   );
 
   -- FTS5 index for memory search
