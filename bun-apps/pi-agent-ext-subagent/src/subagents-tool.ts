@@ -210,8 +210,14 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
 
       const dispatchChild = async (task: BatchTask, index: number): Promise<void> => {
         // Soft gate: once tripped, no NEW children start; in-flight ones finish.
+        // `gateTripped` is set only together with `budgetExhaustion` (see the
+        // between-dispatch check below), so it is always defined here; the guard
+        // narrows the type for TypeScript and leaves a defensive no-op if that
+        // invariant ever breaks.
         if (gateTripped) {
-          slots[index] = { status: "budget", exhaustion: budgetExhaustion!, source: "batch", id: task.id, index };
+          if (budgetExhaustion) {
+            slots[index] = { status: "budget", exhaustion: budgetExhaustion, source: "batch", id: task.id, index };
+          }
           return;
         }
         const childOpts = mergeReadOnlyExclusion(task, { defaultCwd, mainModel, extensionTools });
@@ -330,6 +336,11 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
         options.inFlight?.endBatch(toolCallId);
       }
 
+      // `skipped` counts every budget-status slot — both batch-gate skips
+      // (source "batch": never dispatched) and per-child hard-budget aborts
+      // (source "child": ran, then hit its own ceiling). The per-slot `source`
+      // distinguishes them in results + rendering; the aggregate intentionally
+      // lumps both as "not ok, not failed".
       const skipped = slots.filter((s) => s != null && (s as { status: string }).status === "budget").length;
       const details: SubagentsToolDetails = {
         results: slots as BatchResultSlot[],
