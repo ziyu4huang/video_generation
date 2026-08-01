@@ -55,6 +55,11 @@ export interface KnowledgeEmission {
 	/** Path to a .knowledge.jsonl the sink should parse (preferred when an
 	 *  emitter already wrote one to disk, e.g. extractKnowledge). */
 	kbFile?: string;
+	/** Absolute path to a directory of source files to ingest (e.g. file2md's
+	 *  ./vlm-out/<slug>/ output). The sink expands it via the source family's
+	 *  adapter (generic → adaptGenericMarkdown per .md). Preferred when an
+	 *  emitter writes a folder rather than a .knowledge.jsonl. */
+	dir?: string;
 	/** Free-form note (e.g. the run-id / session-id) — sinks pass through. */
 	note?: string;
 }
@@ -91,7 +96,7 @@ export function onKnowledge(
 			if (!data || typeof data !== "object") return;
 			const p = data as Partial<KnowledgeEmission>;
 			if (typeof p.source !== "string" || typeof p.sourceLabel !== "string") return;
-			if (!p.records && !p.kbFile) return;
+			if (!p.records && !p.kbFile && !p.dir) return;
 			handler(p as KnowledgeEmission);
 		});
 	} catch {
