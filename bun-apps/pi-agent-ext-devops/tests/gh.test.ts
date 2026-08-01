@@ -4,7 +4,20 @@
  * `grep -c` footguns. The GhClient is tested with a recording fake spawn.
  */
 import { test, expect, describe } from "bun:test";
-import { parsePrView, parseChecks, createGhClient, type SpawnFn, type SpawnResult } from "../src/gh.js";
+import {
+	parsePrView,
+	parseChecks,
+	createGhClient,
+	parseBranchVv,
+	parseRemoteBranches,
+	parseWorktrees,
+	parseMergedPrs,
+	parseOpenPrRefs,
+	parseContained,
+	createBranchClient,
+	type SpawnFn,
+	type SpawnResult,
+} from "../src/gh.js";
 
 describe("parsePrView", () => {
 	test("MERGED with mergeCommit → mergeSha", () => {
@@ -124,5 +137,198 @@ describe("createGhClient (glue)", () => {
 			{ cmd: "git", args: ["rebase", "origin/main"] },
 			{ cmd: "git", args: ["push", "--force-with-lease", "origin", "feat-x"] },
 		]);
+	});
+});
+
+describe("parseBranchVv", () => {
+	test("extracts name + gone marker, skips detached HEAD", () => {
+		const out = parseBranchVv([
+			"* main                abc [origin/main] x",
+			"  feat/gone           def [origin/feat/gone: gone] y",
+			"+ wt                  ghi [origin/wt] z",
+			"  (HEAD detached at 0000)",
+		].join("\n"));
+		expect(out).toEqual([
+			{ name: "main", goneRemote: false },
+			{ name: "feat/gone", goneRemote: true },
+			{ name: "wt", goneRemote: false },
+		]);
+	});
+
+	test("empty/malformed → []", () => {
+		expect(parseBranchVv("")).toEqual([]);
+	});
+});
+
+describe("parseRemoteBranches", () => {
+	test("strips origin/, drops HEAD -> line", () => {
+		expect(parseRemoteBranches(["  origin/HEAD -> origin/main", "  origin/main", "  origin/feat/x"].join("\n"))).toEqual([
+			"main",
+			"feat/x",
+		]);
+	});
+
+	test("empty → []", () => {
+		expect(parseRemoteBranches("")).toEqual([]);
+	});
+});
+
+describe("parseWorktrees", () => {
+	test("extracts branch refs/heads/<name>, ignores detached", () => {
+		const out = parseWorktrees([
+			"worktree /a",
+			"HEAD abc",
+			"branch refs/heads/feat/x",
+			"",
+			"worktree /b",
+			"HEAD def",
+			"detached",
+		].join("\n"));
+		expect(out).toEqual(["feat/x"]);
+	});
+
+	test("empty → []", () => {
+		expect(parseWorktrees("")).toEqual([]);
+	});
+});
+
+describe("parseMergedPrs", () => {
+	test("maps headRefName → number", () => {
+		const m = parseMergedPrs([{ headRefName: "feat/a", number: 10 }, { headRefName: "feat/b", number: 11 }]);
+		expect(m.get("feat/a")).toBe(10);
+		expect(m.get("feat/b")).toBe(11);
+		expect(m.size).toBe(2);
+	});
+
+	test("non-array → empty map (defensive)", () => {
+		expect(parseMergedPrs(null).size).toBe(0);
+	});
+
+	test("rows missing fields are skipped", () => {
+		const m = parseMergedPrs([{ headRefName: "x" }, { number: 9 }, { headRefName: "y", number: 2 }]);
+		expect(m.size).toBe(1);
+		expect(m.get("y")).toBe(2);
+	});
+});
+
+describe("parseOpenPrRefs", () => {
+	test("collects headRefName set", () => {
+		expect(parseOpenPrRefs([{ headRefName: "a" }, { headRefName: "b" }, { headRefName: "a" }])).toEqual(
+			new Set(["a", "b"]),
+		);
+	});
+
+	test("non-array → empty set", () => {
+		expect(parseOpenPrRefs("nope").size).toBe(0);
+	});
+});
+
+describe("parseContained", () => {
+	test("collects merged branch names, skips detached", () => {
+		expect(parseContained(["  feat/old", "* main", "  (HEAD detached)"].join("\n"))).toEqual(
+			new Set(["feat/old", "main"]),
+		);
+	});
+});
+
+describe("createBranchClient (glue)", () => {
+	/** spawn that records every call + returns canned results by match. */
+	function rec(responses: Array<{ match: (cmd: string, args: string[]) => boolean; result: SpawnResult }>) {
+		const calls: Array<{ cmd: string; args: string[] }> = [];
+		const fn: SpawnFn = async (cmd, args) => {
+			calls.push({ cmd, args });
+			return responses.find((r) => r.match(cmd, args))?.result ?? { stdout: "", stderr: "", exitCode: 0 };
+		};
+		return { fn, calls };
+	}
+
+	test("mergedPrRefs issues gh pr list --state merged --limit N", async () => {
+		const { fn, calls } = rec([
+			{ match: (c, a) => c === "gh" && a.includes("merged"), result: { stdout: JSON.stringify([{ headRefName: "x", number: 7 }]), stderr: "", exitCode: 0 } },
+		]);
+		const m = await createBranchClient(fn).mergedPrRefs(50);
+		expect(m.get("x")).toBe(7);
+		expect(calls[0].args).toContain("--limit");
+		expect(calls[0].args[calls[0].args.indexOf("--limit") + 1]).toBe("50");
+	});
+
+	test("openPrRefs issues gh pr list --state open", async () => {
+		const { fn, calls } = rec([
+			{ match: (c, a) => c === "gh" && a.includes("open"), result: { stdout: JSON.stringify([{ headRefName: "o" }]), stderr: "", exitCode: 0 } },
+		]);
+		const s = await createBranchClient(fn).openPrRefs();
+		expect(s.has("o")).toBe(true);
+		expect(calls[0].args).toContain("open");
+	});
+
+	test("branchVv issues git branch -vv", async () => {
+		const { fn, calls } = rec([
+			{ match: (c, a) => c === "git" && a.includes("-vv"), result: { stdout: "  x abc [origin/x]\n  y def [origin/y: gone]\n", stderr: "", exitCode: 0 } },
+		]);
+		expect(await createBranchClient(fn).branchVv()).toEqual([
+			{ name: "x", goneRemote: false },
+			{ name: "y", goneRemote: true },
+		]);
+		expect(calls[0].args).toEqual(["branch", "-vv"]);
+	});
+
+	test("remoteBranches issues git branch -r", async () => {
+		const { fn } = rec([
+			{ match: (c, a) => c === "git" && a.includes("-r"), result: { stdout: "  origin/HEAD -> origin/main\n  origin/main\n", stderr: "", exitCode: 0 } },
+		]);
+		expect(await createBranchClient(fn).remoteBranches()).toEqual(["main"]);
+	});
+
+	test("worktrees issues git worktree list --porcelain", async () => {
+		const { fn, calls } = rec([
+			{ match: (c, a) => c === "git" && a.includes("worktree"), result: { stdout: "worktree /a\nbranch refs/heads/feat/x\n", stderr: "", exitCode: 0 } },
+		]);
+		expect(await createBranchClient(fn).worktrees()).toEqual(["feat/x"]);
+		expect(calls[0].args).toEqual(["worktree", "list", "--porcelain"]);
+	});
+
+	test("containedBranches issues git branch --merged <default>", async () => {
+		const { fn, calls } = rec([
+			{ match: (c, a) => c === "git" && a.includes("--merged"), result: { stdout: "  feat/old\n* main\n", stderr: "", exitCode: 0 } },
+		]);
+		expect(await createBranchClient(fn).containedBranches("main")).toEqual(new Set(["feat/old", "main"]));
+		expect(calls[0].args).toEqual(["branch", "--merged", "main"]);
+	});
+
+	test("defaultBranch parses symbolic-ref origin/HEAD", async () => {
+		const { fn } = rec([
+			{ match: (c, a) => c === "git" && a.includes("symbolic-ref"), result: { stdout: "refs/remotes/origin/main\n", stderr: "", exitCode: 0 } },
+		]);
+		expect(await createBranchClient(fn).defaultBranch()).toBe("main");
+	});
+
+	test("defaultBranch returns undefined when origin/HEAD unset (best-effort)", async () => {
+		const { fn } = rec([]);
+		expect(await createBranchClient(fn).defaultBranch()).toBeUndefined();
+	});
+
+	test("fetchPrune issues git fetch --prune", async () => {
+		const { fn, calls } = rec([]);
+		await createBranchClient(fn).fetchPrune();
+		expect(calls[0]).toEqual({ cmd: "git", args: ["fetch", "--prune"] });
+	});
+
+	test("currentBranch issues git rev-parse --abbrev-ref HEAD", async () => {
+		const { fn } = rec([
+			{ match: (c, a) => c === "git" && a.includes("rev-parse"), result: { stdout: "feat/cur\n", stderr: "", exitCode: 0 } },
+		]);
+		expect(await createBranchClient(fn).currentBranch()).toBe("feat/cur");
+	});
+
+	test("deleteLocalBranch issues git branch -D <name>", async () => {
+		const { fn, calls } = rec([]);
+		await createBranchClient(fn).deleteLocalBranch("feat/x");
+		expect(calls[0]).toEqual({ cmd: "git", args: ["branch", "-D", "feat/x"] });
+	});
+
+	test("deleteRemoteBranch issues git push origin --delete <name>", async () => {
+		const { fn, calls } = rec([]);
+		await createBranchClient(fn).deleteRemoteBranch("feat/x");
+		expect(calls[0]).toEqual({ cmd: "git", args: ["push", "origin", "--delete", "feat/x"] });
 	});
 });
