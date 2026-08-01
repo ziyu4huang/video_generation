@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sceneFromDict, deterministicFixture, loadScenes, shotRoute } from "./storyboard_native.ts";
 import { buildContactSheet } from "./storyboard_native.ts";
+import { runStoryboardNative, writeStoryboardJson, type SceneSpec, type T2iFn, type EditFn, type KontextFn } from "./storyboard_native.ts";
 import type { SpawnImpl } from "./spawn.ts";
 
 describe("sceneFromDict — raw JSON → SceneSpec", () => {
@@ -163,5 +164,126 @@ describe("buildContactSheet — ffmpeg tile assembly", () => {
   it("throws with ffmpeg's stderr tail when the process exits non-zero", async () => {
     const spawnImpl: SpawnImpl = async () => ({ code: 1, stdout: "", stderr: "unknown filter" });
     await expect(buildContactSheet(["/a.png"], "/out/sheet.png", 3, spawnImpl)).rejects.toThrow(/unknown filter/);
+  });
+});
+
+function noContactSheet(): SpawnImpl {
+  return async () => ({ code: 0, stdout: "", stderr: "" });
+}
+
+describe("runStoryboardNative — the core orchestration (mocked scenes + generation)", () => {
+  const fixedScenes: SceneSpec[] = [
+    { id: "beat-1", subject: "detective", scene: "alley", characterId: "detective", heroMoment: true },
+    { id: "beat-2", subject: "detective", scene: "diner", characterId: "detective" },
+    { id: "beat-3", subject: "a stranger", scene: "rooftop", characterId: "stranger" },
+  ];
+
+  it("routes independent/locked/kontext shots to the right generation impl and assembles frames", async () => {
+    const t2iCalls: string[] = [];
+    const editCalls: string[] = [];
+    const t2iImpl: T2iFn = async (p) => {
+      t2iCalls.push(p.prompt);
+      return { path: `/out/${p.prompt.slice(0, 4)}-t2i.png` };
+    };
+    const editImpl: EditFn = async (p) => {
+      editCalls.push(p.prompt);
+      return { path: `/out/${p.prompt.slice(0, 4)}-edit.png` };
+    };
+
+    const result = await runStoryboardNative({
+      scenesOverride: fixedScenes,
+      character: "/hero.png",
+      outputDir: "/out",
+      _t2iImpl: t2iImpl,
+      _editImpl: editImpl,
+      _spawnImpl: noContactSheet(),
+    });
+
+    expect(t2iCalls).toHaveLength(1); // the "stranger" shot (not recurring)
+    expect(editCalls).toHaveLength(2); // the two "detective" shots (recurring, no kontextLock)
+    expect(result.frames).toHaveLength(3);
+    expect(result.frames.find((f) => f.sceneId === "beat-1")?.characterLocked).toBe(true);
+    expect(result.frames.find((f) => f.sceneId === "beat-3")?.characterLocked).toBe(false);
+    expect(result.recurringCharacters).toEqual(["detective"]);
+  });
+
+  it("routes recurring shots to kontext when kontextLock is set, with a distinct seed per kontext shot", async () => {
+    const kontextSeeds: number[] = [];
+    const kontextImpl: KontextFn = async (p) => {
+      kontextSeeds.push(p.seed);
+      return { path: "/out/k.png" };
+    };
+
+    await runStoryboardNative({
+      scenesOverride: fixedScenes,
+      character: "/hero.png",
+      kontextLock: true,
+      seed: 777,
+      outputDir: "/out",
+      _kontextImpl: kontextImpl,
+      _t2iImpl: async () => ({ path: "/out/t2i.png" }),
+      _spawnImpl: noContactSheet(),
+    });
+
+    expect(kontextSeeds).toEqual([777, 778]); // base_seed + index within the kontext-routed shots
+  });
+
+  it("keeps a failed shot's image as null and continues the run (no fail-fast, unlike Python)", async () => {
+    const t2iImpl: T2iFn = async () => ({ path: null });
+    const result = await runStoryboardNative({
+      scenesOverride: [{ id: "s1", subject: "x", scene: "y" }],
+      outputDir: "/out",
+      _t2iImpl: t2iImpl,
+      _spawnImpl: noContactSheet(),
+    });
+    expect(result.frames[0]?.image).toBeNull();
+  });
+
+  it("skips the contact sheet entirely when every shot fails (nothing to tile)", async () => {
+    const spawnCalls: string[][] = [];
+    const result = await runStoryboardNative({
+      scenesOverride: [{ id: "s1", subject: "x", scene: "y" }],
+      outputDir: "/out",
+      _t2iImpl: async () => ({ path: null }),
+      _spawnImpl: async (_cmd, argv) => {
+        spawnCalls.push(argv);
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+    expect(spawnCalls).toHaveLength(0);
+    expect(result.contactSheet).toBeNull();
+  });
+
+  it("uses the deterministic fixture when scenesOverride is omitted and no --scenes/--story is given", async () => {
+    const result = await runStoryboardNative({
+      outputDir: "/out",
+      _t2iImpl: async () => ({ path: "/out/t2i.png" }),
+      _editImpl: async () => ({ path: "/out/edit.png" }),
+      _spawnImpl: noContactSheet(),
+    });
+    expect(result.frames).toHaveLength(3);
+    expect(result.frames[0]?.sceneId).toBe("beat-1");
+  });
+});
+
+describe("writeStoryboardJson", () => {
+  it("writes storyboard.json with a trailing newline", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "storyboard-native-"));
+    try {
+      const result = await runStoryboardNative({
+        scenesOverride: [{ id: "s1", subject: "x", scene: "y" }],
+        outputDir: dir,
+        _t2iImpl: async () => ({ path: "/out/t2i.png" }),
+        _spawnImpl: noContactSheet(),
+      });
+      const path = await writeStoryboardJson(dir, result);
+      expect(path).toBe(join(dir, "storyboard.json"));
+      const { readFile: rf } = await import("node:fs/promises");
+      const raw = await rf(path, "utf8");
+      expect(raw.endsWith("\n")).toBe(true);
+      expect(JSON.parse(raw).frames).toHaveLength(1);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

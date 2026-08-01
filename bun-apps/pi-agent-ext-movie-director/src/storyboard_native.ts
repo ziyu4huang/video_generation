@@ -290,3 +290,124 @@ export async function buildContactSheet(
     throw new Error(`buildContactSheet: ffmpeg exited ${r.code}: ${r.stderr.slice(-500)}`);
   }
 }
+
+// ── The main orchestration ──────────────────────────────────────────────
+
+export interface StoryboardOptions extends LoadScenesOptions {
+  character?: string;
+  kontextLock?: boolean;
+  seed?: number;
+  width?: number;
+  height?: number;
+  steps?: number;
+  outputDir?: string;
+  /** Test seam: bypass loadScenes entirely with a fixed scene list. */
+  scenesOverride?: SceneSpec[];
+  /** Test seam: inject a canned t2i call so unit tests don't need the krea2 binary. */
+  _t2iImpl?: T2iFn;
+  /** Test seam: inject a canned edit call so unit tests don't need the flux2 binary. */
+  _editImpl?: EditFn;
+  /** Test seam: inject a canned kontext call so unit tests don't need the flux2 binary. */
+  _kontextImpl?: KontextFn;
+  /** Test seam: inject a canned ffmpeg spawn so unit tests don't need a real ffmpeg. */
+  _spawnImpl?: SpawnImpl;
+}
+
+export interface StoryboardFrame {
+  sceneId: string;
+  characterId: string | null;
+  heroMoment: boolean;
+  characterLocked: boolean;
+  kontextLocked: boolean;
+  prompt: string;
+  image: string | null;
+}
+
+export interface StoryboardResult {
+  outDir: string;
+  contactSheet: string | null;
+  hero: string | null;
+  kontextLock: boolean;
+  recurringCharacters: string[];
+  frames: StoryboardFrame[];
+}
+
+/**
+ * Run the storyboard core generation line: scene sourcing → planning →
+ * per-shot routed generation → contact sheet (mirrors `run_storyboard`,
+ * minus the `--judge` closed loop — see module doc). A shot generation
+ * failure records `image: null` and the run continues (see module doc for
+ * the deliberate deviation from Python's fail-fast behavior).
+ */
+export async function runStoryboardNative(opts: StoryboardOptions): Promise<StoryboardResult> {
+  const scenes = opts.scenesOverride ?? (await loadScenes(opts));
+  const storyboard = planStoryboard(scenes);
+  const hero = opts.character ?? null;
+  const kontextLock = !!opts.kontextLock && hero != null;
+  const recurringIds = new Set(storyboard.recurringCharacters);
+
+  const baseSeed = opts.seed ?? 777;
+  const width = opts.width ?? 640;
+  const height = opts.height ?? 960;
+  const steps = opts.steps ?? 9;
+  const kontextWidth = opts.width ?? 1024;
+  const kontextHeight = opts.height ?? 1024;
+
+  const t2i = opts._t2iImpl ?? defaultT2i;
+  const edit = opts._editImpl ?? defaultEdit;
+  const kontext = opts._kontextImpl ?? defaultKontext;
+
+  const frames: StoryboardFrame[] = [];
+  let kontextIndex = 0;
+  for (const shot of storyboard.shots) {
+    const route = shotRoute(shot, recurringIds, kontextLock, hero != null);
+    let image: string | null = null;
+    if (route === "independent") {
+      const r = await t2i({ prompt: shot.prompt, seed: baseSeed, width, height, steps, outputDir: opts.outputDir });
+      image = r.path;
+    } else if (route === "locked") {
+      const r = await edit({ prompt: shot.prompt, images: [hero as string], seed: baseSeed, width, height, steps, outputDir: opts.outputDir });
+      image = r.path;
+    } else {
+      const r = await kontext({
+        input: hero as string,
+        prompt: shot.prompt,
+        seed: baseSeed + kontextIndex,
+        width: kontextWidth,
+        height: kontextHeight,
+        outputDir: opts.outputDir,
+      });
+      kontextIndex += 1;
+      image = r.path;
+    }
+    frames.push({
+      sceneId: shot.sceneId,
+      characterId: shot.characterId,
+      heroMoment: shot.heroMoment,
+      characterLocked: route !== "independent",
+      kontextLocked: route === "kontext",
+      prompt: shot.prompt,
+      image,
+    });
+  }
+
+  const outDir = opts.outputDir ?? ".";
+  const successfulImages = frames.map((f) => f.image).filter((p): p is string => p != null);
+  let contactSheet: string | null = null;
+  if (successfulImages.length > 0) {
+    const contactSheetPath = join(outDir, "contact_sheet.png");
+    await buildContactSheet(successfulImages, contactSheetPath, 3, opts._spawnImpl);
+    contactSheet = contactSheetPath;
+  }
+
+  return { outDir, contactSheet, hero, kontextLock, recurringCharacters: storyboard.recurringCharacters, frames };
+}
+
+/** Write storyboard.json to `<outDir>/storyboard.json` (mirrors Python's `json.dump(..., indent=2)` + trailing newline). Split out so the core orchestration stays pure/testable, mirroring `character_native.ts`'s `writeIdentitySpec`. */
+export async function writeStoryboardJson(outDir: string, result: StoryboardResult): Promise<string> {
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  await mkdir(outDir, { recursive: true });
+  const path = join(outDir, "storyboard.json");
+  await writeFile(path, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+  return path;
+}
