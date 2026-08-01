@@ -114,6 +114,14 @@ export { createSubagentRunsTool } from "./subagent-runs-tool.js";
 // subagent-tool
 export type { SubagentToolDetails, SubagentToolOptions } from "./subagent-tool.js";
 export { createSubagentTool, formatHistoryLine } from "./subagent-tool.js";
+// subagents batch tool (plural — wraps spawnSubagent for fan-out batches)
+export type {
+  BatchResultSlot,
+  BatchTask,
+  SubagentsToolDetails,
+  SubagentsToolOptions,
+} from "./subagents-tool.js";
+export { createSubagentsTool, renderBatchResult, subagentsToolSchema } from "./subagents-tool.js";
 export type {
   WatchdogFinding,
   WatchdogL1Result,
