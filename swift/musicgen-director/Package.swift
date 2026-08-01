@@ -78,5 +78,13 @@ let package = Package(
             dependencies: ["MusicGenDirector"],
             path: "Tests/MusicGenDirectorTests"
         ),
+        .testTarget(
+            name: "KokoroTTSCLITests",
+            dependencies: [
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXAudioTTS", package: "mlx-audio-swift"),
+            ],
+            path: "Tests/KokoroTTSCLITests"
+        ),
     ]
 )
