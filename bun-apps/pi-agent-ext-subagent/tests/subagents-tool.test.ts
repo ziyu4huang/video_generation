@@ -109,3 +109,50 @@ test("execute rejects an empty tasks array with an actionable message", async ()
   const res = await tool.execute("call-3", { tasks: [] }, NO_SIGNAL, undefined, NO_CTX);
   assert.match(res.content[0].text, /tasks must be a non-empty array/i);
 });
+
+function fakeSpawnWithUsage(usages: { total: number; cost: number }[], delayMs = 0) {
+  let i = 0;
+  return async (): Promise<SpawnSubagentResult> => {
+    const idx = i++;
+    if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+    const u = usages[idx] ?? { total: 0, cost: 0 };
+    return {
+      output: `out${idx}`,
+      exitCode: 0,
+      stderr: "",
+      timedOut: false,
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: u.total, cost: u.cost },
+    };
+  };
+}
+
+test("batch token budget soft gate skips remaining slots without aborting in-flight children", async () => {
+  // 4 tasks, concurrency 1 (deterministic order). Child 0 burns 40k of a 50k budget;
+  // child 1 (30k) pushes cumulative to 70k > 50k AFTER it finishes → gate trips →
+  // children 2,3 are never dispatched and become budget slots.
+  const f = fakeSpawnWithUsage([
+    { total: 40000, cost: 0 },
+    { total: 30000, cost: 0 },
+    { total: 0, cost: 0 },
+    { total: 0, cost: 0 },
+  ]);
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: f });
+  const res = await tool.execute(
+    "call-gate",
+    { tasks: [{ task: "#0" }, { task: "#1" }, { task: "#2" }, { task: "#3" }], concurrency: 1, tokenBudget: 50000 },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  const d = res.details;
+  assert.equal(d.dispatched, 2, "two children ran before the gate tripped");
+  assert.equal(d.skipped, 2, "two slots skipped by the gate");
+  assert.ok(d.budgetExhaustion, "top-level exhaustion set");
+  assert.equal(d.budgetExhaustion!.kind, "tokens");
+  // skipped slots are budget slots, not null
+  assert.equal((d.results[2] as { status: string }).status, "budget");
+  assert.equal((d.results[3] as { status: string }).status, "budget");
+  // the two that ran completed normally (in-flight never aborted)
+  assert.equal((d.results[0] as { status: string }).status, "done");
+  assert.equal((d.results[1] as { status: string }).status, "done");
+});

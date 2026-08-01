@@ -173,13 +173,39 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
       const mainModel = options.getMainModel?.();
       const extensionTools = options.getExtensionTools?.();
 
-      const slots: BatchResultSlot[] = new Array(tasks.length).fill(null);
+      const slots: (BatchResultSlot | undefined)[] = new Array<BatchResultSlot | undefined>(tasks.length).fill(
+        undefined,
+      );
       let dispatched = 0;
+      // Batch-wide budget SOFT GATE state. `gateTripped` stops NEW children from
+      // starting; in-flight children always finish. `acc` accumulates usage across
+      // every child that reported usage; `budgetExhaustion` (if set) is surfaced on
+      // `details` and used to label the skipped slots.
+      let gateTripped = false;
+      let budgetExhaustion: BudgetExhaustion | undefined;
+      const acc = { tokens: { total: 0 }, cost: 0 };
+      const batchBudget = {
+        ...(params.tokenBudget !== undefined ? { tokenBudget: params.tokenBudget } : {}),
+        ...(params.spendBudget !== undefined ? { spendBudget: params.spendBudget } : {}),
+      };
+      const hasBatchBudget = params.tokenBudget !== undefined || params.spendBudget !== undefined;
 
       await runWithConcurrency(tasks, concurrency, async (task, index) => {
+        // Soft gate: once tripped, no NEW children start; in-flight ones finish.
+        if (gateTripped) {
+          slots[index] = { status: "budget", exhaustion: budgetExhaustion!, id: task.id, index };
+          return;
+        }
         const childOpts = mergeReadOnlyExclusion(task, { defaultCwd, mainModel, extensionTools });
         const result = await spawn(childOpts);
         dispatched++;
+        // Accumulate usage for the batch-wide budget check (guard for undefined usage).
+        if (result.usage) {
+          acc.tokens.total += result.usage.total;
+          acc.cost += result.usage.cost;
+        }
+        // Map the slot — preserve per-child hard-budget routing (Task 3) alongside
+        // failed->null and the normal done/timedout path.
         const status = deriveSubagentStatus(result);
         if (status === "failed") {
           slots[index] = null;
@@ -194,13 +220,30 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
             usage: result.usage,
           };
         }
+        // Check the batch budget BETWEEN dispatches (never aborts the child that just finished).
+        if (hasBatchBudget && !gateTripped) {
+          const ex = checkBudgetExhaustion(acc, batchBudget);
+          if (ex) {
+            gateTripped = true;
+            budgetExhaustion = ex;
+          }
+        }
       });
 
+      // Backfill any slot no worker reached (safety net for slots left undefined).
+      for (let i = 0; i < slots.length; i++) {
+        if (slots[i] === undefined) {
+          slots[i] = { status: "budget", exhaustion: budgetExhaustion!, id: tasks[i].id, index: i };
+        }
+      }
+
+      const skipped = slots.filter((s) => s != null && (s as { status: string }).status === "budget").length;
       const details: SubagentsToolDetails = {
-        results: slots,
+        results: slots as BatchResultSlot[],
         dispatched,
-        skipped: 0,
+        skipped,
         elapsedMs: Date.now() - t0,
+        ...(budgetExhaustion ? { budgetExhaustion } : {}),
       };
       return { content: [{ type: "text" as const, text: renderBatchResult(details) }], details };
     },
