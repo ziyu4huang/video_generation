@@ -601,3 +601,52 @@ test("cap: cursor clamps to the visible (capped) set", () => {
   viewer.invalidate();
   assert.doesNotThrow(() => viewer.render(80)); // selected never exceeds entries
 });
+
+// ── batch grouping in the Running section (Task 2) ──
+
+test("viewer groups batch children under one header in the Running section", () => {
+  const running = [
+    runningEntry("batchX:0", { batchId: "batchX", history: [] }),
+    runningEntry("batchX:1", { batchId: "batchX", history: [] }),
+  ];
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+  const out = viewer.render(80).join("\n");
+  // exactly one batch header for the group
+  const headers = out.split("\n").filter((l) => /subagents batch/.test(l));
+  assert.equal(headers.length, 1, "one header for the whole batch");
+  assert.match(out, /2 running/, "header shows the running count");
+  assert.ok(out.includes("doing batchX:0") && out.includes("doing batchX:1"), "both children present");
+});
+
+test("ungrouped running entries (no batchId) render flat — no batch header", () => {
+  const running = [runningEntry("solo1", { history: [] }), runningEntry("solo2", { history: [] })];
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+  const out = viewer.render(80).join("\n");
+  assert.ok(!out.includes("subagents batch"), "no header for ungrouped runs");
+  assert.ok(out.includes("doing solo1") && out.includes("doing solo2"));
+});
+
+test("mixed: ungrouped runs flat, batch children grouped under one header", () => {
+  const running = [
+    runningEntry("solo", { history: [] }),
+    runningEntry("batchX:0", { batchId: "batchX", history: [] }),
+    runningEntry("batchX:1", { batchId: "batchX", history: [] }),
+  ];
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("doing solo"), "ungrouped run stays flat");
+  assert.match(out, /subagents batch.*2 running/, "batch grouped under one header");
+});
+
+test("a batch child is still selectable + followable (cursor unaffected by the header)", () => {
+  const running = [
+    runningEntry("batchX:0", { batchId: "batchX" }),
+    runningEntry("batchX:1", { batchId: "batchX" }),
+  ];
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+  // entries() is flat: [batchX:0, batchX:1]. Cursor starts at 0 (first child).
+  viewer.handleInput("\x1b[B"); // down → second child (batchX:1)
+  viewer.handleInput("\r"); // enter → follow
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("→ read"), "follow streams the selected child's live trace");
+});
