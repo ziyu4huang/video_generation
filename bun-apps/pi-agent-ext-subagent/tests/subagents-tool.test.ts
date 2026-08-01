@@ -164,13 +164,53 @@ test("batch token budget soft gate skips remaining slots without aborting in-fli
   assert.equal(d.dispatched, 2, "two children ran before the gate tripped");
   assert.equal(d.skipped, 2, "two slots skipped by the gate");
   assert.ok(d.budgetExhaustion, "top-level exhaustion set");
-  assert.equal(d.budgetExhaustion!.kind, "tokens");
+  assert.equal(d.budgetExhaustion?.kind, "tokens");
   // skipped slots are budget slots, not null
   assert.equal((d.results[2] as { status: string }).status, "budget");
   assert.equal((d.results[3] as { status: string }).status, "budget");
   // the two that ran completed normally (in-flight never aborted)
   assert.equal((d.results[0] as { status: string }).status, "done");
   assert.equal((d.results[1] as { status: string }).status, "done");
+});
+
+test("per-child hard-budget abort maps to a source:'child' budget slot (counted as skipped, no batch gate)", async () => {
+  // No batch-level budget → the batch soft gate never trips. Child 1 returns its
+  // OWN budget exhaustion (the child runner hit its per-run ceiling), which must
+  // map to a budget slot with source:"child", be counted in `skipped`, NOT set the
+  // top-level batchExhaustion, and render with the "child budget" label — distinct
+  // from batch-gate skips (source:"batch"). This was the untested branch at the
+  // `result.budget` slot-mapping in execute().
+  let i = 0;
+  const spawn = async (): Promise<SpawnSubagentResult> => {
+    const idx = i++;
+    if (idx === 1) {
+      return {
+        output: "",
+        exitCode: 0,
+        stderr: "",
+        timedOut: false,
+        budget: { kind: "tokens", limit: 1000, actual: 1500 },
+      };
+    }
+    return { output: `out${idx}`, exitCode: 0, stderr: "", timedOut: false };
+  };
+  const tool = createSubagentsTool({ cwd: "/repo", spawn });
+  const res = await tool.execute(
+    "call-childbudget",
+    { tasks: [{ task: "#0" }, { task: "#1" }], concurrency: 1 },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  const d = res.details;
+  assert.equal(d.dispatched, 2, "both children ran (no batch gate tripped)");
+  assert.equal(d.skipped, 1, "the per-child-budget abort counts as a skipped budget slot");
+  assert.equal(d.budgetExhaustion, undefined, "per-child budget does NOT set the batch-level exhaustion");
+  assert.equal((d.results[0] as { status: string }).status, "done");
+  const slot1 = d.results[1] as { status: string; source?: string };
+  assert.equal(slot1.status, "budget");
+  assert.equal(slot1.source, "child", "slot source distinguishes a per-child abort from a batch-gate skip");
+  assert.match(renderBatchResult(d), /child budget/, "rendering labels the per-child abort distinctly");
 });
 
 /** In-memory persistence capturing every saved record. */
