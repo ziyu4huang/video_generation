@@ -300,8 +300,9 @@ export const REGISTRY: ProviderEntry[] = [
   // compute in the Python at all — `app/commands/story.py`'s `_gemma_json_call`
   // is a bare `requests.post`), so they moved onto a direct Bun `fetch` client
   // (lmstudio.ts / story_native.ts) — no Python subprocess, no MLX venv needed.
-  // shots stays on runpy_story below: it delegates generation to `image
-  // storyboard`, which still has no Swift equivalent.
+  // shots stays on runpy_story below: `story shots` itself is still a run.py
+  // subprocess, even though the `image storyboard` command it delegates to
+  // now routes onto storyboard_native below (2026-08-01) once reached.
   {
     name: "story_native",
     capability: "story_generation",
