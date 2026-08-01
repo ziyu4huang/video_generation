@@ -16,14 +16,16 @@ uncommitted edits that get lost on branch switch / stash / worktree discard.
   destination is a change-made-in-place (a durability mechanism), so tickets 06 (build)
   and 08 (verify) are deliverables, not just decisions. The grilling tickets (01–05, 07)
   still resolve one decision per session.
-- **Build status (2026-08-01).** Ticket 06 (the autocommit hook) is **built & independently
-  verified**: repo-local narrow config overlay; `message_end` + ~20s trailing-debounce →
-  guarded commit cycle (never-throws 3-layer; pathspec-limited `git commit -- <MEMORY.md>` so
-  unrelated staged files can't be swept); §-union merge driver (`pi-memory`, self-configured).
-  `tsc` clean, 941 tests pass (57 new). Commits `6723c9e8` + `15b2b593` on
-  `video_generation__superpowers`; effort dir not swept in. **This repo is NOT opted in**
-  (capability shipped only). Remaining: **08** (end-to-end acceptance test — now unblocked)
-  + **09** (project-tag coherence, independent).
+- **Build status (2026-08-01).** ✅ **Destination reached.** Ticket 06 (the autocommit hook)
+  is built & verified (commits `1407364e`+`c8d6b649` after rebase; repo-local config overlay;
+  `message_end` + ~20s debounce → guarded never-throws pathspec-limited commit; §-union merge
+  driver). Ticket 08 is verified via its sub-map (`.planning/2026-08-01-ticket08/`): a real-git
+  integration suite (`5b923407`) drives `realGitOps` against actual `git` and proves all 5
+  durability properties — commit-lands, **no-sweep**, branch-switch, §-union merge, abort-skip.
+  `tsc` clean, **947 pass / 0 fail** (941 + 6); non-vacuous (no-sweep TDD-proofed). **This repo
+  is NOT opted in** (capability shipped only); the manual smoke is the human's final check.
+  **Open: ticket 09** (cross-worktree project-tag coherence) — an independent enhancement, not
+  on the durability critical path.
 - **Domain.** pi `hermes-memory` extension (project-memory markdown SoT + DB index), pi
   lifecycle hooks, and this repo's git/worktree flow.
 - **Skills every session should consult:** wayfinder (this map), grilling,
