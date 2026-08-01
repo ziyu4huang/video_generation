@@ -225,10 +225,19 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
           model: childModel,
           taskPreview: taskPreview(task.task),
           startedAt: childT0,
+          batchId: toolCallId,
         });
+        // Forward live callbacks so /subagents shows each child's resolved model and
+        // activity trace (deficit 1). Added here — not in mergeReadOnlyExclusion — because
+        // the callbacks close over the registry + childRunId, which that pure helper lacks.
+        const childSpawnOpts: SpawnSubagentOptions = {
+          ...childOpts,
+          onModelResolved: (id) => options.inFlight?.updateModel(childRunId, id),
+          onHistory: (history) => options.inFlight?.update(childRunId, history),
+        };
         let result: SpawnSubagentResult;
         try {
-          result = await spawn(childOpts);
+          result = await spawn(childSpawnOpts);
         } finally {
           // Always deregister — even on throw — so the registry never leaks a run.
           options.inFlight?.end(childRunId);

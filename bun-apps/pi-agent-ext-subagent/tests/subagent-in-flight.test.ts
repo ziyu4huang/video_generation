@@ -64,3 +64,12 @@ test("updateModel on an unknown or ended id is a no-op", () => {
   assert.equal(reg.get("a"), undefined);
   assert.equal(invalidated, 0);
 });
+
+test("start carries batchId through for batch-tool children; undefined for singular-tool runs", () => {
+  const reg = new SubagentInFlightRegistry();
+  reg.start({ id: "c0", model: "x", taskPreview: "t", startedAt: 0, batchId: "batch-1" });
+  assert.equal(reg.get("c0")?.batchId, "batch-1");
+  // singular-tool children omit it → undefined (backward compatible)
+  reg.start({ id: "solo", model: "y", taskPreview: "u", startedAt: 0 });
+  assert.equal(reg.get("solo")?.batchId, undefined);
+});

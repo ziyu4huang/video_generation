@@ -18,6 +18,10 @@ export interface InFlightSubagent {
   /** Concrete provider/id once the child resolves its model (onModelResolved).
    * Undefined until resolution — the call line shows tier/model-request until then. */
   resolvedModel?: string;
+  /** The batch tool's own toolCallId, set on every child of a `subagents` batch so
+   *  the /subagents viewer can group them under one header. Undefined for singular
+   *  `subagent` dispatches (flat, ungrouped) and workflow agents. */
+  batchId?: string;
   taskPreview: string;
   startedAt: number;
   /** Latest compact history snapshot (for the live-output trace). */

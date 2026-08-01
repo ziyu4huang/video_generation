@@ -268,6 +268,43 @@ test("renderBatchResult renders ok/failed/skipped sections", () => {
   assert.match(text, /skipped — batch budget: tokens 70000 > 50000/);
 });
 
+test("batch children get batchId + forwarded onModelResolved/onHistory update the registry", async () => {
+  const inFlight = new SubagentInFlightRegistry();
+  const captured: { id: string; batchId?: string; resolved?: string; historyLen: number }[] = [];
+  const spawn = async (opts: {
+    task: string;
+    onModelResolved?: (id: string) => void;
+    onHistory?: (h: { kind: string }[]) => void;
+  }): Promise<SpawnSubagentResult> => {
+    opts.onModelResolved?.("google/gemma-4-12b-qat");
+    opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }]);
+    const idx = Number(opts.task.match(/^#(\d+)/)?.[1] ?? 0);
+    const entry = inFlight.get(`batch-call:${idx}`);
+    captured.push({
+      id: `batch-call:${idx}`,
+      batchId: entry?.batchId,
+      resolved: entry?.resolvedModel,
+      historyLen: entry?.history?.length ?? 0,
+    });
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  };
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
+  await tool.execute(
+    "batch-call",
+    { tasks: [{ task: "#0" }, { task: "#1" }], concurrency: 1 },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.equal(captured.length, 2, "both children ran");
+  for (const c of captured) {
+    assert.equal(c.batchId, "batch-call", "child registered with the batch toolCallId as batchId");
+    assert.equal(c.resolved, "google/gemma-4-12b-qat", "onModelResolved forwarded → resolvedModel set");
+    assert.equal(c.historyLen, 1, "onHistory forwarded → history stored");
+  }
+  assert.equal(inFlight.list().length, 0, "registry empty after the batch completes");
+});
+
 test("a child hitting its own per-child budget renders as 'child budget' (source: child)", async () => {
   const spawn = async (): Promise<SpawnSubagentResult> => ({
     output: "out",
