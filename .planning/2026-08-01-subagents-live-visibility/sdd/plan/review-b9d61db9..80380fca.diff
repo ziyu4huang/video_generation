@@ -1,0 +1,157 @@
+# Review package: b9d61db9..HEAD
+
+## Commits
+80380fca feat(subagents): group batch children under a header in /subagents Running section
+
+## Files changed
+ .../pi-agent-ext-subagent/src/subagent-viewer.ts   | 54 +++++++++++++++++-----
+ .../tests/subagent-viewer.test.ts                  | 49 ++++++++++++++++++++
+ 2 files changed, 92 insertions(+), 11 deletions(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-subagent/src/subagent-viewer.ts b/bun-apps/pi-agent-ext-subagent/src/subagent-viewer.ts
+index f21b1367..1c40f19f 100644
+--- a/bun-apps/pi-agent-ext-subagent/src/subagent-viewer.ts
++++ b/bun-apps/pi-agent-ext-subagent/src/subagent-viewer.ts
+@@ -231,34 +231,66 @@ export class SubagentViewer {
+ 
+   private renderList(width: number, th: Theme): string[] {
+     const lines: string[] = [""];
+     const entries = this.entries();
+     if (this.selected > entries.length - 1) this.selected = Math.max(0, entries.length - 1);
+ 
+     const running = entries.filter((e) => e.kind === "running") as Array<{ kind: "running"; ref: InFlightSubagent }>;
+     if (running.length > 0) {
+       const runningTitle = th.fg("accent", th.bold(" Running "));
+       lines.push(truncateToWidth(runningTitle + th.fg("borderMuted", "─".repeat(Math.max(0, width - 9))), width));
++      // Count in-flight children per batchId (for the header's "k running").
++      const batchCounts = new Map<string, number>();
++      for (const e of running) {
++        const bid = e.ref.batchId;
++        if (bid) batchCounts.set(bid, (batchCounts.get(bid) ?? 0) + 1);
++      }
++      let lastBatch: string | undefined;
+       for (const e of running) {
+         const r = e.ref;
+         const cur = entries.indexOf(e) === this.selected;
+-        const toolCalls = r.history?.filter((h) => h.kind === "toolCall").length ?? 0;
+-        const row: ActivityRow = {
+-          status: "running",
+-          actor: r.agent ?? "general-purpose",
+-          model: r.resolvedModel ?? r.model,
+-          elapsedMs: Date.now() - r.startedAt,
+-          toolCalls,
+-          latestAction: summarizeLatestAction(r.history) ?? truncateToWidth(r.taskPreview, 40),
+-        };
+-        const head = renderActivityRow(row, th);
+-        lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`}`, width));
++        const bid = r.batchId;
++        if (bid) {
++          // New batch group → render a (visual, non-selectable) header before its first child.
++          if (bid !== lastBatch) {
++            const k = batchCounts.get(bid) ?? 0;
++            const header = `${th.fg("accent", th.bold("▼ subagents batch"))} ${th.fg("dim", `· ${k} running`)}`;
++            lines.push(truncateToWidth(`  ${header}`, width));
++            lastBatch = bid;
++          }
++          // Indented child row.
++          const toolCalls = r.history?.filter((h) => h.kind === "toolCall").length ?? 0;
++          const row: ActivityRow = {
++            status: "running",
++            actor: r.agent ?? "general-purpose",
++            model: r.resolvedModel ?? r.model,
++            elapsedMs: Date.now() - r.startedAt,
++            toolCalls,
++            latestAction: summarizeLatestAction(r.history) ?? truncateToWidth(r.taskPreview, 40),
++          };
++          const head = renderActivityRow(row, th);
++          lines.push(truncateToWidth(`    ${cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`}`, width));
++        } else {
++          // Ungrouped (singular-tool) run — flat, exactly as before. Reset batch tracking.
++          lastBatch = undefined;
++          const toolCalls = r.history?.filter((h) => h.kind === "toolCall").length ?? 0;
++          const row: ActivityRow = {
++            status: "running",
++            actor: r.agent ?? "general-purpose",
++            model: r.resolvedModel ?? r.model,
++            elapsedMs: Date.now() - r.startedAt,
++            toolCalls,
++            latestAction: summarizeLatestAction(r.history) ?? truncateToWidth(r.taskPreview, 40),
++          };
++          const head = renderActivityRow(row, th);
++          lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`}`, width));
++        }
+       }
+       lines.push("");
+     }
+ 
+     const title = th.fg("accent", th.bold(" Subagent runs "));
+     lines.push(truncateToWidth(title + th.fg("borderMuted", "─".repeat(Math.max(0, width - 15))), width));
+     lines.push("");
+     const completed = entries.filter((e) => e.kind === "completed") as Array<{ kind: "completed"; ref: SubagentRun }>;
+     if (completed.length === 0) {
+       lines.push(truncateToWidth(`  ${th.fg("dim", "No subagent runs on this branch.")}`, width));
+diff --git a/bun-apps/pi-agent-ext-subagent/tests/subagent-viewer.test.ts b/bun-apps/pi-agent-ext-subagent/tests/subagent-viewer.test.ts
+index d1fc8443..1160f1b7 100644
+--- a/bun-apps/pi-agent-ext-subagent/tests/subagent-viewer.test.ts
++++ b/bun-apps/pi-agent-ext-subagent/tests/subagent-viewer.test.ts
+@@ -594,10 +594,59 @@ test("cap: a non-empty filter suspends the cap — all matches shown", () => {
+ });
+ 
+ test("cap: cursor clamps to the visible (capped) set", () => {
+   const runs = completedRuns(25);
+   const viewer = new SubagentViewer({ runs, onClose: () => {} }, T);
+   // spam down past the end of the capped list
+   for (let i = 0; i < 40; i++) viewer.handleInput("\x1b[B");
+   viewer.invalidate();
+   assert.doesNotThrow(() => viewer.render(80)); // selected never exceeds entries
+ });
++
++// ── batch grouping in the Running section (Task 2) ──
++
++test("viewer groups batch children under one header in the Running section", () => {
++  const running = [
++    runningEntry("batchX:0", { batchId: "batchX", history: [] }),
++    runningEntry("batchX:1", { batchId: "batchX", history: [] }),
++  ];
++  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
++  const out = viewer.render(80).join("\n");
++  // exactly one batch header for the group
++  const headers = out.split("\n").filter((l) => /subagents batch/.test(l));
++  assert.equal(headers.length, 1, "one header for the whole batch");
++  assert.match(out, /2 running/, "header shows the running count");
++  assert.ok(out.includes("doing batchX:0") && out.includes("doing batchX:1"), "both children present");
++});
++
++test("ungrouped running entries (no batchId) render flat — no batch header", () => {
++  const running = [runningEntry("solo1", { history: [] }), runningEntry("solo2", { history: [] })];
++  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
++  const out = viewer.render(80).join("\n");
++  assert.ok(!out.includes("subagents batch"), "no header for ungrouped runs");
++  assert.ok(out.includes("doing solo1") && out.includes("doing solo2"));
++});
++
++test("mixed: ungrouped runs flat, batch children grouped under one header", () => {
++  const running = [
++    runningEntry("solo", { history: [] }),
++    runningEntry("batchX:0", { batchId: "batchX", history: [] }),
++    runningEntry("batchX:1", { batchId: "batchX", history: [] }),
++  ];
++  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
++  const out = viewer.render(80).join("\n");
++  assert.ok(out.includes("doing solo"), "ungrouped run stays flat");
++  assert.match(out, /subagents batch.*2 running/, "batch grouped under one header");
++});
++
++test("a batch child is still selectable + followable (cursor unaffected by the header)", () => {
++  const running = [
++    runningEntry("batchX:0", { batchId: "batchX" }),
++    runningEntry("batchX:1", { batchId: "batchX" }),
++  ];
++  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
++  // entries() is flat: [batchX:0, batchX:1]. Cursor starts at 0 (first child).
++  viewer.handleInput("\x1b[B"); // down → second child (batchX:1)
++  viewer.handleInput("\r"); // enter → follow
++  const out = viewer.render(80).join("\n");
++  assert.ok(out.includes("→ read"), "follow streams the selected child's live trace");
++});

@@ -26,6 +26,9 @@ const VALID_MERGE_STATES = new Set<MergeState>([
 const FAIL_STATES = new Set([
 	"FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED",
 ]);
+/** Known non-failure, completed states. Anything NOT in PASS or FAIL defaults to
+ *  pending (running/queued/unknown) — never claim success for an unrecognized state. */
+const PASS_STATES = new Set(["SUCCESS", "SKIPPED", "NEUTRAL"]);
 
 /**
  * Parse `gh pr view --json state,mergeStateStatus,mergeCommit` into our domain
@@ -58,14 +61,15 @@ export function parseChecks(rows: unknown): CheckTally {
 	let fail = 0;
 	let pending = 0;
 	for (const row of list) {
-		const completedAt = row?.completedAt;
-		if (completedAt == null || completedAt === "") {
-			pending++;
-			continue;
-		}
-		const state = typeof row.state === "string" ? row.state.toUpperCase() : "";
+		// Classify by STATE, not completedAt: a re-triggered check can carry a prior
+		// run's completedAt while its new run is WAITING/IN_PROGRESS. Relying on
+		// completedAt would wrongly count such a check as pass and starve the wait
+		// branch (decideRecipeAction's pending>0 → wait), producing a false "all green /
+		// BLOCKED" result. Unknown states default to pending — never claim success.
+		const state = typeof row?.state === "string" ? row.state.toUpperCase() : "";
 		if (FAIL_STATES.has(state)) fail++;
-		else pass++;
+		else if (PASS_STATES.has(state)) pass++;
+		else pending++;
 	}
 	return { pass, fail, pending };
 }

@@ -1,0 +1,167 @@
+# Review package: f117e4f5..HEAD
+
+## Commits
+b9d61db9 feat(subagents): forward per-child live callbacks + set batchId on in-flight entries
+
+## Files changed
+ .../src/subagent-in-flight.ts                      |  4 +++
+ .../pi-agent-ext-subagent/src/subagents-tool.ts    | 11 ++++++-
+ .../tests/subagent-in-flight.test.ts               |  9 ++++++
+ .../tests/subagents-tool.test.ts                   | 37 ++++++++++++++++++++++
+ 4 files changed, 60 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-subagent/src/subagent-in-flight.ts b/bun-apps/pi-agent-ext-subagent/src/subagent-in-flight.ts
+index 7e16c6bb..47dab0da 100644
+--- a/bun-apps/pi-agent-ext-subagent/src/subagent-in-flight.ts
++++ b/bun-apps/pi-agent-ext-subagent/src/subagent-in-flight.ts
+@@ -11,20 +11,24 @@
+ import type { AgentHistoryEntry } from "./agent-history.js";
+ 
+ export interface InFlightSubagent {
+   /** The toolCallId (unique per dispatch). */
+   id: string;
+   agent?: string;
+   model: string;
+   /** Concrete provider/id once the child resolves its model (onModelResolved).
+    * Undefined until resolution — the call line shows tier/model-request until then. */
+   resolvedModel?: string;
++  /** The batch tool's own toolCallId, set on every child of a `subagents` batch so
++   *  the /subagents viewer can group them under one header. Undefined for singular
++   *  `subagent` dispatches (flat, ungrouped) and workflow agents. */
++  batchId?: string;
+   taskPreview: string;
+   startedAt: number;
+   /** Latest compact history snapshot (for the live-output trace). */
+   history?: AgentHistoryEntry[];
+   /** Bound by renderCall so updateModel can force a call-line re-render mid-run. */
+   invalidate?: () => void;
+ }
+ 
+ /**
+  * Process-local registry of running subagents. Process-local by design: a
+diff --git a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
+index ee05aed0..360d2216 100644
+--- a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
++++ b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
+@@ -218,24 +218,33 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
+         // required-string `model` field when nothing was requested).
+         const childModel = task.model ?? task.tier ?? task.capability ?? mainModel ?? "default";
+         // Register in-flight so `/subagents` shows this child while it runs.
+         const childRunId = `${toolCallId}:${index}`;
+         const childT0 = Date.now();
+         options.inFlight?.start({
+           id: childRunId,
+           model: childModel,
+           taskPreview: taskPreview(task.task),
+           startedAt: childT0,
++          batchId: toolCallId,
+         });
++        // Forward live callbacks so /subagents shows each child's resolved model and
++        // activity trace (deficit 1). Added here — not in mergeReadOnlyExclusion — because
++        // the callbacks close over the registry + childRunId, which that pure helper lacks.
++        const childSpawnOpts: SpawnSubagentOptions = {
++          ...childOpts,
++          onModelResolved: (id) => options.inFlight?.updateModel(childRunId, id),
++          onHistory: (history) => options.inFlight?.update(childRunId, history),
++        };
+         let result: SpawnSubagentResult;
+         try {
+-          result = await spawn(childOpts);
++          result = await spawn(childSpawnOpts);
+         } finally {
+           // Always deregister — even on throw — so the registry never leaks a run.
+           options.inFlight?.end(childRunId);
+         }
+         dispatched++;
+         // Accumulate usage for the batch-wide budget check (guard for undefined usage).
+         if (result.usage) {
+           acc.tokens.total += result.usage.total;
+           acc.cost += result.usage.cost;
+         }
+diff --git a/bun-apps/pi-agent-ext-subagent/tests/subagent-in-flight.test.ts b/bun-apps/pi-agent-ext-subagent/tests/subagent-in-flight.test.ts
+index b2221807..f5470087 100644
+--- a/bun-apps/pi-agent-ext-subagent/tests/subagent-in-flight.test.ts
++++ b/bun-apps/pi-agent-ext-subagent/tests/subagent-in-flight.test.ts
+@@ -57,10 +57,19 @@ test("updateModel on an unknown or ended id is a no-op", () => {
+   reg.updateModel("ghost", "x/y"); // unknown id — no throw, no invalidate
+   reg.start({ id: "a", model: "tier:medium", taskPreview: "t", startedAt: 0 });
+   reg.bindInvalidate("a", () => {
+     invalidated++;
+   });
+   reg.end("a");
+   reg.updateModel("a", "x/y"); // ended — no-op
+   assert.equal(reg.get("a"), undefined);
+   assert.equal(invalidated, 0);
+ });
++
++test("start carries batchId through for batch-tool children; undefined for singular-tool runs", () => {
++  const reg = new SubagentInFlightRegistry();
++  reg.start({ id: "c0", model: "x", taskPreview: "t", startedAt: 0, batchId: "batch-1" });
++  assert.equal(reg.get("c0")?.batchId, "batch-1");
++  // singular-tool children omit it → undefined (backward compatible)
++  reg.start({ id: "solo", model: "y", taskPreview: "u", startedAt: 0 });
++  assert.equal(reg.get("solo")?.batchId, undefined);
++});
+diff --git a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
+index e9f6a837..dd3fef4c 100644
+--- a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++++ b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
+@@ -261,20 +261,57 @@ test("renderBatchResult renders ok/failed/skipped sections", () => {
+     dispatched: 1,
+     skipped: 1,
+     elapsedMs: 1500,
+     budgetExhaustion: { kind: "tokens", limit: 50000, actual: 70000 },
+   });
+   assert.match(text, /1 ok · 1 failed · 1 skipped/);
+   assert.match(text, /\(a\) done/);
+   assert.match(text, /skipped — batch budget: tokens 70000 > 50000/);
+ });
+ 
++test("batch children get batchId + forwarded onModelResolved/onHistory update the registry", async () => {
++  const inFlight = new SubagentInFlightRegistry();
++  const captured: { id: string; batchId?: string; resolved?: string; historyLen: number }[] = [];
++  const spawn = async (opts: {
++    task: string;
++    onModelResolved?: (id: string) => void;
++    onHistory?: (h: { kind: string }[]) => void;
++  }): Promise<SpawnSubagentResult> => {
++    opts.onModelResolved?.("google/gemma-4-12b-qat");
++    opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }]);
++    const idx = Number(opts.task.match(/^#(\d+)/)?.[1] ?? 0);
++    const entry = inFlight.get(`batch-call:${idx}`);
++    captured.push({
++      id: `batch-call:${idx}`,
++      batchId: entry?.batchId,
++      resolved: entry?.resolvedModel,
++      historyLen: entry?.history?.length ?? 0,
++    });
++    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
++  };
++  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
++  await tool.execute(
++    "batch-call",
++    { tasks: [{ task: "#0" }, { task: "#1" }], concurrency: 1 },
++    NO_SIGNAL,
++    undefined,
++    NO_CTX,
++  );
++  assert.equal(captured.length, 2, "both children ran");
++  for (const c of captured) {
++    assert.equal(c.batchId, "batch-call", "child registered with the batch toolCallId as batchId");
++    assert.equal(c.resolved, "google/gemma-4-12b-qat", "onModelResolved forwarded → resolvedModel set");
++    assert.equal(c.historyLen, 1, "onHistory forwarded → history stored");
++  }
++  assert.equal(inFlight.list().length, 0, "registry empty after the batch completes");
++});
++
+ test("a child hitting its own per-child budget renders as 'child budget' (source: child)", async () => {
+   const spawn = async (): Promise<SpawnSubagentResult> => ({
+     output: "out",
+     exitCode: 0,
+     stderr: "",
+     timedOut: false,
+     budget: { kind: "tokens", limit: 100, actual: 200 },
+   });
+   const tool = createSubagentsTool({ cwd: "/repo", spawn });
+   const res = await tool.execute("call-child-budget", { tasks: [{ task: "#0" }] }, NO_SIGNAL, undefined, NO_CTX);
