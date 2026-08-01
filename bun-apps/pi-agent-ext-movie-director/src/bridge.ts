@@ -1149,6 +1149,74 @@ async function realCharacterNative(req: GenerateRequest, env?: Record<string, st
   }
 }
 
+/**
+ * realStoryboardNative — the storyboard core generation line via
+ * storyboard_native.ts, NOT a run.py subprocess (2026-08-01 — see that
+ * module's header). Each generated frame's image becomes one kind:"image"
+ * artifact (role:"primary"); frames whose generation failed are skipped from
+ * artifacts (their `image` is null, but still recorded in the returned
+ * result for the caller). The written storyboard.json rides as a second
+ * kind:"text" artifact (role:"metadata"). ok = at least one frame was
+ * generated (runStoryboardNative itself never throws on a per-shot failure
+ * — see module doc; it only throws on a scene-loading error, e.g. an
+ * unreadable --scenes file).
+ */
+async function realStoryboardNative(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
+  const opts = (req.options ?? {}) as Record<string, unknown>;
+  const started = Date.now();
+  try {
+    const { runStoryboardNative, writeStoryboardJson } = await import("./storyboard_native.ts");
+    const result = await runStoryboardNative({
+      scenes: opts.scenes as string | undefined,
+      story: opts.story as string | undefined,
+      numPanels: opts.numPanels as number | undefined,
+      styleHint: opts.styleHint as string | undefined,
+      character: (opts.character as string | undefined) ?? (opts.input as string | undefined),
+      kontextLock: opts.kontextLock as boolean | undefined,
+      seed: opts.seed as number | undefined,
+      width: opts.width as number | undefined,
+      height: opts.height as number | undefined,
+      steps: opts.steps as number | undefined,
+      outputDir: req.outputDir,
+    });
+
+    const artifacts: ToolResult["artifacts"] = result.frames
+      .filter((f) => f.image)
+      .map((f) => ({ path: f.image as string, kind: "image" as const, role: "primary" as const }));
+
+    const jsonPath = await writeStoryboardJson(result.outDir, result);
+    artifacts.push({ path: jsonPath, kind: "text" as const, role: "metadata" as const });
+    if (result.contactSheet) {
+      artifacts.push({ path: result.contactSheet, kind: "image" as const, role: "reference" as const });
+    }
+
+    return {
+      success: artifacts.some((a) => a.kind === "image" && a.role === "primary"),
+      provider: "storyboard-native",
+      command: "image storyboard",
+      artifacts,
+      error: null,
+      cost_usd: costFor(req.capability, null, env),
+      duration_seconds: (Date.now() - started) / 1000,
+      seed: (opts.seed as number | undefined) ?? null,
+      model: "krea2:t2i+flux2:edit+flux2:kontext",
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      success: false,
+      provider: "storyboard-native",
+      command: "image storyboard",
+      artifacts: [],
+      error: msg,
+      cost_usd: 0,
+      duration_seconds: (Date.now() - started) / 1000,
+      seed: null,
+      model: "krea2:t2i+flux2:edit+flux2:kontext",
+    };
+  }
+}
+
 /** The live adapter map. Tests override entries via GenerateDeps.adapters. */
 export function realAdapters(env?: Record<string, string | undefined>): Partial<Record<InvokeKey, Adapter>> {
   return {
@@ -1166,6 +1234,7 @@ export function realAdapters(env?: Record<string, string | undefined>): Partial<
     "bun:twosubject-native": (req) => realTwosubjectNative(req, env),
     "bun:profile-native": (req) => realProfileNative(req, env),
     "bun:character-native": (req) => realCharacterNative(req, env),
+    "bun:storyboard-native": (req) => realStoryboardNative(req, env),
     "mlx:caption": (req) => realCaption(req, env),
     "mlx:controlnet-hybrid": (req) => realControlNet(req, env),
     "mlx:workflow-hybrid": (req) => realWorkflow(req, env),

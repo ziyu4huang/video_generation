@@ -196,7 +196,7 @@ describe("selectProvider command routing", () => {
   });
 
   it("routes image_generation:<run.py-only command> → runpy-image (the force multiplier)", () => {
-    // runpy_image declares purify/multicouple/storyboard —
+    // runpy_image declares purify/multicouple —
     // commands the Swift directors don't claim. Command routing sends them
     // to the run.py adapter with no provider hint, unlocking local
     // capabilities the agent otherwise can't reach.
@@ -211,6 +211,8 @@ describe("selectProvider command routing", () => {
     // moved OFF (2026-07-29) onto flux2_image, "styletransfer" moved OFF
     // (2026-07-30) onto flux2_image, and "cutout" moved OFF (2026-07-31)
     // onto flux2_image — see the dedicated tests.
+    // "storyboard" moved OFF (2026-08-01) onto storyboard_native — see the
+    // dedicated test above.
     // "multicouple" stays here permanently (genuine MLX/GPU latent-couple
     // compute, unportable).
     for (const cmd of ["multicouple"]) {
@@ -264,6 +266,17 @@ describe("selectProvider command routing", () => {
     const e = selectProvider("image_generation", { command: "character", env: NO_ENV });
     expect(e.provider).toBe("character-native");
     expect(e.invoke).toBe("bun:character-native");
+  });
+
+  it("routes image_generation:storyboard → storyboard-native (pure orchestration of decompose+plan+route, already Swift-native)", () => {
+    // 2026-08-01: image-storyboard.py's own docstring calls its generation
+    // "no new MLX generation code" (reuses the same execute_generation core
+    // t2i uses). Moved off run.py onto a direct Bun implementation
+    // (storyboard_native.ts) routing per-shot onto krea2 t2i / flux2 edit /
+    // flux2 kontext, all already Swift-native.
+    const e = selectProvider("image_generation", { command: "storyboard", env: NO_ENV });
+    expect(e.provider).toBe("storyboard-native");
+    expect(e.invoke).toBe("bun:storyboard-native");
   });
 
   it("routes image_generation:{angle,swap,expand,anime2real,expansion,style,scene} → flux2 (Swift-native)", () => {
