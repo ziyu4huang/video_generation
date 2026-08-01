@@ -248,9 +248,7 @@ export class SubagentViewer {
         if (this.collapsedBatches.has(e.batchId)) this.collapsedBatches.delete(e.batchId);
         else this.collapsedBatches.add(e.batchId);
         // The header's index is stable across the toggle (it precedes its
-        // children), so the cursor stays on it. Clamp guards the unlikely
-        // case where the cursor sat beyond the now-shorter list.
-        this.selected = Math.min(this.selected, entries.length - 1);
+        // children), so the cursor stays on it — no clamp needed.
         this.invalidate();
         return;
       }
