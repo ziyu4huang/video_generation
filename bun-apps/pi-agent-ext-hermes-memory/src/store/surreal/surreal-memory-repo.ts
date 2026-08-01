@@ -59,6 +59,7 @@ type Row = Partial<{
   mwSuccess?: number; mwFail?: number;
   status?: string; supersedes?: number | null; supersededBy?: number | null;
   parentIds?: unknown;
+  mdId?: string | null;
 }>;
 
 function mapRow(r: Row): MemoryEntry {
@@ -79,10 +80,11 @@ function mapRow(r: Row): MemoryEntry {
     supersedes: r.supersedes ?? null,
     supersededBy: r.supersededBy ?? null,
     parentIds: Array.isArray(r.parentIds) ? (r.parentIds as unknown[]).map(Number) : [],
+    mdId: r.mdId ?? null,
   };
 }
 
-const FIELDS = "seq, project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, mwSuccess, mwFail, status, supersedes, supersededBy, parentIds";
+const FIELDS = "seq, project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, mwSuccess, mwFail, status, supersedes, supersededBy, parentIds, mdId";
 
 // ---------------------------------------------------------------------------
 // Batched-sync helpers (shared by syncMemoryEntry → syncMemoryEntriesBatch).
@@ -104,6 +106,8 @@ interface NormalizedSyncInput {
   lastReferenced: string;
   mwSuccess: number;
   mwFail: number;
+  /** Stable markdown-side id to mirror (Task 7). null when the caller omitted it. */
+  mdId: string | null;
 }
 
 /** Normalize a raw sync input exactly as the old single syncMemoryEntry did. */
@@ -121,6 +125,7 @@ function normalizeSyncInput(input: MemorySyncInput): NormalizedSyncInput {
     lastReferenced: input.lastReferenced?.trim() || created,
     mwSuccess: input.mwSuccess ?? 0,
     mwFail: input.mwFail ?? 0,
+    mdId: input.mdId && input.mdId.length > 0 ? input.mdId : null,
   };
 }
 
@@ -151,6 +156,9 @@ interface MergeValues {
   failureReason: string | null;
   toolState: string | null;
   correctedTo: string | null;
+  /** Task 7 / F1: the input's birth id; when present, overwrites the existing
+   *  row's mdId (orphan-readd). Absent → the existing mdId is preserved. */
+  mdId?: string | null;
 }
 
 /** The implicit-tag set whose graph edges a memory owns (project/category/
@@ -199,8 +207,13 @@ function buildMergeStatements(
   params[`cto_${p}`] = merge.correctedTo;
   params[`cr_${p}`] = merge.created;
   params[`lr_${p}`] = merge.lastReferenced;
+  // Task 7 / F1: stamp the birth id when the caller carried one (orphan-readd);
+  // omit the clause entirely when absent so the existing mdId is preserved.
+  const mdIdClause = merge.mdId
+    ? (params[`mdi_${p}`] = merge.mdId, `, mdId = $mdi_${p}`)
+    : "";
   return [
-    `UPDATE memories SET category = $ca_${p}, failureReason = $fr_${p}, toolState = $ts_${p}, correctedTo = $cto_${p}, created = $cr_${p}, lastReferenced = $lr_${p} WHERE seq = $seq_${p};`,
+    `UPDATE memories SET category = $ca_${p}, failureReason = $fr_${p}, toolState = $ts_${p}, correctedTo = $cto_${p}, created = $cr_${p}, lastReferenced = $lr_${p}${mdIdClause} WHERE seq = $seq_${p};`,
   ];
 }
 
@@ -223,9 +236,10 @@ function buildInsertStatements(
   params[`lr_${p}`] = n.lastReferenced;
   params[`mws_${p}`] = n.mwSuccess;
   params[`mwf_${p}`] = n.mwFail;
+  params[`mdi_${p}`] = n.mdId;
   return [
     `LET $n_${p} = (UPDATE seq:memory SET value += 1 RETURN VALUE value)[0];`,
-    `CREATE type::record("memories", $n_${p}) SET seq = $n_${p}, project = $pj_${p}, target = $tg_${p}, category = $ca_${p}, content = $ct_${p}, failureReason = $fr_${p}, toolState = $ts_${p}, correctedTo = $cto_${p}, created = $cr_${p}, lastReferenced = $lr_${p}, mwSuccess = $mws_${p}, mwFail = $mwf_${p}, status = 'active', supersedes = NONE, supersededBy = NONE, parentIds = [];`,
+    `CREATE type::record("memories", $n_${p}) SET seq = $n_${p}, project = $pj_${p}, target = $tg_${p}, category = $ca_${p}, content = $ct_${p}, failureReason = $fr_${p}, toolState = $ts_${p}, correctedTo = $cto_${p}, created = $cr_${p}, lastReferenced = $lr_${p}, mwSuccess = $mws_${p}, mwFail = $mwf_${p}, status = 'active', supersedes = NONE, supersededBy = NONE, parentIds = [], mdId = $mdi_${p};`,
   ];
 }
 
@@ -304,9 +318,12 @@ export class SurrealMemoryRepository implements MemoryRepository {
     category?: MemoryCategory | null; failureReason?: string | null;
     toolState?: string | null; correctedTo?: string | null;
     created?: string; lastReferenced?: string;
+    mdId?: string | null;
   }): Promise<MemoryEntry> {
     const created = input.created ?? today();
     const lastReferenced = input.lastReferenced ?? created;
+    // Task 7 / F1: stamp the stable id at birth (NONE when the caller omitted it).
+    const mdId = input.mdId && input.mdId.length > 0 ? input.mdId : null;
     const sql = `
       LET $next = (UPDATE seq:memory SET value += 1 RETURN VALUE value)[0];
       CREATE type::record("memories", $next) SET
@@ -325,7 +342,8 @@ export class SurrealMemoryRepository implements MemoryRepository {
         status = 'active',
         supersedes = NONE,
         supersededBy = NONE,
-        parentIds = []
+        parentIds = [],
+        mdId = $mdId
       RETURN ${FIELDS};
     `;
     const rows = await this.c.query<Row[]>(sql, {
@@ -338,6 +356,7 @@ export class SurrealMemoryRepository implements MemoryRepository {
       correctedTo: input.correctedTo ?? null,
       created,
       lastReferenced,
+      mdId,
     });
     const entry = mapRow(rows[0]);
     await this.syncGraphEdges(
@@ -435,6 +454,7 @@ export class SurrealMemoryRepository implements MemoryRepository {
           failureReason: ex.failureReason ?? n.failureReason,
           toolState: ex.toolState ?? n.toolState,
           correctedTo: ex.correctedTo ?? n.correctedTo,
+          mdId: n.mdId,
         };
         // Graph edges use the refreshed row's tags (single path re-fetches):
         // project/target are untouched by the merge UPDATE, category = merged.
@@ -514,11 +534,15 @@ export class SurrealMemoryRepository implements MemoryRepository {
     content: string; target: MemoryTarget; project?: string | null;
     category?: MemoryCategory | null; failureReason?: string | null;
     toolState?: string | null; correctedTo?: string | null; lastReferenced?: string | null;
+    mdId?: string | null;
   }): Promise<MemoryUpdateResult> {
     const normalizedOldText = normalizeMemoryLookupText(oldText);
     if (!normalizedOldText) return { matched: 0, updated: 0, entries: [] };
     const scope = buildScope(updates.target, updates.project ?? undefined);
     const nextLastReferenced = updates.lastReferenced?.trim() || today();
+    // Task 7 / F1: stamp the replacement's fresh uuid onto the updated row's
+    // mdId when the caller carried it; omit the clause when absent.
+    const birthMdId = updates.mdId && updates.mdId.length > 0 ? updates.mdId : null;
     const rows = await this.c.query<Row[]>(
       `SELECT ${FIELDS} FROM memories ${scope.where ? `${scope.where} AND` : "WHERE"} string::contains(content, $old) ORDER BY seq ASC;`,
       { ...scope.params, old: normalizedOldText },
@@ -527,8 +551,9 @@ export class SurrealMemoryRepository implements MemoryRepository {
     const entries: MemoryEntry[] = [];
     for (const r of rows) {
       const seq = Number(r.seq);
+      const mdIdClause = birthMdId !== null ? `, mdId = $mdId` : "";
       await this.c.query(
-        `UPDATE memories SET content = $content, category = $category, failureReason = $failureReason, toolState = $toolState, correctedTo = $correctedTo, lastReferenced = $lastReferenced WHERE seq = $seq;`,
+        `UPDATE memories SET content = $content, category = $category, failureReason = $failureReason, toolState = $toolState, correctedTo = $correctedTo, lastReferenced = $lastReferenced${mdIdClause} WHERE seq = $seq;`,
         {
           seq,
           content: updates.content.trim(),
@@ -537,6 +562,7 @@ export class SurrealMemoryRepository implements MemoryRepository {
           toolState: updates.toolState === undefined ? r.toolState : normalizeNullable(updates.toolState),
           correctedTo: updates.correctedTo === undefined ? r.correctedTo : normalizeNullable(updates.correctedTo),
           lastReferenced: nextLastReferenced,
+          ...(birthMdId !== null ? { mdId: birthMdId } : {}),
         },
       );
       // Re-fetch by seq so returned entries reflect the NEW content (sqlite
@@ -563,6 +589,7 @@ export class SurrealMemoryRepository implements MemoryRepository {
     return { matched: matched.length, removed: matched.length };
   }
 
+  /** @deprecated backfill-only — use {@link removeByMdId} in steady state. */
   async removeExactSyncedMemories(content: string, options: MemoryRemoveOptions): Promise<MemoryRemoveResult> {
     const scope = buildScope(options.target, options.project ?? undefined);
     const matched = await this.c.query<Row[]>(
@@ -572,6 +599,40 @@ export class SurrealMemoryRepository implements MemoryRepository {
     if (matched.length === 0) return { matched: 0, removed: 0 };
     await this.c.query(`DELETE FROM memories ${scope.where ? `${scope.where} AND` : "WHERE"} content = $content;`, { ...scope.params, content: content.trim() });
     return { matched: matched.length, removed: matched.length };
+  }
+
+  async removeByMdId(mdId: string, options: MemoryRemoveOptions): Promise<MemoryRemoveResult> {
+    const scope = buildScope(options.target, options.project ?? undefined);
+    const matched = await this.c.query<Array<{ id: string }>>(
+      `SELECT id FROM memories ${scope.where ? `${scope.where} AND` : "WHERE"} mdId = $mdId;`,
+      { ...scope.params, mdId },
+    );
+    if (matched.length === 0) return { matched: 0, removed: 0 };
+    await this.c.query(`DELETE FROM memories ${scope.where ? `${scope.where} AND` : "WHERE"} mdId = $mdId;`, { ...scope.params, mdId });
+    return { matched: matched.length, removed: matched.length };
+  }
+
+  async getMdIdByContent(content: string, options: MemoryRemoveOptions): Promise<string | null> {
+    const scope = buildScope(options.target, options.project ?? undefined);
+    const rows = await this.c.query<Array<{ mdId?: string | null }>>(
+      `SELECT mdId FROM memories ${scope.where ? `${scope.where} AND` : "WHERE"} content = $content LIMIT 1;`,
+      { ...scope.params, content: content.trim() },
+    );
+    return rows[0]?.mdId ?? null;
+  }
+
+  async setMdIdByContent(content: string, mdId: string, options: MemoryRemoveOptions): Promise<number> {
+    // `UPDATE memories SET ... WHERE ...` (mirrors replaceSyncedMemories) updates
+    // every matching row and returns them; `res.length` is the rows-updated count.
+    // The brief's `type::thing("memories", "seq")` form targets a single record
+    // id (`memories:seq`), which would not match the scope/content predicate, so
+    // the plain-table form (the repo's established UPDATE pattern) is used.
+    const scope = buildScope(options.target, options.project ?? undefined);
+    const res = await this.c.query<Array<{ id: string }>>(
+      `UPDATE memories SET mdId = $mdId ${scope.where ? `${scope.where} AND` : "WHERE"} content = $content;`,
+      { ...scope.params, mdId, content: content.trim() },
+    );
+    return res.length;
   }
 
   async searchMemories(query: string, options: MemorySearchOptions = {}): Promise<MemoryEntry[]> {

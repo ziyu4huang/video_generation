@@ -267,6 +267,7 @@ export function setupCorrectionDetector(
                 project: scopedProjectName,
                 category: "correction",
                 failureReason,
+                ...(addResult.added_md_id ? { mdId: addResult.added_md_id } : {}),
               });
               const correctionEntryId = correctionSync.entry.id;
 

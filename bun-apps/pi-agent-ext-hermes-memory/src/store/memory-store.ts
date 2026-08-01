@@ -15,7 +15,13 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import * as lockfile from "proper-lockfile";
-import { parseMetadataComment, serializeMetadataComment } from "./memory-format.js";
+import {
+  parseMetadataComment,
+  serializeMetadataFrontmatter,
+  detectEntryShape,
+  upgradeEntryToFrontmatter,
+  parseMetadataFrontmatter,
+} from "./memory-format.js";
 import { scanContent } from "./content-scanner.js";
 import { normalizeMemoryLookupText } from "./memory-lookup.js";
 import { buildSnapshot, applyMergePlan } from "./merge-plan.js";
@@ -59,6 +65,20 @@ type TwoPhaseResult = ConsolidationResult & {
   skipped?: number;
 };
 
+/**
+ * Injected provider mirroring the DB-side stable-id seam (Task 1's
+ * `getMdIdByContent` + Task 4's `setMdIdByContent`). The `target`/`project`
+ * args are the content-key scope (matches `MemoryRemoveOptions`); the store
+ * passes `null` for `project` because it does not know its own scope — the
+ * real project is bound at the `index.ts` adapter closure (global store →
+ * null, projectStore → projectName), mirroring `setSupersededContentProvider`.
+ * Keeps `MemoryStore` free of a direct `MemoryRepository` reference.
+ */
+export interface StableIdBackfillProvider {
+  getMdIdByContent(target: "memory" | "user" | "failure", content: string, project: string | null): Promise<string | null>;
+  setMdIdByContent(target: "memory" | "user" | "failure", content: string, mdId: string, project: string | null): Promise<number>;
+}
+
 export class MemoryStore {
   private memoryEntries: string[] = [];
   private userEntries: string[] = [];
@@ -96,17 +116,33 @@ export class MemoryStore {
   }
 
   /**
-   * Injected provider returning the CONTENTS of superseded entries for a target
-   * (sourced from the DB status column via getMemories({status:"superseded"})).
-   * Mirrors setConsolidator's injection pattern — keeps MemoryStore free of a
-   * direct MemoryRepository reference (D2: offload-superseded-first needs DB
-   * knowledge the .md-ground-truth store must not hold directly). Wired from
-   * index.ts once the repo is available; absent in unit/test contexts.
+   * Injected provider returning the MD_IDS of superseded entries for a target
+   * (sourced from the DB status column via getMemories({status:"superseded"})
+   * → mapped to `mdId`). Steady-state purge + DB-sync key on md_id (ticket 04:
+   * full replace, no content-key fallback). Mirrors setConsolidator's injection
+   * pattern — keeps MemoryStore free of a direct MemoryRepository reference
+   * (D2: offload-superseded-first needs DB knowledge the .md-ground-truth store
+   * must not hold directly). Wired from index.ts once the repo is available;
+   * absent in unit/test contexts.
    */
   private supersededContentProvider: ((target: "memory" | "user" | "failure") => Promise<string[]>) | null = null;
 
   setSupersededContentProvider(fn: (target: "memory" | "user" | "failure") => Promise<string[]>): void {
     this.supersededContentProvider = fn;
+  }
+
+  /**
+   * Injected stable-id backfill provider (Task 4): gives `backfillStableIds()` a
+   * DB-side seam (`getMdIdByContent` + `setMdIdByContent`) WITHOUT introducing a
+   * direct `MemoryRepository` reference into the store — mirrors
+   * `setSupersededContentProvider`. Wired from `index.ts` once the repo is
+   * available; absent in unit/test contexts, where `backfillStableIds()` is a
+   * best-effort no-op that still upgrades the `.md` entries.
+   */
+  private stableIdBackfillProvider: StableIdBackfillProvider | null = null;
+
+  setStableIdBackfillProvider(provider: StableIdBackfillProvider): void {
+    this.stableIdBackfillProvider = provider;
   }
 
   /** Inject the perf recorder's timed() — parallel to setConsolidator. Defaults
@@ -404,6 +440,67 @@ export class MemoryStore {
     };
   }
 
+  /**
+   * One-shot idempotent backfill of the 5d stable-id migration (Task 4). For
+   * every legacy comment entry: mint a uuid (or reuse the DB row's existing
+   * `md_id` to stay resume-safe across the `.md`↔DB seam), rewrite it to the
+   * frontmatter envelope (Task 3's `upgradeEntryToFrontmatter`), then mirror
+   * the freshly-minted id onto its DB row by content-key
+   * (`setMdIdByContent`). Persists each changed target once at the end.
+   *
+   * Invariants:
+   * - **Idempotent**: a re-run is a strict no-op — every frontmatter entry is
+   *   skipped (`detectEntryShape` guard); a present id is never overwritten.
+   * - **Resume-safe**: a mid-vault crash leaves every rewritten entry
+   *   independently valid; the next run skips done entries and, for any
+   *   not-yet-rewritten comment entry, reuses the DB's existing `md_id`
+   *   (`getMdIdByContent`) instead of double-assigning.
+   * - **Best-effort, never throws**: the DB mirror is wrapped per-entry in
+   *   try/catch; a missing provider (unit/test) degrades to `.md`-only upgrade.
+   *
+   * Takes NO args — reads the injected `StableIdBackfillProvider` (set via
+   * `setStableIdBackfillProvider`), mirroring the `setSupersededContentProvider`
+   * injection pattern so `MemoryStore` stays free of a `MemoryRepository` ref.
+   */
+  async backfillStableIds(): Promise<{ upgraded: number; mdIdsMirrored: number }> {
+    let upgraded = 0;
+    let mdIdsMirrored = 0;
+    const provider = this.stableIdBackfillProvider;
+    for (const target of ["memory", "user", "failure"] as const) {
+      const entries = this.entriesFor(target);
+      let changed = false;
+      for (let i = 0; i < entries.length; i++) {
+        const raw = entries[i];
+        if (detectEntryShape(raw) === "frontmatter") continue; // idempotent: already done
+        const stripped = this.stripMetadata(raw);
+        // Resume-safe across the seam: reuse the DB row's existing md_id when one
+        // is already mirrored (a prior partial run / sibling agent), so we never
+        // double-assign a stable id for one content key.
+        let id: string;
+        let reused = false;
+        try {
+          const existing = provider ? await provider.getMdIdByContent(target, stripped, null) : null;
+          if (existing) { id = existing; reused = true; }
+          else { id = globalThis.crypto.randomUUID(); }
+        } catch {
+          /* best-effort: fall through to minting a fresh id */
+          id = globalThis.crypto.randomUUID();
+        }
+        entries[i] = upgradeEntryToFrontmatter(raw, target, null, id);
+        upgraded++;
+        changed = true;
+        // Only mirror when we minted a fresh id; a reused id is already on the DB row.
+        if (!reused && provider) {
+          try {
+            if (await provider.setMdIdByContent(target, stripped, id, null) > 0) mdIdsMirrored++;
+          } catch { /* best-effort: next startup re-matches by content + completes */ }
+        }
+      }
+      if (changed) await this.saveToDisk(target);
+    }
+    return { upgraded, mdIdsMirrored };
+  }
+
   // ─── CRUD ───
 
   async add(
@@ -493,6 +590,7 @@ export class MemoryStore {
     }
 
     const strippedTransferred = transfer.map((e) => this.stripMetadata(e));
+    const transferredMdIds = transfer.map((e) => this.mdIdOf(e)).filter((id): id is string => Boolean(id));
     const freedChars = transfer.join(ENTRY_DELIMITER).length;
 
     // Remove transferred entries from the in-memory array
@@ -512,6 +610,7 @@ export class MemoryStore {
       usage: `${pct}% — ${afterCount}/${limit} chars`,
       entry_count: remaining.length,
       transferred_entries: strippedTransferred,
+      transferred_md_ids: transferredMdIds,
       transferred_count: strippedTransferred.length,
       freed_chars: freedChars,
     };
@@ -637,9 +736,13 @@ export class MemoryStore {
       }
     }
 
-    // Encode metadata: both dates = today
+    // Encode metadata: both dates = today. Mint the stable id ONCE here and
+    // thread it to both sides: the `.md` frontmatter (encodeEntry) and the DB
+    // row (MemoryResult.added_md_id → caller's syncMemoryEntry md_id). Option
+    // (i): the store owns encoding, so it owns id-birth in one place.
     const today = new Date().toISOString().split("T")[0];
-    const encoded = this.encodeEntry(content, today, today, meta);
+    const id = globalThis.crypto.randomUUID();
+    const encoded = this.encodeEntry(content, today, today, id, meta);
 
     const newTotal = [...entries, encoded].join(ENTRY_DELIMITER).length;
     if (newTotal > limit) {
@@ -652,8 +755,11 @@ export class MemoryStore {
       let offloadedSuperseded: string[] = [..._accruedOffloaded];
       if (this.supersededContentProvider) {
         try {
-          const supersededContents = await this.supersededContentProvider(target);
-          const purgedThisFrame = await this.purgeSupersededFromMarkdown(target, supersededContents);
+          // Provider returns MD_IDS of superseded rows (ticket 04). The purge
+          // matches .md entries by their frontmatter id and returns the purged
+          // md_ids — which flow straight to the caller's removeByMdId sync.
+          const supersededMdIds = await this.supersededContentProvider(target);
+          const purgedThisFrame = await this.purgeSupersededFromMarkdown(target, supersededMdIds);
           offloadedSuperseded = [...offloadedSuperseded, ...purgedThisFrame];
         } catch {
           // Non-fatal: provider/DB unreachable. Supersession is unknowable, so
@@ -672,6 +778,7 @@ export class MemoryStore {
           return {
             ...this.successResponse(target, `Memory updated. Offloaded ${offloadedSuperseded.length} superseded ${offloadedSuperseded.length === 1 ? "entry" : "entries"} to stay within the limit.`),
             offloaded_superseded: offloadedSuperseded,
+            added_md_id: id,
           };
         }
         // Still over after purge → only active remains. Fall through to consolidation.
@@ -707,6 +814,9 @@ export class MemoryStore {
         // the caller syncs those DB rows too.
         const r = await this.vaultOffloadAndAdd(target, this.entriesFor(target), encoded, content.length, limit, nearDupNote);
         if (offloadedSuperseded.length) r.offloaded_superseded = offloadedSuperseded;
+        // Only surface the birth id when the entry actually landed (the floor
+        // returns memoryFullError when the entry alone exceeds the limit).
+        if (r.success) r.added_md_id = id;
         return r;
       }
       // REJECT (path 2, D4 fix): attach the purged-superseded set so the caller's
@@ -720,29 +830,31 @@ export class MemoryStore {
     this.setEntries(target, entries);
     await this.saveToDisk(target);
 
-    return this.successResponse(target, addedMessage + nearDupNote);
+    return { ...this.successResponse(target, addedMessage + nearDupNote), added_md_id: id };
   }
 
   /**
-   * Remove entries whose stripped content matches one of `supersededContents`.
-   * Content-key match (D2): .md has no id, so we match on stripped content — the
-   * same key removeExactSyncedMemories uses on the DB side. Returns the purged
-   * (stripped) contents so the caller can sync the DB rows. Persists via
+   * Remove entries whose frontmatter `id` matches one of `supersededMdIds`.
+   * md_id match (ticket 04): .md entries now carry a stable frontmatter id
+   * (post-backfill), so we match on that id — NOT stripped content. Returns the
+   * purged md_ids so the caller can sync the DB rows via `removeByMdId`. A
+   * comment-shape entry (no frontmatter id) is simply never matched (skip,
+   * don't crash, don't fall back to content-key). Persists via
    * setEntries/saveToDisk (mirrors fifoEvictAndAdd's persistence steps).
    */
   private async purgeSupersededFromMarkdown(
     target: "memory" | "user" | "failure",
-    supersededContents: string[],
+    supersededMdIds: string[],
   ): Promise<string[]> {
-    if (supersededContents.length === 0) return [];
-    const want = new Set(supersededContents);
+    if (supersededMdIds.length === 0) return [];
+    const want = new Set(supersededMdIds);
     const entries = this.entriesFor(target);
     const purged: string[] = [];
     const remaining: string[] = [];
     for (const entry of entries) {
-      const stripped = this.stripMetadata(entry);
-      if (want.has(stripped)) {
-        purged.push(stripped);
+      const id = this.mdIdOf(entry);
+      if (id && want.has(id)) {
+        purged.push(id);
       } else {
         remaining.push(entry);
       }
@@ -772,7 +884,7 @@ export class MemoryStore {
     }
 
     const remaining = [...entries];
-    const evictedDecoded: Array<{ text: string; created: string; lastReferenced: string }> = [];
+    const evictedDecoded: Array<{ text: string; created: string; lastReferenced: string; id?: string }> = [];
 
     while ([...remaining, encoded].join(ENTRY_DELIMITER).length > limit && remaining.length > 0) {
       const evicted = remaining.shift()!;
@@ -787,14 +899,28 @@ export class MemoryStore {
     const archivePath = await this.writeKnowledgeArchive(target, evictedDecoded);
 
     const strippedEvicted = evictedDecoded.map((e) => e.text);
+    // md_id set: one id per evicted entry that HAD a frontmatter id. Post-Task-7
+    // every birth mints an id (encodeEntry), so this skip now catches ONLY pre-
+    // backfill legacy comment-shape entries (no id) — their DB-sync is dropped
+    // (no content-key fallback, ticket 04) and they are cleaned on the next
+    // restart's Task-4 backfill. New (in-session) entries are never orphaned
+    // here: they carry an id at birth, so eviction/transfer always surfaces it
+    // for the caller's removeByMdId. (The Task-5 "by-design orphan window" note
+    // is obsolete for births; only pre-backfill legacy rows still hit it.)
+    const evictedMdIds = evictedDecoded.map((e) => e.id).filter((id): id is string => Boolean(id));
     return {
       ...this.successResponse(
         target,
         `Memory updated. Offloaded ${evictedDecoded.length} older ${evictedDecoded.length === 1 ? "entry" : "entries"} to vault archive to stay within the limit.${nearDupNote}`,
       ),
       evicted_entries: strippedEvicted,
+      evicted_md_ids: evictedMdIds,
       evicted_count: evictedDecoded.length,
+      // Alias: for vault-offload, evicted == transferred-to-vault (the entries
+      // are preserved in the .knowledge.jsonl archive, not discarded), so the
+      // same md_id set serves the transfer-DB-sync consumer verbatim.
       transferred_entries: strippedEvicted,
+      transferred_md_ids: evictedMdIds,
       transferred_count: evictedDecoded.length,
       freed_chars: strippedEvicted.join(ENTRY_DELIMITER).length,
       archive_path: archivePath,
@@ -823,7 +949,7 @@ export class MemoryStore {
     // Evict oldest (lowest file position) entries other than the replaced one.
     const evictOrder = entries.map((_, i) => i).filter((i) => i !== protectedIdx);
     const present = new Set<number>(entries.map((_, i) => i));
-    const evictedDecoded: Array<{ text: string; created: string; lastReferenced: string }> = [];
+    const evictedDecoded: Array<{ text: string; created: string; lastReferenced: string; id?: string }> = [];
     const liveJoin = () =>
       [...present].sort((a, b) => a - b).map((j) => (j === protectedIdx ? encoded : entries[j])).join(ENTRY_DELIMITER);
     for (const i of evictOrder) {
@@ -838,14 +964,20 @@ export class MemoryStore {
 
     const archivePath = await this.writeKnowledgeArchive(target, evictedDecoded);
     const strippedEvicted = evictedDecoded.map((e) => e.text);
+    const evictedMdIds = evictedDecoded.map((e) => e.id).filter((id): id is string => Boolean(id));
     return {
       ...this.successResponse(
         target,
         `Memory updated. Offloaded ${evictedDecoded.length} older ${evictedDecoded.length === 1 ? "entry" : "entries"} to vault archive to stay within the limit.`,
       ),
       evicted_entries: strippedEvicted,
+      evicted_md_ids: evictedMdIds,
       evicted_count: evictedDecoded.length,
+      // Alias: for vault-offload, evicted == transferred-to-vault (the entries
+      // are preserved in the .knowledge.jsonl archive, not discarded), so the
+      // same md_id set serves the transfer-DB-sync consumer verbatim.
       transferred_entries: strippedEvicted,
+      transferred_md_ids: evictedMdIds,
       transferred_count: evictedDecoded.length,
       freed_chars: strippedEvicted.join(ENTRY_DELIMITER).length,
       archive_path: archivePath,
@@ -858,7 +990,7 @@ export class MemoryStore {
    */
   private async writeKnowledgeArchive(
     target: "memory" | "user" | "failure",
-    evicted: Array<{ text: string; created: string; lastReferenced: string }>,
+    evicted: Array<{ text: string; created: string; lastReferenced: string; id?: string }>,
   ): Promise<string> {
     const { tmpdir } = await import("node:os");
 
@@ -869,7 +1001,7 @@ export class MemoryStore {
     const jsonlPath = path.join(dir, `memory-transfer-${target}-${ts}.knowledge.jsonl`);
 
     const lines = evicted.map((e) => {
-      const record = {
+      const record: Record<string, unknown> = {
         id: `pi-memory-${target}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         type: "memory_entry",
         title: e.text.slice(0, 80).replace(/\n/g, " "),
@@ -880,6 +1012,10 @@ export class MemoryStore {
         status: "active",
         evidence: `Transferred from pi-hermes-memory ${target} target on ${new Date().toISOString().split("T")[0]}. Originally created: ${e.created}.`,
       };
+      // Provenance only (NOT a join key): the retired entry's stable frontmatter
+      // id, so an archived record can be traced back to its origin row. Absent
+      // for legacy comment-shape entries that pre-date the backfill.
+      if (e.id) record.md_id = e.id;
       return JSON.stringify(record);
     });
 
@@ -908,10 +1044,13 @@ export class MemoryStore {
 
     const remaining = [...entries];
     const evictedEntries: string[] = [];
+    const evictedMdIds: string[] = [];
 
     while ([...remaining, encoded].join(ENTRY_DELIMITER).length > limit && remaining.length > 0) {
       const evicted = remaining.shift()!;
       evictedEntries.push(this.stripMetadata(evicted));
+      const id = this.mdIdOf(evicted);
+      if (id) evictedMdIds.push(id);
     }
 
     remaining.push(encoded);
@@ -924,6 +1063,7 @@ export class MemoryStore {
         `Memory updated. Rotated ${evictedEntries.length} older ${evictedEntries.length === 1 ? "entry" : "entries"} to stay within the limit.${nearDupNote}`,
       ),
       evicted_entries: evictedEntries,
+      evicted_md_ids: evictedMdIds,
       evicted_count: evictedEntries.length,
     };
   }
@@ -967,10 +1107,14 @@ export class MemoryStore {
     }
 
     const idx = entries.indexOf(matches[0]);
-    // Preserve original created date, update last_referenced to today
+    // Preserve original created date, update last_referenced to today. Mint a
+    // FRESH uuid for the NEW entry (ticket 00: each entry owns its uuid; the
+    // replaced entry's id is immutable and not reused) and thread it to both
+    // sides (.md frontmatter + DB md_id via MemoryResult.added_md_id).
     const decoded = this.decodeEntry(matches[0]);
     const today = new Date().toISOString().split("T")[0];
-    const encoded = this.encodeEntry(newContent, decoded.created, today, {
+    const id = globalThis.crypto.randomUUID();
+    const encoded = this.encodeEntry(newContent, decoded.created, today, id, {
       provenance: decoded.provenance,
       sources: decoded.sources,
       mwSuccess: decoded.mwSuccess,
@@ -994,14 +1138,16 @@ export class MemoryStore {
           error: `Replacement would put memory at ${newTotal}/${limit} chars. Shorten or remove other entries first.`,
         };
       }
-      return this.vaultOffloadAndReplace(target, entries, idx, encoded, newContent.length, limit);
+      const r = await this.vaultOffloadAndReplace(target, entries, idx, encoded, newContent.length, limit);
+      if (r.success) r.added_md_id = id;
+      return r;
     }
 
     entries[idx] = encoded;
     this.setEntries(target, entries);
     await this.saveToDisk(target);
 
-    return this.successResponse(target, "Entry replaced.");
+    return { ...this.successResponse(target, "Entry replaced."), added_md_id: id };
   }
 
   async remove(target: "memory" | "user" | "failure", oldText: string): Promise<MemoryResult> {
@@ -1098,19 +1244,34 @@ export class MemoryStore {
   // ─── Internal helpers ───
 
   /**
-   * Encode metadata (created, lastReferenced) as an HTML comment appended to entry text.
-   * The comment is invisible in markdown and transparent to the § delimiter.
+   * Encode an entry as YAML frontmatter (ticket 05 stable-id schema): the
+   * stable `id` is identity-first, followed by created/last/provenance/sources/
+   * memworth. Every BIRTH (add/replace) mints one uuid here and threads it to
+   * BOTH sides — the `.md` frontmatter (below) and the DB row's `md_id` (via
+   * `MemoryResult.added_md_id` → the caller's syncMemoryEntry/replaceSynced).
+   * This is the write-path half of the bridge (Task 7 / F1 fix): pre-5d this
+   * returned a comment-shape line with NO id, so entries born in-session stayed
+   * id-less until the next restart's backfill — and an in-session entry that was
+   * evicted/transferred/superseded before that restart had `evicted_md_ids` empty
+   * → `removeByMdId` fired zero times → a permanent DB orphan.
+   *
+   * `id` is a REQUIRED param: the caller (add/replace) mints it once and owns
+   * the threading. The backfill path mints its own ids and goes through
+   * `upgradeEntryToFrontmatter` (not here) — both paths agree on the frontmatter
+   * shape via `serializeMetadataFrontmatter`.
    */
   private encodeEntry(
     text: string,
     created: string,
     lastReferenced: string,
+    id: string,
     meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null; mwSuccess?: number | null; mwFail?: number | null },
   ): string {
-    return serializeMetadataComment({
+    return serializeMetadataFrontmatter({
+      id,
       text,
       created,
-      lastReferenced,
+      last: lastReferenced,
       provenance: meta?.provenance,
       sources: meta?.sources,
       mwSuccess: meta?.mwSuccess,
@@ -1119,19 +1280,48 @@ export class MemoryStore {
   }
 
   /**
-   * Decode entry text, extracting metadata if present.
-   * Falls back to today's date for legacy entries without metadata.
+   * Decode entry text, extracting metadata if present. Dispatches on shape:
+   * frontmatter entries (post-backfill) yield their stable frontmatter `id` +
+   * body text + dates; legacy comment entries fall back to today's date and
+   * carry no id. Widened in ticket 05/Task 5 so eviction/transfer/archive paths
+   * read both the content (body) and the stable id from a single decode.
    */
   private decodeEntry(raw: string): {
     text: string;
     created: string;
     lastReferenced: string;
+    id?: string;
     provenance?: Provenance;
     sources?: MemorySource[];
     mwSuccess?: number;
     mwFail?: number;
   } {
+    if (detectEntryShape(raw) === "frontmatter") {
+      const fm = parseMetadataFrontmatter(raw);
+      return {
+        text: fm.text,
+        created: fm.created,
+        lastReferenced: fm.lastReferenced,
+        id: fm.id,
+        ...(fm.provenance ? { provenance: fm.provenance } : {}),
+        ...(Array.isArray(fm.sources) ? { sources: fm.sources } : {}),
+        ...(typeof fm.mwSuccess === "number" ? { mwSuccess: fm.mwSuccess } : {}),
+        ...(typeof fm.mwFail === "number" ? { mwFail: fm.mwFail } : {}),
+      };
+    }
     return parseMetadataComment(raw);
+  }
+
+  /** Read an entry's stable frontmatter id, or `null` when it is comment-shape
+   *  (no id) / malformed. The single source of truth for md_id extraction used
+   *  by purge + eviction/transfer md_id population (ticket 04). */
+  private mdIdOf(raw: string): string | null {
+    if (detectEntryShape(raw) !== "frontmatter") return null;
+    try {
+      return parseMetadataFrontmatter(raw).id;
+    } catch {
+      return null;
+    }
   }
 
   /** Strip metadata comment from entry text for display. */

@@ -297,6 +297,18 @@ export default async function (pi: ExtensionAPI) {
     await store.loadFromDisk();
     if (projectStore) await projectStore.loadFromDisk();
 
+    // Task 4: one-shot idempotent backfill of the 5d stable-id migration. Runs
+    // AFTER loadFromDisk() so the in-memory `.md` entries are populated. Wrapped
+    // in try/catch so a backfill failure NEVER aborts agent startup or trips the
+    // sqlite fallback — the per-entry DB mirror is already best-effort inside
+    // backfillStableIds(); this outer guard covers load/parse/disk-write faults.
+    try {
+      await store.backfillStableIds();
+      await projectStore?.backfillStableIds();
+    } catch {
+      /* never block startup */
+    }
+
     scheduleSessionBackfill(sessionRepo, sessionsDir, {
       timed: perf.timed,
       notify: (message, level) => {
@@ -386,22 +398,42 @@ export default async function (pi: ExtensionAPI) {
       }), resolveConsolidatorModelLabel(config));
   }
 
-  // ── 7b. Inject the superseded-content provider (D2 offload-superseded-first) ──
+  // ── 7b. Inject the superseded-md_id provider (D2 offload-superseded-first) ──
   // Mirrors setConsolidator's injection pattern — keeps MemoryStore free of a
   // direct MemoryRepository reference. On overflow the store purges superseded
-  // `.md` entries by content-key; the caller (review-memory-ops / memory-tool)
-  // then syncs the DB rows via removeExactSyncedMemories (D4 destructive).
+  // `.md` entries by MD_ID (frontmatter id match); the caller (review-memory-ops /
+  // memory-tool) then syncs the DB rows via removeByMdId (D4 destructive). Ticket
+  // 04: full replace — steady-state purge/sync keys on md_id, NOT content.
   // Project scoping matches sqliteProjectFor: global store → project IS NULL,
-  // projectStore → project = projectName. Content-key matching is safe even
-  // cross-scope, but scoping avoids needless rows.
+  // projectStore → project = projectName.
   store.setSupersededContentProvider(async (target) => {
     const list = await memoryRepo.getMemories({ target, project: null, status: "superseded" });
-    return list.map((m) => m.content);
+    return list.map((m) => m.mdId).filter((id): id is string => Boolean(id));
   });
   if (projectStore) {
     projectStore.setSupersededContentProvider(async (target) => {
       const list = await memoryRepo.getMemories({ target, project: projectName, status: "superseded" });
-      return list.map((m) => m.content);
+      return list.map((m) => m.mdId).filter((id): id is string => Boolean(id));
+    });
+  }
+
+  // ── 7c. Inject the stable-id backfill provider (Task 4 5d migration) ──
+  // Mirrors setSupersededContentProvider — keeps MemoryStore free of a direct
+  // MemoryRepository reference. The provider's `project` arg is always `null`
+  // from the store (it doesn't know its own scope), so the real project is
+  // BOUND at these closures: global store → project:null, projectStore →
+  // projectName. `MemoryRemoveOptions.project` null vs undefined is significant
+  // (null → `project IS NULL`; undefined → no filter), so pass it explicitly to
+  // match each store's row scope exactly. The backfill itself runs in the
+  // `ready` handler AFTER loadFromDisk() (it needs the in-memory entries).
+  store.setStableIdBackfillProvider({
+    getMdIdByContent: (target, content) => memoryRepo.getMdIdByContent(content, { target, project: null }),
+    setMdIdByContent: (target, content, mdId) => memoryRepo.setMdIdByContent(content, mdId, { target, project: null }),
+  });
+  if (projectStore) {
+    projectStore.setStableIdBackfillProvider({
+      getMdIdByContent: (target, content) => memoryRepo.getMdIdByContent(content, { target, project: projectName }),
+      setMdIdByContent: (target, content, mdId) => memoryRepo.setMdIdByContent(content, mdId, { target, project: projectName }),
     });
   }
   // Inject the perf recorder into both stores — lock-hold breach timing (T2) +

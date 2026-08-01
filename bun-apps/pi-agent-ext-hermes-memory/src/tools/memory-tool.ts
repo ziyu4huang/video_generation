@@ -187,6 +187,7 @@ async function syncAddToSqlite(
   failureReason: string | undefined,
   memoryRepo: MemoryRepository | null,
   projectName?: string | null,
+  mdId?: string | null,
 ): Promise<string | null> {
   if (!memoryRepo) return null;
 
@@ -205,6 +206,7 @@ async function syncAddToSqlite(
         project: sqliteProject ?? null,
         category: failureCategory,
         failureReason,
+        ...(mdId ? { mdId } : {}),
       });
       return null;
     }
@@ -213,6 +215,7 @@ async function syncAddToSqlite(
       content,
       target: sqliteTarget,
       project: sqliteProject ?? null,
+      ...(mdId ? { mdId } : {}),
     });
     return null;
   } catch (err) {
@@ -226,6 +229,7 @@ async function syncReplaceToSqlite(
   newContent: string,
   memoryRepo: MemoryRepository | null,
   projectName?: string | null,
+  mdId?: string | null,
 ): Promise<string | null> {
   if (!memoryRepo) return null;
 
@@ -236,6 +240,7 @@ async function syncReplaceToSqlite(
       content: newContent,
       target: sqliteTarget,
       project: sqliteProject,
+      ...(mdId ? { mdId } : {}),
     });
 
     if (syncResult.matched === 0) {
@@ -276,19 +281,19 @@ async function syncRemoveFromSqlite(
 
 async function syncEvictionsFromSqlite(
   rawTarget: "memory" | "user" | "project" | "failure",
-  evictedEntries: string[] | undefined,
+  mdIds: string[] | undefined,
   memoryRepo: MemoryRepository | null,
   projectName?: string | null,
 ): Promise<void> {
   if (!memoryRepo) return;
-  if (!evictedEntries || evictedEntries.length === 0) return;
+  if (!mdIds || mdIds.length === 0) return;
 
   const sqliteTarget = sqliteTargetFor(rawTarget);
   const sqliteProject = sqliteProjectFor(rawTarget, projectName);
 
-  for (const entry of evictedEntries) {
+  for (const mdId of mdIds) {
     try {
-      await memoryRepo.removeExactSyncedMemories(entry, {
+      await memoryRepo.removeByMdId(mdId, {
         target: sqliteTarget,
         project: sqliteProject,
       });
@@ -382,17 +387,19 @@ export function registerMemoryTool(
               onProgress,
             });
             if (result.success) {
-              syncWarning = await syncAddToSqlite(rawTarget, content, memoryCategory, failure_reason, memoryRepo, projectName);
+              syncWarning = await syncAddToSqlite(rawTarget, content, memoryCategory, failure_reason, memoryRepo, projectName, result.added_md_id);
             }
           } else {
             result = await store_.add(target, content, { onProgress });
             if (result.success) {
-              await syncEvictionsFromSqlite(rawTarget, result.evicted_entries, memoryRepo, projectName);
-              // D2+D4: superseded entries purged from `.md` by the offload-first
-              // overflow path must also have their DB rows deleted (destructive,
-              // no audit) — same content-key path as evicted_entries.
+              // Steady-state DB-sync keys on md_id (ticket 04). evicted_md_ids
+              // carries the stable frontmatter ids; offloaded_superseded is
+              // ALREADY md_id-only (no archive/display consumer — destructive).
+              await syncEvictionsFromSqlite(rawTarget, result.evicted_md_ids, memoryRepo, projectName);
               await syncEvictionsFromSqlite(rawTarget, result.offloaded_superseded, memoryRepo, projectName);
-              syncWarning = await syncAddToSqlite(rawTarget, content, undefined, undefined, memoryRepo, projectName);
+              // Task 7 / F1: thread the birth id so the DB row's md_id == the
+              // `.md` frontmatter id (live-in-session bridge, not just restart).
+              syncWarning = await syncAddToSqlite(rawTarget, content, undefined, undefined, memoryRepo, projectName, result.added_md_id);
             }
           }
           break;
@@ -406,7 +413,7 @@ export function registerMemoryTool(
           }
           result = await store_.replace(target, old_text, content);
           if (result.success) {
-            syncWarning = await syncReplaceToSqlite(rawTarget, old_text, content, memoryRepo, projectName);
+            syncWarning = await syncReplaceToSqlite(rawTarget, old_text, content, memoryRepo, projectName, result.added_md_id);
           }
           break;
 
@@ -433,13 +440,17 @@ export function registerMemoryTool(
             // (Convergence moved to the knowledge-card hub — ADR-0001.
             //  Hub auto-converges hermes memory on session_shutdown.)
 
-            // Sync removal to SQLite — use exact match to avoid overly broad removal
-            if (memoryRepo) {
+            // Sync removal to SQLite by md_id (ticket 04: full replace, no
+            // content-key fallback). writeTransferArchive above already consumed
+            // the CONTENT field (transferred_entries); the DB-sync uses the
+            // parallel transferred_md_ids field.
+            const transferredMdIds = result.transferred_md_ids ?? [];
+            if (memoryRepo && transferredMdIds.length > 0) {
               const sqliteTarget = sqliteTargetFor(rawTarget);
               const sqliteProject = sqliteProjectFor(rawTarget, projectName);
-              for (const entry of result.transferred_entries) {
+              for (const mdId of transferredMdIds) {
                 try {
-                  await memoryRepo.removeExactSyncedMemories(entry, {
+                  await memoryRepo.removeByMdId(mdId, {
                     target: sqliteTarget,
                     project: sqliteProject,
                   });

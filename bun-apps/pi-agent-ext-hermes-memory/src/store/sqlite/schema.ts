@@ -85,7 +85,8 @@ export const SCHEMA_SQL = `
     status TEXT NOT NULL DEFAULT 'active',
     supersedes INTEGER,
     superseded_by INTEGER,
-    parent_ids TEXT
+    parent_ids TEXT,
+    md_id TEXT
   );
 
   -- FTS5 index for memory search
@@ -119,4 +120,8 @@ export const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project);
   CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at);
   CREATE INDEX IF NOT EXISTS idx_session_files_session_id ON session_files(session_id);
+
+  -- Stable secondary join key (.md ↔ DB). Nullable during backfill: SQLite
+  -- UNIQUE treats NULLs as distinct, so un-backfilled rows coexist.
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_md_id ON memories(md_id);
 `;

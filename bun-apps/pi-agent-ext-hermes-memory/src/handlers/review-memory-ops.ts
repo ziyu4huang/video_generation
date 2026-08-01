@@ -217,6 +217,7 @@ async function syncAdd(
   failureReason: string | undefined,
   memoryRepo: MemoryRepository | null,
   projectName?: string | null,
+  mdId?: string | null,
 ): Promise<void> {
   if (!memoryRepo) return;
 
@@ -234,6 +235,7 @@ async function syncAdd(
       project: sqliteProject ?? null,
       category: failureCategory,
       failureReason,
+      ...(mdId ? { mdId } : {}),
     });
     return;
   }
@@ -242,6 +244,7 @@ async function syncAdd(
     content,
     target: sqliteTarget,
     project: sqliteProject ?? null,
+    ...(mdId ? { mdId } : {}),
   });
 }
 
@@ -251,12 +254,14 @@ async function syncReplace(
   newContent: string,
   memoryRepo: MemoryRepository | null,
   projectName?: string | null,
+  mdId?: string | null,
 ): Promise<void> {
   if (!memoryRepo) return;
   await memoryRepo.replaceSyncedMemories(oldText, {
     content: newContent,
     target: sqliteTargetFor(rawTarget),
     project: sqliteProjectFor(rawTarget, projectName),
+    ...(mdId ? { mdId } : {}),
   });
 }
 
@@ -275,14 +280,14 @@ async function syncRemove(
 
 async function syncEvictions(
   rawTarget: ReviewMemoryOperation["target"],
-  evictedEntries: string[] | undefined,
+  mdIds: string[] | undefined,
   memoryRepo: MemoryRepository | null,
   projectName?: string | null,
 ): Promise<void> {
-  if (!memoryRepo || !evictedEntries?.length) return;
-  for (const entry of evictedEntries) {
+  if (!memoryRepo || !mdIds?.length) return;
+  for (const mdId of mdIds) {
     try {
-      await memoryRepo.removeExactSyncedMemories(entry, {
+      await memoryRepo.removeByMdId(mdId, {
         target: sqliteTargetFor(rawTarget),
         project: sqliteProjectFor(rawTarget, projectName),
       });
@@ -326,7 +331,7 @@ export async function applyReviewOperations(
             failureReason: op.failure_reason,
           });
           if (result.success) {
-            await syncAdd(rawTarget, op.content, category, op.failure_reason, memoryRepo, projectName);
+            await syncAdd(rawTarget, op.content, category, op.failure_reason, memoryRepo, projectName, result.added_md_id);
             appliedCount++;
           } else {
             skippedCount++;
@@ -334,12 +339,12 @@ export async function applyReviewOperations(
         } else {
           result = await activeStore.add(memoryTarget, op.content);
           if (result.success) {
-            await syncEvictions(rawTarget, result.evicted_entries, memoryRepo, projectName);
+            await syncEvictions(rawTarget, result.evicted_md_ids, memoryRepo, projectName);
             // D2+D4: superseded entries purged from `.md` by the offload-first
             // overflow path must also have their DB rows deleted (destructive,
-            // no audit) — same content-key path as evicted_entries.
+            // no audit). offloaded_superseded is md_id-only (ticket 04).
             await syncEvictions(rawTarget, result.offloaded_superseded, memoryRepo, projectName);
-            await syncAdd(rawTarget, op.content, undefined, undefined, memoryRepo, projectName);
+            await syncAdd(rawTarget, op.content, undefined, undefined, memoryRepo, projectName, result.added_md_id);
             appliedCount++;
           } else {
             skippedCount++;
@@ -354,7 +359,7 @@ export async function applyReviewOperations(
         }
         result = await activeStore.replace(memoryTarget, op.old_text, op.content);
         if (result.success) {
-          await syncReplace(rawTarget, op.old_text, op.content, memoryRepo, projectName);
+          await syncReplace(rawTarget, op.old_text, op.content, memoryRepo, projectName, result.added_md_id);
           appliedCount++;
         } else {
           skippedCount++;

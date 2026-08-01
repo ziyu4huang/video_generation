@@ -233,6 +233,10 @@ describe("registerMemoryTool", () => {
       target: "memory",
       project: null,
     });
+    // Steady-state DB-sync keys on md_id (ticket 04): mirror an md_id onto the
+    // row that will be evicted so removeByMdId can match it.
+    const OLDER_MD_ID = "older-11111111-2222-3333-4444-555566667777";
+    await memoryRepo.setMdIdByContent("Older entry", OLDER_MD_ID, { target: "memory", project: null });
 
     const mockStore = {
       add: () => ({
@@ -243,6 +247,7 @@ describe("registerMemoryTool", () => {
         entry_count: 1,
         message: "Memory updated. Rotated 1 older entry to stay within the limit.",
         evicted_entries: ["Older entry"],
+        evicted_md_ids: [OLDER_MD_ID],
         evicted_count: 1,
       }),
     } as unknown as MemoryStore;
@@ -273,6 +278,11 @@ describe("registerMemoryTool", () => {
       target: "memory",
       project: "project-a",
     });
+    // Steady-state DB-sync keys on md_id (ticket 04). Only the PROJECT-scoped
+    // row carries the evicted md_id, so removeByMdId(project scope) deletes
+    // only it — the identically-worded global row survives (scope isolation).
+    const PROJECT_MD_ID = "project-22222222-3333-4444-5555-666677778888";
+    await memoryRepo.setMdIdByContent("Shared wording", PROJECT_MD_ID, { target: "memory", project: "project-a" });
 
     const mockProjectStore = {
       add: () => ({
@@ -283,6 +293,7 @@ describe("registerMemoryTool", () => {
         entry_count: 1,
         message: "Memory updated. Rotated 1 older entry to stay within the limit.",
         evicted_entries: ["Shared wording"],
+        evicted_md_ids: [PROJECT_MD_ID],
         evicted_count: 1,
       }),
     } as unknown as MemoryStore;

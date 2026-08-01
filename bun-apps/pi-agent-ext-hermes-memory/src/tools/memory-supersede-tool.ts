@@ -139,11 +139,14 @@ export function registerMemorySupersedeTool(
         const sqliteProject = project ?? null;
 
         // Step 2: sync + CAPTURE the new id. (Do NOT reuse syncAddToSqlite —
-        // it discards the id and returns only a warning string.)
+        // it discards the id and returns only a warning string.) Task 7 / F1:
+        // thread the birth id (addRes.added_md_id) so the replacement row's
+        // md_id == the `.md` frontmatter id — the live-in-session bridge.
         const syncRes = await memoryRepo.syncMemoryEntry({
           content: replacement,
           target: sqliteTarget,
           project: sqliteProject,
+          ...(addRes.added_md_id ? { mdId: addRes.added_md_id } : {}),
         });
         const newId = syncRes.entry.id;
 

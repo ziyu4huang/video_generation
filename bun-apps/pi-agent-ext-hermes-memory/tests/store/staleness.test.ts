@@ -148,7 +148,7 @@ describe("staleness: stamping & decoding (MemoryStore)", { concurrency: 1 }, () 
     } catch { /* ignore */ }
   });
 
-  it("add() stamps the ground-truth .md with <!-- created=…, last=… -->", async () => {
+  it("add() stamps the ground-truth .md with YAML frontmatter (id/created/last)", async () => {
     await fs.rm(memoryPath, { force: true });
     const store = new MemoryStore(makeConfig());
     await store.loadFromDisk();
@@ -157,9 +157,12 @@ describe("staleness: stamping & decoding (MemoryStore)", { concurrency: 1 }, () 
     // (no settle sleep needed — add() awaits saveToDisk via runExclusive)
 
     const raw = await readRaw(memoryPath);
-    assert.ok(raw.includes("<!-- created="), `expected metadata comment in:\n${raw}`);
-    assert.ok(raw.includes("last="), `expected 'last=' in:\n${raw}`);
-    assert.ok(raw.includes(today()), `expected today's date ${today()} in:\n${raw}`);
+    // Task 7: births now emit YAML frontmatter (id/created/last) + body, not a
+    // trailing HTML comment. Assert the frontmatter shape + today's date.
+    assert.ok(raw.startsWith("---\n"), `expected frontmatter fence in:\n${raw}`);
+    assert.ok(raw.includes("created: "), `expected 'created:' in:\n${raw}`);
+    assert.ok(raw.includes("last: "), `expected 'last:' in:\n${raw}`);
+    assert.ok(raw.includes(`created: ${today()}`), `expected today's date ${today()} in:\n${raw}`);
   });
 
   it("entriesWithMeta decodes created/lastReferenced and falls back for legacy entries", async () => {
