@@ -688,7 +688,8 @@ export class SqliteBackend implements Backend {
       || msg.includes('memories(category)')
       || msg.includes('no such column: project')
       || msg.includes('sessions(project)')
-      || msg.includes('memories(project)');
+      || msg.includes('memories(project)')
+      || msg.includes('no such column: md_id');
   }
 
   private ensureLegacySchemaColumns(db: DatabaseLike): void {
@@ -734,6 +735,9 @@ export class SqliteBackend implements Backend {
     }
     if (!names.has('parent_ids')) {
       db.exec('ALTER TABLE memories ADD COLUMN parent_ids TEXT');
+    }
+    if (!names.has('md_id')) {
+      db.exec('ALTER TABLE memories ADD COLUMN md_id TEXT');
     }
   }
 

@@ -18,6 +18,16 @@ export interface InFlightSubagent {
   /** Concrete provider/id once the child resolves its model (onModelResolved).
    * Undefined until resolution — the call line shows tier/model-request until then. */
   resolvedModel?: string;
+  /** The batch tool's own toolCallId, set on every child of a `subagents` batch so
+   *  the /subagents viewer can group them under one header. Undefined for singular
+   *  `subagent` dispatches (flat, ungrouped) and workflow agents. */
+  batchId?: string;
+  /** Lifecycle status for batch-tool children. The batch tool sets "completed" on
+   *  finish (kept in the registry for k/N progress + frozen-trace follow) and
+   *  evicts the whole batch on its return. Undefined (= "running") for singular
+   *  `subagent` dispatches, workflow agents, and obsidian — they `end()` per-child
+   *  as before and never appear "completed". */
+  status?: "running" | "completed";
   taskPreview: string;
   startedAt: number;
   /** Latest compact history snapshot (for the live-output trace). */
@@ -65,6 +75,20 @@ export class SubagentInFlightRegistry {
 
   end(id: string): void {
     this.runs.delete(id);
+  }
+
+  /** Mark a batch child finished without removing it (so the header can show k/N
+   *  and the frozen trace stays followable). Per-child eviction happens via endBatch. */
+  markCompleted(id: string): void {
+    const r = this.runs.get(id);
+    if (r) r.status = "completed";
+  }
+
+  /** Evict every child of one batch (called when the batch tool's execute() returns). */
+  endBatch(batchId: string): void {
+    for (const [id, r] of this.runs) {
+      if (r.batchId === batchId) this.runs.delete(id);
+    }
   }
 
   list(): InFlightSubagent[] {

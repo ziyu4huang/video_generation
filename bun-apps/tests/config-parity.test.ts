@@ -49,7 +49,12 @@ const PACKAGES = [
 		typeFile: "src/types.ts",
 		interfaceName: "MemoryConfig",
 		loadConfigFile: "src/config.ts",
-		allowlist: [] as string[],
+		// Repo-local-overlay-sourced (NOT the global config file): these ride the
+		// narrow overlay at <cwd>/.agents/memory/config.json (tickets 01/09), never
+		// the global hermes-memory-config.json — so a global `parsed.<field>` copy
+		// would be wrong (it'd defeat the per-repo opt-in). Read in
+		// applyRepoLocalProjectMemoryOverlay (as `overlay.<field>`, not `parsed.<field>`).
+		allowlist: ["autoCommitProjectMemory", "projectName"] as string[],
 	},
 ] as const;
 

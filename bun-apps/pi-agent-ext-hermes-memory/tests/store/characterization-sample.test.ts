@@ -75,16 +75,17 @@ describe("MemoryStore controlled characterization sample (T4)", { concurrency: 1
     delete process.env.PI_HERMES_PERF_LOCK_MS;
   });
 
-  it("a slow consolidation overflow produces BOTH consolidation + lock-hold records", async () => {
+  it("a slow 2-phase consolidation logs the LLM hold on consolidation.<target>, NOT on fileLock.hold (lock released during step 2)", async () => {
     process.env.PI_HERMES_PERF_LOCK_MS = "5";
     const log = tmpLog();
     const perf = createPerfRecorder({ logPath: log, getBackend: () => "test" });
     // Tiny Failure limit + auto-consolidate → a modest addFailure overflows into
-    // runConsolidator under the file lock.
+    // runConsolidator. Step 2 (the LLM) runs lock-free; step 3 is a brief
+    // locked reconcile.
     const store = new MemoryStore(makeConfig({ failureCharLimit: 50, autoConsolidate: true }));
     await store.loadFromDisk();
     // Slow mock consolidator simulates the local-LLM hold (the #853 signal).
-    store.setConsolidator(async () => { await sleep(50); return { consolidated: true }; });
+    store.setConsolidator(async (snapshot) => { await sleep(50); return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }; });
     store.setPerfTimed(perf.timed);
     store.setPerfAlways(perf.timedAlways);
     await store.addFailure(`${TEST_MARKER} ${"z".repeat(80)}`, { category: "failure" });
@@ -95,10 +96,12 @@ describe("MemoryStore controlled characterization sample (T4)", { concurrency: 1
     assert.ok(cons.length >= 1, "consolidation.failure event was logged");
     assert.equal(cons[0].kind, "consolidation");
     assert.equal(cons[0].breach, false);
-    assert.ok(holds.length >= 1, "fileLock.hold.failure breach was logged");
-    assert.equal(holds[0].breach, true);
-    assert.equal(holds[0].reason, "ms");
-    assert.equal(holds[0].kind, "fileLock");
+    // The LLM hold (≥40ms of the 50ms sleep) is timed on the consolidation
+    // event, NOT on a fileLock.hold breach (the lock is released during step 2).
+    assert.ok(cons[0].ms >= 40, `consolidation ms should capture the LLM hold; got ${cons[0].ms}`);
+    const maxHoldMs = holds.length ? Math.max(...holds.map((r) => r.ms)) : 0;
+    assert.ok(maxHoldMs < cons[0].ms,
+      `the file lock must NOT be held for the LLM duration (max hold ${maxHoldMs}ms vs consolidation ${cons[0].ms}ms); no lock-hold breach during step 2`);
   });
 
   it("a terminating slow consolidation stamps timedOut:true on the consolidation record", async () => {
@@ -107,7 +110,7 @@ describe("MemoryStore controlled characterization sample (T4)", { concurrency: 1
     const perf = createPerfRecorder({ logPath: log, getBackend: () => "test" });
     const store = new MemoryStore(makeConfig({ failureCharLimit: 50, autoConsolidate: true }));
     await store.loadFromDisk();
-    store.setConsolidator(async () => { await sleep(50); return { consolidated: false, terminated: true }; });
+    store.setConsolidator(async () => { await sleep(50); return { error: "terminated", terminated: true }; });
     store.setPerfTimed(perf.timed);
     store.setPerfAlways(perf.timedAlways);
     await store.addFailure(`${TEST_MARKER} ${"w".repeat(80)}`, { category: "failure" });

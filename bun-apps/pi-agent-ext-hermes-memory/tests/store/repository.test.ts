@@ -13,6 +13,7 @@ describe("repository seam (types)", () => {
       async replaceSyncedMemories() { return { matched: 0, updated: 0, entries: [] }; },
       async removeSyncedMemories() { return { matched: 0, removed: 0 }; },
       async removeExactSyncedMemories() { return { matched: 0, removed: 0 }; },
+      async removeByMdId() { return { matched: 0, removed: 0 }; },
       async searchMemories() { return []; },
       async getMemories() { return []; },
       async getRecentFailures() { return []; },

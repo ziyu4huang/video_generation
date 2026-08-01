@@ -72,7 +72,7 @@ describe("MemoryStore consolidation perf (T3)", { concurrency: 1 }, () => {
     // Tiny limit + auto-consolidate so a modest add overflows into runConsolidator.
     const store = new MemoryStore(makeConfig({ memoryCharLimit: 50, autoConsolidate: true }));
     await store.loadFromDisk();
-    store.setConsolidator(async () => ({ consolidated: true })); // fast mock — still must be logged
+    store.setConsolidator(async (snapshot) => ({ plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } })); // fast mock — still must be logged
     store.setPerfAlways(perf.timedAlways);
     await store.add("memory", `${TEST_MARKER} ${"x".repeat(100)}`);
 
@@ -81,6 +81,10 @@ describe("MemoryStore consolidation perf (T3)", { concurrency: 1 }, () => {
     assert.equal(cons[0].kind, "consolidation");
     assert.equal(cons[0].breach, false); // an event, not a breach
     assert.equal(cons[0].timedOut, false); // mock did not terminate
+    // 2-phase payload: the plan's applied/skipped op counts are stamped on the
+    // record under `extra` (a no-op plan applies nothing here).
+    assert.deepEqual(cons[0].extra, { applied: 0, skipped: 0 },
+      "extra payload stamps the plan's applied/skipped op counts");
   });
 
   it("stamps timedOut:true when the consolidator child was terminated", async () => {
@@ -89,7 +93,7 @@ describe("MemoryStore consolidation perf (T3)", { concurrency: 1 }, () => {
     const store = new MemoryStore(makeConfig({ memoryCharLimit: 50, autoConsolidate: true }));
     await store.loadFromDisk();
     // Mock a terminated child (the 60s cap) — consolidation fails + terminated flag set.
-    store.setConsolidator(async () => ({ consolidated: false, terminated: true }));
+    store.setConsolidator(async () => ({ error: "terminated", terminated: true }));
     store.setPerfAlways(perf.timedAlways);
     await store.add("memory", `${TEST_MARKER} ${"y".repeat(100)}`);
 

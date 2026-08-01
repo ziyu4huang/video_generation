@@ -143,6 +143,7 @@ export function registerGrillDecisionTool(
               content: `[${category}] ${content}`,
               target: "user",
               category,
+              ...(result.added_md_id ? { mdId: result.added_md_id } : {}),
             });
           } catch {
             // best-effort SQLite search sync — must not block the grill

@@ -1,0 +1,14 @@
+# Project memory merge strategy (autocommit-hook effort, ticket 05).
+#
+# Two branches that each APPEND §-delimited entries to MEMORY.md would conflict
+# at the same insertion point on every forward-merge. This scoped attribute
+# routes the file through the `pi-memory` §-union merge driver, which splits on
+# §, unions entries by trimmed content (dedup), and rejoins — so both branches'
+# new entries survive and common base entries aren't duplicated.
+#
+# The driver COMMAND lives in per-clone git config (merge.pi-memory.driver) — it
+# is NOT committed, because the script path varies per install. The
+# hermes-memory autocommit hook self-configures it idempotently on first commit
+# when a repo opts in (config.json → autoCommitProjectMemory). Until then git
+# falls back to a normal merge for this file (neutral — no worse than without it).
+MEMORY.md merge=pi-memory

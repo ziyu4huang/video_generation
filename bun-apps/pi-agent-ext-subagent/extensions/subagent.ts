@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-w
 import { registerModelsPresetCommand } from "../extensions/models-preset.js";
 import {
   createSubagentRunsTool,
+  createSubagentsTool,
   createSubagentTool,
   getSubagentInFlightRegistry,
   getSubagentRunPersistence,
@@ -52,6 +53,18 @@ export default function extension(pi: ExtensionAPI) {
   const subagentRunsTool = createSubagentRunsTool({ persistence });
   pi.registerTool(subagentRunsTool);
 
+  // subagents — the plural batch tool (fan-out wraps spawnSubagent).
+  // Same options shape as subagentTool: parent tools + main model holders,
+  // shared in-flight registry + run-persistence singletons.
+  const subagentsTool = createSubagentsTool({
+    cwd,
+    getExtensionTools: () => extensionToolsHolder.current,
+    getMainModel: () => mainModelHolder.current,
+    inFlight,
+    persistence,
+  });
+  pi.registerTool(subagentsTool);
+
   // /subagents — list running + past subagent runs and view their output.
   // Self-contained: reads the local in-flight registry this extension owns.
   pi.registerCommand("subagents", createSubagentsCommand({ subagentInFlight: inFlight }));
@@ -69,7 +82,7 @@ export default function extension(pi: ExtensionAPI) {
   const activateSubagentTools = () => {
     try {
       const active = pi.getActiveTools();
-      const missing = [subagentTool.name, subagentRunsTool.name].filter(
+      const missing = [subagentTool.name, subagentRunsTool.name, subagentsTool.name].filter(
         (nm) => !Array.isArray(active) || !active.includes(nm),
       );
       if (missing.length) {

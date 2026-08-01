@@ -15,9 +15,17 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import * as lockfile from "proper-lockfile";
-import { parseMetadataComment, serializeMetadataComment } from "./memory-format.js";
+import {
+  parseMetadataComment,
+  serializeMetadataFrontmatter,
+  detectEntryShape,
+  upgradeEntryToFrontmatter,
+  parseMetadataFrontmatter,
+} from "./memory-format.js";
 import { scanContent } from "./content-scanner.js";
 import { normalizeMemoryLookupText } from "./memory-lookup.js";
+import { buildSnapshot, applyMergePlan } from "./merge-plan.js";
+import type { ConsolidationSnapshot, MergePlan } from "./merge-plan.js";
 import {
   ENTRY_DELIMITER,
   DEFAULT_MEMORY_CHAR_LIMIT,
@@ -47,12 +55,44 @@ function isLockAcquisitionError(err: unknown): boolean {
   return /lock file is already|already being held/i.test(msg);
 }
 
+/** Internal outcome of {@link MemoryStore.consolidateTwoPhase}: the public
+ *  {@link ConsolidationResult} plus the plan's applied/skipped op counts (for the
+ *  perf `extra` payload). */
+type TwoPhaseResult = ConsolidationResult & {
+  /** Ops that took effect in the locked reconcile (step 3). */
+  applied?: number;
+  /** Ops deferred (a referenced key vanished concurrently). */
+  skipped?: number;
+};
+
+/**
+ * Injected provider mirroring the DB-side stable-id seam (Task 1's
+ * `getMdIdByContent` + Task 4's `setMdIdByContent`). The `target`/`project`
+ * args are the content-key scope (matches `MemoryRemoveOptions`); the store
+ * passes `null` for `project` because it does not know its own scope — the
+ * real project is bound at the `index.ts` adapter closure (global store →
+ * null, projectStore → projectName), mirroring `setSupersededContentProvider`.
+ * Keeps `MemoryStore` free of a direct `MemoryRepository` reference.
+ */
+export interface StableIdBackfillProvider {
+  getMdIdByContent(target: "memory" | "user" | "failure", content: string, project: string | null): Promise<string | null>;
+  setMdIdByContent(target: "memory" | "user" | "failure", content: string, mdId: string, project: string | null): Promise<number>;
+}
+
 export class MemoryStore {
   private memoryEntries: string[] = [];
   private userEntries: string[] = [];
   private failureEntries: string[] = [];
   private snapshot: MemorySnapshot = { memory: "", user: "" };
-  private consolidator: ((target: "memory" | "user" | "failure", signal?: AbortSignal) => Promise<ConsolidationResult>) | null = null;
+  /** The injected consolidator. Under the 2-phase design this does NOT write:
+   *  it takes a {@link ConsolidationSnapshot} and returns a {@link MergePlan}
+   *  (or `{ error, terminated? }`). The store applies the plan in a brief locked
+   *  reconcile (see {@link consolidateTwoPhase}). Lock-free by contract — the
+   *  LLM (step 2) runs with the cross-process file lock RELEASED, so concurrent
+   *  sibling-session writers are no longer blocked for up to ~60s. */
+  private consolidator:
+    | ((snapshot: ConsolidationSnapshot, signal?: AbortSignal) => Promise<{ plan: MergePlan } | { error: string; terminated?: boolean }>)
+    | null = null;
   /** Human-readable label of the consolidator's model (for progress reporting). */
   private consolidatorModelLabel?: string;
 
@@ -61,24 +101,48 @@ export class MemoryStore {
   /**
    * Inject a consolidation function (avoids circular imports).
    * Called from index.ts after both store and pi are available.
+   *
+   * Contract (2-phase): `fn` is lock-free and side-effect-free — it receives a
+   * {@link ConsolidationSnapshot} and resolves to a {@link MergePlan} (or an
+   * `{ error, terminated? }`). The store itself drives the brief locked
+   * reconcile-write (step 3) in {@link consolidateTwoPhase}.
    */
-  setConsolidator(fn: (target: "memory" | "user" | "failure", signal?: AbortSignal) => Promise<ConsolidationResult>, modelLabel?: string): void {
+  setConsolidator(
+    fn: (snapshot: ConsolidationSnapshot, signal?: AbortSignal) => Promise<{ plan: MergePlan } | { error: string; terminated?: boolean }>,
+    modelLabel?: string,
+  ): void {
     this.consolidator = fn;
     this.consolidatorModelLabel = modelLabel;
   }
 
   /**
-   * Injected provider returning the CONTENTS of superseded entries for a target
-   * (sourced from the DB status column via getMemories({status:"superseded"})).
-   * Mirrors setConsolidator's injection pattern — keeps MemoryStore free of a
-   * direct MemoryRepository reference (D2: offload-superseded-first needs DB
-   * knowledge the .md-ground-truth store must not hold directly). Wired from
-   * index.ts once the repo is available; absent in unit/test contexts.
+   * Injected provider returning the MD_IDS of superseded entries for a target
+   * (sourced from the DB status column via getMemories({status:"superseded"})
+   * → mapped to `mdId`). Steady-state purge + DB-sync key on md_id (ticket 04:
+   * full replace, no content-key fallback). Mirrors setConsolidator's injection
+   * pattern — keeps MemoryStore free of a direct MemoryRepository reference
+   * (D2: offload-superseded-first needs DB knowledge the .md-ground-truth store
+   * must not hold directly). Wired from index.ts once the repo is available;
+   * absent in unit/test contexts.
    */
   private supersededContentProvider: ((target: "memory" | "user" | "failure") => Promise<string[]>) | null = null;
 
   setSupersededContentProvider(fn: (target: "memory" | "user" | "failure") => Promise<string[]>): void {
     this.supersededContentProvider = fn;
+  }
+
+  /**
+   * Injected stable-id backfill provider (Task 4): gives `backfillStableIds()` a
+   * DB-side seam (`getMdIdByContent` + `setMdIdByContent`) WITHOUT introducing a
+   * direct `MemoryRepository` reference into the store — mirrors
+   * `setSupersededContentProvider`. Wired from `index.ts` once the repo is
+   * available; absent in unit/test contexts, where `backfillStableIds()` is a
+   * best-effort no-op that still upgrades the `.md` entries.
+   */
+  private stableIdBackfillProvider: StableIdBackfillProvider | null = null;
+
+  setStableIdBackfillProvider(provider: StableIdBackfillProvider): void {
+    this.stableIdBackfillProvider = provider;
   }
 
   /** Inject the perf recorder's timed() — parallel to setConsolidator. Defaults
@@ -111,20 +175,17 @@ export class MemoryStore {
   //
   // RE-ENTRANT via AsyncLocalStorage: when a locked op calls back into another
   // mutating method on the SAME async chain, the inner call bypasses the queue
-  // instead of deadlocking. This matters for the consolidator: _addInner holds
-  // the lock and awaits this.consolidator(...); if that consolidator operates
-  // on the same store instance (the unit-test mock does store.remove(); a
-  // same-process consolidator would too), the re-entrant call must not wait on
-  // the lock it already holds. (In production triggerConsolidation runs in a
-  // child process on a different store instance, so this is belt-and-suspenders
-  // — but it makes the lock correct for any same-instance consolidator.)
+  // instead of deadlocking. (2-phase consolidation runs the LLM OUTSIDE the
+  // held lock — see _add's loop + consolidateTwoPhase — so the consolidator no
+  // longer re-enters this chain. The re-entrancy is retained as belt-and-
+  // suspenders for any same-instance nested mutator.)
   private _writeChain: Promise<unknown> = Promise.resolve();
   private _writeOwner: AsyncLocalStorage<boolean> = new AsyncLocalStorage<boolean>();
 
   /** Cross-process lock paths currently held by THIS process. Re-entrancy guard:
-   *  runExclusive serializes within the process; the only re-entry is a
-   *  same-instance consolidator (production ones run in a child process —
-   *  see runConsolidator), which must not re-acquire its own file lock. */
+   *  runExclusive serializes within the process; a nested same-instance mutator
+   *  must not re-acquire its own file lock. (The 2-phase consolidator runs
+   *  lock-free, so step 2 never holds one of these.) */
   private _heldFileLocks: Set<string> = new Set();
 
   private runExclusive<T>(fn: () => Promise<T>): Promise<T> {
@@ -158,9 +219,11 @@ export class MemoryStore {
   // Layering: runExclusive (in-process) is OUTER, withFileLock (cross-process)
   // is INNER. This keeps the cross-process lock scope tight to the disk touch.
   //
-  // BYPASS via PI_MEMORY_FILE_LOCK=bypass: the consolidator CHILD process
-  // inherits this env and skips the lock — see runConsolidator for why that's
-  // safe (the parent still holds the lock, making the child the sole writer).
+  // BYPASS via PI_MEMORY_FILE_LOCK=bypass: a retained defensive escape hatch
+  // (unit-tested directly). The 2-phase consolidator no longer sets it — step 2
+  // is lock-free and step 3 acquires the lock normally — so in production this
+  // branch is not taken; it remains for ad-hoc/test bypass of the cross-process
+  // lock.
   private async withFileLock<T>(
     target: "memory" | "user" | "failure",
     fn: () => Promise<T>,
@@ -212,16 +275,74 @@ export class MemoryStore {
   }
 
   /**
-   * Run the consolidator with the file-lock bypass env set, so the spawned
-   * child process (pi.exec — a SEPARATE OS process with its own MemoryStore)
-   * does not contend on the cross-process lock the parent holds here. Without
-   * this the child's _addInner would ELOCKED on the parent's held lock →
-   * consolidation always fails (or deadlocks if retries block).
+   * 3-phase consolidation, lock-free in the long step.
    *
-   * Safety: runExclusive guarantees only one mutating op runs in this process,
-   * so the env toggle can't leak to a concurrent op. The parent keeps the
-   * cross-process lock for the whole await, making the child the sole writer
-   * in flight (no lost update, no deadlock).
+   *   1. **Snapshot** (no lock): build a {@link ConsolidationSnapshot} from the
+   *      in-memory entries (already loaded by the caller — the sentinel-returning
+   *      `_addInner` purged superseded entries before signalling up).
+   *   2. **Plan** (lock-FREE): the injected consolidator turns the snapshot into a
+   *      {@link MergePlan}. This is the local-LLM call that used to hold the
+   *      cross-process lock for up to ~60s; it now runs with the lock RELEASED so
+   *      concurrent sibling-session writers are no longer starved.
+   *   3. **Reconcile** (brief, under lock): re-read disk, `applyMergePlan(live,
+   *      plan)`, write. Concurrent appends survive the rewrite (live entries not
+   *      removed by any applied op are kept in order).
+   *
+   * Never throws into the caller for a plan failure: those map to
+   * `{ consolidated: false, error }` and the retried `_addInner` falls through to
+   * the never-fail vault-offload floor. A thrown step-3 (disk/IO) propagates so
+   * `_add`'s try/catch can fall through to the floor.
+   */
+  private async consolidateTwoPhase(
+    target: "memory" | "user" | "failure",
+    signal?: AbortSignal,
+    onProgress?: (message: string) => void,
+  ): Promise<TwoPhaseResult> {
+    if (!this.consolidator) return { consolidated: false, error: "no consolidator configured" };
+    // Surface progress to the tool layer (-> onUpdate partial result in the TUI):
+    // consolidation runs a local LLM; the lock-free step means it no longer holds
+    // the file lock, but without this it'd still be a silent spinner.
+    const label = this.consolidatorModelLabel ?? "default model";
+    onProgress?.(`Consolidating ${target} store with ${label}… (local LLM plan; lock-free)`);
+
+    // Step 1: snapshot from the in-memory entries (already loaded + superseded-
+    // purged by the caller). buildSnapshot parses each encoded entry + computes
+    // the order-insensitive snapshotBaseHash the plan anchors against.
+    const snapshot = buildSnapshot(target, this.entriesFor(target), this.charLimit(target));
+
+    // Step 2: lock-FREE plan. The consolidator produces a MergePlan (no writes).
+    const res = await this.consolidator(snapshot, signal);
+    if ("error" in res) {
+      return { consolidated: false, error: res.error, terminated: res.terminated };
+    }
+
+    // Step 3: brief locked reconcile-write. Re-read disk so concurrent appends
+    // survive (applyMergePlan keeps live entries not removed by any applied op,
+    // in original order); only entries still referenced by the plan are dropped.
+    let applied = 0;
+    let skipped = 0;
+    await this.runExclusive(() => this.withFileLock(target, async () => {
+      await this.loadFromDisk();
+      const live = this.entriesFor(target);
+      const r = applyMergePlan(live, res.plan);
+      this.setEntries(target, r.entries);
+      await this.saveToDisk(target);
+      applied = r.applied.length;
+      skipped = r.skipped.length;
+    }));
+    return { consolidated: applied > 0, applied, skipped };
+  }
+
+  /**
+   * Wrap {@link consolidateTwoPhase} with the `PI_HERMES_CONSOLIDATING=1` env
+   * (the spawned sub-agent inherits it; loadConfig forces autoConsolidate:false
+   * so a plan-only child never spawns its own consolidator) and the always-logged
+   * perf record (target, duration, terminated flag, applied/skipped counts).
+   *
+   * The old `PI_MEMORY_FILE_LOCK=bypass` toggle is GONE: step 2 is lock-free and
+   * step 3 acquires the lock normally, so there is no held lock to bypass.
+   * `runExclusive` guarantees only one mutating op runs in this process, so the
+   * env toggle can't leak to a concurrent op.
    */
   private async runConsolidator(
     target: "memory" | "user" | "failure",
@@ -229,34 +350,28 @@ export class MemoryStore {
     onProgress?: (message: string) => void,
   ): Promise<ConsolidationResult> {
     if (!this.consolidator) return { consolidated: false, error: "no consolidator configured" };
-    // Surface progress to the tool layer (-> onUpdate partial result in the TUI):
-    // consolidation runs a local LLM and can hold the file lock for up to ~60s, so
-    // without this the memory tool call is a silent spinner with no model-id.
-    const label = this.consolidatorModelLabel ?? "default model";
-    onProgress?.(`Consolidating ${target} store with ${label}… (local LLM merge/dedup; up to 60s)`);
-    const prevLock = process.env.PI_MEMORY_FILE_LOCK;
     const prevCons = process.env.PI_HERMES_CONSOLIDATING;
-    // PI_MEMORY_FILE_LOCK=bypass: child skips the cross-process lock (parent holds it).
-    // PI_HERMES_CONSOLIDATING=1: child must NOT spawn its own consolidator — prevents
-    //   the nested-consolidation freeze (chain/overlap/race; wayfinder 01/05). The child
-    //   inherits this env; loadConfig forces autoConsolidate:false → vault-offload floor.
-    process.env.PI_MEMORY_FILE_LOCK = "bypass";
+    // PI_HERMES_CONSOLIDATING=1: the spawned sub-agent must NOT spawn its own
+    //   consolidator — prevents the nested-consolidation freeze (chain/overlap/
+    //   race; wayfinder 01/05). The child inherits this env; loadConfig forces
+    //   autoConsolidate:false → it can only plan (tools: []), never write/consolidate.
     process.env.PI_HERMES_CONSOLIDATING = "1";
     try {
-      // Always-log every consolidation (rare, under study): target, duration, and
-      // whether the child timed out. The child is a separate process, so only the
-      // parent's wall-clock ms is meaningful (round-trips ~0, expected).
+      // Always-log every consolidation (rare, under study): target, duration,
+      // whether the child timed out, and the plan's applied/skipped op counts.
       // NOTE: only Auto-consolidation (this runConsolidator path) is logged; the
       // manual /memory-consolidate command calls triggerConsolidation directly and
       // bypasses this — a known blind spot when reading perf.jsonl frequency.
       return await this.perfAlways(
         `consolidation.${target}`,
-        () => this.consolidator!(target, signal),
-        { kind: "consolidation", timedOutFrom: (r) => !!r.terminated },
+        () => this.consolidateTwoPhase(target, signal, onProgress),
+        {
+          kind: "consolidation",
+          timedOutFrom: (r) => !!r.terminated,
+          extraFrom: (r) => ({ applied: r.applied ?? 0, skipped: r.skipped ?? 0 }),
+        },
       );
     } finally {
-      if (prevLock === undefined) delete process.env.PI_MEMORY_FILE_LOCK;
-      else process.env.PI_MEMORY_FILE_LOCK = prevLock;
       if (prevCons === undefined) delete process.env.PI_HERMES_CONSOLIDATING;
       else process.env.PI_HERMES_CONSOLIDATING = prevCons;
     }
@@ -323,6 +438,67 @@ export class MemoryStore {
       memory: this.renderBlock("memory", strippedMemory),
       user: this.renderBlock("user", strippedUser),
     };
+  }
+
+  /**
+   * One-shot idempotent backfill of the 5d stable-id migration (Task 4). For
+   * every legacy comment entry: mint a uuid (or reuse the DB row's existing
+   * `md_id` to stay resume-safe across the `.md`↔DB seam), rewrite it to the
+   * frontmatter envelope (Task 3's `upgradeEntryToFrontmatter`), then mirror
+   * the freshly-minted id onto its DB row by content-key
+   * (`setMdIdByContent`). Persists each changed target once at the end.
+   *
+   * Invariants:
+   * - **Idempotent**: a re-run is a strict no-op — every frontmatter entry is
+   *   skipped (`detectEntryShape` guard); a present id is never overwritten.
+   * - **Resume-safe**: a mid-vault crash leaves every rewritten entry
+   *   independently valid; the next run skips done entries and, for any
+   *   not-yet-rewritten comment entry, reuses the DB's existing `md_id`
+   *   (`getMdIdByContent`) instead of double-assigning.
+   * - **Best-effort, never throws**: the DB mirror is wrapped per-entry in
+   *   try/catch; a missing provider (unit/test) degrades to `.md`-only upgrade.
+   *
+   * Takes NO args — reads the injected `StableIdBackfillProvider` (set via
+   * `setStableIdBackfillProvider`), mirroring the `setSupersededContentProvider`
+   * injection pattern so `MemoryStore` stays free of a `MemoryRepository` ref.
+   */
+  async backfillStableIds(): Promise<{ upgraded: number; mdIdsMirrored: number }> {
+    let upgraded = 0;
+    let mdIdsMirrored = 0;
+    const provider = this.stableIdBackfillProvider;
+    for (const target of ["memory", "user", "failure"] as const) {
+      const entries = this.entriesFor(target);
+      let changed = false;
+      for (let i = 0; i < entries.length; i++) {
+        const raw = entries[i];
+        if (detectEntryShape(raw) === "frontmatter") continue; // idempotent: already done
+        const stripped = this.stripMetadata(raw);
+        // Resume-safe across the seam: reuse the DB row's existing md_id when one
+        // is already mirrored (a prior partial run / sibling agent), so we never
+        // double-assign a stable id for one content key.
+        let id: string;
+        let reused = false;
+        try {
+          const existing = provider ? await provider.getMdIdByContent(target, stripped, null) : null;
+          if (existing) { id = existing; reused = true; }
+          else { id = globalThis.crypto.randomUUID(); }
+        } catch {
+          /* best-effort: fall through to minting a fresh id */
+          id = globalThis.crypto.randomUUID();
+        }
+        entries[i] = upgradeEntryToFrontmatter(raw, target, null, id);
+        upgraded++;
+        changed = true;
+        // Only mirror when we minted a fresh id; a reused id is already on the DB row.
+        if (!reused && provider) {
+          try {
+            if (await provider.setMdIdByContent(target, stripped, id, null) > 0) mdIdsMirrored++;
+          } catch { /* best-effort: next startup re-matches by content + completes */ }
+        }
+      }
+      if (changed) await this.saveToDisk(target);
+    }
+    return { upgraded, mdIdsMirrored };
   }
 
   // ─── CRUD ───
@@ -414,6 +590,7 @@ export class MemoryStore {
     }
 
     const strippedTransferred = transfer.map((e) => this.stripMetadata(e));
+    const transferredMdIds = transfer.map((e) => this.mdIdOf(e)).filter((id): id is string => Boolean(id));
     const freedChars = transfer.join(ENTRY_DELIMITER).length;
 
     // Remove transferred entries from the in-memory array
@@ -433,6 +610,7 @@ export class MemoryStore {
       usage: `${pct}% — ${afterCount}/${limit} chars`,
       entry_count: remaining.length,
       transferred_entries: strippedTransferred,
+      transferred_md_ids: transferredMdIds,
       transferred_count: strippedTransferred.length,
       freed_chars: freedChars,
     };
@@ -460,9 +638,50 @@ export class MemoryStore {
     onProgress?: (message: string) => void,
     meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null },
   ): Promise<MemoryResult> {
-    // Serialize so reload-read → mutate-array → saveToDisk stays atomic.
-    // runExclusive = in-process; withFileLock = cross-process (see withFileLock).
-    return this.runExclusive(() => this.withFileLock(target, () => this._addInner(target, content, signal, _retriesLeft, addedMessage, onProgress, meta)));
+    // 2-PHASE RESTRUCTURE: consolidation runs OUTSIDE the held cross-process
+    // file lock. `_addInner`'s overflow branch no longer consolidates in-lock;
+    // it returns a sentinel ({ success: false, needsConsolidation: true }) so
+    // this loop can run the LLM plan (step 2) lock-free, then re-enter the brief
+    // locked write. `_retriesLeft` bounds consolidation attempts exactly as the
+    // old in-lock recursion did (one attempt from the default budget of 1).
+    let retriesLeft = _retriesLeft;
+    // Accrued superseded purge set threaded across the out-of-lock consolidation
+    // (mirrors the old in-lock recursion's `_accruedOffloaded` accumulator):
+    // a child frame that fits after consolidation surfaces none of its own, so
+    // the final result re-attaches this set to prevent orphan DB rows (D4).
+    let accruedOffloaded: string[] = [];
+    let result = await this.runExclusive(() =>
+      this.withFileLock(target, () =>
+        this._addInner(target, content, signal, retriesLeft, addedMessage, onProgress, meta, []),
+      ),
+    );
+    while (result.needsConsolidation && retriesLeft > 0) {
+      // _addInner already persisted the superseded purge before signalling up;
+      // carry its offloaded set forward (merge with anything accrued earlier).
+      accruedOffloaded = result.offloaded_superseded?.length
+        ? [...accruedOffloaded, ...result.offloaded_superseded]
+        : accruedOffloaded;
+      retriesLeft -= 1;
+      // Best-effort: a thrown or failed 2-phase is swallowed here — the next
+      // locked _addInner re-reads disk and, still over limit with the retry
+      // budget spent, falls through to the never-fail vault-offload floor.
+      try {
+        await this.runConsolidator(target, signal, onProgress);
+      } catch {
+        /* fall through to the floor on re-entry */
+      }
+      result = await this.runExclusive(() =>
+        this.withFileLock(target, () =>
+          this._addInner(target, content, signal, retriesLeft, addedMessage, onProgress, meta, accruedOffloaded),
+        ),
+      );
+    }
+    // Re-attach the accrued purge set to a final result that surfaced none of
+    // its own (the consolidation-success path that now fits after the rewrite).
+    if (accruedOffloaded.length && !result.offloaded_superseded) {
+      result.offloaded_superseded = accruedOffloaded;
+    }
+    return result;
   }
 
   private async _addInner(
@@ -517,9 +736,13 @@ export class MemoryStore {
       }
     }
 
-    // Encode metadata: both dates = today
+    // Encode metadata: both dates = today. Mint the stable id ONCE here and
+    // thread it to both sides: the `.md` frontmatter (encodeEntry) and the DB
+    // row (MemoryResult.added_md_id → caller's syncMemoryEntry md_id). Option
+    // (i): the store owns encoding, so it owns id-birth in one place.
     const today = new Date().toISOString().split("T")[0];
-    const encoded = this.encodeEntry(content, today, today, meta);
+    const id = globalThis.crypto.randomUUID();
+    const encoded = this.encodeEntry(content, today, today, id, meta);
 
     const newTotal = [...entries, encoded].join(ENTRY_DELIMITER).length;
     if (newTotal > limit) {
@@ -532,8 +755,11 @@ export class MemoryStore {
       let offloadedSuperseded: string[] = [..._accruedOffloaded];
       if (this.supersededContentProvider) {
         try {
-          const supersededContents = await this.supersededContentProvider(target);
-          const purgedThisFrame = await this.purgeSupersededFromMarkdown(target, supersededContents);
+          // Provider returns MD_IDS of superseded rows (ticket 04). The purge
+          // matches .md entries by their frontmatter id and returns the purged
+          // md_ids — which flow straight to the caller's removeByMdId sync.
+          const supersededMdIds = await this.supersededContentProvider(target);
+          const purgedThisFrame = await this.purgeSupersededFromMarkdown(target, supersededMdIds);
           offloadedSuperseded = [...offloadedSuperseded, ...purgedThisFrame];
         } catch {
           // Non-fatal: provider/DB unreachable. Supersession is unknowable, so
@@ -552,6 +778,7 @@ export class MemoryStore {
           return {
             ...this.successResponse(target, `Memory updated. Offloaded ${offloadedSuperseded.length} superseded ${offloadedSuperseded.length === 1 ? "entry" : "entries"} to stay within the limit.`),
             offloaded_superseded: offloadedSuperseded,
+            added_md_id: id,
           };
         }
         // Still over after purge → only active remains. Fall through to consolidation.
@@ -561,35 +788,35 @@ export class MemoryStore {
       // D3: superseded already purged, so remaining overflow is all-active. The
       // fifo-evict/vault-offload branches used to shift() active entries here,
       // breaking lineage chains. Collapse every non-reject strategy onto the
-      // consolidation path (runConsolidator + the existing vault-offload floor),
-      // so active entries are never silently shifted. Only "reject" hard-rejects.
+      // consolidation path (2-phase runConsolidator + the existing vault-offload
+      // floor), so active entries are never silently shifted. Only "reject"
+      // hard-rejects.
       if (strategy !== "reject") {
+        // 2-PHASE (D-restructure): do NOT consolidate while holding the file
+        // lock. Return a sentinel so `_add` can run the LLM plan (step 2) with
+        // the lock RELEASED, then re-enter this locked write. The superseded
+        // purge already persisted above; carry its offloaded set on the sentinel
+        // so `_add` threads it down to the retried write (D4 orphan-row guard).
+        // Only signal when a consolidator is wired AND the retry budget allows;
+        // otherwise fall straight through to the never-fail floor below.
         if (this.consolidator && _retriesLeft > 0) {
-          try {
-            const result = await this.runConsolidator(target, signal, onProgress);
-            if (result.consolidated) {
-              await this.loadFromDisk();
-              // RECURSION (path 3, D4 fix): thread the full accrued+this-frame
-              // purge set down. A child that re-enters overflow seeds it and its
-              // floor/reject carries the full set; a child that fits after
-              // consolidation (skips overflow) returns no offloaded_superseded,
-              // so we re-attach this frame's set below to avoid losing the
-              // parent's purge to orphan DB rows.
-              const childResult = await this._addInner(target, content, signal, _retriesLeft - 1, addedMessage, onProgress, meta, offloadedSuperseded);
-              if (offloadedSuperseded.length && !childResult.offloaded_superseded) {
-                childResult.offloaded_superseded = offloadedSuperseded;
-              }
-              return childResult;
-            }
-          } catch { /* fall through to floor */ }
+          const sentinel: MemoryResult = { success: false, needsConsolidation: true };
+          if (offloadedSuperseded.length) sentinel.offloaded_superseded = offloadedSuperseded;
+          return sentinel;
         }
         // FLOOR (path 1, D4 fix): vault-offload as last resort (preserves the
-        // never-hard-reject guarantee for non-reject strategies). Active lineage
-        // may break here ONLY in the rare consolidation-failure case — accepted
-        // as destructive capacity compaction (consistent with D0). Attach the
-        // purged-superseded set so the caller syncs those DB rows too.
+        // never-hard-reject guarantee for non-reject strategies). Reached when no
+        // consolidator is wired, when the retry budget is spent (consolidation
+        // already ran once out-of-lock and did not free enough), or when
+        // consolidation threw. Active lineage may break here ONLY in the rare
+        // consolidation-failure case — accepted as destructive capacity
+        // compaction (consistent with D0). Attach the purged-superseded set so
+        // the caller syncs those DB rows too.
         const r = await this.vaultOffloadAndAdd(target, this.entriesFor(target), encoded, content.length, limit, nearDupNote);
         if (offloadedSuperseded.length) r.offloaded_superseded = offloadedSuperseded;
+        // Only surface the birth id when the entry actually landed (the floor
+        // returns memoryFullError when the entry alone exceeds the limit).
+        if (r.success) r.added_md_id = id;
         return r;
       }
       // REJECT (path 2, D4 fix): attach the purged-superseded set so the caller's
@@ -603,29 +830,31 @@ export class MemoryStore {
     this.setEntries(target, entries);
     await this.saveToDisk(target);
 
-    return this.successResponse(target, addedMessage + nearDupNote);
+    return { ...this.successResponse(target, addedMessage + nearDupNote), added_md_id: id };
   }
 
   /**
-   * Remove entries whose stripped content matches one of `supersededContents`.
-   * Content-key match (D2): .md has no id, so we match on stripped content — the
-   * same key removeExactSyncedMemories uses on the DB side. Returns the purged
-   * (stripped) contents so the caller can sync the DB rows. Persists via
+   * Remove entries whose frontmatter `id` matches one of `supersededMdIds`.
+   * md_id match (ticket 04): .md entries now carry a stable frontmatter id
+   * (post-backfill), so we match on that id — NOT stripped content. Returns the
+   * purged md_ids so the caller can sync the DB rows via `removeByMdId`. A
+   * comment-shape entry (no frontmatter id) is simply never matched (skip,
+   * don't crash, don't fall back to content-key). Persists via
    * setEntries/saveToDisk (mirrors fifoEvictAndAdd's persistence steps).
    */
   private async purgeSupersededFromMarkdown(
     target: "memory" | "user" | "failure",
-    supersededContents: string[],
+    supersededMdIds: string[],
   ): Promise<string[]> {
-    if (supersededContents.length === 0) return [];
-    const want = new Set(supersededContents);
+    if (supersededMdIds.length === 0) return [];
+    const want = new Set(supersededMdIds);
     const entries = this.entriesFor(target);
     const purged: string[] = [];
     const remaining: string[] = [];
     for (const entry of entries) {
-      const stripped = this.stripMetadata(entry);
-      if (want.has(stripped)) {
-        purged.push(stripped);
+      const id = this.mdIdOf(entry);
+      if (id && want.has(id)) {
+        purged.push(id);
       } else {
         remaining.push(entry);
       }
@@ -655,7 +884,7 @@ export class MemoryStore {
     }
 
     const remaining = [...entries];
-    const evictedDecoded: Array<{ text: string; created: string; lastReferenced: string }> = [];
+    const evictedDecoded: Array<{ text: string; created: string; lastReferenced: string; id?: string }> = [];
 
     while ([...remaining, encoded].join(ENTRY_DELIMITER).length > limit && remaining.length > 0) {
       const evicted = remaining.shift()!;
@@ -670,14 +899,28 @@ export class MemoryStore {
     const archivePath = await this.writeKnowledgeArchive(target, evictedDecoded);
 
     const strippedEvicted = evictedDecoded.map((e) => e.text);
+    // md_id set: one id per evicted entry that HAD a frontmatter id. Post-Task-7
+    // every birth mints an id (encodeEntry), so this skip now catches ONLY pre-
+    // backfill legacy comment-shape entries (no id) — their DB-sync is dropped
+    // (no content-key fallback, ticket 04) and they are cleaned on the next
+    // restart's Task-4 backfill. New (in-session) entries are never orphaned
+    // here: they carry an id at birth, so eviction/transfer always surfaces it
+    // for the caller's removeByMdId. (The Task-5 "by-design orphan window" note
+    // is obsolete for births; only pre-backfill legacy rows still hit it.)
+    const evictedMdIds = evictedDecoded.map((e) => e.id).filter((id): id is string => Boolean(id));
     return {
       ...this.successResponse(
         target,
         `Memory updated. Offloaded ${evictedDecoded.length} older ${evictedDecoded.length === 1 ? "entry" : "entries"} to vault archive to stay within the limit.${nearDupNote}`,
       ),
       evicted_entries: strippedEvicted,
+      evicted_md_ids: evictedMdIds,
       evicted_count: evictedDecoded.length,
+      // Alias: for vault-offload, evicted == transferred-to-vault (the entries
+      // are preserved in the .knowledge.jsonl archive, not discarded), so the
+      // same md_id set serves the transfer-DB-sync consumer verbatim.
       transferred_entries: strippedEvicted,
+      transferred_md_ids: evictedMdIds,
       transferred_count: evictedDecoded.length,
       freed_chars: strippedEvicted.join(ENTRY_DELIMITER).length,
       archive_path: archivePath,
@@ -706,7 +949,7 @@ export class MemoryStore {
     // Evict oldest (lowest file position) entries other than the replaced one.
     const evictOrder = entries.map((_, i) => i).filter((i) => i !== protectedIdx);
     const present = new Set<number>(entries.map((_, i) => i));
-    const evictedDecoded: Array<{ text: string; created: string; lastReferenced: string }> = [];
+    const evictedDecoded: Array<{ text: string; created: string; lastReferenced: string; id?: string }> = [];
     const liveJoin = () =>
       [...present].sort((a, b) => a - b).map((j) => (j === protectedIdx ? encoded : entries[j])).join(ENTRY_DELIMITER);
     for (const i of evictOrder) {
@@ -721,14 +964,20 @@ export class MemoryStore {
 
     const archivePath = await this.writeKnowledgeArchive(target, evictedDecoded);
     const strippedEvicted = evictedDecoded.map((e) => e.text);
+    const evictedMdIds = evictedDecoded.map((e) => e.id).filter((id): id is string => Boolean(id));
     return {
       ...this.successResponse(
         target,
         `Memory updated. Offloaded ${evictedDecoded.length} older ${evictedDecoded.length === 1 ? "entry" : "entries"} to vault archive to stay within the limit.`,
       ),
       evicted_entries: strippedEvicted,
+      evicted_md_ids: evictedMdIds,
       evicted_count: evictedDecoded.length,
+      // Alias: for vault-offload, evicted == transferred-to-vault (the entries
+      // are preserved in the .knowledge.jsonl archive, not discarded), so the
+      // same md_id set serves the transfer-DB-sync consumer verbatim.
       transferred_entries: strippedEvicted,
+      transferred_md_ids: evictedMdIds,
       transferred_count: evictedDecoded.length,
       freed_chars: strippedEvicted.join(ENTRY_DELIMITER).length,
       archive_path: archivePath,
@@ -741,7 +990,7 @@ export class MemoryStore {
    */
   private async writeKnowledgeArchive(
     target: "memory" | "user" | "failure",
-    evicted: Array<{ text: string; created: string; lastReferenced: string }>,
+    evicted: Array<{ text: string; created: string; lastReferenced: string; id?: string }>,
   ): Promise<string> {
     const { tmpdir } = await import("node:os");
 
@@ -752,7 +1001,7 @@ export class MemoryStore {
     const jsonlPath = path.join(dir, `memory-transfer-${target}-${ts}.knowledge.jsonl`);
 
     const lines = evicted.map((e) => {
-      const record = {
+      const record: Record<string, unknown> = {
         id: `pi-memory-${target}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         type: "memory_entry",
         title: e.text.slice(0, 80).replace(/\n/g, " "),
@@ -763,6 +1012,10 @@ export class MemoryStore {
         status: "active",
         evidence: `Transferred from pi-hermes-memory ${target} target on ${new Date().toISOString().split("T")[0]}. Originally created: ${e.created}.`,
       };
+      // Provenance only (NOT a join key): the retired entry's stable frontmatter
+      // id, so an archived record can be traced back to its origin row. Absent
+      // for legacy comment-shape entries that pre-date the backfill.
+      if (e.id) record.md_id = e.id;
       return JSON.stringify(record);
     });
 
@@ -791,10 +1044,13 @@ export class MemoryStore {
 
     const remaining = [...entries];
     const evictedEntries: string[] = [];
+    const evictedMdIds: string[] = [];
 
     while ([...remaining, encoded].join(ENTRY_DELIMITER).length > limit && remaining.length > 0) {
       const evicted = remaining.shift()!;
       evictedEntries.push(this.stripMetadata(evicted));
+      const id = this.mdIdOf(evicted);
+      if (id) evictedMdIds.push(id);
     }
 
     remaining.push(encoded);
@@ -807,6 +1063,7 @@ export class MemoryStore {
         `Memory updated. Rotated ${evictedEntries.length} older ${evictedEntries.length === 1 ? "entry" : "entries"} to stay within the limit.${nearDupNote}`,
       ),
       evicted_entries: evictedEntries,
+      evicted_md_ids: evictedMdIds,
       evicted_count: evictedEntries.length,
     };
   }
@@ -850,10 +1107,14 @@ export class MemoryStore {
     }
 
     const idx = entries.indexOf(matches[0]);
-    // Preserve original created date, update last_referenced to today
+    // Preserve original created date, update last_referenced to today. Mint a
+    // FRESH uuid for the NEW entry (ticket 00: each entry owns its uuid; the
+    // replaced entry's id is immutable and not reused) and thread it to both
+    // sides (.md frontmatter + DB md_id via MemoryResult.added_md_id).
     const decoded = this.decodeEntry(matches[0]);
     const today = new Date().toISOString().split("T")[0];
-    const encoded = this.encodeEntry(newContent, decoded.created, today, {
+    const id = globalThis.crypto.randomUUID();
+    const encoded = this.encodeEntry(newContent, decoded.created, today, id, {
       provenance: decoded.provenance,
       sources: decoded.sources,
       mwSuccess: decoded.mwSuccess,
@@ -877,14 +1138,16 @@ export class MemoryStore {
           error: `Replacement would put memory at ${newTotal}/${limit} chars. Shorten or remove other entries first.`,
         };
       }
-      return this.vaultOffloadAndReplace(target, entries, idx, encoded, newContent.length, limit);
+      const r = await this.vaultOffloadAndReplace(target, entries, idx, encoded, newContent.length, limit);
+      if (r.success) r.added_md_id = id;
+      return r;
     }
 
     entries[idx] = encoded;
     this.setEntries(target, entries);
     await this.saveToDisk(target);
 
-    return this.successResponse(target, "Entry replaced.");
+    return { ...this.successResponse(target, "Entry replaced."), added_md_id: id };
   }
 
   async remove(target: "memory" | "user" | "failure", oldText: string): Promise<MemoryResult> {
@@ -981,19 +1244,34 @@ export class MemoryStore {
   // ─── Internal helpers ───
 
   /**
-   * Encode metadata (created, lastReferenced) as an HTML comment appended to entry text.
-   * The comment is invisible in markdown and transparent to the § delimiter.
+   * Encode an entry as YAML frontmatter (ticket 05 stable-id schema): the
+   * stable `id` is identity-first, followed by created/last/provenance/sources/
+   * memworth. Every BIRTH (add/replace) mints one uuid here and threads it to
+   * BOTH sides — the `.md` frontmatter (below) and the DB row's `md_id` (via
+   * `MemoryResult.added_md_id` → the caller's syncMemoryEntry/replaceSynced).
+   * This is the write-path half of the bridge (Task 7 / F1 fix): pre-5d this
+   * returned a comment-shape line with NO id, so entries born in-session stayed
+   * id-less until the next restart's backfill — and an in-session entry that was
+   * evicted/transferred/superseded before that restart had `evicted_md_ids` empty
+   * → `removeByMdId` fired zero times → a permanent DB orphan.
+   *
+   * `id` is a REQUIRED param: the caller (add/replace) mints it once and owns
+   * the threading. The backfill path mints its own ids and goes through
+   * `upgradeEntryToFrontmatter` (not here) — both paths agree on the frontmatter
+   * shape via `serializeMetadataFrontmatter`.
    */
   private encodeEntry(
     text: string,
     created: string,
     lastReferenced: string,
+    id: string,
     meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null; mwSuccess?: number | null; mwFail?: number | null },
   ): string {
-    return serializeMetadataComment({
+    return serializeMetadataFrontmatter({
+      id,
       text,
       created,
-      lastReferenced,
+      last: lastReferenced,
       provenance: meta?.provenance,
       sources: meta?.sources,
       mwSuccess: meta?.mwSuccess,
@@ -1002,19 +1280,48 @@ export class MemoryStore {
   }
 
   /**
-   * Decode entry text, extracting metadata if present.
-   * Falls back to today's date for legacy entries without metadata.
+   * Decode entry text, extracting metadata if present. Dispatches on shape:
+   * frontmatter entries (post-backfill) yield their stable frontmatter `id` +
+   * body text + dates; legacy comment entries fall back to today's date and
+   * carry no id. Widened in ticket 05/Task 5 so eviction/transfer/archive paths
+   * read both the content (body) and the stable id from a single decode.
    */
   private decodeEntry(raw: string): {
     text: string;
     created: string;
     lastReferenced: string;
+    id?: string;
     provenance?: Provenance;
     sources?: MemorySource[];
     mwSuccess?: number;
     mwFail?: number;
   } {
+    if (detectEntryShape(raw) === "frontmatter") {
+      const fm = parseMetadataFrontmatter(raw);
+      return {
+        text: fm.text,
+        created: fm.created,
+        lastReferenced: fm.lastReferenced,
+        id: fm.id,
+        ...(fm.provenance ? { provenance: fm.provenance } : {}),
+        ...(Array.isArray(fm.sources) ? { sources: fm.sources } : {}),
+        ...(typeof fm.mwSuccess === "number" ? { mwSuccess: fm.mwSuccess } : {}),
+        ...(typeof fm.mwFail === "number" ? { mwFail: fm.mwFail } : {}),
+      };
+    }
     return parseMetadataComment(raw);
+  }
+
+  /** Read an entry's stable frontmatter id, or `null` when it is comment-shape
+   *  (no id) / malformed. The single source of truth for md_id extraction used
+   *  by purge + eviction/transfer md_id population (ticket 04). */
+  private mdIdOf(raw: string): string | null {
+    if (detectEntryShape(raw) !== "frontmatter") return null;
+    try {
+      return parseMetadataFrontmatter(raw).id;
+    } catch {
+      return null;
+    }
   }
 
   /** Strip metadata comment from entry text for display. */

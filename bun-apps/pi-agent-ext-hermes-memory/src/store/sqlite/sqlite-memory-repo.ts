@@ -63,7 +63,8 @@ const MEMORY_SELECT_COLUMNS = `
   status,
   supersedes,
   superseded_by,
-  parent_ids
+  parent_ids,
+  md_id
 `;
 
 type MemoryRow = {
@@ -83,6 +84,7 @@ type MemoryRow = {
   supersedes: number | null;
   superseded_by: number | null;
   parent_ids: string | null;
+  md_id: string | null;
 };
 
 /**
@@ -118,6 +120,7 @@ function mapRow(row: MemoryRow): MemoryEntry {
     supersedes: row.supersedes,
     supersededBy: row.superseded_by,
     parentIds: parseParentIds(row.parent_ids),
+    mdId: row.md_id,
   };
 }
 
@@ -214,6 +217,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
     correctedTo?: string | null;
     created?: string;
     lastReferenced?: string;
+    mdId?: string | null;
   }): Promise<MemoryEntry> {
     return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
       const content = input.content;
@@ -225,11 +229,13 @@ export class SqliteMemoryRepository implements MemoryRepository {
       const correctedTo = input.correctedTo ?? null;
       const created = input.created ?? today();
       const lastReferenced = input.lastReferenced ?? created;
+      // Task 7 / F1: stamp the stable id at birth so the row is never id-less.
+      const mdId = input.mdId ?? null;
 
       const result = this.db.prepare(`
-        INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, 0, 0);
+        INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, md_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, 0, 0, mdId);
 
       return {
         id: Number(result.lastInsertRowid),
@@ -248,6 +254,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
         supersedes: null,
         supersededBy: null,
         parentIds: [],
+        mdId,
       };
     }));
   }
@@ -301,6 +308,10 @@ export class SqliteMemoryRepository implements MemoryRepository {
     `).get(...params) as MemoryRow | undefined;
 
     if (!existing) {
+      // Task 7 / F1: stamp the birth id so a freshly-synced row is never id-less
+      // (matches the `.md` frontmatter id the caller minted). NULL when the
+      // caller omitted it (legacy/no-id re-sync) — the column allows NULL.
+      const mdId = input.mdId ?? null;
       const entry: MemoryEntry = {
         id: 0, // overwritten below
         project,
@@ -318,11 +329,12 @@ export class SqliteMemoryRepository implements MemoryRepository {
         supersedes: null,
         supersededBy: null,
         parentIds: [],
+        mdId,
       };
       const result = this.db.prepare(`
-        INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(project, input.target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, input.mwSuccess ?? 0, input.mwFail ?? 0);
+        INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, md_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(project, input.target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, input.mwSuccess ?? 0, input.mwFail ?? 0, mdId);
       entry.id = Number(result.lastInsertRowid);
       return { action: "inserted" as const, entry };
     }
@@ -334,19 +346,41 @@ export class SqliteMemoryRepository implements MemoryRepository {
     const updatedToolState = existing.tool_state ?? toolState;
     const updatedCorrectedTo = existing.corrected_to ?? correctedTo;
 
-    this.db.prepare(`
-      UPDATE memories
-      SET category = ?, failure_reason = ?, tool_state = ?, corrected_to = ?, created = ?, last_referenced = ?
-      WHERE id = ?
-    `).run(
-      updatedCategory,
-      updatedFailureReason,
-      updatedToolState,
-      updatedCorrectedTo,
-      updatedCreated,
-      updatedLastReferenced,
-      existing.id,
-    );
+    // Task 7 / F1: when the caller carries a birth id, stamp it onto the
+    // existing row too (orphan-readd: the `.md` entry was re-birthed with a
+    // fresh id after its DB row survived a failed remove). Absent → leave the
+    // row's md_id untouched (preserves a backfilled id on a no-id re-sync).
+    const birthMdId = input.mdId && input.mdId.length > 0 ? input.mdId : null;
+    if (birthMdId !== null) {
+      this.db.prepare(`
+        UPDATE memories
+        SET category = ?, failure_reason = ?, tool_state = ?, corrected_to = ?, created = ?, last_referenced = ?, md_id = ?
+        WHERE id = ?
+      `).run(
+        updatedCategory,
+        updatedFailureReason,
+        updatedToolState,
+        updatedCorrectedTo,
+        updatedCreated,
+        updatedLastReferenced,
+        birthMdId,
+        existing.id,
+      );
+    } else {
+      this.db.prepare(`
+        UPDATE memories
+        SET category = ?, failure_reason = ?, tool_state = ?, corrected_to = ?, created = ?, last_referenced = ?
+        WHERE id = ?
+      `).run(
+        updatedCategory,
+        updatedFailureReason,
+        updatedToolState,
+        updatedCorrectedTo,
+        updatedCreated,
+        updatedLastReferenced,
+        existing.id,
+      );
+    }
 
     return {
       action: "existing" as const,
@@ -365,6 +399,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
       toolState?: string | null;
       correctedTo?: string | null;
       lastReferenced?: string | null;
+      mdId?: string | null;
     },
   ): Promise<MemoryUpdateResult> {
     return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
@@ -387,26 +422,53 @@ export class SqliteMemoryRepository implements MemoryRepository {
       }
 
       const nextLastReferenced = updates.lastReferenced?.trim() || today();
+      // Task 7 / F1: a replace births a NEW entry, so stamp the replacement's
+      // fresh uuid onto the updated row's md_id (overwrites the superseded
+      // entry's id — the row now represents the new entry). Absent → untouched.
+      const birthMdId = updates.mdId && updates.mdId.length > 0 ? updates.mdId : null;
 
       for (const row of rows) {
-        this.db.prepare(`
-          UPDATE memories
-          SET content = ?,
-              category = ?,
-              failure_reason = ?,
-              tool_state = ?,
-              corrected_to = ?,
-              last_referenced = ?
-          WHERE id = ?
-        `).run(
-          updates.content.trim(),
-          updates.category === undefined ? row.category : updates.category,
-          updates.failureReason === undefined ? row.failure_reason : normalizeNullable(updates.failureReason),
-          updates.toolState === undefined ? row.tool_state : normalizeNullable(updates.toolState),
-          updates.correctedTo === undefined ? row.corrected_to : normalizeNullable(updates.correctedTo),
-          nextLastReferenced,
-          row.id,
-        );
+        if (birthMdId !== null) {
+          this.db.prepare(`
+            UPDATE memories
+            SET content = ?,
+                category = ?,
+                failure_reason = ?,
+                tool_state = ?,
+                corrected_to = ?,
+                last_referenced = ?,
+                md_id = ?
+            WHERE id = ?
+          `).run(
+            updates.content.trim(),
+            updates.category === undefined ? row.category : updates.category,
+            updates.failureReason === undefined ? row.failure_reason : normalizeNullable(updates.failureReason),
+            updates.toolState === undefined ? row.tool_state : normalizeNullable(updates.toolState),
+            updates.correctedTo === undefined ? row.corrected_to : normalizeNullable(updates.correctedTo),
+            nextLastReferenced,
+            birthMdId,
+            row.id,
+          );
+        } else {
+          this.db.prepare(`
+            UPDATE memories
+            SET content = ?,
+                category = ?,
+                failure_reason = ?,
+                tool_state = ?,
+                corrected_to = ?,
+                last_referenced = ?
+            WHERE id = ?
+          `).run(
+            updates.content.trim(),
+            updates.category === undefined ? row.category : updates.category,
+            updates.failureReason === undefined ? row.failure_reason : normalizeNullable(updates.failureReason),
+            updates.toolState === undefined ? row.tool_state : normalizeNullable(updates.toolState),
+            updates.correctedTo === undefined ? row.corrected_to : normalizeNullable(updates.correctedTo),
+            nextLastReferenced,
+            row.id,
+          );
+        }
       }
 
       return {
@@ -449,6 +511,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
     }));
   }
 
+  /** @deprecated backfill-only — use {@link removeByMdId} in steady state. */
   async removeExactSyncedMemories(content: string, options: MemoryRemoveOptions): Promise<MemoryRemoveResult> {
     return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
       const params: unknown[] = [];
@@ -474,6 +537,54 @@ export class SqliteMemoryRepository implements MemoryRepository {
         matched: matchingIds.length,
         removed: result.changes,
       };
+    }));
+  }
+
+  async removeByMdId(mdId: string, options: MemoryRemoveOptions): Promise<MemoryRemoveResult> {
+    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
+      const params: unknown[] = [];
+      const conditions = buildScopeConditions(params, options.target, options.project ?? undefined);
+      conditions.push("md_id = ?");
+      params.push(mdId);
+
+      const matchingIds = this.db.prepare(`
+        SELECT id
+        FROM memories
+        WHERE ${conditions.join(" AND ")}
+      `).all(...params) as Array<{ id: number }>;
+
+      if (matchingIds.length === 0) {
+        return { matched: 0, removed: 0 };
+      }
+
+      const deleteParams = matchingIds.map((row) => row.id);
+      const placeholders = deleteParams.map(() => "?").join(", ");
+      const result = this.db.prepare(`DELETE FROM memories WHERE id IN (${placeholders})`).run(...deleteParams);
+
+      return {
+        matched: matchingIds.length,
+        removed: result.changes,
+      };
+    }));
+  }
+
+  async getMdIdByContent(content: string, options: MemoryRemoveOptions): Promise<string | null> {
+    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
+      const params: unknown[] = [];
+      const conditions = buildScopeConditions(params, options.target, options.project ?? undefined);
+      conditions.push("content = ?"); params.push(content.trim());
+      const row = this.db.prepare(`SELECT md_id AS mdId FROM memories WHERE ${conditions.join(" AND ")} LIMIT 1`).get(...params) as { mdId?: string | null } | undefined;
+      return row?.mdId ?? null;
+    }));
+  }
+
+  async setMdIdByContent(content: string, mdId: string, options: MemoryRemoveOptions): Promise<number> {
+    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
+      const params: unknown[] = [mdId];
+      const conditions = buildScopeConditions(params, options.target, options.project ?? undefined);
+      conditions.push("content = ?"); params.push(content.trim());
+      const res = this.db.prepare(`UPDATE memories SET md_id = ? WHERE ${conditions.join(" AND ")}`).run(...params);
+      return res.changes;
     }));
   }
 

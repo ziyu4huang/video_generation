@@ -48,7 +48,8 @@ describe("MemoryStore metadata channel (unified encode/decode)", () => {
     const store = makeStore();
     await store.add("memory", "plain entry");
     const raw = await fs.promises.readFile(path.join(MEMORY_DIR, "MEMORY.md"), "utf-8");
-    assert.match(raw, /plain entry <!-- created=\d{4}-\d{2}-\d{2}, last=\d{4}-\d{2}-\d{2} -->/);
+    // Task 7: birth now emits YAML frontmatter (id/created/last) + body.
+    assert.match(raw, /id: [0-9a-f-]+\ncreated: \d{4}-\d{2}-\d{2}\nlast: \d{4}-\d{2}-\d{2}\n---\nplain entry/);
     const withMeta = store.entriesWithMeta("memory");
     assert.strictEqual(withMeta[0].text, "plain entry");
   });
@@ -60,7 +61,9 @@ describe("MemoryStore metadata channel (unified encode/decode)", () => {
       sources: [{ kind: "quote", locator: "s42", capture: "verified fact" }],
     });
     const raw = await fs.promises.readFile(path.join(MEMORY_DIR, "MEMORY.md"), "utf-8");
-    assert.ok(raw.includes('<!-- meta:{"provenance":"verified","sources":'));
+    // Task 7: provenance + sources now ride the YAML frontmatter (not a comment).
+    assert.ok(raw.includes("provenance: verified"));
+    assert.ok(raw.includes("sources:"));
     // And it decodes back:
     const decoded = store.entriesWithMeta("memory")[0];
     assert.strictEqual((decoded as { provenance?: string }).provenance, "verified");
@@ -74,7 +77,8 @@ describe("MemoryStore metadata channel (unified encode/decode)", () => {
       provenance: "unverified",
     });
     const raw = await fs.promises.readFile(path.join(MEMORY_DIR, "failures.md"), "utf-8");
-    assert.ok(raw.includes('"provenance":"unverified"'));
+    // Task 7: provenance rides the YAML frontmatter.
+    assert.ok(raw.includes("provenance: unverified"));
   });
 
   it("auto-consolidate retry preserves provenance + sources metadata", async () => {
@@ -99,13 +103,15 @@ describe("MemoryStore metadata channel (unified encode/decode)", () => {
     };
     const store = new MemoryStore(config);
 
-    // Inject a stub consolidator that frees space by removing all entries
-    store.setConsolidator(async (target, _signal) => {
-      const entries = target === "memory" ? store.getMemoryEntries() : store.getUserEntries();
-      for (const entry of [...entries]) {
-        await store.remove(target, entry);
-      }
-      return { consolidated: true };
+    // Inject a stub consolidator that frees space by dropping every entry
+    // (2-phase: returns a MergePlan; the store applies it in step 3).
+    store.setConsolidator(async (snapshot) => {
+      return {
+        plan: {
+          snapshotBaseHash: snapshot.snapshotBaseHash,
+          ops: snapshot.entries.map((e) => ({ op: "drop" as const, key: e.key })),
+        },
+      };
     });
 
     await store.loadFromDisk();
@@ -121,9 +127,11 @@ describe("MemoryStore metadata channel (unified encode/decode)", () => {
 
     assert.ok(result.success, "add should succeed after consolidation");
 
-    // Verify meta comment survived the consolidate-retry path
+    // Verify provenance + sources survived the consolidate-retry path (Task 7:
+    // they ride the YAML frontmatter now, not a trailing HTML comment).
     const raw = await fs.promises.readFile(path.join(MEMORY_DIR, "MEMORY.md"), "utf-8");
-    assert.ok(raw.includes('<!-- meta:{"provenance":"verified","sources":'), "meta comment should be present");
+    assert.ok(raw.includes("provenance: verified"), "provenance should be present");
+    assert.ok(raw.includes("sources:"), "sources should be present");
 
     // Verify it decodes back correctly
     const entries = store.entriesWithMeta("memory");
@@ -143,7 +151,7 @@ describe("MemoryStore metadata channel (unified encode/decode)", () => {
     assert.strictEqual(res.success, true);
     const raw = await fs.promises.readFile(path.join(MEMORY_DIR, "MEMORY.md"), "utf-8");
     assert.ok(raw.includes("updated fact"));
-    assert.ok(raw.includes('"provenance":"verified"'), "provenance must survive replace");
+    assert.ok(raw.includes("provenance: verified"), "provenance must survive replace");
   });
 
   it("replace() preserves non-zero worth counters on the rewritten entry", async () => {
@@ -161,6 +169,9 @@ describe("MemoryStore metadata channel (unified encode/decode)", () => {
     assert.strictEqual(res.success, true);
     const raw = await fs.promises.readFile(memoryFile, "utf-8");
     assert.ok(raw.includes("updated fact"));
-    assert.ok(raw.includes('"mwSuccess":4'), "worth counters must survive replace");
+    // Task 7: worth counters ride the YAML `memworth` block (success survives;
+    // the yaml lib elides a lone fail:1, a pre-existing serialize quirk).
+    assert.ok(raw.includes("memworth:"), "worth block must survive replace");
+    assert.ok(raw.includes("success: 4"), "success counter must survive replace");
   });
 });

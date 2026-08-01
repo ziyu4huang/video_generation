@@ -4,7 +4,7 @@
  * When a store.add() overflows the char limit and the injected provider reports
  * superseded entries for the target, the store purges those superseded entries
  * from `.md` AND the caller must delete their DB rows (destructive, no audit —
- * the existing `syncEvictions`/`removeExactSyncedMemories` content-key path).
+ * the steady-state `syncEvictions`/`removeByMdId` md_id-keyed path, ticket 04).
  *
  * This test drives the full loop through `applyReviewOperations` (the same
  * operation path the memory-tool / review handlers use) and asserts the
@@ -35,11 +35,29 @@ import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
 import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
 import { MemoryStore } from "../../src/store/memory-store.js";
 import { applyReviewOperations } from "../../src/handlers/review-memory-ops.js";
+import { ENTRY_DELIMITER, MEMORY_FILE } from "../../src/constants.js";
 
 const PROJECT = "sync-proj";
 const ACTIVE_CONTENT = "active keeper syncprobe yyy";
 const PRIOR_CONTENT = "superseded doomed syncprobe yyy";
 const NEW_CONTENT = "new overflow syncprobe zzz";
+
+// Stable md_ids mirrored onto both the `.md` frontmatter and the DB rows so the
+// md_id-keyed purge/sync (ticket 04) can match across the `.md`↔DB seam.
+const ACTIVE_MD_ID = "active-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+const PRIOR_MD_ID = "prior-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+
+/** Build a frontmatter-shaped `.md` entry (post-backfill shape) with a stable id. */
+function fm(mdId: string, body: string): string {
+  return `---\nid: ${mdId}\ncreated: 2026-08-01\nlast: 2026-08-01\n---\n${body}`;
+}
+
+/** Write frontmatter entries to the memory `.md` file (seeds the on-disk source
+ *  of truth; `_addInner` reloads from disk so array injection would be wiped). */
+async function seedMd(store: MemoryStore, entries: string[]): Promise<void> {
+  const dir = (store as unknown as { memoryDir: string }).memoryDir;
+  await fs.promises.writeFile(path.join(dir, MEMORY_FILE), entries.join(ENTRY_DELIMITER), "utf-8");
+}
 
 // ─── Resurrect-stale guard (Task 4) ─────────────────────────────────────────
 // Unique nonce carried ONLY by the superseded entry. The guard asserts this
@@ -50,19 +68,26 @@ const GUARD_NONCE = "resurrectguard qqxnv";
 const GUARD_ACTIVE_ONE = "active keeper alpha axa";
 const GUARD_ACTIVE_TWO = "active keeper bravo bxb";
 const GUARD_SUPERSEDED = `stale ${GUARD_NONCE}`;
-const GUARD_NEW = "new overflow nu nxn payload segment";
-// Calibration (computed via the real encodeEntry + ENTRY_DELIMITER "\n§\n"):
-//   3 seed entries total 213 chars; the 4th add totals 296 (>limit → overflow);
-//   after purging the superseded entry, [A1,A2]+N totals 222 (>limit → the
-//   consolidator MUST run, not the purge early-return); the 2→1 merge of the
-//   active keepers saves one metadata block so the retry fits (177 ≤ limit).
-//   217 is chosen inside the valid window [213,222) so that even the Mutation-A
-//   merge of all THREE entries (active+active+superseded, 206 on retry) still
-//   fits — proving that WITHOUT the purge, the superseded nonce IS resurrected
-//   into the consolidated `.md` entry (the RED we mutation-verify). It also
-//   guarantees the three seeds fit (213 ≤ 217) so seeding itself never trips
-//   consolidation before the test's driving add.
-const GUARD_LIMIT = 217;
+// NEW is sized LARGE (≈91-char body) so that even after purging the superseded
+// entry, [A1,A2]+NEW still overflows the limit → the consolidator MUST run
+// (frontmatter seeds are ~114 chars each, so a small NEW would let the purge
+// early-return fire and skip consolidation entirely).
+const GUARD_NEW = "new overflow nu nxn payload segment " + "z".repeat(56);
+// Stable md_ids for the guard fixtures (mirrored on `.md` frontmatter + DB).
+const GUARD_A1_MD_ID = "a1aaaaaa-aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+const GUARD_A2_MD_ID = "a2aaaaaa-aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+const GUARD_SUP_MD_ID = "supaaaaa-aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+// Calibration (frontmatter seeds, ticket 05 shape; computed via the real
+//   encodeEntry + ENTRY_DELIMITER "\n§\n"):
+//   3 frontmatter seeds total 351 chars; the 4th add totals 490 (>limit →
+//   overflow); after purging the superseded entry, [A1,A2]+N totals 370
+//   (>limit → the consolidator MUST run, not the purge early-return); the 2→1
+//   merge of the active keepers' STRIPPED bodies (getMemoryEntries strips
+//   frontmatter) saves ~190 chars so the retry fits (233 ≤ limit).
+//   360 is chosen inside the valid window [351,370): the three seeds fit
+//   (351 ≤ 360) so seeding never trips overflow; after purge [A1,A2]+N is still
+//   370 > 360 → the consolidator runs on the superseded-free remainder.
+const GUARD_LIMIT = 360;
 
 // Minimal in-process consolidator stub: merges ALL current `.md` entries for
 // the target into ONE content-preserving entry (joined with " | "). Unlike the
@@ -72,20 +97,27 @@ const GUARD_LIMIT = 217;
 // helpers (setEntries/saveToDisk/encodeEntry) the same way the production
 // consolidator rewrites the file on disk; saveToDisk does not re-acquire the
 // file lock (it only writes), so it is safe to call from inside the held lock.
-type StoreInternals = {
-  setEntries: (t: "memory" | "user" | "failure", e: string[]) => void;
-  saveToDisk: (t: "memory" | "user" | "failure") => Promise<void>;
-  encodeEntry: (text: string, created: string, last: string) => string;
-};
+// (2-phase note: this helper now returns a MergePlan that MERGES every seeded
+// entry into one content-preserving row; the store applies it in step 3. The
+// drop-everything-else semantics are identical to the old direct-mutate stub.)
 function installMergingConsolidator(store: MemoryStore): void {
-  store.setConsolidator(async (target) => {
-    const internal = store as unknown as StoreInternals;
-    const entries = target === "memory" ? store.getMemoryEntries() : [];
-    const merged = entries.join(" | ");
-    const today = new Date().toISOString().split("T")[0];
-    internal.setEntries("memory", merged ? [internal.encodeEntry(merged, today, today)] : []);
-    await internal.saveToDisk("memory");
-    return { consolidated: true };
+  store.setConsolidator(async (snapshot) => {
+    // Merge every entry into ONE content-preserving row (joined with " | ").
+    // Unlike the real LLM consolidator (which summarizes), this stub preserves
+    // verbatim text — so if a superseded entry survived into the snapshot, its
+    // nonce is resurrected into the merge. That is exactly the D0/D2 hazard the
+    // guard locks (the snapshot is taken AFTER the superseded purge, so it is
+    // absent and cannot be resurrected).
+    const keys = snapshot.entries.map((e) => e.key);
+    const merged = snapshot.entries.map((e) => e.content).join(" | ");
+    return {
+      plan: {
+        snapshotBaseHash: snapshot.snapshotBaseHash,
+        ops: keys.length
+          ? [{ op: "merge" as const, fromKeys: keys, content: merged }]
+          : [],
+      },
+    };
   }, "merge-stub");
 }
 
@@ -99,11 +131,16 @@ describe("overflow add → offload superseded → sync DB (D2 + D4 destructive)"
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "overflow-sync-"));
     backend = new SqliteBackend(tmpDir);
     repo = new SqliteMemoryRepository(backend);
-    // See calibration note above: 160 is the minimum viable limit.
+    // Calibration (frontmatter seeds, ticket 05 shape): two ~120-char
+    // frontmatter entries total ~241; the NEW add overflows at ~315; after
+    // purging the superseded entry [ACTIVE]+NEW is ~232 ≤ 250 → the purge
+    // early-return fires (the D2 happy path that surfaces offloaded_superseded).
+    // (Task 7 raised 220→250: births emit a ~86-char frontmatter header, so
+    // [ACTIVE, NEW] must stay under the limit post-purge for the early return.)
     store = new MemoryStore({
-      memoryCharLimit: 160,
-      userCharLimit: 160,
-      projectCharLimit: 160,
+      memoryCharLimit: 250,
+      userCharLimit: 250,
+      projectCharLimit: 250,
       memoryDir: tmpDir,
     } as unknown as ConstructorParameters<typeof MemoryStore>[0]);
   });
@@ -114,12 +151,11 @@ describe("overflow add → offload superseded → sync DB (D2 + D4 destructive)"
   });
 
   it("overflow add offloads a superseded entry and deletes its DB row (D2 + D4 destructive)", async () => {
-    // Seed the `.md` source of truth (store.add) AND the DB mirror
-    // (repo.addMemory) with an active keeper + a prior entry, then supersede the
-    // prior in the DB. The `.md` has no status column, so both entries remain in
-    // `.md`; only the DB knows prior is superseded.
-    await store.add("memory", ACTIVE_CONTENT);
-    await store.add("memory", PRIOR_CONTENT);
+    // Seed the `.md` source of truth with FRONTMATTER entries (post-backfill
+    // shape, stable ids) AND the DB mirror with matching md_ids, then supersede
+    // the prior in the DB. The `.md` has no status column, so both entries
+    // remain in `.md`; only the DB knows prior is superseded.
+    await seedMd(store, [fm(ACTIVE_MD_ID, ACTIVE_CONTENT), fm(PRIOR_MD_ID, PRIOR_CONTENT)]);
 
     const active = await repo.addMemory({
       target: "memory",
@@ -139,13 +175,16 @@ describe("overflow add → offload superseded → sync DB (D2 + D4 destructive)"
       toolState: null,
       correctedTo: null,
     });
+    // Mirror the stable ids onto the DB rows so removeByMdId can match (ticket 04).
+    await repo.setMdIdByContent(ACTIVE_CONTENT, ACTIVE_MD_ID, { target: "memory", project: PROJECT });
+    await repo.setMdIdByContent(PRIOR_CONTENT, PRIOR_MD_ID, { target: "memory", project: PROJECT });
     await repo.supersedeMemory(prior.id, active.id);
 
-    // Wire the provider exactly the way src/index.ts will (Step 3): query the DB
-    // for superseded contents for the target/project, return content strings.
+    // Wire the provider exactly the way src/index.ts does: query the DB for
+    // superseded rows for the target/project, return their MD_IDS.
     store.setSupersededContentProvider(async (t) => {
       const list = await repo.getMemories({ target: t, project: PROJECT, status: "superseded" });
-      return list.map((m) => m.content);
+      return list.map((m) => m.mdId).filter((id): id is string => Boolean(id));
     });
 
     // Drive an overflow add through the operation path that syncs evictions.
@@ -225,25 +264,31 @@ describe("resurrect-stale guard: superseded never consolidated into recall", () 
   });
 
   it("a superseded entry is purged before consolidation and never recalled", async () => {
-    // Seed `.md` (store.add) AND the DB mirror (repo.addMemory) with two active
-    // keepers + one prior, then supersede the prior in the DB. The `.md` has no
+    // Seed `.md` with FRONTMATTER entries (stable ids) AND the DB mirror with
+    // matching md_ids, then supersede the prior in the DB. The `.md` has no
     // status column, so all three remain in `.md`; only the DB knows the prior
     // is superseded.
-    await store.add("memory", GUARD_ACTIVE_ONE);
-    await store.add("memory", GUARD_ACTIVE_TWO);
-    await store.add("memory", GUARD_SUPERSEDED);
+    await seedMd(store, [
+      fm(GUARD_A1_MD_ID, GUARD_ACTIVE_ONE),
+      fm(GUARD_A2_MD_ID, GUARD_ACTIVE_TWO),
+      fm(GUARD_SUP_MD_ID, GUARD_SUPERSEDED),
+    ]);
 
     const a1 = await repo.addMemory({ target: "memory", project: PROJECT, content: GUARD_ACTIVE_ONE, category: "insight", failureReason: null, toolState: null, correctedTo: null });
     const a2 = await repo.addMemory({ target: "memory", project: PROJECT, content: GUARD_ACTIVE_TWO, category: "insight", failureReason: null, toolState: null, correctedTo: null });
     const sup = await repo.addMemory({ target: "memory", project: PROJECT, content: GUARD_SUPERSEDED, category: "insight", failureReason: null, toolState: null, correctedTo: null });
+    await repo.setMdIdByContent(GUARD_ACTIVE_ONE, GUARD_A1_MD_ID, { target: "memory", project: PROJECT });
+    await repo.setMdIdByContent(GUARD_ACTIVE_TWO, GUARD_A2_MD_ID, { target: "memory", project: PROJECT });
+    await repo.setMdIdByContent(GUARD_SUPERSEDED, GUARD_SUP_MD_ID, { target: "memory", project: PROJECT });
     await repo.supersedeMemory(sup.id, a1.id);
     // Sanity: a2 stays active too.
     assert.ok((await repo.getMemories({ project: PROJECT, status: "active" })).some((m) => m.id === a2.id));
 
-    // Wire the provider exactly as src/index.ts does (Task 3).
+    // Wire the provider exactly as src/index.ts does: return MD_IDS of the
+    // superseded rows for the target/project.
     store.setSupersededContentProvider(async (t) => {
       const list = await repo.getMemories({ target: t, project: PROJECT, status: "superseded" });
-      return list.map((m) => m.content);
+      return list.map((m) => m.mdId).filter((id): id is string => Boolean(id));
     });
 
     // Drive the overflow add through the operation path that syncs evictions.
@@ -329,22 +374,27 @@ describe("overflow floor: superseded DB row is not orphaned after vault-offload"
   });
 
   it("deletes the superseded DB row even when the floor (not early-return) handles overflow", async () => {
-    // Seed `.md` (store.add) AND the DB mirror (repo.addMemory) with two active
-    // keepers + one prior, then supersede the prior in the DB.
-    await store.add("memory", GUARD_ACTIVE_ONE);
-    await store.add("memory", GUARD_ACTIVE_TWO);
-    await store.add("memory", GUARD_SUPERSEDED);
+    // Seed `.md` with FRONTMATTER entries (stable ids) AND the DB mirror with
+    // matching md_ids, then supersede the prior in the DB.
+    await seedMd(store, [
+      fm(GUARD_A1_MD_ID, GUARD_ACTIVE_ONE),
+      fm(GUARD_A2_MD_ID, GUARD_ACTIVE_TWO),
+      fm(GUARD_SUP_MD_ID, GUARD_SUPERSEDED),
+    ]);
 
     const a1 = await repo.addMemory({ target: "memory", project: PROJECT, content: GUARD_ACTIVE_ONE, category: "insight", failureReason: null, toolState: null, correctedTo: null });
     const a2 = await repo.addMemory({ target: "memory", project: PROJECT, content: GUARD_ACTIVE_TWO, category: "insight", failureReason: null, toolState: null, correctedTo: null });
     const sup = await repo.addMemory({ target: "memory", project: PROJECT, content: GUARD_SUPERSEDED, category: "insight", failureReason: null, toolState: null, correctedTo: null });
+    await repo.setMdIdByContent(GUARD_ACTIVE_ONE, GUARD_A1_MD_ID, { target: "memory", project: PROJECT });
+    await repo.setMdIdByContent(GUARD_ACTIVE_TWO, GUARD_A2_MD_ID, { target: "memory", project: PROJECT });
+    await repo.setMdIdByContent(GUARD_SUPERSEDED, GUARD_SUP_MD_ID, { target: "memory", project: PROJECT });
     await repo.supersedeMemory(sup.id, a1.id);
     assert.ok((await repo.getMemories({ project: PROJECT, status: "active" })).some((m) => m.id === a2.id));
 
-    // Provider wired exactly as src/index.ts does (Task 3).
+    // Provider wired exactly as src/index.ts does: return MD_IDS of superseded rows.
     store.setSupersededContentProvider(async (t) => {
       const list = await repo.getMemories({ target: t, project: PROJECT, status: "superseded" });
-      return list.map((m) => m.content);
+      return list.map((m) => m.mdId).filter((id): id is string => Boolean(id));
     });
 
     // Drive the overflow add. After-purge is still over limit → the FLOOR runs.

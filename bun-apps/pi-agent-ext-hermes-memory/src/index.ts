@@ -43,8 +43,9 @@ import { registerMemorySearchTool } from "./tools/memory-search-tool.js";
 import { registerMemorySupersedeTool } from "./tools/memory-supersede-tool.js";
 import { setupBackgroundReview } from "./handlers/background-review.js";
 import { setupSessionFlush } from "./handlers/session-flush.js";
+import { setupCommitProjectMemory } from "./handlers/commit-project-memory.js";
 import { registerInsightsCommand } from "./handlers/insights.js";
-import { triggerConsolidation, registerConsolidateCommand, resolveConsolidatorModelLabel } from "./handlers/auto-consolidate.js";
+import { triggerConsolidation, registerConsolidateCommand, resolveConsolidatorModelLabel, produceMergePlan } from "./handlers/auto-consolidate.js";
 import { setupCorrectionDetector } from "./handlers/correction-detector.js";
 import { setupErrorDetector } from "./handlers/error-detector.js";
 import { RecallSet, setupWorthScoring } from "./handlers/worth-scoring.js";
@@ -127,7 +128,7 @@ export default async function (pi: ExtensionAPI) {
   let extensionRootMigrated = false;
 
   const store = new MemoryStore({ ...config, memoryDir: globalDir });
-  const project = detectProject(config.projectsMemoryDir);
+  const project = detectProject(config.projectsMemoryDir, undefined, config.projectName);
   const projectName = project.name ?? "";
   // Project-scoped store location (ticket 04, decision 01): default in-repo
   // <cwd>/.agents/memory/ (git-trackable); null → opt-out (legacy global);
@@ -296,6 +297,18 @@ export default async function (pi: ExtensionAPI) {
     await store.loadFromDisk();
     if (projectStore) await projectStore.loadFromDisk();
 
+    // Task 4: one-shot idempotent backfill of the 5d stable-id migration. Runs
+    // AFTER loadFromDisk() so the in-memory `.md` entries are populated. Wrapped
+    // in try/catch so a backfill failure NEVER aborts agent startup or trips the
+    // sqlite fallback — the per-entry DB mirror is already best-effort inside
+    // backfillStableIds(); this outer guard covers load/parse/disk-write faults.
+    try {
+      await store.backfillStableIds();
+      await projectStore?.backfillStableIds();
+    } catch {
+      /* never block startup */
+    }
+
     scheduleSessionBackfill(sessionRepo, sessionsDir, {
       timed: perf.timed,
       notify: (message, level) => {
@@ -345,33 +358,82 @@ export default async function (pi: ExtensionAPI) {
   // ── 6. Setup session-end flush ──
   setupSessionFlush(pi, store, projectStore, config, memoryToolDef);
 
-  // ── 7. Setup auto-consolidation (inject consolidator into stores) ──
-  store.setConsolidator(async (target, signal) => {
-    return triggerConsolidation(store, target, memoryToolDef, signal, config.consolidationTimeoutMs, target, config);
-  }, resolveConsolidatorModelLabel(config));
-  if (projectStore) {
-    projectStore.setConsolidator(async (target, signal) => {
-      const toolTarget = target === "memory" ? "project" : target;
-      return triggerConsolidation(projectStore, target, memoryToolDef, signal, config.consolidationTimeoutMs, toolTarget, config);
-    }, resolveConsolidatorModelLabel(config));
+  // ── 6b. Project-memory autocommit (opt-in; a complete no-op unless the repo
+  //      sets autoCommitProjectMemory in <cwd>/.agents/memory/config.json) ──
+  // Commits agent-written .agents/memory/MEMORY.md to the current (non-protected)
+  // branch, batched per session via a ~20s trailing debounce on message_end.
+  // Only wired when an in-repo project memory file exists (projectMemoryDir !== null
+  // + a detected project); the handler self-no-ops when the repo hasn't opted in.
+  if (inRepoProjectFile) {
+    setupCommitProjectMemory(pi, config, {
+      cwd: process.cwd(),
+      memoryFilePath: inRepoProjectFile,
+      logger: (message, level) => {
+        // info = a commit landed; debug = skip/suppress/defer (quiet by default
+        // to avoid noise — PI_HERMES_DEBUG surfaces them).
+        if (level === "info" || process.env.PI_HERMES_DEBUG) {
+          console.info(`[hermes-memory] ${message}`);
+        }
+      },
+    });
   }
 
-  // ── 7b. Inject the superseded-content provider (D2 offload-superseded-first) ──
+  // ── 7. Setup auto-consolidation (inject consolidator into stores) ──
+  // 2-phase: the injected fn only PLANS (lock-free, no writes). The store's
+  // consolidateTwoPhase takes the returned MergePlan and applies it in a brief
+  // locked reconcile-write. triggerConsolidation stays wired only for the
+  // manual /memory-consolidate command (registerConsolidateCommand below).
+  store.setConsolidator(async (snapshot, signal) =>
+    produceMergePlan(snapshot, {
+      timeoutMs: config.consolidationTimeoutMs,
+      signal,
+      modelOverride: config.llmModelOverride,
+    }), resolveConsolidatorModelLabel(config));
+  if (projectStore) {
+    projectStore.setConsolidator(async (snapshot, signal) =>
+      produceMergePlan(snapshot, {
+        timeoutMs: config.consolidationTimeoutMs,
+        signal,
+        modelOverride: config.llmModelOverride,
+      }), resolveConsolidatorModelLabel(config));
+  }
+
+  // ── 7b. Inject the superseded-md_id provider (D2 offload-superseded-first) ──
   // Mirrors setConsolidator's injection pattern — keeps MemoryStore free of a
   // direct MemoryRepository reference. On overflow the store purges superseded
-  // `.md` entries by content-key; the caller (review-memory-ops / memory-tool)
-  // then syncs the DB rows via removeExactSyncedMemories (D4 destructive).
+  // `.md` entries by MD_ID (frontmatter id match); the caller (review-memory-ops /
+  // memory-tool) then syncs the DB rows via removeByMdId (D4 destructive). Ticket
+  // 04: full replace — steady-state purge/sync keys on md_id, NOT content.
   // Project scoping matches sqliteProjectFor: global store → project IS NULL,
-  // projectStore → project = projectName. Content-key matching is safe even
-  // cross-scope, but scoping avoids needless rows.
+  // projectStore → project = projectName.
   store.setSupersededContentProvider(async (target) => {
     const list = await memoryRepo.getMemories({ target, project: null, status: "superseded" });
-    return list.map((m) => m.content);
+    return list.map((m) => m.mdId).filter((id): id is string => Boolean(id));
   });
   if (projectStore) {
     projectStore.setSupersededContentProvider(async (target) => {
       const list = await memoryRepo.getMemories({ target, project: projectName, status: "superseded" });
-      return list.map((m) => m.content);
+      return list.map((m) => m.mdId).filter((id): id is string => Boolean(id));
+    });
+  }
+
+  // ── 7c. Inject the stable-id backfill provider (Task 4 5d migration) ──
+  // Mirrors setSupersededContentProvider — keeps MemoryStore free of a direct
+  // MemoryRepository reference. The provider's `project` arg is always `null`
+  // from the store (it doesn't know its own scope), so the real project is
+  // BOUND at these closures: global store → project:null, projectStore →
+  // projectName. `MemoryRemoveOptions.project` null vs undefined is significant
+  // (null → `project IS NULL`; undefined → no filter), so pass it explicitly to
+  // match each store's row scope exactly. The backfill itself runs in the
+  // `ready` handler AFTER loadFromDisk() (it needs the in-memory entries).
+  store.setStableIdBackfillProvider({
+    getMdIdByContent: (target, content) => memoryRepo.getMdIdByContent(content, { target, project: null }),
+    setMdIdByContent: (target, content, mdId) => memoryRepo.setMdIdByContent(content, mdId, { target, project: null }),
+  });
+  if (projectStore) {
+    projectStore.setStableIdBackfillProvider({
+      getMdIdByContent: (target, content) => memoryRepo.getMdIdByContent(content, { target, project: projectName }),
+      setMdIdByContent: (target, content, mdId) => memoryRepo.setMdIdByContent(content, mdId, { target, project: projectName }),
     });
   }
   // Inject the perf recorder into both stores — lock-hold breach timing (T2) +

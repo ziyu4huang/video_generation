@@ -83,6 +83,36 @@ export function missingDeps(deps: string[], from: string | undefined): string[] 
 }
 
 // ---------------------------------------------------------------------------
+// pi:knowledge opt-in emit (ADR-0001: NO hub import)
+// ---------------------------------------------------------------------------
+// When `knowledge:true`, file2md emits on the "pi:knowledge" bus so the
+// knowledge-card hub can converge the conversion into the shared graph. The
+// channel name + payload shape are hardcoded HERE (not imported from the hub)
+// to preserve the TIER-0 no-upward-edge invariant.
+const KNOWLEDGE_CHANNEL = "pi:knowledge";
+
+export interface File2mdKnowledgeEmission {
+  source: "generic";
+  sourceLabel: string;
+  dir: string;
+}
+
+/** Build the bus payload for a conversion's output directory. Pure. */
+export function buildFile2mdEmission(slug: string, dirAbs: string): File2mdKnowledgeEmission {
+  return { source: "generic", sourceLabel: `file2md:${slug}`, dir: dirAbs };
+}
+
+/** Fire-and-forget emit on pi:knowledge. Best-effort: a missing/throwing bus
+ *  MUST never break the conversion. */
+export function emitFile2mdKnowledge(pi: ExtensionAPI, payload: File2mdKnowledgeEmission): void {
+  try {
+    (pi as { events?: { emit?: (c: string, d: unknown) => void } }).events?.emit?.(KNOWLEDGE_CHANNEL, payload);
+  } catch {
+    // swallow — never break the conversion over a knowledge emission
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Extension
 // ---------------------------------------------------------------------------
 
@@ -172,6 +202,14 @@ export default function (pi: ExtensionAPI): void {
           description: "Processing mode: summary | verbatim | hybrid (default hybrid).",
         }),
       ),
+      knowledge: Type.Optional(
+        Type.Boolean({
+          description:
+            "When true, emit this conversion on the pi:knowledge bus for the knowledge-card " +
+            "hub to converge into the shared graph (deterministic generic ingest). Default false " +
+            "(opt-in; protects graph quality).",
+        }),
+      ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const { resolve, isAbsolute, basename } = await import("node:path");
@@ -198,6 +236,10 @@ export default function (pi: ExtensionAPI): void {
         lang: params.lang,
         mode: params.mode as any,
       });
+
+      if (params.knowledge) {
+        emitFile2mdKnowledge(pi, buildFile2mdEmission(slug, resolve(outRootAbs, slug)));
+      }
 
       const { relative } = await import("node:path");
       const displayOut = relpath ? relative(process.cwd(), outRootAbs) || outRootAbs : outRootAbs;

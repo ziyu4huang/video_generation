@@ -72,6 +72,42 @@ async function removeFile(filePath: string): Promise<void> {
   try { await fs.unlink(filePath); } catch { /* ignore */ }
 }
 
+// ─── 2-phase consolidation race helpers (Task 5 update-safety gate) ───
+//
+// These bypass the store entirely and touch the `.md` file with fs, simulating
+// a concurrent sibling session mutating the file while step 2 of the 2-phase
+// consolidation runs lock-FREE. Step 3 (brief locked reconcile) must re-read
+// disk and preserve those concurrent edits — that is the invariant under test.
+
+/** Encode an entry exactly as the store does (mirror of serializeMetadataComment).
+ *  Used for raw disk injection, not for the store's own writes. */
+function encodeRaw(content: string, created = "2026-08-01", last = "2026-08-01"): string {
+  return `${content} <!-- created=${created}, last=${last} -->`;
+}
+
+/** Append an encoded entry directly to a target .md file, BYPASSING the store.
+ *  Prepends ENTRY_DELIMITER so it parses as a separate entry. Simulates a
+ *  concurrent session appending while step 2 runs. */
+async function appendEntryToDisk(filePath: string, encoded: string): Promise<void> {
+  await fs.appendFile(filePath, `${ENTRY_DELIMITER}${encoded}`, "utf-8");
+}
+
+/** Rewrite a .md file without its first entry (simulate a concurrent remove). */
+async function removeFirstEntryFromDisk(filePath: string): Promise<void> {
+  const raw = await readRaw(filePath);
+  const parts = raw.split(ENTRY_DELIMITER).map((e) => e.trim()).filter(Boolean);
+  parts.shift();
+  await writeRaw(filePath, parts.join(ENTRY_DELIMITER));
+}
+
+/** Total chars the store would measure for a .md file (entries joined by
+ *  ENTRY_DELIMITER), reading straight from disk. Mirrors MemoryStore.charCount. */
+async function totalCharsOnDisk(filePath: string): Promise<number> {
+  const raw = await readRaw(filePath);
+  const parts = raw.split(ENTRY_DELIMITER).map((e) => e.trim()).filter(Boolean);
+  return parts.length ? parts.join(ENTRY_DELIMITER).length : 0;
+}
+
 function dateDaysAgo(days: number): string {
   const date = new Date();
   date.setDate(date.getDate() - days);
@@ -191,9 +227,9 @@ describe("MemoryStore", { concurrency: 1 }, () => {
         memoryOverflowStrategy: "reject",
         autoConsolidate: true,
       }));
-      store.setConsolidator(async () => {
+      store.setConsolidator(async (snapshot) => {
         consolidatorCalled = true;
-        return { consolidated: true };
+        return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
       });
       await store.loadFromDisk();
 
@@ -215,13 +251,13 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     it("fifo-evict consolidates before evicting (D3: never shift()s active directly)", async () => {
       let consolidatorCalled = false;
       const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 150,
+        memoryCharLimit: 250,
         memoryOverflowStrategy: "fifo-evict",
         autoConsolidate: true,
       }));
-      store.setConsolidator(async () => {
+      store.setConsolidator(async (snapshot) => {
         consolidatorCalled = true;
-        return { consolidated: true };
+        return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
       });
       await store.loadFromDisk();
 
@@ -253,7 +289,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
     it("does not evict when the new entry cannot fit an empty memory", async () => {
       const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 80,
+        memoryCharLimit: 150,
         memoryOverflowStrategy: "fifo-evict",
       }));
       await store.loadFromDisk();
@@ -271,11 +307,11 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
     it("auto-consolidate floor: when consolidation frees nothing, vault-offloads oldest instead of hard-rejecting", async () => {
       const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 200,
+        memoryCharLimit: 260,
         memoryOverflowStrategy: "auto-consolidate",
         autoConsolidate: true,
       }));
-      store.setConsolidator(async () => ({ consolidated: false }));
+      store.setConsolidator(async (snapshot) => ({ plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }));
       await store.loadFromDisk();
 
       const first = `${TEST_MARKER} floor first oldest`;
@@ -299,7 +335,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
     it("auto-consolidate floor: fires with no consolidator wired (never hard-rejects)", async () => {
       const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 200,
+        memoryCharLimit: 260,
         memoryOverflowStrategy: "auto-consolidate",
         autoConsolidate: true,
       }));
@@ -328,7 +364,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
         memoryOverflowStrategy: "auto-consolidate",
         autoConsolidate: true,
       }));
-      store.setConsolidator(async () => ({ consolidated: false }));
+      store.setConsolidator(async (snapshot) => ({ plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }));
       await store.loadFromDisk();
 
       const result = await store.add("memory", `${TEST_MARKER} ${"x".repeat(60)}`);
@@ -340,25 +376,39 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     // D2: superseded entries are offloaded (purged from .md) BEFORE any
     // destructive strategy runs. The provider is injected (test fakes it;
     // production wires repo.getMemories({status:"superseded"}) in Task 3).
-    // NOTE: memoryCharLimit calibrated to 180 — the plan's literal 60 is
-    // impossible because each encoded entry carries a ~45-char metadata
-    // comment ("<!-- created=..., last=... -->"), so a 33-char content encodes
-    // to ~78 chars and would overflow on the FIRST add. At 180: 2 entries fit,
-    // a 3rd overflows, and after purging the superseded one the new entry fits.
+    // NOTE: memoryCharLimit calibrated so 2 frontmatter seeds fit + a 3rd add
+    // overflows, and after purging the superseded one the keeper + new entry
+    // fit (the D2 happy path that surfaces offloaded_superseded). Frontmatter
+    // entries (~90-char header + body) are larger than the legacy comment
+    // shape, so the limit is raised from the original 180→220→250 (Task 7
+    // births emit a ~86-char frontmatter header, so [KEEP, new] must stay
+    // under the limit after the D2 purge to hit the early-return success).
     it("overflow offloads superseded entries first (injected provider) before any destructive strategy", async () => {
-      const store = new MemoryStore(makeConfig({ memoryCharLimit: 180 }));
+      const store = new MemoryStore(makeConfig({ memoryCharLimit: 250 }));
 
-      // Seed two active entries; pretend the DB reports the SECOND as superseded.
-      assert.ok((await store.add("memory", "keep me active overflowprobe aaa")).success);
-      assert.ok((await store.add("memory", "superseded one overflowprobe bbb")).success);
-      // Provider returns the CONTENT of the entry that is superseded in the DB.
-      store.setSupersededContentProvider(async () => ["superseded one overflowprobe bbb"]);
+      // Seed two FRONTMATTER entries (post-backfill shape) directly on disk —
+      // _addInner reloads from disk, so direct injection into the array would
+      // be wiped. The DB reports the SECOND as superseded (by md_id now).
+      const KEEP_ID = "aaaa0a0a-0a0a-0a0a-0a0a-0a0a0a0a0a0a";
+      const SUPER_ID = "bbbb1b1b-1b1b-1b1b-1b1b-1b1b1b1b1b1b";
+      const TODAY = new Date().toISOString().split("T")[0];
+      const fm = (id: string, body: string) => `---\nid: ${id}\ncreated: ${TODAY}\nlast: ${TODAY}\n---\n${body}`;
+      const fs = await import("node:fs/promises");
+      const p = await import("node:path");
+      await fs.writeFile(
+        p.join(MEMORY_DIR, MEMORY_FILE),
+        [fm(KEEP_ID, "keep me active overflowprobe aaa"), fm(SUPER_ID, "superseded one overflowprobe bbb")].join(ENTRY_DELIMITER),
+        "utf-8",
+      );
+      // Provider returns the MD_ID of the entry that is superseded in the DB.
+      store.setSupersededContentProvider(async () => [SUPER_ID]);
 
       // This add overflows; expect the superseded entry purged and the new one added.
       const result = await store.add("memory", "new entry overflowprobe ccc");
 
       assert.ok(result.success, result.error);
-      assert.deepEqual(result.offloaded_superseded, ["superseded one overflowprobe bbb"]);
+      // offloaded_superseded is md_id-only now (no archive/display consumer).
+      assert.deepEqual(result.offloaded_superseded, [SUPER_ID]);
 
       // The superseded entry must no longer be in the .md entries.
       const entries = store.getMemoryEntries();
@@ -378,15 +428,18 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       // No superseded to offload.
       store.setSupersededContentProvider(async () => []);
       let consolidateCalls = 0;
-      store.setConsolidator(async () => {
+      store.setConsolidator(async (snapshot) => {
         consolidateCalls++;
-        // Simulate consolidation freeing space: clear the store so the retried
-        // _addInner fits. (Real consolidation rewrites the .md; the stub fakes
-        // that by emptying entries. Note the real flow re-loadFromDisk()s after
-        // consolidation, but the assertions below only require the consolidator
-        // to have been invoked + the add to ultimately succeed via the floor.)
-        (store as unknown as { setEntries: (t: "memory" | "user" | "failure", e: string[]) => void }).setEntries("memory", []);
-        return { consolidated: true };
+        // Simulate consolidation freeing space: drop every seeded entry so the
+        // retried (locked) write fits. A real summarizing merge would rewrite
+        // the .md; this stub fakes that by returning a drop-all plan. Step 3
+        // applies it (lock held briefly), then _add re-enters the locked write.
+        return {
+          plan: {
+            snapshotBaseHash: snapshot.snapshotBaseHash,
+            ops: snapshot.entries.map((e) => ({ op: "drop" as const, key: e.key })),
+          },
+        };
       }, "stub");
 
       // Overflow with no superseded available → must consolidate, not fifo-shift active.
@@ -396,6 +449,54 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       // have shift()'d an active entry without ever calling the consolidator).
       assert.ok(consolidateCalls > 0, `consolidator should have been called; got ${consolidateCalls}`);
       assert.ok(result.success, result.error);
+    });
+
+    // ── 2-phase consolidation: the LLM (step 2) runs with the cross-process
+    //    file lock RELEASED. This is the defining invariant of the refactor —
+    //    today consolidation runs IN-LOCK (up to ~60s), causing ELOCKED
+    //    contention across sibling sessions. The injected consolidator now
+    //    PRODUCES A PLAN (no writes); the store applies it in a brief locked
+    //    reconcile (step 3). This test asserts the lock is FREE while the
+    //    consolidator runs, and the store stays consistent afterward.
+    it("2-phase consolidation: the file lock is FREE during the LLM (step 2) and the store stays consistent", async () => {
+      const store = new MemoryStore(makeConfig({
+        memoryCharLimit: 200,
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      // Assume the worst; the consolidator must prove the lock is free.
+      let lockHeldDuringStep2 = true;
+      // Plan that drops every seeded entry → consolidates to empty so the
+      // retried (locked) write fits. drop-all mirrors a real summarizing merge.
+      store.setConsolidator(async (snapshot) => {
+        // _heldFileLocks tracks cross-process locks held by THIS process; it
+        // must be empty during the lock-free plan step.
+        lockHeldDuringStep2 = (store as unknown as { _heldFileLocks: Set<string> })._heldFileLocks.size > 0;
+        return {
+          plan: {
+            snapshotBaseHash: snapshot.snapshotBaseHash,
+            ops: snapshot.entries.map((e) => ({ op: "drop" as const, key: e.key })),
+          },
+        };
+      }, "lockfree-stub");
+      await store.loadFromDisk();
+
+      const first = `${TEST_MARKER} 2phase first seeded`;
+      const second = `${TEST_MARKER} 2phase second seeded`;
+      assert.ok((await store.add("memory", first)).success);
+      assert.ok((await store.add("memory", second)).success);
+
+      // Third add overflows → 2-phase consolidation (step 2 lock-free) → the
+      // retried locked write fits.
+      const result = await store.add("memory", `${TEST_MARKER} 2phase third incoming`);
+
+      assert.equal(lockHeldDuringStep2, false,
+        "the cross-process file lock must NOT be held during the LLM plan (step 2)");
+      assert.ok(result.success, `retried add should fit after consolidation; got: ${result.error}`);
+      const entries = store.getMemoryEntries();
+      assert.ok(!entries.some((e) => e.includes("2phase first seeded")), "dropped by the merge plan");
+      assert.ok(!entries.some((e) => e.includes("2phase second seeded")), "dropped by the merge plan");
+      assert.ok(entries.some((e) => e.includes("2phase third incoming")), "the retried add lands");
     });
 
     it("returns error for empty content", async () => {
@@ -612,7 +713,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
     it("replace() overflow with non-reject strategy vault-offloads oldest OTHER entries (never hard-rejects)", async () => {
       const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 250,
+        memoryCharLimit: 380,
         memoryOverflowStrategy: "auto-consolidate",
         autoConsolidate: true,
       }));
@@ -662,7 +763,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
     it("replace() a single replacement larger than the whole budget still rejects", async () => {
       const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 100,
+        memoryCharLimit: 130,
         memoryOverflowStrategy: "auto-consolidate",
         autoConsolidate: true,
       }));
@@ -927,8 +1028,10 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const raw = await readRaw(memoryPath);
       const parsed = raw.split(ENTRY_DELIMITER).map((e) => e.trim()).filter(Boolean);
 
-      // Strip metadata comments for comparison (entries now include <!-- created=..., last=... -->)
-      const stripped = parsed.map((e) => e.replace(/\s*<!--.*?-->\s*$/, "").trim());
+      // Strip frontmatter metadata for comparison (Task 7: births emit YAML
+      // frontmatter id/created/last + body — the legacy trailing HTML comment
+      // shape is retired for births; legacy comment entries are still parsed).
+      const stripped = parsed.map((e) => e.replace(/^---\n[\s\S]*?\n---\n/, "").trim());
       assert.deepEqual(stripped, entries);
     });
 
@@ -1171,28 +1274,30 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       }
     });
 
-    it("runConsolidator sets PI_MEMORY_FILE_LOCK=bypass for the child, then restores it", async () => {
+    it("runConsolidator leaves PI_MEMORY_FILE_LOCK UNSET (2-phase drops the bypass toggle), then the store still saves via the floor", async () => {
       const store = new MemoryStore(makeConfig({
         memoryCharLimit: 200,
         memoryOverflowStrategy: "auto-consolidate",
         autoConsolidate: true,
       }));
       let envDuringConsolidation: string | undefined = "<not called>";
-      store.setConsolidator(async () => {
+      store.setConsolidator(async (snapshot) => {
+        // 2-phase no longer sets PI_MEMORY_FILE_LOCK=bypass: step 2 is lock-free
+        // and step 3 acquires the lock normally, so there is no held lock to bypass.
         envDuringConsolidation = process.env.PI_MEMORY_FILE_LOCK;
-        return { consolidated: false }; // frees nothing → floor to vault-offload
+        return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
       });
       await store.loadFromDisk();
       const prev = process.env.PI_MEMORY_FILE_LOCK;
 
       await store.add("memory", `${TEST_MARKER} consolidate env 1`);
       await store.add("memory", `${TEST_MARKER} consolidate env 2`);
-      // third overflows → auto-consolidate → runConsolidator wraps the child spawn
+      // third overflows → auto-consolidate → runConsolidator wraps the plan step
       const result = await store.add("memory", `${TEST_MARKER} consolidate env 3`);
 
-      assert.equal(envDuringConsolidation, "bypass",
-        `consolidator child must inherit bypass env; got ${envDuringConsolidation}`);
-      assert.equal(process.env.PI_MEMORY_FILE_LOCK, prev, "env restored after consolidation");
+      assert.equal(envDuringConsolidation, prev,
+        `PI_MEMORY_FILE_LOCK must NOT be set to bypass during consolidation; got ${envDuringConsolidation}`);
+      assert.equal(process.env.PI_MEMORY_FILE_LOCK, prev, "env unchanged after consolidation");
       assert.ok(result.success, `floor should still save (never-reject): ${result.error}`);
     });
 
@@ -1203,9 +1308,9 @@ describe("MemoryStore", { concurrency: 1 }, () => {
         autoConsolidate: true,
       }));
       let envDuringConsolidation: string | undefined = "<not called>";
-      store.setConsolidator(async () => {
+      store.setConsolidator(async (snapshot) => {
         envDuringConsolidation = process.env.PI_HERMES_CONSOLIDATING;
-        return { consolidated: false };
+        return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
       });
       await store.loadFromDisk();
       const prev = process.env.PI_HERMES_CONSOLIDATING;
@@ -1227,7 +1332,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       }));
       const progress: string[] = [];
       // Stub consolidator + a model label (as index.ts injects in production).
-      store.setConsolidator(async () => ({ consolidated: false }), "gemma-4-12b");
+      store.setConsolidator(async (snapshot) => ({ plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }), "gemma-4-12b");
       await store.loadFromDisk();
 
       await store.add("memory", `${TEST_MARKER} progress 1`);
@@ -1244,6 +1349,126 @@ describe("MemoryStore", { concurrency: 1 }, () => {
         progress.some((m) => /consolidat/i.test(m)),
         `progress message should describe consolidation; got: ${JSON.stringify(progress)}`,
       );
+    });
+  });
+
+  // ── Task 5: 2-phase consolidation update-safety race gate ──────────────
+  // These tests are the ACCEPTANCE GATE for the 2-phase restructure (Task 4).
+  // They prove that entries a concurrent session writes to disk while step 2
+  // (the lock-free LLM plan) is running are PRESERVED by step 3's reconcile,
+  // and that a plan op referencing an entry removed mid-flight is skipped (not
+  // an error). If Task 4's consolidateTwoPhase failed to re-read disk in step 3
+  // (or applyMergePlan dropped unreferenced live entries), the appended entry in
+  // test 1 would VANISH and these assertions would FAIL — do NOT weaken them.
+  describe("2-phase consolidation: update-safety race gate (Task 5)", () => {
+    // Sizing rationale (constants, not magic numbers):
+    //   • store.add() writes YAML frontmatter (5d stable-id shape). A bare entry
+    //     is ~body + 86 chars: "---\nid: <36-char uuid>\ncreated: <d>\nlast: <d>\n---\n".
+    //     (The pre-migration comment shape was body + ~45; frontmatter is +41/entry.)
+    //   • The race stub's concurrent append (encodeRaw) is still comment-shape
+    //     (body + ~45) — kept legacy-shape deliberately so the test also pins the
+    //     migration's claim that a mixed frontmatter+comment file reconciles cleanly.
+    //   • ENTRY_DELIMITER ("\n§\n") is 3 chars between entries.
+
+    it("RACE: an entry appended during step 2 (lock-free) is preserved after reconcile", async () => {
+      const limit = 350;
+      const store = new MemoryStore(makeConfig({
+        memoryCharLimit: limit,
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      await store.loadFromDisk();
+
+      // Seed two entries. `first` is large so that adding `incoming` overflows;
+      // the plan drops `first` (snapshot.entries[0]) so `second` survives.
+      const first = `${TEST_MARKER} ${"A".repeat(70)}`;            // fm 170 (body 84 + 86)
+      const second = `${TEST_MARKER} keep second seeded`;          // fm 118
+      const incoming = `${TEST_MARKER} incoming third probe`;      // fm 120
+      // Overflow check:  170 + 3 + 118 + 3 + 120 = 414 > 350  ✓
+      // After reconcile: [second(118), APPEND(61), incoming(120)] = 305 ≤ 350 ✓
+      assert.ok((await store.add("memory", first)).success);
+      assert.ok((await store.add("memory", second)).success);
+
+      // The consolidator runs in step 2 (lock-free). It appends a CONCURRENT
+      // entry straight to disk (simulating a sibling session), then returns a
+      // plan built against the PRE-append snapshot — so the appended entry is
+      // NOT referenced by any op and MUST survive step 3's reconcile as an
+      // unreferenced live entry.
+      store.setConsolidator(async (snapshot) => {
+        appendEntryToDisk(memoryPath, encodeRaw("CONCURRENT-APPEND"));
+        const firstKey = snapshot.entries[0]?.key;
+        return {
+          plan: {
+            snapshotBaseHash: snapshot.snapshotBaseHash,
+            ops: firstKey ? [{ op: "drop" as const, key: firstKey }] : [],
+          },
+        };
+      }, "race-stub");
+
+      // Third add overflows → 2-phase consolidation (step 2 lock-free, with the
+      // concurrent append happening mid-flight) → step 3 reconcile preserves the
+      // appended entry → the retried locked write lands.
+      const result = await store.add("memory", incoming);
+      assert.ok(result.success, `retried add should fit after consolidation; got: ${result.error}`);
+
+      await store.loadFromDisk(); // defensive freshness for the read-back
+      const contents = store.getMemoryEntries();
+
+      // THE invariant: the concurrently-appended entry was NOT clobbered by the
+      // reconcile rewrite (step 3 re-read disk + applyMergePlan keeps live
+      // entries that no applied op removes).
+      assert.ok(contents.includes("CONCURRENT-APPEND"),
+        `concurrently-appended entry must survive reconcile; got: ${JSON.stringify(contents)}`);
+      // Sanity: the plan did drop `first`, kept `second`, and the retried add
+      // landed `incoming`.
+      assert.ok(!contents.some((c) => c.includes("AAAA")), "first was dropped by the merge plan");
+      assert.ok(contents.some((c) => c.includes("keep second seeded")), "second preserved");
+      assert.ok(contents.some((c) => c.includes("incoming third probe")), "incoming landed");
+    });
+
+    it("RACE: a plan op referencing a removed entry is skipped; consolidation completes without corrupting", async () => {
+      const limit = 300;
+      const store = new MemoryStore(makeConfig({
+        memoryCharLimit: limit,
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      await store.loadFromDisk();
+
+      // `first` is large (overflows when `incoming` is added); `second` is small
+      // and stays under the limit once `first` is gone.
+      const first = `${TEST_MARKER} ${"A".repeat(60)}`;            // fm 160 (body 74 + 86)
+      const second = `${TEST_MARKER} keep`;                       // fm 104
+      const incoming = `${TEST_MARKER} incoming probe`;           // fm 114
+      // Overflow check:  160 + 3 + 104 + 3 + 114 = 384 > 300  ✓
+      // After concurrent remove of `first` + retried add: [second(104), incoming(114)] = 221 ≤ 300 ✓
+      assert.ok((await store.add("memory", first)).success);
+      assert.ok((await store.add("memory", second)).success);
+
+      // During step 2, remove `first` from disk (concurrent removal) and return
+      // a plan whose drop op still references `first`'s (now-absent) key plus a
+      // stale base hash. applyMergePlan must SKIP the op, not throw, and the
+      // store must stay consistent.
+      store.setConsolidator(async (snapshot) => {
+        const doomedKey = snapshot.entries[0]?.key ?? "missing";
+        await removeFirstEntryFromDisk(memoryPath); // simulate concurrent removal
+        return { plan: { snapshotBaseHash: "stale", ops: [{ op: "drop" as const, key: doomedKey }] } };
+      }, "race-stub");
+
+      // No throw: the stale op is skipped, the reconcile writes back the live
+      // state, and the retried add fits.
+      const result = await store.add("memory", incoming);
+      assert.ok(result.success, `consolidation must complete despite the stale op; got: ${result.error}`);
+
+      // Store consistent: under limit (+ one-entry slack), parses cleanly, and
+      // holds exactly the entries that should remain.
+      const total = await totalCharsOnDisk(memoryPath);
+      assert.ok(total <= limit + 90, `store over budget after race: ${total} > ${limit}+90`);
+      await store.loadFromDisk();
+      const contents = store.getMemoryEntries();
+      assert.ok(!contents.some((c) => c.includes("AAAA")), "concurrently-removed first stays gone");
+      assert.ok(contents.some((c) => c.includes("keep")), "second preserved");
+      assert.ok(contents.some((c) => c.includes("incoming probe")), "incoming landed");
     });
   });
 });

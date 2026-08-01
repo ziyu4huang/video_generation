@@ -68,6 +68,18 @@ export interface MemoryConfig {
    *  ~/.pi/agent/<projectsMemoryDir>/<project>/); explicit string → that path
    *  (cwd-relative). See resolveProjectStoreDir(). */
   projectMemoryDir?: string | null;
+  /** Opt-in: autocommit agent-written `.agents/memory/MEMORY.md` to the current
+   *  (non-protected) git branch, batched per session via a trailing debounce on
+   *  message_end (autocommit-hook effort, ticket 01). Default: false. Set
+   *  `true` via the repo-local overlay at `<cwd>/.agents/memory/config.json`
+   *  (narrow — only project-memory keys ride that overlay). */
+  autoCommitProjectMemory?: boolean;
+  /** Stable project tag for cross-worktree coherence (ticket 09). When set
+   *  (via the repo-local overlay `<cwd>/.agents/memory/config.json`), it
+   *  overrides `path.basename(cwd)` so all worktrees of one repo tag the same
+   *  committed MEMORY.md under one project name. Default: undefined → cwd
+   *  basename (legacy detectProject behavior). */
+  projectName?: string;
   /** Session search configuration. Default: { variant: "legacy" } */
   sessionSearch?: SessionSearchConfig;
   /** Override model used for child pi -p subprocess LLM calls. Default: unset */
@@ -152,17 +164,46 @@ export interface MemoryResult {
   entries?: string[];
   usage?: string;
   entry_count?: number;
+  /** CONTENT of evicted entries (archive + display consumer). Paired with
+   *  `evicted_md_ids` (DB-sync consumer). Steady-state DB removal keys on
+   *  `evicted_md_ids` (md_id), NOT this content field — see ticket 04. */
   evicted_entries?: string[];
+  /** Stable frontmatter ids of evicted entries (DB-sync consumer). One id per
+   *  `evicted_entries` item that HAD a frontmatter id; comment-shape entries
+   *  (no id) are skipped here — their DB-sync is intentionally dropped rather
+   *  than falling back to content-key matching. */
+  evicted_md_ids?: string[];
   evicted_count?: number;
   matches?: string[];
+  /** CONTENT of transferred entries (archive via writeTransferArchive + display
+   *  consumer). Paired with `transferred_md_ids` (DB-sync consumer). */
   transferred_entries?: string[];
+  /** Stable frontmatter ids of transferred entries (DB-sync consumer). */
+  transferred_md_ids?: string[];
   transferred_count?: number;
   freed_chars?: number;
   archive_path?: string;
-  /** Contents of superseded entries purged from .md on overflow (D2). Caller
-   *  syncs the DB rows via the same removeExactSyncedMemories content-key path
-   *  used for evicted_entries (D4: destructive, no audit row). */
+  /** md_ids of superseded entries purged from .md on overflow (D2). md_id-ONLY —
+   *  this path has NO archive/display consumer (destructive, no audit row), so
+   *  it never carried content. Caller syncs the DB rows via `removeByMdId`
+   *  (ticket 04: full replace, no content-key fallback). */
   offloaded_superseded?: string[];
+  /** INTERNAL sentinel (2-phase consolidation): set by `_addInner`'s overflow
+   *  branch to signal `_add` that consolidation must run OUTSIDE the held
+   *  cross-process file lock (step 2 is lock-free). Never returned to the tool
+   *  layer — `_add` always consumes it. Carries the accrued superseded purge
+   *  set on `offloaded_superseded` so the retried write threads it down. */
+  needsConsolidation?: boolean;
+
+  /** The minted stable id of the entry just BIRTHED by this op (add/replace),
+   *  written to BOTH sides: the `.md` frontmatter `id` AND the DB row's `md_id`
+   *  (the caller threads it into `syncMemoryEntry`/`replaceSyncedMemories`).
+   *  Absent when nothing was birthed (duplicate / hard-reject). This is the
+   *  write-path half of the 5d bridge (Task 7 / F1 fix): pre-5d an in-session
+   *  birth stayed id-less until the next restart's backfill, so an evicted /
+   *  transferred / superseded in-session entry had an empty md_id set and
+   *  orphaned its DB row. */
+  added_md_id?: string;
 }
 
 export interface MemorySnapshot {

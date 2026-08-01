@@ -76,6 +76,8 @@ import {
 } from "@repo/pi-agent-ext-subagent";
 import { runGate } from "../src/distill/gate.ts";
 import { runConverge } from "../src/distill/converge.ts";
+import { onKnowledge } from "../src/emit.ts";
+import { convergeKnowledgeEmission } from "../src/converge.ts";
 import { readState } from "../src/distill/state.ts";
 import type { MemoryEntry, EnrichedNote, ConvergeMetrics } from "../src/distill/types.ts";
 
@@ -1464,4 +1466,21 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	};
 	__registerZkHostFns();
 	__hostFnBus?.on("workflow:hostfn:v1:request", __registerZkHostFns);
+
+	// ── pi:knowledge sink — de-orphan the bus (file2md opt-in convergence) ──
+	// ADR-0001: the HUB owns convergence. Foundation extensions (file2md) emit
+	// on the bus without importing the hub; this subscriber converges them.
+	// Best-effort: resolveVault/ingest failures are swallowed — a bus handler
+	// must never throw (mirrors src/emit.ts's swallow-on-failure contract).
+	// (Placed last in the factory so the sink test's single-capture fake pi —
+	// which keeps the last events.on handler — observes this subscriber.)
+	onKnowledge(pi, async (payload) => {
+		try {
+			const cwd = process.cwd();
+			const vaultPath = (await resolveVault(cwd)).path;
+			await convergeKnowledgeEmission(payload, { vaultPath, cwd });
+		} catch {
+			// best-effort: never throw from a bus handler
+		}
+	});
 }

@@ -78,6 +78,37 @@ describe("emitKnowledge / onKnowledge", () => {
 	});
 });
 
+const dirEmission: KnowledgeEmission = {
+	source: "generic",
+	sourceLabel: "file2md:my-doc",
+	dir: "/abs/vlm-out/my-doc",
+};
+
+describe("onKnowledge — dir payload (file2md convergence)", () => {
+	test("a dir-only payload is delivered (gate accepts dir)", () => {
+		const api = fakeApi();
+		let received: KnowledgeEmission | null = null;
+		onKnowledge(api as never, (p) => (received = p));
+		emitKnowledge(api as never, dirEmission);
+		expect(received).not.toBeNull();
+		expect(received!.dir).toBe("/abs/vlm-out/my-doc");
+		expect(received!.source).toBe("generic");
+	});
+
+	test("gate skips a payload with none of records/kbFile/dir", () => {
+		const api = fakeApi();
+		let seen = 0;
+		onKnowledge(api as never, () => seen++);
+		// well-typed except it carries no records/kbFile/dir → must be skipped
+		(api.events as { emit: (c: string, d: unknown) => void }).emit(KNOWLEDGE_CHANNEL, {
+			source: "generic",
+			sourceLabel: "x",
+			note: "nothing to ingest",
+		});
+		expect(seen).toBe(0);
+	});
+});
+
 describe("emitKnowledge — best-effort guarantees", () => {
 	test("missing events bus → no-op, no throw", () => {
 		const api = { events: undefined } as never;

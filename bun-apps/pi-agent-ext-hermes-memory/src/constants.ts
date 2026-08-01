@@ -44,6 +44,20 @@ export const DEFAULT_STALENESS_THRESHOLD_DAYS = 30;
 export const MEMORY_FILE = "MEMORY.md";
 export const USER_FILE = "USER.md";
 
+// ─── Project-memory autocommit (autocommit-hook effort, tickets 01–05) ───
+/** Fixed conventional-commit message for autocommits (ticket 03). Matches the
+ *  repo's docs(memory): content-commit scope; "auto-update" flags it as
+ *  machine-generated. */
+export const AUTOCOMMIT_COMMIT_MESSAGE = "docs(memory): auto-update project memory";
+/** ~20s trailing debounce: one commit per burst of message_end writes
+ *  (ticket 02). Memory writes are synchronous at call time, so debounce only
+ *  batches commits — it never loses data. */
+export const DEFAULT_AUTOCOMMIT_DEBOUNCE_MS = 20_000;
+/** git merge-driver name; matches `.agents/memory/.gitattributes merge=<name>`
+ *  and the self-configured `merge.<name>.{name,driver}` git config keys
+ *  (ticket 05). */
+export const MEMORY_MERGE_DRIVER_NAME = "pi-memory";
+
 // ─── Runtime memory policy prompt ───
 export const MEMORY_POLICY_PROMPT = `<memory-policy>
 Persistent memory is available through memory tools. Do not assume memory has already been loaded into the prompt.

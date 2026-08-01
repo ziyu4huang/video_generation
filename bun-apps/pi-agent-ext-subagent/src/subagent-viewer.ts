@@ -98,6 +98,10 @@ export class SubagentViewer {
   private filter = "";
   private showAll = false;
   private selected = 0; // unified cursor over entries() (running first, then completed)
+  /** Collapsed batch headers (by batchId). A collapsed batch's children are
+   *  excluded from `entries()` entirely — hidden AND non-selectable. Per-batch
+   *  so collapsing one batch never affects another. */
+  private collapsedBatches = new Set<string>();
   private outputRun?: SubagentRun; // the completed run open in `output` (decoupled from the list cursor)
   private onClose: () => void;
   private cachedWidth?: number;
@@ -123,20 +127,53 @@ export class SubagentViewer {
     this.theme = theme;
   }
 
-  /** Flat selectable list: running entries first, then completed, with a divider rendered between.
-   *  When `filter` is non-empty, both sections are narrowed to entries whose `agent`
-   *  OR `taskPreview` contains the query (case-insensitive substring). */
-  private entries(): Array<{ kind: "running"; ref: InFlightSubagent } | { kind: "completed"; ref: SubagentRun }> {
+  /** Selectable list. Running entries come first (grouped: one `batchHeader`
+   *  entry per batch at its first child, then the child entries unless the
+   *  batch is collapsed), then completed. Ungrouped runs (no `batchId`) emit
+   *  flat. Grouping is order-independent: a header is emitted on first sight of
+   *  each batchId and ALL of that batch's children follow it, regardless of
+   *  insertion order — so a batch is never split across an ungrouped run.
+   *
+   *  When `filter` is non-empty, both sections narrow to entries whose `agent`
+   *  OR `taskPreview` matches (case-insensitive substring). A batch with no
+   *  matching children is dropped entirely (no header). */
+  private entries(): Array<
+    | { kind: "running"; ref: InFlightSubagent }
+    | { kind: "batchHeader"; batchId: string; running: number; done: number }
+    | { kind: "completed"; ref: SubagentRun }
+  > {
     const q = this.filter.trim().toLowerCase();
     const matches = (agent: string | undefined, preview: string): boolean =>
       !q || (agent ?? "").toLowerCase().includes(q) || preview.toLowerCase().includes(q);
-    const running = (this.getRunning?.() ?? []).filter((r) => matches(r.agent, r.taskPreview));
+    const allRunning = (this.getRunning?.() ?? []).filter((r) => matches(r.agent, r.taskPreview));
+
+    const runningEntries: Array<
+      | { kind: "running"; ref: InFlightSubagent }
+      | { kind: "batchHeader"; batchId: string; running: number; done: number }
+    > = [];
+    const seenBatches = new Set<string>();
+    for (const r of allRunning) {
+      const bid = r.batchId;
+      if (bid) {
+        // Collect ALL of this batch's children under one header, anchored at the
+        // batch's first sight — so grouping is correct regardless of insertion
+        // order (a batch is never split across an interleaved ungrouped run).
+        if (seenBatches.has(bid)) continue;
+        seenBatches.add(bid);
+        const children = allRunning.filter((x) => x.batchId === bid);
+        const done = children.filter((x) => x.status === "completed").length;
+        runningEntries.push({ kind: "batchHeader", batchId: bid, running: children.length - done, done });
+        if (!this.collapsedBatches.has(bid)) {
+          for (const c of children) runningEntries.push({ kind: "running", ref: c });
+        }
+      } else {
+        runningEntries.push({ kind: "running", ref: r });
+      }
+    }
+
     const allCompleted = this.runs.filter((r) => matches(r.agent, r.taskPreview));
     const capped = !q && !this.showAll ? allCompleted.slice(-COMPLETED_CAP) : allCompleted;
-    return [
-      ...running.map((ref) => ({ kind: "running" as const, ref })),
-      ...capped.map((ref) => ({ kind: "completed" as const, ref })),
-    ];
+    return [...runningEntries, ...capped.map((ref) => ({ kind: "completed" as const, ref }))];
   }
 
   private enterFollow(id: string): void {
@@ -209,6 +246,14 @@ export class SubagentViewer {
     } else if (matchesKey(data, Key.enter) && entries.length > 0) {
       const e = entries[this.selected];
       if (!e) return;
+      if (e.kind === "batchHeader") {
+        if (this.collapsedBatches.has(e.batchId)) this.collapsedBatches.delete(e.batchId);
+        else this.collapsedBatches.add(e.batchId);
+        // The header's index is stable across the toggle (it precedes its
+        // children), so the cursor stays on it — no clamp needed.
+        this.invalidate();
+        return;
+      }
       if (e.kind === "running") {
         this.enterFollow(e.ref.id);
       } else {
@@ -234,13 +279,23 @@ export class SubagentViewer {
     const entries = this.entries();
     if (this.selected > entries.length - 1) this.selected = Math.max(0, entries.length - 1);
 
-    const running = entries.filter((e) => e.kind === "running") as Array<{ kind: "running"; ref: InFlightSubagent }>;
-    if (running.length > 0) {
+    const runningEntries = entries.filter((e) => e.kind === "running" || e.kind === "batchHeader");
+    if (runningEntries.length > 0) {
       const runningTitle = th.fg("accent", th.bold(" Running "));
       lines.push(truncateToWidth(runningTitle + th.fg("borderMuted", "─".repeat(Math.max(0, width - 9))), width));
-      for (const e of running) {
-        const r = e.ref;
+      for (const e of runningEntries) {
         const cur = entries.indexOf(e) === this.selected;
+        if (e.kind === "batchHeader") {
+          const collapsed = this.collapsedBatches.has(e.batchId);
+          const glyph = collapsed ? "▶" : "▼";
+          const counts = e.done > 0 ? `${e.running} running / ${e.done} done` : `${e.running} running`;
+          const header = `${th.fg("accent", th.bold(`${glyph} subagents batch`))} ${th.fg("dim", `· ${counts}`)}`;
+          lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", `▶ ${header}`) : `  ${header}`}`, width));
+          continue;
+        }
+        const r = e.ref;
+        const indented = Boolean(r.batchId);
+        const completed = r.status === "completed";
         const toolCalls = r.history?.filter((h) => h.kind === "toolCall").length ?? 0;
         const row: ActivityRow = {
           status: "running",
@@ -251,7 +306,17 @@ export class SubagentViewer {
           latestAction: summarizeLatestAction(r.history) ?? truncateToWidth(r.taskPreview, 40),
         };
         const head = renderActivityRow(row, th);
-        lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`}`, width));
+        // Indented child (under a batch header) or flat ungrouped row — prefixes
+        // kept byte-identical to pre-Task-3 so existing visuals are unchanged.
+        // A completed-status batch child renders greyed with a ✓ checkmark but
+        // stays selectable (follow shows its frozen trace); the ungrouped
+        // branch is untouched (singular subagent runs never carry "completed").
+        if (indented) {
+          const body = cur ? th.bg("selectedBg", `▶ ${head}`) : completed ? th.fg("dim", `✓ ${head}`) : `  ${head}`;
+          lines.push(truncateToWidth(`    ${body}`, width));
+        } else {
+          lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`}`, width));
+        }
       }
       lines.push("");
     }

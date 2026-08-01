@@ -1,0 +1,103 @@
+# Review package: d3f5a8cb..HEAD
+
+## Commits
+4292a80c refactor(subagents): review fixes — modelId param, drop dead clamp, filter+batch test
+
+## Files changed
+ .../pi-agent-ext-subagent/src/subagent-viewer.ts     |  4 +---
+ bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts |  2 +-
+ .../tests/subagent-viewer.test.ts                    | 20 ++++++++++++++++++++
+ 3 files changed, 22 insertions(+), 4 deletions(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-subagent/src/subagent-viewer.ts b/bun-apps/pi-agent-ext-subagent/src/subagent-viewer.ts
+index 032607e1..c2d2a00d 100644
+--- a/bun-apps/pi-agent-ext-subagent/src/subagent-viewer.ts
++++ b/bun-apps/pi-agent-ext-subagent/src/subagent-viewer.ts
+@@ -241,23 +241,21 @@ export class SubagentViewer {
+     } else if (matchesKey(data, Key.down) && this.selected < entries.length - 1) {
+       this.selected += 1;
+       this.invalidate();
+     } else if (matchesKey(data, Key.enter) && entries.length > 0) {
+       const e = entries[this.selected];
+       if (!e) return;
+       if (e.kind === "batchHeader") {
+         if (this.collapsedBatches.has(e.batchId)) this.collapsedBatches.delete(e.batchId);
+         else this.collapsedBatches.add(e.batchId);
+         // The header's index is stable across the toggle (it precedes its
+-        // children), so the cursor stays on it. Clamp guards the unlikely
+-        // case where the cursor sat beyond the now-shorter list.
+-        this.selected = Math.min(this.selected, entries.length - 1);
++        // children), so the cursor stays on it — no clamp needed.
+         this.invalidate();
+         return;
+       }
+       if (e.kind === "running") {
+         this.enterFollow(e.ref.id);
+       } else {
+         this.outputRun = e.ref;
+         this.view = "output";
+         this.invalidate();
+       }
+diff --git a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
+index 360d2216..5430c621 100644
+--- a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
++++ b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
+@@ -225,21 +225,21 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
+           model: childModel,
+           taskPreview: taskPreview(task.task),
+           startedAt: childT0,
+           batchId: toolCallId,
+         });
+         // Forward live callbacks so /subagents shows each child's resolved model and
+         // activity trace (deficit 1). Added here — not in mergeReadOnlyExclusion — because
+         // the callbacks close over the registry + childRunId, which that pure helper lacks.
+         const childSpawnOpts: SpawnSubagentOptions = {
+           ...childOpts,
+-          onModelResolved: (id) => options.inFlight?.updateModel(childRunId, id),
++          onModelResolved: (modelId) => options.inFlight?.updateModel(childRunId, modelId),
+           onHistory: (history) => options.inFlight?.update(childRunId, history),
+         };
+         let result: SpawnSubagentResult;
+         try {
+           result = await spawn(childSpawnOpts);
+         } finally {
+           // Always deregister — even on throw — so the registry never leaks a run.
+           options.inFlight?.end(childRunId);
+         }
+         dispatched++;
+diff --git a/bun-apps/pi-agent-ext-subagent/tests/subagent-viewer.test.ts b/bun-apps/pi-agent-ext-subagent/tests/subagent-viewer.test.ts
+index eff246b7..e216bca6 100644
+--- a/bun-apps/pi-agent-ext-subagent/tests/subagent-viewer.test.ts
++++ b/bun-apps/pi-agent-ext-subagent/tests/subagent-viewer.test.ts
+@@ -692,10 +692,30 @@ test("collapsing one batch does not collapse another", () => {
+   const running = [
+     runningEntry("bA:0", { batchId: "bA", history: [] }),
+     runningEntry("bB:0", { batchId: "bB", history: [] }),
+   ];
+   const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+   viewer.handleInput("\r"); // collapse bA (header is entry 0)
+   const out = viewer.render(80).join("\n");
+   assert.ok(!out.includes("doing bA:0"), "bA collapsed");
+   assert.ok(out.includes("doing bB:0"), "bB still expanded");
+ });
++
++test("filter narrows batch children: matching children keep a (recounted) header; a non-matching batch leaves no orphan header", () => {
++  const running = [
++    runningEntry("batchX:0", { batchId: "batchX", history: [], taskPreview: "auth service" }),
++    runningEntry("batchX:1", { batchId: "batchX", history: [], taskPreview: "auth tokens" }),
++    runningEntry("batchY:0", { batchId: "batchY", history: [], taskPreview: "billing report" }),
++  ];
++  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
++  viewer.handleInput("a");
++  viewer.handleInput("u");
++  viewer.handleInput("t");
++  viewer.handleInput("h"); // filter "auth"
++  const out = viewer.render(80).join("\n");
++  assert.ok(out.includes("auth service") && out.includes("auth tokens"), "matching batchX children shown");
++  assert.ok(!out.includes("billing report"), "non-matching batchY child hidden");
++  // batchX header present with the MATCHING count (2); no batchY header
++  const headers = out.split("\n").filter((l) => /subagents batch/.test(l));
++  assert.equal(headers.length, 1, "one header — batchY dropped entirely, no orphan");
++  assert.match(headers[0], /2 running/, "header count reflects matching children only");
++});
