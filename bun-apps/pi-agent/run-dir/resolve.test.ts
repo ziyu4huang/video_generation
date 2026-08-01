@@ -107,11 +107,13 @@ describe("buildArgvFromManifest", () => {
 
 	test("malformed entry (object missing 'entry') is skipped + warned, not a crash (I-1)", () => {
 		// A declared object without `entry` previously made path.join throw an
-		// opaque "paths[1] must be a string" TypeError at boot. Now: skip + warn,
-		// and well-formed siblings still resolve.
+		// opaque "paths[1] must be a string" TypeError at boot. Manifest entries
+		// arrive as raw JSON (not typed literals), so simulate that reality and
+		// assert the guard skips + warns instead of crashing.
+		const malformed = JSON.parse('{"name":"phantom"}'); // raw object, no `entry`
 		const warns: string[] = [];
 		const argv = buildArgvFromManifest(
-			{ extensions: [{ name: "phantom" }, "real/x.ts"] },
+			{ extensions: [malformed, "real/x.ts"] },
 			"/base",
 			[],
 			() => true,

@@ -3,8 +3,8 @@
  * the upstream paths `docs/superpowers/` or `.superpowers/`. Runs in the ext's
  * `bun run test` matrix (ci.yml:111) so leakage fails CI with zero wiring.
  */
-import { test, expect } from "bun:test";
-import { existsSync, readdirSync, lstatSync } from "node:fs";
+import { expect, test } from "bun:test";
+import { existsSync, lstatSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,9 +12,7 @@ import { fileURLToPath } from "node:url";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 /** Files grandfathered under the upstream paths (the ADR-0006 baseline). */
-const ALLOWED = new Set([
-  "docs/superpowers/audit/2026-07-18-workflow-pack-finding-docket.md",
-]);
+const ALLOWED = new Set(["docs/superpowers/audit/2026-07-18-workflow-pack-finding-docket.md"]);
 
 function listFiles(dir: string, acc: string[] = []): string[] {
   if (!existsSync(dir)) return acc;
