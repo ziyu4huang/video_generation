@@ -238,20 +238,52 @@ export class SubagentViewer {
     if (running.length > 0) {
       const runningTitle = th.fg("accent", th.bold(" Running "));
       lines.push(truncateToWidth(runningTitle + th.fg("borderMuted", "─".repeat(Math.max(0, width - 9))), width));
+      // Count in-flight children per batchId (for the header's "k running").
+      const batchCounts = new Map<string, number>();
+      for (const e of running) {
+        const bid = e.ref.batchId;
+        if (bid) batchCounts.set(bid, (batchCounts.get(bid) ?? 0) + 1);
+      }
+      let lastBatch: string | undefined;
       for (const e of running) {
         const r = e.ref;
         const cur = entries.indexOf(e) === this.selected;
-        const toolCalls = r.history?.filter((h) => h.kind === "toolCall").length ?? 0;
-        const row: ActivityRow = {
-          status: "running",
-          actor: r.agent ?? "general-purpose",
-          model: r.resolvedModel ?? r.model,
-          elapsedMs: Date.now() - r.startedAt,
-          toolCalls,
-          latestAction: summarizeLatestAction(r.history) ?? truncateToWidth(r.taskPreview, 40),
-        };
-        const head = renderActivityRow(row, th);
-        lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`}`, width));
+        const bid = r.batchId;
+        if (bid) {
+          // New batch group → render a (visual, non-selectable) header before its first child.
+          if (bid !== lastBatch) {
+            const k = batchCounts.get(bid) ?? 0;
+            const header = `${th.fg("accent", th.bold("▼ subagents batch"))} ${th.fg("dim", `· ${k} running`)}`;
+            lines.push(truncateToWidth(`  ${header}`, width));
+            lastBatch = bid;
+          }
+          // Indented child row.
+          const toolCalls = r.history?.filter((h) => h.kind === "toolCall").length ?? 0;
+          const row: ActivityRow = {
+            status: "running",
+            actor: r.agent ?? "general-purpose",
+            model: r.resolvedModel ?? r.model,
+            elapsedMs: Date.now() - r.startedAt,
+            toolCalls,
+            latestAction: summarizeLatestAction(r.history) ?? truncateToWidth(r.taskPreview, 40),
+          };
+          const head = renderActivityRow(row, th);
+          lines.push(truncateToWidth(`    ${cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`}`, width));
+        } else {
+          // Ungrouped (singular-tool) run — flat, exactly as before. Reset batch tracking.
+          lastBatch = undefined;
+          const toolCalls = r.history?.filter((h) => h.kind === "toolCall").length ?? 0;
+          const row: ActivityRow = {
+            status: "running",
+            actor: r.agent ?? "general-purpose",
+            model: r.resolvedModel ?? r.model,
+            elapsedMs: Date.now() - r.startedAt,
+            toolCalls,
+            latestAction: summarizeLatestAction(r.history) ?? truncateToWidth(r.taskPreview, 40),
+          };
+          const head = renderActivityRow(row, th);
+          lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`}`, width));
+        }
       }
       lines.push("");
     }
