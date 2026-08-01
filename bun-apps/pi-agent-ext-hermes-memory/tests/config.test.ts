@@ -610,6 +610,19 @@ describe("loadConfig repo-local project-memory overlay (ticket 01)", () => {
     }
   });
 
+  it("applies projectName from <cwd>/.agents/memory/config.json (ticket 09 — cross-worktree tag coherence)", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "hm-overlay-"));
+    const dir = path.join(cwd, ".agents", "memory");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ projectName: "video_generation" }));
+    try {
+      const config = loadConfig(TEST_CONFIG_PATH, cwd);
+      assert.strictEqual(config.projectName, "video_generation", "projectName rides the repo-local overlay");
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("overlay is NARROW: ignores dbBackend / surreal / llm keys (no per-repo DB repointing)", () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "hm-overlay-"));
     const dir = path.join(cwd, ".agents", "memory");

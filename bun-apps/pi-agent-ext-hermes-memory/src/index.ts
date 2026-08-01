@@ -128,7 +128,7 @@ export default async function (pi: ExtensionAPI) {
   let extensionRootMigrated = false;
 
   const store = new MemoryStore({ ...config, memoryDir: globalDir });
-  const project = detectProject(config.projectsMemoryDir);
+  const project = detectProject(config.projectsMemoryDir, undefined, config.projectName);
   const projectName = project.name ?? "";
   // Project-scoped store location (ticket 04, decision 01): default in-repo
   // <cwd>/.agents/memory/ (git-trackable); null → opt-out (legacy global);

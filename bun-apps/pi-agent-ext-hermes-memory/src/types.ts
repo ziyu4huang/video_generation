@@ -74,6 +74,12 @@ export interface MemoryConfig {
    *  `true` via the repo-local overlay at `<cwd>/.agents/memory/config.json`
    *  (narrow — only project-memory keys ride that overlay). */
   autoCommitProjectMemory?: boolean;
+  /** Stable project tag for cross-worktree coherence (ticket 09). When set
+   *  (via the repo-local overlay `<cwd>/.agents/memory/config.json`), it
+   *  overrides `path.basename(cwd)` so all worktrees of one repo tag the same
+   *  committed MEMORY.md under one project name. Default: undefined → cwd
+   *  basename (legacy detectProject behavior). */
+  projectName?: string;
   /** Session search configuration. Default: { variant: "legacy" } */
   sessionSearch?: SessionSearchConfig;
   /** Override model used for child pi -p subprocess LLM calls. Default: unset */

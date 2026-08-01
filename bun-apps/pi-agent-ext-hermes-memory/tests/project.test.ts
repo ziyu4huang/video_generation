@@ -33,6 +33,23 @@ describe("project detection", () => {
       path.join(AGENT_ROOT, "projects-memory", "demo-repo", "skills"),
     );
   });
+
+  it("detectProject uses the projectName override when given (ticket 09 — cross-worktree coherence)", () => {
+    const cwd = "/tmp/video_generation__superpowers";
+    const result = detectProject("projects-memory", cwd, "video_generation");
+    assert.strictEqual(result.name, "video_generation", "override wins over the cwd basename");
+    assert.strictEqual(
+      result.memoryDir,
+      path.join(AGENT_ROOT, "projects-memory", "video_generation"),
+      "memoryDir uses the override name",
+    );
+  });
+
+  it("detectProject falls back to the cwd basename when no override (current behavior preserved)", () => {
+    const cwd = "/tmp/video_generation__superpowers";
+    const result = detectProject("projects-memory", cwd);
+    assert.strictEqual(result.name, "video_generation__superpowers");
+  });
 });
 
 describe("resolveProjectStoreDir (ticket 04 — project memory location)", () => {

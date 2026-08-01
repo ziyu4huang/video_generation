@@ -146,7 +146,7 @@ const PROJECT_MEMORY_CONFIG_FILENAME = "config.json";
  * The overlay lives at `<cwd>/.agents/memory/config.json` — discovered by the
  * SAME cwd-relative resolver as the MEMORY.md SoT (`resolveProjectStoreDir`),
  * so each worktree's checkout sees its own opt-in. It is NARROW: only
- * `autoCommitProjectMemory` and `projectMemoryDir` may ride it. dbBackend /
+ * `autoCommitProjectMemory`, `projectMemoryDir`, and `projectName` may ride it. dbBackend /
  * surreal.* / llm* are IGNORED — a repo must never silently repoint its DB or
  * backend. When the global config opts out of in-repo project memory
  * (`projectMemoryDir === null`), there is no in-repo config.json to consult,
@@ -174,6 +174,10 @@ function applyRepoLocalProjectMemoryOverlay(config: MemoryConfig, cwd: string): 
   // Allowlisted project-memory keys ONLY.
   if (typeof overlay.autoCommitProjectMemory === "boolean") {
     config.autoCommitProjectMemory = overlay.autoCommitProjectMemory;
+  }
+  if (typeof overlay.projectName === "string") {
+    const trimmed = overlay.projectName.trim();
+    if (trimmed) config.projectName = trimmed;
   }
   if (overlay.projectMemoryDir === null) config.projectMemoryDir = null;
   else if (typeof overlay.projectMemoryDir === "string") {
