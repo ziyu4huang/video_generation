@@ -1,8 +1,8 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import { DEFAULT_BATCH_CONCURRENCY, MAX_CONCURRENCY } from "../src/config.js";
+import { DEFAULT_BATCH_CONCURRENCY, MAX_BATCH_TASKS, MAX_CONCURRENCY } from "../src/config.js";
 import { createSubagentsTool as fromIndex } from "../src/index.js";
-import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
+import type { SpawnSubagentResult } from "../src/spawn-subagent.js";
 import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
 import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
 import {
@@ -112,6 +112,18 @@ test("execute rejects an empty tasks array with an actionable message", async ()
   });
   const res = await tool.execute("call-3", { tasks: [] }, NO_SIGNAL, undefined, NO_CTX);
   assert.match(res.content[0].text, /tasks must be a non-empty array/i);
+});
+
+test("execute rejects an over-limit tasks array (MAX_BATCH_TASKS + 1) with an actionable message", async () => {
+  const tool = createSubagentsTool({
+    cwd: "/repo",
+    spawn: async () => ({ output: "", exitCode: 0, stderr: "", timedOut: false }),
+  });
+  const tasks = Array.from({ length: MAX_BATCH_TASKS + 1 }, (_v, i) => ({ task: `#${i}` }));
+  const res = await tool.execute("call-cap", { tasks }, NO_SIGNAL, undefined, NO_CTX);
+  assert.match(res.content[0].text, /too large/);
+  assert.equal(res.details.dispatched, 0);
+  assert.equal(res.details.skipped, 0);
 });
 
 function fakeSpawnWithUsage(usages: { total: number; cost: number }[], delayMs = 0) {
@@ -244,7 +256,7 @@ test("renderBatchResult renders ok/failed/skipped sections", () => {
     results: [
       { output: "hello", status: "done", index: 0, id: "a" },
       null,
-      { status: "budget", exhaustion: { kind: "tokens", limit: 50000, actual: 70000 }, index: 2 },
+      { status: "budget", source: "batch", exhaustion: { kind: "tokens", limit: 50000, actual: 70000 }, index: 2 },
     ],
     dispatched: 1,
     skipped: 1,
@@ -254,4 +266,20 @@ test("renderBatchResult renders ok/failed/skipped sections", () => {
   assert.match(text, /1 ok · 1 failed · 1 skipped/);
   assert.match(text, /\(a\) done/);
   assert.match(text, /skipped — batch budget: tokens 70000 > 50000/);
+});
+
+test("a child hitting its own per-child budget renders as 'child budget' (source: child)", async () => {
+  const spawn = async (): Promise<SpawnSubagentResult> => ({
+    output: "out",
+    exitCode: 0,
+    stderr: "",
+    timedOut: false,
+    budget: { kind: "tokens", limit: 100, actual: 200 },
+  });
+  const tool = createSubagentsTool({ cwd: "/repo", spawn });
+  const res = await tool.execute("call-child-budget", { tasks: [{ task: "#0" }] }, NO_SIGNAL, undefined, NO_CTX);
+  const slot = res.details.results[0];
+  assert.equal((slot as { status: string }).status, "budget");
+  assert.equal((slot as { source: string }).source, "child");
+  assert.match(res.content[0].text, /child budget: tokens 200 > 100/);
 });
