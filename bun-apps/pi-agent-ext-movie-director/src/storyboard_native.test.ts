@@ -141,7 +141,7 @@ describe("buildContactSheet — ffmpeg tile assembly", () => {
     expect(calls[0]?.cmd).toBe("ffmpeg");
     const argv = calls[0]!.argv;
     expect(argv).toContain("-i");
-    expect(argv.filter((a) => a === "-i")).toHaveLength(5); // 4 real inputs + 1 pad source (2x2 grid, 4 images)
+    expect(argv.filter((a) => a === "-i")).toHaveLength(4); // one -i per real image, no pad input (tile auto-fills leftover cells)
     const filterIdx = argv.indexOf("-filter_complex");
     expect(filterIdx).toBeGreaterThan(-1);
     const filter = argv[filterIdx + 1]!;
@@ -150,7 +150,7 @@ describe("buildContactSheet — ffmpeg tile assembly", () => {
     expect(argv).toContain("/out/sheet.png");
   });
 
-  it("needs no pad source when the image count exactly fills the grid", async () => {
+  it("adds no extra -i when the image count exactly fills the grid (same one-per-image rule)", async () => {
     const calls: { argv: string[] }[] = [];
     const spawnImpl: SpawnImpl = async (_cmd, argv) => {
       calls.push({ argv });

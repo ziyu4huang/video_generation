@@ -254,8 +254,8 @@ const CONTACT_SHEET_CELL_H = 720; // matches the non-kontext default aspect (640
  * Trailing empty grid cells (when imagePaths.length isn't a multiple of
  * cols) are left to ffmpeg's `tile` filter, which fills any leftover cells
  * with black once it runs out of concat-ed frames — close to, but not
- * exactly, Python's (16,16,16) background canvas; a reserved dark-gray
- * color input is still added to argv in that case to document intent.
+ * exactly, Python's (16,16,16) background canvas. No extra pad input is
+ * added for this: `tile`'s auto-fill needs no source frame to draw from.
  */
 export async function buildContactSheet(
   imagePaths: string[],
@@ -267,19 +267,9 @@ export async function buildContactSheet(
     throw new Error("buildContactSheet: no frames to build a contact sheet");
   }
   const rows = Math.ceil(imagePaths.length / cols);
-  const totalCells = cols * rows;
-  const padCount = totalCells - imagePaths.length;
 
   const argv: string[] = ["-y"];
   for (const p of imagePaths) argv.push("-i", p);
-  // A single reserved dark-gray color source, added whenever the grid isn't
-  // exactly filled — but NOT fanned out into per-cell filter chains and NOT
-  // counted in `concat`'s frame count below: `tile` already auto-fills any
-  // leftover cells with black once it runs out of concat-ed frames, so the
-  // reserved input only documents intent; it isn't consumed by the graph.
-  if (padCount > 0) {
-    argv.push("-f", "lavfi", "-i", `color=c=0x101010:s=${CONTACT_SHEET_CELL_W}x${CONTACT_SHEET_CELL_H}:d=1`);
-  }
 
   const filter: string[] = [];
   const labels: string[] = [];
