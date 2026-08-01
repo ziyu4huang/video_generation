@@ -1,5 +1,7 @@
 # Wayfinder map: 2026-08-02-hardening-to-resolve-problem-we-find-about-wrong
 
+> **Status: ✅ SHIPPED (2026-08-02)** — implemented via SDD; 5 commits (`478b8f8a`…`de3466a`); final whole-branch review SHIP, 129/129 tests green, `skills/` untouched (ADR-0004).
+
 ## Destination
 
 Superpowers **never writes any artifact** — spec, plan, SDD workspace, or
@@ -38,10 +40,7 @@ back to the pinned skill's literal `docs/superpowers/specs/` default.
   the text's effort-gated language, not delivery); specs/plans are prose-only
   (no script to override the path); wayfind is already leak-free (scope =
   superpowers-only).
-- [No-effort artifact location](tickets/01-no-effort-artifact-location.md) —
-  auto-create a dated `.planning/<YYYY-MM-DD>-<slug>/` when no effort is active
-  (preserves per-effort isolation; adoptable by `/wayfind seed`; no friction for
-  lightweight brainstorms).
+- [No-effort artifact location](tickets/01-no-effort-artifact-location.md) — **REVISED (2026-08-02)**: no-effort specs route to the flat `.planning/specs/<YYYY-MM-DD>-<topic>-design.md` and plans to `.planning/plans/` — the active convention that `docs/superpowers/{specs,plans}` symlink to. The original per-effort-dir decision was made *before* the symlinks were known (see the symlink finding); per-effort `.planning/<effort>/` remains for multi-ticket wayfind efforts.
 - [Regression-guard form](tickets/02-regression-guard-form.md) — both: a unit
   test asserting the injected boundary text's no-upstream-path rule is
   unconditional + a repo lint failing on any new file under
@@ -49,7 +48,12 @@ back to the pinned skill's literal `docs/superpowers/specs/` default.
 - [ADR for unconditional redirect?](tickets/03-adr-for-unconditional-redirect.md)
   — yes: ADR-0006 supersedes ADR-0005's effort-gated clause (leaves 0005's
   disjoint-subpath layout intact with a pointer), recording the unconditional
-  rule + the auto-dated no-effort default + the dual guard. (ADR-0006: docs/adr/0006-unconditional-artifact-home.md)
+  rule + the auto-dated no-effort default + the dual guard.
+- [Implement no-leak + guard](tickets/04-implement-no-leak-and-guard.md) —
+  DONE via SDD: unconditional boundary text (`piBoundaryOverrides()`),
+  repo-lint (`tests/artifact-leak.test.ts`, symlink-aware), ADR-0006, unit test.
+  Premise-corrected mid-effort to route no-effort specs to flat `.planning/specs/`
+  (see Out-of-scope symlink finding). (ADR-0006: docs/adr/0006-unconditional-artifact-home.md)
 
 ## Not yet specified
 
@@ -60,6 +64,8 @@ back to the pinned skill's literal `docs/superpowers/specs/` default.
   a standalone decision — not yet ticketable.
 
 ## Out of scope
+
+- **Symlink discovery (Task 3 impl, 2026-08-02)** — `docs/superpowers/{specs,plans}` are git-tracked symlinks → `.planning/{specs,plans}` (flat layout: 48 specs + 64 plans, active through 2026-08-01, incl. the tool-gate s1/s2 specs). So the original 'leak' was already mitigated at the filesystem level, and ticket 00 finding R2 ('specs/plans have no path override') was **incomplete** — the symlinks ARE a path override to the flat layout. This is why ticket 01 was revised: no-effort specs belong in the flat `.planning/specs/`, not per-effort dirs.
 
 - **Editing pinned skill bodies** — ADR-0004 forbids it; divergence belongs at
   the injection layer. Any "fix the SKILL.md prose" approach is ruled out.
