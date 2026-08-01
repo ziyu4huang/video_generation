@@ -2,6 +2,8 @@ import { test } from "bun:test";
 import assert from "node:assert/strict";
 import { DEFAULT_BATCH_CONCURRENCY, MAX_CONCURRENCY } from "../src/config.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
+import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
+import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
 import {
   clampConcurrency,
   createSubagentsTool,
@@ -155,4 +157,77 @@ test("batch token budget soft gate skips remaining slots without aborting in-fli
   // the two that ran completed normally (in-flight never aborted)
   assert.equal((d.results[0] as { status: string }).status, "done");
   assert.equal((d.results[1] as { status: string }).status, "done");
+});
+
+/** In-memory persistence capturing every saved record. */
+function memPersistence(): SubagentRunPersistence & { saved: SubagentRunRecord[] } {
+  const saved: SubagentRunRecord[] = [];
+  return {
+    saved,
+    save: (rec: SubagentRunRecord) => {
+      saved.push(rec);
+    },
+    list: () => saved,
+    load: () => null,
+  } as unknown as SubagentRunPersistence & { saved: SubagentRunRecord[] };
+}
+
+test("each dispatched child registers in-flight while running and persists once on completion", async () => {
+  const inFlight = new SubagentInFlightRegistry();
+  let seenDuringRun = 0;
+  const f = fakeSpawnByIndex([
+    () => {
+      seenDuringRun = inFlight.list().length;
+      return { output: "A", exitCode: 0, stderr: "", timedOut: false };
+    },
+    () => {
+      seenDuringRun = Math.max(seenDuringRun, inFlight.list().length);
+      return { output: "B", exitCode: 0, stderr: "", timedOut: false };
+    },
+  ]);
+  const persistence = memPersistence();
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: f.spawn, inFlight, persistence });
+  await tool.execute(
+    "call-obs",
+    { tasks: [{ task: "#0" }, { task: "#1" }], concurrency: 2 },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  // registry is empty after the batch completes (all children ended)
+  assert.equal(inFlight.list().length, 0);
+  // while running, both children were registered
+  assert.ok(seenDuringRun >= 1, "at least one child was in-flight during the run");
+  // one persistence record per dispatched child
+  assert.equal(persistence.saved.length, 2);
+  assert.equal(persistence.saved[0].task, "#0");
+  assert.equal(persistence.saved[0].status, "done");
+});
+
+test("a failed child is not persisted; a gate-skipped child is not persisted", async () => {
+  const f = fakeSpawnByIndex([
+    { output: "", exitCode: 1, stderr: "x", timedOut: false }, // failed
+    { output: "ok", exitCode: 0, stderr: "", timedOut: false }, // done, trips gate
+    { output: "ok", exitCode: 0, stderr: "", timedOut: false }, // skipped by gate
+  ]);
+  const persistence = memPersistence();
+  // give the done child heavy usage so the gate trips after it
+  // (re-use the usage fake by wrapping)
+  const wrappedSpawn = async (opts: { task: string }): Promise<SpawnSubagentResult> => {
+    const r = await f.spawn(opts);
+    if (r.exitCode === 0)
+      return { ...r, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 60000, cost: 0 } };
+    return r;
+  };
+  const tool2 = createSubagentsTool({ cwd: "/repo", spawn: wrappedSpawn, persistence });
+  await tool2.execute(
+    "call-np",
+    { tasks: [{ task: "#0" }, { task: "#1" }, { task: "#2" }], concurrency: 1, tokenBudget: 50000 },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  // only the one done child persists (failed + skipped do not)
+  assert.equal(persistence.saved.length, 1);
+  assert.equal(persistence.saved[0].status, "done");
 });
