@@ -6,8 +6,12 @@
  * KokoroTTSCLI target), but a distinct binary/product, hence a distinct resolver
  * rather than generalizing the already-shipped musicgen_binary.ts.
  *
- * Mirrors musicgen_binary.ts's shape exactly (env-var names swapped
- * KOKORO_BIN/KOKORO_REPO_ROOT for MUSICGEN_BIN/MUSICGEN_REPO_ROOT).
+ * Mirrors musicgen_binary.ts's shape (env-var names swapped
+ * KOKORO_BIN/KOKORO_REPO_ROOT for MUSICGEN_BIN/MUSICGEN_REPO_ROOT), with two
+ * deliberate deviations: buildBinary scopes to `--product kokoro-tts` (avoids
+ * rebuilding the unrelated musicgen binary), and the source-mtime staleness
+ * check narrows to Sources/KokoroTTSCLI (avoids false-staleness from
+ * unrelated MusicGenDirector changes).
  */
 import { dirname, join, resolve as pResolve } from "node:path";
 import { existsSync, readdirSync, statSync } from "node:fs";
@@ -106,7 +110,21 @@ export async function buildMetallib(repoRoot: string, onProgress?: ProgressFn): 
   onProgress?.({ kind: "progress", text: "building mlx.metallib (Metal shaders)…" });
   await new Promise<void>((resolveP) => {
     const proc = spawn("bash", [script], { stdio: ["ignore", "pipe", "pipe"] });
-    proc.on("error", () => resolveP());
+    const lineBuf = { out: "", err: "" };
+    const handle = (stream: NodeJS.ReadableStream, key: "out" | "err") => {
+      stream.on("data", (chunk: Buffer) => {
+        lineBuf[key] += chunk.toString();
+        let nl: number;
+        while ((nl = lineBuf[key].indexOf("\n")) >= 0) {
+          const line = lineBuf[key].slice(0, nl).trim();
+          lineBuf[key] = lineBuf[key].slice(nl + 1);
+          if (line) onProgress?.({ kind: "progress", text: line });
+        }
+      });
+    };
+    handle(proc.stdout!, "out");
+    handle(proc.stderr!, "err");
+    proc.on("error", () => resolveP()); // metallib build is best-effort; don't fail the run
     proc.on("close", () => resolveP());
   });
 }

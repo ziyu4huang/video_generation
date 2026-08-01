@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { defaultBinaryPath, resolveRepoRoot } from "./kokoro_binary.ts";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 describe("kokoro_binary path resolution", () => {
@@ -12,6 +13,6 @@ describe("kokoro_binary path resolution", () => {
 
   it("resolveRepoRoot finds the real repo root from this file's location", () => {
     const root = resolveRepoRoot();
-    expect(root.endsWith("video_generation__director") || root.length > 0).toBe(true);
+    expect(existsSync(join(root, "swift", "musicgen-director", "Package.swift"))).toBe(true);
   });
 });
