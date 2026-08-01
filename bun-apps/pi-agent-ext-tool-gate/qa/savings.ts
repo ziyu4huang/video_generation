@@ -26,8 +26,26 @@ import {
 import type { SchemaCostReport } from "../../pi-agent-cli/src/commands/schema-cost.ts";
 import { CORE_TOOLS, GATES } from "../extensions/tool-gate.ts";
 
-/** The savings figure tool-gate's README/banner claims (~8,050 tok/req; zai-mcp env-gated — see caveats()). */
+/** The savings figure tool-gate's README/banner claims (~8,050 tok/req; zai-mcp env-gated — see caveats()).
+ *  THE single source of truth — every prose mention cites ~8,050 and points to
+ *  `bun run qa:savings` for live numbers. Do not hardcode a competing figure. */
 export const CLAIMED_SAVED_TOK = 8050;
+
+/** Max |savedTok − CLAIMED_SAVED_TOK| before the README/banner claim is stale.
+ *  ±20%: the figure legitimately drifts as the gate set and sibling-extension
+ *  schemas change — the dominant swing is zai-mcp (~1.1k tok, env-gated on
+ *  ZAI_API_KEY ≈ 14% of the claim), so a tighter band would flake whenever zai
+ *  loads. 20% still fails loudly if measured savings collapse (claim over-
+ *  states) or balloon (claim badly under-states). Guarded by the deviation-band
+ *  test in savings.test.ts — the lock that makes CLAIMED_SAVED_TOK trustworthy. */
+export const DRIFT_BAND = 0.2; // fraction of CLAIMED_SAVED_TOK
+
+/** Is the measured gross saving within DRIFT_BAND of the claimed figure?
+ *  Pure — extracted so the band semantics are unit-testable without booting
+ *  the schema-cost collection. */
+export function withinDriftBand(savedTok: number): boolean {
+	return Math.abs(savedTok - CLAIMED_SAVED_TOK) <= DRIFT_BAND * CLAIMED_SAVED_TOK;
+}
 
 export interface GateSavings {
 	/** First name of the gate — its identity for display. */
@@ -170,7 +188,7 @@ export function formatSavings(r: SavingsReport): string[] {
 		`SAVED:          ${r.savedTok.toLocaleString()} tok/req  (${r.savedPct}%)  [gross — gated tools' raw tokens]`,
 		`enable_tool:    ${r.enableToolOverhead.toLocaleString()} tok/req  (always-on price of gating — drift-detect this)`,
 		`NET:            ${r.netSavedTok.toLocaleString()} tok/req  (${r.netSavedPct}%)  [saved − enable_tool]`,
-		`vs README claim ~${r.claimed.toLocaleString()}: ${sign(r.deviation)}${r.deviation.toLocaleString()} tok`,
+		`vs README claim ~${r.claimed.toLocaleString()}: ${sign(r.deviation)}${r.deviation.toLocaleString()} tok  (±${Math.round(DRIFT_BAND * 100)}% band = ±${Math.round(DRIFT_BAND * r.claimed).toLocaleString()}; ${withinDriftBand(r.savedTok) ? "within ✓" : "OUTSIDE ✗"})`,
 		"",
 		"per gate (loaded only):",
 		...r.perGate

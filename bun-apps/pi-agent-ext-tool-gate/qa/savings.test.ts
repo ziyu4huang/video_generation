@@ -6,7 +6,7 @@
  * test with a 15s timeout (per the bun-test-timeout tool-quirk).
  */
 import { describe, test, expect } from "bun:test";
-import { computeNet, measureSavings } from "./savings.ts";
+import { computeNet, measureSavings, withinDriftBand, DRIFT_BAND, CLAIMED_SAVED_TOK } from "./savings.ts";
 
 describe("computeNet (pure — audit I-6 net accounting)", () => {
 	test("net = savedTok − enableToolOverhead", () => {
@@ -31,6 +31,31 @@ describe("computeNet (pure — audit I-6 net accounting)", () => {
 	});
 });
 
+describe("withinDriftBand (single-source-of-truth guard — pure)", () => {
+	const band = DRIFT_BAND * CLAIMED_SAVED_TOK; // ±20% of 8,050 = ±1,610
+
+	test("measured ≈ claim → within band", () => {
+		expect(withinDriftBand(CLAIMED_SAVED_TOK)).toBe(true); // exact
+		expect(withinDriftBand(8108)).toBe(true); // current measured gross
+	});
+
+	test("band edges are inclusive", () => {
+		expect(withinDriftBand(CLAIMED_SAVED_TOK + band)).toBe(true); // upper edge
+		expect(withinDriftBand(CLAIMED_SAVED_TOK - band)).toBe(true); // lower edge
+		expect(withinDriftBand(CLAIMED_SAVED_TOK + band + 1)).toBe(false); // just over
+		expect(withinDriftBand(CLAIMED_SAVED_TOK - band - 1)).toBe(false); // just under
+	});
+
+	test("halved savings → outside (claim gone stale)", () => {
+		expect(withinDriftBand(4000)).toBe(false);
+	});
+
+	test("zai-mcp env swing (~+1.1k) stays within band", () => {
+		// zai loads when ZAI_API_KEY is set — the dominant legitimate drift.
+		expect(withinDriftBand(CLAIMED_SAVED_TOK + 1100)).toBe(true);
+	});
+});
+
 describe("measureSavings (integration — reports net + overhead, audit I-6)", () => {
 	test(
 		"enable_tool overhead is measured; net < gross; net = saved − overhead",
@@ -44,6 +69,9 @@ describe("measureSavings (integration — reports net + overhead, audit I-6)", (
 			expect(r.netSavedPct).toBeLessThan(r.savedPct);
 			// Sanity: we still save a lot (gross floor holds).
 			expect(r.savedTok).toBeGreaterThan(5000);
+			// Single-source-of-truth guard: measured gross within DRIFT_BAND of the
+			// README claim — fails loudly if the claim goes stale (deviation > ±20%).
+			expect(withinDriftBand(r.savedTok)).toBe(true);
 		},
 		15000,
 	); // 15s — boots buildSchemaCostReport (bun-test-timeout tool-quirk)
