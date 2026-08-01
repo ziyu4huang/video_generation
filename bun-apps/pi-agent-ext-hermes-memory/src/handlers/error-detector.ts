@@ -180,6 +180,7 @@ export function setupErrorDetector(
             project: scopedProject,
             category: "failure",
             failureReason: reason,
+            ...(addResult.added_md_id ? { mdId: addResult.added_md_id } : {}),
           });
         } catch {
           // best-effort SQLite sync only

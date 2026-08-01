@@ -251,7 +251,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     it("fifo-evict consolidates before evicting (D3: never shift()s active directly)", async () => {
       let consolidatorCalled = false;
       const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 150,
+        memoryCharLimit: 250,
         memoryOverflowStrategy: "fifo-evict",
         autoConsolidate: true,
       }));
@@ -289,7 +289,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
     it("does not evict when the new entry cannot fit an empty memory", async () => {
       const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 80,
+        memoryCharLimit: 150,
         memoryOverflowStrategy: "fifo-evict",
       }));
       await store.loadFromDisk();
@@ -307,7 +307,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
     it("auto-consolidate floor: when consolidation frees nothing, vault-offloads oldest instead of hard-rejecting", async () => {
       const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 200,
+        memoryCharLimit: 260,
         memoryOverflowStrategy: "auto-consolidate",
         autoConsolidate: true,
       }));
@@ -335,7 +335,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
     it("auto-consolidate floor: fires with no consolidator wired (never hard-rejects)", async () => {
       const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 200,
+        memoryCharLimit: 260,
         memoryOverflowStrategy: "auto-consolidate",
         autoConsolidate: true,
       }));
@@ -376,25 +376,39 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     // D2: superseded entries are offloaded (purged from .md) BEFORE any
     // destructive strategy runs. The provider is injected (test fakes it;
     // production wires repo.getMemories({status:"superseded"}) in Task 3).
-    // NOTE: memoryCharLimit calibrated to 180 — the plan's literal 60 is
-    // impossible because each encoded entry carries a ~45-char metadata
-    // comment ("<!-- created=..., last=... -->"), so a 33-char content encodes
-    // to ~78 chars and would overflow on the FIRST add. At 180: 2 entries fit,
-    // a 3rd overflows, and after purging the superseded one the new entry fits.
+    // NOTE: memoryCharLimit calibrated so 2 frontmatter seeds fit + a 3rd add
+    // overflows, and after purging the superseded one the keeper + new entry
+    // fit (the D2 happy path that surfaces offloaded_superseded). Frontmatter
+    // entries (~90-char header + body) are larger than the legacy comment
+    // shape, so the limit is raised from the original 180→220→250 (Task 7
+    // births emit a ~86-char frontmatter header, so [KEEP, new] must stay
+    // under the limit after the D2 purge to hit the early-return success).
     it("overflow offloads superseded entries first (injected provider) before any destructive strategy", async () => {
-      const store = new MemoryStore(makeConfig({ memoryCharLimit: 180 }));
+      const store = new MemoryStore(makeConfig({ memoryCharLimit: 250 }));
 
-      // Seed two active entries; pretend the DB reports the SECOND as superseded.
-      assert.ok((await store.add("memory", "keep me active overflowprobe aaa")).success);
-      assert.ok((await store.add("memory", "superseded one overflowprobe bbb")).success);
-      // Provider returns the CONTENT of the entry that is superseded in the DB.
-      store.setSupersededContentProvider(async () => ["superseded one overflowprobe bbb"]);
+      // Seed two FRONTMATTER entries (post-backfill shape) directly on disk —
+      // _addInner reloads from disk, so direct injection into the array would
+      // be wiped. The DB reports the SECOND as superseded (by md_id now).
+      const KEEP_ID = "aaaa0a0a-0a0a-0a0a-0a0a-0a0a0a0a0a0a";
+      const SUPER_ID = "bbbb1b1b-1b1b-1b1b-1b1b-1b1b1b1b1b1b";
+      const TODAY = new Date().toISOString().split("T")[0];
+      const fm = (id: string, body: string) => `---\nid: ${id}\ncreated: ${TODAY}\nlast: ${TODAY}\n---\n${body}`;
+      const fs = await import("node:fs/promises");
+      const p = await import("node:path");
+      await fs.writeFile(
+        p.join(MEMORY_DIR, MEMORY_FILE),
+        [fm(KEEP_ID, "keep me active overflowprobe aaa"), fm(SUPER_ID, "superseded one overflowprobe bbb")].join(ENTRY_DELIMITER),
+        "utf-8",
+      );
+      // Provider returns the MD_ID of the entry that is superseded in the DB.
+      store.setSupersededContentProvider(async () => [SUPER_ID]);
 
       // This add overflows; expect the superseded entry purged and the new one added.
       const result = await store.add("memory", "new entry overflowprobe ccc");
 
       assert.ok(result.success, result.error);
-      assert.deepEqual(result.offloaded_superseded, ["superseded one overflowprobe bbb"]);
+      // offloaded_superseded is md_id-only now (no archive/display consumer).
+      assert.deepEqual(result.offloaded_superseded, [SUPER_ID]);
 
       // The superseded entry must no longer be in the .md entries.
       const entries = store.getMemoryEntries();
@@ -699,7 +713,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
     it("replace() overflow with non-reject strategy vault-offloads oldest OTHER entries (never hard-rejects)", async () => {
       const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 250,
+        memoryCharLimit: 380,
         memoryOverflowStrategy: "auto-consolidate",
         autoConsolidate: true,
       }));
@@ -749,7 +763,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
     it("replace() a single replacement larger than the whole budget still rejects", async () => {
       const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 100,
+        memoryCharLimit: 130,
         memoryOverflowStrategy: "auto-consolidate",
         autoConsolidate: true,
       }));
@@ -1014,8 +1028,10 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const raw = await readRaw(memoryPath);
       const parsed = raw.split(ENTRY_DELIMITER).map((e) => e.trim()).filter(Boolean);
 
-      // Strip metadata comments for comparison (entries now include <!-- created=..., last=... -->)
-      const stripped = parsed.map((e) => e.replace(/\s*<!--.*?-->\s*$/, "").trim());
+      // Strip frontmatter metadata for comparison (Task 7: births emit YAML
+      // frontmatter id/created/last + body — the legacy trailing HTML comment
+      // shape is retired for births; legacy comment entries are still parsed).
+      const stripped = parsed.map((e) => e.replace(/^---\n[\s\S]*?\n---\n/, "").trim());
       assert.deepEqual(stripped, entries);
     });
 
@@ -1346,12 +1362,16 @@ describe("MemoryStore", { concurrency: 1 }, () => {
   // test 1 would VANISH and these assertions would FAIL — do NOT weaken them.
   describe("2-phase consolidation: update-safety race gate (Task 5)", () => {
     // Sizing rationale (constants, not magic numbers):
-    //   • encodeRaw(content).length = content.length + 45
-    //     (" <!-- created=YYYY-MM-DD, last=YYYY-MM-DD -->"; date is always 10 chars)
+    //   • store.add() writes YAML frontmatter (5d stable-id shape). A bare entry
+    //     is ~body + 86 chars: "---\nid: <36-char uuid>\ncreated: <d>\nlast: <d>\n---\n".
+    //     (The pre-migration comment shape was body + ~45; frontmatter is +41/entry.)
+    //   • The race stub's concurrent append (encodeRaw) is still comment-shape
+    //     (body + ~45) — kept legacy-shape deliberately so the test also pins the
+    //     migration's claim that a mixed frontmatter+comment file reconciles cleanly.
     //   • ENTRY_DELIMITER ("\n§\n") is 3 chars between entries.
 
     it("RACE: an entry appended during step 2 (lock-free) is preserved after reconcile", async () => {
-      const limit = 250;
+      const limit = 350;
       const store = new MemoryStore(makeConfig({
         memoryCharLimit: limit,
         memoryOverflowStrategy: "auto-consolidate",
@@ -1361,11 +1381,11 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       // Seed two entries. `first` is large so that adding `incoming` overflows;
       // the plan drops `first` (snapshot.entries[0]) so `second` survives.
-      const first = `${TEST_MARKER} ${"A".repeat(70)}`;            // enc 129
-      const second = `${TEST_MARKER} keep second seeded`;          // enc  70
-      const incoming = `${TEST_MARKER} incoming third probe`;      // enc  78
-      // Overflow check:  129 + 3 + 70 + 3 + 78 = 283 > 250  ✓
-      // After reconcile: [second(70), APPEND(62), incoming(78)] = 216 ≤ 250 ✓
+      const first = `${TEST_MARKER} ${"A".repeat(70)}`;            // fm 170 (body 84 + 86)
+      const second = `${TEST_MARKER} keep second seeded`;          // fm 118
+      const incoming = `${TEST_MARKER} incoming third probe`;      // fm 120
+      // Overflow check:  170 + 3 + 118 + 3 + 120 = 414 > 350  ✓
+      // After reconcile: [second(118), APPEND(61), incoming(120)] = 305 ≤ 350 ✓
       assert.ok((await store.add("memory", first)).success);
       assert.ok((await store.add("memory", second)).success);
 
@@ -1407,7 +1427,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     });
 
     it("RACE: a plan op referencing a removed entry is skipped; consolidation completes without corrupting", async () => {
-      const limit = 200;
+      const limit = 300;
       const store = new MemoryStore(makeConfig({
         memoryCharLimit: limit,
         memoryOverflowStrategy: "auto-consolidate",
@@ -1417,11 +1437,11 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       // `first` is large (overflows when `incoming` is added); `second` is small
       // and stays under the limit once `first` is gone.
-      const first = `${TEST_MARKER} ${"A".repeat(60)}`;            // enc 119
-      const second = `${TEST_MARKER} keep`;                       // enc  64
-      const incoming = `${TEST_MARKER} incoming probe`;           // enc  73
-      // Overflow check:  119 + 3 + 64 + 3 + 73 = 262 > 200  ✓
-      // After concurrent remove of `first` + retried add: [second(64), incoming(73)] = 140 ≤ 200 ✓
+      const first = `${TEST_MARKER} ${"A".repeat(60)}`;            // fm 160 (body 74 + 86)
+      const second = `${TEST_MARKER} keep`;                       // fm 104
+      const incoming = `${TEST_MARKER} incoming probe`;           // fm 114
+      // Overflow check:  160 + 3 + 104 + 3 + 114 = 384 > 300  ✓
+      // After concurrent remove of `first` + retried add: [second(104), incoming(114)] = 221 ≤ 300 ✓
       assert.ok((await store.add("memory", first)).success);
       assert.ok((await store.add("memory", second)).success);
 

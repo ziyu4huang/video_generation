@@ -12,6 +12,7 @@
  * file and were moved out to keep the seam clean (DRY: single source of truth).
  */
 
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type { MemoryCategory, Provenance, MemorySource } from "../types.js";
 import type { MemoryTarget } from "./repository.js";
 
@@ -141,6 +142,11 @@ export function formatFailureMemoryContent(
 export interface ParsedMarkdownMemoryEntry {
   content: string;
   target: MemoryTarget;
+  /** Stable markdown-side id, surfaced from the frontmatter `id` so the startup
+   *  mirror (`syncMarkdownMemories` → `syncMemoryEntry`) can stamp the SQLite
+   *  `md_id` / Surreal `mdId` on an externally-edited frontmatter entry. Set
+   *  only on the frontmatter branch; comment-shape entries have no id. */
+  mdId?: string;
   project?: string | null;
   category?: MemoryCategory | null;
   failureReason?: string | null;
@@ -154,28 +160,19 @@ export interface ParsedMarkdownMemoryEntry {
   mwFail?: number | null;
 }
 
-export function parseMarkdownMemoryEntry(
-  rawEntry: string,
-  target: MemoryTarget,
-  project: string | null = null,
-): ParsedMarkdownMemoryEntry {
-  const { text, created, lastReferenced, provenance, sources, mwSuccess, mwFail } = parseMetadataComment(rawEntry);
-  const parsedProject = normalizeNullable(project);
-
-  if (target !== "failure") {
-    return {
-      content: text,
-      target,
-      project: parsedProject,
-      created,
-      lastReferenced,
-      ...(provenance ? { provenance } : {}),
-      ...(sources ? { sources } : {}),
-      ...(typeof mwSuccess === "number" ? { mwSuccess } : {}),
-      ...(typeof mwFail === "number" ? { mwFail } : {}),
-    };
-  }
-
+/**
+ * Derive the failure-specific fields (`[category]` prefix + ` — ` segments) from
+ * a body string. Shared by BOTH parse shapes — the frontmatter branch and the
+ * legacy comment branch — so the failure-field decoding lives in exactly one
+ * place. The `[failure]` / `Failed:` / `Tool state:` / `Corrected to:` layout
+ * lives in the body text regardless of which metadata envelope wraps it.
+ */
+function deriveFailureFields(text: string): {
+  category: MemoryCategory | null;
+  failureReason: string | null;
+  toolState: string | null;
+  correctedTo: string | null;
+} {
   let category: MemoryCategory | null = null;
   let failureReason: string | null = null;
   let toolState: string | null = null;
@@ -201,19 +198,167 @@ export function parseMarkdownMemoryEntry(
     }
   }
 
+  return { category, failureReason, toolState, correctedTo };
+}
+
+export function parseMarkdownMemoryEntry(
+  rawEntry: string,
+  target: MemoryTarget,
+  project: string | null = null,
+): ParsedMarkdownMemoryEntry {
+  // Frontmatter shape (ticket 05 stable-id format): delegate to the YAML
+  // parser. The body is canonical `content`; `parseMetadataFrontmatter` also
+  // surfaces it as `text` and carries the stable `id`. For the failure target
+  // the `[category]` prefix + ` — ` segments live in the body text, so
+  // re-derive them via the same helper the comment path uses.
+  if (detectEntryShape(rawEntry) === "frontmatter") {
+    const fm = parseMetadataFrontmatter(rawEntry);
+    // Surface the frontmatter `id` as `mdId` so the startup mirror path
+    // (`syncMarkdownMemories` → `MemorySyncInput.mdId` → INSERT `md_id`) stamps
+    // the row. Without this, an externally-edited frontmatter entry re-synced
+    // via the mirror lands `md_id = NULL` (Task 7 re-review must-fix 2).
+    const base = { ...fm, mdId: fm.id, target, project: normalizeNullable(project) };
+    if (target !== "failure") return base;
+    return { ...deriveFailureFields(fm.content), ...base };
+  }
+
+  const { text, created, lastReferenced, provenance, sources, mwSuccess, mwFail } = parseMetadataComment(rawEntry);
+  const parsedProject = normalizeNullable(project);
+
+  if (target !== "failure") {
+    return {
+      content: text,
+      target,
+      project: parsedProject,
+      created,
+      lastReferenced,
+      ...(provenance ? { provenance } : {}),
+      ...(sources ? { sources } : {}),
+      ...(typeof mwSuccess === "number" ? { mwSuccess } : {}),
+      ...(typeof mwFail === "number" ? { mwFail } : {}),
+    };
+  }
+
   return {
     content: text,
     target: "failure",
     project: parsedProject,
-    category,
-    failureReason,
-    toolState,
-    correctedTo,
+    ...deriveFailureFields(text),
     created,
     lastReferenced,
     ...(provenance ? { provenance } : {}),
     ...(sources ? { sources } : {}),
     ...(typeof mwSuccess === "number" ? { mwSuccess } : {}),
     ...(typeof mwFail === "number" ? { mwFail } : {}),
+  };
+}
+
+/**
+ * Upgrade a legacy comment entry to the frontmatter envelope. The caller mints
+ * the stable `id` (the backfill does) and passes it in — this function never
+ * generates or overwrites an id. Field renames come for free via
+ * `serializeMetadataFrontmatter` (`lastReferenced`→`last`,
+ * `mwSuccess/mwFail`→`memworth`). The body text is preserved verbatim, so the
+ * failure fields (`[category]` prefix + ` — ` segments) survive unchanged.
+ *
+ * `target` / `project` are kept in the signature for symmetry with
+ * `parseMarkdownMemoryEntry` even though only `raw` + `id` affect the body.
+ */
+export function upgradeEntryToFrontmatter(
+  raw: string,
+  _target: MemoryTarget,
+  _project: string | null,
+  id: string,
+): string {
+  const { text, created, lastReferenced, provenance, sources, mwSuccess, mwFail } = parseMetadataComment(raw);
+  return serializeMetadataFrontmatter({
+    id,
+    text,
+    created,
+    last: lastReferenced,
+    provenance,
+    sources,
+    mwSuccess,
+    mwFail,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// YAML frontmatter format (ticket 05 stable-id schema).
+//
+// Field order is identity-first: id → created → last → provenance → sources →
+// memworth. Absent or empty optional fields are omitted entirely (absence is
+// the encoding for `none` provenance, empty sources, and zero memworth).
+// Renames from the legacy comment shape: lastReferenced→last,
+// mwSuccess/mwFail→memworth.{success,fail}. Dates are bare `YYYY-MM-DD`
+// plain scalars; the serializer is configured so values stay on a single line.
+// ---------------------------------------------------------------------------
+
+export const FRONTMATTER_FENCE = "---";
+
+export function detectEntryShape(raw: string): "frontmatter" | "comment" {
+  return raw.startsWith(FRONTMATTER_FENCE + "\n") ? "frontmatter" : "comment";
+}
+
+export function serializeMetadataFrontmatter(input: {
+  id: string;
+  text: string;
+  created: string;
+  last: string;
+  provenance?: Provenance | null;
+  sources?: MemorySource[] | null;
+  mwSuccess?: number | null;
+  mwFail?: number | null;
+}): string {
+  const fm: Record<string, unknown> = {
+    id: input.id,
+    created: input.created,
+    last: input.last,
+  };
+  if (input.provenance && input.provenance !== "none") fm.provenance = input.provenance;
+  if (input.sources && input.sources.length > 0) fm.sources = input.sources;
+  if ((input.mwSuccess && input.mwSuccess > 0) || (input.mwFail && input.mwFail > 0)) {
+    const mw: Record<string, number> = {};
+    if (input.mwSuccess && input.mwSuccess > 0) mw.success = input.mwSuccess;
+    if (input.mwFail && input.mwFail > 0) mw.fail = input.mwFail;
+    fm.memworth = mw;
+  }
+  const yaml = stringifyYaml(fm, { lineWidth: 0 }).trimEnd();
+  return `${FRONTMATTER_FENCE}\n${yaml}\n${FRONTMATTER_FENCE}\n${input.text}`;
+}
+
+export function parseMetadataFrontmatter(raw: string): ParsedMarkdownMemoryEntry & {
+  id: string;
+  text: string;
+  /** Always coerced via `String()` below, so non-null `string` (not the
+   *  interface's `string | null | undefined`) — narrowed here so `decodeEntry`
+   *  (whose return requires `string`) type-checks without a call-site coerce. */
+  created: string;
+  lastReferenced: string;
+} {
+  const lines = raw.split("\n");
+  // first line is the opening fence; find the closing fence.
+  let close = -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i] === FRONTMATTER_FENCE) {
+      close = i;
+      break;
+    }
+  }
+  if (close === -1) throw new Error("malformed frontmatter: no closing fence");
+  const fm = parseYaml(lines.slice(1, close).join("\n")) as Record<string, unknown>;
+  const text = lines.slice(close + 1).join("\n");
+  const mw = (fm.memworth ?? {}) as { success?: number; fail?: number };
+  return {
+    content: text,
+    text, // alias matching the serialize input field name
+    target: "memory", // caller overrides; format is shape-only
+    id: String(fm.id),
+    created: String(fm.created),
+    lastReferenced: String(fm.last),
+    ...(fm.provenance ? { provenance: fm.provenance as Provenance } : {}),
+    ...(Array.isArray(fm.sources) ? { sources: fm.sources as MemorySource[] } : {}),
+    ...(typeof mw.success === "number" ? { mwSuccess: mw.success } : {}),
+    ...(typeof mw.fail === "number" ? { mwFail: mw.fail } : {}),
   };
 }

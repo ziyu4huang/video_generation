@@ -13,6 +13,7 @@ import {
   syncMarkdownMemories,
 } from '../../src/handlers/sync-markdown-memories.js';
 import { ENTRY_DELIMITER } from '../../src/constants.js';
+import { serializeMetadataFrontmatter } from '../../src/store/memory-format.js';
 
 describe('memory sqlite sync + markdown backfill', () => {
   let tmpDir: string;
@@ -371,6 +372,39 @@ describe('memory sqlite sync + markdown backfill', () => {
     assert.deepStrictEqual(
       rows.map((r) => r.content).sort(),
       ['in-repo project entry', 'legacy global project entry'],
+    );
+  });
+
+  it('startup mirror stamps md_id from an externally-edited frontmatter entry (Task 7 re-review must-fix 2)', async () => {
+    // An entry that was hand-edited (or born before this fix) into the YAML
+    // frontmatter shape carries a stable `id` in the .md. The startup mirror
+    // (`syncMarkdownMemories` → `syncMemoryEntry`/`syncMemoryEntriesBatch`) must
+    // surface that id as `MemorySyncInput.mdId` so the SQLite `md_id` (Surreal
+    // `mdId`) is stamped on the INSERT — NOT left NULL. Pre-fix the mirror read
+    // `.mdId` (never set; the parser surfaced it only as `.id`), so the row
+    // landed md_id = NULL, a permanent orphan once evicted before any restart
+    // re-sync (backfillStableIds skips frontmatter entries).
+    const externalId = 'ext-frontmatter-id-1234';
+    const entry = serializeMetadataFrontmatter({
+      id: externalId,
+      text: 'externally edited frontmatter entry',
+      created: '2026-05-08',
+      last: '2026-05-09',
+    });
+    fs.writeFileSync(path.join(globalDir, 'MEMORY.md'), entry, 'utf-8');
+
+    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+
+    const rows = await memoryRepo.getMemories({ target: 'memory' });
+    assert.strictEqual(rows.length, 1, 'mirror should insert exactly one row');
+    assert.strictEqual(rows[0].content, 'externally edited frontmatter entry');
+    assert.ok(rows[0].mdId !== null && rows[0].mdId !== undefined, 'md_id must NOT be null/undefined');
+    assert.strictEqual(rows[0].mdId, externalId, 'mirror must stamp md_id from the frontmatter id');
+
+    // Same id recoverable via the content→md_id lookup the purge/eviction paths use.
+    assert.strictEqual(
+      await memoryRepo.getMdIdByContent('externally edited frontmatter entry', { target: 'memory' }),
+      externalId,
     );
   });
 });

@@ -11,7 +11,7 @@
 import { createHash } from "node:crypto";
 
 import { ENTRY_DELIMITER } from "../constants.js";
-import { parseMetadataComment, serializeMetadataComment, today } from "./memory-format.js";
+import { parseMetadataComment, parseMetadataFrontmatter, detectEntryShape, serializeMetadataComment, today } from "./memory-format.js";
 
 /** 16-hex-char sha256 digest of an encoded entry. */
 export type EntryHash = string;
@@ -148,12 +148,21 @@ export function mergePlanValidate(plan: unknown): asserts plan is MergePlan {
 /**
  * Parse an encoded entry into a {@link SnapshotEntry}.
  *
- * `content`/`created`/`last` are decoded from the trailing
- * `<!-- created=…, last=… -->` metadata comment (via `parseMetadataComment`,
- * which also tolerates the optional `<!-- meta:{…} -->` provenance block), and
- * `key` is the content hash of the *raw* encoded string.
+ * `content`/`created`/`last` are decoded shape-aware: a YAML-frontmatter entry
+ * (the post-5d-migration canonical shape) is decoded via
+ * `parseMetadataFrontmatter`; a legacy comment entry is decoded via
+ * `parseMetadataComment` (which tolerates the optional `<!-- meta:{…} -->`
+ * provenance block). This mirrors `MemoryStore.decodeEntry` — without it, a
+ * frontmatter entry's `content` would be the full raw string (fence + id +
+ * dates + body), corrupting the snapshot the consolidator sees and any `merge`
+ * op it produces. `key` is always the hash of the *raw* encoded string
+ * (shape-agnostic), so drop ops still match across a mixed-shape live set.
  */
 export function parseEntry(encoded: string): SnapshotEntry {
+  if (detectEntryShape(encoded) === "frontmatter") {
+    const fm = parseMetadataFrontmatter(encoded);
+    return { key: hashEntry(encoded), content: fm.text, created: fm.created, last: fm.lastReferenced };
+  }
   const { text, created, lastReferenced } = parseMetadataComment(encoded);
   return { key: hashEntry(encoded), content: text, created, last: lastReferenced };
 }

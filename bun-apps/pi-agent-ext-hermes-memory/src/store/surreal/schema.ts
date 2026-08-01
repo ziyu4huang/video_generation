@@ -23,6 +23,7 @@ DEFINE ANALYZER IF NOT EXISTS hermes_en TOKENIZERS class FILTERS snowball(englis
 DEFINE INDEX IF NOT EXISTS memory_fts ON TABLE memories FIELDS content FULLTEXT ANALYZER hermes_en;
 DEFINE INDEX IF NOT EXISTS message_fts ON TABLE messages FIELDS content FULLTEXT ANALYZER hermes_en;
 DEFINE INDEX IF NOT EXISTS memories_content ON TABLE memories FIELDS content;
+DEFINE INDEX IF NOT EXISTS memories_md_id ON TABLE memories FIELDS mdId UNIQUE;
 DEFINE INDEX IF NOT EXISTS tagged_in ON TABLE tagged FIELDS in;
 IF array::len((SELECT id FROM seq:memory)) = 0 { CREATE seq:memory SET value = 0; };
 `;

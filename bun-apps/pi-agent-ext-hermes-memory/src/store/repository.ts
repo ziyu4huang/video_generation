@@ -24,6 +24,9 @@ export interface MemoryEntry {
   supersedes?: number | null;
   supersededBy?: number | null;
   parentIds?: number[];
+  /** Stable markdown-side id mirrored from the `.md` frontmatter (ticket 05).
+   *  SQLite column `md_id`; Surreal field `mdId`. Nullable until backfilled. */
+  mdId?: string | null;
 }
 
 export interface MemorySyncInput {
@@ -38,6 +41,12 @@ export interface MemorySyncInput {
   lastReferenced?: string | null;
   mwSuccess?: number | null;
   mwFail?: number | null;
+  /** Stable markdown-side id to mirror onto the row (Task 7 / F1 fix). When
+   *  set, BOTH the INSERT and the existing-row UPDATE stamp `md_id` with it so
+   *  a birth / orphan-readd always lands the SAME uuid the `.md` frontmatter
+   *  carries (SQLite column `md_id`; Surreal field `mdId`). Absent → leave the
+   *  row's md_id untouched (preserves a backfilled id on a no-id re-sync). */
+  mdId?: string | null;
 }
 
 export interface MemorySyncResult { action: "inserted" | "existing"; entry: MemoryEntry; }
@@ -54,6 +63,8 @@ export interface MemoryRepository {
     category?: import("../types.js").MemoryCategory | null;
     failureReason?: string | null; toolState?: string | null; correctedTo?: string | null;
     created?: string; lastReferenced?: string;
+    /** Stable markdown-side id to stamp on the new row's md_id (Task 7). */
+    mdId?: string | null;
   }): Promise<MemoryEntry>;
   syncMemoryEntry(input: MemorySyncInput): Promise<MemorySyncResult>;
   /** Sync N entries in ONE batched round-trip (Surreal: a single transaction;
@@ -67,9 +78,30 @@ export interface MemoryRepository {
     category?: import("../types.js").MemoryCategory | null;
     failureReason?: string | null; toolState?: string | null; correctedTo?: string | null;
     lastReferenced?: string | null;
+    /** Stable markdown-side id to stamp onto the updated row's md_id (Task 7):
+     *  a replace births a NEW entry, so the row's md_id tracks the replacement's
+     *  fresh uuid, not the superseded entry's id. Absent → md_id untouched. */
+    mdId?: string | null;
   }): Promise<MemoryUpdateResult>;
   removeSyncedMemories(oldText: string, options: MemoryRemoveOptions): Promise<MemoryRemoveResult>;
+  /** @deprecated backfill-only — use {@link removeByMdId} in steady state.
+   *  Retained for the Task 4 content-key backfill + the surreal graph-edge
+   *  test; steady-state eviction/transfer/supersede DB-sync keys on md_id. */
   removeExactSyncedMemories(content: string, options: MemoryRemoveOptions): Promise<MemoryRemoveResult>;
+  /** Remove the (scope-matched) row whose `md_id = mdId`. Steady-state DB-sync
+   *  for eviction / transfer / offloaded-superseded (ticket 04: full replace,
+   *  no content-key fallback). SQLite column `md_id`; Surreal field `mdId`. */
+  removeByMdId(mdId: string, options: MemoryRemoveOptions): Promise<MemoryRemoveResult>;
+  /** Return the `md_id` of the (scope-matched) row whose `content = content.trim()`,
+   *  or `null` when no such row exists / its `md_id` is not yet backfilled.
+   *  Used by the Task 4 backfill to avoid double-assigning a stable id. */
+  getMdIdByContent(content: string, options: MemoryRemoveOptions): Promise<string | null>;
+  /** Mirror a freshly-minted stable id onto the (scope-matched) row whose
+   *  `content = content.trim()`. Returns the number of rows updated (0 when no
+   *  DB row matches the content key yet — the .md entry is upgraded regardless,
+   *  and a later sync will create the row). Best-effort: callers swallow errors.
+   *  SQLite stores the column as `md_id`; Surreal stores the field as `mdId`. */
+  setMdIdByContent(content: string, mdId: string, options: MemoryRemoveOptions): Promise<number>;
   searchMemories(query: string, options?: MemorySearchOptions): Promise<MemoryEntry[]>;
   getMemories(options?: MemoryListOptions): Promise<MemoryEntry[]>;
   getRecentFailures(maxAgeDays?: number, project?: string | null): Promise<MemoryEntry[]>;
