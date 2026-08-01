@@ -17,6 +17,7 @@ import {
 } from "./constants.js";
 import { AGENT_ROOT, normalizeConfiguredMemoryDir, normalizeProjectsMemoryDir } from "./paths.js";
 import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
+import { detectProject, resolveProjectStoreDir } from "./project.js";
 
 const MEMORY_OVERFLOW_STRATEGIES: readonly MemoryOverflowStrategy[] = ["auto-consolidate", "reject", "fifo-evict", "vault-offload"];
 const SESSION_SEARCH_VARIANTS: readonly SessionSearchVariant[] = ["legacy", "anchors"];
@@ -66,6 +67,7 @@ const DEFAULT_CONFIG: MemoryConfig = {
   errorCapture: true,
   worthScoring: true,
   autoSupersede: false,
+  autoCommitProjectMemory: false,
   failureInjectionEnabled: true,
   failureInjectionMaxAgeDays: DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS,
   failureInjectionMaxEntries: DEFAULT_FAILURE_INJECTION_MAX_ENTRIES,
@@ -133,7 +135,55 @@ function applyConsolidatingChildGuard(config: MemoryConfig): MemoryConfig {
   return config;
 }
 
-export function loadConfig(configPath?: string): MemoryConfig {
+/** Filename of the repo-local project-memory overlay, co-located with the
+ *  MEMORY.md source-of-truth it governs (ticket 01). */
+const PROJECT_MEMORY_CONFIG_FILENAME = "config.json";
+
+/**
+ * Apply the repo-local project-memory overlay ON TOP of the (already global-
+ * loaded) config (autocommit-hook effort, ticket 01).
+ *
+ * The overlay lives at `<cwd>/.agents/memory/config.json` — discovered by the
+ * SAME cwd-relative resolver as the MEMORY.md SoT (`resolveProjectStoreDir`),
+ * so each worktree's checkout sees its own opt-in. It is NARROW: only
+ * `autoCommitProjectMemory` and `projectMemoryDir` may ride it. dbBackend /
+ * surreal.* / llm* are IGNORED — a repo must never silently repoint its DB or
+ * backend. When the global config opts out of in-repo project memory
+ * (`projectMemoryDir === null`), there is no in-repo config.json to consult,
+ * so the overlay is skipped entirely.
+ *
+ * Mutates and returns `config`. Best-effort: a missing or malformed overlay is
+ * a silent no-op (never throws).
+ */
+function applyRepoLocalProjectMemoryOverlay(config: MemoryConfig, cwd: string): MemoryConfig {
+  // Global opt-out → memory lives in the global store; nothing in-repo to read.
+  if (config.projectMemoryDir === null) return config;
+  const detected = detectProject(config.projectsMemoryDir, cwd);
+  const storeDir = resolveProjectStoreDir(config.projectMemoryDir, detected, cwd);
+  if (!storeDir) return config;
+  const overlayPath = path.join(storeDir, PROJECT_MEMORY_CONFIG_FILENAME);
+  let parsed: unknown;
+  try {
+    if (!fs.existsSync(overlayPath)) return config;
+    parsed = JSON.parse(fs.readFileSync(overlayPath, "utf-8"));
+  } catch {
+    return config; // missing/unreadable/malformed overlay → silent no-op
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return config;
+  const overlay = parsed as Record<string, unknown>;
+  // Allowlisted project-memory keys ONLY.
+  if (typeof overlay.autoCommitProjectMemory === "boolean") {
+    config.autoCommitProjectMemory = overlay.autoCommitProjectMemory;
+  }
+  if (overlay.projectMemoryDir === null) config.projectMemoryDir = null;
+  else if (typeof overlay.projectMemoryDir === "string") {
+    const trimmed = overlay.projectMemoryDir.trim();
+    if (trimmed) config.projectMemoryDir = trimmed;
+  }
+  return config;
+}
+
+export function loadConfig(configPath?: string, cwd: string = process.cwd()): MemoryConfig {
   // Resolve the default path LAZILY from the live AGENT_ROOT binding so the
   // test seam __setAgentRootForTest (paths.ts) is honored. A module-load-time
   // default param would freeze the real root and silently read the production
@@ -142,12 +192,15 @@ export function loadConfig(configPath?: string): MemoryConfig {
   // NOTE: DEFAULT_CONFIG_PATH (above) is frozen at load and kept only as the
   // production reference path; loadConfig must not depend on it for the default.
   const resolvedPath = configPath ?? path.join(AGENT_ROOT, "hermes-memory-config.json");
+  // Declared outside the try so the repo-local overlay (below) can read it on
+  // every path — file-missing / parse-error leaves it as DEFAULT_CONFIG.
+  let config: MemoryConfig = { ...DEFAULT_CONFIG };
   try {
     if (fs.existsSync(resolvedPath)) {
       const raw = fs.readFileSync(resolvedPath, "utf-8");
       const parsed = JSON.parse(raw);
       // Merge: override defaults with user config
-      const config: MemoryConfig = { ...DEFAULT_CONFIG };
+      config = { ...DEFAULT_CONFIG };
       const isNonNegativeNumber = (value: unknown): value is number => (
         typeof value === "number" && Number.isFinite(value) && value >= 0
       );
@@ -245,10 +298,12 @@ export function loadConfig(configPath?: string): MemoryConfig {
       } else if (hasLegacyAutoConsolidate) {
         config.memoryOverflowStrategy = config.autoConsolidate ? "auto-consolidate" : "reject";
       }
-      return applyConsolidatingChildGuard(resolveSurrealDbDefault(config));
     }
   } catch {
     // Fall back to defaults on parse error or access issues
   }
-  return applyConsolidatingChildGuard(resolveSurrealDbDefault({ ...DEFAULT_CONFIG }));
+  // Apply the repo-local project-memory overlay (ticket 01) — narrow allowlist,
+  // merged on top of the global config. A missing/malformed overlay is a no-op.
+  applyRepoLocalProjectMemoryOverlay(config, cwd);
+  return applyConsolidatingChildGuard(resolveSurrealDbDefault(config));
 }

@@ -578,3 +578,132 @@ describe("loadConfig agent-root isolation", () => {
     }
   });
 });
+
+// ─── Repo-local project-memory overlay (ticket 01, decision 01) ──────────────
+// A repo opts into autocommit by dropping {"autoCommitProjectMemory": true} at
+// <cwd>/.agents/memory/config.json. The overlay is NARROW: only project-memory
+// keys (autoCommitProjectMemory, projectMemoryDir) may ride it — dbBackend /
+// surreal.* / llm* are ignored so a repo can never silently repoint its DB.
+// Discovered via the same cwd-relative resolver as the MEMORY.md SoT.
+
+describe("loadConfig repo-local project-memory overlay (ticket 01)", () => {
+  it("defaults autoCommitProjectMemory to false when no overlay exists", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "hm-overlay-"));
+    try {
+      const config = loadConfig(TEST_CONFIG_PATH, cwd);
+      assert.strictEqual(config.autoCommitProjectMemory, false);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("applies autoCommitProjectMemory from <cwd>/.agents/memory/config.json", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "hm-overlay-"));
+    const dir = path.join(cwd, ".agents", "memory");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ autoCommitProjectMemory: true }));
+    try {
+      const config = loadConfig(TEST_CONFIG_PATH, cwd);
+      assert.strictEqual(config.autoCommitProjectMemory, true);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("overlay is NARROW: ignores dbBackend / surreal / llm keys (no per-repo DB repointing)", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "hm-overlay-"));
+    const dir = path.join(cwd, ".agents", "memory");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({
+      autoCommitProjectMemory: true,
+      dbBackend: "surrealdb",
+      surreal: { endpoint: "http://evil:8000", namespace: "pwn", database: "pwn" },
+      llmModelOverride: "stolen/model",
+    }));
+    try {
+      const config = loadConfig(TEST_CONFIG_PATH, cwd);
+      assert.strictEqual(config.autoCommitProjectMemory, true, "project-memory key applied");
+      assert.strictEqual(config.dbBackend, "sqlite", "dbBackend NOT overridden by repo-local overlay");
+      assert.ok(!config.surreal || config.surreal.endpoint !== "http://evil:8000", "surreal NOT overridden by overlay");
+      assert.strictEqual(config.llmModelOverride, undefined, "llm override NOT applied from overlay");
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("overlay projectMemoryDir:null is honored (global opt-out)", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "hm-overlay-"));
+    const dir = path.join(cwd, ".agents", "memory");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ projectMemoryDir: null }));
+    try {
+      const config = loadConfig(TEST_CONFIG_PATH, cwd);
+      assert.strictEqual(config.projectMemoryDir, null);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("malformed overlay JSON is a silent no-op (falls back to defaults)", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "hm-overlay-"));
+    const dir = path.join(cwd, ".agents", "memory");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "config.json"), "{ not json");
+    try {
+      const config = loadConfig(TEST_CONFIG_PATH, cwd);
+      assert.strictEqual(config.autoCommitProjectMemory, false);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("ignores non-boolean autoCommitProjectMemory values", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "hm-overlay-"));
+    const dir = path.join(cwd, ".agents", "memory");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ autoCommitProjectMemory: "yes" }));
+    try {
+      const config = loadConfig(TEST_CONFIG_PATH, cwd);
+      assert.strictEqual(config.autoCommitProjectMemory, false);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("does NOT read the overlay when projectMemoryDir===null in the global config", () => {
+    // Global config opts out of in-repo project memory → memory lives in the
+    // global store; there is no in-repo config.json to consult, so even if one
+    // is present it must be ignored.
+    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({ projectMemoryDir: null }));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "hm-overlay-"));
+    const dir = path.join(cwd, ".agents", "memory");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ autoCommitProjectMemory: true }));
+    try {
+      const config = loadConfig(TEST_CONFIG_PATH, cwd);
+      assert.strictEqual(config.projectMemoryDir, null);
+      assert.strictEqual(config.autoCommitProjectMemory, false, "overlay must NOT be read when projectMemoryDir is null globally");
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("loadConfig() with no cwd reads the overlay from process.cwd()", () => {
+    // Mirrors the agent-root isolation test: the no-cwd default must honor the
+    // live cwd, not a frozen module-load path. We point process.cwd() at a
+    // tmpdir via a sentinel overlay and assert it propagates.
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "hm-overlay-"));
+    const dir = path.join(cwd, ".agents", "memory");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ autoCommitProjectMemory: true }));
+    const origCwd = process.cwd();
+    try {
+      process.chdir(cwd);
+      const config = loadConfig(TEST_CONFIG_PATH);
+      assert.strictEqual(config.autoCommitProjectMemory, true, "loadConfig() must read the overlay from process.cwd()");
+    } finally {
+      process.chdir(origCwd);
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
