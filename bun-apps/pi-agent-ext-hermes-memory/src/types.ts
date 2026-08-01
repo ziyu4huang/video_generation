@@ -68,6 +68,12 @@ export interface MemoryConfig {
    *  ~/.pi/agent/<projectsMemoryDir>/<project>/); explicit string → that path
    *  (cwd-relative). See resolveProjectStoreDir(). */
   projectMemoryDir?: string | null;
+  /** Opt-in: autocommit agent-written `.agents/memory/MEMORY.md` to the current
+   *  (non-protected) git branch, batched per session via a trailing debounce on
+   *  message_end (autocommit-hook effort, ticket 01). Default: false. Set
+   *  `true` via the repo-local overlay at `<cwd>/.agents/memory/config.json`
+   *  (narrow — only project-memory keys ride that overlay). */
+  autoCommitProjectMemory?: boolean;
   /** Session search configuration. Default: { variant: "legacy" } */
   sessionSearch?: SessionSearchConfig;
   /** Override model used for child pi -p subprocess LLM calls. Default: unset */

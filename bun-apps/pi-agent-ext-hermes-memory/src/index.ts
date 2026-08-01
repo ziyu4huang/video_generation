@@ -43,6 +43,7 @@ import { registerMemorySearchTool } from "./tools/memory-search-tool.js";
 import { registerMemorySupersedeTool } from "./tools/memory-supersede-tool.js";
 import { setupBackgroundReview } from "./handlers/background-review.js";
 import { setupSessionFlush } from "./handlers/session-flush.js";
+import { setupCommitProjectMemory } from "./handlers/commit-project-memory.js";
 import { registerInsightsCommand } from "./handlers/insights.js";
 import { triggerConsolidation, registerConsolidateCommand, resolveConsolidatorModelLabel } from "./handlers/auto-consolidate.js";
 import { setupCorrectionDetector } from "./handlers/correction-detector.js";
@@ -344,6 +345,26 @@ export default async function (pi: ExtensionAPI) {
 
   // ── 6. Setup session-end flush ──
   setupSessionFlush(pi, store, projectStore, config, memoryToolDef);
+
+  // ── 6b. Project-memory autocommit (opt-in; a complete no-op unless the repo
+  //      sets autoCommitProjectMemory in <cwd>/.agents/memory/config.json) ──
+  // Commits agent-written .agents/memory/MEMORY.md to the current (non-protected)
+  // branch, batched per session via a ~20s trailing debounce on message_end.
+  // Only wired when an in-repo project memory file exists (projectMemoryDir !== null
+  // + a detected project); the handler self-no-ops when the repo hasn't opted in.
+  if (inRepoProjectFile) {
+    setupCommitProjectMemory(pi, config, {
+      cwd: process.cwd(),
+      memoryFilePath: inRepoProjectFile,
+      logger: (message, level) => {
+        // info = a commit landed; debug = skip/suppress/defer (quiet by default
+        // to avoid noise — PI_HERMES_DEBUG surfaces them).
+        if (level === "info" || process.env.PI_HERMES_DEBUG) {
+          console.info(`[hermes-memory] ${message}`);
+        }
+      },
+    });
+  }
 
   // ── 7. Setup auto-consolidation (inject consolidator into stores) ──
   store.setConsolidator(async (target, signal) => {
