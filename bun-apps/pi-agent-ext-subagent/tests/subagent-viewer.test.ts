@@ -699,3 +699,23 @@ test("collapsing one batch does not collapse another", () => {
   assert.ok(!out.includes("doing bA:0"), "bA collapsed");
   assert.ok(out.includes("doing bB:0"), "bB still expanded");
 });
+
+test("filter narrows batch children: matching children keep a (recounted) header; a non-matching batch leaves no orphan header", () => {
+  const running = [
+    runningEntry("batchX:0", { batchId: "batchX", history: [], taskPreview: "auth service" }),
+    runningEntry("batchX:1", { batchId: "batchX", history: [], taskPreview: "auth tokens" }),
+    runningEntry("batchY:0", { batchId: "batchY", history: [], taskPreview: "billing report" }),
+  ];
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+  viewer.handleInput("a");
+  viewer.handleInput("u");
+  viewer.handleInput("t");
+  viewer.handleInput("h"); // filter "auth"
+  const out = viewer.render(80).join("\n");
+  assert.ok(out.includes("auth service") && out.includes("auth tokens"), "matching batchX children shown");
+  assert.ok(!out.includes("billing report"), "non-matching batchY child hidden");
+  // batchX header present with the MATCHING count (2); no batchY header
+  const headers = out.split("\n").filter((l) => /subagents batch/.test(l));
+  assert.equal(headers.length, 1, "one header — batchY dropped entirely, no orphan");
+  assert.match(headers[0], /2 running/, "header count reflects matching children only");
+});

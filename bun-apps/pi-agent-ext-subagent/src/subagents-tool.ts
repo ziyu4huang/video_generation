@@ -232,7 +232,7 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
         // the callbacks close over the registry + childRunId, which that pure helper lacks.
         const childSpawnOpts: SpawnSubagentOptions = {
           ...childOpts,
-          onModelResolved: (id) => options.inFlight?.updateModel(childRunId, id),
+          onModelResolved: (modelId) => options.inFlight?.updateModel(childRunId, modelId),
           onHistory: (history) => options.inFlight?.update(childRunId, history),
         };
         let result: SpawnSubagentResult;
