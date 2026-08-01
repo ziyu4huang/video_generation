@@ -72,6 +72,42 @@ async function removeFile(filePath: string): Promise<void> {
   try { await fs.unlink(filePath); } catch { /* ignore */ }
 }
 
+// ─── 2-phase consolidation race helpers (Task 5 update-safety gate) ───
+//
+// These bypass the store entirely and touch the `.md` file with fs, simulating
+// a concurrent sibling session mutating the file while step 2 of the 2-phase
+// consolidation runs lock-FREE. Step 3 (brief locked reconcile) must re-read
+// disk and preserve those concurrent edits — that is the invariant under test.
+
+/** Encode an entry exactly as the store does (mirror of serializeMetadataComment).
+ *  Used for raw disk injection, not for the store's own writes. */
+function encodeRaw(content: string, created = "2026-08-01", last = "2026-08-01"): string {
+  return `${content} <!-- created=${created}, last=${last} -->`;
+}
+
+/** Append an encoded entry directly to a target .md file, BYPASSING the store.
+ *  Prepends ENTRY_DELIMITER so it parses as a separate entry. Simulates a
+ *  concurrent session appending while step 2 runs. */
+async function appendEntryToDisk(filePath: string, encoded: string): Promise<void> {
+  await fs.appendFile(filePath, `${ENTRY_DELIMITER}${encoded}`, "utf-8");
+}
+
+/** Rewrite a .md file without its first entry (simulate a concurrent remove). */
+async function removeFirstEntryFromDisk(filePath: string): Promise<void> {
+  const raw = await readRaw(filePath);
+  const parts = raw.split(ENTRY_DELIMITER).map((e) => e.trim()).filter(Boolean);
+  parts.shift();
+  await writeRaw(filePath, parts.join(ENTRY_DELIMITER));
+}
+
+/** Total chars the store would measure for a .md file (entries joined by
+ *  ENTRY_DELIMITER), reading straight from disk. Mirrors MemoryStore.charCount. */
+async function totalCharsOnDisk(filePath: string): Promise<number> {
+  const raw = await readRaw(filePath);
+  const parts = raw.split(ENTRY_DELIMITER).map((e) => e.trim()).filter(Boolean);
+  return parts.length ? parts.join(ENTRY_DELIMITER).length : 0;
+}
+
 function dateDaysAgo(days: number): string {
   const date = new Date();
   date.setDate(date.getDate() - days);
@@ -1297,6 +1333,122 @@ describe("MemoryStore", { concurrency: 1 }, () => {
         progress.some((m) => /consolidat/i.test(m)),
         `progress message should describe consolidation; got: ${JSON.stringify(progress)}`,
       );
+    });
+  });
+
+  // ── Task 5: 2-phase consolidation update-safety race gate ──────────────
+  // These tests are the ACCEPTANCE GATE for the 2-phase restructure (Task 4).
+  // They prove that entries a concurrent session writes to disk while step 2
+  // (the lock-free LLM plan) is running are PRESERVED by step 3's reconcile,
+  // and that a plan op referencing an entry removed mid-flight is skipped (not
+  // an error). If Task 4's consolidateTwoPhase failed to re-read disk in step 3
+  // (or applyMergePlan dropped unreferenced live entries), the appended entry in
+  // test 1 would VANISH and these assertions would FAIL — do NOT weaken them.
+  describe("2-phase consolidation: update-safety race gate (Task 5)", () => {
+    // Sizing rationale (constants, not magic numbers):
+    //   • encodeRaw(content).length = content.length + 45
+    //     (" <!-- created=YYYY-MM-DD, last=YYYY-MM-DD -->"; date is always 10 chars)
+    //   • ENTRY_DELIMITER ("\n§\n") is 3 chars between entries.
+
+    it("RACE: an entry appended during step 2 (lock-free) is preserved after reconcile", async () => {
+      const limit = 250;
+      const store = new MemoryStore(makeConfig({
+        memoryCharLimit: limit,
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      await store.loadFromDisk();
+
+      // Seed two entries. `first` is large so that adding `incoming` overflows;
+      // the plan drops `first` (snapshot.entries[0]) so `second` survives.
+      const first = `${TEST_MARKER} ${"A".repeat(70)}`;            // enc 129
+      const second = `${TEST_MARKER} keep second seeded`;          // enc  70
+      const incoming = `${TEST_MARKER} incoming third probe`;      // enc  78
+      // Overflow check:  129 + 3 + 70 + 3 + 78 = 283 > 250  ✓
+      // After reconcile: [second(70), APPEND(62), incoming(78)] = 216 ≤ 250 ✓
+      assert.ok((await store.add("memory", first)).success);
+      assert.ok((await store.add("memory", second)).success);
+
+      // The consolidator runs in step 2 (lock-free). It appends a CONCURRENT
+      // entry straight to disk (simulating a sibling session), then returns a
+      // plan built against the PRE-append snapshot — so the appended entry is
+      // NOT referenced by any op and MUST survive step 3's reconcile as an
+      // unreferenced live entry.
+      store.setConsolidator(async (snapshot) => {
+        appendEntryToDisk(memoryPath, encodeRaw("CONCURRENT-APPEND"));
+        const firstKey = snapshot.entries[0]?.key;
+        return {
+          plan: {
+            snapshotBaseHash: snapshot.snapshotBaseHash,
+            ops: firstKey ? [{ op: "drop" as const, key: firstKey }] : [],
+          },
+        };
+      }, "race-stub");
+
+      // Third add overflows → 2-phase consolidation (step 2 lock-free, with the
+      // concurrent append happening mid-flight) → step 3 reconcile preserves the
+      // appended entry → the retried locked write lands.
+      const result = await store.add("memory", incoming);
+      assert.ok(result.success, `retried add should fit after consolidation; got: ${result.error}`);
+
+      await store.loadFromDisk(); // defensive freshness for the read-back
+      const contents = store.getMemoryEntries();
+
+      // THE invariant: the concurrently-appended entry was NOT clobbered by the
+      // reconcile rewrite (step 3 re-read disk + applyMergePlan keeps live
+      // entries that no applied op removes).
+      assert.ok(contents.includes("CONCURRENT-APPEND"),
+        `concurrently-appended entry must survive reconcile; got: ${JSON.stringify(contents)}`);
+      // Sanity: the plan did drop `first`, kept `second`, and the retried add
+      // landed `incoming`.
+      assert.ok(!contents.some((c) => c.includes("AAAA")), "first was dropped by the merge plan");
+      assert.ok(contents.some((c) => c.includes("keep second seeded")), "second preserved");
+      assert.ok(contents.some((c) => c.includes("incoming third probe")), "incoming landed");
+    });
+
+    it("RACE: a plan op referencing a removed entry is skipped; consolidation completes without corrupting", async () => {
+      const limit = 200;
+      const store = new MemoryStore(makeConfig({
+        memoryCharLimit: limit,
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      await store.loadFromDisk();
+
+      // `first` is large (overflows when `incoming` is added); `second` is small
+      // and stays under the limit once `first` is gone.
+      const first = `${TEST_MARKER} ${"A".repeat(60)}`;            // enc 119
+      const second = `${TEST_MARKER} keep`;                       // enc  64
+      const incoming = `${TEST_MARKER} incoming probe`;           // enc  73
+      // Overflow check:  119 + 3 + 64 + 3 + 73 = 262 > 200  ✓
+      // After concurrent remove of `first` + retried add: [second(64), incoming(73)] = 140 ≤ 200 ✓
+      assert.ok((await store.add("memory", first)).success);
+      assert.ok((await store.add("memory", second)).success);
+
+      // During step 2, remove `first` from disk (concurrent removal) and return
+      // a plan whose drop op still references `first`'s (now-absent) key plus a
+      // stale base hash. applyMergePlan must SKIP the op, not throw, and the
+      // store must stay consistent.
+      store.setConsolidator(async (snapshot) => {
+        const doomedKey = snapshot.entries[0]?.key ?? "missing";
+        await removeFirstEntryFromDisk(memoryPath); // simulate concurrent removal
+        return { plan: { snapshotBaseHash: "stale", ops: [{ op: "drop" as const, key: doomedKey }] } };
+      }, "race-stub");
+
+      // No throw: the stale op is skipped, the reconcile writes back the live
+      // state, and the retried add fits.
+      const result = await store.add("memory", incoming);
+      assert.ok(result.success, `consolidation must complete despite the stale op; got: ${result.error}`);
+
+      // Store consistent: under limit (+ one-entry slack), parses cleanly, and
+      // holds exactly the entries that should remain.
+      const total = await totalCharsOnDisk(memoryPath);
+      assert.ok(total <= limit + 90, `store over budget after race: ${total} > ${limit}+90`);
+      await store.loadFromDisk();
+      const contents = store.getMemoryEntries();
+      assert.ok(!contents.some((c) => c.includes("AAAA")), "concurrently-removed first stays gone");
+      assert.ok(contents.some((c) => c.includes("keep")), "second preserved");
+      assert.ok(contents.some((c) => c.includes("incoming probe")), "incoming landed");
     });
   });
 });
