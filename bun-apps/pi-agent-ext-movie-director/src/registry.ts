@@ -47,6 +47,7 @@ export interface ProviderEntry {
     | "bun:tts-native"
     | "mlx:runpy-music"
     | "bun:musicgen-native"
+    | "bun:kokoro-tts"
     | "bun:twosubject-native"
     | "bun:profile-native"
     | "bun:character-native"
@@ -380,6 +381,26 @@ export const REGISTRY: ProviderEntry[] = [
   // volumedetect mean -22dB, healthy, not near-silent).
   { name: "edge_tts", capability: "tts", provider: "edge-tts", backend: "cloud_http", invoke: "bun:tts-native", configured: true, notes: "Bun-native TTS adapter (src/tts_native.ts, via the `msedge-tts` npm package) — Microsoft neural TTS, same engine `video relay --relay-tts-engine edge-tts` already uses. Natural-sounding voice, near-zero generation cost (~1s per narration), but needs NETWORK EGRESS (not available under --offline). Statically ranked below say_tts, but selectAndGenerate tries it FIRST at runtime by default (see comment above) — falls back to say only on an actual network failure." },
   { name: "say_tts", capability: "tts", provider: "say", backend: "macos_native", invoke: "macos:say", configured: true, notes: "macOS `say` (AVSpeechSynthesizer-backed) — zero-cost, zero-key, fully offline narration; robotic voice quality vs edge_tts. Statically ranked as the default (the correct offline/no-network fallback), but selectAndGenerate opportunistically tries edge-tts first at runtime and only actually invokes say if that fails — see edge_tts's notes." },
+  // kokoro_tts — 2026-08-01: run.py tts --engine mlx (local Kokoro-82M via
+  // Python's mlx-audio package) was the one remaining Python-only surface in
+  // `run.py tts` (edge-tts was already fully native — see edge_tts above),
+  // and unlike edge-tts it had NO TS caller at all (runpy_tts.ts never
+  // exposed an --engine option). swift/musicgen-director already depends on
+  // mlx-audio-swift for MLXAudioCodecs (EnCodec) — that same package ships a
+  // COMPLETE Kokoro implementation (MLXAudioTTS product,
+  // Models/StyleTTS2/Kokoro/), so this port is CLI + bridge wiring, not a
+  // from-scratch model port like MusicGen was. See
+  // docs/superpowers/specs/2026-08-01-kokoro-tts-swift-native-port-design.md.
+  // optIn:true is load-bearing here, not decorative: BACKEND_RANK ranks
+  // native_swift above macos_native/cloud_http ACROSS tiers (not just within
+  // one), so without optIn this entry would unconditionally win every bare
+  // {capability:"tts"} call over say_tts/edge_tts, silently changing their
+  // existing default behavior — see selector.ts's header comment. Reachable
+  // today only via an explicit `provider:"kokoro"` hint. English (af_*/am_*)
+  // and Mandarin (zf_*/zm_*) voices verified (see swift/musicgen-director's
+  // KokoroTTSCLITests); other Kokoro-supported languages (es/fr/it/pt/hi/ja)
+  // deferred to edge-tts, which already covers them.
+  { name: "kokoro_tts", capability: "tts", provider: "kokoro", backend: "native_swift", invoke: "bun:kokoro-tts", configured: true, optIn: true, notes: "swift/musicgen-director's kokoro-tts binary (src/kokoro_tts_native.ts, via ensureBinary()) — local Kokoro-82M TTS via mlx-audio-swift's MLXAudioTTS product, zero Python. Genuinely offline (unlike edge_tts) and higher quality than say_tts, but NOT the default — optIn:true (see selector.ts). Reach it with an explicit provider:\"kokoro\" hint." },
 
   // Music — native Swift/MLX MusicGen (swift/musicgen-director), the score-track
   // source that compose-motion's amix pass mixes under the narration. Fully
