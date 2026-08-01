@@ -1,12 +1,11 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { convergeKnowledgeEmission } from "../src/converge.ts";
 import type { KnowledgeEmission } from "../src/emit.ts";
 import type { KnowledgeRecord } from "../src/ingest.ts";
 
-const FOLDER = "Zettelkasten/knowledge-graph";
 
 let vault: string;
 let src: string;
