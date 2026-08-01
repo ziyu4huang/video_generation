@@ -44,3 +44,7 @@ verbatim bodies". See
 for the grilled boundary decisions, and
 `.planning/2026-07-21-land-superpowers-wayfind-boundary/` for the execution that
 landed it.
+
+**Superseded clause:** the "when an effort is active" qualifier on the
+no-upstream-path rule is removed by [ADR-0006](./0006-unconditional-artifact-home.md);
+this ADR's disjoint-subpath layout is unchanged.

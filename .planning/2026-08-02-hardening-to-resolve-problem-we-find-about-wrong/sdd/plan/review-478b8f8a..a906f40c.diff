@@ -1,0 +1,68 @@
+# Review package: 478b8f8a..a906f40c
+
+## Commits
+a906f40c fix(superpowers): unconditional artifact home — never upstream paths (ADR-0006)
+
+## Files changed
+ bun-apps/pi-agent-ext-superpowers/src/superpowers.ts      | 2 +-
+ bun-apps/pi-agent-ext-superpowers/tests/bootstrap.test.ts | 5 +++++
+ 2 files changed, 6 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-superpowers/src/superpowers.ts b/bun-apps/pi-agent-ext-superpowers/src/superpowers.ts
+index 1e31852d..f247001a 100644
+--- a/bun-apps/pi-agent-ext-superpowers/src/superpowers.ts
++++ b/bun-apps/pi-agent-ext-superpowers/src/superpowers.ts
+@@ -255,21 +255,21 @@ Pi's built-in coding tools are lowercase: \`read\`, \`write\`, \`edit\`, \`bash\
+ Pi does not ship a standard subagent tool in core. This repo's pi-agent-ext-subagent provides a 'subagent' tool - an isolated-context child dispatch (subagent({ task, model?, capability?, tier?, tools?, excludeTools?, cwd?, commitScope?, tokenBudget?, spendBudget?, timeoutMs?, schema?, agentType?, watchdog? }); the child has no access to this session's history, so pass a self-contained 'task'). Superpowers subagent workflows (subagent-driven-development) use it. Directives every dispatch: (1) prefer tier ('small'|'medium'|'big', resolved from ~/.pi/workflows/model-tiers.json via /workflows-models) over a raw model id - it is portable and user-tunable; SDD roles: implementer=medium, research=small, synthesis/big. (2) For an SDD implementer/fix dispatch, pass commitScope with the task's declared file scope (e.g. ["src/auth/","tests/auth/"]) so the tool flags any out-of-scope committed path - the recurring 'git add -A' sweep that stages .planning/<effort>/sdd/ scratch into a commit, which then lands on main at squash-merge - as a warning (detection only; you decide the revert). Use [] for a read-only subagent that should commit nothing. (3) The tool auto-parses the SDD implementer's '**Status:** DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED' block into details.report, and auto-persists each completed run to ~/.pi/subagents/runs/. (4) For CONCURRENT fan-out (dispatching-parallel-agents), use the 'workflow' tool's parallel() - NOT multiple subagent calls in one turn (the subagent tool is executionMode: sequential, so a batch of them serializes). (5) For an SDD implementer/fix dispatch, also pass watchdog:{l2:true} - a post-spawn adversarial review of the child's changes: L1 is a free local-LSP scan (zero tokens), L2 (opt-in via l2:true) dispatches a read-only model-review subagent; findings are advisory (surfaced in the run record + result summary, never block). Edit-gated: a no-op for non-editing dispatches (reviewers/research). For the full param surface + rationale (schema, agentType, retryOnTransient, tokenBudget/spendBudget guidance), read references/pi-tools.md. If no 'subagent' tool is available, do the work in this session or explain the missing capability instead of inventing Task calls.
+ 
+ Pi does not ship a standard task-list tool. If an installed todo/task tool is available, use it. Otherwise track work in plan files or a repo-local \`TODO.md\` when task tracking is needed. Treat older \`TodoWrite\` references as this task-tracking action.`;
+ }
+ 
+ function piBoundaryOverrides(): string {
+   return `## Pipeline routing (this repo)
+ 
+ Superpowers and Wayfind are two parallel pipelines sharing the \`.planning/<effort>/\` layout. Two rules:
+ 
+-**1. One canonical home.** Every artifact lives under \`.planning/<effort>/\` — specs → \`.planning/<effort>/spec.md\`, plans → \`.planning/<effort>/plan.md\`, the SDD workspace → \`.planning/<effort>/sdd/<plan-basename>/\` (one dir per plan: briefs/, reports/, reviews/, and the recovery ledger at \`.planning/<effort>/sdd/<plan-basename>/progress.md\`), and brainstorm mockups → \`.planning/<effort>/brainstorm/\`. The pinned skill's \`scripts/sdd-workspace PLAN_FILE\` resolves the plan's dir (deriving \`<plan-basename>\` from the plan filename) and honors \`PI_PLANNING_EFFORT\`; the brainstorm \`start-server.sh\` honors it too. The pinned skills' upstream paths (\`docs/superpowers/\`, \`.superpowers/sdd/\`) are overridden at runtime by \`PI_PLANNING_EFFORT\`. Never write to the upstream paths when an effort is active.
++**1. One canonical home.** Every artifact lives under \`.planning/<effort>/\` — specs → \`.planning/<effort>/spec.md\`, plans → \`.planning/<effort>/plan.md\`, the SDD workspace → \`.planning/<effort>/sdd/<plan-basename>/\` (one dir per plan: briefs/, reports/, reviews/, and the recovery ledger at \`.planning/<effort>/sdd/<plan-basename>/progress.md\`), and brainstorm mockups → \`.planning/<effort>/brainstorm/\`. The pinned skill's \`scripts/sdd-workspace PLAN_FILE\` resolves the plan's dir (deriving \`<plan-basename>\` from the plan filename) and honors \`PI_PLANNING_EFFORT\`; the brainstorm \`start-server.sh\` honors it too. Upstream paths (\`docs/superpowers/\`, \`.superpowers/sdd/\`) are **never** written to, with or without an active effort. \`PI_PLANNING_EFFORT\` set → \`.planning/<effort>/\`; unset → derive \`.planning/<YYYY-MM-DD>-<slug>/\`.
+ 
+ **2. Pick the pipeline by stage — check what's on disk first.**
+ 
+ | Stage      | Trigger (check disk)                          | Pipeline                                |
+ |------------|-----------------------------------------------|-----------------------------------------|
+ | DECIDE     | no spec yet, decisions open / route foggy     | Wayfind — grilling (or wayfinder)       |
+ | SYNTHESIZE | a grill just settled; spec needed             | Wayfind — to-spec (synthesize only)     |
+ | DESIGN     | requirement clear, zero open decisions        | Superpowers — brainstorming             |
+ | PLAN       | spec exists, no plan                          | Superpowers — writing-plans             |
+ | EXECUTE    | plan exists                                   | Superpowers — executing-plans / SDD     |
+diff --git a/bun-apps/pi-agent-ext-superpowers/tests/bootstrap.test.ts b/bun-apps/pi-agent-ext-superpowers/tests/bootstrap.test.ts
+index b49cd1ac..638970dd 100644
+--- a/bun-apps/pi-agent-ext-superpowers/tests/bootstrap.test.ts
++++ b/bun-apps/pi-agent-ext-superpowers/tests/bootstrap.test.ts
+@@ -195,20 +195,25 @@ describe("bootstrap payload assembly", () => {
+     expect(payload).toContain("brainstorming");
+     // retired old structure must be gone
+     expect(payload).not.toContain("Four runtime rules");
+     expect(payload).not.toContain("can I write a plan right now");
+     expect(payload).not.toContain("Artifact-home override");
+     expect(payload).not.toContain("Entry-path routing");
+     expect(payload).not.toContain("Visual-companion convergence");
+     // note: "SDD workspace" the bare topic word legitimately remains in rule 1;
+     // only the retired header phrase "SDD workspace override" must be gone
+     expect(payload).not.toContain("SDD workspace override");
++    // ADR-0006: the no-upstream-path rule is UNCONDITIONAL, not effort-gated
++    expect(payload).not.toContain("when an effort is active");
++    expect(payload).toContain("with or without an active effort");
++    // no-effort default: the model derives a dated effort dir (ticket 01)
++    expect(payload).toContain(".planning/<YYYY-MM-DD>-<slug>/");
+   });
+ 
+   it("routing section is meaningfully shorter than the old 3039 chars", () => {
+     _resetBootstrapCacheForTests();
+     const payload = getBootstrapContent() ?? "";
+     const i = payload.indexOf("## Pipeline routing");
+     const section = i >= 0 ? payload.slice(i) : "";
+     expect(section.length).toBeLessThan(2000);
+     expect(section.length).toBeGreaterThan(800); // sanity: not accidentally empty
+   });

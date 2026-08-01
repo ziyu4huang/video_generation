@@ -1,16 +1,16 @@
 # Dynamic Tool Gate
 
-> Keeps core tools always active while gating heavy domain-specific tools behind prompt keyword matching — saving ~7,900 tokens per request (~47%; figures drift as the gate set changes — re-run `bun run qa:savings` for live numbers; zai-mcp adds ~1.1k when registered).
+> Keeps core tools always active while gating heavy domain-specific tools behind prompt keyword matching — saving ~8,050 tokens per request (~45%; the ~8,050 gross claim is the single source of truth in `qa/savings.ts` — locked to measured reality by a ±20% deviation-band test; figures drift as the gate set changes — re-run `bun run qa:savings` for live numbers; zai-mcp adds ~1.1k when registered).
 
 ## The Problem
 
-Every registered tool adds to the API request's tools schema. With a full extension ecosystem loaded, a single pi session can carry **~55 tools → ~16,600 tokens per request** — a fixed overhead charged on every turn, even when 95% of those tools are never used.
+Every registered tool adds to the API request's tools schema. With a full extension ecosystem loaded, a single pi session can carry **~55 tools → ~18,000 tokens per request** — a fixed overhead charged on every turn, even when 95% of those tools are never used.
 
 This extension solves that by keeping lightweight core tools always active and hiding heavy domain-specific tools (video generation, image generation, movie orchestration, etc.) behind keyword gates. When the user's prompt mentions a relevant keyword, the matching gate fires instantly and the tool becomes available for the rest of the session.
 
 ```
-Baseline:  ~55 tools → ~16,650 tok/req   (measured via `bun run qa`)
-Gated:    ON at start ~8,700 tok/req   (saves ~7,940 tok/turn gross, ~47.7%; **net ~7,700** after the ~243 tok `enable_tool` escape-hatch overhead — audit I-6; zai-mcp env-gated)
+Baseline:  ~55 tools → ~18,000 tok/req   (measured via `bun run qa`)
+Gated:    ON at start ~10,000 tok/req   (saves ~8,050 tok/turn gross, ~45%; **net ~7,800** after the ~243 tok `enable_tool` escape-hatch overhead — audit I-6; zai-mcp env-gated)
 ```
 
 > Figures are measured by `bun run qa` (power-tool `schema-cost`). Only

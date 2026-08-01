@@ -262,7 +262,7 @@ function piBoundaryOverrides(): string {
 
 Superpowers and Wayfind are two parallel pipelines sharing the \`.planning/<effort>/\` layout. Two rules:
 
-**1. One canonical home.** Every artifact lives under \`.planning/<effort>/\` — specs → \`.planning/<effort>/spec.md\`, plans → \`.planning/<effort>/plan.md\`, the SDD workspace → \`.planning/<effort>/sdd/<plan-basename>/\` (one dir per plan: briefs/, reports/, reviews/, and the recovery ledger at \`.planning/<effort>/sdd/<plan-basename>/progress.md\`), and brainstorm mockups → \`.planning/<effort>/brainstorm/\`. The pinned skill's \`scripts/sdd-workspace PLAN_FILE\` resolves the plan's dir (deriving \`<plan-basename>\` from the plan filename) and honors \`PI_PLANNING_EFFORT\`; the brainstorm \`start-server.sh\` honors it too. The pinned skills' upstream paths (\`docs/superpowers/\`, \`.superpowers/sdd/\`) are overridden at runtime by \`PI_PLANNING_EFFORT\`. Never write to the upstream paths when an effort is active.
+**1. One canonical home.** Every artifact lives under \`.planning/<effort>/\` — specs → \`.planning/<effort>/spec.md\`, plans → \`.planning/<effort>/plan.md\`, the SDD workspace → \`.planning/<effort>/sdd/<plan-basename>/\` (one dir per plan: briefs/, reports/, reviews/, and the recovery ledger at \`.planning/<effort>/sdd/<plan-basename>/progress.md\`), and brainstorm mockups → \`.planning/<effort>/brainstorm/\`. The pinned skill's \`scripts/sdd-workspace PLAN_FILE\` resolves the plan's dir and honors \`PI_PLANNING_EFFORT\`. Specs → \`.planning/specs/<YYYY-MM-DD>-<topic>-design.md\`, plans → \`.planning/plans/<YYYY-MM-DD>-<topic>.md\` (\`docs/superpowers/{specs,plans}\` symlink there — prefer the \`.planning/\` path). Other upstream paths (\`docs/superpowers/\`, \`.superpowers/sdd/\`) are never written. \`PI_PLANNING_EFFORT\` set → \`.planning/<effort>/\`.
 
 **2. Pick the pipeline by stage — check what's on disk first.**
 
@@ -274,7 +274,7 @@ Superpowers and Wayfind are two parallel pipelines sharing the \`.planning/<effo
 | PLAN       | spec exists, no plan                          | Superpowers — writing-plans             |
 | EXECUTE    | plan exists                                   | Superpowers — executing-plans / SDD     |
 
-Four of five stages are a filesystem check. Only DECIDE-vs-DESIGN needs judgment ("are decisions open?"). When in doubt, DECIDE first — it's cheap insurance against building on a foggy route.`;
+Four of five stages are a filesystem check. Only DECIDE-vs-DESIGN needs judgment ("are decisions open?"). When in doubt, DECIDE first.`;
 }
 
 function messageContainsBootstrap(message: unknown): boolean {
