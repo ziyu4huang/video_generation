@@ -1,9 +1,12 @@
 /**
- * response-language extension — registers the `/response-language` slash command
- * for live, immediate control of the agent's reply language.
+ * response-language — registers the `/response-language` slash command for live
+ * control of the agent's reply language. Relocated from its own
+ * `pi-agent-ext-response-language` package into core-task for entry-point
+ * consolidation (same rationale as `ask_user_question`); shares no code or state
+ * with goal/todo/ask-user.
  *
- * The forced injection itself is applied by the `force-response-language`
- * patch in `bun-apps/pi-agent/src/patches/` (it prepends a forced block to every
+ * The forced injection itself is applied by the `force-response-language` patch
+ * in `bun-apps/pi-agent/src/patches/` (it prepends a forced block to every
  * turn's system prompt, reading `responseLanguage` fresh each turn). This
  * command is the user-facing lever: it just writes the key to
  * `~/.pi/agent/settings.json` — the patch re-reads it on the next turn, so the
@@ -14,14 +17,12 @@
  *   /response-language            → show the current responseLanguage
  *   /response-language zh-TW      → set it (BCP-47 tag), live
  *   /response-language en         → switch to English, live
- *
- * Install: registered in bun-apps/pi-agent/run-dir/manifest.json (extensions[]).
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { decideCommand, parseLanguageArg } from "../src/command.js";
-import { getResponseLanguage, readSettingsFile, writeResponseLanguage } from "../src/settings.js";
+import { decideCommand, parseLanguageArg } from "./command.js";
+import { getResponseLanguage, readSettingsFile, writeResponseLanguage } from "./settings.js";
 
-export default function (pi: ExtensionAPI): void {
+export function registerResponseLanguage(pi: ExtensionAPI): void {
 	pi.registerCommand("response-language", {
 		description:
 			"Show or set the agent's reply language (responseLanguage in ~/.pi/agent/settings.json). " +
