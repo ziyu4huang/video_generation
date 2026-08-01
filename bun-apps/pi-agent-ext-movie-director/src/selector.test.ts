@@ -5,7 +5,7 @@ import {
   NoConfiguredProviderError,
 } from "./selector.ts";
 import { _setFfmpegAvailableForTest, _setRemotionProbeForTest, _setMotionFiltersForTest, _setWhisperRuntimeForTest, _setVisionRuntimeForTest, _setRunPyRuntimeForTest, _setKrea2BinaryForTest, _setFlux2BinaryForTest, _setMusicgenBinaryForTest, _setLmStudioReachableForTest, probeConfigured } from "./providers.ts";
-import { REGISTRY, type Capability } from "./registry.ts";
+import { REGISTRY, type Capability, type ProviderEntry } from "./registry.ts";
 
 // Selector availability is runtime-probed (ffmpeg on PATH, cloud keys in env).
 // Pin ffmpeg-present + remotion-absent + motion-filters-absent + whisper/clip
@@ -420,5 +420,53 @@ describe("optIn providers are excluded from selectProvider's bare fallback", () 
     // nothing to exclude."
     const entry = selectProvider("tts");
     expect(entry.optIn).not.toBe(true);
+  });
+
+  it("excludes a synthetic optIn:true native_swift entry from the bare fallback even though it would otherwise win on backend rank", () => {
+    // Real REGISTRY has no optIn:true entries yet (kokoro_tts lands in a later
+    // task) — push a synthetic one directly onto the exported REGISTRY array
+    // (a plain mutable array, so this is safe) to actually drive the new
+    // exclusion filter instead of only proving "there was nothing to exclude."
+    // backend: native_swift (rank 0) would unconditionally win the bare
+    // fallback's backend-rank sort if optIn didn't filter it out first.
+    const synthetic: ProviderEntry = {
+      name: "__test_optin_native__",
+      capability: "tts",
+      provider: "__test_optin_native__",
+      backend: "native_swift",
+      invoke: "bun:builtin",
+      configured: true,
+      optIn: true,
+    };
+    REGISTRY.push(synthetic);
+    try {
+      const entry = selectProvider("tts");
+      expect(entry.name).not.toBe("__test_optin_native__");
+    } finally {
+      const idx = REGISTRY.indexOf(synthetic);
+      if (idx !== -1) REGISTRY.splice(idx, 1);
+    }
+  });
+
+  it("an explicit provider hint still reaches a synthetic optIn entry", () => {
+    // The optIn exclusion only applies to selectProvider's tier-3 bare
+    // fallback — an explicit provider hint (tier 1) must still reach it.
+    const synthetic: ProviderEntry = {
+      name: "__test_optin_hint__",
+      capability: "tts",
+      provider: "__test_optin_hint__",
+      backend: "native_swift",
+      invoke: "bun:builtin",
+      configured: true,
+      optIn: true,
+    };
+    REGISTRY.push(synthetic);
+    try {
+      const entry = selectProvider("tts", { provider: "__test_optin_hint__" });
+      expect(entry.name).toBe("__test_optin_hint__");
+    } finally {
+      const idx = REGISTRY.indexOf(synthetic);
+      if (idx !== -1) REGISTRY.splice(idx, 1);
+    }
   });
 });
