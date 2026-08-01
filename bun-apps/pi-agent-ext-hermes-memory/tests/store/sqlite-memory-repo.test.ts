@@ -503,6 +503,43 @@ describe("SqliteMemoryRepository", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // replaceSyncedMemories — carries failure state (Task 3 gap-fix): the replace
+  // UPDATE must persist `state`/`severity` so an edit/replace keeps the .md↔DB
+  // lifecycle consistent (the seam declared the fields; the UPDATE now writes them).
+  // ---------------------------------------------------------------------------
+
+  describe("replaceSyncedMemories — carries failure state (Task 3 gap-fix)", () => {
+    it("replace writes explicit state onto the row; getRecentFailures reflects it", async () => {
+      await repo.addMemory({ content: "[failure] live bug", target: "failure", category: "failure", state: "active" });
+      // Before: surfaces as active.
+      expect((await repo.getRecentFailures(7)).map((m) => m.content)).toContain("[failure] live bug");
+      // Replace (edit) marking it resolved.
+      await repo.replaceSyncedMemories("[failure] live bug", {
+        content: "[failure] live bug — fixed",
+        target: "failure",
+        category: "failure",
+        state: "resolved",
+      });
+      // After: the resolved row no longer surfaces in the active-only injection set.
+      const recent = (await repo.getRecentFailures(7)).map((m) => m.content);
+      expect(recent).not.toContain("[failure] live bug — fixed");
+      // And reading the row directly shows state=resolved.
+      const all = await repo.getMemories({ target: "failure" });
+      expect(all.find((m) => m.content === "[failure] live bug — fixed")?.state).toBe("resolved");
+    });
+
+    it("replace with no explicit state inherits the row's prior state", async () => {
+      await repo.addMemory({ content: "[failure] quirk A", target: "failure", category: "failure", state: "resolved" });
+      await repo.replaceSyncedMemories("[failure] quirk A", {
+        content: "[failure] quirk A — edited",
+        target: "failure",
+      });
+      const all = await repo.getMemories({ target: "failure" });
+      expect(all.find((m) => m.content === "[failure] quirk A — edited")?.state).toBe("resolved");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Supersession (Task 3): lineage columns on read + status filter + supersedeMemory.
   // ---------------------------------------------------------------------------
 

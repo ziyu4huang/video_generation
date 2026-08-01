@@ -416,6 +416,8 @@ export class SqliteMemoryRepository implements MemoryRepository {
       correctedTo?: string | null;
       lastReferenced?: string | null;
       mdId?: string | null;
+      state?: FailureState | null;
+      severity?: number | null;
     },
   ): Promise<MemoryUpdateResult> {
     return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
@@ -453,7 +455,9 @@ export class SqliteMemoryRepository implements MemoryRepository {
                 tool_state = ?,
                 corrected_to = ?,
                 last_referenced = ?,
-                md_id = ?
+                md_id = ?,
+                state = ?,
+                severity = ?
             WHERE id = ?
           `).run(
             updates.content.trim(),
@@ -463,6 +467,8 @@ export class SqliteMemoryRepository implements MemoryRepository {
             updates.correctedTo === undefined ? row.corrected_to : normalizeNullable(updates.correctedTo),
             nextLastReferenced,
             birthMdId,
+            updates.state === undefined ? row.state : (updates.state ?? "active"),
+            updates.severity === undefined ? (row.severity ?? null) : (updates.severity ?? null),
             row.id,
           );
         } else {
@@ -473,7 +479,9 @@ export class SqliteMemoryRepository implements MemoryRepository {
                 failure_reason = ?,
                 tool_state = ?,
                 corrected_to = ?,
-                last_referenced = ?
+                last_referenced = ?,
+                state = ?,
+                severity = ?
             WHERE id = ?
           `).run(
             updates.content.trim(),
@@ -482,6 +490,8 @@ export class SqliteMemoryRepository implements MemoryRepository {
             updates.toolState === undefined ? row.tool_state : normalizeNullable(updates.toolState),
             updates.correctedTo === undefined ? row.corrected_to : normalizeNullable(updates.correctedTo),
             nextLastReferenced,
+            updates.state === undefined ? row.state : (updates.state ?? "active"),
+            updates.severity === undefined ? (row.severity ?? null) : (updates.severity ?? null),
             row.id,
           );
         }
