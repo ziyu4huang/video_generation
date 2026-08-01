@@ -1,25 +1,4 @@
 ---
-id: 37653b77-3e4d-40b0-bc9b-cca5d414122c
-created: 2026-07-31
-last: 2026-07-31
----
-Wayfinder effort structure (.planning/<effort>/): map.md (destination, decisions, notes, frontier) + tickets/ subdirectory. Ticket types: research, grilling. Research tickets = AFK, chart-time execution. Grilling = live Q&A session. When research complete and frontier empties to grilling ticket, work that ticket → graduate to multiple do/defer/skip decision tickets. One decision per session. Gitignore policy: .planning/<effort>/ artifacts ARE committed (durable, shared). Only per-task transient scratch ignored (task_plan.md, progress.md, findings.md).
-§
----
-id: 14a927f4-93ad-4931-a077-95c7ca2f2d0f
-created: 2026-07-31
-last: 2026-08-01
----
-.planning/ directory structure (.planning/<effort>/): map.md (destination, decisions, notes, frontier) + tickets/ subdirectory. Ticket types: research (AFK execution), grilling (live Q&A). When research complete, graduate to do/defer/skip decision tickets (one per session). Gitignore policy: .planning/<effort>/ artifacts ARE committed (durable, shared) — repo has 377+ tracked .planning files. Only per-task transient scratch files are ignored (task_plan.md, progress.md, findings.md).
-§
----
-id: 719668ec-2e4e-40c6-bce9-7432909d38ba
-created: 2026-07-31
-last: 2026-07-31
----
-Git PR 工作流：開分支 → commit → push → 開 PR → 啟用 auto-merge (squash) → 等 CI 綠 → 若 mergeState=BEHIND 則 rebase + force-push → CI 重跑綠後自動合併 → 用 sweep-merged-branches.sh 清理本地分支。分支保護要求 up-to-date，管理員也無法繞過 in-flight checks。
-§
----
 id: d32379f8-230e-47fd-8b41-95e4fde2a222
 created: 2026-07-31
 last: 2026-08-01
@@ -102,3 +81,10 @@ created: 2026-08-01
 last: 2026-08-01
 ---
 pi-agent-ext-superpowers code facts for testing boundary changes: (1) `piBoundaryOverrides()` is NOT exported, but `getBootstrapContent()` IS exported and `bootstrap.test.ts` already asserts on its content — that's the test home for boundary-text assertions. (2) There's an existing test locking the routing/redirect section of `getBootstrapContent()` to < 2000 chars — any boundary text edit must stay concise. (3) Ext tests run via `bun run test` (CI matrix at `ci.yml:111`). (4) Repo-lint pattern: self-contained `bun test` files run in the existing matrix; repo-root `scripts/check-*.sh` for shell lints. (5) ADR-0006 (2026-08-02): supersedes ADR-0005's 'when an effort is active' clause — the no-upstream-path rule is now UNCONDITIONAL.
+§
+---
+id: 116c1d21-38b6-4f61-ab52-97cbe1799052
+created: 2026-08-01
+last: 2026-08-01
+---
+tool-gate savings-claim single-source-of-truth — RESOLVED (2026-08-02, commits fecade51 + 7ff58cdd, code-reviewed). CLAIMED_SAVED_TOK=8050 (qa/savings.ts) is THE gross single source; the NET claim is DERIVED (CLAIMED_NET_TOK = CLAIMED_SAVED_TOK − ENABLE_TOOL_OVERHEAD_TOK = 7807; prose ~7,800). Every prose mention (README/CONTEXT/tool-gate.ts header/PRD) cites ~8,050 gross / ~7,800 net + points to `bun run qa:savings` for live numbers. THREE guards: (1) DRIFT_BAND=0.2 (±20%) + pure withinDriftBand() + gross deviation-band test; (2) net-band + enable_tool-overhead-band tests; (3) PROSE-DRIFT test (qa/savings-prose-lock.test.ts) — fails CI if any `~N,NNN` figure in prose isn't in SANCTIONED_PROSE_TOK, closing the prose↔constant gap that once let 3 different gross numbers (7,900/7,940/8,050) coexist. ±20% width is deliberate (zai-mcp env swing ~1.1k ≈ 14% of claim; tighter flakes when zai loads). CONVENTION: never hardcode a competing savings figure in prose; cite CLAIMED_SAVED_TOK / CLAIMED_NET_TOK; refresh measured baselines (OFF ~18k / ON ~10k / measured net ~7,865) only via qa:savings.
