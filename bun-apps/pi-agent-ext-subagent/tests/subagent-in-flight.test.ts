@@ -73,3 +73,27 @@ test("start carries batchId through for batch-tool children; undefined for singu
   reg.start({ id: "solo", model: "y", taskPreview: "u", startedAt: 0 });
   assert.equal(reg.get("solo")?.batchId, undefined);
 });
+
+test("start carries status; markCompleted flips it; endBatch evicts the whole batch", () => {
+  const reg = new SubagentInFlightRegistry();
+  reg.start({ id: "c0", model: "x", taskPreview: "t", startedAt: 0, batchId: "bX" });
+  reg.start({ id: "c1", model: "y", taskPreview: "u", startedAt: 0, batchId: "bX" });
+  // default status is undefined (treated as running); singular-tool entries omit it
+  assert.equal(reg.get("c0")?.status, undefined);
+  reg.markCompleted("c0");
+  assert.equal(reg.get("c0")?.status, "completed");
+  assert.equal(reg.get("c1")?.status, undefined, "sibling still running");
+  // both still present (kept for k/N + frozen-trace follow)
+  assert.equal(reg.list().length, 2);
+  reg.endBatch("bX");
+  assert.equal(reg.list().length, 0, "whole batch evicted");
+});
+
+test("endBatch evicts only the named batch; a sibling batch is untouched", () => {
+  const reg = new SubagentInFlightRegistry();
+  reg.start({ id: "a0", model: "x", taskPreview: "t", startedAt: 0, batchId: "bA" });
+  reg.start({ id: "b0", model: "y", taskPreview: "u", startedAt: 0, batchId: "bB" });
+  reg.endBatch("bA");
+  assert.equal(reg.get("a0"), undefined);
+  assert.ok(reg.get("b0"), "bB untouched");
+});

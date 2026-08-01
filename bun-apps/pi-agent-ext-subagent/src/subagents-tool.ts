@@ -206,7 +206,7 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
       };
       const hasBatchBudget = params.tokenBudget !== undefined || params.spendBudget !== undefined;
 
-      await runWithConcurrency(tasks, concurrency, async (task, index) => {
+      const dispatchChild = async (task: BatchTask, index: number): Promise<void> => {
         // Soft gate: once tripped, no NEW children start; in-flight ones finish.
         if (gateTripped) {
           slots[index] = { status: "budget", exhaustion: budgetExhaustion!, source: "batch", id: task.id, index };
@@ -239,8 +239,10 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
         try {
           result = await spawn(childSpawnOpts);
         } finally {
-          // Always deregister — even on throw — so the registry never leaks a run.
-          options.inFlight?.end(childRunId);
+          // Mark completed (kept in the registry for k/N + frozen trace); the whole
+          // batch is evicted on return via endBatch(toolCallId). Runs on throw too, so
+          // a failed child does not block its siblings — it just won't persist below.
+          options.inFlight?.markCompleted(childRunId);
         }
         dispatched++;
         // Accumulate usage for the batch-wide budget check (guard for undefined usage).
@@ -296,7 +298,15 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
             budgetExhaustion = ex;
           }
         }
-      });
+      };
+      try {
+        await runWithConcurrency(tasks, concurrency, dispatchChild);
+      } finally {
+        // Evict the whole batch on return (success OR a mid-batch throw) so the
+        // registry is clean when execute() returns. Children stayed past their own
+        // completion (markCompleted above) for k/N progress + frozen-trace follow.
+        options.inFlight?.endBatch(toolCallId);
+      }
 
       const skipped = slots.filter((s) => s != null && (s as { status: string }).status === "budget").length;
       const details: SubagentsToolDetails = {
