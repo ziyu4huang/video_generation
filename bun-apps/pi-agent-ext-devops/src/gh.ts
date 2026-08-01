@@ -10,6 +10,7 @@
  * seam (it's a thin stdlib passthrough).
  */
 import type { GhClient } from "./recipe.js";
+import type { BranchClient } from "./branch-recipe.js";
 import type { PrState, MergeState, CheckTally } from "./pr-logic.js";
 
 export interface SpawnResult {
@@ -108,4 +109,148 @@ function safeJson(s: string): unknown {
 	} catch {
 		return null;
 	}
+}
+
+/**
+ * Extract the first branch-name token from a `git branch`-style line, skipping
+ * the optional marker char (`*` current / `+` linked-worktree / `-` bisect) and
+ * detached-HEAD pseudo-entries like `(HEAD detached …)`. Returns undefined if
+ * the line has no branch name. Shared by parseBranchVv + parseContained.
+ */
+function firstBranchName(line: string): string | undefined {
+	const trimmed = line.trimStart();
+	const rest = ("*+-".includes(trimmed[0] ?? "") ? trimmed.slice(1) : trimmed).trimStart();
+	const name = rest.split(/\s+/)[0] ?? "";
+	return name && !name.startsWith("(") ? name : undefined;
+}
+
+/**
+ * Parse `git branch -vv` lines into {name, goneRemote}. `goneRemote` is true
+ * when the upstream shows `[origin/…: gone]` (remote deleted — a HINT, not
+ * merge proof). Detached-HEAD pseudo-entries are skipped. Defensive on garbage.
+ */
+export function parseBranchVv(stdout: string): { name: string; goneRemote: boolean }[] {
+	const out: { name: string; goneRemote: boolean }[] = [];
+	for (const raw of stdout.split("\n")) {
+		const line = raw.replace(/\r$/, "");
+		if (!line.trim()) continue;
+		const name = firstBranchName(line);
+		if (!name) continue;
+		out.push({ name, goneRemote: line.includes(": gone]") });
+	}
+	return out;
+}
+
+/** Parse `git branch -r` into remote branch names (strips `origin/`, drops `HEAD ->`). */
+export function parseRemoteBranches(stdout: string): string[] {
+	const out: string[] = [];
+	for (const raw of stdout.split("\n")) {
+		const line = raw.replace(/\r$/, "").trim();
+		if (!line || line.includes("->")) continue;
+		const m = line.match(/^origin\/(.+)$/);
+		if (m) out.push(m[1]);
+	}
+	return out;
+}
+
+/** Parse `git worktree list --porcelain` into the branch names each worktree has
+ *  checked out (from `branch refs/heads/<name>` lines; detached worktrees are skipped). */
+export function parseWorktrees(stdout: string): string[] {
+	const out: string[] = [];
+	for (const raw of stdout.split("\n")) {
+		const line = raw.replace(/\r$/, "").trim();
+		const m = line.match(/^branch refs\/heads\/(.+)$/);
+		if (m) out.push(m[1]);
+	}
+	return out;
+}
+
+/** Parse `gh pr list --state merged --json headRefName,number` into ref→prNumber.
+ *  Defensive: non-array → empty map; rows missing fields are skipped. */
+export function parseMergedPrs(raw: unknown): Map<string, number> {
+	const map = new Map<string, number>();
+	const list = Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
+	for (const row of list) {
+		const ref = typeof row?.headRefName === "string" ? row.headRefName : "";
+		const num = typeof row?.number === "number" ? row.number : undefined;
+		if (ref && num !== undefined) map.set(ref, num);
+	}
+	return map;
+}
+
+/** Parse `gh pr list --state open --json headRefName` into a ref set (name-conflict source). */
+export function parseOpenPrRefs(raw: unknown): Set<string> {
+	const set = new Set<string>();
+	const list = Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
+	for (const row of list) {
+		const ref = typeof row?.headRefName === "string" ? row.headRefName : "";
+		if (ref) set.add(ref);
+	}
+	return set;
+}
+
+/** Parse `git branch --merged <default>` into the set of fully-contained branch names.
+ *  Info-only corroboration (squash merges are missed — that's why gh is authoritative). */
+export function parseContained(stdout: string): Set<string> {
+	const set = new Set<string>();
+	for (const raw of stdout.split("\n")) {
+		const line = raw.replace(/\r$/, "");
+		if (!line.trim()) continue;
+		const name = firstBranchName(line);
+		if (name) set.add(name);
+	}
+	return set;
+}
+
+/**
+ * Build a `BranchClient` backed by a `SpawnFn` (the live Bun.spawn adapter in
+ * extensions/devops.ts sets the repo cwd; tests pass a recording fake). All git/gh
+ * output is parsed as structured text/JSON — no grep footguns, defensive on garbage.
+ */
+export function createBranchClient(spawn: SpawnFn): BranchClient {
+	return {
+		async branchVv() {
+			const r = await spawn("git", ["branch", "-vv"]);
+			return parseBranchVv(r.stdout);
+		},
+		async remoteBranches() {
+			const r = await spawn("git", ["branch", "-r"]);
+			return parseRemoteBranches(r.stdout);
+		},
+		async worktrees() {
+			const r = await spawn("git", ["worktree", "list", "--porcelain"]);
+			return parseWorktrees(r.stdout);
+		},
+		async currentBranch() {
+			const r = await spawn("git", ["rev-parse", "--abbrev-ref", "HEAD"]);
+			return r.exitCode === 0 ? r.stdout.trim() : "";
+		},
+		async mergedPrRefs(limit) {
+			const r = await spawn("gh", ["pr", "list", "--state", "merged", "--json", "headRefName,number", "--limit", String(limit)]);
+			return parseMergedPrs(safeJson(r.stdout));
+		},
+		async openPrRefs() {
+			const r = await spawn("gh", ["pr", "list", "--state", "open", "--json", "headRefName", "--limit", "200"]);
+			return parseOpenPrRefs(safeJson(r.stdout));
+		},
+		async containedBranches(defaultBranch) {
+			const r = await spawn("git", ["branch", "--merged", defaultBranch]);
+			return parseContained(r.stdout);
+		},
+		async defaultBranch() {
+			const r = await spawn("git", ["symbolic-ref", "refs/remotes/origin/HEAD"]);
+			if (r.exitCode !== 0) return undefined;
+			const m = r.stdout.trim().match(/^refs\/remotes\/origin\/(.+)$/);
+			return m ? m[1] : undefined;
+		},
+		async fetchPrune() {
+			await spawn("git", ["fetch", "--prune"]);
+		},
+		async deleteLocalBranch(name) {
+			await spawn("git", ["branch", "-D", name]);
+		},
+		async deleteRemoteBranch(name) {
+			await spawn("git", ["push", "origin", "--delete", name]);
+		},
+	};
 }
