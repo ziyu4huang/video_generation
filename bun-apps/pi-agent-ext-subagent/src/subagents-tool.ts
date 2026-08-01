@@ -6,9 +6,11 @@
  * tree can never race on writes. See .planning/2026-08-01-what-s-next-for-subagent-develop-map/.
  */
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import type { AgentUsage, BudgetExhaustion } from "./agent.js";
 import { checkBudgetExhaustion } from "./agent.js";
+import { summarizeLatestAction } from "./agent-history.js";
 import { DEFAULT_BATCH_CONCURRENCY, MAX_BATCH_TASKS, MAX_CONCURRENCY } from "./config.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent.js";
 import { spawnSubagent } from "./spawn-subagent.js";
@@ -165,7 +167,7 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
       "Fan out read-only research/review subagents in parallel. Each child has edit/write/bash excluded. Returns one result per task in input order (null for a failed child).",
     executionMode: "sequential",
     parameters: subagentsToolSchema,
-    async execute(toolCallId, params, _signal, _onUpdate, _ctx) {
+    async execute(toolCallId, params, _signal, onUpdate, _ctx) {
       const t0 = Date.now();
       const tasks = params.tasks as BatchTask[];
       if (!Array.isArray(tasks) || tasks.length === 0) {
@@ -233,7 +235,27 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
         const childSpawnOpts: SpawnSubagentOptions = {
           ...childOpts,
           onModelResolved: (modelId) => options.inFlight?.updateModel(childRunId, modelId),
-          onHistory: (history) => options.inFlight?.update(childRunId, history),
+          onHistory: (history) => {
+            options.inFlight?.update(childRunId, history);
+            // Single-line batch progress feed — kills the blind spinner on the
+            // batch's own call line. Diagnostic only: a throwing onUpdate must
+            // never change the batch result or fail a child (mirrors the singular
+            // tool's try/catch discipline at subagent-tool.ts).
+            try {
+              const group = (options.inFlight?.list() ?? []).filter((e) => e.batchId === toolCallId);
+              const running = group.filter((e) => e.status !== "completed").length;
+              const total = params.tasks.length;
+              const latest = summarizeLatestAction(history) ?? truncateToWidth(taskPreview(task.task), 40);
+              onUpdate?.({
+                content: [
+                  { type: "text" as const, text: `subagents · ${running}/${total} running · latest: ${latest}` },
+                ],
+                details: undefined as never,
+              });
+            } catch {
+              // swallowed — onUpdate is diagnostic only (mirrors the singular tool)
+            }
+          },
         };
         let result: SpawnSubagentResult;
         try {
