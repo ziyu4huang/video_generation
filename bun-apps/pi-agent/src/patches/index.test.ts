@@ -78,6 +78,7 @@ describe("PATCH_TABLE", () => {
         "pre-load-providers",
         "set-package-dir",
         "skip-update-check",
+        "startup-history-hint",
         "subagent-model-floor",
       ],
     );

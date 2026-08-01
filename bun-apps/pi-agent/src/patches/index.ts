@@ -23,7 +23,8 @@ export type PatchName =
 	| "ext-api-get-all-tool-definitions"
 	| "footer-extension-status-notify"
 	| "force-response-language"
-	| "editor-history-restore";
+	| "editor-history-restore"
+	| "startup-history-hint";
 
 export interface AppliedPatch {
   name: PatchName;
@@ -115,6 +116,12 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   // Must run after ensure-extension-deps (imports @earendil-works/pi-coding-agent
   // + the sibling prompt-history store). Disable with BUN_PI_EDITOR_HISTORY_RESTORE=0.
   { name: "editor-history-restore", env: "BUN_PI_EDITOR_HISTORY_RESTORE", defaultValue: true },
+  // startup-history-hint: wraps InteractiveMode.prototype.init to append
+  // "↑/↓ to browse history" to the expanded startup keybinding strip (the hint
+  // otherwise lives only in the help table). No extension hook exists to
+  // contribute startup hints (setHeader is full-replace), so a patch is needed.
+  // Disable with BUN_PI_STARTUP_HISTORY_HINT=0.
+  { name: "startup-history-hint", env: "BUN_PI_STARTUP_HISTORY_HINT", defaultValue: true },
 ];
 
 /**
@@ -200,6 +207,9 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
         break;
       case "editor-history-restore":
         await import("./editor-history-restore.ts");
+        break;
+      case "startup-history-hint":
+        await import("./startup-history-hint.ts");
         break;
       default: {
         // Exhaustiveness guard — a PATCH_TABLE entry with no matching case.
