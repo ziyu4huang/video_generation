@@ -97,7 +97,7 @@ export function onKnowledge(
 			const p = data as Partial<KnowledgeEmission>;
 			if (typeof p.source !== "string" || typeof p.sourceLabel !== "string") return;
 			if (!p.records && !p.kbFile && !p.dir) return;
-			handler(p as KnowledgeEmission);
+			return handler(p as KnowledgeEmission);
 		});
 	} catch {
 		return () => {};
