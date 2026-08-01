@@ -529,4 +529,44 @@ describe('memory sqlite sync + markdown backfill', () => {
     assert.strictEqual(fm.state, 'active', 'state was backfilled');
     assert.strictEqual(fm.text, body, 'failure body must survive byte-identical');
   });
+
+  it('failure-state backfill reports counts + stoppedInjecting (Task 8 dry-run)', async () => {
+    const failureEntry = serializeMetadataFrontmatter({
+      id: 'rpt-fail-1', text: '[failure] live one', created: '2026-05-08', last: '2026-05-09',
+    });
+    const quirkEntry = serializeMetadataFrontmatter({
+      id: 'rpt-quirk-1', text: '[tool-quirk] known quirk', created: '2026-05-08', last: '2026-05-09',
+    });
+    const resolvedEntry = serializeMetadataFrontmatter({
+      id: 'rpt-resolved-1', text: '[failure] already fixed', created: '2026-05-08', last: '2026-05-09', state: 'resolved',
+    });
+    fs.writeFileSync(
+      path.join(globalDir, 'failures.md'),
+      [failureEntry, quirkEntry, resolvedEntry].join(ENTRY_DELIMITER),
+      'utf-8',
+    );
+
+    const counters = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+    const fstate = counters.failureState;
+    assert.strictEqual(fstate.active, 1, '[failure] live one backfilled to active');
+    assert.strictEqual(fstate.acquired, 1, '[tool-quirk] backfilled to acquired');
+    assert.strictEqual(fstate.unchanged, 1, 'the resolved entry left untouched');
+    // stoppedInjecting lists the acquired tool-quirk (was injecting, now won't) — NOT the active failure.
+    assert.ok(fstate.stoppedInjecting.some((s) => s.includes('known quirk')), 'tool-quirk flagged as stopped injecting');
+    assert.ok(!fstate.stoppedInjecting.some((s) => s.includes('live one')), 'active failure not flagged');
+  });
+
+  it('failure-state report is stable on a second (idempotent) run (Task 8)', async () => {
+    fs.writeFileSync(
+      path.join(globalDir, 'failures.md'),
+      serializeMetadataFrontmatter({ id: 'rpt-idem-1', text: '[failure] once', created: '2026-05-08', last: '2026-05-09' }),
+      'utf-8',
+    );
+    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot); // first run: active=1
+    const counters = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot); // second run
+    assert.strictEqual(counters.failureState.active, 0, 'nothing backfilled on the idempotent re-run');
+    assert.strictEqual(counters.failureState.acquired, 0);
+    assert.strictEqual(counters.failureState.unchanged, 1, 'the now-stateful entry counted as unchanged');
+    assert.strictEqual(counters.failureState.stoppedInjecting.length, 0);
+  });
 });

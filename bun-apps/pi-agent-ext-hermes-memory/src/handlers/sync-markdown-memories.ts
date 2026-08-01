@@ -29,6 +29,18 @@ export interface BackfillCounters {
   imported: number;
   skipped: number;
   warnings: string[];
+  /** Failure-lifecycle state backfill (Task 8): audit what the category-inferred
+   *  backfill changed, so a mis-mapping can't silently hide a live failure. */
+  failureState: {
+    /** Stateless failure/correction/insight/preference entries backfilled to active. */
+    active: number;
+    /** Stateless tool-quirk/convention entries backfilled to acquired — these STOP injecting. */
+    acquired: number;
+    /** Failure entries that already had an explicit state (left untouched — idempotent). */
+    unchanged: number;
+    /** Previews of entries that became `acquired` (were injecting as missing→active, now won't). */
+    stoppedInjecting: string[];
+  };
 }
 
 function readEntries(filePath: string): string[] {
@@ -195,6 +207,7 @@ async function backfillFailureState(
     const parsed = parseMarkdownMemoryEntry(raw, 'failure', null);
     if (parsed.state !== undefined) {
       // Idempotent / never-overwrite: an explicit state is left untouched.
+      counters.failureState.unchanged++;
       rebuilt.push(raw);
       continue;
     }
@@ -219,6 +232,15 @@ async function backfillFailureState(
       }),
     );
     mirrors.push({ parsed, state });
+    // Dry-run audit (Task 8): count resulting states; flag entries that stop
+    // injecting (stateless tool-quirk/convention → acquired: they injected as
+    // missing→active before, and won't after this backfill).
+    if (state === 'acquired') {
+      counters.failureState.acquired++;
+      counters.failureState.stoppedInjecting.push(parsed.content.slice(0, 60));
+    } else {
+      counters.failureState.active++;
+    }
     changed = true;
   }
 
@@ -304,6 +326,7 @@ export async function syncMarkdownMemories(
     imported: 0,
     skipped: 0,
     warnings: [],
+    failureState: { active: 0, acquired: 0, unchanged: 0, stoppedInjecting: [] },
   };
 
   const globalMemoryFile = path.join(globalDir, MEMORY_FILE);
@@ -379,6 +402,23 @@ export function registerSyncMarkdownMemoriesCommand(
         output += `├─ Entries scanned: ${counters.entriesScanned}\n`;
         output += `├─ Imported: ${counters.imported}\n`;
         output += `└─ Skipped as duplicates: ${counters.skipped}\n`;
+
+        const fstate = counters.failureState;
+        if (fstate.active + fstate.acquired + fstate.unchanged > 0) {
+          output += `\n🏷️ Failure lifecycle state backfill:\n`;
+          output += `├─ Backfilled to active (still injected): ${fstate.active}\n`;
+          output += `├─ Backfilled to acquired (stop injecting): ${fstate.acquired}\n`;
+          output += `└─ Already had explicit state (untouched): ${fstate.unchanged}\n`;
+          if (fstate.stoppedInjecting.length > 0) {
+            output += `\n⚠️ Stopped injecting (now acquired):\n`;
+            for (const item of fstate.stoppedInjecting.slice(0, 10)) {
+              output += `├─ ${item}\n`;
+            }
+            if (fstate.stoppedInjecting.length > 10) {
+              output += `└─ ... and ${fstate.stoppedInjecting.length - 10} more\n`;
+            }
+          }
+        }
 
         if (counters.projectCount > 0) {
           output += `\n📁 Project memories scanned: ${counters.projectCount}\n`;
