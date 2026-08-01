@@ -958,8 +958,11 @@ export class SurrealMemoryRepository implements MemoryRepository {
   }
 
   async bumpMemoryWorth(id: number, successDelta = 0, failDelta = 0): Promise<void> {
+    // success increments unconditionally; fail only while state='active'
+    // (§3.6 memworth.fail freeze — a resolved/acquired failure no longer "fails").
     await this.c.query(
-      `UPDATE memories SET mwSuccess = (mwSuccess ?? 0) + $s, mwFail = (mwFail ?? 0) + $f WHERE seq = $seq;`,
+      `UPDATE memories SET mwSuccess = (mwSuccess ?? 0) + $s WHERE seq = $seq;
+       UPDATE memories SET mwFail = (mwFail ?? 0) + $f WHERE seq = $seq AND state = 'active';`,
       { seq: Number(id), s: successDelta, f: failDelta },
     );
   }

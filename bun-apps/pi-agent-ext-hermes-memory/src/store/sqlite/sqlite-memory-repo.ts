@@ -895,7 +895,12 @@ export class SqliteMemoryRepository implements MemoryRepository {
 
   async bumpMemoryWorth(id: number, successDelta = 0, failDelta = 0): Promise<void> {
     return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
-      this.db.prepare("UPDATE memories SET mw_success = mw_success + ?, mw_fail = mw_fail + ? WHERE id = ?").run(successDelta, failDelta, id);
+      // success increments unconditionally; fail only while state='active'
+      // (§3.6 memworth.fail freeze — a resolved/acquired failure no longer "fails").
+      this.db.prepare("UPDATE memories SET mw_success = mw_success + ? WHERE id = ?").run(successDelta, id);
+      if (failDelta !== 0) {
+        this.db.prepare("UPDATE memories SET mw_fail = mw_fail + ? WHERE id = ? AND state = 'active'").run(failDelta, id);
+      }
     }));
   }
 

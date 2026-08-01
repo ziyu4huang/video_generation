@@ -540,6 +540,35 @@ describe("SqliteMemoryRepository", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // bumpMemoryWorth — memworth.fail freeze (§3.6): a resolved/acquired failure
+  // no longer "fails", so its fail counter stops incrementing (success unaffected).
+  // ---------------------------------------------------------------------------
+
+  describe("bumpMemoryWorth — memworth.fail freeze off-active (§3.6)", () => {
+    it("increments mwFail for active; freezes for resolved/acquired", async () => {
+      const active = await repo.addMemory({ content: "[failure] active", target: "failure", category: "failure", state: "active" });
+      const resolved = await repo.addMemory({ content: "[failure] resolved", target: "failure", category: "failure", state: "resolved" });
+      const acquired = await repo.addMemory({ content: "[tool-quirk] acquired", target: "failure", category: "tool-quirk", state: "acquired" });
+      await repo.bumpMemoryWorth(active.id, 0, 1);
+      await repo.bumpMemoryWorth(resolved.id, 0, 1);
+      await repo.bumpMemoryWorth(acquired.id, 0, 1);
+      const rows = await repo.getMemories({ target: "failure" });
+      const byContent = (c: string) => rows.find((r) => r.content === c)!;
+      expect(byContent("[failure] active").mwFail).toBe(1);
+      expect(byContent("[failure] resolved").mwFail).toBe(0);
+      expect(byContent("[tool-quirk] acquired").mwFail).toBe(0);
+    });
+
+    it("success still increments off-active (freeze is fail-only)", async () => {
+      const resolved = await repo.addMemory({ content: "[failure] res-succ", target: "failure", category: "failure", state: "resolved" });
+      await repo.bumpMemoryWorth(resolved.id, 1, 0);
+      const row = (await repo.getMemories({ target: "failure" })).find((r) => r.content === "[failure] res-succ")!;
+      expect(row.mwSuccess).toBe(1);
+      expect(row.mwFail).toBe(0);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Supersession (Task 3): lineage columns on read + status filter + supersedeMemory.
   // ---------------------------------------------------------------------------
 
