@@ -42,9 +42,7 @@ paths.
 
 ## Consequences
 
-- Ad-hoc artifacts persist as dated `.planning/` dirs instead of silently
-  dropping under `docs/superpowers/` — a real, accepted trade-off (isolation +
-  discoverability over nonchalance).
+- Ad-hoc artifacts persist as flat files under `.planning/specs/` + `.planning/plans/` (the layout `docs/superpowers/{specs,plans}` symlink to) instead of silently dropping under `docs/superpowers/` — a real, accepted trade-off (discoverability over nonchalance).
 - A future `/wayfind seed` may adopt a spec-only (no `map.md`/`tickets/`) dir;
   that interaction is an implementation detail, not a decision (see map
   Not yet specified).

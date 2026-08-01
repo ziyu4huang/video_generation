@@ -88,8 +88,7 @@ confirmed.
 1. `piBoundaryOverrides()` output no longer conditions the no-upstream-path rule
    on an active effort — the avoidance is unconditional; the effort only chooses
    *which* `.planning/<effort>/` subdir.
-2. The no-effort case resolves to a concrete `.planning/<YYYY-MM-DD>-<slug>/`
-   path, never to `docs/superpowers/`.
+2. The no-effort case resolves to flat `.planning/specs/<YYYY-MM-DD>-<topic>-design.md` (specs) and `.planning/plans/<YYYY-MM-DD>-<topic>.md` (plans) — the layout `docs/superpowers/{specs,plans}` symlink to — never to `docs/superpowers/`.
 3. The dual guard passes in CI; manually provoking an upstream-path write fails
    the lint.
 4. Pinned `skills/*/SKILL.md` bodies are **untouched** (ADR-0004) — `git diff`
