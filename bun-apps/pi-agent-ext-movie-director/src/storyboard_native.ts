@@ -273,11 +273,10 @@ export async function buildContactSheet(
   const argv: string[] = ["-y"];
   for (const p of imagePaths) argv.push("-i", p);
   // A single reserved dark-gray color source, added whenever the grid isn't
-  // exactly filled. Not fanned out into per-cell filter chains: ffmpeg's
-  // filter_complex graph forbids feeding the same input label into more than
-  // one chain without an explicit `split`, and `tile` already auto-fills any
-  // leftover cells with black once it runs out of concat-ed frames — so one
-  // reserved input is enough to document the intent without a `split` fan-out.
+  // exactly filled — but NOT fanned out into per-cell filter chains and NOT
+  // counted in `concat`'s frame count below: `tile` already auto-fills any
+  // leftover cells with black once it runs out of concat-ed frames, so the
+  // reserved input only documents intent; it isn't consumed by the graph.
   if (padCount > 0) {
     argv.push("-f", "lavfi", "-i", `color=c=0x101010:s=${CONTACT_SHEET_CELL_W}x${CONTACT_SHEET_CELL_H}:d=1`);
   }
