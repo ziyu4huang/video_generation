@@ -122,8 +122,10 @@ export const REGISTRY: ProviderEntry[] = [
   { name: "z_image", capability: "image_generation", provider: "z-image", backend: "native_swift", invoke: "swift:krea2", configured: true, notes: "Z-Image T2I (via krea2 director family)" },
   // run.py image adapter — the force multiplier for the LONG TAIL of image
   // sub-actions that have no Swift-native equivalent yet (controlnet/faceswap/
-  // profile/purify/restore/multicouple/twosubject/workflow/storyboard/inpaint/
-  // character/kontext). angle/swap/anime2real/expansion/i2i moved OFF this
+  // profile/purify/restore/multicouple/twosubject/workflow/inpaint/character/
+  // kontext) — most of that list has itself since moved off this adapter too
+  // (see each command's own "moved OFF" note below); purify/multicouple are
+  // the only ones still actually here. angle/swap/anime2real/expansion/i2i moved OFF this
   // adapter (2026-07-13) onto flux2/krea2 above, once confirmed those Swift
   // directors already implement the same mechanism (Flux2Klein multi-ref /
   // outpaint / style-preset / SAM3-swap / krea2 SDEdit-i2i) — see
@@ -300,9 +302,11 @@ export const REGISTRY: ProviderEntry[] = [
   // compute in the Python at all — `app/commands/story.py`'s `_gemma_json_call`
   // is a bare `requests.post`), so they moved onto a direct Bun `fetch` client
   // (lmstudio.ts / story_native.ts) — no Python subprocess, no MLX venv needed.
-  // shots stays on runpy_story below: `story shots` itself is still a run.py
-  // subprocess, even though the `image storyboard` command it delegates to
-  // now routes onto storyboard_native below (2026-08-01) once reached.
+  // shots stays on runpy_story below: `story shots` itself still shells out
+  // to Python's `run_shots()`, which spawns its OWN second, entirely-Python
+  // `run.py image storyboard` subprocess — it never reaches storyboard_native
+  // below (2026-08-01). Only a caller that bypasses runpy_story and invokes
+  // {image_generation, "storyboard"} directly lands on that Bun-native path.
   {
     name: "story_native",
     capability: "story_generation",

@@ -11,17 +11,19 @@
  *
  * `story shots` is NOT ported here: it only folds a concept into a
  * (story, style_hint, num_panels) triple (pure, ported below as
- * `conceptToStory`) and then delegates the actual generation to
- * `image storyboard`, which now routes onto `storyboard_native.ts`'s core
- * generation line (2026-08-01, see docs/superpowers/specs/
- * 2026-08-01-storyboard-native-port-design.md) — no Swift/Bun equivalent for
- * the `runpy_story.ts` `shots` action itself, just for the downstream
- * `image storyboard` call it used to reach via a Python subprocess. Callers
- * should build the shots request with `conceptToStory` and call
+ * `conceptToStory`) and then delegates the actual generation to `image
+ * storyboard`. IMPORTANT: calling `story shots` itself (via `runpy_story.ts`)
+ * still gets NONE of that — `run.py story shots` shells out to Python's own
+ * `run_shots()`, which itself spawns a SECOND, entirely Python, `run.py image
+ * storyboard` subprocess (see `app/commands/story.py`'s `run_shots`); this
+ * never touches the TS registry/selector, so it never reaches
+ * `storyboard_native.ts`'s Bun-native generation line (2026-08-01, see
+ * docs/superpowers/specs/2026-08-01-storyboard-native-port-design.md). The
+ * ONLY way to reach the Bun-native path is to bypass `runpy_story.ts`
+ * entirely: build the shots request with `conceptToStory` and call
  * `image_generation:storyboard` directly — this both cuts one full Python
- * process layer (the `story shots` subprocess used to itself spawn a SECOND
- * `run.py image storyboard` subprocess) AND, as of 2026-08-01, reaches a
- * fully Bun-native generation path once there.
+ * process layer (vs. going through `story shots`) AND, as of 2026-08-01,
+ * lands on the fully Bun-native generation path once there.
  */
 import { lmStudioJsonCall, type LmStudioChatOptions } from "./lmstudio.ts";
 
