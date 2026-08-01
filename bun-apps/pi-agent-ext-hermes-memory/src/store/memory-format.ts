@@ -13,7 +13,7 @@
  */
 
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import type { MemoryCategory, Provenance, MemorySource } from "../types.js";
+import type { FailureState, MemoryCategory, Provenance, MemorySource } from "../types.js";
 import type { MemoryTarget } from "./repository.js";
 
 // ---------------------------------------------------------------------------
@@ -41,6 +41,24 @@ export function normalizeNullable(value?: string | null): string | null {
 
 export function normalizeCategory(value?: MemoryCategory | null): MemoryCategory | null {
   return value ?? null;
+}
+
+// Failure-lifecycle helpers (state + severity live in frontmatter, mirrored to
+// DB columns exactly like category/status/md_id).
+const FAILURE_STATES: ReadonlySet<string> = new Set(["active", "resolved", "acquired"]);
+
+/** Coerce an unknown frontmatter value to a valid `FailureState`; anything
+ *  missing or unrecognized falls back to the safe default `active` (never
+ *  silently hide a failure). */
+export function normalizeFailureState(v: unknown): FailureState {
+  return typeof v === "string" && FAILURE_STATES.has(v) ? (v as FailureState) : "active";
+}
+
+/** Initial state inferred from category for stateless legacy entries:
+ *  permanent facts (tool-quirk / convention) graduate straight to `acquired`;
+ *  everything else starts `active` (candidate for injection). */
+export function defaultStateForCategory(c: MemoryCategory | null): FailureState {
+  return c === "tool-quirk" || c === "convention" ? "acquired" : "active";
 }
 
 export function parseMetadataComment(raw: string): {
@@ -158,6 +176,8 @@ export interface ParsedMarkdownMemoryEntry {
   sources?: MemorySource[] | null;
   mwSuccess?: number | null;
   mwFail?: number | null;
+  state?: FailureState;
+  severity?: number | null;
 }
 
 /**
@@ -286,9 +306,11 @@ export function upgradeEntryToFrontmatter(
 // ---------------------------------------------------------------------------
 // YAML frontmatter format (ticket 05 stable-id schema).
 //
-// Field order is identity-first: id → created → last → provenance → sources →
-// memworth. Absent or empty optional fields are omitted entirely (absence is
-// the encoding for `none` provenance, empty sources, and zero memworth).
+// Field order is identity-first: id → created → last → state → severity →
+// provenance → sources → memworth. Absent or empty optional fields are omitted
+// entirely (absence is the encoding for `none` provenance, empty sources, and
+// zero memworth). `state`/`severity` are failure-target only (omitted for
+// `memory`/`user`).
 // Renames from the legacy comment shape: lastReferenced→last,
 // mwSuccess/mwFail→memworth.{success,fail}. Dates are bare `YYYY-MM-DD`
 // plain scalars; the serializer is configured so values stay on a single line.
@@ -305,6 +327,8 @@ export function serializeMetadataFrontmatter(input: {
   text: string;
   created: string;
   last: string;
+  state?: FailureState | null;
+  severity?: number | null;
   provenance?: Provenance | null;
   sources?: MemorySource[] | null;
   mwSuccess?: number | null;
@@ -315,6 +339,8 @@ export function serializeMetadataFrontmatter(input: {
     created: input.created,
     last: input.last,
   };
+  if (input.state) fm.state = input.state;
+  if (typeof input.severity === "number" && input.severity >= 1 && input.severity <= 3) fm.severity = input.severity;
   if (input.provenance && input.provenance !== "none") fm.provenance = input.provenance;
   if (input.sources && input.sources.length > 0) fm.sources = input.sources;
   if ((input.mwSuccess && input.mwSuccess > 0) || (input.mwFail && input.mwFail > 0)) {
@@ -356,6 +382,8 @@ export function parseMetadataFrontmatter(raw: string): ParsedMarkdownMemoryEntry
     id: String(fm.id),
     created: String(fm.created),
     lastReferenced: String(fm.last),
+    ...(fm.state ? { state: normalizeFailureState(fm.state) } : {}),
+    ...(typeof fm.severity === "number" && fm.severity >= 1 && fm.severity <= 3 ? { severity: fm.severity } : {}),
     ...(fm.provenance ? { provenance: fm.provenance as Provenance } : {}),
     ...(Array.isArray(fm.sources) ? { sources: fm.sources as MemorySource[] } : {}),
     ...(typeof mw.success === "number" ? { mwSuccess: mw.success } : {}),
