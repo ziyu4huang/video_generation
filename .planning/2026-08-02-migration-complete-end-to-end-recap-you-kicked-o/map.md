@@ -20,6 +20,7 @@ Finish the tool-gating rollout: migrate the owner-declared `gating` field to eve
 - [03 — Rollout: deploy](tickets/03-rollout-deploy.md) — owner-declared gating on pi_deploy/pi_verify; removed from GATES; deploy in the drift-guard net. (Also: taught `qa/evaluate.ts` to reconstruct migrated gates from owner-declared gating so the L1 probe corpus stays live post-migration — scales to 04–12 with no probe edits.)
 - [04 rollout file2md](tickets/04-rollout-file2md.md) — file2md+vision_ask owner-declare gating; hardcoded GATES entry removed; drift-guard migrated; tests green
 - [05 rollout flux2](tickets/05-rollout-flux2.md) — flux2+flux2_help owner-declare gating; hardcoded GATES entry removed; drift-guard migrated; tests green
+- [06 rollout krea2](tickets/06-rollout-krea2.md) — krea2+krea2_help owner-declare gating (keywords-only); hardcoded GATES entry removed; drift-guard migrated; tests green
 
 ## Not yet specified
 
