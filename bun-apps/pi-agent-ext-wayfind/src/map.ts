@@ -381,7 +381,7 @@ export function writeMap(cwd: string, map: WayfindMap): void {
   ].join("\n");
   // Emit front-matter only when meta is present — legacy callers and the ~377
   // existing prose-only maps stay byte-compatible (no front-matter added on rewrite).
-  const front = map.meta ? serializeMapFrontmatter(map.meta) : "";
+  const front = map.meta ? serializeMapFrontmatter({ ...map.meta, last: today() }) : "";
   writeFileSync(join(dir, "map.md"), front + body, "utf-8");
 }
 

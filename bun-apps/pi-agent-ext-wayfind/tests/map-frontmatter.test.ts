@@ -117,7 +117,7 @@ describe("readMap / writeMap: front-matter integration (fs round-trip)", () => {
     expect(onDisk.startsWith("---\n")).toBe(true); // front-matter is first
     const back = readMap(cwd, META_FULL.effort);
     expect(back).not.toBeNull();
-    expect(back?.meta).toEqual(META_FULL);
+    expect(back?.meta).toEqual<EffortMeta>({ ...META_FULL, last: new Date().toISOString().slice(0, 10) });
     expect(back?.destination).toBe("A prioritized findings doc → tickets.");
     expect(back?.fog).toEqual(["open: implement-or-delete the yield"]);
     rmSync(cwd, { recursive: true, force: true });
@@ -138,6 +138,23 @@ describe("readMap / writeMap: front-matter integration (fs round-trip)", () => {
     const onDisk = readFileSync(join(cwd, ".planning", "legacy", "map.md"), "utf-8");
     expect(onDisk.startsWith("---\n")).toBe(false);
     expect(onDisk.startsWith("# Wayfinder map: legacy")).toBe(true);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("writeMap stamps last: (today) inline when meta is present", () => {
+    const cwd = fresh();
+    writeMap(cwd, {
+      effort: "x",
+      destination: "d",
+      notes: "",
+      decisions: [],
+      fog: [],
+      outOfScope: [],
+      tickets: [],
+      meta: { effort: "x", created: "2020-01-01", status: "active" }, // no last: supplied
+    });
+    const onDisk = readFileSync(join(cwd, ".planning", "x", "map.md"), "utf-8");
+    expect(onDisk).toContain(`last: ${new Date().toISOString().slice(0, 10)}`);
     rmSync(cwd, { recursive: true, force: true });
   });
 
@@ -212,16 +229,34 @@ describe("readEffortMeta", () => {
   it("reads only the manifest (no ticket scan)", () => {
     const cwd = fresh();
     writeMap(cwd, {
-      effort: "x", destination: "d", notes: "", decisions: [], fog: [], outOfScope: [], tickets: [],
+      effort: "x",
+      destination: "d",
+      notes: "",
+      decisions: [],
+      fog: [],
+      outOfScope: [],
+      tickets: [],
       meta: { effort: "x", status: "active" },
     });
-    expect(readEffortMeta(cwd, "x")).toEqual<EffortMeta>({ effort: "x", status: "active" });
+    expect(readEffortMeta(cwd, "x")).toEqual<EffortMeta>({
+      effort: "x",
+      last: new Date().toISOString().slice(0, 10),
+      status: "active",
+    });
     rmSync(cwd, { recursive: true, force: true });
   });
 
   it("returns null for a legacy (no front-matter) map", () => {
     const cwd = fresh();
-    writeMap(cwd, { effort: "legacy", destination: "d", notes: "", decisions: [], fog: [], outOfScope: [], tickets: [] });
+    writeMap(cwd, {
+      effort: "legacy",
+      destination: "d",
+      notes: "",
+      decisions: [],
+      fog: [],
+      outOfScope: [],
+      tickets: [],
+    });
     expect(readEffortMeta(cwd, "legacy")).toBeNull();
     rmSync(cwd, { recursive: true, force: true });
   });
@@ -239,7 +274,13 @@ describe("touchEffortManifest", () => {
   it("bumps last: on a manifest map and leaves the body verbatim", () => {
     const cwd = fresh();
     writeMap(cwd, {
-      effort: "x", destination: "BODY LINE ONE", notes: "n", decisions: [], fog: [], outOfScope: [], tickets: [],
+      effort: "x",
+      destination: "BODY LINE ONE",
+      notes: "n",
+      decisions: [],
+      fog: [],
+      outOfScope: [],
+      tickets: [],
       meta: { effort: "x", created: "2020-01-01", status: "active" },
     });
     const path = join(cwd, ".planning", "x", "map.md");
@@ -254,7 +295,15 @@ describe("touchEffortManifest", () => {
 
   it("is a no-op on a legacy (no front-matter) map", () => {
     const cwd = fresh();
-    writeMap(cwd, { effort: "legacy", destination: "d", notes: "", decisions: [], fog: [], outOfScope: [], tickets: [] });
+    writeMap(cwd, {
+      effort: "legacy",
+      destination: "d",
+      notes: "",
+      decisions: [],
+      fog: [],
+      outOfScope: [],
+      tickets: [],
+    });
     const path = join(cwd, ".planning", "legacy", "map.md");
     const before = readFileSync(path, "utf-8");
     touchEffortManifest(cwd, "legacy");
