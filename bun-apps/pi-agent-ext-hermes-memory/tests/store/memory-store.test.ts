@@ -930,6 +930,307 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     });
   });
 
+  // ─── Heat-ordered eviction floors (UPSP §1, ticket #1b) ───
+  //
+  // The two deterministic overflow floors (vaultOffloadAndAdd via add() +
+  // vaultOffloadAndReplace via replace()) evict the LOWEST-heat non-pinned
+  // victim first when a heat provider is wired; they fall back to EXACT
+  // FIFO/file-order when the provider is absent / empty / throwing (the
+  // first-class disable-path invariant). Pin is always spared. These tests
+  // stub the provider with a fixed heat Map so victim-selection is exercised
+  // deterministically — the heat *scoring* math is Task 1's pure core
+  // (tests/store/heat.test.ts); here we only assert consumption ORDER.
+  describe("heat-ordered eviction floors (UPSP §1)", () => {
+    const TODAY = new Date().toISOString().split("T")[0];
+    const fm = (id: string, body: string, pin = false) =>
+      serializeMetadataFrontmatter({ id, text: body, created: TODAY, last: TODAY, ...(pin ? { pin: true } : {}) });
+
+    /** Seed frontmatter entries (in the given disk/file order) into MEMORY.md. */
+    async function seed(entries: string[]): Promise<void> {
+      await fs.writeFile(path.join(MEMORY_DIR, MEMORY_FILE), entries.join(ENTRY_DELIMITER), "utf-8");
+    }
+
+    // ── vaultOffloadAndAdd (the add() overflow floor) ──
+
+    it("add floor: evicts the LOWEST-heat non-pinned entry first (heat-ascending)", async () => {
+      const HOT_ID = "11111111-1111-4111-8111-111111111111";
+      const WARM_ID = "22222222-2222-4222-8222-222222222222";
+      const COLD_ID = "33333333-3333-4333-8333-333333333333";
+      const HOT = fm(HOT_ID, "HOT survivor heatorderedprobe aaa keep this entry high heat");
+      const WARM = fm(WARM_ID, "WARM middle heatorderedprobe bbb medium heat value stays");
+      const COLD = fm(COLD_ID, "COLD evictee heatorderedprobe ccc low heat drop me now plz");
+      // limit chosen so the 3 seeded entries fit, but adding a 4th forces
+      // EXACTLY one eviction (the coldest). Tuned to frontmatter overhead.
+      await seed([HOT, WARM, COLD]);
+
+      const store = new MemoryStore(makeConfig({ memoryCharLimit: 460, memoryOverflowStrategy: "vault-offload" }));
+      store.setHeatForEntriesProvider(async (_t, entries) => {
+        const m = new Map<string, number>();
+        for (const e of entries) {
+          if (e.mdId === HOT_ID) m.set(HOT_ID, 0.9);
+          if (e.mdId === WARM_ID) m.set(WARM_ID, 0.5);
+          if (e.mdId === COLD_ID) m.set(COLD_ID, 0.1);
+        }
+        return m;
+      });
+      await store.loadFromDisk();
+
+      const result = await store.add("memory", "NEW incoming heatorderedprobe ddd trigger overflow xxxxxx");
+      assert.ok(result.success, result.error);
+
+      assert.equal(result.evicted_count, 1, "exactly the single coldest entry is evicted");
+      assert.deepEqual(result.evicted_md_ids, [COLD_ID], "coldest md_id evicted first");
+      const entries = store.getMemoryEntries();
+      assert.ok(entries.some((e) => e.includes("HOT survivor")), "hottest entry survives");
+      assert.ok(!entries.some((e) => e.includes("COLD evictee")), "coldest entry evicted");
+    });
+
+    it("add floor: multi-eviction order is heat-ASCENDING (coldest → warmest; hottest survives)", async () => {
+      const HOT_ID = "11111111-1111-4111-8111-111111111111";
+      const WARM_ID = "22222222-2222-4222-8222-222222222222";
+      const COLD_ID = "33333333-3333-4333-8333-333333333333";
+      const HOT = fm(HOT_ID, "HOT survivor heatascprobe aaa keep this entry high heat");
+      const WARM = fm(WARM_ID, "WARM middle heatascprobe bbb medium heat value stays");
+      const COLD = fm(COLD_ID, "COLD evictee heatascprobe ccc low heat drop me now plz");
+      // Tighter limit forces TWO evictions (coldest + warmest), hottest survives.
+      await seed([HOT, WARM, COLD]);
+
+      const store = new MemoryStore(makeConfig({ memoryCharLimit: 340, memoryOverflowStrategy: "vault-offload" }));
+      store.setHeatForEntriesProvider(async (_t, entries) => {
+        const m = new Map<string, number>();
+        for (const e of entries) {
+          if (e.mdId === HOT_ID) m.set(HOT_ID, 0.9);
+          if (e.mdId === WARM_ID) m.set(WARM_ID, 0.5);
+          if (e.mdId === COLD_ID) m.set(COLD_ID, 0.1);
+        }
+        return m;
+      });
+      await store.loadFromDisk();
+
+      const result = await store.add("memory", "NEW incoming heatascprobe ddd trigger overflow xxxxxx");
+      assert.ok(result.success, result.error);
+
+      assert.equal(result.evicted_count, 2, "two coldest entries evicted");
+      assert.deepEqual(result.evicted_md_ids, [COLD_ID, WARM_ID], "eviction order is heat-ascending");
+      const entries = store.getMemoryEntries();
+      assert.ok(entries.some((e) => e.includes("HOT survivor")), "hottest entry survives");
+      assert.ok(!entries.some((e) => e.includes("COLD evictee")) && !entries.some((e) => e.includes("WARM middle")), "two coldest evicted");
+    });
+
+    it("add floor: at equal recency a USED entry outranks an UNUSED one (the usedBonus is consumed as heat)", async () => {
+      // Same created/last → equal recency spine. The provider (mirroring
+      // computeHeat's usedBonus, Task 1) scores the used entry +0.1 higher →
+      // it is spared; the unused one is evicted. This asserts the store
+      // CONSUMES that bonus (lowest-heat-first), not the bonus math itself.
+      const USED_ID = "44444444-4444-4444-8444-444444444444";
+      const UNUSED_ID = "55555555-5555-4555-8555-555555555555";
+      const USED = fm(USED_ID, "USED survivor usedprobe aaa this entry was content-matched");
+      const UNUSED = fm(UNUSED_ID, "UNUSED evictee usedprobe bbb never surfaced-used drop me");
+      await seed([USED, UNUSED]);
+
+      const store = new MemoryStore(makeConfig({ memoryCharLimit: 300, memoryOverflowStrategy: "vault-offload" }));
+      store.setHeatForEntriesProvider(async (_t, entries) => {
+        const m = new Map<string, number>();
+        for (const e of entries) {
+          if (e.mdId === USED_ID) m.set(USED_ID, 0.6); // recency 0.5 + usedBonus 0.1
+          if (e.mdId === UNUSED_ID) m.set(UNUSED_ID, 0.5); // recency 0.5, no bonus
+        }
+        return m;
+      });
+      await store.loadFromDisk();
+
+      const result = await store.add("memory", "NEW incoming usedprobe ccc trigger overflow xxxxxxxxxx");
+      assert.ok(result.success, result.error);
+
+      assert.deepEqual(result.evicted_md_ids, [UNUSED_ID], "unused entry evicted; used entry spared");
+      const entries = store.getMemoryEntries();
+      assert.ok(entries.some((e) => e.includes("USED survivor")), "used entry survives");
+      assert.ok(!entries.some((e) => e.includes("UNUSED evictee")), "unused entry evicted");
+    });
+
+    it("add floor: a PINNED entry at the lowest heat is spared; a higher-heat non-pinned is evicted instead", async () => {
+      const PIN_ID = "66666666-6666-4666-8666-666666666666";
+      const PLAIN_ID = "77777777-7777-4777-8777-777777777777";
+      // Pinned entry carries the LOWEST heat (0.0) — without pin it would be
+      // evicted first. Pin protection must skip it and evict the higher-heat
+      // non-pinned peer instead.
+      const PIN = fm(PIN_ID, "PIN lowest heat survivor pinheatprobe aaa locked", true);
+      const PLAIN = fm(PLAIN_ID, "PLAIN higher heat evictee pinheatprobe bbb droppable");
+      await seed([PIN, PLAIN]);
+
+      const store = new MemoryStore(makeConfig({ memoryCharLimit: 300, memoryOverflowStrategy: "vault-offload" }));
+      store.setHeatForEntriesProvider(async (_t, entries) => {
+        const m = new Map<string, number>();
+        for (const e of entries) {
+          if (e.mdId === PIN_ID) m.set(PIN_ID, 0.0);
+          if (e.mdId === PLAIN_ID) m.set(PLAIN_ID, 0.9);
+        }
+        return m;
+      });
+      await store.loadFromDisk();
+
+      const result = await store.add("memory", "NEW incoming pinheatprobe ccc trigger overflow xxxxx");
+      assert.ok(result.success, result.error);
+
+      assert.equal(result.evicted_count, 1);
+      assert.deepEqual(result.evicted_md_ids, [PLAIN_ID], "higher-heat non-pinned evicted, NOT the pinned lowest-heat");
+      const entries = store.getMemoryEntries();
+      assert.ok(entries.some((e) => e.includes("PIN lowest heat survivor")), "pinned entry survives despite heat 0");
+      assert.ok(!entries.some((e) => e.includes("PLAIN higher heat")), "non-pinned peer evicted");
+    });
+
+    it("add floor: a legacy comment-shape entry (no mdId) is evicted LAST behind scored entries", async () => {
+      // A legacy comment-shape entry has NO mdId → unscoreable → heat +Infinity
+      // (evict LAST). Two scored frontmatter entries (LOW/HIGH) are evicted
+      // first; the legacy entry survives until every scored entry is gone.
+      const LOW_ID = "88888888-8888-4888-8888-888888888888";
+      const HIGH_ID = "99999999-9999-4999-8999-999999999999";
+      const LEGACY = encodeRaw("LEGACY unscored survivor legacyprobe aaa no id comment shape");
+      const LOW = fm(LOW_ID, "LOW scored evictee legacyprobe bbb low heat drop first");
+      const HIGH = fm(HIGH_ID, "HIGH scored evictee legacyprobe ccc higher heat drop second");
+      await seed([LEGACY, LOW, HIGH]);
+
+      const store = new MemoryStore(makeConfig({ memoryCharLimit: 360, memoryOverflowStrategy: "vault-offload" }));
+      store.setHeatForEntriesProvider(async (_t, entries) => {
+        const m = new Map<string, number>();
+        for (const e of entries) {
+          if (e.mdId === LOW_ID) m.set(LOW_ID, 0.1);
+          if (e.mdId === HIGH_ID) m.set(HIGH_ID, 0.5);
+        }
+        return m; // LEGACY has no mdId → never in inputs → +Infinity in the store
+      });
+      await store.loadFromDisk();
+
+      const result = await store.add("memory", "NEW incoming legacyprobe ddd trigger overflow xxxxxxx");
+      assert.ok(result.success, result.error);
+
+      // Both SCORED entries evicted (ascending); the unscored legacy survives.
+      assert.deepEqual(result.evicted_md_ids, [LOW_ID, HIGH_ID], "scored entries evicted ascending before the legacy");
+      assert.ok(!result.evicted_md_ids.includes(undefined as never), "legacy (no mdId) never appears in evicted_md_ids");
+      const entries = store.getMemoryEntries();
+      assert.ok(entries.some((e) => e.includes("LEGACY unscored survivor")), "legacy unscoreable entry survives until all scored are evicted");
+    });
+
+    it("add floor: NO provider → EXACT FIFO/file-order (disable-path parity)", async () => {
+      // No setHeatForEntriesProvider → computeHeats returns null → the floor
+      // degenerates to lowest-file-position non-pinned (pre-Task-4 FIFO).
+      const A_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+      const B_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+      const C_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+      const A = fm(A_ID, "A oldest fifoprobe aaa first on disk evicted first");
+      const B = fm(B_ID, "B middle fifoprobe bbb second on disk");
+      const C = fm(C_ID, "C newest fifoprobe ccc last on disk survives");
+      await seed([A, B, C]);
+
+      const store = new MemoryStore(makeConfig({ memoryCharLimit: 340, memoryOverflowStrategy: "vault-offload" }));
+      // NOTE: no provider wired — this is the disable path.
+      await store.loadFromDisk();
+
+      const result = await store.add("memory", "NEW incoming fifoprobe ddd trigger overflow xxxxxxxx");
+      assert.ok(result.success, result.error);
+
+      // FIFO: oldest (A) then B; C (newest) survives.
+      assert.deepEqual(result.evicted_md_ids, [A_ID, B_ID], "file-order: oldest first (disable-path FIFO parity)");
+      const entries = store.getMemoryEntries();
+      assert.ok(entries.some((e) => e.includes("C newest")), "newest survives");
+    });
+
+    it("add floor: a THROWING provider → FIFO (best-effort, never crashes)", async () => {
+      const A_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+      const B_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+      const A = fm(A_ID, "A oldest throwprobe aaa first on disk");
+      const B = fm(B_ID, "B newer throwprobe bbb second on disk");
+      await seed([A, B]);
+
+      const store = new MemoryStore(makeConfig({ memoryCharLimit: 300, memoryOverflowStrategy: "vault-offload" }));
+      store.setHeatForEntriesProvider(async () => {
+        throw new Error("provider boom");
+      });
+      await store.loadFromDisk();
+
+      const result = await store.add("memory", "NEW incoming throwprobe ccc trigger overflow xxxxxxxx");
+      assert.ok(result.success, result.error); // no crash
+      assert.deepEqual(result.evicted_md_ids, [A_ID], "throwing provider falls back to FIFO (oldest evicted)");
+    });
+
+    it("add floor: an EMPTY-Map provider → FIFO", async () => {
+      const A_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+      const B_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+      const A = fm(A_ID, "A oldest emptymapproobe aaa first on disk");
+      const B = fm(B_ID, "B newer emptymapproobe bbb second on disk");
+      await seed([A, B]);
+
+      const store = new MemoryStore(makeConfig({ memoryCharLimit: 300, memoryOverflowStrategy: "vault-offload" }));
+      store.setHeatForEntriesProvider(async () => new Map());
+      await store.loadFromDisk();
+
+      const result = await store.add("memory", "NEW incoming emptymapproobe ccc trigger overflow xxxx");
+      assert.ok(result.success, result.error);
+      assert.deepEqual(result.evicted_md_ids, [A_ID], "empty Map falls back to FIFO (oldest evicted)");
+    });
+
+    // ── vaultOffloadAndReplace (the replace() overflow floor) ──
+
+    it("replace floor: evicts the LOWEST-heat OTHER entry (protected entry spared; heat beats file-order)", async () => {
+      // File order: A(protected) B(hotter, oldest-other) C(coldest, newest).
+      // FIFO would evict B (oldest other); HEAT must evict C (coldest) instead —
+      // proving heat-order overrides file-order in the replace floor too.
+      const A_ID = "a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1";
+      const B_ID = "b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2";
+      const C_ID = "c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3";
+      const A = fm(A_ID, "A protected replheatprobe aaa will be grown replaced");
+      const B = fm(B_ID, "B hotter oldestother replheatprobe bbb fileorder would pick");
+      const C = fm(C_ID, "C coldest newestother replheatprobe ccc heat picks me");
+      await seed([A, B, C]);
+
+      const store = new MemoryStore(makeConfig({ memoryCharLimit: 360, memoryOverflowStrategy: "auto-consolidate" }));
+      store.setHeatForEntriesProvider(async (_t, entries) => {
+        const m = new Map<string, number>();
+        for (const e of entries) {
+          if (e.mdId === A_ID) m.set(A_ID, 0.9);
+          if (e.mdId === B_ID) m.set(B_ID, 0.9);
+          if (e.mdId === C_ID) m.set(C_ID, 0.1);
+        }
+        return m;
+      });
+      // No consolidator → replace overflow falls straight to vaultOffloadAndReplace.
+      await store.loadFromDisk();
+
+      // Grow A so the replacement overflows by one OTHER entry.
+      const grown = "A protected replheatprobe aaa GROWN to overflow the limit zzzzzzzzzzzzzzzzzzzzzzzzzzzz";
+      const result = await store.replace("memory", "A protected replheatprobe aaa will be grown replaced", grown);
+      assert.ok(result.success, result.error);
+
+      assert.deepEqual(result.evicted_md_ids, [C_ID], "coldest OTHER (C) evicted, NOT the file-order-oldest other (B)");
+      const entries = store.getMemoryEntries();
+      assert.ok(entries.some((e) => e.includes("GROWN to overflow")), "grown replacement landed");
+      assert.ok(entries.some((e) => e.includes("B hotter oldestother")), "hotter other (B) survives");
+      assert.ok(!entries.some((e) => e.includes("C coldest newestother")), "coldest other (C) evicted");
+    });
+
+    it("replace floor: NO provider → file-order (oldest OTHER evicted; disable-path parity)", async () => {
+      const A_ID = "a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1";
+      const B_ID = "b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2";
+      const C_ID = "c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3";
+      const A = fm(A_ID, "A protected replfifoprobe aaa will be grown replaced");
+      const B = fm(B_ID, "B oldestother replfifoprobe bbb fileorder picks me");
+      const C = fm(C_ID, "C newestother replfifoprobe ccc survives");
+      await seed([A, B, C]);
+
+      const store = new MemoryStore(makeConfig({ memoryCharLimit: 360, memoryOverflowStrategy: "auto-consolidate" }));
+      // NOTE: no provider — disable path → file-order.
+      await store.loadFromDisk();
+
+      const grown = "A protected replfifoprobe aaa GROWN to overflow the limit zzzzzzzzzzzzzzzzzzzzzzzzzzzz";
+      const result = await store.replace("memory", "A protected replfifoprobe aaa will be grown replaced", grown);
+      assert.ok(result.success, result.error);
+
+      assert.deepEqual(result.evicted_md_ids, [B_ID], "file-order: oldest OTHER (B) evicted (disable-path parity)");
+      const entries = store.getMemoryEntries();
+      assert.ok(entries.some((e) => e.includes("C newestother")), "newest other (C) survives");
+    });
+  });
+
   // ─── remove() tests ───
 
   describe("remove()", () => {

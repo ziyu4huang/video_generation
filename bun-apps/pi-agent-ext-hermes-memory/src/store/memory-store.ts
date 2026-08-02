@@ -226,6 +226,84 @@ export class MemoryStore {
     }
   }
 
+  /**
+   * Build the {@link HeatEntryInput} list for a set of encoded entries (UPSP
+   * §1, ticket #1b). Only NON-pinned entries WITH a stable mdId are scorable:
+   * - pinned entries are never victims, so their heat is irrelevant (skip);
+   * - legacy comment-shape entries have no mdId → unscoreable → they sort to
+   *   `+Infinity` in {@link pickVictimIndex} (evict LAST, conservatively).
+   *
+   * Each entry is decoded EXACTLY once (date reuse). Called once up front per
+   * overflow floor (not per victim iteration) — a single snapshot over the
+   * full candidate pool is cheaper and deterministic (evicted entries simply
+   * drop out of the candidate array as the loop splices them).
+   */
+  private heatInputsFor(
+    _target: "memory" | "user" | "failure",
+    entries: string[],
+  ): HeatEntryInput[] {
+    const inputs: HeatEntryInput[] = [];
+    for (const entry of entries) {
+      if (this.isPinned(entry)) continue; // pin never scored (spared regardless)
+      const mdId = this.mdIdOf(entry);
+      if (!mdId) continue; // unscoreable: legacy comment-shape → evict LAST
+      const decoded = this.decodeEntry(entry);
+      inputs.push({
+        mdId,
+        lastReferenced: decoded.lastReferenced,
+        created: decoded.created,
+      });
+    }
+    return inputs;
+  }
+
+  /**
+   * Read an encoded entry's heat from the snapshot map returned by
+   * {@link computeHeats}. Missing heat is conservatively mapped to
+   * `+Infinity` (evict LAST — never preferentially evict what can't be scored):
+   * - `heats === null` (disable path) → returns `0` for every entry so ties are
+   *   uniform and {@link pickVictimIndex} degenerates to lowest file-position;
+   * - no mdId (legacy comment-shape) OR mdId absent from the map → `+Infinity`.
+   */
+  private heatOf(raw: string, heats: Map<string, number> | null): number {
+    if (heats === null) return 0; // FIFO mode: uniform → lowest index wins = file-order
+    const mdId = this.mdIdOf(raw);
+    if (!mdId) return Number.POSITIVE_INFINITY; // unscoreable → evict LAST
+    return heats.has(mdId) ? (heats.get(mdId) as number) : Number.POSITIVE_INFINITY;
+  }
+
+  /**
+   * Pick the index (within `candidates`) of the next eviction victim shared by
+   * BOTH deterministic overflow floors (UPSP §1, ticket #1b): the LOWEST-heat
+   * non-pinned entry, ties broken by ascending position in `candidates` (which
+   * is file-order when the caller passes entries in file order → the FIFO
+   * parity key). Returns `-1` when every candidate is pinned / the array is
+   * empty (no victim; the caller stops evicting).
+   *
+   * Disable-path invariant: when `heats === null`, every entry scores `0`
+   * (uniform), so the first non-pinned candidate wins → EXACT pre-Task-4
+   * FIFO/file-order (byte-identical eviction). Pin is ALWAYS spared in both
+   * modes (unchanged from ticket 02).
+   */
+  private pickVictimIndex(
+    candidates: string[],
+    heats: Map<string, number> | null,
+  ): number {
+    let victimIdx = -1;
+    let victimHeat = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < candidates.length; i++) {
+      if (this.isPinned(candidates[i])) continue; // pin always spared
+      const h = this.heatOf(candidates[i], heats);
+      // First non-pinned candidate seeds; later wins ONLY on strictly-lower
+      // heat (ties keep the earlier index → file-order determinism).
+      if (victimIdx === -1 || h < victimHeat) {
+        victimIdx = i;
+        victimHeat = h;
+      }
+    }
+    return victimIdx;
+  }
+
   /** Inject the perf recorder's timed() — parallel to setConsolidator. Defaults
    *  to a pass-through so the store is usable with no recorder; the lock-hold
    *  span in withFileLock is wrapped at a lock-specific threshold (breach-only).
@@ -1000,9 +1078,12 @@ export class MemoryStore {
   }
 
   /**
-   * Vault-offload: evict oldest entries but write them to a .knowledge.jsonl
-   * archive file for later zk_ingest import, instead of discarding them.
-   * Like fifoEvictAndAdd but preservationist.
+   * Vault-offload: evict entries to a `.knowledge.jsonl` archive (preservationist
+   * — never discards) to make room for an incoming add. Victim selection is
+   * heat-ordered (UPSP §1, ticket #1b): the LOWEST-heat non-pinned entry is
+   * evicted first (ties → file-order); when no heat provider is wired this
+   * degenerates to EXACT FIFO/file-order (the disable-path invariant). Pin is
+   * always spared; a fully-pinned target still overflows to the limit guard.
    */
   private async vaultOffloadAndAdd(
     target: "memory" | "user" | "failure",
@@ -1019,16 +1100,18 @@ export class MemoryStore {
     const remaining = [...entries];
     const evictedDecoded: Array<{ text: string; created: string; lastReferenced: string; id?: string }> = [];
 
-    // Pin (ticket 02): pinned entries are never eviction candidates — skip past
-    // them (preserving order) to evict the oldest NON-pinned entry instead. If
-    // every survivor is pinned the loop terminates and the entry is added on
-    // top (a fully-pinned target can still overflow to the limit guard above).
+    // Heat-ordered eviction (UPSP §1, ticket #1b): compute per-entry heat ONCE
+    // up front for the non-pinned, scorable candidates, then evict the
+    // LOWEST-heat victim each step (ties → file-order). When no provider /
+    // empty / throw → `heats === null` → {@link pickVictimIndex} degenerates to
+    // exact FIFO/file-order (the first-class disable-path invariant). Pin is
+    // always spared (unchanged from ticket 02); a fully-pinned target still
+    // overflows to the limit guard above.
+    const heats = await this.computeHeats(target, this.heatInputsFor(target, entries));
+
     while ([...remaining, encoded].join(ENTRY_DELIMITER).length > limit && remaining.length > 0) {
-      let victimIdx = 0;
-      while (victimIdx < remaining.length && this.isPinned(remaining[victimIdx])) {
-        victimIdx++;
-      }
-      if (victimIdx >= remaining.length) break; // only pinned survivors remain
+      const victimIdx = this.pickVictimIndex(remaining, heats);
+      if (victimIdx < 0) break; // only pinned survivors remain
       const [evicted] = remaining.splice(victimIdx, 1);
       evictedDecoded.push(this.decodeEntry(evicted));
     }
@@ -1070,11 +1153,14 @@ export class MemoryStore {
   }
 
   /**
-   * Replace-path vault-offload floor: apply the replacement, then FIFO-evict the
-   * OLDEST entries (by file position) EXCEPT the replaced one to the vault
-   * archive until within limit. Guarantees a replacement never hard-rejects on
-   * overflow (only a single replacement larger than the whole budget is
-   * unrecoverable). Mirrors vaultOffloadAndAdd but keeps the replaced entry.
+   * Replace-path vault-offload floor: apply the replacement, then evict entries
+   * to the vault archive until within limit — heat-ordered (UPSP §1, ticket #1b):
+   * the LOWEST-heat non-pinned entry OTHER than the replaced one is evicted
+   * first (ties → file-order); with no heat provider this is byte-identical to
+   * the pre-Task-4 file-order eviction. Guarantees a replacement never
+   * hard-rejects on overflow (only a single replacement larger than the whole
+   * budget is unrecoverable). Mirrors vaultOffloadAndAdd but keeps the replaced
+   * (protected) entry.
    */
   private async vaultOffloadAndReplace(
     target: "memory" | "user" | "failure",
@@ -1088,21 +1174,29 @@ export class MemoryStore {
       return this.memoryFullError(target, contentLength);
     }
 
-    // Evict oldest (lowest file position) entries other than the replaced one.
-    // Pin (ticket 02): pinned entries are never eviction candidates — exclude
-    // them from the eviction order so a locked entry survives a replace overflow
-    // (mirrors vaultOffloadAndAdd's pin skip).
-    const evictOrder = entries
-      .map((_, i) => i)
-      .filter((i) => i !== protectedIdx && !this.isPinned(entries[i]));
+    // Heat-ordered eviction (UPSP §1, ticket #1b): same LOWEST-heat-first
+    // victim selection as vaultOffloadAndAdd, computed once up front. The
+    // replaced (protected) entry is NEVER a victim; pin is always spared
+    // (unchanged from ticket 02). When `heats === null` (disable path / no
+    // provider) this is byte-identical to the pre-Task-4 file-order eviction.
+    const heats = await this.computeHeats(target, this.heatInputsFor(target, entries));
     const present = new Set<number>(entries.map((_, i) => i));
     const evictedDecoded: Array<{ text: string; created: string; lastReferenced: string; id?: string }> = [];
     const liveJoin = () =>
       [...present].sort((a, b) => a - b).map((j) => (j === protectedIdx ? encoded : entries[j])).join(ENTRY_DELIMITER);
-    for (const i of evictOrder) {
-      if (liveJoin().length <= limit) break;
-      evictedDecoded.push(this.decodeEntry(entries[i]));
-      present.delete(i);
+
+    while (liveJoin().length > limit) {
+      // Eligible victims: present, non-protected, in FILE ORDER so ties resolve
+      // to the lowest file-position (the FIFO parity key).
+      const candidateOrig = [...present].sort((a, b) => a - b).filter((i) => i !== protectedIdx);
+      const local = this.pickVictimIndex(
+        candidateOrig.map((i) => entries[i]),
+        heats,
+      );
+      if (local < 0) break; // only the protected/pinned survivors remain
+      const victimIdx = candidateOrig[local];
+      evictedDecoded.push(this.decodeEntry(entries[victimIdx]));
+      present.delete(victimIdx);
     }
 
     const remaining = [...present].sort((a, b) => a - b).map((j) => (j === protectedIdx ? encoded : entries[j]));
