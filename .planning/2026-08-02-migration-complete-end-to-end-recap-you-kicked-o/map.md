@@ -18,6 +18,7 @@ Finish the tool-gating rollout: migrate the owner-declared `gating` field to eve
 - [01 — Multi-name-gate hardening](tickets/01-multi-name-gate-hardening.md) — per-name resolution: partition each fallback gate's names, keep the gate for undeclared siblings; zero fail-open window during incremental rollout.
 - [02 — Drift-guard rollout net](tickets/02-drift-guard-rollout-net.md) — migrated set parameterized as an extensible source; dead-gate rejection (#8) and augmentation-agreement test (#9) folded in. Rollout tickets append here.
 - [03 — Rollout: deploy](tickets/03-rollout-deploy.md) — owner-declared gating on pi_deploy/pi_verify; removed from GATES; deploy in the drift-guard net. (Also: taught `qa/evaluate.ts` to reconstruct migrated gates from owner-declared gating so the L1 probe corpus stays live post-migration — scales to 04–12 with no probe edits.)
+- [04 rollout file2md](tickets/04-rollout-file2md.md) — file2md+vision_ask owner-declare gating; hardcoded GATES entry removed; drift-guard migrated; tests green
 
 ## Not yet specified
 
