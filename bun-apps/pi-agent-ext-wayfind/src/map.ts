@@ -48,6 +48,24 @@ export interface MapDecision {
   link: string;
 }
 
+export type EffortStatus = "active" | "complete" | "paused";
+
+/**
+ * Effort-level manifest metadata — the OPTIONAL YAML front-matter on `map.md`.
+ * Mirrors the skill `name`/`description` + ticket `status` front-matter pattern
+ * (the established ecosystem convention — obra/superpowers ships extractFrontmatter
+ * and puts front-matter on docs/plans/*.md). All fields optional except `effort`
+ * (which SHOULD match the folder slug). Absent front-matter on the ~377 legacy
+ * prose-only efforts parses to `null` (backward-compat — never an error).
+ */
+export interface EffortMeta {
+  effort: string;
+  created?: string;
+  last?: string;
+  status?: EffortStatus;
+  owner?: string;
+}
+
 export interface WayfindMap {
   effort: string;
   destination: string;
@@ -57,6 +75,8 @@ export interface WayfindMap {
   fog: string[];
   outOfScope: string[];
   tickets: Ticket[];
+  /** Optional front-matter manifest; null/absent on legacy prose-only maps. */
+  meta?: EffortMeta | null;
 }
 
 // ─── pure parsers ───────────────────────────────────────────────────────────
@@ -87,6 +107,55 @@ export function parseMapBody(md: string): Record<string, string> {
   }
   flush();
   return sections;
+}
+
+const MAP_FM_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
+const EFFORT_STATUSES = new Set<EffortStatus>(["active", "complete", "paused"]);
+
+/**
+ * Parse an OPTIONAL leading YAML front-matter block from a `map.md` body.
+ * Returns `{ meta: null, body: <unchanged> }` when there is no front-matter
+ * (legacy maps) — never throws. Reuses the same fence shape as ticket
+ * front-matter (parseTicketFile) for consistency.
+ */
+export function parseMapFrontmatter(md: string): { meta: EffortMeta | null; body: string } {
+  const m = md.match(MAP_FM_RE);
+  if (!m) return { meta: null, body: md };
+  const raw = m[1] ?? "";
+  const body = (m[2] ?? md).replace(/^\r?\n+/, "");
+  let effort: string | undefined;
+  let created: string | undefined;
+  let last: string | undefined;
+  let status: EffortStatus | undefined;
+  let owner: string | undefined;
+  for (const line of raw.split(/\r?\n/)) {
+    const idx = line.indexOf(":");
+    if (idx <= 0) continue;
+    const key = line.slice(0, idx).trim();
+    const val = line.slice(idx + 1).trim();
+    if (key === "effort") effort = val || undefined;
+    else if (key === "created") created = val || undefined;
+    else if (key === "last") last = val || undefined;
+    else if (key === "status") status = EFFORT_STATUSES.has(val as EffortStatus) ? (val as EffortStatus) : undefined;
+    else if (key === "owner") owner = val || undefined;
+  }
+  // A front-matter block without `effort` isn't a manifest — treat as none.
+  if (!effort) return { meta: null, body };
+  return { meta: { effort, created, last, status, owner }, body };
+}
+
+/**
+ * Serialize `EffortMeta` to a YAML front-matter block terminated by a blank
+ * line. Only emits set fields; `effort` is always emitted (required).
+ */
+export function serializeMapFrontmatter(meta: EffortMeta): string {
+  const lines = ["---", `effort: ${meta.effort}`];
+  if (meta.created) lines.push(`created: ${meta.created}`);
+  if (meta.last) lines.push(`last: ${meta.last}`);
+  if (meta.status) lines.push(`status: ${meta.status}`);
+  if (meta.owner) lines.push(`owner: ${meta.owner}`);
+  lines.push("---", "");
+  return `${lines.join("\n")}\n`;
 }
 
 /** Parse a decision index line: `- [title](link) — gist` → MapDecision. */
@@ -201,7 +270,8 @@ export function readMap(cwd: string, effort: string): WayfindMap | null {
   const mapPath = join(dir, "map.md");
   if (!existsSync(mapPath)) return null;
 
-  const sections = parseMapBody(readFileSync(mapPath, "utf-8"));
+  const { meta, body } = parseMapFrontmatter(readFileSync(mapPath, "utf-8"));
+  const sections = parseMapBody(body);
   const decisions = (sections["Decisions so far"] ?? "")
     .split(/\r?\n/)
     .map(parseDecisionLine)
@@ -234,6 +304,7 @@ export function readMap(cwd: string, effort: string): WayfindMap | null {
     fog,
     outOfScope,
     tickets,
+    meta,
   };
 }
 
@@ -242,7 +313,7 @@ export function readMap(cwd: string, effort: string): WayfindMap | null {
 export function writeMap(cwd: string, map: WayfindMap): void {
   const dir = effortDir(cwd, map.effort);
   mkdirSync(join(dir, "tickets"), { recursive: true });
-  const lines = [
+  const body = [
     `# Wayfinder map: ${map.effort}`,
     "",
     "## Destination",
@@ -267,8 +338,31 @@ export function writeMap(cwd: string, map: WayfindMap): void {
     "",
     map.outOfScope.length > 0 ? map.outOfScope.map((f) => `- ${f}`).join("\n") : "<!-- none -->",
     "",
-  ];
-  writeFileSync(join(dir, "map.md"), lines.join("\n"), "utf-8");
+  ].join("\n");
+  // Emit front-matter only when meta is present — legacy callers and the ~377
+  // existing prose-only maps stay byte-compatible (no front-matter added on rewrite).
+  const front = map.meta ? serializeMapFrontmatter(map.meta) : "";
+  writeFileSync(join(dir, "map.md"), front + body, "utf-8");
+}
+
+/**
+ * Conformance check on a parsed `WayfindMap`. Surfaces the original failure
+ * mode: a hand-written map with non-canonical sections parses to an empty
+ * Destination SILENTLY. `folderEffort` (the dir slug) optionally checks the
+ * front-matter `effort` matches the folder the map lives in.
+ */
+export function validateEffortMap(map: WayfindMap, folderEffort?: string): { ok: boolean; problems: string[] } {
+  const problems: string[] = [];
+  if (!map.destination.trim()) {
+    problems.push("missing required '## Destination' section (the map parsed no destination)");
+  }
+  if (map.meta) {
+    if (!map.meta.effort) problems.push("front-matter present but `effort` field is empty");
+    if (folderEffort && map.meta.effort && map.meta.effort !== folderEffort) {
+      problems.push(`front-matter effort '${map.meta.effort}' ≠ folder effort '${folderEffort}'`);
+    }
+  }
+  return { ok: problems.length === 0, problems };
 }
 
 /** Write (create or update) a single ticket file. */
