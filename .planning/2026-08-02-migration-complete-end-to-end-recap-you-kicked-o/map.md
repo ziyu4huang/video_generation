@@ -28,6 +28,7 @@ Finish the tool-gating rollout: migrate the owner-declared `gating` field to eve
 - [11 rollout workflow](tickets/11-rollout-workflow.md) — combined with 10; workflow+workflow_help+workflow_control+subagent owner-declare identical gating (one 4-name gate); tests green
 - [12 rollout zai-mcp](tickets/12-rollout-zai-mcp.md) — LAST hardcoded entry removed; GATES now empty (removal side COMPLETE); dynamic session_start registration; runtime savings threading deferred to 14
 - [13 QA harness swap](tickets/13-qa-harness-effective-gates.md) — CLOSED: buildEffectiveGates swap + coverage fix (13a) + inspect probes (13b); SURFACED 5 genuinely-ungated heavy tools needing gating/core decisions (separate scope)
+- [14 telemetry undercount](tickets/14-telemetry-undercount.md) — CLOSED: threaded effectiveGates into both computeBannerSaved call sites (banner + telemetry); savings.ts already correct (ticket 13); regression test added; research-cost.ts flagged as real ticket-15 GATES-deletion blocker
 
 ## Not yet specified
 
