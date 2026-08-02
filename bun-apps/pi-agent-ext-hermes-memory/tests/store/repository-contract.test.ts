@@ -550,6 +550,22 @@ export function runSessionRepositoryContract(
         await close();
       }
     });
+
+    it("getUsedMdIds returns the used subset (boolean ever-used aggregate, #1b/D4)", async () => {
+      const { repo, close } = await make();
+      try {
+        await repo.recordAssembly("contract-used-sess", ["u1", "u2", "u3"], "ch");
+        await repo.markUsed("contract-used-sess", ["u1", "u3"], "2026-08-02T12:00:00.000Z");
+        // used ∩ input: u1 + u3 used; u2 surfaced-unused; u4 never assembled.
+        const result = await repo.getUsedMdIds(["u1", "u2", "u3", "u4"], { project: null });
+        expect(result).toBeInstanceOf(Set);
+        expect([...result].sort()).toEqual(["u1", "u3"]);
+        // empty input → empty Set (no-op):
+        expect((await repo.getUsedMdIds([], { project: null })).size).toBe(0);
+      } finally {
+        await close();
+      }
+    });
   });
 }
 

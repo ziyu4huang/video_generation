@@ -190,6 +190,21 @@ export interface SessionRepository {
    *  Idempotent (a re-mark re-stamps / no-ops). Empty `mdIds` is a no-op. Best-effort:
    *  callers swallow throws. NEVER touches `session_assembly_meta` or any other table. */
   markUsed(sessionId: string, mdIds: readonly string[], usedAt: string): Promise<void>;
+  /** Per-entry boolean ever-used aggregate (UPSP §1/D4, ticket #1b decay): returns
+   *  the subset of `mdIds` that have ≥1 `session_assembly` row with
+   *  `used_at IS NOT NULL` (the entry was content-matched in assistant text when
+   *  surfaced, per #06). One batched query; empty `mdIds` → empty Set (no-op, no SQL).
+   *
+   *  `session_assembly` is a GLOBAL provenance ledger — FK-free by design (the
+   *  sessions row is created later by deferred backfill) and carries NO `project`
+   *  column in either backend (SQLite `session_assembly(session_id, md_id, used_at)`;
+   *  Surreal SCHEMALESS `session_assembly{sessionId, mdId, usedAt}`). The boolean
+   *  ever-used signal is therefore cross-project by construction (a row landed
+   *  here regardless of which session/project surfaced it), so `opts.project` is
+   *  ACCEPTED for interface symmetry but IGNORED — the result is never scoped to a
+   *  project. (Project lives on `sessions`, and joining `session_assembly`→`sessions`
+   *  for scoping would miss not-yet-backfilled rows; intentionally avoided.) */
+  getUsedMdIds(mdIds: string[], opts: { project: string | null }): Promise<Set<string>>;
 }
 
 /**
