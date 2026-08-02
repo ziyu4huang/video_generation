@@ -29,6 +29,8 @@ Finish the tool-gating rollout: migrate the owner-declared `gating` field to eve
 - [12 rollout zai-mcp](tickets/12-rollout-zai-mcp.md) — LAST hardcoded entry removed; GATES now empty (removal side COMPLETE); dynamic session_start registration; runtime savings threading deferred to 14
 - [13 QA harness swap](tickets/13-qa-harness-effective-gates.md) — CLOSED: buildEffectiveGates swap + coverage fix (13a) + inspect probes (13b); SURFACED 5 genuinely-ungated heavy tools needing gating/core decisions (separate scope)
 - [14 telemetry undercount](tickets/14-telemetry-undercount.md) — CLOSED: threaded effectiveGates into both computeBannerSaved call sites (banner + telemetry); savings.ts already correct (ticket 13); regression test added; research-cost.ts flagged as real ticket-15 GATES-deletion blocker
+- [15 delete hardcoded GATES](tickets/15-delete-hardcoded-gates.md) — CLOSED: GATES deleted + buildEffectiveGates simplified (CORE_TOOLS kept); zero cross-package code refs; the finish line
+**🎉 MIGRATION COMPLETE (tickets 01–15): every gate is now owner-declared end to end; no hardcoded GATES fallback remains.** Post-migration open items: 5 ungated heavy tools (decisions), CORE_TOOLS migration (separate), final rebase.
 
 ## Not yet specified
 
