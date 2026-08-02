@@ -3,7 +3,8 @@
  *
  * Keeps core tools always active while gating heavy domain-specific tools
  * (flux2, ltx, krea2, file2md, inspect, workflow, movie, arxiv, cost,
- * zai-mcp, pi_deploy) behind prompt keyword matching.
+ * zai-mcp) behind prompt keyword matching.
+ * (pi_deploy/pi_verify migrated to owner-declared gating in ticket 03.)
  *
  * Baseline:  ~55 tools → ~18,000 tok/req   (measured via `bun run qa`)
  * Gated:    ON at start ~10,000 tok/req   (saves ~8,050 tok/turn, ~45%; net ~7,800; zai-mcp env-gated)
@@ -178,22 +179,6 @@ export const GATES: ToolGate[] = [
       "z.ai", "z.ai search", "z.ai reader",
     ],
     description: "Z.ai MCP web tools — web-search-prime + web-reader (redundant with core web tools)",
-  },
-  {
-    // Bare "deploy"/"verify" are NOT keywords — they false-fire everywhere
-    // ("deploy to vercel", "verify the fix"), violating the S2 bare-word rule.
-    // Gate behind noun∧verb `requires` (bundle/pi-agent/extension noun ∧
-    // build/deploy/verify/bundle verb) so only pi-agent-bundling intent fires.
-    // "test" was DROPPED from verbs (audit I-5): it fired on every test turn in
-    // a repo whose primary activity IS running tests — deploy intent is still
-    // caught by build/deploy/verify/bundle + the run-test/build-bundle keywords.
-    names: ["pi_deploy", "pi_verify"],
-    keywords: ["build bundle", "bundle pi-agent", "pi-agent bundle", "run-test"],
-    requires: {
-      nouns: ["bundle", "pi-agent", "pi agent", "extension"],
-      verbs: ["build", "deploy", "verify", "bundle", "部署", "建置", "驗證", "打包"],
-    },
-    description: "Build/verify/deploy the pi-agent bundle + extension bundles (wraps deploy.ts + run-test.sh)",
   },
 ];
 

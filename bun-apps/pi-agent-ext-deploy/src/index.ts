@@ -17,6 +17,16 @@ import { runVerify } from "./verify-tool.ts";
 
 const piDeployTool = defineTool({
 	name: "pi_deploy",
+	// Owner-declared gating — migrated from tool-gate's hardcoded GATES (was the
+	// {names:["pi_deploy","pi_verify"]} gate). Per ticket 03's semantics-preserving
+	// rule, the SAME gating is mirrored on pi_verify so both activate together.
+	gating: {
+		keywords: ["build bundle", "bundle pi-agent", "pi-agent bundle", "run-test"],
+		requires: {
+			nouns: ["bundle", "pi-agent", "pi agent", "extension"],
+			verbs: ["build", "deploy", "verify", "bundle", "部署", "建置", "驗證", "打包"],
+		},
+	},
 	label: "Build & Deploy pi-agent Bundle",
 	description:
 		"Build and deploy the pi-agent bundle + thin extension bundles (mirrors `bun scripts/deploy.ts`). " +
@@ -66,6 +76,14 @@ const piDeployTool = defineTool({
 
 const piVerifyTool = defineTool({
 	name: "pi_verify",
+	// Owner-declared gating — mirrored from pi_deploy (same hardcoded gate).
+	gating: {
+		keywords: ["build bundle", "bundle pi-agent", "pi-agent bundle", "run-test"],
+		requires: {
+			nouns: ["bundle", "pi-agent", "pi agent", "extension"],
+			verbs: ["build", "deploy", "verify", "bundle", "部署", "建置", "驗證", "打包"],
+		},
+	},
 	label: "Verify pi-agent (run-test.sh tier)",
 	description:
 		"Run a pi-agent run-test.sh tier (quick|medium|high|readonly|full; default medium) and report per-step pass/fail. " +
