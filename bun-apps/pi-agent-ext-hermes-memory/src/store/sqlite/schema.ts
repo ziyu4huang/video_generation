@@ -135,6 +135,10 @@ export const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS session_assembly (
     session_id TEXT NOT NULL,
     md_id TEXT NOT NULL,
+    -- UPSP §9 "used vs dropped" (ticket #06): null at capture (surfaced),
+    -- set to an ISO timestamp when the agent's output first references the
+    -- entry (used). Surfaced-but-never-used = used_at IS NULL.
+    used_at TEXT,
     PRIMARY KEY (session_id, md_id)
   );
 
