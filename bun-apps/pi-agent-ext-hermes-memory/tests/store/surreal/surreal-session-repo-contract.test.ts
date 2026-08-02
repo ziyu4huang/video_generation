@@ -65,4 +65,115 @@ if (up) {
       }
     });
   });
+
+  describe("SurrealSessionRepository.markUsed", () => {
+    // UPSP §9 (#06, Task 4) — Surreal parity with the SQLite markUsed tests
+    // (sqlite-session-repo.test.ts). SCHEMALESS: a non-matched row never gets
+    // `usedAt` written, so the field is absent (SELECT serializes NONE → null).
+    // Fresh isolated ns + backend per test, mirroring recordAssembly's per-test
+    // uniqueNs + try/finally REMOVE NAMESPACE cleanup.
+    async function withRepo(
+      fn: (repo: SurrealSessionRepository, backend: SurrealBackend) => Promise<void>,
+    ): Promise<void> {
+      const ns = uniqueNs();
+      const backend = new SurrealBackend({ namespace: ns, database: ns });
+      await backend.init();
+      try {
+        await fn(new SurrealSessionRepository(backend), backend);
+      } finally {
+        try { await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch {}
+        await backend.close();
+      }
+    }
+
+    const selUsedAt = async (backend: SurrealBackend, sid: string): Promise<Record<string, string | null>> => {
+      const rows = await backend.client.query<Array<{ mdId: string; usedAt: string | null }>>(
+        `SELECT mdId, usedAt FROM session_assembly WHERE sessionId = $sid;`, { sid },
+      );
+      return Object.fromEntries(rows.map((r) => [r.mdId, r.usedAt]));
+    };
+
+    test("sets usedAt on matched rows only; non-matched rows stay null", async () => {
+      await withRepo(async (repo, backend) => {
+        const sid = "sess-surr-used-1";
+        await repo.recordAssembly(sid, ["a", "b", "c"], "hash-1");
+        const now = "2026-08-02T12:00:00.000Z";
+        await repo.markUsed(sid, ["a", "c"], now);
+
+        const byId = await selUsedAt(backend, sid);
+        expect(byId["a"]).toBe(now);
+        expect(byId["c"]).toBe(now);
+        // SCHEMALESS: the non-matched row never got usedAt written → field absent ≈ null.
+        expect(byId["b"]).toBeNull();
+      });
+    });
+
+    test("is idempotent: a re-mark does not error and re-stamps usedAt", async () => {
+      await withRepo(async (repo, backend) => {
+        const sid = "sess-surr-used-2";
+        await repo.recordAssembly(sid, ["a", "b"], "hash-1");
+        const t1 = "2026-08-02T12:00:00.000Z";
+        const t2 = "2026-08-02T13:00:00.000Z";
+        await repo.markUsed(sid, ["a"], t1);
+        // re-mark with the same value → no error (no-op semantics):
+        await expect(repo.markUsed(sid, ["a"], t1)).resolves.toBeUndefined();
+        // re-mark with a newer value → overwrites (monotonic stamp, allowed):
+        await repo.markUsed(sid, ["a"], t2);
+        const byId = await selUsedAt(backend, sid);
+        expect(byId["a"]).toBe(t2);
+        // the never-marked row stays null across all calls:
+        expect(byId["b"]).toBeNull();
+      });
+    });
+
+    test("is a no-op on empty mdIds (no row touched)", async () => {
+      await withRepo(async (repo, backend) => {
+        const sid = "sess-surr-used-3";
+        await repo.recordAssembly(sid, ["a", "b"], "hash-1");
+        await repo.markUsed(sid, [], "2026-08-02T12:00:00.000Z");
+        const byId = await selUsedAt(backend, sid);
+        expect(byId["a"]).toBeNull();
+        expect(byId["b"]).toBeNull();
+      });
+    });
+
+    test("is a no-op for a session that has no assembly rows (no error)", async () => {
+      await withRepo(async (repo) => {
+        await expect(
+          repo.markUsed("no-such-session", ["a"], "2026-08-02T12:00:00.000Z"),
+        ).resolves.toBeUndefined();
+      });
+    });
+
+    test("marks only rows for the given session (a same-mdId row in another session is untouched)", async () => {
+      await withRepo(async (repo, backend) => {
+        const s1 = "sess-surr-used-4a";
+        const s2 = "sess-surr-used-4b";
+        const now = "2026-08-02T12:00:00.000Z";
+        await repo.recordAssembly(s1, ["shared"], "hash-1");
+        await repo.recordAssembly(s2, ["shared"], "hash-2");
+        await repo.markUsed(s1, ["shared"], now);
+        const a = await selUsedAt(backend, s1);
+        const b = await selUsedAt(backend, s2);
+        expect(a["shared"]).toBe(now);
+        expect(b["shared"]).toBeNull();
+      });
+    });
+
+    test("never touches session_assembly_meta (hash/capturedAt survive)", async () => {
+      await withRepo(async (repo, backend) => {
+        const sid = "sess-surr-used-5";
+        await repo.recordAssembly(sid, ["a", "b"], "hash-1");
+        const metaBefore = await backend.client.query<Array<{ hash: string; capturedAt: string }>>(
+          `SELECT hash, capturedAt FROM session_assembly_meta WHERE sessionId = $sid LIMIT 1;`, { sid },
+        );
+        await repo.markUsed(sid, ["a"], "2026-08-02T12:00:00.000Z");
+        const metaAfter = await backend.client.query<Array<{ hash: string; capturedAt: string }>>(
+          `SELECT hash, capturedAt FROM session_assembly_meta WHERE sessionId = $sid LIMIT 1;`, { sid },
+        );
+        expect(metaAfter[0]?.hash).toBe(metaBefore[0]?.hash);
+        expect(metaAfter[0]?.capturedAt).toBe(metaBefore[0]?.capturedAt);
+      });
+    });
+  });
 }
