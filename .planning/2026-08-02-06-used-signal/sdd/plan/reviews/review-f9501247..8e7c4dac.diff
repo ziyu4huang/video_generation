@@ -1,0 +1,661 @@
+# Review package: f9501247e19fb51df43286e8f60c3989d85c8946..HEAD
+
+## Commits
+8e7c4dac feat(hermes): signature extraction + manifest emits per-entry signatures (UPSP §9)
+
+## Files changed
+ .../pi-agent-ext-hermes-memory/src/constants.ts    |   4 +
+ .../src/store/memory-store.ts                      |  52 +++++--
+ .../src/store/signature.ts                         |  87 +++++++++++
+ bun-apps/pi-agent-ext-hermes-memory/src/types.ts   |   5 +
+ .../tests/store/memory-store.test.ts               | 135 ++++++++++++++++
+ .../tests/store/signature.test.ts                  | 172 +++++++++++++++++++++
+ 6 files changed, 443 insertions(+), 12 deletions(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/constants.ts b/bun-apps/pi-agent-ext-hermes-memory/src/constants.ts
+index 7d2eb38d..9387d715 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/constants.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/constants.ts
+@@ -24,20 +24,24 @@ export const DEFAULT_PROJECT_CHAR_LIMIT = 10000;
+ export const DEFAULT_FAILURE_CHAR_LIMIT = 40000;
+ 
+ export const DEFAULT_NUDGE_INTERVAL = 10;
+ export const DEFAULT_FLUSH_MIN_TURNS = 6;
+ export const DEFAULT_NUDGE_TOOL_CALLS = 15;
+ export const DEFAULT_REVIEW_RECENT_MESSAGES = 0;
+ export const DEFAULT_FLUSH_RECENT_MESSAGES = 0;
+ export const DEFAULT_CONSOLIDATION_TIMEOUT_MS = 60000;
+ export const DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS = 7;
+ export const DEFAULT_FAILURE_INJECTION_MAX_ENTRIES = 5;
++/** Min normalized fragment length for an entry to earn a "used" signature
++ *  (UPSP §9 / ticket #06). Entries whose longest fragment is shorter never get
++ *  credited as "used" — too generic to attribute. Default 24. */
++export const DEFAULT_USED_SIGNATURE_MIN_CHARS = 24;
+ export const DEFAULT_ERROR_CAPTURE_RATE_LIMIT = 5;
+ export const DEFAULT_ERROR_CAPTURE_RATE_WINDOW_MS = 600_000;
+ export const DEFAULT_ERROR_CAPTURE_DEDUP_CACHE_SIZE = 64;
+ 
+ // ─── Staleness audit ───
+ // Entries whose "last edited" date is older than this are flagged as stale
+ // candidates for review/removal (mirrors the 30-day rule in CONSOLIDATION_PROMPT).
+ export const DEFAULT_STALENESS_THRESHOLD_DAYS = 30;
+ 
+ // ─── File names ───
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/memory-store.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/memory-store.ts
+index 756cea4c..0208c786 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/memory-store.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/memory-store.ts
+@@ -27,27 +27,29 @@ import { scanContent } from "./content-scanner.js";
+ import { normalizeMemoryLookupText } from "./memory-lookup.js";
+ import { buildSnapshot, applyMergePlan } from "./merge-plan.js";
+ import type { ConsolidationSnapshot, MergePlan } from "./merge-plan.js";
+ import {
+   ENTRY_DELIMITER,
+   DEFAULT_MEMORY_CHAR_LIMIT,
+   DEFAULT_USER_CHAR_LIMIT,
+   DEFAULT_FAILURE_CHAR_LIMIT,
+   DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS,
+   DEFAULT_FAILURE_INJECTION_MAX_ENTRIES,
++  DEFAULT_USED_SIGNATURE_MIN_CHARS,
+   MEMORY_FILE,
+   USER_FILE,
+ } from "../constants.js";
+ import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, MemoryCategory, MemoryOverflowStrategy, Provenance, MemorySource, FailureState } from "../types.js";
+ import { AGENT_ROOT } from "../paths.js";
+ import { envFloat, envInt } from "../utils/env.js";
+ import { DEFAULT_NEAR_DUP_THRESHOLD, findNearDuplicate } from "./near-dup.js";
++import { computeSignature } from "./signature.js";
+ import type { TimedFn, TimedAlwaysFn } from "../perf.js";
+ 
+ /**
+  * proper-lockfile throws a code `ELOCKED` error (message "Lock file is already
+  * being held") when lock acquisition fails after its retry budget — the exact
+  * condition the op-level retry in `withFileLock` re-attempts.
+  */
+ function isLockAcquisitionError(err: unknown): boolean {
+   if (!err || typeof err !== "object") return false;
+   const e = err as { code?: unknown; message?: unknown };
+@@ -1304,62 +1306,88 @@ export class MemoryStore {
+    * post-filter active failures. Same selection logic as formatForSystemPrompt so the logged
+    * id set and any hash over `block` are consistent by construction. Failure filtering mirrors
+    * formatForSystemPrompt's call-site config (active-only, maxAge, maxEntries).
+    *
+    * NOTE: getActiveFailureEntries() STRIPS metadata (body-only) to render the failure block,
+    * so decoding those stripped bodies yields no md_id. To keep the id set ↔ block consistent
+    * we mirror getActiveFailureEntries()'s active+age filter on the RAW `failureEntries` (which
+    * still carry the frontmatter `id`), then apply the same `.slice(0, maxFailures)` the renderer
+    * uses — so these are exactly the failures whose bodies are injected.
+    */
+-  getAssemblyManifest(): { block: string; mdIds: string[] } {
++  getAssemblyManifest(): { block: string; mdIds: string[]; signatures: { mdId: string; signature: string }[] } {
+     const block = this.formatForSystemPrompt();
+     const ids: string[] = [];
+-    const pushIds = (entries: string[]) => {
++    // Signatures (UPSP §9 / ticket #06): one entry per surfaced md_id whose
++    // computeSignature(body, minChars) is non-null (under-min entries omitted).
++    // Harvested in the SAME iteration that collects md_ids (DRY — no duplicated
++    // selection). The signed body is the entry's stripped body (== what
++    // formatForSystemPrompt renders). Map<mdId,signature> dedupes by mdId and
++    // keeps the signature set consistent with the deduped mdIds set.
++    const sigMap = new Map<string, string>();
++    const minChars = this.config.usedSignatureMinChars ?? DEFAULT_USED_SIGNATURE_MIN_CHARS;
++    const harvest = (entries: string[]) => {
+       for (const raw of entries) {
+-        const id = this.decodeEntry(raw).id;
+-        if (id) ids.push(id);
++        const decoded = this.decodeEntry(raw);
++        const id = decoded.id;
++        if (!id) continue;
++        ids.push(id);
++        if (!sigMap.has(id)) {
++          const signature = computeSignature(decoded.text, minChars);
++          if (signature !== null) sigMap.set(id, signature);
++        }
+       }
+     };
+-    pushIds(this.memoryEntries);
+-    pushIds(this.userEntries);
++    harvest(this.memoryEntries);
++    harvest(this.userEntries);
+     if (this.config.failureInjectionEnabled !== false) {
+       const maxAgeDays = this.config.failureInjectionMaxAgeDays ?? DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS;
+       const maxFailures = this.config.failureInjectionMaxEntries ?? DEFAULT_FAILURE_INJECTION_MAX_ENTRIES;
+       // Mirror getActiveFailureEntries(maxAgeDays)'s filter on the RAW entries (ids survive),
+       // then the same slice the renderer applies — exactly the injected failures.
+       const cutoff = new Date();
+       cutoff.setDate(cutoff.getDate() - maxAgeDays);
+       const cutoffStr = cutoff.toISOString().split("T")[0];
+       const activeRawFailures = this.failureEntries.filter((entry) => {
+         const decoded = this.decodeEntry(entry);
+         if ((decoded.state ?? "active") !== "active") return false;
+         return decoded.created >= cutoffStr;
+       });
+-      pushIds(activeRawFailures.slice(0, maxFailures));
++      harvest(activeRawFailures.slice(0, maxFailures));
+     }
+-    return { block, mdIds: [...new Set(ids)] };
++    const signatures = [...sigMap.entries()].map(([mdId, signature]) => ({ mdId, signature }));
++    return { block, mdIds: [...new Set(ids)], signatures };
+   }
+ 
+   /**
+    * Project-memory assembly manifest: the rendered project block (== formatProjectBlock())
+    * PLUS the md_id set of the project-memory entries it renders. Mirrors formatProjectBlock's
+    * selection (memoryEntries of the project store instance).
+    */
+-  getProjectAssemblyManifest(projectName: string): { block: string; mdIds: string[] } {
++  getProjectAssemblyManifest(projectName: string): { block: string; mdIds: string[]; signatures: { mdId: string; signature: string }[] } {
+     const block = this.formatProjectBlock(projectName);
+     const ids: string[] = [];
++    // Signatures (UPSP §9 / ticket #06): same harvest as getAssemblyManifest,
++    // over the project-memory entries (mirrors formatProjectBlock's selection).
++    const sigMap = new Map<string, string>();
++    const minChars = this.config.usedSignatureMinChars ?? DEFAULT_USED_SIGNATURE_MIN_CHARS;
+     for (const raw of this.memoryEntries) {
+-      const id = this.decodeEntry(raw).id;
+-      if (id) ids.push(id);
++      const decoded = this.decodeEntry(raw);
++      const id = decoded.id;
++      if (!id) continue;
++      ids.push(id);
++      if (!sigMap.has(id)) {
++        const signature = computeSignature(decoded.text, minChars);
++        if (signature !== null) sigMap.set(id, signature);
++      }
+     }
+-    return { block, mdIds: [...new Set(ids)] };
++    const signatures = [...sigMap.entries()].map(([mdId, signature]) => ({ mdId, signature }));
++    return { block, mdIds: [...new Set(ids)], signatures };
+   }
+ 
+   /**
+    * All failure entries (no age filter), metadata stripped.
+    * Used by consolidation, which must consider the full file size —
+    * unlike getFailureEntries(), which filters by age for injection.
+    */
+   getAllFailureEntries(): string[] {
+     return this.failureEntries.map((e) => this.stripMetadata(e));
+   }
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/signature.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/signature.ts
+new file mode 100644
+index 00000000..cf8bf260
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/signature.ts
+@@ -0,0 +1,87 @@
++/**
++ * Pure signature-extraction helpers for the "used vs dropped" signal
++ * (UPSP §9 / ticket #06, Task 1).
++ *
++ * These are PURE (no class state, no I/O) so they are fully unit-testable in
++ * isolation and trivially reusable from both the manifest emit (entry →
++ * signature) and the Task-5 turn-output matcher (scan text → normalized).
++ *
++ * Contract: `normalizeForSignature` is the SINGLE shared normalization. A
++ * signature produced by `computeSignature` is, by construction, a substring of
++ * the same body run through `normalizeForSignature` — so when the Task-5
++ * matcher normalizes the turn's assistant text with the SAME function, a
++ * present signature is guaranteed to substring-match. Keep these two sides
++ * agreeing by never duplicating the normalization logic.
++ */
++
++/**
++ * Leading-markdown-marker stripper. Repeatedly removes ONE leading marker per
++ * iteration so nested markers ("> # Title", "- - bullet") collapse fully.
++ * Markers handled: ATX headers (`#`..`######`), list bullets (`-`, `*`, `+`),
++ * blockquotes (`>`). Each requires trailing whitespace so a bare `#hashtag` or
++ * mid-line `*emphasis*` is NOT treated as a marker.
++ */
++function stripLeadingMarkers(line: string): string {
++  let s = line;
++  let prev: string;
++  do {
++    prev = s;
++    s = s.replace(/^(?:#{1,6}\s+|[-*+]\s+|>\s*)/, "");
++  } while (s !== prev);
++  return s;
++}
++
++/**
++ * Normalize text for signature matching: lowercase, collapse all whitespace
++ * runs (spaces, tabs, newlines) to a single space, strip markdown code-fence
++ * delimiter lines (``` , ```ts, ...) and leading line markers (#, -, *, >, +).
++ *
++ * Markdown stripping is done LINE-WISE BEFORE the whitespace collapse, because
++ * collapsing first would merge fence/header lines into surrounding prose and
++ * make line-based stripping impossible. The final result is a single-line,
++ * lowercased, whitespace-collapsed string — identical treatment on both the
++ * entry body and the turn's scan text is what keeps substring matching sound.
++ */
++export function normalizeForSignature(text: string): string {
++  const stripped = text
++    .split("\n")
++    .map((rawLine) => {
++      const line = rawLine.trim();
++      // Drop pure code-fence delimiter lines (with or without an info string).
++      if (/^```/.test(line)) return "";
++      return stripLeadingMarkers(line);
++    })
++    .join("\n");
++  return stripped
++    .toLowerCase()
++    .replace(/\s+/g, " ")
++    .trim();
++}
++
++/**
++ * Compute the signature for an entry body: normalize it, split into candidate
++ * fragments on sentence (`.`) and line (`\n`) boundaries, and return the
++ * LONGEST normalized fragment whose length is ≥ `minChars`. Returns `null`
++ * when no fragment qualifies — the entry is too generic/short to attribute, so
++ * it gets no signature and is never credited as "used" (still surfaced, just
++ * never matched). `minChars` defaults to 24 upstream via `MemoryConfig`.
++ *
++ * Fragments inherit their normalization from the single normalized body (only a
++ * trim is applied to clean the leading space left by `.` splitting), so each
++ * returned signature is itself a substring of `normalizeForSignature(body)`.
++ */
++export function computeSignature(body: string, minChars: number): string | null {
++  const normalized = normalizeForSignature(body);
++  if (!normalized) return null;
++  const fragments = normalized
++    .split(/[.\n]/)
++    .map((f) => f.trim())
++    .filter((f) => f.length > 0);
++  let best: string | null = null;
++  for (const f of fragments) {
++    if (f.length >= minChars && (best === null || f.length > best.length)) {
++      best = f;
++    }
++  }
++  return best;
++}
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/types.ts b/bun-apps/pi-agent-ext-hermes-memory/src/types.ts
+index be97adfc..4436f6cc 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/types.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/types.ts
+@@ -90,20 +90,25 @@ export interface MemoryConfig {
+   memoryOverflowStrategy?: MemoryOverflowStrategy;
+   /** Legacy alias for memoryOverflowStrategy. Default: true */
+   autoConsolidate: boolean;
+   /** Detect user corrections and trigger immediate memory save. Default: true */
+   correctionDetection: boolean;
+   /** Auto-capture lesson-worthy tool errors (stack traces, definitive
+    *  failures) to the failure store without an agent memory call. Default: true */
+   errorCapture?: boolean;
+   /** Increment memory-worth counters on session outcome (correction→fail, else→success). Default: true */
+   worthScoring?: boolean;
++  /** Min normalized fragment length (chars) for an entry to earn a "used"
++   *  signature (UPSP §9 / ticket #06). Entries whose longest fragment is
++   *  shorter are surfaced but never credited as "used" — too generic to
++   *  attribute. Default: 24. */
++  usedSignatureMinChars?: number;
+   /** Auto-supersede a recalled memory when a correction contradicts it (judge-gated).
+    *  Default: false (opt-in — supersession hides the prior from search). */
+   autoSupersede?: boolean;
+   /** Per-session errorCapture rate limit (0 = unlimited). #854 */
+   errorCaptureRateLimit?: number;
+   /** errorCapture sliding-window length in ms. #854 */
+   errorCaptureRateWindowMs?: number;
+   /** errorCapture this-session dedup LRU capacity (0 = no fast-path). #854 */
+   errorCaptureDedupCacheSize?: number;
+   /** Override strong correction regex sources. Missing = defaults; [] = none. */
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/store/memory-store.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/store/memory-store.test.ts
+index b1bc5fc2..3360c371 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/tests/store/memory-store.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/store/memory-store.test.ts
+@@ -16,20 +16,21 @@ import { describe, it, beforeAll, afterAll, beforeEach, afterEach } from "bun:te
+ 
+ import { MemoryStore } from "../../src/store/memory-store.js";
+ import {
+   ENTRY_DELIMITER,
+   DEFAULT_MEMORY_CHAR_LIMIT,
+   DEFAULT_USER_CHAR_LIMIT,
+   MEMORY_FILE,
+   USER_FILE,
+ } from "../../src/constants.js";
+ import { serializeMetadataFrontmatter } from "../../src/store/memory-format.js";
++import { computeSignature } from "../../src/store/signature.js";
+ import type { FailureState, MemoryConfig } from "../../src/types.js";
+ import * as lockfile from "proper-lockfile";
+ 
+ // ─── Helpers (module-level) ───
+ 
+ const TEST_MARKER = "[MEMORY-TEST]";
+ let MEMORY_DIR = "";
+ 
+ function makeConfig(overrides?: Partial<MemoryConfig>): MemoryConfig {
+   return {
+@@ -1857,20 +1858,154 @@ describe("MemoryStore", { concurrency: 1 }, () => {
+       );
+ 
+       const store = new MemoryStore(makeConfig());
+       await store.loadFromDisk();
+ 
+       const name = "demo";
+       const manifest = store.getProjectAssemblyManifest(name);
+       assert.equal(manifest.block, store.formatProjectBlock(name));
+       assert.deepEqual(new Set(manifest.mdIds), new Set([PROJ_A, PROJ_B]));
+     });
++
++    // ─── signatures (UPSP §9 / ticket #06, Task 1) ───
++    //
++    // The manifest ALSO emits `signatures: { mdId, signature }[]` — one entry per
++    // surfaced md_id whose computeSignature(body, minChars) is non-null. #05's
++    // { block, mdIds } are UNCHANGED (additive field). Signatures are harvested
++    // in the SAME iteration that collects md_ids (DRY — no duplicated selection).
++    it("getAssemblyManifest: emits one signature per qualifying surfaced md_id", async () => {
++      const today = dateDaysAgo(0);
++      const MEM_A = "11111111-aaaa-1111-1111-111111111111";
++      const MEM_B = "22222222-bbbb-2222-2222-222222222222";
++      const USR_C = "33333333-cccc-3333-3333-333333333333";
++      const FAIL_D = "44444444-dddd-4444-4444-444444444444";
++      const bodyA = `${TEST_MARKER} memory A body is long enough to qualify as a signature`;
++      const bodyB = `${TEST_MARKER} memory B body is also sufficiently long for a signature`;
++      const bodyC = `${TEST_MARKER} user fact body is long enough to count here`;
++      const bodyD = `${TEST_MARKER} failure body is long enough to be signed too`;
++      await writeRaw(
++        memoryPath,
++        [
++          serializeMetadataFrontmatter({ id: MEM_A, text: bodyA, created: today, last: today }),
++          serializeMetadataFrontmatter({ id: MEM_B, text: bodyB, created: today, last: today }),
++        ].join(ENTRY_DELIMITER),
++      );
++      await writeRaw(
++        userPath,
++        serializeMetadataFrontmatter({ id: USR_C, text: bodyC, created: today, last: today }),
++      );
++      await writeRaw(
++        failurePath,
++        serializeMetadataFrontmatter({ id: FAIL_D, text: bodyD, created: today, last: today, state: "active" }),
++      );
++
++      const store = new MemoryStore(makeConfig());
++      await store.loadFromDisk();
++      const manifest = store.getAssemblyManifest();
++
++      // #05 { block, mdIds } UNCHANGED (additive signatures field).
++      assert.equal(manifest.block, store.formatForSystemPrompt());
++      assert.deepEqual(new Set(manifest.mdIds), new Set([MEM_A, MEM_B, USR_C, FAIL_D]));
++
++      // One signature per surfaced md_id, each == computeSignature(body, default 24).
++      const sigs = new Map(manifest.signatures.map((s) => [s.mdId, s.signature]));
++      assert.deepEqual(new Set(sigs.keys()), new Set([MEM_A, MEM_B, USR_C, FAIL_D]));
++      assert.equal(sigs.get(MEM_A), computeSignature(bodyA, 24));
++      assert.equal(sigs.get(MEM_B), computeSignature(bodyB, 24));
++      assert.equal(sigs.get(USR_C), computeSignature(bodyC, 24));
++      assert.equal(sigs.get(FAIL_D), computeSignature(bodyD, 24));
++    });
++
++    it("getAssemblyManifest: under-min entries are omitted from signatures but stay in mdIds", async () => {
++      const today = dateDaysAgo(0);
++      const LONG = "55555555-eeee-5555-5555-555555555555";
++      const SHORT = "66666666-ffff-6666-6666-666666666666";
++      const longBody = `${TEST_MARKER} this one is long enough to qualify for a signature`;
++      // Normalized fragment is well under the 24-char default → no signature.
++      const shortBody = `${TEST_MARKER} tiny.`;
++      await writeRaw(
++        memoryPath,
++        [
++          serializeMetadataFrontmatter({ id: LONG, text: longBody, created: today, last: today }),
++          serializeMetadataFrontmatter({ id: SHORT, text: shortBody, created: today, last: today }),
++        ].join(ENTRY_DELIMITER),
++      );
++
++      const store = new MemoryStore(makeConfig());
++      await store.loadFromDisk();
++      const manifest = store.getAssemblyManifest();
++
++      // Both entries are still surfaced (#05 mdIds unchanged).
++      assert.deepEqual(new Set(manifest.mdIds), new Set([LONG, SHORT]));
++      // Only the long entry emits a signature; the short one is omitted entirely.
++      const sigIds = manifest.signatures.map((s) => s.mdId);
++      assert.ok(sigIds.includes(LONG));
++      assert.ok(!sigIds.includes(SHORT));
++      // The omitted entry never produces a signature object.
++      assert.equal(manifest.signatures.find((s) => s.mdId === SHORT), undefined);
++    });
++
++    it("getAssemblyManifest: usedSignatureMinChars config is honored (lower threshold -> more signatures)", async () => {
++      const today = dateDaysAgo(0);
++      const BORDER = "77777777-0000-7777-7777-777777777777";
++      // Normalized fragment ~17 chars: under the default 24, over 10.
++      const borderBody = `${TEST_MARKER} mid.`;
++      await writeRaw(
++        memoryPath,
++        serializeMetadataFrontmatter({ id: BORDER, text: borderBody, created: today, last: today }),
++      );
++
++      // Default (24): too short → omitted, but still surfaced in mdIds.
++      const storeDefault = new MemoryStore(makeConfig());
++      await storeDefault.loadFromDisk();
++      const manifestDefault = storeDefault.getAssemblyManifest();
++      assert.deepEqual(new Set(manifestDefault.mdIds), new Set([BORDER]));
++      assert.equal(manifestDefault.signatures.length, 0);
++
++      // Lower threshold (10): qualifies → emitted, equals computeSignature(body, 10).
++      const storeLow = new MemoryStore(makeConfig({ usedSignatureMinChars: 10 }));
++      await storeLow.loadFromDisk();
++      const manifestLow = storeLow.getAssemblyManifest();
++      assert.deepEqual(new Set(manifestLow.mdIds), new Set([BORDER]));
++      assert.equal(manifestLow.signatures.length, 1);
++      assert.equal(manifestLow.signatures[0].mdId, BORDER);
++      assert.equal(manifestLow.signatures[0].signature, computeSignature(borderBody, 10));
++    });
++
++    it("getProjectAssemblyManifest: emits signatures for project memory ids", async () => {
++      const today = dateDaysAgo(0);
++      const PROJ_A = "88888888-1111-8888-8888-888888888888";
++      const PROJ_B = "99999999-2222-9999-9999-999999999999";
++      const bodyA = `${TEST_MARKER} project body A is long enough to qualify`;
++      const bodyB = `${TEST_MARKER} project body B is also long enough to qualify`;
++      await writeRaw(
++        memoryPath,
++        [
++          serializeMetadataFrontmatter({ id: PROJ_A, text: bodyA, created: today, last: today }),
++          serializeMetadataFrontmatter({ id: PROJ_B, text: bodyB, created: today, last: today }),
++        ].join(ENTRY_DELIMITER),
++      );
++
++      const store = new MemoryStore(makeConfig());
++      await store.loadFromDisk();
++      const name = "demo";
++      const manifest = store.getProjectAssemblyManifest(name);
++
++      // #05 { block, mdIds } UNCHANGED.
++      assert.equal(manifest.block, store.formatProjectBlock(name));
++      assert.deepEqual(new Set(manifest.mdIds), new Set([PROJ_A, PROJ_B]));
++
++      const sigs = new Map(manifest.signatures.map((s) => [s.mdId, s.signature]));
++      assert.deepEqual(new Set(sigs.keys()), new Set([PROJ_A, PROJ_B]));
++      assert.equal(sigs.get(PROJ_A), computeSignature(bodyA, 24));
++      assert.equal(sigs.get(PROJ_B), computeSignature(bodyB, 24));
++    });
+   });
+ });
+ 
+ describe("numeric isolation — assembled prompt never leaks memworth (UPSP §7 / DO ticket 04)", () => {
+   let dir: string;
+   let mp: string;
+   let fp: string;
+ 
+   beforeAll(async () => {
+     dir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-iso-test-"));
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/store/signature.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/store/signature.test.ts
+new file mode 100644
+index 00000000..db3a51b6
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/store/signature.test.ts
+@@ -0,0 +1,172 @@
++/**
++ * Unit tests for the pure signature-extraction helpers (UPSP §9 / ticket #06, Task 1).
++ *
++ * `normalizeForSignature` is the SHARED normalization used by BOTH
++ * `computeSignature` (entry → signature) and the Task-5 turn-output matcher, so
++ * a signature is always a substring of the identically-normalized scan text.
++ * `computeSignature` returns the longest normalized sentence/line fragment whose
++ * length ≥ `minChars`, or `null` when the entry is too generic to attribute.
++ */
++import { describe, it } from "bun:test";
++import * as assert from "node:assert/strict";
++import { normalizeForSignature, computeSignature } from "../../src/store/signature.js";
++
++describe("signature: normalizeForSignature", () => {
++  it("lowercases text", () => {
++    assert.equal(normalizeForSignature("Hello WORLD FooBar"), "hello world foobar");
++  });
++
++  it("collapses runs of whitespace (spaces, tabs, newlines) to a single space", () => {
++    assert.equal(
++      normalizeForSignature("foo    bar\n\n\n\tbaz  qux"),
++      "foo bar baz qux",
++    );
++    assert.equal(normalizeForSignature("a\tb  c\n d"), "a b c d");
++  });
++
++  it("trims leading/trailing whitespace", () => {
++    assert.equal(normalizeForSignature("   hello   "), "hello");
++    assert.equal(normalizeForSignature("\n\n  hi  \n"), "hi");
++  });
++
++  it("strips markdown code-fence delimiter lines", () => {
++    assert.equal(
++      normalizeForSignature("```\ncode here\n```"),
++      "code here",
++    );
++    // Fence with info string (```ts / ```yaml) is also a delimiter line.
++    assert.equal(
++      normalizeForSignature("```ts\nconst x = 1\n```"),
++      "const x = 1",
++    );
++  });
++
++  it("strips ATX header markers (#..######)", () => {
++    assert.equal(normalizeForSignature("# Title"), "title");
++    assert.equal(normalizeForSignature("## Sub Heading"), "sub heading");
++    assert.equal(normalizeForSignature("###### Deepest"), "deepest");
++  });
++
++  it("strips list-item markers (-, *, +)", () => {
++    assert.equal(normalizeForSignature("- dash item"), "dash item");
++    assert.equal(normalizeForSignature("* star item"), "star item");
++    assert.equal(normalizeForSignature("+ plus item"), "plus item");
++  });
++
++  it("strips blockquote markers (>)", () => {
++    assert.equal(normalizeForSignature("> quoted line"), "quoted line");
++    // nested blockquote
++    assert.equal(normalizeForSignature("> > nested quote"), "nested quote");
++  });
++
++  it("strips nested mixed markers (e.g. blockquote + header)", () => {
++    assert.equal(normalizeForSignature("> # Quoted Heading"), "quoted heading");
++    assert.equal(normalizeForSignature("- - double bullet"), "double bullet");
++  });
++
++  it("does not strip # / - / * that are not leading markdown markers", () => {
++    // A hashtag-like token with no space after # is not a header.
++    assert.equal(normalizeForSignature("see #release-notes for details"), "see #release-notes for details");
++    // An asterisk not at line start (emphasis) is preserved.
++    assert.equal(normalizeForSignature("use *emphasis* here"), "use *emphasis* here");
++  });
++
++  it("canonicalizes a mixed-case / markdown / whitespace body end-to-end", () => {
++    const body = [
++      "#  Project Notes",
++      "",
++      "```yaml",
++      "key: value",
++      "```",
++      "-  Use   PNPM  here",
++      "> Remember this rule",
++    ].join("\n");
++    assert.equal(
++      normalizeForSignature(body),
++      "project notes key: value use pnpm here remember this rule",
++    );
++  });
++
++  it("returns empty string for empty / whitespace-only / marker-only input", () => {
++    assert.equal(normalizeForSignature(""), "");
++    assert.equal(normalizeForSignature("   \n\t  "), "");
++    assert.equal(normalizeForSignature("# \n- \n> "), "# -");
++  });
++});
++
++describe("signature: computeSignature", () => {
++  it("returns the longest fragment that meets minChars (single long fragment)", () => {
++    const body = "This entry is long enough to qualify as a signature.";
++    // normalize keeps the trailing '.' (it is not a markdown marker); the
++    // sentence-split drops it, so the signature is the period-less fragment.
++    assert.equal(
++      computeSignature(body, 24),
++      "this entry is long enough to qualify as a signature",
++    );
++  });
++
++  it("picks the LONGEST qualifying fragment among several sentences", () => {
++    // Two sentences: one short, one long. Both fragments after split:
++    //   "short"        -> len 5
++    //   "this is the longest fragment in the body" -> qualifies & longest
++    const body = "Short. This is the longest fragment in the body.";
++    assert.equal(
++      computeSignature(body, 24),
++      "this is the longest fragment in the body",
++    );
++  });
++
++  it("returns null when no fragment reaches minChars", () => {
++    const body = "Short. Tiny bit. Mini.";
++    assert.equal(computeSignature(body, 24), null);
++  });
++
++  it("skips under-min fragments but still returns a qualifying longer one", () => {
++    const body = "tiny. a small lead in. here is a qualifying fragment for sure.";
++    assert.equal(
++      computeSignature(body, 24),
++      "here is a qualifying fragment for sure",
++    );
++  });
++
++  it("returns null for an empty body", () => {
++    assert.equal(computeSignature("", 24), null);
++  });
++
++  it("returns null for a whitespace-only body", () => {
++    assert.equal(computeSignature("   \n\t  \n", 24), null);
++  });
++
++  it("returns null when the body is only stripped-away markdown markers", () => {
++    // After stripping headers/list markers/fences, nothing remains.
++    assert.equal(computeSignature("# Title\n- bullet\n* item", 24), null);
++  });
++
++  it("honors a lower minChars threshold (a borderline fragment qualifies)", () => {
++    // Fragment "medium length body" = 18 chars.
++    const body = "Medium length body.";
++    assert.equal(computeSignature(body, 24), null);
++    assert.equal(computeSignature(body, 10), "medium length body");
++    assert.equal(computeSignature(body, 18), "medium length body");
++    assert.equal(computeSignature(body, 19), null);
++  });
++
++  it("strips markdown before fragmenting, so the signature is marker-free", () => {
++    const body = "# Heading line that is plenty long on its own.";
++    assert.equal(
++      computeSignature(body, 24),
++      "heading line that is plenty long on its own",
++    );
++  });
++
++  it("signature fragment is a substring of the same body fully normalized (match contract)", () => {
++    const body = "Prefix. The distinctive fragment we expect to match exactly. Suffix.";
++    const sig = computeSignature(body, 24);
++    assert.ok(sig !== null);
++    const normalized = normalizeForSignature(body);
++    assert.ok(
++      normalized.includes(sig!),
++      `signature "${sig}" must be a substring of normalized body "${normalized}"`,
++    );
++  });
++});

@@ -1,0 +1,135 @@
+# Review package: 3daac579cdb095ba48fa9d85f2aada25a4a4096e..HEAD
+
+## Commits
+cbd0d44c feat(hermes): add buildPromptAssembly (sha256 receipt over assembled block, UPSP §5)
+
+## Files changed
+ .../src/prompt-context.ts                          | 29 ++++++++++
+ .../tests/prompt-context.test.ts                   | 63 ++++++++++++++++++++++
+ 2 files changed, 92 insertions(+)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/prompt-context.ts b/bun-apps/pi-agent-ext-hermes-memory/src/prompt-context.ts
+index 51b18237..e6ce7571 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/prompt-context.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/prompt-context.ts
+@@ -1,10 +1,11 @@
++import { createHash } from "node:crypto";
+ import { MEMORY_POLICY_PROMPT, MEMORY_POLICY_PROMPT_COMPACT } from "./constants.js";
+ import type { MemoryConfig } from "./types.js";
+ import type { MemoryStore } from "./store/memory-store.js";
+ 
+ type MemoryPolicyConfig = Pick<MemoryConfig, "memoryPolicyStyle" | "memoryPolicyCustomText">;
+ 
+ export function resolveMemoryPolicyPrompt(config: MemoryPolicyConfig): string {
+   const style = config.memoryPolicyStyle ?? "full";
+ 
+   switch (style) {
+@@ -34,10 +35,38 @@ export async function buildPromptContext(
+ 
+   const memoryBlock = store.formatForSystemPrompt();
+   const projectBlock = projectStore ? projectStore.formatProjectBlock(projectName) : "";
+ 
+   const parts: string[] = [];
+   if (memoryBlock) parts.push(memoryBlock);
+   if (projectBlock) parts.push(projectBlock);
+ 
+   return parts.join("\n\n");
+ }
++
++/**
++ * Prompt-provenance receipt (UPSP §5 request_body_sha256 analogue). Returns the unioned
++ * md_id set across all injected blocks + a SHA-256 of the joined memory+project block —
++ * mirroring buildPromptContext's assembly so the logged set and hash describe the exact
++ * text the agent is injected with (policy text excluded; it is constant config, not memory).
++ * Returns null for policy-only mode or an empty assembly (nothing to prove).
++ *
++ * Sync: node:crypto's createHash is synchronous, avoiding async contagion at the session_start
++ * wire-in. `buildPromptContext` is unchanged (no ripple to index.ts:331 / preview-context.ts).
++ */
++export function buildPromptAssembly(
++  config: Pick<MemoryConfig, "memoryMode">,
++  store: MemoryStore,
++  projectStore: MemoryStore | null,
++  projectName: string,
++): { mdIds: string[]; hash: string } | null {
++  if (config.memoryMode === "policy-only") return null;
++  const main = store.getAssemblyManifest();
++  const proj = projectStore
++    ? projectStore.getProjectAssemblyManifest(projectName)
++    : { block: "", mdIds: [] as string[] };
++  const block = [main.block, proj.block].filter((b) => b.length > 0).join("\n\n");
++  if (!block) return null;
++  const mdIds = [...new Set([...main.mdIds, ...proj.mdIds])];
++  const hash = createHash("sha256").update(block, "utf8").digest("hex");
++  return { mdIds, hash };
++}
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/prompt-context.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/prompt-context.test.ts
+new file mode 100644
+index 00000000..79bf359a
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/prompt-context.test.ts
+@@ -0,0 +1,63 @@
++import { describe, test, expect } from "bun:test";
++import { createHash } from "node:crypto";
++import { buildPromptAssembly, buildPromptContext } from "../src/prompt-context.js";
++import type { MemoryStore } from "../src/store/memory-store.js";
++
++/**
++ * Minimal stub of MemoryStore implementing ONLY the two assembly-manifest methods
++ * consumed by buildPromptAssembly (Task 1 additions). Typed loosely so the stub
++ * satisfies the MemoryStore parameter without standing up a full tmp-dir store.
++ */
++function stubStore(
++  main: { block: string; mdIds: string[] },
++  project?: { block: string; mdIds: string[] },
++): MemoryStore {
++  return {
++    getAssemblyManifest: () => main,
++    getProjectAssemblyManifest: (_name: string) => project ?? { block: "", mdIds: [] },
++  } as unknown as MemoryStore;
++}
++
++describe("buildPromptAssembly", () => {
++  test("populated store → unions ids + sha256 of joined memoryBlock+projectBlock", () => {
++    const store = stubStore({ block: "M", mdIds: ["a", "b"] });
++    const projectStore = stubStore({ block: "ignored" }, { block: "P", mdIds: ["b", "c"] });
++    const config = { memoryMode: "default" } as any;
++
++    const got = buildPromptAssembly(config, store, projectStore, "p")!;
++
++    expect(got.mdIds.sort()).toEqual(["a", "b", "c"]); // unioned + deduped
++    const expectedHash = createHash("sha256").update("M\n\nP", "utf8").digest("hex");
++    expect(got.hash).toBe(expectedHash);
++  });
++
++  test("policy-only mode → null", () => {
++    const store = stubStore({ block: "M", mdIds: ["a"] });
++    const got = buildPromptAssembly(
++      { memoryMode: "policy-only" } as any,
++      store,
++      null,
++      "p",
++    );
++    expect(got).toBeNull();
++  });
++
++  test("empty store (no block) → null", () => {
++    const store = stubStore({ block: "", mdIds: [] });
++    expect(
++      buildPromptAssembly({ memoryMode: "default" } as any, store, null, "p"),
++    ).toBeNull();
++  });
++
++  test("null projectStore → still hashes main block", () => {
++    const store = stubStore({ block: "M", mdIds: ["a"] });
++    const got = buildPromptAssembly({ memoryMode: "default" } as any, store, null, "p")!;
++    expect(got.mdIds).toEqual(["a"]);
++    expect(got.hash).toBe(createHash("sha256").update("M", "utf8").digest("hex"));
++  });
++
++  test("buildPromptContext is still exported unchanged", () => {
++    // smoke: confirm the sibling export survived and is callable.
++    expect(typeof buildPromptContext).toBe("function");
++  });
++});

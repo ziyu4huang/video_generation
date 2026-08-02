@@ -1,0 +1,242 @@
+# Review package: 8e7c4dac32b75dea0d3550e4fd591e932f689262..HEAD
+
+## Commits
+e4169312 feat(hermes): thread per-entry signatures through AssemblyReceipt (UPSP §9)
+
+## Files changed
+ .../src/handlers/session-assembly.ts               |  8 +++
+ .../src/prompt-context.ts                          | 25 ++++++-
+ .../tests/prompt-context.test.ts                   | 83 ++++++++++++++++++++--
+ 3 files changed, 109 insertions(+), 7 deletions(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/handlers/session-assembly.ts b/bun-apps/pi-agent-ext-hermes-memory/src/handlers/session-assembly.ts
+index cba06345..571d313b 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/handlers/session-assembly.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/handlers/session-assembly.ts
+@@ -9,20 +9,28 @@
+  *
+  * Best-effort: NEVER throws — a missing sid, a null assembly (policy-only mode
+  * or an empty store), or a throwing `record` are all swallowed so agent startup
+  * is never blocked (mirrors the backfillStableIds guard). Returns true only
+  * when a record actually landed.
+  */
+ 
+ export interface AssemblyReceipt {
+   mdIds: string[];
+   hash: string;
++  /**
++   * Per-entry content signatures (UPSP §9 / ticket #06) for the surfaced md_ids —
++   * the turn-end scanner matches these against assistant output to mark entries
++   * `used`. Unioned (deduped by mdId, memory-before-project order) by
++   * buildPromptAssembly. captureAssembly IGNORES this field: it records mdIds +
++   * hash only (Task 3 adds the sibling markUsed separately). Additive over #05.
++   */
++  signatures: { mdId: string; signature: string }[];
+ }
+ 
+ export interface CaptureAssemblyDeps {
+   /** Resolves the current session id; undefined/empty ⇒ no capture. */
+   getSessionId: () => string | undefined;
+   /** Builds the assembly receipt; null ⇒ nothing to prove (skip record). */
+   build: () => AssemblyReceipt | null;
+   /** Records the receipt; failures are swallowed by captureAssembly. */
+   record: (sessionId: string, mdIds: string[], hash: string) => Promise<void>;
+ }
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/prompt-context.ts b/bun-apps/pi-agent-ext-hermes-memory/src/prompt-context.ts
+index e6ce7571..699b1900 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/prompt-context.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/prompt-context.ts
+@@ -1,14 +1,15 @@
+ import { createHash } from "node:crypto";
+ import { MEMORY_POLICY_PROMPT, MEMORY_POLICY_PROMPT_COMPACT } from "./constants.js";
+ import type { MemoryConfig } from "./types.js";
+ import type { MemoryStore } from "./store/memory-store.js";
++import type { AssemblyReceipt } from "./handlers/session-assembly.js";
+ 
+ type MemoryPolicyConfig = Pick<MemoryConfig, "memoryPolicyStyle" | "memoryPolicyCustomText">;
+ 
+ export function resolveMemoryPolicyPrompt(config: MemoryPolicyConfig): string {
+   const style = config.memoryPolicyStyle ?? "full";
+ 
+   switch (style) {
+     case "compact":
+       return MEMORY_POLICY_PROMPT_COMPACT;
+     case "custom":
+@@ -45,28 +46,46 @@ export async function buildPromptContext(
+ 
+ /**
+  * Prompt-provenance receipt (UPSP §5 request_body_sha256 analogue). Returns the unioned
+  * md_id set across all injected blocks + a SHA-256 of the joined memory+project block —
+  * mirroring buildPromptContext's assembly so the logged set and hash describe the exact
+  * text the agent is injected with (policy text excluded; it is constant config, not memory).
+  * Returns null for policy-only mode or an empty assembly (nothing to prove).
+  *
+  * Sync: node:crypto's createHash is synchronous, avoiding async contagion at the session_start
+  * wire-in. `buildPromptContext` is unchanged (no ripple to index.ts:331 / preview-context.ts).
++ *
++ * `signatures` (UPSP §9 / ticket #06): the per-entry content signatures for the surfaced
++ * md_ids, threaded so session_start (Task 6) can populate the turn-end scanner. Union of
++ * the memory-store + project-store manifest signatures, deduped by mdId (a memory entry and
++ * a project entry could share an md_id — first occurrence wins; order memory-before-project).
++ * captureAssembly ignores this field; it is consumed by Task 6's surfaced-set population.
+  */
+ export function buildPromptAssembly(
+   config: Pick<MemoryConfig, "memoryMode">,
+   store: MemoryStore,
+   projectStore: MemoryStore | null,
+   projectName: string,
+-): { mdIds: string[]; hash: string } | null {
++): AssemblyReceipt | null {
+   if (config.memoryMode === "policy-only") return null;
+   const main = store.getAssemblyManifest();
+   const proj = projectStore
+     ? projectStore.getProjectAssemblyManifest(projectName)
+-    : { block: "", mdIds: [] as string[] };
++    : { block: "", mdIds: [] as string[], signatures: [] as { mdId: string; signature: string }[] };
+   const block = [main.block, proj.block].filter((b) => b.length > 0).join("\n\n");
+   if (!block) return null;
+   const mdIds = [...new Set([...main.mdIds, ...proj.mdIds])];
++  // Signatures (UPSP §9 / ticket #06): union memory-store + project-store signatures,
++  // deduped by mdId (first occurrence wins; order memory-store first, then project).
++  // A manifest may return an empty array (empty block / under-min entries) — the union
++  // just takes what exists. captureAssembly ignores this field.
++  const seenSignatures = new Set<string>();
++  const signatures: { mdId: string; signature: string }[] = [];
++  for (const s of [...main.signatures, ...proj.signatures]) {
++    if (!seenSignatures.has(s.mdId)) {
++      seenSignatures.add(s.mdId);
++      signatures.push(s);
++    }
++  }
+   const hash = createHash("sha256").update(block, "utf8").digest("hex");
+-  return { mdIds, hash };
++  return { mdIds, hash, signatures };
+ }
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/prompt-context.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/prompt-context.test.ts
+index 79bf359a..84762eb0 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/tests/prompt-context.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/prompt-context.test.ts
+@@ -1,27 +1,31 @@
+ import { describe, test, expect } from "bun:test";
+ import { createHash } from "node:crypto";
+ import { buildPromptAssembly, buildPromptContext } from "../src/prompt-context.js";
+ import type { MemoryStore } from "../src/store/memory-store.js";
+ 
++type Signature = { mdId: string; signature: string };
++
+ /**
+  * Minimal stub of MemoryStore implementing ONLY the two assembly-manifest methods
+  * consumed by buildPromptAssembly (Task 1 additions). Typed loosely so the stub
+  * satisfies the MemoryStore parameter without standing up a full tmp-dir store.
++ * `signatures` defaults to [] so Task-2-agnostic call sites stay one-liners.
+  */
+ function stubStore(
+-  main: { block: string; mdIds: string[] },
+-  project?: { block: string; mdIds: string[] },
++  main: { block: string; mdIds: string[]; signatures?: Signature[] },
++  project?: { block: string; mdIds: string[]; signatures?: Signature[] },
+ ): MemoryStore {
+   return {
+-    getAssemblyManifest: () => main,
+-    getProjectAssemblyManifest: (_name: string) => project ?? { block: "", mdIds: [] },
++    getAssemblyManifest: () => ({ signatures: [], ...main }),
++    getProjectAssemblyManifest: (_name: string) =>
++      project ? { signatures: [], ...project } : { block: "", mdIds: [], signatures: [] },
+   } as unknown as MemoryStore;
+ }
+ 
+ describe("buildPromptAssembly", () => {
+   test("populated store → unions ids + sha256 of joined memoryBlock+projectBlock", () => {
+     const store = stubStore({ block: "M", mdIds: ["a", "b"] });
+     const projectStore = stubStore({ block: "ignored" }, { block: "P", mdIds: ["b", "c"] });
+     const config = { memoryMode: "default" } as any;
+ 
+     const got = buildPromptAssembly(config, store, projectStore, "p")!;
+@@ -49,15 +53,86 @@ describe("buildPromptAssembly", () => {
+     ).toBeNull();
+   });
+ 
+   test("null projectStore → still hashes main block", () => {
+     const store = stubStore({ block: "M", mdIds: ["a"] });
+     const got = buildPromptAssembly({ memoryMode: "default" } as any, store, null, "p")!;
+     expect(got.mdIds).toEqual(["a"]);
+     expect(got.hash).toBe(createHash("sha256").update("M", "utf8").digest("hex"));
+   });
+ 
++  // ---- Task 2 (UPSP §9): per-entry signatures threaded through AssemblyReceipt ----
++
++  test("populated store → unions both manifests' signatures (memory-before-project order)", () => {
++    const sigM: Signature[] = [
++      { mdId: "a", signature: "alpha fragment" },
++      { mdId: "b", signature: "bravo fragment" },
++    ];
++    const sigP: Signature[] = [
++      { mdId: "c", signature: "charlie fragment" },
++    ];
++    const store = stubStore({ block: "M", mdIds: ["a", "b"], signatures: sigM });
++    const projectStore = stubStore({ block: "ignored" }, { block: "P", mdIds: ["c"], signatures: sigP });
++
++    const got = buildPromptAssembly({ memoryMode: "default" } as any, store, projectStore, "p")!;
++
++    expect(got.signatures).toEqual([...sigM, ...sigP]);
++  });
++
++  test("shared mdId across memory + project → deduped once, memory occurrence kept (first wins)", () => {
++    // md_id "b" appears in BOTH manifests — a memory entry and a project entry could
++    // share an md_id. Dedup keeps the first occurrence (memory-store order first).
++    const sigM: Signature[] = [
++      { mdId: "a", signature: "alpha fragment" },
++      { mdId: "b", signature: "bravo fragment (from memory)" },
++    ];
++    const sigP: Signature[] = [
++      { mdId: "b", signature: "bravo fragment (from project)" },
++      { mdId: "c", signature: "charlie fragment" },
++    ];
++    const store = stubStore({ block: "M", mdIds: ["a", "b"], signatures: sigM });
++    const projectStore = stubStore({ block: "ignored" }, { block: "P", mdIds: ["b", "c"], signatures: sigP });
++
++    const got = buildPromptAssembly({ memoryMode: "default" } as any, store, projectStore, "p")!;
++
++    const ids = got.signatures.map((s) => s.mdId);
++    expect(ids).toEqual(["a", "b", "c"]); // "b" appears exactly once
++    const b = got.signatures.find((s) => s.mdId === "b")!;
++    expect(b.signature).toBe("bravo fragment (from memory)"); // first occurrence wins
++  });
++
++  test("null projectStore → signatures = main manifest's signatures", () => {
++    const sigM: Signature[] = [{ mdId: "a", signature: "alpha fragment" }];
++    const store = stubStore({ block: "M", mdIds: ["a"], signatures: sigM });
++
++    const got = buildPromptAssembly({ memoryMode: "default" } as any, store, null, "p")!;
++
++    expect(got.signatures).toEqual(sigM);
++  });
++
++  test("project manifest returns no signatures → union degrades to main manifest's signatures", () => {
++    // A manifest may legitimately return an empty signatures array (e.g. project block
++    // empty / all entries below the signature min-length). Union just takes what exists.
++    const sigM: Signature[] = [{ mdId: "a", signature: "alpha fragment" }];
++    const store = stubStore({ block: "M", mdIds: ["a"], signatures: sigM });
++    const projectStore = stubStore(
++      { block: "ignored" },
++      { block: "P", mdIds: ["c"], signatures: [] },
++    );
++
++    const got = buildPromptAssembly({ memoryMode: "default" } as any, store, projectStore, "p")!;
++
++    expect(got.signatures).toEqual(sigM);
++  });
++
++  test("signatures is always an array on a populated receipt (never undefined)", () => {
++    const store = stubStore({ block: "M", mdIds: ["a"], signatures: [] });
++    const got = buildPromptAssembly({ memoryMode: "default" } as any, store, null, "p")!;
++    expect(Array.isArray(got.signatures)).toBe(true);
++    expect(got.signatures).toEqual([]);
++  });
++
+   test("buildPromptContext is still exported unchanged", () => {
+     // smoke: confirm the sibling export survived and is callable.
+     expect(typeof buildPromptContext).toBe("function");
+   });
+ });

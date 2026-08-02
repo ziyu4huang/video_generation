@@ -1,0 +1,700 @@
+# Review package: 7814a935886443341d79c1370c3116227abec072..HEAD
+
+## Commits
+6b65a093 feat(hermes): computeHeat scoring core + decay config (UPSP §1)
+
+## Files changed
+ bun-apps/pi-agent-ext-hermes-memory/src/config.ts  |  16 ++
+ .../pi-agent-ext-hermes-memory/src/constants.ts    |  17 ++
+ .../pi-agent-ext-hermes-memory/src/store/heat.ts   | 124 ++++++++
+ bun-apps/pi-agent-ext-hermes-memory/src/types.ts   |  16 ++
+ .../tests/config.test.ts                           |  41 +++
+ .../tests/store/heat.test.ts                       | 317 +++++++++++++++++++++
+ 6 files changed, 531 insertions(+)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/config.ts b/bun-apps/pi-agent-ext-hermes-memory/src/config.ts
+index cc3c9176..779d05f8 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/config.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/config.ts
+@@ -8,20 +8,23 @@ import {
+   DEFAULT_PROJECTS_MEMORY_DIR,
+   DEFAULT_NUDGE_INTERVAL,
+   DEFAULT_FLUSH_MIN_TURNS,
+   DEFAULT_NUDGE_TOOL_CALLS,
+   DEFAULT_REVIEW_RECENT_MESSAGES,
+   DEFAULT_FLUSH_RECENT_MESSAGES,
+   DEFAULT_CONSOLIDATION_TIMEOUT_MS,
+   DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS,
+   DEFAULT_FAILURE_INJECTION_MAX_ENTRIES,
+   DEFAULT_USED_SIGNATURE_MIN_CHARS,
++  DEFAULT_DECAY_HALFLIFE_DAYS,
++  DEFAULT_DECAY_WORTH_WEIGHT,
++  DEFAULT_DECAY_USED_BONUS,
+ } from "./constants.js";
+ import { AGENT_ROOT, normalizeConfiguredMemoryDir, normalizeProjectsMemoryDir } from "./paths.js";
+ import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
+ import { detectProject, resolveProjectStoreDir } from "./project.js";
+ 
+ const MEMORY_OVERFLOW_STRATEGIES: readonly MemoryOverflowStrategy[] = ["auto-consolidate", "reject", "fifo-evict", "vault-offload"];
+ const SESSION_SEARCH_VARIANTS: readonly SessionSearchVariant[] = ["legacy", "anchors"];
+ // "subprocess" removed in the spawnSubagent migration — the fallback is now spawnSubagent, not a pi -p subprocess.
+ const REVIEW_TRANSPORTS: readonly ReviewTransport[] = ["direct"];
+ const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
+@@ -62,20 +65,24 @@ const DEFAULT_CONFIG: MemoryConfig = {
+   flushOnShutdown: true,
+   flushMinTurns: DEFAULT_FLUSH_MIN_TURNS,
+   flushRecentMessages: DEFAULT_FLUSH_RECENT_MESSAGES,
+   memoryOverflowStrategy: "auto-consolidate",
+   autoConsolidate: true,
+   correctionDetection: true,
+   errorCapture: true,
+   worthScoring: true,
+   usedDetection: true,
+   usedSignatureMinChars: DEFAULT_USED_SIGNATURE_MIN_CHARS,
++  decayEnabled: true,
++  decayHalflifeDays: DEFAULT_DECAY_HALFLIFE_DAYS,
++  decayWorthWeight: DEFAULT_DECAY_WORTH_WEIGHT,
++  decayUsedBonus: DEFAULT_DECAY_USED_BONUS,
+   autoSupersede: false,
+   autoCommitProjectMemory: false,
+   failureInjectionEnabled: true,
+   failureInjectionMaxAgeDays: DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS,
+   failureInjectionMaxEntries: DEFAULT_FAILURE_INJECTION_MAX_ENTRIES,
+   consolidationTimeoutMs: DEFAULT_CONSOLIDATION_TIMEOUT_MS,
+   nudgeToolCalls: DEFAULT_NUDGE_TOOL_CALLS,
+   projectsMemoryDir: DEFAULT_PROJECTS_MEMORY_DIR,
+   sessionSearch: { variant: "legacy" },
+   dbBackend: "sqlite",
+@@ -242,20 +249,29 @@ export function loadConfig(configPath?: string, cwd: string = process.cwd()): Me
+       }
+       if (isMemoryOverflowStrategy(parsed.memoryOverflowStrategy)) {
+         config.memoryOverflowStrategy = parsed.memoryOverflowStrategy;
+         hasMemoryOverflowStrategy = true;
+       }
+       if (typeof parsed.correctionDetection === "boolean") config.correctionDetection = parsed.correctionDetection;
+       if (typeof parsed.errorCapture === "boolean") config.errorCapture = parsed.errorCapture;
+       if (typeof parsed.worthScoring === "boolean") config.worthScoring = parsed.worthScoring;
+       if (typeof parsed.usedDetection === "boolean") config.usedDetection = parsed.usedDetection;
+       if (isNonNegativeNumber(parsed.usedSignatureMinChars)) config.usedSignatureMinChars = parsed.usedSignatureMinChars;
++      // Decay (ticket #1b / UPSP §1): the #06 config-gap lesson — every
++      // consumer-facing config key is registered here so a config-file value
++      // reaches the consumer object (decayEnabled boolean guard; the three
++      // numeric knobs via isNonNegativeNumber, mirroring the usedDetection
++      // siblings just above).
++      if (typeof parsed.decayEnabled === "boolean") config.decayEnabled = parsed.decayEnabled;
++      if (isNonNegativeNumber(parsed.decayHalflifeDays)) config.decayHalflifeDays = parsed.decayHalflifeDays;
++      if (isNonNegativeNumber(parsed.decayWorthWeight)) config.decayWorthWeight = parsed.decayWorthWeight;
++      if (isNonNegativeNumber(parsed.decayUsedBonus)) config.decayUsedBonus = parsed.decayUsedBonus;
+       if (typeof parsed.autoSupersede === "boolean") config.autoSupersede = parsed.autoSupersede;
+       if (isNonNegativeNumber(parsed.errorCaptureRateLimit)) config.errorCaptureRateLimit = parsed.errorCaptureRateLimit;
+       if (isNonNegativeNumber(parsed.errorCaptureRateWindowMs)) config.errorCaptureRateWindowMs = parsed.errorCaptureRateWindowMs;
+       if (isNonNegativeNumber(parsed.errorCaptureDedupCacheSize)) config.errorCaptureDedupCacheSize = parsed.errorCaptureDedupCacheSize;
+       if (isStringArray(parsed.correctionStrongPatterns)) config.correctionStrongPatterns = parsed.correctionStrongPatterns;
+       if (isStringArray(parsed.correctionWeakPatterns)) config.correctionWeakPatterns = parsed.correctionWeakPatterns;
+       if (isStringArray(parsed.correctionNegativePatterns)) config.correctionNegativePatterns = parsed.correctionNegativePatterns;
+       if (isStringArray(parsed.correctionDirectiveWords)) config.correctionDirectiveWords = parsed.correctionDirectiveWords;
+       if (typeof parsed.consolidationTimeoutMs === "number") config.consolidationTimeoutMs = parsed.consolidationTimeoutMs;
+       if (typeof parsed.failureInjectionEnabled === "boolean") config.failureInjectionEnabled = parsed.failureInjectionEnabled;
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/constants.ts b/bun-apps/pi-agent-ext-hermes-memory/src/constants.ts
+index 9387d715..333d878a 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/constants.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/constants.ts
+@@ -28,20 +28,37 @@ export const DEFAULT_FLUSH_MIN_TURNS = 6;
+ export const DEFAULT_NUDGE_TOOL_CALLS = 15;
+ export const DEFAULT_REVIEW_RECENT_MESSAGES = 0;
+ export const DEFAULT_FLUSH_RECENT_MESSAGES = 0;
+ export const DEFAULT_CONSOLIDATION_TIMEOUT_MS = 60000;
+ export const DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS = 7;
+ export const DEFAULT_FAILURE_INJECTION_MAX_ENTRIES = 5;
+ /** Min normalized fragment length for an entry to earn a "used" signature
+  *  (UPSP §9 / ticket #06). Entries whose longest fragment is shorter never get
+  *  credited as "used" — too generic to attribute. Default 24. */
+ export const DEFAULT_USED_SIGNATURE_MIN_CHARS = 24;
++
++// ─── Decay (ticket #1b / UPSP §1) — per-entry heat scoring config defaults ──
++// Heat = clamp(recencySpine * worthMult + usedBonus, 0, 1); a pure scoring
++// core computed lazily at eviction time (no new column, no periodic job). See
++// src/store/heat.ts. These are the consumer-visible config surface; the #06
++// config-gap lesson (a config-file value must reach the consumer object) is
++// baked in — all four are registered in DEFAULT_CONFIG + the parse allowlist.
++/** Recency-exp halflife in days. Default 14 (entry cools to ~37% heat at 2w). */
++export const DEFAULT_DECAY_HALFLIFE_DAYS = 14;
++/** Worth multiplier weight (0..1). Laplace success-rate nudge around neutral
++ *  1.0. Default 0.15 (±~7.5% per entry at the success/failure extremes). */
++export const DEFAULT_DECAY_WORTH_WEIGHT = 0.15;
++/** Heat bonus added for ever-used entries (boolean ever-used, UPSP §9 / #06).
++ *  A small relative nudge — recency spine still drives staleness. Default 0.1. */
++export const DEFAULT_DECAY_USED_BONUS = 0.1;
++/** Milliseconds per day — the recency-age unit (now - parseDate(date)) / MS_PER_DAY. */
++export const MS_PER_DAY = 86_400_000;
+ export const DEFAULT_ERROR_CAPTURE_RATE_LIMIT = 5;
+ export const DEFAULT_ERROR_CAPTURE_RATE_WINDOW_MS = 600_000;
+ export const DEFAULT_ERROR_CAPTURE_DEDUP_CACHE_SIZE = 64;
+ 
+ // ─── Staleness audit ───
+ // Entries whose "last edited" date is older than this are flagged as stale
+ // candidates for review/removal (mirrors the 30-day rule in CONSOLIDATION_PROMPT).
+ export const DEFAULT_STALENESS_THRESHOLD_DAYS = 30;
+ 
+ // ─── File names ───
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/heat.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/heat.ts
+new file mode 100644
+index 00000000..77840f51
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/heat.ts
+@@ -0,0 +1,124 @@
++/**
++ * Per-entry heat scoring core — UPSP §1 "per-entry decay" (ticket #1b).
++ *
++ * Pure, no I/O, DB-free. Heat is computed **lazily at eviction time** from
++ * existing columns (recency + mw_success/mw_fail + the #06 `used_at` boolean)
++ * — never persisted, never periodic. Other tasks wire it into the eviction
++ * floors + consolidator snapshot via a provider callback that crosses the
++ * MemoryStore's DB-free boundary.
++ *
++ * Model (D2):
++ * ```
++ * heat ∈ [0,1], higher = hotter = spared
++ * recencySpine = exp(-ageDays / halflifeDays)        // age from lastReferenced
++ * worthMult    = 1 + worthWeight * (laplace - 0.5)    // laplace = (mw_success+1)/(mw_success+mw_fail+2)
++ * usedBonus    = usedExists ? usedBonusAmount : 0
++ * heat         = clamp(recencySpine * worthMult + usedBonus, 0, 1)
++ * ```
++ * `decayEnabled === false` (handled by the caller) simply skips wiring the
++ * provider → eviction reverts to FIFO (the disable path is a first-class
++ * invariant; this module is only consulted when decay is on).
++ */
++
++import {
++  MS_PER_DAY,
++  DEFAULT_DECAY_HALFLIFE_DAYS,
++  DEFAULT_DECAY_WORTH_WEIGHT,
++  DEFAULT_DECAY_USED_BONUS,
++} from "../constants.js";
++
++/** Inputs to `computeHeat`. Dates are flexible strings (ISO or date-only). */
++export interface HeatInput {
++  /** Most-recent reference date (ISO or "YYYY-MM-DD"). Falls back to `created`,
++   *  then epoch. Invalid → epoch (heat → 0). */
++  lastReferenced?: string;
++  /** Creation date (ISO or "YYYY-MM-DD"). Used when `lastReferenced` is absent. */
++  created?: string;
++  /** Memory-worth success count (recall confirmed). Laplace numerator-1. */
++  mwSuccess: number;
++  /** Memory-worth fail count (recall missed / corrected). Laplace denominator. */
++  mwFail: number;
++  /** True if any `session_assembly` row for this entry has `used_at` (#06). */
++  usedExists: boolean;
++  /** Wall-clock reference for age computation (injected for determinism). */
++  now: Date;
++}
++
++/** Resolved decay knobs — normalized from a raw MemoryConfig subset. */
++export interface DecayConfig {
++  /** Recency-exp halflife in days. */
++  halflifeDays: number;
++  /** Worth multiplier weight (0..1). */
++  worthWeight: number;
++  /** Heat bonus for ever-used entries. */
++  usedBonus: number;
++}
++
++/**
++ * Resolve decay config knobs from a raw config subset, filling the
++ * `DEFAULT_DECAY_*` defaults for absent fields. Pure; shared by the scoring
++ * core and the index.ts provider wiring (T3).
++ */
++export function resolveDecayConfig(config: {
++  decayHalflifeDays?: number;
++  decayWorthWeight?: number;
++  decayUsedBonus?: number;
++}): DecayConfig {
++  return {
++    halflifeDays: config.decayHalflifeDays ?? DEFAULT_DECAY_HALFLIFE_DAYS,
++    worthWeight: config.decayWorthWeight ?? DEFAULT_DECAY_WORTH_WEIGHT,
++    usedBonus: config.decayUsedBonus ?? DEFAULT_DECAY_USED_BONUS,
++  };
++}
++
++/**
++ * Parse a flexible date string (full ISO 8601 or date-only "YYYY-MM-DD") into a
++ * `Date`. Tolerant: an empty/invalid value falls back to **epoch** (timestamp
++ * 0), which yields a huge age → `recencySpine → 0` → `heat → 0` (a stale /
++ * undated entry is treated as maximally cold, never maximally hot). This is
++ * the safe direction — an undateable date must never inflate heat.
++ *
++ * Note: this fallback applies to a SINGLE resolved string. The higher-level
++ * date fallback chain (lastReferenced → created → epoch-literal) lives in
++ * `computeHeat` via the `??` operator: `lastReferenced ?? created ?? "1970-01-01"`.
++ * So an invalid-but-present `lastReferenced` does NOT fall through to `created`
++ * — it resolves to epoch (heat 0). This matches the spec's `??` chain.
++ */
++function parseDate(value: string | undefined): Date {
++  if (!value) return new Date(0); // epoch
++  const d = new Date(value);
++  if (Number.isNaN(d.getTime())) return new Date(0); // invalid → epoch (heat → 0)
++  return d;
++}
++
++function clamp(x: number, lo: number, hi: number): number {
++  if (x < lo) return lo;
++  if (x > hi) return hi;
++  return x;
++}
++
++/**
++ * Compute the per-entry heat score ∈ [0, 1] (higher = hotter = spared from
++ * eviction). Pure + deterministic given a fixed `now`.
++ *
++ * Date fallback: `lastReferenced ?? created ?? "1970-01-01"` (epoch), then
++ * `parseDate` maps any invalid/empty value in that slot to epoch → age huge →
++ * heat → 0.
++ */
++export function computeHeat(input: HeatInput, cfg: DecayConfig): number {
++  // ageDays ≥ 0 (a future-dated entry clamps to age 0, i.e. maximally fresh).
++  const anchor = input.lastReferenced ?? input.created ?? "1970-01-01";
++  const ageDays = Math.max(0, (input.now.getTime() - parseDate(anchor).getTime()) / MS_PER_DAY);
++
++  const recencySpine = Math.exp(-ageDays / cfg.halflifeDays);
++
++  // Laplace-smoothed recall success rate; neutral 0.5 at zero evidence.
++  const laplace = (input.mwSuccess + 1) / (input.mwSuccess + input.mwFail + 2);
++
++  // Worth multiplier: ± around 1.0 based on recall success vs neutral 0.5.
++  const worthMult = 1 + cfg.worthWeight * (laplace - 0.5);
++
++  const usedBonus = input.usedExists ? cfg.usedBonus : 0;
++
++  return clamp(recencySpine * worthMult + usedBonus, 0, 1);
++}
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/types.ts b/bun-apps/pi-agent-ext-hermes-memory/src/types.ts
+index 97e9f61b..313b8b0d 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/types.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/types.ts
+@@ -99,20 +99,36 @@ export interface MemoryConfig {
+   worthScoring?: boolean;
+   /** Min normalized fragment length (chars) for an entry to earn a "used"
+    *  signature (UPSP §9 / ticket #06). Entries whose longest fragment is
+    *  shorter are surfaced but never credited as "used" — too generic to
+    *  attribute. Default: 24. */
+   usedSignatureMinChars?: number;
+   /** Detect "used" surfaced entries by content-signature match at turn_end and
+    *  stamp `used_at` on the matched assembly rows (UPSP §9 / ticket #06).
+    *  INDEPENDENT of `worthScoring`. Default: true (set `false` to disable). */
+   usedDetection?: boolean;
++  /** Per-entry heat decay (UPSP §1 / ticket #1b). When true, eviction victim
++   *  selection prefers lowest-heat non-pinned entries (stale-unused first,
++   *  used+high-worth spared last). When false, eviction reverts to FIFO/file
++   *  order — the disable path is a first-class, byte-identical-parity
++   *  invariant. Default: true. */
++  decayEnabled?: boolean;
++  /** Recency-exp halflife in days for heat decay (UPSP §1 / ticket #1b).
++   *  recencySpine = exp(-ageDays / halflifeDays). Default: 14. */
++  decayHalflifeDays?: number;
++  /** Worth multiplier weight (0..1) for heat decay (UPSP §1 / ticket #1b).
++   *  worthMult = 1 + worthWeight * (laplace - 0.5); neutral 1.0 at laplace 0.5.
++   *  Default: 0.15. */
++  decayWorthWeight?: number;
++  /** Heat bonus added for ever-used entries (UPSP §1 / ticket #1b). A small
++   *  relative nudge; recency spine still drives staleness. Default: 0.1. */
++  decayUsedBonus?: number;
+   /** Auto-supersede a recalled memory when a correction contradicts it (judge-gated).
+    *  Default: false (opt-in — supersession hides the prior from search). */
+   autoSupersede?: boolean;
+   /** Per-session errorCapture rate limit (0 = unlimited). #854 */
+   errorCaptureRateLimit?: number;
+   /** errorCapture sliding-window length in ms. #854 */
+   errorCaptureRateWindowMs?: number;
+   /** errorCapture this-session dedup LRU capacity (0 = no fast-path). #854 */
+   errorCaptureDedupCacheSize?: number;
+   /** Override strong correction regex sources. Missing = defaults; [] = none. */
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/config.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/config.test.ts
+index 8dbdcb7d..6424ff25 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/tests/config.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/config.test.ts
+@@ -484,20 +484,61 @@ describe("loadConfig", () => {
+   it("ignores invalid usedDetection / usedSignatureMinChars values (non-boolean / negative)", () => {
+     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
+     fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
+       usedDetection: "off",
+       usedSignatureMinChars: -5,
+     }));
+     const config = loadConfig(TEST_CONFIG_PATH);
+     assert.strictEqual(config.usedDetection, true);
+     assert.strictEqual(config.usedSignatureMinChars, 24);
+   });
++
++  // ─── Decay (ticket #1b / UPSP §1) — the full config surface, the #06
++  // config-gap lesson baked in: a config-file value MUST reach the consumer
++  // object; missing/invalid falls back to the DEFAULT_CONFIG defaults. ───
++  it("carries all four decay fields through from the config file", () => {
++    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
++    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
++      decayEnabled: false,
++      decayHalflifeDays: 30,
++      decayWorthWeight: 0.2,
++      decayUsedBonus: 0.05,
++    }));
++    const config = loadConfig(TEST_CONFIG_PATH);
++    assert.strictEqual(config.decayEnabled, false);
++    assert.strictEqual(config.decayHalflifeDays, 30);
++    assert.strictEqual(config.decayWorthWeight, 0.2);
++    assert.strictEqual(config.decayUsedBonus, 0.05);
++  });
++
++  it("defaults decay fields to true / 14 / 0.15 / 0.1 when unset", () => {
++    const config = loadConfig(TEST_CONFIG_PATH);
++    assert.strictEqual(config.decayEnabled, true);
++    assert.strictEqual(config.decayHalflifeDays, 14);
++    assert.strictEqual(config.decayWorthWeight, 0.15);
++    assert.strictEqual(config.decayUsedBonus, 0.1);
++  });
++
++  it("ignores invalid decay values (non-boolean / negative) and falls back to defaults", () => {
++    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
++    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
++      decayEnabled: "off",
++      decayHalflifeDays: -1,
++      decayWorthWeight: -0.5,
++      decayUsedBonus: "high",
++    }));
++    const config = loadConfig(TEST_CONFIG_PATH);
++    assert.strictEqual(config.decayEnabled, true);
++    assert.strictEqual(config.decayHalflifeDays, 14);
++    assert.strictEqual(config.decayWorthWeight, 0.15);
++    assert.strictEqual(config.decayUsedBonus, 0.1);
++  });
+ });
+ 
+ describe("config dbBackend", () => {
+   it("defaults to sqlite when unset", () => {
+     const cfg = loadConfig(path.join(os.tmpdir(), `hm-cfg-${Date.now()}.json`));
+     assert.strictEqual(cfg.dbBackend, "sqlite");
+   });
+   it("parses dbBackend: surrealdb and surreal connection overrides", () => {
+     const p = path.join(os.tmpdir(), `hm-cfg-${Date.now()}.json`);
+     fs.writeFileSync(p, JSON.stringify({
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/store/heat.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/store/heat.test.ts
+new file mode 100644
+index 00000000..de54b15e
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/store/heat.test.ts
+@@ -0,0 +1,317 @@
++import { describe, it } from "bun:test";
++import assert from "node:assert";
++import {
++  computeHeat,
++  resolveDecayConfig,
++  type HeatInput,
++  type DecayConfig,
++} from "../../src/store/heat.js";
++import {
++  DEFAULT_DECAY_HALFLIFE_DAYS,
++  DEFAULT_DECAY_WORTH_WEIGHT,
++  DEFAULT_DECAY_USED_BONUS,
++} from "../../src/constants.js";
++
++// Fixed "now" anchor for all date math — deterministic, TZ-stable (full ISO
++// timestamps avoid date-only UTC/local ambiguity). 2024-06-15T12:00:00Z.
++const NOW = new Date("2024-06-15T12:00:00Z");
++
++// The canonical default config (mirrors DEFAULT_DECAY_* in constants.ts).
++const DEFAULT_CFG: DecayConfig = resolveDecayConfig({});
++
++// A neutral baseline entry: age 0, laplace 0.5 (worthMult 1), never used.
++function neutralInput(overrides: Partial<HeatInput> = {}): HeatInput {
++  return {
++    lastReferenced: "2024-06-15T12:00:00Z", // age 0
++    created: "2024-06-15T12:00:00Z",
++    mwSuccess: 0,
++    mwFail: 0, // laplace = 1/2 = 0.5 → worthMult = 1
++    usedExists: false,
++    now: NOW,
++    ...overrides,
++  };
++}
++
++const EPS = 1e-9;
++
++describe("computeHeat — recency spine (exp(-age/halflife))", () => {
++  it("age 0 → recencySpine 1 → heat 1 (neutral worthMult, no used bonus)", () => {
++    const heat = computeHeat(neutralInput(), DEFAULT_CFG);
++    assert.ok(Math.abs(heat - 1) < EPS, `age-0 neutral heat should be 1.0, got ${heat}`);
++  });
++
++  it("age = halflife → recencySpine ≈ exp(-1) ≈ 0.368", () => {
++    // age exactly one halflife (default 14 days): spine = e^-1
++    const age = DEFAULT_DECAY_HALFLIFE_DAYS; // 14
++    const lastReferenced = new Date(NOW.getTime() - age * 86_400_000).toISOString();
++    const heat = computeHeat(neutralInput({ lastReferenced }), DEFAULT_CFG);
++    assert.ok(
++      Math.abs(heat - Math.exp(-1)) < EPS,
++      `heat at one halflife should be e^-1 (${Math.exp(-1)}), got ${heat}`,
++    );
++  });
++
++  it("large age → recencySpine → 0 (heat ≈ 0, no used bonus)", () => {
++    // 1000 days old → exp(-1000/14) ≈ 1e-31, effectively 0
++    const lastReferenced = new Date(NOW.getTime() - 1000 * 86_400_000).toISOString();
++    const heat = computeHeat(neutralInput({ lastReferenced }), DEFAULT_CFG);
++    assert.ok(heat < 1e-10, `huge-age heat should be ≈0, got ${heat}`);
++  });
++
++  it("recencySpine is monotonically decreasing as age grows", () => {
++    const ages = [0, 1, 3, 7, 14, 30, 60, 90];
++    const heats = ages.map((days) => {
++      const lastReferenced = new Date(NOW.getTime() - days * 86_400_000).toISOString();
++      return computeHeat(neutralInput({ lastReferenced }), DEFAULT_CFG);
++    });
++    for (let i = 1; i < heats.length; i++) {
++      assert.ok(
++        heats[i] < heats[i - 1],
++        `heat not monotonic decreasing: age ${ages[i - 1]}→${ages[i]}: ${heats[i - 1]} → ${heats[i]}`,
++      );
++    }
++  });
++});
++
++describe("computeHeat — worth multiplier (1 + worthWeight*(laplace - 0.5))", () => {
++  it("laplace > 0.5 (mwSuccess ≫ mwFail) → worthMult > 1 → higher heat than neutral", () => {
++    const base = computeHeat(
++      neutralInput({ lastReferenced: new Date(NOW.getTime() - 7 * 86_400_000).toISOString() }),
++      DEFAULT_CFG,
++    );
++    const highWorth = computeHeat(
++      neutralInput({
++        lastReferenced: new Date(NOW.getTime() - 7 * 86_400_000).toISOString(),
++        mwSuccess: 100,
++        mwFail: 0,
++      }),
++      DEFAULT_CFG,
++    );
++    assert.ok(highWorth > base, `high-worth should beat neutral at same age (${highWorth} > ${base})`);
++    // laplace = 101/102 ≈ 0.9902 → worthMult = 1 + 0.15*(0.4902) ≈ 1.0735 > 1
++    const laplace = 101 / 102;
++    const expectedMult = 1 + DEFAULT_DECAY_WORTH_WEIGHT * (laplace - 0.5);
++    assert.ok(expectedMult > 1, "sanity: expected worthMult > 1");
++  });
++
++  it("laplace < 0.5 (mwSuccess ≪ mwFail) → worthMult < 1 → lower heat than neutral", () => {
++    const base = computeHeat(
++      neutralInput({ lastReferenced: new Date(NOW.getTime() - 7 * 86_400_000).toISOString() }),
++      DEFAULT_CFG,
++    );
++    const lowWorth = computeHeat(
++      neutralInput({
++        lastReferenced: new Date(NOW.getTime() - 7 * 86_400_000).toISOString(),
++        mwSuccess: 0,
++        mwFail: 100,
++      }),
++      DEFAULT_CFG,
++    );
++    assert.ok(lowWorth < base, `low-worth should lose to neutral at same age (${lowWorth} < ${base})`);
++    // laplace = 1/102 ≈ 0.0098 → worthMult = 1 + 0.15*(-0.4902) ≈ 0.9265 < 1
++    const laplace = 1 / 102;
++    const expectedMult = 1 + DEFAULT_DECAY_WORTH_WEIGHT * (laplace - 0.5);
++    assert.ok(expectedMult < 1, "sanity: expected worthMult < 1");
++  });
++
++  it("laplace == 0.5 (equal counts OR both zero) → worthMult == 1 (neutral)", () => {
++    // both zero
++    const bothZero = computeHeat(neutralInput({ mwSuccess: 0, mwFail: 0 }), DEFAULT_CFG);
++    assert.ok(Math.abs(bothZero - 1) < EPS, `both-zero (age 0) → heat 1.0, got ${bothZero}`);
++    // equal non-zero
++    const equal = computeHeat(neutralInput({ mwSuccess: 50, mwFail: 50 }), DEFAULT_CFG);
++    assert.ok(Math.abs(equal - 1) < EPS, `equal counts (age 0) → heat 1.0, got ${equal}`);
++  });
++
++  it("worthMult formula matches the spec exactly at a known laplace", () => {
++    // mwSuccess 9, mwFail 1 → laplace = 10/12 = 0.8333. Use a mid-range age
++    // (recencySpine 0.5) so the product stays UNDER the clamp cap and the raw
++    // worthMult is observable (age 0 would clamp 1.05 → 1.0 and hide it).
++    const age = 14 * Math.log(2); // exp(-age/14) = 0.5
++    const lastReferenced = new Date(NOW.getTime() - age * 86_400_000).toISOString();
++    const heat = computeHeat(neutralInput({ lastReferenced, mwSuccess: 9, mwFail: 1 }), DEFAULT_CFG);
++    const laplace = 10 / 12;
++    const expected = 0.5 * (1 + DEFAULT_DECAY_WORTH_WEIGHT * (laplace - 0.5));
++    assert.ok(Math.abs(heat - expected) < EPS, `heat ${heat} vs expected ${expected}`);
++  });
++});
++
++describe("computeHeat — used bonus", () => {
++  it("usedExists: true adds exactly cfg.usedBonus (at a mid-range age so it stays under the cap)", () => {
++    // Pick an age where recencySpine ≈ 0.5 so 0.5 + 0.1 = 0.6 (unclamped, observable).
++    // age where exp(-age/14) = 0.5 → age = 14*ln2 ≈ 9.704.
++    const age = 14 * Math.log(2);
++    const lastReferenced = new Date(NOW.getTime() - age * 86_400_000).toISOString();
++    const unused = computeHeat(neutralInput({ lastReferenced, usedExists: false }), DEFAULT_CFG);
++    const used = computeHeat(neutralInput({ lastReferenced, usedExists: true }), DEFAULT_CFG);
++    assert.ok(Math.abs(used - unused - DEFAULT_DECAY_USED_BONUS) < EPS,
++      `used bonus should be exactly ${DEFAULT_DECAY_USED_BONUS}, got ${used - unused}`);
++  });
++
++  it("usedExists: false adds exactly 0 (heat equals recencySpine*worthMult)", () => {
++    const age = 14 * Math.log(2);
++    const lastReferenced = new Date(NOW.getTime() - age * 86_400_000).toISOString();
++    const heat = computeHeat(neutralInput({ lastReferenced, usedExists: false }), DEFAULT_CFG);
++    assert.ok(Math.abs(heat - 0.5) < EPS, `unused mid-age heat should be 0.5, got ${heat}`);
++  });
++});
++
++describe("computeHeat — clamp [0, 1]", () => {
++  it("cap: age 0, laplace 1, used true → raw > 1 → clamped to exactly 1", () => {
++    // raw = recencySpine(1) * worthMult(1+0.15*0.5=1.075) + usedBonus(0.1) = 1.175 → clamp 1
++    const heat = computeHeat(
++      neutralInput({ mwSuccess: 1_000_000, mwFail: 0, usedExists: true }),
++      DEFAULT_CFG,
++    );
++    assert.strictEqual(heat, 1, `capped heat should be exactly 1, got ${heat}`);
++  });
++
++  it("floor: a config producing a negative raw value clamps to exactly 0", () => {
++    // worthWeight large enough to make worthMult negative at laplace 0:
++    // worthMult = 1 + W*(-0.5); with W=3 → -0.5. age 0 → recencySpine 1, used false.
++    // raw = 1 * -0.5 + 0 = -0.5 → clamp 0.
++    const cfg: DecayConfig = { halflifeDays: 14, worthWeight: 3, usedBonus: 0.1 };
++    const heat = computeHeat(neutralInput({ mwSuccess: 0, mwFail: 1_000_000 }), cfg);
++    assert.strictEqual(heat, 0, `negative-raw heat should clamp to exactly 0, got ${heat}`);
++  });
++
++  it("output is always within [0, 1] across a sweep of inputs", () => {
++    for (const mwSuccess of [0, 1, 10, 1000]) {
++      for (const mwFail of [0, 1, 10, 1000]) {
++        for (const used of [false, true]) {
++          for (const ageDays of [0, 1, 7, 14, 100]) {
++            const lastReferenced = new Date(NOW.getTime() - ageDays * 86_400_000).toISOString();
++            const heat = computeHeat(
++              neutralInput({ mwSuccess, mwFail, usedExists: used, lastReferenced }),
++              DEFAULT_CFG,
++            );
++            assert.ok(heat >= 0 && heat <= 1, `heat out of [0,1]: ${heat} (s/${mwSuccess} f/${mwFail} u/${used} a/${ageDays})`);
++          }
++        }
++      }
++    }
++  });
++});
++
++describe("computeHeat — missing-dates fallback chain (last → created → epoch)", () => {
++  it("lastReferenced present → used (created ignored even if older)", () => {
++    const heatLastRecent = computeHeat(
++      neutralInput({
++        lastReferenced: "2024-06-15T12:00:00Z", // today → age 0 → heat 1
++        created: "2000-01-01T00:00:00Z",          // ancient, must be ignored
++      }),
++      DEFAULT_CFG,
++    );
++    assert.ok(Math.abs(heatLastRecent - 1) < EPS, `lastReferenced should win, got ${heatLastRecent}`);
++  });
++
++  it("lastReferenced absent, created present → created is used", () => {
++    // created today → age 0 → heat 1
++    const heat = computeHeat(
++      neutralInput({ lastReferenced: undefined, created: "2024-06-15T12:00:00Z" }),
++      DEFAULT_CFG,
++    );
++    assert.ok(Math.abs(heat - 1) < EPS, `created fallback should give age-0 heat 1, got ${heat}`);
++    // created ancient → heat ≈ 0
++    const heatOld = computeHeat(
++      neutralInput({ lastReferenced: undefined, created: "2000-01-01T00:00:00Z" }),
++      DEFAULT_CFG,
++    );
++    assert.ok(heatOld < 1e-10, `ancient created → heat ≈ 0, got ${heatOld}`);
++  });
++
++  it("both absent → epoch (1970) → age huge → heat ≈ 0", () => {
++    const heat = computeHeat(
++      neutralInput({ lastReferenced: undefined, created: undefined }),
++      DEFAULT_CFG,
++    );
++    assert.ok(heat < 1e-50, `both-absent (epoch) → heat ≈ 0, got ${heat}`);
++  });
++
++  it("tolerates both date-only (YYYY-MM-DD) and full ISO strings", () => {
++    // date-only: must parse (no throw). Use created = today date-only.
++    const todayDateOnly = NOW.toISOString().slice(0, 10); // "2024-06-15"
++    const heatDateOnly = computeHeat(
++      neutralInput({ lastReferenced: undefined, created: todayDateOnly }),
++      DEFAULT_CFG,
++    );
++    // date-only parses as UTC midnight; now is 12:00Z same day → age 0.5 day → spine ≈ exp(-0.5/14) ≈ 0.965
++    assert.ok(heatDateOnly > 0.95 && heatDateOnly <= 1, `date-only parsed heat in range, got ${heatDateOnly}`);
++    // full ISO still works (covered elsewhere) — assert no NaN
++    const heatIso = computeHeat(
++      neutralInput({ lastReferenced: "2024-06-15T12:00:00Z" }),
++      DEFAULT_CFG,
++    );
++    assert.ok(!Number.isNaN(heatIso), "ISO parse must not yield NaN");
++  });
++
++  it("invalid date string → treated as epoch → heat ≈ 0", () => {
++    const heat = computeHeat(
++      neutralInput({ lastReferenced: "not-a-date", created: undefined }),
++      DEFAULT_CFG,
++    );
++    assert.ok(heat < 1e-50, `invalid lastReferenced → epoch → heat ≈ 0, got ${heat}`);
++  });
++});
++
++describe("computeHeat — config knobs honored", () => {
++  it("larger halflife → slower decay → higher heat at the same age", () => {
++    const ageDays = 14;
++    const lastReferenced = new Date(NOW.getTime() - ageDays * 86_400_000).toISOString();
++    const shortHl = computeHeat(neutralInput({ lastReferenced }), { halflifeDays: 14, worthWeight: 0.15, usedBonus: 0.1 });
++    const longHl = computeHeat(neutralInput({ lastReferenced }), { halflifeDays: 28, worthWeight: 0.15, usedBonus: 0.1 });
++    assert.ok(longHl > shortHl, `longer halflife should decay slower (${longHl} > ${shortHl})`);
++    // at age 14: halflife 14 → exp(-1); halflife 28 → exp(-0.5)
++    assert.ok(Math.abs(shortHl - Math.exp(-1)) < EPS);
++    assert.ok(Math.abs(longHl - Math.exp(-0.5)) < EPS);
++  });
++
++  it("larger worthWeight → wider spread between high/low worth", () => {
++    const ageDays = 7;
++    const lastReferenced = new Date(NOW.getTime() - ageDays * 86_400_000).toISOString();
++    const lowCfg = { halflifeDays: 14, worthWeight: 0.05, usedBonus: 0.1 };
++    const highCfg = { halflifeDays: 14, worthWeight: 0.5, usedBonus: 0.1 };
++    const spreadLow = computeHeat(neutralInput({ lastReferenced, mwSuccess: 100, mwFail: 0 }), lowCfg)
++      - computeHeat(neutralInput({ lastReferenced, mwSuccess: 0, mwFail: 100 }), lowCfg);
++    const spreadHigh = computeHeat(neutralInput({ lastReferenced, mwSuccess: 100, mwFail: 0 }), highCfg)
++      - computeHeat(neutralInput({ lastReferenced, mwSuccess: 0, mwFail: 100 }), highCfg);
++    assert.ok(spreadHigh > spreadLow, `larger worthWeight → wider spread (${spreadHigh} > ${spreadLow})`);
++  });
++
++  it("larger usedBonus → bigger used-vs-unused gap", () => {
++    const ageDays = 7;
++    const lastReferenced = new Date(NOW.getTime() - ageDays * 86_400_000).toISOString();
++    const smallBonus = { halflifeDays: 14, worthWeight: 0.15, usedBonus: 0.02 };
++    const bigBonus = { halflifeDays: 14, worthWeight: 0.15, usedBonus: 0.3 };
++    const gapSmall = computeHeat(neutralInput({ lastReferenced, usedExists: true }), smallBonus)
++      - computeHeat(neutralInput({ lastReferenced, usedExists: false }), smallBonus);
++    const gapBig = computeHeat(neutralInput({ lastReferenced, usedExists: true }), bigBonus)
++      - computeHeat(neutralInput({ lastReferenced, usedExists: false }), bigBonus);
++    assert.ok(gapBig > gapSmall, `larger usedBonus → bigger gap (${gapBig} > ${gapSmall})`);
++    assert.ok(Math.abs(gapSmall - 0.02) < EPS);
++    assert.ok(Math.abs(gapBig - 0.3) < EPS);
++  });
++});
++
++describe("resolveDecayConfig", () => {
++  it("returns the DEFAULT_DECAY_* defaults when all fields are absent", () => {
++    const cfg = resolveDecayConfig({});
++    assert.strictEqual(cfg.halflifeDays, DEFAULT_DECAY_HALFLIFE_DAYS);
++    assert.strictEqual(cfg.worthWeight, DEFAULT_DECAY_WORTH_WEIGHT);
++    assert.strictEqual(cfg.usedBonus, DEFAULT_DECAY_USED_BONUS);
++  });
++
++  it("respects provided values", () => {
++    const cfg = resolveDecayConfig({ decayHalflifeDays: 30, decayWorthWeight: 0.2, decayUsedBonus: 0.05 });
++    assert.strictEqual(cfg.halflifeDays, 30);
++    assert.strictEqual(cfg.worthWeight, 0.2);
++    assert.strictEqual(cfg.usedBonus, 0.05);
++  });
++
++  it("fills missing individual fields with their respective defaults", () => {
++    const cfg = resolveDecayConfig({ decayHalflifeDays: 21 });
++    assert.strictEqual(cfg.halflifeDays, 21);
++    assert.strictEqual(cfg.worthWeight, DEFAULT_DECAY_WORTH_WEIGHT);
++    assert.strictEqual(cfg.usedBonus, DEFAULT_DECAY_USED_BONUS);
++  });
++});

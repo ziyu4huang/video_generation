@@ -1,0 +1,399 @@
+# Review package: e41693124159d3ff0bdfb7272d961c97e30fd6b9..HEAD
+
+## Commits
+b2308cf4 feat(hermes): markUsed + used_at column on session_assembly (SQLite, UPSP §9)
+
+## Files changed
+ .../src/store/repository.ts                        |   6 +
+ .../src/store/sqlite/schema.ts                     |   4 +
+ .../src/store/sqlite/sqlite-backend.ts             |  14 ++
+ .../src/store/sqlite/sqlite-session-repo.ts        |  31 ++++
+ .../src/store/surreal/surreal-session-repo.ts      |   9 ++
+ .../tests/store/sqlite-session-repo.test.ts        | 159 +++++++++++++++++++++
+ 6 files changed, 223 insertions(+)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/repository.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/repository.ts
+index 83d643ed..ebae5e21 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/repository.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/repository.ts
+@@ -177,20 +177,26 @@ export interface SessionRepository {
+   indexChangedSessions(sessionsDir: string, options?: IncrementalIndexOptions): Promise<BulkIndexResult>;
+   upsertSessionFileMeta(filePath: string, sessionId: string, options?: { size?: number; mtimeMs?: number }): Promise<void>;
+   needsBackfill(sessionsDir: string, now?: number): Promise<boolean>;
+   touchBackfillTimestamp(timestamp?: string): Promise<void>;
+   searchSessions(query: string, options?: { project?: string | null; role?: "user" | "assistant" | "system"; limit?: number }): Promise<SessionSearchResult[]>;
+   getIndexedMessageCount(): Promise<number>;
+   getSessionStats(): Promise<SessionStats>;
+   /** Per-session prompt-provenance (UPSP §5): record the assembled md_id set + block hash.
+    *  Idempotent (re-call replaces). Best-effort: callers swallow throws. */
+   recordAssembly(sessionId: string, mdIds: readonly string[], hash: string): Promise<void>;
++  /** Per-session "used vs dropped" signal (UPSP §9, ticket #06): stamp `used_at` on the
++   *  surfaced assembly rows the agent's output actually referenced. Sets ONLY the
++   *  matched `(sessionId, mdId)` rows for that session; non-matched rows stay null.
++   *  Idempotent (a re-mark re-stamps / no-ops). Empty `mdIds` is a no-op. Best-effort:
++   *  callers swallow throws. NEVER touches `session_assembly_meta` or any other table. */
++  markUsed(sessionId: string, mdIds: readonly string[], usedAt: string): Promise<void>;
+ }
+ 
+ /**
+  * Backend lifecycle. NO getDb(), NO withCorruptionRecovery() — those are
+  * SQLite implementation details. Retry/corruption recovery is internal to
+  * each backend's repository methods.
+  */
+ export interface Backend {
+   init(): Promise<void>;
+   close(): Promise<void>;
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/schema.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/schema.ts
+index 10779aa6..6637657f 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/schema.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/schema.ts
+@@ -128,20 +128,24 @@ export const SCHEMA_SQL = `
+   -- UNIQUE treats NULLs as distinct, so un-backfilled rows coexist.
+   CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_md_id ON memories(md_id);
+ 
+   -- Per-session prompt-provenance (UPSP §5): one row per md_id assembled into a session's
+   -- memory block. FK-FREE by design — the sessions row is created later by deferred backfill,
+   -- so session_id is a plain join key, not an enforced FK. Composite PK dedupes; md_id index
+   -- backs "which sessions saw memory M?".
+   CREATE TABLE IF NOT EXISTS session_assembly (
+     session_id TEXT NOT NULL,
+     md_id TEXT NOT NULL,
++    -- UPSP §9 "used vs dropped" (ticket #06): null at capture (surfaced),
++    -- set to an ISO timestamp when the agent's output first references the
++    -- entry (used). Surfaced-but-never-used = used_at IS NULL.
++    used_at TEXT,
+     PRIMARY KEY (session_id, md_id)
+   );
+ 
+   CREATE INDEX IF NOT EXISTS idx_session_assembly_md_id ON session_assembly(md_id);
+ 
+   -- Per-session block hash (the receipt). Separate from sessions (NOT NULL project/cwd +
+   -- post-capture row creation make hash-on-sessions unreliable). One row per session.
+   CREATE TABLE IF NOT EXISTS session_assembly_meta (
+     session_id TEXT NOT NULL PRIMARY KEY,
+     hash TEXT NOT NULL,
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-backend.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-backend.ts
+index 1d849a82..80bfcd1b 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-backend.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-backend.ts
+@@ -688,20 +688,21 @@ export class SqliteBackend implements Backend {
+       || msg.includes('memories(category)')
+       || msg.includes('no such column: project')
+       || msg.includes('sessions(project)')
+       || msg.includes('memories(project)')
+       || msg.includes('no such column: md_id');
+   }
+ 
+   private ensureLegacySchemaColumns(db: DatabaseLike): void {
+     this.ensureMemoriesColumns(db);
+     this.ensureSessionsColumns(db);
++    this.ensureSessionAssemblyColumns(db);
+   }
+ 
+   private ensureMemoriesColumns(db: DatabaseLike): void {
+     const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memories'").get() as { name: string } | undefined;
+     if (!tableExists) return;
+ 
+     const names = this.getColumnNames(db, 'memories');
+ 
+     if (!names.has('project')) {
+       db.exec('ALTER TABLE memories ADD COLUMN project TEXT');
+@@ -743,20 +744,33 @@ export class SqliteBackend implements Backend {
+       db.exec("ALTER TABLE memories ADD COLUMN state TEXT NOT NULL DEFAULT 'active'");
+     }
+     if (!names.has('severity')) {
+       db.exec('ALTER TABLE memories ADD COLUMN severity INTEGER');
+     }
+     if (!names.has('pin')) {
+       db.exec('ALTER TABLE memories ADD COLUMN pin INTEGER NOT NULL DEFAULT 0');
+     }
+   }
+ 
++  /** UPSP §9 (#06): add `used_at` to a pre-existing `session_assembly` table
++   *  (created by #05 without the column). Fresh installs already get it via
++   *  SCHEMA_SQL; this ALTER only fires for DBs that predate this task.
++   *  Idempotent by the column-presence guard — NOT try/catch (mirrors
++   *  `ensureMemoriesColumns`). */
++  private ensureSessionAssemblyColumns(db: DatabaseLike): void {
++    if (!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session_assembly'").get()) return;
++    const names = this.getColumnNames(db, 'session_assembly');
++    if (!names.has('used_at')) {
++      db.exec('ALTER TABLE session_assembly ADD COLUMN used_at TEXT');
++    }
++  }
++
+   private ensureSessionsColumns(db: DatabaseLike): void {
+     const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'").get() as { name: string } | undefined;
+     if (!tableExists) return;
+ 
+     const names = this.getColumnNames(db, 'sessions');
+     if (!names.has('project')) {
+       db.exec('ALTER TABLE sessions ADD COLUMN project TEXT');
+     }
+ 
+     this.backfillSessionsProject(db);
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-session-repo.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-session-repo.ts
+index ec5c1091..30913ca2 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-session-repo.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-session-repo.ts
+@@ -742,20 +742,51 @@ export class SqliteSessionRepository implements SessionRepository {
+         // lands atomically when a real driver is present.
+         if (db.transaction) {
+           db.transaction(write)();
+         } else {
+           write();
+         }
+       }),
+     );
+   }
+ 
++  // -------------------------------------------------------------------------
++  // markUsed — UPSP §9 "used vs dropped" signal (stamp used_at on referenced rows).
++  // ------------------------------------------------------------------------
++
++  /**
++   * UPDATE in place: stamp `usedAt` on the surfaced `(sessionId, mdId)` rows
++   * the agent's output actually referenced. Sets ONLY matched rows for that
++   * session; non-matched rows stay null. Idempotent (a re-mark re-stamps).
++   * Empty `mdIds` is a no-op (skips the query). NEVER touches
++   * `session_assembly_meta` or any other table. Mirrors `recordAssembly`'s
++   * transient-retry + corruption-recovery safety envelope.
++   */
++  async markUsed(
++    sessionId: string,
++    mdIds: readonly string[],
++    usedAt: string,
++  ): Promise<void> {
++    await runWithTransientRetry(() =>
++      this.backend.withCorruptionRecovery(() => {
++        if (mdIds.length === 0) return;
++        const db = this.backend.getDb();
++        // Dynamic `?` placeholders — never string-interpolate ids (injection-safe;
++        // matches the searchSessions binding style). matched-rows-only by the
++        // WHERE (session_id AND md_id IN …) filter; other tables untouched.
++        const placeholders = mdIds.map(() => "?").join(", ");
++        const sql = `UPDATE session_assembly SET used_at = ? WHERE session_id = ? AND md_id IN (${placeholders})`;
++        db.prepare(sql).run(usedAt, sessionId, ...mdIds);
++      }),
++    );
++  }
++
+   // -------------------------------------------------------------------------
+   // getSessionStats — from getSessionStats.
+   // -------------------------------------------------------------------------
+ 
+   async getSessionStats(): Promise<SessionStats> {
+     return runWithTransientRetry(() =>
+       this.backend.withCorruptionRecovery(() => {
+         const totals = this.db.prepare(`
+           SELECT
+             (SELECT COUNT(*) FROM sessions) as sessions,
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/surreal-session-repo.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/surreal-session-repo.ts
+index 6c9ebaa1..a1049eaf 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/surreal-session-repo.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/surreal-session-repo.ts
+@@ -256,20 +256,29 @@ export class SurrealSessionRepository implements SessionRepository {
+     const unique = [...new Set(mdIds)];
+     if (unique.length === 0) return;
+     const params: Record<string, unknown> = { sid: sessionId };
+     const stmts = unique.map((id, i) => {
+       params[`m${i}`] = id;
+       return `CREATE session_assembly SET sessionId = $sid, mdId = $m${i};`;
+     });
+     await this.c.query(stmts.join("\n"), params);
+   }
+ 
++  // UPSP §9 (#06) — Surreal parity (SCHEMALESS UPDATE session_assembly SET
++  // usedAt = $now WHERE sessionId = $sid AND mdId IN $ids) is implemented in
++  // Task 4. This stub keeps the class's `implements SessionRepository`
++  // typecheck green after Task 3 added `markUsed` to the interface; existing
++  // Surreal tests never call it. Task 4 replaces it with the real UPDATE.
++  async markUsed(_sessionId: string, _mdIds: readonly string[], _usedAt: string): Promise<void> {
++    throw new Error("SurrealSessionRepository.markUsed is not implemented yet — see Task 4 of #06");
++  }
++
+   async getSessionStats(): Promise<SessionStats> {
+     const sess = await this.c.query<Array<{ count: number }>>(`SELECT count() AS count FROM sessions GROUP ALL;`);
+     const msg = await this.c.query<Array<{ count: number }>>(`SELECT count() AS count FROM messages GROUP ALL;`);
+     const projects = await this.c.query<Array<{ project: string | null; sessions: number }>>(
+       `SELECT project, count() AS sessions FROM sessions GROUP BY project;`,
+     );
+     return {
+       totalSessions: sess[0]?.count ?? 0,
+       totalMessages: msg[0]?.count ?? 0,
+       projects: projects.map((p) => ({ project: p.project ?? "", sessions: p.sessions ?? 0, messages: 0 })),
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/store/sqlite-session-repo.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/store/sqlite-session-repo.test.ts
+index a35458d4..9aff6eb9 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/tests/store/sqlite-session-repo.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/store/sqlite-session-repo.test.ts
+@@ -764,10 +764,169 @@ describe("SqliteSessionRepository.recordAssembly", () => {
+     expect(sids.map((r) => r.session_id)).toEqual(["sess-1"]);
+ 
+     // idempotent re-call replaces, does not duplicate:
+     await repo.recordAssembly("sess-1", ["m3"], "cafebabe");
+     const after = db.prepare("SELECT md_id FROM session_assembly WHERE session_id = ?").all("sess-1") as any[];
+     expect(after.map((r) => r.md_id)).toEqual(["m3"]);
+     const h2 = (db.prepare("SELECT hash FROM session_assembly_meta WHERE session_id = ?").get("sess-1") as any).hash;
+     expect(h2).toBe("cafebabe");
+   });
+ });
++
++// ---------------------------------------------------------------------------
++// markUsed (Task 3 of #06 — UPSP §9 "used vs dropped" signal, SQLite impl)
++// ---------------------------------------------------------------------------
++
++describe("SqliteSessionRepository.markUsed", () => {
++  let dir: string;
++  let backend: SqliteBackend;
++  let repo: SqliteSessionRepository;
++
++  beforeEach(async () => {
++    dir = mkdtempSync(join(tmpdir(), "hm-sess-"));
++    backend = new SqliteBackend(dir);
++    await backend.init();
++    repo = new SqliteSessionRepository(backend);
++  });
++
++  afterEach(() => {
++    backend.close();
++    rmSync(dir, { recursive: true, force: true });
++  });
++
++  it("sets used_at on matched rows only; non-matched rows stay null", async () => {
++    await repo.recordAssembly("sess-1", ["a", "b", "c"], "hash-1");
++    const now = "2026-08-02T12:00:00.000Z";
++    await repo.markUsed("sess-1", ["a", "c"], now);
++
++    const rows = backend
++      .getDb()
++      .prepare("SELECT md_id, used_at FROM session_assembly WHERE session_id = ? ORDER BY md_id")
++      .all("sess-1") as Array<{ md_id: string; used_at: string | null }>;
++    const byId = Object.fromEntries(rows.map((r) => [r.md_id, r.used_at]));
++    expect(byId["a"]).toBe(now);
++    expect(byId["c"]).toBe(now);
++    expect(byId["b"]).toBeNull();
++  });
++
++  it("is idempotent: a re-mark does not error and re-sets used_at", async () => {
++    await repo.recordAssembly("sess-1", ["a", "b"], "hash-1");
++    const t1 = "2026-08-02T12:00:00.000Z";
++    const t2 = "2026-08-02T13:00:00.000Z";
++    await repo.markUsed("sess-1", ["a"], t1);
++    // re-mark with the same value → no-op semantics, no error:
++    await expect(repo.markUsed("sess-1", ["a"], t1)).resolves.toBeUndefined();
++    // re-mark with a newer value → overwrites (monotonic stamp, allowed):
++    await repo.markUsed("sess-1", ["a"], t2);
++    const row = backend
++      .getDb()
++      .prepare("SELECT used_at FROM session_assembly WHERE session_id = ? AND md_id = ?")
++      .get("sess-1", "a") as { used_at: string };
++    expect(row.used_at).toBe(t2);
++    // the never-marked row stays null across both calls:
++    const other = backend
++      .getDb()
++      .prepare("SELECT used_at FROM session_assembly WHERE session_id = ? AND md_id = ?")
++      .get("sess-1", "b") as { used_at: string | null };
++    expect(other.used_at).toBeNull();
++  });
++
++  it("is a no-op on empty mdIds (no row touched)", async () => {
++    await repo.recordAssembly("sess-1", ["a", "b"], "hash-1");
++    await repo.markUsed("sess-1", [], "2026-08-02T12:00:00.000Z");
++    const rows = backend
++      .getDb()
++      .prepare("SELECT md_id, used_at FROM session_assembly WHERE session_id = ? ORDER BY md_id")
++      .all("sess-1") as Array<{ used_at: string | null }>;
++    expect(rows.every((r) => r.used_at === null)).toBe(true);
++  });
++
++  it("is a no-op for a session that has no assembly rows (no error)", async () => {
++    await expect(
++      repo.markUsed("no-such-session", ["a"], "2026-08-02T12:00:00.000Z"),
++    ).resolves.toBeUndefined();
++  });
++
++  it("marks only rows for the given session (a same-md_id row in another session is untouched)", async () => {
++    await repo.recordAssembly("sess-1", ["shared"], "hash-1");
++    await repo.recordAssembly("sess-2", ["shared"], "hash-2");
++    await repo.markUsed("sess-1", ["shared"], "2026-08-02T12:00:00.000Z");
++    const get = (sid: string) =>
++      (backend
++        .getDb()
++        .prepare("SELECT used_at FROM session_assembly WHERE session_id = ? AND md_id = ?")
++        .get(sid, "shared") as { used_at: string | null }).used_at;
++    expect(get("sess-1")).toBe("2026-08-02T12:00:00.000Z");
++    expect(get("sess-2")).toBeNull();
++  });
++
++  it("never touches session_assembly_meta, memories, or any other table", async () => {
++    const db = backend.getDb();
++    // Seed an unrelated memories row + the assembly meta so we can assert they survive untouched.
++    await repo.recordAssembly("sess-1", ["a", "b"], "hash-1");
++    const metaBefore = db.prepare("SELECT hash, captured_at FROM session_assembly_meta WHERE session_id = ?").get("sess-1") as any;
++    const memCountBefore = (db.prepare("SELECT COUNT(*) AS n FROM memories").get() as { n: number }).n;
++
++    await repo.markUsed("sess-1", ["a"], "2026-08-02T12:00:00.000Z");
++
++    const metaAfter = db.prepare("SELECT hash, captured_at FROM session_assembly_meta WHERE session_id = ?").get("sess-1") as any;
++    expect(metaAfter.hash).toBe(metaBefore.hash);
++    expect(metaAfter.captured_at).toBe(metaBefore.captured_at);
++    const memCountAfter = (db.prepare("SELECT COUNT(*) AS n FROM memories").get() as { n: number }).n;
++    expect(memCountAfter).toBe(memCountBefore);
++  });
++
++  it("fresh install: session_assembly has a used_at TEXT column after init", () => {
++    const cols = backend
++      .getDb()
++      .prepare("PRAGMA table_info(session_assembly)")
++      .all() as Array<{ name: string; type: string }>;
++    const col = cols.find((c) => c.name === "used_at");
++    expect(col).toBeDefined();
++    expect(col!.type).toBe("TEXT");
++  });
++
++  it("migration: adds used_at to a legacy session_assembly table on reopen; existing rows survive", async () => {
++    // Simulate a pre-#06 DB: session_assembly exists (from #05) but WITHOUT used_at.
++    const db = backend.getDb();
++    db.exec("DROP TABLE session_assembly");
++    db.exec(
++      `CREATE TABLE session_assembly (
++        session_id TEXT NOT NULL,
++        md_id TEXT NOT NULL,
++        PRIMARY KEY (session_id, md_id)
++      )`,
++    );
++    db.prepare("INSERT INTO session_assembly (session_id, md_id) VALUES (?, ?)").run("legacy-sess", "m9");
++    backend.close();
++
++    // Reopen the same dir → initializeSchema runs CREATE TABLE IF NOT EXISTS (no-op,
++    // table present) + ensureLegacySchemaColumns → ensureSessionAssemblyColumns → ALTER ADD COLUMN.
++    const reopened = new SqliteBackend(dir);
++    await reopened.init();
++    try {
++      const db2 = reopened.getDb();
++      const cols = db2.prepare("PRAGMA table_info(session_assembly)").all() as Array<{ name: string }>;
++      expect(cols.map((c) => c.name)).toContain("used_at");
++      // the pre-existing legacy row survived the migration, used_at defaulted to null:
++      const row = db2.prepare("SELECT md_id, used_at FROM session_assembly").get() as { md_id: string; used_at: null };
++      expect(row.md_id).toBe("m9");
++      expect(row.used_at).toBeNull();
++    } finally {
++      reopened.close();
++    }
++  });
++
++  it("migration is idempotent: reopening a DB that already has used_at does not error", async () => {
++    await repo.recordAssembly("sess-1", ["a"], "hash-1");
++    backend.close();
++    const reopened = new SqliteBackend(dir);
++    await expect(reopened.init()).resolves.toBeUndefined();
++    try {
++      const cols = reopened.getDb().prepare("PRAGMA table_info(session_assembly)").all() as Array<{ name: string }>;
++      const usedAtCount = cols.filter((c) => c.name === "used_at").length;
++      expect(usedAtCount).toBe(1); // not duplicated, exactly one column
++    } finally {
++      reopened.close();
++    }
++  });
++});

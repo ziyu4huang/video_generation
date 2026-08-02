@@ -1,0 +1,193 @@
+# Review package: b2308cf4..HEAD
+
+## Commits
+b05afec1 feat(hermes): Surreal markUsed parity (UPSP §9)
+
+## Files changed
+ .../src/store/surreal/surreal-session-repo.ts      |  30 ++++--
+ .../surreal/surreal-session-repo-contract.test.ts  | 111 +++++++++++++++++++++
+ 2 files changed, 134 insertions(+), 7 deletions(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/surreal-session-repo.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/surreal-session-repo.ts
+index a1049eaf..10a8b808 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/surreal-session-repo.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/surreal-session-repo.ts
+@@ -256,27 +256,43 @@ export class SurrealSessionRepository implements SessionRepository {
+     const unique = [...new Set(mdIds)];
+     if (unique.length === 0) return;
+     const params: Record<string, unknown> = { sid: sessionId };
+     const stmts = unique.map((id, i) => {
+       params[`m${i}`] = id;
+       return `CREATE session_assembly SET sessionId = $sid, mdId = $m${i};`;
+     });
+     await this.c.query(stmts.join("\n"), params);
+   }
+ 
+-  // UPSP §9 (#06) — Surreal parity (SCHEMALESS UPDATE session_assembly SET
+-  // usedAt = $now WHERE sessionId = $sid AND mdId IN $ids) is implemented in
+-  // Task 4. This stub keeps the class's `implements SessionRepository`
+-  // typecheck green after Task 3 added `markUsed` to the interface; existing
+-  // Surreal tests never call it. Task 4 replaces it with the real UPDATE.
+-  async markUsed(_sessionId: string, _mdIds: readonly string[], _usedAt: string): Promise<void> {
+-    throw new Error("SurrealSessionRepository.markUsed is not implemented yet — see Task 4 of #06");
++  // -------------------------------------------------------------------------
++  // markUsed — UPSP §9 "used vs dropped" signal (stamp usedAt on referenced
++  // rows). Surreal parity with the SQLite impl (Task 3); SCHEMALESS (no DDL).
++  // ------------------------------------------------------------------------
++
++  /**
++   * UPDATE in place: stamp `usedAt` on the surfaced `(sessionId, mdId)` rows
++   * the agent's output actually referenced. Sets ONLY matched rows for that
++   * session; non-matched rows stay without the field (Surreal is SCHEMALESS →
++   * absent ≈ null). Idempotent (a re-mark re-stamps). Empty `mdIds` is a no-op
++   * (skips the query). NEVER touches `session_assembly_meta` or any other
++   * table. `usedAt` (camelCase) matches the existing sessionId/mdId/capturedAt
++   * convention; `IN $ids` binds the array directly — the same idiom the
++   * surreal-memory-repo `seq NOT IN $seedSeqs` query uses (Surreal binds arrays
++   * to `IN $param`, unlike SQLite's dynamic `?` placeholders). The SurrealClient
++   * owns transient retry, so like `recordAssembly` there is no extra envelope.
++   */
++  async markUsed(sessionId: string, mdIds: readonly string[], usedAt: string): Promise<void> {
++    if (mdIds.length === 0) return;
++    await this.c.query(
++      `UPDATE session_assembly SET usedAt = $now WHERE sessionId = $sid AND mdId IN $ids;`,
++      { sid: sessionId, ids: mdIds, now: usedAt },
++    );
+   }
+ 
+   async getSessionStats(): Promise<SessionStats> {
+     const sess = await this.c.query<Array<{ count: number }>>(`SELECT count() AS count FROM sessions GROUP ALL;`);
+     const msg = await this.c.query<Array<{ count: number }>>(`SELECT count() AS count FROM messages GROUP ALL;`);
+     const projects = await this.c.query<Array<{ project: string | null; sessions: number }>>(
+       `SELECT project, count() AS sessions FROM sessions GROUP BY project;`,
+     );
+     return {
+       totalSessions: sess[0]?.count ?? 0,
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/store/surreal/surreal-session-repo-contract.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/store/surreal/surreal-session-repo-contract.test.ts
+index deaab36c..1581211a 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/tests/store/surreal/surreal-session-repo-contract.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/store/surreal/surreal-session-repo-contract.test.ts
+@@ -58,11 +58,122 @@ if (up) {
+         const after = await backend.client.query<Array<{ mdId: string }>>(
+           `SELECT mdId FROM session_assembly WHERE sessionId = $sid;`, { sid },
+         );
+         expect(after.map((r) => r.mdId)).toEqual(["m3"]);
+       } finally {
+         try { await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch {}
+         await backend.close();
+       }
+     });
+   });
++
++  describe("SurrealSessionRepository.markUsed", () => {
++    // UPSP §9 (#06, Task 4) — Surreal parity with the SQLite markUsed tests
++    // (sqlite-session-repo.test.ts). SCHEMALESS: a non-matched row never gets
++    // `usedAt` written, so the field is absent (SELECT serializes NONE → null).
++    // Fresh isolated ns + backend per test, mirroring recordAssembly's per-test
++    // uniqueNs + try/finally REMOVE NAMESPACE cleanup.
++    async function withRepo(
++      fn: (repo: SurrealSessionRepository, backend: SurrealBackend) => Promise<void>,
++    ): Promise<void> {
++      const ns = uniqueNs();
++      const backend = new SurrealBackend({ namespace: ns, database: ns });
++      await backend.init();
++      try {
++        await fn(new SurrealSessionRepository(backend), backend);
++      } finally {
++        try { await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch {}
++        await backend.close();
++      }
++    }
++
++    const selUsedAt = async (backend: SurrealBackend, sid: string): Promise<Record<string, string | null>> => {
++      const rows = await backend.client.query<Array<{ mdId: string; usedAt: string | null }>>(
++        `SELECT mdId, usedAt FROM session_assembly WHERE sessionId = $sid;`, { sid },
++      );
++      return Object.fromEntries(rows.map((r) => [r.mdId, r.usedAt]));
++    };
++
++    test("sets usedAt on matched rows only; non-matched rows stay null", async () => {
++      await withRepo(async (repo, backend) => {
++        const sid = "sess-surr-used-1";
++        await repo.recordAssembly(sid, ["a", "b", "c"], "hash-1");
++        const now = "2026-08-02T12:00:00.000Z";
++        await repo.markUsed(sid, ["a", "c"], now);
++
++        const byId = await selUsedAt(backend, sid);
++        expect(byId["a"]).toBe(now);
++        expect(byId["c"]).toBe(now);
++        // SCHEMALESS: the non-matched row never got usedAt written → field absent ≈ null.
++        expect(byId["b"]).toBeNull();
++      });
++    });
++
++    test("is idempotent: a re-mark does not error and re-stamps usedAt", async () => {
++      await withRepo(async (repo, backend) => {
++        const sid = "sess-surr-used-2";
++        await repo.recordAssembly(sid, ["a", "b"], "hash-1");
++        const t1 = "2026-08-02T12:00:00.000Z";
++        const t2 = "2026-08-02T13:00:00.000Z";
++        await repo.markUsed(sid, ["a"], t1);
++        // re-mark with the same value → no error (no-op semantics):
++        await expect(repo.markUsed(sid, ["a"], t1)).resolves.toBeUndefined();
++        // re-mark with a newer value → overwrites (monotonic stamp, allowed):
++        await repo.markUsed(sid, ["a"], t2);
++        const byId = await selUsedAt(backend, sid);
++        expect(byId["a"]).toBe(t2);
++        // the never-marked row stays null across all calls:
++        expect(byId["b"]).toBeNull();
++      });
++    });
++
++    test("is a no-op on empty mdIds (no row touched)", async () => {
++      await withRepo(async (repo, backend) => {
++        const sid = "sess-surr-used-3";
++        await repo.recordAssembly(sid, ["a", "b"], "hash-1");
++        await repo.markUsed(sid, [], "2026-08-02T12:00:00.000Z");
++        const byId = await selUsedAt(backend, sid);
++        expect(byId["a"]).toBeNull();
++        expect(byId["b"]).toBeNull();
++      });
++    });
++
++    test("is a no-op for a session that has no assembly rows (no error)", async () => {
++      await withRepo(async (repo) => {
++        await expect(
++          repo.markUsed("no-such-session", ["a"], "2026-08-02T12:00:00.000Z"),
++        ).resolves.toBeUndefined();
++      });
++    });
++
++    test("marks only rows for the given session (a same-mdId row in another session is untouched)", async () => {
++      await withRepo(async (repo, backend) => {
++        const s1 = "sess-surr-used-4a";
++        const s2 = "sess-surr-used-4b";
++        const now = "2026-08-02T12:00:00.000Z";
++        await repo.recordAssembly(s1, ["shared"], "hash-1");
++        await repo.recordAssembly(s2, ["shared"], "hash-2");
++        await repo.markUsed(s1, ["shared"], now);
++        const a = await selUsedAt(backend, s1);
++        const b = await selUsedAt(backend, s2);
++        expect(a["shared"]).toBe(now);
++        expect(b["shared"]).toBeNull();
++      });
++    });
++
++    test("never touches session_assembly_meta (hash/capturedAt survive)", async () => {
++      await withRepo(async (repo, backend) => {
++        const sid = "sess-surr-used-5";
++        await repo.recordAssembly(sid, ["a", "b"], "hash-1");
++        const metaBefore = await backend.client.query<Array<{ hash: string; capturedAt: string }>>(
++          `SELECT hash, capturedAt FROM session_assembly_meta WHERE sessionId = $sid LIMIT 1;`, { sid },
++        );
++        await repo.markUsed(sid, ["a"], "2026-08-02T12:00:00.000Z");
++        const metaAfter = await backend.client.query<Array<{ hash: string; capturedAt: string }>>(
++          `SELECT hash, capturedAt FROM session_assembly_meta WHERE sessionId = $sid LIMIT 1;`, { sid },
++        );
++        expect(metaAfter[0]?.hash).toBe(metaBefore[0]?.hash);
++        expect(metaAfter[0]?.capturedAt).toBe(metaBefore[0]?.capturedAt);
++      });
++    });
++  });
+ }

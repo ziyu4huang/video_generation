@@ -1,0 +1,175 @@
+# Review package: 0e3eab2f21205d3ce4529a3dd1f38407d57c5a0d..HEAD
+
+## Commits
+d2518d74 feat(hermes): SessionRepository.recordAssembly + SQLite impl
+
+## Files changed
+ .../src/store/repository.ts                        |  3 ++
+ .../src/store/sqlite/sqlite-session-repo.ts        | 50 ++++++++++++++++++++++
+ .../tests/store/sqlite-session-repo.test.ts        | 45 +++++++++++++++++++
+ 3 files changed, 98 insertions(+)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/repository.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/repository.ts
+index 4dfe7b03..83d643ed 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/repository.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/repository.ts
+@@ -174,20 +174,23 @@ export interface SessionStats {
+ export interface SessionRepository {
+   indexSession(session: { id: string; project?: string; cwd?: string; startedAt?: string; endedAt?: string | null; messages?: unknown[] }): Promise<IndexResult>;
+   indexAllSessions(sessionsDir: string, projectDir?: string): Promise<BulkIndexResult>;
+   indexChangedSessions(sessionsDir: string, options?: IncrementalIndexOptions): Promise<BulkIndexResult>;
+   upsertSessionFileMeta(filePath: string, sessionId: string, options?: { size?: number; mtimeMs?: number }): Promise<void>;
+   needsBackfill(sessionsDir: string, now?: number): Promise<boolean>;
+   touchBackfillTimestamp(timestamp?: string): Promise<void>;
+   searchSessions(query: string, options?: { project?: string | null; role?: "user" | "assistant" | "system"; limit?: number }): Promise<SessionSearchResult[]>;
+   getIndexedMessageCount(): Promise<number>;
+   getSessionStats(): Promise<SessionStats>;
++  /** Per-session prompt-provenance (UPSP §5): record the assembled md_id set + block hash.
++   *  Idempotent (re-call replaces). Best-effort: callers swallow throws. */
++  recordAssembly(sessionId: string, mdIds: readonly string[], hash: string): Promise<void>;
+ }
+ 
+ /**
+  * Backend lifecycle. NO getDb(), NO withCorruptionRecovery() — those are
+  * SQLite implementation details. Retry/corruption recovery is internal to
+  * each backend's repository methods.
+  */
+ export interface Backend {
+   init(): Promise<void>;
+   close(): Promise<void>;
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-session-repo.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-session-repo.ts
+index 5087a463..ec5c1091 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-session-repo.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-session-repo.ts
+@@ -692,20 +692,70 @@ export class SqliteSessionRepository implements SessionRepository {
+ 
+   async getIndexedMessageCount(): Promise<number> {
+     return runWithTransientRetry(() =>
+       this.backend.withCorruptionRecovery(() => {
+         const result = this.db.prepare("SELECT COUNT(*) as count FROM messages").get() as { count: number };
+         return result.count;
+       }),
+     );
+   }
+ 
++  // -------------------------------------------------------------------------
++  // recordAssembly — FK-free prompt-provenance (UPSP §5).
++  // ------------------------------------------------------------------------
++
++  /**
++   * Write one session's assembly rows (meta upsert + assembly set replace).
++   * Transaction-free: callers manage transaction boundaries (mirrors
++   * `writeSessionToDb`). FK-free: NEVER touches the `sessions` table — the
++   * sessions row is created later by deferred backfill, so `session_id` is a
++   * plain join key here, not a foreign key.
++   */
++  private writeAssemblyToDb(
++    db: DatabaseLike,
++    sessionId: string,
++    mdIds: readonly string[],
++    hash: string,
++  ): void {
++    const now = new Date().toISOString();
++    db.prepare(
++      "INSERT INTO session_assembly_meta (session_id, hash, captured_at) VALUES (?, ?, ?) " +
++        "ON CONFLICT(session_id) DO UPDATE SET hash = excluded.hash, captured_at = excluded.captured_at",
++    ).run(sessionId, hash, now);
++    db.prepare("DELETE FROM session_assembly WHERE session_id = ?").run(sessionId);
++    const ins = db.prepare(
++      "INSERT OR IGNORE INTO session_assembly (session_id, md_id) VALUES (?, ?)",
++    );
++    for (const id of mdIds) ins.run(sessionId, id);
++  }
++
++  async recordAssembly(
++    sessionId: string,
++    mdIds: readonly string[],
++    hash: string,
++  ): Promise<void> {
++    await runWithTransientRetry(() =>
++      this.backend.withCorruptionRecovery(() => {
++        const db = this.backend.getDb();
++        const write = () => this.writeAssemblyToDb(db, sessionId, mdIds, hash);
++        // `transaction` is optional on DatabaseLike (in-memory/test backends may
++        // omit it); mirror the indexSessionOnce guard so the assembly set still
++        // lands atomically when a real driver is present.
++        if (db.transaction) {
++          db.transaction(write)();
++        } else {
++          write();
++        }
++      }),
++    );
++  }
++
+   // -------------------------------------------------------------------------
+   // getSessionStats — from getSessionStats.
+   // -------------------------------------------------------------------------
+ 
+   async getSessionStats(): Promise<SessionStats> {
+     return runWithTransientRetry(() =>
+       this.backend.withCorruptionRecovery(() => {
+         const totals = this.db.prepare(`
+           SELECT
+             (SELECT COUNT(*) FROM sessions) as sessions,
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/store/sqlite-session-repo.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/store/sqlite-session-repo.test.ts
+index 328ceb65..a35458d4 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/tests/store/sqlite-session-repo.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/store/sqlite-session-repo.test.ts
+@@ -719,10 +719,55 @@ describe("session_assembly schema", () => {
+     expect(t1).toBeTruthy();
+     const t2 = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session_assembly_meta'").get();
+     expect(t2).toBeTruthy();
+ 
+     // FK-free by design: the sessions row is created later by deferred backfill, so
+     // session_id is a plain join key, NOT REFERENCES sessions(id).
+     const ddl = (db.prepare("SELECT sql FROM sqlite_master WHERE name='session_assembly'").get() as { sql: string }).sql;
+     expect(ddl).not.toContain("REFERENCES");
+   });
+ });
++
++// ---------------------------------------------------------------------------
++// recordAssembly (Task 4 — SessionRepository.recordAssembly + SQLite impl)
++// ---------------------------------------------------------------------------
++
++describe("SqliteSessionRepository.recordAssembly", () => {
++  let dir: string;
++  let backend: SqliteBackend;
++  let repo: SqliteSessionRepository;
++
++  beforeEach(async () => {
++    dir = mkdtempSync(join(tmpdir(), "hm-sess-"));
++    backend = new SqliteBackend(dir);
++    await backend.init();
++    repo = new SqliteSessionRepository(backend);
++  });
++
++  afterEach(() => {
++    backend.close();
++    rmSync(dir, { recursive: true, force: true });
++  });
++
++  it("writes one row per md_id + meta hash; idempotent; queryable by md_id (no sessions row needed)", async () => {
++    const db = backend.getDb();
++    // NOTE: no sessions row pre-inserted — capture runs before backfill creates it (FK-free).
++    await repo.recordAssembly("sess-1", ["m1", "m2", "m1"], "deadbeef");
++
++    const meta = db.prepare("SELECT hash FROM session_assembly_meta WHERE session_id = ?").get("sess-1") as any;
++    expect(meta.hash).toBe("deadbeef");
++
++    const rows = db.prepare("SELECT md_id FROM session_assembly WHERE session_id = ? ORDER BY md_id").all("sess-1") as any[];
++    expect(rows.map((r) => r.md_id)).toEqual(["m1", "m2"]); // deduped by PK
++
++    // headline query: md_id → sessions (LEFT JOIN sessions for project/cwd when indexed)
++    const sids = db.prepare("SELECT DISTINCT session_id FROM session_assembly WHERE md_id = ?").all("m1") as any[];
++    expect(sids.map((r) => r.session_id)).toEqual(["sess-1"]);
++
++    // idempotent re-call replaces, does not duplicate:
++    await repo.recordAssembly("sess-1", ["m3"], "cafebabe");
++    const after = db.prepare("SELECT md_id FROM session_assembly WHERE session_id = ?").all("sess-1") as any[];
++    expect(after.map((r) => r.md_id)).toEqual(["m3"]);
++    const h2 = (db.prepare("SELECT hash FROM session_assembly_meta WHERE session_id = ?").get("sess-1") as any).hash;
++    expect(h2).toBe("cafebabe");
++  });
++});

@@ -1,0 +1,486 @@
+# Review package: 8d658f82..HEAD
+
+## Commits
+1692d8aa feat(hermes): wire used-detection at session_start (UPSP §9 §5↔§9 join)
+
+## Files changed
+ .../src/handlers/session-assembly.ts               |  13 +
+ bun-apps/pi-agent-ext-hermes-memory/src/index.ts   |  39 ++-
+ .../integration/session-start-used-signal.test.ts  | 291 +++++++++++++++++++++
+ 3 files changed, 342 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/handlers/session-assembly.ts b/bun-apps/pi-agent-ext-hermes-memory/src/handlers/session-assembly.ts
+index 571d313b..003c5d52 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/handlers/session-assembly.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/handlers/session-assembly.ts
+@@ -26,29 +26,42 @@ export interface AssemblyReceipt {
+   signatures: { mdId: string; signature: string }[];
+ }
+ 
+ export interface CaptureAssemblyDeps {
+   /** Resolves the current session id; undefined/empty ⇒ no capture. */
+   getSessionId: () => string | undefined;
+   /** Builds the assembly receipt; null ⇒ nothing to prove (skip record). */
+   build: () => AssemblyReceipt | null;
+   /** Records the receipt; failures are swallowed by captureAssembly. */
+   record: (sessionId: string, mdIds: string[], hash: string) => Promise<void>;
++  /**
++   * Optional consumer of the SAME receipt that was just built + recorded
++   * (UPSP §9 / ticket #06, Task 6). Called exactly once, AFTER a successful
++   * `record`, only when `build` returned a non-null assembly — so anything the
++   * caller derives from the receipt (e.g. populating the surfaced-signature
++   * set) is guaranteed to mirror the mdIds just persisted (the §5↔§9 join).
++   * Additive + optional: #05 call sites that omit it are unaffected.
++   */
++  onReceipt?: (receipt: AssemblyReceipt) => void;
+ }
+ 
+ /**
+  * Run the once-per-session prompt-provenance capture. Idempotent at the store
+  * layer (recordAssembly re-call replaces). Returns whether a record landed.
+  */
+ export async function captureAssembly(deps: CaptureAssemblyDeps): Promise<boolean> {
+   try {
+     const sid = deps.getSessionId();
+     if (!sid) return false;
+     const assembly = deps.build();
+     if (!assembly) return false;
+     await deps.record(sid, assembly.mdIds, assembly.hash);
++    // Surface the same receipt AFTER the record landed, so the §5↔§9 join stays
++    // exact (the surfaced mdIds the matcher tracks == the mdIds just persisted).
++    // A throwing onReceipt is swallowed by the outer guard (never blocks startup).
++    deps.onReceipt?.(assembly);
+     return true;
+   } catch {
+     /* best-effort provenance; never block startup */
+     return false;
+   }
+ }
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/index.ts b/bun-apps/pi-agent-ext-hermes-memory/src/index.ts
+index 9e3a8b01..68e1bfa7 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/index.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/index.ts
+@@ -43,20 +43,21 @@ import { registerMemorySearchTool } from "./tools/memory-search-tool.js";
+ import { registerMemorySupersedeTool } from "./tools/memory-supersede-tool.js";
+ import { captureAssembly } from "./handlers/session-assembly.js";
+ import { setupBackgroundReview } from "./handlers/background-review.js";
+ import { setupSessionFlush } from "./handlers/session-flush.js";
+ import { setupCommitProjectMemory } from "./handlers/commit-project-memory.js";
+ import { registerInsightsCommand } from "./handlers/insights.js";
+ import { triggerConsolidation, registerConsolidateCommand, resolveConsolidatorModelLabel, produceMergePlan } from "./handlers/auto-consolidate.js";
+ import { setupCorrectionDetector } from "./handlers/correction-detector.js";
+ import { setupErrorDetector } from "./handlers/error-detector.js";
+ import { RecallSet, setupWorthScoring } from "./handlers/worth-scoring.js";
++import { SurfacedSignatureSet, setupUsedDetection } from "./handlers/used-detection.js";
+ import { registerSkillsCommand } from "./handlers/skills-command.js";
+ import { registerInterviewCommand } from "./handlers/interview.js";
+ import { registerSwitchProjectCommand } from "./handlers/switch-project.js";
+ import { registerIndexSessionsCommand } from "./handlers/index-sessions.js";
+ import { registerLearnMemoryCommand } from "./handlers/learn-memory.js";
+ import { registerSyncMarkdownMemoriesCommand, syncMarkdownMemories } from "./handlers/sync-markdown-memories.js";
+ import { registerSwitchBackendCommand } from "./handlers/switch-backend.js";
+ import { registerPreviewContextCommand } from "./handlers/preview-context.js";
+ import { loadConfig, shouldRunStartupSync } from "./config.js";
+ import { detectProject, detectProjectSkills, resolveProjectStoreDir } from "./project.js";
+@@ -164,20 +165,32 @@ export default async function (pi: ExtensionAPI) {
+     console.warn(`[hermes-memory] configured backend "${config.dbBackend}" failed to initialize — fell back to sqlite for this session. Start the server and /memory-switch-backend ${config.dbBackend} to restore.`);
+   }
+   // Swappable proxies: every tool/handler captured `memoryRepo`/`sessionRepo`
+   // at registration time. The proxy always delegates to the CURRENT bundle, so
+   // a live /memory-switch-backend swap is transparent downstream (zero
+   // signature changes) and in-flight background indexing follows the swap.
+   const memoryRepo: MemoryRepository = asSwappable<MemoryRepository>(() => currentBundle.memoryRepo);
+   const sessionRepo: SessionRepository = asSwappable<SessionRepository>(() => currentBundle.sessionRepo);
+   const sessionsDir = path.join(agentRoot, "sessions");
+ 
++  // UPSP §9 / ticket #06 (Task 6): per-session shared holders consumed across
++  // lifecycle boundaries. `activeSessionId` is set by the session_start handler
++  // below and read by setupUsedDetection's turn_end closure (which is bound at
++  // extension setup, before a ctx exists — hence the indirection).
++  // `surfacedSignatures` is populated at session_start from the SAME
++  // prompt-assembly receipt #05 records (the §5↔§9 join) and scanned at
++  // turn_end. Both are function-scoped: there is exactly one extension instance
++  // per process, and closures capture the binding by reference so the turn_end
++  // read sees the value session_start wrote.
++  let activeSessionId: string | undefined;
++  const surfacedSignatures = new SurfacedSignatureSet();
++
+   const refreshSkillProjectContext = (cwd?: string) => {
+     const resource = resolveProjectSkillDiscovery(skillStore, config.projectsMemoryDir, cwd);
+     return {
+       name: skillStore.getProjectName(),
+       skillsDir: skillStore.getProjectSkillsDir(),
+       resource,
+     };
+   };
+ 
+   // Keep project memory available for users upgrading from the old
+@@ -321,24 +334,36 @@ export default async function (pi: ExtensionAPI) {
+         } else {
+           console.info(message);
+         }
+       },
+     });
+ 
+     // Per-session prompt-provenance (UPSP §5): capture the assembled md_id set
+     // + block hash ONCE per session. Best-effort — never abort startup. Mirrors
+     // the backfillStableIds guard: a missing sid / null assembly (policy-only or
+     // empty store) skips the record; a throwing recordAssembly is swallowed.
++    //
++    // UPSP §9 / Task 6: bind the active session id (read by setupUsedDetection's
++    // turn_end closure) and hand captureAssembly an `onReceipt` callback that
++    // populates `surfacedSignatures` from the SAME receipt #05 just recorded —
++    // the §5↔§9 join invariant (one build feeds both record + the matcher). The
++    // populate is gated on `usedDetection !== false` (default on, INDEPENDENT of
++    // worthScoring): disabled ⇒ onReceipt is undefined ⇒ the set stays empty ⇒
++    // matchAndForget always returns [] ⇒ markUsed never fires.
++    activeSessionId = (ctx as { sessionManager?: { getSessionId?: () => string } }).sessionManager?.getSessionId?.();
+     await captureAssembly({
+-      getSessionId: () => (ctx as { sessionManager?: { getSessionId?: () => string } }).sessionManager?.getSessionId?.(),
++      getSessionId: () => activeSessionId,
+       build: () => buildPromptAssembly(config, store, projectStore, projectName),
+       record: (sid, mdIds, hash) => sessionRepo.recordAssembly(sid, mdIds, hash),
++      onReceipt: config.usedDetection !== false
++        ? (r) => surfacedSignatures.populate(r.signatures)
++        : undefined,
+     });
+   });
+ 
+   registerProjectSkillDiscoveryHandler(pi, skillStore, config.projectsMemoryDir);
+ 
+   // ── 2. Inject memory policy by default; legacy mode keeps full frozen memory blocks ──
+   pi.on("before_agent_start", async (event, _ctx) => {
+     const promptContext = await buildPromptContext(config, store, projectStore, projectName);
+ 
+     if (promptContext) {
+@@ -462,20 +487,32 @@ export default async function (pi: ExtensionAPI) {
+   // (setupWorthScoring drains + bumps mw_success/mw_fail at turn_end).
+   const recallSet = new RecallSet();
+   setupCorrectionDetector(pi, store, projectStore, config, memoryRepo, projectName, memoryToolDef);
+ 
+   // ── 8b. Setup lesson-worthy error capture (auto-trigger on tool failures) ──
+   setupErrorDetector(pi, store, projectStore, config, memoryRepo, projectName);
+ 
+   // ── 8c. Setup worth-scoring (drains recall-set at turn_end, bumps mw_success/mw_fail) ──
+   setupWorthScoring(pi, memoryRepo, recallSet, config);
+ 
++  // ── 8d. Setup used-detection (UPSP §9 / ticket #06) ──
++  // `surfacedSignatures` is populated at session_start (captureAssembly's
++  // onReceipt callback, see the session_start handler) from the SAME
++  // prompt-assembly receipt #05 recorded — the §5↔§9 join. This buffers the
++  // turn's assistant output and, at turn_end, scans it against the set +
++  // markUsed the matched rows. Wired unconditionally (mirrors setupWorthScoring
++  // — the populate gate above + the handler's own `enabled` flag together make
++  // it a clean no-op when usedDetection===false). DISTINCT from worth-scoring:
++  // that tracks *recalled* memory + turn outcome; this tracks *surfaced*
++  // (prompt-injected) memory the agent's output actually referenced.
++  setupUsedDetection(pi, sessionRepo, surfacedSignatures, config, () => activeSessionId ?? null);
++
+   // ── 9. Register commands ──
+   registerInsightsCommand(pi, store, projectStore, projectName);
+   registerSkillsCommand(pi, skillStore);
+   registerInterviewCommand(pi, store);
+   registerSwitchProjectCommand(pi, config);
+   registerLearnMemoryCommand(pi);
+   registerSyncMarkdownMemoriesCommand(pi, memoryRepo, globalDir, config.projectsMemoryDir, agentRoot, () => backendLabel, inRepoProjectFile, inRepoProjectName);
+   registerPreviewContextCommand(pi, store, projectStore, projectName, config);
+ 
+   // ── 10. Live session indexing ──
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/integration/session-start-used-signal.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/integration/session-start-used-signal.test.ts
+new file mode 100644
+index 00000000..886a43b1
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/integration/session-start-used-signal.test.ts
+@@ -0,0 +1,291 @@
++/**
++ * Task 6 — session_start wiring of the "used vs dropped" signal (UPSP §9 / §5↔§9 join).
++ *
++ * Drives the integration of three pieces that Task 6 connects:
++ *
++ *   1. `captureAssembly` (#05) — now extended with an optional `onReceipt`
++ *      callback so the SAME prompt-assembly receipt that gets recorded also
++ *      feeds the surfaced-signature set (Problem A: share ONE build, no
++ *      double-render of `buildPromptAssembly`).
++ *   2. `SurfacedSignatureSet` (Task 5) — populated from the receipt's
++ *      `signatures` via that callback.
++ *   3. `setupUsedDetection` (Task 5) — reads the populated set at `turn_end`
++ *      and calls `sessionRepo.markUsed` on matches (Problem B: getSessionId is
++ *      supplied via a holder bound at extension-setup).
++ *
++ * The defining correctness property of #06 is the §5↔§9 join invariant: the
++ * surfaced mdIds the matcher tracks == the mdIds #05 persisted in
++ * session_assembly, because both derive from the SAME receipt (captureAssembly
++ * calls build ONCE). These tests assert that invariant directly.
++ *
++ * `pi`, `sessionRepo.record`/`markUsed`, and `getSessionId` are stubs; the
++ * `SurfacedSignatureSet`, `captureAssembly`, `setupUsedDetection`,
++ * `buildPromptAssembly`, `computeSignature`, and `normalizeForSignature` under
++ * test are the REAL implementations (the normalization-DRY contract + the
++ * single-build invariant must hold on the real code paths).
++ */
++
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++
++import { captureAssembly } from "../../src/handlers/session-assembly.js";
++import { SurfacedSignatureSet, setupUsedDetection } from "../../src/handlers/used-detection.js";
++import { buildPromptAssembly } from "../../src/prompt-context.js";
++import { computeSignature, normalizeForSignature } from "../../src/store/signature.js";
++import type { MemoryStore } from "../../src/store/memory-store.js";
++
++/** A body whose longest fragment comfortably exceeds the default min (24). */
++const BODY_A = "Always pin the MLX dtype to bfloat16 for native Apple Silicon support.";
++const BODY_B = "Run the full bun test suite from the bun-apps workspace root only.";
++const SIG_A = computeSignature(BODY_A, 24)!;
++const SIG_B = computeSignature(BODY_B, 24)!;
++const MD_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
++const MD_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
++
++type Signature = { mdId: string; signature: string };
++type RecordCall = { sid: string; mdIds: string[]; hash: string };
++type MarkUsedCall = { sid: string; mdIds: string[]; usedAt: string };
++
++/** Minimal MemoryStore stub exposing only the two assembly-manifest methods
++ *  consumed by buildPromptAssembly (same shape as prompt-context.test.ts). */
++function stubStore(
++  main: { block: string; mdIds: string[]; signatures?: Signature[] },
++  project?: { block: string; mdIds: string[]; signatures?: Signature[] },
++): MemoryStore {
++  return {
++    getAssemblyManifest: () => ({ signatures: [], ...main }),
++    getProjectAssemblyManifest: () =>
++      project ? { signatures: [], ...project } : { block: "", mdIds: [], signatures: [] },
++  } as unknown as MemoryStore;
++}
++
++/** Stub `pi` that records handlers per event and lets the test fire them. */
++function stubPi(): { pi: any; fire: (ev: string, e: any, ctx?: any) => Promise<void> } {
++  const handlers: Record<string, Array<(e: any, ctx?: any) => Promise<void> | void>> = {};
++  const pi: any = {
++    on: (ev: string, h: any) => { (handlers[ev] ??= []).push(h); },
++    registerTool() {}, registerCommand() {},
++  };
++  const fire = async (ev: string, e: any, ctx?: any) => {
++    for (const h of handlers[ev] ?? []) await h(e, ctx);
++  };
++  return { pi, fire };
++}
++
++describe("Task 6 — §5↔§9 join invariant (captureAssembly → surfaced set)", () => {
++  it("surfaced-signature mdIds == the mdIds captureAssembly recorded (SAME receipt)", async () => {
++    // Both surfaced entries carry qualifying signatures, so the surfaced set's
++    // mdId set is EXACTLY the recorded mdId set.
++    const store = stubStore({
++      block: "M",
++      mdIds: [MD_A, MD_B],
++      signatures: [{ mdId: MD_A, signature: SIG_A }, { mdId: MD_B, signature: SIG_B }],
++    });
++    const records: RecordCall[] = [];
++    let populated: Signature[] | null = null;
++    const surfaced = new SurfacedSignatureSet();
++
++    await captureAssembly({
++      getSessionId: () => "sess-join",
++      build: () => buildPromptAssembly({ memoryMode: "default" } as any, store, null, "p"),
++      record: (sid, mdIds, hash) => { records.push({ sid, mdIds: [...mdIds], hash }); return Promise.resolve(); },
++      // Problem A: onReceipt populates the surfaced set from the SAME receipt.
++      onReceipt: (r) => { populated = r.signatures; surfaced.populate(r.signatures); },
++    });
++
++    assert.strictEqual(records.length, 1);
++    assert.ok(populated, "onReceipt fired with the receipt");
++    // §5↔§9 join: recorded mdIds (session_assembly) == surfaced mdIds (matcher),
++    // both from the SAME receipt.
++    const recordedMdIds = records[0].mdIds.sort();
++    const surfacedMdIds = populated.map((s) => s.mdId).sort();
++    assert.deepEqual(surfacedMdIds, recordedMdIds);
++    // And the REAL set, when probed, returns exactly those mdIds (populate wired).
++    assert.deepEqual(
++      surfaced.matchAndForget(normalizeForSignature(`${BODY_A} ${BODY_B}`)).sort(),
++      recordedMdIds,
++    );
++  });
++
++  it("onReceipt fires exactly once, AFTER record landed (no double build)", async () => {
++    let buildCount = 0;
++    let onReceiptCount = 0;
++    const order: string[] = [];
++
++    await captureAssembly({
++      getSessionId: () => "sess-order",
++      build: () => {
++        buildCount++;
++        return { mdIds: [MD_A], hash: "h".repeat(8), signatures: [{ mdId: MD_A, signature: SIG_A }] };
++      },
++      record: () => { order.push("record"); return Promise.resolve(); },
++      onReceipt: () => { onReceiptCount++; order.push("onReceipt"); },
++    });
++
++    assert.strictEqual(buildCount, 1, "build called exactly once (no double-render)");
++    assert.strictEqual(onReceiptCount, 1, "onReceipt called exactly once");
++    // record BEFORE onReceipt — the surfaced set is populated only after the
++    // session_assembly rows landed (keeps the §5↔§9 join exact even if record
++    // threw it would be swallowed and onReceipt skipped).
++    assert.deepEqual(order, ["record", "onReceipt"]);
++  });
++
++  it("null assembly (policy-only / empty store) → onReceipt NOT called", async () => {
++    let onReceiptCount = 0;
++    const landed = await captureAssembly({
++      getSessionId: () => "sess-null",
++      build: () => null, // policy-only / empty store
++      record: () => { throw new Error("record must not be called"); },
++      onReceipt: () => { onReceiptCount++; },
++    });
++    assert.strictEqual(landed, false);
++    assert.strictEqual(onReceiptCount, 0);
++  });
++
++  it("missing sid → no build, no record, no onReceipt (once-per-session guard holds)", async () => {
++    let buildCount = 0;
++    let onReceiptCount = 0;
++    const landed = await captureAssembly({
++      getSessionId: () => undefined,
++      build: () => { buildCount++; return { mdIds: [MD_A], hash: "h", signatures: [] }; },
++      record: () => Promise.resolve(),
++      onReceipt: () => { onReceiptCount++; },
++    });
++    assert.strictEqual(landed, false);
++    assert.strictEqual(buildCount, 0);
++    assert.strictEqual(onReceiptCount, 0);
++  });
++});
++
++describe("Task 6 — disable path (usedDetection === false)", () => {
++  it("session_start does NOT populate the set when usedDetection is disabled", async () => {
++    // Mirrors index.ts wiring: onReceipt is passed ONLY when
++    // config.usedDetection !== false. When disabled, onReceipt is undefined →
++    // the set is never populated → matchAndForget always returns [] → markUsed
++    // never fires.
++    const config = { usedDetection: false } as any;
++    const usePopulate = config.usedDetection !== false;
++    const surfaced = new SurfacedSignatureSet();
++    const store = stubStore({
++      block: "M",
++      mdIds: [MD_A],
++      signatures: [{ mdId: MD_A, signature: SIG_A }],
++    });
++
++    await captureAssembly({
++      getSessionId: () => "sess-disabled",
++      build: () => buildPromptAssembly({ memoryMode: "default" } as any, store, null, "p"),
++      record: () => Promise.resolve(),
++      onReceipt: usePopulate ? (r) => surfaced.populate(r.signatures) : undefined,
++    });
++
++    // Set was never populated → nothing matches → markUsed never called.
++    assert.deepEqual(surfaced.matchAndForget(normalizeForSignature(BODY_A)), []);
++  });
++
++  it("default (usedDetection on): session_start DOES populate the set", async () => {
++    const config = {} as any; // usedDetection unset → default on
++    const usePopulate = config.usedDetection !== false;
++    const surfaced = new SurfacedSignatureSet();
++    const store = stubStore({
++      block: "M",
++      mdIds: [MD_A, MD_B],
++      signatures: [{ mdId: MD_A, signature: SIG_A }, { mdId: MD_B, signature: SIG_B }],
++    });
++
++    await captureAssembly({
++      getSessionId: () => "sess-enabled",
++      build: () => buildPromptAssembly({ memoryMode: "default" } as any, store, null, "p"),
++      record: () => Promise.resolve(),
++      onReceipt: usePopulate ? (r) => surfaced.populate(r.signatures) : undefined,
++    });
++
++    // Both signatures are live → both match.
++    const matched = surfaced
++      .matchAndForget(normalizeForSignature(`${BODY_A} ... ${BODY_B}`))
++      .sort();
++    assert.deepEqual(matched, [MD_A, MD_B]);
++  });
++});
++
++describe("Task 6 — end-to-end smoke (capture → message_end → turn_end → markUsed)", () => {
++  it("a populated set + assistant output containing a signature → markUsed(sid, [mdId])", async () => {
++    const { pi, fire } = stubPi();
++    const surfaced = new SurfacedSignatureSet();
++    const calls: MarkUsedCall[] = [];
++    const sessionRepo: any = {
++      markUsed: async (sid: string, mdIds: readonly string[], usedAt: string) =>
++        calls.push({ sid, mdIds: [...mdIds], usedAt }),
++    };
++    // Problem B: getSessionId is a holder bound at setup time, read at turn_end.
++    let activeSessionId: string | undefined;
++    setupUsedDetection(pi, sessionRepo, surfaced, {} as any, () => activeSessionId ?? null);
++
++    // session_start: record the assembly + populate the surfaced set from the
++    // SAME receipt (the §5↔§9 join). One build, consumed by both sides.
++    activeSessionId = "sess-e2e";
++    const store = stubStore({
++      block: "M",
++      mdIds: [MD_A],
++      signatures: [{ mdId: MD_A, signature: SIG_A }],
++    });
++    await captureAssembly({
++      getSessionId: () => activeSessionId,
++      build: () => buildPromptAssembly({ memoryMode: "default" } as any, store, null, "p"),
++      record: () => Promise.resolve(),
++      onReceipt: (r) => surfaced.populate(r.signatures),
++    });
++
++    // Assistant references the surfaced memory in its output.
++    await fire("message_end", { message: { role: "assistant", content: `Sure — ${BODY_A} on load.` } });
++    await fire("turn_end", {}, {});
++
++    assert.strictEqual(calls.length, 1);
++    assert.strictEqual(calls[0].sid, "sess-e2e");
++    assert.deepEqual(calls[0].mdIds, [MD_A]);
++    assert.ok(!Number.isNaN(Date.parse(calls[0].usedAt)), "usedAt is a valid ISO timestamp");
++  });
++
++  it("a populated set + assistant output WITHOUT any signature → markUsed NOT called (set intact)", async () => {
++    const { pi, fire } = stubPi();
++    const surfaced = new SurfacedSignatureSet();
++    const calls: MarkUsedCall[] = [];
++    const sessionRepo: any = {
++      markUsed: async (sid: string, mdIds: readonly string[], usedAt: string) =>
++        calls.push({ sid, mdIds: [...mdIds], usedAt }),
++    };
++    let activeSessionId: string | undefined = "sess-e2e-nomatch";
++    setupUsedDetection(pi, sessionRepo, surfaced, {} as any, () => activeSessionId ?? null);
++    surfaced.populate([{ mdId: MD_A, signature: SIG_A }]);
++
++    await fire("message_end", { message: { role: "assistant", content: "Hello! How can I help today?" } });
++    await fire("turn_end", {}, {});
++
++    assert.strictEqual(calls.length, 0);
++    // signature still live for a later turn
++    assert.deepEqual(surfaced.matchAndForget(normalizeForSignature(BODY_A)), [MD_A]);
++  });
++
++  it("monotonic across turns: referenced once → markUsed once; never re-marked", async () => {
++    const { pi, fire } = stubPi();
++    const surfaced = new SurfacedSignatureSet();
++    const calls: MarkUsedCall[] = [];
++    const sessionRepo: any = {
++      markUsed: async (sid: string, mdIds: readonly string[], usedAt: string) =>
++        calls.push({ sid, mdIds: [...mdIds], usedAt }),
++    };
++    let activeSessionId: string | undefined = "sess-mono";
++    setupUsedDetection(pi, sessionRepo, surfaced, {} as any, () => activeSessionId ?? null);
++    surfaced.populate([{ mdId: MD_A, signature: SIG_A }]);
++
++    // turn 1 — referenced
++    await fire("message_end", { message: { role: "assistant", content: BODY_A } });
++    await fire("turn_end", {}, {});
++    assert.strictEqual(calls.length, 1);
++
++    // turn 2 — same text again, but signature already forgotten → no re-mark
++    await fire("message_end", { message: { role: "assistant", content: BODY_A } });
++    await fire("turn_end", {}, {});
++    assert.strictEqual(calls.length, 1);
++  });
++});

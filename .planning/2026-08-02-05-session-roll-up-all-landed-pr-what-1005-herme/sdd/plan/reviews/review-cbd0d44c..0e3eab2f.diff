@@ -1,0 +1,96 @@
+# Review package: cbd0d44cf2f3d8223ed2671ee59f23667a20078c..HEAD
+
+## Commits
+0e3eab2f feat(hermes): SQLite FK-free session_assembly + session_assembly_meta tables
+
+## Files changed
+ .../src/store/sqlite/schema.ts                     | 20 +++++++++++++
+ .../tests/store/sqlite-session-repo.test.ts        | 34 ++++++++++++++++++++++
+ 2 files changed, 54 insertions(+)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/schema.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/schema.ts
+index 2b0ed4e6..10779aa6 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/schema.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/schema.ts
+@@ -120,11 +120,31 @@ export const SCHEMA_SQL = `
+   CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project);
+   CREATE INDEX IF NOT EXISTS idx_memories_target ON memories(target);
+   CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
+   CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project);
+   CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at);
+   CREATE INDEX IF NOT EXISTS idx_session_files_session_id ON session_files(session_id);
+ 
+   -- Stable secondary join key (.md ↔ DB). Nullable during backfill: SQLite
+   -- UNIQUE treats NULLs as distinct, so un-backfilled rows coexist.
+   CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_md_id ON memories(md_id);
++
++  -- Per-session prompt-provenance (UPSP §5): one row per md_id assembled into a session's
++  -- memory block. FK-FREE by design — the sessions row is created later by deferred backfill,
++  -- so session_id is a plain join key, not an enforced FK. Composite PK dedupes; md_id index
++  -- backs "which sessions saw memory M?".
++  CREATE TABLE IF NOT EXISTS session_assembly (
++    session_id TEXT NOT NULL,
++    md_id TEXT NOT NULL,
++    PRIMARY KEY (session_id, md_id)
++  );
++
++  CREATE INDEX IF NOT EXISTS idx_session_assembly_md_id ON session_assembly(md_id);
++
++  -- Per-session block hash (the receipt). Separate from sessions (NOT NULL project/cwd +
++  -- post-capture row creation make hash-on-sessions unreliable). One row per session.
++  CREATE TABLE IF NOT EXISTS session_assembly_meta (
++    session_id TEXT NOT NULL PRIMARY KEY,
++    hash TEXT NOT NULL,
++    captured_at TEXT NOT NULL
++  );
+ `;
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/store/sqlite-session-repo.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/store/sqlite-session-repo.test.ts
+index 73d4c8ea..328ceb65 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/tests/store/sqlite-session-repo.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/store/sqlite-session-repo.test.ts
+@@ -685,10 +685,44 @@ describe("SqliteSessionRepository", () => {
+     await repo.indexSession(createSearchSession());
+     const results = await repo.searchSessions('issue "timeout');
+     expect(Array.isArray(results)).toBe(true);
+   });
+ 
+   it("searchSessions returns empty for blank queries", async () => {
+     const results = await repo.searchSessions("   ");
+     expect(results).toEqual([]);
+   });
+ });
++
++// ---------------------------------------------------------------------------
++// session_assembly schema (Task 3 — FK-free prompt-provenance tables, UPSP §5)
++// ---------------------------------------------------------------------------
++
++describe("session_assembly schema", () => {
++  let dir: string;
++  let backend: SqliteBackend;
++
++  beforeEach(async () => {
++    dir = mkdtempSync(join(tmpdir(), "hm-sess-"));
++    backend = new SqliteBackend(dir);
++    await backend.init();
++  });
++
++  afterEach(() => {
++    backend.close();
++    rmSync(dir, { recursive: true, force: true });
++  });
++
++  it("session_assembly + session_assembly_meta tables exist after backend init (FK-free)", () => {
++    const db = backend.getDb();
++
++    const t1 = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session_assembly'").get();
++    expect(t1).toBeTruthy();
++    const t2 = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session_assembly_meta'").get();
++    expect(t2).toBeTruthy();
++
++    // FK-free by design: the sessions row is created later by deferred backfill, so
++    // session_id is a plain join key, NOT REFERENCES sessions(id).
++    const ddl = (db.prepare("SELECT sql FROM sqlite_master WHERE name='session_assembly'").get() as { sql: string }).sql;
++    expect(ddl).not.toContain("REFERENCES");
++  });
++});
