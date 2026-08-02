@@ -692,3 +692,37 @@ describe("SqliteSessionRepository", () => {
     expect(results).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// session_assembly schema (Task 3 — FK-free prompt-provenance tables, UPSP §5)
+// ---------------------------------------------------------------------------
+
+describe("session_assembly schema", () => {
+  let dir: string;
+  let backend: SqliteBackend;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "hm-sess-"));
+    backend = new SqliteBackend(dir);
+    await backend.init();
+  });
+
+  afterEach(() => {
+    backend.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("session_assembly + session_assembly_meta tables exist after backend init (FK-free)", () => {
+    const db = backend.getDb();
+
+    const t1 = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session_assembly'").get();
+    expect(t1).toBeTruthy();
+    const t2 = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session_assembly_meta'").get();
+    expect(t2).toBeTruthy();
+
+    // FK-free by design: the sessions row is created later by deferred backfill, so
+    // session_id is a plain join key, NOT REFERENCES sessions(id).
+    const ddl = (db.prepare("SELECT sql FROM sqlite_master WHERE name='session_assembly'").get() as { sql: string }).sql;
+    expect(ddl).not.toContain("REFERENCES");
+  });
+});
