@@ -1,37 +1,45 @@
 /**
- * Drift-guard (scoped) — every tool OWNED by the 3 pilot extensions must
- * declare valid owner-`gating`.
+ * Drift-guard — the rollout regression net.
+ *
+ * Every tool OWNED by a MIGRATED extension must declare valid (non-dead)
+ * owner-`gating`. The set of migrated extensions is the single source of truth
+ * below (MIGRATED_EXTENSIONS); the net iterates it, so APPENDING an entry is
+ * all a rollout ticket does to put that extension's tools behind this gate.
  *
  * WHY: the `Gating.keywords` field was relaxed to OPTIONAL in Task 2 (so a
  * `gating:{core:true}` declaration typechecks — a core tool legitimately has no
- * keywords). That relaxation removed the compile-time guard against a pilot
- * tool shipping with NO gating at all. This test is the runtime backstop: it
- * enumerates each pilot's registered tools and strict-fails if any lacks a
- * valid `gating`.
+ * keywords). That relaxation removed the compile-time guard against a tool
+ * shipping with NO gating at all (or a DEAD gate). This test is the runtime
+ * backstop: it enumerates each migrated extension's registered tools and
+ * strict-fails if any lacks a valid `gating`.
  *
- * SCOPE: the 3 migration pilots — power-tool (6 inspect_*), core-task
+ * SCOPE (today): the 3 migration pilots — power-tool (6 inspect_*), core-task
  * (ask_user_question / todo / goal_complete), tool-gate (enable_tool). The
- * other ~9 unmigrated extensions are NOT asserted here (the rollout migrates
- * them later). Built-ins (read/write/edit/bash/grep/find/ls) are NOT
- * registered by pilots, so they are naturally exempt — no allowlist needed.
+ * other ~9 unmigrated extensions are NOT asserted here; rollout tickets 03–12
+ * APPEND their extension to MIGRATED_EXTENSIONS as they migrate, which
+ * auto-includes that extension's tools here. Built-ins (read/write/edit/bash/
+ * grep/find/ls) are NOT registered by these extensions, so they are naturally
+ * exempt — no allowlist needed.
  *
  * WHAT "valid gating" means (validateGating below):
  *   1. non-null `gating` (missing = declaration bug = fail), AND
- *   2. DEAD-GATE check: if `gating.core !== true`, the gate must carry a
- *      non-empty `keywords` array OR a `requires` co-occurrence block. A
- *      non-core gate with empty keywords AND no requires can NEVER fire
- *      (tool-gate's gateFires only matches keywords/requires) = dead gate =
- *      declaration bug = fail. (Carry-forward of Task-2 review finding A:
- *      the OPTIONAL-keywords relaxation removed the compile-time guard, so the
- *      runtime dead-gate check here is the only thing catching it.)
+ *   2. DEAD-GATE check: if `gating.core !== true`, the gate must be ABLE to
+ *      fire for SOME prompt — i.e. carry a non-empty `keywords` array OR a
+ *      `requires` co-occurrence with ≥1 noun AND ≥1 verb (mirroring `gateFires`,
+ *      which fires on a keyword match OR a noun∧verb co-occurrence). A non-core
+ *      gate with no keywords and no fireable requires can NEVER fire = dead gate
+ *      = declaration bug = fail. This includes the empty-requires cases
+ *      (`requires:{}`, `{nouns:[],verbs:[]}`, noun-only, verb-only) — FOLLOWUPS
+ *      #8: the prior check treated ANY non-null object as "has requires",
+ *      letting `requires:{}` slip through as non-dead.
  *
- * Enumeration: each pilot is invoked with a capturing stub `pi` whose
- * `registerTool` pushes the def into an array — the SAME set of defs a real
- * session would see. power-tool's default factory registers all 6 inspect_*
- * (two of the factories — hooks/pathology — are not individually exported, so
- * the default factory is the only way to capture the full set); core-task's 3
- * registrars are invoked directly (its full extension factory has heavy
- * overlay/widget/globalThis side effects unrelated to tool registration);
+ * Enumeration: each migrated extension is invoked with a capturing stub `pi`
+ * whose `registerTool` pushes the def into an array — the SAME set of defs a
+ * real session would see. power-tool's default factory registers all 6
+ * inspect_* (two of the factories — hooks/pathology — are not individually
+ * exported, so the default factory is the only way to capture the full set);
+ * core-task's 3 registrars are invoked directly (its full extension factory has
+ * heavy overlay/widget/globalThis side effects unrelated to tool registration);
  * tool-gate's default factory registers enable_tool.
  */
 import { describe, expect, test } from "bun:test";
@@ -42,10 +50,58 @@ import goalDefault from "@repo/pi-agent-ext-core-task/src/goal/goal.ts";
 import toolGate from "./tool-gate.ts";
 
 /** A registered tool def — only the fields the guard reads are typed. */
-type ToolDef = { name?: string; gating?: { core?: boolean; keywords?: string[]; requires?: unknown } };
+type ToolDef = {
+	name?: string;
+	gating?: { core?: boolean; keywords?: string[]; requires?: { nouns?: unknown[]; verbs?: unknown[] } };
+};
 
 /**
- * Capture every tool def a pilot registers, by running its setup against a
+ * The migrated-extensions set — the SINGLE source of truth for the rollout
+ * regression net. Each entry is a migrated extension plus the way to capture
+ * the tool defs it registers. Appending an entry here auto-includes that
+ * extension's tools in the net (every tool validated for non-dead owner-declared
+ * gating). Rollout tickets 03–12 append their extension here as they migrate.
+ *
+ * WHY a per-extension entry (not a flat tool-name list): a tool's gating is
+ * OWNED by its extension, so the extension's registrar is the authoritative way
+ * to capture its real defs (the SAME set a live session sees via registerTool).
+ * A flat tool-name list would (a) duplicate ownership and drift from the real
+ * registration, and (b) silently miss a NEW tool the extension later registers
+ * — the per-extension entry catches a new ungated tool automatically, which is
+ * exactly the regression this net exists to catch.
+ */
+export interface MigratedExtension {
+	/** Human id for diagnostics / test names. */
+	name: string;
+	/** Run the extension's tool registration against the capturing `pi`. */
+	register: (pi: any) => void;
+}
+
+export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
+	{
+		name: "power-tool",
+		register: (pi) => {
+			powerTool(pi);
+		},
+	},
+	{
+		name: "core-task",
+		register: (pi) => {
+			registerAskUserQuestionTool(pi);
+			registerTodoTool(pi);
+			goalDefault(pi);
+		},
+	},
+	{
+		name: "tool-gate",
+		register: (pi) => {
+			toolGate(pi);
+		},
+	},
+];
+
+/**
+ * Capture every tool def an extension registers, by running its setup against a
  * stub `pi`. The stub is a Proxy whose `registerTool` captures defs; `on`
  * swallows lifecycle handlers (tools are registered eagerly at load); all
  * other accesses (getAllTools, events.emit, registerCommand, …) are no-ops so
@@ -82,9 +138,9 @@ function captureRegisteredTools(run: (pi: any) => void): ToolDef[] {
 /**
  * Pure gating validator — the heart of the drift-guard. Throws on:
  *   - missing/null `gating` (declaration bug), or
- *   - a DEAD GATE: non-core gating with no keywords and no requires (can never
- *     fire = declaration bug). Factored out so the NEGATIVE case can assert it
- *     throws via expect().toThrow.
+ *   - a DEAD GATE: non-core gating with no keywords and no fireable requires
+ *     (can never fire = declaration bug). Factored out so the NEGATIVE cases
+ *     can assert it throws via expect().toThrow.
  */
 export function validateGating(def: ToolDef): void {
 	if (!def || typeof def !== "object") throw new Error("invalid tool def");
@@ -92,12 +148,21 @@ export function validateGating(def: ToolDef): void {
 	if (def.gating == null) throw new Error(`'${name}' is missing owner-declared gating`);
 	const g = def.gating;
 	if (g.core === true) return; // core/escape-hatch — exempt from the dead-gate check
+	// DEAD-GATE check (mirrors gateFires): a non-core gate can fire iff it has
+	// ≥1 keyword OR a requires with ≥1 noun AND ≥1 verb. Anything else can NEVER
+	// fire = dead gate = declaration bug. FOLLOWUPS #8: the prior check treated
+	// ANY non-null object as "has requires", letting `requires:{}` (and noun-only /
+	// verb-only) slip through as non-dead.
 	const hasKeywords = Array.isArray(g.keywords) && g.keywords.length > 0;
-	const hasRequires = g.requires != null && typeof g.requires === "object";
-	if (!hasKeywords && !hasRequires) {
+	const req = g.requires;
+	const hasNoun = Array.isArray(req?.nouns) && req.nouns.length > 0;
+	const hasVerb = Array.isArray(req?.verbs) && req.verbs.length > 0;
+	const canFireRequires = hasNoun && hasVerb;
+	if (!hasKeywords && !canFireRequires) {
 		throw new Error(
-			`'${name}' is a DEAD GATE: non-core gating with empty keywords and no ` +
-				`requires can never fire (tool-gate gateFires only matches keywords/requires)`,
+			`'${name}' is a DEAD GATE: non-core gating with no keywords and no ` +
+				`fireable requires (needs ≥1 noun AND ≥1 verb) can never fire ` +
+				`(tool-gate gateFires only matches keywords/requires)`,
 		);
 	}
 }
@@ -108,11 +173,34 @@ function assertAllValid(defs: ToolDef[]): void {
 	for (const def of defs) validateGating(def);
 }
 
+/**
+ * The net: capture every tool def registered by every migrated extension and
+ * validate them all. This is the rollout regression gate — appending a
+ * MIGRATED_EXTENSIONS entry is all a rollout ticket does to put its tools here.
+ */
+export function runDriftGuardNet(extensions: MigratedExtension[]): void {
+	for (const ext of extensions) {
+		const defs = captureRegisteredTools(ext.register);
+		assertAllValid(defs);
+	}
+}
+
+/** Look up a migrated extension by name (single-source: per-pilot tests capture
+ *  via the entry, so removing an entry breaks its characterization test). */
+function entry(name: string): MigratedExtension {
+	const e = MIGRATED_EXTENSIONS.find((m) => m.name === name);
+	if (!e) throw new Error(`no migrated extension named '${name}' in MIGRATED_EXTENSIONS`);
+	return e;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Per-pilot characterization tests (preserve exact pilot coverage: names +
+// core/non-core intent). Each captures via its MIGRATED_EXTENSIONS entry so the
+// source of truth stays single.
+// ────────────────────────────────────────────────────────────────────
 describe("drift-guard — pilot tools declare valid gating", () => {
 	test("power-tool: all 6 inspect_* carry valid (non-dead) gating", () => {
-		const defs = captureRegisteredTools((pi) => {
-			powerTool(pi);
-		});
+		const defs = captureRegisteredTools(entry("power-tool").register);
 		// Non-vacuous: assert the expected names are present (capture captured the
 		// real tools, not an empty set).
 		const names = defs.map((d) => d.name).sort();
@@ -136,11 +224,7 @@ describe("drift-guard — pilot tools declare valid gating", () => {
 	});
 
 	test("core-task: ask_user_question / todo / goal_complete carry gating:{core:true}", () => {
-		const defs = captureRegisteredTools((pi) => {
-			registerAskUserQuestionTool(pi);
-			registerTodoTool(pi);
-			goalDefault(pi);
-		});
+		const defs = captureRegisteredTools(entry("core-task").register);
 		const names = defs.map((d) => d.name).sort();
 		expect(names).toEqual(["ask_user_question", "goal_complete", "todo"].sort());
 		assertAllValid(defs);
@@ -149,9 +233,7 @@ describe("drift-guard — pilot tools declare valid gating", () => {
 	});
 
 	test("tool-gate: enable_tool carries gating:{core:true}", () => {
-		const defs = captureRegisteredTools((pi) => {
-			toolGate(pi);
-		});
+		const defs = captureRegisteredTools(entry("tool-gate").register);
 		const enableTool = defs.find((d) => d.name === "enable_tool");
 		expect(enableTool, "enable_tool must be registered by tool-gate's factory").toBeDefined();
 		// enable_tool is core (always-active escape hatch) — validate it directly.
@@ -162,9 +244,7 @@ describe("drift-guard — pilot tools declare valid gating", () => {
 	test("NEGATIVE: stripping gating from a pilot def makes validateGating throw (guard bites)", () => {
 		// Grab a real pilot def so the negative case runs against the actual
 		// shape the positive cases assert over (not a hand-rolled stub).
-		const defs = captureRegisteredTools((pi) => {
-			powerTool(pi);
-		});
+		const defs = captureRegisteredTools(entry("power-tool").register);
 		const victim = defs[0];
 		expect(victim, "need a captured def to strip").toBeDefined();
 
@@ -179,8 +259,81 @@ describe("drift-guard — pilot tools declare valid gating", () => {
 		const dead = { ...victim, gating: { core: false } } as ToolDef;
 		expect(() => validateGating(dead)).toThrow(/DEAD GATE/);
 
+		// (d) DEAD GATE via EMPTY requires (FOLLOWUPS #8): a non-core gate with
+		// `requires:{}` (present but noun-less/verb-less) and no keywords can NEVER
+		// fire — gateFires needs ≥1 noun AND ≥1 verb — yet the prior check treated
+		// ANY non-null object as "has requires" and accepted it. Must throw.
+		const deadEmptyRequires = { ...victim, gating: { requires: {} } } as ToolDef;
+		expect(() => validateGating(deadEmptyRequires)).toThrow(/DEAD GATE/);
+
+		// (e) DEAD GATE via noun-only requires (FOLLOWUPS #8): a noun without a
+		// verb can never satisfy the noun∧verb co-occurrence → dead. Must throw.
+		const deadNounOnly = { ...victim, gating: { requires: { nouns: ["thing"] } } } as ToolDef;
+		expect(() => validateGating(deadNounOnly)).toThrow(/DEAD GATE/);
+
 		// (c) sanity: the un-stripped victim still validates (so the throw above is
 		// due to the gating change, not a pre-existing flaw in the def).
 		expect(() => validateGating(victim)).not.toThrow();
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────
+// The rollout regression net — iterates MIGRATED_EXTENSIONS. This is the gate
+// every rollout ticket (03–12) must pass before its extension leaves the
+// fallback: append the extension to MIGRATED_EXTENSIONS and its tools are
+// validated here automatically.
+// ────────────────────────────────────────────────────────────────────
+describe("drift-guard — rollout regression net (iterates MIGRATED_EXTENSIONS)", () => {
+	// One assertion per migrated extension so a failing extension names itself in
+	// the test output. Appending a MIGRATED_EXTENSIONS entry is all a rollout
+	// ticket does to put its tools behind this net.
+	for (const ext of MIGRATED_EXTENSIONS) {
+		test(`${ext.name}: every registered tool carries valid (non-dead) gating`, () => {
+			runDriftGuardNet([ext]);
+		});
+	}
+
+	test("aggregate: ALL migrated extensions pass the net together", () => {
+		runDriftGuardNet(MIGRATED_EXTENSIONS);
+	});
+
+	test("the net auto-includes a placeholder migrated extension's tools (appending surfaces them)", () => {
+		// A placeholder entry that registers a VALID gated tool passes the net —
+		// proving the net iterates entries beyond the 3 pilots. Rollout tickets
+		// append a real entry here and its tools are validated identically.
+		const placeholder: MigratedExtension = {
+			name: "placeholder-valid",
+			register: (pi) => {
+				pi.registerTool({ name: "future_gated_tool", gating: { keywords: ["future"] } });
+			},
+		};
+		expect(() => runDriftGuardNet([placeholder])).not.toThrow();
+	});
+
+	test("NEGATIVE: a migrated tool with NO gating fails the net (regression bites)", () => {
+		// A migrated extension that registers a tool WITHOUT gating must fail the
+		// net — this is the core regression the net exists to catch (a rollout
+		// that ships an ungated tool is blocked here, not in production).
+		const placeholder: MigratedExtension = {
+			name: "placeholder-missing-gating",
+			register: (pi) => {
+				pi.registerTool({ name: "future_ungated_tool" });
+			},
+		};
+		expect(() => runDriftGuardNet([placeholder])).toThrow(/missing owner-declared gating/);
+	});
+
+	test("NEGATIVE: a migrated tool with a DEAD gate (empty requires + no keywords) fails the net", () => {
+		// FOLLOWUPS #8: a non-core gate with `requires:{}` + no keywords is dead
+		// (gateFires needs ≥1 noun ∧ ≥1 verb); the net must reject it. The prior
+		// check accepted ANY non-null object as "has requires" — this proves the
+		// tightened net bites on the empty-requires case.
+		const placeholder: MigratedExtension = {
+			name: "placeholder-dead-gate",
+			register: (pi) => {
+				pi.registerTool({ name: "future_dead_tool", gating: { requires: {} } });
+			},
+		};
+		expect(() => runDriftGuardNet([placeholder])).toThrow(/DEAD GATE/);
 	});
 });
