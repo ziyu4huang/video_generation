@@ -11,6 +11,7 @@
  */
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import { readEffortMeta } from "./map.js";
 
 export type WayfindState =
   | "grilling"
@@ -42,6 +43,8 @@ const BRAND_PREFIX = "🧭 wayfind │ ";
 export class WayfindOverlay {
   private state: WayfindState | undefined;
   private text: string | undefined;
+  private activeEffort: string | undefined;
+  private activeCwd: string | undefined;
   private refresh: (() => void) | undefined;
 
   /** Register the composite widget's update() as the refresh callback. */
@@ -56,15 +59,32 @@ export class WayfindOverlay {
     this.refresh?.();
   }
 
+  /** Set the active effort whose manifest status renders when idle (no transient action). */
+  setActiveEffort(effort: string | undefined, cwd: string | undefined): void {
+    this.activeEffort = effort;
+    this.activeCwd = cwd;
+    this.refresh?.();
+  }
+
   /** Clear the section (session_shutdown). */
   dispose(): void {
     this.state = undefined;
     this.text = undefined;
+    this.activeEffort = undefined;
+    this.activeCwd = undefined;
   }
 
-  /** Render the wayfind section (0 or 1 branded status-bar line). */
+  /** Render the wayfind section (0 or 1 branded status-bar line). Precedence:
+   *  transient action line > manifest status line > empty. */
   render(_theme: Theme, _width: number): string[] {
-    if (this.state === undefined || this.text === undefined) return [];
-    return [`${BRAND_PREFIX}${STATE_EMOJI[this.state]} ${this.text}`];
+    if (this.state !== undefined && this.text !== undefined) {
+      return [`${BRAND_PREFIX}${STATE_EMOJI[this.state]} ${this.text}`];
+    }
+    if (this.activeEffort && this.activeCwd) {
+      const meta = readEffortMeta(this.activeCwd, this.activeEffort);
+      const status = meta?.status ?? "(no manifest)";
+      return [`${BRAND_PREFIX}🗺️ ${this.activeEffort} · ${status}`];
+    }
+    return [];
   }
 }
