@@ -3,7 +3,7 @@
  * isolated subagents (via spawnSubagent) with bounded concurrency, returning a
  * positional array of results. Read-only is ENFORCED: edit/write/bash are
  * always excluded (non-overridable) so children sharing the parent's working
- * tree can never race on writes. See .planning/2026-08-01-what-s-next-for-subagent-develop-map/.
+ * tree can never race on writes. See .planning/done/2026-08-01-what-s-next-for-subagent-develop-map/.
  */
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
