@@ -439,6 +439,22 @@ export function createSubagentTool(
       "The subagent does NOT inherit this session's history — pass a self-contained `task` prompt.",
       "Returns the subagent's output, plus an exit/timed-out status in `details`.",
     ].join(" "),
+    // Owner-declared gating — migrated from tool-gate's hardcoded GATES (was the
+    // {names:["workflow","workflow_help","subagent","workflow_control"]} combined
+    // gate; tickets 10 + 11 rolled out TOGETHER as one atomic unit because they
+    // SHARE that single combined gate). Per the semantics-preserving rule, the
+    // SAME gating (keywords only, no `requires`) is mirrored IDENTICALLY on all
+    // 4 tools so they activate together and reconstructOwnerDeclaredGates
+    // collapses them back into one 4-name gate (names[0] === "workflow") —
+    // preserving the original co-fire behavior. Mirrors the original GATES entry
+    // verbatim (keywords were unambiguous workflow/orchestration intents that
+    // never false-fired the way image/video nouns do, so no requires is needed).
+    gating: {
+      keywords: [
+        "workflow", "pipeline", "orchestrate", "fan-out", "fan out",
+        "parallel agent", "multi-step",
+      ],
+    },
     promptSnippet:
       "Dispatch an isolated-context subagent for one focused task (implementer / reviewer / researcher). Pass a self-contained `task`; pick `model`/`tier` per role (omit to use the current model); restrict with `tools`/`excludeTools`.",
     // Sequential: serialize any turn whose tool-call batch contains a

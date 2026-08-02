@@ -2,13 +2,19 @@
  * Dynamic Tool Gate Extension — reduces API tools schema overhead
  *
  * Keeps core tools always active while gating heavy domain-specific tools
- * (flux2, ltx, krea2, inspect, workflow, movie, arxiv, cost,
- * zai-mcp) behind prompt keyword matching.
+ * (inspect, zai-mcp) behind prompt keyword matching. (The other formerly-
+ * hardcoded gates — flux2/ltx/krea2/movie/research-tool/workflow/subagent —
+ * migrated to owner-declared `gating` on their tool defs.)
  * (pi_deploy/pi_verify migrated to owner-declared gating in ticket 03;
  *  file2md/vision_ask migrated to owner-declared gating in ticket 04;
  *  flux2/flux2_help migrated to owner-declared gating in ticket 05;
  *  krea2/krea2_help migrated to owner-declared gating in ticket 06;
- *  ltx/ltx_help migrated to owner-declared gating in ticket 07.)
+ *  ltx/ltx_help migrated to owner-declared gating in ticket 07;
+ *  movie/movie_help migrated to owner-declared gating in ticket 08;
+ *  research-tool's collect_videos/organize_vault_notes/import_memory_to_vault
+ *  + arxiv_search/arxiv_fetch2md/arxiv_paper migrated in ticket 09;
+ *  workflow/workflow_help/subagent/workflow_control migrated in tickets 10 + 11,
+ *  rolled out TOGETHER as one atomic unit over their single shared combined gate.)
  *
  * Baseline:  ~55 tools → ~18,000 tok/req   (measured via `bun run qa`)
  * Gated:    ON at start ~10,000 tok/req   (saves ~8,050 tok/turn, ~45%; net ~7,800; zai-mcp env-gated)
@@ -80,14 +86,6 @@ interface ToolGate {
  * boundaries, phrases/CJK use substring.
  */
 export const GATES: ToolGate[] = [
-  {
-    names: ["workflow", "workflow_help", "subagent", "workflow_control"],
-    keywords: [
-      "workflow", "pipeline", "orchestrate", "fan-out", "fan out", "parallel agent",
-      "multi-step",
-    ],
-    description: "Workflow orchestrator — multi-agent fan-out/pipeline JavaScript scripts",
-  },
   // NOTE (audit 2026-07-25): the `cost` gate was REMOVED. It gated the
   // `movie-director-cost.ts` typed PROTOTYPE, which is measured offline
   // (schema-cost EXTRA_ENTRIES) but NEVER loaded at runtime (absent from the

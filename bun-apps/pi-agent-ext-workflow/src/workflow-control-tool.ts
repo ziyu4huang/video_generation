@@ -140,6 +140,18 @@ export function createWorkflowControlTool(
     label: "WorkflowControl",
     description:
       "Stop, pause, resume, inspect, or wait on a background workflow run (a run started by the workflow tool with background: true). Use runId from the workflow tool's background-start result.",
+    // Owner-declared gating — mirrored IDENTICALLY from `workflow` (same combined
+    // gate signature). See `workflow`'s gating comment: tickets 10 + 11 are one
+    // atomic rollout over the single combined workflow/subagent gate, so all 4
+    // tools share the SAME keywords-only gating and collapse back into one
+    // 4-name gate (names[0] === "workflow") — when the gate fires, all 4 names
+    // activate together (co-fire preserved). See `workflow`'s gating comment.
+    gating: {
+      keywords: [
+        "workflow", "pipeline", "orchestrate", "fan-out", "fan out",
+        "parallel agent", "multi-step",
+      ],
+    },
     promptSnippet:
       "Control a background workflow run: workflow_control({ action, runId }). action is one of stop | pause | resume | status | list | wait.",
     parameters: workflowControlToolSchema,
