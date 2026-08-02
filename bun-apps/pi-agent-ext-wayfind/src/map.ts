@@ -158,8 +158,9 @@ export function serializeMapFrontmatter(meta: EffortMeta): string {
   return `${lines.join("\n")}\n`;
 }
 
-/** Today's date as YYYY-MM-DD (the manifest `last` convention). */
-function today(): string {
+/** Today's date as YYYY-MM-DD (the manifest `last` convention). Exported so the
+ *  effort tool (and any other manifest writer) reuses ONE date source. */
+export function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
@@ -410,6 +411,8 @@ export function writeTicket(cwd: string, effort: string, t: Ticket): void {
   const dir = join(effortDir(cwd, effort), "tickets");
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, `${t.id}-${t.slug}.md`), serializeTicket(t), "utf-8");
+  // A ticket mutation is a manifest touchpoint — bump `last:` (no-op on legacy/no manifest).
+  touchEffortManifest(cwd, effort);
 }
 
 /** Append a one-line pointer to the map's Decisions so far (used on resolve). */
@@ -425,6 +428,8 @@ export function appendDecision(cwd: string, effort: string, decision: MapDecisio
     return `${blockTrimmed}\n${line}\n${tail}`;
   });
   writeFileSync(mapPath, updated, "utf-8");
+  // A decision mutation is a manifest touchpoint — bump `last:` (no-op on legacy/no manifest).
+  touchEffortManifest(cwd, effort);
 }
 
 /** Close a ticket: set status "closed" + a resolution, then persist. Returns

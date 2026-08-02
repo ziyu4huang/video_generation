@@ -13,7 +13,10 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  appendDecision,
+  closeTicket,
   type EffortMeta,
+  type MapDecision,
   parseMapFrontmatter,
   readEffortMeta,
   readMap,
@@ -22,6 +25,7 @@ import {
   validateEffortMap,
   type WayfindMap,
   writeMap,
+  writeTicket,
 } from "../src/map.js";
 
 const META_FULL: EffortMeta = {
@@ -314,6 +318,149 @@ describe("touchEffortManifest", () => {
   it("is a no-op when there is no map", () => {
     const cwd = fresh();
     expect(() => touchEffortManifest(cwd, "ghost")).not.toThrow();
+    rmSync(cwd, { recursive: true, force: true });
+  });
+});
+
+// ─── wiring: ticket/decision mutations bump the manifest (layer 3, finding #1) ──
+describe("touchEffortManifest — wired into writeTicket / closeTicket / appendDecision", () => {
+  const todayStr = () => new Date().toISOString().slice(0, 10);
+  const STALE = "2020-01-01";
+
+  /** Write a manifest map.md directly with a STALE `last:` date — bypasses
+   *  writeMap (which stamps last: today) so a touch is observable: stale → today. */
+  function writeManifestMapStale(cwd: string, effort: string): string {
+    const dir = join(cwd, ".planning", effort);
+    mkdirSync(join(dir, "tickets"), { recursive: true });
+    const md = [
+      "---",
+      `effort: ${effort}`,
+      "created: 2020-01-01",
+      `last: ${STALE}`,
+      "status: active",
+      "---",
+      "",
+      `# Wayfinder map: ${effort}`,
+      "",
+      "## Destination",
+      "",
+      "ship it",
+      "",
+      "## Notes",
+      "",
+      "n",
+      "",
+      "## Decisions so far",
+      "",
+      "<!-- none yet -->",
+      "",
+      "## Not yet specified",
+      "",
+      "<!-- none -->",
+      "",
+      "## Out of scope",
+      "",
+      "<!-- none -->",
+      "",
+    ].join("\n");
+    writeFileSync(join(dir, "map.md"), md, "utf-8");
+    return md;
+  }
+
+  it("writeTicket advances the manifest last: to today (body byte-unchanged)", () => {
+    const cwd = fresh();
+    writeManifestMapStale(cwd, "demo");
+    const mapPath = join(cwd, ".planning", "demo", "map.md");
+    const bodyBefore = readFileSync(mapPath, "utf-8").split("---\n").pop();
+    expect(readEffortMeta(cwd, "demo")?.last).toBe(STALE); // pre-condition: stale
+
+    writeTicket(cwd, "demo", {
+      id: "01",
+      slug: "pick",
+      title: "Pick",
+      question: "q",
+      type: "task",
+      blocking: [],
+      status: "open",
+    });
+
+    expect(readEffortMeta(cwd, "demo")?.last).toBe(todayStr()); // advanced to today
+    expect(readFileSync(mapPath, "utf-8").split("---\n").pop()).toBe(bodyBefore); // body untouched
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("closeTicket (delegates to writeTicket) advances the manifest last:", () => {
+    const cwd = fresh();
+    writeManifestMapStale(cwd, "demo");
+    closeTicket(
+      cwd,
+      "demo",
+      {
+        id: "01",
+        slug: "pick",
+        title: "Pick",
+        question: "q",
+        type: "task",
+        blocking: [],
+        status: "open",
+      },
+      "resolved",
+    );
+    expect(readEffortMeta(cwd, "demo")?.last).toBe(todayStr());
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("appendDecision advances the manifest last: to today (decision still appended)", () => {
+    const cwd = fresh();
+    writeManifestMapStale(cwd, "demo");
+    const decision: MapDecision = { title: "Picked X", gist: "use X", link: "tickets/01-pick.md" };
+    appendDecision(cwd, "demo", decision);
+    expect(readEffortMeta(cwd, "demo")?.last).toBe(todayStr()); // advanced to today
+    const onDisk = readFileSync(join(cwd, ".planning", "demo", "map.md"), "utf-8");
+    expect(onDisk).toContain("- [Picked X](tickets/01-pick.md) — use X"); // decision still appended
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("writeTicket on a LEGACY effort (no meta) adds no front-matter", () => {
+    const cwd = fresh();
+    writeMap(cwd, {
+      effort: "legacy",
+      destination: "d",
+      notes: "",
+      decisions: [],
+      fog: [],
+      outOfScope: [],
+      tickets: [],
+    });
+    const mapPath = join(cwd, ".planning", "legacy", "map.md");
+    const before = readFileSync(mapPath, "utf-8");
+    writeTicket(cwd, "legacy", {
+      id: "01",
+      slug: "pick",
+      title: "Pick",
+      question: "q",
+      type: "task",
+      blocking: [],
+      status: "open",
+    });
+    expect(readEffortMeta(cwd, "legacy")).toBeNull(); // still no front-matter
+    expect(readFileSync(mapPath, "utf-8")).toBe(before); // map.md byte-unchanged
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("appendDecision on a LEGACY effort (no meta) leaves no front-matter", () => {
+    const cwd = fresh();
+    writeMap(cwd, {
+      effort: "legacy",
+      destination: "d",
+      notes: "",
+      decisions: [],
+      fog: [],
+      outOfScope: [],
+      tickets: [],
+    });
+    appendDecision(cwd, "legacy", { title: "Picked X", gist: "use X", link: "tickets/01-pick.md" });
+    expect(readEffortMeta(cwd, "legacy")).toBeNull(); // still no front-matter
     rmSync(cwd, { recursive: true, force: true });
   });
 });

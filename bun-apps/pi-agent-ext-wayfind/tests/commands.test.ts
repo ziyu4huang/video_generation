@@ -71,6 +71,21 @@ function setup(): { pi: MockPi; state: RuntimeState } {
   return { pi, state };
 }
 
+/** Build a command ctx that captures `ui.notify` calls into `notifications`.
+ *  Hoisted to module scope so every describe block reuses ONE helper (no local
+ *  `any`-typed duplicates). */
+function ctxCapturing(cwd: string): { ctx: any; notifications: string[] } {
+  const notifications: string[] = [];
+  return {
+    notifications,
+    ctx: {
+      cwd,
+      sessionManager: { getSessionId: () => "test-session" },
+      ui: { notify: (m: string) => notifications.push(m), setStatus: () => {} },
+    },
+  };
+}
+
 const run = (pi: MockPi, name: string, args = "", ctx?: any) =>
   pi.commands.get(name)?.(args, ctx ?? makeCtx(makeCwd()));
 
@@ -383,18 +398,6 @@ describe("/grill and /wayfind dispatchers — routing", () => {
 // freshness module itself is unit-tested hermetically (injected spawnImpl) in
 // tests/freshness.test.ts, which DOES run on CI.
 describe.skipIf(!!process.env.CI)("/wayfind — fact-freshness guard", () => {
-  function ctxCapturing(cwd: string): { ctx: any; notifications: string[] } {
-    const notifications: string[] = [];
-    return {
-      notifications,
-      ctx: {
-        cwd,
-        sessionManager: { getSessionId: () => "test-session" },
-        ui: { notify: (m: string) => notifications.push(m), setStatus: () => {} },
-      },
-    };
-  }
-
   /** Initialize `cwd` as a git repo where HEAD is `behind` commits behind origin/main. */
   function gitBehind(cwd: string, behind: number): void {
     const g = (...a: string[]) => spawnSync("git", a, { cwd, encoding: "utf8" });
@@ -462,18 +465,6 @@ describe("/wayfind chart — overlay active-effort wiring", () => {
 });
 
 describe("/wayfind validate — conformance command", () => {
-  function ctxCapturing(cwd: string): { ctx: any; notifications: string[] } {
-    const notifications: string[] = [];
-    return {
-      notifications,
-      ctx: {
-        cwd,
-        sessionManager: { getSessionId: () => "test-session" },
-        ui: { notify: (m: string) => notifications.push(m), setStatus: () => {} },
-      },
-    };
-  }
-
   it("notifies 'valid' on a conforming manifest effort", async () => {
     const { pi } = setup();
     const cwd = makeCwd();

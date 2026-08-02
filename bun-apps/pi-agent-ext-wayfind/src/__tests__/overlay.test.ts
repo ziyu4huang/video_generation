@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Theme } from "@earendil-works/pi-coding-agent";
@@ -97,7 +97,7 @@ describe("WayfindOverlay — persistent manifest line", () => {
     expect(o.render({} as Theme, 80)).toEqual([]);
   });
 
-  test("a transient action line takes precedence over the manifest line", () => {
+  test("a transient action line is augmented with the active effort's manifest status", () => {
     const cwd = mkdtempSync(join(tmpdir(), "wf-ov-"));
     writeMap(cwd, {
       effort: "demo",
@@ -112,7 +112,36 @@ describe("WayfindOverlay — persistent manifest line", () => {
     const o = new WayfindOverlay();
     o.setActiveEffort("demo", cwd);
     o.setLine("charting", "charting demo");
+    // Augmented: the manifest status shows ALONGSIDE the transient action (not
+    // only when idle) — so an active effort's status is always visible.
+    expect(o.render({} as Theme, 80)).toEqual(["🧭 wayfind │ 🗺️ charting demo · active"]);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  test("a transient action with NO active effort renders the plain action line (no status)", () => {
+    const o = new WayfindOverlay();
+    o.setLine("charting", "charting demo");
     expect(o.render({} as Theme, 80)).toEqual(["🧭 wayfind │ 🗺️ charting demo"]);
+  });
+
+  test("render never throws when the manifest file becomes unreadable (concurrent write/removal)", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "wf-ov-"));
+    const dir = join(cwd, ".planning", "demo");
+    mkdirSync(join(dir, "tickets"), { recursive: true });
+    // map.md as a DIRECTORY → existsSync true, readFileSync throws EISDIR,
+    // exercising the TOCTOU window (file present at existsSync, gone/unreadable at read).
+    mkdirSync(join(dir, "map.md"), { recursive: true });
+    // augmented-activity branch: must not throw, falls back to (no manifest).
+    const o = new WayfindOverlay();
+    o.setActiveEffort("demo", cwd);
+    o.setLine("charting", "charting demo");
+    expect(() => o.render({} as Theme, 80)).not.toThrow();
+    expect(o.render({} as Theme, 80)).toEqual(["🧭 wayfind │ 🗺️ charting demo · (no manifest)"]);
+    // idle manifest branch: same — must not throw.
+    const idle = new WayfindOverlay();
+    idle.setActiveEffort("demo", cwd);
+    expect(() => idle.render({} as Theme, 80)).not.toThrow();
+    expect(idle.render({} as Theme, 80)).toEqual(["🧭 wayfind │ 🗺️ demo · (no manifest)"]);
     rmSync(cwd, { recursive: true, force: true });
   });
 });
