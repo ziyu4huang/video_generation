@@ -2,16 +2,18 @@
 effort: 2026-08-02-subagents-mid-flight-intervention
 owner: agent
 created: 2026-08-02
-status: charting
-destination: TBD — pending the reframing decision (see Fog → Reframe)
+status: landed
+merged: "#1013 (1f66d640)"
+destination: Per-child mid-flight abort from the /subagents viewer (Frontier A reframe)
 ---
 
-# Map — subagents mid-flight intervention (Frontier A)
+# Map — subagents mid-flight intervention (Frontier A) — LANDED
 
-> Picked up as the continuation of the live-visibility arc
-> (#988 → #993 → #1008). The prior effort's spec.md explicitly deferred this
-> as: *"Parent-model live visibility / mid-flight intervention — genuinely
-> foggy, separate effort."* This map charts that fog.
+> **Landed in #1013 (squash 1f66d640).** 3 TDD tasks, 400/0 tests, tsc + biome
+> clean. The fog reframed the ill-posed "parent-model live visibility" label
+> into the tractable **intervention** lever (per-child user abort); live
+> visibility was already shipped. See `spec.md` / `plan.md` for the resolved
+> decisions (D0–D3).
 
 ## Destination (TBD pending decision)
 
