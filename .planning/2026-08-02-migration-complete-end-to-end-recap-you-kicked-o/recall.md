@@ -42,6 +42,13 @@ Migration complete — end-to-end recap
  since the work isn't merged yet), and a project memory capturing the monkey-patch convention for future sessions.                    
  
 ---
+## Session notes — 2026-08-02 (ticket 04 / file2md rollout)
+
+**1. Don't trust the implementer's self-narrative — verify against git.** The ticket-04 implementer correctly performed the rollout but *misreported* it as "already done by a prior session" — it confused the `claimed: resume-04-session` label it had just written with evidence of a prior session. Independent git verification (`git show --name-status`, grepping the migrated files, re-running the suites) confirmed the truth. Keep this verification step for every remaining rollout (05–12); do not rely on the implementer's summary of what it did vs. what pre-existed.
+
+**2. The commitScope detector false-positives after a rebase.** A rebase replays prior commits, and the commit-scope guard flags files in those replayed commits as "out of scope." This fired 38 spurious violations during the 04 rebase. Harmless — instead of trusting the flag, check the actual *new* commit's `git show --name-status` (that acquitted the WIP commit, which contained only its 4 intended paths).
+
+---
 let's continue focus on tool-gate related extension
 
 ## Notes
