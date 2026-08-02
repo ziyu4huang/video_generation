@@ -2,9 +2,10 @@
  * Dynamic Tool Gate Extension — reduces API tools schema overhead
  *
  * Keeps core tools always active while gating heavy domain-specific tools
- * (flux2, ltx, krea2, file2md, inspect, workflow, movie, arxiv, cost,
+ * (flux2, ltx, krea2, inspect, workflow, movie, arxiv, cost,
  * zai-mcp) behind prompt keyword matching.
- * (pi_deploy/pi_verify migrated to owner-declared gating in ticket 03.)
+ * (pi_deploy/pi_verify migrated to owner-declared gating in ticket 03;
+ *  file2md/vision_ask migrated to owner-declared gating in ticket 04.)
  *
  * Baseline:  ~55 tools → ~18,000 tok/req   (measured via `bun run qa`)
  * Gated:    ON at start ~10,000 tok/req   (saves ~8,050 tok/turn, ~45%; net ~7,800; zai-mcp env-gated)
@@ -107,18 +108,6 @@ export const GATES: ToolGate[] = [
       verbs: ["generate", "create", "make", "animate", "produce", "render", "生成", "做", "製作", "剪"],
     },
     description: "LTX video generation — text/image-to-video, upscale, vbvr, relay",
-  },
-  {
-    names: ["file2md", "vision_ask"],
-    keywords: [
-      "file2md", "vlm", "ocr", "caption", "to markdown", "轉 markdown",
-      "read this image", "分析圖片", "分析圖像", "識別", "讀圖", "看圖",
-    ],
-    requires: {
-      nouns: ["pdf", "document", "文件", "scan", "image", "picture", "photo", "圖片", "圖像", "照片", "相片"],
-      verbs: ["read", "convert", "parse", "extract", "ocr", "describe", "caption", "讀", "轉", "解析", "分析"],
-    },
-    description: "Document/image understanding — file→markdown, VLM describe, OCR, caption",
   },
   {
     names: ["workflow", "workflow_help", "subagent", "workflow_control"],

@@ -11,6 +11,7 @@
  */
 import { GATES, gateFires, matchIntent } from "../extensions/tool-gate.ts";
 import deployDefault from "@repo/pi-agent-ext-deploy";
+import file2mdDefault from "@repo/pi-agent-ext-file2md/extensions/file2md.ts";
 import {
 	MUST_FIRE,
 	MUST_NOT_FIRE,
@@ -102,7 +103,7 @@ function reconstructOwnerDeclaredGates(registrars: Array<(pi: any) => void>): Co
  * keeps its probes live here. Single source of truth for every reference below
  * (findGate / escapeName / matchIntent / coverage).
  */
-export const CORPUS_GATES: CorpusGate[] = [...GATES, ...reconstructOwnerDeclaredGates([deployDefault])];
+export const CORPUS_GATES: CorpusGate[] = [...GATES, ...reconstructOwnerDeclaredGates([deployDefault, file2mdDefault])];
 
 export interface CaseResult {
 	gate: string;
