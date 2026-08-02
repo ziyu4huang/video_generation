@@ -45,8 +45,8 @@ describe("analyzeCoverage", () => {
 	});
 
 	it("counts a heavy TRACKED tool as gatedHeavy (not ungated)", () => {
-		// "movie" is a real gate name → present in TRACKED_TOOLS
-		const r = analyzeCoverage(report([tool("movie", 500, "movie-director")]), TH, ROOT);
+		// "workflow" is a real gate name → present in TRACKED_TOOLS
+		const r = analyzeCoverage(report([tool("workflow", 500, "workflow-ext")]), TH, ROOT);
 		expect(r.gatedHeavy).toBe(1);
 		expect(r.ungated).toEqual([]);
 		expect(r.pass).toBe(true);
@@ -92,7 +92,7 @@ describe("analyzeCoverage", () => {
 
 describe("formatCoverage", () => {
 	it("renders a healthy (✅) report when nothing is ungated", () => {
-		const r = analyzeCoverage(report([tool("movie", 500, "md")]), TH, ROOT);
+		const r = analyzeCoverage(report([tool("workflow", 500, "md")]), TH, ROOT);
 		const out = formatCoverage(r).join("\n");
 		expect(out).toContain("✅");
 		expect(out).not.toContain("NOT gated");
@@ -118,12 +118,12 @@ describe("formatCoverage", () => {
 
 describe("assertSane", () => {
 	it("flags a non-positive threshold", () => {
-		const r = analyzeCoverage(report([tool("movie", 500, "md")]), -1, ROOT);
+		const r = analyzeCoverage(report([tool("workflow", 500, "md")]), -1, ROOT);
 		expect(assertSane(r).some((p) => p.includes("threshold"))).toBe(true);
 	});
 
 	it("flags a NaN threshold", () => {
-		const r = analyzeCoverage(report([tool("movie", 500, "md")]), NaN, ROOT);
+		const r = analyzeCoverage(report([tool("workflow", 500, "md")]), NaN, ROOT);
 		expect(assertSane(r).some((p) => p.includes("threshold"))).toBe(true);
 	});
 
@@ -133,7 +133,7 @@ describe("assertSane", () => {
 	});
 
 	it("is clean for a normal report", () => {
-		const r = analyzeCoverage(report([tool("movie", 500, "md")]), TH, ROOT);
+		const r = analyzeCoverage(report([tool("workflow", 500, "md")]), TH, ROOT);
 		expect(assertSane(r)).toEqual([]);
 	});
 });

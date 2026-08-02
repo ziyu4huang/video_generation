@@ -21,6 +21,7 @@ import { CORE_TOOLS } from "./tool-gate.ts";
 import toolGateExtension from "./tool-gate.ts";
 import flux2Extension from "@repo/pi-agent-ext-flux2/extensions/flux2.ts";
 import ltxExtension from "@repo/pi-agent-ext-ltx/extensions/ltx.ts";
+import movieExtension from "@repo/pi-agent-ext-movie-director/extensions/movie-director.ts";
 
 /** A minimal pi mock that (unlike tool-gate.test.ts's setupPi) keeps MULTIPLE
  *  handlers per event in registration order and tracks a live active set, so a
@@ -49,17 +50,20 @@ function makePi(allToolNames: string[]) {
 
 const noOpCtx = { ui: { theme: { fg: (_k: string, s: string) => s }, setWidget: () => {} } };
 
-// flux2/flux2_help (ticket 05) + ltx/ltx_help (ticket 07) migrated to
-// owner-declared gating → the mock pi must surface their REAL gating so
-// tool-gate tracks+gates them (the hardcoded GATES fallback no longer covers
-// either). Captured once from each registrar; ltxMimic below stays as-is —
-// the session_start self-promotion is the orthogonal visibility layer under
-// test here, NOT the gating declaration.
+// flux2/flux2_help (ticket 05) + ltx/ltx_help (ticket 07) + movie/movie_help
+// (ticket 08) migrated to owner-declared gating → the mock pi must surface
+// their REAL gating so tool-gate tracks+gates them (the hardcoded GATES
+// fallback no longer covers any of them). Captured once from each registrar;
+// flux2/ltx mimics below stay as-is — the session_start self-promotion is the
+// orthogonal visibility layer under test here, NOT the gating declaration.
+// (movie-director has NO session_start handler — it remains the no-self-
+// promotion control case for the test below.)
 const ownerDefs: { name: string; gating?: unknown }[] = [];
 const captureOwner = (ext: (pi: any) => void) =>
 	ext({ on: () => {}, registerTool: (def: any) => { ownerDefs.push(def); }, getActiveTools: () => [], setActiveTools: () => {} } as never);
 captureOwner(flux2Extension);
 captureOwner(ltxExtension);
+captureOwner(movieExtension);
 
 /** flux2's exact session_start self-promotion pattern (flux2.ts:419). */
 function flux2Mimic(pi: any) {
