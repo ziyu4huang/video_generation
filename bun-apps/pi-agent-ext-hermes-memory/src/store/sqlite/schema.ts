@@ -127,4 +127,24 @@ export const SCHEMA_SQL = `
   -- Stable secondary join key (.md ↔ DB). Nullable during backfill: SQLite
   -- UNIQUE treats NULLs as distinct, so un-backfilled rows coexist.
   CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_md_id ON memories(md_id);
+
+  -- Per-session prompt-provenance (UPSP §5): one row per md_id assembled into a session's
+  -- memory block. FK-FREE by design — the sessions row is created later by deferred backfill,
+  -- so session_id is a plain join key, not an enforced FK. Composite PK dedupes; md_id index
+  -- backs "which sessions saw memory M?".
+  CREATE TABLE IF NOT EXISTS session_assembly (
+    session_id TEXT NOT NULL,
+    md_id TEXT NOT NULL,
+    PRIMARY KEY (session_id, md_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_session_assembly_md_id ON session_assembly(md_id);
+
+  -- Per-session block hash (the receipt). Separate from sessions (NOT NULL project/cwd +
+  -- post-capture row creation make hash-on-sessions unreliable). One row per session.
+  CREATE TABLE IF NOT EXISTS session_assembly_meta (
+    session_id TEXT NOT NULL PRIMARY KEY,
+    hash TEXT NOT NULL,
+    captured_at TEXT NOT NULL
+  );
 `;
