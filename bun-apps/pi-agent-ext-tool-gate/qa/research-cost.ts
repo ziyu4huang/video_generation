@@ -7,10 +7,14 @@ import {
 	buildSchemaCostReport,
 	resolveRepoRoot,
 } from "../../pi-agent-cli/src/commands/schema-cost.ts";
-import { CORE_TOOLS, GATES } from "../extensions/tool-gate.ts";
+import { CORE_TOOLS } from "../extensions/tool-gate.ts";
+import { CORPUS_EFF } from "./evaluate.ts";
 
-const TRACKED = new Set([...CORE_TOOLS, ...GATES.flatMap((g) => g.names)]);
-const HELP_NAMES = GATES.flatMap((g) => g.names).filter((n) => n.endsWith("_help"));
+// TRACKED = the EFFECTIVE tracked set (core ∪ every owner-declared gate name).
+// Ticket 15: formerly this was CORE_TOOLS-only (the deleted empty GATES array
+// contributed nothing), which mis-reported every owner-declared gated tool
+// (flux2/ltx/movie/zai/…) as UNGATED. Routed through CORPUS_EFF.tracked now.
+const TRACKED = CORPUS_EFF.tracked;
 // obsidian _help tools are CORE, not gated — add them to the help-pair scan.
 const CORE_HELP = [...CORE_TOOLS].filter((n) => n.endsWith("_help") || n.includes("search_help"));
 

@@ -9,7 +9,7 @@
  * stub `pi` and fed to buildEffectiveGates — the same effective-gate builder
  * production runs at session_start). No agent run, no LLM.
  */
-import { GATES, gateFires, matchIntent, buildEffectiveGates } from "../extensions/tool-gate.ts";
+import { gateFires, matchIntent, buildEffectiveGates, type ToolGate } from "../extensions/tool-gate.ts";
 import deployDefault from "@repo/pi-agent-ext-deploy";
 import file2mdDefault from "@repo/pi-agent-ext-file2md/extensions/file2md.ts";
 import flux2Default from "@repo/pi-agent-ext-flux2/extensions/flux2.ts";
@@ -49,7 +49,7 @@ import {
 } from "./probes.ts";
 
 /** Structural shape of a gate (== the non-exported tool-gate `ToolGate`). */
-type CorpusGate = (typeof GATES)[number];
+type CorpusGate = ToolGate;
 
 /** A captured tool def — only the fields the gate reconstruction reads. */
 type CapturedDef = {
