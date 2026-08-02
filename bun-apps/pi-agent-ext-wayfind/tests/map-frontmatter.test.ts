@@ -15,8 +15,10 @@ import { join } from "node:path";
 import {
   type EffortMeta,
   parseMapFrontmatter,
+  readEffortMeta,
   readMap,
   serializeMapFrontmatter,
+  touchEffortManifest,
   validateEffortMap,
   type WayfindMap,
   writeMap,
@@ -29,6 +31,8 @@ const META_FULL: EffortMeta = {
   status: "active",
   owner: "ziyu4huang",
 };
+
+const fresh = () => mkdtempSync(join(tmpdir(), "wf-map-fm-"));
 
 describe("parseMapFrontmatter", () => {
   it("extracts effort metadata from a leading front-matter block", () => {
@@ -96,8 +100,6 @@ describe("serializeMapFrontmatter", () => {
 });
 
 describe("readMap / writeMap: front-matter integration (fs round-trip)", () => {
-  const fresh = () => mkdtempSync(join(tmpdir(), "wf-map-fm-"));
-
   it("writeMap emits front-matter when meta is present and readMap parses it back", () => {
     const cwd = fresh();
     const map: WayfindMap = {
@@ -203,5 +205,66 @@ describe("validateEffortMap (conformance — catches the original hand-written f
       meta: { effort: "2026-08-02-core-task-review", status: "active" },
     };
     expect(validateEffortMap(m, "2026-08-02-core-task-review").ok).toBe(true);
+  });
+});
+
+describe("readEffortMeta", () => {
+  it("reads only the manifest (no ticket scan)", () => {
+    const cwd = fresh();
+    writeMap(cwd, {
+      effort: "x", destination: "d", notes: "", decisions: [], fog: [], outOfScope: [], tickets: [],
+      meta: { effort: "x", status: "active" },
+    });
+    expect(readEffortMeta(cwd, "x")).toEqual<EffortMeta>({ effort: "x", status: "active" });
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("returns null for a legacy (no front-matter) map", () => {
+    const cwd = fresh();
+    writeMap(cwd, { effort: "legacy", destination: "d", notes: "", decisions: [], fog: [], outOfScope: [], tickets: [] });
+    expect(readEffortMeta(cwd, "legacy")).toBeNull();
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("returns null when there is no map", () => {
+    const cwd = fresh();
+    expect(readEffortMeta(cwd, "ghost")).toBeNull();
+    rmSync(cwd, { recursive: true, force: true });
+  });
+});
+
+describe("touchEffortManifest", () => {
+  const todayStr = () => new Date().toISOString().slice(0, 10);
+
+  it("bumps last: on a manifest map and leaves the body verbatim", () => {
+    const cwd = fresh();
+    writeMap(cwd, {
+      effort: "x", destination: "BODY LINE ONE", notes: "n", decisions: [], fog: [], outOfScope: [], tickets: [],
+      meta: { effort: "x", created: "2020-01-01", status: "active" },
+    });
+    const path = join(cwd, ".planning", "x", "map.md");
+    const before = readFileSync(path, "utf-8");
+    const bodyBefore = before.split("---\n").pop();
+    touchEffortManifest(cwd, "x");
+    const after = readFileSync(path, "utf-8");
+    expect(after).toContain(`last: ${todayStr()}`);
+    expect(after.split("---\n").pop()).toBe(bodyBefore); // body byte-for-byte unchanged
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("is a no-op on a legacy (no front-matter) map", () => {
+    const cwd = fresh();
+    writeMap(cwd, { effort: "legacy", destination: "d", notes: "", decisions: [], fog: [], outOfScope: [], tickets: [] });
+    const path = join(cwd, ".planning", "legacy", "map.md");
+    const before = readFileSync(path, "utf-8");
+    touchEffortManifest(cwd, "legacy");
+    expect(readFileSync(path, "utf-8")).toBe(before);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("is a no-op when there is no map", () => {
+    const cwd = fresh();
+    expect(() => touchEffortManifest(cwd, "ghost")).not.toThrow();
+    rmSync(cwd, { recursive: true, force: true });
   });
 });
