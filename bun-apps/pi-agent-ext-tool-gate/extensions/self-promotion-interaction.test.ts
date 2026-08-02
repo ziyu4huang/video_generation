@@ -28,7 +28,7 @@ function makePi(allToolNames: string[]) {
 	let active: string[] = [];
 	const registered: any[] = [];
 	const pi: any = {
-		getAllTools: () => allToolNames.map((name) => ({ name })),
+		getAllToolDefinitions: () => allToolNames.map((name) => ({ name })),
 		getActiveTools: () => active,
 		setActiveTools: (names: string[]) => { active = names; },
 		registerTool: (def: any) => { registered.push(def); },

@@ -239,7 +239,7 @@ describe("enable_tool (S1 A escape hatch)", () => {
     const registered: { name: string; execute: (a: string, p: any) => Promise<any> }[] = [];
     const handlers: Record<string, (e?: any, ctx?: any) => Promise<void> | void> = {};
     const pi: any = {
-      getAllTools: () => loadedTools.map((name) => ({ name })),
+      getAllToolDefinitions: () => loadedTools.map((name) => ({ name })),
       setActiveTools: (names: string[]) => { calls.push({ setActiveTools: names }); },
       registerTool: (def: any) => { registered.push(def); },
       on: (ev: string, h: any) => { handlers[ev] = h; },
@@ -329,7 +329,7 @@ describe("enable_tool (S1 A escape hatch)", () => {
     // setActiveTools throwing inside execute must be caught → error result, not a throw.
     const handlers: Record<string, any> = {};
     const pi: any = {
-      getAllTools: () => [...CORE_TOOLS, "ltx", "ltx_help"].map((name) => ({ name })),
+      getAllToolDefinitions: () => [...CORE_TOOLS, "ltx", "ltx_help"].map((name) => ({ name })),
       setActiveTools: () => { throw new Error("setActiveTools boom"); },
       registerTool: (def: any) => { (pi as any)._t = def; },
       on: (ev: string, h: any) => { handlers[ev] = h; },
@@ -646,5 +646,29 @@ describe("buildEffectiveGates", () => {
     const eff = buildEffectiveGates(defs);
     const g = eff.gates.find((x) => x.names.includes("flux2"));
     expect(g!.keywords).toEqual(["owner-kw"]); // owner wins, not the hardcoded flux2 entry
+  });
+});
+
+describe("tool-gate runtime reads owner-declared gating", () => {
+  test("a tool whose owner declared gating is gated; a core-declared tool is active", async () => {
+    const activeCalls: string[][] = [];
+    let sessionStartHandler: ((e: unknown, ctx: unknown) => Promise<void>) | null = null;
+    const pi = {
+      getAllToolDefinitions: () => [
+        { name: "read", description: "r", gating: { core: true } },
+        { name: "inspect_hooks", description: "d", gating: { keywords: ["schema cost"], requires: { nouns: ["agent"], verbs: ["inspect"] } } },
+        { name: "flux2", description: "f" }, // no gating → hardcoded fallback (flux2 is in GATES)
+      ],
+      on: (_chan: string, h: (e: unknown, ctx: unknown) => Promise<void>) => { if (_chan === "session_start") sessionStartHandler = h; return () => {}; },
+      setActiveTools: (names: string[]) => { activeCalls.push(names); },
+      registerTool: () => {},
+      // ctx passed to the handler:
+    } as unknown as Parameters<typeof toolGateExtension>[0];
+    toolGateExtension(pi);
+    await sessionStartHandler!({}, { ui: { theme: { fg: (_k: string, s: string) => s }, setWidget: () => {} } });
+    const active = activeCalls[0];
+    expect(active).toContain("read");            // core-declared → active
+    expect(active).not.toContain("inspect_hooks"); // owner-gated, no keyword in "" prompt → dormant
+    expect(active).not.toContain("flux2");        // hardcoded fallback gate, dormant
   });
 });
