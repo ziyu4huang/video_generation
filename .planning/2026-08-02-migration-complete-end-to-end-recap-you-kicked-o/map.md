@@ -16,12 +16,14 @@ Finish the tool-gating rollout: migrate the owner-declared `gating` field to eve
 - **Harden the fail-open trap before rollout** — the multi-name-gate resolution is ticket #1 and blocks all rollout; no fail-open window (decided in charting).
 - [01 — Multi-name-gate hardening](tickets/01-multi-name-gate-hardening.md) — per-name resolution: partition each fallback gate's names, keep the gate for undeclared siblings; zero fail-open window during incremental rollout.
 - [02 — Drift-guard rollout net](tickets/02-drift-guard-rollout-net.md) — migrated set parameterized as an extensible source; dead-gate rejection (#8) and augmentation-agreement test (#9) folded in. Rollout tickets append here.
+- [03 — Rollout: deploy](tickets/03-rollout-deploy.md) — owner-declared gating on pi_deploy/pi_verify; removed from GATES; deploy in the drift-guard net. (Also: taught `qa/evaluate.ts` to reconstruct migrated gates from owner-declared gating so the L1 probe corpus stays live post-migration — scales to 04–12 with no probe edits.)
 
 ## Not yet specified
 
 - **Per-extension gating semantics** for each unmigrated extension (keywords, `requires`, single- vs multi-name) — graduates as each rollout ticket is scoped from the extension's current hardcoded `GATES` entry.
 - **Minor hardening folds** — dead-gate `requires:{}` rejection and the augmentation-agreement test are folded into the drift-guard net (ticket 02) rather than standalone tickets.
 - **Richer gating schema?** — rollout may surface a need for OR/AND keyword groups, negation, or priority. Graduates a schema-evolution ticket only if a real need appears.
+- **enable_tool sibling co-activation under per-tool owner-declared gating** — migrating a multi-name gate (e.g. deploy's `pi_deploy`/`pi_verify`, workflow's group) splits it into single-name gates. Keyword/`requires` firing still co-activates siblings (identical predicates), but `enable_tool({name:X})` no longer co-activates its former siblings (the old shared gate did). No assertion covers it; latent across all multi-name rollouts. Revisit only if the escape-hatch UX matters — would need a grouping mechanism in owner-declared gating (a schema change = new effort).
 
 ## Out of scope
 
