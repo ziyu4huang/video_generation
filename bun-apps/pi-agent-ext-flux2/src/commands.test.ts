@@ -113,10 +113,10 @@ describe("modeledFlags", () => {
 });
 
 describe("COMMANDS registry", () => {
-  test("has exactly the 24 documented flux2 subcommands", () => {
+  test("has exactly the 25 documented flux2 subcommands", () => {
     expect(Object.keys(COMMANDS).sort()).toEqual(
       [
-        "angle", "cutout", "edit", "expand", "faceswap", "gate", "inpaint", "kontext", "kv-style-transfer", "models", "scene", "segment",
+        "angle", "cutout", "edit", "expand", "face-detail", "faceswap", "gate", "inpaint", "kontext", "kv-style-transfer", "models", "scene", "segment",
         "story", "style", "styletransfer", "swap", "t2i", "upscale",
         "verify-e2e", "verify-edit", "verify-encoder", "verify-tokenizer",
         "verify-transformer", "verify-vae",
@@ -158,6 +158,16 @@ describe("per-command field sets match the real CLI (verified against `flux2 <cm
     for (const key of ["transformer", "seed", "width", "height", "steps", "output", "outputDir", "name", "noArtifacts"] as const) {
       expect(cmd("swap").fields[key]).toBeDefined();
     }
+  });
+
+  test("face-detail command is registered with its own flags", () => {
+    const spec = cmd("face-detail");
+    expect(spec.name).toBe("face-detail");
+    expect(spec.writesImage).toBe(true);
+    expect(Object.keys(spec.fields)).toContain("input");
+    expect(Object.keys(spec.fields)).toContain("padding");
+    expect(Object.keys(spec.fields)).toContain("minConfidence");
+    expect(spec.fields.minConfidence?.flag).toBe("--min-confidence");
   });
 
   test("upscale has no transformer/seed/vae/encoder/tokenizerDir (pure ESRGAN pass, no MLX path)", () => {
