@@ -119,6 +119,53 @@ test("reconstructSubagentRuns: singular subagent + batch children coexist; singu
   assert.equal(runs[1].batchToolCallId, "batch-9");
 });
 
+// --- deficit 4b: Completed section groups batch children under a header ---
+function mkRun(partial: Partial<SubagentRun> & { index: number }): SubagentRun {
+  return {
+    model: "x/flash",
+    taskPreview: "t",
+    status: "done",
+    elapsedMs: 1000,
+    output: "o",
+    ...partial,
+  };
+}
+
+test("Completed section groups batch children under one header; enter opens a child's output", () => {
+  const runs = [
+    mkRun({ index: 1, batchToolCallId: "batch-1", taskPreview: "child A", output: "out A" }),
+    mkRun({ index: 2, batchToolCallId: "batch-1", taskPreview: "child B", output: "out B" }),
+    mkRun({ index: 3, taskPreview: "singular", output: "sing out" }),
+  ];
+  const v = new SubagentViewer({ runs, onClose: () => {} }, T);
+  const lines = v.render(80);
+
+  const headers = lines.filter((l) => l.includes("subagents batch"));
+  assert.equal(headers.length, 1);
+  assert.ok(headers[0].includes("2 children"), "completed batch header shows child count");
+  assert.ok(lines.some((l) => l.includes("child A")));
+  assert.ok(lines.some((l) => l.includes("child B")));
+  assert.ok(lines.some((l) => l.includes("singular")));
+
+  // cursor 0 = batch header; down → first child; enter opens its frozen output.
+  v.handleInput("\x1b[B"); // down → first child ("child A")
+  v.handleInput("\r"); // enter → output view
+  const out = v.render(80);
+  assert.ok(out.some((l) => l.includes("out A")), "enter on a batch child opens its frozen output");
+});
+
+test("Completed section: collapsing a batch header hides its children", () => {
+  const runs = [
+    mkRun({ index: 1, batchToolCallId: "batch-1", taskPreview: "child A", output: "out A" }),
+    mkRun({ index: 2, batchToolCallId: "batch-1", taskPreview: "child B", output: "out B" }),
+  ];
+  const v = new SubagentViewer({ runs, onClose: () => {} }, T);
+  v.handleInput("\r"); // enter on the header (cursor 0) → toggle collapse
+  const collapsed = v.render(80);
+  assert.ok(!collapsed.some((l) => l.includes("child A")), "collapsed batch hides its children");
+  assert.ok(collapsed.some((l) => l.includes("subagents batch")), "header still shows when collapsed");
+});
+
 test("viewer list shows all runs; enter opens the selected run's full output; esc goes back", () => {
   const runs = reconstructSubagentRuns([
     toolResultEntry("subagent", "report A line one", {
