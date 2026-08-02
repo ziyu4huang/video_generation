@@ -18,6 +18,7 @@
   "files": [
     "dist/",
     "extensions/",
+    "procedures/",
     "src/",
     "skills/",
     "README.md"

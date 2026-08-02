@@ -1,9 +1,3 @@
----
-name: wayfinder
-description: Use when you can't yet write a plan because the route is still foggy — a huge chunk of work (more than one agent session can hold) whose decisions are unresolved. The discriminator is plan-writability — if you CAN write a plan from a settled spec, use writing-plans instead; if it's foggy but small, use grilling. Charts the effort as a shared local-markdown map of decision tickets under .planning/<effort>/ and resolves them one at a time until the way to the destination is clear. Invocation-only via /wayfind.
-disable-model-invocation: true
----
-
 # Wayfinder
 
 A loose idea has arrived — too big for one agent session, and wrapped in fog: the way from here to the **destination** isn't visible yet. Wayfinding is about finding that way, not charging at the destination. This skill charts the way as a **shared map** of **decision tickets** on disk, then works the tickets — questions whose resolution is a decision, not slices of a build to execute — one at a time until the route is clear.

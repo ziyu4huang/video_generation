@@ -34,6 +34,7 @@ import {
 import { buildFreshnessWarning, checkFactFreshness } from "./freshness.js";
 import { buildGrillPriming } from "./grill.js";
 import type { WayfindOverlay } from "./overlay.js";
+import { procedurePath } from "./procedures.js";
 import { getSessionId, isGrillActive, type RuntimeState } from "./state.js";
 import {
   chartMap,
@@ -290,7 +291,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       pi.sendUserMessage(
         [
           `Working wayfinder ticket ${claimed.id} "${claimed.title}" on effort ${effort}.`,
-          `Load the \`wayfinder\` skill. Ticket type: ${claimed.type}.`,
+          `Ticket type: ${claimed.type}. Full procedure (work-the-map — ticket types, fog graduation, closing ceremony): read ${procedurePath("wayfinder")}.`,
           `Question: ${claimed.question}`,
           "Resolve it (one ticket this session): record the answer, then close the ticket + append to the map's Decisions so far. Graduate any newly-specifiable fog into fresh tickets.",
           ...(freshnessWarn ? [freshnessWarn] : []),
@@ -309,7 +310,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
     pi.sendUserMessage(
       [
         `Charting a wayfinder map for: ${destination}`,
-        "Load the `wayfinder` skill (chart-the-map mode).",
+        `Full wayfinder procedure (chart-the-map mode — map body, ticket types, fog-of-war, closing ceremony): read ${procedurePath("wayfinder")}.`,
         "1. Grill to pin the destination + scope. 2. Map the frontier breadth-first — surface open decisions + first takeable steps. 3. If no fog surfaces, the journey is small enough to skip the map (tell me). 4. Otherwise create tickets under .planning/" +
           effort +
           "/tickets/ (one file each, wired with blocking edges).",
