@@ -700,6 +700,56 @@ export class SqliteSessionRepository implements SessionRepository {
   }
 
   // -------------------------------------------------------------------------
+  // recordAssembly — FK-free prompt-provenance (UPSP §5).
+  // ------------------------------------------------------------------------
+
+  /**
+   * Write one session's assembly rows (meta upsert + assembly set replace).
+   * Transaction-free: callers manage transaction boundaries (mirrors
+   * `writeSessionToDb`). FK-free: NEVER touches the `sessions` table — the
+   * sessions row is created later by deferred backfill, so `session_id` is a
+   * plain join key here, not a foreign key.
+   */
+  private writeAssemblyToDb(
+    db: DatabaseLike,
+    sessionId: string,
+    mdIds: readonly string[],
+    hash: string,
+  ): void {
+    const now = new Date().toISOString();
+    db.prepare(
+      "INSERT INTO session_assembly_meta (session_id, hash, captured_at) VALUES (?, ?, ?) " +
+        "ON CONFLICT(session_id) DO UPDATE SET hash = excluded.hash, captured_at = excluded.captured_at",
+    ).run(sessionId, hash, now);
+    db.prepare("DELETE FROM session_assembly WHERE session_id = ?").run(sessionId);
+    const ins = db.prepare(
+      "INSERT OR IGNORE INTO session_assembly (session_id, md_id) VALUES (?, ?)",
+    );
+    for (const id of mdIds) ins.run(sessionId, id);
+  }
+
+  async recordAssembly(
+    sessionId: string,
+    mdIds: readonly string[],
+    hash: string,
+  ): Promise<void> {
+    await runWithTransientRetry(() =>
+      this.backend.withCorruptionRecovery(() => {
+        const db = this.backend.getDb();
+        const write = () => this.writeAssemblyToDb(db, sessionId, mdIds, hash);
+        // `transaction` is optional on DatabaseLike (in-memory/test backends may
+        // omit it); mirror the indexSessionOnce guard so the assembly set still
+        // lands atomically when a real driver is present.
+        if (db.transaction) {
+          db.transaction(write)();
+        } else {
+          write();
+        }
+      }),
+    );
+  }
+
+  // -------------------------------------------------------------------------
   // getSessionStats — from getSessionStats.
   // -------------------------------------------------------------------------
 

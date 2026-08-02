@@ -181,6 +181,9 @@ export interface SessionRepository {
   searchSessions(query: string, options?: { project?: string | null; role?: "user" | "assistant" | "system"; limit?: number }): Promise<SessionSearchResult[]>;
   getIndexedMessageCount(): Promise<number>;
   getSessionStats(): Promise<SessionStats>;
+  /** Per-session prompt-provenance (UPSP §5): record the assembled md_id set + block hash.
+   *  Idempotent (re-call replaces). Best-effort: callers swallow throws. */
+  recordAssembly(sessionId: string, mdIds: readonly string[], hash: string): Promise<void>;
 }
 
 /**

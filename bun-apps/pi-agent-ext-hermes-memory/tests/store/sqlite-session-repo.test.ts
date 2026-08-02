@@ -726,3 +726,48 @@ describe("session_assembly schema", () => {
     expect(ddl).not.toContain("REFERENCES");
   });
 });
+
+// ---------------------------------------------------------------------------
+// recordAssembly (Task 4 — SessionRepository.recordAssembly + SQLite impl)
+// ---------------------------------------------------------------------------
+
+describe("SqliteSessionRepository.recordAssembly", () => {
+  let dir: string;
+  let backend: SqliteBackend;
+  let repo: SqliteSessionRepository;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "hm-sess-"));
+    backend = new SqliteBackend(dir);
+    await backend.init();
+    repo = new SqliteSessionRepository(backend);
+  });
+
+  afterEach(() => {
+    backend.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("writes one row per md_id + meta hash; idempotent; queryable by md_id (no sessions row needed)", async () => {
+    const db = backend.getDb();
+    // NOTE: no sessions row pre-inserted — capture runs before backfill creates it (FK-free).
+    await repo.recordAssembly("sess-1", ["m1", "m2", "m1"], "deadbeef");
+
+    const meta = db.prepare("SELECT hash FROM session_assembly_meta WHERE session_id = ?").get("sess-1") as any;
+    expect(meta.hash).toBe("deadbeef");
+
+    const rows = db.prepare("SELECT md_id FROM session_assembly WHERE session_id = ? ORDER BY md_id").all("sess-1") as any[];
+    expect(rows.map((r) => r.md_id)).toEqual(["m1", "m2"]); // deduped by PK
+
+    // headline query: md_id → sessions (LEFT JOIN sessions for project/cwd when indexed)
+    const sids = db.prepare("SELECT DISTINCT session_id FROM session_assembly WHERE md_id = ?").all("m1") as any[];
+    expect(sids.map((r) => r.session_id)).toEqual(["sess-1"]);
+
+    // idempotent re-call replaces, does not duplicate:
+    await repo.recordAssembly("sess-1", ["m3"], "cafebabe");
+    const after = db.prepare("SELECT md_id FROM session_assembly WHERE session_id = ?").all("sess-1") as any[];
+    expect(after.map((r) => r.md_id)).toEqual(["m3"]);
+    const h2 = (db.prepare("SELECT hash FROM session_assembly_meta WHERE session_id = ?").get("sess-1") as any).hash;
+    expect(h2).toBe("cafebabe");
+  });
+});
