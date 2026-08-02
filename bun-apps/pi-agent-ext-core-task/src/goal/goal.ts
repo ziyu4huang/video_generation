@@ -182,6 +182,7 @@ export function isGoalActive(): boolean {
 
 const goalCompleteTool = defineTool({
 	name: "goal_complete",
+	gating: { core: true },
 	label: "Goal Complete",
 	description:
 		"Mark the active /goal as complete after all required work is done and verified. Do not use for partial progress, blockers, failing, or unverified work.",
