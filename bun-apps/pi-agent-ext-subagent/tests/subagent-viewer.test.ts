@@ -899,3 +899,131 @@ test("counts update as more children complete (2 running → 1 running 1 done �
     assert.match(out, /0 running \/ 2 done/, "step 2: header persists with 0 running / 2 done");
   }
 });
+
+// ── per-child mid-flight abort: viewer x-key + confirm (Frontier A, Task 3) ──
+
+function viewerWithRunning(onAbort?: (id: string) => void) {
+  const running = [
+    {
+      id: "r1",
+      agent: "implementer",
+      model: "x/flash",
+      taskPreview: "doing X",
+      startedAt: Date.now() - 100,
+      history: [],
+    },
+  ];
+  return new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {}, onAbort }, T);
+}
+
+test("x on a Running entry → confirm; y aborts via onAbort(id); confirm clears", () => {
+  const aborted: string[] = [];
+  const v = viewerWithRunning((id) => aborted.push(id));
+  v.handleInput("x"); // cursor 0 = the running entry → enter confirm
+  const confirming = v.render(80).join("\n");
+  assert.match(confirming, /Abort this subagent\? y\/N/);
+  assert.deepEqual(aborted, [], "not aborted until y");
+  v.handleInput("y");
+  assert.deepEqual(aborted, ["r1"], "onAbort called once with the running id");
+  const after = v.render(80).join("\n");
+  assert.ok(!after.includes("Abort this subagent?"), "confirm cleared after y");
+});
+
+test("x then n (and Esc) cancels the confirm without aborting or closing the viewer", () => {
+  const aborted: string[] = [];
+  let closed = 0;
+  const v = new SubagentViewer(
+    {
+      runs: [],
+      getRunning: () => [{ id: "r1", model: "m", taskPreview: "p", startedAt: 0 }] as never,
+      onClose: () => {
+        closed++;
+      },
+      onAbort: (id) => aborted.push(id),
+    },
+    T,
+  );
+  v.handleInput("x");
+  v.handleInput("n");
+  assert.deepEqual(aborted, []);
+  assert.equal(closed, 0, "n does not close the viewer");
+  assert.ok(!v.render(80).join("\n").includes("Abort this subagent?"), "confirm cleared after n");
+  // Esc cancels confirm WITHOUT closing the viewer
+  v.handleInput("x");
+  v.handleInput("\x1b"); // escape
+  assert.deepEqual(aborted, []);
+  assert.equal(closed, 0, "Esc during confirm cancels, does not close");
+  assert.ok(!v.render(80).join("\n").includes("Abort this subagent?"), "confirm cleared after Esc");
+});
+
+test("x on a Completed entry is a no-op; x while a filter is active is a no-op", () => {
+  const aborted: string[] = [];
+  const runs = [{ index: 1, model: "x/flash", taskPreview: "done task", status: "done", elapsedMs: 500, output: "ok" }];
+  const v = new SubagentViewer(
+    { runs: runs as never, getRunning: () => [], onClose: () => {}, onAbort: (id) => aborted.push(id) },
+    T,
+  );
+  v.handleInput("x"); // cursor 0 = completed entry → no-op
+  assert.deepEqual(aborted, []);
+  assert.ok(!v.render(80).join("\n").includes("Abort this subagent?"));
+  // with a running entry but a filter active, x enters the filter (no abort)
+  const v2 = new SubagentViewer(
+    {
+      runs: [],
+      getRunning: () => [{ id: "r1", model: "m", taskPreview: "p", startedAt: 0 }] as never,
+      onClose: () => {},
+      onAbort: (id) => aborted.push(id),
+    },
+    T,
+  );
+  v2.handleInput("f"); // start a filter
+  v2.handleInput("x"); // x while filter active → filter input, not abort
+  assert.deepEqual(aborted, []);
+  assert.ok(!v2.render(80).join("\n").includes("Abort this subagent?"));
+});
+
+test("confirm state gates navigation/enter/printable (only y/n/Esc handled)", () => {
+  const aborted: string[] = [];
+  const v = viewerWithRunning((id) => aborted.push(id));
+  v.handleInput("x"); // enter confirm
+  v.handleInput("\x1b[B"); // down → ignored
+  v.handleInput("\r"); // enter → would normally follow; must be ignored while confirming
+  v.handleInput("z"); // printable → would normally enter filter; ignored while confirming
+  assert.deepEqual(aborted, [], "no abort from gated keys");
+  const out = v.render(80).join("\n");
+  assert.match(out, /Abort this subagent\? y\/N/, "still confirming — enter did not follow");
+  assert.ok(!out.includes("Follow") || out.includes("Abort"), "did not leave the list view");
+  v.handleInput("y"); // now abort
+  assert.deepEqual(aborted, ["r1"]);
+});
+
+test("reconstruct surfaces 'aborted' for a singular subagent + a batch child; Completed renders the ⊘ glyph", () => {
+  const branch = [
+    toolResultEntry(
+      "subagent",
+      "Subagent aborted by user.",
+      {
+        exitCode: 124,
+        timedOut: false,
+        agent: "scout",
+        model: "x/flash",
+        taskPreview: "aborted task",
+        elapsedMs: 300,
+        status: "aborted",
+      },
+      "call-a",
+    ),
+    batchResultEntry("call-b", [
+      { status: "aborted", index: 0, output: "", task: "batch aborted", model: "y/pro", elapsedMs: 200 } as never,
+    ]),
+  ];
+  const runs = reconstructSubagentRuns(branch as never);
+  assert.equal(runs.length, 2);
+  assert.equal(runs[0].status, "aborted");
+  assert.equal(runs[0].toolCallId, "call-a");
+  assert.equal(runs[1].status, "aborted");
+  assert.equal(runs[1].batchToolCallId, "call-b");
+  const v = new SubagentViewer({ runs, getRunning: () => [], onClose: () => {} }, T);
+  const out = v.render(80).join("\n");
+  assert.match(out, /⊘/, "aborted completed rows carry the aborted glyph");
+});

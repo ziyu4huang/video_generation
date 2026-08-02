@@ -122,6 +122,9 @@ interface ViewerOpts {
   /** Live re-scan of the branch, used to resolve a followed run's completion (Task 4). */
   getRuns?: () => SubagentRun[];
   onClose: () => void;
+  /** Per-child abort lever — fires when the user confirms an x-key abort on a
+   *  Running entry. Wired to registry.abort(id) in subagents-command.ts. */
+  onAbort?: (id: string) => void;
 }
 
 /** Stateful list↔output↔follow viewer. `view` flips on enter/esc; no second UI mount. */
@@ -139,6 +142,10 @@ export class SubagentViewer {
   private collapsedBatches = new Set<string>();
   private outputRun?: SubagentRun; // the completed run open in `output` (decoupled from the list cursor)
   private onClose: () => void;
+  /** Per-child abort callback (Frontier A); fires on a confirmed x-key abort. */
+  private onAbort?: (id: string) => void;
+  /** When set, the viewer is mid-abort-confirm on this running id; only y/n/Esc resolve. */
+  private confirmAbortId?: string;
   private cachedWidth?: number;
   private cachedLines?: string[];
   private theme: Theme;
@@ -159,6 +166,7 @@ export class SubagentViewer {
     this.getRunning = opts.getRunning;
     this.getRuns = opts.getRuns;
     this.onClose = opts.onClose;
+    this.onAbort = opts.onAbort;
     this.theme = theme;
   }
 
@@ -268,6 +276,13 @@ export class SubagentViewer {
 
   handleInput(data: string): void {
     if (matchesKey(data, Key.escape)) {
+      // A pending abort confirm is cancelled by Esc WITHOUT closing the viewer
+      // (Frontier A) — the confirm is a transient sub-state (mirrors n).
+      if (this.confirmAbortId !== undefined) {
+        this.confirmAbortId = undefined;
+        this.invalidate();
+        return;
+      }
       if (this.view === "list") {
         if (this.filter) {
           this.filter = ""; // first esc clears the filter, stays in list
@@ -285,6 +300,21 @@ export class SubagentViewer {
       return;
     }
     if (this.view !== "list") return; // follow/output: no nav/filter keys in v1
+    // Per-child abort confirm (Frontier A): while confirming, only y/n resolve
+    // (Esc is handled above); nav/enter/printable are ignored so a stray key
+    // can't follow, filter, or abort mid-confirm.
+    if (this.confirmAbortId !== undefined) {
+      if (data === "y" || data === "Y") {
+        const id = this.confirmAbortId;
+        this.confirmAbortId = undefined;
+        this.onAbort?.(id);
+        this.invalidate();
+      } else if (data === "n" || data === "N") {
+        this.confirmAbortId = undefined;
+        this.invalidate();
+      }
+      return;
+    }
     // filter input
     if ((data === "\x7f" || data === "\x08") && this.filter) {
       this.filter = this.filter.slice(0, -1);
@@ -297,6 +327,17 @@ export class SubagentViewer {
       this.selected = 0;
       this.invalidate();
       return;
+    }
+    if (data === "x" && !this.filter) {
+      // Per-child abort (Frontier A): only triggers on a Running entry; a
+      // non-running selection falls through to filter input (so 'x' can filter).
+      const entries = this.entries();
+      const e = entries[this.selected];
+      if (e?.kind === "running") {
+        this.confirmAbortId = e.ref.id;
+        this.invalidate();
+        return;
+      }
     }
     if (data.length === 1 && data >= " " && data <= "~") {
       this.filter += data;
@@ -464,6 +505,10 @@ export class SubagentViewer {
       lines.push(truncateToWidth(`  ${th.fg("dim", "↑↓ select • enter view/follow • esc close")}`, width));
     }
     lines.push("");
+    if (this.confirmAbortId !== undefined) {
+      lines.push(truncateToWidth(` ${th.fg("warning", th.bold("Abort this subagent? y/N"))}`, width));
+      lines.push("");
+    }
     return lines;
   }
 
