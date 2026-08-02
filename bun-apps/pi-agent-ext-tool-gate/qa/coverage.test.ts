@@ -36,7 +36,7 @@ const ROOT = "/fake/repo";
 const TH = DEFAULT_COVERAGE_THRESHOLD; // 300
 
 describe("analyzeCoverage", () => {
-	it("reports a heavy tool NOT in TRACKED_TOOLS as ungated", () => {
+	it("reports a heavy tool NOT tracked as ungated", () => {
 		const r = analyzeCoverage(report([tool("synthetic_heavy", 500, "some-ext")]), TH, ROOT);
 		expect(r.ungated.map((u) => u.name)).toEqual(["synthetic_heavy"]);
 		expect(r.heavyTools).toBe(1);
@@ -45,12 +45,11 @@ describe("analyzeCoverage", () => {
 	});
 
 	it("counts a heavy TRACKED tool as gatedHeavy (not ungated)", () => {
-		// Post ticket 12 the module GATES is empty → module-level TRACKED_TOOLS is
-		// CORE_TOOLS only. "enable_tool" is a CORE_TOOLS member → in TRACKED_TOOLS
-		// (the source string is synthetic; analyzeCoverage only skips source ===
-		// "(builtin)"). NOTE: the coverage ANALYZER still reads the legacy module
-		// TRACKED_TOOLS — upgrading it to owner-declared effective gates is a
-		// separate follow-up; this proves its tracked→gatedHeavy path.
+		// Post ticket 13a analyzeCoverage defaults `tracked` to CORPUS_EFF.tracked
+		// (core ∪ owner-declared gated names) — NOT the legacy module TRACKED_TOOLS.
+		// "enable_tool" is a CORE_TOOLS member → in CORPUS_EFF.tracked (the source
+		// string is synthetic; analyzeCoverage only skips source === "(builtin)").
+		// This proves the tracked→gatedHeavy path under the effective-gates default.
 		const r = analyzeCoverage(report([tool("enable_tool", 500, "zai-mcp")]), TH, ROOT);
 		expect(r.gatedHeavy).toBe(1);
 		expect(r.ungated).toEqual([]);
