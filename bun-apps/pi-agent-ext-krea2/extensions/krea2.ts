@@ -152,6 +152,16 @@ function makeKrea2Tool() {
     name: "krea2",
     label: "Krea 2 Image Director",
     description: buildDescription(),
+    // Owner-declared gating — migrated from tool-gate's hardcoded GATES (was the
+    // {names:["krea2","krea2_help"]} gate). Per ticket 06's semantics-preserving
+    // rule, the SAME gating is mirrored on krea2_help so both activate together
+    // and reconstructOwnerDeclaredGates collapses them back into one multi-name
+    // gate (names[0] === "krea2"). Keywords-only — no `requires` (mirrors the
+    // original GATES entry: "krea"/"草圖"/"快速生成" are narrow enough that
+    // bare-word false-fires are unlikely without noun∧verb gating).
+    gating: {
+      keywords: ["krea", "krea2", "草圖", "快速生成", "即時生成", "實時繪圖", "sketch", "real-time", "real time"],
+    },
     promptSnippet:
       "Generate/edit images with Krea 2 Turbo (Swift/MLX). One tool, 2 subcommands (t2i, i2i); " +
       "call krea2_help for a command's options; chain via details.output.",
@@ -245,6 +255,13 @@ function makeKrea2HelpTool() {
   return defineTool({
     name: "krea2_help",
     label: "Krea 2 Command Reference",
+    // Owner-declared gating — mirrored IDENTICALLY from krea2 (same signature)
+    // so reconstructOwnerDeclaredGates collapses the two into one multi-name
+    // gate {names:["krea2","krea2_help"]} (ticket 06). Co-fire preserved: when
+    // the gate fires, both names activate together. See krea2's gating comment.
+    gating: {
+      keywords: ["krea", "krea2", "草圖", "快速生成", "即時生成", "實時繪圖", "sketch", "real-time", "real time"],
+    },
     description:
       "On-demand reference for the `krea2` tool. Pass {command} for option keys/defaults/path rules + example; omit to list subcommands.",
     parameters: Type.Object({
