@@ -463,6 +463,34 @@ describe("loadConfig", () => {
     assert.strictEqual(config.errorCaptureRateWindowMs, undefined);
     assert.strictEqual(config.errorCaptureDedupCacheSize, undefined);
   });
+
+  it("carries usedDetection + usedSignatureMinChars through from the config file", () => {
+    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
+    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
+      usedDetection: false,
+      usedSignatureMinChars: 40,
+    }));
+    const config = loadConfig(TEST_CONFIG_PATH);
+    assert.strictEqual(config.usedDetection, false);
+    assert.strictEqual(config.usedSignatureMinChars, 40);
+  });
+
+  it("defaults usedDetection to true and usedSignatureMinChars to DEFAULT_USED_SIGNATURE_MIN_CHARS (24) when unset", () => {
+    const config = loadConfig(TEST_CONFIG_PATH);
+    assert.strictEqual(config.usedDetection, true);
+    assert.strictEqual(config.usedSignatureMinChars, 24);
+  });
+
+  it("ignores invalid usedDetection / usedSignatureMinChars values (non-boolean / negative)", () => {
+    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
+    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
+      usedDetection: "off",
+      usedSignatureMinChars: -5,
+    }));
+    const config = loadConfig(TEST_CONFIG_PATH);
+    assert.strictEqual(config.usedDetection, true);
+    assert.strictEqual(config.usedSignatureMinChars, 24);
+  });
 });
 
 describe("config dbBackend", () => {

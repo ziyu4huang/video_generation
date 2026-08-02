@@ -14,6 +14,7 @@ import {
   DEFAULT_CONSOLIDATION_TIMEOUT_MS,
   DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS,
   DEFAULT_FAILURE_INJECTION_MAX_ENTRIES,
+  DEFAULT_USED_SIGNATURE_MIN_CHARS,
 } from "./constants.js";
 import { AGENT_ROOT, normalizeConfiguredMemoryDir, normalizeProjectsMemoryDir } from "./paths.js";
 import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
@@ -66,6 +67,8 @@ const DEFAULT_CONFIG: MemoryConfig = {
   correctionDetection: true,
   errorCapture: true,
   worthScoring: true,
+  usedDetection: true,
+  usedSignatureMinChars: DEFAULT_USED_SIGNATURE_MIN_CHARS,
   autoSupersede: false,
   autoCommitProjectMemory: false,
   failureInjectionEnabled: true,
@@ -244,6 +247,8 @@ export function loadConfig(configPath?: string, cwd: string = process.cwd()): Me
       if (typeof parsed.correctionDetection === "boolean") config.correctionDetection = parsed.correctionDetection;
       if (typeof parsed.errorCapture === "boolean") config.errorCapture = parsed.errorCapture;
       if (typeof parsed.worthScoring === "boolean") config.worthScoring = parsed.worthScoring;
+      if (typeof parsed.usedDetection === "boolean") config.usedDetection = parsed.usedDetection;
+      if (isNonNegativeNumber(parsed.usedSignatureMinChars)) config.usedSignatureMinChars = parsed.usedSignatureMinChars;
       if (typeof parsed.autoSupersede === "boolean") config.autoSupersede = parsed.autoSupersede;
       if (isNonNegativeNumber(parsed.errorCaptureRateLimit)) config.errorCaptureRateLimit = parsed.errorCaptureRateLimit;
       if (isNonNegativeNumber(parsed.errorCaptureRateWindowMs)) config.errorCaptureRateWindowMs = parsed.errorCaptureRateWindowMs;
