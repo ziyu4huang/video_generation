@@ -126,7 +126,22 @@ async function runRecipeLoop(opts: RecipeOptions): Promise<Omit<RecipeOutcome, "
 					};
 				}
 				behind = true;
-				await opts.gh.rebaseAndForcePush(opts.branch);
+				// RCA #1009: a rebase/force-push failure (dirty tree, conflict, rejected
+				// push) must surface as a clean error outcome — not throw (which
+				// crashes the tool) and not spin silently (which the harness eventually
+				// aborts as a misleading "aborted").
+				try {
+					await opts.gh.rebaseAndForcePush(opts.branch);
+				} catch (err) {
+					return {
+						merged: false,
+						finalState: status.state,
+						checks: status.checks,
+						behind: true,
+						timedOut: false,
+						error: `BEHIND rebase+force-push failed: ${err instanceof Error ? err.message : String(err)}`,
+					};
+				}
 				break;
 			case "wait":
 				break; // keep polling
