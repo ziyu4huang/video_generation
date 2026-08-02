@@ -606,3 +606,45 @@ describe("measureToolTokens (S3)", () => {
     expect(long).toBeGreaterThan(short * 50);
   });
 });
+
+import { buildEffectiveGates } from "./tool-gate.ts";
+
+describe("buildEffectiveGates", () => {
+  test("owner-declared core:true → core set, removed from fallback need", () => {
+    const defs = [{ name: "enable_tool", gating: { core: true } }] as Array<{
+      name: string; description?: string; gating?: { keywords: string[]; requires?: { nouns: string[]; verbs: string[] }; core?: boolean };
+    }>;
+    const eff = buildEffectiveGates(defs);
+    expect(eff.core.has("enable_tool")).toBe(true);
+    expect(eff.gates.find((g) => g.names.includes("enable_tool"))).toBeUndefined();
+  });
+
+  test("owner-declared non-core gating becomes a single-name gate", () => {
+    const defs = [{
+      name: "inspect_hooks", description: "d",
+      gating: { keywords: ["schema cost"], requires: { nouns: ["agent"], verbs: ["inspect"] } },
+    }] as Array<{ name: string; description?: string; gating?: any }>;
+    const eff = buildEffectiveGates(defs);
+    const g = eff.gates.find((x) => x.names.includes("inspect_hooks"));
+    expect(g).toBeDefined();
+    expect(g!.keywords).toEqual(["schema cost"]);
+    expect(g!.requires).toEqual({ nouns: ["agent"], verbs: ["inspect"] });
+  });
+
+  test("hybrid fallback: tools without gating keep their hardcoded gate", () => {
+    const eff = buildEffectiveGates([]); // no owner declarations
+    const flux = eff.gates.find((g) => g.names.includes("flux2"));
+    expect(flux).toBeDefined(); // hardcoded GATES fallback intact
+    expect(eff.core.has("read")).toBe(true); // CORE_TOOLS fallback intact
+  });
+
+  test("owner-declared tool supersedes a same-named hardcoded gate", () => {
+    const defs = [{
+      name: "flux2", description: "owner",
+      gating: { keywords: ["owner-kw"] },
+    }] as Array<{ name: string; description?: string; gating?: any }>;
+    const eff = buildEffectiveGates(defs);
+    const g = eff.gates.find((x) => x.names.includes("flux2"));
+    expect(g!.keywords).toEqual(["owner-kw"]); // owner wins, not the hardcoded flux2 entry
+  });
+});
