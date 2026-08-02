@@ -192,22 +192,24 @@ export const REGISTRY: ProviderEntry[] = [
   // Swift-native (krea2 t2i/i2i, the zimage pipeline run_workflow hardcodes),
   // and stage 4's DEFAULT method (esrgan) is already Swift-native too (flux2
   // `upscale`, RealPLKSR — same model the standalone `upscale_flux2` entry
-  // above uses). Stage 2 (face detailer) needs mediapipe FACE DETECTION (the
-  // re-denoise half reuses the same native I2I, but detection has no Swift/
-  // Vision-framework port anywhere in this repo — a genuinely NEW primitive,
-  // not orchestration). Stage 3 (post-process: film grain/sharpen/LUT/skin
-  // contrast) is pure pixel math but needs a decoded RGB buffer this package
-  // has no image-codec dependency for, and no Swift filter chain exists
-  // either — also NEW work, not orchestration. Stage 4's `seedvr2` method
+  // above uses). Stage 2 (face detailer) is now native too (2026-08-02):
+  // FaceDetector.swift (Apple Vision VNDetectFaceRectanglesRequest) replaces
+  // mediapipe's TFLite detector, and FaceDetailPipeline.swift replicates the
+  // crop/regenerate/composite loop via the existing Flux2EditPipeline/
+  // Flux2Composite primitives — exposed as `flux2 face-detail`. Stage 3
+  // (post-process: film grain/sharpen/LUT/skin contrast) is pure pixel math
+  // but needs a decoded RGB buffer this package has no image-codec
+  // dependency for, and no Swift filter chain exists either — still NEW
+  // work, not orchestration, still out of scope. Stage 4's `seedvr2` method
   // stays confirmed PyTorch/torch-MPS-only (no MLX/Swift port anywhere — see
   // memory project_pytorch_mps_versions/project_attention_backends_mps).
   // So this stays under ONE command name ("workflow") and forks by request
   // shape inside bridge.ts's realWorkflow — the same style-fork controlnet_
   // hybrid (above) and caption.ts use. Native path only fires when NONE of
-  // face_detail/film_grain/sharpening/lut/skin_contrast/noise_clean is
-  // requested and upscale_method isn't "seedvr2" — see isNativeWorkflowRequest
-  // in bridge.ts. Everything else still reaches run.py's image-workflow.py
-  // via realRunPyImage exactly as before.
+  // film_grain/sharpening/lut/skin_contrast/noise_clean is requested and
+  // upscale_method isn't "seedvr2" — see isNativeWorkflowRequest in
+  // bridge.ts. Everything else still reaches run.py's image-workflow.py via
+  // realRunPyImage exactly as before.
   {
     name: "workflow_hybrid",
     capability: "image_generation",
@@ -216,7 +218,7 @@ export const REGISTRY: ProviderEntry[] = [
     invoke: "mlx:workflow-hybrid",
     configured: true,
     commands: ["workflow"],
-    notes: "Style-forked (caption.ts/controlnet_hybrid pattern) workflow dispatch (src/bridge.ts realWorkflow). Native path: src/workflow_native.ts orchestrating krea2 t2i/i2i (base gen) optionally chained with flux2 upscale (ESRGAN/RealPLKSR) — fires only when no face-detail/post-process knob is requested and upscale_method isn't seedvr2. Fallback path: run.py's image-workflow.py (full 4-stage pipeline incl. mediapipe face-detailer, numpy/PIL/cv2 post-process chain, SeedVR2) — fires for everything else, unchanged from before this migration. See isNativeWorkflowRequest for the exact split and workflow_native.ts's module doc for the full per-stage portability investigation.",
+    notes: "Style-forked (caption.ts/controlnet_hybrid pattern) workflow dispatch (src/bridge.ts realWorkflow). Native path: src/workflow_native.ts orchestrating krea2 t2i/i2i (base gen) optionally chained with flux2 face-detail (Apple Vision detect + SDEdit regen) and/or flux2 upscale (ESRGAN/RealPLKSR) — fires only when no post-process knob is requested and upscale_method isn't seedvr2. Fallback path: run.py's image-workflow.py (full 4-stage pipeline incl. numpy/PIL/cv2 post-process chain, SeedVR2) — fires for everything else, unchanged from before this migration. See isNativeWorkflowRequest for the exact split and workflow_native.ts's module doc for the full per-stage portability investigation.",
   },
   // twosubject — 2026-07-13: image-twosubject.py is PURE CONTROL FLOW (VLM
   // prompt-master + best-of-N native t2i + VLM judge, optional VLM revise) —
