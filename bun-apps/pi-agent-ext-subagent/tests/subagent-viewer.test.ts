@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import type { SubagentToolDetails, SubagentsToolDetails } from "../src/index.js";
+import type { SubagentsToolDetails, SubagentToolDetails } from "../src/index.js";
 import { reconstructSubagentRuns, type SubagentRun, SubagentViewer } from "../src/subagent-viewer.js";
 
 // Identity theme so render() returns plain text we can assert on.
@@ -65,11 +65,7 @@ const doneSlot = (i: number, task: string, output: string) => ({
   usage: { total: 10, cost: 0 },
 });
 
-function batchResultEntry(
-  toolCallId: string,
-  results: SubagentsToolDetails["results"],
-  text = "batch done",
-) {
+function batchResultEntry(toolCallId: string, results: SubagentsToolDetails["results"], text = "batch done") {
   return {
     type: "message",
     message: {
@@ -151,7 +147,10 @@ test("Completed section groups batch children under one header; enter opens a ch
   v.handleInput("\x1b[B"); // down → first child ("child A")
   v.handleInput("\r"); // enter → output view
   const out = v.render(80);
-  assert.ok(out.some((l) => l.includes("out A")), "enter on a batch child opens its frozen output");
+  assert.ok(
+    out.some((l) => l.includes("out A")),
+    "enter on a batch child opens its frozen output",
+  );
 });
 
 test("Completed section: collapsing a batch header hides its children", () => {
@@ -163,7 +162,10 @@ test("Completed section: collapsing a batch header hides its children", () => {
   v.handleInput("\r"); // enter on the header (cursor 0) → toggle collapse
   const collapsed = v.render(80);
   assert.ok(!collapsed.some((l) => l.includes("child A")), "collapsed batch hides its children");
-  assert.ok(collapsed.some((l) => l.includes("subagents batch")), "header still shows when collapsed");
+  assert.ok(
+    collapsed.some((l) => l.includes("subagents batch")),
+    "header still shows when collapsed",
+  );
 });
 
 test("viewer list shows all runs; enter opens the selected run's full output; esc goes back", () => {
