@@ -1231,6 +1231,98 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     });
   });
 
+  // ── Task 5: consolidator snapshot heat-sort (baseHash-safe, prompt-free) ──
+  // The 2-phase consolidator feeds the LLM a ConsolidationSnapshot; when a heat
+  // provider is wired, consolidateTwoPhase fetches heats + passes them to
+  // buildSnapshot so the snapshot.entries are ordered lowest-heat-first (a
+  // positional nudge — no prompt change). When the provider is absent (the
+  // decay-disable path), buildSnapshot gets NO heats → entry order is
+  // byte-identical to pre-#1b (parse/file order). snapshotBaseHash is
+  // order-insensitive, so the reconcile-write is unaffected (asserted
+  // exhaustively in src/store/merge-plan.test.ts). The snapshot contains
+  // exactly the seeded entries because _addInner returns its needsConsolidation
+  // sentinel BEFORE persisting the overflowing new entry.
+  describe("consolidator snapshot heat-sort (UPSP §1, Task 5)", () => {
+    const TODAY = new Date().toISOString().split("T")[0];
+    const fm = (id: string, body: string) =>
+      serializeMetadataFrontmatter({ id, text: body, created: TODAY, last: TODAY });
+    async function seed(entries: string[]): Promise<void> {
+      await fs.writeFile(path.join(MEMORY_DIR, MEMORY_FILE), entries.join(ENTRY_DELIMITER), "utf-8");
+    }
+
+    it("passes heat-SORTED snapshot entries to the consolidator when a provider is wired", async () => {
+      const HOT_ID = "11111111-1111-4111-8111-111111111111";
+      const COLD_ID = "33333333-3333-4333-8333-333333333333";
+      const WARM_ID = "22222222-2222-4222-8222-222222222222";
+      const HOT = fm(HOT_ID, "HOT survivor snapsortprobe aaa high heat value stays");
+      const COLD = fm(COLD_ID, "COLD evictee snapsortprobe bbb low heat drop me now");
+      const WARM = fm(WARM_ID, "WARM middle snapsortprobe ccc medium heat ground");
+      // file order: HOT, COLD, WARM (deliberately NOT heat order).
+      await seed([HOT, COLD, WARM]);
+
+      const store = new MemoryStore(makeConfig({
+        memoryCharLimit: 380,
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      store.setHeatForEntriesProvider(async (_t, entries) => {
+        const m = new Map<string, number>();
+        for (const e of entries) {
+          if (e.mdId === HOT_ID) m.set(HOT_ID, 0.9);
+          if (e.mdId === COLD_ID) m.set(COLD_ID, 0.1);
+          if (e.mdId === WARM_ID) m.set(WARM_ID, 0.5);
+        }
+        return m;
+      });
+      let captured: string[] = [];
+      store.setConsolidator(async (snapshot) => {
+        captured = snapshot.entries.map((e) => e.content);
+        return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
+      });
+      await store.loadFromDisk();
+      // 4th add overflows → consolidateTwoPhase builds a snapshot over the 3
+      // seeded entries (NEW is not persisted until after the plan); the
+      // consolidator captures the (heat-sorted) entry order.
+      await store.add("memory", "NEW incoming snapsortprobe ddd trigger overflow");
+      // Heat-ascending: COLD (0.1) → WARM (0.5) → HOT (0.9).
+      assert.deepEqual(
+        captured,
+        ["COLD evictee snapsortprobe bbb low heat drop me now", "WARM middle snapsortprobe ccc medium heat ground", "HOT survivor snapsortprobe aaa high heat value stays"],
+        `snapshot entries must be heat-sorted ascending when a provider is wired; got ${JSON.stringify(captured)}`,
+      );
+    });
+
+    it("passes entries in ORIGINAL (file) order when NO provider is wired (disable-path parity)", async () => {
+      const HOT_ID = "11111111-1111-4111-8111-111111111111";
+      const COLD_ID = "33333333-3333-4333-8333-333333333333";
+      const WARM_ID = "22222222-2222-4222-8222-222222222222";
+      const HOT = fm(HOT_ID, "HOT survivor snapsortfifo aaa high heat value stays");
+      const COLD = fm(COLD_ID, "COLD evictee snapsortfifo bbb low heat drop me now");
+      const WARM = fm(WARM_ID, "WARM middle snapsortfifo ccc medium heat ground");
+      await seed([HOT, COLD, WARM]);
+
+      const store = new MemoryStore(makeConfig({
+        memoryCharLimit: 380,
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      // NOTE: no provider wired — this is the decay-disable path.
+      let captured: string[] = [];
+      store.setConsolidator(async (snapshot) => {
+        captured = snapshot.entries.map((e) => e.content);
+        return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
+      });
+      await store.loadFromDisk();
+      await store.add("memory", "NEW incoming snapsortfifo ddd trigger overflow");
+      // File/parse order preserved (no sort): HOT, COLD, WARM.
+      assert.deepEqual(
+        captured,
+        ["HOT survivor snapsortfifo aaa high heat value stays", "COLD evictee snapsortfifo bbb low heat drop me now", "WARM middle snapsortfifo ccc medium heat ground"],
+        `snapshot entries must keep file order when no provider is wired (disable-path parity); got ${JSON.stringify(captured)}`,
+      );
+    });
+  });
+
   // ─── remove() tests ───
 
   describe("remove()", () => {

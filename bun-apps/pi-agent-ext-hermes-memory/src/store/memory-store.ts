@@ -476,7 +476,16 @@ export class MemoryStore {
     const pinnedEntries = allEntries.filter((e) => this.isPinned(e));
     const consolidatable = pinnedEntries.length ? allEntries.filter((e) => !this.isPinned(e)) : allEntries;
     const effectiveLimit = Math.max(0, this.charLimit(target) - pinnedEntries.join(ENTRY_DELIMITER).length);
-    const snapshot = buildSnapshot(target, consolidatable, effectiveLimit);
+    // Heat-sort (UPSP §1, ticket #1b, Task 5): when a heat provider is wired
+    // (decay enabled), fetch heats for the consolidatable entries and pass them
+    // to buildSnapshot so the LLM sees lowest-heat entries FIRST (a positional
+    // nudge — no prompt change). computeHeats centralizes the best-effort
+    // envelope: no provider / disabled / throws / empty Map → null → we pass
+    // nothing → buildSnapshot keeps parse order (byte-identical pre-#1b, the
+    // decay-disable path parity). Pin is already excluded above AND inside
+    // heatInputsFor (idempotent), so pinned entries are never scored.
+    const heats = await this.computeHeats(target, this.heatInputsFor(target, consolidatable));
+    const snapshot = buildSnapshot(target, consolidatable, effectiveLimit, heats ?? undefined);
 
     // Step 2: lock-FREE plan. The consolidator produces a MergePlan (no writes).
     const res = await this.consolidator(snapshot, signal);
