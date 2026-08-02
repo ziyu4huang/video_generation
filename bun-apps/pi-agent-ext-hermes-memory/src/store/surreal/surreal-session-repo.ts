@@ -263,13 +263,29 @@ export class SurrealSessionRepository implements SessionRepository {
     await this.c.query(stmts.join("\n"), params);
   }
 
-  // UPSP §9 (#06) — Surreal parity (SCHEMALESS UPDATE session_assembly SET
-  // usedAt = $now WHERE sessionId = $sid AND mdId IN $ids) is implemented in
-  // Task 4. This stub keeps the class's `implements SessionRepository`
-  // typecheck green after Task 3 added `markUsed` to the interface; existing
-  // Surreal tests never call it. Task 4 replaces it with the real UPDATE.
-  async markUsed(_sessionId: string, _mdIds: readonly string[], _usedAt: string): Promise<void> {
-    throw new Error("SurrealSessionRepository.markUsed is not implemented yet — see Task 4 of #06");
+  // -------------------------------------------------------------------------
+  // markUsed — UPSP §9 "used vs dropped" signal (stamp usedAt on referenced
+  // rows). Surreal parity with the SQLite impl (Task 3); SCHEMALESS (no DDL).
+  // ------------------------------------------------------------------------
+
+  /**
+   * UPDATE in place: stamp `usedAt` on the surfaced `(sessionId, mdId)` rows
+   * the agent's output actually referenced. Sets ONLY matched rows for that
+   * session; non-matched rows stay without the field (Surreal is SCHEMALESS →
+   * absent ≈ null). Idempotent (a re-mark re-stamps). Empty `mdIds` is a no-op
+   * (skips the query). NEVER touches `session_assembly_meta` or any other
+   * table. `usedAt` (camelCase) matches the existing sessionId/mdId/capturedAt
+   * convention; `IN $ids` binds the array directly — the same idiom the
+   * surreal-memory-repo `seq NOT IN $seedSeqs` query uses (Surreal binds arrays
+   * to `IN $param`, unlike SQLite's dynamic `?` placeholders). The SurrealClient
+   * owns transient retry, so like `recordAssembly` there is no extra envelope.
+   */
+  async markUsed(sessionId: string, mdIds: readonly string[], usedAt: string): Promise<void> {
+    if (mdIds.length === 0) return;
+    await this.c.query(
+      `UPDATE session_assembly SET usedAt = $now WHERE sessionId = $sid AND mdId IN $ids;`,
+      { sid: sessionId, ids: mdIds, now: usedAt },
+    );
   }
 
   async getSessionStats(): Promise<SessionStats> {
