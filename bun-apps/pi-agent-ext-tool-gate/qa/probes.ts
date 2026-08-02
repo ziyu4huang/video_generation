@@ -67,10 +67,6 @@ export const MUST_FIRE: Probe[] = [
 	{ gate: "file2md", prompt: "ocr this scanned pdf and extract the text", note: "keyword ocr (+ noun pdf ∧ verb extract)" },
 	{ gate: "file2md", prompt: "read this image and describe it", note: 'keyword "read this image"' },
 	{ gate: "file2md", prompt: "把這份文件轉 markdown", note: 'keyword "轉 markdown"' },
-	// inspect (keyword OR requires noun∧verb; bare "inspect" removed → no more "inspect element" false-fire)
-	{ gate: "inspect_context", prompt: "inspect the agent state", note: "requires: noun agent ∧ verb inspect" },
-	{ gate: "inspect_context", prompt: "what's the schema cost here", note: 'keyword "schema cost"' },
-	{ gate: "inspect_context", prompt: "show me the token usage", note: 'keyword "token usage"' },
 	// workflow (keyword only)
 	{ gate: "workflow", prompt: "orchestrate a pipeline of agents", note: "keyword orchestrate / pipeline" },
 	{ gate: "workflow", prompt: "fan out to parallel agents", note: 'keyword "fan out" / "parallel agent" (fan.out dead-keyword fixed)' },
@@ -106,8 +102,6 @@ export const MUST_NOT_FIRE: Probe[] = [
 	{ gate: "ltx", prompt: "the video is buffering", note: "noun video, no verb" },
 	{ gate: "file2md", prompt: "read the log file", note: "verb read but no pdf/image/doc noun" },
 	{ gate: "file2md", prompt: "describe the architecture", note: "verb describe but no noun" },
-	{ gate: "inspect_context", prompt: "inspect element in chrome devtools", note: "FIXED — 'element' is not a requires noun; bare 'inspect' removed" },
-	{ gate: "inspect_context", prompt: "how is the agent doing", note: "noun agent but no inspect-verb" },
 	{ gate: "workflow", prompt: "plan the remaining work", note: "no workflow keyword" },
 	{ gate: "workflow", prompt: "a sequence of steps", note: "no workflow keyword" },
 	{ gate: "collect_videos", prompt: "organize my local files", note: '"organize vault" not present' },
@@ -128,7 +122,6 @@ export const ESCAPE_NAME: { gate: string; name: string }[] = [
 	{ gate: "krea2", name: "krea2" },
 	{ gate: "ltx", name: "ltx" },
 	{ gate: "file2md", name: "file2md" },
-	{ gate: "inspect_context", name: "inspect_context" },
 	{ gate: "workflow", name: "workflow" },
 	{ gate: "collect_videos", name: "collect_videos" },
 	{ gate: "movie", name: "movie" },
@@ -144,7 +137,6 @@ export const ESCAPE_INTENT: EscapeIntentProbe[] = [
 	{ gate: "krea2", intent: "real-time draft to image", prompt: "(no keyword)", note: "keyword real-time (was blind pre-fix)" },
 	{ gate: "ltx", intent: "make a video", prompt: "(no keyword)", note: "noun∧verb" },
 	{ gate: "file2md", intent: "ocr a pdf", prompt: "(no keyword)", note: "keyword ocr" },
-	{ gate: "inspect_context", intent: "inspect the agent", prompt: "(no keyword)", note: "requires: noun agent ∧ verb inspect" },
 	{ gate: "workflow", intent: "orchestrate a pipeline", prompt: "(no keyword)", note: "keyword orchestrate" },
 	{ gate: "collect_videos", intent: "collect videos from youtube", prompt: "(no keyword)", note: "keywords" },
 	{ gate: "movie", intent: "orchestrate scenes into a film", prompt: "(no keyword)", note: 'keyword "scenes into"/"film" (was a misroute pre-fix)' },
@@ -177,7 +169,6 @@ export const PRECISION_RISKS: PrecisionRisk[] = [
 	//   no longer false-fire.) Remaining over-matches use "make": —
 	{ gate: "flux2", prompt: "make the docker image smaller", why: 'noun "image" ∧ verb "make" (requires over-matches dev/infra)', severity: "med" },
 	{ gate: "ltx", prompt: "make the video buffer larger", why: 'noun "video" ∧ verb "make" (dev/infra context)', severity: "med" },
-	{ gate: "inspect_context", prompt: "check the context of this error", why: 'noun "context" ∧ verb "check" (debugging, not introspection)', severity: "low" },
 	// — bare/ambiguous keywords that fire on unrelated contexts —
 	{ gate: "workflow", prompt: "the gitlab pipeline failed", why: 'keyword "pipeline" fires on CI/CD context', severity: "med" },
 	{ gate: "workflow", prompt: "review this multi-step todo list", why: 'keyword "multi-step" fires on a plain todo', severity: "med" },

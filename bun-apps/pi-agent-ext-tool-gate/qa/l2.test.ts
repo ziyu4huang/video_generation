@@ -19,7 +19,7 @@ describe("L2 reachability — predictions hold", () => {
 });
 
 describe("L2 reachability — confirmed gaps (task-level blind/misroute)", () => {
-	test("after the fix, ZERO tasks are unreachable under ON (all 10 reachable)", () => {
+	test("after the fix, ZERO tasks are unreachable under ON (all 9 reachable)", () => {
 		const gaps = evaluateReachability().filter((x) => x.gap).map((x) => x.task.id);
 		expect(gaps).toEqual([]);
 	});
@@ -30,10 +30,10 @@ describe("L2 reachability — confirmed gaps (task-level blind/misroute)", () =>
 });
 
 describe("L2 reachability — summary", () => {
-	test("10/10 reachable, 0 gaps after the fix", () => {
+	test("9/9 reachable, 0 gaps after the fix", () => {
 		const s = summarizeReachability(evaluateReachability());
 		expect(s.total).toBe(L2_TASKS.length);
-		expect(s.reachable).toBe(10);
+		expect(s.reachable).toBe(9);
 		expect(s.gaps).toBe(0);
 		expect(s.predictionsHeld).toBe(true);
 	});

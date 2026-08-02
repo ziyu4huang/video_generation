@@ -38,6 +38,13 @@ const SELF_TEST_PATHOLOGY_OUTPUT = [
 export function makeInspectPathologyTool() {
   return defineTool({
     name: "inspect_pathology",
+    gating: {
+      keywords: ["schema cost", "pathology", "extension health", "工具開銷", "context window", "token usage"],
+      requires: {
+        nouns: ["agent", "context", "extension", "pathology", "token", "schema", "tui", "工具"],
+        verbs: ["inspect", "show", "check", "diagnose", "dump", "report"],
+      },
+    },
     label: "Inspect Pathology",
     description:
       "Diagnose how the agent is failing this session — detect retry loops, " +
