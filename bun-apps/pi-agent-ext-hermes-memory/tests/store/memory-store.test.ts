@@ -1727,3 +1727,74 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     });
   });
 });
+
+describe("numeric isolation — assembled prompt never leaks memworth (UPSP §7 / DO ticket 04)", () => {
+  let dir: string;
+  let mp: string;
+  let fp: string;
+
+  beforeAll(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-iso-test-"));
+    mp = path.join(dir, MEMORY_FILE);
+    fp = path.join(dir, "failures.md");
+  });
+  afterAll(async () => {
+    try { await fs.rm(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+  beforeEach(async () => {
+    await removeFile(mp);
+    await removeFile(fp);
+  });
+
+  it("formatProjectBlock strips the frontmatter (incl. memworth) — body only", async () => {
+    // A frontmatter entry carrying memworth (success=5, fail=3). Before the
+    // fix this leaked the WHOLE YAML block (id/created/.../memworth) into the
+    // project prompt; the sibling render paths already stripped. Now stripped.
+    const entry = serializeMetadataFrontmatter({
+      id: "iso-proj-1",
+      text: "numeric-iso project convention body",
+      created: "2026-08-02",
+      last: "2026-08-02",
+      mwSuccess: 5,
+      mwFail: 3,
+    });
+    await writeRaw(mp, entry);
+
+    const store = new MemoryStore(makeConfig({ memoryDir: dir }));
+    await store.loadFromDisk();
+
+    const block = store.formatProjectBlock("demo");
+    assert.ok(block, "project block should render");
+    assert.match(block, /numeric-iso project convention body/);
+    assert.doesNotMatch(block, /memworth/);
+    assert.doesNotMatch(block, /success:\s*5/);
+    assert.doesNotMatch(block, /fail:\s*3/);
+    assert.doesNotMatch(block, /iso-proj-1/);
+  });
+
+  it("formatForSystemPrompt never emits memworth (memory + failure blocks — regression pin)", async () => {
+    // Both the memory block (snapshot, stripped) and the failure block
+    // (getActiveFailureEntries, stripped) must stay isolated. Pins the existing
+    // behavior so a future change can't start surfacing raw counters.
+    const mem = serializeMetadataFrontmatter({
+      id: "iso-mem-1", text: "numeric-iso global memory body",
+      created: "2026-08-02", last: "2026-08-02", mwFail: 7,
+    });
+    const fail = serializeMetadataFrontmatter({
+      id: "iso-fail-1", text: "[failure] numeric-iso lesson — Failed: x",
+      created: "2026-08-02", last: "2026-08-02", state: "active", mwSuccess: 2,
+    });
+    await writeRaw(mp, mem);
+    await writeRaw(fp, fail);
+
+    const store = new MemoryStore(makeConfig({ memoryDir: dir }));
+    await store.loadFromDisk();
+
+    const prompt = store.formatForSystemPrompt();
+    assert.match(prompt, /numeric-iso global memory body/);
+    assert.match(prompt, /numeric-iso lesson/);
+    assert.doesNotMatch(prompt, /memworth/);
+    assert.doesNotMatch(prompt, /fail:\s*7/);
+    assert.doesNotMatch(prompt, /success:\s*2/);
+  });
+});

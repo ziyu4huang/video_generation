@@ -134,4 +134,14 @@ describe("buildPromptContext", () => {
     assert.match(result, /PROJECT demo/);
     assert.doesNotMatch(result, /<memory-policy>/);
   });
+
+  it("policy prompts state the validated-edit integrity rule (no raw-source mutation)", async () => {
+    // UPSP §7 / DO ticket 04 Gap B: the agent edits memory ONLY through the
+    // memory tools — never by mutating the .md source directly.
+    assert.match(MEMORY_POLICY_PROMPT, /Memory integrity/);
+    assert.match(MEMORY_POLICY_PROMPT, /never mutate the underlying .md source files directly/i);
+    assert.match(MEMORY_POLICY_PROMPT, /skill_manage/);
+    assert.match(MEMORY_POLICY_PROMPT_COMPACT, /Memory integrity/);
+    assert.match(MEMORY_POLICY_PROMPT_COMPACT, /never mutate the .md source directly/i);
+  });
 });
