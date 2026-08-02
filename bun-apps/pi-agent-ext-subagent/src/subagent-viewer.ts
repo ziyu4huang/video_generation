@@ -12,7 +12,13 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { type ActivityRow, fmtCost, renderActivityRow, shortModel } from "./agent-row-display.js";
-import type { AgentHistoryEntry, AgentUsage, InFlightSubagent, SubagentToolDetails } from "./index.js";
+import type {
+  AgentHistoryEntry,
+  AgentUsage,
+  InFlightSubagent,
+  SubagentToolDetails,
+  SubagentsToolDetails,
+} from "./index.js";
 import { formatHistoryLine, summarizeLatestAction } from "./index.js";
 import { formatAbsoluteTime, formatRelativeTime } from "./time-format.js";
 
@@ -28,6 +34,9 @@ export interface SubagentRun {
   index: number;
   /** The tool-call id (matches InFlightSubagent.id); used by live-follow to match a completed run. */
   toolCallId?: string;
+  /** Shared toolCallId of the parent `subagents` batch — present on expanded batch
+   *  children (Completed-section grouping key); absent on singular `subagent` runs. */
+  batchToolCallId?: string;
   agent?: string;
   model: string;
   taskPreview: string;
@@ -53,14 +62,40 @@ interface BranchEntry {
   message?: BranchMessage;
 }
 
-/** Scan a session branch and collect subagent tool results in order. */
+/** Scan a session branch and collect subagent tool results in order.
+ *  Handles both the singular `subagent` tool (one entry per call) and the
+ *  `subagents` batch tool — expands its positional result array into N child
+ *  entries tagged with the batch's toolCallId (deficit 4b). Failed (null) batch
+ *  slots carry no data and are skipped (their count is in the batch header). */
 export function reconstructSubagentRuns(branch: Iterable<BranchEntry>): SubagentRun[] {
   const runs: SubagentRun[] = [];
   let i = 0;
   for (const entry of branch) {
     if (entry.type !== "message") continue;
     const msg = entry.message;
-    if (!msg || msg.role !== "toolResult" || msg.toolName !== "subagent") continue;
+    if (!msg || msg.role !== "toolResult") continue;
+
+    if (msg.toolName === "subagents") {
+      // Expand the batch's positional result array into N child runs (Option B').
+      const d = msg.details as unknown as Partial<SubagentsToolDetails> | undefined;
+      for (const slot of d?.results ?? []) {
+        if (!slot) continue; // null === failed child (no data; count is in the batch header)
+        i += 1;
+        runs.push({
+          index: i,
+          batchToolCallId: msg.toolCallId,
+          model: slot.model ?? "default",
+          taskPreview: slot.task ?? "",
+          status: slot.status,
+          elapsedMs: slot.elapsedMs ?? 0,
+          usage: "usage" in slot ? slot.usage : undefined,
+          output: "output" in slot ? slot.output : "",
+        });
+      }
+      continue;
+    }
+
+    if (msg.toolName !== "subagent") continue; // singular path — byte-identical to before
     i += 1;
     const d = msg.details;
     const status: SubagentRun["status"] = d?.status ?? (d && d.exitCode === 0 ? "done" : "failed");

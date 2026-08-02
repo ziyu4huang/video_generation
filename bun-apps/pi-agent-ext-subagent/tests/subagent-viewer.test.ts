@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import type { SubagentToolDetails } from "../src/index.js";
+import type { SubagentToolDetails, SubagentsToolDetails } from "../src/index.js";
 import { reconstructSubagentRuns, type SubagentRun, SubagentViewer } from "../src/subagent-viewer.js";
 
 // Identity theme so render() returns plain text we can assert on.
@@ -52,6 +52,71 @@ test("reconstructSubagentRuns tolerates missing details (falls back to done/fail
   assert.equal(runs.length, 1);
   assert.equal(runs[0].status, "done");
   assert.equal(runs[0].model, "default");
+});
+
+// --- deficit 4b: reconstruct expands a `subagents` batch into child runs ---
+const doneSlot = (i: number, task: string, output: string) => ({
+  status: "done" as const,
+  index: i,
+  output,
+  task,
+  model: "x/flash",
+  elapsedMs: 1000,
+  usage: { total: 10, cost: 0 },
+});
+
+function batchResultEntry(
+  toolCallId: string,
+  results: SubagentsToolDetails["results"],
+  text = "batch done",
+) {
+  return {
+    type: "message",
+    message: {
+      role: "toolResult",
+      toolName: "subagents",
+      toolCallId,
+      content: [{ type: "text", text }],
+      details: { results, dispatched: results.length, skipped: 0, elapsedMs: 5000 },
+    },
+  };
+}
+
+test("reconstructSubagentRuns expands a subagents batch into child entries (skips null)", () => {
+  const branch = [
+    batchResultEntry("batch-1", [
+      doneSlot(0, "task A", "out A"),
+      null, // failed child — skipped
+      doneSlot(2, "task C", "out C"),
+    ]),
+  ];
+  const runs = reconstructSubagentRuns(branch as never);
+  assert.equal(runs.length, 2, "null failed slot is skipped");
+  assert.equal(runs[0].batchToolCallId, "batch-1");
+  assert.equal(runs[0].taskPreview, "task A");
+  assert.equal(runs[0].model, "x/flash");
+  assert.equal(runs[0].output, "out A");
+  assert.equal(runs[1].taskPreview, "task C");
+});
+
+test("reconstructSubagentRuns: singular subagent + batch children coexist; singular unchanged", () => {
+  const branch = [
+    toolResultEntry("subagent", "singular report", {
+      exitCode: 0,
+      timedOut: false,
+      agent: "impl",
+      model: "y/pro",
+      taskPreview: "sing",
+      elapsedMs: 500,
+      status: "done",
+    }),
+    batchResultEntry("batch-9", [doneSlot(0, "b-task", "b-out")]),
+  ];
+  const runs = reconstructSubagentRuns(branch as never);
+  assert.equal(runs.length, 2);
+  assert.equal(runs[0].batchToolCallId, undefined, "singular run has no batchToolCallId");
+  assert.equal(runs[0].taskPreview, "sing");
+  assert.equal(runs[1].batchToolCallId, "batch-9");
 });
 
 test("viewer list shows all runs; enter opens the selected run's full output; esc goes back", () => {
