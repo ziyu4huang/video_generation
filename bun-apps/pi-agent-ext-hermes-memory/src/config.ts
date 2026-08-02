@@ -15,6 +15,9 @@ import {
   DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS,
   DEFAULT_FAILURE_INJECTION_MAX_ENTRIES,
   DEFAULT_USED_SIGNATURE_MIN_CHARS,
+  DEFAULT_DECAY_HALFLIFE_DAYS,
+  DEFAULT_DECAY_WORTH_WEIGHT,
+  DEFAULT_DECAY_USED_BONUS,
 } from "./constants.js";
 import { AGENT_ROOT, normalizeConfiguredMemoryDir, normalizeProjectsMemoryDir } from "./paths.js";
 import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
@@ -69,6 +72,10 @@ const DEFAULT_CONFIG: MemoryConfig = {
   worthScoring: true,
   usedDetection: true,
   usedSignatureMinChars: DEFAULT_USED_SIGNATURE_MIN_CHARS,
+  decayEnabled: true,
+  decayHalflifeDays: DEFAULT_DECAY_HALFLIFE_DAYS,
+  decayWorthWeight: DEFAULT_DECAY_WORTH_WEIGHT,
+  decayUsedBonus: DEFAULT_DECAY_USED_BONUS,
   autoSupersede: false,
   autoCommitProjectMemory: false,
   failureInjectionEnabled: true,
@@ -249,6 +256,15 @@ export function loadConfig(configPath?: string, cwd: string = process.cwd()): Me
       if (typeof parsed.worthScoring === "boolean") config.worthScoring = parsed.worthScoring;
       if (typeof parsed.usedDetection === "boolean") config.usedDetection = parsed.usedDetection;
       if (isNonNegativeNumber(parsed.usedSignatureMinChars)) config.usedSignatureMinChars = parsed.usedSignatureMinChars;
+      // Decay (ticket #1b / UPSP §1): the #06 config-gap lesson — every
+      // consumer-facing config key is registered here so a config-file value
+      // reaches the consumer object (decayEnabled boolean guard; the three
+      // numeric knobs via isNonNegativeNumber, mirroring the usedDetection
+      // siblings just above).
+      if (typeof parsed.decayEnabled === "boolean") config.decayEnabled = parsed.decayEnabled;
+      if (isNonNegativeNumber(parsed.decayHalflifeDays)) config.decayHalflifeDays = parsed.decayHalflifeDays;
+      if (isNonNegativeNumber(parsed.decayWorthWeight)) config.decayWorthWeight = parsed.decayWorthWeight;
+      if (isNonNegativeNumber(parsed.decayUsedBonus)) config.decayUsedBonus = parsed.decayUsedBonus;
       if (typeof parsed.autoSupersede === "boolean") config.autoSupersede = parsed.autoSupersede;
       if (isNonNegativeNumber(parsed.errorCaptureRateLimit)) config.errorCaptureRateLimit = parsed.errorCaptureRateLimit;
       if (isNonNegativeNumber(parsed.errorCaptureRateWindowMs)) config.errorCaptureRateWindowMs = parsed.errorCaptureRateWindowMs;

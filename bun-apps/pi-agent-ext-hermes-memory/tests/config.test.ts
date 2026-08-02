@@ -491,6 +491,47 @@ describe("loadConfig", () => {
     assert.strictEqual(config.usedDetection, true);
     assert.strictEqual(config.usedSignatureMinChars, 24);
   });
+
+  // ─── Decay (ticket #1b / UPSP §1) — the full config surface, the #06
+  // config-gap lesson baked in: a config-file value MUST reach the consumer
+  // object; missing/invalid falls back to the DEFAULT_CONFIG defaults. ───
+  it("carries all four decay fields through from the config file", () => {
+    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
+    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
+      decayEnabled: false,
+      decayHalflifeDays: 30,
+      decayWorthWeight: 0.2,
+      decayUsedBonus: 0.05,
+    }));
+    const config = loadConfig(TEST_CONFIG_PATH);
+    assert.strictEqual(config.decayEnabled, false);
+    assert.strictEqual(config.decayHalflifeDays, 30);
+    assert.strictEqual(config.decayWorthWeight, 0.2);
+    assert.strictEqual(config.decayUsedBonus, 0.05);
+  });
+
+  it("defaults decay fields to true / 14 / 0.15 / 0.1 when unset", () => {
+    const config = loadConfig(TEST_CONFIG_PATH);
+    assert.strictEqual(config.decayEnabled, true);
+    assert.strictEqual(config.decayHalflifeDays, 14);
+    assert.strictEqual(config.decayWorthWeight, 0.15);
+    assert.strictEqual(config.decayUsedBonus, 0.1);
+  });
+
+  it("ignores invalid decay values (non-boolean / negative) and falls back to defaults", () => {
+    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
+    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
+      decayEnabled: "off",
+      decayHalflifeDays: -1,
+      decayWorthWeight: -0.5,
+      decayUsedBonus: "high",
+    }));
+    const config = loadConfig(TEST_CONFIG_PATH);
+    assert.strictEqual(config.decayEnabled, true);
+    assert.strictEqual(config.decayHalflifeDays, 14);
+    assert.strictEqual(config.decayWorthWeight, 0.15);
+    assert.strictEqual(config.decayUsedBonus, 0.1);
+  });
 });
 
 describe("config dbBackend", () => {
