@@ -215,12 +215,66 @@ export const GATES: ToolGate[] = [
  *  active list without re-firing gates can filter directly. */
 export const TRACKED_TOOLS = new Set([...CORE_TOOLS, ...GATES.flatMap((g) => g.names)]);
 
+/** Result of merging owner-declared `gating` with the hardcoded fallback. */
+export interface EffectiveGates {
+  gates: ToolGate[];   // non-core gates: owner-declared (single-name) + unhandled hardcoded
+  core: Set<string>;   // always-active names: owner core:true + unhandled CORE_TOOLS
+  tracked: Set<string>; // core ∪ all gate names — the explicit-track set for filterActive
+}
+
+/**
+ * Build the effective gate set for a session: owner-declared `gating` fields win
+ * (authoritative); tools without `gating` fall back to the hardcoded GATES/CORE_TOOLS.
+ * Pure: no pi dependency. Owner-declared non-core tools become single-name gates.
+ */
+export function buildEffectiveGates(
+  defs: Array<{ name: string; description?: string; gating?: Gating }>,
+  fallbackGates: ToolGate[] = GATES,
+  fallbackCore: Set<string> = CORE_TOOLS,
+): EffectiveGates {
+  const gates: ToolGate[] = [];
+  const core = new Set<string>();
+  const handled = new Set<string>();
+  for (const def of defs) {
+    const g = def.gating;
+    if (!g) continue;
+    if (g.core === true) {
+      core.add(def.name);
+    } else {
+      gates.push({
+        names: [def.name],
+        keywords: g.keywords,
+        requires: g.requires,
+        description: def.description ?? "",
+      });
+    }
+    handled.add(def.name);
+  }
+  for (const fg of fallbackGates) {
+    if (fg.names.some((n) => handled.has(n))) continue; // owner-declared wins
+    gates.push(fg);
+  }
+  for (const c of fallbackCore) {
+    if (!handled.has(c)) core.add(c);
+  }
+  const tracked = new Set<string>([...core, ...gates.flatMap((g) => g.names)]);
+  return { gates, core, tracked };
+}
+
 /** Pure: filter `allToolNames` to those that should be active given `sticky`.
- *  Tools not in TRACKED_TOOLS are always active (fail-open); tracked tools
+ *  Tools not in `tracked` are always active (fail-open); tracked tools
  *  are active only when present in `sticky`. Does NOT mutate sticky or
- *  evaluate gate keywords — gate firing is a separate concern. */
-export function filterActive(allToolNames: string[], sticky: Set<string>): string[] {
-  return allToolNames.filter((name) => !TRACKED_TOOLS.has(name) || sticky.has(name));
+ *  evaluate gate keywords — gate firing is a separate concern.
+ *
+ *  `tracked` defaults to the module's TRACKED_TOOLS so pre-existing call
+ *  sites (Task 1) keep their current behavior; Task 2 threads the
+ *  `EffectiveGates.tracked` set here. */
+export function filterActive(
+  allToolNames: string[],
+  sticky: Set<string>,
+  tracked: Set<string> = TRACKED_TOOLS,
+): string[] {
+  return allToolNames.filter((name) => !tracked.has(name) || sticky.has(name));
 }
 
 // ── Startup banner (obsidian-style above-editor widget) ──────────
@@ -356,9 +410,9 @@ export function gateFires(gate: ToolGate, promptLower: string): boolean {
  * using flux2 must not lose the tool mid-task just because a follow-up prompt
  * like "make it bigger" doesn't repeat the trigger keyword).
  */
-export function updateSticky(prompt: string, sticky: Set<string>): void {
+export function updateSticky(prompt: string, sticky: Set<string>, gates: ToolGate[] = GATES): void {
 	const promptLower = prompt.toLowerCase();
-	for (const gate of GATES) {
+	for (const gate of gates) {
 		if (gateFires(gate, promptLower)) {
 			for (const name of gate.names) sticky.add(name);
 		}
