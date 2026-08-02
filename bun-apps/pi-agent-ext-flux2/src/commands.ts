@@ -371,6 +371,32 @@ export const COMMANDS: Record<string, CommandSpec> = {
     },
   },
 
+  "face-detail": {
+    name: "face-detail",
+    writesImage: true,
+    acceptsGlobals: true,
+    when: "Detect faces (Apple Vision) and regenerate each at higher detail via low-denoise SDEdit, feathered-composited back — port of face_detailer.py. Copies input to output unchanged if no faces are detected.",
+    fields: {
+      input: { flag: "--input", type: "string", isPath: true, description: "Source image path." },
+      prompt: { flag: "--prompt", type: "string", description: "Text prompt describing the person/scene, used for face-detail regeneration." },
+      padding: { flag: "--padding", type: "number", description: "Bounding-box expansion factor around each detected face. Default 1.8." },
+      feather: { flag: "--feather", type: "int", description: "Feather radius (px) for the composite seam. Default 20." },
+      denoiseStrength: { flag: "--denoise-strength", type: "number", description: "SDEdit denoise strength on each face crop (0.15 subtle .. 0.3 noticeable). Default 0.15." },
+      steps: { flag: "--steps", type: "int", description: "Denoising steps for face regeneration. Default 9." },
+      minConfidence: { flag: "--min-confidence", type: "number", description: "Minimum Vision face-detection confidence (0-1). Default 0.5." },
+      seed: GEN_FIELDS.seed,
+      transformer: GEN_FIELDS.transformer,
+      vae: GEN_FIELDS.vae,
+      encoder: GEN_FIELDS.encoder,
+      tokenizerDir: GEN_FIELDS.tokenizerDir,
+      output: GEN_FIELDS.output,
+      outputDir: GEN_FIELDS.outputDir,
+      name: GEN_FIELDS.name,
+      noArtifacts: GEN_FIELDS.noArtifacts,
+      strictGate: GEN_FIELDS.strictGate,
+    },
+  },
+
   upscale: {
     name: "upscale",
     writesImage: true,

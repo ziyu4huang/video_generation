@@ -15,6 +15,7 @@
 //    expand       — Phase 8 v3 (outpaint / image expansion, latent-mask re-injection)
 //    inpaint      — masked redraw from an arbitrary external mask (port of image-inpaint.py)
 //    faceswap     — BFS face/head swap (Flux2 Klein 9B + BFS LoRA-at-init, port of image-faceswap.py)
+//    face-detail  — detect faces (Apple Vision) + low-denoise regenerate + composite (port of face_detailer.py)
 //    models       — list installed Flux2 variants (available now)
 //
 
@@ -28,7 +29,7 @@ struct Flux2CLI: ParsableCommand {
         version: "0.1.0",
         subcommands: [
             T2I.self, Edit.self, Angle.self, Segment.self, Cutout.self, Swap.self, Style.self,
-            Story.self, Kontext.self, Scene.self, Expand.self, Inpaint.self, StyleTransfer.self, FaceSwap.self, Upscale.self, Gate.self, Models.self, VerifyVAE.self, VerifyEncoder.self,
+            Story.self, Kontext.self, Scene.self, Expand.self, Inpaint.self, StyleTransfer.self, FaceSwap.self, FaceDetail.self, Upscale.self, Gate.self, Models.self, VerifyVAE.self, VerifyEncoder.self,
             VerifyTokenizer.self, VerifyTransformer.self, VerifyE2E.self,
             VerifyEdit.self, KVStyleTransfer.self, VerifyKontextTransformerShape.self,
             VerifyKontextTransformer.self, VerifyKontextVAE.self,

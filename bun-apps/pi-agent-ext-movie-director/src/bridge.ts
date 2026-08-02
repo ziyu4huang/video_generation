@@ -612,12 +612,13 @@ async function realControlNet(req: GenerateRequest, env?: Record<string, string 
  * portability investigation this gate is based on.
  *
  * Native path is only safe when NONE of the non-portable stages are
- * requested: face-detail (needs mediapipe/Vision-framework face DETECTION,
- * not just the I2I re-denoise it wraps — no Swift port exists), any
- * post-process filter (film grain/sharpening/LUT/skin-contrast/noise-clean —
- * pure pixel math, but no image-codec dep in this package and no Swift
- * filter chain either), or `upscale_method: "seedvr2"` (confirmed
- * PyTorch/torch-MPS-only, no MLX/Swift port anywhere).
+ * requested: any post-process filter (film grain/sharpening/LUT/
+ * skin-contrast/noise-clean — pure pixel math, but no image-codec dep in
+ * this package and no Swift filter chain either), or `upscale_method:
+ * "seedvr2"` (confirmed PyTorch/torch-MPS-only, no MLX/Swift port
+ * anywhere). face-detail is now native too (FaceDetector.swift's
+ * VNDetectFaceRectanglesRequest, 2026-08-02) — see workflow_native.ts's
+ * module doc.
  *
  * Checks BOTH `options` (typed/camelCase or snake_case field names — callers
  * use either) and `extraArgs` (raw CLI tokens; runpy_image.ts's
@@ -636,7 +637,6 @@ export function isNativeWorkflowRequest(options: Record<string, unknown>, extraA
     return v != null;
   };
   const NONPORTABLE_OPTION_KEYS = [
-    "faceDetail", "face_detail",
     "filmGrain", "film_grain",
     "sharpening",
     "lut", "lutPath", "lut_path",
@@ -650,7 +650,7 @@ export function isNativeWorkflowRequest(options: Record<string, unknown>, extraA
   if (upscaleMethod === "seedvr2") return false;
 
   const NONPORTABLE_FLAGS = new Set([
-    "--face-detail", "--film-grain", "--sharpening", "--lut",
+    "--film-grain", "--sharpening", "--lut",
     "--skin-contrast", "--noise-clean",
   ]);
   for (const a of extraArgs ?? []) {
@@ -686,6 +686,7 @@ async function realWorkflow(req: GenerateRequest, env?: Record<string, string | 
       loraPath: (options.loraPath as string | undefined) ?? (options.lora_path as string | undefined),
       loraScale: (options.loraScale as number | undefined) ?? (options.lora_scale as number | undefined),
       denoiseStrength: (options.denoiseStrength as number | undefined) ?? (options.denoise_strength as number | undefined),
+      faceDetail: Boolean(options.faceDetail ?? options.face_detail),
       upscale: Boolean(options.upscale),
       upscaleModel: (options.upscaleModel as string | undefined) ?? (options.upscale_model as string | undefined),
       outputDir: req.outputDir,
@@ -699,7 +700,9 @@ async function realWorkflow(req: GenerateRequest, env?: Record<string, string | 
       cost_usd: costFor(req.capability, null, env),
       duration_seconds: (Date.now() - started) / 1000,
       seed: result.seed,
-      model: "zimage:t2i/i2i" + (result.stages.includes("upscale") ? "+flux2:upscale" : ""),
+      model: "zimage:t2i/i2i"
+        + (result.stages.includes("face_detail") ? "+flux2:face-detail" : "")
+        + (result.stages.includes("upscale") ? "+flux2:upscale" : ""),
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

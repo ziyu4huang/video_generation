@@ -192,17 +192,19 @@ describe("isNativeControlNetRequest — controlnet native/python fork", () => {
 
 describe("isNativeWorkflowRequest — workflow native/python fork", () => {
   // 2026-07-14 session 7: only base-gen + ESRGAN-upscale are genuinely
-  // portable (see workflow_native.ts's module doc); face-detail/post-process/
-  // seedvr2-upscale must all still fall back to run.py's image-workflow.py.
+  // portable (see workflow_native.ts's module doc); post-process/
+  // seedvr2-upscale must still fall back to run.py's image-workflow.py.
+  // 2026-08-02: face-detail is now native too (Task 6 of the face-detail
+  // Swift-native port plan) — see isNativeWorkflowRequest's doc comment.
   it("true for a bare base-gen request (no non-portable knobs)", () => {
     expect(isNativeWorkflowRequest({ prompt: "a cat" })).toBe(true);
     expect(isNativeWorkflowRequest({ prompt: "a cat", upscale: true })).toBe(true);
     expect(isNativeWorkflowRequest({ prompt: "a cat", upscale: true, upscaleMethod: "esrgan" })).toBe(true);
   });
 
-  it("false when face_detail is requested (camelCase or snake_case)", () => {
-    expect(isNativeWorkflowRequest({ prompt: "x", faceDetail: true })).toBe(false);
-    expect(isNativeWorkflowRequest({ prompt: "x", face_detail: true })).toBe(false);
+  it("true when face_detail is requested — now native (camelCase or snake_case)", () => {
+    expect(isNativeWorkflowRequest({ prompt: "x", faceDetail: true })).toBe(true);
+    expect(isNativeWorkflowRequest({ prompt: "x", face_detail: true })).toBe(true);
   });
 
   it("false when any post-process filter is requested", () => {
@@ -226,13 +228,13 @@ describe("isNativeWorkflowRequest — workflow native/python fork", () => {
   });
 
   it("false when a non-portable flag rides in extraArgs (runpy_image.ts's raw-token escape hatch)", () => {
-    expect(isNativeWorkflowRequest({ prompt: "x" }, ["--face-detail"])).toBe(false);
     expect(isNativeWorkflowRequest({ prompt: "x" }, ["--film-grain", "0.02"])).toBe(false);
     expect(isNativeWorkflowRequest({ prompt: "x" }, ["--upscale-method", "seedvr2"])).toBe(false);
   });
 
-  it("true when extraArgs carries only portable tokens", () => {
+  it("true when extraArgs carries only portable tokens (including --face-detail, now native)", () => {
     expect(isNativeWorkflowRequest({ prompt: "x" }, ["--upscale-method", "esrgan"])).toBe(true);
+    expect(isNativeWorkflowRequest({ prompt: "x" }, ["--face-detail"])).toBe(true);
   });
 });
 
