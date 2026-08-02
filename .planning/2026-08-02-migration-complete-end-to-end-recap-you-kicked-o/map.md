@@ -15,6 +15,7 @@ Finish the tool-gating rollout: migrate the owner-declared `gating` field to eve
 - **Rollout sequencing = incremental** — one task ticket per extension, each blocked by a drift-guard expansion that catches regressions (decided in charting).
 - **Harden the fail-open trap before rollout** — the multi-name-gate resolution is ticket #1 and blocks all rollout; no fail-open window (decided in charting).
 - [01 — Multi-name-gate hardening](tickets/01-multi-name-gate-hardening.md) — per-name resolution: partition each fallback gate's names, keep the gate for undeclared siblings; zero fail-open window during incremental rollout.
+- [02 — Drift-guard rollout net](tickets/02-drift-guard-rollout-net.md) — migrated set parameterized as an extensible source; dead-gate rejection (#8) and augmentation-agreement test (#9) folded in. Rollout tickets append here.
 
 ## Not yet specified
 
