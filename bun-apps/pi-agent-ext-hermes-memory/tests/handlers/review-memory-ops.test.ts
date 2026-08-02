@@ -88,6 +88,17 @@ describe("parseReviewOperations", () => {
       { action: "add", target: "user", content: "prefers dark mode" },
     ]);
   });
+
+  it("parses failure state on a review operation", () => {
+    const parsed = parseReviewOperations(JSON.stringify({
+      operations: [
+        { action: "add", target: "failure", content: "boom", state: "resolved" },
+      ],
+    }));
+    assert.deepStrictEqual(parsed, [
+      { action: "add", target: "failure", content: "boom", state: "resolved" },
+    ]);
+  });
 });
 
 describe("applyReviewOperations", () => {
@@ -134,5 +145,34 @@ describe("applyReviewOperations", () => {
 
     assert.strictEqual(result.appliedCount, 0);
     assert.strictEqual(result.skippedCount, 1);
+  });
+
+  it("marks a failure entry resolved when a review op carries state", async () => {
+    const store = new MemoryStore({
+      memoryDir: tmpDir,
+      memoryCharLimit: 5000,
+      userCharLimit: 5000,
+      autoConsolidate: true,
+    });
+    await store.loadFromDisk();
+
+    let capturedInput: any;
+    const mockRepo = {
+      syncMemoryEntry: async (input: any) => {
+        capturedInput = input;
+        return { action: "inserted", entry: {} };
+      },
+    };
+
+    const result = await applyReviewOperations(
+      store,
+      null,
+      [{ action: "add", target: "failure", content: "boom", category: "failure", state: "resolved" }],
+      mockRepo as any,
+    );
+
+    assert.strictEqual(result.appliedCount, 1);
+    assert.ok(capturedInput, "syncMemoryEntry must be called");
+    assert.strictEqual(capturedInput.state, "resolved");
   });
 });

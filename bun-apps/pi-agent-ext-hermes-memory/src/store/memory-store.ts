@@ -21,6 +21,7 @@ import {
   detectEntryShape,
   upgradeEntryToFrontmatter,
   parseMetadataFrontmatter,
+  defaultStateForCategory,
 } from "./memory-format.js";
 import { scanContent } from "./content-scanner.js";
 import { normalizeMemoryLookupText } from "./memory-lookup.js";
@@ -36,7 +37,7 @@ import {
   MEMORY_FILE,
   USER_FILE,
 } from "../constants.js";
-import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, MemoryCategory, MemoryOverflowStrategy, Provenance, MemorySource } from "../types.js";
+import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, MemoryCategory, MemoryOverflowStrategy, Provenance, MemorySource, FailureState } from "../types.js";
 import { AGENT_ROOT } from "../paths.js";
 import { envFloat, envInt } from "../utils/env.js";
 import { DEFAULT_NEAR_DUP_THRESHOLD, findNearDuplicate } from "./near-dup.js";
@@ -537,11 +538,21 @@ export class MemoryStore {
     onProgress?: (message: string) => void;
     provenance?: Provenance;
     sources?: MemorySource[];
+    state?: FailureState;
+    severity?: number;
   }): Promise<MemoryResult> {
     const failureText = this.buildFailureMemoryText(content, options);
-    const meta = options.provenance || options.sources
-      ? { provenance: options.provenance, sources: options.sources }
-      : undefined;
+    // Failure-lifecycle default: every birth gets a `state` (active by default,
+    // `acquired` for permanent facts like tool-quirk/convention). An explicit
+    // `options.state` wins; otherwise infer from category. Written into the
+    // frontmatter (below) AND surfaced so the DB mirror syncs the matching row.
+    const state = options.state ?? defaultStateForCategory(options.category);
+    const meta = {
+      provenance: options.provenance ?? null,
+      sources: options.sources ?? null,
+      state,
+      ...(typeof options.severity === "number" ? { severity: options.severity } : {}),
+    };
     return this._add("failure", failureText, undefined, 1, "Failure memory saved: " + options.category, options.onProgress, meta);
   }
 
@@ -629,6 +640,35 @@ export class MemoryStore {
       .map((entry) => this.stripMetadata(entry));
   }
 
+  /**
+   * Active, in-age failure entries (metadata stripped) for system-prompt
+   * INJECTION. Mirrors {@link getFailureEntries} but additionally keeps only
+   * entries whose decoded `state` is `active` (a missing state — e.g. a legacy
+   * comment-shape entry — reads as `active`, never silently hiding a failure).
+   *
+   * CRITICAL split: the `state='active'` filter lives HERE (the injection
+   * call-site), NOT inside {@link getFailureEntries}. The error-detector calls
+   * `getFailureEntries(30)` for capture-dedup and MUST still see resolved /
+   * acquired failures so it does not re-capture a known lesson.
+   */
+  getActiveFailureEntries(maxAgeDays = 7): string[] {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - maxAgeDays);
+    const cutoffStr = cutoff.toISOString().split("T")[0];
+
+    return this.failureEntries
+      .filter((entry) => {
+        const decoded = this.decodeEntry(entry);
+        if ((decoded.state ?? "active") !== "active") return false;
+        return decoded.created >= cutoffStr;
+      })
+      .map((entry) => this.stripMetadata(entry));
+  }
+
+  /** Optional write-path metadata threaded from {@link add}/{@link addFailure}/
+   *  {@link replace} down to {@link encodeEntry}. `state`/`severity` carry the
+   *  failure lifecycle (defaulted by category on add; preserved verbatim on
+   *  replace); `provenance`/`sources` carry citation. Omitted for memory/user. */
   private async _add(
     target: "memory" | "user" | "failure",
     content: string,
@@ -636,7 +676,7 @@ export class MemoryStore {
     _retriesLeft = 1,
     addedMessage = "Entry added.",
     onProgress?: (message: string) => void,
-    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null },
+    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null; state?: FailureState | null; severity?: number | null },
   ): Promise<MemoryResult> {
     // 2-PHASE RESTRUCTURE: consolidation runs OUTSIDE the held cross-process
     // file lock. `_addInner`'s overflow branch no longer consolidates in-lock;
@@ -691,7 +731,7 @@ export class MemoryStore {
     _retriesLeft = 1,
     addedMessage = "Entry added.",
     onProgress?: (message: string) => void,
-    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null },
+    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null; state?: FailureState | null; severity?: number | null },
     // Accumulator (D4 fix): superseded contents already purged from `.md` in a
     // PARENT frame of the consolidation-success recursion. Threaded down so a
     // child frame's floor/reject can surface the full set, and merged back up so
@@ -1119,6 +1159,10 @@ export class MemoryStore {
       sources: decoded.sources,
       mwSuccess: decoded.mwSuccess,
       mwFail: decoded.mwFail,
+      // Preserve the failure lifecycle across an edit (a resolved failure stays
+      // resolved after a body tweak — editing is not a state transition).
+      state: decoded.state,
+      severity: decoded.severity,
     });
 
     const testEntries = [...entries];
@@ -1188,11 +1232,15 @@ export class MemoryStore {
     if (this.snapshot.memory) parts.push(this.fenceBlock(this.snapshot.memory));
     if (this.snapshot.user) parts.push(this.fenceBlock(this.snapshot.user));
 
-    // Add recent failure memories
+    // Add recent failure memories — INJECTION-ONLY filter: surface ONLY
+    // `state==='active'` failures (resolved/acquired retire from injection).
+    // This lives at the call-site (not inside getFailureEntries) so the
+    // error-detector's capture-dedup path (`getFailureEntries(30)`) still sees
+    // resolved/acquired failures and does not re-capture them.
     if (this.config.failureInjectionEnabled !== false) {
       const maxAgeDays = this.config.failureInjectionMaxAgeDays ?? DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS;
       const maxFailures = this.config.failureInjectionMaxEntries ?? DEFAULT_FAILURE_INJECTION_MAX_ENTRIES;
-      const recentFailures = this.getFailureEntries(maxAgeDays);
+      const recentFailures = this.getActiveFailureEntries(maxAgeDays);
       if (recentFailures.length > 0) {
         const failures = recentFailures.slice(0, maxFailures);
         if (failures.length > 0) {
@@ -1237,7 +1285,7 @@ export class MemoryStore {
    * `lastReferenced` here is "last edited" (add/replace), the durable signal.
    * (SQLite's `last_referenced` separately tracks "last surfaced by search".)
    */
-  entriesWithMeta(target: "memory" | "user" | "failure"): { text: string; created: string; lastReferenced: string; provenance?: Provenance; sources?: MemorySource[]; mwSuccess?: number; mwFail?: number; }[] {
+  entriesWithMeta(target: "memory" | "user" | "failure"): { text: string; created: string; lastReferenced: string; provenance?: Provenance; sources?: MemorySource[]; mwSuccess?: number; mwFail?: number; state?: FailureState; severity?: number | null }[] {
     return this.entriesFor(target).map((e) => this.decodeEntry(e));
   }
 
@@ -1265,7 +1313,7 @@ export class MemoryStore {
     created: string,
     lastReferenced: string,
     id: string,
-    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null; mwSuccess?: number | null; mwFail?: number | null },
+    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null; mwSuccess?: number | null; mwFail?: number | null; state?: FailureState | null; severity?: number | null },
   ): string {
     return serializeMetadataFrontmatter({
       id,
@@ -1276,6 +1324,8 @@ export class MemoryStore {
       sources: meta?.sources,
       mwSuccess: meta?.mwSuccess,
       mwFail: meta?.mwFail,
+      state: meta?.state,
+      severity: meta?.severity,
     });
   }
 
@@ -1295,6 +1345,8 @@ export class MemoryStore {
     sources?: MemorySource[];
     mwSuccess?: number;
     mwFail?: number;
+    state?: FailureState;
+    severity?: number | null;
   } {
     if (detectEntryShape(raw) === "frontmatter") {
       const fm = parseMetadataFrontmatter(raw);
@@ -1307,6 +1359,11 @@ export class MemoryStore {
         ...(Array.isArray(fm.sources) ? { sources: fm.sources } : {}),
         ...(typeof fm.mwSuccess === "number" ? { mwSuccess: fm.mwSuccess } : {}),
         ...(typeof fm.mwFail === "number" ? { mwFail: fm.mwFail } : {}),
+        // Failure lifecycle (state/severity) — present only on frontmatter
+        // entries; a legacy comment-shape entry has no state and reads as
+        // `active` (the safe default) at every call-site.
+        ...(fm.state ? { state: fm.state } : {}),
+        ...(typeof fm.severity === "number" ? { severity: fm.severity } : {}),
       };
     }
     return parseMetadataComment(raw);

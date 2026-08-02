@@ -1,0 +1,246 @@
+# Review package: f1d343ab..HEAD
+
+## Commits
+238846c4 fix(superpowers): route no-effort specs to flat .planning/specs/ (ADR-0006 amendment)
+42725cfc test(superpowers): repo lint — fail on upstream-path artifact leakage (ADR-0006)
+a906f40c fix(superpowers): unconditional artifact home — never upstream paths (ADR-0006)
+478b8f8a docs(superpowers): ADR-0006 — unconditional artifact home (supersede 0005 clause)
+
+## Files changed
+ .../map.md                                         |  2 +-
+ .../docs/adr/0005-parallel-coexistence-boundary.md |  4 ++
+ .../docs/adr/0006-unconditional-artifact-home.md   | 60 ++++++++++++++++++++++
+ .../pi-agent-ext-superpowers/src/superpowers.ts    |  4 +-
+ .../tests/artifact-leak.test.ts                    | 40 +++++++++++++++
+ .../tests/bootstrap.test.ts                        |  5 ++
+ 6 files changed, 112 insertions(+), 3 deletions(-)
+
+## Diff
+diff --git a/.planning/2026-08-02-hardening-to-resolve-problem-we-find-about-wrong/map.md b/.planning/2026-08-02-hardening-to-resolve-problem-we-find-about-wrong/map.md
+index c8cbf22a..45fdc3c7 100644
+--- a/.planning/2026-08-02-hardening-to-resolve-problem-we-find-about-wrong/map.md
++++ b/.planning/2026-08-02-hardening-to-resolve-problem-we-find-about-wrong/map.md
+@@ -42,21 +42,21 @@ back to the pinned skill's literal `docs/superpowers/specs/` default.
+   auto-create a dated `.planning/<YYYY-MM-DD>-<slug>/` when no effort is active
+   (preserves per-effort isolation; adoptable by `/wayfind seed`; no friction for
+   lightweight brainstorms).
+ - [Regression-guard form](tickets/02-regression-guard-form.md) — both: a unit
+   test asserting the injected boundary text's no-upstream-path rule is
+   unconditional + a repo lint failing on any new file under
+   `docs/superpowers/`/`.superpowers/sdd/` (baseline the one allowed audit file).
+ - [ADR for unconditional redirect?](tickets/03-adr-for-unconditional-redirect.md)
+   — yes: ADR-0006 supersedes ADR-0005's effort-gated clause (leaves 0005's
+   disjoint-subpath layout intact with a pointer), recording the unconditional
+-  rule + the auto-dated no-effort default + the dual guard.
++  rule + the auto-dated no-effort default + the dual guard. (ADR-0006: docs/adr/0006-unconditional-artifact-home.md)
+ 
+ ## Not yet specified
+ 
+ - **Interaction with the wayfind coordinator.** 01 settled on an auto-created
+   dated dir; the open follow-up is whether `/wayfind seed` / the goal coordinator
+   can adopt a *spec-only* dir (no `map.md`/`tickets/`) retroactively, or whether
+   it needs scaffolding. Now an implementation concern for ticket 04 rather than
+   a standalone decision — not yet ticketable.
+ 
+ ## Out of scope
+diff --git a/bun-apps/pi-agent-ext-superpowers/docs/adr/0005-parallel-coexistence-boundary.md b/bun-apps/pi-agent-ext-superpowers/docs/adr/0005-parallel-coexistence-boundary.md
+index 28e26899..4bd87aaf 100644
+--- a/bun-apps/pi-agent-ext-superpowers/docs/adr/0005-parallel-coexistence-boundary.md
++++ b/bun-apps/pi-agent-ext-superpowers/docs/adr/0005-parallel-coexistence-boundary.md
+@@ -37,10 +37,14 @@ it would re-inject exactly the repo conventions commit `4fc140be` reverted and
+ ADR-0004 guards against. Local differences belong at the boundary layer, never
+ inside pinned upstream assets.
+ 
+ Related: ADR-0004 (skill fidelity positive pin) — this ADR's "express divergence
+ at the injection layer" is the operating consequence of ADR-0004's "don't fork
+ verbatim bodies". See
+ `.planning/2026-07-21-review-bun-apps-pi-agent-ext-superpowers-see-if-/tickets/02,03,04.md`
+ for the grilled boundary decisions, and
+ `.planning/2026-07-21-land-superpowers-wayfind-boundary/` for the execution that
+ landed it.
++
++**Superseded clause:** the "when an effort is active" qualifier on the
++no-upstream-path rule is removed by [ADR-0006](./0006-unconditional-artifact-home.md);
++this ADR's disjoint-subpath layout is unchanged.
+diff --git a/bun-apps/pi-agent-ext-superpowers/docs/adr/0006-unconditional-artifact-home.md b/bun-apps/pi-agent-ext-superpowers/docs/adr/0006-unconditional-artifact-home.md
+new file mode 100644
+index 00000000..3108b9ab
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-superpowers/docs/adr/0006-unconditional-artifact-home.md
+@@ -0,0 +1,60 @@
++# ADR-0006: Unconditional artifact home — never write to upstream paths
++
++Date: 2026-08-02
++Status: accepted
++See: [ADR-0005](./0005-parallel-coexistence-boundary.md) (supersedes its "when an
++effort is active" clause; 0005's wayfind↔superpowers disjoint-subpath layout
++stands), [map](../../../../.planning/2026-08-02-hardening-to-resolve-problem-we-find-about-wrong/map.md)
++
++## Context
++
++ADR-0005 framed the no-upstream-path rule as conditional: "Never write to the
++upstream paths **when an effort is active**." An ad-hoc brainstorm with no active
++`/wayfind` effort therefore fell back to the pinned skill's literal
++`docs/superpowers/specs/` default (ADR-0004 pins skills byte-identical to
++upstream, so that prose was never corrected) — leaking an artifact outside the
++`.planning/<effort>/` convention.
++
++The bootstrap injection is unconditional (`session_start`/`session_compact`),
++so the gap is the text's conditional language, not delivery.
++
++Note (2026-08-02 amendment): `docs/superpowers/{specs,plans}` are git-tracked
++symlinks to `.planning/{specs,plans}`, so the flat layout was already the
++de-facto home for standalone specs; this ADR makes the boundary text say so
++explicitly rather than pushing them to per-effort dirs.
++
++## Decision
++
++The no-upstream-path rule is **unconditional**: superpowers never writes any
++artifact (spec, plan, SDD workspace, brainstorm mockup) to `docs/superpowers/`
++or `.superpowers/`, with or without an active effort.
++
++- `PI_PLANNING_EFFORT` set → resolve under `.planning/<effort>/` (unchanged).
++- `PI_PLANNING_EFFORT` unset (ad-hoc) → specs land at
++  `.planning/specs/<YYYY-MM-DD>-<topic>-design.md` and plans at
++  `.planning/plans/<YYYY-MM-DD>-<topic>.md` — the flat layout
++  `docs/superpowers/{specs,plans}` symlink to. (Per-effort `.planning/<effort>/`
++  is for multi-ticket wayfind efforts, set via `PI_PLANNING_EFFORT`.)
++
++Guarded by (a) a unit test asserting the boundary text's rule is unconditional,
++and (b) a repo lint failing on any file beyond the baseline under the upstream
++paths.
++
++## Consequences
++
++- Ad-hoc artifacts persist as dated `.planning/` dirs instead of silently
++  dropping under `docs/superpowers/` — a real, accepted trade-off (isolation +
++  discoverability over nonchalance).
++- A future `/wayfind seed` may adopt a spec-only (no `map.md`/`tickets/`) dir;
++  that interaction is an implementation detail, not a decision (see map
++  Not yet specified).
++- Pinned `skills/*/SKILL.md` stay untouched (ADR-0004).
++
++## Alternatives considered
++
++- **Fixed default dir** (`.planning/adhoc/`): conflates unrelated ad-hoc
++  artifacts; not adoptable by `/wayfind seed`. Rejected (ticket 01).
++- **Require an effort** (error if unset): breaks lightweight ad-hoc
++  brainstorming — the exact case that surfaced the bug. Rejected (ticket 01).
++- **Amend ADR-0005 in place:** erodes the decision-record history. A new ADR
++  with a pointer preserves the trail. Chosen (ticket 03).
+diff --git a/bun-apps/pi-agent-ext-superpowers/src/superpowers.ts b/bun-apps/pi-agent-ext-superpowers/src/superpowers.ts
+index 1e31852d..5d303f8f 100644
+--- a/bun-apps/pi-agent-ext-superpowers/src/superpowers.ts
++++ b/bun-apps/pi-agent-ext-superpowers/src/superpowers.ts
+@@ -255,33 +255,33 @@ Pi's built-in coding tools are lowercase: \`read\`, \`write\`, \`edit\`, \`bash\
+ Pi does not ship a standard subagent tool in core. This repo's pi-agent-ext-subagent provides a 'subagent' tool - an isolated-context child dispatch (subagent({ task, model?, capability?, tier?, tools?, excludeTools?, cwd?, commitScope?, tokenBudget?, spendBudget?, timeoutMs?, schema?, agentType?, watchdog? }); the child has no access to this session's history, so pass a self-contained 'task'). Superpowers subagent workflows (subagent-driven-development) use it. Directives every dispatch: (1) prefer tier ('small'|'medium'|'big', resolved from ~/.pi/workflows/model-tiers.json via /workflows-models) over a raw model id - it is portable and user-tunable; SDD roles: implementer=medium, research=small, synthesis/big. (2) For an SDD implementer/fix dispatch, pass commitScope with the task's declared file scope (e.g. ["src/auth/","tests/auth/"]) so the tool flags any out-of-scope committed path - the recurring 'git add -A' sweep that stages .planning/<effort>/sdd/ scratch into a commit, which then lands on main at squash-merge - as a warning (detection only; you decide the revert). Use [] for a read-only subagent that should commit nothing. (3) The tool auto-parses the SDD implementer's '**Status:** DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED' block into details.report, and auto-persists each completed run to ~/.pi/subagents/runs/. (4) For CONCURRENT fan-out (dispatching-parallel-agents), use the 'workflow' tool's parallel() - NOT multiple subagent calls in one turn (the subagent tool is executionMode: sequential, so a batch of them serializes). (5) For an SDD implementer/fix dispatch, also pass watchdog:{l2:true} - a post-spawn adversarial review of the child's changes: L1 is a free local-LSP scan (zero tokens), L2 (opt-in via l2:true) dispatches a read-only model-review subagent; findings are advisory (surfaced in the run record + result summary, never block). Edit-gated: a no-op for non-editing dispatches (reviewers/research). For the full param surface + rationale (schema, agentType, retryOnTransient, tokenBudget/spendBudget guidance), read references/pi-tools.md. If no 'subagent' tool is available, do the work in this session or explain the missing capability instead of inventing Task calls.
+ 
+ Pi does not ship a standard task-list tool. If an installed todo/task tool is available, use it. Otherwise track work in plan files or a repo-local \`TODO.md\` when task tracking is needed. Treat older \`TodoWrite\` references as this task-tracking action.`;
+ }
+ 
+ function piBoundaryOverrides(): string {
+   return `## Pipeline routing (this repo)
+ 
+ Superpowers and Wayfind are two parallel pipelines sharing the \`.planning/<effort>/\` layout. Two rules:
+ 
+-**1. One canonical home.** Every artifact lives under \`.planning/<effort>/\` — specs → \`.planning/<effort>/spec.md\`, plans → \`.planning/<effort>/plan.md\`, the SDD workspace → \`.planning/<effort>/sdd/<plan-basename>/\` (one dir per plan: briefs/, reports/, reviews/, and the recovery ledger at \`.planning/<effort>/sdd/<plan-basename>/progress.md\`), and brainstorm mockups → \`.planning/<effort>/brainstorm/\`. The pinned skill's \`scripts/sdd-workspace PLAN_FILE\` resolves the plan's dir (deriving \`<plan-basename>\` from the plan filename) and honors \`PI_PLANNING_EFFORT\`; the brainstorm \`start-server.sh\` honors it too. The pinned skills' upstream paths (\`docs/superpowers/\`, \`.superpowers/sdd/\`) are overridden at runtime by \`PI_PLANNING_EFFORT\`. Never write to the upstream paths when an effort is active.
++**1. One canonical home.** Every artifact lives under \`.planning/<effort>/\` — specs → \`.planning/<effort>/spec.md\`, plans → \`.planning/<effort>/plan.md\`, the SDD workspace → \`.planning/<effort>/sdd/<plan-basename>/\` (one dir per plan: briefs/, reports/, reviews/, and the recovery ledger at \`.planning/<effort>/sdd/<plan-basename>/progress.md\`), and brainstorm mockups → \`.planning/<effort>/brainstorm/\`. The pinned skill's \`scripts/sdd-workspace PLAN_FILE\` resolves the plan's dir and honors \`PI_PLANNING_EFFORT\`. Specs → \`.planning/specs/<YYYY-MM-DD>-<topic>-design.md\`, plans → \`.planning/plans/<YYYY-MM-DD>-<topic>.md\` (\`docs/superpowers/{specs,plans}\` symlink there — prefer the \`.planning/\` path). Other upstream paths (\`docs/superpowers/\`, \`.superpowers/sdd/\`) are never written. \`PI_PLANNING_EFFORT\` set → \`.planning/<effort>/\`.
+ 
+ **2. Pick the pipeline by stage — check what's on disk first.**
+ 
+ | Stage      | Trigger (check disk)                          | Pipeline                                |
+ |------------|-----------------------------------------------|-----------------------------------------|
+ | DECIDE     | no spec yet, decisions open / route foggy     | Wayfind — grilling (or wayfinder)       |
+ | SYNTHESIZE | a grill just settled; spec needed             | Wayfind — to-spec (synthesize only)     |
+ | DESIGN     | requirement clear, zero open decisions        | Superpowers — brainstorming             |
+ | PLAN       | spec exists, no plan                          | Superpowers — writing-plans             |
+ | EXECUTE    | plan exists                                   | Superpowers — executing-plans / SDD     |
+ 
+-Four of five stages are a filesystem check. Only DECIDE-vs-DESIGN needs judgment ("are decisions open?"). When in doubt, DECIDE first — it's cheap insurance against building on a foggy route.`;
++Four of five stages are a filesystem check. Only DECIDE-vs-DESIGN needs judgment ("are decisions open?"). When in doubt, DECIDE first.`;
+ }
+ 
+ function messageContainsBootstrap(message: unknown): boolean {
+   const content = (message as { content?: unknown }).content;
+   if (typeof content === "string") return content.includes(BOOTSTRAP_MARKER);
+   if (!Array.isArray(content)) return false;
+   return content.some((part) => {
+     return (
+       part &&
+       typeof part === "object" &&
+diff --git a/bun-apps/pi-agent-ext-superpowers/tests/artifact-leak.test.ts b/bun-apps/pi-agent-ext-superpowers/tests/artifact-leak.test.ts
+new file mode 100644
+index 00000000..e08fadc6
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-superpowers/tests/artifact-leak.test.ts
+@@ -0,0 +1,40 @@
++/**
++ * Repo lint (ADR-0006 defense-in-depth): no superpowers artifact may live under
++ * the upstream paths `docs/superpowers/` or `.superpowers/`. Runs in the ext's
++ * `bun run test` matrix (ci.yml:111) so leakage fails CI with zero wiring.
++ */
++import { test, expect } from "bun:test";
++import { existsSync, readdirSync, lstatSync } from "node:fs";
++import { dirname, join, resolve } from "node:path";
++import { fileURLToPath } from "node:url";
++
++// tests/ → ext pkg → bun-apps → repo root (3 levels up)
++const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
++
++/** Files grandfathered under the upstream paths (the ADR-0006 baseline). */
++const ALLOWED = new Set([
++  "docs/superpowers/audit/2026-07-18-workflow-pack-finding-docket.md",
++]);
++
++function listFiles(dir: string, acc: string[] = []): string[] {
++  if (!existsSync(dir)) return acc;
++  for (const entry of readdirSync(dir)) {
++    const p = join(dir, entry);
++    const stat = lstatSync(p);
++    if (stat.isSymbolicLink()) continue; // Skip symlinks
++    if (stat.isDirectory()) listFiles(p, acc);
++    else acc.push(p);
++  }
++  return acc;
++}
++
++test("no superpowers artifacts leak to upstream paths (ADR-0006)", () => {
++  const offenders: string[] = [];
++  for (const root of ["docs/superpowers", ".superpowers"]) {
++    for (const abs of listFiles(join(repoRoot, root))) {
++      const rel = abs.slice(repoRoot.length + 1).replace(/\\/g, "/");
++      if (!ALLOWED.has(rel)) offenders.push(rel);
++    }
++  }
++  expect(offenders).toEqual([]);
++});
+diff --git a/bun-apps/pi-agent-ext-superpowers/tests/bootstrap.test.ts b/bun-apps/pi-agent-ext-superpowers/tests/bootstrap.test.ts
+index b49cd1ac..83265069 100644
+--- a/bun-apps/pi-agent-ext-superpowers/tests/bootstrap.test.ts
++++ b/bun-apps/pi-agent-ext-superpowers/tests/bootstrap.test.ts
+@@ -195,20 +195,25 @@ describe("bootstrap payload assembly", () => {
+     expect(payload).toContain("brainstorming");
+     // retired old structure must be gone
+     expect(payload).not.toContain("Four runtime rules");
+     expect(payload).not.toContain("can I write a plan right now");
+     expect(payload).not.toContain("Artifact-home override");
+     expect(payload).not.toContain("Entry-path routing");
+     expect(payload).not.toContain("Visual-companion convergence");
+     // note: "SDD workspace" the bare topic word legitimately remains in rule 1;
+     // only the retired header phrase "SDD workspace override" must be gone
+     expect(payload).not.toContain("SDD workspace override");
++    // ADR-0006 (revised): no-effort specs route to the flat .planning/specs/
++    // (docs/superpowers/{specs,plans} symlink there); other upstream paths forbidden
++    expect(payload).toContain(".planning/specs/");
++    expect(payload).toContain("symlink");
++    expect(payload).not.toContain("when an effort is active");
+   });
+ 
+   it("routing section is meaningfully shorter than the old 3039 chars", () => {
+     _resetBootstrapCacheForTests();
+     const payload = getBootstrapContent() ?? "";
+     const i = payload.indexOf("## Pipeline routing");
+     const section = i >= 0 ? payload.slice(i) : "";
+     expect(section.length).toBeLessThan(2000);
+     expect(section.length).toBeGreaterThan(800); // sanity: not accidentally empty
+   });

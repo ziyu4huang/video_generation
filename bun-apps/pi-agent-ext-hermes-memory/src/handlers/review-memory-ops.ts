@@ -7,9 +7,9 @@ import { completeSimple, type Message, type SimpleStreamOptions } from "@earendi
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DIRECT_REVIEW_SYSTEM_PROMPT } from "../constants.js";
 import { MemoryStore } from "../store/memory-store.js";
-import { formatFailureMemoryContent } from "../store/memory-format.js";
+import { formatFailureMemoryContent, normalizeFailureState } from "../store/memory-format.js";
 import type { MemoryRepository } from "../store/repository.js";
-import type { MemoryCategory, MemoryConfig, MemoryResult, ThinkingLevel } from "../types.js";
+import type { FailureState, MemoryCategory, MemoryConfig, MemoryResult, ThinkingLevel } from "../types.js";
 
 export interface ReviewMemoryOperation {
   action: "add" | "replace" | "remove";
@@ -18,6 +18,10 @@ export interface ReviewMemoryOperation {
   old_text?: string;
   category?: MemoryCategory;
   failure_reason?: string;
+  /** Failure lifecycle state (Task 7). When present, normalized via
+   *  {@link normalizeFailureState} (invalid → active) and threaded into the
+   *  store add + DB sync so a review op can mark a failure resolved/acquired. */
+  state?: FailureState;
 }
 
 export interface ApplyReviewOperationsResult {
@@ -191,6 +195,7 @@ export function parseReviewOperations(text: string): ReviewMemoryOperation[] | n
     if (typeof op.old_text === "string") operation.old_text = op.old_text;
     if (isMemoryCategory(op.category)) operation.category = op.category;
     if (typeof op.failure_reason === "string") operation.failure_reason = op.failure_reason;
+    if (op.state) operation.state = normalizeFailureState(op.state);
     parsed.push(operation);
   }
 
@@ -218,6 +223,7 @@ async function syncAdd(
   memoryRepo: MemoryRepository | null,
   projectName?: string | null,
   mdId?: string | null,
+  state?: FailureState,
 ): Promise<void> {
   if (!memoryRepo) return;
 
@@ -236,6 +242,7 @@ async function syncAdd(
       category: failureCategory,
       failureReason,
       ...(mdId ? { mdId } : {}),
+      ...(state ? { state } : {}),
     });
     return;
   }
@@ -255,6 +262,7 @@ async function syncReplace(
   memoryRepo: MemoryRepository | null,
   projectName?: string | null,
   mdId?: string | null,
+  state?: FailureState,
 ): Promise<void> {
   if (!memoryRepo) return;
   await memoryRepo.replaceSyncedMemories(oldText, {
@@ -262,6 +270,7 @@ async function syncReplace(
     target: sqliteTargetFor(rawTarget),
     project: sqliteProjectFor(rawTarget, projectName),
     ...(mdId ? { mdId } : {}),
+    ...(state ? { state } : {}),
   });
 }
 
@@ -329,9 +338,10 @@ export async function applyReviewOperations(
           result = await activeStore.addFailure(op.content, {
             category,
             failureReason: op.failure_reason,
+            ...(op.state ? { state: op.state } : {}),
           });
           if (result.success) {
-            await syncAdd(rawTarget, op.content, category, op.failure_reason, memoryRepo, projectName, result.added_md_id);
+            await syncAdd(rawTarget, op.content, category, op.failure_reason, memoryRepo, projectName, result.added_md_id, op.state);
             appliedCount++;
           } else {
             skippedCount++;
@@ -359,7 +369,7 @@ export async function applyReviewOperations(
         }
         result = await activeStore.replace(memoryTarget, op.old_text, op.content);
         if (result.success) {
-          await syncReplace(rawTarget, op.old_text, op.content, memoryRepo, projectName, result.added_md_id);
+          await syncReplace(rawTarget, op.old_text, op.content, memoryRepo, projectName, result.added_md_id, op.state);
           appliedCount++;
         } else {
           skippedCount++;

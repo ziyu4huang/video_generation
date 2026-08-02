@@ -739,6 +739,12 @@ export class SqliteBackend implements Backend {
     if (!names.has('md_id')) {
       db.exec('ALTER TABLE memories ADD COLUMN md_id TEXT');
     }
+    if (!names.has('state')) {
+      db.exec("ALTER TABLE memories ADD COLUMN state TEXT NOT NULL DEFAULT 'active'");
+    }
+    if (!names.has('severity')) {
+      db.exec('ALTER TABLE memories ADD COLUMN severity INTEGER');
+    }
   }
 
   private ensureSessionsColumns(db: DatabaseLike): void {

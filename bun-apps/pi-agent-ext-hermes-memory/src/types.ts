@@ -154,6 +154,9 @@ export type MemoryCategory =
   | "convention"
   | "tool-quirk";
 
+/** Lifecycle state for failure-target entries. Default/invalid → `active`. */
+export type FailureState = "active" | "resolved" | "acquired";
+
 export interface MemoryResult {
   success: boolean;
   error?: string;

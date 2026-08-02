@@ -556,6 +556,115 @@ describe("registerMemoryTool", () => {
     assert.deepStrictEqual(removeArgs, ["memory", "old entry"], "should pass target, old_text to store.remove");
   });
 
+  // ── Task 7: failure lifecycle state/severity on add + edit ──────────────
+  it("threads failure state + severity into repo syncMemoryEntry on add", async () => {
+    let capturedResult: any;
+    const mockPi = { registerTool: (def: any) => { capturedResult = def; } } as unknown as ExtensionAPI;
+    const mockStore = {
+      addFailure: () => ({
+        success: true, target: "failure", entries: ["[failure] boom"],
+        usage: "1% — 10/5000 chars", entry_count: 1, added_md_id: "md-add-1",
+      }),
+    } as unknown as MemoryStore;
+
+    let capturedInput: any;
+    const mockRepo = {
+      syncMemoryEntry: async (input: any) => { capturedInput = input; return { action: "inserted", entry: {} }; },
+    } as unknown as MemoryRepository;
+
+    registerMemoryTool(mockPi, mockStore, null, mockRepo);
+    await capturedResult.execute(
+      "tc-1",
+      { action: "add", target: "failure", content: "boom", state: "resolved", severity: 2 },
+      undefined as any, undefined as any, undefined as any,
+    );
+
+    assert.ok(capturedInput, "syncMemoryEntry must be called");
+    assert.strictEqual(capturedInput.state, "resolved");
+    assert.strictEqual(capturedInput.severity, 2);
+  });
+
+  it("does not pass state/severity when add omits them (default applies downstream)", async () => {
+    let capturedResult: any;
+    const mockPi = { registerTool: (def: any) => { capturedResult = def; } } as unknown as ExtensionAPI;
+    const mockStore = {
+      addFailure: () => ({
+        success: true, target: "failure", entries: ["[failure] boom"],
+        usage: "1% — 10/5000 chars", entry_count: 1, added_md_id: "md-add-2",
+      }),
+    } as unknown as MemoryStore;
+
+    let capturedInput: any;
+    const mockRepo = {
+      syncMemoryEntry: async (input: any) => { capturedInput = input; return { action: "inserted", entry: {} }; },
+    } as unknown as MemoryRepository;
+
+    registerMemoryTool(mockPi, mockStore, null, mockRepo);
+    await capturedResult.execute(
+      "tc-1",
+      { action: "add", target: "failure", content: "boom" },
+      undefined as any, undefined as any, undefined as any,
+    );
+
+    assert.ok(capturedInput);
+    assert.strictEqual(capturedInput.state, undefined, "no state passed when omitted");
+    assert.strictEqual(capturedInput.severity, undefined, "no severity passed when omitted");
+  });
+
+  it("drops severity outside 1–3 on add", async () => {
+    let capturedResult: any;
+    const mockPi = { registerTool: (def: any) => { capturedResult = def; } } as unknown as ExtensionAPI;
+    const mockStore = {
+      addFailure: () => ({
+        success: true, target: "failure", entries: ["[failure] boom"],
+        usage: "1% — 10/5000 chars", entry_count: 1, added_md_id: "md-add-3",
+      }),
+    } as unknown as MemoryStore;
+
+    let capturedInput: any;
+    const mockRepo = {
+      syncMemoryEntry: async (input: any) => { capturedInput = input; return { action: "inserted", entry: {} }; },
+    } as unknown as MemoryRepository;
+
+    registerMemoryTool(mockPi, mockStore, null, mockRepo);
+    await capturedResult.execute(
+      "tc-1",
+      { action: "add", target: "failure", content: "boom", severity: 9 },
+      undefined as any, undefined as any, undefined as any,
+    );
+
+    assert.strictEqual(capturedInput.severity, undefined, "out-of-range severity is dropped");
+  });
+
+  it("threads failure state into replaceSyncedMemories on edit", async () => {
+    let capturedResult: any;
+    const mockPi = { registerTool: (def: any) => { capturedResult = def; } } as unknown as ExtensionAPI;
+    const mockStore = {
+      replace: () => ({
+        success: true, target: "failure", entries: ["[failure] fixed"],
+        usage: "1% — 10/5000 chars", entry_count: 1, added_md_id: "md-replace-1",
+      }),
+    } as unknown as MemoryStore;
+
+    let capturedUpdates: any;
+    const mockRepo = {
+      replaceSyncedMemories: async (_old: string, updates: any) => {
+        capturedUpdates = updates;
+        return { matched: 1, updated: 1, entries: [] };
+      },
+    } as unknown as MemoryRepository;
+
+    registerMemoryTool(mockPi, mockStore, null, mockRepo);
+    await capturedResult.execute(
+      "tc-1",
+      { action: "replace", target: "failure", old_text: "boom", content: "fixed", state: "acquired" },
+      undefined as any, undefined as any, undefined as any,
+    );
+
+    assert.ok(capturedUpdates, "replaceSyncedMemories must be called");
+    assert.strictEqual(capturedUpdates.state, "acquired");
+  });
+
   it("writeTransferArchive: two same-second calls produce distinct, non-overwriting files", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "transfer-archive-test-"));
     try {

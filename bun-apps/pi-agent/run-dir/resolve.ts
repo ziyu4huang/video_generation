@@ -586,7 +586,7 @@ export function buildBundleArgvFromLayout(
  *   - undefined base       → workspace extensions AND skills skipped + warned
  */
 export function buildArgvFromManifest(
-  m: { extensions?: (string | { entry: string })[]; skills?: string[] },
+  m: { extensions?: (string | { entry?: string })[]; skills?: string[] },
   bunAppsDir: string | undefined,
   npmPaths: string[],
   exists: (p: string) => boolean,
@@ -597,6 +597,13 @@ export function buildArgvFromManifest(
   if (bunAppsDir) {
     for (const entry of m.extensions ?? []) {
       const rel = typeof entry === "string" ? entry : entry.entry;
+      if (!rel) {
+        // A declared object missing `entry` (malformed manifest) would otherwise
+        // throw an opaque TypeError inside path.join and crash launch. Skip +
+        // warn so the runtime failure mode matches the contract test. (I-1)
+        warnFn(`manifest extension missing 'entry', skipping: ${JSON.stringify(entry)}`);
+        continue;
+      }
       extensionPaths.push(join(bunAppsDir, rel));
     }
   } else {

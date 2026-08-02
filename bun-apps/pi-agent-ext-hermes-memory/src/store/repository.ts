@@ -5,7 +5,9 @@
  */
 
 export type MemoryTarget = "memory" | "user" | "failure";
-export type { MemoryCategory } from "../types.js";
+import type { FailureState } from "../types.js";
+
+export type { MemoryCategory, FailureState } from "../types.js";
 
 export interface MemoryEntry {
   id: number;
@@ -27,6 +29,11 @@ export interface MemoryEntry {
   /** Stable markdown-side id mirrored from the `.md` frontmatter (ticket 05).
    *  SQLite column `md_id`; Surreal field `mdId`. Nullable until backfilled. */
   mdId?: string | null;
+  /** Failure lifecycle state (Task 2 of hermes-failure-lifecycle).
+   *  Failure-target only; defaults to `active` when absent. */
+  state?: FailureState;
+  /** Advisory failure severity (1–3) for failure-target entries. */
+  severity?: number | null;
 }
 
 export interface MemorySyncInput {
@@ -47,6 +54,11 @@ export interface MemorySyncInput {
    *  carries (SQLite column `md_id`; Surreal field `mdId`). Absent → leave the
    *  row's md_id untouched (preserves a backfilled id on a no-id re-sync). */
   mdId?: string | null;
+  /** Failure lifecycle state to mirror onto the row (Task 2). Absent on INSERT
+   *  → column default `active` applies; on UPDATE absent → leave untouched. */
+  state?: FailureState;
+  /** Advisory failure severity to mirror onto the row (Task 2). */
+  severity?: number | null;
 }
 
 export interface MemorySyncResult { action: "inserted" | "existing"; entry: MemoryEntry; }
@@ -65,6 +77,10 @@ export interface MemoryRepository {
     created?: string; lastReferenced?: string;
     /** Stable markdown-side id to stamp on the new row's md_id (Task 7). */
     mdId?: string | null;
+    /** Failure lifecycle state to stamp on the new row (Task 2). */
+    state?: FailureState;
+    /** Advisory failure severity to stamp on the new row (Task 2). */
+    severity?: number | null;
   }): Promise<MemoryEntry>;
   syncMemoryEntry(input: MemorySyncInput): Promise<MemorySyncResult>;
   /** Sync N entries in ONE batched round-trip (Surreal: a single transaction;
@@ -82,6 +98,11 @@ export interface MemoryRepository {
      *  a replace births a NEW entry, so the row's md_id tracks the replacement's
      *  fresh uuid, not the superseded entry's id. Absent → md_id untouched. */
     mdId?: string | null;
+    /** Failure lifecycle state to stamp onto the updated row (Task 2).
+     *  Absent → state untouched. */
+    state?: FailureState;
+    /** Advisory failure severity to stamp onto the updated row (Task 2). */
+    severity?: number | null;
   }): Promise<MemoryUpdateResult>;
   removeSyncedMemories(oldText: string, options: MemoryRemoveOptions): Promise<MemoryRemoveResult>;
   /** @deprecated backfill-only — use {@link removeByMdId} in steady state.

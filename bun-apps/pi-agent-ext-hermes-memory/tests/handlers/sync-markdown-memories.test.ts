@@ -13,7 +13,20 @@ import {
   syncMarkdownMemories,
 } from '../../src/handlers/sync-markdown-memories.js';
 import { ENTRY_DELIMITER } from '../../src/constants.js';
-import { serializeMetadataFrontmatter } from '../../src/store/memory-format.js';
+import { serializeMetadataFrontmatter, parseMetadataFrontmatter } from '../../src/store/memory-format.js';
+
+/** Read the global failures.md (the failure-state backfill target). */
+function readFailuresMd(globalDir: string): string {
+  return fs.readFileSync(path.join(globalDir, 'failures.md'), 'utf-8');
+}
+
+/** Parse the frontmatter entry containing `marker` and return its `state`. */
+function stateOfEntry(md: string, marker: string): string | undefined {
+  const entries = md.split(ENTRY_DELIMITER).map((e) => e.trim()).filter(Boolean);
+  const entry = entries.find((e) => e.includes(marker));
+  assert.ok(entry, `no entry containing "${marker}"`);
+  return parseMetadataFrontmatter(entry).state;
+}
 
 describe('memory sqlite sync + markdown backfill', () => {
   let tmpDir: string;
@@ -406,5 +419,154 @@ describe('memory sqlite sync + markdown backfill', () => {
       await memoryRepo.getMdIdByContent('externally edited frontmatter entry', { target: 'memory' }),
       externalId,
     );
+  });
+
+  it('backfill sets failure state by category for stateless entries + mirrors to DB (Task 6)', async () => {
+    // Legacy stateless entries: frontmatter (post stable-id migration) but NO
+    // `state` field. The backfill infers the initial state from category and
+    // persists it to BOTH the .md frontmatter (source of truth) and the DB row.
+    const failureEntry = serializeMetadataFrontmatter({
+      id: 'fail-backfill-1',
+      text: '[failure] boom — Failed: x',
+      created: '2026-05-08',
+      last: '2026-05-09',
+    });
+    const quirkEntry = serializeMetadataFrontmatter({
+      id: 'quirk-backfill-1',
+      text: '[tool-quirk] known quirk',
+      created: '2026-05-08',
+      last: '2026-05-09',
+    });
+    fs.writeFileSync(
+      path.join(globalDir, 'failures.md'),
+      [failureEntry, quirkEntry].join(ENTRY_DELIMITER),
+      'utf-8',
+    );
+
+    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+
+    const md = readFailuresMd(globalDir);
+    assert.strictEqual(stateOfEntry(md, '[failure] boom'), 'active');
+    assert.strictEqual(stateOfEntry(md, '[tool-quirk] known quirk'), 'acquired');
+
+    // DB mirror: the inferred state lands on the matching row by content key
+    // (failure→active, tool-quirk→acquired — NOT the INSERT default active).
+    const rows = await memoryRepo.getMemories({ target: 'failure' });
+    const failureRow = rows.find((r) => r.content === '[failure] boom — Failed: x');
+    const quirkRow = rows.find((r) => r.content === '[tool-quirk] known quirk');
+    assert.ok(failureRow, 'failure row must exist');
+    assert.ok(quirkRow, 'tool-quirk row must exist');
+    assert.strictEqual(failureRow!.state, 'active');
+    assert.strictEqual(quirkRow!.state, 'acquired');
+  });
+
+  it('failure-state backfill is idempotent — re-running does not rewrite the .md (Task 6)', async () => {
+    const failureEntry = serializeMetadataFrontmatter({
+      id: 'fail-backfill-2',
+      text: '[failure] boom — Failed: x',
+      created: '2026-05-08',
+      last: '2026-05-09',
+    });
+    const quirkEntry = serializeMetadataFrontmatter({
+      id: 'quirk-backfill-2',
+      text: '[tool-quirk] known quirk',
+      created: '2026-05-08',
+      last: '2026-05-09',
+    });
+    fs.writeFileSync(
+      path.join(globalDir, 'failures.md'),
+      [failureEntry, quirkEntry].join(ENTRY_DELIMITER),
+      'utf-8',
+    );
+
+    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+    const after1 = readFailuresMd(globalDir);
+
+    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+    const after2 = readFailuresMd(globalDir);
+
+    assert.strictEqual(after2, after1, 'second run must not rewrite the .md');
+  });
+
+  it('backfill never overwrites an explicit failure state (Task 6)', async () => {
+    // An entry already carrying `state: resolved` must stay resolved — NOT reset
+    // to the category default (active).
+    const resolvedEntry = serializeMetadataFrontmatter({
+      id: 'fail-resolved-1',
+      text: '[failure] already fixed — Failed: y',
+      created: '2026-05-08',
+      last: '2026-05-09',
+      state: 'resolved',
+    });
+    fs.writeFileSync(path.join(globalDir, 'failures.md'), resolvedEntry, 'utf-8');
+
+    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+
+    const md = readFailuresMd(globalDir);
+    assert.strictEqual(stateOfEntry(md, '[failure] already fixed'), 'resolved');
+
+    const rows = await memoryRepo.getMemories({ target: 'failure' });
+    const row = rows.find((r) => r.content === '[failure] already fixed — Failed: y');
+    assert.ok(row, 'failure row must exist');
+    assert.strictEqual(row!.state, 'resolved', 'explicit resolved state must survive');
+  });
+
+  it('backfill preserves the failure body segments verbatim (Task 6)', async () => {
+    const body = '[failure] boom — Failed: x — Tool state: z';
+    const entry = serializeMetadataFrontmatter({
+      id: 'fail-body-1',
+      text: body,
+      created: '2026-05-08',
+      last: '2026-05-09',
+    });
+    fs.writeFileSync(path.join(globalDir, 'failures.md'), entry, 'utf-8');
+
+    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+
+    const md = readFailuresMd(globalDir);
+    const entries = md.split(ENTRY_DELIMITER).map((e) => e.trim()).filter(Boolean);
+    const fm = parseMetadataFrontmatter(entries[0]);
+    assert.strictEqual(fm.state, 'active', 'state was backfilled');
+    assert.strictEqual(fm.text, body, 'failure body must survive byte-identical');
+  });
+
+  it('failure-state backfill reports counts + stoppedInjecting (Task 8 dry-run)', async () => {
+    const failureEntry = serializeMetadataFrontmatter({
+      id: 'rpt-fail-1', text: '[failure] live one', created: '2026-05-08', last: '2026-05-09',
+    });
+    const quirkEntry = serializeMetadataFrontmatter({
+      id: 'rpt-quirk-1', text: '[tool-quirk] known quirk', created: '2026-05-08', last: '2026-05-09',
+    });
+    const resolvedEntry = serializeMetadataFrontmatter({
+      id: 'rpt-resolved-1', text: '[failure] already fixed', created: '2026-05-08', last: '2026-05-09', state: 'resolved',
+    });
+    fs.writeFileSync(
+      path.join(globalDir, 'failures.md'),
+      [failureEntry, quirkEntry, resolvedEntry].join(ENTRY_DELIMITER),
+      'utf-8',
+    );
+
+    const counters = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+    const fstate = counters.failureState;
+    assert.strictEqual(fstate.active, 1, '[failure] live one backfilled to active');
+    assert.strictEqual(fstate.acquired, 1, '[tool-quirk] backfilled to acquired');
+    assert.strictEqual(fstate.unchanged, 1, 'the resolved entry left untouched');
+    // stoppedInjecting lists the acquired tool-quirk (was injecting, now won't) — NOT the active failure.
+    assert.ok(fstate.stoppedInjecting.some((s) => s.includes('known quirk')), 'tool-quirk flagged as stopped injecting');
+    assert.ok(!fstate.stoppedInjecting.some((s) => s.includes('live one')), 'active failure not flagged');
+  });
+
+  it('failure-state report is stable on a second (idempotent) run (Task 8)', async () => {
+    fs.writeFileSync(
+      path.join(globalDir, 'failures.md'),
+      serializeMetadataFrontmatter({ id: 'rpt-idem-1', text: '[failure] once', created: '2026-05-08', last: '2026-05-09' }),
+      'utf-8',
+    );
+    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot); // first run: active=1
+    const counters = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot); // second run
+    assert.strictEqual(counters.failureState.active, 0, 'nothing backfilled on the idempotent re-run');
+    assert.strictEqual(counters.failureState.acquired, 0);
+    assert.strictEqual(counters.failureState.unchanged, 1, 'the now-stateful entry counted as unchanged');
+    assert.strictEqual(counters.failureState.stoppedInjecting.length, 0);
   });
 });

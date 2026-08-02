@@ -483,6 +483,92 @@ describe("SqliteMemoryRepository", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // getRecentFailures — failure state filter (Task 3 of hermes-failure-lifecycle).
+  // Injection must surface only `active` failures; resolved/acquired retire.
+  // ---------------------------------------------------------------------------
+
+  describe("getRecentFailures — failure state filter (Task 3)", () => {
+    it("excludes resolved/acquired; keeps active; round-trips state", async () => {
+      await repo.addMemory({ content: "[failure] active one", target: "failure", category: "failure", state: "active" });
+      await repo.addMemory({ content: "[failure] fixed one", target: "failure", category: "failure", state: "resolved" });
+      await repo.addMemory({ content: "[tool-quirk] known quirk", target: "failure", category: "tool-quirk", state: "acquired" });
+      const recent = await repo.getRecentFailures(7);
+      const contents = recent.map((m) => m.content);
+      expect(contents.some((c) => c === "[failure] active one")).toBe(true);
+      expect(contents.some((c) => c === "[failure] fixed one")).toBe(false);
+      expect(contents.some((c) => c === "[tool-quirk] known quirk")).toBe(false);
+      const active = recent.find((m) => m.content === "[failure] active one");
+      expect(active?.state).toBe("active");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // replaceSyncedMemories — carries failure state (Task 3 gap-fix): the replace
+  // UPDATE must persist `state`/`severity` so an edit/replace keeps the .md↔DB
+  // lifecycle consistent (the seam declared the fields; the UPDATE now writes them).
+  // ---------------------------------------------------------------------------
+
+  describe("replaceSyncedMemories — carries failure state (Task 3 gap-fix)", () => {
+    it("replace writes explicit state onto the row; getRecentFailures reflects it", async () => {
+      await repo.addMemory({ content: "[failure] live bug", target: "failure", category: "failure", state: "active" });
+      // Before: surfaces as active.
+      expect((await repo.getRecentFailures(7)).map((m) => m.content)).toContain("[failure] live bug");
+      // Replace (edit) marking it resolved.
+      await repo.replaceSyncedMemories("[failure] live bug", {
+        content: "[failure] live bug — fixed",
+        target: "failure",
+        category: "failure",
+        state: "resolved",
+      });
+      // After: the resolved row no longer surfaces in the active-only injection set.
+      const recent = (await repo.getRecentFailures(7)).map((m) => m.content);
+      expect(recent).not.toContain("[failure] live bug — fixed");
+      // And reading the row directly shows state=resolved.
+      const all = await repo.getMemories({ target: "failure" });
+      expect(all.find((m) => m.content === "[failure] live bug — fixed")?.state).toBe("resolved");
+    });
+
+    it("replace with no explicit state inherits the row's prior state", async () => {
+      await repo.addMemory({ content: "[failure] quirk A", target: "failure", category: "failure", state: "resolved" });
+      await repo.replaceSyncedMemories("[failure] quirk A", {
+        content: "[failure] quirk A — edited",
+        target: "failure",
+      });
+      const all = await repo.getMemories({ target: "failure" });
+      expect(all.find((m) => m.content === "[failure] quirk A — edited")?.state).toBe("resolved");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // bumpMemoryWorth — memworth.fail freeze (§3.6): a resolved/acquired failure
+  // no longer "fails", so its fail counter stops incrementing (success unaffected).
+  // ---------------------------------------------------------------------------
+
+  describe("bumpMemoryWorth — memworth.fail freeze off-active (§3.6)", () => {
+    it("increments mwFail for active; freezes for resolved/acquired", async () => {
+      const active = await repo.addMemory({ content: "[failure] active", target: "failure", category: "failure", state: "active" });
+      const resolved = await repo.addMemory({ content: "[failure] resolved", target: "failure", category: "failure", state: "resolved" });
+      const acquired = await repo.addMemory({ content: "[tool-quirk] acquired", target: "failure", category: "tool-quirk", state: "acquired" });
+      await repo.bumpMemoryWorth(active.id, 0, 1);
+      await repo.bumpMemoryWorth(resolved.id, 0, 1);
+      await repo.bumpMemoryWorth(acquired.id, 0, 1);
+      const rows = await repo.getMemories({ target: "failure" });
+      const byContent = (c: string) => rows.find((r) => r.content === c)!;
+      expect(byContent("[failure] active").mwFail).toBe(1);
+      expect(byContent("[failure] resolved").mwFail).toBe(0);
+      expect(byContent("[tool-quirk] acquired").mwFail).toBe(0);
+    });
+
+    it("success still increments off-active (freeze is fail-only)", async () => {
+      const resolved = await repo.addMemory({ content: "[failure] res-succ", target: "failure", category: "failure", state: "resolved" });
+      await repo.bumpMemoryWorth(resolved.id, 1, 0);
+      const row = (await repo.getMemories({ target: "failure" })).find((r) => r.content === "[failure] res-succ")!;
+      expect(row.mwSuccess).toBe(1);
+      expect(row.mwFail).toBe(0);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Supersession (Task 3): lineage columns on read + status filter + supersedeMemory.
   // ---------------------------------------------------------------------------
 

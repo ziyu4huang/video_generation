@@ -19,7 +19,7 @@ import type {
   MemoryUpdateResult, MemoryRemoveResult, MemoryRemoveOptions,
   MemorySearchOptions, MemoryListOptions, MemoryStats, MemoryTarget,
 } from "../repository.js";
-import type { MemoryCategory } from "../../types.js";
+import type { MemoryCategory, FailureState } from "../../types.js";
 import { today, normalizeNullable, normalizeCategory } from "../memory-format.js";
 import { normalizeMemoryLookupText } from "../memory-lookup.js";
 import { rankMemoryEntries } from "../graph-ranker.js";
@@ -60,6 +60,8 @@ type Row = Partial<{
   status?: string; supersedes?: number | null; supersededBy?: number | null;
   parentIds?: unknown;
   mdId?: string | null;
+  state?: string | null;
+  severity?: number | null;
 }>;
 
 function mapRow(r: Row): MemoryEntry {
@@ -81,10 +83,12 @@ function mapRow(r: Row): MemoryEntry {
     supersededBy: r.supersededBy ?? null,
     parentIds: Array.isArray(r.parentIds) ? (r.parentIds as unknown[]).map(Number) : [],
     mdId: r.mdId ?? null,
+    state: (r.state as FailureState) ?? "active",
+    severity: r.severity ?? null,
   };
 }
 
-const FIELDS = "seq, project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, mwSuccess, mwFail, status, supersedes, supersededBy, parentIds, mdId";
+const FIELDS = "seq, project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, mwSuccess, mwFail, status, supersedes, supersededBy, parentIds, mdId, state, severity";
 
 // ---------------------------------------------------------------------------
 // Batched-sync helpers (shared by syncMemoryEntry → syncMemoryEntriesBatch).
@@ -108,6 +112,10 @@ interface NormalizedSyncInput {
   mwFail: number;
   /** Stable markdown-side id to mirror (Task 7). null when the caller omitted it. */
   mdId: string | null;
+  /** Failure lifecycle state (Task 4 of hermes-failure-lifecycle). */
+  state: FailureState;
+  /** Advisory failure severity (1–3); null when the caller omitted it. */
+  severity: number | null;
 }
 
 /** Normalize a raw sync input exactly as the old single syncMemoryEntry did. */
@@ -126,6 +134,8 @@ function normalizeSyncInput(input: MemorySyncInput): NormalizedSyncInput {
     mwSuccess: input.mwSuccess ?? 0,
     mwFail: input.mwFail ?? 0,
     mdId: input.mdId && input.mdId.length > 0 ? input.mdId : null,
+    state: input.state ?? "active",
+    severity: input.severity ?? null,
   };
 }
 
@@ -159,6 +169,10 @@ interface MergeValues {
   /** Task 7 / F1: the input's birth id; when present, overwrites the existing
    *  row's mdId (orphan-readd). Absent → the existing mdId is preserved. */
   mdId?: string | null;
+  /** Failure lifecycle state mirrored onto the row (Task 4). Defaults `active`. */
+  state: FailureState;
+  /** Advisory failure severity mirrored onto the row (Task 4). */
+  severity: number | null;
 }
 
 /** The implicit-tag set whose graph edges a memory owns (project/category/
@@ -207,13 +221,15 @@ function buildMergeStatements(
   params[`cto_${p}`] = merge.correctedTo;
   params[`cr_${p}`] = merge.created;
   params[`lr_${p}`] = merge.lastReferenced;
+  params[`st_${p}`] = merge.state;
+  params[`sv_${p}`] = merge.severity;
   // Task 7 / F1: stamp the birth id when the caller carried one (orphan-readd);
   // omit the clause entirely when absent so the existing mdId is preserved.
   const mdIdClause = merge.mdId
     ? (params[`mdi_${p}`] = merge.mdId, `, mdId = $mdi_${p}`)
     : "";
   return [
-    `UPDATE memories SET category = $ca_${p}, failureReason = $fr_${p}, toolState = $ts_${p}, correctedTo = $cto_${p}, created = $cr_${p}, lastReferenced = $lr_${p}${mdIdClause} WHERE seq = $seq_${p};`,
+    `UPDATE memories SET category = $ca_${p}, failureReason = $fr_${p}, toolState = $ts_${p}, correctedTo = $cto_${p}, created = $cr_${p}, lastReferenced = $lr_${p}, state = $st_${p}, severity = $sv_${p}${mdIdClause} WHERE seq = $seq_${p};`,
   ];
 }
 
@@ -237,9 +253,11 @@ function buildInsertStatements(
   params[`mws_${p}`] = n.mwSuccess;
   params[`mwf_${p}`] = n.mwFail;
   params[`mdi_${p}`] = n.mdId;
+  params[`st_${p}`] = n.state;
+  params[`sv_${p}`] = n.severity;
   return [
     `LET $n_${p} = (UPDATE seq:memory SET value += 1 RETURN VALUE value)[0];`,
-    `CREATE type::record("memories", $n_${p}) SET seq = $n_${p}, project = $pj_${p}, target = $tg_${p}, category = $ca_${p}, content = $ct_${p}, failureReason = $fr_${p}, toolState = $ts_${p}, correctedTo = $cto_${p}, created = $cr_${p}, lastReferenced = $lr_${p}, mwSuccess = $mws_${p}, mwFail = $mwf_${p}, status = 'active', supersedes = NONE, supersededBy = NONE, parentIds = [], mdId = $mdi_${p};`,
+    `CREATE type::record("memories", $n_${p}) SET seq = $n_${p}, project = $pj_${p}, target = $tg_${p}, category = $ca_${p}, content = $ct_${p}, failureReason = $fr_${p}, toolState = $ts_${p}, correctedTo = $cto_${p}, created = $cr_${p}, lastReferenced = $lr_${p}, mwSuccess = $mws_${p}, mwFail = $mwf_${p}, status = 'active', supersedes = NONE, supersededBy = NONE, parentIds = [], mdId = $mdi_${p}, state = $st_${p}, severity = $sv_${p};`,
   ];
 }
 
@@ -319,6 +337,7 @@ export class SurrealMemoryRepository implements MemoryRepository {
     toolState?: string | null; correctedTo?: string | null;
     created?: string; lastReferenced?: string;
     mdId?: string | null;
+    state?: FailureState; severity?: number | null;
   }): Promise<MemoryEntry> {
     const created = input.created ?? today();
     const lastReferenced = input.lastReferenced ?? created;
@@ -343,7 +362,9 @@ export class SurrealMemoryRepository implements MemoryRepository {
         supersedes = NONE,
         supersededBy = NONE,
         parentIds = [],
-        mdId = $mdId
+        mdId = $mdId,
+        state = $state,
+        severity = $severity
       RETURN ${FIELDS};
     `;
     const rows = await this.c.query<Row[]>(sql, {
@@ -357,6 +378,8 @@ export class SurrealMemoryRepository implements MemoryRepository {
       created,
       lastReferenced,
       mdId,
+      state: input.state ?? "active",
+      severity: input.severity ?? null,
     });
     const entry = mapRow(rows[0]);
     await this.syncGraphEdges(
@@ -455,6 +478,8 @@ export class SurrealMemoryRepository implements MemoryRepository {
           toolState: ex.toolState ?? n.toolState,
           correctedTo: ex.correctedTo ?? n.correctedTo,
           mdId: n.mdId,
+          state: n.state,
+          severity: n.severity,
         };
         // Graph edges use the refreshed row's tags (single path re-fetches):
         // project/target are untouched by the merge UPDATE, category = merged.
@@ -535,6 +560,7 @@ export class SurrealMemoryRepository implements MemoryRepository {
     category?: MemoryCategory | null; failureReason?: string | null;
     toolState?: string | null; correctedTo?: string | null; lastReferenced?: string | null;
     mdId?: string | null;
+    state?: FailureState | null; severity?: number | null;
   }): Promise<MemoryUpdateResult> {
     const normalizedOldText = normalizeMemoryLookupText(oldText);
     if (!normalizedOldText) return { matched: 0, updated: 0, entries: [] };
@@ -553,7 +579,7 @@ export class SurrealMemoryRepository implements MemoryRepository {
       const seq = Number(r.seq);
       const mdIdClause = birthMdId !== null ? `, mdId = $mdId` : "";
       await this.c.query(
-        `UPDATE memories SET content = $content, category = $category, failureReason = $failureReason, toolState = $toolState, correctedTo = $correctedTo, lastReferenced = $lastReferenced${mdIdClause} WHERE seq = $seq;`,
+        `UPDATE memories SET content = $content, category = $category, failureReason = $failureReason, toolState = $toolState, correctedTo = $correctedTo, lastReferenced = $lastReferenced, state = $state, severity = $severity${mdIdClause} WHERE seq = $seq;`,
         {
           seq,
           content: updates.content.trim(),
@@ -562,6 +588,11 @@ export class SurrealMemoryRepository implements MemoryRepository {
           toolState: updates.toolState === undefined ? r.toolState : normalizeNullable(updates.toolState),
           correctedTo: updates.correctedTo === undefined ? r.correctedTo : normalizeNullable(updates.correctedTo),
           lastReferenced: nextLastReferenced,
+          // Task 4 gap-fix: carry state/severity through the replace UPDATE.
+          // Inherit the row's prior state when `updates.state` is undefined
+          // (coalesce SCHEMALESS-absent → "active"); else use the supplied value.
+          state: updates.state === undefined ? ((r.state as FailureState) ?? "active") : (updates.state ?? "active"),
+          severity: updates.severity === undefined ? (r.severity ?? null) : (updates.severity ?? null),
           ...(birthMdId !== null ? { mdId: birthMdId } : {}),
         },
       );
@@ -886,8 +917,9 @@ export class SurrealMemoryRepository implements MemoryRepository {
     // so project-agnostic (null-project) failures still surface. Do NOT route
     // through the strict buildScope for project here.
     const params: Record<string, unknown> = { cutoff: cutoffStr };
-    const conds: string[] = ["target = $target", "created >= $cutoff"];
+    const conds: string[] = ["target = $target", "created >= $cutoff", "state = $state"];
     params.target = "failure";
+    params.state = "active";
     if (project !== undefined) {
       if (project === null) {
         conds.push("project IS NULL");
@@ -926,8 +958,11 @@ export class SurrealMemoryRepository implements MemoryRepository {
   }
 
   async bumpMemoryWorth(id: number, successDelta = 0, failDelta = 0): Promise<void> {
+    // success increments unconditionally; fail only while state='active'
+    // (§3.6 memworth.fail freeze — a resolved/acquired failure no longer "fails").
     await this.c.query(
-      `UPDATE memories SET mwSuccess = (mwSuccess ?? 0) + $s, mwFail = (mwFail ?? 0) + $f WHERE seq = $seq;`,
+      `UPDATE memories SET mwSuccess = (mwSuccess ?? 0) + $s WHERE seq = $seq;
+       UPDATE memories SET mwFail = (mwFail ?? 0) + $f WHERE seq = $seq AND state = 'active';`,
       { seq: Number(id), s: successDelta, f: failDelta },
     );
   }

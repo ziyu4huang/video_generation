@@ -202,6 +202,11 @@ describe("bootstrap payload assembly", () => {
     // note: "SDD workspace" the bare topic word legitimately remains in rule 1;
     // only the retired header phrase "SDD workspace override" must be gone
     expect(payload).not.toContain("SDD workspace override");
+    // ADR-0006 (revised): no-effort specs route to the flat .planning/specs/
+    // (docs/superpowers/{specs,plans} symlink there); other upstream paths forbidden
+    expect(payload).toContain(".planning/specs/");
+    expect(payload).toContain("symlink");
+    expect(payload).not.toContain("when an effort is active");
   });
 
   it("routing section is meaningfully shorter than the old 3039 chars", () => {

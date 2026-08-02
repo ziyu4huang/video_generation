@@ -34,6 +34,7 @@
     "@earendil-works/pi-coding-agent": "0.83.0",
     "@repo/pi-agent-ext-core-task": "workspace:*",
     "@repo/pi-agent-ext-hermes-memory": "workspace:*",
+    "@repo/pi-agent-ext-prompt-history": "workspace:*",
     "@repo/pi-agent-ext-superpowers": "workspace:*",
     "@repo/pi-agent-ext-wayfind": "workspace:*",
     "@repo/pi-agent-ext-web-access": "workspace:*"

@@ -96,7 +96,7 @@ export class CoreTaskStatusWidget {
 						},
 					};
 				},
-				{ placement: "aboveEditor" },
+				{ placement: "belowEditor" },
 			);
 			this.widgetRegistered = true;
 		} else {
