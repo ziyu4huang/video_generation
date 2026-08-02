@@ -17,7 +17,19 @@ import { parseMetadataComment, parseMetadataFrontmatter, detectEntryShape, seria
 export type EntryHash = string;
 
 /** A single entry as captured in a consolidation snapshot. */
-export type SnapshotEntry = { key: EntryHash; content: string; created: string; last: string };
+export type SnapshotEntry = {
+  key: EntryHash;
+  content: string;
+  created: string;
+  last: string;
+  /** Stable frontmatter id (the md_id mirrored onto the DB row), surfaced so
+   *  buildSnapshot's optional heat-sort can key into the per-entry heat Map.
+   *  Present only for YAML-frontmatter entries (`parseMetadataFrontmatter().id`);
+   *  legacy comment-shape entries carry no id → `undefined` (heat-sort places
+   *  them at {@link NEUTRAL_HEAT}). `key` stays the hash of the *raw* encoded
+   *  string (shape-agnostic), so drop ops still match across a mixed-shape set. */
+  mdId?: string;
+};
 
 /** Full snapshot of the entries targeted for consolidation. */
 export type ConsolidationSnapshot = {
@@ -146,22 +158,37 @@ export function mergePlanValidate(plan: unknown): asserts plan is MergePlan {
 // delegate to — so no codec is duplicated here.
 
 /**
+ * Neutral heat placement for snapshot entries whose mdId is missing (legacy
+ * comment-shape) or absent from the provided heat Map (UPSP §1, ticket #1b).
+ * `0.5` places them BETWEEN the lower-heat and higher-heat scored entries so
+ * the LLM's positional bias treats them neither as coldest nor hottest. (Note:
+ * this is the *snapshot* convention; the eviction floors in `MemoryStore` use
+ * `+Infinity` for unscoreable entries — evict LAST, conservatively. The two are
+ * deliberately different: the snapshot is a weak prompt-free nudge, the floor
+ * is a destructive victim pick.)
+ */
+export const NEUTRAL_HEAT = 0.5;
+
+/**
  * Parse an encoded entry into a {@link SnapshotEntry}.
  *
- * `content`/`created`/`last` are decoded shape-aware: a YAML-frontmatter entry
- * (the post-5d-migration canonical shape) is decoded via
+ * `content`/`created`/`last`/`mdId` are decoded shape-aware: a YAML-frontmatter
+ * entry (the post-5d-migration canonical shape) is decoded via
  * `parseMetadataFrontmatter`; a legacy comment entry is decoded via
  * `parseMetadataComment` (which tolerates the optional `<!-- meta:{…} -->`
- * provenance block). This mirrors `MemoryStore.decodeEntry` — without it, a
- * frontmatter entry's `content` would be the full raw string (fence + id +
- * dates + body), corrupting the snapshot the consolidator sees and any `merge`
- * op it produces. `key` is always the hash of the *raw* encoded string
- * (shape-agnostic), so drop ops still match across a mixed-shape live set.
+ * provenance block). This mirrors `MemoryStore.decodeEntry` / `mdIdOf` —
+ * without it, a frontmatter entry's `content` would be the full raw string
+ * (fence + id + dates + body), corrupting the snapshot the consolidator sees
+ * and any `merge` op it produces. `key` is always the hash of the *raw*
+ * encoded string (shape-agnostic), so drop ops still match across a mixed-shape
+ * live set. `mdId` is the frontmatter `id` (comment-shape → `undefined`) so the
+ * optional heat-sort can key into the per-entry heat Map — extracted with the
+ * SAME logic as `MemoryStore.mdIdOf` so keys align across the DB boundary.
  */
 export function parseEntry(encoded: string): SnapshotEntry {
   if (detectEntryShape(encoded) === "frontmatter") {
     const fm = parseMetadataFrontmatter(encoded);
-    return { key: hashEntry(encoded), content: fm.text, created: fm.created, last: fm.lastReferenced };
+    return { key: hashEntry(encoded), content: fm.text, created: fm.created, last: fm.lastReferenced, mdId: fm.id };
   }
   const { text, created, lastReferenced } = parseMetadataComment(encoded);
   return { key: hashEntry(encoded), content: text, created, last: lastReferenced };
@@ -170,23 +197,58 @@ export function parseEntry(encoded: string): SnapshotEntry {
 /**
  * Build a {@link ConsolidationSnapshot} from raw encoded entries.
  *
- * Each entry is parsed (so callers can inspect content/dates), `totalChars` is
- * the joined-with-delimiter length (mirroring how the store measures budget),
+ * Each entry is parsed (so callers can inspect content/dates/mdId), `totalChars`
+ * is the joined-with-delimiter length (mirroring how the store measures budget),
  * and `snapshotBaseHash` is the order-insensitive identity of this entry set —
  * the value a {@link MergePlan} is anchored against.
+ *
+ * Heat-sort (UPSP §1, ticket #1b): when a non-empty `heats` Map is provided,
+ * `entries` are ordered LOWEST-heat-first (a positional nudge toward dropping
+ * stale entries — NO prompt change). Ties keep the original parse order
+ * (stable, via an index tiebreak). An entry whose `mdId` is missing or absent
+ * from the Map places at {@link NEUTRAL_HEAT} (0.5). When `heats` is omitted /
+ * `undefined` / empty, entries are left in parse order — byte-identical to the
+ * pre-#1b behavior (the decay-disable path parity invariant).
+ *
+ * `snapshotBaseHash` is computed from the raw `encodedEntries` (NOT the sorted
+ * `entries`) and is order-insensitive by construction, so the heat-sort CANNOT
+ * change it — the reconcile-write's `baseHashMatched` is unaffected (asserted
+ * in `merge-plan.test.ts`).
  */
 export function buildSnapshot(
   target: ConsolidationSnapshot["target"],
   encodedEntries: string[],
   charLimit: number,
+  heats?: Map<string, number>,
 ): ConsolidationSnapshot {
+  const entries = encodedEntries.map(parseEntry);
   return {
     target,
-    entries: encodedEntries.map(parseEntry),
+    entries: heats && heats.size > 0 ? sortSnapshotEntriesByHeat(entries, heats) : entries,
     totalChars: encodedEntries.join(ENTRY_DELIMITER).length,
     charLimit,
     snapshotBaseHash: snapshotBaseHash(encodedEntries),
   };
+}
+
+/**
+ * Order `entries` ascending by heat, ties broken by original index (stable).
+ * An entry whose `mdId` is missing or absent from `heats` places at
+ * {@link NEUTRAL_HEAT}. Pure; does not mutate the input. The index tiebreak
+ * makes the order deterministic regardless of the JS engine's `sort` stability.
+ */
+function sortSnapshotEntriesByHeat(entries: SnapshotEntry[], heats: Map<string, number>): SnapshotEntry[] {
+  const heatOf = (e: SnapshotEntry): number => {
+    const id = e.mdId;
+    return id !== undefined && heats.has(id) ? (heats.get(id) as number) : NEUTRAL_HEAT;
+  };
+  return entries
+    .map((entry, index) => ({ entry, index }))
+    .sort((a, b) => {
+      const diff = heatOf(a.entry) - heatOf(b.entry);
+      return diff !== 0 ? diff : a.index - b.index; // stable: parse order on ties
+    })
+    .map(({ entry }) => entry);
 }
 
 /** Outcome of applying a {@link MergePlan} to a live entry list. */
