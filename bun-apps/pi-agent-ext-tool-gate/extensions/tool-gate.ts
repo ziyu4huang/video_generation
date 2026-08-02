@@ -88,30 +88,6 @@ export const GATES: ToolGate[] = [
     ],
     description: "Workflow orchestrator — multi-agent fan-out/pipeline JavaScript scripts",
   },
-  {
-    names: ["collect_videos", "organize_vault_notes", "import_memory_to_vault"],
-    keywords: [
-      "bilibili", "youtube", "collect videos", "video trending",
-      "vault notes", "organize vault", "import memory",
-      "收集影片", "整理筆記",
-    ],
-    description: "Research tools — collect trending videos, organize vault notes, import memory",
-  },
-  {
-    // ArXiv paper retrieval (research-tool ext). "arxiv" is a narrow
-    // word-boundary keyword (near-zero false-fire); CJK 論文 + the noun∧verb
-    // `requires` cover "search/find/read papers" intents WITHOUT firing on
-    // bare "paper" alone (paper cut, a paper trail). arxiv_paper (93 tok) is
-    // included for free — one more gated name costs nothing and removes a
-    // light always-on tool. Recovered ~566 tok/req (wayfinder ticket 04).
-    names: ["arxiv_search", "arxiv_fetch2md", "arxiv_paper"],
-    keywords: ["arxiv", "論文", "找論文", "抓論文", "讀論文", "search paper", "search papers", "find paper", "find papers"],
-    requires: {
-      nouns: ["paper", "papers", "論文"],
-      verbs: ["search", "find", "fetch", "read", "look up", "找", "查", "搜尋", "讀"],
-    },
-    description: "ArXiv paper retrieval — search, fetch-to-markdown, metadata lookup",
-  },
   // NOTE (audit 2026-07-25): the `cost` gate was REMOVED. It gated the
   // `movie-director-cost.ts` typed PROTOTYPE, which is measured offline
   // (schema-cost EXTRA_ENTRIES) but NEVER loaded at runtime (absent from the

@@ -8,13 +8,16 @@ import flux2Extension from "@repo/pi-agent-ext-flux2/extensions/flux2.ts";
 import krea2Extension from "@repo/pi-agent-ext-krea2/extensions/krea2.ts";
 import ltxExtension from "@repo/pi-agent-ext-ltx/extensions/ltx.ts";
 import movieExtension from "@repo/pi-agent-ext-movie-director/extensions/movie-director.ts";
+import researchExtension from "@repo/pi-agent-ext-research-tool/extensions/research-tool.ts";
 
 /** Spread CORE_TOOLS into an array of names (CORE_TOOLS is a Set). */
 const CORE_TOOLS_ARRAY = (): string[] => Array.from(CORE_TOOLS);
 
 // file2md/vision_ask (ticket 04) + flux2/flux2_help (ticket 05) + krea2/
 // krea2_help (ticket 06) + ltx/ltx_help (ticket 07) + movie/movie_help
-// (ticket 08) migrated to owner-declared gating — their gates no longer live
+// (ticket 08) + research-tool's collect_videos/organize_vault_notes/
+// import_memory_to_vault + arxiv_search/arxiv_fetch2md/arxiv_paper (ticket 09)
+// migrated to owner-declared gating — their gates no longer live
 // in the hardcoded GATES, so
 // the migration-touching integration tests below reconstruct the EFFECTIVE gate
 // set the way production does (buildEffectiveGates over the owner-declared defs
@@ -25,12 +28,17 @@ const captureOwner = (ext: (pi: any) => void) =>
 	ext({
 		on: () => {},
 		registerTool: (def: { name: string; description?: string; gating?: unknown }) => { ownerDeclaredDefs.push(def); },
+		// research-tool's factory also registers 3 collect-videos slash commands
+		// (registerCommand) — no-op them so capture stays tool-only. Other migrated
+		// factories register tools only, so this is a research-tool-specific tolerate.
+		registerCommand: () => {},
 	} as never);
 captureOwner(file2mdExtension);
 captureOwner(flux2Extension);
 captureOwner(krea2Extension);
 captureOwner(ltxExtension);
 captureOwner(movieExtension);
+captureOwner(researchExtension);
 const EFF = buildEffectiveGates(ownerDeclaredDefs as never);
 
 describe("updateSticky + filterActive", () => {
@@ -575,7 +583,8 @@ describe("S2 keyword audit (updateSticky + filterActive Effect table)", () => {
     "file2md", "vision_ask", "workflow", "workflow_help",
     "collect_videos", "movie", "movie_help"];
   // flux2 (ticket 05) + file2md/vision_ask (ticket 04) + krea2/krea2_help
-  // (ticket 06) + ltx/ltx_help (ticket 07) + movie/movie_help (ticket 08) are
+  // (ticket 06) + ltx/ltx_help (ticket 07) + movie/movie_help (ticket 08) +
+  // collect_videos (ticket 09, research-tool) are
   // owner-declared → thread the effective gates + tracked set (production
   // session_start path) so they stay tracked + gated instead of falling open
   // (absent from module-level TRACKED_TOOLS).
