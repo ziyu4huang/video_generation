@@ -16,6 +16,14 @@
 export interface AssemblyReceipt {
   mdIds: string[];
   hash: string;
+  /**
+   * Per-entry content signatures (UPSP §9 / ticket #06) for the surfaced md_ids —
+   * the turn-end scanner matches these against assistant output to mark entries
+   * `used`. Unioned (deduped by mdId, memory-before-project order) by
+   * buildPromptAssembly. captureAssembly IGNORES this field: it records mdIds +
+   * hash only (Task 3 adds the sibling markUsed separately). Additive over #05.
+   */
+  signatures: { mdId: string; signature: string }[];
 }
 
 export interface CaptureAssemblyDeps {
