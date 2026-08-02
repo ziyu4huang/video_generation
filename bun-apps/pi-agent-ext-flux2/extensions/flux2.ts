@@ -234,6 +234,22 @@ function makeFlux2Tool() {
     name: "flux2",
     label: "Flux2 Image Director",
     description: buildDescription(),
+    // Owner-declared gating — migrated from tool-gate's hardcoded GATES (was the
+    // {names:["flux2","flux2_help"]} gate). Per ticket 05's semantics-preserving
+    // rule, the SAME gating is mirrored on flux2_help so both activate together
+    // and reconstructOwnerDeclaredGates collapses them back into one multi-name
+    // gate (names[0] === "flux2") — preserving the original co-fire behavior.
+    gating: {
+      keywords: [
+        "flux", "flux2", "outpaint", "upscale image", "t2i", "txt2img",
+        "圖像", "圖片", "生成圖", "產圖", "繪圖", "修圖", "去背", "換臉",
+        "做成圖", "轉成圖",
+      ],
+      requires: {
+        nouns: ["image", "picture", "photo", "圖片", "圖像", "照片", "相片"],
+        verbs: ["generate", "create", "make", "draw", "render", "produce", "生成", "做", "畫", "繪"],
+      },
+    },
     // promptSnippet + promptGuidelines REMOVED (stealth): usage is taught via
     // the routing description + the on-demand flux2_help tool, not per-turn
     // system-prompt injection.
@@ -353,6 +369,21 @@ function makeFlux2HelpTool() {
   return defineTool({
     name: "flux2_help",
     label: "Flux2 Command Reference",
+    // Owner-declared gating — mirrored IDENTICALLY from flux2 (same signature)
+    // so reconstructOwnerDeclaredGates collapses the two into one multi-name
+    // gate {names:["flux2","flux2_help"]} (ticket 05). Co-fire preserved: when
+    // the gate fires, both names activate together. See flux2's gating comment.
+    gating: {
+      keywords: [
+        "flux", "flux2", "outpaint", "upscale image", "t2i", "txt2img",
+        "圖像", "圖片", "生成圖", "產圖", "繪圖", "修圖", "去背", "換臉",
+        "做成圖", "轉成圖",
+      ],
+      requires: {
+        nouns: ["image", "picture", "photo", "圖片", "圖像", "照片", "相片"],
+        verbs: ["generate", "create", "make", "draw", "render", "produce", "生成", "做", "畫", "繪"],
+      },
+    },
     description:
       "On-demand reference for the `flux2` tool. Pass {command} for option keys/defaults/path rules + example; omit args to list subcommands; {topic} for scene-pipeline / self-improve.",
     parameters: Type.Object({

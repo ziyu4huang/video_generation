@@ -4,22 +4,26 @@ import type { ToolGate } from "./tool-gate.ts";
 import { emitToolGateLog, isMissCandidate } from "./tool-gate.ts";
 import toolGateExtension from "./tool-gate.ts";
 import file2mdExtension from "@repo/pi-agent-ext-file2md/extensions/file2md.ts";
+import flux2Extension from "@repo/pi-agent-ext-flux2/extensions/flux2.ts";
 
 /** Spread CORE_TOOLS into an array of names (CORE_TOOLS is a Set). */
 const CORE_TOOLS_ARRAY = (): string[] => Array.from(CORE_TOOLS);
 
-// file2md/vision_ask migrated to owner-declared gating (wayfinder ticket 04) —
-// their gate no longer lives in the hardcoded GATES, so the file2md-touching
-// integration tests below reconstruct the EFFECTIVE gate set the way production
-// does (buildEffectiveGates over the owner-declared defs + fallback GATES),
-// keeping file2md/vision_ask firing + tracking exercised against real gating
-// instead of re-hardcoding the gate definition here.
-const file2mdOwnerDefs: { name: string; description?: string; gating?: unknown }[] = [];
-file2mdExtension({
-	on: () => {},
-	registerTool: (def: { name: string; description?: string; gating?: unknown }) => { file2mdOwnerDefs.push(def); },
-} as never);
-const FILE2MD_EFF = buildEffectiveGates(file2mdOwnerDefs as never);
+// file2md/vision_ask (ticket 04) + flux2/flux2_help (ticket 05) migrated to
+// owner-declared gating — their gates no longer live in the hardcoded GATES, so
+// the migration-touching integration tests below reconstruct the EFFECTIVE gate
+// set the way production does (buildEffectiveGates over the owner-declared defs
+// + fallback GATES), keeping the migrated tools firing + tracking exercised
+// against real gating instead of re-hardcoding the gate definition here.
+const ownerDeclaredDefs: { name: string; description?: string; gating?: unknown }[] = [];
+const captureOwner = (ext: (pi: any) => void) =>
+	ext({
+		on: () => {},
+		registerTool: (def: { name: string; description?: string; gating?: unknown }) => { ownerDeclaredDefs.push(def); },
+	} as never);
+captureOwner(file2mdExtension);
+captureOwner(flux2Extension);
+const EFF = buildEffectiveGates(ownerDeclaredDefs as never);
 
 describe("updateSticky + filterActive", () => {
   test("a tool not listed in CORE_TOOLS or any gate is always active (fail-open)", () => {
@@ -32,10 +36,12 @@ describe("updateSticky + filterActive", () => {
   test("a gate stays active across turns even when a later prompt doesn't mention it", () => {
     const allTools = [...CORE_TOOLS, "flux2", "flux2_help"];
     const sticky = new Set(CORE_TOOLS);
-    updateSticky("generate an image of a cat", sticky);
-    expect(filterActive(allTools, sticky)).toContain("flux2");
-    updateSticky("make it bigger", sticky);
-    const turn2 = filterActive(allTools, sticky);
+    // flux2/flux2_help are owner-declared (ticket 05) → thread EFF so they're
+    // tracked + gated (absent from module-level TRACKED_TOOLS/GATES now).
+    updateSticky("generate an image of a cat", sticky, EFF.gates);
+    expect(filterActive(allTools, sticky, EFF.tracked)).toContain("flux2");
+    updateSticky("make it bigger", sticky, EFF.gates);
+    const turn2 = filterActive(allTools, sticky, EFF.tracked);
     expect(turn2).toContain("flux2");
     expect(turn2).toContain("flux2_help");
   });
@@ -43,8 +49,10 @@ describe("updateSticky + filterActive", () => {
   test("a gate never mentioned by any prompt stays inactive", () => {
     const allTools = [...CORE_TOOLS, "flux2", "flux2_help"];
     const sticky = new Set(CORE_TOOLS);
-    updateSticky("what's the weather", sticky);
-    const active = filterActive(allTools, sticky);
+    // Without EFF.tracked, flux2 would fail-open (absent from TRACKED_TOOLS) →
+    // spuriously active. Thread EFF so flux2 stays gated when no keyword fires.
+    updateSticky("what's the weather", sticky, EFF.gates);
+    const active = filterActive(allTools, sticky, EFF.tracked);
     expect(active).not.toContain("flux2");
     expect(active).not.toContain("flux2_help");
   });
@@ -61,15 +69,18 @@ describe("updateSticky + filterActive", () => {
 describe("updateSticky (mutation half)", () => {
   test("fires matching gates and mutates sticky in place", () => {
     const sticky = new Set(CORE_TOOLS);
-    updateSticky("generate an image of a cat", sticky);
+    // flux2/flux2_help owner-declared (ticket 05) → EFF.gates (both fire, co-fire preserved).
+    updateSticky("generate an image of a cat", sticky, EFF.gates);
     expect(sticky.has("flux2")).toBe(true);
     expect(sticky.has("flux2_help")).toBe(true);
   });
 
   test("accumulates across turns (sticky persistence)", () => {
     const sticky = new Set(CORE_TOOLS);
-    updateSticky("generate an image", sticky);
-    updateSticky("make a video", sticky);
+    // flux2 owner-declared (ticket 05); ltx still in fallback GATES. EFF.gates
+    // carries both → flux2 fires on "generate an image", ltx on "make a video".
+    updateSticky("generate an image", sticky, EFF.gates);
+    updateSticky("make a video", sticky, EFF.gates);
     // both flux2 and ltx should be in sticky after two prompts
     expect(sticky.has("flux2")).toBe(true);
     expect(sticky.has("ltx")).toBe(true);
@@ -202,14 +213,18 @@ describe("matchIntent (S1)", () => {
     expect(matchIntent("make a video", GATES, sticky()).map((g) => g.names[0])).toEqual(["ltx"]);
   });
   test("image intent → flux2", () => {
-    expect(matchIntent("generate an image of a cat", GATES, sticky()).map((g) => g.names[0])).toEqual(["flux2"]);
+    // flux2/flux2_help are owner-declared (ticket 05) → buildEffectiveGates
+    // splits them into separate single-name gates, so matchIntent surfaces BOTH
+    // (identical gating). The enable_tool NAME-mode co-activation consequence
+    // (sibling no longer auto-activates) is tracked cross-cutting in the map.
+    expect(matchIntent("generate an image of a cat", EFF.gates, sticky()).map((g) => g.names[0])).toEqual(["flux2", "flux2_help"]);
   });
   test("describe intent → file2md", () => {
     // file2md/vision_ask are owner-declared (ticket 04) → buildEffectiveGates
     // splits them into separate single-name gates, so matchIntent surfaces BOTH
     // (identical gating). The enable_tool NAME-mode co-activation consequence
     // (sibling no longer auto-activates) is tracked cross-cutting in the map.
-    expect(matchIntent("describe this picture", FILE2MD_EFF.gates, sticky()).map((g) => g.names[0])).toEqual(["file2md", "vision_ask"]);
+    expect(matchIntent("describe this picture", EFF.gates, sticky()).map((g) => g.names[0])).toEqual(["file2md", "vision_ask"]);
   });
   test("movie intent (CJK) → movie", () => {
     expect(matchIntent("做一個 movie 分鏡", GATES, sticky()).map((g) => g.names[0])).toEqual(["movie"]);
@@ -304,21 +319,24 @@ describe("telemetry helpers (S1)", () => {
 describe("computeBannerSaved (S3 — runtime measured tokens)", () => {
   test("sums measured tokens of loaded+gated gates only (no phantom, no static field)", () => {
     // Mock tools with real description+parameters so measureToolTokens is deterministic.
+    // flux2/flux2_help migrated to owner-declared gating (ticket 05) → absent from
+    // the module GATES computeBannerSaved iterates, so use ltx + movie (both still
+    // in the hardcoded GATES) as the gated pair instead.
     const mockTool = (name: string, desc: string) => ({ name, description: desc, parameters: { p: 1 } });
-    const loadedNames = [...CORE_TOOLS, "ltx", "ltx_help", "flux2", "flux2_help"];
+    const loadedNames = [...CORE_TOOLS, "ltx", "ltx_help", "movie", "movie_help"];
     const loadedTools = [
       ...CORE_TOOLS_ARRAY().map((n) => mockTool(n, "core")),
       mockTool("ltx", "video tool"),
       mockTool("ltx_help", "video help"),
-      mockTool("flux2", "image tool"),
-      mockTool("flux2_help", "image help"),
+      mockTool("movie", "movie tool"),
+      mockTool("movie_help", "movie help"),
     ];
     const measured = new Map(loadedTools.map((t) => [t.name, measureToolTokens(t)]));
-    // CORE-only active ⇒ ltx & flux2 are gated; movie is NOT loaded ⇒ excluded.
+    // CORE-only active ⇒ ltx & movie are gated.
     const active = filterActive(loadedNames, new Set(CORE_TOOLS));
     const saved = computeBannerSaved(active, loadedNames, measured);
     const expected = measured.get("ltx")! + measured.get("ltx_help")!
-      + measured.get("flux2")! + measured.get("flux2_help")!;
+      + measured.get("movie")! + measured.get("movie_help")!;
     expect(saved).toBe(expected);
   });
 
@@ -359,11 +377,14 @@ describe("enable_tool (S1 A escape hatch)", () => {
   });
 
   test("list:true returns only dormant gates", async () => {
-    const { enableTool } = setupPi([...CORE_TOOLS, "ltx", "ltx_help", "flux2", "flux2_help"]);
+    // setupPi's mock returns defs WITHOUT gating, so owner-declared gates (flux2,
+    // ticket 05) can't be reconstructed here. Use ltx + krea2 (still in the
+    // hardcoded GATES) as the dormant pair.
+    const { enableTool } = setupPi([...CORE_TOOLS, "ltx", "ltx_help", "krea2", "krea2_help"]);
     const res = await enableTool.execute("id", { list: true });
     const text = res.content[0].text;
     expect(text).toContain("ltx");
-    expect(text).toContain("flux2");
+    expect(text).toContain("krea2");
   });
 
   test("intent 'make a video' activates ltx (sticky) and calls setActiveTools", async () => {
@@ -446,13 +467,16 @@ describe("filterActive (F1 fix)", () => {
   });
 
   test("gated tool is active only when in sticky", () => {
-    const all = [...CORE_TOOLS, "ltx", "ltx_help", "flux2", "flux2_help"];
+    // flux2 migrated to owner-declared (ticket 05) → absent from module
+    // TRACKED_TOOLS, so filterActive would fail-open it. Use ltx + movie (still
+    // in TRACKED_TOOLS) as the gated pair instead.
+    const all = [...CORE_TOOLS, "ltx", "ltx_help", "movie", "movie_help"];
     const sticky = new Set([...CORE_TOOLS, "ltx", "ltx_help"]);
     const active = filterActive(all, sticky);
     expect(active).toContain("ltx");
     expect(active).toContain("ltx_help");
-    expect(active).not.toContain("flux2");
-    expect(active).not.toContain("flux2_help");
+    expect(active).not.toContain("movie");
+    expect(active).not.toContain("movie_help");
   });
 
   test("does NOT mutate sticky", () => {
@@ -526,13 +550,14 @@ describe("S2 keyword audit (updateSticky + filterActive Effect table)", () => {
   const all = [...CORE_TOOLS, "flux2", "flux2_help", "krea2", "krea2_help", "ltx", "ltx_help",
     "file2md", "vision_ask", "workflow", "workflow_help",
     "collect_videos", "movie", "movie_help"];
-  // file2md/vision_ask are owner-declared (ticket 04) → thread the effective
-  // gates + tracked set (production session_start path) so they stay tracked +
-  // gated instead of falling open (absent from module-level TRACKED_TOOLS).
+  // flux2 (ticket 05) + file2md/vision_ask (ticket 04) are owner-declared →
+  // thread the effective gates + tracked set (production session_start path) so
+  // they stay tracked + gated instead of falling open (absent from module-level
+  // TRACKED_TOOLS).
   const act = (prompt: string) => {
-    const sticky = new Set(FILE2MD_EFF.core);
-    updateSticky(prompt, sticky, FILE2MD_EFF.gates);
-    return filterActive(all, sticky, FILE2MD_EFF.tracked);
+    const sticky = new Set(EFF.core);
+    updateSticky(prompt, sticky, EFF.gates);
+    return filterActive(all, sticky, EFF.tracked);
   };
 
   test("docker image cleanup → []", () => {
@@ -580,11 +605,11 @@ describe("S2 keyword audit (updateSticky + filterActive Effect table)", () => {
 describe("S2 cross-gate invariant — shared noun, disjoint verbs ⇒ only one fires", () => {
   const all = [...CORE_TOOLS, "flux2", "flux2_help", "ltx", "ltx_help",
     "file2md", "vision_ask"];
-  // file2md/vision_ask are owner-declared (ticket 04) → effective gates/tracked.
+  // flux2 (ticket 05) + file2md/vision_ask (ticket 04) → effective gates/tracked.
   const act = (prompt: string) => {
-    const sticky = new Set(FILE2MD_EFF.core);
-    updateSticky(prompt, sticky, FILE2MD_EFF.gates);
-    return filterActive(all, sticky, FILE2MD_EFF.tracked);
+    const sticky = new Set(EFF.core);
+    updateSticky(prompt, sticky, EFF.gates);
+    return filterActive(all, sticky, EFF.tracked);
   };
 
   test("'generate an image' fires flux2 but NOT file2md (generate ∉ file2md verbs)", () => {
@@ -606,8 +631,11 @@ describe("S2 matchIntent false-fire cases", () => {
   test("describe the architecture → []", () => {
     expect(first("describe the architecture")).toEqual([]);
   });
-  test("make an image → [flux2] (make+image via requires)", () => {
-    expect(first("make an image")).toEqual(["flux2"]);
+  test("make an image → [flux2, flux2_help] (make+image via requires; owner-declared co-fire)", () => {
+    // flux2/flux2_help owner-declared (ticket 05) → EFF splits them into two
+    // single-name gates, so matchIntent surfaces BOTH (co-fire via updateSticky
+    // is preserved; enable_tool NAME-mode sibling is the known cross-cutting gap).
+    expect(matchIntent("make an image", EFF.gates, sticky()).map((g) => g.names[0])).toEqual(["flux2", "flux2_help"]);
   });
   test("conflux library → [] (flux word-boundary, not inside conflux)", () => {
     expect(first("use the conflux library")).toEqual([]);
@@ -741,19 +769,24 @@ describe("buildEffectiveGates", () => {
 
   test("hybrid fallback: tools without gating keep their hardcoded gate", () => {
     const eff = buildEffectiveGates([]); // no owner declarations
-    const flux = eff.gates.find((g) => g.names.includes("flux2"));
-    expect(flux).toBeDefined(); // hardcoded GATES fallback intact
+    // flux2 migrated to owner-declared (ticket 05) → no longer in hardcoded
+    // GATES; use ltx (still in GATES) to prove the fallback path is intact.
+    const ltx = eff.gates.find((g) => g.names.includes("ltx"));
+    expect(ltx).toBeDefined(); // hardcoded GATES fallback intact
     expect(eff.core.has("read")).toBe(true); // CORE_TOOLS fallback intact
   });
 
   test("owner-declared tool supersedes a same-named hardcoded gate", () => {
+    // Use `movie` (still in hardcoded GATES) as the gate being superseded —
+    // flux2 is owner-declared in production now (ticket 05), so it's no longer a
+    // hardcoded gate to supersede. The supersession mechanism is what's tested.
     const defs = [{
-      name: "flux2", description: "owner",
+      name: "movie", description: "owner",
       gating: { keywords: ["owner-kw"] },
     }] as Array<{ name: string; description?: string; gating?: any }>;
     const eff = buildEffectiveGates(defs);
-    const g = eff.gates.find((x) => x.names.includes("flux2"));
-    expect(g!.keywords).toEqual(["owner-kw"]); // owner wins, not the hardcoded flux2 entry
+    const g = eff.gates.find((x) => x.names.includes("movie"));
+    expect(g!.keywords).toEqual(["owner-kw"]); // owner wins, not the hardcoded movie entry
   });
 
   test("FOLLOWUPS #4 — partial migration of a multi-name gate keeps undeclared siblings gated (per-name resolution)", () => {
@@ -816,7 +849,7 @@ describe("tool-gate runtime reads owner-declared gating", () => {
       getAllToolDefinitions: () => [
         { name: "read", description: "r", gating: { core: true } },
         { name: "inspect_hooks", description: "d", gating: { keywords: ["schema cost"], requires: { nouns: ["agent"], verbs: ["inspect"] } } },
-        { name: "flux2", description: "f" }, // no gating → hardcoded fallback (flux2 is in GATES)
+        { name: "ltx", description: "f" }, // no gating → hardcoded fallback (ltx is in GATES)
       ],
       on: (_chan: string, h: (e: unknown, ctx: unknown) => Promise<void>) => { if (_chan === "session_start") sessionStartHandler = h; return () => {}; },
       setActiveTools: (names: string[]) => { activeCalls.push(names); },
@@ -828,7 +861,7 @@ describe("tool-gate runtime reads owner-declared gating", () => {
     const active = activeCalls[0];
     expect(active).toContain("read");            // core-declared → active
     expect(active).not.toContain("inspect_hooks"); // owner-gated, no keyword in "" prompt → dormant
-    expect(active).not.toContain("flux2");        // hardcoded fallback gate, dormant
+    expect(active).not.toContain("ltx");          // hardcoded fallback gate, dormant
   });
 
   test("enable_tool recompute must NOT spuriously activate an owner-gated tool absent from TRACKED_TOOLS", async () => {

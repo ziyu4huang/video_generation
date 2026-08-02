@@ -5,7 +5,8 @@
  * (flux2, ltx, krea2, inspect, workflow, movie, arxiv, cost,
  * zai-mcp) behind prompt keyword matching.
  * (pi_deploy/pi_verify migrated to owner-declared gating in ticket 03;
- *  file2md/vision_ask migrated to owner-declared gating in ticket 04.)
+ *  file2md/vision_ask migrated to owner-declared gating in ticket 04;
+ *  flux2/flux2_help migrated to owner-declared gating in ticket 05.)
  *
  * Baseline:  ~55 tools → ~18,000 tok/req   (measured via `bun run qa`)
  * Gated:    ON at start ~10,000 tok/req   (saves ~8,050 tok/turn, ~45%; net ~7,800; zai-mcp env-gated)
@@ -77,19 +78,6 @@ interface ToolGate {
  * boundaries, phrases/CJK use substring.
  */
 export const GATES: ToolGate[] = [
-  {
-    names: ["flux2", "flux2_help"],
-    keywords: [
-      "flux", "flux2", "outpaint", "upscale image", "t2i", "txt2img",
-      "圖像", "圖片", "生成圖", "產圖", "繪圖", "修圖", "去背", "換臉",
-      "做成圖", "轉成圖",
-    ],
-    requires: {
-      nouns: ["image", "picture", "photo", "圖片", "圖像", "照片", "相片"],
-      verbs: ["generate", "create", "make", "draw", "render", "produce", "生成", "做", "畫", "繪"],
-    },
-    description: "Flux2 image generation — text-to-image, i2i, faceswap, outpaint, upscale, restore",
-  },
   {
     // No `requires` co-occurrence: krea2's keywords ("krea", "草圖", "快速生成",
     // ...) are narrow enough that bare-word false-fires are unlikely, unlike
