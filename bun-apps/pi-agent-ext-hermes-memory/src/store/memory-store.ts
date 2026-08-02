@@ -1288,7 +1288,13 @@ export class MemoryStore {
    * Uses only the memory entries (no user split) with a project-labelled header.
    */
   formatProjectBlock(projectName: string): string {
-    const block = this.renderProjectBlock(projectName, this.memoryEntries);
+    // Numeric isolation (UPSP §7 / DO ticket 04): strip metadata BEFORE render —
+    // mirrors how loadFromDisk pre-strips the memory/user snapshot (:445). The
+    // project block previously joined RAW entries, leaking the YAML frontmatter
+    // (id/created/last/state/severity/pin/provenance/sources/memworth) into the
+    // prompt. Body only — no raw counters, no implementation-detail surface.
+    const stripped = this.memoryEntries.map((e) => this.stripMetadata(e));
+    const block = this.renderProjectBlock(projectName, stripped);
     return block ? this.fenceBlock(block) : "";
   }
 
