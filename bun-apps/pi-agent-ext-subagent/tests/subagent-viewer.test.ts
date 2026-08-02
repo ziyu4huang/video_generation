@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import type { SubagentToolDetails } from "../src/index.js";
+import type { SubagentsToolDetails, SubagentToolDetails } from "../src/index.js";
 import { reconstructSubagentRuns, type SubagentRun, SubagentViewer } from "../src/subagent-viewer.js";
 
 // Identity theme so render() returns plain text we can assert on.
@@ -52,6 +52,120 @@ test("reconstructSubagentRuns tolerates missing details (falls back to done/fail
   assert.equal(runs.length, 1);
   assert.equal(runs[0].status, "done");
   assert.equal(runs[0].model, "default");
+});
+
+// --- deficit 4b: reconstruct expands a `subagents` batch into child runs ---
+const doneSlot = (i: number, task: string, output: string) => ({
+  status: "done" as const,
+  index: i,
+  output,
+  task,
+  model: "x/flash",
+  elapsedMs: 1000,
+  usage: { total: 10, cost: 0 },
+});
+
+function batchResultEntry(toolCallId: string, results: SubagentsToolDetails["results"], text = "batch done") {
+  return {
+    type: "message",
+    message: {
+      role: "toolResult",
+      toolName: "subagents",
+      toolCallId,
+      content: [{ type: "text", text }],
+      details: { results, dispatched: results.length, skipped: 0, elapsedMs: 5000 },
+    },
+  };
+}
+
+test("reconstructSubagentRuns expands a subagents batch into child entries (skips null)", () => {
+  const branch = [
+    batchResultEntry("batch-1", [
+      doneSlot(0, "task A", "out A"),
+      null, // failed child — skipped
+      doneSlot(2, "task C", "out C"),
+    ]),
+  ];
+  const runs = reconstructSubagentRuns(branch as never);
+  assert.equal(runs.length, 2, "null failed slot is skipped");
+  assert.equal(runs[0].batchToolCallId, "batch-1");
+  assert.equal(runs[0].taskPreview, "task A");
+  assert.equal(runs[0].model, "x/flash");
+  assert.equal(runs[0].output, "out A");
+  assert.equal(runs[1].taskPreview, "task C");
+});
+
+test("reconstructSubagentRuns: singular subagent + batch children coexist; singular unchanged", () => {
+  const branch = [
+    toolResultEntry("subagent", "singular report", {
+      exitCode: 0,
+      timedOut: false,
+      agent: "impl",
+      model: "y/pro",
+      taskPreview: "sing",
+      elapsedMs: 500,
+      status: "done",
+    }),
+    batchResultEntry("batch-9", [doneSlot(0, "b-task", "b-out")]),
+  ];
+  const runs = reconstructSubagentRuns(branch as never);
+  assert.equal(runs.length, 2);
+  assert.equal(runs[0].batchToolCallId, undefined, "singular run has no batchToolCallId");
+  assert.equal(runs[0].taskPreview, "sing");
+  assert.equal(runs[1].batchToolCallId, "batch-9");
+});
+
+// --- deficit 4b: Completed section groups batch children under a header ---
+function mkRun(partial: Partial<SubagentRun> & { index: number }): SubagentRun {
+  return {
+    model: "x/flash",
+    taskPreview: "t",
+    status: "done",
+    elapsedMs: 1000,
+    output: "o",
+    ...partial,
+  };
+}
+
+test("Completed section groups batch children under one header; enter opens a child's output", () => {
+  const runs = [
+    mkRun({ index: 1, batchToolCallId: "batch-1", taskPreview: "child A", output: "out A" }),
+    mkRun({ index: 2, batchToolCallId: "batch-1", taskPreview: "child B", output: "out B" }),
+    mkRun({ index: 3, taskPreview: "singular", output: "sing out" }),
+  ];
+  const v = new SubagentViewer({ runs, onClose: () => {} }, T);
+  const lines = v.render(80);
+
+  const headers = lines.filter((l) => l.includes("subagents batch"));
+  assert.equal(headers.length, 1);
+  assert.ok(headers[0].includes("2 children"), "completed batch header shows child count");
+  assert.ok(lines.some((l) => l.includes("child A")));
+  assert.ok(lines.some((l) => l.includes("child B")));
+  assert.ok(lines.some((l) => l.includes("singular")));
+
+  // cursor 0 = batch header; down → first child; enter opens its frozen output.
+  v.handleInput("\x1b[B"); // down → first child ("child A")
+  v.handleInput("\r"); // enter → output view
+  const out = v.render(80);
+  assert.ok(
+    out.some((l) => l.includes("out A")),
+    "enter on a batch child opens its frozen output",
+  );
+});
+
+test("Completed section: collapsing a batch header hides its children", () => {
+  const runs = [
+    mkRun({ index: 1, batchToolCallId: "batch-1", taskPreview: "child A", output: "out A" }),
+    mkRun({ index: 2, batchToolCallId: "batch-1", taskPreview: "child B", output: "out B" }),
+  ];
+  const v = new SubagentViewer({ runs, onClose: () => {} }, T);
+  v.handleInput("\r"); // enter on the header (cursor 0) → toggle collapse
+  const collapsed = v.render(80);
+  assert.ok(!collapsed.some((l) => l.includes("child A")), "collapsed batch hides its children");
+  assert.ok(
+    collapsed.some((l) => l.includes("subagents batch")),
+    "header still shows when collapsed",
+  );
 });
 
 test("viewer list shows all runs; enter opens the selected run's full output; esc goes back", () => {

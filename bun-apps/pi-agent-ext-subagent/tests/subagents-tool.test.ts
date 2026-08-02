@@ -105,6 +105,41 @@ test("a failed child becomes a null slot (partial-failure tolerant)", async () =
   assert.equal(res.details.results[1], null);
 });
 
+test("each completed slot carries task/model/elapsedMs; renderBatchResult is unchanged", async () => {
+  // Generic output independent of the task text, so we can prove the task label
+  // and model do NOT leak into the model-facing rendered text.
+  const spawn = async (_opts: { task: string }) => ({
+    output: "child-output",
+    exitCode: 0,
+    stderr: "",
+    timedOut: false,
+    usage: { total: 100, cost: 0.001 },
+  });
+  const tool = createSubagentsTool({
+    cwd: "/repo",
+    spawn: spawn as never,
+    getMainModel: () => "provider/flash",
+  });
+  const res = await tool.execute(
+    "call-enrich",
+    { tasks: [{ task: "secret-task-label", id: "a" }, { task: "also-secret" }] },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  const r = res.details.results;
+  const s0 = r[0] as { task: string; model: string; elapsedMs: number; status: string; output: string };
+  assert.ok(s0.task.includes("secret-task-label"), "slot.task carries the task preview");
+  assert.equal(s0.model, "provider/flash");
+  assert.ok(s0.elapsedMs >= 0);
+
+  // renderBatchResult selects output/status/id only — task + model must not appear.
+  const rendered = renderBatchResult(res.details);
+  assert.ok(!rendered.includes("provider/flash"), "model must not leak into rendered text");
+  assert.ok(!rendered.includes("secret-task-label"), "task must not leak into rendered text");
+  assert.match(rendered, /child-output/);
+});
+
 test("execute rejects an empty tasks array with an actionable message", async () => {
   const tool = createSubagentsTool({
     cwd: "/repo",

@@ -12,7 +12,13 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { type ActivityRow, fmtCost, renderActivityRow, shortModel } from "./agent-row-display.js";
-import type { AgentHistoryEntry, AgentUsage, InFlightSubagent, SubagentToolDetails } from "./index.js";
+import type {
+  AgentHistoryEntry,
+  AgentUsage,
+  InFlightSubagent,
+  SubagentsToolDetails,
+  SubagentToolDetails,
+} from "./index.js";
 import { formatHistoryLine, summarizeLatestAction } from "./index.js";
 import { formatAbsoluteTime, formatRelativeTime } from "./time-format.js";
 
@@ -28,6 +34,9 @@ export interface SubagentRun {
   index: number;
   /** The tool-call id (matches InFlightSubagent.id); used by live-follow to match a completed run. */
   toolCallId?: string;
+  /** Shared toolCallId of the parent `subagents` batch — present on expanded batch
+   *  children (Completed-section grouping key); absent on singular `subagent` runs. */
+  batchToolCallId?: string;
   agent?: string;
   model: string;
   taskPreview: string;
@@ -53,14 +62,40 @@ interface BranchEntry {
   message?: BranchMessage;
 }
 
-/** Scan a session branch and collect subagent tool results in order. */
+/** Scan a session branch and collect subagent tool results in order.
+ *  Handles both the singular `subagent` tool (one entry per call) and the
+ *  `subagents` batch tool — expands its positional result array into N child
+ *  entries tagged with the batch's toolCallId (deficit 4b). Failed (null) batch
+ *  slots carry no data and are skipped (their count is in the batch header). */
 export function reconstructSubagentRuns(branch: Iterable<BranchEntry>): SubagentRun[] {
   const runs: SubagentRun[] = [];
   let i = 0;
   for (const entry of branch) {
     if (entry.type !== "message") continue;
     const msg = entry.message;
-    if (!msg || msg.role !== "toolResult" || msg.toolName !== "subagent") continue;
+    if (!msg || msg.role !== "toolResult") continue;
+
+    if (msg.toolName === "subagents") {
+      // Expand the batch's positional result array into N child runs (Option B').
+      const d = msg.details as unknown as Partial<SubagentsToolDetails> | undefined;
+      for (const slot of d?.results ?? []) {
+        if (!slot) continue; // null === failed child (no data; count is in the batch header)
+        i += 1;
+        runs.push({
+          index: i,
+          batchToolCallId: msg.toolCallId,
+          model: slot.model ?? "default",
+          taskPreview: slot.task ?? "",
+          status: slot.status,
+          elapsedMs: slot.elapsedMs ?? 0,
+          usage: "usage" in slot ? slot.usage : undefined,
+          output: "output" in slot ? slot.output : "",
+        });
+      }
+      continue;
+    }
+
+    if (msg.toolName !== "subagent") continue; // singular path — byte-identical to before
     i += 1;
     const d = msg.details;
     const status: SubagentRun["status"] = d?.status ?? (d && d.exitCode === 0 ? "done" : "failed");
@@ -139,7 +174,7 @@ export class SubagentViewer {
    *  matching children is dropped entirely (no header). */
   private entries(): Array<
     | { kind: "running"; ref: InFlightSubagent }
-    | { kind: "batchHeader"; batchId: string; running: number; done: number }
+    | { kind: "batchHeader"; section: "running" | "completed"; batchId: string; running: number; done: number }
     | { kind: "completed"; ref: SubagentRun }
   > {
     const q = this.filter.trim().toLowerCase();
@@ -149,7 +184,7 @@ export class SubagentViewer {
 
     const runningEntries: Array<
       | { kind: "running"; ref: InFlightSubagent }
-      | { kind: "batchHeader"; batchId: string; running: number; done: number }
+      | { kind: "batchHeader"; section: "running" | "completed"; batchId: string; running: number; done: number }
     > = [];
     const seenBatches = new Set<string>();
     for (const r of allRunning) {
@@ -162,7 +197,13 @@ export class SubagentViewer {
         seenBatches.add(bid);
         const children = allRunning.filter((x) => x.batchId === bid);
         const done = children.filter((x) => x.status === "completed").length;
-        runningEntries.push({ kind: "batchHeader", batchId: bid, running: children.length - done, done });
+        runningEntries.push({
+          kind: "batchHeader",
+          section: "running",
+          batchId: bid,
+          running: children.length - done,
+          done,
+        });
         if (!this.collapsedBatches.has(bid)) {
           for (const c of children) runningEntries.push({ kind: "running", ref: c });
         }
@@ -171,9 +212,38 @@ export class SubagentViewer {
       }
     }
 
+    // Completed: group by batchToolCallId (deficit 4b), flat otherwise. Mirrors
+    // the running grouping; the collapse key (the batch's toolCallId) is shared
+    // with the running section so a batch stays collapsed across its transition.
     const allCompleted = this.runs.filter((r) => matches(r.agent, r.taskPreview));
     const capped = !q && !this.showAll ? allCompleted.slice(-COMPLETED_CAP) : allCompleted;
-    return [...runningEntries, ...capped.map((ref) => ({ kind: "completed" as const, ref }))];
+    const completedEntries: Array<
+      | { kind: "completed"; ref: SubagentRun }
+      | { kind: "batchHeader"; section: "running" | "completed"; batchId: string; running: number; done: number }
+    > = [];
+    const seenCompletedBatches = new Set<string>();
+    for (const r of capped) {
+      const bid = r.batchToolCallId;
+      if (bid) {
+        if (seenCompletedBatches.has(bid)) continue;
+        seenCompletedBatches.add(bid);
+        const children = capped.filter((x) => x.batchToolCallId === bid);
+        completedEntries.push({
+          kind: "batchHeader",
+          section: "completed",
+          batchId: bid,
+          running: 0,
+          done: children.length,
+        });
+        if (!this.collapsedBatches.has(bid)) {
+          for (const c of children) completedEntries.push({ kind: "completed", ref: c });
+        }
+      } else {
+        completedEntries.push({ kind: "completed", ref: r });
+      }
+    }
+
+    return [...runningEntries, ...completedEntries];
   }
 
   private enterFollow(id: string): void {
@@ -279,7 +349,12 @@ export class SubagentViewer {
     const entries = this.entries();
     if (this.selected > entries.length - 1) this.selected = Math.max(0, entries.length - 1);
 
-    const runningEntries = entries.filter((e) => e.kind === "running" || e.kind === "batchHeader");
+    const runningEntries = entries.filter(
+      (e) => e.kind === "running" || (e.kind === "batchHeader" && e.section === "running"),
+    ) as Array<
+      | { kind: "running"; ref: InFlightSubagent }
+      | { kind: "batchHeader"; section: "running" | "completed"; batchId: string; running: number; done: number }
+    >;
     if (runningEntries.length > 0) {
       const runningTitle = th.fg("accent", th.bold(" Running "));
       lines.push(truncateToWidth(runningTitle + th.fg("borderMuted", "─".repeat(Math.max(0, width - 9))), width));
@@ -324,13 +399,26 @@ export class SubagentViewer {
     const title = th.fg("accent", th.bold(" Subagent runs "));
     lines.push(truncateToWidth(title + th.fg("borderMuted", "─".repeat(Math.max(0, width - 15))), width));
     lines.push("");
-    const completed = entries.filter((e) => e.kind === "completed") as Array<{ kind: "completed"; ref: SubagentRun }>;
+    const completed = entries.filter(
+      (e) => e.kind === "completed" || (e.kind === "batchHeader" && e.section === "completed"),
+    ) as Array<
+      | { kind: "completed"; ref: SubagentRun }
+      | { kind: "batchHeader"; section: "completed"; batchId: string; running: number; done: number }
+    >;
     if (completed.length === 0) {
       lines.push(truncateToWidth(`  ${th.fg("dim", "No subagent runs on this branch.")}`, width));
     } else {
       for (const e of completed) {
-        const r = e.ref;
         const cur = entries.indexOf(e) === this.selected;
+        if (e.kind === "batchHeader") {
+          const collapsed = this.collapsedBatches.has(e.batchId);
+          const glyph = collapsed ? "▶" : "▼";
+          const header = `${th.fg("accent", th.bold(`${glyph} subagents batch`))} ${th.fg("dim", `· ${e.done} children`)}`;
+          lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", `▶ ${header}`) : `  ${header}`}`, width));
+          continue;
+        }
+        const r = e.ref;
+        const indented = Boolean(r.batchToolCallId);
         const row: ActivityRow = {
           status: r.status,
           actor: r.agent ?? "general-purpose",
@@ -346,7 +434,14 @@ export class SubagentViewer {
               : undefined,
         };
         const head = renderActivityRow(row, th, 50);
-        lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`}`, width));
+        // Indented batch child (mirrors the Running section's indentation); the
+        // ungrouped singular row is byte-identical to before.
+        if (indented) {
+          const body = cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`;
+          lines.push(truncateToWidth(`    ${body}`, width));
+        } else {
+          lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`}`, width));
+        }
       }
     }
     const totalCompleted = this.runs.length;
