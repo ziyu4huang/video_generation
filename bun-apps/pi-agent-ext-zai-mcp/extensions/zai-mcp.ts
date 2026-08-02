@@ -291,6 +291,33 @@ function toAgentToolResult(
 // Registration
 // ---------------------------------------------------------------------------
 
+/**
+ * Owner-declared gating for EVERY zai-mcp tool — migrated from tool-gate's
+ * hardcoded GATES entry (ticket 12; was the
+ * {names:["zai_web_search_web_search_prime","zai_web_reader_webReader"]} gate).
+ *
+ * zai-mcp is unlike the other rolled-out extensions: its tool NAMES are
+ * discovered dynamically at session_start from each MCP server's listTools(),
+ * so there is no static tool literal to attach gating to. Instead the gate is
+ * attached here, in registerServerTools — the single site every zai tool is
+ * built — and applied IDENTICALLY to every dynamically-registered tool. The
+ * keywords mirror the former GATES entry verbatim (keyword-only, no `requires`;
+ * bare "zai"/"search" alone must not fire — only "zai search"/"z.ai" do).
+ *
+ * buildEffectiveGates splits each name into its own single-name gate; identical
+ * predicates → intent-mode co-fire is preserved (every zai tool activates
+ * together when any keyword fires). The enable_tool NAME-mode sibling
+ * co-activation gap (name-mode activates only the named sibling, not the whole
+ * former group) is the same cross-cutting consequence noted across all
+ * multi-name rollouts — tracked in the migration map, NOT fixed here.
+ */
+const ZAI_GATING = {
+	keywords: [
+		"zai search", "zai reader", "zai web", "zai_mcp",
+		"z.ai", "z.ai search", "z.ai reader",
+	],
+} as const;
+
 /** Register every MCP tool from a connected server as a pi tool. */
 export function registerServerTools(
 	pi: ExtensionAPI,
@@ -305,6 +332,7 @@ export function registerServerTools(
 			name: piName,
 			label: `Z.ai ${managed.serverName} / ${tool.name}`,
 			description,
+			gating: ZAI_GATING,
 			parameters: jsonSchemaToTypebox(tool.inputSchema),
 			async execute(_toolCallId, params, signal, _onUpdate, _ctx: ExtensionContext) {
 				let result;

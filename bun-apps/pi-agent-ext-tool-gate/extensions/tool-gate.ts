@@ -93,17 +93,16 @@ export const GATES: ToolGate[] = [
   // phantom inflated savings by ~536 tok/req. The real cost functionality
   // lives in `movie`'s cost subcommands (covered by the `movie` gate). Do
   // NOT re-add this gate unless movie-director-cost.ts is wired to load.
-  {
-    // zai-mcp MCP proxy tools — redundant with core web_search/fetch_content
-    // but have large schemas (~1.1k tok combined). Gate behind intent so they
-    // only load when the agent explicitly needs Z.ai's search/reader endpoint.
-    names: ["zai_web_search_web_search_prime", "zai_web_reader_webReader"],
-    keywords: [
-      "zai search", "zai reader", "zai web", "zai_mcp",
-      "z.ai", "z.ai search", "z.ai reader",
-    ],
-    description: "Z.ai MCP web tools — web-search-prime + web-reader (redundant with core web tools)",
-  },
+  //
+  // NOTE (ticket 12, 2026-08-02): zai-mcp — the LAST hardcoded gate — migrated
+  // to owner-declared `gating` (pi-agent-ext-zai-mcp registerServerTools
+  // attaches ZAI_GATING to every dynamically-registered zai tool). With it
+  // gone this array is EMPTY: every gate is now owner-declared end to end,
+  // discovered via getAllToolDefinitions() + buildEffectiveGates(). The array
+  // is retained as buildEffectiveGates's backward-compatible fallbackGates
+  // default (and computeBannerSaved's default) so an UNMIGRATED name still
+  // resolves per-name; it simply has no entries today. Do NOT re-add a
+  // hardcoded gate — declare `gating` on the owning tool instead.
 ];
 
 /** Union of CORE_TOOLS and every gate's tool names — the set of tools this
@@ -399,9 +398,10 @@ export function computeBannerSaved(
   active: string[],
   allToolNames: string[],
   measuredTokens: Map<string, number>,
+  gates: ToolGate[] = GATES,
 ): number {
   const activeSet = new Set(active);
-  return GATES
+  return gates
     .filter((g) =>
       g.names.some((n) => allToolNames.includes(n)) && // loaded
       !g.names.some((n) => activeSet.has(n)))            // gated

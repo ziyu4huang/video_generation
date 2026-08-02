@@ -45,11 +45,13 @@ describe("analyzeCoverage", () => {
 	});
 
 	it("counts a heavy TRACKED tool as gatedHeavy (not ungated)", () => {
-		// "zai_web_search_web_search_prime" is the last remaining hardcoded GATE
-		// name (workflow/subagent migrated to owner-declared gating in tickets
-		// 10 + 11, so they're no longer in the module-level TRACKED_TOOLS this
-		// analyzeCoverage reads) → present in TRACKED_TOOLS.
-		const r = analyzeCoverage(report([tool("zai_web_search_web_search_prime", 500, "zai-mcp")]), TH, ROOT);
+		// Post ticket 12 the module GATES is empty → module-level TRACKED_TOOLS is
+		// CORE_TOOLS only. "enable_tool" is a CORE_TOOLS member → in TRACKED_TOOLS
+		// (the source string is synthetic; analyzeCoverage only skips source ===
+		// "(builtin)"). NOTE: the coverage ANALYZER still reads the legacy module
+		// TRACKED_TOOLS — upgrading it to owner-declared effective gates is a
+		// separate follow-up; this proves its tracked→gatedHeavy path.
+		const r = analyzeCoverage(report([tool("enable_tool", 500, "zai-mcp")]), TH, ROOT);
 		expect(r.gatedHeavy).toBe(1);
 		expect(r.ungated).toEqual([]);
 		expect(r.pass).toBe(true);
@@ -95,7 +97,7 @@ describe("analyzeCoverage", () => {
 
 describe("formatCoverage", () => {
 	it("renders a healthy (✅) report when nothing is ungated", () => {
-		const r = analyzeCoverage(report([tool("zai_web_search_web_search_prime", 500, "md")]), TH, ROOT);
+		const r = analyzeCoverage(report([tool("enable_tool", 500, "md")]), TH, ROOT);
 		const out = formatCoverage(r).join("\n");
 		expect(out).toContain("✅");
 		expect(out).not.toContain("NOT gated");
@@ -121,12 +123,12 @@ describe("formatCoverage", () => {
 
 describe("assertSane", () => {
 	it("flags a non-positive threshold", () => {
-		const r = analyzeCoverage(report([tool("zai_web_search_web_search_prime", 500, "md")]), -1, ROOT);
+		const r = analyzeCoverage(report([tool("enable_tool", 500, "md")]), -1, ROOT);
 		expect(assertSane(r).some((p) => p.includes("threshold"))).toBe(true);
 	});
 
 	it("flags a NaN threshold", () => {
-		const r = analyzeCoverage(report([tool("zai_web_search_web_search_prime", 500, "md")]), NaN, ROOT);
+		const r = analyzeCoverage(report([tool("enable_tool", 500, "md")]), NaN, ROOT);
 		expect(assertSane(r).some((p) => p.includes("threshold"))).toBe(true);
 	});
 
@@ -136,7 +138,7 @@ describe("assertSane", () => {
 	});
 
 	it("is clean for a normal report", () => {
-		const r = analyzeCoverage(report([tool("zai_web_search_web_search_prime", 500, "md")]), TH, ROOT);
+		const r = analyzeCoverage(report([tool("enable_tool", 500, "md")]), TH, ROOT);
 		expect(assertSane(r)).toEqual([]);
 	});
 });

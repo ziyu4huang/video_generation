@@ -58,6 +58,12 @@ import movieExtension from "@repo/pi-agent-ext-movie-director/extensions/movie-d
 import researchExtension from "@repo/pi-agent-ext-research-tool/extensions/research-tool.ts";
 import subagentExtension from "@repo/pi-agent-ext-subagent/extensions/subagent.ts";
 import workflowExtension from "@repo/pi-agent-ext-workflow/extensions/workflow.ts";
+// ticket 12 — zai-mcp registers tools DYNAMICALLY at session_start (names come
+// from each MCP server's listTools()), so its default factory registers NOTHING
+// at load. Import the REAL registration path (registerServerTools — the single
+// site every zai tool is built + where ZAI_GATING is attached) to exercise it
+// with synthetic MCP tools in the entry below.
+import { registerServerTools } from "@repo/pi-agent-ext-zai-mcp/extensions/zai-mcp.ts";
 import toolGate from "./tool-gate.ts";
 
 /** A registered tool def — only the fields the guard reads are typed. */
@@ -188,6 +194,33 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 		ungatedByDesign: ["subagent_runs", "subagents"],
 		register: (pi) => {
 			subagentExtension(pi);
+		},
+	},
+	{
+		// ticket 12 — zai-mcp. UNLIKE every other migrated extension, zai-mcp
+		// registers its tools DYNAMICALLY at session_start (tool names are
+		// discovered from each MCP server's listTools()), so calling its default
+		// factory captures NOTHING via registerTool. Exercise the REAL
+		// registration path — registerServerTools (the single site every zai tool
+		// is built, and where ZAI_GATING is attached) — with synthetic MCP tools
+		// for both Phase-1 servers. This proves every dynamically-registered zai
+		// tool carries valid owner-declared gating, and produces the exact former
+		// GATES names (zai_web_search_web_search_prime + zai_web_reader_webReader)
+		// so reconstructOwnerDeclaredGates collapses them back into the original
+		// 2-name gate. The synthetic `managed` (client/close/serverName) is only
+		// consumed inside `execute`, which capture never invokes.
+		name: "zai-mcp",
+		register: (pi) => {
+			registerServerTools(
+				pi,
+				{ client: {}, close: async () => {}, serverName: "web_search" },
+				[{ name: "web_search_prime", description: "Z.ai web search prime (MCP)" }],
+			);
+			registerServerTools(
+				pi,
+				{ client: {}, close: async () => {}, serverName: "web_reader" },
+				[{ name: "webReader", description: "Z.ai web reader (MCP)" }],
+			);
 		},
 	},
 ];
