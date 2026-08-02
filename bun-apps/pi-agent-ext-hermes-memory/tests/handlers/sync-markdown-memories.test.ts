@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import type { MemorySyncInput } from '../../src/store/repository.js';
+import type { MemorySyncInput, MemoryRepository, MemoryEntry } from '../../src/store/repository.js';
 import { SqliteBackend } from '../../src/store/sqlite/sqlite-backend.js';
 import { SqliteMemoryRepository } from '../../src/store/sqlite/sqlite-memory-repo.js';
 import { registerMemoryTool } from '../../src/tools/memory-tool.js';
@@ -568,5 +568,121 @@ describe('memory sqlite sync + markdown backfill', () => {
     assert.strictEqual(counters.failureState.acquired, 0);
     assert.strictEqual(counters.failureState.unchanged, 1, 'the now-stateful entry counted as unchanged');
     assert.strictEqual(counters.failureState.stoppedInjecting.length, 0);
+  });
+
+  it('adds no dangling warning on a clean (no-supersession) store', async () => {
+    // A normal multi-entry sync with no supersession produces no dangling refs —
+    // regression guard so a future change can't silently start flagging
+    // legitimate isolated entries.
+    fs.writeFileSync(
+      path.join(globalDir, 'MEMORY.md'),
+      'clean alpha <!-- created=2026-08-02, last=2026-08-02 -->' +
+        ENTRY_DELIMITER +
+        'clean beta <!-- created=2026-08-02, last=2026-08-02 -->',
+      'utf-8',
+    );
+    const counters = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+    assert.ok(
+      !counters.warnings.some((w) => w.includes('dangling')),
+      `clean store should add no dangling warning, got: ${JSON.stringify(counters.warnings)}`,
+    );
+  });
+
+  it('surfaces a dangling supersedes pointer after offload deletes the target (DO ticket 03)', async () => {
+    // Reproduce the real rot: supersede A→B, then offload-delete A. B's row
+    // survives with supersedes pointing at the now-absent A.id. Re-sync must
+    // flag it on counters.warnings (and NOT re-import A, which has been removed
+    // from the .md, mirroring offload's content-key purge).
+    //
+    // Frontmatter entries with an explicit `id` are used so the import stamps
+    // md_id (comment-shape entries only get md_id via the separate
+    // backfillStableIds session-start step, which this test does not run).
+    fs.writeFileSync(
+      path.join(globalDir, 'MEMORY.md'),
+      [
+        serializeMetadataFrontmatter({ id: 'rot-alpha-1', text: 'rot alpha', created: '2026-08-02', last: '2026-08-02' }),
+        serializeMetadataFrontmatter({ id: 'rot-beta-1', text: 'rot beta', created: '2026-08-02', last: '2026-08-02' }),
+      ].join(ENTRY_DELIMITER),
+      'utf-8',
+    );
+    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+
+    const rows = await memoryRepo.getMemories({ target: 'memory' });
+    const A = rows.find((r) => r.content === 'rot alpha');
+    const B = rows.find((r) => r.content === 'rot beta');
+    assert.ok(A && B, 'precondition: both entries imported');
+
+    await memoryRepo.supersedeMemory(A!.id, B!.id); // B.supersedes = A.id; A.status = superseded
+    await memoryRepo.removeByMdId('rot-alpha-1', { target: 'memory' }); // offload-delete A → B dangles
+
+    // Remove alpha from the .md so re-sync doesn't re-import it (offload also
+    // purges the .md entry). B is unchanged → skipped (lineage untouched).
+    fs.writeFileSync(
+      path.join(globalDir, 'MEMORY.md'),
+      serializeMetadataFrontmatter({ id: 'rot-beta-1', text: 'rot beta', created: '2026-08-02', last: '2026-08-02' }),
+      'utf-8',
+    );
+
+    const counters = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+    assert.ok(
+      counters.warnings.some((w) => w.includes('dangling') && w.includes(String(A!.id))),
+      `expected a dangling warning citing missing id ${A!.id}, got: ${JSON.stringify(counters.warnings)}`,
+    );
+    assert.ok(
+      counters.warnings.some((w) => w.includes('supersedes')),
+      'the dangling field should be `supersedes`',
+    );
+  });
+});
+
+describe('syncMarkdownMemories dangling-reference sweep — robustness (DO ticket 03)', () => {
+  // Isolated wire-in tests with a minimal mock repo. With no .md files present,
+  // importEntries / backfillFailureState are no-ops, so only getMemories
+  // (buildExistingIndex + the sweep) is exercised — proving the sweep's result
+  // flows to counters.warnings and a thrown sweep is swallowed.
+  let tmpDir: string;
+  let globalDir: string;
+  let agentRoot: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-sweep-robustness-'));
+    agentRoot = path.join(tmpDir, 'agent');
+    globalDir = path.join(agentRoot, 'memory');
+    fs.mkdirSync(globalDir, { recursive: true });
+  });
+
+  afterEach(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
+
+  function mockRepo(getMemoriesImpl: () => Promise<MemoryEntry[]>): MemoryRepository {
+    return { getMemories: getMemoriesImpl } as unknown as MemoryRepository;
+  }
+
+  it('surfaces a dangling ref from the mock onto counters.warnings', async () => {
+    const repo = mockRepo(async () => [
+      {
+        id: 10, target: 'memory', supersedes: 4242, project: null, category: null,
+        content: 'x', failureReason: null, toolState: null, correctedTo: null,
+        created: '', lastReferenced: '',
+      } as MemoryEntry,
+    ]);
+    const counters = await syncMarkdownMemories(repo, globalDir, undefined, agentRoot);
+    assert.ok(
+      counters.warnings.some((w) => w.includes('dangling') && w.includes('4242')),
+      `expected a dangling warning, got: ${JSON.stringify(counters.warnings)}`,
+    );
+  });
+
+  it('swallows a thrown sweep without breaking sync', async () => {
+    const repo = mockRepo(async () => {
+      throw new Error('db unreachable');
+    });
+    // buildExistingIndex tolerates the same throw; the sweep must too. Sync
+    // completes and returns its counters — never propagates.
+    const counters = await syncMarkdownMemories(repo, globalDir, undefined, agentRoot);
+    assert.ok(counters, 'sync must return counters even when getMemories throws');
+    assert.ok(
+      !counters.warnings.some((w) => w.includes('dangling')),
+      'a throwing sweep must not emit dangling warnings',
+    );
   });
 });
