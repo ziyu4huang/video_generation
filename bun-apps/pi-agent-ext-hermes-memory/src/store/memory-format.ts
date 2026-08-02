@@ -54,6 +54,14 @@ export function normalizeFailureState(v: unknown): FailureState {
   return typeof v === "string" && FAILURE_STATES.has(v) ? (v as FailureState) : "active";
 }
 
+/** Coerce an unknown frontmatter value to a `pin` boolean. Pin is STRICT: only
+ *  the literal boolean `true` counts (absent / false / any truthy-but-not-true
+ *  value → unpinned). A pinned entry is never eligible for overflow-driven
+ *  eviction (purge of superseded entries, vault-offload FIFO). */
+export function normalizePin(v: unknown): boolean {
+  return v === true;
+}
+
 /** Initial state inferred from category for stateless legacy entries:
  *  permanent facts (tool-quirk / convention) graduate straight to `acquired`;
  *  everything else starts `active` (candidate for injection). */
@@ -178,6 +186,10 @@ export interface ParsedMarkdownMemoryEntry {
   mwFail?: number | null;
   state?: FailureState;
   severity?: number | null;
+  /** Pin lock (ticket 02): a pinned entry is never eligible for overflow-
+   *  driven eviction. Target-agnostic (applies to memory/user/failure, unlike
+   *  `state`/`severity` which are failure-only). Absent / false → unpinned. */
+  pin?: boolean;
 }
 
 /**
@@ -307,10 +319,11 @@ export function upgradeEntryToFrontmatter(
 // YAML frontmatter format (ticket 05 stable-id schema).
 //
 // Field order is identity-first: id → created → last → state → severity →
-// provenance → sources → memworth. Absent or empty optional fields are omitted
-// entirely (absence is the encoding for `none` provenance, empty sources, and
-// zero memworth). `state`/`severity` are failure-target only (omitted for
-// `memory`/`user`).
+// pin → provenance → sources → memworth. Absent or empty optional fields are
+// omitted entirely (absence is the encoding for `none` provenance, empty
+// sources, and zero memworth). `state`/`severity` are failure-target only
+// (omitted for `memory`/`user`). `pin` is target-agnostic (ticket 02) and only
+// emitted when `true` (a locked entry survives overflow-driven eviction).
 // Renames from the legacy comment shape: lastReferenced→last,
 // mwSuccess/mwFail→memworth.{success,fail}. Dates are bare `YYYY-MM-DD`
 // plain scalars; the serializer is configured so values stay on a single line.
@@ -329,6 +342,8 @@ export function serializeMetadataFrontmatter(input: {
   last: string;
   state?: FailureState | null;
   severity?: number | null;
+  /** Pin lock (ticket 02) — emitted as `pin: true` only when strictly true. */
+  pin?: boolean | null;
   provenance?: Provenance | null;
   sources?: MemorySource[] | null;
   mwSuccess?: number | null;
@@ -341,6 +356,9 @@ export function serializeMetadataFrontmatter(input: {
   };
   if (input.state) fm.state = input.state;
   if (typeof input.severity === "number" && input.severity >= 1 && input.severity <= 3) fm.severity = input.severity;
+  // Pin (ticket 02): strict boolean — only literal `true` is emitted (absent /
+  //  false / invalid never write the key, so absence stays the unpinned default).
+  if (input.pin) fm.pin = true;
   if (input.provenance && input.provenance !== "none") fm.provenance = input.provenance;
   if (input.sources && input.sources.length > 0) fm.sources = input.sources;
   if ((input.mwSuccess && input.mwSuccess > 0) || (input.mwFail && input.mwFail > 0)) {
@@ -384,6 +402,8 @@ export function parseMetadataFrontmatter(raw: string): ParsedMarkdownMemoryEntry
     lastReferenced: String(fm.last),
     ...(fm.state ? { state: normalizeFailureState(fm.state) } : {}),
     ...(typeof fm.severity === "number" && fm.severity >= 1 && fm.severity <= 3 ? { severity: fm.severity } : {}),
+    // Pin (ticket 02): strict — only literal YAML boolean `true` survives.
+    ...(fm.pin === true ? { pin: true } : {}),
     ...(fm.provenance ? { provenance: fm.provenance as Provenance } : {}),
     ...(Array.isArray(fm.sources) ? { sources: fm.sources as MemorySource[] } : {}),
     ...(typeof mw.success === "number" ? { mwSuccess: mw.success } : {}),

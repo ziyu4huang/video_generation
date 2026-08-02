@@ -88,7 +88,8 @@ export const SCHEMA_SQL = `
     parent_ids TEXT,
     md_id TEXT,
     state TEXT NOT NULL DEFAULT 'active',
-    severity INTEGER
+    severity INTEGER,
+    pin INTEGER NOT NULL DEFAULT 0
   );
 
   -- FTS5 index for memory search

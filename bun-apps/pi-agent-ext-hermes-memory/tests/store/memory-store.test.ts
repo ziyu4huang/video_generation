@@ -434,6 +434,142 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.ok(entries.some((e) => e.includes("new entry overflowprobe ccc")));
     });
 
+    // Pin field (ticket 02): a pinned entry is NEVER eligible for overflow-
+    // driven eviction. Purge of superseded entries must SKIP a pinned entry even
+    // when its md_id is in the superseded set (pin protects *deletion*; the row
+    // still flips status='superseded' in the DB for search). Calibrated so 3
+    // frontmatter seeds overflow, and after purging the non-pinned superseded
+    // entry the pinned one + the new entry fit (the D2 early-return success).
+    it("pin: a pinned superseded entry survives purgeSupersededFromMarkdown while a non-pinned superseded peer is purged", async () => {
+      const store = new MemoryStore(makeConfig({ memoryCharLimit: 250 }));
+
+      const PIN_ID = "cccc0c0c-0c0c-0c0c-0c0c-0c0c0c0c0c0c";
+      const SUPER_ID = "dddd1d1d-1d1d-1d1d-1d1d-1d1d1d1d1d1d";
+      const TODAY = new Date().toISOString().split("T")[0];
+      const fm = (id: string, body: string, pin = false) =>
+        serializeMetadataFrontmatter({ id, text: body, created: TODAY, last: TODAY, ...(pin ? { pin: true } : {}) });
+      const fs = await import("node:fs/promises");
+      const p = await import("node:path");
+      await fs.writeFile(
+        p.join(MEMORY_DIR, MEMORY_FILE),
+        [
+          fm(PIN_ID, "pinned survivor supersededprobe aaa", true),
+          fm(SUPER_ID, "plain superseded supersededprobe bbb"),
+        ].join(ENTRY_DELIMITER),
+        "utf-8",
+      );
+      // The DB reports BOTH as superseded. Pin must protect the pinned one.
+      store.setSupersededContentProvider(async () => [PIN_ID, SUPER_ID]);
+
+      const result = await store.add("memory", "new entry supersededprobe ccc");
+
+      assert.ok(result.success, result.error);
+      // Only the NON-pinned superseded entry is purged.
+      assert.deepEqual(result.offloaded_superseded, [SUPER_ID]);
+
+      const entries = store.getMemoryEntries();
+      // The pinned superseded entry SURVIVES (pin protects deletion).
+      assert.ok(entries.some((e) => e.includes("pinned survivor supersededprobe aaa")), "pinned superseded entry must survive purge");
+      // The non-pinned superseded entry is gone.
+      assert.ok(!entries.some((e) => e.includes("plain superseded supersededprobe bbb")), "non-pinned superseded entry must be purged");
+      // The new entry lands.
+      assert.ok(entries.some((e) => e.includes("new entry supersededprobe ccc")));
+    });
+
+    // Pin field (ticket 02): the vault-offload FIFO floor must SKIP pinned
+    // entries — evict the oldest NON-pinned entries only. A pinned entry always
+    // survives an overflow that evicts older (by file position) non-pinned
+    // peers. Uses vault-offload strategy with NO consolidator so it falls
+    // straight to the never-fail floor.
+    it("pin: a pinned entry survives vaultOffloadAndAdd that evicts older non-pinned peers", async () => {
+      const store = new MemoryStore(makeConfig({
+        memoryCharLimit: 250,
+        memoryOverflowStrategy: "vault-offload",
+      }));
+      // No consolidator wired → overflow falls straight to vaultOffloadAndAdd.
+
+      const PIN_ID = "eeee0e0e-0e0e-0e0e-0e0e-0e0e0e0e0e0e";
+      const PLAIN_ID = "ffff1f1f-1f1f-1f1f-1f1f-1f1f1f1f1f1f";
+      const TODAY = new Date().toISOString().split("T")[0];
+      const fm = (id: string, body: string, pin = false) =>
+        serializeMetadataFrontmatter({ id, text: body, created: TODAY, last: TODAY, ...(pin ? { pin: true } : {}) });
+      const fs = await import("node:fs/promises");
+      const p = await import("node:path");
+      // OLDEST (first on disk) is the pinned one; the plain one is newer.
+      await fs.writeFile(
+        p.join(MEMORY_DIR, MEMORY_FILE),
+        [
+          fm(PIN_ID, "pinned oldest survivor vaultprobe aaa", true),
+          fm(PLAIN_ID, "plain newer vaultprobe bbb"),
+        ].join(ENTRY_DELIMITER),
+        "utf-8",
+      );
+
+      const result = await store.add("memory", "new entry vaultprobe cc");
+
+      assert.ok(result.success, result.error);
+      // The FIFO loop would normally shift the OLDEST (the pinned one) first;
+      // pin protection must evict the non-pinned peer instead.
+      assert.equal(result.evicted_count, 1, "exactly one non-pinned entry evicted");
+      assert.deepEqual(result.evicted_entries, ["plain newer vaultprobe bbb"],
+        "must evict the non-pinned peer, NOT the pinned oldest");
+      // evicted_md_ids mirrors the same single non-pinned id.
+      assert.deepEqual(result.evicted_md_ids, [PLAIN_ID]);
+
+      const entries = store.getMemoryEntries();
+      assert.ok(entries.some((e) => e.includes("pinned oldest survivor vaultprobe aaa")), "pinned entry must survive vault-offload");
+      assert.ok(!entries.some((e) => e.includes("plain newer vaultprobe bbb")), "non-pinned peer must be evicted");
+      assert.ok(entries.some((e) => e.includes("new entry vaultprobe cc")));
+    });
+
+    // Pin field (ticket 02): the 2-phase LLM consolidation is the PRIMARY
+    // overflow path in production (consolidator wired in src/index.ts). Pinned
+    // entries must be EXCLUDED from the consolidation snapshot so the LLM can't
+    // drop/merge them; applyMergePlan then keeps them (no plan op references
+    // them). This stub tries to drop EVERY entry it is handed — the pinned one
+    // survives purely because it never reaches the snapshot.
+    it("pin: a pinned entry survives 2-phase consolidation that drops every snapshot entry", async () => {
+      const store = new MemoryStore(makeConfig({
+        memoryCharLimit: 260,
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      const PIN_ID = "a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1";
+      const PLAIN_ID = "b2b2b2b2-b2b2-b2b2-b2b2-b2b2b2b2b2b2";
+      const TODAY = new Date().toISOString().split("T")[0];
+      const fm = (id: string, body: string, pin = false) =>
+        serializeMetadataFrontmatter({ id, text: body, created: TODAY, last: TODAY, ...(pin ? { pin: true } : {}) });
+      const fs = await import("node:fs/promises");
+      const p = await import("node:path");
+      await fs.writeFile(
+        p.join(MEMORY_DIR, MEMORY_FILE),
+        [
+          fm(PIN_ID, "pinned survivor consolidationprobe aaa", true),
+          fm(PLAIN_ID, "plain droppable consolidationprobe bbb"),
+        ].join(ENTRY_DELIMITER),
+        "utf-8",
+      );
+
+      let snapshotSize = -1;
+      store.setConsolidator(async (snapshot) => {
+        // The consolidator tries to drop EVERY entry it is handed.
+        snapshotSize = snapshot.entries.length;
+        return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: snapshot.entries.map((e) => ({ op: "drop" as const, key: e.key })) } };
+      });
+
+      const result = await store.add("memory", "new entry consolidationprobe ccc");
+      assert.ok(result.success, result.error);
+
+      // The pinned entry was EXCLUDED from the snapshot: with 2 entries on disk,
+      // the consolidator saw only 1 (the non-pinned one) — and still couldn't
+      // drop the pinned entry because it was never a consolidation candidate.
+      assert.equal(snapshotSize, 1, "pinned entry must be excluded from the consolidation snapshot");
+      const entries = store.getMemoryEntries();
+      assert.ok(entries.some((e) => e.includes("pinned survivor consolidationprobe aaa")), "pinned entry must survive consolidation");
+      assert.ok(!entries.some((e) => e.includes("plain droppable consolidationprobe bbb")), "non-pinned entry must be dropped by the consolidator");
+      assert.ok(entries.some((e) => e.includes("new entry consolidationprobe ccc")));
+    });
+
     // D3: when no superseded entries remain, ALL non-reject strategies route to
     // consolidation — fifo-evict/vault-offload no longer shift() an active entry.
     it("all-active overflow routes to consolidation, not fifo/vault shift", async () => {

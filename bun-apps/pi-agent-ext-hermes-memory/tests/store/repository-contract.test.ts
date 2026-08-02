@@ -165,6 +165,27 @@ export function runMemoryRepositoryContract(
       } finally { await close(); }
     });
 
+    // Pin field (ticket 02): pin mirrors onto the DB row on add AND round-trips
+    // through getMemories equivalently on every backend. The absent-pin default
+    // must read back as `undefined` (NOT `false`) so the column default mirrors
+    // the frontmatter contract (absent → not pinned).
+    it("pin: addMemory surfaces pin; getMemories round-trips pin equivalently", async () => {
+      const { repo, close } = await make();
+      try {
+        const pinned = await repo.addMemory({ content: "pinned-roundtrip-ticket02", target: "memory", pin: true });
+        expect(pinned.pin).toBe(true);
+
+        const plain = await repo.addMemory({ content: "plain-roundtrip-ticket02", target: "memory" });
+        expect(plain.pin).toBeUndefined();
+
+        const got = await repo.getMemories({ target: "memory" });
+        const foundPinned = got.find((m) => m.id === pinned.id)!;
+        const foundPlain = got.find((m) => m.id === plain.id)!;
+        expect(foundPinned.pin).toBe(true);
+        expect(foundPlain.pin).toBeUndefined();
+      } finally { await close(); }
+    });
+
     it("supersession: searchMemories excludes superseded entries by default", async () => {
       const { repo, close } = await make();
       try {

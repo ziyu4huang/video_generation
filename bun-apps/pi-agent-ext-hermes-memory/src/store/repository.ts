@@ -34,6 +34,11 @@ export interface MemoryEntry {
   state?: FailureState;
   /** Advisory failure severity (1–3) for failure-target entries. */
   severity?: number | null;
+  /** Pin lock (ticket 02): a pinned entry is never eligible for overflow-driven
+   *  eviction. Target-agnostic (memory/user/failure, unlike state/severity).
+   *  Absent / false → unpinned; `true` is the only pinned state. Mirrors the
+   *  `.md` frontmatter `pin` and the DB `pin` column (SQLite 0/1, Surreal bool). */
+  pin?: boolean;
 }
 
 export interface MemorySyncInput {
@@ -59,6 +64,9 @@ export interface MemorySyncInput {
   state?: FailureState;
   /** Advisory failure severity to mirror onto the row (Task 2). */
   severity?: number | null;
+  /** Pin lock to mirror onto the row (ticket 02). Absent → column default 0
+   *  (unpinned) applies; only literal `true` writes 1. */
+  pin?: boolean;
 }
 
 export interface MemorySyncResult { action: "inserted" | "existing"; entry: MemoryEntry; }
@@ -81,6 +89,8 @@ export interface MemoryRepository {
     state?: FailureState;
     /** Advisory failure severity to stamp on the new row (Task 2). */
     severity?: number | null;
+    /** Pin lock to stamp on the new row (ticket 02). Only literal `true` writes 1. */
+    pin?: boolean;
   }): Promise<MemoryEntry>;
   syncMemoryEntry(input: MemorySyncInput): Promise<MemorySyncResult>;
   /** Sync N entries in ONE batched round-trip (Surreal: a single transaction;
@@ -103,6 +113,8 @@ export interface MemoryRepository {
     state?: FailureState;
     /** Advisory failure severity to stamp onto the updated row (Task 2). */
     severity?: number | null;
+    /** Pin lock to stamp onto the updated row (ticket 02). Absent → pin untouched. */
+    pin?: boolean;
   }): Promise<MemoryUpdateResult>;
   removeSyncedMemories(oldText: string, options: MemoryRemoveOptions): Promise<MemoryRemoveResult>;
   /** @deprecated backfill-only — use {@link removeByMdId} in steady state.

@@ -309,7 +309,16 @@ export class MemoryStore {
     // Step 1: snapshot from the in-memory entries (already loaded + superseded-
     // purged by the caller). buildSnapshot parses each encoded entry + computes
     // the order-insensitive snapshotBaseHash the plan anchors against.
-    const snapshot = buildSnapshot(target, this.entriesFor(target), this.charLimit(target));
+    // Pin (ticket 02): pinned entries are NEVER consolidation candidates.
+    // Exclude them from the snapshot so the LLM can't drop/merge them;
+    // applyMergePlan keeps any live entry not referenced by a plan op, so the
+    // pinned survivors stay untouched in the reconcile-write. Subtract their
+    // footprint from the budget so the consolidator leaves room for them.
+    const allEntries = this.entriesFor(target);
+    const pinnedEntries = allEntries.filter((e) => this.isPinned(e));
+    const consolidatable = pinnedEntries.length ? allEntries.filter((e) => !this.isPinned(e)) : allEntries;
+    const effectiveLimit = Math.max(0, this.charLimit(target) - pinnedEntries.join(ENTRY_DELIMITER).length);
+    const snapshot = buildSnapshot(target, consolidatable, effectiveLimit);
 
     // Step 2: lock-FREE plan. The consolidator produces a MergePlan (no writes).
     const res = await this.consolidator(snapshot, signal);
@@ -676,7 +685,7 @@ export class MemoryStore {
     _retriesLeft = 1,
     addedMessage = "Entry added.",
     onProgress?: (message: string) => void,
-    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null; state?: FailureState | null; severity?: number | null },
+    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null; state?: FailureState | null; severity?: number | null; pin?: boolean | null },
   ): Promise<MemoryResult> {
     // 2-PHASE RESTRUCTURE: consolidation runs OUTSIDE the held cross-process
     // file lock. `_addInner`'s overflow branch no longer consolidates in-lock;
@@ -731,7 +740,7 @@ export class MemoryStore {
     _retriesLeft = 1,
     addedMessage = "Entry added.",
     onProgress?: (message: string) => void,
-    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null; state?: FailureState | null; severity?: number | null },
+    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null; state?: FailureState | null; severity?: number | null; pin?: boolean | null },
     // Accumulator (D4 fix): superseded contents already purged from `.md` in a
     // PARENT frame of the consolidation-success recursion. Threaded down so a
     // child frame's floor/reject can surface the full set, and merged back up so
@@ -893,7 +902,11 @@ export class MemoryStore {
     const remaining: string[] = [];
     for (const entry of entries) {
       const id = this.mdIdOf(entry);
-      if (id && want.has(id)) {
+      // Pin (ticket 02): a pinned entry is NEVER purged even if its md_id is in
+      // the superseded set — pin protects *deletion*. It still flips
+      // status='superseded' in the DB (the provider already reported it), so
+      // search hides it; it just survives in the .md so the user's lock holds.
+      if (id && want.has(id) && !this.isPinned(entry)) {
         purged.push(id);
       } else {
         remaining.push(entry);
@@ -926,8 +939,17 @@ export class MemoryStore {
     const remaining = [...entries];
     const evictedDecoded: Array<{ text: string; created: string; lastReferenced: string; id?: string }> = [];
 
+    // Pin (ticket 02): pinned entries are never eviction candidates — skip past
+    // them (preserving order) to evict the oldest NON-pinned entry instead. If
+    // every survivor is pinned the loop terminates and the entry is added on
+    // top (a fully-pinned target can still overflow to the limit guard above).
     while ([...remaining, encoded].join(ENTRY_DELIMITER).length > limit && remaining.length > 0) {
-      const evicted = remaining.shift()!;
+      let victimIdx = 0;
+      while (victimIdx < remaining.length && this.isPinned(remaining[victimIdx])) {
+        victimIdx++;
+      }
+      if (victimIdx >= remaining.length) break; // only pinned survivors remain
+      const [evicted] = remaining.splice(victimIdx, 1);
       evictedDecoded.push(this.decodeEntry(evicted));
     }
 
@@ -987,7 +1009,12 @@ export class MemoryStore {
     }
 
     // Evict oldest (lowest file position) entries other than the replaced one.
-    const evictOrder = entries.map((_, i) => i).filter((i) => i !== protectedIdx);
+    // Pin (ticket 02): pinned entries are never eviction candidates — exclude
+    // them from the eviction order so a locked entry survives a replace overflow
+    // (mirrors vaultOffloadAndAdd's pin skip).
+    const evictOrder = entries
+      .map((_, i) => i)
+      .filter((i) => i !== protectedIdx && !this.isPinned(entries[i]));
     const present = new Set<number>(entries.map((_, i) => i));
     const evictedDecoded: Array<{ text: string; created: string; lastReferenced: string; id?: string }> = [];
     const liveJoin = () =>
@@ -1163,6 +1190,9 @@ export class MemoryStore {
       // resolved after a body tweak — editing is not a state transition).
       state: decoded.state,
       severity: decoded.severity,
+      // Preserve the pin lock across an edit (a pinned entry stays pinned —
+      // editing is not an unpin). Pin is target-agnostic (ticket 02).
+      pin: decoded.pin,
     });
 
     const testEntries = [...entries];
@@ -1313,7 +1343,7 @@ export class MemoryStore {
     created: string,
     lastReferenced: string,
     id: string,
-    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null; mwSuccess?: number | null; mwFail?: number | null; state?: FailureState | null; severity?: number | null },
+    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null; mwSuccess?: number | null; mwFail?: number | null; state?: FailureState | null; severity?: number | null; pin?: boolean | null },
   ): string {
     return serializeMetadataFrontmatter({
       id,
@@ -1326,6 +1356,7 @@ export class MemoryStore {
       mwFail: meta?.mwFail,
       state: meta?.state,
       severity: meta?.severity,
+      pin: meta?.pin,
     });
   }
 
@@ -1347,6 +1378,7 @@ export class MemoryStore {
     mwFail?: number;
     state?: FailureState;
     severity?: number | null;
+    pin?: boolean;
   } {
     if (detectEntryShape(raw) === "frontmatter") {
       const fm = parseMetadataFrontmatter(raw);
@@ -1364,6 +1396,9 @@ export class MemoryStore {
         // `active` (the safe default) at every call-site.
         ...(fm.state ? { state: fm.state } : {}),
         ...(typeof fm.severity === "number" ? { severity: fm.severity } : {}),
+        // Pin (ticket 02) — target-agnostic lock; comment-shape entries are
+        // never pinned.
+        ...(fm.pin === true ? { pin: true } : {}),
       };
     }
     return parseMetadataComment(raw);
@@ -1378,6 +1413,21 @@ export class MemoryStore {
       return parseMetadataFrontmatter(raw).id;
     } catch {
       return null;
+    }
+  }
+
+  /** Pin lock check (ticket 02): true iff the entry is a FRONTMATTER entry
+   *  whose `pin` frontmatter is the literal boolean `true`. Comment-shape
+   *  entries are never pinned. The single source of truth used by every
+   *  overflow-driven eviction site (purge + vault-offload FIFO) so a pinned
+   *  entry is never selected as a victim. Mirrors `mdIdOf`'s shape-parse
+   *  pattern (try/catch so a malformed frontmatter can never break eviction). */
+  private isPinned(rawEntry: string): boolean {
+    if (detectEntryShape(rawEntry) !== "frontmatter") return false;
+    try {
+      return parseMetadataFrontmatter(rawEntry).pin === true;
+    } catch {
+      return false;
     }
   }
 
