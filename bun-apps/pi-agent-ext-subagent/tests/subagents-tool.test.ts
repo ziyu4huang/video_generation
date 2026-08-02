@@ -454,3 +454,116 @@ test("onUpdate emits a single-line 'k/N running · latest' as children progress"
   assert.match(first, /latest/, "includes the latest action");
   assert.match(updates[1], /1\/2/, "running stays 1 as sibling #0 completes (not 2)");
 });
+
+// ── per-child mid-flight abort (Frontier A, Task 2) ──
+
+/** Flush the event loop until `fn()` returns a truthy value (or throw after tries). */
+async function waitFor<T>(fn: () => T | undefined | null, tries = 200): Promise<NonNullable<T>> {
+  for (let i = 0; i < tries; i++) {
+    const v = fn();
+    if (v) return v as NonNullable<T>;
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  throw new Error("waitFor timed out");
+}
+
+/** Spawn that resolves on externalSignal abort for indexes in `blocking`; others
+ *  return `normal` on the next tick. Mirrors spawnSubagent's abort return shape. */
+function spawnBlockingOnAbort(blocking: Set<number>, normal: SpawnSubagentResult) {
+  const calls: Array<{ task: string; externalSignal?: AbortSignal }> = [];
+  const spawn = (opts: { task: string; externalSignal?: AbortSignal }): Promise<SpawnSubagentResult> =>
+    new Promise((resolve) => {
+      calls.push(opts);
+      const idx = Number(opts.task.match(/^#(\d+)/)?.[1] ?? calls.length - 1);
+      if (!blocking.has(idx)) {
+        setTimeout(() => resolve(normal), 0);
+        return;
+      }
+      const sig = opts.externalSignal;
+      if (!sig) {
+        resolve(normal);
+        return;
+      }
+      if (sig.aborted) {
+        resolve({ output: "", exitCode: 124, stderr: "Subagent was aborted", timedOut: true });
+        return;
+      }
+      sig.addEventListener(
+        "abort",
+        () => resolve({ output: "", exitCode: 124, stderr: "Subagent was aborted", timedOut: true }),
+        { once: true },
+      );
+    });
+  return { calls, spawn };
+}
+
+test("user per-child abort mid-batch → aborted slot; sibling unaffected; parent turn intact", async () => {
+  const inFlight = new SubagentInFlightRegistry();
+  const f = spawnBlockingOnAbort(new Set([0]), { output: "sibling-ok", exitCode: 0, stderr: "", timedOut: false });
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: f.spawn as never, inFlight, getMainModel: () => "p/m" });
+  const parent = new AbortController(); // live turn, not aborted
+  const p = tool.execute(
+    "batch-abort",
+    { tasks: [{ task: "#0 secret" }, { task: "#1" }], concurrency: 1 },
+    parent.signal,
+    undefined,
+    NO_CTX,
+  );
+  // wait until child #0 is registered + blocking, then abort JUST it
+  await waitFor(() => inFlight.get("batch-abort:0"));
+  assert.equal(typeof inFlight.get("batch-abort:0")?.abort, "function", "abort lever wired on the child entry");
+  inFlight.abort("batch-abort:0");
+  const res = await p;
+  const r = res.details.results;
+  assert.equal((r[0] as { status: string }).status, "aborted");
+  assert.ok((r[0] as { task: string }).task.includes("secret"), "aborted slot carries task preview");
+  assert.equal((r[0] as { model: string }).model, "p/m");
+  assert.ok((r[0] as { elapsedMs: number }).elapsedMs >= 0);
+  assert.equal((r[1] as { status: string }).status, "done", "sibling kept running and completed");
+  assert.equal(parent.signal.aborted, false, "parent turn NOT aborted (per-child isolation)");
+});
+
+test("fan-in: aborting the parent signal aborts all in-flight batch children (new — they used to ignore it)", async () => {
+  const inFlight = new SubagentInFlightRegistry();
+  const f = spawnBlockingOnAbort(new Set([0, 1]), { output: "x", exitCode: 0, stderr: "", timedOut: false });
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: f.spawn as never, inFlight });
+  const parent = new AbortController();
+  const p = tool.execute(
+    "batch-fanin",
+    { tasks: [{ task: "#0" }, { task: "#1" }], concurrency: 2 },
+    parent.signal,
+    undefined,
+    NO_CTX,
+  );
+  await waitFor(() => inFlight.list().length >= 1);
+  parent.abort(); // whole-turn Esc
+  const res = await p; // resolves — does NOT hang (children now see the signal)
+  for (const slot of res.details.results) {
+    assert.equal((slot as { status: string }).status, "timedout", "whole-turn abort → timedout, not aborted");
+  }
+});
+
+test("renderBatchResult renders an aborted section; header counts aborted only when present (byte-stable)", () => {
+  const withAborted = renderBatchResult({
+    results: [
+      { output: "hello", status: "done", index: 0, id: "a", task: "t", model: "m", elapsedMs: 10 },
+      { output: "", status: "aborted", index: 1, id: "b", task: "u", model: "m", elapsedMs: 5 },
+      null,
+    ],
+    dispatched: 2,
+    skipped: 0,
+    elapsedMs: 1500,
+  });
+  assert.match(withAborted, /1 ok · 1 aborted · 1 failed/, "header counts aborted distinctly");
+  assert.match(withAborted, /\(b\) aborted[\s\S]*user-aborted mid-flight/, "aborted body line carries provenance");
+
+  // byte-stability: no aborted slots → header is byte-identical (no aborted segment)
+  const noAborted = renderBatchResult({
+    results: [{ output: "hello", status: "done", index: 0, id: "a", task: "t", model: "m", elapsedMs: 10 }, null],
+    dispatched: 1,
+    skipped: 0,
+    elapsedMs: 1500,
+  });
+  assert.match(noAborted, /^## subagents batch \(1 ok · 1 failed · 0 skipped\)/);
+  assert.doesNotMatch(noAborted, /aborted/);
+});

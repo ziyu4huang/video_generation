@@ -40,7 +40,7 @@ export interface BatchTask {
 export type BatchResultSlot =
   | {
       output: string;
-      status: "done" | "timedout";
+      status: "done" | "timedout" | "aborted";
       id?: string;
       index: number;
       usage?: AgentUsage;
@@ -185,7 +185,7 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
       "Fan out read-only research/review subagents in parallel. Each child has edit/write/bash excluded. Returns one result per task in input order (null for a failed child).",
     executionMode: "sequential",
     parameters: subagentsToolSchema,
-    async execute(toolCallId, params, _signal, onUpdate, _ctx) {
+    async execute(toolCallId, params, signal, onUpdate, _ctx) {
       const t0 = Date.now();
       const tasks = params.tasks as BatchTask[];
       if (!Array.isArray(tasks) || tasks.length === 0) {
@@ -256,18 +256,27 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
         // Register in-flight so `/subagents` shows this child while it runs.
         const childRunId = `${toolCallId}:${index}`;
         const childT0 = Date.now();
+        // Per-child AbortController (Frontier A): the user can abort ONE child via
+        // registry.abort(childRunId) → this controller fires. We FAN IN the parent
+        // turn `signal` so a whole-turn Esc still aborts batch children (new —
+        // previously batch children ignored the turn signal entirely).
+        const childAc = new AbortController();
+        if (signal?.aborted) childAc.abort();
+        else signal?.addEventListener("abort", () => childAc.abort(), { once: true });
         options.inFlight?.start({
           id: childRunId,
           model: childModel,
           taskPreview: preview,
           startedAt: childT0,
           batchId: toolCallId,
+          abort: () => childAc.abort(),
         });
         // Forward live callbacks so /subagents shows each child's resolved model and
         // activity trace (deficit 1). Added here — not in mergeReadOnlyExclusion — because
         // the callbacks close over the registry + childRunId, which that pure helper lacks.
         const childSpawnOpts: SpawnSubagentOptions = {
           ...childOpts,
+          externalSignal: childAc.signal,
           onModelResolved: (modelId) => options.inFlight?.updateModel(childRunId, modelId),
           onHistory: (history) => {
             options.inFlight?.update(childRunId, history);
@@ -306,10 +315,25 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
           acc.tokens.total += result.usage.total;
           acc.cost += result.usage.cost;
         }
+        // Per-child abort detection (Frontier A): a USER abort fires childAc only
+        // (parent signal intact); a whole-turn Esc fans the parent signal INTO
+        // childAc (signal.aborted distinguishes); a timeout aborts spawn's internal
+        // controller, not childAc (falls through to timedout unchanged).
+        const userAborted = childAc.signal.aborted && !signal?.aborted;
         // Map the slot — preserve per-child hard-budget routing (Task 3) alongside
-        // failed->null and the normal done/timedout path.
-        const status = deriveSubagentStatus(result);
-        if (status === "failed") {
+        // failed->null and the normal done/timedout path, + the user-aborted path.
+        const status = userAborted ? "aborted" : deriveSubagentStatus(result);
+        if (userAborted) {
+          slots[index] = {
+            output: "",
+            status: "aborted",
+            id: task.id,
+            index,
+            task: preview,
+            model: childModel,
+            elapsedMs: Date.now() - childT0,
+          };
+        } else if (status === "failed") {
           slots[index] = null;
         } else if (result.budget) {
           slots[index] = {
@@ -349,13 +373,13 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
             cwd: childOpts.cwd ?? defaultCwd,
             status,
             exitCode: result.exitCode,
-            timedOut: result.timedOut,
+            timedOut: userAborted ? false : result.timedOut,
             stderr: result.stderr || undefined,
             startedAt: new Date(childT0).toISOString(),
             elapsedMs: Date.now() - childT0,
             usage: result.usage,
             budget: result.budget,
-            output: result.output,
+            output: userAborted ? "Subagent aborted by user." : result.output,
           });
         }
         // Check the batch budget BETWEEN dispatches (never aborts the child that just finished).
@@ -396,10 +420,15 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
 
 /** Render the batch result as a readable summary for the model. */
 export function renderBatchResult(details: SubagentsToolDetails): string {
-  const done = details.results.filter((s) => s && (s as { status: string }).status !== "budget").length;
+  const done = details.results.filter(
+    (s) => s && (s as { status: string }).status !== "budget" && (s as { status: string }).status !== "aborted",
+  ).length;
+  const aborted = details.results.filter((s) => s && (s as { status: string }).status === "aborted").length;
   const failed = details.results.filter((s) => s === null).length;
   const skipped = details.skipped;
-  const header = `## subagents batch (${done} ok · ${failed} failed · ${skipped} skipped) — ${(
+  // The aborted segment is only rendered when present, so a batch with no
+  // user-aborts stays byte-identical to the pre-abort header.
+  const header = `## subagents batch (${done} ok${aborted ? ` · ${aborted} aborted` : ""} · ${failed} failed · ${skipped} skipped) — ${(
     details.elapsedMs / 1000
   ).toFixed(1)}s`;
   const body = details.results
@@ -409,6 +438,9 @@ export function renderBatchResult(details: SubagentsToolDetails): string {
       if (slot.status === "budget") {
         const label = slot.source === "child" ? "child budget" : "batch budget";
         return `### [${i}]${slot.id ? ` (${slot.id})` : ""} skipped — ${label}: ${slot.exhaustion.kind} ${slot.exhaustion.actual} > ${slot.exhaustion.limit}`;
+      }
+      if (slot.status === "aborted") {
+        return `### [${i}]${slot.id ? ` (${slot.id})` : ""} aborted\n_(user-aborted mid-flight)_`;
       }
       return `### [${i}]${slot.id ? ` (${slot.id})` : ""} ${slot.status}\n${slot.output || "_(empty output)_"}`;
     })
