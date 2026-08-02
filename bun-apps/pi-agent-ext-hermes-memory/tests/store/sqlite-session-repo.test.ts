@@ -930,3 +930,97 @@ describe("SqliteSessionRepository.markUsed", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// getUsedMdIds (Task 2 of #1b decay — #06 used_at as a per-entry boolean
+// ever-used aggregate, UPSP §1/D4). SQLite impl. Mirrors the markUsed test
+// style (those tests already exercise session_assembly seeding + asserting).
+// ---------------------------------------------------------------------------
+
+describe("SqliteSessionRepository.getUsedMdIds", () => {
+  let dir: string;
+  let backend: SqliteBackend;
+  let repo: SqliteSessionRepository;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "hm-sess-"));
+    backend = new SqliteBackend(dir);
+    await backend.init();
+    repo = new SqliteSessionRepository(backend);
+  });
+
+  afterEach(() => {
+    backend.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("returns the subset of mdIds with ≥1 used_at-set row (used ∩ input)", async () => {
+    // seed: a,b,c assembled in sess-1; mark a,c used (b unused); d never assembled.
+    await repo.recordAssembly("sess-1", ["a", "b", "c"], "hash-1");
+    await repo.markUsed("sess-1", ["a", "c"], "2026-08-02T12:00:00.000Z");
+    const result = await repo.getUsedMdIds(["a", "b", "c", "d"], { project: null });
+    expect(result).toBeInstanceOf(Set);
+    expect([...result].sort()).toEqual(["a", "c"]);
+  });
+
+  it("empty input → empty Set (no-op, no SQL)", async () => {
+    await repo.recordAssembly("sess-1", ["a"], "hash-1");
+    await repo.markUsed("sess-1", ["a"], "2026-08-02T12:00:00.000Z");
+    const result = await repo.getUsedMdIds([], { project: null });
+    expect(result).toBeInstanceOf(Set);
+    expect(result.size).toBe(0);
+  });
+
+  it("all-unused input → empty Set", async () => {
+    await repo.recordAssembly("sess-1", ["a", "b"], "hash-1"); // nothing marked → used_at NULL everywhere
+    const result = await repo.getUsedMdIds(["a", "b"], { project: null });
+    expect(result.size).toBe(0);
+  });
+
+  it("md_id in table but used_at NULL → not returned", async () => {
+    await repo.recordAssembly("sess-1", ["x"], "hash-1"); // used_at stays NULL
+    const result = await repo.getUsedMdIds(["x"], { project: null });
+    expect([...result]).toEqual([]);
+  });
+
+  it("a used row in ANY session makes the md_id ever-used (DISTINCT, dedup across sessions)", async () => {
+    // md_id "shared" is USED in sess-1 but only SURFACED (unused) in sess-2.
+    // The boolean ever-used aggregate is global across sessions, so "shared"
+    // qualifies and must appear exactly once.
+    await repo.recordAssembly("sess-1", ["shared", "only1"], "h1");
+    await repo.recordAssembly("sess-2", ["shared"], "h2");
+    await repo.markUsed("sess-1", ["shared"], "2026-08-02T12:00:00.000Z");
+    const result = await repo.getUsedMdIds(["shared", "only1", "absent"], { project: null });
+    expect([...result].sort()).toEqual(["shared"]);
+  });
+
+  it("never touches session_assembly_meta, memories, or any other table", async () => {
+    const db = backend.getDb();
+    await repo.recordAssembly("sess-1", ["a", "b"], "hash-1");
+    await repo.markUsed("sess-1", ["a"], "2026-08-02T12:00:00.000Z");
+    const metaBefore = db.prepare("SELECT hash, captured_at FROM session_assembly_meta WHERE session_id = ?").get("sess-1") as any;
+    const memCountBefore = (db.prepare("SELECT COUNT(*) AS n FROM memories").get() as { n: number }).n;
+
+    await repo.getUsedMdIds(["a", "b"], { project: null });
+
+    const metaAfter = db.prepare("SELECT hash, captured_at FROM session_assembly_meta WHERE session_id = ?").get("sess-1") as any;
+    expect(metaAfter.hash).toBe(metaBefore.hash);
+    expect(metaAfter.captured_at).toBe(metaBefore.captured_at);
+    expect((db.prepare("SELECT COUNT(*) AS n FROM memories").get() as { n: number }).n).toBe(memCountBefore);
+  });
+
+  it("project arg is IGNORED: session_assembly is a global provenance ledger (no project column)", async () => {
+    // Projects live on the sessions table, NOT on session_assembly (FK-free,
+    // the sessions row is created later by deferred backfill). The aggregate is
+    // therefore global; opts.project is accepted for interface symmetry but
+    // never filters the result.
+    await repo.recordAssembly("sess-a", ["used-a"], "h1");
+    await repo.markUsed("sess-a", ["used-a"], "2026-08-02T12:00:00.000Z");
+    // Passing a foreign project must NOT filter out used-a (assembly is global).
+    const result = await repo.getUsedMdIds(["used-a"], { project: "some-other-project" });
+    expect([...result]).toEqual(["used-a"]);
+    // null project behaves identically (also ignored):
+    const resultNull = await repo.getUsedMdIds(["used-a"], { project: null });
+    expect([...resultNull]).toEqual(["used-a"]);
+  });
+});

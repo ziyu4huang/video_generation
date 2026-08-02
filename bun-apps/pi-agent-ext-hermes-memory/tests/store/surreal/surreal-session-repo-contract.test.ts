@@ -176,4 +176,81 @@ if (up) {
       });
     });
   });
+
+  describe("SurrealSessionRepository.getUsedMdIds", () => {
+    // Task 2 of #1b decay — #06 used_at as a per-entry boolean ever-used aggregate
+    // (UPSP §1/D4). Surreal parity with the SQLite getUsedMdIds tests
+    // (sqlite-session-repo.test.ts). SCHEMALESS: a non-matched row never gets
+    // `usedAt` written, so the field is absent (usedAt IS NOT NULL is false).
+    async function withRepo(
+      fn: (repo: SurrealSessionRepository, backend: SurrealBackend) => Promise<void>,
+    ): Promise<void> {
+      const ns = uniqueNs();
+      const backend = new SurrealBackend({ namespace: ns, database: ns });
+      await backend.init();
+      try {
+        await fn(new SurrealSessionRepository(backend), backend);
+      } finally {
+        try { await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch {}
+        await backend.close();
+      }
+    }
+
+    test("returns the subset of mdIds with ≥1 usedAt-set row (used ∩ input)", async () => {
+      await withRepo(async (repo) => {
+        await repo.recordAssembly("sess-surr-gu-1", ["a", "b", "c"], "hash-1");
+        await repo.markUsed("sess-surr-gu-1", ["a", "c"], "2026-08-02T12:00:00.000Z");
+        const result = await repo.getUsedMdIds(["a", "b", "c", "d"], { project: null });
+        expect(result).toBeInstanceOf(Set);
+        expect([...result].sort()).toEqual(["a", "c"]);
+      });
+    });
+
+    test("empty input → empty Set (no-op, no SQL)", async () => {
+      await withRepo(async (repo) => {
+        await repo.recordAssembly("sess-surr-gu-2", ["a"], "hash-1");
+        await repo.markUsed("sess-surr-gu-2", ["a"], "2026-08-02T12:00:00.000Z");
+        const result = await repo.getUsedMdIds([], { project: null });
+        expect(result).toBeInstanceOf(Set);
+        expect(result.size).toBe(0);
+      });
+    });
+
+    test("all-unused input → empty Set", async () => {
+      await withRepo(async (repo) => {
+        await repo.recordAssembly("sess-surr-gu-3", ["a", "b"], "hash-1"); // nothing marked
+        const result = await repo.getUsedMdIds(["a", "b"], { project: null });
+        expect(result.size).toBe(0);
+      });
+    });
+
+    test("mdId in table but usedAt absent → not returned", async () => {
+      await withRepo(async (repo) => {
+        await repo.recordAssembly("sess-surr-gu-4", ["x"], "hash-1"); // usedAt never written
+        const result = await repo.getUsedMdIds(["x"], { project: null });
+        expect([...result]).toEqual([]);
+      });
+    });
+
+    test("a used row in ANY session makes the mdId ever-used (DISTINCT, dedup)", async () => {
+      await withRepo(async (repo) => {
+        await repo.recordAssembly("s1", ["shared", "only1"], "h1");
+        await repo.recordAssembly("s2", ["shared"], "h2");
+        await repo.markUsed("s1", ["shared"], "2026-08-02T12:00:00.000Z");
+        const result = await repo.getUsedMdIds(["shared", "only1", "absent"], { project: null });
+        expect([...result].sort()).toEqual(["shared"]);
+      });
+    });
+
+    test("project arg is IGNORED: session_assembly is a global provenance ledger", async () => {
+      await withRepo(async (repo) => {
+        await repo.recordAssembly("sess-surr-gu-6", ["used-a"], "h1");
+        await repo.markUsed("sess-surr-gu-6", ["used-a"], "2026-08-02T12:00:00.000Z");
+        const result = await repo.getUsedMdIds(["used-a"], { project: "some-other-project" });
+        expect([...result]).toEqual(["used-a"]);
+        const resultNull = await repo.getUsedMdIds(["used-a"], { project: null });
+        expect([...resultNull]).toEqual(["used-a"]);
+      });
+    });
+  });
 }

@@ -781,6 +781,41 @@ export class SqliteSessionRepository implements SessionRepository {
   }
 
   // -------------------------------------------------------------------------
+  // getUsedMdIds — UPSP §1/D4 boolean ever-used aggregate (Task 2 of #1b decay).
+  // ------------------------------------------------------------------------
+
+  /**
+   * SELECT the distinct md_ids (out of the input set) that have ≥1
+   * `session_assembly` row with `used_at IS NOT NULL`. The boolean ever-used
+   * signal (#06) consumed by Task 3's heat-provider. One batched query; empty
+   * input → empty Set (no-op, no SQL). The `session_assembly` table is GLOBAL
+   * (no `project` column) — `opts.project` is accepted but ignored (see the
+   * interface JSDoc). Mirrors `markUsed`'s single-placeholder-list `IN` pattern
+   * (no chunking helper exists; the assembled set is bounded by the memory
+   * block size, well under SQLite's variable limit) and its transient-retry +
+   * corruption-recovery envelope. NEVER touches `session_assembly_meta` or any
+   * other table.
+   */
+  async getUsedMdIds(
+    mdIds: string[],
+    _opts: { project: string | null },
+  ): Promise<Set<string>> {
+    return runWithTransientRetry(() =>
+      this.backend.withCorruptionRecovery(() => {
+        if (mdIds.length === 0) return new Set<string>();
+        const db = this.backend.getDb();
+        // Dynamic `?` placeholders — injection-safe (matches markUsed/searchSessions).
+        // DISTINCT collapses the (session_id, md_id) PK so a md_id used across many
+        // sessions is reported once. `used_at IS NOT NULL` filters surfaced-unused.
+        const placeholders = mdIds.map(() => "?").join(", ");
+        const sql = `SELECT DISTINCT md_id FROM session_assembly WHERE used_at IS NOT NULL AND md_id IN (${placeholders})`;
+        const rows = db.prepare(sql).all(...mdIds) as Array<{ md_id: string }>;
+        return new Set(rows.map((r) => r.md_id));
+      }),
+    );
+  }
+
+  // -------------------------------------------------------------------------
   // getSessionStats — from getSessionStats.
   // -------------------------------------------------------------------------
 

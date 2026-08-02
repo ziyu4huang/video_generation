@@ -288,6 +288,44 @@ export class SurrealSessionRepository implements SessionRepository {
     );
   }
 
+  // -------------------------------------------------------------------------
+  // getUsedMdIds — UPSP §1/D4 boolean ever-used aggregate (Task 2 of #1b decay).
+  // ------------------------------------------------------------------------
+
+  /**
+   * SELECT the distinct mdIds (out of the input set) that have ≥1
+   * `session_assembly` row with `usedAt` set. The boolean ever-used signal (#06)
+   * consumed by Task 3's heat-provider. One batched query; empty input → empty
+   * Set (no-op, no SQL). The `session_assembly` table is GLOBAL (SCHEMALESS, no
+   * project field) — `opts.project` is accepted but ignored (see the interface
+   * JSDoc). Mirrors `markUsed`'s `IN $ids` array-bind idiom; a surfaced-but-never-
+   * marked row has no `usedAt` field (absent = Surreal NONE — see the operator
+   * note below). The SurrealClient owns transient retry, so like `markUsed` there
+   * is no extra envelope. NEVER touches `session_assembly_meta` or any other table.
+   */
+  async getUsedMdIds(
+    mdIds: string[],
+    _opts: { project: string | null },
+  ): Promise<Set<string>> {
+    if (mdIds.length === 0) return new Set<string>();
+    // NOTE: SurrealDB v3.2.3 does NOT support `SELECT DISTINCT` (parse error:
+    // "Unexpected token, expected FROM"), so we project raw rows and dedupe into
+    // the Set in TS. The (sessionId, mdId) PK means a used mdId may appear once
+    // per session that surfaced+used it; the Set collapses them to a single entry
+    // — the boolean ever-used aggregate (D4) needs only existence, not count.
+    //
+    // Operator: `recordAssembly` NEVER writes `usedAt`, so a surfaced-but-never-
+    // marked row has the field ABSENT (Surreal NONE), not an SQL null. In v3.2.3
+    // `usedAt IS NOT NULL` WRONGLY matches absent fields (NONE ≢ NULL here),
+    // whereas `IS NOT NONE` correctly excludes them — verified live. Mirrors
+    // markUsed's `IN $ids` array-bind idiom.
+    const rows = await this.c.query<Array<{ mdId: string }>>(
+      `SELECT mdId FROM session_assembly WHERE usedAt IS NOT NONE AND mdId IN $ids;`,
+      { ids: mdIds },
+    );
+    return new Set(rows.map((r) => r.mdId));
+  }
+
   async getSessionStats(): Promise<SessionStats> {
     const sess = await this.c.query<Array<{ count: number }>>(`SELECT count() AS count FROM sessions GROUP ALL;`);
     const msg = await this.c.query<Array<{ count: number }>>(`SELECT count() AS count FROM messages GROUP ALL;`);
