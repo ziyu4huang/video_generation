@@ -733,6 +733,57 @@ describe("buildEffectiveGates", () => {
     const g = eff.gates.find((x) => x.names.includes("flux2"));
     expect(g!.keywords).toEqual(["owner-kw"]); // owner wins, not the hardcoded flux2 entry
   });
+
+  test("FOLLOWUPS #4 — partial migration of a multi-name gate keeps undeclared siblings gated (per-name resolution)", () => {
+    // Live case this guards: the hardcoded `workflow`/`workflow_help`/
+    // `subagent`/`workflow_control` gate — if `subagent` (a separate package)
+    // gets owner-declared during rollout, the OLD merge dropped the ENTIRE
+    // fallback gate → `workflow`/`workflow_help`/`workflow_control` silently
+    // fail-open (lose their gate). Per-name resolution partitions each
+    // fallback gate's names: undeclared siblings KEEP the fallback gate
+    // (keywords/requires/description), only owner-declared names leave it.
+    //
+    // Synthetic 3-name fallback gate. `beta` is owner-declared (rolled out to
+    // its own gating); `alpha`/`gamma` are still on the fallback.
+    const fallbackGates: ToolGate[] = [
+      {
+        names: ["alpha", "beta", "gamma"],
+        keywords: ["kw"],
+        requires: { nouns: ["thing"], verbs: ["do"] },
+        description: "synthetic multi-name gate",
+      },
+    ];
+    const fallbackCore = new Set<string>(["core_one"]);
+    const defs = [
+      { name: "alpha", description: "a" },
+      { name: "beta", description: "b", gating: { keywords: ["beta-kw"] } },
+      { name: "gamma", description: "g" },
+    ] as Array<{ name: string; description?: string; gating?: any }>;
+
+    const eff = buildEffectiveGates(defs, fallbackGates, fallbackCore);
+
+    // (1) undeclared siblings KEEP a fallback gate carrying the original
+    //     keywords/requires/description — they did NOT fail-open. `beta` is
+    //     excised (gated by its owner declaration instead).
+    const survivor = eff.gates.find(
+      (g) => g.names.includes("alpha") && g.names.includes("gamma"),
+    );
+    expect(survivor).toBeDefined();
+    expect(survivor!.names).toEqual(["alpha", "gamma"]); // beta excised
+    expect(survivor!.keywords).toEqual(["kw"]); // original keywords preserved
+    expect(survivor!.requires).toEqual({ nouns: ["thing"], verbs: ["do"] });
+
+    // (2) `beta` is gated by its OWNER-DECLARED gate, NOT by the fallback.
+    const betaGate = eff.gates.find((g) => g.names.includes("beta"));
+    expect(betaGate).toBeDefined();
+    expect(betaGate!.names).toEqual(["beta"]); // single-name owner gate
+    expect(betaGate!.keywords).toEqual(["beta-kw"]); // owner keywords, not fallback
+
+    // (3) ALL three are tracked (core ∪ gate names) → none fail-open.
+    for (const n of ["alpha", "beta", "gamma"]) {
+      expect(eff.tracked.has(n)).toBe(true);
+    }
+  });
 });
 
 describe("tool-gate runtime reads owner-declared gating", () => {
