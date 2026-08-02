@@ -263,6 +263,15 @@ export class SurrealSessionRepository implements SessionRepository {
     await this.c.query(stmts.join("\n"), params);
   }
 
+  // UPSP §9 (#06) — Surreal parity (SCHEMALESS UPDATE session_assembly SET
+  // usedAt = $now WHERE sessionId = $sid AND mdId IN $ids) is implemented in
+  // Task 4. This stub keeps the class's `implements SessionRepository`
+  // typecheck green after Task 3 added `markUsed` to the interface; existing
+  // Surreal tests never call it. Task 4 replaces it with the real UPDATE.
+  async markUsed(_sessionId: string, _mdIds: readonly string[], _usedAt: string): Promise<void> {
+    throw new Error("SurrealSessionRepository.markUsed is not implemented yet — see Task 4 of #06");
+  }
+
   async getSessionStats(): Promise<SessionStats> {
     const sess = await this.c.query<Array<{ count: number }>>(`SELECT count() AS count FROM sessions GROUP ALL;`);
     const msg = await this.c.query<Array<{ count: number }>>(`SELECT count() AS count FROM messages GROUP ALL;`);

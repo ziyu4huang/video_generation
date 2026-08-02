@@ -750,6 +750,37 @@ export class SqliteSessionRepository implements SessionRepository {
   }
 
   // -------------------------------------------------------------------------
+  // markUsed — UPSP §9 "used vs dropped" signal (stamp used_at on referenced rows).
+  // ------------------------------------------------------------------------
+
+  /**
+   * UPDATE in place: stamp `usedAt` on the surfaced `(sessionId, mdId)` rows
+   * the agent's output actually referenced. Sets ONLY matched rows for that
+   * session; non-matched rows stay null. Idempotent (a re-mark re-stamps).
+   * Empty `mdIds` is a no-op (skips the query). NEVER touches
+   * `session_assembly_meta` or any other table. Mirrors `recordAssembly`'s
+   * transient-retry + corruption-recovery safety envelope.
+   */
+  async markUsed(
+    sessionId: string,
+    mdIds: readonly string[],
+    usedAt: string,
+  ): Promise<void> {
+    await runWithTransientRetry(() =>
+      this.backend.withCorruptionRecovery(() => {
+        if (mdIds.length === 0) return;
+        const db = this.backend.getDb();
+        // Dynamic `?` placeholders — never string-interpolate ids (injection-safe;
+        // matches the searchSessions binding style). matched-rows-only by the
+        // WHERE (session_id AND md_id IN …) filter; other tables untouched.
+        const placeholders = mdIds.map(() => "?").join(", ");
+        const sql = `UPDATE session_assembly SET used_at = ? WHERE session_id = ? AND md_id IN (${placeholders})`;
+        db.prepare(sql).run(usedAt, sessionId, ...mdIds);
+      }),
+    );
+  }
+
+  // -------------------------------------------------------------------------
   // getSessionStats — from getSessionStats.
   // -------------------------------------------------------------------------
 

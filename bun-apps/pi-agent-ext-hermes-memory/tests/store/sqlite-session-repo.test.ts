@@ -771,3 +771,162 @@ describe("SqliteSessionRepository.recordAssembly", () => {
     expect(h2).toBe("cafebabe");
   });
 });
+
+// ---------------------------------------------------------------------------
+// markUsed (Task 3 of #06 — UPSP §9 "used vs dropped" signal, SQLite impl)
+// ---------------------------------------------------------------------------
+
+describe("SqliteSessionRepository.markUsed", () => {
+  let dir: string;
+  let backend: SqliteBackend;
+  let repo: SqliteSessionRepository;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "hm-sess-"));
+    backend = new SqliteBackend(dir);
+    await backend.init();
+    repo = new SqliteSessionRepository(backend);
+  });
+
+  afterEach(() => {
+    backend.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("sets used_at on matched rows only; non-matched rows stay null", async () => {
+    await repo.recordAssembly("sess-1", ["a", "b", "c"], "hash-1");
+    const now = "2026-08-02T12:00:00.000Z";
+    await repo.markUsed("sess-1", ["a", "c"], now);
+
+    const rows = backend
+      .getDb()
+      .prepare("SELECT md_id, used_at FROM session_assembly WHERE session_id = ? ORDER BY md_id")
+      .all("sess-1") as Array<{ md_id: string; used_at: string | null }>;
+    const byId = Object.fromEntries(rows.map((r) => [r.md_id, r.used_at]));
+    expect(byId["a"]).toBe(now);
+    expect(byId["c"]).toBe(now);
+    expect(byId["b"]).toBeNull();
+  });
+
+  it("is idempotent: a re-mark does not error and re-sets used_at", async () => {
+    await repo.recordAssembly("sess-1", ["a", "b"], "hash-1");
+    const t1 = "2026-08-02T12:00:00.000Z";
+    const t2 = "2026-08-02T13:00:00.000Z";
+    await repo.markUsed("sess-1", ["a"], t1);
+    // re-mark with the same value → no-op semantics, no error:
+    await expect(repo.markUsed("sess-1", ["a"], t1)).resolves.toBeUndefined();
+    // re-mark with a newer value → overwrites (monotonic stamp, allowed):
+    await repo.markUsed("sess-1", ["a"], t2);
+    const row = backend
+      .getDb()
+      .prepare("SELECT used_at FROM session_assembly WHERE session_id = ? AND md_id = ?")
+      .get("sess-1", "a") as { used_at: string };
+    expect(row.used_at).toBe(t2);
+    // the never-marked row stays null across both calls:
+    const other = backend
+      .getDb()
+      .prepare("SELECT used_at FROM session_assembly WHERE session_id = ? AND md_id = ?")
+      .get("sess-1", "b") as { used_at: string | null };
+    expect(other.used_at).toBeNull();
+  });
+
+  it("is a no-op on empty mdIds (no row touched)", async () => {
+    await repo.recordAssembly("sess-1", ["a", "b"], "hash-1");
+    await repo.markUsed("sess-1", [], "2026-08-02T12:00:00.000Z");
+    const rows = backend
+      .getDb()
+      .prepare("SELECT md_id, used_at FROM session_assembly WHERE session_id = ? ORDER BY md_id")
+      .all("sess-1") as Array<{ used_at: string | null }>;
+    expect(rows.every((r) => r.used_at === null)).toBe(true);
+  });
+
+  it("is a no-op for a session that has no assembly rows (no error)", async () => {
+    await expect(
+      repo.markUsed("no-such-session", ["a"], "2026-08-02T12:00:00.000Z"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("marks only rows for the given session (a same-md_id row in another session is untouched)", async () => {
+    await repo.recordAssembly("sess-1", ["shared"], "hash-1");
+    await repo.recordAssembly("sess-2", ["shared"], "hash-2");
+    await repo.markUsed("sess-1", ["shared"], "2026-08-02T12:00:00.000Z");
+    const get = (sid: string) =>
+      (backend
+        .getDb()
+        .prepare("SELECT used_at FROM session_assembly WHERE session_id = ? AND md_id = ?")
+        .get(sid, "shared") as { used_at: string | null }).used_at;
+    expect(get("sess-1")).toBe("2026-08-02T12:00:00.000Z");
+    expect(get("sess-2")).toBeNull();
+  });
+
+  it("never touches session_assembly_meta, memories, or any other table", async () => {
+    const db = backend.getDb();
+    // Seed an unrelated memories row + the assembly meta so we can assert they survive untouched.
+    await repo.recordAssembly("sess-1", ["a", "b"], "hash-1");
+    const metaBefore = db.prepare("SELECT hash, captured_at FROM session_assembly_meta WHERE session_id = ?").get("sess-1") as any;
+    const memCountBefore = (db.prepare("SELECT COUNT(*) AS n FROM memories").get() as { n: number }).n;
+
+    await repo.markUsed("sess-1", ["a"], "2026-08-02T12:00:00.000Z");
+
+    const metaAfter = db.prepare("SELECT hash, captured_at FROM session_assembly_meta WHERE session_id = ?").get("sess-1") as any;
+    expect(metaAfter.hash).toBe(metaBefore.hash);
+    expect(metaAfter.captured_at).toBe(metaBefore.captured_at);
+    const memCountAfter = (db.prepare("SELECT COUNT(*) AS n FROM memories").get() as { n: number }).n;
+    expect(memCountAfter).toBe(memCountBefore);
+  });
+
+  it("fresh install: session_assembly has a used_at TEXT column after init", () => {
+    const cols = backend
+      .getDb()
+      .prepare("PRAGMA table_info(session_assembly)")
+      .all() as Array<{ name: string; type: string }>;
+    const col = cols.find((c) => c.name === "used_at");
+    expect(col).toBeDefined();
+    expect(col!.type).toBe("TEXT");
+  });
+
+  it("migration: adds used_at to a legacy session_assembly table on reopen; existing rows survive", async () => {
+    // Simulate a pre-#06 DB: session_assembly exists (from #05) but WITHOUT used_at.
+    const db = backend.getDb();
+    db.exec("DROP TABLE session_assembly");
+    db.exec(
+      `CREATE TABLE session_assembly (
+        session_id TEXT NOT NULL,
+        md_id TEXT NOT NULL,
+        PRIMARY KEY (session_id, md_id)
+      )`,
+    );
+    db.prepare("INSERT INTO session_assembly (session_id, md_id) VALUES (?, ?)").run("legacy-sess", "m9");
+    backend.close();
+
+    // Reopen the same dir → initializeSchema runs CREATE TABLE IF NOT EXISTS (no-op,
+    // table present) + ensureLegacySchemaColumns → ensureSessionAssemblyColumns → ALTER ADD COLUMN.
+    const reopened = new SqliteBackend(dir);
+    await reopened.init();
+    try {
+      const db2 = reopened.getDb();
+      const cols = db2.prepare("PRAGMA table_info(session_assembly)").all() as Array<{ name: string }>;
+      expect(cols.map((c) => c.name)).toContain("used_at");
+      // the pre-existing legacy row survived the migration, used_at defaulted to null:
+      const row = db2.prepare("SELECT md_id, used_at FROM session_assembly").get() as { md_id: string; used_at: null };
+      expect(row.md_id).toBe("m9");
+      expect(row.used_at).toBeNull();
+    } finally {
+      reopened.close();
+    }
+  });
+
+  it("migration is idempotent: reopening a DB that already has used_at does not error", async () => {
+    await repo.recordAssembly("sess-1", ["a"], "hash-1");
+    backend.close();
+    const reopened = new SqliteBackend(dir);
+    await expect(reopened.init()).resolves.toBeUndefined();
+    try {
+      const cols = reopened.getDb().prepare("PRAGMA table_info(session_assembly)").all() as Array<{ name: string }>;
+      const usedAtCount = cols.filter((c) => c.name === "used_at").length;
+      expect(usedAtCount).toBe(1); // not duplicated, exactly one column
+    } finally {
+      reopened.close();
+    }
+  });
+});

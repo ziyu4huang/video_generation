@@ -695,6 +695,7 @@ export class SqliteBackend implements Backend {
   private ensureLegacySchemaColumns(db: DatabaseLike): void {
     this.ensureMemoriesColumns(db);
     this.ensureSessionsColumns(db);
+    this.ensureSessionAssemblyColumns(db);
   }
 
   private ensureMemoriesColumns(db: DatabaseLike): void {
@@ -747,6 +748,19 @@ export class SqliteBackend implements Backend {
     }
     if (!names.has('pin')) {
       db.exec('ALTER TABLE memories ADD COLUMN pin INTEGER NOT NULL DEFAULT 0');
+    }
+  }
+
+  /** UPSP §9 (#06): add `used_at` to a pre-existing `session_assembly` table
+   *  (created by #05 without the column). Fresh installs already get it via
+   *  SCHEMA_SQL; this ALTER only fires for DBs that predate this task.
+   *  Idempotent by the column-presence guard — NOT try/catch (mirrors
+   *  `ensureMemoriesColumns`). */
+  private ensureSessionAssemblyColumns(db: DatabaseLike): void {
+    if (!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session_assembly'").get()) return;
+    const names = this.getColumnNames(db, 'session_assembly');
+    if (!names.has('used_at')) {
+      db.exec('ALTER TABLE session_assembly ADD COLUMN used_at TEXT');
     }
   }
 

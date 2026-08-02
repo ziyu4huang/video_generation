@@ -184,6 +184,12 @@ export interface SessionRepository {
   /** Per-session prompt-provenance (UPSP §5): record the assembled md_id set + block hash.
    *  Idempotent (re-call replaces). Best-effort: callers swallow throws. */
   recordAssembly(sessionId: string, mdIds: readonly string[], hash: string): Promise<void>;
+  /** Per-session "used vs dropped" signal (UPSP §9, ticket #06): stamp `used_at` on the
+   *  surfaced assembly rows the agent's output actually referenced. Sets ONLY the
+   *  matched `(sessionId, mdId)` rows for that session; non-matched rows stay null.
+   *  Idempotent (a re-mark re-stamps / no-ops). Empty `mdIds` is a no-op. Best-effort:
+   *  callers swallow throws. NEVER touches `session_assembly_meta` or any other table. */
+  markUsed(sessionId: string, mdIds: readonly string[], usedAt: string): Promise<void>;
 }
 
 /**
