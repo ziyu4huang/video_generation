@@ -53,6 +53,7 @@ import deployExtension from "@repo/pi-agent-ext-deploy";
 import file2mdExtension from "@repo/pi-agent-ext-file2md/extensions/file2md.ts";
 import flux2Extension from "@repo/pi-agent-ext-flux2/extensions/flux2.ts";
 import krea2Extension from "@repo/pi-agent-ext-krea2/extensions/krea2.ts";
+import ltxExtension from "@repo/pi-agent-ext-ltx/extensions/ltx.ts";
 import toolGate from "./tool-gate.ts";
 
 /** A registered tool def — only the fields the guard reads are typed. */
@@ -126,6 +127,12 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 		name: "krea2",
 		register: (pi) => {
 			krea2Extension(pi);
+		},
+	},
+	{
+		name: "ltx",
+		register: (pi) => {
+			ltxExtension(pi);
 		},
 	},
 ];

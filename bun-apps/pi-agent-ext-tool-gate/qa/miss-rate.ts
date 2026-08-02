@@ -40,15 +40,18 @@
  *
  * Run: `bun run qa:miss [--json] <log-file>`  (or set TOOL_GATE_LOG_PATH)
  */
-import { GATES } from "../extensions/tool-gate.ts";
+import { CORPUS_GATES } from "./evaluate.ts";
 import { readFileSync } from "node:fs";
 
 const DEFAULT_GAP_MS = 30 * 60 * 1000; // 30 min idle → new session
 const DEFAULT_PATH = process.env.TOOL_GATE_LOG_PATH ?? "";
 
 // Per-gate intent signature (lowercased): bare keywords + requires noun∧verb.
+// Built from CORPUS_GATES (the EFFECTIVE gate set = remaining hardcoded GATES +
+// reconstructed owner-declared gates from migrated extensions), so a migrated
+// gate like ltx (ticket 07) still resolves here — mirroring l2.ts/evaluate.ts.
 const GATE_INTENT = new Map<string, { keywords: string[]; nouns: string[]; verbs: string[] }>();
-for (const g of GATES) {
+for (const g of CORPUS_GATES) {
 	GATE_INTENT.set(g.names[0], {
 		keywords: (g.keywords ?? []).map((k) => k.toLowerCase()),
 		nouns: (g.requires?.nouns ?? []).map((n) => n.toLowerCase()),

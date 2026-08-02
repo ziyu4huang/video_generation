@@ -236,6 +236,22 @@ function makeLtxTool() {
     name: "ltx",
     label: "LTX Video Director",
     description: buildDescription(),
+    // Owner-declared gating — migrated from tool-gate's hardcoded GATES (was the
+    // {names:["ltx","ltx_help"]} gate). Per ticket 07's semantics-preserving
+    // rule, the SAME gating is mirrored on ltx_help so both activate together
+    // and reconstructOwnerDeclaredGates collapses them back into one multi-name
+    // gate (names[0] === "ltx"). Mirrors the original GATES entry verbatim:
+    // keywords + a noun∧verb `requires` (bare "video"/"電影" would false-fire
+    // on "video call"/non-gen intents, so the co-occurrence gates generation
+    // only). NOTE: the session_start promotion handler below is an orthogonal
+    // always-on visibility layer — left as-is per the rollout scope.
+    gating: {
+      keywords: ["ltx", "t2v", "i2v", "vbvr", "video relay", "vbvr relay", "影片特效"],
+      requires: {
+        nouns: ["video", "影片", "視頻", "視訊", "動畫", "電影"],
+        verbs: ["generate", "create", "make", "animate", "produce", "render", "生成", "做", "製作", "剪"],
+      },
+    },
     // promptSnippet + promptGuidelines REMOVED (stealth): usage is taught via
     // the routing description + the on-demand ltx_help tool, not per-turn
     // system-prompt injection. Saves ~120 tok/req.
@@ -306,6 +322,17 @@ function makeLtxHelpTool() {
   return defineTool({
     name: "ltx_help",
     label: "LTX Command Reference",
+    // Owner-declared gating — mirrored IDENTICALLY from ltx (same signature)
+    // so reconstructOwnerDeclaredGates collapses the two into one multi-name
+    // gate {names:["ltx","ltx_help"]} (ticket 07). Co-fire preserved: when
+    // the gate fires, both names activate together. See ltx's gating comment.
+    gating: {
+      keywords: ["ltx", "t2v", "i2v", "vbvr", "video relay", "vbvr relay", "影片特效"],
+      requires: {
+        nouns: ["video", "影片", "視頻", "視訊", "動畫", "電影"],
+        verbs: ["generate", "create", "make", "animate", "produce", "render", "生成", "做", "製作", "剪"],
+      },
+    },
     description:
       "On-demand reference for the `ltx` tool. Pass {command} for that command's option keys/defaults/path rules + example; omit args to list subcommands; {topic} for native-vs-prod / shot-language.",
     parameters: Type.Object({

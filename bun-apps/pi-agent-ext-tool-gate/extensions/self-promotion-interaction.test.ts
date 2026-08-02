@@ -20,6 +20,7 @@ import { describe, expect, test } from "bun:test";
 import { CORE_TOOLS } from "./tool-gate.ts";
 import toolGateExtension from "./tool-gate.ts";
 import flux2Extension from "@repo/pi-agent-ext-flux2/extensions/flux2.ts";
+import ltxExtension from "@repo/pi-agent-ext-ltx/extensions/ltx.ts";
 
 /** A minimal pi mock that (unlike tool-gate.test.ts's setupPi) keeps MULTIPLE
  *  handlers per event in registration order and tracks a live active set, so a
@@ -30,9 +31,9 @@ function makePi(allToolNames: string[]) {
 	const registered: any[] = [];
 	const pi: any = {
 		getAllToolDefinitions: () => allToolNames.map((name) => {
-			// flux2/flux2_help: supply their owner-declared gating (ticket 05) so
+			// flux2 (ticket 05) + ltx (ticket 07): supply their owner-declared gating so
 			// tool-gate's buildEffectiveGates tracks+gates them like a real session.
-			const owner = flux2OwnerDefs.find((d) => d.name === name);
+			const owner = ownerDefs.find((d) => d.name === name);
 			return owner ? { name, gating: owner.gating } : { name };
 		}),
 		getActiveTools: () => active,
@@ -48,16 +49,17 @@ function makePi(allToolNames: string[]) {
 
 const noOpCtx = { ui: { theme: { fg: (_k: string, s: string) => s }, setWidget: () => {} } };
 
-// flux2/flux2_help migrated to owner-declared gating (ticket 05) → the mock pi
-// must surface their real gating so tool-gate tracks+gates them (the hardcoded
-// GATES fallback no longer covers flux2). ltx is still in GATES (unmigrated).
-const flux2OwnerDefs: { name: string; gating?: unknown }[] = [];
-flux2Extension({
-	on: () => {},
-	registerTool: (def: any) => { flux2OwnerDefs.push(def); },
-	getActiveTools: () => [],
-	setActiveTools: () => {},
-} as never);
+// flux2/flux2_help (ticket 05) + ltx/ltx_help (ticket 07) migrated to
+// owner-declared gating → the mock pi must surface their REAL gating so
+// tool-gate tracks+gates them (the hardcoded GATES fallback no longer covers
+// either). Captured once from each registrar; ltxMimic below stays as-is —
+// the session_start self-promotion is the orthogonal visibility layer under
+// test here, NOT the gating declaration.
+const ownerDefs: { name: string; gating?: unknown }[] = [];
+const captureOwner = (ext: (pi: any) => void) =>
+	ext({ on: () => {}, registerTool: (def: any) => { ownerDefs.push(def); }, getActiveTools: () => [], setActiveTools: () => {} } as never);
+captureOwner(flux2Extension);
+captureOwner(ltxExtension);
 
 /** flux2's exact session_start self-promotion pattern (flux2.ts:419). */
 function flux2Mimic(pi: any) {

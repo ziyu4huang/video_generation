@@ -6,13 +6,14 @@ import toolGateExtension from "./tool-gate.ts";
 import file2mdExtension from "@repo/pi-agent-ext-file2md/extensions/file2md.ts";
 import flux2Extension from "@repo/pi-agent-ext-flux2/extensions/flux2.ts";
 import krea2Extension from "@repo/pi-agent-ext-krea2/extensions/krea2.ts";
+import ltxExtension from "@repo/pi-agent-ext-ltx/extensions/ltx.ts";
 
 /** Spread CORE_TOOLS into an array of names (CORE_TOOLS is a Set). */
 const CORE_TOOLS_ARRAY = (): string[] => Array.from(CORE_TOOLS);
 
 // file2md/vision_ask (ticket 04) + flux2/flux2_help (ticket 05) + krea2/
-// krea2_help (ticket 06) migrated to owner-declared gating — their gates no
-// longer live in the hardcoded GATES, so
+// krea2_help (ticket 06) + ltx/ltx_help (ticket 07) migrated to owner-declared
+// gating — their gates no longer live in the hardcoded GATES, so
 // the migration-touching integration tests below reconstruct the EFFECTIVE gate
 // set the way production does (buildEffectiveGates over the owner-declared defs
 // + fallback GATES), keeping the migrated tools firing + tracking exercised
@@ -26,6 +27,7 @@ const captureOwner = (ext: (pi: any) => void) =>
 captureOwner(file2mdExtension);
 captureOwner(flux2Extension);
 captureOwner(krea2Extension);
+captureOwner(ltxExtension);
 const EFF = buildEffectiveGates(ownerDeclaredDefs as never);
 
 describe("updateSticky + filterActive", () => {
@@ -80,8 +82,8 @@ describe("updateSticky (mutation half)", () => {
 
   test("accumulates across turns (sticky persistence)", () => {
     const sticky = new Set(CORE_TOOLS);
-    // flux2 owner-declared (ticket 05); ltx still in fallback GATES. EFF.gates
-    // carries both → flux2 fires on "generate an image", ltx on "make a video".
+    // flux2 (ticket 05) + ltx (ticket 07) owner-declared; EFF.gates carries
+    // both → flux2 fires on "generate an image", ltx on "make a video".
     updateSticky("generate an image", sticky, EFF.gates);
     updateSticky("make a video", sticky, EFF.gates);
     // both flux2 and ltx should be in sticky after two prompts
@@ -213,7 +215,11 @@ describe("matchIntent (S1)", () => {
   const sticky = () => new Set(CORE_TOOLS);
 
   test("video intent → ltx", () => {
-    expect(matchIntent("make a video", GATES, sticky()).map((g) => g.names[0])).toEqual(["ltx"]);
+    // ltx/ltx_help are owner-declared (ticket 07) → buildEffectiveGates splits
+    // them into separate single-name gates, so matchIntent surfaces BOTH
+    // (identical gating). The enable_tool NAME-mode co-activation consequence
+    // (sibling no longer auto-activates) is tracked cross-cutting in the map.
+    expect(matchIntent("make a video", EFF.gates, sticky()).map((g) => g.names[0])).toEqual(["ltx", "ltx_help"]);
   });
   test("image intent → flux2", () => {
     // flux2/flux2_help are owner-declared (ticket 05) → buildEffectiveGates
@@ -244,7 +250,9 @@ describe("matchIntent (S1)", () => {
   test("dormant-skip: already-active gate is not returned", () => {
     const s = sticky();
     s.add("ltx"); s.add("ltx_help");
-    expect(matchIntent("make a video", GATES, s)).toEqual([]);
+    // ltx/ltx_help owner-declared (ticket 07) → EFF.gates; both already in
+    // sticky → dormant-skip returns [].
+    expect(matchIntent("make a video", EFF.gates, s)).toEqual([]);
   });
 });
 
@@ -322,23 +330,24 @@ describe("telemetry helpers (S1)", () => {
 describe("computeBannerSaved (S3 — runtime measured tokens)", () => {
   test("sums measured tokens of loaded+gated gates only (no phantom, no static field)", () => {
     // Mock tools with real description+parameters so measureToolTokens is deterministic.
-    // flux2/flux2_help migrated to owner-declared gating (ticket 05) → absent from
-    // the module GATES computeBannerSaved iterates, so use ltx + movie (both still
-    // in the hardcoded GATES) as the gated pair instead.
+    // flux2/flux2_help (ticket 05) + ltx/ltx_help (ticket 07) migrated to
+    // owner-declared gating → absent from the module GATES computeBannerSaved
+    // iterates, so use zai-mcp + movie (both still in the hardcoded GATES) as
+    // the gated pair instead.
     const mockTool = (name: string, desc: string) => ({ name, description: desc, parameters: { p: 1 } });
-    const loadedNames = [...CORE_TOOLS, "ltx", "ltx_help", "movie", "movie_help"];
+    const loadedNames = [...CORE_TOOLS, "zai_web_search_web_search_prime", "zai_web_reader_webReader", "movie", "movie_help"];
     const loadedTools = [
       ...CORE_TOOLS_ARRAY().map((n) => mockTool(n, "core")),
-      mockTool("ltx", "video tool"),
-      mockTool("ltx_help", "video help"),
+      mockTool("zai_web_search_web_search_prime", "zai search"),
+      mockTool("zai_web_reader_webReader", "zai reader"),
       mockTool("movie", "movie tool"),
       mockTool("movie_help", "movie help"),
     ];
     const measured = new Map(loadedTools.map((t) => [t.name, measureToolTokens(t)]));
-    // CORE-only active ⇒ ltx & movie are gated.
+    // CORE-only active ⇒ zai-mcp & movie are gated.
     const active = filterActive(loadedNames, new Set(CORE_TOOLS));
     const saved = computeBannerSaved(active, loadedNames, measured);
-    const expected = measured.get("ltx")! + measured.get("ltx_help")!
+    const expected = measured.get("zai_web_search_web_search_prime")! + measured.get("zai_web_reader_webReader")!
       + measured.get("movie")! + measured.get("movie_help")!;
     expect(saved).toBe(expected);
   });
@@ -381,21 +390,21 @@ describe("enable_tool (S1 A escape hatch)", () => {
 
   test("list:true returns only dormant gates", async () => {
     // setupPi's mock returns defs WITHOUT gating, so owner-declared gates (flux2
-    // ticket 05, krea2 ticket 06) can't be reconstructed here. Use ltx + movie
-    // (still in the hardcoded GATES) as the dormant pair.
-    const { enableTool } = setupPi([...CORE_TOOLS, "ltx", "ltx_help", "movie", "movie_help"]);
+    // ticket 05, krea2 ticket 06, ltx ticket 07) can't be reconstructed here. Use
+    // workflow + movie (still in the hardcoded GATES) as the dormant pair.
+    const { enableTool } = setupPi([...CORE_TOOLS, "workflow", "workflow_help", "movie", "movie_help"]);
     const res = await enableTool.execute("id", { list: true });
     const text = res.content[0].text;
-    expect(text).toContain("ltx");
+    expect(text).toContain("workflow");
     expect(text).toContain("movie");
   });
 
-  test("intent 'make a video' activates ltx (sticky) and calls setActiveTools", async () => {
-    const { enableTool, calls } = setupPi([...CORE_TOOLS, "ltx", "ltx_help"]);
-    const res = await enableTool.execute("id", { intent: "make a video" });
-    expect(res.content[0].text).toContain("ltx");
+  test("intent 'orchestrate a montage' activates movie (sticky) and calls setActiveTools", async () => {
+    const { enableTool, calls } = setupPi([...CORE_TOOLS, "movie", "movie_help"]);
+    const res = await enableTool.execute("id", { intent: "orchestrate a montage" });
+    expect(res.content[0].text).toContain("movie");
     expect(calls.length).toBeGreaterThan(0);
-    expect(calls[calls.length - 1].setActiveTools).toEqual(expect.arrayContaining(["ltx", "ltx_help"]));
+    expect(calls[calls.length - 1].setActiveTools).toEqual(expect.arrayContaining(["movie", "movie_help"]));
   });
 
   test("name 'movie' activates the movie gate", async () => {
@@ -406,7 +415,7 @@ describe("enable_tool (S1 A escape hatch)", () => {
   });
 
   test("no-match intent returns a non-error result pointing to list", async () => {
-    const { enableTool } = setupPi([...CORE_TOOLS, "ltx", "ltx_help"]);
+    const { enableTool } = setupPi([...CORE_TOOLS, "movie", "movie_help"]);
     const res = await enableTool.execute("id", { intent: "what's the weather" });
     expect(res.content[0].text).toMatch(/no dormant tool matched/i);
     expect(res.content[0].text).toMatch(/list:true/i);
@@ -418,30 +427,30 @@ describe("enable_tool (S1 A escape hatch)", () => {
     // against lastPrompt, which is unnecessary work and couples enable_tool to
     // the prompt-matching logic. filterActive computes the active list from
     // sticky alone — no gate re-evaluation, no risk of lastPrompt side effects.
-    const loaded = [...CORE_TOOLS, "ltx", "ltx_help", "movie", "movie_help"];
+    const loaded = [...CORE_TOOLS, "movie", "movie_help", "zai_web_search_web_search_prime", "zai_web_reader_webReader"];
     const { enableTool, calls } = setupPi(loaded);
-    const res = await enableTool.execute("id", { name: "ltx" });
-    expect(res.content[0].text).toContain("ltx");
+    const res = await enableTool.execute("id", { name: "movie" });
+    expect(res.content[0].text).toContain("movie");
     const lastActive = calls[calls.length - 1].setActiveTools;
-    // ltx must be active
-    expect(lastActive).toEqual(expect.arrayContaining(["ltx", "ltx_help"]));
-    // movie must NOT be active (was not requested, and filterActive doesn't
+    // movie must be active
+    expect(lastActive).toEqual(expect.arrayContaining(["movie", "movie_help"]));
+    // zai-mcp must NOT be active (was not requested, and filterActive doesn't
     // re-fire gates against lastPrompt — only the named gate is activated)
-    expect(lastActive).not.toContain("movie");
-    expect(lastActive).not.toContain("movie_help");
+    expect(lastActive).not.toContain("zai_web_search_web_search_prime");
+    expect(lastActive).not.toContain("zai_web_reader_webReader");
   });
 
   test("F3 regression: enable_tool with already-active gate returns 'already active' (not 'Activated')", async () => {
     // When a gate is already fully active, enable_tool({name}) must not claim
     // it was "Activated" — it should say "already active".
-    const loaded = [...CORE_TOOLS, "ltx", "ltx_help"];
+    const loaded = [...CORE_TOOLS, "movie", "movie_help"];
     const { enableTool, handlers } = setupPi(loaded);
-    // Activate ltx first via before_agent_start
+    // Activate movie first via before_agent_start
     if (handlers.before_agent_start) {
-      await handlers.before_agent_start({ prompt: "make a video" });
+      await handlers.before_agent_start({ prompt: "orchestrate a montage" });
     }
-    // Now request ltx again — it's already active
-    const res = await enableTool.execute("id", { name: "ltx" });
+    // Now request movie again — it's already active
+    const res = await enableTool.execute("id", { name: "movie" });
     expect(res.content[0].text).toMatch(/already active/i);
     expect(res.content[0].text).not.toMatch(/Activated/i);
   });
@@ -450,14 +459,14 @@ describe("enable_tool (S1 A escape hatch)", () => {
     // setActiveTools throwing inside execute must be caught → error result, not a throw.
     const handlers: Record<string, any> = {};
     const pi: any = {
-      getAllToolDefinitions: () => [...CORE_TOOLS, "ltx", "ltx_help"].map((name) => ({ name })),
+      getAllToolDefinitions: () => [...CORE_TOOLS, "movie", "movie_help"].map((name) => ({ name })),
       setActiveTools: () => { throw new Error("setActiveTools boom"); },
       registerTool: (def: any) => { (pi as any)._t = def; },
       on: (ev: string, h: any) => { handlers[ev] = h; },
     };
     toolGateExtension(pi);
     const enableTool = (pi as any)._t;
-    const res = await enableTool.execute("id", { intent: "make a video" });
+    const res = await enableTool.execute("id", { intent: "orchestrate a montage" });
     expect(res.content[0].text).toMatch(/error/i);
   });
 });
@@ -470,14 +479,14 @@ describe("filterActive (F1 fix)", () => {
   });
 
   test("gated tool is active only when in sticky", () => {
-    // flux2 migrated to owner-declared (ticket 05) → absent from module
-    // TRACKED_TOOLS, so filterActive would fail-open it. Use ltx + movie (still
-    // in TRACKED_TOOLS) as the gated pair instead.
-    const all = [...CORE_TOOLS, "ltx", "ltx_help", "movie", "movie_help"];
-    const sticky = new Set([...CORE_TOOLS, "ltx", "ltx_help"]);
+    // flux2 (ticket 05) + ltx (ticket 07) migrated → absent from module
+    // TRACKED_TOOLS, so filterActive would fail-open them. Use zai-mcp + movie
+    // (still in TRACKED_TOOLS) as the gated pair instead.
+    const all = [...CORE_TOOLS, "zai_web_search_web_search_prime", "zai_web_reader_webReader", "movie", "movie_help"];
+    const sticky = new Set([...CORE_TOOLS, "zai_web_search_web_search_prime", "zai_web_reader_webReader"]);
     const active = filterActive(all, sticky);
-    expect(active).toContain("ltx");
-    expect(active).toContain("ltx_help");
+    expect(active).toContain("zai_web_search_web_search_prime");
+    expect(active).toContain("zai_web_reader_webReader");
     expect(active).not.toContain("movie");
     expect(active).not.toContain("movie_help");
   });
@@ -485,9 +494,9 @@ describe("filterActive (F1 fix)", () => {
   test("does NOT mutate sticky", () => {
     const sticky = new Set(CORE_TOOLS);
     const before = sticky.size;
-    filterActive([...CORE_TOOLS, "ltx", "ltx_help"], sticky);
+    filterActive([...CORE_TOOLS, "movie", "movie_help"], sticky);
     expect(sticky.size).toBe(before);
-    expect(sticky.has("ltx")).toBe(false);
+    expect(sticky.has("movie")).toBe(false);
   });
 });
 
@@ -772,10 +781,11 @@ describe("buildEffectiveGates", () => {
 
   test("hybrid fallback: tools without gating keep their hardcoded gate", () => {
     const eff = buildEffectiveGates([]); // no owner declarations
-    // flux2 migrated to owner-declared (ticket 05) → no longer in hardcoded
-    // GATES; use ltx (still in GATES) to prove the fallback path is intact.
-    const ltx = eff.gates.find((g) => g.names.includes("ltx"));
-    expect(ltx).toBeDefined(); // hardcoded GATES fallback intact
+    // flux2 (ticket 05) + ltx (ticket 07) migrated to owner-declared → no longer
+    // in hardcoded GATES; use movie (still in GATES) to prove the fallback path
+    // is intact.
+    const movie = eff.gates.find((g) => g.names.includes("movie"));
+    expect(movie).toBeDefined(); // hardcoded GATES fallback intact
     expect(eff.core.has("read")).toBe(true); // CORE_TOOLS fallback intact
   });
 
@@ -852,7 +862,7 @@ describe("tool-gate runtime reads owner-declared gating", () => {
       getAllToolDefinitions: () => [
         { name: "read", description: "r", gating: { core: true } },
         { name: "inspect_hooks", description: "d", gating: { keywords: ["schema cost"], requires: { nouns: ["agent"], verbs: ["inspect"] } } },
-        { name: "ltx", description: "f" }, // no gating → hardcoded fallback (ltx is in GATES)
+        { name: "movie", description: "f" }, // no gating → hardcoded fallback (movie is in GATES)
       ],
       on: (_chan: string, h: (e: unknown, ctx: unknown) => Promise<void>) => { if (_chan === "session_start") sessionStartHandler = h; return () => {}; },
       setActiveTools: (names: string[]) => { activeCalls.push(names); },
@@ -864,7 +874,7 @@ describe("tool-gate runtime reads owner-declared gating", () => {
     const active = activeCalls[0];
     expect(active).toContain("read");            // core-declared → active
     expect(active).not.toContain("inspect_hooks"); // owner-gated, no keyword in "" prompt → dormant
-    expect(active).not.toContain("ltx");          // hardcoded fallback gate, dormant
+    expect(active).not.toContain("movie");          // hardcoded fallback gate, dormant
   });
 
   test("enable_tool recompute must NOT spuriously activate an owner-gated tool absent from TRACKED_TOOLS", async () => {
@@ -883,8 +893,8 @@ describe("tool-gate runtime reads owner-declared gating", () => {
         // owner-declared NON-CORE gated tool; "unobtanium_tool" is NOT in any
         // hardcoded GATE or CORE_TOOLS → absent from module TRACKED_TOOLS.
         { name: "unobtanium_tool", gating: { keywords: ["unobtanium-trigger"] } },
-        // a separate gated tool via the hardcoded fallback (ltx gate)
-        { name: "ltx" },
+        // a separate gated tool via the hardcoded fallback (movie gate)
+        { name: "movie" },
       ],
       on: (_chan: string, h: (e: unknown, ctx: unknown) => Promise<void>) => {
         if (_chan === "session_start") sessionStartHandler = h;
@@ -901,10 +911,10 @@ describe("tool-gate runtime reads owner-declared gating", () => {
     const sessionActive = activeCalls[0];
     expect(sessionActive).not.toContain("unobtanium_tool"); // owner-gated, no keyword → dormant
 
-    // request a DIFFERENT tool (ltx) — X was never asked for.
-    await enableToolExecute!("id", { name: "ltx" });
+    // request a DIFFERENT tool (movie) — X was never asked for.
+    await enableToolExecute!("id", { name: "movie" });
     const recomputeActive = activeCalls[activeCalls.length - 1];
-    expect(recomputeActive).toContain("ltx");               // ltx explicitly requested → active
+    expect(recomputeActive).toContain("movie");               // movie explicitly requested → active
     expect(recomputeActive).not.toContain("unobtanium_tool"); // X must stay dormant during the recompute
   });
 });
