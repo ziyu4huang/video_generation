@@ -61,5 +61,13 @@ let package = Package(
             ],
             path: "Sources/Flux2Director"
         ),
+        .testTarget(
+            name: "Flux2DirectorTests",
+            dependencies: [
+                "Flux2Director",
+                .product(name: "CommonImageDirector", package: "common-image-director"),
+            ],
+            path: "Tests/Flux2DirectorTests"
+        ),
     ]
 )
