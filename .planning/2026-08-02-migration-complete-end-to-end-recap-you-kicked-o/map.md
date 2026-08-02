@@ -23,6 +23,7 @@ Finish the tool-gating rollout: migrate the owner-declared `gating` field to eve
 - [06 rollout krea2](tickets/06-rollout-krea2.md) — krea2+krea2_help owner-declare gating (keywords-only); hardcoded GATES entry removed; drift-guard migrated; tests green
 - [07 rollout ltx](tickets/07-rollout-ltx.md) — ltx+ltx_help owner-declare gating (keywords+requires); hardcoded GATES entry removed; drift-guard migrated; tests green
 - [08 rollout movie-director](tickets/08-rollout-movie-director.md) — movie+movie_help owner-declare gating (keywords-only); hardcoded GATES entry removed; drift-guard migrated; tests green
+- [09 rollout research-tool](tickets/09-rollout-research-tool.md) — 6 tools / 2 gate groups (vault keywords-only, arxiv keywords+requires) owner-declared; 2 hardcoded GATES entries removed; drift-guard migrated; tests green
 
 ## Not yet specified
 
