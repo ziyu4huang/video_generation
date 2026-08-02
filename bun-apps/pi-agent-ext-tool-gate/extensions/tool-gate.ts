@@ -465,7 +465,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     const active = filterActive(allToolNames, sticky, effectiveTracked);
     pi.setActiveTools(active);
 
-    const saved = computeBannerSaved(active, allToolNames, measuredTokens);
+    const saved = computeBannerSaved(active, allToolNames, measuredTokens, effectiveGates);
     const debug = process.env.TOOL_GATE_DEBUG_BANNER === "1";
     const theme = ctx.ui?.theme ?? ({ fg: (_k: string, s: string) => s } as NonNullable<typeof ctx.ui.theme>);
     scheduleToolGateBanner(
@@ -506,7 +506,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
       kind: "turn", ts: new Date().toISOString(),
       promptLen: prompt.length, gatesFired, dormantGates,
       activeCount: active.length, totalCount: allToolNames.length,
-      savedTok: computeBannerSaved(active, allToolNames, measuredTokens),
+      savedTok: computeBannerSaved(active, allToolNames, measuredTokens, effectiveGates),
     });
     if (isMissCandidate(prompt, gatesFired, dormantGates)) {
       emitToolGateLog({
