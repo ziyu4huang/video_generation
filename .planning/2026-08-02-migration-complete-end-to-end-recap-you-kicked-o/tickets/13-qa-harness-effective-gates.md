@@ -25,4 +25,10 @@ A STOPGAP reconstruction (`reconstructOwnerDeclaredGates` in `qa/evaluate.ts`) w
 
 - `bun run qa --strict` now reports 6 genuinely-ungated heavy tools (was 15 at HEAD; 13a eliminated 9 false-positives — verified via git stash). Of the 6: inspect_pathology → fixed by 13b (power-tool registrar); 5 tools have NO gating and need gating/always-on DECISIONS (out of 13a + 13b scope): subagents, sweep_branches, await_pr_merge, memory_supersede, wayfind_effort. So qa --strict coverage FAILS until 13b + those 5 decisions land (pre-existing after ticket 12; 13a improves 15→6, does not regress).
 
-status: open
+status: closed
+
+## Resolution — part (c) done; ticket 13 CLOSED
+
+13b completed the final part: the power-tool registrar (`@repo/pi-agent-ext-power-tool/extensions/power-tool.ts`) was added to qa/evaluate.ts captureOwnerDeclaredDefs → captures all 6 inspect_* tools (inspect_context, inspect_agent, inspect_extensions, inspect_hooks, inspect_pathology, inspect_tui), which share ONE identical signature-group (keywords: schema cost/pathology/extension health/工具開銷/context window/token usage; requires nouns+verbs; canonical names[0]=inspect_context). 8 inspect probes restored in qa/probes.ts: 4 must-fire (incl. a requires-only noun∧verb case), 2 must-not-fire (incl. the famous "inspect element"/"inspect dom tree" false-fire the requires fix killed), 1 escape-name, 1 escape-intent. Capture stub tolerated power-tool's factory unchanged. Tests: bun test 271/0 (+8 new probe tests), `bun run qa` default PASS (coverageGaps []), `bun run qa --strict` ungated 6→5 (inspect_pathology now captured+gated). Commit: ba651995.
+Ticket 13 COMPLETE: (a) buildEffectiveGates swap [13a], (b) coverage fallout fix [13a], (c) inspect probes [13b].
+STILL OPEN (separate scope, NOT ticket 13): `bun run qa --strict` coverage still fails on 5 genuinely-ungated heavy tools needing gate-vs-always-on decisions: subagents, sweep_branches, await_pr_merge, memory_supersede, wayfind_effort.
