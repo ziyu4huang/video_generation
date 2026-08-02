@@ -26,6 +26,7 @@ Finish the tool-gating rollout: migrate the owner-declared `gating` field to eve
 - [09 rollout research-tool](tickets/09-rollout-research-tool.md) — 6 tools / 2 gate groups (vault keywords-only, arxiv keywords+requires) owner-declared; 2 hardcoded GATES entries removed; drift-guard migrated; tests green
 - [10 rollout subagent](tickets/10-rollout-subagent.md) — combined with 11 (shared gate); subagent owner-declares gating; hardcoded entry removed
 - [11 rollout workflow](tickets/11-rollout-workflow.md) — combined with 10; workflow+workflow_help+workflow_control+subagent owner-declare identical gating (one 4-name gate); tests green
+- [12 rollout zai-mcp](tickets/12-rollout-zai-mcp.md) — LAST hardcoded entry removed; GATES now empty (removal side COMPLETE); dynamic session_start registration; runtime savings threading deferred to 14
 
 ## Not yet specified
 
