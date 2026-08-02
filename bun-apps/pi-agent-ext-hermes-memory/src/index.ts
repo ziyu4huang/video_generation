@@ -50,6 +50,7 @@ import { triggerConsolidation, registerConsolidateCommand, resolveConsolidatorMo
 import { setupCorrectionDetector } from "./handlers/correction-detector.js";
 import { setupErrorDetector } from "./handlers/error-detector.js";
 import { RecallSet, setupWorthScoring } from "./handlers/worth-scoring.js";
+import { SurfacedSignatureSet, setupUsedDetection } from "./handlers/used-detection.js";
 import { registerSkillsCommand } from "./handlers/skills-command.js";
 import { registerInterviewCommand } from "./handlers/interview.js";
 import { registerSwitchProjectCommand } from "./handlers/switch-project.js";
@@ -170,6 +171,18 @@ export default async function (pi: ExtensionAPI) {
   const memoryRepo: MemoryRepository = asSwappable<MemoryRepository>(() => currentBundle.memoryRepo);
   const sessionRepo: SessionRepository = asSwappable<SessionRepository>(() => currentBundle.sessionRepo);
   const sessionsDir = path.join(agentRoot, "sessions");
+
+  // UPSP §9 / ticket #06 (Task 6): per-session shared holders consumed across
+  // lifecycle boundaries. `activeSessionId` is set by the session_start handler
+  // below and read by setupUsedDetection's turn_end closure (which is bound at
+  // extension setup, before a ctx exists — hence the indirection).
+  // `surfacedSignatures` is populated at session_start from the SAME
+  // prompt-assembly receipt #05 records (the §5↔§9 join) and scanned at
+  // turn_end. Both are function-scoped: there is exactly one extension instance
+  // per process, and closures capture the binding by reference so the turn_end
+  // read sees the value session_start wrote.
+  let activeSessionId: string | undefined;
+  const surfacedSignatures = new SurfacedSignatureSet();
 
   const refreshSkillProjectContext = (cwd?: string) => {
     const resource = resolveProjectSkillDiscovery(skillStore, config.projectsMemoryDir, cwd);
@@ -328,10 +341,22 @@ export default async function (pi: ExtensionAPI) {
     // + block hash ONCE per session. Best-effort — never abort startup. Mirrors
     // the backfillStableIds guard: a missing sid / null assembly (policy-only or
     // empty store) skips the record; a throwing recordAssembly is swallowed.
+    //
+    // UPSP §9 / Task 6: bind the active session id (read by setupUsedDetection's
+    // turn_end closure) and hand captureAssembly an `onReceipt` callback that
+    // populates `surfacedSignatures` from the SAME receipt #05 just recorded —
+    // the §5↔§9 join invariant (one build feeds both record + the matcher). The
+    // populate is gated on `usedDetection !== false` (default on, INDEPENDENT of
+    // worthScoring): disabled ⇒ onReceipt is undefined ⇒ the set stays empty ⇒
+    // matchAndForget always returns [] ⇒ markUsed never fires.
+    activeSessionId = (ctx as { sessionManager?: { getSessionId?: () => string } }).sessionManager?.getSessionId?.();
     await captureAssembly({
-      getSessionId: () => (ctx as { sessionManager?: { getSessionId?: () => string } }).sessionManager?.getSessionId?.(),
+      getSessionId: () => activeSessionId,
       build: () => buildPromptAssembly(config, store, projectStore, projectName),
       record: (sid, mdIds, hash) => sessionRepo.recordAssembly(sid, mdIds, hash),
+      onReceipt: config.usedDetection !== false
+        ? (r) => surfacedSignatures.populate(r.signatures)
+        : undefined,
     });
   });
 
@@ -468,6 +493,18 @@ export default async function (pi: ExtensionAPI) {
 
   // ── 8c. Setup worth-scoring (drains recall-set at turn_end, bumps mw_success/mw_fail) ──
   setupWorthScoring(pi, memoryRepo, recallSet, config);
+
+  // ── 8d. Setup used-detection (UPSP §9 / ticket #06) ──
+  // `surfacedSignatures` is populated at session_start (captureAssembly's
+  // onReceipt callback, see the session_start handler) from the SAME
+  // prompt-assembly receipt #05 recorded — the §5↔§9 join. This buffers the
+  // turn's assistant output and, at turn_end, scans it against the set +
+  // markUsed the matched rows. Wired unconditionally (mirrors setupWorthScoring
+  // — the populate gate above + the handler's own `enabled` flag together make
+  // it a clean no-op when usedDetection===false). DISTINCT from worth-scoring:
+  // that tracks *recalled* memory + turn outcome; this tracks *surfaced*
+  // (prompt-injected) memory the agent's output actually referenced.
+  setupUsedDetection(pi, sessionRepo, surfacedSignatures, config, () => activeSessionId ?? null);
 
   // ── 9. Register commands ──
   registerInsightsCommand(pi, store, projectStore, projectName);

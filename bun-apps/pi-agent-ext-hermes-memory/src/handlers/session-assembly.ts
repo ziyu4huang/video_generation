@@ -33,6 +33,15 @@ export interface CaptureAssemblyDeps {
   build: () => AssemblyReceipt | null;
   /** Records the receipt; failures are swallowed by captureAssembly. */
   record: (sessionId: string, mdIds: string[], hash: string) => Promise<void>;
+  /**
+   * Optional consumer of the SAME receipt that was just built + recorded
+   * (UPSP §9 / ticket #06, Task 6). Called exactly once, AFTER a successful
+   * `record`, only when `build` returned a non-null assembly — so anything the
+   * caller derives from the receipt (e.g. populating the surfaced-signature
+   * set) is guaranteed to mirror the mdIds just persisted (the §5↔§9 join).
+   * Additive + optional: #05 call sites that omit it are unaffected.
+   */
+  onReceipt?: (receipt: AssemblyReceipt) => void;
 }
 
 /**
@@ -46,6 +55,10 @@ export async function captureAssembly(deps: CaptureAssemblyDeps): Promise<boolea
     const assembly = deps.build();
     if (!assembly) return false;
     await deps.record(sid, assembly.mdIds, assembly.hash);
+    // Surface the same receipt AFTER the record landed, so the §5↔§9 join stays
+    // exact (the surfaced mdIds the matcher tracks == the mdIds just persisted).
+    // A throwing onReceipt is swallowed by the outer guard (never blocks startup).
+    deps.onReceipt?.(assembly);
     return true;
   } catch {
     /* best-effort provenance; never block startup */
