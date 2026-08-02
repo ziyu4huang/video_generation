@@ -1,0 +1,11 @@
+#V2
+REMOVE DATABASE IF EXISTS test;
+DEFINE DATABASE IF NOT EXISTS test;
+DEFINE TABLE IF NOT EXISTS memories SCHEMALESS;
+DEFINE INDEX IF NOT EXISTS memories_md_id ON TABLE memories FIELDS mdId UNIQUE;
+CREATE memories SET content="x" RETURN id;
+CREATE memories SET content="y" RETURN id;
+-- Both have no mdId (absent/NONE). If UNIQUE treated absent as equal, the
+-- second CREATE would throw an index violation. Expect BOTH to succeed.
+SELECT count() AS n FROM memories GROUP ALL;
+REMOVE NAMESPACE test_mdid_step7;

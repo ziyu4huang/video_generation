@@ -1,23 +1,9 @@
 ---
-id: d32379f8-230e-47fd-8b41-95e4fde2a222
-created: 2026-07-31
-last: 2026-08-01
----
-pi-agent-ext-subagent watchdog: L1 = tsserver (TS/JS only via changedTsJsPaths), L2 = model-based review. Bugs fixed (2026-07-31): (1) L2 input-set — mixed TS/JS+Python changes → L2 only saw TS/JS; fixed to use all changedPaths. (2) L2 diff truncation at 200K chars without flag; fixed with smart per-file budget + truncation flag. (3) Zero-layer sentinel degraded state buried; fixed with dual sentinel escalation. Planned: L1 multi-provider registry (pyright first), biome CLI-lint lane (catches unused vars/imports tsserver misses, aligns with CI gate).
-§
----
 id: 5c57c1b7-1c75-4fa9-baf6-e486347cbff5
 created: 2026-07-31
 last: 2026-07-31
 ---
 pi-agent-ext-subagent watchdog L1 planned architecture change (ticket 02, DO decided): generalize L1 from single hardcoded `typescript-language-server` into a multi-provider `L1Provider` registry. First addition: pyright for Python. Second lane planned (ticket 03, DO): biome as CLI-lint lane (`biome lint --reporter=json`) separate from the LSP registry — biome is a linter not a language server, CLI output is clean. Severity by-domain: correctness/suspicious/security → blocker; style/complexity → concern. Rationale: biome `recommended` rules catch unused vars/imports that tsserver misses (repo tsconfig has `strict` but NOT `noUnusedLocals`). biome is already CI gate per-ext — L1 addition is 'earlier to dirty tree' parallel to tsserver-vs-CI-tsc symmetry.
-§
----
-id: 6d9af113-ee22-4411-8236-10b257885101
-created: 2026-07-30
-last: 2026-08-01
----
-file2md PDF extraction AB test (2026-07-30): MinerU (Python/torch) wins on quality (LaTeX + figures, ~3.5-7s/page) but violates no-Python constraint. Bun-native (mupdf, pdftotext) = pdftotext-class: faithful prose, degraded equations (linearized), figures lost. VLM-only hallucinates (e.g., missed trailing V). HYBRID = mupdf text-as-prior + VLM on figure pages only — suppresses hallucinations, fast for prose pages. Implemented --extract vlm|text|hybrid (vlm default), PR #951.
 §
 ---
 id: 9db26806-c620-4d66-a3b2-829b1e12c22e
@@ -55,20 +41,6 @@ last: 2026-08-01
 Git workflow (video_generation repo): Multi-worktree setup means `gh pr merge --squash --delete-branch` leaves LOCAL branches (main checked out elsewhere, local checkout fails). Cleanup: `git switch --detach origin/main && git branch -D <merged-branch>`. Use `sweep-merged-branches.sh` for automated cleanup. PR process: branch from origin/main → commit → push → auto-merge (squash) → if mergeState=BEHIND, rebase + force-push → CI passes → auto-merge → cleanup. Branch protection requires CI pass including administrators. `git cherry origin/main <branch>` checks if safe to force-delete (0 lines starting with `+` = merged).
 §
 ---
-id: 76bf293e-128e-4ad5-a50a-c8ed7eff93cd
-created: 2026-08-02 --> <!-- created=2026-08-01
-last: 2026-08-01
----
-[correction] superpowers spec location hard-code bug (discovered 2026-08-02): I suggested writing to `docs/superpowers/specs/` but user corrected me — all superpowers pi-extension docs should redirect to `.planning/`, not `docs/superpowers/`. The actual convention is defined by superpowers ADR-0005 + wayfind ADR-0005: unified `.planning/<effort>/` tree where wayfinder writes `map.md` + `tickets/` and superpowers writes `spec.md`/`plan.md`/`sdd`/`brainstorm/`. Root cause: the local brainstorming and writing-plans skills still hard-code `docs/superpowers/specs|plans/` as default (stale upstream default), but the injection layer (`piBoundaryOverrides` in superpowers.ts) correctly redirects to `.planning/<effort>/` only when `PI_PLANNING_EFFORT` is active. Our earlier brainstorm had no active effort, so the redirect didn't fire. Fix: ensure PI_PLANNING_EFFORT is set before using superpowers skills, or the skills themselves need upstream patches.
-§
----
-id: 6b0c4e9a-5078-45cd-9e52-26dc8ae80194
-created: 2026-08-02 --> <!-- created=2026-08-01
-last: 2026-08-01
----
-[insight] tool-gate savings claim drift (discovered 2026-08-02): savings figures are duplicated/inconsistent across README.md (~7,900 and ~8,050), code header (~7,940), and CONTEXT.md. The `savings.ts` already exports `CLAIMED_SAVED_TOK = 8050` and computes `deviation: savedTok - claimed`, but NO test asserts deviation is within tolerance — that's the missing drift guard. Design: add DRIFT_BAND constant, update prose to point to `bun run qa:savings` for live numbers, add deviation-band test to CI.
-§
----
 id: f3b0e175-b5e6-4c80-bcec-95f3ddc64ff1
 created: 2026-08-01
 last: 2026-08-01
@@ -88,3 +60,31 @@ created: 2026-08-01
 last: 2026-08-01
 ---
 tool-gate savings-claim single-source-of-truth — RESOLVED (2026-08-02, commits fecade51 + 7ff58cdd, code-reviewed). CLAIMED_SAVED_TOK=8050 (qa/savings.ts) is THE gross single source; the NET claim is DERIVED (CLAIMED_NET_TOK = CLAIMED_SAVED_TOK − ENABLE_TOOL_OVERHEAD_TOK = 7807; prose ~7,800). Every prose mention (README/CONTEXT/tool-gate.ts header/PRD) cites ~8,050 gross / ~7,800 net + points to `bun run qa:savings` for live numbers. THREE guards: (1) DRIFT_BAND=0.2 (±20%) + pure withinDriftBand() + gross deviation-band test; (2) net-band + enable_tool-overhead-band tests; (3) PROSE-DRIFT test (qa/savings-prose-lock.test.ts) — fails CI if any `~N,NNN` figure in prose isn't in SANCTIONED_PROSE_TOK, closing the prose↔constant gap that once let 3 different gross numbers (7,900/7,940/8,050) coexist. ±20% width is deliberate (zai-mcp env swing ~1.1k ≈ 14% of claim; tighter flakes when zai loads). CONVENTION: never hardcode a competing savings figure in prose; cite CLAIMED_SAVED_TOK / CLAIMED_NET_TOK; refresh measured baselines (OFF ~18k / ON ~10k / measured net ~7,865) only via qa:savings.
+§
+---
+id: 5c86201f-383c-4db6-a2ba-18e31ec00e57
+created: 2026-08-02
+last: 2026-08-02
+---
+Feature PRs ship code-only, planning artifacts stay as churn (2026-08-02, reinforced): PR #1005 (pin field), #1007 (dangling-ref sweep), #1009 (numeric isolation), and #1010 (await_pr_merge hardening) all shipped exactly the feature source + test files, leaving `.planning/` and MEMORY.md changes unstaged. This is the established convention — stage only the code files, leave planning/memory churn local. Verified across four consecutive PRs.
+§
+---
+id: c3730717-abf2-44df-a291-22189f107c69
+created: 2026-08-02
+last: 2026-08-02
+---
+hermes-memory numeric isolation — project block leak (2026-08-02, PR #1009 fix): Ticket #04's premise ("raw memworth counters leak into the prompt") was partially true. Verified gap: formatProjectBlock (memory-store.ts:1291) joined raw this.memoryEntries (frontmatter intact, leaking id/created/memworth/pin etc.), while sibling paths (memory/user snapshot, failure block) already used stripMetadata. Fix: made formatProjectBlock consistent by calling stripMetadata before rendering, and added a MEMORY_POLICY_PROMPT rule: "Never edit memory sources directly — always use the validated tool envelope." Tests added for both gaps. The ticket's "prose bands" idea was moot — the design already strips memworth entirely, it was just inconsistent.
+§
+---
+id: 505c14b4-ab04-4dda-88be-00004b3ae605
+created: 2026-08-02
+last: 2026-08-02
+---
+Spec→plan hardening (D1-D3, 2026-08-02): Specs must cite VERIFIED code sites (file:line) before writing the design. This prevents "spec-reality gaps" where the ticket's premise doesn't match actual code. Example: ticket #04 assumed raw memworth leaked into prompts, but D1 verification revealed only formatProjectBlock leaked (siblings already stripped), and the "prose bands" idea was moot. Another example: ticket #03's "body-reference parser" was a no-op because memory bodies are pure prose with no mdId/slug citations — the real rot was in structured lineage pointers (supersedes/parentIds). D1 = read code; D2 = write spec with verified sites; D3 = implement from grounded spec.
+§
+---
+id: 5e62d162-5cb3-4e12-8d2f-296e6fc7fd39
+created: 2026-08-02
+last: 2026-08-02
+---
+hermes-memory session-row lifecycle vs capture point: the `sessions` DB row is created ONLY by DEFERRED backfill (`scheduleSessionBackfill` → `setTimeout(0)`, session-backfill.ts) and live-indexing on `message_end` (index.ts `scheduleLiveSessionIndex`) — NOT synchronously at `session_start`. So any per-session data captured at `session_start` CANNOT FK-reference `sessions(id)` (row absent) and cannot upsert columns onto `sessions` (NOT NULL project/cwd + absent row). PR #1012 (per-session assembly log / prompt-provenance) therefore uses FK-free `session_assembly(session_id, md_id)` + `session_assembly_meta(session_id, hash)` tables; session_id is a plain join key, joined to `sessions` via LEFT JOIN (project/cwd null until backfill indexes the session). General rule for future hermes features that capture at session_start: store in FK-free tables keyed by session_id, not on the sessions row.

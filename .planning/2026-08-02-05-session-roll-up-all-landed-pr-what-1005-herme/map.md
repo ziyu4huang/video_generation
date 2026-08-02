@@ -7,6 +7,8 @@
 
 ## Destination
 
+> ✅ **Reached** — PR [#1012](https://github.com/ziyu4huang/video_generation/pull/1012) merged (2026-08-02). Built via spec → plan → SDD (7 tasks, all review-clean, 1062 tests green). Deferred follow-ups tracked in `sdd/plan/progress.md`.
+
 hermes-memory records, **once per session at `session_start`**, the **prompt-provenance**
 of the memory block it injects: the set of `md_id`s assembled across all injected blocks
 (global memory + global user + post-filter active-failures + project memory) plus a

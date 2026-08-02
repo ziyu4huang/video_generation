@@ -40,6 +40,14 @@ describe("computeHeat — recency spine (exp(-age/halflife))", () => {
     assert.ok(Math.abs(heat - 1) < EPS, `age-0 neutral heat should be 1.0, got ${heat}`);
   });
 
+  it("future lastReferenced (negative pre-clamp age) → age clamped to 0 → heat 1 (max(0,…) guard)", () => {
+    // A future date would yield a negative age → recencySpine > 1 without the
+    // Math.max(0, …) guard. Assert it clamps to age 0 (heat 1, neutral).
+    const future = new Date(NOW.getTime() + 86_400_000).toISOString(); // +1 day
+    const heat = computeHeat(neutralInput({ lastReferenced: future }), DEFAULT_CFG);
+    assert.ok(Math.abs(heat - 1) < EPS, `future-date heat should be 1.0 (age clamped), got ${heat}`);
+  });
+
   it("age = halflife → recencySpine ≈ exp(-1) ≈ 0.368", () => {
     // age exactly one halflife (default 14 days): spine = e^-1
     const age = DEFAULT_DECAY_HALFLIFE_DAYS; // 14

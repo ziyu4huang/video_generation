@@ -1,0 +1,156 @@
+# Review package: d2518d749215f4ece49c5eaab56cec2279e3050b..HEAD
+
+## Commits
+75024f53 feat(hermes): Surreal recordAssembly + session_assembly schemaless table
+
+## Files changed
+ .../src/store/surreal/schema.ts                    |  5 +++
+ .../src/store/surreal/surreal-session-repo.ts      | 18 ++++++++++
+ .../surreal/surreal-session-repo-contract.test.ts  | 41 ++++++++++++++++++++++
+ 3 files changed, 64 insertions(+)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/schema.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/schema.ts
+index f2556470..f6c5d10e 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/schema.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/schema.ts
+@@ -12,18 +12,23 @@
+ export const SURREAL_BOOTSTRAP_SQL = (ns: string, db: string): string => `
+ DEFINE NAMESPACE IF NOT EXISTS ${ns};
+ DEFINE DATABASE IF NOT EXISTS ${db};
+ DEFINE TABLE IF NOT EXISTS memories SCHEMALESS;
+ DEFINE TABLE IF NOT EXISTS sessions SCHEMALESS;
+ DEFINE TABLE IF NOT EXISTS messages SCHEMALESS;
+ DEFINE TABLE IF NOT EXISTS session_files SCHEMALESS;
+ DEFINE TABLE IF NOT EXISTS seq SCHEMALESS;
+ DEFINE TABLE IF NOT EXISTS tag SCHEMALESS;
+ DEFINE TABLE IF NOT EXISTS tagged SCHEMALESS;
++DEFINE TABLE IF NOT EXISTS session_assembly SCHEMALESS;
++DEFINE TABLE IF NOT EXISTS session_assembly_meta SCHEMALESS;
+ DEFINE ANALYZER IF NOT EXISTS hermes_en TOKENIZERS class FILTERS snowball(english);
+ DEFINE INDEX IF NOT EXISTS memory_fts ON TABLE memories FIELDS content FULLTEXT ANALYZER hermes_en;
+ DEFINE INDEX IF NOT EXISTS message_fts ON TABLE messages FIELDS content FULLTEXT ANALYZER hermes_en;
+ DEFINE INDEX IF NOT EXISTS memories_content ON TABLE memories FIELDS content;
+ DEFINE INDEX IF NOT EXISTS memories_md_id ON TABLE memories FIELDS mdId UNIQUE;
+ DEFINE INDEX IF NOT EXISTS tagged_in ON TABLE tagged FIELDS in;
++DEFINE INDEX IF NOT EXISTS session_assembly_md_id ON TABLE session_assembly FIELDS mdId;
++DEFINE INDEX IF NOT EXISTS session_assembly_session ON TABLE session_assembly FIELDS sessionId;
++DEFINE INDEX IF NOT EXISTS session_assembly_meta_sid ON TABLE session_assembly_meta FIELDS sessionId UNIQUE;
+ IF array::len((SELECT id FROM seq:memory)) = 0 { CREATE seq:memory SET value = 0; };
+ `;
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/surreal-session-repo.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/surreal-session-repo.ts
+index 36eca7eb..6c9ebaa1 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/surreal-session-repo.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/surreal-session-repo.ts
+@@ -238,20 +238,38 @@ export class SurrealSessionRepository implements SessionRepository {
+       sessionId: r.sessionId, messageId: r.id, role: r.role as "user" | "assistant" | "system",
+       content: r.content, timestamp: r.timestamp, project: r.project, cwd: r.cwd,
+     }));
+   }
+ 
+   async getIndexedMessageCount(): Promise<number> {
+     const rows = await this.c.query<Array<{ count: number }>>(`SELECT count() AS count FROM messages GROUP ALL;`);
+     return rows[0]?.count ?? 0;
+   }
+ 
++  async recordAssembly(sessionId: string, mdIds: readonly string[], hash: string): Promise<void> {
++    // Meta (hash) upsert + replace assembly rows. The session doc is never touched (hash lives
++    // in session_assembly_meta; the sessions row is created later by backfill — see spec §Timing).
++    await this.c.query(
++      `UPSERT type::record("session_assembly_meta", $sid) SET sessionId = $sid, hash = $hash, capturedAt = $now;`,
++      { sid: sessionId, hash, now: new Date().toISOString() },
++    );
++    await this.c.query(`DELETE FROM session_assembly WHERE sessionId = $sid;`, { sid: sessionId });
++    const unique = [...new Set(mdIds)];
++    if (unique.length === 0) return;
++    const params: Record<string, unknown> = { sid: sessionId };
++    const stmts = unique.map((id, i) => {
++      params[`m${i}`] = id;
++      return `CREATE session_assembly SET sessionId = $sid, mdId = $m${i};`;
++    });
++    await this.c.query(stmts.join("\n"), params);
++  }
++
+   async getSessionStats(): Promise<SessionStats> {
+     const sess = await this.c.query<Array<{ count: number }>>(`SELECT count() AS count FROM sessions GROUP ALL;`);
+     const msg = await this.c.query<Array<{ count: number }>>(`SELECT count() AS count FROM messages GROUP ALL;`);
+     const projects = await this.c.query<Array<{ project: string | null; sessions: number }>>(
+       `SELECT project, count() AS sessions FROM sessions GROUP BY project;`,
+     );
+     return {
+       totalSessions: sess[0]?.count ?? 0,
+       totalMessages: msg[0]?.count ?? 0,
+       projects: projects.map((p) => ({ project: p.project ?? "", sessions: p.sessions ?? 0, messages: 0 })),
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/store/surreal/surreal-session-repo-contract.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/store/surreal/surreal-session-repo-contract.test.ts
+index 00faa9fb..deaab36c 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/tests/store/surreal/surreal-session-repo-contract.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/store/surreal/surreal-session-repo-contract.test.ts
+@@ -1,16 +1,17 @@
+ /**
+  * Contract test for SurrealSessionRepository. Registers the shared
+  * runSessionRepositoryContract suite ONLY when the local SurrealDB service
+  * is reachable — this keeps CI green when the server is absent while still
+  * exercising the full backend-agnostic contract on developer machines.
+  */
++import { describe, expect, test } from "bun:test";
+ import { isSurrealUp, uniqueNs } from "./_helpers.js";
+ 
+ const up = await isSurrealUp();
+ 
+ if (up) {
+   const { runSessionRepositoryContract } = await import("../repository-contract.test.js");
+   const { SurrealBackend } = await import("../../../src/store/surreal/surreal-backend.js");
+   const { SurrealSessionRepository } = await import("../../../src/store/surreal/surreal-session-repo.js");
+   runSessionRepositoryContract("SurrealDB", async () => {
+     const ns = uniqueNs();
+@@ -18,10 +19,50 @@ if (up) {
+     await backend.init();
+     return {
+       repo: new SurrealSessionRepository(backend),
+       close: async () => {
+         try { await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch {}
+         await backend.close();
+       },
+     };
+   });
+ }
++
++if (up) {
++  const { SurrealBackend } = await import("../../../src/store/surreal/surreal-backend.js");
++  const { SurrealSessionRepository } = await import("../../../src/store/surreal/surreal-session-repo.js");
++
++  describe("SurrealSessionRepository.recordAssembly", () => {
++    test("writes session_assembly rows + meta hash; idempotent; queryable by mdId", async () => {
++      const ns = uniqueNs();
++      const backend = new SurrealBackend({ namespace: ns, database: ns });
++      await backend.init();
++      try {
++        const repo = new SurrealSessionRepository(backend);
++        const sid = "sess-surr-1";
++        await repo.indexSession({ id: sid, project: "p", cwd: "/p", startedAt: new Date().toISOString(), messages: [] } as never);
++
++        await repo.recordAssembly(sid, ["m1", "m2", "m1"], "h1");
++
++        const rows = await backend.client.query<Array<{ mdId: string }>>(
++          `SELECT mdId FROM session_assembly WHERE sessionId = $sid;`, { sid },
++        );
++        expect(rows.map((r) => r.mdId).sort()).toEqual(["m1", "m2"]);
++
++        const meta = await backend.client.query<Array<{ hash: string }>>(
++          `SELECT hash FROM session_assembly_meta WHERE sessionId = $sid LIMIT 1;`, { sid },
++        );
++        expect(meta[0]?.hash).toBe("h1");
++
++        // idempotent replace: prior rows cleared, hash overwritten
++        await repo.recordAssembly(sid, ["m3"], "h2");
++        const after = await backend.client.query<Array<{ mdId: string }>>(
++          `SELECT mdId FROM session_assembly WHERE sessionId = $sid;`, { sid },
++        );
++        expect(after.map((r) => r.mdId)).toEqual(["m3"]);
++      } finally {
++        try { await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch {}
++        await backend.close();
++      }
++    });
++  });
++}

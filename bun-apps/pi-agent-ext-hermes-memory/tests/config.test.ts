@@ -532,6 +532,15 @@ describe("loadConfig", () => {
     assert.strictEqual(config.decayWorthWeight, 0.15);
     assert.strictEqual(config.decayUsedBonus, 0.1);
   });
+
+  it("rejects decayHalflifeDays: 0 (would yield NaN heat) → default 14", () => {
+    // halflife 0 ⇒ exp(-age/0) = NaN ⇒ clamp(NaN) = NaN, corrupting the D5
+    // deterministic heat ordering. The > 0 guard rejects it → default.
+    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
+    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({ decayHalflifeDays: 0 }));
+    const config = loadConfig(TEST_CONFIG_PATH);
+    assert.strictEqual(config.decayHalflifeDays, 14);
+  });
 });
 
 describe("config dbBackend", () => {

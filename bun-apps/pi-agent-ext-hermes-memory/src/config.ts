@@ -262,7 +262,9 @@ export function loadConfig(configPath?: string, cwd: string = process.cwd()): Me
       // numeric knobs via isNonNegativeNumber, mirroring the usedDetection
       // siblings just above).
       if (typeof parsed.decayEnabled === "boolean") config.decayEnabled = parsed.decayEnabled;
-      if (isNonNegativeNumber(parsed.decayHalflifeDays)) config.decayHalflifeDays = parsed.decayHalflifeDays;
+      // halflife must be > 0: halflife 0 ⇒ exp(-age/0) = NaN ⇒ clamp(NaN) = NaN,
+      // corrupting heat ordering (D5 determinism). Reject 0 → default.
+      if (typeof parsed.decayHalflifeDays === "number" && Number.isFinite(parsed.decayHalflifeDays) && parsed.decayHalflifeDays > 0) config.decayHalflifeDays = parsed.decayHalflifeDays;
       if (isNonNegativeNumber(parsed.decayWorthWeight)) config.decayWorthWeight = parsed.decayWorthWeight;
       if (isNonNegativeNumber(parsed.decayUsedBonus)) config.decayUsedBonus = parsed.decayUsedBonus;
       if (typeof parsed.autoSupersede === "boolean") config.autoSupersede = parsed.autoSupersede;

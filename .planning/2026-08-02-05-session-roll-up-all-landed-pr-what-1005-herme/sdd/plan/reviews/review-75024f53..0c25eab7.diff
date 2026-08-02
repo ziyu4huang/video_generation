@@ -1,0 +1,259 @@
+# Review package: 75024f531b6d049e97ca3b37db794f3dce89f81e..HEAD
+
+## Commits
+0c25eab7 feat(hermes): wire per-session prompt-provenance capture at session_start
+
+## Files changed
+ .../src/handlers/session-assembly.ts               |  46 +++++++++
+ bun-apps/pi-agent-ext-hermes-memory/src/index.ts   |  13 ++-
+ .../tests/integration/session-assembly.test.ts     | 111 +++++++++++++++++++++
+ 3 files changed, 169 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/handlers/session-assembly.ts b/bun-apps/pi-agent-ext-hermes-memory/src/handlers/session-assembly.ts
+new file mode 100644
+index 00000000..cba06345
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/handlers/session-assembly.ts
+@@ -0,0 +1,46 @@
++/**
++ * Per-session prompt-provenance capture (UPSP §5 request_body_sha256 analogue).
++ *
++ * Extracted as a pure, injectable helper so the once-per-session capture at
++ * `session_start` is unit-testable with stubs (mirrors the
++ * scheduleSessionBackfill / scheduleLiveSessionIndex pattern). The handler in
++ * index.ts binds the real `ctx.sessionManager.getSessionId`,
++ * `buildPromptAssembly`, and `sessionRepo.recordAssembly` via the deps below.
++ *
++ * Best-effort: NEVER throws — a missing sid, a null assembly (policy-only mode
++ * or an empty store), or a throwing `record` are all swallowed so agent startup
++ * is never blocked (mirrors the backfillStableIds guard). Returns true only
++ * when a record actually landed.
++ */
++
++export interface AssemblyReceipt {
++  mdIds: string[];
++  hash: string;
++}
++
++export interface CaptureAssemblyDeps {
++  /** Resolves the current session id; undefined/empty ⇒ no capture. */
++  getSessionId: () => string | undefined;
++  /** Builds the assembly receipt; null ⇒ nothing to prove (skip record). */
++  build: () => AssemblyReceipt | null;
++  /** Records the receipt; failures are swallowed by captureAssembly. */
++  record: (sessionId: string, mdIds: string[], hash: string) => Promise<void>;
++}
++
++/**
++ * Run the once-per-session prompt-provenance capture. Idempotent at the store
++ * layer (recordAssembly re-call replaces). Returns whether a record landed.
++ */
++export async function captureAssembly(deps: CaptureAssemblyDeps): Promise<boolean> {
++  try {
++    const sid = deps.getSessionId();
++    if (!sid) return false;
++    const assembly = deps.build();
++    if (!assembly) return false;
++    await deps.record(sid, assembly.mdIds, assembly.hash);
++    return true;
++  } catch {
++    /* best-effort provenance; never block startup */
++    return false;
++  }
++}
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/index.ts b/bun-apps/pi-agent-ext-hermes-memory/src/index.ts
+index b128d8c6..9e3a8b01 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/index.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/index.ts
+@@ -34,40 +34,41 @@ import type { DbBackend } from "./types.js";
+ import { scheduleSessionBackfill, waitForSessionBackfill, SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-backfill.js";
+ import { scheduleLiveSessionIndex, waitForLiveSessionIndex, SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-live-index.js";
+ import { parseSessionFile } from "./store/session-parser.js";
+ import { registerMemoryTool } from "./tools/memory-tool.js";
+ import { registerGrillDecisionTool } from "./tools/grill-decision-tool.js";
+ import { registerSkillTool } from "./tools/skill-tool.js";
+ import { registerSessionSearchTool } from "./tools/session-search-tool.js";
+ import { createPerfRecorder } from "./perf.js";
+ import { registerMemorySearchTool } from "./tools/memory-search-tool.js";
+ import { registerMemorySupersedeTool } from "./tools/memory-supersede-tool.js";
++import { captureAssembly } from "./handlers/session-assembly.js";
+ import { setupBackgroundReview } from "./handlers/background-review.js";
+ import { setupSessionFlush } from "./handlers/session-flush.js";
+ import { setupCommitProjectMemory } from "./handlers/commit-project-memory.js";
+ import { registerInsightsCommand } from "./handlers/insights.js";
+ import { triggerConsolidation, registerConsolidateCommand, resolveConsolidatorModelLabel, produceMergePlan } from "./handlers/auto-consolidate.js";
+ import { setupCorrectionDetector } from "./handlers/correction-detector.js";
+ import { setupErrorDetector } from "./handlers/error-detector.js";
+ import { RecallSet, setupWorthScoring } from "./handlers/worth-scoring.js";
+ import { registerSkillsCommand } from "./handlers/skills-command.js";
+ import { registerInterviewCommand } from "./handlers/interview.js";
+ import { registerSwitchProjectCommand } from "./handlers/switch-project.js";
+ import { registerIndexSessionsCommand } from "./handlers/index-sessions.js";
+ import { registerLearnMemoryCommand } from "./handlers/learn-memory.js";
+ import { registerSyncMarkdownMemoriesCommand, syncMarkdownMemories } from "./handlers/sync-markdown-memories.js";
+ import { registerSwitchBackendCommand } from "./handlers/switch-backend.js";
+ import { registerPreviewContextCommand } from "./handlers/preview-context.js";
+ import { loadConfig, shouldRunStartupSync } from "./config.js";
+ import { detectProject, detectProjectSkills, resolveProjectStoreDir } from "./project.js";
+ import { MEMORY_FILE } from "./constants.js";
+-import { buildPromptContext } from "./prompt-context.js";
++import { buildPromptContext, buildPromptAssembly } from "./prompt-context.js";
+ import { migrateLegacyProjectMemoryDirs } from "./project-memory-migration.js";
+ import { migrateExtensionRoot } from "./extension-root-migration.js";
+ import { AGENT_ROOT } from "./paths.js";
+ 
+ export function resolveProjectSkillDiscovery(
+   skillStore: SkillStore,
+   projectsMemoryDir: string | undefined,
+   cwd?: string,
+ ): { skillPaths: string[] } {
+   const detected = detectProjectSkills(projectsMemoryDir, cwd);
+@@ -315,20 +316,30 @@ export default async function (pi: ExtensionAPI) {
+         const ui = (ctx as { ui?: { notify?: (message: string, level?: string) => void } }).ui;
+         if (ui?.notify) {
+           ui.notify(message, level);
+         } else if (level === "error" || level === "warning") {
+           console.warn(message);
+         } else {
+           console.info(message);
+         }
+       },
+     });
++
++    // Per-session prompt-provenance (UPSP §5): capture the assembled md_id set
++    // + block hash ONCE per session. Best-effort — never abort startup. Mirrors
++    // the backfillStableIds guard: a missing sid / null assembly (policy-only or
++    // empty store) skips the record; a throwing recordAssembly is swallowed.
++    await captureAssembly({
++      getSessionId: () => (ctx as { sessionManager?: { getSessionId?: () => string } }).sessionManager?.getSessionId?.(),
++      build: () => buildPromptAssembly(config, store, projectStore, projectName),
++      record: (sid, mdIds, hash) => sessionRepo.recordAssembly(sid, mdIds, hash),
++    });
+   });
+ 
+   registerProjectSkillDiscoveryHandler(pi, skillStore, config.projectsMemoryDir);
+ 
+   // ── 2. Inject memory policy by default; legacy mode keeps full frozen memory blocks ──
+   pi.on("before_agent_start", async (event, _ctx) => {
+     const promptContext = await buildPromptContext(config, store, projectStore, projectName);
+ 
+     if (promptContext) {
+       return {
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/integration/session-assembly.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/integration/session-assembly.test.ts
+new file mode 100644
+index 00000000..72a1dc2c
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/integration/session-assembly.test.ts
+@@ -0,0 +1,111 @@
++/**
++ * Task 6 — per-session prompt-provenance capture (UPSP §5).
++ *
++ * The once-per-session capture at `session_start` is wired via the extracted
++ * pure helper `captureAssembly` (src/handlers/session-assembly.ts) — the same
++ * pattern the codebase uses for scheduleSessionBackfill / scheduleLiveSessionIndex.
++ * Driving the extension's default export for a full pi `session_start` event is
++ * awkward (heavy startup side effects: backend init, .md→db sync, migrations),
++ * and the brief explicitly allows the extracted-helper route. So this file
++ * unit-tests the helper with stubs, asserting the four contracts the handler
++ * depends on:
++ *
++ *   • RECORD-ONCE  — sid + non-empty assembly ⇒ record called once with the
++ *                    sid, the md_ids, and a string hash.
++ *   • NULL-SID     — no session id ⇒ record never called.
++ *   • POLICY-ONLY  — build() returns null (policy-only / empty store) ⇒ record
++ *                    never called.
++ *   • NEVER-ABORT  — a throwing record() is swallowed; captureAssembly resolves
++ *                    (the session_start handler never throws).
++ */
++import { describe, test, expect, mock } from "bun:test";
++
++import { captureAssembly } from "../../src/handlers/session-assembly.js";
++
++describe("session_start assembly capture (captureAssembly)", () => {
++  test("records manifest once with the sid, non-empty mdIds, and a string hash", async () => {
++    const recordAssembly = mock(() => Promise.resolve());
++    const mdIds = ["11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"];
++
++    const landed = await captureAssembly({
++      getSessionId: () => "sess-x",
++      build: () => ({ mdIds, hash: "deadbeef".repeat(8) }),
++      record: recordAssembly,
++    });
++
++    expect(landed).toBe(true);
++    expect(recordAssembly).toHaveBeenCalledTimes(1);
++    const [sid, recordedMdIds, hash] = recordAssembly.mock.calls[0]!;
++    expect(sid).toBe("sess-x");
++    expect(recordedMdIds.length).toBeGreaterThan(0);
++    expect(recordedMdIds).toEqual(mdIds);
++    expect(typeof hash).toBe("string");
++    expect(hash.length).toBeGreaterThan(0);
++  });
++
++  test("a throwing record() does not abort — captureAssembly resolves (never block startup)", async () => {
++    const recordAssembly = mock(() => Promise.reject(new Error("boom")));
++
++    // Must NOT throw — the session_start handler stays best-effort.
++    const landed = await captureAssembly({
++      getSessionId: () => "sess-x",
++      build: () => ({ mdIds: ["id-1"], hash: "abc123" }),
++      record: recordAssembly,
++    });
++
++    expect(recordAssembly).toHaveBeenCalledTimes(1);
++    expect(landed).toBe(false); // record did not land (it threw, swallowed)
++  });
++
++  test("a missing session id skips the record entirely (once-per-session guard)", async () => {
++    const recordAssembly = mock(() => Promise.resolve());
++
++    const landed = await captureAssembly({
++      getSessionId: () => undefined,
++      build: () => ({ mdIds: ["id-1"], hash: "abc123" }),
++      record: recordAssembly,
++    });
++
++    expect(landed).toBe(false);
++    expect(recordAssembly).not.toHaveBeenCalled();
++  });
++
++  test("policy-only / empty store (build returns null) writes nothing", async () => {
++    const recordAssembly = mock(() => Promise.resolve());
++
++    const landed = await captureAssembly({
++      getSessionId: () => "sess-x",
++      build: () => null,
++      record: recordAssembly,
++    });
++
++    expect(landed).toBe(false);
++    expect(recordAssembly).not.toHaveBeenCalled();
++  });
++
++  test("an empty-string session id is treated as missing (no record)", async () => {
++    const recordAssembly = mock(() => Promise.resolve());
++
++    const landed = await captureAssembly({
++      getSessionId: () => "",
++      build: () => ({ mdIds: ["id-1"], hash: "abc123" }),
++      record: recordAssembly,
++    });
++
++    expect(landed).toBe(false);
++    expect(recordAssembly).not.toHaveBeenCalled();
++  });
++
++  test("a throwing build() is also swallowed (never block startup)", async () => {
++    const recordAssembly = mock(() => Promise.resolve());
++
++    const landed = await captureAssembly({
++      getSessionId: () => "sess-x",
++      build: () => { throw new Error("build boom"); },
++      record: recordAssembly,
++    });
++
++    expect(recordAssembly).not.toHaveBeenCalled();
++    expect(landed).toBe(false);
++  });
++});

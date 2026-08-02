@@ -1,0 +1,2304 @@
+# Review package: f9501247e19fb51df43286e8f60c3989d85c8946..HEAD
+
+## Commits
+1692d8aa feat(hermes): wire used-detection at session_start (UPSP §9 §5↔§9 join)
+8d658f82 feat(hermes): SurfacedSignatureSet + setupUsedDetection turn-end matcher (UPSP §9)
+b05afec1 feat(hermes): Surreal markUsed parity (UPSP §9)
+b2308cf4 feat(hermes): markUsed + used_at column on session_assembly (SQLite, UPSP §9)
+e4169312 feat(hermes): thread per-entry signatures through AssemblyReceipt (UPSP §9)
+8e7c4dac feat(hermes): signature extraction + manifest emits per-entry signatures (UPSP §9)
+
+## Files changed
+ .../pi-agent-ext-hermes-memory/src/constants.ts    |   4 +
+ .../src/handlers/session-assembly.ts               |  21 ++
+ .../src/handlers/used-detection.ts                 | 137 ++++++++++
+ bun-apps/pi-agent-ext-hermes-memory/src/index.ts   |  39 ++-
+ .../src/prompt-context.ts                          |  25 +-
+ .../src/store/memory-store.ts                      |  52 +++-
+ .../src/store/repository.ts                        |   6 +
+ .../src/store/signature.ts                         |  87 ++++++
+ .../src/store/sqlite/schema.ts                     |   4 +
+ .../src/store/sqlite/sqlite-backend.ts             |  14 +
+ .../src/store/sqlite/sqlite-session-repo.ts        |  31 +++
+ .../src/store/surreal/surreal-session-repo.ts      |  25 ++
+ bun-apps/pi-agent-ext-hermes-memory/src/types.ts   |   9 +
+ .../tests/handlers/used-detection.test.ts          | 256 ++++++++++++++++++
+ .../integration/session-start-used-signal.test.ts  | 291 +++++++++++++++++++++
+ .../tests/prompt-context.test.ts                   |  83 +++++-
+ .../tests/store/memory-store.test.ts               | 135 ++++++++++
+ .../tests/store/signature.test.ts                  | 172 ++++++++++++
+ .../tests/store/sqlite-session-repo.test.ts        | 159 +++++++++++
+ .../surreal/surreal-session-repo-contract.test.ts  | 111 ++++++++
+ 20 files changed, 1641 insertions(+), 20 deletions(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/constants.ts b/bun-apps/pi-agent-ext-hermes-memory/src/constants.ts
+index 7d2eb38d..9387d715 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/constants.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/constants.ts
+@@ -24,20 +24,24 @@ export const DEFAULT_PROJECT_CHAR_LIMIT = 10000;
+ export const DEFAULT_FAILURE_CHAR_LIMIT = 40000;
+ 
+ export const DEFAULT_NUDGE_INTERVAL = 10;
+ export const DEFAULT_FLUSH_MIN_TURNS = 6;
+ export const DEFAULT_NUDGE_TOOL_CALLS = 15;
+ export const DEFAULT_REVIEW_RECENT_MESSAGES = 0;
+ export const DEFAULT_FLUSH_RECENT_MESSAGES = 0;
+ export const DEFAULT_CONSOLIDATION_TIMEOUT_MS = 60000;
+ export const DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS = 7;
+ export const DEFAULT_FAILURE_INJECTION_MAX_ENTRIES = 5;
++/** Min normalized fragment length for an entry to earn a "used" signature
++ *  (UPSP §9 / ticket #06). Entries whose longest fragment is shorter never get
++ *  credited as "used" — too generic to attribute. Default 24. */
++export const DEFAULT_USED_SIGNATURE_MIN_CHARS = 24;
+ export const DEFAULT_ERROR_CAPTURE_RATE_LIMIT = 5;
+ export const DEFAULT_ERROR_CAPTURE_RATE_WINDOW_MS = 600_000;
+ export const DEFAULT_ERROR_CAPTURE_DEDUP_CACHE_SIZE = 64;
+ 
+ // ─── Staleness audit ───
+ // Entries whose "last edited" date is older than this are flagged as stale
+ // candidates for review/removal (mirrors the 30-day rule in CONSOLIDATION_PROMPT).
+ export const DEFAULT_STALENESS_THRESHOLD_DAYS = 30;
+ 
+ // ─── File names ───
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/handlers/session-assembly.ts b/bun-apps/pi-agent-ext-hermes-memory/src/handlers/session-assembly.ts
+index cba06345..003c5d52 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/handlers/session-assembly.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/handlers/session-assembly.ts
+@@ -9,38 +9,59 @@
+  *
+  * Best-effort: NEVER throws — a missing sid, a null assembly (policy-only mode
+  * or an empty store), or a throwing `record` are all swallowed so agent startup
+  * is never blocked (mirrors the backfillStableIds guard). Returns true only
+  * when a record actually landed.
+  */
+ 
+ export interface AssemblyReceipt {
+   mdIds: string[];
+   hash: string;
++  /**
++   * Per-entry content signatures (UPSP §9 / ticket #06) for the surfaced md_ids —
++   * the turn-end scanner matches these against assistant output to mark entries
++   * `used`. Unioned (deduped by mdId, memory-before-project order) by
++   * buildPromptAssembly. captureAssembly IGNORES this field: it records mdIds +
++   * hash only (Task 3 adds the sibling markUsed separately). Additive over #05.
++   */
++  signatures: { mdId: string; signature: string }[];
+ }
+ 
+ export interface CaptureAssemblyDeps {
+   /** Resolves the current session id; undefined/empty ⇒ no capture. */
+   getSessionId: () => string | undefined;
+   /** Builds the assembly receipt; null ⇒ nothing to prove (skip record). */
+   build: () => AssemblyReceipt | null;
+   /** Records the receipt; failures are swallowed by captureAssembly. */
+   record: (sessionId: string, mdIds: string[], hash: string) => Promise<void>;
++  /**
++   * Optional consumer of the SAME receipt that was just built + recorded
++   * (UPSP §9 / ticket #06, Task 6). Called exactly once, AFTER a successful
++   * `record`, only when `build` returned a non-null assembly — so anything the
++   * caller derives from the receipt (e.g. populating the surfaced-signature
++   * set) is guaranteed to mirror the mdIds just persisted (the §5↔§9 join).
++   * Additive + optional: #05 call sites that omit it are unaffected.
++   */
++  onReceipt?: (receipt: AssemblyReceipt) => void;
+ }
+ 
+ /**
+  * Run the once-per-session prompt-provenance capture. Idempotent at the store
+  * layer (recordAssembly re-call replaces). Returns whether a record landed.
+  */
+ export async function captureAssembly(deps: CaptureAssemblyDeps): Promise<boolean> {
+   try {
+     const sid = deps.getSessionId();
+     if (!sid) return false;
+     const assembly = deps.build();
+     if (!assembly) return false;
+     await deps.record(sid, assembly.mdIds, assembly.hash);
++    // Surface the same receipt AFTER the record landed, so the §5↔§9 join stays
++    // exact (the surfaced mdIds the matcher tracks == the mdIds just persisted).
++    // A throwing onReceipt is swallowed by the outer guard (never blocks startup).
++    deps.onReceipt?.(assembly);
+     return true;
+   } catch {
+     /* best-effort provenance; never block startup */
+     return false;
+   }
+ }
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/handlers/used-detection.ts b/bun-apps/pi-agent-ext-hermes-memory/src/handlers/used-detection.ts
+new file mode 100644
+index 00000000..7d095750
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/handlers/used-detection.ts
+@@ -0,0 +1,137 @@
++/**
++ * Used-detection trigger — the "used vs dropped" half of prompt provenance
++ * (UPSP §9 / ticket #06, Task 5).
++ *
++ * Pairs with SessionRepository.markUsed (the DB stamp from Tasks 3/4). At
++ * `message_end` (role === 'assistant') we accumulate the turn's assistant
++ * output into a per-turn buffer. At `turn_end` we scan that buffer ONCE against
++ * the per-session `SurfacedSignatureSet` (populated at session_start by Task 6
++ * from the SAME prompt-assembly receipt #05 recorded, so the §5↔§9 join stays
++ * intact): any surfaced signature that substring-matches the normalized buffer
++ * is "used" — we collect its mdId and FORGET the signature (monotonic: once
++ * used, never re-detected → idempotent `markUsed`).
++ *
++ * Best-effort at every level, fully try/catch-wrapped — never blocks the turn.
++ * Mirrors worth-scoring's safety envelope exactly. DB-authoritative (no .md
++ * write-through). DISTINCT from worth-scoring: that tracks *recalled*
++ * (memory_search) memory + turn outcome; this tracks *surfaced*
++ * (prompt-injected) memory the agent's output actually referenced. Gated on
++ * `config.usedDetection !== false` (default on), INDEPENDENT of
++ * `config.worthScoring`.
++ *
++ * The matcher reuses the SINGLE shared normalization (`normalizeForSignature`
++ * from signature.ts) so a signature produced by `computeSignature` is, by
++ * construction, a substring of the same text run through `normalizeForSignature`
++ * — the two sides can never drift out of agreement.
++ *
++ * NOT wired here — Task 6 constructs the set, calls `setupUsedDetection` once
++ * at extension setup, and `populate`s at `session_start`.
++ */
++
++import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
++import type { SessionRepository } from "../store/repository.js";
++import type { MemoryConfig } from "../types.js";
++import { normalizeForSignature } from "../store/signature.js";
++import { getMessageText } from "../types.js";
++
++/**
++ * Per-session map of surfaced-entry signature → mdId. Populated once at
++ * `session_start` (Task 6) from the same prompt-assembly receipt #05 recorded.
++ * Matching is MONOTONIC: once a signature matches the turn's normalized
++ * assistant output, it is removed from the map — a later turn cannot
++ * re-detect (and thus cannot re-mark) the same entry. Unmatched signatures
++ * remain for future turns.
++ *
++ * Mirrors worth-scoring's `RecallSet` shape (a small per-session holder), but
++ * keyed by signature string (the surfaced/injected set) instead of memory id
++ * (the recalled/searched set).
++ */
++export class SurfacedSignatureSet {
++  private readonly signatures = new Map<string, string>();
++
++  /** Replace the whole map. Called once at `session_start` (Task 6). Clears
++   *  then sets — a re-populate fully replaces (no stale carryover). */
++  populate(entries: ReadonlyArray<{ mdId: string; signature: string }>): void {
++    this.signatures.clear();
++    for (const { mdId, signature } of entries) {
++      if (signature) this.signatures.set(signature, mdId);
++    }
++  }
++
++  /**
++   * Scan `normalizedText` for each REMAINING signature. For every signature
++   * that is a substring of the text, collect its mdId AND delete the signature
++   * from the map (monotonic forget). Returns the matched mdIds (map insertion
++   * order). Unmatched signatures STAY in the map for future turns. An empty /
++   * whitespace text matches nothing and mutates nothing.
++   */
++  matchAndForget(normalizedText: string): string[] {
++    if (!normalizedText) return [];
++    const matched: string[] = [];
++    for (const [signature, mdId] of this.signatures) {
++      if (normalizedText.includes(signature)) {
++        matched.push(mdId);
++        this.signatures.delete(signature);
++      }
++    }
++    return matched;
++  }
++}
++
++/**
++ * Wire used-detection: buffer the turn's assistant output, then at `turn_end`
++ * scan it against the surfaced signatures and `markUsed` the matched rows.
++ *
++ * `message_end` is gated on `enabled = config.usedDetection !== false` and
++ * `role === 'assistant'`; `getMessageText` is called with a large `maxLength`
++ * (100_000) because the default 500 truncates long assistant messages and a
++ * ≥`usedSignatureMinChars` signature could live past char 500. `turn_end` is
++ * fully try/catch-wrapped (a throwing `normalizeForSignature`/`getSessionId`/
++ * `markUsed` is swallowed) — the turn is NEVER blocked. When disabled, the
++ * buffer stays empty so `turn_end` is an effective no-op (no matches, no
++ * mutation, no `markUsed`).
++ */
++export function setupUsedDetection(
++  pi: ExtensionAPI,
++  sessionRepo: SessionRepository | null,
++  surfacedSignatures: SurfacedSignatureSet,
++  config: MemoryConfig,
++  getSessionId: () => string | null,
++): void {
++  const enabled = config.usedDetection !== false;
++  let turnText = "";
++
++  pi.on("message_end", async (event) => {
++    try {
++      if (!enabled) return;
++      if (event.message.role !== "assistant") return;
++      const text = getMessageText(event.message, 100_000);
++      if (text) turnText += text;
++    } catch {
++      // Best-effort — never block the session
++    }
++  });
++
++  pi.on("turn_end", async () => {
++    try {
++      const text = turnText;
++      turnText = "";
++      const matched = surfacedSignatures.matchAndForget(normalizeForSignature(text));
++      if (matched.length === 0) return;
++      let sid: string | null;
++      try {
++        sid = getSessionId();
++      } catch {
++        return; // best-effort — never block
++      }
++      if (!sid || !sessionRepo) return;
++      try {
++        await sessionRepo.markUsed(sid, matched, new Date().toISOString());
++      } catch {
++        // best-effort — never block the session
++      }
++    } catch {
++      // never block the session
++    }
++  });
++}
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/index.ts b/bun-apps/pi-agent-ext-hermes-memory/src/index.ts
+index 9e3a8b01..68e1bfa7 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/index.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/index.ts
+@@ -43,20 +43,21 @@ import { registerMemorySearchTool } from "./tools/memory-search-tool.js";
+ import { registerMemorySupersedeTool } from "./tools/memory-supersede-tool.js";
+ import { captureAssembly } from "./handlers/session-assembly.js";
+ import { setupBackgroundReview } from "./handlers/background-review.js";
+ import { setupSessionFlush } from "./handlers/session-flush.js";
+ import { setupCommitProjectMemory } from "./handlers/commit-project-memory.js";
+ import { registerInsightsCommand } from "./handlers/insights.js";
+ import { triggerConsolidation, registerConsolidateCommand, resolveConsolidatorModelLabel, produceMergePlan } from "./handlers/auto-consolidate.js";
+ import { setupCorrectionDetector } from "./handlers/correction-detector.js";
+ import { setupErrorDetector } from "./handlers/error-detector.js";
+ import { RecallSet, setupWorthScoring } from "./handlers/worth-scoring.js";
++import { SurfacedSignatureSet, setupUsedDetection } from "./handlers/used-detection.js";
+ import { registerSkillsCommand } from "./handlers/skills-command.js";
+ import { registerInterviewCommand } from "./handlers/interview.js";
+ import { registerSwitchProjectCommand } from "./handlers/switch-project.js";
+ import { registerIndexSessionsCommand } from "./handlers/index-sessions.js";
+ import { registerLearnMemoryCommand } from "./handlers/learn-memory.js";
+ import { registerSyncMarkdownMemoriesCommand, syncMarkdownMemories } from "./handlers/sync-markdown-memories.js";
+ import { registerSwitchBackendCommand } from "./handlers/switch-backend.js";
+ import { registerPreviewContextCommand } from "./handlers/preview-context.js";
+ import { loadConfig, shouldRunStartupSync } from "./config.js";
+ import { detectProject, detectProjectSkills, resolveProjectStoreDir } from "./project.js";
+@@ -164,20 +165,32 @@ export default async function (pi: ExtensionAPI) {
+     console.warn(`[hermes-memory] configured backend "${config.dbBackend}" failed to initialize — fell back to sqlite for this session. Start the server and /memory-switch-backend ${config.dbBackend} to restore.`);
+   }
+   // Swappable proxies: every tool/handler captured `memoryRepo`/`sessionRepo`
+   // at registration time. The proxy always delegates to the CURRENT bundle, so
+   // a live /memory-switch-backend swap is transparent downstream (zero
+   // signature changes) and in-flight background indexing follows the swap.
+   const memoryRepo: MemoryRepository = asSwappable<MemoryRepository>(() => currentBundle.memoryRepo);
+   const sessionRepo: SessionRepository = asSwappable<SessionRepository>(() => currentBundle.sessionRepo);
+   const sessionsDir = path.join(agentRoot, "sessions");
+ 
++  // UPSP §9 / ticket #06 (Task 6): per-session shared holders consumed across
++  // lifecycle boundaries. `activeSessionId` is set by the session_start handler
++  // below and read by setupUsedDetection's turn_end closure (which is bound at
++  // extension setup, before a ctx exists — hence the indirection).
++  // `surfacedSignatures` is populated at session_start from the SAME
++  // prompt-assembly receipt #05 records (the §5↔§9 join) and scanned at
++  // turn_end. Both are function-scoped: there is exactly one extension instance
++  // per process, and closures capture the binding by reference so the turn_end
++  // read sees the value session_start wrote.
++  let activeSessionId: string | undefined;
++  const surfacedSignatures = new SurfacedSignatureSet();
++
+   const refreshSkillProjectContext = (cwd?: string) => {
+     const resource = resolveProjectSkillDiscovery(skillStore, config.projectsMemoryDir, cwd);
+     return {
+       name: skillStore.getProjectName(),
+       skillsDir: skillStore.getProjectSkillsDir(),
+       resource,
+     };
+   };
+ 
+   // Keep project memory available for users upgrading from the old
+@@ -321,24 +334,36 @@ export default async function (pi: ExtensionAPI) {
+         } else {
+           console.info(message);
+         }
+       },
+     });
+ 
+     // Per-session prompt-provenance (UPSP §5): capture the assembled md_id set
+     // + block hash ONCE per session. Best-effort — never abort startup. Mirrors
+     // the backfillStableIds guard: a missing sid / null assembly (policy-only or
+     // empty store) skips the record; a throwing recordAssembly is swallowed.
++    //
++    // UPSP §9 / Task 6: bind the active session id (read by setupUsedDetection's
++    // turn_end closure) and hand captureAssembly an `onReceipt` callback that
++    // populates `surfacedSignatures` from the SAME receipt #05 just recorded —
++    // the §5↔§9 join invariant (one build feeds both record + the matcher). The
++    // populate is gated on `usedDetection !== false` (default on, INDEPENDENT of
++    // worthScoring): disabled ⇒ onReceipt is undefined ⇒ the set stays empty ⇒
++    // matchAndForget always returns [] ⇒ markUsed never fires.
++    activeSessionId = (ctx as { sessionManager?: { getSessionId?: () => string } }).sessionManager?.getSessionId?.();
+     await captureAssembly({
+-      getSessionId: () => (ctx as { sessionManager?: { getSessionId?: () => string } }).sessionManager?.getSessionId?.(),
++      getSessionId: () => activeSessionId,
+       build: () => buildPromptAssembly(config, store, projectStore, projectName),
+       record: (sid, mdIds, hash) => sessionRepo.recordAssembly(sid, mdIds, hash),
++      onReceipt: config.usedDetection !== false
++        ? (r) => surfacedSignatures.populate(r.signatures)
++        : undefined,
+     });
+   });
+ 
+   registerProjectSkillDiscoveryHandler(pi, skillStore, config.projectsMemoryDir);
+ 
+   // ── 2. Inject memory policy by default; legacy mode keeps full frozen memory blocks ──
+   pi.on("before_agent_start", async (event, _ctx) => {
+     const promptContext = await buildPromptContext(config, store, projectStore, projectName);
+ 
+     if (promptContext) {
+@@ -462,20 +487,32 @@ export default async function (pi: ExtensionAPI) {
+   // (setupWorthScoring drains + bumps mw_success/mw_fail at turn_end).
+   const recallSet = new RecallSet();
+   setupCorrectionDetector(pi, store, projectStore, config, memoryRepo, projectName, memoryToolDef);
+ 
+   // ── 8b. Setup lesson-worthy error capture (auto-trigger on tool failures) ──
+   setupErrorDetector(pi, store, projectStore, config, memoryRepo, projectName);
+ 
+   // ── 8c. Setup worth-scoring (drains recall-set at turn_end, bumps mw_success/mw_fail) ──
+   setupWorthScoring(pi, memoryRepo, recallSet, config);
+ 
++  // ── 8d. Setup used-detection (UPSP §9 / ticket #06) ──
++  // `surfacedSignatures` is populated at session_start (captureAssembly's
++  // onReceipt callback, see the session_start handler) from the SAME
++  // prompt-assembly receipt #05 recorded — the §5↔§9 join. This buffers the
++  // turn's assistant output and, at turn_end, scans it against the set +
++  // markUsed the matched rows. Wired unconditionally (mirrors setupWorthScoring
++  // — the populate gate above + the handler's own `enabled` flag together make
++  // it a clean no-op when usedDetection===false). DISTINCT from worth-scoring:
++  // that tracks *recalled* memory + turn outcome; this tracks *surfaced*
++  // (prompt-injected) memory the agent's output actually referenced.
++  setupUsedDetection(pi, sessionRepo, surfacedSignatures, config, () => activeSessionId ?? null);
++
+   // ── 9. Register commands ──
+   registerInsightsCommand(pi, store, projectStore, projectName);
+   registerSkillsCommand(pi, skillStore);
+   registerInterviewCommand(pi, store);
+   registerSwitchProjectCommand(pi, config);
+   registerLearnMemoryCommand(pi);
+   registerSyncMarkdownMemoriesCommand(pi, memoryRepo, globalDir, config.projectsMemoryDir, agentRoot, () => backendLabel, inRepoProjectFile, inRepoProjectName);
+   registerPreviewContextCommand(pi, store, projectStore, projectName, config);
+ 
+   // ── 10. Live session indexing ──
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/prompt-context.ts b/bun-apps/pi-agent-ext-hermes-memory/src/prompt-context.ts
+index e6ce7571..699b1900 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/prompt-context.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/prompt-context.ts
+@@ -1,14 +1,15 @@
+ import { createHash } from "node:crypto";
+ import { MEMORY_POLICY_PROMPT, MEMORY_POLICY_PROMPT_COMPACT } from "./constants.js";
+ import type { MemoryConfig } from "./types.js";
+ import type { MemoryStore } from "./store/memory-store.js";
++import type { AssemblyReceipt } from "./handlers/session-assembly.js";
+ 
+ type MemoryPolicyConfig = Pick<MemoryConfig, "memoryPolicyStyle" | "memoryPolicyCustomText">;
+ 
+ export function resolveMemoryPolicyPrompt(config: MemoryPolicyConfig): string {
+   const style = config.memoryPolicyStyle ?? "full";
+ 
+   switch (style) {
+     case "compact":
+       return MEMORY_POLICY_PROMPT_COMPACT;
+     case "custom":
+@@ -45,28 +46,46 @@ export async function buildPromptContext(
+ 
+ /**
+  * Prompt-provenance receipt (UPSP §5 request_body_sha256 analogue). Returns the unioned
+  * md_id set across all injected blocks + a SHA-256 of the joined memory+project block —
+  * mirroring buildPromptContext's assembly so the logged set and hash describe the exact
+  * text the agent is injected with (policy text excluded; it is constant config, not memory).
+  * Returns null for policy-only mode or an empty assembly (nothing to prove).
+  *
+  * Sync: node:crypto's createHash is synchronous, avoiding async contagion at the session_start
+  * wire-in. `buildPromptContext` is unchanged (no ripple to index.ts:331 / preview-context.ts).
++ *
++ * `signatures` (UPSP §9 / ticket #06): the per-entry content signatures for the surfaced
++ * md_ids, threaded so session_start (Task 6) can populate the turn-end scanner. Union of
++ * the memory-store + project-store manifest signatures, deduped by mdId (a memory entry and
++ * a project entry could share an md_id — first occurrence wins; order memory-before-project).
++ * captureAssembly ignores this field; it is consumed by Task 6's surfaced-set population.
+  */
+ export function buildPromptAssembly(
+   config: Pick<MemoryConfig, "memoryMode">,
+   store: MemoryStore,
+   projectStore: MemoryStore | null,
+   projectName: string,
+-): { mdIds: string[]; hash: string } | null {
++): AssemblyReceipt | null {
+   if (config.memoryMode === "policy-only") return null;
+   const main = store.getAssemblyManifest();
+   const proj = projectStore
+     ? projectStore.getProjectAssemblyManifest(projectName)
+-    : { block: "", mdIds: [] as string[] };
++    : { block: "", mdIds: [] as string[], signatures: [] as { mdId: string; signature: string }[] };
+   const block = [main.block, proj.block].filter((b) => b.length > 0).join("\n\n");
+   if (!block) return null;
+   const mdIds = [...new Set([...main.mdIds, ...proj.mdIds])];
++  // Signatures (UPSP §9 / ticket #06): union memory-store + project-store signatures,
++  // deduped by mdId (first occurrence wins; order memory-store first, then project).
++  // A manifest may return an empty array (empty block / under-min entries) — the union
++  // just takes what exists. captureAssembly ignores this field.
++  const seenSignatures = new Set<string>();
++  const signatures: { mdId: string; signature: string }[] = [];
++  for (const s of [...main.signatures, ...proj.signatures]) {
++    if (!seenSignatures.has(s.mdId)) {
++      seenSignatures.add(s.mdId);
++      signatures.push(s);
++    }
++  }
+   const hash = createHash("sha256").update(block, "utf8").digest("hex");
+-  return { mdIds, hash };
++  return { mdIds, hash, signatures };
+ }
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/memory-store.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/memory-store.ts
+index 756cea4c..0208c786 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/memory-store.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/memory-store.ts
+@@ -27,27 +27,29 @@ import { scanContent } from "./content-scanner.js";
+ import { normalizeMemoryLookupText } from "./memory-lookup.js";
+ import { buildSnapshot, applyMergePlan } from "./merge-plan.js";
+ import type { ConsolidationSnapshot, MergePlan } from "./merge-plan.js";
+ import {
+   ENTRY_DELIMITER,
+   DEFAULT_MEMORY_CHAR_LIMIT,
+   DEFAULT_USER_CHAR_LIMIT,
+   DEFAULT_FAILURE_CHAR_LIMIT,
+   DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS,
+   DEFAULT_FAILURE_INJECTION_MAX_ENTRIES,
++  DEFAULT_USED_SIGNATURE_MIN_CHARS,
+   MEMORY_FILE,
+   USER_FILE,
+ } from "../constants.js";
+ import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, MemoryCategory, MemoryOverflowStrategy, Provenance, MemorySource, FailureState } from "../types.js";
+ import { AGENT_ROOT } from "../paths.js";
+ import { envFloat, envInt } from "../utils/env.js";
+ import { DEFAULT_NEAR_DUP_THRESHOLD, findNearDuplicate } from "./near-dup.js";
++import { computeSignature } from "./signature.js";
+ import type { TimedFn, TimedAlwaysFn } from "../perf.js";
+ 
+ /**
+  * proper-lockfile throws a code `ELOCKED` error (message "Lock file is already
+  * being held") when lock acquisition fails after its retry budget — the exact
+  * condition the op-level retry in `withFileLock` re-attempts.
+  */
+ function isLockAcquisitionError(err: unknown): boolean {
+   if (!err || typeof err !== "object") return false;
+   const e = err as { code?: unknown; message?: unknown };
+@@ -1304,62 +1306,88 @@ export class MemoryStore {
+    * post-filter active failures. Same selection logic as formatForSystemPrompt so the logged
+    * id set and any hash over `block` are consistent by construction. Failure filtering mirrors
+    * formatForSystemPrompt's call-site config (active-only, maxAge, maxEntries).
+    *
+    * NOTE: getActiveFailureEntries() STRIPS metadata (body-only) to render the failure block,
+    * so decoding those stripped bodies yields no md_id. To keep the id set ↔ block consistent
+    * we mirror getActiveFailureEntries()'s active+age filter on the RAW `failureEntries` (which
+    * still carry the frontmatter `id`), then apply the same `.slice(0, maxFailures)` the renderer
+    * uses — so these are exactly the failures whose bodies are injected.
+    */
+-  getAssemblyManifest(): { block: string; mdIds: string[] } {
++  getAssemblyManifest(): { block: string; mdIds: string[]; signatures: { mdId: string; signature: string }[] } {
+     const block = this.formatForSystemPrompt();
+     const ids: string[] = [];
+-    const pushIds = (entries: string[]) => {
++    // Signatures (UPSP §9 / ticket #06): one entry per surfaced md_id whose
++    // computeSignature(body, minChars) is non-null (under-min entries omitted).
++    // Harvested in the SAME iteration that collects md_ids (DRY — no duplicated
++    // selection). The signed body is the entry's stripped body (== what
++    // formatForSystemPrompt renders). Map<mdId,signature> dedupes by mdId and
++    // keeps the signature set consistent with the deduped mdIds set.
++    const sigMap = new Map<string, string>();
++    const minChars = this.config.usedSignatureMinChars ?? DEFAULT_USED_SIGNATURE_MIN_CHARS;
++    const harvest = (entries: string[]) => {
+       for (const raw of entries) {
+-        const id = this.decodeEntry(raw).id;
+-        if (id) ids.push(id);
++        const decoded = this.decodeEntry(raw);
++        const id = decoded.id;
++        if (!id) continue;
++        ids.push(id);
++        if (!sigMap.has(id)) {
++          const signature = computeSignature(decoded.text, minChars);
++          if (signature !== null) sigMap.set(id, signature);
++        }
+       }
+     };
+-    pushIds(this.memoryEntries);
+-    pushIds(this.userEntries);
++    harvest(this.memoryEntries);
++    harvest(this.userEntries);
+     if (this.config.failureInjectionEnabled !== false) {
+       const maxAgeDays = this.config.failureInjectionMaxAgeDays ?? DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS;
+       const maxFailures = this.config.failureInjectionMaxEntries ?? DEFAULT_FAILURE_INJECTION_MAX_ENTRIES;
+       // Mirror getActiveFailureEntries(maxAgeDays)'s filter on the RAW entries (ids survive),
+       // then the same slice the renderer applies — exactly the injected failures.
+       const cutoff = new Date();
+       cutoff.setDate(cutoff.getDate() - maxAgeDays);
+       const cutoffStr = cutoff.toISOString().split("T")[0];
+       const activeRawFailures = this.failureEntries.filter((entry) => {
+         const decoded = this.decodeEntry(entry);
+         if ((decoded.state ?? "active") !== "active") return false;
+         return decoded.created >= cutoffStr;
+       });
+-      pushIds(activeRawFailures.slice(0, maxFailures));
++      harvest(activeRawFailures.slice(0, maxFailures));
+     }
+-    return { block, mdIds: [...new Set(ids)] };
++    const signatures = [...sigMap.entries()].map(([mdId, signature]) => ({ mdId, signature }));
++    return { block, mdIds: [...new Set(ids)], signatures };
+   }
+ 
+   /**
+    * Project-memory assembly manifest: the rendered project block (== formatProjectBlock())
+    * PLUS the md_id set of the project-memory entries it renders. Mirrors formatProjectBlock's
+    * selection (memoryEntries of the project store instance).
+    */
+-  getProjectAssemblyManifest(projectName: string): { block: string; mdIds: string[] } {
++  getProjectAssemblyManifest(projectName: string): { block: string; mdIds: string[]; signatures: { mdId: string; signature: string }[] } {
+     const block = this.formatProjectBlock(projectName);
+     const ids: string[] = [];
++    // Signatures (UPSP §9 / ticket #06): same harvest as getAssemblyManifest,
++    // over the project-memory entries (mirrors formatProjectBlock's selection).
++    const sigMap = new Map<string, string>();
++    const minChars = this.config.usedSignatureMinChars ?? DEFAULT_USED_SIGNATURE_MIN_CHARS;
+     for (const raw of this.memoryEntries) {
+-      const id = this.decodeEntry(raw).id;
+-      if (id) ids.push(id);
++      const decoded = this.decodeEntry(raw);
++      const id = decoded.id;
++      if (!id) continue;
++      ids.push(id);
++      if (!sigMap.has(id)) {
++        const signature = computeSignature(decoded.text, minChars);
++        if (signature !== null) sigMap.set(id, signature);
++      }
+     }
+-    return { block, mdIds: [...new Set(ids)] };
++    const signatures = [...sigMap.entries()].map(([mdId, signature]) => ({ mdId, signature }));
++    return { block, mdIds: [...new Set(ids)], signatures };
+   }
+ 
+   /**
+    * All failure entries (no age filter), metadata stripped.
+    * Used by consolidation, which must consider the full file size —
+    * unlike getFailureEntries(), which filters by age for injection.
+    */
+   getAllFailureEntries(): string[] {
+     return this.failureEntries.map((e) => this.stripMetadata(e));
+   }
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/repository.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/repository.ts
+index 83d643ed..ebae5e21 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/repository.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/repository.ts
+@@ -177,20 +177,26 @@ export interface SessionRepository {
+   indexChangedSessions(sessionsDir: string, options?: IncrementalIndexOptions): Promise<BulkIndexResult>;
+   upsertSessionFileMeta(filePath: string, sessionId: string, options?: { size?: number; mtimeMs?: number }): Promise<void>;
+   needsBackfill(sessionsDir: string, now?: number): Promise<boolean>;
+   touchBackfillTimestamp(timestamp?: string): Promise<void>;
+   searchSessions(query: string, options?: { project?: string | null; role?: "user" | "assistant" | "system"; limit?: number }): Promise<SessionSearchResult[]>;
+   getIndexedMessageCount(): Promise<number>;
+   getSessionStats(): Promise<SessionStats>;
+   /** Per-session prompt-provenance (UPSP §5): record the assembled md_id set + block hash.
+    *  Idempotent (re-call replaces). Best-effort: callers swallow throws. */
+   recordAssembly(sessionId: string, mdIds: readonly string[], hash: string): Promise<void>;
++  /** Per-session "used vs dropped" signal (UPSP §9, ticket #06): stamp `used_at` on the
++   *  surfaced assembly rows the agent's output actually referenced. Sets ONLY the
++   *  matched `(sessionId, mdId)` rows for that session; non-matched rows stay null.
++   *  Idempotent (a re-mark re-stamps / no-ops). Empty `mdIds` is a no-op. Best-effort:
++   *  callers swallow throws. NEVER touches `session_assembly_meta` or any other table. */
++  markUsed(sessionId: string, mdIds: readonly string[], usedAt: string): Promise<void>;
+ }
+ 
+ /**
+  * Backend lifecycle. NO getDb(), NO withCorruptionRecovery() — those are
+  * SQLite implementation details. Retry/corruption recovery is internal to
+  * each backend's repository methods.
+  */
+ export interface Backend {
+   init(): Promise<void>;
+   close(): Promise<void>;
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/signature.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/signature.ts
+new file mode 100644
+index 00000000..cf8bf260
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/signature.ts
+@@ -0,0 +1,87 @@
++/**
++ * Pure signature-extraction helpers for the "used vs dropped" signal
++ * (UPSP §9 / ticket #06, Task 1).
++ *
++ * These are PURE (no class state, no I/O) so they are fully unit-testable in
++ * isolation and trivially reusable from both the manifest emit (entry →
++ * signature) and the Task-5 turn-output matcher (scan text → normalized).
++ *
++ * Contract: `normalizeForSignature` is the SINGLE shared normalization. A
++ * signature produced by `computeSignature` is, by construction, a substring of
++ * the same body run through `normalizeForSignature` — so when the Task-5
++ * matcher normalizes the turn's assistant text with the SAME function, a
++ * present signature is guaranteed to substring-match. Keep these two sides
++ * agreeing by never duplicating the normalization logic.
++ */
++
++/**
++ * Leading-markdown-marker stripper. Repeatedly removes ONE leading marker per
++ * iteration so nested markers ("> # Title", "- - bullet") collapse fully.
++ * Markers handled: ATX headers (`#`..`######`), list bullets (`-`, `*`, `+`),
++ * blockquotes (`>`). Each requires trailing whitespace so a bare `#hashtag` or
++ * mid-line `*emphasis*` is NOT treated as a marker.
++ */
++function stripLeadingMarkers(line: string): string {
++  let s = line;
++  let prev: string;
++  do {
++    prev = s;
++    s = s.replace(/^(?:#{1,6}\s+|[-*+]\s+|>\s*)/, "");
++  } while (s !== prev);
++  return s;
++}
++
++/**
++ * Normalize text for signature matching: lowercase, collapse all whitespace
++ * runs (spaces, tabs, newlines) to a single space, strip markdown code-fence
++ * delimiter lines (``` , ```ts, ...) and leading line markers (#, -, *, >, +).
++ *
++ * Markdown stripping is done LINE-WISE BEFORE the whitespace collapse, because
++ * collapsing first would merge fence/header lines into surrounding prose and
++ * make line-based stripping impossible. The final result is a single-line,
++ * lowercased, whitespace-collapsed string — identical treatment on both the
++ * entry body and the turn's scan text is what keeps substring matching sound.
++ */
++export function normalizeForSignature(text: string): string {
++  const stripped = text
++    .split("\n")
++    .map((rawLine) => {
++      const line = rawLine.trim();
++      // Drop pure code-fence delimiter lines (with or without an info string).
++      if (/^```/.test(line)) return "";
++      return stripLeadingMarkers(line);
++    })
++    .join("\n");
++  return stripped
++    .toLowerCase()
++    .replace(/\s+/g, " ")
++    .trim();
++}
++
++/**
++ * Compute the signature for an entry body: normalize it, split into candidate
++ * fragments on sentence (`.`) and line (`\n`) boundaries, and return the
++ * LONGEST normalized fragment whose length is ≥ `minChars`. Returns `null`
++ * when no fragment qualifies — the entry is too generic/short to attribute, so
++ * it gets no signature and is never credited as "used" (still surfaced, just
++ * never matched). `minChars` defaults to 24 upstream via `MemoryConfig`.
++ *
++ * Fragments inherit their normalization from the single normalized body (only a
++ * trim is applied to clean the leading space left by `.` splitting), so each
++ * returned signature is itself a substring of `normalizeForSignature(body)`.
++ */
++export function computeSignature(body: string, minChars: number): string | null {
++  const normalized = normalizeForSignature(body);
++  if (!normalized) return null;
++  const fragments = normalized
++    .split(/[.\n]/)
++    .map((f) => f.trim())
++    .filter((f) => f.length > 0);
++  let best: string | null = null;
++  for (const f of fragments) {
++    if (f.length >= minChars && (best === null || f.length > best.length)) {
++      best = f;
++    }
++  }
++  return best;
++}
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/schema.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/schema.ts
+index 10779aa6..6637657f 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/schema.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/schema.ts
+@@ -128,20 +128,24 @@ export const SCHEMA_SQL = `
+   -- UNIQUE treats NULLs as distinct, so un-backfilled rows coexist.
+   CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_md_id ON memories(md_id);
+ 
+   -- Per-session prompt-provenance (UPSP §5): one row per md_id assembled into a session's
+   -- memory block. FK-FREE by design — the sessions row is created later by deferred backfill,
+   -- so session_id is a plain join key, not an enforced FK. Composite PK dedupes; md_id index
+   -- backs "which sessions saw memory M?".
+   CREATE TABLE IF NOT EXISTS session_assembly (
+     session_id TEXT NOT NULL,
+     md_id TEXT NOT NULL,
++    -- UPSP §9 "used vs dropped" (ticket #06): null at capture (surfaced),
++    -- set to an ISO timestamp when the agent's output first references the
++    -- entry (used). Surfaced-but-never-used = used_at IS NULL.
++    used_at TEXT,
+     PRIMARY KEY (session_id, md_id)
+   );
+ 
+   CREATE INDEX IF NOT EXISTS idx_session_assembly_md_id ON session_assembly(md_id);
+ 
+   -- Per-session block hash (the receipt). Separate from sessions (NOT NULL project/cwd +
+   -- post-capture row creation make hash-on-sessions unreliable). One row per session.
+   CREATE TABLE IF NOT EXISTS session_assembly_meta (
+     session_id TEXT NOT NULL PRIMARY KEY,
+     hash TEXT NOT NULL,
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-backend.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-backend.ts
+index 1d849a82..80bfcd1b 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-backend.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-backend.ts
+@@ -688,20 +688,21 @@ export class SqliteBackend implements Backend {
+       || msg.includes('memories(category)')
+       || msg.includes('no such column: project')
+       || msg.includes('sessions(project)')
+       || msg.includes('memories(project)')
+       || msg.includes('no such column: md_id');
+   }
+ 
+   private ensureLegacySchemaColumns(db: DatabaseLike): void {
+     this.ensureMemoriesColumns(db);
+     this.ensureSessionsColumns(db);
++    this.ensureSessionAssemblyColumns(db);
+   }
+ 
+   private ensureMemoriesColumns(db: DatabaseLike): void {
+     const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memories'").get() as { name: string } | undefined;
+     if (!tableExists) return;
+ 
+     const names = this.getColumnNames(db, 'memories');
+ 
+     if (!names.has('project')) {
+       db.exec('ALTER TABLE memories ADD COLUMN project TEXT');
+@@ -743,20 +744,33 @@ export class SqliteBackend implements Backend {
+       db.exec("ALTER TABLE memories ADD COLUMN state TEXT NOT NULL DEFAULT 'active'");
+     }
+     if (!names.has('severity')) {
+       db.exec('ALTER TABLE memories ADD COLUMN severity INTEGER');
+     }
+     if (!names.has('pin')) {
+       db.exec('ALTER TABLE memories ADD COLUMN pin INTEGER NOT NULL DEFAULT 0');
+     }
+   }
+ 
++  /** UPSP §9 (#06): add `used_at` to a pre-existing `session_assembly` table
++   *  (created by #05 without the column). Fresh installs already get it via
++   *  SCHEMA_SQL; this ALTER only fires for DBs that predate this task.
++   *  Idempotent by the column-presence guard — NOT try/catch (mirrors
++   *  `ensureMemoriesColumns`). */
++  private ensureSessionAssemblyColumns(db: DatabaseLike): void {
++    if (!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session_assembly'").get()) return;
++    const names = this.getColumnNames(db, 'session_assembly');
++    if (!names.has('used_at')) {
++      db.exec('ALTER TABLE session_assembly ADD COLUMN used_at TEXT');
++    }
++  }
++
+   private ensureSessionsColumns(db: DatabaseLike): void {
+     const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'").get() as { name: string } | undefined;
+     if (!tableExists) return;
+ 
+     const names = this.getColumnNames(db, 'sessions');
+     if (!names.has('project')) {
+       db.exec('ALTER TABLE sessions ADD COLUMN project TEXT');
+     }
+ 
+     this.backfillSessionsProject(db);
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-session-repo.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-session-repo.ts
+index ec5c1091..30913ca2 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-session-repo.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-session-repo.ts
+@@ -742,20 +742,51 @@ export class SqliteSessionRepository implements SessionRepository {
+         // lands atomically when a real driver is present.
+         if (db.transaction) {
+           db.transaction(write)();
+         } else {
+           write();
+         }
+       }),
+     );
+   }
+ 
++  // -------------------------------------------------------------------------
++  // markUsed — UPSP §9 "used vs dropped" signal (stamp used_at on referenced rows).
++  // ------------------------------------------------------------------------
++
++  /**
++   * UPDATE in place: stamp `usedAt` on the surfaced `(sessionId, mdId)` rows
++   * the agent's output actually referenced. Sets ONLY matched rows for that
++   * session; non-matched rows stay null. Idempotent (a re-mark re-stamps).
++   * Empty `mdIds` is a no-op (skips the query). NEVER touches
++   * `session_assembly_meta` or any other table. Mirrors `recordAssembly`'s
++   * transient-retry + corruption-recovery safety envelope.
++   */
++  async markUsed(
++    sessionId: string,
++    mdIds: readonly string[],
++    usedAt: string,
++  ): Promise<void> {
++    await runWithTransientRetry(() =>
++      this.backend.withCorruptionRecovery(() => {
++        if (mdIds.length === 0) return;
++        const db = this.backend.getDb();
++        // Dynamic `?` placeholders — never string-interpolate ids (injection-safe;
++        // matches the searchSessions binding style). matched-rows-only by the
++        // WHERE (session_id AND md_id IN …) filter; other tables untouched.
++        const placeholders = mdIds.map(() => "?").join(", ");
++        const sql = `UPDATE session_assembly SET used_at = ? WHERE session_id = ? AND md_id IN (${placeholders})`;
++        db.prepare(sql).run(usedAt, sessionId, ...mdIds);
++      }),
++    );
++  }
++
+   // -------------------------------------------------------------------------
+   // getSessionStats — from getSessionStats.
+   // -------------------------------------------------------------------------
+ 
+   async getSessionStats(): Promise<SessionStats> {
+     return runWithTransientRetry(() =>
+       this.backend.withCorruptionRecovery(() => {
+         const totals = this.db.prepare(`
+           SELECT
+             (SELECT COUNT(*) FROM sessions) as sessions,
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/surreal-session-repo.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/surreal-session-repo.ts
+index 6c9ebaa1..10a8b808 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/surreal-session-repo.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/surreal-session-repo.ts
+@@ -256,20 +256,45 @@ export class SurrealSessionRepository implements SessionRepository {
+     const unique = [...new Set(mdIds)];
+     if (unique.length === 0) return;
+     const params: Record<string, unknown> = { sid: sessionId };
+     const stmts = unique.map((id, i) => {
+       params[`m${i}`] = id;
+       return `CREATE session_assembly SET sessionId = $sid, mdId = $m${i};`;
+     });
+     await this.c.query(stmts.join("\n"), params);
+   }
+ 
++  // -------------------------------------------------------------------------
++  // markUsed — UPSP §9 "used vs dropped" signal (stamp usedAt on referenced
++  // rows). Surreal parity with the SQLite impl (Task 3); SCHEMALESS (no DDL).
++  // ------------------------------------------------------------------------
++
++  /**
++   * UPDATE in place: stamp `usedAt` on the surfaced `(sessionId, mdId)` rows
++   * the agent's output actually referenced. Sets ONLY matched rows for that
++   * session; non-matched rows stay without the field (Surreal is SCHEMALESS →
++   * absent ≈ null). Idempotent (a re-mark re-stamps). Empty `mdIds` is a no-op
++   * (skips the query). NEVER touches `session_assembly_meta` or any other
++   * table. `usedAt` (camelCase) matches the existing sessionId/mdId/capturedAt
++   * convention; `IN $ids` binds the array directly — the same idiom the
++   * surreal-memory-repo `seq NOT IN $seedSeqs` query uses (Surreal binds arrays
++   * to `IN $param`, unlike SQLite's dynamic `?` placeholders). The SurrealClient
++   * owns transient retry, so like `recordAssembly` there is no extra envelope.
++   */
++  async markUsed(sessionId: string, mdIds: readonly string[], usedAt: string): Promise<void> {
++    if (mdIds.length === 0) return;
++    await this.c.query(
++      `UPDATE session_assembly SET usedAt = $now WHERE sessionId = $sid AND mdId IN $ids;`,
++      { sid: sessionId, ids: mdIds, now: usedAt },
++    );
++  }
++
+   async getSessionStats(): Promise<SessionStats> {
+     const sess = await this.c.query<Array<{ count: number }>>(`SELECT count() AS count FROM sessions GROUP ALL;`);
+     const msg = await this.c.query<Array<{ count: number }>>(`SELECT count() AS count FROM messages GROUP ALL;`);
+     const projects = await this.c.query<Array<{ project: string | null; sessions: number }>>(
+       `SELECT project, count() AS sessions FROM sessions GROUP BY project;`,
+     );
+     return {
+       totalSessions: sess[0]?.count ?? 0,
+       totalMessages: msg[0]?.count ?? 0,
+       projects: projects.map((p) => ({ project: p.project ?? "", sessions: p.sessions ?? 0, messages: 0 })),
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/types.ts b/bun-apps/pi-agent-ext-hermes-memory/src/types.ts
+index be97adfc..97e9f61b 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/types.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/types.ts
+@@ -90,20 +90,29 @@ export interface MemoryConfig {
+   memoryOverflowStrategy?: MemoryOverflowStrategy;
+   /** Legacy alias for memoryOverflowStrategy. Default: true */
+   autoConsolidate: boolean;
+   /** Detect user corrections and trigger immediate memory save. Default: true */
+   correctionDetection: boolean;
+   /** Auto-capture lesson-worthy tool errors (stack traces, definitive
+    *  failures) to the failure store without an agent memory call. Default: true */
+   errorCapture?: boolean;
+   /** Increment memory-worth counters on session outcome (correction→fail, else→success). Default: true */
+   worthScoring?: boolean;
++  /** Min normalized fragment length (chars) for an entry to earn a "used"
++   *  signature (UPSP §9 / ticket #06). Entries whose longest fragment is
++   *  shorter are surfaced but never credited as "used" — too generic to
++   *  attribute. Default: 24. */
++  usedSignatureMinChars?: number;
++  /** Detect "used" surfaced entries by content-signature match at turn_end and
++   *  stamp `used_at` on the matched assembly rows (UPSP §9 / ticket #06).
++   *  INDEPENDENT of `worthScoring`. Default: true (set `false` to disable). */
++  usedDetection?: boolean;
+   /** Auto-supersede a recalled memory when a correction contradicts it (judge-gated).
+    *  Default: false (opt-in — supersession hides the prior from search). */
+   autoSupersede?: boolean;
+   /** Per-session errorCapture rate limit (0 = unlimited). #854 */
+   errorCaptureRateLimit?: number;
+   /** errorCapture sliding-window length in ms. #854 */
+   errorCaptureRateWindowMs?: number;
+   /** errorCapture this-session dedup LRU capacity (0 = no fast-path). #854 */
+   errorCaptureDedupCacheSize?: number;
+   /** Override strong correction regex sources. Missing = defaults; [] = none. */
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/handlers/used-detection.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/handlers/used-detection.test.ts
+new file mode 100644
+index 00000000..fec3e89f
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/handlers/used-detection.test.ts
+@@ -0,0 +1,256 @@
++/**
++ * Unit tests for the used-detection trigger — SurfacedSignatureSet +
++ * setupUsedDetection (UPSP §9 / ticket #06, Task 5).
++ *
++ * `SurfacedSignatureSet` holds the surfaced-entry signatures → mdId map
++ * (populated once at session_start by Task 6 from the SAME receipt #05
++ * recorded) and matches them against the turn's normalized assistant output,
++ * forgetting matches monotonically. `setupUsedDetection` buffers assistant
++ * `message_end` text and, at `turn_end`, scans it and calls
++ * `sessionRepo.markUsed`. Best-effort, DB-authoritative, mirrors
++ * worth-scoring's safety envelope.
++ *
++ * The matcher reuses the REAL `SurfacedSignatureSet` + `normalizeForSignature`
++ * + `computeSignature` (no mocking the normalization DRY contract). `pi`,
++ * `sessionRepo`, and `getSessionId` are stubs.
++ */
++
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { SurfacedSignatureSet, setupUsedDetection } from "../../src/handlers/used-detection.js";
++import { computeSignature, normalizeForSignature } from "../../src/store/signature.js";
++
++/** A representative entry body whose longest fragment comfortably exceeds the
++ *  default `usedSignatureMinChars` (24). Used to mint real signatures. */
++const BODY_A = "Always pin the MLX dtype to bfloat16 for native Apple Silicon support.";
++const SIG_A = computeSignature(BODY_A, 24)!;
++const BODY_B = "Run the full bun test suite from the bun-apps workspace root only.";
++const SIG_B = computeSignature(BODY_B, 24)!;
++
++type MarkUsedCall = { sid: string; mdIds: string[]; usedAt: string };
++
++interface Harness {
++  surfaced: SurfacedSignatureSet;
++  calls: MarkUsedCall[];
++  fire: (ev: string, e: any, ctx?: any) => Promise<void>;
++}
++
++/** Build a stub `pi` + `sessionRepo` + `getSessionId`, wire setupUsedDetection,
++ *  return the handler registry, the real SurfacedSignatureSet, and a recorder
++ *  of markUsed calls. */
++function makeHarness(opts: {
++  config?: any;
++  sid?: string | null;
++  getSessionId?: () => string | null;
++  markUsedImpl?: (sid: string, mdIds: readonly string[], usedAt: string) => Promise<void> | void;
++} = {}): Harness {
++  const handlers: Record<string, Array<(e: any, ctx?: any) => Promise<void> | void>> = {};
++  const pi: any = {
++    on: (ev: string, h: any) => { (handlers[ev] ??= []).push(h); },
++    registerTool() {}, registerCommand() {},
++  };
++  const surfaced = new SurfacedSignatureSet();
++  const calls: MarkUsedCall[] = [];
++  const getSessionId = opts.getSessionId ?? (() => (opts.sid !== undefined ? opts.sid : "sess-1"));
++  const repo: any = {
++    markUsed: opts.markUsedImpl
++      ? (async (sid: string, mdIds: readonly string[], usedAt: string) =>
++          opts.markUsedImpl!(sid, mdIds, usedAt))
++      : (async (sid: string, mdIds: readonly string[], usedAt: string) =>
++          calls.push({ sid, mdIds: [...mdIds], usedAt })),
++  };
++  setupUsedDetection(pi, repo, surfaced, opts.config ?? {}, getSessionId);
++  const fire = async (ev: string, e: any, ctx?: any) => {
++    for (const h of handlers[ev] ?? []) await h(e, ctx);
++  };
++  return { surfaced, calls, fire };
++}
++
++describe("SurfacedSignatureSet", () => {
++  it("populate replaces the whole set (not additive)", () => {
++    const set = new SurfacedSignatureSet();
++    set.populate([
++      { mdId: "a", signature: SIG_A },
++      { mdId: "b", signature: SIG_B },
++    ]);
++    assert.strictEqual(set.matchAndForget(normalizeForSignature(BODY_A)).length, 1);
++    set.populate([{ mdId: "c", signature: "gamma signature three" }]);
++    // alpha/beta are gone after the second populate; only c remains.
++    assert.deepEqual(
++      set.matchAndForget(normalizeForSignature(`${BODY_A} ${BODY_B}`)).sort(),
++      [],
++    );
++    assert.deepEqual(
++      set.matchAndForget(normalizeForSignature("...gamma signature three...")),
++      ["c"],
++    );
++  });
++
++  it("matchAndForget returns matched mdIds and removes them; unmatched stay", () => {
++    const set = new SurfacedSignatureSet();
++    set.populate([
++      { mdId: "a", signature: SIG_A },
++      { mdId: "b", signature: SIG_B },
++    ]);
++    const matched = set.matchAndForget(normalizeForSignature(`notes say: ${BODY_A}`));
++    assert.deepEqual(matched, ["a"]);
++    // 'a' forgotten; 'b' still detectable on a later scan.
++    assert.deepEqual(set.matchAndForget(normalizeForSignature(BODY_B)), ["b"]);
++  });
++
++  it("multi-match in one call returns all matched mdIds", () => {
++    const set = new SurfacedSignatureSet();
++    set.populate([
++      { mdId: "a", signature: SIG_A },
++      { mdId: "b", signature: SIG_B },
++    ]);
++    const matched = set
++      .matchAndForget(normalizeForSignature(`So ${BODY_A} and also ${BODY_B}.`))
++      .sort();
++    assert.deepEqual(matched, ["a", "b"]);
++  });
++
++  it("monotonic: re-scanning the same text returns [] (already forgotten)", () => {
++    const set = new SurfacedSignatureSet();
++    set.populate([{ mdId: "a", signature: SIG_A }]);
++    assert.deepEqual(set.matchAndForget(normalizeForSignature(BODY_A)), ["a"]);
++    assert.deepEqual(set.matchAndForget(normalizeForSignature(BODY_A)), []);
++  });
++
++  it("empty / whitespace text returns [] and mutates nothing", () => {
++    const set = new SurfacedSignatureSet();
++    set.populate([{ mdId: "a", signature: SIG_A }]);
++    assert.deepEqual(set.matchAndForget(""), []);
++    assert.deepEqual(set.matchAndForget(normalizeForSignature("    \n\t  ")), []);
++    // set intact
++    assert.deepEqual(set.matchAndForget(normalizeForSignature(BODY_A)), ["a"]);
++  });
++});
++
++describe("setupUsedDetection", () => {
++  it("assistant message containing a surfaced signature → markUsed at turn_end", async () => {
++    const h = makeHarness();
++    h.surfaced.populate([{ mdId: "md-a", signature: SIG_A }]);
++    await h.fire("message_end", {
++      message: { role: "assistant", content: `Sure — ${BODY_A} when loading.` },
++    });
++    await h.fire("turn_end", {}, {});
++    assert.strictEqual(h.calls.length, 1);
++    assert.strictEqual(h.calls[0].sid, "sess-1");
++    assert.deepEqual(h.calls[0].mdIds, ["md-a"]);
++    // usedAt is an ISO timestamp.
++    assert.ok(!Number.isNaN(Date.parse(h.calls[0].usedAt)));
++  });
++
++  it("accumulates multiple assistant messages in one turn before scanning", async () => {
++    const h = makeHarness();
++    h.surfaced.populate([
++      { mdId: "md-a", signature: SIG_A },
++      { mdId: "md-b", signature: SIG_B },
++    ]);
++    await h.fire("message_end", { message: { role: "assistant", content: BODY_A } });
++    await h.fire("message_end", { message: { role: "assistant", content: BODY_B } });
++    await h.fire("turn_end", {}, {});
++    assert.strictEqual(h.calls.length, 1);
++    assert.deepEqual(h.calls[0].mdIds.sort(), ["md-a", "md-b"]);
++  });
++
++  it("no-match: assistant text without any signature → markUsed NOT called; set unchanged", async () => {
++    const h = makeHarness();
++    h.surfaced.populate([{ mdId: "md-a", signature: SIG_A }]);
++    await h.fire("message_end", {
++      message: { role: "assistant", content: "Hello, how can I help today?" },
++    });
++    await h.fire("turn_end", {}, {});
++    assert.strictEqual(h.calls.length, 0);
++    // signature still present
++    assert.deepEqual(h.surfaced.matchAndForget(normalizeForSignature(BODY_A)), ["md-a"]);
++  });
++
++  it("monotonic across turns: matched once in turn 1, NOT re-marked in turn 2", async () => {
++    const h = makeHarness();
++    h.surfaced.populate([{ mdId: "md-a", signature: SIG_A }]);
++    // turn 1
++    await h.fire("message_end", { message: { role: "assistant", content: BODY_A } });
++    await h.fire("turn_end", {}, {});
++    assert.strictEqual(h.calls.length, 1);
++    // turn 2 — same text, but signature already forgotten
++    await h.fire("message_end", { message: { role: "assistant", content: BODY_A } });
++    await h.fire("turn_end", {}, {});
++    assert.strictEqual(h.calls.length, 1); // still just the one call
++  });
++
++  it("role filter: a USER message_end does NOT contribute to the buffer", async () => {
++    const h = makeHarness();
++    h.surfaced.populate([{ mdId: "md-a", signature: SIG_A }]);
++    // user message containing the signature text — must be ignored
++    await h.fire("message_end", { message: { role: "user", content: BODY_A } });
++    await h.fire("turn_end", {}, {});
++    assert.strictEqual(h.calls.length, 0);
++    // set intact (nothing forgotten)
++    assert.deepEqual(h.surfaced.matchAndForget(normalizeForSignature(BODY_A)), ["md-a"]);
++  });
++
++  it("best-effort: a throwing markUsed is swallowed (no throw escapes turn_end)", async () => {
++    const h = makeHarness({
++      markUsedImpl: () => { throw new Error("boom"); },
++    });
++    h.surfaced.populate([{ mdId: "md-a", signature: SIG_A }]);
++    await h.fire("message_end", { message: { role: "assistant", content: BODY_A } });
++    // must not throw
++    await assert.doesNotReject(() => h.fire("turn_end", {}, {}));
++  });
++
++  it("best-effort: a throwing getSessionId is swallowed", async () => {
++    const h = makeHarness({ getSessionId: () => { throw new Error("no sid"); } });
++    h.surfaced.populate([{ mdId: "md-a", signature: SIG_A }]);
++    await h.fire("message_end", { message: { role: "assistant", content: BODY_A } });
++    await assert.doesNotReject(() => h.fire("turn_end", {}, {}));
++    assert.strictEqual(h.calls.length, 0);
++  });
++
++  it("best-effort: a throwing getMessageText path (throwing content) is swallowed", async () => {
++    const h = makeHarness();
++    h.surfaced.populate([{ mdId: "md-a", signature: SIG_A }]);
++    // a message whose `.content` access throws — getMessageText re-throws, the
++    // message_end handler's try/catch must swallow it (no escape, no match).
++    const boom: any = { role: "assistant" };
++    Object.defineProperty(boom, "content", {
++      get() { throw new Error("content exploded"); },
++      enumerable: true,
++    });
++    await assert.doesNotReject(() => h.fire("message_end", { message: boom }));
++    await h.fire("turn_end", {}, {});
++    assert.strictEqual(h.calls.length, 0);
++    // set intact
++    assert.deepEqual(h.surfaced.matchAndForget(normalizeForSignature(BODY_A)), ["md-a"]);
++  });
++
++  it("disabled (usedDetection===false): message_end no-ops, turn_end no-ops, markUsed never called", async () => {
++    const h = makeHarness({ config: { usedDetection: false } });
++    h.surfaced.populate([{ mdId: "md-a", signature: SIG_A }]);
++    await h.fire("message_end", { message: { role: "assistant", content: BODY_A } });
++    await h.fire("turn_end", {}, {});
++    assert.strictEqual(h.calls.length, 0);
++    // set untouched — even though it had matches, the disabled turn mutated nothing
++    assert.deepEqual(h.surfaced.matchAndForget(normalizeForSignature(BODY_A)), ["md-a"]);
++  });
++
++  it("empty turn (no assistant message) → markUsed not called", async () => {
++    const h = makeHarness();
++    h.surfaced.populate([{ mdId: "md-a", signature: SIG_A }]);
++    await h.fire("turn_end", {}, {});
++    assert.strictEqual(h.calls.length, 0);
++    assert.deepEqual(h.surfaced.matchAndForget(normalizeForSignature(BODY_A)), ["md-a"]);
++  });
++
++  it("no sid → markUsed skipped (but signature still forgotten for the scan)", async () => {
++    const h = makeHarness({ sid: null });
++    h.surfaced.populate([{ mdId: "md-a", signature: SIG_A }]);
++    await h.fire("message_end", { message: { role: "assistant", content: BODY_A } });
++    await h.fire("turn_end", {}, {});
++    assert.strictEqual(h.calls.length, 0);
++    // matched-and-forgotten even though markUsed was skipped (scan is monotonic)
++    assert.deepEqual(h.surfaced.matchAndForget(normalizeForSignature(BODY_A)), []);
++  });
++});
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/integration/session-start-used-signal.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/integration/session-start-used-signal.test.ts
+new file mode 100644
+index 00000000..886a43b1
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/integration/session-start-used-signal.test.ts
+@@ -0,0 +1,291 @@
++/**
++ * Task 6 — session_start wiring of the "used vs dropped" signal (UPSP §9 / §5↔§9 join).
++ *
++ * Drives the integration of three pieces that Task 6 connects:
++ *
++ *   1. `captureAssembly` (#05) — now extended with an optional `onReceipt`
++ *      callback so the SAME prompt-assembly receipt that gets recorded also
++ *      feeds the surfaced-signature set (Problem A: share ONE build, no
++ *      double-render of `buildPromptAssembly`).
++ *   2. `SurfacedSignatureSet` (Task 5) — populated from the receipt's
++ *      `signatures` via that callback.
++ *   3. `setupUsedDetection` (Task 5) — reads the populated set at `turn_end`
++ *      and calls `sessionRepo.markUsed` on matches (Problem B: getSessionId is
++ *      supplied via a holder bound at extension-setup).
++ *
++ * The defining correctness property of #06 is the §5↔§9 join invariant: the
++ * surfaced mdIds the matcher tracks == the mdIds #05 persisted in
++ * session_assembly, because both derive from the SAME receipt (captureAssembly
++ * calls build ONCE). These tests assert that invariant directly.
++ *
++ * `pi`, `sessionRepo.record`/`markUsed`, and `getSessionId` are stubs; the
++ * `SurfacedSignatureSet`, `captureAssembly`, `setupUsedDetection`,
++ * `buildPromptAssembly`, `computeSignature`, and `normalizeForSignature` under
++ * test are the REAL implementations (the normalization-DRY contract + the
++ * single-build invariant must hold on the real code paths).
++ */
++
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++
++import { captureAssembly } from "../../src/handlers/session-assembly.js";
++import { SurfacedSignatureSet, setupUsedDetection } from "../../src/handlers/used-detection.js";
++import { buildPromptAssembly } from "../../src/prompt-context.js";
++import { computeSignature, normalizeForSignature } from "../../src/store/signature.js";
++import type { MemoryStore } from "../../src/store/memory-store.js";
++
++/** A body whose longest fragment comfortably exceeds the default min (24). */
++const BODY_A = "Always pin the MLX dtype to bfloat16 for native Apple Silicon support.";
++const BODY_B = "Run the full bun test suite from the bun-apps workspace root only.";
++const SIG_A = computeSignature(BODY_A, 24)!;
++const SIG_B = computeSignature(BODY_B, 24)!;
++const MD_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
++const MD_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
++
++type Signature = { mdId: string; signature: string };
++type RecordCall = { sid: string; mdIds: string[]; hash: string };
++type MarkUsedCall = { sid: string; mdIds: string[]; usedAt: string };
++
++/** Minimal MemoryStore stub exposing only the two assembly-manifest methods
++ *  consumed by buildPromptAssembly (same shape as prompt-context.test.ts). */
++function stubStore(
++  main: { block: string; mdIds: string[]; signatures?: Signature[] },
++  project?: { block: string; mdIds: string[]; signatures?: Signature[] },
++): MemoryStore {
++  return {
++    getAssemblyManifest: () => ({ signatures: [], ...main }),
++    getProjectAssemblyManifest: () =>
++      project ? { signatures: [], ...project } : { block: "", mdIds: [], signatures: [] },
++  } as unknown as MemoryStore;
++}
++
++/** Stub `pi` that records handlers per event and lets the test fire them. */
++function stubPi(): { pi: any; fire: (ev: string, e: any, ctx?: any) => Promise<void> } {
++  const handlers: Record<string, Array<(e: any, ctx?: any) => Promise<void> | void>> = {};
++  const pi: any = {
++    on: (ev: string, h: any) => { (handlers[ev] ??= []).push(h); },
++    registerTool() {}, registerCommand() {},
++  };
++  const fire = async (ev: string, e: any, ctx?: any) => {
++    for (const h of handlers[ev] ?? []) await h(e, ctx);
++  };
++  return { pi, fire };
++}
++
++describe("Task 6 — §5↔§9 join invariant (captureAssembly → surfaced set)", () => {
++  it("surfaced-signature mdIds == the mdIds captureAssembly recorded (SAME receipt)", async () => {
++    // Both surfaced entries carry qualifying signatures, so the surfaced set's
++    // mdId set is EXACTLY the recorded mdId set.
++    const store = stubStore({
++      block: "M",
++      mdIds: [MD_A, MD_B],
++      signatures: [{ mdId: MD_A, signature: SIG_A }, { mdId: MD_B, signature: SIG_B }],
++    });
++    const records: RecordCall[] = [];
++    let populated: Signature[] | null = null;
++    const surfaced = new SurfacedSignatureSet();
++
++    await captureAssembly({
++      getSessionId: () => "sess-join",
++      build: () => buildPromptAssembly({ memoryMode: "default" } as any, store, null, "p"),
++      record: (sid, mdIds, hash) => { records.push({ sid, mdIds: [...mdIds], hash }); return Promise.resolve(); },
++      // Problem A: onReceipt populates the surfaced set from the SAME receipt.
++      onReceipt: (r) => { populated = r.signatures; surfaced.populate(r.signatures); },
++    });
++
++    assert.strictEqual(records.length, 1);
++    assert.ok(populated, "onReceipt fired with the receipt");
++    // §5↔§9 join: recorded mdIds (session_assembly) == surfaced mdIds (matcher),
++    // both from the SAME receipt.
++    const recordedMdIds = records[0].mdIds.sort();
++    const surfacedMdIds = populated.map((s) => s.mdId).sort();
++    assert.deepEqual(surfacedMdIds, recordedMdIds);
++    // And the REAL set, when probed, returns exactly those mdIds (populate wired).
++    assert.deepEqual(
++      surfaced.matchAndForget(normalizeForSignature(`${BODY_A} ${BODY_B}`)).sort(),
++      recordedMdIds,
++    );
++  });
++
++  it("onReceipt fires exactly once, AFTER record landed (no double build)", async () => {
++    let buildCount = 0;
++    let onReceiptCount = 0;
++    const order: string[] = [];
++
++    await captureAssembly({
++      getSessionId: () => "sess-order",
++      build: () => {
++        buildCount++;
++        return { mdIds: [MD_A], hash: "h".repeat(8), signatures: [{ mdId: MD_A, signature: SIG_A }] };
++      },
++      record: () => { order.push("record"); return Promise.resolve(); },
++      onReceipt: () => { onReceiptCount++; order.push("onReceipt"); },
++    });
++
++    assert.strictEqual(buildCount, 1, "build called exactly once (no double-render)");
++    assert.strictEqual(onReceiptCount, 1, "onReceipt called exactly once");
++    // record BEFORE onReceipt — the surfaced set is populated only after the
++    // session_assembly rows landed (keeps the §5↔§9 join exact even if record
++    // threw it would be swallowed and onReceipt skipped).
++    assert.deepEqual(order, ["record", "onReceipt"]);
++  });
++
++  it("null assembly (policy-only / empty store) → onReceipt NOT called", async () => {
++    let onReceiptCount = 0;
++    const landed = await captureAssembly({
++      getSessionId: () => "sess-null",
++      build: () => null, // policy-only / empty store
++      record: () => { throw new Error("record must not be called"); },
++      onReceipt: () => { onReceiptCount++; },
++    });
++    assert.strictEqual(landed, false);
++    assert.strictEqual(onReceiptCount, 0);
++  });
++
++  it("missing sid → no build, no record, no onReceipt (once-per-session guard holds)", async () => {
++    let buildCount = 0;
++    let onReceiptCount = 0;
++    const landed = await captureAssembly({
++      getSessionId: () => undefined,
++      build: () => { buildCount++; return { mdIds: [MD_A], hash: "h", signatures: [] }; },
++      record: () => Promise.resolve(),
++      onReceipt: () => { onReceiptCount++; },
++    });
++    assert.strictEqual(landed, false);
++    assert.strictEqual(buildCount, 0);
++    assert.strictEqual(onReceiptCount, 0);
++  });
++});
++
++describe("Task 6 — disable path (usedDetection === false)", () => {
++  it("session_start does NOT populate the set when usedDetection is disabled", async () => {
++    // Mirrors index.ts wiring: onReceipt is passed ONLY when
++    // config.usedDetection !== false. When disabled, onReceipt is undefined →
++    // the set is never populated → matchAndForget always returns [] → markUsed
++    // never fires.
++    const config = { usedDetection: false } as any;
++    const usePopulate = config.usedDetection !== false;
++    const surfaced = new SurfacedSignatureSet();
++    const store = stubStore({
++      block: "M",
++      mdIds: [MD_A],
++      signatures: [{ mdId: MD_A, signature: SIG_A }],
++    });
++
++    await captureAssembly({
++      getSessionId: () => "sess-disabled",
++      build: () => buildPromptAssembly({ memoryMode: "default" } as any, store, null, "p"),
++      record: () => Promise.resolve(),
++      onReceipt: usePopulate ? (r) => surfaced.populate(r.signatures) : undefined,
++    });
++
++    // Set was never populated → nothing matches → markUsed never called.
++    assert.deepEqual(surfaced.matchAndForget(normalizeForSignature(BODY_A)), []);
++  });
++
++  it("default (usedDetection on): session_start DOES populate the set", async () => {
++    const config = {} as any; // usedDetection unset → default on
++    const usePopulate = config.usedDetection !== false;
++    const surfaced = new SurfacedSignatureSet();
++    const store = stubStore({
++      block: "M",
++      mdIds: [MD_A, MD_B],
++      signatures: [{ mdId: MD_A, signature: SIG_A }, { mdId: MD_B, signature: SIG_B }],
++    });
++
++    await captureAssembly({
++      getSessionId: () => "sess-enabled",
++      build: () => buildPromptAssembly({ memoryMode: "default" } as any, store, null, "p"),
++      record: () => Promise.resolve(),
++      onReceipt: usePopulate ? (r) => surfaced.populate(r.signatures) : undefined,
++    });
++
++    // Both signatures are live → both match.
++    const matched = surfaced
++      .matchAndForget(normalizeForSignature(`${BODY_A} ... ${BODY_B}`))
++      .sort();
++    assert.deepEqual(matched, [MD_A, MD_B]);
++  });
++});
++
++describe("Task 6 — end-to-end smoke (capture → message_end → turn_end → markUsed)", () => {
++  it("a populated set + assistant output containing a signature → markUsed(sid, [mdId])", async () => {
++    const { pi, fire } = stubPi();
++    const surfaced = new SurfacedSignatureSet();
++    const calls: MarkUsedCall[] = [];
++    const sessionRepo: any = {
++      markUsed: async (sid: string, mdIds: readonly string[], usedAt: string) =>
++        calls.push({ sid, mdIds: [...mdIds], usedAt }),
++    };
++    // Problem B: getSessionId is a holder bound at setup time, read at turn_end.
++    let activeSessionId: string | undefined;
++    setupUsedDetection(pi, sessionRepo, surfaced, {} as any, () => activeSessionId ?? null);
++
++    // session_start: record the assembly + populate the surfaced set from the
++    // SAME receipt (the §5↔§9 join). One build, consumed by both sides.
++    activeSessionId = "sess-e2e";
++    const store = stubStore({
++      block: "M",
++      mdIds: [MD_A],
++      signatures: [{ mdId: MD_A, signature: SIG_A }],
++    });
++    await captureAssembly({
++      getSessionId: () => activeSessionId,
++      build: () => buildPromptAssembly({ memoryMode: "default" } as any, store, null, "p"),
++      record: () => Promise.resolve(),
++      onReceipt: (r) => surfaced.populate(r.signatures),
++    });
++
++    // Assistant references the surfaced memory in its output.
++    await fire("message_end", { message: { role: "assistant", content: `Sure — ${BODY_A} on load.` } });
++    await fire("turn_end", {}, {});
++
++    assert.strictEqual(calls.length, 1);
++    assert.strictEqual(calls[0].sid, "sess-e2e");
++    assert.deepEqual(calls[0].mdIds, [MD_A]);
++    assert.ok(!Number.isNaN(Date.parse(calls[0].usedAt)), "usedAt is a valid ISO timestamp");
++  });
++
++  it("a populated set + assistant output WITHOUT any signature → markUsed NOT called (set intact)", async () => {
++    const { pi, fire } = stubPi();
++    const surfaced = new SurfacedSignatureSet();
++    const calls: MarkUsedCall[] = [];
++    const sessionRepo: any = {
++      markUsed: async (sid: string, mdIds: readonly string[], usedAt: string) =>
++        calls.push({ sid, mdIds: [...mdIds], usedAt }),
++    };
++    let activeSessionId: string | undefined = "sess-e2e-nomatch";
++    setupUsedDetection(pi, sessionRepo, surfaced, {} as any, () => activeSessionId ?? null);
++    surfaced.populate([{ mdId: MD_A, signature: SIG_A }]);
++
++    await fire("message_end", { message: { role: "assistant", content: "Hello! How can I help today?" } });
++    await fire("turn_end", {}, {});
++
++    assert.strictEqual(calls.length, 0);
++    // signature still live for a later turn
++    assert.deepEqual(surfaced.matchAndForget(normalizeForSignature(BODY_A)), [MD_A]);
++  });
++
++  it("monotonic across turns: referenced once → markUsed once; never re-marked", async () => {
++    const { pi, fire } = stubPi();
++    const surfaced = new SurfacedSignatureSet();
++    const calls: MarkUsedCall[] = [];
++    const sessionRepo: any = {
++      markUsed: async (sid: string, mdIds: readonly string[], usedAt: string) =>
++        calls.push({ sid, mdIds: [...mdIds], usedAt }),
++    };
++    let activeSessionId: string | undefined = "sess-mono";
++    setupUsedDetection(pi, sessionRepo, surfaced, {} as any, () => activeSessionId ?? null);
++    surfaced.populate([{ mdId: MD_A, signature: SIG_A }]);
++
++    // turn 1 — referenced
++    await fire("message_end", { message: { role: "assistant", content: BODY_A } });
++    await fire("turn_end", {}, {});
++    assert.strictEqual(calls.length, 1);
++
++    // turn 2 — same text again, but signature already forgotten → no re-mark
++    await fire("message_end", { message: { role: "assistant", content: BODY_A } });
++    await fire("turn_end", {}, {});
++    assert.strictEqual(calls.length, 1);
++  });
++});
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/prompt-context.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/prompt-context.test.ts
+index 79bf359a..84762eb0 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/tests/prompt-context.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/prompt-context.test.ts
+@@ -1,27 +1,31 @@
+ import { describe, test, expect } from "bun:test";
+ import { createHash } from "node:crypto";
+ import { buildPromptAssembly, buildPromptContext } from "../src/prompt-context.js";
+ import type { MemoryStore } from "../src/store/memory-store.js";
+ 
++type Signature = { mdId: string; signature: string };
++
+ /**
+  * Minimal stub of MemoryStore implementing ONLY the two assembly-manifest methods
+  * consumed by buildPromptAssembly (Task 1 additions). Typed loosely so the stub
+  * satisfies the MemoryStore parameter without standing up a full tmp-dir store.
++ * `signatures` defaults to [] so Task-2-agnostic call sites stay one-liners.
+  */
+ function stubStore(
+-  main: { block: string; mdIds: string[] },
+-  project?: { block: string; mdIds: string[] },
++  main: { block: string; mdIds: string[]; signatures?: Signature[] },
++  project?: { block: string; mdIds: string[]; signatures?: Signature[] },
+ ): MemoryStore {
+   return {
+-    getAssemblyManifest: () => main,
+-    getProjectAssemblyManifest: (_name: string) => project ?? { block: "", mdIds: [] },
++    getAssemblyManifest: () => ({ signatures: [], ...main }),
++    getProjectAssemblyManifest: (_name: string) =>
++      project ? { signatures: [], ...project } : { block: "", mdIds: [], signatures: [] },
+   } as unknown as MemoryStore;
+ }
+ 
+ describe("buildPromptAssembly", () => {
+   test("populated store → unions ids + sha256 of joined memoryBlock+projectBlock", () => {
+     const store = stubStore({ block: "M", mdIds: ["a", "b"] });
+     const projectStore = stubStore({ block: "ignored" }, { block: "P", mdIds: ["b", "c"] });
+     const config = { memoryMode: "default" } as any;
+ 
+     const got = buildPromptAssembly(config, store, projectStore, "p")!;
+@@ -49,15 +53,86 @@ describe("buildPromptAssembly", () => {
+     ).toBeNull();
+   });
+ 
+   test("null projectStore → still hashes main block", () => {
+     const store = stubStore({ block: "M", mdIds: ["a"] });
+     const got = buildPromptAssembly({ memoryMode: "default" } as any, store, null, "p")!;
+     expect(got.mdIds).toEqual(["a"]);
+     expect(got.hash).toBe(createHash("sha256").update("M", "utf8").digest("hex"));
+   });
+ 
++  // ---- Task 2 (UPSP §9): per-entry signatures threaded through AssemblyReceipt ----
++
++  test("populated store → unions both manifests' signatures (memory-before-project order)", () => {
++    const sigM: Signature[] = [
++      { mdId: "a", signature: "alpha fragment" },
++      { mdId: "b", signature: "bravo fragment" },
++    ];
++    const sigP: Signature[] = [
++      { mdId: "c", signature: "charlie fragment" },
++    ];
++    const store = stubStore({ block: "M", mdIds: ["a", "b"], signatures: sigM });
++    const projectStore = stubStore({ block: "ignored" }, { block: "P", mdIds: ["c"], signatures: sigP });
++
++    const got = buildPromptAssembly({ memoryMode: "default" } as any, store, projectStore, "p")!;
++
++    expect(got.signatures).toEqual([...sigM, ...sigP]);
++  });
++
++  test("shared mdId across memory + project → deduped once, memory occurrence kept (first wins)", () => {
++    // md_id "b" appears in BOTH manifests — a memory entry and a project entry could
++    // share an md_id. Dedup keeps the first occurrence (memory-store order first).
++    const sigM: Signature[] = [
++      { mdId: "a", signature: "alpha fragment" },
++      { mdId: "b", signature: "bravo fragment (from memory)" },
++    ];
++    const sigP: Signature[] = [
++      { mdId: "b", signature: "bravo fragment (from project)" },
++      { mdId: "c", signature: "charlie fragment" },
++    ];
++    const store = stubStore({ block: "M", mdIds: ["a", "b"], signatures: sigM });
++    const projectStore = stubStore({ block: "ignored" }, { block: "P", mdIds: ["b", "c"], signatures: sigP });
++
++    const got = buildPromptAssembly({ memoryMode: "default" } as any, store, projectStore, "p")!;
++
++    const ids = got.signatures.map((s) => s.mdId);
++    expect(ids).toEqual(["a", "b", "c"]); // "b" appears exactly once
++    const b = got.signatures.find((s) => s.mdId === "b")!;
++    expect(b.signature).toBe("bravo fragment (from memory)"); // first occurrence wins
++  });
++
++  test("null projectStore → signatures = main manifest's signatures", () => {
++    const sigM: Signature[] = [{ mdId: "a", signature: "alpha fragment" }];
++    const store = stubStore({ block: "M", mdIds: ["a"], signatures: sigM });
++
++    const got = buildPromptAssembly({ memoryMode: "default" } as any, store, null, "p")!;
++
++    expect(got.signatures).toEqual(sigM);
++  });
++
++  test("project manifest returns no signatures → union degrades to main manifest's signatures", () => {
++    // A manifest may legitimately return an empty signatures array (e.g. project block
++    // empty / all entries below the signature min-length). Union just takes what exists.
++    const sigM: Signature[] = [{ mdId: "a", signature: "alpha fragment" }];
++    const store = stubStore({ block: "M", mdIds: ["a"], signatures: sigM });
++    const projectStore = stubStore(
++      { block: "ignored" },
++      { block: "P", mdIds: ["c"], signatures: [] },
++    );
++
++    const got = buildPromptAssembly({ memoryMode: "default" } as any, store, projectStore, "p")!;
++
++    expect(got.signatures).toEqual(sigM);
++  });
++
++  test("signatures is always an array on a populated receipt (never undefined)", () => {
++    const store = stubStore({ block: "M", mdIds: ["a"], signatures: [] });
++    const got = buildPromptAssembly({ memoryMode: "default" } as any, store, null, "p")!;
++    expect(Array.isArray(got.signatures)).toBe(true);
++    expect(got.signatures).toEqual([]);
++  });
++
+   test("buildPromptContext is still exported unchanged", () => {
+     // smoke: confirm the sibling export survived and is callable.
+     expect(typeof buildPromptContext).toBe("function");
+   });
+ });
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/store/memory-store.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/store/memory-store.test.ts
+index b1bc5fc2..3360c371 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/tests/store/memory-store.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/store/memory-store.test.ts
+@@ -16,20 +16,21 @@ import { describe, it, beforeAll, afterAll, beforeEach, afterEach } from "bun:te
+ 
+ import { MemoryStore } from "../../src/store/memory-store.js";
+ import {
+   ENTRY_DELIMITER,
+   DEFAULT_MEMORY_CHAR_LIMIT,
+   DEFAULT_USER_CHAR_LIMIT,
+   MEMORY_FILE,
+   USER_FILE,
+ } from "../../src/constants.js";
+ import { serializeMetadataFrontmatter } from "../../src/store/memory-format.js";
++import { computeSignature } from "../../src/store/signature.js";
+ import type { FailureState, MemoryConfig } from "../../src/types.js";
+ import * as lockfile from "proper-lockfile";
+ 
+ // ─── Helpers (module-level) ───
+ 
+ const TEST_MARKER = "[MEMORY-TEST]";
+ let MEMORY_DIR = "";
+ 
+ function makeConfig(overrides?: Partial<MemoryConfig>): MemoryConfig {
+   return {
+@@ -1857,20 +1858,154 @@ describe("MemoryStore", { concurrency: 1 }, () => {
+       );
+ 
+       const store = new MemoryStore(makeConfig());
+       await store.loadFromDisk();
+ 
+       const name = "demo";
+       const manifest = store.getProjectAssemblyManifest(name);
+       assert.equal(manifest.block, store.formatProjectBlock(name));
+       assert.deepEqual(new Set(manifest.mdIds), new Set([PROJ_A, PROJ_B]));
+     });
++
++    // ─── signatures (UPSP §9 / ticket #06, Task 1) ───
++    //
++    // The manifest ALSO emits `signatures: { mdId, signature }[]` — one entry per
++    // surfaced md_id whose computeSignature(body, minChars) is non-null. #05's
++    // { block, mdIds } are UNCHANGED (additive field). Signatures are harvested
++    // in the SAME iteration that collects md_ids (DRY — no duplicated selection).
++    it("getAssemblyManifest: emits one signature per qualifying surfaced md_id", async () => {
++      const today = dateDaysAgo(0);
++      const MEM_A = "11111111-aaaa-1111-1111-111111111111";
++      const MEM_B = "22222222-bbbb-2222-2222-222222222222";
++      const USR_C = "33333333-cccc-3333-3333-333333333333";
++      const FAIL_D = "44444444-dddd-4444-4444-444444444444";
++      const bodyA = `${TEST_MARKER} memory A body is long enough to qualify as a signature`;
++      const bodyB = `${TEST_MARKER} memory B body is also sufficiently long for a signature`;
++      const bodyC = `${TEST_MARKER} user fact body is long enough to count here`;
++      const bodyD = `${TEST_MARKER} failure body is long enough to be signed too`;
++      await writeRaw(
++        memoryPath,
++        [
++          serializeMetadataFrontmatter({ id: MEM_A, text: bodyA, created: today, last: today }),
++          serializeMetadataFrontmatter({ id: MEM_B, text: bodyB, created: today, last: today }),
++        ].join(ENTRY_DELIMITER),
++      );
++      await writeRaw(
++        userPath,
++        serializeMetadataFrontmatter({ id: USR_C, text: bodyC, created: today, last: today }),
++      );
++      await writeRaw(
++        failurePath,
++        serializeMetadataFrontmatter({ id: FAIL_D, text: bodyD, created: today, last: today, state: "active" }),
++      );
++
++      const store = new MemoryStore(makeConfig());
++      await store.loadFromDisk();
++      const manifest = store.getAssemblyManifest();
++
++      // #05 { block, mdIds } UNCHANGED (additive signatures field).
++      assert.equal(manifest.block, store.formatForSystemPrompt());
++      assert.deepEqual(new Set(manifest.mdIds), new Set([MEM_A, MEM_B, USR_C, FAIL_D]));
++
++      // One signature per surfaced md_id, each == computeSignature(body, default 24).
++      const sigs = new Map(manifest.signatures.map((s) => [s.mdId, s.signature]));
++      assert.deepEqual(new Set(sigs.keys()), new Set([MEM_A, MEM_B, USR_C, FAIL_D]));
++      assert.equal(sigs.get(MEM_A), computeSignature(bodyA, 24));
++      assert.equal(sigs.get(MEM_B), computeSignature(bodyB, 24));
++      assert.equal(sigs.get(USR_C), computeSignature(bodyC, 24));
++      assert.equal(sigs.get(FAIL_D), computeSignature(bodyD, 24));
++    });
++
++    it("getAssemblyManifest: under-min entries are omitted from signatures but stay in mdIds", async () => {
++      const today = dateDaysAgo(0);
++      const LONG = "55555555-eeee-5555-5555-555555555555";
++      const SHORT = "66666666-ffff-6666-6666-666666666666";
++      const longBody = `${TEST_MARKER} this one is long enough to qualify for a signature`;
++      // Normalized fragment is well under the 24-char default → no signature.
++      const shortBody = `${TEST_MARKER} tiny.`;
++      await writeRaw(
++        memoryPath,
++        [
++          serializeMetadataFrontmatter({ id: LONG, text: longBody, created: today, last: today }),
++          serializeMetadataFrontmatter({ id: SHORT, text: shortBody, created: today, last: today }),
++        ].join(ENTRY_DELIMITER),
++      );
++
++      const store = new MemoryStore(makeConfig());
++      await store.loadFromDisk();
++      const manifest = store.getAssemblyManifest();
++
++      // Both entries are still surfaced (#05 mdIds unchanged).
++      assert.deepEqual(new Set(manifest.mdIds), new Set([LONG, SHORT]));
++      // Only the long entry emits a signature; the short one is omitted entirely.
++      const sigIds = manifest.signatures.map((s) => s.mdId);
++      assert.ok(sigIds.includes(LONG));
++      assert.ok(!sigIds.includes(SHORT));
++      // The omitted entry never produces a signature object.
++      assert.equal(manifest.signatures.find((s) => s.mdId === SHORT), undefined);
++    });
++
++    it("getAssemblyManifest: usedSignatureMinChars config is honored (lower threshold -> more signatures)", async () => {
++      const today = dateDaysAgo(0);
++      const BORDER = "77777777-0000-7777-7777-777777777777";
++      // Normalized fragment ~17 chars: under the default 24, over 10.
++      const borderBody = `${TEST_MARKER} mid.`;
++      await writeRaw(
++        memoryPath,
++        serializeMetadataFrontmatter({ id: BORDER, text: borderBody, created: today, last: today }),
++      );
++
++      // Default (24): too short → omitted, but still surfaced in mdIds.
++      const storeDefault = new MemoryStore(makeConfig());
++      await storeDefault.loadFromDisk();
++      const manifestDefault = storeDefault.getAssemblyManifest();
++      assert.deepEqual(new Set(manifestDefault.mdIds), new Set([BORDER]));
++      assert.equal(manifestDefault.signatures.length, 0);
++
++      // Lower threshold (10): qualifies → emitted, equals computeSignature(body, 10).
++      const storeLow = new MemoryStore(makeConfig({ usedSignatureMinChars: 10 }));
++      await storeLow.loadFromDisk();
++      const manifestLow = storeLow.getAssemblyManifest();
++      assert.deepEqual(new Set(manifestLow.mdIds), new Set([BORDER]));
++      assert.equal(manifestLow.signatures.length, 1);
++      assert.equal(manifestLow.signatures[0].mdId, BORDER);
++      assert.equal(manifestLow.signatures[0].signature, computeSignature(borderBody, 10));
++    });
++
++    it("getProjectAssemblyManifest: emits signatures for project memory ids", async () => {
++      const today = dateDaysAgo(0);
++      const PROJ_A = "88888888-1111-8888-8888-888888888888";
++      const PROJ_B = "99999999-2222-9999-9999-999999999999";
++      const bodyA = `${TEST_MARKER} project body A is long enough to qualify`;
++      const bodyB = `${TEST_MARKER} project body B is also long enough to qualify`;
++      await writeRaw(
++        memoryPath,
++        [
++          serializeMetadataFrontmatter({ id: PROJ_A, text: bodyA, created: today, last: today }),
++          serializeMetadataFrontmatter({ id: PROJ_B, text: bodyB, created: today, last: today }),
++        ].join(ENTRY_DELIMITER),
++      );
++
++      const store = new MemoryStore(makeConfig());
++      await store.loadFromDisk();
++      const name = "demo";
++      const manifest = store.getProjectAssemblyManifest(name);
++
++      // #05 { block, mdIds } UNCHANGED.
++      assert.equal(manifest.block, store.formatProjectBlock(name));
++      assert.deepEqual(new Set(manifest.mdIds), new Set([PROJ_A, PROJ_B]));
++
++      const sigs = new Map(manifest.signatures.map((s) => [s.mdId, s.signature]));
++      assert.deepEqual(new Set(sigs.keys()), new Set([PROJ_A, PROJ_B]));
++      assert.equal(sigs.get(PROJ_A), computeSignature(bodyA, 24));
++      assert.equal(sigs.get(PROJ_B), computeSignature(bodyB, 24));
++    });
+   });
+ });
+ 
+ describe("numeric isolation — assembled prompt never leaks memworth (UPSP §7 / DO ticket 04)", () => {
+   let dir: string;
+   let mp: string;
+   let fp: string;
+ 
+   beforeAll(async () => {
+     dir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-iso-test-"));
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/store/signature.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/store/signature.test.ts
+new file mode 100644
+index 00000000..db3a51b6
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/store/signature.test.ts
+@@ -0,0 +1,172 @@
++/**
++ * Unit tests for the pure signature-extraction helpers (UPSP §9 / ticket #06, Task 1).
++ *
++ * `normalizeForSignature` is the SHARED normalization used by BOTH
++ * `computeSignature` (entry → signature) and the Task-5 turn-output matcher, so
++ * a signature is always a substring of the identically-normalized scan text.
++ * `computeSignature` returns the longest normalized sentence/line fragment whose
++ * length ≥ `minChars`, or `null` when the entry is too generic to attribute.
++ */
++import { describe, it } from "bun:test";
++import * as assert from "node:assert/strict";
++import { normalizeForSignature, computeSignature } from "../../src/store/signature.js";
++
++describe("signature: normalizeForSignature", () => {
++  it("lowercases text", () => {
++    assert.equal(normalizeForSignature("Hello WORLD FooBar"), "hello world foobar");
++  });
++
++  it("collapses runs of whitespace (spaces, tabs, newlines) to a single space", () => {
++    assert.equal(
++      normalizeForSignature("foo    bar\n\n\n\tbaz  qux"),
++      "foo bar baz qux",
++    );
++    assert.equal(normalizeForSignature("a\tb  c\n d"), "a b c d");
++  });
++
++  it("trims leading/trailing whitespace", () => {
++    assert.equal(normalizeForSignature("   hello   "), "hello");
++    assert.equal(normalizeForSignature("\n\n  hi  \n"), "hi");
++  });
++
++  it("strips markdown code-fence delimiter lines", () => {
++    assert.equal(
++      normalizeForSignature("```\ncode here\n```"),
++      "code here",
++    );
++    // Fence with info string (```ts / ```yaml) is also a delimiter line.
++    assert.equal(
++      normalizeForSignature("```ts\nconst x = 1\n```"),
++      "const x = 1",
++    );
++  });
++
++  it("strips ATX header markers (#..######)", () => {
++    assert.equal(normalizeForSignature("# Title"), "title");
++    assert.equal(normalizeForSignature("## Sub Heading"), "sub heading");
++    assert.equal(normalizeForSignature("###### Deepest"), "deepest");
++  });
++
++  it("strips list-item markers (-, *, +)", () => {
++    assert.equal(normalizeForSignature("- dash item"), "dash item");
++    assert.equal(normalizeForSignature("* star item"), "star item");
++    assert.equal(normalizeForSignature("+ plus item"), "plus item");
++  });
++
++  it("strips blockquote markers (>)", () => {
++    assert.equal(normalizeForSignature("> quoted line"), "quoted line");
++    // nested blockquote
++    assert.equal(normalizeForSignature("> > nested quote"), "nested quote");
++  });
++
++  it("strips nested mixed markers (e.g. blockquote + header)", () => {
++    assert.equal(normalizeForSignature("> # Quoted Heading"), "quoted heading");
++    assert.equal(normalizeForSignature("- - double bullet"), "double bullet");
++  });
++
++  it("does not strip # / - / * that are not leading markdown markers", () => {
++    // A hashtag-like token with no space after # is not a header.
++    assert.equal(normalizeForSignature("see #release-notes for details"), "see #release-notes for details");
++    // An asterisk not at line start (emphasis) is preserved.
++    assert.equal(normalizeForSignature("use *emphasis* here"), "use *emphasis* here");
++  });
++
++  it("canonicalizes a mixed-case / markdown / whitespace body end-to-end", () => {
++    const body = [
++      "#  Project Notes",
++      "",
++      "```yaml",
++      "key: value",
++      "```",
++      "-  Use   PNPM  here",
++      "> Remember this rule",
++    ].join("\n");
++    assert.equal(
++      normalizeForSignature(body),
++      "project notes key: value use pnpm here remember this rule",
++    );
++  });
++
++  it("returns empty string for empty / whitespace-only / marker-only input", () => {
++    assert.equal(normalizeForSignature(""), "");
++    assert.equal(normalizeForSignature("   \n\t  "), "");
++    assert.equal(normalizeForSignature("# \n- \n> "), "# -");
++  });
++});
++
++describe("signature: computeSignature", () => {
++  it("returns the longest fragment that meets minChars (single long fragment)", () => {
++    const body = "This entry is long enough to qualify as a signature.";
++    // normalize keeps the trailing '.' (it is not a markdown marker); the
++    // sentence-split drops it, so the signature is the period-less fragment.
++    assert.equal(
++      computeSignature(body, 24),
++      "this entry is long enough to qualify as a signature",
++    );
++  });
++
++  it("picks the LONGEST qualifying fragment among several sentences", () => {
++    // Two sentences: one short, one long. Both fragments after split:
++    //   "short"        -> len 5
++    //   "this is the longest fragment in the body" -> qualifies & longest
++    const body = "Short. This is the longest fragment in the body.";
++    assert.equal(
++      computeSignature(body, 24),
++      "this is the longest fragment in the body",
++    );
++  });
++
++  it("returns null when no fragment reaches minChars", () => {
++    const body = "Short. Tiny bit. Mini.";
++    assert.equal(computeSignature(body, 24), null);
++  });
++
++  it("skips under-min fragments but still returns a qualifying longer one", () => {
++    const body = "tiny. a small lead in. here is a qualifying fragment for sure.";
++    assert.equal(
++      computeSignature(body, 24),
++      "here is a qualifying fragment for sure",
++    );
++  });
++
++  it("returns null for an empty body", () => {
++    assert.equal(computeSignature("", 24), null);
++  });
++
++  it("returns null for a whitespace-only body", () => {
++    assert.equal(computeSignature("   \n\t  \n", 24), null);
++  });
++
++  it("returns null when the body is only stripped-away markdown markers", () => {
++    // After stripping headers/list markers/fences, nothing remains.
++    assert.equal(computeSignature("# Title\n- bullet\n* item", 24), null);
++  });
++
++  it("honors a lower minChars threshold (a borderline fragment qualifies)", () => {
++    // Fragment "medium length body" = 18 chars.
++    const body = "Medium length body.";
++    assert.equal(computeSignature(body, 24), null);
++    assert.equal(computeSignature(body, 10), "medium length body");
++    assert.equal(computeSignature(body, 18), "medium length body");
++    assert.equal(computeSignature(body, 19), null);
++  });
++
++  it("strips markdown before fragmenting, so the signature is marker-free", () => {
++    const body = "# Heading line that is plenty long on its own.";
++    assert.equal(
++      computeSignature(body, 24),
++      "heading line that is plenty long on its own",
++    );
++  });
++
++  it("signature fragment is a substring of the same body fully normalized (match contract)", () => {
++    const body = "Prefix. The distinctive fragment we expect to match exactly. Suffix.";
++    const sig = computeSignature(body, 24);
++    assert.ok(sig !== null);
++    const normalized = normalizeForSignature(body);
++    assert.ok(
++      normalized.includes(sig!),
++      `signature "${sig}" must be a substring of normalized body "${normalized}"`,
++    );
++  });
++});
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/store/sqlite-session-repo.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/store/sqlite-session-repo.test.ts
+index a35458d4..9aff6eb9 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/tests/store/sqlite-session-repo.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/store/sqlite-session-repo.test.ts
+@@ -764,10 +764,169 @@ describe("SqliteSessionRepository.recordAssembly", () => {
+     expect(sids.map((r) => r.session_id)).toEqual(["sess-1"]);
+ 
+     // idempotent re-call replaces, does not duplicate:
+     await repo.recordAssembly("sess-1", ["m3"], "cafebabe");
+     const after = db.prepare("SELECT md_id FROM session_assembly WHERE session_id = ?").all("sess-1") as any[];
+     expect(after.map((r) => r.md_id)).toEqual(["m3"]);
+     const h2 = (db.prepare("SELECT hash FROM session_assembly_meta WHERE session_id = ?").get("sess-1") as any).hash;
+     expect(h2).toBe("cafebabe");
+   });
+ });
++
++// ---------------------------------------------------------------------------
++// markUsed (Task 3 of #06 — UPSP §9 "used vs dropped" signal, SQLite impl)
++// ---------------------------------------------------------------------------
++
++describe("SqliteSessionRepository.markUsed", () => {
++  let dir: string;
++  let backend: SqliteBackend;
++  let repo: SqliteSessionRepository;
++
++  beforeEach(async () => {
++    dir = mkdtempSync(join(tmpdir(), "hm-sess-"));
++    backend = new SqliteBackend(dir);
++    await backend.init();
++    repo = new SqliteSessionRepository(backend);
++  });
++
++  afterEach(() => {
++    backend.close();
++    rmSync(dir, { recursive: true, force: true });
++  });
++
++  it("sets used_at on matched rows only; non-matched rows stay null", async () => {
++    await repo.recordAssembly("sess-1", ["a", "b", "c"], "hash-1");
++    const now = "2026-08-02T12:00:00.000Z";
++    await repo.markUsed("sess-1", ["a", "c"], now);
++
++    const rows = backend
++      .getDb()
++      .prepare("SELECT md_id, used_at FROM session_assembly WHERE session_id = ? ORDER BY md_id")
++      .all("sess-1") as Array<{ md_id: string; used_at: string | null }>;
++    const byId = Object.fromEntries(rows.map((r) => [r.md_id, r.used_at]));
++    expect(byId["a"]).toBe(now);
++    expect(byId["c"]).toBe(now);
++    expect(byId["b"]).toBeNull();
++  });
++
++  it("is idempotent: a re-mark does not error and re-sets used_at", async () => {
++    await repo.recordAssembly("sess-1", ["a", "b"], "hash-1");
++    const t1 = "2026-08-02T12:00:00.000Z";
++    const t2 = "2026-08-02T13:00:00.000Z";
++    await repo.markUsed("sess-1", ["a"], t1);
++    // re-mark with the same value → no-op semantics, no error:
++    await expect(repo.markUsed("sess-1", ["a"], t1)).resolves.toBeUndefined();
++    // re-mark with a newer value → overwrites (monotonic stamp, allowed):
++    await repo.markUsed("sess-1", ["a"], t2);
++    const row = backend
++      .getDb()
++      .prepare("SELECT used_at FROM session_assembly WHERE session_id = ? AND md_id = ?")
++      .get("sess-1", "a") as { used_at: string };
++    expect(row.used_at).toBe(t2);
++    // the never-marked row stays null across both calls:
++    const other = backend
++      .getDb()
++      .prepare("SELECT used_at FROM session_assembly WHERE session_id = ? AND md_id = ?")
++      .get("sess-1", "b") as { used_at: string | null };
++    expect(other.used_at).toBeNull();
++  });
++
++  it("is a no-op on empty mdIds (no row touched)", async () => {
++    await repo.recordAssembly("sess-1", ["a", "b"], "hash-1");
++    await repo.markUsed("sess-1", [], "2026-08-02T12:00:00.000Z");
++    const rows = backend
++      .getDb()
++      .prepare("SELECT md_id, used_at FROM session_assembly WHERE session_id = ? ORDER BY md_id")
++      .all("sess-1") as Array<{ used_at: string | null }>;
++    expect(rows.every((r) => r.used_at === null)).toBe(true);
++  });
++
++  it("is a no-op for a session that has no assembly rows (no error)", async () => {
++    await expect(
++      repo.markUsed("no-such-session", ["a"], "2026-08-02T12:00:00.000Z"),
++    ).resolves.toBeUndefined();
++  });
++
++  it("marks only rows for the given session (a same-md_id row in another session is untouched)", async () => {
++    await repo.recordAssembly("sess-1", ["shared"], "hash-1");
++    await repo.recordAssembly("sess-2", ["shared"], "hash-2");
++    await repo.markUsed("sess-1", ["shared"], "2026-08-02T12:00:00.000Z");
++    const get = (sid: string) =>
++      (backend
++        .getDb()
++        .prepare("SELECT used_at FROM session_assembly WHERE session_id = ? AND md_id = ?")
++        .get(sid, "shared") as { used_at: string | null }).used_at;
++    expect(get("sess-1")).toBe("2026-08-02T12:00:00.000Z");
++    expect(get("sess-2")).toBeNull();
++  });
++
++  it("never touches session_assembly_meta, memories, or any other table", async () => {
++    const db = backend.getDb();
++    // Seed an unrelated memories row + the assembly meta so we can assert they survive untouched.
++    await repo.recordAssembly("sess-1", ["a", "b"], "hash-1");
++    const metaBefore = db.prepare("SELECT hash, captured_at FROM session_assembly_meta WHERE session_id = ?").get("sess-1") as any;
++    const memCountBefore = (db.prepare("SELECT COUNT(*) AS n FROM memories").get() as { n: number }).n;
++
++    await repo.markUsed("sess-1", ["a"], "2026-08-02T12:00:00.000Z");
++
++    const metaAfter = db.prepare("SELECT hash, captured_at FROM session_assembly_meta WHERE session_id = ?").get("sess-1") as any;
++    expect(metaAfter.hash).toBe(metaBefore.hash);
++    expect(metaAfter.captured_at).toBe(metaBefore.captured_at);
++    const memCountAfter = (db.prepare("SELECT COUNT(*) AS n FROM memories").get() as { n: number }).n;
++    expect(memCountAfter).toBe(memCountBefore);
++  });
++
++  it("fresh install: session_assembly has a used_at TEXT column after init", () => {
++    const cols = backend
++      .getDb()
++      .prepare("PRAGMA table_info(session_assembly)")
++      .all() as Array<{ name: string; type: string }>;
++    const col = cols.find((c) => c.name === "used_at");
++    expect(col).toBeDefined();
++    expect(col!.type).toBe("TEXT");
++  });
++
++  it("migration: adds used_at to a legacy session_assembly table on reopen; existing rows survive", async () => {
++    // Simulate a pre-#06 DB: session_assembly exists (from #05) but WITHOUT used_at.
++    const db = backend.getDb();
++    db.exec("DROP TABLE session_assembly");
++    db.exec(
++      `CREATE TABLE session_assembly (
++        session_id TEXT NOT NULL,
++        md_id TEXT NOT NULL,
++        PRIMARY KEY (session_id, md_id)
++      )`,
++    );
++    db.prepare("INSERT INTO session_assembly (session_id, md_id) VALUES (?, ?)").run("legacy-sess", "m9");
++    backend.close();
++
++    // Reopen the same dir → initializeSchema runs CREATE TABLE IF NOT EXISTS (no-op,
++    // table present) + ensureLegacySchemaColumns → ensureSessionAssemblyColumns → ALTER ADD COLUMN.
++    const reopened = new SqliteBackend(dir);
++    await reopened.init();
++    try {
++      const db2 = reopened.getDb();
++      const cols = db2.prepare("PRAGMA table_info(session_assembly)").all() as Array<{ name: string }>;
++      expect(cols.map((c) => c.name)).toContain("used_at");
++      // the pre-existing legacy row survived the migration, used_at defaulted to null:
++      const row = db2.prepare("SELECT md_id, used_at FROM session_assembly").get() as { md_id: string; used_at: null };
++      expect(row.md_id).toBe("m9");
++      expect(row.used_at).toBeNull();
++    } finally {
++      reopened.close();
++    }
++  });
++
++  it("migration is idempotent: reopening a DB that already has used_at does not error", async () => {
++    await repo.recordAssembly("sess-1", ["a"], "hash-1");
++    backend.close();
++    const reopened = new SqliteBackend(dir);
++    await expect(reopened.init()).resolves.toBeUndefined();
++    try {
++      const cols = reopened.getDb().prepare("PRAGMA table_info(session_assembly)").all() as Array<{ name: string }>;
++      const usedAtCount = cols.filter((c) => c.name === "used_at").length;
++      expect(usedAtCount).toBe(1); // not duplicated, exactly one column
++    } finally {
++      reopened.close();
++    }
++  });
++});
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/store/surreal/surreal-session-repo-contract.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/store/surreal/surreal-session-repo-contract.test.ts
+index deaab36c..1581211a 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/tests/store/surreal/surreal-session-repo-contract.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/store/surreal/surreal-session-repo-contract.test.ts
+@@ -58,11 +58,122 @@ if (up) {
+         const after = await backend.client.query<Array<{ mdId: string }>>(
+           `SELECT mdId FROM session_assembly WHERE sessionId = $sid;`, { sid },
+         );
+         expect(after.map((r) => r.mdId)).toEqual(["m3"]);
+       } finally {
+         try { await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch {}
+         await backend.close();
+       }
+     });
+   });
++
++  describe("SurrealSessionRepository.markUsed", () => {
++    // UPSP §9 (#06, Task 4) — Surreal parity with the SQLite markUsed tests
++    // (sqlite-session-repo.test.ts). SCHEMALESS: a non-matched row never gets
++    // `usedAt` written, so the field is absent (SELECT serializes NONE → null).
++    // Fresh isolated ns + backend per test, mirroring recordAssembly's per-test
++    // uniqueNs + try/finally REMOVE NAMESPACE cleanup.
++    async function withRepo(
++      fn: (repo: SurrealSessionRepository, backend: SurrealBackend) => Promise<void>,
++    ): Promise<void> {
++      const ns = uniqueNs();
++      const backend = new SurrealBackend({ namespace: ns, database: ns });
++      await backend.init();
++      try {
++        await fn(new SurrealSessionRepository(backend), backend);
++      } finally {
++        try { await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch {}
++        await backend.close();
++      }
++    }
++
++    const selUsedAt = async (backend: SurrealBackend, sid: string): Promise<Record<string, string | null>> => {
++      const rows = await backend.client.query<Array<{ mdId: string; usedAt: string | null }>>(
++        `SELECT mdId, usedAt FROM session_assembly WHERE sessionId = $sid;`, { sid },
++      );
++      return Object.fromEntries(rows.map((r) => [r.mdId, r.usedAt]));
++    };
++
++    test("sets usedAt on matched rows only; non-matched rows stay null", async () => {
++      await withRepo(async (repo, backend) => {
++        const sid = "sess-surr-used-1";
++        await repo.recordAssembly(sid, ["a", "b", "c"], "hash-1");
++        const now = "2026-08-02T12:00:00.000Z";
++        await repo.markUsed(sid, ["a", "c"], now);
++
++        const byId = await selUsedAt(backend, sid);
++        expect(byId["a"]).toBe(now);
++        expect(byId["c"]).toBe(now);
++        // SCHEMALESS: the non-matched row never got usedAt written → field absent ≈ null.
++        expect(byId["b"]).toBeNull();
++      });
++    });
++
++    test("is idempotent: a re-mark does not error and re-stamps usedAt", async () => {
++      await withRepo(async (repo, backend) => {
++        const sid = "sess-surr-used-2";
++        await repo.recordAssembly(sid, ["a", "b"], "hash-1");
++        const t1 = "2026-08-02T12:00:00.000Z";
++        const t2 = "2026-08-02T13:00:00.000Z";
++        await repo.markUsed(sid, ["a"], t1);
++        // re-mark with the same value → no error (no-op semantics):
++        await expect(repo.markUsed(sid, ["a"], t1)).resolves.toBeUndefined();
++        // re-mark with a newer value → overwrites (monotonic stamp, allowed):
++        await repo.markUsed(sid, ["a"], t2);
++        const byId = await selUsedAt(backend, sid);
++        expect(byId["a"]).toBe(t2);
++        // the never-marked row stays null across all calls:
++        expect(byId["b"]).toBeNull();
++      });
++    });
++
++    test("is a no-op on empty mdIds (no row touched)", async () => {
++      await withRepo(async (repo, backend) => {
++        const sid = "sess-surr-used-3";
++        await repo.recordAssembly(sid, ["a", "b"], "hash-1");
++        await repo.markUsed(sid, [], "2026-08-02T12:00:00.000Z");
++        const byId = await selUsedAt(backend, sid);
++        expect(byId["a"]).toBeNull();
++        expect(byId["b"]).toBeNull();
++      });
++    });
++
++    test("is a no-op for a session that has no assembly rows (no error)", async () => {
++      await withRepo(async (repo) => {
++        await expect(
++          repo.markUsed("no-such-session", ["a"], "2026-08-02T12:00:00.000Z"),
++        ).resolves.toBeUndefined();
++      });
++    });
++
++    test("marks only rows for the given session (a same-mdId row in another session is untouched)", async () => {
++      await withRepo(async (repo, backend) => {
++        const s1 = "sess-surr-used-4a";
++        const s2 = "sess-surr-used-4b";
++        const now = "2026-08-02T12:00:00.000Z";
++        await repo.recordAssembly(s1, ["shared"], "hash-1");
++        await repo.recordAssembly(s2, ["shared"], "hash-2");
++        await repo.markUsed(s1, ["shared"], now);
++        const a = await selUsedAt(backend, s1);
++        const b = await selUsedAt(backend, s2);
++        expect(a["shared"]).toBe(now);
++        expect(b["shared"]).toBeNull();
++      });
++    });
++
++    test("never touches session_assembly_meta (hash/capturedAt survive)", async () => {
++      await withRepo(async (repo, backend) => {
++        const sid = "sess-surr-used-5";
++        await repo.recordAssembly(sid, ["a", "b"], "hash-1");
++        const metaBefore = await backend.client.query<Array<{ hash: string; capturedAt: string }>>(
++          `SELECT hash, capturedAt FROM session_assembly_meta WHERE sessionId = $sid LIMIT 1;`, { sid },
++        );
++        await repo.markUsed(sid, ["a"], "2026-08-02T12:00:00.000Z");
++        const metaAfter = await backend.client.query<Array<{ hash: string; capturedAt: string }>>(
++          `SELECT hash, capturedAt FROM session_assembly_meta WHERE sessionId = $sid LIMIT 1;`, { sid },
++        );
++        expect(metaAfter[0]?.hash).toBe(metaBefore[0]?.hash);
++        expect(metaAfter[0]?.capturedAt).toBe(metaBefore[0]?.capturedAt);
++      });
++    });
++  });
+ }
