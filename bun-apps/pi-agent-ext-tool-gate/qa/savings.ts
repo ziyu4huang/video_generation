@@ -151,11 +151,12 @@ export async function measureSavings(root?: string): Promise<SavingsReport> {
 	const report = await buildSchemaCostReport(resolved);
 	const byName = new Map(report.tools.map((t) => [t.name, t.approxTokens]));
 
-	// CORPUS_GATES = hardcoded GATES + reconstructed owner-declared gates (deploy
-	// ticket 03, file2md/vision_ask ticket 04) — counts every gated tool's tokens
-	// so savings still reflect owner-declared gated tools, not just the hardcoded
-	// fallback. (Stopgap: ticket 13 will replace with buildEffectiveGates over the
-	// live tool list.)
+	// CORPUS_GATES = CORPUS_EFF.gates, built once via buildEffectiveGates over the
+	// corpus tool list (evaluate.ts) — the same effective-gate builder the runtime
+	// uses at session_start (ticket 13). Counts every gated tool's tokens so
+	// savings reflect owner-declared gated tools, not just the now-empty module
+	// GATES fallback. Ticket 13 routed this through buildEffectiveGates; the
+	// former "hardcoded GATES + reconstructed" stopgap is obsolete.
 	const perGate: GateSavings[] = CORPUS_GATES.map((g) => {
 		const present = g.names.filter((n) => byName.has(n));
 		const tokens = present.reduce((s, n) => s + (byName.get(n) ?? 0), 0);

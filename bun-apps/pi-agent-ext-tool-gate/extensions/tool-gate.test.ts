@@ -1044,3 +1044,65 @@ describe("tool-gate runtime reads owner-declared gating", () => {
     expect(recomputeActive).not.toContain("unobtanium_tool"); // X must stay dormant during the recompute
   });
 });
+
+// Ticket 14 — telemetry undercount fix.
+//
+// computeBannerSaved was parameterized in ticket 13a to accept a `gates` arg
+// (default = module GATES, which is EMPTY since every gate migrated to
+// owner-declared gating in tickets 03–12). The two prod call sites (session_start
+// banner + before_agent_start telemetry `savedTok`) still passed only 3 args,
+// so they hit the empty default → reported savings as 0 (an undercount of the
+// real per-request savings). Fix: thread `effectiveGates` (the closure rebuilt
+// from owner-declared gating at each session_start / before_agent_start) into
+// both call sites. This regression fires a REAL session_start and asserts the
+// rendered banner's N > 0 — pre-fix it was 0.
+describe("session_start banner reflects runtime effectiveGates (ticket 14 undercount fix)", () => {
+  test("banner 'saves ~N tok/req' > 0 when an owner-gated tool is loaded (pre-fix N was 0)", async () => {
+    // TOOL_GATE_DEBUG_BANNER=1 → opts {immediate:true} → SHOW_DELAY_MS=0 (the
+    // banner still lands via setTimeout, so we await one macrotask tick below).
+    process.env.TOOL_GATE_DEBUG_BANNER = "1";
+    try {
+      // One core tool (active) + one owner-declared gated tool (dormant). The
+      // gate reconstructs from the `gating` field via buildEffectiveGates, NOT
+      // from module GATES (empty). measureToolTokens is importable (see imports
+      // atop this file) → assert the EXACT banner value, not just > 0.
+      const FLUX_DESC = "Generate an image with the flux2 diffusion model. ".repeat(10);
+      const fluxTool = { name: "flux2", description: FLUX_DESC, parameters: {}, gating: { keywords: ["flux"] } };
+      let captured: string[] | undefined;
+      let sessionStartHandler: ((e: unknown, ctx: unknown) => Promise<void>) | null = null;
+      const pi = {
+        getAllToolDefinitions: () => [
+          { name: "read", description: "core read", parameters: {}, gating: { core: true } },
+          fluxTool,
+        ],
+        on: (_chan: string, h: (e: unknown, ctx: unknown) => Promise<void>) => { if (_chan === "session_start") sessionStartHandler = h; return () => {}; },
+        setActiveTools: () => {},
+        registerTool: () => {},
+      } as unknown as Parameters<typeof toolGateExtension>[0];
+      toolGateExtension(pi);
+      await sessionStartHandler!({}, {
+        ui: {
+          theme: { fg: (_k: string, s: string) => s },
+          setWidget: (_key: string, lines: string[] | undefined) => { captured = lines; },
+        },
+      });
+      // SHOW_DELAY_MS=0 is still a setTimeout(0) → yield to the macrotask queue.
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(captured).toBeTruthy();
+      const line = captured!.find((l) => l.includes("saves ~"));
+      expect(line).toBeTruthy();
+      const m = line!.match(/saves ~(\d+) tok\/req/);
+      expect(m).not.toBeNull();
+      const n = Number(m![1]);
+
+      // MINIMUM PROOF: pre-fix this was 0 (default GATES empty → no gate summed).
+      expect(n).toBeGreaterThan(0);
+      // EXACT-MATCH PROOF: flux2 is the only loaded+gated gate → its measured
+      // tokens are the entire savings figure.
+      expect(n).toBe(measureToolTokens({ description: FLUX_DESC, parameters: {} }));
+    } finally {
+      delete process.env.TOOL_GATE_DEBUG_BANNER;
+    }
+  });
+});
