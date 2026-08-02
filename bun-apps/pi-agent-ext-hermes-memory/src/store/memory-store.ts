@@ -82,6 +82,38 @@ export interface StableIdBackfillProvider {
   setMdIdByContent(target: "memory" | "user" | "failure", content: string, mdId: string, project: string | null): Promise<number>;
 }
 
+/**
+ * A single entry passed to the heat provider (UPSP §1 decay, ticket #1b). The
+ * store decodes each `.md` entry's stable `mdId` + its `lastReferenced`/`created`
+ * dates and hands them over so the provider does NOT re-read the store — it only
+ * needs the DB-side signals (`mw_success`/`mw_fail` + the `used_at` boolean)
+ * that the DB-free store must not hold directly. Dates are flexible strings
+ * (ISO or "YYYY-MM-DD") matching the frontmatter; absent → `computeHeat`'s
+ * last→created→epoch fallback chain applies.
+ */
+export interface HeatEntryInput {
+  /** Stable frontmatter id (the md_id mirrored onto the DB row). */
+  mdId: string;
+  /** Last-referenced date from the frontmatter (recency spine anchor). */
+  lastReferenced?: string;
+  /** Creation date from the frontmatter (fallback when lastReferenced absent). */
+  created?: string;
+}
+
+/**
+ * Injected heat provider (UPSP §1 decay): gives eviction/consolidation a
+ * per-entry heat ∈ [0,1] (higher = hotter = spared) WITHOUT a direct repo
+ * reference in the store — mirrors {@link StableIdBackfillProvider}. Wired from
+ * `index.ts` where both repos live (it batches `mw_success`/`mw_fail` from
+ * `memoryRepo` + the `used_at` boolean from `sessionRepo`, then calls
+ * `computeHeat` per entry). Absent/throwing/empty → callers fall back to the
+ * current FIFO (best-effort, never blocks eviction).
+ */
+export type HeatForEntriesProvider = (
+  target: "memory" | "user" | "failure",
+  entries: HeatEntryInput[],
+) => Promise<Map<string /*mdId*/, number /*heat*/>>;
+
 export class MemoryStore {
   private memoryEntries: string[] = [];
   private userEntries: string[] = [];
@@ -146,6 +178,52 @@ export class MemoryStore {
 
   setStableIdBackfillProvider(provider: StableIdBackfillProvider): void {
     this.stableIdBackfillProvider = provider;
+  }
+
+  /**
+   * Injected heat provider (UPSP §1 decay, ticket #1b): gives eviction /
+   * consolidation a per-entry heat ∈ [0,1] WITHOUT a direct repo reference in
+   * the store — mirrors {@link setSupersededContentProvider} /
+   * {@link setStableIdBackfillProvider}. Wired from `index.ts` once both repos
+   * are available; GATED there on `config.decayEnabled !== false` (when disabled
+   * the provider is simply NOT attached → the store sees `null` → T4/T5 fall
+   * back to current FIFO; this is the first-class disable-path invariant).
+   *
+   * The store stays DB-free: the provider closes over the repos and returns a
+   * `Map<mdId, heat>`. No behavior change is wired here yet — T4/T5 consume the
+   * {@link computeHeats} helper (which centralizes the best-effort envelope).
+   */
+  private heatForEntriesProvider: HeatForEntriesProvider | null = null;
+
+  setHeatForEntriesProvider(fn: HeatForEntriesProvider): void {
+    this.heatForEntriesProvider = fn;
+  }
+
+  /**
+   * Best-effort heat accessor for T4/T5 (eviction floors + consolidator
+   * snapshot). Centralizes the best-effort envelope so every consumer gets a
+   * single clean null-or-Map API:
+   * - no provider attached (decay disabled / unit-test) → `null`;
+   * - empty `entries` (nothing to score) → `null`;
+   * - provider throws (a misbehaving/injected fn) → `null`;
+   * - provider returns an empty `Map` (its own best-effort repo failure) → `null`.
+   *
+   * A non-empty `Map` is returned ONLY when real per-entry heat is available.
+   * Callers treat `null` as "fall back to current FIFO/file-order" — heat never
+   * blocks eviction. The provider itself (built in `index.ts`) also never
+   * throws; this try/catch is belt-and-suspenders for a misbehaving injection.
+   */
+  protected async computeHeats(
+    target: "memory" | "user" | "failure",
+    entries: HeatEntryInput[],
+  ): Promise<Map<string /*mdId*/, number /*heat*/> | null> {
+    if (!this.heatForEntriesProvider || entries.length === 0) return null;
+    try {
+      const heats = await this.heatForEntriesProvider(target, entries);
+      return heats && heats.size > 0 ? heats : null;
+    } catch {
+      return null; // best-effort: a misbehaving provider never blocks eviction.
+    }
   }
 
   /** Inject the perf recorder's timed() — parallel to setConsolidator. Defaults

@@ -59,6 +59,7 @@ import { registerLearnMemoryCommand } from "./handlers/learn-memory.js";
 import { registerSyncMarkdownMemoriesCommand, syncMarkdownMemories } from "./handlers/sync-markdown-memories.js";
 import { registerSwitchBackendCommand } from "./handlers/switch-backend.js";
 import { registerPreviewContextCommand } from "./handlers/preview-context.js";
+import { makeHeatProvider, shouldWireHeat } from "./handlers/heat-provider.js";
 import { loadConfig, shouldRunStartupSync } from "./config.js";
 import { detectProject, detectProjectSkills, resolveProjectStoreDir } from "./project.js";
 import { MEMORY_FILE } from "./constants.js";
@@ -471,6 +472,29 @@ export default async function (pi: ExtensionAPI) {
       getMdIdByContent: (target, content) => memoryRepo.getMdIdByContent(content, { target, project: projectName }),
       setMdIdByContent: (target, content, mdId) => memoryRepo.setMdIdByContent(content, mdId, { target, project: projectName }),
     });
+  }
+
+  // ── 7d. Inject the heat provider (UPSP §1 decay, ticket #1b) ──
+  // Mirrors the providers above — keeps MemoryStore free of a direct
+  // MemoryRepository/SessionRepository reference. The provider batches
+  // `mw_success`/`mw_fail` (memoryRepo.getMemories, one scoped SELECT for the
+  // whole target) + the global `used_at` boolean (sessionRepo.getUsedMdIds),
+  // then calls `computeHeat` per entry. Best-effort: it never throws (returns an
+  // empty Map on any repo failure → the store's computeHeats normalizes to null
+  // → T4/T5 fall back to current FIFO).
+  //
+  // GATE on `shouldWireHeat(config)` (== `config.decayEnabled !== false`):
+  // when disabled the provider is NOT attached → the store sees null → eviction
+  // reverts to pre-#1b FIFO (the disable path is a first-class invariant, not
+  // an afterthought). Both stores use the SAME global repos; the per-store
+  // `project` arg scopes ONLY the mw_* lookup (projectStore → projectName) — the
+  // `used_at` signal is global ever-used per D4 (session_assembly is a global,
+  // non-project-scoped ledger, so getUsedMdIds ignores project).
+  if (shouldWireHeat(config)) {
+    store.setHeatForEntriesProvider(makeHeatProvider(config, { memoryRepo, sessionRepo }, null));
+    if (projectStore) {
+      projectStore.setHeatForEntriesProvider(makeHeatProvider(config, { memoryRepo, sessionRepo }, projectName));
+    }
   }
   // Inject the perf recorder into both stores — lock-hold breach timing (T2) +
   // consolidation always-logged event (T3).
