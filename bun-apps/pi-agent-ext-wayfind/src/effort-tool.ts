@@ -170,7 +170,7 @@ function renderCreate(r: EffortCreateResult): string {
   return `Created effort manifest at ${r.path} (status: ${r.meta?.status ?? "active"}). Next: /wayfind ${r.effort} to chart the frontier, or add tickets under .planning/${r.effort}/tickets/.`;
 }
 
-function renderValidate(r: EffortValidateResult): string {
+export function renderValidate(r: EffortValidateResult): string {
   if (!r.exists) return `No map at .planning/${r.effort}/map.md — nothing to validate.`;
   if (r.ok) return `Effort '${r.effort}' is valid (manifest present, Destination set).`;
   return `Effort '${r.effort}' is INVALID:\n  - ${r.problems.join("\n  - ")}`;

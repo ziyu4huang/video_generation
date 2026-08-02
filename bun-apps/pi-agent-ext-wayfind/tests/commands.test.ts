@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { registerCommands } from "../src/commands.js";
 import { WAYFIND_ACTIVE_KEY } from "../src/constants.js";
 import { isWayfindActivePublished } from "../src/coordination.js";
+import { createEffort } from "../src/effort-tool.js";
 import { readMap, writeMap, writeTicket } from "../src/map.js";
 import { WayfindOverlay } from "../src/overlay.js";
 import { createRuntimeState, isGrillActive, type RuntimeState } from "../src/state.js";
@@ -457,5 +458,53 @@ describe("/wayfind chart — overlay active-effort wiring", () => {
     await pi.commands.get("wayfind")?.("Redesign the checkout flow", makeCtx(cwd));
     expect(spy.effort).toBeTruthy();
     expect(spy.cwd).toBe(cwd);
+  });
+});
+
+describe("/wayfind validate — conformance command", () => {
+  function ctxCapturing(cwd: string): { ctx: any; notifications: string[] } {
+    const notifications: string[] = [];
+    return {
+      notifications,
+      ctx: {
+        cwd,
+        sessionManager: { getSessionId: () => "test-session" },
+        ui: { notify: (m: string) => notifications.push(m), setStatus: () => {} },
+      },
+    };
+  }
+
+  it("notifies 'valid' on a conforming manifest effort", async () => {
+    const { pi } = setup();
+    const cwd = makeCwd();
+    createEffort(cwd, { effort: "demo", destination: "ship the tool" }); // manifest + Destination
+    const { ctx, notifications } = ctxCapturing(cwd);
+    await pi.commands.get("wayfind")?.("validate demo", ctx);
+    expect(notifications.some((n) => /valid/i.test(n))).toBe(true);
+  });
+
+  it("notifies problems on a map missing ## Destination", async () => {
+    const { pi } = setup();
+    const cwd = makeCwd();
+    mkdirSync(join(cwd, ".planning", "bad", "tickets"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".planning", "bad", "map.md"),
+      [
+        "---",
+        "effort: bad",
+        "status: active",
+        "---",
+        "",
+        "# Wayfinder map: bad",
+        "",
+        "## Notes",
+        "",
+        "no destination",
+      ].join("\n"),
+      "utf-8",
+    );
+    const { ctx, notifications } = ctxCapturing(cwd);
+    await pi.commands.get("wayfind")?.("validate bad", ctx);
+    expect(notifications.some((n) => /destination|invalid/i.test(n))).toBe(true);
   });
 });
