@@ -16,7 +16,8 @@
  *
  * Run: `bun run qa:coverage`  (wired in package.json)
  */
-import { buildSchemaCostReport, resolveRepoRoot, type SchemaCostReport } from "../../pi-agent-cli/src/commands/schema-cost.ts";
+import { buildSchemaCostReport, resolveRepoRoot } from "../../pi-agent-cli/src/commands/schema-cost.ts";
+import type { SchemaCostReport } from "@repo/pi-agent-ext-power-tool/schema-cost";
 import { TRACKED_TOOLS } from "../extensions/tool-gate.ts";
 
 /** Heavy tools at or above this per-request token cost are coverage candidates. */
