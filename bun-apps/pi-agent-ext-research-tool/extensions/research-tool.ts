@@ -64,6 +64,22 @@ const collectVideosTool = defineTool({
 		"pass `keywords` to override. Bilibili needs no key (optional `proxy` for 412 risk-control); " +
 		"YouTube needs YOUTUBE_API_KEY. Output → <vault>/weekly-news/<platform>-<preset>-<saturday>.md " +
 		"unless `outputPath` is given.",
+	// Owner-declared gating — migrated from tool-gate's hardcoded GATES (was the
+	// {names:["collect_videos","organize_vault_notes","import_memory_to_vault"]}
+	// gate). Per ticket 09's semantics-preserving rule, the SAME gating is
+	// mirrored on organize_vault_notes + import_memory_to_vault so all three
+	// activate together and reconstructOwnerDeclaredGates collapses them back
+	// into one multi-name gate (names[0] === "collect_videos"). Mirrors the
+	// original GATES entry verbatim: keywords only (bilibili/youtube/collect
+	// videos/vault phrases + CJK) — no `requires`, since these are unambiguous
+	// source/vault intents that never false-fire the way image/video nouns do.
+	gating: {
+		keywords: [
+			"bilibili", "youtube", "collect videos", "video trending",
+			"vault notes", "organize vault", "import memory",
+			"收集影片", "整理筆記",
+		],
+	},
 	parameters: Type.Object({
 		platform: Type.Union([Type.Literal("bilibili"), Type.Literal("youtube")], {
 			description: "Source platform.",
@@ -176,6 +192,19 @@ const organizeTool = defineTool({
 		"Auto-tag frontmatter (tags/aliases/created) on vault notes that lack it, based on " +
 		"filename + path patterns, and list unclassified orphan notes. Operates on the active " +
 		"vault root. Use dryRun to preview without writing.",
+	// Owner-declared gating — mirrored IDENTICALLY from collect_videos (same
+	// signature) so reconstructOwnerDeclaredGates collapses the three vault
+	// tools into one multi-name gate
+	// {names:["collect_videos","organize_vault_notes","import_memory_to_vault"]}
+	// (ticket 09). Co-fire preserved: when the gate fires, all three names
+	// activate together. See collect_videos's gating comment.
+	gating: {
+		keywords: [
+			"bilibili", "youtube", "collect videos", "video trending",
+			"vault notes", "organize vault", "import memory",
+			"收集影片", "整理筆記",
+		],
+	},
 	parameters: Type.Object({
 		vaultRoot: Type.Optional(Type.String({ description: "Vault root (absolute or cwd-relative). Default: active vault." })),
 		dryRun: Type.Optional(Type.Boolean({ description: "Report changes without writing.", default: false })),
@@ -207,6 +236,19 @@ const importMemoryTool = defineTool({
 	description:
 		"Parse pi-hermes-memory entries (MEMORY.md / USER.md / failures.md) and append them to a " +
 		"vault-mind JSONL collection (dedup by id). Output defaults to <vault>/collections/study_news.jsonl.",
+	// Owner-declared gating — mirrored IDENTICALLY from collect_videos (same
+	// signature) so reconstructOwnerDeclaredGates collapses the three vault
+	// tools into one multi-name gate
+	// {names:["collect_videos","organize_vault_notes","import_memory_to_vault"]}
+	// (ticket 09). Co-fire preserved: when the gate fires, all three names
+	// activate together. See collect_videos's gating comment.
+	gating: {
+		keywords: [
+			"bilibili", "youtube", "collect videos", "video trending",
+			"vault notes", "organize vault", "import memory",
+			"收集影片", "整理筆記",
+		],
+	},
 	parameters: Type.Object({
 		outputPath: Type.Optional(Type.String({ description: "JSONL output (absolute or cwd-relative). Default: <vault>/collections/study_news.jsonl." })),
 		hermesDir: Type.Optional(Type.String({ description: "Override hermes-memory dir. Default: $HOME/.pi/agent/pi-hermes-memory or PI_HERMES_MEMORY_DIR." })),
@@ -272,6 +314,21 @@ const arxivSearchTool = defineTool({
 	label: "arXiv Search",
 	description:
 		"Search arXiv papers by query, optional category, sorting, and pagination. Returns titles, authors, abstracts, dates, categories, and links. Use arxiv_search when the user asks to find papers, recent papers, related work, or papers in an arXiv category; follow with arxiv_fetch2md when the full body of a specific paper is needed.",
+	gating: {
+		keywords: ["arxiv", "論文", "找論文", "抓論文", "讀論文", "search paper", "search papers", "find paper", "find papers"],
+		requires: {
+			nouns: ["paper", "papers", "論文"],
+			verbs: ["search", "find", "fetch", "read", "look up", "找", "查", "搜尋", "讀"],
+		},
+	},
+	// Owner-declared gating — migrated from tool-gate's hardcoded GATES (was the
+	// {names:["arxiv_search","arxiv_fetch2md","arxiv_paper"]} gate). Per ticket
+	// 09's semantics-preserving rule, the SAME gating is mirrored on arxiv_paper
+	// + arxiv_fetch2md so all three activate together and
+	// reconstructOwnerDeclaredGates collapses them back into one multi-name gate
+	// (names[0] === "arxiv_search"). Mirrors the original GATES entry verbatim:
+	// narrow "arxiv" word-boundary keyword + CJK 論文 + a noun∧verb `requires`
+	// (paper∧find/read) so "find papers" fires but bare "paper cut" doesn't.
 	parameters: Type.Object({
 		query: Type.String({ description: "Search query, e.g. 'diffusion policies robotics'" }),
 		category: Type.Optional(Type.String({ description: "Optional arXiv category filter, e.g. cs.RO, cs.LG, cs.CV, stat.ML" })),
@@ -334,6 +391,19 @@ const arxivPaperTool = defineTool({
 	name: "arxiv_paper",
 	label: "arXiv Paper",
 	description: "Fetch exact metadata for one arXiv paper by ID or URL. Returns title, authors, abstract, dates, categories, and links. Use arxiv_paper when the user gives a specific arXiv ID/URL and wants metadata or abstract.",
+	gating: {
+		keywords: ["arxiv", "論文", "找論文", "抓論文", "讀論文", "search paper", "search papers", "find paper", "find papers"],
+		requires: {
+			nouns: ["paper", "papers", "論文"],
+			verbs: ["search", "find", "fetch", "read", "look up", "找", "查", "搜尋", "讀"],
+		},
+	},
+	// Owner-declared gating — mirrored IDENTICALLY from arxiv_search (same
+	// signature) so reconstructOwnerDeclaredGates collapses the three arxiv
+	// tools into one multi-name gate
+	// {names:["arxiv_search","arxiv_paper","arxiv_fetch2md"]} (ticket 09).
+	// Co-fire preserved: when the gate fires, all three names activate
+	// together. See arxiv_search's gating comment.
 	parameters: Type.Object({
 		id: Type.String({ description: "arXiv ID or URL, e.g. 2401.12345v2 or https://arxiv.org/abs/2401.12345" }),
 	}),
@@ -363,6 +433,19 @@ const arxivFetchTool = defineTool({
 	label: "arXiv Fetch Markdown",
 	description:
 		"Fetch the full body of an arXiv paper as Markdown using arxiv2md; prefer it over scraping PDFs (it preserves sections + math via the HTML pipeline). Saves the Markdown to <vault>/papers/ unless save=false or output_path is given. Use arxiv_fetch2md when the user asks to read, analyze, summarize, or quote the full body of a specific arXiv paper.",
+	gating: {
+		keywords: ["arxiv", "論文", "找論文", "抓論文", "讀論文", "search paper", "search papers", "find paper", "find papers"],
+		requires: {
+			nouns: ["paper", "papers", "論文"],
+			verbs: ["search", "find", "fetch", "read", "look up", "找", "查", "搜尋", "讀"],
+		},
+	},
+	// Owner-declared gating — mirrored IDENTICALLY from arxiv_search (same
+	// signature) so reconstructOwnerDeclaredGates collapses the three arxiv
+	// tools into one multi-name gate
+	// {names:["arxiv_search","arxiv_paper","arxiv_fetch2md"]} (ticket 09).
+	// Co-fire preserved: when the gate fires, all three names activate
+	// together. See arxiv_search's gating comment.
 	parameters: Type.Object({
 		id: Type.String({ description: "arXiv ID or URL, e.g. 2501.11120v1 or https://arxiv.org/abs/2501.11120v1" }),
 		save: Type.Optional(Type.Boolean({ description: "Whether to save the Markdown file (default true)", default: true })),
