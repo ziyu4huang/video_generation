@@ -96,8 +96,29 @@ export function createGhClient(spawn: SpawnFn): GhClient {
 		},
 		async rebaseAndForcePush(branch) {
 			await spawn("git", ["fetch", "origin", "main"]);
-			await spawn("git", ["rebase", "origin/main"]);
-			await spawn("git", ["push", "--force-with-lease", "origin", branch]);
+			// rebase.autoStash + exit-code checks (RCA: await_pr_merge #1009). A dirty
+			// working tree (uncommitted tracked changes) makes `git rebase` refuse to
+			// start; the old code IGNORED the non-zero exit, force-pushed the
+			// un-rebased branch, and BEHIND never cleared — the poll loop spun until
+			// the harness aborted it as a misleading "aborted". autoStash stashes
+			// before + pops after; a failed rebase is aborted + thrown so the recipe
+			// reports a clean error instead of spinning.
+			const rebase = await spawn("git", ["-c", "rebase.autoStash=true", "rebase", "origin/main"]);
+			if (rebase.exitCode !== 0) {
+				// Restore pre-rebase HEAD. autoStash preserves the stash on failure
+				// (restore manually with `git stash pop`). --abort is a safe no-op
+				// when no rebase is in progress.
+				await spawn("git", ["rebase", "--abort"]);
+				throw new Error(
+					`git rebase origin/main failed (exit ${rebase.exitCode}): ${(rebase.stderr || rebase.stdout).trim()}`,
+				);
+			}
+			const push = await spawn("git", ["push", "--force-with-lease", "origin", branch]);
+			if (push.exitCode !== 0) {
+				throw new Error(
+					`git push --force-with-lease ${branch} failed (exit ${push.exitCode}): ${(push.stderr || push.stdout).trim()}`,
+				);
+			}
 		},
 	};
 }

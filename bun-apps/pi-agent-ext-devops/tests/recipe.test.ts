@@ -107,6 +107,28 @@ describe("runMergeRecipe", () => {
 		expect(calls.rebase).toHaveLength(0);
 	});
 
+	test("BEHIND rebase FAILURE → clean error outcome (not throw, not silent spin/abort)", async () => {
+		// RCA #1009: a failing rebase (dirty tree/conflict/rejected push) must
+		// surface as a clean error — not crash the tool (throw) and not spin
+		// silently until the harness reports an opaque "aborted".
+		const client: GhClient = {
+			async prStatus() {
+				return { state: "OPEN", mergeState: "BEHIND", checks: pass5 };
+			},
+			async enableAutoMerge() { /* unused */ },
+			async rebaseAndForcePush() {
+				throw new Error("git rebase origin/main failed (exit 1): unstaged changes");
+			},
+		};
+		const r = await runMergeRecipe(baseOpts(client, fakeClock()));
+		expect(r.merged).toBe(false);
+		expect(r.aborted).not.toBe(true);
+		expect(r.timedOut).toBe(false);
+		expect(r.behind).toBe(true);
+		expect(r.error).toMatch(/rebase\+force-push failed/i);
+		expect(r.error).toMatch(/unstaged changes/);
+	});
+
 	test("a failing check → not merged, NO auto-merge enabled", async () => {
 		const { client, calls } = fakeGh([{ state: "OPEN", mergeState: "BLOCKED", checks: { pass: 4, fail: 1, pending: 0 } }]);
 		const r = await runMergeRecipe(baseOpts(client, fakeClock()));

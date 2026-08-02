@@ -129,14 +129,37 @@ describe("createGhClient (glue)", () => {
 		expect(calls[0].args).toEqual(["pr", "merge", "9", "--squash", "--auto"]);
 	});
 
-	test("rebaseAndForcePush runs fetch → rebase → force-push", async () => {
+	test("rebaseAndForcePush runs fetch → autoStash-rebase → force-push", async () => {
 		const { fn, calls } = rec([]);
 		await createGhClient(fn).rebaseAndForcePush("feat-x");
 		expect(calls).toEqual([
 			{ cmd: "git", args: ["fetch", "origin", "main"] },
-			{ cmd: "git", args: ["rebase", "origin/main"] },
+			{ cmd: "git", args: ["-c", "rebase.autoStash=true", "rebase", "origin/main"] },
 			{ cmd: "git", args: ["push", "--force-with-lease", "origin", "feat-x"] },
 		]);
+	});
+
+	test("rebaseAndForcePush THROWS on a failed rebase (dirty tree/conflict), aborts, and does NOT force-push", async () => {
+		// RCA #1009: a dirty working tree makes `git rebase` exit non-zero. The
+		// fix checks the exit code, aborts the (possibly mid-flight) rebase, and
+		// throws — never silently force-pushing an un-rebased branch.
+		const { fn, calls } = rec([
+			{ match: (c, a) => c === "git" && a.includes("rebase") && !a.includes("--abort"),
+				result: { stdout: "", stderr: "cannot rebase: you have unstaged changes", exitCode: 1 } },
+		]);
+		await expect(createGhClient(fn).rebaseAndForcePush("feat-x")).rejects.toThrow(/rebase origin\/main failed/);
+		// cleaned up the mid-rebase state
+		expect(calls.some((c) => c.cmd === "git" && c.args.includes("--abort"))).toBe(true);
+		// did NOT force-push a broken (un-rebased) state
+		expect(calls.some((c) => c.args.includes("--force-with-lease"))).toBe(false);
+	});
+
+	test("rebaseAndForcePush THROWS on a failed force-push", async () => {
+		const { fn } = rec([
+			{ match: (c, a) => c === "git" && a.includes("--force-with-lease"),
+				result: { stdout: "", stderr: "non-fast-forward (lease denied)", exitCode: 1 } },
+		]);
+		await expect(createGhClient(fn).rebaseAndForcePush("feat-x")).rejects.toThrow(/force-with-lease.*failed/);
 	});
 });
 
