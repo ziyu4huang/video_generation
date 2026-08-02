@@ -43,6 +43,7 @@ export function reconstructTodoState(ctx: Parameters<typeof replayFromBranch>[0]
 export function registerTodoTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: TOOL_NAME,
+		gating: { core: true },
 		label: TOOL_LABEL,
 		description:
 			"Manage a task list for tracking multi-step progress. Actions: create (new task), update (change status/fields/dependencies), list (all tasks, optionally filtered by status), get (single task details), delete (tombstone), clear (reset all). Status: pending → in_progress → completed, plus deleted tombstone. Use this to plan and track multi-step work like research, design, and implementation.",
