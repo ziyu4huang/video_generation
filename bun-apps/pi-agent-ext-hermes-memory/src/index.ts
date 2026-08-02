@@ -41,6 +41,7 @@ import { registerSessionSearchTool } from "./tools/session-search-tool.js";
 import { createPerfRecorder } from "./perf.js";
 import { registerMemorySearchTool } from "./tools/memory-search-tool.js";
 import { registerMemorySupersedeTool } from "./tools/memory-supersede-tool.js";
+import { captureAssembly } from "./handlers/session-assembly.js";
 import { setupBackgroundReview } from "./handlers/background-review.js";
 import { setupSessionFlush } from "./handlers/session-flush.js";
 import { setupCommitProjectMemory } from "./handlers/commit-project-memory.js";
@@ -60,7 +61,7 @@ import { registerPreviewContextCommand } from "./handlers/preview-context.js";
 import { loadConfig, shouldRunStartupSync } from "./config.js";
 import { detectProject, detectProjectSkills, resolveProjectStoreDir } from "./project.js";
 import { MEMORY_FILE } from "./constants.js";
-import { buildPromptContext } from "./prompt-context.js";
+import { buildPromptContext, buildPromptAssembly } from "./prompt-context.js";
 import { migrateLegacyProjectMemoryDirs } from "./project-memory-migration.js";
 import { migrateExtensionRoot } from "./extension-root-migration.js";
 import { AGENT_ROOT } from "./paths.js";
@@ -321,6 +322,16 @@ export default async function (pi: ExtensionAPI) {
           console.info(message);
         }
       },
+    });
+
+    // Per-session prompt-provenance (UPSP §5): capture the assembled md_id set
+    // + block hash ONCE per session. Best-effort — never abort startup. Mirrors
+    // the backfillStableIds guard: a missing sid / null assembly (policy-only or
+    // empty store) skips the record; a throwing recordAssembly is swallowed.
+    await captureAssembly({
+      getSessionId: () => (ctx as { sessionManager?: { getSessionId?: () => string } }).sessionManager?.getSessionId?.(),
+      build: () => buildPromptAssembly(config, store, projectStore, projectName),
+      record: (sid, mdIds, hash) => sessionRepo.recordAssembly(sid, mdIds, hash),
     });
   });
 
