@@ -62,6 +62,7 @@ type Row = Partial<{
   mdId?: string | null;
   state?: string | null;
   severity?: number | null;
+  pin?: boolean;
 }>;
 
 function mapRow(r: Row): MemoryEntry {
@@ -85,10 +86,13 @@ function mapRow(r: Row): MemoryEntry {
     mdId: r.mdId ?? null,
     state: (r.state as FailureState) ?? "active",
     severity: r.severity ?? null,
+    // Pin (ticket 02): stored as a bool; surface as `true` only when pinned,
+    // else omit (absent === unpinned, matching the frontmatter + SQLite contract).
+    ...(r.pin === true ? { pin: true } : {}),
   };
 }
 
-const FIELDS = "seq, project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, mwSuccess, mwFail, status, supersedes, supersededBy, parentIds, mdId, state, severity";
+const FIELDS = "seq, project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, mwSuccess, mwFail, status, supersedes, supersededBy, parentIds, mdId, state, severity, pin";
 
 // ---------------------------------------------------------------------------
 // Batched-sync helpers (shared by syncMemoryEntry → syncMemoryEntriesBatch).
@@ -116,6 +120,8 @@ interface NormalizedSyncInput {
   state: FailureState;
   /** Advisory failure severity (1–3); null when the caller omitted it. */
   severity: number | null;
+  /** Pin lock (ticket 02); strict boolean. */
+  pin: boolean;
 }
 
 /** Normalize a raw sync input exactly as the old single syncMemoryEntry did. */
@@ -136,6 +142,7 @@ function normalizeSyncInput(input: MemorySyncInput): NormalizedSyncInput {
     mdId: input.mdId && input.mdId.length > 0 ? input.mdId : null,
     state: input.state ?? "active",
     severity: input.severity ?? null,
+    pin: input.pin === true,
   };
 }
 
@@ -173,6 +180,8 @@ interface MergeValues {
   state: FailureState;
   /** Advisory failure severity mirrored onto the row (Task 4). */
   severity: number | null;
+  /** Pin lock mirrored onto the row (ticket 02); strict boolean. */
+  pin: boolean;
 }
 
 /** The implicit-tag set whose graph edges a memory owns (project/category/
@@ -223,13 +232,14 @@ function buildMergeStatements(
   params[`lr_${p}`] = merge.lastReferenced;
   params[`st_${p}`] = merge.state;
   params[`sv_${p}`] = merge.severity;
+  params[`pn_${p}`] = merge.pin;
   // Task 7 / F1: stamp the birth id when the caller carried one (orphan-readd);
   // omit the clause entirely when absent so the existing mdId is preserved.
   const mdIdClause = merge.mdId
     ? (params[`mdi_${p}`] = merge.mdId, `, mdId = $mdi_${p}`)
     : "";
   return [
-    `UPDATE memories SET category = $ca_${p}, failureReason = $fr_${p}, toolState = $ts_${p}, correctedTo = $cto_${p}, created = $cr_${p}, lastReferenced = $lr_${p}, state = $st_${p}, severity = $sv_${p}${mdIdClause} WHERE seq = $seq_${p};`,
+    `UPDATE memories SET category = $ca_${p}, failureReason = $fr_${p}, toolState = $ts_${p}, correctedTo = $cto_${p}, created = $cr_${p}, lastReferenced = $lr_${p}, state = $st_${p}, severity = $sv_${p}, pin = $pn_${p}${mdIdClause} WHERE seq = $seq_${p};`,
   ];
 }
 
@@ -255,9 +265,10 @@ function buildInsertStatements(
   params[`mdi_${p}`] = n.mdId;
   params[`st_${p}`] = n.state;
   params[`sv_${p}`] = n.severity;
+  params[`pn_${p}`] = n.pin;
   return [
     `LET $n_${p} = (UPDATE seq:memory SET value += 1 RETURN VALUE value)[0];`,
-    `CREATE type::record("memories", $n_${p}) SET seq = $n_${p}, project = $pj_${p}, target = $tg_${p}, category = $ca_${p}, content = $ct_${p}, failureReason = $fr_${p}, toolState = $ts_${p}, correctedTo = $cto_${p}, created = $cr_${p}, lastReferenced = $lr_${p}, mwSuccess = $mws_${p}, mwFail = $mwf_${p}, status = 'active', supersedes = NONE, supersededBy = NONE, parentIds = [], mdId = $mdi_${p}, state = $st_${p}, severity = $sv_${p};`,
+    `CREATE type::record("memories", $n_${p}) SET seq = $n_${p}, project = $pj_${p}, target = $tg_${p}, category = $ca_${p}, content = $ct_${p}, failureReason = $fr_${p}, toolState = $ts_${p}, correctedTo = $cto_${p}, created = $cr_${p}, lastReferenced = $lr_${p}, mwSuccess = $mws_${p}, mwFail = $mwf_${p}, status = 'active', supersedes = NONE, supersededBy = NONE, parentIds = [], mdId = $mdi_${p}, state = $st_${p}, severity = $sv_${p}, pin = $pn_${p};`,
   ];
 }
 
@@ -338,11 +349,14 @@ export class SurrealMemoryRepository implements MemoryRepository {
     created?: string; lastReferenced?: string;
     mdId?: string | null;
     state?: FailureState; severity?: number | null;
+    pin?: boolean;
   }): Promise<MemoryEntry> {
     const created = input.created ?? today();
     const lastReferenced = input.lastReferenced ?? created;
     // Task 7 / F1: stamp the stable id at birth (NONE when the caller omitted it).
     const mdId = input.mdId && input.mdId.length > 0 ? input.mdId : null;
+    // Pin (ticket 02): strict boolean — only literal `true` writes `true`.
+    const pin = input.pin === true;
     const sql = `
       LET $next = (UPDATE seq:memory SET value += 1 RETURN VALUE value)[0];
       CREATE type::record("memories", $next) SET
@@ -364,7 +378,8 @@ export class SurrealMemoryRepository implements MemoryRepository {
         parentIds = [],
         mdId = $mdId,
         state = $state,
-        severity = $severity
+        severity = $severity,
+        pin = $pin
       RETURN ${FIELDS};
     `;
     const rows = await this.c.query<Row[]>(sql, {
@@ -380,6 +395,7 @@ export class SurrealMemoryRepository implements MemoryRepository {
       mdId,
       state: input.state ?? "active",
       severity: input.severity ?? null,
+      pin,
     });
     const entry = mapRow(rows[0]);
     await this.syncGraphEdges(
@@ -480,6 +496,7 @@ export class SurrealMemoryRepository implements MemoryRepository {
           mdId: n.mdId,
           state: n.state,
           severity: n.severity,
+          pin: n.pin,
         };
         // Graph edges use the refreshed row's tags (single path re-fetches):
         // project/target are untouched by the merge UPDATE, category = merged.
@@ -561,6 +578,7 @@ export class SurrealMemoryRepository implements MemoryRepository {
     toolState?: string | null; correctedTo?: string | null; lastReferenced?: string | null;
     mdId?: string | null;
     state?: FailureState | null; severity?: number | null;
+    pin?: boolean;
   }): Promise<MemoryUpdateResult> {
     const normalizedOldText = normalizeMemoryLookupText(oldText);
     if (!normalizedOldText) return { matched: 0, updated: 0, entries: [] };
@@ -579,7 +597,7 @@ export class SurrealMemoryRepository implements MemoryRepository {
       const seq = Number(r.seq);
       const mdIdClause = birthMdId !== null ? `, mdId = $mdId` : "";
       await this.c.query(
-        `UPDATE memories SET content = $content, category = $category, failureReason = $failureReason, toolState = $toolState, correctedTo = $correctedTo, lastReferenced = $lastReferenced, state = $state, severity = $severity${mdIdClause} WHERE seq = $seq;`,
+        `UPDATE memories SET content = $content, category = $category, failureReason = $failureReason, toolState = $toolState, correctedTo = $correctedTo, lastReferenced = $lastReferenced, state = $state, severity = $severity, pin = $pin${mdIdClause} WHERE seq = $seq;`,
         {
           seq,
           content: updates.content.trim(),
@@ -593,6 +611,9 @@ export class SurrealMemoryRepository implements MemoryRepository {
           // (coalesce SCHEMALESS-absent → "active"); else use the supplied value.
           state: updates.state === undefined ? ((r.state as FailureState) ?? "active") : (updates.state ?? "active"),
           severity: updates.severity === undefined ? (r.severity ?? null) : (updates.severity ?? null),
+          // Pin (ticket 02): inherit the row's prior pin when `updates.pin` is
+          // undefined (coalesce SCHEMALESS-absent → false); else stamp strictly.
+          pin: updates.pin === undefined ? (r.pin === true) : (updates.pin === true),
           ...(birthMdId !== null ? { mdId: birthMdId } : {}),
         },
       );

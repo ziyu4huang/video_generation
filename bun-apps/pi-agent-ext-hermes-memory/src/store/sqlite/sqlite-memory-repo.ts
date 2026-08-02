@@ -66,7 +66,8 @@ const MEMORY_SELECT_COLUMNS = `
   parent_ids,
   md_id,
   state,
-  severity
+  severity,
+  pin
 `;
 
 type MemoryRow = {
@@ -89,6 +90,7 @@ type MemoryRow = {
   md_id: string | null;
   state: string;
   severity: number | null;
+  pin: number;
 };
 
 /**
@@ -127,6 +129,9 @@ function mapRow(row: MemoryRow): MemoryEntry {
     mdId: row.md_id,
     state: (row.state as FailureState) ?? "active",
     severity: row.severity ?? null,
+    // Pin (ticket 02): stored as 0/1; surface as `true` only when pinned, else
+    // omit (absent === unpinned, matching the frontmatter contract).
+    ...(row.pin ? { pin: true } : {}),
   };
 }
 
@@ -226,6 +231,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
     mdId?: string | null;
     state?: FailureState;
     severity?: number | null;
+    pin?: boolean;
   }): Promise<MemoryEntry> {
     return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
       const content = input.content;
@@ -239,11 +245,13 @@ export class SqliteMemoryRepository implements MemoryRepository {
       const lastReferenced = input.lastReferenced ?? created;
       // Task 7 / F1: stamp the stable id at birth so the row is never id-less.
       const mdId = input.mdId ?? null;
+      // Pin (ticket 02): 0/1 — only literal `true` writes 1.
+      const pin = input.pin === true ? 1 : 0;
 
       const result = this.db.prepare(`
-        INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, md_id, state, severity)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, 0, 0, mdId, input.state ?? "active", input.severity ?? null);
+        INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, md_id, state, severity, pin)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, 0, 0, mdId, input.state ?? "active", input.severity ?? null, pin);
 
       return {
         id: Number(result.lastInsertRowid),
@@ -265,6 +273,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
         mdId,
         state: input.state ?? "active",
         severity: input.severity ?? null,
+        ...(pin ? { pin: true } : {}),
       };
     }));
   }
@@ -303,6 +312,10 @@ export class SqliteMemoryRepository implements MemoryRepository {
     const correctedTo = normalizeNullable(input.correctedTo);
     const created = input.created?.trim() || today();
     const lastReferenced = input.lastReferenced?.trim() || created;
+    // Pin (ticket 02): mirror the `.md` frontmatter exactly — absent in the
+    // input writes 0 (unpinned). Stamped unconditionally on both INSERT and the
+    // merge UPDATE (mirrors state/severity's stamp-with-default semantics).
+    const pin = input.pin === true ? 1 : 0;
 
     const params: unknown[] = [];
     const conditions = buildScopeConditions(params, input.target, project, category);
@@ -342,11 +355,12 @@ export class SqliteMemoryRepository implements MemoryRepository {
         mdId,
         state: input.state ?? "active",
         severity: input.severity ?? null,
+        ...(pin ? { pin: true } : {}),
       };
       const result = this.db.prepare(`
-        INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, md_id, state, severity)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(project, input.target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, input.mwSuccess ?? 0, input.mwFail ?? 0, mdId, input.state ?? "active", input.severity ?? null);
+        INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, md_id, state, severity, pin)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(project, input.target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, input.mwSuccess ?? 0, input.mwFail ?? 0, mdId, input.state ?? "active", input.severity ?? null, pin);
       entry.id = Number(result.lastInsertRowid);
       return { action: "inserted" as const, entry };
     }
@@ -366,7 +380,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
     if (birthMdId !== null) {
       this.db.prepare(`
         UPDATE memories
-        SET category = ?, failure_reason = ?, tool_state = ?, corrected_to = ?, created = ?, last_referenced = ?, md_id = ?, state = ?, severity = ?
+        SET category = ?, failure_reason = ?, tool_state = ?, corrected_to = ?, created = ?, last_referenced = ?, md_id = ?, state = ?, severity = ?, pin = ?
         WHERE id = ?
       `).run(
         updatedCategory,
@@ -378,12 +392,13 @@ export class SqliteMemoryRepository implements MemoryRepository {
         birthMdId,
         input.state ?? "active",
         input.severity ?? null,
+        pin,
         existing.id,
       );
     } else {
       this.db.prepare(`
         UPDATE memories
-        SET category = ?, failure_reason = ?, tool_state = ?, corrected_to = ?, created = ?, last_referenced = ?, state = ?, severity = ?
+        SET category = ?, failure_reason = ?, tool_state = ?, corrected_to = ?, created = ?, last_referenced = ?, state = ?, severity = ?, pin = ?
         WHERE id = ?
       `).run(
         updatedCategory,
@@ -394,6 +409,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
         updatedLastReferenced,
         input.state ?? "active",
         input.severity ?? null,
+        pin,
         existing.id,
       );
     }
@@ -418,6 +434,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
       mdId?: string | null;
       state?: FailureState | null;
       severity?: number | null;
+      pin?: boolean;
     },
   ): Promise<MemoryUpdateResult> {
     return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
@@ -457,7 +474,8 @@ export class SqliteMemoryRepository implements MemoryRepository {
                 last_referenced = ?,
                 md_id = ?,
                 state = ?,
-                severity = ?
+                severity = ?,
+                pin = ?
             WHERE id = ?
           `).run(
             updates.content.trim(),
@@ -469,6 +487,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
             birthMdId,
             updates.state === undefined ? row.state : (updates.state ?? "active"),
             updates.severity === undefined ? (row.severity ?? null) : (updates.severity ?? null),
+            updates.pin === undefined ? row.pin : (updates.pin === true ? 1 : 0),
             row.id,
           );
         } else {
@@ -481,7 +500,8 @@ export class SqliteMemoryRepository implements MemoryRepository {
                 corrected_to = ?,
                 last_referenced = ?,
                 state = ?,
-                severity = ?
+                severity = ?,
+                pin = ?
             WHERE id = ?
           `).run(
             updates.content.trim(),
@@ -492,6 +512,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
             nextLastReferenced,
             updates.state === undefined ? row.state : (updates.state ?? "active"),
             updates.severity === undefined ? (row.severity ?? null) : (updates.severity ?? null),
+            updates.pin === undefined ? row.pin : (updates.pin === true ? 1 : 0),
             row.id,
           );
         }

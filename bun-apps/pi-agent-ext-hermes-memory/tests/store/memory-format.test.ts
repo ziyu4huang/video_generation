@@ -8,6 +8,7 @@ import {
   parseMetadataFrontmatter,
   normalizeFailureState,
   defaultStateForCategory,
+  normalizePin,
 } from "../../src/store/memory-format.js";
 
 describe("parseMetadataComment — optional meta segment", () => {
@@ -119,6 +120,42 @@ describe("serialize/parse frontmatter — failure state + severity (Task 1)", ()
     assert.strictEqual(defaultStateForCategory("failure"), "active");
     assert.strictEqual(defaultStateForCategory("correction"), "active");
     assert.strictEqual(defaultStateForCategory(null), "active");
+  });
+});
+
+describe("serialize/parse frontmatter — pin field (ticket 02)", () => {
+  it("serialize/parse round-trips pin:true in frontmatter", () => {
+    const raw = serializeMetadataFrontmatter({
+      id: "pin-1",
+      text: "always remember this",
+      created: "2026-08-02",
+      last: "2026-08-02",
+      pin: true,
+    });
+    assert.ok(raw.includes("pin: true"), `expected pin:true in:\n${raw}`);
+    const fm = parseMetadataFrontmatter(raw);
+    assert.strictEqual(fm.pin, true);
+  });
+
+  it("pin omitted when not supplied (absent → not emitted, parses undefined)", () => {
+    const raw = serializeMetadataFrontmatter({
+      id: "no-pin",
+      text: "a regular entry",
+      created: "2026-08-02",
+      last: "2026-08-02",
+    });
+    assert.ok(!raw.includes("pin:"), `pin must not be emitted when absent:\n${raw}`);
+    assert.strictEqual(parseMetadataFrontmatter(raw).pin, undefined);
+  });
+
+  it("normalizePin coerces strictly: only true survives", () => {
+    assert.strictEqual(normalizePin(true), true);
+    assert.strictEqual(normalizePin(false), false);
+    assert.strictEqual(normalizePin(undefined), false);
+    assert.strictEqual(normalizePin(null), false);
+    assert.strictEqual(normalizePin("true"), false);
+    assert.strictEqual(normalizePin(1), false);
+    assert.strictEqual(normalizePin("yes"), false);
   });
 });
 

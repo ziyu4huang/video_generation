@@ -745,6 +745,9 @@ export class SqliteBackend implements Backend {
     if (!names.has('severity')) {
       db.exec('ALTER TABLE memories ADD COLUMN severity INTEGER');
     }
+    if (!names.has('pin')) {
+      db.exec('ALTER TABLE memories ADD COLUMN pin INTEGER NOT NULL DEFAULT 0');
+    }
   }
 
   private ensureSessionsColumns(db: DatabaseLike): void {
