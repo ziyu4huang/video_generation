@@ -105,7 +105,7 @@ class QuestionnaireBuilder {
 		this.getCurrentTab = config.getCurrentTab;
 
 		this.selectTheme = {
-			selectedText: (s) => this.theme.fg("accent", this.theme.bold(s)),
+			selectedText: (s) => this.theme.fg("accent", s),
 			description: (s) => this.theme.fg("muted", s),
 			scrollInfo: (s) => this.theme.fg("dim", s),
 		};
