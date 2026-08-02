@@ -35,6 +35,23 @@ export const DEFAULT_FAILURE_INJECTION_MAX_ENTRIES = 5;
  *  (UPSP §9 / ticket #06). Entries whose longest fragment is shorter never get
  *  credited as "used" — too generic to attribute. Default 24. */
 export const DEFAULT_USED_SIGNATURE_MIN_CHARS = 24;
+
+// ─── Decay (ticket #1b / UPSP §1) — per-entry heat scoring config defaults ──
+// Heat = clamp(recencySpine * worthMult + usedBonus, 0, 1); a pure scoring
+// core computed lazily at eviction time (no new column, no periodic job). See
+// src/store/heat.ts. These are the consumer-visible config surface; the #06
+// config-gap lesson (a config-file value must reach the consumer object) is
+// baked in — all four are registered in DEFAULT_CONFIG + the parse allowlist.
+/** Recency-exp halflife in days. Default 14 (entry cools to ~37% heat at 2w). */
+export const DEFAULT_DECAY_HALFLIFE_DAYS = 14;
+/** Worth multiplier weight (0..1). Laplace success-rate nudge around neutral
+ *  1.0. Default 0.15 (±~7.5% per entry at the success/failure extremes). */
+export const DEFAULT_DECAY_WORTH_WEIGHT = 0.15;
+/** Heat bonus added for ever-used entries (boolean ever-used, UPSP §9 / #06).
+ *  A small relative nudge — recency spine still drives staleness. Default 0.1. */
+export const DEFAULT_DECAY_USED_BONUS = 0.1;
+/** Milliseconds per day — the recency-age unit (now - parseDate(date)) / MS_PER_DAY. */
+export const MS_PER_DAY = 86_400_000;
 export const DEFAULT_ERROR_CAPTURE_RATE_LIMIT = 5;
 export const DEFAULT_ERROR_CAPTURE_RATE_WINDOW_MS = 600_000;
 export const DEFAULT_ERROR_CAPTURE_DEDUP_CACHE_SIZE = 64;
