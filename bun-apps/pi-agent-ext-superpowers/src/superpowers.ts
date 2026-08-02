@@ -268,7 +268,7 @@ Superpowers and Wayfind are two parallel pipelines sharing the \`.planning/<effo
 
 | Stage      | Trigger (check disk)                          | Pipeline                                |
 |------------|-----------------------------------------------|-----------------------------------------|
-| DECIDE     | no spec yet, decisions open / route foggy     | Wayfind — grilling (or wayfinder)       |
+| DECIDE     | no spec yet, decisions open / route foggy     | Wayfind — grilling (or /wayfind)        |
 | SYNTHESIZE | a grill just settled; spec needed             | Wayfind — to-spec (synthesize only)     |
 | DESIGN     | requirement clear, zero open decisions        | Superpowers — brainstorming             |
 | PLAN       | spec exists, no plan                          | Superpowers — writing-plans             |

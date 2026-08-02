@@ -3,8 +3,10 @@
  *
  * superpowers' `using-superpowers` bootstrap (`src/superpowers.ts`, injected
  * every session) carries the pipeline-routing table that names wayfind's skills
- * — `grilling` / `wayfinder` / `to-spec` — as the DECIDE/SYNTHESIZE entry
- * paths. If wayfind renames or removes one of those skills, superpowers'
+ * — `grilling` / `to-spec` — as the DECIDE/SYNTHESIZE entry paths. (`wayfinder`
+ * was collapsed to a `/wayfind`-invoked procedure — see procedures/wayfinder.md
+ * — so it is no longer a model-loadable skill and is intentionally absent here.)
+ * If wayfind renames or removes one of those skills, superpowers'
  * bootstrap silently teaches stale routing, and there is NO recovery net (the
  * agent just misroutes). superpowers' own `bootstrap.test.ts` pins that the
  * bootstrap CONTAINS the names (superpowers-side drift), but nothing asserts
@@ -37,7 +39,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), ".."); // bun-apps
  * by name in superpowers' routing prose. Updating this set when the routing
  * changes IS maintaining the contract.
  */
-const ROUTING_WAYFIND_SKILLS = ["grilling", "to-spec", "wayfinder"] as const;
+const ROUTING_WAYFIND_SKILLS = ["grilling", "to-spec"] as const;
 
 const WAYFIND_SKILLS_DIR = join(ROOT, "pi-agent-ext-wayfind", "skills");
 const SUPERPOWERS_BOOTSTRAP = join(ROOT, "pi-agent-ext-superpowers", "src", "superpowers.ts");
