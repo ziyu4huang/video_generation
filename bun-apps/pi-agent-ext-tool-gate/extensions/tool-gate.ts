@@ -693,8 +693,10 @@ export default function toolGateExtension(pi: ExtensionAPI) {
         // F1 fix: compute the active list directly from sticky — do NOT
         // re-evaluate gates against the turn prompt (updateSticky), which
         // would silently activate additional gates beyond the one explicitly
-        // requested.
-        const active = filterActive(allToolNames, sticky);
+        // requested. Pass effectiveTracked so owner-declared gated tools (which
+        // may be absent from the module-level TRACKED_TOOLS) are NOT treated as
+        // fail-open — without this they'd be spuriously active on recompute.
+        const active = filterActive(allToolNames, sticky, effectiveTracked);
         pi.setActiveTools(active);
         emitToolGateLog({
           kind: "activate", ts: new Date().toISOString(),
