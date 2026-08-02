@@ -89,6 +89,15 @@ export const MUST_FIRE: Probe[] = [
 	{ gate: "arxiv_search", prompt: "find papers on diffusion policies", note: "noun papers ∧ verb find" },
 	{ gate: "arxiv_search", prompt: "fetch the arxiv paper 2401.12345", note: "keyword arxiv" },
 	{ gate: "arxiv_search", prompt: "搜尋論文 robotics", note: "keyword 論文 / 搜尋論文" },
+	// inspect (ticket 13b) — the 6 inspect_* tools share ONE signature-group
+	// (identical keywords + requires), so probing the canonical names[0]
+	// (inspect_context) validates the whole group. Keywords are real diagnostic
+	// triggers; the requires path (noun agent/schema ∧ verb dump) fires with no
+	// keyword present.
+	{ gate: "inspect_context", prompt: "show the schema cost of the loaded tools", note: "keyword schema cost" },
+	{ gate: "inspect_context", prompt: "check the context window and token usage", note: "keyword context window / token usage" },
+	{ gate: "inspect_context", prompt: "inspect the agent extension health", note: "keyword extension health" },
+	{ gate: "inspect_context", prompt: "dump the agent schema for debugging", note: "noun agent/schema ∧ verb dump (requires; no keyword)" },
 ];
 
 // ── MUST_NOT_FIRE (lookalikes the gate CORRECTLY rejects) ────────────────────
@@ -113,6 +122,12 @@ export const MUST_NOT_FIRE: Probe[] = [
 	{ gate: "pi_deploy", prompt: "build the docker image", note: "no deploy/verify/bundle-pi-agent keyword (docker ≠ pi-agent deploy)" },
 	{ gate: "pi_deploy", prompt: "run the tests for this extension", note: "verb 'test' removed — testing an extension ≠ deploying pi-agent (audit I-5)" },
 	{ gate: "arxiv_search", prompt: "paper cut on my hand", note: "noun paper but no retrieval verb" },
+	// inspect (ticket 13b) — the famous false-fire the `requires` fix killed:
+	// verb "inspect" IS in the verb list, but these prompts pair it with a noun
+	// that is NOT in [agent,context,extension,pathology,token,schema,tui,工具]
+	// → no noun∧verb co-occurrence → no keyword → correctly rejected.
+	{ gate: "inspect_context", prompt: "inspect element in the browser devtools", note: "verb inspect but no matching noun (the killed false-fire)" },
+	{ gate: "inspect_context", prompt: "inspect the dom tree for layout bugs", note: "verb inspect, no agent/context/extension/... noun" },
 ];
 
 // ── ESCAPE_NAME — every gate reachable by enable_tool({ name }) ──────────────
@@ -128,6 +143,8 @@ export const ESCAPE_NAME: { gate: string; name: string }[] = [
 	{ gate: "zai_web_search_web_search_prime", name: "zai_web_search_web_search_prime" },
 	{ gate: "pi_deploy", name: "pi_deploy" },
 	{ gate: "arxiv_search", name: "arxiv_search" },
+	// inspect (ticket 13b) — canonical names[0] of the inspect signature-group.
+	{ gate: "inspect_context", name: "inspect_context" },
 ];
 
 // ── ESCAPE_INTENT — intents that DO surface the gate (asserted match) ───────
@@ -143,6 +160,9 @@ export const ESCAPE_INTENT: EscapeIntentProbe[] = [
 	{ gate: "zai_web_search_web_search_prime", intent: "use z.ai reader", prompt: "(no keyword)", note: 'keyword "z.ai" (was blind pre-fix)' },
 	{ gate: "pi_deploy", intent: "build and deploy the bundle", prompt: "(no keyword)", note: 'keyword deploy / build bundle' },
 	{ gate: "arxiv_search", intent: "find papers on a topic", prompt: "(no keyword)", note: "noun papers ∧ verb find" },
+	// inspect (ticket 13b) — surfaces via requires (noun agent/context ∧ verb
+	// inspect); no keyword present, mirroring the noun∧verb escape pattern.
+	{ gate: "inspect_context", intent: "inspect the agent context", prompt: "(no keyword)", note: "noun agent/context ∧ verb inspect" },
 ];
 
 // ── ESCAPE_INTENT_BLIND — empty after the fix (all gates reachable by intent) ─
