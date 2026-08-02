@@ -16,6 +16,7 @@
 import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { endGrillForSession, registerCommands } from "./commands.js";
 import { publishWayfindActive } from "./coordination.js";
+import { makeWayfindEffortTool } from "./effort-tool.js";
 import { WayfindOverlay } from "./overlay.js";
 import { createRuntimeState, getSessionId } from "./state.js";
 
@@ -58,6 +59,11 @@ export default function wayfindExtension(pi: ExtensionAPI): void {
   publishWayfindActive(state);
 
   registerCommands(pi, state, overlay);
+
+  // The bare effort tool (Layer 2): create / validate / status an effort dir's
+  // manifest — the mechanical surface the agent calls directly, separate from
+  // the reflective /wayfind command flows above.
+  pi.registerTool(makeWayfindEffortTool());
 
   pi.on("session_start", async (_event, ctx) => {
     if (ctx.hasUI && widget) {
