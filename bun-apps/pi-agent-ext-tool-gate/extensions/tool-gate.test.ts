@@ -55,6 +55,23 @@ captureOwner(researchExtension);
 // absent from EFF.tracked, matching their ungated-by-design status).
 captureOwner(workflowExtension);
 captureOwner(subagentExtension);
+// zai-mcp (ticket 12) is the odd one out: it registers tools DYNAMICALLY at
+// session_start (tool names are discovered from each MCP server's listTools()),
+// so — unlike the extensions above — captureOwner(zaiExtension) captures NOTHING
+// (no top-level registerTool). Inject the owner-declared gating SYNTHETICALLY
+// here, mirroring ZAI_GATING the production registerServerTools now attaches to
+// every dynamically-registered zai tool. buildEffectiveGates then splits each
+// name into its own single-name gate (identical predicates → intent-mode co-fire
+// preserved); the enable_tool NAME-mode sibling gap is the cross-cutting note
+// tracked in the migration map. This keeps EFF/ownerByName reconstructing the
+// zai gate exactly as production's buildEffectiveGates path does.
+const ZAI_NAMES = ["zai_web_search_web_search_prime", "zai_web_reader_webReader"];
+const ZAI_GATING = {
+  keywords: ["zai search", "zai reader", "zai web", "zai_mcp", "z.ai", "z.ai search", "z.ai reader"],
+};
+for (const name of ZAI_NAMES) {
+  ownerDeclaredDefs.push({ name, description: "Z.ai MCP web tool", gating: ZAI_GATING });
+}
 const EFF = buildEffectiveGates(ownerDeclaredDefs as never);
 /** name → owner-declared def (incl. `gating`) for the migrated extensions. The
  *  setupPi integration harness threads this into its getAllToolDefinitions mock
@@ -133,10 +150,16 @@ describe("updateSticky (mutation half)", () => {
 });
 
 describe("GATES data (S1)", () => {
-  test("every gate has a non-empty description", () => {
+  test("every gate has a non-empty description (and GATES is empty post-migration)", () => {
+    // tickets 03–12 migrated every hardcoded gate to owner-declared `gating`;
+    // GATES is now EMPTY (the backward-compatible fallback simply has no
+    // entries). The loop stays as a structural guard (a future re-added entry
+    // must carry a description); the length assertion pins the migration's
+    // end-state — the last hardcoded gate (zai-mcp) left in ticket 12.
     for (const g of GATES) {
       expect(g.description.length).toBeGreaterThan(0);
     }
+    expect(GATES).toHaveLength(0);
   });
 
   test("movie gate exists and fires on 'movie' and '分鏡'", () => {
@@ -376,31 +399,34 @@ describe("telemetry helpers (S1)", () => {
 describe("computeBannerSaved (S3 — runtime measured tokens)", () => {
   test("sums measured tokens of loaded+gated gates only (no phantom, no static field)", () => {
     // Mock tools with real description+parameters so measureToolTokens is deterministic.
-    // computeBannerSaved iterates the module-level GATES only (zai-mcp is the last
-    // remaining hardcoded gate; flux2/ltx/krea2/movie/research-tool/workflow/
-    // subagent all migrated to owner-declared gating and are invisible to this
-    // function — their savings flow through the buildEffectiveGates production
-    // path, exercised in the runtime/session_start tests below). So zai-mcp is
-    // the gated pair here.
+    // After ticket 12 the module GATES is EMPTY (every gate is owner-declared),
+    // so computeBannerSaved is given a SYNTHETIC multi-name gate (mirroring a
+    // former hardcoded entry) to prove its summing logic. The 4th arg is the
+    // parameterized `gates` (defaults to the now-empty module GATES in prod).
     const mockTool = (name: string, desc: string) => ({ name, description: desc, parameters: { p: 1 } });
-    const loadedNames = [...CORE_TOOLS, "zai_web_search_web_search_prime", "zai_web_reader_webReader"];
+    const synthNames = ["synth_search", "synth_reader"];
+    const loadedNames = [...CORE_TOOLS, ...synthNames];
     const loadedTools = [
       ...CORE_TOOLS_ARRAY().map((n) => mockTool(n, "core")),
-      mockTool("zai_web_search_web_search_prime", "zai search"),
-      mockTool("zai_web_reader_webReader", "zai reader"),
+      mockTool("synth_search", "synth search"),
+      mockTool("synth_reader", "synth reader"),
     ];
     const measured = new Map(loadedTools.map((t) => [t.name, measureToolTokens(t)]));
-    // CORE-only active ⇒ zai-mcp (in module GATES) is gated/dormant.
-    const active = filterActive(loadedNames, new Set(CORE_TOOLS));
-    const saved = computeBannerSaved(active, loadedNames, measured);
-    const expected = measured.get("zai_web_search_web_search_prime")! + measured.get("zai_web_reader_webReader")!;
+    const synthGate = { names: synthNames, keywords: ["synth"], description: "synthetic gate (ticket 12: GATES empty)" };
+    // CORE-only active ⇒ synth gate is gated/dormant. filterActive needs the synth
+    // names in `tracked` (they're absent from module TRACKED_TOOLS now) to stay
+    // dormant instead of fail-opening.
+    const active = filterActive(loadedNames, new Set(CORE_TOOLS), new Set([...CORE_TOOLS, ...synthNames]));
+    const saved = computeBannerSaved(active, loadedNames, measured, [synthGate]);
+    const expected = measured.get("synth_search")! + measured.get("synth_reader")!;
     expect(saved).toBe(expected);
   });
 
   test("a gate whose tools are absent from allToolNames contributes 0 (no phantom)", () => {
-    const measured = new Map([["workflow", 999], ["workflow_help", 999]]);
-    // workflow not in allToolNames → excluded even though measured + gated
-    const saved = computeBannerSaved([...CORE_TOOLS], [...CORE_TOOLS], measured);
+    const measured = new Map([["ghost_a", 999], ["ghost_b", 999]]);
+    // ghost tools measured + gated, but NOT in allToolNames → excluded.
+    const ghostGate = { names: ["ghost_a", "ghost_b"], keywords: ["ghost"], description: "gate whose tools are not loaded" };
+    const saved = computeBannerSaved([...CORE_TOOLS], [...CORE_TOOLS], measured, [ghostGate]);
     expect(saved).toBe(0);
   });
 });
@@ -413,8 +439,8 @@ describe("enable_tool (S1 A escape hatch)", () => {
     const pi: any = {
       // Thread owner-declared gating (ownerByName) so migrated gates reconstruct
       // via the production buildEffectiveGates path — the module GATES fallback
-      // no longer holds workflow/subagent (tickets 10 + 11). Names without an
-      // owner declaration (incl. zai-mcp, still hardcoded) fall back to {name}.
+      // is now EMPTY (tickets 03–12 migrated every gate, incl. zai-mcp in ticket
+      // 12). Names without an owner declaration fall back to {name} (ungated).
       getAllToolDefinitions: () => loadedTools.map((name) => (ownerByName as Map<string, any>).get(name) ?? { name }),
       setActiveTools: (names: string[]) => { calls.push({ setActiveTools: names }); },
       registerTool: (def: any) => { registered.push(def); },
@@ -439,9 +465,9 @@ describe("enable_tool (S1 A escape hatch)", () => {
 
   test("list:true returns only dormant gates", async () => {
     // setupPi threads owner-declared gating (ownerByName), so workflow/workflow_help
-    // (owner-declared, tickets 10 + 11) reconstruct as gates + zai-mcp (still in
-    // the hardcoded GATES). All are dormant (CORE-only active) → both appear in
-    // the list.
+    // (owner-declared, tickets 10 + 11) AND zai-mcp (owner-declared, ticket 12,
+    // synthesized into ownerByName above) all reconstruct as gates. All are
+    // dormant (CORE-only active) → every one appears in the list.
     const { enableTool } = setupPi([...CORE_TOOLS, "workflow", "workflow_help", "zai_web_search_web_search_prime", "zai_web_reader_webReader"]);
     const res = await enableTool.execute("id", { list: true });
     const text = res.content[0].text;
@@ -464,8 +490,8 @@ describe("enable_tool (S1 A escape hatch)", () => {
     // activates the ["workflow"] single-name gate, NOT sibling workflow_help.
     // This is the enable_tool NAME-mode co-activation consequence of the
     // combined-gate split (cross-cutting; tracked in the map) — noted here, NOT
-    // fixed. (zai-mcp below stays a multi-name hardcoded gate, so its name-mode
-    // test still co-activates both names.)
+    // fixed. (zai-mcp likewise split into single-name owner-declared gates as of
+    // ticket 12; every multi-name rollout shares this NAME-mode sibling gap.)
     const { enableTool, calls } = setupPi([...CORE_TOOLS, "workflow", "workflow_help"]);
     const res = await enableTool.execute("id", { name: "workflow" });
     expect(res.content[0].text).toContain("workflow");
@@ -521,21 +547,28 @@ describe("enable_tool (S1 A escape hatch)", () => {
 
   test("mutation guard: execute never throws even if setActiveTools fails", async () => {
     // setActiveTools throwing inside execute must be caught → error result, not a throw.
-    // enable_tool's effectiveGates defaults to the module GATES and is rebuilt at
-    // session_start/before_agent_start (both call setActiveTools, so we can't fire
-    // them here — the throw would happen during the fire, not inside execute).
-    // So fire a gate that lives in the DEFAULT module GATES: zai-mcp (the last
-    // hardcoded gate; workflow migrated to owner-declared in tickets 10 + 11 and
-    // is only reconstructed after a session_start, which we deliberately skip).
+    // enable_tool's effectiveGates starts as the (now-empty) module GATES and is
+    // rebuilt only at session_start/before_agent_start from getAllToolDefinitions.
+    // So we MUST fire session_start to populate effectiveGates with the zai gate
+    // (owner-declared via registerServerTools in ticket 12; mirrored here via
+    // ZAI_GATING on the mocked def) — then make setActiveTools throw ONLY inside
+    // execute (not during session_start, which also calls it) so the throw lands
+    // in execute's try/catch. The guard under test: execute swallows the throw
+    // and returns an /error/ result instead of rejecting.
     const handlers: Record<string, any> = {};
+    let throwOnSetActive = false;
     const pi: any = {
-      getAllToolDefinitions: () => [...CORE_TOOLS, "zai_web_search_web_search_prime", "zai_web_reader_webReader"].map((name) => ({ name })),
-      setActiveTools: () => { throw new Error("setActiveTools boom"); },
+      getAllToolDefinitions: () => [...CORE_TOOLS, ...ZAI_NAMES].map((name) => ({ name, ...(name.startsWith("zai_") ? { gating: ZAI_GATING } : {}) })),
+      setActiveTools: () => { if (throwOnSetActive) throw new Error("setActiveTools boom"); },
       registerTool: (def: any) => { (pi as any)._t = def; },
       on: (ev: string, h: any) => { handlers[ev] = h; },
     };
     toolGateExtension(pi);
     const enableTool = (pi as any)._t;
+    // session_start builds effectiveGates from getAllToolDefinitions (zai gate
+    // present) WITHOUT throwing → the zai gate is live for the intent match below.
+    await handlers.session_start({}, { ui: { theme: { fg: (_k: string, s: string) => s }, setWidget: () => {} } });
+    throwOnSetActive = true;
     const res = await enableTool.execute("id", { intent: "use zai search to find results" });
     expect(res.content[0].text).toMatch(/error/i);
   });
@@ -746,18 +779,22 @@ describe("previously-leaked tools regression (2026-07-21)", () => {
     expect(EFF.tracked.has("workflow_control")).toBe(true);
   });
 
-  test("zai-mcp proxy tools are in a dedicated gate (gated, not fail-open)", () => {
-    const zaiGate = GATES.find((g) =>
-      g.names.includes("zai_web_search_web_search_prime"));
-    expect(zaiGate).toBeDefined();
-    expect(zaiGate!.names).toContain("zai_web_reader_webReader");
+  test("zai-mcp proxy tools are gated (tracked, not fail-open)", () => {
+    // zai-mcp owner-declared (ticket 12) → absent from module GATES/TRACKED_TOOLS;
+    // buildEffectiveGates splits each name into its OWN single-name gate in EFF
+    // (identical predicates → intent-mode co-fire preserved). Both names are gated.
+    const searchGate = EFF.gates.find((g) => g.names.includes("zai_web_search_web_search_prime"));
+    const readerGate = EFF.gates.find((g) => g.names.includes("zai_web_reader_webReader"));
+    expect(searchGate).toBeDefined();
+    expect(readerGate).toBeDefined();
   });
 
   test("none of the 5 previously-leaked tools are untracked (fail-open)", () => {
     // Full tracked set = core ∪ all gate names. EFF.tracked is exactly that: it
-    // merges owner-declared gate names (workflow/subagent/etc., tickets 10 + 11)
-    // with the module GATES fallback names (zai-mcp) + CORE_TOOLS. So the 5
-    // previously-leaked tools are all tracked regardless of which gate owns them.
+    // merges every owner-declared gate name (workflow/subagent/zai-mcp/etc.,
+    // tickets 03–12 — the module GATES fallback is now empty) + CORE_TOOLS. So
+    // the 5 previously-leaked tools are all tracked regardless of which gate
+    // owns them.
     const tracked = EFF.tracked;
     const leaked = [
       "grill_decision",
@@ -787,8 +824,10 @@ describe("previously-leaked tools regression (2026-07-21)", () => {
   test("zai-mcp gate fires on 'zai search' keyword", () => {
     const sticky = new Set(CORE_TOOLS);
     const allTools = [...CORE_TOOLS, "zai_web_search_web_search_prime", "zai_web_reader_webReader"];
-    updateSticky("use zai search to find results", sticky);
-    const active = filterActive(allTools, sticky);
+    // zai-mcp owner-declared (ticket 12) → thread EFF so the gates fire + stay
+    // tracked (absent from module GATES/TRACKED_TOOLS now).
+    updateSticky("use zai search to find results", sticky, EFF.gates);
+    const active = filterActive(allTools, sticky, EFF.tracked);
     expect(active).toContain("zai_web_search_web_search_prime");
     expect(active).toContain("zai_web_reader_webReader");
   });
@@ -796,8 +835,8 @@ describe("previously-leaked tools regression (2026-07-21)", () => {
   test("zai-mcp tools stay dormant without keyword (the savings)", () => {
     const sticky = new Set(CORE_TOOLS);
     const allTools = [...CORE_TOOLS, "zai_web_search_web_search_prime", "zai_web_reader_webReader"];
-    updateSticky("search the web for cats", sticky);
-    const active = filterActive(allTools, sticky);
+    updateSticky("search the web for cats", sticky, EFF.gates);
+    const active = filterActive(allTools, sticky, EFF.tracked);
     // 'search' alone doesn't fire the zai gate — only 'zai search' does
     expect(active).not.toContain("zai_web_search_web_search_prime");
     expect(active).not.toContain("zai_web_reader_webReader");
@@ -860,29 +899,31 @@ describe("buildEffectiveGates", () => {
     expect(g!.requires).toEqual({ nouns: ["agent"], verbs: ["inspect"] });
   });
 
-  test("hybrid fallback: tools without gating keep their hardcoded gate", () => {
-    const eff = buildEffectiveGates([]); // no owner declarations
-    // flux2/ltx/movie (tickets 05/07/08) + workflow/subagent (tickets 10 + 11)
-    // migrated to owner-declared → no longer in hardcoded GATES; zai-mcp is the
-    // last remaining hardcoded gate, so use it to prove the fallback path intact.
-    const gate = eff.gates.find((g) => g.names.includes("zai_web_search_web_search_prime"));
-    expect(gate).toBeDefined(); // hardcoded GATES fallback intact
+  test("hybrid fallback: tools without gating keep their fallback gate", () => {
+    // After ticket 12 the module GATES is EMPTY (every gate is owner-declared),
+    // so prove the fallback path with a SYNTHETIC fallback gate (the
+    // buildEffectiveGates `fallbackGates` param mirrors how production would
+    // still resolve an as-yet-unmigrated name). A tool with no owner declaration
+    // falls back to the synthetic gate; CORE_TOOLS still falls back to core.
+    const fallbackGates = [{ names: ["synth_fallback"], keywords: ["synth"], description: "synthetic fallback gate" }];
+    const eff = buildEffectiveGates([], fallbackGates); // no owner declarations
+    const gate = eff.gates.find((g) => g.names.includes("synth_fallback"));
+    expect(gate).toBeDefined(); // fallback gate intact
     expect(eff.core.has("read")).toBe(true); // CORE_TOOLS fallback intact
   });
 
-  test("owner-declared tool supersedes a same-named hardcoded gate", () => {
-    // Use zai_web_search_web_search_prime (still in the hardcoded GATES) as the
-    // gate being superseded — flux2/ltx/movie/workflow/subagent are owner-declared
-    // in production now (tickets 05/07/08/10/11), so they're no longer hardcoded
-    // gates to supersede. zai-mcp is the last hardcoded gate. The supersession
-    // mechanism (owner declaration wins over the fallback gate) is what's tested.
+  test("owner-declared tool supersedes a same-named fallback gate", () => {
+    // After ticket 12 there is no hardcoded gate left to supersede, so prove the
+    // supersession mechanism with a SYNTHETIC fallback gate: an owner declaration
+    // for the same name wins over the fallback gate's keywords.
+    const fallbackGates = [{ names: ["synth_x"], keywords: ["fallback-kw"], description: "fallback" }];
     const defs = [{
-      name: "zai_web_search_web_search_prime", description: "owner",
+      name: "synth_x", description: "owner",
       gating: { keywords: ["owner-kw"] },
     }] as Array<{ name: string; description?: string; gating?: any }>;
-    const eff = buildEffectiveGates(defs);
-    const g = eff.gates.find((x) => x.names.includes("zai_web_search_web_search_prime"));
-    expect(g!.keywords).toEqual(["owner-kw"]); // owner wins, not the hardcoded zai entry
+    const eff = buildEffectiveGates(defs, fallbackGates);
+    const g = eff.gates.find((x) => x.names.includes("synth_x"));
+    expect(g!.keywords).toEqual(["owner-kw"]); // owner wins, not the fallback entry
   });
 
   test("FOLLOWUPS #4 — partial migration of a multi-name gate keeps undeclared siblings gated (per-name resolution)", () => {
@@ -945,7 +986,7 @@ describe("tool-gate runtime reads owner-declared gating", () => {
       getAllToolDefinitions: () => [
         { name: "read", description: "r", gating: { core: true } },
         { name: "inspect_hooks", description: "d", gating: { keywords: ["schema cost"], requires: { nouns: ["agent"], verbs: ["inspect"] } } },
-        { name: "zai_web_search_web_search_prime", description: "f" }, // no gating → hardcoded fallback (zai-mcp is in GATES; workflow migrated in tickets 10 + 11)
+        { name: "zai_web_search_web_search_prime", description: "f", gating: ZAI_GATING }, // owner-declared (ticket 12) → gated; no keyword in "" prompt → dormant
       ],
       on: (_chan: string, h: (e: unknown, ctx: unknown) => Promise<void>) => { if (_chan === "session_start") sessionStartHandler = h; return () => {}; },
       setActiveTools: (names: string[]) => { activeCalls.push(names); },
@@ -957,7 +998,7 @@ describe("tool-gate runtime reads owner-declared gating", () => {
     const active = activeCalls[0];
     expect(active).toContain("read");            // core-declared → active
     expect(active).not.toContain("inspect_hooks"); // owner-gated, no keyword in "" prompt → dormant
-    expect(active).not.toContain("zai_web_search_web_search_prime");          // hardcoded fallback gate, dormant
+    expect(active).not.toContain("zai_web_search_web_search_prime");          // owner-declared (ticket 12), no keyword → dormant
   });
 
   test("enable_tool recompute must NOT spuriously activate an owner-gated tool absent from TRACKED_TOOLS", async () => {
@@ -976,9 +1017,10 @@ describe("tool-gate runtime reads owner-declared gating", () => {
         // owner-declared NON-CORE gated tool; "unobtanium_tool" is NOT in any
         // hardcoded GATE or CORE_TOOLS → absent from module TRACKED_TOOLS.
         { name: "unobtanium_tool", gating: { keywords: ["unobtanium-trigger"] } },
-        // a separate gated tool via the hardcoded fallback (zai-mcp gate; the
-        // last remaining hardcoded gate now that workflow migrated in tickets 10 + 11)
-        { name: "zai_web_search_web_search_prime" },
+        // a separate gated tool (zai-mcp, owner-declared in ticket 12 via
+        // registerServerTools; we mirror ZAI_GATING here so it reconstructs as a
+        // gate and enable_tool name-mode can resolve + activate it on request).
+        { name: "zai_web_search_web_search_prime", gating: ZAI_GATING },
       ],
       on: (_chan: string, h: (e: unknown, ctx: unknown) => Promise<void>) => {
         if (_chan === "session_start") sessionStartHandler = h;

@@ -24,6 +24,13 @@ import researchDefault from "@repo/pi-agent-ext-research-tool/extensions/researc
 // findGate("workflow") + the coverage-gap check — see the comment at the call site.
 import workflowDefault from "@repo/pi-agent-ext-workflow/extensions/workflow.ts";
 import subagentDefault from "@repo/pi-agent-ext-subagent/extensions/subagent.ts";
+// ticket 12 — zai-mcp registers tools DYNAMICALLY at session_start (names come
+// from each MCP server's listTools()), so its default factory captures nothing
+// in reconstructOwnerDeclaredGates. Import the REAL registration path
+// (registerServerTools — the single site every zai tool is built + where
+// ZAI_GATING is attached) and drive it with synthetic MCP tools in zaiRegistrar
+// below so the former zai gate reconstructs here (keeping its probes live).
+import { registerServerTools } from "@repo/pi-agent-ext-zai-mcp/extensions/zai-mcp.ts";
 import {
 	MUST_FIRE,
 	MUST_NOT_FIRE,
@@ -127,7 +134,30 @@ function reconstructOwnerDeclaredGates(registrars: Array<(pi: any) => void>): Co
 // {names:["workflow","workflow_help","workflow_control","subagent"]} — co-fire
 // preserved. (subagent's ungated companions subagent_runs/subagents carry no
 // gating and are skipped by the collapse's `if (!g) continue`.)
-export const CORPUS_GATES: CorpusGate[] = [...GATES, ...reconstructOwnerDeclaredGates([deployDefault, file2mdDefault, flux2Default, krea2Default, ltxDefault, movieDefault, researchDefault, workflowDefault, subagentDefault])];
+//
+// NOTE (ticket 12): zaiRegistrar is appended LAST. Like subagent, zai-mcp's
+// default factory captures nothing (dynamic MCP registration), so zaiRegistrar
+// drives registerServerTools directly with synthetic MCP tools for both Phase-1
+// servers → captures zai_web_search_web_search_prime (first) +
+// zai_web_reader_webReader. Identical gating → collapse into one 2-name gate
+// {names:["zai_web_search_web_search_prime","zai_web_reader_webReader"]} with
+// names[0] === "zai_web_search_web_search_prime", matching every qa/probes.ts
+// gate id. (GATES is now empty after ticket 12, so the zai gate is sourced
+// entirely from reconstruction here.)
+const zaiRegistrar = (pi: any) => {
+	registerServerTools(
+		pi,
+		{ client: {}, close: async () => {}, serverName: "web_search" },
+		[{ name: "web_search_prime", description: "Z.ai web search prime (MCP)" }],
+	);
+	registerServerTools(
+		pi,
+		{ client: {}, close: async () => {}, serverName: "web_reader" },
+		[{ name: "webReader", description: "Z.ai web reader (MCP)" }],
+	);
+};
+
+export const CORPUS_GATES: CorpusGate[] = [...GATES, ...reconstructOwnerDeclaredGates([deployDefault, file2mdDefault, flux2Default, krea2Default, ltxDefault, movieDefault, researchDefault, workflowDefault, subagentDefault, zaiRegistrar])];
 
 export interface CaseResult {
 	gate: string;
