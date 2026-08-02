@@ -119,6 +119,68 @@ describe("GATES data (S1)", () => {
   });
 });
 
+// inspect_* is owner-declared (power-tool) as of the Task-3 migration and no
+// longer a hardcoded gate, so the QA corpus (qa/probes.ts, evaluated via the
+// hardcoded-GATES-only qa/evaluate.ts) lost its inspect precision/escape
+// coverage. Recover those dropped probes here as UNIT TESTS against the
+// EFFECTIVE gate built from the owner-declared gating — real behavior coverage
+// of the migrated gating, not a vacuous pass. Each scenario mirrors a dropped
+// qa/probes.ts entry, re-scored the same way qa/evaluate.ts scores it but
+// against eff.gates instead of hardcoded GATES. Upgrading the QA harness itself
+// to evaluate effective gates is a separate follow-up (NOT done here).
+describe("inspect_* precision/escape (recovered from dropped QA probes)", () => {
+  // INSPECT_GATING mirrors power-tool's 6 inspect_* literals verbatim.
+  const INSPECT_GATING = {
+    keywords: ["schema cost", "pathology", "extension health", "工具開銷", "context window", "token usage"],
+    requires: {
+      nouns: ["agent", "context", "extension", "pathology", "token", "schema", "tui", "工具"],
+      verbs: ["inspect", "show", "check", "diagnose", "dump", "report"],
+    },
+  };
+  const eff = buildEffectiveGates([
+    { name: "inspect_context", description: "d", gating: INSPECT_GATING },
+  ]);
+
+  // False-fire guard (the key historical one). Was qa/probes.ts MUST_NOT_FIRE:
+  // { gate: "inspect_context", prompt: "inspect element in chrome devtools",
+  //   note: "FIXED — 'element' is not a requires noun; bare 'inspect' removed" }.
+  // 'element' is NOT a requires noun; bare 'inspect' is no longer a keyword.
+  // The verb 'inspect' matches but no noun does → noun∧verb fails → no fire.
+  test("false-fire guard: 'inspect element in chrome devtools' does NOT fire", () => {
+    const gate = eff.gates.find((g) => g.names[0] === "inspect_context")!;
+    expect(gateFires(gate, "inspect element in chrome devtools")).toBe(false);
+  });
+
+  // Precision risk (was qa/probes.ts PRECISION_RISKS, severity low):
+  // { gate: "inspect_context", prompt: "check the context of this error",
+  //   why: 'noun "context" ∧ verb "check" (debugging, not introspection)' }.
+  // Per the VERBATIM gating this FIRES (noun 'context' ∧ verb 'check'); pinning
+  // it documents the migrated gating's real over-match — not a vacuous pass.
+  test("precision risk: 'check the context of this error' FIRES (noun context ∧ verb check — known over-match)", () => {
+    const gate = eff.gates.find((g) => g.names[0] === "inspect_context")!;
+    expect(gateFires(gate, "check the context of this error")).toBe(true);
+  });
+
+  // Escape reachability — by INTENT. Mirrors qa/evaluate.ts's ESCAPE_INTENT
+  // scoring: matchIntent(intent, gates, emptySticky) returns the inspect gate.
+  // 'show the agent's context tokens': nouns 'agent'/'context' ∧ verb 'show'.
+  test("escape by INTENT: 'show the agent's context tokens' reaches the inspect group", () => {
+    const gate = eff.gates.find((g) => g.names[0] === "inspect_context")!;
+    expect(gateFires(gate, "show the agent's context tokens")).toBe(true);
+    const matched = matchIntent("show the agent's context tokens", eff.gates, new Set());
+    expect(matched.some((g) => g.names[0] === "inspect_context")).toBe(true);
+  });
+
+  // Escape reachability — by NAME. Mirrors qa/evaluate.ts's ESCAPE_NAME scoring
+  // AND enable_tool's name-mode resolution: `effectiveGates.find((g) =>
+  // g.names.includes(name))` resolves to the inspect gate.
+  test("escape by NAME: 'inspect_context' resolves to the inspect gate (reachable via enable_tool name mode)", () => {
+    const resolved = eff.gates.find((g) => g.names.includes("inspect_context"));
+    expect(resolved).toBeDefined();
+    expect(resolved!.names[0]).toBe("inspect_context");
+  });
+});
+
 describe("matchIntent (S1)", () => {
   const sticky = () => new Set(CORE_TOOLS);
 
@@ -441,8 +503,10 @@ describe("gateFires (S2 co-occurrence)", () => {
 });
 
 describe("S2 keyword audit (updateSticky + filterActive Effect table)", () => {
+  // inspect_extensions dropped (Task-3 review Minor C): it's owner-declared now,
+  // absent from hardcoded TRACKED_TOOLS → fail-open → always-active dead data.
   const all = [...CORE_TOOLS, "flux2", "flux2_help", "krea2", "krea2_help", "ltx", "ltx_help",
-    "file2md", "vision_ask", "inspect_extensions", "workflow", "workflow_help",
+    "file2md", "vision_ask", "workflow", "workflow_help",
     "collect_videos", "movie", "movie_help"];
   const act = (prompt: string) => {
     const sticky = new Set(CORE_TOOLS);
