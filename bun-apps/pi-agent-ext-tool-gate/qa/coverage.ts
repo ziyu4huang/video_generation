@@ -5,11 +5,12 @@
  * tracked by any tool-gate gate — i.e. candidates the author forgot to gate?
  *
  * power-tool's schema-cost measures every tool's per-request token cost;
- * tool-gate's GATES array is hand-maintained. If a heavy extension lands but is
- * never added to a gate, tool-gate's fail-open design keeps it always-active
+ * tool-gate's tracked set (CORE_TOOLS ∪ owner-declared gated tools) is
+ * authoritative. If a heavy extension lands but its tools carry no `gating`
+ * (and aren't core), tool-gate's fail-open design keeps them always-active
  * (safe — no breakage) but the savings silently degrade. This QA surfaces that
  * gap so the loop closes: schema-cost measures → coverage finds the ungated
- * heavy → author adds a gate → savings confirms the recovery.
+ * heavy → author declares `gating` → savings confirms the recovery.
  *
  * Pure core (analyzeCoverage) is separated from the one buildSchemaCostReport
  * call so it is unit-testable against a fixture without booting collection.
@@ -18,7 +19,7 @@
  */
 import { buildSchemaCostReport, resolveRepoRoot } from "../../pi-agent-cli/src/commands/schema-cost.ts";
 import type { SchemaCostReport } from "@repo/pi-agent-ext-power-tool/schema-cost";
-import { TRACKED_TOOLS } from "../extensions/tool-gate.ts";
+import { CORPUS_EFF } from "./evaluate.ts";
 
 /** Heavy tools at or above this per-request token cost are coverage candidates. */
 export const DEFAULT_COVERAGE_THRESHOLD = 300;
@@ -40,7 +41,7 @@ export interface CoverageReport {
 	totalTools: number;
 	/** Non-builtin tools at/above threshold. */
 	heavyTools: number;
-	/** Heavy tools NOT in TRACKED_TOOLS — the findings (sorted desc by tokens). */
+	/** Heavy tools NOT tracked — the findings (sorted desc by tokens). */
 	ungated: UngatedTool[];
 	/** Heavy tools that ARE tracked — healthy. */
 	gatedHeavy: number;
@@ -53,11 +54,16 @@ export interface CoverageReport {
 /**
  * Pure: classify a captured report into the coverage verdict. No I/O.
  * Builtins (source === "(builtin)") are never heavy and never reported.
+ * `tracked` defaults to CORPUS_EFF.tracked (core ∪ owner-declared gated names) —
+ * the effective set production gates on — so migrated gated tools register as
+ * covered. The default is computed from pure stub-capture (no agent boot), so
+ * pure unit fixtures work without passing it explicitly.
  */
 export function analyzeCoverage(
 	report: SchemaCostReport,
 	threshold: number,
 	root: string,
+	tracked: Set<string> = CORPUS_EFF.tracked,
 ): CoverageReport {
 	const ungated: UngatedTool[] = [];
 	let heavyTools = 0;
@@ -66,7 +72,7 @@ export function analyzeCoverage(
 		if (t.source === "(builtin)") continue; // builtins can't be gated
 		if (t.approxTokens < threshold) continue; // below threshold = not heavy
 		heavyTools++;
-		if (TRACKED_TOOLS.has(t.name)) {
+		if (tracked.has(t.name)) {
 			gatedHeavy++;
 			continue;
 		}
