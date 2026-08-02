@@ -45,7 +45,7 @@ export interface SubagentToolDetails {
   elapsedMs: number;
   /** Wall-clock dispatch start, epoch ms — for /subagents timestamp display. */
   startedAt?: number;
-  status: "done" | "failed" | "timedout" | "budget";
+  status: "done" | "failed" | "timedout" | "budget" | "aborted";
   /** Real token/cost usage from the child session, when reported. */
   usage?: AgentUsage;
   /**
@@ -367,7 +367,9 @@ export function renderSubagentResult(
         ? theme.fg("warning", "⏱ timedout")
         : d.status === "budget"
           ? theme.fg("warning", "⛔ budget")
-          : theme.fg("error", "✗ failed");
+          : d.status === "aborted"
+            ? theme.fg("dim", "⊘ aborted")
+            : theme.fg("error", "✗ failed");
   const usageStr = d.usage && d.usage.total > 0 ? ` · $${d.usage.cost.toFixed(3)} · ${d.usage.total} tok` : "";
   // SDD self-report tag (ticket 04): separate axis from process status. A run
   // can be process-done yet self-report BLOCKED — tint the actionable ones so
@@ -548,12 +550,21 @@ export function createSubagentTool(
       // WorkflowAgent once resolved. Falls back to the requested display string.
       let resolvedModel: string | undefined;
 
+      // Per-child AbortController (Frontier A): the user can abort ONE running
+      // child via registry.abort(toolCallId) → this controller fires. We FAN IN
+      // the parent tool-call `signal` so a whole-turn Esc still aborts the child.
+      // spawn's own timeoutMs gate stays independent — it aborts spawn's internal
+      // controller (not this one), so a timeout is detectable separately.
+      const childAc = new AbortController();
+      if (signal?.aborted) childAc.abort();
+      else signal?.addEventListener("abort", () => childAc.abort(), { once: true });
       options.inFlight?.start({
         id: toolCallId,
         agent: params.agent,
         model: displayModelBeforeResolve,
         taskPreview: taskPreview(params.task),
         startedAt: t0,
+        abort: () => childAc.abort(),
       });
       try {
         const instructions =
@@ -572,7 +583,7 @@ export function createSubagentTool(
           cwd: spawnCwd,
           instructions,
           extensionTools: options.getExtensionTools?.(),
-          externalSignal: signal,
+          externalSignal: childAc.signal,
           timeoutMs: params.timeoutMs ?? DEFAULT_TIMEOUT_MS,
           tokenBudget: params.tokenBudget,
           spendBudget: params.spendBudget,
@@ -607,6 +618,46 @@ export function createSubagentTool(
               : undefined,
         });
         const elapsedMs = Date.now() - t0;
+        // Per-child abort detection (Frontier A): a USER abort fires childAc
+        // only (parent signal intact); a whole-turn Esc fans the parent signal
+        // INTO childAc (so signal.aborted distinguishes); a timeout aborts
+        // spawn's internal controller, not childAc (so childAc.signal stays
+        // un-aborted → falls through to the timedout path unchanged).
+        if (childAc.signal.aborted && !signal?.aborted) {
+          // Partial work is discarded (worktree) or left in-tree (real-tree);
+          // scope/watchdog review of a half-finished diff would be noise.
+          const model = resolvedModel ?? displayModelBeforeResolve;
+          options.persistence?.save({
+            id: generateSubagentRunId(),
+            toolCallId,
+            agent: params.agent,
+            task: params.task,
+            model,
+            tier,
+            cwd: runCwd,
+            status: "aborted",
+            exitCode: result.exitCode,
+            timedOut: false,
+            startedAt: new Date(t0).toISOString(),
+            elapsedMs,
+            usage: result.usage,
+            output: "Subagent aborted by user.",
+          });
+          return {
+            content: [{ type: "text" as const, text: "Subagent aborted by user." }],
+            details: {
+              exitCode: result.exitCode,
+              timedOut: false,
+              agent: params.agent,
+              model,
+              taskPreview: taskPreview(params.task),
+              elapsedMs,
+              startedAt: t0,
+              status: "aborted" as const,
+              usage: result.usage,
+            },
+          };
+        }
         // Opt-in commit-scope check (commitScope param): detection only. A
         // throwing op is swallowed — the scope guard never fails the run.
         let scopeCheck: SubagentScopeCheck | undefined;

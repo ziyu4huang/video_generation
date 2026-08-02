@@ -89,6 +89,30 @@ test("start carries status; markCompleted flips it; endBatch evicts the whole ba
   assert.equal(reg.list().length, 0, "whole batch evicted");
 });
 
+test("abort(id) fires the entry's abort lever; no-op for unknown/ended ids; entry stays", () => {
+  const reg = new SubagentInFlightRegistry();
+  let abortCalls = 0;
+  reg.start({
+    id: "a",
+    model: "x",
+    taskPreview: "t",
+    startedAt: 0,
+    abort: () => {
+      abortCalls++;
+    },
+  });
+  reg.abort("a");
+  assert.equal(abortCalls, 1, "the abort lever fires once");
+  assert.ok(reg.get("a"), "abort does NOT remove the entry (distinct from end)");
+  // unknown id — no throw, no-op
+  reg.abort("ghost");
+  assert.equal(abortCalls, 1);
+  // ended id — no-op (mirrors update/updateModel)
+  reg.end("a");
+  reg.abort("a");
+  assert.equal(abortCalls, 1, "no-op after end()");
+});
+
 test("endBatch evicts only the named batch; a sibling batch is untouched", () => {
   const reg = new SubagentInFlightRegistry();
   reg.start({ id: "a0", model: "x", taskPreview: "t", startedAt: 0, batchId: "bA" });

@@ -27,7 +27,7 @@ import type { WatchdogResult } from "./watchdog/types.js";
 export const SUBAGENT_HOME_RELATIVE_DIR = ".pi/subagents";
 export const SUBAGENT_RUNS_SUBDIR = "runs";
 
-export type SubagentRunStatus = "done" | "failed" | "timedout" | "budget";
+export type SubagentRunStatus = "done" | "failed" | "timedout" | "budget" | "aborted";
 
 /**
  * A durable, serializable snapshot of one completed `subagent`-tool run.

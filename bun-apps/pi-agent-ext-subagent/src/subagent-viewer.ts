@@ -40,7 +40,7 @@ export interface SubagentRun {
   agent?: string;
   model: string;
   taskPreview: string;
-  status: "done" | "failed" | "timedout" | "budget";
+  status: "done" | "failed" | "timedout" | "budget" | "aborted";
   elapsedMs: number;
   /** Wall-clock dispatch start, epoch ms (for timestamp display); absent on legacy branch entries. */
   startedAt?: number;
