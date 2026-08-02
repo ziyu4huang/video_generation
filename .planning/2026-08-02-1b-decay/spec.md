@@ -70,7 +70,7 @@ Heat is computed **lazily at eviction time** (overflow → floors/snapshot), nev
 ## Acceptance criteria
 
 1. **`computeHeat()` is pure + fully unit-tested**: recency spine `exp(-age/halflife)` monotonic decreasing; worth multiplier nudges above/below 1.0 around Laplace-0.5 neutral; used-bonus adds exactly `usedBonusAmount`; output clamped `[0,1]`; missing-dates fallback (last→created→epoch) behaves sanely. Config honored.
-2. **`getUsedMdIds` parity**: SQLite + Surreal return identical subsets; batched `IN`; empty input → empty output (no-op); respects project scoping.
+2. **`getUsedMdIds` parity**: SQLite + Surreal return identical subsets; batched `IN`; empty input → empty output (no-op); project accepted-but-ignored (`session_assembly` is a global, non-project-scoped ledger — D4's global boolean ever-used).
 3. **Heat-provider wired** in `index.ts` from both repos; absent/throwing provider is a safe no-op (current FIFO).
 4. **Floors heat-ordered**: `vaultOffloadAndAdd`/`vaultOffloadAndReplace` evict lowest-heat non-pinned first; pin always spared; used entries outrank unused at equal recency; a fully-pinned target still overflows to the limit guard. Verified with a deterministic integration test that constructs entries of known heat and asserts the eviction order.
 5. **Disable path**: `decayEnabled === false` → eviction order is byte-identical to pre-#1b FIFO (regression-safe).
