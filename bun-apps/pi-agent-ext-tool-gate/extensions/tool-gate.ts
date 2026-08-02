@@ -79,16 +79,6 @@ interface ToolGate {
  */
 export const GATES: ToolGate[] = [
   {
-    // No `requires` co-occurrence: krea2's keywords ("krea", "草圖", "快速生成",
-    // ...) are narrow enough that bare-word false-fires are unlikely, unlike
-    // the core nouns (image/video/pdf) that need noun∧verb gating. A prompt
-    // like "快速生成一個圖" fires flux2 (via requires) but not krea2 unless
-    // "krea"/"草圖" literally appears — intentional precision tradeoff.
-    names: ["krea2", "krea2_help"],
-    keywords: ["krea", "krea2", "草圖", "快速生成", "即時生成", "實時繪圖", "sketch", "real-time", "real time"],
-    description: "Krea2 fast image generation — real-time draft to image",
-  },
-  {
     names: ["ltx", "ltx_help"],
     keywords: ["ltx", "t2v", "i2v", "vbvr", "video relay", "vbvr relay", "影片特效"],
     requires: {

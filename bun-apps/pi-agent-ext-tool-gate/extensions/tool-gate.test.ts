@@ -5,12 +5,14 @@ import { emitToolGateLog, isMissCandidate } from "./tool-gate.ts";
 import toolGateExtension from "./tool-gate.ts";
 import file2mdExtension from "@repo/pi-agent-ext-file2md/extensions/file2md.ts";
 import flux2Extension from "@repo/pi-agent-ext-flux2/extensions/flux2.ts";
+import krea2Extension from "@repo/pi-agent-ext-krea2/extensions/krea2.ts";
 
 /** Spread CORE_TOOLS into an array of names (CORE_TOOLS is a Set). */
 const CORE_TOOLS_ARRAY = (): string[] => Array.from(CORE_TOOLS);
 
-// file2md/vision_ask (ticket 04) + flux2/flux2_help (ticket 05) migrated to
-// owner-declared gating — their gates no longer live in the hardcoded GATES, so
+// file2md/vision_ask (ticket 04) + flux2/flux2_help (ticket 05) + krea2/
+// krea2_help (ticket 06) migrated to owner-declared gating — their gates no
+// longer live in the hardcoded GATES, so
 // the migration-touching integration tests below reconstruct the EFFECTIVE gate
 // set the way production does (buildEffectiveGates over the owner-declared defs
 // + fallback GATES), keeping the migrated tools firing + tracking exercised
@@ -23,6 +25,7 @@ const captureOwner = (ext: (pi: any) => void) =>
 	} as never);
 captureOwner(file2mdExtension);
 captureOwner(flux2Extension);
+captureOwner(krea2Extension);
 const EFF = buildEffectiveGates(ownerDeclaredDefs as never);
 
 describe("updateSticky + filterActive", () => {
@@ -377,14 +380,14 @@ describe("enable_tool (S1 A escape hatch)", () => {
   });
 
   test("list:true returns only dormant gates", async () => {
-    // setupPi's mock returns defs WITHOUT gating, so owner-declared gates (flux2,
-    // ticket 05) can't be reconstructed here. Use ltx + krea2 (still in the
-    // hardcoded GATES) as the dormant pair.
-    const { enableTool } = setupPi([...CORE_TOOLS, "ltx", "ltx_help", "krea2", "krea2_help"]);
+    // setupPi's mock returns defs WITHOUT gating, so owner-declared gates (flux2
+    // ticket 05, krea2 ticket 06) can't be reconstructed here. Use ltx + movie
+    // (still in the hardcoded GATES) as the dormant pair.
+    const { enableTool } = setupPi([...CORE_TOOLS, "ltx", "ltx_help", "movie", "movie_help"]);
     const res = await enableTool.execute("id", { list: true });
     const text = res.content[0].text;
     expect(text).toContain("ltx");
-    expect(text).toContain("krea2");
+    expect(text).toContain("movie");
   });
 
   test("intent 'make a video' activates ltx (sticky) and calls setActiveTools", async () => {
@@ -550,10 +553,10 @@ describe("S2 keyword audit (updateSticky + filterActive Effect table)", () => {
   const all = [...CORE_TOOLS, "flux2", "flux2_help", "krea2", "krea2_help", "ltx", "ltx_help",
     "file2md", "vision_ask", "workflow", "workflow_help",
     "collect_videos", "movie", "movie_help"];
-  // flux2 (ticket 05) + file2md/vision_ask (ticket 04) are owner-declared →
-  // thread the effective gates + tracked set (production session_start path) so
-  // they stay tracked + gated instead of falling open (absent from module-level
-  // TRACKED_TOOLS).
+  // flux2 (ticket 05) + file2md/vision_ask (ticket 04) + krea2/krea2_help
+  // (ticket 06) are owner-declared → thread the effective gates + tracked set
+  // (production session_start path) so they stay tracked + gated instead of
+  // falling open (absent from module-level TRACKED_TOOLS).
   const act = (prompt: string) => {
     const sticky = new Set(EFF.core);
     updateSticky(prompt, sticky, EFF.gates);
