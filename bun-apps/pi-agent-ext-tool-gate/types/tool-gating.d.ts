@@ -34,8 +34,9 @@ declare module "@earendil-works/pi-coding-agent" {
 
 declare global {
   interface Gating {
-    /** Bare-word/phrase triggers (tool-gate matchesKeyword). Gate fires if any matches OR `requires` is met. */
-    keywords: string[];
+    /** Bare-word/phrase triggers (tool-gate matchesKeyword). Gate fires if any matches OR `requires` is met.
+     *  Optional: a `core:true` tool legitimately has none (it is never keyword-gated). */
+    keywords?: string[];
     /** Optional co-occurrence: fires only if prompt has ≥1 noun AND ≥1 verb. */
     requires?: { nouns: string[]; verbs: string[] };
     /** If true, always active (core/escape-hatch); never gated. */

@@ -243,7 +243,7 @@ export function buildEffectiveGates(
     } else {
       gates.push({
         names: [def.name],
-        keywords: g.keywords,
+        keywords: g.keywords ?? [],
         requires: g.requires,
         description: def.description ?? "",
       });
@@ -532,29 +532,33 @@ export default function toolGateExtension(pi: ExtensionAPI) {
   // gate (CORE_TOOLS/GATES/sticky) is bypassed.
   if (process.env.TOOL_GATE_DISABLE === "1") return;
 
+  type DiscoveredTool = { name: string; description?: string; parameters?: unknown; gating?: Gating };
+  const getDiscovered = (): DiscoveredTool[] => {
+    const fn = (pi as typeof pi & { getAllToolDefinitions?(): DiscoveredTool[] }).getAllToolDefinitions;
+    return typeof fn === "function" ? fn() : [];
+  };
+  let effectiveGates: ToolGate[] = GATES;
+  let effectiveCore: Set<string> = new Set(CORE_TOOLS);
+  let effectiveTracked: Set<string> = TRACKED_TOOLS;
+
   let allToolNames: string[] = [];
   let sticky = new Set<string>(CORE_TOOLS);
   let measuredTokens = new Map<string, number>(); // built at session_start (S3), grown per-turn (M7)
 
   // ── On session start: capture full tool list and gate ──
   pi.on("session_start", async (_event, ctx) => {
-    const all = pi.getAllTools();
-    allToolNames = all.map((t: { name: string }) => t.name);
-    sticky = new Set(CORE_TOOLS);
+    const all = getDiscovered();
+    allToolNames = all.map((t) => t.name);
+    const eff = buildEffectiveGates(all);
+    effectiveGates = eff.gates; effectiveCore = eff.core; effectiveTracked = eff.tracked;
+    sticky = new Set(effectiveCore);
 
-    // S3: measure each loaded tool's schema cost once for the session.
-    measuredTokens = new Map(
-      all.map((t: { name: string; description?: string; parameters?: unknown }) =>
-        [t.name, measureToolTokens(t)]),
-    );
+    measuredTokens = new Map(all.map((t) => [t.name, measureToolTokens(t)]));
 
-    // session_start prompt is "" → updateSticky is a no-op; just filter.
-    const active = filterActive(allToolNames, sticky);
+    const active = filterActive(allToolNames, sticky, effectiveTracked);
     pi.setActiveTools(active);
 
-    // G fix + S3: only count loaded gates, using measured (not stale) token costs.
     const saved = computeBannerSaved(active, allToolNames, measuredTokens);
-
     const debug = process.env.TOOL_GATE_DEBUG_BANNER === "1";
     const theme = ctx.ui?.theme ?? ({ fg: (_k: string, s: string) => s } as NonNullable<typeof ctx.ui.theme>);
     scheduleToolGateBanner(
@@ -569,27 +573,25 @@ export default function toolGateExtension(pi: ExtensionAPI) {
 
   // ── Per-turn: refresh tool list (D), re-evaluate gates (sticky), emit telemetry ──
   pi.on("before_agent_start", async (event, _ctx) => {
-    // D: re-fetch each turn so dynamically-registered or renamed tools are seen.
-    const all = pi.getAllTools();
-    allToolNames = all.map((t: { name: string }) => t.name);
-    // M7: measure any tool that appeared since session_start (lazily-registered
-    // extensions) so savedTok/banner reflect the tools actually present this
-    // turn instead of under-counting late arrivals as 0 tokens.
-    for (const t of all as Array<{ name: string; description?: string; parameters?: unknown }>) {
+    const all = getDiscovered();
+    allToolNames = all.map((t) => t.name);
+    const eff = buildEffectiveGates(all);
+    effectiveGates = eff.gates; effectiveCore = eff.core; effectiveTracked = eff.tracked;
+    for (const t of all) {
       if (!measuredTokens.has(t.name)) measuredTokens.set(t.name, measureToolTokens(t));
     }
     const prompt = event.prompt ?? "";
 
     const before = new Set(sticky);
-    updateSticky(prompt, sticky);
-    const active = filterActive(allToolNames, sticky);
+    updateSticky(prompt, sticky, effectiveGates);
+    const active = filterActive(allToolNames, sticky, effectiveTracked);
     pi.setActiveTools(active);
 
     // telemetry: which gates newly fired this turn, which are still dormant
-    const gatesFired = GATES
+    const gatesFired = effectiveGates
       .filter((g) => g.names.some((n) => sticky.has(n) && !before.has(n)))
       .map((g) => g.names[0]);
-    const dormantGates = GATES
+    const dormantGates = effectiveGates
       .filter((g) => !g.names.every((n) => sticky.has(n)))
       .map((g) => g.names[0]);
 
@@ -610,6 +612,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
   // ── Escape hatch: enable_tool (always active; activates dormant gates) ──
   pi.registerTool({
     name: "enable_tool",
+    gating: { core: true },
     label: "Enable a gated tool",
     description:
       "Heavy tools (flux2 image, ltx video, movie orchestrator, krea2, file2md/vision, inspect, workflow, research/video-collect, arxiv papers, movie-production cost, z.ai web tools, pi-agent deploy/verify) are GATED out of your tool list to save context. If you need a capability you don't see, call this tool: use `intent` to describe what you want (e.g. 'make a video', 'generate an image', 'orchestrate a montage'), `name` to activate a specific tool (e.g. 'ltx', 'flux2', 'movie'), or `list:true` to see dormant tools. Activation is sticky — once enabled, the tool stays available for the session.",
@@ -625,7 +628,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       try {
         if (params.list) {
-          const dormant = GATES.filter((g) => !g.names.every((n) => sticky.has(n)));
+          const dormant = effectiveGates.filter((g) => !g.names.every((n) => sticky.has(n)));
           const lines = dormant.map(
             (g) => `- ${g.names.join(", ")} — ${g.description} (keywords: ${g.keywords.slice(0, 6).join(", ")})`,
           );
@@ -644,7 +647,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
         let via: "name" | "intent" = "intent";
         if (params.name) {
           via = "name";
-          const gate = GATES.find((g) => g.names.includes(params.name as string));
+          const gate = effectiveGates.find((g) => g.names.includes(params.name as string));
           // F3: if the gate exists but is already fully active, say so instead
           // of misleadingly reporting "Activated".
           if (gate && gate.names.every((n) => sticky.has(n))) {
@@ -659,7 +662,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
           }
           matched = gate ? [gate] : [];
         } else if (params.intent) {
-          matched = matchIntent(params.intent, GATES, sticky);
+          matched = matchIntent(params.intent, effectiveGates, sticky);
         } else {
           return {
             details: undefined,
