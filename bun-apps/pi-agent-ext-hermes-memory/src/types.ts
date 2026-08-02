@@ -102,6 +102,10 @@ export interface MemoryConfig {
    *  shorter are surfaced but never credited as "used" — too generic to
    *  attribute. Default: 24. */
   usedSignatureMinChars?: number;
+  /** Detect "used" surfaced entries by content-signature match at turn_end and
+   *  stamp `used_at` on the matched assembly rows (UPSP §9 / ticket #06).
+   *  INDEPENDENT of `worthScoring`. Default: true (set `false` to disable). */
+  usedDetection?: boolean;
   /** Auto-supersede a recalled memory when a correction contradicts it (judge-gated).
    *  Default: false (opt-in — supersession hides the prior from search). */
   autoSupersede?: boolean;
