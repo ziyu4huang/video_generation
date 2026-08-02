@@ -441,3 +441,21 @@ describe.skipIf(!!process.env.CI)("/wayfind — fact-freshness guard", () => {
     expect(pi.sent.every((s) => !s.includes("Fact freshness"))).toBe(true);
   });
 });
+
+// ─── /wayfind chart — overlay active-effort wiring (layer 3) ─────────────────
+describe("/wayfind chart — overlay active-effort wiring", () => {
+  it("charting a destination sets the overlay's active effort + cwd", async () => {
+    const overlay = new WayfindOverlay();
+    let spy: { effort?: string; cwd?: string } = {};
+    overlay.setActiveEffort = (effort, cwd) => {
+      spy = { effort, cwd };
+    };
+    const state = createRuntimeState();
+    const pi = createPi();
+    registerCommands(pi as unknown as Parameters<typeof registerCommands>[0], state, overlay);
+    const cwd = makeCwd();
+    await pi.commands.get("wayfind")?.("Redesign the checkout flow", makeCtx(cwd));
+    expect(spy.effort).toBeTruthy();
+    expect(spy.cwd).toBe(cwd);
+  });
+});

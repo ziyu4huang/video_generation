@@ -286,6 +286,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
         return;
       }
       state.activeEffortBySession.set(sessionId, effort);
+      overlay.setActiveEffort(effort, ctx.cwd);
       publishWayfindActive(state);
       overlay.setLine("working-ticket", `${effort} — ticket ${claimed.id} ${claimed.title}`);
       pi.sendUserMessage(
@@ -304,6 +305,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
     const effort = effortSlug(destination);
     chartMap(ctx.cwd, effort, destination);
     state.activeEffortBySession.set(sessionId, effort);
+    overlay.setActiveEffort(effort, ctx.cwd);
     publishWayfindActive(state);
     overlay.setLine("charting", `charting ${effort}`);
     ctx.ui.notify(`[${PKG_NAME}] Map created at .planning/${effort}/map.md`, "info");
