@@ -34,6 +34,10 @@ export interface InFlightSubagent {
   history?: AgentHistoryEntry[];
   /** Bound by renderCall so updateModel can force a call-line re-render mid-run. */
   invalidate?: () => void;
+  /** Per-child abort lever — fires the child's AbortController so the /subagents
+   *  viewer (x-key) can abort ONE running child without aborting the whole turn.
+   *  Set by the tool at dispatch; fired by the registry's abort(id). */
+  abort?: () => void;
 }
 
 /**
@@ -89,6 +93,15 @@ export class SubagentInFlightRegistry {
     for (const [id, r] of this.runs) {
       if (r.batchId === batchId) this.runs.delete(id);
     }
+  }
+
+  /** Fire one running child's abort lever (per-child mid-flight abort). Distinct
+   *  from end() — the entry stays in the registry (the tool deregisters it on
+   *  spawn's return). No-op for an unknown / already-ended id, mirroring
+   *  update()/updateModel(): a user abort that races with natural completion
+   *  must never throw. */
+  abort(id: string): void {
+    this.runs.get(id)?.abort?.();
   }
 
   list(): InFlightSubagent[] {

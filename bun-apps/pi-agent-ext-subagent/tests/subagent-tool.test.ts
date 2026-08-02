@@ -166,12 +166,74 @@ test("execute forwards getExtensionTools() === undefined when holder unset", asy
   assert.equal(f.calls[0]?.extensionTools, undefined);
 });
 
-test("execute forwards the runtime abort signal to spawn as externalSignal", async () => {
+test("execute fans the runtime abort signal into a per-child externalSignal (not the same object)", async () => {
   const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
   const tool = createSubagentTool({ spawn: f.spawn });
   const controller = new AbortController();
   await tool.execute("id", { task: "t" }, controller.signal, undefined, NO_CTX);
-  assert.equal(f.calls[0]?.externalSignal, controller.signal, "the tool-call signal must reach spawn()");
+  const childSignal = f.calls[0]?.externalSignal;
+  assert.ok(childSignal, "spawn receives an externalSignal");
+  assert.notEqual(childSignal, controller.signal, "per-child controller, not the parent signal directly");
+  // fan-in: aborting the parent signal aborts the child signal (whole-turn Esc still works)
+  assert.equal(childSignal.aborted, false);
+  controller.abort();
+  assert.equal(childSignal.aborted, true, "parent signal fans into the per-child signal");
+});
+
+// ── per-child mid-flight abort (Frontier A) ──
+
+/** Fake spawn that resolves ONLY when its externalSignal aborts (a child
+ *  blocked on a real run, then aborted). Mirrors spawnSubagent's signal-abort
+ *  return shape: {exitCode:124, timedOut:true, output:""}. */
+function spawnOnAbort() {
+  const calls: SpawnSubagentOptions[] = [];
+  const spawn = (opts: SpawnSubagentOptions) =>
+    new Promise<SpawnSubagentResult>((resolve) => {
+      calls.push(opts);
+      const sig = opts.externalSignal;
+      if (!sig) return resolve({ output: "no-signal", exitCode: 0, stderr: "", timedOut: false });
+      if (sig.aborted) return resolve({ output: "", exitCode: 124, stderr: "Subagent was aborted", timedOut: true });
+      sig.addEventListener(
+        "abort",
+        () => resolve({ output: "", exitCode: 124, stderr: "Subagent was aborted", timedOut: true }),
+        { once: true },
+      );
+    });
+  return { calls, spawn };
+}
+
+test("user per-child abort (registry.abort) → status 'aborted' + 'Subagent aborted by user.' text; parent turn unaffected", async () => {
+  const reg = new SubagentInFlightRegistry();
+  const f = spawnOnAbort();
+  const tool = createSubagentTool({ spawn: f.spawn, inFlight: reg });
+  const parent = new AbortController(); // NOT aborted — represents the live turn
+  const p = tool.execute("id-u", { task: "research" }, parent.signal, undefined, NO_CTX);
+  await Promise.resolve(); // reach the registered + pending window
+  assert.ok(typeof reg.get("id-u")?.abort === "function", "abort lever wired on the in-flight entry");
+  reg.abort("id-u"); // user aborts this one child
+  const res = await p;
+  assert.equal(res.details.status, "aborted");
+  assert.equal((res.content[0] as { text: string }).text, "Subagent aborted by user.");
+  assert.equal(parent.signal.aborted, false, "the parent turn is NOT aborted (per-child isolation)");
+});
+
+test("whole-turn abort (parent signal) → status 'timedout', NOT 'aborted' (unchanged)", async () => {
+  const reg = new SubagentInFlightRegistry();
+  const f = spawnOnAbort();
+  const tool = createSubagentTool({ spawn: f.spawn, inFlight: reg });
+  const parent = new AbortController();
+  const p = tool.execute("id-w", { task: "t" }, parent.signal, undefined, NO_CTX);
+  await Promise.resolve();
+  parent.abort(); // whole-turn Esc
+  const res = await p;
+  assert.equal(res.details.status, "timedout", "whole-turn abort keeps the existing timedout status");
+});
+
+test("a timeout (no controller abort) → status 'timedout', NOT 'aborted'", async () => {
+  const f = fakeSpawn(() => ({ output: "", exitCode: 124, stderr: "", timedOut: true }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  const res = await tool.execute("id-t", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(res.details.status, "timedout");
 });
 
 test("execute forwards timeoutMs/retryOnTransient to spawn", async () => {
@@ -671,6 +733,19 @@ test("renderSubagentResult shows cost/tokens when usage.total > 0, omits when 0 
     T,
   );
   assert.ok(!noUsage.includes("$"), "omits cost when usage is absent entirely");
+});
+
+test("renderSubagentResult renders an 'aborted' badge (distinct from failed/timedout)", () => {
+  const out = renderSubagentResult(
+    {
+      content: [{ type: "text", text: "Subagent aborted by user." }],
+      details: { exitCode: 124, timedOut: false, taskPreview: "p", elapsedMs: 800, status: "aborted" },
+    },
+    { expanded: false },
+    T,
+  );
+  assert.match(out, /aborted/);
+  assert.ok(!out.includes("failed") && !out.includes("timedout"), "not mislabeled as failed/timedout");
 });
 
 test("renderSubagentResult failed/timedout badges + missing-details fallback", () => {

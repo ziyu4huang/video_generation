@@ -71,6 +71,7 @@ export function createSubagentsCommand(opts: { subagentInFlight: SubagentInFligh
               if (timer) clearInterval(timer);
               done();
             },
+            onAbort: (id) => subagentInFlight.abort(id),
           },
           theme as never,
         );

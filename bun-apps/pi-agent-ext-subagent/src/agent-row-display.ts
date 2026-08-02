@@ -11,7 +11,16 @@
  */
 
 /** Statuses a live agent row can show (superset of workflow's WorkflowAgentStatus). */
-export type ActivityStatus = "queued" | "running" | "done" | "error" | "failed" | "skipped" | "timedout" | "budget";
+export type ActivityStatus =
+  | "queued"
+  | "running"
+  | "done"
+  | "error"
+  | "failed"
+  | "skipped"
+  | "timedout"
+  | "budget"
+  | "aborted";
 
 /** Minimal theme surface so rendering works without a real Theme (tool output, tests). */
 export interface ThemeLike {
@@ -56,6 +65,8 @@ export function activityGlyph(status: ActivityStatus): { icon: string; color: st
       return { icon: "⏱", color: "warning" };
     case "budget":
       return { icon: "⛔", color: "warning" };
+    case "aborted":
+      return { icon: "⊘", color: "dim" };
   }
 }
 
