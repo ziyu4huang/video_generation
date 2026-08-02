@@ -34,6 +34,7 @@ import {
   DEFAULT_FAILURE_CHAR_LIMIT,
   DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS,
   DEFAULT_FAILURE_INJECTION_MAX_ENTRIES,
+  DEFAULT_USED_SIGNATURE_MIN_CHARS,
   MEMORY_FILE,
   USER_FILE,
 } from "../constants.js";
@@ -41,6 +42,7 @@ import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, M
 import { AGENT_ROOT } from "../paths.js";
 import { envFloat, envInt } from "../utils/env.js";
 import { DEFAULT_NEAR_DUP_THRESHOLD, findNearDuplicate } from "./near-dup.js";
+import { computeSignature } from "./signature.js";
 import type { TimedFn, TimedAlwaysFn } from "../perf.js";
 
 /**
@@ -1311,17 +1313,31 @@ export class MemoryStore {
    * still carry the frontmatter `id`), then apply the same `.slice(0, maxFailures)` the renderer
    * uses — so these are exactly the failures whose bodies are injected.
    */
-  getAssemblyManifest(): { block: string; mdIds: string[] } {
+  getAssemblyManifest(): { block: string; mdIds: string[]; signatures: { mdId: string; signature: string }[] } {
     const block = this.formatForSystemPrompt();
     const ids: string[] = [];
-    const pushIds = (entries: string[]) => {
+    // Signatures (UPSP §9 / ticket #06): one entry per surfaced md_id whose
+    // computeSignature(body, minChars) is non-null (under-min entries omitted).
+    // Harvested in the SAME iteration that collects md_ids (DRY — no duplicated
+    // selection). The signed body is the entry's stripped body (== what
+    // formatForSystemPrompt renders). Map<mdId,signature> dedupes by mdId and
+    // keeps the signature set consistent with the deduped mdIds set.
+    const sigMap = new Map<string, string>();
+    const minChars = this.config.usedSignatureMinChars ?? DEFAULT_USED_SIGNATURE_MIN_CHARS;
+    const harvest = (entries: string[]) => {
       for (const raw of entries) {
-        const id = this.decodeEntry(raw).id;
-        if (id) ids.push(id);
+        const decoded = this.decodeEntry(raw);
+        const id = decoded.id;
+        if (!id) continue;
+        ids.push(id);
+        if (!sigMap.has(id)) {
+          const signature = computeSignature(decoded.text, minChars);
+          if (signature !== null) sigMap.set(id, signature);
+        }
       }
     };
-    pushIds(this.memoryEntries);
-    pushIds(this.userEntries);
+    harvest(this.memoryEntries);
+    harvest(this.userEntries);
     if (this.config.failureInjectionEnabled !== false) {
       const maxAgeDays = this.config.failureInjectionMaxAgeDays ?? DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS;
       const maxFailures = this.config.failureInjectionMaxEntries ?? DEFAULT_FAILURE_INJECTION_MAX_ENTRIES;
@@ -1335,9 +1351,10 @@ export class MemoryStore {
         if ((decoded.state ?? "active") !== "active") return false;
         return decoded.created >= cutoffStr;
       });
-      pushIds(activeRawFailures.slice(0, maxFailures));
+      harvest(activeRawFailures.slice(0, maxFailures));
     }
-    return { block, mdIds: [...new Set(ids)] };
+    const signatures = [...sigMap.entries()].map(([mdId, signature]) => ({ mdId, signature }));
+    return { block, mdIds: [...new Set(ids)], signatures };
   }
 
   /**
@@ -1345,14 +1362,25 @@ export class MemoryStore {
    * PLUS the md_id set of the project-memory entries it renders. Mirrors formatProjectBlock's
    * selection (memoryEntries of the project store instance).
    */
-  getProjectAssemblyManifest(projectName: string): { block: string; mdIds: string[] } {
+  getProjectAssemblyManifest(projectName: string): { block: string; mdIds: string[]; signatures: { mdId: string; signature: string }[] } {
     const block = this.formatProjectBlock(projectName);
     const ids: string[] = [];
+    // Signatures (UPSP §9 / ticket #06): same harvest as getAssemblyManifest,
+    // over the project-memory entries (mirrors formatProjectBlock's selection).
+    const sigMap = new Map<string, string>();
+    const minChars = this.config.usedSignatureMinChars ?? DEFAULT_USED_SIGNATURE_MIN_CHARS;
     for (const raw of this.memoryEntries) {
-      const id = this.decodeEntry(raw).id;
-      if (id) ids.push(id);
+      const decoded = this.decodeEntry(raw);
+      const id = decoded.id;
+      if (!id) continue;
+      ids.push(id);
+      if (!sigMap.has(id)) {
+        const signature = computeSignature(decoded.text, minChars);
+        if (signature !== null) sigMap.set(id, signature);
+      }
     }
-    return { block, mdIds: [...new Set(ids)] };
+    const signatures = [...sigMap.entries()].map(([mdId, signature]) => ({ mdId, signature }));
+    return { block, mdIds: [...new Set(ids)], signatures };
   }
 
   /**
