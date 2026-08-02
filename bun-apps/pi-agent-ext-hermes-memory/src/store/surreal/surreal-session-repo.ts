@@ -245,6 +245,24 @@ export class SurrealSessionRepository implements SessionRepository {
     return rows[0]?.count ?? 0;
   }
 
+  async recordAssembly(sessionId: string, mdIds: readonly string[], hash: string): Promise<void> {
+    // Meta (hash) upsert + replace assembly rows. The session doc is never touched (hash lives
+    // in session_assembly_meta; the sessions row is created later by backfill — see spec §Timing).
+    await this.c.query(
+      `UPSERT type::record("session_assembly_meta", $sid) SET sessionId = $sid, hash = $hash, capturedAt = $now;`,
+      { sid: sessionId, hash, now: new Date().toISOString() },
+    );
+    await this.c.query(`DELETE FROM session_assembly WHERE sessionId = $sid;`, { sid: sessionId });
+    const unique = [...new Set(mdIds)];
+    if (unique.length === 0) return;
+    const params: Record<string, unknown> = { sid: sessionId };
+    const stmts = unique.map((id, i) => {
+      params[`m${i}`] = id;
+      return `CREATE session_assembly SET sessionId = $sid, mdId = $m${i};`;
+    });
+    await this.c.query(stmts.join("\n"), params);
+  }
+
   async getSessionStats(): Promise<SessionStats> {
     const sess = await this.c.query<Array<{ count: number }>>(`SELECT count() AS count FROM sessions GROUP ALL;`);
     const msg = await this.c.query<Array<{ count: number }>>(`SELECT count() AS count FROM messages GROUP ALL;`);
