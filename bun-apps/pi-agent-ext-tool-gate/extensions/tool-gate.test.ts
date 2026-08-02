@@ -671,4 +671,45 @@ describe("tool-gate runtime reads owner-declared gating", () => {
     expect(active).not.toContain("inspect_hooks"); // owner-gated, no keyword in "" prompt → dormant
     expect(active).not.toContain("flux2");        // hardcoded fallback gate, dormant
   });
+
+  test("enable_tool recompute must NOT spuriously activate an owner-gated tool absent from TRACKED_TOOLS", async () => {
+    // Regression for the enable_tool F1-fix block: its filterActive call used
+    // the DEFAULT tracked set (module TRACKED_TOOLS = CORE_TOOLS ∪ GATES-names)
+    // instead of effectiveTracked. Any owner-declared gated tool whose name is
+    // NOT in the hardcoded GATES/CORE_TOOLS is therefore absent from
+    // TRACKED_TOOLS → filterActive treats it as fail-open → it is spuriously
+    // active during an enable_tool recompute. Fix: pass effectiveTracked.
+    const activeCalls: string[][] = [];
+    let sessionStartHandler: ((e: unknown, ctx: unknown) => Promise<void>) | null = null;
+    let enableToolExecute: ((toolCallId: string, params: any) => Promise<any>) | null = null;
+    const pi = {
+      getAllToolDefinitions: () => [
+        { name: "read", gating: { core: true } },
+        // owner-declared NON-CORE gated tool; "unobtanium_tool" is NOT in any
+        // hardcoded GATE or CORE_TOOLS → absent from module TRACKED_TOOLS.
+        { name: "unobtanium_tool", gating: { keywords: ["unobtanium-trigger"] } },
+        // a separate gated tool via the hardcoded fallback (ltx gate)
+        { name: "ltx" },
+      ],
+      on: (_chan: string, h: (e: unknown, ctx: unknown) => Promise<void>) => {
+        if (_chan === "session_start") sessionStartHandler = h;
+        return () => {};
+      },
+      setActiveTools: (names: string[]) => { activeCalls.push(names); },
+      registerTool: (def: { name: string; execute: (toolCallId: string, params: any) => Promise<any> }) => {
+        if (def.name === "enable_tool") enableToolExecute = def.execute;
+      },
+    } as unknown as Parameters<typeof toolGateExtension>[0];
+    toolGateExtension(pi);
+    // drive session_start so effective gates are built; X must be dormant here.
+    await sessionStartHandler!({}, { ui: { theme: { fg: (_k: string, s: string) => s }, setWidget: () => {} } });
+    const sessionActive = activeCalls[0];
+    expect(sessionActive).not.toContain("unobtanium_tool"); // owner-gated, no keyword → dormant
+
+    // request a DIFFERENT tool (ltx) — X was never asked for.
+    await enableToolExecute!("id", { name: "ltx" });
+    const recomputeActive = activeCalls[activeCalls.length - 1];
+    expect(recomputeActive).toContain("ltx");               // ltx explicitly requested → active
+    expect(recomputeActive).not.toContain("unobtanium_tool"); // X must stay dormant during the recompute
+  });
 });
