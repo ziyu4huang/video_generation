@@ -17,6 +17,13 @@ import krea2Default from "@repo/pi-agent-ext-krea2/extensions/krea2.ts";
 import ltxDefault from "@repo/pi-agent-ext-ltx/extensions/ltx.ts";
 import movieDefault from "@repo/pi-agent-ext-movie-director/extensions/movie-director.ts";
 import researchDefault from "@repo/pi-agent-ext-research-tool/extensions/research-tool.ts";
+// tickets 10 + 11 (rolled out TOGETHER): the combined workflow/subagent gate.
+// workflow is imported FIRST so reconstructOwnerDeclaredGates's collapse yields
+// names[0] === "workflow" (the gate id every qa/probes.ts entry + findGate key
+// off of). subagent-first would make names[0] === "subagent" and break
+// findGate("workflow") + the coverage-gap check — see the comment at the call site.
+import workflowDefault from "@repo/pi-agent-ext-workflow/extensions/workflow.ts";
+import subagentDefault from "@repo/pi-agent-ext-subagent/extensions/subagent.ts";
 import {
 	MUST_FIRE,
 	MUST_NOT_FIRE,
@@ -108,7 +115,19 @@ function reconstructOwnerDeclaredGates(registrars: Array<(pi: any) => void>): Co
  * keeps its probes live here. Single source of truth for every reference below
  * (findGate / escapeName / matchIntent / coverage).
  */
-export const CORPUS_GATES: CorpusGate[] = [...GATES, ...reconstructOwnerDeclaredGates([deployDefault, file2mdDefault, flux2Default, krea2Default, ltxDefault, movieDefault, researchDefault])];
+// NOTE (tickets 10 + 11): workflowDefault is passed BEFORE subagentDefault so the
+// combined workflow/subagent gate reconstructs with names[0] === "workflow"
+// (the original GATES order). reconstructOwnerDeclaredGates groups tools whose
+// gating signature is identical into ONE multi-name gate, names listed in
+// capture order — so the FIRST registrar's first tool becomes names[0]. The qa
+// probe corpus (qa/probes.ts) + findGate/coverage all key off gate id "workflow",
+// so workflow MUST be captured first (subagent-first → names[0] "subagent" →
+// findGate("workflow") throws + a "subagent" coverage gap). The 4 tools share
+// IDENTICAL keywords-only gating, so they collapse into exactly one 4-name gate
+// {names:["workflow","workflow_help","workflow_control","subagent"]} — co-fire
+// preserved. (subagent's ungated companions subagent_runs/subagents carry no
+// gating and are skipped by the collapse's `if (!g) continue`.)
+export const CORPUS_GATES: CorpusGate[] = [...GATES, ...reconstructOwnerDeclaredGates([deployDefault, file2mdDefault, flux2Default, krea2Default, ltxDefault, movieDefault, researchDefault, workflowDefault, subagentDefault])];
 
 export interface CaseResult {
 	gate: string;

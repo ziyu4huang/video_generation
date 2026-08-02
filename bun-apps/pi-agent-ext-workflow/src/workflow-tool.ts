@@ -382,6 +382,22 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       "Execute a deterministic JavaScript workflow that orchestrates multiple subagents with agent(), parallel(), and pipeline().",
       "Provide exactly one of: `script` (raw JavaScript starting with export const meta = { name, description, phases? }, calling agent() at least once) OR `name` (an installed workflow pack under .pi/workflows/ or bun-apps/<pkg>/workflows/, resolved via its manifest.json).",
     ].join(" "),
+    // Owner-declared gating — migrated from tool-gate's hardcoded GATES (was the
+    // {names:["workflow","workflow_help","subagent","workflow_control"]} combined
+    // gate; tickets 10 + 11 rolled out TOGETHER as one atomic unit because they
+    // SHARE that single combined gate). Per the semantics-preserving rule, the
+    // SAME gating (keywords only, no `requires`) is mirrored IDENTICALLY on all
+    // 4 tools so they activate together and reconstructOwnerDeclaredGates
+    // collapses them back into one 4-name gate (names[0] === "workflow") —
+    // preserving the original co-fire behavior. Mirrors the original GATES entry
+    // verbatim (keywords were unambiguous workflow/orchestration intents that
+    // never false-fired the way image/video nouns do, so no requires is needed).
+    gating: {
+      keywords: [
+        "workflow", "pipeline", "orchestrate", "fan-out", "fan out",
+        "parallel agent", "multi-step",
+      ],
+    },
     promptSnippet:
       "Run a deterministic JavaScript workflow. Required script header: export const meta = { name: 'short_snake_case', description: 'non-empty description', phases: [{ title: 'Phase' }] }.",
     // Guidelines are NO LONGER static here — they are injected per-turn by the
@@ -619,6 +635,18 @@ export function createWorkflowHelpTool() {
       "in the workflow guidelines: quality helpers (verify/judgePanel/loopUntilDry/completenessCheck), " +
       "spend control (tokenBudget/phase budget/retry/gate), phase() tracking, pipeline()/opts.schema/" +
       "synthesis patterns, or the full available-model list. Omit `topic` for a menu.",
+    // Owner-declared gating — mirrored IDENTICALLY from `workflow` (same combined
+    // gate signature). See `workflow`'s gating comment: tickets 10 + 11 are one
+    // atomic rollout over the single combined workflow/subagent gate, so all 4
+    // tools share the SAME keywords-only gating and collapse back into one
+    // 4-name gate (names[0] === "workflow") — when the gate fires, all 4 names
+    // activate together (co-fire preserved). See `workflow`'s gating comment.
+    gating: {
+      keywords: [
+        "workflow", "pipeline", "orchestrate", "fan-out", "fan out",
+        "parallel agent", "multi-step",
+      ],
+    },
     promptSnippet: "On-demand advanced reference for the workflow tool (helpers/budget/phases/patterns/models).",
     parameters: Type.Object({
       topic: Type.Optional(WORKFLOW_HELP_TOPIC_ENUM),

@@ -9,6 +9,11 @@ import krea2Extension from "@repo/pi-agent-ext-krea2/extensions/krea2.ts";
 import ltxExtension from "@repo/pi-agent-ext-ltx/extensions/ltx.ts";
 import movieExtension from "@repo/pi-agent-ext-movie-director/extensions/movie-director.ts";
 import researchExtension from "@repo/pi-agent-ext-research-tool/extensions/research-tool.ts";
+// tickets 10 + 11 (rolled out TOGETHER over their single shared combined
+// workflow/subagent gate). Captured in workflow-FIRST order so the collapsed
+// gate's names[0] === "workflow" (the gate id qa + matchIntent key off of).
+import workflowExtension from "@repo/pi-agent-ext-workflow/extensions/workflow.ts";
+import subagentExtension from "@repo/pi-agent-ext-subagent/extensions/subagent.ts";
 
 /** Spread CORE_TOOLS into an array of names (CORE_TOOLS is a Set). */
 const CORE_TOOLS_ARRAY = (): string[] => Array.from(CORE_TOOLS);
@@ -28,9 +33,9 @@ const captureOwner = (ext: (pi: any) => void) =>
 	ext({
 		on: () => {},
 		registerTool: (def: { name: string; description?: string; gating?: unknown }) => { ownerDeclaredDefs.push(def); },
-		// research-tool's factory also registers 3 collect-videos slash commands
-		// (registerCommand) — no-op them so capture stays tool-only. Other migrated
-		// factories register tools only, so this is a research-tool-specific tolerate.
+		// research-tool registers 3 collect-videos slash commands; subagent
+		// registers /subagents + /models-preset (registerCommand) — no-op them so
+		// capture stays tool-only. Other migrated factories register tools only.
 		registerCommand: () => {},
 	} as never);
 captureOwner(file2mdExtension);
@@ -39,7 +44,24 @@ captureOwner(krea2Extension);
 captureOwner(ltxExtension);
 captureOwner(movieExtension);
 captureOwner(researchExtension);
+// workflow BEFORE subagent (see import comment): reconstruct collapses the 4
+// identically-gated tools into one gate whose names[0] === "workflow". NOTE:
+// the capture stub below (on/registerTool/registerCommand) tolerates BOTH
+// registrars — workflow guards `if (pi.events)` (absent → skipped) and calls
+// pi.on/registerTool; subagent's top-level pi.getActiveTools() is try/caught,
+// registerModelsPresetCommand → pi.registerCommand (no-op'd), pi.registerTool
+// (captured). subagent's ungated companions subagent_runs/subagents carry NO
+// gating → buildEffectiveGates skips them (not fail-open in EFF; they're simply
+// absent from EFF.tracked, matching their ungated-by-design status).
+captureOwner(workflowExtension);
+captureOwner(subagentExtension);
 const EFF = buildEffectiveGates(ownerDeclaredDefs as never);
+/** name → owner-declared def (incl. `gating`) for the migrated extensions. The
+ *  setupPi integration harness threads this into its getAllToolDefinitions mock
+ *  so the production buildEffectiveGates path reconstructs owner-declared gates
+ *  (workflow/subagent etc.) instead of only the hardcoded-GATES fallback — the
+ *  module GATES no longer holds workflow/subagent after tickets 10 + 11. */
+const ownerByName = new Map(ownerDeclaredDefs.map((d: { name: string }) => [d.name, d] as const));
 
 describe("updateSticky + filterActive", () => {
   test("a tool not listed in CORE_TOOLS or any gate is always active (fail-open)", () => {
@@ -256,7 +278,14 @@ describe("matchIntent (S1)", () => {
     expect(matchIntent("做一個 movie 分鏡", EFF.gates, sticky()).map((g) => g.names[0])).toEqual(["movie", "movie_help"]);
   });
   test("workflow intent → workflow", () => {
-    expect(matchIntent("orchestrate a parallel pipeline", GATES, sticky()).map((g) => g.names[0])).toEqual(["workflow"]);
+    // workflow/workflow_help/workflow_control/subagent owner-declared (tickets
+    // 10 + 11, rolled out together over their single shared combined gate) →
+    // buildEffectiveGates splits each into its own single-name gate, so an
+    // intent that fires the shared keywords surfaces ALL 4 (co-fire via
+    // updateSticky preserved). The enable_tool NAME-mode sibling co-activation
+    // gap (name-mode activates only the named sibling) is cross-cutting —
+    // tracked in the map; intent-mode here fires every matching gate.
+    expect(matchIntent("orchestrate a parallel pipeline", EFF.gates, sticky()).map((g) => g.names[0])).toEqual(["workflow", "workflow_help", "workflow_control", "subagent"]);
   });
   test("S2 flip: 'docker image cleanup' → [] (image noun, no gen-verb)", () => {
     expect(matchIntent("docker image cleanup", GATES, sticky()).map((g) => g.names[0])).toEqual([]);
@@ -347,27 +376,24 @@ describe("telemetry helpers (S1)", () => {
 describe("computeBannerSaved (S3 — runtime measured tokens)", () => {
   test("sums measured tokens of loaded+gated gates only (no phantom, no static field)", () => {
     // Mock tools with real description+parameters so measureToolTokens is deterministic.
-    // flux2/flux2_help (ticket 05) + ltx/ltx_help (ticket 07) + movie/movie_help
-    // (ticket 08) migrated to owner-declared gating → absent from the module
-    // GATES computeBannerSaved iterates, so use zai-mcp + workflow (both still
-    // in the hardcoded GATES) as the gated pair instead. (workflow is a 4-name
-    // gate; only 2 names are loaded/measured here — the gate counts as long as
-    // any name is loaded, and unmeasured names contribute 0.)
+    // computeBannerSaved iterates the module-level GATES only (zai-mcp is the last
+    // remaining hardcoded gate; flux2/ltx/krea2/movie/research-tool/workflow/
+    // subagent all migrated to owner-declared gating and are invisible to this
+    // function — their savings flow through the buildEffectiveGates production
+    // path, exercised in the runtime/session_start tests below). So zai-mcp is
+    // the gated pair here.
     const mockTool = (name: string, desc: string) => ({ name, description: desc, parameters: { p: 1 } });
-    const loadedNames = [...CORE_TOOLS, "zai_web_search_web_search_prime", "zai_web_reader_webReader", "workflow", "workflow_help"];
+    const loadedNames = [...CORE_TOOLS, "zai_web_search_web_search_prime", "zai_web_reader_webReader"];
     const loadedTools = [
       ...CORE_TOOLS_ARRAY().map((n) => mockTool(n, "core")),
       mockTool("zai_web_search_web_search_prime", "zai search"),
       mockTool("zai_web_reader_webReader", "zai reader"),
-      mockTool("workflow", "workflow tool"),
-      mockTool("workflow_help", "workflow help"),
     ];
     const measured = new Map(loadedTools.map((t) => [t.name, measureToolTokens(t)]));
-    // CORE-only active ⇒ zai-mcp & workflow are gated.
+    // CORE-only active ⇒ zai-mcp (in module GATES) is gated/dormant.
     const active = filterActive(loadedNames, new Set(CORE_TOOLS));
     const saved = computeBannerSaved(active, loadedNames, measured);
-    const expected = measured.get("zai_web_search_web_search_prime")! + measured.get("zai_web_reader_webReader")!
-      + measured.get("workflow")! + measured.get("workflow_help")!;
+    const expected = measured.get("zai_web_search_web_search_prime")! + measured.get("zai_web_reader_webReader")!;
     expect(saved).toBe(expected);
   });
 
@@ -385,7 +411,11 @@ describe("enable_tool (S1 A escape hatch)", () => {
     const registered: { name: string; execute: (a: string, p: any) => Promise<any> }[] = [];
     const handlers: Record<string, (e?: any, ctx?: any) => Promise<void> | void> = {};
     const pi: any = {
-      getAllToolDefinitions: () => loadedTools.map((name) => ({ name })),
+      // Thread owner-declared gating (ownerByName) so migrated gates reconstruct
+      // via the production buildEffectiveGates path — the module GATES fallback
+      // no longer holds workflow/subagent (tickets 10 + 11). Names without an
+      // owner declaration (incl. zai-mcp, still hardcoded) fall back to {name}.
+      getAllToolDefinitions: () => loadedTools.map((name) => (ownerByName as Map<string, any>).get(name) ?? { name }),
       setActiveTools: (names: string[]) => { calls.push({ setActiveTools: names }); },
       registerTool: (def: any) => { registered.push(def); },
       on: (ev: string, h: any) => { handlers[ev] = h; },
@@ -408,10 +438,10 @@ describe("enable_tool (S1 A escape hatch)", () => {
   });
 
   test("list:true returns only dormant gates", async () => {
-    // setupPi's mock returns defs WITHOUT gating, so owner-declared gates (flux2
-    // ticket 05, krea2 ticket 06, ltx ticket 07, movie ticket 08) can't be
-    // reconstructed here. Use workflow + zai-mcp (still in the hardcoded GATES)
-    // as the dormant pair.
+    // setupPi threads owner-declared gating (ownerByName), so workflow/workflow_help
+    // (owner-declared, tickets 10 + 11) reconstruct as gates + zai-mcp (still in
+    // the hardcoded GATES). All are dormant (CORE-only active) → both appear in
+    // the list.
     const { enableTool } = setupPi([...CORE_TOOLS, "workflow", "workflow_help", "zai_web_search_web_search_prime", "zai_web_reader_webReader"]);
     const res = await enableTool.execute("id", { list: true });
     const text = res.content[0].text;
@@ -428,10 +458,20 @@ describe("enable_tool (S1 A escape hatch)", () => {
   });
 
   test("name 'workflow' activates the workflow gate", async () => {
+    // workflow/workflow_help owner-declared (tickets 10 + 11) → buildEffectiveGates
+    // splits each into its own single-name gate. enable_tool NAME-mode looks up the
+    // gate BY NAME and activates ONLY that gate's names → name:"workflow"
+    // activates the ["workflow"] single-name gate, NOT sibling workflow_help.
+    // This is the enable_tool NAME-mode co-activation consequence of the
+    // combined-gate split (cross-cutting; tracked in the map) — noted here, NOT
+    // fixed. (zai-mcp below stays a multi-name hardcoded gate, so its name-mode
+    // test still co-activates both names.)
     const { enableTool, calls } = setupPi([...CORE_TOOLS, "workflow", "workflow_help"]);
     const res = await enableTool.execute("id", { name: "workflow" });
     expect(res.content[0].text).toContain("workflow");
-    expect(calls[calls.length - 1].setActiveTools).toEqual(expect.arrayContaining(["workflow", "workflow_help"]));
+    expect(calls[calls.length - 1].setActiveTools).toEqual(expect.arrayContaining(["workflow"]));
+    // sibling workflow_help is NOT co-activated in NAME-mode (the known gap):
+    expect(calls[calls.length - 1].setActiveTools).not.toContain("workflow_help");
   });
 
   test("no-match intent returns a non-error result pointing to list", async () => {
@@ -452,8 +492,12 @@ describe("enable_tool (S1 A escape hatch)", () => {
     const res = await enableTool.execute("id", { name: "workflow" });
     expect(res.content[0].text).toContain("workflow");
     const lastActive = calls[calls.length - 1].setActiveTools;
-    // workflow must be active
-    expect(lastActive).toEqual(expect.arrayContaining(["workflow", "workflow_help"]));
+    // workflow must be active. NAME-mode activates only the named single-name
+    // gate (tickets 10 + 11 split workflow into single-name owner-declared
+    // gates) — sibling workflow_help is NOT co-activated (the enable_tool
+    // NAME-mode co-activation gap, cross-cutting/tracked in the map; noted, not fixed).
+    expect(lastActive).toEqual(expect.arrayContaining(["workflow"]));
+    expect(lastActive).not.toContain("workflow_help");
     // zai-mcp must NOT be active (was not requested, and filterActive doesn't
     // re-fire gates against lastPrompt — only the named gate is activated)
     expect(lastActive).not.toContain("zai_web_search_web_search_prime");
@@ -477,16 +521,22 @@ describe("enable_tool (S1 A escape hatch)", () => {
 
   test("mutation guard: execute never throws even if setActiveTools fails", async () => {
     // setActiveTools throwing inside execute must be caught → error result, not a throw.
+    // enable_tool's effectiveGates defaults to the module GATES and is rebuilt at
+    // session_start/before_agent_start (both call setActiveTools, so we can't fire
+    // them here — the throw would happen during the fire, not inside execute).
+    // So fire a gate that lives in the DEFAULT module GATES: zai-mcp (the last
+    // hardcoded gate; workflow migrated to owner-declared in tickets 10 + 11 and
+    // is only reconstructed after a session_start, which we deliberately skip).
     const handlers: Record<string, any> = {};
     const pi: any = {
-      getAllToolDefinitions: () => [...CORE_TOOLS, "workflow", "workflow_help"].map((name) => ({ name })),
+      getAllToolDefinitions: () => [...CORE_TOOLS, "zai_web_search_web_search_prime", "zai_web_reader_webReader"].map((name) => ({ name })),
       setActiveTools: () => { throw new Error("setActiveTools boom"); },
       registerTool: (def: any) => { (pi as any)._t = def; },
       on: (ev: string, h: any) => { handlers[ev] = h; },
     };
     toolGateExtension(pi);
     const enableTool = (pi as any)._t;
-    const res = await enableTool.execute("id", { intent: "orchestrate a parallel pipeline" });
+    const res = await enableTool.execute("id", { intent: "use zai search to find results" });
     expect(res.content[0].text).toMatch(/error/i);
   });
 });
@@ -499,12 +549,12 @@ describe("filterActive (F1 fix)", () => {
   });
 
   test("gated tool is active only when in sticky", () => {
-    // flux2 (ticket 05) + ltx (ticket 07) + movie (ticket 08) migrated → absent
-    // from module TRACKED_TOOLS, so filterActive would fail-open them. Use
-    // zai-mcp + workflow (still in TRACKED_TOOLS) as the gated pair instead.
+    // flux2 (ticket 05) + ltx (ticket 07) + movie (ticket 08) + workflow
+    // (tickets 10 + 11) migrated → absent from module TRACKED_TOOLS, so
+    // filterActive would fail-open them. Thread EFF.tracked so they stay gated.
     const all = [...CORE_TOOLS, "zai_web_search_web_search_prime", "zai_web_reader_webReader", "workflow", "workflow_help"];
     const sticky = new Set([...CORE_TOOLS, "zai_web_search_web_search_prime", "zai_web_reader_webReader"]);
-    const active = filterActive(all, sticky);
+    const active = filterActive(all, sticky, EFF.tracked);
     expect(active).toContain("zai_web_search_web_search_prime");
     expect(active).toContain("zai_web_reader_webReader");
     expect(active).not.toContain("workflow");
@@ -684,11 +734,16 @@ describe("previously-leaked tools regression (2026-07-21)", () => {
     expect(CORE_TOOLS.has("grill_decision")).toBe(true);
   });
 
-  test("subagent + workflow_control are in the workflow gate (gated, not fail-open)", () => {
-    const wfGate = GATES.find((g) => g.names.includes("workflow"));
-    expect(wfGate).toBeDefined();
-    expect(wfGate!.names).toContain("subagent");
-    expect(wfGate!.names).toContain("workflow_control");
+  test("subagent + workflow_control are gated (tracked, not fail-open)", () => {
+    // Originally the combined {workflow,workflow_help,subagent,workflow_control}
+    // gate; tickets 10 + 11 migrated each to owner-declared gating → each is its
+    // OWN single-name gate in EFF (buildEffectiveGates splits them). The
+    // regression invariant these tests guard — the previously-leaked tools are
+    // TRACKED (gated), NOT fail-open — is preserved: all 4 names are in EFF.tracked.
+    expect(EFF.tracked.has("workflow")).toBe(true);
+    expect(EFF.tracked.has("workflow_help")).toBe(true);
+    expect(EFF.tracked.has("subagent")).toBe(true);
+    expect(EFF.tracked.has("workflow_control")).toBe(true);
   });
 
   test("zai-mcp proxy tools are in a dedicated gate (gated, not fail-open)", () => {
@@ -699,11 +754,11 @@ describe("previously-leaked tools regression (2026-07-21)", () => {
   });
 
   test("none of the 5 previously-leaked tools are untracked (fail-open)", () => {
-    // Build the full tracked set from CORE_TOOLS + all gate names
-    const tracked = new Set([
-      ...CORE_TOOLS,
-      ...GATES.flatMap((g) => g.names),
-    ]);
+    // Full tracked set = core ∪ all gate names. EFF.tracked is exactly that: it
+    // merges owner-declared gate names (workflow/subagent/etc., tickets 10 + 11)
+    // with the module GATES fallback names (zai-mcp) + CORE_TOOLS. So the 5
+    // previously-leaked tools are all tracked regardless of which gate owns them.
+    const tracked = EFF.tracked;
     const leaked = [
       "grill_decision",
       "subagent",
@@ -717,10 +772,14 @@ describe("previously-leaked tools regression (2026-07-21)", () => {
   });
 
   test("subagent + workflow_control gate behind 'workflow' keyword", () => {
-    const sticky = new Set(CORE_TOOLS);
+    // workflow/workflow_help/subagent/workflow_control owner-declared (tickets
+    // 10 + 11) → absent from module GATES/TRACKED_TOOLS. Thread EFF.gates +
+    // EFF.tracked so the gates fire on the keyword AND stay tracked (else they
+    // fail-open, hiding whether the keyword actually fired).
+    const sticky = new Set(EFF.core);
     const allTools = [...CORE_TOOLS, "workflow", "workflow_help", "subagent", "workflow_control"];
-    updateSticky("run a multi-step workflow", sticky);
-    const active = filterActive(allTools, sticky);
+    updateSticky("run a multi-step workflow", sticky, EFF.gates);
+    const active = filterActive(allTools, sticky, EFF.tracked);
     expect(active).toContain("subagent");
     expect(active).toContain("workflow_control");
   });
@@ -803,26 +862,27 @@ describe("buildEffectiveGates", () => {
 
   test("hybrid fallback: tools without gating keep their hardcoded gate", () => {
     const eff = buildEffectiveGates([]); // no owner declarations
-    // flux2 (ticket 05) + ltx (ticket 07) + movie (ticket 08) migrated to
-    // owner-declared → no longer in hardcoded GATES; use workflow (still in
-    // GATES) to prove the fallback path is intact.
-    const gate = eff.gates.find((g) => g.names.includes("workflow"));
+    // flux2/ltx/movie (tickets 05/07/08) + workflow/subagent (tickets 10 + 11)
+    // migrated to owner-declared → no longer in hardcoded GATES; zai-mcp is the
+    // last remaining hardcoded gate, so use it to prove the fallback path intact.
+    const gate = eff.gates.find((g) => g.names.includes("zai_web_search_web_search_prime"));
     expect(gate).toBeDefined(); // hardcoded GATES fallback intact
     expect(eff.core.has("read")).toBe(true); // CORE_TOOLS fallback intact
   });
 
   test("owner-declared tool supersedes a same-named hardcoded gate", () => {
-    // Use `workflow` (still in hardcoded GATES) as the gate being superseded —
-    // flux2/ltx/movie are owner-declared in production now (tickets 05/07/08),
-    // so they're no longer hardcoded gates to supersede. The supersession
-    // mechanism is what's tested.
+    // Use zai_web_search_web_search_prime (still in the hardcoded GATES) as the
+    // gate being superseded — flux2/ltx/movie/workflow/subagent are owner-declared
+    // in production now (tickets 05/07/08/10/11), so they're no longer hardcoded
+    // gates to supersede. zai-mcp is the last hardcoded gate. The supersession
+    // mechanism (owner declaration wins over the fallback gate) is what's tested.
     const defs = [{
-      name: "workflow", description: "owner",
+      name: "zai_web_search_web_search_prime", description: "owner",
       gating: { keywords: ["owner-kw"] },
     }] as Array<{ name: string; description?: string; gating?: any }>;
     const eff = buildEffectiveGates(defs);
-    const g = eff.gates.find((x) => x.names.includes("workflow"));
-    expect(g!.keywords).toEqual(["owner-kw"]); // owner wins, not the hardcoded workflow entry
+    const g = eff.gates.find((x) => x.names.includes("zai_web_search_web_search_prime"));
+    expect(g!.keywords).toEqual(["owner-kw"]); // owner wins, not the hardcoded zai entry
   });
 
   test("FOLLOWUPS #4 — partial migration of a multi-name gate keeps undeclared siblings gated (per-name resolution)", () => {
@@ -885,7 +945,7 @@ describe("tool-gate runtime reads owner-declared gating", () => {
       getAllToolDefinitions: () => [
         { name: "read", description: "r", gating: { core: true } },
         { name: "inspect_hooks", description: "d", gating: { keywords: ["schema cost"], requires: { nouns: ["agent"], verbs: ["inspect"] } } },
-        { name: "workflow", description: "f" }, // no gating → hardcoded fallback (workflow is in GATES)
+        { name: "zai_web_search_web_search_prime", description: "f" }, // no gating → hardcoded fallback (zai-mcp is in GATES; workflow migrated in tickets 10 + 11)
       ],
       on: (_chan: string, h: (e: unknown, ctx: unknown) => Promise<void>) => { if (_chan === "session_start") sessionStartHandler = h; return () => {}; },
       setActiveTools: (names: string[]) => { activeCalls.push(names); },
@@ -897,7 +957,7 @@ describe("tool-gate runtime reads owner-declared gating", () => {
     const active = activeCalls[0];
     expect(active).toContain("read");            // core-declared → active
     expect(active).not.toContain("inspect_hooks"); // owner-gated, no keyword in "" prompt → dormant
-    expect(active).not.toContain("workflow");          // hardcoded fallback gate, dormant
+    expect(active).not.toContain("zai_web_search_web_search_prime");          // hardcoded fallback gate, dormant
   });
 
   test("enable_tool recompute must NOT spuriously activate an owner-gated tool absent from TRACKED_TOOLS", async () => {
@@ -916,8 +976,9 @@ describe("tool-gate runtime reads owner-declared gating", () => {
         // owner-declared NON-CORE gated tool; "unobtanium_tool" is NOT in any
         // hardcoded GATE or CORE_TOOLS → absent from module TRACKED_TOOLS.
         { name: "unobtanium_tool", gating: { keywords: ["unobtanium-trigger"] } },
-        // a separate gated tool via the hardcoded fallback (workflow gate)
-        { name: "workflow" },
+        // a separate gated tool via the hardcoded fallback (zai-mcp gate; the
+        // last remaining hardcoded gate now that workflow migrated in tickets 10 + 11)
+        { name: "zai_web_search_web_search_prime" },
       ],
       on: (_chan: string, h: (e: unknown, ctx: unknown) => Promise<void>) => {
         if (_chan === "session_start") sessionStartHandler = h;
@@ -934,10 +995,10 @@ describe("tool-gate runtime reads owner-declared gating", () => {
     const sessionActive = activeCalls[0];
     expect(sessionActive).not.toContain("unobtanium_tool"); // owner-gated, no keyword → dormant
 
-    // request a DIFFERENT tool (workflow) — X was never asked for.
-    await enableToolExecute!("id", { name: "workflow" });
+    // request a DIFFERENT tool (zai-mcp) — X was never asked for.
+    await enableToolExecute!("id", { name: "zai_web_search_web_search_prime" });
     const recomputeActive = activeCalls[activeCalls.length - 1];
-    expect(recomputeActive).toContain("workflow");               // workflow explicitly requested → active
+    expect(recomputeActive).toContain("zai_web_search_web_search_prime");               // zai explicitly requested → active
     expect(recomputeActive).not.toContain("unobtanium_tool"); // X must stay dormant during the recompute
   });
 });

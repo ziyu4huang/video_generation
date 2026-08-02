@@ -56,6 +56,8 @@ import krea2Extension from "@repo/pi-agent-ext-krea2/extensions/krea2.ts";
 import ltxExtension from "@repo/pi-agent-ext-ltx/extensions/ltx.ts";
 import movieExtension from "@repo/pi-agent-ext-movie-director/extensions/movie-director.ts";
 import researchExtension from "@repo/pi-agent-ext-research-tool/extensions/research-tool.ts";
+import subagentExtension from "@repo/pi-agent-ext-subagent/extensions/subagent.ts";
+import workflowExtension from "@repo/pi-agent-ext-workflow/extensions/workflow.ts";
 import toolGate from "./tool-gate.ts";
 
 /** A registered tool def — only the fields the guard reads are typed. */
@@ -84,6 +86,19 @@ export interface MigratedExtension {
 	name: string;
 	/** Run the extension's tool registration against the capturing `pi`. */
 	register: (pi: any) => void;
+	/** Tool names this extension intentionally leaves UNGATED (always-active via
+	 *  fail-open) — NOT part of any keyword gate and NOT `gating:{core:true}`.
+	 *  The net validates every OTHER registered tool (the gated ones) and asserts
+	 *  each `ungatedByDesign` name is ACTUALLY registered (so a typo can't
+	 *  silently skip a real tool). Use sparingly: the net's purpose is to catch
+	 *  forgotten gating; this is the documented, audited escape hatch for a
+	 *  companion tool that is always-on by design and is OUT of its extension's
+	 *  migration scope (gating it would newly dorman it = a behavior change).
+	 *  Example: pi-agent-ext-subagent owns `subagent` (gated by the combined
+	 *  workflow/subagent gate, ticket 10) PLUS `subagent_runs` + `subagents`
+	 *  (plural), which were ungated BEFORE this migration and stay ungated to
+	 *  preserve behavior (tracked as known always-on leaks). */
+	ungatedByDesign?: string[];
 }
 
 export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
@@ -147,6 +162,32 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 		name: "research-tool",
 		register: (pi) => {
 			researchExtension(pi);
+		},
+	},
+	{
+		// ticket 11 — workflow/workflow_help/workflow_control (the 3 workflow
+		// names in the combined workflow/subagent gate). All 3 are gated; the
+		// workflow registrar registers ONLY these 3 tools, so no exemption is
+		// needed (unlike subagent, which owns ungated companions).
+		name: "workflow",
+		register: (pi) => {
+			workflowExtension(pi);
+		},
+	},
+	{
+		// ticket 10 — `subagent` (the 1 subagent name in the combined
+		// workflow/subagent gate). This extension ALSO owns `subagent_runs` +
+		// `subagents` (plural), which were UNGATED (always-active via fail-open)
+		// BEFORE this migration and stay ungated to preserve behavior (gating
+		// them would newly dorman them = a behavior change out of scope; the
+		// combined GATES entry only ever covered `subagent`). They are listed
+		// ungatedByDesign so the net validates `subagent` (the gated one) without
+		// false-flagging the intentionally-always-on companions — and the typo
+		// guard above fails loudly if either companion is ever renamed/removed.
+		name: "subagent",
+		ungatedByDesign: ["subagent_runs", "subagents"],
+		register: (pi) => {
+			subagentExtension(pi);
 		},
 	},
 ];
@@ -231,7 +272,21 @@ function assertAllValid(defs: ToolDef[]): void {
  */
 export function runDriftGuardNet(extensions: MigratedExtension[]): void {
 	for (const ext of extensions) {
-		const defs = captureRegisteredTools(ext.register);
+		let defs = captureRegisteredTools(ext.register);
+		const exempt = new Set(ext.ungatedByDesign ?? []);
+		if (exempt.size > 0) {
+			// Typo guard: every `ungatedByDesign` name must ACTUALLY be registered,
+			// else a typo would silently skip a real tool (or hide a removed one).
+			const registered = new Set(defs.map((d) => d.name));
+			for (const ex of exempt) {
+				if (!registered.has(ex))
+					throw new Error(
+						`'${ext.name}' lists '${ex}' in ungatedByDesign but does not register it ` +
+							`(typo, or the tool was removed — drop it from ungatedByDesign)`,
+				);
+			}
+			defs = defs.filter((d) => !exempt.has(d.name));
+		}
 		assertAllValid(defs);
 	}
 }
@@ -386,5 +441,38 @@ describe("drift-guard — rollout regression net (iterates MIGRATED_EXTENSIONS)"
 			},
 		};
 		expect(() => runDriftGuardNet([placeholder])).toThrow(/DEAD GATE/);
+	});
+
+	test("ungatedByDesign: an extension with an always-on companion (ungated) passes the net", () => {
+		// Mirrors subagent's real shape (ticket 10): a gated tool + ungated
+		// companions that are always-on by design. The net validates the gated
+		// tool and skips the ungatedByDesign names (they're intentionally
+		// always-active, out of the gate's scope — gating them would be a
+		// behavior change).
+		const ext: MigratedExtension = {
+			name: "with-companion",
+			ungatedByDesign: ["companion_always_on"],
+			register: (pi) => {
+				pi.registerTool({ name: "gated_tool", gating: { keywords: ["kw"] } });
+				pi.registerTool({ name: "companion_always_on" }); // ungated by design
+			},
+		};
+		expect(() => runDriftGuardNet([ext])).not.toThrow();
+	});
+
+	test("NEGATIVE: ungatedByDesign typo guard — a listed-but-unregistered name fails", () => {
+		// ungatedByDesign must list names the extension ACTUALLY registers, else
+		// a typo silently skips a real tool (or hides a removed one). The net
+		// fails loudly so the list can't drift.
+		const ext: MigratedExtension = {
+			name: "typo-exempt",
+			ungatedByDesign: ["ghost_tool"],
+			register: (pi) => {
+				pi.registerTool({ name: "gated_tool", gating: { keywords: ["kw"] } });
+			},
+		};
+		expect(() => runDriftGuardNet([ext])).toThrow(
+			/lists 'ghost_tool' in ungatedByDesign but does not register it/,
+		);
 	});
 });
