@@ -32,7 +32,6 @@ export const L2_TASKS: L2Task[] = [
 	{ id: "flux2-t2i", prompt: "generate an image of a sunset over the ocean", intendedGate: "flux2", expectReachable: true, note: "noun image ∧ verb generate" },
 	{ id: "ltx-t2v", prompt: "make a 5-second video of waves crashing", intendedGate: "ltx", expectReachable: true, note: "noun video ∧ verb make" },
 	{ id: "file2md-ocr", prompt: "ocr this scanned pdf and extract the text", intendedGate: "file2md", expectReachable: true, note: "keyword ocr (+ noun pdf ∧ verb extract)" },
-	{ id: "inspect-ctx", prompt: "show me the agent's context window token usage", intendedGate: "inspect_context", expectReachable: true, note: 'keyword "context window" / "token usage"' },
 	{ id: "movie-make", prompt: "make a movie from these three clips", intendedGate: "movie", expectReachable: true, note: 'keyword "make a movie"' },
 	{ id: "research-bili", prompt: "collect the trending bilibili AI videos from today", intendedGate: "collect_videos", expectReachable: true, note: "keyword bilibili / collect videos" },
 	{ id: "workflow-fanout", prompt: "orchestrate a fan-out of parallel sub-agents to review these files", intendedGate: "workflow", expectReachable: true, note: "keyword orchestrate / parallel agent" },

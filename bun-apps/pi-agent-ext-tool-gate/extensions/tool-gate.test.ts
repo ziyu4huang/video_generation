@@ -83,22 +83,39 @@ describe("GATES data (S1)", () => {
     expect(filterActive(all, sticky)).toEqual(expect.arrayContaining(["movie", "movie_help"]));
   });
 
-  test("inspect does NOT fire on generic 'debug the docker build' (narrowed)", () => {
-    const sticky = new Set(CORE_TOOLS);
+  // inspect_* is no longer a hardcoded gate (owner-declared by power-tool as of
+  // the Task-3 migration). The SAME narrowing/firing behaviour must hold via
+  // buildEffectiveGates with the owner-declared gating — proving the removed
+  // GATES entry is fully owner-supplied. buildEffectiveGates is imported below
+  // (hoisted); the owner-declared gating mirrors power-tool's literals verbatim.
+  const INSPECT_GATING = {
+    keywords: ["schema cost", "pathology", "extension health", "工具開銷", "context window", "token usage"],
+    requires: {
+      nouns: ["agent", "context", "extension", "pathology", "token", "schema", "tui", "工具"],
+      verbs: ["inspect", "show", "check", "diagnose", "dump", "report"],
+    },
+  };
+  const inspectDefs = (names: string[]) =>
+    names.map((name) => ({ name, description: "d", gating: INSPECT_GATING }));
+
+  test("inspect (owner-declared) does NOT fire on generic 'debug the docker build' (narrowed)", () => {
     const inspectTools = ["inspect_context", "inspect_agent", "inspect_extensions", "inspect_pathology"];
+    const eff = buildEffectiveGates(inspectDefs(inspectTools));
+    const sticky = new Set(CORE_TOOLS);
     const all = [...CORE_TOOLS, ...inspectTools];
-    updateSticky("let's debug the docker build", sticky);
-    const active = filterActive(all, sticky);
+    updateSticky("let's debug the docker build", sticky, eff.gates);
+    const active = filterActive(all, sticky, eff.tracked);
     for (const t of inspectTools) {
       expect(active).not.toContain(t);
     }
   });
 
-  test("inspect fires on 'inspect extension health'", () => {
+  test("inspect (owner-declared) fires on 'inspect extension health'", () => {
+    const eff = buildEffectiveGates(inspectDefs(["inspect_extensions"]));
     const sticky = new Set(CORE_TOOLS);
     const all = [...CORE_TOOLS, "inspect_extensions"];
-    updateSticky("inspect extension health", sticky);
-    expect(filterActive(all, sticky)).toContain("inspect_extensions");
+    updateSticky("inspect extension health", sticky, eff.gates);
+    expect(filterActive(all, sticky, eff.tracked)).toContain("inspect_extensions");
   });
 });
 
@@ -583,10 +600,15 @@ describe("previously-leaked tools regression (2026-07-21)", () => {
     expect(CORE_TOOLS.has("obsidian_help")).toBe(true);
   });
 
-  test("inspect_tui is in the inspect gate (gated, not fail-open)", () => {
-    const inspectGate = GATES.find((g) => g.names.includes("inspect_context"));
-    expect(inspectGate).toBeDefined();
-    expect(inspectGate!.names).toContain("inspect_tui");
+  test("inspect_tui is owner-gated (gated, not fail-open)", () => {
+    // inspect_* is owner-declared as of the Task-3 migration (no longer in
+    // hardcoded GATES). buildEffectiveGates with the owner-declared gating must
+    // still track inspect_tui so it is NOT fail-open at runtime.
+    const eff = buildEffectiveGates([
+      { name: "inspect_tui", description: "d", gating: { keywords: ["token usage"], requires: { nouns: ["tui"], verbs: ["inspect"] } } },
+    ]);
+    expect(eff.gates.find((g) => g.names.includes("inspect_tui"))).toBeDefined();
+    expect(eff.tracked.has("inspect_tui")).toBe(true); // tracked → not fail-open
   });
 });
 

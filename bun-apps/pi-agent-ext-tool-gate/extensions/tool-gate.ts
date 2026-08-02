@@ -120,18 +120,6 @@ export const GATES: ToolGate[] = [
     description: "Document/image understanding — file→markdown, VLM describe, OCR, caption",
   },
   {
-    names: ["inspect_context", "inspect_agent", "inspect_extensions", "inspect_pathology", "inspect_tui"],
-    keywords: [
-      "schema cost", "pathology", "extension health",
-      "工具開銷", "context window", "token usage",
-    ],
-    requires: {
-      nouns: ["agent", "context", "extension", "pathology", "token", "schema", "tui", "工具"],
-      verbs: ["inspect", "show", "check", "diagnose", "dump", "report"],
-    },
-    description: "Agent/extension introspection — context tokens, extension health, pathology",
-  },
-  {
     names: ["workflow", "workflow_help", "subagent", "workflow_control"],
     keywords: [
       "workflow", "pipeline", "orchestrate", "fan-out", "fan out", "parallel agent",

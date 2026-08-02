@@ -234,6 +234,13 @@ export function formatHooksReport(
 export function makeInspectHooksTool() {
   return defineTool({
     name: "inspect_hooks",
+    gating: {
+      keywords: ["schema cost", "pathology", "extension health", "工具開銷", "context window", "token usage"],
+      requires: {
+        nouns: ["agent", "context", "extension", "pathology", "token", "schema", "tui", "工具"],
+        verbs: ["inspect", "show", "check", "diagnose", "dump", "report"],
+      },
+    },
     label: "Inspect Hooks",
     description:
       "List every loaded extension's registered lifecycle hooks (pi.on handlers) — which events each extension listens on, handler counts, and any handler registered against an unknown event name (likely a typo / dead handler). Fact-finder companion to inspect_extensions.",

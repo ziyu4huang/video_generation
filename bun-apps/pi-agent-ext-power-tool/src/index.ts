@@ -164,9 +164,16 @@ const SELF_TEST_ANALYSIS_INPUT: AnalysisInput = {
   contextFileCharThreshold: 20000,
 };
 
-function makeInspectContextTool(getAllTools: () => ToolInfo[]) {
+export function makeInspectContextTool(getAllTools: () => ToolInfo[]) {
   return defineTool({
     name: "inspect_context",
+    gating: {
+      keywords: ["schema cost", "pathology", "extension health", "工具開銷", "context window", "token usage"],
+      requires: {
+        nouns: ["agent", "context", "extension", "pathology", "token", "schema", "tui", "工具"],
+        verbs: ["inspect", "show", "check", "diagnose", "dump", "report"],
+      },
+    },
     label: "Inspect Context",
     description:
       "Break down the live context window by component — system-prompt text " +
@@ -392,9 +399,16 @@ function makeInspectContextTool(getAllTools: () => ToolInfo[]) {
 
 // ─── Inspect Agent Tool ─────────────────────────────────────────────────────
 
-function makeInspectAgentTool(getAllTools: () => ToolInfo[]) {
+export function makeInspectAgentTool(getAllTools: () => ToolInfo[]) {
   return defineTool({
     name: "inspect_agent",
+    gating: {
+      keywords: ["schema cost", "pathology", "extension health", "工具開銷", "context window", "token usage"],
+      requires: {
+        nouns: ["agent", "context", "extension", "pathology", "token", "schema", "tui", "工具"],
+        verbs: ["inspect", "show", "check", "diagnose", "dump", "report"],
+      },
+    },
     label: "Inspect Agent",
     description:
       "Snapshot the full agent state — extensions, tools, skills, context files, " +
@@ -929,9 +943,16 @@ export function formatExtensionReport(findings: Finding[]): string {
   return lines.join("\n");
 }
 
-function makeInspectExtensionsTool(getAllTools: () => ToolInfo[]) {
+export function makeInspectExtensionsTool(getAllTools: () => ToolInfo[]) {
   return defineTool({
     name: "inspect_extensions",
+    gating: {
+      keywords: ["schema cost", "pathology", "extension health", "工具開銷", "context window", "token usage"],
+      requires: {
+        nouns: ["agent", "context", "extension", "pathology", "token", "schema", "tui", "工具"],
+        verbs: ["inspect", "show", "check", "diagnose", "dump", "report"],
+      },
+    },
     label: "Inspect Extensions",
     description:
       "Lint loaded extensions, tools, skills, and guidelines for health issues: " +
@@ -1043,9 +1064,16 @@ function makeInspectExtensionsTool(getAllTools: () => ToolInfo[]) {
  * being a process-singleton on globalThis — so a diagnostic tool in a
  * DIFFERENT extension package (this one) can read it without an SDK API.
  */
-function makeInspectTuiTool() {
+export function makeInspectTuiTool() {
   return defineTool({
     name: "inspect_tui",
+    gating: {
+      keywords: ["schema cost", "pathology", "extension health", "工具開銷", "context window", "token usage"],
+      requires: {
+        nouns: ["agent", "context", "extension", "pathology", "token", "schema", "tui", "工具"],
+        verbs: ["inspect", "show", "check", "diagnose", "dump", "report"],
+      },
+    },
     label: "Inspect TUI",
     description:
       "Debug the above-editor widget state — the composite status widget (goal +" +
