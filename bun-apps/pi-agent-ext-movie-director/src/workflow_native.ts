@@ -19,15 +19,15 @@
  *      face boxes, then `detail_faces()` (line 138) crops+pads each box and
  *      re-denoises it via the SAME `ZImagePipeline.generate()` I2I path used
  *      by stage 1, feather-composited back with PIL `Image.paste(mask=...)`.
- *      So the RE-DENOISE half is portable (same native I2I as base-gen), but
- *      the DETECTION half is not: no mediapipe/Vision-framework-backed face
- *      detector exists anywhere in swift/ (grepped for face/detail/landmark
- *      across all 6 swift packages — zero hits outside unrelated Whisper/
- *      ModelRegistry/Verify files). Apple's Vision framework COULD replace
- *      mediapipe (VNDetectFaceRectanglesRequest), but that is a genuinely NEW
- *      native port (a face-detection primitive this repo has never shipped),
- *      not orchestration of an already-native primitive — out of scope here.
- *      NOT PORTABLE in this session's orchestration-only scope.
+ *      NOW PORTABLE (2026-08-02): `swift/flux2-image-director`'s
+ *      `FaceDetector.swift` (VNDetectFaceRectanglesRequest) replaces the
+ *      mediapipe detection half, and `FaceDetailPipeline.swift` replicates
+ *      the crop/regenerate/composite loop using the existing
+ *      `Flux2EditPipeline` (SDEdit I2I) + `Flux2Composite` (feathered
+ *      paste-back) primitives — see
+ *      docs/superpowers/specs/2026-08-02-face-detail-swift-native-port-design.md.
+ *      Exposed as `flux2 face-detail`, chained here between base-gen and
+ *      upscale (see `runWorkflowNative`).
  *
  *   3. POST-PROCESSING (`app/postprocess.py`, 442 lines) — `FilmGrain`,
  *      `Sharpening` (CAS + unsharp), `NoiseCleaner` (cv2 bilateral),
@@ -61,13 +61,12 @@
  *      `seedvr2`.
  *
  * NET: the genuinely portable subset is base-generation (T2I/I2I, stage 1)
- * chained with ESRGAN upscale (stage 4) — exactly the two stages that were
- * ALREADY independently native before this module existed. Face-detail
- * (stage 2) and post-processing (stage 3), plus `--upscale-method seedvr2`,
- * are NOT silently dropped: `isNativeWorkflowRequest` (bridge.ts) refuses the
+ * optionally chained with face-detail (stage 2) and/or ESRGAN upscale
+ * (stage 4). Post-processing (stage 3) and `--upscale-method seedvr2` are
+ * NOT silently dropped: `isNativeWorkflowRequest` (bridge.ts) refuses the
  * native path and falls back to run.py's `image workflow` (realRunPyImage)
- * whenever any of those is requested — the same style-forked routing
- * discipline `isNativeControlNetRequest` established for `controlnet`.
+ * whenever either is requested — the same style-forked routing discipline
+ * `isNativeControlNetRequest` established for `controlnet`.
  */
 import { runKrea2, type Krea2Details } from "@repo/pi-agent-ext-krea2";
 import { runFlux2, type Flux2Details } from "@repo/pi-agent-ext-flux2";
@@ -85,6 +84,8 @@ export interface WorkflowNativeOptions {
   loraScale?: number;
   /** I2I denoise strength (mirrors Python's `denoise_strength`, krea2's `strength`). */
   denoiseStrength?: number;
+  /** Run stage 2 (face-detail: Apple Vision detect + SDEdit regenerate + composite) — see module doc. */
+  faceDetail?: boolean;
   /** Run stage 4 (ESRGAN only — see module doc; `seedvr2` must never reach here). */
   upscale?: boolean;
   /** ESRGAN model name under models/upscale/ (flux2 `upscale --model`). */
@@ -92,6 +93,8 @@ export interface WorkflowNativeOptions {
   outputDir?: string;
   /** Test seam: inject a canned base-generation call (t2i/i2i). */
   _runBase?: BaseGenFn;
+  /** Test seam: inject a canned face-detail call. */
+  _runFaceDetail?: FaceDetailFn;
   /** Test seam: inject a canned upscale call. */
   _runUpscale?: UpscaleFn;
 }
@@ -103,6 +106,13 @@ export interface BaseGenResult {
   height: number | null;
 }
 export type BaseGenFn = (opts: WorkflowNativeOptions) => Promise<BaseGenResult>;
+
+export interface FaceDetailResult {
+  path: string;
+  width: number | null;
+  height: number | null;
+}
+export type FaceDetailFn = (input: string, opts: WorkflowNativeOptions) => Promise<FaceDetailResult>;
 
 export interface UpscaleResult {
   path: string;
@@ -142,6 +152,20 @@ export const defaultRunBase: BaseGenFn = async (opts) => {
   return { path: d.output, seed: d.seed, width: d.width, height: d.height };
 };
 
+/** Default face-detail call: flux2 native `face-detail` (Apple Vision detection + SDEdit regenerate + feathered composite). Reuses the SAME `prompt` as base-gen — face_detailer.py's own `detail_faces()` takes the workflow's single prompt, not a separate one. */
+export const defaultRunFaceDetail: FaceDetailFn = async (input, opts) => {
+  const out = await runFlux2({
+    command: "face-detail",
+    options: { input, prompt: opts.prompt, seed: opts.seed },
+    outputDir: opts.outputDir,
+  });
+  const d: Flux2Details = out.details;
+  if (!d.ok || !d.output) {
+    throw new Error(`workflow: face-detail failed: ${out.summary}\n${out.stderrTail}`.trim());
+  }
+  return { path: d.output, width: d.width, height: d.height };
+};
+
 /** Default upscale call: flux2 native `upscale` (RealPLKSR/ESRGAN). Only ever called for the esrgan path — see module doc; the caller (`runWorkflowNative`) never routes seedvr2 requests here (that request never reaches the native path at all, gated by `isNativeWorkflowRequest`). */
 export const defaultRunUpscale: UpscaleFn = async (input, opts) => {
   const out = await runFlux2({
@@ -157,21 +181,23 @@ export const defaultRunUpscale: UpscaleFn = async (input, opts) => {
 };
 
 export interface WorkflowNativeResult {
-  /** The last-produced image path (upscaled if stage 4 ran, else base). */
+  /** The last-produced image path (post-upscale if it ran, else post-face-detail if it ran, else base). */
   finalImage: string;
   baseImage: string;
+  faceDetailImage: string | null;
   upscaledImage: string | null;
   seed: number | null;
   width: number | null;
   height: number | null;
-  /** Stages that actually ran, in order — mirrors Python's `stage_images.keys()` (a subset of base/face_detail/postprocess/upscale; this port only ever produces base and/or upscale). */
-  stages: ("base" | "upscale")[];
+  /** Stages that actually ran, in order — mirrors Python's `stage_images.keys()` (a subset of base/face_detail/postprocess/upscale; this port only ever produces base and/or face_detail and/or upscale). */
+  stages: ("base" | "face_detail" | "upscale")[];
 }
 
 /**
  * Run the portable workflow subset: base generation (T2I/I2I) optionally
- * chained with ESRGAN upscale. Throws if neither `prompt` nor `input` is
- * given (mirrors Python's `ValueError("No prompt provided...")`,
+ * chained with face-detail and/or ESRGAN upscale, in that order. Throws if
+ * neither `prompt` nor `input` is given (mirrors Python's
+ * `ValueError("No prompt provided...")`,
  * app/workflow.py:53) or if a stage's director call fails (no
  * partial-success mode, mirroring the Python's `sys.exit(1)` on an
  * unhandled workflow exception).
@@ -184,15 +210,26 @@ export async function runWorkflowNative(opts: WorkflowNativeOptions): Promise<Wo
   const runBase = opts._runBase ?? defaultRunBase;
   const base = await runBase(opts);
 
-  const stages: ("base" | "upscale")[] = ["base"];
+  const stages: ("base" | "face_detail" | "upscale")[] = ["base"];
   let finalImage = base.path;
+  let faceDetailImage: string | null = null;
   let upscaledImage: string | null = null;
   let width = base.width;
   let height = base.height;
 
+  if (opts.faceDetail) {
+    const runFaceDetail = opts._runFaceDetail ?? defaultRunFaceDetail;
+    const fd = await runFaceDetail(finalImage, opts);
+    finalImage = fd.path;
+    faceDetailImage = fd.path;
+    stages.push("face_detail");
+    width = fd.width ?? width;
+    height = fd.height ?? height;
+  }
+
   if (opts.upscale) {
     const runUpscale = opts._runUpscale ?? defaultRunUpscale;
-    const up = await runUpscale(base.path, opts);
+    const up = await runUpscale(finalImage, opts);
     finalImage = up.path;
     upscaledImage = up.path;
     stages.push("upscale");
@@ -203,6 +240,7 @@ export async function runWorkflowNative(opts: WorkflowNativeOptions): Promise<Wo
   return {
     finalImage,
     baseImage: base.path,
+    faceDetailImage,
     upscaledImage,
     seed: base.seed,
     width,
