@@ -8,6 +8,7 @@ Finish the tool-gating rollout: migrate the owner-declared `gating` field to eve
 - **Skills every session should consult**: `grilling` + `domain-modeling` for decision tickets; the tool-gate test suite is the source of truth.
 - **Standing preferences (from the migration)**: backward-compatible parameterization; no extension↔extension dependency; no new runtime patch (reuse the existing `getAllToolDefinitions` patch); TDD.
 - **Fact freshness**: this branch is ~9 commits behind `origin/main`. Rebase before integration; the migration commits live on this branch, so the architecture facts are branch-accurate.
+- **Rebasing this worktree:** the branch lives in a git WORKTREE (of `video_generation`), so a stale rebase state dir sits at `<main-repo>/.git/worktrees/<worktree-name>/rebase-merge` — NOT `.git/rebase-merge` inside the worktree (there `.git` is a file, so that check is a false negative). A stale dir blocks `git rebase` ("It seems there is already a rebase-merge directory"); clear with `git rebase --quit` (NOT `--abort` — `--abort` resets to the recorded `ORIG_HEAD` and can discard commits if it's stale). A dirty tracked file also blocks rebase — `git stash push -- <file>`, rebase, `git stash pop` (untracked files don't block).
 
 ## Decisions so far
 
