@@ -112,16 +112,6 @@ export const GATES: ToolGate[] = [
     },
     description: "ArXiv paper retrieval — search, fetch-to-markdown, metadata lookup",
   },
-  {
-    names: ["movie", "movie_help"],
-    keywords: [
-      "montage", "preflight", "storyboard", "分鏡", "剪輯",
-      "影片製作", "導演", "make a movie", "make a film", "movie director",
-      "compose video", "compose scene", "電影製作",
-      "short film", "into a film", "scenes into",
-    ],
-    description: "Movie orchestrator — idea→script→scene→assets→edit→compose pipeline",
-  },
   // NOTE (audit 2026-07-25): the `cost` gate was REMOVED. It gated the
   // `movie-director-cost.ts` typed PROTOTYPE, which is measured offline
   // (schema-cost EXTRA_ENTRIES) but NEVER loaded at runtime (absent from the

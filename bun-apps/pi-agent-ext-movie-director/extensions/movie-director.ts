@@ -37,6 +37,22 @@ function makeMovieTool() {
     name: "movie",
     label: "Movie Director Orchestrator",
     description: ROUTING_DESCRIPTION,
+    // Owner-declared gating — migrated from tool-gate's hardcoded GATES (was the
+    // {names:["movie","movie_help"]} gate). Per ticket 08's semantics-preserving
+    // rule, the SAME gating is mirrored on movie_help so both activate together
+    // and reconstructOwnerDeclaredGates collapses them back into one multi-name
+    // gate (names[0] === "movie"). Mirrors the original GATES entry verbatim:
+    // keywords only (montage/storyboard/分鏡/導演/film phrases) — no `requires`,
+    // since these are unambiguous generation intents that never false-fire on
+    // bare nouns the way image/video do.
+    gating: {
+      keywords: [
+        "montage", "preflight", "storyboard", "分鏡", "剪輯",
+        "影片製作", "導演", "make a movie", "make a film", "movie director",
+        "compose video", "compose scene", "電影製作",
+        "short film", "into a film", "scenes into",
+      ],
+    },
     promptSnippet:
       "Instruction-driven video production orchestrator (OpenMontage rewrite). Drives idea→script→scene_plan→assets→edit→compose→publish " +
       "with gate-enforced checkpoints; consumes native krea2/flux2/ltx directors. Call movie_help for the command reference.",
@@ -63,6 +79,18 @@ function makeMovieHelpTool() {
   return defineTool({
     name: "movie_help",
     label: "Movie Director Command Reference",
+    // Owner-declared gating — mirrored IDENTICALLY from movie (same signature)
+    // so reconstructOwnerDeclaredGates collapses the two into one multi-name
+    // gate {names:["movie","movie_help"]} (ticket 08). Co-fire preserved: when
+    // the gate fires, both names activate together. See movie's gating comment.
+    gating: {
+      keywords: [
+        "montage", "preflight", "storyboard", "分鏡", "剪輯",
+        "影片製作", "導演", "make a movie", "make a film", "movie director",
+        "compose video", "compose scene", "電影製作",
+        "short film", "into a film", "scenes into",
+      ],
+    },
     description:
       "On-demand reference for the `movie` tool. Pass {command} for option keys + example; omit to list all commands.",
     parameters: Type.Object({
