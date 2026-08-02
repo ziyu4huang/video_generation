@@ -195,8 +195,9 @@ export interface WorkflowNativeResult {
 
 /**
  * Run the portable workflow subset: base generation (T2I/I2I) optionally
- * chained with ESRGAN upscale. Throws if neither `prompt` nor `input` is
- * given (mirrors Python's `ValueError("No prompt provided...")`,
+ * chained with face-detail and/or ESRGAN upscale, in that order. Throws if
+ * neither `prompt` nor `input` is given (mirrors Python's
+ * `ValueError("No prompt provided...")`,
  * app/workflow.py:53) or if a stage's director call fails (no
  * partial-success mode, mirroring the Python's `sys.exit(1)` on an
  * unhandled workflow exception).
