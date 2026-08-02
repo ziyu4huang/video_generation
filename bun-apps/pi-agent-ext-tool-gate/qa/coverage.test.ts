@@ -12,7 +12,10 @@ import {
 	assertSane,
 	DEFAULT_COVERAGE_THRESHOLD,
 } from "./coverage.ts";
-import type { SchemaCostReport, ToolCost } from "../../pi-agent-cli/src/commands/schema-cost.ts";
+// Types are sourced from power-tool's canonical schema-cost submodule directly
+// (pi-agent-cli's schema-cost command re-exported them as a @deprecated delegate;
+// that alias was removed in the gating-field migration Task 5).
+import type { SchemaCostReport, ToolCost } from "@repo/pi-agent-ext-power-tool/schema-cost";
 
 /** Minimal ToolCost fixture — only the fields analyzeCoverage reads matter. */
 const tool = (name: string, approxTokens: number, source: string): ToolCost =>

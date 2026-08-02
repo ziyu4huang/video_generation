@@ -23,7 +23,7 @@ import {
 	buildSchemaCostReport,
 	resolveRepoRoot,
 } from "../../pi-agent-cli/src/commands/schema-cost.ts";
-import type { SchemaCostReport } from "../../pi-agent-cli/src/commands/schema-cost.ts";
+import type { SchemaCostReport } from "@repo/pi-agent-ext-power-tool/schema-cost";
 import { CORE_TOOLS, GATES } from "../extensions/tool-gate.ts";
 
 /** The savings figure tool-gate's README/banner claims (~8,050 tok/req; zai-mcp env-gated — see caveats()).

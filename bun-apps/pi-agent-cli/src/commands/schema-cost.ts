@@ -45,7 +45,16 @@ import {
 	formatJson as _formatJson,
 } from "@repo/pi-agent-ext-power-tool/schema-cost";
 
-export type { ToolCost, SchemaCostReport } from "@repo/pi-agent-ext-power-tool/schema-cost";
+// `ToolCost` / `SchemaCostReport` are imported for INTERNAL type annotations only
+// (collectBuiltinToolCosts/collectExtensionToolCosts/buildSchemaCostReport).
+// The @deprecated `export type { ToolCost, SchemaCostReport }` re-export alias
+// that used to live here was removed in the gating-field migration (Task 5):
+// consumers now import these types from
+// `@repo/pi-agent-ext-power-tool/schema-cost` directly. (The value delegates
+// below — estimateToolCost/checkToolContract/formatSchemaCostReport/
+// formatSchemaCostJson — are retained: they back the command's own unit test
+// and the two estimate/check helpers are used internally by the collection
+// logic, so they are not pure re-export scaffolding.)
 import type { ToolCost, SchemaCostReport } from "@repo/pi-agent-ext-power-tool/schema-cost";
 
 /** @deprecated delegate — import from `@repo/pi-agent-ext-power-tool/schema-cost`
