@@ -38,7 +38,19 @@ export interface BatchTask {
 
 /** A positional result slot (input order). `null` = the child failed. */
 export type BatchResultSlot =
-  | { output: string; status: "done" | "timedout"; id?: string; index: number; usage?: AgentUsage }
+  | {
+      output: string;
+      status: "done" | "timedout";
+      id?: string;
+      index: number;
+      usage?: AgentUsage;
+      /** Task preview (Completed-section display). */
+      task: string;
+      /** Resolved child model (never a hardcoded id). */
+      model: string;
+      /** Per-child wall-clock from dispatch start. */
+      elapsedMs: number;
+    }
   | {
       status: "budget";
       exhaustion: BudgetExhaustion;
@@ -46,6 +58,12 @@ export type BatchResultSlot =
       source: "batch" | "child";
       id?: string;
       index: number;
+      /** Task preview (Completed-section display). */
+      task: string;
+      /** Resolved child model (never a hardcoded id). */
+      model: string;
+      /** 0 for gate-skipped (never ran); real for per-child budget aborts. */
+      elapsedMs: number;
     }
   | null;
 
@@ -209,6 +227,11 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
       const hasBatchBudget = params.tokenBudget !== undefined || params.spendBudget !== undefined;
 
       const dispatchChild = async (task: BatchTask, index: number): Promise<void> => {
+        // Effective model string + task preview — computed up front so BOTH the
+        // soft-gate skip branch and the normal dispatch branch can enrich the
+        // result slot (deficit 4b: Completed-section display needs task/model).
+        const childModel = task.model ?? task.tier ?? task.capability ?? mainModel ?? "default";
+        const preview = taskPreview(task.task);
         // Soft gate: once tripped, no NEW children start; in-flight ones finish.
         // `gateTripped` is set only together with `budgetExhaustion` (see the
         // between-dispatch check below), so it is always defined here; the guard
@@ -216,22 +239,27 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
         // invariant ever breaks.
         if (gateTripped) {
           if (budgetExhaustion) {
-            slots[index] = { status: "budget", exhaustion: budgetExhaustion, source: "batch", id: task.id, index };
+            slots[index] = {
+              status: "budget",
+              exhaustion: budgetExhaustion,
+              source: "batch",
+              id: task.id,
+              index,
+              task: preview,
+              model: childModel,
+              elapsedMs: 0,
+            };
           }
           return;
         }
         const childOpts = mergeReadOnlyExclusion(task, { defaultCwd, mainModel, extensionTools });
-        // Effective model string for BOTH the in-flight entry and the durable record
-        // (keeps the two consistent; the `?? "default"` also satisfies the record's
-        // required-string `model` field when nothing was requested).
-        const childModel = task.model ?? task.tier ?? task.capability ?? mainModel ?? "default";
         // Register in-flight so `/subagents` shows this child while it runs.
         const childRunId = `${toolCallId}:${index}`;
         const childT0 = Date.now();
         options.inFlight?.start({
           id: childRunId,
           model: childModel,
-          taskPreview: taskPreview(task.task),
+          taskPreview: preview,
           startedAt: childT0,
           batchId: toolCallId,
         });
@@ -284,7 +312,16 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
         if (status === "failed") {
           slots[index] = null;
         } else if (result.budget) {
-          slots[index] = { status: "budget", exhaustion: result.budget, source: "child", id: task.id, index };
+          slots[index] = {
+            status: "budget",
+            exhaustion: result.budget,
+            source: "child",
+            id: task.id,
+            index,
+            task: preview,
+            model: childModel,
+            elapsedMs: Date.now() - childT0,
+          };
         } else {
           slots[index] = {
             output: result.output,
@@ -292,6 +329,9 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
             id: task.id,
             index,
             usage: result.usage,
+            task: preview,
+            model: childModel,
+            elapsedMs: Date.now() - childT0,
           };
         }
         // Durable record for completed runs only. Failed children (status "failed")
