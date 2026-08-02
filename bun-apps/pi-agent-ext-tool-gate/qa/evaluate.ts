@@ -17,6 +17,14 @@ import krea2Default from "@repo/pi-agent-ext-krea2/extensions/krea2.ts";
 import ltxDefault from "@repo/pi-agent-ext-ltx/extensions/ltx.ts";
 import movieDefault from "@repo/pi-agent-ext-movie-director/extensions/movie-director.ts";
 import researchDefault from "@repo/pi-agent-ext-research-tool/extensions/research-tool.ts";
+// ticket 13b — power-tool registers the 6 inspect_* diagnostics (inspect_context /
+// inspect_agent / inspect_extensions / inspect_hooks / inspect_pathology / inspect_tui).
+// All 6 declare IDENTICAL gating → ONE signature-group whose canonical names[0] is
+// inspect_context (first registered). Capturing the registrar here promotes all 6
+// into CORPUS_EFF (single-name effective gates) so qa/probes.ts covers the inspect
+// group, and the --strict ungated count drops (inspect_pathology was previously
+// un-captured → ungated; now it's gated like its 5 already-captured siblings).
+import powerToolDefault from "@repo/pi-agent-ext-power-tool/extensions/power-tool.ts";
 // tickets 10 + 11 (rolled out TOGETHER): the combined workflow/subagent gate.
 // workflow is imported FIRST so it precedes subagent in capture order, keeping
 // the canonical signature-group id "workflow" first (the id every qa/probes.ts
@@ -122,7 +130,7 @@ const zaiRegistrar = (pi: any) => {
 };
 
 export const CORPUS_EFF = buildEffectiveGates(
-	captureOwnerDeclaredDefs([deployDefault, file2mdDefault, flux2Default, krea2Default, ltxDefault, movieDefault, researchDefault, workflowDefault, subagentDefault, zaiRegistrar]) as never,
+	captureOwnerDeclaredDefs([deployDefault, file2mdDefault, flux2Default, krea2Default, ltxDefault, movieDefault, researchDefault, workflowDefault, subagentDefault, zaiRegistrar, powerToolDefault]) as never,
 );
 export const CORPUS_GATES: CorpusGate[] = CORPUS_EFF.gates;
 
