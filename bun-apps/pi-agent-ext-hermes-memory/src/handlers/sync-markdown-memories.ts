@@ -22,6 +22,7 @@ import {
 } from '../store/memory-format.js';
 import { ENTRY_DELIMITER, MEMORY_FILE, USER_FILE } from '../constants.js';
 import { AGENT_ROOT } from '../paths.js';
+import { findDanglingLineageReferences, formatDanglingWarning } from './integrity-sweep.js';
 
 export interface BackfillCounters {
   filesScanned: number;
@@ -372,6 +373,27 @@ export async function syncMarkdownMemories(
   // scanProjectDirs hit.
   if (inRepoProjectFile) {
     await importFile(inRepoProjectFile, 'memory', inRepoProjectName ?? null);
+  }
+
+  // Integrity sweep (UPSP §4 / DO ticket 03): flag lineage pointers to rows
+  // absent from the DB — the evicted-target rot overflow offload leaves behind
+  // (a survivor's supersedes/parentIds still pointing at a removed target).
+  // Best-effort: an advisory sweep failure must never break a sync that just
+  // succeeded. Results land on the existing BackfillCounters.warnings channel.
+  try {
+    const dangling = findDanglingLineageReferences(await memoryRepo.getMemories());
+    if (dangling.length > 0) {
+      const CAP = 20;
+      for (const d of dangling.slice(0, CAP)) {
+        counters.warnings.push(formatDanglingWarning(d));
+      }
+      if (dangling.length > CAP) {
+        counters.warnings.push(`… and ${dangling.length - CAP} more dangling lineage reference(s)`);
+      }
+    }
+  } catch {
+    // Non-fatal: advisory only. A DB/unreachable failure here must not block
+    // the sync (buildExistingIndex already tolerates the same failure).
   }
 
   return { ...counters, projectCount: projects.length };
