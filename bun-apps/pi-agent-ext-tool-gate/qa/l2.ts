@@ -25,7 +25,8 @@
 import { spawn } from "node:child_process";
 import { dirname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
-import { GATES, gateFires, matchIntent } from "../extensions/tool-gate.ts";
+import { gateFires, matchIntent } from "../extensions/tool-gate.ts";
+import { CORPUS_GATES } from "./evaluate.ts";
 import { L2_TASKS, type L2Task } from "./l2-tasks.ts";
 
 // M9: resolve the pi-agent CLI absolutely from this file's location so the
@@ -35,7 +36,7 @@ const __QA_DIR = dirname(fileURLToPath(import.meta.url));
 const PI_AGENT_CLI = resolvePath(__QA_DIR, "..", "..", "pi-agent", "src", "cli.ts");
 
 const findGate = (id: string) => {
-	const g = GATES.find((x) => x.names[0] === id);
+	const g = CORPUS_GATES.find((x) => x.names[0] === id);
 	if (!g) throw new Error(`L2 task references unknown gate '${id}'`);
 	return g;
 };
@@ -63,7 +64,7 @@ export interface ReachabilityResult {
 
 export function evaluateReachability(tasks: L2Task[] = L2_TASKS): ReachabilityResult[] {
 	return tasks.map((task) => {
-		const matched = matchIntent(task.prompt, GATES, emptySticky);
+		const matched = matchIntent(task.prompt, CORPUS_GATES, emptySticky);
 		const intendedMatched = matched.some((g) => g.names[0] === task.intendedGate);
 		const firesOnPrompt = gateFires(findGate(task.intendedGate), task.prompt.toLowerCase());
 		const onReachable = firesOnPrompt || intendedMatched;

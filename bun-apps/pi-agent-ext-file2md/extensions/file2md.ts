@@ -131,6 +131,21 @@ export default function (pi: ExtensionAPI): void {
 
   pi.registerTool({
     name: "file2md",
+    // Owner-declared gating — migrated from tool-gate's hardcoded GATES (was the
+    // {names:["file2md","vision_ask"]} gate). Per ticket 04's semantics-preserving
+    // rule, the SAME gating is mirrored on vision_ask so both activate together
+    // and reconstructOwnerDeclaredGates collapses them back into one multi-name
+    // gate (names[0] === "file2md") — preserving the original co-fire behavior.
+    gating: {
+      keywords: [
+        "file2md", "vlm", "ocr", "caption", "to markdown", "轉 markdown",
+        "read this image", "分析圖片", "分析圖像", "識別", "讀圖", "看圖",
+      ],
+      requires: {
+        nouns: ["pdf", "document", "文件", "scan", "image", "picture", "photo", "圖片", "圖像", "照片", "相片"],
+        verbs: ["read", "convert", "parse", "extract", "ocr", "describe", "caption", "讀", "轉", "解析", "分析"],
+      },
+    },
     label: "File → Markdown (VLM)",
     description:
       "Convert a PDF or image file to structured Markdown that a text-only agent can read, " +
@@ -262,6 +277,18 @@ export default function (pi: ExtensionAPI): void {
   // ---------------------------------------------------------------------------
   pi.registerTool({
     name: "vision_ask",
+    // Owner-declared gating — mirrored from file2md (identical signature, same
+    // former hardcoded gate) so the two co-fire as one group.
+    gating: {
+      keywords: [
+        "file2md", "vlm", "ocr", "caption", "to markdown", "轉 markdown",
+        "read this image", "分析圖片", "分析圖像", "識別", "讀圖", "看圖",
+      ],
+      requires: {
+        nouns: ["pdf", "document", "文件", "scan", "image", "picture", "photo", "圖片", "圖像", "照片", "相片"],
+        verbs: ["read", "convert", "parse", "extract", "ocr", "describe", "caption", "讀", "轉", "解析", "分析"],
+      },
+    },
     label: "Vision Image Q&A",
     description:
       "Ask one question about one image via a local vision-LLM subagent and get the answer inline (text). " +

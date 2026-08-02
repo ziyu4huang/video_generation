@@ -24,7 +24,8 @@ import {
 	resolveRepoRoot,
 } from "../../pi-agent-cli/src/commands/schema-cost.ts";
 import type { SchemaCostReport } from "@repo/pi-agent-ext-power-tool/schema-cost";
-import { CORE_TOOLS, GATES } from "../extensions/tool-gate.ts";
+import { CORE_TOOLS } from "../extensions/tool-gate.ts";
+import { CORPUS_GATES } from "./evaluate.ts";
 
 /** The savings figure tool-gate's README/banner claims (~8,050 tok/req; zai-mcp env-gated — see caveats()).
  *  THE single source of truth — every prose mention cites ~8,050 and points to
@@ -113,10 +114,11 @@ export interface SavingsReport {
 	/** Gate-tool names found in the captured set. */
 	gatedToolCount: number;
 	perGate: GateSavings[];
-	/** Gate-tool names declared in GATES but absent from the captured set
+	/** Gate-tool names declared in the gate set (hardcoded GATES + reconstructed
+	 *  owner-declared gates) but absent from the captured set
 	 *  (declared-not-loaded). ONE-DIRECTIONAL by design: it does NOT catch the
 	 *  reverse — a tool that is BOTH captured by schema-cost AND declared in
-	 *  GATES but NOT loaded at runtime (a phantom, like the former `cost` gate)
+	 *  the gate set but NOT loaded at runtime (a phantom, like the former `cost` gate)
 	 *  is invisible here, because it IS in the captured set. The captured==runtime
 	 *  invariant is enforced at the source (EXTRA_ENTRIES must be runtime-loaded;
 	 *  the manifest is the load truth) + locked by the movie-director-cost test.
@@ -149,7 +151,12 @@ export async function measureSavings(root?: string): Promise<SavingsReport> {
 	const report = await buildSchemaCostReport(resolved);
 	const byName = new Map(report.tools.map((t) => [t.name, t.approxTokens]));
 
-	const perGate: GateSavings[] = GATES.map((g) => {
+	// CORPUS_GATES = hardcoded GATES + reconstructed owner-declared gates (deploy
+	// ticket 03, file2md/vision_ask ticket 04) — counts every gated tool's tokens
+	// so savings still reflect owner-declared gated tools, not just the hardcoded
+	// fallback. (Stopgap: ticket 13 will replace with buildEffectiveGates over the
+	// live tool list.)
+	const perGate: GateSavings[] = CORPUS_GATES.map((g) => {
 		const present = g.names.filter((n) => byName.has(n));
 		const tokens = present.reduce((s, n) => s + (byName.get(n) ?? 0), 0);
 		return { gate: g.names[0], names: g.names, tokens, loaded: present.length > 0 };
@@ -157,7 +164,7 @@ export async function measureSavings(root?: string): Promise<SavingsReport> {
 
 	const savedTok = perGate.reduce((s, g) => s + g.tokens, 0);
 	const offTotal = report.totalTokens;
-	const allGateNames = GATES.flatMap((g) => g.names);
+	const allGateNames = CORPUS_GATES.flatMap((g) => g.names);
 	// enable_tool is the always-on price tool-gate pays for its escape hatch —
 	// it exists only because tool-gate registers it, so gross savedTok over-
 	// states the true gain by its footprint. Net it out (audit I-6).

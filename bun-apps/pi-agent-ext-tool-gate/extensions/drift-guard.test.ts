@@ -13,10 +13,11 @@
  * backstop: it enumerates each migrated extension's registered tools and
  * strict-fails if any lacks a valid `gating`.
  *
- * SCOPE (today): the 3 migration pilots + deploy (ticket 03) — power-tool
- * (6 inspect_*), core-task (ask_user_question / todo / goal_complete),
- * tool-gate (enable_tool), deploy (pi_deploy / pi_verify). The other ~8
- * unmigrated extensions are NOT asserted here; rollout tickets 04–12
+ * SCOPE (today): the 3 migration pilots + deploy (ticket 03) + file2md
+ * (ticket 04) — power-tool (6 inspect_*), core-task (ask_user_question /
+ * todo / goal_complete), tool-gate (enable_tool), deploy (pi_deploy /
+ * pi_verify), file2md (file2md / vision_ask). The other ~7 unmigrated
+ * extensions are NOT asserted here; rollout tickets 05–12
  * APPEND their extension to MIGRATED_EXTENSIONS as they migrate, which
  * auto-includes that extension's tools here. Built-ins (read/write/edit/bash/
  * grep/find/ls) are NOT registered by these extensions, so they are naturally
@@ -49,6 +50,7 @@ import { registerAskUserQuestionTool } from "@repo/pi-agent-ext-core-task/src/as
 import { registerTodoTool } from "@repo/pi-agent-ext-core-task/src/todo/todo.ts";
 import goalDefault from "@repo/pi-agent-ext-core-task/src/goal/goal.ts";
 import deployExtension from "@repo/pi-agent-ext-deploy";
+import file2mdExtension from "@repo/pi-agent-ext-file2md/extensions/file2md.ts";
 import toolGate from "./tool-gate.ts";
 
 /** A registered tool def — only the fields the guard reads are typed. */
@@ -104,6 +106,12 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 		name: "deploy",
 		register: (pi) => {
 			deployExtension(pi);
+		},
+	},
+	{
+		name: "file2md",
+		register: (pi) => {
+			file2mdExtension(pi);
 		},
 	},
 ];

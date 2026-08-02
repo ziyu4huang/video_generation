@@ -1,11 +1,25 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { updateSticky, CORE_TOOLS, GATES, computeBannerSaved, matchIntent, matchesKeyword, gateFires, measureToolTokens, filterActive } from "./tool-gate.ts";
+import { updateSticky, CORE_TOOLS, GATES, computeBannerSaved, matchIntent, matchesKeyword, gateFires, measureToolTokens, filterActive, buildEffectiveGates } from "./tool-gate.ts";
 import type { ToolGate } from "./tool-gate.ts";
 import { emitToolGateLog, isMissCandidate } from "./tool-gate.ts";
 import toolGateExtension from "./tool-gate.ts";
+import file2mdExtension from "@repo/pi-agent-ext-file2md/extensions/file2md.ts";
 
 /** Spread CORE_TOOLS into an array of names (CORE_TOOLS is a Set). */
 const CORE_TOOLS_ARRAY = (): string[] => Array.from(CORE_TOOLS);
+
+// file2md/vision_ask migrated to owner-declared gating (wayfinder ticket 04) —
+// their gate no longer lives in the hardcoded GATES, so the file2md-touching
+// integration tests below reconstruct the EFFECTIVE gate set the way production
+// does (buildEffectiveGates over the owner-declared defs + fallback GATES),
+// keeping file2md/vision_ask firing + tracking exercised against real gating
+// instead of re-hardcoding the gate definition here.
+const file2mdOwnerDefs: { name: string; description?: string; gating?: unknown }[] = [];
+file2mdExtension({
+	on: () => {},
+	registerTool: (def: { name: string; description?: string; gating?: unknown }) => { file2mdOwnerDefs.push(def); },
+} as never);
+const FILE2MD_EFF = buildEffectiveGates(file2mdOwnerDefs as never);
 
 describe("updateSticky + filterActive", () => {
   test("a tool not listed in CORE_TOOLS or any gate is always active (fail-open)", () => {
@@ -191,7 +205,11 @@ describe("matchIntent (S1)", () => {
     expect(matchIntent("generate an image of a cat", GATES, sticky()).map((g) => g.names[0])).toEqual(["flux2"]);
   });
   test("describe intent → file2md", () => {
-    expect(matchIntent("describe this picture", GATES, sticky()).map((g) => g.names[0])).toEqual(["file2md"]);
+    // file2md/vision_ask are owner-declared (ticket 04) → buildEffectiveGates
+    // splits them into separate single-name gates, so matchIntent surfaces BOTH
+    // (identical gating). The enable_tool NAME-mode co-activation consequence
+    // (sibling no longer auto-activates) is tracked cross-cutting in the map.
+    expect(matchIntent("describe this picture", FILE2MD_EFF.gates, sticky()).map((g) => g.names[0])).toEqual(["file2md", "vision_ask"]);
   });
   test("movie intent (CJK) → movie", () => {
     expect(matchIntent("做一個 movie 分鏡", GATES, sticky()).map((g) => g.names[0])).toEqual(["movie"]);
@@ -508,10 +526,13 @@ describe("S2 keyword audit (updateSticky + filterActive Effect table)", () => {
   const all = [...CORE_TOOLS, "flux2", "flux2_help", "krea2", "krea2_help", "ltx", "ltx_help",
     "file2md", "vision_ask", "workflow", "workflow_help",
     "collect_videos", "movie", "movie_help"];
+  // file2md/vision_ask are owner-declared (ticket 04) → thread the effective
+  // gates + tracked set (production session_start path) so they stay tracked +
+  // gated instead of falling open (absent from module-level TRACKED_TOOLS).
   const act = (prompt: string) => {
-    const sticky = new Set(CORE_TOOLS);
-    updateSticky(prompt, sticky);
-    return filterActive(all, sticky);
+    const sticky = new Set(FILE2MD_EFF.core);
+    updateSticky(prompt, sticky, FILE2MD_EFF.gates);
+    return filterActive(all, sticky, FILE2MD_EFF.tracked);
   };
 
   test("docker image cleanup → []", () => {
@@ -559,10 +580,11 @@ describe("S2 keyword audit (updateSticky + filterActive Effect table)", () => {
 describe("S2 cross-gate invariant — shared noun, disjoint verbs ⇒ only one fires", () => {
   const all = [...CORE_TOOLS, "flux2", "flux2_help", "ltx", "ltx_help",
     "file2md", "vision_ask"];
+  // file2md/vision_ask are owner-declared (ticket 04) → effective gates/tracked.
   const act = (prompt: string) => {
-    const sticky = new Set(CORE_TOOLS);
-    updateSticky(prompt, sticky);
-    return filterActive(all, sticky);
+    const sticky = new Set(FILE2MD_EFF.core);
+    updateSticky(prompt, sticky, FILE2MD_EFF.gates);
+    return filterActive(all, sticky, FILE2MD_EFF.tracked);
   };
 
   test("'generate an image' fires flux2 but NOT file2md (generate ∉ file2md verbs)", () => {
