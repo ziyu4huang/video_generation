@@ -23,6 +23,7 @@ import {
   USER_FILE,
 } from "../../src/constants.js";
 import { serializeMetadataFrontmatter } from "../../src/store/memory-format.js";
+import { computeSignature } from "../../src/store/signature.js";
 import type { FailureState, MemoryConfig } from "../../src/types.js";
 import * as lockfile from "proper-lockfile";
 
@@ -1863,6 +1864,140 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const manifest = store.getProjectAssemblyManifest(name);
       assert.equal(manifest.block, store.formatProjectBlock(name));
       assert.deepEqual(new Set(manifest.mdIds), new Set([PROJ_A, PROJ_B]));
+    });
+
+    // ─── signatures (UPSP §9 / ticket #06, Task 1) ───
+    //
+    // The manifest ALSO emits `signatures: { mdId, signature }[]` — one entry per
+    // surfaced md_id whose computeSignature(body, minChars) is non-null. #05's
+    // { block, mdIds } are UNCHANGED (additive field). Signatures are harvested
+    // in the SAME iteration that collects md_ids (DRY — no duplicated selection).
+    it("getAssemblyManifest: emits one signature per qualifying surfaced md_id", async () => {
+      const today = dateDaysAgo(0);
+      const MEM_A = "11111111-aaaa-1111-1111-111111111111";
+      const MEM_B = "22222222-bbbb-2222-2222-222222222222";
+      const USR_C = "33333333-cccc-3333-3333-333333333333";
+      const FAIL_D = "44444444-dddd-4444-4444-444444444444";
+      const bodyA = `${TEST_MARKER} memory A body is long enough to qualify as a signature`;
+      const bodyB = `${TEST_MARKER} memory B body is also sufficiently long for a signature`;
+      const bodyC = `${TEST_MARKER} user fact body is long enough to count here`;
+      const bodyD = `${TEST_MARKER} failure body is long enough to be signed too`;
+      await writeRaw(
+        memoryPath,
+        [
+          serializeMetadataFrontmatter({ id: MEM_A, text: bodyA, created: today, last: today }),
+          serializeMetadataFrontmatter({ id: MEM_B, text: bodyB, created: today, last: today }),
+        ].join(ENTRY_DELIMITER),
+      );
+      await writeRaw(
+        userPath,
+        serializeMetadataFrontmatter({ id: USR_C, text: bodyC, created: today, last: today }),
+      );
+      await writeRaw(
+        failurePath,
+        serializeMetadataFrontmatter({ id: FAIL_D, text: bodyD, created: today, last: today, state: "active" }),
+      );
+
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+      const manifest = store.getAssemblyManifest();
+
+      // #05 { block, mdIds } UNCHANGED (additive signatures field).
+      assert.equal(manifest.block, store.formatForSystemPrompt());
+      assert.deepEqual(new Set(manifest.mdIds), new Set([MEM_A, MEM_B, USR_C, FAIL_D]));
+
+      // One signature per surfaced md_id, each == computeSignature(body, default 24).
+      const sigs = new Map(manifest.signatures.map((s) => [s.mdId, s.signature]));
+      assert.deepEqual(new Set(sigs.keys()), new Set([MEM_A, MEM_B, USR_C, FAIL_D]));
+      assert.equal(sigs.get(MEM_A), computeSignature(bodyA, 24));
+      assert.equal(sigs.get(MEM_B), computeSignature(bodyB, 24));
+      assert.equal(sigs.get(USR_C), computeSignature(bodyC, 24));
+      assert.equal(sigs.get(FAIL_D), computeSignature(bodyD, 24));
+    });
+
+    it("getAssemblyManifest: under-min entries are omitted from signatures but stay in mdIds", async () => {
+      const today = dateDaysAgo(0);
+      const LONG = "55555555-eeee-5555-5555-555555555555";
+      const SHORT = "66666666-ffff-6666-6666-666666666666";
+      const longBody = `${TEST_MARKER} this one is long enough to qualify for a signature`;
+      // Normalized fragment is well under the 24-char default → no signature.
+      const shortBody = `${TEST_MARKER} tiny.`;
+      await writeRaw(
+        memoryPath,
+        [
+          serializeMetadataFrontmatter({ id: LONG, text: longBody, created: today, last: today }),
+          serializeMetadataFrontmatter({ id: SHORT, text: shortBody, created: today, last: today }),
+        ].join(ENTRY_DELIMITER),
+      );
+
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+      const manifest = store.getAssemblyManifest();
+
+      // Both entries are still surfaced (#05 mdIds unchanged).
+      assert.deepEqual(new Set(manifest.mdIds), new Set([LONG, SHORT]));
+      // Only the long entry emits a signature; the short one is omitted entirely.
+      const sigIds = manifest.signatures.map((s) => s.mdId);
+      assert.ok(sigIds.includes(LONG));
+      assert.ok(!sigIds.includes(SHORT));
+      // The omitted entry never produces a signature object.
+      assert.equal(manifest.signatures.find((s) => s.mdId === SHORT), undefined);
+    });
+
+    it("getAssemblyManifest: usedSignatureMinChars config is honored (lower threshold -> more signatures)", async () => {
+      const today = dateDaysAgo(0);
+      const BORDER = "77777777-0000-7777-7777-777777777777";
+      // Normalized fragment ~17 chars: under the default 24, over 10.
+      const borderBody = `${TEST_MARKER} mid.`;
+      await writeRaw(
+        memoryPath,
+        serializeMetadataFrontmatter({ id: BORDER, text: borderBody, created: today, last: today }),
+      );
+
+      // Default (24): too short → omitted, but still surfaced in mdIds.
+      const storeDefault = new MemoryStore(makeConfig());
+      await storeDefault.loadFromDisk();
+      const manifestDefault = storeDefault.getAssemblyManifest();
+      assert.deepEqual(new Set(manifestDefault.mdIds), new Set([BORDER]));
+      assert.equal(manifestDefault.signatures.length, 0);
+
+      // Lower threshold (10): qualifies → emitted, equals computeSignature(body, 10).
+      const storeLow = new MemoryStore(makeConfig({ usedSignatureMinChars: 10 }));
+      await storeLow.loadFromDisk();
+      const manifestLow = storeLow.getAssemblyManifest();
+      assert.deepEqual(new Set(manifestLow.mdIds), new Set([BORDER]));
+      assert.equal(manifestLow.signatures.length, 1);
+      assert.equal(manifestLow.signatures[0].mdId, BORDER);
+      assert.equal(manifestLow.signatures[0].signature, computeSignature(borderBody, 10));
+    });
+
+    it("getProjectAssemblyManifest: emits signatures for project memory ids", async () => {
+      const today = dateDaysAgo(0);
+      const PROJ_A = "88888888-1111-8888-8888-888888888888";
+      const PROJ_B = "99999999-2222-9999-9999-999999999999";
+      const bodyA = `${TEST_MARKER} project body A is long enough to qualify`;
+      const bodyB = `${TEST_MARKER} project body B is also long enough to qualify`;
+      await writeRaw(
+        memoryPath,
+        [
+          serializeMetadataFrontmatter({ id: PROJ_A, text: bodyA, created: today, last: today }),
+          serializeMetadataFrontmatter({ id: PROJ_B, text: bodyB, created: today, last: today }),
+        ].join(ENTRY_DELIMITER),
+      );
+
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+      const name = "demo";
+      const manifest = store.getProjectAssemblyManifest(name);
+
+      // #05 { block, mdIds } UNCHANGED.
+      assert.equal(manifest.block, store.formatProjectBlock(name));
+      assert.deepEqual(new Set(manifest.mdIds), new Set([PROJ_A, PROJ_B]));
+
+      const sigs = new Map(manifest.signatures.map((s) => [s.mdId, s.signature]));
+      assert.deepEqual(new Set(sigs.keys()), new Set([PROJ_A, PROJ_B]));
+      assert.equal(sigs.get(PROJ_A), computeSignature(bodyA, 24));
+      assert.equal(sigs.get(PROJ_B), computeSignature(bodyB, 24));
     });
   });
 });

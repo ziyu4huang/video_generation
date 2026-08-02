@@ -31,6 +31,10 @@ export const DEFAULT_FLUSH_RECENT_MESSAGES = 0;
 export const DEFAULT_CONSOLIDATION_TIMEOUT_MS = 60000;
 export const DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS = 7;
 export const DEFAULT_FAILURE_INJECTION_MAX_ENTRIES = 5;
+/** Min normalized fragment length for an entry to earn a "used" signature
+ *  (UPSP §9 / ticket #06). Entries whose longest fragment is shorter never get
+ *  credited as "used" — too generic to attribute. Default 24. */
+export const DEFAULT_USED_SIGNATURE_MIN_CHARS = 24;
 export const DEFAULT_ERROR_CAPTURE_RATE_LIMIT = 5;
 export const DEFAULT_ERROR_CAPTURE_RATE_WINDOW_MS = 600_000;
 export const DEFAULT_ERROR_CAPTURE_DEDUP_CACHE_SIZE = 64;

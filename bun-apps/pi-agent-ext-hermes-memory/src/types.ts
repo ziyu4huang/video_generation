@@ -97,6 +97,11 @@ export interface MemoryConfig {
   errorCapture?: boolean;
   /** Increment memory-worth counters on session outcome (correction→fail, else→success). Default: true */
   worthScoring?: boolean;
+  /** Min normalized fragment length (chars) for an entry to earn a "used"
+   *  signature (UPSP §9 / ticket #06). Entries whose longest fragment is
+   *  shorter are surfaced but never credited as "used" — too generic to
+   *  attribute. Default: 24. */
+  usedSignatureMinChars?: number;
   /** Auto-supersede a recalled memory when a correction contradicts it (judge-gated).
    *  Default: false (opt-in — supersession hides the prior from search). */
   autoSupersede?: boolean;
