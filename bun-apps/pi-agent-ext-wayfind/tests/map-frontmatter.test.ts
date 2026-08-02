@@ -13,13 +13,19 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  appendDecision,
+  closeTicket,
   type EffortMeta,
+  type MapDecision,
   parseMapFrontmatter,
+  readEffortMeta,
   readMap,
   serializeMapFrontmatter,
+  touchEffortManifest,
   validateEffortMap,
   type WayfindMap,
   writeMap,
+  writeTicket,
 } from "../src/map.js";
 
 const META_FULL: EffortMeta = {
@@ -29,6 +35,8 @@ const META_FULL: EffortMeta = {
   status: "active",
   owner: "ziyu4huang",
 };
+
+const fresh = () => mkdtempSync(join(tmpdir(), "wf-map-fm-"));
 
 describe("parseMapFrontmatter", () => {
   it("extracts effort metadata from a leading front-matter block", () => {
@@ -96,8 +104,6 @@ describe("serializeMapFrontmatter", () => {
 });
 
 describe("readMap / writeMap: front-matter integration (fs round-trip)", () => {
-  const fresh = () => mkdtempSync(join(tmpdir(), "wf-map-fm-"));
-
   it("writeMap emits front-matter when meta is present and readMap parses it back", () => {
     const cwd = fresh();
     const map: WayfindMap = {
@@ -115,7 +121,7 @@ describe("readMap / writeMap: front-matter integration (fs round-trip)", () => {
     expect(onDisk.startsWith("---\n")).toBe(true); // front-matter is first
     const back = readMap(cwd, META_FULL.effort);
     expect(back).not.toBeNull();
-    expect(back?.meta).toEqual(META_FULL);
+    expect(back?.meta).toEqual<EffortMeta>({ ...META_FULL, last: new Date().toISOString().slice(0, 10) });
     expect(back?.destination).toBe("A prioritized findings doc → tickets.");
     expect(back?.fog).toEqual(["open: implement-or-delete the yield"]);
     rmSync(cwd, { recursive: true, force: true });
@@ -136,6 +142,23 @@ describe("readMap / writeMap: front-matter integration (fs round-trip)", () => {
     const onDisk = readFileSync(join(cwd, ".planning", "legacy", "map.md"), "utf-8");
     expect(onDisk.startsWith("---\n")).toBe(false);
     expect(onDisk.startsWith("# Wayfinder map: legacy")).toBe(true);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("writeMap stamps last: (today) inline when meta is present", () => {
+    const cwd = fresh();
+    writeMap(cwd, {
+      effort: "x",
+      destination: "d",
+      notes: "",
+      decisions: [],
+      fog: [],
+      outOfScope: [],
+      tickets: [],
+      meta: { effort: "x", created: "2020-01-01", status: "active" }, // no last: supplied
+    });
+    const onDisk = readFileSync(join(cwd, ".planning", "x", "map.md"), "utf-8");
+    expect(onDisk).toContain(`last: ${new Date().toISOString().slice(0, 10)}`);
     rmSync(cwd, { recursive: true, force: true });
   });
 
@@ -203,5 +226,241 @@ describe("validateEffortMap (conformance — catches the original hand-written f
       meta: { effort: "2026-08-02-core-task-review", status: "active" },
     };
     expect(validateEffortMap(m, "2026-08-02-core-task-review").ok).toBe(true);
+  });
+});
+
+describe("readEffortMeta", () => {
+  it("reads only the manifest (no ticket scan)", () => {
+    const cwd = fresh();
+    writeMap(cwd, {
+      effort: "x",
+      destination: "d",
+      notes: "",
+      decisions: [],
+      fog: [],
+      outOfScope: [],
+      tickets: [],
+      meta: { effort: "x", status: "active" },
+    });
+    expect(readEffortMeta(cwd, "x")).toEqual<EffortMeta>({
+      effort: "x",
+      last: new Date().toISOString().slice(0, 10),
+      status: "active",
+    });
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("returns null for a legacy (no front-matter) map", () => {
+    const cwd = fresh();
+    writeMap(cwd, {
+      effort: "legacy",
+      destination: "d",
+      notes: "",
+      decisions: [],
+      fog: [],
+      outOfScope: [],
+      tickets: [],
+    });
+    expect(readEffortMeta(cwd, "legacy")).toBeNull();
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("returns null when there is no map", () => {
+    const cwd = fresh();
+    expect(readEffortMeta(cwd, "ghost")).toBeNull();
+    rmSync(cwd, { recursive: true, force: true });
+  });
+});
+
+describe("touchEffortManifest", () => {
+  const todayStr = () => new Date().toISOString().slice(0, 10);
+
+  it("bumps last: on a manifest map and leaves the body verbatim", () => {
+    const cwd = fresh();
+    writeMap(cwd, {
+      effort: "x",
+      destination: "BODY LINE ONE",
+      notes: "n",
+      decisions: [],
+      fog: [],
+      outOfScope: [],
+      tickets: [],
+      meta: { effort: "x", created: "2020-01-01", status: "active" },
+    });
+    const path = join(cwd, ".planning", "x", "map.md");
+    const before = readFileSync(path, "utf-8");
+    const bodyBefore = before.split("---\n").pop();
+    touchEffortManifest(cwd, "x");
+    const after = readFileSync(path, "utf-8");
+    expect(after).toContain(`last: ${todayStr()}`);
+    expect(after.split("---\n").pop()).toBe(bodyBefore); // body byte-for-byte unchanged
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("is a no-op on a legacy (no front-matter) map", () => {
+    const cwd = fresh();
+    writeMap(cwd, {
+      effort: "legacy",
+      destination: "d",
+      notes: "",
+      decisions: [],
+      fog: [],
+      outOfScope: [],
+      tickets: [],
+    });
+    const path = join(cwd, ".planning", "legacy", "map.md");
+    const before = readFileSync(path, "utf-8");
+    touchEffortManifest(cwd, "legacy");
+    expect(readFileSync(path, "utf-8")).toBe(before);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("is a no-op when there is no map", () => {
+    const cwd = fresh();
+    expect(() => touchEffortManifest(cwd, "ghost")).not.toThrow();
+    rmSync(cwd, { recursive: true, force: true });
+  });
+});
+
+// ─── wiring: ticket/decision mutations bump the manifest (layer 3, finding #1) ──
+describe("touchEffortManifest — wired into writeTicket / closeTicket / appendDecision", () => {
+  const todayStr = () => new Date().toISOString().slice(0, 10);
+  const STALE = "2020-01-01";
+
+  /** Write a manifest map.md directly with a STALE `last:` date — bypasses
+   *  writeMap (which stamps last: today) so a touch is observable: stale → today. */
+  function writeManifestMapStale(cwd: string, effort: string): string {
+    const dir = join(cwd, ".planning", effort);
+    mkdirSync(join(dir, "tickets"), { recursive: true });
+    const md = [
+      "---",
+      `effort: ${effort}`,
+      "created: 2020-01-01",
+      `last: ${STALE}`,
+      "status: active",
+      "---",
+      "",
+      `# Wayfinder map: ${effort}`,
+      "",
+      "## Destination",
+      "",
+      "ship it",
+      "",
+      "## Notes",
+      "",
+      "n",
+      "",
+      "## Decisions so far",
+      "",
+      "<!-- none yet -->",
+      "",
+      "## Not yet specified",
+      "",
+      "<!-- none -->",
+      "",
+      "## Out of scope",
+      "",
+      "<!-- none -->",
+      "",
+    ].join("\n");
+    writeFileSync(join(dir, "map.md"), md, "utf-8");
+    return md;
+  }
+
+  it("writeTicket advances the manifest last: to today (body byte-unchanged)", () => {
+    const cwd = fresh();
+    writeManifestMapStale(cwd, "demo");
+    const mapPath = join(cwd, ".planning", "demo", "map.md");
+    const bodyBefore = readFileSync(mapPath, "utf-8").split("---\n").pop();
+    expect(readEffortMeta(cwd, "demo")?.last).toBe(STALE); // pre-condition: stale
+
+    writeTicket(cwd, "demo", {
+      id: "01",
+      slug: "pick",
+      title: "Pick",
+      question: "q",
+      type: "task",
+      blocking: [],
+      status: "open",
+    });
+
+    expect(readEffortMeta(cwd, "demo")?.last).toBe(todayStr()); // advanced to today
+    expect(readFileSync(mapPath, "utf-8").split("---\n").pop()).toBe(bodyBefore); // body untouched
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("closeTicket (delegates to writeTicket) advances the manifest last:", () => {
+    const cwd = fresh();
+    writeManifestMapStale(cwd, "demo");
+    closeTicket(
+      cwd,
+      "demo",
+      {
+        id: "01",
+        slug: "pick",
+        title: "Pick",
+        question: "q",
+        type: "task",
+        blocking: [],
+        status: "open",
+      },
+      "resolved",
+    );
+    expect(readEffortMeta(cwd, "demo")?.last).toBe(todayStr());
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("appendDecision advances the manifest last: to today (decision still appended)", () => {
+    const cwd = fresh();
+    writeManifestMapStale(cwd, "demo");
+    const decision: MapDecision = { title: "Picked X", gist: "use X", link: "tickets/01-pick.md" };
+    appendDecision(cwd, "demo", decision);
+    expect(readEffortMeta(cwd, "demo")?.last).toBe(todayStr()); // advanced to today
+    const onDisk = readFileSync(join(cwd, ".planning", "demo", "map.md"), "utf-8");
+    expect(onDisk).toContain("- [Picked X](tickets/01-pick.md) — use X"); // decision still appended
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("writeTicket on a LEGACY effort (no meta) adds no front-matter", () => {
+    const cwd = fresh();
+    writeMap(cwd, {
+      effort: "legacy",
+      destination: "d",
+      notes: "",
+      decisions: [],
+      fog: [],
+      outOfScope: [],
+      tickets: [],
+    });
+    const mapPath = join(cwd, ".planning", "legacy", "map.md");
+    const before = readFileSync(mapPath, "utf-8");
+    writeTicket(cwd, "legacy", {
+      id: "01",
+      slug: "pick",
+      title: "Pick",
+      question: "q",
+      type: "task",
+      blocking: [],
+      status: "open",
+    });
+    expect(readEffortMeta(cwd, "legacy")).toBeNull(); // still no front-matter
+    expect(readFileSync(mapPath, "utf-8")).toBe(before); // map.md byte-unchanged
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("appendDecision on a LEGACY effort (no meta) leaves no front-matter", () => {
+    const cwd = fresh();
+    writeMap(cwd, {
+      effort: "legacy",
+      destination: "d",
+      notes: "",
+      decisions: [],
+      fog: [],
+      outOfScope: [],
+      tickets: [],
+    });
+    appendDecision(cwd, "legacy", { title: "Picked X", gist: "use X", link: "tickets/01-pick.md" });
+    expect(readEffortMeta(cwd, "legacy")).toBeNull(); // still no front-matter
+    rmSync(cwd, { recursive: true, force: true });
   });
 });

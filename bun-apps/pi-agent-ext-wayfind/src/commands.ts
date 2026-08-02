@@ -31,6 +31,7 @@ import {
   unpublishWayfindActive,
   unpublishWayfindGrill,
 } from "./coordination.js";
+import { renderValidate, validateEffort } from "./effort-tool.js";
 import { buildFreshnessWarning, checkFactFreshness } from "./freshness.js";
 import { buildGrillPriming } from "./grill.js";
 import type { WayfindOverlay } from "./overlay.js";
@@ -45,7 +46,7 @@ import {
   statusReport,
 } from "./wayfinder.js";
 
-const WAYFIND_KEYWORDS = new Set(["status", "spec", "tickets", "seed", "sync", "done"]);
+const WAYFIND_KEYWORDS = new Set(["status", "spec", "tickets", "seed", "sync", "done", "validate"]);
 
 export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay: WayfindOverlay): void {
   /** Shared kickoff: set the active-grill state, refresh the published seam, and
@@ -246,6 +247,16 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
     overlay.setLine("to-tickets", `tickets${effort ? `: ${effort}` : ""}`);
   }
 
+  async function handleWayfindValidate(args: string, ctx: ExtensionCommandContext): Promise<void> {
+    const sessionId = getSessionId(ctx);
+    const effort = args.trim() || state.activeEffortBySession.get(sessionId);
+    if (!effort) {
+      ctx.ui.notify(`Usage: /wayfind validate <effort>  (or run /wayfind <destination> first)`, "warning");
+      return;
+    }
+    ctx.ui.notify(renderValidate(validateEffort(ctx.cwd, effort)), "info");
+  }
+
   async function handleWayfinderStatus(args: string, ctx: ExtensionCommandContext): Promise<void> {
     const sessionId = getSessionId(ctx);
     const effort = args.trim() || state.activeEffortBySession.get(sessionId);
@@ -286,6 +297,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
         return;
       }
       state.activeEffortBySession.set(sessionId, effort);
+      overlay.setActiveEffort(effort, ctx.cwd);
       publishWayfindActive(state);
       overlay.setLine("working-ticket", `${effort} — ticket ${claimed.id} ${claimed.title}`);
       pi.sendUserMessage(
@@ -304,6 +316,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
     const effort = effortSlug(destination);
     chartMap(ctx.cwd, effort, destination);
     state.activeEffortBySession.set(sessionId, effort);
+    overlay.setActiveEffort(effort, ctx.cwd);
     publishWayfindActive(state);
     overlay.setLine("charting", `charting ${effort}`);
     ctx.ui.notify(`[${PKG_NAME}] Map created at .planning/${effort}/map.md`, "info");
@@ -343,7 +356,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
 
   pi.registerCommand("wayfind", {
     description:
-      "Wayfinder family: '<destination>' (chart a map) or no args (work next ticket); 'status'/'spec'/'tickets'/'seed'/'sync'/'done' [effort]",
+      "Wayfinder family: '<destination>' (chart a map) or no args (work next ticket); 'status'/'spec'/'tickets'/'seed'/'sync'/'validate'/'done' [effort]",
     handler: async (args, ctx) => {
       const trimmed = args.trim();
       const [first, ...rest] = trimmed.split(/\s+/);
@@ -362,6 +375,8 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
             return handleChainSync(remainder, ctx);
           case "done":
             return handleWayfindDone(remainder, ctx);
+          case "validate":
+            return handleWayfindValidate(remainder, ctx);
         }
       }
       return handleWayfinderChart(trimmed, ctx);

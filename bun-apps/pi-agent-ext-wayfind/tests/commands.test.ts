@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { registerCommands } from "../src/commands.js";
 import { WAYFIND_ACTIVE_KEY } from "../src/constants.js";
 import { isWayfindActivePublished } from "../src/coordination.js";
+import { createEffort } from "../src/effort-tool.js";
 import { readMap, writeMap, writeTicket } from "../src/map.js";
 import { WayfindOverlay } from "../src/overlay.js";
 import { createRuntimeState, isGrillActive, type RuntimeState } from "../src/state.js";
@@ -68,6 +69,21 @@ function setup(): { pi: MockPi; state: RuntimeState } {
   const pi = createPi();
   registerCommands(pi as unknown as Parameters<typeof registerCommands>[0], state, new WayfindOverlay());
   return { pi, state };
+}
+
+/** Build a command ctx that captures `ui.notify` calls into `notifications`.
+ *  Hoisted to module scope so every describe block reuses ONE helper (no local
+ *  `any`-typed duplicates). */
+function ctxCapturing(cwd: string): { ctx: any; notifications: string[] } {
+  const notifications: string[] = [];
+  return {
+    notifications,
+    ctx: {
+      cwd,
+      sessionManager: { getSessionId: () => "test-session" },
+      ui: { notify: (m: string) => notifications.push(m), setStatus: () => {} },
+    },
+  };
 }
 
 const run = (pi: MockPi, name: string, args = "", ctx?: any) =>
@@ -382,18 +398,6 @@ describe("/grill and /wayfind dispatchers — routing", () => {
 // freshness module itself is unit-tested hermetically (injected spawnImpl) in
 // tests/freshness.test.ts, which DOES run on CI.
 describe.skipIf(!!process.env.CI)("/wayfind — fact-freshness guard", () => {
-  function ctxCapturing(cwd: string): { ctx: any; notifications: string[] } {
-    const notifications: string[] = [];
-    return {
-      notifications,
-      ctx: {
-        cwd,
-        sessionManager: { getSessionId: () => "test-session" },
-        ui: { notify: (m: string) => notifications.push(m), setStatus: () => {} },
-      },
-    };
-  }
-
   /** Initialize `cwd` as a git repo where HEAD is `behind` commits behind origin/main. */
   function gitBehind(cwd: string, behind: number): void {
     const g = (...a: string[]) => spawnSync("git", a, { cwd, encoding: "utf8" });
@@ -439,5 +443,59 @@ describe.skipIf(!!process.env.CI)("/wayfind — fact-freshness guard", () => {
 
     expect(notifications.every((n) => !n.includes("Fact freshness"))).toBe(true);
     expect(pi.sent.every((s) => !s.includes("Fact freshness"))).toBe(true);
+  });
+});
+
+// ─── /wayfind chart — overlay active-effort wiring (layer 3) ─────────────────
+describe("/wayfind chart — overlay active-effort wiring", () => {
+  it("charting a destination sets the overlay's active effort + cwd", async () => {
+    const overlay = new WayfindOverlay();
+    let spy: { effort?: string; cwd?: string } = {};
+    overlay.setActiveEffort = (effort, cwd) => {
+      spy = { effort, cwd };
+    };
+    const state = createRuntimeState();
+    const pi = createPi();
+    registerCommands(pi as unknown as Parameters<typeof registerCommands>[0], state, overlay);
+    const cwd = makeCwd();
+    await pi.commands.get("wayfind")?.("Redesign the checkout flow", makeCtx(cwd));
+    expect(spy.effort).toBeTruthy();
+    expect(spy.cwd).toBe(cwd);
+  });
+});
+
+describe("/wayfind validate — conformance command", () => {
+  it("notifies 'valid' on a conforming manifest effort", async () => {
+    const { pi } = setup();
+    const cwd = makeCwd();
+    createEffort(cwd, { effort: "demo", destination: "ship the tool" }); // manifest + Destination
+    const { ctx, notifications } = ctxCapturing(cwd);
+    await pi.commands.get("wayfind")?.("validate demo", ctx);
+    expect(notifications.some((n) => /valid/i.test(n))).toBe(true);
+  });
+
+  it("notifies problems on a map missing ## Destination", async () => {
+    const { pi } = setup();
+    const cwd = makeCwd();
+    mkdirSync(join(cwd, ".planning", "bad", "tickets"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".planning", "bad", "map.md"),
+      [
+        "---",
+        "effort: bad",
+        "status: active",
+        "---",
+        "",
+        "# Wayfinder map: bad",
+        "",
+        "## Notes",
+        "",
+        "no destination",
+      ].join("\n"),
+      "utf-8",
+    );
+    const { ctx, notifications } = ctxCapturing(cwd);
+    await pi.commands.get("wayfind")?.("validate bad", ctx);
+    expect(notifications.some((n) => /destination|invalid/i.test(n))).toBe(true);
   });
 });

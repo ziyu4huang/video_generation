@@ -20,14 +20,15 @@
  */
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { computeFrontier, type EffortMeta, readMap, validateEffortMap, type WayfindMap, writeMap } from "./map.js";
-
-// ─── helpers ─────────────────────────────────────────────────────────────────
-
-/** Today's date as YYYY-MM-DD (the manifest `created`/`last` convention). */
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+import {
+  computeFrontier,
+  type EffortMeta,
+  readMap,
+  today,
+  validateEffortMap,
+  type WayfindMap,
+  writeMap,
+} from "./map.js";
 
 // ─── create ──────────────────────────────────────────────────────────────────
 
@@ -170,7 +171,7 @@ function renderCreate(r: EffortCreateResult): string {
   return `Created effort manifest at ${r.path} (status: ${r.meta?.status ?? "active"}). Next: /wayfind ${r.effort} to chart the frontier, or add tickets under .planning/${r.effort}/tickets/.`;
 }
 
-function renderValidate(r: EffortValidateResult): string {
+export function renderValidate(r: EffortValidateResult): string {
   if (!r.exists) return `No map at .planning/${r.effort}/map.md — nothing to validate.`;
   if (r.ok) return `Effort '${r.effort}' is valid (manifest present, Destination set).`;
   return `Effort '${r.effort}' is INVALID:\n  - ${r.problems.join("\n  - ")}`;

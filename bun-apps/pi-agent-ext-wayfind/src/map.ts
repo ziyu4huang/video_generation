@@ -158,6 +158,47 @@ export function serializeMapFrontmatter(meta: EffortMeta): string {
   return `${lines.join("\n")}\n`;
 }
 
+/** Today's date as YYYY-MM-DD (the manifest `last` convention). Exported so the
+ *  effort tool (and any other manifest writer) reuses ONE date source. */
+export function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** Read ONLY the effort manifest (`map.md` front-matter) — no `tickets/` scan.
+ *  Returns null when there's no map or no front-matter. Cheap enough for the
+ *  status overlay to call per-render. */
+export function readEffortMeta(cwd: string, effort: string): EffortMeta | null {
+  const mapPath = join(effortDir(cwd, effort), "map.md");
+  if (!existsSync(mapPath)) return null;
+  return parseMapFrontmatter(readFileSync(mapPath, "utf-8")).meta;
+}
+
+/** Bump the manifest's `last:` date in place. No-op when there's no map or no
+ *  front-matter (legacy-safe). The body after the closing `---` is preserved
+ *  byte-for-byte — only the leading front-matter block is rewritten. */
+export function touchEffortManifest(cwd: string, effort: string): void {
+  const mapPath = join(effortDir(cwd, effort), "map.md");
+  if (!existsSync(mapPath)) return;
+  const raw = readFileSync(mapPath, "utf-8");
+  const { meta } = parseMapFrontmatter(raw);
+  if (!meta) return; // legacy / no manifest → no-op
+  const todayStr = today();
+  const replaced = raw.replace(/^---\r?\n([\s\S]*?)\r?\n---/, (_full, fmBody: string) => {
+    const lines = fmBody.split(/\r?\n/);
+    const lastIdx = lines.findIndex((l) => /^last:\s*/.test(l));
+    if (lastIdx >= 0) {
+      lines[lastIdx] = `last: ${todayStr}`;
+    } else {
+      const effortIdx = lines.findIndex((l) => /^effort:\s*/.test(l));
+      if (effortIdx >= 0) lines.splice(effortIdx + 1, 0, `last: ${todayStr}`);
+      else lines.push(`last: ${todayStr}`);
+    }
+    return `---\n${lines.join("\n")}\n---`;
+  });
+  if (replaced === raw) return;
+  writeFileSync(mapPath, replaced, "utf-8");
+}
+
 /** Parse a decision index line: `- [title](link) — gist` → MapDecision. */
 export function parseDecisionLine(line: string): MapDecision | null {
   const m = line.match(/^\s*-\s*\[([^\]]+)\]\(([^)]+)\)\s*[—-]\s*(.+)$/);
@@ -341,7 +382,7 @@ export function writeMap(cwd: string, map: WayfindMap): void {
   ].join("\n");
   // Emit front-matter only when meta is present — legacy callers and the ~377
   // existing prose-only maps stay byte-compatible (no front-matter added on rewrite).
-  const front = map.meta ? serializeMapFrontmatter(map.meta) : "";
+  const front = map.meta ? serializeMapFrontmatter({ ...map.meta, last: today() }) : "";
   writeFileSync(join(dir, "map.md"), front + body, "utf-8");
 }
 
@@ -370,6 +411,8 @@ export function writeTicket(cwd: string, effort: string, t: Ticket): void {
   const dir = join(effortDir(cwd, effort), "tickets");
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, `${t.id}-${t.slug}.md`), serializeTicket(t), "utf-8");
+  // A ticket mutation is a manifest touchpoint — bump `last:` (no-op on legacy/no manifest).
+  touchEffortManifest(cwd, effort);
 }
 
 /** Append a one-line pointer to the map's Decisions so far (used on resolve). */
@@ -385,6 +428,8 @@ export function appendDecision(cwd: string, effort: string, decision: MapDecisio
     return `${blockTrimmed}\n${line}\n${tail}`;
   });
   writeFileSync(mapPath, updated, "utf-8");
+  // A decision mutation is a manifest touchpoint — bump `last:` (no-op on legacy/no manifest).
+  touchEffortManifest(cwd, effort);
 }
 
 /** Close a ticket: set status "closed" + a resolution, then persist. Returns
