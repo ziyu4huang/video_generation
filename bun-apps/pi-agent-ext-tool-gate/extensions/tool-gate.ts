@@ -239,8 +239,18 @@ export function buildEffectiveGates(
     handled.add(def.name);
   }
   for (const fg of fallbackGates) {
-    if (fg.names.some((n) => handled.has(n))) continue; // owner-declared wins
-    gates.push(fg);
+    // FOLLOWUPS #4 (per-name resolution): partition each fallback gate's names
+    // into declared (owner-declared → gated by their own tool-def `gating`)
+    // vs undeclared. Keep the fallback gate (keywords/requires/description) for
+    // the UNDECLARED names; a gate with zero undeclared names is dropped (fully
+    // migrated). This prevents a partially-migrated multi-name group from
+    // fail-opening its still-unmigrated siblings (the old code dropped the
+    // ENTIRE gate if ANY name was declared).
+    const undeclaredNames = fg.names.filter((n) => !handled.has(n));
+    if (undeclaredNames.length === 0) continue; // all names migrated → drop
+    gates.push(undeclaredNames.length === fg.names.length
+      ? fg                              // fully-unmigrated: unchanged behavior
+      : { ...fg, names: undeclaredNames }); // partial: gate the siblings only
   }
   for (const c of fallbackCore) {
     if (!handled.has(c)) core.add(c);
