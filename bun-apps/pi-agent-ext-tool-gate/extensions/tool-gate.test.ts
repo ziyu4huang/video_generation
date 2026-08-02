@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { updateSticky, CORE_TOOLS, GATES, computeBannerSaved, matchIntent, matchesKeyword, gateFires, measureToolTokens, filterActive, buildEffectiveGates } from "./tool-gate.ts";
+import { updateSticky, CORE_TOOLS, computeBannerSaved, matchIntent, matchesKeyword, gateFires, measureToolTokens, filterActive, buildEffectiveGates } from "./tool-gate.ts";
 import type { ToolGate } from "./tool-gate.ts";
 import { emitToolGateLog, isMissCandidate } from "./tool-gate.ts";
 import toolGateExtension from "./tool-gate.ts";
@@ -149,63 +149,14 @@ describe("updateSticky (mutation half)", () => {
   });
 });
 
-describe("GATES data (S1)", () => {
-  test("every gate has a non-empty description (and GATES is empty post-migration)", () => {
-    // tickets 03–12 migrated every hardcoded gate to owner-declared `gating`;
-    // GATES is now EMPTY (the backward-compatible fallback simply has no
-    // entries). The loop stays as a structural guard (a future re-added entry
-    // must carry a description); the length assertion pins the migration's
-    // end-state — the last hardcoded gate (zai-mcp) left in ticket 12.
-    for (const g of GATES) {
-      expect(g.description.length).toBeGreaterThan(0);
-    }
-    expect(GATES).toHaveLength(0);
-  });
-
-  test("movie gate exists and fires on 'movie' and '分鏡'", () => {
-    const sticky = new Set(CORE_TOOLS);
-    const all = [...CORE_TOOLS, "movie", "movie_help"];
-    // movie/movie_help owner-declared (ticket 08) → thread EFF so they stay
-    // tracked + gated (absent from module-level TRACKED_TOOLS/GATES now).
-    updateSticky("幫我用 movie 做一個分鏡", sticky, EFF.gates);
-    expect(filterActive(all, sticky, EFF.tracked)).toEqual(expect.arrayContaining(["movie", "movie_help"]));
-  });
-
-  // inspect_* is no longer a hardcoded gate (owner-declared by power-tool as of
-  // the Task-3 migration). The SAME narrowing/firing behaviour must hold via
-  // buildEffectiveGates with the owner-declared gating — proving the removed
-  // GATES entry is fully owner-supplied. buildEffectiveGates is imported below
-  // (hoisted); the owner-declared gating mirrors power-tool's literals verbatim.
-  const INSPECT_GATING = {
-    keywords: ["schema cost", "pathology", "extension health", "工具開銷", "context window", "token usage"],
-    requires: {
-      nouns: ["agent", "context", "extension", "pathology", "token", "schema", "tui", "工具"],
-      verbs: ["inspect", "show", "check", "diagnose", "dump", "report"],
-    },
-  };
-  const inspectDefs = (names: string[]) =>
-    names.map((name) => ({ name, description: "d", gating: INSPECT_GATING }));
-
-  test("inspect (owner-declared) does NOT fire on generic 'debug the docker build' (narrowed)", () => {
-    const inspectTools = ["inspect_context", "inspect_agent", "inspect_extensions", "inspect_pathology"];
-    const eff = buildEffectiveGates(inspectDefs(inspectTools));
-    const sticky = new Set(CORE_TOOLS);
-    const all = [...CORE_TOOLS, ...inspectTools];
-    updateSticky("let's debug the docker build", sticky, eff.gates);
-    const active = filterActive(all, sticky, eff.tracked);
-    for (const t of inspectTools) {
-      expect(active).not.toContain(t);
-    }
-  });
-
-  test("inspect (owner-declared) fires on 'inspect extension health'", () => {
-    const eff = buildEffectiveGates(inspectDefs(["inspect_extensions"]));
-    const sticky = new Set(CORE_TOOLS);
-    const all = [...CORE_TOOLS, "inspect_extensions"];
-    updateSticky("inspect extension health", sticky, eff.gates);
-    expect(filterActive(all, sticky, eff.tracked)).toContain("inspect_extensions");
-  });
-});
+// Ticket 15 deleted the hardcoded GATES array (it was empty post-migration).
+// The former `describe("GATES data (S1)")` block lived here; its GATES-asserting
+// test (`expect(GATES).toHaveLength(0)`) was removed with the symbol. The movie
+// CJK firing + inspect owner-declared narrowing/firing it also held are covered
+// elsewhere: movie CJK via the matchIntent (S1) block; inspect false-fire/firing
+// via the "inspect_* precision/escape (recovered from dropped QA probes)" block
+// (which tests gateFires/matchIntent directly, more rigorously than the
+// updateSticky+filterActive form here did).
 
 // inspect_* is owner-declared (power-tool) as of the Task-3 migration and no
 // longer a hardcoded gate, so the QA corpus (qa/probes.ts, evaluated via the
@@ -311,10 +262,10 @@ describe("matchIntent (S1)", () => {
     expect(matchIntent("orchestrate a parallel pipeline", EFF.gates, sticky()).map((g) => g.names[0])).toEqual(["workflow", "workflow_help", "workflow_control", "subagent"]);
   });
   test("S2 flip: 'docker image cleanup' → [] (image noun, no gen-verb)", () => {
-    expect(matchIntent("docker image cleanup", GATES, sticky()).map((g) => g.names[0])).toEqual([]);
+    expect(matchIntent("docker image cleanup", EFF.gates, sticky()).map((g) => g.names[0])).toEqual([]);
   });
   test("no match → []", () => {
-    expect(matchIntent("what's the weather", GATES, sticky())).toEqual([]);
+    expect(matchIntent("what's the weather", EFF.gates, sticky())).toEqual([]);
   });
   test("dormant-skip: already-active gate is not returned", () => {
     const s = sticky();
@@ -743,7 +694,7 @@ describe("S2 cross-gate invariant — shared noun, disjoint verbs ⇒ only one f
 
 describe("S2 matchIntent false-fire cases", () => {
   const sticky = () => new Set(CORE_TOOLS);
-  const first = (prompt: string) => matchIntent(prompt, GATES, sticky()).map((g) => g.names[0]);
+  const first = (prompt: string) => matchIntent(prompt, EFF.gates, sticky()).map((g) => g.names[0]);
 
   test("describe the architecture → []", () => {
     expect(first("describe the architecture")).toEqual([]);
@@ -899,83 +850,24 @@ describe("buildEffectiveGates", () => {
     expect(g!.requires).toEqual({ nouns: ["agent"], verbs: ["inspect"] });
   });
 
-  test("hybrid fallback: tools without gating keep their fallback gate", () => {
-    // After ticket 12 the module GATES is EMPTY (every gate is owner-declared),
-    // so prove the fallback path with a SYNTHETIC fallback gate (the
-    // buildEffectiveGates `fallbackGates` param mirrors how production would
-    // still resolve an as-yet-unmigrated name). A tool with no owner declaration
-    // falls back to the synthetic gate; CORE_TOOLS still falls back to core.
-    const fallbackGates = [{ names: ["synth_fallback"], keywords: ["synth"], description: "synthetic fallback gate" }];
-    const eff = buildEffectiveGates([], fallbackGates); // no owner declarations
-    const gate = eff.gates.find((g) => g.names.includes("synth_fallback"));
-    expect(gate).toBeDefined(); // fallback gate intact
+  test("undeclared CORE_TOOLS keep their fallback core (fallbackCore = CORE_TOOLS)", () => {
+    // Ticket 15 deleted the hardcoded GATES array + the `fallbackGates` param
+    // (every gate is owner-declared end to end). Only `fallbackCore` survives:
+    // an undeclared name that's in CORE_TOOLS still lands in eff.core
+    // (always-active). A name with no owner declaration AND not in CORE_TOOLS is
+    // simply ungated (no longer falls back to a hardcoded gate).
+    const eff = buildEffectiveGates([]); // no owner declarations
     expect(eff.core.has("read")).toBe(true); // CORE_TOOLS fallback intact
+    expect(eff.gates).toHaveLength(0); // no fallback gates exist anymore
   });
 
-  test("owner-declared tool supersedes a same-named fallback gate", () => {
-    // After ticket 12 there is no hardcoded gate left to supersede, so prove the
-    // supersession mechanism with a SYNTHETIC fallback gate: an owner declaration
-    // for the same name wins over the fallback gate's keywords.
-    const fallbackGates = [{ names: ["synth_x"], keywords: ["fallback-kw"], description: "fallback" }];
-    const defs = [{
-      name: "synth_x", description: "owner",
-      gating: { keywords: ["owner-kw"] },
-    }] as Array<{ name: string; description?: string; gating?: any }>;
-    const eff = buildEffectiveGates(defs, fallbackGates);
-    const g = eff.gates.find((x) => x.names.includes("synth_x"));
-    expect(g!.keywords).toEqual(["owner-kw"]); // owner wins, not the fallback entry
-  });
-
-  test("FOLLOWUPS #4 — partial migration of a multi-name gate keeps undeclared siblings gated (per-name resolution)", () => {
-    // Live case this guards: the hardcoded `workflow`/`workflow_help`/
-    // `subagent`/`workflow_control` gate — if `subagent` (a separate package)
-    // gets owner-declared during rollout, the OLD merge dropped the ENTIRE
-    // fallback gate → `workflow`/`workflow_help`/`workflow_control` silently
-    // fail-open (lose their gate). Per-name resolution partitions each
-    // fallback gate's names: undeclared siblings KEEP the fallback gate
-    // (keywords/requires/description), only owner-declared names leave it.
-    //
-    // Synthetic 3-name fallback gate. `beta` is owner-declared (rolled out to
-    // its own gating); `alpha`/`gamma` are still on the fallback.
-    const fallbackGates: ToolGate[] = [
-      {
-        names: ["alpha", "beta", "gamma"],
-        keywords: ["kw"],
-        requires: { nouns: ["thing"], verbs: ["do"] },
-        description: "synthetic multi-name gate",
-      },
-    ];
-    const fallbackCore = new Set<string>(["core_one"]);
-    const defs = [
-      { name: "alpha", description: "a" },
-      { name: "beta", description: "b", gating: { keywords: ["beta-kw"] } },
-      { name: "gamma", description: "g" },
-    ] as Array<{ name: string; description?: string; gating?: any }>;
-
-    const eff = buildEffectiveGates(defs, fallbackGates, fallbackCore);
-
-    // (1) undeclared siblings KEEP a fallback gate carrying the original
-    //     keywords/requires/description — they did NOT fail-open. `beta` is
-    //     excised (gated by its owner declaration instead).
-    const survivor = eff.gates.find(
-      (g) => g.names.includes("alpha") && g.names.includes("gamma"),
-    );
-    expect(survivor).toBeDefined();
-    expect(survivor!.names).toEqual(["alpha", "gamma"]); // beta excised
-    expect(survivor!.keywords).toEqual(["kw"]); // original keywords preserved
-    expect(survivor!.requires).toEqual({ nouns: ["thing"], verbs: ["do"] });
-
-    // (2) `beta` is gated by its OWNER-DECLARED gate, NOT by the fallback.
-    const betaGate = eff.gates.find((g) => g.names.includes("beta"));
-    expect(betaGate).toBeDefined();
-    expect(betaGate!.names).toEqual(["beta"]); // single-name owner gate
-    expect(betaGate!.keywords).toEqual(["beta-kw"]); // owner keywords, not fallback
-
-    // (3) ALL three are tracked (core ∪ gate names) → none fail-open.
-    for (const n of ["alpha", "beta", "gamma"]) {
-      expect(eff.tracked.has(n)).toBe(true);
-    }
-  });
+  // Ticket 15 deleted the hardcoded GATES array, the buildEffectiveGates
+  // `fallbackGates` param, and the FOLLOWUPS #4 per-name fallback partition.
+  // The two tests that lived here ("owner-declared tool supersedes a same-named
+  // fallback gate" + "FOLLOWUPS #4 — partial migration… per-name resolution")
+  // asserted exactly that removed fallback mechanism, so they were deleted with
+  // it. buildEffectiveGates now has ONLY owner-declared `gating` + the
+  // `fallbackCore` (= CORE_TOOLS) always-active set — no gate fallback at all.
 });
 
 describe("tool-gate runtime reads owner-declared gating", () => {

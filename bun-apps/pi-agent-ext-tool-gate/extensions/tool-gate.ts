@@ -2,9 +2,10 @@
  * Dynamic Tool Gate Extension — reduces API tools schema overhead
  *
  * Keeps core tools always active while gating heavy domain-specific tools
- * (inspect, zai-mcp) behind prompt keyword matching. (The other formerly-
- * hardcoded gates — flux2/ltx/krea2/movie/research-tool/workflow/subagent —
- * migrated to owner-declared `gating` on their tool defs.)
+ * behind prompt keyword matching. Every gate is owner-declared via `gating` on
+ * the owning tool's def (tickets 03–12 migrated flux2/ltx/krea2/movie/
+ * research-tool/workflow/subagent/inspect/zai-mcp off the former hardcoded
+ * GATES array; ticket 15 deleted that now-empty array — no legacy fallback).
  * (pi_deploy/pi_verify migrated to owner-declared gating in ticket 03;
  *  file2md/vision_ask migrated to owner-declared gating in ticket 04;
  *  flux2/flux2_help migrated to owner-declared gating in ticket 05;
@@ -63,7 +64,7 @@ export interface CoOccurrence {
   verbs: string[];
 }
 
-interface ToolGate {
+export interface ToolGate {
   names: string[];
   /** Unambiguous triggers — matched via matchesKeyword. */
   keywords: string[];
@@ -73,59 +74,33 @@ interface ToolGate {
   requires?: CoOccurrence;
 }
 
-/**
- * Gated tool groups. A gate fires (via gateFires) if any keyword matches, OR
- * its optional `requires` co-occurrence (≥1 noun AND ≥1 verb) is met.
- *
- * S2 audit (2026-07-20): over-broad bare words removed (image/scene/style/swap/
- * render/draft/video/電影/動畫/describe/what is in/vision/pdf/chain/collect/
- * organize/movie/compose). Core nouns (image/video/pdf) moved behind `requires`
- * so they fire only alongside a generation/action verb — killing false-fires
- * (docker image, video call) while preserving recall (generate an image, make a
- * video). Keywords are matched case-insensitively; single ASCII tokens use word
- * boundaries, phrases/CJK use substring.
- */
-export const GATES: ToolGate[] = [
-  // NOTE (audit 2026-07-25): the `cost` gate was REMOVED. It gated the
-  // `movie-director-cost.ts` typed PROTOTYPE, which is measured offline
-  // (schema-cost EXTRA_ENTRIES) but NEVER loaded at runtime (absent from the
-  // manifest, static-extensions, and movie-director.ts imports). Gating a
-  // phantom inflated savings by ~536 tok/req. The real cost functionality
-  // lives in `movie`'s cost subcommands (covered by the `movie` gate). Do
-  // NOT re-add this gate unless movie-director-cost.ts is wired to load.
-  //
-  // NOTE (ticket 12, 2026-08-02): zai-mcp — the LAST hardcoded gate — migrated
-  // to owner-declared `gating` (pi-agent-ext-zai-mcp registerServerTools
-  // attaches ZAI_GATING to every dynamically-registered zai tool). With it
-  // gone this array is EMPTY: every gate is now owner-declared end to end,
-  // discovered via getAllToolDefinitions() + buildEffectiveGates(). The array
-  // is retained as buildEffectiveGates's backward-compatible fallbackGates
-  // default (and computeBannerSaved's default) so an UNMIGRATED name still
-  // resolves per-name; it simply has no entries today. Do NOT re-add a
-  // hardcoded gate — declare `gating` on the owning tool instead.
-];
+/** The set of tools this extension explicitly tracks at module load (the
+ *  always-active CORE_TOOLS). Owner-declared gates are NOT listed here — they're
+ *  discovered at runtime via getAllToolDefinitions() + buildEffectiveGates() and
+ *  surfaced as EffectiveGates.tracked. Unknown tools (not in this set) are
+ *  always active (fail-open). Precomputed at module load so callers that need
+ *  the active list without re-firing gates can filter directly. */
+export const TRACKED_TOOLS = new Set(CORE_TOOLS);
 
-/** Union of CORE_TOOLS and every gate's tool names — the set of tools this
- *  extension explicitly tracks. Unknown tools (not in this set) are always
- *  active (fail-open). Precomputed at module load so callers that need the
- *  active list without re-firing gates can filter directly. */
-export const TRACKED_TOOLS = new Set([...CORE_TOOLS, ...GATES.flatMap((g) => g.names)]);
-
-/** Result of merging owner-declared `gating` with the hardcoded fallback. */
+/** Effective gate set built from owner-declared `gating` (+ the CORE_TOOLS
+ *  always-active fallback). */
 export interface EffectiveGates {
-  gates: ToolGate[];   // non-core gates: owner-declared (single-name) + unhandled hardcoded
-  core: Set<string>;   // always-active names: owner core:true + unhandled CORE_TOOLS
+  gates: ToolGate[];   // non-core gates: one per owner-declared non-core tool (single-name)
+  core: Set<string>;   // always-active names: owner core:true + CORE_TOOLS fallback
   tracked: Set<string>; // core ∪ all gate names — the explicit-track set for filterActive
 }
 
 /**
- * Build the effective gate set for a session: owner-declared `gating` fields win
- * (authoritative); tools without `gating` fall back to the hardcoded GATES/CORE_TOOLS.
- * Pure: no pi dependency. Owner-declared non-core tools become single-name gates.
+ * Build the effective gate set for a session from owner-declared `gating`:
+ * authoritative, no hardcoded fallback. A `core:true` def → always-active core;
+ * any other `gating` def → a single-name gate; a def without `gating` is simply
+ * ungated. `fallbackCore` (= CORE_TOOLS) supplies the always-active set for
+ * legacy names not present in `defs` — the ONLY surviving fallback (ticket 15
+ * deleted the hardcoded GATES array + the `fallbackGates` per-name partition:
+ * every gate is now owner-declared end to end). Pure: no pi dependency.
  */
 export function buildEffectiveGates(
   defs: Array<{ name: string; description?: string; gating?: Gating }>,
-  fallbackGates: ToolGate[] = GATES,
   fallbackCore: Set<string> = CORE_TOOLS,
 ): EffectiveGates {
   const gates: ToolGate[] = [];
@@ -145,20 +120,6 @@ export function buildEffectiveGates(
       });
     }
     handled.add(def.name);
-  }
-  for (const fg of fallbackGates) {
-    // FOLLOWUPS #4 (per-name resolution): partition each fallback gate's names
-    // into declared (owner-declared → gated by their own tool-def `gating`)
-    // vs undeclared. Keep the fallback gate (keywords/requires/description) for
-    // the UNDECLARED names; a gate with zero undeclared names is dropped (fully
-    // migrated). This prevents a partially-migrated multi-name group from
-    // fail-opening its still-unmigrated siblings (the old code dropped the
-    // ENTIRE gate if ANY name was declared).
-    const undeclaredNames = fg.names.filter((n) => !handled.has(n));
-    if (undeclaredNames.length === 0) continue; // all names migrated → drop
-    gates.push(undeclaredNames.length === fg.names.length
-      ? fg                              // fully-unmigrated: unchanged behavior
-      : { ...fg, names: undeclaredNames }); // partial: gate the siblings only
   }
   for (const c of fallbackCore) {
     if (!handled.has(c)) core.add(c);
@@ -271,7 +232,7 @@ export function escapeRegExp(s: string): string {
 // call (every gate × every keyword/noun/verb, every turn) was pure waste.
 const ASCII_TOKEN_RE = /^[a-z0-9]+$/i;
 // Cache of compiled word-boundary regexes, keyed by lowercased keyword. The
-// keyspace is the finite GATES keyword/noun/verb set (~120), so the cache is
+// keyspace is the finite owner-declared keyword/noun/verb set, so the cache is
 // bounded; `new RegExp` per call on the hot per-turn path was the cost.
 const wordBoundaryRegexCache = new Map<string, RegExp>();
 function wordBoundaryRegex(kw: string): RegExp {
@@ -316,7 +277,7 @@ export function gateFires(gate: ToolGate, promptLower: string): boolean {
  * using flux2 must not lose the tool mid-task just because a follow-up prompt
  * like "make it bigger" doesn't repeat the trigger keyword).
  */
-export function updateSticky(prompt: string, sticky: Set<string>, gates: ToolGate[] = GATES): void {
+export function updateSticky(prompt: string, sticky: Set<string>, gates: ToolGate[] = []): void {
 	const promptLower = prompt.toLowerCase();
 	for (const gate of gates) {
 		if (gateFires(gate, promptLower)) {
@@ -398,7 +359,7 @@ export function computeBannerSaved(
   active: string[],
   allToolNames: string[],
   measuredTokens: Map<string, number>,
-  gates: ToolGate[] = GATES,
+  gates: ToolGate[] = [],
 ): number {
   const activeSet = new Set(active);
   return gates
@@ -436,7 +397,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
   // extension a no-op — registers nothing, sets no active tools — so every
   // loaded tool stays active (the ungated OFF baseline). Used by `bun run qa
   // --l2` to run identical tasks ON vs OFF. Cheap to respect early: the whole
-  // gate (CORE_TOOLS/GATES/sticky) is bypassed.
+  // gate (CORE_TOOLS/sticky) is bypassed.
   if (process.env.TOOL_GATE_DISABLE === "1") return;
 
   type DiscoveredTool = { name: string; description?: string; parameters?: unknown; gating?: Gating };
@@ -444,7 +405,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     const fn = (pi as typeof pi & { getAllToolDefinitions?(): DiscoveredTool[] }).getAllToolDefinitions;
     return typeof fn === "function" ? fn() : [];
   };
-  let effectiveGates: ToolGate[] = GATES;
+  let effectiveGates: ToolGate[] = [];
   let effectiveCore: Set<string> = new Set(CORE_TOOLS);
   let effectiveTracked: Set<string> = TRACKED_TOOLS;
 
