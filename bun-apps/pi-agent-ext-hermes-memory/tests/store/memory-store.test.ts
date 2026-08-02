@@ -1726,6 +1726,145 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.ok(!/state:/.test(raw), "memory frontmatter must NOT carry a state field");
     });
   });
+
+  // ─── Assembly manifest (prompt-provenance, UPSP §5) ───
+  //
+  // getAssemblyManifest()/getProjectAssemblyManifest() return the rendered block (byte-
+  // identical to formatForSystemPrompt()/formatProjectBlock()) PLUS the md_id set of EXACTLY
+  // the entries that block was assembled from. The id set and any hash over `block` must be
+  // consistent by construction — that is the prompt-provenance invariant (UPSP §5). Every
+  // seeded entry carries a frontmatter `id` so the manifest can harvest it. Reuses the file's
+  // shared tmp-dir + makeConfig()/writeRaw() idiom (entries written to disk, then loadFromDisk).
+  describe("MemoryStore assembly manifest", () => {
+    it("getAssemblyManifest: block equals formatForSystemPrompt; ids = memory + user + active failure", async () => {
+      const today = dateDaysAgo(0);
+      const MEM_A = "a1a1a1a1-1111-1111-1111-111111111111";
+      const MEM_B = "b2b2b2b2-2222-2222-2222-222222222222";
+      const USR_C = "c3c3c3c3-3333-3333-3333-333333333333";
+      const FAIL_D = "d4d4d4d4-4444-4444-4444-444444444444";
+
+      // 2 memory + 1 user entry, each frontmatter-stamped with a stable id.
+      await writeRaw(
+        memoryPath,
+        [
+          serializeMetadataFrontmatter({ id: MEM_A, text: `${TEST_MARKER} asm memory one`, created: today, last: today }),
+          serializeMetadataFrontmatter({ id: MEM_B, text: `${TEST_MARKER} asm memory two`, created: today, last: today }),
+        ].join(ENTRY_DELIMITER),
+      );
+      await writeRaw(
+        userPath,
+        serializeMetadataFrontmatter({ id: USR_C, text: `${TEST_MARKER} asm user fact`, created: today, last: today }),
+      );
+      // 1 ACTIVE failure inside the max-age window → injected → its id is harvested.
+      await writeRaw(
+        failurePath,
+        serializeMetadataFrontmatter({ id: FAIL_D, text: `${TEST_MARKER} asm failure boom`, created: today, last: today, state: "active" }),
+      );
+
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+
+      const manifest = store.getAssemblyManifest();
+
+      // (D2) the block is EXACTLY what the agent is injected with:
+      assert.equal(manifest.block, store.formatForSystemPrompt());
+      // ids are the unique md_ids of memory + user + post-filter active failures:
+      assert.deepEqual(new Set(manifest.mdIds), new Set([MEM_A, MEM_B, USR_C, FAIL_D]));
+    });
+
+    it("getAssemblyManifest: failure ids are excluded when failure injection is disabled", async () => {
+      const today = dateDaysAgo(0);
+      const MEM_A = "e5e5e5e5-5555-5555-5555-555555555555";
+      const FAIL_D = "f6f6f6f6-6666-6666-6666-666666666666";
+      await writeRaw(
+        memoryPath,
+        serializeMetadataFrontmatter({ id: MEM_A, text: `${TEST_MARKER} asm nomem`, created: today, last: today }),
+      );
+      await writeRaw(
+        failurePath,
+        serializeMetadataFrontmatter({ id: FAIL_D, text: `${TEST_MARKER} asm nofail`, created: today, last: today, state: "active" }),
+      );
+
+      const store = new MemoryStore(makeConfig({ failureInjectionEnabled: false }));
+      await store.loadFromDisk();
+
+      const manifest = store.getAssemblyManifest();
+      assert.equal(manifest.block, store.formatForSystemPrompt());
+      // The failure block is NOT injected, so its id must NOT appear in the manifest.
+      assert.deepEqual(new Set(manifest.mdIds), new Set([MEM_A]));
+      assert.ok(!manifest.mdIds.includes(FAIL_D));
+    });
+
+    it("getAssemblyManifest: filters out non-active (resolved/acquired) and out-of-window failures", async () => {
+      const today = dateDaysAgo(0);
+      const ACTIVE = "11111111-aaaa-1111-1111-111111111111";
+      const RESOLVED = "22222222-bbbb-2222-2222-222222222222";
+      const OLD = "33333333-cccc-3333-3333-333333333333";
+      await writeRaw(
+        failurePath,
+        [
+          serializeMetadataFrontmatter({ id: ACTIVE, text: `${TEST_MARKER} asm active`, created: today, last: today, state: "active" }),
+          // resolved → excluded from injection → excluded from manifest.
+          serializeMetadataFrontmatter({ id: RESOLVED, text: `${TEST_MARKER} asm resolved`, created: today, last: today, state: "resolved" }),
+          // active but older than the 1-day window → excluded.
+          serializeMetadataFrontmatter({ id: OLD, text: `${TEST_MARKER} asm old`, created: dateDaysAgo(5), last: dateDaysAgo(5), state: "active" }),
+        ].join(ENTRY_DELIMITER),
+      );
+
+      const store = new MemoryStore(makeConfig({ failureInjectionMaxAgeDays: 1, failureInjectionMaxEntries: 5 }));
+      await store.loadFromDisk();
+
+      const manifest = store.getAssemblyManifest();
+      // Only the in-window ACTIVE failure is injected → only its id is harvested.
+      assert.deepEqual(new Set(manifest.mdIds), new Set([ACTIVE]));
+      assert.ok(!manifest.mdIds.includes(RESOLVED));
+      assert.ok(!manifest.mdIds.includes(OLD));
+    });
+
+    it("getAssemblyManifest: failure id set is sliced to maxEntries (mirrors the renderer)", async () => {
+      const today = dateDaysAgo(0);
+      const ids = [
+        "aa000000-0000-0000-0000-0000000000aa",
+        "bb000000-0000-0000-0000-0000000000bb",
+        "cc000000-0000-0000-0000-0000000000cc",
+      ];
+      await writeRaw(
+        failurePath,
+        ids
+          .map((id) => serializeMetadataFrontmatter({ id, text: `${TEST_MARKER} asm max ${id.slice(0, 2)}`, created: today, last: today, state: "active" }))
+          .join(ENTRY_DELIMITER),
+      );
+
+      const store = new MemoryStore(makeConfig({ failureInjectionMaxEntries: 2 }));
+      await store.loadFromDisk();
+
+      const manifest = store.getAssemblyManifest();
+      assert.equal(manifest.block, store.formatForSystemPrompt());
+      // Only the first 2 failures are injected → only their ids are harvested.
+      assert.deepEqual(new Set(manifest.mdIds), new Set([ids[0], ids[1]]));
+    });
+
+    it("getProjectAssemblyManifest: block equals formatProjectBlock; ids = project memory ids", async () => {
+      const today = dateDaysAgo(0);
+      const PROJ_A = "1a1a1a1a-1111-1111-1111-1a1a1a1a1a1a";
+      const PROJ_B = "2b2b2b2b-2222-2222-2222-2b2b2b2b2b2b";
+      await writeRaw(
+        memoryPath,
+        [
+          serializeMetadataFrontmatter({ id: PROJ_A, text: `${TEST_MARKER} asm project one`, created: today, last: today }),
+          serializeMetadataFrontmatter({ id: PROJ_B, text: `${TEST_MARKER} asm project two`, created: today, last: today }),
+        ].join(ENTRY_DELIMITER),
+      );
+
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+
+      const name = "demo";
+      const manifest = store.getProjectAssemblyManifest(name);
+      assert.equal(manifest.block, store.formatProjectBlock(name));
+      assert.deepEqual(new Set(manifest.mdIds), new Set([PROJ_A, PROJ_B]));
+    });
+  });
 });
 
 describe("numeric isolation — assembled prompt never leaks memworth (UPSP §7 / DO ticket 04)", () => {

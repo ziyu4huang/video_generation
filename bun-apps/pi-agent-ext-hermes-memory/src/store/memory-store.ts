@@ -1299,6 +1299,63 @@ export class MemoryStore {
   }
 
   /**
+   * Prompt-provenance manifest (UPSP §5): the rendered block (== formatForSystemPrompt())
+   * PLUS the md_id set of EXACTLY the entries that block was built from — memory + user +
+   * post-filter active failures. Same selection logic as formatForSystemPrompt so the logged
+   * id set and any hash over `block` are consistent by construction. Failure filtering mirrors
+   * formatForSystemPrompt's call-site config (active-only, maxAge, maxEntries).
+   *
+   * NOTE: getActiveFailureEntries() STRIPS metadata (body-only) to render the failure block,
+   * so decoding those stripped bodies yields no md_id. To keep the id set ↔ block consistent
+   * we mirror getActiveFailureEntries()'s active+age filter on the RAW `failureEntries` (which
+   * still carry the frontmatter `id`), then apply the same `.slice(0, maxFailures)` the renderer
+   * uses — so these are exactly the failures whose bodies are injected.
+   */
+  getAssemblyManifest(): { block: string; mdIds: string[] } {
+    const block = this.formatForSystemPrompt();
+    const ids: string[] = [];
+    const pushIds = (entries: string[]) => {
+      for (const raw of entries) {
+        const id = this.decodeEntry(raw).id;
+        if (id) ids.push(id);
+      }
+    };
+    pushIds(this.memoryEntries);
+    pushIds(this.userEntries);
+    if (this.config.failureInjectionEnabled !== false) {
+      const maxAgeDays = this.config.failureInjectionMaxAgeDays ?? DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS;
+      const maxFailures = this.config.failureInjectionMaxEntries ?? DEFAULT_FAILURE_INJECTION_MAX_ENTRIES;
+      // Mirror getActiveFailureEntries(maxAgeDays)'s filter on the RAW entries (ids survive),
+      // then the same slice the renderer applies — exactly the injected failures.
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - maxAgeDays);
+      const cutoffStr = cutoff.toISOString().split("T")[0];
+      const activeRawFailures = this.failureEntries.filter((entry) => {
+        const decoded = this.decodeEntry(entry);
+        if ((decoded.state ?? "active") !== "active") return false;
+        return decoded.created >= cutoffStr;
+      });
+      pushIds(activeRawFailures.slice(0, maxFailures));
+    }
+    return { block, mdIds: [...new Set(ids)] };
+  }
+
+  /**
+   * Project-memory assembly manifest: the rendered project block (== formatProjectBlock())
+   * PLUS the md_id set of the project-memory entries it renders. Mirrors formatProjectBlock's
+   * selection (memoryEntries of the project store instance).
+   */
+  getProjectAssemblyManifest(projectName: string): { block: string; mdIds: string[] } {
+    const block = this.formatProjectBlock(projectName);
+    const ids: string[] = [];
+    for (const raw of this.memoryEntries) {
+      const id = this.decodeEntry(raw).id;
+      if (id) ids.push(id);
+    }
+    return { block, mdIds: [...new Set(ids)] };
+  }
+
+  /**
    * All failure entries (no age filter), metadata stripped.
    * Used by consolidation, which must consider the full file size —
    * unlike getFailureEntries(), which filters by age for injection.
