@@ -6,7 +6,9 @@
  * zai-mcp) behind prompt keyword matching.
  * (pi_deploy/pi_verify migrated to owner-declared gating in ticket 03;
  *  file2md/vision_ask migrated to owner-declared gating in ticket 04;
- *  flux2/flux2_help migrated to owner-declared gating in ticket 05.)
+ *  flux2/flux2_help migrated to owner-declared gating in ticket 05;
+ *  krea2/krea2_help migrated to owner-declared gating in ticket 06;
+ *  ltx/ltx_help migrated to owner-declared gating in ticket 07.)
  *
  * Baseline:  ~55 tools → ~18,000 tok/req   (measured via `bun run qa`)
  * Gated:    ON at start ~10,000 tok/req   (saves ~8,050 tok/turn, ~45%; net ~7,800; zai-mcp env-gated)
@@ -78,15 +80,6 @@ interface ToolGate {
  * boundaries, phrases/CJK use substring.
  */
 export const GATES: ToolGate[] = [
-  {
-    names: ["ltx", "ltx_help"],
-    keywords: ["ltx", "t2v", "i2v", "vbvr", "video relay", "vbvr relay", "影片特效"],
-    requires: {
-      nouns: ["video", "影片", "視頻", "視訊", "動畫", "電影"],
-      verbs: ["generate", "create", "make", "animate", "produce", "render", "生成", "做", "製作", "剪"],
-    },
-    description: "LTX video generation — text/image-to-video, upscale, vbvr, relay",
-  },
   {
     names: ["workflow", "workflow_help", "subagent", "workflow_control"],
     keywords: [
