@@ -19,6 +19,7 @@
 import { describe, expect, test } from "bun:test";
 import { CORE_TOOLS } from "./tool-gate.ts";
 import toolGateExtension from "./tool-gate.ts";
+import flux2Extension from "@repo/pi-agent-ext-flux2/extensions/flux2.ts";
 
 /** A minimal pi mock that (unlike tool-gate.test.ts's setupPi) keeps MULTIPLE
  *  handlers per event in registration order and tracks a live active set, so a
@@ -28,7 +29,12 @@ function makePi(allToolNames: string[]) {
 	let active: string[] = [];
 	const registered: any[] = [];
 	const pi: any = {
-		getAllToolDefinitions: () => allToolNames.map((name) => ({ name })),
+		getAllToolDefinitions: () => allToolNames.map((name) => {
+			// flux2/flux2_help: supply their owner-declared gating (ticket 05) so
+			// tool-gate's buildEffectiveGates tracks+gates them like a real session.
+			const owner = flux2OwnerDefs.find((d) => d.name === name);
+			return owner ? { name, gating: owner.gating } : { name };
+		}),
 		getActiveTools: () => active,
 		setActiveTools: (names: string[]) => { active = names; },
 		registerTool: (def: any) => { registered.push(def); },
@@ -41,6 +47,17 @@ function makePi(allToolNames: string[]) {
 }
 
 const noOpCtx = { ui: { theme: { fg: (_k: string, s: string) => s }, setWidget: () => {} } };
+
+// flux2/flux2_help migrated to owner-declared gating (ticket 05) → the mock pi
+// must surface their real gating so tool-gate tracks+gates them (the hardcoded
+// GATES fallback no longer covers flux2). ltx is still in GATES (unmigrated).
+const flux2OwnerDefs: { name: string; gating?: unknown }[] = [];
+flux2Extension({
+	on: () => {},
+	registerTool: (def: any) => { flux2OwnerDefs.push(def); },
+	getActiveTools: () => [],
+	setActiveTools: () => {},
+} as never);
 
 /** flux2's exact session_start self-promotion pattern (flux2.ts:419). */
 function flux2Mimic(pi: any) {

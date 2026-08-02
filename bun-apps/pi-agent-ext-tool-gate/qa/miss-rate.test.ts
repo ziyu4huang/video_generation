@@ -79,7 +79,7 @@ describe("miss-rate: computeMissRate", () => {
 
 describe("miss-rate: promptMatchesGateIntent", () => {
 	it("matches a bare keyword", () => {
-		expect(promptMatchesGateIntent("use flux to render", "flux2")).toBe(true); // keyword "flux"
+		expect(promptMatchesGateIntent("use ltx to render", "ltx")).toBe(true); // keyword "ltx"
 	});
 	it("matches a requires noun∧verb with no bare keyword", () => {
 		expect(promptMatchesGateIntent("generate a video", "ltx")).toBe(true); // noun video ∧ verb generate
@@ -88,6 +88,6 @@ describe("miss-rate: promptMatchesGateIntent", () => {
 		expect(promptMatchesGateIntent("the video is buffering", "ltx")).toBe(false); // noun video, no gen-verb
 	});
 	it("rejects an unrelated prompt", () => {
-		expect(promptMatchesGateIntent("fix the typo", "flux2")).toBe(false);
+		expect(promptMatchesGateIntent("fix the typo", "ltx")).toBe(false);
 	});
 });

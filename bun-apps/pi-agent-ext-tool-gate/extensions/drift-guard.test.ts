@@ -51,6 +51,7 @@ import { registerTodoTool } from "@repo/pi-agent-ext-core-task/src/todo/todo.ts"
 import goalDefault from "@repo/pi-agent-ext-core-task/src/goal/goal.ts";
 import deployExtension from "@repo/pi-agent-ext-deploy";
 import file2mdExtension from "@repo/pi-agent-ext-file2md/extensions/file2md.ts";
+import flux2Extension from "@repo/pi-agent-ext-flux2/extensions/flux2.ts";
 import toolGate from "./tool-gate.ts";
 
 /** A registered tool def — only the fields the guard reads are typed. */
@@ -112,6 +113,12 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 		name: "file2md",
 		register: (pi) => {
 			file2mdExtension(pi);
+		},
+	},
+	{
+		name: "flux2",
+		register: (pi) => {
+			flux2Extension(pi);
 		},
 	},
 ];
