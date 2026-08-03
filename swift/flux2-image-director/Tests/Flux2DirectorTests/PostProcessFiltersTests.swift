@@ -152,4 +152,28 @@ final class PostProcessFiltersTests: XCTestCase {
         XCTAssertLessThan(leftMean, 0.4)
         XCTAssertGreaterThan(rightMean, 0.6)
     }
+
+    func testSkinMaskDetectsSkinToneAndExcludesSaturatedBlue() {
+        let h = 32, w = 64
+        var raw = [Float](repeating: 0, count: 3 * h * w)
+        // Left half: a mid skin tone (R=0.85,G=0.62,B=0.48 ~ typical skin RGB).
+        // Right half: saturated blue (R=0.0,G=0.0,B=0.9) ~ clearly non-skin.
+        for y in 0..<h {
+            for x in 0..<w {
+                let (r, g, b): (Float, Float, Float) = x < 32 ? (0.85, 0.62, 0.48) : (0.0, 0.0, 0.9)
+                raw[0 * h * w + y * w + x] = r
+                raw[1 * h * w + y * w + x] = g
+                raw[2 * h * w + y * w + x] = b
+            }
+        }
+        let image = MLXArray(raw, [1, 3, h, w])
+        MLX.eval(image)
+
+        let mask = PostProcessFilters.skinMask(image)
+        MLX.eval(mask)
+        let skinRegion = MLX.mean(mask[0..., 0..., 0..., 0..<32]).item(Float.self)
+        let blueRegion = MLX.mean(mask[0..., 0..., 0..., 32..<64]).item(Float.self)
+        XCTAssertGreaterThan(skinRegion, 0.5, "skin-tone patch should be classified as skin")
+        XCTAssertLessThan(blueRegion, 0.5, "saturated blue patch should NOT be classified as skin")
+    }
 }

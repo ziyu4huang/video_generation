@@ -216,3 +216,64 @@ extension PostProcessFilters {
         return MLX.clip(out, min: 0.0, max: 1.0)
     }
 }
+
+extension PostProcessFilters {
+    /// RGB[0,1] -> HSV (H in [0,360), S/V in [0,1]). Implemented as a raw
+    /// per-pixel Swift loop over an extracted array — the SAME pattern
+    /// `Flux2Composite.blurAxis` uses for its own filter math, and matches
+    /// this repo's actual existing HSV-hue precedent
+    /// (`LTXVideoDirector/VideoSceneDetector.swift`'s `hueHistogram`, which
+    /// computes hue via `truncatingRemainder(dividingBy: 6)` etc. the same
+    /// way, also in a raw pixel loop) rather than a vectorized MLXArray
+    /// boolean-op formula.
+    static func rgbToHSV(_ image: MLXArray) -> (h: [Float], s: [Float], v: [Float]) {
+        let h = image.dim(2), w = image.dim(3)
+        MLX.eval(image)
+        let flat = image.reshaped([3, h * w]).asArray(Float.self)
+        var hue = [Float](repeating: 0, count: h * w)
+        var sat = [Float](repeating: 0, count: h * w)
+        var val = [Float](repeating: 0, count: h * w)
+        for i in 0..<(h * w) {
+            let r = flat[i], g = flat[h * w + i], b = flat[2 * h * w + i]
+            let maxC = max(r, g, b), minC = min(r, g, b)
+            let delta = maxC - minC
+            var hh: Float
+            if delta < 1e-6 {
+                hh = 0
+            } else if maxC == r {
+                hh = 60 * (((g - b) / delta).truncatingRemainder(dividingBy: 6))
+            } else if maxC == g {
+                hh = 60 * ((b - r) / delta + 2)
+            } else {
+                hh = 60 * ((r - g) / delta + 4)
+            }
+            if hh < 0 { hh += 360 }
+            hue[i] = hh
+            sat[i] = maxC < 1e-6 ? 0 : delta / maxC
+            val[i] = maxC
+        }
+        return (h: hue, s: sat, v: val)
+    }
+
+    /// Direct port of SkinContrast.apply's skin-tone mask: two HSV bands
+    /// (cv2's [0,30,60]-[25,180,255] and [170,30,60]-[180,180,255], H
+    /// doubled and S/V divided by 255 to convert from cv2's 8-bit
+    /// convention to this port's [0,360)/[0,1] convention). Returns a
+    /// (1,1,H,W) mask in {0,1}.
+    public static func skinMask(_ image: MLXArray) -> MLXArray {
+        let h = image.dim(2), w = image.dim(3)
+        let (hue, sat, val) = rgbToHSV(image)
+        func inBand(_ i: Int, hLo: Float, hHi: Float, sLo: Float, sHi: Float, vLo: Float, vHi: Float) -> Bool {
+            hue[i] >= hLo && hue[i] <= hHi && sat[i] >= sLo && sat[i] <= sHi && val[i] >= vLo && val[i] <= vHi
+        }
+        var out = [Float](repeating: 0, count: h * w)
+        for i in 0..<(h * w) {
+            let band1 = inBand(i, hLo: 0, hHi: 50, sLo: 30.0 / 255.0, sHi: 180.0 / 255.0, vLo: 60.0 / 255.0, vHi: 1.0)
+            let band2 = inBand(i, hLo: 340, hHi: 360, sLo: 30.0 / 255.0, sHi: 180.0 / 255.0, vLo: 60.0 / 255.0, vHi: 1.0)
+            out[i] = (band1 || band2) ? 1.0 : 0.0
+        }
+        let result = MLXArray(out, [1, 1, h, w])
+        MLX.eval(result)
+        return result
+    }
+}
