@@ -1323,6 +1323,79 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     });
   });
 
+  // ─── Candidate-limit seam on consolidateTwoPhase (proactive-consolidation Task 2) ──
+  // An optional `candidates?: string[]` param lets a proactive caller (Task 3's
+  // maybeProactiveConsolidate) feed the consolidator only the decayed low-heat
+  // tail instead of the whole store. When supplied, the snapshot is limited to
+  // those entries; when absent, behavior is byte-identical to the overflow path
+  // (the load-bearing backward-compat invariant — proven by every pre-existing
+  // consolidation/overflow test passing unmodified).
+  describe("candidate-limit seam (proactive-consolidation Task 2)", () => {
+    const TODAY = new Date().toISOString().split("T")[0];
+    const fm = (id: string, body: string) =>
+      serializeMetadataFrontmatter({ id, text: body, created: TODAY, last: TODAY });
+    async function seed(entries: string[]): Promise<void> {
+      await fs.writeFile(path.join(MEMORY_DIR, MEMORY_FILE), entries.join(ENTRY_DELIMITER), "utf-8");
+    }
+
+    it("candidates filter limits the snapshot to those entries", async () => {
+      const A = fm("11111111-1111-4111-8111-111111111111", "A candprobe alpha kept-off-snapshot");
+      const B = fm("22222222-2222-4222-8222-222222222222", "B candprobe bravo kept-off-snapshot");
+      const C = fm("33333333-3333-4333-8333-333333333333", "C candprobe charlie on-snapshot");
+      const D = fm("44444444-4444-4444-8444-444444444444", "D candprobe delta on-snapshot");
+      await seed([A, B, C, D]);
+
+      const store = new MemoryStore(makeConfig({
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      let seen: string[] = [];
+      store.setConsolidator(async (snapshot) => {
+        seen = snapshot.entries.map((e) => e.content);
+        return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
+      }, "test");
+      await store.loadFromDisk();
+
+      // Pass only C + D as candidates → snapshot must contain exactly those two.
+      await store.runConsolidatorForTest("memory", undefined, undefined, [C, D]);
+
+      assert.deepEqual(
+        seen.slice().sort(),
+        ["C candprobe charlie on-snapshot", "D candprobe delta on-snapshot"].sort(),
+        `candidates must limit the snapshot to C + D; got ${JSON.stringify(seen)}`,
+      );
+      assert.ok(!seen.includes("A candprobe alpha kept-off-snapshot"), "A must be excluded by the candidates filter");
+      assert.ok(!seen.includes("B candprobe bravo kept-off-snapshot"), "B must be excluded by the candidates filter");
+    });
+
+    it("absent candidates uses ALL consolidatable entries (parity — unchanged behavior)", async () => {
+      const A = fm("11111111-1111-4111-8111-111111111111", "A absentprobe alpha full-snapshot");
+      const B = fm("22222222-2222-4222-8222-222222222222", "B absentprobe bravo full-snapshot");
+      await seed([A, B]);
+
+      const store = new MemoryStore(makeConfig({
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      let seen: string[] = [];
+      store.setConsolidator(async (snapshot) => {
+        seen = snapshot.entries.map((e) => e.content);
+        return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
+      }, "test");
+      await store.loadFromDisk();
+
+      // No candidates → derive consolidatable exactly as the overflow path does
+      // (all entries, none pinned) → snapshot contains both.
+      await store.runConsolidatorForTest("memory");
+
+      assert.equal(seen.length, 2, `absent candidates must use all entries; got ${JSON.stringify(seen)}`);
+      assert.deepEqual(
+        seen.slice().sort(),
+        ["A absentprobe alpha full-snapshot", "B absentprobe bravo full-snapshot"].sort(),
+      );
+    });
+  });
+
   // ─── remove() tests ───
 
   describe("remove()", () => {
