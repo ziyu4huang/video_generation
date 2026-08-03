@@ -3,4 +3,11 @@ The completion act — delete the hardcoded `CORE_TOOLS` set + simplify `buildEf
 
 type: task
 blocked by: 02, 03
-status: open
+status: closed
+claimed: wayfind-04
+
+## Resolution — ticket 04 CLOSED (CORE_TOOLS migration COMPLETE)
+
+Deleted the hardcoded `CORE_TOOLS` set + simplified `buildEffectiveGates` — the migration's completion act (mirror ticket 15's GATES deletion, plus completing the offline qa corpus). tool-gate.ts: `export const CORE_TOOLS` (22 names) deleted; `buildEffectiveGates` simplified (removed `fallbackCore` param + `handled` set + fallback loop — all dead; new 1-arg sig `buildEffectiveGates(defs)`); `TRACKED_TOOLS`/`effectiveCore`/`sticky` inits → empty Sets; comments refreshed. BUILTIN_CORE + injectBuiltinCore (ticket 03) SURVIVE (relocated residual; true upstream deferred to FOLLOWUPS #5). qa/evaluate.ts: COMPLETED the corpus so CORPUS_EFF.core stays the full 22 (the fallback was the only thing putting core-task's 3 + enable_tool + the 4 built-ins into CORPUS_EFF.core): coreTaskRegistrar drives the 3 core-task owner-declared-core registrars (direct — core-task's factory is sync-but-heavy); toolGateDefault captures enable_tool; builtinCoreDefs() synthesizes the 4 bare built-ins + injectBuiltinCore attaches gating. Verified CORPUS_EFF.core = 22 exactly. qa/savings.ts + qa/research-cost.ts re-routed off CORE_TOOLS → CORPUS_EFF.core. tool-gate.test.ts + self-promotion-interaction.test.ts: test-local CORE_NAMES (22)/CORE_SET fixture; refs swapped; dead-fallback test rewritten; injectBuiltinCore calls de-arg'd. Confirmed ZERO cross-package CORE_TOOLS imports. Tests: tool-gate 274/0, core-task 653/0, `bun run qa` PASS (savings 8,275 tok/req); qa --strict still 5 ungated (the separate-tools finding; ZERO new ungated from the deletion). MIGRATION COMPLETE: always-on is owner-declared end-to-end (14 in-repo owner-declared + 4 built-ins injected-core + 4 already-declared); CORE_TOOLS + its fallback are gone. Commit: 06cd766f.
+
+OPEN post-migration items (separate scope): (1) 5 genuinely-ungated heavy tools need gate-vs-always-on decisions (qa --strict red); (2) TRUE owner-declaration of the 4 built-ins (cross-repo PR to pi-coding-agent) deferred to FOLLOWUPS #5; (3) final rebase to origin/main.

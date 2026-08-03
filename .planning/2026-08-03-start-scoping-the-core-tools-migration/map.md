@@ -13,6 +13,8 @@ Delete the hardcoded `CORE_TOOLS` set entirely: the 14 in-repo always-on tools o
 - [01 research built-in feasibility](tickets/01-research-built-in-feasibility.md) — CLOSED: pi-coding-agent immutable, gating is extension-only; Path B chosen (in-repo injection for the 4 built-ins; true upstream deferred to FOLLOWUPS #5).
 - [02 in-repo core-tools rollout](tickets/02-rollout-in-repo-core-tools.md) — CLOSED: 14 tools × 4 packages owner-declared gating:{core:true} (behavior-preserving); QA corpus + drift-guard wired; 4 already-declared + CORE_TOOLS untouched.
 - [03 built-in injection](tickets/03-rollout-pi-coding-agent-builtins.md) — CLOSED: injected gating:{core:true} onto read/write/edit/bash via injectBuiltinCore in getDiscovered (Path B; relocated BUILTIN_CORE residual; true upstream → FOLLOWUPS #5); built-ins now in effectiveCore (authoritative, not fallback).
+- [04 delete CORE_TOOLS](tickets/04-delete-core-tools.md) — CLOSED: CORE_TOOLS deleted + buildEffectiveGates simplified (1-arg, no fallback); qa corpus completed (CORPUS_EFF.core = 22); zero cross-package refs; BUILTIN_CORE residual survives
+**🎉 CORE_TOOLS MIGRATION COMPLETE (tickets 01–04): always-on is owner-declared end-to-end (14 in-repo owner-declared + 4 built-ins injected-core + 4 already-declared); CORE_TOOLS + fallback gone.** Post-migration open items: 5 ungated heavy tools (decisions), true built-in upstreaming (FOLLOWUPS #5), final rebase.
 
 ## Not yet specified
 - Whether `buildEffectiveGates`'s `fallbackCore` default becomes `new Set()` (empty) or is removed entirely at the finish — mechanical, lands in ticket 04.
