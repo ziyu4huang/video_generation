@@ -1,5 +1,6 @@
 import XCTest
 import MLX
+import MLXRandom
 @testable import Flux2Director
 
 final class PostProcessFiltersTests: XCTestCase {
@@ -116,5 +117,39 @@ final class PostProcessFiltersTests: XCTestCase {
                 v, 0.6, accuracy: 1e-4,
                 "CAS with edge-replicated padding must not perturb a flat image, including the outermost border")
         }
+    }
+
+    func testNoiseCleanerReducesFlatRegionVarianceButPreservesEdge() {
+        // Left half 0.2 + noise, right half 0.8 + noise, hard edge at x=32.
+        MLXRandom.seed(7)
+        let h = 48, w = 64
+        var raw = [Float](repeating: 0, count: 3 * h * w)
+        for c in 0..<3 {
+            for y in 0..<h {
+                for x in 0..<w {
+                    raw[c * h * w + y * w + x] = x < 32 ? 0.2 : 0.8
+                }
+            }
+        }
+        let clean = MLXArray(raw, [1, 3, h, w])
+        let noise = MLXRandom.normal([1, 3, h, w]) * 0.08
+        let noisy = MLX.clip(clean + noise, min: 0.0, max: 1.0)
+        MLX.eval(noisy)
+
+        let denoised = PostProcessFilters.noiseCleaner(noisy, bilateralRadius: 3, jpegScrub: false)
+        MLX.eval(denoised)
+
+        // Flat-region variance (within the left half, away from the edge)
+        // should drop after denoising.
+        let noisyVar = noisy[0..., 0..., 0..., 0..<20].variance().item(Float.self)
+        let denoisedVar = denoised[0..., 0..., 0..., 0..<20].variance().item(Float.self)
+        XCTAssertLessThan(denoisedVar, noisyVar, "bilateral filter should reduce flat-region noise variance")
+
+        // The edge should still be there: left-half mean clearly below
+        // right-half mean, not smeared into a uniform gray.
+        let leftMean = MLX.mean(denoised[0..., 0..., 0..., 0..<20]).item(Float.self)
+        let rightMean = MLX.mean(denoised[0..., 0..., 0..., 44..<64]).item(Float.self)
+        XCTAssertLessThan(leftMean, 0.4)
+        XCTAssertGreaterThan(rightMean, 0.6)
     }
 }

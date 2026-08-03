@@ -157,3 +157,62 @@ extension PostProcessFilters {
         return MLX.clip(out, min: 0.0, max: 1.0)
     }
 }
+
+extension PostProcessFilters {
+    /// Windowed joint-bilateral filter: for every offset in a
+    /// (2*radius+1)x(2*radius+1) window, accumulate
+    /// neighbor * spatial_gaussian(offset) * range_gaussian(neighbor - center),
+    /// normalized by the summed weights. Replaces cv2.bilateralFilter
+    /// (NoiseCleaner.apply, postprocess.py) — the range-gaussian term is
+    /// what makes this edge-preserving (unlike a plain box/gaussian blur):
+    /// a neighbor whose color is very different from the center pixel gets
+    /// a near-zero weight regardless of how spatially close it is.
+    /// `sigmaSpace` is in PIXEL units (matches cv2's convention);
+    /// `sigmaColor` is in the [0,1] pixel-value units this port uses
+    /// throughout (Python's cv2.bilateralFilter operates on 0-255 uint8, so
+    /// its sigmaColor=75.0 maps to 75.0/255.0 here).
+    ///
+    /// Border handling: uses .edge padding (repeat-nearest), NOT zero-fill —
+    /// see cas()'s fix earlier in this file for why zero-fill at image
+    /// borders is a real correctness bug (it manufactures a fake color/
+    /// spatial discontinuity at every border pixel).
+    static func bilateralFilter(_ image: MLXArray, radius: Int, sigmaSpace: Float, sigmaColor: Float) -> MLXArray {
+        let h = image.dim(2), w = image.dim(3)
+        let padded = MLX.padded(image, widths: [[0, 0], [0, 0], [radius, radius], [radius, radius]], mode: .edge)
+        var weightedSum = zeros(like: image)
+        var weightSum = zeros(like: image[0..., 0..<1, 0..., 0...])
+        for dy in -radius...radius {
+            for dx in -radius...radius {
+                let neighbor = padded[0..., 0..., (radius + dy)..<(radius + dy + h), (radius + dx)..<(radius + dx + w)]
+                let spatialDist2 = Float(dy * dy + dx * dx)
+                let spatialWeight = expf(-spatialDist2 / (2 * sigmaSpace * sigmaSpace))
+                let colorDist2 = MLX.square(neighbor - image).sum(axis: 1, keepDims: true)   // (1,1,H,W)
+                let rangeWeight = MLX.exp(-colorDist2 / (2 * sigmaColor * sigmaColor))
+                let weight = rangeWeight * spatialWeight                                     // (1,1,H,W)
+                weightedSum = weightedSum + neighbor * weight
+                weightSum = weightSum + weight
+            }
+        }
+        return weightedSum / weightSum
+    }
+
+    /// Direct port of NoiseCleaner.apply: bilateral denoise, then an
+    /// optional unsharp "JPEG scrub" pass (Python: slight gaussian blur +
+    /// 0.3-strength unsharp, to restore edge detail the blur removed).
+    /// `bilateralRadius` maps to Python's `bilateral_d` diameter as
+    /// radius = (d-1)/2 -> default d=9 -> radius=4.
+    public static func noiseCleaner(
+        _ image: MLXArray, bilateralRadius: Int = 4, sigmaSpace: Float = 75.0, sigmaColor: Float = 75.0 / 255.0,
+        jpegScrub: Bool = true
+    ) -> MLXArray {
+        var out = image
+        if bilateralRadius > 0 {
+            out = bilateralFilter(out, radius: bilateralRadius, sigmaSpace: sigmaSpace, sigmaColor: sigmaColor)
+        }
+        if jpegScrub {
+            let blurred = gaussianBlurRGB(out, sigma: 0.5)
+            out = MLX.clip(out + 0.3 * (out - blurred), min: 0.0, max: 1.0)
+        }
+        return MLX.clip(out, min: 0.0, max: 1.0)
+    }
+}
