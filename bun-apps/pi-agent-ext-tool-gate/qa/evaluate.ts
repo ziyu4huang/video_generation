@@ -9,7 +9,7 @@
  * stub `pi` and fed to buildEffectiveGates — the same effective-gate builder
  * production runs at session_start). No agent run, no LLM.
  */
-import { gateFires, matchIntent, buildEffectiveGates, type ToolGate } from "../extensions/tool-gate.ts";
+import toolGateDefault, { gateFires, matchIntent, buildEffectiveGates, injectBuiltinCore, BUILTIN_CORE, type ToolGate } from "../extensions/tool-gate.ts";
 import deployDefault from "@repo/pi-agent-ext-deploy";
 import file2mdDefault from "@repo/pi-agent-ext-file2md/extensions/file2md.ts";
 import flux2Default from "@repo/pi-agent-ext-flux2/extensions/flux2.ts";
@@ -54,6 +54,20 @@ import { registerMemorySearchTool } from "@repo/pi-agent-ext-hermes-memory/src/t
 import { registerSessionSearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/session-search-tool.ts";
 import { registerSkillTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/skill-tool.ts";
 import { registerGrillDecisionTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/grill-decision-tool.ts";
+// ticket 04 — core-task's 3 core tools (todo / goal_complete / ask_user_question)
+// are owner-declared core. core-task's default factory is synchronous but HEAVY
+// (globalThis pollution, overlays, registerLoop, statusWidget setup) — like
+// hermes-memory it can't be driven cleanly by the capturing stub, so drive its
+// 3 individual registrars instead (mirrors hermesMemoryRegistrar; proven safe
+// by pi-agent-ext-core-task/src/__tests__/core-gating.test.ts).
+import { registerAskUserQuestionTool } from "@repo/pi-agent-ext-core-task/src/ask-user/ask-user-question.ts";
+import { registerTodoTool } from "@repo/pi-agent-ext-core-task/src/todo/todo.ts";
+import goalDefault from "@repo/pi-agent-ext-core-task/src/goal/goal.ts";
+// ticket 04 — tool-gate's own enable_tool is owner-declared core (gating:{ core:true }),
+// registered synchronously at the top of its default factory. Driving the factory
+// against the capturing stub captures enable_tool (its session_start/before_*
+// handlers are no-op'd by the stub; enable_tool's registerTool fires first).
+// (toolGateDefault imported above alongside the named exports.)
 import {
 	MUST_FIRE,
 	MUST_NOT_FIRE,
@@ -162,8 +176,32 @@ const hermesMemoryRegistrar = (pi: any) => {
 	registerGrillDecisionTool(pi, {} as any, null);
 };
 
+// ticket 04 — core-task's default factory is heavy (see import note); drive the
+// 3 owner-declared-core registrars directly so todo / goal_complete /
+// ask_user_question land in CORPUS_EFF.core. goal's overlay arg defaults to
+// `new GoalOverlay()`, so it's safe to call with just pi.
+const coreTaskRegistrar = (pi: any) => {
+	registerAskUserQuestionTool(pi);
+	registerTodoTool(pi);
+	goalDefault(pi);
+};
+
+// ticket 04 — the offline corpus must mirror the runtime 22-core. The 22 =
+// 18 owner-declared core tools captured from the registrars above (hermes-memory
+// ×5, knowledge-card ×4, web-access ×3, obsidian ×2, core-task ×3, tool-gate's
+// enable_tool ×1) PLUS the 4 pi-coding-agent built-ins (read/write/edit/bash).
+// The built-ins are NOT registered by any extension here (they're harness
+// built-ins), so injectBuiltinCore alone wouldn't add them — synthesize the 4
+// as bare defs and let injectBuiltinCore attach gating:{core:true} (the same
+// transformation getDiscovered() runs at runtime), then buildEffectiveGates
+// routes all 22 into core.
+const builtinCoreDefs = () => [...BUILTIN_CORE].map((name) => ({ name }));
+
 export const CORPUS_EFF = buildEffectiveGates(
-	captureOwnerDeclaredDefs([deployDefault, file2mdDefault, flux2Default, krea2Default, ltxDefault, movieDefault, researchDefault, workflowDefault, subagentDefault, zaiRegistrar, powerToolDefault, knowledgeCardDefault, webAccessDefault, obsidianDefault, hermesMemoryRegistrar]) as never,
+	injectBuiltinCore([
+		...captureOwnerDeclaredDefs([coreTaskRegistrar, toolGateDefault, deployDefault, file2mdDefault, flux2Default, krea2Default, ltxDefault, movieDefault, researchDefault, workflowDefault, subagentDefault, zaiRegistrar, powerToolDefault, knowledgeCardDefault, webAccessDefault, obsidianDefault, hermesMemoryRegistrar]),
+		...builtinCoreDefs(),
+	] as never),
 );
 export const CORPUS_GATES: CorpusGate[] = CORPUS_EFF.gates;
 

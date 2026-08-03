@@ -33,28 +33,6 @@ import { Type } from "typebox";
 
 // ── Tool categories ──────────────────────────────────────────────
 
-/** Tools that must always be available (core workflow) */
-export const CORE_TOOLS = new Set([
-  // Built-in essentials
-  "read", "write", "edit", "bash",
-  // Task & goal
-  "todo", "goal_complete",
-  // Memory & session
-  "memory", "memory_search", "session_search",
-  // User interaction
-  "ask_user_question",
-  // Escape hatch for dormant gated tools (always active)
-  "enable_tool",
-  // Skills
-  "skill_manage",
-  "grill_decision", // hermes-memory — grilling is a frequent workflow
-  // Vault & knowledge (used frequently)
-  "obsidian", "obsidian_help",
-  "zk_card", "zk_ask", "zk_ingest", "knowledge_query",
-  // Web access
-  "web_search", "fetch_content", "get_search_content",
-]);
-
 /** Co-occurrence trigger: a gate fires when the prompt has ≥1 noun AND ≥1 verb.
  *  Used only for core nouns (image/video/pdf) whose bare form false-fires
  *  (docker image, video call) but whose recall on common intents
@@ -74,13 +52,17 @@ export interface ToolGate {
   requires?: CoOccurrence;
 }
 
-/** The set of tools this extension explicitly tracks at module load (the
- *  always-active CORE_TOOLS). Owner-declared gates are NOT listed here — they're
- *  discovered at runtime via getAllToolDefinitions() + buildEffectiveGates() and
- *  surfaced as EffectiveGates.tracked. Unknown tools (not in this set) are
- *  always active (fail-open). Precomputed at module load so callers that need
- *  the active list without re-firing gates can filter directly. */
-export const TRACKED_TOOLS = new Set(CORE_TOOLS);
+/** The set of tools this extension explicitly tracks at module load. Empty
+ *  by default (always-on core is now fully owner-declared — tickets 02 + 03
+ *  migrated all 22 core members to owner-declared `gating:{ core: true }`, so
+ *  the former hardcoded CORE_TOOLS fallback was deleted in ticket 04). Owner-
+ *  declared gates + core are discovered at runtime via
+ *  getAllToolDefinitions() + buildEffectiveGates() and surfaced as
+ *  EffectiveGates.tracked. Unknown tools (not in the effective tracked set) are
+ *  always active (fail-open). Precomputed as an empty placeholder so the
+ *  filterActive default fail-opens until the session_start build populates the
+ *  real effective tracked set. */
+export const TRACKED_TOOLS = new Set<string>();
 
 /** The 4 pi-coding-agent built-in tools that tool-gate treats as always-active
  *  core. Ticket 03 (Path B, chosen at ticket 01): pi-coding-agent is an IMMUTABLE
@@ -89,21 +71,21 @@ export const TRACKED_TOOLS = new Set(CORE_TOOLS);
  *  owner-declared in-repo (unlike the 14 in-repo tools done in ticket 02).
  *  Instead tool-gate INJECTS `gating:{ core: true }` onto their defs at runtime
  *  (see injectBuiltinCore), so buildEffectiveGates routes them into
- *  `effectiveCore` (marked `handled`, removed from the CORE_TOOLS fallback).
+ *  `effectiveCore` as owner-declared core.
  *
  *  This is *injected-core* (tool-gate supplies the field), NOT true
  *  owner-declaration; the cross-repo PR for true owner-declaration is deferred
  *  to FOLLOWUPS #5. Honest relocated residual: this set is the in-repo survival
- *  of a hardcoded built-in list (cf. CORE_TOOLS) — acknowledged here so ticket
- *  04 knows the residual it must carry, and so FOLLOWUPS #5 (true upstreaming)
- *  is the only path that lets both this set AND the CORE_TOOLS fallback go. */
+ *  of a hardcoded built-in list (the last such list — ticket 04 deleted the
+ *  former CORE_TOOLS hardcoded set; this BUILTIN_CORE remains only because the
+ *  4 pi-coding-agent built-ins can't carry `gating` upstream). FOLLOWUPS #5
+ *  (true upstreaming) is the only path that lets this set go too. */
 export const BUILTIN_CORE = new Set(["read", "write", "edit", "bash"]);
 
 /** Inject `gating:{ core: true }` onto the defs of the 4 pi-coding-agent
  *  built-ins (BUILTIN_CORE). Called by getDiscovered before buildEffectiveGates,
- *  so the built-ins land in `effectiveCore` as if owner-declared core (marked
- *  `handled`) instead of relying on the CORE_TOOLS fallback — the runtime
- *  end-state is identical (always-active), only the routing changes.
+ *  so the built-ins land in `effectiveCore` as owner-declared core — the runtime
+ *  end-state is identical (always-active).
  *
  *  Pure + defensive: SHALLOW-CLONES each built-in def (built-in def objects
  *  come from immutable pi-coding-agent and may be frozen) rather than mutating
@@ -120,30 +102,26 @@ export function injectBuiltinCore<T extends { name: string; gating?: Gating }>(
   );
 }
 
-/** Effective gate set built from owner-declared `gating` (+ the CORE_TOOLS
- *  always-active fallback). */
+/** Effective gate set built from owner-declared `gating`. */
 export interface EffectiveGates {
   gates: ToolGate[];   // non-core gates: one per owner-declared non-core tool (single-name)
-  core: Set<string>;   // always-active names: owner core:true + CORE_TOOLS fallback
+  core: Set<string>;   // always-active names: owner-declared core:true
   tracked: Set<string>; // core ∪ all gate names — the explicit-track set for filterActive
 }
 
 /**
  * Build the effective gate set for a session from owner-declared `gating`:
- * authoritative, no hardcoded fallback. A `core:true` def → always-active core;
- * any other `gating` def → a single-name gate; a def without `gating` is simply
- * ungated. `fallbackCore` (= CORE_TOOLS) supplies the always-active set for
- * legacy names not present in `defs` — the ONLY surviving fallback (ticket 15
- * deleted the hardcoded GATES array + the `fallbackGates` per-name partition:
- * every gate is now owner-declared end to end). Pure: no pi dependency.
+ * authoritative, NO hardcoded fallback (ticket 04 deleted the former CORE_TOOLS
+ * always-active set — every core member is now owner-declared via tickets 02 +
+ * 03; ticket 15 earlier deleted the hardcoded GATES array). A `core:true` def →
+ * always-active core; any other `gating` def → a single-name gate; a def without
+ * `gating` is simply ungated. Pure: no pi dependency.
  */
 export function buildEffectiveGates(
   defs: Array<{ name: string; description?: string; gating?: Gating }>,
-  fallbackCore: Set<string> = CORE_TOOLS,
 ): EffectiveGates {
   const gates: ToolGate[] = [];
   const core = new Set<string>();
-  const handled = new Set<string>();
   for (const def of defs) {
     const g = def.gating;
     if (!g) continue;
@@ -157,10 +135,6 @@ export function buildEffectiveGates(
         description: def.description ?? "",
       });
     }
-    handled.add(def.name);
-  }
-  for (const c of fallbackCore) {
-    if (!handled.has(c)) core.add(c);
   }
   const tracked = new Set<string>([...core, ...gates.flatMap((g) => g.names)]);
   return { gates, core, tracked };
@@ -310,10 +284,11 @@ export function gateFires(gate: ToolGate, promptLower: string): boolean {
  * per-turn pipeline; {@link filterActive} is the pure (compute) half.
  *
  * `sticky` is the accumulator of every tool activated so far THIS SESSION —
- * it starts as a copy of CORE_TOOLS and is mutated in place across turns, so
- * a gate that fires once stays active for the rest of the session (a workflow
- * using flux2 must not lose the tool mid-task just because a follow-up prompt
- * like "make it bigger" doesn't repeat the trigger keyword).
+ * it starts as a copy of effectiveCore (the owner-declared always-active set)
+ * and is mutated in place across turns, so a gate that fires once stays active
+ * for the rest of the session (a workflow using flux2 must not lose the tool
+ * mid-task just because a follow-up prompt like "make it bigger" doesn't repeat
+ * the trigger keyword).
  */
 export function updateSticky(prompt: string, sticky: Set<string>, gates: ToolGate[] = []): void {
 	const promptLower = prompt.toLowerCase();
@@ -435,7 +410,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
   // extension a no-op — registers nothing, sets no active tools — so every
   // loaded tool stays active (the ungated OFF baseline). Used by `bun run qa
   // --l2` to run identical tasks ON vs OFF. Cheap to respect early: the whole
-  // gate (CORE_TOOLS/sticky) is bypassed.
+  // gate (effectiveCore/sticky) is bypassed.
   if (process.env.TOOL_GATE_DISABLE === "1") return;
 
   type DiscoveredTool = { name: string; description?: string; parameters?: unknown; gating?: Gating };
@@ -444,19 +419,19 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     const raw = typeof fn === "function" ? fn() : [];
     // Ticket 03 (Path B): inject `gating:{ core: true }` onto the 4
     // pi-coding-agent built-ins (BUILTIN_CORE) so buildEffectiveGates routes
-    // them into effectiveCore as owner-declared core (marked `handled`) instead
-    // of via the CORE_TOOLS fallback. pi-coding-agent is immutable + `gating` is
-    // extension-only, so this injection is the in-repo equivalent of true
-    // owner-declaration (deferred to FOLLOWUPS #5). Shallow-clones per def — see
-    // injectBuiltinCore; the runtime end-state is unchanged (always-active).
+    // them into effectiveCore as owner-declared core. pi-coding-agent is
+    // immutable + `gating` is extension-only, so this injection is the in-repo
+    // equivalent of true owner-declaration (deferred to FOLLOWUPS #5).
+    // Shallow-clones per def — see injectBuiltinCore; the runtime end-state is
+    // unchanged (always-active).
     return injectBuiltinCore(raw);
   };
   let effectiveGates: ToolGate[] = [];
-  let effectiveCore: Set<string> = new Set(CORE_TOOLS);
+  let effectiveCore: Set<string> = new Set<string>();
   let effectiveTracked: Set<string> = TRACKED_TOOLS;
 
   let allToolNames: string[] = [];
-  let sticky = new Set<string>(CORE_TOOLS);
+  let sticky = new Set<string>();
   let measuredTokens = new Map<string, number>(); // built at session_start (S3), grown per-turn (M7)
 
   // ── On session start: capture full tool list and gate ──
