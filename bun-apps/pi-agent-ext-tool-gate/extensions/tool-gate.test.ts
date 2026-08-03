@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { updateSticky, CORE_TOOLS, computeBannerSaved, matchIntent, matchesKeyword, gateFires, measureToolTokens, filterActive, buildEffectiveGates } from "./tool-gate.ts";
+import { updateSticky, CORE_TOOLS, computeBannerSaved, matchIntent, matchesKeyword, gateFires, measureToolTokens, filterActive, buildEffectiveGates, injectBuiltinCore, BUILTIN_CORE } from "./tool-gate.ts";
 import type { ToolGate } from "./tool-gate.ts";
 import { emitToolGateLog, isMissCandidate } from "./tool-gate.ts";
 import toolGateExtension from "./tool-gate.ts";
@@ -868,6 +868,47 @@ describe("buildEffectiveGates", () => {
   // asserted exactly that removed fallback mechanism, so they were deleted with
   // it. buildEffectiveGates now has ONLY owner-declared `gating` + the
   // `fallbackCore` (= CORE_TOOLS) always-active set — no gate fallback at all.
+});
+
+describe("injectBuiltinCore (ticket 03 — Path B injected-core for the 4 built-ins)", () => {
+  test("injects gating:{core:true} so buildEffectiveGates routes the 4 built-ins to core WITHOUT the CORE_TOOLS fallback", () => {
+    // Bare built-in defs exactly as getAllToolDefinitions surfaces them: name
+    // only, NO gating. (pi-coding-agent is immutable + `gating` is extension-
+    // only — see injectBuiltinCore docs — so the live defs arrive bare.)
+    const raw = ["read", "write", "edit", "bash"].map((name) => ({ name }));
+    const injected = injectBuiltinCore(raw);
+    // Every built-in now carries gating.core === true.
+    for (const d of injected) expect((d as { gating?: { core?: boolean } }).gating?.core).toBe(true);
+    // PROOF the built-ins are routed via the `handled` branch, NOT the fallback:
+    // pass an EMPTY fallbackCore — any reliance on CORE_TOOLS would leave them
+    // out of eff.core, but the injected gating puts them all in.
+    const eff = buildEffectiveGates(injected as never, new Set());
+    for (const name of BUILTIN_CORE) expect(eff.core.has(name)).toBe(true);
+  });
+
+  test("does NOT mutate the upstream def (shallow-clone: built-in defs may be frozen)", () => {
+    const raw = [{ name: "read" }];
+    Object.freeze(raw[0]);
+    const injected = injectBuiltinCore(raw);
+    // upstream untouched (still no gating) …
+    expect((raw[0] as { gating?: unknown }).gating).toBeUndefined();
+    // … injected clone carries core:true WITHOUT a frozen-object throw …
+    expect((injected[0] as { gating?: { core?: boolean } }).gating?.core).toBe(true);
+    // … and is a different object (the clone, not the same reference).
+    expect(injected[0]).not.toBe(raw[0]);
+  });
+
+  test("non-built-in defs pass through untouched (same reference, no gating added)", () => {
+    const flux = { name: "flux2", gating: { keywords: ["flux"] } };
+    const injected = injectBuiltinCore([flux]);
+    expect(injected[0]).toBe(flux); // same reference — untouched
+  });
+
+  test("a built-in that already declares gating.core===true is left as-is (idempotent)", () => {
+    const read = { name: "read", gating: { core: true } };
+    const injected = injectBuiltinCore([read]);
+    expect(injected[0]).toBe(read); // already core:true → no re-clone needed
+  });
 });
 
 describe("tool-gate runtime reads owner-declared gating", () => {
