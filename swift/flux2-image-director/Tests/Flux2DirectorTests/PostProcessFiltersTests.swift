@@ -66,4 +66,36 @@ final class PostProcessFiltersTests: XCTestCase {
             - MLX.mean(sharpened[0..., 0..., 0..., 33..<34]).item(Float.self))
         XCTAssertGreaterThan(sharpContrast, blurredContrast)
     }
+
+    func testSharpeningCASIncreasesLocalContrastAcrossEdge() {
+        // Softly blurred step edge (0.3 -> 0.7), like the unsharp test above.
+        var raw = [Float](repeating: 0, count: 3 * 32 * 32)
+        for c in 0..<3 {
+            for y in 0..<32 {
+                for x in 0..<32 {
+                    let base: Float = x < 16 ? 0.3 : 0.7
+                    raw[c * 32 * 32 + y * 32 + x] = base
+                }
+            }
+        }
+        let step = MLXArray(raw, [1, 3, 32, 32])
+        let blurred = PostProcessFilters.gaussianBlurRGB(step, sigma: 1.5)
+        MLX.eval(blurred)
+
+        let sharpened = PostProcessFilters.sharpening(blurred, casStrength: 0.8)
+        MLX.eval(sharpened)
+
+        XCTAssertEqual(sharpened.dim(2), blurred.dim(2))
+        XCTAssertEqual(sharpened.dim(3), blurred.dim(3))
+        let vals = sharpened.asArray(Float.self)
+        XCTAssertTrue(vals.allSatisfy { $0 >= 0.0 && $0 <= 1.0 }, "CAS output must stay in [0,1]")
+
+        let blurredContrast = abs(
+            MLX.mean(blurred[0..., 0..., 0..., 13..<14]).item(Float.self)
+            - MLX.mean(blurred[0..., 0..., 0..., 18..<19]).item(Float.self))
+        let sharpContrast = abs(
+            MLX.mean(sharpened[0..., 0..., 0..., 13..<14]).item(Float.self)
+            - MLX.mean(sharpened[0..., 0..., 0..., 18..<19]).item(Float.self))
+        XCTAssertGreaterThan(sharpContrast, blurredContrast)
+    }
 }

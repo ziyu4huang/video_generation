@@ -98,3 +98,50 @@ extension PostProcessFilters {
         return image + amount * (image - blurred)
     }
 }
+
+extension PostProcessFilters {
+    /// AMD FidelityFX Contrast Adaptive Sharpening. Direct port of
+    /// Sharpening._cas (postprocess.py): for each pixel, blend it with its
+    /// 4-neighbor (up/down/left/right) average, weighted by local contrast
+    /// (low local contrast -> more sharpening, matching the Python's
+    /// `weight = min(0.125 / (diff + 0.001), 1.0) * strength`).
+    static func cas(_ image: MLXArray, strength: Float) -> MLXArray {
+        let h = image.dim(2), w = image.dim(3)
+        let padded = MLX.padded(image, widths: [[0, 0], [0, 0], [1, 1], [1, 1]])
+        let center = padded[0..., 0..., 1..<(h + 1), 1..<(w + 1)]
+        let up     = padded[0..., 0..., 0..<h,       1..<(w + 1)]
+        let down   = padded[0..., 0..., 2..<(h + 2),  1..<(w + 1)]
+        let left   = padded[0..., 0..., 1..<(h + 1),  0..<w]
+        let right  = padded[0..., 0..., 1..<(h + 1),  2..<(w + 2)]
+
+        let crossMax = MLX.maximum(MLX.maximum(up, down), MLX.maximum(left, right))
+        let crossMin = MLX.minimum(MLX.minimum(up, down), MLX.minimum(left, right))
+        let diff = crossMax - crossMin
+        let weight = MLX.where(
+            diff .> 0.001,
+            MLX.minimum(MLXArray(Float(0.125)) / (diff + 0.001), MLXArray(Float(1.0))) * strength,
+            MLXArray(Float(1.0)))
+        let avg = (up + down + left + right) / 4.0
+        return center + weight * (center - avg)
+    }
+
+    /// Direct port of Sharpening.apply: CAS, then an optional unsharp pass.
+    /// Note: in this port's actual call path (PostProcessChain, matching
+    /// Python's PostProcessChain.from_config), `unsharpRadius`/`unsharpAmount`
+    /// are never set — the workflow's `--sharpening` flag drives CAS
+    /// strength only, same as Python's real usage
+    /// (`Sharpening(cas_strength=sharp)` with no unsharp args).
+    public static func sharpening(
+        _ image: MLXArray, casStrength: Float = 0.1,
+        unsharpRadius: Int = 0, unsharpAmount: Float = 0.0
+    ) -> MLXArray {
+        var out = image
+        if casStrength > 0 {
+            out = cas(out, strength: casStrength)
+        }
+        if unsharpRadius > 0 && unsharpAmount > 0 {
+            out = unsharpMask(out, radius: unsharpRadius, amount: unsharpAmount)
+        }
+        return MLX.clip(out, min: 0.0, max: 1.0)
+    }
+}
