@@ -3,4 +3,8 @@ Inject `gating:{ core: true }` onto the 4 pi-coding-agent built-ins (`read`, `wr
 
 type: task
 blocked by: 01
-status: open
+status: closed
+claimed: wayfind-03
+
+## Resolution
+Injected `gating:{core:true}` onto the 4 pi-coding-agent built-ins (read/write/edit/bash) at runtime via a new pure helper `injectBuiltinCore`, wired as the single post-process step inside `getDiscovered` (benefits both call sites: session_start + before_agent_start). Path B (chosen at ticket 01): pi-coding-agent is immutable + `gating` is extension-only, so the built-ins can't be truly owner-declared in-repo — injection is the in-repo equivalent (the cross-repo PR for true owner-declaration is deferred to FOLLOWUPS #5). A module-scope `BUILTIN_CORE = new Set(["read","write","edit","bash"])` is the honest relocated residual (documented in-place; only FOLLOWUPS #5 lets it + the CORE_TOOLS fallback both go). `injectBuiltinCore` shallow-clones (`{...def, gating:{...}}`) to handle frozen built-in defs (doesn't mutate upstream), is idempotent (already-core → same ref), and passes non-built-ins untouched. After injection, `buildEffectiveGates` routes the 4 to `core` + marks them `handled` (removed from CORE_TOOLS fallback eligibility) — proven by a unit test passing EMPTY fallbackCore yet all 4 land in eff.core. Tests: tool-gate 274/0 (+4 new injectBuiltinCore tests), `bun run qa` PASS. Runtime always-on behavior unchanged (only the routing branch). Did NOT touch CORE_TOOLS (ticket 04), the 14 in-repo tools (02), or the 4 already-declared. Commit: b883e8a3.
