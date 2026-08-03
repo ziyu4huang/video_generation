@@ -105,9 +105,21 @@ extension PostProcessFilters {
     /// 4-neighbor (up/down/left/right) average, weighted by local contrast
     /// (low local contrast -> more sharpening, matching the Python's
     /// `weight = min(0.125 / (diff + 0.001), 1.0) * strength`).
+    ///
+    /// Note: unlike Python's `_cas` (which clips to [0,1] before returning),
+    /// this does not clip here — `sharpening()` below clips once at the end
+    /// of the whole chain instead. Safe today because the real call path
+    /// (PostProcessChain, matching Python's `Sharpening(cas_strength=...)`
+    /// with no unsharp args) never chains `unsharpMask` after `cas` with an
+    /// out-of-range intermediate; revisit if that combination becomes real.
     static func cas(_ image: MLXArray, strength: Float) -> MLXArray {
         let h = image.dim(2), w = image.dim(3)
-        let padded = MLX.padded(image, widths: [[0, 0], [0, 0], [1, 1], [1, 1]])
+        // Python pads with mode="reflect"; mlx-swift's PadMode only offers
+        // .constant (zero-fill) / .edge (repeat-nearest) — no true reflect.
+        // .edge is the closer approximation (avoids pulling border pixels
+        // toward 0) and matches this file's existing border convention
+        // (Flux2Composite.boxBlur/blurAxis also avoid zero-fill darkening).
+        let padded = MLX.padded(image, widths: [[0, 0], [0, 0], [1, 1], [1, 1]], mode: .edge)
         let center = padded[0..., 0..., 1..<(h + 1), 1..<(w + 1)]
         let up     = padded[0..., 0..., 0..<h,       1..<(w + 1)]
         let down   = padded[0..., 0..., 2..<(h + 2),  1..<(w + 1)]

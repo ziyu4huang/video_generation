@@ -98,4 +98,23 @@ final class PostProcessFiltersTests: XCTestCase {
             - MLX.mean(sharpened[0..., 0..., 0..., 18..<19]).item(Float.self))
         XCTAssertGreaterThan(sharpContrast, blurredContrast)
     }
+
+    func testSharpeningCASEdgePaddingAvoidsZeroFillBorderArtifact() {
+        // A flat image: every interior pixel's 4 neighbors equal itself, so
+        // CAS is a no-op everywhere the padding doesn't matter. At the
+        // border, edge-replicated padding keeps the out-of-bounds "neighbor"
+        // equal to the flat value too, so CAS must still be a no-op there.
+        // Zero-fill padding would instead read 0 for the missing neighbor,
+        // inflating local contrast and visibly darkening every border pixel
+        // away from 0.6 — this test would fail under that regression.
+        let image = flatGray(16, 16, value: 0.6)
+        let sharpened = PostProcessFilters.sharpening(image, casStrength: 0.8)
+        MLX.eval(sharpened)
+        let vals = sharpened.asArray(Float.self)
+        for v in vals {
+            XCTAssertEqual(
+                v, 0.6, accuracy: 1e-4,
+                "CAS with edge-replicated padding must not perturb a flat image, including the outermost border")
+        }
+    }
 }
