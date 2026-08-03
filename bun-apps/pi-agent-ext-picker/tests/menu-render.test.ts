@@ -113,3 +113,31 @@ test("MenuOverlay: setQuery no-op when unchanged (does not invalidate)", () => {
   ov.setQuery("su"); // same → no-op
   expect(invalidated).toBe(before);
 });
+
+// Regression: RangeError: Maximum call stack size exceeded.
+// TUI.invalidate() propagates to every overlay's invalidate(); the overlay must
+// NOT re-enter tui.invalidate() (via its invalidateFn) or any external
+// invalidation loops forever while the picker is open. The Component contract
+// says invalidate() is a TUI→component cache-bust notification, not a render
+// request.
+test("MenuOverlay.invalidate() must not re-enter tui.invalidate() (no recursion)", () => {
+  const ov = new MenuOverlay({ items: () => [...ITEMS] });
+  // Mirror real TUI wiring + propagation: invalidateFn = tui.invalidate, and
+  // tui.invalidate() calls every overlay's invalidate() (incl. this one).
+  let depth = 0;
+  const tuiInvalidate = () => {
+    if (++depth > 50) {
+      throw new Error("RECURSION: MenuOverlay.invalidate() re-entered tui.invalidate()");
+    }
+    ov.invalidate();
+  };
+  ov.setInvalidate(tuiInvalidate);
+
+  depth = 0;
+  tuiInvalidate(); // external trigger (e.g. tool-result updateDisplay)
+  expect(depth).toBe(1);
+
+  depth = 0;
+  ov.move(1); // state-change render request via invalidateFn
+  expect(depth).toBeLessThanOrEqual(1);
+});

@@ -129,8 +129,19 @@ export class MenuOverlay implements Component {
   }
 
   // --- Component interface ---
+  /**
+   * TUI→component cache-bust notification (theme change / re-render-from-
+   * scratch). Must NOT request a render: the editor wires `setInvalidate` to
+   * `tui.invalidate()`, and `TUI.invalidate()` propagates back to every
+   * overlay's `invalidate()`, so calling `invalidateFn` here re-enters
+   * `tui.invalidate()` and recurses until "Maximum call stack size exceeded".
+   * Render requests happen via `setQuery()`/`move()`→`invalidateFn`; the input
+   * loop's post-`handleInput` `requestRender()` drives the actual render. This
+   * overlay holds no rendered-output cache (`render()` rebuilds via
+   * `renderMenuLines` each call), so there is nothing to bust.
+   */
   invalidate(): void {
-    this.invalidateFn();
+    // intentionally empty — no cached rendering state
   }
   render(width: number): string[] {
     // query:"" — items are already fuzzy-filtered; SelectList only lays them out
