@@ -456,6 +456,7 @@ export class MemoryStore {
     target: "memory" | "user" | "failure",
     signal?: AbortSignal,
     onProgress?: (message: string) => void,
+    candidates?: string[],
   ): Promise<TwoPhaseResult> {
     if (!this.consolidator) return { consolidated: false, error: "no consolidator configured" };
     // Surface progress to the tool layer (-> onUpdate partial result in the TUI):
@@ -474,7 +475,14 @@ export class MemoryStore {
     // footprint from the budget so the consolidator leaves room for them.
     const allEntries = this.entriesFor(target);
     const pinnedEntries = allEntries.filter((e) => this.isPinned(e));
-    const consolidatable = pinnedEntries.length ? allEntries.filter((e) => !this.isPinned(e)) : allEntries;
+    // Candidate-limit seam (proactive-consolidation Task 2): a supplied candidate
+    // set (the proactive pass over the decayed low-heat tail) is used DIRECTLY
+    // as `consolidatable` — the caller already pin-excluded + heat-limited it.
+    // Absent ⇒ derive exactly as before, so the overflow path is byte-identical
+    // (the load-bearing backward-compat invariant). `pinnedEntries` is still
+    // computed above so `effectiveLimit` reserves room for pinned survivors in
+    // BOTH paths; pin-exclusion of the snapshot happens via `candidates`/filter.
+    const consolidatable = candidates ?? (pinnedEntries.length ? allEntries.filter((e) => !this.isPinned(e)) : allEntries);
     const effectiveLimit = Math.max(0, this.charLimit(target) - pinnedEntries.join(ENTRY_DELIMITER).length);
     // Heat-sort (UPSP §1, ticket #1b, Task 5): when a heat provider is wired
     // (decay enabled), fetch heats for the consolidatable entries and pass them
@@ -525,6 +533,7 @@ export class MemoryStore {
     target: "memory" | "user" | "failure",
     signal?: AbortSignal,
     onProgress?: (message: string) => void,
+    candidates?: string[],
   ): Promise<ConsolidationResult> {
     if (!this.consolidator) return { consolidated: false, error: "no consolidator configured" };
     const prevCons = process.env.PI_HERMES_CONSOLIDATING;
@@ -541,7 +550,7 @@ export class MemoryStore {
       // bypasses this — a known blind spot when reading perf.jsonl frequency.
       return await this.perfAlways(
         `consolidation.${target}`,
-        () => this.consolidateTwoPhase(target, signal, onProgress),
+        () => this.consolidateTwoPhase(target, signal, onProgress, candidates),
         {
           kind: "consolidation",
           timedOutFrom: (r) => !!r.terminated,
@@ -552,6 +561,22 @@ export class MemoryStore {
       if (prevCons === undefined) delete process.env.PI_HERMES_CONSOLIDATING;
       else process.env.PI_HERMES_CONSOLIDATING = prevCons;
     }
+  }
+
+  /**
+   * Test-only seam: drive the (private) consolidator pipeline over an optional
+   * candidate set (proactive-consolidation Task 2). White-box tests use this to
+   * assert the `candidates` filter limits the snapshot; production callers use
+   * `runConsolidator` directly. Threads straight through so the env-guard +
+   * perf-always logging match the real path exactly.
+   */
+  async runConsolidatorForTest(
+    target: "memory" | "user" | "failure",
+    signal?: AbortSignal,
+    onProgress?: (message: string) => void,
+    candidates?: string[],
+  ): Promise<ConsolidationResult> {
+    return this.runConsolidator(target, signal, onProgress, candidates);
   }
 
   // ─── Path helpers ───
