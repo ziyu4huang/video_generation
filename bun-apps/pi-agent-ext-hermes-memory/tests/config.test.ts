@@ -541,6 +541,53 @@ describe("loadConfig", () => {
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.decayHalflifeDays, 14);
   });
+
+  // ─── Proactive consolidation (Task 1 / UPSP §1) — the full config surface,
+  // the #06 config-gap lesson baked in: a config-file value MUST reach the
+  // consumer object; missing/invalid falls back to the DEFAULT_CONFIG defaults.
+  // Mirrors the decay* tests directly above (same loadConfig(temp-file) fixture).
+  it("defaults the five proactive knobs to the spec values when unset", () => {
+    const config = loadConfig(TEST_CONFIG_PATH);
+    assert.strictEqual(config.proactiveConsolidateEnabled, false);
+    assert.strictEqual(config.proactiveHeatFloor, 0.25);
+    assert.strictEqual(config.proactiveMaxCandidates, 20);
+    assert.strictEqual(config.proactivePressureThreshold, 10);
+    assert.strictEqual(config.proactiveCooldownMinutes, 30);
+  });
+
+  it("carries all five proactive knobs through from the config file (allowlisted)", () => {
+    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
+    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
+      proactiveConsolidateEnabled: true,
+      proactiveHeatFloor: 0.5,
+      proactiveMaxCandidates: 5,
+      proactivePressureThreshold: 3,
+      proactiveCooldownMinutes: 10,
+    }));
+    const config = loadConfig(TEST_CONFIG_PATH);
+    assert.strictEqual(config.proactiveConsolidateEnabled, true);
+    assert.strictEqual(config.proactiveHeatFloor, 0.5);
+    assert.strictEqual(config.proactiveMaxCandidates, 5);
+    assert.strictEqual(config.proactivePressureThreshold, 3);
+    assert.strictEqual(config.proactiveCooldownMinutes, 10);
+  });
+
+  it("ignores invalid proactive knob values and falls back to defaults (parse-allowlist guards)", () => {
+    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
+    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
+      proactiveConsolidateEnabled: "yes",
+      proactiveHeatFloor: "high",
+      proactiveMaxCandidates: -1,
+      proactivePressureThreshold: "x",
+      proactiveCooldownMinutes: null,
+    }));
+    const config = loadConfig(TEST_CONFIG_PATH);
+    assert.strictEqual(config.proactiveConsolidateEnabled, false);
+    assert.strictEqual(config.proactiveHeatFloor, 0.25);
+    assert.strictEqual(config.proactiveMaxCandidates, 20);
+    assert.strictEqual(config.proactivePressureThreshold, 10);
+    assert.strictEqual(config.proactiveCooldownMinutes, 30);
+  });
 });
 
 describe("config dbBackend", () => {

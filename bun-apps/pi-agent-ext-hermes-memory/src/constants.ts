@@ -50,6 +50,25 @@ export const DEFAULT_DECAY_WORTH_WEIGHT = 0.15;
 /** Heat bonus added for ever-used entries (boolean ever-used, UPSP §9 / #06).
  *  A small relative nudge — recency spine still drives staleness. Default 0.1. */
 export const DEFAULT_DECAY_USED_BONUS = 0.1;
+
+// ─── Proactive consolidation (UPSP §1 / Task 1) — decay-triggered consolidation
+// BEFORE overflow. A bounded pass over the decayed tail (heat < floor) fires once
+// the below-floor count crosses the pressure threshold, rate-limited by a
+// cooldown. Opt-in (off by default); it reuses the #1b decay surface as its
+// candidate signal. The #06 config-gap lesson is baked in: all five knobs are
+// registered in DEFAULT_CONFIG AND the explicit parse allowlist — an
+// unregistered knob is silently unreachable from the config file. ───
+/** Master switch for proactive consolidation. Default: false (opt-in). */
+export const DEFAULT_PROACTIVE_ENABLED = false;
+/** Heat floor: an entry with heat < floor is a decay-pressure candidate.
+ *  Range [0, 1]. Default: 0.25. */
+export const DEFAULT_PROACTIVE_HEAT_FLOOR = 0.25;
+/** K cap on the proactive candidate set (positive int). Default: 20. */
+export const DEFAULT_PROACTIVE_MAX_CANDIDATES = 20;
+/** Min below-floor count required to trigger a proactive pass (>= 0). Default: 10. */
+export const DEFAULT_PROACTIVE_PRESSURE_THRESHOLD = 10;
+/** Min interval (minutes) between proactive passes (>= 0). Default: 30. */
+export const DEFAULT_PROACTIVE_COOLDOWN_MINUTES = 30;
 /** Milliseconds per day — the recency-age unit (now - parseDate(date)) / MS_PER_DAY. */
 export const MS_PER_DAY = 86_400_000;
 export const DEFAULT_ERROR_CAPTURE_RATE_LIMIT = 5;
