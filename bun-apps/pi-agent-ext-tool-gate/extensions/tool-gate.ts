@@ -82,6 +82,44 @@ export interface ToolGate {
  *  the active list without re-firing gates can filter directly. */
 export const TRACKED_TOOLS = new Set(CORE_TOOLS);
 
+/** The 4 pi-coding-agent built-in tools that tool-gate treats as always-active
+ *  core. Ticket 03 (Path B, chosen at ticket 01): pi-coding-agent is an IMMUTABLE
+ *  dependency and `gating` is a tool-gate-extension-only concept — the harness's
+ *  `ToolDefinition` has no `gating` field — so these built-ins CANNOT be truly
+ *  owner-declared in-repo (unlike the 14 in-repo tools done in ticket 02).
+ *  Instead tool-gate INJECTS `gating:{ core: true }` onto their defs at runtime
+ *  (see injectBuiltinCore), so buildEffectiveGates routes them into
+ *  `effectiveCore` (marked `handled`, removed from the CORE_TOOLS fallback).
+ *
+ *  This is *injected-core* (tool-gate supplies the field), NOT true
+ *  owner-declaration; the cross-repo PR for true owner-declaration is deferred
+ *  to FOLLOWUPS #5. Honest relocated residual: this set is the in-repo survival
+ *  of a hardcoded built-in list (cf. CORE_TOOLS) — acknowledged here so ticket
+ *  04 knows the residual it must carry, and so FOLLOWUPS #5 (true upstreaming)
+ *  is the only path that lets both this set AND the CORE_TOOLS fallback go. */
+export const BUILTIN_CORE = new Set(["read", "write", "edit", "bash"]);
+
+/** Inject `gating:{ core: true }` onto the defs of the 4 pi-coding-agent
+ *  built-ins (BUILTIN_CORE). Called by getDiscovered before buildEffectiveGates,
+ *  so the built-ins land in `effectiveCore` as if owner-declared core (marked
+ *  `handled`) instead of relying on the CORE_TOOLS fallback — the runtime
+ *  end-state is identical (always-active), only the routing changes.
+ *
+ *  Pure + defensive: SHALLOW-CLONES each built-in def (built-in def objects
+ *  come from immutable pi-coding-agent and may be frozen) rather than mutating
+ *  the upstream object; any pre-existing gating on a built-in is preserved and
+ *  only `core` is forced true. Non-built-in defs pass through untouched (same
+ *  reference); an already-`core:true` built-in is left as-is (idempotent). */
+export function injectBuiltinCore<T extends { name: string; gating?: Gating }>(
+  defs: T[],
+): T[] {
+  return defs.map((def) =>
+    BUILTIN_CORE.has(def.name) && def.gating?.core !== true
+      ? ({ ...def, gating: { ...(def.gating ?? {}), core: true } } as T)
+      : def,
+  );
+}
+
 /** Effective gate set built from owner-declared `gating` (+ the CORE_TOOLS
  *  always-active fallback). */
 export interface EffectiveGates {
@@ -403,7 +441,15 @@ export default function toolGateExtension(pi: ExtensionAPI) {
   type DiscoveredTool = { name: string; description?: string; parameters?: unknown; gating?: Gating };
   const getDiscovered = (): DiscoveredTool[] => {
     const fn = (pi as typeof pi & { getAllToolDefinitions?(): DiscoveredTool[] }).getAllToolDefinitions;
-    return typeof fn === "function" ? fn() : [];
+    const raw = typeof fn === "function" ? fn() : [];
+    // Ticket 03 (Path B): inject `gating:{ core: true }` onto the 4
+    // pi-coding-agent built-ins (BUILTIN_CORE) so buildEffectiveGates routes
+    // them into effectiveCore as owner-declared core (marked `handled`) instead
+    // of via the CORE_TOOLS fallback. pi-coding-agent is immutable + `gating` is
+    // extension-only, so this injection is the in-repo equivalent of true
+    // owner-declaration (deferred to FOLLOWUPS #5). Shallow-clones per def — see
+    // injectBuiltinCore; the runtime end-state is unchanged (always-active).
+    return injectBuiltinCore(raw);
   };
   let effectiveGates: ToolGate[] = [];
   let effectiveCore: Set<string> = new Set(CORE_TOOLS);
