@@ -277,3 +277,72 @@ extension PostProcessFilters {
         return result
     }
 }
+
+extension PostProcessFilters {
+    /// sRGB[0,1] (1,3,H,W) -> CIE LAB, L in [0,100], a/b roughly [-128,127].
+    /// Standard D65 closed-form: sRGB->linear gamma decode, linear->XYZ
+    /// matrix, XYZ->LAB f() nonlinearity. Internal round-trip convention
+    /// only (verified via testLABRoundTripIsNearIdentity) — not scaled to
+    /// cv2's 8-bit LAB range, since the only consumer (skinContrast, Task 7)
+    /// round-trips through rgbToLAB -> clahe(L) -> labToRGB.
+    public static func rgbToLAB(_ image: MLXArray) -> MLXArray {
+        func degamma(_ c: MLXArray) -> MLXArray {
+            let low = c / 12.92
+            let high = MLX.pow((c + 0.055) / 1.055, MLXArray(Float(2.4)))
+            return MLX.where(c .<= 0.04045, low, high)
+        }
+        let r = degamma(image[0..., 0..<1, 0..., 0...])
+        let g = degamma(image[0..., 1..<2, 0..., 0...])
+        let b = degamma(image[0..., 2..<3, 0..., 0...])
+
+        let x = r * 0.4124564 + g * 0.3575761 + b * 0.1804375
+        let y = r * 0.2126729 + g * 0.7151522 + b * 0.0721750
+        let z = r * 0.0193339 + g * 0.1191920 + b * 0.9503041
+
+        let xn: Float = 0.95047, yn: Float = 1.0, zn: Float = 1.08883
+        func f(_ t: MLXArray) -> MLXArray {
+            let delta: Float = 6.0 / 29.0
+            let cubeRootBranch = MLX.pow(MLX.maximum(t, MLXArray(Float(1e-8))), MLXArray(Float(1.0 / 3.0)))
+            let linearBranch = t / (3 * delta * delta) + 4.0 / 29.0
+            return MLX.where(t .> (delta * delta * delta), cubeRootBranch, linearBranch)
+        }
+        let fx = f(x / xn), fy = f(y / yn), fz = f(z / zn)
+        let l = 116.0 * fy - 16.0
+        let a = 500.0 * (fx - fy)
+        let bb = 200.0 * (fy - fz)
+        return MLX.concatenated([l, a, bb], axis: 1)
+    }
+
+    /// Inverse of rgbToLAB. LAB (1,3,H,W) -> sRGB[0,1].
+    public static func labToRGB(_ lab: MLXArray) -> MLXArray {
+        let l = lab[0..., 0..<1, 0..., 0...]
+        let a = lab[0..., 1..<2, 0..., 0...]
+        let bb = lab[0..., 2..<3, 0..., 0...]
+
+        let fy = (l + 16.0) / 116.0
+        let fx = fy + a / 500.0
+        let fz = fy - bb / 200.0
+
+        func fInv(_ t: MLXArray) -> MLXArray {
+            let delta: Float = 6.0 / 29.0
+            let cubeBranch = MLX.pow(t, MLXArray(Float(3.0)))
+            let linearBranch = 3 * delta * delta * (t - 4.0 / 29.0)
+            return MLX.where(t .> delta, cubeBranch, linearBranch)
+        }
+        let xn: Float = 0.95047, yn: Float = 1.0, zn: Float = 1.08883
+        let x = fInv(fx) * xn, y = fInv(fy) * yn, z = fInv(fz) * zn
+
+        let rLin = x * 3.2404542 + y * -1.5371385 + z * -0.4985314
+        let gLin = x * -0.9692660 + y * 1.8760108 + z * 0.0415560
+        let bLin = x * 0.0556434 + y * -0.2040259 + z * 1.0572252
+
+        func gamma(_ c: MLXArray) -> MLXArray {
+            let clamped = MLX.clip(c, min: 0.0, max: 1.0)
+            let low = clamped * 12.92
+            let high = 1.055 * MLX.pow(clamped, MLXArray(Float(1.0 / 2.4))) - 0.055
+            return MLX.where(clamped .<= 0.0031308, low, high)
+        }
+        let r = gamma(rLin), g = gamma(gLin), b = gamma(bLin)
+        return MLX.clip(MLX.concatenated([r, g, b], axis: 1), min: 0.0, max: 1.0)
+    }
+}

@@ -176,4 +176,24 @@ final class PostProcessFiltersTests: XCTestCase {
         XCTAssertGreaterThan(skinRegion, 0.5, "skin-tone patch should be classified as skin")
         XCTAssertLessThan(blueRegion, 0.5, "saturated blue patch should NOT be classified as skin")
     }
+
+    func testLABRoundTripIsNearIdentity() {
+        var raw = [Float](repeating: 0, count: 3 * 16 * 16)
+        for y in 0..<16 {
+            for x in 0..<16 {
+                raw[0 * 16 * 16 + y * 16 + x] = Float(x) / 15.0
+                raw[1 * 16 * 16 + y * 16 + x] = Float(y) / 15.0
+                raw[2 * 16 * 16 + y * 16 + x] = 0.5
+            }
+        }
+        let image = MLXArray(raw, [1, 3, 16, 16])
+        MLX.eval(image)
+
+        let lab = PostProcessFilters.rgbToLAB(image)
+        let roundTrip = PostProcessFilters.labToRGB(lab)
+        MLX.eval(roundTrip)
+
+        let diff = MLX.mean(MLX.abs(roundTrip - image)).item(Float.self)
+        XCTAssertLessThan(diff, 0.01, "RGB->LAB->RGB should be near-identity")
+    }
 }
