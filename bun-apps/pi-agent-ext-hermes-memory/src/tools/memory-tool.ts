@@ -335,6 +335,7 @@ export function registerMemoryTool(
   const definition: ToolDefinition = {
     name: "memory",
     label: "Memory",
+    gating: { core: true },
     description: MEMORY_TOOL_DESCRIPTION,
     parameters: Type.Object({
       action: StringEnum(["add", "replace", "remove", "transfer", "audit"] as const),

@@ -103,6 +103,7 @@ export function registerGrillDecisionTool(
   pi.registerTool({
     name: "grill_decision",
     label: "Grill Decision",
+    gating: { core: true },
     description: GRILL_DECISION_DESCRIPTION,
     parameters: Type.Object({
       decision: Type.String({ description: "The sub-decision being grilled" }),

@@ -669,6 +669,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "zk_card",
 		label: "ZK Card",
+		gating: { core: true },
 		description: [
 			"CRUD operations on Zettelkasten vault notes.",
 			"Actions: add (new note with 4-layer duplicate check), find (multi-strategy search),",
@@ -877,6 +878,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "zk_ask",
 		label: "ZK Ask",
+		gating: { core: true },
 		description: [
 			"Graph-enhanced RAG over the Zettelkasten vault.",
 			"Pipeline: seed retrieval (fuzzy title + tag + body keyword) →",
@@ -1025,6 +1027,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "zk_ingest",
 		label: "ZK Ingest",
+		gating: { core: true },
 		description: [
 			"Deterministically converge structured .knowledge.jsonl records into the shared Zettelkasten vault.",
 			"One card per record (id/type/title/detail/tags/dimension/confidence/status/superseded_by/evidence),",
@@ -1336,6 +1339,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "knowledge_query",
 		label: "Knowledge Query",
+		gating: { core: true },
 		description:
 			"Query the project's Zettelkasten knowledge graph for cards matching given tags " +
 			"or a natural-language question. Returns a compact digest of relevant stored " +

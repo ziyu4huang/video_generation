@@ -38,6 +38,22 @@ import subagentDefault from "@repo/pi-agent-ext-subagent/extensions/subagent.ts"
 // drive it with synthetic MCP tools in zaiRegistrar below so the zai single-name
 // effective gates build here (keeping its probes live).
 import { registerServerTools } from "@repo/pi-agent-ext-zai-mcp/extensions/zai-mcp.ts";
+// ticket 02 — the 14 in-repo CORE_TOOLS members across 4 packages, owner-declared
+// core so buildEffectiveGates routes them to the `core` set authoritatively
+// (marking them handled → they stop relying on the CORE_TOOLS fallback).
+// knowledge-card / web-access / obsidian register synchronously via their default
+// factories, so the capturing stub drives them directly. hermes-memory's default
+// factory is async + heavy (backend bundle creation before any registerTool), so
+// hermesMemoryRegistrar below invokes its 5 individual registrars with stub args
+// (store/repo are deref'd only inside `execute`, which capture never calls).
+import knowledgeCardDefault from "@repo/pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
+import webAccessDefault from "@repo/pi-agent-ext-web-access";
+import obsidianDefault from "@repo/pi-agent-ext-obsidian";
+import { registerMemoryTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-tool.ts";
+import { registerMemorySearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-search-tool.ts";
+import { registerSessionSearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/session-search-tool.ts";
+import { registerSkillTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/skill-tool.ts";
+import { registerGrillDecisionTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/grill-decision-tool.ts";
 import {
 	MUST_FIRE,
 	MUST_NOT_FIRE,
@@ -129,8 +145,25 @@ const zaiRegistrar = (pi: any) => {
 	);
 };
 
+// ticket 02 — hermes-memory's default factory is async + does heavy backend
+// (sqlite/surreal bundle) setup BEFORE registering tools, so the capturing stub
+// can't drive it (registration happens after the first await). Invoke the 5
+// individual registrars with stub args (store/repo are deref'd only inside
+// `execute`, which capture never calls) so the 5 owner-declared-core tools build
+// here. registerSkillTool ALSO registers skill_manage_help (an ungated companion,
+// NOT a CORE_TOOLS member) — buildEffectiveGates skips it via `if (!g) continue`.
+// memory_supersede (a separate registrar, also ungated + out of scope) is not
+// invoked; capture is best-effort per the migration scope.
+const hermesMemoryRegistrar = (pi: any) => {
+	registerMemoryTool(pi, {} as any, null, null, "");
+	registerMemorySearchTool(pi, {} as any);
+	registerSessionSearchTool(pi, {} as any, { variant: "legacy" });
+	registerSkillTool(pi, {} as any);
+	registerGrillDecisionTool(pi, {} as any, null);
+};
+
 export const CORPUS_EFF = buildEffectiveGates(
-	captureOwnerDeclaredDefs([deployDefault, file2mdDefault, flux2Default, krea2Default, ltxDefault, movieDefault, researchDefault, workflowDefault, subagentDefault, zaiRegistrar, powerToolDefault]) as never,
+	captureOwnerDeclaredDefs([deployDefault, file2mdDefault, flux2Default, krea2Default, ltxDefault, movieDefault, researchDefault, workflowDefault, subagentDefault, zaiRegistrar, powerToolDefault, knowledgeCardDefault, webAccessDefault, obsidianDefault, hermesMemoryRegistrar]) as never,
 );
 export const CORPUS_GATES: CorpusGate[] = CORPUS_EFF.gates;
 

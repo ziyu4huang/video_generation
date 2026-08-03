@@ -40,6 +40,7 @@ function registerAnchorSessionSearchTool(pi: ExtensionAPI, sessionsDir: string):
   pi.registerTool({
     name: 'session_search',
     label: 'Session Search',
+    gating: { core: true },
     description: `Search Pi session JSONL files in the opt-in anchor mode using a Markdown request.
 
 This mode accepts only a markdown request. Supported scalar fields are from, to, cwd, and limit. Supported list sections are all, any, and exclude: all terms must match, any requires at least one listed term, and exclude removes matching ranges. It returns compact JSONL line-range anchors, not summaries or previews. Output is plain text: count, optional message, then anchors as path:startLine-endLine with a short reason.
@@ -113,6 +114,7 @@ function registerLegacySessionSearchTool(pi: ExtensionAPI, sessionRepo: SessionR
   pi.registerTool({
     name: 'session_search',
     label: 'Session Search',
+    gating: { core: true },
     description: `Search across past Pi coding sessions for relevant conversation context. Use this when the user asks about previous discussions, past work, or when you need context from earlier sessions.
 
 Examples:
