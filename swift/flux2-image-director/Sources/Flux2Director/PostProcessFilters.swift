@@ -62,10 +62,18 @@ extension PostProcessFilters {
     /// 3-channel wrapper over Flux2Composite.boxBlur (3 box-blur passes ≈
     /// gaussian, the SAME technique Flux2Composite.featherMask already uses
     /// for mask feathering) — no new blur primitive, just per-channel reuse.
-    /// `sigma` is mapped to a box-blur radius via radius ≈ sigma * 1.88
-    /// (matches the standard 3-pass-box-blur-approximates-gaussian relation).
+    ///
+    /// `sigma` -> `radius` conversion is derived (and empirically verified
+    /// against this repo's actual cumulative-sum `boxBlur`, not assumed)
+    /// from the variance of 3 independent box-filter passes at the same
+    /// radius: each box pass of window `2r+1` has variance `((2r+1)^2-1)/12`;
+    /// summing 3 independent passes gives `sigma^2 = ((2r+1)^2-1)/4`, so
+    /// `r = (sqrt(4*sigma^2+1) - 1) / 2`. An impulse-response probe against
+    /// `Flux2Composite.boxBlur` confirmed this to 5-6 significant figures at
+    /// r=1..10 (e.g. r=4 measures sigma=4.4721, formula predicts 4.4721 —
+    /// NOT the previous `sigma*1.88` guess, which was ~2x too strong).
     static func gaussianBlurRGB(_ image: MLXArray, sigma: Float) -> MLXArray {
-        let radius = max(1, Int((sigma * 1.88).rounded()))
+        let radius = max(1, Int((((4 * sigma * sigma + 1).squareRoot() - 1) / 2).rounded()))
         let h = image.dim(2), w = image.dim(3)
         var channels: [MLXArray] = []
         for c in 0..<3 {
@@ -80,10 +88,13 @@ extension PostProcessFilters {
 
     /// Unsharp mask: original + amount * (original - blurred). Direct port
     /// of Sharpening._unsharp (postprocess.py), radius given in PIXELS
-    /// (matches Python's PIL GaussianBlur radius, not sigma) — converted to
-    /// sigma via sigma ≈ radius / 2 (PIL's own documented approximation).
+    /// (matches Python's PIL GaussianBlur radius). PIL's `radius` parameter
+    /// IS the gaussian standard deviation directly (confirmed against
+    /// Pillow's own docstring and empirical measurement on Pillow 11.3.0 and
+    /// this repo's venv 12.2.0: radius=3 measures sigma≈3.03, radius=6
+    /// measures sigma≈5.48) — no /2 conversion.
     static func unsharpMask(_ image: MLXArray, radius: Int, amount: Float) -> MLXArray {
-        let blurred = gaussianBlurRGB(image, sigma: Float(radius) / 2.0)
+        let blurred = gaussianBlurRGB(image, sigma: Float(radius))
         return image + amount * (image - blurred)
     }
 }
