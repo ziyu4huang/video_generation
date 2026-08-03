@@ -130,6 +130,7 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
   pi.registerTool({
     name: SKILL_MANAGE_TOOL_NAME,
     label: "Skill Manager",
+    gating: { core: true },
     description: SKILL_TOOL_DESCRIPTION,
     parameters: SKILL_TOOL_PARAMETERS,
     async execute(toolCallId, params, signal, onUpdate, ctx) {

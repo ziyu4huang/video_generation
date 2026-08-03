@@ -64,6 +64,20 @@ import workflowExtension from "@repo/pi-agent-ext-workflow/extensions/workflow.t
 // site every zai tool is built + where ZAI_GATING is attached) to exercise it
 // with synthetic MCP tools in the entry below.
 import { registerServerTools } from "@repo/pi-agent-ext-zai-mcp/extensions/zai-mcp.ts";
+// ticket 02 — the 4 in-repo CORE_TOOLS packages. knowledge-card / web-access /
+// obsidian register synchronously via their default factories. hermes-memory's
+// default factory is async + heavy (backend setup before registerTool), so its
+// entry below invokes the 5 individual registrars with stub args (store/repo are
+// deref'd only inside `execute`, which capture never calls) — mirroring how
+// core-task's entry invokes registerAskUserQuestionTool/registerTodoTool directly.
+import knowledgeCardExtension from "@repo/pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
+import webAccessExtension from "@repo/pi-agent-ext-web-access";
+import obsidianExtension from "@repo/pi-agent-ext-obsidian";
+import { registerMemoryTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-tool.ts";
+import { registerMemorySearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-search-tool.ts";
+import { registerSessionSearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/session-search-tool.ts";
+import { registerSkillTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/skill-tool.ts";
+import { registerGrillDecisionTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/grill-decision-tool.ts";
 import toolGate from "./tool-gate.ts";
 
 /** A registered tool def — only the fields the guard reads are typed. */
@@ -221,6 +235,53 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 				{ client: {}, close: async () => {}, serverName: "web_reader" },
 				[{ name: "webReader", description: "Z.ai web reader (MCP)" }],
 			);
+		},
+	},
+	{
+		// ticket 02 — knowledge-card. The default factory registers all 4 tools
+		// (zk_card / zk_ask / zk_ingest / knowledge_query) synchronously, each now
+		// carrying gating:{core:true}.
+		name: "knowledge-card",
+		register: (pi) => {
+			knowledgeCardExtension(pi);
+		},
+	},
+	{
+		// ticket 02 — web-access. The default factory registers web_search /
+		// fetch_content / get_search_content synchronously, each now core.
+		name: "web-access",
+		register: (pi) => {
+			webAccessExtension(pi);
+		},
+	},
+	{
+		// ticket 02 — obsidian. The default factory registers only the 2 fat tools
+		// (obsidian / obsidian_help) to pi — the per-action sub-tools are captured
+		// into an internal `_capture` map (NOT registered with pi), so the net sees
+		// exactly the 2 owner-declared-core tools.
+		name: "obsidian",
+		register: (pi) => {
+			obsidianExtension(pi);
+		},
+	},
+	{
+		// ticket 02 — hermes-memory. The default factory is async + heavy (backend
+		// bundle creation before any registerTool), so invoke the 5 individual
+		// registrars with stub args (store/repo deref'd only inside execute, which
+		// capture never calls) — mirroring core-task's direct-registrar entry. The
+		// 5 owner-declared-core tools carry gating:{core:true}. skill_manage_help
+		// (registered alongside skill_manage by registerSkillTool) is an ungated
+		// always-on companion (NOT a CORE_TOOLS member) → ungatedByDesign.
+		// memory_supersede (a separate registrar, also ungated + out of scope) is
+		// not invoked; capture is best-effort per the migration scope.
+		name: "hermes-memory",
+		ungatedByDesign: ["skill_manage_help"],
+		register: (pi) => {
+			registerMemoryTool(pi, {} as any, null, null, "");
+			registerMemorySearchTool(pi, {} as any);
+			registerSessionSearchTool(pi, {} as any, { variant: "legacy" });
+			registerSkillTool(pi, {} as any);
+			registerGrillDecisionTool(pi, {} as any, null);
 		},
 	},
 ];

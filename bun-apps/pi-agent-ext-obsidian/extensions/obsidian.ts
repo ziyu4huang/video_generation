@@ -2009,6 +2009,7 @@ ${output.slice(-2000)}`,
 	pi.registerTool({
 		name: "obsidian",
 		label: "Obsidian",
+		gating: { core: true },
 		// Expose captured individual tools for backward compat (tests, CLI
 		// introspection). Intentionally NOT part of ToolDefinition — read by
 		// __tests__ via a loosely-typed mock registerTool.
@@ -2050,6 +2051,7 @@ ${output.slice(-2000)}`,
 	pi.registerTool({
 		name: "obsidian_help",
 		label: "Obsidian Action Reference",
+		gating: { core: true },
 		description:
 			"On-demand reference for the `obsidian` tool. Call to get the full " +
 			"per-action semantics (what each action does, which params it uses, constraints). " +

@@ -15,6 +15,7 @@ export function registerMemorySearchTool(pi: ExtensionAPI, memoryRepo: MemoryRep
   pi.registerTool({
     name: 'memory_search',
     label: 'Memory Search',
+    gating: { core: true },
     description: `Search extended memory store for relevant entries. Use this when you need context beyond what's in the system prompt — the extended store has unlimited capacity and is searchable.
 
 Use cases:
