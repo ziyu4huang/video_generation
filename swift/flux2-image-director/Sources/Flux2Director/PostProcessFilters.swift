@@ -57,3 +57,33 @@ public enum PostProcessFilters {
         return MLX.clip(falloff, min: 0.0, max: 1.0)
     }
 }
+
+extension PostProcessFilters {
+    /// 3-channel wrapper over Flux2Composite.boxBlur (3 box-blur passes ≈
+    /// gaussian, the SAME technique Flux2Composite.featherMask already uses
+    /// for mask feathering) — no new blur primitive, just per-channel reuse.
+    /// `sigma` is mapped to a box-blur radius via radius ≈ sigma * 1.88
+    /// (matches the standard 3-pass-box-blur-approximates-gaussian relation).
+    static func gaussianBlurRGB(_ image: MLXArray, sigma: Float) -> MLXArray {
+        let radius = max(1, Int((sigma * 1.88).rounded()))
+        let h = image.dim(2), w = image.dim(3)
+        var channels: [MLXArray] = []
+        for c in 0..<3 {
+            var plane = image[0..., c..<(c + 1), 0..., 0...].reshaped([h, w])
+            // 3 passes of box blur (same radius each) ≈ gaussian — matches
+            // Flux2Composite.featherMask's own technique exactly.
+            for _ in 0..<3 { plane = Flux2Composite.boxBlur(plane, radius: radius) }
+            channels.append(plane)
+        }
+        return MLX.stacked(channels, axis: 0).reshaped([1, 3, h, w])
+    }
+
+    /// Unsharp mask: original + amount * (original - blurred). Direct port
+    /// of Sharpening._unsharp (postprocess.py), radius given in PIXELS
+    /// (matches Python's PIL GaussianBlur radius, not sigma) — converted to
+    /// sigma via sigma ≈ radius / 2 (PIL's own documented approximation).
+    static func unsharpMask(_ image: MLXArray, radius: Int, amount: Float) -> MLXArray {
+        let blurred = gaussianBlurRGB(image, sigma: Float(radius) / 2.0)
+        return image + amount * (image - blurred)
+    }
+}

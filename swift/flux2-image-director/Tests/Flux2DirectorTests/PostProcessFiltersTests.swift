@@ -38,4 +38,32 @@ final class PostProcessFiltersTests: XCTestCase {
         let corner = MLX.mean(result[0..., 0..., 0..<8, 0..<8]).item(Float.self)
         XCTAssertLessThan(corner, center, "vignette should darken corners more than the center")
     }
+
+    func testUnsharpMaskIncreasesEdgeContrast() {
+        // A soft vertical step edge: left half 0.2, right half 0.8, pre-blurred
+        // slightly so there's something for unsharp to sharpen.
+        var raw = [Float](repeating: 0, count: 3 * 64 * 64)
+        for c in 0..<3 {
+            for y in 0..<64 {
+                for x in 0..<64 {
+                    raw[c * 64 * 64 + y * 64 + x] = x < 32 ? 0.2 : 0.8
+                }
+            }
+        }
+        let step = MLXArray(raw, [1, 3, 64, 64])
+        MLX.eval(step)
+        let blurred = PostProcessFilters.gaussianBlurRGB(step, sigma: 2.0)
+        let sharpened = PostProcessFilters.unsharpMask(blurred, radius: 3, amount: 1.0)
+        MLX.eval(sharpened)
+
+        // Contrast across the edge (col 30 vs col 33) should be higher after
+        // unsharp than in the blurred input.
+        let blurredContrast = abs(
+            MLX.mean(blurred[0..., 0..., 0..., 30..<31]).item(Float.self)
+            - MLX.mean(blurred[0..., 0..., 0..., 33..<34]).item(Float.self))
+        let sharpContrast = abs(
+            MLX.mean(sharpened[0..., 0..., 0..., 30..<31]).item(Float.self)
+            - MLX.mean(sharpened[0..., 0..., 0..., 33..<34]).item(Float.self))
+        XCTAssertGreaterThan(sharpContrast, blurredContrast)
+    }
 }
