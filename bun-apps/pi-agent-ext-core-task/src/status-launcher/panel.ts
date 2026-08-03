@@ -61,8 +61,19 @@ export class StatusPanelOverlay implements Component {
   setInvalidate(fn: () => void): void {
     this.invalidateFn = fn;
   }
+  /**
+   * Component contract: a TUI→component cache-bust notification (theme change
+   * / re-render-from-scratch). Must NOT request a render — the editor wires
+   * `setInvalidate` to `tui.invalidate()`, and `TUI.invalidate()` propagates
+   * back to every overlay's `invalidate()`, so calling `invalidateFn` here would
+   * re-enter `tui.invalidate()` and recurse until "Maximum call stack size
+   * exceeded". Render requests happen via `move()`→`invalidateFn`, and the
+   * input loop's post-`handleInput` `requestRender()` drives the actual render.
+   * This overlay is stateless (`render()` rebuilds the SelectList fresh), so
+   * there is no cached state to bust.
+   */
   invalidate(): void {
-    this.invalidateFn();
+    // intentionally empty — no cached rendering state
   }
   render(width: number): string[] {
     const list = new SelectList(this.items, this.maxVisible, this.theme);
