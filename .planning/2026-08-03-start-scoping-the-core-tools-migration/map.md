@@ -11,6 +11,7 @@ Delete the hardcoded `CORE_TOOLS` set entirely: the 14 in-repo always-on tools o
 ## Decisions so far
 - **Destination = full deletion** (chosen at chart-time): pursue owner-declared end-to-end incl. the 4 built-ins via upstreaming pi-coding-agent; residual built-in set only if ticket 01's research proves built-ins can't be migrated. (Map framing decision, not a ticket.)
 - [01 research built-in feasibility](tickets/01-research-built-in-feasibility.md) — CLOSED: pi-coding-agent immutable, gating is extension-only; Path B chosen (in-repo injection for the 4 built-ins; true upstream deferred to FOLLOWUPS #5).
+- [02 in-repo core-tools rollout](tickets/02-rollout-in-repo-core-tools.md) — CLOSED: 14 tools × 4 packages owner-declared gating:{core:true} (behavior-preserving); QA corpus + drift-guard wired; 4 already-declared + CORE_TOOLS untouched.
 
 ## Not yet specified
 - Whether `buildEffectiveGates`'s `fallbackCore` default becomes `new Set()` (empty) or is removed entirely at the finish — mechanical, lands in ticket 04.

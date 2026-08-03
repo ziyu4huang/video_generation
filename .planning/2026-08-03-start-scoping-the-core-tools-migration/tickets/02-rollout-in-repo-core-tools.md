@@ -3,4 +3,8 @@ Owner-declare `gating:{ core: true }` on the 14 in-repo CORE_TOOLS members acros
 
 type: task
 blocked by:
-status: open
+claimed: wayfind-02
+status: closed
+
+## Resolution
+Owner-declared `gating:{core:true}` on the 14 in-repo CORE_TOOLS members across 4 packages (behavior-preserving — they stay always-on, now via the authoritative core path instead of the CORE_TOOLS fallback): pi-agent-ext-hermes-memory (memory, memory_search, session_search [both anchor+legacy registrations], skill_manage, grill_decision); pi-agent-ext-knowledge-card (zk_card, zk_ask, zk_ingest, knowledge_query); pi-agent-ext-web-access (web_search, fetch_content, get_search_content); pi-agent-ext-obsidian (obsidian, obsidian_help). Wired each package's registrar into qa/evaluate.ts captureOwnerDeclaredDefs (hermes-memory via a custom registrar — its default factory is async/heavy; mirrors core-task's direct-registrar pattern) + drift-guard MIGRATED_EXTENSIONS (hermes-memory with ungatedByDesign:["skill_manage_help"]). Added local tool-gating.d.ts to hermes-memory (tools in src/); knowledge-card/obsidian/web-access rely on tool-gate's canonical augmentation. Tests: hermes-memory 1222/0, knowledge-card 388/0, web-access 45/0, obsidian 381/0, tool-gate 270/0, `bun run qa` PASS (coverage now counts the 14 as gated-heavy; the 5 remaining ungated are the separate-tools finding, none of the 14). The 4 already-declared + CORE_TOOLS itself untouched (CORE_TOOLS deletion = ticket 04). Commit: 6f16154b.
