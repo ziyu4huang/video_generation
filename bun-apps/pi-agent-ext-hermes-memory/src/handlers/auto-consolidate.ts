@@ -45,6 +45,37 @@ export function resolveConsolidatorModelLabel(config: ChildLlmConfig): string {
   return "default";
 }
 
+/**
+ * UPSP §1: fire-and-forget proactive consolidation after a write, guarded by
+ * the feature flag + the existing in-flight check. Never throws, never blocks
+ * the caller — the write returns BEFORE consolidation completes, and a
+ * proactive failure never breaks the write path.
+ *
+ * The store's `maybeProactiveConsolidate` owns cooldown + pressure +
+ * candidate-selection (and re-checks `proactiveConsolidateEnabled` as its own
+ * invariant); this helper owns ONLY the enable + in-flight gate. Keeping that
+ * gate here — instead of inside the store — is what keeps the store DB-free /
+ * commit-guards-free: the store must not import the in-flight probe, so the
+ * write-path hook consults it on the store's behalf.
+ *
+ * `inFlight` is the caller-supplied probe for "a consolidation is already
+ * running" (production wires it to the canonical `PI_HERMES_CONSOLIDATING`
+ * env check — see `config.ts:isConsolidatingChild`, the same probe
+ * `commit-project-memory.ts` uses). Reusing that existing probe (rather than a
+ * new flag) means a write that lands while a consolidation is mid-flight is a
+ * cheap no-op, never a competing second consolidation.
+ */
+export function fireProactiveIfReady(
+  store: { maybeProactiveConsolidate(target: "memory" | "user" | "failure"): Promise<unknown> },
+  target: "memory" | "user" | "failure",
+  opts: { enabled: boolean; inFlight: () => boolean },
+): void {
+  if (!opts.enabled || opts.inFlight()) return;
+  void store.maybeProactiveConsolidate(target).catch(() => {
+    // best-effort: a proactive failure must never break the write path
+  });
+}
+
 function entriesForTarget(store: MemoryStore, target: MemoryTarget): string[] {
   if (target === "user") return store.getUserEntries();
   if (target === "failure") return store.getAllFailureEntries();

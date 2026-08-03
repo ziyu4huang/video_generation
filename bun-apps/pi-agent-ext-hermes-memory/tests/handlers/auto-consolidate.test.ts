@@ -7,14 +7,19 @@
  * that records the call opts and returns a synthesized `SpawnSubagentResult`.
  */
 
-import { describe, it, beforeAll, afterAll } from "bun:test";
+import { describe, it, test, expect, beforeAll, afterAll } from "bun:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "@repo/pi-agent-ext-subagent/src/index.ts";
-import { registerConsolidateCommand, resolveConsolidatorModelLabel, triggerConsolidation } from "../../src/handlers/auto-consolidate.js";
+import {
+  fireProactiveIfReady,
+  registerConsolidateCommand,
+  resolveConsolidatorModelLabel,
+  triggerConsolidation,
+} from "../../src/handlers/auto-consolidate.js";
 
 // ─── Mock infrastructure ───
 
@@ -535,5 +540,45 @@ describe("MemoryStore auto-consolidation integration", () => {
     const result = await store.add("memory", "x".repeat(60));
     assert.ok(!result.success, "should return error");
     assert.ok(result.error!.includes("exceed"), "should mention exceeding limit");
+  });
+});
+
+// ─── Task 4: fireProactiveIfReady guard helper ───────────────────────────────
+//
+// UPSP §1 — fires-after-write trigger. The helper owns ONLY the enable +
+// in-flight gate; the store's maybeProactiveConsolidate owns cooldown + pressure
+// + candidate selection (the store stays DB-free / commit-guards-free). Two
+// load-bearing contracts under test:
+//   1. fire-and-forget — the helper returns synchronously; the maybe-* call
+//      runs on its own microtask and its rejection is swallowed so a proactive
+//      failure NEVER breaks the write path.
+//   2. in-flight reuse — when disabled OR when consolidation is already in
+//      flight, the helper is a no-op (it never even schedules the maybe-* call).
+
+describe("fireProactiveIfReady", () => {
+  /** Settle the fire-and-forget microtask (Task 4 brief's settle helper). */
+  const microtick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+
+  test("fires fire-and-forget when enabled + not in-flight", async () => {
+    let called = 0;
+    const store = { maybeProactiveConsolidate: async () => { called++; return null; } };
+    fireProactiveIfReady(store as any, "memory", { enabled: true, inFlight: () => false });
+    await microtick(); // settle the fire-and-forget microtask
+    expect(called).toBe(1);
+  });
+
+  test("is a no-op when disabled or in-flight", async () => {
+    let called = 0;
+    const store = { maybeProactiveConsolidate: async () => { called++; return null; } };
+    fireProactiveIfReady(store as any, "memory", { enabled: false, inFlight: () => false });
+    fireProactiveIfReady(store as any, "memory", { enabled: true, inFlight: () => true });
+    await microtick();
+    expect(called).toBe(0);
+  });
+
+  test("swallows a rejecting maybeProactiveConsolidate (write path never breaks)", async () => {
+    const store = { maybeProactiveConsolidate: async () => { throw new Error("boom"); } };
+    expect(() => fireProactiveIfReady(store as any, "memory", { enabled: true, inFlight: () => false })).not.toThrow();
+    await microtick(); // the rejected promise is swallowed, no unhandled rejection
   });
 });
