@@ -77,6 +77,178 @@ at rank time → bounded callout boost applies. Drift-guarded by `retrieve.test.
 - `src/` — deterministic library (no LLM): `ingest`, `retrieve`, `merge`,
   `emit`, `entities`, `similarity`, `semantic`, `host-fns`.
 
+## `zk_spawn` — internal subagent spawn seam
+
+`zkSpawn` is **not a registered tool** — it is the private, swappable
+subagent-spawning seam (`extensions/knowledge-card.ts:92`,
+`let zkSpawn = spawnSubagent` from `@repo/pi-agent-ext-subagent`) that the
+LLM-backed `zk_*` tools route through. It converged the transport onto **one
+in-process path** (`createAgentSession`) instead of pi-obsidian's older
+child-process runner (sub-project ①, PR #545). `__setZkSpawnForTest` swaps it
+in tests (`__tests__/zk-spawn-parity.test.ts` verifies routing parity).
+
+**When it fires** — only on the two LLM tools; the deterministic pair never
+spawns:
+
+| Tool | Spawns? | Call site |
+|------|:-------:|----------|
+| `zk_card` (add/find/update/remove/check) | ✅ | `knowledge-card.ts:828` |
+| `zk_ask` (graph-RAG) | ✅ | `knowledge-card.ts:975` |
+| `zk_ingest` (deterministic convergence) | ✗ | — |
+| `knowledge_query` (deterministic digest) | ✗ | — |
+
+The table above is the **internal** spawn trigger — *which* tools route through
+`zkSpawn`. The **conversational** trigger is broader and agent-judged: what
+makes the model call *any* `zk_*` tool mid-conversation.
+
+### When the agent calls `zk_*` in a conversation (behavioral trigger)
+
+**Availability.** `knowledge-card` is a **static** extension
+(`pi-agent/src/static-extensions.ts:85`) — the four `zk_*` tools are present in
+the tool list of **every** session; the only question is whether the model
+decides to call them.
+
+**Two layers prime the decision each turn:**
+
+1. **Always-visible tool descriptions** — strongest is `knowledge_query`'s:
+   *"Call this BEFORE answering a question that may benefit from past workflow
+   lessons."* (`knowledge-card.ts:1343`).
+2. **The `using-knowledge-cards` skill** (`skills/using-knowledge-cards/SKILL.md`)
+   loads on demand for knowledge work and carries the `zk_*`-vs-`obsidian`
+   hand-off matrix.
+
+**Trigger matrix (READ vs WRITE lanes):**
+
+| Lane | Tool | Fires when the agent… |
+|------|------|-----------------------|
+| READ (ground an answer) | `knowledge_query` | is about to answer something past lessons may inform (cheap, deterministic, no LLM) |
+| READ | `zk_ask` | needs a synthesized graph-RAG answer across the vault (LLM → spawns) |
+| WRITE (capture) | `zk_ingest` | has a distillable record (`.knowledge.jsonl` / hermes `§` / auto-memory / generic `.md`) to land in the graph |
+| WRITE | `zk_card add` | wants one curated, dup-checked atomic card |
+| AUDIT | `zk_card check/find/update/remove` | is doing vault hygiene |
+
+**⚠ Not automatic.** There is no cron, event hook, or proactive loop that
+fires `zk_*` mid-conversation — every call is a per-turn **model judgment**,
+guided by the descriptions + skills. Two things commonly confused with
+auto-triggers:
+
+- **`maybeProactiveConsolidate` (hermes-memory) ≠ `zk_ingest`.** That proactive
+  loop consolidates *within* the hermes memory store (heat-based eviction); it
+  does **not** call `zk_ingest` into the vault.
+- **Non-conversation triggers exist but are outside the chat loop**: the
+  `pipeline run` CLI, and self-improve **workflows** (e.g. `closed-loop-proof`
+  calls `zk-ingest` via Bash at its Persist phase).
+
+```
+            knowledge-card = STATIC extension (loaded every session)
+            zk_card / zk_ask / zk_ingest / knowledge_query always present
+                                  │
+                ┌─────────────────┴──────────────────┐
+                │  per-turn MODEL JUDGMENT (no auto) │
+                └─────────────────┬──────────────────┘
+                                  │
+        ┌─────────────────────────┴─────────────────────────┐
+        ▼ READ lane (ground)                       WRITE lane (capture)
+  "past lessons may help?"                 "I have a record / lesson"
+   → knowledge_query  (no spawn)            structured records → zk_ingest (no spawn)
+   → zk_ask           (spawns)              one curated card  → zk_card add (spawns)
+
+  OUTSIDE the chat loop (still not auto-fired by conversation):
+    • `pipeline run` CLI       → zk_ingest
+    • self-improve workflows    → zk-ingest / zk-query via Bash
+```
+
+**Input** (`SpawnSubagentOptions`, built at the call site):
+
+```
+{ cwd, task, tools, model, excludeTools, externalSignal, extensionTools }
+```
+
+- `task`  — built by the single-source-of-truth `build<Add|Find|Update|Remove|Check|Rag>Task`.
+- `tools` — frozen per-action allowlist (`ADD_TOOLS`/`FIND_TOOLS`/…/`RAG_TOOLS`),
+  all collapsed to `["read", "obsidian", "obsidian_help"]` after obsidian's
+  Phase-3 fold of 18 granular tools into one action-dispatched `obsidian`.
+- `model` — `resolveDistillModel(params.model)` =
+  `params.model ?? KC_SUBAGENT_MODEL ?? "google/gemma-4-12b-qat"`.
+- `extensionTools` — `parentExtensionTools`, captured at `session_start` (the R2
+  bridge so the child's `obsidian` tool is reachable in manifest AND `-e` dev mode).
+
+**Output** (`SpawnSubagentResult`) → tool handler wraps it:
+
+```
+{ output: string, exitCode: number, stderr: string, timedOut: boolean }
+  timedOut          → isError  "… timed out"
+  exitCode≠0 && !output → isError  "… failed (exit N)"
+  otherwise         → content text (subagent output, vault-prefixed)
+```
+
+### Config that affects it (gotchas)
+
+zkSpawn reads **environment variables**, not `~/.pi/agent/settings.json`:
+
+| Knob | Affects | Default / note |
+|------|---------|----------------|
+| `KC_SUBAGENT_MODEL` (env) | child model | `google/gemma-4-12b-qat` — a **LOCAL** LM Studio model, keeping kcard's LLM spend off the cloud. Per-call `model` arg overrides. |
+| `OB_VAULT_PATH` / `OB_VAULT_DIR` (env) | vault path | resolved via pi-obsidian `resolveVault` (env → config → app → `cwd/vault`). |
+| `OB_SUBAGENT_TIMEOUT_MS` (env) | timeout | ⚠ **documented in the header comment but stale for the migrated path**: the in-process `zkSpawn` call sites pass no `timeoutMs`, and `spawnSubagent` only arms a timer when `timeoutMs` is truthy (`spawn-subagent.ts:228`). zk_* subagents therefore run with **no timeout gate** today. (This env is still honored by pi-obsidian's separate `obsidian_distill`/`garden` child-process tools.) |
+
+⚠ **`settings.json` does NOT feed zkSpawn.** `obsidian.subagentModel` and the
+session `defaultModel` are ignored — `resolveDistillModel` always returns a
+concrete model, so the `mainModel` fallback never engages for `zk_*`. To change
+the zk_* subagent model, set `KC_SUBAGENT_MODEL` (or pass the tool's `model` arg).
+
+### Flow
+
+```
+ CONFIG  (env / arg — NOT settings.json; see gotchas above)
+   KC_SUBAGENT_MODEL (env) ......... child model  [default local gemma-4-12b-qat]
+   OB_VAULT_PATH / OB_VAULT_DIR .... vault path  (resolveVault)
+   per-call `model` arg ............ overrides KC_SUBAGENT_MODEL
+   ✗ settings.json obsidian.subagentModel + defaultModel → IGNORED
+   ✗ OB_SUBAGENT_TIMEOUT_MS → doc'd, not threaded (no timer on zk_* today)
+        │
+ ┌──────▼─────────────────────────┐   fires ONLY on:
+ │ agent  ──calls a zk_* tool──►  │   zk_card {add|find|update|remove|check}  ✅
+ │ (parent session)               │   zk_ask  {question}                      ✅
+ └──────┬─────────────────────────┘   zk_ingest / knowledge_query             ✗
+        │ action + params
+ ┌──────▼──────────────────────────────────────────────────────────────┐
+ │ extensions/knowledge-card.ts  (the hub = "kcard")                    │
+ │   task  = build<Add|Find|Update|Remove|Check|Rag>Task(params) ← SoT  │
+ │   tools = <ACTION>_TOOLS  e.g. ["read","obsidian","obsidian_help"]    │
+ │   model = resolveDistillModel(params.model)                          │
+ └──────┬──────────────────────────────────────────────────────────────┘
+        │ SpawnSubagentOptions { cwd, task, tools, model, excludeTools,
+        │   externalSignal, extensionTools: parentExtensionTools }
+ ┌──────▼───────────────────────────────┐
+ │ zkSpawn  (private seam, line 92)      │  = spawnSubagent (in-process),
+ │ let zkSpawn = __defaultSpawnSubagent  │   NOT pi-obsidian child-process
+ └──────┬───────────────────────────────┘
+        │
+ ┌──────▼─────────────────────────────────────────────────────────────┐
+ │ @repo/pi-agent-ext-subagent · spawnSubagent → createAgentSession    │
+ │   ISOLATED child (no parent history) · tools frozen to the allowlist │
+ │   child loads `obsidian` via manifest + extensionTools (R2 bridge)   │
+ │   ⚠ no timeoutMs passed → no timer (runs until done / budget)        │
+ └──────┬─────────────────────────────────────────────────────────────┘
+        │
+ ┌──────▼──────────────────────────────────────────┐
+ │ isolated subagent  (LLM = local gemma default)   │
+ │   reads/writes the vault via the `obsidian` tool │
+ └──────┬──────────────────────────────────────────┘
+        │ SpawnSubagentResult { output, exitCode, stderr, timedOut }
+ ┌──────▼─────────────────────────────────────────────────────────────┐
+ │ tool handler wraps the result:                                      │
+ │   timedOut          → isError  "… timed out"                        │
+ │   exitCode≠0, !out  → isError  "… failed (exit N)"                  │
+ │   ok                → content text (subagent output, vault-prefixed) │
+ └──────┬─────────────────────────────────────────────────────────────┘
+        │
+ ┌──────▼───────────┐
+ │ agent (returns)  │
+ └──────────────────┘
+```
+
 ## Key Dependencies (verified `package.json`)
 
 - `@repo/pi-agent-ext-obsidian` (hard peer) — vault access, `runSubagentWithRetry`

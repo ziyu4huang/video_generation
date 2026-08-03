@@ -1,53 +1,4 @@
 ---
-id: 5c57c1b7-1c75-4fa9-baf6-e486347cbff5
-created: 2026-07-31
-last: 2026-07-31
----
-pi-agent-ext-subagent watchdog L1 planned architecture change (ticket 02, DO decided): generalize L1 from single hardcoded `typescript-language-server` into a multi-provider `L1Provider` registry. First addition: pyright for Python. Second lane planned (ticket 03, DO): biome as CLI-lint lane (`biome lint --reporter=json`) separate from the LSP registry — biome is a linter not a language server, CLI output is clean. Severity by-domain: correctness/suspicious/security → blocker; style/complexity → concern. Rationale: biome `recommended` rules catch unused vars/imports that tsserver misses (repo tsconfig has `strict` but NOT `noUnusedLocals`). biome is already CI gate per-ext — L1 addition is 'earlier to dirty tree' parallel to tsserver-vs-CI-tsc symmetry.
-§
----
-id: 9db26806-c620-4d66-a3b2-829b1e12c22e
-created: 2026-07-30
-last: 2026-07-30
----
-[file2md] AB test outcome for PDF direct-text extraction (2026-07-30): MinerU (Python, torch) achieves best quality with LaTeX equations and figure extraction, but violates no-Python constraint. Bun-native extractors (mupdf, pdftotext) are pdftotext-class: faithful prose, degraded equations (linearized, non-LaTeX), figures completely lost. VLM-only has hallucinations (e.g., missed trailing V in softmax(QK^T/√d_k)V). Hybrid (mupdf + text-as-prior VLM on figure pages only) is the sweet spot for Bun-only constraints: fast text extraction, VLM reserved for figure description with prior suppressing hallucinations. Decision: implemented --extract vlm|text|hybrid with vlm as default, merged via PR #951.
-§
----
-id: 610e10c5-42de-4973-85b0-cb4e6fed9745
-created: 2026-07-31
-last: 2026-08-01
----
-Superpowers planning-path ADR-0004: NEVER edit upstream-ported SKILL.md prose. Fidelity guard (`skills-fidelity.test.ts`) pins 14 ported skills byte-equal to fixtures. Routing achieved via (a) system-prompt to `.planning/<effort>/plan.md`, (b) `PI_PLANNING_EFFORT` + `scripts/sdd-workspace` for SDD, (c) symlink bridge `docs/superpowers/{plans,specs}/` → `.planning/{plans,specs}/`. Re-baseline fixtures ONLY for genuine upstream re-ports via `scripts/rebaseline-upstream-skills.ts`, NEVER for repo conventions.
-§
----
-id: ee245365-bdb0-4896-9981-60727baa42f0
-created: 2026-07-31
-last: 2026-08-01
----
-hermes-memory model (PR #961): consolidation is DESTRUCTIVE (LLM merge = fresh entry, no lineage, .md + DB hard-deleted). Overflow priority: offload superseded FIRST (setSupersededContentProvider → purge content-key from .md → sync DB). TRIM never touches active. .md schema-free; DB↔.md bridge via content-key.
-§
----
-id: 2019684d-5f47-4491-b9ea-4997399b887c
-created: 2026-07-31
-last: 2026-08-01
----
-pi-agent startup perf (2026-07-31): PR #973 rewrote backfillGraphEdges orphan-check from `NOT IN (SELECT VALUE in FROM tagged)` to `count(->tagged)=0` (10s timeout→17ms), dropping startup 10.6s→0.91s. PR #971 batched syncMarkdownMemories (317→3 round-trips) was orthogonal to startup. LESSON: async CPU profilers mis-attribute wait-time; always step-time actual ops + measure end-to-end.
-§
----
-id: 398824d5-f3bd-4c39-b027-08feb0866059
-created: 2026-08-01
-last: 2026-08-01
----
-Git workflow (video_generation repo): Multi-worktree setup means `gh pr merge --squash --delete-branch` leaves LOCAL branches (main checked out elsewhere, local checkout fails). Cleanup: `git switch --detach origin/main && git branch -D <merged-branch>`. Use `sweep-merged-branches.sh` for automated cleanup. PR process: branch from origin/main → commit → push → auto-merge (squash) → if mergeState=BEHIND, rebase + force-push → CI passes → auto-merge → cleanup. Branch protection requires CI pass including administrators. `git cherry origin/main <branch>` checks if safe to force-delete (0 lines starting with `+` = merged).
-§
----
-id: f3b0e175-b5e6-4c80-bcec-95f3ddc64ff1
-created: 2026-08-01
-last: 2026-08-01
----
-and the hardening SHIPPED 2026-08-02 (ADR-0006, commits 478b8f8a..de3466a): piBoundaryOverrides() is now UNCONDITIONAL — no-effort specs route to the flat `.planning/specs/<YYYY-MM-DD>-<topic>-design.md` and plans to `.planning/plans/`, effort-set → `.planning/<effort>/`. Key discovery during that effort: `docs/superpowers/{specs,plans}` are git-tracked SYMLINKS → `.planning/{specs,plans}` (flat layout, active home for standalone brainstorm specs through 2026-08-01), so the original "leak" was already partly mitigated at the filesystem level. TWO coexisting layouts: flat `.planning/{specs,plans}/` (standalone brainstorm/writing-plans output) and per-effort `.planning/<effort>/` (multi-ticket wayfind efforts). A repo lint `bun-apps/pi-agent-ext-superpowers/tests/artifact-leak.test.ts` guards against literal leakage under `docs/superpowers/`/`.superpowers/` (skips the legit symlinks).
-§
----
 id: 1994f3af-5b66-40b1-8e76-a758f2261290
 created: 2026-08-01
 last: 2026-08-01
@@ -88,3 +39,39 @@ created: 2026-08-02
 last: 2026-08-02
 ---
 hermes-memory session-row lifecycle vs capture point: the `sessions` DB row is created ONLY by DEFERRED backfill (`scheduleSessionBackfill` → `setTimeout(0)`, session-backfill.ts) and live-indexing on `message_end` (index.ts `scheduleLiveSessionIndex`) — NOT synchronously at `session_start`. So any per-session data captured at `session_start` CANNOT FK-reference `sessions(id)` (row absent) and cannot upsert columns onto `sessions` (NOT NULL project/cwd + absent row). PR #1012 (per-session assembly log / prompt-provenance) therefore uses FK-free `session_assembly(session_id, md_id)` + `session_assembly_meta(session_id, hash)` tables; session_id is a plain join key, joined to `sessions` via LEFT JOIN (project/cwd null until backfill indexes the session). General rule for future hermes features that capture at session_start: store in FK-free tables keyed by session_id, not on the sessions row.
+§
+---
+id: f3a75582-9503-4cab-a672-baa3b2e2caf7
+created: 2026-08-03
+last: 2026-08-03
+---
+zkSpawn (pi-agent-ext-knowledge-card) — internal private spawn seam, NOT a tool. Two config gotchas that took source-tracing to derive:
+1. settings.json does NOT feed zkSpawn: `obsidian.subagentModel` and session `defaultModel` are IGNORED. Model = resolveDistillModel = `params.model ?? KC_SUBAGENT_MODEL ?? "google/gemma-4-12b-qat"` (LOCAL LM Studio, keeps kcard LLM spend off cloud). To change the zk_* subagent model set KC_SUBAGENT_MODEL env or the tool's `model` arg.
+2. OB_SUBAGENT_TIMEOUT_MS is STALE for the migrated zk_* path: in-process zkSpawn call sites (knowledge-card.ts:828 zk_card, :975 zk_ask) pass no timeoutMs; spawnSubagent (spawn-subagent.ts:228) only arms a timer when timeoutMs truthy → zk_* subagents run with NO timeout gate today. That env is still honored by pi-obsidian's separate obsidian_distill/garden child-process tools.
+Trigger: zkSpawn fires only on zk_card (any action) + zk_ask (LLM tools). zk_ingest + knowledge_query are deterministic, never spawn. Documented in PRD.md "## `zk_spawn` — internal subagent spawn seam" (bun-apps/pi-agent-ext-knowledge-card/PRD.md).
+§
+---
+id: 78d07b03-40e7-44db-abd1-c751830974c1
+created: 2026-08-03
+last: 2026-08-03
+---
+pi-tui overlay `Component.invalidate()` is a TUI→component cache-bust notification ("Called when theme changes or when component needs to re-render from scratch", per the Component interface in pi-tui/dist/tui.d.ts). It must NOT request a render or re-enter `tui.invalidate()`.
+
+Why: `TUI.invalidate()` (pi-tui tui.js ~428) synchronously iterates `this.overlayStack` and calls every `overlay.component.invalidate()` with NO guard. If an overlay's `invalidate()` calls its `invalidateFn` (which editors wire to `() => this.tui.invalidate()`), it re-enters `tui.invalidate()` → infinite recursion → `RangeError: Maximum call stack size exceeded`. This fires on ANY `tui.invalidate()` while the overlay is up (e.g. a tool-result `updateDisplay`), not just keypresses.
+
+Correct pattern (see pi-agent-ext-core-task StatusPanelOverlay, pi-agent-ext-picker MenuOverlay):
+- `setInvalidate(fn)`: store fn. The COMPONENT calls `fn()` from its OWN state-change methods (`move()`, `setQuery()`) to request a render.
+- `invalidate()`: make it a NO-OP (or bust local caches only) for stateless overlays. The actual render is driven by the input loop's post-`handleInput` `tui.requestRender()` (tui.js ~628), and `requestRender()` is the throttled/guarded scheduler — `tui.invalidate()` in 0.83.x does NOT schedule a render, it only propagates cache-bust.
+
+Test blind spot to avoid: tests that mock `tui.invalidate` as `mock(() => {})` (no-op) never simulate the propagation, so the recursion is invisible. Regression tests must mirror real propagation: `tuiInvalidate = () => overlay.invalidate()` and assert `tuiInvalidate()` / `move()` don't throw.
+§
+---
+id: c9ce171b-0a50-4cc0-94c2-2806744f2fce
+created: 2026-08-03
+last: 2026-08-03
+---
+For a finished feature worktree whose branch is merged, two cleanups:
+  A) keep worktree, retarget to main's tip: `git checkout --detach <sha> && git branch -D <feature-branch>` (executed 2026-08-03 on video_generation__memory worktree after PR #1022 merged)
+  B) remove the worktree entirely: `git worktree remove <path>`
+
+`git checkout main` in a non-primary worktree FAILS with "fatal: 'main' is already used by worktree at ..." — this is expected, not an error. To sync main: `git -C /Users/huangziyu/proj/video_generation pull --ff-only`. To delete the merged local branch in a non-primary worktree: `git switch --detach origin/main && git branch -D <branch>` (cannot checkout main, so detach first).
