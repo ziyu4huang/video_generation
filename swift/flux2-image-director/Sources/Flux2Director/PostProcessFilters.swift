@@ -448,3 +448,36 @@ extension PostProcessFilters {
         return image * (1.0 - mask) + enhanced * mask
     }
 }
+
+public struct PostProcessConfig {
+    public var filmGrain: Float = 0        // 0 = off
+    public var sharpening: Float = 0       // 0 = off, else CAS strength
+    public var skinContrast: Bool = false
+    public var noiseClean: Bool = false
+    public var seed: UInt64? = nil
+
+    public init() {}
+}
+
+public enum PostProcessChain {
+    /// Applies the requested subset of filters in Python's fixed order
+    /// (PostProcessChain.from_config, postprocess.py): noise_clean ->
+    /// skin_contrast -> sharpening -> film_grain. (LUT grading would sit
+    /// between sharpening and film_grain — deferred, see design spec.)
+    public static func apply(_ image: MLXArray, config: PostProcessConfig) -> MLXArray {
+        var out = image
+        if config.noiseClean {
+            out = PostProcessFilters.noiseCleaner(out)
+        }
+        if config.skinContrast {
+            out = PostProcessFilters.skinContrast(out)
+        }
+        if config.sharpening > 0 {
+            out = PostProcessFilters.sharpening(out, casStrength: config.sharpening)
+        }
+        if config.filmGrain > 0 {
+            out = PostProcessFilters.filmGrain(out, intensity: config.filmGrain, seed: config.seed)
+        }
+        return out
+    }
+}

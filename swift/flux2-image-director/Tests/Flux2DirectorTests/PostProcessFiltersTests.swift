@@ -250,4 +250,23 @@ final class PostProcessFiltersTests: XCTestCase {
         )).item(Float.self)
         XCTAssertLessThan(blueDiff, 0.02, "non-skin region should stay near-unchanged")
     }
+
+    func testPostProcessChainAppliesOnlyRequestedFiltersInPythonOrder() {
+        let h = 32, w = 32
+        let image = MLXArray(Array(repeating: Float(0.5), count: 3 * h * w), [1, 3, h, w])
+        MLX.eval(image)
+
+        var config = PostProcessConfig()
+        // Nothing enabled -> output must equal input exactly.
+        let untouched = PostProcessChain.apply(image, config: config)
+        MLX.eval(untouched)
+        XCTAssertEqual(untouched.asArray(Float.self), image.asArray(Float.self))
+
+        // Only film grain enabled -> output must differ from input.
+        config.filmGrain = 0.05
+        config.seed = 3
+        let grained = PostProcessChain.apply(image, config: config)
+        MLX.eval(grained)
+        XCTAssertNotEqual(grained.asArray(Float.self), image.asArray(Float.self))
+    }
 }
