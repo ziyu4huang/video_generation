@@ -17,7 +17,6 @@
  * correctly GATED unless a keyword fires. qa:savings steady-state numbers hold.
  */
 import { describe, expect, test } from "bun:test";
-import { CORE_TOOLS } from "./tool-gate.ts";
 import toolGateExtension from "./tool-gate.ts";
 import flux2Extension from "@repo/pi-agent-ext-flux2/extensions/flux2.ts";
 import ltxExtension from "@repo/pi-agent-ext-ltx/extensions/ltx.ts";
@@ -84,7 +83,11 @@ function ltxMimic(pi: any) {
 	});
 }
 
-const ALL = [...CORE_TOOLS, "flux2", "flux2_help", "ltx", "ltx_help", "movie", "movie_help"];
+// ticket 04 — CORE_TOOLS export deleted; redefine the 22 always-active core names
+// locally (mirrors the runtime owner-declared core: 18 in-repo + 4 built-ins).
+const CORE_NAMES = ["read","write","edit","bash","todo","goal_complete","memory","memory_search","session_search","ask_user_question","enable_tool","skill_manage","grill_decision","obsidian","obsidian_help","zk_card","zk_ask","zk_ingest","knowledge_query","web_search","fetch_content","get_search_content"];
+
+const ALL = [...CORE_NAMES, "flux2", "flux2_help", "ltx", "ltx_help", "movie", "movie_help"];
 
 describe("ticket 06 — self-promotion is transient; tool-gate wins at steady state", () => {
 	// Load order = manifest order: tool-gate (line 4) → flux2 (9) → ltx (11).
@@ -113,7 +116,7 @@ describe("ticket 06 — self-promotion is transient; tool-gate wins at steady st
 		expect(pi.getActiveTools()).not.toContain("ltx");
 		expect(pi.getActiveTools()).not.toContain("ltx_help");
 		// CORE tools survive.
-		expect(pi.getActiveTools()).toEqual(expect.arrayContaining([...CORE_TOOLS]));
+		expect(pi.getActiveTools()).toEqual(expect.arrayContaining([...CORE_NAMES]));
 	});
 
 	test("after before_agent_start (image keyword): flux2 active — gate works when intended", async () => {

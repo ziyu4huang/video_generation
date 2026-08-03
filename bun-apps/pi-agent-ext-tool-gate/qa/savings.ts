@@ -6,8 +6,8 @@
  * Method (fully offline — no agent boot): reuse the schema-cost CLI's
  * capturing-mock collection (`buildSchemaCostReport`) to get every registered
  * tool's schema-token cost, then sum the cost of the gate-tool names that are
- * actually loaded. At session start (`sticky = CORE_TOOLS`), `filterActive`
- * keeps CORE_TOOLS + every untracked tool and gates every tracked gate name —
+ * actually loaded. At session start (`sticky = effectiveCore`), `filterActive`
+ * keeps core + every untracked tool and gates every tracked gate name —
  * so the per-request saving is exactly the token cost of the loaded gate tools.
  *
  * Authority note (resolves map fog "baseline-authority divergence"):
@@ -24,8 +24,7 @@ import {
 	resolveRepoRoot,
 } from "../../pi-agent-cli/src/commands/schema-cost.ts";
 import type { SchemaCostReport } from "@repo/pi-agent-ext-power-tool/schema-cost";
-import { CORE_TOOLS } from "../extensions/tool-gate.ts";
-import { CORPUS_GATES } from "./evaluate.ts";
+import { CORPUS_GATES, CORPUS_EFF } from "./evaluate.ts";
 
 /** The savings figure tool-gate's README/banner claims (~8,050 tok/req; zai-mcp env-gated — see caveats()).
  *  THE single source of truth — every prose mention cites ~8,050 and points to
@@ -89,7 +88,7 @@ export interface SavingsReport {
 	root: string;
 	/** All tools active (the ungated baseline). */
 	offTotal: number;
-	/** tool-gate ON at session start (CORE_TOOLS + untracked, gates fired). */
+	/** tool-gate ON at session start (core + untracked, gates fired). */
 	gatedTotal: number;
 	/** offTotal - gatedTotal. */
 	savedTok: number;
@@ -109,7 +108,7 @@ export interface SavingsReport {
 	/** savedTok - claimed. */
 	deviation: number;
 	toolCount: number;
-	/** CORE_TOOLS names found in the captured set. */
+	/** Core names found in the captured set (mirrors CORPUS_EFF.core). */
 	coreCount: number;
 	/** Gate-tool names found in the captured set. */
 	gatedToolCount: number;
@@ -184,7 +183,7 @@ export async function measureSavings(root?: string): Promise<SavingsReport> {
 		claimed: CLAIMED_SAVED_TOK,
 		deviation: savedTok - CLAIMED_SAVED_TOK,
 		toolCount: report.tools.length,
-		coreCount: [...CORE_TOOLS].filter((n) => byName.has(n)).length,
+		coreCount: [...CORPUS_EFF.core].filter((n) => byName.has(n)).length,
 		gatedToolCount: allGateNames.filter((n) => byName.has(n)).length,
 		perGate,
 		gateMissing: allGateNames.filter((n) => !byName.has(n)),
@@ -218,7 +217,7 @@ export function formatSavings(r: SavingsReport): string[] {
 	const sign = (n: number) => (n >= 0 ? "+" : "");
 	const lines: string[] = [
 		`repo:           ${r.root}`,
-		`tools captured: ${r.toolCount}  (CORE_TOOLS present: ${r.coreCount}/${CORE_TOOLS.size}, gated present: ${r.gatedToolCount})`,
+		`tools captured: ${r.toolCount}  (core present: ${r.coreCount}/${CORPUS_EFF.core.size}, gated present: ${r.gatedToolCount})`,
 		`OFF baseline:   ${r.offTotal.toLocaleString()} tok/req  (all tools active)`,
 		`ON at start:    ${r.gatedTotal.toLocaleString()} tok/req  (tool-gate ON, nothing fired)`,
 		`SAVED:          ${r.savedTok.toLocaleString()} tok/req  (${r.savedPct}%)  [gross — gated tools' raw tokens]`,

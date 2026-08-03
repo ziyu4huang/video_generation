@@ -7,7 +7,6 @@ import {
 	buildSchemaCostReport,
 	resolveRepoRoot,
 } from "../../pi-agent-cli/src/commands/schema-cost.ts";
-import { CORE_TOOLS } from "../extensions/tool-gate.ts";
 import { CORPUS_EFF } from "./evaluate.ts";
 
 // TRACKED = the EFFECTIVE tracked set (core ∪ every owner-declared gate name).
@@ -16,7 +15,7 @@ import { CORPUS_EFF } from "./evaluate.ts";
 // (flux2/ltx/movie/zai/…) as UNGATED. Routed through CORPUS_EFF.tracked now.
 const TRACKED = CORPUS_EFF.tracked;
 // obsidian _help tools are CORE, not gated — add them to the help-pair scan.
-const CORE_HELP = [...CORE_TOOLS].filter((n) => n.endsWith("_help") || n.includes("search_help"));
+const CORE_HELP = [...CORPUS_EFF.core].filter((n) => n.endsWith("_help") || n.includes("search_help"));
 
 const report = await buildSchemaCostReport(resolveRepoRoot());
 const byName = new Map(report.tools.map((t) => [t.name, t]));

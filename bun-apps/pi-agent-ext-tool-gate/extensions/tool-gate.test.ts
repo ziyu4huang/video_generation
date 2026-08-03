@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { updateSticky, CORE_TOOLS, computeBannerSaved, matchIntent, matchesKeyword, gateFires, measureToolTokens, filterActive, buildEffectiveGates, injectBuiltinCore, BUILTIN_CORE } from "./tool-gate.ts";
+import { updateSticky, computeBannerSaved, matchIntent, matchesKeyword, gateFires, measureToolTokens, filterActive, buildEffectiveGates, injectBuiltinCore, BUILTIN_CORE } from "./tool-gate.ts";
 import type { ToolGate } from "./tool-gate.ts";
 import { emitToolGateLog, isMissCandidate } from "./tool-gate.ts";
 import toolGateExtension from "./tool-gate.ts";
@@ -15,8 +15,15 @@ import researchExtension from "@repo/pi-agent-ext-research-tool/extensions/resea
 import workflowExtension from "@repo/pi-agent-ext-workflow/extensions/workflow.ts";
 import subagentExtension from "@repo/pi-agent-ext-subagent/extensions/subagent.ts";
 
-/** Spread CORE_TOOLS into an array of names (CORE_TOOLS is a Set). */
-const CORE_TOOLS_ARRAY = (): string[] => Array.from(CORE_TOOLS);
+// ticket 04 — the hardcoded CORE_TOOLS export was deleted; this test-local
+// fixture replaces every former CORE_TOOLS reference. CORE_NAMES = the 22
+// always-active names (mirrors the runtime owner-declared core: 18 in-repo
+// tools + 4 pi-coding-agent built-ins); CORE_SET = the same as a Set for
+// has() / new Set(...).
+const CORE_NAMES = ["read","write","edit","bash","todo","goal_complete","memory","memory_search","session_search","ask_user_question","enable_tool","skill_manage","grill_decision","obsidian","obsidian_help","zk_card","zk_ask","zk_ingest","knowledge_query","web_search","fetch_content","get_search_content"];
+const CORE_SET = new Set(CORE_NAMES);
+/** Spread the core names into an array (CORE_NAMES is the canonical list). */
+const CORE_TOOLS_ARRAY = (): string[] => CORE_NAMES.slice();
 
 // file2md/vision_ask (ticket 04) + flux2/flux2_help (ticket 05) + krea2/
 // krea2_help (ticket 06) + ltx/ltx_help (ticket 07) + movie/movie_help
@@ -81,16 +88,16 @@ const EFF = buildEffectiveGates(ownerDeclaredDefs as never);
 const ownerByName = new Map(ownerDeclaredDefs.map((d: { name: string }) => [d.name, d] as const));
 
 describe("updateSticky + filterActive", () => {
-  test("a tool not listed in CORE_TOOLS or any gate is always active (fail-open)", () => {
-    const allTools = [...CORE_TOOLS, "some_future_tool_not_in_any_gate"];
-    const sticky = new Set(CORE_TOOLS);
+  test("a tool not in the core set or any gate is always active (fail-open)", () => {
+    const allTools = [...CORE_NAMES, "some_future_tool_not_in_any_gate"];
+    const sticky = new Set(CORE_SET);
     const active = filterActive(allTools, sticky);
     expect(active).toContain("some_future_tool_not_in_any_gate");
   });
 
   test("a gate stays active across turns even when a later prompt doesn't mention it", () => {
-    const allTools = [...CORE_TOOLS, "flux2", "flux2_help"];
-    const sticky = new Set(CORE_TOOLS);
+    const allTools = [...CORE_NAMES, "flux2", "flux2_help"];
+    const sticky = new Set(CORE_SET);
     // flux2/flux2_help are owner-declared (ticket 05) → thread EFF so they're
     // tracked + gated (absent from module-level TRACKED_TOOLS/GATES now).
     updateSticky("generate an image of a cat", sticky, EFF.gates);
@@ -102,8 +109,8 @@ describe("updateSticky + filterActive", () => {
   });
 
   test("a gate never mentioned by any prompt stays inactive", () => {
-    const allTools = [...CORE_TOOLS, "flux2", "flux2_help"];
-    const sticky = new Set(CORE_TOOLS);
+    const allTools = [...CORE_NAMES, "flux2", "flux2_help"];
+    const sticky = new Set(CORE_SET);
     // Without EFF.tracked, flux2 would fail-open (absent from TRACKED_TOOLS) →
     // spuriously active. Thread EFF so flux2 stays gated when no keyword fires.
     updateSticky("what's the weather", sticky, EFF.gates);
@@ -112,18 +119,18 @@ describe("updateSticky + filterActive", () => {
     expect(active).not.toContain("flux2_help");
   });
 
-  test("CORE_TOOLS are always active regardless of prompt", () => {
-    const allTools = [...CORE_TOOLS];
-    const sticky = new Set(CORE_TOOLS);
+  test("core tools are always active regardless of prompt", () => {
+    const allTools = [...CORE_NAMES];
+    const sticky = new Set(CORE_SET);
     updateSticky("irrelevant prompt", sticky);
     const active = filterActive(allTools, sticky);
-    for (const t of CORE_TOOLS) expect(active).toContain(t);
+    for (const t of CORE_SET) expect(active).toContain(t);
   });
 });
 
 describe("updateSticky (mutation half)", () => {
   test("fires matching gates and mutates sticky in place", () => {
-    const sticky = new Set(CORE_TOOLS);
+    const sticky = new Set(CORE_SET);
     // flux2/flux2_help owner-declared (ticket 05) → EFF.gates (both fire, co-fire preserved).
     updateSticky("generate an image of a cat", sticky, EFF.gates);
     expect(sticky.has("flux2")).toBe(true);
@@ -131,7 +138,7 @@ describe("updateSticky (mutation half)", () => {
   });
 
   test("accumulates across turns (sticky persistence)", () => {
-    const sticky = new Set(CORE_TOOLS);
+    const sticky = new Set(CORE_SET);
     // flux2 (ticket 05) + ltx (ticket 07) owner-declared; EFF.gates carries
     // both → flux2 fires on "generate an image", ltx on "make a video".
     updateSticky("generate an image", sticky, EFF.gates);
@@ -142,7 +149,7 @@ describe("updateSticky (mutation half)", () => {
   });
 
   test("empty prompt fires nothing", () => {
-    const sticky = new Set(CORE_TOOLS);
+    const sticky = new Set(CORE_SET);
     const before = sticky.size;
     updateSticky("", sticky);
     expect(sticky.size).toBe(before);
@@ -221,7 +228,7 @@ describe("inspect_* precision/escape (recovered from dropped QA probes)", () => 
 });
 
 describe("matchIntent (S1)", () => {
-  const sticky = () => new Set(CORE_TOOLS);
+  const sticky = () => new Set(CORE_SET);
 
   test("video intent → ltx", () => {
     // ltx/ltx_help are owner-declared (ticket 07) → buildEffectiveGates splits
@@ -356,7 +363,7 @@ describe("computeBannerSaved (S3 — runtime measured tokens)", () => {
     // parameterized `gates` (defaults to the now-empty module GATES in prod).
     const mockTool = (name: string, desc: string) => ({ name, description: desc, parameters: { p: 1 } });
     const synthNames = ["synth_search", "synth_reader"];
-    const loadedNames = [...CORE_TOOLS, ...synthNames];
+    const loadedNames = [...CORE_NAMES, ...synthNames];
     const loadedTools = [
       ...CORE_TOOLS_ARRAY().map((n) => mockTool(n, "core")),
       mockTool("synth_search", "synth search"),
@@ -367,7 +374,7 @@ describe("computeBannerSaved (S3 — runtime measured tokens)", () => {
     // CORE-only active ⇒ synth gate is gated/dormant. filterActive needs the synth
     // names in `tracked` (they're absent from module TRACKED_TOOLS now) to stay
     // dormant instead of fail-opening.
-    const active = filterActive(loadedNames, new Set(CORE_TOOLS), new Set([...CORE_TOOLS, ...synthNames]));
+    const active = filterActive(loadedNames, new Set(CORE_SET), new Set([...CORE_NAMES, ...synthNames]));
     const saved = computeBannerSaved(active, loadedNames, measured, [synthGate]);
     const expected = measured.get("synth_search")! + measured.get("synth_reader")!;
     expect(saved).toBe(expected);
@@ -377,7 +384,7 @@ describe("computeBannerSaved (S3 — runtime measured tokens)", () => {
     const measured = new Map([["ghost_a", 999], ["ghost_b", 999]]);
     // ghost tools measured + gated, but NOT in allToolNames → excluded.
     const ghostGate = { names: ["ghost_a", "ghost_b"], keywords: ["ghost"], description: "gate whose tools are not loaded" };
-    const saved = computeBannerSaved([...CORE_TOOLS], [...CORE_TOOLS], measured, [ghostGate]);
+    const saved = computeBannerSaved([...CORE_NAMES], [...CORE_NAMES], measured, [ghostGate]);
     expect(saved).toBe(0);
   });
 });
@@ -408,9 +415,9 @@ describe("enable_tool (S1 A escape hatch)", () => {
     return { pi, calls, registered, enableTool, handlers };
   }
 
-  test("enable_tool is registered and is in CORE_TOOLS (always active)", () => {
-    expect(CORE_TOOLS.has("enable_tool")).toBe(true);
-    const { enableTool } = setupPi([...CORE_TOOLS, "ltx", "ltx_help", "flux2", "flux2_help", "workflow", "workflow_help"]);
+  test("enable_tool is registered and is owner-declared core (always active)", () => {
+    expect(CORE_SET.has("enable_tool")).toBe(true);
+    const { enableTool } = setupPi([...CORE_NAMES, "ltx", "ltx_help", "flux2", "flux2_help", "workflow", "workflow_help"]);
     expect(enableTool).toBeTruthy();
   });
 
@@ -419,7 +426,7 @@ describe("enable_tool (S1 A escape hatch)", () => {
     // (owner-declared, tickets 10 + 11) AND zai-mcp (owner-declared, ticket 12,
     // synthesized into ownerByName above) all reconstruct as gates. All are
     // dormant (CORE-only active) → every one appears in the list.
-    const { enableTool } = setupPi([...CORE_TOOLS, "workflow", "workflow_help", "zai_web_search_web_search_prime", "zai_web_reader_webReader"]);
+    const { enableTool } = setupPi([...CORE_NAMES, "workflow", "workflow_help", "zai_web_search_web_search_prime", "zai_web_reader_webReader"]);
     const res = await enableTool.execute("id", { list: true });
     const text = res.content[0].text;
     expect(text).toContain("workflow");
@@ -427,7 +434,7 @@ describe("enable_tool (S1 A escape hatch)", () => {
   });
 
   test("intent 'orchestrate a parallel pipeline' activates workflow (sticky) and calls setActiveTools", async () => {
-    const { enableTool, calls } = setupPi([...CORE_TOOLS, "workflow", "workflow_help"]);
+    const { enableTool, calls } = setupPi([...CORE_NAMES, "workflow", "workflow_help"]);
     const res = await enableTool.execute("id", { intent: "orchestrate a parallel pipeline" });
     expect(res.content[0].text).toContain("workflow");
     expect(calls.length).toBeGreaterThan(0);
@@ -443,7 +450,7 @@ describe("enable_tool (S1 A escape hatch)", () => {
     // combined-gate split (cross-cutting; tracked in the map) — noted here, NOT
     // fixed. (zai-mcp likewise split into single-name owner-declared gates as of
     // ticket 12; every multi-name rollout shares this NAME-mode sibling gap.)
-    const { enableTool, calls } = setupPi([...CORE_TOOLS, "workflow", "workflow_help"]);
+    const { enableTool, calls } = setupPi([...CORE_NAMES, "workflow", "workflow_help"]);
     const res = await enableTool.execute("id", { name: "workflow" });
     expect(res.content[0].text).toContain("workflow");
     expect(calls[calls.length - 1].setActiveTools).toEqual(expect.arrayContaining(["workflow"]));
@@ -452,7 +459,7 @@ describe("enable_tool (S1 A escape hatch)", () => {
   });
 
   test("no-match intent returns a non-error result pointing to list", async () => {
-    const { enableTool } = setupPi([...CORE_TOOLS, "workflow", "workflow_help"]);
+    const { enableTool } = setupPi([...CORE_NAMES, "workflow", "workflow_help"]);
     const res = await enableTool.execute("id", { intent: "what's the weather" });
     expect(res.content[0].text).toMatch(/no dormant tool matched/i);
     expect(res.content[0].text).toMatch(/list:true/i);
@@ -464,7 +471,7 @@ describe("enable_tool (S1 A escape hatch)", () => {
     // against lastPrompt, which is unnecessary work and couples enable_tool to
     // the prompt-matching logic. filterActive computes the active list from
     // sticky alone — no gate re-evaluation, no risk of lastPrompt side effects.
-    const loaded = [...CORE_TOOLS, "workflow", "workflow_help", "zai_web_search_web_search_prime", "zai_web_reader_webReader"];
+    const loaded = [...CORE_NAMES, "workflow", "workflow_help", "zai_web_search_web_search_prime", "zai_web_reader_webReader"];
     const { enableTool, calls } = setupPi(loaded);
     const res = await enableTool.execute("id", { name: "workflow" });
     expect(res.content[0].text).toContain("workflow");
@@ -484,7 +491,7 @@ describe("enable_tool (S1 A escape hatch)", () => {
   test("F3 regression: enable_tool with already-active gate returns 'already active' (not 'Activated')", async () => {
     // When a gate is already fully active, enable_tool({name}) must not claim
     // it was "Activated" — it should say "already active".
-    const loaded = [...CORE_TOOLS, "workflow", "workflow_help"];
+    const loaded = [...CORE_NAMES, "workflow", "workflow_help"];
     const { enableTool, handlers } = setupPi(loaded);
     // Activate workflow first via before_agent_start
     if (handlers.before_agent_start) {
@@ -509,7 +516,7 @@ describe("enable_tool (S1 A escape hatch)", () => {
     const handlers: Record<string, any> = {};
     let throwOnSetActive = false;
     const pi: any = {
-      getAllToolDefinitions: () => [...CORE_TOOLS, ...ZAI_NAMES].map((name) => ({ name, ...(name.startsWith("zai_") ? { gating: ZAI_GATING } : {}) })),
+      getAllToolDefinitions: () => [...CORE_NAMES, ...ZAI_NAMES].map((name) => ({ name, ...(name.startsWith("zai_") ? { gating: ZAI_GATING } : {}) })),
       setActiveTools: () => { if (throwOnSetActive) throw new Error("setActiveTools boom"); },
       registerTool: (def: any) => { (pi as any)._t = def; },
       on: (ev: string, h: any) => { handlers[ev] = h; },
@@ -527,8 +534,8 @@ describe("enable_tool (S1 A escape hatch)", () => {
 
 describe("filterActive (F1 fix)", () => {
   test("tools not in TRACKED_TOOLS are always active (fail-open)", () => {
-    const sticky = new Set(CORE_TOOLS);
-    const active = filterActive([...CORE_TOOLS, "some_new_tool"], sticky);
+    const sticky = new Set(CORE_SET);
+    const active = filterActive([...CORE_NAMES, "some_new_tool"], sticky);
     expect(active).toContain("some_new_tool");
   });
 
@@ -536,8 +543,8 @@ describe("filterActive (F1 fix)", () => {
     // flux2 (ticket 05) + ltx (ticket 07) + movie (ticket 08) + workflow
     // (tickets 10 + 11) migrated → absent from module TRACKED_TOOLS, so
     // filterActive would fail-open them. Thread EFF.tracked so they stay gated.
-    const all = [...CORE_TOOLS, "zai_web_search_web_search_prime", "zai_web_reader_webReader", "workflow", "workflow_help"];
-    const sticky = new Set([...CORE_TOOLS, "zai_web_search_web_search_prime", "zai_web_reader_webReader"]);
+    const all = [...CORE_NAMES, "zai_web_search_web_search_prime", "zai_web_reader_webReader", "workflow", "workflow_help"];
+    const sticky = new Set([...CORE_NAMES, "zai_web_search_web_search_prime", "zai_web_reader_webReader"]);
     const active = filterActive(all, sticky, EFF.tracked);
     expect(active).toContain("zai_web_search_web_search_prime");
     expect(active).toContain("zai_web_reader_webReader");
@@ -546,9 +553,9 @@ describe("filterActive (F1 fix)", () => {
   });
 
   test("does NOT mutate sticky", () => {
-    const sticky = new Set(CORE_TOOLS);
+    const sticky = new Set(CORE_SET);
     const before = sticky.size;
-    filterActive([...CORE_TOOLS, "workflow", "workflow_help"], sticky);
+    filterActive([...CORE_NAMES, "workflow", "workflow_help"], sticky);
     expect(sticky.size).toBe(before);
     expect(sticky.has("workflow")).toBe(false);
   });
@@ -613,7 +620,7 @@ describe("gateFires (S2 co-occurrence)", () => {
 describe("S2 keyword audit (updateSticky + filterActive Effect table)", () => {
   // inspect_extensions dropped (Task-3 review Minor C): it's owner-declared now,
   // absent from hardcoded TRACKED_TOOLS → fail-open → always-active dead data.
-  const all = [...CORE_TOOLS, "flux2", "flux2_help", "krea2", "krea2_help", "ltx", "ltx_help",
+  const all = [...CORE_NAMES, "flux2", "flux2_help", "krea2", "krea2_help", "ltx", "ltx_help",
     "file2md", "vision_ask", "workflow", "workflow_help",
     "collect_videos", "movie", "movie_help"];
   // flux2 (ticket 05) + file2md/vision_ask (ticket 04) + krea2/krea2_help
@@ -629,7 +636,7 @@ describe("S2 keyword audit (updateSticky + filterActive Effect table)", () => {
   };
 
   test("docker image cleanup → []", () => {
-    expect(act("docker image cleanup")).toEqual(expect.arrayContaining([...CORE_TOOLS]));
+    expect(act("docker image cleanup")).toEqual(expect.arrayContaining([...CORE_NAMES]));
     expect(act("docker image cleanup")).not.toContain("flux2");
   });
   test("generate an image of a cat → flux2 (generate+image)", () => {
@@ -671,7 +678,7 @@ describe("S2 keyword audit (updateSticky + filterActive Effect table)", () => {
 });
 
 describe("S2 cross-gate invariant — shared noun, disjoint verbs ⇒ only one fires", () => {
-  const all = [...CORE_TOOLS, "flux2", "flux2_help", "ltx", "ltx_help",
+  const all = [...CORE_NAMES, "flux2", "flux2_help", "ltx", "ltx_help",
     "file2md", "vision_ask"];
   // flux2 (ticket 05) + file2md/vision_ask (ticket 04) → effective gates/tracked.
   const act = (prompt: string) => {
@@ -693,7 +700,7 @@ describe("S2 cross-gate invariant — shared noun, disjoint verbs ⇒ only one f
 });
 
 describe("S2 matchIntent false-fire cases", () => {
-  const sticky = () => new Set(CORE_TOOLS);
+  const sticky = () => new Set(CORE_SET);
   const first = (prompt: string) => matchIntent(prompt, EFF.gates, sticky()).map((g) => g.names[0]);
 
   test("describe the architecture → []", () => {
@@ -712,10 +719,10 @@ describe("S2 matchIntent false-fire cases", () => {
 
 describe("previously-leaked tools regression (2026-07-21)", () => {
   // These 5 tools were untracked (fail-open → always active) before the fix.
-  // Each must now be explicitly tracked — either in CORE_TOOLS or a GATE.
+  // Each must now be explicitly tracked — either owner-declared core or a GATE.
 
-  test("grill_decision is in CORE_TOOLS (always active, not fail-open)", () => {
-    expect(CORE_TOOLS.has("grill_decision")).toBe(true);
+  test("grill_decision is in the core set (always active, not fail-open)", () => {
+    expect(CORE_SET.has("grill_decision")).toBe(true);
   });
 
   test("subagent + workflow_control are gated (tracked, not fail-open)", () => {
@@ -741,12 +748,14 @@ describe("previously-leaked tools regression (2026-07-21)", () => {
   });
 
   test("none of the 5 previously-leaked tools are untracked (fail-open)", () => {
-    // Full tracked set = core ∪ all gate names. EFF.tracked is exactly that: it
-    // merges every owner-declared gate name (workflow/subagent/zai-mcp/etc.,
-    // tickets 03–12 — the module GATES fallback is now empty) + CORE_TOOLS. So
-    // the 5 previously-leaked tools are all tracked regardless of which gate
-    // owns them.
-    const tracked = EFF.tracked;
+    // Full tracked set = core ∪ all gate names (what buildEffectiveGates emits as
+    // `.tracked` when given the complete def list). EFF here is built from the
+    // migrated GATED extensions only (its `.core` is empty — no core registrar
+    // captured), so union the core names back in to mirror the runtime full
+    // tracked set. Before ticket 04 the CORE_TOOLS fallback did this implicitly;
+    // now core + gates are explicit. So the 5 previously-leaked tools are all
+    // tracked regardless of which gate/set owns them.
+    const tracked = new Set<string>([...CORE_NAMES, ...EFF.tracked]);
     const leaked = [
       "grill_decision",
       "subagent",
@@ -765,7 +774,7 @@ describe("previously-leaked tools regression (2026-07-21)", () => {
     // EFF.tracked so the gates fire on the keyword AND stay tracked (else they
     // fail-open, hiding whether the keyword actually fired).
     const sticky = new Set(EFF.core);
-    const allTools = [...CORE_TOOLS, "workflow", "workflow_help", "subagent", "workflow_control"];
+    const allTools = [...CORE_NAMES, "workflow", "workflow_help", "subagent", "workflow_control"];
     updateSticky("run a multi-step workflow", sticky, EFF.gates);
     const active = filterActive(allTools, sticky, EFF.tracked);
     expect(active).toContain("subagent");
@@ -773,8 +782,8 @@ describe("previously-leaked tools regression (2026-07-21)", () => {
   });
 
   test("zai-mcp gate fires on 'zai search' keyword", () => {
-    const sticky = new Set(CORE_TOOLS);
-    const allTools = [...CORE_TOOLS, "zai_web_search_web_search_prime", "zai_web_reader_webReader"];
+    const sticky = new Set(CORE_SET);
+    const allTools = [...CORE_NAMES, "zai_web_search_web_search_prime", "zai_web_reader_webReader"];
     // zai-mcp owner-declared (ticket 12) → thread EFF so the gates fire + stay
     // tracked (absent from module GATES/TRACKED_TOOLS now).
     updateSticky("use zai search to find results", sticky, EFF.gates);
@@ -784,8 +793,8 @@ describe("previously-leaked tools regression (2026-07-21)", () => {
   });
 
   test("zai-mcp tools stay dormant without keyword (the savings)", () => {
-    const sticky = new Set(CORE_TOOLS);
-    const allTools = [...CORE_TOOLS, "zai_web_search_web_search_prime", "zai_web_reader_webReader"];
+    const sticky = new Set(CORE_SET);
+    const allTools = [...CORE_NAMES, "zai_web_search_web_search_prime", "zai_web_reader_webReader"];
     updateSticky("search the web for cats", sticky, EFF.gates);
     const active = filterActive(allTools, sticky, EFF.tracked);
     // 'search' alone doesn't fire the zai gate — only 'zai search' does
@@ -793,8 +802,8 @@ describe("previously-leaked tools regression (2026-07-21)", () => {
     expect(active).not.toContain("zai_web_reader_webReader");
   });
 
-  test("obsidian_help is in CORE_TOOLS (always active, not fail-open)", () => {
-    expect(CORE_TOOLS.has("obsidian_help")).toBe(true);
+  test("obsidian_help is in the core set (always active, not fail-open)", () => {
+    expect(CORE_SET.has("obsidian_help")).toBe(true);
   });
 
   test("inspect_tui is owner-gated (gated, not fail-open)", () => {
@@ -850,15 +859,15 @@ describe("buildEffectiveGates", () => {
     expect(g!.requires).toEqual({ nouns: ["agent"], verbs: ["inspect"] });
   });
 
-  test("undeclared CORE_TOOLS keep their fallback core (fallbackCore = CORE_TOOLS)", () => {
-    // Ticket 15 deleted the hardcoded GATES array + the `fallbackGates` param
-    // (every gate is owner-declared end to end). Only `fallbackCore` survives:
-    // an undeclared name that's in CORE_TOOLS still lands in eff.core
-    // (always-active). A name with no owner declaration AND not in CORE_TOOLS is
-    // simply ungated (no longer falls back to a hardcoded gate).
+  test("undeclared names are simply ungated (no hardcoded fallback — ticket 04 deleted CORE_TOOLS)", () => {
+    // Ticket 15 deleted the hardcoded GATES array + the `fallbackGates` param;
+    // ticket 04 deleted the `fallbackCore` (= CORE_TOOLS) always-active set.
+    // Now NOTHING falls back: a name with no owner declaration is simply
+    // ungated (absent from eff.core + eff.tracked). read/write/edit/bash only
+    // land in core when injectBuiltinCore attaches gating:{core:true} (ticket 03).
     const eff = buildEffectiveGates([]); // no owner declarations
-    expect(eff.core.has("read")).toBe(true); // CORE_TOOLS fallback intact
-    expect(eff.gates).toHaveLength(0); // no fallback gates exist anymore
+    expect(eff.core.has("read")).toBe(false); // no fallback — read is ungated here
+    expect(eff.gates).toHaveLength(0); // no fallback gates exist
   });
 
   // Ticket 15 deleted the hardcoded GATES array, the buildEffectiveGates
@@ -866,12 +875,13 @@ describe("buildEffectiveGates", () => {
   // The two tests that lived here ("owner-declared tool supersedes a same-named
   // fallback gate" + "FOLLOWUPS #4 — partial migration… per-name resolution")
   // asserted exactly that removed fallback mechanism, so they were deleted with
-  // it. buildEffectiveGates now has ONLY owner-declared `gating` + the
-  // `fallbackCore` (= CORE_TOOLS) always-active set — no gate fallback at all.
+  // it. Ticket 04 then deleted the `fallbackCore` always-active set (the former
+  // CORE_TOOLS) — buildEffectiveGates now has ONLY owner-declared `gating`, no
+  // fallback of any kind (core or gate).
 });
 
 describe("injectBuiltinCore (ticket 03 — Path B injected-core for the 4 built-ins)", () => {
-  test("injects gating:{core:true} so buildEffectiveGates routes the 4 built-ins to core WITHOUT the CORE_TOOLS fallback", () => {
+  test("injects gating:{core:true} so buildEffectiveGates routes the 4 built-ins to core via owner-declaration", () => {
     // Bare built-in defs exactly as getAllToolDefinitions surfaces them: name
     // only, NO gating. (pi-coding-agent is immutable + `gating` is extension-
     // only — see injectBuiltinCore docs — so the live defs arrive bare.)
@@ -879,10 +889,10 @@ describe("injectBuiltinCore (ticket 03 — Path B injected-core for the 4 built-
     const injected = injectBuiltinCore(raw);
     // Every built-in now carries gating.core === true.
     for (const d of injected) expect((d as { gating?: { core?: boolean } }).gating?.core).toBe(true);
-    // PROOF the built-ins are routed via the `handled` branch, NOT the fallback:
-    // pass an EMPTY fallbackCore — any reliance on CORE_TOOLS would leave them
-    // out of eff.core, but the injected gating puts them all in.
-    const eff = buildEffectiveGates(injected as never, new Set());
+    // PROOF the built-ins are routed via owner-declared gating:{core:true}, NOT
+    // any fallback: buildEffectiveGates now takes a SINGLE arg (no fallbackCore),
+    // and the injected gating is the only thing putting the built-ins in eff.core.
+    const eff = buildEffectiveGates(injected as never);
     for (const name of BUILTIN_CORE) expect(eff.core.has(name)).toBe(true);
   });
 
@@ -936,11 +946,12 @@ describe("tool-gate runtime reads owner-declared gating", () => {
 
   test("enable_tool recompute must NOT spuriously activate an owner-gated tool absent from TRACKED_TOOLS", async () => {
     // Regression for the enable_tool F1-fix block: its filterActive call used
-    // the DEFAULT tracked set (module TRACKED_TOOLS = CORE_TOOLS ∪ GATES-names)
-    // instead of effectiveTracked. Any owner-declared gated tool whose name is
-    // NOT in the hardcoded GATES/CORE_TOOLS is therefore absent from
-    // TRACKED_TOOLS → filterActive treats it as fail-open → it is spuriously
-    // active during an enable_tool recompute. Fix: pass effectiveTracked.
+    // the DEFAULT tracked set (module TRACKED_TOOLS — now an EMPTY placeholder
+    // post-ticket-04; formerly CORE_TOOLS ∪ GATES-names) instead of
+    // effectiveTracked. Any owner-declared gated tool whose name is NOT in the
+    // session-built effective tracked set is therefore absent from TRACKED_TOOLS
+    // → filterActive treats it as fail-open → it is spuriously active during an
+    // enable_tool recompute. Fix: pass effectiveTracked.
     const activeCalls: string[][] = [];
     let sessionStartHandler: ((e: unknown, ctx: unknown) => Promise<void>) | null = null;
     let enableToolExecute: ((toolCallId: string, params: any) => Promise<any>) | null = null;
@@ -948,7 +959,8 @@ describe("tool-gate runtime reads owner-declared gating", () => {
       getAllToolDefinitions: () => [
         { name: "read", gating: { core: true } },
         // owner-declared NON-CORE gated tool; "unobtanium_tool" is NOT in any
-        // hardcoded GATE or CORE_TOOLS → absent from module TRACKED_TOOLS.
+        // owner-declared core set or gate → absent from the effective tracked
+        // set (and from the now-empty module TRACKED_TOOLS).
         { name: "unobtanium_tool", gating: { keywords: ["unobtanium-trigger"] } },
         // a separate gated tool (zai-mcp, owner-declared in ticket 12 via
         // registerServerTools; we mirror ZAI_GATING here so it reconstructs as a
