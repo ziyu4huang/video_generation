@@ -18,6 +18,11 @@ import {
   DEFAULT_DECAY_HALFLIFE_DAYS,
   DEFAULT_DECAY_WORTH_WEIGHT,
   DEFAULT_DECAY_USED_BONUS,
+  DEFAULT_PROACTIVE_ENABLED,
+  DEFAULT_PROACTIVE_HEAT_FLOOR,
+  DEFAULT_PROACTIVE_MAX_CANDIDATES,
+  DEFAULT_PROACTIVE_PRESSURE_THRESHOLD,
+  DEFAULT_PROACTIVE_COOLDOWN_MINUTES,
 } from "./constants.js";
 import { AGENT_ROOT, normalizeConfiguredMemoryDir, normalizeProjectsMemoryDir } from "./paths.js";
 import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
@@ -76,6 +81,13 @@ const DEFAULT_CONFIG: MemoryConfig = {
   decayHalflifeDays: DEFAULT_DECAY_HALFLIFE_DAYS,
   decayWorthWeight: DEFAULT_DECAY_WORTH_WEIGHT,
   decayUsedBonus: DEFAULT_DECAY_USED_BONUS,
+  // Proactive consolidation (UPSP §1 / Task 1) — all five knobs registered in
+  // DEFAULT_CONFIG AND the parse allowlist below (#06 config-gap lesson).
+  proactiveConsolidateEnabled: DEFAULT_PROACTIVE_ENABLED,
+  proactiveHeatFloor: DEFAULT_PROACTIVE_HEAT_FLOOR,
+  proactiveMaxCandidates: DEFAULT_PROACTIVE_MAX_CANDIDATES,
+  proactivePressureThreshold: DEFAULT_PROACTIVE_PRESSURE_THRESHOLD,
+  proactiveCooldownMinutes: DEFAULT_PROACTIVE_COOLDOWN_MINUTES,
   autoSupersede: false,
   autoCommitProjectMemory: false,
   failureInjectionEnabled: true,
@@ -267,6 +279,15 @@ export function loadConfig(configPath?: string, cwd: string = process.cwd()): Me
       if (typeof parsed.decayHalflifeDays === "number" && Number.isFinite(parsed.decayHalflifeDays) && parsed.decayHalflifeDays > 0) config.decayHalflifeDays = parsed.decayHalflifeDays;
       if (isNonNegativeNumber(parsed.decayWorthWeight)) config.decayWorthWeight = parsed.decayWorthWeight;
       if (isNonNegativeNumber(parsed.decayUsedBonus)) config.decayUsedBonus = parsed.decayUsedBonus;
+      // Proactive consolidation (UPSP §1 / Task 1): the #06 config-gap lesson —
+      // every knob is allowlisted here so a config-file value reaches the
+      // consumer object. Type-safe guards: boolean → finite-in-range [0,1] →
+      // positive int → non-negative; invalid input silently keeps the default.
+      if (typeof parsed.proactiveConsolidateEnabled === "boolean") config.proactiveConsolidateEnabled = parsed.proactiveConsolidateEnabled;
+      if (typeof parsed.proactiveHeatFloor === "number" && Number.isFinite(parsed.proactiveHeatFloor) && parsed.proactiveHeatFloor >= 0 && parsed.proactiveHeatFloor <= 1) config.proactiveHeatFloor = parsed.proactiveHeatFloor;
+      if (Number.isInteger(parsed.proactiveMaxCandidates) && (parsed.proactiveMaxCandidates as number) > 0) config.proactiveMaxCandidates = parsed.proactiveMaxCandidates;
+      if (typeof parsed.proactivePressureThreshold === "number" && Number.isFinite(parsed.proactivePressureThreshold) && parsed.proactivePressureThreshold >= 0) config.proactivePressureThreshold = parsed.proactivePressureThreshold;
+      if (isNonNegativeNumber(parsed.proactiveCooldownMinutes)) config.proactiveCooldownMinutes = parsed.proactiveCooldownMinutes;
       if (typeof parsed.autoSupersede === "boolean") config.autoSupersede = parsed.autoSupersede;
       if (isNonNegativeNumber(parsed.errorCaptureRateLimit)) config.errorCaptureRateLimit = parsed.errorCaptureRateLimit;
       if (isNonNegativeNumber(parsed.errorCaptureRateWindowMs)) config.errorCaptureRateWindowMs = parsed.errorCaptureRateWindowMs;
