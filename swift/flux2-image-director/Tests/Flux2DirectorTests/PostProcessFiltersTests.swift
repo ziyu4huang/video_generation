@@ -196,4 +196,58 @@ final class PostProcessFiltersTests: XCTestCase {
         let diff = MLX.mean(MLX.abs(roundTrip - image)).item(Float.self)
         XCTAssertLessThan(diff, 0.01, "RGB->LAB->RGB should be near-identity")
     }
+
+    func testCLAHEIncreasesLowContrastRegionSpread() {
+        // A 64x64 L-channel-like single-plane image: values clustered
+        // tightly around 0.5 (low contrast) in the left half, full [0,1]
+        // range in the right half.
+        let h = 64, w = 64
+        var raw = [Float](repeating: 0, count: h * w)
+        for y in 0..<h {
+            for x in 0..<w {
+                if x < 32 {
+                    raw[y * w + x] = 0.48 + 0.04 * (Float(y) / Float(h))   // tight cluster [0.48,0.52]
+                } else {
+                    raw[y * w + x] = Float(y) / Float(h)                   // full spread [0,1)
+                }
+            }
+        }
+        let l = MLXArray(raw, [1, 1, h, w])
+        MLX.eval(l)
+
+        let eq = PostProcessFilters.clahe(l, clipLimit: 2.0, tileGridSize: 8)
+        MLX.eval(eq)
+
+        let leftVarBefore = l[0..., 0..., 0..., 0..<32].variance().item(Float.self)
+        let leftVarAfter = eq[0..., 0..., 0..., 0..<32].variance().item(Float.self)
+        XCTAssertGreaterThan(leftVarAfter, leftVarBefore, "CLAHE should spread a tightly-clustered region's contrast")
+
+        let vals = eq.asArray(Float.self)
+        XCTAssertTrue(vals.allSatisfy { $0 >= 0.0 && $0 <= 1.0 })
+    }
+
+    func testSkinContrastLeavesNonSkinRegionNearUnchanged() {
+        let h = 32, w = 64
+        var raw = [Float](repeating: 0, count: 3 * h * w)
+        for y in 0..<h {
+            for x in 0..<w {
+                let (r, g, b): (Float, Float, Float) = x < 32
+                    ? (0.85, 0.62, 0.48)   // skin tone, tightly clustered per-row for CLAHE to act on
+                    : (0.0, 0.0, 0.9)      // saturated blue, clearly non-skin
+                raw[0 * h * w + y * w + x] = r
+                raw[1 * h * w + y * w + x] = g
+                raw[2 * h * w + y * w + x] = b
+            }
+        }
+        let image = MLXArray(raw, [1, 3, h, w])
+        MLX.eval(image)
+
+        let result = PostProcessFilters.skinContrast(image)
+        MLX.eval(result)
+
+        let blueDiff = MLX.mean(MLX.abs(
+            result[0..., 0..., 0..., 32..<64] - image[0..., 0..., 0..., 32..<64]
+        )).item(Float.self)
+        XCTAssertLessThan(blueDiff, 0.02, "non-skin region should stay near-unchanged")
+    }
 }

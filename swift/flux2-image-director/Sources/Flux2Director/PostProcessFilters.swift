@@ -346,3 +346,105 @@ extension PostProcessFilters {
         return MLX.clip(MLX.concatenated([r, g, b], axis: 1), min: 0.0, max: 1.0)
     }
 }
+
+extension PostProcessFilters {
+    /// Contrast Limited Adaptive Histogram Equalization on a single-channel
+    /// (1,1,H,W) plane in [0,1]. Direct algorithmic port of
+    /// SkinContrast.apply's cv2.createCLAHE step: tile the image into
+    /// tileGridSize x tileGridSize regions, build a clipped 256-bin
+    /// histogram per tile, turn each into a per-tile mapping (CDF), and
+    /// bilinearly interpolate between the 4 nearest tile mappings per
+    /// pixel. Single-pass clip-redistribute (spreads clipped excess evenly
+    /// across all 256 bins once) — a documented simplification of OpenCV's
+    /// iterative redistribution. Implemented as a raw Swift loop over an
+    /// extracted array (same "materialize, loop, rebuild" pattern
+    /// `Flux2Composite.blurAxis` uses) — tile-histogram bookkeeping doesn't
+    /// vectorize cleanly into MLXArray ops.
+    public static func clahe(_ plane: MLXArray, clipLimit: Float = 2.0, tileGridSize: Int = 8) -> MLXArray {
+        let h = plane.dim(2), w = plane.dim(3)
+        MLX.eval(plane)
+        let src = plane.reshaped([h, w]).asArray(Float.self)
+
+        let tileH = (h + tileGridSize - 1) / tileGridSize
+        let tileW = (w + tileGridSize - 1) / tileGridSize
+        let nBins = 256
+
+        // Per-tile CDF mapping table: [tileGridSize][tileGridSize][256].
+        var mappings = [[[Float]]](
+            repeating: [[Float]](repeating: [Float](repeating: 0, count: nBins), count: tileGridSize),
+            count: tileGridSize)
+
+        for ty in 0..<tileGridSize {
+            for tx in 0..<tileGridSize {
+                let y0 = ty * tileH, y1 = min(h, y0 + tileH)
+                let x0 = tx * tileW, x1 = min(w, x0 + tileW)
+                guard y1 > y0, x1 > x0 else { continue }
+                var hist = [Float](repeating: 0, count: nBins)
+                for y in y0..<y1 {
+                    for x in x0..<x1 {
+                        let bin = min(nBins - 1, max(0, Int(src[y * w + x] * Float(nBins - 1))))
+                        hist[bin] += 1
+                    }
+                }
+                let pixelCount = Float((y1 - y0) * (x1 - x0))
+                let clipThreshold = max(1.0, clipLimit * pixelCount / Float(nBins))
+                var excess: Float = 0
+                for i in 0..<nBins where hist[i] > clipThreshold {
+                    excess += hist[i] - clipThreshold
+                    hist[i] = clipThreshold
+                }
+                let redistribute = excess / Float(nBins)
+                for i in 0..<nBins { hist[i] += redistribute }
+
+                var cdf = [Float](repeating: 0, count: nBins)
+                var running: Float = 0
+                for i in 0..<nBins {
+                    running += hist[i]
+                    cdf[i] = running
+                }
+                let total = max(cdf[nBins - 1], 1e-6)
+                for i in 0..<nBins { cdf[i] /= total }
+                mappings[ty][tx] = cdf
+            }
+        }
+
+        // Bilinear-interpolate between the 4 nearest tile centers per pixel.
+        var out = [Float](repeating: 0, count: h * w)
+        for y in 0..<h {
+            let ty = Float(y) / Float(tileH) - 0.5
+            let ty0 = max(0, min(tileGridSize - 1, Int(floor(ty))))
+            let ty1 = max(0, min(tileGridSize - 1, ty0 + 1))
+            let fy = max(0, min(1, ty - Float(ty0)))
+            for x in 0..<w {
+                let tx = Float(x) / Float(tileW) - 0.5
+                let tx0 = max(0, min(tileGridSize - 1, Int(floor(tx))))
+                let tx1 = max(0, min(tileGridSize - 1, tx0 + 1))
+                let fx = max(0, min(1, tx - Float(tx0)))
+
+                let bin = min(nBins - 1, max(0, Int(src[y * w + x] * Float(nBins - 1))))
+                let v00 = mappings[ty0][tx0][bin]
+                let v01 = mappings[ty0][tx1][bin]
+                let v10 = mappings[ty1][tx0][bin]
+                let v11 = mappings[ty1][tx1][bin]
+                let v0 = v00 * (1 - fx) + v01 * fx
+                let v1 = v10 * (1 - fx) + v11 * fx
+                out[y * w + x] = v0 * (1 - fy) + v1 * fy
+            }
+        }
+        let result = MLXArray(out, [1, 1, h, w])
+        MLX.eval(result)
+        return result
+    }
+
+    /// Direct port of SkinContrast.apply: HSV skin-tone mask + CLAHE on the
+    /// LAB L channel, blended into skin pixels only.
+    public static func skinContrast(_ image: MLXArray, clipLimit: Float = 2.0, tileGridSize: Int = 8) -> MLXArray {
+        let mask = skinMask(image)
+        let lab = rgbToLAB(image)
+        let lChannel = lab[0..., 0..<1, 0..., 0...] / 100.0    // normalize L[0,100] -> [0,1] for clahe's bin scaling
+        let lEq = clahe(lChannel, clipLimit: clipLimit, tileGridSize: tileGridSize) * 100.0
+        let labEq = MLX.concatenated([lEq, lab[0..., 1..<2, 0..., 0...], lab[0..., 2..<3, 0..., 0...]], axis: 1)
+        let enhanced = labToRGB(labEq)
+        return image * (1.0 - mask) + enhanced * mask
+    }
+}
