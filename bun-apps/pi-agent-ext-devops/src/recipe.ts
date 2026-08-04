@@ -14,6 +14,12 @@ import { decideRecipeAction, type PrState, type MergeState, type CheckTally, typ
 export interface GhClient {
 	prStatus(n: number): Promise<{ state: PrState; mergeState: MergeState; checks: CheckTally; mergeSha?: string }>;
 	enableAutoMerge(n: number, strategy: "rebase" | "merge" | "squash", deleteBranch: boolean): Promise<void>;
+	/** Direct (synchronous) merge — `gh pr merge` WITHOUT `--auto`. Used when checks
+	 *  are already green + mergeable (CLEAN): the merge completes immediately, so
+	 *  success IS the confirmation — no extra poll that races the harness call
+	 *  budget. Throws on non-zero exit (merge-queue / auto-merge-only repos) so the
+	 *  recipe can fall back to enableAutoMerge. */
+	mergeNow(n: number, strategy: "rebase" | "merge" | "squash", deleteBranch: boolean): Promise<void>;
 	rebaseAndForcePush(branch: string): Promise<void>;
 }
 
@@ -112,7 +118,18 @@ async function runRecipeLoop(opts: RecipeOptions): Promise<Omit<RecipeOutcome, "
 					timedOut: false,
 				};
 			case "merge":
-				await opts.gh.enableAutoMerge(opts.prNumber, opts.strategy, opts.deleteBranch);
+				// Green + CLEAN → merge directly (synchronous). A successful direct merge
+				// IS the confirmation, so return merged at once — no extra poll that races
+				// the harness's per-call budget. (The old --auto arm-and-wait relied on
+				// GitHub's async propagation + a re-poll, which could abort mid-flight
+				// when checks passed late — see await_pr_merge RCA.) Fall back to arming
+				// --auto only if the repo rejects a direct merge (merge queue / auto-only).
+				try {
+					await opts.gh.mergeNow(opts.prNumber, opts.strategy, opts.deleteBranch);
+					return { merged: true, finalState: "MERGED", checks: status.checks, behind, timedOut: false };
+				} catch {
+					await opts.gh.enableAutoMerge(opts.prNumber, opts.strategy, opts.deleteBranch);
+				}
 				break;
 			case "rebase":
 				if (opts.handleBehind === "fail") {
