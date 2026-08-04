@@ -68,6 +68,7 @@
  * whenever either is requested — the same style-forked routing discipline
  * `isNativeControlNetRequest` established for `controlnet`.
  */
+import { basename, dirname, extname, join } from "node:path";
 import { runKrea2, type Krea2Details } from "@repo/pi-agent-ext-krea2";
 import { runFlux2, type Flux2Details } from "@repo/pi-agent-ext-flux2";
 
@@ -184,13 +185,22 @@ export const defaultRunFaceDetail: FaceDetailFn = async (input, opts) => {
   return { path: d.output, width: d.width, height: d.height };
 };
 
+/** Build the postprocess output path for a source image (mirrors `character_native.ts`'s `cutoutPathFor` — `flux2 postprocess`, like `flux2 cutout`, has a plain required `--output` with no `--output-dir`/auto-naming, so the caller must construct the path itself). */
+export function postProcessPathFor(imagePath: string): string {
+  const dir = dirname(imagePath);
+  const stem = basename(imagePath, extname(imagePath));
+  return join(dir, `${stem}_postprocess.png`);
+}
+
 /** Default post-process call: flux2 native `postprocess` (film grain / CAS+unsharp sharpening / bilateral noise-clean / CLAHE skin-contrast). */
 export const defaultRunPostProcess: PostProcessFn = async (input, opts) => {
   const pp = opts.postProcess ?? {};
+  const outputPath = postProcessPathFor(input);
   const out = await runFlux2({
     command: "postprocess",
     options: {
       input,
+      output: outputPath,
       filmGrain: pp.filmGrain,
       sharpening: pp.sharpening,
       skinContrast: pp.skinContrast,

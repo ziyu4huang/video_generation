@@ -397,6 +397,22 @@ export const COMMANDS: Record<string, CommandSpec> = {
     },
   },
 
+  "postprocess": {
+    name: "postprocess",
+    writesImage: true,
+    acceptsGlobals: false,
+    when: "Pixel-filter post-processing (film grain, CAS+unsharp sharpening, bilateral noise-clean, CLAHE skin-contrast) on an existing image — port of postprocess.py's PostProcessChain. No model load.",
+    fields: {
+      input: { flag: "--input", type: "string", isPath: true, description: "Source image path." },
+      filmGrain: { flag: "--film-grain", type: "number", description: "Film grain intensity (0 = off). Default 0." },
+      sharpening: { flag: "--sharpening", type: "number", description: "CAS sharpening strength (0 = off). Default 0." },
+      skinContrast: { flag: "--skin-contrast", type: "boolean", description: "Apply CLAHE contrast enhancement to detected skin-tone regions." },
+      noiseClean: { flag: "--noise-clean", type: "boolean", description: "Apply bilateral denoise + JPEG-artifact scrub." },
+      seed: GEN_FIELDS.seed,
+      output: GEN_FIELDS.output,
+    },
+  },
+
   upscale: {
     name: "upscale",
     writesImage: true,

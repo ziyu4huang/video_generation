@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  postProcessPathFor,
   runWorkflowNative,
   type BaseGenFn,
   type FaceDetailFn,
@@ -12,6 +13,13 @@ const fakeBase: BaseGenFn = async (opts) => ({
   seed: 42,
   width: 640,
   height: 960,
+});
+
+describe("postProcessPathFor — postprocess output naming", () => {
+  it("appends _postprocess and always saves .png (matches ImageSave.savePNG), same directory as input", () => {
+    expect(postProcessPathFor("/out/front.png")).toBe("/out/front_postprocess.png");
+    expect(postProcessPathFor("/a/b/c/right.jpg")).toBe("/a/b/c/right_postprocess.png");
+  });
 });
 
 describe("runWorkflowNative — the portable subset (base gen [+ ESRGAN upscale])", () => {

@@ -113,10 +113,10 @@ describe("modeledFlags", () => {
 });
 
 describe("COMMANDS registry", () => {
-  test("has exactly the 25 documented flux2 subcommands", () => {
+  test("has exactly the 26 documented flux2 subcommands", () => {
     expect(Object.keys(COMMANDS).sort()).toEqual(
       [
-        "angle", "cutout", "edit", "expand", "face-detail", "faceswap", "gate", "inpaint", "kontext", "kv-style-transfer", "models", "scene", "segment",
+        "angle", "cutout", "edit", "expand", "face-detail", "faceswap", "gate", "inpaint", "kontext", "kv-style-transfer", "models", "postprocess", "scene", "segment",
         "story", "style", "styletransfer", "swap", "t2i", "upscale",
         "verify-e2e", "verify-edit", "verify-encoder", "verify-tokenizer",
         "verify-transformer", "verify-vae",
@@ -168,6 +168,21 @@ describe("per-command field sets match the real CLI (verified against `flux2 <cm
     expect(Object.keys(spec.fields)).toContain("padding");
     expect(Object.keys(spec.fields)).toContain("minConfidence");
     expect(spec.fields.minConfidence?.flag).toBe("--min-confidence");
+  });
+
+  test("postprocess command spec has the expected shape", () => {
+    const spec = cmd("postprocess");
+    expect(spec).toBeDefined();
+    expect(spec.name).toBe("postprocess");
+    expect(spec.writesImage).toBe(true);
+    expect(Object.keys(spec.fields)).toEqual(
+      expect.arrayContaining(["input", "filmGrain", "sharpening", "skinContrast", "noiseClean", "seed", "output"]));
+  });
+
+  test("postprocess has no model-loading fields (pure pixel filters, no MLX load)", () => {
+    for (const key of ["transformer", "vae", "encoder", "tokenizerDir"] as const) {
+      expect(cmd("postprocess").fields[key]).toBeUndefined();
+    }
   });
 
   test("upscale has no transformer/seed/vae/encoder/tokenizerDir (pure ESRGAN pass, no MLX path)", () => {
