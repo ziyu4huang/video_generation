@@ -190,9 +190,9 @@ import { spawnSync } from "node:child_process";
 import type { SpawnSyncReturns } from "node:child_process";
 
 export interface FactFreshness {
-  /** Commits HEAD is behind the base (e.g. origin/main). 0 == current. */
+  /** Commits HEAD is behind the base (e.g. origin/<default>). 0 == current. */
   behind: number;
-  /** The base ref compared against, e.g. "origin/main". */
+  /** The base ref compared against, e.g. "origin/<default>". */
   base: string;
 }
 

@@ -8,7 +8,7 @@
 ## Problem
 
 A wayfinder map's factual premise can be silently wrong when the working branch
-is behind the line of development (`origin/main`). The grilling discipline says
+is behind the line of development (`origin/<default>`). The grilling discipline says
 *"facts come from the environment (filesystem, tools, code)"*, but it never
 specifies **which** environment — the working tree reflects the *current branch*,
 which may lag behind `main`. Facts gathered via `grep` are then treated as ground
@@ -72,9 +72,9 @@ Hybrid, mirroring the repo's existing "prose-skill + code-orchestrator" split
 
 ```ts
 export interface FactFreshness {
-  /** Commits HEAD is behind the base (e.g. origin/main). 0 == current. */
+  /** Commits HEAD is behind the base (e.g. origin/<default>). 0 == current. */
   behind: number;
-  /** The base ref compared against, e.g. "origin/main". */
+  /** The base ref compared against, e.g. "origin/<default>". */
   base: string;
 }
 
@@ -98,7 +98,7 @@ export function buildFreshnessWarning(f: FactFreshness | null): string | null;
 ```
 
 - **Base resolution:** `git symbolic-ref --short refs/remotes/origin/HEAD` →
-  e.g. `origin/main`; if unset, fall back to `origin/main`; if that ref does not
+  e.g. `origin/<default>`; if unset, fall back to `origin/main`; if that ref does not
   exist → `null` (graceful).
 - **Behind count:** `git rev-list --count HEAD..<base>` via `Bun.spawnSync`
   (with a timeout). Any non-zero exit or parse failure → `null`.

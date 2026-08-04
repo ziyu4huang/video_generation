@@ -46,5 +46,5 @@ for the grilled boundary decisions, and
 landed it.
 
 **Superseded clause:** the "when an effort is active" qualifier on the
-no-upstream-path rule is removed by [ADR-0006](./0006-unconditional-artifact-home.md);
+no-upstream-path rule is removed by [ADR-0007](./0007-unconditional-artifact-home.md);
 this ADR's disjoint-subpath layout is unchanged.
