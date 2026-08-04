@@ -202,7 +202,19 @@ export function postProcessPathFor(imagePath: string): string {
   return join(dir, `${stem}_postprocess.png`);
 }
 
-/** Default post-process call: flux2 native `postprocess` (film grain / CAS+unsharp sharpening / bilateral noise-clean / CLAHE skin-contrast). */
+/**
+ * Default post-process call: flux2 native `postprocess` (film grain / CAS+unsharp
+ * sharpening / bilateral noise-clean / CLAHE skin-contrast).
+ *
+ * Unlike `defaultRunFaceDetail`/`defaultRunUpscale`, this does NOT trust
+ * `d.output` — `flux2 postprocess`'s only path-bearing stdout line is
+ * "✅ postprocess saved: <path>" (matches `cutout`'s stdout shape, not
+ * `face-detail`'s standalone-path-line convention), so
+ * `parseOutputPathFromStdout` (pi-agent-ext-flux2/src/result.ts) can never
+ * match it and `d.output` is always null here — the SAME reason
+ * `character_native.ts`'s `defaultCutout` uses its own known `outputPath`
+ * instead of `d.output`. `d.ok` (exit code) is still the right success check.
+ */
 export const defaultRunPostProcess: PostProcessFn = async (input, opts) => {
   const pp = opts.postProcess ?? {};
   const outputPath = postProcessPathFor(input);
@@ -220,10 +232,10 @@ export const defaultRunPostProcess: PostProcessFn = async (input, opts) => {
     outputDir: opts.outputDir,
   });
   const d: Flux2Details = out.details;
-  if (!d.ok || !d.output) {
+  if (!d.ok) {
     throw new Error(`workflow: postprocess failed: ${out.summary}\n${out.stderrTail}`.trim());
   }
-  return { path: d.output, width: d.width, height: d.height };
+  return { path: outputPath, width: d.width, height: d.height };
 };
 
 /** Default upscale call: flux2 native `upscale` (RealPLKSR/ESRGAN). Only ever called for the esrgan path — see module doc; the caller (`runWorkflowNative`) never routes seedvr2 requests here (that request never reaches the native path at all, gated by `isNativeWorkflowRequest`). */
