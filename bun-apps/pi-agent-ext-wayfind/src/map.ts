@@ -158,10 +158,15 @@ export function serializeMapFrontmatter(meta: EffortMeta): string {
   return `${lines.join("\n")}\n`;
 }
 
-/** Today's date as YYYY-MM-DD (the manifest `last` convention). Exported so the
- *  effort tool (and any other manifest writer) reuses ONE date source. */
-export function today(): string {
-  return new Date().toISOString().slice(0, 10);
+/** Today's date as `YYYY-MM-DD` in LOCAL time — the ONE source of truth for
+ *  every wayfind date stamp (effort folder prefix via datePrefix, manifest
+ *  `created`, and the `last:` touch). Local — not UTC — so "today's effort"
+ *  tracks the user's own day, and the folder name + manifest `created` (both
+ *  derived from this) can never diverge across the UTC day boundary. `now` is
+ *  injectable so boundary tests can pin the clock deterministically. */
+export function today(now: Date = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`;
 }
 
 /** Read ONLY the effort manifest (`map.md` front-matter) — no `tickets/` scan.

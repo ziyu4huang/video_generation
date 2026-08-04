@@ -1,8 +1,17 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { completeEffort, parseMapFrontmatter, readEffortMeta, readMap, setEffortStatus, writeMap } from "../src/map.js";
+import {
+  completeEffort,
+  parseMapFrontmatter,
+  readEffortMeta,
+  readMap,
+  setEffortStatus,
+  today,
+  writeMap,
+} from "../src/map.js";
 import type { StatusReport } from "../src/wayfinder.js";
 import {
   addTicket,
@@ -55,7 +64,7 @@ describe("chartMap + ticket lifecycle", () => {
     expect(meta).not.toBeNull();
     expect(meta?.effort).toBe("orders");
     expect(meta?.status).toBe("active");
-    expect(meta?.created).toBe(new Date().toISOString().slice(0, 10));
+    expect(meta?.created).toBe(today());
   });
 
   it("chartMap preserves a legacy map's lack of front-matter on re-chart (byte-compat)", () => {
@@ -264,5 +273,32 @@ describe("setEffortStatus + completeEffort (D1 lifecycle status)", () => {
     expect(r.ok).toBe(false);
     // source untouched on refusal
     expect(existsSync(join(cwd, ".planning", "2026-08-03-x", "map.md"))).toBe(true);
+  });
+});
+
+// Ticket 06: the effort FOLDER date (effortSlug → datePrefix, local) and the
+// map manifest's `created` field (chartMap → today) MUST agree. They diverged by
+// ±1 day near the UTC boundary because datePrefix() used local time while
+// today() used UTC. Both now derive from the ONE local `today()`, so the host
+// suite is correct under whatever zone it happens to run in — but the boundary
+// case is only deterministic under a known zone, hence a child-process probe
+// with TZ=America/New_York pinned on it explicitly. Bun honors `TZ`, so the
+// child runs EDT (UTC-4) regardless of the host's zone (NOT because of any UTC
+// pin), and the process-local TZ mutation (TZ is process-global, so changing it
+// leaks across every test file in the run) stays confined to the child.
+describe("Ticket 06: effort folder date === manifest created (UTC-boundary consistency)", () => {
+  it("effortSlug's date component equals readMap(...).meta.created at the UTC day boundary", () => {
+    const probe = join(import.meta.dir, "helpers", "boundary-probe.ts");
+    const r = spawnSync(process.execPath, [probe], {
+      env: { ...process.env, TZ: "America/New_York" },
+      encoding: "utf-8",
+    });
+    expect(r.status).toBe(0);
+    if (r.status !== 0) console.error(`probe stderr:\n${r.stderr}`);
+    const lastLine = r.stdout.trim().split(/\r?\n/).pop() ?? "";
+    const { folderDate, created } = JSON.parse(lastLine);
+    expect(created).not.toBeNull();
+    // the invariant: the folder name's date prefix === the manifest `created`
+    expect(folderDate).toBe(created);
   });
 });

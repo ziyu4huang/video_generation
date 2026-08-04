@@ -37,21 +37,21 @@ export function slugify(text: string): string {
   );
 }
 
-/** Today's date as `YYYY-MM-DD` (local). Used to prefix effort ids so they sort
- *  chronologically under .planning/. */
-function datePrefix(): string {
-  const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+/** Today's date as `YYYY-MM-DD` (local) — used to prefix effort ids so they
+ *  sort chronologically under .planning/. Delegates to `today()` (map.ts) so the
+ *  effort folder prefix and the manifest `created` share ONE source and can
+ *  never disagree across the UTC boundary. `now` is injectable for deterministic
+ *  boundary tests. */
+function datePrefix(now: Date = new Date()): string {
+  return today(now);
 }
 
 /** Effort id for a free-text destination: `YYYY-MM-DD-<slug>` (the unified
  *  .planning/ convention). Use this for effort folder names; use `slugify`
- *  (bare) for ticket slugs, which carry their own NN- prefix. */
-export function effortSlug(text: string): string {
-  return `${datePrefix()}-${slugify(text)}`;
+ *  (bare) for ticket slugs, which carry their own NN- prefix. `now` is injectable
+ *  for deterministic boundary tests (defaults to the wall clock). */
+export function effortSlug(text: string, now: Date = new Date()): string {
+  return `${datePrefix(now)}-${slugify(text)}`;
 }
 
 /** Next zero-padded ticket id for an effort (max existing + 1, or "01"). */
@@ -64,7 +64,13 @@ export function nextTicketId(tickets: Ticket[]): string {
 /** Scaffold a new effort: write map.md + create the tickets dir. Idempotent —
  *  re-running on an existing effort just rewrites map.md (preserves tickets).
  *  Returns the freshly-written map (with whatever tickets already exist). */
-export function chartMap(cwd: string, effort: string, destination: string, notes = ""): WayfindMap {
+export function chartMap(
+  cwd: string,
+  effort: string,
+  destination: string,
+  notes = "",
+  now: Date = new Date(),
+): WayfindMap {
   const existing = readMap(cwd, effort);
   const map: WayfindMap = {
     effort,
@@ -78,7 +84,7 @@ export function chartMap(cwd: string, effort: string, destination: string, notes
     // renders the real status (not '(no manifest)'). Re-charting an existing
     // effort preserves whatever manifest it already had — including legacy
     // prose-only maps (meta=null), keeping writeMap byte-compatible.
-    meta: existing ? existing.meta : { effort, created: today(), status: "active" },
+    meta: existing ? existing.meta : { effort, created: today(now), status: "active" },
   };
   writeMap(cwd, map);
   return map;
