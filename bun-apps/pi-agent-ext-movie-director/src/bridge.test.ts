@@ -207,15 +207,17 @@ describe("isNativeWorkflowRequest — workflow native/python fork", () => {
     expect(isNativeWorkflowRequest({ prompt: "x", face_detail: true })).toBe(true);
   });
 
-  it("false when any post-process filter is requested", () => {
-    expect(isNativeWorkflowRequest({ prompt: "x", filmGrain: 0.02 })).toBe(false);
-    expect(isNativeWorkflowRequest({ prompt: "x", film_grain: 0.02 })).toBe(false);
-    expect(isNativeWorkflowRequest({ prompt: "x", sharpening: 0.1 })).toBe(false);
-    expect(isNativeWorkflowRequest({ prompt: "x", lut: "/foo.cube" })).toBe(false);
-    expect(isNativeWorkflowRequest({ prompt: "x", skinContrast: true })).toBe(false);
-    expect(isNativeWorkflowRequest({ prompt: "x", skin_contrast: true })).toBe(false);
-    expect(isNativeWorkflowRequest({ prompt: "x", noiseClean: true })).toBe(false);
-    expect(isNativeWorkflowRequest({ prompt: "x", noise_clean: true })).toBe(false);
+  it("true when film_grain/sharpening/skin_contrast/noise_clean are requested — now native", () => {
+    expect(isNativeWorkflowRequest({ film_grain: 0.02 })).toBe(true);
+    expect(isNativeWorkflowRequest({ sharpening: 0.1 })).toBe(true);
+    expect(isNativeWorkflowRequest({ skin_contrast: true })).toBe(true);
+    expect(isNativeWorkflowRequest({ noise_clean: true })).toBe(true);
+  });
+
+  it("false when a LUT knob is requested — still falls back", () => {
+    expect(isNativeWorkflowRequest({ lut: "models/lut/NaturalBoost.cube" })).toBe(false);
+    expect(isNativeWorkflowRequest({ lutPath: "x.cube" })).toBe(false);
+    expect(isNativeWorkflowRequest({}, ["--lut", "x.cube"])).toBe(false);
   });
 
   it("false for zero-valued filters is NOT triggered (0/false means off, matches Python's _has_post_processing)", () => {
@@ -228,13 +230,17 @@ describe("isNativeWorkflowRequest — workflow native/python fork", () => {
   });
 
   it("false when a non-portable flag rides in extraArgs (runpy_image.ts's raw-token escape hatch)", () => {
-    expect(isNativeWorkflowRequest({ prompt: "x" }, ["--film-grain", "0.02"])).toBe(false);
+    expect(isNativeWorkflowRequest({ prompt: "x" }, ["--lut", "/foo.cube"])).toBe(false);
     expect(isNativeWorkflowRequest({ prompt: "x" }, ["--upscale-method", "seedvr2"])).toBe(false);
   });
 
-  it("true when extraArgs carries only portable tokens (including --face-detail, now native)", () => {
+  it("true when extraArgs carries only portable tokens (including --face-detail and post-process flags, now native)", () => {
     expect(isNativeWorkflowRequest({ prompt: "x" }, ["--upscale-method", "esrgan"])).toBe(true);
     expect(isNativeWorkflowRequest({ prompt: "x" }, ["--face-detail"])).toBe(true);
+    expect(isNativeWorkflowRequest({ prompt: "x" }, ["--film-grain", "0.02"])).toBe(true);
+    expect(isNativeWorkflowRequest({ prompt: "x" }, ["--sharpening", "0.1"])).toBe(true);
+    expect(isNativeWorkflowRequest({ prompt: "x" }, ["--skin-contrast"])).toBe(true);
+    expect(isNativeWorkflowRequest({ prompt: "x" }, ["--noise-clean"])).toBe(true);
   });
 });
 
