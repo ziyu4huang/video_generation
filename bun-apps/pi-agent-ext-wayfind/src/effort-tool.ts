@@ -205,6 +205,7 @@ export function makeWayfindEffortTool() {
       "action:'validate' checks conformance (missing Destination, front-matter effort≠folder); " +
       "action:'status' returns a compact read-only summary (manifest + ticket counts + frontier). " +
       "Use this for the mechanical manifest/structure ops — the reflective charting/synthesis stays with the /wayfind commands.",
+    gating: { core: true },
     parameters: Type.Object({
       action: Type.Union([Type.Literal("create"), Type.Literal("validate"), Type.Literal("status")], {
         description:
