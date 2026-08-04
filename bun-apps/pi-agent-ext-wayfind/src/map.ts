@@ -301,6 +301,17 @@ export function computeFrontier(tickets: Ticket[]): Ticket[] {
 
 // ─── fs ops ─────────────────────────────────────────────────────────────────
 
+/** Parse a simple `- item` bullet list section into trimmed strings.
+ *  HTML-comment placeholders (e.g. the `<!-- none -->` marker writeMap emits
+ *  for an empty fog / out-of-scope section) are dropped so they are not counted
+ *  as real items on read-back — otherwise every fresh effort reports `fog 1`. */
+function parseBulletList(section: string): string[] {
+  return section
+    .split(/\r?\n/)
+    .map((l) => l.replace(/^\s*-\s*/, "").trim())
+    .filter((l) => l !== "" && !l.startsWith("<!--"));
+}
+
 /** The canonical effort dir: `<cwd>/.planning/<effort>/`. */
 export function effortDir(cwd: string, effort: string): string {
   return join(cwd, ".planning", effort);
@@ -317,14 +328,8 @@ export function readMap(cwd: string, effort: string): WayfindMap | null {
     .split(/\r?\n/)
     .map(parseDecisionLine)
     .filter((d): d is MapDecision => d !== null);
-  const fog = (sections["Not yet specified"] ?? "")
-    .split(/\r?\n/)
-    .map((l) => l.replace(/^\s*-\s*/, "").trim())
-    .filter(Boolean);
-  const outOfScope = (sections["Out of scope"] ?? "")
-    .split(/\r?\n/)
-    .map((l) => l.replace(/^\s*-\s*/, "").trim())
-    .filter(Boolean);
+  const fog = parseBulletList(sections["Not yet specified"] ?? "");
+  const outOfScope = parseBulletList(sections["Out of scope"] ?? "");
 
   const ticketsDir = join(dir, "tickets");
   const tickets: Ticket[] = [];
