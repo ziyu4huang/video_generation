@@ -102,6 +102,22 @@ Out-of-scope work never graduates — the frontier stops at the destination — 
 
 Ruling something out of scope is a scoping act, not a step on the route. When a ticket that already exists turns out to sit past the destination — mis-scoped in while charting, or exposed by a resolution — **close it** (a closed ticket is unambiguously off the frontier) and leave one line in the **Out of scope** section: the gist plus why it's out of scope, linking the closed ticket. It stays out of **Decisions so far**, which records the route actually walked — a scope boundary isn't a step on it.
 
+## Lifecycle status
+
+Every wayfinder effort carries a lifecycle status in its `map.md` front-matter
+manifest: `active` (the default, scaffolded on chart/create), `complete`, or
+`paused`. The status lives on `map.md`; for **hybrid** efforts (map +
+spec/plan/sdd) the map is canonical. Superpowers-only efforts (no `map.md`) and
+leftovers are **not** tagged — they are classified by content (`COMPLETED.md` /
+landed SDD), not a status field.
+
+`/wayfind done` is the **canonical close**: after its closing ceremony it writes
+`status: complete` **and** moves the effort into `.planning/done/`. `done/`
+membership is itself the complete signal (location-as-status) — the archive is
+not backfilled. A stale stub filed without reaching its destination is `paused`
+(there is no separate "abandoned" value). `wayfind_effort status` reports the
+manifest; `validate` checks it.
+
 ## Invocation
 
 Two modes. Either way, **never resolve more than one ticket per session** — with the exception of research tickets.
@@ -129,6 +145,6 @@ User invokes with a map (path) or an effort slug. A ticket is **optional** — w
 5. Record the resolution: append the answer as a **resolution** to the ticket, mark it **closed**, and **append a pointer** to the map's Decisions-so-far. The goal auto-closes with `goal_complete`; no separate cleanup needed.
 6. Add newly-surfaced tickets (create-then-wire); graduate any fog the answer has made specifiable, clearing each graduated patch from **Not yet specified** so it lives only as its new ticket. If the answer reveals a ticket — this one or another — sits beyond the destination, **rule it out of scope** rather than resolving it on the route. If the decision invalidates other parts of the map, update or delete those tickets.
 
-**When the map is complete** — the frontier is clear and the destination is reached — run `/wayfind done [effort]` (the command refuses if open tickets remain). It harvests the map's **Not yet specified** as deferred prizes and writes `output/next-goal-<YYYYMMDD_HHMMSS>.md` with the structured parts pre-filled (you fill only the reflective parts — false premises / footguns — that you alone know), then runs `scripts/tidy-next-goals.sh` (keeps the last 10). If the command is unavailable, do the same by hand: surface false premises / footguns / deferred prizes, pick the next concrete non-gated non-conflicting goal. This closing ceremony is the structural home of the convention — not a memory to recall.
+**When the map is complete** — the frontier is clear and the destination is reached — run `/wayfind done [effort]` (the command refuses if open tickets remain). It harvests the map's **Not yet specified** as deferred prizes and writes `output/next-goal-<YYYYMMDD_HHMMSS>.md` with the structured parts pre-filled (you fill only the reflective parts — false premises / footguns — that you alone know), then runs `scripts/tidy-next-goals.sh` (keeps the last 10). The command also stamps `status: complete` on the manifest and files the effort into `.planning/done/` (the canonical close — see [Lifecycle status](#lifecycle-status)). If the command is unavailable, do the same by hand: surface false premises / footguns / deferred prizes, pick the next concrete non-gated non-conflicting goal. This closing ceremony is the structural home of the convention — not a memory to recall.
 
 The user may run unblocked tickets in parallel, so expect other sessions to be editing the map dir concurrently. The concurrency model is **last-write-wins** — there is no file lock (see [ADR-0005](../../docs/adr/0005-accept-last-write-wins-planning-concurrency.md)): collisions are rare because a fresh dated effort dir per `/wayfind` isolates concurrent sessions by default, `.planning/` is git-committed (the recovery net), and any code-level guard could not cover the agent's own `edit`-tool writes to the same files anyway. Use distinct effort dirs when you need true isolation.

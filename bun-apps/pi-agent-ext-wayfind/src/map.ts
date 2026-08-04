@@ -11,7 +11,7 @@
  * testable without touching disk.
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export type TicketType = "research" | "prototype" | "grilling" | "task";
@@ -439,4 +439,76 @@ export function closeTicket(cwd: string, effort: string, ticket: Ticket, resolut
   if (ticket.status === "closed" && (ticket.resolution ?? "") === resolution) return false;
   writeTicket(cwd, effort, { ...ticket, status: "closed", resolution });
   return true;
+}
+
+// ─── lifecycle status (D1: /wayfind done = canonical close) ──────────────────
+
+/** The `done/` archive root: `<cwd>/.planning/done/`. */
+export function doneDir(cwd: string): string {
+  return join(cwd, ".planning", "done");
+}
+
+/** Derive a `created` date from a dated effort slug ("2026-08-03-…" → "2026-08-03"),
+ *  else undefined. Used when backfilling front-matter onto legacy maps that never
+ *  carried a manifest. */
+function deriveCreated(slug: string): string | undefined {
+  const m = slug.match(/^(\d{4}-\d{2}-\d{2})-/);
+  return m ? (m[1] as string) : undefined;
+}
+
+export type SetStatusResult = { ok: true } | { ok: false; reason: string };
+
+/**
+ * Write/overwrite the effort's `status:` front-matter IN PLACE (no move).
+ * Preserves any existing manifest fields (created/owner); derives `created` from
+ * the slug when the manifest lacks it; always sets `last: today`. Used by the
+ * backfill migration and as the status-write half of {@link completeEffort}.
+ * No-op-safe: refuses (ok:false) only when there's no map.md.
+ */
+export function setEffortStatus(cwd: string, effort: string, status: EffortStatus): SetStatusResult {
+  const mapPath = join(effortDir(cwd, effort), "map.md");
+  if (!existsSync(mapPath)) return { ok: false, reason: `no map at .planning/${effort}/map.md` };
+  const raw = readFileSync(mapPath, "utf-8");
+  const { meta, body } = parseMapFrontmatter(raw);
+  const newMeta: EffortMeta = {
+    effort,
+    created: meta?.created ?? deriveCreated(effort),
+    last: today(),
+    status,
+    ...(meta?.owner ? { owner: meta.owner } : {}),
+  };
+  writeFileSync(mapPath, serializeMapFrontmatter(newMeta) + body, "utf-8");
+  return { ok: true };
+}
+
+export interface CompleteEffortResult {
+  ok: boolean;
+  effort: string;
+  /** Repo-relative destination when ok, e.g. ".planning/done/<effort>". */
+  movedTo?: string;
+  /** Present when ok is false. */
+  reason?: string;
+}
+
+/**
+ * Canonical close (D1): write `status: complete` to the map's front-matter, then
+ * move the effort dir into `.planning/done/`. This is the `/wayfind done`
+ * transition — one call files the effort. Refuses (ok:false) when there's no map
+ * or the destination already exists (no clobber). Idempotent on the status write;
+ * the move is one-shot (a second call refuses on the existing destination).
+ */
+export function completeEffort(cwd: string, effort: string): CompleteEffortResult {
+  const src = effortDir(cwd, effort);
+  if (!existsSync(join(src, "map.md"))) {
+    return { ok: false, effort, reason: `no map at .planning/${effort}/map.md` };
+  }
+  const dest = join(doneDir(cwd), effort);
+  if (existsSync(dest)) {
+    return { ok: false, effort, reason: `destination already exists: .planning/done/${effort}` };
+  }
+  const s = setEffortStatus(cwd, effort, "complete");
+  if (!s.ok) return { ok: false, effort, reason: s.reason };
+  mkdirSync(doneDir(cwd), { recursive: true });
+  renameSync(src, dest);
+  return { ok: true, effort, movedTo: `.planning/done/${effort}` };
 }

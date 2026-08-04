@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readEffortMeta, readMap, writeMap } from "../src/map.js";
+import { completeEffort, parseMapFrontmatter, readEffortMeta, readMap, setEffortStatus, writeMap } from "../src/map.js";
 import type { StatusReport } from "../src/wayfinder.js";
 import {
   addTicket,
@@ -200,5 +200,69 @@ describe("closeEffortReflection (/wayfind done)", () => {
     // the next-goal fork MUST instruct the agent to present it via ask_user_question
     // (never a prose menu) — mirrors grilling's one-question-at-a-time discipline.
     expect(note).toContain("ask_user_question");
+    // D1: /wayfind done now FILES the effort — status:complete + move to done/
+    expect(r.filedTo).toBe(".planning/done/done-demo");
+    expect(r.fileError).toBeUndefined();
+    expect(existsSync(join(cwd, ".planning", "done", "done-demo", "map.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".planning", "done-demo"))).toBe(false); // moved out of root
+    const moved = parseMapFrontmatter(readFileSync(join(cwd, ".planning", "done", "done-demo", "map.md"), "utf-8"));
+    expect(moved.meta?.status).toBe("complete");
+  });
+});
+
+describe("setEffortStatus + completeEffort (D1 lifecycle status)", () => {
+  it("setEffortStatus writes status front-matter in place without moving", () => {
+    const cwd = makeCwd();
+    chartMap(cwd, "2026-08-03-demo", "dest");
+    const before = readFileSync(join(cwd, ".planning", "2026-08-03-demo", "map.md"), "utf-8");
+    expect(before).toContain("status: active"); // chartMap scaffolded it
+    const r = setEffortStatus(cwd, "2026-08-03-demo", "paused");
+    expect(r.ok).toBe(true);
+    const after = readFileSync(join(cwd, ".planning", "2026-08-03-demo", "map.md"), "utf-8");
+    expect(after).toContain("status: paused");
+    expect(after).toContain("created:"); // created preserved (chartMap stamped today)
+    expect(existsSync(join(cwd, ".planning", "done"))).toBe(false); // no move
+  });
+
+  it("setEffortStatus derives created from a dated slug when the map lacks frontmatter", () => {
+    const cwd = makeCwd();
+    // a legacy prose-only map with no frontmatter
+    const dir = join(cwd, ".planning", "2026-07-01-legacy");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "map.md"), "# Legacy effort\n\nNo frontmatter here.\n", "utf-8");
+    const r = setEffortStatus(cwd, "2026-07-01-legacy", "paused");
+    expect(r.ok).toBe(true);
+    const after = readFileSync(join(dir, "map.md"), "utf-8");
+    expect(after).toContain("created: 2026-07-01"); // derived from the dated slug
+    expect(after).toContain("status: paused");
+  });
+
+  it("setEffortStatus refuses when there's no map", () => {
+    const cwd = makeCwd();
+    const r = setEffortStatus(cwd, "nope", "active");
+    expect(r.ok).toBe(false);
+  });
+
+  it("completeEffort writes status:complete + moves into done/", () => {
+    const cwd = makeCwd();
+    chartMap(cwd, "2026-08-03-fin", "ship it");
+    const r = completeEffort(cwd, "2026-08-03-fin");
+    expect(r.ok).toBe(true);
+    expect(r.movedTo).toBe(".planning/done/2026-08-03-fin");
+    expect(existsSync(join(cwd, ".planning", "done", "2026-08-03-fin", "map.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".planning", "2026-08-03-fin"))).toBe(false);
+    const m = parseMapFrontmatter(readFileSync(join(cwd, ".planning", "done", "2026-08-03-fin", "map.md"), "utf-8"));
+    expect(m.meta?.status).toBe("complete");
+  });
+
+  it("completeEffort refuses when the destination already exists (no clobber)", () => {
+    const cwd = makeCwd();
+    chartMap(cwd, "2026-08-03-x", "dest");
+    mkdirSync(join(cwd, ".planning", "done", "2026-08-03-x"), { recursive: true });
+    writeFileSync(join(cwd, ".planning", "done", "2026-08-03-x", "map.md"), "# stub", "utf-8");
+    const r = completeEffort(cwd, "2026-08-03-x");
+    expect(r.ok).toBe(false);
+    // source untouched on refusal
+    expect(existsSync(join(cwd, ".planning", "2026-08-03-x", "map.md"))).toBe(true);
   });
 });
