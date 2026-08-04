@@ -1,7 +1,7 @@
 /**
  * Savings measurement — QA harness (wayfinder ticket 00).
  *
- * Question: does tool-gate's "~8,050 tok/req saved" claim hold?
+ * Question: does tool-gate's "~9,800 tok/req saved" claim hold?
  *
  * Method (fully offline — no agent boot): reuse the schema-cost CLI's
  * capturing-mock collection (`buildSchemaCostReport`) to get every registered
@@ -26,19 +26,19 @@ import {
 import type { SchemaCostReport } from "@repo/pi-agent-ext-power-tool/schema-cost";
 import { CORPUS_GATES, CORPUS_EFF } from "./evaluate.ts";
 
-/** The savings figure tool-gate's README/banner claims (~8,050 tok/req; zai-mcp env-gated — see caveats()).
- *  THE single source of truth — every prose mention cites ~8,050 and points to
+/** The savings figure tool-gate's README/banner claims (~9,800 tok/req; zai-mcp env-gated — see caveats()).
+ *  THE single source of truth — every prose mention cites ~9,800 and points to
  *  `bun run qa:savings` for live numbers. Do not hardcode a competing figure. */
-export const CLAIMED_SAVED_TOK = 8050;
+export const CLAIMED_SAVED_TOK = 9800;
 
 /** Max |savedTok − CLAIMED_SAVED_TOK| before the README/banner claim is stale.
  *  ±20%: the figure legitimately drifts as the gate set and sibling-extension
  *  schemas change — the dominant swing is zai-mcp (~1.1k tok, env-gated on
- *  ZAI_API_KEY ≈ 14% of the claim), so a tighter band would flake whenever zai
+ *  ZAI_API_KEY ≈ 11% of the claim), so a tighter band would flake whenever zai
  *  loads. 20% still fails loudly if measured savings collapse (claim over-
  *  states) or balloon (claim badly under-states). Upper-edge headroom is thin
- *  by design: with zai-mcp loaded (~+1.1k) measured gross ≈ 9,208 vs the upper
- *  edge 9,660 (~5% headroom) — a high-side "OUTSIDE ✗" correctly signals the
+ *  by design: with zai-mcp loaded (~+1.1k) measured gross ≈ 10,891 vs the upper
+ *  edge 11,760 (~7% headroom) — a high-side "OUTSIDE ✗" correctly signals the
  *  README under-states and needs refresh, NOT a regression. Guarded by the
  *  deviation-band test in savings.test.ts — the lock that makes CLAIMED_SAVED_TOK
  *  trustworthy. */
@@ -58,9 +58,9 @@ export function withinDriftBand(savedTok: number): boolean {
 export const ENABLE_TOOL_OVERHEAD_TOK = 243;
 
 /** Net savings claim = gross claim − enable_tool overhead. Derived, never
- *  independent. Prose cites ~7,800 (round-to-100); the live measured net is
+ *  independent. Prose cites ~9,600 (round-to-100); the live measured net is
  *  reported by `bun run qa:savings`. */
-export const CLAIMED_NET_TOK = CLAIMED_SAVED_TOK - ENABLE_TOOL_OVERHEAD_TOK; // 7,807
+export const CLAIMED_NET_TOK = CLAIMED_SAVED_TOK - ENABLE_TOOL_OVERHEAD_TOK; // 9,557
 
 /** Savings-adjacent figures sanctioned to appear as `~N,NNN` literals in prose
  *  (README/CONTEXT/tool-gate.ts header/PRD). The prose-drift test
@@ -69,8 +69,8 @@ export const CLAIMED_NET_TOK = CLAIMED_SAVED_TOK - ENABLE_TOOL_OVERHEAD_TOK; // 
  *  gross numbers (~7,900 / ~7,940 / ~8,050) silently coexist. baseline/gated
  *  are measured approximations refreshed via qa:savings. */
 export const SANCTIONED_PROSE_TOK: ReadonlySet<number> = new Set([
-	CLAIMED_SAVED_TOK, // ~8,050 gross
-	Math.round(CLAIMED_NET_TOK / 100) * 100, // ~7,800 net (claim rounded)
+	CLAIMED_SAVED_TOK, // ~9,800 gross
+	Math.round(CLAIMED_NET_TOK / 100) * 100, // ~9,600 net (claim rounded)
 	18_000, // ~18,000 OFF baseline (measured 18,044)
 	10_000, // ~10,000 ON gated (measured 9,936)
 ]);

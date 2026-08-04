@@ -50,10 +50,10 @@ test("every ~N,NNN thousands-figure in prose is sanctioned (no silent prose drif
 });
 
 test("the canonical gross claim is actually cited in the prose (guard against silent removal)", () => {
-	// If someone deletes the ~8,050 claim from every file, the sanctioned-set
+	// If someone deletes the ~9,800 claim from every file, the sanctioned-set
 	// test above still passes (vacuously) — so explicitly assert the claim is present.
 	const readme = readFileSync(join(extRoot, "README.md"), "utf8");
-	expect(readme).toContain("~8,050");
+	expect(readme).toContain("~9,800");
 });
 
 test("sanctioned set is internally consistent (gross + net derive from the claims)", () => {
