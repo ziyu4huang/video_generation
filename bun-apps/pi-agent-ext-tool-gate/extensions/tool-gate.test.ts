@@ -259,14 +259,16 @@ describe("matchIntent (S1)", () => {
     expect(matchIntent("做一個 movie 分鏡", EFF.gates, sticky()).map((g) => g.names[0])).toEqual(["movie", "movie_help"]);
   });
   test("workflow intent → workflow", () => {
-    // workflow/workflow_help/workflow_control/subagent owner-declared (tickets
-    // 10 + 11, rolled out together over their single shared combined gate) →
+    // workflow/workflow_help/workflow_control/subagent/subagents owner-declared
+    // (tickets 10 + 11, rolled out together over their single shared combined
+    // gate; plural subagents mirrored from singular subagent in ticket 01) →
     // buildEffectiveGates splits each into its own single-name gate, so an
-    // intent that fires the shared keywords surfaces ALL 4 (co-fire via
-    // updateSticky preserved). The enable_tool NAME-mode sibling co-activation
-    // gap (name-mode activates only the named sibling) is cross-cutting —
-    // tracked in the map; intent-mode here fires every matching gate.
-    expect(matchIntent("orchestrate a parallel pipeline", EFF.gates, sticky()).map((g) => g.names[0])).toEqual(["workflow", "workflow_help", "workflow_control", "subagent"]);
+    // intent that fires the shared keywords surfaces ALL 5 (co-fire via
+    // updateSticky preserved) — both singular subagent AND plural subagents
+    // legitimately gate on "workflow". The enable_tool NAME-mode sibling
+    // co-activation gap (name-mode activates only the named sibling) is
+    // cross-cutting — tracked in the map; intent-mode here fires every matching gate.
+    expect(matchIntent("orchestrate a parallel pipeline", EFF.gates, sticky()).map((g) => g.names[0])).toEqual(["workflow", "workflow_help", "workflow_control", "subagent", "subagents"]);
   });
   test("S2 flip: 'docker image cleanup' → [] (image noun, no gen-verb)", () => {
     expect(matchIntent("docker image cleanup", EFF.gates, sticky()).map((g) => g.names[0])).toEqual([]);
