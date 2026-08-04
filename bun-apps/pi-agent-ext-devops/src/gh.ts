@@ -94,6 +94,19 @@ export function createGhClient(spawn: SpawnFn): GhClient {
 			if (deleteBranch) args.push("--delete-branch");
 			await spawn("gh", args);
 		},
+		async mergeNow(n, strategy, deleteBranch) {
+			// Direct (synchronous) merge — NO --auto. Used once checks are green +
+			// CLEAN: the merge completes here, so success IS the confirmation (no
+			// re-poll that races the harness call budget). Throw on non-zero exit so
+			// the recipe falls back to enableAutoMerge for repos that reject a direct
+			// merge (merge queue / auto-merge-only).
+			const args = ["pr", "merge", String(n), `--${strategy}`];
+			if (deleteBranch) args.push("--delete-branch");
+			const r = await spawn("gh", args);
+			if (r.exitCode !== 0) {
+				throw new Error(`gh pr merge ${n} (direct) failed (exit ${r.exitCode}): ${(r.stderr || r.stdout).trim()}`);
+			}
+		},
 		async rebaseAndForcePush(branch) {
 			await spawn("git", ["fetch", "origin", "main"]);
 			// rebase.autoStash + exit-code checks (RCA: await_pr_merge #1009). A dirty

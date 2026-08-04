@@ -12,9 +12,13 @@ import type { PrState, MergeState, CheckTally } from "../src/pr-logic.js";
 type Status = { state: PrState; mergeState: MergeState; checks: CheckTally; mergeSha?: string };
 
 /** Scripted gh: returns statuses[i], then repeats the last when exhausted. */
-function fakeGh(statuses: Status[]) {
+function fakeGh(statuses: Status[], opts: { mergeNowThrows?: boolean } = {}) {
 	let i = 0;
-	const calls = { enableAutoMerge: [] as Array<{ n: number; strategy: string; deleteBranch: boolean }>, rebase: [] as string[] };
+	const calls = {
+		enableAutoMerge: [] as Array<{ n: number; strategy: string; deleteBranch: boolean }>,
+		mergeNow: [] as Array<{ n: number; strategy: string; deleteBranch: boolean }>,
+		rebase: [] as string[],
+	};
 	const client: GhClient = {
 		async prStatus() {
 			return statuses[Math.min(i, statuses.length - 1)] ?? statuses[0] ?? {
@@ -24,6 +28,11 @@ function fakeGh(statuses: Status[]) {
 		async enableAutoMerge(n, strategy, deleteBranch) {
 			calls.enableAutoMerge.push({ n, strategy, deleteBranch });
 			i++; // advance so the next poll sees the next status (merge→merged)
+		},
+		async mergeNow(n, strategy, deleteBranch) {
+			calls.mergeNow.push({ n, strategy, deleteBranch });
+			if (opts.mergeNowThrows) throw new Error("merge method not allowed on this repo");
+			// success → the recipe returns merged immediately (no i advance needed).
 		},
 		async rebaseAndForcePush(branch) {
 			calls.rebase.push(branch);
@@ -75,15 +84,31 @@ describe("runMergeRecipe", () => {
 		expect(calls.rebase).toHaveLength(0);
 	});
 
-	test("CLEAN + checks pass → enableAutoMerge called, then MERGED", async () => {
-		const { client, calls } = fakeGh([
-			{ state: "OPEN", mergeState: "CLEAN", checks: pass5 },
-			{ state: "MERGED", mergeState: "CLEAN", checks: pass5, mergeSha: "def" },
-		]);
+	test("CLEAN + checks pass → direct mergeNow, merged immediately (no extra poll)", async () => {
+		// RCA fix: a single green+CLEAN status merges via direct mergeNow and
+		// returns at once — it does NOT arm --auto + re-poll (which raced the
+		// harness call budget and aborted mid-propagation when checks passed late).
+		const { client, calls } = fakeGh([{ state: "OPEN", mergeState: "CLEAN", checks: pass5 }]);
 		const r = await runMergeRecipe(baseOpts(client, fakeClock()));
 		expect(r.merged).toBe(true);
-		expect(calls.enableAutoMerge).toHaveLength(1);
-		expect(calls.enableAutoMerge[0]).toMatchObject({ strategy: "rebase", deleteBranch: true });
+		expect(r.finalState).toBe("MERGED");
+		expect(calls.mergeNow).toHaveLength(1);
+		expect(calls.mergeNow[0]).toMatchObject({ strategy: "rebase", deleteBranch: true });
+		expect(calls.enableAutoMerge).toHaveLength(0); // direct merge, not --auto
+	});
+
+	test("direct mergeNow rejected (merge-queue repo) → falls back to enableAutoMerge, then MERGED", async () => {
+		const { client, calls } = fakeGh(
+			[
+				{ state: "OPEN", mergeState: "CLEAN", checks: pass5 },
+				{ state: "MERGED", mergeState: "CLEAN", checks: pass5, mergeSha: "def" },
+			],
+			{ mergeNowThrows: true },
+		);
+		const r = await runMergeRecipe(baseOpts(client, fakeClock()));
+		expect(r.merged).toBe(true);
+		expect(calls.mergeNow).toHaveLength(1); // tried direct first
+		expect(calls.enableAutoMerge).toHaveLength(1); // fell back to --auto
 	});
 
 	test("BEHIND + handleBehind=rebase-force-push → rebase called, then MERGED", async () => {
@@ -116,6 +141,7 @@ describe("runMergeRecipe", () => {
 				return { state: "OPEN", mergeState: "BEHIND", checks: pass5 };
 			},
 			async enableAutoMerge() { /* unused */ },
+			async mergeNow() { /* unused */ },
 			async rebaseAndForcePush() {
 				throw new Error("git rebase origin/main failed (exit 1): unstaged changes");
 			},
