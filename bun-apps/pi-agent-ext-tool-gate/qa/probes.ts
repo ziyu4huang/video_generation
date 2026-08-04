@@ -98,6 +98,15 @@ export const MUST_FIRE: Probe[] = [
 	{ gate: "inspect_context", prompt: "check the context window and token usage", note: "keyword context window / token usage" },
 	{ gate: "inspect_context", prompt: "inspect the agent extension health", note: "keyword extension health" },
 	{ gate: "inspect_context", prompt: "dump the agent schema for debugging", note: "noun agent/schema ∧ verb dump (requires; no keyword)" },
+	// devops + memory_supersede (tickets 03 + 05) — keyword-only gates captured
+	// once their source registrars were wired into evaluate.ts's capture list.
+	// await_pr_merge + sweep_branches + memory_supersede each carry a DISTINCT
+	// keyword signature (no overlap with any prior gate), so each is its own
+	// signature-group; one must-fire per gate (a real keyword trigger) validates
+	// the whole group (the coverageGap check groups by signature).
+	{ gate: "await_pr_merge", prompt: "wait for PR 42 to merge", note: "keyword wait / pr / merge" },
+	{ gate: "sweep_branches", prompt: "sweep merged branches and clean up", note: "keyword sweep / branch / cleanup" },
+	{ gate: "memory_supersede", prompt: "supersede the wrong memory with a correction", note: "keyword supersede / memory / correction" },
 ];
 
 // ── MUST_NOT_FIRE (lookalikes the gate CORRECTLY rejects) ────────────────────
@@ -128,6 +137,13 @@ export const MUST_NOT_FIRE: Probe[] = [
 	// → no noun∧verb co-occurrence → no keyword → correctly rejected.
 	{ gate: "inspect_context", prompt: "inspect element in the browser devtools", note: "verb inspect but no matching noun (the killed false-fire)" },
 	{ gate: "inspect_context", prompt: "inspect the dom tree for layout bugs", note: "verb inspect, no agent/context/extension/... noun" },
+	// devops + memory_supersede (tickets 03 + 05) — lookalikes the gate CORRECTLY
+	// rejects (no keyword present). Word-boundary matching matters: "remember"
+	// is not "memory", and bare "delete" is not the hyphenated "delete-branch"
+	// keyword — so neither fires.
+	{ gate: "await_pr_merge", prompt: "summarize the open issues", note: "no pr/merge/wait keyword" },
+	{ gate: "sweep_branches", prompt: "delete the temp file", note: 'bare "delete" is not the "delete-branch" keyword' },
+	{ gate: "memory_supersede", prompt: "remember to buy milk", note: '"remember" is not "memory" (word-boundary)' },
 ];
 
 // ── ESCAPE_NAME — every gate reachable by enable_tool({ name }) ──────────────

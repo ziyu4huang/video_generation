@@ -31,6 +31,14 @@ import powerToolDefault from "@repo/pi-agent-ext-power-tool/extensions/power-too
 // entry + findGate keys off of) — see the comment at the CORPUS_EFF call site.
 import workflowDefault from "@repo/pi-agent-ext-workflow/extensions/workflow.ts";
 import subagentDefault from "@repo/pi-agent-ext-subagent/extensions/subagent.ts";
+// tickets 03 + 05 (wired): devops registers await_pr_merge + sweep_branches
+// (both keyword-gated) and pr_status (an ungated companion — skipped by
+// buildEffectiveGates's `if (!g) continue`). wayfind registers wayfind_effort
+// (gating:{ core:true } → routed to the core set, not a gate). Driving both
+// default factories against the capturing stub promotes these owner-declared
+// tools into CORPUS_EFF so the --strict ungated count drops to 0.
+import devopsDefault from "@repo/pi-agent-ext-devops/extensions/devops.ts";
+import wayfindDefault from "@repo/pi-agent-ext-wayfind/extensions/wayfind.ts";
 // ticket 12 — zai-mcp registers tools DYNAMICALLY at session_start (names come
 // from each MCP server's listTools()), so its default factory captures nothing
 // via the capturing stub. Import the REAL registration path (registerServerTools
@@ -54,6 +62,7 @@ import { registerMemorySearchTool } from "@repo/pi-agent-ext-hermes-memory/src/t
 import { registerSessionSearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/session-search-tool.ts";
 import { registerSkillTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/skill-tool.ts";
 import { registerGrillDecisionTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/grill-decision-tool.ts";
+import { registerMemorySupersedeTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-supersede-tool.ts";
 // ticket 04 — core-task's 3 core tools (todo / goal_complete / ask_user_question)
 // are owner-declared core. core-task's default factory is synchronous but HEAVY
 // (globalThis pollution, overlays, registerLoop, statusWidget setup) — like
@@ -161,19 +170,23 @@ const zaiRegistrar = (pi: any) => {
 
 // ticket 02 — hermes-memory's default factory is async + does heavy backend
 // (sqlite/surreal bundle) setup BEFORE registering tools, so the capturing stub
-// can't drive it (registration happens after the first await). Invoke the 5
+// can't drive it (registration happens after the first await). Invoke the 6
 // individual registrars with stub args (store/repo are deref'd only inside
-// `execute`, which capture never calls) so the 5 owner-declared-core tools build
-// here. registerSkillTool ALSO registers skill_manage_help (an ungated companion,
-// NOT a CORE_TOOLS member) — buildEffectiveGates skips it via `if (!g) continue`.
-// memory_supersede (a separate registrar, also ungated + out of scope) is not
-// invoked; capture is best-effort per the migration scope.
+// `execute`, which capture never calls) so the 5 owner-declared-core tools +
+// memory_supersede (keyword-gated) build here. registerSkillTool ALSO registers
+// skill_manage_help (an ungated companion, NOT a CORE_TOOLS member) —
+// buildEffectiveGates skips it via `if (!g) continue`. memory_supersede takes
+// (pi, memoryRepo, store, projectName?) — a null repo hits its soft-success
+// path (ok:true, linked:false) and is never deref'd during capture, so passing
+// it here promotes memory_supersede into CORPUS_EFF (→ tracked) so the --strict
+// ungated count drops to 0.
 const hermesMemoryRegistrar = (pi: any) => {
 	registerMemoryTool(pi, {} as any, null, null, "");
 	registerMemorySearchTool(pi, {} as any);
 	registerSessionSearchTool(pi, {} as any, { variant: "legacy" });
 	registerSkillTool(pi, {} as any);
 	registerGrillDecisionTool(pi, {} as any, null);
+	registerMemorySupersedeTool(pi, null, {} as any);
 };
 
 // ticket 04 — core-task's default factory is heavy (see import note); drive the
@@ -199,7 +212,7 @@ const builtinCoreDefs = () => [...BUILTIN_CORE].map((name) => ({ name }));
 
 export const CORPUS_EFF = buildEffectiveGates(
 	injectBuiltinCore([
-		...captureOwnerDeclaredDefs([coreTaskRegistrar, toolGateDefault, deployDefault, file2mdDefault, flux2Default, krea2Default, ltxDefault, movieDefault, researchDefault, workflowDefault, subagentDefault, zaiRegistrar, powerToolDefault, knowledgeCardDefault, webAccessDefault, obsidianDefault, hermesMemoryRegistrar]),
+		...captureOwnerDeclaredDefs([coreTaskRegistrar, toolGateDefault, deployDefault, file2mdDefault, flux2Default, krea2Default, ltxDefault, movieDefault, researchDefault, workflowDefault, subagentDefault, devopsDefault, wayfindDefault, zaiRegistrar, powerToolDefault, knowledgeCardDefault, webAccessDefault, obsidianDefault, hermesMemoryRegistrar]),
 		...builtinCoreDefs(),
 	] as never),
 );
