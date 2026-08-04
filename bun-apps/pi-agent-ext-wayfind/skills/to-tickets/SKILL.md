@@ -53,15 +53,13 @@ Iterate until the user approves the breakdown.
 
 ### 5. Write the tickets to local files
 
-Write one file per ticket under `.planning/<effort>/tickets/<NN>-<slug>.md`, numbered from `01` in dependency order (blockers first), so each ticket's blocking edges can reference the numbers/titles it depends on. Use the per-ticket template below — **one ticket per file, never a single combined file.**
+Write one file per ticket under `.planning/<effort>/tickets/<NN>-<slug>.md`, numbered from `01` in dependency order (blockers first), so each ticket's blocking edges can reference the numbers/titles it depends on (omit the `blocking:` line when a ticket has no blockers). Use the per-ticket template below — **one ticket per file, never a single combined file.**
 
 <local-ticket-template>
 
-# <NN> — <Ticket title>
-
 ---
 type: task
-blocking: 02, 05      # the ticket ids (NN) that gate this one; omit the line if none
+blocking: 02, 05
 status: open
 ---
 
