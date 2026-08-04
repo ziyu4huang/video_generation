@@ -1,12 +1,17 @@
 import { describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   computeFrontier,
   parseDecisionLine,
   parseMapBody,
   parseTicketFile,
+  readMap,
   serializeTicket,
   type Ticket,
+  type WayfindMap,
+  writeMap,
 } from "../src/map.js";
 
 describe("parseMapBody", () => {
@@ -278,5 +283,51 @@ describe("to-tickets skill template parses correctly (skill-prose ↔ parser reg
     expect(t.type).toBe("task");
     expect(t.blocking).toEqual(["02", "05"]);
     expect(t.status).toBe("open");
+  });
+});
+
+describe("readMap / writeMap: empty-fog placeholder must not count as a real fog item", () => {
+  // Ticket 02: when fog is empty, writeMap emits the `<!-- none -->` marker
+  // so the section isn't blank for human readers. readMap must NOT count that
+  // comment as a real fog bullet — every fresh effort would otherwise report
+  // `fog 1` instead of `fog 0`. The identical bug also affects outOfScope
+  // (same `<!-- none -->` placeholder, same read pattern), so it's covered too.
+  const fresh = () => mkdtempSync(join(tmpdir(), "wf-map-fog-"));
+
+  const base = (effort: string, fog: string[], outOfScope: string[]): WayfindMap => ({
+    effort,
+    destination: "ship it",
+    notes: "",
+    decisions: [],
+    fog,
+    outOfScope,
+    tickets: [],
+  });
+
+  it("empty fog round-trips to count 0 (the <!-- none --> placeholder is ignored)", () => {
+    const cwd = fresh();
+    writeMap(cwd, base("empty-fog", [], []));
+    // sanity: the placeholder really is on disk (proves we hit the bug path)
+    const onDisk = readFileSync(join(cwd, ".planning", "empty-fog", "map.md"), "utf-8");
+    expect(onDisk).toContain("<!-- none -->");
+    const back = readMap(cwd, "empty-fog");
+    expect(back).not.toBeNull();
+    expect(back?.fog).toEqual([]); // not ["<!-- none -->"]
+    expect(back?.fog.length).toBe(0);
+    expect(back?.outOfScope).toEqual([]); // same placeholder, same fix
+    expect(back?.outOfScope.length).toBe(0);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("a real fog bullet still counts as 1 (guard against over-stripping)", () => {
+    const cwd = fresh();
+    writeMap(cwd, base("real-fog", ["open: define the failure budget"], ["a durability bridge"]));
+    const back = readMap(cwd, "real-fog");
+    expect(back).not.toBeNull();
+    expect(back?.fog).toEqual(["open: define the failure budget"]);
+    expect(back?.fog.length).toBe(1);
+    expect(back?.outOfScope).toEqual(["a durability bridge"]);
+    expect(back?.outOfScope.length).toBe(1);
+    rmSync(cwd, { recursive: true, force: true });
   });
 });
