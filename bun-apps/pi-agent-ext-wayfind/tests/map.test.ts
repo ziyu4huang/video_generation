@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
   computeFrontier,
   parseDecisionLine,
@@ -258,5 +259,24 @@ describe("computeFrontier", () => {
   it("returns empty when every open ticket is blocked or claimed", () => {
     const tickets = [mk("01", { claimed: "x" }), mk("02", { blocking: ["01"] })];
     expect(computeFrontier(tickets)).toEqual([]);
+  });
+});
+
+describe("to-tickets skill template parses correctly (skill-prose ↔ parser regression)", () => {
+  // The <local-ticket-template> in skills/to-tickets/SKILL.md MUST parse through
+  // parseTicketFile with its declared type + blocking edges intact. Earlier the
+  // template put the H1 BEFORE the frontmatter fence, so parseTicketFile (which
+  // anchors frontmatter at ^---) silently dropped type→"grilling" + blocking→[]
+  // for every ticket authored from the skill — the dependency graph vanished.
+  const skillMd = readFileSync(new URL("../skills/to-tickets/SKILL.md", import.meta.url), "utf-8");
+  const m = skillMd.match(/<local-ticket-template>\s*([\s\S]*?)<\/local-ticket-template>/);
+  if (!m) throw new Error("no <local-ticket-template> block in skills/to-tickets/SKILL.md");
+  const template = m[1].trim();
+
+  it("the skill's verbatim template parses with its declared type + blocking edges", () => {
+    const t = parseTicketFile(template, "01", "from-skill-template");
+    expect(t.type).toBe("task");
+    expect(t.blocking).toEqual(["02", "05"]);
+    expect(t.status).toBe("open");
   });
 });
