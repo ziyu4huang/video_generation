@@ -34,18 +34,27 @@
  *      `LUTGrading` (.cube trilinear interpolation), `SkinContrast` (cv2
  *      HSV mask + CLAHE). Confirmed PURE numpy/PIL/cv2 pixel math — no model
  *      inference (module docstring line 3 says so and the code matches: no
- *      `import mlx`/torch/model anywhere in the file). But "pure pixel math"
- *      does NOT mean "portable to Bun for free": every filter needs a decoded
- *      RGB pixel buffer, and this package has NO image-codec dependency
- *      (confirmed absent from package.json; the exact same gap
- *      profile_native.ts/character_native.ts/twosubject_native.ts already
- *      document for their own deferred alpha-compositing/pixel-tiebreak
- *      features). No Swift-native equivalent exists either (grepped
- *      grain/sharpen/LUT/clahe/skin-contrast across swift/ — zero real hits).
- *      Implementing this would mean building a NEW native filter chain (Bun
- *      + a codec lib, or a new Swift command), not calling an already-native
- *      primitive — out of scope here, same reasoning as stage 2.
- *      NOT PORTABLE in this session's orchestration-only scope.
+ *      `import mlx`/torch/model anywhere in the file). Earlier (2026-07-13/
+ *      14) this was judged NOT PORTABLE on the assumption that "pure pixel
+ *      math" still needs a decoded RGB pixel buffer via an external
+ *      image-codec dependency this package doesn't have. NOW PORTABLE
+ *      (2026-08-03) for 4 of the 5 filters: that assumption was wrong for
+ *      this specific pipeline — every filter here already operates on the
+ *      SAME `(1,3,H,W)` float32 `[0,1]` `MLXArray` every other stage in this
+ *      chain carries, no codec/decode step needed at all.
+ *      `swift/flux2-image-director`'s `PostProcessFilters.swift`
+ *      reimplements `FilmGrain`, `Sharpening` (CAS + unsharp),
+ *      `NoiseCleaner` (windowed joint-bilateral filter replacing
+ *      `cv2.bilateralFilter`), and `SkinContrast` (HSV skin mask + CLAHE via
+ *      a D65 RGB↔LAB round-trip) as pure MLXArray algorithms — see
+ *      `.planning/specs/2026-08-03-postprocess-swift-native-port-design.md`.
+ *      Exposed as `flux2 postprocess`, chained here between face-detail and
+ *      upscale (see `runWorkflowNative`). `LUTGrading` STAYS NOT PORTABLE:
+ *      zero `.cube` assets exist anywhere in this repo and no caller has
+ *      ever exercised the path — a theoretical GUI field
+ *      (`bun-apps/gui-movie-director/schemas/workflow.ts`'s `lut`/
+ *      `lut_strength`), not a real gap; deferred, not silently dropped (see
+ *      `isNativeWorkflowRequest` in bridge.ts).
  *
  *   4. UPSCALE (`WorkflowOrchestrator._run_upscale`, app/workflow.py:192-224)
  *      — two methods: `upscale_method == "seedvr2"` uses
@@ -61,12 +70,13 @@
  *      `seedvr2`.
  *
  * NET: the genuinely portable subset is base-generation (T2I/I2I, stage 1)
- * optionally chained with face-detail (stage 2) and/or ESRGAN upscale
- * (stage 4). Post-processing (stage 3) and `--upscale-method seedvr2` are
- * NOT silently dropped: `isNativeWorkflowRequest` (bridge.ts) refuses the
- * native path and falls back to run.py's `image workflow` (realRunPyImage)
- * whenever either is requested — the same style-forked routing discipline
- * `isNativeControlNetRequest` established for `controlnet`.
+ * optionally chained with face-detail (stage 2), post-process filters minus
+ * LUT (stage 3), and/or ESRGAN upscale (stage 4). LUT color-grading and
+ * `--upscale-method seedvr2` are NOT silently dropped: `isNativeWorkflowRequest`
+ * (bridge.ts) refuses the native path and falls back to run.py's `image
+ * workflow` (realRunPyImage) whenever either is requested — the same
+ * style-forked routing discipline `isNativeControlNetRequest` established
+ * for `controlnet`.
  */
 import { basename, dirname, extname, join } from "node:path";
 import { runKrea2, type Krea2Details } from "@repo/pi-agent-ext-krea2";
