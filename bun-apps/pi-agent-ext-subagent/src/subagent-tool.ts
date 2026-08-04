@@ -450,10 +450,7 @@ export function createSubagentTool(
     // verbatim (keywords were unambiguous workflow/orchestration intents that
     // never false-fired the way image/video nouns do, so no requires is needed).
     gating: {
-      keywords: [
-        "workflow", "pipeline", "orchestrate", "fan-out", "fan out",
-        "parallel agent", "multi-step",
-      ],
+      keywords: ["workflow", "pipeline", "orchestrate", "fan-out", "fan out", "parallel agent", "multi-step"],
     },
     promptSnippet:
       "Dispatch an isolated-context subagent for one focused task (implementer / reviewer / researcher). Pass a self-contained `task`; pick `model`/`tier` per role (omit to use the current model); restrict with `tools`/`excludeTools`.",
