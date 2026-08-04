@@ -72,6 +72,13 @@ export default function wayfindExtension(pi: ExtensionAPI): void {
     }
   });
 
+  pi.on("turn_end", () => {
+    // A one-shot wayfind action's turn just ended → drop its banner so the
+    // status bar doesn't keep a stale "charting …" line. Sustained grill flows
+    // (grilling/grilling-docs) persist — see overlay.clearTransientUnlessSustained.
+    overlay.clearTransientUnlessSustained();
+  });
+
   pi.on("session_shutdown", async (_event, ctx) => {
     // Clear this session's grill + refresh/unpublish the seam, mirroring
     // the plan coordinator's session_shutdown cleanup. Only clears wayfind's own
