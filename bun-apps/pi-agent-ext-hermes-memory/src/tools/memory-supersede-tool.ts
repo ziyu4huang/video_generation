@@ -64,6 +64,7 @@ export function registerMemorySupersedeTool(
     description:
       "Retire a stale/wrong memory by creating a linked replacement. The prior is marked superseded (hidden from search); the replacement carries lineage back to it. " +
       "Use when a recalled memory is wrong and you have the correction. Pass the prior's DB id (from a memory_search result) + the corrected content.",
+    gating: { keywords: ["memory", "supersede", "superseded", "retire", "replace", "replacement", "correction", "overwrite"] },
     parameters: Type.Object({
       prior_id: Type.Integer({
         description: "The DB id of the memory to retire (from a memory_search result).",

@@ -63,6 +63,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Await a GitHub PR merge (robust — replaces bash polling loops)",
 		description:
 			"Poll a PR's CI checks, enable auto-merge when they pass, on BEHIND rebase+force-push the feature branch so checks re-run, and wait for MERGED. A robust, tool-based replacement for brittle agent-side `gh pr checks | grep` polling loops. Returns merged/failed/timed-out + a check tally. Wraps the `gh` CLI (structured JSON — no grep footguns). Default strategy rebase, default timeout 600s, auto-deletes the branch on merge, auto force-pushes on BEHIND (powerful: set handleBehind=fail to opt out).",
+		gating: { keywords: ["pr", "pull-request", "merge", "merged", "await", "wait", "poll", "devops"] },
 		promptSnippet: "Merge a PR end-to-end: poll CI, enable --auto, handle BEHIND via rebase+force-push, wait for MERGED. No bash polling loops.",
 		parameters: Type.Object({
 			prNumber: Type.Integer({ description: "The PR number to merge." }),
@@ -140,6 +141,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Sweep merged local + remote branches (conservative, dry-run by default)",
 		description:
 			"Classify every local + remote branch and report which are safe to delete. CONSERVATIVE: a branch is deleted only when gh shows a MERGED PR for it (high confidence); uncertain cases ([gone] without gh proof, or a head ref reused by an open PR) go to a `review` bucket the human decides — never auto-deleted. Worktree-checked-out, protected (main/master/default) and the current branch are NEVER deleted (absolute). Dry-run by default: returns the plan only; pass execute:true to delete the high-confidence set, or confirm:[...] to delete specific reviewed branches. Uses structured git/gh JSON — never `git branch --merged` (wrong for squash merges).",
+		gating: { keywords: ["sweep", "branch", "branches", "cleanup", "prune", "delete-branch", "devops"] },
 		promptSnippet:
 			"Sweep merged local+remote branches. Conservative: delete only on gh-confirmed merge; uncertain → review (human). Dry-run by default; worktree/protected/current never deleted.",
 		parameters: Type.Object({
