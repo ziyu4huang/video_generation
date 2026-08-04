@@ -1,4 +1,4 @@
-# ADR-0006: Unconditional artifact home — never write to upstream paths
+# ADR-0007: Unconditional artifact home — never write to upstream paths
 
 Date: 2026-08-02
 Status: accepted
