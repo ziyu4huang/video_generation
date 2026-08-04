@@ -611,14 +611,16 @@ async function realControlNet(req: GenerateRequest, env?: Record<string, string 
  * SeedVR2). See workflow_native.ts's module doc for the full per-stage
  * portability investigation this gate is based on.
  *
- * Native path is only safe when NONE of the non-portable stages are
- * requested: any post-process filter (film grain/sharpening/LUT/
- * skin-contrast/noise-clean — pure pixel math, but no image-codec dep in
- * this package and no Swift filter chain either), or `upscale_method:
- * "seedvr2"` (confirmed PyTorch/torch-MPS-only, no MLX/Swift port
- * anywhere). face-detail is now native too (FaceDetector.swift's
- * VNDetectFaceRectanglesRequest, 2026-08-02) — see workflow_native.ts's
- * module doc.
+ * Native path is only safe when NONE of the remaining non-portable stages
+ * are requested: LUT color-grading (`lut`/`lutPath`/`lut_path` — no `.cube`
+ * asset or caller exists anywhere in this repo, deferred, see
+ * `.planning/specs/2026-08-03-postprocess-swift-native-port-design.md`), or
+ * `upscale_method: "seedvr2"` (confirmed PyTorch/torch-MPS-only, no
+ * MLX/Swift port anywhere). face-detail is native (FaceDetector.swift's
+ * VNDetectFaceRectanglesRequest, 2026-08-02), and film-grain/sharpening/
+ * skin-contrast/noise-clean are native too (PostProcessFilters.swift, pure
+ * MLXArray reimplementation, 2026-08-03) — see workflow_native.ts's module
+ * doc.
  *
  * Checks BOTH `options` (typed/camelCase or snake_case field names — callers
  * use either) and `extraArgs` (raw CLI tokens; runpy_image.ts's
@@ -637,11 +639,7 @@ export function isNativeWorkflowRequest(options: Record<string, unknown>, extraA
     return v != null;
   };
   const NONPORTABLE_OPTION_KEYS = [
-    "filmGrain", "film_grain",
-    "sharpening",
     "lut", "lutPath", "lut_path",
-    "skinContrast", "skin_contrast",
-    "noiseClean", "noise_clean",
   ];
   for (const k of NONPORTABLE_OPTION_KEYS) {
     if (truthy(options[k])) return false;
@@ -650,8 +648,7 @@ export function isNativeWorkflowRequest(options: Record<string, unknown>, extraA
   if (upscaleMethod === "seedvr2") return false;
 
   const NONPORTABLE_FLAGS = new Set([
-    "--film-grain", "--sharpening", "--lut",
-    "--skin-contrast", "--noise-clean",
+    "--lut", "--lut-strength",
   ]);
   for (const a of extraArgs ?? []) {
     if (NONPORTABLE_FLAGS.has(a)) return false;
@@ -676,6 +673,14 @@ async function realWorkflow(req: GenerateRequest, env?: Record<string, string | 
   const started = Date.now();
   try {
     const { runWorkflowNative } = await import("./workflow_native.ts");
+    const postProcess = {
+      filmGrain: (options.filmGrain as number | undefined) ?? (options.film_grain as number | undefined),
+      sharpening: options.sharpening as number | undefined,
+      skinContrast: Boolean(options.skinContrast ?? options.skin_contrast),
+      noiseClean: Boolean(options.noiseClean ?? options.noise_clean),
+    };
+    const hasPostProcess = Boolean(
+      postProcess.filmGrain || postProcess.sharpening || postProcess.skinContrast || postProcess.noiseClean);
     const result = await runWorkflowNative({
       prompt: options.prompt as string | undefined,
       input: (options.input as string | undefined) ?? (options.inputImage as string | undefined),
@@ -687,6 +692,7 @@ async function realWorkflow(req: GenerateRequest, env?: Record<string, string | 
       loraScale: (options.loraScale as number | undefined) ?? (options.lora_scale as number | undefined),
       denoiseStrength: (options.denoiseStrength as number | undefined) ?? (options.denoise_strength as number | undefined),
       faceDetail: Boolean(options.faceDetail ?? options.face_detail),
+      postProcess: hasPostProcess ? postProcess : undefined,
       upscale: Boolean(options.upscale),
       upscaleModel: (options.upscaleModel as string | undefined) ?? (options.upscale_model as string | undefined),
       outputDir: req.outputDir,
@@ -702,6 +708,7 @@ async function realWorkflow(req: GenerateRequest, env?: Record<string, string | 
       seed: result.seed,
       model: "zimage:t2i/i2i"
         + (result.stages.includes("face_detail") ? "+flux2:face-detail" : "")
+        + (result.stages.includes("postprocess") ? "+flux2:postprocess" : "")
         + (result.stages.includes("upscale") ? "+flux2:upscale" : ""),
     };
   } catch (e) {

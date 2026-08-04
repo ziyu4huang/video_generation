@@ -1,8 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import {
+  postProcessPathFor,
   runWorkflowNative,
   type BaseGenFn,
   type FaceDetailFn,
+  type PostProcessFn,
   type UpscaleFn,
 } from "./workflow_native.ts";
 
@@ -11,6 +13,13 @@ const fakeBase: BaseGenFn = async (opts) => ({
   seed: 42,
   width: 640,
   height: 960,
+});
+
+describe("postProcessPathFor — postprocess output naming", () => {
+  it("appends _postprocess and always saves .png (matches ImageSave.savePNG), same directory as input", () => {
+    expect(postProcessPathFor("/out/front.png")).toBe("/out/front_postprocess.png");
+    expect(postProcessPathFor("/a/b/c/right.jpg")).toBe("/a/b/c/right_postprocess.png");
+  });
 });
 
 describe("runWorkflowNative — the portable subset (base gen [+ ESRGAN upscale])", () => {
@@ -159,6 +168,78 @@ describe("runWorkflowNative — the portable subset (base gen [+ ESRGAN upscale]
     };
     await expect(
       runWorkflowNative({ prompt: "x", upscale: true, _runBase: fakeBase, _runUpscale: runUpscale }),
+    ).rejects.toThrow(/boom/);
+  });
+
+  it("chains postProcess after face-detail, before upscale", async () => {
+    const calls: string[] = [];
+    const runBase: BaseGenFn = async () => {
+      calls.push("base");
+      return { path: "/tmp/base.png", seed: 1, width: 512, height: 768 };
+    };
+    const runFaceDetail: FaceDetailFn = async (input) => {
+      calls.push(`face_detail(${input})`);
+      return { path: "/tmp/fd.png", width: 512, height: 768 };
+    };
+    const runPostProcess: PostProcessFn = async (input) => {
+      calls.push(`postprocess(${input})`);
+      return { path: "/tmp/pp.png", width: 512, height: 768 };
+    };
+    const runUpscale: UpscaleFn = async (input) => {
+      calls.push(`upscale(${input})`);
+      return { path: "/tmp/up.png", width: 1024, height: 1536 };
+    };
+
+    const result = await runWorkflowNative({
+      prompt: "a woman standing",
+      faceDetail: true,
+      postProcess: { filmGrain: 0.02, sharpening: 0.1 },
+      upscale: true,
+      _runBase: runBase,
+      _runFaceDetail: runFaceDetail,
+      _runPostProcess: runPostProcess,
+      _runUpscale: runUpscale,
+    });
+
+    expect(calls).toEqual([
+      "base",
+      "face_detail(/tmp/base.png)",
+      "postprocess(/tmp/fd.png)",
+      "upscale(/tmp/pp.png)",
+    ]);
+    expect(result.stages).toEqual(["base", "face_detail", "postprocess", "upscale"]);
+    expect(result.postProcessImage).toBe("/tmp/pp.png");
+    expect(result.finalImage).toBe("/tmp/up.png");
+  });
+
+  it("does not call postProcess when unset", async () => {
+    let postProcessCalled = false;
+    const runBase: BaseGenFn = async () => ({ path: "/tmp/base.png", seed: 1, width: 512, height: 768 });
+    const runPostProcess: PostProcessFn = async () => {
+      postProcessCalled = true;
+      return { path: "/tmp/pp.png", width: 512, height: 768 };
+    };
+    const result = await runWorkflowNative({
+      prompt: "a woman standing",
+      _runBase: runBase,
+      _runPostProcess: runPostProcess,
+    });
+    expect(postProcessCalled).toBe(false);
+    expect(result.stages).toEqual(["base"]);
+    expect(result.postProcessImage).toBeNull();
+  });
+
+  it("propagates a postProcess failure (no partial-success mode)", async () => {
+    const runPostProcess: PostProcessFn = async () => {
+      throw new Error("workflow: postprocess failed: boom");
+    };
+    await expect(
+      runWorkflowNative({
+        prompt: "a woman standing",
+        postProcess: { filmGrain: 0.02 },
+        _runBase: fakeBase,
+        _runPostProcess: runPostProcess,
+      }),
     ).rejects.toThrow(/boom/);
   });
 });
