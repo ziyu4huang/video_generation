@@ -16,6 +16,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   appendDecision,
+  completeEffort,
   computeFrontier,
   readMap,
   type Ticket,
@@ -212,6 +213,12 @@ export interface CloseEffortReflection {
   /** Harvested deferred prizes (the map's "Not yet specified" bullets). */
   deferredPrizes: string[];
   effort: string;
+  /** Where the effort was filed (`.planning/done/<effort>`), per D1. Undefined
+   *  when the status+move filing failed — see `fileError`. */
+  filedTo?: string;
+  /** Present when the filing (status write + move to done/) failed; the next-goal
+   *  note was still written. Surface in the /wayfind done notify. */
+  fileError?: string;
 }
 
 export interface CloseEffortRefused {
@@ -248,7 +255,16 @@ export function closeEffortReflection(
   mkdirSync(join(cwd, "output"), { recursive: true });
   writeFileSync(join(cwd, "output", filename), body, "utf-8");
 
-  return { path: `output/${filename}`, nextGoal, deferredPrizes, effort };
+  const filing = fileCompletedEffort(cwd, effort);
+  return { path: `output/${filename}`, nextGoal, deferredPrizes, effort, ...filing };
+}
+
+/** D1 canonical close as the tail of the ceremony: after the next-goal note is
+ *  written, stamp `status: complete` + file the effort into `.planning/done/`.
+ *  Returns the filing outcome (filedTo on success, fileError on failure). */
+function fileCompletedEffort(cwd: string, effort: string): { filedTo?: string; fileError?: string } {
+  const c = completeEffort(cwd, effort);
+  return c.ok ? { filedTo: c.movedTo } : { fileError: c.reason };
 }
 
 function renderNextGoalNote(args: {

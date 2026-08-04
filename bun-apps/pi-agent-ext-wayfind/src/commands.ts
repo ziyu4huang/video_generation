@@ -180,8 +180,9 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       // tidy is best-effort; ignore if bash / the script is unavailable.
     }
     overlay.setLine("done", `done: ${effort}`);
+    const filedNote = r.filedTo ? ` · filed to ${r.filedTo}` : r.fileError ? ` · filing failed: ${r.fileError}` : "";
     ctx.ui.notify(
-      `[${PKG_NAME}] done: wrote ${r.path} (${r.deferredPrizes.length} deferred prize(s)). Next goal: ${r.nextGoal} → present the choice via the ask_user_question tool (recommended ⭐).`,
+      `[${PKG_NAME}] done: wrote ${r.path} (${r.deferredPrizes.length} deferred prize(s))${filedNote}. Next goal: ${r.nextGoal} → present the choice via the ask_user_question tool (recommended ⭐).`,
       "info",
     );
   }
