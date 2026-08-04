@@ -7,7 +7,7 @@ import { mock, test } from "bun:test";
 import assert from "node:assert/strict";
 import type { KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import type { EditorTheme, TUI } from "@earendil-works/pi-tui";
-import { createStatusPanel } from "./panel.js";
+import { createStatusPanel, StatusPanelOverlay } from "./panel.js";
 import type { PanelEntry } from "./presence.js";
 
 const ENTRIES: PanelEntry[] = [
@@ -96,4 +96,37 @@ test("Enter closes then is ignored (re-entry after close)", () => {
   assert.equal(tui.hideOverlay.mock.calls.length, 1);
   editor.handleInput("\r"); // second enter → closed, no-op
   assert.equal(tui.hideOverlay.mock.calls.length, 1);
+});
+
+// Regression: RangeError: Maximum call stack size exceeded.
+// TUI.invalidate() propagates to every overlay's invalidate(); the overlay must
+// NOT re-enter tui.invalidate() (via its invalidateFn), or any external
+// invalidation (e.g. a tool-result updateDisplay) loops forever while the
+// panel is open. The Component contract says invalidate() is a TUI→component
+// cache-bust notification, not a render request.
+test("overlay.invalidate() must not re-enter tui.invalidate() (no recursion)", () => {
+  const overlay = new StatusPanelOverlay({
+    items: [
+      { value: "/goal", label: "goal" },
+      { value: "/todos", label: "todo" },
+    ],
+  });
+  // Mirror real TUI wiring + propagation: invalidateFn = tui.invalidate, and
+  // tui.invalidate() calls every overlay's invalidate() (incl. this one).
+  let depth = 0;
+  const tuiInvalidate = () => {
+    if (++depth > 50) {
+      throw new Error("RECURSION: overlay.invalidate() re-entered tui.invalidate()");
+    }
+    overlay.invalidate();
+  };
+  overlay.setInvalidate(tuiInvalidate);
+
+  // External trigger: something calls tui.invalidate() while the panel is open.
+  depth = 0;
+  assert.doesNotThrow(() => tuiInvalidate());
+
+  // State-change trigger: move() requests a render via invalidateFn.
+  depth = 0;
+  assert.doesNotThrow(() => overlay.move(1));
 });

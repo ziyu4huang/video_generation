@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readMap, writeMap } from "../src/map.js";
+import { readEffortMeta, readMap, writeMap } from "../src/map.js";
 import type { StatusReport } from "../src/wayfinder.js";
 import {
   addTicket,
@@ -46,6 +46,31 @@ describe("chartMap + ticket lifecycle", () => {
     const map = readMap(cwd, "orders");
     expect(map?.destination).toBe("a spec for the orders service");
     expect(map?.decisions).toEqual([]);
+  });
+
+  it("chartMap writes an 'active' manifest so the status overlay doesn't show '(no manifest)'", () => {
+    const cwd = makeCwd();
+    chartMap(cwd, "orders", "a spec for the orders service");
+    const meta = readEffortMeta(cwd, "orders");
+    expect(meta).not.toBeNull();
+    expect(meta?.effort).toBe("orders");
+    expect(meta?.status).toBe("active");
+    expect(meta?.created).toBe(new Date().toISOString().slice(0, 10));
+  });
+
+  it("chartMap preserves a legacy map's lack of front-matter on re-chart (byte-compat)", () => {
+    const cwd = makeCwd();
+    // Seed a legacy prose-only map.md (no front-matter), as the ~377 existing efforts.
+    const dir = join(cwd, ".planning", "legacy");
+    mkdirSync(join(dir, "tickets"), { recursive: true });
+    writeFileSync(
+      join(dir, "map.md"),
+      ["# Wayfinder map: legacy", "", "## Destination", "", "old effort", ""].join("\n"),
+      "utf-8",
+    );
+    chartMap(cwd, "legacy", "re-charted destination");
+    // Re-charting a legacy effort must NOT add front-matter (writeMap byte-compat).
+    expect(readEffortMeta(cwd, "legacy")).toBeNull();
   });
 
   it("claimNextTicket takes the first frontier ticket + stamps a claim", () => {

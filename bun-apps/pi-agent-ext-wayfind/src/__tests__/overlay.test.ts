@@ -56,8 +56,8 @@ describe("WayfindOverlay", () => {
   });
 });
 
-describe("WayfindOverlay — persistent manifest line", () => {
-  test("shows the active effort's manifest status when idle", () => {
+describe("WayfindOverlay — transient action line + manifest augmentation", () => {
+  test("renders NOTHING when idle, even with an active effort (clean status bar)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "wf-ov-"));
     writeMap(cwd, {
       effort: "demo",
@@ -71,11 +71,12 @@ describe("WayfindOverlay — persistent manifest line", () => {
     });
     const o = new WayfindOverlay();
     o.setActiveEffort("demo", cwd);
-    expect(o.render({} as Theme, 80)).toEqual(["🧭 wayfind │ 🗺️ demo · active"]);
+    // Idle (no transient action) → no wayfind line: the status bar stays clean.
+    expect(o.render({} as Theme, 80)).toEqual([]);
     rmSync(cwd, { recursive: true, force: true });
   });
 
-  test("shows (no manifest) for a legacy active effort", () => {
+  test("renders nothing when idle even for a legacy (no-manifest) active effort", () => {
     const cwd = mkdtempSync(join(tmpdir(), "wf-ov-"));
     writeMap(cwd, {
       effort: "legacy",
@@ -88,7 +89,7 @@ describe("WayfindOverlay — persistent manifest line", () => {
     });
     const o = new WayfindOverlay();
     o.setActiveEffort("legacy", cwd);
-    expect(o.render({} as Theme, 80)).toEqual(["🧭 wayfind │ 🗺️ legacy · (no manifest)"]);
+    expect(o.render({} as Theme, 80)).toEqual([]);
     rmSync(cwd, { recursive: true, force: true });
   });
 
@@ -137,11 +138,59 @@ describe("WayfindOverlay — persistent manifest line", () => {
     o.setLine("charting", "charting demo");
     expect(() => o.render({} as Theme, 80)).not.toThrow();
     expect(o.render({} as Theme, 80)).toEqual(["🧭 wayfind │ 🗺️ charting demo · (no manifest)"]);
-    // idle manifest branch: same — must not throw.
+    // idle: renders nothing (no idle line) but still must not throw.
     const idle = new WayfindOverlay();
     idle.setActiveEffort("demo", cwd);
     expect(() => idle.render({} as Theme, 80)).not.toThrow();
-    expect(idle.render({} as Theme, 80)).toEqual(["🧭 wayfind │ 🗺️ demo · (no manifest)"]);
+    expect(idle.render({} as Theme, 80)).toEqual([]);
     rmSync(cwd, { recursive: true, force: true });
+  });
+});
+
+describe("WayfindOverlay — clearTransientUnlessSustained (turn_end auto-clear)", () => {
+  test("clears a one-shot state (charting) so the bar goes clean", () => {
+    const o = new WayfindOverlay();
+    o.setLine("charting", "charting demo");
+    expect(o.render({} as Theme, 80)[0]).toContain("charting demo");
+    o.clearTransientUnlessSustained();
+    expect(o.render({} as Theme, 80)).toEqual([]);
+  });
+
+  test("leaves a sustained state (grilling) intact", () => {
+    const o = new WayfindOverlay();
+    o.setLine("grilling", "auth redesign");
+    o.clearTransientUnlessSustained();
+    expect(o.render({} as Theme, 80)).toEqual(["🧭 wayfind │ 🔥 auth redesign"]);
+  });
+
+  test("leaves grilling-docs intact (also sustained)", () => {
+    const o = new WayfindOverlay();
+    o.setLine("grilling-docs", "auth redesign (docs)");
+    o.clearTransientUnlessSustained();
+    expect(o.render({} as Theme, 80)).toEqual(["🧭 wayfind │ 📚 auth redesign (docs)"]);
+  });
+
+  test("is a no-op (no throw) when no transient is set", () => {
+    const o = new WayfindOverlay();
+    expect(() => o.clearTransientUnlessSustained()).not.toThrow();
+    expect(o.render({} as Theme, 80)).toEqual([]);
+  });
+
+  test("calls the refresh callback when it clears a one-shot state", () => {
+    const o = new WayfindOverlay();
+    let refreshed = 0;
+    o.setRefresh(() => refreshed++);
+    o.setLine("charting", "x"); // +1
+    o.clearTransientUnlessSustained(); // +1 (cleared)
+    expect(refreshed).toBe(2);
+  });
+
+  test("does NOT refresh when the state is sustained (nothing changed)", () => {
+    const o = new WayfindOverlay();
+    let refreshed = 0;
+    o.setRefresh(() => refreshed++);
+    o.setLine("grilling", "x"); // +1
+    o.clearTransientUnlessSustained(); // no-op → no refresh
+    expect(refreshed).toBe(1);
   });
 });

@@ -19,6 +19,7 @@ import {
   computeFrontier,
   readMap,
   type Ticket,
+  today,
   type WayfindMap,
   writeMap,
   writeTicket,
@@ -72,6 +73,11 @@ export function chartMap(cwd: string, effort: string, destination: string, notes
     fog: [],
     outOfScope: [],
     tickets: existing?.tickets ?? [],
+    // A freshly-charted effort gets an 'active' manifest so the status overlay
+    // renders the real status (not '(no manifest)'). Re-charting an existing
+    // effort preserves whatever manifest it already had — including legacy
+    // prose-only maps (meta=null), keeping writeMap byte-compatible.
+    meta: existing ? existing.meta : { effort, created: today(), status: "active" },
   };
   writeMap(cwd, map);
   return map;

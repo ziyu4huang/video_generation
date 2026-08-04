@@ -19,6 +19,8 @@ import { tmpdir } from "node:os";
 import { join as pathJoin } from "node:path";
 import { MEMORY_TOOL_DESCRIPTION, DEFAULT_STALENESS_THRESHOLD_DAYS } from "../constants.js";
 import type { FailureState, MemoryCategory, MemoryResult } from "../types.js";
+import { fireProactiveIfReady } from "../handlers/auto-consolidate.js";
+import { isConsolidatingChild, loadConfig } from "../config.js";
 
 function appendSyncWarning(result: MemoryResult, warning: string): MemoryResult {
   const warnings = [...(((result as any).warnings ?? []) as string[]), warning];
@@ -322,6 +324,14 @@ export function registerMemoryTool(
   memoryRepo: MemoryRepository | null = null,
   projectName?: string | null,
 ): ToolDefinition {
+  // Proactive-consolidation trigger gate (Task 4 / UPSP §1). memory-tool.ts
+  // has no config in scope, and the wiring stays self-contained in this file
+  // (the only caller, index.ts, is left untouched), so resolve the flag once
+  // at registration from the same loadConfig() index.ts uses. The store is
+  // constructed in index.ts from that same loadConfig() result, so this value
+  // matches store.config.proactiveConsolidateEnabled (which the store also
+  // re-checks as its own invariant inside maybeProactiveConsolidate).
+  const proactiveConsolidateEnabled = loadConfig().proactiveConsolidateEnabled;
   const definition: ToolDefinition = {
     name: "memory",
     label: "Memory",
@@ -417,6 +427,15 @@ export function registerMemoryTool(
           } else {
             result = await store_.add(target, content, { onProgress });
             if (result.success) {
+              // Task 4 / UPSP §1: fires-after-write proactive consolidation.
+              // Fire-and-forget (void + .catch): the write already succeeded, so
+              // this MUST NOT block the return or break on a proactive failure.
+              // The enable + in-flight gate lives in the helper; the store's
+              // maybeProactiveConsolidate owns cooldown/pressure/selection.
+              fireProactiveIfReady(store_, target, {
+                enabled: proactiveConsolidateEnabled,
+                inFlight: isConsolidatingChild,
+              });
               // Steady-state DB-sync keys on md_id (ticket 04). evicted_md_ids
               // carries the stable frontmatter ids; offloaded_superseded is
               // ALREADY md_id-only (no archive/display consumer — destructive).

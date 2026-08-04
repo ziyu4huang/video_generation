@@ -122,6 +122,20 @@ export interface MemoryConfig {
   /** Heat bonus added for ever-used entries (UPSP §1 / ticket #1b). A small
    *  relative nudge; recency spine still drives staleness. Default: 0.1. */
   decayUsedBonus?: number;
+  /** UPSP §1 proactive consolidation — fire a bounded pass over the decayed
+   *  tail before overflow. Off by default (opt-in). The other four knobs tune
+   *  the candidate set, trigger threshold, and rate limit. */
+  proactiveConsolidateEnabled: boolean;
+  /** Heat floor: an entry with heat < floor is a decay-pressure candidate.
+   *  Range [0, 1]. Default: 0.25. */
+  proactiveHeatFloor: number;
+  /** K cap on the proactive candidate set (positive int). Default: 20. */
+  proactiveMaxCandidates: number;
+  /** Min below-floor count required to trigger a proactive pass (>= 0).
+   *  Default: 10. */
+  proactivePressureThreshold: number;
+  /** Min interval (minutes) between proactive passes (>= 0). Default: 30. */
+  proactiveCooldownMinutes: number;
   /** Auto-supersede a recalled memory when a correction contradicts it (judge-gated).
    *  Default: false (opt-in — supersession hides the prior from search). */
   autoSupersede?: boolean;

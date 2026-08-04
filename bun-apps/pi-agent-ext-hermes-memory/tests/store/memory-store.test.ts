@@ -1323,6 +1323,79 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     });
   });
 
+  // ─── Candidate-limit seam on consolidateTwoPhase (proactive-consolidation Task 2) ──
+  // An optional `candidates?: string[]` param lets a proactive caller (Task 3's
+  // maybeProactiveConsolidate) feed the consolidator only the decayed low-heat
+  // tail instead of the whole store. When supplied, the snapshot is limited to
+  // those entries; when absent, behavior is byte-identical to the overflow path
+  // (the load-bearing backward-compat invariant — proven by every pre-existing
+  // consolidation/overflow test passing unmodified).
+  describe("candidate-limit seam (proactive-consolidation Task 2)", () => {
+    const TODAY = new Date().toISOString().split("T")[0];
+    const fm = (id: string, body: string) =>
+      serializeMetadataFrontmatter({ id, text: body, created: TODAY, last: TODAY });
+    async function seed(entries: string[]): Promise<void> {
+      await fs.writeFile(path.join(MEMORY_DIR, MEMORY_FILE), entries.join(ENTRY_DELIMITER), "utf-8");
+    }
+
+    it("candidates filter limits the snapshot to those entries", async () => {
+      const A = fm("11111111-1111-4111-8111-111111111111", "A candprobe alpha kept-off-snapshot");
+      const B = fm("22222222-2222-4222-8222-222222222222", "B candprobe bravo kept-off-snapshot");
+      const C = fm("33333333-3333-4333-8333-333333333333", "C candprobe charlie on-snapshot");
+      const D = fm("44444444-4444-4444-8444-444444444444", "D candprobe delta on-snapshot");
+      await seed([A, B, C, D]);
+
+      const store = new MemoryStore(makeConfig({
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      let seen: string[] = [];
+      store.setConsolidator(async (snapshot) => {
+        seen = snapshot.entries.map((e) => e.content);
+        return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
+      }, "test");
+      await store.loadFromDisk();
+
+      // Pass only C + D as candidates → snapshot must contain exactly those two.
+      await store.runConsolidatorForTest("memory", undefined, undefined, [C, D]);
+
+      assert.deepEqual(
+        seen.slice().sort(),
+        ["C candprobe charlie on-snapshot", "D candprobe delta on-snapshot"].sort(),
+        `candidates must limit the snapshot to C + D; got ${JSON.stringify(seen)}`,
+      );
+      assert.ok(!seen.includes("A candprobe alpha kept-off-snapshot"), "A must be excluded by the candidates filter");
+      assert.ok(!seen.includes("B candprobe bravo kept-off-snapshot"), "B must be excluded by the candidates filter");
+    });
+
+    it("absent candidates uses ALL consolidatable entries (parity — unchanged behavior)", async () => {
+      const A = fm("11111111-1111-4111-8111-111111111111", "A absentprobe alpha full-snapshot");
+      const B = fm("22222222-2222-4222-8222-222222222222", "B absentprobe bravo full-snapshot");
+      await seed([A, B]);
+
+      const store = new MemoryStore(makeConfig({
+        memoryOverflowStrategy: "auto-consolidate",
+        autoConsolidate: true,
+      }));
+      let seen: string[] = [];
+      store.setConsolidator(async (snapshot) => {
+        seen = snapshot.entries.map((e) => e.content);
+        return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
+      }, "test");
+      await store.loadFromDisk();
+
+      // No candidates → derive consolidatable exactly as the overflow path does
+      // (all entries, none pinned) → snapshot contains both.
+      await store.runConsolidatorForTest("memory");
+
+      assert.equal(seen.length, 2, `absent candidates must use all entries; got ${JSON.stringify(seen)}`);
+      assert.deepEqual(
+        seen.slice().sort(),
+        ["A absentprobe alpha full-snapshot", "B absentprobe bravo full-snapshot"].sort(),
+      );
+    });
+  });
+
   // ─── remove() tests ───
 
   describe("remove()", () => {
@@ -2391,6 +2464,101 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.deepEqual(new Set(sigs.keys()), new Set([PROJ_A, PROJ_B]));
       assert.equal(sigs.get(PROJ_A), computeSignature(bodyA, 24));
       assert.equal(sigs.get(PROJ_B), computeSignature(bodyB, 24));
+    });
+  });
+
+  // ─── maybeProactiveConsolidate (proactive-consolidation Task 3) ───
+  // The trigger method: when decay-pressure (below-heat-floor count) >= the
+  // configured threshold AND the cooldown has elapsed, it fires a bounded pass
+  // over the bottom-K below-floor entries via the Task 2 `candidates` seam.
+  // DB-free by contract — it uses ONLY the injected heat provider + consolidator
+  // + instance cooldown state; the CALLER (Task 4 write hook) checks in-flight
+  // FIRST. makeStoreWithHeat factors the heat-wired-store pattern shared with
+  // the #1b "heat-ordered eviction floors" + "consolidator snapshot heat-sort"
+  // tests (frontmatter seed + setHeatForEntriesProvider keyed by mdId) so each
+  // case only spells out the entry set + heat values + config.
+  describe("maybeProactiveConsolidate (proactive-consolidation Task 3)", () => {
+    const TODAY = new Date().toISOString().split("T")[0];
+
+    /**
+     * Build a heat-wired MemoryStore seeded with the given (text, heat) entries
+     * into MEMORY.md, factored from the #1b heat tests. Each entry gets a
+     * stable mdId; the provider returns Map<mdId, heat>. `configOverride` is
+     * merged into the base test config (proactive defaults are OFF in makeConfig
+     * — set them explicitly to exercise the trigger).
+     */
+    async function makeStoreWithHeat(
+      entriesWithHeat: { text: string; heat: number }[],
+      configOverride?: Partial<MemoryConfig>,
+    ): Promise<MemoryStore> {
+      const withIds = entriesWithHeat.map((e) => ({ id: globalThis.crypto.randomUUID(), ...e }));
+      const encoded = withIds.map((e) =>
+        serializeMetadataFrontmatter({ id: e.id, text: e.text, created: TODAY, last: TODAY }),
+      );
+      await fs.writeFile(path.join(MEMORY_DIR, MEMORY_FILE), encoded.join(ENTRY_DELIMITER), "utf-8");
+      const store = new MemoryStore(makeConfig(configOverride));
+      store.setHeatForEntriesProvider(async (_t, inputs) => {
+        const m = new Map<string, number>();
+        for (const input of inputs) {
+          const entry = withIds.find((w) => w.id === input.mdId);
+          if (entry) m.set(entry.id, entry.heat);
+        }
+        return m;
+      });
+      await store.loadFromDisk();
+      return store;
+    }
+
+    it("is a no-op when disabled", async () => {
+      const store = await makeStoreWithHeat(
+        Array.from({ length: 12 }, (_, i) => ({ text: `cold${i}`, heat: 0.05 })),
+        { proactiveConsolidateEnabled: false, proactiveHeatFloor: 0.25, proactivePressureThreshold: 10, proactiveMaxCandidates: 5, proactiveCooldownMinutes: 30 },
+      );
+      let called = 0;
+      store.setConsolidator(async (snapshot) => { called++; return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }; }, "test");
+      assert.equal(await store.maybeProactiveConsolidate("memory"), null);
+      assert.equal(called, 0);
+    });
+
+    it("fires when decay-pressure >= threshold, over the bottom-K below-floor entries", async () => {
+      const store = await makeStoreWithHeat(
+        [
+          { text: "hot1", heat: 0.9 }, { text: "hot2", heat: 0.8 },
+          ...Array.from({ length: 12 }, (_, i) => ({ text: `cold${i}`, heat: 0.05 })), // 12 below floor 0.25
+        ],
+        { proactiveConsolidateEnabled: true, proactiveHeatFloor: 0.25, proactivePressureThreshold: 10, proactiveMaxCandidates: 5, proactiveCooldownMinutes: 30 },
+      );
+      let seen: string[] = [];
+      store.setConsolidator(async (snapshot) => { seen = snapshot.entries.map((e) => e.content); return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }; }, "test");
+      const r = await store.maybeProactiveConsolidate("memory");
+      assert.notEqual(r, null);
+      assert.equal(seen.length, 5, `K cap; got ${seen.length}`); // K cap
+      assert.ok(seen.every((s) => s.startsWith("cold")), `only below-floor cold entries; got ${JSON.stringify(seen)}`); // only below-floor
+    });
+
+    it("does NOT fire when below-floor count < threshold", async () => {
+      const store = await makeStoreWithHeat(
+        [
+          { text: "hot", heat: 0.9 }, { text: "c1", heat: 0.05 }, { text: "c2", heat: 0.05 },
+        ],
+        { proactiveConsolidateEnabled: true, proactiveHeatFloor: 0.25, proactivePressureThreshold: 10, proactiveMaxCandidates: 5, proactiveCooldownMinutes: 30 },
+      );
+      let called = 0;
+      store.setConsolidator(async (snapshot) => { called++; return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }; }, "test");
+      assert.equal(await store.maybeProactiveConsolidate("memory"), null); // only 2 below floor < 10
+      assert.equal(called, 0);
+    });
+
+    it("cooldown suppresses a second immediate pass", async () => {
+      const store = await makeStoreWithHeat(
+        Array.from({ length: 12 }, (_, i) => ({ text: `cold${i}`, heat: 0.05 })),
+        { proactiveConsolidateEnabled: true, proactiveHeatFloor: 0.25, proactivePressureThreshold: 10, proactiveMaxCandidates: 5, proactiveCooldownMinutes: 30 },
+      );
+      let called = 0;
+      store.setConsolidator(async (snapshot) => { called++; return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }; }, "test");
+      await store.maybeProactiveConsolidate("memory"); // fires
+      assert.equal(await store.maybeProactiveConsolidate("memory"), null); // cooldown
+      assert.equal(called, 1);
     });
   });
 });

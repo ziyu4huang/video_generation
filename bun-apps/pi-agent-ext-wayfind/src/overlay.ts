@@ -59,11 +59,34 @@ export class WayfindOverlay {
     this.refresh?.();
   }
 
-  /** Set the active effort whose manifest status renders when idle (no transient action). */
+  /** Track the active effort. It no longer paints a permanent idle line — it
+   *  only augments a transient action line with the effort's manifest status.
+   *  (Still consumed by /wayfind status + the coordinator-yield seam.) */
   setActiveEffort(effort: string | undefined, cwd: string | undefined): void {
     this.activeEffort = effort;
     this.activeCwd = cwd;
     this.refresh?.();
+  }
+
+  /** States that represent a sustained, multi-turn MODE (the plan coordinator
+   *  yields throughout) — they must NOT be auto-cleared at turn_end, persisting
+   *  until their explicit end (/grill done) or session_shutdown. One-shot
+   *  command states (charting, working-ticket, to-tickets, …) are NOT here. */
+  private static readonly SUSTAINED_STATES: ReadonlySet<WayfindState> = new Set<WayfindState>([
+    "grilling",
+    "grilling-docs",
+  ]);
+
+  /** Clear a one-shot transient action line (called on turn_end) so the bar
+   *  doesn't keep a stale "charting …" banner after the action's turn ends.
+   *  Sustained states are left intact. No-op when no transient is set; only
+   *  refreshes when it actually clears something. */
+  clearTransientUnlessSustained(): void {
+    if (this.state !== undefined && !WayfindOverlay.SUSTAINED_STATES.has(this.state)) {
+      this.state = undefined;
+      this.text = undefined;
+      this.refresh?.();
+    }
   }
 
   /** Clear the section (session_shutdown). */
@@ -87,23 +110,22 @@ export class WayfindOverlay {
     }
   }
 
-  /** Render the wayfind section (0 or 1 branded status-bar line). Precedence:
-   *  transient action line (augmented with the active effort's manifest status
-   *  when one is set) > idle manifest status line > empty. */
+  /** Render the wayfind section (0 or 1 branded status-bar line). Shows the
+   *  transient action line only (augmented with the active effort's manifest
+   *  status when one is set); renders NOTHING when idle, so the shared status
+   *  bar stays clean between wayfind actions. */
   render(_theme: Theme, _width: number): string[] {
     if (this.state !== undefined && this.text !== undefined) {
       const base = `${BRAND_PREFIX}${STATE_EMOJI[this.state]} ${this.text}`;
       // Augment the action line with the manifest status so it's always visible
-      // during an active effort (not just when idle). No active effort → plain line.
+      // during an active effort. No active effort → plain line.
       if (this.activeEffort && this.activeCwd) {
         return [`${base} · ${this.activeStatus()}`];
       }
       return [base];
     }
-    if (this.activeEffort && this.activeCwd) {
-      // Idle-only fallback: no transient action, show the manifest line alone.
-      return [`${BRAND_PREFIX}🗺️ ${this.activeEffort} · ${this.activeStatus()}`];
-    }
+    // Idle (no transient action) → no wayfind line: the status bar stays clean.
+    // The active effort is still tracked for augmentation + /wayfind status.
     return [];
   }
 }

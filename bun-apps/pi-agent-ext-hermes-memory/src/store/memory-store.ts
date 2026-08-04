@@ -131,6 +131,14 @@ export class MemoryStore {
   /** Human-readable label of the consolidator's model (for progress reporting). */
   private consolidatorModelLabel?: string;
 
+  /** Per-target last proactive-run timestamp (epoch ms) for cooldown
+   *  (UPSP §1, proactive-consolidation Task 3). Lives entirely in-memory; the
+   *  store stays DB-free — the trigger reads only the injected heat provider +
+   *  consolidator + this map. Reset every process restart (a fresh process may
+   *  fire one proactive pass on its first qualifying write; cooldown then takes
+   *  over). */
+  private readonly lastProactiveRun = new Map<"memory" | "user" | "failure", number>();
+
   constructor(private config: MemoryConfig) {}
 
   /**
@@ -456,6 +464,7 @@ export class MemoryStore {
     target: "memory" | "user" | "failure",
     signal?: AbortSignal,
     onProgress?: (message: string) => void,
+    candidates?: string[],
   ): Promise<TwoPhaseResult> {
     if (!this.consolidator) return { consolidated: false, error: "no consolidator configured" };
     // Surface progress to the tool layer (-> onUpdate partial result in the TUI):
@@ -474,7 +483,14 @@ export class MemoryStore {
     // footprint from the budget so the consolidator leaves room for them.
     const allEntries = this.entriesFor(target);
     const pinnedEntries = allEntries.filter((e) => this.isPinned(e));
-    const consolidatable = pinnedEntries.length ? allEntries.filter((e) => !this.isPinned(e)) : allEntries;
+    // Candidate-limit seam (proactive-consolidation Task 2): a supplied candidate
+    // set (the proactive pass over the decayed low-heat tail) is used DIRECTLY
+    // as `consolidatable` — the caller already pin-excluded + heat-limited it.
+    // Absent ⇒ derive exactly as before, so the overflow path is byte-identical
+    // (the load-bearing backward-compat invariant). `pinnedEntries` is still
+    // computed above so `effectiveLimit` reserves room for pinned survivors in
+    // BOTH paths; pin-exclusion of the snapshot happens via `candidates`/filter.
+    const consolidatable = candidates ?? (pinnedEntries.length ? allEntries.filter((e) => !this.isPinned(e)) : allEntries);
     const effectiveLimit = Math.max(0, this.charLimit(target) - pinnedEntries.join(ENTRY_DELIMITER).length);
     // Heat-sort (UPSP §1, ticket #1b, Task 5): when a heat provider is wired
     // (decay enabled), fetch heats for the consolidatable entries and pass them
@@ -525,6 +541,7 @@ export class MemoryStore {
     target: "memory" | "user" | "failure",
     signal?: AbortSignal,
     onProgress?: (message: string) => void,
+    candidates?: string[],
   ): Promise<ConsolidationResult> {
     if (!this.consolidator) return { consolidated: false, error: "no consolidator configured" };
     const prevCons = process.env.PI_HERMES_CONSOLIDATING;
@@ -541,7 +558,7 @@ export class MemoryStore {
       // bypasses this — a known blind spot when reading perf.jsonl frequency.
       return await this.perfAlways(
         `consolidation.${target}`,
-        () => this.consolidateTwoPhase(target, signal, onProgress),
+        () => this.consolidateTwoPhase(target, signal, onProgress, candidates),
         {
           kind: "consolidation",
           timedOutFrom: (r) => !!r.terminated,
@@ -552,6 +569,67 @@ export class MemoryStore {
       if (prevCons === undefined) delete process.env.PI_HERMES_CONSOLIDATING;
       else process.env.PI_HERMES_CONSOLIDATING = prevCons;
     }
+  }
+
+  /**
+   * Test-only seam: drive the (private) consolidator pipeline over an optional
+   * candidate set (proactive-consolidation Task 2). White-box tests use this to
+   * assert the `candidates` filter limits the snapshot; production callers use
+   * `runConsolidator` directly. Threads straight through so the env-guard +
+   * perf-always logging match the real path exactly.
+   */
+  async runConsolidatorForTest(
+    target: "memory" | "user" | "failure",
+    signal?: AbortSignal,
+    onProgress?: (message: string) => void,
+    candidates?: string[],
+  ): Promise<ConsolidationResult> {
+    return this.runConsolidator(target, signal, onProgress, candidates);
+  }
+
+  /**
+   * UPSP §1 proactive consolidation (Task 3): if decay-pressure (the count of
+   * below-heat-floor entries) >= the configured threshold AND the cooldown has
+   * elapsed, fire a bounded consolidation pass over the bottom-K below-floor
+   * entries via the Task 2 `candidates` seam. DB-free: uses ONLY the injected
+   * heat provider (`computeHeats`/`heatOf`), the injected consolidator (via
+   * {@link runConsolidator}), and the {@link lastProactiveRun} map. The CALLER
+   * (the write-path hook in Task 4) checks in-flight FIRST — this method does
+   * NOT consult commit-guards / the repository layer (keeps the store DB-free).
+   *
+   * Returns `null` when it does not fire (disabled / cooldown / insufficient
+   * pressure / heat not wired); the {@link ConsolidationResult} otherwise.
+   * Disable-path parity: `proactiveConsolidateEnabled === false` returns `null`
+   * immediately with NO side effects — baseline behavior is unchanged when the
+   * feature is off (the default).
+   */
+  async maybeProactiveConsolidate(
+    target: "memory" | "user" | "failure",
+    signal?: AbortSignal,
+    onProgress?: (message: string) => void,
+  ): Promise<ConsolidationResult | null> {
+    const cfg = this.config;
+    if (!cfg.proactiveConsolidateEnabled) return null;
+    const now = Date.now();
+    const last = this.lastProactiveRun.get(target) ?? 0;
+    if (now - last < cfg.proactiveCooldownMinutes * 60_000) return null;
+    // Pressure: count non-pinned entries below the heat floor.
+    const all = this.entriesFor(target).filter((e) => !this.isPinned(e));
+    const heats = await this.computeHeats(target, this.heatInputsFor(target, all));
+    if (!heats) return null; // heat not wired / disabled → can't compute pressure
+    const below = all.filter((e) => this.heatOf(e, heats) < cfg.proactiveHeatFloor);
+    if (below.length < cfg.proactivePressureThreshold) return null;
+    // Candidates: bottom-K below-floor, lowest heat first. Decorate-with-
+    // original-index for a stable, engine-independent sort (mirrors #1b Task 5's
+    // snapshot sort in merge-plan.ts: ties keep parse/file order).
+    const K = cfg.proactiveMaxCandidates;
+    const candidates = below
+      .map((e, i) => ({ e, i, h: this.heatOf(e, heats) }))
+      .sort((a, b) => (a.h - b.h) || (a.i - b.i))
+      .slice(0, K)
+      .map((x) => x.e);
+    this.lastProactiveRun.set(target, now);
+    return await this.runConsolidator(target, signal, onProgress, candidates);
   }
 
   // ─── Path helpers ───
