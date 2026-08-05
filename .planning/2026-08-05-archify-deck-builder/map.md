@@ -27,6 +27,7 @@ A **dev-only Bun script** in `bun-apps/pi-agent-ext-archify` — `scripts/deck.t
 - [Default visual style](tickets/02-default-visual-style.md) — default `signal-flow` + **light** theme; canonical example **densified** (real item IDs, denser cards, sub-paths) with the approved 5-slide structure preserved.
 - [Implement deck script](tickets/04-implement-deck-script.md) — `scripts/deck.ts` + `pptxgenjs`/`playwright` devDeps + `deck` npm script; smoke-verified (valid `.pptx`, light+dark), `tsc`/tests green. Code uncommitted → commit/PR deferred to ticket 01.
 - [Test + docs](tickets/05-test-and-docs.md) — `__tests__/deck.test.ts` (`parseArgs` unit + browser-gated OOXML integration) + README/spec; `tsc` clean, 55 pass / 0 fail.
+- [Branch off origin main](tickets/01-branch-off-origin-main.md) — worktree `video_generation__archify-deck` on `feature/archify-deck-builder` off origin/main; lockfile regenerated; verified in-worktree; **PR #1037**. Also lands the ticket-04/05 code.
 
 ## Not yet specified
 
