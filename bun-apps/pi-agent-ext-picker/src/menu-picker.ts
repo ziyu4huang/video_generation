@@ -21,6 +21,7 @@
 import { CustomEditor, type KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import type { EditorTheme, OverlayAnchor, SelectItem, TUI } from "@earendil-works/pi-tui";
 import { MenuOverlay } from "./menu-render.js";
+import { createGuardedInvalidate } from "./guarded-invalidate.js";
 
 /** Minimal ctx shape the picker needs (restore the default editor on close).
  * Structurally compatible with the real ExtensionContext. */
@@ -94,7 +95,9 @@ export class MenuPickerEditor extends CustomEditor {
       maxVisible: opts.maxVisible,
       theme: theme.selectList,
     });
-    this.overlay.setInvalidate(() => this.tui.invalidate());
+    // Guarded: only the first (non-reentrant) call propagates to tui.invalidate().
+    // Defense-in-depth on top of the no-op invalidate() — see guarded-invalidate.ts.
+    this.overlay.setInvalidate(createGuardedInvalidate(this.tui));
 
     // live filter: buffer change → re-derive query → re-filter overlay
     this.onChange = (text) => this.overlay.setQuery(text);

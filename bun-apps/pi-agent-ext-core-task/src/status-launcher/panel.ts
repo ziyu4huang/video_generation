@@ -10,6 +10,7 @@
 import { CustomEditor, type KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import { SelectList, type Component, type EditorTheme, type OverlayAnchor, type SelectItem, type SelectListTheme, type TUI } from "@earendil-works/pi-tui";
 import type { PanelEntry } from "./presence.js";
+import { createGuardedInvalidate } from "./guarded-invalidate.js";
 
 /** Identity theme for tests / plain rendering (parity with picker's PLAIN_THEME). */
 const PLAIN_THEME: SelectListTheme = {
@@ -108,7 +109,9 @@ export class StatusPanelEditor extends CustomEditor {
     this.panelCtx = ctx;
     this.panelOpts = opts;
     this.overlay = new StatusPanelOverlay({ items, theme: selectTheme });
-    this.overlay.setInvalidate(() => this.tui.invalidate());
+    // Guarded: only the first (non-reentrant) call propagates to tui.invalidate().
+    // Defense-in-depth on top of the no-op invalidate() — see guarded-invalidate.ts.
+    this.overlay.setInvalidate(createGuardedInvalidate(this.tui));
     this.tui.showOverlay(this.overlay, { nonCapturing: true, anchor: "bottom-center" as OverlayAnchor });
   }
 
