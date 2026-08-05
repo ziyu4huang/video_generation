@@ -21,6 +21,7 @@ import {
   readEffortMeta,
   readMap,
   serializeMapFrontmatter,
+  today,
   touchEffortManifest,
   validateEffortMap,
   type WayfindMap,
@@ -121,7 +122,7 @@ describe("readMap / writeMap: front-matter integration (fs round-trip)", () => {
     expect(onDisk.startsWith("---\n")).toBe(true); // front-matter is first
     const back = readMap(cwd, META_FULL.effort);
     expect(back).not.toBeNull();
-    expect(back?.meta).toEqual<EffortMeta>({ ...META_FULL, last: new Date().toISOString().slice(0, 10) });
+    expect(back?.meta).toEqual<EffortMeta>({ ...META_FULL, last: today() });
     expect(back?.destination).toBe("A prioritized findings doc → tickets.");
     expect(back?.fog).toEqual(["open: implement-or-delete the yield"]);
     rmSync(cwd, { recursive: true, force: true });
@@ -158,7 +159,7 @@ describe("readMap / writeMap: front-matter integration (fs round-trip)", () => {
       meta: { effort: "x", created: "2020-01-01", status: "active" }, // no last: supplied
     });
     const onDisk = readFileSync(join(cwd, ".planning", "x", "map.md"), "utf-8");
-    expect(onDisk).toContain(`last: ${new Date().toISOString().slice(0, 10)}`);
+    expect(onDisk).toContain(`last: ${today()}`);
     rmSync(cwd, { recursive: true, force: true });
   });
 
@@ -244,7 +245,7 @@ describe("readEffortMeta", () => {
     });
     expect(readEffortMeta(cwd, "x")).toEqual<EffortMeta>({
       effort: "x",
-      last: new Date().toISOString().slice(0, 10),
+      last: today(),
       status: "active",
     });
     rmSync(cwd, { recursive: true, force: true });
@@ -273,7 +274,7 @@ describe("readEffortMeta", () => {
 });
 
 describe("touchEffortManifest", () => {
-  const todayStr = () => new Date().toISOString().slice(0, 10);
+  const todayStr = today;
 
   it("bumps last: on a manifest map and leaves the body verbatim", () => {
     const cwd = fresh();
@@ -324,7 +325,7 @@ describe("touchEffortManifest", () => {
 
 // ─── wiring: ticket/decision mutations bump the manifest (layer 3, finding #1) ──
 describe("touchEffortManifest — wired into writeTicket / closeTicket / appendDecision", () => {
-  const todayStr = () => new Date().toISOString().slice(0, 10);
+  const todayStr = today;
   const STALE = "2020-01-01";
 
   /** Write a manifest map.md directly with a STALE `last:` date — bypasses
