@@ -32,10 +32,13 @@ entry-path routing (the plan-writability discriminator + the
 `brainstorming`-defers-to-`to-spec` rule) — lives in the **`using-superpowers`
 bootstrap** (`src/superpowers.ts` `piBoundaryOverrides()`), injected at runtime.
 This respects ADR-0004: the prior attempt to converge homes by patching verbatim
-skill bodies (`migrations/unified-planning-dir.patch`) was never applied because
-it would re-inject exactly the repo conventions commit `4fc140be` reverted and
-ADR-0004 guards against. Local differences belong at the boundary layer, never
-inside pinned upstream assets.
+skill bodies (the now-removed `migrations/unified-planning-dir.patch`) was never
+applied because it would re-inject exactly the repo conventions commit `4fc140be`
+reverted and ADR-0004 guards against. That patch, its `scripts/apply-patches.sh`
+applier, and the call that invoked it from `scripts/update-superpowers.sh` were
+removed (ticket 04, `.planning/2026-08-04-improve-superpowers-wayfind`), leaving
+the boundary-layer approach as the sole sanctioned divergence point. Local
+differences belong at the boundary layer, never inside pinned upstream assets.
 
 Related: ADR-0004 (skill fidelity positive pin) — this ADR's "express divergence
 at the injection layer" is the operating consequence of ADR-0004's "don't fork
