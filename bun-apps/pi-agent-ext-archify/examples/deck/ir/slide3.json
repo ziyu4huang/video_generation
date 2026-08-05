@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "SAS vs MAS：兩個 zoom 層級",
+    "subtitle": "左＝整顆 SoC（SAS = SYS.3）；右＝ AUDIO APU 內部微架構（MAS = HWE.2）",
+    "visual_preset": "signal-flow",
+    "quality_profile": "standard"
+  },
+  "components": [
+    { "id": "mrd2", "type": "frontend", "label": "MRD", "pos": [70, 170], "size": [120, 54] },
+    { "id": "noc2", "type": "messagebus", "label": "NoC", "pos": [260, 170], "size": [120, 54] },
+    { "id": "apu2", "type": "backend", "label": "AUDIO APU", "pos": [70, 300], "size": [140, 60], "tag": "拉近看 →" },
+    { "id": "isp2", "type": "backend", "label": "ISP", "pos": [260, 300], "size": [120, 60] },
+
+    { "id": "i2s", "type": "frontend", "label": "I2S×4", "pos": [600, 190], "size": [88, 50] },
+    { "id": "src", "type": "backend", "label": "SRC", "pos": [716, 190], "size": [78, 50] },
+    { "id": "mix", "type": "backend", "label": "混音", "pos": [822, 190], "size": [78, 50] },
+    { "id": "eq", "type": "backend", "label": "EQ/音量", "pos": [928, 190], "size": [98, 50] },
+    { "id": "dma", "type": "backend", "label": "DMA", "pos": [1054, 190], "size": [78, 50] },
+    { "id": "reg", "type": "database", "label": "暫存器組", "sublabel": "DETAIL · ~64 個", "pos": [700, 320], "size": [330, 54], "tag": "HWE.2" }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "SAS = SYS.3（整顆 SoC）", "wraps": ["mrd2", "noc2", "apu2", "isp2"] },
+    { "kind": "region", "label": "MAS = HWE.2（APU 內部微架構）", "wraps": ["i2s", "src", "mix", "eq", "dma", "reg"] }
+  ],
+  "connections": [
+    { "from": "mrd2", "to": "noc2" },
+    { "from": "noc2", "to": "apu2", "variant": "emphasis" },
+    { "from": "noc2", "to": "isp2" },
+    { "from": "i2s", "to": "src", "variant": "emphasis" },
+    { "from": "src", "to": "mix", "variant": "emphasis" },
+    { "from": "mix", "to": "eq", "variant": "emphasis" },
+    { "from": "eq", "to": "dma", "variant": "emphasis" },
+    { "from": "reg", "to": "mix", "variant": "dashed" },
+    { "from": "reg", "to": "eq", "variant": "dashed" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "兩個層級，兩種問題", "items": [
+      "SAS（SYS.3）：整顆 SoC 怎麼切、誰接誰、預算",
+      "MAS（HWE.2）：單一 block 內部怎麼組（微架構 + 細部）"
+    ] },
+    { "dot": "rose", "title": "zoom 關係 ＋ 驗證配對", "items": [
+      "左邊的 AUDIO APU，拉近看 ＝ 右邊的微架構",
+      "SAS ◀━▶ SYS.4 系統整合驗證",
+      "MAS ◀━▶ HWE.3 對設計之驗證"
+    ] },
+    { "dot": "emerald", "title": "同一條需求，兩層 ID", "items": [
+      "SAS：APU.SYS3.IF（block 對外介面）",
+      "MAS：I2S.HWE2.IO、MIX.HWE2.DETAIL（內部）",
+      "MAS 暫存器 ≈ 64 個 → 下游 RDS",
+      "SAS 不寫暫存器；MAS 才寫"
+    ] }
+  ]
+}

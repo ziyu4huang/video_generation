@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "好 Item 怎麼來：INCOSE × ASPICE",
+    "subtitle": "壞散文 → INCOSE 體檢 → 拆 What / How → ASPICE 定位 → 原子可追溯 Item",
+    "visual_preset": "signal-flow",
+    "quality_profile": "standard",
+    "animation": "none",
+    "viewBox": [1140, 520]
+  },
+  "stages": [
+    { "label": "① 壞散文" },
+    { "label": "② INCOSE 體檢" },
+    { "label": "③ 拆 What / How" },
+    { "label": "④ ASPICE 定位" },
+    { "label": "⑤ 好 Item" }
+  ],
+  "nodes": [
+    { "id": "bad", "type": "frontend", "label": "壞散文", "sublabel": "「頻寬足夠·功耗大約」", "stage": 0, "row": 1, "width": 120, "tag": "ambiguous·難驗" },
+    { "id": "check", "type": "security", "label": "INCOSE 體檢", "sublabel": "明確·單一·可驗", "stage": 1, "row": 1, "tag": "寫得對不對" },
+    { "id": "clear", "type": "security", "label": "明確 + 可驗證", "sublabel": "≥ 2 GB/s · ≤ 300 mW", "stage": 1, "row": 0, "tag": "補量化" },
+    { "id": "single", "type": "security", "label": "單一 + 不綁實作", "sublabel": "一條一事 · What ≠ How", "stage": 1, "row": 2, "tag": "去多事" },
+    { "id": "split", "type": "backend", "label": "拆 What / How", "sublabel": "REQ ≠ ARCH，不同 ID", "stage": 2, "row": 1, "tag": "界線" },
+    { "id": "locate", "type": "cloud", "label": "ASPICE 定位", "sublabel": "BP + V-model 配對", "stage": 3, "row": 1, "tag": "該做有沒有做" },
+    { "id": "bp", "type": "cloud", "label": "ASPICE BP", "sublabel": "SYS.3.BP1 / HWE.2.BP1", "stage": 3, "row": 0, "tag": "過程證據" },
+    { "id": "vpair", "type": "database", "label": "V-model 配對", "sublabel": "SAS ↔ SYS.4 · MAS ↔ HWE.3", "stage": 3, "row": 2, "tag": "右翼誰驗" },
+    { "id": "good", "type": "messagebus", "label": "好 Item", "sublabel": "原子 · ID · 追溯", "stage": 4, "row": 1, "tag": "可改·可查·可驗" }
+  ],
+  "flows": [
+    { "from": "bad", "to": "check", "label": "體檢", "classification": "送檢", "variant": "emphasis", "route": "straight", "fromSide": "right", "toSide": "left" },
+    { "from": "check", "to": "split", "label": "拆解", "classification": "What≠How", "route": "straight", "fromSide": "right", "toSide": "left" },
+    { "from": "split", "to": "locate", "label": "定位", "classification": "掛 BP/V-pair", "variant": "emphasis", "route": "straight", "fromSide": "right", "toSide": "left" },
+    { "from": "locate", "to": "good", "label": "產出", "classification": "可追溯", "variant": "emphasis", "route": "straight", "fromSide": "right", "toSide": "left" },
+    { "from": "check", "to": "clear", "label": "明確", "variant": "default", "route": "straight", "fromSide": "top", "toSide": "bottom", "labelAt": [315, 212] },
+    { "from": "check", "to": "single", "label": "單一", "variant": "default", "route": "straight", "fromSide": "bottom", "toSide": "top", "labelAt": [315, 330] },
+    { "from": "locate", "to": "bp", "label": "BP", "variant": "default", "route": "straight", "fromSide": "top", "toSide": "bottom", "labelAt": [745, 212] },
+    { "from": "locate", "to": "vpair", "label": "V-pair", "variant": "default", "route": "straight", "fromSide": "bottom", "toSide": "top", "labelAt": [745, 330] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "INCOSE = 寫得對不對", "items": [
+      "需求寫作品質檢查表",
+      "明確 · 完整 · 單一 · 可驗證 · 不綁實作",
+      "設計句套用「適當性」子集 + 可追溯"
+    ] },
+    { "dot": "rose", "title": "ASPICE = 該做有沒有做", "items": [
+      "過程評鑑模型：每個 BP 要有證據",
+      "SYS.3：BP1 介面 · BP2 動態 · BP3 理由",
+      "HWE.2：BP1 架構 · BP2 細部（暫存器 / RTL）"
+    ] },
+    { "dot": "emerald", "title": "一條 Item 走完管線（範例）", "items": [
+      "② 體檢：「頻寬足夠」→ 不明確",
+      "③ 拆 What：APU 需 NoC 配額／How：AXI4",
+      "④ 定位：SYS.3.BP1（介面）＋ SAS↔SYS.4",
+      "⑤ 產出：APU.SYS3.ALLOC ≥ 2 GB/s（可驗）"
+    ] }
+  ]
+}

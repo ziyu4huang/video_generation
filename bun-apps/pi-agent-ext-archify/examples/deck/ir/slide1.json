@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "為什麼 Itemize？— 一段壞散文 → 原子 Item",
+    "subtitle": "散文改不動、查不出、驗不了；Itemize 拆成原子、唯一編碼、逐層可追溯",
+    "visual_preset": "signal-flow",
+    "quality_profile": "standard",
+    "animation": "none",
+    "viewBox": [1080, 420]
+  },
+  "stages": [
+    { "label": "壞散文" },
+    { "label": "Itemize" },
+    { "label": "原子 Item ×4" }
+  ],
+  "nodes": [
+    { "id": "bad", "type": "frontend", "label": "壞散文", "sublabel": "「頻寬足夠·功耗大約」", "stage": 0, "row": 1, "width": 150, "tag": "改不動·查不出·驗不了" },
+    { "id": "itemize", "type": "backend", "label": "Itemize", "sublabel": "拆·編碼·追溯", "stage": 1, "row": 1, "tag": "一條一事" },
+    { "id": "items", "type": "cloud", "label": "原子 Item ×4", "sublabel": "可追溯·可驗證", "stage": 2, "row": 1, "tag": "IF·ALLOC·BUDGET·FSM" }
+  ],
+  "flows": [
+    { "from": "bad", "to": "itemize", "label": "拆解", "classification": "原子化", "variant": "emphasis", "route": "straight", "fromSide": "right", "toSide": "left" },
+    { "from": "itemize", "to": "items", "label": "編碼+追溯", "classification": "唯一 ID", "variant": "emphasis", "route": "straight", "fromSide": "right", "toSide": "left" }
+  ],
+  "cards": [
+    { "dot": "rose", "title": "散文的痛", "items": [
+      "改不動：改一條，不知誰會壞",
+      "查不出：評鑑要基線，散文給不出",
+      "驗不了：測試不知該指向哪一條"
+    ] },
+    { "dot": "emerald", "title": "Item 的解藥", "items": [
+      "原子：一條 Item 只講一件事",
+      "唯一 ID：一經分配，永不修改",
+      "雙向追溯：掛來源 + V-model 配對"
+    ] },
+    { "dot": "cyan", "title": "本頁拆出的 4 條原子 Item", "items": [
+      "ITEM.IF — APU 經 AXI4 64-bit 接 NoC",
+      "ITEM.ALLOC — APU 的 NoC 配額 ≥ 2 GB/s",
+      "ITEM.BUDGET — APU 功耗 ≤ 300 mW",
+      "ITEM.FSM — PG_AUDIO 上電 reset→init→run"
+    ] }
+  ]
+}

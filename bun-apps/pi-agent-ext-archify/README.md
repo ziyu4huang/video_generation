@@ -36,3 +36,6 @@ Manifest (`deck.config.json`, default):
 `--output` resolves relative to cwd. Each IR is rendered via the same `deliver`
 path as `archify_render` (validated, not just rendered). Light + dark themes.
 See `docs/2026-08-03-deck-design.md` for the full design.
+
+**Canonical example:** `examples/deck/` — `bun run deck examples/deck/deck.config.json`
+renders the 5-slide SAS/MAS Itemize deck (INCOSE × ASPICE 4.0).

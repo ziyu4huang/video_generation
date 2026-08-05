@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "規格鏈 ＋ 驗證配對 ＋ 自檢三問",
+    "subtitle": "MRD → SAS → MAS → RDS；只驗一翼會漏一整類問題",
+    "visual_preset": "signal-flow",
+    "quality_profile": "standard"
+  },
+  "components": [
+    { "id": "mrd3", "type": "frontend", "label": "MRD", "sublabel": "SYS.1 / SYS.2", "pos": [60, 300], "size": [160, 70] },
+    { "id": "sas3", "type": "backend", "label": "SAS", "sublabel": "SYS.3 系統架構", "pos": [300, 300], "size": [180, 70], "tag": "↔ SYS.4" },
+    { "id": "mas3", "type": "backend", "label": "MAS", "sublabel": "HWE.2 硬體設計", "pos": [560, 300], "size": [180, 70], "tag": "↔ HWE.3" },
+    { "id": "rds3", "type": "cloud", "label": "RDS / RTL", "sublabel": "實作層", "pos": [820, 300], "size": [170, 70] },
+    { "id": "sys4", "type": "security", "label": "SYS.4", "sublabel": "系統整合驗證", "pos": [300, 140], "size": [180, 70] },
+    { "id": "hwe3", "type": "security", "label": "HWE.3", "sublabel": "對設計之驗證", "pos": [560, 140], "size": [180, 70] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "規格鏈（推導 ▶）", "wraps": ["mrd3", "sas3", "mas3", "rds3"] },
+    { "kind": "region", "label": "驗證（對應上方）", "wraps": ["sys4", "hwe3"] }
+  ],
+  "connections": [
+    { "from": "mrd3", "to": "sas3", "variant": "emphasis" },
+    { "from": "sas3", "to": "mas3", "variant": "emphasis" },
+    { "from": "mas3", "to": "rds3", "variant": "emphasis" },
+    { "from": "sas3", "to": "sys4", "variant": "emphasis", "fromSide": "top", "toSide": "bottom" },
+    { "from": "mas3", "to": "hwe3", "variant": "emphasis", "fromSide": "top", "toSide": "bottom" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "兩個驗證配對（不可只驗一翼）", "items": [
+      "SAS ◀━▶ SYS.4：整合起來，符合架構嗎？",
+      "MAS ◀━▶ HWE.3：做出來的，符合畫的圖嗎？",
+      "HWE.3 全 PASS，仍可能 SYS.4 FAIL"
+    ] },
+    { "dot": "emerald", "title": "寫一條好 Item — 自檢三問", "items": [
+      "一句話講完、且只講一件事？",
+      "上游是誰、下游驗證是誰？",
+      "What 與 How 分開了嗎？"
+    ] },
+    { "dot": "cyan", "title": "規格鏈的 Item 落點", "items": [
+      "MRD.SYS.1 → SAS.SYS.3 → MAS.HWE.2 → RDS",
+      "SAS.SYS.3 ↔ SYS.4：整合符合架構？",
+      "MAS.HWE.2 ↔ HWE.3：實作符合設計？",
+      "HWE.3 全 PASS，SYS.4 仍可能 FAIL"
+    ] }
+  ]
+}
