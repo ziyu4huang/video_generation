@@ -14,16 +14,14 @@
 | **Lineage-preserving consolidation** (keep the old entry linked to the new merged entry) | Doubles storage; the lineage graph rots; the merged entry is the new truth anyway | **Destructive consolidation** — the LLM merge yields a fresh active entry; consumed `.md` + DB rows are hard-deleted. Overflow priority: **offload superseded FIRST**; TRIM never touches active — PR #961 |
 | **SurrealDB as the default backend** | Heavier ops surface (local server process); SQLite is dependency-light and sufficient for the read side | **SQLite default**; SurrealDB `default-off` (`config.dbBackend: "surrealdb"`), opt-in; `repository-contract.test.ts` proves equivalence — `CONTEXT.md → Extended store` |
 | **`grill-memory` as a separate package** (`pi-agent-ext-grill-memory`) | The `grill_decision` runtime already lived in hermes-memory; a separate package duplicated the seam | **Merged into hermes-memory**; the skill ships from this package's `skills/` — `CONTEXT.md → grill-memory skill` |
+| **errors.log-rotation for raw `errorCapture`** | Premise unfounded: `errorCapture` extracts **lesson lines** (not raw traces) and **3-layer-dedups** (#854: this-session LRU + cross-session signature check + rate cap 5/10min) before any write, so raw traces never reach `failureCharLimit`; only ~1 `failure`-category entry exists | **Inline #854 hardening** (lesson-line extraction + cross-session signature dedup + rate-limiting) — no separate store file / rotation / DB↔.md sync. Decided 2026-08-05 — `.planning/2026-08-05-let-s-continue-to-learning-from-prevous-wayfind-/tickets/03` |
 
 ## Candidates under consideration (NOT yet rejected — see UPSP graduation)
 
 These are known smells with a proposed replacement still pending a decision. Listed here so the
 "why don't we X?" lookup still finds them; remove to the rejection table only once adopted or killed.
 
-- **Per-entry char budget shared between curated memory and raw error capture** — auto-captured
-  stack traces (`errorCapture`) compete with curated failures for `failureCharLimit`. Proposed
-  replacement (UPSP §2): an append-only `errors.log` capped by rotation, not by the curated
-  char-budget. Status: candidate — `.planning/2026-08-02-try-to-checkout-code-use-gh-and-learning-from-ht/`.
+- _(none currently — the errorCapture/`errors.log` candidate was rejected 2026-08-05; see the rejection table above.)_
 
 ## How to use this doc
 

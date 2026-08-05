@@ -1,14 +1,14 @@
 ---
 type: grilling
 status: open
-blocked by: 03, 04, 05
+blocked by: 04, 05
 ---
 
 # 06 — Migration & cutover plan: get the existing 94%-full store to the new model
 
 ## Question
 
-Once the model decisions land ([03](03-errorslog-rotation-candidate.md) errors.log, [04](04-dedup-identity-and-merge-rule.md) dedup, [05](05-decay-aging-and-supersede-policy.md) decay), the existing **~94%-full** store must move to the new shape. Decide the cutover design (as *spec*, not execution):
+Once the model decisions land ([04](04-dedup-identity-and-merge-rule.md) dedup, [05](05-decay-aging-and-supersede-policy.md) decay) — [03](03-errorslog-rotation-candidate.md) (errors.log) was **dropped as unfounded** — the existing **~94%-full** store must move to the new shape. Decide the cutover design (as *spec*, not execution):
 
 - **One-time canonicalization** of the backlog (collapse the `await_pr_merge` ×7 → canonical; compress resolved entries) — is it a scripted migration, a manual `pi-memory-bulk-dedup` pass, or a consolidation run?
 - **Backward compatibility**: legacy entries without the new aging/topic metadata — degrade gracefully (the v0.3 "backward-compatible fallback for legacy entries" pattern) or require a migration?

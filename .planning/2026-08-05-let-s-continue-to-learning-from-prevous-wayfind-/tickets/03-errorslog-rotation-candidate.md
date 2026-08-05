@@ -1,6 +1,8 @@
 ---
 type: grilling
-status: open
+status: closed
+claimed: agent (2026-08-05)
+closed: 2026-08-05 (grilled this session)
 blocked by: 01
 ---
 
@@ -26,3 +28,18 @@ This ticket also gates the **promotion-path** and **DB↔.md sync** fog patches 
 ## Recommendation seed
 
 Lean **shelve** (with a measurable trigger to re-open): the candidate solves a problem the audit shows isn't currently biting, and dedup/decay are higher-leverage. But the decision is the user's — adopting it is defensible if the goal is a clean raw/curated seam regardless of current volume.
+
+## Resolution — ANSWERED (2026-08-05)
+
+**Decision — DROP the errors.log-rotation candidate (rejected in REJECTED.md).**
+
+The candidate's premise — *"auto-captured stack traces (`errorCapture`) compete with curated failures for `failureCharLimit`"* — is **unfounded in the current implementation**. `src/handlers/error-detector.ts` shows errorCapture:
+- captures only **lesson-worthy** failed `tool_result`s (`isLessonWorthy` gate — definitive failures like ModuleNotFoundError / EADDRINUSE, not trivial ones);
+- writes a **curated one-line reason** (`firstLessonLine(text).slice(0,200)`), formatted `[<toolName> error] <reason>`, category `failure` — **not a raw stack trace**;
+- **3-layer dedups** before any write: ① this-session LRU (64) + rate cap **5 / 10min** (#854); ② **cross-session signature check** — skips the write if an existing failure entry already carries the error; ③ rate cap.
+
+Reconciled with audit [01](01-audit-the-failure-store.md): the store holds **only 1 `failure`-category entry** — errorCapture contributes ~1 entry and raw traces never reach the budget. The inline #854 hardening already does what `errors.log` proposed, without a new store file / rotation logic / DB↔.md sync.
+
+**Artifact change:** moved from REJECTED.md "Candidates under consideration" → the rejection table (old · why killed · replacement = inline #854 hardening).
+
+**Map effects:** clears the two contingent fog patches ("promotion path raw→curated", "DB↔.md sync for errors.log") — both predicated on adopting errors.log. [06](06-migration-and-cutover-plan.md) no longer needs an errors.log cutover; blockers reduce to 04, 05.
