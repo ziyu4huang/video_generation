@@ -2,7 +2,7 @@
 
 ## Destination
 
-A **decided design spec** for hermes-memory's *failure*-memory model — separating raw `errorCapture` from curated failures and adding **dedup + decay** so the 40K-char failure budget holds high-value lessons — ready to hand to a build. **Planning only**: the map resolves the decisions; no implementation lives in it.
+A **decided design spec** for hermes-memory's *failure*-memory model — **dedup + decay + recurrence-to-skill graduation** so the 40K-char failure budget holds high-value lessons (raw `errorCapture` already self-limits via #854 and needs no separation) — ready to hand to a build. **Planning only**: the map resolves the decisions; no implementation lives in it.
 
 ## Notes
 
