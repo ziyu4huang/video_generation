@@ -21,6 +21,7 @@ A **decided design spec** for hermes-memory's *failure*-memory model — separat
 <!-- one line per closed ticket: gist + link -->
 
 - [Audit the failure store](tickets/01-audit-the-failure-store.md) — RESOLVED (research): store is ~37K/40K; 0 raw `errorCapture` traces; bloat is **curated-but-recurring operational tool-quirks** (`await_pr_merge` family = 7 entries incl. 2 verbatim dupes + 2 redundant resolution entries). The real levers are **dedup + decay**, not the errors.log separation.
+- [Taxonomy & purpose: what belongs](tickets/02-taxonomy-and-purpose-what-belongs.md) — RESOLVED (grilling): failure target is the inclusive **first-capture home** for any categorized lesson (write path unchanged); a lesson re-recorded **≥2× is procedural → graduates to a skill** (activates `constants.ts:145`); post-graduation the entries collapse to **one canonical FACT** cross-referenced to the skill (not a pointer, not hard-delete).
 
 ## Not yet specified
 

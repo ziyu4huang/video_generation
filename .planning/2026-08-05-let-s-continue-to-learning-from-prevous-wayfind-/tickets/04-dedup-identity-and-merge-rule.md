@@ -17,6 +17,8 @@ The audit ([01](01-audit-the-failure-store.md)) proves the pattern: a single les
 
 Blocked by [02](02-taxonomy-and-purpose-what-belongs.md) — you can't canonicalize what you haven't decided *belongs*.
 
+**Per [02](02-taxonomy-and-purpose-what-belongs.md) (CLOSED):** collapsed recurring entries now produce **ONE canonical FACT in failure + the procedure graduates to a skill** (recurrence ≥2 = procedural signal, per `constants.ts:145`). So the merge rule must yield that shape: a deduped standalone fact (failure) + a created/promoted skill (procedure), cross-referenced — NOT a pointer, NOT hard-delete, NOT duplication. The graduation trigger mechanism (auto on 2nd capture vs manual via consolidation vs on-write reject) is decided HERE.
+
 ## Context
 
 - `pi-memory-bulk-dedup` skill already exists for manual bulk dedup of the `.md` source-of-truth — it may already encode a merge rule to reuse or supersede.
