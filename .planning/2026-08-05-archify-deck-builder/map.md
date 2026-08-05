@@ -2,7 +2,7 @@
 effort: 2026-08-05-archify-deck-builder
 created: 2026-08-05
 last: 2026-08-05
-status: active
+status: complete
 ---
 
 # Wayfinder map: 2026-08-05-archify-deck-builder
@@ -28,10 +28,11 @@ A **dev-only Bun script** in `bun-apps/pi-agent-ext-archify` — `scripts/deck.t
 - [Implement deck script](tickets/04-implement-deck-script.md) — `scripts/deck.ts` + `pptxgenjs`/`playwright` devDeps + `deck` npm script; smoke-verified (valid `.pptx`, light+dark), `tsc`/tests green. Code uncommitted → commit/PR deferred to ticket 01.
 - [Test + docs](tickets/05-test-and-docs.md) — `__tests__/deck.test.ts` (`parseArgs` unit + browser-gated OOXML integration) + README/spec; `tsc` clean, 55 pass / 0 fail.
 - [Branch off origin main](tickets/01-branch-off-origin-main.md) — worktree `video_generation__archify-deck` on `feature/archify-deck-builder` off origin/main; lockfile regenerated; verified in-worktree; **PR #1037**. Also lands the ticket-04/05 code.
+- [Deck manifest + example](tickets/03-deck-manifest-and-example.md) — `examples/deck/` (manifest + 5 densified SAS/MAS IRs); `bun run deck` → valid 688 KB / 5-slide `.pptx`; user study deck refreshed.
 
 ## Not yet specified
 
-- Exact pin versions for `pptxgenjs` / `playwright` (resolves at install during ticket 04).
+<!-- all resolved: pin versions pinned in ticket 04 (pptxgenjs@4.0.1, playwright@1.60.0); densify decided in ticket 02 -->
 
 ## Out of scope
 
