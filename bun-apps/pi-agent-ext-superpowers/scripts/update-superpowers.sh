@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 ########################################
 # update-superpowers.sh — sync superpowers skills/ from the plugin cache
-# (upstream verbatim), then re-apply this package's path forks. The whole
-# upstream-convergence flow is self-contained in the superpowers ext folder;
-# bun-apps/pi-agent/update-pi.sh is unrelated (it only locks the pi-* core).
+# (upstream verbatim). The whole upstream-convergence flow is self-contained in
+# the superpowers ext folder; bun-apps/pi-agent/update-pi.sh is unrelated (it
+# only locks the pi-* core). Local divergence is handled at the boundary layer
+# (src/superpowers.ts piBoundaryOverrides, ADR-0005), never by patching skills.
 #
 # SYNC SOURCE: the plugin cache ($CLAUDE_PLUGINS_CACHE) is the CANONICAL sync
 # source — the blessed release artifact matching what Claude Code users receive.
@@ -34,9 +35,6 @@ SRC="$CACHE/$VER/skills"
 echo "▶ sync skills/ from $CACHE/$VER"
 rm -rf "$PKG/skills"
 cp -R "$SRC" "$PKG/skills"
-
-echo "▶ re-apply path forks"
-"$PKG/scripts/apply-patches.sh"
 
 echo
 echo "done. review the diff:  git diff bun-apps/pi-agent-ext-superpowers/skills/"
