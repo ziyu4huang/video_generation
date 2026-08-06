@@ -711,7 +711,12 @@ async function realPurify(req: GenerateRequest, env?: Record<string, string | un
     prompt: options.prompt as string | undefined,
     transformer: options.transformer as string | undefined,
   });
-  return adaptFlux2(req, out.details, out.summary, out.stderrTail, env);
+  // adaptFlux2 sets `command` from Flux2Details.command, which reports the
+  // real underlying flux2 subcommand ("styletransfer"). Normalize it back to
+  // "purify" — the caller-facing command name — matching realControlNet's
+  // command-forcing and realWorkflow's hardcoded "image workflow" (both
+  // present the outer command name, not an internal implementation detail).
+  return { ...adaptFlux2(req, out.details, out.summary, out.stderrTail, env), command: "purify" };
 }
 
 /**
