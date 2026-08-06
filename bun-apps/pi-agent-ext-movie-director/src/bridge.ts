@@ -41,6 +41,7 @@ import {
   type RunPyImageDetails,
   type RunPyImageOptions,
 } from "./runpy_image.ts";
+import type { PurifyMode } from "./purify_native.ts";
 import {
   runPyStory,
   type RunPyStoryDetails,
@@ -656,6 +657,66 @@ export function isNativeWorkflowRequest(options: Record<string, unknown>, extraA
   if ((extraArgs ?? []).includes("seedvr2")) return false;
 
   return true;
+}
+
+/**
+ * isNativePurifyRequest — decide whether a `purify` request can reach
+ * flux2's native `styletransfer` command (via purify_native.ts) instead of
+ * run.py's image-purify.py.
+ *
+ * `--backend transformer` is pure parameter computation around a
+ * flux2-klein SDEdit img2img call — already Swift-native as `styletransfer`.
+ * `--backend seedvr2` (the default) is confirmed PyTorch/torch-MPS-only, and
+ * `--remove` (subtitle/watermark/screen-ui removal) is a separate, larger
+ * new-algorithm effort with no existing Swift primitive for its mask-union/
+ * dilate/median-fill/feathered-composite steps — see
+ * .planning/specs/2026-08-05-purify-transformer-backend-swift-native-port-design.md.
+ * Both stay on run.py, unchanged.
+ *
+ * The `.png` extension check exists because `purify_native.ts`'s dimension
+ * probe (`probePngDimensions`) only parses the PNG IHDR chunk — deciding
+ * this up front (not attempting native work and falling back on failure)
+ * matches every other native/Python fork in this file
+ * (isNativeControlNetRequest/isNativeWorkflowRequest never retry-on-failure).
+ * purify's Python flag is `--input-image` (`RunPyImageOptions.inputImage`) —
+ * NOT the same `input` field angle/profile/expansion/review use.
+ */
+export function isNativePurifyRequest(options: Record<string, unknown>): boolean {
+  if (options.backend !== "transformer") return false;
+  const remove = options.remove;
+  if (remove != null && remove !== "none") return false;
+  const inputImage = options.inputImage;
+  if (typeof inputImage !== "string" || !/\.png$/i.test(inputImage)) return false;
+  return true;
+}
+
+/**
+ * realPurify — style-forked (controlnet_hybrid/workflow_hybrid pattern)
+ * purify dispatch. Native path: purify_native.ts's runPurifyTransformerNative
+ * (flux2 styletransfer). Fallback path: the pre-existing realRunPyImage,
+ * unchanged. See isNativePurifyRequest for the exact split.
+ */
+async function realPurify(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
+  const options = (req.options ?? {}) as Record<string, unknown>;
+  if (!isNativePurifyRequest(options)) {
+    return realRunPyImage(req, env);
+  }
+  const { runPurifyTransformerNative } = await import("./purify_native.ts");
+  const inputImage = String(options.inputImage);
+  const out = await runPurifyTransformerNative({
+    inputImage,
+    mode: options.purifyMode as PurifyMode | undefined,
+    resolution: options.resolution as string | number | undefined,
+    seed: options.seed as number | undefined,
+    prompt: options.prompt as string | undefined,
+    transformer: options.transformer as string | undefined,
+  });
+  // adaptFlux2 sets `command` from Flux2Details.command, which reports the
+  // real underlying flux2 subcommand ("styletransfer"). Normalize it back to
+  // "purify" — the caller-facing command name — matching realControlNet's
+  // command-forcing and realWorkflow's hardcoded "image workflow" (both
+  // present the outer command name, not an internal implementation detail).
+  return { ...adaptFlux2(req, out.details, out.summary, out.stderrTail, env), command: "purify" };
 }
 
 /**
@@ -1297,6 +1358,7 @@ export function realAdapters(env?: Record<string, string | undefined>): Partial<
     "mlx:caption": (req) => realCaption(req, env),
     "mlx:controlnet-hybrid": (req) => realControlNet(req, env),
     "mlx:workflow-hybrid": (req) => realWorkflow(req, env),
+    "mlx:purify-hybrid": (req) => realPurify(req, env),
     // Non-native adapters (ffmpeg / pure-Bun subtitle / cloud HTTP) — iteration 3.
     ...nonNativeAdapters(env),
   };

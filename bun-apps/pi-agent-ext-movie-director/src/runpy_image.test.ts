@@ -45,6 +45,24 @@ describe("buildImageArgs", () => {
     ]);
   });
 
+  it("purify forwards --backend when set (closes a silent-drop gap for an explicit backend choice)", () => {
+    const args = buildImageArgs(
+      { action: "purify", inputImage: "/in/photo.png", purifyMode: "enhance", backend: "transformer" },
+      null,
+    );
+    expect(args).toEqual([
+      "image", "purify",
+      "--input-image", "/in/photo.png",
+      "--purify-mode", "enhance",
+      "--backend", "transformer",
+    ]);
+  });
+
+  it("purify omits --backend when unset (Python's own seedvr2 default, unchanged)", () => {
+    const args = buildImageArgs({ action: "purify", inputImage: "/in/photo.png" }, null);
+    expect(args).not.toContain("--backend");
+  });
+
   it("faceswap: input + face + mode via subAction-free path", () => {
     const args = buildImageArgs(
       { action: "faceswap", input: "/in/body.png", face: "/in/face.png" },
