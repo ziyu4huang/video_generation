@@ -66,3 +66,34 @@ export function purifyResolutionLabel(resStr: string | number | undefined): stri
   const pixels = Number.parseInt(s, 10);
   return String(pixels);
 }
+
+/**
+ * Mirrors _run_transformer_backend's dimension math exactly
+ * (image-purify.py:410-420), including the UNCONDITIONAL 16-divisible
+ * rounding — applied even when resolution is 1.0 ("same").
+ */
+export function computePurifyDimensions(
+  w0: number,
+  h0: number,
+  resolution: PurifyResolution,
+): { width: number; height: number } {
+  let outW: number;
+  let outH: number;
+  if (typeof resolution === "number") {
+    if (resolution === 1.0) {
+      outW = w0;
+      outH = h0;
+    } else {
+      outW = Math.round(w0 * resolution);
+      outH = Math.round(h0 * resolution);
+    }
+  } else {
+    const scale = resolution.pixels / Math.min(w0, h0);
+    outW = Math.round(w0 * scale);
+    outH = Math.round(h0 * scale);
+  }
+  return {
+    width: Math.max(16, Math.floor(outW / 16) * 16),
+    height: Math.max(16, Math.floor(outH / 16) * 16),
+  };
+}
