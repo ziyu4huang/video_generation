@@ -184,7 +184,7 @@ describe("runPurifyTransformerNative — computes params and delegates to stylet
       };
 
       const out = await runPurifyTransformerNative(
-        { inputImage: inputPath, outputDir: "/out" },
+        { inputImage: inputPath },
         runStyleTransfer,
       );
 
@@ -198,7 +198,13 @@ describe("runPurifyTransformerNative — computes params and delegates to stylet
         transformer: undefined,
         output: `${inputPath.slice(0, -4)}_purify_enhance_same.png`,
       });
-      expect(seen.outputDir).toBe("/out");
+      // outputDir is always the OUTPUT's own directory (dir), never a
+      // caller-supplied value — this is what makes runFlux2's --output-dir
+      // agree with --output's real location, so the manifest sidecar lookup
+      // (pi-agent-ext-flux2's outputDirFromArgs) finds the right file and
+      // width/height/seed parse correctly. See purify_native.ts's comment
+      // at the runStyleTransfer call site for the real bug this prevents.
+      expect(seen.outputDir).toBe(dir);
       expect(out.details.ok).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });

@@ -710,7 +710,6 @@ async function realPurify(req: GenerateRequest, env?: Record<string, string | un
     seed: options.seed as number | undefined,
     prompt: options.prompt as string | undefined,
     transformer: options.transformer as string | undefined,
-    outputDir: req.outputDir,
   });
   return adaptFlux2(req, out.details, out.summary, out.stderrTail, env);
 }

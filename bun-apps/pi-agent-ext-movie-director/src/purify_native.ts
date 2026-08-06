@@ -14,7 +14,7 @@
  * stay on `run.py image purify`, unchanged. See
  * .planning/specs/2026-08-05-purify-transformer-backend-swift-native-port-design.md.
  */
-import { extname } from "node:path";
+import { dirname, extname } from "node:path";
 import { runFlux2, type Flux2Details } from "@repo/pi-agent-ext-flux2";
 
 /** Mirrors image-purify.py's MODE_PRESETS keys (softness itself is seedvr2-only, unused here). */
@@ -142,7 +142,11 @@ export interface PurifyTransformerOptions {
   seed?: number;
   prompt?: string;
   transformer?: string;
-  outputDir?: string;
+  // No outputDir field: purifyOutputPathFor always places the output next to
+  // the input, and runStyleTransfer is always called with dirname(output) as
+  // its outputDir — see the comment at that call site. An outputDir option
+  // here would silently do nothing, which is more confusing than not having
+  // one at all.
 }
 
 /** Test seam: the real implementation calls runFlux2("styletransfer", ...) directly. */
@@ -180,6 +184,16 @@ export async function runPurifyTransformerNative(
       transformer: opts.transformer,
       output,
     },
-    opts.outputDir,
+    // Always the output's own directory, NOT opts.outputDir verbatim: runFlux2
+    // injects `--output-dir` from this value, and buildImageDetails's manifest
+    // sidecar lookup (pi-agent-ext-flux2/src/result.ts's outputDirFromArgs)
+    // prefers `--output-dir` over `--output`'s own dirname when both are
+    // present — a mismatch here silently breaks width/height/seed parsing
+    // (manifestPath/runJsonPath both resolve to null, Flux2Details still
+    // reports ok:true but with null dims), confirmed via a real end-to-end
+    // run against the built binary. purifyOutputPathFor always places output
+    // next to input, so this is also the correct path-safety root — opts.outputDir
+    // is never needed here.
+    dirname(output),
   );
 }
