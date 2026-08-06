@@ -29,9 +29,9 @@
     "test": "bun test --isolate"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "0.83.0",
-    "@earendil-works/pi-agent-core": "0.83.0",
-    "@earendil-works/pi-coding-agent": "0.83.0",
+    "@earendil-works/pi-ai": "0.84.0",
+    "@earendil-works/pi-agent-core": "0.84.0",
+    "@earendil-works/pi-coding-agent": "0.84.0",
     "@repo/pi-agent-ext-subagent": "workspace:*",
     "typebox": "*"
   },

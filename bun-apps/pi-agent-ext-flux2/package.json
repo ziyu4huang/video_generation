@@ -23,11 +23,11 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "0.83.0",
+    "@earendil-works/pi-ai": "0.84.0",
     "@repo/pi-agent-ext-file2md": "workspace:*"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "0.83.0",
+    "@earendil-works/pi-coding-agent": "0.84.0",
     "typebox": "*"
   },
   "devDependencies": {
