@@ -23,6 +23,11 @@ export const DEFAULT_PROJECT_CHAR_LIMIT = 10000;
  * a 60s LLM consolidation under the file lock. */
 export const DEFAULT_FAILURE_CHAR_LIMIT = 40000;
 
+/** Failure-memory model generation. Default "legacy" (today's behavior); "v1"
+ *  opts into topic-key dedup + write-gate graduation warning + backlog
+ *  canonicalization. Mirrors memoryMode's flag shape. */
+export const DEFAULT_FAILURE_MODEL = "legacy" as const;
+
 export const DEFAULT_NUDGE_INTERVAL = 10;
 export const DEFAULT_FLUSH_MIN_TURNS = 6;
 export const DEFAULT_NUDGE_TOOL_CALLS = 15;
