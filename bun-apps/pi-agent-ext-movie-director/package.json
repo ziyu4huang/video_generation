@@ -30,7 +30,7 @@
     "yaml": "latest"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "0.83.0",
+    "@earendil-works/pi-coding-agent": "0.84.0",
     "@repo/pi-agent-ext-flux2": "workspace:*",
     "@repo/pi-agent-ext-krea2": "workspace:*",
     "@repo/pi-agent-ext-ltx": "workspace:*",

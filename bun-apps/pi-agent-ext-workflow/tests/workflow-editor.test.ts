@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import type { ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import { type Terminal, TUI } from "@earendil-works/pi-tui";
+import { type Terminal, type TUI, TuiMainScreen } from "@earendil-works/pi-tui";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -37,7 +37,7 @@ function makeMockTerminal(): Terminal {
 
 /** Create a TUI instance safe for test usage (no real terminal I/O). */
 function createMockTui(): TUI {
-  return new TUI(makeMockTerminal(), false);
+  return new TuiMainScreen(makeMockTerminal(), false);
 }
 
 /** Editor theme stub. */

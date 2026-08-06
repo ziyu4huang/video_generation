@@ -2,7 +2,7 @@
  * Parse and apply structured memory operations from direct background review.
  */
 
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Api, Model, ProviderHeaders } from "@earendil-works/pi-ai";
 import { completeSimple, type Message, type SimpleStreamOptions } from "@earendil-works/pi-ai/compat";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DIRECT_REVIEW_SYSTEM_PROMPT } from "../constants.js";
@@ -88,7 +88,7 @@ export function buildDirectReviewCompletionOptions(
   model: Model<Api>,
   auth: {
     apiKey: string;
-    headers?: Record<string, string>;
+    headers?: ProviderHeaders;
     env?: Record<string, string>;
   },
   thinking: ThinkingLevel | undefined,
