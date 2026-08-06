@@ -113,3 +113,24 @@ export function purifyOutputPathFor(
   const base = inputImage.slice(0, inputImage.length - realExt.length);
   return `${base}_purify_${mode}_${resLabel}${ext}`;
 }
+
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+/**
+ * Dependency-free PNG dimension probe: reads only the 8-byte PNG signature +
+ * the IHDR chunk's width/height (bytes 16-19 / 20-23, big-endian uint32) —
+ * a 24-byte partial file read, no decode, no npm image-codec package.
+ *
+ * Throws on a non-PNG signature or a truncated file. Callers only reach this
+ * after isNativePurifyRequest's own `.png` extension check already passed
+ * (bridge.ts), so a throw here means a genuinely mislabeled/corrupt file —
+ * surfaced as a real error, not a signal to reroute anywhere.
+ */
+export async function probePngDimensions(path: string): Promise<{ width: number; height: number }> {
+  const buf = new Uint8Array(await Bun.file(path).slice(0, 24).arrayBuffer());
+  if (buf.length < 24 || !PNG_SIGNATURE.every((b, i) => buf[i] === b)) {
+    throw new Error(`probePngDimensions: ${path} is not a PNG (or is truncated)`);
+  }
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  return { width: view.getUint32(16, false), height: view.getUint32(20, false) };
+}

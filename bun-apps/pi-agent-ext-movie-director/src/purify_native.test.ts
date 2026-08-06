@@ -5,7 +5,11 @@ import {
   purifyResolutionLabel,
   computePurifyDimensions,
   purifyOutputPathFor,
+  probePngDimensions,
 } from "./purify_native.ts";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 describe("TRANSFORMER_DENOISE — mirrors image-purify.py's TRANSFORMER_DENOISE exactly", () => {
   it("has the exact 4 modes with the exact Python values", () => {
@@ -96,5 +100,45 @@ describe("purifyOutputPathFor — mirrors _make_purify_paths' naming (next to in
 
   it("defaults extension to .png when the input has none", () => {
     expect(purifyOutputPathFor("/out/photo", "enhance", "same")).toBe("/out/photo_purify_enhance_same.png");
+  });
+});
+
+describe("probePngDimensions — dependency-free PNG IHDR reader", () => {
+  /** Builds a minimal (invalid-past-IHDR, but that's fine — we only read bytes 0-23) PNG buffer with a given width/height baked into the IHDR chunk. */
+  function fakePngBuffer(width: number, height: number): Buffer {
+    const buf = Buffer.alloc(24);
+    // PNG signature
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(buf, 0);
+    // bytes 8-11: IHDR chunk length (13, unused by the probe but realistic)
+    buf.writeUInt32BE(13, 8);
+    // bytes 12-15: "IHDR" (unused by the probe but realistic)
+    buf.write("IHDR", 12, "ascii");
+    // bytes 16-19 / 20-23: width / height
+    buf.writeUInt32BE(width, 16);
+    buf.writeUInt32BE(height, 20);
+    return buf;
+  }
+
+  it("reads width/height from a real PNG-shaped file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "purify-native-test-"));
+    const path = join(dir, "fake.png");
+    try {
+      writeFileSync(path, fakePngBuffer(832, 1216));
+      await expect(probePngDimensions(path)).resolves.toEqual({ width: 832, height: 1216 });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws on a non-PNG file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "purify-native-test-"));
+    const path = join(dir, "fake.jpg");
+    try {
+      // JPEG magic bytes (0xFFD8FF), not the PNG signature.
+      writeFileSync(path, Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]));
+      await expect(probePngDimensions(path)).rejects.toThrow(/not a PNG/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
