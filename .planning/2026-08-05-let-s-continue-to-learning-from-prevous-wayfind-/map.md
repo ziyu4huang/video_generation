@@ -23,12 +23,12 @@ A **decided design spec** for hermes-memory's *failure*-memory model — **dedup
 - [Audit the failure store](tickets/01-audit-the-failure-store.md) — RESOLVED (research): store is ~37K/40K; 0 raw `errorCapture` traces; bloat is **curated-but-recurring operational tool-quirks** (`await_pr_merge` family = 7 entries incl. 2 verbatim dupes + 2 redundant resolution entries). The real levers are **dedup + decay**, not the errors.log separation.
 - [Taxonomy & purpose: what belongs](tickets/02-taxonomy-and-purpose-what-belongs.md) — RESOLVED (grilling): failure target is the inclusive **first-capture home** for any categorized lesson (write path unchanged); a lesson re-recorded **≥2× is procedural → graduates to a skill** (activates `constants.ts:145`); post-graduation the entries collapse to **one canonical FACT** cross-referenced to the skill (not a pointer, not hard-delete).
 - [errors.log-rotation candidate](tickets/03-errorslog-rotation-candidate.md) — RESOLVED (grilling): **DROPPED** (rejected in REJECTED.md). Premise unfounded — `errorCapture` extracts lesson lines + 3-layer-dedups (#854), so raw traces never reach the budget; only ~1 failure entry exists. `errors.log` would be machinery for a non-problem.
+- [Dedup identity + merge rule + graduation](tickets/04-dedup-identity-and-merge-rule.md) — RESOLVED (grilling): **hybrid identity** — near-dup (wording, existing) + **topic-key** (subject entity; tool name for tool-quirks) for evolving families. **Merge split by tier** — wording collapse = longest-wins (deterministic); topic-family graduation = synthesized fact (consolidation child) + procedure→skill; both destructive. **Trigger** = extend the write-time warning gate (warn on 2nd+ topic-key; agent-driven graduation). Three existing surfaces (write-gate / bulk-dedup / overflow-consolidation), each at its time.
 
 ## Not yet specified
 
 <!-- fog toward the destination; graduates as the frontier advances -->
 
-- **Dedup identity key** — semantic-family (the `await_pr_merge` cluster) vs category+keyword. Graduates into [dedup rule](tickets/04-dedup-identity-and-merge-rule.md).
 - **Decay ↔ roadmap v0.3 "Memory Aging"** (`created_at` / `last_referenced` HTML-comment metadata): does failure-decay *reuse* that mechanism or stay separate? Graduates into [decay policy](tickets/05-decay-aging-and-supersede-policy.md).
 
 ## Out of scope
