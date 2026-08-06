@@ -94,6 +94,8 @@ export interface RunPyImageOptions {
   /** purify mode (purify|enhance|redraw) + resolution (same|2x|2160|...). */
   purifyMode?: string;
   resolution?: string | number;
+  /** purify --backend (seedvr2 default | transformer). Forwarded as-is; the native purify_hybrid fork intercepts "transformer" requests before they ever reach here — see bridge.ts's isNativePurifyRequest. */
+  backend?: string;
   /** --mask (inpaint: mask image, white=regenerate / black=keep). */
   mask?: string;
   /** --crop (inpaint: Union 2.1 crop-for-detail on the mask bbox). */
@@ -238,6 +240,7 @@ export function buildImageArgs(opts: RunPyImageOptions, genOutputDir: string | n
   if (opts.controlnetStrength != null) args.push("--controlnet-strength", String(opts.controlnetStrength));
   if (opts.purifyMode != null) args.push("--purify-mode", opts.purifyMode);
   if (opts.resolution != null) args.push("--resolution", String(opts.resolution));
+  if (opts.backend != null) args.push("--backend", opts.backend);
   if (opts.mask != null) args.push("--mask", opts.mask);
   if (opts.crop) args.push("--crop");
   // Kontext-specific (FLUX.1-Kontext-dev in-context re-render).
