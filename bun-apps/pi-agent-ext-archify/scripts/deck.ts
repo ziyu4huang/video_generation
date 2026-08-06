@@ -31,11 +31,12 @@ import { isAbsolute, join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
-import { runArchify } from "../lib/run.ts";
+import { runArchify, VENDORED_BIN } from "../lib/run.ts";
 import { loadIrMeta } from "../lib/load-ir.ts";
 
 const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const VENDORED_BIN = join(PKG_ROOT, "vendored", "bin", "archify.mjs");
+// archify bin path comes from the shared env-aware resolver in lib/run.ts
+// (imported as VENDORED_BIN): PI_ARCHIFY_BIN wins, else walk-up probe → vendored/bin/archify.mjs.
 
 // ---------- manifest types ----------
 interface ManifestSlide { ir: string; title: string; subtitle?: string }
@@ -158,7 +159,7 @@ async function main() {
     let browser;
     try { browser = await chromium.launch(); }
     catch (e) {
-      fail(`could not launch chromium: ${e instanceof Error ? e.message : String(e)}\n  (browsers missing? run: bunx --cwd ${PKG_ROOT} playwright install chromium)`);
+      fail(`could not launch chromium: ${e instanceof Error ? e.message : String(e)}\n  (browsers missing? run: bunx playwright install chromium)`);
     }
     try {
       const ctx = await browser.newContext({ deviceScaleFactor: scale, viewport: { width: 1900, height: 1300 } });
