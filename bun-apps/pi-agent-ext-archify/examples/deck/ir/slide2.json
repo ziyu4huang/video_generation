@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "範例：COCKPIT-26 車用座艙 SoC（只看 SAS 層）",
+    "subtitle": "MRD → NoC → {AUDIO APU, ISP} ＋共享記憶體／電源域——整顆 SoC 怎麼切、誰接誰",
+    "visual_preset": "signal-flow",
+    "quality_profile": "standard"
+  },
+  "components": [
+    { "id": "mrd", "type": "frontend", "label": "MRD", "sublabel": "SYS.1/2 需求", "pos": [60, 80], "size": [150, 64], "tag": "來源" },
+    { "id": "noc", "type": "messagebus", "label": "NoC 互連", "sublabel": "頻寬池 ≈ 20 GB/s", "pos": [500, 80], "size": [220, 64], "tag": "AXI4" },
+    { "id": "apu", "type": "backend", "label": "AUDIO APU", "sublabel": "音訊處理 · ≤ 300 mW", "pos": [120, 300], "size": [210, 70], "tag": "≥ 2 GB/s 配額" },
+    { "id": "isp", "type": "backend", "label": "ISP", "sublabel": "影像處理 · ≥ 8 GB/s", "pos": [820, 300], "size": [180, 70] },
+    { "id": "sram", "type": "database", "label": "共享 SRAM / DDR", "sublabel": "經 NoC", "pos": [400, 470], "size": [200, 64] },
+    { "id": "pg", "type": "cloud", "label": "電源 / 時脈域", "sublabel": "PG_AUDIO · PG_CAM", "pos": [700, 470], "size": [200, 64] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "COCKPIT-26 SoC（本頁只看 SAS = SYS.3）", "wraps": ["noc", "apu", "isp", "sram", "pg"] }
+  ],
+  "connections": [
+    { "from": "mrd", "to": "noc", "label": "系統需求" },
+    { "from": "noc", "to": "apu", "label": "AXI4 64-bit", "variant": "emphasis" },
+    { "from": "noc", "to": "isp", "label": "≥ 8 GB/s" },
+    { "from": "noc", "to": "sram", "label": "DMA 存取", "labelAt": [560, 300] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "SAS = SYS.3 回答四件事", "items": [
+      "怎麼切：APU 與 ISP 為 peer block",
+      "誰接誰：APU 經 AXI4 64-bit 接 NoC",
+      "預算：APU ≤ 300 mW · NoC 配額 ≥ 2 GB/s",
+      "動態：PG_AUDIO 上電 reset → init → run"
+    ] },
+    { "dot": "rose", "title": "本頁不展開 APU 內部", "items": [
+      "APU 內部微架構是 MAS = HWE.2 的事",
+      "SAS 與 MAS 是兩個 zoom 層級（下一頁）",
+      "先把「整顆 SoC 怎麼切」看清楚"
+    ] },
+    { "dot": "emerald", "title": "SAS 層的 Item 編碼（範例）", "items": [
+      "MRD.SYS.1 — 整車對 SoC 的需求",
+      "APU.SYS3.IF — APU↔NoC AXI4 64-bit",
+      "ISP.SYS3.BW — ISP ≥ 8 GB/s",
+      "PG.SYS3.PD — PG_AUDIO／PG_CAM 電源域"
+    ] }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "output": "sas-mas-itemize-incose-aspice.pptx",
+  "theme": "light",
+  "tag": "SAS × MAS Itemize · INCOSE × ASPICE 4.0",
+  "defaults": { "font": "PingFang TC", "scale": 3 },
+  "slides": [
+    { "ir": "ir/slide1.json", "title": "為什麼 Itemize？— 一段壞散文 → 原子 Item", "subtitle": "散文改不動、查不出、驗不了；Itemize 拆成原子、唯一編碼、逐層可追溯" },
+    { "ir": "ir/slide2.json", "title": "範例：COCKPIT-26 車用座艙 SoC（只看 SAS 層）", "subtitle": "MRD → NoC → {AUDIO APU, ISP} ＋共享記憶體／電源域——整顆 SoC 怎麼切、誰接誰" },
+    { "ir": "ir/slide3.json", "title": "SAS vs MAS：兩個 zoom 層級", "subtitle": "左＝整顆 SoC（SAS = SYS.3）；右＝ AUDIO APU 內部微架構（MAS = HWE.2）" },
+    { "ir": "ir/slide4.json", "title": "好 Item 怎麼來：INCOSE × ASPICE", "subtitle": "壞散文 → INCOSE 體檢 → 拆 What / How → ASPICE 定位 → 原子可追溯 Item" },
+    { "ir": "ir/slide5.json", "title": "規格鏈 ＋ 驗證配對 ＋ 自檢三問", "subtitle": "MRD → SAS → MAS → RDS；只驗一翼會漏一整類問題" }
+  ]
+}
