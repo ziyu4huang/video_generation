@@ -1,25 +1,25 @@
 {
-  "tools": 55,
-  "totalTokens": 17014,
+  "tools": 61,
+  "totalTokens": 18810,
   "builtinCount": 4,
-  "extensionCount": 51,
+  "extensionCount": 57,
   "errors": [],
   "toolsRanked": [
-    {
-      "name": "subagent",
-      "approxTokens": 1004,
-      "descLen": 256,
-      "paramsLen": 3760,
-      "source": "subagent",
-      "hasExecute": true,
-      "schemaValid": true
-    },
     {
       "name": "zk_ingest",
       "approxTokens": 934,
       "descLen": 713,
       "paramsLen": 3022,
       "source": "knowledge-card",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "subagent",
+      "approxTokens": 884,
+      "descLen": 256,
+      "paramsLen": 3280,
+      "source": "subagent",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -33,20 +33,29 @@
       "schemaValid": true
     },
     {
+      "name": "flux2",
+      "approxTokens": 703,
+      "descLen": 220,
+      "paramsLen": 2590,
+      "source": "flux2",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "ask_user_question",
+      "approxTokens": 700,
+      "descLen": 1031,
+      "paramsLen": 1770,
+      "source": "core-task",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "workflow",
       "approxTokens": 683,
       "descLen": 390,
       "paramsLen": 2343,
       "source": "workflow",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
-      "name": "flux2",
-      "approxTokens": 654,
-      "descLen": 220,
-      "paramsLen": 2397,
-      "source": "flux2",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -60,20 +69,20 @@
       "schemaValid": true
     },
     {
-      "name": "ask_user_question",
-      "approxTokens": 604,
-      "descLen": 889,
-      "paramsLen": 1525,
-      "source": "core-task",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
       "name": "web_search",
       "approxTokens": 593,
       "descLen": 858,
       "paramsLen": 1514,
       "source": "web-access",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "file2md",
+      "approxTokens": 580,
+      "descLen": 266,
+      "paramsLen": 2052,
+      "source": "file2md",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -105,11 +114,11 @@
       "schemaValid": true
     },
     {
-      "name": "cost",
-      "approxTokens": 536,
-      "descLen": 315,
-      "paramsLen": 1830,
-      "source": "movie-director-cost",
+      "name": "subagents",
+      "approxTokens": 463,
+      "descLen": 103,
+      "paramsLen": 1750,
+      "source": "subagent",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -132,11 +141,11 @@
       "schemaValid": true
     },
     {
-      "name": "file2md",
-      "approxTokens": 446,
-      "descLen": 266,
-      "paramsLen": 1518,
-      "source": "file2md",
+      "name": "memory",
+      "approxTokens": 410,
+      "descLen": 469,
+      "paramsLen": 1171,
+      "source": "hermes-memory",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -150,20 +159,38 @@
       "schemaValid": true
     },
     {
+      "name": "sweep_branches",
+      "approxTokens": 376,
+      "descLen": 649,
+      "paramsLen": 855,
+      "source": "devops",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "movie",
-      "approxTokens": 348,
+      "approxTokens": 359,
       "descLen": 208,
-      "paramsLen": 1184,
+      "paramsLen": 1229,
       "source": "movie-director",
       "hasExecute": true,
       "schemaValid": true
     },
     {
-      "name": "memory",
-      "approxTokens": 340,
-      "descLen": 469,
-      "paramsLen": 892,
+      "name": "memory_supersede",
+      "approxTokens": 347,
+      "descLen": 301,
+      "paramsLen": 1087,
       "source": "hermes-memory",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "await_pr_merge",
+      "approxTokens": 330,
+      "descLen": 496,
+      "paramsLen": 823,
+      "source": "devops",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -204,6 +231,24 @@
       "schemaValid": true
     },
     {
+      "name": "wayfind_effort",
+      "approxTokens": 300,
+      "descLen": 449,
+      "paramsLen": 749,
+      "source": "wayfind",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "subagent_runs",
+      "approxTokens": 286,
+      "descLen": 319,
+      "paramsLen": 826,
+      "source": "subagent",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "edit",
       "approxTokens": 276,
       "descLen": 326,
@@ -218,15 +263,6 @@
       "descLen": 329,
       "paramsLen": 698,
       "source": "research-tool",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
-      "name": "subagent_runs",
-      "approxTokens": 249,
-      "descLen": 319,
-      "paramsLen": 676,
-      "source": "subagent",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -326,6 +362,15 @@
       "descLen": 211,
       "paramsLen": 429,
       "source": "archify",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "inspect_hooks",
+      "approxTokens": 157,
+      "descLen": 265,
+      "paramsLen": 364,
+      "source": "power-tool",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -479,6 +524,15 @@
       "descLen": 129,
       "paramsLen": 198,
       "source": "krea2",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "pr_status",
+      "approxTokens": 82,
+      "descLen": 201,
+      "paramsLen": 128,
+      "source": "devops",
       "hasExecute": true,
       "schemaValid": true
     },
