@@ -13,6 +13,7 @@ import {
   normalizeLegacyImageRequest,
   isNativeControlNetRequest,
   isNativeWorkflowRequest,
+  isNativePurifyRequest,
   type ToolResult,
   type GenerateRequest,
   type Adapter,
@@ -241,6 +242,36 @@ describe("isNativeWorkflowRequest — workflow native/python fork", () => {
     expect(isNativeWorkflowRequest({ prompt: "x" }, ["--sharpening", "0.1"])).toBe(true);
     expect(isNativeWorkflowRequest({ prompt: "x" }, ["--skin-contrast"])).toBe(true);
     expect(isNativeWorkflowRequest({ prompt: "x" }, ["--noise-clean"])).toBe(true);
+  });
+});
+
+describe("isNativePurifyRequest — purify native/python fork", () => {
+  // Native path only serves --backend transformer with a .png input and no
+  // --remove request. Everything else (default seedvr2, --remove, non-PNG
+  // input) falls back to run.py, unchanged from before this port.
+  it("false when backend is unset or seedvr2 (the Python default, untouched)", () => {
+    expect(isNativePurifyRequest({ inputImage: "/a.png" })).toBe(false);
+    expect(isNativePurifyRequest({ inputImage: "/a.png", backend: "seedvr2" })).toBe(false);
+  });
+
+  it("true for backend=transformer with a .png input and no remove", () => {
+    expect(isNativePurifyRequest({ inputImage: "/a.png", backend: "transformer" })).toBe(true);
+    expect(isNativePurifyRequest({ inputImage: "/a.PNG", backend: "transformer" })).toBe(true);
+    expect(isNativePurifyRequest({ inputImage: "/a.png", backend: "transformer", remove: "none" })).toBe(true);
+  });
+
+  it("false when remove is requested (--remove stays on Python — not ported)", () => {
+    expect(isNativePurifyRequest({ inputImage: "/a.png", backend: "transformer", remove: "subtitle" })).toBe(false);
+    expect(isNativePurifyRequest({ inputImage: "/a.png", backend: "transformer", remove: "watermark" })).toBe(false);
+  });
+
+  it("false for a non-PNG input (probePngDimensions can't read it — falls back to Python, which opens any format)", () => {
+    expect(isNativePurifyRequest({ inputImage: "/a.jpg", backend: "transformer" })).toBe(false);
+    expect(isNativePurifyRequest({ inputImage: "/a", backend: "transformer" })).toBe(false);
+  });
+
+  it("false when inputImage is missing entirely", () => {
+    expect(isNativePurifyRequest({ backend: "transformer" })).toBe(false);
   });
 });
 
