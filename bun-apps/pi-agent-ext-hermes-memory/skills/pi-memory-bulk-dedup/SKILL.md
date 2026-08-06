@@ -28,11 +28,12 @@ topics / near-duplicates crowding the 40K-char failure budget (the
    topic-family collapse (most-recent/resolved wins), and resolved→one-line-fact
    compression. Active unique entries are never touched.
 
-2. **Review the diff.** Confirm no unique lesson is dropped (REJECTED.md:
-   destructive consolidation must not silently drop a unique lesson). If a
-   collapsed family is a recurring *procedure* (≥2 captures), that is the
-   graduation signal — capture it as a skill candidate first
-   (`.planning/knowledge/<name>.md`), then promote via writing-skills.
+2. **Review the diff.** Confirm no unique lesson is dropped (REJECTED.md's
+   destructive-consolidation row: active/unique entries are never trimmed; the
+   dry-run diff makes every drop auditable). If a collapsed family is a recurring
+   *procedure* (≥2 captures), that is the graduation signal — capture it as a
+   skill candidate first (`.planning/knowledge/<name>.md`), then promote via
+   writing-skills.
 
 3. **Apply with backup.** Only after the diff is confirmed, apply with
    `backup: true` so `failures.md.bak` preserves the pre-image:
@@ -40,9 +41,14 @@ topics / near-duplicates crowding the 40K-char failure budget (the
    ( cd bun-apps/pi-agent-ext-hermes-memory && bun -e "import {canonicalizeFailureBacklog} from './src/failure-model-migration.ts'; const r = canonicalizeFailureBacklog({ failuresPath: process.env.HOME + '/.pi/agent/pi-hermes-memory/failures.md', dryRun: false, backup: true }); console.log('applied: '+r.dropped+' dropped, '+r.compressed+' compressed, '+r.finalChars+' chars. backup at failures.md.bak');" )
    ```
 
-4. **FTS-orphan check.** After apply, the `.md` is source-of-truth and the DB
-   re-hydrates on next startup sync; confirm no orphan rows remain by re-running
-   a `memory_search` for a known-dropped entry (expect no hit).
+4. **FTS / DB-sync caveat.** The migration is `.md`-only — it does NOT reconcile
+   the SQLite mirror. The startup `syncMarkdownMemories` only *upserts* (by content
+   key, no DELETE), so after `apply` the dropped/compressed entries' DB rows
+   **persist as stale search hits** until separately purged. The 40K budget IS
+   still correctly reduced (it is computed from the `.md` via `entriesFor`), but
+   `memory_search` will still surface orphan rows for dropped phrases — that is
+   expected, not a failure. To purge orphans, delete the stale rows by content; a
+   dedicated reconcile/purge command is a deferred operational-hardening follow-up.
 
 ## Pitfalls
 

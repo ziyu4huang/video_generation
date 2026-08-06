@@ -6,7 +6,7 @@
  * families* — the same subject re-captured across different incidents with low
  * token overlap (e.g. the `await_pr_merge` ×7 cluster). The TOPIC-KEY is the
  * subject entity used to group such families; it is also the signal the
- * recurrence→skill graduation prompt rule (constants.ts:132) keys on.
+ * recurrence→skill graduation prompt rule (the MEMORY_POLICY_PROMPT in constants.ts) keys on.
  *
  * Deterministic (no LLM) so the backlog canonicalization is auditable.
  * tool-quirk → the subject tool name; other categories → the first few

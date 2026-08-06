@@ -7,7 +7,12 @@
  * (2) topic-family collapse (most-recent/resolved wins), (3) compress resolved/
  * stale to a one-line canonical fact. Active unique entries are never touched.
  *
- * `.md`-first: operates on the markdown source-of-truth; the DB re-hydrates.
+ * `.md`-first: operates on the markdown source-of-truth. NOTE — this is a
+ * `.md`-ONLY operation: it does NOT reconcile the DB. The startup mirror
+ * (syncMarkdownMemories) only upserts by content key (no DELETE), so
+ * consumed/compressed entries leave stale DB rows (still surfaced by
+ * memory_search) until a separate purge. The 40K budget IS correctly reduced
+ * because it is computed from the `.md`.
  * Always dry-run first; the agent confirms the diff before an apply with backup.
  */
 import * as fs from "node:fs";

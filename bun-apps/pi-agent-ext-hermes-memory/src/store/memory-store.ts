@@ -1033,7 +1033,7 @@ export class MemoryStore {
 
     // Topic-key recurrence WARNING (wayfind 2026-08-05 ticket 04, failureModel v1):
     // 2nd+ failure entry sharing a topic-key → flag it so the agent graduates the
-    // recurring procedure to a skill (constants.ts:132 prompt rule) instead of
+    // recurring procedure to a skill (the recurrence→skill prompt rule in MEMORY_POLICY_PROMPT, constants.ts) instead of
     // accumulating. Warning only; graduation execution is agent-driven. Gated on
     // v1 so legacy behavior is byte-identical. Appended to nearDupNote so every
     // return path that surfaces nearDupNote carries it.
