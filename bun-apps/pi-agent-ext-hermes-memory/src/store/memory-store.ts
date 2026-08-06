@@ -42,6 +42,7 @@ import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, M
 import { AGENT_ROOT } from "../paths.js";
 import { envFloat, envInt } from "../utils/env.js";
 import { DEFAULT_NEAR_DUP_THRESHOLD, findNearDuplicate } from "./near-dup.js";
+import { findTopicRecurrence, formatTopicRecurrenceWarning } from "./topic-key.js";
 import { computeSignature } from "./signature.js";
 import type { TimedFn, TimedAlwaysFn } from "../perf.js";
 
@@ -1028,6 +1029,17 @@ export class MemoryStore {
       if (hit) {
         nearDupNote = ` ⚠ near-duplicate of an existing entry (${(hit.similarity * 100) | 0}% overlap): "${hit.preview}…". Consider \`memory replace\` to consolidate instead of accumulating near-dups.`;
       }
+    }
+
+    // Topic-key recurrence WARNING (wayfind 2026-08-05 ticket 04, failureModel v1):
+    // 2nd+ failure entry sharing a topic-key → flag it so the agent graduates the
+    // recurring procedure to a skill (the recurrence→skill prompt rule in MEMORY_POLICY_PROMPT, constants.ts) instead of
+    // accumulating. Warning only; graduation execution is agent-driven. Gated on
+    // v1 so legacy behavior is byte-identical. Appended to nearDupNote so every
+    // return path that surfaces nearDupNote carries it.
+    if (target === "failure" && this.config.failureModel === "v1") {
+      const topicHit = findTopicRecurrence(content, strippedEntries);
+      if (topicHit) nearDupNote += formatTopicRecurrenceWarning(topicHit);
     }
 
     // Encode metadata: both dates = today. Mint the stable id ONCE here and

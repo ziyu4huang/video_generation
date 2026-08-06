@@ -23,6 +23,7 @@ import {
   DEFAULT_PROACTIVE_MAX_CANDIDATES,
   DEFAULT_PROACTIVE_PRESSURE_THRESHOLD,
   DEFAULT_PROACTIVE_COOLDOWN_MINUTES,
+  DEFAULT_FAILURE_MODEL,
 } from "./constants.js";
 import { AGENT_ROOT, normalizeConfiguredMemoryDir, normalizeProjectsMemoryDir } from "./paths.js";
 import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
@@ -98,6 +99,7 @@ const DEFAULT_CONFIG: MemoryConfig = {
   projectsMemoryDir: DEFAULT_PROJECTS_MEMORY_DIR,
   sessionSearch: { variant: "legacy" },
   dbBackend: "sqlite",
+  failureModel: DEFAULT_FAILURE_MODEL,
 };
 
 export const DEFAULT_CONFIG_PATH = path.join(
@@ -238,6 +240,7 @@ export function loadConfig(configPath?: string, cwd: string = process.cwd()): Me
       let hasLegacyAutoConsolidate = false;
       let hasMemoryOverflowStrategy = false;
       if (parsed.memoryMode === "policy-only" || parsed.memoryMode === "legacy-inject") config.memoryMode = parsed.memoryMode;
+      if (parsed.failureModel === "legacy" || parsed.failureModel === "v1") config.failureModel = parsed.failureModel;
       if (
         parsed.memoryPolicyStyle === "full" ||
         parsed.memoryPolicyStyle === "compact" ||

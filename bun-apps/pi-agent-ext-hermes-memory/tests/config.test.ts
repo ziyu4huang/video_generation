@@ -845,3 +845,14 @@ describe("loadConfig repo-local project-memory overlay (ticket 01)", () => {
     }
   });
 });
+
+it("failureModel: default legacy, reads v1, ignores invalid", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hm-fm-"));
+  const cfgPath = path.join(dir, "hermes-memory-config.json");
+  fs.writeFileSync(cfgPath, JSON.stringify({}));
+  assert.strictEqual(loadConfig(cfgPath).failureModel, "legacy");
+  fs.writeFileSync(cfgPath, JSON.stringify({ failureModel: "v1" }));
+  assert.strictEqual(loadConfig(cfgPath).failureModel, "v1");
+  fs.writeFileSync(cfgPath, JSON.stringify({ failureModel: "bogus" }));
+  assert.strictEqual(loadConfig(cfgPath).failureModel, "legacy");
+});
