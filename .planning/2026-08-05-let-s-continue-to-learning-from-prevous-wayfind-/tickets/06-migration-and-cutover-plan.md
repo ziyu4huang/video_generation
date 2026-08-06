@@ -1,6 +1,8 @@
 ---
 type: grilling
-status: open
+status: closed
+claimed: agent (2026-08-05)
+closed: 2026-08-05 (grilled this session)
 blocked by: 04, 05
 ---
 
@@ -26,3 +28,19 @@ This ticket produces the migration section of the spec — the last piece before
 ## Recommendation seed
 
 Lean: **one-time scripted canonicalization** (deterministic, not LLM-consolidation, so it's auditable) + **feature-flag** the new model + **backward-compatible fallback** for legacy entries + **a diff/dry-run** proving no unique signal is lost before the destructive apply. Put the cut to the user.
+
+## Resolution — ANSWERED (2026-08-05)
+
+**Decision — migration & cutover plan (final ticket → spec complete).**
+
+**Rollout: feature-flag.** `config.failureModel: "legacy" | "v1"`, default `"legacy"`, opt into `"v1"` — mirrors the existing `memoryMode` flag exactly. ⚠️ **Build footgun** (from failure memory): adding the field requires updating BOTH `types.ts` AND `config.ts` `loadConfig` selective copy, or config-file values are silently dropped.
+
+**Backlog canonicalization: deterministic longest-wins.** The one-time migration collapses the existing 94%-full store via pure fs §-entry read/write (mirror `project-memory-migration.ts`'s pattern + result struct), **longest-wins** (most-current/resolved entry = canonical — e.g. the #1030 resolution for the `await_pr_merge` family). No LLM for the migration → **auditable diff** (the REJECTED.md "must not silently drop a unique lesson" concern is verifiable). Verbatim dupes (#1028 pair) collapse; the resolved entry compresses per 05; the procedure → skill (land-pr). Dry-run + backup + FTS-orphan-check (bulk-dedup skill pattern); agent confirms before the destructive commit.
+
+**Ongoing: synthesis (per 04).** Future recurrence uses the consolidation-child synthesized fact + skill graduation — the deterministic path is for the one-time backlog only.
+
+**Backward compatibility: graceful (determined).** `created`/`last` metadata already exists on all entries (05); topic-keys are assigned going forward (write-gate) + retroactively during canonicalization. Legacy entries without a topic-key simply don't graduate until they recur — no forced migration, no data loss.
+
+**Verification: dry-run + diff + backup + FTS-orphan-check** (bulk-dedup skill pattern); `.md`-first (the .md is source-of-truth; DB re-hydrates). Agent confirms the diff before commit.
+
+**SPEC COMPLETE.** All six tickets closed. The decided spec = [02](02-taxonomy-and-purpose-what-belongs.md) (taxonomy: first-capture + recurrence→skill + canonical fact) + [04](04-dedup-identity-and-merge-rule.md) (dedup: hybrid near-dup/topic-key, tiered merge, write-gate graduation) + [05](05-decay-aging-and-supersede-policy.md) (decay: reuse aging, compress-to-fact, agent-driven) + 06 (migration: feature-flag + deterministic backlog + synthesis ongoing). Ready to hand off to a build.
