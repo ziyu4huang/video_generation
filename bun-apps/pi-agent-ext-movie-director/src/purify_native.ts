@@ -134,3 +134,52 @@ export async function probePngDimensions(path: string): Promise<{ width: number;
   const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   return { width: view.getUint32(16, false), height: view.getUint32(20, false) };
 }
+
+export interface PurifyTransformerOptions {
+  inputImage: string;
+  mode?: PurifyMode;
+  resolution?: string | number;
+  seed?: number;
+  prompt?: string;
+  transformer?: string;
+  outputDir?: string;
+}
+
+/** Test seam: the real implementation calls runFlux2("styletransfer", ...) directly. */
+export type StyleTransferFn = (
+  options: Record<string, unknown>,
+  outputDir?: string,
+) => Promise<{ details: Flux2Details; summary: string; stderrTail: string }>;
+
+const defaultRunStyleTransfer: StyleTransferFn = (options, outputDir) =>
+  runFlux2({ command: "styletransfer", options, outputDir });
+
+/**
+ * Computes the transformer-backend's denoise/dimensions/output path (mirrors
+ * _run_transformer_backend, image-purify.py:395-513) and delegates the
+ * actual redraw to flux2's native `styletransfer` command.
+ */
+export async function runPurifyTransformerNative(
+  opts: PurifyTransformerOptions,
+  runStyleTransfer: StyleTransferFn = defaultRunStyleTransfer,
+): Promise<{ details: Flux2Details; summary: string; stderrTail: string }> {
+  const mode = opts.mode ?? "enhance";
+  const denoise = TRANSFORMER_DENOISE[mode];
+  const { width: w0, height: h0 } = await probePngDimensions(opts.inputImage);
+  const resolution = parsePurifyResolution(opts.resolution);
+  const { width, height } = computePurifyDimensions(w0, h0, resolution);
+  const output = purifyOutputPathFor(opts.inputImage, mode, opts.resolution);
+  return runStyleTransfer(
+    {
+      input: opts.inputImage,
+      prompt: opts.prompt || DEFAULT_TRANSFORMER_PROMPT,
+      strength: denoise,
+      width,
+      height,
+      seed: opts.seed,
+      transformer: opts.transformer,
+      output,
+    },
+    opts.outputDir,
+  );
+}

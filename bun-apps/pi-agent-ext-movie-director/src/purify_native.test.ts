@@ -6,7 +6,10 @@ import {
   computePurifyDimensions,
   purifyOutputPathFor,
   probePngDimensions,
+  runPurifyTransformerNative,
+  type StyleTransferFn,
 } from "./purify_native.ts";
+import type { Flux2Details } from "@repo/pi-agent-ext-flux2";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -137,6 +140,103 @@ describe("probePngDimensions — dependency-free PNG IHDR reader", () => {
       // JPEG magic bytes (0xFFD8FF), not the PNG signature.
       writeFileSync(path, Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]));
       await expect(probePngDimensions(path)).rejects.toThrow(/not a PNG/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+function fakePngBufferForOrchestrationTest(width: number, height: number): Buffer {
+  const buf = Buffer.alloc(24);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(buf, 0);
+  buf.writeUInt32BE(width, 16);
+  buf.writeUInt32BE(height, 20);
+  return buf;
+}
+
+function fakeStyleTransferDetails(overrides: Partial<Flux2Details> = {}): Flux2Details {
+  return {
+    ok: true, command: "styletransfer", exitCode: 0, aborted: false,
+    output: "/out/photo_purify_enhance_same.png",
+    outputs: [{ path: "/out/photo_purify_enhance_same.png", seed: 42, width: 992, height: 1488, sizeBytes: 12345 }],
+    seed: 42, width: 992, height: 1488, gate: null,
+    perf: { steps: 4, totalSeconds: 1.2, avgItPerSec: null, peakMemoryMB: null },
+    manifestPath: null, runJsonPath: null,
+    ...overrides,
+  };
+}
+
+describe("runPurifyTransformerNative — computes params and delegates to styletransfer", () => {
+  it("computes denoise/dims/output and forwards them to styletransfer, defaulting the prompt", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "purify-native-test-"));
+    const inputPath = join(dir, "photo.png");
+    try {
+      writeFileSync(inputPath, fakePngBufferForOrchestrationTest(1000, 1500));
+
+      const seen: { options: Record<string, unknown> | null; outputDir: string | undefined } = {
+        options: null,
+        outputDir: undefined,
+      };
+      const runStyleTransfer: StyleTransferFn = async (options, outputDir) => {
+        seen.options = options;
+        seen.outputDir = outputDir;
+        return { details: fakeStyleTransferDetails(), summary: "restyled photo_purify_enhance_same.png", stderrTail: "" };
+      };
+
+      const out = await runPurifyTransformerNative(
+        { inputImage: inputPath, outputDir: "/out" },
+        runStyleTransfer,
+      );
+
+      expect(seen.options).toEqual({
+        input: inputPath,
+        prompt: "highly detailed, sharp focus, high quality, professional",
+        strength: 0.55, // enhance (default mode)
+        width: 992,     // 1000 -> floor(1000/16)*16
+        height: 1488,   // 1500 -> floor(1500/16)*16
+        seed: undefined,
+        transformer: undefined,
+        output: `${inputPath.slice(0, -4)}_purify_enhance_same.png`,
+      });
+      expect(seen.outputDir).toBe("/out");
+      expect(out.details.ok).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("uses the given mode/resolution/seed/prompt/transformer instead of defaults", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "purify-native-test-"));
+    const inputPath = join(dir, "photo.png");
+    try {
+      writeFileSync(inputPath, fakePngBufferForOrchestrationTest(1000, 1000));
+
+      const seen: { options: Record<string, unknown> | null } = { options: null };
+      const runStyleTransfer: StyleTransferFn = async (options) => {
+        seen.options = options;
+        return { details: fakeStyleTransferDetails(), summary: "ok", stderrTail: "" };
+      };
+
+      await runPurifyTransformerNative(
+        {
+          inputImage: inputPath,
+          mode: "redraw",
+          resolution: "2x",
+          seed: 7,
+          prompt: "custom prompt",
+          transformer: "kleinova-nsfw-v3",
+        },
+        runStyleTransfer,
+      );
+
+      expect(seen.options).toMatchObject({
+        prompt: "custom prompt",
+        strength: 0.85, // redraw
+        width: 2000,
+        height: 2000,
+        seed: 7,
+        transformer: "kleinova-nsfw-v3",
+      });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
