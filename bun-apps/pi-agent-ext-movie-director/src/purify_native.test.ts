@@ -4,6 +4,7 @@ import {
   parsePurifyResolution,
   purifyResolutionLabel,
   computePurifyDimensions,
+  purifyOutputPathFor,
 } from "./purify_native.ts";
 
 describe("TRANSFORMER_DENOISE — mirrors image-purify.py's TRANSFORMER_DENOISE exactly", () => {
@@ -79,5 +80,21 @@ describe("computePurifyDimensions — mirrors _run_transformer_backend's dimensi
 
   it("never returns below 16 for a tiny input", () => {
     expect(computePurifyDimensions(4, 4, 1.0)).toEqual({ width: 16, height: 16 });
+  });
+});
+
+describe("purifyOutputPathFor — mirrors _make_purify_paths' naming (next to input, not OUTPUT_DIR/output_XXXX)", () => {
+  it("builds <base>_purify_<mode>_<res_label><ext> next to the input", () => {
+    expect(purifyOutputPathFor("/out/photo.png", "enhance", "same")).toBe("/out/photo_purify_enhance_same.png");
+    expect(purifyOutputPathFor("/out/photo.png", "redraw", "2x")).toBe("/out/photo_purify_redraw_2.0x.png");
+    expect(purifyOutputPathFor("/out/photo.png", "purify", "2160")).toBe("/out/photo_purify_purify_2160.png");
+  });
+
+  it("preserves the input's extension (not forced to .png)", () => {
+    expect(purifyOutputPathFor("/out/photo.jpg", "enhance", "same")).toBe("/out/photo_purify_enhance_same.jpg");
+  });
+
+  it("defaults extension to .png when the input has none", () => {
+    expect(purifyOutputPathFor("/out/photo", "enhance", "same")).toBe("/out/photo_purify_enhance_same.png");
   });
 });

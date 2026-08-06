@@ -97,3 +97,19 @@ export function computePurifyDimensions(
     height: Math.max(16, Math.floor(outH / 16) * 16),
   };
 }
+
+/**
+ * Mirrors _make_purify_paths' naming (image-purify.py:342-360): next to the
+ * input, NOT the OUTPUT_DIR/output_XXXX convention other flux2 commands use.
+ */
+export function purifyOutputPathFor(
+  inputImage: string,
+  mode: PurifyMode,
+  resolution: string | number | undefined,
+): string {
+  const resLabel = purifyResolutionLabel(resolution);
+  const realExt = extname(inputImage);
+  const ext = realExt || ".png";
+  const base = inputImage.slice(0, inputImage.length - realExt.length);
+  return `${base}_purify_${mode}_${resLabel}${ext}`;
+}
