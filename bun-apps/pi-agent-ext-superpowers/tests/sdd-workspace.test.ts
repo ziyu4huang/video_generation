@@ -44,13 +44,16 @@ function run(planAbsPath: string, cwd: string, env: Record<string, string>): { s
   return { stdout: r.stdout.toString().trim(), status: r.status };
 }
 
-// P2 spawn hit (spawnSync of git + bash to exercise the REAL sdd-workspace
-// script) — gated behind process.env.CI per the repo portability convention
-// (same pattern as pi-agent/src/__tests__/run-self-improve-loop.test.ts): the
-// script is stable pi-port glue that rarely changes, so local + opt-in coverage
-// suffices and the default `bun test` baseline stays portable + fast. Run
-// locally (`bun test tests/sdd-workspace.test.ts`) to exercise it.
-describe.skipIf(!!process.env.CI)("sdd-workspace (pi-port effort nesting)", () => {
+// PORTABILITY-GUARDED: this suite spawns `bash` + `git` to exercise the REAL
+// committed sdd-workspace script (skills/subagent-driven-development/scripts/
+// sdd-workspace). bash, git, and a committed repo script are present on every
+// CI runner (ubuntu-latest) and dev machine, so this spawn is CI-safe — it is
+// NOT a machine-coupled host-binary probe. Unlike the stable
+// run-self-improve-loop glue (which stays CI-skipped under the portability
+// convention because that code rarely changes), the no-effort SDD fallback is
+// actively-maintained behavior (settled in PR #1038 / ADR-0007) and warrants CI
+// coverage. Hermetic: mkdtemp + git init + cleanup.
+describe("sdd-workspace (pi-port effort nesting)", () => {
   it("routes to .planning/$effort/sdd/$slug when PI_PLANNING_EFFORT is set", () => {
     const repo = makeTempRepo();
     try {
