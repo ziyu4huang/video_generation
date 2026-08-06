@@ -390,6 +390,32 @@ describe("/grill and /wayfind dispatchers — routing", () => {
     await run(pi, "wayfind", "Redesign the checkout flow", ctx);
     expect(pi.sent.some((s) => s.includes("Charting a wayfinder map"))).toBe(true);
   });
+
+  it("'/wayfind -- <destination>' force-charts, escaping a reserved keyword prefix", async () => {
+    const { pi } = setup();
+    const ctx = makeCtx(makeCwd());
+    await run(pi, "wayfind", "-- sync the database", ctx);
+    // Charts (not routed to the sync keyword handler) with the destination verbatim.
+    expect(pi.sent.some((s) => s.includes("Charting a wayfinder map for: sync the database"))).toBe(true);
+  });
+
+  it("'/wayfind --' with no destination prints usage and does not chart", async () => {
+    const { pi } = setup();
+    const cwd = makeCwd();
+    const { ctx, notifications } = ctxCapturing(cwd);
+    await run(pi, "wayfind", "--", ctx);
+    expect(notifications.some((n) => n.includes("Usage"))).toBe(true);
+    expect(pi.sent.every((s) => !s.includes("Charting"))).toBe(true);
+  });
+
+  it("'/wayfind sync' (bare keyword) still routes to sync and does not chart", async () => {
+    const { pi } = setup();
+    const cwd = makeCwd();
+    const { ctx, notifications } = ctxCapturing(cwd);
+    await run(pi, "wayfind", "sync", ctx);
+    expect(notifications.some((n) => n.includes("Usage") && n.includes("sync"))).toBe(true);
+    expect(pi.sent.every((s) => !s.includes("Charting"))).toBe(true);
+  });
 });
 
 // ─── /wayfind — fact-freshness guard (warns when HEAD lags origin/main) ──────

@@ -357,9 +357,22 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
 
   pi.registerCommand("wayfind", {
     description:
-      "Wayfinder family: '<destination>' (chart a map) or no args (work next ticket); 'status'/'spec'/'tickets'/'seed'/'sync'/'validate'/'done' [effort]",
+      "Wayfinder family: '<destination>' (chart a map) or no args (work next ticket); 'status'/'spec'/'tickets'/'seed'/'sync'/'validate'/'done' [effort]; '-- <destination>' force-charts a name that starts with a reserved keyword",
     handler: async (args, ctx) => {
       const trimmed = args.trim();
+      // "/wayfind -- <destination>" forces charting, escaping reserved keywords
+      // (e.g. an effort named "sync the database"). Bare keywords still win.
+      if (trimmed.startsWith("--")) {
+        const destination = trimmed.slice(2).trim();
+        if (!destination) {
+          ctx.ui.notify(
+            "Usage: /wayfind -- <destination>  (force-chart a name that starts with a reserved keyword like status/spec/tickets/seed/sync/done/validate)",
+            "warning",
+          );
+          return;
+        }
+        return handleWayfinderChart(destination, ctx);
+      }
       const [first, ...rest] = trimmed.split(/\s+/);
       const remainder = rest.join(" ");
       if (first && WAYFIND_KEYWORDS.has(first)) {

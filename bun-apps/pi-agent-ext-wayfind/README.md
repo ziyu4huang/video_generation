@@ -44,7 +44,7 @@ wayfind ──► grill docs ──► wayfind tickets ──► the plan coordi
 | `/grill docs [topic]` | **flagship** — grilling + writes `CONTEXT.md` glossary + ADRs inline; publishes the coordination seam |
 | `/grill done [--seed-plan]` | end the grill; `--seed-plan` reads `CONTEXT.md` + writes a `task_plan.md` seed (handoff to the plan coordinator) |
 | `/grill domain` | kick off the glossary + ADR discipline directly |
-| `/wayfind [destination]` | chart a new map under `.planning/<effort>/`; (no args) work the next frontier ticket |
+| `/wayfind [destination]` | chart a new map under `.planning/<effort>/`; (no args) work the next frontier ticket; `/wayfind -- <destination>` force-charts a name that begins with a reserved keyword (`status`/`spec`/`tickets`/`seed`/`sync`/`done`/`validate`) |
 | `/wayfind status [effort]` | show the frontier + open/closed/claimed/fog counts |
 | `/wayfind spec [effort]` | synthesize the conversation + codebase into a spec (PRD) at `.planning/<effort>/spec.md` |
 | `/wayfind tickets [effort]` | break a spec/plan into tracer-bullet tickets (unified spine format) under `.planning/<effort>/tickets/` |
