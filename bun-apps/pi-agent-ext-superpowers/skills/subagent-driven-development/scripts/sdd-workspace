@@ -15,9 +15,10 @@
 # $root/.planning/$effort/sdd — converging every SDD artifact under the same
 # effort root as the spec/plan/tickets/map (no separate .superpowers/ tree),
 # and the audit trail there is COMMITTED (only progress.md is transient,
-# ignored by name at the repo level). With NO effort, falls back to upstream's
-# $root/.superpowers/sdd (with its self-ignoring .gitignore) so the script
-# stays backward-compatible for non-pi / upstream-faithful use.
+# ignored by name at the repo level). With NO effort, falls back to flat
+# $root/.planning/sdd (gitignored, local-only scratch; ADR-0007 — superpowers
+# never writes under .superpowers/, unconditional). No effort subdir, so the
+# single artifact home stays under .planning/ in both branches.
 #
 # Usage: sdd-workspace PLAN_FILE
 #        PI_PLANNING_EFFORT=<effort> sdd-workspace PLAN_FILE
@@ -44,9 +45,10 @@ if [ -n "$effort" ]; then
   # No blanket self-ignore under .planning/: the sdd audit trail is committed;
   # only progress.md is transient and is ignored by name at the repo level.
 else
-  base="$root/.superpowers/sdd"
+  base="$root/.planning/sdd"
   mkdir -p "$base/$slug"
-  printf '*\n' > "$base/.gitignore"
+  # Flat local-only scratch; ignored at the repo level (.gitignore: .planning/sdd/),
+  # so no per-dir self-ignore is needed here (unlike the old upstream-faithful path).
 fi
 
 cd "$base/$slug" && pwd

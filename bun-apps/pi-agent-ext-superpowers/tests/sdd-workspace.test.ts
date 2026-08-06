@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -9,7 +9,7 @@ import { dirname, join, resolve } from "node:path";
  * single source of truth for where one plan's SDD artifacts land, with two
  * branches keyed on PI_PLANNING_EFFORT:
  *   - set  → $root/.planning/$effort/sdd/$slug   (committed audit trail)
- *   - unset → $root/.superpowers/sdd/$slug        (upstream-faithful, self-ignored)
+ *   - unset → $root/.planning/sdd/$slug          (flat local-only, gitignored)
  * A mis-derivation silently lands briefs/reports/progress in the wrong tree, so
  * both branches + the slug derivation are locked in here. Runs the real script
  * (bash) inside a throwaway git repo so its `git rev-parse --show-toplevel`
@@ -66,18 +66,17 @@ describe.skipIf(!!process.env.CI)("sdd-workspace (pi-port effort nesting)", () =
     }
   });
 
-  it("falls back to .superpowers/sdd/$slug (with self-ignore) when no effort", () => {
+  it("falls back to .planning/sdd/$slug (gitignored) when no effort", () => {
     const repo = makeTempRepo();
     try {
       const plan = writePlan(repo, "plans/big-refactor.md");
       const { stdout, status } = run(plan, repo, { PI_PLANNING_EFFORT: "" });
       expect(status).toBe(0);
-      expect(stdout).toBe(join(repo, ".superpowers", "sdd", "big-refactor"));
+      expect(stdout).toBe(join(repo, ".planning", "sdd", "big-refactor"));
       expect(existsSync(stdout)).toBe(true);
-      // upstream-faithful branch writes the blanket self-ignore
-      const gi = join(repo, ".superpowers", "sdd", ".gitignore");
-      expect(existsSync(gi)).toBe(true);
-      expect(readFileSync(gi, "utf8").trim()).toBe("*");
+      // no-effort branch no longer writes a per-dir self-ignore (repo-level
+      // .gitignore: .planning/sdd/ covers it); flat path is local-only scratch.
+      expect(existsSync(join(repo, ".planning", "sdd", ".gitignore"))).toBe(false);
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
