@@ -33,8 +33,11 @@ or `.superpowers/`, with or without an active effort.
 - `PI_PLANNING_EFFORT` unset (ad-hoc) → specs land at
   `.planning/specs/<YYYY-MM-DD>-<topic>-design.md` and plans at
   `.planning/plans/<YYYY-MM-DD>-<topic>.md` — the flat layout
-  `docs/superpowers/{specs,plans}` symlink to. (Per-effort `.planning/<effort>/`
-  is for multi-ticket wayfind efforts, set via `PI_PLANNING_EFFORT`.)
+  `docs/superpowers/{specs,plans}` symlink to. The no-effort SDD workspace
+  lands at flat `.planning/sdd/<plan-basename>/` (gitignored, local-only
+  scratch); the effort SDD workspace stays committed under
+  `.planning/<effort>/sdd/`. (Per-effort `.planning/<effort>/` is for
+  multi-ticket wayfind efforts, set via `PI_PLANNING_EFFORT`.)
 
 Guarded by (a) a unit test asserting the boundary text's rule is unconditional,
 and (b) a repo lint failing on any file beyond the baseline under the upstream

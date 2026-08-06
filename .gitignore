@@ -75,10 +75,16 @@ vault/
 # pi-subagents runtime artifacts
 .pi-subagents/
 
+# No-effort SDD fallback (Option 1, ADR-0007): flat local-only scratch; effort
+# SDD (.planning/<effort>/sdd/) stays committed. This pattern matches ONLY the
+# flat dir, not the effort-scoped subtree.
+.planning/sdd/
+
 # Legacy superpowers scratch (.superpowers/sdd/ + .superpowers/brainstorm/).
 # Routed under .planning/<effort>/{sdd,brainstorm}/ when PI_PLANNING_EFFORT is
-# set (effort-aware scripts); this ignore is defense-in-depth for the
-# upstream-faithful path (no effort) so it never pollutes git status.
+# set (effort-aware scripts); the no-effort SDD fallback now lands under
+# .planning/sdd/ (see above), so this ignore is pure defense-in-depth for any
+# upstream reference / legacy scratch so it never pollutes git status.
 .superpowers/
 
 # Planning artifacts under .planning/<effort>/ are durable, shared, and persist
