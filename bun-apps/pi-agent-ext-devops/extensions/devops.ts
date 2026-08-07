@@ -22,6 +22,7 @@ import { createLiveSpawn } from "../src/spawn.js";
 import { runMergeRecipe } from "../src/recipe.js";
 import { runSweep, type SweepOutcome } from "../src/branch-recipe.js";
 import { runLocalCi, type CiOutcome } from "../src/ci-recipe.js";
+import { runSync, type SyncMode, type SyncOutcome } from "../src/sync-recipe.js";
 
 /** Render a sweep outcome as a compact, human-readable plan/summary. */
 function formatSweep(o: SweepOutcome): string {
@@ -78,6 +79,31 @@ function formatCiOutcome(o: CiOutcome): string {
 	}
 	if (o.schemaCost) {
 		L.push(`Schema-cost: ${o.schemaCost.exitCode === 0 ? "✓" : `✗ exit ${o.schemaCost.exitCode}`} (${o.schemaCost.note}).`);
+	}
+	return L.join("\n");
+}
+
+/** Render a sync_repo outcome: status line, advancements, submodule report,
+ *  warnings, and the full command list (the primary output under dryRun). */
+function formatSync(o: SyncOutcome): string {
+	const L: string[] = [];
+	const head = o.aborted
+		? `⛔ sync_repo (${o.mode}) ABORTED: ${o.aborted}`
+		: o.dryRun
+			? `🔍 sync_repo (${o.mode}) DRY-RUN — no mutations performed.`
+			: `✅ sync_repo (${o.mode}) complete.`;
+	L.push(`${head} default=${o.defaultBranch || "?"}.`);
+	for (const a of o.advanced) {
+		L.push(`  advanced ${a.branch} @ ${a.worktree}: ${a.from.slice(0, 7)} → ${a.to.slice(0, 7)}`);
+	}
+	if (o.submodules.length) {
+		const dirty = o.submodules.filter((s) => !s.clean).length;
+		L.push(`  submodules: ${o.submodules.length} (${dirty} not-clean).`);
+	}
+	for (const w of o.warnings) L.push(`  ⚠ ${w}`);
+	if (o.commands.length) {
+		L.push("  commands:");
+		for (const c of o.commands) L.push(`    $ ${c}`);
 	}
 	return L.join("\n");
 }
@@ -229,6 +255,34 @@ export default function (pi: ExtensionAPI): void {
 				signal,
 			});
 			return { details: outcome, content: [{ type: "text" as const, text: formatCiOutcome(outcome) }] };
+		},
+	});
+
+	 pi.registerTool({
+		name: "sync_repo",
+		label: "Sync this repo to latest default branch (TS port of sync-repo.sh)",
+		description:
+			"Sync this worktree/repo to the latest default branch. Modes: 'full' (default) — git fetch origin; auto-detect the default branch D via origin/HEAD; advance D to origin/<D> WORKTREE-AWARE (advance it in the worktree that holds D; only check it out here when free), then recursively sync submodules to their remote tips. 'rebase' — fetch + rebase the current branch onto origin/<D>. 'pull' — fetch + merge origin/<D> into the current branch (a real merge, never fast-forward). dryRun computes + returns the exact git commands without mutating. Pre-flight: a dirty tracked tree aborts mutating runs; unpushed commits are warned. Replaces the sync-repo.sh / git-remote-main-sync.sh / safe-sync.sh bash (agent-invoked only; no shell entry).",
+		gating: { keywords: ["sync", "fetch", "rebase", "pull", "default branch", "origin/main", "origin/master", "submodule", "reset --hard", "devops"] },
+		promptSnippet:
+			"Sync this repo to latest default branch. full (default): fetch + advance default branch (worktree-aware) + recursive submodules. rebase/pull: fetch + rebase/merge current branch onto origin/<default>. dryRun shows the plan. Dirty tree aborts.",
+		parameters: Type.Object({
+			mode: Type.Optional(
+				Type.String({ description: "Sync mode: 'full' (default — advance default branch + submodules), 'rebase' (rebase current onto origin/<default>), or 'pull' (merge origin/<default> into current)." }),
+			),
+			dryRun: Type.Optional(Type.Boolean({ description: "Compute + return the exact git commands without mutating anything (default false)." })),
+		}),
+		async execute(_id, params, signal) {
+			const spawn = createLiveSpawn(process.cwd());
+			const client = createBranchClient(spawn);
+			// Resolve the repo root WITHOUT chdir (no top-level cd) — fall back to
+			// process.cwd() if not in a git worktree (mirrors await_pr_merge/local_ci).
+			const root = await spawn("git", ["rev-parse", "--show-toplevel"]);
+			const repoRoot = root.exitCode === 0 ? root.stdout.trim() : process.cwd();
+			const rawMode = params.mode as string | undefined;
+			const mode: SyncMode = rawMode === "rebase" || rawMode === "pull" ? rawMode : "full";
+			const outcome = await runSync({ client, spawn, repoRoot, mode, dryRun: params.dryRun === true, signal });
+			return { details: outcome, content: [{ type: "text" as const, text: formatSync(outcome) }] };
 		},
 	});
 }

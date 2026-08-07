@@ -23,6 +23,14 @@ export interface BranchClient {
 	openPrRefs(): Promise<Set<string>>;
 	containedBranches(defaultBranch: string): Promise<Set<string>>;
 	defaultBranch(): Promise<string | undefined>;
+	/** All worktrees with their checked-out branch (porcelain records). */
+	worktreeList(): Promise<{ worktree: string; branch?: string; detached?: boolean }[]>;
+	/** Resolve a ref to its SHA, or undefined if the ref is missing. */
+	revParse(rev: string): Promise<string | undefined>;
+	/** True iff <dir> has no TRACKED changes vs HEAD (untracked files ignored). */
+	isClean(dir: string): Promise<boolean>;
+	/** ahead/behind commit counts between two refs (0 when a ref is missing). */
+	aheadBehind(base: string, head: string): Promise<{ ahead: number; behind: number }>;
 	fetchPrune(): Promise<void>;
 	deleteLocalBranch(name: string): Promise<void>;
 	deleteRemoteBranch(name: string): Promise<void>;
