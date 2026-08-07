@@ -1,178 +1,184 @@
 /**
- * runMergeRecipe — the polling orchestration for `await_pr_merge`. Each poll:
- * read PR status → decide the next action (pure logic in pr-logic.ts) → perform
- * the I/O the action implies (enable auto-merge / rebase+force-push / wait) →
- * sleep → repeat until MERGED / fail / timeout.
+ * runMergeRecipe — a LOCAL-CI-GATED merge for `await_pr_merge`. Remote CI is
+ * intentionally DISABLED in this repo (`.github/workflows/ci.yml.disabled`),
+ * so there is nothing to poll: this is a single-shot gate+merge.
  *
- * All I/O is behind the injectable `GhClient` + `Sleeper` + `clock` interfaces,
- * so the loop is fully testable with scripted fakes (no real gh/git/network).
- * The real `GhClient` (wrapping the `gh` CLI via Bun.spawn) lives in src/gh.ts.
+ *   1. `gh pr view` → {state, mergeState, baseRefName, headRefName}.
+ *   2. state==="MERGED" → merged:true (already merged). state!=="OPEN"
+ *      (CLOSED…) → block.
+ *   3. Best-effort `git fetch origin <base> <head>` (offline-safe — exit code
+ *      IGNORED; a failed/offline fetch just means local_ci will then error on
+ *      a missing ref and we block fail-closed). The tool never hard-fails on
+ *      the fetch itself.
+ *   4. runLocalCi(base=origin/<base>, head=origin/<head>, strict:false,
+ *      includeGates:true). This is the local proxy for remote CI: typecheck +
+ *      tests scoped to the PR's changed packages vs its fetched base, plus the
+ *      repo's quality gates.
+ *   5. ci.overall !== "pass" (includes detectionError) → BLOCK: no merge.
+ *   6. ci green: mergeState==="BEHIND" → block (NO auto-rebase — rebase
+ *      locally + re-push, then re-run). mergeState!=="CLEAN" → block.
+ *      mergeState==="CLEAN" → `gh pr merge --<strategy>` (+--delete-branch).
+ *
+ * All I/O is behind the injectable `GhClient` + `SpawnFn` seams, so it's fully
+ * testable with fakes — mirroring how `runLocalCi` is tested with an injected
+ * recording spawn. Elapsed is stamped with Date.now() at entry/exit.
  */
-import { decideRecipeAction, type PrState, type MergeState, type CheckTally, type RecipeAction } from "./pr-logic.js";
+import type { SpawnFn } from "./spawn.js";
+import type { CiOutcome } from "./ci-recipe.js";
+import { runLocalCi } from "./ci-recipe.js";
+import type { PrState, MergeState, CheckTally } from "./pr-logic.js";
 
 /** Injectable gh/git operations. Real impl: src/gh.ts. Tests inject fakes. */
 export interface GhClient {
-	prStatus(n: number): Promise<{ state: PrState; mergeState: MergeState; checks: CheckTally; mergeSha?: string }>;
-	enableAutoMerge(n: number, strategy: "rebase" | "merge" | "squash", deleteBranch: boolean): Promise<void>;
-	/** Direct (synchronous) merge — `gh pr merge` WITHOUT `--auto`. Used when checks
-	 *  are already green + mergeable (CLEAN): the merge completes immediately, so
-	 *  success IS the confirmation — no extra poll that races the harness call
-	 *  budget. Throws on non-zero exit (merge-queue / auto-merge-only repos) so the
-	 *  recipe can fall back to enableAutoMerge. */
+	prStatus(n: number): Promise<{
+		state: PrState;
+		mergeState: MergeState;
+		baseRefName: string;
+		headRefName: string;
+		/** Check tally (used by the pr_status tool; the merge recipe ignores it). */
+		checks: CheckTally;
+		mergeSha?: string;
+	}>;
+	/**
+	 * Direct (synchronous) merge — `gh pr merge` WITHOUT `--auto`. Used once the
+	 * local_ci gate is green + mergeState is CLEAN: the merge completes here, so
+	 * success IS the confirmation (no remote CI to poll). Throws on non-zero exit.
+	 */
 	mergeNow(n: number, strategy: "rebase" | "merge" | "squash", deleteBranch: boolean): Promise<void>;
-	rebaseAndForcePush(branch: string): Promise<void>;
-}
-
-export interface Sleeper {
-	sleep(ms: number): Promise<void>;
-}
-
-/** One poll's snapshot, handed to `onProgress` for live TUI updates. */
-export interface ProgressUpdate {
-	prNumber: number;
-	pollNumber: number;
-	elapsedMs: number;
-	state: PrState;
-	mergeState: MergeState;
-	checks: CheckTally;
-	action: RecipeAction["kind"];
-	behind: boolean;
 }
 
 export interface RecipeOptions {
 	prNumber: number;
 	strategy: "rebase" | "merge" | "squash";
 	deleteBranch: boolean;
-	handleBehind: "rebase-force-push" | "fail";
-	timeoutMs: number;
-	pollIntervalMs: number;
-	/** The feature branch to rebase+force-push when BEHIND. */
-	branch: string;
 	gh: GhClient;
-	sleeper: Sleeper;
-	clock: { now(): number };
-	/** Optional abort signal — the loop stops + returns aborted when fired. */
+	spawn: SpawnFn;
+	repoRoot: string;
 	signal?: AbortSignal;
-	/** Optional live-progress callback — invoked once per poll with the observed state. */
-	onProgress?: (update: ProgressUpdate) => void;
 }
 
 export interface RecipeOutcome {
 	merged: boolean;
-	finalState: PrState;
+	finalState: string;
 	mergeSha?: string;
-	checks?: CheckTally;
-	behind: boolean;
-	timedOut: boolean;
-	aborted?: boolean;
+	localCi?: CiOutcome;
 	elapsedMs: number;
 	error?: string;
 }
 
 export async function runMergeRecipe(opts: RecipeOptions): Promise<RecipeOutcome> {
-	const t0 = opts.clock.now();
-	const result = await runRecipeLoop(opts);
-	return { ...result, elapsedMs: opts.clock.now() - t0 };
+	const t0 = Date.now();
+	const { prNumber, strategy, deleteBranch, gh, spawn, repoRoot, signal } = opts;
+	const elapsed = () => Date.now() - t0;
+
+	if (signal?.aborted) {
+		return { merged: false, finalState: "OPEN", elapsedMs: elapsed(), error: "aborted before start" };
+	}
+
+	// 1. PR snapshot.
+	let status;
+	try {
+		status = await gh.prStatus(prNumber);
+	} catch (err) {
+		return { merged: false, finalState: "OPEN", elapsedMs: elapsed(), error: `gh pr view failed: ${errMsg(err)}` };
+	}
+
+	// 2. Terminal states.
+	if (status.state === "MERGED") {
+		return { merged: true, finalState: "MERGED", mergeSha: status.mergeSha, elapsedMs: elapsed() };
+	}
+	if (status.state !== "OPEN") {
+		return { merged: false, finalState: status.state, elapsedMs: elapsed(), error: `PR is ${status.state} (not OPEN)` };
+	}
+
+	// 3. Best-effort fetch of the PR's base+head refs (offline-safe). A failed
+	//    /offline fetch is fine — local_ci then surfaces a missing-ref error
+	//    (a thrown rev-parse on the base, or a detectionError on the diff) and
+	//    we block fail-closed. Do NOT hard-fail the tool on the fetch itself.
+	try {
+		await spawn("git", ["fetch", "origin", status.baseRefName, status.headRefName], { cwd: repoRoot });
+	} catch {
+		/* best-effort — a throw here is unexpected (spawn returns a result, it
+		 * doesn't throw), but guard anyway so the tool never crashes on it. */
+	}
+
+	// 4. Local-CI gate over the PR's fetched base..head. runLocalCi THROWS when
+	//    even the base ref can't be resolved (fully offline + never fetched) —
+	//    catch that and block fail-closed rather than crashing the tool.
+	let ci: CiOutcome;
+	try {
+		ci = await runLocalCi({
+			repoRoot,
+			baseRef: `origin/${status.baseRefName}`,
+			headRef: `origin/${status.headRefName}`,
+			strict: false,
+			includeGates: true,
+			spawn,
+			signal,
+		});
+	} catch (err) {
+		return {
+			merged: false,
+			finalState: status.state,
+			elapsedMs: elapsed(),
+			error: `local_ci could not run: ${errMsg(err)}`,
+		};
+	}
+
+	// 5. Gate failed (incl. detectionError) → BLOCK (no merge).
+	if (ci.overall !== "pass") {
+		const error = ci.detectionError ?? "local_ci failed; see packages/gates";
+		return { merged: false, finalState: status.state, localCi: ci, elapsedMs: elapsed(), error };
+	}
+
+	// 6. Gate green → decide by mergeability (NO auto-rebase; NO escape hatch).
+	if (status.mergeState === "BEHIND") {
+		return {
+			merged: false,
+			finalState: status.state,
+			localCi: ci,
+			elapsedMs: elapsed(),
+			error: "PR is behind base; rebase locally + re-push, then re-run await_pr_merge.",
+		};
+	}
+	if (status.mergeState !== "CLEAN") {
+		return {
+			merged: false,
+			finalState: status.state,
+			localCi: ci,
+			elapsedMs: elapsed(),
+			error: `merge blocked: mergeState=${status.mergeState} (expected CLEAN).`,
+		};
+	}
+
+	// CLEAN + green → merge (synchronous, no --auto). Success IS the
+	// confirmation — there's no remote CI to wait on.
+	try {
+		await gh.mergeNow(prNumber, strategy, deleteBranch);
+	} catch (err) {
+		return {
+			merged: false,
+			finalState: status.state,
+			localCi: ci,
+			elapsedMs: elapsed(),
+			error: `gh pr merge failed: ${errMsg(err)}`,
+		};
+	}
+
+	// Best-effort mergeSha via a follow-up pr view (the PR should now be MERGED
+	// with a populated mergeCommit). A failure here does NOT undo the merge —
+	// the merge already succeeded; the SHA is purely informational.
+	let mergeSha = status.mergeSha;
+	try {
+		const after = await gh.prStatus(prNumber);
+		if (after.mergeSha) mergeSha = after.mergeSha;
+	} catch {
+		/* best-effort — keep the pre-merge mergeSha (likely undefined) */
+	}
+
+	return { merged: true, finalState: "MERGED", mergeSha, localCi: ci, elapsedMs: elapsed() };
 }
 
-/** Inner poll loop — returns everything except elapsedMs (stamped once by the wrapper). */
-async function runRecipeLoop(opts: RecipeOptions): Promise<Omit<RecipeOutcome, "elapsedMs">> {
-	const start = opts.clock.now();
-	let lastState: PrState = "OPEN";
-	let lastChecks: CheckTally | undefined;
-	let behind = false;
-	let pollNumber = 0;
-
-	while (true) {
-		if (opts.signal?.aborted) {
-			return { merged: false, finalState: lastState, checks: lastChecks, behind, timedOut: false, aborted: true };
-		}
-		if (opts.clock.now() - start >= opts.timeoutMs) {
-			return { merged: false, finalState: lastState, checks: lastChecks, behind, timedOut: true };
-		}
-
-		const status = await opts.gh.prStatus(opts.prNumber);
-		lastState = status.state;
-		lastChecks = status.checks;
-		const action = decideRecipeAction(status.state, status.mergeState, status.checks);
-		pollNumber += 1;
-		opts.onProgress?.({
-			prNumber: opts.prNumber,
-			pollNumber,
-			elapsedMs: opts.clock.now() - start,
-			state: status.state,
-			mergeState: status.mergeState,
-			checks: status.checks,
-			action: action.kind,
-			behind,
-		});
-
-		switch (action.kind) {
-			case "done":
-				return {
-					merged: true,
-					finalState: "MERGED",
-					mergeSha: status.mergeSha,
-					checks: status.checks,
-					behind,
-					timedOut: false,
-				};
-			case "merge":
-				// Green + CLEAN → merge directly (synchronous). A successful direct merge
-				// IS the confirmation, so return merged at once — no extra poll that races
-				// the harness's per-call budget. (The old --auto arm-and-wait relied on
-				// GitHub's async propagation + a re-poll, which could abort mid-flight
-				// when checks passed late — see await_pr_merge RCA.) Fall back to arming
-				// --auto only if the repo rejects a direct merge (merge queue / auto-only).
-				try {
-					await opts.gh.mergeNow(opts.prNumber, opts.strategy, opts.deleteBranch);
-					return { merged: true, finalState: "MERGED", checks: status.checks, behind, timedOut: false };
-				} catch {
-					await opts.gh.enableAutoMerge(opts.prNumber, opts.strategy, opts.deleteBranch);
-				}
-				break;
-			case "rebase":
-				if (opts.handleBehind === "fail") {
-					return {
-						merged: false,
-						finalState: status.state,
-						checks: status.checks,
-						behind: true,
-						timedOut: false,
-						error: "PR is BEHIND and handleBehind=fail",
-					};
-				}
-				behind = true;
-				// RCA #1009: a rebase/force-push failure (dirty tree, conflict, rejected
-				// push) must surface as a clean error outcome — not throw (which
-				// crashes the tool) and not spin silently (which the harness eventually
-				// aborts as a misleading "aborted").
-				try {
-					await opts.gh.rebaseAndForcePush(opts.branch);
-				} catch (err) {
-					return {
-						merged: false,
-						finalState: status.state,
-						checks: status.checks,
-						behind: true,
-						timedOut: false,
-						error: `BEHIND rebase+force-push failed: ${err instanceof Error ? err.message : String(err)}`,
-					};
-				}
-				break;
-			case "wait":
-				break; // keep polling
-			case "fail":
-				return {
-					merged: false,
-					finalState: status.state,
-					checks: status.checks,
-					behind,
-					timedOut: false,
-					error: action.reason,
-				};
-		}
-
-		await opts.sleeper.sleep(opts.pollIntervalMs);
-	}
+function errMsg(err: unknown): string {
+	return err instanceof Error ? err.message : String(err);
 }

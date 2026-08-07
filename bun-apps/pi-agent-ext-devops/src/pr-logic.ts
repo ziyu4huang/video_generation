@@ -1,10 +1,12 @@
 /**
- * PURE merge-recipe decision logic (no I/O). The heart of `await_pr_merge`:
- * given the current PR state + check tally, decide the next action. Kept pure
- * (no gh/git/clock) so it's fully testable without external services.
+ * Domain types shared by the PR-merge tooling. These were once the home of the
+ * pure polling decision logic (`decideRecipeAction`), but `await_pr_merge` is
+ * now a single-shot LOCAL-CI-GATED merge (src/recipe.ts `runMergeRecipe`) — no
+ * poll loop, no check-tally branching — so the decision function is gone. The
+ * types stay because `src/gh.ts` parsers + `GhClient.prStatus` speak them.
  *
- * The full recipe is orchestrated by `runMergeRecipe` (src/recipe.ts), which
- * calls this each poll + performs the I/O the action implies.
+ * (Renaming this file to e.g. `pr-types.ts` is deferred — the cross-file
+ * churn isn't worth it; only the symbols matter.)
  */
 
 export type PrState = "OPEN" | "MERGED" | "CLOSED";
@@ -19,33 +21,7 @@ export type MergeState =
 	| "HAS_HOOKS" // mergeable but pre-merge hooks pending
 	| "UNSTABLE"; // failing/expected-status checks but otherwise mergeable
 
+/** CI check tally (gh pr checks) — surfaced by the `pr_status` tool. The merge
+ *  recipe itself no longer consumes this (it gates on local_ci instead), but
+ *  `pr_status` still reports it, so the type + parser remain. */
 export type CheckTally = { pass: number; fail: number; pending: number };
-
-export type RecipeAction =
-	| { kind: "done" } // MERGED — stop, success
-	| { kind: "merge" } // checks pass + mergeable → enable auto-merge
-	| { kind: "rebase" } // BEHIND at 0 pending → rebase + force-push (CI reruns)
-	| { kind: "wait" } // pending checks OR transient UNKNOWN
-	| { kind: "fail"; reason: string }; // checks failed / blocked / closed
-
-/**
- * Decide the next recipe action from the observed PR state. Order matters:
- * terminal states first (MERGED/CLOSED), then check failures, then pending,
- * then the BEHIND/CLEAN/UNKNOWN mergeability cases. BLOCKED/DIRTY/etc. are
- * not auto-resolvable → fail with the reason.
- */
-export function decideRecipeAction(
-	state: PrState,
-	mergeState: MergeState,
-	checks: CheckTally,
-): RecipeAction {
-	if (state === "MERGED") return { kind: "done" };
-	if (state === "CLOSED") return { kind: "fail", reason: "PR closed without merging" };
-	if (checks.fail > 0) return { kind: "fail", reason: `${checks.fail} check(s) failing` };
-	if (checks.pending > 0) return { kind: "wait" };
-	// All checks done, none failing — decide by mergeability.
-	if (mergeState === "BEHIND") return { kind: "rebase" };
-	if (mergeState === "CLEAN") return { kind: "merge" };
-	if (mergeState === "UNKNOWN") return { kind: "wait" }; // transient — let GitHub settle
-	return { kind: "fail", reason: `merge blocked: ${mergeState}` };
-}
