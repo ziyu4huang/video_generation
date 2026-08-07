@@ -7,7 +7,7 @@
  */
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { selectTaskSubjectById } from "../state/selectors";
 import type { TaskState } from "../state/state";
 import type { Task, TaskAction, TaskDetails, TaskMutationParams, TaskStatus } from "../tool/types";
@@ -91,7 +91,10 @@ export function formatOverlayTaskLine(t: Task, theme: Theme, showId: boolean): s
 export function formatCommandTaskLine(t: Task, glyph: string): string {
 	const form = t.status === "in_progress" && t.activeForm ? ` (${t.activeForm})` : "";
 	const block = t.blockedBy?.length ? `    ⛓ ${t.blockedBy.map((id) => `#${id}`).join(",")}` : "";
-	return `  ${glyph} #${t.id} ${t.subject}${form}${block}`;
+	// Truncate subject to keep /todos output bounded
+	const maxSubjectWidth = 60;
+	const truncatedSubject = t.subject.length > maxSubjectWidth ? truncateToWidth(t.subject, maxSubjectWidth, "…") : t.subject;
+	return `  ${glyph} #${t.id} ${truncatedSubject}${form}${block}`;
 }
 
 // ---------------------------------------------------------------------------

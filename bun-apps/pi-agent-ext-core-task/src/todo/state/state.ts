@@ -9,4 +9,4 @@ export interface TaskState {
 	nextId: number;
 }
 
-export const EMPTY_STATE: TaskState = { tasks: [], nextId: 1 };
+export const EMPTY_STATE: TaskState = Object.freeze({ tasks: Object.freeze([]) as unknown as Task[], nextId: 1 });

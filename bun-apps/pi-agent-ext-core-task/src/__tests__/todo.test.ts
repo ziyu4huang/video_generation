@@ -11,7 +11,7 @@
  *   - deriveBlocks: inverse adjacency map
  *   - Registration schema matches expected shape
  */
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, beforeEach } from "bun:test";
 import type { Task, TaskAction, TaskMutationParams } from "../todo/tool/types";
 import { isTransitionValid, validateReferentialIntegrity } from "../todo/state/invariants";
 import type { TaskState } from "../todo/state/state";
@@ -448,6 +448,18 @@ describe("detectCycle", () => {
     const tasks = [task({ id: 1, subject: "a" }), task({ id: 2, subject: "b" })];
     expect(detectCycle(tasks, 1, [])).toBe(false);
   });
+
+  test("handles simultaneous add+remove (caller-merged set)", () => {
+    // Task 1 is blocked by [2, 3]; we want to remove 2 and add 4.
+    // The pre-merged set is [3, 4]; this should not create a cycle.
+    const tasks = [
+      task({ id: 1, subject: "a", blockedBy: [2, 3] }),
+      task({ id: 2, subject: "b" }),
+      task({ id: 3, subject: "c" }),
+      task({ id: 4, subject: "d" }),
+    ];
+    expect(detectCycle(tasks, 1, [3, 4])).toBe(false);
+  });
 });
 
 // ─── deriveBlocks ────────────────────────────────────────────────────────────
@@ -645,5 +657,60 @@ describe("core-task-review #11: todo schema/reducer drift", () => {
         expect(result.op.includeDeleted).toBe(true);
       }
     });
+  });
+});
+
+// ─── Cross-session isolation (L10) ─────────────────────────────────────────────
+
+describe("cross-session store isolation", () => {
+  const { replaceState, getState, __resetState } = require("../todo/state/store");
+
+  beforeEach(() => {
+    __resetState();
+  });
+
+  test("replaceState(EMPTY_STATE) clears state and fresh create restarts at id 1", () => {
+    const { applyTaskMutation } = require("../todo/state/state-reducer");
+    const { EMPTY_STATE } = require("../todo/state/state");
+
+    // Populate state with multiple tasks
+    let state = getState();
+    state = applyTaskMutation(state, "create", { subject: "task 1" }).state;
+    state = applyTaskMutation(state, "create", { subject: "task 2" }).state;
+    state = applyTaskMutation(state, "create", { subject: "task 3" }).state;
+
+    // Verify we have 3 tasks and nextId is 4
+    expect(state.tasks.length).toBe(3);
+    expect(state.nextId).toBe(4);
+
+    // Simulate session reset: replaceState with EMPTY_STATE
+    replaceState(EMPTY_STATE);
+
+    // Verify state is now empty
+    const clearedState = getState();
+    expect(clearedState.tasks.length).toBe(0);
+    expect(clearedState.nextId).toBe(1);
+
+    // Fresh create after replaceState should start at id 1
+    const result = applyTaskMutation(clearedState, "create", { subject: "new task" });
+    expect(result.state.tasks[0].id).toBe(1);
+    expect(result.state.nextId).toBe(2);
+  });
+
+  test("EMPTY_STATE is frozen (cannot be mutated by reference)", () => {
+    const { EMPTY_STATE } = require("../todo/state/state");
+
+    // EMPTY_STATE should be frozen
+    expect(Object.isFrozen(EMPTY_STATE)).toBe(true);
+    expect(Object.isFrozen(EMPTY_STATE.tasks)).toBe(true);
+
+    // Attempting to mutate EMPTY_STATE should throw (strict mode / frozen array)
+    expect(() => {
+      (EMPTY_STATE as any).tasks.push({ id: 99, subject: "hack", status: "pending" });
+    }).toThrow();
+
+    // EMPTY_STATE should remain unchanged
+    expect(EMPTY_STATE.tasks.length).toBe(0);
+    expect(EMPTY_STATE.nextId).toBe(1);
   });
 });

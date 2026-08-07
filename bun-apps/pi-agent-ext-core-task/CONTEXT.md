@@ -45,7 +45,7 @@ _Avoid_: show, display (it is a queue manipulation command, not just a viewer)
 ### Coordination
 
 **Coordination seam** (`globalThis.__piGoalActive`):
-The process-singleton reader core-task publishes so the in-package `/loop` subsystem can detect an active goal WITHOUT a hard dep (goal⇄loop mutual exclusion). A peer reads `globalThis.__piGoalActive?.() ?? false`. core-task is the publisher; only `/loop` (and power-tool's display-only `inspect_tui`) reads it — no plan coordinator or wayfind does.
+The process-singleton reader core-task publishes so the in-package `/loop` subsystem can detect an active goal WITHOUT a hard dep (goal⇄loop mutual exclusion). A peer reads `typeof __piGoalActive === "function" && __piGoalActive() === true`. core-task is the publisher; only `/loop` (and power-tool's display-only `inspect_tui`) reads it — no plan coordinator or wayfind does.
 _Avoid_: hook, signal (it is a published globalThis reader for cross-extension turn-ownership)
 
 **Session-only todos**:

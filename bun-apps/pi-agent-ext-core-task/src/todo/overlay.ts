@@ -134,8 +134,10 @@ export class TodoOverlay {
 
 		const lines: string[] = [heading];
 		const layout = selectOverlayLayout(overlayState, MAX_WIDGET_LINES - 1);
+		let lastTask: (typeof layout.visible)[number] | undefined;
 		for (const task of layout.visible) {
 			lines.push(truncate(`${theme.fg("dim", "├─")} ${formatOverlayTaskLine(task, theme, showIds)}`));
+			lastTask = task;
 		}
 
 		const newlyDisplayedCompletedTaskIds = overlayTasks
@@ -151,8 +153,12 @@ export class TodoOverlay {
 		}
 
 		if (layout.hiddenCompleted === 0 && layout.truncatedTail === 0) {
-			const last = lines.length - 1;
-			lines[last] = lines[last].replace("├─", "└─");
+			// Rebuild the last line structurally with └─ instead of ├─ to avoid
+			// clobbering a subject that contains the literal string.
+			if (lastTask) {
+				const last = lines.length - 1;
+				lines[last] = truncate(`${theme.fg("dim", "└─")} ${formatOverlayTaskLine(lastTask, theme, showIds)}`);
+			}
 			return lines;
 		}
 
