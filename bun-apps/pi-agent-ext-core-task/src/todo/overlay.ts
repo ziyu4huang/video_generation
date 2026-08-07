@@ -108,9 +108,7 @@ export class TodoOverlay {
 	render(theme: Theme, width: number): string[] {
 		const snapshot = this.getSnapshot();
 		const overlayTasks = this.selectOverlayTasks(snapshot);
-		if (overlayTasks.length === 0) return [];
 
-		const overlayState = { tasks: overlayTasks, nextId: snapshot.nextId };
 		const truncate = (line: string): string => truncateToWidth(line, width, "…");
 		// Heading counts reflect REAL progress over ALL non-deleted tasks, not
 		// just the visible subset. Completed tasks are hidden from the list
@@ -120,6 +118,12 @@ export class TodoOverlay {
 			tasks: snapshot.tasks.filter((t) => t.status !== "deleted"),
 			nextId: snapshot.nextId,
 		});
+
+		// M6 fix: Only return empty if there are NO tasks at all. If there are tasks
+		// but all are completed/hidden, we still show the heading with counts.
+		if (counts.total === 0) return [];
+
+		const overlayState = { tasks: overlayTasks, nextId: snapshot.nextId };
 		const hasActive = selectHasActive(overlayState);
 		const showIds = selectShowTaskIds(overlayState);
 

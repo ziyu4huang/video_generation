@@ -122,6 +122,12 @@ export function renderTodoCall(
 
 export function renderTodoResult(result: { details?: unknown }, theme: Theme): Text {
 	const details = result.details as TaskDetails | undefined;
+
+	// M4 fix: Check error first and render failure indicator before any success glyph
+	if (details?.error) {
+		return new Text(theme.fg("error", `✗ Error: ${details.error}`), 0, 0);
+	}
+
 	let status: TaskStatus | undefined;
 	if (details) {
 		const params = details.params as TaskMutationParams;
