@@ -207,21 +207,32 @@ export async function executeSweep(plan: SweepPlan, client: BranchClient, opts: 
 		return undefined;
 	};
 
-	// 1. High-confidence auto-deletes (re-guarded).
+	// 1. High-confidence auto-deletes (re-guarded). Delete failures (non-zero
+	// exit) are routed to `skipped` with a reason — `deleted*` holds only
+	// branches actually deleted (no false-success). Mirrors the await_pr_merge
+	// recipe's throw-and-surface discipline.
 	for (const p of plan.deleteLocal) {
 		const why = localBlock(p.name);
 		if (why) skipped.push({ name: p.name, reason: why });
 		else {
-			await client.deleteLocalBranch(p.name);
-			deletedLocal.push(p.name);
+			try {
+				await client.deleteLocalBranch(p.name);
+				deletedLocal.push(p.name);
+			} catch (err) {
+				skipped.push({ name: p.name, reason: `delete failed: ${errMsg(err)}` });
+			}
 		}
 	}
 	for (const p of plan.deleteRemote) {
 		const why = remoteBlock(p.name);
 		if (why) skipped.push({ name: p.name, reason: why });
 		else {
-			await client.deleteRemoteBranch(p.name);
-			deletedRemote.push(p.name);
+			try {
+				await client.deleteRemoteBranch(p.name);
+				deletedRemote.push(p.name);
+			} catch (err) {
+				skipped.push({ name: p.name, reason: `delete failed: ${errMsg(err)}` });
+			}
 		}
 	}
 
@@ -242,11 +253,19 @@ export async function executeSweep(plan: SweepPlan, client: BranchClient, opts: 
 			const why = entry.kind === "local" ? localBlock(name) : remoteBlock(name);
 			if (why) skipped.push({ name, reason: why });
 			else if (entry.kind === "local") {
-				await client.deleteLocalBranch(name);
-				deletedLocal.push(name);
+				try {
+					await client.deleteLocalBranch(name);
+					deletedLocal.push(name);
+				} catch (err) {
+					skipped.push({ name, reason: `delete failed: ${errMsg(err)}` });
+				}
 			} else {
-				await client.deleteRemoteBranch(name);
-				deletedRemote.push(name);
+				try {
+					await client.deleteRemoteBranch(name);
+					deletedRemote.push(name);
+				} catch (err) {
+					skipped.push({ name, reason: `delete failed: ${errMsg(err)}` });
+				}
 			}
 		}
 	}
@@ -258,6 +277,11 @@ export async function executeSweep(plan: SweepPlan, client: BranchClient, opts: 
  * Top-level orchestration (the tool's execute path). Dry-run by default:
  * prune → resolve protected → build plan → (execute/confirm ? executeSweep : noop).
  */
+/** Normalize an unknown thrown value into a message string (mirrors src/recipe.ts). */
+function errMsg(err: unknown): string {
+	return err instanceof Error ? err.message : String(err);
+}
+
 export async function runSweep(opts: SweepOptions): Promise<SweepOutcome> {
 	const limit = opts.limit ?? 200;
 	const doPrune = opts.prune !== false;

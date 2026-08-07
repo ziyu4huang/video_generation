@@ -257,10 +257,12 @@ export function createBranchClient(spawn: SpawnFn): BranchClient {
 			await spawn("git", ["fetch", "--prune"]);
 		},
 		async deleteLocalBranch(name) {
-			await spawn("git", ["branch", "-D", name]);
+			const r = await spawn("git", ["branch", "-D", name]);
+			if (r.exitCode !== 0) throw new Error(`git branch -D ${name} failed (exit ${r.exitCode}): ${(r.stderr || r.stdout).trim()}`);
 		},
 		async deleteRemoteBranch(name) {
-			await spawn("git", ["push", "origin", "--delete", name]);
+			const r = await spawn("git", ["push", "origin", "--delete", name]);
+			if (r.exitCode !== 0) throw new Error(`git push origin --delete ${name} failed (exit ${r.exitCode}): ${(r.stderr || r.stdout).trim()}`);
 		},
 	};
 }

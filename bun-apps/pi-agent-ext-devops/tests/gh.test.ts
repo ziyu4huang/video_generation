@@ -146,7 +146,6 @@ describe("createGhClient (glue)", () => {
 		await expect(createGhClient(fn).mergeNow(9, "squash", true)).rejects.toThrow(/gh pr merge 9 .* failed .*2/);
 	});
 });
-
 describe("parseBranchVv", () => {
 	test("extracts name + gone marker, skips detached HEAD", () => {
 		const out = parseBranchVv([
@@ -333,9 +332,23 @@ describe("createBranchClient (glue)", () => {
 		expect(calls[0]).toEqual({ cmd: "git", args: ["branch", "-D", "feat/x"] });
 	});
 
+	test("deleteLocalBranch THROWS on a non-zero exit (surfaces stderr)", async () => {
+		const { fn } = rec([
+			{ match: (c, a) => c === "git" && a.includes("-D"), result: { stdout: "", stderr: "branch not found", exitCode: 1 } },
+		]);
+		await expect(createBranchClient(fn).deleteLocalBranch("feat/x")).rejects.toThrow(/git branch -D feat\/x failed .*1.*branch not found/);
+	});
+
 	test("deleteRemoteBranch issues git push origin --delete <name>", async () => {
 		const { fn, calls } = rec([]);
 		await createBranchClient(fn).deleteRemoteBranch("feat/x");
 		expect(calls[0]).toEqual({ cmd: "git", args: ["push", "origin", "--delete", "feat/x"] });
+	});
+
+	test("deleteRemoteBranch THROWS on a non-zero exit (surfaces stderr)", async () => {
+		const { fn } = rec([
+			{ match: (c, a) => c === "git" && a.includes("--delete"), result: { stdout: "", stderr: "remote rejected", exitCode: 1 } },
+		]);
+		await expect(createBranchClient(fn).deleteRemoteBranch("feat/x")).rejects.toThrow(/git push origin --delete feat\/x failed .*1.*remote rejected/);
 	});
 });
