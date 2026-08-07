@@ -1,5 +1,5 @@
 import type { Task, TaskAction, TaskMutationParams, TaskStatus } from "../tool/types";
-import { isTransitionValid } from "./invariants";
+import { isTransitionValid, validateReferentialIntegrity } from "./invariants";
 import type { TaskState } from "./state";
 import { detectCycle } from "./task-graph";
 
@@ -10,7 +10,7 @@ import { detectCycle } from "./task-graph";
 export type Op =
 	| { kind: "create"; taskId: number }
 	| { kind: "update"; id: number; fromStatus: TaskStatus; toStatus: TaskStatus }
-	| { kind: "delete"; id: number; subject: string }
+	| { kind: "delete"; id: number; subject: string; dependentsAffected?: number[] }
 	| { kind: "list"; statusFilter?: TaskStatus; includeDeleted: boolean }
 	| { kind: "get"; task: Task }
 	| { kind: "clear"; count: number }
@@ -154,12 +154,26 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 			if (idx === -1) return errorResult(state, `#${params.id} not found`);
 			const current = state.tasks[idx];
 			if (current.status === "deleted") return errorResult(state, `#${current.id} is already deleted`);
+
+			// First mark the task as deleted
 			const updated: Task = { ...current, status: "deleted" };
 			const newTasks = [...state.tasks];
 			newTasks[idx] = updated;
+
+			// Then prune the deleted id from all other tasks' blockedBy arrays
+			const { updatedTasks: prunedTasks, dependentsAffected } = validateReferentialIntegrity(
+				newTasks,
+				updated.id,
+			);
+
 			return {
-				state: { tasks: newTasks, nextId: state.nextId },
-				op: { kind: "delete", id: updated.id, subject: updated.subject },
+				state: { tasks: prunedTasks, nextId: state.nextId },
+				op: {
+					kind: "delete",
+					id: updated.id,
+					subject: updated.subject,
+					dependentsAffected: dependentsAffected.length > 0 ? dependentsAffected : undefined,
+				},
 			};
 		}
 
