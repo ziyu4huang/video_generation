@@ -154,7 +154,7 @@ export interface GoalOverlayQueue {
 }
 
 /**
- * One-line, theme-colored goal indicator for the above-editor widget:
+ * One-line, theme-colored goal indicator for the below-editor widget:
  *   🎯 goal active · 1m23s · iter 3  <dim objective…>  · ☰ 2/5 · ⚠1 parked
  *
  * The status WORD (goal active / goal paused / goal budget reached) is the

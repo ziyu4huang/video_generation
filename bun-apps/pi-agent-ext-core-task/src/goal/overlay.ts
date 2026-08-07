@@ -3,7 +3,7 @@
  *
  * As of the overlay-unification refactor this no longer owns a `setWidget`
  * lifecycle. The CoreTaskStatusWidget (shared/status-widget.ts) owns ONE
- * above-editor widget key and renders this section alongside the todo section
+ * below-editor widget key and renders this section alongside the todo section
  * in a fixed order. GoalOverlay is now a state-holder that exposes
  * `render(theme, width)` and pokes `refresh()` (the composite's update) when
  * its content changes.

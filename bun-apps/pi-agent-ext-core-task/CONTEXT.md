@@ -11,8 +11,8 @@ The ubiquitous language of pi-agent-ext-core-task — the `/goal` objective driv
 ### The composite widget
 
 **Composite status widget** (`CoreTaskStatusWidget`, key `pi-core-task`):
-A single above-editor widget rendering goal (top) + todo (bottom) in fixed order. The reason goal+todo share a package — splitting them across two extensions reintroduces a widget-key ordering flicker (the SDK orders widgets by Map insertion with no index API).
-_Avoid_: status bar, overlay (it is the composite goal+todo widget keyed for deterministic stacking)
+A single below-editor widget rendering sections in fixed order: goal **or** loop (order 0, mutually exclusive) + todo (1) + wayfind (2). The goal and loop sections share order 0 because only one is ever non-empty at a time (goal⇄loop mutual exclusion). The plan-coordinator section (order 3) is documented but not currently registered. The reason goal+todo share a package — splitting them across two extensions reintroduces a widget-key ordering flicker (the SDK orders widgets by Map insertion with no index API).
+_Avoid_: status bar, overlay (it is the composite widget keyed for deterministic stacking)
 
 ### Objective layer
 
@@ -34,6 +34,14 @@ _Avoid_: checklist, tasks (it is the in-session, branch-aware step tracker — s
 The command to view and manage the todo list.
 _Avoid_: task list
 
+**`/loop`**:
+The command that runs a goal queue in a loop — executes goals sequentially, advancing the queue head after each completion. Mutually exclusive with `/goal` (only one active at a time, enforced by the `__piGoalActive` coordination seam). Uses `LoopState` to track the queue, parked items, and head advances. Publishes `__piKickHeartbeat` for coordination.
+_Avoid_: repeat, batch (it is a goal queue runner with explicit pause/resume and parking controls)
+
+**`/list`**:
+The command that inspects and manipulates the goal queue — shows the queue state, reorders items, parks/unparks goals, and removes entries. The queue layer for `/loop`, exposing the same underlying `LoopState`. Used during review to manage the pending goal sequence.
+_Avoid_: show, display (it is a queue manipulation command, not just a viewer)
+
 ### Coordination
 
 **Coordination seam** (`globalThis.__piGoalActive`):
@@ -43,6 +51,19 @@ _Avoid_: hook, signal (it is a published globalThis reader for cross-extension t
 **Session-only todos**:
 Todos are SESSION-ONLY in-memory state. `session_start` resets to `EMPTY_STATE` — never replayed from the session branch, never seeded from disk plans. `session_compact` / `session_tree` do NOT replay either (in-memory todos survive naturally). Permanent task tracking lives in wayfind/superpowers plans & tickets; the session todo is a transient working scratchpad.
 _Avoid_: restore, persist, replay (todos are ephemeral session state, deliberately not reconstructed from history)
+
+**Plan-coordinator asymmetry (L13)**:
+The goal subsystem self-consumes the plan coordinator directly via internal calls (`planningGateBlocking()`, `planProgressLineFromPeer()`), while wayfind reads the same coordinator through published `__piPlan*` seams. This is intentional — goal needs immediate access to phase gating and progress, wayfind needs display-only coordination. The plan coordinator is a one-way publisher (core-task → wayfind); there is no "yielding" behavior or bidirectional handshake.
+_Avoid_: yield, handoff (it is a publish-consume pattern, not a state transfer)
+
+**Published coordination seams** (`__piPlan*`)**:
+Core-task publishes four coordination seams on `globalThis` for cross-extension communication:
+- `__piGoalActive`: reader for goal activity (consumed by `/loop` for mutual exclusion, power-tool's `inspect_tui` for display)
+- `__piPlanPhases`: returns the active plan's phase list (consumed by wayfind)
+- `__piPlanIncomplete`: returns whether the plan has incomplete phases (consumed by wayfind)
+- `__piPlanSummary`: returns a one-line progress summary (consumed by wayfind)
+All are one-way publishes from core-task; only wayfind (and `/loop` for `__piGoalActive`) reads them.
+_Avoid_: hook, signal (they are published globalThis readers, not event hooks)
 
 ## Language — ask_user_question
 
