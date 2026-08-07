@@ -49,13 +49,6 @@
       "bundleMode": "thin",
       "testGate": "cd bun-apps/pi-agent-ext-archify && bun test --isolate",
       "version": "0.1.0"
-    },
-    {
-      "name": "pi-agent-ext-picker",
-      "entry": "pi-agent-ext-picker/extensions/picker.ts",
-      "bundleMode": "thin",
-      "testGate": "cd bun-apps/pi-agent-ext-picker && bun test",
-      "version": "0.1.0"
     }
   ],
   "skills": [
