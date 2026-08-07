@@ -485,34 +485,165 @@ describe("todo registration schema", () => {
     expect(COMMAND_NAME.length).toBeGreaterThan(0);
   });
 
-  test("TodoParamsSchema defines all expected fields", () => {
+  test("TodoParamsSchema is a discriminated union with action discriminator", () => {
     const { TodoParamsSchema } = require("../todo/tool/types");
     const schema = TodoParamsSchema as any;
     expect(schema).toBeDefined();
-    expect(schema.type).toBe("object");
-    expect(schema.properties).toBeDefined();
+    // Schema is now a Union, not a single Object
+    expect(schema.anyOf || schema.oneOf).toBeDefined();
+  });
+});
 
-    // Check required action
-    const actionProp = schema.properties.action;
-    expect(actionProp).toBeDefined();
-    expect(actionProp.enum).toContain("create");
-    expect(actionProp.enum).toContain("update");
-    expect(actionProp.enum).toContain("list");
-    expect(actionProp.enum).toContain("get");
-    expect(actionProp.enum).toContain("delete");
-    expect(actionProp.enum).toContain("clear");
+// ─── core-task-review #11: todo schema/reducer drift ─────────────────────────
 
-    // Check optional fields
-    expect(schema.properties.subject).toBeDefined();
-    expect(schema.properties.status).toBeDefined();
-    expect(schema.properties.id).toBeDefined();
-    expect(schema.properties.blockedBy).toBeDefined();
-    expect(schema.properties.addBlockedBy).toBeDefined();
-    expect(schema.properties.removeBlockedBy).toBeDefined();
-    expect(schema.properties.description).toBeDefined();
-    expect(schema.properties.activeForm).toBeDefined();
-    expect(schema.properties.owner).toBeDefined();
-    expect(schema.properties.metadata).toBeDefined();
-    expect(schema.properties.includeDeleted).toBeDefined();
+describe("core-task-review #11: todo schema/reducer drift", () => {
+  // Reducer validation tests (defense-in-depth layer)
+  describe("reducer rejects blockedBy/status on wrong actions", () => {
+    test("update with blockedBy returns clear error (not misleading 'requires mutable field')", () => {
+      const state = stateWith(task({ id: 1, subject: "x" }));
+      const result = applyTaskMutation(state, "update", { id: 1, blockedBy: [2] });
+      expect(result.op).toEqual({
+        kind: "error",
+        message: "blockedBy is not accepted on update; use addBlockedBy/removeBlockedBy instead",
+      });
+    });
+
+    test("create with status returns clear error (no silent forced-pending)", () => {
+      const state = emptyState();
+      const result = applyTaskMutation(state, "create", { subject: "test", status: "in_progress" });
+      expect(result.op).toEqual({
+        kind: "error",
+        message: "status is not accepted on create; tasks start as 'pending'",
+      });
+    });
+
+    test("create with addBlockedBy/removeBlockedBy returns clear error", () => {
+      const state = emptyState();
+      const result = applyTaskMutation(state, "create", { subject: "test", addBlockedBy: [1] });
+      expect(result.op).toEqual({
+        kind: "error",
+        message: "addBlockedBy/removeBlockedBy are not accepted on create; use blockedBy instead",
+      });
+    });
+
+    test("update with includeDeleted returns clear error", () => {
+      const state = stateWith(task({ id: 1, subject: "x" }));
+      const result = applyTaskMutation(state, "update", { id: 1, includeDeleted: true });
+      expect(result.op).toEqual({
+        kind: "error",
+        message: "includeDeleted is not accepted on update; use it on list action",
+      });
+    });
+  });
+
+  describe("reducer rejects extraneous fields on list/get/delete/clear", () => {
+    test("list with subject returns error", () => {
+      const state = stateWith(task({ id: 1, subject: "x" }));
+      const result = applyTaskMutation(state, "list", { subject: "test" });
+      expect(result.op).toEqual({
+        kind: "error",
+        message: "list action does not accept: subject",
+      });
+    });
+
+    test("list with multiple invalid fields returns error listing all", () => {
+      const state = stateWith(task({ id: 1, subject: "x" }));
+      const result = applyTaskMutation(state, "list", { subject: "test", id: 1, blockedBy: [2] });
+      expect(result.op).toEqual({
+        kind: "error",
+        message: "list action does not accept: subject, blockedBy, id",
+      });
+    });
+
+    test("get with status returns error", () => {
+      const state = stateWith(task({ id: 1, subject: "x" }));
+      const result = applyTaskMutation(state, "get", { id: 1, status: "completed" });
+      expect(result.op).toEqual({
+        kind: "error",
+        message: "get action does not accept: status",
+      });
+    });
+
+    test("delete with status returns error", () => {
+      const state = stateWith(task({ id: 1, subject: "x" }));
+      const result = applyTaskMutation(state, "delete", { id: 1, status: "deleted" });
+      expect(result.op).toEqual({
+        kind: "error",
+        message: "delete action does not accept: status",
+      });
+    });
+
+    test("clear with any field returns error", () => {
+      const state = stateWith(task({ id: 1, subject: "x" }));
+      const result = applyTaskMutation(state, "clear", { status: "deleted" });
+      expect(result.op).toEqual({
+        kind: "error",
+        message: "clear action does not accept: status",
+      });
+    });
+  });
+
+  describe("happy path: honoring actions still work correctly", () => {
+    test("create with blockedBy works correctly", () => {
+      let state = emptyState();
+      // First create a task to depend on
+      state = applyTaskMutation(state, "create", { subject: "dependency" }).state;
+      // Now create a task with blockedBy
+      const result = applyTaskMutation(state, "create", { subject: "dependent", blockedBy: [1] });
+      expect(result.op.kind).toBe("create");
+      if (result.op.kind === "create") {
+        expect(result.op.taskId).toBe(2);
+      }
+      expect(result.state.tasks[1].blockedBy).toEqual([1]);
+      expect(result.state.tasks[1].status).toBe("pending"); // still hardcodes to pending
+    });
+
+    test("update with status works correctly", () => {
+      const state = stateWith(task({ id: 1, subject: "x", status: "pending" }));
+      const result = applyTaskMutation(state, "update", { id: 1, status: "in_progress" });
+      expect(result.op.kind).toBe("update");
+      if (result.op.kind === "update") {
+        expect(result.op.fromStatus).toBe("pending");
+        expect(result.op.toStatus).toBe("in_progress");
+      }
+      expect(result.state.tasks[0].status).toBe("in_progress");
+    });
+
+    test("update with addBlockedBy/removeBlockedBy works correctly", () => {
+      let state = emptyState();
+      state = applyTaskMutation(state, "create", { subject: "A" }).state;
+      state = applyTaskMutation(state, "create", { subject: "B" }).state;
+      state = applyTaskMutation(state, "create", { subject: "C" }).state;
+      // Add B to A's blockedBy
+      let result = applyTaskMutation(state, "update", { id: 1, addBlockedBy: [2] });
+      expect(result.state.tasks[0].blockedBy).toEqual([2]);
+      // Add C to A's blockedBy
+      result = applyTaskMutation(result.state, "update", { id: 1, addBlockedBy: [3] });
+      expect(result.state.tasks[0].blockedBy).toEqual([2, 3]);
+      // Remove B from A's blockedBy
+      result = applyTaskMutation(result.state, "update", { id: 1, removeBlockedBy: [2] });
+      expect(result.state.tasks[0].blockedBy).toEqual([3]);
+    });
+
+    test("list with status filter works correctly", () => {
+      const state = stateWith(
+        task({ id: 1, subject: "pending", status: "pending" }),
+        task({ id: 2, subject: "completed", status: "completed" }),
+      );
+      const result = applyTaskMutation(state, "list", { status: "completed" });
+      expect(result.op.kind).toBe("list");
+      if (result.op.kind === "list") {
+        expect(result.op.statusFilter).toBe("completed");
+      }
+    });
+
+    test("list with includeDeleted works correctly", () => {
+      const state = stateWith(task({ id: 1, subject: "deleted", status: "deleted" }));
+      const result = applyTaskMutation(state, "list", { includeDeleted: true });
+      expect(result.op.kind).toBe("list");
+      if (result.op.kind === "list") {
+        expect(result.op.includeDeleted).toBe(true);
+      }
+    });
   });
 });

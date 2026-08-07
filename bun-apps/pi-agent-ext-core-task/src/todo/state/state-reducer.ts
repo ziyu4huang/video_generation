@@ -31,6 +31,20 @@ function errorResult(state: TaskState, message: string): ApplyResult {
 export function applyTaskMutation(state: TaskState, action: TaskAction, params: TaskMutationParams): ApplyResult {
 	switch (action) {
 		case "create": {
+			// Defense-in-depth: reject fields not honored by create
+			if (params.status !== undefined) {
+				return errorResult(state, "status is not accepted on create; tasks start as 'pending'");
+			}
+			if (params.id !== undefined) {
+				return errorResult(state, "id is not accepted on create; id is auto-assigned");
+			}
+			if (params.addBlockedBy !== undefined || params.removeBlockedBy !== undefined) {
+				return errorResult(state, "addBlockedBy/removeBlockedBy are not accepted on create; use blockedBy instead");
+			}
+			if (params.includeDeleted !== undefined) {
+				return errorResult(state, "includeDeleted is not accepted on create; use it on list action");
+			}
+
 			if (!params.subject?.trim()) {
 				return errorResult(state, "subject required for create");
 			}
@@ -60,6 +74,14 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 		}
 
 		case "update": {
+			// Defense-in-depth: reject fields not honored by update
+			if (params.blockedBy !== undefined) {
+				return errorResult(state, "blockedBy is not accepted on update; use addBlockedBy/removeBlockedBy instead");
+			}
+			if (params.includeDeleted !== undefined) {
+				return errorResult(state, "includeDeleted is not accepted on update; use it on list action");
+			}
+
 			if (params.id === undefined) return errorResult(state, "id required for update");
 			const idx = state.tasks.findIndex((t) => t.id === params.id);
 			if (idx === -1) return errorResult(state, `#${params.id} not found`);
@@ -131,6 +153,21 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 		}
 
 		case "list": {
+			// Defense-in-depth: reject fields not honored by list
+			const invalidFields: string[] = [];
+			if (params.subject !== undefined) invalidFields.push("subject");
+			if (params.description !== undefined) invalidFields.push("description");
+			if (params.activeForm !== undefined) invalidFields.push("activeForm");
+			if (params.blockedBy !== undefined) invalidFields.push("blockedBy");
+			if (params.addBlockedBy !== undefined) invalidFields.push("addBlockedBy");
+			if (params.removeBlockedBy !== undefined) invalidFields.push("removeBlockedBy");
+			if (params.owner !== undefined) invalidFields.push("owner");
+			if (params.metadata !== undefined) invalidFields.push("metadata");
+			if (params.id !== undefined) invalidFields.push("id");
+			if (invalidFields.length > 0) {
+				return errorResult(state, `list action does not accept: ${invalidFields.join(", ")}`);
+			}
+
 			return {
 				state,
 				op: {
@@ -142,6 +179,22 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 		}
 
 		case "get": {
+			// Defense-in-depth: reject fields not honored by get
+			const invalidFields: string[] = [];
+			if (params.subject !== undefined) invalidFields.push("subject");
+			if (params.description !== undefined) invalidFields.push("description");
+			if (params.activeForm !== undefined) invalidFields.push("activeForm");
+			if (params.status !== undefined) invalidFields.push("status");
+			if (params.blockedBy !== undefined) invalidFields.push("blockedBy");
+			if (params.addBlockedBy !== undefined) invalidFields.push("addBlockedBy");
+			if (params.removeBlockedBy !== undefined) invalidFields.push("removeBlockedBy");
+			if (params.owner !== undefined) invalidFields.push("owner");
+			if (params.metadata !== undefined) invalidFields.push("metadata");
+			if (params.includeDeleted !== undefined) invalidFields.push("includeDeleted");
+			if (invalidFields.length > 0) {
+				return errorResult(state, `get action does not accept: ${invalidFields.join(", ")}`);
+			}
+
 			if (params.id === undefined) return errorResult(state, "id required for get");
 			const task = state.tasks.find((t) => t.id === params.id);
 			if (!task) return errorResult(state, `#${params.id} not found`);
@@ -149,6 +202,22 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 		}
 
 		case "delete": {
+			// Defense-in-depth: reject fields not honored by delete
+			const invalidFields: string[] = [];
+			if (params.subject !== undefined) invalidFields.push("subject");
+			if (params.description !== undefined) invalidFields.push("description");
+			if (params.activeForm !== undefined) invalidFields.push("activeForm");
+			if (params.status !== undefined) invalidFields.push("status");
+			if (params.blockedBy !== undefined) invalidFields.push("blockedBy");
+			if (params.addBlockedBy !== undefined) invalidFields.push("addBlockedBy");
+			if (params.removeBlockedBy !== undefined) invalidFields.push("removeBlockedBy");
+			if (params.owner !== undefined) invalidFields.push("owner");
+			if (params.metadata !== undefined) invalidFields.push("metadata");
+			if (params.includeDeleted !== undefined) invalidFields.push("includeDeleted");
+			if (invalidFields.length > 0) {
+				return errorResult(state, `delete action does not accept: ${invalidFields.join(", ")}`);
+			}
+
 			if (params.id === undefined) return errorResult(state, "id required for delete");
 			const idx = state.tasks.findIndex((t) => t.id === params.id);
 			if (idx === -1) return errorResult(state, `#${params.id} not found`);
@@ -178,6 +247,23 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 		}
 
 		case "clear": {
+			// Defense-in-depth: reject fields not honored by clear
+			const invalidFields: string[] = [];
+			if (params.subject !== undefined) invalidFields.push("subject");
+			if (params.description !== undefined) invalidFields.push("description");
+			if (params.activeForm !== undefined) invalidFields.push("activeForm");
+			if (params.status !== undefined) invalidFields.push("status");
+			if (params.blockedBy !== undefined) invalidFields.push("blockedBy");
+			if (params.addBlockedBy !== undefined) invalidFields.push("addBlockedBy");
+			if (params.removeBlockedBy !== undefined) invalidFields.push("removeBlockedBy");
+			if (params.owner !== undefined) invalidFields.push("owner");
+			if (params.metadata !== undefined) invalidFields.push("metadata");
+			if (params.id !== undefined) invalidFields.push("id");
+			if (params.includeDeleted !== undefined) invalidFields.push("includeDeleted");
+			if (invalidFields.length > 0) {
+				return errorResult(state, `clear action does not accept: ${invalidFields.join(", ")}`);
+			}
+
 			const count = state.tasks.length;
 			return {
 				state: { tasks: [], nextId: 1 },
