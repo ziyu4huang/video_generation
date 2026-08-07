@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, normalize } from "node:path";
 import { WORKFLOW_SETTINGS_FILE } from "../src/config.js";
 import {
+  getRateLimit,
   getWorkflowProjectSettingsPath,
   getWorkflowSettingsPath,
   loadWorkflowSettings,
@@ -212,5 +213,57 @@ describe("workflow settings", () => {
       writeFileSync(settingsPath, JSON.stringify({ defaultAgentTimeoutMs: -1 }), "utf-8");
       assert.deepEqual(loadWorkflowSettings(settingsPath), {});
     });
+  });
+
+  it("parses and clamps per-provider rateLimits", () => {
+    withSettingsPath((settingsPath) => {
+      mkdirSync(dirname(settingsPath), { recursive: true });
+
+      writeFileSync(
+        settingsPath,
+        JSON.stringify({ rateLimits: { zai: { maxConcurrent: 4.9 }, anthropic: { maxConcurrent: 2 } } }),
+        "utf-8",
+      );
+      assert.deepEqual(loadWorkflowSettings(settingsPath), {
+        rateLimits: { zai: { maxConcurrent: 4 }, anthropic: { maxConcurrent: 2 } },
+      });
+
+      // Above MAX_CONCURRENCY (16) clamps down.
+      writeFileSync(settingsPath, JSON.stringify({ rateLimits: { zai: { maxConcurrent: 99 } } }), "utf-8");
+      assert.deepEqual(loadWorkflowSettings(settingsPath), { rateLimits: { zai: { maxConcurrent: 16 } } });
+
+      // Below 1 / non-numeric entries are dropped; remaining valid entries survive.
+      writeFileSync(
+        settingsPath,
+        JSON.stringify({
+          rateLimits: { zai: { maxConcurrent: 0 }, anthropic: { maxConcurrent: "x" }, ok: { maxConcurrent: 3 } },
+        }),
+        "utf-8",
+      );
+      assert.deepEqual(loadWorkflowSettings(settingsPath), { rateLimits: { ok: { maxConcurrent: 3 } } });
+    });
+  });
+
+  it("treats missing/empty/invalid rateLimits as unset", () => {
+    withSettingsPath((settingsPath) => {
+      mkdirSync(dirname(settingsPath), { recursive: true });
+      for (const rateLimits of [undefined, {}, { zai: {} }, { zai: { maxConcurrent: -1 } }, "x", []]) {
+        writeFileSync(settingsPath, JSON.stringify({ rateLimits }), "utf-8");
+        assert.deepEqual(loadWorkflowSettings(settingsPath), {});
+      }
+    });
+  });
+
+  it("getRateLimit returns the clamped cap for a provider, else undefined", () => {
+    const settings = loadWorkflowSettings("/nonexistent/path/settings.json");
+    assert.equal(getRateLimit(settings, "zai"), undefined, "unset -> undefined (pass-through)");
+
+    const configured = {
+      rateLimits: { zai: { maxConcurrent: 4 }, anthropic: { maxConcurrent: 2 } },
+    };
+    assert.equal(getRateLimit(configured, "zai"), 4);
+    assert.equal(getRateLimit(configured, "anthropic"), 2);
+    assert.equal(getRateLimit(configured, "unknown"), undefined, "unknown provider -> pass-through");
+    assert.equal(getRateLimit(configured, undefined), undefined, "no provider -> pass-through");
   });
 });

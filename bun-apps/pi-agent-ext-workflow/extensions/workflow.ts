@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { setRateLimitCapResolver } from "@repo/pi-agent-ext-subagent";
 import { applyHostFnRegistration, HostFnRegistry } from "../src/host-fn-registry.js";
 import {
   buildWorkflowGuidelinesForTurn,
@@ -7,6 +8,7 @@ import {
   createWorkflowHelpTool,
   createWorkflowStorage,
   createWorkflowTool,
+  getRateLimit,
   installResultDelivery,
   installTaskPanel,
   installWorkflowEditor,
@@ -28,6 +30,12 @@ export default function extension(pi: ExtensionAPI) {
   const cwd = process.cwd();
   const storage = createWorkflowStorage(cwd);
   const settings = loadWorkflowSettings({ cwd });
+  // Register the rateLimits config resolver so BOTH this workflow's agent
+  // dispatch and the `subagents`/`subagent` tools (pi-agent-ext-subagent) share
+  // ONE per-provider concurrency budget. The resolver closes over the boot-time
+  // settings snapshot (mirrors defaultConcurrency handling); `undefined` for an
+  // unset provider means pass-through, so the cap is a no-op until configured.
+  setRateLimitCapResolver((provider) => getRateLimit(settings, provider));
   const manager = new WorkflowManager({
     cwd,
     loadSavedWorkflow: (name) => storage.load(name)?.script,
