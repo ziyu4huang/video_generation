@@ -56,12 +56,10 @@ _Avoid_: restore, persist, replay (todos are ephemeral session state, deliberate
 The goal subsystem self-consumes the plan coordinator directly via internal calls (`planningGateBlocking()`, `planProgressLineFromPeer()`), while wayfind reads the same coordinator through published `__piPlan*` seams. This is intentional — goal needs immediate access to phase gating and progress, wayfind needs display-only coordination. The plan coordinator is a one-way publisher (core-task → wayfind); there is no "yielding" behavior or bidirectional handshake.
 _Avoid_: yield, handoff (it is a publish-consume pattern, not a state transfer)
 
-**Published coordination seams** (`__piPlan*`)**:
-Core-task publishes four coordination seams on `globalThis` for cross-extension communication:
-- `__piGoalActive`: reader for goal activity (consumed by `/loop` for mutual exclusion, power-tool's `inspect_tui` for display)
-- `__piPlanPhases`: returns the active plan's phase list (consumed by wayfind)
-- `__piPlanIncomplete`: returns whether the plan has incomplete phases (consumed by wayfind)
-- `__piPlanSummary`: returns a one-line progress summary (consumed by wayfind)
+**Published coordination seams** (core-task → peers via `globalThis`):
+Core-task publishes four coordination seams for cross-extension communication:
+- **Goal-side:** `__piGoalActive` — `() => boolean` goal-activity reader; consumed by the in-package `/loop` subsystem (goal⇄loop mutual exclusion) and surfaced display-only by power-tool's `inspect_tui`.
+- **Plan-side (3):** `__piPlanPhases`, `__piPlanIncomplete`, `__piPlanSummary` — `(cwd) => …` readers of the active plan, all consumed by wayfind.
 All are one-way publishes from core-task; only wayfind (and `/loop` for `__piGoalActive`) reads them.
 _Avoid_: hook, signal (they are published globalThis readers, not event hooks)
 
