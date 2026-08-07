@@ -15,13 +15,25 @@
  *   - "pull":   fetch → merge origin/<D> into the current branch (a REAL merge,
  *               `--no-ff` so it never fast-forwards — per spec).
  *
+ * SAFETY (full-mode default-branch advance, hardening follow-up to PR #1066):
+ * the DEFAULT is now `git merge --ff-only origin/<D>` — matching the original
+ * bash `pull --ff-only` "never lose commits" guarantee. Since we already
+ * fetched, `merge --ff-only` is preferred over `pull` (no double-fetch). If
+ * local <D> has divergent/unpushed commits, the fast-forward REFUSES (git exits
+ * non-zero) and the recipe ABORTS with `{ aborted: true, reason: "divergent",
+ * defaultBranch, hint }` — zero mutation of <D>. The destructive
+ * `git reset --hard origin/<D>` (which discards those divergent commits) is
+ * reachable ONLY via an explicit `force: true` opt-in (warned in the result).
+ *
  * Pre-flight (all modes): an uncommitted (dirty) tracked tree aborts every
  * MUTATING run (matches the bash `need_clean_tree` gate); unpushed commits are
- * surfaced as warnings only (full mode's reset --hard on the default branch
- * would discard them, hence the loud warning). dryRun computes + returns the
- * exact git commands without spawning a single mutating op — read-only queries
- * (default-branch detection, worktree list, from/to SHAs, clean/ahead checks)
- * still run, so the dry-run plan + warnings are accurate.
+ * surfaced as warnings only — in default full-mode they foreshadow the abort;
+ * under force:true they precede a reset --hard that discards them. dryRun
+ * computes + returns the exact git commands without spawning a single mutating
+ * op — read-only queries (default-branch detection, worktree list, from/to
+ * SHAs, clean/ahead checks) still run, so the dry-run plan + warnings are
+ * accurate. (rebase/pull modes are UNCHANGED — they already reconcile divergence
+ * via rebase/merge and never use reset --hard.)
  *
  * Every MUTATING git call funnels through the injected `SpawnFn` (the same seam
  * ci-recipe/recipe use); read-only git queries go through the injected
@@ -30,11 +42,13 @@
  * fakes — no real git / filesystem — mirroring how runLocalCi is tested.
  *
  * Bash parity notes (deliberate deviations, ticket 02 scope):
- *   - full-mode default-branch advance uses `git reset --hard origin/<D>` (per
- *     the tool spec) rather than the bash `pull --ff-only`. The default branch
- *     is a pristine origin mirror by repo convention, and the result's
- *     `from`/`to` make any discarded commits visible; unpushed commits on <D>
- *     are warned pre-flight.
+ *   - full-mode default-branch advance now matches the bash `pull --ff-only`
+ *     safety: DEFAULT is `git merge --ff-only origin/<D>` (we already fetched,
+ *     so merge --ff-only over pull avoids a double-fetch), which REFUSES when
+ *     local <D> has divergent/unpushed commits (never loses commits — aborts
+ *     with reason "divergent" + a force hint). The destructive
+ *     `git reset --hard origin/<D>` is gated behind `force:true` (opt-in;
+ *     discards divergent commits, warned).
  *   - submodule sync (full only) uses `submodule update --remote --recursive`
  *     to advance every submodule to its configured remote tip, rather than the
  *     bash per-submodule `foreach checkout-default + pull` snippet (same effect
@@ -76,6 +90,28 @@ export interface SyncSubmodule {
 	clean: boolean;
 }
 
+/**
+ * Structured abort descriptor. Present (with `aborted: true`) whenever a
+ * mutating mode REFUSED to run — a dirty tree, a divergent default branch (full
+ * default mode), a failed checkout/rebase/merge, etc. Never thrown: every
+ * refusal surfaces here so the caller (extension/tool) renders a clean block
+ * outcome (mirrors runMergeRecipe's throw-free discipline).
+ */
+export interface SyncAbort {
+	/** Always true — discriminator (present only on an aborted run). */
+	aborted: true;
+	/** Machine reason: "aborted_before_start" | "dirty_tree" | "no_origin_ref"
+	 *  | "checkout_failed" | "merge_ff_failed" (→ "divergent") | "reset_failed"
+	 *  | "detached_head" | "rebase_failed" | "merge_failed". */
+	reason: string;
+	/** Human-readable summary (what happened + immediate remediation). */
+	message: string;
+	/** The default branch, when relevant to the reason (divergent). */
+	defaultBranch?: string;
+	/** Actionable hint, when relevant (divergent → force:true). */
+	hint?: string;
+}
+
 export interface SyncOutcome {
 	mode: SyncMode;
 	dryRun: boolean;
@@ -90,8 +126,8 @@ export interface SyncOutcome {
 	/** Every git command issued, rendered runnable (`git -C "<dir>" <args>`).
 	 *  Always populated; the primary output under dryRun. */
 	commands: string[];
-	/** Set (with a reason) when a mutating mode refused to run (dirty tree, etc.). */
-	aborted?: string;
+	/** Set when a mutating mode refused to run (dirty tree, divergent, …). */
+	aborted?: SyncAbort;
 	elapsedMs: number;
 }
 
@@ -101,6 +137,13 @@ export interface SyncOptions {
 	repoRoot: string;
 	mode?: SyncMode;
 	dryRun?: boolean;
+	/**
+	 * full-mode ONLY — explicit opt-in to the destructive path. When false
+	 * (default), advance the default branch with `merge --ff-only` and REFUSE if
+	 * it has diverged (never loses commits). When true, use `reset --hard
+	 * origin/<D>` (discards divergent commits). Ignored by rebase/pull.
+	 */
+	force?: boolean;
 	signal?: AbortSignal;
 }
 
@@ -115,13 +158,15 @@ function trim(s: string): string {
 
 /**
  * Run the sync recipe. Never throws — every failure (dirty tree, missing ref,
- * failed reset/rebase/merge) surfaces as `aborted` + `warnings` in the
- * structured outcome (mirrors runMergeRecipe's throw-free discipline).
+ * divergent default branch, failed reset/rebase/merge) surfaces as a structured
+ * `aborted` descriptor + `warnings` in the outcome (mirrors runMergeRecipe's
+ * throw-free discipline).
  */
 export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 	const t0 = Date.now();
 	const mode: SyncMode = opts.mode ?? "full";
 	const dry = opts.dryRun === true;
+	const force = opts.force === true;
 	const { client, spawn, repoRoot } = opts;
 	const commands: string[] = [];
 	const warnings: string[] = [];
@@ -146,7 +191,7 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		D = "main";
 		warnings.push("could not detect default branch via origin/HEAD; falling back to 'main'.");
 	}
-	const outcome = (aborted?: string): SyncOutcome => ({
+	const outcome = (aborted?: SyncAbort): SyncOutcome => ({
 		mode,
 		dryRun: dry,
 		defaultBranch: D,
@@ -160,7 +205,7 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 
 	if (opts.signal?.aborted) {
 		warnings.push("aborted before start.");
-		return outcome("aborted before start");
+		return outcome({ aborted: true, reason: "aborted_before_start", message: "aborted before start." });
 	}
 
 	const current = await client.currentBranch();
@@ -173,8 +218,10 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 	}
 	const dab = await client.aheadBehind(`origin/${D}`, D);
 	if (dab.ahead > 0) {
+		// In default full-mode these commits block the fast-forward (the recipe
+		// aborts below); under force:true they're discarded by reset --hard.
 		warnings.push(
-			`default branch '${D}' is ${dab.ahead} commit(s) ahead of origin/${D} (unpushed) — full mode's reset --hard would discard them.`,
+			`default branch '${D}' is ${dab.ahead} commit(s) ahead of origin/${D} (unpushed) — full mode's fast-forward will refuse them; force:true discards them via reset --hard.`,
 		);
 	}
 
@@ -188,13 +235,17 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		const needCheckout = !defaultWt; // <D> checked out nowhere → claim it here
 		const advanceTarget = defaultWt ?? repoRoot;
 
-		// Pre-flight: the worktree holding <D> must be clean (reset --hard on a
-		// dirty tree would lose staged/unstaged tracked work). Warn always; abort
-		// only when actually mutating.
+		// Pre-flight: the worktree holding <D> must be clean (both merge --ff-only
+		// and reset --hard on a dirty tree risk losing staged/unstaged tracked
+		// work). Warn always; abort only when actually mutating.
 		const clean = await client.isClean(advanceTarget);
 		if (!clean) warnings.push(`worktree '${advanceTarget}' has uncommitted tracked changes.`);
 		if (!dry && !clean) {
-			return outcome(`dirty tree at ${advanceTarget}; aborting before fetch (stash or commit first).`);
+			return outcome({
+				aborted: true,
+				reason: "dirty_tree",
+				message: `dirty tree at ${advanceTarget}; aborting before fetch (stash or commit first).`,
+			});
 		}
 
 		// 4. Fetch (mutating; skipped under dryRun).
@@ -204,26 +255,50 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		const to = await client.revParse(`origin/${D}`);
 		if (!to) {
 			warnings.push(`cannot resolve origin/${D} — is remote 'origin' fetched?`);
-			return outcome(`cannot resolve origin/${D}`);
+			return outcome({ aborted: true, reason: "no_origin_ref", message: `cannot resolve origin/${D}` });
 		}
 
-		// 6. If <D> was free, check it out here first; then advance (reset --hard).
+		// 6. If <D> was free, check it out here first; then advance it.
 		if (needCheckout) {
 			const co = await git(repoRoot, ["checkout", D]);
 			if (co.exitCode !== 0) {
 				warnings.push(`git checkout ${D} failed: ${trim(co.stderr || co.stdout)}`);
-				return outcome(`checkout ${D} failed`);
+				return outcome({ aborted: true, reason: "checkout_failed", message: `checkout ${D} failed` });
 			}
 		}
 		const from = (await client.revParse(D)) ?? "";
-		const reset = await git(advanceTarget, ["reset", "--hard", `origin/${D}`]);
-		if (reset.exitCode !== 0) {
-			warnings.push(`reset --hard failed: ${trim(reset.stderr || reset.stdout)}`);
-			return outcome(`reset --hard origin/${D} failed`);
+
+		if (force) {
+			// 7a. DESTRUCTIVE (opt-in): reset --hard origin/<D> — discards any
+			//     divergent/unpushed commits on <D>. Warned in the result.
+			const reset = await git(advanceTarget, ["reset", "--hard", `origin/${D}`]);
+			if (reset.exitCode !== 0) {
+				warnings.push(`reset --hard failed: ${trim(reset.stderr || reset.stdout)}`);
+				return outcome({ aborted: true, reason: "reset_failed", message: `reset --hard origin/${D} failed` });
+			}
+			warnings.push(
+				`force:true — used 'git reset --hard origin/${D}', which discards any divergent/unpushed commits on '${D}'.`,
+			);
+		} else {
+			// 7b. SAFE DEFAULT: merge --ff-only. We already fetched, so this avoids
+			//     pull's double-fetch. git REFUSES (exit non-zero) when local <D>
+			//     has divergent/unpushed commits — so the fast-forward can NEVER
+			//     lose a commit. On refusal, abort (no reset, no submodule sync)
+			//     and tell the caller exactly how to force the destructive path.
+			const ff = await git(advanceTarget, ["merge", "--ff-only", `origin/${D}`]);
+			if (ff.exitCode !== 0) {
+				return outcome({
+					aborted: true,
+					reason: "divergent",
+					defaultBranch: D,
+					message: `default branch '${D}' has commits not on origin/${D}; refusing to fast-forward.`,
+					hint: `default branch '${D}' has commits not on origin/${D}; refusing to fast-forward. Re-run with force:true to reset --hard (discards those local commits).`,
+				});
+			}
 		}
 		advanced.push({ worktree: advanceTarget, branch: D, from, to });
 
-		// 7. Verify local <D> now equals origin/<D> (the bash verify_default_at_latest
+		// 8. Verify local <D> now equals origin/<D> (the bash verify_default_at_latest
 		//    guard — turns a silent skipped-advance into a loud warning).
 		if (!dry) {
 			const localD = await client.revParse(D);
@@ -232,7 +307,7 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 			}
 		}
 
-		// 8. Recursive submodule sync (full only): fetch each, advance every
+		// 9. Recursive submodule sync (full only): fetch each, advance every
 		//    submodule to its configured remote tip, reconcile paths, then report.
 		await git(repoRoot, ["submodule", "foreach", "--recursive", "git", "fetch", "--all", "--prune"]);
 		await git(repoRoot, ["submodule", "update", "--init", "--recursive", "--remote"]);
@@ -247,12 +322,16 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 	// --- REBASE / PULL (the current branch with origin/<D>) ------------------
 	if (!current || current === "HEAD") {
 		warnings.push("detached HEAD — cannot rebase/merge a detached worktree.");
-		return outcome("detached HEAD; cannot advance a detached worktree");
+		return outcome({ aborted: true, reason: "detached_head", message: "detached HEAD; cannot advance a detached worktree" });
 	}
 	const clean = await client.isClean(repoRoot);
 	if (!clean) warnings.push(`worktree '${repoRoot}' has uncommitted tracked changes.`);
 	if (!dry && !clean) {
-		return outcome(`dirty tree at ${repoRoot}; aborting before fetch (stash or commit first).`);
+		return outcome({
+			aborted: true,
+			reason: "dirty_tree",
+			message: `dirty tree at ${repoRoot}; aborting before fetch (stash or commit first).`,
+		});
 	}
 
 	await git(repoRoot, ["fetch", "origin"]);
@@ -260,7 +339,7 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 	const remoteTip = await client.revParse(`origin/${D}`);
 	if (!remoteTip) {
 		warnings.push(`cannot resolve origin/${D} — is remote 'origin' fetched?`);
-		return outcome(`cannot resolve origin/${D}`);
+		return outcome({ aborted: true, reason: "no_origin_ref", message: `cannot resolve origin/${D}` });
 	}
 	const from = (await client.revParse("HEAD")) ?? "";
 
@@ -268,14 +347,14 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		const r = await git(repoRoot, ["rebase", `origin/${D}`]);
 		if (r.exitCode !== 0) {
 			warnings.push(`rebase failed: ${trim(r.stderr || r.stdout)}`);
-			return outcome(`rebase onto origin/${D} failed (resolve conflicts, then re-run).`);
+			return outcome({ aborted: true, reason: "rebase_failed", message: `rebase onto origin/${D} failed (resolve conflicts, then re-run).` });
 		}
 	} else {
 		// pull → real merge, never fast-forward (per spec: "merge instead of ff").
 		const r = await git(repoRoot, ["merge", "--no-edit", "--no-ff", `origin/${D}`]);
 		if (r.exitCode !== 0) {
 			warnings.push(`merge failed: ${trim(r.stderr || r.stdout)}`);
-			return outcome(`merge origin/${D} failed (resolve conflicts, then re-run).`);
+			return outcome({ aborted: true, reason: "merge_failed", message: `merge origin/${D} failed (resolve conflicts, then re-run).` });
 		}
 	}
 	const after = (await client.revParse("HEAD")) ?? "";
