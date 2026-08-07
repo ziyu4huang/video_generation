@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { runGoalCompletionAuditor, AUDIT_MAX_RETRIES, AUDIT_HISTORY_CAP, AUDITOR_STALL_MS } from "../auditor.js";
 import type { ActiveGoal } from "../format.js";
 import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
+import { ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 function makeGoal(overrides: Partial<ActiveGoal> = {}): ActiveGoal {
 	return { id: "g1", text: "ship feature X", status: "active", startedAt: 0, updatedAt: 0,
@@ -110,6 +112,39 @@ describe("runGoalCompletionAuditor — safety floors", () => {
 		});
 		expect(r.error).toContain("no model");
 	});
+	test("ModelRuntime unavailable (missing runtime field) → returns clear error, no crash", async () => {
+		// Simulate a pi version that renamed the 'runtime' field.
+		// The auditor should return a clear error, not crash with a vague failure.
+		const r = await runGoalCompletionAuditor({
+			ctx: { cwd: "/repo", model: "m", modelRegistry: {} } as any, // No 'runtime' field
+			goal: makeGoal(),
+		});
+		expect(r.approved).toBe(false);
+		expect(r.disapproved).toBe(false);
+		expect(r.output).toBe("");
+		expect(r.error).toBe("ModelRegistry.runtime unavailable on this pi version — completion auditor disabled");
+	});
+	test("ModelRuntime unavailable (null modelRegistry) → returns clear error, no crash", async () => {
+		const r = await runGoalCompletionAuditor({
+			ctx: { cwd: "/repo", model: "m", modelRegistry: null } as any,
+			goal: makeGoal(),
+		});
+		expect(r.approved).toBe(false);
+		expect(r.disapproved).toBe(false);
+		expect(r.output).toBe("");
+		expect(r.error).toBe("ModelRegistry.runtime unavailable on this pi version — completion auditor disabled");
+	});
+	test("ModelRuntime present → auditor runs normally (happy path unchanged)", async () => {
+		// Verify that when runtime is available, behavior is unchanged from before.
+		const r = await runGoalCompletionAuditor({
+			ctx: { cwd: "/repo", model: "anthropic/claude-sonnet-4", modelRegistry: { runtime: {} } } as any,
+			goal: makeGoal(),
+			completionSummary: "done",
+			sessionFactory: async () => ({ session: fakeSession({ output: "looks good\n<approved/>", toolCalls: ["read"] }) } as any),
+		});
+		expect(r.approved).toBe(true);
+		expect(r.error).toBeUndefined();
+	});
 	test("stall (no activity > AUDITOR_STALL_MS) → abort → error, not a verdict", async () => {
 		// The runner hardcodes a 15s watchdog cadence and reads Date.now() to
 		// detect inactivity. To exercise the stall branch without waiting 10 real
@@ -157,5 +192,40 @@ describe("runGoalCompletionAuditor — safety floors", () => {
 	test("constants exported", () => {
 		expect(AUDIT_MAX_RETRIES).toBe(3);
 		expect(AUDIT_HISTORY_CAP).toBe(8);
+	});
+});
+
+describe("contract: ModelRegistry.runtime field (guard against silent pi rename)", () => {
+	/** Minimal ModelRuntime stub that no-ops all method calls.
+	 *  ModelRegistry's constructor stores the runtime without calling methods,
+	 *  so a Proxy is sufficient for the contract test. If pi changes the
+	 *  constructor to invoke runtime methods, this stub will need expansion. */
+	function createStubRuntime(): ModelRuntime {
+		return new Proxy({} as unknown as ModelRuntime, {
+			get(_target, prop) {
+				// Return no-op functions for method calls, empty objects for getters
+				if (typeof prop === "string" && prop !== "constructor" && prop !== "prototype") {
+					return () => ({});
+				}
+				return undefined;
+			},
+		});
+	}
+
+	test("contract: ModelRegistry still exposes the 'runtime' field the auditor casts to (guard against silent pi rename)", () => {
+		// Create a real ModelRegistry from the pi package with a minimal stub runtime.
+		// If pi's constructor ever calls methods on the runtime at construction time,
+		// the stub Proxy will handle it (no-ops all calls). If pi renames the
+		// 'runtime' field, the cast below yields undefined and the test fails.
+		const stubRuntime = createStubRuntime();
+		const registry = new ModelRegistry(stubRuntime);
+
+		// This is the SAME cast the auditor uses (via extractModelRuntime).
+		// If pi renamed 'runtime' to something else, this becomes undefined.
+		const extractedRuntime = (registry as unknown as { runtime: ModelRuntime }).runtime;
+
+		// Identity check: the extracted runtime MUST be the same instance we passed in.
+		// A rename would make this undefined and the assertion fails.
+		expect(extractedRuntime).toBe(stubRuntime);
 	});
 });
