@@ -1,7 +1,7 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
 import type { InFlightSubagent } from "../src/index.js";
-import { SubagentContextWidget } from "../src/subagent-context-widget.js";
+import { isCtrlO, SubagentContextWidget } from "../src/subagent-context-widget.js";
 
 // Identity theme so render() returns plain text we can assert on (mirrors the
 // old subagent-progress-widget.test.ts).
@@ -101,6 +101,30 @@ test("toggle() flips back to collapsed", () => {
   assert.equal(w.isExpanded(), false);
   const out = w.render(T).join("\n");
   assert.ok(!out.includes("→ read"), "collapsed again hides the trace");
+});
+
+// --- ticket 03: Ctrl-O (0x0F) detection for the onTerminalInput handler ---
+
+test("isCtrlO detects the bare Ctrl-O control byte (0x0F)", () => {
+  // Ctrl-O is the C0 control byte 0x0F (charCode 15); a real terminal sends
+  // exactly "\x0f" for a Ctrl-O keypress.
+  assert.equal(isCtrlO("\x0f"), true);
+});
+
+test("isCtrlO detects Ctrl-O co-occurring with other bytes in the chunk", () => {
+  // Terminals may batch a Ctrl-O with adjacent bytes; substring detection must
+  // still trigger so the toggle isn't missed.
+  assert.equal(isCtrlO("ab\x0fcd"), true);
+});
+
+test("isCtrlO is false for ordinary input (letters, arrows, other control bytes)", () => {
+  assert.equal(isCtrlO("hello"), false);
+  assert.equal(isCtrlO(""), false);
+  // Other Ctrl-letter bytes must NOT trigger (Ctrl-M=0x0d, Ctrl-N=0x0e).
+  assert.equal(isCtrlO("\x0d"), false);
+  assert.equal(isCtrlO("\x0e"), false);
+  // A common escape sequence (arrow key) must not trigger.
+  assert.equal(isCtrlO("\x1b[A"), false);
 });
 
 test("the count header documents the /subagents drill-down", () => {

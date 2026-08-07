@@ -7,7 +7,7 @@ import {
   getSubagentInFlightRegistry,
   getSubagentRunPersistence,
 } from "../src/index.js";
-import { installSubagentContextWidget } from "../src/subagent-context-widget.js";
+import { installSubagentContextWidget, isCtrlO } from "../src/subagent-context-widget.js";
 import { createSubagentsCommand } from "../src/subagents-command.js";
 
 /**
@@ -104,7 +104,25 @@ export default function extension(pi: ExtensionAPI) {
     // (the current turn's subagent/subagents call lines register `foreground:
     // true` and are excluded). Invisible when idle. Replaces the old
     // below-editor progress widget; drill-down via `/subagents`.
-    installSubagentContextWidget(ctx.ui, { registry: inFlight });
+    const widgetHandle = installSubagentContextWidget(ctx.ui, { registry: inFlight });
+    // Ctrl-O toggles the box's expanded/collapsed state. Ctrl-O is the RESERVED
+    // `app.tools.expand` keybinding, so pi.registerShortcut CANNOT claim it
+    // (silently rejected) — the raw ctx.ui.onTerminalInput hook bypasses the
+    // reserved list. We return { consume: false } so the 0x0F byte ALSO reaches
+    // the editor, where the default `app.tools.expand` action (setToolsExpanded)
+    // fires: Ctrl-O therefore expands/collapses BOTH the box and the inline
+    // tool output together ("show all detail"). Verified in the pi-tui host:
+    // handleTerminalInput runs inputListeners first and only stops when a
+    // listener returns consume:true — a non-consuming return lets the byte
+    // proceed to the focused component's handleInput (the keybinding path).
+    // onTerminalInput is interactive-mode only; RPC/print hosts stub it — guard
+    // for robustness against partial-ui mocks.
+    if (ctx.ui && typeof ctx.ui.onTerminalInput === "function") {
+      ctx.ui.onTerminalInput((data) => {
+        if (isCtrlO(data)) widgetHandle.toggle();
+        return { consume: false };
+      });
+    }
     const extTools = (pi as unknown as { getAllToolDefinitions?: () => ToolDefinition[] }).getAllToolDefinitions?.();
     if (extTools?.length) {
       extensionToolsHolder.current = extTools;
