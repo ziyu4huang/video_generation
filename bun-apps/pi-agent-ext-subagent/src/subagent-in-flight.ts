@@ -11,10 +11,15 @@
 import type { AgentHistoryEntry } from "./agent-history.js";
 
 export interface InFlightSubagent {
-  /** The toolCallId (unique per dispatch). */
+  /** The toolCallId (unique per dispatch). For a workflow run, the prefixed
+   *  workflow runId ("wf:<runId>") — distinct from any subagent toolCallId. */
   id: string;
   agent?: string;
-  model: string;
+  /** The requested model/tier/capability slot. Omitted for a workflow run, which
+   *  aggregates agents across models and therefore has no single model — the
+   *  context box renders a workflow-specific header; /subagents omits the model
+   *  segment for entries without one (decision 03 = b2). */
+  model?: string;
   /** Concrete provider/id once the child resolves its model (onModelResolved).
    * Undefined until resolution — the call line shows tier/model-request until then. */
   resolvedModel?: string;

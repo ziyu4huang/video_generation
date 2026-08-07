@@ -141,3 +141,23 @@ test("start coerces an explicit foreground:undefined back to false", () => {
   reg.start({ id: "a", model: "x", taskPreview: "t", startedAt: 0, foreground: undefined });
   assert.equal(reg.get("a")?.foreground, false);
 });
+
+test("start accepts an entry with no model (a workflow run aggregates agents across models)", () => {
+  // Decision 03 = b2: a workflow run registers with agent="workflow" and NO
+  // model — it has no single model. The context box renders a workflow-specific
+  // header; /subagents omits the model segment for entries without one.
+  const reg = new SubagentInFlightRegistry();
+  reg.start({
+    id: "wf:r1",
+    agent: "workflow",
+    taskPreview: "preview_wf · Scan · 1/2 agents",
+    startedAt: 0,
+    foreground: false,
+  });
+  const entry = reg.get("wf:r1");
+  assert.ok(entry);
+  assert.equal(entry.model, undefined, "model is optional — a workflow run omits it");
+  assert.equal(entry.agent, "workflow");
+  assert.equal(entry.foreground, false);
+  assert.equal(entry.taskPreview, "preview_wf · Scan · 1/2 agents");
+});

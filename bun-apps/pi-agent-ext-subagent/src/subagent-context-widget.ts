@@ -82,6 +82,19 @@ export class SubagentContextWidget {
    *  `formatSubagentLive` — the SAME formatting helpers as the inline surface,
    *  just a different render slot. */
   private renderRun(r: InFlightSubagent, theme: Theme): string[] {
+    // Workflow runs (decision 03 = b2) register into the same registry so they
+    // surface here and in /subagents. They don't fit the subagent-shaped
+    // model/agent slots (a workflow aggregates agents across models), so render
+    // a workflow-specific header. The taskPreview already encodes
+    // "<name> · <phase> · k/N agents" (set by WorkflowManager). Collapsed only
+    // — no live tool trace; /subagents stays the drill-down for the per-agent
+    // trace. Full rendering polish is a follow-up (ticket 02 deferred prize).
+    if (r.agent === "workflow") {
+      const wfHeader = [theme.bold(theme.fg("toolTitle", "workflow")), theme.fg("dim", `"${r.taskPreview}"`)].join(
+        " ▸ ",
+      );
+      return [`${INDENT}${wfHeader}`];
+    }
     const header = renderSubagentCall(
       { agent: r.agent, model: r.model, task: r.taskPreview, resolvedModel: r.resolvedModel },
       theme,

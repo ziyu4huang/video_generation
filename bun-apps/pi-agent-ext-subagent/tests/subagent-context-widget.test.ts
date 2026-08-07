@@ -120,3 +120,29 @@ test("a background run with NO history still renders its header (pre-first-tool-
   const expanded = w.render(T).join("\n");
   assert.ok(!expanded.includes("tool call"), "no trace fabricated from empty history");
 });
+
+test("(Stage B) a workflow run (agent='workflow') renders under a workflow-specific header", () => {
+  // Decision 03 = b2: workflow runs register into the same registry. They don't
+  // fit the subagent-shaped model/agent slots (a workflow aggregates agents
+  // across models), so the box renders a workflow-specific header line and
+  // leaves the per-agent trace to /subagents (collapsed, no fabricated trace).
+  const w = new SubagentContextWidget({
+    getRunning: () => [
+      run({
+        id: "wf:r1",
+        agent: "workflow",
+        model: undefined,
+        taskPreview: "preview_wf · Scan · 1/2 agents",
+        foreground: false,
+        history: [],
+      }),
+    ],
+  });
+  const out = w.render(T).join("\n");
+  assert.match(out, /1 background/, "the workflow run is counted as a background run");
+  assert.ok(out.includes("workflow"), "header shows the workflow title, not 'subagent'");
+  assert.ok(out.includes("preview_wf · Scan · 1/2 agents"), "header shows the workflow preview");
+  assert.ok(!out.includes("flash"), "no subagent model slot for a workflow entry");
+  // Collapsed by default — no fabricated live trace for a workflow.
+  assert.ok(!out.includes("→ read"), "no live trace line for a workflow entry");
+});
