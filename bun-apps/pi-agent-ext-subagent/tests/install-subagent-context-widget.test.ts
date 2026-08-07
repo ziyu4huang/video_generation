@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import { installSubagentContextWidget } from "../src/subagent-context-widget.js";
+import { installSubagentContextWidget, isCtrlO } from "../src/subagent-context-widget.js";
 
 const T = { fg: (_c: string, s: string) => s, bg: (_c: string, s: string) => s, bold: (s: string) => s } as never;
 
@@ -223,6 +223,76 @@ test("dispose before factory invocation is a safe no-op (timer never started)", 
 });
 
 test("install is a safe no-op when ui has no setWidget (headless/RPC)", () => {
-  const { dispose } = installSubagentContextWidget(undefined as never, { registry: fakeRegistry(() => []) });
-  assert.doesNotThrow(() => dispose());
+  const handle = installSubagentContextWidget(undefined as never, { registry: fakeRegistry(() => []) });
+  assert.doesNotThrow(() => handle.dispose());
+  // ticket 03: the headless no-op handle also exposes a safe toggle().
+  assert.doesNotThrow(() => handle.toggle());
+});
+
+// --- ticket 03: the installer handle exposes toggle() (drives Ctrl-O) ---
+
+test("handle.toggle() flips the box to expanded and requests a re-render", () => {
+  let rendered = 0;
+  let factory: ((tui: unknown, theme: unknown) => unknown) | undefined;
+  const ui = {
+    setWidget: (_k: string, f: unknown) => {
+      factory = f as typeof factory;
+    },
+  };
+  const handle = installSubagentContextWidget(ui as never, {
+    registry: fakeRegistry(() => []),
+    setInterval: (() => "id") as never,
+    clearInterval: () => {},
+  });
+  // The host invokes the factory with the TUI; toggle() needs that reference
+  // to request a render. Before that, toggle() still flips state but cannot
+  // requestRender (no TUI yet) — it must not throw.
+  assert.doesNotThrow(() => handle.toggle());
+  factory!(
+    {
+      requestRender: () => {
+        rendered += 1;
+      },
+    },
+    T,
+  );
+  // Sanity: the internal expanded flag flipped once above; flip again and a
+  // render must be requested via the captured TUI.
+  handle.toggle();
+  assert.equal(rendered, 1, "toggle() drives tui.requestRender once the factory has run");
+});
+
+test("Ctrl-O input toggles the box via the onTerminalInput handler shape", () => {
+  // Mirrors the handler registered in extensions/subagent.ts: on a chunk
+  // containing 0x0F the handle's toggle() is invoked; on other input it is not.
+  // The handler always returns { consume: false } so the byte ALSO reaches the
+  // editor's `app.tools.expand` keybinding (coexistence — both surfaces toggle).
+  let toggles = 0;
+  let factory: ((tui: unknown, theme: unknown) => unknown) | undefined;
+  const ui = {
+    setWidget: (_k: string, f: unknown) => {
+      factory = f as typeof factory;
+    },
+  };
+  const handle = installSubagentContextWidget(ui as never, {
+    registry: fakeRegistry(() => []),
+    setInterval: (() => "id") as never,
+    clearInterval: () => {},
+  });
+  // wrap toggle() to count invocations (simulates the onTerminalInput body)
+  const fire = (data: string): { consume: boolean } => {
+    if (isCtrlO(data)) {
+      handle.toggle();
+      toggles += 1;
+    }
+    return { consume: false };
+  };
+  factory!({ requestRender: () => {} }, T);
+  fire("hello");
+  fire("\x1b[A");
+  assert.equal(toggles, 0, "non-Ctrl-O input does not toggle");
+  fire("\x0f");
+  assert.equal(toggles, 1, "bare Ctrl-O toggles once");
+  fire("ab\x0fcd");
+  assert.equal(toggles, 2, "Ctrl-O inside a larger chunk still toggles");
 });

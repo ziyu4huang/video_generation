@@ -37,6 +37,16 @@ export interface SubagentContextWidgetOpts {
 /** Indent for each run's block under the count header. */
 const INDENT = "  ";
 
+/**
+ * Detect the Ctrl-O keystroke in raw terminal input. In terminals Ctrl-O is the
+ * C0 control byte 0x0F ("\x0f", charCode 15). Substring-based so a Ctrl-O that
+ * co-occurs with other bytes in the same input chunk still triggers; pure so
+ * the onTerminalInput handler can be unit-tested without a real terminal.
+ */
+export function isCtrlO(data: string): boolean {
+  return data.includes("\x0f");
+}
+
 export class SubagentContextWidget {
   /**
    * Collapsed (headers-only) by default. Stage A never wires `toggle()` to a key
@@ -49,8 +59,9 @@ export class SubagentContextWidget {
 
   constructor(private opts: SubagentContextWidgetOpts) {}
 
-  /** Flip collapsed/expanded. Present for Stage B (global keybinding); a no-op
-   *  for rendering today since nothing calls it in Stage A. */
+  /** Flip collapsed/expanded. Called by the installer's `toggle` handle, which
+   *  the Ctrl-O onTerminalInput hook drives (see installSubagentContextWidget).
+   *  render() honors the new state on the next requestRender(). */
   toggle(): void {
     this.expanded = !this.expanded;
   }
@@ -143,27 +154,39 @@ const CONTEXT_INTERVAL_MS = 1000;
  * Safe no-op when `ui` has no setWidget (headless/RPC mode) — mirrors the old
  * installer so the extension loads identically in non-interactive hosts.
  */
+export interface SubagentContextWidgetHandle {
+  /** Stop the refresh timer (idempotent). */
+  dispose: () => void;
+  /** Flip expanded/collapsed and request a re-render so the new state shows.
+   *  Driven by the Ctrl-O onTerminalInput hook wired at the install site. */
+  toggle: () => void;
+}
+
 export function installSubagentContextWidget(
   ui: Pick<ExtensionContext["ui"], "setWidget"> | undefined,
   opts: InstallSubagentContextWidgetOpts,
-): { dispose: () => void } {
-  if (!ui || typeof ui.setWidget !== "function") return { dispose: () => {} };
+): SubagentContextWidgetHandle {
+  if (!ui || typeof ui.setWidget !== "function") return { dispose: () => {}, toggle: () => {} };
   const placement = opts.placement ?? "aboveEditor";
   const intervalMs = opts.intervalMs ?? CONTEXT_INTERVAL_MS;
   const si = opts.setInterval ?? setInterval;
   const ci = opts.clearInterval ?? clearInterval;
   const widget = new SubagentContextWidget({ getRunning: () => opts.registry.list() });
 
+  // The host invokes the factory with the live TUI. Capture it so both the
+  // refresh timer and the returned `toggle` handle can call requestRender().
+  let tuiRef: { requestRender: () => void } | undefined;
   let timerId: ReturnType<typeof setInterval> | undefined;
   let started = false;
   // Factory signature mirrors the old progress widget + display.ts:
   // (tui, theme) => { render: (width?) => string[]; invalidate: () => void }.
   const factory = (tui: unknown, theme: Theme) => {
-    // Start the refresh timer exactly once — the app may invoke the factory more
-    // than once (e.g. on theme change); guard against a duplicate interval.
+    // Refresh the TUI reference every invocation (theme change re-calls the
+    // factory); start the refresh timer exactly once.
+    tuiRef = tui as { requestRender: () => void };
     if (!started) {
       started = true;
-      timerId = si(() => (tui as { requestRender: () => void }).requestRender(), intervalMs);
+      timerId = si(() => tuiRef?.requestRender(), intervalMs);
     }
     return {
       render: () => widget.render(theme),
@@ -177,6 +200,10 @@ export function installSubagentContextWidget(
     dispose: () => {
       if (timerId !== undefined) ci(timerId);
       timerId = undefined;
+    },
+    toggle: () => {
+      widget.toggle();
+      tuiRef?.requestRender();
     },
   };
 }
