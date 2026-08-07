@@ -29,10 +29,11 @@ A prioritized **findings doc → tickets** for `bun-apps/pi-agent-ext-core-task`
 | 13 | E | Dead-code + provenance cleanup | L3, L14, L15 | — |
 | 14 | — | LOW cleanup backlog (batch) | LOWs | — |
 | 15 | — | Next-ticket routing / ask-user gap | P1 | — |
+| 16 | D | Key session-scoped core-task state by sessionId (in-process subagent cross-contamination) | H5 | 08 |
 
 **Dependency graph**: one hard edge — `01 → 02` (contract-test hardening must match whichever direction the yield decision lands). All other tickets parallelize. Soft coordination: 01/12/13 all touch coordination prose — sequence to avoid churn; 09's test harness can be leaned on by 10/11 (not hard-blocked).
 
-**Suggested execution order** (highest-leverage first): `01 → 07 → 04+09 → 03 → 10,11 → 12,13 → 05,06,08,14`, 15 (process, action when convenient).
+**Suggested execution order** (highest-leverage first): `01 → 07 → 04+09 → 03 → 10,11 → 12,13 → 05,06,08,14`, 15 (process, action when convenient), 16 (follow-up, spawned by 08).
 
 ## Decisions so far
 

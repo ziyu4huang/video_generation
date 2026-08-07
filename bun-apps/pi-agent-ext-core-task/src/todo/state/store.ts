@@ -2,8 +2,16 @@ import type { Task } from "../tool/types";
 import { EMPTY_STATE, type TaskState } from "./state";
 
 /**
- * Module-level live state cell. Centralized mutation seam — only commitState
- * and replaceState modify it.
+ * Process-global singleton. Safe because pi hosts one active AgentSession per
+ * process (AgentSessionRuntime tears down the old session before creating the
+ * next), so this cell maps 1:1 to the live session and session_start's
+ * replaceState(EMPTY_STATE) reset is correct.
+ *
+ * CAVEAT: in-process subagents (WorkflowAgent.run -> createAgentSession,
+ * pi-agent-ext-subagent) run a SECOND session in this same process and share
+ * this cell. They do NOT fire session_start (they skip bindExtensions), so
+ * there is no reset race, but a subagent that calls the todo tool reads/writes
+ * the PARENT session's todos. See follow-up ticket #16 for the hardening fix.
  */
 let state: TaskState = { tasks: [...EMPTY_STATE.tasks], nextId: EMPTY_STATE.nextId };
 

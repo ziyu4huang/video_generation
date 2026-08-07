@@ -138,7 +138,10 @@ export function isGoal(value: unknown): value is ActiveGoal {
 // reads/writes a single named container. `__resetGoalState()` mirrors
 // todo/state/store.ts __resetState and lets tests start from a known baseline.
 
-/** Runtime, session-scoped goal state. One instance per process (module singleton). */
+/** Runtime, session-scoped goal state. One instance per process (module singleton).
+ *
+ * CAVEAT: in-process subagents share this singleton — see ticket #16.
+ */
 export interface GoalRuntimeState {
 	activeGoal: import("./format.js").ActiveGoal | undefined;
 	extensionApi: unknown; // ExtensionAPI — typed loosely to keep state.ts pi-import-free
