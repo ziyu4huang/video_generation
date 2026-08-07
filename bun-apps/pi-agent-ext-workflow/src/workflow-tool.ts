@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import type { SubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent";
 import {
   listAgentTypes,
   listAvailableModelSpecs,
@@ -226,6 +227,13 @@ export interface WorkflowToolOptions {
    * call the same extension tools the parent session has.
    */
   extensionTools?: ToolDefinition[];
+  /**
+   * Shared in-flight registry (decision 03 = b2). Threaded into the manager so
+   * every workflow run registers into the SAME registry the subagent/subagents
+   * tools + the unified context box + /subagents read. The extension obtains the
+   * process singleton via getSubagentInFlightRegistry() and passes it here.
+   */
+  inFlight?: SubagentInFlightRegistry;
 }
 
 /**
@@ -374,6 +382,13 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       defaultAgentRetries: fallbackDefaults?.agentRetries ?? 0,
       extensionTools: options.extensionTools,
     });
+  // Thread the shared in-flight registry (decision 03 = b2) into the manager so
+  // every workflow run — background AND foreground, tool AND /workflows command
+  // AND resume — registers into the SAME singleton the subagent/subagents tools,
+  // the unified context box, and /subagents read. The manager is the shallowest
+  // seam that observes run start + completion at per-workflow granularity; called
+  // once at tool construction (before any run), idempotent for a passed-in manager.
+  if (options.inFlight) manager.setInFlight(options.inFlight);
 
   return defineTool({
     name: "workflow",
@@ -393,10 +408,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
     // verbatim (keywords were unambiguous workflow/orchestration intents that
     // never false-fired the way image/video nouns do, so no requires is needed).
     gating: {
-      keywords: [
-        "workflow", "pipeline", "orchestrate", "fan-out", "fan out",
-        "parallel agent", "multi-step",
-      ],
+      keywords: ["workflow", "pipeline", "orchestrate", "fan-out", "fan out", "parallel agent", "multi-step"],
     },
     promptSnippet:
       "Run a deterministic JavaScript workflow. Required script header: export const meta = { name: 'short_snake_case', description: 'non-empty description', phases: [{ title: 'Phase' }] }.",
@@ -642,10 +654,7 @@ export function createWorkflowHelpTool() {
     // 4-name gate (names[0] === "workflow") — when the gate fires, all 4 names
     // activate together (co-fire preserved). See `workflow`'s gating comment.
     gating: {
-      keywords: [
-        "workflow", "pipeline", "orchestrate", "fan-out", "fan out",
-        "parallel agent", "multi-step",
-      ],
+      keywords: ["workflow", "pipeline", "orchestrate", "fan-out", "fan out", "parallel agent", "multi-step"],
     },
     promptSnippet: "On-demand advanced reference for the workflow tool (helpers/budget/phases/patterns/models).",
     parameters: Type.Object({

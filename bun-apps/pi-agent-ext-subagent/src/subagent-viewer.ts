@@ -548,7 +548,9 @@ export class SubagentViewer {
       // LIVE — refresh the snapshot from the registry entry each tick.
       this.followedSnapshot = {
         history: r.history ?? [],
-        model: r.resolvedModel ?? r.model,
+        // model is optional on the registry entry (a workflow run has no single
+        // model); coalesce so the follow header still renders a slot.
+        model: r.resolvedModel ?? r.model ?? "default",
         agent: r.agent,
         startedAt: r.startedAt,
       };

@@ -121,3 +121,43 @@ test("endBatch evicts only the named batch; a sibling batch is untouched", () =>
   assert.equal(reg.get("a0"), undefined);
   assert.ok(reg.get("b0"), "bB untouched");
 });
+
+test("start defaults foreground to false (background) when the caller omits it", () => {
+  const reg = new SubagentInFlightRegistry();
+  reg.start({ id: "a", model: "x", taskPreview: "t", startedAt: 0 });
+  assert.equal(reg.get("a")?.foreground, false, "omitted foreground normalizes to false (background)");
+});
+
+test("start carries foreground:true through (current-turn / inline run)", () => {
+  const reg = new SubagentInFlightRegistry();
+  reg.start({ id: "a", model: "x", taskPreview: "t", startedAt: 0, foreground: true });
+  assert.equal(reg.get("a")?.foreground, true);
+  // list() reflects it too — the context box reads list() and filters !foreground
+  assert.equal(reg.list()[0].foreground, true);
+});
+
+test("start coerces an explicit foreground:undefined back to false", () => {
+  const reg = new SubagentInFlightRegistry();
+  reg.start({ id: "a", model: "x", taskPreview: "t", startedAt: 0, foreground: undefined });
+  assert.equal(reg.get("a")?.foreground, false);
+});
+
+test("start accepts an entry with no model (a workflow run aggregates agents across models)", () => {
+  // Decision 03 = b2: a workflow run registers with agent="workflow" and NO
+  // model — it has no single model. The context box renders a workflow-specific
+  // header; /subagents omits the model segment for entries without one.
+  const reg = new SubagentInFlightRegistry();
+  reg.start({
+    id: "wf:r1",
+    agent: "workflow",
+    taskPreview: "preview_wf · Scan · 1/2 agents",
+    startedAt: 0,
+    foreground: false,
+  });
+  const entry = reg.get("wf:r1");
+  assert.ok(entry);
+  assert.equal(entry.model, undefined, "model is optional — a workflow run omits it");
+  assert.equal(entry.agent, "workflow");
+  assert.equal(entry.foreground, false);
+  assert.equal(entry.taskPreview, "preview_wf · Scan · 1/2 agents");
+});

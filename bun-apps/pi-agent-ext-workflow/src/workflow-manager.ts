@@ -7,7 +7,7 @@ import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { WorkflowAgent } from "@repo/pi-agent-ext-subagent";
+import type { SubagentInFlightRegistry, WorkflowAgent } from "@repo/pi-agent-ext-subagent";
 import { WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-subagent";
 import { preview, type WorkflowSnapshot } from "./display.js";
 import type { HostFnRegistry } from "./host-fn-registry.js";
@@ -49,6 +49,26 @@ export function uniqueOutputDir(outputsDir: string, ts: string): string {
     runOut = join(outputsDir, `${ts}-${variant++}`);
   }
   return runOut;
+}
+
+/** In-flight registry id for a workflow run (decision 03 = b2). Prefixed so it
+ *  never collides with a subagent/subagents toolCallId (the registry's other keys). */
+export function workflowInFlightId(runId: string): string {
+  return `wf:${runId}`;
+}
+
+/** Compact one-line preview for the context-box header + /subagents row:
+ *  "<name> · <currentPhase> · <finished>/<total> agents". Counts derive from the
+ *  snapshot's agent list (the manager keeps `agents` authoritative; the rollup
+ *  count fields are recomputed downstream by recomputeWorkflowSnapshot). */
+export function workflowPreview(snapshot: WorkflowSnapshot): string {
+  const total = snapshot.agents.length;
+  const finished = snapshot.agents.filter(
+    (a) => a.status === "done" || a.status === "error" || a.status === "skipped",
+  ).length;
+  const phase = snapshot.currentPhase ? ` · ${snapshot.currentPhase}` : "";
+  const counts = total > 0 ? ` · ${finished}/${total} agents` : "";
+  return `${snapshot.name}${phase}${counts}`;
 }
 
 export interface ManagedRun {
@@ -134,6 +154,13 @@ export interface WorkflowManagerOptions {
    * call the same extension tools the parent session has.
    */
   extensionTools?: ToolDefinition[];
+  /**
+   * Shared in-flight registry (decision 03 = b2). When set, every run registers
+   * into it on start and deregisters on completion, so the unified
+   * subagent-context box AND /subagents show workflow runs alongside
+   * subagent/subagents runs. Per-WORKFLOW granularity (one entry per run). Optional so tests/hosts that don't care about the box stay unaffected.
+   */
+  inFlight?: SubagentInFlightRegistry;
 }
 
 /** Project the serializable caps out of ExecOptions (drops signals/callbacks). */
@@ -208,6 +235,9 @@ export class WorkflowManager extends EventEmitter {
   private defaultAgentRetries: number;
   private extensionTools: ToolDefinition[];
   private hostFns?: HostFnRegistry;
+  /** Shared in-flight registry (decision 03 = b2); undefined in hosts that don't
+   *  surface the subagent-context box. Late-bindable via setInFlight(). */
+  private inFlight?: SubagentInFlightRegistry;
 
   constructor(options: WorkflowManagerOptions = {}) {
     super();
@@ -220,6 +250,7 @@ export class WorkflowManager extends EventEmitter {
     this.defaultAgentTimeoutMs = options.defaultAgentTimeoutMs ?? null;
     this.defaultAgentRetries = options.defaultAgentRetries ?? 0;
     this.extensionTools = options.extensionTools ?? [];
+    this.inFlight = options.inFlight;
     this.persistence = createRunPersistence(this.cwd);
     this.recoverStaleRuns();
   }
@@ -248,6 +279,17 @@ export class WorkflowManager extends EventEmitter {
    */
   setHostFns(registry: HostFnRegistry | undefined): void {
     this.hostFns = registry;
+  }
+
+  /**
+   * Late-bind the shared in-flight registry (decision 03 = b2). Mirrors
+   * setMainModel/setHostFns: the workflow tool threads the singleton obtained
+   * from getSubagentInFlightRegistry() into the manager after construction, so
+   * every run (tool + /workflows command + resume) registers into the SAME
+   * registry the subagent/subagents tools and the context box read. Idempotent.
+   */
+  setInFlight(registry: SubagentInFlightRegistry | undefined): void {
+    this.inFlight = registry;
   }
 
   /**
@@ -421,6 +463,16 @@ export class WorkflowManager extends EventEmitter {
     args?: unknown,
     exec: ExecOptions = {},
   ): Promise<WorkflowRunResult> {
+    // Register into the shared in-flight registry (decision 03 = b2) FIRST, before
+    // any await: executeRun is async, so this synchronous head runs DURING the
+    // startInBackground()/runSync() call itself — for a background run the entry
+    // is live BEFORE startInBackground returns its runId, so the context box
+    // shows it immediately even though the run is detached. Per-WORKFLOW
+    // granularity (one entry per run). foreground mirrors `managed.background`
+    // inverted: background run → foreground:false (box shows it); foreground
+    // runSync → foreground:true (excluded from the box, rendered inline by the
+    // workflow tool's own component — no duplication with Surface A).
+    this.registerInFlight(managed);
     const {
       resumeJournal,
       maxAgents,
@@ -444,7 +496,13 @@ export class WorkflowManager extends EventEmitter {
     // (Start paths set this before their initial persist; this re-capture covers
     // resume(), whose fresh ManagedRun is built without exec.)
     managed.exec = toPersistedExec(exec);
-    const progress = () => onProgress?.(managed.snapshot);
+    const progress = () => {
+      onProgress?.(managed.snapshot);
+      // Refresh the registry entry's preview (phase / k-of-N agents) on every
+      // progress event — covers BOTH modes (background runs have no tool-layer
+      // onProgress; the manager's events drive this).
+      this.updateInFlight(managed);
+    };
     // Let a host abort (e.g. Esc during a blocking tool call) cancel this run.
     if (externalSignal) {
       if (externalSignal.aborted) managed.controller.abort();
@@ -623,7 +681,46 @@ export class WorkflowManager extends EventEmitter {
       this.releaseRunLease(managed);
 
       throw workflowError;
+    } finally {
+      // Always deregister — success, error, abort, AND usage-limit pause all end
+      // the run's live footprint. A paused run is NOT running, so removing it is
+      // correct; resume() re-registers via executeRun's head. This guarantees no
+      // entry leaks in the context box / /subagents, including the detached
+      // background completion path (the whole point of decision 03 = b2).
+      this.endInFlight(managed);
     }
+  }
+
+  /** Register this run into the shared in-flight registry (decision 03 = b2).
+   *  See executeRun's head comment for the synchronous-before-await guarantee
+   *  that makes background runs appear in the box immediately. No-op when no
+   *  registry is bound (tests/hosts without the context box). */
+  private registerInFlight(managed: ManagedRun): void {
+    if (!this.inFlight) return;
+    this.inFlight.start({
+      id: workflowInFlightId(managed.runId),
+      agent: "workflow",
+      // model omitted: a workflow aggregates agents across models, so it has no
+      // single model. The context box renders a workflow-specific header;
+      // /subagents omits the model segment for entries without one.
+      taskPreview: workflowPreview(managed.snapshot),
+      startedAt: managed.startedAt.getTime(),
+      foreground: !managed.background,
+    });
+  }
+
+  /** Refresh the registry entry's taskPreview (phase / k-of-N agents) on every
+   *  progress event. No-op when no registry / entry is gone (e.g. racing end). */
+  private updateInFlight(managed: ManagedRun): void {
+    if (!this.inFlight) return;
+    const entry = this.inFlight.get(workflowInFlightId(managed.runId));
+    if (entry) entry.taskPreview = workflowPreview(managed.snapshot);
+  }
+
+  /** Remove the registry entry on run completion. Idempotent (registry.end is a
+   *  delete-by-key no-op when absent). No-op when no registry is bound. */
+  private endInFlight(managed: ManagedRun): void {
+    this.inFlight?.end(workflowInFlightId(managed.runId));
   }
 
   private releaseRunLease(managed: ManagedRun): void {

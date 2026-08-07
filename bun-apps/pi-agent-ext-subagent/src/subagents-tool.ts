@@ -281,6 +281,10 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
           startedAt: childT0,
           batchId: toolCallId,
           abort: () => childAc.abort(),
+          // Rendered inline in the CURRENT turn by the batch tool's own call line
+          // (Surface A) — mark foreground so the above-editor context box EXCLUDES
+          // it (no duplication). See subagent-context-widget.ts.
+          foreground: true,
         });
         // Forward live callbacks so /subagents shows each child's resolved model and
         // activity trace (deficit 1). Added here — not in mergeReadOnlyExclusion — because

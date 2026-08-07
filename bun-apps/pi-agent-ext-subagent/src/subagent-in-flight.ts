@@ -11,10 +11,15 @@
 import type { AgentHistoryEntry } from "./agent-history.js";
 
 export interface InFlightSubagent {
-  /** The toolCallId (unique per dispatch). */
+  /** The toolCallId (unique per dispatch). For a workflow run, the prefixed
+   *  workflow runId ("wf:<runId>") — distinct from any subagent toolCallId. */
   id: string;
   agent?: string;
-  model: string;
+  /** The requested model/tier/capability slot. Omitted for a workflow run, which
+   *  aggregates agents across models and therefore has no single model — the
+   *  context box renders a workflow-specific header; /subagents omits the model
+   *  segment for entries without one (decision 03 = b2). */
+  model?: string;
   /** Concrete provider/id once the child resolves its model (onModelResolved).
    * Undefined until resolution — the call line shows tier/model-request until then. */
   resolvedModel?: string;
@@ -28,6 +33,14 @@ export interface InFlightSubagent {
    *  `subagent` dispatches, workflow agents, and obsidian — they `end()` per-child
    *  as before and never appear "completed". */
   status?: "running" | "completed";
+  /** Render-surface axis (wayfinder: unified subagent-context box).
+   *  `true` = this run is rendered INLINE in the current turn by the registering
+   *  tool's own call/result line (Surface A): the singular `subagent` tool and the
+   *  `subagents` batch tool set it. `false` (default) = detached/background (e.g.
+   *  a background workflow run), shown ONLY by the above-editor context box so the
+   *  two surfaces never duplicate. The box filters to `!foreground`; `/subagents`
+   *  shows all regardless. `start()` defaults it to `false` when omitted. */
+  foreground?: boolean;
   taskPreview: string;
   startedAt: number;
   /** Latest compact history snapshot (for the live-output trace). */
@@ -50,7 +63,11 @@ export class SubagentInFlightRegistry {
   private runs = new Map<string, InFlightSubagent>();
 
   start(run: InFlightSubagent): void {
-    this.runs.set(run.id, run);
+    // foreground defaults to `false` (background/detached) when the caller omits
+    // it, so the above-editor context box picks the run up. Foreground tools
+    // (`subagent`/`subagents`) set it explicitly to `true` to opt OUT of the box
+    // (they render inline via Surface A). See subagent-context-widget.ts.
+    this.runs.set(run.id, { ...run, foreground: run.foreground ?? false });
   }
 
   update(id: string, history: AgentHistoryEntry[]): void {

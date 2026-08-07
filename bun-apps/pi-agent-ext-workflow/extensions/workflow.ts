@@ -1,5 +1,11 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { setRateLimitCapResolver } from "@repo/pi-agent-ext-subagent";
+// The in-flight registry singleton MUST resolve to the SAME module instance the
+// subagent extension + obsidian extension use. The src subpath (with .ts) is the
+// documented, proven cross-ext singleton path (see the singleton docstring in
+// subagent-in-flight.ts + pi-agent-ext-obsidian/src/lib/subagent.ts); verified to
+// share one instance with the package-root re-export under the isolated linker.
+import { getSubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent/src/subagent-in-flight.ts";
 import { applyHostFnRegistration, HostFnRegistry } from "../src/host-fn-registry.js";
 import {
   buildWorkflowGuidelinesForTurn,
@@ -65,6 +71,11 @@ export default function extension(pi: ExtensionAPI) {
     manager,
     storage,
     verboseWorkflowGuidelines: settings.verboseWorkflowGuidelines,
+    // Process-wide singleton (decision 03 = b2): the SAME registry instance the
+    // subagent/subagents tools + the unified context box + /subagents read, so
+    // workflow runs surface in all three. Verified same module instance across
+    // packages (root import resolves to one subagent-in-flight.ts module).
+    inFlight: getSubagentInFlightRegistry(),
   });
   pi.registerTool(workflowTool);
   // On-demand reference companion (helpers/budget/phases/patterns/models).
