@@ -26,6 +26,9 @@ function fakeClient(s: {
 	open?: string[];
 	contained?: string[];
 	defaultBranch?: string;
+	/** Branches whose local/remote delete should THROW (simulating a non-zero git exit). */
+	failLocal?: string[];
+	failRemote?: string[];
 }) {
 	const calls: string[] = [];
 	let worktrees = s.worktrees ?? [];
@@ -51,9 +54,11 @@ function fakeClient(s: {
 		},
 		deleteLocalBranch: async (n) => {
 			calls.push(`delLocal:${n}`);
+			if (s.failLocal?.includes(n)) throw new Error(`git branch -D ${n} failed (exit 1): branch not found`);
 		},
 		deleteRemoteBranch: async (n) => {
 			calls.push(`delRemote:${n}`);
+			if (s.failRemote?.includes(n)) throw new Error(`git push origin --delete ${n} failed (exit 1): remote rejected`);
 		},
 	};
 	return {
@@ -206,6 +211,54 @@ describe("executeSweep", () => {
 		expect(out.skipped).toEqual([{ name: "feat/conflict", reason: "open-PR-active" }]);
 		// (mutate kept for clarity; the open set is unchanged here)
 		void mutate;
+	});
+
+	test("a failed LOCAL delete → skipped with reason, NOT in deletedLocal", async () => {
+		const { client, calls } = fakeClient({
+			locals: [{ name: "feat/merged", goneRemote: false }],
+			remotes: [],
+			current: "main",
+			defaultBranch: "main",
+			merged: { "feat/merged": 10 },
+			failLocal: ["feat/merged"], // git branch -D exits non-zero
+		});
+		const plan = await buildSweepPlan(client, { protectedSet: PROT(), limit: 200, fetched: true });
+		expect(plan.deleteLocal.map((p) => p.name)).toEqual(["feat/merged"]);
+		const out = await executeSweep(plan, client, { protectedSet: PROT() });
+		expect(out.deletedLocal).toEqual([]); // not falsely recorded as deleted
+		expect(out.skipped).toContainEqual({ name: "feat/merged", reason: expect.stringMatching(/delete failed.*branch not found/) });
+		expect(calls.some((c) => c.startsWith("delLocal:feat/merged"))).toBe(true); // delete WAS attempted
+	});
+
+	test("a failed REMOTE delete → skipped with reason, NOT in deletedRemote", async () => {
+		const { client } = fakeClient({
+			locals: [],
+			remotes: ["rmt/merged"],
+			current: "main",
+			defaultBranch: "main",
+			merged: { "rmt/merged": 11 },
+			failRemote: ["rmt/merged"], // git push origin --delete exits non-zero
+		});
+		const plan = await buildSweepPlan(client, { protectedSet: PROT(), limit: 200, fetched: true });
+		expect(plan.deleteRemote.map((p) => p.name)).toEqual(["rmt/merged"]);
+		const out = await executeSweep(plan, client, { protectedSet: PROT() });
+		expect(out.deletedRemote).toEqual([]); // not falsely recorded as deleted
+		expect(out.skipped).toContainEqual({ name: "rmt/merged", reason: expect.stringMatching(/delete failed.*remote rejected/) });
+	});
+
+	test("confirm of a reviewed branch whose delete fails → skipped with reason", async () => {
+		const { client } = fakeClient({
+			locals: [{ name: "feat/gone", goneRemote: true }],
+			remotes: [],
+			current: "main",
+			defaultBranch: "main",
+			failLocal: ["feat/gone"],
+		});
+		const plan = await buildSweepPlan(client, { protectedSet: PROT(), limit: 200, fetched: true });
+		expect(plan.review.map((p) => p.name)).toEqual(["feat/gone"]);
+		const out = await executeSweep(plan, client, { protectedSet: PROT(), confirm: ["feat/gone"] });
+		expect(out.deletedLocal).toEqual([]);
+		expect(out.skipped).toContainEqual({ name: "feat/gone", reason: expect.stringMatching(/delete failed/) });
 	});
 });
 
