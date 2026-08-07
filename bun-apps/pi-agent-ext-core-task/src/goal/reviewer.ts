@@ -101,17 +101,19 @@ const CLASS_PATTERNS: Array<{ class: FindingClass; re: RegExp }> = [
 const SKIP_LINE = /^\s*(test|it|describe|assert|expect)\s*\(|^\s*(const|let|var|function|import|export|require)\b|\{\s*\.\.\.\s*\}|,\s*\.\.\.$|^\s*\||^\s*[{\[\]}]|^\s*['"]|^\s*ℹ/; // ℹ = test-runner/status noise ("ℹ todo 0" was enqueued as a /list item by the 0.26.2 reviewer)
 const REVIEWER_VOCAB = /architectural-class|bug-class|refactor-class|strategic-class|reviewer found|cascade step|\*\*Mode\*\*|problems\s*\/\s*\(?(improvements|architectural)/i;
 
-/** Anti-patterns (false friends): benign completion-prose that matches
- * CLASS_PATTERNS but is NOT a finding. These are "no issues" / "added
- * enhancements" style retrospectives, not real signals. The anti-pattern
- * check runs AFTER a keyword hit and suppresses classification when the
- * surrounding text is a known false friend. Ref: ticket 05 —
- * reviewer false-positive anti-patterns. */
-const FALSE_FRIEND_PATTERNS = [
+/** False friends are CLASS-SCOPED: a negated "issue" only suppresses the bug
+ * class; a benign "added improvements" only suppresses the refactor class.
+ * This keeps a real signal of a DIFFERENT class firing on a mixed line
+ * (e.g. "Fixed the bug and added improvements" -> bug still fires).
+ * Ref: ticket 05 — reviewer false-positive anti-patterns. */
+const ISSUE_FALSE_FRIENDS = [
 	// Negated "issue" forms — completion says "no issues", not "there is an issue"
 	/\bno issues?\b/i,
 	/\bnon-issue\b/i,
 	/\bwithout (any )?issues?\b/i,
+];
+
+const IMPROVEMENT_FALSE_FRIENDS = [
 	// Benign improvement/enhancement mentions in completion prose
 	// e.g. "added several improvements" / "made enhancements" — these are
 	// retrospective summaries, not "could be improved" signals
@@ -119,10 +121,13 @@ const FALSE_FRIEND_PATTERNS = [
 ];
 
 /** Check whether a line that matched a CLASS_PATTERN is actually a false
- * friend (benign completion prose). Returns true if the line matches an
- * anti-pattern and should be suppressed. */
-function isFalseFriend(line: string): boolean {
-	return FALSE_FRIEND_PATTERNS.some((re) => re.test(line));
+ * friend FOR THAT CLASS ONLY. This prevents over-suppression on mixed lines
+ * that contain both a real signal and a false-friend phrase for a DIFFERENT
+ * class. Ref: ticket 05 correction. */
+function isFalseFriendForClass(cls: string, line: string): boolean {
+	if (cls === "bug") return ISSUE_FALSE_FRIENDS.some((re) => re.test(line));
+	if (cls === "refactor") return IMPROVEMENT_FALSE_FRIENDS.some((re) => re.test(line));
+	return false;
 }
 
 export function classifyFindingText(line: string): FindingClass | undefined {
@@ -133,9 +138,10 @@ export function classifyFindingText(line: string): FindingClass | undefined {
 	if (SKIP_LINE.test(t) || REVIEWER_VOCAB.test(t)) return undefined;
 	for (const { class: cls, re } of CLASS_PATTERNS) {
 		if (re.test(t)) {
-			// Anti-pattern check: suppress false friends (benign completion prose)
-			// that match keywords but are not real findings. Ref: ticket 05.
-			if (isFalseFriend(t)) return undefined;
+			// Anti-pattern check: skip THIS class only if the line is a false
+			// friend FOR THAT CLASS. Other classes can still match (mixed lines
+			// keep real signals). Ref: ticket 05 correction.
+			if (isFalseFriendForClass(cls, t)) continue;
 			return cls;
 		}
 	}

@@ -112,6 +112,38 @@ describe("reviewer — classifyFindingText", () => {
 			expect(out).toEqual([]);
 		});
 
+		it("M-anti-pattern correction: mixed line keeps real signal (bug + false-friend improvement)", () => {
+			// A line with BOTH a real bug signal AND a false-friend "added improvements"
+			// should STILL fire the bug classification (not be suppressed)
+			expect(classifyFindingText("Fixed the login bug and added several improvements")).toBe("bug");
+			expect(classifyFindingText("Resolved the regression; made minor enhancements")).toBe("bug");
+			expect(classifyFindingText("Fixed the broken parser and implemented multiple enhancements")).toBe("bug");
+		});
+
+		it("M-anti-pattern correction: mixed line keeps real signal (refactor + false-friend issue)", () => {
+			// A line with BOTH a real refactor signal AND a false-friend "no issues"
+			// should STILL fire the refactor classification (not be suppressed)
+			expect(classifyFindingText("Refactored the module; no issues elsewhere")).toBe("refactor");
+			expect(classifyFindingText("Consider refactoring X; there are no issues with Y")).toBe("refactor");
+		});
+
+		it("M-anti-pattern correction: pure false-friend lines still suppressed", () => {
+			// Pure false-friend lines (no real signal) should still be suppressed
+			expect(classifyFindingText("no issues found")).toBeUndefined();
+			expect(classifyFindingText("completed without any issues")).toBeUndefined();
+			expect(classifyFindingText("added several improvements to the parser")).toBeUndefined();
+			expect(classifyFindingText("made minor enhancements")).toBeUndefined();
+		});
+
+		it("M-anti-pattern correction: real signals still fire (not adjacent to false friends)", () => {
+			// Real bug/refactor signals that are NOT adjacent to false-friend phrases
+			// should still be detected (no regression from the fix)
+			expect(classifyFindingText("there is a bug in the auth flow")).toBe("bug");
+			expect(classifyFindingText("found an issue with the parser")).toBe("bug");
+			expect(classifyFindingText("could be improved by adding caching")).toBe("refactor");
+			expect(classifyFindingText("this module could be cleaner")).toBe("refactor");
+		});
+
 		it("M-anti-pattern: a genuine 'TODO: fix the broken loader' finding still enqueues", () => {
 			// Real findings must still be detected (no false negatives)
 			const out = extractFindings(
