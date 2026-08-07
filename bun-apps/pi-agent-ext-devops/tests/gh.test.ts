@@ -20,16 +20,18 @@ import {
 } from "../src/gh.js";
 
 describe("parsePrView", () => {
-	test("MERGED with mergeCommit → mergeSha", () => {
-		const r = parsePrView({ state: "MERGED", mergeStateStatus: "CLEAN", mergeCommit: { oid: "abc123" } });
-		expect(r).toEqual({ state: "MERGED", mergeState: "CLEAN", mergeSha: "abc123" });
+	test("MERGED with mergeCommit + base/head refs → full domain shape", () => {
+		const r = parsePrView({ state: "MERGED", mergeStateStatus: "CLEAN", mergeCommit: { oid: "abc123" }, baseRefName: "main", headRefName: "feat-a" });
+		expect(r).toEqual({ state: "MERGED", mergeState: "CLEAN", mergeSha: "abc123", baseRefName: "main", headRefName: "feat-a" });
 	});
 
-	test("OPEN + BEHIND", () => {
-		expect(parsePrView({ state: "OPEN", mergeStateStatus: "BEHIND", mergeCommit: null })).toEqual({
+	test("OPEN + BEHIND carries base/head refs", () => {
+		expect(parsePrView({ state: "OPEN", mergeStateStatus: "BEHIND", mergeCommit: null, baseRefName: "main", headRefName: "feat-b" })).toEqual({
 			state: "OPEN",
 			mergeState: "BEHIND",
 			mergeSha: undefined,
+			baseRefName: "main",
+			headRefName: "feat-b",
 		});
 	});
 
@@ -37,8 +39,12 @@ describe("parsePrView", () => {
 		expect(parsePrView({ state: "OPEN", mergeStateStatus: "SOMETHING_NEW" }).mergeState).toBe("UNKNOWN");
 	});
 
-	test("malformed/empty input → OPEN/UNKNOWN defaults", () => {
-		expect(parsePrView(null)).toEqual({ state: "OPEN", mergeState: "UNKNOWN", mergeSha: undefined });
+	test("missing base/head refs → empty strings (defensive)", () => {
+		expect(parsePrView({ state: "OPEN", mergeStateStatus: "CLEAN" })).toMatchObject({ baseRefName: "", headRefName: "" });
+	});
+
+	test("malformed/empty input → OPEN/UNKNOWN defaults + empty refs", () => {
+		expect(parsePrView(null)).toEqual({ state: "OPEN", mergeState: "UNKNOWN", mergeSha: undefined, baseRefName: "", headRefName: "" });
 	});
 });
 
@@ -107,59 +113,37 @@ describe("createGhClient (glue)", () => {
 		return { fn, calls };
 	}
 
-	test("prStatus parses view + checks JSON into the domain shape", async () => {
+	test("prStatus parses view + checks JSON into the domain shape (incl. base/head refs)", async () => {
 		const { fn, calls } = rec([
-			{ match: (c, a) => c === "gh" && a.includes("view"), result: { stdout: JSON.stringify({ state: "OPEN", mergeStateStatus: "CLEAN", mergeCommit: null }), stderr: "", exitCode: 0 } },
+			{ match: (c, a) => c === "gh" && a.includes("view"), result: { stdout: JSON.stringify({ state: "OPEN", mergeStateStatus: "CLEAN", mergeCommit: null, baseRefName: "main", headRefName: "feat-x" }), stderr: "", exitCode: 0 } },
 			{ match: (c, a) => c === "gh" && a.includes("checks"), result: { stdout: JSON.stringify([{ name: "a", state: "SUCCESS", completedAt: "x" }]), stderr: "", exitCode: 0 } },
 		]);
 		const status = await createGhClient(fn).prStatus(1);
-		expect(status).toEqual({ state: "OPEN", mergeState: "CLEAN", mergeSha: undefined, checks: { pass: 1, fail: 0, pending: 0 } });
+		expect(status).toEqual({ state: "OPEN", mergeState: "CLEAN", mergeSha: undefined, baseRefName: "main", headRefName: "feat-x", checks: { pass: 1, fail: 0, pending: 0 } });
 		expect(calls.map((c) => c.args[1])).toEqual(["view", "checks"]); // two gh calls
+		// the view call now requests baseRefName,headRefName alongside state/mergeStateStatus/mergeCommit
+		const viewCall = calls.find((c) => c.args[1] === "view");
+		expect(viewCall?.args.join(" ")).toContain("baseRefName,headRefName");
 	});
 
-	test("enableAutoMerge builds the --<strategy> --auto [--delete-branch] args", async () => {
+	test("mergeNow builds the --<strategy> [--delete-branch] args (NO --auto)", async () => {
 		const { fn, calls } = rec([]);
-		await createGhClient(fn).enableAutoMerge(9, "rebase", true);
-		expect(calls[0]).toEqual({ cmd: "gh", args: ["pr", "merge", "9", "--rebase", "--auto", "--delete-branch"] });
+		await createGhClient(fn).mergeNow(9, "squash", true);
+		expect(calls[0]).toEqual({ cmd: "gh", args: ["pr", "merge", "9", "--squash", "--delete-branch"] });
 	});
 
-	test("enableAutoMerge omits --delete-branch when false", async () => {
+	test("mergeNow omits --delete-branch when false + never adds --auto", async () => {
 		const { fn, calls } = rec([]);
-		await createGhClient(fn).enableAutoMerge(9, "squash", false);
-		expect(calls[0].args).toEqual(["pr", "merge", "9", "--squash", "--auto"]);
+		await createGhClient(fn).mergeNow(9, "rebase", false);
+		expect(calls[0].args).toEqual(["pr", "merge", "9", "--rebase"]);
+		expect(calls[0].args.includes("--auto")).toBe(false);
 	});
 
-	test("rebaseAndForcePush runs fetch → autoStash-rebase → force-push", async () => {
-		const { fn, calls } = rec([]);
-		await createGhClient(fn).rebaseAndForcePush("feat-x");
-		expect(calls).toEqual([
-			{ cmd: "git", args: ["fetch", "origin", "main"] },
-			{ cmd: "git", args: ["-c", "rebase.autoStash=true", "rebase", "origin/main"] },
-			{ cmd: "git", args: ["push", "--force-with-lease", "origin", "feat-x"] },
-		]);
-	});
-
-	test("rebaseAndForcePush THROWS on a failed rebase (dirty tree/conflict), aborts, and does NOT force-push", async () => {
-		// RCA #1009: a dirty working tree makes `git rebase` exit non-zero. The
-		// fix checks the exit code, aborts the (possibly mid-flight) rebase, and
-		// throws — never silently force-pushing an un-rebased branch.
-		const { fn, calls } = rec([
-			{ match: (c, a) => c === "git" && a.includes("rebase") && !a.includes("--abort"),
-				result: { stdout: "", stderr: "cannot rebase: you have unstaged changes", exitCode: 1 } },
-		]);
-		await expect(createGhClient(fn).rebaseAndForcePush("feat-x")).rejects.toThrow(/rebase origin\/main failed/);
-		// cleaned up the mid-rebase state
-		expect(calls.some((c) => c.cmd === "git" && c.args.includes("--abort"))).toBe(true);
-		// did NOT force-push a broken (un-rebased) state
-		expect(calls.some((c) => c.args.includes("--force-with-lease"))).toBe(false);
-	});
-
-	test("rebaseAndForcePush THROWS on a failed force-push", async () => {
+	test("mergeNow THROWS on a non-zero exit (surfaces as a recipe block)", async () => {
 		const { fn } = rec([
-			{ match: (c, a) => c === "git" && a.includes("--force-with-lease"),
-				result: { stdout: "", stderr: "non-fast-forward (lease denied)", exitCode: 1 } },
+			{ match: (c, a) => c === "gh" && a.includes("merge"), result: { stdout: "", stderr: "merge queue: not your turn", exitCode: 2 } },
 		]);
-		await expect(createGhClient(fn).rebaseAndForcePush("feat-x")).rejects.toThrow(/force-with-lease.*failed/);
+		await expect(createGhClient(fn).mergeNow(9, "squash", true)).rejects.toThrow(/gh pr merge 9 .* failed .*2/);
 	});
 });
 

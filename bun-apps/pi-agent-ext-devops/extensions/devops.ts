@@ -1,36 +1,27 @@
 /**
- * DevOps extension — robust, tool-based PR-merge lifecycle that replaces the
- * brittle agent-side bash polling loops (the `gh pr checks | grep -c` footguns
- * that silently mis-counted + wasted turns). All gh output is parsed as
- * STRUCTURED JSON; the full merge recipe lives in tested code (src/).
+ * DevOps extension — tool-based PR-merge lifecycle. All gh output is parsed
+ * as STRUCTURED JSON (no `gh pr checks | grep -c` footguns); the full merge
+ * recipe lives in tested code (src/).
  *
  * Tools:
- *   - await_pr_merge: poll checks → enable --auto → on BEHIND rebase+force-push
- *     → wait for MERGED. Returns merged/failed/timed-out + check tally. Streams
- *     live per-poll progress to the TUI (elapsed + checks + action) and is
- *     abortable via its AbortSignal.
- *   - pr_status: one-shot PR snapshot (state + mergeState + checks).
+ *   - await_pr_merge: a LOCAL-CI-GATED merge. Runs local_ci (offline
+ *     typecheck+tests+gates over the PR's changed packages vs its base), then
+ *     squash-merges when green + CLEAN. Blocks on red CI / detection error /
+ *     BEHIND / non-CLEAN. No remote CI (disabled in this repo), no polling.
+ *   - pr_status: one-shot PR snapshot (state + mergeState + check tally).
  *   - local_ci: OFFLINE local CI — typecheck + tests scoped to changed packages
  *     vs origin/main, plus repo gates. Structured pass/fail; self-verify before
- *     `gh ship` (await_pr_merge/merge gate on this).
+ *     `gh ship` (await_pr_merge gates on this).
  *
  * Install: registered in bun-apps/pi-agent/run-dir/manifest.json (extensions[]).
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { createGhClient, createBranchClient } from "../src/gh.js";
-import { createLiveSpawn, type SpawnFn } from "../src/spawn.js";
+import { createLiveSpawn } from "../src/spawn.js";
 import { runMergeRecipe } from "../src/recipe.js";
 import { runSweep, type SweepOutcome } from "../src/branch-recipe.js";
 import { runLocalCi, type CiOutcome } from "../src/ci-recipe.js";
-import { formatProgress } from "../src/progress.js";
-
-const realSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
-
-async function currentBranch(spawn: SpawnFn): Promise<string | undefined> {
-	const r = await spawn("git", ["rev-parse", "--abbrev-ref", "HEAD"]);
-	return r.exitCode === 0 ? r.stdout.trim() || undefined : undefined;
-}
 
 /** Render a sweep outcome as a compact, human-readable plan/summary. */
 function formatSweep(o: SweepOutcome): string {
@@ -94,60 +85,51 @@ function formatCiOutcome(o: CiOutcome): string {
 export default function (pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "await_pr_merge",
-		label: "Await a GitHub PR merge (robust — replaces bash polling loops)",
+		label: "Gate a GitHub PR on local_ci, then squash-merge",
 		description:
-			"Poll a PR's CI checks, enable auto-merge when they pass, on BEHIND rebase+force-push the feature branch so checks re-run, and wait for MERGED. A robust, tool-based replacement for brittle agent-side `gh pr checks | grep` polling loops. Returns merged/failed/timed-out + a check tally. Wraps the `gh` CLI (structured JSON — no grep footguns). Default strategy rebase, default timeout 600s, auto-deletes the branch on merge, auto force-pushes on BEHIND (powerful: set handleBehind=fail to opt out).",
-		gating: { keywords: ["pr", "pull-request", "merge", "merged", "await", "wait", "poll", "devops"] },
-		promptSnippet: "Merge a PR end-to-end: poll CI, enable --auto, handle BEHIND via rebase+force-push, wait for MERGED. No bash polling loops.",
+			"Gate a GitHub PR on local_ci (offline typecheck+tests+quality-gates for the PR's changed packages vs its base), then squash-merge — no remote CI, no polling. Blocks (no merge) when local_ci fails OR detection errors OR the PR is BEHIND/non-CLEAN. Remote CI is disabled in this repo; this is the local proxy gate. Returns merged/blocked + a localCi breakdown.",
+		gating: { keywords: ["pr", "pull-request", "merge", "merged", "ship", "gate", "local ci", "devops"] },
+		promptSnippet: "Merge a PR: run local_ci over the PR's changed packages vs its base, then squash-merge when green + CLEAN. Blocks on red CI / BEHIND / non-CLEAN. No remote CI, no polling.",
 		parameters: Type.Object({
 			prNumber: Type.Integer({ description: "The PR number to merge." }),
 			strategy: Type.Optional(
-				Type.String({ description: "Merge strategy: 'rebase' (default), 'merge', or 'squash'." }),
+				Type.String({ description: "Merge strategy: 'squash' (default, matches the repo's gh-ship convention), 'merge', or 'rebase'." }),
 			),
-			timeoutSec: Type.Optional(Type.Integer({ description: "Max seconds to wait before returning timedOut (default 600)." })),
-			pollIntervalSec: Type.Optional(Type.Integer({ description: "Seconds between polls (default 20)." })),
 			deleteBranch: Type.Optional(Type.Boolean({ description: "Delete the branch on merge (default true)." })),
-			handleBehind: Type.Optional(
-				Type.String({ description: "On BEHIND: 'rebase-force-push' (default — rebases onto origin/main + force-pushes) or 'fail' (return without rebasing)." }),
-			),
-			branch: Type.Optional(Type.String({ description: "Feature branch to rebase+force-push on BEHIND. Defaults to the current checked-out branch." })),
 		}),
-		async execute(_id, params, signal, onUpdate) {
-			const cwd = process.cwd();
-			const spawn = createLiveSpawn(cwd);
+		async execute(_id, params, signal) {
+			const spawn = createLiveSpawn(process.cwd());
 			const gh = createGhClient(spawn);
-			const strategy = (params.strategy === "merge" || params.strategy === "squash" ? params.strategy : "rebase") as
+			// Resolve the repo root WITHOUT chdir (no top-level cd) — fall back to
+			// process.cwd() if not in a git worktree.
+			const root = await spawn("git", ["rev-parse", "--show-toplevel"]);
+			const repoRoot = root.exitCode === 0 ? root.stdout.trim() : process.cwd();
+			const strategy = (params.strategy === "merge" || params.strategy === "rebase" ? params.strategy : "squash") as
 				| "rebase"
 				| "merge"
 				| "squash";
-			const branch = (params.branch as string | undefined) ?? (await currentBranch(spawn));
 			const outcome = await runMergeRecipe({
 				prNumber: params.prNumber as number,
 				strategy,
 				deleteBranch: params.deleteBranch !== false,
-				handleBehind: params.handleBehind === "fail" ? "fail" : "rebase-force-push",
-				timeoutMs: ((params.timeoutSec as number | undefined) ?? 600) * 1000,
-				pollIntervalMs: ((params.pollIntervalSec as number | undefined) ?? 20) * 1000,
-				branch: branch ?? "",
 				gh,
-				sleeper: { sleep: realSleep },
-				clock: { now: () => Date.now() },
+				spawn,
+				repoRoot,
 				signal,
-				onProgress: onUpdate
-					? (u) => onUpdate({ content: [{ type: "text" as const, text: formatProgress(u) }] })
-					: undefined,
 			});
-			const checks = outcome.checks
-				? `${outcome.checks.pass} pass / ${outcome.checks.fail} fail / ${outcome.checks.pending} pending`
-				: "unknown";
 			const took = ` Took ${Math.round(outcome.elapsedMs / 1000)}s.`;
+			const ciBlock = outcome.localCi ? `\n${formatCiOutcome(outcome.localCi)}` : "";
 			const text = outcome.merged
-				? `✅ PR #${params.prNumber} MERGED${outcome.mergeSha ? ` (${outcome.mergeSha.slice(0, 7)})` : ""}.${outcome.behind ? " Rebased + force-pushed during the wait to clear BEHIND." : ""}${took}`
-				: outcome.aborted
-					? `⏹️ PR #${params.prNumber} await aborted after ${Math.round(outcome.elapsedMs / 1000)}s (last state: ${outcome.finalState}; checks: ${checks}).`
-					: outcome.timedOut
-						? `⏰ PR #${params.prNumber} not merged after timeout (last state: ${outcome.finalState}; checks: ${checks}). Retry, or inspect with pr_status.`
-						: `❌ PR #${params.prNumber} not merged: ${outcome.error ?? "unknown"} (checks: ${checks}).${took}`;
+				? `✅ PR #${params.prNumber} MERGED${outcome.mergeSha ? ` (${outcome.mergeSha.slice(0, 7)})` : ""} — local_ci green, squash-merged.${took}${ciBlock}`
+				: outcome.finalState === "MERGED"
+					? `✅ PR #${params.prNumber} was already MERGED${outcome.mergeSha ? ` (${outcome.mergeSha.slice(0, 7)})` : ""}.`
+					: outcome.error?.startsWith("PR is behind base")
+						? `⛔ PR #${params.prNumber} blocked (BEHIND): ${outcome.error}${ciBlock}`
+						: outcome.error?.startsWith("merge blocked: mergeState=")
+							? `⛔ PR #${params.prNumber} blocked (non-CLEAN mergeState): ${outcome.error}${ciBlock}`
+							: outcome.localCi
+								? `❌ PR #${params.prNumber} blocked on local_ci: ${outcome.error ?? "unknown"}.${took}${ciBlock}`
+								: `❌ PR #${params.prNumber} not merged: ${outcome.error ?? "unknown"}.${took}`;
 			return { details: outcome, content: [{ type: "text" as const, text }] };
 		},
 	});
