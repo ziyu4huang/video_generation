@@ -6,7 +6,9 @@ import {
   type AgentRegistry,
   agentDefinitionKey,
   createWorktree,
+  getGlobalRateLimiter,
   loadAgentRegistry,
+  providerFromModelSpec,
   removeWorktree,
   resolveAgentType,
   WorkflowAgent,
@@ -333,6 +335,18 @@ export async function runWorkflow<T = unknown>(
     depth: 0,
   };
   const limiter = shared.limiter;
+  // Shared per-provider rate-limit gate (wayfinder tickets 02+03): the OUTER cap
+  // across BOTH this workflow's agent dispatch AND the `subagents`/`subagent`
+  // tools. Undefined when the session has no resolvable provider model (or no
+  // rateLimits cap is configured) → run() is a pass-through, so behavior is
+  // byte-identical to before until the user opts in. Lives OUTSIDE the vm: this
+  // is the plain-TS orchestrator layer that wraps every agent() call.
+  const activeProvider = providerFromModelSpec(options.mainModel);
+  const globalRateLimiter = activeProvider ? getGlobalRateLimiter(activeProvider) : undefined;
+  const rateLimitGate = <T>(fn: () => Promise<T>): Promise<T> => (globalRateLimiter ? globalRateLimiter.run(fn) : fn());
+  // Acquire the global (shared) gate BEFORE the per-run-tree limiter, so a
+  // task blocked on the cross-tool budget does not occupy a per-run slot.
+  const dispatch = <T>(fn: () => Promise<T>): Promise<T> => rateLimitGate(() => limiter(fn));
 
   const log = (message: string) => {
     const text = String(message);
@@ -463,7 +477,7 @@ export async function runWorkflow<T = unknown>(
     // unchanged prefix ends; this call and every later one then run live.
     if (!hashMatches || cachedEmptyOutput) state.firstMiss = Math.min(state.firstMiss, callIndex);
 
-    return limiter(async () => {
+    return dispatch(async () => {
       const timeout = agentOptions.timeoutMs !== undefined ? agentOptions.timeoutMs : agentTimeoutMs;
       const retryAttempts = normalizeAgentRetries(agentOptions.retries ?? options.agentRetries ?? 0);
       const maxAttempts = retryAttempts + 1;

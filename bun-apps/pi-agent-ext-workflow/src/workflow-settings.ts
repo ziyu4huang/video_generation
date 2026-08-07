@@ -30,6 +30,14 @@ export interface WorkflowSettings {
    * phase tracking, concurrency, synthesis patterns, etc.).
    */
   verboseWorkflowGuidelines?: boolean;
+  /**
+   * Per-provider concurrency caps (rate limit). Keyed by provider name
+   * (e.g. "zai"), matching the provider segment of a `provider/model-id` spec.
+   * When a provider's cap is set, BOTH `subagents` and `workflow` acquire ONE
+   * shared per-provider budget (process-global), so their combined provider
+   * dispatch never exceeds `maxConcurrent`. No-op (pass-through) until set.
+   */
+  rateLimits?: Record<string, { maxConcurrent: number }>;
 }
 
 export interface WorkflowSettingsStore {
@@ -144,12 +152,43 @@ function normalizeSettings(value: unknown): WorkflowSettings {
   if (typeof raw.verboseWorkflowGuidelines === "boolean") {
     settings.verboseWorkflowGuidelines = raw.verboseWorkflowGuidelines;
   }
+  const rateLimits = normalizeRateLimits(raw.rateLimits);
+  if (rateLimits) settings.rateLimits = rateLimits;
   return settings;
 }
 
 function normalizeInteger(value: unknown, min: number, max: number): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value) || value < min) return undefined;
   return Math.min(max, Math.floor(value));
+}
+
+/**
+ * Validate + clamp the per-provider rateLimits map. Each entry must be an object
+ * with a numeric `maxConcurrent` in [1, MAX_CONCURRENCY]; invalid entries are
+ * dropped. Returns undefined when nothing valid remains (so unset ≡ pass-through).
+ */
+function normalizeRateLimits(value: unknown): Record<string, { maxConcurrent: number }> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  const out: Record<string, { maxConcurrent: number }> = {};
+  for (const [key, entry] of Object.entries(raw)) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const maxConcurrent = normalizeInteger((entry as { maxConcurrent?: unknown }).maxConcurrent, 1, MAX_CONCURRENCY);
+    if (maxConcurrent !== undefined) out[key] = { maxConcurrent };
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Read the configured concurrency cap for a provider (wayfinder tickets 02+03).
+ * Returns the clamped `maxConcurrent`, or undefined when the provider has no cap
+ * (equivalently: rateLimits unset) — which the shared limiter treats as a
+ * pass-through. `provider` is the provider segment of the session's model spec
+ * (e.g. "zai"), NOT a full `provider/model-id`.
+ */
+export function getRateLimit(settings: WorkflowSettings, provider?: string): number | undefined {
+  if (!provider || !settings.rateLimits) return undefined;
+  return settings.rateLimits[provider]?.maxConcurrent;
 }
 
 function readObject(path: string): Record<string, unknown> {

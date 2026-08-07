@@ -194,6 +194,7 @@ export type { SavedWorkflow, WorkflowStorage } from "./workflow-saved.js";
 export { assertSafeSavedWorkflowName, createWorkflowStorage, isSafeSavedWorkflowName } from "./workflow-saved.js";
 export type { WorkflowSettings, WorkflowSettingsOptions, WorkflowSettingsStore } from "./workflow-settings.js";
 export {
+  getRateLimit,
   getWorkflowProjectSettingsPath,
   getWorkflowSettingsPath,
   loadWorkflowSettings,

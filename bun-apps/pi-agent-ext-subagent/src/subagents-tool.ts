@@ -12,6 +12,7 @@ import type { AgentUsage, BudgetExhaustion } from "./agent.js";
 import { checkBudgetExhaustion } from "./agent.js";
 import { summarizeLatestAction } from "./agent-history.js";
 import { DEFAULT_BATCH_CONCURRENCY, MAX_BATCH_TASKS, MAX_CONCURRENCY } from "./config.js";
+import { getGlobalRateLimiter, providerFromModelSpec } from "./rate-limiter.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent.js";
 import { spawnSubagent } from "./spawn-subagent.js";
 import type { SubagentInFlightRegistry } from "./subagent-in-flight.js";
@@ -211,6 +212,13 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
       const concurrency = clampConcurrency(params.concurrency);
       const mainModel = options.getMainModel?.();
       const extensionTools = options.getExtensionTools?.();
+      // Shared per-provider rate-limit gate (the OUTER cap across subagents +
+      // workflow). Undefined when the session has no resolvable provider model
+      // → run() is a pass-through and behavior is unchanged. The provider is the
+      // SESSION's provider (mainModel), so every child in the batch shares one
+      // budget regardless of per-task model overrides.
+      const activeProvider = providerFromModelSpec(mainModel);
+      const globalRateLimiter = activeProvider ? getGlobalRateLimiter(activeProvider) : undefined;
 
       const slots: (BatchResultSlot | undefined)[] = new Array<BatchResultSlot | undefined>(tasks.length).fill(
         undefined,
@@ -305,7 +313,12 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
         };
         let result: SpawnSubagentResult;
         try {
-          result = await spawn(childSpawnOpts);
+          // Gate the actual provider dispatch under the shared per-provider cap
+          // (outer bound). The per-batch `concurrency` worker pool above stays
+          // the inner bound; this is the cross-tool shared budget. Pass-through
+          // when no rateLimits cap is configured for the provider.
+          const dispatch = () => spawn(childSpawnOpts);
+          result = globalRateLimiter ? await globalRateLimiter.run(dispatch) : await dispatch();
         } finally {
           // Mark completed (kept in the registry for k/N + frozen trace); the whole
           // batch is evicted on return via endBatch(toolCallId). Runs on throw too, so

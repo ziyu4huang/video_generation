@@ -64,6 +64,17 @@ export {
   saveModelTierConfig,
   sortedTierNames,
 } from "./model-tier-config.js";
+// rate-limiter (shared per-provider concurrency cap — wayfinder tickets 02+03).
+// Process-global via globalThis so BOTH this package (subagents/subagent) and
+// pi-agent-ext-workflow resolve ONE limiter instance per provider and bound
+// their COMBINED provider dispatch. Pass-through until rateLimits is configured.
+export type { RateLimitCapResolver, RateLimiter } from "./rate-limiter.js";
+export {
+  getGlobalRateLimiter,
+  getRateLimitCapResolver,
+  providerFromModelSpec,
+  setRateLimitCapResolver,
+} from "./rate-limiter.js";
 // sdd-report
 export type { SddReport, SddReportStatus } from "./sdd-report.js";
 export { isSddReportActionable, parseSddReport, SDD_REPORT_STATUSES } from "./sdd-report.js";
