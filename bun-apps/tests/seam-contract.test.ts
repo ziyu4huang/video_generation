@@ -25,6 +25,11 @@
  *     defensively checks `typeof === 'function'` → graceful fallback, never a
  *     silent break. The dominant drift vector for them is the key rename,
  *     caught by invariant 1.)
+ *  4. NO SELF-ONLY SEAMS — every cross-package SEAM_KEY is referenced by ≥2
+ *     distinct packages (publisher + consumer). A key green-lit by its own
+ *     publisher alone (constant-def + self-check) is rejected, closing the
+ *     self-reference loophole that let the dead __piWayfindActive seam pass.
+ *     Intra-package keys (crossPackage:false) are exempt.
  *
  * Static source analysis only — NO runtime import of any package (respects
  * ADR-0004's decoupling + the jiti constraint). Reads source as text; skips
@@ -47,17 +52,30 @@ const EXTS = readdirSync(ROOT)
  * The canonical `__pi*` seam-key contract. A key lives here iff it is a
  * process-global coordination/data surface. Value-shape noted per key; only the
  * object-valued status widget also carries a SHAPE invariant (see spec below).
+ *
+ * `crossPackage` is the per-key topology that drives the NO SELF-ONLY SEAMS
+ * invariant (invariant 4):
+ *  - true  = the seam is INTENDED to cross package boundaries — its publisher
+ *            and consumer live in DIFFERENT packages, so it MUST be referenced
+ *            by ≥2 distinct packages (publisher + consumer). Closes the
+ *            self-reference loophole (a key green-lit by its own publisher's
+ *            constant-def + self-check alone).
+ *  - false = intentionally INTRA-package (publisher + sole consumer in the
+ *            same package, e.g. goal⇄loop within core-task) — exempt from the
+ *            ≥2 requirement.
  */
-const SEAM_KEYS = [
-	"__piCoreTaskStatusWidget", // status composite (core-task → wayfind, power-tool) — OBJECT; shape-guarded
-	"__piGoalActive", //   () => boolean          (core-task goal → loop)        intra-core-task
-	"__piKickHeartbeat", // () => void             (core-task goal → loop)        intra-core-task
-	"__piPlanIncomplete", //  (cwd) => boolean     (core-task → wayfind)
-	"__piPlanPhases", //     (cwd) => PlanPhaseInfo[] (core-task → wayfind)
-	"__piPlanSummary", //    (cwd) => string       (core-task → wayfind)
-	"__piWayfindGrill", //   (sessionId) => boolean (wayfind → hermes-memory)
-] as const;
-const SEAM_KEY_SET = new Set<string>(SEAM_KEYS);
+type SeamKey = { key: string; crossPackage: boolean };
+
+const SEAM_KEYS: readonly SeamKey[] = [
+	{ key: "__piCoreTaskStatusWidget", crossPackage: true },  // OBJECT; shape-guarded (core-task → wayfind, power-tool)
+	{ key: "__piGoalActive",          crossPackage: false }, //   () => boolean  intra-core-task (goal → loop); power-tool reads it display-only
+	{ key: "__piKickHeartbeat",       crossPackage: false }, //   () => void     intra-core-task (goal → loop)
+	{ key: "__piPlanIncomplete",      crossPackage: true },  //  (cwd) => boolean        (wayfind → power-tool)
+	{ key: "__piPlanPhases",          crossPackage: true },  //     (cwd) => PlanPhaseInfo[] (wayfind → power-tool)
+	{ key: "__piPlanSummary",         crossPackage: true },  //    (cwd) => string       (core-task → wayfind)
+	{ key: "__piWayfindGrill",        crossPackage: true },  //   (sessionId) => boolean (wayfind → hermes-memory)
+];
+const SEAM_KEY_SET = new Set<string>(SEAM_KEYS.map((s) => s.key));
 
 // ─── source scan ────────────────────────────────────────────────────────────
 
@@ -68,8 +86,7 @@ const SEAM_KEY_SET = new Set<string>(SEAM_KEYS);
 const RE_QUOTED = /"__pi[A-Z][A-Za-z0-9]*"/g;
 const RE_ACCESS = /\.__pi[A-Z][A-Za-z0-9]*/g;
 
-/** Walk every extension's production `src/` and collect each `__pi*` token →
- *  the set of packages that reference it. Skips comments + test/fixture dirs. */
+/** Walk every extension's production `src/` AND `extensions/` (the canonical seam-registration entry where keys are published) and collect each `__pi*` token → the set of packages that reference it. Skips comments + test/fixture dirs. */
 function scanSeamReferences(): Map<string, Set<string>> {
 	const refs = new Map<string, Set<string>>();
 	const note = (tok: string, pkg: string) => {
@@ -94,8 +111,21 @@ function scanSeamReferences(): Map<string, Set<string>> {
 			}
 		}
 	};
-	for (const pkg of EXTS) walk(join(ROOT, pkg, "src"), pkg);
+	for (const pkg of EXTS) {
+		walk(join(ROOT, pkg, "src"), pkg);
+		walk(join(ROOT, pkg, "extensions"), pkg); // canonical seam-registration entry (CLAUDE.md); publish sites live here
+	}
 	return refs;
+}
+
+/** Keys registered as cross-package but referenced by <2 distinct packages —
+ *  i.e. only their own publisher (constant-def + self-check) references them,
+ *  so the documented cross-package consumer is MISSING. Pure for unit testing. */
+function findSelfOnlySeams(seams: readonly SeamKey[], refs: Map<string, Set<string>>): string[] {
+	return seams
+		.filter((s) => s.crossPackage && (refs.get(s.key)?.size ?? 0) < 2)
+		.map((s) => s.key)
+		.sort();
 }
 
 // ─── shape extraction (status widget only — the one OBJECT-valued key) ───────
@@ -174,9 +204,19 @@ describe("cross-extension __pi* seam contract (ADR-0004; generalized ticket 03)"
 	});
 
 	it("NO DEAD KEYS — every registered SEAM_KEY is actually referenced in production source", () => {
-		const dead = SEAM_KEYS.filter((k) => !refs.has(k));
+		const dead = SEAM_KEYS.filter((s) => !refs.has(s.key)).map((s) => s.key);
 		assert.deepEqual(dead, [], dead.length
 			? `DEAD SEAM_KEYS — registered but unreferenced in production source (remove from SEAM_KEYS, or wire the key):\n${dead.map((k) => `  "${k}"`).join("\n")}`
+			: "");
+	});
+
+	it("NO SELF-ONLY SEAMS — every cross-package SEAM_KEY is referenced by ≥2 distinct packages (publisher + consumer; closes the self-reference loophole)", () => {
+		const selfOnly = findSelfOnlySeams(SEAM_KEYS, refs);
+		const detail = selfOnly
+			.map((k) => `  "${k}" referenced by: ${(refs.get(k) && [...(refs.get(k) as Set<string>)].sort().join(", ")) || "(nobody)"}`)
+			.join("\n");
+		assert.deepEqual(selfOnly, [], selfOnly.length
+			? `SELF-ONLY SEAM_KEYS — a cross-package seam is referenced by <2 packages (only its own publisher?), so the documented consumer is missing. Either wire the consumer, mark the key crossPackage:false if it is intentionally intra-package, or drop it from SEAM_KEYS:\n${detail}`
 			: "");
 	});
 
@@ -193,5 +233,36 @@ describe("cross-extension __pi* seam contract (ADR-0004; generalized ticket 03)"
 			}
 		}
 		assert.deepEqual(drift, [], drift.length ? `SEAM SHAPE DRIFT — a publisher method rename/removal broke a consumer:\n${drift.join("\n")}` : "");
+	});
+});
+
+describe("findSelfOnlySeams predicate (self-reference loophole)", () => {
+	const mk = (entries: Array<[string, string[]]>): Map<string, Set<string>> =>
+		new Map(entries.map(([k, pkgs]) => [k, new Set(pkgs)]));
+
+	it("rejects a one-sided cross-package seam (publisher + self-read only) — the __piWayfindActive scenario", () => {
+		// Publisher's own constant-def + self-check both resolve to ONE package.
+		const refs = mk([["__piFakeActive", ["pkgPublisherOnly"]]]);
+		const seams: readonly SeamKey[] = [{ key: "__piFakeActive", crossPackage: true }];
+		assert.deepEqual(findSelfOnlySeams(seams, refs), ["__piFakeActive"]);
+	});
+
+	it("accepts a cross-package seam with a real second-package consumer", () => {
+		const refs = mk([["__piFakeActive", ["pkgA", "pkgB"]]]);
+		const seams: readonly SeamKey[] = [{ key: "__piFakeActive", crossPackage: true }];
+		assert.deepEqual(findSelfOnlySeams(seams, refs), []);
+	});
+
+	it("exempts an intentionally intra-package seam even with a single referencing package", () => {
+		// e.g. __piKickHeartbeat: goal publishes, loop consumes, both in core-task.
+		const refs = mk([["__piIntra", ["onlyPkg"]]]);
+		const seams: readonly SeamKey[] = [{ key: "__piIntra", crossPackage: false }];
+		assert.deepEqual(findSelfOnlySeams(seams, refs), []);
+	});
+
+	it("flags a cross-package seam referenced by nobody", () => {
+		const refs = mk([]);
+		const seams: readonly SeamKey[] = [{ key: "__piGhost", crossPackage: true }];
+		assert.deepEqual(findSelfOnlySeams(seams, refs), ["__piGhost"]);
 	});
 });
