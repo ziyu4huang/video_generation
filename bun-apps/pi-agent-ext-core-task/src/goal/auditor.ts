@@ -140,6 +140,15 @@ function buildGoalAuditorPrompt(goal: ActiveGoal, completionSummary: string | nu
 	].join("\n");
 }
 
+/** Best-effort extraction of the ModelRuntime from pi's ModelRegistry. pi
+ *  exposes no public API for this, so we reach the `runtime` field by cast;
+ *  if a pi rename removes/renames it, this returns undefined (caught by the
+ *  caller) rather than throwing opaquely. */
+function extractModelRuntime(registry: unknown): ModelRuntime | undefined {
+	const rt = (registry as Record<string, unknown> | null | undefined)?.runtime;
+	return typeof rt === "object" && rt !== null ? (rt as ModelRuntime) : undefined;
+}
+
 function modelLabel(model: AuditorModel | undefined): string {
 	if (!model) return "(unset)";
 	if (typeof model === "string") return model;
@@ -161,10 +170,15 @@ export async function runGoalCompletionAuditor(args: AuditRunnerArgs): Promise<G
 	let streamError: string | undefined;
 
 	try {
+		const modelRuntime = extractModelRuntime(ctx.modelRegistry);
+		if (!modelRuntime) {
+			return { approved: false, disapproved: false, output: "", model: modelLabel(model),
+				error: "ModelRegistry.runtime unavailable on this pi version — completion auditor disabled" };
+		}
 		const { session } = await sessionFactory({
 			cwd: ctx.cwd,
 			model,
-			modelRuntime: (ctx.modelRegistry as unknown as { runtime: ModelRuntime }).runtime,
+			modelRuntime,
 			resourceLoader: makeAuditorResourceLoader(),
 			sessionManager: SessionManager.inMemory(ctx.cwd),
 			settingsManager: SettingsManager.inMemory({ compaction: { enabled: true } }),
