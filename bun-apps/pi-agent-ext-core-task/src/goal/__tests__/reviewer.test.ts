@@ -137,7 +137,7 @@ describe("reviewer — report + safety", () => {
 	});
 });
 
-// helper for the writeReport test (writeReportReport path differs from GLA's .pi-gla path — see adaptation below)
+// helper for the writeReport test (writeReviewReport path differs from GLA's .pi-gla path — see adaptation below)
 function runWriteReport(cwd: string): string {
 	const { writeReviewReport } = require("../reviewer.js");
 	return writeReviewReport(cwd, {

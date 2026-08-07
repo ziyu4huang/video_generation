@@ -7,7 +7,6 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { replayFromBranch } from "./state/replay";
 import { selectTasksByStatus, selectTodoCounts, selectVisibleTasks } from "./state/selectors";
 import { applyTaskMutation } from "./state/state-reducer";
 import { commitState, getState, replaceState } from "./state/store";
@@ -27,14 +26,6 @@ import { formatCommandTaskLine, formatStatusLabel, renderTodoCall, renderTodoRes
 // Inlined config defaults — stripped from @juicesharp/rpiv-config
 // ---------------------------------------------------------------------------
 
-
-// ---------------------------------------------------------------------------
-// Backward-compat replay shim
-// ---------------------------------------------------------------------------
-
-export function reconstructTodoState(ctx: Parameters<typeof replayFromBranch>[0]): void {
-	replaceState(replayFromBranch(ctx));
-}
 
 // ---------------------------------------------------------------------------
 // Tool registration
