@@ -10,29 +10,22 @@
  *     live per-poll progress to the TUI (elapsed + checks + action) and is
  *     abortable via its AbortSignal.
  *   - pr_status: one-shot PR snapshot (state + mergeState + checks).
+ *   - local_ci: OFFLINE local CI — typecheck + tests scoped to changed packages
+ *     vs origin/main, plus repo gates. Structured pass/fail; self-verify before
+ *     `gh ship` (await_pr_merge/merge gate on this).
  *
  * Install: registered in bun-apps/pi-agent/run-dir/manifest.json (extensions[]).
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { createGhClient, createBranchClient, type SpawnFn } from "../src/gh.js";
+import { createGhClient, createBranchClient } from "../src/gh.js";
+import { createLiveSpawn, type SpawnFn } from "../src/spawn.js";
 import { runMergeRecipe } from "../src/recipe.js";
 import { runSweep, type SweepOutcome } from "../src/branch-recipe.js";
+import { runLocalCi, type CiOutcome } from "../src/ci-recipe.js";
 import { formatProgress } from "../src/progress.js";
 
 const realSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
-
-/** Live Bun.spawn adapter — the only untested seam (thin stdlib passthrough). */
-function liveSpawn(cwd: string): SpawnFn {
-	return async (cmd, args) => {
-		const proc = Bun.spawn([cmd, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
-		const [stdout, stderr] = await Promise.all([
-			new Response(proc.stdout).text(),
-			new Response(proc.stderr).text(),
-		]);
-		return { stdout, stderr, exitCode: await proc.exited };
-	};
-}
 
 async function currentBranch(spawn: SpawnFn): Promise<string | undefined> {
 	const r = await spawn("git", ["rev-parse", "--abbrev-ref", "HEAD"]);
@@ -53,6 +46,47 @@ function formatSweep(o: SweepOutcome): string {
 			? ` | Skipped: ${o.executed.skipped.map((s) => `${s.name} [${s.reason}]`).join(", ")}`
 			: "";
 		L.push(`Deleted local: ${o.executed.deletedLocal.join(", ") || "none"} | Deleted remote: ${o.executed.deletedRemote.join(", ") || "none"}${sk}`);
+	}
+	return L.join("\n");
+}
+
+/** ✓/✗ for an exit code (0 → ✓, else ✗). */
+function mark(exit: number): string {
+	return exit === 0 ? "✓" : "✗";
+}
+
+/** Render a test result: ✓ / ✗ exit N / – (no test script). */
+function fmtTest(t: { exitCode: number; note?: string }): string {
+	if (t.exitCode === -1) return "– (no test)";
+	return mark(t.exitCode) + (t.exitCode !== 0 ? ` exit ${t.exitCode}` : "");
+}
+
+/** Render a typecheck result: ✓ / ✗ / skip / –. */
+function fmtTypecheck(tc?: { exitCode: number; skipped?: boolean; note?: string }): string {
+	if (!tc) return "–";
+	if (tc.skipped) return "skip";
+	return mark(tc.exitCode);
+}
+
+/** Render a local-CI outcome as a compact, human-readable pass/fail summary. */
+function formatCiOutcome(o: CiOutcome): string {
+	const L: string[] = [];
+	const secs = (o.elapsedMs / 1000).toFixed(1);
+	L.push(
+		`${o.overall === "pass" ? "✅" : "❌"} Local CI ${o.overall.toUpperCase()} — ${o.packages.length} pkg(s), ${o.gates.length} gate(s), ${secs}s (vs ${o.baseRef}..${o.headRef}).`,
+	);
+	if (o.packages.length === 0) {
+		L.push("  No packages affected.");
+	} else {
+		for (const p of o.packages) L.push(`  ${p.name}: test ${fmtTest(p.test)} (typecheck ${fmtTypecheck(p.typecheck)})`);
+	}
+	if (o.gates.length) {
+		const pass = o.gates.filter((g) => g.exitCode === 0).length;
+		const failed = o.gates.filter((g) => g.exitCode !== 0).map((g) => `${g.name}${g.blocking ? " (blocking)" : ""}`);
+		L.push(`Gates: ${pass} pass / ${o.gates.length - pass} fail.${failed.length ? ` ✗ ${failed.join(", ")}` : ""}`);
+	}
+	if (o.schemaCost) {
+		L.push(`Schema-cost: ${o.schemaCost.exitCode === 0 ? "✓" : `✗ exit ${o.schemaCost.exitCode}`} (${o.schemaCost.note}).`);
 	}
 	return L.join("\n");
 }
@@ -80,7 +114,7 @@ export default function (pi: ExtensionAPI): void {
 		}),
 		async execute(_id, params, signal, onUpdate) {
 			const cwd = process.cwd();
-			const spawn = liveSpawn(cwd);
+			const spawn = createLiveSpawn(cwd);
 			const gh = createGhClient(spawn);
 			const strategy = (params.strategy === "merge" || params.strategy === "squash" ? params.strategy : "rebase") as
 				| "rebase"
@@ -128,7 +162,7 @@ export default function (pi: ExtensionAPI): void {
 			prNumber: Type.Integer({ description: "The PR number to inspect." }),
 		}),
 		async execute(_id, params) {
-			const gh = createGhClient(liveSpawn(process.cwd()));
+			const gh = createGhClient(createLiveSpawn(process.cwd()));
 			const s = await gh.prStatus(params.prNumber as number);
 			const c = `${s.checks.pass} pass / ${s.checks.fail} fail / ${s.checks.pending} pending`;
 			const text = `PR #${params.prNumber}: state=${s.state}, mergeState=${s.mergeState}, checks=[${c}]${s.mergeSha ? `, mergeSha=${s.mergeSha.slice(0, 7)}` : ""}.`;
@@ -158,7 +192,7 @@ export default function (pi: ExtensionAPI): void {
 			limit: Type.Optional(Type.Integer({ description: "`gh pr list --limit N` (default 200)." })),
 		}),
 		async execute(_id, params) {
-			const spawn = liveSpawn(process.cwd());
+			const spawn = createLiveSpawn(process.cwd());
 			const client = createBranchClient(spawn);
 			const outcome = await runSweep({
 				client,
@@ -171,6 +205,48 @@ export default function (pi: ExtensionAPI): void {
 				limit: params.limit as number | undefined,
 			});
 			return { details: outcome, content: [{ type: "text" as const, text: formatSweep(outcome) }] };
+		},
+	});
+
+	pi.registerTool({
+		name: "local_ci",
+		label: "Local CI verification",
+		description:
+			"Run local CI — typecheck + tests scoped to the packages changed vs origin/main, plus the repo's quality gates (file-size guard, lockfile-duplicate guard; optional audit gates under strict; info-only schema-cost). Returns a STRUCTURED pass/fail so you can self-verify before merge. OFFLINE (no network): uses the same committed scripts remote CI uses (scripts/ci-changed-packages.sh, scripts/ci-file-size-guard.sh, …), so a green run is the local proxy for a green remote run. Use to self-verify before merge; await_pr_merge / merge should gate on this.",
+		gating: { keywords: ["ci", "test", "typecheck", "verify", "gate", "green", "merge", "local ci"] },
+		promptSnippet:
+			"Local CI: typecheck + tests for changed packages vs origin/main, plus repo gates. Structured pass/fail, offline. Self-verify before `gh ship`.",
+		parameters: Type.Object({
+			baseRef: Type.Optional(
+				Type.String({ description: "Base ref to diff against (default origin/main). Must exist locally — runLocalCi stays offline (never auto-fetches)." }),
+			),
+			packages: Type.Optional(
+				Type.Array(Type.String(), { description: "Explicit package list (bun-apps/<name>); skips change detection entirely." }),
+			),
+			all: Type.Optional(Type.Boolean({ description: "Run every bun-apps/* package (ci-changed-packages.sh --all)." })),
+			strict: Type.Optional(
+				Type.Boolean({ description: "Add the audit gates (determinism / portability / workflow-patterns / verify-skills). Default false." }),
+			),
+			includeGates: Type.Optional(Type.Boolean({ description: "Run the gate suite (default true)." })),
+		}),
+		async execute(_id, params, signal) {
+			const spawn = createLiveSpawn(process.cwd());
+			// Resolve the repo root WITHOUT chdir (no top-level cd) — fall back to
+			// process.cwd() if not in a git worktree.
+			const root = await spawn("git", ["rev-parse", "--show-toplevel"]);
+			const repoRoot = root.exitCode === 0 ? root.stdout.trim() : process.cwd();
+			const outcome = await runLocalCi({
+				repoRoot,
+				baseRef: params.baseRef as string | undefined,
+				headRef: "HEAD",
+				packages: params.packages as string[] | undefined,
+				all: params.all === true,
+				strict: params.strict === true,
+				includeGates: params.includeGates === false ? false : true,
+				spawn,
+				signal,
+			});
+			return { details: outcome, content: [{ type: "text" as const, text: formatCiOutcome(outcome) }] };
 		},
 	});
 }

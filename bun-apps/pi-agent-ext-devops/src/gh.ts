@@ -12,13 +12,12 @@
 import type { GhClient } from "./recipe.js";
 import type { BranchClient } from "./branch-recipe.js";
 import type { PrState, MergeState, CheckTally } from "./pr-logic.js";
+import type { SpawnFn } from "./spawn.js";
 
-export interface SpawnResult {
-	stdout: string;
-	stderr: string;
-	exitCode: number;
-}
-export type SpawnFn = (cmd: string, args: string[]) => Promise<SpawnResult>;
+// SpawnFn / SpawnResult / SpawnOptions are defined in src/spawn.ts (the shared,
+// cycle-free home for the spawn abstraction + live factory) and re-exported
+// here so existing `from "../src/gh.js"` imports keep working.
+export type { SpawnResult, SpawnFn, SpawnOptions } from "./spawn.js";
 
 const VALID_STATES = new Set<PrState>(["OPEN", "MERGED", "CLOSED"]);
 const VALID_MERGE_STATES = new Set<MergeState>([
@@ -76,9 +75,9 @@ export function parseChecks(rows: unknown): CheckTally {
 }
 
 /**
- * Build a `GhClient` backed by a `SpawnFn`. The live adapter (in
- * extensions/devops.ts) passes a Bun.spawn wrapper that sets the repo cwd;
- * tests pass a recording fake. All gh output is parsed as structured JSON.
+ * Build a `GhClient` backed by a `SpawnFn`. The live adapter
+ * (src/spawn.ts `createLiveSpawn`) passes a Bun.spawn wrapper that sets the
+ * repo cwd; tests pass a recording fake. All gh output is parsed as JSON.
  */
 export function createGhClient(spawn: SpawnFn): GhClient {
 	return {
@@ -238,8 +237,8 @@ export function parseContained(stdout: string): Set<string> {
 
 /**
  * Build a `BranchClient` backed by a `SpawnFn` (the live Bun.spawn adapter in
- * extensions/devops.ts sets the repo cwd; tests pass a recording fake). All git/gh
- * output is parsed as structured text/JSON — no grep footguns, defensive on garbage.
+ * src/spawn.ts `createLiveSpawn` sets the repo cwd; tests pass a recording fake).
+ * All git/gh output is parsed as structured text/JSON — no grep footguns.
  */
 export function createBranchClient(spawn: SpawnFn): BranchClient {
 	return {
