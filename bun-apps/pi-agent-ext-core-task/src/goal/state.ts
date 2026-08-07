@@ -183,8 +183,9 @@ export interface GoalRuntimeState {
 	list: GoalListItem[];
 	headAdvances: number;
 	// Reviewer wiring (Task 3): global enable toggle for the Reviewer. Driven by
-	// `/goal review on|off` (Task 6). Default true (Reviewer active by default).
+	// `/goal review on|off|auto|aggressive` (Task 6). Default true/on (Reviewer active by default).
 	reviewerEnabled: boolean;
+	reviewerMode: import("./reviewer.js").ReviewerMode;
 }
 
 export const goalState: GoalRuntimeState = {
@@ -210,6 +211,7 @@ export const goalState: GoalRuntimeState = {
 	list: [],
 	headAdvances: 0,
 	reviewerEnabled: true,
+	reviewerMode: "on",
 };
 
 /** Test seam: reset all runtime state to initial values (mirrors todo/state/store.ts __resetState). */
@@ -236,4 +238,5 @@ export function __resetGoalState(): void {
 	goalState.list = [];
 	goalState.headAdvances = 0;
 	goalState.reviewerEnabled = true;
+	goalState.reviewerMode = "on";
 }

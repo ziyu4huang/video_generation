@@ -172,11 +172,17 @@ describe("completeGoalArguments", () => {
 // ─── parseListCommand ─────────────────────────────────────────────────────────
 
 describe("/goal review parsing", () => {
-	test("review on -> { kind: review, enabled: true }", () => {
-		expect(parseCommand("review on")).toEqual({ kind: "review", enabled: true });
+	test("review on -> { kind: review, mode: 'on' }", () => {
+		expect(parseCommand("review on")).toEqual({ kind: "review", mode: "on" });
 	});
-	test("review off -> { kind: review, enabled: false }", () => {
-		expect(parseCommand("review off")).toEqual({ kind: "review", enabled: false });
+	test("review off -> { kind: review, mode: 'off' }", () => {
+		expect(parseCommand("review off")).toEqual({ kind: "review", mode: "off" });
+	});
+	test("review auto -> { kind: review, mode: 'auto' }", () => {
+		expect(parseCommand("review auto")).toEqual({ kind: "review", mode: "auto" });
+	});
+	test("review aggressive -> { kind: review, mode: 'aggressive' }", () => {
+		expect(parseCommand("review aggressive")).toEqual({ kind: "review", mode: "aggressive" });
 	});
 	test("review with no/bad arg -> usage error string", () => {
 		expect(typeof parseCommand("review")).toBe("string");

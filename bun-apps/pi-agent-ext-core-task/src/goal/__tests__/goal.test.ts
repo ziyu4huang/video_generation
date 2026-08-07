@@ -286,7 +286,7 @@ describe("completeGoalArguments", () => {
 			"Edit the current goal objective",
 			"Show the current goal",
 			"Set a token budget before the goal",
-			"Toggle the post-completion Reviewer (on|off)",
+			"Set the post-completion Reviewer mode (on|off|auto|aggressive)",
 		]);
 
 		expect(completeGoalArguments("pa")?.map((i) => i.value)).toEqual(["pause"]);
