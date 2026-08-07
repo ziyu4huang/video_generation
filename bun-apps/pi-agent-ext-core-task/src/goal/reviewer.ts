@@ -101,6 +101,35 @@ const CLASS_PATTERNS: Array<{ class: FindingClass; re: RegExp }> = [
 const SKIP_LINE = /^\s*(test|it|describe|assert|expect)\s*\(|^\s*(const|let|var|function|import|export|require)\b|\{\s*\.\.\.\s*\}|,\s*\.\.\.$|^\s*\||^\s*[{\[\]}]|^\s*['"]|^\s*ℹ/; // ℹ = test-runner/status noise ("ℹ todo 0" was enqueued as a /list item by the 0.26.2 reviewer)
 const REVIEWER_VOCAB = /architectural-class|bug-class|refactor-class|strategic-class|reviewer found|cascade step|\*\*Mode\*\*|problems\s*\/\s*\(?(improvements|architectural)/i;
 
+/** False friends are CLASS-SCOPED: a negated "issue" only suppresses the bug
+ * class; a benign "added improvements" only suppresses the refactor class.
+ * This keeps a real signal of a DIFFERENT class firing on a mixed line
+ * (e.g. "Fixed the bug and added improvements" -> bug still fires).
+ * Ref: ticket 05 — reviewer false-positive anti-patterns. */
+const ISSUE_FALSE_FRIENDS = [
+	// Negated "issue" forms — completion says "no issues", not "there is an issue"
+	/\bno issues?\b/i,
+	/\bnon-issue\b/i,
+	/\bwithout (any )?issues?\b/i,
+];
+
+const IMPROVEMENT_FALSE_FRIENDS = [
+	// Benign improvement/enhancement mentions in completion prose
+	// e.g. "added several improvements" / "made enhancements" — these are
+	// retrospective summaries, not "could be improved" signals
+	/(?:added|made|included|implemented) (?:several |minor |small |multiple )*(?:improvements?|enhancements)/i,
+];
+
+/** Check whether a line that matched a CLASS_PATTERN is actually a false
+ * friend FOR THAT CLASS ONLY. This prevents over-suppression on mixed lines
+ * that contain both a real signal and a false-friend phrase for a DIFFERENT
+ * class. Ref: ticket 05 correction. */
+function isFalseFriendForClass(cls: string, line: string): boolean {
+	if (cls === "bug") return ISSUE_FALSE_FRIENDS.some((re) => re.test(line));
+	if (cls === "refactor") return IMPROVEMENT_FALSE_FRIENDS.some((re) => re.test(line));
+	return false;
+}
+
 export function classifyFindingText(line: string): FindingClass | undefined {
 	// Strip list markers here too (extractFindings already does, but direct
 	// callers/tests pass raw report lines like "- ℹ todo 0").
@@ -108,7 +137,13 @@ export function classifyFindingText(line: string): FindingClass | undefined {
 	if (t.length < 8) return undefined;
 	if (SKIP_LINE.test(t) || REVIEWER_VOCAB.test(t)) return undefined;
 	for (const { class: cls, re } of CLASS_PATTERNS) {
-		if (re.test(t)) return cls;
+		if (re.test(t)) {
+			// Anti-pattern check: skip THIS class only if the line is a false
+			// friend FOR THAT CLASS. Other classes can still match (mixed lines
+			// keep real signals). Ref: ticket 05 correction.
+			if (isFalseFriendForClass(cls, t)) continue;
+			return cls;
+		}
 	}
 	return undefined;
 }
