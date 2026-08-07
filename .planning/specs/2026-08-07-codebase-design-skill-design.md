@@ -12,7 +12,7 @@ Add a shared deep-module design vocabulary (`codebase-design` skill) to the supe
 
 This effort is the first of a code-quality-focused roadmap derived from studying Matt Pocock's upstream skills suite (`/Users/huangziyu/proj/pi-ext-matt-skills`). Comparative analysis found our design conversations use informal, unshared language ("units", "boundaries", "interfaces") scattered across brainstorming/writing-plans, with no portable rubric. Upstream's `codebase-design` is a model-invoked vocabulary layer that multiple skills speak.
 
-Roadmap order: **A · codebase-design (this) → B · code-review rubric → C · improve-codebase-architecture (depends on A) → D · resolving-merge-conflicts.** This effort was chosen first because it is foundational — B's reviews and C's architecture survey are most powerful when measured against a shared design vocabulary.
+Roadmap order: **A · codebase-design (this) → B · code-review rubric → C · improve-codebase-architecture (depends on A) → D · resolving-merge-conflicts → E · context-management track (ask-matt-style flow-map + phase-boundary tree + handoff; parked, sequenced after A–D).** This effort was chosen first because it is foundational — B's reviews and C's architecture survey are most powerful when measured against a shared design vocabulary. Effort E is parked and tracked for a later cycle — it is the context-management track (not a code-quality effort), and `handoff` there is a pi-adapted port that composes with pi's existing `memory` / `session_search` / `subagent_runs` persistence rather than duplicating it.
 
 **Approach chosen:** "Skill + active vocab wiring" — create the skill AND patch the two consumer skills so the vocabulary is actually shared, not just available.
 
