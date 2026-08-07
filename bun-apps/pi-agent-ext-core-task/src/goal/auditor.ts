@@ -260,6 +260,12 @@ export async function runGoalCompletionAuditor(args: AuditRunnerArgs): Promise<G
 				error: "Auditor approved without calling any read tool; treated as disapproved." };
 		}
 
+		// Safety floor #5: regression_shield (approval w/o per-item evidence → disapproval).
+		// NOTE: This floor is INERT-by-design. It can never fire because
+		// goal.verificationContract is never set by any command/flag.
+		// Activation would require wiring a /goal --verify flag (left as a
+		// separate future decision; see ticket 06, option b).
+		// Refs: .planning/2026-08-02-core-task-review/tickets/06-regression-shield-activation.md
 		if (parsed.approved && args.goal.verificationContract?.trim()) {
 			const shield = checkRegressionShield(output, args.goal.verificationContract);
 			if (!shield.passed) {
