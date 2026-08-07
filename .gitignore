@@ -9,6 +9,9 @@ node_modules
 .pi/agent/trust.json
 **/.pi/npm/
 
+# runtime artifacts — reviewer review reports
+**/.pi/core-task/reviews/
+
 # Bun monorepo SOP — bun.lock at the root is the single canonical lockfile.
 # Per-package npm lockfiles (package-lock.json) are NOT used here and must not
 # be committed; they drift from bun.lock and confuse tooling. (pi-hermes-memory

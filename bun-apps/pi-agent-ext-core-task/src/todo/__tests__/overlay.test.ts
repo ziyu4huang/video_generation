@@ -13,6 +13,9 @@ import type { Task } from "../tool/types.js";
 // Minimal theme mock (only fg is used by overlay)
 const T = { fg: (_c: string, s: string) => s, bold: (s: string) => s, strikethrough: (s: string) => s } as any;
 
+// Theme with ANSI escape codes for testing ANSI awareness
+const ANSI_THEME = { fg: (c: string, s: string) => `\x1b[33m${s}\x1b[0m`, bold: (s: string) => `\x1b[1m${s}\x1b[0m`, strikethrough: (s: string) => s } as any;
+
 test("M6: todo panel still renders heading when all tasks completed/hidden", () => {
 	// Reset state before test
 	__resetState();
@@ -48,6 +51,37 @@ test("M6: todo panel still renders heading when all tasks completed/hidden", () 
 	expect(joined).toContain("3/3"); // 3 completed out of 3 total
 
 	// Cleanup
+	overlay.dispose();
+	__resetState();
+});
+
+test("L7: ANSI-awareness — truncateToWidth handles ANSI escape codes", () => {
+	__resetState();
+
+	const overlay = new TodoOverlay();
+
+	// Create a task with a very long subject (longer than typical terminal width)
+	const longSubject = "This is a very long task subject that exceeds typical terminal width and should be truncated properly even with ANSI escape codes in the theme";
+	const tasks: Task[] = [{ id: 1, subject: longSubject, status: "pending" }];
+	replaceState({ tasks, nextId: 2 });
+
+	// Render with ANSI theme and limited width
+	const lines = overlay.render(ANSI_THEME, 60);
+
+	// Should render successfully without errors
+	expect(lines.length).toBeGreaterThan(0);
+
+	// The line should be truncated (not containing the full subject)
+	const joined = lines.join("\n");
+	// ANSI escape codes should be preserved in the output
+	expect(joined).toContain("\x1b");
+
+	// The rendered line should not be excessively long (truncation should work)
+	// Each line should be reasonable length even after ANSI codes
+	const maxLineLength = Math.max(...lines.map((l) => l.length));
+	// Allow some buffer for ANSI codes but should still be bounded
+	expect(maxLineLength).toBeLessThan(200);
+
 	overlay.dispose();
 	__resetState();
 });

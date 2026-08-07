@@ -43,7 +43,7 @@ import {
 	isRetryableGoalInterruption,
 	type AssistantMessageLike,
 } from "./overflow.js";
-import { backoffMs, shouldPauseAfterBackoff, shouldHeartbeatRefire, accountTurnForNudges, shouldWedgeAlert, HEARTBEAT_INTERVAL_MS, HEARTBEAT_MAX_NUDGES, WEDGE_ALERT_DEFAULT_MINUTES } from "./backoff.js";
+import { shouldPauseAfterBackoff, shouldHeartbeatRefire, accountTurnForNudges, shouldWedgeAlert, HEARTBEAT_INTERVAL_MS, HEARTBEAT_MAX_NUDGES, WEDGE_ALERT_DEFAULT_MINUTES } from "./backoff.js";
 import type { GoalAuditorResult } from "./shield.js";
 import { isQuotaError, parseQuotaError, scheduleQuotaRetry, cancelQuotaRetry } from "./quota-retry.js";
 import {
@@ -699,6 +699,8 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 		stopStatusRefreshTimer();
 		stopHeartbeatTimer();
 		goalOverlay?.dispose();
+		// Clear the heartbeat coordination seam for symmetry with publish
+		delete (globalThis as Record<string, unknown>).__piKickHeartbeat;
 	});
 
 	pi.on("session_before_compact", (_event: unknown, ctx: StatusContext) => {
@@ -929,11 +931,9 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 			return;
 		}
 
-		// Not stuck — reset the streak, apply a brief backoff, then continue normally.
+		// Not stuck — reset the streak, then continue normally.
 		goalState.consecutiveStuck = 0;
 		goalState.stuckStartedAt = undefined;
-		const wait = backoffMs(0);
-		if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 		await sendContinuationPrompt(pi, ctx, currentGoal);
 	});
 
