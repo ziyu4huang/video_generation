@@ -19,6 +19,8 @@ The `subagent` tool's `commitScope` violation detector compares a branch's commi
 
 If those show only the intended in-scope files, the violation is a false alarm — no cleanup is needed. Common in worktrees that frequently sit behind `origin/main`.
 
+Confirmed root cause (PRs #1068/#1069 cross-check): the guard diffs the subagent's commits against stale *local* `main`, so it also flags file paths changed by *prior* merged PRs on `origin/main` that local `main` hasn't fast-forwarded to — not just the current branch's work. Verify with `gh pr view <N> --json files`.
+
 ---
 
 ## [insight] pi-coding-agent skill precedence: bundled `--skill` always wins over `resources_discover`
@@ -45,11 +47,11 @@ Before any git/GitHub operation, reach for the repo's purpose-built tooling inst
 
 | Operation | Use this | Not |
 |---|---|---|
-| Sync a worktree to the latest default branch | `scripts/sync-repo.sh --full` (worktree-aware: advances `origin/<default>` across superproject + submodules; handles detached HEAD / branch-held-elsewhere / untracked files) | hand-rolled `git fetch` + `reset --hard` + `pull --ff-only` |
-| Rebase a branch onto origin/main | `scripts/git-remote-main-sync.sh` | manual `git rebase` |
+| Sync a worktree/repo to the latest default branch | devops **`sync_repo`** tool (`mode: "full"`) — `merge --ff-only` by default (aborts on divergent, never loses commits); `force: true` for `reset --hard`; worktree-aware across superproject + submodules | hand-rolled `git fetch` + `reset --hard` + `pull --ff-only` |
+| Rebase current branch onto origin/main | `sync_repo` (`mode: "rebase"`) | manual `git rebase` |
+| Merge origin/main into current branch | `sync_repo` (`mode: "pull"`) | raw `git merge`/`pull` |
 | Merge a PR | `await_pr_merge({ prNumber })` pi tool — runs the `local_ci` gate (typecheck+tests scoped to changed packages vs `origin/main`), then squash-merges; refuses on BEHIND/non-CLEAN | raw `gh pr merge --squash` / `gh ship` |
 | Inspect a PR | `pr_status({ prNumber })` pi tool | `gh pr view` parsing |
 | Clean up branches | `sweep_branches({ execute: true })` pi tool (gh-confirmed merges only) | manual branch deletion |
-| Interactive sync with pre-flight | `scripts/safe-sync.sh` | ad-hoc git |
 
 Why it matters: hand-running git in a subagent against a stale worktree is what produces the `commitScope` false-positive noise (see the `[tool-quirk]` entry above) and skips the local-CI self-verification that `await_pr_merge` enforces. Note: the devops tools are pi-agent extension tools — if they aren't directly callable in the current session, invoke them via a subagent rather than falling back to raw git.

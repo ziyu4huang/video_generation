@@ -5,7 +5,7 @@
  * Builds a synthetic bun-apps/ tree (own git repo, own package.json files) so
  * the @repo/* dependency-graph discovery and reverse-BFS propagation are
  * exercised against REAL files on disk — same "as shipped" philosophy as
- * sync-repo.test.ts / pr-finish.test.ts, no mocking of the script's own logic.
+ * pr-finish.test.ts, no mocking of the script's own logic.
  *
  * Run: `bun test scripts/ci-changed-packages.test.ts`
  */
