@@ -1,13 +1,7 @@
 // tests/grill-seam.test.ts
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { WAYFIND_GRILL_KEY } from "../src/constants.js";
-import {
-  isWayfindActivePublished,
-  publishWayfindActive,
-  publishWayfindGrill,
-  readWayfindGrill,
-  unpublishWayfindGrill,
-} from "../src/coordination.js";
+import { publishWayfindGrill, readWayfindGrill, unpublishWayfindGrill } from "../src/coordination.js";
 import { createRuntimeState } from "../src/state.js";
 
 beforeEach(() => {
@@ -31,13 +25,11 @@ test("publishWayfindGrill exposes a per-session grill-active reader", () => {
   expect(readWayfindGrill("sess-3")).toBe(false); // no grill for this session
 });
 
-test("grill seam is independent of the wayfinder boolean seam", () => {
+test("grill seam is false for a wayfinder-only session (no grill)", () => {
   const state = createRuntimeState();
   publishWayfindGrill(state);
-  publishWayfindActive(state);
-  // wayfinder-only (no grill) → boolean seam true, grill seam false
+  // wayfinder-only (no grill) → grill seam false
   state.activeEffortBySession.set("sess-1", "big-effort");
-  expect(isWayfindActivePublished()).toBe(true);
   expect(readWayfindGrill("sess-1")).toBe(false);
 });
 

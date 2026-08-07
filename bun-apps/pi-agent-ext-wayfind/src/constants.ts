@@ -1,9 +1,11 @@
 /**
  * Shared constants for pi-agent-ext-wayfind.
  *
- * The coordination seam keys live here so both the wayfind side (publisher) and
- * any consumer can import the canonical string — mirroring how the plan
- * coordinator centralizes its keys in its own constants module.
+ * The globalThis seam-key strings live here so the wayfind side and any consumer
+ * can import the canonical string — mirroring how the plan coordinator
+ * (pi-agent-ext-core-task) centralizes its keys in its own constants module.
+ * wayfind PUBLISHES `WAYFIND_GRILL_KEY` (read by hermes-memory); it only READS
+ * the plan coordinator's `__piPlan*` keys below.
  */
 
 /** Package name, used for status-bar / notification prefixes. */
@@ -11,14 +13,6 @@ export const PKG_NAME = "pi-agent-ext-wayfind";
 
 /** Custom message type for wayfind-originated injected context. */
 export const CUSTOM_TYPE = "pi-wayfind";
-
-/**
- * globalThis key under which wayfind publishes an `() => boolean` telling
- * the plan coordinator whether a grill / wayfinder session is currently active.
- * Process-singleton (survives jiti module-identity gaps) — same pattern as
- * the goal side's `__piGoalActive`.
- */
-export const WAYFIND_ACTIVE_KEY = "__piWayfindActive";
 
 /**
  * globalThis key under which the plan coordinator publishes an
@@ -45,8 +39,7 @@ export const PLAN_PHASES_KEY = "__piPlanPhases";
 
 /**
  * globalThis key under which wayfind publishes a GRILL-SPECIFIC active reader:
- * `(sessionId: string) => boolean`. Distinct from WAYFIND_ACTIVE_KEY, which
- * conflates grill + wayfinder. Consumers that must scope to grills only (e.g.
- * hermes-memory's correction-detector yield) read THIS key.
+ * `(sessionId: string) => boolean`. Consumers that must scope to grills only
+ * (e.g. hermes-memory's correction-detector yield) read THIS key.
  */
 export const WAYFIND_GRILL_KEY = "__piWayfindGrill";

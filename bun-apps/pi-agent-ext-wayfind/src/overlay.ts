@@ -60,18 +60,18 @@ export class WayfindOverlay {
   }
 
   /** Track the active effort. It no longer paints a permanent idle line — it
-   *  only augments a transient action line with the effort's manifest status.
-   *  (Still consumed by /wayfind status + the coordinator-yield seam.) */
+   *  only augments a transient action line with the effort's manifest status
+   *  (still consumed by /wayfind status). */
   setActiveEffort(effort: string | undefined, cwd: string | undefined): void {
     this.activeEffort = effort;
     this.activeCwd = cwd;
     this.refresh?.();
   }
 
-  /** States that represent a sustained, multi-turn MODE (the plan coordinator
-   *  yields throughout) — they must NOT be auto-cleared at turn_end, persisting
-   *  until their explicit end (/grill done) or session_shutdown. One-shot
-   *  command states (charting, working-ticket, to-tickets, …) are NOT here. */
+  /** States that represent a sustained, multi-turn MODE — they must NOT be
+   *  auto-cleared at turn_end, persisting until their explicit end (/grill done)
+   *  or session_shutdown. One-shot command states (charting, working-ticket,
+   *  to-tickets, …) are NOT here. */
   private static readonly SUSTAINED_STATES: ReadonlySet<WayfindState> = new Set<WayfindState>([
     "grilling",
     "grilling-docs",

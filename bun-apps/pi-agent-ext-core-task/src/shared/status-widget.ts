@@ -24,8 +24,8 @@
  * module-level `let instance`, so wayfind and the plan coordinator could each
  * get a DIFFERENT widget and silently stop sharing state. `globalThis` is
  * process-singleton → always the same object regardless of which loader
- * resolved this module. Same rationale as the existing
- * `__piWayfindActive` / `__piGoalActive` coordination-seam keys.
+ * resolved this module. Same rationale as the existing `__piGoalActive` /
+ * `__piPlan*` globalThis-backed coordination-seam keys.
  *
  * This is ALSO where all the widget lifecycle lives (setUICtx / register /
  * requestRender / dispose), so GoalOverlay, TodoOverlay, and any consumer

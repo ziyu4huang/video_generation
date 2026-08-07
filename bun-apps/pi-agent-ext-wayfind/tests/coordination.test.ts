@@ -3,59 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { syncChainState } from "../src/chain.js";
-import { WAYFIND_ACTIVE_KEY } from "../src/constants.js";
-import {
-  isWayfindActivePublished,
-  publishWayfindActive,
-  readPlanIncomplete,
-  readPlanSummary,
-  unpublishWayfindActive,
-} from "../src/coordination.js";
+import { readPlanIncomplete, readPlanSummary } from "../src/coordination.js";
 import { readMap, writeMap, writeTicket } from "../src/map.js";
-import { createRuntimeState } from "../src/state.js";
-
-afterEach(() => {
-  delete (globalThis as Record<string, unknown>)[WAYFIND_ACTIVE_KEY];
-});
-
-describe("publishWayfindActive / isWayfindActivePublished", () => {
-  it("is false before anything is published (graceful)", () => {
-    delete (globalThis as Record<string, unknown>)[WAYFIND_ACTIVE_KEY];
-    expect(isWayfindActivePublished()).toBe(false);
-  });
-
-  it("publishes a live reader over RuntimeState — flips as grill state changes", () => {
-    const state = createRuntimeState();
-    publishWayfindActive(state);
-    expect(isWayfindActivePublished()).toBe(false); // no grill yet
-
-    state.activeGrillBySession.set("s1", "topic");
-    expect(isWayfindActivePublished()).toBe(true);
-
-    state.activeGrillBySession.delete("s1");
-    expect(isWayfindActivePublished()).toBe(false);
-  });
-
-  it("a wayfinder effort also counts as active", () => {
-    const state = createRuntimeState();
-    publishWayfindActive(state);
-    state.activeEffortBySession.set("s1", "orders");
-    expect(isWayfindActivePublished()).toBe(true);
-  });
-});
-
-describe("unpublishWayfindActive", () => {
-  it("removes the global so the reader is gone", () => {
-    const state = createRuntimeState();
-    publishWayfindActive(state);
-    expect(isWayfindActivePublished()).toBe(false);
-    state.activeGrillBySession.set("s1", "x");
-    expect(isWayfindActivePublished()).toBe(true);
-    unpublishWayfindActive();
-    // After unpublish the global itself is gone → reader returns false.
-    expect((globalThis as Record<string, unknown>)[WAYFIND_ACTIVE_KEY]).toBeUndefined();
-  });
-});
 
 describe("readPlanIncomplete / readPlanSummary (plan-coordinator seam)", () => {
   it("graceful fallback when the plan coordinator is absent", () => {

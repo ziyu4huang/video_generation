@@ -1,7 +1,10 @@
 # ADR-0003: Plan coordinator — designed, not built (goal/todo driven manually for now)
 
 Date: 2026-07-19
-Status: Superseded — the coordinator was BUILT (see Update below).
+Status: Superseded — the coordinator was BUILT (see Update below). The
+`__piWayfindActive` seam this ADR's prose assumes a plan coordinator would
+read was also later removed as dead output (see
+[ADR-0006](./0006-delete-wayfind-active-coordination-seam.md)).
 
 ## Update (2026-07-21) — the coordinator is now built
 

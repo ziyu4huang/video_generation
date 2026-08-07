@@ -1,13 +1,15 @@
 /**
  * pi-agent-ext-wayfind — Pi-native port of Matt Pocock's decision-chain skill suite.
  *
- * The default factory registers the slash commands + publishes the coordination
- * seam (globalThis.__piWayfindActive) so the plan coordinator can yield its
- * injection/auto-continue during a live grill session — the same
- * process-singleton pattern the goal side uses for /goal. It joins the shared
- * composite status widget by reading core-task's `globalThis` singleton
- * (`__piCoreTaskStatusWidget`) WITHOUT a package dependency (reverses ADR-0002;
- * see docs/adr/0004) — no `ctx.ui.setStatus()` footer line.
+ * The default factory registers the slash commands + publishes the
+ * grill-specific `globalThis.__piWayfindGrill` reader (consumed by
+ * hermes-memory). wayfind does NOT publish a forward coordination seam and
+ * there is no plan-coordinator yield: mutual-exclusion between a
+ * grill/wayfinder session and /goal or /loop is user-initiated — run one
+ * driver at a time. It joins the shared composite status widget by reading
+ * core-task's `globalThis` singleton (`__piCoreTaskStatusWidget`) WITHOUT a
+ * package dependency (reverses ADR-0002; see docs/adr/0004) — no
+ * `ctx.ui.setStatus()` footer line.
  *
  * Pure TypeScript: no python3, no shell. Loaded by Pi via the `pi.extensions`
  * manifest in package.json; all logic lives in `src/`.
@@ -15,7 +17,6 @@
 
 import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { endGrillForSession, registerCommands } from "./commands.js";
-import { publishWayfindActive } from "./coordination.js";
 import { makeWayfindEffortTool } from "./effort-tool.js";
 import { WayfindOverlay } from "./overlay.js";
 import { createRuntimeState, getSessionId } from "./state.js";
@@ -52,12 +53,10 @@ export default function wayfindExtension(pi: ExtensionAPI): void {
     widget.addSection({ id: "wayfind", order: 2, render: (t, w) => overlay.render(t, w) });
   }
 
-  // Publish the coordination seam up-front (inactive until a grill starts).
-  // The plan coordinator reads globalThis.__piWayfindActive to decide whether
-  // to yield during a live grill. The closure reads live RuntimeState, so it
-  // always returns the current value without re-publishing on every change.
-  publishWayfindActive(state);
-
+  // No forward coordination seam is published: mutual-exclusion between a
+  // grill/wayfinder session and /goal or /loop is user-initiated (run one
+  // driver at a time). The grill-specific `__piWayfindGrill` reader (read by
+  // hermes-memory) is published per-session from the command handlers.
   registerCommands(pi, state, overlay);
 
   // The bare effort tool (Layer 2): create / validate / status an effort dir's
@@ -80,30 +79,24 @@ export default function wayfindExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {
-    // Clear this session's grill + refresh/unpublish the seam, mirroring
-    // the plan coordinator's session_shutdown cleanup. Only clears wayfind's own
-    // overlay section — NEVER calls widget.dispose(), which would tear down
-    // every other package's section too (see status-widget.ts's dispose() doc
-    // comment: only pi-agent-ext-core-task's own session_shutdown owns that).
+    // Clear this session's grill + drop the grill seam when no sessions remain,
+    // mirroring the plan coordinator's session_shutdown cleanup. Only clears
+    // wayfind's own overlay section — NEVER calls widget.dispose(), which would
+    // tear down every other package's section too (see status-widget.ts's
+    // dispose() doc comment: only pi-agent-ext-core-task's own session_shutdown
+    // owns that).
     endGrillForSession(state, getSessionId(ctx));
     overlay.dispose();
   });
 }
 
 // Re-export pure helpers for downstream packages / tests.
-export { PKG_NAME, WAYFIND_ACTIVE_KEY } from "./constants.js";
-export {
-  isWayfindActivePublished,
-  publishWayfindActive,
-  readPlanIncomplete,
-  readPlanSummary,
-  unpublishWayfindActive,
-} from "./coordination.js";
+export { PKG_NAME } from "./constants.js";
+export { readPlanIncomplete, readPlanSummary } from "./coordination.js";
 export { buildGrillPriming, buildPlanSeed, parseGlossary } from "./grill.js";
 export { WayfindOverlay } from "./overlay.js";
 export {
   createRuntimeState,
-  isAnyWayfindSessionActive,
   isGrillActive,
   type RuntimeState,
 } from "./state.js";

@@ -66,10 +66,6 @@ _Avoid_: planning, breakdown (it is the decision→ticket synthesis)
 
 ### Coordination
 
-**Coordination seam** (`globalThis.__piWayfindActive`):
-The process-singleton reader wayfind publishes so the plan coordinator can **yield** during a live grill/wayfinder session — mirror of the `goal↔plan` pattern. Graceful: if either side is absent, the seam is a no-op.
-_Avoid_: hook, signal (it is a published globalThis reader for cross-extension turn-ownership)
-
 **grill→plan handoff** (`/grill done --seed-plan`):
 Ends the grill and synthesizes the resolved decisions + `CONTEXT.md` glossary into a `task_plan.md` seed, which the plan coordinator then drives as you execute the plan.
 _Avoid_: export, transfer (it is a synthesis + handoff into the planning substrate)

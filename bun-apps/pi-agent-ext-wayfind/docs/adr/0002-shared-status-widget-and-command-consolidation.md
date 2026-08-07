@@ -16,10 +16,11 @@ Decision 2 (command consolidation: `/grill`, `/wayfind`) still accepted.
 ## Context
 
 wayfind and planning-with-files each wrote directly to the TUI footer via
-`ctx.ui.setStatus(PKG_NAME, text)`. Both status lines rendered simultaneously,
-even while the existing `globalThis` coordination seam had one side yielding
-to the other — yielding only changed the yielding side's text, it never hid
-the line. Separately, the two packages exposed 19 top-level slash commands
+`ctx.ui.setStatus(PKG_NAME, text)`. Both status lines rendered simultaneously —
+the `globalThis.__piWayfindActive` seam was published but its documented
+"plan-coordinator yields" was never implemented (no consumer ever read it; the
+seam was later removed — see ADR-0006), so nothing actually hid a line.
+Separately, the two packages exposed 19 top-level slash commands
 with overlapping naming intent (wayfind's `/plan-seed` read as part of
 planning-with-files' `/plan-*` namespace).
 
@@ -48,8 +49,8 @@ planning-with-files' `/plan-*` namespace).
 - The singleton MUST be `globalThis`-backed, not a module-level `let
   instance` — pi loads extensions via jiti, and jiti-loaded module identity is
   not guaranteed to match a native `import()` of the same package (the same
-  reason the pre-existing `__piWayfindActive` / `__piGoalActive` coordination
-  keys use `globalThis`). A module-level singleton would silently give
+  reason the `globalThis`-backed `__piGoalActive` / `__piPlan*` keys use
+  `globalThis`). A module-level singleton would silently give
   wayfind and planning-with-files disconnected widget instances. The
   singleton guard also cannot rely on `instanceof` for the same cross-loader
   reason — it uses existence, not class-identity, checking.
