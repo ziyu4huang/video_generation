@@ -140,6 +140,11 @@ ported verbatim — these are the non-negotiable correctness guarantees:
    without a complete `<evidence>` block addressing every contract item is
    converted to a disapproval, with `regressionShieldMissing` echoed back so the
    next audit addresses the gap (converges instead of repeating).
+   **NOTE:** This floor is INERT-by-design in core-task because
+   `verificationContract` is never set by any command/flag. Per ticket 06
+   (core-task-review), activation via a `/goal --verify` flag is left as a
+   separate future decision. See `auditor.ts:263` for the inert-by-design
+   annotation.
 6. **Exception → error, not verdict.** A thrown runtime error is infrastructure
    (`error && !disapproved`); never routed to the semantic-disapproval branch.
 
