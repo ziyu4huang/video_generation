@@ -7,7 +7,7 @@ import {
   getSubagentInFlightRegistry,
   getSubagentRunPersistence,
 } from "../src/index.js";
-import { installSubagentProgressWidget } from "../src/subagent-progress-widget.js";
+import { installSubagentContextWidget } from "../src/subagent-context-widget.js";
 import { createSubagentsCommand } from "../src/subagents-command.js";
 
 /**
@@ -99,10 +99,12 @@ export default function extension(pi: ExtensionAPI) {
 
   pi.on("session_start", (_event: unknown, ctx: ExtensionContext) => {
     activateSubagentTools();
-    // Always-on below-editor panel: one live line per running subagent (mirrors
-    // the /subagents Running row), invisible when idle. Reads the local in-flight
-    // singleton the `subagent` tool writes to.
-    installSubagentProgressWidget(ctx.ui, { registry: inFlight });
+    // Unified subagent-context box (ABOVE the editor): live-renders every
+    // background/concurrent run that ISN'T already shown inline by Surface A
+    // (the current turn's subagent/subagents call lines register `foreground:
+    // true` and are excluded). Invisible when idle. Replaces the old
+    // below-editor progress widget; drill-down via `/subagents`.
+    installSubagentContextWidget(ctx.ui, { registry: inFlight });
     const extTools = (pi as unknown as { getAllToolDefinitions?: () => ToolDefinition[] }).getAllToolDefinitions?.();
     if (extTools?.length) {
       extensionToolsHolder.current = extTools;

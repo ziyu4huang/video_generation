@@ -28,6 +28,14 @@ export interface InFlightSubagent {
    *  `subagent` dispatches, workflow agents, and obsidian — they `end()` per-child
    *  as before and never appear "completed". */
   status?: "running" | "completed";
+  /** Render-surface axis (wayfinder: unified subagent-context box).
+   *  `true` = this run is rendered INLINE in the current turn by the registering
+   *  tool's own call/result line (Surface A): the singular `subagent` tool and the
+   *  `subagents` batch tool set it. `false` (default) = detached/background (e.g.
+   *  a background workflow run), shown ONLY by the above-editor context box so the
+   *  two surfaces never duplicate. The box filters to `!foreground`; `/subagents`
+   *  shows all regardless. `start()` defaults it to `false` when omitted. */
+  foreground?: boolean;
   taskPreview: string;
   startedAt: number;
   /** Latest compact history snapshot (for the live-output trace). */
@@ -50,7 +58,11 @@ export class SubagentInFlightRegistry {
   private runs = new Map<string, InFlightSubagent>();
 
   start(run: InFlightSubagent): void {
-    this.runs.set(run.id, run);
+    // foreground defaults to `false` (background/detached) when the caller omits
+    // it, so the above-editor context box picks the run up. Foreground tools
+    // (`subagent`/`subagents`) set it explicitly to `true` to opt OUT of the box
+    // (they render inline via Surface A). See subagent-context-widget.ts.
+    this.runs.set(run.id, { ...run, foreground: run.foreground ?? false });
   }
 
   update(id: string, history: AgentHistoryEntry[]): void {

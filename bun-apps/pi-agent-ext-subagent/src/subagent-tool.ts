@@ -578,6 +578,11 @@ export function createSubagentTool(
         taskPreview: taskPreview(params.task),
         startedAt: t0,
         abort: () => childAc.abort(),
+        // Rendered inline in the CURRENT turn by this tool's own call/result line
+        // (Surface A) — mark foreground so the above-editor context box EXCLUDES
+        // it (no duplication). Background runs (foreground:false) are the box's
+        // domain. See subagent-context-widget.ts.
+        foreground: true,
       });
       try {
         const instructions =

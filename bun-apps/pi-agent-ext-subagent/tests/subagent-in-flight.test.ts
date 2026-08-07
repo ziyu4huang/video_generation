@@ -121,3 +121,23 @@ test("endBatch evicts only the named batch; a sibling batch is untouched", () =>
   assert.equal(reg.get("a0"), undefined);
   assert.ok(reg.get("b0"), "bB untouched");
 });
+
+test("start defaults foreground to false (background) when the caller omits it", () => {
+  const reg = new SubagentInFlightRegistry();
+  reg.start({ id: "a", model: "x", taskPreview: "t", startedAt: 0 });
+  assert.equal(reg.get("a")?.foreground, false, "omitted foreground normalizes to false (background)");
+});
+
+test("start carries foreground:true through (current-turn / inline run)", () => {
+  const reg = new SubagentInFlightRegistry();
+  reg.start({ id: "a", model: "x", taskPreview: "t", startedAt: 0, foreground: true });
+  assert.equal(reg.get("a")?.foreground, true);
+  // list() reflects it too — the context box reads list() and filters !foreground
+  assert.equal(reg.list()[0].foreground, true);
+});
+
+test("start coerces an explicit foreground:undefined back to false", () => {
+  const reg = new SubagentInFlightRegistry();
+  reg.start({ id: "a", model: "x", taskPreview: "t", startedAt: 0, foreground: undefined });
+  assert.equal(reg.get("a")?.foreground, false);
+});
