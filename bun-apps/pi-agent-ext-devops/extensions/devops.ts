@@ -88,7 +88,7 @@ function formatCiOutcome(o: CiOutcome): string {
 function formatSync(o: SyncOutcome): string {
 	const L: string[] = [];
 	const head = o.aborted
-		? `⛔ sync_repo (${o.mode}) ABORTED: ${o.aborted}`
+		? `⛔ sync_repo (${o.mode}) ABORTED [${o.aborted.reason}]: ${o.aborted.message}${o.aborted.hint ? ` — ${o.aborted.hint}` : ""}`
 		: o.dryRun
 			? `🔍 sync_repo (${o.mode}) DRY-RUN — no mutations performed.`
 			: `✅ sync_repo (${o.mode}) complete.`;
@@ -262,15 +262,21 @@ export default function (pi: ExtensionAPI): void {
 		name: "sync_repo",
 		label: "Sync this repo to latest default branch (TS port of sync-repo.sh)",
 		description:
-			"Sync this worktree/repo to the latest default branch. Modes: 'full' (default) — git fetch origin; auto-detect the default branch D via origin/HEAD; advance D to origin/<D> WORKTREE-AWARE (advance it in the worktree that holds D; only check it out here when free), then recursively sync submodules to their remote tips. 'rebase' — fetch + rebase the current branch onto origin/<D>. 'pull' — fetch + merge origin/<D> into the current branch (a real merge, never fast-forward). dryRun computes + returns the exact git commands without mutating. Pre-flight: a dirty tracked tree aborts mutating runs; unpushed commits are warned. Replaces the sync-repo.sh / git-remote-main-sync.sh / safe-sync.sh bash (agent-invoked only; no shell entry).",
-		gating: { keywords: ["sync", "fetch", "rebase", "pull", "default branch", "origin/main", "origin/master", "submodule", "reset --hard", "devops"] },
+			"Sync this worktree/repo to the latest default branch. Modes: 'full' (default) — git fetch origin; auto-detect the default branch D via origin/HEAD; advance D to origin/<D> WORKTREE-AWARE (advance it in the worktree that holds D; only check it out here when free), then recursively sync submodules to their remote tips. By DEFAULT the advance uses `git merge --ff-only origin/<D>` — it REFUSES (aborts, reason 'divergent') when local <D> has divergent/unpushed commits, so it NEVER loses commits. Pass force:true to instead use `git reset --hard origin/<D>` (discards those divergent commits — explicit opt-in). 'rebase' — fetch + rebase the current branch onto origin/<D>. 'pull' — fetch + merge origin/<D> into the current branch (a real merge, never fast-forward). dryRun computes + returns the exact git commands without mutating. Pre-flight: a dirty tracked tree aborts mutating runs; unpushed commits are warned. Replaces the sync-repo.sh / git-remote-main-sync.sh / safe-sync.sh bash (agent-invoked only; no shell entry).",
+		gating: { keywords: ["sync", "fetch", "rebase", "pull", "default branch", "origin/main", "origin/master", "submodule", "reset --hard", "merge --ff-only", "fast-forward", "ff-only", "force", "devops"] },
 		promptSnippet:
-			"Sync this repo to latest default branch. full (default): fetch + advance default branch (worktree-aware) + recursive submodules. rebase/pull: fetch + rebase/merge current branch onto origin/<default>. dryRun shows the plan. Dirty tree aborts.",
+			"Sync this repo to latest default branch. full (default): fetch + advance default branch via merge --ff-only (worktree-aware; aborts on divergent unless force:true → reset --hard) + recursive submodules. rebase/pull: fetch + rebase/merge current branch onto origin/<default>. dryRun shows the plan. Dirty tree aborts.",
 		parameters: Type.Object({
 			mode: Type.Optional(
 				Type.String({ description: "Sync mode: 'full' (default — advance default branch + submodules), 'rebase' (rebase current onto origin/<default>), or 'pull' (merge origin/<default> into current)." }),
 			),
 			dryRun: Type.Optional(Type.Boolean({ description: "Compute + return the exact git commands without mutating anything (default false)." })),
+			force: Type.Optional(
+				Type.Boolean({
+					description:
+						"full-mode only. When false (default), advance the default branch with `merge --ff-only` and REFUSE if it has divergent/unpushed commits (never loses commits). When true, use `reset --hard origin/<default>` (discards divergent commits) — explicit opt-in.",
+				}),
+			),
 		}),
 		async execute(_id, params, signal) {
 			const spawn = createLiveSpawn(process.cwd());
@@ -281,7 +287,7 @@ export default function (pi: ExtensionAPI): void {
 			const repoRoot = root.exitCode === 0 ? root.stdout.trim() : process.cwd();
 			const rawMode = params.mode as string | undefined;
 			const mode: SyncMode = rawMode === "rebase" || rawMode === "pull" ? rawMode : "full";
-			const outcome = await runSync({ client, spawn, repoRoot, mode, dryRun: params.dryRun === true, signal });
+			const outcome = await runSync({ client, spawn, repoRoot, mode, dryRun: params.dryRun === true, force: params.force === true, signal });
 			return { details: outcome, content: [{ type: "text" as const, text: formatSync(outcome) }] };
 		},
 	});
