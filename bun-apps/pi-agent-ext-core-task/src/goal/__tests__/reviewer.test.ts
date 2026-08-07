@@ -241,3 +241,178 @@ describe("reviewer — runReviewer cascade (on mode)", () => {
 		} finally { h.cleanup(); }
 	});
 });
+
+describe("reviewer — runReviewer cascade (auto mode)", () => {
+	const baseSource = { kind: "goal" as const, goalId: "g1", objective: "ship feature X", terminal: "goal-complete" };
+	function depsFor(sourcesText: string) {
+		const enqueued: string[] = [];
+		const proposed: Array<{ objective: string; reason: string }> = [];
+		const notified: Array<{ m: string; lvl: string }> = [];
+		const ledger: Array<{ type: string; value: Record<string, unknown> }> = [];
+		const cwd = mkdtempSync(join(tmpdir(), "rev-"));
+		return {
+			deps: {
+				cwd, nowMs: Date.parse("2026-07-31T12:00:00.000Z"), ledgerEntries: [],
+				sources: [{ name: "summary", text: sourcesText }],
+				enqueueListItems: (o: string[]) => { enqueued.push(...o); },
+				proposeGoal: (objective: string, reason: string) => { proposed.push({ objective, reason }); return true; },
+				notify: (m: string, lvl: "info" | "warning") => { notified.push({ m, lvl }); },
+				ledger: (type: string, value: Record<string, unknown>) => { ledger.push({ type, value }); },
+			} satisfies ReviewerDeps,
+			cleanup: () => rmSync(cwd, { recursive: true, force: true }),
+			assert: { enqueued, proposed, notified, ledger },
+		};
+	}
+
+	it("auto mode: bug/refactor findings -> enqueueListItems (no Confirm)", () => {
+		const h = depsFor("- TODO: fix leak\n- consider refactoring Y");
+		try {
+			const autoConfig = { ...DEFAULT_REVIEWER_CONFIG, mode: "auto" as const };
+			const out = runReviewer(autoConfig, baseSource, h.deps);
+			expect(out.fired).toBe(true);
+			expect(h.assert.enqueued).toHaveLength(2);
+			expect(h.assert.proposed).toHaveLength(0);
+			expect(out.cascadeStep).toBe("convert-findings-to-list");
+		} finally { h.cleanup(); }
+	});
+
+	it("auto mode: architectural findings -> enqueueListItems (no Confirm, unlike 'on' mode)", () => {
+		const h = depsFor("- we should rewrite the auth layer");
+		try {
+			const autoConfig = { ...DEFAULT_REVIEWER_CONFIG, mode: "auto" as const };
+			const out = runReviewer(autoConfig, baseSource, h.deps);
+			expect(h.assert.enqueued).toHaveLength(1);
+			expect(h.assert.proposed).toHaveLength(0); // auto mode: no Confirm
+			expect(out.cascadeStep).toBe("convert-findings-to-list");
+		} finally { h.cleanup(); }
+	});
+
+	it("auto mode: clean completion -> enqueue audit (no Confirm)", () => {
+		const h = depsFor("all done, nothing left");
+		try {
+			const autoConfig = { ...DEFAULT_REVIEWER_CONFIG, mode: "auto" as const };
+			const out = runReviewer(autoConfig, baseSource, h.deps);
+			expect(h.assert.enqueued).toHaveLength(1);
+			expect(h.assert.enqueued[0]).toContain("regression scan");
+			expect(h.assert.proposed).toHaveLength(0); // auto mode: no Confirm
+			expect(out.cascadeStep).toBe("fire-audit-on-clean");
+		} finally { h.cleanup(); }
+	});
+});
+
+describe("reviewer — runReviewer cascade (aggressive mode)", () => {
+	const baseSource = { kind: "goal" as const, goalId: "g1", objective: "ship feature X", terminal: "goal-complete" };
+	function depsFor(sourcesText: string) {
+		const enqueued: string[] = [];
+		const proposed: Array<{ objective: string; reason: string }> = [];
+		const notified: Array<{ m: string; lvl: string }> = [];
+		const ledger: Array<{ type: string; value: Record<string, unknown> }> = [];
+		const cwd = mkdtempSync(join(tmpdir(), "rev-"));
+		return {
+			deps: {
+				cwd, nowMs: Date.parse("2026-07-31T12:00:00.000Z"), ledgerEntries: [],
+				sources: [{ name: "summary", text: sourcesText }],
+				enqueueListItems: (o: string[]) => { enqueued.push(...o); },
+				proposeGoal: (objective: string, reason: string) => { proposed.push({ objective, reason }); return true; },
+				notify: (m: string, lvl: "info" | "warning") => { notified.push({ m, lvl }); },
+				ledger: (type: string, value: Record<string, unknown>) => { ledger.push({ type, value }); },
+			} satisfies ReviewerDeps,
+			cleanup: () => rmSync(cwd, { recursive: true, force: true }),
+			assert: { enqueued, proposed, notified, ledger },
+		};
+	}
+
+	it("aggressive mode: bug/refactor findings -> enqueueListItems", () => {
+		const h = depsFor("- TODO: fix leak\n- consider refactoring Y");
+		try {
+			const aggressiveConfig = { ...DEFAULT_REVIEWER_CONFIG, mode: "aggressive" as const };
+			const out = runReviewer(aggressiveConfig, baseSource, h.deps);
+			expect(out.fired).toBe(true);
+			expect(h.assert.enqueued).toHaveLength(2);
+			expect(h.assert.proposed).toHaveLength(0);
+			expect(out.cascadeStep).toBe("convert-findings-to-list");
+		} finally { h.cleanup(); }
+	});
+
+	it("aggressive mode: architectural findings -> enqueue + propose relaunch (no Confirm, burns through queue)", () => {
+		const h = depsFor("- we should rewrite the auth layer\n- new dependency: fastify");
+		try {
+			const aggressiveConfig = { ...DEFAULT_REVIEWER_CONFIG, mode: "aggressive" as const };
+			const out = runReviewer(aggressiveConfig, baseSource, h.deps);
+			expect(h.assert.enqueued).toHaveLength(2); // both enqueued
+			expect(h.assert.proposed).toHaveLength(1); // first one proposed for relaunch
+			expect(h.assert.proposed[0].objective).toContain("rewrite the auth layer");
+			expect(h.assert.proposed[0].reason).toContain("aggressive");
+			expect(out.cascadeStep).toBe("aggressive-relaunch");
+		} finally { h.cleanup(); }
+	});
+
+	it("aggressive mode: clean completion -> propose audit relaunch (no Confirm)", () => {
+		const h = depsFor("all done, nothing left");
+		try {
+			const aggressiveConfig = { ...DEFAULT_REVIEWER_CONFIG, mode: "aggressive" as const };
+			const out = runReviewer(aggressiveConfig, baseSource, h.deps);
+			expect(h.assert.enqueued).toHaveLength(0);
+			expect(h.assert.proposed).toHaveLength(1);
+			expect(h.assert.proposed[0].objective).toContain("regression scan");
+			expect(h.assert.proposed[0].reason).toContain("aggressive");
+			expect(out.cascadeStep).toBe("aggressive-relaunch");
+		} finally { h.cleanup(); }
+	});
+});
+
+describe("reviewer — kind:'list' path (queue emptying)", () => {
+	const listSource = { kind: "list" as const, goalId: "queue-1", objective: "/list queue emptied", terminal: "list-complete" };
+	function depsFor(sourcesText: string) {
+		const enqueued: string[] = [];
+		const proposed: Array<{ objective: string; reason: string }> = [];
+		const notified: Array<{ m: string; lvl: string }> = [];
+		const ledger: Array<{ type: string; value: Record<string, unknown> }> = [];
+		const cwd = mkdtempSync(join(tmpdir(), "rev-"));
+		return {
+			deps: {
+				cwd, nowMs: Date.parse("2026-07-31T12:00:00.000Z"), ledgerEntries: [],
+				sources: [{ name: "summary", text: sourcesText }],
+				enqueueListItems: (o: string[]) => { enqueued.push(...o); },
+				proposeGoal: (objective: string, reason: string) => { proposed.push({ objective, reason }); return true; },
+				notify: (m: string, lvl: "info" | "warning") => { notified.push({ m, lvl }); },
+				ledger: (type: string, value: Record<string, unknown>) => { ledger.push({ type, value }); },
+			} satisfies ReviewerDeps,
+			cleanup: () => rmSync(cwd, { recursive: true, force: true }),
+			assert: { enqueued, proposed, notified, ledger },
+		};
+	}
+
+	it("list-complete with findings -> queue-leftovers cascade (not convert-findings-to-list)", () => {
+		const h = depsFor("- TODO: fix leak from queue");
+		try {
+			const out = runReviewer(DEFAULT_REVIEWER_CONFIG, listSource, h.deps);
+			expect(out.fired).toBe(true);
+			expect(h.assert.enqueued).toHaveLength(1);
+			expect(out.cascadeStep).toBe("queue-leftovers");
+			expect(h.assert.notified[0].m).toContain("queue-leftovers");
+		} finally { h.cleanup(); }
+	});
+
+	it("list-complete in auto mode -> queue-leftovers with no Confirm", () => {
+		const h = depsFor("- we should redesign the queue system");
+		try {
+			const autoConfig = { ...DEFAULT_REVIEWER_CONFIG, mode: "auto" as const };
+			const out = runReviewer(autoConfig, listSource, h.deps);
+			expect(h.assert.enqueued).toHaveLength(1);
+			expect(h.assert.proposed).toHaveLength(0);
+			expect(out.cascadeStep).toBe("queue-leftovers");
+		} finally { h.cleanup(); }
+	});
+
+	it("list-complete clean -> fire-audit-on-clean (same as goal-complete)", () => {
+		const h = depsFor("all queue items completed cleanly");
+		try {
+			const out = runReviewer(DEFAULT_REVIEWER_CONFIG, listSource, h.deps);
+			// Clean list completion fires audit (same as goal-complete)
+			expect(out.cascadeStep).toBe("fire-audit-on-clean");
+			expect(h.assert.proposed).toHaveLength(1);
+			expect(h.assert.proposed[0].objective).toContain("regression scan");
+		} finally { h.cleanup(); }
+	});
+});

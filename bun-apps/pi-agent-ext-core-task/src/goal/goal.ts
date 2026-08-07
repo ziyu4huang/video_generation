@@ -371,7 +371,7 @@ const goalCompleteTool = defineTool({
 		try {
 			const recordedProposals: Array<{ objective: string; reason: string }> = [];
 			const reviewerNowMs = Date.now();
-			const reviewerConfig = resolveReviewerConfig({ enabled: goalState.reviewerEnabled });
+			const reviewerConfig = resolveReviewerConfig({ enabled: goalState.reviewerEnabled, mode: goalState.reviewerMode });
 			const reviewerSource = {
 				kind: (completedGoal.origin === "list" ? "list" : "goal") as "goal" | "list",
 				goalId: completedGoal.id,
@@ -516,8 +516,11 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 					toggleGoalAudit(ctx);
 					return;
 				case "review":
-					goalState.reviewerEnabled = result.enabled === true;
-					ctx.ui.notify(`Reviewer ${result.enabled ? "enabled" : "disabled"} for this session.`, "info");
+					if (result.mode) {
+						goalState.reviewerMode = result.mode;
+						goalState.reviewerEnabled = result.mode !== "off";
+					}
+					ctx.ui.notify(`Reviewer mode set to ${goalState.reviewerMode} for this session.`, "info");
 					return;
 				case "start": {
 					// A bare `/goal "x"` is a fresh single-goal intent — the queue must

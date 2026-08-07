@@ -318,15 +318,15 @@ export function runReviewer(
 	deps: ReviewerDeps,
 ): ReviewerOutcome {
 	const none = (suppressedReason: string): ReviewerOutcome => ({ fired: false, suppressedReason, enqueued: 0, proposed: 0 });
-	if (!config.enabled && !deps.manual) return none("the postaudit is disabled (/glla postaudit → Enabled)");
+	if (!config.enabled && !deps.manual) return none("the reviewer is disabled (run /goal review on)");
 	// v0.27.5: "off" mode is the user-friendly way to silence the postaudit
 	// — equivalent to enabled=false but exposed via the postaudit menu.
-	if (config.mode === "off" && !deps.manual) return none("postaudit mode is off (/glla postaudit → Mode)");
+	if (config.mode === "off" && !deps.manual) return none("reviewer mode is off (run /goal review on)");
 	const event = source.kind === "goal" ? `${source.terminal}` : "list-complete";
 	if (!deps.manual) {
-		if (config.doNotFireOn.includes(event)) return none(`this event type (${event}) is excluded in /glla postaudit → fire-on`);
+		if (config.doNotFireOn.includes(event)) return none(`this event type (${event}) is excluded from reviewer fire-on`);
 		if (source.kind === "goal" && source.terminal !== "goal-complete") return none(`the goal ended as ${source.terminal}, not a completion — no follow-up fires`);
-		if (!config.fireOn.includes(source.kind === "goal" ? "goal-complete" : "list-complete")) return none("this event type is excluded in /glla postaudit → fire-on");
+		if (!config.fireOn.includes(source.kind === "goal" ? "goal-complete" : "list-complete")) return none("this event type is excluded from reviewer fire-on");
 		// v0.26.2: in auto mode the queue emptying is the cascade's natural
 		// rhythm, not a runaway — the refire window must not strangle it.
 		// (The per-day cap below still bounds everything.)
@@ -338,7 +338,7 @@ export function runReviewer(
 		const today = reviewsToday(deps.ledgerEntries, deps.nowMs);
 		if (today >= config.maxReviewsPerDay) {
 			deps.ledger("reviewer_suppressed", { reason: "day-cap", count: today, cap: config.maxReviewsPerDay, goalId: source.goalId });
-			return none(`daily postaudit cap reached (${today}/${config.maxReviewsPerDay}) — /glla postaudit → Max reviews`);
+			return none(`daily cap reached (${today}/${config.maxReviewsPerDay})`);
 		}
 	}
 

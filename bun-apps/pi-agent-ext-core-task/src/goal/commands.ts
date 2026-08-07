@@ -11,6 +11,11 @@
  * Ported from @narumitw/pi-goal v0.11.0 (the parsing surface is unchanged).
  */
 
+/** Reviewer mode — matches reviewer.ts ReviewerMode. Re-exported here
+ * so commands.ts can type CommandResult.mode without importing reviewer.ts
+ * (keeping commands.ts pi-import-free). */
+export type ReviewerMode = "off" | "on" | "auto" | "aggressive";
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface CommandResult {
@@ -21,8 +26,8 @@ export interface CommandResult {
 	audit?: boolean;
 	/** Opt-in: auditor model as opaque `"provider/id"` (resolved by goal.ts). */
 	auditorModel?: string;
-	/** For kind: "review" — enable/disable the Reviewer for this session. */
-	enabled?: boolean;
+	/** For kind: "review" — reviewer mode (off|on|auto|aggressive). */
+	mode?: ReviewerMode;
 }
 
 export type ListCommandResult =
@@ -49,7 +54,7 @@ export const GOAL_ARGUMENT_COMPLETIONS: readonly GoalArgumentCompletion[] = [
 	{ value: "edit", label: "edit", description: "Edit the current goal objective" },
 	{ value: "status", label: "status", description: "Show the current goal" },
 	{ value: "--tokens ", label: "--tokens", description: "Set a token budget before the goal" },
-	{ value: "review ", label: "review", description: "Toggle the post-completion Reviewer (on|off)" },
+	{ value: "review ", label: "review", description: "Set the post-completion Reviewer mode (on|off|auto|aggressive)" },
 ];
 
 export const EDIT_TOKEN_COMPLETION: GoalArgumentCompletion = {
@@ -91,9 +96,11 @@ export function parseCommand(args: string): CommandResult | string {
 	if (first === "audit") return rest.length === 0 ? { kind: "audit" } : "Usage: /goal audit";
 	if (first === "review") {
 		const arg = rest[0]?.toLowerCase();
-		if (arg === "on") return { kind: "review", enabled: true };
-		if (arg === "off") return { kind: "review", enabled: false };
-		return "Usage: /goal review on|off";
+		if (arg === "on") return { kind: "review", mode: "on" };
+		if (arg === "off") return { kind: "review", mode: "off" };
+		if (arg === "auto") return { kind: "review", mode: "auto" };
+		if (arg === "aggressive") return { kind: "review", mode: "aggressive" };
+		return "Usage: /goal review on|off|auto|aggressive";
 	}
 	if (first === "edit") return parseObjective("edit", rest);
 	return parseObjective("start", tokens);
