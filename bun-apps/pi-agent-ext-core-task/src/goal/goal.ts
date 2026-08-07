@@ -366,9 +366,10 @@ const goalCompleteTool = defineTool({
 		// bug/refactor /list items the reviewer enqueued as the new queue tail).
 		// A Reviewer failure MUST NEVER block completion — the whole block is
 		// try/catch'd and degrades to the plain complete on any error.
+		// Hoist reviewerEnqueued before the try so the catch can preserve the list on a throw.
+		let reviewerEnqueued = 0;
 		try {
 			const recordedProposals: Array<{ objective: string; reason: string }> = [];
-			let reviewerEnqueued = 0;
 			const reviewerNowMs = Date.now();
 			const reviewerConfig = resolveReviewerConfig({ enabled: goalState.reviewerEnabled });
 			const reviewerSource = {
@@ -463,7 +464,7 @@ const goalCompleteTool = defineTool({
 			clearActiveGoal(ctx, { preserveList: reviewerEnqueued > 0 });
 		} catch (reviewerError) {
 			ctx.ui.notify(`Reviewer skipped (non-fatal): ${String(reviewerError)}`, "warning");
-			clearActiveGoal(ctx);
+			clearActiveGoal(ctx, { preserveList: reviewerEnqueued > 0 });
 		}
 
 		showCompletionStatus(ctx, goal);
