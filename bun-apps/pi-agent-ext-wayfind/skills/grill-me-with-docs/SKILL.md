@@ -14,8 +14,7 @@ This is `grill-me` (the interview) **plus** `domain-modeling` (the paper trail),
 
 1. **Enters grilling mode** — load the `grilling` skill: one question at a time, a recommended answer for every question, facts looked up in the environment, decisions put to the user. Never act until shared understanding is confirmed.
 2. **Drives domain-modeling inline** — load the `domain-modeling` skill: as each term resolves, write it to `CONTEXT.md` *right there* (not batched at the end). Offer an ADR **only** when a decision is hard-to-reverse + surprising-without-context + the result of a real trade-off. Most sessions sharpen the glossary and write few or no ADRs — that's the intended shape.
-3. **Coordinates with the plan coordinator** — while this session is active, the plan coordinator yields its plan injection/auto-continue (the two won't double-drive). The status bar shows the grill is driving.
-4. **Hands off** — when shared understanding is reached, end with `/grill done`. Optionally `/grill done --seed-plan` to synthesize the resolved decisions + glossary into a `task_plan.md` seed, which you then drive by executing the plan.
+3. **Hands off** — when shared understanding is reached, end with `/grill done`. Optionally `/grill done --seed-plan` to synthesize the resolved decisions + glossary into a `task_plan.md` seed, which you then drive by executing the plan.
 
 ## Where it fits
 

@@ -15,7 +15,7 @@
  * unit behavior). Ticket 08: migrated from legacy `### Phase` / `**Status:**`.
  */
 import { describe, expect, it } from "bun:test";
-import { PLAN_PHASES_KEY, WAYFIND_ACTIVE_KEY } from "../src/constants.js";
+import { PLAN_PHASES_KEY } from "../src/constants.js";
 import { buildPlanSeed } from "../src/grill.js";
 
 const DECISIONS = [
@@ -26,16 +26,6 @@ const GLOSSARY = [
   { term: "Relay", definition: "t2i → i2v → upscale chain in one manifest." },
   { term: "Manifest", definition: "JSONL run.py writes per generation." },
 ];
-
-describe("WAYFIND_ACTIVE_KEY — the coordination-seam contract string", () => {
-  it("is exported and equals the globalThis key the plan coordinator reads", () => {
-    // This literal MUST match the one the plan coordinator reads on globalThis.
-    // Here we pin the producer's half of the seam contract.
-    expect(WAYFIND_ACTIVE_KEY).toBe("__piWayfindActive");
-    expect(typeof WAYFIND_ACTIVE_KEY).toBe("string");
-    expect(WAYFIND_ACTIVE_KEY.length).toBeGreaterThan(0);
-  });
-});
 
 describe("PLAN_PHASES_KEY — the reverse-seam contract string", () => {
   it("is exported and equals the globalThis key syncChainState reads", () => {

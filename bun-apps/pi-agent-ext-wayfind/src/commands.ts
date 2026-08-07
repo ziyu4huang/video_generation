@@ -25,12 +25,7 @@ import { spawnSync } from "node:child_process";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { seedPlan, syncChainState } from "./chain.js";
 import { PKG_NAME } from "./constants.js";
-import {
-  publishWayfindActive,
-  publishWayfindGrill,
-  unpublishWayfindActive,
-  unpublishWayfindGrill,
-} from "./coordination.js";
+import { publishWayfindGrill, unpublishWayfindGrill } from "./coordination.js";
 import { renderValidate, validateEffort } from "./effort-tool.js";
 import { buildFreshnessWarning, checkFactFreshness } from "./freshness.js";
 import { buildGrillPriming } from "./grill.js";
@@ -49,13 +44,12 @@ import {
 const WAYFIND_KEYWORDS = new Set(["status", "spec", "tickets", "seed", "sync", "done", "validate"]);
 
 export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay: WayfindOverlay): void {
-  /** Shared kickoff: set the active-grill state, refresh the published seam, and
+  /** Shared kickoff: set the active-grill state, publish the grill seam, and
    *  send the priming user-message so the agent enters grilling mode. */
   function startGrill(ctx: ExtensionCommandContext, topic: string, withDocs: boolean): void {
     const sessionId = ctx.sessionManager.getSessionId();
     state.activeGrillBySession.set(sessionId, topic || "(current conversation)");
     state.grillWithDocsBySession.set(sessionId, withDocs);
-    publishWayfindActive(state);
     publishWayfindGrill(state);
     const priming = buildGrillPriming(topic || undefined, withDocs);
     pi.sendUserMessage(priming, { deliverAs: "steer" });
@@ -66,7 +60,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
     startGrill(ctx, topic, false);
     overlay.setLine("grilling", `grilling${topic ? `: ${topic}` : ""}`);
     ctx.ui.notify(
-      `[${PKG_NAME}] grill-me started${topic ? ` (${topic})` : ""}. The plan coordinator yields while the grill is active.`,
+      `[${PKG_NAME}] grill-me started${topic ? ` (${topic})` : ""}. The grill is driving — don't also run /goal or /loop this session.`,
       "info",
     );
   }
@@ -95,7 +89,6 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
     const topic = state.activeGrillBySession.get(sessionId);
     state.activeGrillBySession.delete(sessionId);
     state.grillWithDocsBySession.delete(sessionId);
-    publishWayfindActive(state);
     overlay.setLine("done", "grill ended");
 
     const seed = args.includes("--seed-plan") || args.includes("seed-plan");
@@ -299,7 +292,6 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       }
       state.activeEffortBySession.set(sessionId, effort);
       overlay.setActiveEffort(effort, ctx.cwd);
-      publishWayfindActive(state);
       overlay.setLine("working-ticket", `${effort} — ticket ${claimed.id} ${claimed.title}`);
       pi.sendUserMessage(
         [
@@ -318,7 +310,6 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
     chartMap(ctx.cwd, effort, destination);
     state.activeEffortBySession.set(sessionId, effort);
     overlay.setActiveEffort(effort, ctx.cwd);
-    publishWayfindActive(state);
     overlay.setLine("charting", `charting ${effort}`);
     ctx.ui.notify(`[${PKG_NAME}] Map created at .planning/${effort}/map.md`, "info");
     pi.sendUserMessage(
@@ -403,9 +394,7 @@ export function endGrillForSession(state: RuntimeState, sessionId: string): void
   state.activeGrillBySession.delete(sessionId);
   state.grillWithDocsBySession.delete(sessionId);
   state.activeEffortBySession.delete(sessionId);
-  publishWayfindActive(state);
   if (state.activeGrillBySession.size === 0 && state.activeEffortBySession.size === 0) {
     unpublishWayfindGrill();
-    unpublishWayfindActive();
   }
 }

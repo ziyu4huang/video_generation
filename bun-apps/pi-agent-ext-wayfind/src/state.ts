@@ -31,15 +31,9 @@ export function getSessionId(ctx: AnyContext): string {
   return ctx.sessionManager.getSessionId();
 }
 
-/** A grill is active for this session (or any session, for the process-global seam). */
+/** A grill is active for this session. */
 export function isGrillActive(state: RuntimeState, sessionId: string): boolean {
   return state.activeGrillBySession.has(sessionId);
-}
-
-/** Process-global: is ANY grill/wayfinder session active? This is what the
- *  coordination seam publishes so the plan coordinator can yield. */
-export function isAnyWayfindSessionActive(state: RuntimeState): boolean {
-  return state.activeGrillBySession.size > 0 || state.activeEffortBySession.size > 0;
 }
 
 /** Clear all state for a session (called on session_shutdown). */

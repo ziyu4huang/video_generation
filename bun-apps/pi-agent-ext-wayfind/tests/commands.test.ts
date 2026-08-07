@@ -4,8 +4,6 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { registerCommands } from "../src/commands.js";
-import { WAYFIND_ACTIVE_KEY } from "../src/constants.js";
-import { isWayfindActivePublished } from "../src/coordination.js";
 import { createEffort } from "../src/effort-tool.js";
 import { readMap, writeMap, writeTicket } from "../src/map.js";
 import { WayfindOverlay } from "../src/overlay.js";
@@ -60,8 +58,6 @@ afterEach(() => {
     const root = tempRoots.pop();
     if (root) rmSync(root, { recursive: true, force: true });
   }
-  // Clean the published seam between tests.
-  delete (globalThis as Record<string, unknown>)[WAYFIND_ACTIVE_KEY];
 });
 
 function setup(): { pi: MockPi; state: RuntimeState } {
@@ -99,12 +95,11 @@ describe("registerCommands — command surface", () => {
 });
 
 describe("grill-me / grill-me-with-docs — kickoff", () => {
-  it("grill-me sets the active flag, publishes the seam, and sends a priming message", async () => {
+  it("grill-me sets the active flag and sends a priming message", async () => {
     const { pi, state } = setup();
     const ctx = makeCtx(makeCwd());
     await run(pi, "grill", "me pick a database", ctx);
     expect(isGrillActive(state, "test-session")).toBe(true);
-    expect(isWayfindActivePublished()).toBe(true);
     expect(pi.sent.length).toBe(1);
     expect(pi.sent[0]).toContain("grilling session");
     expect(pi.sent[0]).toContain("pick a database");
@@ -115,18 +110,15 @@ describe("grill-me / grill-me-with-docs — kickoff", () => {
     await run(pi, "grill", "docs auth redesign");
     expect(pi.sent[0]).toContain("grill-me-with-docs");
     expect(pi.sent[0]).toContain("CONTEXT.md");
-    expect(isWayfindActivePublished()).toBe(true);
   });
 });
 
 describe("grill-done — end + handoff", () => {
-  it("clears the active flag and unpublishes the seam when no sessions remain", async () => {
+  it("clears the active flag when the session ends", async () => {
     const { pi, state } = setup();
     await run(pi, "grill", "me topic");
-    expect(isWayfindActivePublished()).toBe(true);
     await run(pi, "grill", "done");
     expect(isGrillActive(state, "test-session")).toBe(false);
-    expect(isWayfindActivePublished()).toBe(false);
   });
 
   it("notifies 'no active grill' when none is running", async () => {

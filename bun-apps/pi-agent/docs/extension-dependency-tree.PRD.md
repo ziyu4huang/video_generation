@@ -262,7 +262,7 @@ for the full decision record.
 | | **wayfind** (decide-phase) | **superpowers** (plan/execute-phase) |
 |---|---|---|
 | Pipeline | `grilling`/`wayfinder → to-spec → to-tickets → /wayfind seed → core-task coordinator` | `brainstorming → writing-plans → executing` |
-| Driver | command-driven (`/grill`, `/wayfind`) + `globalThis.__piWayfindActive` seam | skill-driven, **zero commands, zero globals** |
+| Driver | command-driven (`/grill`, `/wayfind`) + `globalThis.__piWayfindGrill` seam | skill-driven, **zero commands, zero globals** |
 | Runtime deps | `{core-task}` (workspace) | `{}` |
 | peerDeps | `pi-coding-agent` | `pi-coding-agent` |
 | devDeps | biome, pi-coding-agent, @types/bun, tsx, typescript | biome, pi-coding-agent, @types/bun, tsx, typescript |

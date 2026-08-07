@@ -55,7 +55,6 @@ const SEAM_KEYS = [
 	"__piPlanIncomplete", //  (cwd) => boolean     (core-task → wayfind)
 	"__piPlanPhases", //     (cwd) => PlanPhaseInfo[] (core-task → wayfind)
 	"__piPlanSummary", //    (cwd) => string       (core-task → wayfind)
-	"__piWayfindActive", //  () => boolean         (wayfind → core-task coordinator)
 	"__piWayfindGrill", //   (sessionId) => boolean (wayfind → hermes-memory)
 ] as const;
 const SEAM_KEY_SET = new Set<string>(SEAM_KEYS);

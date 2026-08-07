@@ -16,11 +16,13 @@
  * ask_user_question is a self-contained modal dialog tool with no shared code
  * against goal/todo — merged here purely for entry-point consolidation.
  *
- * Plan A coordination seam: publishes `isGoalActive` on globalThis so peer
- * extensions (the plan coordinator) can read it WITHOUT a hard dep. The peer
- * reads `globalThis.__piGoalActive?.() ?? false`. This is a runtime globalThis
- * contract — load order only affects the brief startup window, handled by the
- * `?? false` fallback.
+ * Plan A coordination seam: publishes `isGoalActive` on globalThis so the
+ * in-package `/loop` subsystem can read it WITHOUT a hard dep (goal⇄loop
+ * mutual exclusion). A peer reads `globalThis.__piGoalActive?.() ?? false`
+ * (power-tool's `inspect_tui` also surfaces it, display-only). No plan
+ * coordinator or wayfind reads it. This is a runtime globalThis contract —
+ * load order only affects the brief startup window, handled by the `?? false`
+ * fallback.
  */
 import type { ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import goal, { isGoalActive } from "../src/goal/goal.js";
@@ -41,7 +43,9 @@ import { getPlanPhases, getPlanSummary, isPlanIncomplete, refreshPlan, shouldRef
 const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 	// ── Plan A coordination seam ─────────────────────────────────────────
 	// globalThis is process-singleton → the function always reads goal/goal's
-	// activeGoal. Peer (the plan coordinator) reads globalThis.__piGoalActive?.().
+	// activeGoal. The in-package /loop subsystem reads globalThis.__piGoalActive?.()
+	// (goal⇄loop mutual exclusion); power-tool's inspect_tui also surfaces it
+	// display-only. No plan coordinator or wayfind reads it.
 	(globalThis as Record<string, unknown>).__piGoalActive = isGoalActive;
 
 	// ── Plan coordination seams (ticket 09, tracer-bullet 2) ────────────

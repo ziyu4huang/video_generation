@@ -4,7 +4,7 @@ Also owns `ask_user_question` (merged from `pi-agent-ext-ask-user` on 2026-07-18
 
 Also owns `/response-language` (relocated from its own `pi-agent-ext-response-language` package — see the "response-language" section below). It shares no code or state with goal/todo; relocated for core-task pi-ext consolidation, not because of a runtime coupling. It pairs with the `force-response-language` patch in `pi-agent` (the per-turn injection half), coupling only through the `responseLanguage` key in `~/.pi/agent/settings.json`.
 
-The ubiquitous language of pi-agent-ext-core-task — the `/goal` objective driver (with `goal_complete`) and the `todo` step tracker (with `/todos`), kept together because they share a composite status widget and six lifecycle hooks. Extracted from power-tool. Publishes the `__piGoalActive` coordination seam that the plan coordinator and wayfind read.
+The ubiquitous language of pi-agent-ext-core-task — the `/goal` objective driver (with `goal_complete`) and the `todo` step tracker (with `/todos`), kept together because they share a composite status widget and six lifecycle hooks. Extracted from power-tool. Publishes the `__piGoalActive` seam, read only by the in-package `/loop` subsystem (goal⇄loop mutual exclusion) and surfaced, display-only, by power-tool's `inspect_tui`; no plan coordinator or wayfind reads it.
 
 ## Language
 
@@ -37,7 +37,7 @@ _Avoid_: task list
 ### Coordination
 
 **Coordination seam** (`globalThis.__piGoalActive`):
-The process-singleton reader core-task publishes so peer extensions (the plan coordinator, wayfind) can detect an active goal WITHOUT a hard dep. The peer reads `globalThis.__piGoalActive?.() ?? false`. core-task is the publisher; the plan coordinator yields to it.
+The process-singleton reader core-task publishes so the in-package `/loop` subsystem can detect an active goal WITHOUT a hard dep (goal⇄loop mutual exclusion). A peer reads `globalThis.__piGoalActive?.() ?? false`. core-task is the publisher; only `/loop` (and power-tool's display-only `inspect_tui`) reads it — no plan coordinator or wayfind does.
 _Avoid_: hook, signal (it is a published globalThis reader for cross-extension turn-ownership)
 
 **Session-only todos**:

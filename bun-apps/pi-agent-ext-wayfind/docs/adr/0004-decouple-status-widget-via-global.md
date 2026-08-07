@@ -77,6 +77,8 @@ ADR-0002 **Decision 2** (command consolidation: `/grill [me|docs|done|domain]`,
   isolation; `chain.test.ts` + `plan-seed-contract.test.ts` cover the
   grill→plan-seed handoff (a separate, older contract) via a relative-path import
   that does not go through the package dependency. All 177 tests pass.
-- **The `__piWayfindActive` seam is untouched.** That is the plan-coordinator
-  handoff (ADR-0001/0003 territory), not ADR-0002. Reversing ADR-0002 does not
-  affect it.
+- **The `__piWayfindActive` seam has since been removed.** That seam was the
+  documented plan-coordinator handoff (ADR-0001/0003 territory), whose "yield"
+  was never implemented — it was dead output (0 consumers) and was deleted
+  (see ADR-0006). At the time of this decision it was untouched; reversing
+  ADR-0002 did not affect it.

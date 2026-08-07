@@ -162,17 +162,16 @@ function parseModelRef(ref: string): any {
 	return { provider: ref.slice(0, slash), id: ref.slice(slash + 1) };
 }
 
-// ─── Coordination seam (Plan A: goal ⇄ plan coordinator mutual-exclusion) ──
+// ─── Coordination seam (Plan A: goal ⇄ /loop mutual-exclusion) ──
 
 /**
  * Whether a /goal is currently in the "active" (driving) state.
  *
- * Exported so the plan coordinator can query it (dynamic import + fallback to
- * false) and yield its own before_agent_start injection + agent_end
- * auto-continue to the goal, which owns iteration counting, token budget, and
- * recovery. Returns FALSE for paused / budget_limited / complete / no-goal —
- * so the plan coordinator may resume its own continuation when the goal is NOT
- * actively driving (e.g. user paused the goal).
+ * Exported so the in-package `/loop` subsystem can query it (via the
+ * `globalThis.__piGoalActive` reader) for goal⇄loop mutual exclusion, and so
+ * power-tool's `inspect_tui` can surface it (display-only). No plan
+ * coordinator or wayfind reads it. Returns FALSE for paused / budget_limited
+ * / complete / no-goal.
  */
 export function isGoalActive(): boolean {
 	return goalState.activeGoal?.status === "active";
