@@ -112,6 +112,13 @@ export function createGhClient(spawn: SpawnFn): GhClient {
 	};
 }
 
+/** Parse a `git rev-list --count` line to a non-negative int (0 on garbage / a
+ *  failed/missing ref, where git exits non-zero with empty stdout). */
+function intOr0(s: string): number {
+	const n = Number.parseInt((s ?? "").trim(), 10);
+	return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
 /** JSON.parse that returns null on empty/garbage (never throws). */
 function safeJson(s: string): unknown {
 	try {
@@ -171,6 +178,78 @@ export function parseWorktrees(stdout: string): string[] {
 		const line = raw.replace(/\r$/, "").trim();
 		const m = line.match(/^branch refs\/heads\/(.+)$/);
 		if (m) out.push(m[1]);
+	}
+	return out;
+}
+
+/** A single `git worktree list --porcelain` record: the worktree path + the
+ *  branch checked out there (undefined for a detached worktree). */
+export interface WorktreeRecord {
+	worktree: string;
+	branch?: string;
+	detached?: boolean;
+}
+
+/**
+ * Parse `git worktree list --porcelain` into one record per worktree. Each
+ * porcelain record is `worktree <path>` then `HEAD <sha>` + either `branch
+ * refs/heads/<name>` or `detached` (+ optional `locked`/`bare`), records
+ * separated by blank lines. Robust to a missing trailing blank line. Drives
+ * sync_repo's worktree-aware default-branch advancement — find the worktree
+ * that holds <D> so we advance it THERE rather than hijacking <D> into this
+ * worktree (which would fatal on `git checkout`).
+ */
+export function parseWorktreeList(stdout: string): WorktreeRecord[] {
+	const records: WorktreeRecord[] = [];
+	let cur: WorktreeRecord | null = null;
+	for (const raw of stdout.split("\n")) {
+		const line = raw.replace(/\r$/, "").replace(/\s+$/, "");
+		if (!line.trim()) {
+			if (cur) {
+				records.push(cur);
+				cur = null;
+			}
+			continue;
+		}
+		const sp = line.indexOf(" ");
+		const key = sp === -1 ? line : line.slice(0, sp);
+		const val = sp === -1 ? "" : line.slice(sp + 1);
+		if (key === "worktree") {
+			if (cur) records.push(cur);
+			cur = { worktree: val };
+		} else if (cur && key === "branch") {
+			cur.branch = val.replace(/^refs\/heads\//, "");
+		} else if (cur && key === "detached") {
+			cur.detached = true;
+		}
+	}
+	if (cur) records.push(cur);
+	return records;
+}
+
+/** One row of `git submodule status --recursive`: status flag + pinned SHA + path. */
+export interface SubmoduleStatus {
+	/** ` ` clean, `+` SHA differs from the recorded pointer, `-` not initialized, `U` merge conflict. */
+	flag: string;
+	sha: string;
+	path: string;
+}
+
+/**
+ * Parse `git submodule status --recursive` lines (`<flag><40-hex> <path>`, path
+ * shell-quoted when it contains special chars) into structured rows. Used by
+ * sync_repo's full-mode submodule report (clean = flag is a space).
+ */
+export function parseSubmoduleStatus(stdout: string): SubmoduleStatus[] {
+	const out: SubmoduleStatus[] = [];
+	for (const raw of stdout.split("\n")) {
+		const line = raw.replace(/\r$/, "");
+		if (!line.trim()) continue;
+		const m = line.match(/^([-+ U])([0-9a-f]{40}) (.+)$/);
+		if (!m) continue;
+		let path = m[3];
+		if (path.startsWith('"') && path.endsWith('"')) path = path.slice(1, -1).replace(/\\(.)/g, "$1");
+		out.push({ flag: m[1].trim(), sha: m[2], path });
 	}
 	return out;
 }
@@ -252,6 +331,30 @@ export function createBranchClient(spawn: SpawnFn): BranchClient {
 			if (r.exitCode !== 0) return undefined;
 			const m = r.stdout.trim().match(/^refs\/remotes\/origin\/(.+)$/);
 			return m ? m[1] : undefined;
+		},
+		async worktreeList() {
+			const r = await spawn("git", ["worktree", "list", "--porcelain"]);
+			return parseWorktreeList(r.stdout);
+		},
+		async revParse(rev) {
+			// --verify -q: on a missing ref prints nothing + exits non-zero (a bare
+			// `git rev-parse <ref>` would echo the ref NAME, masking the missing case).
+			const r = await spawn("git", ["rev-parse", "--verify", "-q", rev]);
+			return r.exitCode === 0 ? r.stdout.trim() : undefined;
+		},
+		async isClean(dir) {
+			// `git diff --quiet HEAD` exits non-zero on ANY tracked change (staged OR
+			// unstaged) vs HEAD — the combined equivalent of the bash
+			// `diff --quiet || diff --cached --quiet` gate. Untracked files do NOT
+			// count (reset --hard / checkout never removes them) — matches bash.
+			const r = await spawn("git", ["-C", dir, "diff", "--quiet", "HEAD"]);
+			return r.exitCode === 0;
+		},
+		async aheadBehind(base, head) {
+			// A missing ref → rev-list exits non-zero with empty stdout → intOr0 → 0.
+			const ahead = await spawn("git", ["rev-list", "--count", `${base}..${head}`]);
+			const behind = await spawn("git", ["rev-list", "--count", `${head}..${base}`]);
+			return { ahead: intOr0(ahead.stdout), behind: intOr0(behind.stdout) };
 		},
 		async fetchPrune() {
 			await spawn("git", ["fetch", "--prune"]);

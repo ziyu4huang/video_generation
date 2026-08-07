@@ -20,10 +20,10 @@ function fakePi() {
 }
 
 	describe("devops extension entry", () => {
-		test("registers await_pr_merge + pr_status + sweep_branches + local_ci tools", () => {
+		test("registers await_pr_merge + pr_status + sweep_branches + local_ci + sync_repo tools", () => {
 			const pi = fakePi();
 			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
-			expect(pi.tools.map((t) => t.name).sort()).toEqual(["await_pr_merge", "local_ci", "pr_status", "sweep_branches"]);
+			expect(pi.tools.map((t) => t.name).sort()).toEqual(["await_pr_merge", "local_ci", "pr_status", "sweep_branches", "sync_repo"]);
 		});
 
 		test("await_pr_merge requires prNumber + only the local-ci-gated params (poll-loop params dropped)", () => {
@@ -61,6 +61,16 @@ function fakePi() {
 			const tool = pi.tools.find((t) => t.name === "local_ci");
 			expect(tool?.parameters.required ?? []).toEqual([]);
 			for (const opt of ["baseRef", "packages", "all", "strict", "includeGates"]) {
+				expect(tool?.parameters.properties).toHaveProperty(opt);
+			}
+		});
+
+		test("sync_repo has optional mode + dryRun (no required params)", () => {
+			const pi = fakePi();
+			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
+			const tool = pi.tools.find((t) => t.name === "sync_repo");
+			expect(tool?.parameters.required ?? []).toEqual([]);
+			for (const opt of ["mode", "dryRun"]) {
 				expect(tool?.parameters.properties).toHaveProperty(opt);
 			}
 		});
