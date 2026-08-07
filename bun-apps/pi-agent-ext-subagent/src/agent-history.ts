@@ -1,3 +1,5 @@
+import { formatToolAction, matchedCallArgsFor } from "./tool-action-label.js";
+
 export type AgentHistoryRole = "user" | "assistant" | "tool";
 
 export type AgentHistoryKind = "text" | "toolCall" | "toolResult" | "error";
@@ -134,16 +136,18 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 /**
  * A terse "what is it doing right now" label from an agent's compact history —
- * derived from only the LAST entry. Full content stays available via the
- * existing History block; this is a status-line snippet, not content.
+ * derived from only the LAST entry via the shared {@link formatToolAction}
+ * helper. Returns the BARE verb-led phrase (NO `▸`/`✗` prefix) — the rendering
+ * surface (e.g. `renderActivityRow`) adds its own status icon. Full content
+ * stays available via the existing History block; this is a status-line
+ * snippet, not content.
  */
 export function summarizeLatestAction(history?: AgentHistoryEntry[]): string | undefined {
   const last = history?.[history.length - 1];
   if (!last) return undefined;
-  if (last.kind === "toolCall") return `▸ ${last.toolName ?? "tool"}`;
+  const lastIdx = (history?.length ?? 1) - 1;
   if (last.kind === "toolResult") {
-    return last.isError ? `✗ ${last.toolName ?? "tool"}` : `${last.toolName ?? "tool"} done`;
+    return formatToolAction(last, { matchedCallArgs: matchedCallArgsFor(history ?? [], lastIdx) });
   }
-  if (last.kind === "error") return "✗ error";
-  return "…thinking";
+  return formatToolAction(last);
 }

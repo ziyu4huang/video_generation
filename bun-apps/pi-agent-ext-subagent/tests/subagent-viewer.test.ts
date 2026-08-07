@@ -285,7 +285,7 @@ test("viewer Running section shows the agent's latest tool call instead of the s
   ];
   const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
   const out = viewer.render(80).join("\n");
-  assert.ok(out.includes("▸ read"), "shows the live latest tool call");
+  assert.ok(out.includes("Using read"), "shows the live latest tool call");
 });
 
 test("viewer Running section falls back to the task preview before any history exists", () => {
@@ -392,7 +392,7 @@ test("enter on a Running row enters follow and streams the live trace", () => {
   assert.ok(out.includes("●"), "follow header shows the running glyph");
   assert.ok(out.includes("running"), "follow header shows 'running'");
   assert.ok(out.includes("flash"), "follow header shows the (shortened) model");
-  assert.ok(out.includes("→ read"), "follow body streams the live trace");
+  assert.ok(out.includes("→ Reading"), "follow body streams the live trace");
 });
 
 test("follow esc returns to the list", () => {
@@ -464,7 +464,7 @@ test("follow freezes with final status + usage when the run completes (matched b
   assert.ok(out.includes("4.2s"), "elapsed frozen at the completed run's elapsedMs");
   assert.ok(out.includes("$0.01") || out.includes("$0.0123"), "frozen header shows cost");
   assert.ok(out.includes("150 tok"), "frozen header shows tokens");
-  assert.ok(out.includes("→ read"), "trace frozen at the last live snapshot");
+  assert.ok(out.includes("→ Reading"), "trace frozen at the last live snapshot");
 });
 
 test("follow shows finalizing… within the grace window when the run is gone but not yet in the branch", () => {
@@ -759,7 +759,7 @@ test("a batch child is still selectable + followable (cursor unaffected by the h
   viewer.handleInput("\x1b[B"); // down → first child (batchX:0)
   viewer.handleInput("\r"); // enter → follow
   const out = viewer.render(80).join("\n");
-  assert.ok(out.includes("→ read"), "follow streams the selected child's live trace");
+  assert.ok(out.includes("→ Reading"), "follow streams the selected child's live trace");
 });
 
 // ── collapsible batch header (Task 3) ──
@@ -796,7 +796,7 @@ test("collapsed batch children are skipped by the cursor (down jumps header→ne
   viewer.handleInput("\x1b[B"); // down → solo
   viewer.handleInput("\r"); // enter on solo (running) → follow
   const out = viewer.render(80).join("\n");
-  assert.ok(out.includes("→ read"), "landed on solo's follow, not a hidden child");
+  assert.ok(out.includes("→ Reading"), "landed on solo's follow, not a hidden child");
 });
 
 test("collapsing one batch does not collapse another", () => {
@@ -858,13 +858,13 @@ test("a completed batch child renders (greyed) and is still selectable → follo
   // The completed child still renders under the header, greyed with a ✓
   // checkmark (Task 2's signature completed-row render; the ✓ only appears
   // for completed-status children). With history present the row shows the
-  // latest action (▸ read), not the taskPreview — so we assert the ✓ marker.
+  // latest action (verb-led phrase), not the taskPreview — so we assert the ✓ marker.
   assert.ok(out.includes("✓"), "completed child renders greyed (✓) under the header");
   // cursor on header (entry 0); down → first child (bX:0, the completed one); enter → follow
   viewer.handleInput("\x1b[B");
   viewer.handleInput("\r");
   const followed = viewer.render(80).join("\n");
-  assert.ok(followed.includes("→ read"), "completed child is selectable → follow shows its frozen trace");
+  assert.ok(followed.includes("→ Using read"), "completed child is selectable → follow shows its frozen trace");
 });
 
 test("counts update as more children complete (2 running → 1 running 1 done → 0 running 2 done)", () => {

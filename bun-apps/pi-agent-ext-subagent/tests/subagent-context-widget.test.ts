@@ -88,7 +88,7 @@ test("toggle() expands a background run to show the live tool tree (formatSubage
   w.toggle();
   assert.equal(w.isExpanded(), true);
   const out = w.render(T).join("\n");
-  assert.ok(out.includes("→ read"), "expanded shows the live tool trace");
+  assert.ok(out.includes("Using read"), "expanded shows the live tool trace");
   assert.match(out, /\d+\.\d+s elapsed/, "expanded shows live elapsed");
   assert.match(out, /1 tool call/, "expanded shows the tool-call count");
 });
